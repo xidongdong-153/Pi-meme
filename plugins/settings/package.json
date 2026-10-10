@@ -1,0 +1,46 @@
+{
+  "name": "@pi-meme/settings",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./server/handlers": "./src/server/handlers.ts",
+    "./server/store": "./src/server/store.ts",
+    "./server/instructions": "./src/server/instructions.ts",
+    "./ui/settings-page": "./src/ui/settings-page.tsx",
+    "./ui/skills-settings": "./src/ui/skills-settings.tsx",
+    "./ui/theme-settings": "./src/ui/theme-settings.tsx",
+    "./ui/theme/apply": "./src/ui/theme/apply.ts",
+    "./ui/use-settings": "./src/ui/use-settings.ts",
+    "./shared/themes": "./src/shared/themes.ts",
+    "./shared/appearance": "./src/shared/appearance.ts",
+    "./server/entry": "./src/server/entry.ts",
+    "./ui/plugin": "./src/ui/plugin.ts",
+    "./ui/entry": "./src/ui/entry.tsx"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "@pi-meme/contracts": "workspace:*",
+    "@pi-meme/pi-runtime": "workspace:*",
+    "@pi-meme/ui": "workspace:*",
+    "lucide-react": "^1.48.0",
+    "@pi-meme/plugin-sdk": "workspace:*"
+  },
+  "peerDependencies": {
+    "react": "^19.3.0"
+  },
+  "devDependencies": {
+    "react": "^19.3.0"
+  },
+  "piMeme": {
+    "sdkVersion": 1,
+    "server": "dist/server/chord-facets.json",
+    "ui": "dist/ui/entry.js",
+    "requires": [
+      "host.settings"
+    ]
+  }
+}

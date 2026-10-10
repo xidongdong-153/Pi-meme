@@ -1,0 +1,95 @@
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+import type { DesktopBridge } from '@pi-meme/contracts/desktop'
+import type { UiPluginDescriptor, UiPluginModule } from '@pi-meme/plugin-sdk/ui'
+import { UiPluginRegistry } from '../src/plugin-registry'
+
+function plugin(generation: number): UiPluginDescriptor {
+  return {
+    id: 'example',
+    generation,
+    version: `1.${generation}`,
+    enabled: true,
+    ui: `/plugin-${generation}.js`,
+    status: 'active',
+  }
+}
+
+test('动态注册、更新和停用按次释放贡献与插件资源', async () => {
+  const disposed: string[] = []
+  const registry = new UiPluginRegistry({} as DesktopBridge, async (url): Promise<UiPluginModule> => ({
+    activate(context) {
+      context.contribute({ id: 'example:status', slot: 'status', render: () => url })
+      return () => {
+        disposed.push(url)
+      }
+    },
+  }))
+  await registry.synchronize([plugin(1)])
+  assert.equal(registry.getSnapshot().length, 1)
+  await registry.synchronize([plugin(2)])
+  assert.deepEqual(disposed, ['/plugin-1.js'])
+  assert.equal(registry.getSnapshot()[0].render({ bridge: {} as DesktopBridge }), '/plugin-2.js')
+  await registry.synchronize([])
+  assert.deepEqual(disposed, ['/plugin-1.js', '/plugin-2.js'])
+  assert.equal(registry.getSnapshot().length, 0)
+  await registry.dispose()
+  assert.equal(disposed.length, 2)
+})
+
+test('新版本激活失败会保留旧贡献并回收新版本注册的资源', async () => {
+  let removed = 0
+  const registry = new UiPluginRegistry({} as DesktopBridge, async (url) => ({
+    activate(context) {
+      const dispose = context.contribute({ id: 'example:status', slot: 'status', render: () => url })
+      if (url.includes('2')) {
+        void dispose()
+        removed++
+        throw new Error('测试激活失败')
+      }
+    },
+  }))
+  await registry.synchronize([plugin(1)])
+  await registry.synchronize([plugin(2)])
+  assert.equal(registry.getSnapshot()[0].render({ bridge: {} as DesktopBridge }), '/plugin-1.js')
+  assert.equal(removed, 1)
+  assert.match(registry.errors().example, /测试激活失败/)
+  await registry.dispose()
+})
+
+test('不接受越界贡献名称，失败插件没有残留贡献', async () => {
+  const registry = new UiPluginRegistry({} as DesktopBridge, async () => ({
+    activate(context) {
+      context.contribute({ id: 'other:status', slot: 'status', render: () => null })
+    },
+  }))
+  await registry.synchronize([plugin(1)])
+  assert.equal(registry.getSnapshot().length, 0)
+  assert.match(registry.errors().example, /前缀/)
+  await registry.dispose()
+})
+
+test('同版本同代次但 Host 实例 URL 变化时重新加载并释放旧贡献', async () => {
+  const loaded: string[] = []
+  const disposed: string[] = []
+  const registry = new UiPluginRegistry({} as DesktopBridge, async (url) => {
+    loaded.push(url)
+    return {
+      activate(context) {
+        context.contribute({ id: 'example:status', slot: 'status', render: () => url })
+        return () => {
+          disposed.push(url)
+        }
+      },
+    }
+  })
+  const first = { ...plugin(1), ui: '/plugin-1.js?instance=first' }
+  const second = { ...first, ui: '/plugin-1.js?instance=second' }
+  await registry.synchronize([first])
+  await registry.synchronize([second])
+  assert.deepEqual(loaded, [first.ui, second.ui])
+  assert.deepEqual(disposed, [first.ui])
+  assert.equal(registry.getSnapshot()[0].render({ bridge: {} as DesktopBridge }), second.ui)
+  await registry.dispose()
+  assert.deepEqual(disposed, [first.ui, second.ui])
+})

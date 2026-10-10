@@ -1,0 +1,22 @@
+{
+  "name": "@pi-meme/pi-adapter",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./worker-session": "./src/worker-session.ts",
+    "./session-worker": "./src/session-worker.ts",
+    "./credentials": "./src/credentials.ts"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "@pi-meme/contracts": "workspace:*",
+    "@pi-meme/pi-runtime": "workspace:*",
+    "@earendil-works/pi-coding-agent": "1.1.0",
+    "@earendil-works/pi-agent-core": "1.1.0",
+    "@napi-rs/keyring": "2.1.0"
+  }
+}

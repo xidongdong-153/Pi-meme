@@ -1,0 +1,24 @@
+{
+  "name": "@pi-meme/plugin-devkit",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./cli": "./src/cli.ts",
+    "./build": "./src/build.ts",
+    "./create": "./src/create.ts"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "@pi-meme/plugin-sdk": "workspace:*",
+    "esbuild": "0.28.2",
+    "@pi-meme/plugin-runtime": "workspace:*",
+    "@earendil-works/chord": "1.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0"
+  }
+}

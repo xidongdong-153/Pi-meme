@@ -1,0 +1,370 @@
+/* pi-meme Markdown 排版样式 */
+
+/* 容器基础排版 */
+.pi-markdown {
+  font-family: var(--font-content);
+  font-weight: var(--font-content-weight);
+  font-style: var(--font-content-style);
+  font-size: calc(var(--text-ui) * 1.035714);
+  line-height: 1.72;
+  color: var(--color-text);
+  letter-spacing: 0.01em;
+  -webkit-font-smoothing: antialiased;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+.pi-markdown > *:first-child {
+  margin-top: 0;
+}
+
+.pi-markdown > *:last-child {
+  margin-bottom: 0;
+}
+
+/* 文本选区高亮 */
+.pi-markdown ::selection {
+  background: color-mix(in srgb, var(--color-accent) 25%, transparent);
+}
+
+/* ---- 标题 ---- */
+.pi-h1 {
+  font-size: 1.45em;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  margin: 1.8em 0 0.6em;
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 50%, transparent);
+  color: var(--color-text);
+  line-height: 1.3;
+}
+
+.pi-h2 {
+  font-size: 1.25em;
+  font-weight: 620;
+  letter-spacing: -0.015em;
+  margin: 1.5em 0 0.5em;
+  padding-bottom: 0.25em;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 35%, transparent);
+  color: var(--color-text);
+  line-height: 1.3;
+}
+
+.pi-h3 {
+  font-size: 1.1em;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 1.3em 0 0.4em;
+  color: var(--color-text);
+  line-height: 1.35;
+}
+
+.pi-h4 {
+  font-size: 1em;
+  font-weight: 580;
+  margin: 1.1em 0 0.35em;
+  color: var(--color-text);
+  line-height: 1.4;
+}
+
+/* 容器第一个标题不要顶部间距 */
+.pi-markdown > .pi-h1:first-child,
+.pi-markdown > .pi-h2:first-child,
+.pi-markdown > .pi-h3:first-child,
+.pi-markdown > .pi-h4:first-child,
+.pi-markdown > div:first-child > .pi-h1:first-child,
+.pi-markdown > div:first-child > .pi-h2:first-child,
+.pi-markdown > div:first-child > .pi-h3:first-child,
+.pi-markdown > div:first-child > .pi-h4:first-child {
+  margin-top: 0;
+}
+
+/* ---- 段落 ---- */
+.pi-p {
+  margin: 0 0 0.9em;
+  hanging-punctuation: first allow-end last;
+}
+
+.pi-p:last-child {
+  margin-bottom: 0;
+}
+
+/* ---- 链接 ---- */
+.pi-link {
+  color: var(--color-accent);
+  text-decoration: none;
+  font-weight: 500;
+  border-bottom: 1px solid transparent;
+  transition:
+    border-color 0.2s ease,
+    opacity 0.2s ease;
+}
+
+.pi-link:hover {
+  border-bottom-color: var(--color-accent);
+  opacity: 0.85;
+}
+
+/* ---- 列表 ---- */
+.pi-ul,
+.pi-ol {
+  margin: 0 0 0.9em;
+  padding-left: 1.6em;
+}
+
+.pi-ul {
+  list-style-type: disc;
+}
+
+.pi-ol {
+  list-style-type: decimal;
+}
+
+.pi-li {
+  margin-bottom: 0.3em;
+  line-height: 1.65;
+}
+
+.pi-li::marker {
+  color: var(--color-muted);
+}
+
+.pi-li > .pi-p {
+  margin-bottom: 0.25em;
+}
+
+/* 嵌套列表 */
+.pi-li > .pi-ul,
+.pi-li > .pi-ol {
+  margin-top: 0.25em;
+  margin-bottom: 0.25em;
+}
+
+/* ---- 引用块 ---- */
+.pi-blockquote {
+  margin: 0 0 0.9em;
+  padding: 0.55em 1.1em;
+  border-left: 3px solid var(--color-accent);
+  background: color-mix(in srgb, var(--color-surface) 60%, transparent);
+  border-radius: 0 8px 8px 0;
+  color: var(--color-muted);
+  font-style: italic;
+}
+
+.pi-blockquote > *:last-child {
+  margin-bottom: 0;
+}
+
+/* ---- GitHub-style Alerts ---- */
+.pi-alert {
+  margin: 0 0 0.9em;
+  padding: 0.7em 1em;
+  border-radius: 8px;
+  border-left: 4px solid;
+  font-size: 0.92em;
+  line-height: 1.6;
+}
+
+.pi-alert-title {
+  font-weight: 600;
+  margin-bottom: 0.35em;
+  text-transform: uppercase;
+  font-size: 0.82em;
+  letter-spacing: 0.04em;
+}
+
+.pi-alert-body > *:last-child {
+  margin-bottom: 0;
+}
+
+.pi-alert-note {
+  background: color-mix(in srgb, #58a6ff 8%, transparent);
+  border-left-color: #58a6ff;
+}
+.pi-alert-note .pi-alert-title {
+  color: #58a6ff;
+}
+
+.pi-alert-tip {
+  background: color-mix(in srgb, #3fb950 8%, transparent);
+  border-left-color: #3fb950;
+}
+.pi-alert-tip .pi-alert-title {
+  color: #3fb950;
+}
+
+.pi-alert-important {
+  background: color-mix(in srgb, #a371f7 8%, transparent);
+  border-left-color: #a371f7;
+}
+.pi-alert-important .pi-alert-title {
+  color: #a371f7;
+}
+
+.pi-alert-warning {
+  background: color-mix(in srgb, #d29922 8%, transparent);
+  border-left-color: #d29922;
+}
+.pi-alert-warning .pi-alert-title {
+  color: #d29922;
+}
+
+.pi-alert-caution {
+  background: color-mix(in srgb, #f85149 8%, transparent);
+  border-left-color: #f85149;
+}
+.pi-alert-caution .pi-alert-title {
+  color: #f85149;
+}
+
+/* ---- 行内代码 ---- */
+.pi-inline-code {
+  padding: 0.12em 0.4em;
+  font-size: 0.88em;
+  font-family: var(--font-code);
+  background: color-mix(in srgb, var(--color-elevated) 80%, transparent);
+  border-radius: 5px;
+  color: var(--color-accent);
+  font-weight: 450;
+  border: 1px solid color-mix(in srgb, var(--color-border) 50%, transparent);
+}
+
+/* ---- 代码块 ---- */
+.pi-code-block {
+  background: color-mix(in srgb, var(--color-surface) 90%, #000);
+  border: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+.pi-code-block-header {
+  background: color-mix(in srgb, var(--color-elevated) 70%, transparent);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 40%, transparent);
+  color: var(--color-muted);
+}
+
+.pi-code-block-content {
+  font-family: var(--font-code);
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--color-border) 50%, transparent) transparent;
+}
+
+/* shiki 输出覆盖 */
+.pi-code-block-content .shiki {
+  margin: 0;
+  padding: 0;
+  background: transparent !important;
+}
+
+.pi-code-block-content pre {
+  margin: 0;
+  padding: 0;
+  background: transparent;
+}
+
+.pi-code-block-content code {
+  font-family: inherit;
+  font-size: inherit;
+  background: transparent;
+}
+
+/* 代码块滚动条 */
+.pi-code-block-content::-webkit-scrollbar {
+  height: 5px;
+}
+
+.pi-code-block-content::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.pi-code-block-content::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--color-border) 60%, transparent);
+  border-radius: 3px;
+}
+
+.pi-code-block-content::-webkit-scrollbar-thumb:hover {
+  background: var(--color-muted);
+}
+
+/* ---- 表格 ---- */
+.pi-table-wrapper {
+  overflow-x: auto;
+  margin: 0 0 0.9em;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
+}
+
+.pi-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.92em;
+}
+
+.pi-thead {
+  background: color-mix(in srgb, var(--color-surface) 70%, transparent);
+  border-bottom: 1.5px solid var(--color-border);
+}
+
+.pi-th {
+  padding: 0.6em 0.9em;
+  font-weight: 600;
+  text-align: left;
+  font-size: 0.9em;
+  letter-spacing: 0.02em;
+  color: var(--color-muted);
+}
+
+.pi-td {
+  padding: 0.5em 0.9em;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 40%, transparent);
+}
+
+.pi-tr:last-child .pi-td {
+  border-bottom: none;
+}
+
+.pi-tr:hover .pi-td {
+  background: color-mix(in srgb, var(--color-surface) 50%, transparent);
+}
+
+/* ---- 分隔线 ---- */
+.pi-hr {
+  margin: 2em 0;
+  border: none;
+  height: 1px;
+  background: linear-gradient(to right, transparent, var(--color-border) 20%, var(--color-border) 80%, transparent);
+}
+
+/* ---- 图片 ---- */
+.pi-img {
+  max-width: 100%;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+}
+
+/* ---- 加粗与斜体 ---- */
+.pi-strong {
+  font-weight: 620;
+  color: var(--color-text);
+}
+
+.pi-em {
+  font-style: italic;
+  color: var(--color-muted);
+}
+
+/* ---- KaTeX 数学公式适配 ---- */
+.pi-markdown .katex-display {
+  margin: 1em 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.5em 0;
+}
+
+.pi-markdown .katex {
+  font-size: 1.05em;
+  color: var(--color-text);
+}
+
+.pi-markdown .katex-display > .katex {
+  font-size: 1.15em;
+}

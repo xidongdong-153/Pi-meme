@@ -1,0 +1,150 @@
+import * as React from 'react'
+import { CodeBlock } from './code-block'
+
+/**
+ * 解析 GitHub-style alert blockquote。
+ * 匹配 "[!NOTE]"、"[!TIP]"、"[!IMPORTANT]"、"[!WARNING]"、"[!CAUTION]"。
+ */
+function parseAlert(children: React.ReactNode): { type: string; content: React.ReactNode } | null {
+  const kids = React.Children.toArray(children)
+  if (kids.length === 0) return null
+  const first = kids[0]
+  if (!React.isValidElement(first) || first.type !== 'p') return null
+
+  const pChildren = React.Children.toArray((first.props as { children?: React.ReactNode }).children)
+  if (pChildren.length === 0) return null
+
+  const firstText = typeof pChildren[0] === 'string' ? pChildren[0] : null
+  if (!firstText) return null
+
+  const alertMatch = /^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*/i.exec(firstText)
+  if (!alertMatch) return null
+
+  const alertType = alertMatch[1].toLowerCase()
+  const remainingText = firstText.slice(alertMatch[0].length)
+
+  // 重构第一个 <p> 的内容，去掉 alert 标记
+  const newPChildren = remainingText ? [remainingText, ...pChildren.slice(1)] : pChildren.slice(1)
+  const restKids = kids.slice(1)
+
+  const content = (
+    <>
+      {newPChildren.length > 0 && <p className="mb-2 last:mb-0 leading-relaxed">{newPChildren}</p>}
+      {restKids}
+    </>
+  )
+
+  return { type: alertType, content }
+}
+
+const alertLabels: Record<string, string> = {
+  note: 'Note',
+  tip: 'Tip',
+  important: 'Important',
+  warning: 'Warning',
+  caution: 'Caution',
+}
+
+export function useMarkdownComponents() {
+  return React.useMemo(
+    () => ({
+      code({ className, children, ...props }: React.ComponentPropsWithoutRef<'code'>) {
+        const match = /language-(\w+)/.exec(className || '')
+        const isInline = !match && !String(children).includes('\n')
+        if (isInline) {
+          return (
+            <code className="pi-inline-code" {...props}>
+              {children}
+            </code>
+          )
+        }
+        return <CodeBlock code={String(children).replace(/\n$/, '')} language={match ? match[1] : 'text'} />
+      },
+
+      table({ children }: React.ComponentPropsWithoutRef<'table'>) {
+        return (
+          <div className="pi-table-wrapper">
+            <table className="pi-table">{children}</table>
+          </div>
+        )
+      },
+      thead({ children }: React.ComponentPropsWithoutRef<'thead'>) {
+        return <thead className="pi-thead">{children}</thead>
+      },
+      th({ children }: React.ComponentPropsWithoutRef<'th'>) {
+        return <th className="pi-th">{children}</th>
+      },
+      td({ children }: React.ComponentPropsWithoutRef<'td'>) {
+        return <td className="pi-td">{children}</td>
+      },
+      tr({ children }: React.ComponentPropsWithoutRef<'tr'>) {
+        return <tr className="pi-tr">{children}</tr>
+      },
+
+      a({ href, children }: React.ComponentPropsWithoutRef<'a'>) {
+        return (
+          <a href={href} target="_blank" rel="noopener noreferrer" className="pi-link">
+            {children}
+          </a>
+        )
+      },
+
+      blockquote({ children }: React.ComponentPropsWithoutRef<'blockquote'>) {
+        const alert = parseAlert(children)
+        if (alert) {
+          return (
+            <div className={`pi-alert pi-alert-${alert.type}`}>
+              <div className="pi-alert-title">{alertLabels[alert.type]}</div>
+              <div className="pi-alert-body">{alert.content}</div>
+            </div>
+          )
+        }
+        return <blockquote className="pi-blockquote">{children}</blockquote>
+      },
+
+      ul({ children }: React.ComponentPropsWithoutRef<'ul'>) {
+        return <ul className="pi-ul">{children}</ul>
+      },
+      ol({ children }: React.ComponentPropsWithoutRef<'ol'>) {
+        return <ol className="pi-ol">{children}</ol>
+      },
+      li({ children }: React.ComponentPropsWithoutRef<'li'>) {
+        return <li className="pi-li">{children}</li>
+      },
+
+      p({ children }: React.ComponentPropsWithoutRef<'p'>) {
+        return <p className="pi-p">{children}</p>
+      },
+
+      h1({ children }: React.ComponentPropsWithoutRef<'h1'>) {
+        return <h1 className="pi-h1">{children}</h1>
+      },
+      h2({ children }: React.ComponentPropsWithoutRef<'h2'>) {
+        return <h2 className="pi-h2">{children}</h2>
+      },
+      h3({ children }: React.ComponentPropsWithoutRef<'h3'>) {
+        return <h3 className="pi-h3">{children}</h3>
+      },
+      h4({ children }: React.ComponentPropsWithoutRef<'h4'>) {
+        return <h4 className="pi-h4">{children}</h4>
+      },
+
+      hr() {
+        return <hr className="pi-hr" />
+      },
+
+      img({ src, alt }: React.ComponentPropsWithoutRef<'img'>) {
+        return <img src={src} alt={alt} className="pi-img" loading="lazy" />
+      },
+
+      strong({ children }: React.ComponentPropsWithoutRef<'strong'>) {
+        return <strong className="pi-strong">{children}</strong>
+      },
+
+      em({ children }: React.ComponentPropsWithoutRef<'em'>) {
+        return <em className="pi-em">{children}</em>
+      },
+    }),
+    [],
+  )
+}

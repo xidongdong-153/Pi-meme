@@ -1,0 +1,103 @@
+:root {
+  --color-background: #18181a;
+  --color-surface: #1e1e21;
+  --color-elevated: #29292e;
+  --color-text: #e9e9eb;
+  --color-muted: #a0a0aa;
+  --color-border: #3a3a42;
+  --color-accent: #b6a4ed;
+  --color-accentText: #211c2e;
+  --color-success: #7bb795;
+  --color-error: #f5a49b;
+
+  --background: var(--color-background);
+  --foreground: var(--color-text);
+  --card: var(--color-surface);
+  --card-foreground: var(--color-text);
+  --popover: var(--color-surface);
+  --popover-foreground: var(--color-text);
+  --primary: var(--color-accent);
+  --primary-foreground: var(--color-accentText);
+  --secondary: var(--color-elevated);
+  --secondary-foreground: var(--color-text);
+  --muted: var(--color-elevated);
+  --muted-foreground: var(--color-muted);
+  --accent: var(--color-accent);
+  --accent-foreground: var(--color-accentText);
+  --destructive: var(--color-error);
+  --destructive-foreground: #ffffff;
+  --border: var(--color-border);
+  --input: var(--color-border);
+  --ring: var(--color-accent);
+  --radius: 0.5rem;
+
+  --font-ui: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
+  --font-code: ui-monospace, SFMono-Regular, Menlo, monospace;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --radius-small: 7px;
+  --radius-large: 12px;
+  --text-small: 12px;
+  --text-ui: 13px;
+  --text-body: 14px;
+  --text-heading: 28px;
+  font-family: var(--font-ui);
+  color: var(--color-text);
+  background: var(--color-background);
+  font-synthesis: none;
+  color-scheme: dark;
+}
+
+:root {
+  --font-content: var(--font-ui);
+  --font-sans: var(--font-ui);
+  --font-mono: var(--font-code);
+  --code-size: 13px;
+  --font-ui-weight: 400;
+  --font-ui-style: normal;
+  --font-content-weight: 400;
+  --font-content-style: normal;
+  --font-code-weight: 400;
+  --font-code-style: normal;
+}
+
+.appearance-sidebar {
+  background: var(--color-surface) !important;
+  backdrop-filter: none;
+}
+
+:root[data-translucent-sidebar='true'] .appearance-sidebar {
+  background: color-mix(in srgb, var(--color-surface) 65%, transparent) !important;
+  backdrop-filter: blur(16px);
+}
+
+.pi-content {
+  font-family: var(--font-content);
+  font-weight: var(--font-content-weight);
+  font-style: var(--font-content-style);
+}
+
+.pi-code-block-content,
+.pi-code-block-content code,
+.pi-code-text,
+.pi-code-text *,
+.pi-markdown :not(pre) > code,
+.cm-editor .cm-content,
+.cm-editor .cm-gutters {
+  font-family: var(--font-code) !important;
+  font-size: var(--code-size) !important;
+  font-weight: var(--font-code-weight) !important;
+  font-style: var(--font-code-style) !important;
+}
+
+:root[data-reduced-motion='true'] *,
+:root[data-reduced-motion='true'] *::before,
+:root[data-reduced-motion='true'] *::after {
+  animation: none !important;
+  transition: none !important;
+  scroll-behavior: auto !important;
+}

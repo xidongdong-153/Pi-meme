@@ -1,0 +1,29 @@
+{
+  "name": "@pi-meme/contracts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./desktop": "./src/desktop.ts",
+    "./ipc": "./src/ipc.ts",
+    "./model-config": "./src/model-config.ts",
+    "./pi": "./src/pi.ts",
+    "./session-tree": "./src/session-tree.ts",
+    "./sessions": "./src/sessions.ts",
+    "./settings": "./src/settings.ts",
+    "./usage": "./src/usage.ts",
+    "./skills": "./src/skills.ts",
+    "./agent-access": "./src/agent-access.ts",
+    "./mcp": "./src/mcp.ts",
+    "./secure-storage": "./src/secure-storage.ts",
+    "./host": "./src/host.ts"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "1.1.0",
+    "@earendil-works/pi-coding-agent": "1.1.0"
+  }
+}

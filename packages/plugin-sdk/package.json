@@ -1,0 +1,28 @@
+{
+  "name": "@pi-meme/plugin-sdk",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./manifest": "./src/manifest.ts",
+    "./server": "./src/server.ts",
+    "./agent": "./src/agent.ts",
+    "./ui": "./src/ui.ts",
+    "./scope": "./src/scope.ts"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "@pi-meme/contracts": "workspace:*"
+  },
+  "peerDependencies": {
+    "react": "^19.3.0",
+    "@earendil-works/pi-coding-agent": "1.1.0"
+  },
+  "devDependencies": {
+    "react": "^19.3.0",
+    "@earendil-works/pi-coding-agent": "1.1.0"
+  }
+}

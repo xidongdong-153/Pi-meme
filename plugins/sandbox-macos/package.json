@@ -1,0 +1,34 @@
+{
+  "name": "@pi-meme/sandbox-macos",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./server/entry": "./src/server/entry.ts",
+    "./ui/plugin": "./src/ui/plugin.ts",
+    "./ui/entry": "./src/ui/entry.tsx",
+    "./agent/entry": "./src/agent/entry.ts"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@pi-meme/contracts": "workspace:*",
+    "@pi-meme/plugin-sdk": "workspace:*",
+    "@pi-meme/pi-runtime": "workspace:*"
+  },
+  "peerDependencies": {
+    "react": "^19.3.0"
+  },
+  "devDependencies": {
+    "react": "^19.3.0"
+  },
+  "piMeme": {
+    "sdkVersion": 1,
+    "server": "dist/server/chord-facets.json",
+    "provides": [
+      "agent.sandbox"
+    ],
+    "agent": "dist/agent/entry.js"
+  }
+}

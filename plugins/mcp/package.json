@@ -1,0 +1,43 @@
+{
+  "name": "@pi-meme/mcp",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./server/config-store": "./src/server/config-store.ts",
+    "./server/runtime-config": "./src/server/runtime-config.ts",
+    "./server/handlers": "./src/server/handlers.ts",
+    "./ui/mcp-settings": "./src/ui/mcp-settings.tsx",
+    "./server/entry": "./src/server/entry.ts",
+    "./ui/plugin": "./src/ui/plugin.ts",
+    "./ui/entry": "./src/ui/entry.tsx",
+    "./agent/entry": "./src/agent/entry.ts"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "1.1.0",
+    "@earendil-works/pi-mcp": "1.0.4",
+    "@pi-meme/contracts": "workspace:*",
+    "@pi-meme/pi-runtime": "workspace:*",
+    "@pi-meme/ui": "workspace:*",
+    "@pi-meme/plugin-sdk": "workspace:*"
+  },
+  "peerDependencies": {
+    "react": "^19.3.0"
+  },
+  "devDependencies": {
+    "react": "^19.3.0"
+  },
+  "piMeme": {
+    "sdkVersion": 1,
+    "server": "dist/server/chord-facets.json",
+    "ui": "dist/ui/entry.js",
+    "requires": [
+      "host.mcp"
+    ],
+    "agent": "dist/agent/entry.js"
+  }
+}

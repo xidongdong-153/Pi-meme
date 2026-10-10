@@ -1,0 +1,47 @@
+{
+  "name": "@pi-meme/models",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./server/config-store": "./src/server/config-store.ts",
+    "./server/discovery": "./src/server/discovery.ts",
+    "./server/handlers": "./src/server/handlers.ts",
+    "./ui/context-usage-ring": "./src/ui/context-usage-ring.tsx",
+    "./ui/model-config/model-config-form": "./src/ui/model-config/model-config-form.tsx",
+    "./ui/model-config/model-config-settings": "./src/ui/model-config/model-config-settings.tsx",
+    "./ui/model-picker-popover": "./src/ui/model-picker-popover.tsx",
+    "./ui/model-select": "./src/ui/model-select.tsx",
+    "./ui/thinking-config": "./src/ui/thinking-config.ts",
+    "./server/entry": "./src/server/entry.ts",
+    "./ui/plugin": "./src/ui/plugin.ts",
+    "./ui/entry": "./src/ui/entry.tsx"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "1.1.0",
+    "@pi-meme/contracts": "workspace:*",
+    "@pi-meme/pi-runtime": "workspace:*",
+    "@pi-meme/ui": "workspace:*",
+    "jsonc-parser": "^3.3.1",
+    "lucide-react": "^1.48.0",
+    "@pi-meme/plugin-sdk": "workspace:*"
+  },
+  "peerDependencies": {
+    "react": "^19.3.0"
+  },
+  "devDependencies": {
+    "react": "^19.3.0"
+  },
+  "piMeme": {
+    "sdkVersion": 1,
+    "server": "dist/server/chord-facets.json",
+    "ui": "dist/ui/entry.js",
+    "requires": [
+      "host.models"
+    ]
+  }
+}

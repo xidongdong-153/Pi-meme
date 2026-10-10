@@ -1,0 +1,21 @@
+/* CodeMirror 在扩展弹窗中的适配 */
+.cm-editor {
+  min-height: 250px;
+  color: var(--foreground);
+  background: var(--background);
+}
+
+.cm-gutters {
+  border-color: var(--border);
+  color: var(--muted-foreground);
+  background: var(--card);
+}
+
+.cm-activeLine,
+.cm-activeLineGutter {
+  background: color-mix(in srgb, var(--primary) 10%, transparent);
+}
+
+.cm-focused {
+  outline: 0;
+}

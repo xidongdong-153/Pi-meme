@@ -1,0 +1,11 @@
+/* 品牌图标底图：默认深色版，主题 appearance 为 light 时切浅色版 */
+.brand-mark {
+  display: inline-block;
+  flex-shrink: 0;
+  background-image: url('./assets/brand/pi-dev-dark-128x128.png');
+  background-size: 100% 100%;
+}
+
+[data-appearance='light'] .brand-mark {
+  background-image: url('./assets/brand/pi-dev-light-128x128.png');
+}

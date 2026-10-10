@@ -1,0 +1,43 @@
+{
+  "name": "@pi-meme/permissions",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./server/entry": "./src/server/entry.ts",
+    "./ui/plugin": "./src/ui/plugin.ts",
+    "./ui/entry": "./src/ui/entry.tsx",
+    "./ui/access-settings": "./src/ui/access-settings.tsx",
+    "./agent/entry": "./src/agent/entry.ts",
+    "./ui/agent-access-selector": "./src/ui/agent-access-selector.tsx"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@pi-meme/contracts": "workspace:*",
+    "@pi-meme/plugin-sdk": "workspace:*",
+    "@pi-meme/pi-runtime": "workspace:*",
+    "@pi-meme/ui": "workspace:*",
+    "lucide-react": "^1.48.0"
+  },
+  "peerDependencies": {
+    "react": "^19.3.0"
+  },
+  "devDependencies": {
+    "react": "^19.3.0"
+  },
+  "piMeme": {
+    "sdkVersion": 1,
+    "server": "dist/server/chord-facets.json",
+    "ui": "dist/ui/entry.js",
+    "requires": [
+      "host.chat",
+      "agent.sandbox"
+    ],
+    "provides": [
+      "agent.permissions"
+    ],
+    "agent": "dist/agent/entry.js"
+  }
+}

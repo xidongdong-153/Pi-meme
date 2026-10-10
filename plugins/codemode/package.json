@@ -1,0 +1,35 @@
+{
+  "name": "@pi-meme/codemode",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./server/entry": "./src/server/entry.ts",
+    "./ui/plugin": "./src/ui/plugin.ts",
+    "./ui/entry": "./src/ui/entry.tsx",
+    "./agent/entry": "./src/agent/entry.ts",
+    "./ui/tool-execution-settings": "./src/ui/tool-execution-settings.tsx"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@pi-meme/contracts": "workspace:*",
+    "@pi-meme/plugin-sdk": "workspace:*",
+    "@pi-meme/pi-runtime": "workspace:*",
+    "@earendil-works/pi-coding-agent": "1.1.0",
+    "@pi-meme/ui": "workspace:*",
+    "lucide-react": "^1.48.0"
+  },
+  "piMeme": {
+    "sdkVersion": 1,
+    "ui": "dist/ui/entry.js",
+    "agent": "dist/agent/entry.js"
+  },
+  "peerDependencies": {
+    "react": "^19.3.0"
+  },
+  "devDependencies": {
+    "react": "^19.3.0"
+  }
+}

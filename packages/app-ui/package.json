@@ -1,0 +1,49 @@
+{
+  "name": "@pi-meme/app-ui",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./app": "./src/app.tsx",
+    "./global.css": "./src/global.css",
+    "./session-selection": "./src/session-selection.ts",
+    "./snapshot-sync": "./src/snapshot-sync.ts",
+    "./error-notice": "./src/error-notice.tsx",
+    "./host-directory-dialog": "./src/host-directory-dialog.tsx",
+    "./plugin-registry": "./src/plugin-registry.ts"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "@pi-meme/contracts": "workspace:*",
+    "@pi-meme/ui": "workspace:*",
+    "@pi-meme/chat": "workspace:*",
+    "@pi-meme/workspace": "workspace:*",
+    "@pi-meme/git": "workspace:*",
+    "@pi-meme/models": "workspace:*",
+    "@pi-meme/settings": "workspace:*",
+    "@pi-meme/mcp": "workspace:*",
+    "@pi-meme/pi-extensions": "workspace:*",
+    "lucide-react": "^1.48.0",
+    "tailwindcss": "^4.3.3",
+    "katex": "^0.16.47",
+    "@pi-meme/plugin-sdk": "workspace:*",
+    "@pi-meme/client": "workspace:*",
+    "@pi-meme/history": "workspace:*",
+    "@pi-meme/permissions": "workspace:*",
+    "@pi-meme/resources": "workspace:*",
+    "@pi-meme/codemode": "workspace:*",
+    "@pi-meme/subagents": "workspace:*",
+    "@pi-meme/usage": "workspace:*"
+  },
+  "peerDependencies": {
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  }
+}

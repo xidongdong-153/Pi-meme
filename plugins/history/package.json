@@ -1,0 +1,41 @@
+{
+  "name": "@pi-meme/history",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./server/entry": "./src/server/entry.ts",
+    "./ui/plugin": "./src/ui/plugin.ts",
+    "./ui/entry": "./src/ui/entry.tsx",
+    "./ui/session-tree-panel": "./src/ui/session-tree-panel.tsx"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "@pi-meme/contracts": "workspace:*",
+    "@pi-meme/plugin-sdk": "workspace:*",
+    "@pi-meme/pi-runtime": "workspace:*",
+    "@pi-meme/ui": "workspace:*",
+    "lucide-react": "^1.48.0",
+    "react-markdown": "^10.1.0",
+    "rehype-katex": "^7.0.1",
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0"
+  },
+  "peerDependencies": {
+    "react": "^19.3.0"
+  },
+  "devDependencies": {
+    "react": "^19.3.0"
+  },
+  "piMeme": {
+    "sdkVersion": 1,
+    "server": "dist/server/chord-facets.json",
+    "ui": "dist/ui/entry.js",
+    "requires": [
+      "host.workspace"
+    ]
+  }
+}

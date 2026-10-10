@@ -1,0 +1,32 @@
+{
+  "name": "@pi-meme/pi-runtime",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./session-history": "./src/session-history.ts",
+    "./session-pool": "./src/session-pool.ts",
+    "./runtime": "./src/runtime.ts",
+    "./sdk/load": "./src/sdk/load.ts",
+    "./sdk/context-files": "./src/sdk/context-files.ts",
+    "./skill-prompt": "./src/skill-prompt.ts",
+    "./access-store": "./src/access-store.ts",
+    "./runtime-paths": "./src/runtime-paths.ts",
+    "./secure-store": "./src/secure-store.ts",
+    "./sdk/settings": "./src/sdk/settings.ts",
+    "./sdk/model-runtime": "./src/sdk/model-runtime.ts",
+    "./sdk/session": "./src/sdk/session.ts",
+    "./sdk/access-sandbox": "./src/sdk/access-sandbox.ts",
+    "./extensions/agent-access": "./src/extensions/agent-access.ts"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "@earendil-works/pi-agent-core": "1.1.0",
+    "@earendil-works/pi-coding-agent": "1.1.0",
+    "@pi-meme/contracts": "workspace:*",
+    "@earendil-works/pi-ai": "1.1.0"
+  }
+}

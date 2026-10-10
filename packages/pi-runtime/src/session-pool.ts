@@ -1,0 +1,1424 @@
+import { AsyncLocalStorage } from 'node:async_hooks'
+import type { ToolExecutionSettings } from '@pi-meme/contracts/settings'
+import type { InlineExtension } from '@earendil-works/pi-coding-agent'
+import { realpath, stat } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import path from 'node:path'
+import { defaultAccessMode, isAgentAccessMode, type AgentAccessMode } from '@pi-meme/contracts/agent-access'
+import { AgentAccessStore } from './access-store'
+import { builtinCommand, builtinCommands, sameMessage } from '@pi-meme/contracts/pi'
+import { branchEndpoint } from '@pi-meme/contracts/session-tree'
+import { randomUUID } from 'node:crypto'
+import type { SecureCredentialStorage } from '@pi-meme/contracts/secure-storage'
+import type { PiSdk } from './sdk/load'
+import type {
+  Connection,
+  DesktopError,
+  DesktopEvent,
+  Snapshot,
+  SessionSelectionResult,
+  WorkspaceDeletionResult,
+} from '@pi-meme/contracts/desktop'
+import type { SkillReference } from '@pi-meme/contracts/skills'
+import type { PiSessionSummary, WorkspaceKind } from '@pi-meme/contracts/sessions'
+import type {
+  PiExtensionEvent,
+  PiExtensionUIResponse,
+  PiMessage,
+  PiImage,
+  PiModel,
+  PiSessionEntry,
+  PiSlashCommand,
+  PiState,
+  ThinkingLevel,
+} from '@pi-meme/contracts/pi'
+import { SdkSession } from './sdk/session'
+import { getPiVersion } from './sdk/load'
+import type { ModelRestore, PiRuntime } from './runtime'
+import { invalidateSessionHistory, readSessionHistory, type SessionHistoryData } from './session-history'
+import { readLocalModels, readLocalPreferences, readLocalSkills } from './session-metadata'
+import { createPiRuntimePaths, type PiRuntimePaths } from './runtime-paths'
+import { MemoryCredentialStorage } from './secure-store'
+
+function activePath<T extends { id: string; parentId: string | null }>(entries: T[], leafId: string | null) {
+  const byId = new Map(entries.map((entry) => [entry.id, entry]))
+  const path: T[] = []
+  let entry = leafId ? byId.get(leafId) : undefined
+  while (entry) {
+    path.push(entry)
+    entry = entry.parentId ? byId.get(entry.parentId) : undefined
+  }
+  return path.reverse()
+}
+
+function messageEntry(entry: PiSessionEntry): entry is Extract<PiSessionEntry, { type: 'message' }> {
+  return entry.type === 'message'
+}
+
+function pathWithin(root: string, value: string) {
+  const relative = path.relative(path.resolve(root), path.resolve(value))
+  return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative))
+}
+
+type RuntimeSession = {
+  key: string
+  accessMode: AgentAccessMode
+  accessReady: Promise<void>
+  accessChanging: boolean
+  stopping: boolean
+  cwd: string
+  session: RuntimeSdkSession
+  sessionFile?: string
+  restored: boolean
+  dormant: boolean
+  starting?: Promise<void>
+  retiring?: Promise<void>
+  cancelledPrompt: boolean
+  error?: string
+  extensionError?: DesktopError
+  state: PiState
+  running: boolean
+  pendingPrompt: boolean
+  settled: boolean
+  run: number
+  touched: number
+  created: string
+  name?: string
+  completedAt?: string | null
+  firstMessage?: string
+  messages: PiMessage[]
+  sessionEntries?: Snapshot['sessionEntries']
+  sequence: number
+  liveEvents: DesktopEvent[]
+  tools: Map<string, DesktopEvent>
+  queue?: DesktopEvent
+  extensions: Map<string, DesktopEvent>
+  answers: Set<string>
+  buffers: Set<DesktopEvent[]>
+  stats?: Snapshot['stats']
+}
+
+export type RuntimeSdkSession = Pick<SdkSession, keyof SdkSession>
+export type SessionFactory = (
+  ...args: [
+    cwd: string,
+    notify: ConstructorParameters<typeof SdkSession>[1],
+    paths: PiRuntimePaths,
+    credentials: SecureCredentialStorage,
+    mcp?: ConstructorParameters<typeof SdkSession>[4],
+    sessionKey?: string,
+  ]
+) => RuntimeSdkSession
+export type ClientView = {
+  sessionKey?: string
+  generation: number
+  selection: number
+  defaults?: Pick<PiState, 'model' | 'thinkingLevel' | 'steeringMode' | 'followUpMode'> | null
+}
+
+export class PiSessionPool implements PiRuntime {
+  private sessions = new Map<string, RuntimeSession>()
+  private readonly settledListeners = new Set<() => void>()
+  private signalSettled() {
+    for (const resolve of this.settledListeners) resolve()
+    this.settledListeners.clear()
+  }
+  async retireSessions(matches: (sessionKey: string) => boolean) {
+    const unsettled = (record: RuntimeSession) =>
+      record.running ||
+      record.pendingPrompt ||
+      record.starting ||
+      record.stopping ||
+      [...record.extensions.keys()].some((key) => key.startsWith('dialog:'))
+    await Promise.all(
+      [...this.sessions.values()]
+        .filter((record) => matches(record.key))
+        .map((record) => {
+          if (record.retiring) return record.retiring
+          const retiring = (async () => {
+            while (this.sessions.has(record.key) && unsettled(record))
+              await new Promise<void>((resolve) => this.settledListeners.add(resolve))
+            if (!this.sessions.has(record.key)) return
+            if (!record.dormant && record.session.connection().status === 'ready')
+              this.rememberSnapshot(record, await record.session.snapshot())
+            record.dormant = true
+            record.extensions.clear()
+            record.extensionError = undefined
+            await record.session.stopAndWait()
+          })().finally(() => {
+            record.retiring = undefined
+            this.signalSettled()
+          })
+          record.retiring = retiring
+          return retiring
+        }),
+    )
+  }
+  private readonly retired = new Set<Promise<void>>()
+  private stopRecord(record: RuntimeSession) {
+    const pending = record.session.stopAndWait()
+    this.retired.add(pending)
+    void pending.finally(() => this.retired.delete(pending)).catch(() => {})
+  }
+  async stopAndWait() {
+    this.changing = true
+    this.clearWarmup()
+    const retained = [...this.sessions.values()]
+    await Promise.all([...this.retired, ...retained.map((record) => record.session.stopAndWait())])
+    this.sessions.clear()
+    this.signalSettled()
+  }
+  private defaultActive!: RuntimeSession
+  private readonly viewContext = new AsyncLocalStorage<ClientView>()
+  private readonly views = new Set<ClientView>()
+  private defaultGeneration = 0
+  private get active(): RuntimeSession {
+    const view = this.viewContext.getStore()
+    return view ? this.sessions.get(view.sessionKey ?? '')! : this.defaultActive
+  }
+  private set active(value: RuntimeSession) {
+    const view = this.viewContext.getStore()
+    if (view) view.sessionKey = value.key
+    else this.defaultActive = value
+  }
+  private get generation() {
+    return this.viewContext.getStore()?.generation ?? this.defaultGeneration
+  }
+  private set generation(value: number) {
+    const view = this.viewContext.getStore()
+    if (view) view.generation = value
+    else this.defaultGeneration = value
+  }
+  createClientView(): ClientView {
+    const view = { generation: 0, selection: 0 }
+    this.views.add(view)
+    return view
+  }
+  releaseClientView(view: ClientView) {
+    this.views.delete(view)
+    const record = this.sessions.get(view.sessionKey ?? '')
+    if (
+      record &&
+      ![...this.views].some((other) => other.sessionKey === record.key) &&
+      !record.accessChanging &&
+      !this.hasContent(record)
+    ) {
+      this.sessions.delete(record.key)
+      this.stopRecord(record)
+    }
+  }
+  withClientView<T>(view: ClientView, action: () => T): T {
+    return this.viewContext.run(view, action)
+  }
+  initializeClient(cwd: string) {
+    if (!this.active) void this.warmMetadata(this.create(cwd))
+  }
+  withSession<T>(sessionKey: string, action: () => T): T {
+    const record = this.sessions.get(sessionKey)
+    if (!record) throw new Error('目标会话不存在')
+    const view = this.viewContext.getStore()
+    return this.viewContext.run({ sessionKey, generation: view?.generation ?? 0, selection: 0 }, action)
+  }
+  private selectedElsewhere(record: RuntimeSession) {
+    const current = this.viewContext.getStore()
+    return [...this.views].some((view) => view !== current && view.sessionKey === record.key)
+  }
+  private executable = ''
+  private changing = false
+  private warmupTimer: NodeJS.Timeout | null = null
+  private deletingCwds = new Set<string>()
+  private mutatingPaths = new Set<string>()
+
+  assertWorkspaceAvailable(cwd: string) {
+    if (this.deletingCwds.has(cwd)) throw new Error('正在删除项目会话，请稍后操作')
+  }
+  private assertPathAvailable(path: string) {
+    if (this.mutatingPaths.has(path)) throw new Error('正在修改或删除会话，请稍后操作')
+  }
+  private clearWarmup() {
+    if (this.warmupTimer) {
+      clearTimeout(this.warmupTimer)
+      this.warmupTimer = null
+    }
+  }
+  private recordPath(record: RuntimeSession) {
+    return record.session.getActiveSession().sessionFile ?? record.sessionFile ?? record.key
+  }
+  private assertMutable(records: RuntimeSession[]) {
+    if (
+      this.changing ||
+      records.some(
+        (record) =>
+          record.running ||
+          record.pendingPrompt ||
+          record.starting ||
+          record.stopping ||
+          record.accessChanging ||
+          record.session.connection().status === 'connecting',
+      )
+    )
+      throw new Error('目标会话正在运行或修改配置，请先停止任务')
+  }
+  async renameSession(sessionPath: string, name: string) {
+    this.assertPathAvailable(sessionPath)
+    if (!sessionPath.startsWith('runtime:')) {
+      const sessionRoot = await realpath(this.runtimePaths.sessionsDirectory).catch(() => '')
+      const sessionTarget = await realpath(sessionPath).catch(() => '')
+      if (!sessionRoot || !sessionTarget || !pathWithin(sessionRoot, sessionTarget))
+        throw new Error('Desktop 只能修改应用内保存的会话')
+    }
+    const record = [...this.sessions.values()].find(
+      (item) => item.key === sessionPath || this.recordPath(item) === sessionPath,
+    )
+    if (record) {
+      this.assertWorkspaceAvailable(record.cwd)
+      this.assertPathAvailable(record.key)
+    }
+    this.assertMutable(record ? [record] : [])
+    this.mutatingPaths.add(sessionPath)
+    if (record) this.mutatingPaths.add(record.key)
+    try {
+      if (record && !record.dormant && record.session.connection().status === 'ready') {
+        await record.session.setSessionName(name)
+      } else if (!sessionPath.startsWith('runtime:')) {
+        const { SessionManager } = await import('@earendil-works/pi-coding-agent')
+        const cwd = record?.cwd ?? (await readSessionHistory(sessionPath)).cwd
+        const sessionDirectory = this.runtimePaths.sessionDirectory(cwd)
+        SessionManager.open(sessionPath, sessionDirectory, cwd).appendSessionInfo(name)
+      }
+      if (record) {
+        record.name = name
+        record.state = { ...record.state, sessionName: name }
+      }
+      invalidateSessionHistory([sessionPath])
+      this.notify.sessionsChanged()
+    } finally {
+      this.mutatingPaths.delete(sessionPath)
+      if (record) this.mutatingPaths.delete(record.key)
+    }
+  }
+  async deleteSessions(
+    paths: string[],
+    cwd: string | undefined,
+    removeFiles: () => Promise<{ deletedPaths: string[]; errors: string[]; warnings?: string[] }>,
+    finish?: (result: WorkspaceDeletionResult) => Promise<WorkspaceDeletionResult>,
+  ): Promise<WorkspaceDeletionResult> {
+    if (cwd) this.assertWorkspaceAvailable(cwd)
+    for (const target of paths) this.assertPathAvailable(target)
+    if (cwd) this.deletingCwds.add(cwd)
+    for (const target of paths) this.mutatingPaths.add(target)
+    let records: RuntimeSession[] = []
+    const lockedKeys: string[] = []
+    try {
+      const all = [...this.sessions.values()]
+      const normalized = await Promise.all(
+        all.map(async (record) => ({ record, cwd: await realpath(record.cwd).catch(() => record.cwd) })),
+      )
+      records = normalized
+        .filter(
+          (item) =>
+            (cwd && item.cwd === cwd) ||
+            paths.includes(this.recordPath(item.record)) ||
+            paths.includes(item.record.key),
+        )
+        .map((item) => item.record)
+      this.assertMutable(records)
+      for (const record of records) {
+        if (!paths.includes(record.key)) this.assertPathAvailable(record.key)
+        this.mutatingPaths.add(record.key)
+        lockedKeys.push(record.key)
+      }
+      await Promise.all(
+        records.map(async (record) => {
+          await record.session.stopAndWait()
+          record.dormant = true
+          record.extensions.clear()
+        }),
+      )
+      const replacementCwd =
+        records.includes(this.active) && cwd ? await this.workspaceOptions!.createStandaloneDirectory() : undefined
+      const result = await removeFiles()
+      const deleted = new Set(result.deletedPaths)
+      const removed = records.filter((record) => deleted.has(this.recordPath(record)) || (cwd && !result.errors.length))
+      const deletedKeys = removed.map((record) => record.key)
+      const activeRemoved = removed.includes(this.active)
+      const previous = this.active
+      for (const record of removed) this.sessions.delete(record.key)
+      invalidateSessionHistory(result.deletedPaths)
+      let selected: SessionSelectionResult | undefined
+      if (activeRemoved) {
+        const nextCwd = replacementCwd ?? previous.cwd
+        this.selection += 1
+        this.create(nextCwd)
+        try {
+          selected = await this.selectionResult(this.selection)
+        } catch (cause) {
+          result.errors.push(`会话已删除，无法读取新会话：${String(cause)}`)
+        }
+      }
+      this.notify.sessionsChanged()
+      const outcome = { ...result, deletedKeys, selection: selected }
+      return finish ? await finish(outcome) : outcome
+    } finally {
+      if (cwd) this.deletingCwds.delete(cwd)
+      for (const target of paths) this.mutatingPaths.delete(target)
+      for (const key of lockedKeys) this.mutatingPaths.delete(key)
+    }
+  }
+  private defaultPreferences: ClientView['defaults'] = null
+  private get defaults() {
+    return this.viewContext.getStore()?.defaults ?? this.defaultPreferences
+  }
+  private set defaults(value: ClientView['defaults']) {
+    const view = this.viewContext.getStore()
+    if (view) view.defaults = value
+    else this.defaultPreferences = value
+  }
+  private thinkingLevels: ThinkingLevel[] = []
+  private epoch = 0
+  private commands = new Map<string, PiSlashCommand[]>()
+  private defaultSelection = 0
+  private get selection() {
+    return this.viewContext.getStore()?.selection ?? this.defaultSelection
+  }
+  private set selection(value: number) {
+    const view = this.viewContext.getStore()
+    if (view) view.selection = value
+    else this.defaultSelection = value
+  }
+  private localModels: Promise<PiModel[]> | null = null
+  private localAvailableModels: PiModel[] | null = null
+  private resourceDiscovery = true
+  configureResourceDiscovery(enabled: boolean) {
+    this.resourceDiscovery = enabled
+    this.commands.clear()
+  }
+  private capabilities: ToolExecutionSettings = { codemodeEnabled: false, mcpEnabled: false }
+  configureCapabilities(value: ToolExecutionSettings) {
+    this.capabilities = { ...value, codemodeEnabled: value.codemodeEnabled || value.mcpEnabled }
+  }
+  private defaultMode: AgentAccessMode = defaultAccessMode
+  async configureDefaultAccessMode(mode: AgentAccessMode) {
+    if (!isAgentAccessMode(mode)) throw new Error('Agent 访问权限无效')
+    this.defaultMode = mode
+    const record = this.active
+    if (!record || record.sessionFile || this.hasContent(record) || record.accessMode === mode) return
+    await this.switchAccessMode(record, mode)
+  }
+  private inlineExtensions: InlineExtension[] = []
+  private mcpExtensionFactory?: (sdk: PiSdk, cwd: string) => InlineExtension
+  configureMcpExtensionFactory(factory: (sdk: PiSdk, cwd: string) => InlineExtension) {
+    this.mcpExtensionFactory = factory
+  }
+  configureInlineExtensions(extensions: InlineExtension[]) {
+    this.inlineExtensions = extensions.slice()
+    for (const record of this.sessions.values()) record.session.configureInlineExtensions(this.inlineExtensions)
+  }
+  private configureSession(record: RuntimeSession) {
+    record.extensionError = undefined
+    record.session.configureInlineExtensions(this.inlineExtensions)
+    record.session.configureCapabilities(this.capabilities)
+    record.session.configureAccess(record.accessMode)
+  }
+  constructor(
+    private initialCwd: string,
+    private readonly notify: {
+      connection: (value: Connection) => void
+      event: (value: DesktopEvent) => void
+      error: (value: DesktopError) => void
+      sessionsChanged: () => void
+      title?: (value: string) => void
+    },
+    private readonly accessStore = new AgentAccessStore(),
+    private readonly runtimePaths: PiRuntimePaths = createPiRuntimePaths(
+      path.join(tmpdir(), `pi-desktop-runtime-${process.pid}-${randomUUID()}`),
+    ),
+    private readonly credentialStorage: SecureCredentialStorage = new MemoryCredentialStorage(),
+    private readonly sessionFactory: SessionFactory = (cwd, notify, paths, credentials, mcp) =>
+      new SdkSession(cwd, notify, paths, credentials, mcp),
+  ) {}
+  private workspaceOptions?: {
+    kind: (cwd: string) => WorkspaceKind
+    createStandaloneDirectory: () => Promise<string>
+  }
+  configureWorkspaces(options: NonNullable<PiSessionPool['workspaceOptions']>) {
+    this.workspaceOptions = options
+  }
+  get cwd() {
+    return this.active?.cwd ?? this.initialCwd
+  }
+  set cwd(value: string) {
+    this.initialCwd = value
+  }
+  connection(): Connection {
+    const connection = this.active?.session.connection()
+    return {
+      ...(connection ?? { cwd: this.cwd, status: 'disconnected' }),
+      status: this.active?.dormant
+        ? 'idle'
+        : this.active?.starting
+          ? 'connecting'
+          : (connection?.status ?? 'disconnected'),
+      error: this.active?.error ?? connection?.error,
+      generation: this.generation,
+      workspaceKind: this.workspaceOptions?.kind(this.cwd) ?? 'project',
+      sessionKey: this.active?.key,
+      accessMode: this.active?.accessMode ?? this.defaultMode,
+      accessChanging: this.active?.accessChanging || this.active?.stopping,
+      restrictedAccessSupported: process.platform === 'darwin',
+      sessionFile: this.active?.session.getActiveSession().sessionFile ?? this.active?.sessionFile,
+      piVersion: connection?.piVersion ?? getPiVersion(),
+    }
+  }
+  prepare(cwd: string) {
+    this.stop()
+    const record = this.create(cwd)
+    void this.warmMetadata(record)
+  }
+  start(cwd: string, sessionFile?: string) {
+    this.stop()
+    this.localModels = null
+    this.localAvailableModels = null
+    this.commands.clear()
+    const record = this.create(cwd, sessionFile)
+    record.dormant = false
+    record.accessReady = record.accessReady.then(() => {
+      if (!this.sessions.has(record.key)) return
+      this.configureSession(record)
+      record.session.start(cwd, sessionFile)
+    })
+    void record.accessReady.catch(() => {})
+  }
+  private create(
+    cwd: string,
+    sessionFile?: string,
+    history?: SessionHistoryData,
+    inheritedMode?: AgentAccessMode,
+    preservePrevious = false,
+  ) {
+    this.assertWorkspaceAvailable(cwd)
+    if (!preservePrevious) this.discardEmpty()
+    const key = `runtime:${randomUUID()}`
+    const record: RuntimeSession = {
+      key,
+      accessMode: inheritedMode ?? this.defaultMode,
+      accessReady: Promise.resolve(),
+      accessChanging: false,
+      stopping: false,
+      cwd,
+      session: null!,
+      sessionFile,
+      restored: Boolean(sessionFile),
+      dormant: true,
+      cancelledPrompt: false,
+      state: {
+        model: history?.model ?? this.defaults?.model,
+        thinkingLevel: history?.thinkingLevel ?? this.defaults?.thinkingLevel,
+        sessionName: history?.sessionName,
+        isStreaming: false,
+        isCompacting: false,
+        steeringMode: this.defaults?.steeringMode ?? 'one-at-a-time',
+        followUpMode: this.defaults?.followUpMode ?? 'all',
+        pendingMessageCount: 0,
+      },
+      running: false,
+      pendingPrompt: false,
+      settled: true,
+      run: 0,
+      touched: Date.now(),
+      created: history?.created ?? new Date().toISOString(),
+      completedAt: sessionFile ? undefined : null,
+      name: history?.sessionName,
+      messages: history?.messages.slice() ?? [],
+      sessionEntries: history?.sessionEntries,
+      stats: history?.stats,
+      sequence: 0,
+      liveEvents: [],
+      tools: new Map(),
+      extensions: new Map(),
+      answers: new Set(),
+      buffers: new Set(),
+    }
+    record.session = this.sessionFactory(
+      cwd,
+      {
+        connection: () => {
+          if (!this.sessions.has(key)) return
+          if (record.session.connection().status === 'disconnected') {
+            const running = record.running || record.pendingPrompt
+            record.running = false
+            record.pendingPrompt = false
+            record.dormant = true
+            record.extensions.clear()
+            record.extensionError = undefined
+            if (running) this.handleEvent(record, { generation: this.generation, event: { type: 'agent_settled' } })
+          }
+          this.notify.connection(this.withSession(record.key, () => this.connection()))
+          this.notify.sessionsChanged()
+          if (record.session.connection().status === 'ready') this.prune()
+        },
+        event: (value) => this.handleEvent(record, value),
+        error: (value) => {
+          if (!this.sessions.has(key)) return
+          const error = { ...value, generation: this.generation, sessionKey: key }
+          if (value.extension) record.extensionError = error
+          this.notify.error(error)
+          this.notify.sessionsChanged()
+        },
+        title: (value) => {
+          if (record === this.active) this.notify.title?.(value)
+        },
+      },
+      this.runtimePaths,
+      this.credentialStorage,
+      this.mcpExtensionFactory,
+      key,
+    )
+    if (sessionFile && !inheritedMode) {
+      record.accessReady = this.accessStore.get(sessionFile).then((mode) => {
+        record.accessMode = mode
+      })
+      void record.accessReady.catch(() => {})
+    }
+    this.sessions.set(key, record)
+    this.active = record
+    this.generation += 1
+    this.notify.connection(this.connection())
+    this.prune()
+    this.notify.sessionsChanged()
+    return record
+  }
+  private activate(record: RuntimeSession) {
+    if (record !== this.active) this.discardEmpty()
+    this.active = record
+    record.touched = Date.now()
+    this.generation += 1
+    this.notify.connection(this.connection())
+    this.prune()
+    this.notify.sessionsChanged()
+  }
+  private handleEvent(record: RuntimeSession, value: DesktopEvent) {
+    if (!this.sessions.has(record.key)) return
+    const event = value.event
+    if (event.type === 'agent_settled') {
+      if (record.settled) return
+      record.settled = true
+    }
+    const recordEvent = { ...value, generation: this.generation, sessionKey: record.key, sequence: ++record.sequence }
+    for (const buffer of record.buffers) buffer.push(recordEvent)
+    if (event.type === 'agent_start') {
+      record.settled = false
+      record.running = true
+      record.pendingPrompt = false
+      this.signalSettled()
+    }
+    if (event.type === 'agent_settled') {
+      if (record.running) record.completedAt = new Date().toISOString()
+      record.running = false
+      record.state = { ...record.state, isStreaming: false, isCompacting: false }
+      record.liveEvents = []
+      record.tools.clear()
+      record.queue = undefined
+    }
+    if (event.type === 'message_start' && event.message.role === 'assistant') record.liveEvents = [recordEvent]
+    if (event.type === 'message_update') record.liveEvents.push(recordEvent)
+    if (event.type === 'message_end') {
+      this.rememberMessage(record, event.message)
+      if (event.message.role === 'assistant') record.liveEvents = []
+    }
+    if (event.type === 'queue_update') record.queue = recordEvent
+    if (event.type === 'tool_execution_start' || event.type === 'tool_execution_update')
+      record.tools.set(event.toolCallId, recordEvent)
+    if (event.type === 'tool_execution_end') record.tools.delete(event.toolCallId)
+    if (
+      event.type === 'extension_ui_request' ||
+      event.type === 'extension_ui_timeout' ||
+      event.type === 'extension_ui_closed'
+    )
+      this.rememberExtension(record, recordEvent)
+    this.notify.event(recordEvent)
+    this.signalSettled()
+    if (event.type === 'agent_start' || event.type === 'agent_settled' || event.type === 'message_end') {
+      this.notify.sessionsChanged()
+      if (event.type === 'agent_settled') this.prune()
+    }
+  }
+  private rememberMessage(record: RuntimeSession, message: PiMessage) {
+    const index = record.messages.findIndex((saved) => sameMessage(saved, message))
+    if (index === -1) record.messages.push(message)
+    else record.messages[index] = message
+  }
+  private rememberExtension(record: RuntimeSession, value: DesktopEvent) {
+    const event = value.event as PiExtensionEvent
+    if (event.type === 'extension_ui_timeout' || event.type === 'extension_ui_closed') {
+      record.extensions.delete(`dialog:${event.id}`)
+      return
+    }
+    if (['select', 'confirm', 'input', 'editor'].includes(event.method))
+      record.extensions.set(`dialog:${event.id}`, value)
+    else if (event.method === 'setStatus') {
+      const key = `status:${event.statusKey}`
+      if (event.statusText === undefined) record.extensions.delete(key)
+      else record.extensions.set(key, value)
+    } else if (event.method === 'setWidget') {
+      const key = `widget:${event.widgetKey}`
+      if (!event.widgetLines?.length) record.extensions.delete(key)
+      else record.extensions.set(key, value)
+    } else if (event.method === 'setTitle') record.extensions.set('title', value)
+    else if (event.method === 'set_editor_text') record.extensions.set('editor', value)
+  }
+  private hasContent(record: RuntimeSession) {
+    return (
+      record.restored ||
+      record.firstMessage !== undefined ||
+      record.messages.length > 0 ||
+      record.pendingPrompt ||
+      record.running
+    )
+  }
+  private discardEmpty() {
+    if (
+      this.active &&
+      this.sessions.has(this.active.key) &&
+      !this.active.accessChanging &&
+      !this.selectedElsewhere(this.active) &&
+      !this.hasContent(this.active)
+    ) {
+      this.sessions.delete(this.active.key)
+      this.stopRecord(this.active)
+    }
+  }
+  private prune() {
+    const idle = [...this.sessions.values()]
+      .filter((record) => record !== this.active && !record.running && record.session.connection().status === 'ready')
+      .sort((a, b) => b.touched - a.touched)
+    for (const record of idle.slice(3)) {
+      this.stopRecord(record)
+      record.dormant = true
+      record.extensions.clear()
+      record.extensionError = undefined
+    }
+  }
+  stop() {
+    this.clearWarmup()
+    this.epoch += 1
+    this.selection += 1
+    for (const record of this.sessions.values()) this.stopRecord(record)
+    this.sessions.clear()
+  }
+  private async selectionResult(selection: number): Promise<SessionSelectionResult> {
+    if (selection !== this.selection) return { cancelled: true }
+    try {
+      const snapshot = await this.snapshot()
+      return selection === this.selection ? { cancelled: false, snapshot } : { cancelled: true }
+    } catch (cause) {
+      if (selection !== this.selection) return { cancelled: true }
+      throw cause
+    }
+  }
+  async newSession(): Promise<SessionSelectionResult> {
+    if (this.changing) throw new Error('正在修改运行时配置，请稍后新建会话')
+    this.assertWorkspaceAvailable(this.cwd)
+    const selection = ++this.selection
+    if (this.workspaceOptions?.kind(this.cwd) === 'standalone') {
+      const cwd = await this.workspaceOptions.createStandaloneDirectory()
+      if (selection !== this.selection) return { cancelled: true }
+      this.create(cwd)
+    } else if (this.hasContent(this.active)) this.create(this.cwd)
+    return this.selectionResult(selection)
+  }
+  async selectWorkspaceDirectory(cwd: string): Promise<SessionSelectionResult> {
+    if (this.changing) throw new Error('正在修改运行时配置，请稍后切换项目')
+    const selection = ++this.selection
+    this.assertWorkspaceAvailable(cwd)
+    const previous = this.active
+    let target: RuntimeSession | undefined
+    try {
+      if (!(await stat(cwd)).isDirectory()) throw new Error('所选路径不是文件夹')
+      if (selection !== this.selection) return { cancelled: true }
+      if (cwd !== this.cwd) target = this.create(cwd, undefined, undefined, undefined, true)
+      const result = await this.selectionResult(selection)
+      if (result.cancelled) return result
+      const commands = await this.getCommands()
+      if (selection !== this.selection) return { cancelled: true }
+      for (const record of this.sessions.values()) {
+        if (
+          record !== this.active &&
+          !this.selectedElsewhere(record) &&
+          !record.accessChanging &&
+          !this.hasContent(record)
+        ) {
+          this.sessions.delete(record.key)
+          this.stopRecord(record)
+        }
+      }
+      return { ...result, commands }
+    } catch (cause) {
+      if (selection === this.selection && target && previous) this.activate(previous)
+      throw cause
+    }
+  }
+  newSessionInDirectory(cwd: string) {
+    if (this.changing) throw new Error('正在修改运行时配置，请稍后切换项目')
+    this.assertWorkspaceAvailable(cwd)
+    this.selection += 1
+    if (cwd !== this.cwd || this.hasContent(this.active)) this.create(cwd)
+    return cwd
+  }
+  async switchSession(sessionPath: string): Promise<SessionSelectionResult> {
+    this.assertPathAvailable(sessionPath)
+    if (this.changing) throw new Error('正在修改运行时配置，请稍后切换会话')
+    const selection = ++this.selection
+    const existing = [...this.sessions.values()].find(
+      (record) =>
+        record.key === sessionPath ||
+        (record.sessionFile ?? record.session.getActiveSession().sessionFile) === sessionPath,
+    )
+    if (existing) {
+      this.assertWorkspaceAvailable(existing.cwd)
+      this.assertPathAvailable(existing.key)
+      if (this.workspaceOptions?.kind(existing.cwd) === 'standalone') {
+        try {
+          if (!(await stat(existing.cwd)).isDirectory()) throw new Error('路径不是文件夹')
+        } catch (cause) {
+          throw new Error(`无项目会话目录不可用：${existing.cwd}；${String(cause)}`)
+        }
+        if (selection !== this.selection) return { cancelled: true }
+      }
+      if (existing !== this.active) {
+        if (existing.dormant && existing.sessionFile) {
+          const history = await readSessionHistory(existing.sessionFile)
+          if (selection !== this.selection) return { cancelled: true }
+          existing.messages = history.messages.slice()
+          existing.sessionEntries = history.sessionEntries
+          existing.name = history.sessionName
+          existing.state = { ...existing.state, sessionName: history.sessionName }
+          existing.stats = history.stats
+        }
+        this.assertPathAvailable(existing.key)
+        this.assertWorkspaceAvailable(existing.cwd)
+        this.activate(existing)
+      }
+    } else {
+      const sessionRoot = await realpath(this.runtimePaths.sessionsDirectory).catch(() => '')
+      const sessionTarget = await realpath(sessionPath).catch(() => '')
+      if (!sessionRoot || !sessionTarget || !pathWithin(sessionRoot, sessionTarget))
+        throw new Error('Desktop 只能打开应用内保存的会话')
+      const history = await readSessionHistory(sessionPath)
+      if (selection !== this.selection) return { cancelled: true }
+      if (this.workspaceOptions?.kind(history.cwd) === 'standalone') {
+        try {
+          if (!(await stat(history.cwd)).isDirectory()) throw new Error('路径不是文件夹')
+        } catch (cause) {
+          throw new Error(`无项目会话目录不可用：${history.cwd}；${String(cause)}`)
+        }
+        if (selection !== this.selection) return { cancelled: true }
+      }
+      this.assertPathAvailable(sessionPath)
+      this.create(history.cwd, sessionPath, history)
+    }
+    return this.selectionResult(selection)
+  }
+  getActiveSession() {
+    const active = this.active.session.getActiveSession()
+    return { sessionFile: active.sessionFile ?? this.active.sessionFile ?? this.active.key, sessionId: this.active.key }
+  }
+  getRuntimeHistory(sessionPath: string) {
+    const record = this.sessions.get(sessionPath)
+    return record
+      ? {
+          cwd: record.cwd,
+          created: record.created,
+          messages: record.messages,
+          sessionName: record.name,
+          model: record.state.model,
+          thinkingLevel: record.state.thinkingLevel,
+        }
+      : null
+  }
+  getRuntimeSessions(): PiSessionSummary[] {
+    return [...this.sessions.values()]
+      .filter((record) => this.hasContent(record))
+      .map((record) => {
+        const active = record.session.getActiveSession()
+        return {
+          id: record.key,
+          path: active.sessionFile ?? record.sessionFile ?? record.key,
+          cwd: record.cwd,
+          workspaceKind: this.workspaceOptions?.kind(record.cwd) ?? 'project',
+          name: record.name,
+          firstMessage: record.firstMessage,
+          created: record.created,
+          modified: record.completedAt ?? record.created,
+          completedAt: record.completedAt,
+          messageCount: record.messages.length,
+          running: record.running,
+          error: record.error ?? record.session.connection().error,
+        }
+      })
+  }
+  async snapshot(): Promise<Snapshot> {
+    const record = this.active
+    const generation = this.generation
+    await record.accessReady
+    if (record !== this.active || generation !== this.generation) throw new Error('当前查看的会话已更换')
+    const events = [
+      ...record.liveEvents,
+      ...record.tools.values(),
+      ...(record.queue ? [record.queue] : []),
+      ...record.extensions.values(),
+    ]
+    const projection = async (): Promise<Snapshot> => {
+      await this.warmMetadata(record)
+      const models = this.localAvailableModels ?? []
+      if (this.localAvailableModels && record.state.model) {
+        record.state.modelSelectionRequired = !models.some(
+          (model) => model.provider === record.state.model?.provider && model.id === record.state.model?.id,
+        )
+      }
+      return {
+        connection: this.connection(),
+        extensionError: record.extensionError ? { ...record.extensionError, generation } : undefined,
+        state: { ...record.state, isStreaming: record.running },
+        messages: record.messages,
+        sessionEntries: record.sessionEntries,
+        models,
+        thinkingLevels: this.thinkingLevels,
+        stats: record.stats,
+        events: [
+          ...record.liveEvents,
+          ...record.tools.values(),
+          ...(record.queue ? [record.queue] : []),
+          ...record.extensions.values(),
+        ].map((event) => ({ ...event, generation })),
+        eventSequence: record.sequence,
+      }
+    }
+    if (record.dormant || record.starting) return projection()
+    const buffer: DesktopEvent[] = []
+    record.buffers.add(buffer)
+    try {
+      const snapshot = await record.session.snapshot()
+      if (record !== this.active || generation !== this.generation) throw new Error('当前查看的会话已更换')
+      this.rememberSnapshot(record, snapshot)
+      if (record.sessionFile && !record.accessChanging)
+        await this.accessStore.set(record.sessionFile, record.accessMode)
+      for (const value of buffer)
+        if (value.event.type === 'message_end') this.rememberMessage(record, value.event.message)
+      if (!buffer.some((value) => value.event.type === 'agent_start' || value.event.type === 'agent_settled'))
+        record.running =
+          (!record.settled && record.pendingPrompt) || snapshot.state.isStreaming || snapshot.state.isCompacting
+      return {
+        ...snapshot,
+        extensionError: record.extensionError ? { ...record.extensionError, generation } : undefined,
+        state: {
+          ...snapshot.state,
+          isStreaming: record.running,
+          isCompacting: record.running && snapshot.state.isCompacting,
+        },
+        connection: this.connection(),
+        events: [...events, ...buffer].map((event) => ({ ...event, generation })),
+        eventSequence: record.sequence,
+      }
+    } catch (cause) {
+      if (record === this.active && generation === this.generation && record.dormant) return projection()
+      throw cause
+    } finally {
+      record.buffers.delete(buffer)
+    }
+  }
+  private async warmMetadata(record: RuntimeSession) {
+    const epoch = this.epoch
+    try {
+      const models = await (this.localModels ??= readLocalModels(this.runtimePaths.agentDir, this.credentialStorage))
+      if (epoch !== this.epoch) return
+      this.localAvailableModels ??= models
+      const target = this.sessions.has(record.key) ? record : this.active
+      if (!target || !this.sessions.has(target.key)) return
+      const preferences = await readLocalPreferences(target.cwd, this.runtimePaths.agentDir)
+      if (epoch !== this.epoch || !this.sessions.has(target.key)) return
+      if (!target.state.model && !target.sessionFile) {
+        target.state.model =
+          models.find((model) => model.id === preferences.modelId && model.provider === preferences.provider) ??
+          models[0]
+        target.state.thinkingLevel ??= preferences.thinkingLevel
+      }
+    } catch (cause) {
+      if (record === this.active && this.sessions.has(record.key))
+        this.notify.error({
+          generation: this.generation,
+          sessionKey: record.key,
+          message: `无法读取本地模型配置：${String(cause)}`,
+        })
+    }
+  }
+  private rememberSnapshot(record: RuntimeSession, snapshot: Snapshot) {
+    if (snapshot.stats) record.stats = snapshot.stats
+    record.name = snapshot.state.sessionName
+    record.state = snapshot.state
+    record.messages = snapshot.messages.slice()
+    record.sessionEntries = snapshot.sessionEntries
+    record.sessionFile = record.session.getActiveSession().sessionFile ?? record.sessionFile
+    if (record !== this.active) return
+    this.defaults = {
+      model: snapshot.state.model,
+      thinkingLevel: snapshot.state.thinkingLevel,
+      steeringMode: snapshot.state.steeringMode,
+      followUpMode: snapshot.state.followUpMode,
+    }
+    this.localAvailableModels = snapshot.models
+    this.thinkingLevels = snapshot.thinkingLevels ?? []
+  }
+  private async ensureRuntime(record: RuntimeSession): Promise<void> {
+    await record.retiring
+    if (record.starting) return record.starting
+    if (record.session.connection().status === 'ready') return Promise.resolve()
+    record.dormant = false
+    const starting = (async () => {
+      await record.accessReady
+      this.configureSession(record)
+      await record.session.reconnectModels({
+        sessionFile: record.sessionFile,
+        model: record.state.model,
+        thinkingLevel: record.state.thinkingLevel,
+      })
+      if (record.name && !record.sessionFile) await record.session.setSessionName(record.name)
+      if (record.state.steeringMode) await record.session.setSteeringMode(record.state.steeringMode)
+      if (record.state.followUpMode) await record.session.setFollowUpMode(record.state.followUpMode)
+      const snapshot = await record.session.snapshot()
+      this.rememberSnapshot(record, snapshot)
+      if (record.sessionFile) await this.accessStore.set(record.sessionFile, record.accessMode)
+      if (!this.sessions.has(record.key)) return
+      this.commands.set(`${record.cwd}:${record.accessMode}`, await record.session.getCommands())
+      this.notify.sessionsChanged()
+    })()
+    record.starting = starting
+    return starting.finally(() => {
+      record.starting = undefined
+      this.signalSettled()
+      if (this.sessions.has(record.key)) this.notify.connection(this.withSession(record.key, () => this.connection()))
+    })
+  }
+  async idle<T>(action: () => Promise<T>, allowDisconnected = false): Promise<T> {
+    if (
+      this.changing ||
+      this.deletingCwds.size > 0 ||
+      this.mutatingPaths.size > 0 ||
+      [...this.sessions.values()].some(
+        (record) => record.running || record.accessChanging || record.starting || record.stopping,
+      )
+    )
+      throw new Error('有会话正在运行，请停止后再修改运行时配置')
+    this.changing = true
+    try {
+      await Promise.all(
+        [...this.sessions.values()].map((record) =>
+          record.session.assertIdle(record !== this.active || allowDisconnected || record.dormant),
+        ),
+      )
+      if ([...this.sessions.values()].some((record) => record.running))
+        throw new Error('有会话正在运行，请停止后再修改运行时配置')
+      return await action()
+    } finally {
+      this.changing = false
+    }
+  }
+  private target(sessionKey: string) {
+    if (this.changing) throw new Error('正在修改运行时配置，请稍后操作会话')
+    const record = this.sessions.get(sessionKey)
+    if (!record) throw new Error('目标会话已关闭，请重新打开后发送')
+    this.assertWorkspaceAvailable(record.cwd)
+    this.assertPathAvailable(record.key)
+    this.assertPathAvailable(this.recordPath(record))
+    if (record.accessChanging) throw new Error('正在更新 Agent 访问权限，请稍后操作')
+    return record
+  }
+  async setAccessMode(sessionKey: string, mode: AgentAccessMode) {
+    if (!isAgentAccessMode(mode)) throw new Error('Agent 访问权限无效')
+    const record = this.target(sessionKey)
+    await this.switchAccessMode(record, mode)
+  }
+
+  private async switchAccessMode(record: RuntimeSession, mode: AgentAccessMode) {
+    if (
+      record.running ||
+      record.pendingPrompt ||
+      record.starting ||
+      record.stopping ||
+      record.session.connection().status === 'connecting'
+    )
+      throw new Error('任务结束后可切换权限')
+    if (mode !== 'full-access' && process.platform !== 'darwin') throw new Error('受限权限目前仅支持 macOS')
+    record.accessChanging = true
+    this.notify.connection(this.withSession(record.key, () => this.connection()))
+    try {
+      await record.accessReady
+      if (record.session.connection().status === 'connecting') throw new Error('任务结束后可切换权限')
+      if (record.accessMode === mode) return
+      await record.session.idle(async () => {
+        if (record.session.connection().status === 'ready')
+          this.rememberSnapshot(record, await record.session.snapshot())
+        await record.session.stopAndWait()
+        record.dormant = true
+        record.extensions.clear()
+        record.extensionError = undefined
+        if (record.sessionFile) await this.accessStore.set(record.sessionFile, mode)
+        if (!this.sessions.has(record.key)) throw new Error('目标会话已关闭')
+        record.accessMode = mode
+        this.commands.delete(`${record.cwd}:${record.accessMode}`)
+        this.handleEvent(record, { generation: this.generation, event: { type: 'access_mode_changed', mode } })
+      }, true)
+    } finally {
+      record.accessChanging = false
+      this.notify.connection(this.withSession(record.key, () => this.connection()))
+    }
+  }
+  async editAndPrompt(
+    sessionKey: string,
+    timestamp: number,
+    message: string,
+    images?: PiImage[],
+    skills: SkillReference[] = [],
+  ) {
+    const record = this.target(sessionKey)
+    if (record.running || this.changing) throw new Error('会话正在运行，请等待完成后再编辑')
+    if (record.dormant) await this.ensureRuntime(record)
+    const data = await record.session.getEntries()
+    const target = data.entries.find(
+      (entry) => messageEntry(entry) && entry.message.role === 'user' && entry.message.timestamp === timestamp,
+    )
+    if (!target || !messageEntry(target)) throw new Error('找不到这条用户消息，请刷新会话后重试')
+    const previousLeaf = data.leafId
+    const result = await record.session.navigateToEntry(target.id)
+    if (result.cancelled) throw new Error('Pi 扩展已取消消息编辑')
+    try {
+      await this.prompt(sessionKey, message, images, skills)
+    } catch (cause) {
+      if (previousLeaf) {
+        await record.session.navigateToEntry(previousLeaf).catch(() => {})
+        await record.session
+          .snapshot()
+          .then((snapshot) => this.rememberSnapshot(record, snapshot))
+          .catch(() => {})
+      }
+      throw cause
+    }
+  }
+  async switchMessageVersion(sessionKey: string, timestamp: number, version: number) {
+    const record = this.target(sessionKey)
+    if (record.running) throw new Error('会话正在运行，请等待完成后切换版本')
+    if (record.dormant) await this.ensureRuntime(record)
+    const data = await record.session.getEntries()
+    const userEntries = data.entries.filter(
+      (entry): entry is Extract<PiSessionEntry, { type: 'message' }> =>
+        messageEntry(entry) && entry.message.role === 'user',
+    )
+    const targetUser = userEntries.find((entry) => entry.message.timestamp === timestamp)
+    if (!targetUser) throw new Error('找不到这条用户消息，请刷新会话后重试')
+    const versions = userEntries
+      .filter((entry) => entry.parentId === targetUser.parentId)
+      .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
+    const selected = versions[version]
+    if (!selected) throw new Error('消息版本已变化，请刷新后重试')
+    // 版本切换要恢复该版本所属的完整后续对话，取该子树的分支终点而不是下一条用户消息的父节点。
+    const endpoint = branchEndpoint(data.entries, data.leafId, selected.id)
+    if (!endpoint) throw new Error('该版本没有可切换的会话节点')
+    const result = await record.session.navigateToEntry(endpoint.id)
+    if (result.cancelled) return false
+    this.notify.connection(this.connection())
+    return true
+  }
+  async forkReply(sessionKey: string, userTimestamp: number): Promise<SessionSelectionResult> {
+    const source = this.target(sessionKey)
+    if (source.running || this.changing) throw new Error('会话正在运行，请等待完成后新建会话')
+    this.changing = true
+    const temporary = this.sessionFactory(
+      source.cwd,
+      {
+        connection: () => {},
+        event: () => {},
+        error: () => {},
+      },
+      this.runtimePaths,
+      this.credentialStorage,
+      this.mcpExtensionFactory,
+    )
+    try {
+      if (source.dormant) await this.ensureRuntime(source)
+      const sourcePath = source.session.getActiveSession().sessionFile ?? source.sessionFile
+      if (!sourcePath) throw new Error('会话尚未保存，等它完成一轮对话后再新建会话')
+      const data = await source.session.getEntries()
+      const path = activePath(data.entries, data.leafId)
+      const userIndex = path.findIndex(
+        (entry) => messageEntry(entry) && entry.message.role === 'user' && entry.message.timestamp === userTimestamp,
+      )
+      if (userIndex === -1) throw new Error('找不到这条对话，请刷新会话后重试')
+      const nextUser = path.slice(userIndex + 1).find((entry) => messageEntry(entry) && entry.message.role === 'user')
+      const forkPoint = nextUser?.parentId ?? data.leafId
+      if (!forkPoint) throw new Error('这段对话还没有可分叉的回复')
+      const throughPoint = path.slice(0, path.findIndex((entry) => entry.id === forkPoint) + 1)
+      const pendingCalls = new Set<string>()
+      for (const entry of throughPoint) {
+        if (!messageEntry(entry)) continue
+        if (entry.message.role === 'assistant' && Array.isArray(entry.message.content)) {
+          for (const part of entry.message.content) if (part.type === 'toolCall') pendingCalls.add(part.id)
+        }
+        if (entry.message.role === 'toolResult') pendingCalls.delete(entry.message.toolCallId)
+      }
+      if (pendingCalls.size) throw new Error('这段回复的工具结果尚未保存，暂时无法新建会话')
+
+      temporary.configureInlineExtensions(this.inlineExtensions)
+      temporary.configureCapabilities(this.capabilities)
+      temporary.configureAccess(source.accessMode)
+      temporary.start(source.cwd, sourcePath)
+      await temporary.getEntries()
+      const result = await temporary.forkAtEntry(forkPoint)
+      if (result.cancelled) return { cancelled: true }
+      await temporary.snapshot()
+      const forkedPath = temporary.getActiveSession().sessionFile
+      if (!forkedPath || forkedPath === sourcePath) throw new Error('Pi 没有创建新的会话文件')
+      const history = await readSessionHistory(forkedPath)
+      const selection = ++this.selection
+      await this.accessStore.set(forkedPath, source.accessMode)
+      this.create(history.cwd, forkedPath, history, source.accessMode)
+      return await this.selectionResult(selection)
+    } finally {
+      temporary.stop()
+      this.changing = false
+    }
+  }
+  async prompt(sessionKey: string, message: string, images?: PiImage[], skills: SkillReference[] = []) {
+    const record = this.target(sessionKey)
+    if (this.changing || record.running) throw new Error('当前会话正在运行或修改配置，请稍后发送')
+    await record.retiring
+    this.target(sessionKey)
+    if (this.changing || record.running) throw new Error('当前会话正在运行或修改配置，请稍后发送')
+    const run = ++record.run
+    record.settled = false
+    record.cancelledPrompt = false
+    record.error = undefined
+    record.pendingPrompt = true
+    record.running = true
+    record.touched = Date.now()
+    if (!record.restored && !builtinCommand(message)) record.firstMessage ||= message
+    this.notify.sessionsChanged()
+    try {
+      await this.ensureRuntime(record)
+      if (record.cancelledPrompt || !this.sessions.has(record.key)) throw new Error('消息发送已取消')
+      return await record.session.prompt(message, images, skills)
+    } catch (cause) {
+      if (!this.sessions.has(record.key)) throw cause
+      record.error = String(cause)
+      this.notify.error({ generation: this.generation, sessionKey: record.key, message: record.error })
+      record.running = false
+      this.notify.sessionsChanged()
+      void record.session
+        .snapshot()
+        .then((snapshot) => {
+          if (!this.sessions.has(record.key) || run !== record.run) return
+          record.running = snapshot.state.isStreaming || snapshot.state.isCompacting
+          if (!record.running)
+            this.handleEvent(record, { generation: this.generation, event: { type: 'agent_settled' } })
+          this.notify.sessionsChanged()
+        })
+        .catch(() => {
+          if (!this.sessions.has(record.key) || run !== record.run) return
+          if (record.session.connection().status === 'disconnected') {
+            record.running = false
+            record.dormant = true
+            this.handleEvent(record, { generation: this.generation, event: { type: 'agent_settled' } })
+          }
+          this.notify.sessionsChanged()
+        })
+      throw cause
+    } finally {
+      record.pendingPrompt = false
+      if (record.settled) record.running = false
+      this.signalSettled()
+    }
+  }
+  steer(sessionKey: string, message: string, images?: PiImage[], skills?: SkillReference[]) {
+    return this.target(sessionKey).session.steer(message, images, skills)
+  }
+  followUp(sessionKey: string, message: string, images?: PiImage[], skills?: SkillReference[]) {
+    return this.target(sessionKey).session.followUp(message, images, skills)
+  }
+  async abort(sessionKey: string) {
+    const record = this.target(sessionKey)
+    record.stopping = true
+    this.notify.connection(this.withSession(record.key, () => this.connection()))
+    try {
+      if (record.pendingPrompt && record.starting) {
+        record.cancelledPrompt = true
+        await record.starting.catch(() => {})
+        return
+      }
+      await record.session.abort()
+      if (record.running && this.sessions.has(record.key))
+        this.handleEvent(record, { generation: this.generation, event: { type: 'agent_settled' } })
+    } finally {
+      record.stopping = false
+      this.notify.connection(this.withSession(record.key, () => this.connection()))
+    }
+  }
+  clearQueue(sessionKey: string) {
+    return this.target(sessionKey).session.clearQueue()
+  }
+  async setSteeringMode(sessionKey: string, mode: 'all' | 'one-at-a-time') {
+    const record = this.target(sessionKey)
+    record.state = record.dormant ? { ...record.state, steeringMode: mode } : await record.session.setSteeringMode(mode)
+    return record.state
+  }
+  async setFollowUpMode(sessionKey: string, mode: 'all' | 'one-at-a-time') {
+    const record = this.target(sessionKey)
+    record.state = record.dormant ? { ...record.state, followUpMode: mode } : await record.session.setFollowUpMode(mode)
+    return record.state
+  }
+  async getCommands() {
+    const record = this.active
+    if (record.dormant || record.starting) {
+      const cached = this.commands.get(`${record.cwd}:${record.accessMode}`)
+      if (cached) return [...builtinCommands, ...cached.filter((command) => command.source !== 'builtin')]
+      const commands = this.resourceDiscovery ? await readLocalSkills(record.cwd, this.runtimePaths.agentDir) : []
+      this.commands.set(`${record.cwd}:${record.accessMode}`, commands)
+      return [...builtinCommands, ...commands]
+    }
+    const commands = (await record.session.getCommands()).filter((command) => !command.name.startsWith('pi-desktop-'))
+    this.commands.set(`${record.cwd}:${record.accessMode}`, commands)
+    return [...builtinCommands, ...commands]
+  }
+  async setModel(sessionKey: string, model: PiModel) {
+    const record = this.target(sessionKey)
+    if (record.dormant) {
+      const models =
+        this.localAvailableModels ??
+        (await (this.localModels ??= readLocalModels(this.runtimePaths.agentDir, this.credentialStorage)))
+      const selected = models.find((entry) => entry.id === model.id && entry.provider === model.provider) ?? model
+      record.state = { ...record.state, model: selected, modelSelectionRequired: false }
+      return selected
+    }
+    const selected = await record.session.setModel(model)
+    record.state.model = selected
+    return selected
+  }
+  async setThinkingLevel(sessionKey: string, level: ThinkingLevel) {
+    const record = this.target(sessionKey)
+    if (record.dormant) {
+      record.state = { ...record.state, thinkingLevel: level }
+      return
+    }
+    await record.session.setThinkingLevel(level)
+    record.state.thinkingLevel = level
+  }
+  getAvailableThinkingLevels() {
+    return this.active.dormant ? Promise.resolve(this.thinkingLevels) : this.active.session.getAvailableThinkingLevels()
+  }
+  getSessionStats() {
+    if (this.active.dormant) {
+      return this.active.stats
+        ? Promise.resolve(this.active.stats)
+        : Promise.reject(new Error('会话尚未运行，暂无上下文统计'))
+    }
+    return this.active.session.getSessionStats()
+  }
+  captureRestoreState() {
+    if (this.active.dormant)
+      return Promise.resolve({
+        sessionFile: this.active.sessionFile,
+        model: this.active.state.model,
+        thinkingLevel: this.active.state.thinkingLevel,
+      })
+    return this.active.session.captureRestoreState()
+  }
+  private async restoreRuntime(restore: ModelRestore | undefined) {
+    const record = this.active
+    const epoch = ++this.epoch
+    const retained = [...this.sessions.values()]
+    await Promise.all(
+      retained.map(async (entry) => {
+        if (entry.session.connection().status === 'ready') {
+          this.rememberSnapshot(entry, await entry.session.snapshot())
+        }
+      }),
+    )
+    this.localModels = null
+    this.localAvailableModels = null
+    this.thinkingLevels = []
+    this.commands.clear()
+    for (const entry of retained) {
+      this.stopRecord(entry)
+      entry.dormant = entry !== record
+      entry.extensions.clear()
+      entry.extensionError = undefined
+      entry.liveEvents = []
+      entry.tools.clear()
+      entry.queue = undefined
+    }
+    this.generation += 1
+    record.error = undefined
+    const starting = Promise.resolve().then(async () => {
+      await record.accessReady
+      this.configureSession(record)
+      await record.session.reconnectModels(
+        restore ?? {
+          sessionFile: record.sessionFile,
+          model: record.state.model,
+          thinkingLevel: record.state.thinkingLevel,
+        },
+      )
+      if (epoch !== this.epoch || !this.sessions.has(record.key)) return
+      if (record.session.connection().status !== 'ready') return
+      await record.session.setSteeringMode(record.state.steeringMode)
+      await record.session.setFollowUpMode(record.state.followUpMode)
+      this.rememberSnapshot(record, await record.session.snapshot())
+    })
+    record.starting = starting
+    this.notify.connection(this.connection())
+    try {
+      await starting
+    } finally {
+      record.starting = undefined
+      this.signalSettled()
+      if (epoch === this.epoch && this.sessions.has(record.key)) {
+        record.dormant = record.session.connection().status !== 'ready'
+        this.notify.connection(this.connection())
+        this.notify.sessionsChanged()
+      }
+    }
+  }
+  reconnectModels(restore?: ModelRestore) {
+    return this.restoreRuntime(restore)
+  }
+  async respondExtensionUI(sessionKey: string, id: string, response: PiExtensionUIResponse) {
+    const record = this.target(sessionKey)
+    const saved = record.extensions.get(`dialog:${id}`)
+    if (!saved || record.answers.has(id)) throw new Error('交互已回答或已过期')
+    const request = saved.event
+    if (request.type !== 'extension_ui_request') throw new Error('扩展交互请求无效')
+    const cancelled = 'cancelled' in response && response.cancelled === true && Object.keys(response).length === 1
+    const confirmed =
+      'confirmed' in response && typeof response.confirmed === 'boolean' && Object.keys(response).length === 1
+    const value = 'value' in response && typeof response.value === 'string' && Object.keys(response).length === 1
+    if (!cancelled && (request.method === 'confirm' ? !confirmed : !value)) throw new Error('弹窗响应与请求类型不匹配')
+    if (request.method === 'select' && value && 'value' in response && !request.options.includes(response.value))
+      throw new Error('所选项不在弹窗选项内')
+    record.answers.add(id)
+    try {
+      await record.session.respondExtensionUI(id, response)
+      this.handleEvent(record, {
+        generation: this.generation,
+        event: { type: 'extension_ui_closed', id, reason: 'answered' },
+      })
+    } catch (cause) {
+      if (record.session.connection().status === 'disconnected' || /已取消|超时|过期/.test(String(cause)))
+        this.handleEvent(record, {
+          generation: this.generation,
+          event: { type: 'extension_ui_closed', id, reason: 'cancelled' },
+        })
+      throw cause
+    } finally {
+      record.answers.delete(id)
+      this.signalSettled()
+    }
+  }
+}

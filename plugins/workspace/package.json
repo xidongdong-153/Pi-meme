@@ -1,0 +1,51 @@
+{
+  "name": "@pi-meme/workspace",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./server/handlers": "./src/server/handlers.ts",
+    "./server/session-groups": "./src/server/session-groups.ts",
+    "./server/session-reader": "./src/server/session-reader.ts",
+    "./server/session-service": "./src/server/session-service.ts",
+    "./ui/sidebar/pinned-section": "./src/ui/sidebar/pinned-section.tsx",
+    "./ui/sidebar/project-item": "./src/ui/sidebar/project-item.tsx",
+    "./ui/sidebar/projects-section": "./src/ui/sidebar/projects-section.tsx",
+    "./ui/sidebar/recents-section": "./src/ui/sidebar/recents-section.tsx",
+    "./ui/sidebar/session-item": "./src/ui/sidebar/session-item.tsx",
+    "./ui/sidebar/session-title": "./src/ui/sidebar/session-title.ts",
+    "./ui/sidebar/sidebar": "./src/ui/sidebar/sidebar.tsx",
+    "./ui/use-sessions": "./src/ui/use-sessions.ts",
+    "./server/project-store": "./src/server/project-store.ts",
+    "./ui/project-selector": "./src/ui/project-selector.tsx",
+    "./server/entry": "./src/server/entry.ts",
+    "./ui/plugin": "./src/ui/plugin.ts",
+    "./ui/entry": "./src/ui/entry.tsx"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "1.1.0",
+    "@pi-meme/contracts": "workspace:*",
+    "@pi-meme/pi-runtime": "workspace:*",
+    "@pi-meme/ui": "workspace:*",
+    "lucide-react": "^1.48.0",
+    "@pi-meme/plugin-sdk": "workspace:*"
+  },
+  "peerDependencies": {
+    "react": "^19.3.0"
+  },
+  "devDependencies": {
+    "react": "^19.3.0"
+  },
+  "piMeme": {
+    "sdkVersion": 1,
+    "server": "dist/server/chord-facets.json",
+    "ui": "dist/ui/entry.js",
+    "requires": [
+      "host.workspace"
+    ]
+  }
+}

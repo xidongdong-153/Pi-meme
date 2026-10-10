@@ -1,0 +1,87 @@
+{
+  "name": "@pi-meme/chat",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./server/handlers": "./src/server/handlers.ts",
+    "./ui/composer/command-suggestions": "./src/ui/composer/command-suggestions.tsx",
+    "./ui/composer/completion-query": "./src/ui/composer/completion-query.ts",
+    "./ui/composer/composer": "./src/ui/composer/composer.tsx",
+    "./ui/composer/composer-attachments": "./src/ui/composer/composer-attachments.tsx",
+    "./ui/composer/composer-editor": "./src/ui/composer/composer-editor.tsx",
+    "./ui/composer/composer-queues": "./src/ui/composer/composer-queues.tsx",
+    "./ui/composer/composer-toolbar": "./src/ui/composer/composer-toolbar.tsx",
+    "./ui/composer/image-attachment": "./src/ui/composer/image-attachment.ts",
+    "./ui/composer/rich-draft": "./src/ui/composer/rich-draft.ts",
+    "./ui/composer/use-command-completion": "./src/ui/composer/use-command-completion.ts",
+    "./ui/content/attachment-preview": "./src/ui/content/attachment-preview.tsx",
+    "./ui/content/code-block": "./src/ui/content/code-block.tsx",
+    "./ui/content/markdown-components": "./src/ui/content/markdown-components.tsx",
+    "./ui/content/markdown-content": "./src/ui/content/markdown-content.tsx",
+    "./ui/content/markdown.css": "./src/ui/content/markdown.css",
+    "./ui/content/use-highlighter": "./src/ui/content/use-highlighter.ts",
+    "./ui/conversation/activity-group": "./src/ui/conversation/activity-group.tsx",
+    "./ui/conversation/activity-row": "./src/ui/conversation/activity-row.tsx",
+    "./ui/conversation/assistant-turn": "./src/ui/conversation/assistant-turn.tsx",
+    "./ui/conversation/chat-message": "./src/ui/conversation/chat-message.tsx",
+    "./ui/conversation/message-actions": "./src/ui/conversation/message-actions.tsx",
+    "./ui/conversation/conversation": "./src/ui/conversation/conversation.tsx",
+    "./ui/conversation/inline-message-editor": "./src/ui/conversation/inline-message-editor.tsx",
+    "./ui/conversation/narration-activity-row": "./src/ui/conversation/narration-activity-row.tsx",
+    "./ui/conversation/thinking-activity-row": "./src/ui/conversation/thinking-activity-row.tsx",
+    "./ui/conversation/thinking-block": "./src/ui/conversation/thinking-block.tsx",
+    "./ui/conversation/tool-activity-row": "./src/ui/conversation/tool-activity-row.tsx",
+    "./ui/conversation/tool-call-card": "./src/ui/conversation/tool-call-card.tsx",
+    "./ui/conversation/tool-diff": "./src/ui/conversation/tool-diff.tsx",
+    "./ui/conversation/use-conversation-scroll": "./src/ui/conversation/use-conversation-scroll.ts",
+    "./ui/conversation/user-message-content": "./src/ui/conversation/user-message-content.tsx",
+    "./ui/model/activity-summary": "./src/ui/model/activity-summary.ts",
+    "./ui/model/conversation-turns": "./src/ui/model/conversation-turns.ts",
+    "./ui/model/live-message": "./src/ui/model/live-message.ts",
+    "./ui/model/message-parts": "./src/ui/model/message-parts.ts",
+    "./ui/model/message-text": "./src/ui/model/message-text.ts",
+    "./ui/model/message-versions": "./src/ui/model/message-versions.ts",
+    "./ui/model/state": "./src/ui/model/state.ts",
+    "./ui/model/tool-details": "./src/ui/model/tool-details.ts",
+    "./ui/model/types": "./src/ui/model/types.ts",
+    "./ui/use-chat-session": "./src/ui/use-chat-session.ts",
+    "./ui/composer/transfer-draft": "./src/ui/composer/transfer-draft.ts",
+    "./server/entry": "./src/server/entry.ts",
+    "./ui/plugin": "./src/ui/plugin.ts",
+    "./ui/entry": "./src/ui/entry.tsx"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "1.1.0",
+    "@pi-meme/contracts": "workspace:*",
+    "@pi-meme/pi-runtime": "workspace:*",
+    "@pi-meme/ui": "workspace:*",
+    "lucide-react": "^1.48.0",
+    "react-markdown": "^10.1.0",
+    "rehype-katex": "^7.0.1",
+    "remark-gfm": "^4.0.1",
+    "remark-math": "^6.0.0",
+    "shiki": "^4.4.3",
+    "@pi-meme/plugin-sdk": "workspace:*"
+  },
+  "peerDependencies": {
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "piMeme": {
+    "sdkVersion": 1,
+    "server": "dist/server/chord-facets.json",
+    "ui": "dist/ui/entry.js",
+    "requires": [
+      "host.chat"
+    ]
+  }
+}

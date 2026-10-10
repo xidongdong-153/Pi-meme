@@ -1,0 +1,45 @@
+{
+  "name": "@pi-meme/host",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./service": "./src/service.ts",
+    "./server": "./src/server.ts",
+    "./credentials": "./src/credentials.ts",
+    "./data-root": "./src/data-root.ts",
+    "./runtime-extensions": "./src/runtime-extensions.ts"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "@pi-meme/contracts": "workspace:*",
+    "@pi-meme/chat": "workspace:*",
+    "@pi-meme/git": "workspace:*",
+    "@pi-meme/models": "workspace:*",
+    "@pi-meme/pi-extensions": "workspace:*",
+    "@pi-meme/settings": "workspace:*",
+    "@pi-meme/workspace": "workspace:*",
+    "@pi-meme/pi-runtime": "workspace:*",
+    "@pi-meme/subagents": "workspace:*",
+    "@pi-meme/mcp": "workspace:*",
+    "@pi-meme/pi-adapter": "workspace:*",
+    "ws": "^8.18.3",
+    "proper-lockfile": "4.1.2",
+    "@pi-meme/plugin-runtime": "workspace:*",
+    "@pi-meme/plugin-sdk": "workspace:*",
+    "@pi-meme/history": "workspace:*",
+    "@pi-meme/usage": "workspace:*",
+    "@pi-meme/resources": "workspace:*",
+    "@pi-meme/sandbox-macos": "workspace:*",
+    "@pi-meme/permissions": "workspace:*",
+    "@pi-meme/codemode": "workspace:*",
+    "@earendil-works/pi-coding-agent": "1.1.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.1",
+    "@types/proper-lockfile": "^4.1.4"
+  }
+}

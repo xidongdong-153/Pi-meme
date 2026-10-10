@@ -1,0 +1,22 @@
+{
+  "name": "@pi-meme/plugin-runtime",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./manager": "./src/manager.ts",
+    "./package": "./src/package.ts"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "@pi-meme/plugin-sdk": "workspace:*",
+    "@earendil-works/chord": "1.1.0",
+    "acorn": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0"
+  }
+}

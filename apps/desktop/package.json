@@ -1,0 +1,48 @@
+{
+  "name": "pi-meme",
+  "productName": "pi-meme",
+  "version": "1.0.0",
+  "description": "本地 Pi Coding Agent 的 macOS 桌面客户端",
+  "main": ".vite/build/main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron-forge start",
+    "package": "electron-forge package",
+    "make": "electron-forge make",
+    "publish": "electron-forge publish",
+    "type-check": "tsc --noEmit",
+    "test:desktop": "electron tests/desktop-smoke.cjs",
+    "test:package": "node --import tsx --test tests/package-*-smoke.ts",
+    "test": "node --import tsx --test tests/*.test.ts"
+  },
+  "keywords": [],
+  "author": {
+    "name": "xidongdong-153",
+    "email": "78343897+xidongdong-153@users.noreply.github.com"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@electron-forge/cli": "^7.11.2",
+    "@electron-forge/maker-zip": "^7.11.2",
+    "@electron-forge/plugin-fuses": "^7.11.2",
+    "@electron-forge/plugin-vite": "^7.11.2",
+    "@electron/fuses": "^1.8.0",
+    "@tailwindcss/vite": "^4.3.3",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "electron": "^44.4.5",
+    "tailwindcss": "^4.3.3",
+    "vite": "^8.3.1",
+    "@electron-forge/shared-types": "^7.11.2",
+    "@pi-meme/chat": "workspace:*",
+    "@pi-meme/models": "workspace:*",
+    "@pi-meme/pi-runtime": "workspace:*"
+  },
+  "dependencies": {
+    "@pi-meme/contracts": "workspace:*",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "@pi-meme/host": "workspace:*"
+  }
+}

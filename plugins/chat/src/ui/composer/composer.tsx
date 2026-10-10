@@ -1,0 +1,207 @@
+import * as React from 'react'
+import type { ClipboardEvent, DragEvent, ReactNode } from 'react'
+import type { ChatBridge } from '@pi-meme/contracts/desktop'
+import type { PiSlashCommand, PiState } from '@pi-meme/contracts/pi'
+import type { ChatState } from '../model/types'
+import { cn } from '@pi-meme/ui/lib/utils'
+import { imageToAttachment, type ComposerAttachment } from './image-attachment'
+import { ComposerEditor } from './composer-editor'
+import { ComposerToolbar } from './composer-toolbar'
+import { ComposerAttachments } from './composer-attachments'
+import { ComposerQueues } from './composer-queues'
+
+export type ComposerProps = {
+  workspace?: ReactNode
+  projectPath?: string
+  loadProjectFiles?: ChatBridge['getProjectFiles']
+  selectedSkills: PiSlashCommand[]
+  onSkills: (skills: PiSlashCommand[]) => void
+  draft: string
+  onDraft: (value: string) => void
+  attachments: ComposerAttachment[]
+  onAddImages: (images: ComposerAttachment[]) => void
+  onRemoveImage: (id: string) => void
+  running: boolean
+  disabled: boolean
+  queueMode: 'steering' | 'followUp'
+  onQueueMode: (mode: 'steering' | 'followUp') => void
+  steeringMode?: PiState['steeringMode']
+  followUpMode?: PiState['followUpMode']
+  onSteeringMode: (mode: PiState['steeringMode']) => void
+  onFollowUpMode: (mode: PiState['followUpMode']) => void
+  queues: Pick<ChatState, 'steering' | 'followUp'>
+  onSend: () => void
+  onStop: () => void
+  onClearQueue: () => void
+  commands: PiSlashCommand[]
+  /** 扩展挂件、状态与占用展示由 desktop 组合后作为节点传入 */
+  widgetsAbove: ReactNode
+  widgetsBelow: ReactNode
+  statusBadges: ReactNode
+  focusVersion: number
+  onError: (message: string) => void
+  model: ReactNode
+  access: ReactNode
+  contextUsage: ReactNode
+  editing: boolean
+  onCancelEdit: () => void
+}
+
+export function Composer({
+  workspace,
+  projectPath,
+  loadProjectFiles,
+  selectedSkills,
+  onSkills,
+  draft,
+  onDraft,
+  attachments,
+  onAddImages,
+  onRemoveImage,
+  running,
+  disabled,
+  queueMode,
+  onQueueMode,
+  steeringMode,
+  followUpMode,
+  onSteeringMode,
+  onFollowUpMode,
+  queues,
+  onSend,
+  onStop,
+  onClearQueue,
+  commands,
+  widgetsAbove,
+  widgetsBelow,
+  statusBadges,
+  focusVersion,
+  onError,
+  model,
+  access,
+  contextUsage,
+  editing,
+  onCancelEdit,
+}: ComposerProps) {
+  const [dragging, setDragging] = React.useState(false)
+  const fileInputRef = React.useRef<HTMLInputElement>(null)
+  const hasQueue = queues.steering.length > 0 || queues.followUp.length > 0
+
+  async function addFiles(files: File[]) {
+    const images = files.filter((file) => file.type.startsWith('image/'))
+    if (!images.length) return
+    const results = await Promise.allSettled(images.map(imageToAttachment))
+    const ready = results.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []))
+    const failures = results.flatMap((result) => (result.status === 'rejected' ? [String(result.reason)] : []))
+    if (ready.length) onAddImages(ready)
+    if (failures.length) onError(failures.join('\n'))
+  }
+
+  function paste(event: ClipboardEvent<HTMLDivElement>) {
+    const files = Array.from(event.clipboardData.items)
+      .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
+      .map((item) => item.getAsFile())
+      .filter((file): file is File => file !== null)
+    if (!files.length) return
+    event.preventDefault()
+    void addFiles(files)
+  }
+
+  function drop(event: DragEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setDragging(false)
+    void addFiles(Array.from(event.dataTransfer.files))
+  }
+
+  return (
+    <form
+      aria-label="消息输入"
+      className={cn(
+        'relative flex flex-col rounded-2xl border border-border/80 bg-card/95 p-3 shadow-lg transition-all',
+        dragging && 'border-primary ring-2 ring-primary/20',
+      )}
+      onSubmit={(event) => {
+        event.preventDefault()
+        if (!disabled && (draft.trim() || selectedSkills.length || attachments.length)) onSend()
+      }}
+      onDragEnter={(event) => {
+        if (event.dataTransfer.types.includes('Files')) setDragging(true)
+      }}
+      onDragLeave={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false)
+      }}
+      onDragOver={(event) => {
+        if (event.dataTransfer.types.includes('Files')) event.preventDefault()
+      }}
+      onDrop={drop}
+    >
+      {/* 隐藏的图片文件选择器 */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        multiple
+        accept="image/*"
+        className="hidden"
+        onChange={(event) => {
+          if (event.target.files?.length) {
+            void addFiles(Array.from(event.target.files))
+            event.target.value = ''
+          }
+        }}
+      />
+
+      {workspace}
+      {widgetsAbove}
+      {statusBadges}
+
+      {editing && (
+        <div className="mb-2 flex items-center justify-between rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-xs">
+          <span className="text-foreground">正在编辑历史消息</span>
+          <button
+            type="button"
+            onClick={onCancelEdit}
+            className="rounded px-2 py-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            取消编辑
+          </button>
+        </div>
+      )}
+
+      <ComposerAttachments attachments={attachments} onRemoveImage={onRemoveImage} />
+      <ComposerEditor
+        projectPath={projectPath}
+        loadProjectFiles={loadProjectFiles}
+        selectedSkills={selectedSkills}
+        onSkills={onSkills}
+        draft={draft}
+        onDraft={onDraft}
+        commands={commands}
+        focusVersion={focusVersion}
+        onClearQueue={onClearQueue}
+        hasQueue={hasQueue}
+        paste={paste}
+        dragging={dragging}
+      />
+
+      {widgetsBelow}
+      <ComposerQueues queues={queues} onClearQueue={onClearQueue} />
+      <ComposerToolbar
+        running={running}
+        disabled={disabled}
+        draft={draft}
+        hasAttachments={attachments.length > 0 || selectedSkills.length > 0}
+        queueMode={queueMode}
+        onQueueMode={onQueueMode}
+        steeringMode={steeringMode}
+        followUpMode={followUpMode}
+        onSteeringMode={onSteeringMode}
+        onFollowUpMode={onFollowUpMode}
+        onStop={onStop}
+        onAddFiles={() => fileInputRef.current?.click()}
+        model={model}
+        access={access}
+        contextUsage={contextUsage}
+        editing={editing}
+      />
+    </form>
+  )
+}

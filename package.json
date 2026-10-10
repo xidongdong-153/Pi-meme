@@ -1,0 +1,39 @@
+{
+  "name": "pi-meme-monorepo",
+  "private": true,
+  "packageManager": "pnpm@10.29.1",
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "start": "pnpm build:plugins && pnpm --filter pi-meme start",
+    "package": "pnpm build:plugins && pnpm --filter pi-meme package",
+    "make": "pnpm build:plugins && pnpm --filter pi-meme make",
+    "publish": "pnpm --filter pi-meme publish",
+    "test": "pnpm -r test",
+    "test:desktop": "pnpm --filter pi-meme test:desktop",
+    "test:package": "pnpm --filter pi-meme test:package",
+    "lint": "eslint .",
+    "type-check": "pnpm -r type-check",
+    "format": "prettier --check .",
+    "check-boundaries": "node scripts/check-package-boundaries.mjs",
+    "start:server": "pnpm build:plugins && pnpm --filter @pi-meme/server start",
+    "start:web": "pnpm --filter @pi-meme/web dev",
+    "build:web": "pnpm --filter @pi-meme/web build",
+    "build:server": "pnpm build:plugins && pnpm --filter @pi-meme/server build",
+    "test:host": "pnpm --filter @pi-meme/host test",
+    "test:plugins": "pnpm --filter @pi-meme/plugin-runtime test",
+    "build:plugins": "node --import tsx scripts/build-builtin-plugins.mts",
+    "test:server": "pnpm build:server && pnpm --filter @pi-meme/server test:dist"
+  },
+  "devDependencies": {
+    "@antfu/eslint-config": "^9.5.1",
+    "eslint": "^10.5.0",
+    "eslint-config-prettier": "^10.1.8",
+    "prettier": "^3.9.9",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3",
+    "@pi-meme/plugin-devkit": "workspace:*",
+    "esbuild": "0.28.2"
+  }
+}

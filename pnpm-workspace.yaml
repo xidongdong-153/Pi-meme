@@ -1,0 +1,7 @@
+packages:
+  - apps/*
+  - packages/*
+  - plugins/*
+
+patchedDependencies:
+  '@electron-forge/plugin-vite@7.11.2': patches/@electron-forge__plugin-vite@7.11.2.patch

@@ -1,0 +1,13 @@
+diff --git a/dist/config/vite.preload.config.js b/dist/config/vite.preload.config.js
+index 09fd7516690154c5ef2313ceb8e32ca1dac40c53..cabc045766c01b90f1c88f684dc34932cfb94a1a 100644
+--- a/dist/config/vite.preload.config.js
++++ b/dist/config/vite.preload.config.js
+@@ -15,7 +15,7 @@ function getConfig(forgeEnv, userConfig = {}) {
+                 output: {
+                     format: 'cjs',
+                     // It should not be split chunks.
+-                    inlineDynamicImports: true,
++                    codeSplitting: false,
+                     entryFileNames: '[name].js',
+                     chunkFileNames: '[name].js',
+                     assetFileNames: '[name].[ext]',

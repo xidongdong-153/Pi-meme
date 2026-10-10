@@ -1,0 +1,19 @@
+{
+  "name": "@pi-meme/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --import tsx src/main.ts",
+    "type-check": "tsc --noEmit",
+    "build": "vite build",
+    "test:dist": "node --import tsx --test tests/*.test.ts"
+  },
+  "dependencies": {
+    "@pi-meme/host": "workspace:*"
+  },
+  "devDependencies": {
+    "@pi-meme/contracts": "workspace:*",
+    "vite": "^8.3.1"
+  }
+}
