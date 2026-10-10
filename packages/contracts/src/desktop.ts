@@ -46,6 +46,7 @@ import type {
 
 export type Connection = {
   workspaceKind?: WorkspaceKind
+  sourceProjectCwd?: string
   generation: number
   sessionKey?: string
   sessionFile?: string
@@ -67,6 +68,24 @@ export type GitSnapshot = {
   insertions: number
   deletions: number
   error?: 'unavailable' | 'not-repository' | 'failed'
+}
+export type GitBranch = { name: string; ref: string; kind: 'local' | 'remote'; current: boolean; occupiedBy?: string }
+export type GitEnvironment = {
+  cwd: string
+  root: string
+  branch?: string
+  headSha?: string
+  dirty: boolean
+  branches: GitBranch[]
+}
+export type GitWorktreeResult = {
+  cwd: string
+  checkoutRoot: string
+  sourceProjectCwd: string
+  baseRef: string
+  headSha: string
+  selection: SessionSelectionResult
+  selectionError?: string
 }
 export type ProjectFile = { path: string; kind: 'file' | 'directory' }
 export type ProjectApp = { id: 'finder' | 'vscode' | 'cursor' | 'zed'; name: string }
@@ -211,6 +230,10 @@ export interface ExtensionBridge {
 
 /** Git 状态与文件 Diff。 */
 export interface GitBridge {
+  getGitEnvironment: (sessionKey: string) => Promise<GitEnvironment>
+  switchGitBranch: (sessionKey: string, branch: string) => Promise<SessionSelectionResult>
+  createGitBranch: (sessionKey: string, branch: string, baseRef: string) => Promise<SessionSelectionResult>
+  createGitWorktree: (sessionKey: string, baseRef: string) => Promise<GitWorktreeResult>
   getGitSnapshot: () => Promise<GitSnapshot>
   getGitDiff: (filePath: string, kind: GitFileChange['kind']) => Promise<string>
 }

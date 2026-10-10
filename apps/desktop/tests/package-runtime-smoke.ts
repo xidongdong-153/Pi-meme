@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawn, execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { createHash, X509Certificate } from 'node:crypto'
 import { get } from 'node:https'
 import { startHostServer } from '@pi-meme/host/server'
 import { once } from 'node:events'
@@ -39,7 +38,7 @@ async function runPackagedSmoke(mode: 'local' | 'recovery' | 'remote' | 'fresh',
     )
   let remoteHost: Awaited<ReturnType<typeof startHostServer>> | undefined
   let certificate: Buffer | undefined
-  let certificatePin: string | undefined
+  let certificateFile: string | undefined
   if (mode === 'remote') {
     const keyFile = path.join(root, 'test-key.pem')
     const certFile = path.join(root, 'test-cert.pem')
@@ -61,9 +60,7 @@ async function runPackagedSmoke(mode: 'local' | 'recovery' | 'remote' | 'fresh',
       certFile,
     ])
     certificate = await readFile(certFile)
-    certificatePin = createHash('sha256')
-      .update(new X509Certificate(certificate).publicKey.export({ type: 'spki', format: 'der' }))
-      .digest('base64')
+    certificateFile = certFile
     const remoteDataRoot = path.join(root, 'remote-data')
     await mkdir(path.join(remoteDataRoot, 'pi'), { recursive: true })
     await writeFile(path.join(remoteDataRoot, 'pi', 'models.json'), await readFile(fixture.modelsFile))
@@ -95,12 +92,12 @@ async function runPackagedSmoke(mode: 'local' | 'recovery' | 'remote' | 'fresh',
       `--remote-debugging-port=${port}`,
       '--remote-debugging-address=127.0.0.1',
       `--user-data-dir=${path.join(dataRoot, 'desktop-cache')}`,
-      ...(certificatePin ? [`--ignore-certificate-errors-spki-list=${certificatePin}`] : []),
     ],
     {
       env: {
         ...process.env,
         PI_MEME_DATA_ROOT: dataRoot,
+        ...(certificateFile ? { PI_MEME_TEST_TLS_CA: certificateFile } : {}),
         PI_MEME_TEST_CREDENTIALS: 'file',
         PI_MEME_REMOTE_HOST: mode === 'recovery' ? `https://127.0.0.1:${port}` : (remoteHost?.url ?? ''),
         PI_MEME_TOKEN: remoteHost ? 'remote-test-token' : '',
@@ -119,13 +116,7 @@ async function runPackagedSmoke(mode: 'local' | 'recovery' | 'remote' | 'fresh',
       const response = await fetch(`http://127.0.0.1:${port}/json/list`).catch(() => undefined)
       if (!response?.ok) return undefined
       const pages = (await response.json()) as Array<{ type: string; url: string; webSocketDebuggerUrl: string }>
-      return pages.find(
-        (value) =>
-          value.type === 'page' &&
-          (mode === 'recovery'
-            ? value.url.startsWith('data:text/html')
-            : value.url.startsWith(remoteHost?.url ?? 'http://127.0.0.1:')),
-      )
+      return pages.find((value) => value.type === 'page' && value.url.startsWith('http://127.0.0.1:'))
     }, '共享 UI 页面')
     socket = new WebSocket(page.webSocketDebuggerUrl)
     await new Promise<void>((resolve, reject) => {
@@ -163,20 +154,6 @@ async function runPackagedSmoke(mode: 'local' | 'recovery' | 'remote' | 'fresh',
           }),
         )
       })
-    if (mode === 'recovery') {
-      await waitFor(
-        async () => ((await evaluate('document.title')) === 'Host 连接失败' ? true : undefined),
-        '恢复页加载',
-      )
-      assert.equal(await evaluate('typeof window.piPlatform.retryHostConnection'), 'function')
-      assert.match(
-        String(
-          await evaluate('window.piPlatform.getHostConnection().then(() => "允许").catch(cause => cause.message)'),
-        ),
-        /不允许|恢复页/,
-      )
-      await evaluate('document.getElementById("local").click()')
-    }
     await waitFor(
       async () =>
         (await evaluate('Boolean(window.piMemeClient && document.querySelector("[aria-label=消息]"))'))
@@ -194,19 +171,61 @@ async function runPackagedSmoke(mode: 'local' | 'recovery' | 'remote' | 'fresh',
     )
     assert.equal(typeof JSON.parse(await readFile(path.join(dataRoot, 'auth.json'), 'utf8'))['host:token'], 'string')
     if (mode === 'remote') {
-      const saved = await evaluate('window.piPlatform.listSavedHostConnections()')
+      const saved = await waitFor(async () => {
+        const value = (await evaluate('window.piPlatform.listSavedHostConnections()')) as unknown[]
+        if (value.length) return value
+        const failure = (await evaluate('window.piPlatform.getHostConnectionError()')) as { message?: string } | null
+        if (failure?.message) throw new Error(`远程服务登记失败：${failure.message}`)
+        return undefined
+      }, '启动远程服务登记').catch((cause: unknown) => {
+        throw new Error(`${String(cause)}\n${output}`)
+      })
       assert.deepEqual(saved, [{ url: remoteHost!.url, hostId: remoteHost!.host.hostId }])
-      assert.equal(await evaluate('window.piPlatform.getHostConnection().then(value => value.token)'), '')
+      const localOrigin = await evaluate('window.location.origin')
+      assert.notEqual(localOrigin, remoteHost!.url)
+      assert.equal(await evaluate('window.piPlatform.getHostConnection().then(value => value.local)'), true)
+      assert.equal(await evaluate('window.piPlatform.getHostConnection().then(value => value.url)'), localOrigin)
       const failure = await evaluate(
         `window.piPlatform.setHostConnection({url:${JSON.stringify(remoteHost!.url)},token:'wrong-token'}).then(() => '').catch(cause => cause.message)`,
       )
       assert.match(String(failure), /认证失败/)
-      assert.equal(await evaluate('window.location.origin'), remoteHost!.url)
+      assert.equal(await evaluate('window.location.origin'), localOrigin)
       assert.deepEqual(
         await evaluate('window.piPlatform.listSavedHostConnections()'),
         saved,
         '错误令牌不覆盖已保存连接',
       )
+    }
+    if (mode === 'recovery') {
+      await waitFor(async () => {
+        const error = (await evaluate('window.piPlatform.getHostConnectionError()')) as { local?: boolean } | null
+        return error?.local === false ? true : undefined
+      }, '远程登记失败保留本机界面')
+      assert.equal(await evaluate('window.piPlatform.getHostConnection().then(value => value.local)'), true)
+      assert.notEqual(await evaluate('document.title'), 'Host 连接失败')
+    }
+    if (mode === 'remote') {
+      await evaluate(`(async () => {
+        const call = async (prefix, hostId, method, args = [], sessionId) => {
+          const response = await fetch(prefix + '/api/rpc', { method: 'POST', headers: {'Content-Type':'application/json'}, body: JSON.stringify({requestId: crypto.randomUUID(), clientId:'package-remote-test', hostId, method, args, sessionId}) })
+          const value = await response.json()
+          if (!response.ok || value.error) throw new Error(JSON.stringify(value.error))
+          return value.result
+        }
+        const local = await window.piPlatform.getHostConnection()
+        const services = await call('', local.hostId, 'host:services:list')
+        const remote = services.find(service => service.address === ${JSON.stringify(remoteHost!.url)})
+        if (!remote) throw new Error('远程服务未登记')
+        const prefix = '/api/services/' + remote.id
+        window.piMemeRemoteTestBridge = {
+          getSnapshot: () => call(prefix, remote.hostId, 'pi:snapshot'),
+          getConnection: () => call(prefix, remote.hostId, 'pi:connection'),
+          prompt: (key, message) => call(prefix, remote.hostId, 'pi:prompt', [key,message,[],[]], key),
+        }
+        await call(prefix, remote.hostId, 'pi:new-session')
+        const auth = await fetch(prefix + '/api/auth', {method:'POST', headers:{'Content-Type':'application/json'},body:'{}'})
+        if (auth.headers.has('set-cookie')) throw new Error('代理泄漏远程认证Cookie')
+      })()`)
     }
     assert.equal(await evaluate('typeof window.piDesktop'), 'undefined', '打包页面不提供业务 IPC Bridge')
     if (mode === 'fresh') {
@@ -216,23 +235,25 @@ async function runPackagedSmoke(mode: 'local' | 'recovery' | 'remote' | 'fresh',
     }
     assert.equal(
       await evaluate(
-        'window.piMemeClient.getSnapshot().then(value => value.models.some(model => model.id === "first"))',
+        '(window.piMemeRemoteTestBridge ?? window.piMemeClient).getSnapshot().then(value => value.models.some(model => model.id === "first"))',
       ),
       true,
     )
     await evaluate(
-      'window.piMemeClient.getConnection().then(value => window.piMemeClient.prompt(value.sessionKey, "打包消息"))',
+      '(window.piMemeRemoteTestBridge ?? window.piMemeClient).getConnection().then(value => (window.piMemeRemoteTestBridge ?? window.piMemeClient).prompt(value.sessionKey, "打包消息"))',
     )
     await waitFor(
       async () =>
         (await evaluate(
-          'window.piMemeClient.getSnapshot().then(value => !value.state.isStreaming && !value.state.isCompacting && value.messages.some(message => message.role === "assistant" && JSON.stringify(message.content).includes("打包应用回复")))',
+          '(window.piMemeRemoteTestBridge ?? window.piMemeClient).getSnapshot().then(value => !value.state.isStreaming && !value.state.isCompacting && value.messages.some(message => message.role === "assistant" && JSON.stringify(message.content).includes("打包应用回复")))',
         ))
           ? true
           : undefined,
       'Worker 假模型回复',
     )
-    const sessionFile = await evaluate('window.piMemeClient.getSnapshot().then(value => value.connection.sessionFile)')
+    const sessionFile = await evaluate(
+      '(window.piMemeRemoteTestBridge ?? window.piMemeClient).getSnapshot().then(value => value.connection.sessionFile)',
+    )
     assert.equal(typeof sessionFile, 'string')
     assert.match(await readFile(sessionFile as string, 'utf8'), /打包消息/)
     if (mode === 'remote') {
@@ -267,8 +288,8 @@ async function runPackagedSmoke(mode: 'local' | 'recovery' | 'remote' | 'fresh',
 
 const cases = {
   local: '实际 macOS 应用启动独立 Host，加载共享 UI 并通过 Worker 完成假模型消息',
-  recovery: '实际应用远程连接失败显示受限恢复页，点击本地 Host 后完成假模型消息',
-  remote: '实际应用连接 HTTPS Host 完成假模型消息，退出不停止外部 Host',
+  recovery: '实际应用远程连接失败时保留本机界面并完成假模型消息',
+  remote: '实际应用保持本机页面并经代理连接 HTTPS Host 完成假模型消息，退出不停止外部 Host',
 } as const
 for (const mode of ['local', 'recovery', 'remote'] as const)
   test(

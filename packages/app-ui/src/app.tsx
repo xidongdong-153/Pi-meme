@@ -1,3 +1,7 @@
+import { GitMenu } from '@pi-meme/git/ui/git-menu'
+import { LocationSelector } from './location-selector'
+import { serviceAddress } from './service-ui'
+import type { ServiceUI } from './service-ui'
 import { DeveloperSettings } from './developer-settings'
 import { SubagentsPanel } from './subagents-panel'
 import { ProfileSettings } from '@pi-meme/usage/ui/profile-settings'
@@ -56,7 +60,9 @@ export function App({
   hostLocal = false,
   onHostConnection,
   hostConnections,
+  serviceUI,
 }: {
+  serviceUI?: ServiceUI
   bridge: DesktopBridge
   plugins: PluginClient
   call: <T>(method: string, args?: unknown[]) => Promise<T>
@@ -80,7 +86,9 @@ export function App({
       setRightPaneOpen(true)
     },
   })
-  const settings = useSettings(bridge, true, false)
+  const active = serviceUI?.active ?? true
+  const settings = useSettings(bridge, true, false, !serviceUI)
+  const appearance = useSettings(serviceUI?.appearanceBridge ?? bridge, Boolean(serviceUI) && active, false)
   const contributions = useSyncExternalStore(registry.subscribe, registry.getSnapshot, registry.getSnapshot)
   const [selectedPage, setSelectedPage] = useState<string>()
   const pluginPages = contributions.filter((entry) => entry.slot === 'page')
@@ -120,6 +128,9 @@ export function App({
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [sidebarWidth, setSidebarWidth] = useState(256)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  useEffect(() => {
+    serviceUI?.onController(serviceUI.serviceId, { ...chat, openSettings: () => setSettingsOpen(true) })
+  })
   const [instructionsDirty, setInstructionsDirty] = useState(false)
   const [instructionsSaving, setInstructionsSaving] = useState(false)
   const [rightPaneWidth, setRightPaneWidth] = useState(352)
@@ -129,8 +140,8 @@ export function App({
   const project =
     chat.connection.workspaceKind === 'standalone'
       ? '不在项目中工作'
-      : chat.connection.cwd
-        ? chat.connection.cwd.split(/[\\/]/).filter(Boolean).at(-1) || '选择项目'
+      : (chat.connection.sourceProjectCwd ?? chat.connection.cwd)
+        ? (chat.connection.sourceProjectCwd ?? chat.connection.cwd).split(/[\\/]/).filter(Boolean).at(-1) || '选择项目'
         : 'pi-meme'
   const first = chat.chat.messages.find((message) => message.role === 'user')
   const status = chat.chat.running
@@ -154,6 +165,15 @@ export function App({
       ]
     : []
   const activeSummary = sessionList.find((session) => session.path === chat.sessions?.activeSessionPath)
+  const showWorkspaceSlot =
+    ready &&
+    !chat.loading &&
+    !chat.navigationBusy &&
+    Boolean(chat.state) &&
+    !chat.connection.sessionFile &&
+    !activeSummary &&
+    !chat.chat.messages.length &&
+    !chat.chat.running
   const sourcePath = activeSummary?.parentSessionPath
   const sourceSummary = sourcePath ? sessionList.find((session) => session.path === sourcePath) : undefined
   const forkedFrom =
@@ -175,35 +195,34 @@ export function App({
   }, [settings.snapshot?.settings.preferredProjectApp])
 
   useEffect(() => {
-    document.title = chat.extensionTitle || title
-  }, [chat.extensionTitle, title])
+    if (active) document.title = chat.extensionTitle || title
+  }, [chat.extensionTitle, title, active])
 
+  const projectSelector = (
+    <ProjectSelector
+      {...{
+        cwd: chat.connection.sourceProjectCwd ?? chat.connection.cwd,
+        kind: chat.connection.workspaceKind,
+        open: workspacePickerOpen,
+        onOpenChange: (open) => {
+          if (open) workspacePickerReturnFocus.current = null
+          setWorkspacePickerOpen(open)
+        },
+        returnFocus: workspacePickerReturnFocus.current,
+        disabledReason: chat.workspaceDisabledReason,
+        loadProjects: bridge.getProjects,
+        onSelect: chat.selectWorkspace,
+        onAdd: chat.chooseDirectory,
+        onError: chat.setError,
+      }}
+    />
+  )
   const composerProps: ComponentProps<typeof Composer> = {
     mode: chat.mode,
     onMode: chat.changeMode,
     onPlanCommand: chat.activatePlan,
     recoveredInputs: chat.recoveredInputs,
     onRestoreQueuedInput: chat.restoreQueuedInput,
-    workspace: (
-      <ProjectSelector
-        {...{
-          cwd: chat.connection.cwd,
-          kind: chat.connection.workspaceKind,
-          open: workspacePickerOpen,
-          onOpenChange: (open) => {
-            if (open) workspacePickerReturnFocus.current = null
-            setWorkspacePickerOpen(open)
-          },
-          returnFocus: workspacePickerReturnFocus.current,
-          disabledReason: chat.workspaceDisabledReason,
-          loadProjects: bridge.getProjects,
-          onSelect: chat.selectWorkspace,
-          onAdd: chat.chooseDirectory,
-          onError: chat.setError,
-          notice: chat.workspaceNotice,
-        }}
-      />
-    ),
     projectPath: chat.connection.cwd,
     loadProjectFiles: bridge.getProjectFiles,
     access: (
@@ -276,7 +295,48 @@ export function App({
       正在编辑历史消息
     </div>
   ) : (
-    <Composer {...composerProps} />
+    <div data-testid="composer-area">
+      <div
+        data-testid="workspace-card"
+        className={
+          showWorkspaceSlot
+            ? 'relative mx-3 -mb-2 flex h-12 min-w-0 items-center justify-between gap-1 rounded-t-[14px] border border-border/80 bg-card/95 px-1.5 pb-2'
+            : 'hidden'
+        }
+      >
+        <div className="flex min-w-0 flex-1 items-center gap-1">
+          {projectSelector}
+          {serviceUI && (
+            <LocationSelector
+              services={serviceUI.services}
+              serviceId={serviceUI.serviceId}
+              disabledReason={chat.workspaceDisabledReason}
+              onSelect={serviceUI.onLocation}
+              onError={chat.setError}
+            />
+          )}
+        </div>
+        {chat.connection.workspaceKind !== 'standalone' && chat.connection.cwd && (
+          <GitMenu
+            bridge={bridge}
+            sessionKey={chat.connection.sessionKey}
+            refreshToken={chat.refreshToken}
+            disabledReason={chat.workspaceDisabledReason}
+            onSwitch={chat.switchGitBranch}
+            onCreateBranch={chat.createGitBranch}
+            onCreateWorktree={chat.createGitWorktree}
+          />
+        )}
+      </div>
+      <div className="relative z-10">
+        <Composer {...composerProps} />
+      </div>
+      {chat.workspaceNotice && (
+        <p role="status" className="px-3 text-xs text-muted-foreground">
+          {chat.workspaceNotice}
+        </p>
+      )}
+    </div>
   )
 
   const editor =
@@ -301,10 +361,15 @@ export function App({
         }
       : undefined
 
+  if (!active) return null
+
   return (
     <PluginToolCardProvider render={(tool) => extra('tool-card', { tool })}>
       <TooltipProvider delayDuration={200}>
-        <main className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground select-none">
+        <main
+          data-active-service={serviceUI?.serviceId ?? 'local'}
+          className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground select-none"
+        >
           <div className={settingsOpen ? 'hidden' : 'flex flex-1 min-h-0 flex-col'} inert={settingsOpen}>
             {/* 全局顶栏：横贯窗口顶部，统一交通灯安全区与操作工具栏 */}
             <AppHeader
@@ -360,29 +425,31 @@ export function App({
                 }`}
               >
                 <div className="min-h-0 flex-1 overflow-hidden">
-                  <Sidebar
-                    {...{
-                      menuBridge: bridge,
-                      onMenuChanged: chat.refreshMenu,
-                      onMenuDeleted: chat.applyMenuDeletion,
-                      projectName: project,
-                      cwd: chat.connection.cwd,
-                      ready,
-                      status,
-                      sessionsSnapshot: chat.sessions,
-                      sessionsLoading: chat.sessionsLoading,
-                      activeSessionId: chat.sessions?.activeSessionId,
-                      activeSessionPath: chat.sessions?.activeSessionPath,
-                      switchingToPath: chat.switchingToPath,
-                      onDirectory: () => void chat.chooseDirectory(),
-                      onNewSession: () => void chat.newSession(),
-                      onNewSessionInProject: (targetCwd) => void chat.newSessionInProject(targetCwd),
-                      onSwitchSession: (sessionPath) => void chat.switchSession(sessionPath),
-                      onTogglePin: (targetPath) => void chat.togglePin(targetPath),
-                      onPrefetchSession: (sessionPath) => void bridge.prefetchSession(sessionPath).catch(() => {}),
-                      onSettings: () => setSettingsOpen(true),
-                    }}
-                  />
+                  {serviceUI?.sidebar ?? (
+                    <Sidebar
+                      {...{
+                        menuBridge: bridge,
+                        onMenuChanged: chat.refreshMenu,
+                        onMenuDeleted: chat.applyMenuDeletion,
+                        projectName: project,
+                        cwd: chat.connection.cwd,
+                        ready,
+                        status,
+                        sessionsSnapshot: chat.sessions,
+                        sessionsLoading: chat.sessionsLoading,
+                        activeSessionId: chat.sessions?.activeSessionId,
+                        activeSessionPath: chat.sessions?.activeSessionPath,
+                        switchingToPath: chat.switchingToPath,
+                        onDirectory: () => void chat.chooseDirectory(),
+                        onNewSession: () => void chat.newSession(),
+                        onNewSessionInProject: (targetCwd) => void chat.newSessionInProject(targetCwd),
+                        onSwitchSession: (sessionPath) => void chat.switchSession(sessionPath),
+                        onTogglePin: (targetPath) => void chat.togglePin(targetPath),
+                        onPrefetchSession: (sessionPath) => void bridge.prefetchSession(sessionPath).catch(() => {}),
+                        onSettings: () => setSettingsOpen(true),
+                      }}
+                    />
+                  )}
                 </div>
                 {extra('sidebar')}
                 {pluginPages.length > 0 && (
@@ -538,6 +605,9 @@ export function App({
           {/* 设置页面 */}
           {settingsOpen && (
             <SettingsPage
+              executionService={
+                serviceUI ? (hostLocal ? '此计算机' : `远程 · ${serviceAddress(hostAddress ?? '')}`) : undefined
+              }
               dirty={instructionsDirty}
               saving={instructionsSaving}
               onDiscard={() => setInstructionsDirty(false)}
@@ -563,6 +633,7 @@ export function App({
                   onOpenDirectory: () => void settings.openDirectory(),
                 }
 
+                if (section === 'host' && serviceUI) return serviceUI.remoteSettings
                 if (section === 'host')
                   return (
                     <HostSettings
@@ -587,7 +658,26 @@ export function App({
                     />
                   )
                 if (section === 'general' || section === 'appearance' || section === 'personalization')
-                  return <SettingsContent section={section} {...contentProps} />
+                  return (
+                    <SettingsContent
+                      section={section}
+                      {...contentProps}
+                      {...(section === 'appearance' && serviceUI
+                        ? {
+                            snapshot: appearance.snapshot,
+                            error: appearance.error,
+                            onAppearance: appearance.saveAppearance,
+                            onPreview: appearance.previewAppearance,
+                            onFlush: appearance.flushAppearance,
+                            loadFonts: appearance.getInstalledFonts,
+                            onImport: () => void appearance.importTheme(),
+                            onExport: (theme) => void appearance.exportTheme(theme),
+                            onReload: () => void appearance.reload(),
+                            onOpenDirectory: () => void appearance.openDirectory(),
+                          }
+                        : {})}
+                    />
+                  )
                 if (section === 'models')
                   return <ModelConfigSettings {...{ busy: chat.modelPickerDisabled, bridge, models: chat.models }} />
                 if (section === 'mcp')

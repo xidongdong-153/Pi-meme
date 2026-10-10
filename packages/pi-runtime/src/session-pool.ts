@@ -133,6 +133,29 @@ export class PiSessionPool implements PiRuntime {
     this.collaboration = value
   }
 
+  private checkoutGate?: (cwd: string) => void
+  configureCheckoutGate(assertAvailable: (cwd: string) => void) {
+    this.checkoutGate = assertAvailable
+  }
+  assertCheckoutIdle(matches: (cwd: string) => boolean) {
+    const records = [...this.sessions.values()].filter((record) => matches(record.cwd))
+    this.assertMutable(records)
+    if (
+      records.some(
+        (record) =>
+          [...record.extensions.keys()].some((key) => key.startsWith('dialog:')) ||
+          (record.queue?.event.type === 'queue_update' &&
+            (record.queue.event.steering.length || record.queue.event.followUp.length)),
+      )
+    )
+      throw new Error('此工作目录仍有排队消息或待答交互，请先处理')
+  }
+  async retireCheckout(matches: (cwd: string) => boolean) {
+    await this.retireSessions((key) => matches(this.sessions.get(key)!.cwd))
+    for (const key of this.commands.keys())
+      if ([...this.sessions.values()].some((record) => matches(record.cwd) && key.startsWith(`${record.cwd}:`)))
+        this.commands.delete(key)
+  }
   private sessions = new Map<string, RuntimeSession>()
   private readonly settledListeners = new Set<() => void>()
   private signalSettled() {
@@ -229,7 +252,17 @@ export class PiSessionPool implements PiRuntime {
     }
   }
   withClientView<T>(view: ClientView, action: () => T): T {
-    return this.viewContext.run(view, action)
+    if (this.views.has(view)) return this.viewContext.run(view, action)
+    this.views.add(view)
+    try {
+      const result = this.viewContext.run(view, action)
+      if (result instanceof Promise) return result.finally(() => this.views.delete(view)) as T
+      this.views.delete(view)
+      return result
+    } catch (cause) {
+      this.views.delete(view)
+      throw cause
+    }
   }
   initializeClient(cwd: string) {
     if (!this.active) void this.warmMetadata(this.create(cwd))
@@ -292,6 +325,7 @@ export class PiSessionPool implements PiRuntime {
       (item) => item.key === sessionPath || this.recordPath(item) === sessionPath,
     )
     if (record) {
+      this.checkoutGate?.(record.cwd)
       this.assertWorkspaceAvailable(record.cwd)
       this.assertPathAvailable(record.key)
     }
@@ -460,6 +494,7 @@ export class PiSessionPool implements PiRuntime {
   ) {}
   private workspaceOptions?: {
     kind: (cwd: string) => WorkspaceKind
+    sourceProjectCwd?: (cwd: string) => string | undefined
     createStandaloneDirectory: () => Promise<string>
   }
   configureWorkspaces(options: NonNullable<PiSessionPool['workspaceOptions']>) {
@@ -475,6 +510,7 @@ export class PiSessionPool implements PiRuntime {
     const connection = this.active?.session.connection()
     return {
       ...(connection ?? { cwd: this.cwd, status: 'disconnected' }),
+      sourceProjectCwd: this.workspaceOptions?.sourceProjectCwd?.(this.cwd),
       status: this.active?.dormant
         ? 'idle'
         : this.active?.starting
@@ -767,7 +803,7 @@ export class PiSessionPool implements PiRuntime {
     } else if (this.hasContent(this.active)) this.create(this.cwd)
     return this.selectionResult(selection)
   }
-  async selectWorkspaceDirectory(cwd: string): Promise<SessionSelectionResult> {
+  async selectWorkspaceDirectory(cwd: string, forceNew = false): Promise<SessionSelectionResult> {
     if (this.changing) throw new Error('正在修改运行时配置，请稍后切换项目')
     const selection = ++this.selection
     this.assertWorkspaceAvailable(cwd)
@@ -776,7 +812,7 @@ export class PiSessionPool implements PiRuntime {
     try {
       if (!(await stat(cwd)).isDirectory()) throw new Error('所选路径不是文件夹')
       if (selection !== this.selection) return { cancelled: true }
-      if (cwd !== this.cwd) target = this.create(cwd, undefined, undefined, undefined, true)
+      if (cwd !== this.cwd || forceNew) target = this.create(cwd, undefined, undefined, undefined, true)
       const result = await this.selectionResult(selection)
       if (result.cancelled) return result
       const commands = await this.getCommands()
@@ -885,6 +921,7 @@ export class PiSessionPool implements PiRuntime {
           id: record.key,
           path: active.sessionFile ?? record.sessionFile ?? record.key,
           cwd: record.cwd,
+          sourceProjectCwd: this.workspaceOptions?.sourceProjectCwd?.(record.cwd),
           workspaceKind: this.workspaceOptions?.kind(record.cwd) ?? 'project',
           name: record.name,
           firstMessage: record.firstMessage,
@@ -1013,6 +1050,7 @@ export class PiSessionPool implements PiRuntime {
   private async ensureRuntime(record: RuntimeSession, executionMode?: TaskMode): Promise<void> {
     // 已预约的消息先运行；随后登记的退役会等待它结束，不能反过来等待退役。
     if (!record.pendingPrompt) await record.retiring
+    this.checkoutGate?.(record.cwd)
     if (record.starting) return record.starting
     if (record.session.connection().status === 'ready') return Promise.resolve()
     record.dormant = false
@@ -1070,6 +1108,7 @@ export class PiSessionPool implements PiRuntime {
     if (this.changing) throw new Error('正在修改运行时配置，请稍后操作会话')
     const record = this.sessions.get(sessionKey)
     if (!record) throw new Error('目标会话已关闭，请重新打开后发送')
+    this.checkoutGate?.(record.cwd)
     this.assertWorkspaceAvailable(record.cwd)
     this.assertPathAvailable(record.key)
     this.assertPathAvailable(this.recordPath(record))
@@ -1484,6 +1523,7 @@ export class PiSessionPool implements PiRuntime {
     }
     this.generation += 1
     record.error = undefined
+    this.checkoutGate?.(record.cwd)
     const starting = Promise.resolve().then(async () => {
       await record.accessReady
       this.configureSession(record)

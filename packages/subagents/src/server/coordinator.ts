@@ -45,6 +45,7 @@ type Record = {
 }
 type Options = {
   dataRoot: string
+  assertCheckoutAvailable?: (cwd: string) => void
   createSession: (
     cwd: string,
     notify: ConstructorParameters<typeof import('@pi-meme/pi-runtime/sdk/session').SdkSession>[1],
@@ -57,6 +58,23 @@ export function createHostCollaborationBridge(options: Options) {
   return new HostCollaborationBridge(options)
 }
 export class HostCollaborationBridge {
+  assertCheckoutIdle(matches: (cwd: string) => boolean) {
+    if (
+      [...this.records.values()].some(
+        (record) =>
+          matches(record.summary.cwd) &&
+          (activeStatuses.has(record.summary.status) || record.queued.length || record.interactions.length),
+      )
+    )
+      throw new Error('此工作目录仍有运行中的子任务或待答交互，请先结束任务')
+  }
+  async retireCheckout(matches: (cwd: string) => boolean) {
+    for (const record of this.records.values())
+      if (matches(record.summary.cwd) && record.summary.depth > 0) {
+        await record.session?.stopAndWait()
+        record.session = undefined
+      }
+  }
   private records = new Map<string, Record>()
   private callers = new WeakMap<RuntimeSdkSession, Record>()
   private roots = new Map<string, Record>()
@@ -386,6 +404,7 @@ export class HostCollaborationBridge {
     if (request.method === 'wait_agent')
       return this.wait(caller, request.params.targets, request.params.timeout_ms, signal)
     if (request.method === 'spawn_agent') {
+      this.options.assertCheckoutAvailable?.(caller.summary.cwd)
       const { task_name: name, message, fork_turns: fork = 'all' } = request.params
       if (!/^[a-z][a-z0-9_]{0,63}$/.test(name) || !message.trim()) throw new Error('子 Agent 名称或任务无效')
       if (caller.summary.depth >= collaborationLimits.depth) throw new Error('子 Agent 最多嵌套两层')
@@ -465,6 +484,7 @@ export class HostCollaborationBridge {
       return { agent: { ...target.summary }, previousStatus }
     }
     if (request.method === 'followup_task') {
+      this.options.assertCheckoutAvailable?.(caller.summary.cwd)
       if (!request.params.message.trim()) throw new Error('任务不能为空')
       if (activeStatuses.has(target.summary.status)) {
         target.queued.push({
@@ -515,6 +535,7 @@ export class HostCollaborationBridge {
     scheduledRunId?: string,
   ) {
     if (this.stopping) throw new Error('Host 正在停止')
+    this.options.assertCheckoutAvailable?.(record.summary.cwd)
     const replaceWorker =
       record.session && (record.summary.mode !== policy.mode || record.summary.accessMode !== policy.accessMode)
     const runId = scheduledRunId ?? randomUUID()

@@ -641,3 +641,42 @@ test('从未查看的子代理事件缺口只恢复agent快照，不调用根Poo
     client.close()
   }
 })
+
+test('多服务代理端点保持本机origin并隔离客户端和相同sessionKey', async () => {
+  const urls: string[] = []
+  const clients = ['a', 'b'].map(
+    (service) =>
+      new HostClient({
+        connection: { url: `https://${service}.example`, token: '', hostId: service, local: false },
+        endpoint: { baseUrl: 'http://127.0.0.1:31415', apiPrefix: `/api/services/${service}` },
+        selectDirectory: async () => null,
+        fetch: (async (input, init) => {
+          const url = String(input)
+          urls.push(url)
+          if (url.endsWith('/api/auth')) return new Response('{}')
+          const request = JSON.parse(String(init?.body)) as HostRpcRequest
+          return new Response(
+            JSON.stringify({ requestId: request.requestId, hostId: service, result: snapshot('same-key') }),
+          )
+        }) as typeof fetch,
+        createSocket: (url) => {
+          urls.push(url)
+          return new FakeSocket() as unknown as WebSocket
+        },
+      }),
+  )
+  try {
+    assert.notEqual(clients[0].clientId, clients[1].clientId)
+    await Promise.all(clients.map((client) => client.connect()))
+    await Promise.all(clients.map((client) => client.bridge.getSnapshot()))
+    assert.ok(urls.every((url) => new URL(url).hostname === '127.0.0.1'))
+    for (const client of clients) {
+      assert.equal(client.localHost, false)
+      assert.ok(urls.some((url) => url.includes(`/api/services/${client.hostId}/api/rpc`)))
+      const plugin = `/api/services/${client.hostId}/api/plugins/module.js`
+      assert.equal(client.resourceUrl(plugin), `http://127.0.0.1:31415${plugin}`)
+    }
+  } finally {
+    for (const client of clients) client.close()
+  }
+})

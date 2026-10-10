@@ -1,3 +1,6 @@
+import type { ServiceRegistry } from '@pi-meme/app-ui/service-ui'
+import { ServicesApp } from '@pi-meme/app-ui/services-app'
+import { HostServiceRegistry } from '@pi-meme/client/service-registry'
 import { useEffect, useRef, useState } from 'react'
 import { App } from '@pi-meme/app-ui/app'
 import { HostDirectoryDialog } from '@pi-meme/app-ui/host-directory-dialog'
@@ -49,7 +52,45 @@ const fixturePlugins: PluginClient = {
   onChange: () => () => {},
 }
 
+function ServiceFixture() {
+  const [registry] = useState<ServiceRegistry>(() => {
+    const bridges = window.piMemeMultiServiceBridges!
+    const services = Object.keys(bridges).map((id) => ({
+      id,
+      hostId: id,
+      local: id === 'local',
+      address: id === 'local' ? window.location.origin : `https://${id}.example.com:8443`,
+      status: 'connected' as const,
+      projects: [{ cwd: '/same', name: '同名项目', lastSelectedAt: '' }],
+    }))
+    const clients = new Map(
+      Object.entries(bridges).map(([id, bridge]) => [
+        id,
+        { bridge, plugins: fixturePlugins, rpc: fixtureUnavailable, nativePlatformAvailable: false },
+      ]),
+    )
+    return {
+      localServiceId: 'local',
+      local: clients.get('local')!,
+      get: (id) => clients.get(id)!,
+      list: () => services,
+      subscribe: () => () => {},
+      initialize: async () => {},
+      register: fixtureUnavailable,
+      retry: fixtureUnavailable,
+      remove: fixtureUnavailable,
+      refresh: async () => {},
+    }
+  })
+  return <ServicesApp registry={registry} nativeWindow />
+}
+
 export function WebApp() {
+  if (
+    new URLSearchParams(window.location.search).get('test-fixture') === 'multi-service' &&
+    window.piMemeMultiServiceBridges
+  )
+    return <ServiceFixture />
   if (new URLSearchParams(window.location.search).get('test-fixture') === 'session-switch' && window.piMemeTestBridge)
     return (
       <App
@@ -65,11 +106,12 @@ export function WebApp() {
 
 function ConnectedWebApp() {
   const [client, setClient] = useState<HostClient>()
+  const [registry, setRegistry] = useState<HostServiceRegistry>()
+  const registryRef = useRef<HostServiceRegistry | undefined>(undefined)
   const [directory, setDirectory] = useState<DirectoryRequest>()
   const [error, setError] = useState('')
   const [connecting, setConnecting] = useState(true)
   const [token, setToken] = useState('')
-  const [url, setUrl] = useState(window.location.origin)
   const clientRef = useRef<HostClient | undefined>(undefined)
   const directoryRef = useRef<DirectoryRequest | undefined>(undefined)
   const platform = window.piPlatform
@@ -106,6 +148,20 @@ function ConnectedWebApp() {
       clientRef.current = next
       window.piMemeClient = next.bridge
       window.piMemePlugins = next.plugins
+      registryRef.current?.close()
+      const services = new HostServiceRegistry(next, {
+        baseUrl: window.location.origin,
+        platform,
+        selectDirectory: (load) =>
+          new Promise((resolve) => {
+            directoryRef.current?.resolve(null)
+            const request = { load, resolve }
+            directoryRef.current = request
+            setDirectory(request)
+          }),
+      })
+      registryRef.current = services
+      setRegistry(services)
       setClient(next)
       setToken('')
     } catch (cause) {
@@ -124,43 +180,20 @@ function ConnectedWebApp() {
     return () => {
       attempt.current++
       directoryRef.current?.resolve(null)
+      registryRef.current?.close()
       clientRef.current?.close()
     }
   }, [])
 
   async function submit(event: React.FormEvent) {
     event.preventDefault()
-    let address: URL
-    try {
-      address = new URL(url)
-    } catch {
-      setError('Host 地址必须是有效的 HTTP 或 HTTPS 地址')
-      return
-    }
-    const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(address.hostname)
-    if (
-      address.username ||
-      address.password ||
-      (address.protocol !== 'https:' && !(loopback && address.protocol === 'http:'))
-    ) {
-      setError('远程 Host 必须使用 HTTPS，地址不能包含账号或凭据')
-      return
-    }
-    if (address.origin !== window.location.origin) {
-      if (platform?.setHostConnection) {
-        await platform.setHostConnection({ url: address.origin, token })
-        return
-      }
-      window.location.assign(address.origin)
-      return
-    }
-    await connect({ url: address.origin, token, hostId: '', local: false })
+    await connect({ url: window.location.origin, token, hostId: '', local: Boolean(platform) })
   }
 
   if (!client && connecting)
     return (
       <main className="flex min-h-screen items-center justify-center bg-background text-foreground" role="status">
-        正在连接 Host
+        正在连接服务
       </main>
     )
 
@@ -171,17 +204,13 @@ function ConnectedWebApp() {
           onSubmit={(event) => void submit(event).catch((cause: unknown) => setError(String(cause)))}
           className="w-full max-w-sm space-y-4 rounded-xl border border-border p-6"
         >
-          <h1 className="text-lg font-semibold">连接 pi-meme Host</h1>
-          <label className="block space-y-2 text-sm">
-            Host 地址
-            <Input aria-label="Host 地址" value={url} onChange={(event) => setUrl(event.target.value)} />
-          </label>
+          <h1 className="text-lg font-semibold">登录 pi-meme</h1>
           <label className="block space-y-2 text-sm">
             访问令牌
             <Input
               type="password"
               autoComplete="off"
-              aria-label="Host 访问令牌"
+              aria-label="访问令牌"
               value={token}
               onChange={(event) => setToken(event.target.value)}
             />
@@ -200,9 +229,9 @@ function ConnectedWebApp() {
               variant="outline"
               disabled={connecting}
               type="button"
-              onClick={() => void platform.setHostConnection(null).catch((cause: unknown) => setError(String(cause)))}
+              onClick={() => void connect().catch((cause: unknown) => setError(String(cause)))}
             >
-              连接本地 Host
+              重试连接服务
             </Button>
           )}
         </form>
@@ -211,30 +240,7 @@ function ConnectedWebApp() {
 
   return (
     <>
-      <App
-        key={client.clientId}
-        bridge={client.bridge}
-        hostId={client.hostId}
-        hostAddress={client.hostAddress}
-        hostLocal={client.localHost}
-        plugins={client.plugins}
-        call={(method, args) => client.rpc(method, args)}
-        nativeWindow={Boolean(platform)}
-        localPlatform={client.nativePlatformAvailable}
-        hostConnections={
-          platform?.listSavedHostConnections && platform.removeSavedHostConnection
-            ? {
-                list: platform.listSavedHostConnections,
-                remove: platform.removeSavedHostConnection,
-                connect: (url) => platform.setHostConnection({ url, token: '' }),
-              }
-            : undefined
-        }
-        onHostConnection={() => {
-          client.close()
-          setClient(undefined)
-        }}
-      />
+      {registry && <ServicesApp registry={registry} nativeWindow={Boolean(platform)} />}
       {directory && (
         <HostDirectoryDialog
           load={directory.load}
@@ -254,6 +260,7 @@ declare global {
     piPlatform?: PlatformAdapter
     piMemeClient?: HostClient['bridge']
     piMemePlugins?: HostClient['plugins']
+    piMemeMultiServiceBridges?: Record<string, DesktopBridge>
     piMemeTestBridge?: DesktopBridge
   }
 }

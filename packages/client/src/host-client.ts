@@ -19,6 +19,7 @@ import type { PluginClient } from './plugin-client'
 
 export type ClientOptions = {
   connection: HostConnection
+  endpoint?: { baseUrl: string; apiPrefix: string; authenticate?: boolean; renewAuthentication?: () => Promise<void> }
   clientId?: string
   platform?: PlatformAdapter
   selectDirectory: (load: (path?: string) => Promise<HostDirectory>) => Promise<string | null>
@@ -56,7 +57,7 @@ export class HostClient {
   private buffered: HostEvent[] = []
 
   constructor(private readonly options: ClientOptions) {
-    this.url = new URL(options.connection.url)
+    this.url = new URL(options.endpoint?.baseUrl ?? options.connection.url)
     const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(this.url.hostname)
     if (this.url.protocol !== 'https:' && !(loopback && this.url.protocol === 'http:'))
       throw new Error('远程 Host 必须使用 HTTPS 地址')
@@ -86,10 +87,10 @@ export class HostClient {
     return this.connectedHostId
   }
   get hostAddress() {
-    return this.url.origin
+    return this.options.connection.url
   }
   get localHost() {
-    return this.options.platform
+    return this.options.endpoint || this.options.platform
       ? this.options.connection.local
       : ['localhost', '127.0.0.1', '[::1]'].includes(this.url.hostname)
   }
@@ -103,9 +104,20 @@ export class HostClient {
     this.openSocket()
   }
 
+  resourceUrl(path: string) {
+    return path.startsWith(`${this.options.endpoint?.apiPrefix ?? '/__unused__'}/api/`)
+      ? new URL(path, this.url).href
+      : this.endpoint(path).href
+  }
+
+  private endpoint(path: string) {
+    return new URL(`${this.options.endpoint?.apiPrefix ?? ''}${path}`, this.url)
+  }
+
   private authenticate() {
+    if (this.options.endpoint?.authenticate === false) return Promise.resolve()
     this.authenticated ??= (async () => {
-      const response = await this.fetch(new URL('/api/auth', this.url), {
+      const response = await this.fetch(this.endpoint('/api/auth'), {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -120,10 +132,15 @@ export class HostClient {
     return this.authenticated
   }
 
+  reauthenticate() {
+    return this.renewAuthentication()
+  }
+
   private renewAuthentication() {
     this.renewing ??= (async () => {
       this.authenticated = undefined
-      if (this.options.platform) {
+      if (this.options.endpoint?.renewAuthentication) await this.options.endpoint.renewAuthentication()
+      else if (this.options.platform) {
         const connection = await this.options.platform.getHostConnection()
         if (
           new URL(connection.url).origin !== this.url.origin ||
@@ -149,7 +166,7 @@ export class HostClient {
     const requestId = crypto.randomUUID()
     const send = async () => {
       try {
-        return await this.fetch(new URL('/api/rpc', this.url), {
+        return await this.fetch(this.endpoint('/api/rpc'), {
           method: 'POST',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
@@ -173,7 +190,12 @@ export class HostClient {
       response = await send()
     }
     if (response.status === 401) throw new Error('Host 登录已失效，请重新连接')
-    const envelope = (await response.json()) as HostRpcResponse
+    const value: unknown = await response.json()
+    if (!value || typeof value !== 'object' || !('requestId' in value)) {
+      const error = value && typeof value === 'object' && 'error' in value ? value.error : undefined
+      throw new Error(typeof error === 'string' ? error : `Host 请求失败：HTTP ${response.status}`)
+    }
+    const envelope = value as HostRpcResponse
     if (envelope.requestId !== requestId) throw new Error('Host 返回了不匹配的请求标识')
     this.acceptHost(envelope.hostId)
     if (envelope.error) throw new Error(envelope.error.message)
@@ -271,7 +293,7 @@ export class HostClient {
 
   private openSocket() {
     if (this.closed || this.socket) return
-    const url = new URL('/api/events', this.url)
+    const url = this.endpoint('/api/events')
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
     url.searchParams.set('clientId', this.clientId)
     const socket = (this.options.createSocket ?? ((address) => new WebSocket(address)))(url.href)
@@ -514,6 +536,28 @@ export class HostClient {
         rpc('pi:switch-message-version', [key, timestamp, version], key),
       forkReply: (key, timestamp) => this.selection('pi:fork-reply', [key, timestamp], key),
       respondExtensionUI: (key, id, response) => rpc('pi:extension-ui-response', [key, id, response], key),
+      getGitEnvironment: (key) => rpc('git:environment', [key], key),
+      switchGitBranch: (key, branch) => this.selection('git:switch-branch', [key, branch], key),
+      createGitBranch: (key, branch, baseRef) => this.selection('git:create-branch', [key, branch, baseRef], key),
+      createGitWorktree: async (key, baseRef) => {
+        const epoch = ++this.selectionEpoch
+        this.pendingSelections++
+        try {
+          const result = await rpc<Awaited<ReturnType<DesktopBridge['createGitWorktree']>>>(
+            'git:create-worktree',
+            [key, baseRef],
+            key,
+          )
+          if (result.selection && !result.selection.cancelled && epoch === this.selectionEpoch) {
+            this.selected = result.selection.snapshot.connection
+            this.publishConnection(this.selected)
+          } else if (result.selection && epoch !== this.selectionEpoch)
+            return { ...result, selection: { cancelled: true } }
+          return result
+        } finally {
+          this.pendingSelections--
+        }
+      },
       getGitSnapshot: () => rpc('git:snapshot'),
       getGitDiff: (path, kind) => rpc('git:diff', [path, kind]),
       setModel: (key, model) => rpc('pi:set-model', [key, model], key),

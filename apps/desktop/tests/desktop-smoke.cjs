@@ -807,6 +807,7 @@ async function run(window) {
   await require('./sidebar-menu-smoke.cjs')(window, waitFor, directory, path.join(root, 'out', 'desktop-smoke'))
   await require('./background-sessions-smoke.cjs')(window, waitFor, gitDirectory)
   await require('./session-switch-smoke.cjs')(window.webContents.getURL(), waitFor)
+  await require('./multi-service-smoke.cjs')(window.webContents.getURL(), waitFor)
   console.log(
     '桌面验收通过：Radix 模型与主题、侧栏、输入法、图片、扩展弹窗与编辑器、工作过程折叠、命令补全、队列、停止、新建会话、正式流式消息与滚动',
   )

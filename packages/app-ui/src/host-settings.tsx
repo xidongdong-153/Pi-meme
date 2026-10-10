@@ -4,7 +4,6 @@ import { Button } from '@pi-meme/ui/components/ui/button'
 import type { CredentialImportResult, SavedHostConnection } from '@pi-meme/contracts/host'
 
 export function HostSettings({
-  hostId,
   address,
   local,
   onConnect,
@@ -68,24 +67,22 @@ export function HostSettings({
             <Icon className="size-6 text-muted-foreground" />
           </span>
           <div>
-            <h3 className="text-base font-medium">{local ? '本地主机' : '远程 Host'}</h3>
-            <p className="mt-1 text-sm text-muted-foreground">当前设置和插件属于这台 Host。</p>
+            <h3 className="text-base font-medium">{local ? '此计算机' : '远程'}</h3>
+            <p className="mt-1 text-sm text-muted-foreground">当前设置和插件属于此执行服务。</p>
           </div>
         </div>
-        <dl className="mt-6 space-y-4 text-sm">
-          <div>
-            <dt className="text-xs text-muted-foreground">Host 地址</dt>
-            <dd className="mt-1 break-all select-text">{address || '未提供'}</dd>
-          </div>
-          <div>
-            <dt className="text-xs text-muted-foreground">Host 身份</dt>
-            <dd className="mt-1 break-all font-mono text-xs select-text">{hostId || '尚未连接'}</dd>
-          </div>
-        </dl>
+        {!local && (
+          <dl className="mt-6 space-y-4 text-sm">
+            <div>
+              <dt className="text-xs text-muted-foreground">服务地址</dt>
+              <dd className="mt-1 break-all select-text">{address || '未提供'}</dd>
+            </div>
+          </dl>
+        )}
       </section>
       {saved.length > 0 && connections && (
-        <section className="space-y-3" aria-label="已保存的远程 Host">
-          <h3 className="text-sm font-medium">已保存的远程 Host</h3>
+        <section className="space-y-3" aria-label="已保存的远程">
+          <h3 className="text-sm font-medium">已保存的远程</h3>
           {saved.map((entry) => (
             <div key={entry.url} className="flex flex-wrap items-center gap-3 rounded-xl border border-border p-4">
               <span className="min-w-0 flex-1 break-all text-sm">{entry.url}</span>
@@ -114,7 +111,7 @@ export function HostSettings({
       )}
       <Button variant="secondary" disabled={busy} onClick={onConnect}>
         <Server />
-        连接其他 Host
+        配置远程服务
       </Button>
       {canImport && (
         <section className="space-y-3 rounded-xl border border-border p-4">

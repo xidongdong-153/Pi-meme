@@ -356,6 +356,18 @@ module.exports = async (window, waitFor, directory, screenshots, options = {}) =
   assert.equal(await fs.readFile(exported, 'utf8'), document.markdown)
   await assertRootTarget()
   await capture('plan-exported')
+  await evaluate(`(() => {
+    window.piMemePlanSendTrace = [];
+    window.piMemePlanSendOriginals = {};
+    for (const method of ['setSessionMode', 'prompt', 'steer', 'followUp']) {
+      const original = window.piMemeClient[method];
+      window.piMemePlanSendOriginals[method] = original;
+      window.piMemeClient[method] = (...args) => {
+        window.piMemePlanSendTrace.push({ method, sessionKey: args[0], mode: method === 'setSessionMode' ? args[1] : args.at(-1)?.mode, text: method === 'setSessionMode' ? undefined : args[1] });
+        return original(...args);
+      };
+    }
+  })()`)
   await draft('plan-toolbar-default-smoke')
   await evaluate('document.querySelector("button[aria-label=关闭计划模式]").click()')
   await modeReady('default')
@@ -363,16 +375,34 @@ module.exports = async (window, waitFor, directory, screenshots, options = {}) =
     await evaluate(`document.querySelector(${JSON.stringify(editorSelector)}).textContent`),
     'plan-toolbar-default-smoke',
   )
-  await waitFor(
-    () => evaluate('!document.querySelector("button[aria-label=发送消息]").disabled'),
-    '退出计划后普通消息可发送',
-  )
-  await evaluate('document.querySelector("button[aria-label=发送消息]").click()')
-  await waitFor(
-    () =>
-      evaluate(
-        'window.piMemeClient.getSnapshot().then(value => value.state.mode === "default" && !value.state.isStreaming && JSON.stringify(value.messages).includes("已回复：plan-toolbar-default-smoke"))',
-      ),
-    '关闭计划后的下一轮采用普通模式',
-  )
+  let clicked
+  await waitFor(async () => {
+    clicked = await evaluate(`(() => {
+      const button = document.querySelector('button[aria-label="发送消息"]');
+      if (!button || button.disabled) return false;
+      const value = { disabled: button.disabled, draft: document.querySelector(${JSON.stringify(editorSelector)}).textContent };
+      button.click();
+      return value;
+    })()`)
+    return Boolean(clicked)
+  }, '退出计划后普通消息可发送')
+  try {
+    await waitFor(
+      () =>
+        evaluate(
+          'window.piMemeClient.getSnapshot().then(value => value.state.mode === "default" && !value.state.isStreaming && JSON.stringify(value.messages).includes("已回复：plan-toolbar-default-smoke"))',
+        ),
+      '关闭计划后的下一轮采用普通模式',
+    )
+  } catch (cause) {
+    const diagnostic = await evaluate(
+      `window.piMemeClient.getSnapshot().then(value => ({ connection: value.connection, state: value.state, traces: window.piMemePlanSendTrace, draft: document.querySelector(${JSON.stringify(editorSelector)}).textContent, disabled: document.querySelector('button[aria-label="发送消息"]').disabled, messages: value.messages.map(message => ({ role: message.role, text: JSON.stringify(message.content).slice(0, 120) })) }))`,
+    )
+    console.error('退出计划发送诊断', JSON.stringify({ clicked, diagnostic }))
+    throw cause
+  } finally {
+    await evaluate(
+      `(() => { for (const [method, original] of Object.entries(window.piMemePlanSendOriginals)) window.piMemeClient[method] = original; delete window.piMemePlanSendOriginals; delete window.piMemePlanSendTrace })()`,
+    )
+  }
 }

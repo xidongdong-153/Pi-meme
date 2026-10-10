@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url'
 import { createHostCollaborationBridge } from './collaboration-bridge'
 import { createBuiltinModules } from './builtin-modules'
 import { assertExternalPluginId } from '@pi-meme/plugin-sdk/reserved'
-import { mkdir, readdir, realpath, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, realpath, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -28,6 +28,7 @@ import { ModelConfigStore } from '@pi-meme/models/server/config-store'
 import { SettingsStore } from '@pi-meme/settings/server/store'
 import { InstructionsStore } from '@pi-meme/settings/server/instructions'
 import { parseTheme } from '@pi-meme/settings/shared/themes'
+import { getGitEnvironment, resolveGitBase, runGit, switchGitBranch } from '@pi-meme/git/server/git-service'
 import { ProjectStore } from '@pi-meme/workspace/server/project-store'
 import { SessionService } from '@pi-meme/workspace/server/session-service'
 import { McpConfigStore } from '@pi-meme/mcp/server/config-store'
@@ -61,6 +62,9 @@ const sessionWrites = new Set([
   'pi:edit-and-prompt',
   'pi:switch-message-version',
   'pi:fork-reply',
+  'git:switch-branch',
+  'git:create-branch',
+  'git:create-worktree',
 ])
 const reads = new Set([
   'pi:connection',
@@ -76,6 +80,7 @@ const reads = new Set([
   'workspace:projects',
   'project:delete-preview',
   'chat:project-files',
+  'git:environment',
   'git:snapshot',
   'git:diff',
   'models:get',
@@ -99,7 +104,16 @@ const reads = new Set([
   'settings:usage-stats',
   'settings:subagents',
 ])
-const selections = new Set(['pi:fork-reply', 'pi:new-session', 'pi:switch-session', 'workspace:select', 'pi:directory'])
+const selections = new Set([
+  'pi:fork-reply',
+  'pi:new-session',
+  'pi:switch-session',
+  'workspace:select',
+  'pi:directory',
+  'git:switch-branch',
+  'git:create-branch',
+  'git:create-worktree',
+])
 
 export async function createHost(options: HostOptions = {}) {
   const root = hostDataRoot(options.dataRoot)
@@ -140,6 +154,9 @@ export async function createHost(options: HostOptions = {}) {
     const selectionEpochs = new Map<string, number>()
     const sessionQueues = new Map<string, Promise<unknown>>()
     const controls = new Set([
+      'git:switch-branch',
+      'git:create-branch',
+      'git:create-worktree',
       'pi:abort',
       'pi:interrupt-agent',
       'pi:extension-ui-response',
@@ -155,6 +172,25 @@ export async function createHost(options: HostOptions = {}) {
     ])
     const clientRequests = new Map<string, number>()
     const clientTimers = new Map<string, ReturnType<typeof setTimeout>>()
+    const checkoutGates = new Set<string>()
+    const withinCheckout = (cwd: string, checkoutRoot: string) => {
+      const relative = path.relative(checkoutRoot, cwd)
+      return !relative || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative))
+    }
+    const assertCheckoutAvailable = (cwd: string) => {
+      if ([...checkoutGates].some((checkoutRoot) => withinCheckout(cwd, checkoutRoot)))
+        throw new Error('此工作目录正在切换 Git 分支，请稍后操作')
+    }
+    const gitWrites = new Map<string, Promise<unknown>>()
+    const serializeGit = async <T>(commonDirectory: string, operation: () => Promise<T>) => {
+      const pending = (gitWrites.get(commonDirectory) ?? Promise.resolve()).catch(() => {}).then(operation)
+      gitWrites.set(commonDirectory, pending)
+      try {
+        return await pending
+      } finally {
+        if (gitWrites.get(commonDirectory) === pending) gitWrites.delete(commonDirectory)
+      }
+    }
     let pi: PiSessionPool
     const scheduleClientRelease = (clientId: string) => {
       const previous = clientTimers.get(clientId)
@@ -239,8 +275,10 @@ export async function createHost(options: HostOptions = {}) {
       (cwd, notify, runtimePaths, _credentials, _mcp, sessionKey) =>
         createSession(cwd, notify, sessionKey, runtimePaths),
     )
+    pi.configureCheckoutGate(assertCheckoutAvailable)
     collaboration = createHostCollaborationBridge({
       dataRoot: root,
+      assertCheckoutAvailable,
       createSession,
       emit: (value) => {
         if (value.agentId && value.agentId === value.rootAgentId && value.sessionKey)
@@ -291,6 +329,7 @@ export async function createHost(options: HostOptions = {}) {
     }
     pi.configureWorkspaces({
       kind: (cwd) => projects.kind(cwd),
+      sourceProjectCwd: (cwd) => projects.sourceProjectCwd(cwd),
       createStandaloneDirectory: () => projects.createStandaloneDirectory(),
     })
     pi.configureCapabilities({
@@ -328,6 +367,7 @@ export async function createHost(options: HostOptions = {}) {
           : binding?.state.mode
       return {
         ...value,
+        connection: { ...value.connection, sourceProjectCwd: projects.sourceProjectCwd(value.connection.cwd) },
         state: mode ? { ...value.state, mode } : value.state,
         ...(key ? await collaboration.snapshot(key) : {}),
         uiPlugins: sessionDescriptors(key),
@@ -429,7 +469,96 @@ export async function createHost(options: HostOptions = {}) {
         getRuntimeHistory: (value: string) => pi.getRuntimeHistory(value),
         handlers: workspaceHandlers,
       },
-      'host.git': { getCwd: () => pi.cwd },
+      'host.git': {
+        getCwd: () => pi.cwd,
+        environment: (key: string) => getGitEnvironment(pi.getSessionContext(key).cwd),
+        switchBranch: async (key: string, branch: string, baseRef?: string) => {
+          const cwd = pi.getSessionContext(key).cwd
+          const environment = await getGitEnvironment(cwd)
+          const common = await realpath(
+            path.resolve(
+              environment.root,
+              (await runGit(environment.root, ['rev-parse', '--git-common-dir'])).stdout.trim(),
+            ),
+          )
+          return serializeGit(common, async () => {
+            if (checkoutGates.has(environment.root)) throw new Error('此工作目录正在切换分支')
+            checkoutGates.add(environment.root)
+            const matches = (directory: string) => withinCheckout(directory, environment.root)
+            try {
+              pi.assertCheckoutIdle(matches)
+              collaboration.assertCheckoutIdle(matches)
+              const current = await getGitEnvironment(cwd)
+              const sha = baseRef ? await resolveGitBase(current, baseRef) : undefined
+              if (current.dirty) throw new Error('工作目录存在未提交更改，请先处理后再切换分支')
+              await pi.retireCheckout(matches)
+              await collaboration.retireCheckout(matches)
+              await switchGitBranch(current, baseRef ?? branch, baseRef ? branch : undefined, sha)
+            } finally {
+              checkoutGates.delete(environment.root)
+            }
+            return pi.selectWorkspaceDirectory(cwd, true)
+          })
+        },
+        createWorktree: async (key: string, baseRef: string) => {
+          const cwd = pi.getSessionContext(key).cwd
+          const environment = await getGitEnvironment(cwd)
+          const headSha = await resolveGitBase(environment, baseRef)
+          const common = await realpath(
+            path.resolve(
+              environment.root,
+              (await runGit(environment.root, ['rev-parse', '--git-common-dir'])).stdout.trim(),
+            ),
+          )
+          return serializeGit(common, async () => {
+            const checkoutRoot = path.join(root, 'worktrees', randomUUID())
+            const relative = path.relative(environment.root, cwd)
+            const worktree = {
+              checkoutRoot,
+              cwd: path.join(checkoutRoot, relative),
+              sourceProjectCwd: projects.sourceProjectCwd(cwd) ?? cwd,
+              baseRef,
+              headSha,
+            }
+            await mkdir(path.dirname(checkoutRoot), { recursive: true })
+            await projects.recordWorktree(worktree)
+            try {
+              await runGit(environment.root, ['worktree', 'add', '--detach', checkoutRoot, headSha])
+            } catch (cause) {
+              const exists = await stat(checkoutRoot)
+                .then((info) => info.isDirectory())
+                .catch(() => false)
+              const registered = await runGit(environment.root, ['worktree', 'list', '--porcelain'])
+                .then((value) => value.stdout.split('\n').includes(`worktree ${checkoutRoot}`))
+                .catch(() => exists)
+              if (exists || registered) {
+                emit('sessions-changed')
+                return {
+                  ...worktree,
+                  selection: { cancelled: true as const },
+                  selectionError: `Worktree 创建未完成，目录与来源记录已保留：${checkoutRoot}；${String(cause)}`,
+                }
+              }
+              try {
+                await projects.forgetWorktree(checkoutRoot)
+              } catch (cleanupError) {
+                throw new Error(`Worktree 创建失败：${String(cause)}；清理来源记录失败：${String(cleanupError)}`)
+              }
+              throw cause
+            }
+            emit('sessions-changed')
+            try {
+              return { ...worktree, selection: await pi.selectWorkspaceDirectory(worktree.cwd) }
+            } catch (cause) {
+              return {
+                ...worktree,
+                selection: { cancelled: true as const },
+                selectionError: `Worktree 已创建，但切换会话失败：${String(cause)}`,
+              }
+            }
+          })
+        },
+      },
       'host.models': { pi, models, agentDir: paths.agentDir },
       'host.settings': {
         pi,
@@ -634,7 +763,10 @@ export async function createHost(options: HostOptions = {}) {
             if (!action) throw new Error(`Host 方法不存在：${request.method}`)
             if (sessionWrites.has(request.method) && (!request.sessionId || request.args[0] !== request.sessionId))
               throw new Error('会话写操作必须携带匹配的 sessionId')
-            if (epoch !== undefined && selectionEpochs.get(request.clientId) !== epoch) return { cancelled: true }
+            if (epoch !== undefined && selectionEpochs.get(request.clientId) !== epoch) {
+              if (request.method === 'git:create-worktree') throw new Error('工作环境选择已变化，Worktree 未创建')
+              return { cancelled: true }
+            }
             const selected = { ...view, sessionKey: request.sessionId ?? view.sessionKey }
             const previousKey = selected.sessionKey
             const run = () =>
@@ -653,24 +785,50 @@ export async function createHost(options: HostOptions = {}) {
                     } else outcome.selection = { cancelled: true }
                   }
                 }
-                if (epoch !== undefined) {
+                const gitSelection =
+                  request.method === 'git:switch-branch' ||
+                  request.method === 'git:create-branch' ||
+                  request.method === 'git:create-worktree'
+                if (epoch !== undefined && !gitSelection) {
                   if (selectionEpochs.get(request.clientId) !== epoch) return { cancelled: true }
                   Object.assign(view, selected)
                   emit('connection', pi.connection())
                 }
                 if (selected.sessionKey === view.sessionKey) view.defaults = selected.defaults
-                if (
-                  result &&
-                  typeof result === 'object' &&
-                  'snapshot' in result &&
-                  'cancelled' in result &&
-                  !result.cancelled
-                )
-                  result = {
-                    ...result,
-                    snapshot: await enrichSnapshot(result.snapshot as Snapshot),
+                try {
+                  if (
+                    result &&
+                    typeof result === 'object' &&
+                    'snapshot' in result &&
+                    'cancelled' in result &&
+                    !result.cancelled
+                  )
+                    result = {
+                      ...result,
+                      snapshot: await enrichSnapshot(result.snapshot as Snapshot),
+                    }
+                  if (request.method === 'git:create-worktree') {
+                    const outcome = result as { selection: import('@pi-meme/contracts/desktop').SessionSelectionResult }
+                    if (!outcome.selection.cancelled)
+                      outcome.selection.snapshot = await enrichSnapshot(outcome.selection.snapshot)
                   }
-                await (credentials as SecureCredentialStorage & { flush?: () => Promise<void> }).flush?.()
+                  await (credentials as SecureCredentialStorage & { flush?: () => Promise<void> }).flush?.()
+                } catch (cause) {
+                  if (request.method !== 'git:create-worktree') throw cause
+                  return {
+                    ...(result as object),
+                    selection: { cancelled: true },
+                    selectionError: `Worktree 已创建，但会话初始化失败，目录与来源记录已保留：${String(cause)}`,
+                  }
+                }
+                if (epoch !== undefined && gitSelection) {
+                  if (selectionEpochs.get(request.clientId) !== epoch)
+                    return request.method === 'git:create-worktree'
+                      ? { ...(result as object), selection: { cancelled: true } }
+                      : { cancelled: true }
+                  Object.assign(view, selected)
+                  emit('connection', pi.connection())
+                }
                 return result
               })
             if (!request.sessionId || reads.has(request.method) || controls.has(request.method)) return run()

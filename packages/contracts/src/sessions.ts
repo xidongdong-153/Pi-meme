@@ -15,6 +15,7 @@ export type DesktopProject = {
 export type PiSessionSummary = Pick<SessionInfo, 'id' | 'path' | 'cwd' | 'name' | 'messageCount'> &
   Partial<Pick<SessionInfo, 'firstMessage' | 'parentSessionPath'>> & {
     workspaceKind?: WorkspaceKind
+    sourceProjectCwd?: string
     created: string
     modified: string
     completedAt?: string | null

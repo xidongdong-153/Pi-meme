@@ -56,7 +56,9 @@ export function SidebarMenus({
   onTogglePin,
   onChanged,
   onDeleted,
+  canOpenProject = true,
 }: {
+  canOpenProject?: boolean
   children: ReactNode
   bridge: SidebarMenuBridge
   pinnedPaths: string[]
@@ -65,7 +67,7 @@ export function SidebarMenus({
   onChanged: () => Promise<void>
   onDeleted: (result: WorkspaceDeletionResult) => Promise<void>
 }) {
-  const [apps, setApps] = useState<ProjectApp[]>([{ id: 'finder', name: 'Finder' }])
+  const [apps, setApps] = useState<ProjectApp[]>(canOpenProject ? [{ id: 'finder', name: 'Finder' }] : [])
   const appsLoading = useRef(false)
   const [action, setAction] = useState<{ kind: 'rename' | 'delete'; target: MenuTarget } | null>(null)
   const [name, setName] = useState('')
@@ -145,6 +147,7 @@ export function SidebarMenus({
     onNewSession,
     onTogglePin,
     loadApps: () => {
+      if (!canOpenProject) return
       if (appsLoading.current) return
       appsLoading.current = true
       void bridge

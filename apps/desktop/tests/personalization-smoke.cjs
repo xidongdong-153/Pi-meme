@@ -103,8 +103,23 @@ module.exports = async function personalizationSmoke(window, waitFor, directory,
     '重载失败后重试',
   )
   await clickText('返回', '#settings-content')
-  await select('Host 连接')
-  assert.equal(await evaluate('document.querySelector("#settings-content").textContent.includes("本地主机")'), true)
+  await select('远程')
+  assert.equal(
+    await evaluate('document.querySelector("#settings-content").textContent.includes("远程连接由此计算机管理")'),
+    true,
+  )
+  assert.equal(
+    await evaluate('document.querySelector("#settings-content").textContent.includes(window.location.origin)'),
+    false,
+    '远程设置不显示本机连接地址',
+  )
+  assert.equal(
+    await evaluate(
+      'window.piPlatform.getHostConnection().then(value => !value.hostId || !document.querySelector("#settings-content").textContent.includes(value.hostId))',
+    ),
+    true,
+    '远程设置不显示本机服务身份',
+  )
   assert.equal(await evaluate('Boolean(document.querySelector("#settings-content input[type=password]"))'), false)
   const pluginId = 'settings-smoke'
   const pluginDirectory = path.join(directory, 'settings-smoke-plugin')
@@ -140,11 +155,20 @@ module.exports = async function personalizationSmoke(window, waitFor, directory,
   await waitFor(() => evaluate('document.querySelectorAll("ul[aria-label=已安装插件] li").length === 1'), '已停用筛选')
   await clickText('已启用', '#settings-content')
   await waitFor(() => evaluate('document.querySelectorAll("ul[aria-label=已安装插件] li").length === 0'), '已启用筛选')
-  await select('Host 连接')
-  assert.equal(
-    await evaluate('document.querySelector("#settings-content").textContent.includes("连接其他 Host")'),
-    true,
+  await select('远程')
+  assert.equal(await evaluate('document.querySelector("#settings-content").textContent.includes("配置远程服务")'), true)
+  const origin = await evaluate('window.location.origin')
+  await clickText('配置远程服务', '#settings-content')
+  await waitFor(
+    () => evaluate('document.querySelector("[role=dialog] h2")?.textContent === "配置远程服务"'),
+    '远程配置弹窗',
   )
+  assert.equal(await evaluate('document.querySelector("[aria-label=远程服务地址]").value'), '', '服务地址默认空')
+  assert.equal(await evaluate('document.querySelector("[aria-label=远程访问令牌]").type'), 'password')
+  assert.equal(await evaluate('document.querySelector("[aria-label=远程访问令牌]").value'), '', '令牌默认空')
+  await evaluate('document.querySelector("[role=dialog] > button:last-child").click()')
+  await waitFor(() => evaluate('!document.querySelector("[role=dialog]")'), '取消远程配置')
+  assert.equal(await evaluate('window.location.origin'), origin, '取消远程配置保持本机页面')
   await evaluate(`window.piMemePlugins.enable(${JSON.stringify(pluginId)})`)
   await select('扩展')
   window.setSize(900, 720)

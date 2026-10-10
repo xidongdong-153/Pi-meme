@@ -10,7 +10,9 @@
     "./snapshot-sync": "./src/snapshot-sync.ts",
     "./error-notice": "./src/error-notice.tsx",
     "./host-directory-dialog": "./src/host-directory-dialog.tsx",
-    "./plugin-registry": "./src/plugin-registry.ts"
+    "./plugin-registry": "./src/plugin-registry.ts",
+    "./services-app": "./src/services-app.tsx",
+    "./service-ui": "./src/service-ui.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit",

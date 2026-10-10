@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     "./host-client": "./src/host-client.ts",
-    "./plugin-client": "./src/plugin-client.ts"
+    "./plugin-client": "./src/plugin-client.ts",
+    "./service-registry": "./src/service-registry.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit",

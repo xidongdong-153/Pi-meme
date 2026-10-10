@@ -6,6 +6,7 @@ import { randomBytes, timingSafeEqual, createHash } from 'node:crypto'
 import { WebSocketServer } from 'ws'
 import type { HostRpcRequest } from '@pi-meme/contracts/host'
 import { createHost, type HostOptions } from './service'
+import { RemoteServices } from './remote-services'
 
 export type ServerOptions = HostOptions & {
   hostname?: string
@@ -51,6 +52,13 @@ export async function startHostServer(options: ServerOptions = {}) {
   const local = ['127.0.0.1', 'localhost', '::1'].includes(hostname)
   if (!local && !options.tls) throw new Error('远程 Host 必须配置 HTTPS 证书和私钥')
   const host = await createHost(options)
+  const remotes = new RemoteServices(host.connections, host.root)
+  try {
+    await remotes.initialize()
+  } catch (cause) {
+    await host.dispose()
+    throw cause
+  }
   const token = options.token ?? host.credentials.get('host:token') ?? randomBytes(32).toString('base64url')
   if (host.credentials.get('host:token') !== token) {
     try {
@@ -124,6 +132,18 @@ export async function startHostServer(options: ServerOptions = {}) {
       }
       if (url.pathname.startsWith('/api/')) {
         if (!authenticated(request)) return reply(response, 401, { error: '需要登录 Host' })
+        const remote = url.pathname.match(/^\/api\/services\/([a-f0-9]{24})(\/api\/.*)$/)
+        if (remote) {
+          const body = request.method === 'POST' ? JSON.stringify(await jsonBody(request, true)) : undefined
+          const upstream = await remotes.request(remote[1], remote[2], request.method ?? 'GET', body)
+          response.writeHead(upstream.status, {
+            'Content-Type': upstream.contentType,
+            'Cache-Control': 'no-store',
+            'X-Content-Type-Options': 'nosniff',
+          })
+          response.end(upstream.data)
+          return
+        }
         if (url.pathname.startsWith('/api/plugins/') && request.method === 'GET') {
           const parts = url.pathname.slice('/api/plugins/'.length).split('/')
           if (parts.shift() !== host.instanceId) return reply(response, 404, { error: '插件资源已过期，请刷新快照' })
@@ -156,6 +176,44 @@ export async function startHostServer(options: ServerOptions = {}) {
             !localRequest(request)
           )
             return reply(response, 403, { error: '旧凭据只能在本机 Host 导入' })
+          if (
+            !value ||
+            typeof value.method !== 'string' ||
+            typeof value.clientId !== 'string' ||
+            !value.clientId ||
+            value.clientId.length > 128 ||
+            typeof value.requestId !== 'string' ||
+            !value.requestId ||
+            value.requestId.length > 128 ||
+            !Array.isArray(value.args)
+          )
+            throw new Error('请求参数无效')
+          if (value.hostId && value.hostId !== host.hostId) throw new Error('请求 Host 身份不匹配')
+          if (value.method.startsWith('host:services:')) {
+            let result: unknown
+            switch (value.method) {
+              case 'host:services:list':
+                result = remotes.list()
+                break
+              case 'host:services:register': {
+                const input = value.args[0] as { url?: unknown; token?: unknown }
+                if (typeof input?.url !== 'string' || (input.token !== undefined && typeof input.token !== 'string'))
+                  throw new Error('远程服务登记参数无效')
+                result = await remotes.register(input.url, input.token)
+                break
+              }
+              case 'host:services:retry':
+              case 'host:services:remove':
+                if (typeof value.args[0] !== 'string') throw new Error('服务标识无效')
+                result = value.method.endsWith(':retry')
+                  ? await remotes.retry(value.args[0])
+                  : await remotes.remove(value.args[0])
+                break
+              default:
+                throw new Error('服务管理接口不存在')
+            }
+            return reply(response, 200, { requestId: value.requestId, hostId: host.hostId, result })
+          }
           return reply(response, 200, await host.rpc(value))
         }
         if (url.pathname === '/api/snapshot' && request.method === 'GET') {
@@ -219,7 +277,7 @@ export async function startHostServer(options: ServerOptions = {}) {
       !authenticated(request) ||
       !allowedOrigin(request) ||
       (localAutoLogin && !localRequest(request)) ||
-      url.pathname !== '/api/events'
+      (url.pathname !== '/api/events' && !/^\/api\/services\/[a-f0-9]{24}\/api\/events$/.test(url.pathname))
     ) {
       socket.destroy()
       return
@@ -230,6 +288,11 @@ export async function startHostServer(options: ServerOptions = {}) {
       return
     }
     sockets.handleUpgrade(request, socket, head, (connection) => {
+      const remote = url.pathname.match(/^\/api\/services\/([a-f0-9]{24})\/api\/events$/)
+      if (remote) {
+        void remotes.events(remote[1], clientId, connection).catch(() => connection.close(1011, '远程服务订阅失败'))
+        return
+      }
       let dispose: (() => void) | undefined
       connection.on('close', () => dispose?.())
       void host
@@ -258,6 +321,7 @@ export async function startHostServer(options: ServerOptions = {}) {
   let disposing: Promise<void> | undefined
   return {
     host,
+    remotes,
     url,
     createBootstrapTicket() {
       const value = randomBytes(32).toString('base64url')
@@ -267,6 +331,7 @@ export async function startHostServer(options: ServerOptions = {}) {
     token,
     dispose() {
       disposing ??= (async () => {
+        remotes.dispose()
         for (const connection of sockets.clients) connection.terminate()
         sockets.close()
         server.closeAllConnections()

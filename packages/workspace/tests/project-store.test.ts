@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { mkdtemp, mkdir, readFile, rm, symlink, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { ProjectStore } from '../src/server/project-store'
@@ -86,6 +86,40 @@ test('损坏项目文件拒绝覆盖，目录无效和保存失败不改变登�
     await mkdir(`${file}.tmp`)
     await assert.rejects(valid.register(project), /无法保存项目文件/)
     assert.deepEqual(await valid.list(), [])
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('版本 1 项目文件兼容 Worktree 来源，重启后过滤重复项目并保留真实目录', async () => {
+  const directory = await realpath(await mkdtemp(path.join(tmpdir(), 'pi-project-worktrees-')))
+  try {
+    const source = path.join(directory, 'repo')
+    const checkout = path.join(directory, 'worktrees', 'one')
+    await mkdir(source)
+    await mkdir(checkout, { recursive: true })
+    await writeFile(
+      path.join(directory, 'projects.json'),
+      JSON.stringify({ version: 1, projects: [{ cwd: source, name: '项目', lastSelectedAt: '' }] }),
+    )
+    const store = new ProjectStore(directory)
+    await store.load()
+    await store.recordWorktree({
+      checkoutRoot: checkout,
+      cwd: checkout,
+      sourceProjectCwd: source,
+      baseRef: 'refs/heads/main',
+      headSha: 'a'.repeat(40),
+    })
+    const restored = new ProjectStore(directory)
+    await restored.load()
+    assert.equal(restored.sourceProjectCwd(checkout), source)
+    assert.deepEqual(restored.projectDirectories(source), [source, checkout])
+    assert.equal((await restored.register(checkout)).cwd, source)
+    assert.equal((await restored.list([checkout])).length, 1)
+    await restored.remove(source)
+    assert.equal(restored.sourceProjectCwd(checkout), source)
+    assert.equal((await readFile(path.join(checkout, '..', '..', 'projects.json'), 'utf8')).includes(checkout), true)
   } finally {
     await rm(directory, { recursive: true, force: true })
   }

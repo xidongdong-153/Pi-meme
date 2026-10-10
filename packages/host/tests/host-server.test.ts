@@ -83,6 +83,8 @@ test('两客户端选择不同项目不改变彼此快照、命令与 Git 目录
       fixture.rpc('a', 'workspace:select', [{ kind: 'project', cwd: a }]),
       fixture.rpc('b', 'workspace:select', [{ kind: 'project', cwd: b }]),
     ])
+    assert.equal(first.error, undefined, JSON.stringify(first.error))
+    assert.equal(second.error, undefined, JSON.stringify(second.error))
     const left = first.result as SessionSelectionResult
     const right = second.result as SessionSelectionResult
     assert.equal(left.cancelled, false)

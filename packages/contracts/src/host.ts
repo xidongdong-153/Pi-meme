@@ -1,5 +1,17 @@
 import type { Connection, DesktopError, DesktopEvent, ProjectApp } from './desktop'
 import type { Theme } from './settings'
+import type { DesktopProject, PiSessionsSnapshot } from './sessions'
+
+export type ServiceRef = { id: string; hostId: string; local: boolean; address: string }
+export type ProjectRef = { serviceId: string; cwd: string }
+export type SessionRef = { serviceId: string; sessionPath: string; sessionId: string }
+export type HostService = ServiceRef & {
+  status: 'connected' | 'disconnected' | 'connecting'
+  error?: string
+  projects: DesktopProject[]
+  sessions?: PiSessionsSnapshot
+}
+export type HostServiceRegistration = { url: string; token?: string }
 
 export type HostConnection = { url: string; token: string; hostId: string; local: boolean }
 export type SavedHostConnection = { url: string; hostId: string }

@@ -82,8 +82,48 @@ module.exports = async function projectSelectorSmoke(window, waitFor, directory,
     () => evaluate(`document.querySelectorAll('[aria-label="已附加图片"] img').length === 1`),
     '项目草稿含图片',
   )
+  const cardGeometry = await evaluate(`(() => {
+    const node = document.querySelector('[data-testid="workspace-card"]');
+    const card = node.getBoundingClientRect();
+    const composer = document.querySelector('form[aria-label="消息输入"]').getBoundingClientRect();
+    const project = node.querySelector('[aria-label="选择当前项目"]').getBoundingClientRect();
+    const location = node.querySelector('[aria-label="工作位置"]')?.getBoundingClientRect();
+    const git = node.querySelector('[aria-label="Git 分支与工作树"]');
+    const gitBounds = git.getBoundingClientRect();
+    return {
+      height: card.height, left: card.left - composer.left, right: composer.right - card.right,
+      overlap: card.bottom - composer.top,
+      projectWidth: project.width,
+      location: location ? { width: location.width, gap: location.left - project.right } : null,
+      git: { text: git.textContent.trim(), icons: git.querySelectorAll('svg').length, settings: Boolean(git.querySelector('.lucide-settings')), width: gitBounds.width, right: card.right - gitBounds.right },
+      close: Boolean(node.querySelector('[aria-label="不在项目中工作"], .lucide-x')),
+      nested: Boolean(document.querySelector('form[aria-label="消息输入"] [aria-label="选择当前项目"]')),
+    };
+  })()`)
+  assert.equal(cardGeometry.height, 48)
+  assert.equal(cardGeometry.left, 12)
+  assert.equal(cardGeometry.right, 12)
+  assert.equal(cardGeometry.overlap, 8, '工作插槽与输入框重叠连接')
+  assert.equal(cardGeometry.projectWidth, 160, '项目入口保留文字宽度')
+  assert.ok(cardGeometry.location, '工作插槽显示工作位置')
+  assert.equal(cardGeometry.location.width, 140, '工作位置入口保留文字宽度')
+  assert.equal(cardGeometry.location.gap, 4, '项目与工作位置紧邻')
+  assert.equal(cardGeometry.git.text, '', 'Git 设置入口不显示分支文字')
+  assert.equal(cardGeometry.git.icons, 1, 'Git 设置入口只显示一个图标')
+  assert.equal(cardGeometry.git.settings, true, 'Git 设置入口使用设置图标')
+  assert.equal(cardGeometry.git.width, 28, 'Git 设置入口保持图标按钮尺寸')
+  assert.ok(cardGeometry.git.right <= 12, 'Git 设置入口位于插槽最右侧')
+  assert.equal(cardGeometry.close, false, '项目入口不显示独立关闭按钮')
+  assert.equal(cardGeometry.nested, false)
   await theme('light')
   await open()
+  assert.equal(
+    await evaluate(
+      `Array.from(document.querySelectorAll('${panel} button')).some(node => node.textContent.trim() === '不在项目中工作')`,
+    ),
+    true,
+    '无项目工作选项保留在项目菜单中',
+  )
   assert.equal(await evaluate(`document.activeElement?.getAttribute('aria-label')`), '搜索项目')
   assert.equal(await evaluate(`document.querySelector('${panel} [role="option"]')?.title`), second)
   assert.equal(
@@ -225,6 +265,10 @@ module.exports = async function projectSelectorSmoke(window, waitFor, directory,
     () => evaluate('window.piMemeClient.getConnection().then((value) => value.status !== "idle")'),
     '无项目首次发送启动运行时',
   )
+  await waitFor(
+    () => evaluate(`!document.querySelector('[data-testid="workspace-card"]')?.getBoundingClientRect().width`),
+    '首次发送后隐藏工作插槽',
+  )
   assert.equal(await evaluate('window.piMemeClient.getConnection().then((value) => value.cwd)'), standalone)
   await waitFor(
     () =>
@@ -236,7 +280,39 @@ module.exports = async function projectSelectorSmoke(window, waitFor, directory,
   await waitFor(() => evaluate(`document.body.textContent.includes('未归属项目')`), '未归属项目侧栏')
   const key = await evaluate('window.piMemeClient.getConnection().then(value => value.sessionKey)')
   await evaluate(`window.piMemeClient.abort(${JSON.stringify(key)})`)
+  await waitFor(
+    () => evaluate(`!document.querySelector('[aria-label="在顶栏选择项目"]').disabled`),
+    '停止后顶栏项目入口可操作',
+  )
+  await evaluate(`document.querySelector('[aria-label="在顶栏选择项目"]').click()`)
+  await waitFor(
+    () => evaluate(`Boolean(document.querySelector('${panel} [role="option"]'))`),
+    '已有会话从顶栏打开项目菜单',
+  )
+  const headerMenu = await evaluate(`(() => {
+    const menu = document.querySelector(${JSON.stringify(panel)}).getBoundingClientRect();
+    const button = document.querySelector('[aria-label="在顶栏选择项目"]').getBoundingClientRect();
+    return { top: menu.top, left: menu.left, right: menu.right, buttonBottom: button.bottom, buttonLeft: button.left, buttonRight: button.right };
+  })()`)
+  assert.ok(headerMenu.top >= headerMenu.buttonBottom, '已有会话项目菜单位于顶栏入口下方')
+  assert.ok(
+    headerMenu.left <= headerMenu.buttonRight && headerMenu.right >= headerMenu.buttonLeft,
+    '已有会话项目菜单与顶栏入口水平相交',
+  )
+  assert.equal(
+    await evaluate(`Boolean(document.querySelector('[data-testid="workspace-card"]')?.getBoundingClientRect().width)`),
+    false,
+  )
+  await evaluate(
+    `document.querySelector('[aria-label="搜索项目"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`,
+  )
+  await waitFor(() => evaluate(`!document.querySelector(${JSON.stringify(panel)})`), '已有会话顶栏项目菜单关闭')
+  assert.equal(await evaluate(`document.activeElement?.getAttribute('aria-label')`), '在顶栏选择项目')
   await evaluate('window.piMemeClient.newSession()')
+  await waitFor(
+    () => evaluate(`Boolean(document.querySelector('[data-testid="workspace-card"]')?.getBoundingClientRect().width)`),
+    '新建未开始会话恢复工作插槽',
+  )
   const fresh = await evaluate('window.piMemeClient.getConnection().then(value => value.cwd)')
   assert.notEqual(fresh, standalone)
   await assert.rejects(

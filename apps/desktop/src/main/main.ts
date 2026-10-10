@@ -7,8 +7,7 @@ import { syncDockIcon } from './dock-icon'
 import { createWindow } from './window/create-window'
 import { registerPlatformIpc } from './ipc/register'
 import { recoveryUrl } from './window/recovery-page'
-import { loadHostPage, retryHostPage } from './window/load-host-page'
-import { authenticateRemoteHost } from './remote-auth'
+import { retryHostPage } from './window/load-host-page'
 
 if (['memory', 'file'].includes(process.env.PI_MEME_TEST_CREDENTIALS ?? '')) {
   if (!process.env.PI_MEME_DATA_ROOT) throw new Error('Desktop 验收必须指定临时 PI_MEME_DATA_ROOT')
@@ -20,7 +19,6 @@ if (['memory', 'file'].includes(process.env.PI_MEME_TEST_CREDENTIALS ?? '')) {
 let window: BrowserWindow | null = null
 let ownedHost: UtilityProcess | undefined
 let localConnection: { url: string; hostId: string } | undefined
-let remoteConnection: { url: string; hostId: string } | undefined
 let lastConnectionError: HostConnectionError | null = null
 let switching = false
 const connectionRequests = new Map<
@@ -40,28 +38,11 @@ function hostRequest<T>(type: string, value: Record<string, string> = {}): Promi
     child.postMessage({ type, id, ...value })
   })
 }
-let initialConnectionError: Error | undefined
 const tickets = new Map<
   string,
   { resolve: (value: string) => void; reject: (cause: Error) => void; timer: NodeJS.Timeout }
 >()
 async function connection(): Promise<HostConnection> {
-  if (remoteConnection) {
-    const target = window
-    if (!target) throw new Error('桌面窗口已关闭')
-    const current = remoteConnection
-    try {
-      await authenticateRemoteHost(target.webContents.session, current.url, '', current.hostId)
-    } catch {
-      const saved = await hostRequest<(SavedHostConnection & { token: string }) | undefined>('connection:get', {
-        url: current.url,
-      })
-      if (!saved) throw new Error('远程 Host 登录已失效，请重新输入访问令牌')
-      await authenticateRemoteHost(target.webContents.session, current.url, saved.token, saved.hostId)
-    }
-    if (remoteConnection !== current) throw new Error('Host 连接已切换，请重新连接')
-    return { ...current, token: '', local: false }
-  }
   if (!ownedHost || !localConnection) throw new Error('本地 Host 尚未启动')
   const child = ownedHost
   const token = await new Promise<string>((resolve, reject) => {
@@ -148,74 +129,35 @@ function startHost() {
   })
 }
 function trustedOrigin() {
-  const url = remoteConnection?.url ?? localConnection?.url
+  const url = localConnection?.url
   return url ? new URL(url).origin : ''
 }
 async function retryConnection() {
-  const local = lastConnectionError?.local ?? !remoteConnection
   const target = window
   if (!target) throw new Error('桌面窗口已关闭')
   try {
-    if (lastConnectionError?.local === false && !remoteConnection && process.env.PI_MEME_REMOTE_HOST) {
-      await setConnection({ url: process.env.PI_MEME_REMOTE_HOST, token: process.env.PI_MEME_TOKEN ?? '' })
-      initialConnectionError = undefined
-      return
-    }
-    await retryHostPage(
-      target,
-      async () => {
-        if (!remoteConnection && (!ownedHost || !localConnection)) await startHost()
-        const url = remoteConnection?.url ?? localConnection?.url
-        if (!url) throw new Error('Host 地址不可用')
-        return url
-      },
-      local ? undefined : initialConnectionError,
-    )
-    lastConnectionError = null
+    await retryHostPage(target, async () => {
+      if (!ownedHost || !localConnection) await startHost()
+      if (!localConnection) throw new Error('本机 Host 地址不可用')
+      return localConnection.url
+    })
+    if (lastConnectionError?.local !== false) lastConnectionError = null
   } catch (cause) {
-    lastConnectionError = { local, message: String(cause instanceof Error ? cause.message : cause) }
+    lastConnectionError = { local: true, message: cause instanceof Error ? cause.message : String(cause) }
     if (!target.isDestroyed() && target.webContents.getURL() !== recoveryUrl) await target.loadURL(recoveryUrl)
-    throw new Error(`Host 连接失败：${String(cause)}`)
+    throw new Error(`本机 Host 连接失败：${String(cause)}`)
   }
 }
 async function setConnection(value: { url: string; token: string } | null) {
-  const target = window
-  if (!target) throw new Error('桌面窗口已关闭')
-  if (switching) throw new Error('正在切换 Host，请等待完成')
+  if (switching) throw new Error('正在登记远程服务，请等待完成')
   switching = true
-  const previous = remoteConnection
-  const previousError = initialConnectionError
-  const previousUrl = target.webContents.getURL()
-  initialConnectionError = undefined
   try {
     if (!ownedHost || !localConnection) await startHost()
-    if (value) {
-      const url = new URL(value.url)
-      if (url.protocol !== 'https:' || url.username || url.password)
-        throw new Error('远程 Host 必须使用 HTTPS，地址不能包含凭据')
-      const saved = value.token
-        ? undefined
-        : await hostRequest<(SavedHostConnection & { token: string }) | undefined>('connection:get', {
-            url: url.origin,
-          })
-      const token = value.token || saved?.token
-      if (!token) throw new Error('请输入远程 Host 访问令牌')
-      const hostId = await authenticateRemoteHost(target.webContents.session, url.origin, token, saved?.hostId)
-      remoteConnection = { url: url.origin, hostId }
-      await loadHostPage(target, url.origin)
-      await hostRequest('connection:set', { url: url.origin, token, hostId })
-    } else {
-      remoteConnection = undefined
-      await loadHostPage(target, localConnection!.url)
-    }
+    if (value) await hostRequest('service:register', { url: value.url, token: value.token })
     lastConnectionError = null
   } catch (cause) {
-    remoteConnection = previous
-    initialConnectionError = previousError
-    lastConnectionError = { local: value === null, message: cause instanceof Error ? cause.message : String(cause) }
-    if (!target.isDestroyed() && target.webContents.getURL() !== previousUrl)
-      await loadHostPage(target, previousUrl || recoveryUrl).catch(() => {})
-    throw new Error(`无法切换 Host，已恢复原连接：${String(cause)}`)
+    lastConnectionError = { local: false, message: cause instanceof Error ? cause.message : String(cause) }
+    throw new Error(`远程服务登记失败：${String(cause)}`)
   } finally {
     switching = false
   }
@@ -246,16 +188,15 @@ app
       remove: (url) => hostRequest<void>('connection:remove', { url }),
       error: () => lastConnectionError,
     })
-    await open(failed)
     if (!failed && process.env.PI_MEME_REMOTE_HOST) {
       try {
         await setConnection({ url: process.env.PI_MEME_REMOTE_HOST, token: process.env.PI_MEME_TOKEN ?? '' })
       } catch (cause) {
-        initialConnectionError = cause instanceof Error ? cause : new Error(String(cause))
-        lastConnectionError = { local: false, message: initialConnectionError.message }
-        await window?.loadURL(recoveryUrl)
+        lastConnectionError = { local: false, message: cause instanceof Error ? cause.message : String(cause) }
+        console.error(`启动远程服务登记失败：${lastConnectionError.message}`)
       }
     }
+    await open(failed)
     app.on('activate', () => {
       if (!window) void open().catch((cause: unknown) => console.error(String(cause)))
     })

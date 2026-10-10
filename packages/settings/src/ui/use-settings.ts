@@ -30,6 +30,7 @@ export function useSettings(
   >,
   enabled = true,
   subagentsEnabled = true,
+  appearanceEnabled = true,
 ) {
   const [snapshot, setSnapshot] = useState<SettingsSnapshot | null>(null)
   const [subagents, setSubagents] = useState<SubagentCatalogSnapshot | null>(null)
@@ -82,14 +83,14 @@ export function useSettings(
     }
   }, [appearanceSaver, enabled])
   useEffect(() => {
-    if (!enabled || !snapshot) return
+    if (!enabled || !appearanceEnabled || !snapshot) return
     const value = migrateAppearance(snapshot.settings, snapshot.themes)
     applyAppearance(
       resolveTheme(value, snapshot.themes, previewMode ?? resolvedMode(value, systemDark)),
       value,
       systemMotion,
     )
-  }, [snapshot, previewMode, systemDark, systemMotion, enabled])
+  }, [snapshot, previewMode, systemDark, systemMotion, enabled, appearanceEnabled])
   function saveAppearance(value: AppearanceSettings) {
     if (!enabled) return
     appearanceRevision.current += 1

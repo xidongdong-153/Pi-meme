@@ -20,7 +20,8 @@
     "./ui/project-selector": "./src/ui/project-selector.tsx",
     "./server/entry": "./src/server/entry.ts",
     "./ui/plugin": "./src/ui/plugin.ts",
-    "./ui/entry": "./src/ui/entry.tsx"
+    "./ui/entry": "./src/ui/entry.tsx",
+    "./ui/sidebar/sidebar-menus": "./src/ui/sidebar/sidebar-menus.tsx"
   },
   "scripts": {
     "type-check": "tsc --noEmit",

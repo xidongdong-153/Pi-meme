@@ -107,12 +107,13 @@ function fakeSession(cwd: string, notify: Notify) {
   }
   return { session, finish, prompts, delivered, continuations, state, faults, notify }
 }
-async function setup() {
+async function setup(assertCheckoutAvailable?: (cwd: string) => void) {
   const directory = await mkdtemp(path.join(tmpdir(), 'pi-collaboration-'))
   const children = new Map<string, ReturnType<typeof fakeSession>>()
   const events: DesktopEvent[] = []
   const creationFaults: { snapshotGate?: Promise<void> } = {}
   const bridge = createHostCollaborationBridge({
+    assertCheckoutAvailable,
     dataRoot: directory,
     createSession: (cwd, notify, key) => {
       const fake = fakeSession(cwd, notify)
@@ -1336,5 +1337,37 @@ test('forknone无文件的准入预约被中断时撤销身份，重启不残留
     await root.stopAndWait()
     await fake.dispose()
     await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('checkout gate 阻止新子代理与已有 Worker followup，busy 包含排队与等待任务', async () => {
+  let locked = false
+  const context = await setup(() => {
+    if (locked) throw new Error('工作目录正在切换分支')
+  })
+  try {
+    await context.begin()
+    const child = await context.spawn('worker')
+    assert.throws(() => context.bridge.assertCheckoutIdle(() => true), /运行中的子任务/)
+    locked = true
+    await assert.rejects(context.spawn('blocked'), /正在切换分支/)
+    await assert.rejects(
+      context.call(context.root.session, 'followup_task', { target: child.agentId, message: '不能排队' }),
+      /正在切换分支/,
+    )
+    locked = false
+    context.children.get(child.sessionKey)!.finish('结果')
+    await context.until(
+      async () =>
+        (await context.bridge.getAgents('root-key')).find((agent) => agent.agentId === child.agentId)!.status ===
+        'completed',
+    )
+    locked = true
+    await assert.rejects(
+      context.call(context.root.session, 'followup_task', { target: child.agentId, message: '不能复用' }),
+      /正在切换分支/,
+    )
+  } finally {
+    await context.cleanup()
   }
 })

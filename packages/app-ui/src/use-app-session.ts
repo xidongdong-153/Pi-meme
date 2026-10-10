@@ -417,7 +417,12 @@ export function useAppSession(
     }
   }, [])
 
-  const select = async (work: () => Promise<SessionSelectionResult>, target?: string, carryDraft = false) => {
+  const select = async (
+    work: () => Promise<SessionSelectionResult>,
+    target?: string,
+    carryDraft = false,
+    refreshCommands = true,
+  ) => {
     if (actionLock.current) return false
     let succeeded = false
     const replacing = selection.current.current !== null
@@ -426,6 +431,7 @@ export function useAppSession(
     const modeRevision = chatRef.current?.captureModeRevision()
     let previewAllowed = true
     const owns = () => mounted.current && selection.current.owns(transaction)
+    const previousMode = chatRef.current?.mode
     const previous = displayed.current
     const previousPath = previous.sessionFile ?? previous.sessionKey
     const previousComposer =
@@ -497,6 +503,7 @@ export function useAppSession(
         commitSnapshot(result.snapshot, transaction.events, pluginRevision, modeRevision)
         if (draft) chatRef.current?.restoreComposer(draft)
         if (transferred) {
+          if (previousMode) chatRef.current?.changeMode(previousMode)
           if (previous.sessionKey) drafts.current.delete(previous.sessionKey)
           setWorkspaceNotice(
             [
@@ -511,7 +518,7 @@ export function useAppSession(
         extensionsRef.current?.focusDraft()
         setRefreshToken((value) => value + 1)
         const generation = result.snapshot.connection.generation
-        if (!carryDraft)
+        if (!carryDraft && refreshCommands)
           void bridge
             .getCommands()
             .then((nextCommands) => {
@@ -600,6 +607,57 @@ export function useAppSession(
     Boolean(connection.accessChanging)
 
   return {
+    captureDraft: () => ({ composer: chat.captureComposer(), mode: chat.mode }),
+    clearDraft: () => {
+      chat.clearComposer()
+      if (current.current.sessionKey) drafts.current.delete(current.current.sessionKey)
+    },
+    selectLocation: async (
+      input: SelectWorkspace,
+      incoming?: { composer: ComposerSnapshot; mode: import('@pi-meme/contracts/plan').TaskMode },
+    ) => {
+      const changed = await select(
+        () =>
+          input.kind === 'project' && input.cwd === current.current.cwd
+            ? bridge.newSession()
+            : input.kind === 'standalone' && current.current.workspaceKind === 'standalone'
+              ? bridge.newSession()
+              : bridge.selectWorkspace(input),
+        undefined,
+        !incoming,
+        !incoming,
+      )
+      if (changed && incoming) {
+        const expected = { ...current.current }
+        const commands = await bridge.getCommands().catch(() => [] as PiSlashCommand[])
+        if (
+          expected.sessionKey !== current.current.sessionKey ||
+          expected.generation !== current.current.generation ||
+          selection.current.current
+        )
+          return false
+        const transferred = transferDraft(incoming.composer, commands)
+        chat.restoreComposer(transferred.composer)
+        chat.changeMode(incoming.mode)
+        setCommands(commands)
+        setWorkspaceNotice(transferred.removedSkills ? '部分技能在当前服务不可用，已转为文字' : '')
+      }
+      return changed
+    },
+    switchGitBranch: (branch: string) =>
+      select(() => bridge.switchGitBranch(current.current.sessionKey!, branch), undefined, true),
+    createGitBranch: (name: string, base: string) =>
+      select(() => bridge.createGitBranch(current.current.sessionKey!, name, base), undefined, true),
+    createGitWorktree: (base: string) =>
+      select(
+        async () => {
+          const result = await bridge.createGitWorktree(current.current.sessionKey!, base)
+          if (result.selectionError) throw new Error(`Worktree 已创建：${result.cwd}；${result.selectionError}`)
+          return result.selection
+        },
+        undefined,
+        true,
+      ),
     planDocuments,
     chat: chat.chat,
     chatStream: chat.chatStream,

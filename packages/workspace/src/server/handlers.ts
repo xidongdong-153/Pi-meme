@@ -60,14 +60,20 @@ export function createWorkspaceHandlers({
     return name
   }
   const preview = async (cwd: string) => {
-    const disk = await scanProjectSessions(await sessions.getSessionsDirectory(), cwd)
+    const directories = projects?.projectDirectories(cwd) ?? [cwd]
+    const root = await sessions.getSessionsDirectory()
+    const scanned = await Promise.all(directories.map((directory) => scanProjectSessions(root, directory)))
+    const disk = { paths: scanned.flatMap((item) => item.paths), warnings: scanned.flatMap((item) => item.warnings) }
     const runtime = await Promise.all(
       (getRuntimeSessions?.() ?? []).map(async (session) => ({ ...session, cwd: await normalizeCwd(session.cwd) })),
     )
     return {
       ...disk,
       paths: [
-        ...new Set([...disk.paths, ...runtime.filter((session) => session.cwd === cwd).map((session) => session.path)]),
+        ...new Set([
+          ...disk.paths,
+          ...runtime.filter((session) => directories.includes(session.cwd)).map((session) => session.path),
+        ]),
       ].sort(),
     }
   }
@@ -211,6 +217,28 @@ export function createWorkspaceHandlers({
               sessions: [],
             })
         }
+      }
+      if (projects) {
+        const decorate = (session: PiSessionSummary) => ({
+          ...session,
+          sourceProjectCwd: projects.sourceProjectCwd(session.cwd),
+        })
+        const grouped = new Map<string, PiProjectGroup>()
+        for (const group of merged.projects) {
+          const cwd = projects.sourceProjectCwd(group.cwd) ?? group.cwd
+          const saved = grouped.get(cwd)
+          const entries = [...(saved?.sessions ?? []), ...group.sessions.map(decorate)]
+          grouped.set(cwd, {
+            ...group,
+            cwd,
+            name: (await projects.list([cwd])).find((project) => project.cwd === cwd)?.name ?? group.name,
+            sessions: entries,
+            sessionCount: entries.length,
+            lastModified: saved && saved.lastModified > group.lastModified ? saved.lastModified : group.lastModified,
+          })
+        }
+        merged.projects = [...grouped.values()]
+        merged.recents = merged.recents.map(decorate)
       }
       return merged
     },

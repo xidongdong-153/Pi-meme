@@ -81,6 +81,7 @@ contextBridge.exposeInMainWorld('piMemeTestBridge', {
   getConnection: async () => connection,
   getSnapshot: async () => snapshot(),
   getCommands: async () => [],
+  getGitEnvironment: async () => ({ cwd: connection.cwd, root: '', dirty: false, branches: [] }),
   getSessions: async () => ({
     recents: entries.map((name) => ({
       id: name,

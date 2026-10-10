@@ -17,7 +17,6 @@ export type ComposerProps = {
   onPlanCommand?: (text: string) => void
   recoveredInputs?: QueuedInput[]
   onRestoreQueuedInput?: (input: QueuedInput) => void
-  workspace?: ReactNode
   projectPath?: string
   loadProjectFiles?: ChatBridge['getProjectFiles']
   selectedSkills: PiSlashCommand[]
@@ -59,7 +58,6 @@ export function Composer({
   onPlanCommand,
   recoveredInputs,
   onRestoreQueuedInput,
-  workspace,
   projectPath,
   loadProjectFiles,
   selectedSkills,
@@ -160,7 +158,6 @@ export function Composer({
         }}
       />
 
-      {workspace}
       {widgetsAbove}
       {statusBadges}
 

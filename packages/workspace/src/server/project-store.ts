@@ -3,8 +3,17 @@ import { mkdir, readFile, realpath, rename, stat, writeFile } from 'node:fs/prom
 import path from 'node:path'
 import type { DesktopProject, WorkspaceKind } from '@pi-meme/contracts/sessions'
 
+export type ProjectWorktree = {
+  checkoutRoot: string
+  cwd: string
+  sourceProjectCwd: string
+  baseRef: string
+  headSha: string
+}
+
 export class ProjectStore {
   private projects: DesktopProject[] = []
+  private worktrees: ProjectWorktree[] = []
   private loadError?: Error
   private saving: Promise<void> = Promise.resolve()
   private standaloneRoot: string
@@ -33,7 +42,22 @@ export class ProjectStore {
         )
       )
         throw new Error('项目文件格式无效')
+      if (
+        data.worktrees !== undefined &&
+        (!Array.isArray(data.worktrees) ||
+          data.worktrees.some(
+            (item: ProjectWorktree) =>
+              !item ||
+              ![item.checkoutRoot, item.cwd, item.sourceProjectCwd].every(
+                (value) => typeof value === 'string' && path.isAbsolute(value),
+              ) ||
+              typeof item.baseRef !== 'string' ||
+              typeof item.headSha !== 'string',
+          ))
+      )
+        throw new Error('Worktree 来源记录格式无效')
       this.projects = data.projects
+      this.worktrees = data.worktrees ?? []
     } catch (cause) {
       if ((cause as NodeJS.ErrnoException).code !== 'ENOENT')
         this.loadError = new Error(`无法读取项目文件 ${this.file}：${String(cause)}`)
@@ -72,7 +96,8 @@ export class ProjectStore {
   }
 
   async register(cwd: string) {
-    const resolved = await this.validateDirectory(cwd)
+    const actual = await this.validateDirectory(cwd)
+    const resolved = this.sourceProjectCwd(actual) ?? actual
     if (this.kind(resolved) === 'standalone') throw new Error('不能将无项目会话目录登记为项目')
     const project = {
       cwd: resolved,
@@ -86,7 +111,7 @@ export class ProjectStore {
         project.name = this.projects.find((item) => item.cwd === resolved)?.name ?? project.name
         const projects = [project, ...this.projects.filter((item) => item.cwd !== resolved)]
         const temporary = `${this.file}.tmp`
-        await writeFile(temporary, JSON.stringify({ version: 1, projects }), 'utf8')
+        await writeFile(temporary, JSON.stringify({ version: 1, projects, worktrees: this.worktrees }), 'utf8')
         await rename(temporary, this.file)
         this.projects = projects
       })
@@ -105,7 +130,7 @@ export class ProjectStore {
       .then(async () => {
         if (this.loadError) throw this.loadError
         const projects = change(this.projects)
-        await writeFile(`${this.file}.tmp`, JSON.stringify({ version: 1, projects }), 'utf8')
+        await writeFile(`${this.file}.tmp`, JSON.stringify({ version: 1, projects, worktrees: this.worktrees }), 'utf8')
         await rename(`${this.file}.tmp`, this.file)
         this.projects = projects
       })
@@ -128,6 +153,42 @@ export class ProjectStore {
     await this.update((projects) => projects.filter((item) => item.cwd !== cwd))
   }
 
+  sourceProjectCwd(cwd: string) {
+    return this.worktrees.find((item) => item.cwd === cwd || item.checkoutRoot === cwd)?.sourceProjectCwd
+  }
+
+  projectDirectories(cwd: string) {
+    return [cwd, ...this.worktrees.filter((item) => item.sourceProjectCwd === cwd).map((item) => item.cwd)]
+  }
+
+  async recordWorktree(worktree: ProjectWorktree) {
+    const save = this.saving
+      .catch(() => {})
+      .then(async () => {
+        if (this.loadError) throw this.loadError
+        const worktrees = [...this.worktrees.filter((item) => item.checkoutRoot !== worktree.checkoutRoot), worktree]
+        await writeFile(`${this.file}.tmp`, JSON.stringify({ version: 1, projects: this.projects, worktrees }), 'utf8')
+        await rename(`${this.file}.tmp`, this.file)
+        this.worktrees = worktrees
+      })
+    this.saving = save
+    await save
+  }
+
+  async forgetWorktree(checkoutRoot: string) {
+    const save = this.saving
+      .catch(() => {})
+      .then(async () => {
+        if (this.loadError) throw this.loadError
+        const worktrees = this.worktrees.filter((item) => item.checkoutRoot !== checkoutRoot)
+        await writeFile(`${this.file}.tmp`, JSON.stringify({ version: 1, projects: this.projects, worktrees }), 'utf8')
+        await rename(`${this.file}.tmp`, this.file)
+        this.worktrees = worktrees
+      })
+    this.saving = save
+    await save
+  }
+
   async list(cwds: string[] = []) {
     if (this.loadError) throw this.loadError
     const projects = new Map<string, DesktopProject>()
@@ -143,7 +204,7 @@ export class ProjectStore {
     }
     for (const original of cwds) {
       if (!original || !path.isAbsolute(original)) continue
-      let cwd = original
+      let cwd = this.sourceProjectCwd(original) ?? original
       let unavailable = false
       try {
         cwd = await this.validateDirectory(cwd)

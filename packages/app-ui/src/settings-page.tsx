@@ -34,9 +34,9 @@ const groups = [
   },
 ] as const
 const secondarySections = [
-  { id: 'general', label: '关于', icon: Settings, description: '查看当前 Host 的 Pi 运行时。' },
+  { id: 'general', label: '关于', icon: Settings, description: '查看当前执行服务的 Pi 运行时。' },
   { id: 'profile', label: '用量', icon: UserRound, description: '查看 Token 用量与活动记录。' },
-  { id: 'host', label: 'Host 连接', icon: Server, description: '查看当前连接，或连接其他 Host。' },
+  { id: 'host', label: '远程', icon: Server, description: '添加、重试或移除远程服务。' },
   { id: 'skills', label: '技能', icon: BookOpen, description: '查看当前项目中已加载的技能。' },
   { id: 'mcp', label: '服务连接', icon: Settings, description: '管理 MCP 服务和授权。' },
   { id: 'extensions', label: '开发者', icon: Settings, description: '查看 Pi 原生扩展目录和装载状态。' },
@@ -53,8 +53,10 @@ export function SettingsPage({
   saving,
   onDiscard,
   onDismiss,
+  executionService,
 }: {
   renderContent: (section: SettingsSection, navigate: (section: SettingsSection) => void) => ReactNode
+  executionService?: string
   dirty: boolean
   saving: boolean
   onDiscard: () => void
@@ -161,6 +163,11 @@ export function SettingsPage({
             <div>
               <h2 className="text-3xl font-semibold tracking-tight">{section.label}</h2>
               <p className="mt-3 text-sm text-muted-foreground">{section.description}</p>
+              {executionService && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  设置对象：{sectionId === 'appearance' || sectionId === 'host' ? '此计算机' : executionService}
+                </p>
+              )}
             </div>
             {sectionId === 'plugins' && (
               <div className="flex flex-wrap gap-2">

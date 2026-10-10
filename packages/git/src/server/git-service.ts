@@ -1,12 +1,12 @@
 import { spawn } from 'node:child_process'
 import { lstat, readFile, realpath } from 'node:fs/promises'
 import path from 'node:path'
-import type { GitFileChange, GitSnapshot } from '@pi-meme/contracts/desktop'
+import type { GitEnvironment, GitFileChange, GitSnapshot } from '@pi-meme/contracts/desktop'
 
 const outputLimit = 8 * 1024 * 1024
 const untrackedPreviewLimit = 200 * 1024
 
-function runGit(cwd: string, args: string[]) {
+export function runGit(cwd: string, args: string[]) {
   return new Promise<{ stdout: string; stderr: string; code: number }>((resolve, reject) => {
     const child = spawn('git', ['-C', cwd, ...args], { stdio: ['ignore', 'pipe', 'pipe'] })
     const stdout: Buffer[] = []
@@ -28,7 +28,10 @@ function runGit(cwd: string, args: string[]) {
         code: code ?? 1,
       }
       if (result.code === 0) resolve(result)
-      else reject(Object.assign(new Error(result.stderr.trim() || 'Git 查询失败'), { code: result.code }))
+      else
+        reject(
+          Object.assign(new Error(`Git 操作失败：${result.stderr.trim() || '进程退出码非零'}`), { code: result.code }),
+        )
     })
   })
 }
@@ -150,4 +153,81 @@ export async function getGitDiff(cwd: string, filePath: string, kind: GitFileCha
     filePath,
   ]
   return (await runGit(snapshot.root, args)).stdout
+}
+
+export async function getGitEnvironment(cwd: string): Promise<GitEnvironment> {
+  const snapshot = await getGitSnapshot(cwd)
+  if (!snapshot.root) throw new Error(snapshot.error === 'unavailable' ? '未找到 Git' : '当前目录不是 Git 仓库')
+  const refs = await runGit(snapshot.root, [
+    'for-each-ref',
+    '--format=%(refname) %(symref)',
+    'refs/heads/',
+    'refs/remotes/',
+  ])
+  const occupied = new Map<string, string>()
+  const worktrees = (await runGit(snapshot.root, ['worktree', 'list', '--porcelain'])).stdout
+  for (const entry of worktrees.split('\n\n')) {
+    const lines = entry.split('\n')
+    const directory = lines.find((line) => line.startsWith('worktree '))?.slice(9)
+    const branch = lines.find((line) => line.startsWith('branch '))?.slice(7)
+    if (directory && branch && directory !== snapshot.root) occupied.set(branch, directory)
+  }
+  const headSha = await runGit(snapshot.root, ['rev-parse', '--verify', 'HEAD^{commit}'])
+    .then((result) => result.stdout.trim())
+    .catch(() => undefined)
+  return {
+    cwd,
+    root: await realpath(snapshot.root),
+    branch: snapshot.branch,
+    headSha,
+    dirty: snapshot.files.length > 0,
+    branches: refs.stdout
+      .trim()
+      .split('\n')
+      .filter(Boolean)
+      .flatMap((line) => {
+        const [ref, symbolic] = line.split(' ')
+        if (!ref || symbolic) return []
+        const kind = ref.startsWith('refs/heads/') ? ('local' as const) : ('remote' as const)
+        const name = ref.replace(/^refs\/(heads|remotes)\//, '')
+        return [
+          { ref, name, kind, occupiedBy: occupied.get(ref), current: kind === 'local' && name === snapshot.branch },
+        ]
+      }),
+  }
+}
+
+export async function resolveGitBase(environment: GitEnvironment, baseRef: string) {
+  if (!environment.headSha) throw new Error('仓库还没有提交，不能创建分支或 Worktree')
+  if (baseRef === 'HEAD') return environment.headSha
+  if (!environment.branches.some((branch) => branch.ref === baseRef))
+    throw new Error('所选分支已不存在，请刷新分支列表')
+  return (await runGit(environment.root, ['rev-parse', '--verify', `${baseRef}^{commit}`])).stdout.trim()
+}
+
+export async function switchGitBranch(
+  environment: GitEnvironment,
+  branchRef: string,
+  newBranch?: string,
+  headSha?: string,
+) {
+  const status = await runGit(environment.root, ['status', '--porcelain=v1', '-z', '--untracked-files=all'])
+  if (status.stdout) throw new Error('工作目录存在未提交更改，请先处理后再切换分支')
+  if (newBranch !== undefined) {
+    if (environment.branches.some((branch) => branch.ref === `refs/heads/${newBranch}`))
+      throw new Error('分支名称已存在，请选择其他名称')
+    if (!newBranch.trim() || newBranch.startsWith('-')) throw new Error('分支名称无效')
+    await runGit(environment.root, ['check-ref-format', '--branch', newBranch]).catch(() => {
+      throw new Error('分支名称无效')
+    })
+    await runGit(environment.root, ['switch', '-c', newBranch, headSha!])
+  } else {
+    const branch = environment.branches.find((item) => item.ref === branchRef)
+    if (!branch) throw new Error('所选分支已不存在，请刷新分支列表')
+    if (branch.occupiedBy) throw new Error(`此分支已被其他 Worktree 使用：${branch.occupiedBy}`)
+    await runGit(
+      environment.root,
+      branch.kind === 'local' ? ['switch', '--', branch.name] : ['switch', '--detach', branch.ref],
+    )
+  }
 }

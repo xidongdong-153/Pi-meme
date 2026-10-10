@@ -9,7 +9,8 @@
     "./ui/git-panel": "./src/ui/git-panel.tsx",
     "./server/entry": "./src/server/entry.ts",
     "./ui/plugin": "./src/ui/plugin.ts",
-    "./ui/entry": "./src/ui/entry.tsx"
+    "./ui/entry": "./src/ui/entry.tsx",
+    "./ui/git-menu": "./src/ui/git-menu.tsx"
   },
   "scripts": {
     "type-check": "tsc --noEmit",

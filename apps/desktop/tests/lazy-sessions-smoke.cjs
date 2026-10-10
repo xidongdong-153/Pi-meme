@@ -51,6 +51,15 @@ module.exports = async function lazySessionsSmoke(window, waitFor, directory) {
     await evaluate(`document.querySelector(${JSON.stringify(selector)}).getAttribute('aria-current')`),
     'true',
   )
+  await waitFor(
+    () =>
+      evaluate(`window.piMemeClient.getConnection().then(connection =>
+        connection.sessionFile === ${JSON.stringify(file)} &&
+        document.querySelector('[aria-label="在顶栏选择项目"]')?.disabled === false &&
+        document.querySelector('[aria-label="选择模型与思考强度"]')?.disabled === false)`),
+    '冷会话选择完成后恢复输入与项目操作',
+  )
+  await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
   await evaluate(`(() => {
     const button = [...document.querySelectorAll(${JSON.stringify(selector)})].find(node => !node.closest('[inert]') && node.getClientRects().length)
     button.focus()

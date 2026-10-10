@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react'
 import { Check, ChevronDown, Folder, Plus, Search, X } from 'lucide-react'
 import type { DesktopProject, SelectWorkspace, WorkspaceKind } from '@pi-meme/contracts/sessions'
-import { Popover, PopoverContent, PopoverTrigger } from '@pi-meme/ui/components/ui/popover'
+import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@pi-meme/ui/components/ui/popover'
 import { Input } from '@pi-meme/ui/components/ui/input'
 import { cn } from '@pi-meme/ui/lib/utils'
 
@@ -101,15 +101,16 @@ export function ProjectSelector({
   }
 
   return (
-    <div className="mb-2 border-b border-border/60 pb-2">
+    <div className="flex w-40 min-w-0 shrink items-center">
       <Popover open={open} onOpenChange={(next) => void changeOpen(next)}>
+        {open && returnFocus?.isConnected && <PopoverAnchor virtualRef={{ current: returnFocus }} />}
         <PopoverTrigger asChild>
           <button
             type="button"
             aria-label="选择当前项目"
             disabled={blocked}
             title={disabledReason || (standalone ? '文件保存在此会话的独立目录' : cwd)}
-            className="flex max-w-full items-center gap-2 rounded-lg px-2 py-1 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-50"
+            className="flex w-full min-w-0 items-center gap-2 rounded-lg px-2 py-1 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-50"
           >
             <Folder className="size-4 shrink-0" />
             <span className="truncate">{name}</span>
@@ -138,7 +139,9 @@ export function ProjectSelector({
             }
             event.preventDefault()
             focusEditor.current = false
-            document.querySelector<HTMLElement>('[contenteditable=true][aria-label="消息"]')?.focus()
+            document
+              .querySelector<HTMLElement>('[data-active-service] [contenteditable=true][aria-label="消息"]')
+              ?.focus()
           }}
           onKeyDown={(event) => {
             if (event.nativeEvent.isComposing || event.keyCode === 229) return
