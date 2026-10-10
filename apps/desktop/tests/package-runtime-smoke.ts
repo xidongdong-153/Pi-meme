@@ -24,16 +24,19 @@ async function waitFor<T>(read: () => Promise<T | undefined>, label: string) {
   throw new Error(`打包应用验收等待超时：${label}`)
 }
 
-async function runPackagedSmoke(mode: 'local' | 'recovery' | 'remote') {
-  const root = await mkdtemp(path.join(tmpdir(), 'pi-meme-package-test-'))
+async function runPackagedSmoke(mode: 'local' | 'recovery' | 'remote' | 'fresh', existingRoot?: string) {
+  const root = existingRoot ?? (await mkdtemp(path.join(tmpdir(), 'pi-meme-package-test-')))
   const fixture = await useFakeAgent(root, { reply: () => ({ text: '打包应用回复', delayMs: 100 }) })
   const dataRoot = path.join(root, 'userData')
   await mkdir(dataRoot, { recursive: true })
-  await writeFile(
-    path.join(dataRoot, 'test-credentials.json'),
-    JSON.stringify(Object.fromEntries(fixture.credentials.entries())),
-    { mode: 0o600 },
-  )
+  if (mode !== 'fresh')
+    await writeFile(
+      path.join(dataRoot, 'auth.json'),
+      JSON.stringify(Object.fromEntries(fixture.credentials.entries())),
+      {
+        mode: 0o600,
+      },
+    )
   let remoteHost: Awaited<ReturnType<typeof startHostServer>> | undefined
   let certificate: Buffer | undefined
   let certificatePin: string | undefined
@@ -61,9 +64,16 @@ async function runPackagedSmoke(mode: 'local' | 'recovery' | 'remote') {
     certificatePin = createHash('sha256')
       .update(new X509Certificate(certificate).publicKey.export({ type: 'spki', format: 'der' }))
       .digest('base64')
+    const remoteDataRoot = path.join(root, 'remote-data')
+    await mkdir(path.join(remoteDataRoot, 'pi'), { recursive: true })
+    await writeFile(path.join(remoteDataRoot, 'pi', 'models.json'), await readFile(fixture.modelsFile))
+    await writeFile(
+      path.join(remoteDataRoot, 'auth.json'),
+      JSON.stringify(Object.fromEntries(fixture.credentials.entries())),
+      { mode: 0o600 },
+    )
     remoteHost = await startHostServer({
-      dataRoot,
-      credentials: fixture.credentials,
+      dataRoot: remoteDataRoot,
       token: 'remote-test-token',
       staticDirectory: fileURLToPath(new URL('../../web/dist', import.meta.url)),
       tls: { key: await readFile(keyFile), cert: certificate },
@@ -91,7 +101,7 @@ async function runPackagedSmoke(mode: 'local' | 'recovery' | 'remote') {
       env: {
         ...process.env,
         PI_MEME_DATA_ROOT: dataRoot,
-        PI_MEME_TEST_CREDENTIALS: 'memory',
+        PI_MEME_TEST_CREDENTIALS: 'file',
         PI_MEME_REMOTE_HOST: mode === 'recovery' ? `https://127.0.0.1:${port}` : (remoteHost?.url ?? ''),
         PI_MEME_TOKEN: remoteHost ? 'remote-test-token' : '',
       },
@@ -154,7 +164,10 @@ async function runPackagedSmoke(mode: 'local' | 'recovery' | 'remote') {
         )
       })
     if (mode === 'recovery') {
-      assert.equal(await evaluate('document.title'), 'Host 连接失败')
+      await waitFor(
+        async () => ((await evaluate('document.title')) === 'Host 连接失败' ? true : undefined),
+        '恢复页加载',
+      )
       assert.equal(await evaluate('typeof window.piPlatform.retryHostConnection'), 'function')
       assert.match(
         String(
@@ -172,7 +185,35 @@ async function runPackagedSmoke(mode: 'local' | 'recovery' | 'remote') {
       '共享聊天界面',
     )
     assert.ok((await readdir(path.join(dataRoot, 'desktop-cache'))).length > 0, 'Electron profile 写入临时目录')
+    assert.equal(await evaluate('document.querySelector("input[type=password]") !== null'), false)
+    const profileFiles = await readdir(path.join(dataRoot, 'desktop-cache'), { recursive: true })
+    assert.equal(
+      profileFiles.some((value) => path.basename(value) === 'Cookies'),
+      false,
+      '认证 Cookie 不写入磁盘',
+    )
+    assert.equal(typeof JSON.parse(await readFile(path.join(dataRoot, 'auth.json'), 'utf8'))['host:token'], 'string')
+    if (mode === 'remote') {
+      const saved = await evaluate('window.piPlatform.listSavedHostConnections()')
+      assert.deepEqual(saved, [{ url: remoteHost!.url, hostId: remoteHost!.host.hostId }])
+      assert.equal(await evaluate('window.piPlatform.getHostConnection().then(value => value.token)'), '')
+      const failure = await evaluate(
+        `window.piPlatform.setHostConnection({url:${JSON.stringify(remoteHost!.url)},token:'wrong-token'}).then(() => '').catch(cause => cause.message)`,
+      )
+      assert.match(String(failure), /认证失败/)
+      assert.equal(await evaluate('window.location.origin'), remoteHost!.url)
+      assert.deepEqual(
+        await evaluate('window.piPlatform.listSavedHostConnections()'),
+        saved,
+        '错误令牌不覆盖已保存连接',
+      )
+    }
     assert.equal(await evaluate('typeof window.piDesktop'), 'undefined', '打包页面不提供业务 IPC Bridge')
+    if (mode === 'fresh') {
+      const auth = JSON.parse(await readFile(path.join(dataRoot, 'auth.json'), 'utf8'))
+      assert.deepEqual(Object.keys(auth), ['host:token'])
+      return
+    }
     assert.equal(
       await evaluate(
         'window.piMemeClient.getSnapshot().then(value => value.models.some(model => model.id === "first"))',
@@ -194,6 +235,10 @@ async function runPackagedSmoke(mode: 'local' | 'recovery' | 'remote') {
     const sessionFile = await evaluate('window.piMemeClient.getSnapshot().then(value => value.connection.sessionFile)')
     assert.equal(typeof sessionFile, 'string')
     assert.match(await readFile(sessionFile as string, 'utf8'), /打包消息/)
+    if (mode === 'remote') {
+      await evaluate(`window.piPlatform.removeSavedHostConnection(${JSON.stringify(remoteHost!.url)})`)
+      assert.deepEqual(await evaluate('window.piPlatform.listSavedHostConnections()'), [])
+    }
   } finally {
     socket?.close()
     if (child.exitCode === null) {
@@ -216,7 +261,7 @@ async function runPackagedSmoke(mode: 'local' | 'recovery' | 'remote') {
       await remoteHost.dispose()
     }
     await fixture.dispose()
-    await rm(root, { recursive: true, force: true })
+    if (!existingRoot) await rm(root, { recursive: true, force: true })
   }
 }
 
@@ -231,3 +276,20 @@ for (const mode of ['local', 'recovery', 'remote'] as const)
     { skip: process.platform !== 'darwin' ? '实际应用验收只适用于 macOS' : false, timeout: 120000 },
     () => runPackagedSmoke(mode),
   )
+
+test(
+  '实际应用无模型凭据首次及再次启动均直接进入主界面，Host 令牌保持',
+  { skip: process.platform !== 'darwin', timeout: 120000 },
+  async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'pi-meme-package-fresh-'))
+    try {
+      await runPackagedSmoke('fresh', root)
+      const file = path.join(root, 'userData', 'auth.json')
+      const before = await readFile(file, 'utf8')
+      await runPackagedSmoke('fresh', root)
+      assert.equal(await readFile(file, 'utf8'), before)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  },
+)

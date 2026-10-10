@@ -2,6 +2,9 @@ import type { Connection, DesktopError, DesktopEvent, ProjectApp } from './deskt
 import type { Theme } from './settings'
 
 export type HostConnection = { url: string; token: string; hostId: string; local: boolean }
+export type SavedHostConnection = { url: string; hostId: string }
+export type HostConnectionError = { local: boolean; message: string }
+export type CredentialImportResult = { imported: number; skipped: number; reconnectError?: string }
 export type HostRpcRequest = {
   requestId: string
   clientId: string
@@ -27,6 +30,9 @@ export type HostDirectory = { path: string; parent: string | null; entries: Arra
 
 /** Electron 仅提供本机窗口与文件操作；业务通信由 client 使用 HTTP/WebSocket。 */
 export interface PlatformAdapter {
+  listSavedHostConnections?: () => Promise<SavedHostConnection[]>
+  removeSavedHostConnection?: (url: string) => Promise<void>
+  getHostConnectionError?: () => Promise<HostConnectionError | null>
   retryHostConnection?: () => Promise<void>
   setHostConnection: (value: { url: string; token: string } | null) => Promise<void>
   getHostConnection: () => Promise<HostConnection>

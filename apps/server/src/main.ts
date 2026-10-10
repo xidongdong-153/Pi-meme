@@ -13,6 +13,7 @@ const server = await startHostServer({
   hostname: process.env.PI_MEME_HOST ?? '127.0.0.1',
   port: Number(process.env.PI_MEME_PORT ?? '31415'),
   token: process.env.PI_MEME_TOKEN,
+  localAutoLogin: true,
   staticDirectory: process.env.PI_MEME_WEB_ROOT ?? path.resolve(directory, '../../web/dist'),
   tls: certificate && key ? { cert: await readFile(certificate), key: await readFile(key) } : undefined,
   workerPath:

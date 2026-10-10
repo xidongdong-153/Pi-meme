@@ -80,6 +80,7 @@ export function App({
   hostAddress,
   hostLocal = false,
   onHostConnection,
+  hostConnections,
 }: {
   bridge: DesktopBridge
   plugins: PluginClient
@@ -90,6 +91,7 @@ export function App({
   hostAddress?: string
   hostLocal?: boolean
   onHostConnection: () => void
+  hostConnections?: ComponentProps<typeof HostSettings>['connections']
 }) {
   const [registry] = useState(() => new UiPluginRegistry(bridge, loadPluginUI, call))
   const [pluginDescriptors, setPluginDescriptors] = useState<UiPluginDescriptor[]>([])
@@ -552,6 +554,8 @@ export function App({
                       address={hostAddress}
                       local={hostLocal}
                       onConnect={onHostConnection}
+                      connections={hostConnections}
+                      call={call}
                     />
                   )
                 if (section === 'plugins')

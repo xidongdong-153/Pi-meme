@@ -3,6 +3,13 @@ import { createHash } from 'node:crypto'
 const script = `
 const notice = document.querySelector('[role="alert"]')
 const buttons = [...document.querySelectorAll('button')]
+window.piPlatform.getHostConnectionError().then(error => {
+  if (!error) return
+  document.querySelector('h1').textContent = error.local ? '本地 Host 启动失败' : '无法连接远程 Host'
+  notice.textContent = error.message
+  document.getElementById('retry').textContent = error.local ? '重新启动' : '重试连接'
+  document.getElementById('local').hidden = error.local
+}).catch(cause => { notice.textContent = String(cause.message || cause) })
 async function run(action) {
   buttons.forEach(button => { button.disabled = true })
   notice.textContent = '正在连接 Host'

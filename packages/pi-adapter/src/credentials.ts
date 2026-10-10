@@ -26,7 +26,12 @@ export class KeychainCredentialStore implements SecureCredentialStorage {
       throw new Error('无法读取 macOS 钥匙串，请检查钥匙串是否已解锁')
     }
     if (value !== undefined && value !== null) {
-      const parsed: unknown = JSON.parse(value)
+      let parsed: unknown
+      try {
+        parsed = JSON.parse(value)
+      } catch {
+        throw new Error('钥匙串凭据格式无效')
+      }
       if (
         !parsed ||
         typeof parsed !== 'object' ||

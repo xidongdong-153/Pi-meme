@@ -68,7 +68,7 @@ Pi 会话使用公开 SDK 的 JSONL、恢复、分支与压缩。历史插件只
 
 Host 默认数据目录 `~/.pi-meme`，`PI_MEME_DATA_ROOT` 可修改；同一目录只允许一个 Host 写入。配置、主题、Pi 资源、会话、插件快照与插件数据都在此目录。项目 `.pi` 与 `AGENTS.md` 只读，不导入本机 Pi CLI 全局配置。
 
-凭据由 Node Host 保存到 macOS 系统钥匙串。不要提交凭据、个人配置或真实会话。主题保持 JSON，不执行 JavaScript 或任意 CSS。卸载插件默认保留数据和 Pi 会话。
+凭据由 Node Host 保存到数据目录的 `auth.json`，权限为 `0600`。启动不读取钥匙串；仅用户主动导入旧凭据时读取。不要提交凭据、个人配置或真实会话。主题保持 JSON，不执行 JavaScript 或任意 CSS。卸载插件默认保留数据和 Pi 会话。
 
 ## Git 提交与 Pull Request
 

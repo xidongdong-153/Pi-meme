@@ -19,7 +19,7 @@ fsSync.mkdirSync(profileDirectory)
 app.setPath('userData', profileDirectory)
 app.commandLine.appendSwitch('user-data-dir', profileDirectory)
 process.env.PI_MEME_DATA_ROOT = directory
-process.env.PI_MEME_TEST_CREDENTIALS = 'memory'
+process.env.PI_MEME_TEST_CREDENTIALS = 'file'
 let gitDirectory
 let failed = false
 async function waitFor(check, label = '界面状态') {
@@ -31,6 +31,8 @@ async function waitFor(check, label = '界面状态') {
   throw new Error(`桌面验收等待超时：${label}`)
 }
 async function run(window) {
+  assert.equal(window.webContents.session.isPersistent(), false, '应用使用内存 Session')
+  assert.equal(window.webContents.session.storagePath, null, '认证 Cookie 不依赖磁盘加密或钥匙串')
   const evaluate = (code) =>
     window.webContents.executeJavaScript(code).catch((error) => {
       console.error('桌面验收脚本执行失败：', code, error)
@@ -746,7 +748,7 @@ async function run(window) {
       : {}),
   }
   await fs.mkdir(path.join(directory, 'secure'), { recursive: true })
-  await fs.writeFile(path.join(directory, 'test-credentials.json'), JSON.stringify(modelCredentials), { mode: 0o600 })
+  await fs.writeFile(path.join(directory, 'auth.json'), JSON.stringify(modelCredentials), { mode: 0o600 })
   const extensionsDirectory = path.join(directory, 'pi', 'extensions')
   await fs.mkdir(extensionsDirectory, { recursive: true })
   await fs.copyFile(smokeExtension, path.join(extensionsDirectory, 'smoke-extension.js'))

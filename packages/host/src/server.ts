@@ -11,6 +11,7 @@ export type ServerOptions = HostOptions & {
   hostname?: string
   port?: number
   token?: string
+  localAutoLogin?: boolean
   staticDirectory?: string
   frontendUrl?: string
   tls?: { key: string | Buffer; cert: string | Buffer }
@@ -50,7 +51,31 @@ export async function startHostServer(options: ServerOptions = {}) {
   const local = ['127.0.0.1', 'localhost', '::1'].includes(hostname)
   if (!local && !options.tls) throw new Error('远程 Host 必须配置 HTTPS 证书和私钥')
   const host = await createHost(options)
-  const token = options.token ?? randomBytes(32).toString('base64url')
+  const token = options.token ?? host.credentials.get('host:token') ?? randomBytes(32).toString('base64url')
+  if (host.credentials.get('host:token') !== token) {
+    try {
+      host.credentials.set('host:token', token)
+      await host.flushCredentials()
+    } catch (cause) {
+      await host.dispose()
+      throw cause
+    }
+  }
+  const localAutoLogin = Boolean(options.localAutoLogin && local)
+  const localRequest = (request: IncomingMessage) => {
+    if (!local || !['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(request.socket.remoteAddress ?? '')) return false
+    try {
+      const authority = new URL(`${options.tls ? 'https' : 'http'}://${request.headers.host}`)
+      return (
+        ['localhost', '127.0.0.1', '[::1]'].includes(authority.hostname) &&
+        !authority.username &&
+        !authority.password &&
+        authority.origin === `${options.tls ? 'https' : 'http'}://${request.headers.host}`
+      )
+    } catch {
+      return false
+    }
+  }
   const tickets = new Map<string, number>()
   const sessions = new Map<string, number>()
   const authenticated = (request: IncomingMessage) => {
@@ -72,15 +97,23 @@ export async function startHostServer(options: ServerOptions = {}) {
   }
   const handler = async (request: IncomingMessage, response: ServerResponse) => {
     try {
-      if (!allowedOrigin(request)) return reply(response, 403, { error: '请求来源无效' })
+      if (!allowedOrigin(request) || (localAutoLogin && !localRequest(request)))
+        return reply(response, 403, { error: '请求来源无效' })
       const url = new URL(request.url ?? '/', 'http://host')
       if (url.pathname === '/api/auth' && request.method === 'POST') {
         const value = (await jsonBody(request)) as { token?: unknown }
-        if (typeof value?.token !== 'string') return reply(response, 401, { error: '访问令牌无效' })
-        const expires = tickets.get(value.token)
-        const ticket = expires !== undefined && expires > Date.now()
-        if (!ticket && !equal(value.token, token)) return reply(response, 401, { error: '访问令牌无效' })
-        tickets.delete(value.token)
+        if (value?.token !== undefined && typeof value.token !== 'string')
+          return reply(response, 401, { error: '访问令牌无效' })
+        if (value.token) {
+          const expires = tickets.get(value.token)
+          const ticket = expires !== undefined && expires > Date.now()
+          if (!ticket && !equal(value.token, token)) return reply(response, 401, { error: '访问令牌无效' })
+          tickets.delete(value.token)
+        } else {
+          if (authenticated(request)) return reply(response, 200, { hostId: host.hostId })
+          if (!localAutoLogin || !localRequest(request) || !request.headers.origin || request.headers.origin === 'null')
+            return reply(response, 401, { error: '需要登录 Host' })
+        }
         const session = randomBytes(32).toString('base64url')
         sessions.set(session, Date.now() + 24 * 60 * 60 * 1000)
         response.setHeader(
@@ -118,6 +151,11 @@ export async function startHostServer(options: ServerOptions = {}) {
         }
         if (url.pathname === '/api/rpc' && request.method === 'POST') {
           const value = (await jsonBody(request, true)) as HostRpcRequest
+          if (
+            ['host:import-keychain', 'host:credential-import-status'].includes(value.method) &&
+            !localRequest(request)
+          )
+            return reply(response, 403, { error: '旧凭据只能在本机 Host 导入' })
           return reply(response, 200, await host.rpc(value))
         }
         if (url.pathname === '/api/snapshot' && request.method === 'GET') {
@@ -177,7 +215,12 @@ export async function startHostServer(options: ServerOptions = {}) {
   const sockets = new WebSocketServer({ noServer: true })
   server.on('upgrade', (request, socket, head) => {
     const url = new URL(request.url ?? '/', 'http://host')
-    if (!authenticated(request) || !allowedOrigin(request) || url.pathname !== '/api/events') {
+    if (
+      !authenticated(request) ||
+      !allowedOrigin(request) ||
+      (localAutoLogin && !localRequest(request)) ||
+      url.pathname !== '/api/events'
+    ) {
       socket.destroy()
       return
     }

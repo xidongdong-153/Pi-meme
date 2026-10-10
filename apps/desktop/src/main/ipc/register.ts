@@ -2,7 +2,7 @@ import { app, dialog, ipcMain, shell, type BrowserWindow } from 'electron'
 import { spawn } from 'node:child_process'
 import { readFile, writeFile, realpath, stat } from 'node:fs/promises'
 import path from 'node:path'
-import type { HostConnection } from '@pi-meme/contracts/host'
+import type { HostConnection, HostConnectionError, SavedHostConnection } from '@pi-meme/contracts/host'
 import { isTrustedPlatformSource } from './platform-source'
 
 const projectApps = [
@@ -17,6 +17,11 @@ export function registerPlatformIpc(
   getTrustedOrigin: () => string,
   setConnection: (value: { url: string; token: string } | null) => Promise<void>,
   retryConnection: () => Promise<void>,
+  savedConnections: {
+    list: () => Promise<SavedHostConnection[]>
+    remove: (url: string) => Promise<void>
+    error: () => HostConnectionError | null
+  },
 ) {
   const handle = (channel: string, action: (...args: unknown[]) => unknown) =>
     ipcMain.handle(channel, (event, ...args: unknown[]) => {
@@ -44,6 +49,12 @@ export function registerPlatformIpc(
     if (error) throw new Error(`无法打开本机路径：${error}`)
   }
   handle('platform:connection', getConnection)
+  handle('platform:saved-connections', savedConnections.list)
+  handle('platform:connection-error', savedConnections.error)
+  handle('platform:remove-connection', async (url) => {
+    if (typeof url !== 'string') throw new Error('Host 地址无效')
+    await savedConnections.remove(url)
+  })
   handle('platform:retry-connection', retryConnection)
   handle('platform:set-connection', async (input) => {
     if (input === null) return setConnection(null)
@@ -103,6 +114,10 @@ export function registerPlatformIpc(
   app.on('will-quit', () => {
     for (const channel of [
       'connection',
+      'retry-connection',
+      'saved-connections',
+      'connection-error',
+      'remove-connection',
       'set-connection',
       'directory',
       'project-apps',

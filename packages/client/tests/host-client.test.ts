@@ -42,6 +42,7 @@ function create(handle: (request: HostRpcRequest) => unknown | Promise<unknown>)
     selectDirectory: async () => null,
     reconnectDelay: 1,
     fetch: (async (_url, init) => {
+      if (new URL(String(_url)).pathname === '/api/auth') return new Response(JSON.stringify({ hostId: 'host-1' }))
       const request = JSON.parse(String(init?.body)) as HostRpcRequest
       requests.push(request)
       return new Response(
@@ -400,4 +401,58 @@ test('选择完成向连接订阅发布新目标，迟到的旧选择不发布',
   await a
   assert.deepEqual(connections, ['B'])
   client.close()
+})
+
+test('空令牌主动认证，401 重新认证后同一消息仅执行一次', async () => {
+  let auth = 0
+  let attempts = 0
+  let executed = 0
+  const requestIds: string[] = []
+  const client = new HostClient({
+    connection: { url: 'http://127.0.0.1:3141', token: '', hostId: 'host-1', local: false },
+    selectDirectory: async () => null,
+    fetch: (async (url, init) => {
+      if (new URL(String(url)).pathname === '/api/auth') {
+        auth++
+        assert.deepEqual(JSON.parse(String(init?.body)), { token: '' })
+        return new Response(JSON.stringify({ hostId: 'host-1' }))
+      }
+      const request = JSON.parse(String(init?.body)) as HostRpcRequest
+      requestIds.push(request.requestId)
+      if (++attempts === 1) return new Response('{}', { status: 401 })
+      executed++
+      return new Response(JSON.stringify({ requestId: request.requestId, hostId: 'host-1' }))
+    }) as typeof fetch,
+  })
+  try {
+    await client.bridge.prompt('A', '只发送一次')
+    assert.equal(auth, 2)
+    assert.equal(attempts, 2)
+    assert.equal(executed, 1)
+    assert.equal(requestIds[0], requestIds[1])
+  } finally {
+    client.close()
+  }
+})
+
+test('连续 401 只重试一次，网络失败不重发消息', async () => {
+  for (const networkFailure of [false, true]) {
+    let attempts = 0
+    const client = new HostClient({
+      connection: { url: 'http://127.0.0.1:3141', token: '', hostId: '', local: false },
+      selectDirectory: async () => null,
+      fetch: (async (url) => {
+        if (new URL(String(url)).pathname === '/api/auth') return new Response('{}')
+        attempts++
+        if (networkFailure) throw new Error('连接已断开')
+        return new Response('{}', { status: 401 })
+      }) as typeof fetch,
+    })
+    try {
+      await assert.rejects(client.bridge.prompt('A', '消息'), networkFailure ? /没有自动重发/ : /登录已失效/)
+      assert.equal(attempts, networkFailure ? 1 : 2)
+    } finally {
+      client.close()
+    }
+  }
 })

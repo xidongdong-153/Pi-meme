@@ -407,6 +407,7 @@ test('并发启动只有一个 Host 取得数据目录写锁', async () => {
 
 test('Host 关闭等待凭据落盘，期间不能释放数据目录写锁', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'pi-meme-close-test-'))
+  let closingCredentials = false
   let finish!: () => void
   let flushing!: () => void
   const started = new Promise<void>((resolve) => {
@@ -417,12 +418,14 @@ test('Host 关闭等待凭据落盘，期间不能释放数据目录写锁', asy
   })
   const credentials = Object.assign(new MemoryCredentialStorage(), {
     flush: async () => {
+      if (!closingCredentials) return
       flushing()
       await pending
     },
   })
   const server = await startHostServer({ dataRoot: root, credentials })
   try {
+    closingCredentials = true
     const closing = server.dispose()
     await started
     await assert.rejects(lockDataRoot(root), /已有 Host/)

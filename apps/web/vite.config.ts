@@ -40,7 +40,7 @@ export default defineConfig({
   resolve: { preserveSymlinks: false, dedupe: ['react', 'react-dom'] },
   server: {
     proxy: {
-      '/api': { target: process.env.PI_MEME_HOST_URL ?? 'http://127.0.0.1:31415', ws: true },
+      '/api': { target: process.env.PI_MEME_HOST_URL ?? 'http://127.0.0.1:31415', ws: true, changeOrigin: false },
     },
   },
   build: {

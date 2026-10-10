@@ -126,6 +126,7 @@ Host 默认数据根目录为 `~/.pi-meme`，可由 `PI_MEME_DATA_ROOT` 修改�
 
 ```text
 ~/.pi-meme/
+├── auth.json            # 模型、MCP、Host 令牌和 Desktop 远程连接凭据
 ├── settings.json
 ├── themes/
 ├── pi/                  # SDK 设置、模型、MCP、技能、扩展、提示词、SubAgent 定义
@@ -135,7 +136,24 @@ Host 默认数据根目录为 `~/.pi-meme`，可由 `PI_MEME_DATA_ROOT` 修改�
 └── plugin-data/         # 各插件的数据，卸载默认保留
 ```
 
-模型和 MCP OAuth 凭据由 Host 写入 macOS 系统钥匙串，不通过 Electron `safeStorage` 或项目 `.pi` 保存。Worker 保持内存副本，写入先同步到 Host，再确认操作完成。凭据存储不可用时明确报错；测试使用注入的内存存储。
+模型、MCP 和 Host 认证由 Node Host 写入根目录 `auth.json`，采用项目自己的字符串键值格式，权限为 `0600`。文件通过串行写入和原子替换保存，Worker 保持内存副本，Host 落盘成功后才确认操作。启动不读取钥匙串；“设置 → Host 连接 → 导入旧钥匙串凭据”只导入缺失项，保留文件中已有凭据和旧钥匙串条目。读取或写入失败会明确报错，不覆盖原文件。
+
+Desktop 每次默认启动本地 Host，使用一次性票据自动登录。本地 Host 在切换远程后继续运行，并通过 utilityProcess 私有通道管理已保存的远程地址、Host 身份和令牌。Electron main 使用窗口所属 Session 认证远程，长期令牌不返回 Renderer。显式 `PI_MEME_REMOTE_HOST` 也需要本地数据目录写锁；同一目录已有独立 Server 时不能同时运行。
+
+Desktop 窗口使用内存 Session，认证 Cookie 不写入磁盘，不触发 Chromium Cookie 加密的系统钥匙串读取。重新启动时由本地票据或 `auth.json` 中的远程令牌重新认证。
+
+```mermaid
+%%{init: {"theme": "dark"}}%%
+flowchart LR
+  Desktop["Desktop 内存 Session"] -->|一次性票据| Local["本地 Node Host"]
+  Web["本机 Web / Vite 代理"] -->|自动登录并建立 Cookie| Server["独立 Node Host"]
+  Local --> Auth["各自数据目录的 auth.json"]
+  Server --> Auth
+  Local -->|凭据快照与落盘确认| Worker["会话 Worker"]
+  Server --> Worker
+  Desktop -->|HTTPS Cookie| Remote["远程 Host"]
+  Local -->|私有通道提供已保存凭据| Desktop
+```
 
 Pi 1.1 的 `ModelRuntime.create` 没有公开认证环境注入参数。唯一的 private shape 依赖位于 `packages/pi-runtime/src/sdk/model-runtime.ts`：先检查 `runtime.models.authContext`，再注入空环境与不可用文件检查，阻止读取本机环境和认证文件。守卫失败会明确报错。升级 Pi SDK 时必须重新验证此隔离层；会话、JSONL、扩展和资源加载继续使用公开入口。能力接线见 [Pi SDK 说明](rpc-capabilities.md)。
 

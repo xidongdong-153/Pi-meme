@@ -2,6 +2,9 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { PlatformAdapter } from '@pi-meme/contracts/host'
 
 const platform: PlatformAdapter = {
+  listSavedHostConnections: () => ipcRenderer.invoke('platform:saved-connections'),
+  removeSavedHostConnection: (url) => ipcRenderer.invoke('platform:remove-connection', url),
+  getHostConnectionError: () => ipcRenderer.invoke('platform:connection-error'),
   getHostConnection: () => ipcRenderer.invoke('platform:connection'),
   retryHostConnection: () => ipcRenderer.invoke('platform:retry-connection'),
   setHostConnection: (value) => ipcRenderer.invoke('platform:set-connection', value),

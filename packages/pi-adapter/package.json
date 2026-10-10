@@ -6,7 +6,8 @@
   "exports": {
     "./worker-session": "./src/worker-session.ts",
     "./session-worker": "./src/session-worker.ts",
-    "./credentials": "./src/credentials.ts"
+    "./credentials": "./src/credentials.ts",
+    "./file-credentials": "./src/file-credentials.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit",

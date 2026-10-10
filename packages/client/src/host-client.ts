@@ -42,6 +42,7 @@ export class HostClient {
   private reconnectAttempts = 0
   private closed = false
   private authenticated?: Promise<void>
+  private renewing?: Promise<void>
   private selected?: Connection
   private selectionEpoch = 0
   private pendingSelections = 0
@@ -100,7 +101,6 @@ export class HostClient {
 
   private authenticate() {
     this.authenticated ??= (async () => {
-      if (!this.options.connection.token) return
       const response = await this.fetch(new URL('/api/auth', this.url), {
         method: 'POST',
         credentials: 'include',
@@ -116,6 +116,25 @@ export class HostClient {
     return this.authenticated
   }
 
+  private renewAuthentication() {
+    this.renewing ??= (async () => {
+      this.authenticated = undefined
+      if (this.options.platform) {
+        const connection = await this.options.platform.getHostConnection()
+        if (
+          new URL(connection.url).origin !== this.url.origin ||
+          (this.hostId && connection.hostId && this.hostId !== connection.hostId)
+        )
+          throw new Error('Host 连接已变化，请重新连接')
+        this.options.connection.token = connection.token
+      }
+      await this.authenticate()
+    })().finally(() => {
+      this.renewing = undefined
+    })
+    return this.renewing
+  }
+
   async rpc<T>(
     method: string,
     args: unknown[] = [],
@@ -124,25 +143,32 @@ export class HostClient {
     if (this.closed) throw new Error('Host 客户端已关闭')
     await this.authenticate()
     const requestId = crypto.randomUUID()
-    let response: Response
-    try {
-      response = await this.fetch(new URL('/api/rpc', this.url), {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          requestId,
-          clientId: this.clientId,
-          hostId: this.hostId || undefined,
-          sessionId: sessionId ?? undefined,
-          method,
-          args,
-        }),
-      })
-    } catch (cause) {
-      throw new Error(`无法连接 Host，操作没有自动重发：${String(cause)}`)
+    const send = async () => {
+      try {
+        return await this.fetch(new URL('/api/rpc', this.url), {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            requestId,
+            clientId: this.clientId,
+            hostId: this.hostId || undefined,
+            sessionId: sessionId ?? undefined,
+            method,
+            args,
+          }),
+        })
+      } catch (cause) {
+        throw new Error(`无法连接 Host，操作没有自动重发：${String(cause)}`)
+      }
     }
-    if (!response.ok && response.status === 401) throw new Error('Host 登录已失效，请重新连接')
+    let response = await send()
+    if (response.status === 401) {
+      await this.renewAuthentication()
+      if (this.closed) throw new Error('Host 客户端已关闭')
+      response = await send()
+    }
+    if (response.status === 401) throw new Error('Host 登录已失效，请重新连接')
     const envelope = (await response.json()) as HostRpcResponse
     if (envelope.requestId !== requestId) throw new Error('Host 返回了不匹配的请求标识')
     this.acceptHost(envelope.hostId)
@@ -230,9 +256,21 @@ export class HostClient {
       if (this.selected)
         this.publishConnection({ ...this.selected, status: 'disconnected', error: 'Host 连接已断开，正在重连' })
       const delay = Math.min((this.options.reconnectDelay ?? 1000) * 2 ** this.reconnectAttempts++, 15000)
-      this.reconnectTimer = setTimeout(() => this.openSocket(), delay)
+      this.reconnectTimer = setTimeout(() => void this.reconnectSocket(), delay)
     })
     socket.addEventListener('error', () => this.reportError('WebSocket 连接失败，请检查 Host 地址和网络'))
+  }
+
+  private async reconnectSocket() {
+    try {
+      await this.renewAuthentication()
+      if (!this.closed) this.openSocket()
+    } catch (cause) {
+      if (this.closed) return
+      this.reportError(`Host 重新认证失败：${String(cause)}`)
+      const delay = Math.min((this.options.reconnectDelay ?? 1000) * 2 ** this.reconnectAttempts++, 15000)
+      this.reconnectTimer = setTimeout(() => void this.reconnectSocket(), delay)
+    }
   }
 
   private resynchronize(sessionId = this.selected?.sessionKey) {

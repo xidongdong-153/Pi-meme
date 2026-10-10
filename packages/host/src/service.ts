@@ -27,7 +27,7 @@ import { createPiRuntimePaths } from '@pi-meme/pi-runtime/runtime-paths'
 import { createWorkerSession } from '@pi-meme/pi-adapter/worker-session'
 import type { SecureCredentialStorage } from '@pi-meme/contracts/secure-storage'
 import { MemoryCredentialStorage } from '@pi-meme/pi-runtime/secure-store'
-import { KeychainCredentialStore } from '@pi-meme/pi-adapter/credentials'
+import { FileCredentialStore } from '@pi-meme/pi-adapter/file-credentials'
 import { ModelConfigStore } from '@pi-meme/models/server/config-store'
 import { SettingsStore } from '@pi-meme/settings/server/store'
 import { InstructionsStore } from '@pi-meme/settings/server/instructions'
@@ -37,6 +37,7 @@ import { SessionService } from '@pi-meme/workspace/server/session-service'
 import { McpConfigStore } from '@pi-meme/mcp/server/config-store'
 import { optionalRuntimeExtensions } from './runtime-extensions'
 import { RequestRegistry } from './request-registry'
+import { ConnectionCredentialStore } from './connection-credentials'
 import { hostDataRoot, lockDataRoot } from './data-root'
 
 export type HostOptions = {
@@ -46,6 +47,7 @@ export type HostOptions = {
   clientGraceMs?: number
   credentials?: SecureCredentialStorage & { flush?: () => Promise<void> }
   testCredentials?: boolean
+  readLegacyCredentials?: () => Promise<Array<[string, string]>>
 }
 type Action = (...args: unknown[]) => unknown
 const sessionWrites = new Set([
@@ -80,6 +82,7 @@ const reads = new Set([
   'git:diff',
   'models:get',
   'models:default',
+  'host:credential-import-status',
   'settings:get',
   'settings:instructions',
   'settings:fonts',
@@ -122,7 +125,7 @@ export async function createHost(options: HostOptions = {}) {
     if (options.testCredentials && !options.dataRoot) throw new Error('测试凭据必须同时配置临时数据目录')
     const credentials =
       options.credentials ??
-      (options.testCredentials ? new MemoryCredentialStorage() : await KeychainCredentialStore.create(root))
+      (options.testCredentials ? new MemoryCredentialStorage() : await FileCredentialStore.create(root))
     if (options.testCredentials) {
       const seed = await readFile(path.join(root, 'test-credentials.json'), 'utf8').catch(() => '{}')
       const values: unknown = JSON.parse(seed)
@@ -395,6 +398,29 @@ export async function createHost(options: HostOptions = {}) {
       return value
     }
     const handlers: Record<string, Action> = {
+      'host:credential-import-status': () => ({
+        available:
+          (process.platform === 'darwin' || Boolean(options.readLegacyCredentials)) &&
+          credentials instanceof FileCredentialStore,
+      }),
+      'host:import-keychain': () =>
+        pi.idle(async () => {
+          if (!(credentials instanceof FileCredentialStore)) throw new Error('当前 Host 不使用文件凭据存储')
+          const readLegacy =
+            options.readLegacyCredentials ??
+            (async () => {
+              if (process.platform !== 'darwin') throw new Error('旧钥匙串导入仅支持 macOS')
+              const { KeychainCredentialStore } = await import('@pi-meme/pi-adapter/credentials')
+              return (await KeychainCredentialStore.create(root)).entries()
+            })
+          const result = await credentials.importMissing(await readLegacy())
+          try {
+            await pi.reconnectModels()
+            return result
+          } catch {
+            return { ...result, reconnectError: '凭据已导入，但 Pi 重连失败；请重新连接模型' }
+          }
+        }, true),
       'pi:connection': () => pi.connection(),
       'pi:snapshot': snapshot,
       'host:directories': async (input?: unknown) => {
@@ -448,6 +474,13 @@ export async function createHost(options: HostOptions = {}) {
       root,
       settings,
       pi,
+      credentials,
+      connections: new ConnectionCredentialStore(
+        credentials,
+        () => (credentials as SecureCredentialStorage & { flush?: () => Promise<void> }).flush?.() ?? Promise.resolve(),
+      ),
+      flushCredentials: () =>
+        (credentials as SecureCredentialStorage & { flush?: () => Promise<void> }).flush?.() ?? Promise.resolve(),
       async rpc(request: HostRpcRequest) {
         if (closing) throw new Error('Host 正在退出，操作未接纳')
         if (
@@ -573,10 +606,13 @@ export async function createHost(options: HostOptions = {}) {
         await pi.stopAndWait()
         await Promise.allSettled(inflight)
         await plugins.dispose()
-        await (credentials as SecureCredentialStorage & { flush?: () => Promise<void> }).flush?.()
-        listeners.clear()
-        views.clear()
-        await unlock()
+        try {
+          await (credentials as SecureCredentialStorage & { flush?: () => Promise<void> }).flush?.()
+        } finally {
+          listeners.clear()
+          views.clear()
+          await unlock()
+        }
       },
     }
   } catch (cause) {

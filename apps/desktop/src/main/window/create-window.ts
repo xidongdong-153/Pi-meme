@@ -12,6 +12,8 @@ export function createWindow(backgroundColor: string, trustedOrigin: () => strin
     trafficLightPosition: { x: 14, y: 14 },
     backgroundColor,
     webPreferences: {
+      // Cookie 仅在本次运行中保留，避免磁盘 Cookie 加密触发系统钥匙串。
+      partition: 'pi-meme-app',
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
       nodeIntegration: false,

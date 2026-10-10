@@ -14,7 +14,7 @@ const config: ForgeConfig = {
     asar: true,
     // 不带扩展名，@electron/packager 按平台补 .icns / .ico
     icon: path.join(__dirname, 'assets/icons/pi-dev-dark'),
-    // 本地包使用 ad-hoc 签名访问 Keychain；正式证书通过 PI_DESKTOP_SIGNING_IDENTITY 指定。
+    // 本地包使用 ad-hoc 签名；正式证书通过 PI_DESKTOP_SIGNING_IDENTITY 指定。
     osxSign: signingIdentity
       ? { identity: signingIdentity }
       : {

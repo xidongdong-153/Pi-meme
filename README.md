@@ -13,7 +13,7 @@ pnpm install
 pnpm start
 ```
 
-Desktop 启动独立的本机 Host。模型配置、工作区、资源和会话默认写入 `~/.pi-meme`，可通过 `PI_MEME_DATA_ROOT` 修改。模型与 MCP OAuth 凭据由 Host 保存到 macOS 系统钥匙串，不读取本机 Pi CLI 的全局配置。
+Desktop 每次默认启动本机 Host 并自动登录，无需输入系统密码或 Host 令牌。模型配置、工作区、资源和会话默认写入 `~/.pi-meme`，可通过 `PI_MEME_DATA_ROOT` 修改。模型、MCP、Host 令牌和已保存的远程登录由 Host 写入根目录 `auth.json`，权限为 `0600`，不读取本机 Pi CLI 的全局配置。旧钥匙串仅在“设置 → Host 连接 → 导入旧钥匙串凭据”时读取，可能需要一次系统密码。
 
 Enter 发送，Shift+Enter 换行；中文输入法组合期间不发送。支持粘贴或拖入 PNG、JPEG、WebP、GIF。输入 `@` 搜索项目文件或目录，方向键选择、Enter 插入、Tab 进入目录、Esc 关闭。引用写为 `@相对路径`，文件内容由 Pi 工具读取。
 
@@ -24,9 +24,9 @@ pnpm build:web
 pnpm start:server
 ```
 
-打开 `http://127.0.0.1:31415`，使用终端显示的令牌登录。开发界面另开终端运行 `pnpm start:web`。Remote 监听必须配置 HTTPS，启动参数、认证和目录规则见 [Remote 文档](docs/remote.md)。
+打开 `http://127.0.0.1:31415` 即可进入，本机 Web 自动登录。开发界面另开终端运行 `pnpm start:web`。Remote 监听必须配置 HTTPS，启动参数、认证和目录规则见 [Remote 文档](docs/remote.md)。
 
-同一数据目录只允许一个 Host 写入。Desktop 与独立 Server 同时运行时，给其中一个配置不同的 `PI_MEME_DATA_ROOT`。Host 不依赖 Electron；当前凭据存储与受限沙箱需要 macOS。
+同一数据目录只允许一个 Host 写入。Desktop 与独立 Server 同时运行时，给其中一个配置不同的 `PI_MEME_DATA_ROOT`。Host 不依赖 Electron；受限沙箱仍需要 macOS。Desktop 连接远程时也保留本地 Host 和本地数据目录写锁。
 
 ## 插件与运行配置
 

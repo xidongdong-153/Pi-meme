@@ -157,6 +157,13 @@ function ConnectedWebApp() {
     await connect({ url: address.origin, token, hostId: '', local: false })
   }
 
+  if (!client && connecting)
+    return (
+      <main className="flex min-h-screen items-center justify-center bg-background text-foreground" role="status">
+        正在连接 Host
+      </main>
+    )
+
   if (!client)
     return (
       <main className="flex min-h-screen items-center justify-center bg-background px-6 text-foreground">
@@ -214,6 +221,15 @@ function ConnectedWebApp() {
         call={(method, args) => client.rpc(method, args)}
         nativeWindow={Boolean(platform)}
         localPlatform={client.nativePlatformAvailable}
+        hostConnections={
+          platform?.listSavedHostConnections && platform.removeSavedHostConnection
+            ? {
+                list: platform.listSavedHostConnections,
+                remove: platform.removeSavedHostConnection,
+                connect: (url) => platform.setHostConnection({ url, token: '' }),
+              }
+            : undefined
+        }
         onHostConnection={() => {
           client.close()
           setClient(undefined)
