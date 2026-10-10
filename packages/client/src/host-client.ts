@@ -1,4 +1,11 @@
-import type { Connection, DesktopBridge, DesktopError, DesktopEvent, Snapshot } from '@pi-meme/contracts/desktop'
+import type {
+  Connection,
+  DesktopBridge,
+  DesktopError,
+  DesktopEvent,
+  Snapshot,
+  WorkspaceDeletionResult,
+} from '@pi-meme/contracts/desktop'
 import type {
   HostConnection,
   HostDirectory,
@@ -178,6 +185,24 @@ export class HostClient {
     }
   }
 
+  private async deletion(method: string, args: unknown[]) {
+    let epoch = this.selectionEpoch
+    this.pendingSelections++
+    let accepted: Connection | undefined
+    try {
+      const result = await this.rpc<WorkspaceDeletionResult>(method, args)
+      if (result.selection && !result.selection.cancelled && epoch === this.selectionEpoch) {
+        epoch = ++this.selectionEpoch
+        this.selected = result.selection.snapshot.connection
+        accepted = this.selected
+      }
+      return result
+    } finally {
+      this.pendingSelections--
+      if (accepted && epoch === this.selectionEpoch) this.publishConnection(accepted)
+    }
+  }
+
   private openSocket() {
     if (this.closed || this.socket) return
     const url = new URL('/api/events', this.url)
@@ -338,9 +363,9 @@ export class HostClient {
       getProjects: () => rpc('workspace:projects'),
       renameProject: (cwd, name) => rpc('project:rename', [cwd, name]),
       previewProjectDeletion: (cwd) => rpc('project:delete-preview', [cwd]),
-      removeProject: (cwd, paths) => rpc('project:remove', [cwd, paths]),
+      removeProject: (cwd, paths) => this.deletion('project:remove', [cwd, paths]),
       renameSession: (path, name) => rpc('session:rename', [path, name]),
-      deleteSession: (path) => rpc('session:delete', [path]),
+      deleteSession: (path) => this.deletion('session:delete', [path]),
       selectWorkspace: (input) => this.selection('workspace:select', [input]),
       getSessions: () => rpc('pi:sessions'),
       newSession: () => this.selection('pi:new-session'),

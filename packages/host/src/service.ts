@@ -19,7 +19,7 @@ import { homedir } from 'node:os'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
 import type { HostEvent, HostRpcRequest } from '@pi-meme/contracts/host'
-import type { DesktopEvent, Connection, DesktopError } from '@pi-meme/contracts/desktop'
+import type { DesktopEvent, Connection, DesktopError, WorkspaceDeletionResult } from '@pi-meme/contracts/desktop'
 import type { SelectWorkspace } from '@pi-meme/contracts/sessions'
 import { PiSessionPool, type ClientView } from '@pi-meme/pi-runtime/session-pool'
 import { AgentAccessStore } from '@pi-meme/pi-runtime/access-store'
@@ -465,6 +465,8 @@ export async function createHost(options: HostOptions = {}) {
         const pending = registry.run(
           request,
           async () => {
+            const deletion = request.method === 'session:delete' || request.method === 'project:remove'
+            const deletionEpoch = selectionEpochs.get(request.clientId) ?? 0
             const epoch = selections.has(request.method) ? (selectionEpochs.get(request.clientId) ?? 0) + 1 : undefined
             if (epoch !== undefined) selectionEpochs.set(request.clientId, epoch)
             const view = await client(request.clientId)
@@ -481,9 +483,23 @@ export async function createHost(options: HostOptions = {}) {
               throw new Error('会话写操作必须携带匹配的 sessionId')
             if (epoch !== undefined && selectionEpochs.get(request.clientId) !== epoch) return { cancelled: true }
             const selected = { ...view, sessionKey: request.sessionId ?? view.sessionKey }
+            const previousKey = selected.sessionKey
             const run = () =>
               pi.withClientView(selected, async () => {
                 let result = await action(...request.args)
+                if (deletion) {
+                  const outcome = result as WorkspaceDeletionResult
+                  if (outcome.selection && !outcome.selection.cancelled) {
+                    if (
+                      (selectionEpochs.get(request.clientId) ?? 0) === deletionEpoch &&
+                      view.sessionKey === previousKey
+                    ) {
+                      Object.assign(view, selected)
+                      emit('connection', pi.connection())
+                      outcome.selection.snapshot.uiPlugins = sessionDescriptors(pi.connection().sessionKey)
+                    } else outcome.selection = { cancelled: true }
+                  }
+                }
                 if (epoch !== undefined) {
                   if (selectionEpochs.get(request.clientId) !== epoch) return { cancelled: true }
                   Object.assign(view, selected)

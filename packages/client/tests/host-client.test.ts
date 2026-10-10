@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import type { Snapshot } from '@pi-meme/contracts/desktop'
+import type { Snapshot, WorkspaceDeletionResult } from '@pi-meme/contracts/desktop'
 import type { HostRpcRequest } from '@pi-meme/contracts/host'
 import { HostClient } from '../src/host-client'
 
@@ -59,6 +59,107 @@ function create(handle: (request: HostRpcRequest) => unknown | Promise<unknown>)
 }
 
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 10))
+
+for (const method of ['session:delete', 'project:remove']) {
+  test(`${method} 后发布空白会话，列表和快照使用新标识`, async () => {
+    const result: WorkspaceDeletionResult = {
+      deletedPaths: ['/saved.jsonl'],
+      deletedKeys: ['A'],
+      errors: [],
+      selection: { cancelled: false, snapshot: snapshot('new') },
+    }
+    let deleted = false
+    const { client, requests } = create((request) => {
+      if (request.method === method) {
+        deleted = true
+        return result
+      }
+      if (deleted && request.sessionId === 'A') throw new Error('目标会话不存在')
+      if (request.method === 'pi:snapshot') return snapshot(request.sessionId ?? 'A')
+      return { recents: [], projects: [], pinnedPaths: [] }
+    })
+    try {
+      const connections: string[] = []
+      client.bridge.onConnection((connection) => connections.push(connection.sessionKey!))
+      await client.bridge.getConnection()
+      const deletedResult =
+        method === 'session:delete'
+          ? await client.bridge.deleteSession('/saved.jsonl')
+          : await client.bridge.removeProject('/project', ['/saved.jsonl'])
+      assert.deepEqual(deletedResult, result)
+      assert.deepEqual(connections, ['new'])
+      assert.deepEqual((await client.bridge.getSnapshot()).messages, [])
+      assert.deepEqual((await client.bridge.getSessions()).recents, [])
+      assert.ok(requests.slice(-2).every((request) => request.sessionId === 'new'))
+    } finally {
+      client.close()
+    }
+  })
+}
+
+test('删除后台会话不切换，删除的迟到响应不覆盖新的会话选择', async () => {
+  let finish!: (value: WorkspaceDeletionResult) => void
+  const { client, requests } = create((request) => {
+    if (request.method === 'pi:snapshot') return snapshot(request.sessionId ?? 'A')
+    if (request.method === 'pi:switch-session') return { cancelled: false, snapshot: snapshot('B') }
+    if (request.method === 'session:delete' && request.args[0] === '/background.jsonl')
+      return { deletedPaths: ['/background.jsonl'], deletedKeys: ['background'], errors: [] }
+    if (request.method === 'session:delete')
+      return new Promise<WorkspaceDeletionResult>((resolve) => {
+        finish = resolve
+      })
+    return []
+  })
+  try {
+    const connections: string[] = []
+    client.bridge.onConnection((connection) => connections.push(connection.sessionKey!))
+    await client.bridge.getConnection()
+    await client.bridge.deleteSession('/background.jsonl')
+    await client.bridge.getCommands()
+    assert.equal(requests.at(-1)?.sessionId, 'A')
+    assert.deepEqual(connections, [])
+    const deleting = client.bridge.deleteSession('/saved.jsonl')
+    await tick()
+    await client.bridge.switchSession('B')
+    finish({
+      deletedPaths: ['/saved.jsonl'],
+      deletedKeys: ['A'],
+      errors: [],
+      selection: { cancelled: false, snapshot: snapshot('new') },
+    })
+    await deleting
+    await client.bridge.getCommands()
+    assert.equal(requests.at(-1)?.sessionId, 'B')
+    assert.deepEqual(connections, ['B'])
+  } finally {
+    client.close()
+  }
+})
+
+test('删除后台会话不取消正在进行的会话选择', async () => {
+  let finish!: (value: unknown) => void
+  const { client, requests } = create((request) => {
+    if (request.method === 'pi:snapshot') return snapshot('A')
+    if (request.method === 'pi:switch-session')
+      return new Promise((resolve) => {
+        finish = resolve
+      })
+    if (request.method === 'session:delete') return { deletedPaths: ['/background.jsonl'], deletedKeys: [], errors: [] }
+    return []
+  })
+  try {
+    await client.bridge.getConnection()
+    const switching = client.bridge.switchSession('B')
+    await tick()
+    await client.bridge.deleteSession('/background.jsonl')
+    finish({ cancelled: false, snapshot: snapshot('B') })
+    await switching
+    await client.bridge.getCommands()
+    assert.equal(requests.at(-1)?.sessionId, 'B')
+  } finally {
+    client.close()
+  }
+})
 
 test('指令接口经当前 Host RPC，连接展示信息不包含令牌', async () => {
   const { client, requests } = create(() => ({}))

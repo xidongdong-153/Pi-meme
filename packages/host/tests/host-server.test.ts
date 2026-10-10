@@ -11,7 +11,8 @@ import type { HostRpcResponse } from '@pi-meme/contracts/host'
 import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
 import { setTimeout as delay } from 'node:timers/promises'
 import type { InstructionsSnapshot } from '@pi-meme/contracts/settings'
-import type { SessionSelectionResult, Snapshot } from '@pi-meme/contracts/desktop'
+import type { SessionSelectionResult, Snapshot, WorkspaceDeletionResult } from '@pi-meme/contracts/desktop'
+import type { PiSessionsSnapshot } from '@pi-meme/contracts/sessions'
 
 async function setup(fake = false, clientGraceMs?: number) {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), 'pi-meme-host-test-')))
@@ -119,6 +120,66 @@ test('两客户端选择不同项目不改变彼此快照、命令与 Git 目录
     await fixture.dispose()
   }
 })
+
+for (const method of ['session:delete', 'project:remove']) {
+  test(`${method} 清理当前会话后保存新选择，后续列表和快照可读取`, async () => {
+    const fixture = await setup()
+    try {
+      const cwd = path.join(fixture.root, 'delete-project')
+      const directory = path.join(fixture.root, 'sessions', 'delete-test')
+      const file = path.join(directory, 'saved.jsonl')
+      await mkdir(cwd)
+      await mkdir(directory, { recursive: true })
+      await fixture.rpc('delete', 'project:register', [cwd])
+      await writeFile(
+        file,
+        `${[
+          { type: 'session', version: 3, id: 'saved', cwd, timestamp: '2026-10-10T00:00:00Z' },
+          {
+            type: 'message',
+            id: 'user',
+            parentId: null,
+            timestamp: '2026-10-10T00:00:01Z',
+            message: { role: 'user', content: 'hello', timestamp: 1 },
+          },
+        ]
+          .map((entry) => JSON.stringify(entry))
+          .join('\n')}\n`,
+      )
+      const selected = (await fixture.rpc('delete', 'pi:switch-session', [file])).result as SessionSelectionResult
+      if (selected.cancelled) throw new Error('会话选择不应取消')
+      const key = selected.snapshot.connection.sessionKey!
+      await fixture.rpc('delete', 'settings:toggle-pin', [file], key)
+      assert.equal(
+        ((await fixture.rpc('delete', 'pi:sessions', [], key)).result as PiSessionsSnapshot).recents.length,
+        1,
+      )
+      const response = await fixture.rpc('delete', method, method === 'session:delete' ? [file] : [cwd, [file]], key)
+      assert.equal(response.error, undefined)
+      const result = response.result as WorkspaceDeletionResult
+      assert.deepEqual(result.errors, [])
+      assert.deepEqual(result.deletedPaths, [file])
+      assert.ok(result.deletedKeys.includes(key))
+      if (!result.selection || result.selection.cancelled) throw new Error('删除后应返回新会话')
+      const replacement = result.selection.snapshot
+      assert.notEqual(replacement.connection.sessionKey, key)
+      assert.deepEqual(replacement.messages, [])
+      const current = await fixture.rpc('delete', 'pi:snapshot')
+      assert.equal(current.error, undefined)
+      assert.equal((current.result as Snapshot).connection.sessionKey, replacement.connection.sessionKey)
+      const listing = await fixture.rpc('delete', 'pi:sessions')
+      assert.equal(listing.error, undefined)
+      const sessions = listing.result as PiSessionsSnapshot
+      assert.deepEqual(sessions.recents, [])
+      assert.deepEqual(sessions.standaloneSessions, [])
+      assert.deepEqual(sessions.pinnedPaths, [])
+      assert.ok(sessions.projects.every((project) => project.sessions.every((session) => session.path !== file)))
+      assert.ok(replacement.uiPlugins?.length)
+    } finally {
+      await fixture.dispose()
+    }
+  })
+}
 
 test('HttpOnly 认证、一次性握手、未认证 WebSocket与远程HTTP拒绝', async () => {
   const fixture = await setup()
