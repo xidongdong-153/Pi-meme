@@ -11,7 +11,6 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   UserRound,
-  UsersRound,
 } from 'lucide-react'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Input } from '@pi-meme/ui/components/ui/input'
@@ -20,39 +19,33 @@ import { cn } from '@pi-meme/ui/lib/utils'
 
 const groups = [
   {
-    label: '偏好设置',
+    label: '设置',
     sections: [
-      { id: 'general', label: '常规', icon: Settings, description: '查看当前 Host 的 Pi 运行时。' },
-      { id: 'profile', label: '个人资料', icon: UserRound, description: '查看 Token 用量与活动记录。' },
-      { id: 'appearance', label: '外观', icon: Palette, description: '调整主题、颜色、字体和界面效果。' },
-      { id: 'personalization', label: '个性化', icon: SlidersHorizontal, description: '配置 Pi 指令与访问权限。' },
-    ],
-  },
-  {
-    label: 'Agent',
-    sections: [
-      { id: 'models', label: '模型', icon: Cpu, description: '管理服务商、接口和模型参数。' },
-      { id: 'mcp', label: 'MCP', icon: Settings, description: '管理 Host MCP 服务和连接诊断。' },
-      { id: 'access', label: '访问权限', icon: ShieldCheck, description: '设置新会话默认的文件访问权限。' },
-      { id: 'subagents', label: 'SubAgent', icon: UsersRound, description: '管理 Host SubAgent 定义和启用状态。' },
-      { id: 'tools', label: '工具执行', icon: Settings, description: '配置 Agent 的 codemode 工具调用。' },
-      { id: 'extensions', label: '扩展', icon: Settings, description: '管理 Host 资源目录中的扩展。' },
-    ],
-  },
-  {
-    label: '集成',
-    sections: [
-      { id: 'host', label: 'Host 连接', icon: Server, description: '查看当前连接，或连接其他 Host。' },
-      { id: 'plugins', label: '插件', icon: Puzzle, description: '管理当前 Host 已安装的插件。' },
-      { id: 'skills', label: '技能', icon: BookOpen, description: '查看当前项目中 Pi 已加载的技能。' },
-      { id: 'plugin-settings', label: '插件设置', icon: Settings, description: '查看插件提供的设置。' },
+      { id: 'models', label: '模型', icon: Cpu, description: '连接服务商并选择默认模型。' },
+      { id: 'appearance', label: '外观', icon: Palette, description: '调整主题、字号和界面效果。' },
+      {
+        id: 'personalization',
+        label: '偏好',
+        icon: SlidersHorizontal,
+        description: '编辑自定义指令和新会话默认权限。',
+      },
+      { id: 'plugins', label: '扩展', icon: Puzzle, description: '管理用户插件、技能和服务连接。' },
     ],
   },
 ] as const
+const secondarySections = [
+  { id: 'general', label: '关于', icon: Settings, description: '查看当前 Host 的 Pi 运行时。' },
+  { id: 'profile', label: '用量', icon: UserRound, description: '查看 Token 用量与活动记录。' },
+  { id: 'host', label: 'Host 连接', icon: Server, description: '查看当前连接，或连接其他 Host。' },
+  { id: 'skills', label: '技能', icon: BookOpen, description: '查看当前项目中已加载的技能。' },
+  { id: 'mcp', label: '服务连接', icon: Settings, description: '管理 MCP 服务和授权。' },
+  { id: 'extensions', label: '开发者', icon: Settings, description: '查看 Pi 原生扩展目录和装载状态。' },
+  { id: 'access', label: '默认权限', icon: ShieldCheck, description: '设置新会话默认的文件访问权限。' },
+] as const
 
-type Section = (typeof groups)[number]['sections'][number]
+type Section = (typeof groups)[number]['sections'][number] | (typeof secondarySections)[number]
 export type SettingsSection = Section['id']
-const sections = groups.flatMap<Section>((group) => group.sections)
+const sections: Section[] = [...groups.flatMap<Section>((group) => group.sections), ...secondarySections]
 
 export function SettingsPage({
   renderContent,
@@ -67,7 +60,7 @@ export function SettingsPage({
   onDiscard: () => void
   onDismiss: () => void
 }) {
-  const [sectionId, setSectionId] = useState<SettingsSection>('general')
+  const [sectionId, setSectionId] = useState<SettingsSection>('models')
   const [query, setQuery] = useState('')
   const [pending, setPending] = useState<(() => void) | null>(null)
   const section = sections.find((entry) => entry.id === sectionId)!
@@ -144,6 +137,24 @@ export function SettingsPage({
               ) : null
             })}
           </nav>
+          <details className="mt-8 px-3 text-sm text-muted-foreground">
+            <summary className="cursor-pointer">更多</summary>
+            <div className="mt-2 space-y-1">
+              {secondarySections
+                .filter((entry) => ['general', 'profile', 'host', 'extensions'].includes(entry.id))
+                .map((entry) => (
+                  <button
+                    key={entry.id}
+                    type="button"
+                    disabled={saving}
+                    className="block w-full rounded px-2 py-2 text-left hover:bg-secondary"
+                    onClick={() => navigate(entry.id)}
+                  >
+                    {entry.label}
+                  </button>
+                ))}
+            </div>
+          </details>
         </aside>
         <div id="settings-content" className="min-w-0 flex-1 overflow-y-auto px-6 py-10 lg:px-12 lg:py-14">
           <div className={cn('mx-auto space-y-8', catalog ? 'max-w-6xl' : 'max-w-3xl')}>
@@ -151,6 +162,16 @@ export function SettingsPage({
               <h2 className="text-3xl font-semibold tracking-tight">{section.label}</h2>
               <p className="mt-3 text-sm text-muted-foreground">{section.description}</p>
             </div>
+            {sectionId === 'plugins' && (
+              <div className="flex flex-wrap gap-2">
+                <Button variant="outline" onClick={() => navigate('skills')}>
+                  技能
+                </Button>
+                <Button variant="outline" onClick={() => navigate('mcp')}>
+                  服务连接
+                </Button>
+              </div>
+            )}
             {renderContent(sectionId, navigate)}
           </div>
         </div>

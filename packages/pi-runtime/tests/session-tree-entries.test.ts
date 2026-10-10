@@ -40,6 +40,7 @@ test('工具结果按 toolCallId 还原成 [read: path:行号] 摘要', () => {
   // 只有工具调用、没有正文的助手条目没有摘要，渲染层据此隐藏整行
   assert.equal(caller.preview, undefined)
   assert.equal(result.preview, '[read: /tmp/project/src/main.ts:50-149]')
+  assert.equal(result.toolName, 'read')
 })
 
 test('bash 工具调用压成一行命令摘要', () => {

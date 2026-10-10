@@ -24,18 +24,15 @@ module.exports = async (window, waitFor, output) => {
     evaluate(
       `(() => { const node = document.querySelector('[aria-label=${JSON.stringify(label)}]'); const prototype = node.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype; Object.getOwnPropertyDescriptor(prototype, 'value').set.call(node, ${JSON.stringify(value)}); node.dispatchEvent(new Event('input', { bubbles: true })) })()`,
     )
-  const ready = () =>
-    waitFor(
-      () => evaluate('window.piMemeClient.getConnection().then(value => value.status === "ready")'),
+  const ready = async () => {
+    await waitFor(() => evaluate('!document.body.textContent.includes("正在处理 MCP 操作")'), 'MCP 配置操作结束')
+    await waitFor(
+      () =>
+        evaluate(
+          'window.piMemeClient.getConnection().then(value => (value.status === "ready" || value.status === "idle"))',
+        ),
       '配置重连完成',
     )
-  const toggle = async (label) => {
-    const selector = `[aria-label=${JSON.stringify(label)}]`
-    await waitFor(
-      () => evaluate(`document.querySelector(${JSON.stringify(selector)}).disabled === false`),
-      `开关可用：${label}`,
-    )
-    await evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`)
   }
   const saved = (predicate) =>
     waitFor(() => evaluate(`window.piMemeClient.getMcpConfig().then(value => ${predicate})`), 'MCP 配置保存')
@@ -44,9 +41,11 @@ module.exports = async (window, waitFor, output) => {
     await fs.writeFile(path.join(output, `${name}.png`), (await window.webContents.capturePage()).toPNG())
   }
   await evaluate('document.querySelector("button[aria-label=设置]").click()')
-  await click('MCP')
+  await click('扩展')
+  await click('服务连接')
   await waitFor(() => evaluate('document.body.textContent.includes("尚未配置 Desktop 全局 MCP 服务")'), '空配置')
-  assert.equal(await evaluate('document.querySelector("input[aria-label=\\"在 Desktop 中启用 MCP\\"]").checked'), false)
+  assert.equal(await evaluate(`document.querySelector('input[aria-label="在 Desktop 中启用 MCP"]') === null`), true)
+  assert.equal(await evaluate('document.body.textContent.includes("原配置关闭了 MCP")'), true)
   assert.equal(
     await evaluate(
       '[...document.querySelectorAll("button")].find(node => node.textContent === "检查全部全局服务").disabled',
@@ -95,33 +94,11 @@ module.exports = async (window, waitFor, output) => {
   await click('禁用 demo')
   await saved('value.servers[0].config.enabled === false')
   await ready()
-  await click('启用 demo')
+  await click('启用并授权 demo')
   await saved('value.servers[0].config.enabled === true')
   await ready()
-  await toggle('在 Desktop 中启用 MCP')
-  await waitFor(
-    () =>
-      evaluate(
-        'window.piMemeClient.getSettings().then(value => value.settings.mcpEnabled && value.settings.codemodeEnabled)',
-      ),
-    '能力开关联动',
-  )
-  await ready()
+  assert.equal(await evaluate('window.piMemeClient.getSettings().then(value => value.settings.mcpEnabled)'), false)
   await capture('mcp-settings')
-  await click('工具执行')
-  await toggle('启用 codemode')
-  assert.equal(await evaluate('document.body.textContent.includes("保存后将同时关闭 Desktop MCP")'), true)
-  await capture('codemode-settings')
-  await click('保存工具执行设置')
-  await waitFor(
-    () =>
-      evaluate(
-        'window.piMemeClient.getSettings().then(value => !value.settings.mcpEnabled && !value.settings.codemodeEnabled)',
-      ),
-    '关闭联动',
-  )
-  await ready()
-  await click('MCP')
   await click('编辑 demo')
   await input('服务说明', '不应覆盖外部配置')
   const snapshot = await evaluate('window.piMemeClient.getMcpConfig()')
@@ -158,7 +135,8 @@ module.exports = async (window, waitFor, output) => {
   const connection = await evaluate('window.piMemeClient.getConnection()')
   await evaluate(`window.piMemeClient.setAccessMode(${JSON.stringify(connection.sessionKey)}, 'full-access')`)
   await evaluate('document.querySelector("button[aria-label=设置]").click()')
-  await click('MCP')
+  await click('扩展')
+  await click('服务连接')
   await waitFor(
     () =>
       evaluate(
@@ -175,6 +153,10 @@ module.exports = async (window, waitFor, output) => {
     JSON.stringify({ mcpServers: { check: { command: nodeBinary, args: [mcpFixture, '--stdio'] } } }),
   )
   await click('重新加载配置')
+  await waitFor(() => evaluate('document.body.textContent.includes("待重新授权")'), '旧关闭配置保留')
+  await click('启用并授权 check')
+  await saved('value.servers[0].config.desktopAuthorized === true')
+  assert.equal(await evaluate('window.piMemeClient.getSettings().then(value => value.settings.mcpEnabled)'), false)
   await click('检查全部全局服务')
   await waitFor(
     () => evaluate('document.querySelector("section[aria-label=\\"MCP 诊断结果\\"]")?.textContent.includes("已连接")'),
@@ -186,13 +168,6 @@ module.exports = async (window, waitFor, output) => {
   await capture('mcp-settings-narrow')
   assert.equal(await evaluate('document.documentElement.scrollWidth <= window.innerWidth'), true)
   window.setSize(...size)
-  await click('工具执行')
-  await toggle('启用 codemode')
-  await click('保存工具执行设置')
-  await waitFor(
-    () => evaluate('window.piMemeClient.getSettings().then(value => value.settings.codemodeEnabled)'),
-    '重新开启 codemode',
-  )
   await click('返回聊天')
   await evaluate(`window.piMemeClient.setAccessMode(${JSON.stringify(connection.sessionKey)}, 'workspace-write')`)
   await evaluate(
@@ -202,7 +177,7 @@ module.exports = async (window, waitFor, output) => {
   await waitFor(
     () =>
       evaluate(
-        'window.piMemeClient.getConnection().then(value => !value.running) && document.body.textContent.includes("嵌套调用验收完成")',
+        'window.piMemeClient.getConnection().then(value => !value.running && document.body.textContent.includes("嵌套调用验收完成"))',
       ),
     '嵌套工具消息',
   )

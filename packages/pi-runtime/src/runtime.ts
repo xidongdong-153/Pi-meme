@@ -1,3 +1,4 @@
+import type { MessageOptions, TaskMode } from '@pi-meme/contracts/plan'
 import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
 import type { InlineExtension } from '@earendil-works/pi-coding-agent'
 import type { Connection, SessionSelectionResult, Snapshot } from '@pi-meme/contracts/desktop'
@@ -24,13 +25,33 @@ export interface PiRuntime {
     message: string,
     images?: PiImage[],
     skills?: SkillReference[],
+    options?: MessageOptions,
   ) => Promise<void>
   switchMessageVersion: (sessionKey: string, timestamp: number, version: number) => Promise<boolean>
   forkReply: (sessionKey: string, userTimestamp: number) => Promise<SessionSelectionResult>
   idle: <T>(action: () => Promise<T>, allowDisconnected?: boolean) => Promise<T>
-  prompt: (sessionKey: string, message: string, images?: PiImage[], skills?: SkillReference[]) => Promise<void>
-  steer: (sessionKey: string, message: string, images?: PiImage[], skills?: SkillReference[]) => Promise<void>
-  followUp: (sessionKey: string, message: string, images?: PiImage[], skills?: SkillReference[]) => Promise<void>
+  prompt: (
+    sessionKey: string,
+    message: string,
+    images?: PiImage[],
+    skills?: SkillReference[],
+    options?: MessageOptions,
+  ) => Promise<void>
+  steer: (
+    sessionKey: string,
+    message: string,
+    images?: PiImage[],
+    skills?: SkillReference[],
+    options?: MessageOptions,
+  ) => Promise<void>
+  followUp: (
+    sessionKey: string,
+    message: string,
+    images?: PiImage[],
+    skills?: SkillReference[],
+    options?: MessageOptions,
+  ) => Promise<void>
+  setSessionMode: (sessionKey: string, mode: TaskMode) => Promise<void>
   abort: (sessionKey: string) => Promise<void>
   clearQueue: (sessionKey: string) => Promise<PiQueuedMessages>
   setSteeringMode: (sessionKey: string, mode: 'all' | 'one-at-a-time') => Promise<PiState>

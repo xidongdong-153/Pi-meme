@@ -1,4 +1,12 @@
 import type { McpBridge } from './mcp'
+import type {
+  AgentMailboxMessage,
+  AgentSummary,
+  CollaborationBridge,
+  CollaborationEvent,
+  PendingInteraction,
+} from './collaboration'
+import type { MessageOptions, PlanDocument, PlanEvent, TaskMode } from './plan'
 import type { UsageStatsSnapshot } from './usage'
 import type { AgentAccessEvent, AgentAccessMode } from './agent-access'
 import type {
@@ -66,7 +74,11 @@ export type DesktopEvent = {
   generation: number
   sessionKey?: string
   sequence?: number
-  event: PiEvent | PiExtensionEvent | AgentAccessEvent
+  executionGeneration?: number
+  rootAgentId?: string
+  agentId?: string
+  runId?: string
+  event: PiEvent | PiExtensionEvent | AgentAccessEvent | CollaborationEvent | PlanEvent
 }
 export type DesktopError = {
   generation: number
@@ -84,6 +96,11 @@ export type SessionPluginDescriptor = {
   error?: string
 }
 export type Snapshot = {
+  agent?: AgentSummary
+  agents?: AgentSummary[]
+  planDocuments?: PlanDocument[]
+  pendingInteractions?: PendingInteraction[]
+  agentMessages?: AgentMailboxMessage[]
   uiPlugins?: SessionPluginDescriptor[]
   extensionError?: DesktopError
   connection: Connection
@@ -146,9 +163,28 @@ export interface WorkspaceBridge {
 
 /** 对话发送、队列、命令与中止。 */
 export interface ChatBridge {
-  prompt: (sessionKey: string, message: string, images?: PiImage[], skills?: SkillReference[]) => Promise<void>
-  steer: (sessionKey: string, message: string, images?: PiImage[], skills?: SkillReference[]) => Promise<void>
-  followUp: (sessionKey: string, message: string, images?: PiImage[], skills?: SkillReference[]) => Promise<void>
+  prompt: (
+    sessionKey: string,
+    message: string,
+    images?: PiImage[],
+    skills?: SkillReference[],
+    options?: MessageOptions,
+  ) => Promise<void>
+  steer: (
+    sessionKey: string,
+    message: string,
+    images?: PiImage[],
+    skills?: SkillReference[],
+    options?: MessageOptions,
+  ) => Promise<void>
+  followUp: (
+    sessionKey: string,
+    message: string,
+    images?: PiImage[],
+    skills?: SkillReference[],
+    options?: MessageOptions,
+  ) => Promise<void>
+  setSessionMode: (sessionKey: string, mode: TaskMode) => Promise<void>
   clearQueue: (sessionKey: string) => Promise<PiQueuedMessages>
   setSteeringMode: (sessionKey: string, mode: PiState['steeringMode']) => Promise<PiState>
   setFollowUpMode: (sessionKey: string, mode: PiState['followUpMode']) => Promise<PiState>
@@ -162,6 +198,7 @@ export interface ChatBridge {
     message: string,
     images?: PiImage[],
     skills?: SkillReference[],
+    options?: MessageOptions,
   ) => Promise<void>
   switchMessageVersion: (sessionKey: string, timestamp: number, version: number) => Promise<boolean>
   forkReply: (sessionKey: string, userTimestamp: number) => Promise<SessionSelectionResult>
@@ -220,4 +257,5 @@ export type DesktopBridge = ConnectionBridge &
   GitBridge &
   ModelsBridge &
   SettingsBridge &
+  CollaborationBridge &
   McpBridge

@@ -8,6 +8,7 @@ function snapshot(key: string, sequence = 0): Snapshot {
   return {
     connection: { sessionKey: key, generation: 1, cwd: '/project', status: 'idle' },
     state: {
+      mode: 'default',
       isStreaming: false,
       isCompacting: false,
       steeringMode: 'one-at-a-time',
@@ -297,6 +298,111 @@ test('迟到的旧快照不改变当前客户端的会话目标', async () => {
   client.close()
 })
 
+for (const read of ['getConnection', 'getSnapshot'] as const) {
+  test(`选择进行中发起的 ${read} 迟到后，不退回旧会话或改变文件补全目标`, async () => {
+    let finishSelection!: (value: unknown) => void
+    let finishRead!: (value: Snapshot) => void
+    let selectionStarted!: () => void
+    let readStarted!: () => void
+    const selectingRequest = new Promise<void>((resolve) => {
+      selectionStarted = resolve
+    })
+    const readingRequest = new Promise<void>((resolve) => {
+      readStarted = resolve
+    })
+    let reads = 0
+    const { client, requests } = create((request) => {
+      if (request.method === 'workspace:select' || request.method === 'pi:directory')
+        return new Promise((resolve) => {
+          finishSelection = resolve
+          selectionStarted()
+        })
+      if (request.method === 'pi:snapshot') {
+        if (++reads === 2)
+          return new Promise<Snapshot>((resolve) => {
+            finishRead = resolve
+            readStarted()
+          })
+        return snapshot(request.sessionId ?? 'A')
+      }
+      return []
+    })
+    try {
+      const connections: string[] = []
+      client.bridge.onConnection((connection) => connections.push(connection.sessionKey!))
+      await client.bridge.getConnection()
+      const selecting =
+        read === 'getConnection'
+          ? client.bridge.selectWorkspace({ kind: 'project', cwd: '/new-project' })
+          : client.bridge.chooseDirectory('/new-project')
+      await selectingRequest
+      const reading = client.bridge[read]()
+      await readingRequest
+      assert.equal(requests.at(-1)?.sessionId, 'A')
+      finishSelection({ cancelled: false, snapshot: snapshot('B') })
+      await selecting
+      finishRead(snapshot('A'))
+      await reading
+      const connection = await client.bridge.getConnection()
+      assert.deepEqual(connections, ['B'])
+      assert.equal(connection.sessionKey, 'B')
+      await client.bridge.getProjectFiles('/new-project', 'src')
+      assert.equal(requests.at(-1)?.sessionId, 'B')
+      await client.bridge.prompt(connection.sessionKey!, '后续任务')
+      assert.equal(requests.at(-1)?.sessionId, connections.at(-1))
+    } finally {
+      client.close()
+    }
+  })
+}
+
+test('选择失败后，进行中发起的快照与后续读取仍使用原会话', async () => {
+  let rejectSelection!: (cause: Error) => void
+  let finishRead!: (value: Snapshot) => void
+  let selectionStarted!: () => void
+  let readStarted!: () => void
+  const selectingRequest = new Promise<void>((resolve) => {
+    selectionStarted = resolve
+  })
+  const readingRequest = new Promise<void>((resolve) => {
+    readStarted = resolve
+  })
+  let reads = 0
+  const { client, requests } = create((request) => {
+    if (request.method === 'workspace:select')
+      return new Promise((_, reject) => {
+        rejectSelection = reject
+        selectionStarted()
+      })
+    if (request.method === 'pi:snapshot') {
+      if (++reads === 2)
+        return new Promise<Snapshot>((resolve) => {
+          finishRead = resolve
+          readStarted()
+        })
+      return snapshot(request.sessionId ?? 'A')
+    }
+    return []
+  })
+  try {
+    await client.bridge.getConnection()
+    const selecting = client.bridge.selectWorkspace({ kind: 'project', cwd: '/unavailable' })
+    const rejected = assert.rejects(selecting, /目录不可用/)
+    await selectingRequest
+    const reading = client.bridge.getSnapshot()
+    await readingRequest
+    rejectSelection(new Error('目录不可用'))
+    await rejected
+    finishRead(snapshot('A'))
+    assert.equal((await reading).connection.sessionKey, 'A')
+    assert.equal((await client.bridge.getConnection()).sessionKey, 'A')
+    await client.bridge.getProjectFiles('/project', 'src')
+    assert.equal(requests.at(-1)?.sessionId, 'A')
+  } finally {
+    client.close()
+  }
+})
+
 test('后台 A 的事件缺口读取 A 的快照，并保留当前 B 的选择', async () => {
   const { client, requests, sockets } = create((request) => {
     if (request.method === 'pi:snapshot') return snapshot(request.sessionId ?? 'B', request.sessionId === 'A' ? 10 : 0)
@@ -454,5 +560,84 @@ test('连续 401 只重试一次，网络失败不重发消息', async () => {
     } finally {
       client.close()
     }
+  }
+})
+
+test('读取子代理快照与缺口恢复不改变主客户端selection，发送mode传到指定根会话', async () => {
+  let childReads = 0
+  const { client, requests, sockets } = create((request) => {
+    if (request.method === 'pi:agent-snapshot') {
+      childReads++
+      return snapshot('child-session', childReads === 1 ? 1 : 4)
+    }
+    if (request.method === 'pi:snapshot') return snapshot(request.sessionId ?? 'main')
+    if (request.method === 'pi:agents') return []
+    return undefined
+  })
+  try {
+    await client.connect()
+    await client.bridge.getConnection()
+    await client.bridge.getAgentSnapshot('child')
+    sockets[0].message({
+      hostId: 'host-1',
+      type: 'event',
+      value: {
+        generation: 1,
+        sessionKey: 'child-session',
+        agentId: 'child',
+        sequence: 4,
+        event: { type: 'agent_start' },
+      },
+    })
+    await tick()
+    await client.bridge.prompt('main', '后续任务', [], [], { mode: 'plan' })
+    await client.bridge.getSessions()
+    assert.equal(childReads, 2)
+    const request = requests.find((entry) => entry.method === 'pi:prompt')!
+    assert.equal(request.sessionId, 'main')
+    assert.deepEqual(request.args[4], { mode: 'plan' })
+    assert.equal(requests.at(-1)?.sessionId, 'main')
+    assert.ok(
+      requests.filter((entry) => entry.method === 'pi:agent-snapshot').every((entry) => entry.sessionId === undefined),
+    )
+  } finally {
+    client.close()
+  }
+})
+
+test('从未查看的子代理事件缺口只恢复agent快照，不调用根Pool快照或断开主连接', async () => {
+  const { client, requests, sockets } = create((request) => {
+    if (request.method === 'pi:agent-snapshot') return snapshot('unopened-child', 5)
+    if (request.method === 'pi:snapshot') {
+      assert.notEqual(request.sessionId, 'unopened-child')
+      return snapshot(request.sessionId ?? 'main')
+    }
+    return undefined
+  })
+  try {
+    await client.connect()
+    await client.bridge.getConnection()
+    const connections: string[] = []
+    client.bridge.onConnection((connection) => connections.push(connection.status))
+    sockets[0].message({
+      hostId: 'host-1',
+      type: 'event',
+      value: {
+        generation: 1,
+        sessionKey: 'unopened-child',
+        agentId: 'unopened-id',
+        rootAgentId: 'root-id',
+        executionGeneration: 1,
+        sequence: 5,
+        event: { type: 'agent_start' },
+      },
+    })
+    await tick()
+    assert.equal(requests.filter((request) => request.method === 'pi:agent-snapshot').length, 1)
+    assert.ok(!connections.includes('disconnected'))
+    await client.bridge.getSessions()
+    assert.equal(requests.at(-1)?.sessionId, 'main')
+  } finally {
+    client.close()
   }
 })

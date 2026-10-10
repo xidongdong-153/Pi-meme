@@ -7,14 +7,14 @@
 
 /* 显式扫描 UI 与功能包源码，Tailwind 默认只扫描 Vite 根目录 */
 @source '../../ui/src';
-@source '../../../plugins/chat/src';
-@source '../../../plugins/workspace/src';
-@source '../../../plugins/git/src';
-@source '../../../plugins/models/src';
-@source '../../../plugins/settings/src';
-@source '../../../plugins/mcp/src';
-@source '../../../plugins/interaction/src';
-@source '../../../plugins/resources/src';
+@source '../../chat/src';
+@source '../../workspace/src';
+@source '../../git/src';
+@source '../../models/src';
+@source '../../settings/src';
+@source '../../mcp/src';
+@source '../../interaction/src';
+@source '../../resources/src';
 
 @theme {
   --color-background: var(--background);
@@ -116,9 +116,9 @@ body {
 
 @source './';
 
-@source '../../../plugins/history/src';
-@source '../../../plugins/permissions/src';
-@source '../../../plugins/resources/src';
-@source '../../../plugins/codemode/src';
-@source '../../../plugins/subagents/src';
-@source '../../../plugins/usage/src';
+@source '../../history/src';
+@source '../../permissions/src';
+@source '../../resources/src';
+@source '../../codemode/src';
+@source '../../subagents/src';
+@source '../../usage/src';

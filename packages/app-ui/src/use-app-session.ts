@@ -1,3 +1,4 @@
+import type { PlanDocument } from '@pi-meme/contracts/plan'
 import type { SelectWorkspace } from '@pi-meme/contracts/sessions'
 import { transferDraft } from '@pi-meme/chat/ui/composer/transfer-draft'
 import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
@@ -21,17 +22,21 @@ import { SessionSelection } from './session-selection'
 import { SnapshotSync } from './snapshot-sync'
 import { PluginSnapshotSync } from './plugin-snapshot-sync'
 
-/** 唯一的桌面事件订阅；选择事务和快照读取分别隔离过期结果。 */
+/** 主对话事件订阅；选择事务和快照读取分别隔离过期结果，子代理对话独立订阅。 */
 export function useAppSession(
   bridge: DesktopBridge,
   {
     chatEnabled = true,
     workspaceEnabled = true,
+    onPlanSaved,
   }: {
     chatEnabled?: boolean
     workspaceEnabled?: boolean
+    onPlanSaved?: (document: PlanDocument) => void
   } = {},
 ) {
+  const onPlanSavedRef = useRef(onPlanSaved)
+  onPlanSavedRef.current = onPlanSaved
   const [connection, setConnection] = useState<Connection>({ generation: 0, cwd: '', status: 'connecting' })
   const [hasConnected, setHasConnected] = useState(false)
   const [state, setState] = useState<PiState | null>(null)
@@ -53,6 +58,9 @@ export function useAppSession(
   const [forkNotice, setForkNotice] = useState<{ sourcePath: string } | null>(null)
   const forkNoticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [refreshToken, setRefreshToken] = useState(0)
+  const currentRootAgentId = useRef<string | undefined>(undefined)
+  const currentAgentTree = useRef<import('@pi-meme/contracts/collaboration').AgentSummary[]>([])
+  const [planDocuments, setPlanDocuments] = useState<PlanDocument[]>([])
   const current = useRef(connection)
   const displayed = useRef(connection)
   const mounted = useRef(false)
@@ -67,7 +75,10 @@ export function useAppSession(
   const { sessions, sessionsLoading, refreshSessions, setActiveSession } = useSessions(bridge, workspaceEnabled)
 
   const commitSnapshot = useCallback(
-    (snapshot: Snapshot, events: DesktopEvent[] | null, pluginRevision: number) => {
+    (snapshot: Snapshot, events: DesktopEvent[] | null, pluginRevision: number, modeRevision?: number) => {
+      currentRootAgentId.current = snapshot.agent?.rootAgentId ?? snapshot.agent?.agentId
+      currentAgentTree.current = snapshot.agents ?? []
+      setPlanDocuments(snapshot.planDocuments ?? [])
       displayed.current = snapshot.connection
       current.current = snapshot.connection
       setConnection(snapshot.connection)
@@ -80,7 +91,7 @@ export function useAppSession(
         diagnostic.message !== dismissed?.message
       )
         setExtensionError(diagnostic)
-      const next = chatRef.current?.loadSnapshot(snapshot, events)
+      const next = chatRef.current?.loadSnapshot(snapshot, events, modeRevision)
       // 权威快照空闲时清除发送挂起标记，避免下一条消息被当成插话/排队。
       if (!snapshot.state.isStreaming && !snapshot.state.isCompacting) chatRef.current?.clearPromptPending()
       const key = snapshot.connection.sessionKey
@@ -93,6 +104,7 @@ export function useAppSession(
             ...(events ?? []).filter((record) => record.sessionKey === key).map((record) => record.sequence ?? 0),
           ),
         })
+      extensionsRef.current?.restoreInteractions(snapshot.pendingInteractions ?? [])
       setState(snapshot.state)
       if (pluginSynchronization.current.commit(pluginRevision, snapshot, current.current.sessionKey))
         setUiPlugins(snapshot.uiPlugins)
@@ -113,11 +125,25 @@ export function useAppSession(
       ]) {
         if (record.sessionKey !== key || record.generation !== snapshot.connection.generation) continue
         if (
+          snapshot.agent &&
+          record.executionGeneration !== undefined &&
+          record.executionGeneration !== snapshot.agent.executionGeneration
+        )
+          continue
+        if (
           record.event.type === 'extension_ui_request' ||
           record.event.type === 'extension_ui_timeout' ||
           record.event.type === 'extension_ui_closed'
         )
-          extensionsRef.current?.handleEvent(record.event)
+          extensionsRef.current?.handleEvent(record.event, {
+            sessionKey: record.sessionKey ?? key ?? '',
+            executionGeneration: record.executionGeneration ?? 0,
+            source: {
+              agentId: record.agentId ?? snapshot.agent?.agentId ?? '',
+              name: snapshot.agent?.name ?? '当前 Agent',
+              rootSessionKey: key ?? '',
+            },
+          })
       }
     },
     [setActiveSession],
@@ -125,6 +151,7 @@ export function useAppSession(
 
   const refresh = useCallback(async () => {
     if (selection.current.current) return
+    const modeRevision = chatRef.current?.captureModeRevision()
     const read = synchronization.current.begin(current.current)
     const pluginRevision = pluginSynchronization.current.begin()
     try {
@@ -145,7 +172,7 @@ export function useAppSession(
         snapshot.connection.sessionKey !== current.current.sessionKey
       )
         return
-      commitSnapshot(snapshot, read.events, pluginRevision)
+      commitSnapshot(snapshot, read.events, pluginRevision, modeRevision)
       setCommands(nextCommands)
     } catch (cause) {
       if (mounted.current && synchronization.current.owns(read, current.current)) {
@@ -218,6 +245,9 @@ export function useAppSession(
         if (previous.sessionKey && chatRef.current)
           drafts.current.set(previous.sessionKey, chatRef.current.captureComposer())
         if (next.sessionKey !== previous.sessionKey) {
+          currentRootAgentId.current = undefined
+          currentAgentTree.current = []
+          setPlanDocuments([])
           setForkNotice(null)
           const cached = next.sessionKey && views.current.get(next.sessionKey)
           if (cached) chatRef.current?.restoreChat(cached.chat)
@@ -263,6 +293,56 @@ export function useAppSession(
         event.type === 'extension_ui_request' ||
         event.type === 'extension_ui_timeout' ||
         event.type === 'extension_ui_closed'
+      if (extension) {
+        const source = record.agentId && currentAgentTree.current.find((agent) => agent.agentId === record.agentId)
+        const dialogEvent =
+          event.type !== 'extension_ui_request' || ['select', 'confirm', 'input', 'editor'].includes(event.method)
+        const belongsToRoot = record.rootAgentId && record.rootAgentId === currentRootAgentId.current
+        if (((source || belongsToRoot) && dialogEvent) || record.sessionKey === current.current.sessionKey) {
+          extensionsRef.current?.handleEvent(event, {
+            sessionKey: record.sessionKey ?? '',
+            executionGeneration: record.executionGeneration ?? 0,
+            source: source
+              ? { agentId: source.agentId, name: source.name, rootSessionKey: source.rootSessionKey }
+              : belongsToRoot && record.agentId && record.sessionKey !== current.current.sessionKey
+                ? { agentId: record.agentId, name: '子代理', rootSessionKey: current.current.sessionKey ?? '' }
+                : undefined,
+          })
+        }
+        return
+      }
+      if (event.type === 'agents_update') {
+        if (
+          event.agents.some((agent) => agent.rootSessionKey === current.current.sessionKey) ||
+          record.sessionKey === current.current.sessionKey
+        ) {
+          currentAgentTree.current = event.agents.filter((agent) => agent.rootSessionKey === current.current.sessionKey)
+          chatRef.current?.applyEvent({ ...event, agents: currentAgentTree.current })
+        }
+        return
+      }
+      if (event.type === 'agent_mailbox') {
+        if (
+          record.sessionKey === current.current.sessionKey ||
+          currentAgentTree.current.some((agent) => agent.rootTaskId === event.message.rootTaskId)
+        )
+          chatRef.current?.applyEvent(event)
+        return
+      }
+      if (event.type === 'plan_saved') {
+        if (
+          selection.current.current ||
+          record.generation !== current.current.generation ||
+          record.sessionKey !== current.current.sessionKey
+        )
+          return
+        const known = chatRef.current?.captureChat().planDocuments?.find((doc) => doc.id === event.document.id)
+        if (known && known.revision >= event.document.revision) return
+        setPlanDocuments((value) => [...value.filter((doc) => doc.id !== event.document.id), event.document])
+        chatRef.current?.applyEvent(event)
+        onPlanSavedRef.current?.(event.document)
+        return
+      }
       const cached = record.sessionKey && views.current.get(record.sessionKey)
       if (cached && record.sequence !== undefined && record.sequence <= cached.sequence) return
       if (cached && !extension) {
@@ -275,11 +355,8 @@ export function useAppSession(
         record.sessionKey !== current.current.sessionKey
       )
         return
-      if (extension) extensionsRef.current?.handleEvent(event)
-      else {
-        if (event.type === 'agent_settled') chatRef.current?.clearPromptPending()
-        chatRef.current?.applyEvent(event)
-      }
+      if (event.type === 'agent_settled') chatRef.current?.clearPromptPending()
+      chatRef.current?.applyEvent(event)
       if (event.type === 'agent_settled' || event.type === 'compaction_end') {
         setRefreshToken((value) => value + 1)
         void refresh()
@@ -346,6 +423,7 @@ export function useAppSession(
     const replacing = selection.current.current !== null
     const transaction = selection.current.begin(target)
     const pluginRevision = pluginSynchronization.current.begin()
+    const modeRevision = chatRef.current?.captureModeRevision()
     let previewAllowed = true
     const owns = () => mounted.current && selection.current.owns(transaction)
     const previous = displayed.current
@@ -354,7 +432,7 @@ export function useAppSession(
       replacing && previous.sessionKey ? drafts.current.get(previous.sessionKey) : chatRef.current?.captureComposer()
     const previousView = previous.sessionKey && views.current.get(previous.sessionKey)
     if (previous.sessionKey && previousComposer) drafts.current.set(previous.sessionKey, previousComposer)
-    if (!replacing && previousView && chatRef.current) previousView.chat = chatRef.current.chat
+    if (!replacing && previousView && chatRef.current) previousView.chat = chatRef.current.captureChat()
     synchronization.current.cancel()
     setSwitching(true)
     setSwitchingToPath(target)
@@ -378,6 +456,7 @@ export function useAppSession(
               messages: history.messages,
               models,
               state: {
+                mode: 'default',
                 model: history.model,
                 thinkingLevel: history.thinkingLevel,
                 sessionName: history.sessionName,
@@ -400,7 +479,7 @@ export function useAppSession(
         if (result.cancelled) {
           const snapshot = await bridge.getSnapshot()
           if (!owns()) return
-          commitSnapshot(snapshot, transaction.events, pluginRevision)
+          commitSnapshot(snapshot, transaction.events, pluginRevision, modeRevision)
           if (previousComposer) chatRef.current?.restoreComposer(previousComposer)
           setActiveSession(previousPath, previous.sessionKey)
           return
@@ -415,7 +494,7 @@ export function useAppSession(
         const draft =
           transferred?.composer ??
           (result.snapshot.connection.sessionKey && drafts.current.get(result.snapshot.connection.sessionKey))
-        commitSnapshot(result.snapshot, transaction.events, pluginRevision)
+        commitSnapshot(result.snapshot, transaction.events, pluginRevision, modeRevision)
         if (draft) chatRef.current?.restoreComposer(draft)
         if (transferred) {
           if (previous.sessionKey) drafts.current.delete(previous.sessionKey)
@@ -447,11 +526,11 @@ export function useAppSession(
           if (current.current.sessionKey !== previous.sessionKey && previousPath) {
             const restored = await bridge.switchSession(previousPath)
             if (!owns()) return
-            if (!restored.cancelled) commitSnapshot(restored.snapshot, transaction.events, pluginRevision)
+            if (!restored.cancelled) commitSnapshot(restored.snapshot, transaction.events, pluginRevision, modeRevision)
           } else {
             const snapshot = await bridge.getSnapshot()
             if (!owns()) return
-            commitSnapshot(snapshot, transaction.events, pluginRevision)
+            commitSnapshot(snapshot, transaction.events, pluginRevision, modeRevision)
           }
           if (previousComposer) chatRef.current?.restoreComposer(previousComposer)
           setActiveSession(previousPath, previous.sessionKey)
@@ -464,7 +543,7 @@ export function useAppSession(
             if (!owns()) return
             if (previousComposer && previousView && !previousView.chat.messages.length)
               chatRef.current?.restoreComposer(previousComposer)
-            commitSnapshot(snapshot, transaction.events, pluginRevision)
+            commitSnapshot(snapshot, transaction.events, pluginRevision, modeRevision)
           } catch (restoreCause) {
             if (owns()) setError(`${String(cause)}；无法恢复会话：${String(restoreCause)}`)
             return
@@ -521,7 +600,9 @@ export function useAppSession(
     Boolean(connection.accessChanging)
 
   return {
+    planDocuments,
     chat: chat.chat,
+    chatStream: chat.chatStream,
     connection,
     hasConnected,
     state,
@@ -572,12 +653,18 @@ export function useAppSession(
       : acting || switching || connection.accessChanging || loading
         ? '正在切换会话或更新配置，请稍后选择项目'
         : undefined,
+    mode: chat.mode,
+    changeMode: chat.changeMode,
+    activatePlan: chat.activatePlan,
+    recoveredInputs: chat.recoveredInputs,
+    restoreQueuedInput: chat.restoreQueuedInput,
     draft: chat.draft,
     selectedSkills: chat.selectedSkills,
     setSelectedSkills: chat.setSelectedSkills,
     attachments: chat.attachments,
     queueMode: chat.queueMode,
     ...extensions,
+    extensionDialogs: switching ? [] : extensions.extensionDialogs,
     answerExtensionDialog: async (...args: Parameters<typeof extensions.answerExtensionDialog>) => {
       setError('')
       await extensions.answerExtensionDialog(...args)

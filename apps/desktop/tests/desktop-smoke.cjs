@@ -110,12 +110,66 @@ async function run(window) {
     await evaluate(`document.querySelector('[aria-label="选择当前项目"]')?.textContent.includes('不在项目中工作')`),
     true,
   )
+  if (process.env.PI_DESKTOP_PLAN_SMOKE_ONLY === '1') {
+    const snapshot = await evaluate('window.piMemeClient.getSnapshot()')
+    assert.ok(snapshot.connection.sessionKey, '首次发送前新聊天具有稳定身份')
+    assert.equal(snapshot.messages.length, 0, '计划独立验收从零消息新聊天开始')
+    assert.equal(snapshot.connection.status, 'idle', '新聊天尚未启动 Worker')
+    await waitFor(
+      () =>
+        evaluate(
+          'window.piMemeClient.getSnapshot().then(value => value.models.some(model => model.provider === "fake" && model.id === "first"))',
+        ),
+      '临时假模型可用',
+    )
+    if ((await evaluate('window.piMemeClient.getSnapshot()')).state.modelSelectionRequired) {
+      const trigger = 'button[aria-label="选择模型与思考强度"]'
+      await waitFor(
+        () => evaluate(`!document.querySelector(${JSON.stringify(trigger)}).disabled`),
+        '冷聊天模型选择可用',
+      )
+      await click(trigger)
+      await waitFor(() => evaluate('Boolean(document.querySelector("[role=slider]"))'), '冷聊天思考强度面板')
+      await evaluate(
+        '[...document.querySelectorAll("[role=dialog] button")].find(node => !node.getAttribute("aria-label")).click()',
+      )
+      await waitFor(() => evaluate('Boolean(document.querySelector("[aria-label=可用模型]"))'), '临时假模型列表')
+      await evaluate(
+        '[...document.querySelectorAll("[aria-label=可用模型] button")].find(node => node.textContent.includes("first")).click()',
+      )
+      await waitFor(
+        () =>
+          evaluate(
+            `window.piMemeClient.getSnapshot().then(value => value.state.model?.provider === "fake" && value.state.model?.id === "first" && !document.querySelector(${JSON.stringify(trigger)}).disabled)`,
+          ),
+        '首次发送前选择临时假模型',
+      )
+      await click(trigger)
+      await waitFor(() => evaluate('!document.querySelector("[role=slider]")'), '关闭冷聊天模型选择')
+    }
+    await fs.mkdir(path.join(root, 'out', 'desktop-smoke'), { recursive: true })
+    await require('./plan-composer-smoke.cjs')(window, waitFor, directory, path.join(root, 'out', 'desktop-smoke'), {
+      cold: true,
+    })
+    console.log(
+      '计划输入验收通过：冷聊天规范候选、键鼠与输入法、计划标识悬停关闭、保留草稿、首次发送、文档复制导出和普通模式下一轮',
+    )
+    return
+  }
   await setDraft('设置页面保留的草稿')
   await waitFor(() => evaluate(`document.querySelector('[aria-label="发送消息"]')?.disabled === false`), '空白页可发送')
   await click('button[aria-label="设置"]')
   await waitFor(() => evaluate('Boolean(document.querySelector("section[aria-label=设置页面]"))'), '内置运行时设置')
   assert.equal(await evaluate('document.querySelector("#pi-cli-path") === null'), true)
-  await waitFor(() => evaluate('document.body.textContent.includes("随 Host 一起分发")'), '常规设置内容加载')
+  assert.deepEqual(
+    await evaluate(
+      '[...document.querySelectorAll("nav[aria-label=设置分类] button")].map(node => node.textContent.trim())',
+    ),
+    ['模型', '外观', '偏好', '扩展'],
+  )
+  await evaluate('document.querySelector("aside details").open = true')
+  await clickText('关于')
+  await waitFor(() => evaluate('document.body.textContent.includes("随 Host 一起分发")'), '关于运行时内容加载')
   assert.equal(await evaluate('document.querySelector("header button[aria-label=设置]") === null'), true)
   assert.equal(await evaluate('document.querySelectorAll("button[aria-label=设置]").length'), 1)
   await clickText('返回聊天')
@@ -127,7 +181,7 @@ async function run(window) {
   await setDraft('')
   if (process.env.PI_DESKTOP_MCP_SMOKE_ONLY === '1') {
     await require('./mcp-smoke.cjs')(window, waitFor, path.join(root, 'out', 'desktop-smoke'))
-    console.log('MCP 桌面验收通过：表单、高级 JSON、启停、能力联动、外部冲突、损坏文件与诊断')
+    console.log('MCP 桌面验收通过：表单、高级 JSON、启停、逐服务授权、外部冲突、损坏文件与诊断')
     return
   }
   if (process.env.PI_DESKTOP_SIDEBAR_MENU_SMOKE_ONLY === '1') {
@@ -138,7 +192,7 @@ async function run(window) {
   if (process.env.PI_DESKTOP_PROFILE_SMOKE_ONLY === '1') {
     await click('button[aria-label="设置"]')
     await require('./profile-smoke.cjs')(window, waitFor, directory, path.join(root, 'out', 'desktop-smoke'))
-    console.log('个人资料桌面验收通过：统计、活动图、主题、窄窗口、空状态与错误重试')
+    console.log('用量桌面验收通过：统计、活动图、主题、窄窗口、空状态与错误重试')
     return
   }
   if (process.env.PI_DESKTOP_MODEL_PICKER_SMOKE_ONLY === '1') {
@@ -257,9 +311,9 @@ async function run(window) {
   await waitFor(
     () =>
       evaluate(
-        `document.querySelector('aside[aria-label="右侧栏"] [role="tab"][aria-selected="true"]').textContent === "Session Tree"`,
+        `document.querySelector('aside[aria-label="右侧栏"] [role="tab"][aria-selected="true"]').textContent === "会话树"`,
       ),
-    'Session Tree 标签',
+    '会话树标签',
   )
   await click('button[aria-label="查看 Git 变更"]')
   await waitFor(
@@ -351,8 +405,11 @@ async function run(window) {
     await evaluate('window.piMemeClient.getConnection().then(connection => connection.piVersion)'),
     distribution.version,
   )
-  await capture('settings-general')
-  await clickText('技能', 'nav[aria-label="设置分类"]')
+  await evaluate('document.querySelector("aside details").open = true')
+  await clickText('关于')
+  await capture('settings-about')
+  await clickText('扩展', 'nav[aria-label="设置分类"]')
+  await clickText('技能', '#settings-content')
   await waitFor(() => evaluate('Boolean(document.querySelector("ul[aria-label=已加载技能]"))'), '技能列表')
   const skillEntries = await evaluate(
     '[...document.querySelectorAll("ul[aria-label=已加载技能] li")].map(node => node.textContent).join("\\n")',
@@ -606,8 +663,38 @@ async function run(window) {
   await waitFor(() => evaluate('!document.querySelector("[aria-label=待处理任务队列]")'), '撤回队列')
   assert.equal(
     await evaluate('document.querySelector("[contenteditable=true][aria-label=消息]").textContent'),
-    '插话验收\n保留草稿',
+    '保留草稿',
   )
+  const recoveredInput = '恢复草稿：插话验收'
+  await waitFor(
+    () =>
+      evaluate(
+        `[...document.querySelectorAll('button')].some(node => node.textContent.trim() === ${JSON.stringify(recoveredInput)})`,
+      ),
+    '撤回消息保留为可恢复草稿',
+  )
+  await clickText(recoveredInput)
+  await waitFor(
+    () => evaluate('document.body.textContent.includes("请先发送或清空当前草稿，再恢复排队消息。")'),
+    '非空草稿拒绝覆盖',
+  )
+  assert.equal(
+    await evaluate('document.querySelector("[contenteditable=true][aria-label=消息]").textContent'),
+    '保留草稿',
+  )
+  await setDraft('')
+  await clickText(recoveredInput)
+  await waitFor(
+    () => evaluate('document.querySelector("[contenteditable=true][aria-label=消息]").textContent === "插话验收"'),
+    '恢复撤回消息',
+  )
+  assert.equal(
+    await evaluate(
+      `[...document.querySelectorAll('button')].some(node => node.textContent.trim() === ${JSON.stringify(recoveredInput)})`,
+    ),
+    false,
+  )
+  assert.equal(await evaluate('Boolean(document.querySelector("button[aria-label=关闭计划模式]"))'), false)
   await click('button[aria-label="运行模式"]')
   await waitFor(() => evaluate('Boolean(document.querySelector("button[title=\\"点击切换插话模式\\"]"))'), '插话菜单')
   await click('button[title="点击切换插话模式"]')
@@ -712,6 +799,7 @@ async function run(window) {
   await waitFor(() => evaluate('Boolean(document.querySelector("button[aria-label=滚动到底部]"))'), '回到底部按钮')
   await click('button[aria-label="滚动到底部"]')
   await waitFor(() => evaluate('!document.querySelector("button[aria-label=滚动到底部]")'), '回到底部')
+  await require('./collaboration-plan-smoke.cjs')(window, waitFor, directory, path.join(root, 'out', 'desktop-smoke'))
   await require('./extensions-smoke.cjs')(window, waitFor, directory, path.join(root, 'out', 'desktop-smoke'))
   await require('./agent-access-smoke.cjs')(window, waitFor, directory)
   await require('./lazy-sessions-smoke.cjs')(window, waitFor, directory)
@@ -733,6 +821,7 @@ async function run(window) {
   await fs.writeFile(path.join(gitDirectory, 'reference-fixture', '中文 文件.ts'), 'export const value = 1\n')
   await fs.writeFile(path.join(gitDirectory, 'reference-fixture', 'nested-file.ts'), 'export const nested = true\n')
   execFileSync('git', ['init', '--quiet', gitDirectory])
+  await fs.mkdir(path.join(root, 'out', 'desktop-smoke'), { recursive: true })
   const { startSmokeAgent, smokeExtension } = await import('./smoke-agent.mjs')
   await startSmokeAgent(directory, {
     picker: process.env.PI_DESKTOP_MODEL_PICKER_SMOKE_ONLY === '1',
@@ -754,7 +843,7 @@ async function run(window) {
   await fs.copyFile(smokeExtension, path.join(extensionsDirectory, 'smoke-extension.js'))
   await fs.writeFile(
     path.join(directory, 'settings.json'),
-    JSON.stringify({ themeId: 'dark', defaultAccessMode: 'workspace-write' }),
+    JSON.stringify({ themeId: 'dark', defaultAccessMode: 'workspace-write', mcpEnabled: false }),
   )
   app.once('browser-window-created', (_event, window) => {
     window.webContents.setBackgroundThrottling(false)

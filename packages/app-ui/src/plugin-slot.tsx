@@ -9,14 +9,12 @@ export function PluginSlot({
   props,
   pluginId,
   contributionId,
-  externalOnly = false,
 }: {
   registry: UiPluginRegistry
   slot: UiPluginSlot
   props: UiContributionProps
   pluginId?: string
   contributionId?: string
-  externalOnly?: boolean
 }) {
   const contributions = useSyncExternalStore(registry.subscribe, registry.getSnapshot, registry.getSnapshot)
   return (
@@ -26,8 +24,7 @@ export function PluginSlot({
           (entry) =>
             entry.slot === slot &&
             (!pluginId || entry.id.startsWith(`${pluginId}:`)) &&
-            (!contributionId || entry.id === contributionId) &&
-            (!externalOnly || !registry.isBuiltin(entry.id)),
+            (!contributionId || entry.id === contributionId),
         )
         .map((entry) => (
           <ErrorBoundary

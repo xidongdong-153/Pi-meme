@@ -1,3 +1,4 @@
+import type { AgentSummary } from '@pi-meme/contracts/collaboration'
 import type {
   Connection,
   DesktopBridge,
@@ -47,6 +48,9 @@ export class HostClient {
   private selectionEpoch = 0
   private pendingSelections = 0
   private connectedHostId: string
+  private readonly childAgents = new Map<string, string>()
+  private readonly childReads = new Map<string, Promise<Snapshot>>()
+  private readonly executionGenerations = new Map<string, number>()
   private readonly sequences = new Map<string, number>()
   private resynchronizing?: Promise<void>
   private buffered: HostEvent[] = []
@@ -185,13 +189,49 @@ export class HostClient {
   private async snapshot(sessionId = this.selected?.sessionKey, updateSelection = true) {
     const epoch = this.selectionEpoch
     const snapshot = await this.rpc<Snapshot>('pi:snapshot', [], sessionId)
-    if (updateSelection && epoch === this.selectionEpoch) this.selected = snapshot.connection
+    this.registerAgents(snapshot.agents ?? [])
+    if (updateSelection && epoch === this.selectionEpoch && sessionId === this.selected?.sessionKey)
+      this.selected = snapshot.connection
+    if (snapshot.agent && snapshot.connection.sessionKey)
+      this.executionGenerations.set(
+        snapshot.connection.sessionKey,
+        Math.max(
+          this.executionGenerations.get(snapshot.connection.sessionKey) ?? 0,
+          snapshot.agent.executionGeneration,
+        ),
+      )
     if (snapshot.connection.sessionKey && snapshot.eventSequence !== undefined)
       this.sequences.set(
         snapshot.connection.sessionKey,
         Math.max(this.sequences.get(snapshot.connection.sessionKey) ?? 0, snapshot.eventSequence),
       )
     return snapshot
+  }
+
+  private registerAgents(agents: AgentSummary[]) {
+    for (const agent of agents) if (agent.parentAgentId) this.childAgents.set(agent.sessionKey, agent.agentId)
+    return agents
+  }
+
+  private agentSnapshot(agentId: string) {
+    const pending = this.childReads.get(agentId)
+    if (pending) return pending
+    const read = this.rpc<Snapshot>('pi:agent-snapshot', [agentId], null)
+      .then((snapshot) => {
+        const key = snapshot.connection.sessionKey
+        if (
+          key &&
+          !(snapshot.agent && snapshot.agent.executionGeneration < (this.executionGenerations.get(key) ?? 0))
+        ) {
+          this.childAgents.set(key, agentId)
+          this.sequences.set(key, snapshot.eventSequence ?? 0)
+          if (snapshot.agent) this.executionGenerations.set(key, snapshot.agent.executionGeneration)
+        }
+        return snapshot
+      })
+      .finally(() => this.childReads.delete(agentId))
+    this.childReads.set(agentId, read)
+    return read
   }
 
   private async selection(method: string, args: unknown[] = [], sessionId = this.selected?.sessionKey) {
@@ -282,6 +322,7 @@ export class HostClient {
         const snapshot = await this.snapshot(sessionId, sessionId === this.selected?.sessionKey)
         if (epoch === this.selectionEpoch && snapshot.connection.sessionKey === this.selected?.sessionKey)
           this.publishConnection(snapshot.connection)
+        await Promise.allSettled([...new Set(this.childAgents.values())].map((id) => this.agentSnapshot(id)))
         for (const callback of this.sessionsListeners) callback()
         for (const callback of this.pluginListeners) callback()
         this.reconnectAttempts = 0
@@ -308,12 +349,43 @@ export class HostClient {
     switch (envelope.type) {
       case 'event': {
         const record = envelope.value
+        if (record.event.type === 'agents_update') this.registerAgents(record.event.agents)
+        if (
+          record.sessionKey &&
+          record.agentId &&
+          record.agentId !== record.rootAgentId &&
+          record.sessionKey !== this.selected?.sessionKey
+        )
+          this.childAgents.set(record.sessionKey, record.agentId)
+        if (record.sessionKey && record.executionGeneration !== undefined) {
+          const childId = this.childAgents.get(record.sessionKey)
+          const execution = this.executionGenerations.get(record.sessionKey)
+          if (
+            record.executionGeneration !== undefined &&
+            execution !== undefined &&
+            record.executionGeneration < execution
+          )
+            return
+          if (record.executionGeneration !== execution) {
+            this.executionGenerations.set(record.sessionKey, record.executionGeneration)
+            this.sequences.delete(record.sessionKey)
+            if (childId) void this.agentSnapshot(childId).catch((cause) => this.reportError(String(cause)))
+          }
+        }
         if (record.sessionKey && record.sequence !== undefined) {
-          const previous = this.sequences.get(record.sessionKey)
+          const childId = this.childAgents.get(record.sessionKey)
+          const previous = this.sequences.get(record.sessionKey) ?? (childId ? 0 : undefined)
           if (previous !== undefined && record.sequence <= previous) return
           if (previous !== undefined && record.sequence > previous + 1) {
-            this.buffered.push(envelope)
-            void this.resynchronize(record.sessionKey)
+            if (childId) {
+              for (const callback of this.eventListeners) callback(record)
+              void this.agentSnapshot(childId).catch((cause) =>
+                this.reportError(`无法恢复子代理快照：${String(cause)}`),
+              )
+            } else {
+              this.buffered.push(envelope)
+              void this.resynchronize(record.sessionKey)
+            }
             return
           }
           this.sequences.set(record.sessionKey, record.sequence)
@@ -411,9 +483,20 @@ export class HostClient {
       readSessionHistory: (path) => rpc('session:history', [path]),
       prefetchSession: (path) => rpc('session:prefetch', [path]),
       togglePin: (path) => rpc('settings:toggle-pin', [path]),
-      prompt: (key, message, images, skills) => rpc('pi:prompt', [key, message, images ?? [], skills ?? []], key),
-      steer: (key, message, images, skills) => rpc('pi:steer', [key, message, images ?? [], skills ?? []], key),
-      followUp: (key, message, images, skills) => rpc('pi:follow-up', [key, message, images ?? [], skills ?? []], key),
+      prompt: (key, message, images, skills, options) =>
+        rpc('pi:prompt', [key, message, images ?? [], skills ?? [], ...(options === undefined ? [] : [options])], key),
+      steer: (key, message, images, skills, options) =>
+        rpc('pi:steer', [key, message, images ?? [], skills ?? [], ...(options === undefined ? [] : [options])], key),
+      followUp: (key, message, images, skills, options) =>
+        rpc(
+          'pi:follow-up',
+          [key, message, images ?? [], skills ?? [], ...(options === undefined ? [] : [options])],
+          key,
+        ),
+      getAgents: async (key) => this.registerAgents(await rpc<AgentSummary[]>('pi:agents', [key], key)),
+      getAgentSnapshot: (id) => this.agentSnapshot(id),
+      interruptAgent: (id) => this.rpc('pi:interrupt-agent', [id], null),
+      setSessionMode: (key, mode) => rpc('pi:session-mode', [key, mode], key),
       clearQueue: (key) => rpc('pi:clear-queue', [key], key),
       setSteeringMode: (key, mode) => rpc('pi:steering-mode', [key, mode], key),
       setFollowUpMode: (key, mode) => rpc('pi:follow-up-mode', [key, mode], key),
@@ -421,8 +504,12 @@ export class HostClient {
       getProjectFiles: (cwd, query) => rpc('chat:project-files', [cwd, query]),
       getCommands: () => rpc('pi:commands'),
       abort: (key) => rpc('pi:abort', [key], key),
-      editAndPrompt: (key, timestamp, message, images, skills) =>
-        rpc('pi:edit-and-prompt', [key, timestamp, message, images ?? [], skills ?? []], key),
+      editAndPrompt: (key, timestamp, message, images, skills, options) =>
+        rpc(
+          'pi:edit-and-prompt',
+          [key, timestamp, message, images ?? [], skills ?? [], ...(options === undefined ? [] : [options])],
+          key,
+        ),
       switchMessageVersion: (key, timestamp, version) =>
         rpc('pi:switch-message-version', [key, timestamp, version], key),
       forkReply: (key, timestamp) => this.selection('pi:fork-reply', [key, timestamp], key),

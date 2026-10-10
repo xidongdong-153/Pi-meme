@@ -3,11 +3,13 @@ import { X } from 'lucide-react'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { cn } from '@pi-meme/ui/lib/utils'
 
-export type RightSidebarTab = 'git' | 'session-tree'
+export type RightSidebarTab = 'git' | 'session-tree' | 'subagents' | 'plan'
 
 const tabs: Array<{ id: RightSidebarTab; label: string }> = [
   { id: 'git', label: 'Git 变更' },
-  { id: 'session-tree', label: 'Session Tree' },
+  { id: 'session-tree', label: '会话树' },
+  { id: 'subagents', label: '子代理' },
+  { id: 'plan', label: '计划' },
 ]
 
 export function RightSidebar({

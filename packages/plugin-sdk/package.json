@@ -8,7 +8,8 @@
     "./server": "./src/server.ts",
     "./agent": "./src/agent.ts",
     "./ui": "./src/ui.ts",
-    "./scope": "./src/scope.ts"
+    "./scope": "./src/scope.ts",
+    "./reserved": "./src/reserved.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit",

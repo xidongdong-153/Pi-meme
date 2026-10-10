@@ -1,5 +1,4 @@
 import path from 'node:path'
-import { existsSync } from 'node:fs'
 import { startHostServer } from '@pi-meme/host/server'
 
 type ParentPort = {
@@ -13,9 +12,6 @@ void startHostServer({
   testCredentials: process.env.PI_MEME_TEST_CREDENTIALS === 'memory',
   staticDirectory: path.join(__dirname, '../renderer/main_window'),
   frontendUrl: process.env.PI_MEME_FRONTEND_URL,
-  builtinDirectory: existsSync(path.join(__dirname, '../plugins'))
-    ? path.join(__dirname, '../plugins')
-    : path.resolve(__dirname, '../../../../plugins'),
   workerPath: path.join(__dirname, 'session-worker.js'),
 })
   .then((server) => {

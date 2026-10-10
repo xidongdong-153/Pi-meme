@@ -1,4 +1,5 @@
 import type { ImageContent, TextContent, ThinkingContent, ToolCall } from '@earendil-works/pi-ai'
+import type { QueuedInput, TaskMode } from './plan'
 import type {
   AgentSession,
   JsonAgentSessionEvent,
@@ -20,6 +21,9 @@ export type PiSessionEntry = SessionEntry
 export type PiBranchEntry = Pick<PiSessionEntry, 'id' | 'parentId' | 'timestamp' | 'type'> & {
   role?: PiMessage['role']
   messageTimestamp?: number
+  customType?: string
+  display?: boolean
+  toolName?: string
   /** 单行摘要：消息正文预览、工具调用摘要或条目标记，供 Session Tree 阅读与搜索。 */
   preview?: string
 }
@@ -31,9 +35,15 @@ export type PiSlashCommand = {
   sourceInfo: SourceInfo
 }
 /** `clearQueue` 返回被撤回的插话与排队消息，供界面恢复成草稿。 */
-export type PiQueuedMessages = { steering: string[]; followUp: string[] }
+export type PiQueuedMessages = { steering: QueuedInput[]; followUp: QueuedInput[] }
 
 export const builtinCommands: PiSlashCommand[] = [
+  {
+    name: 'plan',
+    description: '切换规划模式；可在命令后填写任务',
+    source: 'builtin',
+    sourceInfo: { path: '', source: 'desktop', scope: 'temporary', origin: 'top-level' },
+  },
   {
     name: 'compact',
     description: '压缩当前会话上下文，可在命令后填写压缩要求',
@@ -58,6 +68,8 @@ export type PiState = Pick<
   RpcSessionState,
   'isStreaming' | 'isCompacting' | 'sessionName' | 'steeringMode' | 'followUpMode' | 'pendingMessageCount'
 > & {
+  mode: TaskMode
+  activeMode?: TaskMode
   model?: PiModel
   modelSelectionRequired?: boolean
   thinkingLevel?: ThinkingLevel
@@ -69,7 +81,6 @@ export type PiEvent =
         type:
           | 'agent_start'
           | 'agent_end'
-          | 'queue_update'
           | 'message_start'
           | 'message_update'
           | 'message_end'
@@ -81,6 +92,7 @@ export type PiEvent =
       }
     >
   | { type: 'agent_settled'; aborted?: boolean }
+  | { type: 'queue_update'; steering: QueuedInput[]; followUp: QueuedInput[] }
 export type PiExtensionDialogRequest = Extract<
   RpcExtensionUIRequest,
   { method: 'select' | 'confirm' | 'input' | 'editor' }

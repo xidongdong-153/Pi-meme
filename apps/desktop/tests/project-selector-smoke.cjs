@@ -112,6 +112,16 @@ module.exports = async function projectSelectorSmoke(window, waitFor, directory,
     await evaluate(
       `document.querySelector('[aria-label="搜索项目"]').dispatchEvent(new KeyboardEvent('keydown', { key: ${JSON.stringify(key)}, bubbles: true }))`,
     )
+    if (key !== 'Enter') {
+      const activeIndex = key === 'ArrowDown' ? 1 : 0
+      await waitFor(
+        () =>
+          evaluate(
+            `document.querySelector('${panel} [data-project-index="${activeIndex}"]')?.classList.contains('bg-secondary/70')`,
+          ),
+        `方向键高亮项目选项：${activeIndex}`,
+      )
+    }
   }
   await waitFor(
     () => evaluate(`window.piMemeClient.getConnection().then(value => value.cwd === ${JSON.stringify(first)})`),

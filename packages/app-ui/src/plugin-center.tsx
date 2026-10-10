@@ -1,23 +1,5 @@
-import { useRef, useState } from 'react'
-import {
-  BookOpen,
-  ChevronDown,
-  Code,
-  Cpu,
-  GitCompare,
-  History,
-  MessageSquare,
-  MoreHorizontal,
-  Palette,
-  Puzzle,
-  RefreshCw,
-  Search,
-  Settings,
-  ShieldCheck,
-  Upload,
-  UsersRound,
-  Workflow,
-} from 'lucide-react'
+import { useRef, useState, type ReactNode } from 'react'
+import { ChevronDown, MoreHorizontal, Puzzle, RefreshCw, Search, Upload } from 'lucide-react'
 import type { PluginClient } from '@pi-meme/client/plugin-client'
 import type { UiPluginDescriptor } from '@pi-meme/plugin-sdk/ui'
 import { Button } from '@pi-meme/ui/components/ui/button'
@@ -33,27 +15,7 @@ import {
 import { cn } from '@pi-meme/ui/lib/utils'
 
 const statusNames = { active: '已启用', disabled: '已停用', pending: '等待会话空闲', failed: '加载失败' }
-const builtins = {
-  chat: { name: '聊天', description: '消息、附件、回复与工具调用。', icon: MessageSquare },
-  workspace: { name: '工作区', description: '管理项目、会话与侧边栏。', icon: Workflow },
-  history: { name: '会话历史', description: '查询、导出与浏览 Pi 会话分支。', icon: History },
-  models: { name: '模型', description: '配置服务商与模型参数。', icon: Cpu },
-  settings: { name: '设置', description: '外观、主题与个性化指令。', icon: Palette },
-  resources: { name: '技能与资源', description: '加载 Host 和项目的技能、提示词与扩展。', icon: BookOpen },
-  'pi-extensions': { name: '扩展交互', description: '显示 Pi 扩展的弹窗、通知与挂件。', icon: MessageSquare },
-  subagents: { name: 'SubAgent', description: '定义与运行受限子任务。', icon: UsersRound },
-  mcp: { name: 'MCP', description: '连接 MCP 服务与工具。', icon: Puzzle },
-  codemode: { name: '工具执行', description: '通过 codemode 组合工具调用。', icon: Code },
-  permissions: { name: '访问权限', description: '管理 Agent 的三档文件访问权限。', icon: ShieldCheck },
-  'sandbox-macos': { name: 'macOS 沙箱', description: '为受限任务提供系统沙箱。', icon: ShieldCheck },
-  usage: { name: '用量统计', description: '查看 Token 用量与活动记录。', icon: Settings },
-  git: { name: 'Git', description: '查看工作区状态与文件差异。', icon: GitCompare },
-}
-
 function presentation(plugin: UiPluginDescriptor) {
-  const key = plugin.id.replace(/^@pi-meme\//, '')
-  if ((plugin.builtin || plugin.ui?.startsWith('builtin:')) && Object.hasOwn(builtins, key))
-    return builtins[key as keyof typeof builtins]
   return { name: plugin.id, description: plugin.description || '此插件未提供说明。', icon: Puzzle }
 }
 
@@ -62,11 +24,15 @@ export function PluginCenter({
   plugins,
   errors,
   onRefresh,
+  renderSettings,
+  developer = false,
 }: {
   client: PluginClient
   plugins: UiPluginDescriptor[]
   errors: Record<string, string>
   onRefresh: () => Promise<void>
+  developer?: boolean
+  renderSettings?: (id: string) => ReactNode
 }) {
   const [path, setPath] = useState('')
   const [busy, setBusy] = useState('')
@@ -138,9 +104,11 @@ export function PluginCenter({
           >
             {plugin.enabled ? '停用' : '启用'}
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => void action(plugin.id, () => client.reload(plugin.id))}>
-            重新加载
-          </DropdownMenuItem>
+          {developer && (
+            <DropdownMenuItem onSelect={() => void action(plugin.id, () => client.reload(plugin.id))}>
+              重新加载
+            </DropdownMenuItem>
+          )}
           <DropdownMenuSeparator />
           <DropdownMenuItem className="text-destructive" onSelect={() => setRemoving(plugin.id)}>
             卸载
@@ -181,14 +149,16 @@ export function PluginCenter({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                onSelect={() => {
-                  setError('')
-                  setDirectoryOpen(true)
-                }}
-              >
-                加载 Host 目录
-              </DropdownMenuItem>
+              {developer && (
+                <DropdownMenuItem
+                  onSelect={() => {
+                    setError('')
+                    setDirectoryOpen(true)
+                  }}
+                >
+                  加载 Host 目录
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem onSelect={() => fileInput.current?.click()}>
                 <Upload />
                 安装 .pim 插件包
@@ -351,9 +321,7 @@ export function PluginCenter({
                   </div>
                   <div>
                     <dt className="text-xs text-muted-foreground">来源</dt>
-                    <dd className="mt-1">
-                      {detail.builtin || detail.ui?.startsWith('builtin:') ? '内置插件' : '已安装插件'}
-                    </dd>
+                    <dd className="mt-1">已安装插件</dd>
                   </div>
                 </dl>
                 {(detail.error || errors[detail.id]) && (
@@ -367,6 +335,7 @@ export function PluginCenter({
                   </p>
                 )}
               </div>
+              {renderSettings?.(detail.id)}
               <div className="flex justify-end">{menu(detail)}</div>
             </>
           )}

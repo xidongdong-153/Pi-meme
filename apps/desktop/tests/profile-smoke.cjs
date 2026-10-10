@@ -32,7 +32,8 @@ module.exports = async function profileSmoke(window, waitFor, directory, screens
     } catch (cause) {
       if (cause.code !== 'ENOENT') throw cause
     }
-    await clickText('个人资料')
+    await evaluate('document.querySelector("aside details").open = true')
+    await clickText('用量')
     await waitFor(
       () => evaluate(`document.querySelector('[aria-label="个人资料统计"]')?.getAttribute('aria-busy') === 'false'`),
       '个人资料空状态',
@@ -128,7 +129,8 @@ module.exports = async function profileSmoke(window, waitFor, directory, screens
     await clickText('外观')
     await evaluate(`document.querySelector('[aria-label="浅色模式"]').click()`)
     await waitFor(() => evaluate(`document.documentElement.dataset.appearance === 'light'`), '个人资料浅色主题')
-    await clickText('个人资料')
+    await evaluate('document.querySelector("aside details").open = true')
+    await clickText('用量')
     await waitFor(
       () => evaluate(`document.querySelector('[aria-label="个人资料统计"]')?.getAttribute('aria-busy') === 'false'`),
       '重新进入个人资料',

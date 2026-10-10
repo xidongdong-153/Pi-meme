@@ -32,11 +32,6 @@ export class UiPluginRegistry {
   errors() {
     return Object.fromEntries(this.failures)
   }
-  isBuiltin(contributionId: string) {
-    return [...this.active.values()].some(
-      (plugin) => plugin.descriptor.ui?.startsWith('builtin:') && contributionId.startsWith(`${plugin.descriptor.id}:`),
-    )
-  }
   identity(contributionId: string) {
     const plugin = [...this.active.values()].find((entry) => contributionId.startsWith(`${entry.descriptor.id}:`))
     return plugin ? `${plugin.descriptor.generation}:${plugin.descriptor.ui}` : ''
@@ -54,7 +49,16 @@ export class UiPluginRegistry {
       .catch(() => {})
       .then(async () => {
         if (this.closed) return
-        const wanted = new Set(descriptors.filter((plugin) => plugin.enabled && plugin.ui).map((plugin) => plugin.id))
+        const wanted = new Set(
+          descriptors
+            .filter(
+              (plugin) =>
+                plugin.enabled &&
+                plugin.ui &&
+                (plugin.status === 'active' || (plugin.status === 'pending' && this.active.has(plugin.id))),
+            )
+            .map((plugin) => plugin.id),
+        )
         for (const [id, plugin] of this.active) {
           if (wanted.has(id)) continue
           this.active.delete(id)
@@ -66,7 +70,7 @@ export class UiPluginRegistry {
           this.changed()
         }
         for (const descriptor of descriptors) {
-          if (!descriptor.enabled || !descriptor.ui) continue
+          if (!descriptor.enabled || !descriptor.ui || descriptor.status !== 'active') continue
           const previous = this.active.get(descriptor.id)
           if (
             previous?.descriptor.generation === descriptor.generation &&

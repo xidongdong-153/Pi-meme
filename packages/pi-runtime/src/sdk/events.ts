@@ -6,7 +6,6 @@ const desktopEventTypes = new Set<PiEvent['type']>([
   'agent_start',
   'agent_end',
   'agent_settled',
-  'queue_update',
   'message_start',
   'message_update',
   'message_end',

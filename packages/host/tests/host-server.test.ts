@@ -46,6 +46,7 @@ async function setup(fake = false, clientGraceMs?: number) {
   ) => {
     const response = await fetch(`${server.url}/api/rpc`, {
       method: 'POST',
+      signal: AbortSignal.timeout(15000),
       headers: { Cookie: cookie, 'Content-Type': 'application/json' },
       body: JSON.stringify({ requestId, clientId, hostId: server.host.hostId, sessionId, method, args }),
     })
@@ -174,7 +175,7 @@ for (const method of ['session:delete', 'project:remove']) {
       assert.deepEqual(sessions.standaloneSessions, [])
       assert.deepEqual(sessions.pinnedPaths, [])
       assert.ok(sessions.projects.every((project) => project.sessions.every((session) => session.path !== file)))
-      assert.ok(replacement.uiPlugins?.length)
+      assert.deepEqual(replacement.uiPlugins, [])
     } finally {
       await fixture.dispose()
     }
@@ -242,7 +243,7 @@ test('目录选择可恢复具体无项目会话，父目录和嵌套目录不�
   }
 })
 
-test('资源插件使用 Pi 原生目录扫描，缺项目扩展目录不报错，停用后新任务不加载', async () => {
+test('内置资源始终使用 Pi 原生目录扫描，插件接口不能停用加载引擎', async () => {
   const fixture = await setup(true)
   try {
     const extensions = path.join(fixture.server.host.root, 'pi', 'extensions')
@@ -258,13 +259,21 @@ test('资源插件使用 Pi 原生目录扫描，缺项目扩展目录不报错�
     const commands = (await fixture.rpc('resource', 'pi:commands', [], key)).result as Array<{ name: string }>
     assert.ok(commands.some((command) => command.name === 'native-resource'))
     assert.equal(((await fixture.rpc('resource', 'pi:snapshot', [], key)).result as Snapshot).extensionError, undefined)
-    assert.equal((await fixture.rpc('resource', 'plugins:disable', ['@pi-meme/resources'])).error, undefined)
-    assert.equal((await fixture.rpc('resource', 'pi:prompt', [key, '停用资源后运行', [], []], key)).error, undefined)
-    const disabled = (await fixture.rpc('resource', 'pi:commands', [], key)).result as Array<{ name: string }>
-    assert.equal(
-      disabled.some((command) => command.name === 'native-resource'),
-      false,
+    assert.match(
+      (await fixture.rpc('resource', 'plugins:disable', ['@pi-meme/resources'])).error?.message ?? '',
+      /内置模块/,
     )
+    for (let count = 0; count < 200; count++) {
+      if (((await fixture.rpc('resource', 'pi:snapshot', [], key)).result as Snapshot).agent?.status === 'completed')
+        break
+      await delay(25)
+    }
+    assert.equal(
+      (await fixture.rpc('resource', 'pi:prompt', [key, '拒绝停用后继续运行', [], []], key)).error,
+      undefined,
+    )
+    const commandsAfter = (await fixture.rpc('resource', 'pi:commands', [], key)).result as Array<{ name: string }>
+    assert.ok(commandsAfter.some((command) => command.name === 'native-resource'))
   } finally {
     await fixture.dispose()
   }
@@ -323,7 +332,7 @@ test('同地址新 Host 的插件入口与相对子模块都使用新的实例�
   }
 })
 
-test('交互插件停用等待旧弹框有效回答，旧租约可答，新 Worker 不再提供 UI', async () => {
+test('内置交互不能被停用，弹框仍能回答，基础 UI 始终可用', async () => {
   const fixture = await setup(true)
   let pending: Promise<HostRpcResponse> | undefined
   try {
@@ -331,7 +340,7 @@ test('交互插件停用等待旧弹框有效回答，旧租约可答，新 Work
     await mkdir(extensions, { recursive: true })
     await writeFile(
       path.join(extensions, 'lease-question.js'),
-      `export default pi => { pi.registerCommand('lease-question', { description: '租约交互验收', handler: async (_args, ctx) => { await ctx.ui.confirm('旧弹框', '请确认') } }); pi.registerCommand('ui-availability', { description: '检查 UI', handler: async (_args, ctx) => { if (ctx.hasUI) throw new Error('停用后仍提供 UI'); await ctx.ui.confirm('不应创建弹框', '不可用时立即取消') } }) }\n`,
+      `export default pi => { pi.registerCommand('lease-question', { description: '租约交互验收', handler: async (_args, ctx) => { await ctx.ui.confirm('旧弹框', '请确认') } }); pi.registerCommand('ui-availability', { description: '检查 UI', handler: async (_args, ctx) => { if (!ctx.hasUI) throw new Error('内置交互 UI 不可用') } }) }\n`,
     )
     const initial = (await fixture.rpc('a', 'pi:snapshot')).result as Snapshot
     const key = initial.connection.sessionKey!
@@ -347,24 +356,15 @@ test('交互插件停用等待旧弹框有效回答，旧租约可答，新 Work
       if (!id) await delay(25)
     }
     assert.ok(id)
-    let disabled = false
-    const disabling = fixture.rpc('b', 'plugins:disable', ['@pi-meme/pi-extensions'], key).then((response) => {
-      disabled = true
-      return response
-    })
-    await delay(50)
-    assert.equal(disabled, false, '旧弹框结束前交互插件仍保留租约')
+    const disabling = await fixture.rpc('b', 'plugins:disable', ['@pi-meme/pi-extensions'], key)
+    assert.match(disabling.error?.message ?? '', /内置模块/)
     const oldSnapshot = (await fixture.rpc('a', 'pi:snapshot', [], key)).result as Snapshot
-    assert.ok(
-      oldSnapshot.uiPlugins?.some((descriptor) => descriptor.id === '@pi-meme/pi-extensions' && descriptor.enabled),
+    assert.equal(
+      oldSnapshot.uiPlugins?.some((descriptor) => descriptor.id === '@pi-meme/pi-extensions'),
+      false,
     )
-    const git = await Promise.race([
-      fixture.rpc('b', 'plugins:disable', ['@pi-meme/git'], key),
-      delay(3000).then(() => {
-        throw new Error('交互弹框不能阻塞无关 Git 插件停用')
-      }),
-    ])
-    assert.equal(git.error, undefined)
+    const git = await fixture.rpc('b', 'plugins:disable', ['@pi-meme/git'], key)
+    assert.match(git.error?.message ?? '', /内置模块/)
     const invalid = await fixture.rpc('b', 'pi:extension-ui-response', [key, id, { value: '无效确认' }], key)
     assert.ok(invalid.error)
     const answers = await Promise.all([
@@ -374,7 +374,6 @@ test('交互插件停用等待旧弹框有效回答，旧租约可答，新 Work
     assert.equal(answers.filter((answer) => !answer.error).length, 1)
     assert.equal((await pending).error, undefined)
     pending = undefined
-    assert.equal((await disabling).error, undefined)
     const next = await fixture.rpc('a', 'pi:prompt', [key, '/ui-availability', [], []], key)
     assert.equal(next.error, undefined)
     const snapshot = (await fixture.rpc('a', 'pi:snapshot', [], key)).result as Snapshot
@@ -518,7 +517,7 @@ test('一端分叉后重取快照仍选中分叉，另一端保留原会话且�
   }
 })
 
-test('运行中安装与卸载 Agent 插件，旧任务保持原工具，新任务加载新工具集合', async () => {
+test('运行中安装与卸载 Agent 插件，旧任务保持原工具，新任务加载新工具集合', { timeout: 30000 }, async () => {
   const fixture = await setup(true)
   const pluginId = 'hot-agent-fixture'
   const directory = path.join(fixture.root, 'hot-plugin')

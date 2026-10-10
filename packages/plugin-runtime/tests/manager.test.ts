@@ -4,11 +4,60 @@ import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
 import { setTimeout as delay } from 'node:timers/promises'
-import { PluginManager } from '../src/manager'
+import { PluginManager, type PluginDescriptor, type PluginLease } from '../src/manager'
+import { assertExternalManifest } from '@pi-meme/plugin-sdk/reserved'
+import type { ServerPluginModule, PluginHandlers } from '@pi-meme/plugin-sdk/server'
 import { bundleFacets } from '@earendil-works/chord/bundler'
 import { packPlugin, unpackPlugin } from '../src/package'
 import type { PluginManifest } from '@pi-meme/plugin-sdk/manifest'
 import { parsePluginManifest } from '@pi-meme/plugin-sdk/manifest'
+
+// 旧生命周期断言使用内存 external fixture，生产安装入口另行验收。
+class FixtureManager extends PluginManager {
+  private aliases = new Map<string, string>()
+  registerFixture(manifest: PluginManifest, module: ServerPluginModule, directory: string) {
+    assertExternalManifest(manifest)
+    const wrapped: ServerPluginModule = {
+      create: (context) =>
+        module.create({
+          ...context,
+          registerHandlers: (handlers) => {
+            const namespaced: PluginHandlers = {}
+            for (const [channel, handler] of Object.entries(handlers)) {
+              const name = channel.startsWith(`${manifest.name}:`) ? channel : `${manifest.name}:${channel}`
+              this.aliases.set(channel, name)
+              namespaced[name] = handler
+            }
+            return context.registerHandlers(namespaced)
+          },
+        }),
+    }
+    return (
+      this as unknown as {
+        replace: (registration: {
+          manifest: PluginManifest
+          module: ServerPluginModule
+          directory: string
+          enabled: boolean
+        }) => Promise<PluginDescriptor>
+      }
+    ).replace({ manifest, module: wrapped, directory, enabled: true })
+  }
+  override handlers() {
+    const handlers = super.handlers()
+    for (const [alias, name] of this.aliases) {
+      if (handlers[name] && alias !== name) {
+        handlers[alias] = handlers[name]!
+        delete handlers[name]
+      }
+    }
+    return handlers
+  }
+  override acquire(): PluginLease {
+    const lease = super.acquire()
+    return { ...lease, runHandler: (channel, args) => lease.runHandler(this.aliases.get(channel) ?? channel, args) }
+  }
+}
 
 function manifest(name: string, version = '1.0.0', provides: string[] = [], requires: string[] = []): PluginManifest {
   return {
@@ -18,12 +67,13 @@ function manifest(name: string, version = '1.0.0', provides: string[] = [], requ
   }
 }
 
-async function setup(drain?: (pluginIds: string[]) => Promise<void>) {
+async function setup(drain?: (pluginIds: string[]) => Promise<void>, services?: Record<string, object>) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'pi-meme-plugins-'))
-  const manager = new PluginManager({
+  const manager = new FixtureManager({
     directory: path.join(directory, 'installed'),
     dataDirectory: path.join(directory, 'data'),
     drain,
+    services,
   })
   return {
     directory,
@@ -39,7 +89,7 @@ test('更新等待代次租约释放，失败保留旧版本，停用取消处�
   const { directory, manager, cleanup } = await setup()
   try {
     const disposed: string[] = []
-    await manager.registerBuiltin(
+    await manager.registerFixture(
       { ...manifest('clock'), piMeme: { ...manifest('clock').piMeme, agent: 'dist/agent/entry.js' } },
       {
         create: (context) => {
@@ -54,7 +104,7 @@ test('更新等待代次租约释放，失败保留旧版本，停用取消处�
     const lease = manager.acquire()
     let completed = false
     const update = manager
-      .registerBuiltin(
+      .registerFixture(
         manifest('clock', '2.0.0'),
         {
           create: (context) => {
@@ -74,7 +124,7 @@ test('更新等待代次租约释放，失败保留旧版本，停用取消处�
     assert.deepEqual(disposed, ['old'])
     assert.equal(await manager.handlers().time!(), 'new')
     await assert.rejects(
-      manager.registerBuiltin(
+      manager.registerFixture(
         manifest('clock', '3.0.0'),
         {
           create: () => {
@@ -98,7 +148,7 @@ test('更新等待代次租约释放，失败保留旧版本，停用取消处�
 test('有必需服务使用者时拒绝拔掉唯一提供插件，服务更新后使用新实现', async () => {
   const { directory, manager, cleanup } = await setup()
   try {
-    await manager.registerBuiltin(
+    await manager.registerFixture(
       manifest('provider', '1.0.0', ['clock']),
       {
         create: (context) => {
@@ -107,7 +157,7 @@ test('有必需服务使用者时拒绝拔掉唯一提供插件，服务更新�
       },
       directory,
     )
-    await manager.registerBuiltin(
+    await manager.registerFixture(
       manifest('consumer', '1.0.0', [], ['clock']),
       {
         create: (context) => {
@@ -119,7 +169,7 @@ test('有必需服务使用者时拒绝拔掉唯一提供插件，服务更新�
     )
     await assert.rejects(manager.remove('provider'), /consumer/)
     await assert.rejects(manager.disable('provider'), /consumer/)
-    await manager.registerBuiltin(
+    await manager.registerFixture(
       manifest('provider', '2.0.0', ['clock']),
       {
         create: (context) => {
@@ -187,15 +237,15 @@ test('纯 Agent 新旧代次并存，新会话取新版本，无关服务更新�
       version: '1.0.0',
       piMeme: { sdkVersion: 1, agent: 'dist/agent/entry.js' },
     }
-    await manager.registerBuiltin(agentManifest, { create() {} }, directory)
+    await manager.registerFixture(agentManifest, { create() {} }, directory)
     const oldLease = manager.acquire()
     const oldGeneration = oldLease.agentEntries[0]!.generation
-    await manager.registerBuiltin({ ...agentManifest, version: '2.0.0' }, { create() {} }, directory)
+    await manager.registerFixture({ ...agentManifest, version: '2.0.0' }, { create() {} }, directory)
     const newLease = manager.acquire()
     assert.notEqual(newLease.agentEntries[0]!.generation, oldGeneration)
     assert.equal(manager.getGeneration('agent', oldGeneration)?.version, '1.0.0')
     assert.equal(oldLease.descriptors[0]!.version, '1.0.0')
-    await manager.registerBuiltin(
+    await manager.registerFixture(
       manifest('git'),
       {
         create: (context) => {
@@ -204,7 +254,7 @@ test('纯 Agent 新旧代次并存，新会话取新版本，无关服务更新�
       },
       directory,
     )
-    await manager.registerBuiltin(
+    await manager.registerFixture(
       manifest('git', '2.0.0'),
       {
         create: (context) => {
@@ -223,20 +273,10 @@ test('纯 Agent 新旧代次并存，新会话取新版本，无关服务更新�
   }
 })
 
-test('内置停用和外部目录加载经重启保留，源目录改动不影响已加载快照', async () => {
+test('外部目录停用经重启保留，源目录改动不影响已加载快照', async () => {
   const { directory, manager, cleanup } = await setup()
-  let restarted: PluginManager | undefined
+  let restarted: FixtureManager | undefined
   try {
-    await manager.registerBuiltin(
-      manifest('builtin'),
-      {
-        create: (context) => {
-          context.registerHandlers({ builtin: () => 1 })
-        },
-      },
-      directory,
-    )
-    await manager.disable('builtin')
     const source = path.join(directory, 'external-source')
     await mkdir(path.join(source, 'dist/ui'), { recursive: true })
     const uiManifest: PluginManifest = {
@@ -255,21 +295,11 @@ test('内置停用和外部目录加载经重启保留，源目录改动不影�
     )
     await manager.disable('ui-plugin')
     await manager.dispose()
-    restarted = new PluginManager({
+    restarted = new FixtureManager({
       directory: path.join(directory, 'installed'),
       dataDirectory: path.join(directory, 'data'),
     })
     await restarted.restore()
-    await restarted.registerBuiltin(
-      manifest('builtin'),
-      {
-        create: (context) => {
-          context.registerHandlers({ builtin: () => 1 })
-        },
-      },
-      directory,
-    )
-    assert.equal(restarted.list().find((item) => item.id === 'builtin')?.enabled, false)
     assert.equal(restarted.list().find((item) => item.id === 'ui-plugin')?.enabled, false)
     assert.deepEqual(restarted.handlers(), {})
   } finally {
@@ -282,7 +312,7 @@ test('持久化失败不释放旧服务，依赖组先释放使用者再释放�
   const { directory, manager, cleanup } = await setup()
   try {
     const order: string[] = []
-    await manager.registerBuiltin(
+    await manager.registerFixture(
       manifest('provider', '1.0.0', ['clock']),
       {
         create: (context) => {
@@ -294,7 +324,7 @@ test('持久化失败不释放旧服务，依赖组先释放使用者再释放�
       },
       directory,
     )
-    await manager.registerBuiltin(
+    await manager.registerFixture(
       manifest('consumer', '1.0.0', [], ['clock']),
       {
         create: (context) => {
@@ -312,7 +342,7 @@ test('持久化失败不释放旧服务，依赖组先释放使用者再释放�
     await rm(state)
     await mkdir(state)
     await assert.rejects(
-      manager.registerBuiltin(
+      manager.registerFixture(
         manifest('provider', '2.0.0', ['clock']),
         {
           create: (context) => {
@@ -363,16 +393,11 @@ test('目录重新构建后 reload 取新版，旧 Agent 租约仍读取旧快�
   }
 })
 
-test('恢复时先注册内置服务，再初始化依赖它的外部插件', async () => {
-  const { directory, manager, cleanup } = await setup()
-  let restarted: PluginManager | undefined
+test('恢复的外部插件可以依赖 Host 静态服务', async () => {
+  const services = { clock: { now: () => 7 } }
+  const { directory, manager, cleanup } = await setup(undefined, services)
+  let restarted: FixtureManager | undefined
   try {
-    const provider = {
-      create: (context: import('@pi-meme/plugin-sdk/server').ServerPluginContext) => {
-        context.provide('clock', { now: () => 7 })
-      },
-    }
-    await manager.registerBuiltin(manifest('builtin', '1.0.0', ['clock']), provider, directory)
     const source = path.join(directory, 'external-consumer')
     await mkdir(path.join(source, 'dist/server'), { recursive: true })
     await writeFile(path.join(source, 'package.json'), JSON.stringify(manifest('external', '1.0.0', [], ['clock'])))
@@ -390,13 +415,12 @@ export default defineFacet({ id:'external-module', setup(env) { env.provide(defi
     })
     await manager.loadDirectory(source)
     await manager.dispose()
-    restarted = new PluginManager({
+    restarted = new FixtureManager({
       directory: path.join(directory, 'installed'),
       dataDirectory: path.join(directory, 'data'),
+      services,
     })
-    await restarted.restore(async () => {
-      await restarted!.registerBuiltin(manifest('builtin', '1.0.0', ['clock']), provider, directory)
-    })
+    await restarted.restore()
     assert.equal(await restarted.runHandler('external:time'), 7)
   } finally {
     await restarted?.dispose()
@@ -434,7 +458,7 @@ test('一个旧代次释放失败仍释放其余租约，重复释放不会再�
       piMeme: { sdkVersion: 1, agent: 'dist/agent/entry.js' },
     })
     for (const name of ['first', 'second']) {
-      await manager.registerBuiltin(
+      await manager.registerFixture(
         agent(name, '1.0.0'),
         {
           create(context) {
@@ -449,7 +473,7 @@ test('一个旧代次释放失败仍释放其余租约，重复释放不会再�
     }
     const lease = manager.acquire()
     for (const name of ['first', 'second'])
-      await manager.registerBuiltin(agent(name, '2.0.0'), { create() {} }, directory)
+      await manager.registerFixture(agent(name, '2.0.0'), { create() {} }, directory)
     await assert.rejects(lease.release(), /插件租约释放失败/)
     assert.deepEqual(disposed, ['first', 'second'])
     await lease.release()
@@ -459,22 +483,23 @@ test('一个旧代次释放失败仍释放其余租约，重复释放不会再�
   }
 })
 
-test('交互插件的实际 manifest 保留会话交互代次', async () => {
+test('外部交互插件保留会话交互代次', async () => {
   const interactionManifest = parsePluginManifest(
-    JSON.parse(await readFile(path.resolve(import.meta.dirname, '../../../plugins/interaction/package.json'), 'utf8')),
+    JSON.parse(await readFile(path.resolve(import.meta.dirname, '../../interaction/package.json'), 'utf8')),
   )
   const directory = await mkdtemp(path.join(os.tmpdir(), 'pi-meme-interaction-lease-'))
-  const manager = new PluginManager({
+  const manager = new FixtureManager({
     directory: path.join(directory, 'installed'),
     dataDirectory: path.join(directory, 'data'),
     services: { 'host.interaction': {} },
   })
   try {
-    await manager.registerBuiltin(interactionManifest, { create() {} }, directory)
+    const externalManifest = { ...interactionManifest, name: 'interaction-fixture' }
+    await manager.registerFixture(externalManifest, { create() {} }, directory)
     const lease = manager.acquire()
     try {
-      assert.ok(lease.retainedIds.includes(interactionManifest.name))
-      assert.ok(lease.agentEntries.some((entry) => entry.pluginId === interactionManifest.name))
+      assert.ok(lease.retainedIds.includes('interaction-fixture'))
+      assert.ok(lease.agentEntries.some((entry) => entry.pluginId === 'interaction-fixture'))
     } finally {
       await lease.release()
     }
@@ -497,7 +522,7 @@ test('共享交互服务切换时旧租约能回答审批，新调用仍被 gate
   try {
     const entry = manifest('interaction-fixture')
     entry.piMeme.agent = 'dist/agent/entry.js'
-    await manager.registerBuiltin(
+    await manager.registerFixture(
       entry,
       {
         create(context) {
@@ -536,13 +561,13 @@ test('交互组等待旧审批时无关 Git 更新立即完成，后续发布保
   try {
     const interaction = manifest('interaction-pending')
     interaction.piMeme.agent = 'dist/agent/entry.js'
-    await manager.registerBuiltin(interaction, { create() {} }, directory)
-    await manager.registerBuiltin(manifest('git-independent'), { create() {} }, directory)
+    await manager.registerFixture(interaction, { create() {} }, directory)
+    await manager.registerFixture(manifest('git-independent'), { create() {} }, directory)
     lease = manager.acquire()
     interactionUpdate = manager.disable(interaction.name)
     await draining
     await assert.rejects(manager.disable(interaction.name), /依赖组正在切换/)
-    gitUpdate = manager.registerBuiltin(manifest('git-independent', '2.0.0'), { create() {} }, directory)
+    gitUpdate = manager.registerFixture(manifest('git-independent', '2.0.0'), { create() {} }, directory)
     await Promise.race([
       gitUpdate,
       delay(1000, undefined, { ref: false }).then(() => {
@@ -574,10 +599,10 @@ test('交互组新版启动失败只恢复本组，不覆盖排空期间发布�
   try {
     const original = manifest('interaction-rollback')
     original.piMeme.agent = 'dist/agent/entry.js'
-    await manager.registerBuiltin(original, { create() {} }, directory)
-    await manager.registerBuiltin(manifest('git-stable'), { create() {} }, directory)
+    await manager.registerFixture(original, { create() {} }, directory)
+    await manager.registerFixture(manifest('git-stable'), { create() {} }, directory)
     lease = manager.acquire()
-    update = manager.registerBuiltin(
+    update = manager.registerFixture(
       { ...original, version: '2.0.0' },
       {
         create() {
@@ -587,7 +612,7 @@ test('交互组新版启动失败只恢复本组，不覆盖排空期间发布�
       directory,
     )
     await draining
-    await manager.registerBuiltin(manifest('git-stable', '2.0.0'), { create() {} }, directory)
+    await manager.registerFixture(manifest('git-stable', '2.0.0'), { create() {} }, directory)
     await lease.release()
     await assert.rejects(update, /交互新版启动失败/)
     assert.equal(manager.list().find((entry) => entry.id === 'git-stable')!.version, '2.0.0')

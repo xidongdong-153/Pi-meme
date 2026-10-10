@@ -1,27 +1,23 @@
-import { PluginManager, type PluginDescriptor, type PluginLease } from '@pi-meme/plugin-runtime/manager'
+import { PluginManager, type PluginDescriptor } from '@pi-meme/plugin-runtime/manager'
 import { fileURLToPath } from 'node:url'
-import * as builtin0 from '@pi-meme/chat/server/entry'
-import * as builtin1 from '@pi-meme/workspace/server/entry'
-import * as builtin2 from '@pi-meme/git/server/entry'
-import * as builtin3 from '@pi-meme/models/server/entry'
-import * as builtin4 from '@pi-meme/settings/server/entry'
-import * as builtin5 from '@pi-meme/pi-extensions/server/entry'
-import * as builtin6 from '@pi-meme/mcp/server/entry'
-import * as builtin7 from '@pi-meme/history/server/entry'
-import * as builtin8 from '@pi-meme/usage/server/entry'
-import * as builtin9 from '@pi-meme/resources/server/entry'
-import * as builtin10 from '@pi-meme/sandbox-macos/server/entry'
-import * as builtin11 from '@pi-meme/permissions/server/entry'
-import * as builtin12 from '@pi-meme/codemode/server/entry'
-import * as builtin13 from '@pi-meme/subagents/server/entry'
+import { createHostCollaborationBridge } from './collaboration-bridge'
+import { createBuiltinModules } from './builtin-modules'
+import { assertExternalPluginId } from '@pi-meme/plugin-sdk/reserved'
 import { mkdir, readdir, realpath, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
+import type { PiExtensionUIResponse } from '@pi-meme/contracts/pi'
 import type { HostEvent, HostRpcRequest } from '@pi-meme/contracts/host'
-import type { DesktopEvent, Connection, DesktopError, WorkspaceDeletionResult } from '@pi-meme/contracts/desktop'
-import type { SelectWorkspace } from '@pi-meme/contracts/sessions'
-import { PiSessionPool, type ClientView } from '@pi-meme/pi-runtime/session-pool'
+import type {
+  DesktopEvent,
+  Connection,
+  DesktopError,
+  WorkspaceDeletionResult,
+  Snapshot,
+} from '@pi-meme/contracts/desktop'
+import type { SelectWorkspace, PiSessionsSnapshot } from '@pi-meme/contracts/sessions'
+import { PiSessionPool, type ClientView, type RuntimeSdkSession } from '@pi-meme/pi-runtime/session-pool'
 import { AgentAccessStore } from '@pi-meme/pi-runtime/access-store'
 import { createPiRuntimePaths } from '@pi-meme/pi-runtime/runtime-paths'
 import { createWorkerSession } from '@pi-meme/pi-adapter/worker-session'
@@ -43,7 +39,6 @@ import { hostDataRoot, lockDataRoot } from './data-root'
 export type HostOptions = {
   dataRoot?: string
   workerPath?: string
-  builtinDirectory?: string
   clientGraceMs?: number
   credentials?: SecureCredentialStorage & { flush?: () => Promise<void> }
   testCredentials?: boolean
@@ -58,6 +53,7 @@ const sessionWrites = new Set([
   'pi:steering-mode',
   'pi:follow-up-mode',
   'pi:access-mode',
+  'pi:session-mode',
   'pi:abort',
   'pi:set-model',
   'pi:set-thinking-level',
@@ -69,6 +65,8 @@ const sessionWrites = new Set([
 const reads = new Set([
   'pi:connection',
   'pi:snapshot',
+  'pi:agents',
+  'pi:agent-snapshot',
   'pi:sessions',
   'pi:commands',
   'pi:thinking-levels',
@@ -90,6 +88,8 @@ const reads = new Set([
   'host:directories',
   'plugins:list',
   'plugins:session',
+  'plugins:diagnostics',
+  'host:modules',
   'settings:theme-directories',
   'session:history',
   'session:prefetch',
@@ -141,6 +141,7 @@ export async function createHost(options: HostOptions = {}) {
     const sessionQueues = new Map<string, Promise<unknown>>()
     const controls = new Set([
       'pi:abort',
+      'pi:interrupt-agent',
       'pi:extension-ui-response',
       'pi:steer',
       'pi:follow-up',
@@ -181,10 +182,46 @@ export async function createHost(options: HostOptions = {}) {
         for (const subscriber of subscribers) subscriber({ hostId, type, value: adjusted } as HostEvent)
       }
     }
+    let collaboration: ReturnType<typeof createHostCollaborationBridge>
     let plugins: PluginManager
+    let builtins: Awaited<ReturnType<typeof createBuiltinModules>> | undefined
     const workerPlugins = new Map<string, PluginDescriptor[]>()
     const workerPluginIds = new Map<string, Set<string>>()
-    const workerLeases = new Map<string, PluginLease>()
+    const workers = new Map<string, RuntimeSdkSession>()
+    const createSession = (
+      cwd: string,
+      notify: Parameters<typeof createWorkerSession>[1],
+      sessionKey = `worker:${randomUUID()}`,
+      runtimePaths = paths,
+    ) => {
+      const session = createWorkerSession(cwd, notify, runtimePaths, () => {
+        const lease = plugins.acquire()
+        workerPlugins.set(sessionKey, lease.descriptors)
+        workerPluginIds.set(sessionKey, new Set(lease.retainedIds))
+        workers.set(sessionKey, session)
+        return {
+          credentials,
+          dataRoot: root,
+          settings: settings.settings,
+          agentEntries: lease.agentEntries,
+          workerPath: options.workerPath ?? fileURLToPath(new URL('./session-worker.ts', import.meta.url)),
+          admit: (message, mode, continuation, signal) =>
+            collaboration.admit(session, message, mode, continuation, signal),
+          collaboration: (request, signal) => collaboration.dispatch(session, request, signal),
+          savePlan: (input, signal) => collaboration.savePlan(session, input, signal),
+          release: async () => {
+            try {
+              await lease.release()
+            } finally {
+              workerPlugins.delete(sessionKey)
+              workerPluginIds.delete(sessionKey)
+              workers.delete(sessionKey)
+            }
+          },
+        }
+      })
+      return session
+    }
     pi = new PiSessionPool(
       paths.workspaceDataRoot,
       {
@@ -200,34 +237,56 @@ export async function createHost(options: HostOptions = {}) {
       paths,
       credentials,
       (cwd, notify, runtimePaths, _credentials, _mcp, sessionKey) =>
-        createWorkerSession(cwd, notify, runtimePaths, () => {
-          const lease = plugins.acquire()
-          if (sessionKey) {
-            workerPlugins.set(sessionKey, lease.descriptors)
-            workerPluginIds.set(sessionKey, new Set(lease.retainedIds))
-            workerLeases.set(sessionKey, lease)
-          }
-          return {
-            credentials,
-            dataRoot: root,
-            settings: settings.settings,
-            agentEntries: lease.agentEntries,
-            descriptors: lease.descriptors,
-            workerPath: options.workerPath,
-            release: async () => {
-              await lease.release()
-              if (sessionKey) {
-                workerPlugins.delete(sessionKey)
-                workerPluginIds.delete(sessionKey)
-                workerLeases.delete(sessionKey)
-              }
-            },
-          }
-        }),
+        createSession(cwd, notify, sessionKey, runtimePaths),
     )
+    collaboration = createHostCollaborationBridge({
+      dataRoot: root,
+      createSession,
+      emit: (value) => {
+        if (value.agentId && value.agentId === value.rootAgentId && value.sessionKey)
+          pi.publishSessionEvent(value.sessionKey, value)
+        else emit('event', value)
+      },
+    })
+    const bindRoot = async (key: string) => collaboration.bindRoot(pi.readSessionBinding(key))
+    pi.configureCollaboration({
+      modeChanged: async (key) => {
+        await bindRoot(key)
+        await collaboration.setSessionMode(key, pi.getSessionContext(key).state.mode)
+      },
+      decorateEvent: (key, event) => collaboration.decorateRootEvent(key, event),
+      beforePrompt: async (key) => {
+        await bindRoot(key)
+      },
+      settled: async (key, event) => {
+        await bindRoot(key)
+        await collaboration.rootSettled(key, event)
+      },
+      failed: async (key, cause, runId) => {
+        await bindRoot(key)
+        await collaboration.rootFailed(key, cause, runId)
+      },
+      stop: async (key) => {
+        await bindRoot(key)
+        await collaboration.stopRoot(key)
+      },
+    })
+    const retireWorkers = async (keys: string[]) => {
+      const temporary = keys.filter((key) => key.startsWith('worker:')).map((key) => workers.get(key))
+      const coordinated = await pi.retireSessions(
+        (key) => keys.includes(key),
+        async () => {
+          await collaboration.retireSessions(keys)
+        },
+      )
+      if (!coordinated) await collaboration.retireSessions(keys)
+      await Promise.all(temporary.map((session) => session?.stopAndWait()))
+    }
     cleanup = async () => {
+      await collaboration?.stopAndWait()
       await pi.stopAndWait()
       await plugins?.dispose()
+      await builtins?.dispose()
       await (credentials as SecureCredentialStorage & { flush?: () => Promise<void> }).flush?.()
     }
     pi.configureWorkspaces({
@@ -235,7 +294,7 @@ export async function createHost(options: HostOptions = {}) {
       createStandaloneDirectory: () => projects.createStandaloneDirectory(),
     })
     pi.configureCapabilities({
-      codemodeEnabled: settings.settings.codemodeEnabled ?? false,
+      codemodeEnabled: true,
       mcpEnabled: settings.settings.mcpEnabled ?? false,
     })
     if (settings.settings.defaultAccessMode) await pi.configureDefaultAccessMode(settings.settings.defaultAccessMode)
@@ -245,9 +304,7 @@ export async function createHost(options: HostOptions = {}) {
       descriptors.map((descriptor) => ({
         ...descriptor,
         ui: descriptor.ui
-          ? descriptor.builtin
-            ? `builtin:${descriptor.id}`
-            : `/api/plugins/${instanceId}/${encodeURIComponent(descriptor.id)}/${descriptor.generation}/${descriptor.ui}`
+          ? `/api/plugins/${instanceId}/${encodeURIComponent(descriptor.id)}/${descriptor.generation}/${descriptor.ui}`
           : undefined,
       }))
     const sessionDescriptors = (sessionId?: string) => {
@@ -260,10 +317,60 @@ export async function createHost(options: HostOptions = {}) {
       }
       return uiDescriptors([...current.values()])
     }
-    const snapshot = async () => ({
-      ...(await pi.snapshot()),
-      uiPlugins: sessionDescriptors(pi.connection().sessionKey),
-    })
+    const enrichSnapshot = async (value: Snapshot) => {
+      const key = value.connection.sessionKey
+      const binding = key ? pi.readSessionBinding(key) : undefined
+      if (binding) await collaboration.bindRoot(binding)
+      const savedMode = key ? await collaboration.getSessionMode(key) : undefined
+      const mode =
+        key && binding && savedMode
+          ? pi.restoreSessionMode(key, savedMode, { mode: binding.state.mode, revision: binding.modeRevision })
+          : binding?.state.mode
+      return {
+        ...value,
+        state: mode ? { ...value.state, mode } : value.state,
+        ...(key ? await collaboration.snapshot(key) : {}),
+        uiPlugins: sessionDescriptors(key),
+      }
+    }
+    const snapshot = async () => enrichSnapshot(await pi.snapshot())
+    const readSessionsSnapshot = sessions.getSnapshot.bind(sessions)
+    sessions.getSnapshot = async (...args): Promise<PiSessionsSnapshot> => {
+      const [value, children] = await Promise.all([readSessionsSnapshot(...args), collaboration.getChildSessions()])
+      if (!children.length) return value
+      const files = new Set(children.flatMap((child) => (child.sessionFile ? [child.sessionFile] : [])))
+      const ids = new Set(children.flatMap((child) => (child.sessionId ? [child.sessionId] : [])))
+      const visible = (entry: PiSessionsSnapshot['recents'][number]) => !files.has(entry.path) && !ids.has(entry.id)
+      const groups = value.projects
+        .map((group) => {
+          const entries = group.sessions.filter(visible)
+          return {
+            ...group,
+            sessions: entries,
+            sessionCount: group.sessionCount - (group.sessions.length - entries.length),
+          }
+        })
+        .filter((group) => group.sessionCount > 0)
+      const standalone = value.standaloneSessions?.filter(visible)
+      const all = new Map(
+        [...groups.flatMap((group) => group.sessions), ...(standalone ?? []), ...value.recents.filter(visible)].map(
+          (entry) => [entry.path, entry],
+        ),
+      )
+      return {
+        ...value,
+        recents: [...all.values()]
+          .sort(
+            (a, b) =>
+              Date.parse(b.completedAt ?? '1970-01-01T00:00:00.000Z') -
+              Date.parse(a.completedAt ?? '1970-01-01T00:00:00.000Z'),
+          )
+          .slice(0, 30),
+        standaloneSessions: standalone,
+        pinnedPaths: value.pinnedPaths.filter((file) => !files.has(file) && !ids.has(file)),
+        projects: groups,
+      }
+    }
     const workspaceHandlers: Record<string, Action> = {
       'pi:directory': async (input: unknown) => {
         if (typeof input !== 'string' || !input.trim()) throw new Error('项目目录参数无效')
@@ -337,64 +444,11 @@ export async function createHost(options: HostOptions = {}) {
       'host.interaction': { pi },
       'host.mcp': { pi, store: mcp },
     }
-    plugins = new PluginManager({
-      directory: path.join(root, 'plugins'),
-      dataDirectory: path.join(root, 'plugin-data'),
-      services: sharedContexts,
-      drain: async (ids) =>
-        pi.retireSessions((key) => [...(workerPluginIds.get(key) ?? [])].some((id) => ids.includes(id))),
-      onChange: () => {
-        pi.configureResourceDiscovery(
-          plugins.list().some((entry) => entry.id === '@pi-meme/resources' && entry.enabled),
-        )
-        emit('plugins-changed')
-        for (const [key, previous] of workerPlugins) {
-          const agents = plugins.list().filter((entry) => entry.agent && entry.enabled && entry.status !== 'pending')
-          if (
-            agents.some(
-              (current) => !previous.some((old) => old.id === current.id && old.generation === current.generation),
-            ) ||
-            previous.some((old) => {
-              const current = plugins.list().find((entry) => entry.id === old.id)
-              return (
-                !current || !current.enabled || (current.generation !== old.generation && current.status !== 'pending')
-              )
-            })
-          ) {
-            void pi
-              .retireSessions((sessionKey) => sessionKey === key)
-              .catch((cause: unknown) => emit('error', { generation: 0, sessionKey: key, message: String(cause) }))
-          }
-        }
-      },
-    })
-    const builtinRoot = options.builtinDirectory ?? fileURLToPath(new URL('../../../plugins', import.meta.url))
-    await plugins.restore(async () => {
-      for (const module of [
-        builtin0,
-        builtin1,
-        builtin2,
-        builtin3,
-        builtin4,
-        builtin5,
-        builtin6,
-        builtin7,
-        builtin8,
-        builtin9,
-        builtin10,
-        builtin11,
-        builtin12,
-        builtin13,
-      ]) {
-        const directory = path.join(
-          builtinRoot,
-          module.manifest.name === '@pi-meme/pi-extensions' ? 'interaction' : module.manifest.name.split('/').at(-1)!,
-        )
-        await plugins.registerBuiltin(module.manifest, module, directory)
-      }
-    })
+    builtins = await createBuiltinModules(root, sharedContexts)
+    pi.configureResourceDiscovery(true)
     const parseId = (value: unknown) => {
       if (typeof value !== 'string') throw new Error('插件 ID 参数无效')
+      assertExternalPluginId(value)
       return value
     }
     const handlers: Record<string, Action> = {
@@ -423,6 +477,24 @@ export async function createHost(options: HostOptions = {}) {
         }, true),
       'pi:connection': () => pi.connection(),
       'pi:snapshot': snapshot,
+      'pi:agents': async (key) => {
+        if (typeof key !== 'string') throw new Error('会话 ID 参数无效')
+        await bindRoot(key)
+        return collaboration.getAgents(key)
+      },
+      'pi:agent-snapshot': async (id) => {
+        if (typeof id !== 'string') throw new Error('Agent ID 参数无效')
+        const value = await collaboration.getAgentSnapshot(id)
+        return { ...value, uiPlugins: sessionDescriptors(value.connection.sessionKey) }
+      },
+      'pi:interrupt-agent': (id) => {
+        if (typeof id !== 'string') throw new Error('Agent ID 参数无效')
+        return collaboration.interruptAgent(id)
+      },
+      'pi:session-mode': async (key, mode) => {
+        if (typeof key !== 'string' || (mode !== 'default' && mode !== 'plan')) throw new Error('会话模式参数无效')
+        await pi.setSessionMode(key, mode)
+      },
       'host:directories': async (input?: unknown) => {
         if (input !== undefined && typeof input !== 'string') throw new Error('目录参数无效')
         const directory = await realpath(typeof input === 'string' ? input : homedir())
@@ -437,6 +509,8 @@ export async function createHost(options: HostOptions = {}) {
         }
       },
 
+      'plugins:diagnostics': () => plugins.diagnostics(),
+      'host:modules': () => builtins!.diagnostics(),
       'plugins:list': () => uiDescriptors(plugins.list()),
       'plugins:session': (key) => sessionDescriptors(typeof key === 'string' ? key : pi.connection().sessionKey),
       'plugins:install-directory': (value) => plugins.loadDirectory(parseId(value)),
@@ -449,6 +523,40 @@ export async function createHost(options: HostOptions = {}) {
       'plugins:remove': (value) => plugins.remove(parseId(value)),
       'plugins:reload': (value) => plugins.reload(parseId(value)),
     }
+    plugins = new PluginManager({
+      directory: path.join(root, 'plugins'),
+      dataDirectory: path.join(root, 'plugin-data'),
+      services: builtins.services,
+      reservedHandlers: [...Object.keys(builtins.handlers), ...Object.keys(handlers)],
+      drain: async (ids) =>
+        retireWorkers(
+          [...workerPluginIds]
+            .filter(([, retained]) => [...retained].some((id) => ids.includes(id)))
+            .map(([key]) => key),
+        ),
+      onChange: () => {
+        emit('plugins-changed')
+        for (const [key, previous] of workerPlugins) {
+          const agents = plugins.list().filter((entry) => entry.agent && entry.enabled && entry.status !== 'pending')
+          if (
+            agents.some(
+              (current) => !previous.some((old) => old.id === current.id && old.generation === current.generation),
+            ) ||
+            previous.some((old) => {
+              const current = plugins.list().find((entry) => entry.id === old.id)
+              return (
+                !current || !current.enabled || (current.generation !== old.generation && current.status !== 'pending')
+              )
+            })
+          ) {
+            void retireWorkers([key]).catch((cause: unknown) =>
+              emit('error', { generation: 0, sessionKey: key, message: String(cause) }),
+            )
+          }
+        }
+      },
+    })
+    await plugins.restore()
     const registry = new RequestRegistry(hostId, path.join(root, 'requests'))
     const client = async (clientId: string) => {
       let view = views.get(clientId)
@@ -467,6 +575,7 @@ export async function createHost(options: HostOptions = {}) {
       return current
     }
     let closing = false
+    let disposal: Promise<void> | undefined
     const inflight = new Set<Promise<unknown>>()
     return {
       hostId,
@@ -502,15 +611,26 @@ export async function createHost(options: HostOptions = {}) {
             const deletionEpoch = selectionEpochs.get(request.clientId) ?? 0
             const epoch = selections.has(request.method) ? (selectionEpochs.get(request.clientId) ?? 0) + 1 : undefined
             if (epoch !== undefined) selectionEpochs.set(request.clientId, epoch)
+            if (request.method === 'pi:extension-ui-response' && request.sessionId?.startsWith('agent:')) {
+              const [key, id, response] = request.args
+              if (key !== request.sessionId || typeof id !== 'string' || !response || typeof response !== 'object')
+                throw new Error('子 Agent 交互响应参数无效')
+              const answer = response as PiExtensionUIResponse
+              if (
+                Object.keys(answer).length !== 1 ||
+                !(
+                  ('cancelled' in answer && answer.cancelled === true) ||
+                  ('value' in answer && typeof answer.value === 'string') ||
+                  ('confirmed' in answer && typeof answer.confirmed === 'boolean')
+                )
+              )
+                throw new Error('扩展交互响应无效')
+              return collaboration.respondExtensionUI(key as string, id, answer)
+            }
             const view = await client(request.clientId)
             if (closing) throw new Error('Host 正在退出，操作未执行')
-            const retained =
-              request.method === 'pi:extension-ui-response' && request.sessionId
-                ? workerLeases.get(request.sessionId)
-                : undefined
-            const action = retained
-              ? (...args: unknown[]) => retained.runHandler(request.method, args)
-              : (handlers[request.method] ?? plugins.handlers()[request.method])
+            const action =
+              handlers[request.method] ?? builtins!.handlers[request.method] ?? plugins.handlers()[request.method]
             if (!action) throw new Error(`Host 方法不存在：${request.method}`)
             if (sessionWrites.has(request.method) && (!request.sessionId || request.args[0] !== request.sessionId))
               throw new Error('会话写操作必须携带匹配的 sessionId')
@@ -529,7 +649,7 @@ export async function createHost(options: HostOptions = {}) {
                     ) {
                       Object.assign(view, selected)
                       emit('connection', pi.connection())
-                      outcome.selection.snapshot.uiPlugins = sessionDescriptors(pi.connection().sessionKey)
+                      outcome.selection.snapshot = await enrichSnapshot(outcome.selection.snapshot)
                     } else outcome.selection = { cancelled: true }
                   }
                 }
@@ -548,10 +668,7 @@ export async function createHost(options: HostOptions = {}) {
                 )
                   result = {
                     ...result,
-                    snapshot: {
-                      ...(result.snapshot as object),
-                      uiPlugins: sessionDescriptors(pi.connection().sessionKey),
-                    },
+                    snapshot: await enrichSnapshot(result.snapshot as Snapshot),
                   }
                 await (credentials as SecureCredentialStorage & { flush?: () => Promise<void> }).flush?.()
                 return result
@@ -599,20 +716,26 @@ export async function createHost(options: HostOptions = {}) {
           }
         }
       },
-      async dispose() {
+      dispose() {
+        if (disposal) return disposal
         closing = true
-        for (const timer of clientTimers.values()) clearTimeout(timer)
-        clientTimers.clear()
-        await pi.stopAndWait()
-        await Promise.allSettled(inflight)
-        await plugins.dispose()
-        try {
-          await (credentials as SecureCredentialStorage & { flush?: () => Promise<void> }).flush?.()
-        } finally {
-          listeners.clear()
-          views.clear()
-          await unlock()
-        }
+        disposal = (async () => {
+          for (const timer of clientTimers.values()) clearTimeout(timer)
+          clientTimers.clear()
+          await collaboration.stopAndWait()
+          await pi.stopAndWait()
+          await Promise.allSettled(inflight)
+          await plugins.dispose()
+          await builtins!.dispose()
+          try {
+            await (credentials as SecureCredentialStorage & { flush?: () => Promise<void> }).flush?.()
+          } finally {
+            listeners.clear()
+            views.clear()
+            await unlock()
+          }
+        })()
+        return disposal
       },
     }
   } catch (cause) {

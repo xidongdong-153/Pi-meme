@@ -1,8 +1,8 @@
 # pi-meme
 
-Pi Coding Agent 的 Desktop 和 Web 客户端。Electron 负责窗口与本机平台操作；独立 Node Host 运行会话 Worker 和业务插件。两种界面共用 React App、HTTP/WebSocket 协议与 Pi 1.1 原生会话，不需要安装 Pi CLI。
+Pi Coding Agent 的 Desktop 和 Web 客户端。Electron 负责窗口与本机平台操作；独立 Node Host 运行会话 Worker、内置业务模块和用户插件。两种界面共用 React App、HTTP/WebSocket 协议与 Pi 1.1 原生会话，不需要安装 Pi CLI。
 
-支持图片输入、运行中插话和排队、命令与文件补全、Markdown、思考折叠、工具卡片、消息编辑与分支、模型配置、主题、MCP 和 SubAgent。业务实现在 `plugins/`，可在插件页面安装构建目录或上传 `.pim`，并启用、停用或重新加载。
+支持图片输入、运行中插话和排队、命令与文件补全、Markdown、思考折叠、工具卡片、消息编辑与分支、模型配置、主题、MCP 和 SubAgent。内置业务实现在 `packages/*`，随应用构建。用户插件可通过构建目录或 `.pim` 安装，并单独管理生命周期。
 
 ## 运行 Desktop
 
@@ -13,7 +13,7 @@ pnpm install
 pnpm start
 ```
 
-Desktop 每次默认启动本机 Host 并自动登录，无需输入系统密码或 Host 令牌。模型配置、工作区、资源和会话默认写入 `~/.pi-meme`，可通过 `PI_MEME_DATA_ROOT` 修改。模型、MCP、Host 令牌和已保存的远程登录由 Host 写入根目录 `auth.json`，权限为 `0600`，不读取本机 Pi CLI 的全局配置。旧钥匙串仅在“设置 → Host 连接 → 导入旧钥匙串凭据”时读取，可能需要一次系统密码。
+Desktop 每次默认启动本机 Host 并自动登录，无需输入系统密码或 Host 令牌。模型配置、工作区、资源和会话默认写入 `~/.pi-meme`，可通过 `PI_MEME_DATA_ROOT` 修改。模型、MCP、Host 令牌和已保存的远程登录由 Host 写入根目录 `auth.json`，权限为 `0600`，不读取本机 Pi CLI 的全局配置。旧钥匙串仅在“设置 → 更多 → Host 连接 → 导入旧钥匙串凭据”时读取，可能需要一次系统密码。
 
 Enter 发送，Shift+Enter 换行；中文输入法组合期间不发送。支持粘贴或拖入 PNG、JPEG、WebP、GIF。输入 `@` 搜索项目文件或目录，方向键选择、Enter 插入、Tab 进入目录、Esc 关闭。引用写为 `@相对路径`，文件内容由 Pi 工具读取。
 
@@ -30,13 +30,19 @@ pnpm start:server
 
 ## 插件与运行配置
 
-内置插件包括聊天、工作区、历史、模型、设置、资源、交互、SubAgent、MCP、codemode、权限、macOS 沙箱、用量和 Git。入口分别位于 `src/server`、`src/agent` 和 `src/ui`。创建、构建、校验、打包、更新及卸载规则见 [插件文档](docs/plugins.md)。
+聊天、工作区、历史、模型、设置、资源、交互、SubAgent、MCP、codemode、权限、macOS 沙箱、用量和 Git 由 Host 静态装配，随 App 发布，不出现在用户插件清单。第三方 `.pim` 才进入插件安装、启停与卸载流程，接口见 [插件文档](docs/plugins.md)。
 
-Pi 的 JSONL、恢复、分支和压缩由公开 SDK 继续处理。历史插件只查询与展示；停用它不改变原生持久化。插件代码更新按代次切换，运行中的任务保留其旧代次；提供共享服务的插件等待相关使用者释放后切换。
+设置一级入口为模型、外观、偏好和扩展。扩展页管理用户插件、技能和服务连接；关于、用量、Host 连接和开发者操作位于“更多”。Host 构建目录加载、重新加载、原生扩展目录和高级指令在开发者页面。
 
-MCP、codemode 和 SubAgent 的设置开关默认关闭。MCP 全局配置位于 Host 的 `pi/mcp.json`，项目 `.pi/mcp.json` 只读，工作区覆盖位于 `workspaces/`。开启 MCP 同时开启 codemode，MCP 只在完全权限会话运行。SubAgent 定义在 `pi/subagents/`，工具范围由定义与父会话工具共同限制。
+Pi 的 JSONL、恢复、分支和压缩继续由公开 SDK 处理。历史模块只查询与展示。外部插件按代次切换，父子 Worker 分别持有租约，外部服务组切换等待相关任务、工具、交互和租约释放，不取消正在执行的任务。主任务停止与 Host 退出才取消后代及未启动任务。
 
-三档 Agent 权限是仅可查看、工作区内修改、完全权限。只读与工作区写入使用 macOS 沙箱；沙箱失效或对应插件缺失时拒绝启动，不自动授予完全权限。项目扩展与 Host 扩展只在完全权限模式加载。Pi 的原生 hook 使用 `pi.on`；选择、确认、输入、编辑和文本挂件映射到图形界面，TUI `custom()` 组件需要单独编写 App UI。
+MCP 按服务启停与授权，配置在 Host 的 `pi/mcp.json`；项目 `.pi/mcp.json` 只读，工作区覆盖在 `workspaces/`。升级前 `mcpEnabled: false` 的配置保留不连接外部服务的选择，需要逐个“启用并授权”；升级不会自动连接旧服务。MCP 和第三方 Pi 扩展仍只在完全权限会话加载，codemode 是内置执行工具，不需要普通设置开关。
+
+SubAgent 默认可用，不要求先启用角色文件。模型可调用 `spawn_agent`、`send_message`、`followup_task`、`interrupt_agent`、`list_agents` 和 `wait_agent`；子任务共享工作目录，继承父模型、思考等级、权限和模式。`wait_agent` 工具结果写入 Pi JSONL 后按消息身份确认已读；普通来源消息也在安全边界落盘后确认，入队不代表已读。最多 4 个活动子 Agent、嵌套两层、16 个身份。主会话只显示“名称 已完成”等简短阶段，不展开子报告和内部控制消息。右侧栏“子代理”按运行与结束分组，只显示名称、状态、时长，后代按层级缩进；详情只展示子任务自己的消息、工具与后续轮次。默认 `fork_turns=all` 仍把安全父历史提供给模型作为背景，委派消息指定当前任务；`none` 使用新上下文。自动续跑不新增用户消息或改写输入草稿；继续任务保留身份与 JSONL，不把子会话放进普通最近列表。
+
+输入 `/plan`、`/计划` 或 `/计划模式` 切换规划模式；只有命令时不会调用模型。计划模式只读，禁止 bash、edit、write、codemode、MCP 和外部工具，也检查嵌套工具执行。根 Agent 等子任务结束并读取结果后调用 `save_plan`，保存到 `plans/<sessionId>/<id>.md`，右侧栏“计划”标签显示完整文档，可切换已保存计划、复制和导出 Markdown。保存后不自动执行；鼠标移入输入工具栏的“计划”标记后点击关闭，才返回默认模式。
+
+三档 Agent 权限是仅可查看、工作区内修改、完全权限。只读与工作区写入使用 macOS 沙箱；内置权限或沙箱失效时拒绝启动，不自动授予完全权限。Pi 的原生 hook 使用 `pi.on`；选择、确认、输入、编辑和文本挂件映射到图形界面，TUI `custom()` 组件需要单独编写 App UI。
 
 主题位于 Host 的 `themes/`，保持 JSON。颜色与字体只按已声明字段解析，不执行 JavaScript 或任意 CSS。配置在 `settings.json`；会话按工作区路径分组写入 `sessions/`；插件代码在 `plugins/`，插件数据在 `plugin-data/`。
 
@@ -56,10 +62,10 @@ packages/pi-runtime/     # 会话池、事件、JSONL 与安全执行底层
 packages/plugin-sdk/     # 插件契约
 packages/plugin-runtime/ # Chord 作用域、代次与安装状态
 packages/plugin-devkit/  # 创建、构建、校验和打包
-plugins/                 # 14 个实际业务插件
+packages/chat/           # 聊天；其他内置业务包同级放置
 ```
 
-聊天组件在 `plugins/chat/src/ui/`：输入区 `composer/`，对话与工具卡片 `conversation/`，Markdown `content/`，流式消息和状态 `model/`。历史树在 `plugins/history/src/ui/`。插件不导入其他插件实现，App 与 Host 使用契约、Props 和 Chord 服务组合。
+聊天组件在 `packages/chat/src/ui/`：输入区 `composer/`，对话与工具卡片 `conversation/`，Markdown `content/`，流式消息和状态 `model/`。历史树在 `packages/history/src/ui/`。业务包不互导私有实现，app-ui 与 Host 使用契约、Props 和服务组合。
 
 完整边界、会话恢复、插件代次和配置路径见 [基础架构](docs/architecture.md)。
 
@@ -71,7 +77,6 @@ pnpm lint
 pnpm format
 pnpm test
 pnpm check-boundaries
-pnpm build:plugins
 pnpm build:web
 pnpm build:server
 pnpm test:server
@@ -81,6 +86,10 @@ pnpm test:desktop
 ```
 
 类型、Lint、Format 按顺序通过后再交付。测试使用临时目录与假模型端点，不调用真实模型或修改真实配置。Desktop 截图保存到 `apps/desktop/out/desktop-smoke/`。
+
+并行开发覆盖 `.vite` 缓存时，运行 `PI_DESKTOP_PACKAGED_SMOKE=1 pnpm test:desktop`，从已打包的实际 `.app` 读取入口并执行同一套完整断言。先运行 `pnpm package`，确认 `apps/desktop/out/pi-meme-darwin-arm64/pi-meme.app` 存在。
+
+`pnpm start`、`pnpm build:server`、`pnpm package` 和 `pnpm make` 直接构建应用入口，内置模块不再单独生成插件产物。会话 Worker 从提供内置 Agent 工厂的 `packages/host/src/session-worker.ts` 构建，pi-adapter 只做通用调用和通信；Desktop 分发仍复制 Pi SDK 与 native runtime。
 
 `pnpm package` 生成本机 macOS 应用，`pnpm make` 生成分发包。没有证书时使用 ad-hoc 签名；固定证书名称通过 `PI_DESKTOP_SIGNING_IDENTITY` 配置。项目不配置公证或自动更新。
 

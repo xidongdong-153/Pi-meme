@@ -3,8 +3,21 @@ import type { BashOperations, ExtensionAPI, InlineExtension } from '@earendil-wo
 import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
 import type { AccessSandbox } from '../sdk/access-sandbox'
 import type { PiSdk } from '../sdk/load'
+import { collaborationToolNames } from './plan-mode'
 
-const allowedTools = new Set(['read', 'bash', 'write', 'edit', 'grep', 'find', 'ls', 'codemode'])
+const allowedTools = new Set([
+  'read',
+  'bash',
+  'write',
+  'edit',
+  'grep',
+  'find',
+  'ls',
+  'codemode',
+  ...collaborationToolNames,
+  'request_user_input',
+  'save_plan',
+])
 
 /**
  * 受限权限会话的扩展工厂：替换 bash/写入/编辑工具，让所有落盘操作经过沙箱，

@@ -1,3 +1,5 @@
+import type { CollaborationRequest, CollaborationResults } from '@pi-meme/contracts/collaboration'
+import type { PlanDocument, SavePlanInput, TaskMode } from '@pi-meme/contracts/plan'
 import { Worker } from 'node:worker_threads'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -9,8 +11,13 @@ import type { SecureCredentialStorage } from '@pi-meme/contracts/secure-storage'
 import type { RuntimeSdkSession } from '@pi-meme/pi-runtime/session-pool'
 
 export type WorkerOptions = {
+  admit?: (message: string, mode: TaskMode, continuation: boolean, signal: AbortSignal) => Promise<void>
+  collaboration?: (
+    request: CollaborationRequest,
+    signal: AbortSignal,
+  ) => Promise<CollaborationResults[keyof CollaborationResults]>
+  savePlan?: (input: SavePlanInput, signal: AbortSignal) => Promise<PlanDocument>
   credentials: SecureCredentialStorage & { flush?: () => Promise<void> }
-  descriptors?: Array<{ id: string; enabled: boolean; builtin?: boolean }>
   dataRoot: string
   settings: DesktopSettings
   agentEntries: Array<{ pluginId: string; generation: number; path: string }>
@@ -44,8 +51,11 @@ export function createWorkerSession(
   let capabilities: Parameters<SdkSession['configureCapabilities']>[0] = { codemodeEnabled: false, mcpEnabled: false }
   let access: Parameters<SdkSession['configureAccess']>[0] = 'full-access'
   let releasing: Promise<void> = Promise.resolve()
+  const hostRequests = new Map<string, AbortController>()
   const pending = new Map<number, Pending>()
   const fail = (cause: Error) => {
+    for (const controller of hostRequests.values()) controller.abort()
+    hostRequests.clear()
     for (const request of pending.values()) request.reject(cause)
     pending.clear()
     connection = { ...connection, status: 'disconnected', error: cause.message }
@@ -55,16 +65,16 @@ export function createWorkerSession(
     if (worker) return worker
     const options = getOptions()
     release = options.release
-    const entry = options.workerPath ?? fileURLToPath(new URL('./session-worker.ts', import.meta.url))
+    const entry = options.workerPath ?? fileURLToPath(new URL('./generic-worker.ts', import.meta.url))
     try {
       worker = new Worker(entry, {
         workerData: {
           cwd,
+          initialGeneration: connection.generation,
           root: options.dataRoot,
           settings: options.settings,
           agentEntries: options.agentEntries,
           credentials: options.credentials.entries(),
-          descriptors: options.descriptors,
           capabilities,
           access,
         },
@@ -76,34 +86,83 @@ export function createWorkerSession(
       throw cause
     }
     const current = worker
-    current.on('message', (reply: WorkerReply & { credential?: { id: number; key: string; value?: string } }) => {
-      if (worker !== current) return
-      if (reply.credential) {
-        const mutation = reply.credential
-        void Promise.resolve()
-          .then(async () => {
-            if (mutation.value === undefined) options.credentials.delete(mutation.key)
-            else options.credentials.set(mutation.key, mutation.value)
-            await options.credentials.flush?.()
-            current.postMessage({ credentialReply: mutation.id })
-          })
-          .catch((cause: unknown) => current.postMessage({ credentialReply: mutation.id, error: String(cause) }))
-        return
-      }
-      if (worker !== current) return
-      connection = reply.connection
-      active = reply.active
-      if (reply.notify) {
-        const callback = notify[reply.notify] as ((value: unknown) => void) | undefined
-        callback?.(reply.value)
-      }
-      if (reply.id !== undefined) {
-        const request = pending.get(reply.id)
-        pending.delete(reply.id)
-        if (reply.error) request?.reject(new Error(reply.error))
-        else request?.resolve(reply.result)
-      }
-    })
+    current.on(
+      'message',
+      (
+        reply: WorkerReply & {
+          hostCancel?: string
+          hostRequest?: {
+            kind: 'collaboration' | 'savePlan' | 'admission'
+            message?: string
+            mode?: TaskMode
+            continuation?: boolean
+            id: string
+            input?: SavePlanInput
+          } & CollaborationRequest
+          credential?: { id: number; key: string; value?: string }
+        },
+      ) => {
+        if (worker !== current) return
+        if (reply.hostCancel) {
+          hostRequests.get(reply.hostCancel)?.abort()
+          hostRequests.delete(reply.hostCancel)
+          return
+        }
+        if (reply.hostRequest) {
+          const request = reply.hostRequest
+          const controller = new AbortController()
+          hostRequests.set(request.id, controller)
+          void Promise.resolve()
+            .then(async () => {
+              if (request.kind === 'admission') {
+                await options.admit?.(request.message!, request.mode!, Boolean(request.continuation), controller.signal)
+                return
+              }
+              if (request.kind === 'savePlan') {
+                if (!options.savePlan || !request.input) throw new Error('计划保存桥未配置')
+                return options.savePlan(request.input, controller.signal)
+              }
+              if (!options.collaboration) throw new Error('协作桥未配置')
+              return options.collaboration(request, controller.signal)
+            })
+            .then((result) => {
+              if (worker === current && !controller.signal.aborted)
+                current.postMessage({ hostReply: request.id, result })
+            })
+            .catch((cause: unknown) => {
+              if (worker === current && !controller.signal.aborted)
+                current.postMessage({ hostReply: request.id, error: String(cause) })
+            })
+            .finally(() => hostRequests.delete(request.id))
+          return
+        }
+        if (reply.credential) {
+          const mutation = reply.credential
+          void Promise.resolve()
+            .then(async () => {
+              if (mutation.value === undefined) options.credentials.delete(mutation.key)
+              else options.credentials.set(mutation.key, mutation.value)
+              await options.credentials.flush?.()
+              current.postMessage({ credentialReply: mutation.id })
+            })
+            .catch((cause: unknown) => current.postMessage({ credentialReply: mutation.id, error: String(cause) }))
+          return
+        }
+        if (worker !== current) return
+        connection = reply.connection
+        active = reply.active
+        if (reply.notify) {
+          const callback = notify[reply.notify] as ((value: unknown) => void) | undefined
+          callback?.(reply.value)
+        }
+        if (reply.id !== undefined) {
+          const request = pending.get(reply.id)
+          pending.delete(reply.id)
+          if (reply.error) request?.reject(new Error(reply.error))
+          else request?.resolve(reply.result)
+        }
+      },
+    )
     current.on('error', (cause) => {
       if (worker === current) fail(cause)
     })
@@ -142,6 +201,8 @@ export function createWorkerSession(
         return
       }
       try {
+        for (const controller of hostRequests.values()) controller.abort()
+        hostRequests.clear()
         await callRaw('stopAndWait', [])
       } finally {
         worker = undefined

@@ -15,6 +15,116 @@ import { requestText } from '../../../tests/fixtures/fake-provider.mjs'
 
 const extension = fileURLToPath(new URL('../../../tests/fixtures/test-extension.mjs', import.meta.url))
 
+test('消息预约后登记退役不与初始化互等，退役保留本轮直到结束', { timeout: 15000 }, async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pi-retire-admission-'))
+  const agent = await useFakeAgent(directory, { reply: () => ({ text: '已结束', delayMs: 100 }) })
+  let armed = false
+  let retiring: Promise<boolean> | undefined
+  const pool = new PiSessionPool(
+    directory,
+    {
+      connection: () => {},
+      event: () => {},
+      error: () => {},
+      sessionsChanged: () => {
+        if (!armed) return
+        armed = false
+        retiring = pool.retireSessions(() => true)
+      },
+    },
+    undefined,
+    agent.runtimePaths,
+    agent.credentials,
+  )
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  try {
+    pool.start(directory)
+    const key = pool.connection().sessionKey!
+    await pool.prompt(key, '旧任务')
+    await waitFor(() => pool.getRuntimeSessions().every((record) => !record.running))
+    armed = true
+    await Promise.race([
+      pool.prompt(key, '已预约任务').then(async () => {
+        assert.equal((await pool.snapshot()).state.isStreaming, true)
+        await retiring
+      }),
+      new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(() => reject(new Error('消息预约与 Worker 退役互相等待')), 5000)
+      }),
+    ])
+    assert.equal(agent.provider.requests.length, 2)
+    assert.equal((await pool.snapshot()).state.isStreaming, false)
+  } finally {
+    clearTimeout(timeout)
+    await pool.stopAndWait()
+    await retiring
+    await agent.dispose()
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('先登记退役再等待任务树，新消息等待旧 Worker 释放后启动', { timeout: 15000 }, async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pi-retire-tree-'))
+  const agent = await useFakeAgent(directory)
+  let session!: SdkSession
+  let stops = 0
+  const pool = new PiSessionPool(
+    directory,
+    { connection: () => {}, event: () => {}, error: () => {}, sessionsChanged: () => {} },
+    undefined,
+    agent.runtimePaths,
+    agent.credentials,
+    (cwd, notify, paths, credentials, mcp) => {
+      session = new SdkSession(cwd, notify, paths, credentials, mcp)
+      return session
+    },
+  )
+  let release!: () => void
+  const ready = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  let timeout: ReturnType<typeof setTimeout> | undefined
+  try {
+    pool.start(directory)
+    const key = pool.connection().sessionKey!
+    await pool.prompt(key, '旧任务')
+    await waitFor(() => pool.getRuntimeSessions().every((record) => !record.running))
+    const stop = session.stopAndWait.bind(session)
+    session.stopAndWait = async () => {
+      stops++
+      await stop()
+    }
+    const retiring = pool.retireSessions(
+      (id) => id === key,
+      () => ready,
+    )
+    let started = false
+    const prompting = pool.prompt(key, '等待任务树结束的新任务').then(() => {
+      started = true
+    })
+    await delay(20)
+    assert.equal(started, false)
+    assert.equal(stops, 0)
+    assert.equal(agent.provider.requests.length, 1)
+    release()
+    await Promise.race([
+      Promise.all([retiring, prompting]),
+      new Promise<never>((_resolve, reject) => {
+        timeout = setTimeout(() => reject(new Error('任务树结束后新消息没有启动')), 5000)
+      }),
+    ])
+    await waitFor(() => pool.getRuntimeSessions().every((record) => !record.running))
+    assert.equal(stops, 1)
+    assert.equal(agent.provider.requests.length, 2)
+  } finally {
+    release()
+    clearTimeout(timeout)
+    await pool.stopAndWait()
+    await agent.dispose()
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
 test('扩展命令已 settled 而消息回复尚未返回时，快照不会重新标记运行并阻塞退役', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pi-settled-prompt-'))
   const agent = await useFakeAgent(directory)
@@ -249,6 +359,82 @@ test('两个项目的 Agent 并行运行，切回后台会话和停止当前会�
   } finally {
     pool.stop()
     await delay(100)
+    await agent.dispose()
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('权限切换保留实际执行代次，确认请求通过过期过滤且回答后正确关闭', { timeout: 15000 }, async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pi-pool-dialog-generation-'))
+  const agent = await useFakeAgent(directory)
+  await installProjectExtension(directory)
+  let session!: SdkSession
+  let emit!: (event: DesktopEvent) => void
+  let highestExecutionGeneration = 0
+  const events: DesktopEvent[] = []
+  const accepted: DesktopEvent[] = []
+  const pool = new PiSessionPool(
+    directory,
+    {
+      connection: () => {},
+      event: (event) => {
+        events.push(event)
+        const executionGeneration = event.executionGeneration ?? event.generation
+        if (executionGeneration < highestExecutionGeneration) return
+        highestExecutionGeneration = executionGeneration
+        accepted.push(event)
+      },
+      error: () => {},
+      sessionsChanged: () => {},
+    },
+    undefined,
+    agent.runtimePaths,
+    agent.credentials,
+    (cwd, notify, paths, credentials, mcp) => {
+      emit = notify.event
+      session = new SdkSession(cwd, notify, paths, credentials, mcp)
+      return session
+    },
+  )
+  const view = pool.createClientView()
+  try {
+    await pool.withClientView(view, async () => {
+      pool.start(directory)
+      await pool.snapshot()
+      const key = pool.connection().sessionKey!
+      view.generation = 40
+      await pool.setAccessMode(key, 'full-access')
+      const changed = events.find((event) => event.event.type === 'access_mode_changed')!
+      assert.equal(changed.generation, 40)
+      assert.equal(changed.executionGeneration, session.connection().generation)
+      assert.ok(changed.executionGeneration! < changed.generation)
+      const prompting = pool.prompt(key, '扩展任务')
+      await waitFor(() => events.some((event) => event.event.type === 'extension_ui_request'))
+      const dialog = accepted.find(
+        (event): event is DesktopEvent & { event: PiExtensionDialogRequest } =>
+          event.event.type === 'extension_ui_request' && event.event.method === 'confirm',
+      )
+      assert.ok(dialog, '确认请求不能被权限切换事件的界面代次误判为过期')
+      assert.equal(dialog.executionGeneration, session.connection().generation)
+      view.generation = 80
+      await pool.respondExtensionUI(key, dialog.event.id, { confirmed: true })
+      const closed = accepted.find(
+        (event) => event.event.type === 'extension_ui_closed' && event.event.id === dialog.event.id,
+      )!
+      assert.equal(closed.generation, 80)
+      assert.equal(closed.executionGeneration, dialog.executionGeneration)
+      await prompting
+      await waitFor(() => pool.getRuntimeSessions().every((record) => !record.running))
+      assert.ok(!((await pool.snapshot()).events ?? []).some((event) => event.event.type === 'extension_ui_request'))
+      const acceptedCount = accepted.length
+      const staleGeneration = dialog.executionGeneration! - 1
+      emit({ generation: staleGeneration, event: { type: 'extension_ui_closed', id: '旧请求', reason: 'cancelled' } })
+      assert.equal(events.at(-1)?.executionGeneration, staleGeneration)
+      assert.equal(accepted.length, acceptedCount)
+    })
+  } finally {
+    await pool.stopAndWait()
+    pool.releaseClientView(view)
     await agent.dispose()
     await rm(directory, { recursive: true, force: true })
   }
@@ -900,6 +1086,79 @@ test('历史会话停留与重复快照保持 idle，首次发送才启动运行
   } finally {
     pool.stop()
     await delay(100)
+    await agent.dispose()
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('迟到模式hook和Plan首次装配不覆盖用户关闭；准备期间第三方扩展不启动', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pi-pool-mode-race-'))
+  const agent = await useFakeAgent(directory, { reply: { text: '完成', holdMs: 50 } })
+  const marker = path.join(directory, 'default-extension')
+  let release!: () => void
+  let enter!: () => void
+  const entered = new Promise<void>((resolve) => {
+    enter = resolve
+  })
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  let persistedMode = 'default'
+  const pool = new PiSessionPool(
+    directory,
+    { connection: () => {}, event: () => {}, error: () => {}, sessionsChanged: () => {} },
+    undefined,
+    agent.runtimePaths,
+    agent.credentials,
+    (cwd, notify, paths, credentials, mcp) => {
+      const session = new SdkSession(cwd, notify, paths, credentials, mcp)
+      return session
+    },
+  )
+  pool.configureInlineExtensions([
+    {
+      name: 'third-party',
+      factory: (pi) => {
+        pi.on('session_start', async () => {
+          await writeFile(marker, '执行第三方')
+        })
+      },
+    },
+  ])
+  pool.configureCollaboration({
+    modeChanged: async (key, mode) => {
+      if (mode === 'plan') {
+        enter()
+        await gate
+      }
+      persistedMode = pool.getSessionContext(key).state.mode
+    },
+    beforePrompt: async () => {},
+    settled: async () => {},
+    failed: async () => {},
+    stop: async () => {},
+  })
+  try {
+    pool.prepare(directory)
+    const key = pool.connection().sessionKey!
+    await pool.setAccessMode(key, 'full-access')
+    const prompting = pool.prompt(key, '计划需求', undefined, [], { mode: 'plan' })
+    await entered
+    await pool.setSessionMode(key, 'default')
+    release()
+    await prompting
+    await assert.rejects(readFile(marker), /ENOENT/)
+    await waitFor(() => pool.getRuntimeSessions().every((record) => !record.running))
+    assert.equal(persistedMode, 'default')
+    assert.equal((await pool.snapshot()).state.mode, 'default')
+    const tools = agent.provider.requests[0].tools.map((tool: { function: { name: string } }) => tool.function.name)
+    assert.ok(!tools.includes('bash') && !tools.includes('write') && !tools.includes('edit'))
+    await pool.prompt(key, '后续普通需求')
+    await waitFor(() => pool.getRuntimeSessions().every((record) => !record.running))
+    assert.equal(await readFile(marker, 'utf8'), '执行第三方')
+  } finally {
+    release?.()
+    await pool.stopAndWait()
     await agent.dispose()
     await rm(directory, { recursive: true, force: true })
   }

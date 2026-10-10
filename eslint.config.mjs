@@ -39,6 +39,7 @@ export default antfu(
       'packages/*/tests/**/*.ts',
       'packages/pi-runtime/src/**/*.ts',
       'packages/{host,pi-adapter,plugin-runtime,plugin-devkit}/src/**/*.{ts,mts}',
+      'packages/*/src/{server,agent,shared}/**/*.ts',
       'plugins/*/src/{server,agent,shared}/**/*.ts',
       'plugins/*/tests/**/*.ts',
       'apps/server/**/*.{ts,mts}',
@@ -63,21 +64,27 @@ export default antfu(
       'packages/*/src/renderer/**/*.{ts,tsx}',
       'packages/{client,app-ui}/src/**/*.{ts,tsx}',
       'apps/web/src/**/*.{ts,tsx}',
+      'packages/*/src/ui/**/*.{ts,tsx}',
       'plugins/*/src/ui/**/*.{ts,tsx}',
     ],
     languageOptions: { globals: { window: 'readonly', document: 'readonly', HTMLElement: 'readonly' } },
   },
   { files: ['apps/desktop/src/preload/**/*.ts'], languageOptions: { globals: { Electron: 'readonly' } } },
   {
-    files: ['packages/{chat,workspace,git,models,settings,pi-extensions,mcp}/src/**/*.{ts,tsx}'],
+    files: [
+      'packages/{chat,workspace,history,models,settings,resources,interaction,subagents,mcp,codemode,permissions,sandbox-macos,usage,git}/src/**/*.{ts,tsx}',
+    ],
     rules: {
       'no-restricted-imports': [
         'error',
         {
           patterns: [
             {
-              group: ['@pi-meme/{chat,workspace,git,models,settings,pi-extensions,mcp}'],
-              message: '功能包之间不得互相导入，由 desktop 装配。',
+              group: [
+                '@pi-meme/{chat,workspace,history,models,settings,resources,pi-extensions,subagents,mcp,codemode,permissions,sandbox-macos,usage,git}',
+                '@pi-meme/{chat,workspace,history,models,settings,resources,pi-extensions,subagents,mcp,codemode,permissions,sandbox-macos,usage,git}/**',
+              ],
+              message: '业务包之间通过契约、Props 或服务通信，由 Host 和 app-ui 装配。',
             },
           ],
         },
@@ -89,6 +96,7 @@ export default antfu(
       'packages/*/src/renderer/**/*.{ts,tsx}',
       'packages/{client,app-ui}/src/**/*.{ts,tsx}',
       'apps/web/src/**/*.{ts,tsx}',
+      'packages/*/src/ui/**/*.{ts,tsx}',
       'plugins/*/src/ui/**/*.{ts,tsx}',
       'apps/desktop/src/renderer/**/*.{ts,tsx}',
     ],
@@ -97,7 +105,11 @@ export default antfu(
         'error',
         {
           patterns: [
-            { group: ['node:*', 'electron', 'electron/*'], message: 'renderer 不导入 Node.js 或 Electron 模块。' },
+            { group: ['node:*', 'electron', 'electron/*'], message: 'UI 不导入 Node.js 或 Electron 模块。' },
+            {
+              group: ['@pi-meme/*/server/**', '@pi-meme/*/agent/**', '../server/**', '../agent/**'],
+              message: 'UI 不导入 Server 或 Agent 实现。',
+            },
           ],
         },
       ],

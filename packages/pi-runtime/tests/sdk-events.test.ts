@@ -13,7 +13,7 @@ test('toDesktopEvent 原样透传非 message_update 的白名单事件', () => {
   assert.equal(toDesktopEvent(startEvent), startEvent)
 
   const queueEvent = { type: 'queue_update' } as AgentSessionEvent
-  assert.equal(toDesktopEvent(queueEvent), queueEvent)
+  assert.equal(toDesktopEvent(queueEvent), null)
 })
 
 test('toDesktopEvent 转换 toolcall_start 事件并剥离 partial', () => {

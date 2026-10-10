@@ -1,36 +1,37 @@
-import type { ProfileSettings } from '@pi-meme/usage/ui/profile-settings'
-import type { SkillsSettings } from '@pi-meme/resources/ui/skills-settings'
-import type { ExtensionsSettings } from '@pi-meme/resources/ui/extensions-settings'
-import type { AccessSettings } from '@pi-meme/permissions/ui/access-settings'
-import type { ToolExecutionSettingsPanel } from '@pi-meme/codemode/ui/tool-execution-settings'
-import type { SubagentsSettings } from '@pi-meme/subagents/ui/subagents-settings'
-import type { AgentAccessSelector } from '@pi-meme/permissions/ui/agent-access-selector'
+import { DeveloperSettings } from './developer-settings'
+import { SubagentsPanel } from './subagents-panel'
+import { ProfileSettings } from '@pi-meme/usage/ui/profile-settings'
+import { SkillsSettings } from '@pi-meme/resources/ui/skills-settings'
+import { ExtensionsSettings } from '@pi-meme/resources/ui/extensions-settings'
+import { AccessSettings } from '@pi-meme/permissions/ui/access-settings'
+import { AgentAccessSelector } from '@pi-meme/permissions/ui/agent-access-selector'
 import { AppHeader } from './app-header'
 import { ForkNotice } from './fork-notice'
 import { WorkspaceContent } from './workspace-content'
 import { ErrorNotice } from './error-notice'
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ComponentProps } from 'react'
-import type { Composer } from '@pi-meme/chat/ui/composer/composer'
-import type { Conversation } from '@pi-meme/chat/ui/conversation/conversation'
-import type { Sidebar } from '@pi-meme/workspace/ui/sidebar/sidebar'
-import type { ModelPickerPopover } from '@pi-meme/models/ui/model-picker-popover'
-import type { ModelConfigSettings } from '@pi-meme/models/ui/model-config/model-config-settings'
-import type { McpSettings } from '@pi-meme/mcp/ui/mcp-settings'
-import type { SettingsPage as SettingsContent } from '@pi-meme/settings/ui/settings-page'
-import type { ExtensionWidgets } from '@pi-meme/pi-extensions/ui/extension-widgets'
-import type { ExtensionStatusBadges } from '@pi-meme/pi-extensions/ui/extension-statuses'
-import type { ExtensionDialog } from '@pi-meme/pi-extensions/ui/extension-dialog'
-import type { ExtensionNotices } from '@pi-meme/pi-extensions/ui/extension-notices'
-import type { GitPanel } from '@pi-meme/git/ui/git-panel'
-import type { ProjectSelector } from '@pi-meme/workspace/ui/project-selector'
+import { Composer } from '@pi-meme/chat/ui/composer/composer'
+import { Conversation } from '@pi-meme/chat/ui/conversation/conversation'
+import { Sidebar } from '@pi-meme/workspace/ui/sidebar/sidebar'
+import { ModelPickerPopover } from '@pi-meme/models/ui/model-picker-popover'
+import { ModelConfigSettings } from '@pi-meme/models/ui/model-config/model-config-settings'
+import { McpSettings } from '@pi-meme/mcp/ui/mcp-settings'
+import { SettingsPage as SettingsContent } from '@pi-meme/settings/ui/settings-page'
+import { ExtensionWidgets } from '@pi-meme/pi-extensions/ui/extension-widgets'
+import { ExtensionStatusBadges } from '@pi-meme/pi-extensions/ui/extension-statuses'
+import { ExtensionDialog } from '@pi-meme/pi-extensions/ui/extension-dialog'
+import { ExtensionNotices } from '@pi-meme/pi-extensions/ui/extension-notices'
+import { GitPanel } from '@pi-meme/git/ui/git-panel'
+import { ProjectSelector } from '@pi-meme/workspace/ui/project-selector'
 import { formatSessionTitle } from '@pi-meme/workspace/ui/sidebar/session-title'
 import { useAppSession } from './use-app-session'
 import { messageText } from '@pi-meme/chat/ui/model/message-text'
-import type { ContextUsageRing } from '@pi-meme/models/ui/context-usage-ring'
+import { ContextUsageRing } from '@pi-meme/models/ui/context-usage-ring'
 import { useSettings } from '@pi-meme/settings/ui/use-settings'
 import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
-import type { SessionTreePanel } from '@pi-meme/history/ui/session-tree-panel'
+import { SessionTreePanel } from '@pi-meme/history/ui/session-tree-panel'
 import { RightSidebar } from './right-sidebar'
+import { PlanPanel } from './plan-panel'
 import { ResizeHandle } from './resize-handle'
 import type { RightSidebarTab } from './right-sidebar'
 import type { PluginClient } from '@pi-meme/client/plugin-client'
@@ -43,32 +44,6 @@ import { SettingsPage } from './settings-page'
 import { HostSettings } from './host-settings'
 import { loadPluginUI } from './load-plugin-ui'
 import type { DesktopBridge, ProjectApp } from '@pi-meme/contracts/desktop'
-
-type BuiltinData = {
-  profileProps?: ComponentProps<typeof ProfileSettings>
-  skillsProps?: ComponentProps<typeof SkillsSettings>
-  extensionsProps?: ComponentProps<typeof ExtensionsSettings>
-  defaultAccessProps?: ComponentProps<typeof AccessSettings>
-  toolsProps?: ComponentProps<typeof ToolExecutionSettingsPanel>
-  subagentsProps?: ComponentProps<typeof SubagentsSettings>
-  accessProps?: ComponentProps<typeof AgentAccessSelector>
-  projectSelectorProps?: ComponentProps<typeof ProjectSelector>
-  contextProps?: ComponentProps<typeof ContextUsageRing>
-  composerProps?: ComponentProps<typeof Composer>
-  sessionTreeProps?: ComponentProps<typeof SessionTreePanel>
-  conversationProps?: ComponentProps<typeof Conversation>
-  sidebarProps?: ComponentProps<typeof Sidebar>
-  modelPickerProps?: ComponentProps<typeof ModelPickerPopover>
-  modelSettingsProps?: ComponentProps<typeof ModelConfigSettings>
-  mcpSettingsProps?: ComponentProps<typeof McpSettings>
-  settingsProps?: ComponentProps<typeof SettingsContent>
-  widgetProps?: ComponentProps<typeof ExtensionWidgets>
-  statusProps?: ComponentProps<typeof ExtensionStatusBadges>
-  dialogProps?: ComponentProps<typeof ExtensionDialog>
-  dialogKey?: string
-  noticesProps?: ComponentProps<typeof ExtensionNotices>
-  gitProps?: ComponentProps<typeof GitPanel>
-}
 
 export function App({
   bridge,
@@ -95,12 +70,20 @@ export function App({
 }) {
   const [registry] = useState(() => new UiPluginRegistry(bridge, loadPluginUI, call))
   const [pluginDescriptors, setPluginDescriptors] = useState<UiPluginDescriptor[]>([])
-  const enabled = (id: string) => pluginDescriptors.some((plugin) => plugin.id === `@pi-meme/${id}` && plugin.enabled)
-  const chat = useAppSession(bridge, { chatEnabled: enabled('chat'), workspaceEnabled: enabled('workspace') })
-  const settings = useSettings(bridge, enabled('settings'), enabled('subagents'))
+  const [rightPaneOpen, setRightPaneOpen] = useState(false)
+  const [rightTab, setRightTab] = useState<RightSidebarTab>('git')
+  const [selectedPlanId, setSelectedPlanId] = useState<string>()
+  const chat = useAppSession(bridge, {
+    onPlanSaved: (document) => {
+      setSelectedPlanId(document.id)
+      setRightTab('plan')
+      setRightPaneOpen(true)
+    },
+  })
+  const settings = useSettings(bridge, true, false)
   const contributions = useSyncExternalStore(registry.subscribe, registry.getSnapshot, registry.getSnapshot)
   const [selectedPage, setSelectedPage] = useState<string>()
-  const pluginPages = contributions.filter((entry) => entry.slot === 'page' && !registry.isBuiltin(entry.id))
+  const pluginPages = contributions.filter((entry) => entry.slot === 'page')
   const activePage = pluginPages.find((entry) => entry.id === selectedPage)
   const refreshPlugins = useCallback(async () => {
     setPluginDescriptors(await plugins.list())
@@ -129,11 +112,8 @@ export function App({
       ? { connection: chat.connection, state: chat.state, messages: chat.chat.messages, models: chat.models }
       : null,
   }
-  const builtin = (id: string, slot: UiPluginSlot, area: string, data: BuiltinData) => (
-    <PluginSlot registry={registry} pluginId={`@pi-meme/${id}`} slot={slot} props={{ ...pluginProps, area, ...data }} />
-  )
   const extra = (slot: UiPluginSlot, props: Record<string, unknown> = {}) => (
-    <PluginSlot registry={registry} externalOnly slot={slot} props={{ ...pluginProps, ...props }} />
+    <PluginSlot registry={registry} slot={slot} props={{ ...pluginProps, ...props }} />
   )
   const workspacePickerReturnFocus = useRef<HTMLElement | null>(null)
   const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false)
@@ -142,8 +122,6 @@ export function App({
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [instructionsDirty, setInstructionsDirty] = useState(false)
   const [instructionsSaving, setInstructionsSaving] = useState(false)
-  const [rightPaneOpen, setRightPaneOpen] = useState(false)
-  const [rightTab, setRightTab] = useState<RightSidebarTab>('git')
   const [rightPaneWidth, setRightPaneWidth] = useState(352)
   const [resizingSide, setResizingSide] = useState<'left' | 'right' | null>(null)
   const [preferredApp, setPreferredApp] = useState<ProjectApp['id']>('finder')
@@ -201,35 +179,44 @@ export function App({
   }, [chat.extensionTitle, title])
 
   const composerProps: ComponentProps<typeof Composer> = {
-    workspace: builtin('workspace', 'composer', 'project', {
-      projectSelectorProps: {
-        cwd: chat.connection.cwd,
-        kind: chat.connection.workspaceKind,
-        open: workspacePickerOpen,
-        onOpenChange: (open) => {
-          if (open) workspacePickerReturnFocus.current = null
-          setWorkspacePickerOpen(open)
-        },
-        returnFocus: workspacePickerReturnFocus.current,
-        disabledReason: chat.workspaceDisabledReason,
-        loadProjects: bridge.getProjects,
-        onSelect: chat.selectWorkspace,
-        onAdd: chat.chooseDirectory,
-        onError: chat.setError,
-        notice: chat.workspaceNotice,
-      },
-    }),
+    mode: chat.mode,
+    onMode: chat.changeMode,
+    onPlanCommand: chat.activatePlan,
+    recoveredInputs: chat.recoveredInputs,
+    onRestoreQueuedInput: chat.restoreQueuedInput,
+    workspace: (
+      <ProjectSelector
+        {...{
+          cwd: chat.connection.cwd,
+          kind: chat.connection.workspaceKind,
+          open: workspacePickerOpen,
+          onOpenChange: (open) => {
+            if (open) workspacePickerReturnFocus.current = null
+            setWorkspacePickerOpen(open)
+          },
+          returnFocus: workspacePickerReturnFocus.current,
+          disabledReason: chat.workspaceDisabledReason,
+          loadProjects: bridge.getProjects,
+          onSelect: chat.selectWorkspace,
+          onAdd: chat.chooseDirectory,
+          onError: chat.setError,
+          notice: chat.workspaceNotice,
+        }}
+      />
+    ),
     projectPath: chat.connection.cwd,
     loadProjectFiles: bridge.getProjectFiles,
-    access: builtin('permissions', 'composer', 'access', {
-      accessProps: {
-        mode: chat.connection.accessMode,
-        cwd: chat.connection.cwd,
-        busy: chat.accessBusy,
-        supported: chat.connection.restrictedAccessSupported === true,
-        onChange: (mode) => void chat.setAccessMode(mode),
-      },
-    }),
+    access: (
+      <AgentAccessSelector
+        {...{
+          mode: chat.connection.accessMode,
+          cwd: chat.connection.cwd,
+          busy: chat.accessBusy,
+          supported: chat.connection.restrictedAccessSupported === true,
+          onChange: (mode) => void chat.setAccessMode(mode),
+        }}
+      />
+    ),
     selectedSkills: chat.selectedSkills,
     onSkills: chat.setSelectedSkills,
     draft: chat.draft,
@@ -254,35 +241,33 @@ export function App({
     commands: chat.commands,
     widgetsAbove: (
       <>
-        {builtin('pi-extensions', 'composer', 'above', {
-          widgetProps: { widgets: chat.extensionWidgets, placement: 'aboveEditor' },
-        })}
+        <ExtensionWidgets {...{ widgets: chat.extensionWidgets, placement: 'aboveEditor' }} />
         {extra('composer')}
       </>
     ),
-    widgetsBelow: builtin('pi-extensions', 'composer', 'below', {
-      widgetProps: { widgets: chat.extensionWidgets, placement: 'belowEditor' },
-    }),
+    widgetsBelow: <ExtensionWidgets {...{ widgets: chat.extensionWidgets, placement: 'belowEditor' }} />,
     statusBadges: (
       <>
-        {builtin('pi-extensions', 'status', 'status', { statusProps: { statuses: chat.extensionStatuses } })}
+        <ExtensionStatusBadges {...{ statuses: chat.extensionStatuses }} />
         {extra('status')}
       </>
     ),
     focusVersion: chat.draftFocusVersion,
     onError: chat.setError,
-    contextUsage: builtin('models', 'status', 'context', { contextProps: { stats: chat.sessionStats } }),
-    model: builtin('models', 'composer', 'model', {
-      modelPickerProps: {
-        models: chat.models,
-        currentModel: chat.state?.model,
-        thinkingLevel: chat.state?.thinkingLevel,
-        availableThinkingLevels: chat.thinkingLevels,
-        disabled: chat.modelPickerDisabled,
-        onSelectModel: (model) => void chat.selectModel(model),
-        onSelectThinkingLevel: (level) => void chat.selectThinkingLevel(level),
-      },
-    }),
+    contextUsage: <ContextUsageRing {...{ stats: chat.sessionStats }} />,
+    model: (
+      <ModelPickerPopover
+        {...{
+          models: chat.models,
+          currentModel: chat.state?.model,
+          thinkingLevel: chat.state?.thinkingLevel,
+          availableThinkingLevels: chat.thinkingLevels,
+          disabled: chat.modelPickerDisabled,
+          onSelectModel: (model) => void chat.selectModel(model),
+          onSelectThinkingLevel: (level) => void chat.selectThinkingLevel(level),
+        }}
+      />
+    ),
   }
 
   // 原位置编辑期间，底部输入区只保留说明，避免两个含义不明的输入区。
@@ -290,10 +275,8 @@ export function App({
     <div data-testid="editing-hint" className="px-3 py-2 text-center text-xs text-muted-foreground/70">
       正在编辑历史消息
     </div>
-  ) : enabled('chat') ? (
-    builtin('chat', 'composer', 'composer', { composerProps })
   ) : (
-    <p className="py-3 text-center text-sm text-muted-foreground">聊天插件已停用，可在插件中心重新启用。</p>
+    <Composer {...composerProps} />
   )
 
   const editor =
@@ -377,8 +360,8 @@ export function App({
                 }`}
               >
                 <div className="min-h-0 flex-1 overflow-hidden">
-                  {builtin('workspace', 'sidebar', 'sidebar', {
-                    sidebarProps: {
+                  <Sidebar
+                    {...{
                       menuBridge: bridge,
                       onMenuChanged: chat.refreshMenu,
                       onMenuDeleted: chat.applyMenuDeletion,
@@ -386,7 +369,6 @@ export function App({
                       cwd: chat.connection.cwd,
                       ready,
                       status,
-                      piVersion: chat.connection.piVersion,
                       sessionsSnapshot: chat.sessions,
                       sessionsLoading: chat.sessionsLoading,
                       activeSessionId: chat.sessions?.activeSessionId,
@@ -399,8 +381,8 @@ export function App({
                       onTogglePin: (targetPath) => void chat.togglePin(targetPath),
                       onPrefetchSession: (sessionPath) => void bridge.prefetchSession(sessionPath).catch(() => {}),
                       onSettings: () => setSettingsOpen(true),
-                    },
-                  })}
+                    }}
+                  />
                 </div>
                 {extra('sidebar')}
                 {pluginPages.length > 0 && (
@@ -449,19 +431,22 @@ export function App({
                   ready={ready}
                   hasConnected={chat.hasConnected || Boolean(chat.connection.sessionKey)}
                   composer={composer}
-                  conversation={builtin('chat', 'page', 'chat', {
-                    conversationProps: {
-                      chat: chat.chat,
-                      canEditMessages: !chat.busy && !chat.navigationBusy && !chat.editing,
-                      onEditMessage: chat.editMessage,
-                      onSwitchMessageVersion: (timestamp, version) =>
-                        void chat.switchMessageVersion(timestamp, version),
-                      onForkReply: (timestamp) => void chat.forkReply(timestamp),
-                      onCopyError: chat.setError,
-                      editor,
-                      switchingVersion: chat.switchingVersion,
-                    },
-                  })}
+                  conversation={
+                    <Conversation
+                      {...{
+                        chat: chat.chat,
+                        stream: chat.chatStream,
+                        canEditMessages: !chat.busy && !chat.navigationBusy && !chat.editing,
+                        onEditMessage: chat.editMessage,
+                        onSwitchMessageVersion: (timestamp, version) =>
+                          void chat.switchMessageVersion(timestamp, version),
+                        onForkReply: (timestamp) => void chat.forkReply(timestamp),
+                        onCopyError: chat.setError,
+                        editor,
+                        switchingVersion: chat.switchingVersion,
+                      }}
+                    />
+                  }
                   canEditMessages={!chat.busy && !chat.navigationBusy && !chat.editing}
                   onEditMessage={chat.editMessage}
                   onSwitchMessageVersion={(timestamp, version) => void chat.switchMessageVersion(timestamp, version)}
@@ -518,16 +503,29 @@ export function App({
                     onClose={() => setRightPaneOpen(false)}
                     width={rightPaneWidth}
                   >
-                    {rightTab === 'git'
-                      ? builtin('git', 'page', 'git', {
-                          gitProps: { cwd: chat.connection.cwd, bridge, refreshToken: chat.refreshToken },
-                        })
-                      : builtin('history', 'page', 'history', {
-                          sessionTreeProps: {
-                            sessionEntries: chat.chat.sessionEntries,
-                            onSwitchVersion: (timestamp, version) => void chat.switchMessageVersion(timestamp, version),
-                          },
-                        })}
+                    {rightTab === 'subagents' ? (
+                      <SubagentsPanel
+                        key={chat.connection.sessionKey}
+                        bridge={bridge}
+                        sessionKey={chat.connection.sessionKey}
+                      />
+                    ) : rightTab === 'plan' ? (
+                      <PlanPanel
+                        key={chat.connection.sessionKey}
+                        documents={chat.planDocuments}
+                        selectedId={selectedPlanId}
+                        onSelect={setSelectedPlanId}
+                      />
+                    ) : rightTab === 'git' ? (
+                      <GitPanel {...{ cwd: chat.connection.cwd, bridge, refreshToken: chat.refreshToken }} />
+                    ) : (
+                      <SessionTreePanel
+                        {...{
+                          sessionEntries: chat.chat.sessionEntries,
+                          onSwitchVersion: (timestamp, version) => void chat.switchMessageVersion(timestamp, version),
+                        }}
+                      />
+                    )}
                   </RightSidebar>
                 </>
               )}
@@ -535,9 +533,7 @@ export function App({
           </div>
 
           {/* 扩展通知 Toast 堆栈 */}
-          {builtin('pi-extensions', 'page', 'notices', {
-            noticesProps: { notices: chat.extensionNotices, onDismiss: chat.dismissNotice },
-          })}
+          <ExtensionNotices {...{ notices: chat.extensionNotices, onDismiss: chat.dismissNotice }} />
 
           {/* 设置页面 */}
           {settingsOpen && (
@@ -547,6 +543,26 @@ export function App({
               onDiscard={() => setInstructionsDirty(false)}
               onDismiss={() => setSettingsOpen(false)}
               renderContent={(section, navigate) => {
+                const contentProps: Omit<ComponentProps<typeof SettingsContent>, 'section'> = {
+                  bridge,
+                  cwd: chat.connection.cwd,
+                  busy: chat.busy || chat.connection.status === 'connecting',
+                  snapshot: settings.snapshot,
+                  piVersion: chat.connection.piVersion,
+                  error: settings.error,
+                  onDirty: setInstructionsDirty,
+                  onSaving: setInstructionsSaving,
+                  onAccess: () => navigate('access'),
+                  onAppearance: settings.saveAppearance,
+                  onPreview: settings.previewAppearance,
+                  onFlush: settings.flushAppearance,
+                  loadFonts: settings.getInstalledFonts,
+                  onImport: () => void settings.importTheme(),
+                  onExport: (theme) => void settings.exportTheme(theme),
+                  onReload: () => void settings.reload(),
+                  onOpenDirectory: () => void settings.openDirectory(),
+                }
+
                 if (section === 'host')
                   return (
                     <HostSettings
@@ -565,148 +581,98 @@ export function App({
                       plugins={pluginDescriptors}
                       errors={registry.errors()}
                       onRefresh={refreshPlugins}
+                      renderSettings={(id) => (
+                        <PluginSlot registry={registry} pluginId={id} slot="settings" props={pluginProps} />
+                      )}
                     />
                   )
-                if (section === 'plugin-settings')
-                  return contributions.some((entry) => entry.slot === 'settings' && !registry.isBuiltin(entry.id)) ? (
-                    extra('settings')
-                  ) : (
-                    <p className="text-sm text-muted-foreground">当前没有插件提供额外设置。</p>
-                  )
-                const owner = {
-                  general: 'settings',
-                  appearance: 'settings',
-                  personalization: 'settings',
-                  profile: 'usage',
-                  models: 'models',
-                  mcp: 'mcp',
-                  skills: 'resources',
-                  extensions: 'resources',
-                  access: 'permissions',
-                  tools: 'codemode',
-                  subagents: 'subagents',
-                }[section]
-                if (!enabled(owner))
-                  return (
-                    <p role="status" className="text-sm text-muted-foreground">
-                      此功能的插件已停用。
-                      <button
-                        type="button"
-                        className="ml-2 text-primary hover:underline"
-                        onClick={() => navigate('plugins')}
-                      >
-                        管理插件
-                      </button>
-                    </p>
-                  )
                 if (section === 'general' || section === 'appearance' || section === 'personalization')
-                  return builtin('settings', 'settings', 'settings', {
-                    settingsProps: {
-                      section,
-                      bridge,
-                      cwd: chat.connection.cwd,
-                      busy: chat.busy || chat.connection.status === 'connecting',
-                      snapshot: settings.snapshot,
-                      piVersion: chat.connection.piVersion,
-                      error: settings.error,
-                      onDirty: setInstructionsDirty,
-                      onSaving: setInstructionsSaving,
-                      onAccess: () => navigate('access'),
-                      onAppearance: settings.saveAppearance,
-                      onPreview: settings.previewAppearance,
-                      onFlush: settings.flushAppearance,
-                      loadFonts: settings.getInstalledFonts,
-                      onImport: () => void settings.importTheme(),
-                      onExport: (theme) => void settings.exportTheme(theme),
-                      onReload: () => void settings.reload(),
-                      onOpenDirectory: () => void settings.openDirectory(),
-                    },
-                  })
+                  return <SettingsContent section={section} {...contentProps} />
                 if (section === 'models')
-                  return builtin('models', 'settings', 'models', {
-                    modelSettingsProps: { busy: chat.modelPickerDisabled, bridge, models: chat.models },
-                  })
+                  return <ModelConfigSettings {...{ busy: chat.modelPickerDisabled, bridge, models: chat.models }} />
                 if (section === 'mcp')
-                  return builtin('mcp', 'settings', 'mcp', {
-                    mcpSettingsProps: {
-                      bridge,
-                      busy: chat.connection.status === 'connecting' || (chat.busy && ready),
-                      saving: settings.saving,
-                      mode: chat.connection.accessMode,
-                      sessionKey: chat.connection.sessionKey,
-                      capabilities: {
-                        codemodeEnabled: Boolean(settings.snapshot?.settings.codemodeEnabled),
-                        mcpEnabled: Boolean(settings.snapshot?.settings.mcpEnabled),
-                      },
-                      onCapabilities: (value) => void settings.saveCapabilities(value),
-                    },
-                  })
-                if (section === 'profile')
-                  return builtin('usage', 'settings', 'profile', { profileProps: { loadUsage: bridge.getUsageStats } })
+                  return (
+                    <McpSettings
+                      {...{
+                        bridge,
+                        busy: chat.connection.status === 'connecting' || (chat.busy && ready),
+                        saving: settings.saving,
+                        mode: chat.connection.accessMode,
+                        sessionKey: chat.connection.sessionKey,
+                        capabilities: {
+                          codemodeEnabled: Boolean(settings.snapshot?.settings.codemodeEnabled),
+                          mcpEnabled: Boolean(settings.snapshot?.settings.mcpEnabled),
+                        },
+                        onCapabilities: (value) => void settings.saveCapabilities(value),
+                      }}
+                    />
+                  )
+                if (section === 'profile') return <ProfileSettings {...{ loadUsage: bridge.getUsageStats }} />
                 if (section === 'skills')
-                  return builtin('resources', 'settings', 'skills', {
-                    skillsProps: {
-                      commands: chat.commands,
-                      ready,
-                      loading: chat.loading,
-                      onRefresh: chat.refreshCommands,
-                    },
-                  })
+                  return (
+                    <SkillsSettings
+                      {...{
+                        commands: chat.commands,
+                        ready,
+                        loading: chat.loading,
+                        onRefresh: chat.refreshCommands,
+                      }}
+                    />
+                  )
                 if (section === 'extensions')
-                  return builtin('resources', 'settings', 'extensions', {
-                    extensionsProps: {
-                      directory: settings.snapshot?.extensionsDirectory ?? '',
-                      mode: chat.connection.accessMode,
-                      busy: chat.busy,
-                      onOpen: () => void settings.openExtensionsDirectory(),
-                    },
-                  })
+                  return (
+                    <DeveloperSettings call={call}>
+                      <ExtensionsSettings
+                        directory={settings.snapshot?.extensionsDirectory ?? ''}
+                        mode={chat.connection.accessMode}
+                        busy={chat.busy}
+                        onOpen={() => void settings.openExtensionsDirectory()}
+                      />
+                      <SettingsContent section="personalization" advanced {...contentProps} />
+                      <PluginCenter
+                        developer
+                        client={plugins}
+                        plugins={pluginDescriptors}
+                        errors={registry.errors()}
+                        onRefresh={refreshPlugins}
+                        renderSettings={(id) => (
+                          <PluginSlot registry={registry} pluginId={id} slot="settings" props={pluginProps} />
+                        )}
+                      />
+                    </DeveloperSettings>
+                  )
                 if (section === 'access')
-                  return builtin('permissions', 'settings', 'access', {
-                    defaultAccessProps: {
-                      value: settings.snapshot?.settings.defaultAccessMode,
-                      supported: Boolean(chat.connection.restrictedAccessSupported),
-                      busy: chat.busy,
-                      saving: settings.saving,
-                      onSave: (mode) => void settings.saveAccessMode(mode),
-                    },
-                  })
-                if (section === 'tools')
-                  return builtin('codemode', 'settings', 'tools', {
-                    toolsProps: {
-                      value: {
-                        codemodeEnabled: Boolean(settings.snapshot?.settings.codemodeEnabled),
-                        mcpEnabled: Boolean(settings.snapshot?.settings.mcpEnabled),
-                      },
-                      busy: chat.busy,
-                      saving: settings.saving,
-                      onSave: (value) => void settings.saveCapabilities(value),
-                    },
-                  })
-                return builtin('subagents', 'settings', 'subagents', {
-                  subagentsProps: {
-                    catalog: settings.subagents,
-                    enabled: Boolean(settings.snapshot?.settings.subagentsEnabled),
-                    enabledAgentIds: settings.snapshot?.settings.enabledSubagents ?? [],
-                    busy: chat.busy,
-                    saving: settings.saving,
-                    onSave: (enabled, ids) => void settings.saveSubagents(enabled, ids),
-                    onReload: () => void settings.reloadSubagents(),
-                  },
-                })
+                  return (
+                    <AccessSettings
+                      {...{
+                        value: settings.snapshot?.settings.defaultAccessMode,
+                        supported: Boolean(chat.connection.restrictedAccessSupported),
+                        busy: chat.busy,
+                        saving: settings.saving,
+                        onSave: (mode) => void settings.saveAccessMode(mode),
+                      }}
+                    />
+                  )
+                return null
               }}
             />
           )}
 
           {/* 扩展交互请求弹窗 */}
-          {chat.extensionDialogs[0] &&
-            builtin('pi-extensions', 'page', 'dialog', {
-              dialogKey: chat.extensionDialogs[0].id,
-              dialogProps: {
+          {chat.extensionDialogs[0] && (
+            <ExtensionDialog
+              key={chat.extensionDialogs[0].id}
+              {...{
                 request: chat.extensionDialogs[0],
+                sourceName:
+                  chat.extensionDialogs[0].source?.agentId &&
+                  chat.extensionDialogs[0].source?.rootSessionKey !== chat.extensionDialogs[0].sessionKey
+                    ? chat.extensionDialogs[0].source?.name
+                    : undefined,
                 onRespond: chat.answerExtensionDialog,
-              },
-            })}
+              }}
+            />
+          )}
         </main>
       </TooltipProvider>
     </PluginToolCardProvider>

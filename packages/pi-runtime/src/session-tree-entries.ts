@@ -141,6 +141,9 @@ export function projectBranchEntries(entries: readonly SessionEntry[]): PiBranch
     type: entry.type,
     role: entry.type === 'message' ? entry.message.role : undefined,
     messageTimestamp: entry.type === 'message' ? entry.message.timestamp : undefined,
+    customType: entry.type === 'custom_message' ? entry.customType : undefined,
+    display: entry.type === 'custom_message' ? entry.display : undefined,
+    toolName: entry.type === 'message' && entry.message.role === 'toolResult' ? entry.message.toolName : undefined,
     preview: entryPreview(entry, toolCalls) || undefined,
   }))
 }

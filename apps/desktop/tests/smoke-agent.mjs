@@ -34,7 +34,13 @@ function promptText(body) {
         : Array.isArray(content)
           ? content.map((/** @type {any} */ part) => (typeof part === 'string' ? part : (part?.text ?? ''))).join('')
           : ''
-    if (!value.startsWith('当前访问权限：')) return value
+    if (
+      !value.startsWith('当前访问权限：') &&
+      !value.startsWith('当前是规划模式') &&
+      !value.startsWith('[来自 ') &&
+      !value.startsWith('子 Agent 已返回结果，请结合已保存的协作消息检查并继续当前任务。')
+    )
+      return value
   }
   return ''
 }
@@ -59,6 +65,11 @@ function lastText(body, role) {
   return ''
 }
 
+let summaryStep = 0
+let collaborationStep = 0
+/** @type {any} */
+let collaborationChild
+
 /**
  * 桌面验收默认回复：按提示词内容决定流式正文、工具调用和思考过程。
  *
@@ -67,6 +78,87 @@ function lastText(body, role) {
  */
 export function smokeReply(body) {
   const text = promptText(body)
+  if (text.includes('COLLAB-AUTO-CHILD'))
+    return { text: 'AUTO-CHILD-RAW-REPORT：已读取工作区，等待父任务自动汇总。', delayMs: 1000 }
+  if (text === 'collaboration-summary-smoke') {
+    summaryStep++
+    if (summaryStep === 1)
+      return {
+        tool: {
+          name: 'spawn_agent',
+          arguments: JSON.stringify({
+            task_name: 'summarizer',
+            message: 'COLLAB-AUTO-CHILD：读取目录并报告',
+            fork_turns: 'none',
+          }),
+        },
+      }
+    return { text: summaryStep === 2 ? '父任务等待子任务结束。' : '自动汇总最终结论。' }
+  }
+  if (text.includes('COLLAB-CHILD-FOLLOWUP')) return { text: '子代理第二轮完整回复。保留第一轮对话和身份。' }
+  if (text.includes('COLLAB-CHILD-FIRST')) {
+    if (lastIsToolResult(body)) return { text: '子代理第一轮完整回复。已读取工作区目录。', delayMs: 250 }
+    return {
+      thinking: '核对当前工作区目录后报告。',
+      tool: { name: 'ls', arguments: JSON.stringify({ path: '.' }) },
+      delayMs: 250,
+    }
+  }
+  if (text === 'collaboration-smoke') {
+    const invoke = (/** @type {string} */ name, /** @type {object} */ args) => ({
+      tool: { id: `collab-${name}-${collaborationStep}`, name, arguments: JSON.stringify(args) },
+    })
+    const result = lastIsToolResult(body) ? JSON.parse(lastText(body, 'tool')) : undefined
+    if (collaborationStep === 0) {
+      collaborationStep = 1
+      return invoke('spawn_agent', {
+        task_name: 'inspector',
+        message: 'COLLAB-CHILD-FIRST：查看工作区目录',
+        fork_turns: 'all',
+      })
+    }
+    if (collaborationStep === 1) {
+      collaborationChild = result
+      collaborationStep = 2
+      return invoke('wait_agent', { targets: [collaborationChild.agentId], timeout_ms: 5000 })
+    }
+    if (
+      collaborationStep === 2 &&
+      result?.agents?.some(
+        (/** @type {any} */ agent) => agent.agentId === collaborationChild.agentId && agent.status === 'completed',
+      )
+    ) {
+      collaborationStep = 3
+      return invoke('followup_task', {
+        target: collaborationChild.agentId,
+        message: 'COLLAB-CHILD-FOLLOWUP：继续已有任务',
+      })
+    }
+    if (collaborationStep === 3) {
+      collaborationStep = 4
+      return invoke('wait_agent', { targets: [collaborationChild.agentId], timeout_ms: 5000 })
+    }
+    if (
+      collaborationStep === 4 &&
+      result?.agents?.some(
+        (/** @type {any} */ agent) => agent.agentId === collaborationChild.agentId && agent.status === 'completed',
+      )
+    )
+      return { text: '父任务已读取子代理两轮结果。' }
+    return invoke('wait_agent', { targets: [collaborationChild.agentId], timeout_ms: 5000 })
+  }
+  if (text === 'plan-smoke') {
+    if (lastIsToolResult(body)) return { text: '计划已保存，等待你决定下一步。' }
+    return {
+      tool: {
+        name: 'save_plan',
+        arguments: JSON.stringify({
+          title: '桌面验收计划',
+          markdown: '# 桌面验收计划\n\n1. 查看工作区目录。\n2. 确认改动范围。\n3. 运行项目检查。\n',
+        }),
+      },
+    }
+  }
   // 工具结果回传后收尾：正文只出现在最后一个工具调用之后才会显示为最终正文。
   if (lastIsToolResult(body)) {
     const tool = lastText(body, 'tool')

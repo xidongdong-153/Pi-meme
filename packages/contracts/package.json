@@ -16,7 +16,9 @@
     "./agent-access": "./src/agent-access.ts",
     "./mcp": "./src/mcp.ts",
     "./secure-storage": "./src/secure-storage.ts",
-    "./host": "./src/host.ts"
+    "./host": "./src/host.ts",
+    "./plan": "./src/plan.ts",
+    "./collaboration": "./src/collaboration.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit",

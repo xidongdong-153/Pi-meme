@@ -8,13 +8,17 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
+import type { AgentSummary } from '@pi-meme/contracts/collaboration'
+import type { PlanDocument } from '@pi-meme/contracts/plan'
 import type { InstructionsSnapshot, SaveInstructionResult } from '@pi-meme/contracts/settings'
 import { requestText } from '../../../tests/fixtures/fake-provider.mjs'
 
 type Snapshot = {
   connection: { sessionKey?: string; sessionFile?: string }
   models: Array<{ id: string }>
-  state: { isStreaming: boolean }
+  state: { isStreaming: boolean; mode: 'default' | 'plan' }
+  agents?: AgentSummary[]
+  planDocuments?: PlanDocument[]
   messages: Array<{ role: string; [key: string]: unknown }>
 }
 type Settings = { settings: Record<string, unknown> }
@@ -32,33 +36,107 @@ test(
     let mode = 'base'
     const issued = new Set<string>()
     const seen: Array<{ mode: string; tools: string[] }> = []
+    let collaborationStep = 0
+    let spawned: AgentSummary | undefined
+    let continued: AgentSummary | undefined
+    const childReports: string[] = []
     let child: ChildProcess | undefined
     let closed: Promise<void> | undefined
     let stdout = ''
     const agent = await useFakeAgent(root, {
-      reply(body: { tools?: Array<{ function?: { name?: string } }> }) {
+      reply(body: {
+        tools?: Array<{ function?: { name?: string } }>
+        messages?: Array<{ role: string; content: unknown }>
+      }) {
         const tools = (body.tools ?? []).flatMap((tool) => (tool.function?.name ? [tool.function.name] : []))
         seen.push({ mode, tools })
+        const user = [...(body.messages ?? [])]
+          .reverse()
+          .find(
+            (message) =>
+              message.role === 'user' &&
+              !JSON.stringify(message.content).includes('当前访问权限：') &&
+              !JSON.stringify(message.content).includes('当前是规划模式') &&
+              !JSON.stringify(message.content).includes('子 Agent 已返回结果，请结合已保存的协作消息') &&
+              !JSON.stringify(message.content).includes('[来自 '),
+          )
+        const prompt = JSON.stringify(user?.content)
+        const result = (body.messages ?? []).at(-1)
+        const toolResult =
+          mode === 'subagent' &&
+          !prompt.includes('DIST-CHILD-') &&
+          result?.role === 'tool' &&
+          typeof result.content === 'string'
+            ? (JSON.parse(result.content) as Record<string, unknown>)
+            : undefined
+        const invoke = (name: string, args: object) => ({
+          tool: { id: `dist-${name}-${collaborationStep}`, name, arguments: JSON.stringify(args) },
+        })
+        if (mode === 'subagent') {
+          if (prompt.includes('DIST-CHILD-FOLLOWUP')) return { text: 'DIST-CHILD-FOLLOWUP-OK' }
+          if (prompt.includes('DIST-CHILD-FIRST')) return { text: 'DIST-CHILD-FIRST-OK' }
+          if (collaborationStep === 0) {
+            issued.add(mode)
+            collaborationStep = 1
+            return invoke('spawn_agent', {
+              task_name: 'explorer',
+              message: 'DIST-CHILD-FIRST：读取临时项目概况',
+              fork_turns: 'none',
+            })
+          }
+          if (collaborationStep === 1) {
+            spawned = toolResult as AgentSummary | undefined
+            collaborationStep = 2
+            return invoke('wait_agent', { targets: [spawned?.agentId], timeout_ms: 5000 })
+          }
+          const agents = toolResult?.agents as AgentSummary[] | undefined
+          if (
+            collaborationStep === 2 &&
+            agents?.some((entry) => entry.agentId === spawned?.agentId && entry.status === 'completed')
+          ) {
+            childReports.push(
+              ...((toolResult?.messages as Array<{ text: string }>) ?? []).map((message) => message.text),
+            )
+            collaborationStep = 3
+            return invoke('followup_task', {
+              target: spawned!.agentId,
+              message: 'DIST-CHILD-FOLLOWUP：继续检查临时项目',
+            })
+          }
+          if (collaborationStep === 3) {
+            continued = toolResult?.agent as AgentSummary | undefined
+            collaborationStep = 4
+            return invoke('wait_agent', { targets: [spawned?.agentId], timeout_ms: 5000 })
+          }
+          if (
+            collaborationStep === 4 &&
+            agents?.some((entry) => entry.agentId === spawned?.agentId && entry.status === 'completed')
+          ) {
+            childReports.push(
+              ...((toolResult?.messages as Array<{ text: string }>) ?? []).map((message) => message.text),
+            )
+            return { text: 'DIST-subagent-OK' }
+          }
+          return invoke('wait_agent', { targets: [spawned?.agentId], timeout_ms: 5000 })
+        }
+        if (mode === 'plan' && !issued.has(mode)) {
+          issued.add(mode)
+          return invoke('save_plan', {
+            title: 'Server 产物计划',
+            markdown: '# Server 产物计划\n\n1. 读取临时项目。\n2. 运行验证命令。\n',
+          })
+        }
         const wanted =
           mode === 'external'
             ? 'dist_probe'
             : mode === 'mcp'
               ? tools.find((name) => name.includes('echo'))
-              : mode === 'subagent'
-                ? 'Task'
-                : mode.startsWith('codemode')
-                  ? 'codemode'
-                  : undefined
+              : mode.startsWith('codemode')
+                ? 'codemode'
+                : undefined
         if (wanted && tools.includes(wanted) && !issued.has(mode)) {
           issued.add(mode)
-          const args =
-            mode === 'external'
-              ? {}
-              : mode === 'mcp'
-                ? { text: 'DIST-MCP' }
-                : mode === 'subagent'
-                  ? { agent: 'explorer', task: '读取临时项目概况', description: '产物验证' }
-                  : { code: 'text(40 + 2)' }
+          const args = mode === 'external' ? {} : mode === 'mcp' ? { text: 'DIST-MCP' } : { code: 'text(40 + 2)' }
           return { tool: { name: wanted, arguments: JSON.stringify(args) } }
         }
         return { text: `DIST-${mode}-OK` }
@@ -78,15 +156,9 @@ test(
           themeId: 'dark',
           defaultAccessMode: 'full-access',
           mcpEnabled: true,
-          codemodeEnabled: true,
-          subagentsEnabled: true,
-          enabledSubagents: ['explorer'],
+          subagentsEnabled: false,
+          enabledSubagents: [],
         }),
-      )
-      await mkdir(path.join(data, 'pi/subagents'), { recursive: true })
-      await writeFile(
-        path.join(data, 'pi/subagents/explorer.md'),
-        '---\nname: explorer\ndescription: 检查临时目录\n---\n读取临时目录并报告。',
       )
       await writeFile(
         path.join(data, 'pi/mcp.json'),
@@ -155,7 +227,7 @@ test(
         assert.equal(body.error, undefined, `${method}：${JSON.stringify(body.error)}`)
         return body.result
       }
-      assert.equal((await rpc<unknown[]>('plugins:list')).length, 14)
+      assert.deepEqual(await rpc<unknown[]>('plugins:list'), [])
       await rpc('workspace:select', [{ kind: 'project', cwd: project }])
       const initial = await rpc<Snapshot>('pi:snapshot')
       const key = initial.connection.sessionKey!
@@ -180,13 +252,13 @@ test(
     }`,
       )
       await rpc('plugins:install-directory', [plugin])
-      for (const step of ['base', 'external', 'mcp', 'subagent', 'codemode', 'codemode-only']) {
+      for (const step of ['base', 'external', 'mcp', 'subagent', 'codemode', 'codemode-only', 'plan']) {
         mode = step
         if (step === 'codemode-only') {
           const current = await rpc<Settings>('settings:get')
-          await rpc('settings:save', [{ ...current.settings, mcpEnabled: false, codemodeEnabled: true }])
+          await rpc('settings:save', [{ ...current.settings, mcpEnabled: false, codemodeEnabled: false }])
         }
-        await rpc('pi:prompt', [key, `产物验证 ${step}`], key)
+        await rpc('pi:prompt', [key, `${step === 'plan' ? '/plan ' : ''}产物验证 ${step}`], key)
         let snapshot: Snapshot | undefined
         const replied = () =>
           snapshot?.messages.some(
@@ -204,17 +276,47 @@ test(
             ? 'DIST-EXTERNAL'
             : step === 'mcp'
               ? 'MCP:DIST-MCP'
-              : step === 'subagent'
-                ? 'DIST-subagent-OK'
-                : step.startsWith('codemode')
-                  ? '42'
-                  : undefined
+              : step.startsWith('codemode')
+                ? '42'
+                : undefined
         if (expected)
           assert.ok(
             snapshot!.messages.some(
               (message) => message.role === 'toolResult' && JSON.stringify(message).includes(expected),
             ),
           )
+        if (step === 'subagent') {
+          assert.ok(spawned?.agentId && spawned.sessionFile)
+          assert.equal(continued?.agentId, spawned.agentId)
+          assert.equal(continued?.sessionFile, spawned.sessionFile)
+          assert.notEqual(continued?.runId, spawned.runId)
+          assert.ok(childReports.some((text) => text.includes('DIST-CHILD-FIRST-OK')))
+          assert.ok(childReports.some((text) => text.includes('DIST-CHILD-FOLLOWUP-OK')))
+          const childSnapshot = await rpc<Snapshot>('pi:agent-snapshot', [spawned.agentId])
+          assert.ok(JSON.stringify(childSnapshot.messages).includes('DIST-CHILD-FIRST-OK'))
+          assert.ok(JSON.stringify(childSnapshot.messages).includes('DIST-CHILD-FOLLOWUP-OK'))
+          assert.equal((await rpc<Snapshot>('pi:snapshot')).connection.sessionKey, key)
+        }
+        if (step === 'plan') {
+          assert.equal(snapshot!.state.mode, 'plan')
+          const document = snapshot!.planDocuments?.find((entry) => entry.title === 'Server 产物计划')
+          assert.ok(document)
+          assert.equal(
+            await readFile(path.join(data, 'plans', document.sessionId, `${document.id}.md`), 'utf8'),
+            document.markdown,
+          )
+          assert.ok(
+            seen
+              .filter((request) => request.mode === step)
+              .every(
+                (request) =>
+                  !request.tools.some(
+                    (name) =>
+                      ['bash', 'write', 'edit', 'codemode', 'dist_probe'].includes(name) || name.startsWith('mcp__'),
+                  ),
+              ),
+          )
+        }
         if (step === 'codemode-only')
           assert.ok(
             seen

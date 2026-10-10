@@ -94,4 +94,5 @@ out/
 # Workspace 构建产物
 apps/web/dist/
 apps/server/dist/
+packages/*/dist/
 plugins/*/dist/

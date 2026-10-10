@@ -1,12 +1,33 @@
 import fs from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
+import { builtinModules } from 'node:module'
 import ts from 'typescript'
 
 const root = path.resolve(import.meta.dirname, '..')
 const failures = []
 const manifests = new Map()
-for (const area of ['apps', 'packages', 'plugins']) {
+const areas = ['apps', 'packages', 'plugins'].filter((area) => fs.existsSync(path.join(root, area)))
+const businessPackages = new Set(
+  [
+    'chat',
+    'workspace',
+    'history',
+    'models',
+    'settings',
+    'resources',
+    'pi-extensions',
+    'subagents',
+    'mcp',
+    'codemode',
+    'permissions',
+    'sandbox-macos',
+    'usage',
+    'git',
+  ].map((name) => `@pi-meme/${name}`),
+)
+const nodeModules = new Set(builtinModules)
+for (const area of areas) {
   for (const name of fs.readdirSync(path.join(root, area))) {
     const directory = `${area}/${name}`
     const file = path.join(root, directory, 'package.json')
@@ -28,7 +49,7 @@ function walk(directory, files = []) {
   }
   return files
 }
-const files = ['apps', 'packages', 'plugins'].flatMap((directory) => walk(path.join(root, directory)))
+const files = areas.flatMap((directory) => walk(path.join(root, directory)))
 const locate = (file) => file.match(/^(?:apps|packages|plugins)\/[^/]+/)?.[0]
 function browserFile(file) {
   return /\/src\/(?:ui|renderer)\//.test(file) || /^(?:apps\/web|packages\/(?:client|app-ui))\/src\//.test(file)
@@ -57,7 +78,7 @@ for (const full of files) {
   const manifest = manifests.get(owner)
   for (const { value, line } of specifiers(full)) {
     const browser = browserFile(file)
-    if (value.startsWith('node:') || value === 'electron' || value.startsWith('electron/')) {
+    if (value.startsWith('node:') || nodeModules.has(value) || value === 'electron' || value.startsWith('electron/')) {
       if (browser) fail(file, line, `浏览器代码不得导入 Node.js 或 Electron：${value}`)
       if (value === 'electron' && !owner?.startsWith('apps/desktop') && !file.includes('/tests/'))
         fail(file, line, 'Electron 仅用于桌面平台层')
@@ -72,7 +93,8 @@ for (const full of files) {
       const fixture = file.includes('/tests/') && target.startsWith('tests/fixtures/')
       const buildConfiguration = /\.config\.(?:ts|mts)$/.test(file)
       if (owner !== targetOwner && !fixture && !buildConfiguration) fail(file, line, `相对导入穿透到包外：${value}`)
-      if (browser && /\/src\/(?:server|main)\//.test(target)) fail(file, line, `浏览器代码不得导入服务实现：${value}`)
+      if (browser && /\/src\/(?:server|agent|main)\//.test(target))
+        fail(file, line, `浏览器代码不得导入 Server、Agent 或主进程实现：${value}`)
       continue
     }
     const base = value.startsWith('@') ? value.split('/').slice(0, 2).join('/') : value.split('/')[0]
@@ -82,21 +104,27 @@ for (const full of files) {
       if (target.startsWith('apps/') && !/\.config\.(?:ts|mts)$/.test(file))
         fail(file, line, `包不得反向导入应用：${value}`)
       if (owner === 'packages/contracts') fail(file, line, `contracts 不得导入其他 workspace 包：${value}`)
-      if (owner?.startsWith('plugins/') && target.startsWith('plugins/') && owner !== target)
-        fail(file, line, `插件之间通过声明的服务依赖通信：${value}`)
+      if (
+        owner !== target &&
+        ((businessPackages.has(manifest?.name) && businessPackages.has(base)) ||
+          (owner?.startsWith('plugins/') && target.startsWith('plugins/')))
+      )
+        fail(file, line, `业务包和插件之间通过契约、Props 或声明的服务通信：${value}`)
       if (
         [
           'packages/pi-runtime',
           'packages/pi-adapter',
           'packages/plugin-runtime',
           'packages/plugin-sdk',
+          'packages/plugin-devkit',
           'packages/client',
           'packages/ui',
         ].includes(owner) &&
-        target.startsWith('plugins/')
+        (businessPackages.has(base) || target.startsWith('plugins/'))
       )
-        fail(file, line, `基础包不得反向依赖插件：${value}`)
-      if (browser && /\/(?:server|main)(?:\/|$)/.test(value)) fail(file, line, `浏览器代码不得导入服务实现：${value}`)
+        fail(file, line, `基础包不得反向依赖业务实现或插件：${value}`)
+      if (browser && /\/(?:server|agent|main)(?:\/|$)/.test(value))
+        fail(file, line, `浏览器代码不得导入 Server、Agent 或主进程实现：${value}`)
       if (
         browser &&
         ['packages/host', 'packages/pi-runtime', 'packages/pi-adapter', 'packages/plugin-runtime'].includes(target)

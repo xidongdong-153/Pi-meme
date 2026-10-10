@@ -1,11 +1,15 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { mkdtemp, rm, mkdir } from 'node:fs/promises'
+import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { createWorkerSession } from '../src/worker-session'
 import { MemoryCredentialStorage } from '@pi-meme/pi-runtime/secure-store'
 import { createPiRuntimePaths } from '@pi-meme/pi-runtime/runtime-paths'
+import { setTimeout as delay } from 'node:timers/promises'
+import type { DesktopEvent } from '@pi-meme/contracts/desktop'
+import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
 
 test('Worker使用稳定SDK懒启动会话，停止后可重新创建运行时', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'pi-meme-worker-test-'))
@@ -50,7 +54,6 @@ test('仓库外原生 Agent 插件通过 Pi 公开模块加载，缺权限能力
     credentials: new MemoryCredentialStorage(),
     settings: { themeId: 'dark' },
     agentEntries: [{ pluginId: 'external-agent', generation: 1, path: entry }],
-    descriptors: [{ id: 'external-agent', enabled: true, builtin: false }],
   }))
   try {
     session.configureAccess('full-access')
@@ -61,6 +64,81 @@ test('仓库外原生 Agent 插件通过 Pi 公开模块加载，缺权限能力
     await assert.rejects(session.reconnectModels(), /权限|沙箱/)
   } finally {
     await session.stopAndWait()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('Worker重建模型后退出重开，真实弹窗事件与快照使用递增执行代次', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'pi-meme-worker-generation-'))
+  const fake = await useFakeAgent(root, {
+    reply: (_body, index) => (index === 1 ? { tool: { name: 'generation-dialog', arguments: '{}' } } : '交互完成'),
+  })
+  const workerPath = path.join(root, 'interaction-worker.ts')
+  const entry = path.join(root, 'generation-extension.js')
+  const events: DesktopEvent[] = []
+  const connections: number[] = []
+  await writeFile(
+    workerPath,
+    `import { runSessionWorker } from ${JSON.stringify(fileURLToPath(new URL('../src/session-worker.ts', import.meta.url)))}
+runSessionWorker({ interaction: (context) => { context.registerInteractionPolicy(true); return [] } })`,
+  )
+  await writeFile(
+    entry,
+    `export default (pi) => pi.registerTool({name:'generation-dialog',label:'确认',description:'验证Worker重开后的交互',parameters:{type:'object',properties:{}},execute:async(_id,_params,_signal,_update,ctx)=>({content:[{type:'text',text:String(await ctx.ui.confirm('重开确认','确认继续'))}],details:{}})})`,
+  )
+  const session = createWorkerSession(
+    root,
+    {
+      connection: (value) => connections.push(value.generation),
+      event: (value) => events.push(value),
+      error: () => {},
+    },
+    fake.runtimePaths,
+    () => ({
+      dataRoot: path.dirname(fake.agentDir),
+      credentials: fake.credentials,
+      settings: { themeId: 'dark' },
+      agentEntries: [{ pluginId: 'generation-test', generation: 1, path: entry }],
+      workerPath,
+    }),
+  )
+  try {
+    await session.reconnectModels()
+    const first = (await session.snapshot()).connection.generation
+    await session.reconnectModels()
+    const second = (await session.snapshot()).connection.generation
+    assert.ok(second > first)
+    await session.stopAndWait()
+    await session.reconnectModels()
+    const reopened = (await session.snapshot()).connection.generation
+    assert.ok(reopened > second, `Worker执行代次不能从${second}回退到${reopened}`)
+    await session.setModel({ provider: 'fake', id: 'first' })
+    await session.prompt('请求原生确认')
+    const deadline = Date.now() + 5000
+    while (!events.some((value) => value.event.type === 'extension_ui_request' && value.event.method === 'confirm')) {
+      if (Date.now() > deadline) throw new Error('Worker重开后未发出弹窗')
+      await delay(10)
+    }
+    const event = events.find(
+      (value) => value.event.type === 'extension_ui_request' && value.event.method === 'confirm',
+    )!
+    assert.equal(event.generation, reopened)
+    assert.equal((await session.snapshot()).connection.generation, reopened)
+    assert.ok(connections.every((value, index) => !index || value >= connections[index - 1]!))
+    assert.ok(event.event.type === 'extension_ui_request')
+    await session.respondExtensionUI(event.event.id, { confirmed: true })
+    while ((await session.snapshot()).state.isStreaming) {
+      if (Date.now() > deadline) throw new Error('Worker重开后的交互未完成')
+      await delay(10)
+    }
+    const result = (await session.snapshot()).messages.find(
+      (message) => message.role === 'toolResult' && message.toolName === 'generation-dialog',
+    )
+    assert.ok(result?.role === 'toolResult' && !result.isError)
+    assert.match(JSON.stringify(result.content), /true/)
+  } finally {
+    await session.stopAndWait()
+    await fake.dispose()
     await rm(root, { recursive: true, force: true })
   }
 })

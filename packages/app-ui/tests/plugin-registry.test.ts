@@ -93,3 +93,17 @@ test('同版本同代次但 Host 实例 URL 变化时重新加载并释放旧贡
   await registry.dispose()
   assert.deepEqual(disposed, [first.ui, second.ui])
 })
+
+test('被Host隔离的failed插件不会运行UI入口', async () => {
+  let loads = 0
+  const registry = new UiPluginRegistry({} as DesktopBridge, async () => {
+    loads++
+    throw new Error('不应加载')
+  })
+  await registry.synchronize([
+    { id: 'third-party', version: '1.0.0', generation: 1, enabled: true, status: 'failed', ui: '/isolated.js' },
+  ])
+  assert.equal(loads, 0)
+  assert.equal(registry.getSnapshot().length, 0)
+  await registry.dispose()
+})

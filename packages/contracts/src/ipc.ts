@@ -1,3 +1,4 @@
+import { isTaskMode, type MessageOptions } from './plan'
 import type { SkillReference } from './skills'
 import type { PiImage } from './pi'
 
@@ -34,4 +35,13 @@ export function message(value: unknown, valueImages: unknown, valueSkills?: unkn
   )
     throw new Error('技能参数无效')
   return { text: value, images: parsedImages, skills: (valueSkills ?? []) as SkillReference[] }
+}
+
+export function messageOptions(value: unknown): MessageOptions | undefined {
+  if (value === undefined) return undefined
+  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some((key) => key !== 'mode'))
+    throw new Error('消息模式参数无效')
+  const mode = (value as MessageOptions).mode
+  if (mode !== undefined && !isTaskMode(mode)) throw new Error('消息模式无效')
+  return { mode }
 }

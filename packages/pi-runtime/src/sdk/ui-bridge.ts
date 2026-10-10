@@ -57,6 +57,7 @@ export class ExtensionUiBridge {
       const onAbort = () => {
         if (!this.pending.has(id)) return
         finish(fallback)
+        this.emit({ type: 'extension_ui_closed', id, reason: 'cancelled' })
       }
       this.pending.set(id, (response) => {
         signal?.removeEventListener('abort', onAbort)

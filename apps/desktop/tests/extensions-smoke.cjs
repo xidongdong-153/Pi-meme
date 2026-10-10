@@ -16,7 +16,8 @@ module.exports = async (window, waitFor, directory, outputDirectory) => {
   const key = await evaluate('window.piMemeClient.getConnection().then(value => value.sessionKey)')
   await evaluate(`window.piMemeClient.setAccessMode(${JSON.stringify(key)}, 'full-access')`)
   await evaluate('document.querySelector("button[aria-label=设置]").click()')
-  await clickText('扩展')
+  await evaluate('document.querySelector("aside details").open = true')
+  await clickText('开发者')
   await waitFor(() => evaluate('document.body.innerText.includes("Desktop 从应用数据目录加载扩展")'), '应用扩展设置')
   assert.equal(await evaluate('document.querySelector("#pi-user-extensions") === null'), true)
   assert.equal(

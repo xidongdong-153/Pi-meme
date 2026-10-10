@@ -11,7 +11,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: fileURLToPath(new URL('./src/main.ts', import.meta.url)),
-        'session-worker': fileURLToPath(new URL('../../packages/pi-adapter/src/session-worker.ts', import.meta.url)),
+        'session-worker': fileURLToPath(new URL('../../packages/host/src/session-worker.ts', import.meta.url)),
       },
       external: [
         ...builtinModules,

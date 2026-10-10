@@ -85,8 +85,10 @@ module.exports = async (window, waitFor, outputDirectory) => {
       await fill('自定义模型 ID', `manual-model-${index}`)
       await clickText('添加模型')
     }
+    await evaluate(
+      `document.querySelector('[aria-label="catalog-test contextWindow"]').closest('details').querySelector('summary').click()`,
+    )
     await fill('catalog-test contextWindow', '64000')
-    await evaluate('document.querySelector("[aria-label=已选模型设置] details summary").click()')
     await fill('catalog-test compat JSON', '{"supportsDeveloperRole":false}')
     await capture('model-config-editor')
     window.setSize(760, 640)
@@ -104,12 +106,15 @@ module.exports = async (window, waitFor, outputDirectory) => {
       ),
       true,
     )
+    await evaluate(
+      'document.querySelector("[aria-label=\\"manual-model-5 maxTokens\\"]").closest("details").querySelector("summary").click()',
+    )
     assert.equal(
       await evaluate(`(() => {
       const container = document.querySelector('[aria-label="模型配置内容"] [data-radix-scroll-area-viewport]');
       container.scrollTop = container.scrollHeight;
       const bounds = container.getBoundingClientRect();
-      const bottom = document.querySelector('[aria-label="manual-model-5 maxTokens"]').getBoundingClientRect();
+      const bottom = document.querySelector('[aria-label="manual-model-5 思考等级映射 JSON"]').getBoundingClientRect();
       return container.scrollTop > 0 && bottom.top >= bounds.top && bottom.bottom <= bounds.bottom;
     })()`),
       true,
@@ -157,6 +162,16 @@ module.exports = async (window, waitFor, outputDirectory) => {
     await waitFor(
       () => evaluate('window.piMemeClient.getSnapshot().then(snapshot => snapshot.state.model?.id === "manual-model")'),
       '首次保存模型后选择并应用',
+    )
+    await waitFor(
+      () =>
+        evaluate(
+          `(() => {
+            const trigger = document.querySelector('button[aria-label="选择模型与思考强度"]');
+            return Boolean(trigger && !trigger.disabled && trigger.getAttribute('aria-expanded') === 'true' && document.querySelector('[role=slider]'));
+          })()`,
+        ),
+      '模型应用完成后关闭按钮可用',
     )
     await evaluate('document.querySelector("button[aria-label=\\"选择模型与思考强度\\"]").click()')
     await waitFor(() => evaluate('!document.querySelector("[role=slider]")'), '关闭聊天模型选择器')
@@ -245,6 +260,16 @@ module.exports = async (window, waitFor, outputDirectory) => {
       () =>
         evaluate('window.piMemeClient.getSnapshot().then(snapshot => snapshot.state.model?.id === "fallback-model")'),
       '重新选择可用模型',
+    )
+    await waitFor(
+      () =>
+        evaluate(
+          `(() => {
+            const trigger = document.querySelector('button[aria-label="选择模型与思考强度"]');
+            return Boolean(trigger && !trigger.disabled && trigger.getAttribute('aria-expanded') === 'true' && document.querySelector('[role=slider]'));
+          })()`,
+        ),
+      '模型应用完成后关闭按钮可用',
     )
     await evaluate('document.querySelector("button[aria-label=\\"选择模型与思考强度\\"]").click()')
     await waitFor(() => evaluate('!document.querySelector("[role=slider]")'), '关闭聊天模型选择器')

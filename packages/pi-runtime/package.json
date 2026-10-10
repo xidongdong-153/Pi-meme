@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./agent-conversation": "./src/agent-conversation.ts",
+    "./safe-session-fork": "./src/safe-session-fork.ts",
     "./session-history": "./src/session-history.ts",
     "./session-pool": "./src/session-pool.ts",
     "./runtime": "./src/runtime.ts",

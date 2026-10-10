@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, readFile, rename, rm, writeFile, stat } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { createFacetHost, defineFacet, defineService, type Facet, type FacetHost } from '@earendil-works/chord'
 import {
@@ -7,6 +7,7 @@ import {
   type FacetBundleArtifact,
 } from '@earendil-works/chord/node'
 import { parsePluginManifest, type PluginManifest } from '@pi-meme/plugin-sdk/manifest'
+import { assertExternalPluginId, assertExternalManifest, isReservedPluginId } from '@pi-meme/plugin-sdk/reserved'
 import type { AgentPluginEntry } from '@pi-meme/plugin-sdk/agent'
 import type { PluginHandlers, ServerPluginModule } from '@pi-meme/plugin-sdk/server'
 import { PluginScope } from '@pi-meme/plugin-sdk/scope'
@@ -14,7 +15,6 @@ import type { UiPluginDescriptor } from '@pi-meme/plugin-sdk/ui'
 import { packPlugin, readPluginManifest, unpackPlugin } from './package'
 
 export type PluginDescriptor = UiPluginDescriptor & {
-  builtin: boolean
   directory: string
   agent?: string
   requires: string[]
@@ -34,13 +34,13 @@ export type PluginManagerOptions = {
   services?: Record<string, object>
   drain?: (pluginIds: string[]) => Promise<void>
   onChange?: (plugins: PluginDescriptor[]) => void
+  reservedHandlers?: string[]
 }
 type Registration = {
   manifest: PluginManifest
   directory: string
   module?: ServerPluginModule
   artifact?: FacetBundleArtifact
-  builtin: boolean
   enabled: boolean
   sourceDirectory?: string
 }
@@ -54,14 +54,18 @@ type Group = {
   references: number
   retired: boolean
 }
-type SavedPlugin = { id: string; directory: string; builtin: boolean; enabled: boolean; sourceDirectory?: string }
+type SavedPlugin = { id: string; directory: string; builtin?: boolean; enabled: boolean; sourceDirectory?: string }
+export type PluginDiagnostic = { id?: string; directory?: string; message: string }
 
 export class PluginManager {
   private registrations = new Map<string, Registration>()
   private groups = new Set<Group>()
   private retired = new Set<Group>()
   private pending = new Set<string>()
-  private defaults = new Map<string, SavedPlugin>()
+  private records = new Map<string, SavedPlugin>()
+  private failures = new Map<string, PluginDiagnostic>()
+  private restoreDiagnostics: PluginDiagnostic[] = []
+  private stateFailure?: Error
   private generation = 0
   private readonly operations = new Set<Promise<unknown>>()
   private publishTail: Promise<unknown> = Promise.resolve()
@@ -95,18 +99,42 @@ export class PluginManager {
       description: manifest.description,
       generation: active,
       directory,
-      builtin: registration.builtin,
       enabled,
-      status: this.pending.has(manifest.name) ? 'pending' : enabled ? 'active' : 'disabled',
-      ui: manifest.piMeme.ui,
-      agent: manifest.piMeme.agent,
+      status: this.pending.has(manifest.name)
+        ? 'pending'
+        : this.failures.has(manifest.name)
+          ? 'failed'
+          : enabled
+            ? 'active'
+            : 'disabled',
+      error: this.failures.get(manifest.name)?.message,
+      ui: this.failures.has(manifest.name) ? undefined : manifest.piMeme.ui,
+      agent: this.failures.has(manifest.name) ? undefined : manifest.piMeme.agent,
       requires: manifest.piMeme.requires ?? [],
       provides: manifest.piMeme.provides ?? [],
     }
   }
 
   list() {
-    return [...this.registrations.values()].map((registration) => this.descriptor(registration))
+    const descriptors = [...this.registrations.values()].map((registration) => this.descriptor(registration))
+    for (const [id, entry] of this.records) {
+      if (this.registrations.has(id) || isReservedPluginId(id) || !this.failures.has(id)) continue
+      descriptors.push({
+        id,
+        version: '未知',
+        directory: entry.directory,
+        generation: 0,
+        enabled: entry.enabled,
+        status: 'failed',
+        error: this.failures.get(id)!.message,
+        requires: [],
+        provides: [],
+      })
+    }
+    return descriptors
+  }
+  diagnostics(): PluginDiagnostic[] {
+    return [...this.restoreDiagnostics, ...this.failures.values()]
   }
   getGeneration(id: string, generation: number): PluginDescriptor | undefined {
     const group = [...this.groups, ...this.retired].find((item) => item.generation === generation && item.ids.has(id))
@@ -142,8 +170,10 @@ export class PluginManager {
     return handler(...args)
   }
 
-  private components(registrations: Map<string, Registration>) {
-    const active = [...registrations.values()].filter((item) => item.enabled)
+  private components(registrations: Map<string, Registration>, retry = new Set<string>()) {
+    const active = [...registrations.values()].filter(
+      (item) => item.enabled && (!this.failures.has(item.manifest.name) || retry.has(item.manifest.name)),
+    )
     const provider = new Map<string, Registration>()
     for (const item of active) {
       for (const name of item.manifest.piMeme.provides ?? []) {
@@ -280,13 +310,18 @@ export class PluginManager {
                     },
                     registerHandlers: (values) => {
                       for (const [channel, handler] of Object.entries(values)) {
-                        if (!registration.builtin && !channel.startsWith(`${registration.manifest.name}:`))
+                        if (!channel.startsWith(`${registration.manifest.name}:`))
                           throw new Error(`插件操作必须使用 ${registration.manifest.name}: 前缀`)
                         const outside = [...this.groups].some(
                           (group) =>
                             !registrations.some((item) => group.ids.has(item.manifest.name)) && group.handlers[channel],
                         )
-                        if (typeof handler !== 'function' || Object.hasOwn(handlers, channel) || outside)
+                        if (
+                          typeof handler !== 'function' ||
+                          Object.hasOwn(handlers, channel) ||
+                          outside ||
+                          this.options.reservedHandlers?.includes(channel)
+                        )
                           throw new Error(`插件操作无效或重复：${channel}`)
                         handlers[channel] = handler
                       }
@@ -361,6 +396,7 @@ export class PluginManager {
       if (!path.resolve(registration.directory).startsWith(`${path.resolve(this.options.directory)}${path.sep}`))
         continue
       const used =
+        [...this.records.values()].some((item) => item.directory === registration.directory) ||
         [...this.registrations.values()].some((item) => item.directory === registration.directory) ||
         [...this.groups, ...this.retired].some((group) =>
           group.registrations.some((item) => item.directory === registration.directory),
@@ -382,13 +418,14 @@ export class PluginManager {
   private async writeState(registrations: Map<string, Registration>) {
     if (this.restoring) return
     await mkdir(this.options.directory, { recursive: true })
-    const records = new Map(this.defaults)
+    if (this.stateFailure) throw this.stateFailure
+    const records = new Map(this.records)
+    for (const id of this.registrations.keys()) if (!registrations.has(id)) records.delete(id)
     for (const item of registrations.values())
       records.set(item.manifest.name, {
         id: item.manifest.name,
         directory: item.directory,
         enabled: item.enabled,
-        builtin: item.builtin,
         sourceDirectory: item.sourceDirectory,
       })
     const state = [...records.values()]
@@ -396,13 +433,14 @@ export class PluginManager {
     try {
       await writeFile(temporary, JSON.stringify(state, null, 2), { flag: 'wx' })
       await rename(temporary, path.join(this.options.directory, 'installed.json'))
+      this.records = records
     } finally {
       await rm(temporary, { force: true })
     }
   }
 
   private async transition(next: Map<string, Registration>, changedIds: string[]) {
-    const components = this.components(next)
+    const components = this.components(next, new Set(changedIds))
     const affected = new Set(changedIds)
     let expanded = true
     while (expanded) {
@@ -436,13 +474,14 @@ export class PluginManager {
       }
       await this.publish(async () => {
         const previous = this.registrations
+        const previousRecords = this.records
         const merged = new Map(previous)
         for (const id of changedIds) {
           const registration = next.get(id)
           if (registration) merged.set(id, registration)
           else merged.delete(id)
         }
-        const targetComponents = this.components(merged).filter((items) =>
+        const targetComponents = this.components(merged, new Set(changedIds)).filter((items) =>
           items.some((item) => affected.has(item.manifest.name)),
         )
         const newGroups: Group[] = []
@@ -469,6 +508,7 @@ export class PluginManager {
           }
           for (const group of newGroups) this.groups.add(group)
           this.registrations = merged
+          for (const id of changedIds) this.failures.delete(id)
           await this.pruneDirectories(
             oldGroups.filter((group) => !this.retired.has(group)).flatMap((group) => group.registrations),
           ).catch(() => {})
@@ -482,7 +522,10 @@ export class PluginManager {
               errors.push(error)
             }
           }
-          if (persisted) await this.writeState(previous).catch((error: unknown) => errors.push(error))
+          if (persisted) {
+            this.records = previousRecords
+            await this.writeState(previous).catch((error: unknown) => errors.push(error))
+          }
           if (errors.length > 1) throw new AggregateError(errors, '插件更新失败，恢复旧版本时也发生错误')
           throw cause
         }
@@ -494,6 +537,9 @@ export class PluginManager {
   }
 
   private async fromDirectory(directory: string): Promise<Registration> {
+    assertExternalManifest(
+      parsePluginManifest(JSON.parse(await readFile(path.join(directory, 'package.json'), 'utf8'))),
+    )
     const manifest = await readPluginManifest(directory)
     const artifact = manifest.piMeme.server
       ? await readFacetBundleArtifact({ manifestPath: path.join(directory, manifest.piMeme.server), entry: 'server' })
@@ -504,10 +550,11 @@ export class PluginManager {
         (artifact.plugin.version && artifact.plugin.version !== manifest.version))
     )
       throw new Error('Chord 构建产物与插件身份或版本不匹配')
-    return { manifest, directory: path.resolve(directory), artifact, builtin: false, enabled: true }
+    return { manifest, directory: path.resolve(directory), artifact, enabled: true }
   }
 
   private async replace(registration: Registration) {
+    assertExternalManifest(registration.manifest)
     const next = new Map(this.registrations)
     next.set(registration.manifest.name, registration)
     await this.transition(next, [registration.manifest.name])
@@ -515,6 +562,9 @@ export class PluginManager {
   }
 
   private async snapshotDirectory(directory: string) {
+    assertExternalManifest(
+      parsePluginManifest(JSON.parse(await readFile(path.join(directory, 'package.json'), 'utf8'))),
+    )
     const buffer = await packPlugin(directory)
     await mkdir(this.options.directory, { recursive: true })
     const snapshot = await mkdtemp(path.join(this.options.directory, 'directory-'))
@@ -548,53 +598,25 @@ export class PluginManager {
 
   reload(id: string) {
     return this.track(async () => {
-      const previous = this.registrations.get(id)
+      assertExternalPluginId(id)
+      const previous =
+        this.registrations.get(id) ??
+        (this.records.has(id)
+          ? {
+              ...(await this.fromDirectory(this.records.get(id)!.directory)),
+              enabled: this.records.get(id)!.enabled,
+              sourceDirectory: this.records.get(id)!.sourceDirectory,
+            }
+          : undefined)
       if (!previous) throw new Error('插件不存在')
-      const registration =
-        previous.sourceDirectory && !previous.builtin
-          ? await this.snapshotDirectory(previous.sourceDirectory)
-          : { ...previous }
+      const registration = previous.sourceDirectory
+        ? await this.snapshotDirectory(previous.sourceDirectory)
+        : { ...previous }
       registration.enabled = previous.enabled
       try {
         return await this.replace(registration)
       } catch (cause) {
         await this.pruneDirectories([registration]).catch(() => {})
-        throw cause
-      }
-    })
-  }
-  registerBuiltin(manifest: PluginManifest, module: ServerPluginModule, directory: string) {
-    return this.track(async () => {
-      const checked = parsePluginManifest(manifest)
-      let snapshot = directory
-      const packaged = await stat(path.join(directory, 'package.json'))
-        .then(() => true)
-        .catch((cause: unknown) => {
-          if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return false
-          throw cause
-        })
-      if (packaged) {
-        const buffer = await packPlugin(directory)
-        await mkdir(this.options.directory, { recursive: true })
-        snapshot = await mkdtemp(path.join(this.options.directory, 'builtin-'))
-        await unpackPlugin(buffer, snapshot)
-      }
-      try {
-        return await this.replace({
-          manifest: checked,
-          module,
-          directory: snapshot,
-          builtin: true,
-          enabled: this.defaults.get(manifest.name)?.enabled ?? true,
-        })
-      } catch (cause) {
-        if (
-          snapshot !== directory &&
-          ![...this.groups, ...this.retired].some((group) =>
-            group.registrations.some((item) => item.directory === snapshot),
-          )
-        )
-          await rm(snapshot, { recursive: true, force: true })
         throw cause
       }
     })
@@ -625,7 +647,16 @@ export class PluginManager {
   }
   private setEnabled(id: string, enabled: boolean) {
     return this.track(async () => {
-      const current = this.registrations.get(id)
+      assertExternalPluginId(id)
+      const current =
+        this.registrations.get(id) ??
+        (this.records.has(id)
+          ? {
+              ...(await this.fromDirectory(this.records.get(id)!.directory)),
+              enabled: this.records.get(id)!.enabled,
+              sourceDirectory: this.records.get(id)!.sourceDirectory,
+            }
+          : undefined)
       if (!current) throw new Error('插件不存在')
       const next = new Map(this.registrations)
       const registration = { ...current, enabled }
@@ -636,21 +667,26 @@ export class PluginManager {
   }
   remove(id: string) {
     return this.track(async () => {
-      if (!this.registrations.has(id)) throw new Error('插件不存在')
-      const registration = this.registrations.get(id)!
+      assertExternalPluginId(id)
+      if (!this.registrations.has(id)) {
+        if (!this.records.has(id)) throw new Error('插件不存在')
+        const record = this.records.get(id)!
+        this.records.delete(id)
+        try {
+          await this.writeState(this.registrations)
+          this.failures.delete(id)
+        } catch (cause) {
+          this.records.set(id, record)
+          throw cause
+        }
+        this.changed()
+        return
+      }
       const next = new Map(this.registrations)
       next.delete(id)
       this.components(next)
-      const previousDefault = this.defaults.get(id)
-      if (registration.builtin)
-        this.defaults.set(id, { id, directory: registration.directory, enabled: false, builtin: true })
-      try {
-        await this.transition(next, [id])
-      } catch (cause) {
-        if (previousDefault) this.defaults.set(id, previousDefault)
-        else this.defaults.delete(id)
-        throw cause
-      }
+      await this.transition(next, [id])
+      this.failures.delete(id)
     })
   }
   acquire(): PluginLease {
@@ -714,41 +750,139 @@ export class PluginManager {
       },
     }
   }
-  async restore(registerBuiltins?: () => Promise<void>) {
+  async restore() {
     let entries: SavedPlugin[]
     try {
-      entries = JSON.parse(await readFile(path.join(this.options.directory, 'installed.json'), 'utf8'))
-    } catch (cause) {
-      if ((cause as NodeJS.ErrnoException).code === 'ENOENT') {
-        await registerBuiltins?.()
-        return
+      const decoded: unknown = JSON.parse(await readFile(path.join(this.options.directory, 'installed.json'), 'utf8'))
+      if (!Array.isArray(decoded)) throw new Error('已安装插件清单必须是数组')
+      const seen = new Set<string>()
+      for (const value of decoded) {
+        if (
+          !value ||
+          typeof value !== 'object' ||
+          typeof value.id !== 'string' ||
+          !value.id ||
+          typeof value.directory !== 'string' ||
+          !value.directory ||
+          typeof value.enabled !== 'boolean' ||
+          (value.builtin !== undefined && typeof value.builtin !== 'boolean') ||
+          (value.sourceDirectory !== undefined && typeof value.sourceDirectory !== 'string')
+        )
+          throw new Error('已安装插件记录字段无效')
+        if (seen.has(value.id)) throw new Error(`已安装插件 ID 重复：${value.id}`)
+        seen.add(value.id)
       }
-      throw cause
-    }
-    if (!Array.isArray(entries)) throw new Error('已安装插件清单无效')
-    for (const entry of entries) {
-      if (typeof entry.id !== 'string' || typeof entry.directory !== 'string' || typeof entry.enabled !== 'boolean')
-        throw new Error('已安装插件记录无效')
-      if (entry.builtin) this.defaults.set(entry.id, entry)
+      entries = decoded as SavedPlugin[]
+    } catch (cause) {
+      if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return
+      this.stateFailure = new Error(`插件清单读取失败；保留 installed.json，本次不加载外部插件：${String(cause)}`)
+      this.restoreDiagnostics.push({ message: this.stateFailure.message })
+      return
     }
     this.restoring = true
     try {
-      await registerBuiltins?.()
       await this.track(async () => {
-        const next = new Map(this.registrations)
+        const next = new Map<string, Registration>()
         for (const entry of entries) {
-          if (entry.builtin) continue
-          const registration = await this.fromDirectory(entry.directory)
-          registration.enabled = entry.enabled
-          registration.sourceDirectory = entry.sourceDirectory
-          next.set(registration.manifest.name, registration)
+          if (entry.builtin === true && isReservedPluginId(entry.id)) continue
+          this.records.set(entry.id, { ...entry, builtin: undefined })
+          try {
+            assertExternalPluginId(entry.id)
+            const registration = await this.fromDirectory(entry.directory)
+            if (registration.manifest.name !== entry.id) throw new Error('安装记录与插件 manifest 身份不匹配')
+            registration.enabled = entry.enabled
+            registration.sourceDirectory = entry.sourceDirectory
+            next.set(entry.id, registration)
+          } catch (cause) {
+            this.failures.set(entry.id, { id: entry.id, directory: entry.directory, message: String(cause) })
+          }
         }
-        await this.transition(next, [...next.keys()])
+        const candidates = new Map(next)
+        const providers = new Map<string, string[]>()
+        for (const item of candidates.values()) {
+          if (!item.enabled) continue
+          for (const name of item.manifest.piMeme.provides ?? []) {
+            const ids = providers.get(name) ?? []
+            ids.push(item.manifest.name)
+            providers.set(name, ids)
+          }
+        }
+        const fail = (item: Registration, message: string) => {
+          this.failures.set(item.manifest.name, { id: item.manifest.name, directory: item.directory, message })
+          candidates.delete(item.manifest.name)
+        }
+        for (const item of [...candidates.values()]) {
+          if (!item.enabled) continue
+          for (const name of item.manifest.piMeme.provides ?? []) {
+            if ((providers.get(name)?.length ?? 0) > 1 || Object.hasOwn(this.options.services ?? {}, name)) {
+              fail(item, `服务已有提供者：${name}`)
+              break
+            }
+          }
+        }
+        let changed = true
+        while (changed) {
+          changed = false
+          for (const item of [...candidates.values()]) {
+            if (!item.enabled) continue
+            for (const name of item.manifest.piMeme.requires ?? []) {
+              if (
+                !Object.hasOwn(this.options.services ?? {}, name) &&
+                !(providers.get(name) ?? []).some((id) => candidates.get(id)?.enabled)
+              ) {
+                fail(item, `${item.manifest.name} 所需服务不可用：${name}`)
+                changed = true
+                break
+              }
+            }
+          }
+        }
+        // 分别检查连通组，循环依赖不影响独立组。
+        const unchecked = new Set([...candidates.values()].filter((item) => item.enabled))
+        while (unchecked.size) {
+          const seed = unchecked.values().next().value!
+          const members = new Set([seed])
+          unchecked.delete(seed)
+          let expanded = true
+          while (expanded) {
+            expanded = false
+            for (const item of unchecked) {
+              if (
+                [...members].some(
+                  (member) =>
+                    (item.manifest.piMeme.requires ?? []).some((name) =>
+                      member.manifest.piMeme.provides?.includes(name),
+                    ) ||
+                    (member.manifest.piMeme.requires ?? []).some((name) =>
+                      item.manifest.piMeme.provides?.includes(name),
+                    ),
+                )
+              ) {
+                members.add(item)
+                unchecked.delete(item)
+                expanded = true
+              }
+            }
+          }
+          try {
+            const component = this.components(new Map([...members].map((item) => [item.manifest.name, item])))[0]!
+            this.groups.add(await this.startGroup(component))
+          } catch (cause) {
+            for (const item of members) fail(item, String(cause))
+          }
+        }
+        this.registrations = next
+        this.changed()
       })
     } finally {
       this.restoring = false
     }
-    await this.writeState(this.registrations)
+    try {
+      await this.writeState(this.registrations)
+    } catch (cause) {
+      this.stateFailure = new Error(`插件清单迁移写入失败；原文件保留，后续变更未接纳：${String(cause)}`)
+      this.restoreDiagnostics.push({ message: this.stateFailure.message })
+    }
   }
   async dispose() {
     this.disposed = true
