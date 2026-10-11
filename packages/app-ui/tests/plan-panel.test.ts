@@ -31,6 +31,7 @@ test('右栏计划标签显示完整只读 Markdown，保留复制与导出，�
   const markup = renderToStaticMarkup(
     createElement(RightSidebar, {
       tab: 'plan',
+      availableTabs: ['plan'],
       onTab: () => {},
       onClose: () => {},
       width: 352,

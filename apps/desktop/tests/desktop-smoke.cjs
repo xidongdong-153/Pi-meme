@@ -233,8 +233,14 @@ async function run(window) {
     '项目目录切换',
   )
   await require('./file-completion-smoke.cjs')(window, waitFor, setDraft, capture)
-  await click('button[aria-label="查看 Git 变更"]')
-  await waitFor(() => evaluate(`Boolean(document.querySelector('aside[aria-label="右侧栏"]'))`), '右侧栏')
+  await click('button[aria-label="展开右侧栏"]')
+  await waitFor(
+    () =>
+      evaluate(
+        `document.querySelector('aside[aria-label="右侧栏"] [role="tab"][aria-selected="true"]')?.textContent === 'Git 变更'`,
+      ),
+    'Git 右侧栏',
+  )
   assert.equal(
     await evaluate(
       `document.querySelector('aside[aria-label="右侧栏"] [role="tab"][aria-selected="true"]').textContent`,
@@ -314,22 +320,19 @@ async function run(window) {
     'Git 变更',
     '重开保持上次标签',
   )
-  // 顶栏按钮切换标签，不关闭侧栏
-  await click('button[aria-label="查看 Session Tree"]')
-  await waitFor(
-    () =>
-      evaluate(
-        `document.querySelector('aside[aria-label="右侧栏"] [role="tab"][aria-selected="true"]').textContent === "会话树"`,
-      ),
-    '会话树标签',
+  assert.equal(
+    await evaluate(
+      `Boolean(document.querySelector('header [aria-label="查看 Session Tree"], header [aria-label="查看 Git 变更"]'))`,
+    ),
+    false,
+    '顶栏只保留打开应用和右侧栏开关',
   )
-  await click('button[aria-label="查看 Git 变更"]')
-  await waitFor(
-    () =>
-      evaluate(
-        `document.querySelector('aside[aria-label="右侧栏"] [role="tab"][aria-selected="true"]').textContent === "Git 变更"`,
-      ),
-    'Git 标签',
+  assert.deepEqual(
+    await evaluate(
+      `[...document.querySelectorAll('aside[aria-label="右侧栏"] [role="tab"]')].map(node => node.textContent.trim())`,
+    ),
+    ['Git 变更'],
+    '新会话只显示已存在的 Git 标签',
   )
   await click('button[aria-label="关闭右侧栏"]')
   await waitFor(() => evaluate(`!document.querySelector('aside[aria-label="右侧栏"]')`), '右侧栏关闭')

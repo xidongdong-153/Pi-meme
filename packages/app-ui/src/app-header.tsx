@@ -5,15 +5,12 @@ import {
   ChevronRight,
   Copy,
   FolderOpen,
-  GitCompare,
   GitFork,
-  Network,
   PanelLeft,
   PanelRightClose,
   PanelRightOpen,
 } from 'lucide-react'
 import type { ProjectApp } from '@pi-meme/contracts/desktop'
-import type { RightSidebarTab } from './right-sidebar'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@pi-meme/ui/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
@@ -44,11 +41,8 @@ export function AppHeader({
   onOpenProject,
   preferredApp,
   onPreferredApp,
-  onShowGit,
   rightPaneOpen,
   onToggleRightPane,
-  rightTab,
-  onShowSessionTree,
   forkedFrom,
   onOpenForkSource,
 }: {
@@ -68,12 +62,8 @@ export function AppHeader({
   onOpenProject: (app: ProjectApp['id']) => void
   preferredApp: ProjectApp['id']
   onPreferredApp: (app: ProjectApp['id']) => void
-  onShowGit: () => void
   rightPaneOpen: boolean
   onToggleRightPane: () => void
-  rightTab: RightSidebarTab
-  /** 打开右侧栏并切到 Session Tree 标签 */
-  onShowSessionTree: () => void
   /** 当前会话的分叉来源，用于显示来源标识并支持返回。 */
   forkedFrom?: { path: string; title: string }
   onOpenForkSource?: (sourcePath: string) => void
@@ -260,42 +250,6 @@ export function AppHeader({
           </Popover>
         </div>
 
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={onShowSessionTree}
-              aria-label="查看 Session Tree"
-              aria-expanded={rightPaneOpen && rightTab === 'session-tree'}
-              className={cn(
-                'size-7 text-muted-foreground hover:text-foreground',
-                rightPaneOpen && rightTab === 'session-tree' && 'bg-secondary/70 text-foreground',
-              )}
-            >
-              <Network className="size-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">查看 Session Tree</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={onShowGit}
-              aria-label="查看 Git 变更"
-              aria-expanded={rightPaneOpen && rightTab === 'git'}
-              className={cn(
-                'size-7 text-muted-foreground hover:text-foreground',
-                rightPaneOpen && rightTab === 'git' && 'bg-secondary/70 text-foreground',
-              )}
-            >
-              <GitCompare className="size-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">查看 Git 变更</TooltipContent>
-        </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
             <Button

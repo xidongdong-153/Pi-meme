@@ -86,7 +86,9 @@ module.exports = async function projectSelectorSmoke(window, waitFor, directory,
     const node = document.querySelector('[data-testid="workspace-card"]');
     const card = node.getBoundingClientRect();
     const composer = document.querySelector('form[aria-label="消息输入"]').getBoundingClientRect();
-    const project = node.querySelector('[aria-label="选择当前项目"]').getBoundingClientRect();
+    const projectButton = node.querySelector('[aria-label="选择当前项目"]');
+    const project = projectButton.getBoundingClientRect();
+    const chevron = projectButton.querySelector('.lucide-chevron-down').getBoundingClientRect();
     const location = node.querySelector('[aria-label="工作位置"]')?.getBoundingClientRect();
     const git = node.querySelector('[aria-label="Git 分支与工作树"]');
     const gitBounds = git.getBoundingClientRect();
@@ -94,6 +96,8 @@ module.exports = async function projectSelectorSmoke(window, waitFor, directory,
       height: card.height, left: card.left - composer.left, right: composer.right - card.right,
       overlap: card.bottom - composer.top,
       projectWidth: project.width,
+      projectHeight: project.height,
+      chevronInset: project.right - chevron.right,
       location: location ? { width: location.width, gap: location.left - project.right } : null,
       git: { text: git.textContent.trim(), icons: git.querySelectorAll('svg').length, settings: Boolean(git.querySelector('.lucide-settings')), width: gitBounds.width, right: card.right - gitBounds.right },
       close: Boolean(node.querySelector('[aria-label="不在项目中工作"], .lucide-x')),
@@ -104,9 +108,11 @@ module.exports = async function projectSelectorSmoke(window, waitFor, directory,
   assert.equal(cardGeometry.left, 12)
   assert.equal(cardGeometry.right, 12)
   assert.equal(cardGeometry.overlap, 8, '工作插槽与输入框重叠连接')
-  assert.equal(cardGeometry.projectWidth, 160, '项目入口保留文字宽度')
+  assert.ok(cardGeometry.projectWidth < 160, '短项目名称按内容收缩，不保留固定宽度')
+  assert.equal(cardGeometry.projectHeight, 28, '项目入口与设置按钮等高')
+  assert.equal(cardGeometry.chevronInset, 8, '下拉图标右侧只保留按钮内边距')
   assert.ok(cardGeometry.location, '工作插槽显示工作位置')
-  assert.equal(cardGeometry.location.width, 140, '工作位置入口保留文字宽度')
+  assert.ok(cardGeometry.location.width < 140, '本机工作位置按内容收缩')
   assert.equal(cardGeometry.location.gap, 4, '项目与工作位置紧邻')
   assert.equal(cardGeometry.git.text, '', 'Git 设置入口不显示分支文字')
   assert.equal(cardGeometry.git.icons, 1, 'Git 设置入口只显示一个图标')
@@ -115,6 +121,34 @@ module.exports = async function projectSelectorSmoke(window, waitFor, directory,
   assert.ok(cardGeometry.git.right <= 12, 'Git 设置入口位于插槽最右侧')
   assert.equal(cardGeometry.close, false, '项目入口不显示独立关闭按钮')
   assert.equal(cardGeometry.nested, false)
+  for (const [label, name] of [
+    ['选择当前项目', 'project'],
+    ['工作位置', 'location'],
+    ['Git 分支与工作树', 'git'],
+  ]) {
+    const selector = `[data-testid="workspace-card"] [aria-label="${label}"]`
+    const before = await evaluate(`(() => {
+      const node = document.querySelector(${JSON.stringify(selector)});
+      const rect = node.getBoundingClientRect();
+      return { x: Math.round(rect.x + rect.width / 2), y: Math.round(rect.y + rect.height / 2), width: rect.width, background: getComputedStyle(node).backgroundColor };
+    })()`)
+    window.webContents.sendInputEvent({ type: 'mouseMove', x: before.x, y: before.y })
+    await waitFor(
+      () =>
+        evaluate(`(() => {
+          const node = document.querySelector(${JSON.stringify(selector)});
+          return node.matches(':hover') && getComputedStyle(node).backgroundColor !== ${JSON.stringify(before.background)};
+        })()`),
+      `${label}悬停高亮`,
+    )
+    assert.equal(
+      await evaluate(`document.querySelector(${JSON.stringify(selector)}).getBoundingClientRect().width`),
+      before.width,
+      `${label}悬停不改变宽度`,
+    )
+    await capture(`project-workspace-hover-${name}`)
+  }
+  window.webContents.sendInputEvent({ type: 'mouseMove', x: 0, y: 0 })
   await theme('light')
   await open()
   assert.equal(

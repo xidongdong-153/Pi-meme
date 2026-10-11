@@ -95,7 +95,7 @@ export function GitMenu({
             aria-label="Git 分支与工作树"
             title={unavailable || environment?.branch || '分离 HEAD'}
             disabled={Boolean(disabledReason)}
-            className="flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary disabled:opacity-50"
+            className="flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors enabled:hover:bg-secondary/60 enabled:hover:text-foreground data-[state=open]:bg-secondary/60 data-[state=open]:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset enabled:cursor-pointer disabled:opacity-50"
           >
             <Settings className="size-3.5" />
           </button>

@@ -48,7 +48,7 @@ export function LocationSelector({
             aria-label="工作位置"
             title={disabledReason || label}
             disabled={Boolean(disabledReason)}
-            className="flex w-[140px] min-w-0 shrink items-center gap-1 rounded-lg px-2 py-1 text-xs text-muted-foreground hover:bg-secondary disabled:opacity-50"
+            className="flex h-7 min-w-0 max-w-[180px] shrink items-center gap-1.5 rounded-lg px-2 text-xs text-muted-foreground transition-colors enabled:hover:bg-secondary/60 enabled:hover:text-foreground data-[state=open]:bg-secondary/60 data-[state=open]:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset enabled:cursor-pointer disabled:opacity-50"
           >
             {current?.local ? <Monitor className="size-3.5 shrink-0" /> : <Server className="size-3.5 shrink-0" />}
             <span className="truncate">{label}</span>

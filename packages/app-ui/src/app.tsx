@@ -97,6 +97,30 @@ export function App({
     },
   })
   const active = serviceUI?.active ?? true
+  const [gitCwd, setGitCwd] = useState<string>()
+  const cwd = chat.connection.cwd
+  useEffect(() => {
+    if (!active || !rightPaneOpen || !cwd) return
+    let current = true
+    void bridge
+      .getGitSnapshot()
+      .then((snapshot) => {
+        if (current && snapshot.cwd === cwd) setGitCwd(snapshot.root ? cwd : undefined)
+      })
+      .catch(() => {
+        if (current) setGitCwd(undefined)
+      })
+    return () => {
+      current = false
+    }
+  }, [active, bridge, cwd, chat.refreshToken, rightPaneOpen])
+  const availableRightTabs: RightSidebarTab[] = []
+  if (gitCwd && gitCwd === cwd) availableRightTabs.push('git')
+  if (chat.chat.sessionEntries?.entries.length) availableRightTabs.push('session-tree')
+  if (chat.chat.agents?.some((agent) => agent.parentAgentId && agent.rootSessionKey === chat.connection.sessionKey))
+    availableRightTabs.push('subagents')
+  if (chat.planDocuments.length) availableRightTabs.push('plan')
+  const activeRightTab = availableRightTabs.includes(rightTab) ? rightTab : availableRightTabs[0]
   const settings = useSettings(bridge, true, false, !serviceUI)
   const appearance = useSettings(serviceUI?.appearanceBridge ?? bridge, Boolean(serviceUI) && active, false)
   const contributions = useSyncExternalStore(registry.subscribe, registry.getSnapshot, registry.getSnapshot)
@@ -430,17 +454,8 @@ export function App({
                 setPreferredApp(app)
                 void bridge.setPreferredProjectApp(app).catch((cause) => chat.setError(String(cause)))
               }}
-              onShowGit={() => {
-                setRightTab('git')
-                setRightPaneOpen(true)
-              }}
               rightPaneOpen={rightPaneOpen}
               onToggleRightPane={() => setRightPaneOpen((value) => !value)}
-              rightTab={rightTab}
-              onShowSessionTree={() => {
-                setRightTab('session-tree')
-                setRightPaneOpen(true)
-              }}
               forkedFrom={forkedFrom}
               onOpenForkSource={(path) => void chat.openForkSource(path)}
             />
@@ -607,33 +622,38 @@ export function App({
                       onDraggingChange={(dragging) => setResizingSide(dragging ? 'right' : null)}
                     />
                     <RightSidebar
-                      tab={rightTab}
+                      tab={activeRightTab}
+                      availableTabs={availableRightTabs}
                       onTab={setRightTab}
                       onClose={() => setRightPaneOpen(false)}
                       width={rightPaneWidth}
                     >
-                      {rightTab === 'subagents' ? (
+                      {activeRightTab === 'subagents' ? (
                         <SubagentsPanel
                           key={chat.connection.sessionKey}
                           bridge={bridge}
                           sessionKey={chat.connection.sessionKey}
                         />
-                      ) : rightTab === 'plan' ? (
+                      ) : activeRightTab === 'plan' ? (
                         <PlanPanel
                           key={chat.connection.sessionKey}
                           documents={chat.planDocuments}
                           selectedId={selectedPlanId}
                           onSelect={setSelectedPlanId}
                         />
-                      ) : rightTab === 'git' ? (
+                      ) : activeRightTab === 'git' ? (
                         <GitPanel {...{ cwd: chat.connection.cwd, bridge, refreshToken: chat.refreshToken }} />
-                      ) : (
+                      ) : activeRightTab === 'session-tree' ? (
                         <SessionTreePanel
                           {...{
                             sessionEntries: chat.chat.sessionEntries,
                             onSwitchVersion: (timestamp, version) => void chat.switchMessageVersion(timestamp, version),
                           }}
                         />
+                      ) : (
+                        <p className="px-3 py-5 text-center text-xs text-muted-foreground">
+                          当前项目暂无可显示的内容。
+                        </p>
                       )}
                     </RightSidebar>
                   </>

@@ -15,12 +15,14 @@ const tabs: Array<{ id: RightSidebarTab; label: string }> = [
 
 export function RightSidebar({
   tab,
+  availableTabs,
   onTab,
   onClose,
   width,
   children,
 }: {
-  tab: RightSidebarTab
+  tab: RightSidebarTab | undefined
+  availableTabs: RightSidebarTab[]
   onTab: (tab: RightSidebarTab) => void
   onClose: () => void
   width: number
@@ -43,27 +45,29 @@ export function RightSidebar({
       className="flex h-full min-h-0 shrink-0 flex-col border-l border-border bg-card/95"
     >
       <div
-        role="tablist"
+        role={availableTabs.length ? 'tablist' : undefined}
         aria-label="右侧栏标签"
         className="flex h-10 shrink-0 items-center gap-1 border-b border-border/70 px-2"
       >
-        {tabs.map((item) => (
-          <button
-            key={item.id}
-            type="button"
-            role="tab"
-            aria-selected={tab === item.id}
-            onClick={() => onTab(item.id)}
-            className={cn(
-              'rounded px-2 py-1 text-xs transition-colors',
-              tab === item.id
-                ? 'bg-secondary text-foreground'
-                : 'text-muted-foreground hover:bg-secondary/60 hover:text-foreground',
-            )}
-          >
-            {item.label}
-          </button>
-        ))}
+        {tabs
+          .filter((item) => availableTabs.includes(item.id))
+          .map((item) => (
+            <button
+              key={item.id}
+              type="button"
+              role="tab"
+              aria-selected={tab === item.id}
+              onClick={() => onTab(item.id)}
+              className={cn(
+                'rounded px-2 py-1 text-xs transition-colors',
+                tab === item.id
+                  ? 'bg-secondary text-foreground'
+                  : 'text-muted-foreground hover:bg-secondary/60 hover:text-foreground',
+              )}
+            >
+              {item.label}
+            </button>
+          ))}
         <Button
           size="icon-sm"
           variant="ghost"

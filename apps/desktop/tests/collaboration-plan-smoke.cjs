@@ -77,6 +77,13 @@ module.exports = async (window, waitFor, directory, screenshots) => {
   await evaluate('document.querySelector("button[aria-label=发送消息]").click()')
   await evaluate('document.querySelector("button[aria-label=展开右侧栏]").click()')
   await waitFor(() => evaluate('Boolean(document.querySelector("aside[aria-label=右侧栏]"))'), '协作右侧栏')
+  await waitFor(
+    () =>
+      evaluate(
+        `[...document.querySelectorAll('aside[aria-label="右侧栏"] [role="tab"]')].some(node => node.textContent.trim() === '子代理')`,
+      ),
+    '创建子代理后显示标签',
+  )
   await clickText('子代理', 'aside[aria-label=右侧栏]')
   await waitFor(
     () => evaluate('Boolean(document.querySelector("section[aria-label=运行中子代理] button"))'),

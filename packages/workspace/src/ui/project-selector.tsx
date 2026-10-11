@@ -101,7 +101,7 @@ export function ProjectSelector({
   }
 
   return (
-    <div className="flex w-40 min-w-0 shrink items-center">
+    <div className="flex min-w-0 max-w-[min(60%,260px)] shrink items-center">
       <Popover open={open} onOpenChange={(next) => void changeOpen(next)}>
         {open && returnFocus?.isConnected && <PopoverAnchor virtualRef={{ current: returnFocus }} />}
         <PopoverTrigger asChild>
@@ -110,7 +110,7 @@ export function ProjectSelector({
             aria-label="选择当前项目"
             disabled={blocked}
             title={disabledReason || (standalone ? '文件保存在此会话的独立目录' : cwd)}
-            className="flex w-full min-w-0 items-center gap-2 rounded-lg px-2 py-1 text-xs text-muted-foreground hover:bg-secondary hover:text-foreground disabled:opacity-50"
+            className="flex h-7 min-w-0 max-w-full items-center gap-1.5 rounded-lg px-2 text-xs text-foreground/85 transition-colors enabled:hover:bg-secondary/60 enabled:hover:text-foreground data-[state=open]:bg-secondary/60 data-[state=open]:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset enabled:cursor-pointer disabled:opacity-50"
           >
             <Folder className="size-4 shrink-0" />
             <span className="truncate">{name}</span>
