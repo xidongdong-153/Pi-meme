@@ -50,7 +50,7 @@ export function ActivityGroup({
 
   return (
     <div className={cn('my-3 w-full', className)}>
-      <div className="mb-3 border-b border-border/60 pb-2">
+      <div className="border-b border-border/60 pb-2">
         {canExpand ? (
           <button
             type="button"
@@ -82,7 +82,7 @@ export function ActivityGroup({
           )}
         >
           <div className="min-h-0 overflow-hidden">
-            <div className="space-y-2 pb-2">
+            <div className="space-y-2 pt-3 pb-2">
               {activityGroups.map((group) => {
                 if (group.type === 'item') {
                   const item = group.item

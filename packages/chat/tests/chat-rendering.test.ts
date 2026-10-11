@@ -9,6 +9,7 @@ import { groupConversationTurns } from '../src/ui/model/conversation-turns'
 import { extractDiff, extractImages, formatDetailValue, parseToolMeta } from '../src/ui/model/tool-details'
 import { groupAdjacentActivities, summarizeActivities } from '../src/ui/model/activity-summary'
 import { Conversation } from '../src/ui/conversation/conversation'
+import { AssistantTurnView } from '../src/ui/conversation/assistant-turn'
 import { emptyChat } from '../src/ui/model/state'
 import type { ActivityItem, ChatState } from '../src/ui/model/types'
 import type { MessageEditorState } from '../src/ui/conversation/inline-message-editor'
@@ -155,6 +156,75 @@ test('主会话子代理结果只显示短状态，不渲染报告正文或来�
   assert.match(markup, /Chat activity/)
   assert.match(markup, /data-agent-avatar=""/)
   assert.doesNotMatch(markup, /chat_activity|animate-spin/)
+})
+
+test('只有工作过程的回复不保留空正文的复制和分叉操作栏', () => {
+  const markup = renderToStaticMarkup(
+    createElement(
+      TooltipProvider,
+      null,
+      createElement(AssistantTurnView, {
+        turn: {
+          type: 'assistant_turn',
+          key: 'work-only',
+          activities: [{ id: 'thinking', type: 'thinking', thinking: '检查项目', status: 'success' }],
+          finalText: '',
+          images: [],
+          startedAt: 1000,
+          durationMs: 26000,
+          isLive: false,
+        },
+        canFork: true,
+        onFork: () => {},
+      }),
+    ),
+  )
+  assert.match(markup, /用时 26秒/)
+  assert.match(markup, /aria-label="工作过程"/)
+  assert.doesNotMatch(markup, /复制消息|从这段回复新建会话/)
+})
+
+test('子代理状态后只有正文的回复不显示零秒过程头，仍可复制和分叉', () => {
+  const markup = renderToStaticMarkup(
+    createElement(
+      TooltipProvider,
+      null,
+      createElement(Conversation, {
+        chat: {
+          ...emptyChat,
+          messages: [
+            userMessage('调研项目', 1000),
+            assistantMessage([{ type: 'thinking', thinking: '开始调研' }], 2000),
+            assistantMessage('调研结论', 4000),
+          ],
+          agentMessages: [
+            {
+              id: 'result',
+              fromAgentId: 'researcher',
+              toAgentId: 'root',
+              runId: 'run',
+              rootTaskId: 'task',
+              epoch: 1,
+              kind: 'result',
+              name: '调研',
+              status: 'completed',
+              text: '报告',
+              createdAt: new Date(3000).toISOString(),
+            },
+          ],
+        },
+        canEditMessages: true,
+        onEditMessage: () => {},
+        onSwitchMessageVersion: () => {},
+        onForkReply: () => {},
+        onCopyError: () => {},
+      }),
+    ),
+  )
+  assert.match(markup, /调研结论/)
+  assert.equal((markup.match(/aria-label="工作过程"/g) ?? []).length, 1)
+  assert.doesNotMatch(markup, /用时 0秒/)
+  assert.equal((markup.match(/aria-label="从这段回复新建会话"/g) ?? []).length, 1)
 })
 
 test('主对话与只读子详情都不在消息流显示已保存计划正文', () => {

@@ -24,6 +24,8 @@ export function AssistantTurnView({
   onFork?: (timestamp: number) => void
   onCopyError?: (message: string) => void
 }) {
+  const hasReplyContent = Boolean(turn.finalText.trim()) || turn.images.length > 0
+
   return (
     <article
       data-message-role="assistant"
@@ -31,7 +33,7 @@ export function AssistantTurnView({
     >
       <div className="flex flex-col min-w-0 w-full items-start">
         <div className="text-sm text-foreground leading-relaxed bg-transparent px-0 py-0.5 w-full">
-          {(turn.activities.length > 0 || turn.isLive || turn.durationMs !== undefined) && (
+          {(turn.activities.length > 0 || turn.isLive || (turn.durationMs ?? 0) > 0) && (
             <ActivityGroup
               items={turn.activities}
               isLive={turn.isLive}
@@ -55,16 +57,18 @@ export function AssistantTurnView({
             </div>
           )}
         </div>
-        <div className="mt-1 flex h-7 items-center opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-          <MessageActions
-            onCopy={() => navigator.clipboard.writeText(turn.finalText)}
-            onCopyError={onCopyError}
-            canCopy={Boolean(turn.finalText.trim())}
-            canEdit={false}
-            onFork={onFork && typeof turn.startedAt === 'number' ? () => onFork(turn.startedAt!) : undefined}
-            canFork={Boolean(canFork && !turn.isLive && typeof turn.startedAt === 'number')}
-          />
-        </div>
+        {hasReplyContent && (
+          <div className="mt-1 flex h-7 items-center opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+            <MessageActions
+              onCopy={() => navigator.clipboard.writeText(turn.finalText)}
+              onCopyError={onCopyError}
+              canCopy={Boolean(turn.finalText.trim())}
+              canEdit={false}
+              onFork={onFork && typeof turn.startedAt === 'number' ? () => onFork(turn.startedAt!) : undefined}
+              canFork={Boolean(canFork && !turn.isLive && typeof turn.startedAt === 'number')}
+            />
+          </div>
+        )}
       </div>
     </article>
   )

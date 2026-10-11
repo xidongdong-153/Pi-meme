@@ -89,7 +89,7 @@ export function ChatMessage({
     <article
       data-message-role={message.role}
       className={cn(
-        'group flex w-full py-1 text-sm select-text transition-all',
+        'group/message flex w-full py-1 text-sm select-text transition-all',
         isUser ? 'justify-end' : 'justify-start',
         className,
       )}
@@ -156,7 +156,7 @@ export function ChatMessage({
           )}
         </div>
         {isUser && (
-          <div className="mt-1 flex h-7 items-center gap-1 text-xs text-muted-foreground/70">
+          <div className="mt-1 flex h-7 items-center gap-1 text-xs text-muted-foreground/70 opacity-0 transition-opacity focus-within:opacity-100 group-hover/message:opacity-100">
             {typeof message.timestamp === 'number' && (
               <time className="mr-1 tabular-nums" dateTime={new Date(message.timestamp).toISOString()}>
                 {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -214,15 +214,13 @@ export function ChatMessage({
                 </TooltipContent>
               </Tooltip>
             )}
-            <div className="opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-              <MessageActions
-                onCopy={() => navigator.clipboard.writeText(messageText(message))}
-                onCopyError={onCopyError}
-                canCopy={Boolean(messageText(message).trim())}
-                onEdit={onEdit ? () => onEdit(message) : undefined}
-                canEdit={Boolean(canEdit && typeof message.timestamp === 'number')}
-              />
-            </div>
+            <MessageActions
+              onCopy={() => navigator.clipboard.writeText(messageText(message))}
+              onCopyError={onCopyError}
+              canCopy={Boolean(messageText(message).trim())}
+              onEdit={onEdit ? () => onEdit(message) : undefined}
+              canEdit={Boolean(canEdit && typeof message.timestamp === 'number')}
+            />
           </div>
         )}
       </div>
