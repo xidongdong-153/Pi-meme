@@ -23,6 +23,7 @@ export function ToolActivityRow({
   item,
   open,
   onToggle,
+  isLive = true,
   isPaused = false,
   isNested = true,
   className,
@@ -30,12 +31,13 @@ export function ToolActivityRow({
   item: Extract<ActivityItem, { type?: 'tool' }>
   open: boolean
   onToggle: () => void
+  isLive?: boolean
   isPaused?: boolean
   isNested?: boolean
   className?: string
 }) {
   const [copied, setCopied] = React.useState(false)
-  const isRunning = item.status === 'running'
+  const isRunning = isLive && item.status === 'running'
   const isError = item.status === 'error'
 
   const meta = parseToolMeta(item)
@@ -97,7 +99,7 @@ export function ToolActivityRow({
         }}
         title={meta.fullPath}
         className={cn(
-          'group inline-flex max-w-full items-center gap-2 py-1 px-1 -mx-1 rounded cursor-pointer transition-colors',
+          'group inline-flex max-w-full items-center gap-2 py-1 px-1 rounded cursor-pointer transition-colors',
           'text-muted-foreground hover:text-foreground hover:bg-secondary/30',
           isNested && 'pl-2',
           !hasDetail && 'cursor-default',
@@ -126,61 +128,72 @@ export function ToolActivityRow({
         )}
       </div>
 
-      {open && hasDetail && (
-        <div className="relative mt-1 mb-2 max-w-full rounded border border-border/40 bg-secondary/20 p-2 font-mono text-[0.6875rem] leading-relaxed text-muted-foreground select-text animate-in fade-in slide-in-from-top-1 duration-200">
-          <div className="flex items-center justify-between mb-1 pb-1 border-b border-border/30 text-[0.625rem] text-muted-foreground/80">
-            <span>{diff ? '变更内容 (Diff)' : isError ? '错误详情' : '输出内容'}</span>
-            <button
-              type="button"
-              onClick={handleCopy}
-              className="inline-flex items-center gap-1 px-1 py-0.5 rounded hover:bg-secondary/60 hover:text-foreground cursor-pointer"
-              title="复制输出"
-            >
-              {copied ? (
+      {hasDetail && (
+        <div
+          aria-hidden={!open}
+          inert={!open}
+          className={cn(
+            'grid transition-[grid-template-rows,opacity] duration-300 ease-out',
+            open ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0',
+          )}
+        >
+          <div className="min-h-0 overflow-hidden">
+            <div className="relative mt-1 mb-2 max-w-full rounded border border-border/40 bg-secondary/20 p-2 font-mono text-sm leading-relaxed text-muted-foreground select-text">
+              <div className="flex items-center justify-between mb-1 pb-1 border-b border-border/30 font-sans text-muted-foreground/80">
+                <span>{diff ? '变更内容 (Diff)' : isError ? '错误详情' : '输出内容'}</span>
+                <button
+                  type="button"
+                  onClick={handleCopy}
+                  className="inline-flex items-center gap-1 px-1 py-0.5 rounded hover:bg-secondary/60 hover:text-foreground cursor-pointer"
+                  title="复制输出"
+                >
+                  {copied ? (
+                    <>
+                      <Check className="size-2.5 text-emerald-500" />
+                      <span className="text-emerald-500">已复制</span>
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="size-2.5" />
+                      <span>复制</span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {script && (
                 <>
-                  <Check className="size-2.5 text-emerald-500" />
-                  <span className="text-emerald-500">已复制</span>
-                </>
-              ) : (
-                <>
-                  <Copy className="size-2.5" />
-                  <span>复制</span>
+                  <p className="mb-1">执行脚本</p>
+                  <pre aria-label="codemode 执行脚本" className="mb-3 max-h-56 overflow-auto whitespace-pre-wrap">
+                    {script}
+                  </pre>
                 </>
               )}
-            </button>
-          </div>
+              {diff ? (
+                <ToolDiff diff={diff} />
+              ) : rawText ? (
+                <pre className={cn('max-h-56 overflow-auto whitespace-pre-wrap', isError && 'text-destructive/90')}>
+                  {rawText}
+                </pre>
+              ) : null}
 
-          {script && (
-            <>
-              <p className="mb-1">执行脚本</p>
-              <pre aria-label="codemode 执行脚本" className="mb-3 max-h-56 overflow-auto whitespace-pre-wrap">
-                {script}
-              </pre>
-            </>
-          )}
-          {diff ? (
-            <ToolDiff diff={diff} />
-          ) : rawText ? (
-            <pre className={cn('max-h-56 overflow-auto whitespace-pre-wrap', isError && 'text-destructive/90')}>
-              {rawText}
-            </pre>
-          ) : null}
-
-          {item.children?.map((child) => (
-            <NestedToolActivity key={child.id} tool={child} isPaused={isPaused} />
-          ))}
-          {images.length > 0 && (
-            <div className="mt-2 flex flex-wrap gap-2">
-              {images.map((img, i) => (
-                <img
-                  key={i}
-                  src={`data:${img.mimeType};base64,${img.data}`}
-                  alt="工具输出图片"
-                  className="max-h-60 max-w-full rounded border border-border/40 object-contain"
-                />
+              {item.children?.map((child) => (
+                <NestedToolActivity key={child.id} tool={child} isLive={isLive} isPaused={isPaused} />
               ))}
+              {images.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {images.map((img, i) => (
+                    <img
+                      key={i}
+                      src={`data:${img.mimeType};base64,${img.data}`}
+                      alt="工具输出图片"
+                      className="max-h-60 max-w-full rounded border border-border/40 object-contain"
+                    />
+                  ))}
+                </div>
+              )}
             </div>
-          )}
+          </div>
         </div>
       )}
       <PluginToolCard tool={item} />
@@ -188,11 +201,26 @@ export function ToolActivityRow({
   )
 }
 
-function NestedToolActivity({ tool, isPaused }: { tool: import('../model/types').ToolRun; isPaused: boolean }) {
+function NestedToolActivity({
+  tool,
+  isLive,
+  isPaused,
+}: {
+  tool: import('../model/types').ToolRun
+  isLive: boolean
+  isPaused: boolean
+}) {
   const [open, setOpen] = React.useState(false)
   return (
     <div className="mt-2 border-l border-border/40 pl-2" data-parent-tool={tool.parentToolCallId}>
-      <ToolActivityRow item={tool} open={open} onToggle={() => setOpen(!open)} isPaused={isPaused} isNested />
+      <ToolActivityRow
+        item={tool}
+        open={open}
+        onToggle={() => setOpen(!open)}
+        isLive={isLive}
+        isPaused={isPaused}
+        isNested
+      />
     </div>
   )
 }

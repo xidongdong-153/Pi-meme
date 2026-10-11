@@ -20,7 +20,7 @@ export function ThinkingActivityRow({
   const label = React.useMemo(() => getThinkingLabel(item.id || item.thinking), [item.id, item.thinking])
 
   return (
-    <div className="text-xs select-none">
+    <div className="text-sm select-none">
       <div
         role="button"
         aria-label="思考过程"
@@ -34,28 +34,37 @@ export function ThinkingActivityRow({
           }
         }}
         className={cn(
-          'group inline-flex max-w-full items-center gap-1.5 py-1 px-1.5 -mx-1 rounded cursor-pointer transition-colors',
+          'group inline-flex max-w-full items-center gap-2 py-1 px-1 rounded cursor-pointer transition-colors',
           'text-muted-foreground hover:text-foreground hover:bg-secondary/30',
           isNested && 'pl-2',
         )}
       >
-        {!isPaused && <Sparkles className="size-3.5 shrink-0 text-muted-foreground group-hover:text-foreground" />}
-        <span className="truncate font-mono text-[0.75rem]">{label}</span>
+        {!isPaused && <Sparkles className="size-4 shrink-0 text-muted-foreground group-hover:text-foreground" />}
+        <span className="truncate">{label}</span>
         <ChevronDown
           className={cn(
-            'size-3 shrink-0 text-muted-foreground/70 transition-transform duration-200 ml-0.5',
+            'size-3.5 shrink-0 text-muted-foreground/70 transition-transform duration-300 ease-out ml-0.5',
             open ? 'rotate-0' : '-rotate-90',
           )}
         />
       </div>
 
-      {open && (
-        <div className={cn('my-1 select-text', isNested ? 'pl-6' : 'pl-4')}>
-          <pre className="max-h-72 overflow-y-auto whitespace-pre-wrap font-mono text-[0.6875rem] leading-relaxed text-muted-foreground/75">
-            {item.thinking || '正在梳理思路…'}
-          </pre>
+      <div
+        aria-hidden={!open}
+        inert={!open}
+        className={cn(
+          'grid transition-[grid-template-rows,opacity] duration-300 ease-out',
+          open ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0',
+        )}
+      >
+        <div className="min-h-0 overflow-hidden">
+          <div className={cn('my-1 select-text', isNested ? 'pl-6' : 'pl-4')}>
+            <pre className="pi-content max-h-72 overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground/75">
+              {item.thinking || '正在梳理思路…'}
+            </pre>
+          </div>
         </div>
-      )}
+      </div>
     </div>
   )
 }

@@ -41,11 +41,11 @@ export function CodeBlock({ code, language = 'text', className, ...props }: Code
 
   return (
     <div
-      className={cn('pi-code-block group relative my-3 overflow-hidden rounded-lg font-mono text-xs', className)}
+      className={cn('pi-code-block group relative my-3 overflow-hidden rounded-lg font-mono text-sm', className)}
       {...props}
     >
       <div className="pi-code-block-header flex h-8 items-center justify-between px-3 select-none">
-        <span className="font-sans text-[0.6875rem] font-medium tracking-wider uppercase">{language}</span>
+        <span className="font-sans text-sm font-medium tracking-wider uppercase">{language}</span>
         <Button
           variant="ghost"
           size="icon-sm"
@@ -58,11 +58,11 @@ export function CodeBlock({ code, language = 'text', className, ...props }: Code
       </div>
       {html ? (
         <div
-          className="pi-code-block-content overflow-x-auto px-4 py-3 text-[0.8125rem] leading-[1.6] select-text"
+          className="pi-code-block-content overflow-x-auto px-4 py-3 text-sm leading-[1.6] select-text"
           dangerouslySetInnerHTML={{ __html: html }}
         />
       ) : (
-        <pre className="pi-code-block-content overflow-x-auto px-4 py-3 text-[0.8125rem] leading-[1.6] text-foreground select-text font-mono">
+        <pre className="pi-code-block-content overflow-x-auto px-4 py-3 text-sm leading-[1.6] text-foreground select-text font-mono">
           <code>{code}</code>
         </pre>
       )}

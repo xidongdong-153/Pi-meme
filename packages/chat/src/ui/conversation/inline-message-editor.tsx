@@ -100,7 +100,7 @@ export function InlineMessageEditor({ editor }: { editor: MessageEditorState }) 
             data-testid="inline-edit-cancel"
             onClick={editor.onCancel}
             aria-label="取消编辑用户消息"
-            className="rounded-lg bg-secondary/80 px-3 py-1 text-xs text-foreground/80 transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="rounded-lg bg-secondary/80 px-3 py-1 text-sm text-foreground/80 transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             取消
           </button>
@@ -110,7 +110,7 @@ export function InlineMessageEditor({ editor }: { editor: MessageEditorState }) 
             disabled={!canSubmit}
             aria-label="发送编辑后的消息"
             className={cn(
-              'rounded-lg bg-foreground px-3.5 py-1 text-xs font-medium text-background transition-colors hover:bg-foreground/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              'rounded-lg bg-foreground px-3.5 py-1 text-sm font-medium text-background transition-colors hover:bg-foreground/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
               !canSubmit && 'cursor-not-allowed opacity-40 hover:bg-foreground',
             )}
           >

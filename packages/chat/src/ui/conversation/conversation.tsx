@@ -157,7 +157,7 @@ export const Conversation = React.memo(
         <div
           ref={containerRef}
           onScroll={handleScroll}
-          className="flex-1 min-h-0 min-w-0 overflow-x-hidden overflow-y-auto pl-12 pr-4 py-6 select-text"
+          className="flex-1 min-h-0 min-w-0 overflow-x-hidden overflow-y-auto pl-12 pr-4 py-6 text-sm [--code-size:var(--text-ui)] select-text"
           aria-label="对话消息流"
         >
           <div className="max-w-3xl mx-auto space-y-3 [overflow-wrap:anywhere]">
@@ -168,7 +168,7 @@ export const Conversation = React.memo(
                   variant="outline"
                   size="sm"
                   onClick={handleLoadMore}
-                  className="text-xs text-muted-foreground hover:text-foreground h-7 px-3 rounded-full border-border/80 bg-secondary/40 hover:bg-secondary cursor-pointer"
+                  className="text-sm text-muted-foreground hover:text-foreground h-7 px-3 rounded-full border-border/80 bg-secondary/40 hover:bg-secondary cursor-pointer"
                 >
                   加载更早记录（剩余 {hiddenCount} 轮）
                 </Button>

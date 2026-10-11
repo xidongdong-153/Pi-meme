@@ -117,7 +117,7 @@ test('工作过程和空回复仅显示用时且没有转圈，暂停后计时�
       }),
     ),
   )
-  assert.match(placeholder, /用时 0秒/)
+  assert.match(placeholder, /已暂停/)
   assert.doesNotMatch(placeholder, /animate-spin|animate-pulse|Pi 正在分析/)
 })
 
@@ -160,6 +160,82 @@ test('完成后用实际运行终点计时，刷新保留暂停扣减且后续�
     }),
   )
   assert.match(markup, /用时 6秒/)
+})
+
+test('未记录历史耗时显示已结束，短时运行和完成分别显示处理中与不足1秒', (context) => {
+  context.mock.method(Date, 'now', () => 20000)
+  const render = (props: Parameters<typeof ActivityGroup>[0]) =>
+    renderToStaticMarkup(createElement(ActivityGroup, props))
+  assert.match(render({ items: [] }), /已结束/)
+  assert.match(render({ items: [], durationMs: 500 }), /用时不足1秒/)
+  assert.match(render({ items: [], durationMs: 0 }), /用时不足1秒/)
+  assert.match(render({ items: [], isLive: true, startedAt: 20000 }), /处理中/)
+  assert.match(render({ items: [], isLive: true, isPaused: true, startedAt: 20000 }), /已暂停/)
+
+  const state = fromSnapshot({
+    connection: { generation: 1, cwd: '/', status: 'ready' },
+    state: { ...sessionState(), mode: 'default' },
+    messages: [
+      userMessage('历史提问', 1000),
+      assistantMessage([{ type: 'toolCall', id: 'question', name: 'request_user_input', arguments: {} }], 1026),
+    ],
+    models: [],
+  })
+  const turn = groupConversationTurns(state.messages, null, state.tools, false).find(
+    (chunk) => chunk.type === 'assistant_turn',
+  )
+  assert.ok(turn?.type === 'assistant_turn')
+  assert.equal(turn.durationMs, undefined)
+  assert.match(
+    render({ items: turn.activities, isLive: turn.isLive, startedAt: turn.startedAt, durationMs: turn.durationMs }),
+    /已结束/,
+  )
+})
+
+test('历史工具缺少结束结果时用时保持固定，下一轮继续独立计时', (context) => {
+  let now = 20000
+  context.mock.method(Date, 'now', () => now)
+  const state = fromSnapshot({
+    connection: { generation: 1, cwd: '/', status: 'ready' },
+    state: { ...sessionState(), mode: 'default', runIntervals: [{ startedAt: 1000, endedAt: 6000 }] },
+    messages: [
+      userMessage('第一轮提问', 1000),
+      assistantMessage([{ type: 'toolCall', id: 'question', name: 'request_user_input', arguments: {} }], 1200),
+    ],
+    models: [],
+  })
+  const renderTurns = (chat: typeof state) =>
+    groupConversationTurns(chat.messages, chat.live, chat.tools, chat.running, {}, [], chat.runIntervals)
+      .filter((turn) => turn.type === 'assistant_turn')
+      .map((turn) =>
+        renderToStaticMarkup(
+          createElement(ActivityGroup, {
+            items: turn.activities,
+            isLive: turn.isLive,
+            startedAt: turn.startedAt,
+            durationMs: turn.durationMs,
+          }),
+        ),
+      )
+
+  assert.equal(state.running, false)
+  assert.equal(state.tools.question?.status, 'running')
+  assert.match(renderTurns(state)[0]!, /用时 5秒/)
+  now = 30000
+  assert.match(renderTurns(state)[0]!, /用时 5秒/)
+
+  const next = applyEvent(applyEvent(state, { type: 'message_end', message: userMessage('第二轮', 25000) }), {
+    type: 'agent_start',
+    runIntervals: [{ startedAt: 25000 }],
+  })
+  const running = renderTurns(next)
+  assert.equal(running.length, 2)
+  assert.match(running[0]!, /用时 5秒/)
+  assert.match(running[1]!, /用时 5秒/)
+  now = 40000
+  const later = renderTurns(next)
+  assert.match(later[0]!, /用时 5秒/)
+  assert.match(later[1]!, /用时 15秒/)
 })
 
 test('相邻运行共用边界时间时选本轮运行，同一用户回合多次唤醒取最后结束', () => {

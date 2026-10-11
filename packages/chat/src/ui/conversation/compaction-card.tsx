@@ -88,7 +88,7 @@ export const CompactionCard = React.memo(({ kind, summary, tokensBefore, timesta
   }, [])
 
   return (
-    <div className="my-1.5 text-xs" aria-label={isBranch ? '分支上下文汇总' : '上下文已压缩'}>
+    <div className="my-1.5 text-sm" aria-label={isBranch ? '分支上下文汇总' : '上下文已压缩'}>
       {/* 文本行（参考设计图：[=] 上下文已压缩） */}
       <button
         type="button"
@@ -102,128 +102,137 @@ export const CompactionCard = React.memo(({ kind, summary, tokensBefore, timesta
         </span>
         <ChevronRight
           className={cn(
-            'size-3 text-muted-foreground/50 group-hover:text-muted-foreground transition-transform duration-200',
+            'size-3 text-muted-foreground/50 group-hover:text-muted-foreground transition-transform duration-300 ease-out',
             expanded && 'rotate-90',
           )}
         />
       </button>
 
       {/* 点开文本行展开的详情信息面板（限制最大高度，可内部滚动） */}
-      {expanded && (
-        <div className="mt-2 mb-2 ml-1.5 pl-3.5 pr-2 border-l border-border/40 max-h-72 overflow-y-auto overscroll-contain space-y-3 select-text animate-in fade-in slide-in-from-top-1 duration-200">
-          {/* 状态指标条与复制（吸顶可见） */}
-          <div className="sticky top-0 z-10 flex items-center justify-between gap-2 bg-background/95 py-0.5 backdrop-blur-xs text-muted-foreground/80">
-            <div className="flex items-center gap-2.5 flex-wrap font-mono text-[11px]">
-              {tokenLabel && <span>原上下文 ~{tokenLabel} Tokens</span>}
-              {timeLabel && <span className="text-muted-foreground/50">{timeLabel}</span>}
+      <div
+        aria-hidden={!expanded}
+        inert={!expanded}
+        className={cn(
+          'grid transition-[grid-template-rows,opacity] duration-300 ease-out',
+          expanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0',
+        )}
+      >
+        <div className="min-h-0 overflow-hidden">
+          <div className="mt-2 mb-2 ml-1.5 pl-3.5 pr-2 border-l border-border/40 max-h-72 overflow-y-auto overscroll-contain space-y-3 select-text">
+            {/* 状态指标条与复制（吸顶可见） */}
+            <div className="sticky top-0 z-10 flex items-center justify-between gap-2 bg-background/95 py-0.5 backdrop-blur-xs text-muted-foreground/80">
+              <div className="flex items-center gap-2.5 flex-wrap font-mono text-sm">
+                {tokenLabel && <span>原上下文 ~{tokenLabel} Tokens</span>}
+                {timeLabel && <span className="text-muted-foreground/50">{timeLabel}</span>}
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                onClick={handleCopySummary}
+                className="size-6 rounded text-muted-foreground hover:text-foreground cursor-pointer"
+                title="复制完整摘要"
+                aria-label="复制完整摘要"
+              >
+                {copied ? <Check className="size-3 text-emerald-500" /> : <Copy className="size-3" />}
+              </Button>
             </div>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              onClick={handleCopySummary}
-              className="size-6 rounded text-muted-foreground hover:text-foreground cursor-pointer"
-              title="复制完整摘要"
-              aria-label="复制完整摘要"
-            >
-              {copied ? <Check className="size-3 text-emerald-500" /> : <Copy className="size-3" />}
-            </Button>
+
+            {parsed.isStructured ? (
+              <>
+                {parsed.goal && (
+                  <div className="space-y-1">
+                    <div className="font-medium text-foreground/85 flex items-center gap-1.5">
+                      <Target className="size-3 text-primary/80" />
+                      <span>核心目标</span>
+                    </div>
+                    <div className="text-muted-foreground leading-relaxed pl-4">
+                      <MarkdownContent>{parsed.goal}</MarkdownContent>
+                    </div>
+                  </div>
+                )}
+
+                {parsed.progress && (
+                  <div className="space-y-1">
+                    <div className="font-medium text-foreground/85 flex items-center gap-1.5">
+                      <CheckCircle2 className="size-3 text-emerald-500/80" />
+                      <span>最新进展</span>
+                    </div>
+                    <div className="text-muted-foreground leading-relaxed pl-4">
+                      <MarkdownContent>{parsed.progress}</MarkdownContent>
+                    </div>
+                  </div>
+                )}
+
+                {/* 涉及文件 */}
+                {(parsed.modifiedFiles.length > 0 || parsed.readFiles.length > 0) && (
+                  <div className="space-y-2 pt-0.5">
+                    {parsed.modifiedFiles.length > 0 && (
+                      <div className="space-y-1">
+                        <div className="text-sm text-muted-foreground/80 flex items-center gap-1 font-medium">
+                          <FileEdit className="size-3 text-amber-500/80" />
+                          <span>修改的文件（{parsed.modifiedFiles.length}）</span>
+                        </div>
+                        <div className="flex flex-col gap-0.5 pl-4">
+                          {parsed.modifiedFiles.map((file) => (
+                            <button
+                              key={file}
+                              type="button"
+                              onClick={(e) => handleCopyPath(file, e)}
+                              className="group/file text-left font-mono text-sm text-muted-foreground hover:text-foreground truncate transition-colors cursor-pointer py-0.5"
+                              title="点击复制路径"
+                            >
+                              <span className="truncate">{file}</span>
+                              <span className="opacity-0 group-hover/file:opacity-100 text-sm text-muted-foreground/60 ml-2">
+                                {copiedPath === file ? '已复制' : '复制'}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {parsed.readFiles.length > 0 && (
+                      <div className="space-y-1">
+                        <div className="text-sm text-muted-foreground/80 flex items-center gap-1 font-medium">
+                          <FileText className="size-3 text-blue-500/80" />
+                          <span>读取的文件（{parsed.readFiles.length}）</span>
+                        </div>
+                        <div className="flex flex-col gap-0.5 pl-4">
+                          {parsed.readFiles.map((file) => (
+                            <button
+                              key={file}
+                              type="button"
+                              onClick={(e) => handleCopyPath(file, e)}
+                              className="group/file text-left font-mono text-sm text-muted-foreground hover:text-foreground truncate transition-colors cursor-pointer py-0.5"
+                              title="点击复制路径"
+                            >
+                              <span className="truncate">{file}</span>
+                              <span className="opacity-0 group-hover/file:opacity-100 text-sm text-muted-foreground/60 ml-2">
+                                {copiedPath === file ? '已复制' : '复制'}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {parsed.detailsMarkdown && (
+                  <div className="pt-0.5 text-muted-foreground leading-relaxed pl-4">
+                    <MarkdownContent>{parsed.detailsMarkdown}</MarkdownContent>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="text-muted-foreground leading-relaxed pl-4">
+                <MarkdownContent>{summary}</MarkdownContent>
+              </div>
+            )}
           </div>
-
-          {parsed.isStructured ? (
-            <>
-              {parsed.goal && (
-                <div className="space-y-1">
-                  <div className="font-medium text-foreground/85 flex items-center gap-1.5">
-                    <Target className="size-3 text-primary/80" />
-                    <span>核心目标</span>
-                  </div>
-                  <div className="text-muted-foreground leading-relaxed pl-4">
-                    <MarkdownContent>{parsed.goal}</MarkdownContent>
-                  </div>
-                </div>
-              )}
-
-              {parsed.progress && (
-                <div className="space-y-1">
-                  <div className="font-medium text-foreground/85 flex items-center gap-1.5">
-                    <CheckCircle2 className="size-3 text-emerald-500/80" />
-                    <span>最新进展</span>
-                  </div>
-                  <div className="text-muted-foreground leading-relaxed pl-4">
-                    <MarkdownContent>{parsed.progress}</MarkdownContent>
-                  </div>
-                </div>
-              )}
-
-              {/* 涉及文件 */}
-              {(parsed.modifiedFiles.length > 0 || parsed.readFiles.length > 0) && (
-                <div className="space-y-2 pt-0.5">
-                  {parsed.modifiedFiles.length > 0 && (
-                    <div className="space-y-1">
-                      <div className="text-[11px] text-muted-foreground/80 flex items-center gap-1 font-medium">
-                        <FileEdit className="size-3 text-amber-500/80" />
-                        <span>修改的文件（{parsed.modifiedFiles.length}）</span>
-                      </div>
-                      <div className="flex flex-col gap-0.5 pl-4">
-                        {parsed.modifiedFiles.map((file) => (
-                          <button
-                            key={file}
-                            type="button"
-                            onClick={(e) => handleCopyPath(file, e)}
-                            className="group/file text-left font-mono text-[11px] text-muted-foreground hover:text-foreground truncate transition-colors cursor-pointer py-0.5"
-                            title="点击复制路径"
-                          >
-                            <span className="truncate">{file}</span>
-                            <span className="opacity-0 group-hover/file:opacity-100 text-[10px] text-muted-foreground/60 ml-2">
-                              {copiedPath === file ? '已复制' : '复制'}
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {parsed.readFiles.length > 0 && (
-                    <div className="space-y-1">
-                      <div className="text-[11px] text-muted-foreground/80 flex items-center gap-1 font-medium">
-                        <FileText className="size-3 text-blue-500/80" />
-                        <span>读取的文件（{parsed.readFiles.length}）</span>
-                      </div>
-                      <div className="flex flex-col gap-0.5 pl-4">
-                        {parsed.readFiles.map((file) => (
-                          <button
-                            key={file}
-                            type="button"
-                            onClick={(e) => handleCopyPath(file, e)}
-                            className="group/file text-left font-mono text-[11px] text-muted-foreground hover:text-foreground truncate transition-colors cursor-pointer py-0.5"
-                            title="点击复制路径"
-                          >
-                            <span className="truncate">{file}</span>
-                            <span className="opacity-0 group-hover/file:opacity-100 text-[10px] text-muted-foreground/60 ml-2">
-                              {copiedPath === file ? '已复制' : '复制'}
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {parsed.detailsMarkdown && (
-                <div className="pt-0.5 text-muted-foreground leading-relaxed pl-4">
-                  <MarkdownContent>{parsed.detailsMarkdown}</MarkdownContent>
-                </div>
-              )}
-            </>
-          ) : (
-            <div className="text-muted-foreground leading-relaxed pl-4">
-              <MarkdownContent>{summary}</MarkdownContent>
-            </div>
-          )}
         </div>
-      )}
+      </div>
     </div>
   )
 })
@@ -234,7 +243,7 @@ export const CompactionCard = React.memo(({ kind, summary, tokensBefore, timesta
 export const CompactionProgressCard = React.memo(() => {
   return (
     <div
-      className="my-1.5 flex items-center gap-2 text-xs text-muted-foreground select-none animate-in fade-in duration-200"
+      className="my-1.5 flex items-center gap-2 text-sm text-muted-foreground select-none animate-in fade-in duration-200"
       aria-live="polite"
     >
       <CompactionIcon className="text-muted-foreground animate-pulse" />

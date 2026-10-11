@@ -4,7 +4,7 @@ import { cn } from '@pi-meme/ui/lib/utils'
 export function ToolDiff({ diff }: { diff: string }) {
   const lines = React.useMemo(() => diff.split('\n'), [diff])
   return (
-    <pre className="pi-code-text max-h-64 overflow-auto rounded bg-secondary/30 p-2 font-mono text-[0.6875rem] leading-relaxed border border-border/30 select-text">
+    <pre className="pi-code-text max-h-64 overflow-auto rounded bg-secondary/30 p-2 font-mono text-sm leading-relaxed border border-border/30 select-text">
       {lines.map((line, idx) => {
         let lineClass = 'text-muted-foreground'
         let marker = ' '
@@ -19,7 +19,7 @@ export function ToolDiff({ diff }: { diff: string }) {
           marker = '-'
           content = line.slice(1)
         } else if (line.startsWith('@@')) {
-          lineClass = 'text-primary/80 font-mono text-[0.625rem]'
+          lineClass = 'text-primary/80 font-mono'
           marker = ''
           content = line
         }

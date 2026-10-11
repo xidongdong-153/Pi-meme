@@ -87,7 +87,7 @@ test('只读子代理对话保留正文、复制和工作过程，隐藏编辑�
   assert.match(markup, /子任务正文/)
   assert.match(markup, /任务结果/)
   assert.match(markup, /aria-label="复制消息"/)
-  assert.match(markup, /用时 /)
+  assert.match(markup, /用时不足1秒/)
   assert.match(markup, /aria-label="工作过程"/)
   assert.doesNotMatch(markup, /编辑消息|从这段回复新建会话|用户消息版本|查看上一个版本|查看下一个版本/)
 })
@@ -382,7 +382,7 @@ test('工作过程标题只显示用时，运行时展开、历史折叠，均�
   const liveHeader = live.match(/<button[^>]*aria-label="工作过程".*?<\/button>/)?.[0]
   assert.ok(liveHeader)
   assert.match(liveHeader, /aria-expanded="true"/)
-  assert.match(liveHeader, /用时 0秒/)
+  assert.match(liveHeader, /处理中/)
   assert.doesNotMatch(liveHeader, /读取了|思考过程|工作了|lucide-sparkles/)
   assert.doesNotMatch(live, /animate-spin|lucide-loader/)
 

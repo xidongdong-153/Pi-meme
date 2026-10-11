@@ -26,7 +26,6 @@ export function ActivityGroup({
   startedAt?: number
   className?: string
 }) {
-  const hasRunning = items.some((item) => item.status === 'running') || isLive
   const [manualOpen, setManualOpen] = React.useState<boolean | null>(null)
   const groupOpen = manualOpen ?? isLive
   const [childOpenMap, setChildOpenMap] = React.useState<Record<string, boolean>>({})
@@ -40,7 +39,7 @@ export function ActivityGroup({
   const canExpand = items.length > 0
   const elapsedTime = (
     <ActivityElapsedTime
-      hasRunning={hasRunning}
+      isLive={isLive}
       isPaused={isPaused}
       startedAt={startedAt ?? mountedAt}
       durationMs={durationMs}
@@ -106,6 +105,7 @@ export function ActivityGroup({
                       item={first}
                       open={Boolean(childOpenMap[first.id])}
                       onToggle={() => toggleChild(first.id)}
+                      isLive={isLive}
                       isPaused={isPaused}
                       isNested={false}
                     />
@@ -139,7 +139,7 @@ export function ActivityGroup({
                     >
                       <IconComponent className="size-4 shrink-0" />
                       <span className="truncate">{meta.summary}</span>
-                      {hasError && <span className="shrink-0 text-xs">调用失败</span>}
+                      {hasError && <span className="shrink-0">调用失败</span>}
                       <ChevronDown
                         className={cn(
                           'size-3.5 shrink-0 transition-transform duration-300 ease-out',
@@ -163,6 +163,7 @@ export function ActivityGroup({
                               item={item}
                               open={Boolean(childOpenMap[item.id])}
                               onToggle={() => toggleChild(item.id)}
+                              isLive={isLive}
                               isPaused={isPaused}
                               isNested={false}
                             />
@@ -182,13 +183,13 @@ export function ActivityGroup({
 }
 
 function ActivityElapsedTime({
-  hasRunning,
+  isLive,
   isPaused,
   startedAt,
   durationMs,
   pauseIntervals,
 }: {
-  hasRunning: boolean
+  isLive: boolean
   isPaused: boolean
   startedAt: number
   durationMs?: number
@@ -197,17 +198,20 @@ function ActivityElapsedTime({
   const [now, setNow] = React.useState(Date.now)
 
   React.useEffect(() => {
-    if (!hasRunning || isPaused) return
+    if (!isLive || isPaused) return
     const timer = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(timer)
-  }, [hasRunning, isPaused])
+  }, [isLive, isPaused])
 
   const elapsedMs = activeDuration(
     startedAt,
-    hasRunning ? Math.max(now, Date.now()) : startedAt + (durationMs ?? 0),
+    isLive ? Math.max(now, Date.now()) : startedAt + (durationMs ?? 0),
     pauseIntervals,
   )
-  return <>用时 {formatDurationChinese(elapsedMs) || '0秒'}</>
+  const duration = formatDurationChinese(elapsedMs)
+  if (duration) return <>用时 {duration}</>
+  if (isLive) return <>{isPaused ? '已暂停' : '处理中'}</>
+  return <>{durationMs === undefined ? '已结束' : '用时不足1秒'}</>
 }
 
 /** 兼容旧名称 ActionGroup */

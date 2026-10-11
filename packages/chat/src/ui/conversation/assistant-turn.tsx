@@ -50,7 +50,7 @@ export function AssistantTurnView({
           {turn.errorMessage && (
             <div
               role="alert"
-              className="mt-2.5 flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive"
+              className="mt-2.5 flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive"
             >
               <AlertCircle className="size-4 shrink-0 mt-0.5" />
               <div className="font-medium whitespace-pre-wrap leading-relaxed">{turn.errorMessage}</div>

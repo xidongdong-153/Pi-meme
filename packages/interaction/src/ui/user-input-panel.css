@@ -10,7 +10,7 @@
   border-radius: 24px;
   background: color-mix(in srgb, var(--foreground) 8%, var(--background));
   color: var(--foreground);
-  font-size: 13px;
+  font-size: var(--text-ui);
   line-height: 20px;
 }
 
@@ -40,7 +40,7 @@
 
 .user-input-source {
   overflow: hidden;
-  font-size: 11px;
+  font-size: inherit;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -74,7 +74,7 @@
 
 .user-input-page {
   padding: 0 4px;
-  font-size: 12px;
+  font-size: inherit;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
@@ -149,7 +149,7 @@
   display: block;
   margin-top: 2px;
   color: var(--user-input-muted);
-  font-size: 11px;
+  font-size: inherit;
   font-weight: 400;
   line-height: 16px;
 }
@@ -175,7 +175,7 @@
 .user-input-error {
   margin: 0 10px 4px;
   color: var(--destructive);
-  font-size: 12px;
+  font-size: inherit;
 }
 
 .user-input-response {

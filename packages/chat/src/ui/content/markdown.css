@@ -2,10 +2,11 @@
 
 /* 容器基础排版 */
 .pi-markdown {
+  --code-size: var(--text-ui);
   font-family: var(--font-content);
   font-weight: var(--font-content-weight);
   font-style: var(--font-content-style);
-  font-size: calc(var(--text-ui) * 1.035714);
+  font-size: var(--text-ui);
   line-height: 1.72;
   color: var(--color-text);
   letter-spacing: 0.01em;
@@ -29,7 +30,7 @@
 
 /* ---- 标题 ---- */
 .pi-h1 {
-  font-size: 1.45em;
+  font-size: 1em;
   font-weight: 650;
   letter-spacing: -0.02em;
   margin: 1.8em 0 0.6em;
@@ -40,7 +41,7 @@
 }
 
 .pi-h2 {
-  font-size: 1.25em;
+  font-size: 1em;
   font-weight: 620;
   letter-spacing: -0.015em;
   margin: 1.5em 0 0.5em;
@@ -51,7 +52,7 @@
 }
 
 .pi-h3 {
-  font-size: 1.1em;
+  font-size: 1em;
   font-weight: 600;
   letter-spacing: -0.01em;
   margin: 1.3em 0 0.4em;
@@ -161,7 +162,7 @@
   padding: 0.7em 1em;
   border-radius: 8px;
   border-left: 4px solid;
-  font-size: 0.92em;
+  font-size: inherit;
   line-height: 1.6;
 }
 
@@ -169,7 +170,7 @@
   font-weight: 600;
   margin-bottom: 0.35em;
   text-transform: uppercase;
-  font-size: 0.82em;
+  font-size: inherit;
   letter-spacing: 0.04em;
 }
 
@@ -220,7 +221,7 @@
 /* ---- 行内代码 ---- */
 .pi-inline-code {
   padding: 0.12em 0.4em;
-  font-size: 0.88em;
+  font-size: inherit;
   font-family: var(--font-code);
   background: color-mix(in srgb, var(--color-elevated) 80%, transparent);
   border-radius: 5px;
@@ -296,7 +297,7 @@
 .pi-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 0.92em;
+  font-size: inherit;
 }
 
 .pi-thead {
@@ -308,7 +309,7 @@
   padding: 0.6em 0.9em;
   font-weight: 600;
   text-align: left;
-  font-size: 0.9em;
+  font-size: inherit;
   letter-spacing: 0.02em;
   color: var(--color-muted);
 }
@@ -361,10 +362,10 @@
 }
 
 .pi-markdown .katex {
-  font-size: 1.05em;
+  font-size: 1em;
   color: var(--color-text);
 }
 
 .pi-markdown .katex-display > .katex {
-  font-size: 1.15em;
+  font-size: 1em;
 }

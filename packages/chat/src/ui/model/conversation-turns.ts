@@ -116,7 +116,15 @@ export function groupConversationTurns(
           interval.startedAt < (boundary ?? Infinity) &&
           (interval.endedAt ?? Infinity) > turnStartTimestamp,
       )
-      const finishedAt = run?.endedAt !== undefined ? Math.min(run.endedAt, boundary ?? Infinity) : turnEndTimestamp
+      const hasPendingTools = activities.some(
+        (item) => item.type !== 'thinking' && item.type !== 'narration' && item.status === 'running',
+      )
+      const finishedAt =
+        run?.endedAt !== undefined
+          ? Math.min(run.endedAt, boundary ?? Infinity)
+          : hasPendingTools
+            ? undefined
+            : turnEndTimestamp
       const durationMs =
         turnStartTimestamp !== undefined && finishedAt !== undefined
           ? Math.max(0, finishedAt - turnStartTimestamp)

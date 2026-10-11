@@ -146,7 +146,7 @@ export function ChatMessage({
           {(message.role === 'assistant' ? message.errorMessage : undefined) && (
             <div
               role="alert"
-              className="mt-2.5 flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-xs text-destructive"
+              className="mt-2.5 flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive"
             >
               <AlertCircle className="size-4 shrink-0 mt-0.5" />
               <div className="font-medium whitespace-pre-wrap leading-relaxed">
@@ -156,7 +156,7 @@ export function ChatMessage({
           )}
         </div>
         {isUser && (
-          <div className="mt-1 flex h-7 items-center gap-1 text-xs text-muted-foreground/70 opacity-0 transition-opacity focus-within:opacity-100 group-hover/message:opacity-100">
+          <div className="mt-1 flex h-7 items-center gap-1 text-sm text-muted-foreground/70 opacity-0 transition-opacity focus-within:opacity-100 group-hover/message:opacity-100">
             {typeof message.timestamp === 'number' && (
               <time className="mr-1 tabular-nums" dateTime={new Date(message.timestamp).toISOString()}>
                 {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
@@ -169,7 +169,7 @@ export function ChatMessage({
                     data-testid="version-control"
                     aria-label="用户消息版本"
                     aria-busy={versionSwitchBusy}
-                    className="flex items-center gap-0.5 rounded-full border border-border/80 bg-secondary/50 pl-1.5 pr-0.5 text-[0.6875rem] text-foreground/80"
+                    className="flex items-center gap-0.5 rounded-full border border-border/80 bg-secondary/50 pl-1.5 pr-0.5 text-sm text-foreground/80"
                   >
                     <span className="select-none">版本</span>
                     <button
@@ -209,7 +209,7 @@ export function ChatMessage({
                     </button>
                   </div>
                 </TooltipTrigger>
-                <TooltipContent side="top" className="text-xs">
+                <TooltipContent side="top" className="text-sm">
                   切换版本会同时恢复该版本所属的完整后续对话
                 </TooltipContent>
               </Tooltip>
