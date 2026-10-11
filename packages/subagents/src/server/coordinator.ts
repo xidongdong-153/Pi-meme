@@ -1,3 +1,4 @@
+import { validateExtensionDialogResponse } from '@pi-meme/contracts/user-input'
 import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile, rm } from 'node:fs/promises'
 import path from 'node:path'
@@ -83,6 +84,7 @@ export class HostCollaborationBridge {
   private records = new Map<string, Record>()
   private callers = new WeakMap<RuntimeSdkSession, Record>()
   private roots = new Map<string, Record>()
+  private answers = new Set<string>()
   private plans: PlanDocument[] = []
   private listeners = new Set<() => void>()
   private writes: Promise<void> = Promise.resolve()
@@ -786,7 +788,10 @@ export class HostCollaborationBridge {
     const current = event.event
     const previousStatus = record.summary.status
     this.acknowledge(record, current)
-    if (current.type === 'extension_ui_request' && ['select', 'input', 'confirm', 'editor'].includes(current.method)) {
+    if (
+      current.type === 'extension_ui_request' &&
+      ['select', 'input', 'confirm', 'editor', 'questions'].includes(current.method)
+    ) {
       record.interactions.push({
         sessionKey: record.summary.sessionKey,
         executionGeneration: record.summary.executionGeneration,
@@ -822,7 +827,10 @@ export class HostCollaborationBridge {
     const current = event.event
     const previousStatus = root.summary.status
     this.acknowledge(root, current)
-    if (current.type === 'extension_ui_request' && ['select', 'input', 'confirm', 'editor'].includes(current.method)) {
+    if (
+      current.type === 'extension_ui_request' &&
+      ['select', 'input', 'confirm', 'editor', 'questions'].includes(current.method)
+    ) {
       root.interactions.push({
         sessionKey,
         executionGeneration: root.summary.executionGeneration,
@@ -1268,16 +1276,24 @@ export class HostCollaborationBridge {
     response: Parameters<RuntimeSdkSession['respondExtensionUI']>[1],
   ) {
     const record = [...this.records.values()].find((entry) => entry.summary.sessionKey === sessionKey)
-    if (!record?.session || !record.interactions.some((entry) => entry.request.id === id))
-      throw new Error('子 Agent 交互已结束')
-    await record.session.respondExtensionUI(id, response)
-    if (record.interactions.some((entry) => entry.request.id === id))
-      this.event(record, {
-        generation: record.summary.executionGeneration,
-        event: { type: 'extension_ui_closed', id, reason: 'answered' },
-      })
-    this.changed(record)
+    const pending = record?.interactions.find((entry) => entry.request.id === id)
+    const answerKey = JSON.stringify([sessionKey, pending?.executionGeneration, id])
+    if (!record?.session || !pending || this.answers.has(answerKey)) throw new Error('子 Agent 交互已回答或已结束')
+    validateExtensionDialogResponse(pending.request, response)
+    this.answers.add(answerKey)
+    try {
+      await record.session.respondExtensionUI(id, response)
+      if (record.interactions.includes(pending))
+        this.event(record, {
+          generation: pending.executionGeneration,
+          event: { type: 'extension_ui_closed', id, reason: 'answered' },
+        })
+      this.changed(record)
+    } finally {
+      this.answers.delete(answerKey)
+    }
   }
+
   async savePlan(actualSession: RuntimeSdkSession, input: SavePlanInput, signal: AbortSignal): Promise<PlanDocument> {
     const pending = this.planWrites.then(() => this.savePlanOnce(actualSession, input, signal))
     this.planWrites = pending.then(

@@ -12,6 +12,7 @@ import { ComposerAttachments } from './composer-attachments'
 import { ComposerQueues } from './composer-queues'
 
 export type ComposerProps = {
+  compact?: boolean
   mode?: TaskMode
   onMode?: (mode: TaskMode) => void
   onPlanCommand?: (text: string) => void
@@ -61,6 +62,7 @@ export type ComposerProps = {
 }
 
 export function Composer({
+  compact,
   mode,
   onMode,
   onPlanCommand,
@@ -158,7 +160,8 @@ export function Composer({
       <form
         aria-label="消息输入"
         className={cn(
-          'relative flex flex-col rounded-[24px] border border-border/80 p-3 shadow-lg transition-all',
+          'composer relative flex flex-col rounded-[24px] border border-border/80 p-3 shadow-lg transition-colors',
+          compact && 'composer-compact',
           dragging && 'border-primary ring-2 ring-primary/20',
         )}
         style={{ backgroundColor: 'color-mix(in srgb, var(--background), var(--foreground) 14%)' }}
@@ -221,48 +224,50 @@ export function Composer({
           </button>
         ))}
         <ComposerAttachments attachments={attachments} onRemoveImage={onRemoveImage} disabled={disabled} />
-        <ComposerEditor
-          disabled={disabled}
-          onPlanCommand={onPlanCommand}
-          projectPath={projectPath}
-          loadProjectFiles={loadProjectFiles}
-          selectedSkills={selectedSkills}
-          onSkills={onSkills}
-          draft={draft}
-          onDraft={onDraft}
-          commands={commands}
-          focusVersion={focusVersion}
-          onClearQueue={onClearQueue}
-          hasQueue={hasQueue}
-          onEscape={onCancelEdit}
-          paste={paste}
-          dragging={dragging}
-        />
-
-        {widgetsBelow}
-        <ComposerToolbar
-          mode={mode}
-          onMode={onMode}
-          running={running}
-          paused={paused}
-          editingQueue={editingQueue}
-          onResume={onResume}
-          disabled={disabled}
-          draft={draft}
-          hasAttachments={attachments.length > 0 || selectedSkills.length > 0}
-          queueMode={queueMode}
-          onQueueMode={onQueueMode}
-          steeringMode={steeringMode}
-          followUpMode={followUpMode}
-          onSteeringMode={onSteeringMode}
-          onFollowUpMode={onFollowUpMode}
-          onStop={onStop}
-          onAddFiles={() => fileInputRef.current?.click()}
-          model={model}
-          access={access}
-          contextUsage={contextUsage}
-          editing={editing}
-        />
+        <div className="composer-layout">
+          <ComposerEditor
+            disabled={disabled}
+            onPlanCommand={onPlanCommand}
+            projectPath={projectPath}
+            loadProjectFiles={loadProjectFiles}
+            selectedSkills={selectedSkills}
+            onSkills={onSkills}
+            draft={draft}
+            onDraft={onDraft}
+            commands={commands}
+            focusVersion={focusVersion}
+            onClearQueue={onClearQueue}
+            hasQueue={hasQueue}
+            onEscape={onCancelEdit}
+            paste={paste}
+            dragging={dragging}
+          />
+          <div className="composer-below">{widgetsBelow}</div>
+          <ComposerToolbar
+            compact={compact}
+            mode={mode}
+            onMode={onMode}
+            running={running}
+            paused={paused}
+            editingQueue={editingQueue}
+            onResume={onResume}
+            disabled={disabled}
+            draft={draft}
+            hasAttachments={attachments.length > 0 || selectedSkills.length > 0}
+            queueMode={queueMode}
+            onQueueMode={onQueueMode}
+            steeringMode={steeringMode}
+            followUpMode={followUpMode}
+            onSteeringMode={onSteeringMode}
+            onFollowUpMode={onFollowUpMode}
+            onStop={onStop}
+            onAddFiles={() => fileInputRef.current?.click()}
+            model={model}
+            access={access}
+            contextUsage={contextUsage}
+            editing={editing}
+          />
+        </div>
       </form>
     </>
   )

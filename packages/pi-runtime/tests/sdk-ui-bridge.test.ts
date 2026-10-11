@@ -120,3 +120,61 @@ test('ExtensionUiBridge 通知与状态方法直接派发对应事件', () => {
     assert.equal(events[2].title, '新会话名称')
   }
 })
+
+test('多题桥保持挂起，拒绝非法答案后仍可完整回答且只完成一次', async () => {
+  const events: PiExtensionEvent[] = []
+  const bridge = new ExtensionUiBridge((event) => events.push(event))
+  const result = bridge.requestUserInput([
+    { id: 'scope', question: '范围', options: [{ label: '全部' }] },
+    { id: 'detail', question: '说明' },
+  ])
+  const request = events[0]!
+  assert.ok(request.type === 'extension_ui_request' && request.method === 'questions')
+  for (const response of [
+    { value: '旧响应' },
+    { answers: [{ id: 'scope', value: '全部' }] },
+    {
+      answers: [
+        { id: 'scope', value: '全部' },
+        { id: 'unknown', value: null },
+      ],
+    },
+    {
+      answers: [
+        { id: 'scope', value: '全部' },
+        { id: 'scope', value: null },
+      ],
+    },
+    {
+      answers: [
+        { id: 'scope', value: ' ' },
+        { id: 'detail', value: null },
+      ],
+    },
+  ])
+    assert.throws(() => bridge.respond(request.id, response))
+  const answers = [
+    { id: 'scope', value: '仅修改 Web' },
+    { id: 'detail', value: null },
+  ]
+  bridge.respond(request.id, { answers })
+  assert.deepEqual(await result, { answers, cancelled: false })
+  assert.throws(() => bridge.respond(request.id, { answers }), /已取消或超时/)
+})
+
+test('多题桥显式取消、Abort 和会话清理返回空答案，不保留部分结果', async () => {
+  for (const kind of ['cancel', 'abort', 'clear', 'pre-abort']) {
+    const events: PiExtensionEvent[] = []
+    const bridge = new ExtensionUiBridge((event) => events.push(event))
+    const controller = new AbortController()
+    if (kind === 'pre-abort') controller.abort()
+    const result = bridge.requestUserInput([{ id: 'scope', question: '范围' }], controller.signal)
+    const request = events[0]
+    if (kind === 'cancel' && request?.type === 'extension_ui_request') bridge.respond(request.id, { cancelled: true })
+    if (kind === 'abort') controller.abort()
+    if (kind === 'clear') bridge.clear()
+    assert.deepEqual(await result, { answers: [], cancelled: true })
+    if (kind === 'pre-abort') assert.equal(events.length, 0)
+    if (kind === 'abort') assert.equal(events.at(-1)?.type, 'extension_ui_closed')
+  }
+})

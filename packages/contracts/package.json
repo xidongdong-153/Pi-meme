@@ -18,7 +18,8 @@
     "./secure-storage": "./src/secure-storage.ts",
     "./host": "./src/host.ts",
     "./plan": "./src/plan.ts",
-    "./collaboration": "./src/collaboration.ts"
+    "./collaboration": "./src/collaboration.ts",
+    "./user-input": "./src/user-input.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit",

@@ -102,6 +102,8 @@ export function parseToolMeta(item: ActivityItem): {
   const name = (item.name || '').toLowerCase()
   const args = item.args as Record<string, unknown> | undefined
 
+  if (name === 'request_user_input') return { kind: 'generic', summary: '已向用户提问' }
+
   // 1. 命令类
   if (
     item.command ||

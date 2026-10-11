@@ -118,6 +118,7 @@ export function runningActivityLabel(items: ActivityItem[]): string {
     if (item.type === 'narration') continue
     if (item.status === 'running') {
       if (item.type === 'thinking') return getThinkingLabel(item.id)
+      if (item.name === 'request_user_input') return '等待你的回答…'
       const meta = parseToolMeta(item)
       if (meta.kind === 'command') return '正在运行命令…'
       if (meta.kind === 'image') return '正在查看图像…'

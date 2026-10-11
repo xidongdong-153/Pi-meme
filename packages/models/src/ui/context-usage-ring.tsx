@@ -56,7 +56,7 @@ export function ContextUsageRing({ stats }: { stats?: PiSessionStats | null }) {
           aria-label="背景信息窗口占用"
           className="relative inline-flex size-6 shrink-0 items-center justify-center rounded-full hover:bg-secondary/60 focus:outline-hidden cursor-default"
         >
-          <svg width={size} height={size} className="-rotate-90">
+          <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="-rotate-90">
             <circle
               cx={center}
               cy={center}
@@ -64,7 +64,7 @@ export function ContextUsageRing({ stats }: { stats?: PiSessionStats | null }) {
               fill="none"
               stroke="currentColor"
               strokeWidth={strokeWidth}
-              className="text-muted-foreground/20"
+              className="text-muted-foreground/35"
             />
             {hasData && (
               <circle

@@ -8,6 +8,7 @@
     "./ui/composer/command-suggestions": "./src/ui/composer/command-suggestions.tsx",
     "./ui/composer/completion-query": "./src/ui/composer/completion-query.ts",
     "./ui/composer/composer": "./src/ui/composer/composer.tsx",
+    "./ui/composer/composer.css": "./src/ui/composer/composer.css",
     "./ui/composer/composer-attachments": "./src/ui/composer/composer-attachments.tsx",
     "./ui/composer/composer-editor": "./src/ui/composer/composer-editor.tsx",
     "./ui/composer/composer-queues": "./src/ui/composer/composer-queues.tsx",

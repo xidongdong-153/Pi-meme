@@ -355,7 +355,9 @@ export class SdkSession {
         ...(!plan && this.capabilities.mcpEnabled
           ? [this.desktopMcpExtension(sdk, cwd), sdk.createToolSearchExtension()]
           : []),
-        ...this.inlineExtensions.filter((extension) => !plan || extension.name === 'pi-meme-collaboration'),
+        ...this.inlineExtensions.filter(
+          (extension) => !plan || extension.name === 'pi-meme-collaboration' || extension.name === 'pi-meme-user-input',
+        ),
         createPlanGuard(() => this.activeMode ?? this.preparationMode ?? this.mode),
         (pi: ExtensionAPI) => {
           pi.on('before_agent_start', (event) =>
@@ -1313,6 +1315,12 @@ export class SdkSession {
     })
     this.cachedCommands = commands
     return commands
+  }
+
+  requestUserInput(questions: import('@pi-meme/contracts/user-input').UserInputQuestion[], signal?: AbortSignal) {
+    if (!this.bridge || (this.policy.requireRestrictedPolicy && !this.policy.uiEnabled))
+      throw new Error('当前客户端无法回答交互问题')
+    return this.bridge.requestUserInput(questions, signal)
   }
 
   respondExtensionUI(id: string, response: PiExtensionUIResponse) {

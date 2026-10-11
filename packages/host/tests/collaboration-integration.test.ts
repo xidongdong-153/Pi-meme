@@ -413,7 +413,17 @@ test('根快照包含子会话待答问题，回答按实际子 sessionKey 分�
       const text = JSON.stringify(body.messages ?? [])
       if (text.includes('提问子任务')) {
         if ((body.messages ?? []).some((message: { role: string }) => message.role === 'tool')) return '子问题已回答'
-        return { tool: { name: 'request_user_input', arguments: JSON.stringify({ question: '子任务需要确认目标' }) } }
+        return {
+          tool: {
+            name: 'request_user_input',
+            arguments: JSON.stringify({
+              questions: [
+                { id: 'goal', question: '子任务需要确认目标' },
+                { id: 'detail', question: '补充说明' },
+              ],
+            }),
+          },
+        }
       }
       if (!spawned) {
         spawned = true
@@ -447,20 +457,148 @@ test('根快照包含子会话待答问题，回答按实际子 sessionKey 分�
       (await rpc('pi:extension-ui-response', [key, pending.request.id, { value: '伪造子来源' }], pending.sessionKey))
         .error,
     )
-    assert.equal(
-      (
-        await rpc(
-          'pi:extension-ui-response',
-          [pending.sessionKey, pending.request.id, { value: '已确认目标' }],
-          pending.sessionKey,
-        )
-      ).error,
-      undefined,
+    assert.equal(pending.request.method, 'questions')
+    const restored = (await rpc('pi:snapshot', [], key)).result as Snapshot
+    assert.deepEqual(
+      restored.pendingInteractions?.find((entry) => entry.sessionKey === pending!.sessionKey),
+      pending,
     )
+    for (const answers of [
+      [{ id: 'goal', value: '目标' }],
+      [
+        { id: 'goal', value: '目标' },
+        { id: 'unknown', value: null },
+      ],
+      [
+        { id: 'goal', value: '目标' },
+        { id: 'goal', value: null },
+      ],
+    ])
+      assert.ok(
+        (
+          await rpc(
+            'pi:extension-ui-response',
+            [pending.sessionKey, pending.request.id, { answers }],
+            pending.sessionKey,
+          )
+        ).error,
+      )
+    const answers = [
+      { id: 'goal', value: '已确认目标' },
+      { id: 'detail', value: null },
+    ]
+    const competing = await Promise.all([
+      rpc('pi:extension-ui-response', [pending.sessionKey, pending.request.id, { answers }], pending.sessionKey),
+      host.rpc({
+        requestId: crypto.randomUUID(),
+        clientId: 'second-client',
+        method: 'pi:extension-ui-response',
+        args: [pending.sessionKey, pending.request.id, { answers }],
+        sessionId: pending.sessionKey,
+      }),
+    ])
+    assert.equal(competing.filter((answer) => !answer.error).length, 1)
     await eventually(async () => ((await rpc('pi:snapshot', [], key)).result as Snapshot).agent?.status === 'completed')
     const final = (await rpc('pi:snapshot', [], key)).result as Snapshot
     assert.deepEqual(final.pendingInteractions, [])
     assert.equal(final.connection.sessionKey, key)
+  } finally {
+    await host.dispose()
+    await fake.dispose()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('根任务普通与规划模式均加载内置提问，快照恢复多题且多客户端只回答一次', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'host-root-questions-'))
+  const questions = [
+    {
+      id: 'scope',
+      question: '修改哪些页面',
+      options: [{ label: '全部', description: '包含桌面端和 Web' }, { label: '当前页' }],
+    },
+    { id: 'detail', question: '补充说明' },
+  ]
+  const fake = await useFakeAgent(root, {
+    reply: (body) =>
+      body.messages?.at(-1)?.role === 'user'
+        ? { tool: { name: 'request_user_input', arguments: JSON.stringify({ questions }) } }
+        : '回答已收到',
+  })
+  const host = await createHost({ dataRoot: path.join(root, 'userData'), credentials: fake.credentials })
+  const rpc = (method: string, args: unknown[] = [], sessionId?: string, clientId = 'client') =>
+    host.rpc({ requestId: crypto.randomUUID(), clientId, method, args, sessionId })
+  try {
+    const key = ((await rpc('pi:snapshot')).result as Snapshot).connection.sessionKey!
+    await rpc('pi:access-mode', [key, 'full-access'], key)
+    for (const mode of ['default', 'plan'] as const) {
+      assert.equal((await rpc('pi:prompt', [key, `请提问 ${mode}`, [], [], { mode }], key)).error, undefined)
+      let pending: import('@pi-meme/contracts/collaboration').PendingInteraction | undefined
+      await eventually(async () => {
+        const snapshot = (await rpc('pi:snapshot', [], key)).result as Snapshot
+        pending = snapshot.pendingInteractions?.find((entry) => entry.sessionKey === key)
+        return Boolean(pending)
+      })
+      assert.ok(pending)
+      assert.equal(pending.request.method, 'questions')
+      if (pending.request.method !== 'questions') throw new Error('应收到多题请求')
+      assert.deepEqual(pending.request.questions, questions)
+      const reconnected = (await rpc('pi:snapshot', [], key, 'reconnected')).result as Snapshot
+      assert.deepEqual(reconnected.pendingInteractions, [pending])
+      assert.ok(
+        (
+          await rpc(
+            'pi:extension-ui-response',
+            [key, pending.request.id, { answers: [{ id: 'scope', value: '全部' }] }],
+            key,
+          )
+        ).error,
+      )
+      const response =
+        mode === 'default'
+          ? {
+              answers: [
+                { id: 'scope', value: '仅桌面端' },
+                { id: 'detail', value: null },
+              ],
+            }
+          : { cancelled: true }
+      const results = await Promise.all([
+        rpc('pi:extension-ui-response', [key, pending.request.id, response], key),
+        rpc('pi:extension-ui-response', [key, pending.request.id, response], key, 'reconnected'),
+      ])
+      assert.equal(results.filter((result) => !result.error).length, 1)
+      await eventually(async () => !((await rpc('pi:snapshot', [], key)).result as Snapshot).state.isStreaming)
+      const snapshot = (await rpc('pi:snapshot', [], key)).result as Snapshot
+      assert.deepEqual(snapshot.pendingInteractions, [])
+      const result = snapshot.messages
+        .filter((message) => message.role === 'toolResult' && message.toolName === 'request_user_input')
+        .at(-1)
+      assert.ok(result?.role === 'toolResult')
+      assert.deepEqual(
+        result.details,
+        mode === 'default'
+          ? {
+              answers: [
+                { id: 'scope', value: '仅桌面端' },
+                { id: 'detail', value: null },
+              ],
+              cancelled: false,
+            }
+          : { answers: [], cancelled: true },
+      )
+    }
+    const tools = fake.provider.requests.map(
+      (request: { tools?: Array<{ function: { name: string } }> }) =>
+        request.tools?.map((tool) => tool.function.name) ?? [],
+    )
+    assert.ok(tools.every((names: string[]) => names.includes('request_user_input')))
+    assert.ok(tools.slice(0, 2).every((names: string[]) => !names.includes('save_plan')))
+    assert.ok(
+      tools
+        .slice(2)
+        .every((names: string[]) => names.includes('save_plan') && !names.includes('write') && !names.includes('bash')),
+    )
   } finally {
     await host.dispose()
     await fake.dispose()

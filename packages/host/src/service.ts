@@ -7,7 +7,7 @@ import { mkdir, readdir, realpath, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
-import type { PiExtensionUIResponse } from '@pi-meme/contracts/pi'
+import { validateExtensionUIResponse } from '@pi-meme/contracts/user-input'
 import type { HostEvent, HostRpcRequest } from '@pi-meme/contracts/host'
 import type {
   DesktopEvent,
@@ -781,17 +781,8 @@ export async function createHost(options: HostOptions = {}) {
               const [key, id, response] = request.args
               if (key !== request.sessionId || typeof id !== 'string' || !response || typeof response !== 'object')
                 throw new Error('子 Agent 交互响应参数无效')
-              const answer = response as PiExtensionUIResponse
-              if (
-                Object.keys(answer).length !== 1 ||
-                !(
-                  ('cancelled' in answer && answer.cancelled === true) ||
-                  ('value' in answer && typeof answer.value === 'string') ||
-                  ('confirmed' in answer && typeof answer.confirmed === 'boolean')
-                )
-              )
-                throw new Error('扩展交互响应无效')
-              return collaboration.respondExtensionUI(key as string, id, answer)
+              validateExtensionUIResponse(response)
+              return collaboration.respondExtensionUI(key as string, id, response)
             }
             const view = await client(request.clientId)
             if (closing) throw new Error('Host 正在退出，操作未执行')

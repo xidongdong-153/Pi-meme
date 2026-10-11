@@ -7,7 +7,6 @@ test('六协作工具常驻注册，不依赖旧目录定义或Task开关', asyn
   const tools: ToolDefinition[] = []
   const requests: unknown[] = []
   const [extension] = create({
-    taskMode: () => 'default',
     requestCollaboration: async (request) => {
       requests.push(request)
       return { agents: [] }
@@ -23,16 +22,7 @@ test('六协作工具常驻注册，不依赖旧目录定义或Task开关', asyn
   } as unknown as ExtensionAPI)
   assert.deepEqual(
     tools.map((tool) => tool.name),
-    [
-      'spawn_agent',
-      'send_message',
-      'followup_task',
-      'interrupt_agent',
-      'list_agents',
-      'wait_agent',
-      'save_plan',
-      'request_user_input',
-    ],
+    ['spawn_agent', 'send_message', 'followup_task', 'interrupt_agent', 'list_agents', 'wait_agent', 'save_plan'],
   )
   const list = tools.find((tool) => tool.name === 'list_agents')!
   await list.execute('tool-list', {}, undefined, undefined, {} as never)
@@ -52,9 +42,4 @@ test('六协作工具常驻注册，不依赖旧目录定义或Task开关', asyn
     await spawn.execute(`tool-${name}`, params, undefined, undefined, {} as never)
     assert.deepEqual(requests.at(-1), { method: 'spawn_agent', params })
   }
-  const question = tools.find((tool) => tool.name === 'request_user_input')!
-  await assert.rejects(
-    question.execute('tool-question', { question: '继续吗？' }, undefined, undefined, {} as never),
-    /只有规划模式/,
-  )
 })

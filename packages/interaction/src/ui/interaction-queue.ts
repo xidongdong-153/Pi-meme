@@ -20,7 +20,7 @@ export class InteractionQueue {
   receive(event: PiExtensionEvent, context: InteractionSource) {
     const id = interactionKey(context.sessionKey, context.executionGeneration, event.id)
     if (event.type === 'extension_ui_timeout' || event.type === 'extension_ui_closed') this.remove(id)
-    else if (['select', 'confirm', 'input', 'editor'].includes(event.method)) {
+    else if (['select', 'confirm', 'input', 'editor', 'questions'].includes(event.method)) {
       this.dialogs = [
         ...this.dialogs.filter((dialog) => dialog.id !== id),
         { ...(event as PiExtensionDialogRequest), ...context, requestId: event.id, id },

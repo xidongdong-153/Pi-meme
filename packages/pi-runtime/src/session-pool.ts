@@ -1,3 +1,4 @@
+import { validateExtensionDialogResponse } from '@pi-meme/contracts/user-input'
 import { normalizePlanMessage, type TaskMode, type MessageOptions } from '@pi-meme/contracts/plan'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import type { ToolExecutionSettings } from '@pi-meme/contracts/settings'
@@ -755,7 +756,7 @@ export class PiSessionPool implements PiRuntime {
       record.extensions.delete(`dialog:${event.id}`)
       return
     }
-    if (['select', 'confirm', 'input', 'editor'].includes(event.method))
+    if (['select', 'confirm', 'input', 'editor', 'questions'].includes(event.method))
       record.extensions.set(`dialog:${event.id}`, value)
     else if (event.method === 'setStatus') {
       const key = `status:${event.statusKey}`
@@ -1677,13 +1678,7 @@ export class PiSessionPool implements PiRuntime {
     if (!saved || record.answers.has(id)) throw new Error('交互已回答或已过期')
     const request = saved.event
     if (request.type !== 'extension_ui_request') throw new Error('扩展交互请求无效')
-    const cancelled = 'cancelled' in response && response.cancelled === true && Object.keys(response).length === 1
-    const confirmed =
-      'confirmed' in response && typeof response.confirmed === 'boolean' && Object.keys(response).length === 1
-    const value = 'value' in response && typeof response.value === 'string' && Object.keys(response).length === 1
-    if (!cancelled && (request.method === 'confirm' ? !confirmed : !value)) throw new Error('弹窗响应与请求类型不匹配')
-    if (request.method === 'select' && value && 'value' in response && !request.options.includes(response.value))
-      throw new Error('所选项不在弹窗选项内')
+    validateExtensionDialogResponse(request as import('@pi-meme/contracts/pi').PiExtensionDialogRequest, response)
     const executionGeneration = saved.executionGeneration ?? saved.generation
     record.answers.add(id)
     try {

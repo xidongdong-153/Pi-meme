@@ -21,7 +21,7 @@ export function ExtensionDialog({
   sourceName,
 }: {
   sourceName?: string
-  request: PiExtensionDialogRequest
+  request: Exclude<PiExtensionDialogRequest, { method: 'questions' }>
   onRespond: (id: string, response: PiExtensionUIResponse) => Promise<void>
 }) {
   const editorValue = React.useRef(request.method === 'editor' ? (request.prefill ?? '') : '')

@@ -1,10 +1,9 @@
-import type { InlineExtension, ExtensionToolContext } from '@earendil-works/pi-coding-agent'
+import type { InlineExtension } from '@earendil-works/pi-coding-agent'
 import { Type } from 'typebox'
 import type { CollaborationRequest, CollaborationResults } from '@pi-meme/contracts/collaboration'
 import type { PlanDocument, SavePlanInput } from '@pi-meme/contracts/plan'
 
 export type CollaborationExtensionContext = {
-  taskMode: () => import('@pi-meme/contracts/plan').TaskMode
   requestCollaboration: (
     request: Omit<CollaborationRequest, 'id'>,
     signal?: AbortSignal,
@@ -82,26 +81,6 @@ export function create(context: CollaborationExtensionContext): InlineExtension[
             return {
               content: [{ type: 'text', text: `计划已保存：${document.title}（第 ${document.revision} 版）` }],
               details: document,
-            }
-          },
-        })
-        pi.registerTool({
-          name: 'request_user_input',
-          label: '向用户提问',
-          description: '在规划模式中向用户提出一个简短问题。提供选项时使用选择框，否则使用文本框。',
-          parameters: Type.Object(
-            { question: text(), options: Type.Optional(Type.Array(text(), { minItems: 2, maxItems: 3 })) },
-            { additionalProperties: false },
-          ),
-          execute: async (_id, input, signal, _update, toolContext: ExtensionToolContext) => {
-            if (context.taskMode() !== 'plan') throw new Error('只有规划模式可以向用户提问')
-            if (!toolContext.hasUI) throw new Error('当前客户端无法回答交互问题')
-            const answer = input.options
-              ? await toolContext.ui.select(input.question, input.options, { signal })
-              : await toolContext.ui.input(input.question, undefined, { signal })
-            return {
-              content: [{ type: 'text', text: answer ?? '用户取消了回答' }],
-              details: { answer, cancelled: answer === undefined },
             }
           },
         })

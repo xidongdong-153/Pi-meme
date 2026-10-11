@@ -297,7 +297,8 @@ export function useAppSession(
       if (extension) {
         const source = record.agentId && currentAgentTree.current.find((agent) => agent.agentId === record.agentId)
         const dialogEvent =
-          event.type !== 'extension_ui_request' || ['select', 'confirm', 'input', 'editor'].includes(event.method)
+          event.type !== 'extension_ui_request' ||
+          ['select', 'confirm', 'input', 'editor', 'questions'].includes(event.method)
         const belongsToRoot = record.rootAgentId && record.rootAgentId === currentRootAgentId.current
         if (((source || belongsToRoot) && dialogEvent) || record.sessionKey === current.current.sessionKey) {
           extensionsRef.current?.handleEvent(event, {

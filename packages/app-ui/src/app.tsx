@@ -24,6 +24,7 @@ import { SettingsPage as SettingsContent } from '@pi-meme/settings/ui/settings-p
 import { ExtensionWidgets } from '@pi-meme/pi-extensions/ui/extension-widgets'
 import { ExtensionStatusBadges } from '@pi-meme/pi-extensions/ui/extension-statuses'
 import { ExtensionDialog } from '@pi-meme/pi-extensions/ui/extension-dialog'
+import { UserInputPanel } from '@pi-meme/pi-extensions/ui/user-input-panel'
 import { ExtensionNotices } from '@pi-meme/pi-extensions/ui/extension-notices'
 import { GitPanel } from '@pi-meme/git/ui/git-panel'
 import { ProjectSelector } from '@pi-meme/workspace/ui/project-selector'
@@ -226,7 +227,13 @@ export function App({
       }}
     />
   )
+  const interaction = chat.extensionDialogs[0]
+  const interactionSourceName =
+    interaction?.source?.agentId && interaction.source.rootSessionKey !== interaction.sessionKey
+      ? interaction.source.name
+      : undefined
   const composerProps: ComponentProps<typeof Composer> = {
+    compact: interaction?.method === 'questions',
     mode: chat.mode,
     onMode: chat.changeMode,
     onPlanCommand: chat.activatePlan,
@@ -243,6 +250,7 @@ export function App({
           busy: chat.accessBusy,
           supported: chat.connection.restrictedAccessSupported === true,
           onChange: (mode) => void chat.setAccessMode(mode),
+          compact: interaction?.method === 'questions',
         }}
       />
     ),
@@ -346,6 +354,16 @@ export function App({
         )}
       </div>
       <div className="relative z-10">
+        {interaction?.method === 'questions' && (
+          <UserInputPanel
+            key={interaction.id}
+            request={interaction}
+            sourceName={interactionSourceName}
+            onRespond={chat.answerExtensionDialog}
+            draft={chat.getQuestionDraft(interaction.id)}
+            onDraft={(draft) => chat.saveQuestionDraft(interaction.id, draft)}
+          />
+        )}
         <Composer {...composerProps} />
       </div>
       {chat.workspaceNotice && (
@@ -774,16 +792,12 @@ export function App({
           )}
 
           {/* 扩展交互请求弹窗 */}
-          {chat.extensionDialogs[0] && (
+          {interaction && interaction.method !== 'questions' && (
             <ExtensionDialog
-              key={chat.extensionDialogs[0].id}
+              key={interaction.id}
               {...{
-                request: chat.extensionDialogs[0],
-                sourceName:
-                  chat.extensionDialogs[0].source?.agentId &&
-                  chat.extensionDialogs[0].source?.rootSessionKey !== chat.extensionDialogs[0].sessionKey
-                    ? chat.extensionDialogs[0].source?.name
-                    : undefined,
+                request: interaction,
+                sourceName: interactionSourceName,
                 onRespond: chat.answerExtensionDialog,
               }}
             />

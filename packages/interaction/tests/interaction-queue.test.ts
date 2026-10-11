@@ -47,3 +47,25 @@ test('输入法composition与key229不提交回答', () => {
   assert.equal(composingKey({ keyCode: 229 }), true)
   assert.equal(composingKey({ keyCode: 13, isComposing: false }), false)
 })
+
+test('多题请求按来源排队，切会话后快照恢复，旧代次关闭不移除新请求', () => {
+  const questions: PendingInteraction['request'] = {
+    type: 'extension_ui_request',
+    id: 'same-id',
+    method: 'questions',
+    questions: [{ id: 'language', question: '使用什么语言？', options: [{ label: '中文' }, { label: '英文' }] }],
+  }
+  const queue = new InteractionQueue()
+  queue.receive(questions, context('first'))
+  queue.receive(questions, context('second'))
+  assert.equal(queue.all.length, 2)
+  queue.restore('other-root', [])
+  assert.equal(queue.all.length, 2)
+  queue.restore('root-session', [{ ...context('first'), executionGeneration: 2, request: questions }])
+  assert.equal(queue.all.length, 1)
+  assert.equal(queue.all[0].executionGeneration, 2)
+  queue.receive({ type: 'extension_ui_closed', id: questions.id, reason: 'answered' }, context('first'))
+  assert.equal(queue.all.length, 1)
+  queue.receive({ type: 'extension_ui_timeout', id: questions.id }, { ...context('first'), executionGeneration: 2 })
+  assert.equal(queue.all.length, 0)
+})

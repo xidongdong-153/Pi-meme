@@ -23,6 +23,10 @@ export type SessionWorkerContext = {
     signal?: AbortSignal,
   ) => Promise<CollaborationResults[keyof CollaborationResults]>
   savePlan: (input: SavePlanInput, signal?: AbortSignal) => Promise<PlanDocument>
+  requestUserInput: (
+    questions: import('@pi-meme/contracts/user-input').UserInputQuestion[],
+    signal?: AbortSignal,
+  ) => Promise<import('@pi-meme/contracts/user-input').UserInputResult>
   registerInteractionPolicy: (enabled: boolean) => void
   registerResourcePolicy: (value: RuntimePolicy['resourcePaths']) => void
   registerSandbox: (factory: RuntimePolicy['createSandbox']) => void
@@ -135,6 +139,7 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
           requestCollaboration: (request, signal) =>
             hostRequest('collaboration', request, signal) as Promise<CollaborationResults[keyof CollaborationResults]>,
           savePlan: (input, signal) => hostRequest('savePlan', { input }, signal) as Promise<PlanDocument>,
+          requestUserInput: (questions, signal) => session.requestUserInput(questions, signal),
           registerInteractionPolicy: (enabled) => {
             policy.uiEnabled = enabled
           },

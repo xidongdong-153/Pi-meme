@@ -27,12 +27,14 @@ export function AgentAccessSelector({
   busy,
   supported,
   onChange,
+  compact = false,
 }: {
   mode?: AgentAccessMode
   cwd: string
   busy: boolean
   supported: boolean
   onChange: (mode: AgentAccessMode) => void
+  compact?: boolean
 }) {
   const selected = choices.find((choice) => choice.mode === mode)!
   const Icon = selected.icon
@@ -49,14 +51,15 @@ export function AgentAccessSelector({
           <span className="inline-flex shrink-0 whitespace-nowrap">
             <SelectTrigger
               aria-label="Agent 访问权限"
-              iconClassName="hidden lg:block"
+              iconClassName={compact ? 'hidden' : 'hidden lg:block'}
               className={cn(
                 'h-7 w-7 p-0 justify-center border-0 text-xs shadow-none hover:bg-secondary/40 focus-visible:ring-2 focus-visible:ring-ring lg:w-auto lg:px-1.5 lg:py-0.5 lg:gap-1',
                 mode === 'full-access' ? 'text-[#e58a4e]' : 'text-muted-foreground',
+                compact && 'lg:w-7 lg:p-0 lg:gap-0',
               )}
             >
               <Icon className="size-3.5 shrink-0" />
-              <span className="hidden lg:inline">{selected.label}</span>
+              <span className={compact ? 'sr-only' : 'hidden lg:inline'}>{selected.label}</span>
             </SelectTrigger>
           </span>
         </TooltipTrigger>

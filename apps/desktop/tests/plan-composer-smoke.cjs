@@ -105,7 +105,8 @@ module.exports = async (window, waitFor, directory, screenshots, options = {}) =
         const accessBounds = access?.getBoundingClientRect();
         const bounds = plan?.getBoundingClientRect();
         return Boolean(editor && plan && group?.contains(plan) && Boolean(editor.compareDocumentPosition(plan) & Node.DOCUMENT_POSITION_FOLLOWING) &&
-          bounds.top >= editor.getBoundingClientRect().bottom && bounds.left >= accessBounds.right - 1 &&
+          bounds.top >= editor.getBoundingClientRect().bottom &&
+          bounds.left >= accessBounds.right - 1 &&
           plan.textContent.trim() === '计划' && plan.querySelector('.lucide-x') && plan.querySelector('.lucide-lightbulb'));
       })()`),
       true,

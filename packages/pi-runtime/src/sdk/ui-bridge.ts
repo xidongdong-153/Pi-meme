@@ -5,7 +5,8 @@ import type {
   RpcExtensionUIRequest,
   Theme,
 } from '@earendil-works/pi-coding-agent'
-import type { PiExtensionEvent, PiExtensionUIResponse } from '@pi-meme/contracts/pi'
+import type { PiExtensionEvent, PiExtensionUIResponse, PiExtensionDialogRequest } from '@pi-meme/contracts/pi'
+import { validateUserInputQuestions, type UserInputQuestion, type UserInputResult } from '@pi-meme/contracts/user-input'
 import { ExtensionDialogs } from '../extension-dialogs'
 
 /** 桌面端不渲染终端样式：返回纯文本，避免扩展往正文里塞 ANSI 转义序列。 */
@@ -39,7 +40,7 @@ export class ExtensionUiBridge {
   constructor(private readonly emit: (event: PiExtensionEvent) => void) {}
 
   private dialog<T>(
-    method: 'select' | 'confirm' | 'input' | 'editor',
+    method: PiExtensionDialogRequest['method'],
     request: Record<string, unknown>,
     fallback: T,
     parse: (response: PiExtensionUIResponse) => T,
@@ -70,10 +71,22 @@ export class ExtensionUiBridge {
         method,
         ...request,
         timeout: options?.timeout,
-      } as RpcExtensionUIRequest
+      } as RpcExtensionUIRequest | PiExtensionDialogRequest
       this.dialogs.add(message)
       this.emit(message)
     })
+  }
+
+  requestUserInput(questions: UserInputQuestion[], signal?: AbortSignal): Promise<UserInputResult> {
+    validateUserInputQuestions(questions)
+    return this.dialog(
+      'questions',
+      { questions },
+      { answers: [], cancelled: true },
+      (response) =>
+        'answers' in response ? { answers: response.answers, cancelled: false } : { answers: [], cancelled: true },
+      { signal },
+    )
   }
 
   /** 宿主对弹窗的响应；无效或已结束时抛错。 */

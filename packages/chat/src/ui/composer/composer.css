@@ -1,0 +1,102 @@
+.composer-compact {
+  container: composer / inline-size;
+  padding: 7px 8px;
+}
+
+.composer-compact .composer-layout {
+  display: flex;
+  min-width: 0;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.composer-compact .composer-editor {
+  position: static;
+  width: auto;
+  min-width: 0;
+  flex: 1;
+}
+
+.composer-compact .composer-draft {
+  min-height: 28px;
+  max-height: 60px;
+  padding: 4px 0;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.composer-compact .composer-toolbar {
+  display: contents;
+}
+
+.composer-compact .composer-leading {
+  order: -1;
+}
+
+.composer-compact .composer-below {
+  order: 2;
+  flex-basis: 100%;
+}
+
+.composer-below:empty {
+  display: none;
+}
+
+.composer-compact .composer-draft:empty::before {
+  color: color-mix(in srgb, var(--foreground) 30%, var(--background));
+}
+
+.composer-compact .composer-controls {
+  display: flex;
+  min-width: 0;
+  max-width: calc(100% - 104px);
+  flex: 0 1 auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.composer-context {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+}
+
+.composer-compact .composer-context svg {
+  width: 12px;
+  height: 12px;
+}
+
+.composer-compact .composer-model {
+  display: flex;
+  min-width: 0;
+  max-width: 220px;
+  flex: 0 1 auto;
+  align-items: center;
+}
+
+.composer-compact .composer-model > button {
+  height: 28px;
+  padding: 0 2px;
+  background: transparent;
+  font-size: 13px;
+}
+
+@container composer (max-width: 420px) {
+  .composer-compact .composer-controls {
+    gap: 4px;
+  }
+
+  .composer-compact .composer-model > button {
+    width: 28px;
+    padding: 0;
+  }
+
+  .composer-compact .composer-model > button > svg {
+    display: block;
+  }
+
+  .composer-compact .composer-model > button > div {
+    display: none;
+  }
+}

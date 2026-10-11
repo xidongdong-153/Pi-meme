@@ -93,6 +93,22 @@ export function activate(context: UiPluginContext) {
 
 `interaction` 将 Pi 的选择、确认、输入、编辑、通知、状态和文本挂件映射到图形界面。Pi TUI 的 `custom()` 组件不会自动成为 React 组件；需要在 App 插件 UI 入口补图形界面。
 
+内置 `request_user_input` 工具在普通模式和规划模式均可使用。它在输入框上方显示提问卡片，等待用户回答后再继续本次工具调用；无需安装插件。参数 `questions` 包含 1–3 道题，每题有唯一 `id`、`question` 和可选 `options`。选项使用 `label`，可附 `description`：
+
+```json
+{
+  "questions": [
+    {
+      "id": "scope",
+      "question": "需要修改哪些页面？",
+      "options": [{ "label": "聊天页", "description": "调整输入和消息展示" }, { "label": "设置页" }]
+    }
+  ]
+}
+```
+
+用户可以选择选项或自行填写，选项不会默认选中。多题支持前后切换，最后一次提交整组答案；切换会话保留当前客户端的未提交答案。返回值为 `{ answers: [{ id, value }], cancelled: false }`，跳过题目的 `value` 为 `null`；关闭卡片返回 `{ answers: [], cancelled: true }`。停止任务会移除待答请求。答案按源会话和执行代次处理，重连通过快照恢复仍待答的卡片。
+
 ## 更新、停用和卸载
 
 ```mermaid

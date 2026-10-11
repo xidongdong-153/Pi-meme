@@ -6,6 +6,8 @@
   "exports": {
     "./server/handlers": "./src/server/handlers.ts",
     "./ui/extension-dialog": "./src/ui/extension-dialog.tsx",
+    "./ui/user-input-panel": "./src/ui/user-input-panel.tsx",
+    "./ui/user-input-panel.css": "./src/ui/user-input-panel.css",
     "./ui/extension-editor": "./src/ui/extension-editor.tsx",
     "./ui/extension-editor.css": "./src/ui/extension-editor.css",
     "./ui/extension-notices": "./src/ui/extension-notices.tsx",
@@ -28,13 +30,15 @@
     "@pi-meme/ui": "workspace:*",
     "codemirror": "^6.0.2",
     "lucide-react": "^1.48.0",
-    "@pi-meme/plugin-sdk": "workspace:*"
+    "@pi-meme/plugin-sdk": "workspace:*",
+    "typebox": "1.3.27"
   },
   "peerDependencies": {
     "react": "^19.3.0"
   },
   "devDependencies": {
-    "react": "^19.3.0"
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
   },
   "piMeme": {
     "sdkVersion": 1,

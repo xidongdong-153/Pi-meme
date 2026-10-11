@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { RpcExtensionUIRequest } from '@earendil-works/pi-coding-agent'
 import type { PiExtensionEvent, PiExtensionUIResponse } from '@pi-meme/contracts/pi'
 import type { ExtensionBridge } from '@pi-meme/contracts/desktop'
+import type { UserInputDraft } from './user-input-panel'
 
 export type ExtensionNotice = {
   id: number
@@ -22,6 +23,7 @@ export function useExtensionUI(
   currentSessionKey: () => string | undefined,
 ) {
   const queue = useRef(new InteractionQueue())
+  const questionDrafts = useRef(new Map<string, UserInputDraft>())
   const [extensionDialogs, setExtensionDialogs] = useState<SourcedDialog[]>([])
   const [extensionStatuses, setExtensionStatuses] = useState<Record<string, string>>({})
   const [extensionWidgets, setExtensionWidgets] = useState<Record<string, ExtensionWidget>>({})
@@ -63,13 +65,15 @@ export function useExtensionUI(
       const source = { sessionKey, executionGeneration, source: context?.source }
       if (event.type === 'extension_ui_timeout' || event.type === 'extension_ui_closed') {
         setExtensionDialogs(queue.current.receive(event, source))
+        for (const id of questionDrafts.current.keys()) if (!queue.current.get(id)) questionDrafts.current.delete(id)
         return
       }
       if (
         event.method === 'select' ||
         event.method === 'confirm' ||
         event.method === 'input' ||
-        event.method === 'editor'
+        event.method === 'editor' ||
+        event.method === 'questions'
       ) {
         setExtensionDialogs(queue.current.receive(event, source))
       } else if (event.method === 'notify') {
@@ -112,6 +116,11 @@ export function useExtensionUI(
     restoreInteractions: (pending: PendingInteraction[]) => {
       const rootKey = sessionKeyRef.current()
       setExtensionDialogs(queue.current.restore(rootKey, pending))
+      for (const id of questionDrafts.current.keys()) if (!queue.current.get(id)) questionDrafts.current.delete(id)
+    },
+    getQuestionDraft: (id: string) => questionDrafts.current.get(id),
+    saveQuestionDraft: (id: string, draft: UserInputDraft) => {
+      if (queue.current.get(id)) questionDrafts.current.set(id, draft)
     },
     extensionStatuses,
     extensionWidgets: Object.values(extensionWidgets),
@@ -132,6 +141,7 @@ export function useExtensionUI(
       if (!dialog) return
       await bridgeRef.current.respondExtensionUI(dialog.sessionKey, dialog.requestId, response)
       queue.current.remove(id)
+      questionDrafts.current.delete(id)
       setExtensionDialogs(queue.current.all)
     },
   }

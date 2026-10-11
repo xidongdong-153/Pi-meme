@@ -140,7 +140,7 @@ export function ComposerEditor({
   }
 
   return (
-    <div className="relative w-full">
+    <div className="composer-editor relative w-full">
       {fileCompletion && (
         <FileSuggestions
           matches={fileMatches}
@@ -211,7 +211,7 @@ export function ComposerEditor({
           event.preventDefault()
           insertText(event.clipboardData.getData('text/plain'))
         }}
-        className="w-full min-h-[40px] max-h-[220px] overflow-y-auto whitespace-pre-wrap break-words px-2 py-1 text-sm leading-relaxed text-foreground outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground/70"
+        className="composer-draft w-full min-h-[40px] max-h-[220px] overflow-y-auto whitespace-pre-wrap break-words px-2 py-1 text-sm leading-relaxed text-foreground outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground/70"
       />
       {dragging && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-primary/10 text-xs font-medium text-primary">

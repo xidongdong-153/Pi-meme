@@ -30,11 +30,7 @@ export function createPlanGuard(mode: () => TaskMode): InlineExtension {
     factory: (pi) => {
       pi.on('session_start', () => {
         pi.setActiveTools(
-          pi
-            .getActiveTools()
-            .filter((name) =>
-              mode() === 'plan' ? planToolNames.has(name) : name !== 'request_user_input' && name !== 'save_plan',
-            ),
+          pi.getActiveTools().filter((name) => (mode() === 'plan' ? planToolNames.has(name) : name !== 'save_plan')),
         )
       })
       pi.on('tool_call', (event) => assertPlanTool(mode(), event.toolName))

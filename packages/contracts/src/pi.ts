@@ -1,5 +1,6 @@
 import type { ImageContent, TextContent, ThinkingContent, ToolCall } from '@earendil-works/pi-ai'
 import type { QueuedInput, TaskMode } from './plan'
+import type { PiUserInputRequest, UserInputAnswer } from './user-input'
 import type {
   AgentSession,
   JsonAgentSessionEvent,
@@ -108,17 +109,16 @@ export type PiEvent =
       pauseIntervals?: PiPauseInterval[]
     }
   | { type: 'queue_update'; steering: QueuedInput[]; followUp: QueuedInput[] }
-export type PiExtensionDialogRequest = Extract<
-  RpcExtensionUIRequest,
-  { method: 'select' | 'confirm' | 'input' | 'editor' }
->
+export type PiExtensionDialogRequest =
+  Extract<RpcExtensionUIRequest, { method: 'select' | 'confirm' | 'input' | 'editor' }> | PiUserInputRequest
 export type PiExtensionEvent =
   | RpcExtensionUIRequest
+  | PiUserInputRequest
   | { type: 'extension_ui_timeout'; id: string }
   | { type: 'extension_ui_closed'; id: string; reason: 'answered' | 'cancelled' }
 export type PiExtensionError = { type: 'extension_error'; extensionPath: string; event: string; error: string }
 type ResponsePayload<T> = T extends unknown ? Omit<T, 'type' | 'id'> : never
-export type PiExtensionUIResponse = ResponsePayload<RpcExtensionUIResponse>
+export type PiExtensionUIResponse = ResponsePayload<RpcExtensionUIResponse> | { answers: UserInputAnswer[] }
 
 /** 正式消息按工具调用 ID 或角色与时间戳关联，快照与事件使用同一规则。 */
 export function sameMessage(a: PiMessage, b: PiMessage): boolean {
