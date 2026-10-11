@@ -97,7 +97,7 @@ test('未知工具的执行中、部分结果、成功与失败，结束后忽�
   assert.equal(state.tools['2'].status, 'error')
 })
 
-test('队列事件同步插话和后续任务，并在完全空闲时清除', () => {
+test('队列事件同步插话和后续任务，结束事件保留队列直到队列事件更新', () => {
   let state = applyEvent(emptyChat, {
     type: 'queue_update',
     steering: [{ id: 'steer', text: '先看一下当前改动', mode: 'default' as const }],
@@ -105,7 +105,11 @@ test('队列事件同步插话和后续任务，并在完全空闲时清除', ()
   })
   assert.equal(state.steering[0]?.text, '先看一下当前改动')
   assert.equal(state.followUp[0]?.text, '完成后运行检查')
+  const queued = state
   state = applyEvent(state, { type: 'agent_settled' })
+  assert.deepEqual(state.steering, queued.steering)
+  assert.deepEqual(state.followUp, queued.followUp)
+  state = applyEvent(state, { type: 'queue_update', steering: [], followUp: [] })
   assert.deepEqual(state.steering, [])
   assert.deepEqual(state.followUp, [])
 })

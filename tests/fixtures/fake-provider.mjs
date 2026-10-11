@@ -7,6 +7,9 @@ import { createServer } from 'node:http'
  * @property {string} [text] 回复正文
  * @property {string} [thinking] 思考内容，作为 `reasoning_content` 增量发送
  * @property {number} [delayMs] 开始流式输出前等待的毫秒数
+ * @property {Promise<void>} [deltaBarrier] 等待测试解除屏障后才发送结束增量
+ * @property {Promise<void>} [finishBarrier] 等待测试解除屏障后才结束请求
+ * @property {number} [chunkDelayMs] 正文分片间隔毫秒数
  * @property {number} [holdMs] 正文与工具调用发送完之后保持连接不结束的毫秒数
  * @property {{ id?: string; name: string; arguments?: string }} [tool] 正文之后发起的工具调用
  * @property {number} [status] 大于等于 400 时直接返回错误响应
@@ -113,13 +116,15 @@ export async function startFakeProvider(options = {}) {
       for (const piece of String(spec.thinking ?? '').match(/[\s\S]{1,24}/g) ?? []) {
         res.write(chunk({ reasoning_content: piece }))
         if (res.destroyed) return
-        await new Promise((resolve) => setTimeout(resolve, 1))
+        await new Promise((resolve) => setTimeout(resolve, spec.chunkDelayMs ?? 1))
       }
       for (const piece of String(spec.text ?? '').match(/[\s\S]{1,24}/g) ?? []) {
         res.write(chunk({ content: piece }))
         if (res.destroyed) return
-        await new Promise((resolve) => setTimeout(resolve, 1))
+        await new Promise((resolve) => setTimeout(resolve, spec.chunkDelayMs ?? 1))
       }
+      if (spec.deltaBarrier) await spec.deltaBarrier
+      if (res.destroyed) return
       if (spec.tool) {
         res.write(
           chunk({
@@ -138,6 +143,7 @@ export async function startFakeProvider(options = {}) {
       } else {
         res.write(chunk({}, 'stop'))
       }
+      if (spec.finishBarrier) await spec.finishBarrier
       if (spec.holdMs) await new Promise((resolve) => setTimeout(resolve, spec.holdMs))
       if (res.destroyed) return
       res.write(

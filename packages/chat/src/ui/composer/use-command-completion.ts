@@ -18,8 +18,6 @@ export function useCommandCompletion({
   selectedSkills,
   commands,
   focusVersion,
-  onClearQueue,
-  hasQueue,
 }: Pick<
   ComposerProps,
   | 'onPlanCommand'
@@ -215,9 +213,6 @@ export function useCommandCompletion({
       if (matches.length) {
         event.preventDefault()
         setSuggestionsOpen(false)
-      } else if (hasQueue) {
-        event.preventDefault()
-        onClearQueue()
       }
       return
     }

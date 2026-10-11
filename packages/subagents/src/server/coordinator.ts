@@ -40,6 +40,11 @@ type Record = {
   sequence: number
   events?: DesktopEvent[]
   settled?: boolean
+  pauseRequested?: boolean
+  pauseRevision?: number
+  pauseApplied?: boolean
+  pendingStart?: { message: string; rootTaskId: string; epoch: number; policy: RunPolicy; runId: string }
+  draining?: boolean
   nextMode?: TaskMode
   replies?: Array<{ id: string; result: CollaborationResults[keyof CollaborationResults] }>
 }
@@ -102,6 +107,10 @@ export class HostCollaborationBridge {
           record.summary.error = 'Host 已重启，任务未自动恢复'
           record.summary.runCompletedAt = new Date().toISOString()
         }
+        record.pauseRequested = false
+        record.pauseRevision = 0
+        record.summary.isPaused = false
+        record.pendingStart = undefined
         record.interactions = []
         record.events = []
         this.records.set(record.summary.agentId, record)
@@ -114,7 +123,17 @@ export class HostCollaborationBridge {
   }
   private persist() {
     const content = JSON.stringify({
-      records: [...this.records.values()].map(({ session: _session, ...record }) => record),
+      records: [...this.records.values()].map(
+        ({
+          session: _session,
+          pauseRequested: _pause,
+          pauseRevision: _revision,
+          pauseApplied: _applied,
+          pendingStart: _start,
+          draining: _draining,
+          ...record
+        }) => ({ ...record, summary: { ...record.summary, isPaused: undefined } }),
+      ),
       plans: this.plans,
     })
     const write = this.writes.then(async () => {
@@ -248,6 +267,92 @@ export class HostCollaborationBridge {
     const record = this.roots.get(key)
     if (!record) throw new Error('协作根会话尚未绑定')
     return record
+  }
+  private paused(record: Record) {
+    return Boolean(this.root(record.summary.rootSessionKey).pauseRequested)
+  }
+  async pauseRoot(sessionKey: string) {
+    await this.ready
+    const root = this.root(sessionKey)
+    root.pauseRequested = true
+    const revision = (root.pauseRevision ?? 0) + 1
+    root.pauseRevision = revision
+    const tree = this.tree(root)
+    const active = tree.filter((record) => record === root || activeStatuses.has(record.summary.status))
+    for (const record of active) {
+      record.summary.isPaused = true
+      record.pauseApplied = Boolean(record.session)
+    }
+    this.changed(root)
+    await Promise.all(active.map((record) => record.session?.setPaused(true, revision)))
+  }
+  async resumeRoot(sessionKey: string) {
+    await this.ready
+    const root = this.root(sessionKey)
+    root.pauseRequested = false
+    const revision = (root.pauseRevision ?? 0) + 1
+    root.pauseRevision = revision
+    const tree = this.tree(root)
+    const gated = tree.filter((record) => record === root || record.pauseApplied)
+    for (const record of tree) {
+      record.summary.isPaused = false
+      record.pauseApplied = false
+    }
+    this.changed(root)
+    await Promise.all(gated.map((record) => record.session?.setPaused(false, revision)))
+    if (root.pauseRequested || root.pauseRevision !== revision || this.stopping) return
+    for (const record of tree) {
+      const runId =
+        record.pendingStart?.runId ??
+        (!activeStatuses.has(record.summary.status) ? record.queued[0]?.runId : undefined) ??
+        record.summary.runId
+      const epoch = root.summary.epoch
+      const rootTaskId = root.summary.rootTaskId
+      void this.resumeRecord(record).catch((cause: unknown) => {
+        if (
+          this.stopping ||
+          root.pauseRevision !== revision ||
+          root.summary.epoch !== epoch ||
+          root.summary.rootTaskId !== rootTaskId ||
+          record.summary.runId !== runId ||
+          ['stopped', 'interrupted'].includes(root.summary.status) ||
+          ['stopped', 'interrupted'].includes(record.summary.status)
+        )
+          return
+        record.summary.error = String(cause)
+        this.changed(record)
+      })
+    }
+  }
+  private async resumeRecord(record: Record) {
+    if (this.paused(record) || this.stopping || record.draining) return
+    record.draining = true
+    let failed = false
+    try {
+      const pending = record.pendingStart
+      if (pending) {
+        record.pendingStart = undefined
+        const root = this.root(record.summary.rootSessionKey)
+        if (pending.rootTaskId !== root.summary.rootTaskId || pending.epoch !== root.summary.epoch) {
+          record.summary.status = 'interrupted'
+          record.summary.runCompletedAt = new Date().toISOString()
+          await record.session?.abort()
+          await this.persist()
+          this.changed(record)
+          return
+        }
+        await this.start(record, pending.message, pending.rootTaskId, pending.epoch, pending.policy, pending.runId)
+      } else if (!activeStatuses.has(record.summary.status)) await this.startQueued(record)
+      if (this.paused(record)) return
+      await this.deliver(record)
+      await this.summarize(record)
+    } catch (cause) {
+      failed = true
+      throw cause
+    } finally {
+      record.draining = false
+      if (!failed && record.pendingStart && !this.paused(record) && !this.stopping) await this.resumeRecord(record)
+    }
   }
   async beginRootRun(sessionKey: string, input: { mode: TaskMode; message: string }) {
     await this.ready
@@ -514,7 +619,7 @@ export class HostCollaborationBridge {
         this.changed(target)
         throw cause
       }
-      return { agent: { ...target.summary }, queued: false }
+      return { agent: { ...target.summary }, queued: Boolean(target.pendingStart) }
     }
     throw new Error('协作工具无效')
   }
@@ -543,7 +648,8 @@ export class HostCollaborationBridge {
       if (this.stopping || record.summary.runId !== runId || !['starting', 'running'].includes(record.summary.status))
         throw new Error('子 Agent 启动已取消或轮次更换')
     }
-    Object.assign(record.summary, policy, {
+    const task = { message, rootTaskId, epoch, policy, runId }
+    Object.assign(record.summary, {
       rootTaskId,
       epoch,
       runId,
@@ -554,6 +660,14 @@ export class HostCollaborationBridge {
       runStartedAt: new Date().toISOString(),
       runCompletedAt: undefined,
     })
+    record.summary.isPaused = this.paused(record)
+    if (this.paused(record)) {
+      record.pendingStart = task
+      await this.persist()
+      this.changed(record)
+      return
+    }
+    Object.assign(record.summary, policy)
     if (replaceWorker) {
       await record.session!.stopAndWait()
       record.session = undefined
@@ -610,6 +724,10 @@ export class HostCollaborationBridge {
       record.session = boundSession
       this.callers.set(record.session, record)
       record.session.configureAccess(record.summary.accessMode)
+      const root = this.root(record.summary.rootSessionKey)
+      record.pauseApplied = Boolean(root.pauseRequested)
+      await boundSession.setPaused(Boolean(root.pauseRequested), root.pauseRevision ?? 0)
+      assertStarting()
       await record.session.setSessionMode(record.summary.mode)
       assertStarting()
       await record.session.configureAgentTask(message, record.summary.conversationOrigin)
@@ -627,6 +745,12 @@ export class HostCollaborationBridge {
     if (record.summary.model) await record.session.setModel(record.summary.model)
     if (record.summary.thinkingLevel) await record.session.setThinkingLevel(record.summary.thinkingLevel)
     assertStarting()
+    if (this.paused(record)) {
+      record.pendingStart = task
+      await this.persist()
+      this.changed(record)
+      return
+    }
     record.settled = false
     record.summary.status = 'running'
     this.changed(record)
@@ -792,6 +916,10 @@ export class HostCollaborationBridge {
         this.changed(parent)
       }
     }
+    await this.startQueued(record)
+  }
+  private async startQueued(record: Record) {
+    if (this.paused(record) || this.stopping) return
     let next = record.queued.shift()
     let discarded = false
     while (next) {
@@ -843,11 +971,12 @@ export class HostCollaborationBridge {
     )
   }
   private async deliver(record: Record) {
-    if (record.summary.status !== 'running' || !record.session) return false
+    if (this.paused(record) || record.summary.status !== 'running' || !record.session) return false
     const pending = this.pending(record)
     if (!pending.length) return false
     const persisted: string[] = []
     for (const message of pending) {
+      if (this.paused(record)) return false
       const ack = await record.session.deliverCollaborationMessage(message)
       if (ack?.persisted) persisted.push(message.id)
     }
@@ -859,13 +988,21 @@ export class HostCollaborationBridge {
     return true
   }
   private async summarize(record: Record) {
-    if (record.summary.status !== 'waiting_children' || !record.settled || !record.session || this.stopping) return
+    if (
+      this.paused(record) ||
+      record.summary.status !== 'waiting_children' ||
+      !record.settled ||
+      !record.session ||
+      this.stopping
+    )
+      return
     const pending = this.pending(record).filter((message) => message.kind === 'result')
     if (!pending.length) return
     const epoch = record.summary.epoch
     const rootTaskId = record.summary.rootTaskId
     await Promise.resolve()
     if (
+      this.paused(record) ||
       record.summary.status !== 'waiting_children' ||
       record.summary.epoch !== epoch ||
       record.summary.rootTaskId !== rootTaskId
@@ -874,22 +1011,28 @@ export class HostCollaborationBridge {
     record.settled = false
     record.summary.status = 'running'
     const runId = (record.summary.runId = randomUUID())
-    const isCurrent = () =>
-      record.summary.epoch === epoch &&
-      record.summary.rootTaskId === rootTaskId &&
-      record.summary.runId === runId &&
-      record.summary.status === 'running' &&
-      !this.stopping
+    const isCurrent = () => {
+      const current =
+        record.summary.epoch === epoch &&
+        record.summary.rootTaskId === rootTaskId &&
+        record.summary.runId === runId &&
+        record.summary.status === 'running' &&
+        !this.stopping
+      if (current && this.paused(record)) {
+        record.summary.status = 'waiting_children'
+        record.settled = true
+        record.consumed = record.consumed.filter((id) => !pending.some((message) => message.id === id))
+        this.changed(record)
+        return false
+      }
+      return current
+    }
     await this.persist()
-    if (
-      record.summary.epoch !== epoch ||
-      record.summary.rootTaskId !== rootTaskId ||
-      record.summary.status !== 'running'
-    )
-      return
+    if (!isCurrent()) return
     this.changed(record)
     try {
       for (const message of pending) {
+        if (!isCurrent()) return
         const ack = await record.session.deliverCollaborationMessage(message)
         if (ack?.persisted === false) throw new Error('来源消息尚未在安全边界保存')
       }
@@ -998,7 +1141,14 @@ export class HostCollaborationBridge {
       .reverse()
     for (const child of [...descendants, record]) {
       child.queued = []
-      if (!activeStatuses.has(child.summary.status)) continue
+      child.pendingStart = undefined
+      child.summary.isPaused = false
+      const wasPaused = child.pauseApplied
+      child.pauseApplied = false
+      if (!activeStatuses.has(child.summary.status)) {
+        if (wasPaused) await child.session?.abort().catch(() => {})
+        continue
+      }
       child.summary.status = 'interrupted'
       child.summary.runCompletedAt = new Date().toISOString()
       await child.session?.abort().catch(() => {})
@@ -1010,7 +1160,10 @@ export class HostCollaborationBridge {
   async stopRoot(sessionKey: string) {
     await this.ready
     const root = this.root(sessionKey)
+    root.pauseRequested = true
+    root.pauseRevision = (root.pauseRevision ?? 0) + 1
     await this.interrupt(root)
+    root.pauseRequested = false
     root.summary.status = 'stopped'
     await this.persist()
     this.changed(root)

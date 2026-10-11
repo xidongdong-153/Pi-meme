@@ -56,6 +56,14 @@ const sessionWrites = new Set([
   'pi:access-mode',
   'pi:session-mode',
   'pi:abort',
+  'pi:pause',
+  'pi:resume',
+  'pi:steer-queue-input',
+  'pi:delete-queue-input',
+  'pi:begin-queue-edit',
+  'pi:update-queue-input',
+  'pi:cancel-queue-edit',
+
   'pi:set-model',
   'pi:set-thinking-level',
   'pi:extension-ui-response',
@@ -158,6 +166,14 @@ export async function createHost(options: HostOptions = {}) {
       'git:create-branch',
       'git:create-worktree',
       'pi:abort',
+      'pi:pause',
+      'pi:resume',
+      'pi:steer-queue-input',
+      'pi:delete-queue-input',
+      'pi:begin-queue-edit',
+      'pi:update-queue-input',
+      'pi:cancel-queue-edit',
+
       'pi:interrupt-agent',
       'pi:extension-ui-response',
       'pi:steer',
@@ -192,6 +208,15 @@ export async function createHost(options: HostOptions = {}) {
       }
     }
     let pi: PiSessionPool
+    const emit = (type: HostEvent['type'], value?: DesktopEvent | Connection | DesktopError) => {
+      for (const [clientId, subscribers] of listeners) {
+        const view = views.get(clientId)
+        if (!view) continue
+        if (type === 'connection' && (value as Connection)?.sessionKey !== view.sessionKey) continue
+        const adjusted = value ? { ...value, generation: view.generation } : undefined
+        for (const subscriber of subscribers) subscriber({ hostId, type, value: adjusted } as HostEvent)
+      }
+    }
     const scheduleClientRelease = (clientId: string) => {
       const previous = clientTimers.get(clientId)
       if (previous) clearTimeout(previous)
@@ -201,22 +226,25 @@ export async function createHost(options: HostOptions = {}) {
         clientTimers.delete(clientId)
         const view = views.get(clientId)
         if (view) {
-          pi.releaseClientView(view)
-          views.delete(clientId)
-          selectionEpochs.delete(clientId)
+          void pi
+            .releaseQueueEdits(clientId)
+            .catch((cause: unknown) => {
+              emit('error', {
+                generation: 0,
+                sessionKey: view.sessionKey,
+                message: `释放队列编辑失败：${String(cause)}`,
+              })
+            })
+            .finally(() => {
+              if (views.get(clientId) !== view || listeners.get(clientId)?.size || clientRequests.get(clientId)) return
+              pi.releaseClientView(view)
+              views.delete(clientId)
+              selectionEpochs.delete(clientId)
+            })
         }
       }, options.clientGraceMs ?? 120000)
       timer.unref()
       clientTimers.set(clientId, timer)
-    }
-    const emit = (type: HostEvent['type'], value?: DesktopEvent | Connection | DesktopError) => {
-      for (const [clientId, subscribers] of listeners) {
-        const view = views.get(clientId)
-        if (!view) continue
-        if (type === 'connection' && (value as Connection)?.sessionKey !== view.sessionKey) continue
-        const adjusted = value ? { ...value, generation: view.generation } : undefined
-        for (const subscriber of subscribers) subscriber({ hostId, type, value: adjusted } as HostEvent)
-      }
     }
     let collaboration: ReturnType<typeof createHostCollaborationBridge>
     let plugins: PluginManager
@@ -288,6 +316,14 @@ export async function createHost(options: HostOptions = {}) {
     })
     const bindRoot = async (key: string) => collaboration.bindRoot(pi.readSessionBinding(key))
     pi.configureCollaboration({
+      pause: async (key) => {
+        await bindRoot(key)
+        await collaboration.pauseRoot(key)
+      },
+      resume: async (key) => {
+        await bindRoot(key)
+        await collaboration.resumeRoot(key)
+      },
       modeChanged: async (key) => {
         await bindRoot(key)
         await collaboration.setSessionMode(key, pi.getSessionContext(key).state.mode)
@@ -691,6 +727,7 @@ export async function createHost(options: HostOptions = {}) {
       let view = views.get(clientId)
       if (!view) {
         view = pi.createClientView()
+        view.clientId = clientId
         views.set(clientId, view)
       }
       const current = view
@@ -771,6 +808,7 @@ export async function createHost(options: HostOptions = {}) {
             const previousKey = selected.sessionKey
             const run = () =>
               pi.withClientView(selected, async () => {
+                if (epoch !== undefined) await pi.releaseQueueEdits(request.clientId)
                 let result = await action(...request.args)
                 if (deletion) {
                   const outcome = result as WorkspaceDeletionResult

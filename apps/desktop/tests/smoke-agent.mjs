@@ -201,12 +201,28 @@ export function smokeReply(body) {
  * 目录内写入 `models.json`、`skills/` 和 `prompts/`；调用方负责关闭返回的 provider。
  *
  * @param {string} directory 验收临时根目录
- * @param {{ picker?: boolean; emptyModels?: boolean }} [options] picker 为真时额外提供 18 个滚动验收模型；emptyModels 为真时不预置模型服务商
- * @returns {Promise<{ agentDir: string; modelsFile: string; provider: Awaited<ReturnType<typeof startFakeProvider>> }>}
+ * @param {{ picker?: boolean; emptyModels?: boolean; queueReview?: boolean; queueSmoke?: boolean; pauseSmoke?: boolean }} [options] picker 为真时额外提供 18 个滚动验收模型；emptyModels 为真时不预置模型服务商
+ * @returns {Promise<{ agentDir: string; modelsFile: string; provider: Awaited<ReturnType<typeof startFakeProvider>>; releaseQueueReply: () => void }>}
  *   agentDir 为 Desktop 应用数据中的 Pi 运行目录，modelsFile 为模型配置文件路径
  */
 export async function startSmokeAgent(directory, options = {}) {
-  const provider = await startFakeProvider({ reply: smokeReply })
+  /** @type {() => void} */
+  let releaseQueueReply = () => {}
+  const barrier = new Promise((resolve) => {
+    releaseQueueReply = () => resolve(undefined)
+  })
+  const provider = await startFakeProvider({
+    reply: (body, index) => {
+      if (options.pauseSmoke) {
+        if (index === 1) return { thinking: '先查看验收目录，再等待暂停操作。', tool: { name: 'ls', arguments: '{}' } }
+        return { thinking: '正在核对暂停后的执行时间。', text: '暂停专项任务完成。', deltaBarrier: barrier }
+      }
+      if (options.queueReview && index === 1) return { text: '正在等待队列验收操作。', holdMs: 180000 }
+      if (options.queueSmoke && index === 1) return { text: '正在等待队列验收操作。', finishBarrier: barrier }
+      if (options.queueReview || options.queueSmoke) return { text: '已收到消息并完成回复。' }
+      return smokeReply(body)
+    },
+  })
   const agentDir = path.join(directory, 'pi')
   await mkdir(agentDir, { recursive: true })
   const models = [
@@ -242,5 +258,5 @@ export async function startSmokeAgent(directory, options = {}) {
       `---\ndescription: 滚动验收命令 ${index}\n---\n\n滚动验收提示 ${index}\n`,
     )
   }
-  return { agentDir, modelsFile, provider }
+  return { agentDir, modelsFile, provider, releaseQueueReply }
 }

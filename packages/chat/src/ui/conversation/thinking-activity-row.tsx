@@ -8,11 +8,13 @@ export function ThinkingActivityRow({
   item,
   open,
   onToggle,
+  isPaused = false,
   isNested = true,
 }: {
   item: Extract<ActivityItem, { type: 'thinking' }>
   open: boolean
   onToggle: () => void
+  isPaused?: boolean
   isNested?: boolean
 }) {
   const isRunning = item.status === 'running'
@@ -38,7 +40,7 @@ export function ThinkingActivityRow({
           isNested && 'pl-2',
         )}
       >
-        {isRunning ? (
+        {isPaused ? null : isRunning ? (
           <Loader2 className="size-3.5 shrink-0 animate-spin text-primary" />
         ) : (
           <Sparkles className="size-3.5 shrink-0 text-muted-foreground group-hover:text-foreground" />

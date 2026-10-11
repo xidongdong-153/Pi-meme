@@ -34,7 +34,7 @@ export function PinnedSection({
           <div className="px-2 py-1 text-[0.6875rem] font-semibold text-muted-foreground/80 tracking-wider">置顶</div>
           <div className="space-y-0.5">
             {pinnedProjects.map((project) => {
-              const hasRunningSession = project.sessions.some((session) => session.running)
+              const hasRunningSession = project.sessions.some((session) => session.running && !session.isPaused)
               return (
                 <SidebarRowMenu key={project.cwd} target={{ kind: 'project', project }}>
                   <div

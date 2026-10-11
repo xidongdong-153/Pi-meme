@@ -3,7 +3,11 @@ const fs = require('node:fs/promises')
 const path = require('node:path')
 
 module.exports = async function agentAccessSmoke(window, waitFor, directory) {
-  const evaluate = (code) => window.webContents.executeJavaScript(code)
+  const evaluate = (code) =>
+    window.webContents.executeJavaScript(code).catch((cause) => {
+      console.error('权限验收脚本失败：', code)
+      throw cause
+    })
   const selector = '[aria-label="Agent 访问权限"]'
   const snapshot = await evaluate('window.piMemeClient.getSnapshot()')
   const key = snapshot.connection.sessionKey
@@ -29,6 +33,13 @@ module.exports = async function agentAccessSmoke(window, waitFor, directory) {
     await waitFor(
       () => evaluate(`document.querySelector('${selector}').getAttribute('aria-expanded') === 'false'`),
       '权限菜单关闭',
+    )
+    await waitFor(
+      () =>
+        evaluate(
+          `document.querySelector('[role=combobox][aria-label=消息]')?.isContentEditable && !document.querySelector('${selector}').disabled`,
+        ),
+      '权限切换后控件与输入器恢复可操作',
     )
   }
   await evaluate(

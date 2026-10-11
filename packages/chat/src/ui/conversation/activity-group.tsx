@@ -1,4 +1,6 @@
 import * as React from 'react'
+import type { PiPauseInterval } from '@pi-meme/contracts/pi'
+import { activeDuration } from '../model/active-duration'
 import type { ActivityItem } from '../model/types'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { BookOpen, ChevronDown, Images, Loader2, Pencil, Search, Sparkles, SquareTerminal, Wrench } from 'lucide-react'
@@ -10,12 +12,16 @@ import { NarrationActivityRow } from './narration-activity-row'
 export function ActivityGroup({
   items,
   isLive = false,
+  isPaused = false,
+  pauseIntervals,
   durationMs,
   startedAt,
   className,
 }: {
   items: ActivityItem[]
   isLive?: boolean
+  isPaused?: boolean
+  pauseIntervals?: PiPauseInterval[]
   durationMs?: number
   startedAt?: number
   className?: string
@@ -27,10 +33,10 @@ export function ActivityGroup({
   const [mountedAt] = React.useState(Date.now)
 
   React.useEffect(() => {
-    if (!hasRunning) return
+    if (!hasRunning || isPaused) return
     const timer = window.setInterval(() => setNow(Date.now()), 1000)
     return () => window.clearInterval(timer)
-  }, [hasRunning])
+  }, [hasRunning, isPaused])
 
   const toggleChild = React.useCallback((id: string) => {
     setChildOpenMap((prev) => ({
@@ -50,7 +56,12 @@ export function ActivityGroup({
     generic: Wrench,
     thinking: Sparkles,
   }[groupMeta.kind]
-  const elapsedMs = hasRunning ? Math.max(0, now - (startedAt ?? mountedAt)) : durationMs
+  const start = startedAt ?? mountedAt
+  const elapsedMs = activeDuration(
+    start,
+    hasRunning ? Math.max(now, Date.now()) : start + (durationMs ?? 0),
+    pauseIntervals,
+  )
   const durationText = formatDurationChinese(elapsedMs ?? 0) || '0秒'
   const summaryTitle = hasRunning
     ? `工作了 ${durationText}`
@@ -87,7 +98,7 @@ export function ActivityGroup({
               groupOpen ? 'rotate-0' : '-rotate-90',
             )}
           />
-          {hasRunning ? (
+          {isPaused ? null : hasRunning ? (
             <Loader2 className="size-3.5 shrink-0 animate-spin text-primary" />
           ) : (
             <IconComponent className="size-3.5 shrink-0 text-muted-foreground group-hover:text-foreground" />
@@ -112,15 +123,23 @@ export function ActivityGroup({
                   item={item}
                   open={isOpen}
                   onToggle={() => toggleChild(item.id)}
+                  isPaused={isPaused}
                   isNested
                 />
               )
             }
             if (item.type === 'narration') {
-              return <NarrationActivityRow key={key} item={item} isNested />
+              return <NarrationActivityRow key={key} item={item} isPaused={isPaused} isNested />
             }
             return (
-              <ToolActivityRow key={key} item={item} open={isOpen} onToggle={() => toggleChild(item.id)} isNested />
+              <ToolActivityRow
+                key={key}
+                item={item}
+                open={isOpen}
+                onToggle={() => toggleChild(item.id)}
+                isPaused={isPaused}
+                isNested
+              />
             )
           })}
         </div>

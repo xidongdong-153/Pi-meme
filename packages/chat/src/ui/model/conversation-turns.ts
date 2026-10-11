@@ -1,6 +1,6 @@
 import { nestedTools } from './nested-tools'
 import { messageText } from './message-text'
-import type { PiImage, PiMessage } from '@pi-meme/contracts/pi'
+import type { PiImage, PiMessage, PiRunInterval } from '@pi-meme/contracts/pi'
 import type { ActivityItem, ChatState, TurnChunk } from './types'
 
 type RawTurnItem = { kind: 'activity'; item: ActivityItem } | { kind: 'text'; text: string }
@@ -13,6 +13,7 @@ export function groupConversationTurns(
   isAgentRunning: boolean,
   completed: Record<number, boolean> = {},
   agentStatuses: Array<Extract<TurnChunk, { type: 'agent_status' }>> = [],
+  runIntervals: readonly PiRunInterval[] = [],
 ): TurnChunk[] {
   // Pi 的 get_messages 会把 compactionSummary 与 branchSummary 强制放在数组首位作为模型上下文。
   // 但其真实 timestamp 记录了压缩发生的真实时刻。按 timestamp 稳定排序，
@@ -59,7 +60,7 @@ export function groupConversationTurns(
   let turnEndTimestamp: number | undefined
   let turnKey = ''
 
-  const flushTurn = (isLastTurn: boolean) => {
+  const flushTurn = (isLastTurn: boolean, boundary?: number) => {
     if (isLastTurn && unassignedTools.length > 0) {
       for (const toolItem of unassignedTools) {
         turnItems.push({ kind: 'activity', item: toolItem })
@@ -109,10 +110,17 @@ export function groupConversationTurns(
     const hasWorkOrText = activities.length > 0 || Boolean(finalText) || Boolean(turnErrorMessage)
 
     if (hasWorkOrText || isLive) {
-      let durationMs: number | undefined
-      if (turnStartTimestamp && turnEndTimestamp && turnEndTimestamp > turnStartTimestamp) {
-        durationMs = turnEndTimestamp - turnStartTimestamp
-      }
+      const run = runIntervals.findLast(
+        (interval) =>
+          turnStartTimestamp !== undefined &&
+          interval.startedAt < (boundary ?? Infinity) &&
+          (interval.endedAt ?? Infinity) > turnStartTimestamp,
+      )
+      const finishedAt = run?.endedAt !== undefined ? Math.min(run.endedAt, boundary ?? Infinity) : turnEndTimestamp
+      const durationMs =
+        turnStartTimestamp !== undefined && finishedAt !== undefined
+          ? Math.max(0, finishedAt - turnStartTimestamp)
+          : undefined
 
       chunks.push({
         type: 'assistant_turn',
@@ -146,7 +154,7 @@ export function groupConversationTurns(
   for (let i = 0; i < timeline.length; i++) {
     const item = timeline[i]!
     if (item.type === 'status') {
-      flushTurn(false)
+      flushTurn(false, item.timestamp)
       chunks.push(item.status)
       continue
     }
@@ -155,7 +163,7 @@ export function groupConversationTurns(
     if (msg.role === 'custom' && !msg.display) continue
 
     if (msg.role === 'user') {
-      flushTurn(false)
+      flushTurn(false, msg.timestamp)
       chunks.push({
         type: 'user',
         message: msg,
@@ -167,7 +175,7 @@ export function groupConversationTurns(
     }
 
     if (msg.role === 'compactionSummary' || msg.role === 'branchSummary') {
-      flushTurn(false)
+      flushTurn(false, msg.timestamp)
       chunks.push({
         type: 'compaction',
         kind: msg.role === 'compactionSummary' ? 'compaction' : 'branch_summary',

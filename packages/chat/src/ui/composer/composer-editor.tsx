@@ -9,6 +9,7 @@ import { skillMarker } from '@pi-meme/contracts/skills'
 import { editorCaret, readEditorText, setEditorCaret } from './rich-draft'
 
 export function ComposerEditor({
+  disabled,
   onPlanCommand,
   projectPath,
   loadProjectFiles,
@@ -36,6 +37,7 @@ export function ComposerEditor({
   | 'focusVersion'
   | 'onClearQueue'
 > & {
+  disabled?: boolean
   hasQueue: boolean
   paste: (event: ClipboardEvent<HTMLDivElement>) => void
   dragging: boolean
@@ -158,7 +160,7 @@ export function ComposerEditor({
       />
       <div
         ref={editor}
-        contentEditable
+        contentEditable={!disabled}
         suppressContentEditableWarning
         role="combobox"
         aria-label="消息"
@@ -200,7 +202,8 @@ export function ComposerEditor({
             return
           }
           keyDown(event)
-          if (event.key === 'Escape' && !event.defaultPrevented && !event.nativeEvent.isComposing) onEscape?.()
+          if (!disabled && event.key === 'Escape' && !event.defaultPrevented && !event.nativeEvent.isComposing)
+            onEscape?.()
         }}
         onPaste={(event) => {
           paste(event)

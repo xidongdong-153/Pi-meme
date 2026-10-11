@@ -113,6 +113,7 @@ export type SessionFactory = (
   ]
 ) => RuntimeSdkSession
 export type ClientView = {
+  clientId?: string
   sessionKey?: string
   generation: number
   selection: number
@@ -120,6 +121,8 @@ export type ClientView = {
 }
 
 export type CollaborationLifecycle = {
+  pause?: (sessionKey: string) => Promise<void>
+  resume?: (sessionKey: string) => Promise<void>
   modeChanged?: (sessionKey: string, mode: TaskMode) => Promise<void>
   decorateEvent?: (sessionKey: string, event: DesktopEvent) => DesktopEvent
   beforePrompt: (sessionKey: string, input: { mode: TaskMode; message: string }) => Promise<void>
@@ -201,6 +204,14 @@ export class PiSessionPool implements PiRuntime {
   private readonly retired = new Set<Promise<void>>()
   private stopRecord(record: RuntimeSession) {
     const pending = record.session.stopAndWait()
+    const interval = record.state.runIntervals?.at(-1)
+    if (interval && interval.endedAt === undefined)
+      record.state = {
+        ...record.state,
+        runIntervals: record.state.runIntervals?.map((value) =>
+          value === interval ? { ...value, endedAt: Date.now() } : value,
+        ),
+      }
     this.retired.add(pending)
     void pending.finally(() => this.retired.delete(pending)).catch(() => {})
   }
@@ -681,6 +692,8 @@ export class PiSessionPool implements PiRuntime {
     recordEvent = this.collaboration?.decorateEvent?.(record.key, recordEvent) ?? recordEvent
     if (recordEvent.runId) record.executionRunId = recordEvent.runId
     for (const buffer of record.buffers) buffer.push(recordEvent)
+    if ((event.type === 'agent_start' || event.type === 'agent_settled') && event.runIntervals)
+      record.state = { ...record.state, runIntervals: event.runIntervals }
     if (event.type === 'agent_start') {
       record.settled = false
       record.running = true
@@ -694,7 +707,6 @@ export class PiSessionPool implements PiRuntime {
       void this.collaboration?.settled(record.key, { ...event, runId: recordEvent.runId })
       record.liveEvents = []
       record.tools.clear()
-      record.queue = undefined
     }
     if (event.type === 'message_start' && event.message.role === 'assistant') record.liveEvents = [recordEvent]
     if (event.type === 'message_update') record.liveEvents.push(recordEvent)
@@ -702,6 +714,14 @@ export class PiSessionPool implements PiRuntime {
       this.rememberMessage(record, event.message)
       if (event.message.role === 'assistant') record.liveEvents = []
     }
+    if (event.type === 'pause_update' && event.revision >= (record.state.pauseRevision ?? 0))
+      record.state = {
+        ...record.state,
+        isPaused: event.isPaused,
+        queuePaused: event.queuePaused,
+        pauseRevision: event.revision,
+        pauseIntervals: event.pauseIntervals ?? record.state.pauseIntervals,
+      }
     if (event.type === 'queue_update') record.queue = recordEvent
     if (event.type === 'tool_execution_start' || event.type === 'tool_execution_update')
       record.tools.set(event.toolCallId, recordEvent)
@@ -714,7 +734,12 @@ export class PiSessionPool implements PiRuntime {
       this.rememberExtension(record, recordEvent)
     this.notify.event(recordEvent)
     this.signalSettled()
-    if (event.type === 'agent_start' || event.type === 'agent_settled' || event.type === 'message_end') {
+    if (
+      event.type === 'agent_start' ||
+      event.type === 'agent_settled' ||
+      event.type === 'message_end' ||
+      event.type === 'pause_update'
+    ) {
       this.notify.sessionsChanged()
       if (event.type === 'agent_settled') this.prune()
     }
@@ -766,7 +791,18 @@ export class PiSessionPool implements PiRuntime {
   }
   private prune() {
     const idle = [...this.sessions.values()]
-      .filter((record) => record !== this.active && !record.running && record.session.connection().status === 'ready')
+      .filter(
+        (record) =>
+          record !== this.active &&
+          !record.running &&
+          !record.state.isPaused &&
+          !record.state.queuePaused &&
+          !(
+            record.queue?.event.type === 'queue_update' &&
+            (record.queue.event.steering.length || record.queue.event.followUp.length)
+          ) &&
+          record.session.connection().status === 'ready',
+      )
       .sort((a, b) => b.touched - a.touched)
     for (const record of idle.slice(3)) {
       this.stopRecord(record)
@@ -930,6 +966,7 @@ export class PiSessionPool implements PiRuntime {
           completedAt: record.completedAt,
           messageCount: record.messages.length,
           running: record.running,
+          isPaused: Boolean(record.state.isPaused),
           error: record.error ?? record.session.connection().error,
         }
       })
@@ -991,6 +1028,11 @@ export class PiSessionPool implements PiRuntime {
         state: {
           ...snapshot.state,
           mode: record.state.mode,
+          isPaused: record.state.isPaused,
+          queuePaused: record.state.queuePaused,
+          pauseRevision: record.state.pauseRevision,
+          pauseIntervals: record.state.pauseIntervals,
+          runIntervals: record.state.runIntervals,
           isStreaming: record.running,
           isCompacting: record.running && snapshot.state.isCompacting,
         },
@@ -1033,7 +1075,30 @@ export class PiSessionPool implements PiRuntime {
   private rememberSnapshot(record: RuntimeSession, snapshot: Snapshot) {
     if (snapshot.stats) record.stats = snapshot.stats
     record.name = snapshot.state.sessionName
-    record.state = { ...snapshot.state, mode: record.state.mode }
+    const pauseState =
+      (record.state.pauseRevision ?? 0) > (snapshot.state.pauseRevision ?? 0) ||
+      ((record.state.pauseRevision ?? 0) === (snapshot.state.pauseRevision ?? 0) &&
+        (record.state.pauseIntervals?.at(-1)?.endedAt ?? 0) > (snapshot.state.pauseIntervals?.at(-1)?.endedAt ?? 0))
+        ? {
+            isPaused: record.state.isPaused,
+            queuePaused: record.state.queuePaused,
+            pauseRevision: record.state.pauseRevision,
+            pauseIntervals: record.state.pauseIntervals,
+          }
+        : {}
+    record.state = {
+      ...snapshot.state,
+      ...pauseState,
+      runIntervals:
+        (record.state.runIntervals?.length ?? 0) > (snapshot.state.runIntervals?.length ?? 0) ||
+        ((record.state.runIntervals?.length ?? 0) === (snapshot.state.runIntervals?.length ?? 0) &&
+          ((record.state.runIntervals?.at(-1)?.startedAt ?? 0) >
+            (snapshot.state.runIntervals?.at(-1)?.startedAt ?? 0) ||
+            (record.state.runIntervals?.at(-1)?.endedAt ?? 0) > (snapshot.state.runIntervals?.at(-1)?.endedAt ?? 0)))
+          ? record.state.runIntervals
+          : snapshot.state.runIntervals,
+      mode: record.state.mode,
+    }
     record.messages = snapshot.messages.slice()
     record.sessionEntries = snapshot.sessionEntries
     record.sessionFile = record.session.getActiveSession().sessionFile ?? record.sessionFile
@@ -1428,6 +1493,53 @@ export class PiSessionPool implements PiRuntime {
       this.notify.connection(this.withSession(record.key, () => this.connection()))
     }
   }
+  pause(sessionKey: string) {
+    return this.collaboration?.pause ? this.collaboration.pause(sessionKey) : this.target(sessionKey).session.pause()
+  }
+  resume(sessionKey: string) {
+    return this.collaboration?.resume ? this.collaboration.resume(sessionKey) : this.target(sessionKey).session.resume()
+  }
+  async steerQueueInput(sessionKey: string, id: string) {
+    const record = this.target(sessionKey)
+    await record.session.steerQueueInput(id)
+    if (record.state.isPaused || record.state.queuePaused) await this.resume(sessionKey)
+  }
+  deleteQueueInput(sessionKey: string, id: string) {
+    return this.target(sessionKey).session.deleteQueueInput(id)
+  }
+  private queueOwner() {
+    const clientId = this.viewContext.getStore()?.clientId
+    if (!clientId) throw new Error('排队编辑缺少客户端身份')
+    return clientId
+  }
+  beginQueueEdit(sessionKey: string, id: string) {
+    return this.target(sessionKey).session.beginQueueEdit(id, this.queueOwner())
+  }
+  updateQueueInput(
+    sessionKey: string,
+    id: string,
+    message: string,
+    images?: PiImage[],
+    skills?: SkillReference[],
+    options?: MessageOptions,
+  ) {
+    return this.target(sessionKey).session.updateQueueInput(id, message, images, skills, options, this.queueOwner())
+  }
+  cancelQueueEdit(sessionKey: string, id: string) {
+    return this.target(sessionKey).session.cancelQueueEdit(id, this.queueOwner())
+  }
+  async releaseQueueEdits(clientId: string) {
+    await Promise.all(
+      [...this.sessions.values()]
+        .filter(
+          (record) =>
+            record.queue?.event.type === 'queue_update' &&
+            [...record.queue.event.steering, ...record.queue.event.followUp].some((input) => input.editing),
+        )
+        .map((record) => record.session.releaseQueueEdits(clientId)),
+    )
+  }
+
   clearQueue(sessionKey: string) {
     return this.target(sessionKey).session.clearQueue()
   }

@@ -42,7 +42,10 @@ module.exports = async function backgroundSessionsSmoke(window, waitFor, secondD
         ),
       '切换当前查看会话',
     )
-    await waitFor(() => evaluate(`Boolean(document.querySelector('[aria-label="停止当前任务"]'))`), '恢复后台运行状态')
+    await waitFor(
+      () => evaluate('window.piMemeClient.getSnapshot().then(snapshot => snapshot.state.isStreaming)'),
+      '恢复后台运行状态',
+    )
   }
   const originalCwd = await evaluate('window.piMemeClient.getConnection().then((connection) => connection.cwd)')
   await clickNew()
@@ -87,7 +90,7 @@ module.exports = async function backgroundSessionsSmoke(window, waitFor, secondD
     `Array.from(document.querySelectorAll('button')).find(node => node.textContent.trim() === '返回聊天').click()`,
   )
   await waitFor(
-    () => evaluate(`Boolean(document.querySelector('[aria-label="停止当前任务"]'))`),
+    () => evaluate(`Boolean(document.querySelector('[aria-label="暂停当前任务"]'))`),
     '外观修改保留运行任务',
   )
   await evaluate(`window.piMemeClient.chooseDirectory(${JSON.stringify(secondDirectory)})`)
@@ -117,7 +120,9 @@ module.exports = async function backgroundSessionsSmoke(window, waitFor, secondD
   )
   assert.ok(await evaluate(`document.querySelector('[aria-label="对话消息流"]').textContent.includes('后台流式正文')`))
   assert.equal(await evaluate(`document.body.textContent.includes('正在加载会话，可以先编写消息')`), false)
-  await evaluate(`document.querySelector('[aria-label="停止当前任务"]').click()`)
+  await evaluate(
+    'window.piMemeClient.getConnection().then(connection => window.piMemeClient.abort(connection.sessionKey))',
+  )
   await waitFor(
     () =>
       evaluate(
@@ -144,7 +149,9 @@ module.exports = async function backgroundSessionsSmoke(window, waitFor, secondD
     () => evaluate(`document.querySelector('[aria-label="消息"]').textContent.includes('第二个会话的待发草稿')`),
     '切回后恢复独立草稿',
   )
-  await evaluate(`document.querySelector('[aria-label="停止当前任务"]').click()`)
+  await evaluate(
+    'window.piMemeClient.getConnection().then(connection => window.piMemeClient.abort(connection.sessionKey))',
+  )
   await waitFor(
     () =>
       evaluate(

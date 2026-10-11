@@ -5,6 +5,7 @@ export type TaskMode = 'default' | 'plan'
 export type MessageOptions = { mode?: TaskMode }
 export type QueuedInput = {
   id: string
+  editing?: boolean
   text: string
   mode: TaskMode
   images?: PiImage[]

@@ -20,6 +20,7 @@ export type PiSessionSummary = Pick<SessionInfo, 'id' | 'path' | 'cwd' | 'name' 
     modified: string
     completedAt?: string | null
     running?: boolean
+    isPaused?: boolean
     error?: string
   }
 

@@ -142,3 +142,42 @@ runSessionWorker({ interaction: (context) => { context.registerInteractionPolicy
     await rm(root, { recursive: true, force: true })
   }
 })
+
+test('冷 Worker 暂停和释放编辑不启动运行时，启动继承最新门闸且停止清除缓存', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'pi-meme-worker-pause-'))
+  const paths = createPiRuntimePaths(root)
+  let acquired = 0
+  const session = createWorkerSession(root, { connection: () => {}, event: () => {}, error: () => {} }, paths, () => {
+    acquired++
+    return {
+      dataRoot: root,
+      credentials: new MemoryCredentialStorage(),
+      settings: { themeId: 'dark' },
+      agentEntries: [],
+    }
+  })
+  try {
+    await session.setPaused(true, 3)
+    await session.setPaused(false, 2)
+    await session.releaseQueueEdits('client')
+    assert.equal(acquired, 0)
+    assert.equal(session.connection().status, 'disconnected')
+    session.start(root)
+    await session.snapshot()
+    assert.equal(acquired, 1)
+    assert.equal((await session.snapshot()).state.isPaused, true)
+    await session.abort()
+    assert.equal((await session.snapshot()).state.isPaused, false)
+    await session.stopAndWait()
+    await session.setPaused(true, 4)
+    assert.equal(acquired, 1)
+    await session.stopAndWait()
+    session.start(root)
+    await session.snapshot()
+    assert.equal(acquired, 2)
+    assert.equal((await session.snapshot()).state.isPaused, false)
+  } finally {
+    await session.stopAndWait()
+    await rm(root, { recursive: true, force: true })
+  }
+})

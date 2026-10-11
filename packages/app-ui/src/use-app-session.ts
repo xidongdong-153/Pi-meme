@@ -201,6 +201,7 @@ export function useAppSession(
 
   const chat = useChatSession({
     bridge,
+    refresh,
     commands,
     canSend: () =>
       !loading &&
@@ -817,6 +818,15 @@ export function useAppSession(
     refreshSessions,
     send: chat.send,
     stop: chat.stop,
+    resume: chat.resume,
+    steerQueueInput: chat.steerQueueInput,
+    deleteQueueInput: chat.deleteQueueInput,
+    editingQueue: chat.editingQueue,
+    savingQueue: chat.savingQueue,
+    editQueueInput: async (id: string) => {
+      await chat.editQueueInput(id)
+      extensions.focusDraft()
+    },
     clearQueue: () => action(() => chat.clearQueue()),
     setSteeringMode: (mode: PiState['steeringMode']) =>
       action(async (key, owns) => {

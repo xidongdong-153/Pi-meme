@@ -23,6 +23,47 @@ export function createChatHandlers({ pi, getCwd }: ChatHandlerContext) {
       if (!isTaskMode(mode)) throw new Error('会话模式无效')
       return pi.setSessionMode(sessionKey, mode)
     },
+    'pi:pause': (key: unknown) => {
+      text(key)
+      return pi.pause(key)
+    },
+    'pi:resume': (key: unknown) => {
+      text(key)
+      return pi.resume(key)
+    },
+    'pi:steer-queue-input': (key: unknown, id: unknown) => {
+      text(key)
+      text(id)
+      return pi.steerQueueInput(key, id)
+    },
+    'pi:delete-queue-input': (key: unknown, id: unknown) => {
+      text(key)
+      text(id)
+      return pi.deleteQueueInput(key, id)
+    },
+    'pi:begin-queue-edit': (key: unknown, id: unknown) => {
+      text(key)
+      text(id)
+      return pi.beginQueueEdit(key, id)
+    },
+    'pi:cancel-queue-edit': (key: unknown, id: unknown) => {
+      text(key)
+      text(id)
+      return pi.cancelQueueEdit(key, id)
+    },
+    'pi:update-queue-input': (
+      key: unknown,
+      id: unknown,
+      value: unknown,
+      images: unknown,
+      skills: unknown,
+      options: unknown,
+    ) => {
+      text(key)
+      text(id)
+      const parsed = message(value, images, skills)
+      return pi.updateQueueInput(key, id, parsed.text, parsed.images, parsed.skills, messageOptions(options))
+    },
     'pi:clear-queue': (sessionKey: unknown) => {
       text(sessionKey)
       return pi.clearQueue(sessionKey)

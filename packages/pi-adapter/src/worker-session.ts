@@ -47,6 +47,8 @@ export function createWorkerSession(
   let connection: Connection = { cwd, generation: 0, status: 'disconnected' }
   let active: { sessionFile?: string; sessionId?: string } = {}
   let serial = 0
+  let paused = false
+  let pauseRevision = -1
   let release: (() => void | Promise<void>) | undefined
   let capabilities: Parameters<SdkSession['configureCapabilities']>[0] = { codemodeEnabled: false, mcpEnabled: false }
   let access: Parameters<SdkSession['configureAccess']>[0] = 'full-access'
@@ -173,6 +175,11 @@ export function createWorkerSession(
       release = undefined
       fail(new Error(`会话 Worker 已退出（${code}）`))
     })
+    if (pauseRevision >= 0) {
+      const id = ++serial
+      pending.set(id, { resolve: () => {}, reject: (cause) => fail(new Error(String(cause))) })
+      current.postMessage({ id, method: 'setPaused', args: [paused, pauseRevision] })
+    }
     return current
   }
   const callRaw = (method: string, args: unknown[]) =>
@@ -193,6 +200,7 @@ export function createWorkerSession(
     return callRaw(method, args)
   }
   const stopAndWait = () => {
+    paused = false
     if (stopping) return stopping
     stopping = (async () => {
       const current = worker
@@ -235,11 +243,24 @@ export function createWorkerSession(
       active = { sessionFile }
       connection = { ...connection, cwd: directory, status: 'connecting' }
       void call('start', [directory, sessionFile]).catch((cause: unknown) => fail(new Error(String(cause))))
+      if (pauseRevision >= 0)
+        void call('setPaused', [paused, pauseRevision]).catch((cause: unknown) => fail(new Error(String(cause))))
     },
     stop: () => {
       void stopAndWait().catch((cause: unknown) => fail(new Error(String(cause))))
     },
     stopAndWait,
+    abort: () => {
+      paused = false
+      return worker ? call('abort', []) : Promise.resolve()
+    },
+    setPaused: (value: boolean, revision: number) => {
+      if (revision < pauseRevision) return Promise.resolve()
+      paused = value
+      pauseRevision = revision
+      return worker ? call('setPaused', [value, revision]) : Promise.resolve()
+    },
+    releaseQueueEdits: (clientId: string) => (worker ? call('releaseQueueEdits', [clientId]) : Promise.resolve()),
     idle: async <T>(action: () => Promise<T>, allowDisconnected?: boolean) => {
       if (worker) await call('assertIdle', [allowDisconnected])
       return action()

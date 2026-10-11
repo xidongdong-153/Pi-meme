@@ -90,7 +90,7 @@ export function SessionItem({
               <PinOff className="size-3" />
             </button>
             <SidebarMoreMenu target={{ kind: 'session', session }} />
-            {session.running && (
+            {session.running && !session.isPaused && (
               <Loader2 aria-label="会话运行中" className="size-3 shrink-0 animate-spin text-primary" />
             )}
           </div>
@@ -141,7 +141,7 @@ export function SessionItem({
               <Pin className="size-3" />
             </button>
             <SidebarMoreMenu target={{ kind: 'session', session }} />
-            {session.running && (
+            {session.running && !session.isPaused && (
               <Loader2 aria-label="会话运行中" className="size-3 shrink-0 animate-spin text-primary" />
             )}
           </div>
@@ -188,7 +188,9 @@ export function SessionItem({
             <Pin className="size-3" />
           </button>
           <SidebarMoreMenu target={{ kind: 'session', session }} />
-          {session.running && <Loader2 aria-label="会话运行中" className="size-3 shrink-0 animate-spin text-primary" />}
+          {session.running && !session.isPaused && (
+            <Loader2 aria-label="会话运行中" className="size-3 shrink-0 animate-spin text-primary" />
+          )}
         </div>
       </div>
     </SidebarRowMenu>

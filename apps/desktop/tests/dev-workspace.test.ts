@@ -40,7 +40,8 @@ test('开发模式直接加载 workspace 聊天源码，发送时保留会话标
     const chat = await server.transformRequest(chatUrl)
     assert.ok(chat)
     assert.match(chat.code, /bridge\.prompt\(sessionKey, message, images, skills, \{\s*mode: messageMode\s*\}\)/)
-    assert.match(chat.code, /bridge\.steer\(sessionKey, message, images, skills, \{\s*mode: messageMode\s*\}\)/)
+    assert.match(chat.code, /const sendMode = running \? ["']followUp["'] : ["']prompt["']/)
+    assert.match(chat.code, /bridge\.steerQueueInput|bridge\[action\]\(key, id\)/)
     assert.match(chat.code, /bridge\.followUp\(sessionKey, message, images, skills, \{\s*mode: messageMode\s*\}\)/)
   } finally {
     await server.close()

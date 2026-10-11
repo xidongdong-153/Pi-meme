@@ -201,3 +201,39 @@ test('独立详情原样使用Host已裁继承前缀的快照，自身提示与f
   assert.deepEqual(calls, ['agent:child'])
   store.close()
 })
+
+test('子代理独立快照恢复暂停计时，恢复事件继续使用同一运行时段', async () => {
+  const pausedSnapshot = snapshot(1, '暂停任务')
+  pausedSnapshot.state = {
+    ...pausedSnapshot.state,
+    isPaused: true,
+    pauseRevision: 1,
+    pauseIntervals: [{ startedAt: 4000 }],
+    runIntervals: [{ startedAt: 1000 }],
+  }
+  const store = new AgentConversationStore(
+    { getAgentSnapshot: async () => pausedSnapshot, onEvent: () => () => {}, onConnection: () => () => {} },
+    'child',
+  )
+  await store.start()
+  assert.equal(store.getSnapshot().chat.paused, true)
+  assert.deepEqual(store.getSnapshot().chat.pauseIntervals, [{ startedAt: 4000 }])
+  store.receive({
+    generation: 1,
+    sessionKey: agent.sessionKey,
+    agentId: agent.agentId,
+    executionGeneration: 1,
+    sequence: 2,
+    event: {
+      type: 'pause_update',
+      revision: 2,
+      isPaused: false,
+      queuePaused: false,
+      pauseIntervals: [{ startedAt: 4000, endedAt: 9000 }],
+    },
+  })
+  assert.equal(store.getSnapshot().chat.paused, false)
+  assert.deepEqual(store.getSnapshot().chat.pauseIntervals, [{ startedAt: 4000, endedAt: 9000 }])
+  assert.deepEqual(store.getSnapshot().chat.runIntervals, [{ startedAt: 1000 }])
+  store.close()
+})

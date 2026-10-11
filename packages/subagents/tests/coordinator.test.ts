@@ -27,9 +27,24 @@ function fakeSession(cwd: string, notify: Notify) {
   const prompts: string[] = []
   const delivered: string[] = []
   const continuations: string[] = []
-  const faults: { continuation?: boolean; deliveryGate?: Promise<void>; snapshotGate?: Promise<void> } = {}
+  const faults: {
+    continuation?: boolean
+    deliveryGate?: Promise<void>
+    snapshotGate?: Promise<void>
+    pauseGate?: Promise<void>
+  } = {}
+  const pauses: Array<{ paused: boolean; revision: number }> = []
+  let pauseRevision = -1
   let status: Snapshot['connection']['status'] = 'idle'
   const session = {
+    setPaused: async (paused: boolean, revision: number) => {
+      if (revision > pauseRevision) {
+        pauseRevision = revision
+        state.isPaused = paused
+      }
+      pauses.push({ paused, revision })
+      await faults.pauseGate
+    },
     configureAccess: () => {},
     configureAgentTask: async () => {},
     configureCapabilities: () => {},
@@ -90,6 +105,7 @@ function fakeSession(cwd: string, notify: Notify) {
     },
     getEntries: async () => ({ entries: [], leafId: null }),
     abort: async () => {
+      state.isPaused = false
       state.isStreaming = false
     },
     stopAndWait: async () => {
@@ -105,7 +121,7 @@ function fakeSession(cwd: string, notify: Notify) {
     state.isStreaming = false
     notify.event({ generation: 1, event: { type: 'agent_settled' } })
   }
-  return { session, finish, prompts, delivered, continuations, state, faults, notify }
+  return { session, finish, prompts, delivered, continuations, state, faults, notify, pauses }
 }
 async function setup(assertCheckoutAvailable?: (cwd: string) => void) {
   const directory = await mkdtemp(path.join(tmpdir(), 'pi-collaboration-'))
@@ -1368,6 +1384,228 @@ test('checkout gate 阻止新子代理与已有 Worker followup，busy 包含排
       /正在切换分支/,
     )
   } finally {
+    await context.cleanup()
+  }
+})
+
+test('整树暂停不等待 wait_agent，恢复保持当前运行身份', async () => {
+  const context = await setup()
+  try {
+    await context.begin()
+    const child = await context.spawn('worker')
+    const before = await context.bridge.getAgents('root-key')
+    const waiting = context.call(context.root.session, 'wait_agent', { targets: ['worker'], timeout_ms: 10000 })
+    await context.until(async () => (await context.bridge.getAgents('root-key'))[0]!.status === 'waiting_children')
+    await context.bridge.pauseRoot('root-key')
+    const worker = context.children.get(child.sessionKey)!
+    assert.equal(context.root.state.isPaused, true)
+    assert.equal(worker.state.isPaused, true)
+    assert.equal(worker.prompts.length, 1)
+    await context.bridge.resumeRoot('root-key')
+    const after = await context.bridge.getAgents('root-key')
+    for (const agent of after) {
+      const previous = before.find((entry) => entry.agentId === agent.agentId)!
+      assert.equal(agent.runId, previous.runId)
+      assert.equal(agent.rootTaskId, previous.rootTaskId)
+      assert.equal(agent.epoch, previous.epoch)
+    }
+    assert.equal(worker.prompts.length, 1)
+    assert.equal(worker.continuations.length, 0)
+    worker.finish('完成')
+    await waiting
+  } finally {
+    await context.cleanup()
+  }
+})
+
+test('暂停时子结果留在邮箱，spawn 和 followup 返回后恢复按序启动', async () => {
+  const context = await setup()
+  try {
+    await context.begin()
+    const child = await context.spawn('worker')
+    const worker = context.children.get(child.sessionKey)!
+    await context.bridge.pauseRoot('root-key')
+    worker.finish('结果')
+    await context.until(
+      async () =>
+        (await context.bridge.getAgents('root-key')).find((agent) => agent.agentId === child.agentId)?.status ===
+        'completed',
+    )
+    assert.equal(context.root.delivered.length, 0)
+    assert.equal(context.root.continuations.length, 0)
+    const fresh = await context.spawn('queued_worker')
+    assert.equal(context.children.has(fresh.sessionKey), false)
+    await context.call(context.root.session, 'followup_task', { target: 'queued_worker', message: '第二轮' })
+    await context.bridge.resumeRoot('root-key')
+    await context.until(async () => context.children.get(fresh.sessionKey)?.prompts.length === 1)
+    const freshWorker = context.children.get(fresh.sessionKey)!
+    assert.deepEqual(freshWorker.prompts, ['子任务'])
+    freshWorker.finish('首轮完成')
+    await context.until(async () => freshWorker.prompts.length === 2)
+    assert.deepEqual(freshWorker.prompts, ['子任务', '第二轮'])
+    await context.until(async () => context.root.delivered.length > 0)
+  } finally {
+    await context.cleanup()
+  }
+})
+
+test('启动交错暂停保留待启动轮次，旧暂停确认不覆盖恢复', async () => {
+  const context = await setup()
+  let releaseSnapshot!: () => void
+  let releasePause!: () => void
+  try {
+    await context.begin()
+    context.creationFaults.snapshotGate = new Promise<void>((resolve) => {
+      releaseSnapshot = resolve
+    })
+    const spawning = context.spawn('worker')
+    await context.until(async () => context.children.size === 1)
+    const worker = [...context.children.values()][0]!
+    worker.faults.pauseGate = new Promise<void>((resolve) => {
+      releasePause = resolve
+    })
+    const pausing = context.bridge.pauseRoot('root-key')
+    await context.until(async () => worker.state.isPaused === true)
+    worker.faults.pauseGate = undefined
+    await context.bridge.resumeRoot('root-key')
+    releasePause()
+    await pausing
+    assert.equal(worker.state.isPaused, false)
+    await context.bridge.pauseRoot('root-key')
+    releaseSnapshot()
+    const child = await spawning
+    assert.deepEqual(worker.prompts, [])
+    context.creationFaults.snapshotGate = undefined
+    await context.bridge.resumeRoot('root-key')
+    await context.until(async () => worker.prompts.length === 1)
+    const resumed = (await context.bridge.getAgents('root-key')).find((agent) => agent.agentId === child.agentId)!
+    assert.equal(resumed.runId, child.runId)
+    assert.equal(resumed.epoch, child.epoch)
+  } finally {
+    releaseSnapshot?.()
+    releasePause?.()
+    await context.cleanup()
+  }
+})
+
+test('停止暂停树释放门闸并取消待启动任务，暂停状态不持久化', async () => {
+  const context = await setup()
+  try {
+    await context.begin()
+    const child = await context.spawn('worker')
+    await context.bridge.pauseRoot('root-key')
+    const queued = await context.spawn('queued_worker')
+    await context.bridge.stopRoot('root-key')
+    assert.equal(context.root.state.isPaused, false)
+    assert.equal(context.children.get(child.sessionKey)!.state.isPaused, false)
+    await context.bridge.resumeRoot('root-key')
+    assert.equal(context.children.has(queued.sessionKey), false)
+    const saved = JSON.parse(await readFile(path.join(context.directory, 'collaboration.json'), 'utf8'))
+    assert.ok(
+      saved.records.every(
+        (record: { summary: AgentSummary; pauseRequested?: boolean }) =>
+          !record.summary.isPaused && !record.pauseRequested,
+      ),
+    )
+  } finally {
+    await context.cleanup()
+  }
+})
+
+test('新的根轮次撤销暂停中尚未启动的旧子任务', async () => {
+  const context = await setup()
+  try {
+    await context.begin()
+    await context.bridge.pauseRoot('root-key')
+    const child = await context.spawn('old_worker')
+    await context.begin()
+    await context.bridge.resumeRoot('root-key')
+    await context.until(
+      async () =>
+        (await context.bridge.getAgents('root-key')).find((agent) => agent.agentId === child.agentId)?.status ===
+        'interrupted',
+    )
+    assert.equal(context.children.has(child.sessionKey), false)
+  } finally {
+    await context.cleanup()
+  }
+})
+
+test('恢复待启动任务与停止交错时，迟到启动失败不覆盖停止状态', async () => {
+  const context = await setup()
+  let releaseSnapshot!: () => void
+  try {
+    await context.begin()
+    await context.bridge.pauseRoot('root-key')
+    const child = await context.spawn('worker')
+    context.creationFaults.snapshotGate = new Promise<void>((resolve) => {
+      releaseSnapshot = resolve
+    })
+    await context.bridge.resumeRoot('root-key')
+    await context.until(async () => context.children.has(child.sessionKey))
+    await context.bridge.stopRoot('root-key')
+    releaseSnapshot()
+    await new Promise<void>((resolve) => setTimeout(resolve, 20))
+    const stopped = await context.bridge.getAgents('root-key')
+    assert.equal(stopped[0]!.status, 'stopped')
+    assert.equal(stopped.find((agent) => agent.agentId === child.agentId)!.status, 'interrupted')
+    assert.equal(stopped.find((agent) => agent.agentId === child.agentId)!.error, undefined)
+    assert.deepEqual(context.children.get(child.sessionKey)!.prompts, [])
+  } finally {
+    releaseSnapshot?.()
+    await context.cleanup()
+  }
+})
+
+test('快速暂停恢复在待启动记录保存期间交错，drainer 不漏掉恢复唤醒', async () => {
+  const context = await setup()
+  const control = context.bridge as unknown as {
+    persist: () => Promise<void>
+    records: Map<string, { pendingStart?: unknown }>
+  }
+  const persist = control.persist
+  let releaseSnapshot!: () => void
+  let releasePersist!: () => void
+  let enteredPersist!: () => void
+  const entered = new Promise<void>((resolve) => {
+    enteredPersist = resolve
+  })
+  const gate = new Promise<void>((resolve) => {
+    releasePersist = resolve
+  })
+  let blocked = false
+  try {
+    await context.begin()
+    await context.bridge.pauseRoot('root-key')
+    const child = await context.spawn('worker')
+    context.creationFaults.snapshotGate = new Promise<void>((resolve) => {
+      releaseSnapshot = resolve
+    })
+    await context.bridge.resumeRoot('root-key')
+    await context.until(async () => context.children.has(child.sessionKey))
+    await context.bridge.pauseRoot('root-key')
+    control.persist = async () => {
+      const writing = persist.call(context.bridge)
+      if (!blocked && control.records.get(child.agentId)?.pendingStart) {
+        blocked = true
+        enteredPersist()
+        await gate
+      }
+      await writing
+    }
+    releaseSnapshot()
+    await entered
+    await context.bridge.resumeRoot('root-key')
+    releasePersist()
+    await context.until(async () => context.children.get(child.sessionKey)!.prompts.length === 1)
+    const resumed = (await context.bridge.getAgents('root-key')).find((agent) => agent.agentId === child.agentId)!
+    assert.equal(resumed.runId, child.runId)
+    assert.equal(resumed.epoch, child.epoch)
+    assert.deepEqual(context.children.get(child.sessionKey)!.prompts, ['子任务'])
+  } finally {
+    releaseSnapshot?.()
+    releasePersist()
+    control.persist = persist
     await context.cleanup()
   }
 })

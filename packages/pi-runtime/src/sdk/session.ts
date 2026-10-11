@@ -25,6 +25,8 @@ import type {
   PiExtensionUIResponse,
   PiImage,
   PiModel,
+  PiPauseInterval,
+  PiRunInterval,
   PiSlashCommand,
   PiState,
   ThinkingLevel,
@@ -84,6 +86,20 @@ export type RuntimePolicy = {
   createAccessExtension?: typeof createAgentAccessExtension
 }
 export class SdkSession {
+  private paused = false
+  private queuePaused = false
+  private pauseRevision = 0
+  private pauseControlApplied = true
+  private pauseIntervals: PiPauseInterval[] = []
+  private runIntervals: PiRunInterval[] = []
+  private pauseGate?: Promise<void>
+  private releasePause?: () => void
+  private frozenView?: { messages: Snapshot['messages']; entries: SessionEntry[]; leafId: string | null }
+  private queueEdits = new Map<string, string>()
+  private queueLock: Promise<void> = Promise.resolve()
+  private draining = false
+  private handingOff = 0
+  private handoffs = new Map<string, { kind: 'steering' | 'followUp'; input: QueuedInput; cancelled?: boolean }>()
   private mode: TaskMode = 'default'
   private activeMode?: TaskMode
   private runtimeMode: TaskMode = 'default'
@@ -99,6 +115,7 @@ export class SdkSession {
   private generation = 0
   private startSeq = 0
   private running = false
+  private pendingSend = false
   private changing = false
   private preparationMode?: TaskMode
   private delegatedTask?: string
@@ -181,11 +198,35 @@ export class SdkSession {
     return this.runtime.session
   }
 
-  start(cwd: string, sessionFile?: string, preparing = false) {
+  start(cwd: string, sessionFile?: string, preparing = false, preservePause = false) {
     this.modelSelectionRequired = false
     const admission = this.admission
     if (preparing) this.admission = undefined
-    this.stop()
+    const pause = preservePause
+      ? {
+          paused: this.paused,
+          queuePaused: this.queuePaused,
+          frozenView: this.frozenView,
+          pauseIntervals: structuredClone(this.pauseIntervals),
+        }
+      : undefined
+    this.stop(preservePause)
+    if (!preservePause) this.pauseControlApplied = false
+    if (!pause && (!sessionFile || cwd !== this.cwd || sessionFile !== this.sessionFile)) {
+      this.pauseIntervals = []
+      this.runIntervals = []
+    }
+    if (pause) {
+      this.pauseIntervals = pause.pauseIntervals
+      this.queuePaused = pause.queuePaused
+      this.frozenView = pause.frozenView
+      if (pause.paused) {
+        this.paused = true
+        this.pauseGate = new Promise<void>((resolve) => {
+          this.releasePause = resolve
+        })
+      }
+    }
     if (preparing) {
       this.admission = admission
       this.queueCancelled = false
@@ -229,7 +270,7 @@ export class SdkSession {
     restore ??= await this.captureRestoreState()
     this.modelRestore = restore
     const generation = this.generation
-    this.start(this.cwd, restore?.sessionFile, this.preparationMode !== undefined)
+    this.start(this.cwd, restore?.sessionFile, this.preparationMode !== undefined, true)
     try {
       await this.ready
       const models = await this.getAvailableModels()
@@ -285,6 +326,19 @@ export class SdkSession {
     let extensionErrors: Array<{ path: string; error: string }> = []
     const createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager }) => {
       const extensionFactories = [
+        (pi: ExtensionAPI) => {
+          const gate = () => this.waitForResume()
+          pi.on('message_start', gate)
+          pi.on('message_update', gate)
+          pi.on('message_end', gate)
+          pi.on('turn_start', gate)
+          pi.on('tool_execution_start', gate)
+          pi.on('tool_execution_update', gate)
+          pi.on('tool_execution_end', gate)
+          pi.on('agent_end', gate)
+          pi.on('tool_call', gate)
+          pi.on('before_provider_request', gate)
+        },
         ...(restricted
           ? [
               (this.policy.createAccessExtension ?? createAgentAccessExtension)({
@@ -366,7 +420,14 @@ export class SdkSession {
       return
     }
     this.runtime = runtime
+    let boundSessionId = runtime.session.sessionId
     runtime.setRebindSession(async () => {
+      if (runtime.session.sessionId !== boundSessionId) {
+        this.pauseIntervals = []
+        this.runIntervals = []
+        boundSessionId = runtime.session.sessionId
+        this.emitPause()
+      }
       await this.bindSession()
     })
     await this.bindSession()
@@ -386,7 +447,7 @@ export class SdkSession {
     this.bridge = new ExtensionUiBridge((event) => {
       if (generation !== this.generation) return
       if (event.type === 'extension_ui_request' && event.method === 'setTitle') this.notify.title?.(event.title)
-      this.notify.event({ generation: this.generation, event })
+      this.notify.event({ generation: this.generation, event: structuredClone(event) })
     })
     await session.bindExtensions({
       uiContext: !this.policy.requireRestrictedPolicy || this.policy.uiEnabled ? this.bridge.ui : undefined,
@@ -452,12 +513,26 @@ export class SdkSession {
 
   private handleEvent(event: PiEvent, forceSettled = false) {
     if (event.type === 'agent_start' || event.type === 'compaction_start') {
+      this.pendingSend = false
       this.activityRevision += 1
       this.running = true
+      const interval = this.runIntervals.at(-1)
+      if (event.type === 'agent_start' && (!interval || interval.endedAt !== undefined))
+        this.runIntervals.push({ startedAt: Date.now() })
+      if (event.type === 'agent_start') event = { ...event, runIntervals: structuredClone(this.runIntervals) }
     }
     if (event.type === 'agent_settled') {
+      this.pendingSend = false
       if (!this.running && !forceSettled) return
       this.running = false
+      const interval = this.runIntervals.at(-1)
+      if (interval && interval.endedAt === undefined) interval.endedAt = Date.now()
+      const pause = this.pauseIntervals.at(-1)
+      if (pause && pause.endedAt === undefined) {
+        pause.endedAt = interval?.endedAt ?? Date.now()
+        this.emitPause()
+      }
+      event = { ...event, runIntervals: structuredClone(this.runIntervals) }
       this.activityRevision += 1
       this.activeMode = undefined
       if (!this.queueCancelled)
@@ -498,12 +573,19 @@ export class SdkSession {
     if (temporary) await rm(temporary, { recursive: true, force: true }).catch(() => {})
   }
 
-  stop() {
+  stop(preserveTiming = false) {
+    this.cancelPause(!preserveTiming)
+    if (!preserveTiming) {
+      const interval = this.runIntervals.at(-1)
+      if (interval && interval.endedAt === undefined) interval.endedAt = Date.now()
+      this.emitPause()
+    }
     this.queueCancelled = true
     this.admission?.abort()
     this.generation += 1
     this.status = 'disconnected'
     this.running = false
+    this.pendingSend = false
     this.modelSelectionRequired = false
     this.teardownRuntime()
   }
@@ -562,10 +644,12 @@ export class SdkSession {
     const [state, messages, entries, models, thinkingLevels, stats] = await this.call(() =>
       Promise.all([
         Promise.resolve(this.getState()),
-        Promise.resolve(this.session.messages.filter((message) => message.role !== 'system')),
+        Promise.resolve(
+          this.frozenView?.messages ?? this.session.messages.filter((message) => message.role !== 'system'),
+        ),
         Promise.resolve({
-          entries: this.session.sessionManager.getEntries(),
-          leafId: this.session.sessionManager.getLeafId(),
+          entries: this.frozenView?.entries ?? this.session.sessionManager.getEntries(),
+          leafId: this.frozenView ? this.frozenView.leafId : this.session.sessionManager.getLeafId(),
         }),
         this.cachedModels
           ? Promise.resolve(this.cachedModels)
@@ -580,7 +664,8 @@ export class SdkSession {
     if (generation !== this.generation) throw new Error('Pi 连接已更换')
     this.sessionFile = state.sessionFile
     this.sessionId = state.sessionId
-    if (revision === this.activityRevision) this.running = state.isStreaming || Boolean(state.isCompacting)
+    if (revision === this.activityRevision)
+      this.running = this.pendingSend || state.isStreaming || Boolean(state.isCompacting)
     const own = this.conversationOrigin
       ? projectAgentConversation(entries.entries, entries.leafId, this.conversationOrigin)
       : undefined
@@ -610,6 +695,11 @@ export class SdkSession {
       steeringMode: state.steeringMode,
       followUpMode: state.followUpMode,
       pendingMessageCount: state.pendingMessageCount + this.ownQueue.steering.length + this.ownQueue.followUp.length,
+      isPaused: this.paused,
+      queuePaused: this.queuePaused,
+      pauseRevision: this.pauseRevision,
+      pauseIntervals: structuredClone(this.pauseIntervals),
+      runIntervals: structuredClone(this.runIntervals),
       mode: this.mode,
       activeMode: this.activeMode,
     }
@@ -685,12 +775,14 @@ export class SdkSession {
       }
       message = await this.prepareSkills(message, skills)
       this.running = true
+      this.pendingSend = true
       this.activeMode = normalized.mode
       if (!command) await this.policy.onAdmission?.(message, normalized.mode, continuation, this.admission.signal)
       if (generation !== this.generation || this.queueCancelled) throw new Error('消息发送已取消')
       this.activityRevision += 1
     } catch (cause) {
       this.running = false
+      this.pendingSend = false
       this.activeMode = undefined
       this.activityRevision += 1
       throw cause
@@ -708,6 +800,7 @@ export class SdkSession {
       if (!state.isStreaming && !state.isCompacting && (this.running || command || handled))
         this.handleEvent({ type: 'agent_settled' }, Boolean(command || handled))
     } catch (cause) {
+      this.pendingSend = false
       if (command) this.handleEvent({ type: 'agent_settled' }, true)
       void this.snapshot().catch(() => {})
       throw cause
@@ -722,6 +815,7 @@ export class SdkSession {
   private async sendPrompt(message: string, images?: PiImage[], continuation = false) {
     const generation = this.generation
     await this.ready
+    await this.waitForResume()
     if (generation !== this.generation || this.status !== 'ready' || this.queueCancelled)
       throw new Error('Pi 尚未连接或消息发送已取消')
     const session = this.session
@@ -756,6 +850,7 @@ export class SdkSession {
           images,
           source: 'rpc',
           preflightResult: (disposition) => {
+            this.pendingSend = false
             started = true
             resolve(disposition)
           },
@@ -779,8 +874,8 @@ export class SdkSession {
       generation: this.generation,
       event: {
         type: 'queue_update',
-        steering: [...this.nativeQueue.steering, ...this.ownQueue.steering],
-        followUp: [...this.nativeQueue.followUp, ...this.ownQueue.followUp],
+        steering: structuredClone([...this.nativeQueue.steering, ...this.ownQueue.steering]),
+        followUp: structuredClone([...this.nativeQueue.followUp, ...this.ownQueue.followUp]),
       },
     })
   }
@@ -797,9 +892,11 @@ export class SdkSession {
     if (normalized.commandOnly) return
     if (builtinCommand(normalized.text)) throw new Error('内置命令不能插话或排队，请等待当前任务完成后执行')
     const input: QueuedInput = { id: randomUUID(), text: normalized.text, mode: normalized.mode, images, skills }
-    if (normalized.mode === 'plan' || normalized.mode !== this.activeMode || !this.running) {
-      this.ownQueue[kind].push(input)
-      this.emitQueue()
+    if (kind === 'followUp' || normalized.mode === 'plan' || normalized.mode !== this.activeMode || !this.running) {
+      await this.withQueueLock(() => {
+        this.ownQueue[kind].push(input)
+        this.emitQueue()
+      })
       if (!this.running) await this.advanceQueue()
       return
     }
@@ -813,12 +910,288 @@ export class SdkSession {
     )
   }
 
+  private async withQueueLock<T>(operation: () => T | Promise<T>): Promise<T> {
+    const previous = this.queueLock
+    let release!: () => void
+    this.queueLock = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    await previous
+    try {
+      return await operation()
+    } finally {
+      release()
+    }
+  }
+
+  private emitPause() {
+    this.notify.event({
+      generation: this.generation,
+      event: {
+        type: 'pause_update',
+        isPaused: this.paused,
+        queuePaused: this.queuePaused,
+        revision: this.pauseRevision,
+        pauseIntervals: structuredClone(this.pauseIntervals),
+      },
+    })
+  }
+
+  private scheduleQueue() {
+    queueMicrotask(() => {
+      void this.advanceQueue().catch((cause: unknown) => this.report(String(cause)))
+    })
+  }
+
+  private async waitForResume() {
+    const generation = this.generation
+    while (generation === this.generation && this.paused && this.pauseGate) await this.pauseGate
+  }
+
+  private cancelPause(closeInterval = true) {
+    const interval = this.pauseIntervals.at(-1)
+    if (closeInterval && interval && interval.endedAt === undefined) interval.endedAt = Date.now()
+    this.paused = false
+    this.frozenView = undefined
+    this.releasePause?.()
+    this.releasePause = undefined
+    this.pauseGate = undefined
+  }
+
+  async setPaused(paused: boolean, revision: number) {
+    if (revision < this.pauseRevision || (revision === this.pauseRevision && this.pauseControlApplied)) return
+    this.pauseRevision = revision
+    this.pauseControlApplied = true
+    if (paused && !this.paused) {
+      if (this.status === 'ready')
+        this.frozenView = structuredClone({
+          messages: this.session.messages.filter((message) => message.role !== 'system'),
+          entries: this.session.sessionManager.getEntries(),
+          leafId: this.session.sessionManager.getLeafId(),
+        })
+      this.pauseIntervals.push({ startedAt: Date.now() })
+      this.paused = true
+      this.queuePaused = true
+      this.pauseGate = new Promise<void>((resolve) => {
+        this.releasePause = resolve
+      })
+    } else if (!paused) {
+      this.cancelPause()
+      this.queuePaused = false
+    }
+    this.emitPause()
+    if (!paused) this.scheduleQueue()
+  }
+
+  pause() {
+    return this.setPaused(true, this.pauseRevision + 1)
+  }
+  resume() {
+    return this.setPaused(false, this.pauseRevision + 1)
+  }
+
+  private queueItem(id: string) {
+    for (const kind of ['steering', 'followUp'] as const) {
+      const index = this.ownQueue[kind].findIndex((input) => input.id === id)
+      if (index >= 0) return { kind, index, input: this.ownQueue[kind][index]! }
+    }
+    throw new Error('排队输入不存在或已发送')
+  }
+
+  beginQueueEdit(id: string, clientId: string) {
+    return this.withQueueLock(() => {
+      const { input } = this.queueItem(id)
+      if (input.editing) throw new Error('排队输入正在编辑')
+      input.editing = true
+      this.queueEdits.set(id, clientId)
+      this.emitQueue()
+      return structuredClone(input)
+    })
+  }
+
+  updateQueueInput(
+    id: string,
+    message: string,
+    images?: PiImage[],
+    skills: SkillReference[] = [],
+    options?: MessageOptions,
+    clientId?: string,
+  ) {
+    return this.withQueueLock(() => {
+      const { input } = this.queueItem(id)
+      if (!input.editing || this.queueEdits.get(id) !== clientId) throw new Error('此客户端未持有排队输入编辑权')
+      const normalized = normalizePlanMessage(message, options?.mode ?? input.mode)
+      if (normalized.commandOnly || builtinCommand(normalized.text)) throw new Error('排队输入必须包含任务正文')
+      Object.assign(input, { text: normalized.text, mode: normalized.mode, images, skills, editing: undefined })
+      this.queueEdits.delete(id)
+      this.emitQueue()
+    }).then(() => this.scheduleQueue())
+  }
+
+  cancelQueueEdit(id: string, clientId: string) {
+    return this.withQueueLock(() => {
+      const { input } = this.queueItem(id)
+      if (!input.editing || this.queueEdits.get(id) !== clientId) throw new Error('此客户端未持有排队输入编辑权')
+      delete input.editing
+      this.queueEdits.delete(id)
+      this.emitQueue()
+    }).then(() => this.scheduleQueue())
+  }
+
+  releaseQueueEdits(clientId: string) {
+    return this.withQueueLock(() => {
+      let changed = false
+      for (const [id, owner] of this.queueEdits) {
+        if (owner !== clientId) continue
+        const { input } = this.queueItem(id)
+        delete input.editing
+        this.queueEdits.delete(id)
+        changed = true
+      }
+      if (changed) this.emitQueue()
+    }).then(() => this.scheduleQueue())
+  }
+
+  deleteQueueInput(id: string) {
+    return this.withQueueLock(() => {
+      const { kind, index, input } = this.queueItem(id)
+      if (input.editing) throw new Error('排队输入正在编辑')
+      this.ownQueue[kind].splice(index, 1)
+      this.emitQueue()
+    }).then(() => this.scheduleQueue())
+  }
+
+  async steerQueueInput(id: string) {
+    const selected = await this.withQueueLock(() => {
+      const selected = this.queueItem(id)
+      if (selected.input.editing) throw new Error('排队输入正在编辑')
+      if (this.running && selected.input.mode !== (this.activeMode ?? this.runtimeMode))
+        throw new Error('不能引导不同模式的排队输入，请等待当前任务结束')
+      this.ownQueue[selected.kind].splice(selected.index, 1)
+      if (!this.running) {
+        this.ownQueue.steering.unshift(selected.input)
+        this.emitQueue()
+        return undefined
+      }
+      this.handingOff += 1
+      this.emitQueue()
+      const handoff = {
+        ...selected,
+        nextId: this.ownQueue[selected.kind][selected.index]?.id,
+        generation: this.generation,
+        activity: this.activityRevision,
+        cancelled: false,
+      }
+      this.handoffs.set(id, handoff)
+      return handoff
+    })
+    if (!selected) {
+      this.scheduleQueue()
+      return
+    }
+    try {
+      const prepared = await this.prepareSkills(selected.input.text, selected.input.skills ?? [])
+      await this.withQueueLock(() => {
+        if (
+          selected.cancelled ||
+          selected.generation !== this.generation ||
+          selected.activity !== this.activityRevision ||
+          !this.running ||
+          this.queueCancelled
+        )
+          throw new Error('当前任务已结束或取消，排队输入未引导')
+        this.preparedQueueText.set(id, prepared)
+        this.nativeQueue.steering.push(selected.input)
+      })
+      await this.call(() => {
+        if (
+          selected.cancelled ||
+          selected.generation !== this.generation ||
+          selected.activity !== this.activityRevision ||
+          !this.running ||
+          this.queueCancelled
+        )
+          throw new Error('当前任务已结束或取消，排队输入未引导')
+        return this.session.steer(prepared, selected.input.images, { source: 'rpc' })
+      })
+      this.emitQueue()
+    } catch (cause) {
+      await this.withQueueLock(() => {
+        this.nativeQueue.steering = this.nativeQueue.steering.filter((value) => value.id !== id)
+        this.preparedQueueText.delete(id)
+        if (!selected.cancelled) {
+          const next = this.ownQueue[selected.kind].findIndex((input) => input.id === selected.nextId)
+          this.ownQueue[selected.kind].splice(
+            next < 0 ? Math.min(selected.index, this.ownQueue[selected.kind].length) : next,
+            0,
+            selected.input,
+          )
+          this.queuePaused = true
+        }
+        this.emitQueue()
+        this.emitPause()
+      })
+      throw cause
+    } finally {
+      this.handoffs.delete(id)
+      this.handingOff -= 1
+      this.scheduleQueue()
+    }
+  }
+
   private async advanceQueue() {
-    if (this.running || this.changing || this.queueCancelled) return
-    const input = this.ownQueue.steering.shift() ?? this.ownQueue.followUp.shift()
-    if (!input) return
-    this.emitQueue()
-    await this.prompt(input.text, input.images, input.skills, { mode: input.mode }, false, true)
+    if (
+      this.running ||
+      this.changing ||
+      this.queueCancelled ||
+      this.paused ||
+      this.queuePaused ||
+      this.draining ||
+      this.handingOff
+    )
+      return
+    this.draining = true
+    let selected: { kind: 'steering' | 'followUp'; input: QueuedInput } | undefined
+    try {
+      selected = await this.withQueueLock(() => {
+        if (this.running || this.changing || this.queueCancelled || this.paused || this.queuePaused) return
+        const kind = this.ownQueue.steering.length ? 'steering' : 'followUp'
+        const input = this.ownQueue[kind][0]
+        if (!input || input.editing) return
+        this.ownQueue[kind].shift()
+        this.emitQueue()
+        return { kind, input }
+      })
+      if (!selected) return
+      await this.prompt(
+        selected.input.text,
+        selected.input.images,
+        selected.input.skills,
+        { mode: selected.input.mode },
+        false,
+        true,
+      )
+    } catch (cause) {
+      if (selected)
+        await this.withQueueLock(() => {
+          this.ownQueue[selected!.kind].unshift(selected!.input)
+          this.queuePaused = true
+          this.emitQueue()
+          this.emitPause()
+        })
+      throw cause
+    } finally {
+      this.draining = false
+      if (
+        !this.running &&
+        !this.queuePaused &&
+        !this.paused &&
+        !this.queueCancelled &&
+        (this.ownQueue.steering[0] ?? this.ownQueue.followUp[0]) &&
+        !(this.ownQueue.steering[0] ?? this.ownQueue.followUp[0])?.editing
+      )
+        this.scheduleQueue()
+    }
   }
 
   steer(message: string, images?: PiImage[], skills: SkillReference[] = [], options?: MessageOptions) {
@@ -830,16 +1203,24 @@ export class SdkSession {
   }
 
   async clearQueue() {
-    const cleared = {
-      steering: [...this.nativeQueue.steering, ...this.ownQueue.steering],
-      followUp: [...this.nativeQueue.followUp, ...this.ownQueue.followUp],
-    }
-    if (this.status === 'ready') await this.call(() => this.session.clearQueue())
-    this.preparedQueueText.clear()
-    this.nativeQueue = { steering: [], followUp: [] }
-    this.ownQueue = { steering: [], followUp: [] }
-    this.emitQueue()
-    return cleared
+    return this.withQueueLock(async () => {
+      const cleared = {
+        steering: [...this.nativeQueue.steering, ...this.ownQueue.steering],
+        followUp: [...this.nativeQueue.followUp, ...this.ownQueue.followUp],
+      }
+      for (const handoff of this.handoffs.values()) {
+        if (!cleared[handoff.kind].some((input) => input.id === handoff.input.id))
+          cleared[handoff.kind].push(handoff.input)
+        handoff.cancelled = true
+      }
+      if (this.status === 'ready') await this.call(() => this.session.clearQueue())
+      this.queueEdits.clear()
+      this.preparedQueueText.clear()
+      this.nativeQueue = { steering: [], followUp: [] }
+      this.ownQueue = { steering: [], followUp: [] }
+      this.emitQueue()
+      return cleared
+    })
   }
 
   async setSessionMode(mode: TaskMode) {
@@ -940,6 +1321,8 @@ export class SdkSession {
   }
 
   abort() {
+    this.cancelPause()
+    this.emitPause()
     this.queueCancelled = true
     this.admission?.abort()
     return this.call(() => this.session.abort())

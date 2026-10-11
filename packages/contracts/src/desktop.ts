@@ -6,7 +6,7 @@ import type {
   CollaborationEvent,
   PendingInteraction,
 } from './collaboration'
-import type { MessageOptions, PlanDocument, PlanEvent, TaskMode } from './plan'
+import type { MessageOptions, QueuedInput, PlanDocument, PlanEvent, TaskMode } from './plan'
 import type { UsageStatsSnapshot } from './usage'
 import type { AgentAccessEvent, AgentAccessMode } from './agent-access'
 import type {
@@ -204,6 +204,20 @@ export interface ChatBridge {
     options?: MessageOptions,
   ) => Promise<void>
   setSessionMode: (sessionKey: string, mode: TaskMode) => Promise<void>
+  pause: (sessionKey: string) => Promise<void>
+  resume: (sessionKey: string) => Promise<void>
+  steerQueueInput: (sessionKey: string, id: string) => Promise<void>
+  deleteQueueInput: (sessionKey: string, id: string) => Promise<void>
+  beginQueueEdit: (sessionKey: string, id: string) => Promise<QueuedInput>
+  updateQueueInput: (
+    sessionKey: string,
+    id: string,
+    message: string,
+    images?: PiImage[],
+    skills?: SkillReference[],
+    options?: MessageOptions,
+  ) => Promise<void>
+  cancelQueueEdit: (sessionKey: string, id: string) => Promise<void>
   clearQueue: (sessionKey: string) => Promise<PiQueuedMessages>
   setSteeringMode: (sessionKey: string, mode: PiState['steeringMode']) => Promise<PiState>
   setFollowUpMode: (sessionKey: string, mode: PiState['followUpMode']) => Promise<PiState>

@@ -23,12 +23,14 @@ export function ToolActivityRow({
   item,
   open,
   onToggle,
+  isPaused = false,
   isNested = true,
   className,
 }: {
   item: Extract<ActivityItem, { type?: 'tool' }>
   open: boolean
   onToggle: () => void
+  isPaused?: boolean
   isNested?: boolean
   className?: string
 }) {
@@ -100,7 +102,7 @@ export function ToolActivityRow({
           !hasDetail && 'cursor-default',
         )}
       >
-        {isRunning ? (
+        {isPaused ? null : isRunning ? (
           <Loader2 className="size-3.5 shrink-0 animate-spin text-primary" />
         ) : (
           <IconComponent
@@ -115,7 +117,7 @@ export function ToolActivityRow({
           {meta.summary}
         </span>
 
-        {isError && <XCircle className="size-3 text-destructive shrink-0 ml-1" />}
+        {isError && !isPaused && <XCircle className="size-3 text-destructive shrink-0 ml-1" />}
 
         {hasDetail && (
           <ChevronDown
@@ -168,7 +170,7 @@ export function ToolActivityRow({
           ) : null}
 
           {item.children?.map((child) => (
-            <NestedToolActivity key={child.id} tool={child} />
+            <NestedToolActivity key={child.id} tool={child} isPaused={isPaused} />
           ))}
           {images.length > 0 && (
             <div className="mt-2 flex flex-wrap gap-2">
@@ -189,11 +191,11 @@ export function ToolActivityRow({
   )
 }
 
-function NestedToolActivity({ tool }: { tool: import('../model/types').ToolRun }) {
+function NestedToolActivity({ tool, isPaused }: { tool: import('../model/types').ToolRun; isPaused: boolean }) {
   const [open, setOpen] = React.useState(false)
   return (
     <div className="mt-2 border-l border-border/40 pl-2" data-parent-tool={tool.parentToolCallId}>
-      <ToolActivityRow item={tool} open={open} onToggle={() => setOpen(!open)} isNested />
+      <ToolActivityRow item={tool} open={open} onToggle={() => setOpen(!open)} isPaused={isPaused} isNested />
     </div>
   )
 }

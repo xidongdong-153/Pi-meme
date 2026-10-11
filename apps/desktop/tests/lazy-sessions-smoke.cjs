@@ -124,7 +124,9 @@ module.exports = async function lazySessionsSmoke(window, waitFor, directory) {
     path.join(__dirname, '../out/desktop-smoke/lazy-sessions.png'),
     (await window.webContents.capturePage()).toPNG(),
   )
-  await evaluate(`document.querySelector('[aria-label="停止当前任务"]').click()`)
+  await evaluate(
+    'window.piMemeClient.getConnection().then(connection => window.piMemeClient.abort(connection.sessionKey))',
+  )
   await waitFor(
     () =>
       evaluate('window.piMemeClient.getSessions().then((value) => value.recents.every((session) => !session.running))'),

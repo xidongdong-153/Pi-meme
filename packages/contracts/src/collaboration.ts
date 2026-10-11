@@ -36,6 +36,7 @@ export type AgentConversationOrigin = {
   inheritedEntryIds: string[]
 }
 export type AgentSummary = AgentExecution & {
+  isPaused?: boolean
   conversationOrigin?: AgentConversationOrigin
   status: AgentStatus
   cwd: string

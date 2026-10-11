@@ -28,6 +28,26 @@ export type ClientOptions = {
   reconnectDelay?: number
 }
 
+function clientIdentity(options: ClientOptions, endpoint: URL) {
+  if (options.clientId !== undefined) return options.clientId
+  const fresh = () => crypto.randomUUID()
+  if (typeof window === 'undefined') return fresh()
+  try {
+    const key = `pi-meme:client:${JSON.stringify([
+      new URL(options.connection.url).origin,
+      options.connection.hostId,
+      new URL(`${options.endpoint?.apiPrefix ?? ''}/api/rpc`, endpoint).href,
+    ])}`
+    const stored = window.sessionStorage.getItem(key)
+    if (stored && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(stored)) return stored
+    const id = fresh()
+    window.sessionStorage.setItem(key, id)
+    return id
+  } catch {
+    return fresh()
+  }
+}
+
 export class HostClient {
   readonly clientId: string
   readonly bridge: DesktopBridge
@@ -55,6 +75,8 @@ export class HostClient {
   private readonly sequences = new Map<string, number>()
   private resynchronizing?: Promise<void>
   private buffered: HostEvent[] = []
+  private queueRecoveryComplete = false
+  private initialQueueRecovery?: Promise<boolean>
 
   constructor(private readonly options: ClientOptions) {
     this.url = new URL(options.endpoint?.baseUrl ?? options.connection.url)
@@ -63,7 +85,7 @@ export class HostClient {
       throw new Error('远程 Host 必须使用 HTTPS 地址')
     if (this.url.username || this.url.password) throw new Error('Host 地址不能包含账号或凭据')
     this.connectedHostId = options.connection.hostId
-    this.clientId = options.clientId ?? crypto.randomUUID()
+    this.clientId = clientIdentity(options, this.url)
     this.fetch = options.fetch ?? globalThis.fetch.bind(globalThis)
     this.bridge = this.createBridge()
     this.plugins = {
@@ -210,7 +232,8 @@ export class HostClient {
 
   private async snapshot(sessionId = this.selected?.sessionKey, updateSelection = true) {
     const epoch = this.selectionEpoch
-    const snapshot = await this.rpc<Snapshot>('pi:snapshot', [], sessionId)
+    let snapshot = await this.rpc<Snapshot>('pi:snapshot', [], sessionId)
+    if (await this.recoverQueueEdits(snapshot)) snapshot = await this.rpc<Snapshot>('pi:snapshot', [], sessionId)
     this.registerAgents(snapshot.agents ?? [])
     if (updateSelection && epoch === this.selectionEpoch && sessionId === this.selected?.sessionKey)
       this.selected = snapshot.connection
@@ -228,6 +251,37 @@ export class HostClient {
         Math.max(this.sequences.get(snapshot.connection.sessionKey) ?? 0, snapshot.eventSequence),
       )
     return snapshot
+  }
+
+  private recoverQueueEdits(snapshot: Snapshot) {
+    if (this.queueRecoveryComplete) return Promise.resolve(false)
+    this.initialQueueRecovery ??= (async () => {
+      const key = snapshot.connection.sessionKey
+      if (!key) {
+        this.queueRecoveryComplete = true
+        return false
+      }
+      const ids = new Set(
+        snapshot.events?.flatMap(({ event }) =>
+          event.type === 'queue_update'
+            ? [...event.steering, ...event.followUp].filter((input) => input.editing).map((input) => input.id)
+            : [],
+        ) ?? [],
+      )
+      const results = await Promise.allSettled([...ids].map((id) => this.rpc('pi:cancel-queue-edit', [key, id], key)))
+      for (const result of results) {
+        if (result.status !== 'rejected') continue
+        const message = result.reason instanceof Error ? result.reason.message : String(result.reason)
+        if (!message.includes('此客户端未持有排队输入编辑权') && !message.includes('排队输入不存在或已发送'))
+          throw result.reason
+      }
+      this.queueRecoveryComplete = true
+      return results.some((result) => result.status === 'fulfilled')
+    })().catch((cause: unknown) => {
+      this.initialQueueRecovery = undefined
+      throw cause
+    })
+    return this.initialQueueRecovery
   }
 
   private registerAgents(agents: AgentSummary[]) {
@@ -519,6 +573,14 @@ export class HostClient {
       getAgentSnapshot: (id) => this.agentSnapshot(id),
       interruptAgent: (id) => this.rpc('pi:interrupt-agent', [id], null),
       setSessionMode: (key, mode) => rpc('pi:session-mode', [key, mode], key),
+      pause: (key) => rpc('pi:pause', [key], key),
+      resume: (key) => rpc('pi:resume', [key], key),
+      steerQueueInput: (key, id) => rpc('pi:steer-queue-input', [key, id], key),
+      deleteQueueInput: (key, id) => rpc('pi:delete-queue-input', [key, id], key),
+      beginQueueEdit: (key, id) => rpc('pi:begin-queue-edit', [key, id], key),
+      updateQueueInput: (key, id, message, images, skills, options) =>
+        rpc('pi:update-queue-input', [key, id, message, images ?? [], skills ?? [], options], key),
+      cancelQueueEdit: (key, id) => rpc('pi:cancel-queue-edit', [key, id], key),
       clearQueue: (key) => rpc('pi:clear-queue', [key], key),
       setSteeringMode: (key, mode) => rpc('pi:steering-mode', [key, mode], key),
       setFollowUpMode: (key, mode) => rpc('pi:follow-up-mode', [key, mode], key),

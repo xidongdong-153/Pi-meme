@@ -1,4 +1,5 @@
 import { AlertCircle, Loader2 } from 'lucide-react'
+import type { PiPauseInterval } from '@pi-meme/contracts/pi'
 import type { TurnChunk } from '../model/types'
 import { AttachmentPreview } from '../content/attachment-preview'
 import { MarkdownContent } from '../content/markdown-content'
@@ -9,12 +10,16 @@ import { MessageActions } from './message-actions'
 export function AssistantTurnView({
   turn,
   className,
+  isPaused = false,
+  pauseIntervals,
   canFork,
   onFork,
   onCopyError,
 }: {
   turn: Extract<TurnChunk, { type: 'assistant_turn' }>
   className?: string
+  isPaused?: boolean
+  pauseIntervals?: PiPauseInterval[]
   canFork?: boolean
   onFork?: (timestamp: number) => void
   onCopyError?: (message: string) => void
@@ -33,6 +38,8 @@ export function AssistantTurnView({
               isLive={turn.isLive}
               durationMs={turn.durationMs}
               startedAt={turn.startedAt}
+              isPaused={isPaused}
+              pauseIntervals={pauseIntervals}
             />
           )}
 
@@ -44,8 +51,10 @@ export function AssistantTurnView({
 
           {/* 4. 如果正在生成且暂无任何内容输出，展示分析准备指示 */}
           {turn.isLive && !turn.finalText && turn.activities.length === 0 && (
-            <div className="flex items-center gap-2 py-2 text-xs text-muted-foreground animate-pulse">
-              <Loader2 className="size-3.5 animate-spin text-primary" />
+            <div
+              className={cn('flex items-center gap-2 py-2 text-xs text-muted-foreground', !isPaused && 'animate-pulse')}
+            >
+              {!isPaused && <Loader2 className="size-3.5 animate-spin text-primary" />}
               <span>Pi 正在分析并准备回复…</span>
             </div>
           )}

@@ -64,10 +64,18 @@ export function builtinCommand(message: string) {
 }
 export type PiModel = { provider: string; id: string; name?: string; reasoning?: boolean }
 export type PiSessionStats = SessionStats
+export type PiRunInterval = { startedAt: number; endedAt?: number }
+export type PiPauseInterval = { startedAt: number; endedAt?: number }
+
 export type PiState = Pick<
   RpcSessionState,
   'isStreaming' | 'isCompacting' | 'sessionName' | 'steeringMode' | 'followUpMode' | 'pendingMessageCount'
 > & {
+  isPaused?: boolean
+  queuePaused?: boolean
+  pauseRevision?: number
+  pauseIntervals?: PiPauseInterval[]
+  runIntervals?: PiRunInterval[]
   mode: TaskMode
   activeMode?: TaskMode
   model?: PiModel
@@ -75,7 +83,7 @@ export type PiState = Pick<
   thinkingLevel?: ThinkingLevel
 }
 export type PiEvent =
-  | Extract<
+  | (Extract<
       JsonAgentSessionEvent,
       {
         type:
@@ -90,8 +98,15 @@ export type PiEvent =
           | 'compaction_start'
           | 'compaction_end'
       }
-    >
-  | { type: 'agent_settled'; aborted?: boolean }
+    > & { runIntervals?: PiRunInterval[] })
+  | { type: 'agent_settled'; aborted?: boolean; runIntervals?: PiRunInterval[] }
+  | {
+      type: 'pause_update'
+      isPaused: boolean
+      queuePaused: boolean
+      revision: number
+      pauseIntervals?: PiPauseInterval[]
+    }
   | { type: 'queue_update'; steering: QueuedInput[]; followUp: QueuedInput[] }
 export type PiExtensionDialogRequest = Extract<
   RpcExtensionUIRequest,

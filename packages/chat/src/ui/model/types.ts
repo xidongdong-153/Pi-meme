@@ -1,6 +1,6 @@
 import type { AgentMailboxMessage, AgentSummary } from '@pi-meme/contracts/collaboration'
 import type { QueuedInput, PlanDocument } from '@pi-meme/contracts/plan'
-import type { PiImage, PiMessage, PiSessionEntries } from '@pi-meme/contracts/pi'
+import type { PiImage, PiMessage, PiPauseInterval, PiRunInterval, PiSessionEntries } from '@pi-meme/contracts/pi'
 
 export type ToolRun = {
   id: string
@@ -24,6 +24,12 @@ export type ChatState = {
   live: Extract<PiMessage, { role: 'assistant' }> | null
   stream: LiveStream
   tools: Record<string, ToolRun>
+  paused?: boolean
+  queuePaused?: boolean
+  pauseRevision?: number
+  pauseIntervals?: PiPauseInterval[]
+  runIntervals?: PiRunInterval[]
+  activeMode?: import('@pi-meme/contracts/plan').TaskMode
   running: boolean
   compacting: ChatCompactionState | null
   steering: readonly QueuedInput[]

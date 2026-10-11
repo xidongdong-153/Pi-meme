@@ -50,7 +50,7 @@ export function ProjectItem({
       )
   const hasMoreSessions = project.sessions.length > sessionThreshold
   const isContentVisible = isExpanded && project.sessions.length > 0
-  const hasRunningSession = project.sessions.some((session) => session.running)
+  const hasRunningSession = project.sessions.some((session) => session.running && !session.isPaused)
 
   return (
     <div key={project.cwd} className="space-y-0.5">

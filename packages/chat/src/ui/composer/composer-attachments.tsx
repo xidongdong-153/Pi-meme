@@ -4,7 +4,8 @@ import type { ComposerProps } from './composer'
 export function ComposerAttachments({
   attachments,
   onRemoveImage,
-}: Pick<ComposerProps, 'attachments' | 'onRemoveImage'>) {
+  disabled,
+}: Pick<ComposerProps, 'attachments' | 'onRemoveImage'> & { disabled?: boolean }) {
   return (
     <>
       {attachments.length > 0 && (
@@ -21,6 +22,7 @@ export function ComposerAttachments({
               />
               <button
                 type="button"
+                disabled={disabled}
                 aria-label="移除图片"
                 onClick={() => onRemoveImage(image.id)}
                 className="absolute right-1 top-1 flex size-4 items-center justify-center rounded-full bg-black/70 text-white opacity-80 hover:opacity-100 transition-opacity cursor-pointer"

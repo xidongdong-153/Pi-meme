@@ -4,20 +4,32 @@ const path = require('node:path')
 const { app, clipboard } = require('electron')
 
 module.exports = async (window, waitFor, directory, screenshots, options = {}) => {
-  const evaluate = (code) => window.webContents.executeJavaScript(code)
+  const evaluate = (code) =>
+    window.webContents.executeJavaScript(code).catch((cause) => {
+      console.error('计划输入验收脚本失败：', code)
+      throw cause
+    })
   const clickText = (text, scope = 'body') =>
     evaluate(`(() => {
       const button = [...document.querySelector(${JSON.stringify(scope)}).querySelectorAll('button')].find(node => node.textContent.trim() === ${JSON.stringify(text)});
       if (!button) throw new Error('找不到按钮：' + ${JSON.stringify(text)}); button.click();
     })()`)
-  const draft = (text) =>
-    evaluate(`(() => {
-      const node = document.querySelector('[contenteditable=true][aria-label=消息]');
+  const editorSelector = '[role=combobox][aria-label=消息]'
+  const editable = () =>
+    waitFor(
+      () => evaluate(`document.querySelector(${JSON.stringify(editorSelector)})?.isContentEditable === true`),
+      '消息编辑器可编辑',
+    )
+  const draft = async (text) => {
+    await editable()
+    return evaluate(`(() => {
+      const node = document.querySelector(${JSON.stringify(editorSelector)});
       node.textContent = ${JSON.stringify(text)}; node.focus();
       const range = document.createRange(); range.selectNodeContents(node); range.collapse(false);
       const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
       node.dispatchEvent(new Event('input', { bubbles: true }));
     })()`)
+  }
   const capture =
     options.capture ??
     (async (name) => {
@@ -62,11 +74,12 @@ module.exports = async (window, waitFor, directory, screenshots, options = {}) =
     ? await evaluate('window.piMemeClient.getConnection().then(value => value.sessionKey)')
     : undefined
   const commandUsers = await countUsers()
-  const editorSelector = '[contenteditable=true][aria-label=消息]'
-  const key = (key, options = {}) =>
-    evaluate(
+  const key = async (key, options = {}) => {
+    await editable()
+    return evaluate(
       `document.querySelector(${JSON.stringify(editorSelector)}).dispatchEvent(new KeyboardEvent('keydown', ${JSON.stringify({ key, bubbles: true, cancelable: true, ...options })}))`,
     )
+  }
   const modeReady = (mode) =>
     waitFor(
       () =>
@@ -76,7 +89,8 @@ module.exports = async (window, waitFor, directory, screenshots, options = {}) =
         const divider = access?.parentElement.parentElement.querySelector('span[aria-hidden="true"]');
         const inactive = [...document.querySelectorAll('form[aria-label="消息输入"] button')].some(node =>
           node.getAttribute('aria-label') === '开启计划模式' || node.textContent.trim() === '计划');
-        return value.state.mode === '${mode}' && !value.state.isStreaming &&
+        const editor = document.querySelector(${JSON.stringify(editorSelector)});
+        return value.state.mode === '${mode}' && !value.state.isStreaming && editor?.isContentEditable &&
           ${mode === 'plan' ? 'button && !button.disabled' : '!button && !inactive && !divider'};
       })`),
       `${mode} 计划工具栏可操作`,
@@ -90,7 +104,7 @@ module.exports = async (window, waitFor, directory, screenshots, options = {}) =
         const group = access?.parentElement.parentElement;
         const accessBounds = access?.getBoundingClientRect();
         const bounds = plan?.getBoundingClientRect();
-        return Boolean(plan && group?.contains(plan) && Boolean(editor.compareDocumentPosition(plan) & Node.DOCUMENT_POSITION_FOLLOWING) &&
+        return Boolean(editor && plan && group?.contains(plan) && Boolean(editor.compareDocumentPosition(plan) & Node.DOCUMENT_POSITION_FOLLOWING) &&
           bounds.top >= editor.getBoundingClientRect().bottom && bounds.left >= accessBounds.right - 1 &&
           plan.textContent.trim() === '计划' && plan.querySelector('.lucide-x') && plan.querySelector('.lucide-lightbulb'));
       })()`),
@@ -188,7 +202,7 @@ module.exports = async (window, waitFor, directory, screenshots, options = {}) =
   await modeReady('plan')
   await draft('计划切换保留的草稿')
   const hoverPlan = async (hover) => {
-    const selector = hover ? 'button[aria-label="关闭计划模式"]' : editorSelector
+    const selector = hover ? 'button[aria-label="关闭计划模式"]' : '[role=combobox][aria-label=消息]'
     const point = await evaluate(`(() => {
       const node = document.querySelector(${JSON.stringify(selector)});
       const rect = node.getBoundingClientRect();
@@ -358,19 +372,45 @@ module.exports = async (window, waitFor, directory, screenshots, options = {}) =
   await capture('plan-exported')
   await evaluate(`(() => {
     window.piMemePlanSendTrace = [];
+    window.piMemePlanConnectionStop = window.piMemeClient.onConnection(connection => window.piMemePlanSendTrace.push({ method: "connection", connection }));
     window.piMemePlanSendOriginals = {};
     for (const method of ['setSessionMode', 'prompt', 'steer', 'followUp']) {
       const original = window.piMemeClient[method];
       window.piMemePlanSendOriginals[method] = original;
       window.piMemeClient[method] = (...args) => {
-        window.piMemePlanSendTrace.push({ method, sessionKey: args[0], mode: method === 'setSessionMode' ? args[1] : args.at(-1)?.mode, text: method === 'setSessionMode' ? undefined : args[1] });
-        return original(...args);
+        const trace = { method, sessionKey: args[0], mode: method === 'setSessionMode' ? args[1] : args.at(-1)?.mode, text: method === 'setSessionMode' ? undefined : args[1], status: 'pending' };
+        window.piMemePlanSendTrace.push(trace);
+        const result = original(...args);
+        if (method !== 'setSessionMode') return result;
+        return Promise.resolve(result).then(value => { trace.status = 'fulfilled'; return value; }, cause => {
+          trace.status = 'rejected'; trace.error = String(cause); throw cause;
+        });
       };
     }
   })()`)
+  const beforeDefault = await evaluate('window.piMemeClient.getConnection()')
   await draft('plan-toolbar-default-smoke')
   await evaluate('document.querySelector("button[aria-label=关闭计划模式]").click()')
   await modeReady('default')
+  await waitFor(
+    () =>
+      evaluate(`(() => {
+        const write = window.piMemePlanSendTrace.findLast(entry => entry.method === 'setSessionMode' && entry.mode === 'default');
+        if (write?.status === 'rejected') throw new Error('关闭计划模式失败：' + write.error);
+        if (write?.status !== 'fulfilled') return false;
+        return window.piMemeClient.getSnapshot().then(value => {
+          const connection = value.connection;
+          const editor = document.querySelector('[role=combobox][aria-label=消息]');
+          const button = document.querySelector('button[aria-label="发送消息"]');
+          return connection.sessionKey === ${JSON.stringify(beforeDefault.sessionKey)} &&
+            connection.generation === ${JSON.stringify(beforeDefault.generation)} &&
+            (connection.status === 'ready' || connection.status === 'idle') && !connection.accessChanging &&
+            value.state.mode === 'default' && !value.state.isStreaming &&
+            editor?.isContentEditable && button?.type === 'submit' && !button.disabled;
+        });
+      })()`),
+    '关闭计划写入完成且原会话输入器可发送',
+  )
   assert.equal(
     await evaluate(`document.querySelector(${JSON.stringify(editorSelector)}).textContent`),
     'plan-toolbar-default-smoke',
@@ -380,7 +420,7 @@ module.exports = async (window, waitFor, directory, screenshots, options = {}) =
     clicked = await evaluate(`(() => {
       const button = document.querySelector('button[aria-label="发送消息"]');
       if (!button || button.disabled) return false;
-      const value = { disabled: button.disabled, draft: document.querySelector(${JSON.stringify(editorSelector)}).textContent };
+      const value = { disabled: button.disabled, type: button.type, editable: document.querySelector('[role=combobox][aria-label=消息]').isContentEditable, draft: document.querySelector(${JSON.stringify(editorSelector)}).textContent };
       button.click();
       return value;
     })()`)
@@ -402,7 +442,7 @@ module.exports = async (window, waitFor, directory, screenshots, options = {}) =
     throw cause
   } finally {
     await evaluate(
-      `(() => { for (const [method, original] of Object.entries(window.piMemePlanSendOriginals)) window.piMemeClient[method] = original; delete window.piMemePlanSendOriginals; delete window.piMemePlanSendTrace })()`,
+      `(() => { window.piMemePlanConnectionStop(); delete window.piMemePlanConnectionStop; for (const [method, original] of Object.entries(window.piMemePlanSendOriginals)) window.piMemeClient[method] = original; delete window.piMemePlanSendOriginals; delete window.piMemePlanSendTrace })()`,
     )
   }
 }

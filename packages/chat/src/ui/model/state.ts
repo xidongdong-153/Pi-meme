@@ -1,7 +1,7 @@
 import type { CollaborationEvent } from '@pi-meme/contracts/collaboration'
 import type { PlanEvent } from '@pi-meme/contracts/plan'
 import type { AgentAccessEvent } from '@pi-meme/contracts/agent-access'
-import type { PiEvent } from '@pi-meme/contracts/pi'
+import type { PiEvent, PiRunInterval } from '@pi-meme/contracts/pi'
 import type { Snapshot, DesktopEvent } from '@pi-meme/contracts/desktop'
 import type { ChatState } from './types'
 import { sameMessage } from './message-text'
@@ -28,6 +28,12 @@ export function fromSnapshot(snapshot: Snapshot): ChatState {
     agentMessages: snapshot.agentMessages ?? [],
     sessionEntries: snapshot.sessionEntries,
     running: snapshot.state.isStreaming || isCompacting,
+    paused: snapshot.state.isPaused ?? false,
+    queuePaused: snapshot.state.queuePaused ?? false,
+    pauseRevision: snapshot.state.pauseRevision ?? 0,
+    pauseIntervals: snapshot.state.pauseIntervals ?? [],
+    runIntervals: snapshot.state.runIntervals ?? [],
+    activeMode: snapshot.state.activeMode,
     compacting: isCompacting ? { active: true } : null,
     tools: {},
   }
@@ -79,13 +85,26 @@ function restoreNestedTools(
   }
 }
 
+function mergeRunIntervals(current: PiRunInterval[] | undefined, incoming: PiRunInterval[] | undefined) {
+  if (!incoming) return current
+  const intervals = new Map(current?.map((interval) => [interval.startedAt, interval]))
+  for (const interval of incoming) {
+    const previous = intervals.get(interval.startedAt)
+    intervals.set(interval.startedAt, { ...interval, endedAt: previous?.endedAt ?? interval.endedAt })
+  }
+  return [...intervals.values()].sort((a, b) => a.startedAt - b.startedAt)
+}
+
 export function applyEvent(
   state: ChatState,
   event: PiEvent | AgentAccessEvent | PlanEvent | CollaborationEvent,
 ): ChatState {
   switch (event.type) {
-    case 'agents_update':
-      return { ...state, agents: event.agents }
+    case 'agents_update': {
+      const root = event.agents.find((agent) => agent.depth === 0 && agent.agentId === agent.rootAgentId)
+      const active = root && ['starting', 'running', 'waiting_children', 'waiting_input'].includes(root.status)
+      return { ...state, agents: event.agents, activeMode: active ? root.mode : undefined }
+    }
     case 'agent_mailbox':
       return state.agentMessages?.some((message) => message.id === event.message.id)
         ? state
@@ -104,7 +123,7 @@ export function applyEvent(
       }
     }
     case 'agent_start':
-      return { ...state, running: true }
+      return { ...state, running: true, runIntervals: mergeRunIntervals(state.runIntervals, event.runIntervals) }
     case 'agent_end':
       return state
     case 'compaction_start':
@@ -121,12 +140,21 @@ export function applyEvent(
     case 'agent_settled':
       return {
         ...state,
+        runIntervals: mergeRunIntervals(state.runIntervals, event.runIntervals),
         running: false,
+        activeMode: undefined,
         compacting: null,
         live: null,
         stream: emptyChat.stream,
-        steering: [],
-        followUp: [],
+      }
+    case 'pause_update':
+      if (event.revision < (state.pauseRevision ?? 0)) return state
+      return {
+        ...state,
+        paused: event.isPaused,
+        queuePaused: event.queuePaused,
+        pauseRevision: event.revision,
+        pauseIntervals: event.pauseIntervals ?? state.pauseIntervals,
       }
     case 'queue_update':
       return { ...state, steering: event.steering, followUp: event.followUp }

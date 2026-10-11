@@ -62,6 +62,7 @@ export const Conversation = React.memo(
         chat.running,
         chat.stream.completed,
         'agentStatuses' in view ? view.agentStatuses : [],
+        chat.runIntervals,
       )
     }, [chat, readOnly])
 
@@ -166,6 +167,8 @@ export const Conversation = React.memo(
               <AssistantTurnView
                 key={turn.key}
                 turn={turn}
+                isPaused={Boolean(chat.paused && turn.isLive)}
+                pauseIntervals={chat.pauseIntervals}
                 canFork={canEditMessages}
                 onFork={readOnly ? undefined : onForkReply}
                 onCopyError={onCopyError}

@@ -22,6 +22,7 @@ process.env.PI_MEME_DATA_ROOT = directory
 process.env.PI_MEME_TEST_CREDENTIALS = 'file'
 let gitDirectory
 let failed = false
+let smokeAgent
 async function waitFor(check, label = '界面状态') {
   const deadline = Date.now() + 10000
   while (Date.now() < deadline) {
@@ -650,84 +651,28 @@ async function run(window) {
   assert.equal(await evaluate(`document.querySelector(${JSON.stringify(model)}).disabled`), true)
   const firstElapsed = await readLastWork()
   await waitFor(async () => (await readLastWork()) !== firstElapsed, '运行计时更新')
-  await setDraft('插话验收')
-  await click('button[aria-label="发送插话"]')
+  await setDraft('排队验收')
+  await click('button[aria-label="发送排队任务"]')
   await waitFor(
-    () => evaluate('document.querySelector("[aria-label=待处理任务队列]")?.textContent.includes("插话验收")'),
-    '插话排队',
+    () => evaluate('document.querySelector("[aria-label=待处理任务队列]")?.textContent.includes("排队验收")'),
+    '默认后续排队',
   )
   await setDraft('保留草稿')
   await evaluate(
     'document.querySelector("[contenteditable=true][aria-label=消息]").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))',
   )
-  await waitFor(() => evaluate('!document.querySelector("[aria-label=待处理任务队列]")'), '撤回队列')
   assert.equal(
-    await evaluate('document.querySelector("[contenteditable=true][aria-label=消息]").textContent'),
-    '保留草稿',
-  )
-  const recoveredInput = '恢复草稿：插话验收'
-  await waitFor(
-    () =>
-      evaluate(
-        `[...document.querySelectorAll('button')].some(node => node.textContent.trim() === ${JSON.stringify(recoveredInput)})`,
-      ),
-    '撤回消息保留为可恢复草稿',
-  )
-  await clickText(recoveredInput)
-  await waitFor(
-    () => evaluate('document.body.textContent.includes("请先发送或清空当前草稿，再恢复排队消息。")'),
-    '非空草稿拒绝覆盖',
+    await evaluate('document.querySelector("[aria-label=待处理任务队列]")?.textContent.includes("排队验收")'),
+    true,
+    'Escape保留队列',
   )
   assert.equal(
     await evaluate('document.querySelector("[contenteditable=true][aria-label=消息]").textContent'),
     '保留草稿',
   )
-  await setDraft('')
-  await clickText(recoveredInput)
-  await waitFor(
-    () => evaluate('document.querySelector("[contenteditable=true][aria-label=消息]").textContent === "插话验收"'),
-    '恢复撤回消息',
-  )
-  assert.equal(
-    await evaluate(
-      `[...document.querySelectorAll('button')].some(node => node.textContent.trim() === ${JSON.stringify(recoveredInput)})`,
-    ),
-    false,
-  )
-  assert.equal(await evaluate('Boolean(document.querySelector("button[aria-label=关闭计划模式]"))'), false)
-  await click('button[aria-label="运行模式"]')
-  await waitFor(() => evaluate('Boolean(document.querySelector("button[title=\\"点击切换插话模式\\"]"))'), '插话菜单')
-  await click('button[title="点击切换插话模式"]')
-  await waitFor(
-    () => evaluate('window.piMemeClient.getSnapshot().then(snapshot => snapshot.state.steeringMode === "all")'),
-    '插话策略',
-  )
-  await click('button[aria-label="运行模式"]')
-  await waitFor(() => evaluate('Boolean(document.querySelector("button[aria-label=\\"排队\\"]"))'), '模式菜单')
-  await click('button[aria-label="排队"]')
-  const previousFollowUpMode = await evaluate(
-    'window.piMemeClient.getSnapshot().then(snapshot => snapshot.state.followUpMode)',
-  )
-  const nextFollowUpMode = previousFollowUpMode === 'all' ? 'one-at-a-time' : 'all'
-  await click('button[aria-label="运行模式"]')
-  await waitFor(() => evaluate('Boolean(document.querySelector("button[title=\\"点击切换排队模式\\"]"))'), '排队菜单')
-  await click('button[title="点击切换排队模式"]')
-  await waitFor(
-    () =>
-      evaluate(
-        `window.piMemeClient.getSnapshot().then(snapshot => snapshot.state.followUpMode === ${JSON.stringify(nextFollowUpMode)})`,
-      ),
-    '排队策略',
-  )
-  if (nextFollowUpMode !== 'all') {
-    await click('button[aria-label="运行模式"]')
-    await waitFor(() => evaluate('Boolean(document.querySelector("button[title=\\"点击切换排队模式\\"]"))'), '排队菜单')
-    await click('button[title="点击切换排队模式"]')
-    await waitFor(
-      () => evaluate('window.piMemeClient.getSnapshot().then(snapshot => snapshot.state.followUpMode === "all")'),
-      '恢复整批排队策略',
-    )
-  }
+  assert.equal(await evaluate('Boolean(document.querySelector("button[aria-label=运行模式]"))'), false)
+  await click('button[aria-label="删除排队消息"]')
+  await waitFor(() => evaluate('!document.querySelector("[aria-label=待处理任务队列]")'), '逐条删除队列')
   await setDraft('后续验收')
   await click('button[aria-label="发送排队任务"]')
   await waitFor(
@@ -735,8 +680,16 @@ async function run(window) {
     '后续队列',
   )
   await capture('tool')
-  await click('button[aria-label="停止当前任务"]')
-  await waitFor(() => evaluate(`!document.querySelector(${JSON.stringify(model)}).disabled`), '停止运行')
+  await setDraft('')
+  await click('button[aria-label="暂停当前任务"]')
+  await waitFor(() => evaluate('Boolean(document.querySelector("button[aria-label=继续当前任务]"))'), '暂停运行')
+  await evaluate(
+    'window.piMemeClient.getConnection().then(connection => window.piMemeClient.abort(connection.sessionKey))',
+  )
+  await waitFor(
+    () => evaluate('window.piMemeClient.getSnapshot().then(snapshot => !snapshot.state.isStreaming)'),
+    '清理队列验收任务',
+  )
   await clickText('新聊天', 'aside[aria-label="侧边栏"]')
   await waitFor(() => evaluate('document.querySelector("h1")?.textContent === "开始一个新任务"'), '新会话')
 
@@ -824,7 +777,10 @@ async function run(window) {
   execFileSync('git', ['init', '--quiet', gitDirectory])
   await fs.mkdir(path.join(root, 'out', 'desktop-smoke'), { recursive: true })
   const { startSmokeAgent, smokeExtension } = await import('./smoke-agent.mjs')
-  await startSmokeAgent(directory, {
+  smokeAgent = await startSmokeAgent(directory, {
+    queueReview: process.env.PI_DESKTOP_QUEUE_REVIEW === '1',
+    queueSmoke: process.env.PI_DESKTOP_QUEUE_SMOKE_ONLY === '1',
+    pauseSmoke: process.env.PI_DESKTOP_PAUSE_SMOKE_ONLY === '1' || process.env.PI_DESKTOP_PAUSE_REVIEW === '1',
     picker: process.env.PI_DESKTOP_MODEL_PICKER_SMOKE_ONLY === '1',
     emptyModels: process.env.PI_DESKTOP_MODEL_SMOKE_ONLY === '1',
   })
@@ -854,7 +810,60 @@ async function run(window) {
       window.show()
       window.focus()
       window.webContents.focus()
-      run(window)
+      if (process.env.PI_DESKTOP_QUEUE_REVIEW === '1' || process.env.PI_DESKTOP_PAUSE_REVIEW === '1') {
+        let screenshotNumber = 0
+        window.webContents.on('before-input-event', (event, input) => {
+          if (input.type !== 'keyDown' || !input.meta || !input.shift) return
+          if (input.code === 'KeyF' && process.env.PI_DESKTOP_PAUSE_REVIEW === '1') {
+            event.preventDefault()
+            smokeAgent.releaseQueueReply()
+          }
+          if (input.code === 'KeyS') {
+            event.preventDefault()
+            const screenshot = path.join(
+              root,
+              'out',
+              'desktop-smoke',
+              `${process.env.PI_DESKTOP_PAUSE_REVIEW === '1' ? 'pause' : 'queue'}-review-${++screenshotNumber}.png`,
+            )
+            void window.webContents
+              .capturePage()
+              .then((image) => fs.writeFile(screenshot, image.toPNG()))
+              .then(() => console.log(`人工验收截图：${screenshot}`))
+              .catch(console.error)
+          }
+          const sizes = { Digit1: '620px', Digit2: '420px', Digit3: '320px', Digit0: '' }
+          if (Object.hasOwn(sizes, input.code)) {
+            event.preventDefault()
+            void window.webContents
+              .executeJavaScript(
+                `document.querySelector('[data-testid="composer-area"]').style.width=${JSON.stringify(sizes[input.code])}`,
+              )
+              .catch(console.error)
+          }
+        })
+        console.log(`人工验收窗口已启动，临时数据目录：${directory}`)
+        return
+      }
+      const task =
+        process.env.PI_DESKTOP_PAUSE_SMOKE_ONLY === '1'
+          ? require('./pause-display-smoke.cjs')(
+              window,
+              waitFor,
+              directory,
+              path.join(root, 'out', 'desktop-smoke'),
+              smokeAgent,
+            )
+          : process.env.PI_DESKTOP_QUEUE_SMOKE_ONLY === '1'
+            ? require('./queue-composer-smoke.cjs')(
+                window,
+                waitFor,
+                directory,
+                path.join(root, 'out', 'desktop-smoke'),
+                smokeAgent,
+              )
+            : run(window)
+      task
         .catch(async (error) => {
           failed = true
           console.error(error)
@@ -870,9 +879,12 @@ async function run(window) {
         })
     })
   })
-  app.on('will-quit', () => {
-    void fs.rm(directory, { recursive: true, force: true })
-    app.exit(failed ? 1 : 0)
+  app.on('will-quit', (event) => {
+    event.preventDefault()
+    smokeAgent?.releaseQueueReply()
+    void Promise.all([smokeAgent?.provider.close(), fs.rm(directory, { recursive: true, force: true })]).finally(() =>
+      app.exit(failed ? 1 : 0),
+    )
   })
   const main =
     process.env.PI_DESKTOP_PACKAGED_SMOKE === '1'

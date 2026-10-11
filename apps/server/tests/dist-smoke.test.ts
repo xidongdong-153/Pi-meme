@@ -40,6 +40,7 @@ test(
     let spawned: AgentSummary | undefined
     let continued: AgentSummary | undefined
     const childReports: string[] = []
+    const collaborationTrace: Array<{ step: number; prompt: string; result: unknown }> = []
     let child: ChildProcess | undefined
     let closed: Promise<void> | undefined
     let stdout = ''
@@ -73,8 +74,17 @@ test(
           tool: { id: `dist-${name}-${collaborationStep}`, name, arguments: JSON.stringify(args) },
         })
         if (mode === 'subagent') {
+          collaborationTrace.push({ step: collaborationStep, prompt, result: toolResult })
           if (prompt.includes('DIST-CHILD-FOLLOWUP')) return { text: 'DIST-CHILD-FOLLOWUP-OK' }
           if (prompt.includes('DIST-CHILD-FIRST')) return { text: 'DIST-CHILD-FIRST-OK' }
+          if (spawned) {
+            const prefix = `[来自 ${spawned.agentId}] `
+            for (const message of body.messages ?? []) {
+              if (message.role !== 'user') continue
+              const text = requestText({ messages: [message] })
+              if (text.startsWith(prefix)) childReports.push(text.slice(prefix.length))
+            }
+          }
           if (collaborationStep === 0) {
             issued.add(mode)
             collaborationStep = 1
@@ -291,7 +301,10 @@ test(
           assert.equal(continued?.sessionFile, spawned.sessionFile)
           assert.notEqual(continued?.runId, spawned.runId)
           assert.ok(childReports.some((text) => text.includes('DIST-CHILD-FIRST-OK')))
-          assert.ok(childReports.some((text) => text.includes('DIST-CHILD-FOLLOWUP-OK')))
+          assert.ok(
+            childReports.some((text) => text.includes('DIST-CHILD-FOLLOWUP-OK')),
+            JSON.stringify({ childReports, collaborationTrace, agents: snapshot?.agents }),
+          )
           const childSnapshot = await rpc<Snapshot>('pi:agent-snapshot', [spawned.agentId])
           assert.ok(JSON.stringify(childSnapshot.messages).includes('DIST-CHILD-FIRST-OK'))
           assert.ok(JSON.stringify(childSnapshot.messages).includes('DIST-CHILD-FOLLOWUP-OK'))

@@ -1,14 +1,16 @@
 import type { ReactNode } from 'react'
-import { ArrowUp, CornerDownLeft, Lightbulb, Plus, Square, X } from 'lucide-react'
+import { ArrowUp, CornerDownLeft, Lightbulb, Play, Plus, Square, X } from 'lucide-react'
 import type { TaskMode } from '@pi-meme/contracts/plan'
 import type { PiState } from '@pi-meme/contracts/pi'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
 import { cn } from '@pi-meme/ui/lib/utils'
-import { QueueModeDropdown } from './queue-mode-dropdown'
 
 export type ComposerToolbarProps = {
   mode?: TaskMode
   onMode?: (mode: TaskMode) => void
+  paused?: boolean
+  editingQueue?: boolean
+  onResume?: () => void
   running: boolean
   disabled: boolean
   draft: string
@@ -31,15 +33,12 @@ export function ComposerToolbar({
   mode,
   onMode,
   running,
+  paused,
+  editingQueue,
+  onResume,
   disabled,
   draft,
   hasAttachments,
-  queueMode,
-  onQueueMode,
-  steeringMode,
-  followUpMode,
-  onSteeringMode,
-  onFollowUpMode,
   onStop,
   onAddFiles,
   model,
@@ -96,19 +95,6 @@ export function ComposerToolbar({
             </Tooltip>
           </>
         )}
-
-        {/* 运行时插话与排队模式下拉切换 */}
-        {running && (
-          <QueueModeDropdown
-            disabled={disabled}
-            queueMode={queueMode}
-            onQueueMode={onQueueMode}
-            steeringMode={steeringMode}
-            followUpMode={followUpMode}
-            onSteeringMode={onSteeringMode}
-            onFollowUpMode={onFollowUpMode}
-          />
-        )}
       </div>
 
       {/* 右侧操作组：背景信息窗口占用指示圈、模型与思考强度、发送按钮 */}
@@ -119,44 +105,51 @@ export function ComposerToolbar({
         {/* 模型与思考强度胶囊 */}
         <div className="flex min-w-0 max-w-[220px] items-center">{model}</div>
 
-        {/* 运行中的停止按钮 */}
-        {running && (
-          <button
-            type="button"
-            onClick={onStop}
-            title="停止当前任务"
-            aria-label="停止当前任务"
-            className="inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-destructive text-destructive-foreground hover:bg-destructive/90 transition-colors shadow-2xs cursor-pointer"
-          >
-            <Square className="size-3.5 fill-current" />
-          </button>
-        )}
-
-        {/* 发送按钮（实心蓝色圆形，居中白色向上箭头） */}
         <button
-          type="submit"
-          disabled={!canSend}
+          type={canSend || editingQueue ? 'submit' : 'button'}
+          disabled={disabled || (editingQueue ? !canSend : !canSend && !running && !paused)}
+          onClick={!canSend && !editingQueue ? (paused ? onResume : running ? onStop : undefined) : undefined}
           aria-label={
-            editing ? '重新发送消息' : running ? (queueMode === 'steering' ? '发送插话' : '发送排队任务') : '发送消息'
+            editingQueue
+              ? '保存排队消息'
+              : canSend
+                ? editing
+                  ? '重新发送消息'
+                  : running || paused
+                    ? '发送排队任务'
+                    : '发送消息'
+                : paused
+                  ? '继续当前任务'
+                  : running
+                    ? '暂停当前任务'
+                    : '发送消息'
           }
           title={
-            editing
-              ? '重新发送消息'
-              : running
-                ? queueMode === 'steering'
-                  ? '发送插话'
-                  : '追加排队任务'
-                : '发送 (Enter)'
+            editingQueue
+              ? '保存排队消息'
+              : canSend
+                ? '发送 (Enter)'
+                : paused
+                  ? '继续当前任务'
+                  : running
+                    ? '暂停当前任务'
+                    : '发送 (Enter)'
           }
           className={cn(
-            'inline-flex h-8 shrink-0 whitespace-nowrap items-center justify-center rounded-full bg-blue-600 text-white transition-all shadow-xs cursor-pointer',
-            editing ? 'gap-1.5 px-2 lg:px-3' : 'w-8',
-            'hover:bg-blue-500 active:scale-95',
-            !canSend && 'opacity-40 cursor-not-allowed hover:bg-blue-600 active:scale-100',
+            'inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-[#2f6bca] text-white transition-all shadow-xs cursor-pointer hover:bg-[#3675d8] active:scale-95',
+            (disabled || (editingQueue ? !canSend : !canSend && !running && !paused)) &&
+              'opacity-40 cursor-not-allowed hover:bg-[#2f6bca] active:scale-100',
           )}
         >
-          {running ? <CornerDownLeft className="size-4" /> : <ArrowUp className="size-4 stroke-[2.5]" />}
-          {editing && <span className="text-xs font-medium hidden lg:inline">重新发送</span>}
+          {!canSend && paused && !editingQueue ? (
+            <Play className="size-3.5 fill-current" />
+          ) : !canSend && running && !editingQueue ? (
+            <Square className="size-3.5 fill-current" />
+          ) : (running || paused) && !editingQueue ? (
+            <CornerDownLeft className="size-4" />
+          ) : (
+            <ArrowUp className="size-4 stroke-[2.5]" />
+          )}
         </button>
       </div>
     </div>

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 import type { Snapshot, WorkspaceDeletionResult } from '@pi-meme/contracts/desktop'
 import type { HostRpcRequest } from '@pi-meme/contracts/host'
-import { HostClient } from '../src/host-client'
+import { HostClient, type ClientOptions } from '../src/host-client'
 
 function snapshot(key: string, sequence = 0): Snapshot {
   return {
@@ -33,7 +33,7 @@ class FakeSocket extends EventTarget {
   }
 }
 
-function create(handle: (request: HostRpcRequest) => unknown | Promise<unknown>) {
+function create(handle: (request: HostRpcRequest) => unknown | Promise<unknown>, options: Partial<ClientOptions> = {}) {
   const requests: HostRpcRequest[] = []
   const sockets: FakeSocket[] = []
   const socketUrls: string[] = []
@@ -56,6 +56,7 @@ function create(handle: (request: HostRpcRequest) => unknown | Promise<unknown>)
       socketUrls.push(url)
       return socket as unknown as WebSocket
     },
+    ...options,
   })
   return { client, requests, sockets, socketUrls }
 }
@@ -678,5 +679,208 @@ test('多服务代理端点保持本机origin并隔离客户端和相同sessionK
     }
   } finally {
     for (const client of clients) client.close()
+  }
+})
+
+async function withBrowserStorage(run: (values: Map<string, string>) => void | Promise<void>) {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'window')
+  const values = new Map<string, string>()
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: {
+      sessionStorage: {
+        getItem: (key: string) => values.get(key) ?? null,
+        setItem: (key: string, value: string) => {
+          values.set(key, value)
+        },
+      },
+    },
+  })
+  try {
+    await run(values)
+  } finally {
+    if (previous) Object.defineProperty(globalThis, 'window', previous)
+    else Reflect.deleteProperty(globalThis, 'window')
+  }
+}
+
+test('浏览器刷新复用Host身份并恢复原选择，storage只保存客户端ID', async () => {
+  await withBrowserStorage(async (values) => {
+    const selected = new Map<string, string>()
+    const handle = (request: HostRpcRequest) => {
+      if (request.method === 'pi:switch-session') {
+        selected.set(request.clientId, 'B')
+        return { cancelled: false, snapshot: snapshot('B') }
+      }
+      if (request.method === 'pi:snapshot') return snapshot(selected.get(request.clientId) ?? 'A')
+      return []
+    }
+    const first = create(handle, { clientId: undefined })
+    let refreshed: ReturnType<typeof create> | undefined
+    try {
+      await first.client.bridge.getConnection()
+      await first.client.bridge.switchSession('/B.jsonl')
+      first.client.close()
+      refreshed = create(handle, { clientId: undefined })
+      assert.equal(refreshed.client.clientId, first.client.clientId)
+      assert.equal((await refreshed.client.bridge.getConnection()).sessionKey, 'B')
+      assert.deepEqual([...values.values()], [first.client.clientId])
+      assert.ok([...values.keys()].every((key) => !key.includes('/B.jsonl')))
+    } finally {
+      first.client.close()
+      refreshed?.client.close()
+    }
+  })
+})
+
+test('客户端身份按Host origin/id及endpoint隔离，显式ID优先且不会覆盖保存值', async () => {
+  await withBrowserStorage((values) => {
+    const clients: HostClient[] = []
+    const build = (options: Partial<ClientOptions> = {}) => {
+      const client = create(() => [], { clientId: undefined, ...options }).client
+      clients.push(client)
+      return client
+    }
+    try {
+      const original = build()
+      const explicit = build({ clientId: 'explicit-client' })
+      assert.equal(explicit.clientId, 'explicit-client')
+      assert.equal(build().clientId, original.clientId)
+      const otherOrigin = build({
+        connection: { url: 'https://host.example', token: '', hostId: 'host-1', local: false },
+      })
+      const otherHost = build({
+        connection: { url: 'http://127.0.0.1:3141', token: '', hostId: 'host-2', local: false },
+      })
+      const otherEndpoint = build({ endpoint: { baseUrl: 'http://127.0.0.1:3141', apiPrefix: '/other' } })
+      assert.equal(new Set([original, otherOrigin, otherHost, otherEndpoint].map((client) => client.clientId)).size, 4)
+      assert.equal(values.size, 4)
+    } finally {
+      for (const client of clients) client.close()
+    }
+  })
+})
+
+test('Node及不可用sessionStorage继续生成随机身份', () => {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, 'window')
+  const clients: HostClient[] = []
+  const build = () => {
+    const client = create(() => [], { clientId: undefined }).client
+    clients.push(client)
+    return client
+  }
+  try {
+    Reflect.deleteProperty(globalThis, 'window')
+    assert.notEqual(build().clientId, build().clientId)
+    Object.defineProperty(globalThis, 'window', {
+      configurable: true,
+      value: {
+        get sessionStorage() {
+          throw new Error('浏览器禁止storage')
+        },
+      },
+    })
+    assert.notEqual(build().clientId, build().clientId)
+  } finally {
+    for (const client of clients) client.close()
+    if (previous) Object.defineProperty(globalThis, 'window', previous)
+    else Reflect.deleteProperty(globalThis, 'window')
+  }
+})
+
+test('首次快照只释放本客户端遗留编辑，其他客户端占位不变，后续快照与WS重连不释放新编辑', async () => {
+  let ownEditing = true
+  let otherEditing = true
+  const f = create((request) => {
+    if (request.method === 'pi:cancel-queue-edit') {
+      if (request.args[1] === 'other') throw new Error('此客户端未持有排队输入编辑权')
+      ownEditing = false
+      return undefined
+    }
+    if (request.method === 'pi:begin-queue-edit') {
+      ownEditing = true
+      return { id: 'own', text: '原始输入', mode: 'default', editing: true }
+    }
+    if (request.method === 'pi:snapshot')
+      return {
+        ...snapshot('A'),
+        events: [
+          {
+            generation: 1,
+            event: {
+              type: 'queue_update',
+              steering: [],
+              followUp: [
+                { id: 'own', text: '原始输入', mode: 'default', editing: ownEditing },
+                { id: 'other', text: '其他客户端', mode: 'default', editing: otherEditing },
+              ],
+            },
+          },
+        ],
+      }
+    return []
+  })
+  try {
+    await f.client.bridge.getConnection()
+    assert.equal(ownEditing, false)
+    assert.equal(otherEditing, true)
+    assert.equal(f.requests.filter((request) => request.method === 'pi:cancel-queue-edit').length, 2)
+    await f.client.bridge.beginQueueEdit('A', 'own')
+    await f.client.bridge.getSnapshot()
+    await f.client.bridge.getConnection()
+    await f.client.connect()
+    f.sockets[0]!.open()
+    await tick()
+    f.sockets[0]!.close()
+    await tick()
+    f.sockets[1]!.open()
+    await tick()
+    assert.equal(ownEditing, true)
+    assert.equal(otherEditing, true)
+    assert.equal(f.requests.filter((request) => request.method === 'pi:cancel-queue-edit').length, 2)
+  } finally {
+    f.client.close()
+    otherEditing = false
+  }
+})
+
+test('首次恢复编辑遇到网络错误时保留占位，后续快照重试后只成功释放一次', async () => {
+  let editing = true
+  let attempts = 0
+  const f = create((request) => {
+    if (request.method === 'pi:cancel-queue-edit') {
+      attempts += 1
+      if (attempts === 1) throw new Error('连接暂时中断')
+      editing = false
+      return undefined
+    }
+    if (request.method === 'pi:snapshot')
+      return {
+        ...snapshot('A'),
+        events: [
+          {
+            generation: 1,
+            event: {
+              type: 'queue_update',
+              steering: [],
+              followUp: [{ id: 'own', text: '保留原输入', mode: 'default', editing }],
+            },
+          },
+        ],
+      }
+    return []
+  })
+  try {
+    await assert.rejects(f.client.bridge.getConnection(), /连接暂时中断/)
+    assert.equal(editing, true)
+    const restored = await f.client.bridge.getSnapshot()
+    assert.equal(editing, false)
+    const queue = restored.events?.find((value) => value.event.type === 'queue_update')?.event
+    assert.ok(queue?.type === 'queue_update')
+    assert.equal(queue.followUp[0]?.editing, false)
+    await f.client.bridge.getConnection()
+    assert.equal(attempts, 2)
+  } finally {
+    f.client.close()
   }
 })
