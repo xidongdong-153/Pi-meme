@@ -4,6 +4,7 @@ import path from 'node:path'
 
 export type PiRuntimePaths = {
   agentDir: string
+  builtinSkillsDirectory: string
   sessionsDirectory: string
   workspaceDataRoot: string
   secureCredentialsFile: string
@@ -31,6 +32,7 @@ export function createPiRuntimePaths(userData: string): PiRuntimePaths {
   const keyFor = (cwd: string) => workspaceKey(cwd)
   return {
     agentDir: root,
+    builtinSkillsDirectory: path.join(root, 'builtin-skills'),
     sessionsDirectory,
     workspaceDataRoot,
     secureCredentialsFile: path.join(userData, 'secure', 'credentials.bin'),

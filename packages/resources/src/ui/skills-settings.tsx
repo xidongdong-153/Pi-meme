@@ -5,7 +5,7 @@ import { Button } from '@pi-meme/ui/components/ui/button'
 import { Input } from '@pi-meme/ui/components/ui/input'
 import { cn } from '@pi-meme/ui/lib/utils'
 
-const scopes = { user: 'Host', project: '项目', temporary: '临时' }
+const scopes = { builtin: '内置', user: 'Host', project: '项目', temporary: '临时' }
 
 export function SkillsSettings({
   commands,
@@ -26,8 +26,10 @@ export function SkillsSettings({
   const skills = commands.filter((command) => command.source === 'skill')
   const filtered = skills.filter(
     (skill) =>
-      (scope === 'all' || skill.sourceInfo.scope === scope) &&
-      `${skill.name} ${skill.description}`.toLowerCase().includes(query.trim().toLowerCase()),
+      (scope === 'all' || (skill.builtin ? 'builtin' : skill.sourceInfo.scope) === scope) &&
+      `${skill.name} ${skill.displayName ?? ''} ${skill.shortDescription ?? ''} ${skill.description ?? ''}`
+        .toLowerCase()
+        .includes(query.trim().toLowerCase()),
   )
   const current = skills.find((skill) => `${skill.name}:${skill.sourceInfo.path}` === selected)
 
@@ -62,10 +64,12 @@ export function SkillsSettings({
             <BookOpen className="size-7" />
           </span>
           <div className="min-w-0">
-            <h3 className="break-words text-xl font-semibold">{current.name.replace(/^skill:/, '')}</h3>
+            <h3 className="break-words text-xl font-semibold">
+              {current.displayName ?? current.name.replace(/^skill:/, '')}
+            </h3>
             <p className="mt-2 flex items-center gap-2 text-xs text-muted-foreground">
               <Check className="size-3.5" />
-              已加载 · {scopes[current.sourceInfo.scope]}
+              已加载 · {scopes[current.builtin ? 'builtin' : current.sourceInfo.scope]}
             </p>
           </div>
         </div>
@@ -98,7 +102,7 @@ export function SkillsSettings({
       </div>
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div className="flex flex-wrap gap-1" aria-label="技能来源">
-          {(['all', 'user', 'project', 'temporary'] as const).map((value) => (
+          {(['all', 'builtin', 'user', 'project', 'temporary'] as const).map((value) => (
             <Button
               key={value}
               variant={scope === value ? 'secondary' : 'ghost'}
@@ -125,7 +129,7 @@ export function SkillsSettings({
           <li key={`${skill.name}:${skill.sourceInfo.path}`}>
             <button
               type="button"
-              aria-label={`查看技能：${skill.name.replace(/^skill:/, '')}`}
+              aria-label={`查看技能：${skill.displayName ?? skill.name.replace(/^skill:/, '')}`}
               onClick={() => setSelected(`${skill.name}:${skill.sourceInfo.path}`)}
               className="flex min-h-24 w-full items-center gap-4 rounded-2xl p-3 text-left transition-colors hover:bg-secondary/50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
             >
@@ -133,11 +137,15 @@ export function SkillsSettings({
                 <BookOpen className="size-6" />
               </span>
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium">{skill.name.replace(/^skill:/, '')}</span>
-                <span className="mt-1 line-clamp-2 break-words text-sm leading-6 text-muted-foreground">
-                  {skill.description || '暂无说明'}
+                <span className="block truncate text-sm font-medium">
+                  {skill.displayName ?? skill.name.replace(/^skill:/, '')}
                 </span>
-                <span className="mt-1 block text-xs text-muted-foreground">{scopes[skill.sourceInfo.scope]}</span>
+                <span className="mt-1 line-clamp-2 break-words text-sm leading-6 text-muted-foreground">
+                  {skill.shortDescription || skill.description || '暂无说明'}
+                </span>
+                <span className="mt-1 block text-xs text-muted-foreground">
+                  {scopes[skill.builtin ? 'builtin' : skill.sourceInfo.scope]}
+                </span>
               </span>
               <Check aria-label="已加载" className="size-4 shrink-0 text-muted-foreground" />
             </button>

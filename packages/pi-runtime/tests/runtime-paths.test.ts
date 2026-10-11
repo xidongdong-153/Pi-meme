@@ -16,6 +16,7 @@ test('Pi 运行数据位于 Desktop userData，工作区按规范化路径分组
     const paths = createPiRuntimePaths(userData)
     const canonical = await realpath(workspace)
     assert.equal(paths.agentDir, path.join(userData, 'pi'))
+    assert.equal(paths.builtinSkillsDirectory, path.join(userData, 'pi', 'builtin-skills'))
     assert.equal(paths.sessionsDirectory, path.join(userData, 'sessions'))
     assert.equal(paths.secureCredentialsFile, path.join(userData, 'secure', 'credentials.bin'))
     assert.equal(paths.workspaceKey(workspace), paths.workspaceKey(alias))

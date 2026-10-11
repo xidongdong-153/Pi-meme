@@ -8,7 +8,11 @@ export function create(context: {
 }) {
   const project = path.join(context.cwd, '.pi')
   context.registerResourcePolicy({
-    skills: [path.join(context.paths.agentDir, 'skills'), path.join(project, 'skills')],
+    skills: [
+      context.paths.builtinSkillsDirectory,
+      path.join(context.paths.agentDir, 'skills'),
+      path.join(project, 'skills'),
+    ],
     prompts: [path.join(context.paths.agentDir, 'prompts'), path.join(project, 'prompts')],
     extensions: [path.join(context.paths.agentDir, 'extensions'), path.join(project, 'extensions')],
   })

@@ -35,6 +35,7 @@ import { projectAgentConversation } from '../agent-conversation'
 import { projectBranchEntries } from '../session-tree-entries'
 import { createAgentAccessExtension } from '../extensions/agent-access'
 import { expandSkills } from '../skill-prompt'
+import { toSkillCommand } from '../skill-command'
 import type { PiRuntimePaths } from '../runtime-paths'
 import type { ModelRestore } from '../runtime'
 import { AccessSandbox } from './access-sandbox'
@@ -388,7 +389,12 @@ export class SdkSession {
             this.policy.resourcePaths?.skills ??
             (this.policy.requireRestrictedPolicy
               ? []
-              : [path.join(agentDir, 'skills'), path.join(projectPi, 'skills'), ...settingsManager.getSkillPaths()]),
+              : [
+                  this.paths.builtinSkillsDirectory,
+                  path.join(agentDir, 'skills'),
+                  path.join(projectPi, 'skills'),
+                  ...settingsManager.getSkillPaths(),
+                ]),
           disabledBuiltinExtensions: ['mcp'],
           extensionFactories,
           extensionsOverride: (base) => ({
@@ -1305,12 +1311,7 @@ export class SdkSession {
           sourceInfo: template.sourceInfo,
         })
       for (const skill of session.resourceLoader.getSkills().skills)
-        list.push({
-          name: `skill:${skill.name}`,
-          description: skill.description,
-          source: 'skill',
-          sourceInfo: skill.sourceInfo,
-        })
+        list.push(toSkillCommand(skill, this.paths.agentDir))
       return list
     })
     this.cachedCommands = commands

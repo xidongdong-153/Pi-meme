@@ -29,6 +29,7 @@ void startHostServer({
   staticDirectory: path.join(__dirname, '../renderer/main_window'),
   frontendUrl: process.env.PI_MEME_FRONTEND_URL,
   workerPath: path.join(__dirname, 'session-worker.js'),
+  builtinSkillsSource: path.join(__dirname, 'skills'),
 })
   .then((server) => {
     parent.postMessage({ type: 'ready', url: server.url, hostId: server.host.hostId })

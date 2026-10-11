@@ -111,6 +111,52 @@ async function run(window) {
     await evaluate(`document.querySelector('[aria-label="选择当前项目"]')?.textContent.includes('不在项目中工作')`),
     true,
   )
+  const builtinSkillPath = path.join(directory, 'pi', 'builtin-skills', 'skill-creator', 'SKILL.md')
+  const creator = await evaluate(
+    'window.piMemeClient.getCommands().then(commands => commands.find(command => command.name === "skill:skill-creator"))',
+  )
+  assert.equal(creator?.displayName, 'Skill Creator', '安装后无需创建技能即可读取 Skill Creator')
+  assert.equal(creator?.builtin, true, 'Skill Creator 标记为内置技能')
+  assert.equal(creator?.sourceInfo.path, builtinSkillPath, '技能命令指向当前 Host 的实际安装文件')
+  await setDraft('$')
+  const creatorOption = '#composer-suggestions [role=option]'
+  await waitFor(
+    () =>
+      evaluate(
+        `[...document.querySelectorAll(${JSON.stringify(creatorOption)})].some(node => node.textContent.includes('Skill Creator') && node.textContent.includes('内置'))`,
+      ),
+    '$ 内置技能候选',
+  )
+  const creatorPoint = await evaluate(`(() => {
+    const option = [...document.querySelectorAll(${JSON.stringify(creatorOption)})].find(node => node.textContent.includes('Skill Creator'));
+    const rect = option.getBoundingClientRect();
+    return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) };
+  })()`)
+  window.webContents.sendInputEvent({ type: 'mouseMove', ...creatorPoint })
+  await waitFor(
+    () =>
+      evaluate(
+        `[...document.querySelectorAll('[role=tooltip]')].some(node => node.textContent.includes(${JSON.stringify(builtinSkillPath)}))`,
+      ),
+    '技能悬停显示实际 SKILL.md 路径',
+  )
+  await capture('skill-creator')
+  await evaluate(
+    `[...document.querySelectorAll(${JSON.stringify(creatorOption)})].find(node => node.textContent.includes('Skill Creator')).click()`,
+  )
+  await waitFor(
+    () =>
+      evaluate(
+        `document.querySelector('[aria-label="消息"] [data-skill-token="skill:skill-creator"]')?.textContent === 'Skill Creator'`,
+      ),
+    '选择技能后使用显示名称',
+  )
+  assert.equal(
+    await evaluate('window.piMemeClient.getConnection().then(connection => connection.status)'),
+    'idle',
+    '选择内置技能不启动模型或 Worker',
+  )
+  await setDraft('')
   if (process.env.PI_DESKTOP_PLAN_SMOKE_ONLY === '1') {
     const snapshot = await evaluate('window.piMemeClient.getSnapshot()')
     assert.ok(snapshot.connection.sessionKey, '首次发送前新聊天具有稳定身份')

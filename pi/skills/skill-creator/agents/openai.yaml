@@ -1,0 +1,4 @@
+# 从 OpenAI Codex 内置 skill-creator 改编，展示文案已调整为中文。
+interface:
+  display_name: Skill Creator
+  short_description: 创建或更新技能

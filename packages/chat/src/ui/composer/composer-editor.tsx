@@ -119,7 +119,7 @@ export function ComposerEditor({
         const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
         path.setAttribute('d', 'M12 3 3 8v10l9 5 9-5V8L12 3Zm0 10 9-5M12 13 3 8m9 5v10M7.5 5.5l9 5')
         icon.append(path)
-        token.append(icon, document.createTextNode(skill.name.replace(/^skill:/, '')))
+        token.append(icon, document.createTextNode(skill.displayName ?? skill.name.replace(/^skill:/, '')))
         nodes.push(token)
       }
       nodes.push(document.createTextNode(text))

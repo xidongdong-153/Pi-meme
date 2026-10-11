@@ -11,6 +11,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
 import test from 'node:test'
+import type { PiSlashCommand } from '@pi-meme/contracts/pi'
 import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
 
 async function waitFor<T>(read: () => Promise<T | undefined>, label: string) {
@@ -231,6 +232,44 @@ async function runPackagedSmoke(mode: 'local' | 'recovery' | 'remote' | 'fresh',
     if (mode === 'fresh') {
       const auth = JSON.parse(await readFile(path.join(dataRoot, 'auth.json'), 'utf8'))
       assert.deepEqual(Object.keys(auth), ['host:token'])
+      const source = fileURLToPath(new URL('../../../pi/skills/skill-creator', import.meta.url))
+      const installed = path.join(dataRoot, 'pi/builtin-skills/skill-creator')
+      for (const entry of await readdir(source, { recursive: true, withFileTypes: true })) {
+        if (!entry.isFile()) continue
+        const relative = path.relative(source, path.join(entry.parentPath, entry.name))
+        assert.deepEqual(
+          await readFile(path.join(installed, relative)),
+          await readFile(path.join(source, relative)),
+          `内置 Skill Creator 完整分发：${relative}`,
+        )
+      }
+      const commands = (await evaluate('window.piMemeClient.getCommands()')) as PiSlashCommand[]
+      const creator = commands.find((command) => command.name === 'skill:skill-creator')
+      assert.ok(creator, '无模型凭据时加载内置 Skill Creator')
+      assert.equal(creator.builtin, true)
+      assert.equal(creator.displayName, 'Skill Creator')
+      assert.equal(creator.sourceInfo.path, path.join(installed, 'SKILL.md'))
+      await evaluate(`(() => {
+        const input = document.querySelector('[contenteditable=true][aria-label="消息"]')
+        input.textContent = '$'
+        input.focus()
+        const range = document.createRange()
+        range.selectNodeContents(input)
+        range.collapse(false)
+        const selection = window.getSelection()
+        selection.removeAllRanges()
+        selection.addRange(range)
+        input.dispatchEvent(new Event('input', { bubbles: true }))
+      })()`)
+      await waitFor(
+        async () =>
+          (await evaluate(
+            '[...document.querySelectorAll("#composer-suggestions [role=option]")].some(option => option.textContent.includes("Skill Creator") && option.textContent.includes("内置"))',
+          ))
+            ? true
+            : undefined,
+        '内置技能候选渲染',
+      )
       return
     }
     assert.equal(
@@ -299,7 +338,7 @@ for (const mode of ['local', 'recovery', 'remote'] as const)
   )
 
 test(
-  '实际应用无模型凭据首次及再次启动均直接进入主界面，Host 令牌保持',
+  '实际应用无模型凭据首次及再次启动均加载内置 Skill Creator，Host 令牌保持',
   { skip: process.platform !== 'darwin', timeout: 120000 },
   async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'pi-meme-package-fresh-'))

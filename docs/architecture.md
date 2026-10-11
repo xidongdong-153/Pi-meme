@@ -128,6 +128,8 @@ Chord 1.1 的 `reload` 只替换已有相同服务 shape 的 facet，不能新�
 
 Host 默认数据根目录为 `~/.pi-meme`，可由 `PI_MEME_DATA_ROOT` 修改。同一数据目录由心跳锁保证单个 Host 写入。
 
+内置 `skill-creator` 的源码位于 `pi/skills/skill-creator`。Desktop 与独立 Server 构建时携带完整技能目录，Host 启动时将其复制到 `pi/builtin-skills/skill-creator`，不改用户的 `pi/skills`。新安装应用无需 Codex、Pi CLI 或模型凭据即可在 `$` 列表看到 `Skill Creator`；列表标记“内置”，悬停显示文件路径。内置同名技能优先于用户和项目技能，用户文件保留。
+
 ```text
 ~/.pi-meme/
 ├── auth.json            # 模型、MCP、Host 令牌和 Desktop 远程连接凭据

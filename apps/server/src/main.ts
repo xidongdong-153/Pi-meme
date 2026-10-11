@@ -19,6 +19,7 @@ const server = await startHostServer({
   workerPath:
     process.env.PI_MEME_WORKER_PATH ??
     (import.meta.url.endsWith('.js') ? path.join(directory, 'session-worker.js') : undefined),
+  builtinSkillsSource: import.meta.url.endsWith('.js') ? path.join(directory, 'skills') : undefined,
 })
 console.log(`Host 已启动：${server.url}；数据目录：${server.host.root}`)
 if (!process.env.PI_MEME_TOKEN) console.log(`本次访问令牌：${server.token}`)

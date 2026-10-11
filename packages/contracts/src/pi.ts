@@ -31,6 +31,9 @@ export type PiBranchEntry = Pick<PiSessionEntry, 'id' | 'parentId' | 'timestamp'
 export type PiSessionEntries = { entries: PiBranchEntry[]; leafId: string | null }
 export type PiSlashCommand = {
   name: string
+  displayName?: string
+  shortDescription?: string
+  builtin?: boolean
   description?: SlashCommandInfo['description']
   source: SlashCommandInfo['source'] | 'builtin'
   sourceInfo: SourceInfo

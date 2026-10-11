@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { openSync, closeSync } from 'node:fs'
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -11,6 +11,7 @@ import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
 import type { AgentSummary } from '@pi-meme/contracts/collaboration'
 import type { PlanDocument } from '@pi-meme/contracts/plan'
 import type { InstructionsSnapshot, SaveInstructionResult } from '@pi-meme/contracts/settings'
+import type { PiSlashCommand } from '@pi-meme/contracts/pi'
 import { requestText } from '../../../tests/fixtures/fake-provider.mjs'
 
 type Snapshot = {
@@ -238,10 +239,28 @@ test(
         return body.result
       }
       assert.deepEqual(await rpc<unknown[]>('plugins:list'), [])
+      const skillSource = path.join(repo, 'pi/skills/skill-creator')
+      const skillInstalled = path.join(data, 'pi/builtin-skills/skill-creator')
+      for (const entry of await readdir(skillSource, { recursive: true, withFileTypes: true })) {
+        if (!entry.isFile()) continue
+        const relative = path.relative(skillSource, path.join(entry.parentPath, entry.name))
+        assert.deepEqual(
+          await readFile(path.join(skillInstalled, relative)),
+          await readFile(path.join(skillSource, relative)),
+          `Server 产物完整分发内置 Skill Creator：${relative}`,
+        )
+      }
       await rpc('workspace:select', [{ kind: 'project', cwd: project }])
       const initial = await rpc<Snapshot>('pi:snapshot')
       const key = initial.connection.sessionKey!
       assert.ok(initial.models.some((model) => model.id === 'first'))
+      const creator = (await rpc<PiSlashCommand[]>('pi:commands')).find(
+        (command) => command.name === 'skill:skill-creator',
+      )
+      assert.ok(creator, 'Server Worker 加载内置 Skill Creator')
+      assert.equal(creator.builtin, true)
+      assert.equal(creator.displayName, 'Skill Creator')
+      assert.equal(creator.sourceInfo.path, path.join(skillInstalled, 'SKILL.md'))
       const plugin = path.join(root, 'plugin')
       await mkdir(path.join(plugin, 'dist/agent'), { recursive: true })
       await writeFile(

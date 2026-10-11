@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     "./server/entry": "./src/server/entry.ts",
+    "./server/install-builtin-skills": "./src/server/install-builtin-skills.ts",
     "./ui/plugin": "./src/ui/plugin.ts",
     "./ui/entry": "./src/ui/entry.tsx",
     "./ui/skills-settings": "./src/ui/skills-settings.tsx",

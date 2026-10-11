@@ -36,10 +36,12 @@ import { optionalRuntimeExtensions } from './runtime-extensions'
 import { RequestRegistry } from './request-registry'
 import { ConnectionCredentialStore } from './connection-credentials'
 import { hostDataRoot, lockDataRoot } from './data-root'
+import { installBuiltinSkills } from '@pi-meme/resources/server/install-builtin-skills'
 
 export type HostOptions = {
   dataRoot?: string
   workerPath?: string
+  builtinSkillsSource?: string
   clientGraceMs?: number
   credentials?: SecureCredentialStorage & { flush?: () => Promise<void> }
   testCredentials?: boolean
@@ -137,6 +139,10 @@ export async function createHost(options: HostOptions = {}) {
       await writeFile(hostIdFile, hostId, { mode: 0o600 })
     }
     const paths = createPiRuntimePaths(root)
+    await installBuiltinSkills(
+      options.builtinSkillsSource ?? fileURLToPath(new URL('../../../pi/skills', import.meta.url)),
+      paths.builtinSkillsDirectory,
+    )
     await mkdir(paths.sessionsDirectory, { recursive: true })
     const settings = new SettingsStore(root)
     const projects = new ProjectStore(root)

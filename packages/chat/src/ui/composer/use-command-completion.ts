@@ -93,7 +93,10 @@ export function useCommandCompletion({
       return commands.filter(
         (command) =>
           command.source === 'skill' &&
-          (command.name.slice(6).toLowerCase().includes(prefix) || command.description?.toLowerCase().includes(prefix)),
+          (command.name.slice(6).toLowerCase().includes(prefix) ||
+            command.displayName?.toLowerCase().includes(prefix) ||
+            command.shortDescription?.toLowerCase().includes(prefix) ||
+            command.description?.toLowerCase().includes(prefix)),
       )
     }
     const canonicalPlan = commands.find((command) => command.source === 'builtin' && command.name === 'plan')

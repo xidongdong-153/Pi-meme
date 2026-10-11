@@ -1,8 +1,10 @@
 import { defineConfig } from 'vite'
 import { builtinModules } from 'node:module'
 import { fileURLToPath } from 'node:url'
+import { copyBuiltinSkillsPlugin } from '../../scripts/copy-builtin-skills.mjs'
 
 export default defineConfig({
+  plugins: [copyBuiltinSkillsPlugin()],
   resolve: { conditions: ['node', 'import'] },
   ssr: { noExternal: [/^@pi-meme\//], resolve: { conditions: ['node', 'import'] } },
   build: {

@@ -25,6 +25,7 @@ function createRuntimePaths(userData) {
   }
   return {
     agentDir,
+    builtinSkillsDirectory: path.join(agentDir, 'builtin-skills'),
     sessionsDirectory,
     workspaceDataRoot,
     secureCredentialsFile: path.join(userData, 'secure', 'credentials.bin'),
