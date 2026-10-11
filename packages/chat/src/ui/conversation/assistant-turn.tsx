@@ -1,4 +1,4 @@
-import { AlertCircle, Loader2 } from 'lucide-react'
+import { AlertCircle } from 'lucide-react'
 import type { PiPauseInterval } from '@pi-meme/contracts/pi'
 import type { TurnChunk } from '../model/types'
 import { AttachmentPreview } from '../content/attachment-preview'
@@ -31,8 +31,7 @@ export function AssistantTurnView({
     >
       <div className="flex flex-col min-w-0 w-full items-start">
         <div className="text-sm text-foreground leading-relaxed bg-transparent px-0 py-0.5 w-full">
-          {/* 1. 本轮工作过程（思考与所有工具调用统一内聚于此） */}
-          {turn.activities.length > 0 && (
+          {(turn.activities.length > 0 || turn.isLive || turn.durationMs !== undefined) && (
             <ActivityGroup
               items={turn.activities}
               isLive={turn.isLive}
@@ -43,23 +42,9 @@ export function AssistantTurnView({
             />
           )}
 
-          {/* 2. 图片展示 */}
           {turn.images.length > 0 && <AttachmentPreview images={turn.images} />}
 
-          {/* 3. 本轮最终正文 Markdown */}
           {turn.finalText ? <MarkdownContent>{turn.finalText}</MarkdownContent> : null}
-
-          {/* 4. 如果正在生成且暂无任何内容输出，展示分析准备指示 */}
-          {turn.isLive && !turn.finalText && turn.activities.length === 0 && (
-            <div
-              className={cn('flex items-center gap-2 py-2 text-xs text-muted-foreground', !isPaused && 'animate-pulse')}
-            >
-              {!isPaused && <Loader2 className="size-3.5 animate-spin text-primary" />}
-              <span>Pi 正在分析并准备回复…</span>
-            </div>
-          )}
-
-          {/* 5. 错误提示 */}
           {turn.errorMessage && (
             <div
               role="alert"

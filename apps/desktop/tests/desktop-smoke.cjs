@@ -166,9 +166,9 @@ async function run(window) {
     await evaluate(
       '[...document.querySelectorAll("nav[aria-label=设置分类] button")].map(node => node.textContent.trim())',
     ),
-    ['模型', '外观', '偏好', '扩展'],
+    ['模型', '外观', '偏好', '默认权限', '用量', '扩展', '技能', '服务连接', '远程', '开发者', '关于'],
   )
-  await evaluate('document.querySelector("aside details").open = true')
+  assert.equal(await evaluate('document.querySelector("aside details") === null'), true)
   await clickText('关于')
   await waitFor(() => evaluate('document.body.textContent.includes("随 Host 一起分发")'), '关于运行时内容加载')
   assert.equal(await evaluate('document.querySelector("header button[aria-label=设置]") === null'), true)
@@ -406,7 +406,6 @@ async function run(window) {
     await evaluate('window.piMemeClient.getConnection().then(connection => connection.piVersion)'),
     distribution.version,
   )
-  await evaluate('document.querySelector("aside details").open = true')
   await clickText('关于')
   await capture('settings-about')
   await clickText('扩展', 'nav[aria-label="设置分类"]')
@@ -585,17 +584,14 @@ async function run(window) {
   await clickText('Close', '[role="dialog"]')
   await waitFor(() => evaluate('!document.querySelector("[role=dialog]")'), '预览关闭')
 
-  const work = '[role="button"][aria-label="工作过程"]'
+  const work = '[aria-label="工作过程"]'
   // 同一会话可能有多个工作过程分组，取最后一个（当前轮）。
   const lastWork = `[...document.querySelectorAll(${JSON.stringify(work)})].at(-1)`
   const readLastWork = () =>
     evaluate(`(() => { const node = ${lastWork}; return node ? node.textContent.trim() : "" })()`)
   await waitFor(() => evaluate(`Boolean(document.querySelector(${JSON.stringify(work)}))`), '工作过程')
   assert.equal(await evaluate(`document.querySelector(${JSON.stringify(work)}).getAttribute('aria-expanded')`), 'false')
-  assert.match(
-    await evaluate(`document.querySelector(${JSON.stringify(work)}).textContent.trim()`),
-    /^工作了 \d+秒 · 调用了 1 项工具$/,
-  )
+  assert.match(await evaluate(`document.querySelector(${JSON.stringify(work)}).textContent.trim()`), /^用时 \d+秒$/)
   await click(work)
   assert.equal(await evaluate(`document.querySelector(${JSON.stringify(work)}).getAttribute('aria-expanded')`), 'true')
   assert.equal(
@@ -607,11 +603,11 @@ async function run(window) {
   assert.equal(await evaluate('document.body.textContent.includes("展开所有")'), false)
   assert.equal(
     await evaluate('getComputedStyle(document.querySelector("[aria-label=工作过程详情]")).maxHeight'),
-    '320px',
+    'none',
   )
   assert.equal(
     await evaluate('getComputedStyle(document.querySelector("[aria-label=工作过程详情]")).overflowY'),
-    'auto',
+    'visible',
   )
   await click(work)
 
@@ -644,7 +640,7 @@ async function run(window) {
   await require('./composer-layout-smoke.cjs')(window, capture)
   await setDraft('待处理验收')
   await waitFor(() => evaluate('!document.querySelector("button[aria-label=发送消息]").disabled'), '发送队列验收任务')
-  const workCount = 'document.querySelectorAll("[role=button][aria-label=工作过程]").length'
+  const workCount = 'document.querySelectorAll("[aria-label=工作过程]").length'
   const workCountBefore = await evaluate(workCount)
   await click('button[aria-label="发送消息"]')
   await waitFor(() => evaluate(`${workCount} > ${workCountBefore}`), '队列验收工作过程')
@@ -700,9 +696,8 @@ async function run(window) {
   )
   await click('button[aria-label="发送消息"]')
   await waitFor(() => evaluate(`Boolean(${lastWork})`), '流式工作过程')
-  assert.equal(await evaluate(`${lastWork}.getAttribute('aria-expanded')`), 'false')
-  // 工具执行很快时分组可能已经收尾，收尾后标题会追加“ · 读取了 N 个文件”。
-  assert.match(await readLastWork(), /^工作了 \d+秒/)
+  // 运行时自动展开，工具执行很快时也可能已收尾并自动收起。
+  assert.match(await readLastWork(), /^用时 \d+秒/)
   assert.equal(await evaluate(`document.querySelector(${JSON.stringify(model)}).disabled`), true)
   await waitFor(
     () =>
@@ -711,7 +706,7 @@ async function run(window) {
   )
   await waitFor(() => evaluate(`!document.querySelector(${JSON.stringify(model)}).disabled`), '流式结束')
   assert.equal(await evaluate(`${lastWork}.getAttribute('aria-expanded')`), 'false')
-  assert.equal((await readLastWork()).includes('读取了 1 个文件'), true)
+  assert.equal((await readLastWork()).includes('读取了 1 个文件'), false)
   assert.equal((await readLastWork()).includes('思考过程'), false)
   await evaluate(`${lastWork}.click()`)
   await waitFor(

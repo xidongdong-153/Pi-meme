@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { X } from 'lucide-react'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { cn } from '@pi-meme/ui/lib/utils'
+import { FadeContent } from '@pi-meme/ui/components/fade-content'
 
 export type RightSidebarTab = 'git' | 'session-tree' | 'subagents' | 'plan'
 
@@ -75,7 +76,9 @@ export function RightSidebar({
         </Button>
       </div>
       <div role="tabpanel" className="flex min-h-0 flex-1 flex-col">
-        {children}
+        <FadeContent key={tab} className="flex min-h-0 flex-1 flex-col">
+          {children}
+        </FadeContent>
       </div>
     </aside>
   )

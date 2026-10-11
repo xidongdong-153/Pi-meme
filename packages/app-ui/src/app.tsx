@@ -77,8 +77,17 @@ export function App({
   const [registry] = useState(() => new UiPluginRegistry(bridge, loadPluginUI, call))
   const [pluginDescriptors, setPluginDescriptors] = useState<UiPluginDescriptor[]>([])
   const [rightPaneOpen, setRightPaneOpen] = useState(false)
+  const [rightPaneMounted, setRightPaneMounted] = useState(false)
   const [rightTab, setRightTab] = useState<RightSidebarTab>('git')
   const [selectedPlanId, setSelectedPlanId] = useState<string>()
+  useEffect(() => {
+    if (rightPaneOpen) {
+      setRightPaneMounted(true)
+      return
+    }
+    const timer = window.setTimeout(setRightPaneMounted, 260, false)
+    return () => window.clearTimeout(timer)
+  }, [rightPaneOpen])
   const chat = useAppSession(bridge, {
     onPlanSaved: (document) => {
       setSelectedPlanId(document.id)
@@ -427,9 +436,7 @@ export function App({
                 inert={!sidebarOpen}
                 style={{ width: sidebarOpen ? sidebarWidth : 0 }}
                 className={`flex h-full shrink-0 flex-col overflow-hidden ${
-                  resizingSide === 'left'
-                    ? ''
-                    : 'transition-[width] duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none'
+                  resizingSide === 'left' ? '' : 'transition-[width] duration-250 ease-[cubic-bezier(0.22,1,0.36,1)]'
                 }`}
               >
                 <div className="min-h-0 flex-1 overflow-hidden">
@@ -562,48 +569,58 @@ export function App({
                   />
                 </WorkspaceContent>
               )}
-              {rightPaneOpen && (
-                <>
-                  <ResizeHandle
-                    side="right"
-                    width={rightPaneWidth}
-                    min={280}
-                    max={560}
-                    onResize={setRightPaneWidth}
-                    onDraggingChange={(dragging) => setResizingSide(dragging ? 'right' : null)}
-                  />
-                  <RightSidebar
-                    tab={rightTab}
-                    onTab={setRightTab}
-                    onClose={() => setRightPaneOpen(false)}
-                    width={rightPaneWidth}
-                  >
-                    {rightTab === 'subagents' ? (
-                      <SubagentsPanel
-                        key={chat.connection.sessionKey}
-                        bridge={bridge}
-                        sessionKey={chat.connection.sessionKey}
-                      />
-                    ) : rightTab === 'plan' ? (
-                      <PlanPanel
-                        key={chat.connection.sessionKey}
-                        documents={chat.planDocuments}
-                        selectedId={selectedPlanId}
-                        onSelect={setSelectedPlanId}
-                      />
-                    ) : rightTab === 'git' ? (
-                      <GitPanel {...{ cwd: chat.connection.cwd, bridge, refreshToken: chat.refreshToken }} />
-                    ) : (
-                      <SessionTreePanel
-                        {...{
-                          sessionEntries: chat.chat.sessionEntries,
-                          onSwitchVersion: (timestamp, version) => void chat.switchMessageVersion(timestamp, version),
-                        }}
-                      />
-                    )}
-                  </RightSidebar>
-                </>
-              )}
+              <div
+                id="workspace-right-sidebar"
+                aria-hidden={!rightPaneOpen}
+                inert={!rightPaneOpen}
+                style={{ width: rightPaneOpen ? rightPaneWidth + 1 : 0 }}
+                className={`flex h-full shrink-0 overflow-hidden ${
+                  resizingSide === 'right' ? '' : 'transition-[width] duration-250 ease-[cubic-bezier(0.22,1,0.36,1)]'
+                }`}
+              >
+                {(rightPaneOpen || rightPaneMounted) && (
+                  <>
+                    <ResizeHandle
+                      side="right"
+                      width={rightPaneWidth}
+                      min={280}
+                      max={560}
+                      onResize={setRightPaneWidth}
+                      onDraggingChange={(dragging) => setResizingSide(dragging ? 'right' : null)}
+                    />
+                    <RightSidebar
+                      tab={rightTab}
+                      onTab={setRightTab}
+                      onClose={() => setRightPaneOpen(false)}
+                      width={rightPaneWidth}
+                    >
+                      {rightTab === 'subagents' ? (
+                        <SubagentsPanel
+                          key={chat.connection.sessionKey}
+                          bridge={bridge}
+                          sessionKey={chat.connection.sessionKey}
+                        />
+                      ) : rightTab === 'plan' ? (
+                        <PlanPanel
+                          key={chat.connection.sessionKey}
+                          documents={chat.planDocuments}
+                          selectedId={selectedPlanId}
+                          onSelect={setSelectedPlanId}
+                        />
+                      ) : rightTab === 'git' ? (
+                        <GitPanel {...{ cwd: chat.connection.cwd, bridge, refreshToken: chat.refreshToken }} />
+                      ) : (
+                        <SessionTreePanel
+                          {...{
+                            sessionEntries: chat.chat.sessionEntries,
+                            onSwitchVersion: (timestamp, version) => void chat.switchMessageVersion(timestamp, version),
+                          }}
+                        />
+                      )}
+                    </RightSidebar>
+                  </>
+                )}
+              </div>
             </div>
           </div>
 

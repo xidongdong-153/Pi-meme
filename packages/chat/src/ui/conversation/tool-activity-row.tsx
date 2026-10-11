@@ -8,7 +8,6 @@ import {
   ChevronDown,
   Copy,
   Images,
-  Loader2,
   Pencil,
   Search,
   Sparkles,
@@ -17,6 +16,7 @@ import {
   XCircle,
 } from 'lucide-react'
 import { extractDiff, extractImages, formatDetailValue, parseToolMeta } from '../model/tool-details'
+import { runningActivityLabel } from '../model/activity-summary'
 import { ToolDiff } from './tool-diff'
 
 export function ToolActivityRow({
@@ -39,6 +39,7 @@ export function ToolActivityRow({
   const isError = item.status === 'error'
 
   const meta = parseToolMeta(item)
+  const summary = isRunning && !isPaused ? runningActivityLabel([item]).replace(/…$/, '') : meta.summary
   const IconComponent = {
     command: SquareTerminal,
     read: BookOpen,
@@ -81,7 +82,7 @@ export function ToolActivityRow({
   )
 
   return (
-    <div className={cn('text-xs select-none', className)}>
+    <div className={cn('text-sm select-none', className)}>
       <div
         role="button"
         aria-label={`工具详情：${item.name ?? '未知工具'}`}
@@ -96,33 +97,29 @@ export function ToolActivityRow({
         }}
         title={meta.fullPath}
         className={cn(
-          'group inline-flex max-w-full items-center gap-1.5 py-1 px-1.5 -mx-1 rounded cursor-pointer transition-colors',
+          'group inline-flex max-w-full items-center gap-2 py-1 px-1 -mx-1 rounded cursor-pointer transition-colors',
           'text-muted-foreground hover:text-foreground hover:bg-secondary/30',
           isNested && 'pl-2',
           !hasDetail && 'cursor-default',
         )}
       >
-        {isPaused ? null : isRunning ? (
-          <Loader2 className="size-3.5 shrink-0 animate-spin text-primary" />
-        ) : (
+        {!isPaused && (
           <IconComponent
             className={cn(
-              'size-3.5 shrink-0 text-muted-foreground group-hover:text-foreground',
+              'size-4 shrink-0 text-muted-foreground group-hover:text-foreground',
               isError && 'text-destructive',
             )}
           />
         )}
 
-        <span className={cn('truncate font-mono text-[0.75rem]', isError && 'text-destructive font-medium')}>
-          {meta.summary}
-        </span>
+        <span className={cn('truncate', isError && 'text-destructive font-medium')}>{summary}</span>
 
         {isError && !isPaused && <XCircle className="size-3 text-destructive shrink-0 ml-1" />}
 
         {hasDetail && (
           <ChevronDown
             className={cn(
-              'size-3 shrink-0 text-muted-foreground/70 transition-transform duration-200 ml-0.5',
+              'size-3.5 shrink-0 text-muted-foreground/70 transition-transform duration-300 ease-out ml-0.5',
               open ? 'rotate-0' : '-rotate-90',
             )}
           />
@@ -130,7 +127,7 @@ export function ToolActivityRow({
       </div>
 
       {open && hasDetail && (
-        <div className="relative mt-1 mb-2 max-w-full rounded border border-border/40 bg-secondary/20 p-2 font-mono text-[0.6875rem] leading-relaxed text-muted-foreground select-text">
+        <div className="relative mt-1 mb-2 max-w-full rounded border border-border/40 bg-secondary/20 p-2 font-mono text-[0.6875rem] leading-relaxed text-muted-foreground select-text animate-in fade-in slide-in-from-top-1 duration-200">
           <div className="flex items-center justify-between mb-1 pb-1 border-b border-border/30 text-[0.625rem] text-muted-foreground/80">
             <span>{diff ? '变更内容 (Diff)' : isError ? '错误详情' : '输出内容'}</span>
             <button

@@ -64,7 +64,7 @@ export function projectMainConversation(chat: ChatState) {
       : []
   })
   for (const message of [...(chat.agentMessages ?? []), ...nativeResults]) {
-    if (message.kind !== 'result') continue
+    if (message.kind !== 'result' || !message.fromAgentId) continue
     const agent = chat.agents?.find((entry) => entry.agentId === message.fromAgentId)
     const currentRun = agent && (!message.runId || message.runId === agent.runId)
     const runStatus = message.status ?? (currentRun ? agent.status : undefined)
@@ -74,6 +74,7 @@ export function projectMainConversation(chat: ChatState) {
     if (byRun.has(key)) continue
     byRun.set(key, {
       type: 'agent_status',
+      agentId: message.fromAgentId,
       key,
       name: message.name || agent?.name || '子代理',
       status: status ?? '已结束',

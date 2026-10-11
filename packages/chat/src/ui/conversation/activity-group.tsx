@@ -3,8 +3,8 @@ import type { PiPauseInterval } from '@pi-meme/contracts/pi'
 import { activeDuration } from '../model/active-duration'
 import type { ActivityItem } from '../model/types'
 import { cn } from '@pi-meme/ui/lib/utils'
-import { BookOpen, ChevronDown, Images, Loader2, Pencil, Search, Sparkles, SquareTerminal, Wrench } from 'lucide-react'
-import { summarizeActivities, formatDurationChinese } from '../model/activity-summary'
+import { BookOpen, ChevronDown, Images, Pencil, Search, SquareTerminal, Wrench } from 'lucide-react'
+import { groupAdjacentActivities, summarizeActivities, formatDurationChinese } from '../model/activity-summary'
 import { ThinkingActivityRow } from './thinking-activity-row'
 import { ToolActivityRow } from './tool-activity-row'
 import { NarrationActivityRow } from './narration-activity-row'
@@ -26,11 +26,175 @@ export function ActivityGroup({
   startedAt?: number
   className?: string
 }) {
-  const hasRunning = items.some((i) => i.status === 'running') || isLive
-  const [groupOpen, setGroupOpen] = React.useState(false)
+  const hasRunning = items.some((item) => item.status === 'running') || isLive
+  const [manualOpen, setManualOpen] = React.useState<boolean | null>(null)
+  const groupOpen = manualOpen ?? isLive
   const [childOpenMap, setChildOpenMap] = React.useState<Record<string, boolean>>({})
-  const [now, setNow] = React.useState(Date.now)
   const [mountedAt] = React.useState(Date.now)
+  const activityGroups = React.useMemo(() => groupAdjacentActivities(items), [items])
+
+  const toggleChild = React.useCallback((id: string) => {
+    setChildOpenMap((previous) => ({ ...previous, [id]: !previous[id] }))
+  }, [])
+
+  const canExpand = items.length > 0
+  const elapsedTime = (
+    <ActivityElapsedTime
+      hasRunning={hasRunning}
+      isPaused={isPaused}
+      startedAt={startedAt ?? mountedAt}
+      durationMs={durationMs}
+      pauseIntervals={pauseIntervals}
+    />
+  )
+
+  return (
+    <div className={cn('my-3 w-full', className)}>
+      <div className="mb-3 border-b border-border/60 pb-2">
+        {canExpand ? (
+          <button
+            type="button"
+            aria-label="工作过程"
+            aria-expanded={groupOpen}
+            onClick={() => setManualOpen((previous) => !(previous ?? isLive))}
+            className="inline-flex items-center gap-1.5 rounded-sm py-1 text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <span>{elapsedTime}</span>
+            <ChevronDown
+              className={cn('size-3.5 shrink-0 transition-transform duration-300 ease-out', !groupOpen && '-rotate-90')}
+            />
+          </button>
+        ) : (
+          <div role="status" className="py-1 text-sm text-muted-foreground">
+            {elapsedTime}
+          </div>
+        )}
+      </div>
+
+      {canExpand && (
+        <div
+          aria-label="工作过程详情"
+          aria-hidden={!groupOpen}
+          inert={!groupOpen}
+          className={cn(
+            'grid transition-[grid-template-rows,opacity] duration-300 ease-out',
+            groupOpen ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0',
+          )}
+        >
+          <div className="min-h-0 overflow-hidden">
+            <div className="space-y-2 pb-2">
+              {activityGroups.map((group) => {
+                if (group.type === 'item') {
+                  const item = group.item
+                  if (item.type === 'narration') return <NarrationActivityRow key={item.id} item={item} />
+                  return (
+                    <ThinkingActivityRow
+                      key={item.id}
+                      item={item}
+                      open={Boolean(childOpenMap[item.id])}
+                      onToggle={() => toggleChild(item.id)}
+                      isPaused={isPaused}
+                      isNested={false}
+                    />
+                  )
+                }
+                const first = group.items[0]!
+                if (group.items.length === 1) {
+                  return (
+                    <ToolActivityRow
+                      key={first.id}
+                      item={first}
+                      open={Boolean(childOpenMap[first.id])}
+                      onToggle={() => toggleChild(first.id)}
+                      isPaused={isPaused}
+                      isNested={false}
+                    />
+                  )
+                }
+                const groupId = `tools-${first.id}`
+                const open = Boolean(childOpenMap[groupId])
+                const meta = summarizeActivities(group.items)
+                const IconComponent = {
+                  command: SquareTerminal,
+                  read: BookOpen,
+                  write: Pencil,
+                  edit: Pencil,
+                  image: Images,
+                  search: Search,
+                  generic: Wrench,
+                  thinking: Wrench,
+                }[meta.kind]
+                const hasError = group.items.some((item) => item.status === 'error')
+                return (
+                  <div key={groupId}>
+                    <button
+                      type="button"
+                      aria-label="工具调用组"
+                      aria-expanded={open}
+                      onClick={() => toggleChild(groupId)}
+                      className={cn(
+                        'flex max-w-full items-center gap-2 rounded-sm py-1 text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                        hasError && 'text-destructive',
+                      )}
+                    >
+                      <IconComponent className="size-4 shrink-0" />
+                      <span className="truncate">{meta.summary}</span>
+                      {hasError && <span className="shrink-0 text-xs">调用失败</span>}
+                      <ChevronDown
+                        className={cn(
+                          'size-3.5 shrink-0 transition-transform duration-300 ease-out',
+                          !open && '-rotate-90',
+                        )}
+                      />
+                    </button>
+                    <div
+                      aria-hidden={!open}
+                      inert={!open}
+                      className={cn(
+                        'grid transition-[grid-template-rows,opacity] duration-300 ease-out',
+                        open ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0',
+                      )}
+                    >
+                      <div className="min-h-0 overflow-hidden">
+                        <div className="space-y-1 pt-1 pl-6">
+                          {group.items.map((item) => (
+                            <ToolActivityRow
+                              key={item.id}
+                              item={item}
+                              open={Boolean(childOpenMap[item.id])}
+                              onToggle={() => toggleChild(item.id)}
+                              isPaused={isPaused}
+                              isNested={false}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function ActivityElapsedTime({
+  hasRunning,
+  isPaused,
+  startedAt,
+  durationMs,
+  pauseIntervals,
+}: {
+  hasRunning: boolean
+  isPaused: boolean
+  startedAt: number
+  durationMs?: number
+  pauseIntervals?: PiPauseInterval[]
+}) {
+  const [now, setNow] = React.useState(Date.now)
 
   React.useEffect(() => {
     if (!hasRunning || isPaused) return
@@ -38,114 +202,12 @@ export function ActivityGroup({
     return () => window.clearInterval(timer)
   }, [hasRunning, isPaused])
 
-  const toggleChild = React.useCallback((id: string) => {
-    setChildOpenMap((prev) => ({
-      ...prev,
-      [id]: !prev[id],
-    }))
-  }, [])
-
-  const groupMeta = summarizeActivities(items)
-  const IconComponent = {
-    command: SquareTerminal,
-    read: BookOpen,
-    write: Pencil,
-    edit: Pencil,
-    image: Images,
-    search: Search,
-    generic: Wrench,
-    thinking: Sparkles,
-  }[groupMeta.kind]
-  const start = startedAt ?? mountedAt
   const elapsedMs = activeDuration(
-    start,
-    hasRunning ? Math.max(now, Date.now()) : start + (durationMs ?? 0),
+    startedAt,
+    hasRunning ? Math.max(now, Date.now()) : startedAt + (durationMs ?? 0),
     pauseIntervals,
   )
-  const durationText = formatDurationChinese(elapsedMs ?? 0) || '0秒'
-  const summaryTitle = hasRunning
-    ? `工作了 ${durationText}`
-    : [`工作了 ${durationText}`, groupMeta.summary].filter(Boolean).join(' · ')
-
-  if (items.length === 0) return null
-
-  return (
-    <div className={cn('my-1.5 select-none', className)}>
-      {/* 组标题栏 */}
-      <div
-        role="button"
-        aria-label="工作过程"
-        aria-expanded={groupOpen}
-        tabIndex={0}
-        onClick={() => {
-          setGroupOpen(!groupOpen)
-        }}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault()
-            setGroupOpen(!groupOpen)
-          }
-        }}
-        className={cn(
-          'group flex w-full items-center justify-between py-1 px-1 -mx-1 rounded cursor-pointer transition-colors',
-          'text-muted-foreground hover:text-foreground hover:bg-secondary/30 text-xs',
-        )}
-      >
-        <div className="flex min-w-0 items-center gap-1.5">
-          <ChevronDown
-            className={cn(
-              'size-3.5 shrink-0 text-muted-foreground/80 transition-transform duration-200',
-              groupOpen ? 'rotate-0' : '-rotate-90',
-            )}
-          />
-          {isPaused ? null : hasRunning ? (
-            <Loader2 className="size-3.5 shrink-0 animate-spin text-primary" />
-          ) : (
-            <IconComponent className="size-3.5 shrink-0 text-muted-foreground group-hover:text-foreground" />
-          )}
-          <span className="truncate font-medium">{summaryTitle}</span>
-        </div>
-      </div>
-
-      {/* 展开的内聚子项列表 */}
-      {groupOpen && (
-        <div
-          aria-label="工作过程详情"
-          className="max-h-80 overflow-y-auto overscroll-contain pl-3.5 pr-2 border-l border-border/40 mt-1 space-y-0.5"
-        >
-          {items.map((item, idx) => {
-            const key = item.id || `act-${idx}`
-            const isOpen = Boolean(childOpenMap[item.id])
-            if (item.type === 'thinking') {
-              return (
-                <ThinkingActivityRow
-                  key={key}
-                  item={item}
-                  open={isOpen}
-                  onToggle={() => toggleChild(item.id)}
-                  isPaused={isPaused}
-                  isNested
-                />
-              )
-            }
-            if (item.type === 'narration') {
-              return <NarrationActivityRow key={key} item={item} isPaused={isPaused} isNested />
-            }
-            return (
-              <ToolActivityRow
-                key={key}
-                item={item}
-                open={isOpen}
-                onToggle={() => toggleChild(item.id)}
-                isPaused={isPaused}
-                isNested
-              />
-            )
-          })}
-        </div>
-      )}
-    </div>
-  )
+  return <>用时 {formatDurationChinese(elapsedMs) || '0秒'}</>
 }
 
 /** 兼容旧名称 ActionGroup */

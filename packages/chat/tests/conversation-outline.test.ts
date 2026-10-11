@@ -42,7 +42,7 @@ test('状态和压缩只分割回复，索引合并同一输入后的最终文�
     {},
     false,
     {},
-    [{ type: 'agent_status', name: '审查', status: '已完成', timestamp: 2000, key: 'status' }],
+    [{ type: 'agent_status', agentId: 'reviewer', name: '审查', status: '已完成', timestamp: 2000, key: 'status' }],
   )
   assert.deepEqual(conversationOutline(turns), [
     { key: turns[0].key, turnIndex: 0, title: '继续任务', preview: '第一阶段 第二阶段' },

@@ -1,5 +1,5 @@
 import { SidebarMoreMenu, SidebarRowMenu } from './sidebar-menus'
-import { Folder, Loader2, PinOff, SquarePen } from 'lucide-react'
+import { Folder, PinOff, SquarePen } from 'lucide-react'
 import type { PiProjectGroup, PiSessionSummary } from '@pi-meme/contracts/sessions'
 import { SessionItem } from './session-item'
 
@@ -34,11 +34,10 @@ export function PinnedSection({
           <div className="px-2 py-1 text-[0.6875rem] font-semibold text-muted-foreground/80 tracking-wider">置顶</div>
           <div className="space-y-0.5">
             {pinnedProjects.map((project) => {
-              const hasRunningSession = project.sessions.some((session) => session.running && !session.isPaused)
               return (
                 <SidebarRowMenu key={project.cwd} target={{ kind: 'project', project }}>
                   <div
-                    className="group relative flex w-full min-w-0 items-center justify-between rounded-lg pr-2.5 text-xs text-foreground/90 transition-colors hover:bg-secondary/60 cursor-pointer"
+                    className="group relative flex w-full min-w-0 items-center justify-between rounded-lg pr-2.5 text-xs text-foreground/90 transition-colors duration-200 ease-out hover:bg-secondary/60 cursor-pointer"
                     title={project.cwd}
                     data-project-cwd={project.cwd}
                   >
@@ -46,9 +45,9 @@ export function PinnedSection({
                       type="button"
                       onClick={() => toggleProject(project.cwd)}
                       aria-expanded={expandedProjects.has(project.cwd)}
-                      className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden pl-2.5 py-1.5 text-left rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden pl-2.5 py-2 text-left rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
-                      <Folder className="size-3.5 text-primary shrink-0" />
+                      <Folder className="size-3.5 text-muted-foreground shrink-0" />
                       <span className="truncate font-medium">{project.name}</span>
                     </button>
                     <div className="flex items-center gap-1 shrink-0 ml-1">
@@ -79,13 +78,6 @@ export function PinnedSection({
                       </button>
 
                       <SidebarMoreMenu target={{ kind: 'project', project }} />
-                      {/* 项目内有会话运行中：常驻显示，便于监控 */}
-                      {hasRunningSession && (
-                        <Loader2
-                          aria-label="项目内有会话运行中"
-                          className="size-3 shrink-0 animate-spin text-primary"
-                        />
-                      )}
                     </div>
                   </div>
                 </SidebarRowMenu>

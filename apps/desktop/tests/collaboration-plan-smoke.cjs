@@ -17,6 +17,18 @@ module.exports = async (window, waitFor, directory, screenshots) => {
       const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range);
       node.dispatchEvent(new Event('input', { bubbles: true }));
     })()`)
+  const agentAppearance = async (scope, rowSelector, title) => {
+    const appearance = await evaluate(`(() => {
+      const row = [...document.querySelector(${JSON.stringify(scope)}).querySelectorAll(${JSON.stringify(rowSelector)})].find(node => node.textContent.includes(${JSON.stringify(title)}));
+      const avatar = row?.querySelector('[data-agent-avatar]');
+      const icon = avatar?.matches('svg') ? avatar : avatar?.querySelector('svg');
+      return { text: row?.textContent, variant: avatar?.getAttribute('data-variant'), hidden: icon?.getAttribute('aria-hidden') };
+    })()`)
+    assert.ok(appearance.text?.includes(title), `子代理显示任务标题：${title}`)
+    assert.match(appearance.variant ?? '', /^\d+$/, `子代理具有彩色图标：${title}`)
+    assert.equal(appearance.hidden, 'true', '装饰图标不重复朗读子代理名称')
+    return appearance.variant
+  }
   const capture = async (name) => {
     assert.equal(
       await evaluate('document.querySelector("section[aria-label=工作区] button[aria-label=关闭错误提示]") === null'),
@@ -67,9 +79,10 @@ module.exports = async (window, waitFor, directory, screenshots) => {
   await waitFor(() => evaluate('Boolean(document.querySelector("aside[aria-label=右侧栏]"))'), '协作右侧栏')
   await clickText('子代理', 'aside[aria-label=右侧栏]')
   await waitFor(
-    () => evaluate('Boolean(document.querySelector("section[aria-label=运行中子代理]"))'),
+    () => evaluate('Boolean(document.querySelector("section[aria-label=运行中子代理] button"))'),
     '运行中子代理列表',
   )
+  const runningInspectorAvatar = await agentAppearance('section[aria-label=运行中子代理]', 'button', 'Inspector')
   await capture('agents-running')
   await waitFor(
     () =>
@@ -79,7 +92,10 @@ module.exports = async (window, waitFor, directory, screenshots) => {
     '父子两轮完成',
   )
   await waitFor(
-    () => evaluate('Boolean(document.querySelector("section[aria-label=已结束子代理]"))'),
+    () =>
+      evaluate(
+        '[...document.querySelectorAll("section[aria-label=已结束子代理] button")].some(node => node.textContent.includes("Inspector"))',
+      ),
     '已结束子代理列表',
   )
   const agents = await evaluate(`window.piMemeClient.getAgents(${JSON.stringify(root)})`)
@@ -100,10 +116,28 @@ module.exports = async (window, waitFor, directory, screenshots) => {
     assert.equal(rootMessages.includes(agent.agentId), false, '主会话隐藏协作身份')
   assert.equal(
     await evaluate(
-      '[...document.querySelectorAll("main [aria-label=子代理状态]")].some(node => node.textContent.trim() === "inspector 已完成")',
+      '[...document.querySelectorAll("main [aria-label=子代理状态]")].some(node => node.textContent.trim() === "Inspector 已完成")',
     ),
     true,
     '主会话只显示简短完成阶段',
+  )
+  const completedInspectorAvatar = await agentAppearance('section[aria-label=已结束子代理]', 'button', 'Inspector')
+  const mainInspectorAvatar = await agentAppearance(
+    'main [aria-label=对话消息流]',
+    '[aria-label=子代理状态]',
+    'Inspector',
+  )
+  assert.equal(completedInspectorAvatar, runningInspectorAvatar, '同一子代理完成后保留运行时图标')
+  assert.equal(mainInspectorAvatar, completedInspectorAvatar, '主对话和右栏中的子代理图标一致')
+  const inspectorStages = await evaluate(`(() => {
+    const stages = [...document.querySelectorAll('main [aria-label="子代理状态"]')].filter(node => node.textContent.trim() === 'Inspector 已完成');
+    return stages.map(node => node.querySelector('[data-agent-avatar]')?.getAttribute('data-variant'));
+  })()`)
+  assert.equal(inspectorStages.length, 2, '同一子代理的两轮任务分别显示完成阶段')
+  assert.equal(
+    inspectorStages.every((variant) => variant === completedInspectorAvatar),
+    true,
+    '继续子任务保持同一图标',
   )
   const listText = await evaluate('document.querySelector("section[aria-label=已结束子代理]").textContent')
   for (const agent of agents.filter((entry) => entry.parentAgentId)) {
@@ -117,6 +151,8 @@ module.exports = async (window, waitFor, directory, screenshots) => {
     () => evaluate(`document.querySelector(${JSON.stringify(panel)})?.textContent.includes('子代理第二轮完整回复')`),
     '子代理完整对话',
   )
+  const detailInspectorAvatar = await agentAppearance(panel, 'header', 'Inspector')
+  assert.equal(detailInspectorAvatar, completedInspectorAvatar, '子代理详情保留列表中的名称和图标')
   assert.equal(
     await evaluate(`document.querySelector(${JSON.stringify(panel)}).textContent.includes('子代理第一轮完整回复')`),
     true,
@@ -189,7 +225,7 @@ module.exports = async (window, waitFor, directory, screenshots) => {
   await waitFor(
     () =>
       evaluate(
-        '[...document.querySelectorAll("main [aria-label=子代理状态]")].some(node => node.textContent.trim() === "summarizer 已完成")',
+        '[...document.querySelectorAll("main [aria-label=子代理状态]")].some(node => node.textContent.trim() === "Summarizer 已完成")',
       ),
     '自动汇总完成阶段',
   )
@@ -197,7 +233,10 @@ module.exports = async (window, waitFor, directory, screenshots) => {
   await evaluate('document.querySelector("button[aria-label=展开右侧栏]").click()')
   await clickText('子代理', 'aside[aria-label=右侧栏]')
   await waitFor(
-    () => evaluate('document.querySelector("section[aria-label=已结束子代理]")?.textContent.includes("summarizer")'),
+    () =>
+      evaluate(
+        '[...document.querySelectorAll("section[aria-label=已结束子代理] button")].some(node => node.textContent.includes("Summarizer"))',
+      ),
     '最终简短列表',
   )
   assert.equal(
@@ -206,13 +245,25 @@ module.exports = async (window, waitFor, directory, screenshots) => {
     ),
     false,
   )
+  const summarizerAvatar = await agentAppearance('section[aria-label=已结束子代理]', 'button', 'Summarizer')
+  const mainSummarizerAvatar = await agentAppearance(
+    'main [aria-label=对话消息流]',
+    '[aria-label=子代理状态]',
+    'Summarizer',
+  )
+  assert.equal(mainSummarizerAvatar, summarizerAvatar, '自动汇总子代理在主对话和右栏使用相同图标')
   await capture('agents-completed')
   await evaluate(
-    '(() => { const node = [...document.querySelectorAll("section[aria-label=已结束子代理] button")].find(button => button.textContent.includes("summarizer")); node.click() })()',
+    '(() => { const node = [...document.querySelectorAll("section[aria-label=已结束子代理] button")].find(button => button.textContent.includes("Summarizer")); node.click() })()',
   )
   await waitFor(
     () => evaluate('document.querySelector("aside[aria-label=右侧栏]")?.textContent.includes("AUTO-CHILD-RAW-REPORT")'),
     '子代理详情仍显示完整报告',
+  )
+  assert.equal(
+    await agentAppearance(panel, 'header', 'Summarizer'),
+    summarizerAvatar,
+    '自动汇总子代理详情保持同一任务标题和图标',
   )
   await capture('agent-summary-conversation')
   await clickText('返回列表', panel)

@@ -2,6 +2,24 @@ import type { ActivityItem } from './types'
 import { parseToolMeta, type ToolKind } from './tool-details'
 import { getThinkingLabel } from './thinking-labels'
 
+type ToolActivity = Extract<ActivityItem, { type?: 'tool' }>
+
+export function groupAdjacentActivities(
+  items: ActivityItem[],
+): Array<{ type: 'item'; item: Exclude<ActivityItem, ToolActivity> } | { type: 'tools'; items: ToolActivity[] }> {
+  const groups: ReturnType<typeof groupAdjacentActivities> = []
+  for (const item of items) {
+    if (item.type === 'thinking' || item.type === 'narration') {
+      groups.push({ type: 'item', item })
+      continue
+    }
+    const previous = groups.at(-1)
+    if (previous?.type === 'tools') previous.items.push(item)
+    else groups.push({ type: 'tools', items: [item] })
+  }
+  return groups
+}
+
 export function formatDurationChinese(durationMs: number): string {
   if (!Number.isFinite(durationMs) || durationMs < 1000) return ''
   const totalSeconds = Math.round(durationMs / 1000)

@@ -56,6 +56,7 @@ test('主投影按完成阶段插入一次短行，mailbox与原生报告重放�
     [{ name: '审查', status: '已完成', timestamp: 2000 }],
   )
   assert.doesNotMatch(JSON.stringify(turns), /私有完整子报告|自动协作续跑正文/)
+  assert.equal(view.agentStatuses[0].agentId, result.fromAgentId)
   assert.deepEqual(state, original)
 })
 

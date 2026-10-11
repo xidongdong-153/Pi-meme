@@ -7,10 +7,10 @@ import type { PiContent, PiMessage } from '@pi-meme/contracts/pi'
 import { groupMessageParts } from '../src/ui/model/message-parts'
 import { groupConversationTurns } from '../src/ui/model/conversation-turns'
 import { extractDiff, extractImages, formatDetailValue, parseToolMeta } from '../src/ui/model/tool-details'
-import { summarizeActivities } from '../src/ui/model/activity-summary'
+import { groupAdjacentActivities, summarizeActivities } from '../src/ui/model/activity-summary'
 import { Conversation } from '../src/ui/conversation/conversation'
 import { emptyChat } from '../src/ui/model/state'
-import type { ChatState } from '../src/ui/model/types'
+import type { ActivityItem, ChatState } from '../src/ui/model/types'
 import type { MessageEditorState } from '../src/ui/conversation/inline-message-editor'
 import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 import { assistantMessage, bashMessage, toolResult, userMessage } from '../../../tests/fixtures/messages.mjs'
@@ -86,7 +86,8 @@ test('只读子代理对话保留正文、复制和工作过程，隐藏编辑�
   assert.match(markup, /子任务正文/)
   assert.match(markup, /任务结果/)
   assert.match(markup, /aria-label="复制消息"/)
-  assert.match(markup, /工作了 .*读取了 1 个文件/)
+  assert.match(markup, /用时 /)
+  assert.match(markup, /aria-label="工作过程"/)
   assert.doesNotMatch(markup, /编辑消息|从这段回复新建会话|用户消息版本|查看上一个版本|查看下一个版本/)
 })
 
@@ -137,6 +138,7 @@ test('主会话子代理结果只显示短状态，不渲染报告正文或来�
             rootTaskId: 'task',
             epoch: 1,
             kind: 'result',
+            name: 'chat_activity',
             text: '私有完整报告正文',
             createdAt: new Date(2000).toISOString(),
           },
@@ -150,6 +152,9 @@ test('主会话子代理结果只显示短状态，不渲染报告正文或来�
     }),
   )
   assert.doesNotMatch(markup, /私有完整报告正文|private-agent-uuid|private-run-uuid|来自子代理/)
+  assert.match(markup, /Chat activity/)
+  assert.match(markup, /data-agent-avatar=""/)
+  assert.doesNotMatch(markup, /chat_activity|animate-spin/)
 })
 
 test('主对话与只读子详情都不在消息流显示已保存计划正文', () => {
@@ -298,20 +303,54 @@ test('只有思考活动时不显示思考过程摘要', () => {
   })
 })
 
-test('工作过程运行时默认折叠且只显示计时，结束后显示工具统计', () => {
+test('工作过程标题只显示用时，运行时展开、历史折叠，均不显示转圈', () => {
   const items = [
     { id: 'read', type: 'tool' as const, name: 'read', args: { path: 'src/main.ts' }, status: 'success' as const },
     { id: 'thought', type: 'thinking' as const, thinking: '检查文件', status: 'success' as const },
   ]
   const live = renderToStaticMarkup(createElement(ActivityGroup, { items, isLive: true, startedAt: Date.now() }))
-  assert.match(live, /aria-expanded="false"/)
-  assert.match(live, /工作了 0秒/)
-  assert.doesNotMatch(live, /读取了|思考过程|展开所有|工具详情/)
+  const liveHeader = live.match(/<button[^>]*aria-label="工作过程".*?<\/button>/)?.[0]
+  assert.ok(liveHeader)
+  assert.match(liveHeader, /aria-expanded="true"/)
+  assert.match(liveHeader, /用时 0秒/)
+  assert.doesNotMatch(liveHeader, /读取了|思考过程|工作了|lucide-sparkles/)
+  assert.doesNotMatch(live, /animate-spin|lucide-loader/)
 
   const completed = renderToStaticMarkup(createElement(ActivityGroup, { items, durationMs: 45000 }))
-  assert.match(completed, /aria-expanded="false"/)
-  assert.match(completed, /工作了 45秒 · 读取了 1 个文件/)
-  assert.doesNotMatch(completed, /思考过程|展开所有|工具详情/)
+  const completedHeader = completed.match(/<button[^>]*aria-label="工作过程".*?<\/button>/)?.[0]
+  assert.ok(completedHeader)
+  assert.match(completedHeader, /aria-expanded="false"/)
+  assert.match(completedHeader, /用时 45秒/)
+  assert.doesNotMatch(completedHeader, /读取了|思考过程|工作了|lucide-sparkles/)
+  assert.match(completed, /aria-label="工作过程详情" aria-hidden="true" inert=""/)
+  assert.doesNotMatch(completed, /animate-spin|lucide-loader/)
+})
+
+test('相邻工具折叠成组，正文与思考保留原来顺序并分隔工具组', () => {
+  const items: ActivityItem[] = [
+    { id: 'read-1', type: 'tool', name: 'read', args: { path: 'a.ts' }, status: 'success' },
+    { id: 'bash', name: 'bash', args: { command: 'pnpm test' }, status: 'success' },
+    { id: 'note', type: 'narration', text: '已经确认 **结构**。' },
+    { id: 'read-2', type: 'tool', name: 'read', args: { path: 'b.ts' }, status: 'success' },
+    { id: 'think', type: 'thinking', thinking: '准备修改', status: 'success' },
+    { id: 'edit', type: 'tool', name: 'edit', args: { path: 'b.ts' }, status: 'error' },
+  ]
+  const groups = groupAdjacentActivities(items)
+  assert.deepEqual(groups, [
+    { type: 'tools', items: items.slice(0, 2) },
+    { type: 'item', item: items[2] },
+    { type: 'tools', items: [items[3]] },
+    { type: 'item', item: items[4] },
+    { type: 'tools', items: [items[5]] },
+  ])
+  assert.equal(items.length, 6)
+  const markup = renderToStaticMarkup(createElement(ActivityGroup, { items, isLive: true }))
+  assert.match(markup, /aria-label="工具调用组" aria-expanded="false"/)
+  assert.match(markup, /读取了 1 个文件 · 执行了 1 条命令/)
+  assert.match(markup, /已经确认 <strong[^>]*>结构<\/strong>。/)
+  assert.match(markup, /工具详情：edit/)
+  assert.match(markup, /lucide-circle-x/)
+  assert.doesNotMatch(markup, /max-h-80|animate-spin/)
 })
 
 test('用户气泡显示多个内联技能名，不显示技能长正文和路径', async () => {

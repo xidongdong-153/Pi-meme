@@ -24,7 +24,7 @@ export function ActionItemRow({
   }
 
   if (item.type === 'narration') {
-    return <NarrationActivityRow item={item} isNested={isNested} />
+    return <NarrationActivityRow item={item} />
   }
 
   return (

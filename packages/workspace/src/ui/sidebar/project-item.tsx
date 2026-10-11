@@ -1,5 +1,5 @@
 import { SidebarMoreMenu, SidebarRowMenu } from './sidebar-menus'
-import { Folder, Loader2, Pin, SquarePen } from 'lucide-react'
+import { ChevronRight, Folder, Pin, SquarePen } from 'lucide-react'
 import { cn } from '@pi-meme/ui/lib/utils'
 import type { PiProjectGroup } from '@pi-meme/contracts/sessions'
 import { SessionItem } from './session-item'
@@ -50,14 +50,13 @@ export function ProjectItem({
       )
   const hasMoreSessions = project.sessions.length > sessionThreshold
   const isContentVisible = isExpanded && project.sessions.length > 0
-  const hasRunningSession = project.sessions.some((session) => session.running && !session.isPaused)
 
   return (
     <div key={project.cwd} className="space-y-0.5">
       <SidebarRowMenu target={{ kind: 'project', project }}>
         <div
           className={cn(
-            'group relative flex w-full min-w-0 items-center justify-between rounded-lg pr-2.5 text-xs transition-colors cursor-pointer',
+            'group relative flex w-full min-w-0 items-center justify-between rounded-lg pr-2.5 text-xs transition-colors duration-200 ease-out cursor-pointer',
             isCurrentCwd ? 'bg-secondary/70 font-medium text-foreground' : 'text-foreground/85 hover:bg-secondary/50',
           )}
           title={project.cwd}
@@ -67,9 +66,17 @@ export function ProjectItem({
             type="button"
             onClick={onToggle}
             aria-expanded={isExpanded}
-            className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden pl-2.5 py-1.5 text-left rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden pl-2 py-2 text-left rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <Folder className="size-3.5 text-primary shrink-0" />
+            <span
+              className={cn(
+                'inline-flex shrink-0 text-muted-foreground/65 transition-transform duration-250 ease-[cubic-bezier(0.22,1,0.36,1)]',
+                isExpanded && 'rotate-90',
+              )}
+            >
+              <ChevronRight className="size-3" />
+            </span>
+            <Folder className="size-3.5 text-muted-foreground shrink-0" />
             <span className="truncate font-medium">{project.name}</span>
           </button>
           <div className="flex items-center gap-1 shrink-0 ml-1">
@@ -103,10 +110,6 @@ export function ProjectItem({
             </button>
 
             <SidebarMoreMenu target={{ kind: 'project', project }} />
-            {/* 项目内有会话运行中：常驻显示，便于监控 */}
-            {hasRunningSession && (
-              <Loader2 aria-label="项目内有会话运行中" className="size-3 shrink-0 animate-spin text-primary" />
-            )}
           </div>
         </div>
       </SidebarRowMenu>
@@ -115,7 +118,7 @@ export function ProjectItem({
         aria-hidden={!isContentVisible}
         inert={!isContentVisible}
         className={cn(
-          'grid transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none',
+          'grid transition-[grid-template-rows,opacity] duration-250 ease-[cubic-bezier(0.22,1,0.36,1)]',
           isContentVisible ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0',
         )}
       >

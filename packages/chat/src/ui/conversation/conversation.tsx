@@ -1,6 +1,6 @@
 import type { ChatStream } from '../model/chat-stream'
 import * as React from 'react'
-import { ArrowDown, Check, Minus, X } from 'lucide-react'
+import { ArrowDown } from 'lucide-react'
 import type { ChatState, ConversationOutlineEntry, TurnChunk } from '../model/types'
 import { ChatMessage } from './chat-message'
 import { AssistantTurnView } from './assistant-turn'
@@ -13,6 +13,7 @@ import { messageVersions } from '../model/message-versions'
 import { CompactionCard, CompactionProgressCard } from './compaction-card'
 import { conversationOutline } from '../model/conversation-outline'
 import { ConversationOutline } from './conversation-outline'
+import { AgentStatusRow } from './agent-status-row'
 
 function noSubscription() {
   return () => {}
@@ -176,22 +177,7 @@ export const Conversation = React.memo(
 
             {visibleTurns.map((turn) => {
               if (turn.type === 'agent_status')
-                return (
-                  <p
-                    key={turn.key}
-                    aria-label="子代理状态"
-                    className="flex items-center gap-1.5 py-1 text-xs text-muted-foreground"
-                  >
-                    {turn.status === '已完成' ? (
-                      <Check aria-hidden className="size-3 opacity-60" />
-                    ) : turn.status === '失败' ? (
-                      <X aria-hidden className="size-3 opacity-60" />
-                    ) : (
-                      <Minus aria-hidden className="size-3 opacity-60" />
-                    )}
-                    {turn.name} {turn.status}
-                  </p>
-                )
+                return <AgentStatusRow key={turn.key} agentId={turn.agentId} name={turn.name} status={turn.status} />
               if (turn.type === 'compaction') {
                 return (
                   <CompactionCard
@@ -260,11 +246,11 @@ export const Conversation = React.memo(
 
         {/* 回到底部悬浮按钮 */}
         {showScrollBottom && (
-          <div className="fixed bottom-32 right-8 z-20">
+          <div className="pointer-events-none absolute inset-x-0 bottom-3 z-20 flex justify-center">
             <Button
               size="icon"
               variant="outline"
-              className="size-9 rounded-full shadow-md bg-card/90 backdrop-blur-xs border-border hover:bg-secondary active:scale-95"
+              className="pointer-events-auto size-9 rounded-full shadow-md bg-card/95 backdrop-blur-xs border-border hover:bg-secondary transition-[background-color,transform] duration-200 ease-out active:scale-95"
               onClick={scrollToBottom}
               aria-label="滚动到底部"
             >

@@ -129,7 +129,7 @@ export function Sidebar({
           <button
             type="button"
             onClick={onNewSession}
-            className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-xs font-medium text-foreground transition-colors hover:bg-secondary/70 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer text-left group"
+            className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-xs font-medium text-foreground transition-colors duration-200 ease-out hover:bg-secondary/70 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer text-left group"
           >
             <SquarePen className="size-4 text-foreground/80 shrink-0 group-hover:text-primary transition-colors" />
             <span>新聊天</span>
@@ -206,24 +206,31 @@ export function Sidebar({
                     type="button"
                     aria-expanded={standaloneExpanded}
                     onClick={() => setStandaloneExpanded((value) => !value)}
-                    className="flex w-full items-center justify-between px-2 py-1 text-[0.6875rem] font-semibold text-muted-foreground hover:text-foreground"
+                    className="flex w-full items-center justify-between px-2 py-1 text-[0.6875rem] font-semibold text-muted-foreground transition-colors duration-200 ease-out hover:text-foreground"
                   >
                     <span>未归属项目</span>
                     <span>{standaloneExpanded ? '收起' : '展开'}</span>
                   </button>
-                  {standaloneExpanded &&
-                    sessionsSnapshot?.standaloneSessions?.map((session) => (
-                      <SessionItem
-                        key={session.path}
-                        session={session}
-                        variant="recent"
-                        isActive={session.path === effectiveActivePath || session.id === activeSessionId}
-                        isPinned={pinnedSet.has(session.path)}
-                        onSwitchSession={onSwitchSession}
-                        onTogglePin={onTogglePin}
-                        onPrefetchSession={onPrefetchSession}
-                      />
-                    ))}
+                  <div
+                    aria-hidden={!standaloneExpanded}
+                    inert={!standaloneExpanded}
+                    className={`grid transition-[grid-template-rows,opacity] duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] ${standaloneExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}
+                  >
+                    <div className="min-h-0 overflow-hidden">
+                      {sessionsSnapshot?.standaloneSessions?.map((session) => (
+                        <SessionItem
+                          key={session.path}
+                          session={session}
+                          variant="recent"
+                          isActive={session.path === effectiveActivePath || session.id === activeSessionId}
+                          isPinned={pinnedSet.has(session.path)}
+                          onSwitchSession={onSwitchSession}
+                          onTogglePin={onTogglePin}
+                          onPrefetchSession={onPrefetchSession}
+                        />
+                      ))}
+                    </div>
+                  </div>
                 </div>
               )}
               <RecentsSection

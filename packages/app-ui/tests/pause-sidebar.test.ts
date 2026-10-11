@@ -54,7 +54,7 @@ test('侧栏三类会话暂停时没有运行图标，恢复后重新转圈', ()
   }
 })
 
-test('普通和置顶项目只有存在未暂停运行会话时转圈', () => {
+test('普通和置顶项目在运行、暂停和空闲状态下都显示静态目录图标', () => {
   for (const isPinned of [false, true]) {
     const item = (sessions: PiSessionSummary[]) => {
       const value = project(sessions)
@@ -85,14 +85,21 @@ test('普通和置顶项目只有存在未暂停运行会话时转圈', () => {
             }),
       )
     }
-    assert.doesNotMatch(item([{ ...session, isPaused: true }]), /项目内有会话运行中/)
-    assert.match(
-      item([
+    for (const sessions of [
+      [{ ...session, isPaused: true }],
+      [
         { ...session, isPaused: true },
         { ...session, id: 'other', path: '/tmp/other.jsonl', isPaused: false },
-      ]),
-      /项目内有会话运行中/,
-    )
-    assert.doesNotMatch(item([{ ...session, running: false, isPaused: false }]), /项目内有会话运行中/)
+      ],
+      [{ ...session, running: false, isPaused: false }],
+    ]) {
+      const markup = item(sessions)
+      assert.doesNotMatch(markup, /项目内有会话运行中/)
+      assert.match(markup, /lucide-folder/)
+      assert.equal(
+        (markup.match(/会话运行中/g) ?? []).length,
+        isPinned ? 0 : sessions.filter((s) => s.running && !s.isPaused).length,
+      )
+    }
   }
 })

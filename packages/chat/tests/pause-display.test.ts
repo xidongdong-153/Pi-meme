@@ -61,7 +61,7 @@ test('快照和事件恢复权威暂停区间，旧修订不能覆盖，队列�
   assert.equal(queued.queuePaused, true)
 })
 
-test('暂停工作过程和空回复隐藏图标，恢复显示转圈，历史工作保留图标', () => {
+test('工作过程和空回复仅显示用时且没有转圈，暂停后计时冻结', () => {
   const items = [{ id: 'thinking', type: 'thinking' as const, thinking: '分析', status: 'running' as const }]
   const render = (isPaused: boolean) =>
     renderToStaticMarkup(
@@ -76,8 +76,8 @@ test('暂停工作过程和空回复隐藏图标，恢复显示转圈，历史�
   const paused = render(true)
   assert.doesNotMatch(paused, /lucide-loader|lucide-sparkles|animate-spin/)
   assert.match(paused, /lucide-chevron-down/)
-  assert.match(paused, /工作了 3秒/)
-  assert.match(render(false), /animate-spin/)
+  assert.match(paused, /用时 3秒/)
+  assert.doesNotMatch(render(false), /animate-spin|lucide-loader/)
   const thinking = renderToStaticMarkup(
     createElement(ThinkingActivityRow, { item: items[0], open: true, onToggle: () => {}, isPaused: true }),
   )
@@ -106,7 +106,7 @@ test('暂停工作过程和空回复隐藏图标，恢复显示转圈，历史�
     }),
   )
   assert.match(history, /lucide-sparkles/)
-  assert.match(history, /工作了 5秒/)
+  assert.match(history, /用时 5秒/)
   const placeholder = renderToStaticMarkup(
     createElement(
       TooltipProvider,
@@ -117,7 +117,8 @@ test('暂停工作过程和空回复隐藏图标，恢复显示转圈，历史�
       }),
     ),
   )
-  assert.doesNotMatch(placeholder, /animate-spin|animate-pulse/)
+  assert.match(placeholder, /用时 0秒/)
+  assert.doesNotMatch(placeholder, /animate-spin|animate-pulse|Pi 正在分析/)
 })
 
 test('完成后用实际运行终点计时，刷新保留暂停扣减且后续暂停不影响前轮', () => {
@@ -158,7 +159,7 @@ test('完成后用实际运行终点计时，刷新保留暂停扣减且后续�
       pauseIntervals: state.pauseIntervals,
     }),
   )
-  assert.match(markup, /工作了 6秒/)
+  assert.match(markup, /用时 6秒/)
 })
 
 test('相邻运行共用边界时间时选本轮运行，同一用户回合多次唤醒取最后结束', () => {

@@ -366,7 +366,7 @@ export function SidebarMoreMenu({ target }: { target: MenuTarget }) {
           type="button"
           aria-label={`更多操作：${name}`}
           onClick={(event) => event.stopPropagation()}
-          className="p-1 rounded text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 data-[state=open]:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="p-1 rounded text-muted-foreground hover:text-foreground transition-opacity duration-200 ease-out opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 data-[state=open]:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <MoreHorizontal className="size-3.5" />
         </button>

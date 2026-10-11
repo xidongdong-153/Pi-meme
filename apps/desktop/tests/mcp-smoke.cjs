@@ -181,7 +181,7 @@ module.exports = async (window, waitFor, output) => {
       ),
     '嵌套工具消息',
   )
-  await evaluate('document.querySelector("[role=button][aria-label=工作过程]").click()')
+  await evaluate('document.querySelector("[aria-label=工作过程]").click()')
   await waitFor(
     () => evaluate('Boolean(document.querySelector("[aria-label=\\"工具详情：codemode\\"]"))'),
     'codemode 活动',

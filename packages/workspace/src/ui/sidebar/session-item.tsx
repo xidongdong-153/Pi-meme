@@ -50,6 +50,12 @@ export function SessionItem({
   const handleMouseEnter = () => {
     if (!isActive) onPrefetchSession?.(session.path)
   }
+  const runningIndicator =
+    session.running && !session.isPaused ? (
+      <span className="inline-flex shrink-0 animate-spin text-muted-foreground">
+        <Loader2 aria-label="会话运行中" className="size-3.5" />
+      </span>
+    ) : null
 
   if (variant === 'pinned') {
     return (
@@ -57,10 +63,8 @@ export function SessionItem({
         <div
           onMouseEnter={handleMouseEnter}
           className={cn(
-            'group relative flex w-full min-w-0 items-center justify-between rounded-lg pr-2.5 text-xs transition-colors cursor-pointer',
-            isActive
-              ? 'bg-secondary font-medium text-foreground shadow-xs'
-              : 'text-foreground/90 hover:bg-secondary/60',
+            'group relative flex w-full min-w-0 items-center justify-between rounded-lg pr-2.5 text-xs transition-colors duration-200 ease-out cursor-pointer',
+            isActive ? 'bg-secondary/80 font-medium text-foreground' : 'text-foreground/90 hover:bg-secondary/60',
           )}
           data-session-path={session.path}
           title={formatSessionTitle(session)}
@@ -90,9 +94,7 @@ export function SessionItem({
               <PinOff className="size-3" />
             </button>
             <SidebarMoreMenu target={{ kind: 'session', session }} />
-            {session.running && !session.isPaused && (
-              <Loader2 aria-label="会话运行中" className="size-3 shrink-0 animate-spin text-primary" />
-            )}
+            {runningIndicator}
           </div>
         </div>
       </SidebarRowMenu>
@@ -104,9 +106,9 @@ export function SessionItem({
         <div
           onMouseEnter={handleMouseEnter}
           className={cn(
-            'group relative flex w-full min-w-0 items-center justify-between rounded-md pr-2 text-xs transition-colors cursor-pointer',
+            'group relative flex w-full min-w-0 items-center justify-between rounded-lg pr-2 text-xs transition-colors duration-200 ease-out cursor-pointer',
             isActive
-              ? 'bg-secondary font-medium text-foreground shadow-xs'
+              ? 'bg-secondary/80 font-medium text-foreground'
               : 'text-muted-foreground hover:bg-secondary/50 hover:text-foreground',
           )}
           data-session-path={session.path}
@@ -141,9 +143,7 @@ export function SessionItem({
               <Pin className="size-3" />
             </button>
             <SidebarMoreMenu target={{ kind: 'session', session }} />
-            {session.running && !session.isPaused && (
-              <Loader2 aria-label="会话运行中" className="size-3 shrink-0 animate-spin text-primary" />
-            )}
+            {runningIndicator}
           </div>
         </div>
       </SidebarRowMenu>
@@ -154,8 +154,8 @@ export function SessionItem({
       <div
         onMouseEnter={handleMouseEnter}
         className={cn(
-          'group relative flex w-full min-w-0 items-center justify-between rounded-lg pr-2.5 text-xs transition-colors cursor-pointer',
-          isActive ? 'bg-secondary font-medium text-foreground shadow-xs' : 'text-foreground/85 hover:bg-secondary/50',
+          'group relative flex w-full min-w-0 items-center justify-between rounded-lg pr-2.5 text-xs transition-colors duration-200 ease-out cursor-pointer',
+          isActive ? 'bg-secondary/80 font-medium text-foreground' : 'text-foreground/85 hover:bg-secondary/50',
         )}
         data-session-path={session.path}
         title={formatSessionTitle(session)}
@@ -188,9 +188,7 @@ export function SessionItem({
             <Pin className="size-3" />
           </button>
           <SidebarMoreMenu target={{ kind: 'session', session }} />
-          {session.running && !session.isPaused && (
-            <Loader2 aria-label="会话运行中" className="size-3 shrink-0 animate-spin text-primary" />
-          )}
+          {runningIndicator}
         </div>
       </div>
     </SidebarRowMenu>

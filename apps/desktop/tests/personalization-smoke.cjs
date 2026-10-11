@@ -28,7 +28,6 @@ module.exports = async function personalizationSmoke(window, waitFor, directory,
     } else if (['模型', '外观', '偏好', '扩展'].includes(name)) {
       await clickText(name, nav)
     } else {
-      await evaluate('document.querySelector("aside details").open = true')
       await clickText(name)
     }
     await waitFor(

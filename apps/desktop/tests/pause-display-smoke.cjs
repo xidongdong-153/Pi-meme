@@ -9,7 +9,7 @@ module.exports = async (window, waitFor, directory, screenshots, agent) => {
   const work = '[aria-label="工作过程"]'
   const elapsed = () => evaluate(`document.querySelector('${work}').textContent.trim()`)
   const seconds = (text) => {
-    const match = text.match(/工作了 (?:(\d+)小时)?(?:(\d+)分)?(?:(\d+)秒)?/)
+    const match = text.match(/用时 (?:(\d+)小时)?(?:(\d+)分)?(?:(\d+)秒)?/)
     assert.ok(match, `工作过程包含时长：${text}`)
     return Number(match[1] || 0) * 3600 + Number(match[2] || 0) * 60 + Number(match[3] || 0)
   }
@@ -26,11 +26,13 @@ module.exports = async (window, waitFor, directory, screenshots, agent) => {
     node.textContent='暂停显示专项验收'; node.dispatchEvent(new Event('input',{bubbles:true}));
   })()`)
   await waitFor(() => evaluate('document.querySelector("[aria-label=发送消息]")?.disabled === false'), '发送就绪')
-  const started = Date.now()
   await click('[aria-label="发送消息"]')
   await waitFor(() => agent.provider.requests.length === 2, '目录工具完成，第二模型请求等待屏障')
-  await waitFor(() => evaluate(`Boolean(document.querySelector('${work} .animate-spin'))`), '工作过程运行图标')
-  await click(work)
+  await waitFor(() => evaluate(`Boolean(document.querySelector('${work}'))`), '工作过程计时')
+  assert.equal(await evaluate(`Boolean(document.querySelector('${work} .animate-spin'))`), false)
+  if (await evaluate(`document.querySelector('${work}').getAttribute('aria-expanded') === 'false'`)) {
+    await click(work)
+  }
   await waitFor(() => evaluate('Boolean(document.querySelector("[aria-label=思考过程]"))'), '展开思考和目录工具')
   const sessionPath = await evaluate('window.piMemeClient.getSessions().then(value => value.activeSessionPath)')
   const sessionRow = `aside [data-session-path=${JSON.stringify(sessionPath)}]`
@@ -40,7 +42,6 @@ module.exports = async (window, waitFor, directory, screenshots, agent) => {
   await sleep(2200)
   assert.ok(seconds(await elapsed()) > seconds(first), '运行时计时增长')
   await capture('pause-running')
-  let pausedMs = 0
   const assertPaused = async (label) => {
     assert.equal(
       await evaluate('Boolean(document.querySelector("[aria-label=待处理任务队列]"))'),
@@ -82,7 +83,6 @@ module.exports = async (window, waitFor, directory, screenshots, agent) => {
   const pause = async (label, reconnect) => {
     await click('[aria-label="暂停当前任务"]')
     await waitFor(() => evaluate('Boolean(document.querySelector("[aria-label=继续当前任务]"))'), label)
-    const pauseStarted = Date.now()
     const frozen = await elapsed()
     await capture(`pause-${label}`)
     await assertPaused(label)
@@ -129,8 +129,8 @@ module.exports = async (window, waitFor, directory, screenshots, agent) => {
     }
     assert.equal(agent.provider.requests.length, 2, '暂停、刷新、切换和重连不重发模型请求')
     await click('form[aria-label="消息输入"] [aria-label="继续当前任务"]')
-    await waitFor(() => evaluate(`Boolean(document.querySelector('${work} .animate-spin'))`), '恢复工作过程运行图标')
-    pausedMs += Date.now() - pauseStarted
+    await waitFor(() => evaluate(`Boolean(document.querySelector('${work}'))`), '恢复工作过程计时')
+    assert.equal(await evaluate(`Boolean(document.querySelector('${work} .animate-spin'))`), false)
     assert.ok(Math.abs(seconds(await elapsed()) - seconds(frozen)) <= 1, '恢复从冻结值继续')
     await waitFor(async () => (await runningIcons()) > 0, '恢复侧栏运行图标')
     await sleep(2100)
@@ -145,9 +145,10 @@ module.exports = async (window, waitFor, directory, screenshots, agent) => {
   if (!standalone) {
     await evaluate(`window.piMemeClient.togglePin(${JSON.stringify(directory)})`)
     await waitFor(() => evaluate('Boolean(document.querySelector("aside [aria-label^=取消置顶项目]"))'), '项目置顶')
-    assert.ok(
-      (await evaluate('document.querySelectorAll("aside [aria-label=项目内有会话运行中]").length')) > 0,
-      '置顶项目聚合运行图标',
+    assert.equal(
+      await evaluate('document.querySelectorAll("aside [aria-label=项目内有会话运行中]").length'),
+      0,
+      '置顶项目保持静态图标',
     )
   }
   await pause('paused-again', false)
@@ -159,9 +160,20 @@ module.exports = async (window, waitFor, directory, screenshots, agent) => {
     '恢复后完成',
   )
   const finished = seconds(await elapsed())
-  const expected = (Date.now() - started - pausedMs) / 1000
+  const snapshot = await evaluate('window.piMemeClient.getSnapshot()')
+  const startedAt = snapshot.messages.find((message) => message.role === 'user').timestamp
+  const endedAt = snapshot.state.runIntervals.at(-1).endedAt
+  const pauses = snapshot.state.pauseIntervals
+  assert.equal(pauses.length, 2, '快照保留两次真实暂停')
   assert.ok(
-    Math.abs(finished - expected) <= 2,
+    pauses.every((pause) => pause.startedAt >= startedAt && pause.endedAt <= endedAt),
+    '暂停位于本轮用时内',
+  )
+  // 使用 Pi 消息和运行快照的时钟，排除首次 Worker 启动与验收轮询的耗时。
+  const pausedMs = pauses.reduce((total, pause) => total + pause.endedAt - pause.startedAt, 0)
+  const expected = (endedAt - startedAt - pausedMs) / 1000
+  assert.ok(
+    Math.abs(finished - expected) <= 1,
     `完成时长扣除两次暂停：显示${finished}秒，实际活动${expected.toFixed(1)}秒`,
   )
   assert.equal(agent.provider.requests.length, 2, '恢复不新增模型请求')

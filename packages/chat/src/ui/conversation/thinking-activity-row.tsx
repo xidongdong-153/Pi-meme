@@ -1,7 +1,7 @@
 import * as React from 'react'
 import type { ActivityItem } from '../model/types'
 import { cn } from '@pi-meme/ui/lib/utils'
-import { ChevronDown, Loader2, Sparkles } from 'lucide-react'
+import { ChevronDown, Sparkles } from 'lucide-react'
 import { getThinkingLabel } from '../model/thinking-labels'
 
 export function ThinkingActivityRow({
@@ -17,7 +17,6 @@ export function ThinkingActivityRow({
   isPaused?: boolean
   isNested?: boolean
 }) {
-  const isRunning = item.status === 'running'
   const label = React.useMemo(() => getThinkingLabel(item.id || item.thinking), [item.id, item.thinking])
 
   return (
@@ -40,11 +39,7 @@ export function ThinkingActivityRow({
           isNested && 'pl-2',
         )}
       >
-        {isPaused ? null : isRunning ? (
-          <Loader2 className="size-3.5 shrink-0 animate-spin text-primary" />
-        ) : (
-          <Sparkles className="size-3.5 shrink-0 text-muted-foreground group-hover:text-foreground" />
-        )}
+        {!isPaused && <Sparkles className="size-3.5 shrink-0 text-muted-foreground group-hover:text-foreground" />}
         <span className="truncate font-mono text-[0.75rem]">{label}</span>
         <ChevronDown
           className={cn(

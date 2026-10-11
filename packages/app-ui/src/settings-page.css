@@ -1,0 +1,38 @@
+.settings-nav-item {
+  transition:
+    background-color 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    color 220ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.settings-nav-icon {
+  transition: transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.settings-nav-item:hover:not(:disabled) .settings-nav-icon,
+.settings-nav-item[aria-current='page'] .settings-nav-icon {
+  transform: scale(1.08);
+}
+
+.settings-nav-item:active:not(:disabled) {
+  transform: scale(0.985);
+}
+
+:root[data-reduced-motion='true'] .settings-nav-item:active:not(:disabled),
+:root[data-reduced-motion='true'] .settings-nav-item:hover:not(:disabled) .settings-nav-icon,
+:root[data-reduced-motion='true'] .settings-nav-item[aria-current='page'] .settings-nav-icon {
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-reduced-motion]) .settings-nav-item,
+  :root:not([data-reduced-motion]) .settings-nav-icon {
+    transition: none;
+  }
+
+  :root:not([data-reduced-motion]) .settings-nav-item:active:not(:disabled),
+  :root:not([data-reduced-motion]) .settings-nav-item:hover:not(:disabled) .settings-nav-icon,
+  :root:not([data-reduced-motion]) .settings-nav-item[aria-current='page'] .settings-nav-icon {
+    transform: none;
+  }
+}
