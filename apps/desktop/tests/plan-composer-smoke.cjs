@@ -335,7 +335,7 @@ module.exports = async (window, waitFor, directory, screenshots, options = {}) =
   if (options.cold) {
     assert.equal(snapshot.planDocuments.length, 1, '首次发送真实生成计划文档')
     assert.equal(
-      await evaluate('document.querySelector("select[aria-label=选择计划文档]") === null'),
+      await evaluate('document.querySelector("[role=combobox][aria-label=选择计划文档]") === null'),
       true,
       '单篇计划不展示冗余选择器',
     )

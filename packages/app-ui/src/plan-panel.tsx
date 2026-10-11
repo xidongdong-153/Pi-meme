@@ -2,6 +2,7 @@ import { useState } from 'react'
 import type { PlanDocument } from '@pi-meme/contracts/plan'
 import { MarkdownContent } from '@pi-meme/chat/ui/content/markdown-content'
 import { Button } from '@pi-meme/ui/components/ui/button'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@pi-meme/ui/components/ui/select'
 
 function SavedPlanDocument({ document }: { document: PlanDocument }) {
   const [error, setError] = useState('')
@@ -68,18 +69,18 @@ export function PlanPanel({
       ) : (
         <>
           {ordered.length > 1 && (
-            <select
-              aria-label="选择计划文档"
-              value={document.id}
-              onChange={(event) => onSelect(event.target.value)}
-              className="mb-3 h-8 w-full min-w-0 rounded-md border border-border bg-background px-2 text-xs"
-            >
-              {ordered.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.title} · 第 {item.revision} 版
-                </option>
-              ))}
-            </select>
+            <Select value={document.id} onValueChange={onSelect}>
+              <SelectTrigger aria-label="选择计划文档" className="mb-3 h-8 bg-background text-xs">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="w-[var(--radix-select-trigger-width)]">
+                {ordered.map((item) => (
+                  <SelectItem key={item.id} value={item.id}>
+                    {item.title} · 第 {item.revision} 版
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           )}
           <SavedPlanDocument key={`${document.id}:${document.revision}`} document={document} />
         </>

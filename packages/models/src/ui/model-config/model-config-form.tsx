@@ -14,6 +14,7 @@ import { Input } from '@pi-meme/ui/components/ui/input'
 import { ScrollArea } from '@pi-meme/ui/components/ui/scroll-area'
 import { Textarea } from '@pi-meme/ui/components/ui/textarea'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@pi-meme/ui/components/ui/select'
 
 export const apiLabels: Record<ModelApi, string> = {
   'openai-completions': 'OpenAI Chat Completions',
@@ -48,8 +49,6 @@ function draftModel(model: ConfiguredModel): ModelDraft {
     thinkingText: jsonText(model.thinkingLevelMap),
   }
 }
-const selectClass = 'h-9 w-full rounded-md border border-border bg-background px-3 text-sm'
-
 export function ModelConfigForm({
   provider,
   snapshot,
@@ -230,20 +229,20 @@ export function ModelConfigForm({
                       />
                       <span className="text-xs text-muted-foreground">唯一标识，创建后不可修改。</span>
                     </label>
-                    <label className="space-y-1.5 text-sm">
+                    <label className="min-w-0 space-y-1.5 text-sm">
                       API 协议
-                      <select
-                        aria-label="API 协议"
-                        className={selectClass}
-                        value={api}
-                        onChange={(event) => setApi(event.target.value as ModelApi)}
-                      >
-                        {modelApis.map((value) => (
-                          <option key={value} value={value}>
-                            {apiLabels[value]}
-                          </option>
-                        ))}
-                      </select>
+                      <Select value={api} onValueChange={(value) => setApi(value as ModelApi)}>
+                        <SelectTrigger aria-label="API 协议" className="bg-background">
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent className="w-[var(--radix-select-trigger-width)]">
+                          {modelApis.map((value) => (
+                            <SelectItem key={value} value={value}>
+                              {apiLabels[value]}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
                     </label>
                     <label className="space-y-1.5 text-sm">
                       Base URL

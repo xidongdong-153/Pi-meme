@@ -10,12 +10,34 @@ module.exports = async function appearanceSmoke(window, waitFor, directory, scre
     evaluate(
       `Array.from(document.querySelectorAll('button')).find(node => node.textContent.trim() === ${JSON.stringify(text)}).click()`,
     )
-  const change = (label, value, tag = 'input') =>
+  const change = (label, value) =>
     evaluate(`(() => {
-    const input = document.querySelector('${tag}[aria-label="${label}"]');
-    Object.getOwnPropertyDescriptor(${tag === 'select' ? 'HTMLSelectElement' : 'HTMLInputElement'}.prototype, 'value').set.call(input, ${JSON.stringify(String(value))});
-    input.dispatchEvent(new Event('${tag === 'select' ? 'change' : 'input'}', { bubbles: true }));
+    const input = document.querySelector('input[aria-label="${label}"]');
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, ${JSON.stringify(String(value))});
+    input.dispatchEvent(new Event('input', { bubbles: true }));
   })()`)
+  const choose = async (label, text) => {
+    await evaluate(
+      `document.querySelector('[role="combobox"][aria-label="${label}"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))`,
+    )
+    await waitFor(
+      () =>
+        evaluate(
+          `Array.from(document.querySelectorAll('[role="option"]')).some(node => node.textContent === ${JSON.stringify(text)})`,
+        ),
+      `${label}选项`,
+    )
+    await evaluate(
+      `Array.from(document.querySelectorAll('[role="option"]')).find(node => node.textContent === ${JSON.stringify(text)}).click()`,
+    )
+    await waitFor(
+      () =>
+        evaluate(
+          `document.querySelector('[role="combobox"][aria-label="${label}"]').getAttribute('aria-expanded') === 'false'`,
+        ),
+      `${label}菜单关闭`,
+    )
+  }
   const css = (key) =>
     evaluate(`getComputedStyle(document.documentElement).getPropertyValue(${JSON.stringify(key)}).trim()`)
   const saved = async (predicate) =>
@@ -32,6 +54,18 @@ module.exports = async function appearanceSmoke(window, waitFor, directory, scre
   const escape = () =>
     evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`)
   assert.equal(await evaluate(`Boolean(document.querySelector('#appearance-advanced'))`), false)
+  assert.equal(await evaluate(`document.querySelector('#settings-content select') === null`), true)
+  assert.equal(
+    await evaluate(`document.querySelector('[role="combobox"][aria-label="强调色"]').textContent`),
+    '主题默认',
+  )
+  const spacing = await evaluate(`(() => {
+    const trigger = document.querySelector('[role="combobox"][aria-label="强调色"]');
+    const text = trigger.querySelector('span').getBoundingClientRect();
+    const arrow = trigger.querySelector('svg').getBoundingClientRect();
+    return { gap: arrow.left - text.right, right: trigger.getBoundingClientRect().right - arrow.right };
+  })()`)
+  assert.ok(spacing.gap >= 10 && spacing.right >= 10, '下拉文字与箭头、箭头与边缘保留间距')
   await capture('appearance-dark')
   await clickText('高级')
   await change('界面字号', 18)
@@ -50,8 +84,11 @@ module.exports = async function appearanceSmoke(window, waitFor, directory, scre
     `Array.from(document.querySelector('[role="group"][aria-label="减少动态效果"]').querySelectorAll('button')).find(node => node.textContent === '开启').click()`,
   )
   await waitFor(() => evaluate(`document.documentElement.dataset.reducedMotion === 'true'`), '减少动效')
-  await change('强调色', '#3b82f6', 'select')
+  await choose('强调色', '蓝')
   await waitFor(() => css('--color-accent').then((value) => value === '#3b82f6'), '强调色预览')
+  await choose('强调色', '主题默认')
+  await saved((value) => !value.shared.colors?.accent)
+  await choose('强调色', '蓝')
   await click('背景颜色')
   await change('背景 HEX', '#123456')
   await waitFor(() => css('--color-background').then((value) => value === '#123456'), 'HEX 实时预览')
@@ -73,7 +110,7 @@ module.exports = async function appearanceSmoke(window, waitFor, directory, scre
   await evaluate(
     `Array.from(document.querySelector('[role="listbox"][aria-label="界面字体"]').querySelectorAll('button')).find(node => node.textContent === '系统').click()`,
   )
-  await change('界面字体样式', 'bold', 'select')
+  await choose('界面字体样式', '粗体')
   await waitFor(() => css('--font-ui-weight').then((value) => value === '700'), '界面字体样式')
   await click('内容字体')
   await evaluate(
@@ -88,11 +125,11 @@ module.exports = async function appearanceSmoke(window, waitFor, directory, scre
     `Array.from(document.querySelectorAll('.pi-code-block-content, .pi-code-text, .cm-content')).map(node => getComputedStyle(node).fontSize)`,
   )
   assert.ok(codeElements.every((size) => size === '17px'))
-  await change('界面字体样式', 'regular', 'select')
+  await choose('界面字体样式', '常规')
   await click('分别设置浅色和深色模式')
   await clickText('编辑浅色')
   await waitFor(() => evaluate(`document.documentElement.dataset.appearance === 'light'`), '独立浅色预览')
-  await change('强调色', '#22c55e', 'select')
+  await choose('强调色', '绿')
   await clickText('编辑深色')
   await waitFor(() => css('--color-accent').then((value) => value === '#3b82f6'), '深色覆盖值保留')
   await saved((value) => value.separate && value.light.colors.accent === '#22c55e' && value.codeSize === 17)

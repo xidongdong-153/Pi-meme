@@ -3,6 +3,7 @@ import type { McpServerEntry, SaveMcpServer } from '@pi-meme/contracts/mcp'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Input } from '@pi-meme/ui/components/ui/input'
 import { Textarea } from '@pi-meme/ui/components/ui/textarea'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@pi-meme/ui/components/ui/select'
 import { object, serverError } from '../shared/config'
 
 const stringify = (value: unknown, fallback: unknown) => JSON.stringify(value ?? fallback, null, 2)
@@ -113,14 +114,12 @@ export function ServerForm({
         <>
           <label className="block space-y-1.5">
             <span className="text-sm">连接类型</span>
-            <select
-              aria-label="MCP 连接类型"
-              className="h-9 w-full rounded-md border border-border bg-background px-2 text-sm"
+            <Select
               value={http ? 'http' : 'stdio'}
               disabled={busy}
-              onChange={(event) => {
+              onValueChange={(value) => {
                 const next = { ...config }
-                if (event.target.value === 'http') {
+                if (value === 'http') {
                   delete next.command
                   delete next.args
                   delete next.env
@@ -138,9 +137,14 @@ export function ServerForm({
                 setConfig(next)
               }}
             >
-              <option value="http">HTTP</option>
-              <option value="stdio">stdio 本地进程</option>
-            </select>
+              <SelectTrigger aria-label="MCP 连接类型" className="bg-background">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="w-[var(--radix-select-trigger-width)]">
+                <SelectItem value="http">HTTP</SelectItem>
+                <SelectItem value="stdio">stdio 本地进程</SelectItem>
+              </SelectContent>
+            </Select>
           </label>
           {http ? (
             <>

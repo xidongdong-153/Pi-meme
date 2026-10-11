@@ -1,8 +1,10 @@
 import { useEffect, useState, type ReactNode } from 'react'
+import { ChevronDown } from 'lucide-react'
 import type { InstalledFont } from '@pi-meme/contracts/settings'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Input } from '@pi-meme/ui/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@pi-meme/ui/components/ui/popover'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@pi-meme/ui/components/ui/select'
 
 export function AppearanceRow({
   label,
@@ -38,18 +40,18 @@ export function Choice({
   onChange: (value: string) => void
 }) {
   return (
-    <select
-      aria-label={label}
-      className="max-w-full rounded-full border border-border bg-background px-3 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      value={value}
-      onChange={(event) => onChange(event.target.value)}
-    >
-      {options.map((option) => (
-        <option key={option.value} value={option.value} disabled={option.disabled}>
-          {option.label}
-        </option>
-      ))}
-    </select>
+    <Select value={`choice:${value}`} onValueChange={(next) => onChange(next.slice('choice:'.length))}>
+      <SelectTrigger aria-label={label} className="h-8 w-auto max-w-full rounded-full bg-background text-sm">
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent align="end">
+        {options.map((option) => (
+          <SelectItem key={option.value} value={`choice:${option.value}`} disabled={option.disabled}>
+            {option.label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
   )
 }
 export function Toggle({
@@ -232,8 +234,9 @@ export function FontControl({
       }}
     >
       <PopoverTrigger asChild>
-        <Button variant="outline" aria-label={label} className="h-8 max-w-56 rounded-full text-sm">
+        <Button variant="outline" aria-label={label} className="h-8 max-w-56 gap-3 rounded-full text-sm">
           <span className="truncate">{text}</span>
+          <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
         </Button>
       </PopoverTrigger>
       <PopoverContent className="space-y-2" aria-label={`${label}选择器`}>

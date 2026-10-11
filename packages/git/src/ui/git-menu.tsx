@@ -5,6 +5,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@pi-meme/ui/components/
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
 import { Input } from '@pi-meme/ui/components/ui/input'
 import { Button } from '@pi-meme/ui/components/ui/button'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@pi-meme/ui/components/ui/select'
 
 export function GitMenu({
   bridge,
@@ -200,22 +201,25 @@ export function GitMenu({
           )}
           <label className="block space-y-2 text-sm">
             起点
-            <select
-              autoFocus={create === 'worktree'}
-              aria-label="Git 起点"
-              value={base}
-              onChange={(event) => setBase(event.target.value)}
-              className="h-9 w-full rounded-lg border border-border bg-background px-2 text-foreground"
-            >
-              <option value="HEAD">
-                当前提交{environment?.headSha ? ` · ${environment.headSha.slice(0, 7)}` : ''}
-              </option>
-              {environment?.branches.map((branch) => (
-                <option key={branch.ref} value={branch.ref}>
-                  {branch.name}
-                </option>
-              ))}
-            </select>
+            <Select value={base} onValueChange={setBase}>
+              <SelectTrigger
+                autoFocus={create === 'worktree'}
+                aria-label="Git 起点"
+                className="rounded-lg bg-background"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent className="w-[var(--radix-select-trigger-width)]">
+                <SelectItem value="HEAD">
+                  当前提交{environment?.headSha ? ` · ${environment.headSha.slice(0, 7)}` : ''}
+                </SelectItem>
+                {environment?.branches.map((branch) => (
+                  <SelectItem key={branch.ref} value={branch.ref}>
+                    {branch.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </label>
           {error && (
             <p role="alert" className="break-words text-sm text-destructive">

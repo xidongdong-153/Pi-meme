@@ -3,6 +3,7 @@ import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from 'lucide-react'
 import type { PiImage } from '@pi-meme/contracts/pi'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
 import { BrandMark } from '@pi-meme/ui/components/brand-mark'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@pi-meme/ui/components/ui/select'
 
 type PreviewImage = PiImage & { id?: string }
 
@@ -35,7 +36,13 @@ export function ImageViewer({ images, activeIndex, onActiveIndexChange, triggerR
           triggerRef.current?.focus()
         }}
         onKeyDown={(event) => {
-          if (event.target instanceof HTMLSelectElement || event.altKey || event.ctrlKey || event.metaKey) return
+          if (
+            (event.target instanceof Element && event.target.closest('[role="combobox"], [role="listbox"]')) ||
+            event.altKey ||
+            event.ctrlKey ||
+            event.metaKey
+          )
+            return
           if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
             event.preventDefault()
             navigate(event.key === 'ArrowLeft' ? -1 : 1)
@@ -145,20 +152,23 @@ function ImageViewerContent({
         >
           <ZoomOut className="size-4" />
         </button>
-        <select
-          aria-label="图片缩放比例"
-          value={zoom ?? 'fit'}
-          onChange={(event) => setZoom(event.target.value === 'fit' ? null : Number(event.target.value))}
-          className="h-8 rounded-md border border-border bg-card px-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        <Select
+          value={zoom === null ? 'fit' : String(zoom)}
+          onValueChange={(value) => setZoom(value === 'fit' ? null : Number(value))}
         >
-          <option value="fit">适应窗口</option>
-          {zoom !== null && !zoomOptions.includes(zoom) && <option value={zoom}>{zoom}%</option>}
-          {zoomOptions.map((value) => (
-            <option key={value} value={value}>
-              {value}%
-            </option>
-          ))}
-        </select>
+          <SelectTrigger aria-label="图片缩放比例" className="h-8 w-32 bg-card">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent align="end">
+            <SelectItem value="fit">适应窗口</SelectItem>
+            {zoom !== null && !zoomOptions.includes(zoom) && <SelectItem value={String(zoom)}>{zoom}%</SelectItem>}
+            {zoomOptions.map((value) => (
+              <SelectItem key={value} value={String(value)}>
+                {value}%
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         <button
           type="button"
           aria-label="放大图片"

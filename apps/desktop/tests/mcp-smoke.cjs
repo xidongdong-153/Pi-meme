@@ -76,7 +76,17 @@ module.exports = async (window, waitFor, output) => {
   await click('新增 MCP 服务')
   await input('MCP 服务名称', 'local')
   await evaluate(
-    `(() => { const node = document.querySelector('[aria-label="MCP 连接类型"]'); node.value = 'stdio'; node.dispatchEvent(new Event('change', { bubbles: true })) })()`,
+    `document.querySelector('[role="combobox"][aria-label="MCP 连接类型"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))`,
+  )
+  await waitFor(
+    () =>
+      evaluate(
+        `Array.from(document.querySelectorAll('[role="option"]')).some(node => node.textContent.trim() === 'stdio 本地进程')`,
+      ),
+    'MCP 连接类型选项',
+  )
+  await evaluate(
+    `Array.from(document.querySelectorAll('[role="option"]')).find(node => node.textContent.trim() === 'stdio 本地进程').click()`,
   )
   await input('可执行命令', 'node')
   await input('MCP 参数', '["server.mjs"]')

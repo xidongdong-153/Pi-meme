@@ -180,6 +180,13 @@ async function run(window) {
     '设置页面保留的草稿',
   )
   await setDraft('')
+  if (process.env.PI_DESKTOP_SELECT_SMOKE_ONLY === '1') {
+    await fs.mkdir(path.join(root, 'out', 'desktop-smoke'), { recursive: true })
+    await require('./select-controls-smoke.cjs')(window, waitFor, path.join(root, 'out', 'desktop-smoke'))
+    await require('./image-viewer-smoke.cjs')(window, waitFor, path.join(root, 'out', 'desktop-smoke'))
+    console.log('下拉桌面验收通过：主题间距、表单选择、长标签、图片缩放与键盘焦点')
+    return
+  }
   if (process.env.PI_DESKTOP_MCP_SMOKE_ONLY === '1') {
     await require('./mcp-smoke.cjs')(window, waitFor, path.join(root, 'out', 'desktop-smoke'))
     console.log('MCP 桌面验收通过：表单、高级 JSON、启停、逐服务授权、外部冲突、损坏文件与诊断')
@@ -479,6 +486,7 @@ async function run(window) {
     false,
   )
   await setDraft('')
+  await require('./image-viewer-smoke.cjs')(window, waitFor, path.join(root, 'out', 'desktop-smoke'))
   const png =
     'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAdElEQVR4Ae3AA6AkWZbG8f937o3IzKdyS2Oubdu2bdu2bdu2bWmMnpZKr54yMyLu+Xa3anqmhztr1a/+8R//8R/zb0fl34fKvw+Vfx8q/z5U/n2o/PtQ+feh8u9D5d+Hyr8PlX8fKv8+VP59qPz7UPn34R8BOSMDYXRfRXcAAAAASUVORK5CYII='
   const imageTransfer = `const file = new File([Uint8Array.from(atob(${JSON.stringify(png)}), char => char.charCodeAt(0))], 'test.png', { type: 'image/png' }); const transfer = new DataTransfer(); transfer.items.add(file);`

@@ -52,12 +52,12 @@ test('右栏计划标签显示完整只读 Markdown，保留复制与导出，�
 test('多篇计划默认显示最新，可选择旧文档；无效选择回到当前会话最新文档', () => {
   const documents = [older, latest]
   const markup = renderPanel(documents)
-  assert.match(markup, /aria-label="选择计划文档"/)
-  assert.match(markup, /value="latest" selected=""/)
+  assert.match(markup, /role="combobox"[^>]*aria-label="选择计划文档"/)
+  assert.match(markup, /aria-label="已保存计划：新计划"/)
   assert.match(markup, /完整计划正文/)
   assert.doesNotMatch(markup, /旧文档正文/)
   const previous = renderPanel(documents, older.id)
-  assert.match(previous, /value="older" selected=""/)
+  assert.match(previous, /aria-label="已保存计划：旧计划"/)
   assert.match(previous, /旧文档正文/)
   assert.doesNotMatch(previous, /完整计划正文/)
   assert.match(renderPanel(documents, 'other-session-plan'), /完整计划正文/)
