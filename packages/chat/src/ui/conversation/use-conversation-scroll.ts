@@ -5,6 +5,7 @@ export function useConversationScroll(chat: Pick<ChatState, 'messages' | 'live' 
   const containerRef = React.useRef<HTMLDivElement>(null)
   const bottomRef = React.useRef<HTMLDivElement>(null)
   const isAtBottomRef = React.useRef(true)
+  const isJumpingRef = React.useRef(false)
   const [showScrollBottom, setShowScrollBottom] = React.useState(false)
 
   // 监听滚动位置，判断是否处于底部
@@ -13,8 +14,9 @@ export function useConversationScroll(chat: Pick<ChatState, 'messages' | 'live' 
     if (!el) return
     const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight
     const atBottom = distanceToBottom <= 80
-    isAtBottomRef.current = atBottom
-    setShowScrollBottom(!atBottom)
+    if (!atBottom) isJumpingRef.current = false
+    isAtBottomRef.current = atBottom && !isJumpingRef.current
+    setShowScrollBottom(!isAtBottomRef.current)
   }, [])
 
   // 流式输出与新消息更新时：仅当处于底部时智能跟进滚动
@@ -25,6 +27,7 @@ export function useConversationScroll(chat: Pick<ChatState, 'messages' | 'live' 
   }, [chat.messages, chat.live, chat.tools])
 
   const scrollToBottom = React.useCallback(() => {
+    isJumpingRef.current = false
     bottomRef.current?.scrollIntoView({
       behavior: document.documentElement.dataset.reducedMotion === 'true' ? 'instant' : 'smooth',
     })
@@ -32,5 +35,17 @@ export function useConversationScroll(chat: Pick<ChatState, 'messages' | 'live' 
     setShowScrollBottom(false)
   }, [])
 
-  return { containerRef, bottomRef, showScrollBottom, handleScroll, scrollToBottom }
+  const scrollToMessage = React.useCallback((element?: HTMLElement) => {
+    isJumpingRef.current = true
+    isAtBottomRef.current = false
+    setShowScrollBottom(true)
+    const container = containerRef.current
+    if (!container || !element) return
+    container.scrollTo({
+      top: container.scrollTop + element.getBoundingClientRect().top - container.getBoundingClientRect().top - 24,
+      behavior: document.documentElement.dataset.reducedMotion === 'true' ? 'instant' : 'smooth',
+    })
+  }, [])
+
+  return { containerRef, bottomRef, showScrollBottom, handleScroll, scrollToBottom, scrollToMessage }
 }

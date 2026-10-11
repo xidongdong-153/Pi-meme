@@ -98,3 +98,10 @@ export type TurnChunk =
       timestamp?: number
       key: string
     }
+
+export type ConversationOutlineEntry = {
+  key: string
+  turnIndex: number
+  title: string
+  preview: string
+}

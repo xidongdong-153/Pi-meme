@@ -55,6 +55,32 @@ function renderConversation(readOnly: boolean, canEditMessages: boolean, editor?
   )
 }
 
+test('侧边索引包含尚未加载的早期输入，定位锚点只出现在已渲染消息上', () => {
+  const messages = Array.from({ length: 24 }, (_, index) => [
+    userMessage(`第 ${index + 1} 轮输入`, 1000 + index * 100),
+    assistantMessage(`第 ${index + 1} 轮回复`, 1050 + index * 100),
+  ]).flat()
+  const markup = renderToStaticMarkup(
+    createElement(
+      TooltipProvider,
+      null,
+      createElement(Conversation, {
+        chat: { ...emptyChat, messages },
+        canEditMessages: false,
+        onEditMessage: () => {},
+        onSwitchMessageVersion: () => {},
+        onForkReply: () => {},
+        onCopyError: () => {},
+      }),
+    ),
+  )
+  assert.match(markup, /aria-label="对话索引"/)
+  assert.equal((markup.match(/aria-label="定位到第 /g) ?? []).length, 24)
+  assert.match(markup, /定位到第 1 条输入：第 1 轮输入/)
+  assert.doesNotMatch(markup, /data-conversation-user="user-1000-0"/)
+  assert.match(markup, /data-conversation-user="user-3300-46"/)
+})
+
 test('只读子代理对话保留正文、复制和工作过程，隐藏编辑、分叉与版本操作', () => {
   const markup = renderConversation(true, false)
   assert.match(markup, /子任务正文/)
