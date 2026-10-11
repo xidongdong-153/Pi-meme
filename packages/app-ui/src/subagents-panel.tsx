@@ -77,7 +77,7 @@ const AgentConversation = memo(({ bridge, id, onBack }: { bridge: DesktopBridge;
         <Button size="sm" variant="ghost" onClick={onBack}>
           返回列表
         </Button>
-        <AgentAvatar seed={id} className="size-6 shrink-0" />
+        <AgentAvatar seed={id} name={view.agent?.name} className="size-6 shrink-0" />
         <div className="min-w-0 text-xs">
           <p className="truncate font-medium">{view.agent ? formatAgentName(view.agent.name) : '子代理'}</p>
           <p className="truncate text-muted-foreground">
@@ -196,7 +196,7 @@ const SubagentsContent = memo(({ bridge, sessionKey }: { bridge: DesktopBridge; 
                 }}
                 onClick={() => setSelected(agent.agentId)}
               >
-                <AgentAvatar seed={agent.agentId} className="size-6 shrink-0" />
+                <AgentAvatar seed={agent.agentId} name={agent.name} className="size-6 shrink-0" />
                 <span className="min-w-0 flex-1 truncate font-medium">{formatAgentName(agent.name)}</span>
                 <span className="shrink-0 text-right tabular-nums text-muted-foreground">
                   {opened
