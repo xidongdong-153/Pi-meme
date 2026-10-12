@@ -2,6 +2,7 @@ import type { SidebarSessionEntry } from './sidebar-model'
 import { SidebarSection, SidebarSortable } from './sidebar-controls'
 import { SessionItem } from './session-item'
 import type { SidebarProps } from './sidebar'
+import type { ReactNode } from 'react'
 
 export function RecentsSection({
   recentsLimit,
@@ -17,6 +18,7 @@ export function RecentsSection({
   onToggle,
   sortable,
   onReorder,
+  actions,
 }: Pick<
   SidebarProps,
   'activeSessionId' | 'activeSessionPath' | 'onSwitchSession' | 'onTogglePin' | 'onPrefetchSession' | 'sessionsLoading'
@@ -28,6 +30,7 @@ export function RecentsSection({
   onToggle: () => void
   sortable: boolean
   onReorder: (keys: string[]) => void
+  actions?: ReactNode
 }) {
   const keys = entries.map((entry) => entry.key)
   const visibleRecents = entries.filter(
@@ -35,7 +38,7 @@ export function RecentsSection({
       index < recentsLimit || session.running || session.path === activeSessionPath || session.id === activeSessionId,
   )
   return (
-    <SidebarSection id="recents" title="最近" collapsed={collapsed} onToggle={onToggle}>
+    <SidebarSection id="recents" title="最近" collapsed={collapsed} onToggle={onToggle} actions={actions}>
       <div className="space-y-0.5">
         {visibleRecents.map((entry) => (
           <SidebarSortable

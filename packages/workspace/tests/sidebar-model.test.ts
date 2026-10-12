@@ -42,7 +42,7 @@ test('按来源与路径去重，置顶聊天从项目移出但保留真实计�
   )
   assert.deepEqual(
     model.recents.map((item) => item.session.path),
-    ['/standalone'],
+    ['/older', '/standalone'],
   )
   assert.equal(model.pinned[0].key, sidebarItemKey('local', 'session', '/newer'))
 })
@@ -74,6 +74,26 @@ test('合并列表使用完成时间或创建时间，并排除置顶项目所�
     buildSidebarModel(sources, { ...preferences, groupMode: 'merged' }).recents.map((item) => item.session.path),
     ['/standalone'],
   )
+})
+test('没有无项目会话时，两种模式的最近仍显示项目聊天并按完成时间排序', () => {
+  const source = snapshot()
+  source.standaloneSessions = []
+  source.recents = [older, newer, older]
+  for (const groupMode of ['projects', 'merged'] as const) {
+    const model = buildSidebarModel([{ serviceId: 'a', snapshot: source }], { ...preferences, groupMode })
+    assert.deepEqual(
+      model.recents.map((entry) => entry.session.path),
+      ['/older', '/newer'],
+    )
+    source.pinnedPaths = ['/newer']
+    assert.deepEqual(
+      buildSidebarModel([{ serviceId: 'a', snapshot: source }], { ...preferences, groupMode }).recents.map(
+        (entry) => entry.session.path,
+      ),
+      ['/older'],
+    )
+    source.pinnedPaths = []
+  }
 })
 test('手动排序保留已存顺序并追加新项，默认使用最近时间', () => {
   const sources = [{ serviceId: 'a', snapshot: snapshot() }]
@@ -167,7 +187,7 @@ test('首次进入手动排序保存当前顺序，新聊天追加尾部，切�
   )
 })
 
-test('Worktree 聊天按项目会话归属或来源项目分组，不在最近重复展示', () => {
+test('分项目显示的最近包含项目和 Worktree 会话，保留来源项目名称', () => {
   const worktree = session('/worktree-session', '2026-07-01', {
     cwd: '/worktree',
     sourceProjectCwd: '/project',
@@ -180,14 +200,14 @@ test('Worktree 聊天按项目会话归属或来源项目分组，不在最近�
   const model = buildSidebarModel([{ serviceId: 'a', snapshot: source }], preferences)
   assert.deepEqual(
     model.recents.map((entry) => entry.session.path),
-    ['/standalone'],
+    ['/worktree-session', '/older', '/newer', '/standalone'],
   )
   assert.equal(model.sessions.find((entry) => entry.session.path === worktree.path)?.projectName, '项目')
   source.projects[0].sessions.pop()
   const partialModel = buildSidebarModel([{ serviceId: 'a', snapshot: source }], preferences)
   assert.deepEqual(
     partialModel.recents.map((entry) => entry.session.path),
-    ['/standalone'],
+    ['/worktree-session', '/older', '/newer', '/standalone'],
   )
   assert.equal(partialModel.sessions.find((entry) => entry.session.path === worktree.path)?.projectName, '项目')
 })

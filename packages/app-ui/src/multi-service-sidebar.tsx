@@ -258,46 +258,68 @@ export function MultiServiceSidebar({
             {model.pinned.map((entry) => renderEntry(entry, 'pinned', pinnedKeys, true))}
           </SidebarSection>
         )}
-        <SidebarSection
-          id="projects"
-          title="项目"
-          collapsed={preferences.collapsed.projects}
-          onToggle={() => toggleSection('projects')}
-          actions={
-            <>
-              <SidebarPreferencesMenu
-                preferences={preferences}
-                disabled={!preferencesLoaded}
-                onChange={onPreferencesChange}
-              />
+        {preferences.groupMode === 'projects' && (
+          <SidebarSection
+            id="projects"
+            title="项目"
+            collapsed={preferences.collapsed.projects}
+            onToggle={() => toggleSection('projects')}
+            actions={
+              <>
+                <SidebarPreferencesMenu
+                  preferences={preferences}
+                  disabled={!preferencesLoaded}
+                  onChange={onPreferencesChange}
+                />
+                <button
+                  type="button"
+                  aria-label="新建项目"
+                  title="新建项目"
+                  onClick={() => void active?.chooseDirectory()}
+                  className="rounded p-1 hover:bg-secondary"
+                >
+                  <Plus className="size-3.5" />
+                </button>
+              </>
+            }
+          >
+            {visibleProjects.map((entry) => renderEntry(entry, 'projects', projectKeys))}
+            {model.projects.length > 5 && (
               <button
                 type="button"
-                aria-label="新建项目"
-                title="新建项目"
-                onClick={() => void active?.chooseDirectory()}
-                className="rounded p-1 hover:bg-secondary"
+                onClick={() => setShowAllProjects((value) => !value)}
+                className="px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
               >
-                <Plus className="size-3.5" />
+                {showAllProjects ? '收起' : '展开显示'}
               </button>
-            </>
-          }
-        >
-          {visibleProjects.map((entry) => renderEntry(entry, 'projects', projectKeys))}
-          {model.projects.length > 5 && (
-            <button
-              type="button"
-              onClick={() => setShowAllProjects((value) => !value)}
-              className="px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
-            >
-              {showAllProjects ? '收起' : '展开显示'}
-            </button>
-          )}
-        </SidebarSection>
+            )}
+          </SidebarSection>
+        )}
         <SidebarSection
           id="recents"
           title="最近"
           collapsed={preferences.collapsed.recents}
           onToggle={() => toggleSection('recents')}
+          actions={
+            preferences.groupMode === 'merged' && (
+              <>
+                <SidebarPreferencesMenu
+                  preferences={preferences}
+                  disabled={!preferencesLoaded}
+                  onChange={onPreferencesChange}
+                />
+                <button
+                  type="button"
+                  aria-label="新聊天"
+                  title="新聊天"
+                  onClick={() => void active?.newSession()}
+                  className="rounded p-1 hover:bg-secondary"
+                >
+                  <SquarePen className="size-3.5" />
+                </button>
+              </>
+            )
+          }
         >
           {visibleRecents.map((entry) => renderEntry(entry, 'recents', recentKeys))}
           {model.recents.length > 8 && (

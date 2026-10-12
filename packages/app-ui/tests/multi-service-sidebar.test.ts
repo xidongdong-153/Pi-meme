@@ -94,16 +94,18 @@ function attributes(markup: string, attribute: string): string[] {
   return [...markup.matchAll(new RegExp(`${attribute}="([^"]+)"`, 'g'))].map((match) => match[1])
 }
 
-test('多服务侧栏始终按置顶、项目、最近排序，同服务项目和聊天 DOM 各出现一次', () => {
+test('分项目显示按置顶、项目、最近排序，最近包含项目聊天且排除独立置顶聊天', () => {
   const markup = render([service('local', true, snapshot(['/pinned-child.jsonl']))])
   const groups = sections(markup)
   assert.deepEqual(Object.keys(groups), ['pinned', 'projects', 'recents'])
   assert.deepEqual(attributes(markup, 'data-project-cwd'), ['/project'])
   assert.deepEqual(attributes(groups.pinned, 'data-session-path'), ['/pinned-child.jsonl'])
   assert.deepEqual(attributes(groups.projects, 'data-session-path'), ['/project-chat.jsonl'])
-  assert.deepEqual(attributes(groups.recents, 'data-session-path'), ['/standalone-chat.jsonl'])
-  const paths = attributes(markup, 'data-session-path')
-  assert.equal(new Set(paths).size, paths.length)
+  assert.deepEqual(attributes(groups.recents, 'data-session-path'), ['/project-chat.jsonl', '/standalone-chat.jsonl'])
+  const recentPaths = attributes(groups.recents, 'data-session-path')
+  assert.equal(new Set(recentPaths).size, recentPaths.length)
+  assert.match(groups.projects, /aria-label="侧边栏显示选项"/)
+  assert.doesNotMatch(groups.recents, /aria-label="侧边栏显示选项"/)
 })
 
 test('两个 Host 使用相同项目和聊天路径时分别保留入口，只消除同服务重复项', () => {
@@ -112,20 +114,33 @@ test('两个 Host 使用相同项目和聊天路径时分别保留入口，只�
   assert.deepEqual(attributes(groups.projects, 'data-service-id'), ['local', 'remote'])
   assert.deepEqual(attributes(groups.projects, 'data-project-cwd'), ['/project', '/project'])
   for (const path of ['/project-chat.jsonl', '/pinned-child.jsonl', '/standalone-chat.jsonl']) {
-    assert.equal(attributes(markup, 'data-session-path').filter((value) => value === path).length, 2)
+    assert.equal(
+      attributes(markup, 'data-session-path').filter((value) => value === path).length,
+      path === '/standalone-chat.jsonl' ? 2 : 4,
+    )
   }
-  assert.deepEqual(attributes(groups.recents, 'data-service-id'), ['local', 'remote'])
+  assert.deepEqual(attributes(groups.recents, 'data-service-id'), [
+    'local',
+    'local',
+    'local',
+    'remote',
+    'remote',
+    'remote',
+  ])
   const itemKeys = attributes(markup, 'data-sidebar-item-key')
-  assert.equal(itemKeys.length, 8)
+  assert.equal(itemKeys.length, 12)
   assert.equal(new Set(itemKeys).size, 8)
   assert.match(markup, /remote\.example\.test:3000/)
 })
 
-test('合并显示的普通项目只保留入口，项目聊天只在最近列表各渲染一次', () => {
+test('合并显示隐藏项目分区，最近标题提供显示选项和新聊天按钮', () => {
   const markup = render([service('local', true)], { ...preferences, groupMode: 'merged' })
   const groups = sections(markup)
-  assert.deepEqual(attributes(groups.projects, 'data-project-cwd'), ['/project'])
-  assert.deepEqual(attributes(groups.projects, 'data-session-path'), [])
+  assert.deepEqual(Object.keys(groups), ['recents'])
+  assert.deepEqual(attributes(markup, 'data-project-cwd'), [])
+  assert.match(groups.recents, /aria-label="侧边栏显示选项"/)
+  assert.match(groups.recents, /aria-label="新聊天"/)
+  assert.doesNotMatch(markup, /aria-label="新建项目"/)
   assert.deepEqual(attributes(groups.recents, 'data-session-path'), [
     '/project-chat.jsonl',
     '/pinned-child.jsonl',
@@ -142,7 +157,7 @@ test('合并显示保留置顶项目子聊天，独立置顶子聊天移出项�
   const groups = sections(markup)
   assert.deepEqual(attributes(groups.pinned, 'data-project-cwd'), ['/project'])
   assert.deepEqual(attributes(groups.pinned, 'data-session-path'), ['/project-chat.jsonl', '/pinned-child.jsonl'])
-  assert.deepEqual(attributes(groups.projects, 'data-project-cwd'), [])
+  assert.deepEqual(Object.keys(groups), ['pinned', 'recents'])
   assert.deepEqual(attributes(groups.recents, 'data-session-path'), ['/standalone-chat.jsonl'])
   assert.equal(attributes(markup, 'data-session-path').length, 3)
   assert.match(groups.pinned, /aria-label="取消置顶：\/pinned-child\.jsonl"/)

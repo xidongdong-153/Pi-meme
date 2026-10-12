@@ -99,7 +99,7 @@ export function ToolActivityRow({
         }}
         title={meta.fullPath}
         className={cn(
-          'group inline-flex max-w-full items-center gap-2 py-1 px-1 rounded cursor-pointer transition-colors',
+          'group inline-flex max-w-full items-center gap-2 py-1 pr-1 rounded cursor-pointer transition-colors',
           'text-muted-foreground hover:text-foreground hover:bg-secondary/30',
           isNested && 'pl-2',
           !hasDetail && 'cursor-default',

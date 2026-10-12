@@ -45,7 +45,6 @@ export function buildSidebarModel(
   const pinned: SidebarEntry[] = []
   const pinnedKeys = new Set<string>()
   const pinnedProjectSessions = new Set<string>()
-  const standaloneKeys = new Set<string>()
   for (const { serviceId, snapshot } of sources) {
     const names = new Map(snapshot.projects.map((project) => [project.cwd, project.name]))
     const projectSessionNames = new Map(
@@ -78,15 +77,8 @@ export function buildSidebarModel(
       )
       allProjects.set(key, { kind: 'project', key, serviceId, project })
     }
-    for (const session of snapshot.standaloneSessions ?? []) standaloneKeys.add(addSession(session))
-    for (const session of snapshot.recents) {
-      const key = addSession(session)
-      if (
-        session.workspaceKind === 'standalone' ||
-        (!projectSessionNames.has(session.path) && !names.has(session.sourceProjectCwd ?? session.cwd))
-      )
-        standaloneKeys.add(key)
-    }
+    for (const session of snapshot.standaloneSessions ?? []) addSession(session)
+    for (const session of snapshot.recents) addSession(session)
     for (const path of snapshot.pinnedPaths) {
       const project = allProjects.get(sidebarItemKey(serviceId, 'project', path))
       const entry = project ?? allSessions.get(sidebarItemKey(serviceId, 'session', path))
@@ -113,11 +105,7 @@ export function buildSidebarModel(
     .filter((entry) => !pinnedKeys.has(entry.key))
     .sort((a, b) => projectTimes.get(b.key)! - projectTimes.get(a.key)!)
     .map(prepareProject)
-  let recents = sessions.filter(
-    (entry) =>
-      !pinnedKeys.has(entry.key) &&
-      (preferences.groupMode === 'projects' ? standaloneKeys.has(entry.key) : !pinnedProjectSessions.has(entry.key)),
-  )
+  let recents = sessions.filter((entry) => !pinnedKeys.has(entry.key) && !pinnedProjectSessions.has(entry.key))
   if (preferences.sortMode === 'manual') {
     projects = orderEntries(projects, preferences.orders.projects)
     recents = orderEntries(recents, preferences.orders.recents)

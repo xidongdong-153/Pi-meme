@@ -48,7 +48,6 @@ export function Sidebar({
   serviceId = 'local',
   searchEnabled = true,
   sidebarSettingsBridge,
-  onSelectProject,
   menuBridge,
   onMenuChanged,
   onMenuDeleted,
@@ -147,6 +146,17 @@ export function Sidebar({
   const onReorderSessions = (listKey: string, keys: string[]) => {
     void save({ orders: { [listKey]: keys } })
   }
+  const preferencesMenu = (
+    <SidebarPreferencesMenu
+      preferences={preferences}
+      disabled={!loaded}
+      onChange={(patch) =>
+        void save(
+          patch.sortMode === 'manual' ? { ...patch, orders: sidebarManualOrders(model, preferences.orders) } : patch,
+        )
+      }
+    />
+  )
 
   return (
     <SidebarMenus
@@ -243,39 +253,28 @@ export function Sidebar({
                 onReorder={(keys) => onReorderSessions('pinned', keys)}
                 onReorderSessions={onReorderSessions}
               />
-              <ProjectsSection
-                entries={model.projects}
-                collapsed={preferences.collapsed.projects}
-                onToggle={() => {
-                  void save({ collapsed: { projects: !preferences.collapsed.projects } })
-                }}
-                showAllProjects={showAllProjects}
-                onToggleAllProjects={() => setShowAllProjects((value) => !value)}
-                ready={ready}
-                onDirectory={onDirectory}
-                menu={
-                  <SidebarPreferencesMenu
-                    preferences={preferences}
-                    disabled={!loaded}
-                    onChange={(patch) =>
-                      void save(
-                        patch.sortMode === 'manual'
-                          ? { ...patch, orders: sidebarManualOrders(model, preferences.orders) }
-                          : patch,
-                      )
-                    }
-                  />
-                }
-                projectProps={projectProps}
-                expandedProjects={expandedProjects}
-                expandedProjectItemLimits={expandedProjectItemLimits}
-                toggleProject={toggleProject}
-                toggleProjectItems={toggleProjectItems}
-                onSelectProject={preferences.groupMode === 'merged' ? onSelectProject : undefined}
-                sortable={sortable}
-                onReorder={(keys) => onReorderSessions('projects', keys)}
-                onReorderSessions={onReorderSessions}
-              />
+              {preferences.groupMode === 'projects' && (
+                <ProjectsSection
+                  entries={model.projects}
+                  collapsed={preferences.collapsed.projects}
+                  onToggle={() => {
+                    void save({ collapsed: { projects: !preferences.collapsed.projects } })
+                  }}
+                  showAllProjects={showAllProjects}
+                  onToggleAllProjects={() => setShowAllProjects((value) => !value)}
+                  ready={ready}
+                  onDirectory={onDirectory}
+                  menu={preferencesMenu}
+                  projectProps={projectProps}
+                  expandedProjects={expandedProjects}
+                  expandedProjectItemLimits={expandedProjectItemLimits}
+                  toggleProject={toggleProject}
+                  toggleProjectItems={toggleProjectItems}
+                  sortable={sortable}
+                  onReorder={(keys) => onReorderSessions('projects', keys)}
+                  onReorderSessions={onReorderSessions}
+                />
+              )}
               <RecentsSection
                 entries={model.recents}
                 collapsed={preferences.collapsed.recents}
@@ -292,6 +291,22 @@ export function Sidebar({
                 sessionsLoading={sessionsLoading}
                 sortable={sortable}
                 onReorder={(keys) => onReorderSessions('recents', keys)}
+                actions={
+                  preferences.groupMode === 'merged' && (
+                    <>
+                      {preferencesMenu}
+                      <button
+                        type="button"
+                        aria-label="新聊天"
+                        title="新聊天"
+                        onClick={onNewSession}
+                        className="rounded p-1 transition-colors duration-200 ease-out hover:bg-secondary"
+                      >
+                        <SquarePen className="size-3.5" />
+                      </button>
+                    </>
+                  )
+                }
               />
             </div>
           )}
