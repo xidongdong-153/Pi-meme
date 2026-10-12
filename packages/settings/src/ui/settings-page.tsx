@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import type { SettingsSnapshot, AppearanceSettings, InstalledFont, Theme } from '@pi-meme/contracts/settings'
 import type { SettingsBridge, ModelsBridge } from '@pi-meme/contracts/desktop'
 import { ThemeSettings } from './theme-settings'
@@ -14,7 +15,7 @@ export type SettingsPageProps = {
   busy: boolean
   onDirty: (dirty: boolean) => void
   onSaving: (saving: boolean) => void
-  onAccess: () => void
+  accessSettings: ReactNode
   onAppearance: (value: AppearanceSettings) => void
   onPreview: (mode: 'light' | 'dark' | null) => void
   onFlush: () => Promise<void>
@@ -36,7 +37,7 @@ export function SettingsPage({
   busy,
   onDirty,
   onSaving,
-  onAccess,
+  accessSettings,
   ...appearance
 }: SettingsPageProps) {
   return (
@@ -49,7 +50,7 @@ export function SettingsPage({
           busy={busy}
           onDirty={onDirty}
           onSaving={onSaving}
-          onAccess={onAccess}
+          accessSettings={accessSettings}
         />
       ) : section === 'general' ? (
         <div className="space-y-4 rounded-2xl border border-border bg-card p-6">

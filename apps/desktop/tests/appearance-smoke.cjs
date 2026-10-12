@@ -53,7 +53,7 @@ module.exports = async function appearanceSmoke(window, waitFor, directory, scre
   }
   const escape = () =>
     evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`)
-  assert.equal(await evaluate(`Boolean(document.querySelector('#appearance-advanced'))`), false)
+  assert.equal(await evaluate(`Boolean(document.querySelector('[aria-label="界面字号"]'))`), true)
   assert.equal(await evaluate(`document.querySelector('#settings-content select') === null`), true)
   assert.equal(
     await evaluate(`document.querySelector('[role="combobox"][aria-label="强调色"]').textContent`),
@@ -67,7 +67,6 @@ module.exports = async function appearanceSmoke(window, waitFor, directory, scre
   })()`)
   assert.ok(spacing.gap >= 10 && spacing.right >= 10, '下拉文字与箭头、箭头与边缘保留间距')
   await capture('appearance-dark')
-  await clickText('高级')
   await change('界面字号', 18)
   await waitFor(() => css('--text-ui').then((value) => value === '18px'), '界面字号预览')
   await change('代码字体大小', 17)

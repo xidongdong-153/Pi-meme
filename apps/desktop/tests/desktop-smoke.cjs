@@ -212,7 +212,7 @@ async function run(window) {
     await evaluate(
       '[...document.querySelectorAll("nav[aria-label=设置分类] button")].map(node => node.textContent.trim())',
     ),
-    ['模型', '外观', '偏好', '默认权限', '用量', '扩展', '技能', '服务连接', '远程', '开发者', '关于'],
+    ['模型', '外观', '偏好', '用量', '扩展', '技能', 'MCP', '远程', '开发者', '关于'],
   )
   assert.equal(await evaluate('document.querySelector("aside details") === null'), true)
   await clickText('关于')
@@ -636,8 +636,9 @@ async function run(window) {
 
   await assertImageLoaded('img[alt=用户附件图片]', '消息图片缩略图')
   await evaluate('document.querySelector("img[alt=用户附件图片]").closest("button").click()')
-  await waitFor(() => evaluate('Boolean(document.querySelector("img[alt=图片大图预览]"))'), '附件预览')
-  await assertImageLoaded('img[alt=图片大图预览]', '附件大图预览')
+  const attachmentPreview = 'img[alt="图片大图预览，第 1 张"]'
+  await waitFor(() => evaluate(`Boolean(document.querySelector(${JSON.stringify(attachmentPreview)}))`), '附件预览')
+  await assertImageLoaded(attachmentPreview, '附件大图预览')
   await clickText('Close', '[role="dialog"]')
   await waitFor(() => evaluate('!document.querySelector("[role=dialog]")'), '预览关闭')
 
@@ -648,7 +649,10 @@ async function run(window) {
     evaluate(`(() => { const node = ${lastWork}; return node ? node.textContent.trim() : "" })()`)
   await waitFor(() => evaluate(`Boolean(document.querySelector(${JSON.stringify(work)}))`), '工作过程')
   assert.equal(await evaluate(`document.querySelector(${JSON.stringify(work)}).getAttribute('aria-expanded')`), 'false')
-  assert.match(await evaluate(`document.querySelector(${JSON.stringify(work)}).textContent.trim()`), /^用时 \d+秒$/)
+  assert.match(
+    await evaluate(`document.querySelector(${JSON.stringify(work)}).textContent.trim()`),
+    /^用时(?: \d+秒|不足1秒)$/,
+  )
   await click(work)
   assert.equal(await evaluate(`document.querySelector(${JSON.stringify(work)}).getAttribute('aria-expanded')`), 'true')
   assert.equal(
@@ -754,7 +758,7 @@ async function run(window) {
   await click('button[aria-label="发送消息"]')
   await waitFor(() => evaluate(`Boolean(${lastWork})`), '流式工作过程')
   // 运行时自动展开，工具执行很快时也可能已收尾并自动收起。
-  assert.match(await readLastWork(), /^用时 \d+秒/)
+  assert.match(await readLastWork(), /^(?:处理中|用时(?: \d+秒|不足1秒))/)
   assert.equal(await evaluate(`document.querySelector(${JSON.stringify(model)}).disabled`), true)
   await waitFor(
     () =>

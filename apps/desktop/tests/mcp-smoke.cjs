@@ -42,7 +42,7 @@ module.exports = async (window, waitFor, output) => {
   }
   await evaluate('document.querySelector("button[aria-label=设置]").click()')
   await click('扩展')
-  await click('服务连接')
+  await click('MCP')
   await waitFor(() => evaluate('document.body.textContent.includes("尚未配置 Desktop 全局 MCP 服务")'), '空配置')
   assert.equal(await evaluate(`document.querySelector('input[aria-label="在 Desktop 中启用 MCP"]') === null`), true)
   assert.equal(await evaluate('document.body.textContent.includes("原配置关闭了 MCP")'), true)
@@ -146,7 +146,7 @@ module.exports = async (window, waitFor, output) => {
   await evaluate(`window.piMemeClient.setAccessMode(${JSON.stringify(connection.sessionKey)}, 'full-access')`)
   await evaluate('document.querySelector("button[aria-label=设置]").click()')
   await click('扩展')
-  await click('服务连接')
+  await click('MCP')
   await waitFor(
     () =>
       evaluate(

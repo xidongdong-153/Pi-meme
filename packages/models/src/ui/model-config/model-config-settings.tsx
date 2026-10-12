@@ -159,7 +159,6 @@ export function ModelConfigSettings({
       )}
       {snapshot && (
         <>
-          <p className="select-text break-all font-mono text-xs text-muted-foreground">配置文件：{snapshot.path}</p>
           {!snapshot.providers.length && (
             <div className="rounded-xl border border-dashed border-border py-12 text-center space-y-2">
               <p className="font-medium">尚未配置自定义服务商</p>

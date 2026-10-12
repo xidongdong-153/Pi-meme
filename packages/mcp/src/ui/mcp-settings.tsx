@@ -71,10 +71,6 @@ export function McpSettings({
         {mode === 'full-access' ? '按服务启用和授权连接。' : '当前权限不加载 MCP；切换到完全权限后可使用。'}
         {capabilities.mcpEnabled === false && ' 原配置关闭了 MCP。升级后保留此选择；逐个启用需要连接的服务。'}
       </p>
-      <p className="text-xs text-muted-foreground">
-        Desktop 全局配置保存在应用数据目录。项目 <code>.pi/mcp.json</code> 只读；Desktop 工作区覆盖项优先级最高。
-      </p>
-      {snapshot && <p className="break-all font-mono text-xs text-muted-foreground select-text">{snapshot.path}</p>}
       <div className="flex flex-wrap gap-2">
         <Button
           disabled={blocked || !snapshot || Boolean(snapshot.error)}

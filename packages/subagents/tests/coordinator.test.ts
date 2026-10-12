@@ -282,11 +282,10 @@ test('用户插话唤醒父子 Agent 等待，排队输入不唤醒，消费后�
             calls.push(waiting)
             void waiting.catch(() => {})
             if (!queuedBeforeWait) {
-              await context.until(
-                async () =>
-                  (await context.bridge.getAgents('root-key')).find((entry) => entry.sessionKey === callerKey)
-                    ?.status === 'waiting_children',
-              )
+              await context.until(async () => {
+                const agents = await context.bridge.getAgents('root-key')
+                return agents.find((entry) => entry.sessionKey === callerKey)?.status === 'waiting_children'
+              })
               await new Promise<void>((resolve) => setTimeout(resolve, 5))
               assert.equal(result, undefined)
               queue(true)

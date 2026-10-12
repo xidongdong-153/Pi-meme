@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { ChevronDown, Download, FolderOpen, RefreshCw, Upload } from 'lucide-react'
+import { Download, FolderOpen, RefreshCw, Upload } from 'lucide-react'
 import type {
   AppearanceOverrides,
   AppearanceSettings,
@@ -68,7 +68,6 @@ export function ThemeSettings({
   const [editing, setEditing] = useState<'light' | 'dark'>(() =>
     resolvedMode(value, window.matchMedia('(prefers-color-scheme: dark)').matches),
   )
-  const [advanced, setAdvanced] = useState(false)
   const [customAccent, setCustomAccent] = useState(false)
   const [fonts, setFonts] = useState<InstalledFont[]>([])
   const [fontLoading, setFontLoading] = useState(false)
@@ -340,100 +339,87 @@ export function ThemeSettings({
           <RefreshCw className="size-4" />
           重新加载主题
         </Button>
-        <p className="w-full break-all text-xs text-muted-foreground select-text">{snapshot.themesDirectory}</p>
       </div>
-      <button
-        type="button"
-        aria-expanded={advanced}
-        aria-controls="appearance-advanced"
-        onClick={() => setAdvanced(!advanced)}
-        className="flex items-center gap-2 rounded text-sm text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        高级
-        <ChevronDown className={`size-4 transition-transform ${advanced ? '' : '-rotate-90'}`} />
-      </button>
-      {advanced && (
-        <div id="appearance-advanced" className="space-y-5">
-          <AppearanceGroup>
-            <AppearanceRow label="界面字号" description="调整界面与聊天正文的基础字号">
-              <SizeControl
-                label="界面字号"
-                value={value.uiSize}
-                min={12}
-                max={20}
-                onChange={(uiSize) => change({ uiSize })}
-              />
-            </AppearanceRow>
-            <AppearanceRow label="代码字体大小" description="调整代码、差异视图与扩展编辑器的字号">
-              <SizeControl
-                label="代码字体大小"
-                value={value.codeSize}
-                min={10}
-                max={24}
-                onChange={(codeSize) => change({ codeSize })}
-              />
-            </AppearanceRow>
-          </AppearanceGroup>
-          <AppearanceGroup>
-            <AppearanceRow label="减少动态效果" description="减少动画效果，或跟随系统设置">
-              <div role="group" aria-label="减少动态效果" className="flex gap-1">
-                {(['system', 'on', 'off'] as const).map((entry, index) => (
-                  <Button
-                    key={entry}
-                    size="sm"
-                    variant={value.reducedMotion === entry ? 'secondary' : 'ghost'}
-                    aria-pressed={value.reducedMotion === entry}
-                    onClick={() => change({ reducedMotion: entry })}
-                  >
-                    {['系统', '开启', '关闭'][index]}
-                  </Button>
-                ))}
-              </div>
-            </AppearanceRow>
-            <AppearanceRow label="分别设置浅色和深色模式" description="分别选择主题、颜色和字体">
-              <Toggle
-                label="分别设置浅色和深色模式"
-                value={value.separate}
-                onChange={(separate) => {
-                  if (separate) setEditing(mode)
-                  onAppearance(toggleSeparate(value, mode, separate))
-                }}
-              />
-            </AppearanceRow>
-          </AppearanceGroup>
-          <AppearanceGroup>
-            <AppearanceRow label="界面字体样式">{styleControl('ui', '界面字体样式')}</AppearanceRow>
-            <AppearanceRow label="内容字体">
-              {fontControl('content', '内容字体')}
-              {styleControl('content', '内容字体样式')}
-            </AppearanceRow>
-            <AppearanceRow label="代码字体">
-              {fontControl('code', '代码字体')}
-              {styleControl('code', '代码字体样式')}
-            </AppearanceRow>
-            <AppearanceRow label="半透明侧边栏">
-              <Toggle
-                label="半透明侧边栏"
-                value={value.translucentSidebar}
-                onChange={(translucentSidebar) => change({ translucentSidebar })}
-              />
-            </AppearanceRow>
-            <AppearanceRow label="对比度" description="调整卡片、边框和辅助文字的层次">
-              <input
-                type="range"
-                aria-label="对比度"
-                min={0}
-                max={100}
-                step={1}
-                value={value.contrast}
-                onChange={(event) => change({ contrast: Number(event.target.value) })}
-                className="w-40 accent-primary"
-              />
-              <output className="w-8 text-right text-sm">{value.contrast}</output>
-            </AppearanceRow>
-          </AppearanceGroup>
-        </div>
-      )}
+      <div className="space-y-5">
+        <AppearanceGroup>
+          <AppearanceRow label="界面字号" description="调整界面与聊天正文的基础字号">
+            <SizeControl
+              label="界面字号"
+              value={value.uiSize}
+              min={12}
+              max={20}
+              onChange={(uiSize) => change({ uiSize })}
+            />
+          </AppearanceRow>
+          <AppearanceRow label="代码字体大小" description="调整代码、差异视图与扩展编辑器的字号">
+            <SizeControl
+              label="代码字体大小"
+              value={value.codeSize}
+              min={10}
+              max={24}
+              onChange={(codeSize) => change({ codeSize })}
+            />
+          </AppearanceRow>
+        </AppearanceGroup>
+        <AppearanceGroup>
+          <AppearanceRow label="减少动态效果" description="减少动画效果，或跟随系统设置">
+            <div role="group" aria-label="减少动态效果" className="flex gap-1">
+              {(['system', 'on', 'off'] as const).map((entry, index) => (
+                <Button
+                  key={entry}
+                  size="sm"
+                  variant={value.reducedMotion === entry ? 'secondary' : 'ghost'}
+                  aria-pressed={value.reducedMotion === entry}
+                  onClick={() => change({ reducedMotion: entry })}
+                >
+                  {['系统', '开启', '关闭'][index]}
+                </Button>
+              ))}
+            </div>
+          </AppearanceRow>
+          <AppearanceRow label="分别设置浅色和深色模式" description="分别选择主题、颜色和字体">
+            <Toggle
+              label="分别设置浅色和深色模式"
+              value={value.separate}
+              onChange={(separate) => {
+                if (separate) setEditing(mode)
+                onAppearance(toggleSeparate(value, mode, separate))
+              }}
+            />
+          </AppearanceRow>
+        </AppearanceGroup>
+        <AppearanceGroup>
+          <AppearanceRow label="界面字体样式">{styleControl('ui', '界面字体样式')}</AppearanceRow>
+          <AppearanceRow label="内容字体">
+            {fontControl('content', '内容字体')}
+            {styleControl('content', '内容字体样式')}
+          </AppearanceRow>
+          <AppearanceRow label="代码字体">
+            {fontControl('code', '代码字体')}
+            {styleControl('code', '代码字体样式')}
+          </AppearanceRow>
+          <AppearanceRow label="半透明侧边栏">
+            <Toggle
+              label="半透明侧边栏"
+              value={value.translucentSidebar}
+              onChange={(translucentSidebar) => change({ translucentSidebar })}
+            />
+          </AppearanceRow>
+          <AppearanceRow label="对比度" description="调整卡片、边框和辅助文字的层次">
+            <input
+              type="range"
+              aria-label="对比度"
+              min={0}
+              max={100}
+              step={1}
+              value={value.contrast}
+              onChange={(event) => change({ contrast: Number(event.target.value) })}
+              className="w-40 accent-primary"
+            />
+            <output className="w-8 text-right text-sm">{value.contrast}</output>
+          </AppearanceRow>
+        </AppearanceGroup>
+      </div>
       {resetting ? (
         <div role="alert" className="flex flex-wrap items-center gap-3 text-sm">
           <span>恢复全部外观默认值？</span>

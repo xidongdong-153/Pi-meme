@@ -21,12 +21,11 @@ module.exports = async (window, waitFor, directory, screenshots) => {
     const appearance = await evaluate(`(() => {
       const row = [...document.querySelector(${JSON.stringify(scope)}).querySelectorAll(${JSON.stringify(rowSelector)})].find(node => node.textContent.includes(${JSON.stringify(title)}));
       const avatar = row?.querySelector('[data-agent-avatar]');
-      const icon = avatar?.matches('svg') ? avatar : avatar?.querySelector('svg');
-      return { text: row?.textContent, variant: avatar?.getAttribute('data-variant'), hidden: icon?.getAttribute('aria-hidden') };
+      return { text: row?.textContent, variant: avatar?.getAttribute('data-variant'), hidden: avatar?.getAttribute('aria-hidden') };
     })()`)
     assert.ok(appearance.text?.includes(title), `子代理显示任务标题：${title}`)
-    assert.match(appearance.variant ?? '', /^\d+$/, `子代理具有彩色图标：${title}`)
-    assert.equal(appearance.hidden, 'true', '装饰图标不重复朗读子代理名称')
+    assert.match(appearance.variant ?? '', /^\d+$/, `子代理具有头像：${title}`)
+    assert.equal(appearance.hidden, 'true', '装饰头像不重复朗读子代理名称')
     return appearance.variant
   }
   const capture = async (name) => {

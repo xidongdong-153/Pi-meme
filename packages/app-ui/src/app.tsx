@@ -1,6 +1,5 @@
 import { GitMenu } from '@pi-meme/git/ui/git-menu'
 import { LocationSelector } from './location-selector'
-import { serviceAddress } from './service-ui'
 import type { ServiceUI } from './service-ui'
 import { DeveloperSettings } from './developer-settings'
 import { SubagentsPanel } from './subagents-panel'
@@ -668,14 +667,11 @@ export function App({
           {/* 设置页面 */}
           {settingsOpen && (
             <SettingsPage
-              executionService={
-                serviceUI ? (hostLocal ? '此计算机' : `远程 · ${serviceAddress(hostAddress ?? '')}`) : undefined
-              }
               dirty={instructionsDirty}
               saving={instructionsSaving}
               onDiscard={() => setInstructionsDirty(false)}
               onDismiss={() => setSettingsOpen(false)}
-              renderContent={(section, navigate) => {
+              renderContent={(section) => {
                 const contentProps: Omit<ComponentProps<typeof SettingsContent>, 'section'> = {
                   bridge,
                   cwd: chat.connection.cwd,
@@ -685,7 +681,15 @@ export function App({
                   error: settings.error,
                   onDirty: setInstructionsDirty,
                   onSaving: setInstructionsSaving,
-                  onAccess: () => navigate('access'),
+                  accessSettings: (
+                    <AccessSettings
+                      value={settings.snapshot?.settings.defaultAccessMode}
+                      supported={Boolean(chat.connection.restrictedAccessSupported)}
+                      busy={chat.busy}
+                      saving={settings.saving}
+                      onSave={(mode) => void settings.saveAccessMode(mode)}
+                    />
+                  ),
                   onAppearance: settings.saveAppearance,
                   onPreview: settings.previewAppearance,
                   onFlush: settings.flushAppearance,
@@ -776,7 +780,6 @@ export function App({
                   return (
                     <DeveloperSettings call={call}>
                       <ExtensionsSettings
-                        directory={settings.snapshot?.extensionsDirectory ?? ''}
                         mode={chat.connection.accessMode}
                         busy={chat.busy}
                         onOpen={() => void settings.openExtensionsDirectory()}
@@ -793,18 +796,6 @@ export function App({
                         )}
                       />
                     </DeveloperSettings>
-                  )
-                if (section === 'access')
-                  return (
-                    <AccessSettings
-                      {...{
-                        value: settings.snapshot?.settings.defaultAccessMode,
-                        supported: Boolean(chat.connection.restrictedAccessSupported),
-                        busy: chat.busy,
-                        saving: settings.saving,
-                        onSave: (mode) => void settings.saveAccessMode(mode),
-                      }}
-                    />
                   )
                 return null
               }}

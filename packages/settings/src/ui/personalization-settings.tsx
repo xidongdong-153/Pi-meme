@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from 'react'
-import { ArrowLeft, ChevronRight, FileText, RefreshCw, ShieldCheck } from 'lucide-react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { ArrowLeft, ChevronRight, FileText, RefreshCw } from 'lucide-react'
 import type { ModelsBridge, SettingsBridge } from '@pi-meme/contracts/desktop'
 import type { InstructionFile, InstructionKind, InstructionsSnapshot } from '@pi-meme/contracts/settings'
 import { Button } from '@pi-meme/ui/components/ui/button'
@@ -18,7 +18,7 @@ export function PersonalizationSettings({
   busy,
   onDirty,
   onSaving,
-  onAccess,
+  accessSettings,
   advanced = false,
 }: {
   bridge: Pick<SettingsBridge, 'getInstructions' | 'saveInstruction'> & Pick<ModelsBridge, 'reconnectModels'>
@@ -27,7 +27,7 @@ export function PersonalizationSettings({
   onDirty: (dirty: boolean) => void
   onSaving: (saving: boolean) => void
   advanced?: boolean
-  onAccess: () => void
+  accessSettings: ReactNode
 }) {
   const [snapshot, setSnapshot] = useState<InstructionsSnapshot | null>(null)
   const [selected, setSelected] = useState<{ kind: InstructionKind; project: boolean } | null>(null)
@@ -193,7 +193,6 @@ export function PersonalizationSettings({
               {titles[selected.kind].description}
               {selected.project ? ' 项目文件只读。' : ' 保存时要求所有会话空闲。'}
             </p>
-            <p className="mt-3 break-all font-mono text-xs text-muted-foreground">{base.path}</p>
           </div>
           {entry?.project && !selected.project && (
             <p className="text-sm text-muted-foreground">
@@ -237,21 +236,7 @@ export function PersonalizationSettings({
           {!advanced && (
             <section className="space-y-4">
               <h3 className="text-sm font-medium">访问权限</h3>
-              <button
-                type="button"
-                aria-label="默认访问权限"
-                onClick={onAccess}
-                className="flex w-full items-center gap-4 rounded-2xl border border-border bg-card p-5 text-left transition-colors hover:bg-secondary/60"
-              >
-                <ShieldCheck className="size-5 shrink-0 text-muted-foreground" />
-                <span className="flex-1">
-                  <span className="block text-sm font-medium">默认访问权限</span>
-                  <span className="mt-1 block text-sm text-muted-foreground">
-                    设置新会话的只读、工作区写入或完全访问权限。
-                  </span>
-                </span>
-                <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
-              </button>
+              <div className="rounded-2xl border border-border bg-card p-5">{accessSettings}</div>
             </section>
           )}
           <section className="space-y-4">
@@ -277,9 +262,6 @@ export function PersonalizationSettings({
                         <span className="block text-sm font-medium">{titles[item.kind].title}</span>
                         <span className="mt-1 block text-sm text-muted-foreground">
                           {titles[item.kind].description}
-                        </span>
-                        <span className="mt-2 block break-all font-mono text-xs text-muted-foreground">
-                          {item.host.path}
                         </span>
                       </span>
                       <span className="shrink-0 text-xs text-muted-foreground">

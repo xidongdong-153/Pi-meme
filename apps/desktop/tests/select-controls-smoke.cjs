@@ -112,7 +112,7 @@ module.exports = async (window, waitFor, outputDirectory) => {
     await capture('select-appearance-menu')
     await selectOption('强调色', '主题默认')
 
-    await clickText('服务连接', settingsNavigation)
+    await clickText('MCP', settingsNavigation)
     const initialMcp = await evaluate('window.piMemeClient.getMcpConfig()')
     await clickText('新增 MCP 服务')
     await waitFor(

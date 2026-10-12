@@ -11,7 +11,6 @@ import {
   Puzzle,
   Search,
   Server,
-  ShieldCheck,
   SlidersHorizontal,
 } from 'lucide-react'
 import { Button } from '@pi-meme/ui/components/ui/button'
@@ -32,16 +31,15 @@ const groups = [
         icon: SlidersHorizontal,
         description: '编辑自定义指令和新会话默认权限。',
       },
-      { id: 'access', label: '默认权限', icon: ShieldCheck, description: '设置新会话默认的文件访问权限。' },
       { id: 'profile', label: '用量', icon: ChartNoAxesCombined, description: '查看 Token 用量与活动记录。' },
     ],
   },
   {
     label: '集成',
     sections: [
-      { id: 'plugins', label: '扩展', icon: Puzzle, description: '管理用户插件、技能和服务连接。' },
+      { id: 'plugins', label: '扩展', icon: Puzzle, description: '管理用户插件、技能和 MCP。' },
       { id: 'skills', label: '技能', icon: BookOpen, description: '查看当前项目中已加载的技能。' },
-      { id: 'mcp', label: '服务连接', icon: Network, description: '管理 MCP 服务和授权。' },
+      { id: 'mcp', label: 'MCP', icon: Network, description: '管理 MCP 服务和授权。' },
     ],
   },
   {
@@ -63,10 +61,8 @@ export function SettingsPage({
   saving,
   onDiscard,
   onDismiss,
-  executionService,
 }: {
   renderContent: (section: SettingsSection, navigate: (section: SettingsSection) => void) => ReactNode
-  executionService?: string
   dirty: boolean
   saving: boolean
   onDiscard: () => void
@@ -170,11 +166,6 @@ export function SettingsPage({
             <div>
               <h2 className="text-3xl font-semibold tracking-tight">{section.label}</h2>
               <p className="mt-3 text-sm text-muted-foreground">{section.description}</p>
-              {executionService && (
-                <p className="mt-2 text-xs text-muted-foreground">
-                  设置对象：{sectionId === 'appearance' || sectionId === 'host' ? '此计算机' : executionService}
-                </p>
-              )}
             </div>
             {sectionId === 'plugins' && (
               <div className="flex flex-wrap gap-2">
@@ -182,7 +173,7 @@ export function SettingsPage({
                   技能
                 </Button>
                 <Button variant="outline" onClick={() => navigate('mcp')}>
-                  服务连接
+                  MCP
                 </Button>
               </div>
             )}

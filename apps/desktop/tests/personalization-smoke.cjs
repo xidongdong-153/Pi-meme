@@ -42,16 +42,7 @@ module.exports = async function personalizationSmoke(window, waitFor, directory,
     '偏好指令',
   )
   await capture('personalization-dark')
-  await evaluate('document.querySelector("button[aria-label=默认访问权限]").click()')
-  await waitFor(
-    () => evaluate('document.querySelector("#settings-content h2").textContent === "默认权限"'),
-    '访问权限入口',
-  )
-  await select('偏好')
-  await waitFor(
-    () => evaluate('Boolean(document.querySelector("button[aria-label=\\"编辑指令：agents\\"]"))'),
-    '返回偏好',
-  )
+  assert.equal(await evaluate('Boolean(document.querySelector("[aria-label=新会话默认权限]"))'), true)
   await evaluate(
     'Array.from(document.querySelectorAll("#settings-content button")).find(button => button.textContent.includes("Pi 指令")).click()',
   )
