@@ -19,7 +19,7 @@ test('读取并忽略旧的外部扩展路径设置，Desktop 扩展目录固定
     const store = new SettingsStore(directory)
     const loaded = await store.load()
     assert.equal('userExtensionPaths' in loaded.settings, false)
-    assert.equal(loaded.extensionsDirectory, path.join(directory, 'pi', 'extensions'))
+    assert.equal(loaded.extensionsDirectory, path.join(directory, 'extensions'))
     await mkdir(loaded.extensionsDirectory, { recursive: true })
     assert.equal(await readFile(file, 'utf8'), original)
     await store.save({ themeId: 'light' })
@@ -42,7 +42,7 @@ test('扩展目录不接受 Desktop 设置中的外部路径', async () => {
     await store.load()
     await store.save({ ...store.settings, userExtensionPaths: [path.join(directory, 'outside.mjs')] } as never)
     assert.equal('userExtensionPaths' in store.settings, false)
-    assert.equal((await store.snapshot()).extensionsDirectory, path.join(directory, 'pi', 'extensions'))
+    assert.equal((await store.snapshot()).extensionsDirectory, path.join(directory, 'extensions'))
   } finally {
     await rm(directory, { recursive: true, force: true })
   }

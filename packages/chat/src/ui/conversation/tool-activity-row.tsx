@@ -196,7 +196,7 @@ export function ToolActivityRow({
           </div>
         </div>
       )}
-      <PluginToolCard tool={item} />
+      <PluginToolCard tool={item} {...item.source} />
     </div>
   )
 }

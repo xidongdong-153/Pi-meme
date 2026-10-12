@@ -35,3 +35,35 @@ test('作用域逆序释放全部资源，失败也继续，重复释放不重�
   await assert.rejects(scope.dispose(), AggregateError)
   assert.deepEqual(order, [3, 2, 1])
 })
+
+test('显示信息和资源声明保留包内路径，拒绝越界、通配符和重复 Agent 入口', () => {
+  const base = { name: 'resources-app', version: '1.0.0', piMeme: { sdkVersion: 1, ui: 'dist/ui/entry.js' } }
+  const valid = parsePluginManifest({
+    ...base,
+    piMeme: {
+      ...base.piMeme,
+      display: { name: '代码检查', icon: 'assets/icon.svg' },
+      resources: { skills: ['skills/review'], extensions: ['extensions/review.ts'] },
+    },
+  })
+  assert.equal(valid.piMeme.display?.name, '代码检查')
+  assert.deepEqual(valid.piMeme.resources?.skills, ['skills/review'])
+  for (const resources of [
+    { skills: ['../outside'] },
+    { extensions: ['extensions/*.ts'] },
+    { skills: ['skills/review', 'skills/review'] },
+    { mcp: ['mcp.json'] },
+  ]) {
+    assert.throws(() => parsePluginManifest({ ...base, piMeme: { ...base.piMeme, resources } }))
+  }
+  assert.throws(() =>
+    parsePluginManifest({ ...base, piMeme: { ...base.piMeme, display: { icon: 'https://example.com/icon.svg' } } }),
+  )
+  assert.throws(() =>
+    parsePluginManifest({
+      ...base,
+      piMeme: { ...base.piMeme, agent: 'dist/agent.js', resources: { extensions: ['dist/agent.js'] } },
+    }),
+  )
+  assert.throws(() => parsePluginManifest({ ...base, piMeme: { sdkVersion: 1, resources: { skills: ['skills'] } } }))
+})

@@ -19,7 +19,8 @@
     "./host": "./src/host.ts",
     "./plan": "./src/plan.ts",
     "./collaboration": "./src/collaboration.ts",
-    "./user-input": "./src/user-input.ts"
+    "./user-input": "./src/user-input.ts",
+    "./resources": "./src/resources.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit",

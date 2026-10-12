@@ -3,5 +3,9 @@ import { copyBuiltinSkillsPlugin } from '../../scripts/copy-builtin-skills.mjs'
 
 export default defineConfig({
   plugins: [copyBuiltinSkillsPlugin()],
-  build: { rollupOptions: { external: ['@earendil-works/pi-coding-agent', '@napi-rs/keyring'] } },
+  build: {
+    rollupOptions: {
+      external: [/^@earendil-works\/chord(?:\/|$)/, '@earendil-works/pi-coding-agent', '@napi-rs/keyring', 'esbuild'],
+    },
+  },
 })

@@ -22,6 +22,7 @@ import type {
   WorkspaceDeletionResult,
 } from '@pi-meme/contracts/desktop'
 import type { SkillReference } from '@pi-meme/contracts/skills'
+import type { ResourceSnapshot } from '@pi-meme/contracts/resources'
 import type { PiSessionSummary, WorkspaceKind } from '@pi-meme/contracts/sessions'
 import type {
   PiExtensionEvent,
@@ -172,6 +173,11 @@ export class PiSessionPool implements PiRuntime {
       record.pendingPrompt ||
       record.starting ||
       record.stopping ||
+      record.accessChanging ||
+      record.state.isCompacting ||
+      record.session.connection().status === 'connecting' ||
+      (record.queue?.event.type === 'queue_update' &&
+        (record.queue.event.steering.length > 0 || record.queue.event.followUp.length > 0)) ||
       [...record.extensions.keys()].some((key) => key.startsWith('dialog:'))
     const records = [...this.sessions.values()].filter((record) => matches(record.key))
     await Promise.all(
@@ -183,11 +189,21 @@ export class PiSessionPool implements PiRuntime {
               await new Promise<void>((resolve) => this.settledListeners.add(resolve))
             if (!this.sessions.has(record.key)) return
             await ready?.()
+            if (unsettled(record)) continue
+            if (!record.dormant && record.session.connection().status === 'ready') {
+              this.rememberSnapshot(record, await record.session.snapshot())
+              if (unsettled(record)) continue
+              try {
+                await record.session.assertResourceIdle()
+              } catch (cause) {
+                if (!/仍在准备排队输入或交付消息|Pi 正在运行/.test(String(cause))) throw cause
+                await new Promise<void>((resolve) => setTimeout(resolve, 25))
+                continue
+              }
+            }
             if (!unsettled(record)) break
           }
           if (!this.sessions.has(record.key)) return
-          if (!record.dormant && record.session.connection().status === 'ready')
-            this.rememberSnapshot(record, await record.session.snapshot())
           record.dormant = true
           record.extensions.clear()
           record.extensionError = undefined
@@ -456,6 +472,11 @@ export class PiSessionPool implements PiRuntime {
   private localModels: Promise<PiModel[]> | null = null
   private localAvailableModels: PiModel[] | null = null
   private resourceDiscovery = true
+  private getResources?: (cwd: string) => Promise<ResourceSnapshot>
+  configureResources(getResources: (cwd: string) => Promise<ResourceSnapshot>) {
+    this.getResources = getResources
+    this.commands.clear()
+  }
   configureResourceDiscovery(enabled: boolean) {
     this.resourceDiscovery = enabled
     this.commands.clear()
@@ -585,6 +606,7 @@ export class PiSessionPool implements PiRuntime {
         model: history?.model ?? this.defaults?.model,
         thinkingLevel: history?.thinkingLevel ?? this.defaults?.thinkingLevel,
         sessionName: history?.sessionName,
+        skillUsages: history?.skillUsages,
         isStreaming: false,
         isCompacting: false,
         steeringMode: this.defaults?.steeringMode ?? 'one-at-a-time',
@@ -631,6 +653,7 @@ export class PiSessionPool implements PiRuntime {
           this.notify.connection(this.withSession(record.key, () => this.connection()))
           this.notify.sessionsChanged()
           if (record.session.connection().status === 'ready') this.prune()
+          this.signalSettled()
         },
         event: (value) => this.handleEvent(record, value),
         error: (value) => {
@@ -723,6 +746,9 @@ export class PiSessionPool implements PiRuntime {
         pauseRevision: event.revision,
         pauseIntervals: event.pauseIntervals ?? record.state.pauseIntervals,
       }
+    if (event.type === 'compaction_start') record.state = { ...record.state, isCompacting: true }
+    if (event.type === 'compaction_end') record.state = { ...record.state, isCompacting: false }
+    if (event.type === 'skill_usage_update') record.state = { ...record.state, skillUsages: event.usages }
     if (event.type === 'queue_update') record.queue = recordEvent
     if (event.type === 'tool_execution_start' || event.type === 'tool_execution_update')
       record.tools.set(event.toolCallId, recordEvent)
@@ -905,7 +931,7 @@ export class PiSessionPool implements PiRuntime {
           existing.messages = history.messages.slice()
           existing.sessionEntries = history.sessionEntries
           existing.name = history.sessionName
-          existing.state = { ...existing.state, sessionName: history.sessionName }
+          existing.state = { ...existing.state, sessionName: history.sessionName, skillUsages: history.skillUsages }
           existing.stats = history.stats
         }
         this.assertPathAvailable(existing.key)
@@ -1222,6 +1248,7 @@ export class PiSessionPool implements PiRuntime {
       }, true)
     } finally {
       record.accessChanging = false
+      this.signalSettled()
       this.notify.connection(this.withSession(record.key, () => this.connection()))
     }
   }
@@ -1491,6 +1518,7 @@ export class PiSessionPool implements PiRuntime {
         })
     } finally {
       record.stopping = false
+      this.signalSettled()
       this.notify.connection(this.withSession(record.key, () => this.connection()))
     }
   }
@@ -1557,9 +1585,8 @@ export class PiSessionPool implements PiRuntime {
   async getCommands() {
     const record = this.active
     if (record.dormant || record.starting) {
-      const cached = this.commands.get(`${record.cwd}:${record.accessMode}`)
-      if (cached) return [...builtinCommands, ...cached.filter((command) => command.source !== 'builtin')]
-      const commands = this.resourceDiscovery ? await readLocalSkills(record.cwd, this.runtimePaths.agentDir) : []
+      const snapshot = this.resourceDiscovery ? await this.getResources?.(record.cwd) : undefined
+      const commands = snapshot ? readLocalSkills(snapshot) : []
       this.commands.set(`${record.cwd}:${record.accessMode}`, commands)
       return [...builtinCommands, ...commands]
     }

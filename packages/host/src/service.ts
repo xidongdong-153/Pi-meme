@@ -37,6 +37,8 @@ import { RequestRegistry } from './request-registry'
 import { ConnectionCredentialStore } from './connection-credentials'
 import { hostDataRoot, lockDataRoot } from './data-root'
 import { installBuiltinSkills } from '@pi-meme/resources/server/install-builtin-skills'
+import { ResourceStore } from '@pi-meme/resources/server/resource-store'
+import type { ResourceImportInput, ResourceSnapshot } from '@pi-meme/contracts/resources'
 
 export type HostOptions = {
   dataRoot?: string
@@ -110,7 +112,9 @@ const reads = new Set([
   'session:prefetch',
   'history:query',
   'history:export',
-  'resources:list',
+  'resources:catalog',
+  'resources:detail',
+  'resources:read-skill',
   'settings:usage-stats',
   'settings:subagents',
 ])
@@ -191,6 +195,11 @@ export async function createHost(options: HostOptions = {}) {
       'plugins:enable',
       'plugins:disable',
       'plugins:remove',
+      'resources:import',
+      'resources:remove',
+      'resources:save-skill',
+      'resources:set-policy',
+      'resources:refresh',
     ])
     const clientRequests = new Map<string, number>()
     const clientTimers = new Map<string, ReturnType<typeof setTimeout>>()
@@ -254,7 +263,37 @@ export async function createHost(options: HostOptions = {}) {
     }
     let collaboration: ReturnType<typeof createHostCollaborationBridge>
     let plugins: PluginManager
+    let closing = false
+    let resourceGeneration = 0
+    const publishResourcesChanged = (generation = resourceGeneration) => {
+      resourceGeneration = Math.max(resourceGeneration, generation)
+      if (closing) return
+      for (const subscribers of listeners.values())
+        for (const subscriber of subscribers)
+          subscriber({ hostId, type: 'resources-changed', value: { generation: resourceGeneration } })
+    }
     let builtins: Awaited<ReturnType<typeof createBuiltinModules>> | undefined
+    let retireWorkers: (keys: string[]) => Promise<void>
+    const workerSnapshots = new Map<string, ResourceSnapshot>()
+    const resources = new ResourceStore(root, {
+      hostId,
+      getAppPackages: () => plugins?.resourcePackages() ?? [],
+      onChange: (generation) => {
+        publishResourcesChanged(generation)
+        if (!builtins || closing) return
+        for (const [key, previous] of workerSnapshots) {
+          void resources
+            .snapshot(previous.cwd)
+            .then((next) => {
+              if (workerSnapshots.get(key) === previous && next.id !== previous.id) return retireWorkers([key])
+            })
+            .catch((cause: unknown) =>
+              emit('error', { generation: 0, sessionKey: key, message: `资源更新失败：${String(cause)}` }),
+            )
+        }
+      },
+    })
+    await resources.init()
     const workerPlugins = new Map<string, PluginDescriptor[]>()
     const workerPluginIds = new Map<string, Set<string>>()
     const workers = new Map<string, RuntimeSdkSession>()
@@ -263,9 +302,31 @@ export async function createHost(options: HostOptions = {}) {
       notify: Parameters<typeof createWorkerSession>[1],
       sessionKey = `worker:${randomUUID()}`,
       runtimePaths = paths,
+      parentSessionKey?: string,
     ) => {
-      const session = createWorkerSession(cwd, notify, runtimePaths, () => {
-        const lease = plugins.acquire()
+      const session = createWorkerSession(cwd, notify, runtimePaths, async () => {
+        let snapshot = (parentSessionKey && workerSnapshots.get(parentSessionKey)) || (await resources.snapshot(cwd))
+        let lease: ReturnType<PluginManager['acquire']> | undefined
+        if (parentSessionKey && workerPlugins.has(parentSessionKey)) {
+          lease = plugins.acquire(undefined, workerPlugins.get(parentSessionKey))
+        } else {
+          for (let attempt = 0; attempt < 3; attempt++) {
+            const disabled = new Set(
+              (snapshot.appPlugins ?? []).filter((item) => !item.enabled).map((item) => item.owner.id),
+            )
+            const candidate = plugins.acquire((id) => !disabled.has(id))
+            const generations = new Map(snapshot.appPlugins?.map((item) => [item.owner.id, item.owner.generation]))
+            if (candidate.descriptors.every((item) => generations.get(item.id) === item.generation)) {
+              lease = candidate
+              break
+            }
+            await candidate.release()
+            snapshot = await resources.snapshot(cwd)
+          }
+          if (!lease) throw new Error('插件在资源扫描期间更新，请重试当前任务')
+        }
+        const releaseResource = resources.acquire(snapshot)
+        workerSnapshots.set(sessionKey, snapshot)
         workerPlugins.set(sessionKey, lease.descriptors)
         workerPluginIds.set(sessionKey, new Set(lease.retainedIds))
         workers.set(sessionKey, session)
@@ -274,6 +335,7 @@ export async function createHost(options: HostOptions = {}) {
           dataRoot: root,
           settings: settings.settings,
           agentEntries: lease.agentEntries,
+          resourceSnapshot: snapshot,
           workerPath: options.workerPath ?? fileURLToPath(new URL('./session-worker.ts', import.meta.url)),
           admit: (message, mode, continuation, signal) =>
             collaboration.admit(session, message, mode, continuation, signal),
@@ -283,9 +345,12 @@ export async function createHost(options: HostOptions = {}) {
             try {
               await lease.release()
             } finally {
+              releaseResource()
+              workerSnapshots.delete(sessionKey)
               workerPlugins.delete(sessionKey)
               workerPluginIds.delete(sessionKey)
               workers.delete(sessionKey)
+              publishResourcesChanged()
             }
           },
         }
@@ -313,7 +378,7 @@ export async function createHost(options: HostOptions = {}) {
     collaboration = createHostCollaborationBridge({
       dataRoot: root,
       assertCheckoutAvailable,
-      createSession,
+      createSession: (cwd, notify, key, parentKey) => createSession(cwd, notify, key, paths, parentKey),
       emit: (value) => {
         if (value.agentId && value.agentId === value.rootAgentId && value.sessionKey)
           pi.publishSessionEvent(value.sessionKey, value)
@@ -351,7 +416,7 @@ export async function createHost(options: HostOptions = {}) {
         await collaboration.stopRoot(key)
       },
     })
-    const retireWorkers = async (keys: string[]) => {
+    retireWorkers = async (keys: string[]) => {
       const temporary = keys.filter((key) => key.startsWith('worker:')).map((key) => workers.get(key))
       const coordinated = await pi.retireSessions(
         (key) => keys.includes(key),
@@ -367,6 +432,7 @@ export async function createHost(options: HostOptions = {}) {
       await pi.stopAndWait()
       await plugins?.dispose()
       await builtins?.dispose()
+      await resources.waitForIdle()
       await (credentials as SecureCredentialStorage & { flush?: () => Promise<void> }).flush?.()
     }
     pi.configureWorkspaces({
@@ -384,19 +450,32 @@ export async function createHost(options: HostOptions = {}) {
     const uiDescriptors = (descriptors: PluginDescriptor[]) =>
       descriptors.map((descriptor) => ({
         ...descriptor,
+        iconUrl: descriptor.display?.icon
+          ? `/api/plugins/${instanceId}/${encodeURIComponent(descriptor.id)}/${descriptor.generation}/${descriptor.display.icon}`
+          : undefined,
         ui: descriptor.ui
           ? `/api/plugins/${instanceId}/${encodeURIComponent(descriptor.id)}/${descriptor.generation}/${descriptor.ui}`
           : undefined,
       }))
-    const sessionDescriptors = (sessionId?: string) => {
+    const sessionDescriptors = async (sessionId?: string) => {
+      const cwd = (sessionId && workerSnapshots.get(sessionId)?.cwd) || pi.cwd
+      const catalog = await resources.catalog(cwd)
+      const disabled = new Set(
+        catalog.items.filter((item) => item.kind === 'app-plugin' && !item.enabled).map((item) => item.owner.id),
+      )
       const current = new Map(plugins.list().map((entry) => [entry.id, entry]))
       if (sessionId && workerPlugins.has(sessionId)) {
         const retained = workerPlugins.get(sessionId)!
         for (const entry of current.values())
-          if (entry.agent && !retained.some((old) => old.id === entry.id)) current.delete(entry.id)
+          if (
+            (entry.agent || entry.resources?.skills?.length || entry.resources?.extensions?.length) &&
+            !retained.some((old) => old.id === entry.id)
+          )
+            current.delete(entry.id)
         for (const entry of retained) current.set(entry.id, entry)
       }
-      return uiDescriptors([...current.values()])
+      const retainedIds = new Set(sessionId ? workerPlugins.get(sessionId)?.map((item) => item.id) : [])
+      return uiDescriptors([...current.values()].filter((item) => retainedIds.has(item.id) || !disabled.has(item.id)))
     }
     const enrichSnapshot = async (value: Snapshot) => {
       const key = value.connection.sessionKey
@@ -410,9 +489,13 @@ export async function createHost(options: HostOptions = {}) {
       return {
         ...value,
         connection: { ...value.connection, sourceProjectCwd: projects.sourceProjectCwd(value.connection.cwd) },
-        state: mode ? { ...value.state, mode } : value.state,
+        state: {
+          ...value.state,
+          ...(mode ? { mode } : {}),
+          resourceSnapshot: key ? workerSnapshots.get(key) : undefined,
+        },
         ...(key ? await collaboration.snapshot(key) : {}),
-        uiPlugins: sessionDescriptors(key),
+        uiPlugins: await sessionDescriptors(key),
       }
     }
     const snapshot = async () => enrichSnapshot(await pi.snapshot())
@@ -601,6 +684,7 @@ export async function createHost(options: HostOptions = {}) {
           })
         },
       },
+      'host.resources': { store: resources, getCwd: () => pi.cwd, hostId },
       'host.models': { pi, models, agentDir: paths.agentDir },
       'host.settings': {
         pi,
@@ -616,6 +700,7 @@ export async function createHost(options: HostOptions = {}) {
       'host.mcp': { pi, store: mcp },
     }
     builtins = await createBuiltinModules(root, sharedContexts)
+    pi.configureResources((cwd) => resources.snapshot(cwd))
     pi.configureResourceDiscovery(true)
     const parseId = (value: unknown) => {
       if (typeof value !== 'string') throw new Error('插件 ID 参数无效')
@@ -623,6 +708,23 @@ export async function createHost(options: HostOptions = {}) {
       return value
     }
     const handlers: Record<string, Action> = {
+      'resources:import': async (value, cwd) => {
+        if (!value || typeof value !== 'object') throw new Error('资源导入参数无效')
+        const input = value as ResourceImportInput
+        if (typeof input.path === 'string' && !input.kind) {
+          const content = await readFile(path.join(input.path, 'package.json'), 'utf8').catch(
+            (cause: NodeJS.ErrnoException) => {
+              if (cause.code === 'ENOENT' || cause.code === 'ENOTDIR') return undefined
+              throw cause
+            },
+          )
+          if (content && JSON.parse(content).piMeme) {
+            await plugins.loadDirectory(input.path)
+            return resources.refresh(typeof cwd === 'string' ? cwd : pi.cwd)
+          }
+        }
+        return resources.import(input, typeof cwd === 'string' ? cwd : pi.cwd)
+      },
       'host:credential-import-status': () => ({
         available:
           (process.platform === 'darwin' || Boolean(options.readLegacyCredentials)) &&
@@ -656,7 +758,7 @@ export async function createHost(options: HostOptions = {}) {
       'pi:agent-snapshot': async (id) => {
         if (typeof id !== 'string') throw new Error('Agent ID 参数无效')
         const value = await collaboration.getAgentSnapshot(id)
-        return { ...value, uiPlugins: sessionDescriptors(value.connection.sessionKey) }
+        return { ...value, uiPlugins: await sessionDescriptors(value.connection.sessionKey) }
       },
       'pi:interrupt-agent': (id) => {
         if (typeof id !== 'string') throw new Error('Agent ID 参数无效')
@@ -707,6 +809,10 @@ export async function createHost(options: HostOptions = {}) {
         ),
       onChange: () => {
         emit('plugins-changed')
+        if (builtins && !closing)
+          void resources
+            .refresh()
+            .catch((cause: unknown) => emit('error', { generation: 0, message: `刷新插件资源失败：${String(cause)}` }))
         for (const [key, previous] of workerPlugins) {
           const agents = plugins.list().filter((entry) => entry.agent && entry.enabled && entry.status !== 'pending')
           if (
@@ -746,7 +852,6 @@ export async function createHost(options: HostOptions = {}) {
       scheduleClientRelease(clientId)
       return current
     }
-    let closing = false
     let disposal: Promise<void> | undefined
     const inflight = new Set<Promise<unknown>>()
     return {
@@ -920,6 +1025,7 @@ export async function createHost(options: HostOptions = {}) {
           await Promise.allSettled(inflight)
           await plugins.dispose()
           await builtins!.dispose()
+          await resources.waitForIdle()
           try {
             await (credentials as SecureCredentialStorage & { flush?: () => Promise<void> }).flush?.()
           } finally {

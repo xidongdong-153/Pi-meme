@@ -8,19 +8,22 @@
     "./server/install-builtin-skills": "./src/server/install-builtin-skills.ts",
     "./ui/plugin": "./src/ui/plugin.ts",
     "./ui/entry": "./src/ui/entry.tsx",
-    "./ui/skills-settings": "./src/ui/skills-settings.tsx",
     "./ui/extensions-settings": "./src/ui/extensions-settings.tsx",
-    "./agent/entry": "./src/agent/entry.ts"
+    "./agent/entry": "./src/agent/entry.ts",
+    "./server/resource-store": "./src/server/resource-store.ts"
   },
   "scripts": {
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts"
   },
   "dependencies": {
     "@pi-meme/contracts": "workspace:*",
     "@pi-meme/plugin-sdk": "workspace:*",
     "@pi-meme/pi-runtime": "workspace:*",
     "@pi-meme/ui": "workspace:*",
-    "lucide-react": "^1.48.0"
+    "lucide-react": "^1.48.0",
+    "@earendil-works/pi-coding-agent": "1.1.0",
+    "esbuild": "0.28.2"
   },
   "peerDependencies": {
     "react": "^19.3.0"
@@ -33,7 +36,7 @@
     "server": "dist/server/chord-facets.json",
     "ui": "dist/ui/entry.js",
     "requires": [
-      "host.models"
+      "host.resources"
     ],
     "agent": "dist/agent/entry.js"
   }

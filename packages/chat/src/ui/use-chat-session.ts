@@ -193,7 +193,17 @@ export function useChatSession(options: ChatSessionOptions) {
       return
     }
     const message = normalized.text.trim()
-    const skills = draft.includes(skillMarker) ? selectedSkills.map(({ name }) => ({ name })) : []
+    const skills = draft.includes(skillMarker)
+      ? selectedSkills.map(({ name, resourceId, resourceRevision }) => ({
+          name,
+          id: resourceId ?? '',
+          revision: resourceRevision ?? '',
+        }))
+      : []
+    if (skills.some((skill) => !skill.id || !skill.revision)) {
+      onError('技能引用已失效，请重新选择技能')
+      return
+    }
     const images = attachments.map(({ type, data, mimeType }) => ({ type, data, mimeType }))
     if ((!message && !images.length && !skills.length) || !canSend()) return
     const sessionKey = optionsRef.current.currentSessionKey()

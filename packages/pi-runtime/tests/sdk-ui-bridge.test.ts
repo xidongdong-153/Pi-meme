@@ -178,3 +178,27 @@ test('多题桥显式取消、Abort 和会话清理返回空答案，不保留�
     if (kind === 'abort') assert.equal(events.at(-1)?.type, 'extension_ui_closed')
   }
 })
+
+test('终端组件调用发出明确警告且不执行工厂，文本 widget 继续透传', async () => {
+  const events: PiExtensionEvent[] = []
+  const bridge = new ExtensionUiBridge((event) => events.push(event))
+  assert.equal(events.length, 0)
+  const factory = () => {
+    throw new Error('终端组件工厂不能在图形 Host 执行')
+  }
+  assert.equal(await bridge.ui.custom(factory), undefined)
+  bridge.ui.setWidget('terminal-widget', factory)
+  bridge.ui.setHeader(factory)
+  bridge.ui.setFooter(factory)
+  bridge.ui.setEditorComponent(factory)
+  for (const event of events) {
+    assert.ok(event.type === 'extension_ui_request' && event.method === 'notify')
+    assert.equal(event.notifyType, 'warning')
+    assert.match(event.message, /桌面端不支持扩展 UI 方法/)
+  }
+  assert.equal(events.length, 5)
+  bridge.ui.setWidget('text-widget', ['纯文本'])
+  const widget = events.at(-1)
+  assert.ok(widget?.type === 'extension_ui_request' && widget.method === 'setWidget')
+  assert.deepEqual(widget.widgetLines, ['纯文本'])
+})

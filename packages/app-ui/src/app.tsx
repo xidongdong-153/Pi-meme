@@ -4,7 +4,9 @@ import type { ServiceUI } from './service-ui'
 import { DeveloperSettings } from './developer-settings'
 import { SubagentsPanel } from './subagents-panel'
 import { ProfileSettings } from '@pi-meme/usage/ui/profile-settings'
-import { SkillsSettings } from '@pi-meme/resources/ui/skills-settings'
+import { ResourceCenter } from './resource-center'
+import { createResourceClient } from '@pi-meme/client/resource-client'
+import { skillMarker } from '@pi-meme/contracts/skills'
 import { ExtensionsSettings } from '@pi-meme/resources/ui/extensions-settings'
 import { AccessSettings } from '@pi-meme/permissions/ui/access-settings'
 import { AgentAccessSelector } from '@pi-meme/permissions/ui/agent-access-selector'
@@ -12,7 +14,7 @@ import { AppHeader } from './app-header'
 import { ForkNotice } from './fork-notice'
 import { WorkspaceContent } from './workspace-content'
 import { ErrorNotice } from './error-notice'
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ComponentProps } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentProps } from 'react'
 import { Composer } from '@pi-meme/chat/ui/composer/composer'
 import { Conversation } from '@pi-meme/chat/ui/conversation/conversation'
 import { Sidebar } from '@pi-meme/workspace/ui/sidebar/sidebar'
@@ -40,7 +42,7 @@ import { ResizeHandle } from './resize-handle'
 import type { RightSidebarTab } from './right-sidebar'
 import type { PluginClient } from '@pi-meme/client/plugin-client'
 import type { UiPluginDescriptor, UiPluginSlot } from '@pi-meme/plugin-sdk/ui'
-import { PluginToolCardProvider } from '@pi-meme/ui/components/plugin-tool-card'
+import { PluginRenderers } from './plugin-renderers'
 import { UiPluginRegistry } from './plugin-registry'
 import { PluginSlot } from './plugin-slot'
 import { PluginCenter } from './plugin-center'
@@ -74,6 +76,7 @@ export function App({
   onHostConnection: () => void
   hostConnections?: ComponentProps<typeof HostSettings>['connections']
 }) {
+  const resources = useMemo(() => createResourceClient(call, plugins.onChange), [call, plugins])
   const [registry] = useState(() => new UiPluginRegistry(bridge, loadPluginUI, call))
   const [pluginDescriptors, setPluginDescriptors] = useState<UiPluginDescriptor[]>([])
   const [rightPaneOpen, setRightPaneOpen] = useState(false)
@@ -144,6 +147,13 @@ export function App({
       void registry.dispose()
     },
     [registry],
+  )
+  useEffect(
+    () =>
+      resources.onChange(() => {
+        void chat.refreshSnapshot()
+      }),
+    [resources, chat.refreshSnapshot],
   )
   const pluginProps = {
     bridge,
@@ -440,7 +450,7 @@ export function App({
   if (!active) return null
 
   return (
-    <PluginToolCardProvider render={(tool) => extra('tool-card', { tool })}>
+    <PluginRenderers registry={registry} props={pluginProps}>
       <TooltipProvider delayDuration={200}>
         <main
           data-active-service={serviceUI?.serviceId ?? 'local'}
@@ -734,14 +744,29 @@ export function App({
                       call={call}
                     />
                   )
-                if (section === 'plugins')
+                if (section === 'plugins' || section === 'skills')
                   return (
-                    <PluginCenter
-                      client={plugins}
-                      plugins={pluginDescriptors}
-                      errors={registry.errors()}
-                      onRefresh={refreshPlugins}
-                      renderSettings={(id) => (
+                    <ResourceCenter
+                      key={section}
+                      client={resources}
+                      plugins={plugins}
+                      initialKind={section === 'skills' ? 'skill' : 'all'}
+                      cwd={cwd}
+                      commands={chat.commands}
+                      skillUsages={chat.chat.skillUsages}
+                      resourceSnapshot={chat.state?.resourceSnapshot}
+                      onChanged={async () => {
+                        await refreshPlugins()
+                        await chat.refreshSnapshot()
+                      }}
+                      onUse={(command) => {
+                        if (command.source === 'skill') {
+                          chat.setSelectedSkills([...chat.selectedSkills, command])
+                          chat.setDraft(`${chat.draft}${chat.draft ? ' ' : ''}${skillMarker} `)
+                        } else chat.setDraft(`${chat.draft}${chat.draft ? ' ' : ''}/${command.name} `)
+                        setSettingsOpen(false)
+                      }}
+                      renderPluginSettings={(id) => (
                         <PluginSlot registry={registry} pluginId={id} slot="settings" props={pluginProps} />
                       )}
                     />
@@ -787,17 +812,6 @@ export function App({
                     />
                   )
                 if (section === 'profile') return <ProfileSettings {...{ loadUsage: bridge.getUsageStats }} />
-                if (section === 'skills')
-                  return (
-                    <SkillsSettings
-                      {...{
-                        commands: chat.commands,
-                        ready,
-                        loading: chat.loading,
-                        onRefresh: chat.refreshCommands,
-                      }}
-                    />
-                  )
                 if (section === 'extensions')
                   return (
                     <DeveloperSettings call={call}>
@@ -837,6 +851,6 @@ export function App({
           )}
         </main>
       </TooltipProvider>
-    </PluginToolCardProvider>
+    </PluginRenderers>
   )
 }

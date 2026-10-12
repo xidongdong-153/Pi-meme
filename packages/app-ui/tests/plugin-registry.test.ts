@@ -107,3 +107,53 @@ test('被Host隔离的failed插件不会运行UI入口', async () => {
   assert.equal(registry.getSnapshot().length, 0)
   await registry.dispose()
 })
+
+test('消息和工具贡献绑定真实插件与代次，图标地址传入 UI 上下文', async () => {
+  let iconUrl: string | undefined
+  const registry = new UiPluginRegistry({} as DesktopBridge, async () => ({
+    activate(context) {
+      iconUrl = context.iconUrl
+      context.contribute({ id: 'example:tool', slot: 'tool-card', match: { toolName: 'review' }, render: () => null })
+      context.contribute({
+        id: 'example:message',
+        slot: 'message',
+        match: { customType: 'review' },
+        render: () => null,
+      })
+    },
+  }))
+  await registry.synchronize([{ ...plugin(1), iconUrl: '/assets/icon.svg' }])
+  assert.equal(iconUrl, '/assets/icon.svg')
+  assert.deepEqual(
+    registry.getSnapshot().map((entry) => entry.match?.ownerId),
+    ['example', 'example'],
+  )
+  assert.deepEqual(
+    registry.getSnapshot().map((entry) => entry.generation),
+    [1, 1],
+  )
+  await registry.dispose()
+})
+
+test('拒绝未指定工具或消息类型的贡献以及伪造其他插件来源', async () => {
+  for (const contribution of [
+    { id: 'example:tool', slot: 'tool-card' as const, render: () => null },
+    { id: 'example:message', slot: 'message' as const, render: () => null },
+    {
+      id: 'example:tool',
+      slot: 'tool-card' as const,
+      match: { ownerId: 'other', toolName: 'review' },
+      render: () => null,
+    },
+  ]) {
+    const registry = new UiPluginRegistry({} as DesktopBridge, async () => ({
+      activate(context) {
+        context.contribute(contribution)
+      },
+    }))
+    await registry.synchronize([plugin(1)])
+    assert.equal(registry.getSnapshot().length, 0)
+    assert.match(registry.errors().example, /match|来源/)
+    await registry.dispose()
+  }
+})

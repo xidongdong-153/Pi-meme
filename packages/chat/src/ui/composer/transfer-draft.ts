@@ -4,7 +4,9 @@ import type { ComposerSnapshot } from '../use-chat-session'
 
 export function transferDraft(composer: ComposerSnapshot, commands: PiSlashCommand[]) {
   const available = new Map(
-    commands.filter((command) => command.source === 'skill').map((command) => [command.name, command]),
+    commands
+      .filter((command) => command.source === 'skill')
+      .map((command) => [`${command.resourceId}:${command.resourceRevision}`, command]),
   )
   const selectedSkills: PiSlashCommand[] = []
   let index = 0
@@ -12,7 +14,10 @@ export function transferDraft(composer: ComposerSnapshot, commands: PiSlashComma
   const draft = composer.draft.replaceAll(skillMarker, () => {
     const skill = composer.selectedSkills[index++]
     if (!skill) return ''
-    const next = available.get(skill.name)
+    const next =
+      skill.resourceId && skill.resourceRevision
+        ? available.get(`${skill.resourceId}:${skill.resourceRevision}`)
+        : undefined
     if (next) {
       selectedSkills.push(next)
       return skillMarker

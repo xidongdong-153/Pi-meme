@@ -1,5 +1,14 @@
 export const skillMarker = '\uFFFC'
-export type SkillReference = { name: string }
+export type SkillReference = { id: string; revision: string; name: string }
+
+export type SkillUsage = SkillReference & {
+  path: string
+  source: 'explicit' | 'implicit-read'
+  toolCallId?: string
+  partial?: boolean
+  messageTimestamp?: number
+}
+export type BranchSkillUsage = SkillUsage & { inherited: boolean }
 
 export type SkillMessagePart = { type: 'text'; text: string } | { type: 'skill'; name: string; path: string }
 

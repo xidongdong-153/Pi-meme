@@ -6,8 +6,10 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
 import { PiSessionPool } from '@pi-meme/pi-runtime/session-pool'
+import { SdkSession } from '@pi-meme/pi-runtime/sdk/session'
 import { fromSnapshot, applyEvent } from '@pi-meme/chat/ui/model/state'
 import type { DesktopEvent } from '@pi-meme/contracts/desktop'
+import type { ResourceSnapshot } from '@pi-meme/contracts/resources'
 import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
 import { requestText } from '../../../tests/fixtures/fake-provider.mjs'
 
@@ -38,9 +40,34 @@ test('切回后台流式会话时，快照恢复已生成的正文和未结束�
         ? { text: '后台流式正文', tool: { name: 'slow-tool', arguments: JSON.stringify({ seconds: 5 }) } }
         : '收到',
   })
-  const extensionsDirectory = path.join(directory, '.pi', 'extensions')
+  const extensionsDirectory = path.join(directory, '.agents', 'extensions')
   await mkdir(extensionsDirectory, { recursive: true })
-  await copyFile(extension, path.join(extensionsDirectory, `${path.parse(extension).name}.js`))
+  const extensionPath = path.join(extensionsDirectory, `${path.parse(extension).name}.js`)
+  await copyFile(extension, extensionPath)
+  const resources: ResourceSnapshot = {
+    id: 'background-resources',
+    generation: 1,
+    cwd: directory,
+    skills: [],
+    extensions: [
+      {
+        id: 'smoke-extension',
+        kind: 'extension',
+        name: 'smoke-extension',
+        revision: 'smoke-1',
+        path: extensionPath,
+        sourcePath: extensionPath,
+        baseDir: extensionsDirectory,
+        scope: 'project',
+        owner: { id: 'smoke-extension', type: 'loose' },
+        enabled: true,
+        defaultPolicy: { enabled: true, invocation: 'automatic' },
+        invocation: 'automatic',
+        diagnostics: [],
+        editable: false,
+      },
+    ],
+  }
   const events: DesktopEvent[] = []
   const pool = new PiSessionPool(
     directory,
@@ -53,6 +80,8 @@ test('切回后台流式会话时，快照恢复已生成的正文和未结束�
     undefined,
     agent.runtimePaths,
     agent.credentials,
+    (cwd, notify, paths, credentials, mcp) =>
+      new SdkSession(cwd, notify, paths, credentials, mcp, { resourceSnapshot: resources }),
   )
   try {
     pool.prepare(directory)

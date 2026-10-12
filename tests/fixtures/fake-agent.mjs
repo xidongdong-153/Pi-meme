@@ -24,8 +24,11 @@ function createRuntimePaths(userData) {
     return createHash('sha256').update(normalized).digest('hex')
   }
   return {
+    dataRoot: userData,
     agentDir,
-    builtinSkillsDirectory: path.join(agentDir, 'builtin-skills'),
+    skillsDirectory: path.join(userData, 'skills'),
+    extensionsDirectory: path.join(userData, 'extensions'),
+    builtinSkillsDirectory: path.join(userData, 'builtin-resources', 'skills'),
     sessionsDirectory,
     workspaceDataRoot,
     secureCredentialsFile: path.join(userData, 'secure', 'credentials.bin'),

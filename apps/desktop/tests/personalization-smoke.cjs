@@ -22,10 +22,7 @@ module.exports = async function personalizationSmoke(window, waitFor, directory,
   }
   const nav = 'nav[aria-label="设置分类"]'
   const select = async (name) => {
-    if (name === '技能') {
-      await select('扩展')
-      await clickText('技能', '#settings-content')
-    } else if (['模型', '外观', '偏好', '扩展'].includes(name)) {
+    if (['模型', '外观', '偏好', '扩展', '技能'].includes(name)) {
       await clickText(name, nav)
     } else {
       await clickText(name)
@@ -121,30 +118,58 @@ module.exports = async function personalizationSmoke(window, waitFor, directory,
   await fs.writeFile(path.join(pluginDirectory, 'dist', 'agent', 'entry.js'), 'export default function() {}')
   await evaluate(`window.piMemePlugins.installDirectory(${JSON.stringify(pluginDirectory)})`)
   await select('扩展')
+  await clickText('应用插件', 'section[aria-label="资源中心"]')
   await waitFor(
-    () => evaluate('document.querySelectorAll("ul[aria-label=已安装插件] li").length === 1'),
-    '仅外部插件列表',
+    () => evaluate('document.querySelectorAll("ul[aria-label=技能与扩展] li").length === 1'),
+    'App插件视图仅显示外部插件',
   )
   assert.equal(
-    await evaluate('document.querySelector("ul[aria-label=已安装插件]").textContent.includes("@pi-meme/")'),
+    await evaluate('document.querySelector("ul[aria-label=技能与扩展]").textContent.includes("@pi-meme/")'),
     false,
   )
-  await change('搜索插件', '不存在的插件')
-  await waitFor(() => evaluate('document.querySelectorAll("ul[aria-label=已安装插件] li").length === 0'), '插件搜索')
-  await change('搜索插件', '')
-  await capture('plugins-dark')
-  await evaluate(`document.querySelector('button[aria-label="查看插件：${pluginId}"]').click()`)
+  assert.equal(await evaluate('document.querySelector("input[aria-label=搜索资源]").placeholder'), '搜索技能与扩展')
+  await change('搜索资源', '不存在的插件')
+  await waitFor(() => evaluate('document.querySelectorAll("ul[aria-label=技能与扩展] li").length === 0'), '插件搜索')
+  await change('搜索资源', '')
   await waitFor(
-    () => evaluate(`document.querySelector('[role=dialog]')?.textContent.includes(${JSON.stringify(pluginId)})`),
+    () => evaluate('document.querySelectorAll("ul[aria-label=技能与扩展] li").length === 1'),
+    '恢复插件列表',
+  )
+  const assertResourceCopy = async () => {
+    const { text, address, cwd } = await evaluate(`(async () => ({
+      text: document.querySelector('#settings-content').innerText,
+      address: window.location.origin,
+      cwd: (await window.piMemeClient.getConnection()).cwd,
+    }))()`)
+    assert.equal(text.includes('Host'), false, '技能与扩展页面使用设备名称')
+    assert.equal(text.includes(address), false, '技能与扩展页面不显示连接地址')
+    assert.equal(text.includes(cwd), false, '技能与扩展页面不直接显示项目路径')
+  }
+  await assertResourceCopy()
+  await capture('plugins-dark')
+  await evaluate(`document.querySelector('button[aria-label="查看资源：${pluginId}"]').click()`)
+  await waitFor(
+    () =>
+      evaluate(
+        `document.querySelector('section[aria-label="资源中心"] h3')?.textContent === ${JSON.stringify(pluginId)}`,
+      ),
     '外部插件详情',
   )
-  await evaluate('document.querySelector("[role=dialog] > button:last-child").click()')
-  await waitFor(() => evaluate('!document.querySelector("[role=dialog]")'), '关闭插件详情')
-  await evaluate(`window.piMemePlugins.disable(${JSON.stringify(pluginId)})`)
-  await clickText('已停用', '#settings-content')
-  await waitFor(() => evaluate('document.querySelectorAll("ul[aria-label=已安装插件] li").length === 1'), '已停用筛选')
-  await clickText('已启用', '#settings-content')
-  await waitFor(() => evaluate('document.querySelectorAll("ul[aria-label=已安装插件] li").length === 0'), '已启用筛选')
+  assert.equal(await evaluate('Boolean(document.querySelector("[role=dialog]"))'), false, '插件详情使用资源页面')
+  await clickText('停用', 'section[aria-label="资源中心"]')
+  await waitFor(
+    () =>
+      evaluate(
+        'document.querySelector("section[aria-label=资源中心]").textContent.includes("应用插件 · 此设备 · 已停用")',
+      ),
+    '插件停用详情状态',
+  )
+  await clickText('返回资源', 'section[aria-label="资源中心"]')
+  await waitFor(
+    () =>
+      evaluate(`document.querySelector('button[aria-label="查看资源：${pluginId}"]')?.textContent.includes('已停用')`),
+    '插件停用列表状态',
+  )
   await select('远程')
   assert.equal(await evaluate('document.querySelector("#settings-content").textContent.includes("配置远程服务")'), true)
   const origin = await evaluate('window.location.origin')
@@ -161,6 +186,12 @@ module.exports = async function personalizationSmoke(window, waitFor, directory,
   assert.equal(await evaluate('window.location.origin'), origin, '取消远程配置保持本机页面')
   await evaluate(`window.piMemePlugins.enable(${JSON.stringify(pluginId)})`)
   await select('扩展')
+  await clickText('应用插件', 'section[aria-label="资源中心"]')
+  await waitFor(
+    () =>
+      evaluate(`document.querySelector('button[aria-label="查看资源：${pluginId}"]')?.textContent.includes('已启用')`),
+    '插件启用列表状态',
+  )
   window.setSize(900, 720)
   await capture('plugins-narrow')
   assert.equal(
@@ -170,12 +201,55 @@ module.exports = async function personalizationSmoke(window, waitFor, directory,
     true,
   )
   await select('技能')
-  await change('搜索技能', 'review-code')
-  await waitFor(() => evaluate('document.querySelectorAll("ul[aria-label=已加载技能] li").length === 1'), '技能搜索')
-  await clickText('项目', '#settings-content')
-  assert.equal(await evaluate('document.querySelectorAll("ul[aria-label=已加载技能] li").length'), 0)
-  await clickText('全部', '#settings-content')
-  await change('搜索技能', '')
+  await assertResourceCopy()
+  assert.equal(
+    await evaluate(
+      '[...document.querySelectorAll("[aria-label=资源类型] button")].some(button => button.textContent === "技能" && button.getAttribute("aria-pressed") === "true")',
+    ),
+    true,
+    '独立技能入口预选技能视图',
+  )
+  await change('搜索资源', 'review-code')
+  await waitFor(() => evaluate('document.querySelectorAll("ul[aria-label=技能与扩展] li").length === 1'), '技能搜索')
+  const skillSource = path.join(directory, 'skills/review-code/SKILL.md')
+  const originalSkill = await fs.readFile(skillSource, 'utf8')
+  await evaluate(`document.querySelector('button[aria-label="查看资源：review-code"]').click()`)
+  await waitFor(
+    () => evaluate('document.querySelector("section[aria-label=资源中心] h3")?.textContent === "review-code"'),
+    '技能资源详情',
+  )
+  assert.equal(
+    await evaluate('document.querySelector("section[aria-label=资源中心]").textContent.includes("技能 · 此设备")'),
+    true,
+    '技能来源仍为当前设备',
+  )
+  await assertResourceCopy()
+  await capture('skill-detail-dark')
+  await evaluate(`(() => {
+    const scope = document.querySelector('select[aria-label="资源策略范围"]')
+    scope.value = 'project'
+    scope.dispatchEvent(new Event('change', { bubbles: true }))
+  })()`)
+  assert.equal(await evaluate('document.querySelector("select[aria-label=资源策略范围]").value'), 'project')
+  await clickText('设为仅手动', 'section[aria-label="资源中心"]')
+  await waitFor(
+    () =>
+      evaluate(
+        '[...document.querySelectorAll("section[aria-label=资源中心] button")].some(button => button.textContent === "使用设备默认设置" && !button.disabled)',
+      ),
+    '技能项目覆盖策略',
+  )
+  assert.equal(await fs.readFile(skillSource, 'utf8'), originalSkill, '项目覆盖不修改Host技能源码')
+  await clickText('使用设备默认设置', 'section[aria-label="资源中心"]')
+  await waitFor(
+    () =>
+      evaluate(
+        '[...document.querySelectorAll("section[aria-label=资源中心] button")].some(button => button.textContent === "设为仅手动" && !button.disabled)',
+      ),
+    '恢复技能Host默认策略',
+  )
+  await clickText('返回资源', 'section[aria-label="资源中心"]')
+  await change('搜索资源', '')
   await capture('skills-narrow')
   window.setSize(...originalSize)
   await select('外观')
@@ -183,6 +257,7 @@ module.exports = async function personalizationSmoke(window, waitFor, directory,
   await evaluate('document.querySelector("button[aria-label=浅色模式]").click()')
   await waitFor(() => evaluate('document.documentElement.dataset.appearance === "light"'), '浅色主题')
   await select('扩展')
+  await clickText('应用插件', 'section[aria-label="资源中心"]')
   await capture('plugins-light')
   await select('技能')
   await capture('skills-light')
@@ -193,6 +268,15 @@ module.exports = async function personalizationSmoke(window, waitFor, directory,
   )
   await capture('personalization-light')
   await evaluate(`window.piMemePlugins.remove(${JSON.stringify(pluginId)})`)
+  await select('扩展')
+  await clickText('应用插件', 'section[aria-label="资源中心"]')
+  await waitFor(
+    () =>
+      evaluate(
+        `Boolean(document.querySelector('ul[aria-label="技能与扩展"]')) && !document.querySelector('button[aria-label="查看资源：${pluginId}"]')`,
+      ),
+    '已移除插件不再出现在资源列表',
+  )
   await select('外观')
   await evaluate('document.querySelector("button[aria-label=深色模式]").click()')
   await waitFor(() => evaluate('document.documentElement.dataset.appearance === "dark"'), '恢复深色主题')

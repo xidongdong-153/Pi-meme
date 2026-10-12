@@ -7,6 +7,7 @@
  * - jiti：加载用户 TS 扩展。
  * - quickjs-wasi：codemode 的 wasm。
  * - @silvia-odwyer/photon-node：附件图片缩放。
+ * - esbuild 与当前平台的 @esbuild 包：校验导入扩展的依赖与构建产物。
  *
  * 单独调试：
  *   node scripts/copy-pi-runtime.mjs /tmp/pi-runtime-check
@@ -39,12 +40,15 @@ function piPackageFilter(source) {
 export async function copyPiRuntime(targetDir) {
   const packages = [
     { name: piPackage, filter: piPackageFilter },
+    { name: '@earendil-works/chord', filter: copyFilter },
     { name: '@earendil-works/pi-agent-core', filter: copyFilter },
     { name: '@napi-rs/keyring', filter: copyFilter },
     { name: `@napi-rs/keyring-${process.platform}-${process.arch}`, filter: copyFilter },
     { name: 'jiti', filter: copyFilter },
     { name: 'quickjs-wasi', filter: copyFilter },
     { name: '@silvia-odwyer/photon-node', filter: copyFilter },
+    { name: 'esbuild', filter: copyFilter },
+    { name: `@esbuild/${process.platform}-${process.arch}`, filter: copyFilter },
   ]
   const copied = []
   for (const entry of packages) {

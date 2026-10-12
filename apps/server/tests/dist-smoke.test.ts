@@ -8,10 +8,12 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
+import { createDevkitAppPackage } from '../../../tests/fixtures/devkit-app'
 import type { AgentSummary } from '@pi-meme/contracts/collaboration'
 import type { PlanDocument } from '@pi-meme/contracts/plan'
 import type { InstructionsSnapshot, SaveInstructionResult } from '@pi-meme/contracts/settings'
 import type { PiSlashCommand } from '@pi-meme/contracts/pi'
+import type { ResourceCatalog } from '@pi-meme/contracts/resources'
 import { requestText } from '../../../tests/fixtures/fake-provider.mjs'
 
 type Snapshot = {
@@ -239,8 +241,33 @@ test(
         return body.result
       }
       assert.deepEqual(await rpc<unknown[]>('plugins:list'), [])
+      const imported = await rpc<ResourceCatalog>('resources:import', [
+        {
+          kind: 'pi-package',
+          files: [
+            {
+              path: 'package.json',
+              content: JSON.stringify({
+                name: 'server-esbuild-fixture',
+                version: '1.0.0',
+                pi: { extensions: ['./extensions/index.ts'] },
+              }),
+            },
+            {
+              path: 'extensions/index.ts',
+              content:
+                "import { value } from './helpers/value'; export default function(pi) { pi.on('session_start', (_event, ctx) => ctx.ui.setStatus('server-fixture', value)) }",
+            },
+            { path: 'extensions/helpers/value.ts', content: "export const value: string = 'Server 原生扩展'" },
+          ],
+        },
+      ])
+      assert.ok(
+        imported.items.some((item) => item.kind === 'extension' && item.owner.name === 'server-esbuild-fixture'),
+        'Server产物通过esbuild校验带相对TS依赖的原生扩展',
+      )
       const skillSource = path.join(repo, 'pi/skills/skill-creator')
-      const skillInstalled = path.join(data, 'pi/builtin-skills/skill-creator')
+      const skillInstalled = path.join(data, 'builtin-resources/skills/skill-creator')
       for (const entry of await readdir(skillSource, { recursive: true, withFileTypes: true })) {
         if (!entry.isFile()) continue
         const relative = path.relative(skillSource, path.join(entry.parentPath, entry.name))
@@ -260,7 +287,14 @@ test(
       assert.ok(creator, 'Server Worker 加载内置 Skill Creator')
       assert.equal(creator.builtin, true)
       assert.equal(creator.displayName, 'Skill Creator')
-      assert.equal(creator.sourceInfo.path, path.join(skillInstalled, 'SKILL.md'))
+      assert.ok(creator.sourceInfo.path.startsWith(path.join(data, 'resources/snapshots')))
+      assert.ok(creator.resourceId && creator.resourceRevision)
+      const appPackage = await createDevkitAppPackage(root, 'dist-devkit-app')
+      const installedApp = await rpc<{ id: string; status: string }>('plugins:install-package', [appPackage])
+      assert.equal(installedApp.status, 'active')
+      assert.match(await rpc<string>('dist-devkit-app:time'), /^\d{4}-\d{2}-\d{2}T/)
+      await rpc('plugins:reload', [installedApp.id])
+      assert.match(await rpc<string>('dist-devkit-app:time'), /^\d{4}-\d{2}-\d{2}T/)
       const plugin = path.join(root, 'plugin')
       await mkdir(path.join(plugin, 'dist/agent'), { recursive: true })
       await writeFile(

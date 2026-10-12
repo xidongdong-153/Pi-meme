@@ -13,6 +13,8 @@ import { messageVersions } from '../model/message-versions'
 import { CompactionCard, CompactionProgressCard } from './compaction-card'
 import { conversationOutline } from '../model/conversation-outline'
 import { ConversationOutline } from './conversation-outline'
+import { PluginMessage } from '@pi-meme/ui/components/plugin-message'
+import { messageText } from '../model/message-text'
 import { AgentStatusRow } from './agent-status-row'
 
 function noSubscription() {
@@ -186,6 +188,17 @@ export const Conversation = React.memo(
                     summary={turn.summary}
                     tokensBefore={turn.tokensBefore}
                     timestamp={turn.timestamp}
+                  />
+                )
+              }
+              if (turn.type === 'custom') {
+                return (
+                  <PluginMessage
+                    key={turn.key}
+                    message={turn.message}
+                    {...turn.message.source}
+                    customType={turn.message.customType}
+                    fallback={<div className="whitespace-pre-wrap text-sm">{messageText(turn.message)}</div>}
                   />
                 )
               }

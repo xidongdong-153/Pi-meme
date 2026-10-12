@@ -1,11 +1,20 @@
 import type { AgentMailboxMessage, AgentSummary } from '@pi-meme/contracts/collaboration'
+import type { BranchSkillUsage } from '@pi-meme/contracts/skills'
 import type { QueuedInput, PlanDocument } from '@pi-meme/contracts/plan'
-import type { PiImage, PiMessage, PiPauseInterval, PiRunInterval, PiSessionEntries } from '@pi-meme/contracts/pi'
+import type {
+  PiImage,
+  PiMessage,
+  PiPauseInterval,
+  PiRunInterval,
+  PiSessionEntries,
+  PiUiSource,
+} from '@pi-meme/contracts/pi'
 
 export type ToolRun = {
   id: string
   name: string
   parentToolCallId?: string
+  source?: PiUiSource
   children?: ToolRun[]
   args?: unknown
   result?: unknown
@@ -19,6 +28,7 @@ export type ChatState = {
   agents?: AgentSummary[]
   agentMessages?: AgentMailboxMessage[]
   planDocuments?: PlanDocument[]
+  skillUsages?: BranchSkillUsage[]
   messages: PiMessage[]
   sessionEntries?: PiSessionEntries
   live: Extract<PiMessage, { role: 'assistant' }> | null
@@ -53,6 +63,7 @@ export type ActivityItem =
   | {
       id: string
       type?: 'tool'
+      source?: PiUiSource
       name?: string
       children?: ToolRun[]
       command?: string
@@ -67,6 +78,7 @@ export type ActionItemData = ActivityItem
 export type RenderSegment = { type: 'text'; text: string } | { type: 'activity'; items: ActivityItem[] }
 
 export type TurnChunk =
+  | { type: 'custom'; message: Extract<PiMessage, { role: 'custom' }>; key: string }
   | {
       type: 'agent_status'
       agentId: string

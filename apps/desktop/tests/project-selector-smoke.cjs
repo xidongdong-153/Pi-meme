@@ -309,9 +309,17 @@ module.exports = async function projectSelectorSmoke(window, waitFor, directory,
       evaluate(
         `window.piMemeClient.getSessions().then(value => value.standaloneSessions.some(session => session.cwd === ${JSON.stringify(standalone)}))`,
       ),
-    '独立会话进入未归属项目列表',
+    '独立会话进入Host无项目会话列表',
   )
-  await waitFor(() => evaluate(`document.body.textContent.includes('未归属项目')`), '未归属项目侧栏')
+  await waitFor(
+    () =>
+      evaluate(`window.piMemeClient.getSessions().then(value => {
+        const session = value.standaloneSessions.find(entry => entry.cwd === ${JSON.stringify(standalone)})
+        return Boolean(session && [...document.querySelectorAll('#workspace-sidebar [data-session-path]')]
+          .some(node => node.dataset.sessionPath === session.path && node.checkVisibility()))
+      })`),
+    '无项目会话在最近侧栏中可见',
+  )
   const key = await evaluate('window.piMemeClient.getConnection().then(value => value.sessionKey)')
   await evaluate(`window.piMemeClient.abort(${JSON.stringify(key)})`)
   await waitFor(

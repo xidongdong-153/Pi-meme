@@ -142,26 +142,26 @@ module.exports = async function sidebarMenuSmoke(window, waitFor, directory, scr
     assert.deepEqual(await projectAppearance(), { folder: 1, chevron: false, actions: [visible, visible, visible] })
   }
   const sectionHeaderSelector = '[data-sidebar-section="projects"] > div:first-child'
-  const sectionAppearance = () =>
+  const sectionAppearance = (headerSelector = sectionHeaderSelector) =>
     evaluate(
-      `(() => { const header = document.querySelector(${JSON.stringify(sectionHeaderSelector)}); const opacity = ${effectiveOpacity}; return [...header.querySelectorAll('button:not([aria-controls])')].map(button => opacity(button, header)); })()`,
+      `(() => { const header = document.querySelector(${JSON.stringify(headerSelector)}); const opacity = ${effectiveOpacity}; return [...header.querySelectorAll('button:not([aria-controls])')].map(button => opacity(button, header)); })()`,
     )
-  const assertSectionActions = async (visible, label, hoverSelector) => {
+  const assertSectionActions = async (visible, label, hoverSelector, headerSelector = sectionHeaderSelector) => {
     await waitFor(async () => {
       if (hoverSelector) await hover(hoverSelector)
-      return (await sectionAppearance()).every((opacity) => opacity === visible)
+      return (await sectionAppearance(headerSelector)).every((opacity) => opacity === visible)
     }, label)
-    assert.deepEqual(await sectionAppearance(), [visible, visible])
+    assert.deepEqual(await sectionAppearance(headerSelector), [visible, visible])
   }
-  const checkSectionHover = async () => {
+  const checkSectionHover = async (headerSelector = sectionHeaderSelector) => {
     moveAway()
     await evaluate(
-      `document.querySelector(${JSON.stringify(sectionHeaderSelector)}).querySelector('button[aria-controls]').focus()`,
+      `document.querySelector(${JSON.stringify(headerSelector)}).querySelector('button[aria-controls]').focus()`,
     )
-    await assertSectionActions(0, '分区标题获得焦点时操作按钮隐藏')
-    await assertSectionActions(1, '鼠标悬停分区标题时操作按钮显现', sectionHeaderSelector)
+    await assertSectionActions(0, '分区标题获得焦点时操作按钮隐藏', undefined, headerSelector)
+    await assertSectionActions(1, '鼠标悬停分区标题时操作按钮显现', headerSelector, headerSelector)
     moveAway()
-    await assertSectionActions(0, '鼠标离开已展开分区标题后操作按钮隐藏')
+    await assertSectionActions(0, '鼠标离开已展开分区标题后操作按钮隐藏', undefined, headerSelector)
   }
   moveAway()
   await evaluate(`document.querySelector('[aria-label="侧边栏显示选项"]').focus()`)
@@ -376,24 +376,34 @@ module.exports = async function sidebarMenuSmoke(window, waitFor, directory, scr
     await evaluate(`window.piMemeClient.selectWorkspace({ kind: 'project', cwd: ${JSON.stringify(searchProject)} })`)
     await evaluate(`window.piMemeClient.selectWorkspace({ kind: 'project', cwd: ${JSON.stringify(other)} })`)
     await waitFor(
-      () => evaluate(`Boolean(document.querySelector('[data-project-cwd="${searchProject}"]'))`),
+      () =>
+        evaluate(
+          `(() => { if (document.querySelector('[data-project-cwd="${searchProject}"]')?.checkVisibility()) return true; [...document.querySelectorAll('[data-sidebar-section="projects"] button')].find(button => button.textContent.trim() === '展开显示')?.click(); return false; })()`,
+        ),
       '完整搜索测试项目',
     )
     await preferenceItem('整理侧边栏', '合并显示')
     await waitFor(async () => (await preferences()).groupMode === 'merged', '合并模式保存')
-    await checkSectionHover()
+    await checkSectionHover('[data-sidebar-section="recents"] > div:first-child')
     assert.equal(
       await evaluate(
         `document.querySelector(${JSON.stringify(projectSelector)}).querySelector('button[aria-expanded]').getAttribute('aria-expanded')`,
       ),
       'true',
     )
-    assert.equal(
-      await evaluate(
-        `document.querySelector('[data-sidebar-section="projects"] [data-project-cwd="${searchProject}"]').querySelector(':scope > button').getAttribute('aria-expanded') === null`,
-      ),
-      true,
+    assert.equal(await evaluate('Boolean(document.querySelector(\'[data-sidebar-section="projects"]\'))'), false)
+    const mergedSessionSelector = `[data-sidebar-section="recents"] [data-session-path="${searchFiles[0]}"]`
+    await waitFor(
+      () =>
+        evaluate(
+          `(() => { if (document.querySelector(${JSON.stringify(mergedSessionSelector)})?.checkVisibility()) return true; [...document.querySelectorAll('[data-sidebar-section="recents"] button')].find(button => button.textContent.trim() === '加载更多')?.click(); return false; })()`,
+        ),
+      '合并模式最近分区显示项目会话',
     )
+    await evaluate(
+      `document.querySelector(${JSON.stringify(mergedSessionSelector)}).scrollIntoView({ block: 'nearest' })`,
+    )
+    await capture('sidebar-merged-recents')
     await preferenceItem('聊天排序方式', '手动排序')
     await waitFor(async () => (await preferences()).sortMode === 'manual', '手动排序保存')
     await preferenceItem('整理侧边栏', '分项目显示')

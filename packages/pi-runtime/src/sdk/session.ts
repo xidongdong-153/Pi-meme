@@ -19,6 +19,7 @@ import { randomUUID } from 'node:crypto'
 import { createPlanGuard } from '../extensions/plan-mode'
 import type { ToolExecutionSettings } from '@pi-meme/contracts/settings'
 import type { SkillReference } from '@pi-meme/contracts/skills'
+import type { ResourceSnapshot } from '@pi-meme/contracts/resources'
 import type { Connection, DesktopError, DesktopEvent, Snapshot } from '@pi-meme/contracts/desktop'
 import type {
   PiEvent,
@@ -35,7 +36,8 @@ import { projectAgentConversation } from '../agent-conversation'
 import { projectBranchEntries } from '../session-tree-entries'
 import { createAgentAccessExtension } from '../extensions/agent-access'
 import { expandSkills } from '../skill-prompt'
-import { toSkillCommand } from '../skill-command'
+import { toResourceSkillCommand } from '../skill-command'
+import { branchSkillUsages, createSkillUsageExtension, skillUsageEntry } from '../extensions/skill-usage'
 import type { PiRuntimePaths } from '../runtime-paths'
 import type { ModelRestore } from '../runtime'
 import { AccessSandbox } from './access-sandbox'
@@ -45,6 +47,8 @@ import { createDesktopModelRuntime } from './model-runtime'
 import { createDesktopSettingsManager } from './settings'
 import { readDesktopAgentContextFiles } from './context-files'
 import { ExtensionUiBridge } from './ui-bridge'
+import { approvedSnapshotExtensions, freezeResourceLoader, snapshotSkills } from './resource-loader'
+import { eventUiSource, persistMessageSource, projectMessageSources } from './ui-source'
 
 type Notify = {
   connection: (value: Connection) => void
@@ -82,6 +86,8 @@ export type RuntimePolicy = {
   uiEnabled?: boolean
   agentPaths?: string[]
   resourcePaths?: { skills: string[]; prompts: string[]; extensions: string[] }
+  resourceSnapshot?: ResourceSnapshot
+  agentSources?: Array<{ pluginId: string; generation: number; path: string }>
   requireRestrictedPolicy?: boolean
   createSandbox?: typeof AccessSandbox.create
   createAccessExtension?: typeof createAgentAccessExtension
@@ -160,6 +166,16 @@ export class SdkSession {
 
   configureInlineExtensions(extensions: InlineExtension[]) {
     this.inlineExtensions = extensions.slice()
+  }
+
+  configureResourceSnapshot(snapshot: ResourceSnapshot) {
+    if (this.runtime) throw new Error('资源快照只能在创建或重建会话运行时前配置')
+    this.policy.resourceSnapshot = structuredClone(snapshot)
+    this.cachedCommands = null
+  }
+
+  getResourceSnapshot(): ResourceSnapshot | undefined {
+    return this.policy.resourceSnapshot ? structuredClone(this.policy.resourceSnapshot) : undefined
   }
 
   private desktopMcpExtension(sdk: PiSdk, cwd: string) {
@@ -359,6 +375,7 @@ export class SdkSession {
         ...this.inlineExtensions.filter(
           (extension) => !plan || extension.name === 'pi-meme-collaboration' || extension.name === 'pi-meme-user-input',
         ),
+        ...(this.policy.resourceSnapshot ? [createSkillUsageExtension(this.policy.resourceSnapshot)] : []),
         createPlanGuard(() => this.activeMode ?? this.preparationMode ?? this.mode),
         (pi: ExtensionAPI) => {
           pi.on('before_agent_start', (event) =>
@@ -372,47 +389,37 @@ export class SdkSession {
       ]
       const settingsManager = createDesktopSettingsManager(sdk, cwd, agentDir)
       const modelRuntime = await createDesktopModelRuntime(sdk, agentDir, this.credentials)
-      const projectPi = path.join(cwd, '.pi')
       const services = await sdk.createAgentSessionServices({
         cwd,
         agentDir,
         settingsManager,
         modelRuntime,
         resourceLoaderOptions: {
-          noExtensions: plan || restricted || (this.policy.requireRestrictedPolicy && !this.policy.resourcePaths),
+          noExtensions: true,
           noPromptTemplates: this.policy.requireRestrictedPolicy,
           additionalPromptTemplatePaths: this.policy.resourcePaths?.prompts ?? [],
-          additionalExtensionPaths: plan ? [] : (this.policy.agentPaths ?? []),
+          additionalExtensionPaths: plan
+            ? []
+            : [
+                ...(this.policy.agentPaths ?? []),
+                ...(!restricted
+                  ? approvedSnapshotExtensions(this.policy.resourceSnapshot).map((item) => item.path)
+                  : []),
+              ],
           noSkills: true,
           noContextFiles: true,
-          additionalSkillPaths:
-            this.policy.resourcePaths?.skills ??
-            (this.policy.requireRestrictedPolicy
-              ? []
-              : [
-                  this.paths.builtinSkillsDirectory,
-                  path.join(agentDir, 'skills'),
-                  path.join(projectPi, 'skills'),
-                  ...settingsManager.getSkillPaths(),
-                ]),
+          additionalSkillPaths: [],
+          skillsOverride: () => ({ skills: snapshotSkills(this.policy.resourceSnapshot), diagnostics: [] }),
           disabledBuiltinExtensions: ['mcp'],
           extensionFactories,
-          extensionsOverride: (base) => ({
-            ...base,
-            extensions: base.extensions.filter((extension) => {
-              const extensionPath = extension.sourceInfo.path
-              if (extensionPath.startsWith('<') || extensionPath.startsWith('builtin:')) return true
-              const resolved = path.resolve(extensionPath)
-              return (
-                this.policy.agentPaths?.includes(resolved) ||
-                isPathWithin(agentDir, resolved) ||
-                (!restricted && isPathWithin(projectPi, resolved))
-              )
-            }),
-          }),
           agentsFilesOverride: () => ({ agentsFiles: readDesktopAgentContextFiles(cwd, agentDir) }),
         },
       })
+      services.resourceLoader = freezeResourceLoader(
+        services.resourceLoader,
+        (message) => this.report(message),
+        this.policy.resourceSnapshot,
+      )
       const created = await sdk.createAgentSessionFromServices({
         services,
         sessionManager,
@@ -502,6 +509,15 @@ export class SdkSession {
     this.unsubscribe?.()
     this.unsubscribe = session.subscribe((event) => {
       if (generation !== this.generation) return
+      if (
+        event.type === 'entry_appended' &&
+        event.entry.type === 'custom' &&
+        event.entry.customType === skillUsageEntry
+      )
+        this.notify.event({
+          generation: this.generation,
+          event: { type: 'skill_usage_update', usages: this.getSkillUsages() },
+        })
       const desktopEvent = toDesktopEvent(event)
       if (event.type === 'queue_update') {
         for (const key of ['steering', 'followUp'] as const) {
@@ -515,11 +531,26 @@ export class SdkSession {
           })
         }
         this.emitQueue()
-      } else if (desktopEvent) this.handleEvent(desktopEvent)
+      } else if (desktopEvent) {
+        const source = eventUiSource(desktopEvent, session, this.policy.resourceSnapshot, this.policy.agentSources)
+        if (source) {
+          queueMicrotask(() => {
+            if (this.runtime === runtime && generation === this.generation)
+              persistMessageSource(session, desktopEvent, source)
+          })
+          this.handleEvent({
+            ...desktopEvent,
+            source,
+            ...('message' in desktopEvent ? { message: { ...desktopEvent.message, source } } : {}),
+          } as PiEvent)
+        } else this.handleEvent(desktopEvent)
+      }
     })
   }
 
   private handleEvent(event: PiEvent, forceSettled = false) {
+    if (event.type === 'message_end' && event.message.role === 'assistant')
+      event = { ...event, message: { ...event.message, completedAt: Date.now() } }
     if (event.type === 'agent_start' || event.type === 'compaction_start') {
       this.pendingSend = false
       this.activityRevision += 1
@@ -684,7 +715,7 @@ export class SdkSession {
           ? state
           : { ...state, isStreaming: this.running, isCompacting: this.running && state.isCompacting },
       ),
-      messages: own?.messages ?? messages,
+      messages: projectMessageSources(entries.entries, own?.messages ?? messages, entries.leafId),
       models,
       thinkingLevels,
       stats,
@@ -710,7 +741,12 @@ export class SdkSession {
       runIntervals: structuredClone(this.runIntervals),
       mode: this.mode,
       activeMode: this.activeMode,
+      skillUsages: this.getSkillUsages(),
     }
+  }
+
+  private getSkillUsages() {
+    return branchSkillUsages(this.session.sessionManager.getBranch(), this.conversationOrigin?.inheritedEntryIds)
   }
 
   private async getAvailableModels(): Promise<PiModel[]> {
@@ -724,11 +760,18 @@ export class SdkSession {
     )
   }
 
+  async assertResourceIdle() {
+    if (this.changing || this.draining || this.handingOff || this.pendingSend || this.pendingDeliveries.size)
+      throw new Error('会话仍在准备排队输入或交付消息，请等待完成')
+    await this.assertIdle()
+  }
+
   async assertIdle(allowDisconnected = false) {
     if (this.running) throw new Error('Pi 正在运行，请先停止当前任务')
     if (!allowDisconnected || this.status === 'ready') {
       const state = this.getState()
-      if (state.isStreaming || state.isCompacting) throw new Error('Pi 正在运行，请先停止当前任务')
+      if (!this.session.isIdle || state.isStreaming || state.isCompacting || state.pendingMessageCount)
+        throw new Error('Pi 正在运行，请先停止当前任务')
     }
   }
 
@@ -1317,8 +1360,8 @@ export class SdkSession {
           source: 'prompt',
           sourceInfo: template.sourceInfo,
         })
-      for (const skill of session.resourceLoader.getSkills().skills)
-        list.push(toSkillCommand(skill, this.paths.agentDir))
+      for (const skill of this.policy.resourceSnapshot?.skills ?? [])
+        if (skill.enabled && !skill.shadowedBy) list.push(toResourceSkillCommand(skill))
       return list
     })
     this.cachedCommands = commands

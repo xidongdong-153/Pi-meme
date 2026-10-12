@@ -1,5 +1,7 @@
 import type { ImageContent, TextContent, ThinkingContent, ToolCall } from '@earendil-works/pi-ai'
+import type { ResourceSnapshot } from './resources'
 import type { QueuedInput, TaskMode } from './plan'
+import type { BranchSkillUsage } from './skills'
 import type { PiUserInputRequest, UserInputAnswer } from './user-input'
 import type {
   AgentSession,
@@ -17,7 +19,11 @@ export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhi
 
 export type PiImage = ImageContent
 export type PiContent = TextContent | ThinkingContent | ImageContent | ToolCall
-export type PiMessage = AgentSession['messages'][number]
+export type PiUiSource = { ownerId: string; generation: number; toolName?: string; customType?: string }
+export type PiMessage = AgentSession['messages'][number] & { source?: PiUiSource; completedAt?: number }
+type WithMessageMetadata<Event> = Event extends { message: PiMessage }
+  ? Omit<Event, 'message'> & { message: PiMessage }
+  : Event
 export type PiSessionEntry = SessionEntry
 export type PiBranchEntry = Pick<PiSessionEntry, 'id' | 'parentId' | 'timestamp' | 'type'> & {
   role?: PiMessage['role']
@@ -34,6 +40,9 @@ export type PiSlashCommand = {
   displayName?: string
   shortDescription?: string
   builtin?: boolean
+  resourceId?: string
+  resourceRevision?: string
+  invocation?: 'automatic' | 'manual'
   description?: SlashCommandInfo['description']
   source: SlashCommandInfo['source'] | 'builtin'
   sourceInfo: SourceInfo
@@ -82,27 +91,31 @@ export type PiState = Pick<
   runIntervals?: PiRunInterval[]
   mode: TaskMode
   activeMode?: TaskMode
+  skillUsages?: BranchSkillUsage[]
+  resourceSnapshot?: ResourceSnapshot
   model?: PiModel
   modelSelectionRequired?: boolean
   thinkingLevel?: ThinkingLevel
 }
 export type PiEvent =
-  | (Extract<
-      JsonAgentSessionEvent,
-      {
-        type:
-          | 'agent_start'
-          | 'agent_end'
-          | 'message_start'
-          | 'message_update'
-          | 'message_end'
-          | 'tool_execution_start'
-          | 'tool_execution_update'
-          | 'tool_execution_end'
-          | 'compaction_start'
-          | 'compaction_end'
-      }
-    > & { runIntervals?: PiRunInterval[] })
+  | (WithMessageMetadata<
+      Extract<
+        JsonAgentSessionEvent,
+        {
+          type:
+            | 'agent_start'
+            | 'agent_end'
+            | 'message_start'
+            | 'message_update'
+            | 'message_end'
+            | 'tool_execution_start'
+            | 'tool_execution_update'
+            | 'tool_execution_end'
+            | 'compaction_start'
+            | 'compaction_end'
+        }
+      >
+    > & { runIntervals?: PiRunInterval[]; source?: PiUiSource })
   | { type: 'agent_settled'; aborted?: boolean; runIntervals?: PiRunInterval[] }
   | {
       type: 'pause_update'
@@ -112,6 +125,7 @@ export type PiEvent =
       pauseIntervals?: PiPauseInterval[]
     }
   | { type: 'queue_update'; steering: QueuedInput[]; followUp: QueuedInput[] }
+  | { type: 'skill_usage_update'; usages: BranchSkillUsage[] }
 export type PiExtensionDialogRequest =
   Extract<RpcExtensionUIRequest, { method: 'select' | 'confirm' | 'input' | 'editor' }> | PiUserInputRequest
 export type PiExtensionEvent =

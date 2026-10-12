@@ -5,6 +5,7 @@ import type { PlanDocument, SavePlanInput } from '@pi-meme/contracts/plan'
 import type { InlineExtension } from '@earendil-works/pi-coding-agent'
 import type { DesktopSettings } from '@pi-meme/contracts/settings'
 import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
+import type { ResourceSnapshot } from '@pi-meme/contracts/resources'
 import { SdkSession, type RuntimePolicy } from '@pi-meme/pi-runtime/sdk/session'
 import { createPiRuntimePaths } from '@pi-meme/pi-runtime/runtime-paths'
 import { MemoryCredentialStorage } from '@pi-meme/pi-runtime/secure-store'
@@ -17,6 +18,7 @@ export type SessionWorkerContext = {
   credentials: MemoryCredentialStorage
   settings: DesktopSettings
   cwd: string
+  resourceSnapshot?: ResourceSnapshot
   taskMode: () => import('@pi-meme/contracts/plan').TaskMode
   requestCollaboration: (
     request: Omit<CollaborationRequest, 'id'>,
@@ -43,6 +45,7 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
     access: AgentAccessMode
     capabilities: DesktopSettings
     initialGeneration?: number
+    resourceSnapshot?: ResourceSnapshot
   }
   if (!parentPort) throw new Error('会话入口只能由 Worker 启动')
   const port = parentPort
@@ -79,6 +82,8 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
   const policy: RuntimePolicy = {
     initialGeneration: data.initialGeneration,
     requireRestrictedPolicy: true,
+    resourceSnapshot: data.resourceSnapshot,
+    agentSources: data.agentEntries,
     onAdmission: (message, mode, continuation, signal) =>
       hostRequest('admission', { message, mode, continuation }, signal) as Promise<void>,
   }
@@ -135,6 +140,7 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
           credentials,
           settings: data.settings,
           cwd: data.cwd,
+          resourceSnapshot: data.resourceSnapshot,
           taskMode: () => session.getTaskMode(),
           requestCollaboration: (request, signal) =>
             hostRequest('collaboration', request, signal) as Promise<CollaborationResults[keyof CollaborationResults]>,

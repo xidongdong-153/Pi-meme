@@ -87,6 +87,7 @@ export class UiPluginRegistry {
             const disposer = await module.activate({
               pluginId: descriptor.id,
               generation: descriptor.generation,
+              iconUrl: descriptor.iconUrl,
               bridge: this.bridge,
               call: <T>(method: string, args?: unknown[]): Promise<T> => {
                 if (!method.startsWith(`${descriptor.id}:`)) throw new Error('插件操作必须使用插件名称作为前缀')
@@ -96,10 +97,31 @@ export class UiPluginRegistry {
                 if (!contribution.id.startsWith(`${descriptor.id}:`))
                   throw new Error('插件贡献标识必须使用插件名称作为前缀')
                 if (contributions.has(contribution.id)) throw new Error(`插件贡献标识重复：${contribution.id}`)
-                if (!['page', 'sidebar', 'composer', 'tool-card', 'status', 'settings'].includes(contribution.slot))
+                if (
+                  !['page', 'sidebar', 'composer', 'tool-card', 'status', 'settings', 'message'].includes(
+                    contribution.slot,
+                  )
+                )
                   throw new Error('插件贡献位置无效')
                 if (typeof contribution.render !== 'function') throw new Error('插件贡献必须提供 render(props)')
-                contributions.set(contribution.id, contribution)
+                if (contribution.match?.ownerId && contribution.match.ownerId !== descriptor.id)
+                  throw new Error('插件贡献不能匹配其他插件来源')
+                const matchField =
+                  contribution.slot === 'tool-card'
+                    ? 'toolName'
+                    : contribution.slot === 'message'
+                      ? 'customType'
+                      : undefined
+                if (
+                  matchField &&
+                  (typeof contribution.match?.[matchField] !== 'string' || !contribution.match[matchField]?.trim())
+                )
+                  throw new Error(`插件 ${contribution.slot} 贡献必须声明 match.${matchField}`)
+                contributions.set(contribution.id, {
+                  ...contribution,
+                  generation: descriptor.generation,
+                  match: matchField ? { ...contribution.match, ownerId: descriptor.id } : contribution.match,
+                })
                 if (this.active.get(descriptor.id) === candidate) this.changed()
                 return scope.own(() => {
                   contributions.delete(contribution.id)

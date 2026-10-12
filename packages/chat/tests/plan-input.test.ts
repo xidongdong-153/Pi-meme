@@ -75,12 +75,18 @@ test('只有保存ACK生成计划卡片，同文档更新版次、旧ACK不覆�
 
 test('撤回队列逐条恢复模式、图片和技能，不合并不同模式消息', async () => {
   const { queuedDraft } = await import('../src/ui/composer/restore-queued-input')
-  const skill = { ...builtinCommands[0], name: 'skill:verify', source: 'skill' as const }
+  const skill = {
+    ...builtinCommands[0],
+    name: 'skill:verify',
+    source: 'skill' as const,
+    resourceId: 'verify-id',
+    resourceRevision: 'r1',
+  }
   const input = {
     id: 'queue',
     text: '检查文件',
     mode: 'plan' as const,
-    skills: [{ name: 'verify' }],
+    skills: [{ name: 'skill:verify', id: 'verify-id', revision: 'r1' }],
     images: [{ type: 'image' as const, data: 'fake-image', mimeType: 'image/png' }],
   }
   const restored = queuedDraft(input, [skill])
@@ -92,4 +98,30 @@ test('撤回队列逐条恢复模式、图片和技能，不合并不同模式�
   assert.ok(restored.attachments[0].id)
   assert.equal(queuedDraft({ ...input, mode: 'default' }, [skill]).mode, 'default')
   assert.ok(queuedDraft(input, []).draft.includes('$verify'))
+})
+
+test('队列技能恢复保留插入位置和重复引用，旧修订原位置转文字', async () => {
+  const { queuedDraft } = await import('../src/ui/composer/restore-queued-input')
+  const skill = {
+    ...builtinCommands[0],
+    name: 'skill:verify',
+    source: 'skill' as const,
+    resourceId: 'verify-id',
+    resourceRevision: 'r1',
+  }
+  const input = {
+    id: 'queue',
+    text: `${skillMarker} 前文 ${skillMarker} 后文`,
+    mode: 'default' as const,
+    skills: [
+      { name: skill.name, id: skill.resourceId, revision: 'r1' },
+      { name: skill.name, id: skill.resourceId, revision: 'r1' },
+    ],
+  }
+  const restored = queuedDraft(input, [skill])
+  assert.equal(restored.draft, input.text)
+  assert.deepEqual(restored.selectedSkills, [skill, skill])
+  const expired = queuedDraft(input, [{ ...skill, resourceRevision: 'r2' }])
+  assert.equal(expired.draft, '$verify 前文 $verify 后文')
+  assert.deepEqual(expired.selectedSkills, [])
 })

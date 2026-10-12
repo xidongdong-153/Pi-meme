@@ -39,6 +39,54 @@ test('Worker使用稳定SDK懒启动会话，停止后可重新创建运行时',
   }
 })
 
+test('异步资源和租约只初始化一次；停止等待索引时取消启动并释放取得的租约', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'pi-worker-resource-await-'))
+  let resolveOptions!: (value: {
+    dataRoot: string
+    credentials: MemoryCredentialStorage
+    settings: { themeId: string }
+    agentEntries: []
+    release: () => void
+  }) => void
+  let optionsCalls = 0
+  let releases = 0
+  const options = new Promise<Parameters<typeof resolveOptions>[0]>((resolve) => {
+    resolveOptions = resolve
+  })
+  const session = createWorkerSession(
+    root,
+    { connection: () => {}, event: () => {}, error: () => {} },
+    createPiRuntimePaths(root),
+    async () => {
+      optionsCalls++
+      return options
+    },
+  )
+  try {
+    const first = session.snapshot()
+    const second = session.getCommands()
+    await delay(1)
+    assert.equal(optionsCalls, 1)
+    const stopped = session.stopAndWait()
+    resolveOptions({
+      dataRoot: root,
+      credentials: new MemoryCredentialStorage(),
+      settings: { themeId: 'dark' },
+      agentEntries: [],
+      release: () => {
+        releases++
+      },
+    })
+    await Promise.all([assert.rejects(first, /启动已取消/), assert.rejects(second, /启动已取消/), stopped])
+    assert.equal(optionsCalls, 1)
+    assert.equal(releases, 1)
+    assert.equal(session.connection().status, 'disconnected')
+  } finally {
+    await session.stopAndWait()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('仓库外原生 Agent 插件通过 Pi 公开模块加载，缺权限能力时受限执行拒绝', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'pi-meme-native-plugin-test-'))
   const paths = createPiRuntimePaths(root)

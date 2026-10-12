@@ -12,9 +12,9 @@ export function ExtensionsSettings({
 }) {
   return (
     <div className="space-y-4">
-      <p>Desktop 从应用数据目录加载扩展。扩展只在完全访问模式运行。</p>
+      <p>Pi 扩展保存在当前连接的设备上，只在完全访问模式运行。</p>
       <p className="text-sm text-muted-foreground">
-        {mode === 'full-access' ? '当前会话允许加载应用目录中的扩展。' : '当前权限模式不会运行扩展。'}
+        {mode === 'full-access' ? '当前聊天可以运行已启用的 Pi 扩展。' : '当前权限设置不允许运行 Pi 扩展。'}
       </p>
       <Button variant="outline" disabled={busy} onClick={onOpen}>
         打开扩展目录

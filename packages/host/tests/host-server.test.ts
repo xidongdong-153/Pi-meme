@@ -248,7 +248,7 @@ test('目录选择可恢复具体无项目会话，父目录和嵌套目录不�
 test('内置资源始终使用 Pi 原生目录扫描，插件接口不能停用加载引擎', async () => {
   const fixture = await setup(true)
   try {
-    const extensions = path.join(fixture.server.host.root, 'pi', 'extensions')
+    const extensions = path.join(fixture.server.host.root, 'extensions')
     await mkdir(extensions, { recursive: true })
     await writeFile(
       path.join(extensions, 'native-resource.js'),
@@ -338,7 +338,7 @@ test('内置交互不能被停用，弹框仍能回答，基础 UI 始终可用'
   const fixture = await setup(true)
   let pending: Promise<HostRpcResponse> | undefined
   try {
-    const extensions = path.join(fixture.server.host.root, 'pi', 'extensions')
+    const extensions = path.join(fixture.server.host.root, 'extensions')
     await mkdir(extensions, { recursive: true })
     await writeFile(
       path.join(extensions, 'lease-question.js'),

@@ -117,13 +117,18 @@ async function run(window) {
     await evaluate(`document.querySelector('[aria-label="选择当前项目"]')?.textContent.includes('不在项目中工作')`),
     true,
   )
-  const builtinSkillPath = path.join(directory, 'pi', 'builtin-skills', 'skill-creator', 'SKILL.md')
+  const builtinSkillPath = path.join(directory, 'builtin-resources', 'skills', 'skill-creator', 'SKILL.md')
   const creator = await evaluate(
     'window.piMemeClient.getCommands().then(commands => commands.find(command => command.name === "skill:skill-creator"))',
   )
   assert.equal(creator?.displayName, 'Skill Creator', '安装后无需创建技能即可读取 Skill Creator')
   assert.equal(creator?.builtin, true, 'Skill Creator 标记为内置技能')
-  assert.equal(creator?.sourceInfo.path, builtinSkillPath, '技能命令指向当前 Host 的实际安装文件')
+  assert.ok(creator?.resourceId && creator?.resourceRevision, '技能命令提供稳定资源身份')
+  assert.ok(
+    creator?.sourceInfo.path.startsWith(path.join(directory, 'resources', 'snapshots')),
+    '技能命令指向完整修订快照',
+  )
+  assert.ok(await fs.stat(builtinSkillPath), '维护来源保存在内置技能目录')
   await setDraft('$')
   const creatorOption = '#composer-suggestions [role=option]'
   await waitFor(
@@ -141,7 +146,7 @@ async function run(window) {
       })()`)
     window.webContents.sendInputEvent({ type: 'mouseMove', ...creatorPoint })
     return evaluate(
-      `[...document.querySelectorAll('[role=tooltip]')].some(node => node.textContent.includes(${JSON.stringify(builtinSkillPath)}))`,
+      `[...document.querySelectorAll('[role=tooltip]')].some(node => node.textContent.includes(${JSON.stringify(creator.sourceInfo.path)}))`,
     )
   }, '技能悬停显示实际 SKILL.md 路径')
   await capture('skill-creator')
@@ -151,7 +156,7 @@ async function run(window) {
   await waitFor(
     () =>
       evaluate(
-        `document.querySelector('[aria-label="消息"] [data-skill-token="skill:skill-creator"]')?.textContent === 'Skill Creator'`,
+        `document.querySelector('[aria-label="消息"] [data-skill-token="${creator.resourceId}"]')?.textContent === 'Skill Creator'`,
       ),
     '选择技能后使用显示名称',
   )
@@ -471,33 +476,33 @@ async function run(window) {
   await capture('settings-about')
   await clickText('扩展', 'nav[aria-label="设置分类"]')
   await clickText('技能', '#settings-content')
-  await waitFor(() => evaluate('Boolean(document.querySelector("ul[aria-label=已加载技能]"))'), '技能列表')
+  await waitFor(() => evaluate(`Boolean(document.querySelector('ul[aria-label="技能与扩展"]'))`), '技能列表')
   const skillEntries = await evaluate(
-    '[...document.querySelectorAll("ul[aria-label=已加载技能] li")].map(node => node.textContent).join("\\n")',
+    `[...document.querySelectorAll('ul[aria-label="技能与扩展"] li')].map(node => node.textContent).join("\\n")`,
   )
   // 校验 Desktop 应用数据目录中的两个验收技能都在列表中。
   assert.equal(skillEntries.includes('TypeScript 技能') && skillEntries.includes('review-code'), true)
   assert.equal(
-    await evaluate('document.querySelector("ul[aria-label=已加载技能]").textContent.includes("TypeScript 技能")'),
+    await evaluate(`document.querySelector('ul[aria-label="技能与扩展"]').textContent.includes("TypeScript 技能")`),
     true,
   )
   assert.equal(
     await evaluate(
-      'document.querySelector("ul[aria-label=已加载技能]").textContent.includes("/skills/typescript/SKILL.md")',
+      `document.querySelector('ul[aria-label="技能与扩展"]').textContent.includes("/skills/typescript/SKILL.md")`,
     ),
     false,
   )
-  await click('button[aria-label="查看技能：typescript"]')
-  await waitFor(() => evaluate('Boolean(document.querySelector("section[aria-label=技能详情]"))'), '技能详情')
+  await click('button[aria-label="查看资源：typescript"]')
+  await waitFor(() => evaluate(`Boolean(document.querySelector('section[aria-label="资源中心"]'))`), '技能详情')
   assert.equal(
     await evaluate(
-      'document.querySelector("section[aria-label=技能详情]").textContent.includes("/skills/typescript/SKILL.md")',
+      `document.querySelector('section[aria-label="资源中心"]').textContent.includes("/skills/typescript/SKILL.md")`,
     ),
     true,
   )
-  await clickText('返回技能')
+  await clickText('返回资源')
   assert.equal(
-    await evaluate('document.querySelector("ul[aria-label=已加载技能]").textContent.includes("review-code")'),
+    await evaluate(`document.querySelector('ul[aria-label="技能与扩展"]').textContent.includes("review-code")`),
     true,
   )
   await capture('settings-skills')
@@ -856,9 +861,15 @@ async function run(window) {
   }
   await fs.mkdir(path.join(directory, 'secure'), { recursive: true })
   await fs.writeFile(path.join(directory, 'auth.json'), JSON.stringify(modelCredentials), { mode: 0o600 })
-  const extensionsDirectory = path.join(directory, 'pi', 'extensions')
+  const extensionsDirectory = path.join(directory, 'extensions')
   await fs.mkdir(extensionsDirectory, { recursive: true })
-  await fs.copyFile(smokeExtension, path.join(extensionsDirectory, 'smoke-extension.js'))
+  await require('esbuild').build({
+    entryPoints: [smokeExtension],
+    outfile: path.join(extensionsDirectory, 'smoke-extension.js'),
+    bundle: true,
+    platform: 'node',
+    format: 'esm',
+  })
   await fs.writeFile(
     path.join(directory, 'settings.json'),
     JSON.stringify({ themeId: 'dark', defaultAccessMode: 'workspace-write', mcpEnabled: false }),

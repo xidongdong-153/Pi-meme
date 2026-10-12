@@ -12,9 +12,11 @@ export async function expandSkills(message: string, references: SkillReference[]
     throw new Error('技能标记与选择数量不一致，请重新选择技能')
   const { stripFrontmatter } = await import('@earendil-works/pi-coding-agent')
   const blocks = await Promise.all(
-    references.map(async ({ name }) => {
-      const skill = commands.find((command) => command.source === 'skill' && command.name === name)
+    references.map(async ({ id, revision, name }) => {
+      const skill = commands.find((command) => command.source === 'skill' && command.resourceId === id)
       if (!skill) throw new Error(`技能已不可用：${name.replace(/^skill:/, '')}，请重新选择`)
+      if (skill.resourceRevision !== revision || skill.name !== name)
+        throw new Error(`技能版本已变化：${name.replace(/^skill:/, '')}，请重新选择`)
       const file = skill.sourceInfo.path
       let content: string
       try {

@@ -56,6 +56,7 @@ type Options = {
     cwd: string,
     notify: ConstructorParameters<typeof import('@pi-meme/pi-runtime/sdk/session').SdkSession>[1],
     sessionKey: string,
+    parentSessionKey?: string,
   ) => RuntimeSdkSession
   emit: (event: DesktopEvent) => void
 }
@@ -242,6 +243,7 @@ export class HostCollaborationBridge {
     }
     Object.assign(record.summary, {
       cwd: binding.cwd,
+      executionGeneration: binding.session.connection().generation,
       sessionId: binding.sessionId ?? record.summary.sessionId,
       sessionFile: binding.sessionFile,
       accessMode: binding.accessMode,
@@ -725,6 +727,7 @@ export class HostCollaborationBridge {
           },
         },
         record.summary.sessionKey,
+        this.records.get(record.summary.parentAgentId ?? '')?.summary.sessionKey,
       )
       record.session = boundSession
       this.callers.set(record.session, record)
@@ -1254,6 +1257,7 @@ export class HostCollaborationBridge {
           steeringMode: 'all',
           followUpMode: 'one-at-a-time',
           pendingMessageCount: 0,
+          skillUsages: own?.skillUsages ?? history?.skillUsages,
         },
         messages: own?.messages ?? history?.messages ?? [],
         models: [],

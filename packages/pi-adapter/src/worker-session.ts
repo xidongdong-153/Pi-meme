@@ -9,6 +9,7 @@ import type { SdkSession } from '@pi-meme/pi-runtime/sdk/session'
 import type { PiRuntimePaths } from '@pi-meme/pi-runtime/runtime-paths'
 import type { SecureCredentialStorage } from '@pi-meme/contracts/secure-storage'
 import type { RuntimeSdkSession } from '@pi-meme/pi-runtime/session-pool'
+import type { ResourceSnapshot } from '@pi-meme/contracts/resources'
 
 export type WorkerOptions = {
   admit?: (message: string, mode: TaskMode, continuation: boolean, signal: AbortSignal) => Promise<void>
@@ -21,6 +22,7 @@ export type WorkerOptions = {
   dataRoot: string
   settings: DesktopSettings
   agentEntries: Array<{ pluginId: string; generation: number; path: string }>
+  resourceSnapshot?: ResourceSnapshot
   workerPath?: string
   release?: () => void | Promise<void>
 }
@@ -41,7 +43,7 @@ export function createWorkerSession(
   cwd: string,
   notify: Notify,
   paths: PiRuntimePaths,
-  getOptions: () => WorkerOptions,
+  getOptions: () => WorkerOptions | Promise<WorkerOptions>,
 ): RuntimeSdkSession {
   let worker: Worker | undefined
   let connection: Connection = { cwd, generation: 0, status: 'disconnected' }
@@ -55,6 +57,8 @@ export function createWorkerSession(
   let releasing: Promise<void> = Promise.resolve()
   const hostRequests = new Map<string, AbortController>()
   const pending = new Map<number, Pending>()
+  let initializing: Promise<Worker> | undefined
+  let initializationEpoch = 0
   const fail = (cause: Error) => {
     for (const controller of hostRequests.values()) controller.abort()
     hostRequests.clear()
@@ -63,9 +67,13 @@ export function createWorkerSession(
     connection = { ...connection, status: 'disconnected', error: cause.message }
     notify.connection(connection)
   }
-  const ensure = () => {
-    if (worker) return worker
-    const options = getOptions()
+  const initialize = async () => {
+    const epoch = initializationEpoch
+    const options = await getOptions()
+    if (epoch !== initializationEpoch) {
+      await options.release?.()
+      throw new Error('会话 Worker 启动已取消')
+    }
     release = options.release
     const entry = options.workerPath ?? fileURLToPath(new URL('./generic-worker.ts', import.meta.url))
     try {
@@ -76,6 +84,7 @@ export function createWorkerSession(
           root: options.dataRoot,
           settings: options.settings,
           agentEntries: options.agentEntries,
+          resourceSnapshot: options.resourceSnapshot,
           credentials: options.credentials.entries(),
           capabilities,
           access,
@@ -182,16 +191,24 @@ export function createWorkerSession(
     }
     return current
   }
+  const ensure = () => {
+    if (worker) return Promise.resolve(worker)
+    if (initializing) return initializing
+    initializing = initialize().finally(() => {
+      initializing = undefined
+    })
+    return initializing
+  }
   const callRaw = (method: string, args: unknown[]) =>
     new Promise<unknown>((resolve, reject) => {
       const id = ++serial
       pending.set(id, { resolve, reject })
-      try {
-        ensure().postMessage({ id, method, args })
-      } catch (cause) {
-        pending.delete(id)
-        reject(cause)
-      }
+      void ensure()
+        .then((current) => current.postMessage({ id, method, args }))
+        .catch((cause: unknown) => {
+          pending.delete(id)
+          reject(cause)
+        })
     })
   let stopping: Promise<void> | undefined
   const call = async (method: string, args: unknown[]) => {
@@ -203,6 +220,8 @@ export function createWorkerSession(
     paused = false
     if (stopping) return stopping
     stopping = (async () => {
+      initializationEpoch += 1
+      await initializing?.catch(() => {})
       const current = worker
       if (!current) {
         await releasing

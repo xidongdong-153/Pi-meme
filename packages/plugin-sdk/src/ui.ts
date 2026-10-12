@@ -1,8 +1,10 @@
 import type { ReactNode } from 'react'
 import type { DesktopBridge, Snapshot } from '@pi-meme/contracts/desktop'
 import type { Disposer } from './scope'
+import type { PluginDisplay, PluginResources } from './manifest'
 
-export type UiPluginSlot = 'page' | 'sidebar' | 'composer' | 'tool-card' | 'status' | 'settings'
+export type UiPluginSlot = 'page' | 'sidebar' | 'composer' | 'tool-card' | 'status' | 'settings' | 'message'
+export type UiContributionMatch = { ownerId?: string; toolName?: string; customType?: string }
 export type UiContributionProps = {
   sessionId?: string
   hostId?: string
@@ -10,6 +12,10 @@ export type UiContributionProps = {
   bridge: DesktopBridge
   area?: string
   builtin?: Record<string, ReactNode>
+  ownerId?: string
+  generation?: number
+  toolName?: string
+  customType?: string
   [key: string]: unknown
 }
 export type UiContribution = {
@@ -17,11 +23,14 @@ export type UiContribution = {
   slot: UiPluginSlot
   title?: string
   order?: number
+  match?: UiContributionMatch
+  generation?: number
   render: (props: UiContributionProps) => ReactNode
 }
 export type UiPluginContext = {
   pluginId: string
   generation: number
+  iconUrl?: string
   bridge: DesktopBridge
   call: <T>(method: string, args?: unknown[]) => Promise<T>
   contribute: (contribution: UiContribution) => Disposer
@@ -36,6 +45,9 @@ export type UiPluginDescriptor = {
   version: string
   generation: number
   ui?: string
+  display?: PluginDisplay
+  resources?: PluginResources
+  iconUrl?: string
   enabled: boolean
   status: 'active' | 'disabled' | 'pending' | 'failed'
   error?: string

@@ -2,8 +2,10 @@ import { readFile } from 'node:fs/promises'
 import type { SessionEntry } from '@earendil-works/pi-coding-agent'
 import type { AgentConversationOrigin } from '@pi-meme/contracts/collaboration'
 import type { PiMessage } from '@pi-meme/contracts/pi'
+import { branchSkillUsages } from './extensions/skill-usage'
 import { projectBranchEntries } from './session-tree-entries'
 import { loadPiSdk } from './sdk/load'
+import { projectMessageSources } from './sdk/ui-source'
 
 export function projectAgentConversation(
   entries: readonly SessionEntry[],
@@ -13,10 +15,12 @@ export function projectAgentConversation(
   const byId = new Map(entries.map((entry) => [entry.id, entry]))
   const inherited = new Set(origin.inheritedEntryIds)
   const branch: SessionEntry[] = []
+  const fullBranch: SessionEntry[] = []
   const seen = new Set<string>()
   let entry = leafId ? byId.get(leafId) : undefined
   while (entry && !seen.has(entry.id)) {
     seen.add(entry.id)
+    fullBranch.push(entry)
     if (!inherited.has(entry.id)) branch.push(entry)
     entry = entry.parentId ? byId.get(entry.parentId) : undefined
   }
@@ -37,7 +41,8 @@ export function projectAgentConversation(
   })
   const ownIds = new Set(branch.map((current) => current.id))
   return {
-    messages,
+    messages: projectMessageSources(branch, messages),
+    skillUsages: branchSkillUsages(fullBranch.reverse(), origin.inheritedEntryIds),
     sessionEntries: {
       entries: projectBranchEntries(branch).map((current) => ({
         ...current,

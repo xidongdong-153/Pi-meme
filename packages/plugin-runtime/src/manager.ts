@@ -1,11 +1,7 @@
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { createFacetHost, defineFacet, defineService, type Facet, type FacetHost } from '@earendil-works/chord'
-import {
-  createFacetBundleArtifactLoader,
-  readFacetBundleArtifact,
-  type FacetBundleArtifact,
-} from '@earendil-works/chord/node'
+import type { Facet, FacetHost } from '@earendil-works/chord'
+import type { FacetBundleArtifact } from '@earendil-works/chord/node'
 import { parsePluginManifest, type PluginManifest } from '@pi-meme/plugin-sdk/manifest'
 import { assertExternalPluginId, assertExternalManifest, isReservedPluginId } from '@pi-meme/plugin-sdk/reserved'
 import type { AgentPluginEntry } from '@pi-meme/plugin-sdk/agent'
@@ -13,6 +9,16 @@ import type { PluginHandlers, ServerPluginModule } from '@pi-meme/plugin-sdk/ser
 import { PluginScope } from '@pi-meme/plugin-sdk/scope'
 import type { UiPluginDescriptor } from '@pi-meme/plugin-sdk/ui'
 import { packPlugin, readPluginManifest, unpackPlugin } from './package'
+
+export type PluginResourcePackage = {
+  id: string
+  version: string
+  generation: number
+  directory: string
+  enabled: boolean
+  display?: PluginManifest['piMeme']['display']
+  resources?: PluginManifest['piMeme']['resources']
+}
 
 export type PluginDescriptor = UiPluginDescriptor & {
   directory: string
@@ -97,6 +103,8 @@ export class PluginManager {
       id: manifest.name,
       version: manifest.version,
       description: manifest.description,
+      display: manifest.piMeme.display,
+      resources: manifest.piMeme.resources,
       generation: active,
       directory,
       enabled,
@@ -136,10 +144,27 @@ export class PluginManager {
   diagnostics(): PluginDiagnostic[] {
     return [...this.restoreDiagnostics, ...this.failures.values()]
   }
+  resourcePackages(): PluginResourcePackage[] {
+    return [...this.registrations.values()].map((registration) => {
+      const descriptor = this.descriptor(registration)
+      return {
+        id: descriptor.id,
+        version: descriptor.version,
+        generation: descriptor.generation,
+        directory: descriptor.directory,
+        enabled: descriptor.enabled && descriptor.status !== 'failed',
+        display: registration.manifest.piMeme.display,
+        resources: registration.manifest.piMeme.resources,
+      }
+    })
+  }
   getGeneration(id: string, generation: number): PluginDescriptor | undefined {
     const group = [...this.groups, ...this.retired].find((item) => item.generation === generation && item.ids.has(id))
     const registration = group?.registrations.find((item) => item.manifest.name === id)
-    return registration && this.descriptor(registration, generation)
+    if (registration) return this.descriptor(registration, generation)
+    const installed = this.registrations.get(id)
+    if (generation === 0 && installed && this.descriptor(installed).generation === 0) return this.descriptor(installed)
+    return undefined
   }
   private changed() {
     this.options.onChange?.(this.list())
@@ -232,6 +257,8 @@ export class PluginManager {
   }
 
   private async startGroup(registrations: Registration[]): Promise<Group> {
+    const { createFacetHost, defineFacet, defineService } = await import('@earendil-works/chord')
+    const { createFacetBundleArtifactLoader } = await import('@earendil-works/chord/node')
     const scope = new PluginScope()
     const generation = ++this.generation
     const handlers: PluginHandlers = {}
@@ -541,6 +568,7 @@ export class PluginManager {
       parsePluginManifest(JSON.parse(await readFile(path.join(directory, 'package.json'), 'utf8'))),
     )
     const manifest = await readPluginManifest(directory)
+    const { readFacetBundleArtifact } = await import('@earendil-works/chord/node')
     const artifact = manifest.piMeme.server
       ? await readFacetBundleArtifact({ manifestPath: path.join(directory, manifest.piMeme.server), entry: 'server' })
       : undefined
@@ -689,10 +717,33 @@ export class PluginManager {
       this.failures.delete(id)
     })
   }
-  acquire(): PluginLease {
+  acquire(
+    isEnabled: (pluginId: string) => boolean = () => true,
+    from?: ReadonlyArray<{ id: string; generation: number }>,
+  ): PluginLease {
     if (this.disposed) throw new Error('插件管理器已关闭')
-    const current = [...this.groups].filter((group) => group.registrations.some((item) => item.manifest.piMeme.agent))
-    if (current.some((group) => [...group.ids].some((id) => this.pending.has(id))))
+    const inherited =
+      from && new Map(from.filter((item) => isEnabled(item.id)).map((item) => [item.id, item.generation]))
+    const candidates = inherited ? [...this.groups, ...this.retired] : [...this.groups]
+    if (inherited) {
+      for (const [id, generation] of inherited) {
+        const group = candidates.find((group) => group.generation === generation && group.ids.has(id))
+        if (!group || !group.references) throw new Error(`父会话插件代次已释放：${id} (${generation})`)
+      }
+    }
+    const selected = (item: Registration) =>
+      isEnabled(item.manifest.name) &&
+      Boolean(
+        item.manifest.piMeme.agent ||
+        item.manifest.piMeme.resources?.skills?.length ||
+        item.manifest.piMeme.resources?.extensions?.length,
+      )
+    const current = candidates.filter((group) =>
+      group.registrations.some(
+        (item) => selected(item) && (!inherited || inherited.get(item.manifest.name) === group.generation),
+      ),
+    )
+    if (!inherited && current.some((group) => [...group.ids].some((id) => this.pending.has(id))))
       throw new Error('会话插件正在切换版本，请稍后重试')
     for (const group of current) group.references++
     let released = false
@@ -714,6 +765,8 @@ export class PluginManager {
       retainedIds: current.flatMap((group) => [...group.ids]),
       agentEntries: current.flatMap((group) =>
         group.registrations.flatMap((item) =>
+          selected(item) &&
+          (!inherited || inherited.get(item.manifest.name) === group.generation) &&
           item.manifest.piMeme.agent
             ? [
                 {
@@ -726,7 +779,12 @@ export class PluginManager {
         ),
       ),
       descriptors: current.flatMap((group) =>
-        group.registrations.map((item) => this.descriptor(item, group.generation)),
+        group.registrations
+          .filter(
+            (item) =>
+              isEnabled(item.manifest.name) && (!inherited || inherited.get(item.manifest.name) === group.generation),
+          )
+          .map((item) => this.descriptor(item, group.generation)),
       ),
       handlers,
       runHandler: async (channel, args = []) => {

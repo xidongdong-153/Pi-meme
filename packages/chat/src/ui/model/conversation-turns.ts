@@ -1,5 +1,4 @@
 import { nestedTools } from './nested-tools'
-import { messageText } from './message-text'
 import type { PiImage, PiMessage, PiRunInterval } from '@pi-meme/contracts/pi'
 import type { ActivityItem, ChatState, TurnChunk } from './types'
 
@@ -47,6 +46,7 @@ export function groupConversationTurns(
       id: t.id,
       type: 'tool' as const,
       name: t.name,
+      source: t.source,
       args: t.args,
       result: t.result,
       status: t.status,
@@ -197,6 +197,12 @@ export function groupConversationTurns(
       continue
     }
 
+    if (msg.role === 'custom') {
+      flushTurn(false, msg.timestamp)
+      chunks.push({ type: 'custom', message: msg, key: `custom-${msg.timestamp ?? i}-${i}` })
+      continue
+    }
+
     if (msg.role === 'toolResult') {
       if (msg.timestamp) {
         turnEndTimestamp = Math.max(turnEndTimestamp || 0, msg.timestamp)
@@ -210,7 +216,7 @@ export function groupConversationTurns(
 
     if (msg.timestamp) {
       if (!turnStartTimestamp) turnStartTimestamp = msg.timestamp
-      turnEndTimestamp = Math.max(turnEndTimestamp || 0, msg.timestamp)
+      turnEndTimestamp = Math.max(turnEndTimestamp || 0, msg.completedAt ?? msg.timestamp)
     }
 
     if (msg.role === 'assistant' && msg.errorMessage) {
@@ -232,12 +238,6 @@ export function groupConversationTurns(
       continue
     }
 
-    if (msg.role === 'custom') {
-      const text = messageText(msg)
-      if (text) turnItems.push({ kind: 'text', text })
-      continue
-    }
-
     if (msg.role === 'assistant') {
       if (Array.isArray(msg.content)) {
         for (let pIdx = 0; pIdx < msg.content.length; pIdx++) {
@@ -250,6 +250,7 @@ export function groupConversationTurns(
                 id: part.id,
                 type: 'tool',
                 name: part.name,
+                source: toolRun?.source,
                 args: part.arguments,
                 result: toolRun?.result,
                 children: nestedTools(part.id, toolsMap),

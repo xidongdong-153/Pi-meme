@@ -3,8 +3,8 @@ import type { SecureCredentialStorage } from '@pi-meme/contracts/secure-storage'
 import { loadPiSdk } from './sdk/load'
 import { createDesktopModelRuntime } from './sdk/model-runtime'
 import { createDesktopSettingsManager } from './sdk/settings'
-import path from 'node:path'
-import { toSkillCommand } from './skill-command'
+import { toResourceSkillCommand } from './skill-command'
+import type { ResourceSnapshot } from '@pi-meme/contracts/resources'
 
 export async function readLocalModels(agentDir: string, credentials: SecureCredentialStorage): Promise<PiModel[]> {
   const sdk = await loadPiSdk()
@@ -22,19 +22,6 @@ export async function readLocalPreferences(cwd: string, agentDir: string) {
   }
 }
 
-export async function readLocalSkills(cwd: string, agentDir: string): Promise<PiSlashCommand[]> {
-  const { loadSkills } = await loadPiSdk()
-  const settings = createDesktopSettingsManager(await loadPiSdk(), cwd, agentDir)
-  const { skills } = loadSkills({
-    cwd,
-    agentDir,
-    skillPaths: [
-      path.join(agentDir, 'builtin-skills'),
-      path.join(agentDir, 'skills'),
-      path.join(cwd, '.pi', 'skills'),
-      ...settings.getSkillPaths(),
-    ],
-    includeDefaults: false,
-  })
-  return skills.map((skill) => toSkillCommand(skill, agentDir))
+export function readLocalSkills(snapshot: ResourceSnapshot): PiSlashCommand[] {
+  return snapshot.skills.filter((item) => item.enabled && !item.shadowedBy).map(toResourceSkillCommand)
 }

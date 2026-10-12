@@ -626,6 +626,9 @@ importers:
 
   packages/resources:
     dependencies:
+      '@earendil-works/pi-coding-agent':
+        specifier: 1.1.0
+        version: 1.1.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(ws@8.22.0)
       '@pi-meme/contracts':
         specifier: workspace:*
         version: link:../contracts
@@ -638,6 +641,9 @@ importers:
       '@pi-meme/ui':
         specifier: workspace:*
         version: link:../ui
+      esbuild:
+        specifier: 0.28.2
+        version: 0.28.2
       lucide-react:
         specifier: ^1.48.0
         version: 1.48.0(react@19.3.0)

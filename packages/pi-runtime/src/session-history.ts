@@ -4,7 +4,9 @@ import type { PiSessionStats, ThinkingLevel } from '@pi-meme/contracts/pi'
 
 import type { SessionHistoryData } from '@pi-meme/contracts/sessions'
 
+import { branchSkillUsages } from './extensions/skill-usage'
 import { projectBranchEntries } from './session-tree-entries'
+import { projectMessageSources } from './sdk/ui-source'
 
 export type { SessionHistoryData } from '@pi-meme/contracts/sessions'
 
@@ -165,10 +167,20 @@ export async function readSessionHistory(filePath: string): Promise<SessionHisto
     const history = entries.filter((entry): entry is SessionEntry => entry.type !== 'session')
     const context = buildSessionContext(history)
     const sessionName = history.findLast((entry) => entry.type === 'session_info')
+    const byId = new Map(history.map((entry) => [entry.id, entry]))
+    const branch: SessionEntry[] = []
+    let branchEntry = history.at(-1)
+    const branchIds = new Set<string>()
+    while (branchEntry && !branchIds.has(branchEntry.id)) {
+      branchIds.add(branchEntry.id)
+      branch.push(branchEntry)
+      branchEntry = branchEntry.parentId ? byId.get(branchEntry.parentId) : undefined
+    }
     const data: SessionHistoryData = {
       cwd: header.cwd,
       created: header.timestamp,
-      messages: context.messages,
+      skillUsages: branchSkillUsages(branch.reverse()),
+      messages: projectMessageSources(history, context.messages),
       sessionEntries: {
         entries: projectBranchEntries(history),
         leafId: history.at(-1)?.id ?? null,

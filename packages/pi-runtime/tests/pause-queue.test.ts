@@ -474,7 +474,7 @@ test('纯图片排队不依赖正文，技能引用在编辑取消及引导失�
       data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jFbkAAAAASUVORK5CYII=',
     }
     await f.session.followUp('', [image])
-    await f.session.followUp('\uFFFC 技能任务', undefined, [{ name: '未安装技能' }])
+    await f.session.followUp('\uFFFC 技能任务', undefined, [{ name: '未安装技能', id: 'missing', revision: '1' }])
     const [picture, skill] = f.queue()
     assert.ok(picture && skill)
     await f.session.beginQueueEdit(skill.id, '甲')
@@ -484,7 +484,7 @@ test('纯图片排队不依赖正文，技能引用在编辑取消及引导失�
       f.queue().map((input) => input.id),
       [picture.id, skill.id],
     )
-    assert.deepEqual(f.queue()[1]?.skills, [{ name: '未安装技能' }])
+    assert.deepEqual(f.queue()[1]?.skills, [{ name: '未安装技能', id: 'missing', revision: '1' }])
     await f.session.deleteQueueInput(skill.id)
     await f.session.resume()
     await until(async () => f.fake.provider.requests.length === 2 && !(await f.session.snapshot()).state.isStreaming)
@@ -546,7 +546,7 @@ test('引导准备期间Abort或自然结束，不能注入另一run；短锁仍
         const file = path.join(f.fake.agentDir, 'SKILL.md')
         await writeFile(file, '技能正文')
         await f.session.prompt('初始任务')
-        await f.session.followUp('\uFFFC 引导任务', undefined, [{ name: 'skill:test' }])
+        await f.session.followUp('\uFFFC 引导任务', undefined, [{ name: 'skill:test', id: 'test', revision: '1' }])
         await f.session.followUp('后续项')
         const [first, second] = f.queue()
         assert.ok(first && second)
@@ -556,6 +556,8 @@ test('引导准备期间Abort或自然结束，不能注入另一run；短锁仍
           return [
             {
               name: 'skill:test',
+              resourceId: 'test',
+              resourceRevision: '1',
               source: 'skill',
               sourceInfo: { path: file, source: 'desktop', scope: 'temporary', origin: 'top-level' },
             },
@@ -812,12 +814,16 @@ test('已选队列的技能准备期间暂停，恢复前不增加用户消息�
       return [
         {
           name: 'skill:test',
+          resourceId: 'test',
+          resourceRevision: '1',
           source: 'skill',
           sourceInfo: { path: file, source: 'desktop', scope: 'temporary', origin: 'top-level' },
         },
       ]
     }
-    const sending = f.session.followUp('\uFFFC 排队任务', undefined, [{ name: 'skill:test' }])
+    const sending = f.session.followUp('\uFFFC 排队任务', undefined, [
+      { name: 'skill:test', id: 'test', revision: '1' },
+    ])
     const result = sending.then(
       () => undefined,
       (cause: unknown) => cause,

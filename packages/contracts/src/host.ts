@@ -37,6 +37,7 @@ export type HostEvent = { hostId: string } & (
   | { type: 'error'; value: DesktopError }
   | { type: 'sessions-changed'; value?: undefined }
   | { type: 'plugins-changed'; value?: undefined }
+  | { type: 'resources-changed'; value: { generation: number; cwd?: string } }
 )
 export type HostDirectory = { path: string; parent: string | null; entries: Array<{ name: string; path: string }> }
 

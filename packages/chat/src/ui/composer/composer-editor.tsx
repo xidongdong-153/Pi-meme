@@ -82,7 +82,7 @@ export function ComposerEditor({
     if (!element || composing.current) return
     const text = readEditorText(element)
     const skills = [...element.querySelectorAll<HTMLElement>('[data-skill-token]')].flatMap((token) => {
-      const skill = selectedSkills.find((entry) => entry.name === token.dataset.skillToken)
+      const skill = selectedSkills.find((entry) => (entry.resourceId ?? entry.name) === token.dataset.skillToken)
       return skill ? [skill] : []
     })
     if (skills.length !== selectedSkills.length || skills.some((skill, index) => skill !== selectedSkills[index]))
@@ -104,7 +104,7 @@ export function ComposerEditor({
       const skill = selectedSkills[index - 1]
       if (index && skill) {
         const token = document.createElement('span')
-        token.dataset.skillToken = skill.name
+        token.dataset.skillToken = skill.resourceId ?? skill.name
         token.contentEditable = 'false'
         token.className = 'inline text-blue-400 select-none'
         token.setAttribute('aria-label', '已选择技能')

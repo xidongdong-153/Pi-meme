@@ -30,7 +30,14 @@ export function message(value: unknown, valueImages: unknown, valueSkills?: unkn
     (!Array.isArray(valueSkills) ||
       valueSkills.some(
         (skill) =>
-          !skill || typeof skill.name !== 'string' || !skill.name.startsWith('skill:') || skill.name.length <= 6,
+          !skill ||
+          typeof skill.name !== 'string' ||
+          !skill.name.startsWith('skill:') ||
+          skill.name.length <= 6 ||
+          typeof skill.id !== 'string' ||
+          !skill.id ||
+          typeof skill.revision !== 'string' ||
+          !skill.revision,
       ))
   )
     throw new Error('技能参数无效')

@@ -34,7 +34,7 @@ export class SettingsStore {
   private readonly settingsFile: string
   constructor(directory: string) {
     this.themesDirectory = path.join(directory, 'themes')
-    this.extensionsDirectory = path.join(directory, 'pi', 'extensions')
+    this.extensionsDirectory = path.join(directory, 'extensions')
     this.settingsFile = path.join(directory, 'settings.json')
   }
 

@@ -250,7 +250,7 @@ export async function startSmokeAgent(directory, options = {}) {
   }
   const modelsFile = path.join(agentDir, 'models.json')
   await writeFile(modelsFile, JSON.stringify({ providers }))
-  await cp(path.join(fixtures, 'skills'), path.join(agentDir, 'skills'), { recursive: true })
+  await cp(path.join(fixtures, 'skills'), path.join(directory, 'skills'), { recursive: true })
   await mkdir(path.join(agentDir, 'prompts'), { recursive: true })
   for (let index = 1; index <= 12; index += 1) {
     await writeFile(

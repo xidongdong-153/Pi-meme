@@ -13,6 +13,9 @@ flowchart TD
   Client --> Host["Host：认证、路由、静态装配"]
   Host --> Builtins["packages：14 个内置业务模块"]
   Host --> Plugins["plugin-runtime：外部依赖组与 Chord 作用域"]
+  Host --> Resources["resources：目录、策略与不可变资源快照"]
+  Plugins --> Resources
+  Resources --> Worker
   Host --> Coordinator["SubAgent 协调器：身份、邮箱与任务树"]
   Host --> Adapter["pi-adapter：Worker 与凭据同步"]
   Coordinator --> Adapter
@@ -32,7 +35,7 @@ flowchart TD
 | `apps/web`                | Web 登录入口、Vite 构建及共享 React import map                |
 | `packages/contracts`      | Pi 派生类型、Host 请求/事件、平台适配器与功能契约             |
 | `packages/ui`             | 通用原语、图标、ErrorBoundary、主题 tokens 和工具卡片贡献入口 |
-| `packages/app-ui`         | 共同布局、设置导航、Host 连接、插件中心与六类 UI 槽           |
+| `packages/app-ui`         | 共同布局、设置导航、Host 连接、资源中心与七类 UI 槽           |
 | `packages/client`         | 类型化功能 Bridge、HTTP/WebSocket、认证、快照与平台适配       |
 | `packages/host`           | 唯一数据写入者、客户端选择、业务操作分派与插件装配            |
 | `packages/pi-adapter`     | 通用 Worker 调用、通信、SDK 路径、凭据同步和外部 Agent 加载   |
@@ -63,7 +66,7 @@ flowchart TD
 | `history`       | 原生 JSONL 历史查询、预取、导出和分支树 UI                      |
 | `models`        | 模型配置、发现、默认模型、选择和上下文用量                      |
 | `settings`      | 偏好存储、外观、主题与个性化指令                                |
-| `resources`     | Host/项目技能、提示词和扩展路径注册、资源查询及相关 UI          |
+| `resources`     | Host/项目技能与 Pi 扩展、导入、策略、编辑及不可变资源快照       |
 | `interaction`   | Pi 扩展的弹窗、通知、状态、文本挂件和编辑器预填                 |
 | `subagents`     | 持续子代理身份、邮箱、spawn/wait/followup、取消与 Pi JSONL      |
 | `mcp`           | 全局与工作区 MCP 配置、诊断、OAuth 和 Pi 原生 MCP 扩展          |
@@ -75,7 +78,7 @@ flowchart TD
 
 14 个模块由 `packages/host/src/builtin-modules.ts` 静态组合，UI 由 app-ui 直接组合，不读取用户插件启用状态。内置模块初始化失败会中止 Host 启动；外部插件恢复失败只隔离相关依赖组，并保留恢复诊断。
 
-设置侧栏固定显示“个人、集成、系统”三组，所有入口可搜索；技能与 MCP 服务连接也可从扩展页进入。高级指令、原生扩展目录及 Host 构建目录安装只在开发者页面。
+设置侧栏固定显示“个人、集成、系统”三组，所有入口可搜索。“扩展”和独立“技能”入口使用同一个资源中心，技能入口预设技能筛选。中心保留技能、Pi 扩展和 App 插件类型，直接查询 Host 目录，不要求先启动模型。高级指令和插件重新加载仍在开发者页面。资源目录、接口和调用规则见 [技能与扩展管理](skills-and-extensions.md)。
 
 ## Host 协议与平台能力
 
@@ -124,18 +127,49 @@ Chord 1.1 的 `reload` 只替换已有相同服务 shape 的 facet，不能新�
 
 构建目录和上传包复制为不可变代码快照；目录重新加载读取原开发目录，上传包更新需要新包。代码目录只在没有引用时回收；插件数据默认保留。详细接口见 [插件文档](plugins.md)。
 
+App manifest 的可选 `piMeme.resources` 声明技能与原生扩展，`display` 声明显示名称和包内图标。`PluginManager.resourcePackages()` 提供包目录、启用状态和代次，`ResourceStore` 负责索引和资源快照。按项目选择 Agent 和资源时仍保留整个 Chord 依赖组的引用，项目策略不释放全局 Server 服务。
+
+UI 贡献有 `page`、`sidebar`、`composer`、`tool-card`、`status`、`settings`、`message` 七类。工具贡献按真实 `ownerId`、`generation` 和 `toolName` 匹配；消息贡献按相同来源与代次、`customType` 匹配。Registry 限制来源为贡献插件自身。没有可信来源或对应代次的消息保留普通文字，工具贡献补充通用详情。图标与 UI 代码通过同一认证资源接口访问。
+
+## 资源目录与 Worker 快照
+
+Host 扫描数据根下的 `skills/`、`extensions/` 和项目 `.agents/skills/`、`.agents/extensions/`。项目目录只读；Host 默认策略在 `resources/state.json`，项目覆盖在 `workspaces/<cwd-hash>/resources.json`。不读取旧 `.pi/skills`、`.pi/extensions`，不迁移旧文件，也不读取本机 Pi CLI 或其他 Agent 的全局技能目录。
+
+`ResourceStore` 校验资源并把完整目录保存到内容哈希快照；目录中的脚本、引用文件和包内相对导入跟随修订。内置同名技能优先，其次项目技能，再其次 Host 技能；包内技能使用包名前缀区分。所有冲突项保留在管理清单中并标记 `shadowedBy`。
+
+```mermaid
+%%{init: {"theme": "dark"}}%%
+flowchart TD
+  HostFiles["Host skills 与 extensions"] --> Catalog["ResourceStore：校验、策略与清单"]
+  ProjectFiles["项目 .agents：只读"] --> Catalog
+  AppPackages["App 插件目录与代次"] --> Catalog
+  Catalog --> Frozen["resources/snapshots：不可变修订"]
+  Frozen --> Snapshot["当前项目 ResourceSnapshot"]
+  Snapshot --> Worker["Worker：Pi 公开资源加载器"]
+  Catalog --> UI["扩展中心与技能列表"]
+  Worker --> History["Pi JSONL：资源修订和技能使用记录"]
+```
+
+Worker 启动取得资源快照与插件租约；子代理继承父 Worker 的资源快照。安装、策略修改和技能保存先发布新修订，再通知客户端；受影响 Worker 等待执行与待答交互结束后退役，下一轮取得新修订。技能保存检查读取时的修订，不覆盖其他客户端已经保存的正文。编辑器只修改 Host 散装技能的 `SKILL.md`；项目、内置和包技能只读，可复制成用户技能后编辑。
+
+技能默认允许模型按描述选择，正文仍按需读取。仅手动技能从自动选择列表隐藏，但可从 `$` 选择；显式选择携带资源 ID 和修订，发送前展开快照中的正文并校验修订。技能不会授予新的文件、工具或网络权限。
+
 ## 路径、凭据与权限
 
 Host 默认数据根目录为 `~/.pi-meme`，可由 `PI_MEME_DATA_ROOT` 修改。同一数据目录由心跳锁保证单个 Host 写入。
 
-内置 `skill-creator` 的源码位于 `pi/skills/skill-creator`。Desktop 与独立 Server 构建时携带完整技能目录，Host 启动时将其复制到 `pi/builtin-skills/skill-creator`，不改用户的 `pi/skills`。新安装应用无需 Codex、Pi CLI 或模型凭据即可在 `$` 列表看到 `Skill Creator`；列表标记“内置”，悬停显示文件路径。内置同名技能优先于用户和项目技能，用户文件保留。
+内置 `skill-creator` 的源码位于 `pi/skills/skill-creator`。Desktop 与独立 Server 构建时携带完整技能目录，Host 启动时将其复制到 `builtin-resources/skills/skill-creator`，不改用户的 `skills/`。新安装应用无需 Codex、Pi CLI 或模型凭据即可在 `$` 列表看到该技能；列表标记“内置”，悬停显示文件路径。内置同名技能优先于用户和项目技能，用户文件保留。
 
 ```text
 ~/.pi-meme/
 ├── auth.json            # 模型、MCP、Host 令牌和 Desktop 远程连接凭据
 ├── settings.json
 ├── themes/
-├── pi/                  # SDK 设置、模型、MCP、技能、扩展、提示词、SubAgent 定义
+├── skills/              # Host 散装技能，含 SKILL.md 与辅助文件
+├── extensions/          # Host Pi 扩展；packages/ 保存完整原生包
+├── builtin-resources/   # 随应用分发的内置技能
+├── resources/           # 导入清单、Host 策略和不可变资源快照
+├── pi/                  # SDK 设置、模型、MCP、提示词与 SubAgent 定义
 ├── sessions/            # 按工作区真实路径哈希分组的 Pi JSONL
 ├── workspaces/          # 工作区 MCP 覆盖与 Host 数据
 ├── plugins/             # 不可变代码快照与安装/启用状态
@@ -165,7 +199,7 @@ flowchart LR
 
 Pi 1.1 的 `ModelRuntime.create` 没有公开认证环境注入参数。唯一的 private shape 依赖位于 `packages/pi-runtime/src/sdk/model-runtime.ts`：先检查 `runtime.models.authContext`，再注入空环境与不可用文件检查，阻止读取本机环境和认证文件。守卫失败会明确报错。升级 Pi SDK 时必须重新验证此隔离层；会话、JSONL、扩展和资源加载继续使用公开入口。能力接线见 [Pi SDK 说明](rpc-capabilities.md)。
 
-项目 `.pi` 和 `AGENTS.md` 是只读输入，不读取本机 Pi CLI 全局目录、外部认证文件或模型认证环境变量。内置资源模块登记 Host/项目路径，按资源配置加载可选内容。主题保持 JSON，只解析允许的颜色与字体，不执行 JavaScript 或任意 CSS。
+项目 `.agents` 和 `AGENTS.md` 是只读输入；技能与扩展不从项目 `.pi` 装配。不读取本机 Pi CLI 全局目录、外部认证文件或模型认证环境变量。Pi 的技能与扩展加载被限制在 Host 提供的资源快照中，扩展动态返回的未登记技能路径会产生诊断；提示词和主题保留 Pi 公开加载器的原有处理。主题保持 JSON，只解析允许的颜色与字体，不执行 JavaScript 或任意 CSS。
 
 保留 `read-only`、`workspace-write`、`full-access` 三档权限。Worker 的权限策略由静态 `permissions` 与 `sandbox-macos` Agent 工厂注入；工厂不可用或沙箱检查失败时拒绝受限会话。外部扩展与 MCP 仍只在完全权限装配，MCP 逐服务启停和授权。旧 `mcpEnabled: false` 继续阻止未重新授权的服务；授权记录绑定服务配置，外部配置变更不能沿用旧授权。codemode 的嵌套工具继续经过实际执行检查；子 Agent 使用独立 Pi 会话与 Worker，继承父任务权限和模式。
 

@@ -4,6 +4,7 @@ import { applyEvent, emptyChat, fromSnapshot } from '../src/ui/model/state'
 import { messageText } from '../src/ui/model/message-text'
 import { groupConversationTurns } from '../src/ui/model/conversation-turns'
 import {
+  toolResult,
   assistantMessage,
   bashMessage,
   sessionState,
@@ -301,4 +302,43 @@ test('codemode 内部工具按父调用归组，历史从 nestedCalls 恢复且�
   if (historical.type !== 'tool') return
   assert.equal(historical.children?.[0].status, 'success')
   assert.deepEqual(historical.children?.[0].args, { path: 'a' })
+})
+
+test('工具事件、实时消息与恢复快照保留Host注册来源，技能读取状态可观察', () => {
+  const source = { ownerId: 'demo-plugin', generation: 7, toolName: 'demo_tool' }
+  let state = applyEvent(emptyChat, {
+    type: 'tool_execution_start',
+    toolCallId: 'source-tool',
+    toolName: 'demo_tool',
+    args: {},
+    source,
+  })
+  state = applyEvent(state, {
+    type: 'message_end',
+    message: { ...toolResult('source-tool', '结果', 10), toolName: 'demo_tool' },
+    source,
+  })
+  assert.deepEqual(state.tools['source-tool'].source, source)
+  assert.deepEqual(state.messages.at(-1)?.source, source)
+  const usages = [
+    {
+      id: 'skill-id',
+      revision: 'r1',
+      name: 'skill:demo',
+      path: '/snapshot/SKILL.md',
+      source: 'implicit-read' as const,
+      toolCallId: 'source-tool',
+      inherited: false,
+    },
+  ]
+  state = applyEvent(state, { type: 'skill_usage_update', usages })
+  assert.deepEqual(state.skillUsages, usages)
+  const restored = fromSnapshot({
+    connection: { generation: 1, cwd: '/', status: 'ready' },
+    state: { ...sessionState(), mode: 'default', skillUsages: usages },
+    messages: state.messages,
+    models: [],
+  })
+  assert.deepEqual(restored.tools['source-tool'].source, source)
+  assert.deepEqual(restored.skillUsages, usages)
 })

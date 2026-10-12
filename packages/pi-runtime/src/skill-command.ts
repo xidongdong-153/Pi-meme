@@ -1,16 +1,23 @@
-import path from 'node:path'
-import type { Skill } from '@earendil-works/pi-coding-agent'
 import type { PiSlashCommand } from '@pi-meme/contracts/pi'
+import type { ResourceItem } from '@pi-meme/contracts/resources'
 
-export function toSkillCommand(skill: Skill, agentDir: string): PiSlashCommand {
-  const builtin =
-    skill.name === 'skill-creator' &&
-    path.resolve(skill.sourceInfo.path) === path.resolve(agentDir, 'builtin-skills', 'skill-creator', 'SKILL.md')
+export function toResourceSkillCommand(item: ResourceItem): PiSlashCommand {
   return {
-    name: `skill:${skill.name}`,
-    description: skill.description,
+    name: `skill:${item.name}`,
+    resourceId: item.id,
+    resourceRevision: item.revision,
+    invocation: item.invocation,
+    displayName: item.displayName,
+    shortDescription: item.shortDescription,
+    description: item.description,
+    builtin: item.scope === 'builtin',
     source: 'skill',
-    sourceInfo: builtin ? { ...skill.sourceInfo, source: 'builtin', scope: 'user' } : skill.sourceInfo,
-    ...(builtin ? { builtin: true, displayName: 'Skill Creator', shortDescription: '创建或更新技能' } : {}),
+    sourceInfo: {
+      path: item.path,
+      baseDir: item.baseDir,
+      scope: item.scope === 'project' ? 'project' : 'user',
+      source: item.scope,
+      origin: 'top-level',
+    },
   }
 }

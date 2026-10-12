@@ -34,8 +34,8 @@ test('项目 .pi 设置只读，项目扩展路径受限，项目 packages 不�
     const sdk = await loadPiSdk()
     const manager = createDesktopSettingsManager(sdk, cwd, agentDir)
     assert.equal(manager.getDefaultProvider(), 'project-provider')
-    assert.deepEqual(manager.getExtensionPaths(), [extension])
-    assert.deepEqual(manager.getPackages(), ['desktop-package'])
+    assert.deepEqual(manager.getExtensionPaths(), [])
+    assert.deepEqual(manager.getPackages(), [])
     assert.equal(manager.getProjectSettings().packages, undefined)
 
     manager.setDefaultModelAndProvider('desktop-updated', 'desktop-model')

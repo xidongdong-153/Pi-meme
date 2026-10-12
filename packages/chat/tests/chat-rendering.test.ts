@@ -10,7 +10,7 @@ import { extractDiff, extractImages, formatDetailValue, parseToolMeta } from '..
 import { groupAdjacentActivities, summarizeActivities } from '../src/ui/model/activity-summary'
 import { Conversation } from '../src/ui/conversation/conversation'
 import { AssistantTurnView } from '../src/ui/conversation/assistant-turn'
-import { emptyChat } from '../src/ui/model/state'
+import { applyEvent, emptyChat } from '../src/ui/model/state'
 import type { ActivityItem, ChatState } from '../src/ui/model/types'
 import type { MessageEditorState } from '../src/ui/conversation/inline-message-editor'
 import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
@@ -474,4 +474,96 @@ test('ThinkingActivityRow 展开时为无边框无框体设计，不包含复制
   const openMarkup = renderToStaticMarkup(createElement(ThinkingActivityRow, { item, open: true, onToggle: () => {} }))
   assert.match(openMarkup, /正在分析用户诉求/)
   assert.doesNotMatch(openMarkup, /复制|思考内容|border-border/)
+})
+
+test('恢复的助手回复以完成时间显示真实用时，后续命令不影响时间戳身份', () => {
+  const startedAt = 1791791839305
+  const message: PiMessage = {
+    ...assistantMessage('历史回复', startedAt),
+    completedAt: Date.parse('2026-10-12T07:57:24.763Z'),
+  }
+  const messages: PiMessage[] = [
+    userMessage('输入', 1791791839236),
+    message,
+    { role: 'custom', customType: 'command-result', content: '命令结果', display: true, timestamp: 1791792328816 },
+  ]
+  const turns = groupConversationTurns(messages, null, {}, false)
+  const liveState = applyEvent({ ...emptyChat, messages: [messages[0]!] }, { type: 'message_end', message })
+  assert.deepEqual(groupConversationTurns(liveState.messages, null, {}, false), turns.slice(0, 2))
+  const turn = turns.find((chunk) => chunk.type === 'assistant_turn')
+  assert.ok(turn?.type === 'assistant_turn')
+  assert.equal(turn.durationMs, 5527)
+  assert.equal(message.timestamp, startedAt)
+  const markup = renderToStaticMarkup(createElement(TooltipProvider, null, createElement(AssistantTurnView, { turn })))
+  assert.match(markup, /用时 6秒/)
+})
+
+test('后续可见命令消息保留独立卡片，不延长已完成回复用时', () => {
+  const messages = [userMessage('输入', 1000), assistantMessage('回复', 7000)]
+  const command: PiMessage = {
+    role: 'custom',
+    customType: 'command-result',
+    content: '命令结果',
+    display: true,
+    timestamp: 491000,
+  }
+  const before = groupConversationTurns(messages, null, {}, false)
+  const after = groupConversationTurns([...messages, command], null, {}, false)
+  assert.deepEqual(after.slice(0, 2), before)
+  assert.equal(after[1]?.type === 'assistant_turn' && after[1].durationMs, 6000)
+  assert.deepEqual(after[2]?.type === 'custom' && after[2].message, command)
+  assert.deepEqual(groupConversationTurns([...messages, { ...command, display: false }], null, {}, false), before)
+
+  const next = groupConversationTurns([...messages, command, assistantMessage('后续回复', 492000)], null, {}, false)
+  assert.equal(next[3]?.type === 'assistant_turn' && next[3].startedAt, 492000)
+  assert.equal(next[3]?.type === 'assistant_turn' && next[3].durationMs, 0)
+})
+
+test('命令消息不改变工具结果的结束时间或已记录的运行用时', () => {
+  const messages = [
+    userMessage('执行工具', 1000),
+    assistantMessage([{ type: 'toolCall', id: 'call', name: 'read', arguments: {} }], 2000),
+    toolResult('call', '工具结果', 7000),
+  ]
+  const command: PiMessage = {
+    role: 'custom',
+    customType: 'command-result',
+    content: '命令结果',
+    display: true,
+    timestamp: 491000,
+  }
+  const tools: ChatState['tools'] = { call: { id: 'call', name: 'read', status: 'success', result: '工具结果' } }
+  for (const runIntervals of [[], [{ startedAt: 1000, endedAt: 9000 }]]) {
+    const before = groupConversationTurns(messages, null, tools, false, {}, [], runIntervals)
+    const after = groupConversationTurns([...messages, command], null, tools, false, {}, [], runIntervals)
+    assert.deepEqual(after.slice(0, 2), before)
+    assert.equal(after[1]?.type === 'assistant_turn' && after[1].durationMs, runIntervals.length ? 8000 : 6000)
+  }
+})
+
+test('持久自定义消息保留序列化payload与实际来源，缺renderer时显示正文', () => {
+  const message: PiMessage = {
+    role: 'custom',
+    customType: 'demo-card',
+    content: '卸载后仍可读的正文',
+    display: true,
+    details: { count: 3 },
+    timestamp: 150,
+    source: { ownerId: 'demo-plugin', generation: 7, customType: 'demo-card' },
+  }
+  const turns = groupConversationTurns([message], null, {}, false)
+  assert.equal(turns[0]?.type, 'custom')
+  assert.deepEqual(turns[0]?.type === 'custom' && turns[0].message, message)
+  const markup = renderToStaticMarkup(
+    createElement(Conversation, {
+      chat: { ...emptyChat, messages: [message] },
+      canEditMessages: false,
+      onEditMessage: () => {},
+      onSwitchMessageVersion: () => {},
+      onForkReply: () => {},
+      onCopyError: () => {},
+    }),
+  )
+  assert.match(markup, /卸载后仍可读的正文/)
+  assert.equal(groupConversationTurns([{ ...message, display: false }], null, {}, false).length, 0)
 })

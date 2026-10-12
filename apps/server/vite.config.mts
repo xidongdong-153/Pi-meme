@@ -18,8 +18,10 @@ export default defineConfig({
       external: [
         ...builtinModules,
         ...builtinModules.map((value) => `node:${value}`),
+        /^@earendil-works\/chord(?:\/|$)/,
         '@earendil-works/pi-coding-agent',
         '@napi-rs/keyring',
+        'esbuild',
       ],
       output: { format: 'es', entryFileNames: '[name].js' },
     },

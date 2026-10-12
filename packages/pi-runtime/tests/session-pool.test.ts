@@ -5,13 +5,54 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
-import { PiSessionPool } from '../src/session-pool'
+import { PiSessionPool, type SessionFactory } from '../src/session-pool'
+import { readdirSync } from 'node:fs'
 import { SdkSession } from '../src/sdk/session'
 import type { Snapshot, DesktopEvent, DesktopError } from '@pi-meme/contracts/desktop'
+import { skillMarker } from '@pi-meme/contracts/skills'
 import type { PiExtensionDialogRequest } from '@pi-meme/contracts/pi'
 import { assistantMessage, userMessage } from '../../../tests/fixtures/messages.mjs'
 import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
 import { requestText } from '../../../tests/fixtures/fake-provider.mjs'
+
+function createTestSession(...[cwd, notify, paths, credentials, mcp]: Parameters<SessionFactory>) {
+  const readSnapshot = () => {
+    const directory = path.join(cwd, '.agents', 'extensions')
+    let files: string[] = []
+    try {
+      files = readdirSync(directory)
+    } catch {}
+    return {
+      id: `test:${cwd}`,
+      generation: 1,
+      cwd,
+      skills: [],
+      extensions: files.map((name) => ({
+        id: name,
+        kind: 'extension' as const,
+        name,
+        revision: '1',
+        path: path.join(directory, name),
+        sourcePath: path.join(directory, name),
+        baseDir: directory,
+        scope: 'project' as const,
+        owner: { id: name, type: 'loose' as const },
+        enabled: true,
+        defaultPolicy: { enabled: true, invocation: 'automatic' as const },
+        invocation: 'automatic' as const,
+        diagnostics: [],
+        editable: false,
+      })),
+    }
+  }
+  const session = new SdkSession(cwd, notify, paths, credentials, mcp, { resourceSnapshot: readSnapshot() })
+  const stop = session.stopAndWait.bind(session)
+  session.stopAndWait = async () => {
+    await stop()
+    session.configureResourceSnapshot(readSnapshot())
+  }
+  return session
+}
 
 const extension = fileURLToPath(new URL('../../../tests/fixtures/test-extension.mjs', import.meta.url))
 
@@ -35,6 +76,7 @@ test('消息预约后登记退役不与初始化互等，退役保留本轮直�
     undefined,
     agent.runtimePaths,
     agent.credentials,
+    createTestSession,
   )
   let timeout: ReturnType<typeof setTimeout> | undefined
   try {
@@ -75,7 +117,7 @@ test('先登记退役再等待任务树，新消息等待旧 Worker 释放后启
     agent.runtimePaths,
     agent.credentials,
     (cwd, notify, paths, credentials, mcp) => {
-      session = new SdkSession(cwd, notify, paths, credentials, mcp)
+      session = createTestSession(cwd, notify, paths, credentials, mcp)
       return session
     },
   )
@@ -128,7 +170,7 @@ test('先登记退役再等待任务树，新消息等待旧 Worker 释放后启
 test('扩展命令已 settled 而消息回复尚未返回时，快照不会重新标记运行并阻塞退役', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pi-settled-prompt-'))
   const agent = await useFakeAgent(directory)
-  const extensions = path.join(directory, '.pi', 'extensions')
+  const extensions = path.join(directory, '.agents', 'extensions')
   await mkdir(extensions, { recursive: true })
   await writeFile(
     path.join(extensions, 'settled-command.js'),
@@ -143,7 +185,7 @@ test('扩展命令已 settled 而消息回复尚未返回时，快照不会重�
     agent.runtimePaths,
     agent.credentials,
     (cwd, notify, paths, credentials, mcp) => {
-      const session = new SdkSession(cwd, notify, paths, credentials, mcp)
+      const session = createTestSession(cwd, notify, paths, credentials, mcp)
       const prompt = session.prompt.bind(session)
       session.prompt = async (...args) => {
         await prompt(...args)
@@ -192,7 +234,7 @@ test('退役先提供本地快照，在途 Worker 快照失败也回落，不等
     agent.runtimePaths,
     agent.credentials,
     (cwd, notify, paths, credentials, mcp) => {
-      session = new SdkSession(cwd, notify, paths, credentials, mcp)
+      session = createTestSession(cwd, notify, paths, credentials, mcp)
       return session
     },
   )
@@ -243,7 +285,7 @@ test('退役先提供本地快照，在途 Worker 快照失败也回落，不等
 })
 
 async function installProjectExtension(directory: string, source = extension) {
-  const extensionsDirectory = path.join(directory, '.pi', 'extensions')
+  const extensionsDirectory = path.join(directory, '.agents', 'extensions')
   await mkdir(extensionsDirectory, { recursive: true })
   const installed = path.join(extensionsDirectory, `${path.basename(source, path.extname(source))}.js`)
   await copyFile(source, installed)
@@ -251,7 +293,7 @@ async function installProjectExtension(directory: string, source = extension) {
 }
 
 async function installBrokenProjectExtension(directory: string) {
-  const extensionsDirectory = path.join(directory, '.pi', 'extensions')
+  const extensionsDirectory = path.join(directory, '.agents', 'extensions')
   await mkdir(extensionsDirectory, { recursive: true })
   const installed = path.join(extensionsDirectory, 'broken-extension.js')
   await writeFile(installed, "throw new Error('模拟扩展加载失败')\n")
@@ -300,6 +342,135 @@ function messageText(message: { role: string; content?: unknown }): string {
     .join('')
 }
 
+test('资源退役等待暂停队列，保留提交时的技能修订直到用户删除输入', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pi-retire-queue-'))
+  const agent = await useFakeAgent(directory, { reply: () => ({ text: '完成', holdMs: 80 }) })
+  let session!: SdkSession
+  let stops = 0
+  const events: DesktopEvent[] = []
+  const pool = new PiSessionPool(
+    directory,
+    {
+      connection: () => {},
+      error: () => {},
+      sessionsChanged: () => {},
+      event: (event) => events.push(event),
+    },
+    undefined,
+    agent.runtimePaths,
+    agent.credentials,
+    (...args) => {
+      session = createTestSession(...args)
+      return session
+    },
+  )
+  let retiring: Promise<boolean> | undefined
+  try {
+    pool.start(directory)
+    const key = pool.connection().sessionKey!
+    await pool.prompt(key, '初始任务')
+    const reference = { id: 'submitted-skill', revision: 'old-revision', name: 'skill:queued' }
+    await pool.followUp(key, '保留原引用', undefined, [reference])
+    const queued = events.findLast((value) => value.event.type === 'queue_update')!.event
+    assert.ok(queued.type === 'queue_update')
+    const input = queued.followUp[0]!
+    await session.beginQueueEdit(input.id, 'client')
+    await waitFor(() => pool.getRuntimeSessions().every((record) => !record.running))
+    const prompt = session.prompt.bind(session)
+    session.prompt = async () => {
+      throw new Error('测试排队准入失败')
+    }
+    await session.releaseQueueEdits('client')
+    await waitFor(() => events.some((value) => value.event.type === 'pause_update' && value.event.queuePaused))
+    session.prompt = prompt
+    const stop = session.stopAndWait.bind(session)
+    session.stopAndWait = async () => {
+      stops++
+      await stop()
+    }
+    retiring = pool.retireSessions((id) => id === key)
+    await delay(30)
+    assert.equal(stops, 0)
+    const snapshot = await pool.snapshot()
+    const queue = snapshot.events!.findLast((value) => value.event.type === 'queue_update')!.event
+    assert.ok(queue.type === 'queue_update')
+    assert.deepEqual(queue.followUp[0]?.skills, [reference])
+    await pool.deleteQueueInput(key, input.id)
+    await retiring
+    assert.equal(stops, 1)
+  } finally {
+    await pool.stopAndWait()
+    await retiring
+    await agent.dispose()
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('排队输入出队后仍在展开技能时，资源退役等待准入和本轮结束', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pi-retire-prepare-'))
+  const agent = await useFakeAgent(directory, { reply: () => ({ text: '完成', holdMs: 60 }) })
+  const skill = path.join(directory, 'SKILL.md')
+  await writeFile(skill, '---\nname: queued\ndescription: 排队技能\n---\n排队正文')
+  let session!: SdkSession
+  let held = false
+  let release!: () => void
+  let stops = 0
+  const pool = new PiSessionPool(
+    directory,
+    { connection: () => {}, event: () => {}, error: () => {}, sessionsChanged: () => {} },
+    undefined,
+    agent.runtimePaths,
+    agent.credentials,
+    (...args) => {
+      session = createTestSession(...args)
+      return session
+    },
+  )
+  let retiring: Promise<boolean> | undefined
+  try {
+    pool.start(directory)
+    const key = pool.connection().sessionKey!
+    await pool.prompt(key, '初始任务')
+    session.getCommands = async () => {
+      held = true
+      await new Promise<void>((resolve) => {
+        release = resolve
+      })
+      return [
+        {
+          name: 'skill:queued',
+          resourceId: 'queued',
+          resourceRevision: 'submitted',
+          source: 'skill',
+          sourceInfo: { path: skill, baseDir: directory, scope: 'user', source: 'host', origin: 'top-level' },
+        },
+      ]
+    }
+    const stop = session.stopAndWait.bind(session)
+    session.stopAndWait = async () => {
+      stops++
+      await stop()
+    }
+    await pool.followUp(key, `${skillMarker} 使用原技能`, undefined, [
+      { id: 'queued', revision: 'submitted', name: 'skill:queued' },
+    ])
+    await waitFor(() => held)
+    retiring = pool.retireSessions((id) => id === key)
+    await delay(30)
+    assert.equal(stops, 0)
+    release()
+    await retiring
+    assert.equal(stops, 1)
+    assert.equal(agent.provider.requests.length, 2)
+  } finally {
+    release?.()
+    await pool.stopAndWait()
+    await retiring
+    await agent.dispose()
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
 test('两个项目的 Agent 并行运行，切回后台会话和停止当前会话不影响另一任务', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pi-session-pool-'))
   const secondDirectory = path.join(directory, 'second')
@@ -320,6 +491,7 @@ test('两个项目的 Agent 并行运行，切回后台会话和停止当前会�
     undefined,
     agent.runtimePaths,
     agent.credentials,
+    createTestSession,
   )
   try {
     pool.start(directory)
@@ -392,7 +564,7 @@ test('权限切换保留实际执行代次，确认请求通过过期过滤且�
     agent.credentials,
     (cwd, notify, paths, credentials, mcp) => {
       emit = notify.event
-      session = new SdkSession(cwd, notify, paths, credentials, mcp)
+      session = createTestSession(cwd, notify, paths, credentials, mcp)
       return session
     },
   )
@@ -456,6 +628,7 @@ test('后台扩展弹窗保留在所属会话，切回后可以响应，其他�
     undefined,
     agent.runtimePaths,
     agent.credentials,
+    createTestSession,
   )
   try {
     pool.start(directory)
@@ -520,6 +693,7 @@ test('空白会话重复新建不会增加会话，切走后释放，首次发�
     undefined,
     agent.runtimePaths,
     agent.credentials,
+    createTestSession,
   )
   try {
     pool.start(directory)
@@ -574,6 +748,7 @@ test('新建和读取冷会话不启动运行时，发送期间切换仍发送�
     undefined,
     agent.runtimePaths,
     agent.credentials,
+    createTestSession,
   )
   await writeFile(
     sessionFile,
@@ -695,6 +870,7 @@ test('冷会话加载损坏项目扩展时保留历史，修复后可继续', as
     undefined,
     agent.runtimePaths,
     agent.credentials,
+    createTestSession,
   )
   try {
     pool.prepare(directory)
@@ -768,6 +944,7 @@ test('连续选择只返回最后一次的目标快照，空白页释放后拒�
     undefined,
     agent.runtimePaths,
     agent.credentials,
+    createTestSession,
   )
   try {
     const first = await savedSession(agent, directory, 'first')
@@ -815,6 +992,7 @@ test('会话池拒绝加载 Desktop 应用数据目录外的历史会话', async
     undefined,
     agent.runtimePaths,
     agent.credentials,
+    createTestSession,
   )
   try {
     pool.prepare(directory)
@@ -842,6 +1020,7 @@ test('重连报告项目扩展错误时保留会话内容，修复后清除错�
     undefined,
     agent.runtimePaths,
     agent.credentials,
+    createTestSession,
   )
   try {
     const first = await savedSession(agent, directory, 'first')
@@ -905,6 +1084,7 @@ test('恢复时模型不可用保留原选择，重新选择前禁止发送', as
     undefined,
     agent.runtimePaths,
     agent.credentials,
+    createTestSession,
   )
   try {
     const file = await savedSession(agent, directory, 'saved')
@@ -944,6 +1124,7 @@ test('后台会话停止只结束一次，后台目标操作不影响当前会�
     undefined,
     agent.runtimePaths,
     agent.credentials,
+    createTestSession,
   )
   try {
     pool.start(directory)
@@ -988,6 +1169,7 @@ test('用户扩展按会话生效，后台扩展异常不污染当前会话，�
     undefined,
     agent.runtimePaths,
     agent.credentials,
+    createTestSession,
   )
   try {
     pool.prepare(directory)
@@ -1035,6 +1217,7 @@ test('历史会话停留与重复快照保持 idle，首次发送才启动运行
     undefined,
     agent.runtimePaths,
     agent.credentials,
+    createTestSession,
   )
   await writeFile(
     sessionFile,
@@ -1111,7 +1294,7 @@ test('迟到模式hook和Plan首次装配不覆盖用户关闭；准备期间第
     agent.runtimePaths,
     agent.credentials,
     (cwd, notify, paths, credentials, mcp) => {
-      const session = new SdkSession(cwd, notify, paths, credentials, mcp)
+      const session = createTestSession(cwd, notify, paths, credentials, mcp)
       return session
     },
   )

@@ -6,7 +6,8 @@
   "exports": {
     "./host-client": "./src/host-client.ts",
     "./plugin-client": "./src/plugin-client.ts",
-    "./service-registry": "./src/service-registry.ts"
+    "./service-registry": "./src/service-registry.ts",
+    "./resource-client": "./src/resource-client.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit",

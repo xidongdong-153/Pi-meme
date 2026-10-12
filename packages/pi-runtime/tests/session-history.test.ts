@@ -4,7 +4,38 @@ import { appendFile, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { tmpdir } from 'node:os'
 import { readSessionHistory } from '../src/session-history'
-import { userMessage } from '../../../tests/fixtures/messages.mjs'
+import { assistantMessage, userMessage } from '../../../tests/fixtures/messages.mjs'
+import { projectMessageSources } from '../src/sdk/ui-source'
+import type { SessionEntry } from '@earendil-works/pi-coding-agent'
+
+test('历史回复保留开始时间，以当前分支消息落盘时间投影完成时间且不改写JSONL', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pi-history-duration-'))
+  const file = path.join(directory, 'session.jsonl')
+  const startedAt = 1791791839305
+  const timestamp = '2026-10-12T07:57:24.763Z'
+  const assistant = assistantMessage('历史回复', startedAt)
+  const user = userMessage('输入', 1791791839236)
+  const entries: SessionEntry[] = [
+    { type: 'message', id: 'user', parentId: null, timestamp, message: user },
+    { type: 'message', id: 'reply', parentId: 'user', timestamp, message: assistant },
+    { type: 'message', id: 'other', parentId: 'user', timestamp: '2026-10-12T08:00:00Z', message: assistant },
+    { type: 'session_info', id: 'leaf', parentId: 'reply', timestamp, name: '当前分支' },
+  ]
+  const content = [{ type: 'session', version: 3, id: 'duration', cwd: directory, timestamp }, ...entries]
+    .map((entry) => JSON.stringify(entry))
+    .join('\n')
+  await writeFile(file, content)
+  try {
+    const history = await readSessionHistory(file)
+    const reply = history.messages.find((message) => message.role === 'assistant')
+    assert.equal(reply?.timestamp, startedAt)
+    assert.equal(reply?.completedAt, Date.parse(timestamp))
+    assert.deepEqual(history.messages, projectMessageSources(entries, [user, assistant], 'leaf'))
+    assert.equal(await readFile(file, 'utf8'), content)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
 
 test('历史读取只显示当前分支和压缩后的上下文，追加记录后刷新缓存', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pi-history-projection-'))

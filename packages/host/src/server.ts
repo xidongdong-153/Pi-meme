@@ -32,7 +32,10 @@ async function jsonBody(request: IncomingMessage, pluginUpload = false) {
   const value: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'))
   if (
     bytes > 32 * 1024 * 1024 &&
-    (!value || typeof value !== 'object' || !('method' in value) || value.method !== 'plugins:install-package')
+    (!value ||
+      typeof value !== 'object' ||
+      !('method' in value) ||
+      !['plugins:install-package', 'resources:import'].includes(String(value.method)))
   )
     throw new Error('普通请求内容超过 32 MiB')
   return value
@@ -44,6 +47,9 @@ const mime: Record<string, string> = {
   '.json': 'application/json',
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
+  '.webp': 'image/webp',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
   '.woff2': 'font/woff2',
 }
 

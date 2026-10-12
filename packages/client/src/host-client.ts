@@ -16,6 +16,7 @@ import type {
 } from '@pi-meme/contracts/host'
 import type { SettingsSnapshot, Theme } from '@pi-meme/contracts/settings'
 import type { PluginClient } from './plugin-client'
+import { createResourceClient, type ResourceClient } from './resource-client'
 
 export type ClientOptions = {
   connection: HostConnection
@@ -52,6 +53,7 @@ export class HostClient {
   readonly clientId: string
   readonly bridge: DesktopBridge
   readonly plugins: PluginClient
+  readonly resources: ResourceClient
   private readonly url: URL
   private readonly fetch: typeof fetch
   private readonly eventListeners = new Set<(value: DesktopEvent) => void>()
@@ -88,6 +90,12 @@ export class HostClient {
     this.clientId = clientIdentity(options, this.url)
     this.fetch = options.fetch ?? globalThis.fetch.bind(globalThis)
     this.bridge = this.createBridge()
+    this.resources = createResourceClient(this.rpc.bind(this), (callback) => {
+      this.pluginListeners.add(callback)
+      return () => {
+        this.pluginListeners.delete(callback)
+      }
+    })
     this.plugins = {
       list: () => this.rpc('plugins:list', [], null),
       installDirectory: (path) => this.rpc('plugins:install-directory', [path], null),
@@ -479,6 +487,7 @@ export class HostClient {
       case 'sessions-changed':
         for (const callback of this.sessionsListeners) callback()
         break
+      case 'resources-changed':
       case 'plugins-changed':
         for (const callback of this.pluginListeners) callback()
         break

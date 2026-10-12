@@ -53,8 +53,11 @@ class FixtureManager extends PluginManager {
     }
     return handlers
   }
-  override acquire(): PluginLease {
-    const lease = super.acquire()
+  override acquire(
+    isEnabled?: (pluginId: string) => boolean,
+    from?: ReadonlyArray<{ id: string; generation: number }>,
+  ): PluginLease {
+    const lease = super.acquire(isEnabled, from)
     return { ...lease, runHandler: (channel, args) => lease.runHandler(this.aliases.get(channel) ?? channel, args) }
   }
 }
@@ -537,7 +540,11 @@ test('共享交互服务切换时旧租约能回答审批，新调用仍被 gate
     await assert.rejects(manager.runHandler('answer', ['外部新调用']), /切换版本/)
     assert.throws(() => manager.acquire(), /切换版本/)
     assert.equal(await lease.runHandler('answer', ['已持租约的回答']), '旧审批：已持租约的回答')
+    const child = manager.acquire(undefined, lease.descriptors)
+    assert.equal(await child.runHandler('answer', ['子任务旧审批']), '旧审批：子任务旧审批')
     await lease.release()
+    assert.equal(manager.list()[0]?.status, 'pending')
+    await child.release()
     await update
     await assert.rejects(lease.runHandler('answer', ['租约结束后']), /租约已释放/)
   } finally {

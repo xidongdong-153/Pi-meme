@@ -4,7 +4,8 @@ import { promisify } from 'node:util'
 import { get } from 'node:https'
 import { startHostServer } from '@pi-meme/host/server'
 import { once } from 'node:events'
-import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { constants } from 'node:fs'
+import { access, mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -13,6 +14,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 import test from 'node:test'
 import type { PiSlashCommand } from '@pi-meme/contracts/pi'
 import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
+import { createDevkitAppPackage } from '../../../tests/fixtures/devkit-app'
 
 async function waitFor<T>(read: () => Promise<T | undefined>, label: string) {
   const deadline = Date.now() + 60000
@@ -25,6 +27,17 @@ async function waitFor<T>(read: () => Promise<T | undefined>, label: string) {
 }
 
 async function runPackagedSmoke(mode: 'local' | 'recovery' | 'remote' | 'fresh', existingRoot?: string) {
+  const desktop = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
+  const packagedApp =
+    process.env.PI_DESKTOP_PACKAGED_APP ?? path.join(desktop, 'out', `pi-meme-darwin-${process.arch}`, 'pi-meme.app')
+  const esbuildBinary = path.join(
+    packagedApp,
+    'Contents/Resources/app.asar.unpacked/node_modules/@esbuild',
+    `${process.platform}-${process.arch}`,
+    process.platform === 'win32' ? 'esbuild.exe' : 'bin/esbuild',
+  )
+  assert.ok((await stat(esbuildBinary)).isFile(), '打包应用必须包含真实解包的esbuild二进制文件')
+  await access(esbuildBinary, constants.X_OK)
   const root = existingRoot ?? (await mkdtemp(path.join(tmpdir(), 'pi-meme-package-test-')))
   const fixture = await useFakeAgent(root, { reply: () => ({ text: '打包应用回复', delayMs: 100 }) })
   const dataRoot = path.join(root, 'userData')
@@ -84,9 +97,6 @@ async function runPackagedSmoke(mode: 'local' | 'recovery' | 'remote' | 'fresh',
   assert.ok(address && typeof address === 'object')
   const port = address.port
   await new Promise<void>((resolve, reject) => listener.close((cause) => (cause ? reject(cause) : resolve())))
-  const desktop = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-  const packagedApp =
-    process.env.PI_DESKTOP_PACKAGED_APP ?? path.join(desktop, 'out', `pi-meme-darwin-${process.arch}`, 'pi-meme.app')
   const child = spawn(
     path.join(packagedApp, 'Contents/MacOS/pi-meme'),
     [
@@ -171,6 +181,52 @@ async function runPackagedSmoke(mode: 'local' | 'recovery' | 'remote' | 'fresh',
       '认证 Cookie 不写入磁盘',
     )
     assert.equal(typeof JSON.parse(await readFile(path.join(dataRoot, 'auth.json'), 'utf8'))['host:token'], 'string')
+    if (mode === 'local') {
+      const appPackage = await createDevkitAppPackage(root, 'packaged-devkit-app')
+      const app = (await evaluate(`(async () => {
+        const call = async (method, args = []) => {
+          const response = await fetch('/api/rpc', {method:'POST', headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({requestId:crypto.randomUUID(), clientId:'package-app-test', method, args})})
+          const value = await response.json()
+          if (!response.ok || value.error) throw new Error(JSON.stringify(value.error))
+          return value.result
+        }
+        const installed = await call('plugins:install-package', [${JSON.stringify(appPackage)}])
+        const time = await call('packaged-devkit-app:time')
+        await call('plugins:reload', [installed.id])
+        const reloadedTime = await call('packaged-devkit-app:time')
+        return {installed, time, reloadedTime}
+      })()`)) as { installed: { id: string; status: string }; time: string; reloadedTime: string }
+      assert.equal(app.installed.id, 'packaged-devkit-app')
+      assert.equal(app.installed.status, 'active')
+      assert.match(app.time, /^\d{4}-\d{2}-\d{2}T/)
+      assert.match(app.reloadedTime, /^\d{4}-\d{2}-\d{2}T/)
+      const result = (await evaluate(`(async () => {
+        const call = async input => {
+          const response = await fetch('/api/rpc', {method:'POST', headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({requestId:crypto.randomUUID(), clientId:'package-native-test', method:'resources:import', args:[input]})})
+          return response.json()
+        }
+        const imported = await call({kind:'pi-package', files:[
+          {path:'package.json', content:JSON.stringify({name:'packaged-esbuild-fixture', version:'1.0.0', pi:{extensions:['./extensions/index.ts']}})},
+          {path:'extensions/index.ts', content:"import { value } from './helpers/value'; export default function(pi) { pi.on('session_start', (_event, ctx) => ctx.ui.setStatus('packaged-fixture', value)) }"},
+          {path:'extensions/helpers/value.ts', content:"export const value: string = '打包原生扩展'"},
+        ]})
+        const rejected = await call({kind:'extension', name:'packaged-missing-dependency', content:"import missing from 'pi-meme-fixture-missing-dependency'; export default () => missing()"})
+        return { imported, rejected }
+      })()`)) as {
+        imported: { result?: { items: Array<{ kind: string; owner: { name?: string } }> }; error?: unknown }
+        rejected: { error?: { message: string } }
+      }
+      assert.equal(result.imported.error, undefined, JSON.stringify(result.imported.error))
+      assert.ok(
+        result.imported.result?.items.some(
+          (item) => item.kind === 'extension' && item.owner.name === 'packaged-esbuild-fixture',
+        ),
+        '实际打包Host通过esbuild校验并导入带相对TS依赖的原生扩展',
+      )
+      assert.match(result.rejected.error?.message ?? '', /pi-meme-fixture-missing-dependency/)
+    }
     if (mode === 'remote') {
       const saved = await waitFor(async () => {
         const value = (await evaluate('window.piPlatform.listSavedHostConnections()')) as unknown[]
@@ -233,7 +289,7 @@ async function runPackagedSmoke(mode: 'local' | 'recovery' | 'remote' | 'fresh',
       const auth = JSON.parse(await readFile(path.join(dataRoot, 'auth.json'), 'utf8'))
       assert.deepEqual(Object.keys(auth), ['host:token'])
       const source = fileURLToPath(new URL('../../../pi/skills/skill-creator', import.meta.url))
-      const installed = path.join(dataRoot, 'pi/builtin-skills/skill-creator')
+      const installed = path.join(dataRoot, 'builtin-resources/skills/skill-creator')
       for (const entry of await readdir(source, { recursive: true, withFileTypes: true })) {
         if (!entry.isFile()) continue
         const relative = path.relative(source, path.join(entry.parentPath, entry.name))
@@ -248,7 +304,8 @@ async function runPackagedSmoke(mode: 'local' | 'recovery' | 'remote' | 'fresh',
       assert.ok(creator, '无模型凭据时加载内置 Skill Creator')
       assert.equal(creator.builtin, true)
       assert.equal(creator.displayName, 'Skill Creator')
-      assert.equal(creator.sourceInfo.path, path.join(installed, 'SKILL.md'))
+      assert.ok(creator.sourceInfo.path.startsWith(path.join(dataRoot, 'resources/snapshots')))
+      assert.ok(creator.resourceId && creator.resourceRevision)
       await evaluate(`(() => {
         const input = document.querySelector('[contenteditable=true][aria-label="消息"]')
         input.textContent = '$'

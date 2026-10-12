@@ -1,7 +1,7 @@
 import type { CollaborationEvent } from '@pi-meme/contracts/collaboration'
 import type { PlanEvent } from '@pi-meme/contracts/plan'
 import type { AgentAccessEvent } from '@pi-meme/contracts/agent-access'
-import type { PiEvent, PiRunInterval } from '@pi-meme/contracts/pi'
+import type { PiEvent, PiMessage, PiRunInterval } from '@pi-meme/contracts/pi'
 import type { Snapshot, DesktopEvent } from '@pi-meme/contracts/desktop'
 import type { ChatState } from './types'
 import { sameMessage } from './message-text'
@@ -27,6 +27,7 @@ export function fromSnapshot(snapshot: Snapshot): ChatState {
     agents: snapshot.agents ?? [],
     agentMessages: snapshot.agentMessages ?? [],
     sessionEntries: snapshot.sessionEntries,
+    skillUsages: snapshot.state.skillUsages,
     running: snapshot.state.isStreaming || isCompacting,
     paused: snapshot.state.isPaused ?? false,
     queuePaused: snapshot.state.queuePaused ?? false,
@@ -50,6 +51,7 @@ export function fromSnapshot(snapshot: Snapshot): ChatState {
         ...state.tools[message.toolCallId],
         id: message.toolCallId,
         name: message.toolName,
+        source: message.source,
         result: message.content,
         status: message.isError ? 'error' : 'success',
       }
@@ -156,6 +158,8 @@ export function applyEvent(
         pauseRevision: event.revision,
         pauseIntervals: event.pauseIntervals ?? state.pauseIntervals,
       }
+    case 'skill_usage_update':
+      return { ...state, skillUsages: event.usages }
     case 'queue_update':
       return { ...state, steering: event.steering, followUp: event.followUp }
     case 'message_start':
@@ -165,30 +169,31 @@ export function applyEvent(
     case 'message_update':
       return state.live ? { ...state, ...updateLiveMessage(state.live, state.stream, event) } : state
     case 'message_end': {
+      const message: PiMessage = event.source ? { ...event.message, source: event.source } : event.message
       const index = state.messages.findIndex((message) => sameMessage(message, event.message))
       const messages = [...state.messages]
-      if (index === -1) messages.push(event.message)
-      else messages[index] = event.message
+      if (index === -1) messages.push(message)
+      else messages[index] = message
       const next: ChatState = {
         ...state,
         messages,
         live: event.message.role === 'assistant' ? null : state.live,
         stream: event.message.role === 'assistant' ? emptyChat.stream : state.stream,
       }
-      if (event.message.role === 'toolResult') {
-        const message = event.message
+      if (message.role === 'toolResult') {
         next.tools = {
           ...state.tools,
           [message.toolCallId]: {
             ...state.tools[message.toolCallId],
             id: message.toolCallId,
             name: message.toolName,
+            source: message.source,
             result: message.content,
             status: message.isError ? 'error' : 'success',
           },
         }
       }
-      if (event.message.role === 'toolResult') restoreNestedTools(next, event.message)
+      if (message.role === 'toolResult') restoreNestedTools(next, message)
       return next
     }
     case 'tool_execution_start':
@@ -205,6 +210,7 @@ export function applyEvent(
             ...previous,
             id,
             name: event.toolName,
+            source: event.source ?? previous?.source,
             parentToolCallId: event.parentToolCallId ?? previous?.parentToolCallId,
             args: event.type === 'tool_execution_end' ? previous?.args : event.args,
             result:

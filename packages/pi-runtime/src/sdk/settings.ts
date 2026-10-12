@@ -49,15 +49,16 @@ export function createDesktopSettingsManager(
 ): SettingsManager {
   const manager = sdk.SettingsManager.fromStorage(new DesktopSettingsStorage(cwd, agentDir), { projectTrusted: true })
   const getSettings = manager.getSettings.bind(manager)
-  const getGlobalSettings = manager.getGlobalSettings.bind(manager)
   const getProjectSettings = manager.getProjectSettings.bind(manager)
-  manager.getPackages = () => getGlobalSettings().packages ?? []
+  manager.getPackages = () => []
   manager.getProjectSettings = () => {
     const settings = getProjectSettings()
     delete settings.packages
+    delete settings.skills
+    delete settings.extensions
     return settings
   }
-  manager.getSettings = () => ({ ...getSettings(), packages: getGlobalSettings().packages ?? [] })
+  manager.getSettings = () => ({ ...getSettings(), packages: [], skills: [], extensions: [] })
 
   const projectPi = path.join(cwd, '.pi')
   const allow = (value: string) => {
@@ -65,8 +66,8 @@ export function createDesktopSettingsManager(
     return inside(agentDir, resolved) || inside(projectPi, resolved)
   }
   const filterPaths = (read: () => string[]) => () => read().filter(allow)
-  manager.getExtensionPaths = filterPaths(manager.getExtensionPaths.bind(manager))
-  manager.getSkillPaths = filterPaths(manager.getSkillPaths.bind(manager))
+  manager.getExtensionPaths = () => []
+  manager.getSkillPaths = () => []
   manager.getPromptTemplatePaths = filterPaths(manager.getPromptTemplatePaths.bind(manager))
   manager.getThemePaths = filterPaths(manager.getThemePaths.bind(manager))
   return manager

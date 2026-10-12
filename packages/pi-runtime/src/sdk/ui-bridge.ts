@@ -123,6 +123,16 @@ export class ExtensionUiBridge {
     this.emit({ type: 'extension_ui_request', id: randomUUID(), method: 'set_editor_text', text })
   }
 
+  private unsupported(method: string) {
+    this.emit({
+      type: 'extension_ui_request',
+      id: randomUUID(),
+      method: 'notify',
+      notifyType: 'warning',
+      message: `桌面端不支持扩展 UI 方法 ui.${method}，请通过扩展图形入口提供界面`,
+    })
+  }
+
   readonly ui: ExtensionUIContext = {
     select: (title, options, opts) =>
       this.dialog('select', { title, options }, undefined, this.dialogValue(undefined), opts),
@@ -140,7 +150,10 @@ export class ExtensionUiBridge {
     notify: (message, type) => {
       this.emit({ type: 'extension_ui_request', id: randomUUID(), method: 'notify', message, notifyType: type })
     },
-    onTerminalInput: () => () => {},
+    onTerminalInput: () => {
+      this.unsupported('onTerminalInput')
+      return () => {}
+    },
     setStatus: (key, text) => {
       this.emit({
         type: 'extension_ui_request',
@@ -150,12 +163,15 @@ export class ExtensionUiBridge {
         statusText: text,
       })
     },
-    setWorkingMessage: () => {},
-    setWorkingVisible: () => {},
-    setWorkingIndicator: () => {},
-    setHiddenThinkingLabel: () => {},
+    setWorkingMessage: () => this.unsupported('setWorkingMessage'),
+    setWorkingVisible: () => this.unsupported('setWorkingVisible'),
+    setWorkingIndicator: () => this.unsupported('setWorkingIndicator'),
+    setHiddenThinkingLabel: () => this.unsupported('setHiddenThinkingLabel'),
     setWidget: (key, content, options) => {
-      if (content !== undefined && !Array.isArray(content)) return
+      if (content !== undefined && !Array.isArray(content)) {
+        this.unsupported('setWidget(组件工厂)')
+        return
+      }
       this.emit({
         type: 'extension_ui_request',
         id: randomUUID(),
@@ -165,24 +181,27 @@ export class ExtensionUiBridge {
         widgetPlacement: options?.placement,
       })
     },
-    setFooter: () => {},
-    setHeader: () => {},
+    setFooter: () => this.unsupported('setFooter'),
+    setHeader: () => this.unsupported('setHeader'),
     setTitle: (title) => {
       this.emit({ type: 'extension_ui_request', id: randomUUID(), method: 'setTitle', title })
     },
-    custom: (async () => undefined) as ExtensionUIContext['custom'],
+    custom: (async () => {
+      this.unsupported('custom')
+      return undefined
+    }) as ExtensionUIContext['custom'],
     pasteToEditor: (text) => this.setEditorText(text),
     setEditorText: (text) => this.setEditorText(text),
     getEditorText: () => '',
     editor: (title, prefill) => this.dialog('editor', { title, prefill }, undefined, this.dialogValue(undefined)),
-    addAutocompleteProvider: () => {},
-    setEditorComponent: () => {},
+    addAutocompleteProvider: () => this.unsupported('addAutocompleteProvider'),
+    setEditorComponent: () => this.unsupported('setEditorComponent'),
     getEditorComponent: () => undefined,
     theme: plainTheme,
     getAllThemes: () => [],
     getTheme: () => undefined,
     setTheme: () => ({ success: false, error: '桌面端不支持终端主题切换' }),
     getToolsExpanded: () => false,
-    setToolsExpanded: () => {},
+    setToolsExpanded: () => this.unsupported('setToolsExpanded'),
   }
 }

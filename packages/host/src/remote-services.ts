@@ -286,15 +286,15 @@ export class RemoteServices {
         const rewriteDescriptors = (value: unknown) => {
           if (!Array.isArray(value)) return value
           return value.map((item: unknown) => {
-            if (
-              !item ||
-              typeof item !== 'object' ||
-              !('ui' in item) ||
-              typeof item.ui !== 'string' ||
-              !item.ui.startsWith('/api/plugins/')
-            )
-              return item
-            return { ...item, ui: `/api/services/${id}${item.ui}` }
+            if (!item || typeof item !== 'object') return item
+            const descriptor = item as Record<string, unknown>
+            const result = { ...descriptor }
+            for (const field of ['ui', 'iconUrl']) {
+              const value = descriptor[field]
+              if (typeof value === 'string' && value.startsWith('/api/plugins/'))
+                result[field] = `/api/services/${id}${value}`
+            }
+            return result
           })
         }
         if (request.method === 'plugins:list' || request.method === 'plugins:session')

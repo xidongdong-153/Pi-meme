@@ -62,6 +62,16 @@ function startHost() {
       serviceName: 'Pi Meme Host',
       env: {
         ...process.env,
+        ...(app.isPackaged
+          ? {
+              ESBUILD_BINARY_PATH: path.join(
+                process.resourcesPath,
+                'app.asar.unpacked/node_modules/@esbuild',
+                `${process.platform}-${process.arch}`,
+                process.platform === 'win32' ? 'esbuild.exe' : 'bin/esbuild',
+              ),
+            }
+          : {}),
         PI_MEME_FRONTEND_URL: MAIN_WINDOW_VITE_DEV_SERVER_URL ?? process.env.PI_DESKTOP_DEV_SERVER_URL ?? '',
       },
       stdio: 'pipe',

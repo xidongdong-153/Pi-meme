@@ -37,8 +37,8 @@ const groups = [
   {
     label: '集成',
     sections: [
-      { id: 'plugins', label: '扩展', icon: Puzzle, description: '管理用户插件、技能和 MCP。' },
-      { id: 'skills', label: '技能', icon: BookOpen, description: '查看当前项目中已加载的技能。' },
+      { id: 'plugins', label: '扩展', icon: Puzzle, description: '管理技能、Pi 扩展和应用插件。' },
+      { id: 'skills', label: '技能', icon: BookOpen, description: '创建、导入和管理技能，设置当前项目的调用方式。' },
       { id: 'mcp', label: 'MCP', icon: Network, description: '管理 MCP 服务和授权。' },
     ],
   },

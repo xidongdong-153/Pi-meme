@@ -534,6 +534,56 @@ test('child先结束轮次，grandchild延迟结果触发同epoch汇总后再交
   }
 })
 
+test('Host 重启绑定根会话使用当前运行时代次，保留子代理身份和代次', async () => {
+  const context = await setup()
+  let restored: ReturnType<typeof createHostCollaborationBridge> | undefined
+  try {
+    await context.begin()
+    const child = await context.spawn('worker')
+    const binding = {
+      sessionKey: 'root-key',
+      cwd: context.directory,
+      sessionFile: path.join(context.directory, 'root.jsonl'),
+      state: context.root.state,
+      accessMode: 'workspace-write' as const,
+      session: context.root.session,
+    }
+    context.root.session.connection = () => ({ cwd: context.directory, generation: 8, status: 'idle' })
+    context.bridge.decorateRootEvent('root-key', { generation: 8, event: { type: 'agent_settled' } })
+    const original = await context.bridge.bindRoot(binding)
+    assert.equal(original.executionGeneration, 8)
+    await context.bridge.stopAndWait()
+    restored = createHostCollaborationBridge({
+      dataRoot: context.directory,
+      createSession: () => {
+        throw new Error('只读恢复不能创建 Worker')
+      },
+      emit: () => {},
+    })
+    const current = fakeSession(context.directory, { connection: () => {}, event: () => {}, error: () => {} })
+    current.session.connection = () => ({ cwd: context.directory, generation: 0, status: 'disconnected' })
+    await restored.bindRoot({ ...binding, session: current.session })
+    const snapshot = await restored.snapshot('root-key')
+    assert.equal(snapshot.agent.agentId, original.agentId)
+    assert.equal(snapshot.agent.executionGeneration, 0)
+    const savedChild = snapshot.agents.find((agent) => agent.agentId === child.agentId)!
+    assert.equal(savedChild.executionGeneration, child.executionGeneration)
+    assert.equal(savedChild.rootAgentId, original.agentId)
+    current.session.connection = () => ({ cwd: context.directory, generation: 1, status: 'ready' })
+    const event = restored.decorateRootEvent('root-key', {
+      generation: 1,
+      executionGeneration: 1,
+      event: { type: 'agent_settled' },
+    })
+    assert.equal(event.executionGeneration, 1)
+    await restored.bindRoot({ ...binding, session: current.session })
+    assert.equal((await restored.snapshot('root-key')).agent.executionGeneration, 1)
+  } finally {
+    await restored?.stopAndWait()
+    await context.cleanup()
+  }
+})
+
 test('旧epoch结果持久可见但不唤醒新用户任务；restart标interrupted且只读snapshot不创建Worker', async () => {
   const context = await setup()
   try {

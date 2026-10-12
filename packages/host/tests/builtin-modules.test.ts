@@ -29,8 +29,8 @@ test('没有外部插件或恢复清单损坏时，14 个内置模块与基础�
       assert.deepEqual((await rpc('plugins:list')).result, [])
       const modules = (await rpc('host:modules')).result as Array<{ id: string }>
       assert.deepEqual(new Set(modules.map((module) => module.id)), new Set(reservedPluginIds))
-      for (const method of ['settings:get', 'models:get', 'mcp:get', 'resources:list'])
-        assert.equal((await rpc(method, method === 'resources:list' ? ['skills'] : [])).error, undefined)
+      for (const method of ['settings:get', 'models:get', 'mcp:get', 'resources:catalog'])
+        assert.equal((await rpc(method, [])).error, undefined)
       for (const id of reservedPluginIds)
         for (const method of ['plugins:enable', 'plugins:disable', 'plugins:remove', 'plugins:reload'])
           assert.match((await rpc(method, [id])).error?.message ?? '', /内置模块/)

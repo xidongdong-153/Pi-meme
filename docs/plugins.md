@@ -1,6 +1,6 @@
 # 插件开发与安装
 
-本文描述用户安装的外部插件。内置 14 个模块位于 `packages/*`，由 Host 静态装配，不参加启停、卸载或重新加载。
+本文描述带 Host 或 React 界面的 App 插件。统一扩展中心还管理技能和 Pi 原生扩展，其目录、导入方式和接口见 [技能与扩展管理](skills-and-extensions.md)。内置 14 个模块位于 `packages/*`，由 Host 静态装配，不参加启停、卸载或重新加载。
 
 插件身份来自 `package.json` 的 `name` 和 `version`。`piMeme` 声明 SDK 版本、构建入口和服务依赖。Host 不执行插件的安装脚本，也不要求用户安装 Pi CLI。
 
@@ -20,6 +20,30 @@
 
 三个入口按实际能力选用，至少声明一个。`server` 是 Chord Node facet bundle；`agent` 是 Node ESM；`ui` 是浏览器 ESM。UI 使用宿主的 React，不能导入 Node 模块或使用全局 `require`。
 
+`piMeme.display` 可声明显示名称和包内图标；`piMeme.resources` 可附带技能与 Pi 扩展。例如：
+
+```json
+{
+  "name": "@local/review",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "检查代码修改。",
+  "piMeme": {
+    "sdkVersion": 1,
+    "ui": "dist/ui/entry.js",
+    "display": { "name": "代码检查", "icon": "assets/icon.svg" },
+    "resources": {
+      "skills": ["skills/review"],
+      "extensions": ["extensions/review"]
+    }
+  }
+}
+```
+
+技能目录必须包含 `SKILL.md`，扩展可以是 `.ts`、`.js`、`.mjs` 文件，或包含 `index.ts`、`index.js`、`index.mjs` 的目录。资源声明只接受明确的包内相对路径，不接受通配符、越界路径和重复入口；`agent` 与 `resources.extensions` 不能指向同一个扩展。图标支持 SVG、PNG、JPEG 和 WebP。附带资源不单独复制成可卸载的用户技能；修改包内容后重新构建或上传整个包。只有资源、没有 App 入口的内容使用 Pi 原生包，不使用 `.pim`。
+
+DevKit 构建三个 App 入口；声明资源按现有文件保存，不额外安装或构建资源依赖。需要相对导入或辅助脚本时声明整个目录。`resources` 只支持 `skills` 和 `extensions`，不打包 MCP 配置。
+
 ## 创建、构建和打包
 
 在仓库根目录运行：
@@ -36,9 +60,9 @@ pnpm exec tsx packages/plugin-devkit/src/cli.ts pack /tmp/clock /tmp/clock.pim
 
 模板包含一个读取 UTC 时间的 Pi 工具、一个 Host 操作，以及调用该操作的 React 页面。修改 `src/server/entry.ts`、`src/agent/entry.ts` 和 `src/ui/entry.tsx`。`build` 将第三方依赖打入产物，Pi SDK 和 React 分别由 Node Host 和浏览器宿主提供。`validate` 检查身份、SDK 版本、入口、Chord 哈希和浏览器模块，不代替类型检查或业务测试。
 
-`.pim` 是带文件清单的 gzip 包，只收集 `package.json`、`dist/`、README 和许可证。不包含 `src/`、`node_modules/`、`.env` 或根目录开发文件。上传和解压大小均有 32 MiB 限制，路径越界和软链接会被拒绝。
+`.pim` 是带文件清单的 gzip 包，收集 `package.json`、`dist/`、README、许可证、声明的资源目录和图标。资源目录连同辅助文件一起保存；未声明的根目录源码、`node_modules/` 和 `.env` 不会加入包。上传和解压大小均有 32 MiB 限制，路径越界、软链接和不在文件白名单中的上传内容会被拒绝。
 
-在“设置 → 扩展”上传本机 `.pim`；Host 构建目录加载与重新加载位于“设置 → 更多 → 开发者”。Remote 用户上传包即可，不需要在远程机器安装 npm 依赖。当前没有在线 npm/git 安装、插件市场或 GitHub 集成。
+在“设置 → 扩展”上传本机 `.pim`，或从当前 Host 的已构建 App 目录导入。重新加载入口仍在开发者页面。Remote 用户上传自包含包即可；导入 Host 目录时，填写远程 Host 的路径。当前没有在线 npm/git 安装、插件市场或 GitHub 集成。
 
 ## Server 入口
 
@@ -89,9 +113,24 @@ export function activate(context: UiPluginContext) {
 }
 ```
 
-固定槽位是 `page`、`sidebar`、`composer`、`tool-card`、`status`、`settings`。贡献 ID 使用 `${pluginId}:` 前缀。`context.call<T>(method, args)` 调用本插件的 Host 操作。渲染参数包括所属 Host、会话和快照；内置业务组件接收 App 注入的具体 Props。
+固定槽位是 `page`、`sidebar`、`composer`、`tool-card`、`status`、`settings`、`message`。贡献 ID 使用 `${pluginId}:` 前缀。`context.call<T>(method, args)` 调用本插件的 Host 操作。渲染参数包括所属 Host、会话和快照；`context.iconUrl` 是已认证的当前代次图标地址。内置业务组件接收 App 注入的具体 Props。
 
-`interaction` 将 Pi 的选择、确认、输入、编辑、通知、状态和文本挂件映射到图形界面。Pi TUI 的 `custom()` 组件不会自动成为 React 组件；需要在 App 插件 UI 入口补图形界面。
+自定义消息的 Agent 入口需使用 Pi 的 `registerMessageRenderer(customType, renderer)` 登记类型；图形界面用 React 槽渲染，原生 renderer 可返回 `undefined`。Host 从实际 SDK 注册项建立来源，没有登记或 renderer 不可用时显示消息文字。
+
+`tool-card` 必须声明 `match.toolName`，`message` 必须声明 `match.customType`：
+
+```tsx
+context.contribute({
+  id: `${context.pluginId}:review-result`,
+  slot: 'message',
+  match: { customType: 'review-result' },
+  render: (props) => <p>{String(props.customType)}</p>,
+})
+```
+
+Registry 把匹配来源固定为 `context.pluginId`，代次固定为当前 UI 代次；插件不能匹配其他插件的来源。聊天消息和工具必须同时匹配 `ownerId`、`generation` 和类型或工具名才会使用贡献。没有可靠来源、没有对应代次或插件已卸载的消息保留普通文字。工具卡片补充通用工具详情。来源由运行时登记，不从消息文本或工具名前缀猜测。
+
+`interaction` 将 Pi 的选择、确认、输入、编辑、通知、状态和文本挂件映射到图形界面。Pi TUI 的 `custom()`、函数式挂件、header 和 footer 不会自动成为 React 组件；图形界面使用 App 插件 UI 入口。
 
 内置 `request_user_input` 工具在普通模式和规划模式均可使用。它在输入框上方显示提问卡片，等待用户回答后再继续本次工具调用；无需安装插件。参数 `questions` 包含 1–3 道题，每题有唯一 `id`、`question` 和可选 `options`。选项使用 `label`，可附 `description`：
 
@@ -125,13 +164,15 @@ flowchart LR
   Switch --> Restore["启动失败时恢复旧版"]
 ```
 
-纯 Agent 插件允许新旧代次并存。服务插件按 `requires`/`provides` 组成依赖组；切换共享服务时先等待这个组的使用者释放，避免文件、端口等资源同时被两个版本使用。只更新 Git 或历史查询时，不等待无关 Agent 任务。UI 使用所属代次的资源地址。
+纯 Agent 插件允许新旧代次并存。只有附带资源、没有 `agent` 的 App 插件也取得会话租约，旧任务继续使用原资源修订。服务插件按 `requires`/`provides` 组成依赖组；切换共享服务时先等待这个组的使用者释放，避免文件、端口等资源同时被两个版本使用。只更新 Git 或历史查询时，不等待无关 Agent 任务。UI 使用所属代次的资源地址。
 
 图形交互桥是内置能力。外部插件切换仍等待相关工具、子任务与交互租约；父子 Worker 各自持有外部 Agent 代次，不因根会话停止读取界面就提前释放。
 
 目录安装保存原目录位置。“重新加载”会读取那里重新构建的产物；Host 当前使用的目录是不可变快照，修改源文件不会改变正在运行的旧任务。上传包没有开发目录，重新加载只重启当前版本；更新代码需要上传新包。内置 ID 的启用、停用、卸载和重新加载一律拒绝。
 
 停用后撤销操作、Agent 入口和 UI 贡献。若其他启用插件依赖它提供的必需服务，Host 拒绝停用或卸载；先停用使用者。外部插件不能提供或替换内置安全服务。卸载释放资源并删除不再使用的代码快照，默认保留插件数据和 Pi 会话。
+
+项目策略只控制所属项目的 Agent 入口、附带资源和 UI。App Server 仍由 Host 全局管理，不为每个项目另建 Chord 实例；Host 停用会撤销 Server 操作。App 附带资源显示包归属，卸载整个 App 包时一并撤销，不能通过技能删除接口拆掉包内文件。
 
 插件属于可信宿主代码，拥有 Node Host 权限。Agent 的三档文件权限和沙箱另行约束；插件可信不表示 Agent 自动获得完全权限。内置权限/沙箱不可用或初始化失败时，受限任务拒绝启动。Pi SDK 和 Host 二进制升级随应用发布，不通过插件热更新替换。
 

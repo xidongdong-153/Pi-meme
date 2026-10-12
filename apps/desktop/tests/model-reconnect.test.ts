@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { PiSessionPool } from '@pi-meme/pi-runtime/session-pool'
+import { SdkSession } from '@pi-meme/pi-runtime/sdk/session'
+import type { ResourceSnapshot } from '@pi-meme/contracts/resources'
 import { ModelConfigStore } from '@pi-meme/models/server/config-store'
 import { createPiRuntimePaths } from '@pi-meme/pi-runtime/runtime-paths'
 import { MemoryCredentialStorage } from '@pi-meme/pi-runtime/secure-store'
@@ -65,6 +67,7 @@ test('模型配置重连恢复会话状态；扩展加载错误不丢失会话�
   await writeFile(path.join(agentDir, 'models.json'), JSON.stringify({ providers }))
   const store = new ModelConfigStore(path.join(agentDir, 'models.json'), credentials, agentDir)
   const errors: string[] = []
+  const resources: ResourceSnapshot = { id: 'reconnect-resources-1', generation: 1, cwd, skills: [], extensions: [] }
   const pool = new PiSessionPool(
     cwd,
     {
@@ -76,6 +79,15 @@ test('模型配置重连恢复会话状态；扩展加载错误不丢失会话�
     undefined,
     runtimePaths,
     credentials,
+    (sessionCwd, notify, paths, storage, mcp) => {
+      const session = new SdkSession(sessionCwd, notify, paths, storage, mcp, { resourceSnapshot: resources })
+      const stop = session.stopAndWait.bind(session)
+      session.stopAndWait = async () => {
+        await stop()
+        session.configureResourceSnapshot(resources)
+      }
+      return session
+    },
   )
   const running = () => pool.getRuntimeSessions().some((session) => session.running)
   try {
@@ -142,16 +154,40 @@ test('模型配置重连恢复会话状态；扩展加载错误不丢失会话�
 
     // 扩展加载错误只报告诊断，修复后重连会清除诊断
     await pool.setAccessMode(key, 'full-access')
-    const extensionsDirectory = path.join(cwd, '.pi', 'extensions')
+    const extensionsDirectory = path.join(cwd, '.agents', 'extensions')
     await mkdir(extensionsDirectory, { recursive: true })
     const brokenExtension = path.join(extensionsDirectory, 'broken-extension.js')
     await writeFile(brokenExtension, "throw new Error('模拟扩展加载失败')\n")
+    resources.id = 'reconnect-resources-2'
+    resources.generation = 2
+    resources.extensions = [
+      {
+        id: 'broken-extension',
+        kind: 'extension',
+        name: 'broken-extension',
+        revision: 'broken-1',
+        path: brokenExtension,
+        sourcePath: brokenExtension,
+        baseDir: extensionsDirectory,
+        scope: 'project',
+        owner: { id: 'broken-extension', type: 'loose' },
+        enabled: true,
+        defaultPolicy: { enabled: true, invocation: 'automatic' },
+        invocation: 'automatic',
+        diagnostics: [],
+        editable: false,
+      },
+    ]
     await pool.idle(() => pool.reconnectModels({ sessionFile: beforePath, model: { provider: 'fake', id: 'second' } }))
     assert.equal(pool.connection().status, 'ready')
     assert.ok(errors.some((message) => message.includes('Pi 扩展加载失败')))
     await rm(brokenExtension, { force: true })
+    resources.id = 'reconnect-resources-3'
+    resources.generation = 3
+    resources.extensions = []
     await pool.idle(() => pool.reconnectModels(), true)
     const restored = await pool.snapshot()
+    assert.equal(restored.extensionError, undefined)
     assert.equal(restored.state.model?.id, 'second')
     assert.deepEqual(
       restored.messages.map((message) => message.role),

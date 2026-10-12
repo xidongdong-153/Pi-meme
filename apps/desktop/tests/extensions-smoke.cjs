@@ -9,7 +9,7 @@ module.exports = async (window, waitFor, directory, outputDirectory) => {
     const button = [...document.querySelectorAll('button')].find(node => node.checkVisibility() && node.textContent.trim() === ${JSON.stringify(text)});
     if (!button) throw new Error('找不到按钮：' + ${JSON.stringify(text)}); button.click();
   })()`)
-  const extensionsDirectory = path.join(directory, 'pi', 'extensions')
+  const extensionsDirectory = path.join(directory, 'extensions')
   const extension = path.join(extensionsDirectory, 'smoke-extension.js')
   assert.equal(await fs.stat(extension).then((value) => value.isFile()), true)
 
@@ -17,7 +17,7 @@ module.exports = async (window, waitFor, directory, outputDirectory) => {
   await evaluate(`window.piMemeClient.setAccessMode(${JSON.stringify(key)}, 'full-access')`)
   await evaluate('document.querySelector("button[aria-label=设置]").click()')
   await clickText('开发者')
-  await waitFor(() => evaluate('document.body.innerText.includes("Desktop 从应用数据目录加载扩展")'), '应用扩展设置')
+  await waitFor(() => evaluate('document.body.innerText.includes("Pi 扩展保存在当前连接的设备上")'), '应用扩展设置')
   assert.equal(await evaluate('document.querySelector("#pi-user-extensions") === null'), true)
   assert.equal(
     await evaluate('window.piMemeClient.getSettings().then(value => value.extensionsDirectory)'),

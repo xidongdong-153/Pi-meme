@@ -8,6 +8,8 @@ import { message } from '@pi-meme/contracts/ipc'
 
 const commands: PiSlashCommand[] = ['typescript', 'review-code'].map((name) => ({
   name: `skill:${name}`,
+  resourceId: name,
+  resourceRevision: '1',
   source: 'skill',
   sourceInfo: {
     path: fileURLToPath(new URL(`../../../tests/fixtures/skills/${name}/SKILL.md`, import.meta.url)),
@@ -21,7 +23,7 @@ test('多个技能按正文位置展开，保留前后文字和换行', async ()
   const draft = `123 ${skillMarker} 与 ${skillMarker}\n看看技能`
   const expanded = await expandSkills(
     draft,
-    commands.map(({ name }) => ({ name })),
+    commands.map(({ name, resourceId, resourceRevision }) => ({ name, id: resourceId!, revision: resourceRevision! })),
     commands,
   )
   assert.match(expanded, /检查 TypeScript 类型/)
@@ -36,18 +38,41 @@ test('多个技能按正文位置展开，保留前后文字和换行', async ()
 test('重复技能标记各自展开为独立技能块', async () => {
   const expanded = await expandSkills(
     `${skillMarker} ${skillMarker}`,
-    [{ name: 'skill:typescript' }, { name: 'skill:typescript' }],
+    [
+      { name: 'skill:typescript', id: 'typescript', revision: '1' },
+      { name: 'skill:typescript', id: 'typescript', revision: '1' },
+    ],
     commands,
   )
   assert.equal((expanded.match(/<skill name="typescript"/g) ?? []).length, 2)
 })
 
 test('主进程拒绝未加载技能、标记数量错误和无效 IPC 参数', async () => {
-  await assert.rejects(expandSkills(skillMarker, [{ name: 'skill:missing' }], commands), /技能已不可用/)
-  await assert.rejects(expandSkills('正文', [{ name: 'skill:typescript' }], commands), /数量不一致/)
+  await assert.rejects(
+    expandSkills(skillMarker, [{ name: 'skill:missing', id: 'missing', revision: '1' }], commands),
+    /技能已不可用/,
+  )
+  await assert.rejects(
+    expandSkills('正文', [{ name: 'skill:typescript', id: 'typescript', revision: '1' }], commands),
+    /数量不一致/,
+  )
   assert.throws(() => message(skillMarker, undefined, [{ name: 'read', path: '/etc/passwd' }]), /技能参数无效/)
   const missingFile = [
     { ...commands[0], sourceInfo: { ...commands[0].sourceInfo, path: '/not-a-real-skill/SKILL.md' } },
   ]
-  await assert.rejects(expandSkills(skillMarker, [{ name: 'skill:typescript' }], missingFile), /读取技能失败/)
+  await assert.rejects(
+    expandSkills(skillMarker, [{ name: 'skill:typescript', id: 'typescript', revision: '1' }], missingFile),
+    /读取技能失败/,
+  )
+})
+
+test('同名技能或修订变更不能替换已选择的引用', async () => {
+  await assert.rejects(
+    expandSkills(skillMarker, [{ id: 'typescript', revision: 'old', name: 'skill:typescript' }], commands),
+    /版本已变化/,
+  )
+  await assert.rejects(
+    expandSkills(skillMarker, [{ id: 'other', revision: '1', name: 'skill:typescript' }], commands),
+    /技能已不可用/,
+  )
 })
