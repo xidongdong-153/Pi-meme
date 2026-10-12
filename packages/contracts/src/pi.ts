@@ -123,9 +123,19 @@ export type PiExtensionError = { type: 'extension_error'; extensionPath: string;
 type ResponsePayload<T> = T extends unknown ? Omit<T, 'type' | 'id'> : never
 export type PiExtensionUIResponse = ResponsePayload<RpcExtensionUIResponse> | { answers: UserInputAnswer[] }
 
-/** 正式消息按工具调用 ID 或角色与时间戳关联，快照与事件使用同一规则。 */
+/** 协作消息按消息 ID 关联，避免落盘时间与实时事件时间不同而重复显示。 */
 export function sameMessage(a: PiMessage, b: PiMessage): boolean {
   if (a.role === 'toolResult' || b.role === 'toolResult')
     return a.role === 'toolResult' && b.role === 'toolResult' && a.toolCallId === b.toolCallId
+  if (
+    a.role === 'custom' &&
+    b.role === 'custom' &&
+    a.customType === 'pi-meme-collaboration' &&
+    b.customType === 'pi-meme-collaboration'
+  ) {
+    const aId = (a.details as { messageId?: unknown } | undefined)?.messageId
+    const bId = (b.details as { messageId?: unknown } | undefined)?.messageId
+    if (typeof aId === 'string' && aId && typeof bId === 'string' && bId) return aId === bId
+  }
   return a.role === b.role && a.timestamp === b.timestamp
 }

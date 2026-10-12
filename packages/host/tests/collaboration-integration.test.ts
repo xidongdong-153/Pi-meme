@@ -20,6 +20,113 @@ async function eventually(check: () => boolean | Promise<boolean>) {
   throw new Error('等待 Host 状态超时')
 }
 
+test('父任务等待子 Agent 时引导及时投递一次，子任务不被取消且父子继续完成', { timeout: 60000 }, async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'host-child-steering-'))
+  let releaseChild!: () => void
+  const childBarrier = new Promise<void>((resolve) => {
+    releaseChild = resolve
+  })
+  const parentRequests: Array<Array<{ role: string; content: unknown }>> = []
+  const fake = await useFakeAgent(root, {
+    reply: (body) => {
+      const users = (body.messages ?? []).filter((message: { role: string }) => message.role === 'user')
+      if (JSON.stringify(users).includes('等待引导的独立子任务'))
+        return { text: '子任务已完成', deltaBarrier: childBarrier }
+      parentRequests.push(body.messages ?? [])
+      if (parentRequests.length === 1)
+        return {
+          tool: {
+            name: 'spawn_agent',
+            arguments: JSON.stringify({ task_name: 'worker', message: '等待引导的独立子任务', fork_turns: 'none' }),
+          },
+        }
+      if (parentRequests.length === 2 || parentRequests.length === 3)
+        return {
+          text: parentRequests.length === 3 ? '已收到用户引导，继续等待子任务' : undefined,
+          tool: { name: 'wait_agent', arguments: JSON.stringify({ targets: ['worker'], timeout_ms: 5000 }) },
+        }
+      return { text: '已收到引导并汇总子任务' }
+    },
+  })
+  const host = await createHost({ dataRoot: path.join(root, 'userData'), credentials: fake.credentials })
+  const rpc = (method: string, args: unknown[] = [], sessionId?: string) =>
+    host.rpc({ requestId: crypto.randomUUID(), clientId: 'client', method, args, sessionId })
+  const snapshot = async (key?: string) => (await rpc('pi:snapshot', [], key)).result as Snapshot
+  const responsive = (request: ReturnType<typeof rpc>) =>
+    Promise.race([
+      request,
+      delay(3000).then(() => {
+        throw new Error('子 Agent 等待期间输入控制被阻塞')
+      }),
+    ])
+  try {
+    const key = (await snapshot()).connection.sessionKey!
+    assert.equal((await rpc('pi:access-mode', [key, 'full-access'], key)).error, undefined)
+    assert.equal((await rpc('pi:prompt', [key, '开启子任务后等待结果'], key)).error, undefined)
+    await eventually(async () => {
+      const value = await snapshot(key)
+      return (
+        value.agent?.status === 'waiting_children' &&
+        value.agents?.some((agent) => agent.depth === 1 && agent.status === 'running') === true
+      )
+    })
+    assert.equal((await responsive(rpc('pi:follow-up', [key, '请处理这条用户引导'], key))).error, undefined)
+    const queued = (await snapshot(key)).events?.find((value) => value.event.type === 'queue_update')?.event
+    assert.ok(queued?.type === 'queue_update')
+    const input = queued.followUp[0]
+    assert.ok(input)
+    assert.equal(input.submitted, undefined)
+    assert.equal((await responsive(rpc('pi:steer-queue-input', [key, input.id], key))).error, undefined)
+    for (let count = 0; count < 100 && parentRequests.length < 3; count++) await delay(25)
+    assert.equal(parentRequests.length, 3, '引导应提前结束当前等待，不能继续等待子任务完成或原定超时')
+    const interruptedWait = parentRequests[2]!.filter(
+      (message: { role: string; content: unknown }) =>
+        message.role === 'user' && JSON.stringify(message.content).includes('请处理这条用户引导'),
+    )
+    assert.equal(interruptedWait.length, 1)
+    assert.ok((await snapshot(key)).agents?.some((agent) => agent.depth === 1 && agent.status === 'running'))
+    releaseChild()
+    await eventually(async () => {
+      const value = await snapshot(key)
+      return (
+        value.agent?.status === 'completed' &&
+        value.agents?.some((agent) => agent.depth === 1 && agent.status === 'completed') === true
+      )
+    })
+    const final = await snapshot(key)
+    assert.equal(parentRequests.length, 4)
+    assert.equal(
+      final.messages.filter(
+        (message) => message.role === 'user' && JSON.stringify(message.content).includes('请处理这条用户引导'),
+      ).length,
+      1,
+    )
+    assert.ok(
+      final.messages.some(
+        (message) => message.role === 'assistant' && JSON.stringify(message.content).includes('已收到引导并汇总子任务'),
+      ),
+    )
+    const received = parentRequests
+      .at(-1)!
+      .filter(
+        (message: { role: string; content: unknown }) =>
+          message.role === 'user' && JSON.stringify(message.content).includes('请处理这条用户引导'),
+      )
+    assert.equal(received.length, 1)
+    const interrupted = final.messages.find(
+      (message) => message.role === 'toolResult' && message.toolName === 'wait_agent',
+    )
+    assert.ok(interrupted?.role === 'toolResult')
+    assert.equal(interrupted.isError, false)
+    assert.equal((interrupted.details as { timedOut: boolean }).timedOut, false)
+  } finally {
+    releaseChild()
+    await host.dispose()
+    await fake.dispose()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('父任务已预约但尚未准入时登记退役，等待后续子任务与自动汇总完成', { timeout: 20000 }, async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'host-retire-admission-'))
   let spawned = false

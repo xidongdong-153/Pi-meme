@@ -7,7 +7,7 @@ import { randomUUID } from 'node:crypto'
 import { createHostCollaborationBridge } from '../src/server/coordinator'
 import type { RuntimeSdkSession } from '@pi-meme/pi-runtime/session-pool'
 import type { DesktopEvent, Snapshot } from '@pi-meme/contracts/desktop'
-import type { CollaborationRequest, AgentSummary } from '@pi-meme/contracts/collaboration'
+import type { CollaborationRequest, CollaborationResults, AgentSummary } from '@pi-meme/contracts/collaboration'
 import type { TaskMode } from '@pi-meme/contracts/plan'
 import { SdkSession } from '@pi-meme/pi-runtime/sdk/session'
 import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
@@ -231,6 +231,129 @@ test('容量计入等待任务；等待可取消，取消后同树仍可调度',
     )
     await context.spawn('five')
   } finally {
+    await context.cleanup()
+  }
+})
+
+test('用户插话唤醒父子 Agent 等待，排队输入不唤醒，消费后继续等待', async (t) => {
+  for (const childCaller of [false, true])
+    for (const queuedBeforeWait of [false, true])
+      await t.test(
+        `${childCaller ? '子 Agent' : '根 Agent'}，${queuedBeforeWait ? '等待前' : '等待中'}插话`,
+        async () => {
+          const context = await setup()
+          const controller = new AbortController()
+          const calls: Array<Promise<unknown>> = []
+          try {
+            await context.begin()
+            const parent = childCaller ? await context.spawn('parent') : undefined
+            const caller = parent ? context.children.get(parent.sessionKey)! : context.root
+            const target = await context.spawn('worker', caller.session)
+            const callerKey = parent?.sessionKey ?? 'root-key'
+            const queue = (submitted: boolean) =>
+              caller.notify.event({
+                generation: 1,
+                event: {
+                  type: 'queue_update',
+                  steering: [
+                    { id: 'other-mode', text: '下一轮计划', mode: 'plan' },
+                    ...(submitted
+                      ? [{ id: 'steer', text: '先回答我的问题', mode: 'default' as const, submitted: true }]
+                      : []),
+                  ],
+                  followUp: [{ id: 'followup', text: '稍后执行', mode: 'default', submitted: true }],
+                },
+              })
+            const wait = () => {
+              const pending = context.call(
+                caller.session,
+                'wait_agent',
+                { targets: [target.agentId], timeout_ms: 5000 },
+                controller.signal,
+              )
+              calls.push(pending)
+              return pending
+            }
+            queue(queuedBeforeWait)
+            let result: CollaborationResults['wait_agent'] | undefined
+            const waiting = wait().then((value) => {
+              result = value as CollaborationResults['wait_agent']
+            })
+            calls.push(waiting)
+            void waiting.catch(() => {})
+            if (!queuedBeforeWait) {
+              await context.until(
+                async () =>
+                  (await context.bridge.getAgents('root-key')).find((entry) => entry.sessionKey === callerKey)
+                    ?.status === 'waiting_children',
+              )
+              await new Promise<void>((resolve) => setTimeout(resolve, 5))
+              assert.equal(result, undefined)
+              queue(true)
+            }
+            await context.until(async () => Boolean(result))
+            await waiting
+            assert.equal(result!.timedOut, false)
+            assert.deepEqual(result!.messages, [])
+            assert.equal(context.children.get(target.sessionKey)!.state.isStreaming, true)
+            queue(false)
+            let resumed = false
+            const next = wait().then(() => {
+              resumed = true
+            })
+            calls.push(next)
+            void next.catch(() => {})
+            await context.until(
+              async () =>
+                (await context.bridge.getAgents('root-key')).find((entry) => entry.sessionKey === callerKey)?.status ===
+                'waiting_children',
+            )
+            await new Promise<void>((resolve) => setTimeout(resolve, 5))
+            assert.equal(resumed, false)
+            context.children.get(target.sessionKey)!.finish('完成')
+            await next
+          } finally {
+            controller.abort()
+            await Promise.allSettled(calls)
+            await context.cleanup()
+          }
+        },
+      )
+})
+
+test('停止后新轮次不继承未消费插话的等待唤醒状态', async () => {
+  const context = await setup()
+  const controller = new AbortController()
+  let waiting: Promise<unknown> | undefined
+  try {
+    await context.begin()
+    await context.spawn('previous')
+    context.root.notify.event({
+      generation: 1,
+      event: {
+        type: 'queue_update',
+        steering: [{ id: 'old-steer', text: '旧插话', mode: 'default', submitted: true }],
+        followUp: [],
+      },
+    })
+    await context.bridge.stopRoot('root-key')
+    await context.begin()
+    const child = await context.spawn('worker')
+    let resumed = false
+    waiting = context
+      .call(context.root.session, 'wait_agent', { targets: [child.agentId], timeout_ms: 5000 }, controller.signal)
+      .then(() => {
+        resumed = true
+      })
+    void waiting.catch(() => {})
+    await context.until(async () => (await context.bridge.getAgents('root-key'))[0]!.status === 'waiting_children')
+    await new Promise<void>((resolve) => setTimeout(resolve, 5))
+    assert.equal(resumed, false)
+    context.children.get(child.sessionKey)!.finish('完成')
+    await waiting
+  } finally {
+    controller.abort()
+    if (waiting) await Promise.allSettled([waiting])
     await context.cleanup()
   }
 })

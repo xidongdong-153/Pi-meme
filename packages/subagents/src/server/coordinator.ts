@@ -87,6 +87,7 @@ export class HostCollaborationBridge {
   private answers = new Set<string>()
   private plans: PlanDocument[] = []
   private listeners = new Set<() => void>()
+  private userSteering = new WeakSet<Record>()
   private writes: Promise<void> = Promise.resolve()
   private inFlight = new Map<string, Promise<CollaborationResults[keyof CollaborationResults]>>()
   private planWrites: Promise<void> = Promise.resolve()
@@ -360,6 +361,7 @@ export class HostCollaborationBridge {
     await this.ready
     const root = this.root(sessionKey)
     if (this.stopping) throw new Error('Host 正在停止')
+    this.userSteering.delete(root)
     root.settled = false
     root.summary.epoch += 1
     root.summary.rootTaskId = randomUUID()
@@ -651,6 +653,7 @@ export class HostCollaborationBridge {
         throw new Error('子 Agent 启动已取消或轮次更换')
     }
     const task = { message, rootTaskId, epoch, policy, runId }
+    this.userSteering.delete(record)
     Object.assign(record.summary, {
       rootTaskId,
       epoch,
@@ -784,10 +787,17 @@ export class HostCollaborationBridge {
       })
     }
   }
+  private observeSteering(record: Record, event: DesktopEvent['event']) {
+    if (event.type !== 'queue_update') return
+    if (event.steering.some((input) => input.submitted)) this.userSteering.add(record)
+    else this.userSteering.delete(record)
+    for (const listener of this.listeners) listener()
+  }
   private event(record: Record, event: DesktopEvent) {
     const current = event.event
     const previousStatus = record.summary.status
     this.acknowledge(record, current)
+    this.observeSteering(record, current)
     if (
       current.type === 'extension_ui_request' &&
       ['select', 'input', 'confirm', 'editor', 'questions'].includes(current.method)
@@ -827,6 +837,7 @@ export class HostCollaborationBridge {
     const current = event.event
     const previousStatus = root.summary.status
     this.acknowledge(root, current)
+    this.observeSteering(root, current)
     if (
       current.type === 'extension_ui_request' &&
       ['select', 'input', 'confirm', 'editor', 'questions'].includes(current.method)
@@ -1093,6 +1104,7 @@ export class HostCollaborationBridge {
         ),
       )
     const available = () =>
+      this.userSteering.has(record) ||
       matches().length > 0 ||
       watched.some(
         (target) =>
@@ -1148,6 +1160,7 @@ export class HostCollaborationBridge {
       .filter((entry) => this.descendant(record, entry))
       .reverse()
     for (const child of [...descendants, record]) {
+      this.userSteering.delete(child)
       child.queued = []
       child.pendingStart = undefined
       child.summary.isPaused = false

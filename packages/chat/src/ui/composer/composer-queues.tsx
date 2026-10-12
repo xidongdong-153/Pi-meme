@@ -71,59 +71,65 @@ export function ComposerQueues({
             {(input.images?.length ?? 0) > 1 && (
               <span className="shrink-0 text-muted-foreground">+{input.images!.length - 1}</span>
             )}
-            <Tooltip delayDuration={300}>
-              <TooltipTrigger asChild>
-                <span className="shrink-0">
-                  <button
-                    type="button"
-                    aria-label="引导"
-                    disabled={guideDisabled}
-                    className={actionClass}
-                    onClick={() => onSteerQueueInput?.(input.id)}
-                  >
-                    <CornerDownRight className="size-3.5" />
-                    <span>引导</span>
-                  </button>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent side="top">
-                {differentMode ? '消息模式与当前任务不同，暂时无法引导' : '提交，但不中断模型运行'}
-              </TooltipContent>
-            </Tooltip>
-            <button
-              type="button"
-              aria-label="删除排队消息"
-              disabled={disabled || input.editing}
-              className={actionClass}
-              onClick={() => onDeleteQueueInput?.(input.id)}
-            >
-              <Trash2 className="size-3.5" />
-            </button>
-            <DropdownMenu open={menuId === input.id} onOpenChange={(open) => setMenuId(open ? input.id : null)}>
-              <DropdownMenuTrigger asChild>
+            {input.submitted ? (
+              <span className="shrink-0 text-muted-foreground">已引导，等待当前工具结束</span>
+            ) : (
+              <>
+                <Tooltip delayDuration={300}>
+                  <TooltipTrigger asChild>
+                    <span className="shrink-0">
+                      <button
+                        type="button"
+                        aria-label="引导"
+                        disabled={guideDisabled}
+                        className={actionClass}
+                        onClick={() => onSteerQueueInput?.(input.id)}
+                      >
+                        <CornerDownRight className="size-3.5" />
+                        <span>引导</span>
+                      </button>
+                    </span>
+                  </TooltipTrigger>
+                  <TooltipContent side="top">
+                    {differentMode ? '消息模式与当前任务不同，暂时无法引导' : '提交，但不中断模型运行'}
+                  </TooltipContent>
+                </Tooltip>
                 <button
                   type="button"
-                  aria-label="排队消息更多操作"
+                  aria-label="删除排队消息"
                   disabled={disabled || input.editing}
                   className={actionClass}
+                  onClick={() => onDeleteQueueInput?.(input.id)}
                 >
-                  <Ellipsis className="size-3.5" />
+                  <Trash2 className="size-3.5" />
                 </button>
-              </DropdownMenuTrigger>
-              {menuId === input.id && (
-                <DropdownMenuContent
-                  align="end"
-                  side="bottom"
-                  className="rounded-2xl"
-                  style={{ backgroundColor: 'color-mix(in srgb, var(--background), var(--foreground) 10%)' }}
-                >
-                  <DropdownMenuItem onSelect={() => onEditQueueInput?.(input.id)}>
-                    <Pencil />
-                    编辑消息
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              )}
-            </DropdownMenu>
+                <DropdownMenu open={menuId === input.id} onOpenChange={(open) => setMenuId(open ? input.id : null)}>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label="排队消息更多操作"
+                      disabled={disabled || input.editing}
+                      className={actionClass}
+                    >
+                      <Ellipsis className="size-3.5" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  {menuId === input.id && (
+                    <DropdownMenuContent
+                      align="end"
+                      side="bottom"
+                      className="rounded-2xl"
+                      style={{ backgroundColor: 'color-mix(in srgb, var(--background), var(--foreground) 10%)' }}
+                    >
+                      <DropdownMenuItem onSelect={() => onEditQueueInput?.(input.id)}>
+                        <Pencil />
+                        编辑消息
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  )}
+                </DropdownMenu>
+              </>
+            )}
           </div>
         )
       })}

@@ -117,6 +117,50 @@ test('连接恢复刷新子快照，关闭后的迟到响应不重新发布', as
   store.close()
 })
 
+test('协作消息快照与实时事件按消息 ID 去重，时间戳不同仍只显示一次', async () => {
+  let reads = 0
+  let resolveRead: (snapshot: Snapshot) => void = () => {}
+  const collaborationMessage = (id: string, timestamp: number): Snapshot['messages'][number] => ({
+    role: 'custom',
+    customType: 'pi-meme-collaboration',
+    content: '[来自 root] 检查任务进度',
+    display: true,
+    details: { messageId: id, kind: 'message' },
+    timestamp,
+  })
+  const initial = { ...snapshot(1, ''), messages: [] }
+  const store = new AgentConversationStore(
+    {
+      getAgentSnapshot: async () => {
+        if (++reads === 1) return initial
+        return new Promise((resolve) => {
+          resolveRead = resolve
+        })
+      },
+      onEvent: () => () => {},
+      onConnection: () => () => {},
+    },
+    'child',
+  )
+  await store.start()
+  const refreshing = store.refresh()
+  const event = (sequence: number, id: string, timestamp: number): DesktopEvent => ({
+    generation: 1,
+    sessionKey: agent.sessionKey,
+    agentId: agent.agentId,
+    executionGeneration: 1,
+    sequence,
+    event: { type: 'message_end', message: collaborationMessage(id, timestamp) },
+  })
+  store.receive(event(2, 'mailbox-1', 1000))
+  resolveRead({ ...initial, messages: [collaborationMessage('mailbox-1', 2000)] })
+  await refreshing
+  assert.equal(store.getSnapshot().chat.messages.length, 1)
+  store.receive(event(3, 'mailbox-2', 1000))
+  assert.equal(store.getSnapshot().chat.messages.length, 2)
+  store.close()
+})
+
 test('新执行代次恢复后忽略旧代次的高序号事件', async () => {
   let emit: (event: DesktopEvent) => void = () => {}
   let reads = 0

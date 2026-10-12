@@ -286,6 +286,91 @@ test('暂停允许删队列与取消编辑；按id引导只移交目标，跨模
   }
 })
 
+test('工具执行期间重复引导保持原生插话id，工具返回后只发送一次且保留协作消息', async () => {
+  let entered!: () => void
+  let release!: () => void
+  const started = new Promise<void>((resolve) => {
+    entered = resolve
+  })
+  const waiting = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const f = await fixture(
+    (_body, index) =>
+      index === 1
+        ? { tool: { name: 'codemode', arguments: JSON.stringify({ code: 'text(await tools.wait_here({}));' }) } }
+        : '插话完成',
+    (session) => {
+      session.configureInlineExtensions([
+        {
+          name: '原生插话测试',
+          factory: (pi) => {
+            pi.registerTool({
+              name: 'wait_here',
+              label: '等待工具',
+              description: '等待测试释放工具',
+              parameters: { type: 'object', properties: {} },
+              execute: async () => {
+                entered()
+                await waiting
+                return { content: [{ type: 'text', text: '工具完成' }], details: {} }
+              },
+            })
+          },
+        },
+      ])
+    },
+  )
+  try {
+    await f.session.setSteeringMode('all')
+    await f.session.prompt('启动等待工具')
+    await started
+    await f.session.followUp('用户插话')
+    const input = f.queue()[0]
+    assert.ok(input)
+    assert.equal(input.submitted, undefined)
+    const mailbox = {
+      id: '子代理汇报id',
+      fromAgentId: '/root/child',
+      toAgentId: '/root',
+      rootTaskId: '任务id',
+      epoch: 1,
+      kind: 'message' as const,
+      text: '子代理仍在执行',
+      createdAt: new Date().toISOString(),
+    }
+    assert.deepEqual(await f.session.deliverCollaborationMessage(mailbox), { persisted: false })
+    await f.session.steerQueueInput(input.id)
+    await f.session.steerQueueInput(input.id)
+    assert.equal(f.queue()[0]?.submitted, true)
+    await f.session.steer('直接用户插话')
+    const direct = f.queue()[1]
+    assert.ok(direct?.submitted)
+    await f.session.steerQueueInput(direct.id)
+    assert.deepEqual(
+      f.queue().map((value) => value.id),
+      [input.id, direct.id],
+    )
+    assert.equal(f.fake.provider.requests.length, 1)
+    release()
+    await until(async () => !(await f.session.snapshot()).state.isStreaming)
+    assert.equal(f.fake.provider.requests.length, 2)
+    assert.equal(f.queue().length, 0)
+    const users = (await f.session.snapshot()).messages.filter((message) => message.role === 'user')
+    for (const text of ['用户插话', '直接用户插话'])
+      assert.equal(
+        users.filter((message) => JSON.stringify(message.content) === JSON.stringify([{ type: 'text', text }])).length,
+        1,
+      )
+    assert.ok(JSON.stringify(f.fake.provider.requests[1]).includes('子代理仍在执行'))
+    assert.deepEqual(await f.session.deliverCollaborationMessage(mailbox), { persisted: true })
+    await assert.rejects(f.session.steerQueueInput(input.id), /已发送/)
+  } finally {
+    release()
+    await f.dispose()
+  }
+})
+
 test('排队准入失败原位恢复并暂停队列，恢复后不会丢失输入；客户端离开释放编辑占位', async () => {
   const f = await fixture(() => ({ text: '完成', holdMs: 80 }))
   try {

@@ -6,6 +6,7 @@ export type MessageOptions = { mode?: TaskMode }
 export type QueuedInput = {
   id: string
   editing?: boolean
+  submitted?: boolean
   text: string
   mode: TaskMode
   images?: PiImage[]

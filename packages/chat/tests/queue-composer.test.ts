@@ -95,6 +95,19 @@ test('编辑占位和不同模式的排队项禁止引导', () => {
   }
 })
 
+test('已引导消息显示等待工具结束，不再提供引导、删除或编辑操作', () => {
+  const html = markup(
+    createElement(ComposerQueues, {
+      queues: { steering: [{ ...input, submitted: true }], followUp: [] },
+      activeMode: 'default',
+      disabled: false,
+    }),
+  )
+  assert.match(html, /后续消息/)
+  assert.match(html, /已引导，等待当前工具结束/)
+  assert.doesNotMatch(html, /aria-label="引导"|aria-label="删除排队消息"|aria-label="排队消息更多操作"/)
+})
+
 test('暂停事件按修订投影，agent_settled保留队列，重连恢复暂停和队列', () => {
   const queued = applyEvent(emptyChat, { type: 'queue_update', steering: [], followUp: [input] })
   const paused = applyEvent(queued, { type: 'pause_update', isPaused: true, queuePaused: true, revision: 2 })

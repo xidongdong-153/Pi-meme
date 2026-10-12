@@ -882,8 +882,14 @@ export class SdkSession {
       generation: this.generation,
       event: {
         type: 'queue_update',
-        steering: structuredClone([...this.nativeQueue.steering, ...this.ownQueue.steering]),
-        followUp: structuredClone([...this.nativeQueue.followUp, ...this.ownQueue.followUp]),
+        steering: structuredClone([
+          ...this.nativeQueue.steering.map((input) => ({ ...input, submitted: true })),
+          ...this.ownQueue.steering,
+        ]),
+        followUp: structuredClone([
+          ...this.nativeQueue.followUp.map((input) => ({ ...input, submitted: true })),
+          ...this.ownQueue.followUp,
+        ]),
       },
     })
   }
@@ -1071,6 +1077,7 @@ export class SdkSession {
 
   async steerQueueInput(id: string) {
     const selected = await this.withQueueLock(() => {
+      if (this.nativeQueue.steering.some((input) => input.id === id)) return undefined
       const selected = this.queueItem(id)
       if (selected.input.editing) throw new Error('排队输入正在编辑')
       if (this.running && selected.input.mode !== (this.activeMode ?? this.runtimeMode))
