@@ -53,7 +53,21 @@ export type SubagentCatalogSnapshot = {
   diagnostics: SubagentDiagnostic[]
 }
 
+export type SidebarPreferences = {
+  groupMode: 'projects' | 'merged'
+  sortMode: 'recent' | 'manual'
+  collapsed: { pinned: boolean; projects: boolean; recents: boolean }
+  orders: Record<string, string[]>
+}
+export type SidebarPreferencesPatch = {
+  groupMode?: SidebarPreferences['groupMode']
+  sortMode?: SidebarPreferences['sortMode']
+  collapsed?: Partial<SidebarPreferences['collapsed']>
+  orders?: SidebarPreferences['orders']
+}
+
 export type DesktopSettings = {
+  sidebar?: SidebarPreferences
   codemodeEnabled?: boolean
   mcpEnabled?: boolean
   subagentsEnabled?: boolean

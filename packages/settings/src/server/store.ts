@@ -4,6 +4,7 @@ import { isAgentAccessMode } from '@pi-meme/contracts/agent-access'
 import type { AppearanceSettings, DesktopSettings, SettingsSnapshot, Theme } from '@pi-meme/contracts/settings'
 import { defaultAppearance, migrateAppearance, selectAppearanceTheme, validateAppearance } from '../shared/appearance'
 import { builtinThemes, parseTheme } from '../shared/themes'
+import { defaultSidebarPreferences, parseSidebarPreferencesPatch, validateSidebarPreferences } from '../shared/sidebar'
 
 function normalizeEnabledSubagents(value: unknown): string[] {
   if (
@@ -23,6 +24,7 @@ export class SettingsStore {
     subagentsEnabled: true,
     enabledSubagents: [],
     appearance: defaultAppearance(),
+    sidebar: defaultSidebarPreferences(),
   }
   private writes: Promise<unknown> = Promise.resolve()
   private themes = [...builtinThemes]
@@ -50,6 +52,7 @@ export class SettingsStore {
         mcpEnabled: Boolean(value.mcpEnabled),
         subagentsEnabled: Boolean(value.subagentsEnabled),
         enabledSubagents: normalizeEnabledSubagents(value.enabledSubagents ?? []),
+        sidebar: value.sidebar ?? defaultSidebarPreferences(),
       }
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') this.errors.push(`无法读取桌面设置：${String(error)}`)
@@ -75,6 +78,7 @@ export class SettingsStore {
     }
     if (settings.enabledSubagents !== undefined) normalizeEnabledSubagents(settings.enabledSubagents)
     if (settings.appearance !== undefined) validateAppearance(settings.appearance)
+    if (settings.sidebar !== undefined) validateSidebarPreferences(settings.sidebar)
     if (settings.defaultAccessMode !== undefined && !isAgentAccessMode(settings.defaultAccessMode))
       throw new Error('Agent 访问权限默认值无效')
   }
@@ -87,6 +91,21 @@ export class SettingsStore {
 
   save(value: unknown) {
     return this.enqueue(() => this.saveNow(value))
+  }
+
+  saveSidebarPreferences(value: unknown) {
+    return this.enqueue(async () => {
+      const patch = parseSidebarPreferencesPatch(value)
+      const current = this.settings.sidebar ?? defaultSidebarPreferences()
+      const sidebar = {
+        ...current,
+        ...patch,
+        collapsed: { ...current.collapsed, ...patch.collapsed },
+        orders: { ...current.orders, ...patch.orders },
+      }
+      await this.saveNow({ ...this.settings, sidebar }, false, true)
+      return structuredClone(sidebar)
+    })
   }
 
   saveAppearance(value: unknown) {
@@ -130,7 +149,7 @@ export class SettingsStore {
     await writeFile(filename, `${JSON.stringify(theme, null, 2)}\n`, 'utf8')
   }
 
-  private async saveNow(value: unknown, appearanceOnly = false) {
+  private async saveNow(value: unknown, appearanceOnly = false, sidebarOnly = false) {
     this.validateSettings(value)
     if (!this.themes.some((theme) => theme.id === value.themeId)) throw new Error('主题不存在，请重新加载主题列表')
     let appearance = appearanceOnly ? value.appearance : this.settings.appearance
@@ -142,6 +161,7 @@ export class SettingsStore {
       }
     }
     const next: DesktopSettings = {
+      sidebar: sidebarOnly ? value.sidebar : (this.settings.sidebar ?? defaultSidebarPreferences()),
       appearance,
       themeId: !appearanceOnly && value.appearance ? this.settings.themeId : value.themeId,
       mcpEnabled: value.mcpEnabled ?? this.settings.mcpEnabled ?? false,

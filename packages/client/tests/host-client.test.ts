@@ -63,6 +63,24 @@ function create(handle: (request: HostRpcRequest) => unknown | Promise<unknown>,
 
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 10))
 
+test('侧栏设置通过独立 RPC 保存补丁并返回偏好', async () => {
+  const preferences = {
+    groupMode: 'merged',
+    sortMode: 'recent',
+    collapsed: { pinned: false, projects: false, recents: false },
+    orders: {},
+  }
+  const { client, requests } = create(() => preferences)
+  try {
+    const patch = { groupMode: 'merged' as const }
+    assert.deepEqual(await client.bridge.saveSidebarPreferences(patch), preferences)
+    assert.equal(requests[0].method, 'settings:sidebar')
+    assert.deepEqual(requests[0].args, [patch])
+  } finally {
+    client.close()
+  }
+})
+
 for (const method of ['session:delete', 'project:remove']) {
   test(`${method} 后发布空白会话，列表和快照使用新标识`, async () => {
     const result: WorkspaceDeletionResult = {

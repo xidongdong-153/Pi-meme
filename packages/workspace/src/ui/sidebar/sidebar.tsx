@@ -1,17 +1,24 @@
 import { SidebarMenus, type SidebarMenuBridge } from './sidebar-menus'
-import type { WorkspaceDeletionResult } from '@pi-meme/contracts/desktop'
-import { useState } from 'react'
-import { Settings, SquarePen } from 'lucide-react'
+import type { SettingsBridge, WorkspaceDeletionResult } from '@pi-meme/contracts/desktop'
+import { useEffect, useMemo, useState } from 'react'
+import { Search, Settings, SquarePen } from 'lucide-react'
 import type { PiSessionsSnapshot } from '@pi-meme/contracts/sessions'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { BrandMark } from '@pi-meme/ui/components/brand-mark'
 import { ScrollArea } from '@pi-meme/ui/components/ui/scroll-area'
-import { SessionItem } from './session-item'
+import { buildSidebarModel, sidebarManualOrders } from './sidebar-model'
+import { SidebarPreferencesMenu } from './sidebar-controls'
+import { SessionSearchDialog } from './session-search-dialog'
+import { useSidebarManualOrders, useSidebarPreferences } from './use-sidebar-preferences'
 import { PinnedSection } from './pinned-section'
 import { ProjectsSection } from './projects-section'
 import { RecentsSection } from './recents-section'
 
 export type SidebarProps = {
+  serviceId?: string
+  searchEnabled?: boolean
+  sidebarSettingsBridge?: Pick<SettingsBridge, 'getSettings' | 'saveSidebarPreferences'>
+  onSelectProject: (cwd: string) => void
   menuBridge: SidebarMenuBridge
   onMenuChanged: () => Promise<void>
   onMenuDeleted: (result: WorkspaceDeletionResult) => Promise<void>
@@ -38,10 +45,14 @@ export type SidebarProps = {
 }
 
 export function Sidebar({
+  serviceId = 'local',
+  searchEnabled = true,
+  sidebarSettingsBridge,
+  onSelectProject,
   menuBridge,
   onMenuChanged,
   onMenuDeleted,
-  projectName,
+  projectName: _projectName,
   cwd,
   ready,
   status,
@@ -61,7 +72,32 @@ export function Sidebar({
 }: SidebarProps) {
   // 切换中使用乐观路径，否则使用实际路径
   const effectiveActivePath = switchingToPath ?? activeSessionPath
-  const [standaloneExpanded, setStandaloneExpanded] = useState(true)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const { preferences, loaded, error, save } = useSidebarPreferences(
+    sidebarSettingsBridge,
+    Boolean(sidebarSettingsBridge),
+  )
+  const model = useMemo(
+    () => buildSidebarModel(sessionsSnapshot ? [{ serviceId, snapshot: sessionsSnapshot }] : [], preferences),
+    [sessionsSnapshot, serviceId, preferences],
+  )
+  useSidebarManualOrders(model, preferences, loaded, save)
+  useEffect(() => {
+    if (!searchEnabled) return
+    const handleKey = (event: KeyboardEvent) => {
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        !event.isComposing &&
+        event.key.toLowerCase() === 'k' &&
+        !document.querySelector('[role="dialog"]')
+      ) {
+        event.preventDefault()
+        setSearchOpen(true)
+      }
+    }
+    document.addEventListener('keydown', handleKey)
+    return () => document.removeEventListener('keydown', handleKey)
+  }, [searchEnabled])
   const [showAllProjects, setShowAllProjects] = useState(false)
   const [recentsLimit, setRecentsLimit] = useState(8)
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(() => new Set([cwd]))
@@ -92,15 +128,24 @@ export function Sidebar({
   }
 
   const pinnedSet = new Set(sessionsSnapshot?.pinnedPaths ?? [])
-  const projects = sessionsSnapshot?.projects ?? []
-  const recents = sessionsSnapshot?.recents ?? []
-
-  // 置顶项：项目或会话
-  const pinnedProjects = projects.filter((project) => pinnedSet.has(project.cwd))
-  const pinnedSessions = recents.filter((session) => pinnedSet.has(session.path))
   const openNewSession = (targetCwd: string) => {
     setExpandedProjects((prev) => new Set(prev).add(targetCwd))
     onNewSessionInProject(targetCwd)
+  }
+
+  const projectProps = {
+    cwd,
+    pinnedSet,
+    activeSessionId,
+    activeSessionPath: effectiveActivePath,
+    onNewSessionInProject: openNewSession,
+    onSwitchSession,
+    onTogglePin,
+    onPrefetchSession,
+  }
+  const sortable = preferences.sortMode === 'manual'
+  const onReorderSessions = (listKey: string, keys: string[]) => {
+    void save({ orders: { [listKey]: keys } })
   }
 
   return (
@@ -121,6 +166,17 @@ export function Sidebar({
           <div className="flex items-center gap-2 font-semibold text-xs text-foreground/90">
             <BrandMark size={20} />
             <span>pi-meme</span>
+          </div>
+          <div className="ml-auto flex items-center gap-1">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="搜索聊天"
+              title="搜索聊天（⌘K / Ctrl+K）"
+              onClick={() => setSearchOpen(true)}
+            >
+              <Search className="size-3.5" />
+            </Button>
           </div>
         </div>
 
@@ -167,83 +223,75 @@ export function Sidebar({
             )
           ) : (
             <div className="space-y-4 py-2 w-full min-w-0">
-              <PinnedSection
-                expandedProjects={expandedProjects}
-                pinnedProjects={pinnedProjects}
-                pinnedSessions={pinnedSessions}
-                activeSessionId={activeSessionId}
-                activeSessionPath={effectiveActivePath}
-                toggleProject={toggleProject}
-                onNewSessionInProject={openNewSession}
-                onTogglePin={onTogglePin}
-                onSwitchSession={onSwitchSession}
-                onPrefetchSession={onPrefetchSession}
-              />
-              <ProjectsSection
-                showAllProjects={showAllProjects}
-                onToggleAllProjects={() => setShowAllProjects((value) => !value)}
-                projects={projects}
-                sessionsLoading={sessionsLoading}
-                ready={ready}
-                onDirectory={onDirectory}
-                cwd={cwd}
-                projectName={projectName}
-                expandedProjects={expandedProjects}
-                expandedProjectItemLimits={expandedProjectItemLimits}
-                pinnedSet={pinnedSet}
-                activeSessionId={activeSessionId}
-                activeSessionPath={effectiveActivePath}
-                toggleProject={toggleProject}
-                toggleProjectItems={toggleProjectItems}
-                onNewSessionInProject={openNewSession}
-                onSwitchSession={onSwitchSession}
-                onTogglePin={onTogglePin}
-                onPrefetchSession={onPrefetchSession}
-              />
-              {Boolean(sessionsSnapshot?.standaloneSessions?.length) && (
-                <div>
-                  <button
-                    type="button"
-                    aria-expanded={standaloneExpanded}
-                    onClick={() => setStandaloneExpanded((value) => !value)}
-                    className="flex w-full items-center justify-between px-2 py-1 text-[0.6875rem] font-semibold text-muted-foreground transition-colors duration-200 ease-out hover:text-foreground"
-                  >
-                    <span>未归属项目</span>
-                    <span>{standaloneExpanded ? '收起' : '展开'}</span>
-                  </button>
-                  <div
-                    aria-hidden={!standaloneExpanded}
-                    inert={!standaloneExpanded}
-                    className={`grid transition-[grid-template-rows,opacity] duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] ${standaloneExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'}`}
-                  >
-                    <div className="min-h-0 overflow-hidden">
-                      {sessionsSnapshot?.standaloneSessions?.map((session) => (
-                        <SessionItem
-                          key={session.path}
-                          session={session}
-                          variant="recent"
-                          isActive={session.path === effectiveActivePath || session.id === activeSessionId}
-                          isPinned={pinnedSet.has(session.path)}
-                          onSwitchSession={onSwitchSession}
-                          onTogglePin={onTogglePin}
-                          onPrefetchSession={onPrefetchSession}
-                        />
-                      ))}
-                    </div>
-                  </div>
+              {error && (
+                <div role="alert" className="px-2 text-xs text-destructive">
+                  {error}
                 </div>
               )}
+              <PinnedSection
+                entries={model.pinned}
+                collapsed={preferences.collapsed.pinned}
+                onToggle={() => {
+                  void save({ collapsed: { pinned: !preferences.collapsed.pinned } })
+                }}
+                projectProps={projectProps}
+                expandedProjects={expandedProjects}
+                expandedProjectItemLimits={expandedProjectItemLimits}
+                toggleProject={toggleProject}
+                toggleProjectItems={toggleProjectItems}
+                sortable={sortable}
+                onReorder={(keys) => onReorderSessions('pinned', keys)}
+                onReorderSessions={onReorderSessions}
+              />
+              <ProjectsSection
+                entries={model.projects}
+                collapsed={preferences.collapsed.projects}
+                onToggle={() => {
+                  void save({ collapsed: { projects: !preferences.collapsed.projects } })
+                }}
+                showAllProjects={showAllProjects}
+                onToggleAllProjects={() => setShowAllProjects((value) => !value)}
+                ready={ready}
+                onDirectory={onDirectory}
+                menu={
+                  <SidebarPreferencesMenu
+                    preferences={preferences}
+                    disabled={!loaded}
+                    onChange={(patch) =>
+                      void save(
+                        patch.sortMode === 'manual'
+                          ? { ...patch, orders: sidebarManualOrders(model, preferences.orders) }
+                          : patch,
+                      )
+                    }
+                  />
+                }
+                projectProps={projectProps}
+                expandedProjects={expandedProjects}
+                expandedProjectItemLimits={expandedProjectItemLimits}
+                toggleProject={toggleProject}
+                toggleProjectItems={toggleProjectItems}
+                onSelectProject={preferences.groupMode === 'merged' ? onSelectProject : undefined}
+                sortable={sortable}
+                onReorder={(keys) => onReorderSessions('projects', keys)}
+                onReorderSessions={onReorderSessions}
+              />
               <RecentsSection
+                entries={model.recents}
+                collapsed={preferences.collapsed.recents}
+                onToggle={() => {
+                  void save({ collapsed: { recents: !preferences.collapsed.recents } })
+                }}
                 recentsLimit={recentsLimit}
                 onChangeLimit={setRecentsLimit}
-                recents={recents}
-                pinnedSet={pinnedSet}
                 activeSessionId={activeSessionId}
                 activeSessionPath={effectiveActivePath}
                 onSwitchSession={onSwitchSession}
                 onTogglePin={onTogglePin}
                 onPrefetchSession={onPrefetchSession}
                 sessionsLoading={sessionsLoading}
+                sortable={sortable}
+                onReorder={(keys) => onReorderSessions('recents', keys)}
               />
             </div>
           )}
@@ -262,6 +310,12 @@ export function Sidebar({
           </Button>
         </div>
       </aside>
+      <SessionSearchDialog
+        open={searchOpen}
+        onOpenChange={setSearchOpen}
+        entries={model.sessions}
+        onSelect={(entry) => onSwitchSession(entry.session.path)}
+      />
     </SidebarMenus>
   )
 }

@@ -640,6 +640,7 @@ export class HostClient {
       getSubagents: () => rpc('settings:subagents'),
       reloadSubagents: () => rpc('settings:reload-subagents'),
       saveSettings: (settings) => rpc('settings:save', [settings]),
+      saveSidebarPreferences: (patch) => rpc('settings:sidebar', [patch]),
       saveAppearance: (appearance) => rpc('settings:appearance', [appearance]),
       getInstalledFonts: () => rpc('settings:fonts'),
       importTheme: async () => {

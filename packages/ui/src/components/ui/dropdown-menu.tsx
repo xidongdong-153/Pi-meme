@@ -1,11 +1,12 @@
 import * as Primitive from '@radix-ui/react-dropdown-menu'
 import type { ComponentProps } from 'react'
-import { ChevronRight } from 'lucide-react'
+import { Check, ChevronRight } from 'lucide-react'
 import { cn } from '../../lib/utils'
 
 export const DropdownMenu = Primitive.Root
 export const DropdownMenuTrigger = Primitive.Trigger
 export const DropdownMenuSub = Primitive.Sub
+export const DropdownMenuRadioGroup = Primitive.RadioGroup
 
 const contentClass =
   'z-50 min-w-48 max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-y-auto rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-xl'
@@ -38,5 +39,18 @@ export function DropdownMenuSubContent({ className, ...props }: ComponentProps<t
     <Primitive.Portal>
       <Primitive.SubContent className={cn(contentClass, className)} {...props} />
     </Primitive.Portal>
+  )
+}
+
+export function DropdownMenuRadioItem({ children, className, ...props }: ComponentProps<typeof Primitive.RadioItem>) {
+  return (
+    <Primitive.RadioItem className={cn(itemClass, 'relative pr-8', className)} {...props}>
+      {children}
+      <span className="absolute right-2.5 flex size-3.5 items-center justify-center">
+        <Primitive.ItemIndicator>
+          <Check />
+        </Primitive.ItemIndicator>
+      </span>
+    </Primitive.RadioItem>
   )
 }

@@ -14,6 +14,7 @@ import {
 } from '@pi-meme/ui/components/ui/dialog'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Input } from '@pi-meme/ui/components/ui/input'
+import { cn } from '@pi-meme/ui/lib/utils'
 import { formatSessionTitle } from './session-title'
 
 export type MenuTarget = { kind: 'project'; project: PiProjectGroup } | { kind: 'session'; session: PiSessionSummary }
@@ -366,7 +367,10 @@ export function SidebarMoreMenu({ target }: { target: MenuTarget }) {
           type="button"
           aria-label={`更多操作：${name}`}
           onClick={(event) => event.stopPropagation()}
-          className="p-1 rounded text-muted-foreground hover:text-foreground transition-opacity duration-200 ease-out opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 data-[state=open]:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className={cn(
+            'p-1 rounded text-muted-foreground hover:text-foreground transition-opacity duration-200 ease-out opacity-0 group-hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            target.kind === 'session' && 'group-focus-within:opacity-100 data-[state=open]:opacity-100',
+          )}
         >
           <MoreHorizontal className="size-3.5" />
         </button>

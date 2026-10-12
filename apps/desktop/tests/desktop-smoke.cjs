@@ -39,6 +39,12 @@ async function run(window) {
       console.error('桌面验收脚本执行失败：', code, error)
       throw error
     })
+  if (process.env.PI_DESKTOP_SIDEBAR_MENU_SMOKE_ONLY === '1') {
+    window.show()
+    window.focus()
+    window.webContents.focus()
+    await waitFor(() => evaluate('document.hasFocus()'), '侧栏专项验收窗口获得焦点')
+  }
   const click = (selector) => evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`)
   const assertImageLoaded = async (selector, label) => {
     await waitFor(() => evaluate(`document.querySelector(${JSON.stringify(selector)})?.complete === true`), label)
@@ -127,19 +133,17 @@ async function run(window) {
       ),
     '$ 内置技能候选',
   )
-  const creatorPoint = await evaluate(`(() => {
-    const option = [...document.querySelectorAll(${JSON.stringify(creatorOption)})].find(node => node.textContent.includes('Skill Creator'));
-    const rect = option.getBoundingClientRect();
-    return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) };
-  })()`)
-  window.webContents.sendInputEvent({ type: 'mouseMove', ...creatorPoint })
-  await waitFor(
-    () =>
-      evaluate(
-        `[...document.querySelectorAll('[role=tooltip]')].some(node => node.textContent.includes(${JSON.stringify(builtinSkillPath)}))`,
-      ),
-    '技能悬停显示实际 SKILL.md 路径',
-  )
+  await waitFor(async () => {
+    const creatorPoint = await evaluate(`(() => {
+        const option = [...document.querySelectorAll(${JSON.stringify(creatorOption)})].find(node => node.textContent.includes('Skill Creator'));
+        const rect = option.getBoundingClientRect();
+        return { x: Math.round(rect.left + rect.width / 2), y: Math.round(rect.top + rect.height / 2) };
+      })()`)
+    window.webContents.sendInputEvent({ type: 'mouseMove', ...creatorPoint })
+    return evaluate(
+      `[...document.querySelectorAll('[role=tooltip]')].some(node => node.textContent.includes(${JSON.stringify(builtinSkillPath)}))`,
+    )
+  }, '技能悬停显示实际 SKILL.md 路径')
   await capture('skill-creator')
   await evaluate(
     `[...document.querySelectorAll(${JSON.stringify(creatorOption)})].find(node => node.textContent.includes('Skill Creator')).click()`,
@@ -240,6 +244,7 @@ async function run(window) {
   }
   if (process.env.PI_DESKTOP_SIDEBAR_MENU_SMOKE_ONLY === '1') {
     await require('./sidebar-menu-smoke.cjs')(window, waitFor, directory, path.join(root, 'out', 'desktop-smoke'))
+    await require('./multi-service-smoke.cjs')(window.webContents.getURL(), waitFor)
     console.log('侧栏菜单验收通过')
     return
   }

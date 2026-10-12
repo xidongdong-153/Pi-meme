@@ -161,6 +161,24 @@ export function App({
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [sidebarWidth, setSidebarWidth] = useState(256)
   const [settingsOpen, setSettingsOpen] = useState(false)
+  const searchActive = Boolean(serviceUI?.active) && !settingsOpen
+  const openSearch = serviceUI?.onSearch
+  useEffect(() => {
+    if (!searchActive || !openSearch) return
+    const handleKey = (event: KeyboardEvent) => {
+      if (
+        !event.isComposing &&
+        (event.metaKey || event.ctrlKey) &&
+        event.key.toLowerCase() === 'k' &&
+        !document.querySelector('[role="dialog"]')
+      ) {
+        event.preventDefault()
+        openSearch()
+      }
+    }
+    document.addEventListener('keydown', handleKey)
+    return () => document.removeEventListener('keydown', handleKey)
+  }, [searchActive, openSearch])
   useEffect(() => {
     serviceUI?.onController(serviceUI.serviceId, { ...chat, openSettings: () => setSettingsOpen(true) })
   })
@@ -476,10 +494,14 @@ export function App({
                     <Sidebar
                       {...{
                         menuBridge: bridge,
+                        sidebarSettingsBridge: bridge,
+                        serviceId: hostId ?? 'local',
+                        searchEnabled: !settingsOpen && !serviceUI,
+                        onSelectProject: (cwd) => void chat.selectLocation({ kind: 'project', cwd }),
                         onMenuChanged: chat.refreshMenu,
                         onMenuDeleted: chat.applyMenuDeletion,
                         projectName: project,
-                        cwd: chat.connection.cwd,
+                        cwd: chat.connection.sourceProjectCwd ?? chat.connection.cwd,
                         ready,
                         status,
                         sessionsSnapshot: chat.sessions,

@@ -21,7 +21,11 @@
     "./server/entry": "./src/server/entry.ts",
     "./ui/plugin": "./src/ui/plugin.ts",
     "./ui/entry": "./src/ui/entry.tsx",
-    "./ui/sidebar/sidebar-menus": "./src/ui/sidebar/sidebar-menus.tsx"
+    "./ui/sidebar/sidebar-menus": "./src/ui/sidebar/sidebar-menus.tsx",
+    "./ui/sidebar/sidebar-model": "./src/ui/sidebar/sidebar-model.ts",
+    "./ui/sidebar/sidebar-controls": "./src/ui/sidebar/sidebar-controls.tsx",
+    "./ui/sidebar/session-search-dialog": "./src/ui/sidebar/session-search-dialog.tsx",
+    "./ui/sidebar/use-sidebar-preferences": "./src/ui/sidebar/use-sidebar-preferences.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit",

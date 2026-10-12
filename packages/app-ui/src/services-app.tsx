@@ -1,14 +1,25 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { SelectWorkspace } from '@pi-meme/contracts/sessions'
+import { buildSidebarModel, sidebarManualOrders } from '@pi-meme/workspace/ui/sidebar/sidebar-model'
+import { SessionSearchDialog } from '@pi-meme/workspace/ui/sidebar/session-search-dialog'
+import { useSidebarManualOrders, useSidebarPreferences } from '@pi-meme/workspace/ui/sidebar/use-sidebar-preferences'
 import { App } from './app'
 import { MultiServiceSidebar } from './multi-service-sidebar'
 import { RemoteSettings } from './remote-settings'
-import type { ServiceController, ServiceRegistry } from './service-ui'
+import { serviceAddress, type ServiceController, type ServiceRegistry } from './service-ui'
 
 export function ServicesApp({ registry, nativeWindow }: { registry: ServiceRegistry; nativeWindow: boolean }) {
   const [services, setServices] = useState(() => registry.list())
   const [activeId, setActiveId] = useState(registry.localServiceId)
   const [, setRevision] = useState(0)
+  const [searchOpen, setSearchOpen] = useState(false)
+  const {
+    preferences,
+    loaded: preferencesLoaded,
+    error: preferenceError,
+    save: savePreferences,
+  } = useSidebarPreferences(registry.local.bridge)
+  const openSearch = useCallback(() => setSearchOpen(true), [])
   const controllers = useRef(new Map<string, ServiceController>())
   const navigation = useRef(0)
   const activeRef = useRef(activeId)
@@ -76,42 +87,84 @@ export function ServicesApp({ registry, nativeWindow }: { registry: ServiceRegis
     controllers.current.delete(id)
     if (activeRef.current === id) setActiveId(registry.localServiceId)
   }
+  const model = buildSidebarModel(
+    services.map((service) => ({
+      serviceId: service.id,
+      snapshot: controllers.current.get(service.id)?.sessions ??
+        service.sessions ?? {
+          pinnedPaths: [],
+          recents: [],
+          projects: service.projects.map((project) => ({
+            ...project,
+            sessionCount: 0,
+            lastModified: project.lastSelectedAt,
+            sessions: [],
+          })),
+        },
+    })),
+    preferences,
+  )
+  useSidebarManualOrders(model, preferences, preferencesLoaded, savePreferences)
   const sidebar = (
     <MultiServiceSidebar
       services={services}
       registry={registry}
       controllers={controllers.current}
       activeId={activeId}
+      model={model}
+      preferences={preferences}
+      preferencesLoaded={preferencesLoaded}
+      preferenceError={preferenceError}
+      onPreferencesChange={(patch) =>
+        void savePreferences(
+          patch.sortMode === 'manual' ? { ...patch, orders: sidebarManualOrders(model, preferences.orders) } : patch,
+        )
+      }
+      onSearch={openSearch}
       onActivate={activate}
       onSettings={() => controllers.current.get(activeId)?.openSettings()}
     />
   )
   const remoteSettings = <RemoteSettings services={services} registry={registry} onRemove={remove} />
-  return services.map((service) => {
-    const client = registry.get(service.id)
-    return (
-      <App
-        key={service.id}
-        bridge={client.bridge}
-        plugins={client.plugins}
-        call={(method, args) => client.rpc(method, args)}
-        hostId={service.hostId}
-        hostAddress={service.address}
-        hostLocal={service.local}
-        nativeWindow={nativeWindow}
-        localPlatform={service.local && client.nativePlatformAvailable}
-        onHostConnection={() => {}}
-        serviceUI={{
-          serviceId: service.id,
-          active: service.id === activeId,
-          appearanceBridge: registry.local.bridge,
-          services,
-          sidebar,
-          remoteSettings,
-          onController: captureController,
-          onLocation: changeLocation,
-        }}
+  return (
+    <>
+      {services.map((service) => {
+        const client = registry.get(service.id)
+        return (
+          <App
+            key={service.id}
+            bridge={client.bridge}
+            plugins={client.plugins}
+            call={(method, args) => client.rpc(method, args)}
+            hostId={service.hostId}
+            hostAddress={service.address}
+            hostLocal={service.local}
+            nativeWindow={nativeWindow}
+            localPlatform={service.local && client.nativePlatformAvailable}
+            onHostConnection={() => {}}
+            serviceUI={{
+              serviceId: service.id,
+              active: service.id === activeId,
+              appearanceBridge: registry.local.bridge,
+              services,
+              sidebar,
+              remoteSettings,
+              onController: captureController,
+              onLocation: changeLocation,
+              onSearch: openSearch,
+            }}
+          />
+        )
+      })}
+      <SessionSearchDialog
+        open={searchOpen}
+        onOpenChange={setSearchOpen}
+        entries={model.sessions}
+        serviceLabels={Object.fromEntries(
+          services.filter((service) => !service.local).map((service) => [service.id, serviceAddress(service.address)]),
+        )}
+        onSelect={(entry) => activate(entry.serviceId, (controller) => controller.switchSession(entry.session.path))}
       />
-    )
-  })
+    </>
+  )
 }

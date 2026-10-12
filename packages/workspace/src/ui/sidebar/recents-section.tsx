@@ -1,73 +1,76 @@
-import type { PiSessionSummary } from '@pi-meme/contracts/sessions'
+import type { SidebarSessionEntry } from './sidebar-model'
+import { SidebarSection, SidebarSortable } from './sidebar-controls'
 import { SessionItem } from './session-item'
 import type { SidebarProps } from './sidebar'
 
 export function RecentsSection({
   recentsLimit,
   onChangeLimit,
-  recents,
-  pinnedSet,
+  entries,
   activeSessionId,
   activeSessionPath,
   onSwitchSession,
   onTogglePin,
   onPrefetchSession,
   sessionsLoading,
+  collapsed,
+  onToggle,
+  sortable,
+  onReorder,
 }: Pick<
   SidebarProps,
   'activeSessionId' | 'activeSessionPath' | 'onSwitchSession' | 'onTogglePin' | 'onPrefetchSession' | 'sessionsLoading'
 > & {
   recentsLimit: number
   onChangeLimit: (limit: number) => void
-  recents: PiSessionSummary[]
-  pinnedSet: Set<string>
+  entries: SidebarSessionEntry[]
+  collapsed: boolean
+  onToggle: () => void
+  sortable: boolean
+  onReorder: (keys: string[]) => void
 }) {
-  const visibleRecents = recents.filter(
-    (session, index) =>
+  const keys = entries.map((entry) => entry.key)
+  const visibleRecents = entries.filter(
+    ({ session }, index) =>
       index < recentsLimit || session.running || session.path === activeSessionPath || session.id === activeSessionId,
   )
-  const hasMoreRecents = recents.length > 8
   return (
-    <>
-      {/* 最近分区：默认展示前 8 个 */}
-      <div>
-        <div className="px-2 py-1 text-[0.6875rem] font-semibold text-muted-foreground/80 tracking-wider">最近</div>
-        <div className="space-y-0.5">
-          {visibleRecents.map((session) => (
+    <SidebarSection id="recents" title="最近" collapsed={collapsed} onToggle={onToggle}>
+      <div className="space-y-0.5">
+        {visibleRecents.map((entry) => (
+          <SidebarSortable
+            key={entry.key}
+            itemKey={entry.key}
+            listKey="recents"
+            keys={keys}
+            enabled={sortable}
+            onReorder={onReorder}
+          >
             <SessionItem
-              key={session.path}
-              session={session}
+              session={entry.session}
               variant="recent"
-              isActive={activeSessionId === session.id || activeSessionPath === session.path}
-              isPinned={pinnedSet.has(session.path)}
+              isActive={activeSessionId === entry.session.id || activeSessionPath === entry.session.path}
               onSwitchSession={onSwitchSession}
               onTogglePin={onTogglePin}
               onPrefetchSession={onPrefetchSession}
             />
-          ))}
-
-          {/* 最近会话：加载更多 / 收起 */}
-          {hasMoreRecents && (
-            <button
-              type="button"
-              onClick={() => {
-                if (recentsLimit >= recents.length) {
-                  onChangeLimit(8)
-                } else {
-                  onChangeLimit(Math.min(recentsLimit + 8, recents.length))
-                }
-              }}
-              className="px-2 py-1 text-xs text-muted-foreground hover:text-foreground cursor-pointer transition-colors block text-left"
-            >
-              {recentsLimit >= recents.length ? '收起' : '加载更多'}
-            </button>
-          )}
-
-          {recents.length === 0 && !sessionsLoading && (
-            <div className="px-2 py-1.5 text-xs text-muted-foreground/60">暂无历史会话</div>
-          )}
-        </div>
+          </SidebarSortable>
+        ))}
+        {entries.length > 8 && (
+          <button
+            type="button"
+            onClick={() =>
+              onChangeLimit(recentsLimit >= entries.length ? 8 : Math.min(recentsLimit + 8, entries.length))
+            }
+            className="px-2 py-1 text-xs text-muted-foreground hover:text-foreground cursor-pointer transition-colors block text-left"
+          >
+            {recentsLimit >= entries.length ? '收起' : '加载更多'}
+          </button>
+        )}
+        {entries.length === 0 && !sessionsLoading && (
+          <div className="px-2 py-1.5 text-xs text-muted-foreground/60">暂无历史会话</div>
+        )}
       </div>
-    </>
+    </SidebarSection>
   )
 }

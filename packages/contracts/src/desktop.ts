@@ -40,6 +40,8 @@ import type {
   SaveInstruction,
   SaveInstructionResult,
   SettingsSnapshot,
+  SidebarPreferences,
+  SidebarPreferencesPatch,
   SubagentCatalogSnapshot,
   Theme,
 } from './settings'
@@ -276,6 +278,7 @@ export interface SettingsBridge {
   getSubagents: () => Promise<SubagentCatalogSnapshot>
   reloadSubagents: () => Promise<SubagentCatalogSnapshot>
   saveSettings: (settings: DesktopSettings) => Promise<SettingsSnapshot>
+  saveSidebarPreferences: (patch: SidebarPreferencesPatch) => Promise<SidebarPreferences>
   saveAppearance: (appearance: AppearanceSettings) => Promise<SettingsSnapshot>
   getInstalledFonts: () => Promise<InstalledFont[]>
   importTheme: () => Promise<SettingsSnapshot | null>

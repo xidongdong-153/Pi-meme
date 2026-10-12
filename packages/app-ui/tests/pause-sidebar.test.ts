@@ -61,14 +61,23 @@ test('普通和置顶项目在运行、暂停和空闲状态下都显示静态�
       return render(
         isPinned
           ? createElement(PinnedSection, {
-              pinnedProjects: [value],
-              pinnedSessions: [],
+              entries: [{ kind: 'project', key: 'project', serviceId: 'local', project: value }],
+              collapsed: false,
+              onToggle: noop,
+              projectProps: {
+                cwd: '',
+                onNewSessionInProject: noop,
+                onTogglePin: noop,
+                onSwitchSession: noop,
+                onPrefetchSession: noop,
+              },
+              expandedProjectItemLimits: new Set<string>(),
+              toggleProjectItems: noop,
+              sortable: false,
+              onReorder: noop,
+              onReorderSessions: noop,
               expandedProjects: new Set<string>(),
               toggleProject: noop,
-              onNewSessionInProject: noop,
-              onTogglePin: noop,
-              onSwitchSession: noop,
-              onPrefetchSession: noop,
             })
           : createElement(ProjectItem, {
               project: value,
@@ -96,10 +105,30 @@ test('普通和置顶项目在运行、暂停和空闲状态下都显示静态�
       const markup = item(sessions)
       assert.doesNotMatch(markup, /项目内有会话运行中/)
       assert.match(markup, /lucide-folder/)
-      assert.equal(
-        (markup.match(/会话运行中/g) ?? []).length,
-        isPinned ? 0 : sessions.filter((s) => s.running && !s.isPaused).length,
-      )
+      assert.equal((markup.match(/会话运行中/g) ?? []).length, sessions.filter((s) => s.running && !s.isPaused).length)
     }
   }
+})
+
+test('置顶项目复用项目展开列表，合并模式项目只显示入口', () => {
+  const value = project([session])
+  const props = {
+    project: value,
+    cwd: '',
+    isExpanded: true,
+    isPinned: false,
+    isItemsExpandedAll: false,
+    onToggle: noop,
+    onToggleItems: noop,
+    onNewSessionInProject: noop,
+    onTogglePin: noop,
+    onSwitchSession: noop,
+    onPrefetchSession: noop,
+  }
+  const expanded = render(createElement(ProjectItem, props))
+  assert.match(expanded, /aria-expanded="true"/)
+  assert.match(expanded, /data-session-path="\/tmp\/session.jsonl"/)
+  const merged = render(createElement(ProjectItem, { ...props, onSelectProject: noop }))
+  assert.doesNotMatch(merged, /lucide-chevron-right|aria-expanded="true"/)
+  assert.doesNotMatch(merged, /data-session-path/)
 })

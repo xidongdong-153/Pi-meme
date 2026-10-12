@@ -1,11 +1,19 @@
 import { useState } from 'react'
-import { Plus, Settings, SquarePen } from 'lucide-react'
-import type { PiProjectGroup } from '@pi-meme/contracts/sessions'
+import { Plus, Search, Settings, SquarePen } from 'lucide-react'
 import type { HostService } from '@pi-meme/contracts/host'
+import type { SidebarPreferences, SidebarPreferencesPatch } from '@pi-meme/contracts/settings'
 import { BrandMark } from '@pi-meme/ui/components/brand-mark'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
 import { ProjectItem } from '@pi-meme/workspace/ui/sidebar/project-item'
 import { SessionItem } from '@pi-meme/workspace/ui/sidebar/session-item'
 import { SidebarMenus } from '@pi-meme/workspace/ui/sidebar/sidebar-menus'
+import { SidebarPreferencesMenu, SidebarSection, SidebarSortable } from '@pi-meme/workspace/ui/sidebar/sidebar-controls'
+import type {
+  buildSidebarModel,
+  SidebarEntry,
+  SidebarProjectEntry,
+  SidebarSessionEntry,
+} from '@pi-meme/workspace/ui/sidebar/sidebar-model'
 import { serviceAddress, type ServiceController, type ServiceRegistry } from './service-ui'
 
 export function MultiServiceSidebar({
@@ -13,6 +21,12 @@ export function MultiServiceSidebar({
   registry,
   controllers,
   activeId,
+  model,
+  preferences,
+  preferencesLoaded = true,
+  preferenceError,
+  onPreferencesChange,
+  onSearch,
   onActivate,
   onSettings,
 }: {
@@ -20,27 +34,22 @@ export function MultiServiceSidebar({
   registry: ServiceRegistry
   controllers: Map<string, ServiceController>
   activeId: string
+  model: ReturnType<typeof buildSidebarModel>
+  preferences: SidebarPreferences
+  preferencesLoaded?: boolean
+  preferenceError: string
+  onPreferencesChange: (patch: SidebarPreferencesPatch) => void
+  onSearch: () => void
   onActivate: (id: string, work: (controller: ServiceController) => Promise<boolean>) => void
   onSettings: () => void
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
   const [recentsLimit, setRecentsLimit] = useState(8)
   const [all, setAll] = useState<Set<string>>(() => new Set())
+  const [showAllProjects, setShowAllProjects] = useState(false)
   const active = controllers.get(activeId)
-  const projects = services
-    .flatMap((service) => {
-      const snapshot = controllers.get(service.id)?.sessions ?? service.sessions
-      const groups =
-        snapshot?.projects ??
-        service.projects.map((project) => ({
-          ...project,
-          sessionCount: 0,
-          lastModified: project.lastSelectedAt,
-          sessions: [],
-        }))
-      return groups.map((project) => ({ service, project }))
-    })
-    .sort((a, b) => b.project.lastModified.localeCompare(a.project.lastModified))
+  const servicesById = new Map(services.map((service) => [service.id, service]))
+  const manual = preferences.sortMode === 'manual'
   const toggle = (key: string, setter: typeof setExpanded) =>
     setter((previous) => {
       const next = new Set(previous)
@@ -48,20 +57,20 @@ export function MultiServiceSidebar({
       else next.add(key)
       return next
     })
-  const renderSession = (
-    service: HostService,
-    session: import('@pi-meme/contracts/sessions').PiSessionSummary,
-    section: string,
-  ) => {
-    const controller = controllers.get(service.id)
+  const saveOrder = (listKey: string, keys: string[]) => onPreferencesChange({ orders: { [listKey]: keys } })
+
+  const renderSession = (entry: SidebarSessionEntry, pinned: boolean) => {
+    const { serviceId, session } = entry
+    const service = servicesById.get(serviceId)!
+    const controller = controllers.get(serviceId)
     const snapshot = controller?.sessions ?? service.sessions
+    const activePath = controller?.switchingToPath ?? snapshot?.activeSessionPath
     return (
       <SidebarMenus
-        key={`${section}:${service.id}:${session.path}`}
         canOpenProject={service.local}
-        bridge={registry.get(service.id).bridge}
+        bridge={registry.get(serviceId).bridge}
         pinnedPaths={snapshot?.pinnedPaths ?? []}
-        onNewSession={() => {}}
+        onNewSession={(cwd) => onActivate(serviceId, (chat) => chat.newSessionInProject(cwd))}
         onTogglePin={(path) => void controller?.togglePin(path)}
         onChanged={async () => {
           await controller?.refreshMenu()
@@ -70,55 +79,61 @@ export function MultiServiceSidebar({
           await controller?.applyMenuDeletion(result)
         }}
       >
-        <div>
+        <div data-service-id={serviceId}>
           {!service.local && (
-            <p className="px-2 text-[0.625rem] text-muted-foreground">{serviceAddress(service.address)}</p>
+            <p className="truncate px-2 text-[0.625rem] text-muted-foreground" title={service.address}>
+              {serviceAddress(service.address)}
+              {service.status !== 'connected' && ' · 未连接'}
+            </p>
           )}
           <SessionItem
             session={session}
-            variant="recent"
-            isActive={activeId === service.id && snapshot?.activeSessionPath === session.path}
-            isPinned={snapshot?.pinnedPaths.includes(session.path) ?? false}
-            onSwitchSession={(path) => onActivate(service.id, (chat) => chat.switchSession(path))}
+            variant={pinned ? 'pinned' : 'recent'}
+            isActive={
+              activeId === serviceId &&
+              (activePath ? activePath === session.path : snapshot?.activeSessionId === session.id)
+            }
+            isPinned={pinned}
+            onSwitchSession={(path) => onActivate(serviceId, (chat) => chat.switchSession(path))}
             onTogglePin={(path) => void controller?.togglePin(path)}
-            onPrefetchSession={() => {}}
+            onPrefetchSession={(path) => {
+              if (service.status === 'connected') {
+                const bridge = registry.get(serviceId).bridge
+                void bridge.prefetchSession(path).catch(() => {})
+              }
+            }}
           />
         </div>
       </SidebarMenus>
     )
   }
-  const recents = services
-    .flatMap((service) => {
-      const recents = (controllers.get(service.id)?.sessions ?? service.sessions)?.recents ?? []
-      return recents.map((session) => ({ service, session }))
-    })
-    .sort((a, b) => b.session.modified.localeCompare(a.session.modified))
-  const pinned = recents.filter(({ service, session }) =>
-    (controllers.get(service.id)?.sessions ?? service.sessions)?.pinnedPaths.includes(session.path),
-  )
-  const renderProject = (service: HostService, project: PiProjectGroup, section: string) => {
-    const controller = controllers.get(service.id)
-    const key = `${service.id}:${project.cwd}`
+  const renderProject = (entry: SidebarProjectEntry, pinned: boolean) => {
+    const { serviceId, project, key } = entry
+    const service = servicesById.get(serviceId)!
+    const controller = controllers.get(serviceId)
     const snapshot = controller?.sessions ?? service.sessions
-    const selected = activeId === service.id
+    const selected = activeId === serviceId
+    const openNewSession = (cwd: string) => {
+      setExpanded((previous) => new Set(previous).add(key))
+      onActivate(serviceId, (chat) => chat.newSessionInProject(cwd))
+    }
     return (
       <SidebarMenus
-        key={`${section}:${key}`}
         canOpenProject={service.local}
-        bridge={registry.get(service.id).bridge}
+        bridge={registry.get(serviceId).bridge}
         pinnedPaths={snapshot?.pinnedPaths ?? []}
-        onNewSession={(cwd) => onActivate(service.id, (chat) => chat.newSessionInProject(cwd))}
+        onNewSession={openNewSession}
         onTogglePin={(path) => void controller?.togglePin(path)}
         onChanged={async () => {
           await controller?.refreshMenu()
-          await registry.refresh(service.id)
+          await registry.refresh(serviceId)
         }}
         onDeleted={async (result) => {
           await controller?.applyMenuDeletion(result)
-          await registry.refresh(service.id)
+          await registry.refresh(serviceId)
         }}
       >
-        <div className="min-w-0" data-service-id={service.id}>
+        <div className="min-w-0" data-service-id={serviceId}>
           {!service.local && (
             <p className="truncate px-2.5 pt-1 text-[0.625rem] text-muted-foreground" title={service.address}>
               {serviceAddress(service.address)}
@@ -129,19 +144,29 @@ export function MultiServiceSidebar({
             project={project}
             cwd={selected ? (controller?.connection.sourceProjectCwd ?? controller?.connection.cwd ?? '') : ''}
             isExpanded={expanded.has(key)}
-            isPinned={snapshot?.pinnedPaths.includes(project.cwd) ?? false}
+            isPinned={pinned}
             isItemsExpandedAll={all.has(key)}
             pinnedSet={new Set(snapshot?.pinnedPaths ?? [])}
             activeSessionId={selected ? snapshot?.activeSessionId : undefined}
-            activeSessionPath={selected ? snapshot?.activeSessionPath : undefined}
+            activeSessionPath={selected ? (controller?.switchingToPath ?? snapshot?.activeSessionPath) : undefined}
             onToggle={() => toggle(key, setExpanded)}
             onToggleItems={() => toggle(key, setAll)}
-            onNewSessionInProject={(cwd) => onActivate(service.id, (chat) => chat.newSessionInProject(cwd))}
+            onNewSessionInProject={openNewSession}
+            onSelectProject={
+              preferences.groupMode === 'merged' && !pinned
+                ? (cwd) => onActivate(serviceId, (chat) => chat.selectLocation({ kind: 'project', cwd }))
+                : undefined
+            }
+            sortable={{
+              serviceId,
+              enabled: manual,
+              onReorder: (keys) => saveOrder(`project:${key}`, keys),
+            }}
             onTogglePin={(path) => void controller?.togglePin(path)}
-            onSwitchSession={(path) => onActivate(service.id, (chat) => chat.switchSession(path))}
+            onSwitchSession={(path) => onActivate(serviceId, (chat) => chat.switchSession(path))}
             onPrefetchSession={(path) => {
               if (service.status === 'connected') {
-                const bridge = registry.get(service.id).bridge
+                const bridge = registry.get(serviceId).bridge
                 void bridge.prefetchSession(path).catch(() => {})
               }
             }}
@@ -150,17 +175,64 @@ export function MultiServiceSidebar({
       </SidebarMenus>
     )
   }
-  const pinnedProjects = projects.filter(({ service, project }) =>
-    (controllers.get(service.id)?.sessions ?? service.sessions)?.pinnedPaths.includes(project.cwd),
+  const renderEntry = (entry: SidebarEntry, listKey: string, keys: string[], pinned = false) => (
+    <SidebarSortable
+      key={entry.key}
+      itemKey={entry.key}
+      listKey={listKey}
+      keys={keys}
+      enabled={manual}
+      onReorder={(next) => saveOrder(listKey, next)}
+    >
+      {entry.kind === 'project' ? renderProject(entry, pinned) : renderSession(entry, pinned)}
+    </SidebarSortable>
   )
+  const visibleProjects = showAllProjects
+    ? model.projects
+    : model.projects.filter(
+        ({ serviceId, project }, index) =>
+          index < 5 ||
+          (serviceId === activeId && project.cwd === (active?.connection.sourceProjectCwd ?? active?.connection.cwd)) ||
+          project.sessions.some((session) => session.running),
+      )
+  const visibleRecents = model.recents.filter(
+    ({ serviceId, session }, index) =>
+      index < recentsLimit ||
+      session.running ||
+      (serviceId === activeId &&
+        (session.id === active?.connection.sessionKey || session.path === active?.connection.sessionFile)),
+  )
+  const projectKeys = model.projects.map((entry) => entry.key)
+  const pinnedKeys = model.pinned.map((entry) => entry.key)
+  const recentKeys = model.recents.map((entry) => entry.key)
+  const toggleSection = (id: keyof SidebarPreferences['collapsed']) =>
+    onPreferencesChange({ collapsed: { [id]: !preferences.collapsed[id] } })
+
   return (
     <aside
       aria-label="侧边栏"
       className="appearance-sidebar flex h-full w-full flex-col border-r border-border bg-card/60 select-none"
     >
-      <div className="flex h-10 shrink-0 items-center gap-2 border-b border-border/40 px-3 text-xs font-semibold">
-        <BrandMark size={20} />
-        pi-meme
+      <div className="flex h-10 shrink-0 items-center justify-between border-b border-border/40 px-3 text-xs font-semibold">
+        <div className="flex items-center gap-2">
+          <BrandMark size={20} />
+          pi-meme
+        </div>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              aria-label="搜索聊天"
+              onClick={onSearch}
+              className="rounded p-1.5 text-muted-foreground hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <Search className="size-4" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent>
+            搜索聊天 · {typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent) ? '⌘K' : 'Ctrl+K'}
+          </TooltipContent>
+        </Tooltip>
       </div>
       <button
         type="button"
@@ -170,47 +242,78 @@ export function MultiServiceSidebar({
         <SquarePen className="size-4" />
         新聊天
       </button>
-      <div className="min-h-0 flex-1 space-y-1 overflow-y-auto px-3 py-2">
-        <div className="flex items-center justify-between px-2 py-1 text-xs text-muted-foreground">
-          <span>项目</span>
-          <button type="button" aria-label="新建项目" title="新建项目" onClick={() => void active?.chooseDirectory()}>
-            <Plus className="size-3.5" />
-          </button>
-        </div>
-        {projects.map(({ service, project }) => renderProject(service, project, 'project'))}
-        {services.some(
-          (service) => (controllers.get(service.id)?.sessions ?? service.sessions)?.standaloneSessions?.length,
-        ) && <p className="px-2 pt-3 text-xs text-muted-foreground">未归属项目</p>}
-        {services.flatMap((service) => {
-          const sessions = (controllers.get(service.id)?.sessions ?? service.sessions)?.standaloneSessions ?? []
-          return sessions.map((session) => renderSession(service, session, 'standalone'))
-        })}
-        {(pinned.length > 0 || pinnedProjects.length > 0) && (
-          <p className="px-2 pt-3 text-xs text-muted-foreground">置顶</p>
-        )}
-        {pinnedProjects.map(({ service, project }) => renderProject(service, project, 'pinned'))}
-        {pinned.map(({ service, session }) => renderSession(service, session, 'pinned'))}
-        {recents.length > 0 && <p className="px-2 pt-3 text-xs text-muted-foreground">最近</p>}
-        {recents
-          .filter(
-            ({ service, session }, index) =>
-              index < recentsLimit ||
-              session.running ||
-              (activeId === service.id &&
-                (session.id === active?.connection.sessionKey || session.path === active?.connection.sessionFile)),
-          )
-          .map(({ service, session }) => renderSession(service, session, 'recent'))}
-        {recents.length > 8 && (
-          <button
-            type="button"
-            onClick={() =>
-              setRecentsLimit((limit) => (limit >= recents.length ? 8 : Math.min(limit + 8, recents.length)))
-            }
-            className="px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+      {preferenceError && (
+        <p role="alert" className="px-3 text-xs text-destructive">
+          {preferenceError}
+        </p>
+      )}
+      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-3 py-2">
+        {model.pinned.length > 0 && (
+          <SidebarSection
+            id="pinned"
+            title="置顶"
+            collapsed={preferences.collapsed.pinned}
+            onToggle={() => toggleSection('pinned')}
           >
-            {recentsLimit >= recents.length ? '收起' : '加载更多'}
-          </button>
+            {model.pinned.map((entry) => renderEntry(entry, 'pinned', pinnedKeys, true))}
+          </SidebarSection>
         )}
+        <SidebarSection
+          id="projects"
+          title="项目"
+          collapsed={preferences.collapsed.projects}
+          onToggle={() => toggleSection('projects')}
+          actions={
+            <>
+              <SidebarPreferencesMenu
+                preferences={preferences}
+                disabled={!preferencesLoaded}
+                onChange={onPreferencesChange}
+              />
+              <button
+                type="button"
+                aria-label="新建项目"
+                title="新建项目"
+                onClick={() => void active?.chooseDirectory()}
+                className="rounded p-1 hover:bg-secondary"
+              >
+                <Plus className="size-3.5" />
+              </button>
+            </>
+          }
+        >
+          {visibleProjects.map((entry) => renderEntry(entry, 'projects', projectKeys))}
+          {model.projects.length > 5 && (
+            <button
+              type="button"
+              onClick={() => setShowAllProjects((value) => !value)}
+              className="px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+            >
+              {showAllProjects ? '收起' : '展开显示'}
+            </button>
+          )}
+        </SidebarSection>
+        <SidebarSection
+          id="recents"
+          title="最近"
+          collapsed={preferences.collapsed.recents}
+          onToggle={() => toggleSection('recents')}
+        >
+          {visibleRecents.map((entry) => renderEntry(entry, 'recents', recentKeys))}
+          {model.recents.length > 8 && (
+            <button
+              type="button"
+              onClick={() =>
+                setRecentsLimit((limit) =>
+                  limit >= model.recents.length ? 8 : Math.min(limit + 8, model.recents.length),
+                )
+              }
+              className="px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+            >
+              {recentsLimit >= model.recents.length ? '收起' : '加载更多'}
+            </button>
+          )}
+        </SidebarSection>
       </div>
       <button
         type="button"

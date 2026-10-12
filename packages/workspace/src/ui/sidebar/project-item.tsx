@@ -1,8 +1,10 @@
 import { SidebarMoreMenu, SidebarRowMenu } from './sidebar-menus'
-import { ChevronRight, Folder, Pin, SquarePen } from 'lucide-react'
+import { Folder, Pin, SquarePen } from 'lucide-react'
 import { cn } from '@pi-meme/ui/lib/utils'
 import type { PiProjectGroup } from '@pi-meme/contracts/sessions'
 import { SessionItem } from './session-item'
+import { SidebarSortable } from './sidebar-controls'
+import { sidebarItemKey } from './sidebar-model'
 
 export type ProjectItemProps = {
   project: PiProjectGroup
@@ -13,6 +15,8 @@ export type ProjectItemProps = {
   pinnedSet?: Set<string>
   activeSessionId?: string
   activeSessionPath?: string
+  onSelectProject?: (cwd: string) => void
+  sortable?: { serviceId: string; enabled: boolean; onReorder: (keys: string[]) => void }
   onToggle: () => void
   onToggleItems: () => void
   onNewSessionInProject: (cwd: string) => void
@@ -31,6 +35,8 @@ export function ProjectItem({
   activeSessionId,
   activeSessionPath,
   onToggle,
+  onSelectProject,
+  sortable,
   onToggleItems,
   onNewSessionInProject,
   onTogglePin,
@@ -49,7 +55,9 @@ export function ProjectItem({
           session.id === activeSessionId,
       )
   const hasMoreSessions = project.sessions.length > sessionThreshold
-  const isContentVisible = isExpanded && project.sessions.length > 0
+  const isContentVisible = !onSelectProject && isExpanded && project.sessions.length > 0
+  const serviceId = sortable?.serviceId ?? 'local'
+  const sessionKeys = project.sessions.map((session) => sidebarItemKey(serviceId, 'session', session.path))
 
   return (
     <div key={project.cwd} className="space-y-0.5">
@@ -64,19 +72,11 @@ export function ProjectItem({
         >
           <button
             type="button"
-            onClick={onToggle}
-            aria-expanded={isExpanded}
+            onClick={() => (onSelectProject ? onSelectProject(project.cwd) : onToggle())}
+            aria-expanded={onSelectProject ? undefined : isExpanded}
             className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden pl-2 py-2 text-left rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
-            <span
-              className={cn(
-                'inline-flex shrink-0 text-muted-foreground/65 transition-transform duration-250 ease-[cubic-bezier(0.22,1,0.36,1)]',
-                isExpanded && 'rotate-90',
-              )}
-            >
-              <ChevronRight className="size-3" />
-            </span>
-            <Folder className="size-3.5 text-muted-foreground shrink-0" />
+            <Folder data-project-folder-icon aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
             <span className="truncate font-medium">{project.name}</span>
           </button>
           <div className="flex items-center gap-1 shrink-0 ml-1">
@@ -88,7 +88,7 @@ export function ProjectItem({
                 e.stopPropagation()
                 onNewSessionInProject(project.cwd)
               }}
-              className="p-1 hover:text-foreground text-muted-foreground cursor-pointer rounded transition-opacity opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="p-1 hover:text-foreground text-muted-foreground cursor-pointer rounded transition-opacity opacity-0 group-hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <SquarePen className="size-3.5" />
             </button>
@@ -102,7 +102,7 @@ export function ProjectItem({
                 onTogglePin(project.cwd)
               }}
               className={cn(
-                'transition-opacity p-1 hover:text-foreground cursor-pointer rounded opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                'transition-opacity p-1 hover:text-foreground cursor-pointer rounded opacity-0 group-hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 isPinned ? 'text-primary' : 'text-muted-foreground',
               )}
             >
@@ -114,42 +114,52 @@ export function ProjectItem({
         </div>
       </SidebarRowMenu>
       {/* 展开的会话列表：默认展示前 5 个，支持展开显示。常驻挂载以便折叠时行高缓动 */}
-      <div
-        aria-hidden={!isContentVisible}
-        inert={!isContentVisible}
-        className={cn(
-          'grid transition-[grid-template-rows,opacity] duration-250 ease-[cubic-bezier(0.22,1,0.36,1)]',
-          isContentVisible ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0',
-        )}
-      >
-        <div className="min-h-0 overflow-hidden">
-          <div className="ml-3 border-l border-border/40 pl-2 space-y-0.5 py-0.5">
-            {visibleSessions.map((session) => (
-              <SessionItem
-                key={session.path}
-                session={session}
-                variant="project"
-                isActive={activeSessionId === session.id || activeSessionPath === session.path}
-                isPinned={pinnedSet?.has(session.path) ?? false}
-                onSwitchSession={onSwitchSession}
-                onTogglePin={onTogglePin}
-                onPrefetchSession={onPrefetchSession}
-              />
-            ))}
+      {!onSelectProject && (
+        <div
+          aria-hidden={!isContentVisible}
+          inert={!isContentVisible}
+          className={cn(
+            'grid transition-[grid-template-rows,opacity] duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
+            isContentVisible ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0',
+          )}
+        >
+          <div className="min-h-0 overflow-hidden">
+            <div className="ml-3 border-l border-border/40 pl-2 space-y-0.5 py-0.5">
+              {visibleSessions.map((session) => (
+                <SidebarSortable
+                  key={session.path}
+                  itemKey={sidebarItemKey(serviceId, 'session', session.path)}
+                  listKey={`project:${sidebarItemKey(serviceId, 'project', project.cwd)}`}
+                  keys={sessionKeys}
+                  enabled={sortable?.enabled ?? false}
+                  onReorder={(keys) => sortable?.onReorder(keys)}
+                >
+                  <SessionItem
+                    session={session}
+                    variant="project"
+                    isActive={activeSessionId === session.id || activeSessionPath === session.path}
+                    isPinned={pinnedSet?.has(session.path) ?? false}
+                    onSwitchSession={onSwitchSession}
+                    onTogglePin={onTogglePin}
+                    onPrefetchSession={onPrefetchSession}
+                  />
+                </SidebarSortable>
+              ))}
 
-            {/* 项目内部展开显示更多会话 */}
-            {hasMoreSessions && (
-              <button
-                type="button"
-                onClick={() => onToggleItems()}
-                className="px-2 py-1 text-xs text-muted-foreground hover:text-foreground cursor-pointer transition-colors block text-left"
-              >
-                {isItemsExpandedAll ? '收起' : '展开显示'}
-              </button>
-            )}
+              {/* 项目内部展开显示更多会话 */}
+              {hasMoreSessions && (
+                <button
+                  type="button"
+                  onClick={() => onToggleItems()}
+                  className="px-2 py-1 text-xs text-muted-foreground hover:text-foreground cursor-pointer transition-colors block text-left"
+                >
+                  {isItemsExpandedAll ? '收起' : '展开显示'}
+                </button>
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }

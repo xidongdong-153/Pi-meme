@@ -52,6 +52,7 @@ export function createSettingsHandlers({
       return settings.togglePin(value)
     },
     'settings:appearance': (value: unknown) => settings.saveAppearance(value),
+    'settings:sidebar': (value: unknown) => settings.saveSidebarPreferences(value),
     'settings:fonts': () => getInstalledFonts(),
     'settings:import-theme': async () => {
       const filename = await chooseImport?.()

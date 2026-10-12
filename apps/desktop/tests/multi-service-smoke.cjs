@@ -73,6 +73,35 @@ module.exports = async function multiServiceSmoke(url, waitFor) {
       '新聊天显示工作插槽',
     )
   }
+  const pressKey = (keyCode, modifiers = []) => {
+    window.webContents.sendInputEvent({ type: 'keyDown', keyCode, modifiers })
+    window.webContents.sendInputEvent({ type: 'keyUp', keyCode, modifiers })
+  }
+  const openSearch = async (modifier) => {
+    pressKey('K', [modifier])
+    await waitFor(
+      () => evaluate(`document.activeElement?.getAttribute('aria-label') === '搜索聊天标题'`),
+      '快捷键打开并聚焦跨服务聊天搜索',
+    )
+    assert.equal(await evaluate(`document.querySelectorAll('[aria-label="搜索聊天标题"]').length`), 1)
+  }
+  const selectedSearchTitle = () =>
+    evaluate(`document.querySelector('[aria-label="聊天搜索结果"] [aria-selected="true"] [title]')?.title`)
+  const assertHiddenSearchInactive = async () => {
+    await evaluate(`document.querySelector('[aria-label="设置"]').click()`)
+    await waitFor(() => evaluate(`Boolean(document.querySelector('[aria-label="设置页面"]'))`), '当前服务设置页面')
+    for (const modifier of ['meta', 'control']) {
+      pressKey('K', [modifier])
+      await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
+      assert.equal(
+        await evaluate(`Boolean(document.querySelector('[aria-label="搜索聊天标题"]'))`),
+        false,
+        `当前服务设置页面中，隐藏 App 不接管 ${modifier === 'meta' ? 'Cmd' : 'Ctrl'}+K`,
+      )
+    }
+    await clickText('返回聊天', '[aria-label="设置页面"]')
+    await waitFor(() => evaluate(`!document.querySelector('[aria-label="设置页面"]')`), '返回当前服务聊天')
+  }
   try {
     await window.loadURL(`${url}${url.includes('?') ? '&' : '?'}test-fixture=multi-service`)
     await waitFor(
@@ -174,7 +203,72 @@ module.exports = async function multiServiceSmoke(url, waitFor) {
       ),
       false,
     )
-    console.log('多服务界面验收通过：同名同路径隔离、取消保留、文字图片计划模式迁移、旧对话草稿与后台事件隔离')
+    const localBeforeSearch = await evaluate('window.multiServiceTest.local.status()')
+    const remoteBeforeSearch = await evaluate('window.multiServiceTest.remote.status()')
+    await openSearch('meta')
+    await window.webContents.insertText('旧对话')
+    await waitFor(
+      () => evaluate(`document.querySelectorAll('[aria-label="聊天搜索结果"] [role="option"]').length === 2`),
+      '相同会话路径保留本机与远程两个搜索结果',
+    )
+    assert.equal(await selectedSearchTitle(), 'local旧对话')
+    assert.equal(
+      await evaluate(
+        `Array.from(document.querySelectorAll('[aria-label="聊天搜索结果"] [role="option"]')).find(node => node.querySelector('[title]')?.title === 'remote旧对话')?.textContent.includes('同名项目 · remote.example.com:8443')`,
+      ),
+      true,
+      '远程搜索结果显示所属服务地址',
+    )
+    assert.equal(
+      await evaluate(
+        `Array.from(document.querySelectorAll('[aria-label="聊天搜索结果"] [role="option"]')).find(node => node.querySelector('[title]')?.title === 'local旧对话')?.textContent.includes('remote.example.com:8443')`,
+      ),
+      false,
+      '本机搜索结果不显示远程服务标签',
+    )
+    pressKey('Down')
+    await waitFor(async () => (await selectedSearchTitle()) === 'remote旧对话', '下方向键选择远程结果')
+    pressKey('Up')
+    await waitFor(async () => (await selectedSearchTitle()) === 'local旧对话', '上方向键返回本机结果')
+    pressKey('Down')
+    await waitFor(async () => (await selectedSearchTitle()) === 'remote旧对话', '再次选择远程结果')
+    pressKey('Enter')
+    await waitFor(
+      () =>
+        evaluate(
+          `document.querySelector('main').dataset.activeService === 'remote' && !document.querySelector('[aria-label="搜索聊天标题"]')`,
+        ),
+      '回车从本机打开远程搜索结果',
+    )
+    const remoteAfterSearch = await evaluate('window.multiServiceTest.remote.status()')
+    assert.deepEqual(remoteAfterSearch.switchedPaths, [...remoteBeforeSearch.switchedPaths, 'same-path'])
+    assert.equal(remoteAfterSearch.connection.sessionFile, 'same-path')
+    assert.deepEqual(await evaluate('window.multiServiceTest.local.status()'), localBeforeSearch)
+    await assertHiddenSearchInactive()
+    await openSearch('control')
+    assert.equal(await evaluate(`document.querySelector('[aria-label="搜索聊天标题"]').value`), '')
+    await window.webContents.insertText('local旧对话')
+    await waitFor(
+      () => evaluate(`document.querySelectorAll('[aria-label="聊天搜索结果"] [role="option"]').length === 1`),
+      '远程页面按标题筛选本机聊天',
+    )
+    assert.equal(await selectedSearchTitle(), 'local旧对话')
+    pressKey('Enter')
+    await waitFor(
+      () =>
+        evaluate(
+          `document.querySelector('main').dataset.activeService === 'local' && !document.querySelector('[aria-label="搜索聊天标题"]')`,
+        ),
+      '回车从远程返回本机搜索结果',
+    )
+    const localAfterSearch = await evaluate('window.multiServiceTest.local.status()')
+    assert.deepEqual(localAfterSearch.switchedPaths, [...localBeforeSearch.switchedPaths, 'same-path'])
+    assert.equal(localAfterSearch.connection.sessionFile, 'same-path')
+    assert.deepEqual(await evaluate('window.multiServiceTest.remote.status()'), remoteAfterSearch)
+    await assertHiddenSearchInactive()
+    console.log(
+      '多服务界面验收通过：同名同路径隔离、取消保留、文字图片计划模式迁移、旧对话草稿与后台事件隔离、跨服务键盘搜索与隐藏 App 快捷键隔离',
+    )
   } finally {
     window.destroy()
   }

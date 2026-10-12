@@ -12,6 +12,13 @@ function createService(id) {
   }
   let mode = 'default'
   let count = 0
+  const switchedPaths = []
+  let sidebar = {
+    groupMode: 'projects',
+    sortMode: 'recent',
+    collapsed: { pinned: false, projects: false, recents: false },
+    orders: {},
+  }
   let delayCommands = false
   let pendingCommands
   const listeners = { connection: new Set(), events: new Set(), sessions: new Set() }
@@ -94,7 +101,24 @@ function createService(id) {
       activeSessionId: connection.sessionKey,
       activeSessionPath: connection.sessionFile,
     }),
-    getSettings: async () => ({ settings: { themeId: 'dark' }, themes: [], errors: [] }),
+    getSettings: async () => ({
+      settings: { themeId: 'dark', sidebar },
+      themes: [],
+      themesDirectory: '/fixture/themes',
+      extensionsDirectory: '/fixture/extensions',
+      errors: [],
+    }),
+    saveSidebarPreferences: async (patch) => {
+      sidebar = {
+        ...sidebar,
+        ...patch,
+        collapsed: { ...sidebar.collapsed, ...patch.collapsed },
+        orders: { ...sidebar.orders, ...patch.orders },
+      }
+      return sidebar
+    },
+    getModelConfig: async () => ({ path: '/fixture/models.json', revision: 'fixture-models', providers: [] }),
+    getDefaultModel: async () => model,
     getGitEnvironment: async () => ({ cwd: '/same', root: '', dirty: false, branches: [] }),
     selectWorkspace: select,
     newSession: async () =>
@@ -102,6 +126,7 @@ function createService(id) {
         ? select({ kind: connection.workspaceKind, cwd: connection.cwd })
         : { cancelled: false, snapshot: snapshot(), commands: [] },
     switchSession: async (path) => {
+      switchedPaths.push(path)
       connection = {
         ...connection,
         generation: connection.generation + 1,
@@ -125,7 +150,13 @@ function createService(id) {
     onError: () => () => {},
   }
   controls[id] = {
-    status: () => ({ count, mode, pendingCommands: Boolean(pendingCommands), connection: { ...connection } }),
+    status: () => ({
+      count,
+      mode,
+      pendingCommands: Boolean(pendingCommands),
+      connection: { ...connection },
+      switchedPaths: [...switchedPaths],
+    }),
     delayCommands: () => {
       delayCommands = true
     },

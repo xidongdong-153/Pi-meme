@@ -16,6 +16,7 @@ export type ServiceUI = {
   remoteSettings: ReactNode
   onController: (id: string, controller: ServiceController) => void
   onLocation: (serviceId: string, input: SelectWorkspace) => Promise<boolean>
+  onSearch: () => void
 }
 
 export function serviceAddress(address: string) {

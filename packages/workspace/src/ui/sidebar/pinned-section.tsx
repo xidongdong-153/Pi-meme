@@ -1,102 +1,88 @@
-import { SidebarMoreMenu, SidebarRowMenu } from './sidebar-menus'
-import { Folder, PinOff, SquarePen } from 'lucide-react'
-import type { PiProjectGroup, PiSessionSummary } from '@pi-meme/contracts/sessions'
+import type { SidebarEntry } from './sidebar-model'
+import { SidebarSection, SidebarSortable } from './sidebar-controls'
+import { ProjectItem, type ProjectItemProps } from './project-item'
 import { SessionItem } from './session-item'
 
 export function PinnedSection({
-  pinnedProjects,
-  pinnedSessions,
-  activeSessionId,
-  activeSessionPath,
+  entries,
+  collapsed,
+  onToggle,
+  projectProps,
   expandedProjects,
+  expandedProjectItemLimits,
   toggleProject,
-  onNewSessionInProject,
-  onTogglePin,
-  onSwitchSession,
-  onPrefetchSession,
+  toggleProjectItems,
+  sortable,
+  onReorder,
+  onReorderSessions,
 }: {
-  pinnedProjects: PiProjectGroup[]
-  pinnedSessions: PiSessionSummary[]
-  activeSessionId?: string
-  activeSessionPath?: string
+  entries: SidebarEntry[]
+  collapsed: boolean
+  onToggle: () => void
+  projectProps: Pick<
+    ProjectItemProps,
+    | 'cwd'
+    | 'pinnedSet'
+    | 'activeSessionId'
+    | 'activeSessionPath'
+    | 'onNewSessionInProject'
+    | 'onSwitchSession'
+    | 'onTogglePin'
+    | 'onPrefetchSession'
+  >
   expandedProjects: Set<string>
+  expandedProjectItemLimits: Set<string>
   toggleProject: (cwd: string) => void
-  onNewSessionInProject: (cwd: string) => void
-  onTogglePin: (path: string) => void
-  onSwitchSession: (path: string) => void
-  onPrefetchSession: (path: string) => void
+  toggleProjectItems: (cwd: string) => void
+  sortable: boolean
+  onReorder: (keys: string[]) => void
+  onReorderSessions: (listKey: string, keys: string[]) => void
 }) {
-  const hasPinned = pinnedProjects.length > 0 || pinnedSessions.length > 0
+  if (!entries.length) return null
+  const keys = entries.map((entry) => entry.key)
   return (
-    <>
-      {hasPinned && (
-        <div>
-          <div className="px-2 py-1 text-[0.6875rem] font-semibold text-muted-foreground/80 tracking-wider">置顶</div>
-          <div className="space-y-0.5">
-            {pinnedProjects.map((project) => {
-              return (
-                <SidebarRowMenu key={project.cwd} target={{ kind: 'project', project }}>
-                  <div
-                    className="group relative flex w-full min-w-0 items-center justify-between rounded-lg pr-2.5 text-xs text-foreground/90 transition-colors duration-200 ease-out hover:bg-secondary/60 cursor-pointer"
-                    title={project.cwd}
-                    data-project-cwd={project.cwd}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => toggleProject(project.cwd)}
-                      aria-expanded={expandedProjects.has(project.cwd)}
-                      className="flex items-center gap-2 min-w-0 flex-1 overflow-hidden pl-2.5 py-2 text-left rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    >
-                      <Folder className="size-3.5 text-muted-foreground shrink-0" />
-                      <span className="truncate font-medium">{project.name}</span>
-                    </button>
-                    <div className="flex items-center gap-1 shrink-0 ml-1">
-                      <button
-                        type="button"
-                        title="在项目中新建会话"
-                        aria-label={`在项目中新建会话：${project.name}`}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          onNewSessionInProject(project.cwd)
-                        }}
-                        className="p-1 hover:text-foreground text-muted-foreground cursor-pointer rounded transition-opacity opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      >
-                        <SquarePen className="size-3.5" />
-                      </button>
-
-                      <button
-                        type="button"
-                        title="取消置顶项目"
-                        aria-label={`取消置顶项目：${project.name}`}
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          onTogglePin(project.cwd)
-                        }}
-                        className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring text-muted-foreground hover:text-foreground transition-opacity p-1 cursor-pointer rounded"
-                      >
-                        <PinOff className="size-3" />
-                      </button>
-
-                      <SidebarMoreMenu target={{ kind: 'project', project }} />
-                    </div>
-                  </div>
-                </SidebarRowMenu>
-              )
-            })}
-            {pinnedSessions.map((session) => (
-              <SessionItem
-                key={session.path}
-                session={session}
-                variant="pinned"
-                isActive={activeSessionId === session.id || activeSessionPath === session.path}
-                onSwitchSession={onSwitchSession}
-                onTogglePin={onTogglePin}
-                onPrefetchSession={onPrefetchSession}
+    <SidebarSection id="pinned" title="置顶" collapsed={collapsed} onToggle={onToggle}>
+      <div className="space-y-0.5">
+        {entries.map((entry) => (
+          <SidebarSortable
+            key={entry.key}
+            itemKey={entry.key}
+            listKey="pinned"
+            keys={keys}
+            enabled={sortable}
+            onReorder={onReorder}
+          >
+            {entry.kind === 'project' ? (
+              <ProjectItem
+                {...projectProps}
+                project={entry.project}
+                isExpanded={expandedProjects.has(entry.project.cwd)}
+                isPinned
+                isItemsExpandedAll={expandedProjectItemLimits.has(entry.project.cwd)}
+                onToggle={() => toggleProject(entry.project.cwd)}
+                onToggleItems={() => toggleProjectItems(entry.project.cwd)}
+                sortable={{
+                  serviceId: entry.serviceId,
+                  enabled: sortable,
+                  onReorder: (keys) => onReorderSessions(`project:${entry.key}`, keys),
+                }}
               />
-            ))}
-          </div>
-        </div>
-      )}
-    </>
+            ) : (
+              <SessionItem
+                session={entry.session}
+                variant="pinned"
+                isActive={
+                  entry.session.path === projectProps.activeSessionPath ||
+                  entry.session.id === projectProps.activeSessionId
+                }
+                onSwitchSession={projectProps.onSwitchSession}
+                onTogglePin={projectProps.onTogglePin}
+                onPrefetchSession={projectProps.onPrefetchSession}
+              />
+            )}
+          </SidebarSortable>
+        ))}
+      </div>
+    </SidebarSection>
   )
 }
