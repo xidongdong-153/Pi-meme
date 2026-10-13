@@ -376,6 +376,76 @@ test('运行时配置切换期间并发get保留会话映射与Agent插件选择
   }
 })
 
+test('重启后直接通过UI恢复并发送，保留会话插件选择且不加载默认插件', { timeout: 40000 }, async (t) => {
+  for (const selected of [['session-agent'], []])
+    await t.test(selected.length ? '保留已选插件' : '保留空列表', async () => {
+      const f = await fixture('恢复会话回复')
+      try {
+        const markers = new Map<string, string>()
+        for (const id of ['session-agent', 'default-agent']) {
+          const source = path.join(f.root, id)
+          const marker = path.join(f.root, `${id}-imported`)
+          markers.set(id, marker)
+          await mkdir(path.join(source, 'dist'), { recursive: true })
+          await writeFile(
+            path.join(source, 'package.json'),
+            JSON.stringify({
+              name: id,
+              version: '1.0.0',
+              type: 'module',
+              piMeme: { sdkVersion: 2, agent: 'dist/agent.js' },
+            }),
+          )
+          await writeFile(
+            path.join(source, 'dist/agent.js'),
+            `import { writeFileSync } from 'node:fs'
+writeFileSync(${JSON.stringify(marker)}, 'imported')
+export function activate() {}`,
+          )
+          await f.host.plugins.loadDirectory(source)
+        }
+        const cwd = path.join(f.root, 'project')
+        await mkdir(cwd)
+        const project = await f.host.app.projects.register({ cwd }, key('project'))
+        const ref = await session(f.host.app, project, 'restored-plugins')
+        await f.host.app.sessions.configure(ref, { agentPlugins: selected }, key('select-agent'))
+        const receipt = await f.host.app.sessions.submit(ref, { delivery: 'start', text: '保存会话' }, key('save'))
+        assert.equal(
+          (await eventually(() => f.host.app.sessions.receipt(receipt.operationId), finished)).status,
+          'completed',
+        )
+        const saved = await f.host.app.sessions.get(ref)
+        assert.ok(saved.sessionFile)
+        await f.host.app.plugins.setDefaultAgentPlugins(['default-agent'], key('default-agent'))
+        await f.restart()
+        for (const marker of markers.values()) await rm(marker, { force: true })
+        const rpc = async <T>(method: string, args: unknown[] = [], sessionId?: string) => {
+          const response = await f.host.rpc({ requestId: crypto.randomUUID(), clientId: 'ui', method, args, sessionId })
+          assert.equal(response.error, undefined, response.error?.message)
+          return response.result as T
+        }
+        const restored = await rpc<SessionSelectionResult>('pi:switch-session', [saved.sessionFile])
+        assert.equal(restored.cancelled, false)
+        if (restored.cancelled) throw new Error('历史会话恢复已取消')
+        const runtimeKey = restored.snapshot.connection.sessionKey!
+        await rpc('pi:prompt', [runtimeKey, '直接发送恢复后的任务'], runtimeKey)
+        await eventually(
+          async () => f.fake.provider.requests.length,
+          (count) => count === 2,
+        )
+        await eventually(async () => f.host.pi.getRuntimeSessions().every((record) => !record.running), Boolean)
+        for (const [id, marker] of markers) {
+          if (selected.includes(id)) assert.equal(await readFile(marker, 'utf8'), 'imported')
+          else await assert.rejects(readFile(marker, 'utf8'), { code: 'ENOENT' })
+        }
+        assert.deepEqual((await f.host.app.sessions.get(ref)).configuration.agentPlugins, selected)
+        assert.equal((await f.host.control.sessionForRuntime(runtimeKey)).sessionId, ref.sessionId)
+      } finally {
+        await f.dispose()
+      }
+    })
+})
+
 test('并发枚举UI项目和历史会话只创建一份稳定身份', { timeout: 25000 }, async () => {
   const f = await fixture({ text: 'UI历史回复', delayMs: 40 })
   try {

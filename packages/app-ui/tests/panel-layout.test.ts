@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 import type { UiPanel } from '@pi-meme/plugin-sdk/ui'
+import type { AppSession, HostApi } from '@pi-meme/contracts/app-host'
 import {
   closePanel,
   defaultPanelLayout,
@@ -8,6 +9,7 @@ import {
   panelAvailable,
   panelStorageKey,
   readPanelLayout,
+  sessionUiTarget,
   toolsTabId,
 } from '../src/panel-layout'
 
@@ -112,4 +114,83 @@ test('左栏和聊天固定渲染，插件不能生成左侧或中央工作区�
   assert.doesNotMatch(markup, /role="tab"/)
   assert.doesNotMatch(markup, /插件正文/)
   assert.doesNotMatch(markup, /工作区面板|底部面板/)
+})
+
+test('Worktree 使用会话的来源项目身份，右栏保留文件目录和预览工具', async (t) => {
+  const { createElement } = await import('react')
+  const { renderToStaticMarkup } = await import('react-dom/server')
+  const { TooltipProvider } = await import('@pi-meme/ui/components/ui/tooltip')
+  const { WorkspacePanels } = await import('../src/workspace-panels')
+  const session: AppSession = {
+    hostId: 'host',
+    sessionId: 'worktree-session',
+    project: { hostId: 'host', projectId: 'source-project' },
+    cwd: '/data/worktrees/checkout',
+    createdAt: '2026-10-13T00:00:00.000Z',
+    configuration: {},
+    status: 'idle',
+  }
+  const target = sessionUiTarget(session.hostId, session)
+  const panels: UiPanel[] = ['文件目录', '文件预览'].map((title, index) => ({
+    id: `example:files-${index}`,
+    title,
+    icon: null,
+    location: 'right',
+    scope: 'project',
+    render: () => null,
+  }))
+  for (const panel of panels) assert.equal(panelAvailable(panel, target), true)
+  const originalWindow = Object.getOwnPropertyDescriptor(globalThis, 'window')
+  Object.defineProperty(globalThis, 'window', {
+    configurable: true,
+    value: { localStorage: { getItem: () => JSON.stringify({ ...defaultPanelLayout(), open: true }) } },
+  })
+  t.after(() => {
+    if (originalWindow) Object.defineProperty(globalThis, 'window', originalWindow)
+    else Reflect.deleteProperty(globalThis, 'window')
+  })
+  const markup = renderToStaticMarkup(
+    createElement(TooltipProvider, {
+      children: createElement(WorkspacePanels, {
+        panels,
+        props: { host: {} as HostApi, target, snapshot: null },
+        session: session.sessionId,
+        sidebar: '会话列表',
+        sidebarOpen: true,
+        sidebarWidth: 256,
+        children: 'Worktree 聊天',
+        onSidebar: () => {},
+        header: () => null,
+      }),
+    }),
+  )
+  assert.match(markup, /文件目录/)
+  assert.match(markup, /文件预览/)
+  assert.doesNotMatch(markup, /当前聊天暂无可用工具/)
+})
+
+test('切换到无项目或尚未解析的会话时，不保留上一个项目目标', () => {
+  const panel: UiPanel = {
+    id: 'example:files',
+    title: '文件目录',
+    icon: null,
+    location: 'right',
+    scope: 'project',
+    render: () => null,
+  }
+  const standalone: AppSession = {
+    hostId: 'remote-host',
+    sessionId: 'standalone',
+    cwd: '/data/standalone-workspaces/task',
+    createdAt: '2026-10-13T00:00:00.000Z',
+    configuration: {},
+    status: 'idle',
+  }
+  const target = sessionUiTarget(standalone.hostId, standalone)
+  assert.equal(panelAvailable(panel, target), false)
+  assert.equal(panelAvailable({ ...panel, scope: 'session' }, target), true)
+  assert.deepEqual(target.session, { hostId: 'remote-host', sessionId: 'standalone' })
+  const unresolved = sessionUiTarget('remote-host')
+  assert.equal(panelAvailable(panel, unresolved), false)
+  assert.equal(panelAvailable({ ...panel, scope: 'session' }, unresolved), false)
 })

@@ -93,6 +93,11 @@ test('Worktree 使用已选提交，不带未提交更改，保存真实 cwd 并
     assert.equal(result.selection.snapshot.connection.cwd, result.cwd)
     assert.equal(result.selection.snapshot.connection.sourceProjectCwd, repo)
     const next = result.selection.snapshot.connection.sessionKey!
+    const appSession = await host.control.sessionForRuntime(next)
+    assert.equal(appSession.cwd, result.cwd)
+    assert.ok(appSession.project)
+    assert.equal((await host.app.projects.get(appSession.project)).cwd, repo)
+    assert.equal((await host.app.files.read(appSession, 'file.txt')).content, 'initial\n')
     const sessionDirectory = createPiRuntimePaths(dataRoot).sessionDirectory(result.cwd)
     await mkdir(sessionDirectory, { recursive: true })
     const sessionFile = path.join(sessionDirectory, '2026-10-10T00-00-00-000Z_worktree-test.jsonl')

@@ -789,7 +789,12 @@ export async function createAppControl(options: Options) {
       return structuredClone(session)
     },
     selectedAgentPlugins(key: string) {
-      const session = store.state.sessions.find((item) => runtime.get(item.sessionId)?.sessionKey === key)
+      let session = store.state.sessions.find((item) => runtime.get(item.sessionId)?.sessionKey === key)
+      // 分叉会先创建 Worker，再登记会话；此时还没有可读取的绑定。
+      if (!session && pi.getRuntimeHistory(key)) {
+        const sessionFile = pi.readSessionBinding(key).sessionFile
+        if (sessionFile) session = store.state.sessions.find((item) => item.sessionFile === sessionFile)
+      }
       return session?.configuration.agentPlugins
     },
     publish: store.publish.bind(store),

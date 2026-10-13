@@ -1,4 +1,13 @@
 import type { UiPanel, UiTarget } from '@pi-meme/plugin-sdk/ui'
+import type { AppSession } from '@pi-meme/contracts/app-host'
+
+export function sessionUiTarget(hostId: string, session?: AppSession): UiTarget {
+  return {
+    hostId,
+    project: session?.project,
+    session: session ? { hostId: session.hostId, sessionId: session.sessionId } : undefined,
+  }
+}
 
 export const toolsTabId = 'builtin:tools'
 

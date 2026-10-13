@@ -44,9 +44,10 @@ import { PluginRenderers } from './plugin-renderers'
 import { UiPluginRegistry } from './plugin-registry'
 import { PluginSlot } from './plugin-slot'
 import { WorkspacePanels } from './workspace-panels'
+import { sessionUiTarget } from './panel-layout'
 import { AgentPluginSelector } from './agent-plugin-selector'
 import { GitBranch, Network, ListTree, NotebookPen } from 'lucide-react'
-import type { HostApi, AppProject, AppSession } from '@pi-meme/contracts/app-host'
+import type { HostApi, AppSession } from '@pi-meme/contracts/app-host'
 import { SettingsPage } from './settings-page'
 import { HostSettings } from './host-settings'
 import { loadPluginUI } from './load-plugin-ui'
@@ -153,21 +154,6 @@ export function App({
     [resources, chat.refreshSnapshot],
   )
   const [agentPlugins, setAgentPlugins] = useState<string[]>([])
-  const [projectRef, setProjectRef] = useState<AppProject>()
-  useEffect(() => {
-    let current = true
-    setProjectRef(undefined)
-    if (cwd)
-      void host.projects
-        .list()
-        .then((projects) => {
-          if (current) setProjectRef(projects.find((project) => project.cwd === cwd))
-        })
-        .catch((cause) => chat.setError(String(cause)))
-    return () => {
-      current = false
-    }
-  }, [host, cwd, chat.setError])
   const [resolvedSession, setResolvedSession] = useState<{ key: string; value: AppSession }>()
   const runtimeSessionKey = chat.connection.sessionKey
   useEffect(() => {
@@ -190,11 +176,7 @@ export function App({
   const pluginProps: UiContributionProps = useMemo(
     () => ({
       host,
-      target: {
-        hostId: hostId ?? '',
-        project: projectRef?.cwd === cwd ? projectRef : undefined,
-        session: appSession ? { hostId: appSession.hostId, sessionId: appSession.sessionId } : undefined,
-      },
+      target: sessionUiTarget(hostId ?? '', appSession),
       snapshot:
         chat.state && appSession
           ? {
@@ -210,8 +192,6 @@ export function App({
       hostId,
       appSession,
       agentPlugins,
-      cwd,
-      projectRef,
       chat.connection.sessionKey,
       chat.connection.status,
       chat.state,
