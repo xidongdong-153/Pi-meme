@@ -1,3 +1,4 @@
+import type { AppSession } from './app-host'
 import type { McpBridge } from './mcp'
 import type {
   AgentMailboxMessage,
@@ -149,6 +150,7 @@ export type WorkspaceDeletionResult = {
 
 /** 连接、快照与桌面事件订阅。renderer 只保留这一组底层订阅。 */
 export interface ConnectionBridge {
+  resolveAppSession: (sessionKey: string) => Promise<AppSession>
   getConnection: () => Promise<Connection>
   getSnapshot: () => Promise<Snapshot>
   onEvent: (callback: (event: DesktopEvent) => void) => () => void
@@ -287,7 +289,6 @@ export interface SettingsBridge {
   selectTheme: (id: string) => Promise<SettingsSnapshot>
   reloadThemes: () => Promise<SettingsSnapshot>
   openThemesDirectory: () => Promise<void>
-  openExtensionsDirectory: () => Promise<void>
 }
 
 export type DesktopBridge = ConnectionBridge &

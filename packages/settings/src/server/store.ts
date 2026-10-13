@@ -30,17 +30,17 @@ export class SettingsStore {
   private themes = [...builtinThemes]
   private errors: string[] = []
   readonly themesDirectory: string
-  readonly extensionsDirectory: string
+  private pluginThemes: Theme[] = []
   private readonly settingsFile: string
   constructor(directory: string) {
     this.themesDirectory = path.join(directory, 'themes')
-    this.extensionsDirectory = path.join(directory, 'extensions')
     this.settingsFile = path.join(directory, 'settings.json')
   }
 
+  private pendingPluginSelection?: Pick<DesktopSettings, 'themeId' | 'appearance'>
+
   async load() {
     await mkdir(this.themesDirectory, { recursive: true })
-    await mkdir(this.extensionsDirectory, { recursive: true })
     try {
       const value: unknown = JSON.parse(await readFile(this.settingsFile, 'utf8'))
       this.validateSettings(value)
@@ -57,6 +57,10 @@ export class SettingsStore {
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== 'ENOENT') this.errors.push(`无法读取桌面设置：${String(error)}`)
     }
+    this.pendingPluginSelection = structuredClone({
+      themeId: this.settings.themeId,
+      appearance: this.settings.appearance,
+    })
     await this.reloadThemes(false)
     this.settings.appearance = migrateAppearance(this.settings, this.themes)
     return this.snapshot()
@@ -73,6 +77,12 @@ export class SettingsStore {
         !['finder', 'vscode', 'cursor', 'zed'].includes(settings.preferredProjectApp))
     )
       throw new Error('主题 ID 无效')
+    if (
+      settings.defaultAgentPlugins !== undefined &&
+      (!Array.isArray(settings.defaultAgentPlugins) ||
+        settings.defaultAgentPlugins.some((id) => typeof id !== 'string' || !id.trim()))
+    )
+      throw new Error('默认 Agent 插件列表无效')
     for (const key of ['codemodeEnabled', 'mcpEnabled', 'subagentsEnabled'] as const) {
       if (settings[key] !== undefined && typeof settings[key] !== 'boolean') throw new Error('工具执行开关必须是布尔值')
     }
@@ -137,6 +147,7 @@ export class SettingsStore {
     } catch (cause) {
       throw new Error(`无法导入主题：${String(cause)}`)
     }
+    if (theme.background) throw new Error('背景图片必须随 App 插件分发，请安装 .pim 主题插件')
     if (this.themes.some((entry) => entry.id === theme.id)) throw new Error('主题 ID 已存在，请修改 JSON 中的 id')
     await writeFile(path.join(this.themesDirectory, `${theme.id}.json`), `${JSON.stringify(theme, null, 2)}\n`, {
       flag: 'wx',
@@ -161,6 +172,7 @@ export class SettingsStore {
       }
     }
     const next: DesktopSettings = {
+      defaultAgentPlugins: [...new Set(value.defaultAgentPlugins ?? this.settings.defaultAgentPlugins ?? [])],
       sidebar: sidebarOnly ? value.sidebar : (this.settings.sidebar ?? defaultSidebarPreferences()),
       appearance,
       themeId: !appearanceOnly && value.appearance ? this.settings.themeId : value.themeId,
@@ -207,11 +219,12 @@ export class SettingsStore {
     if (clearErrors) this.errors = []
     const previousThemes = this.themes
     const previous = this.themes.find((theme) => theme.id === this.settings.themeId)
-    const themes: Theme[] = [...builtinThemes]
+    const themes: Theme[] = [...builtinThemes, ...this.pluginThemes]
     for (const filename of (await readdir(this.themesDirectory)).sort()) {
       if (!filename.endsWith('.json')) continue
       try {
         const theme = parseTheme(JSON.parse(await readFile(path.join(this.themesDirectory, filename), 'utf8')))
+        if (theme.background) throw new Error('背景图片必须随 App 插件分发')
         if (themes.some((entry) => entry.id === theme.id)) throw new Error(`主题 id 重复：${theme.id}`)
         themes.push(theme)
       } catch (error) {
@@ -219,7 +232,7 @@ export class SettingsStore {
       }
     }
     if (!themes.some((theme) => theme.id === this.settings.themeId)) {
-      if (previous) {
+      if (previous && !previous.plugin) {
         themes.push(previous)
       } else {
         this.errors.push(`主题 ${this.settings.themeId} 不存在，已使用深色主题`)
@@ -231,7 +244,7 @@ export class SettingsStore {
         const id = this.settings.appearance[`${mode}ThemeId`]
         if (!themes.some((entry) => entry.id === id)) {
           const cached = previousThemes.find((entry) => entry.id === id)
-          if (cached) themes.push(cached)
+          if (cached && !cached.plugin) themes.push(cached)
           else this.settings.appearance[`${mode}ThemeId`] = mode
         }
       }
@@ -240,12 +253,30 @@ export class SettingsStore {
     return this.snapshot()
   }
 
+  setPluginThemes(themes: Theme[]) {
+    return this.enqueue(async () => {
+      this.pluginThemes = structuredClone(themes)
+      const pending = this.pendingPluginSelection
+      this.pendingPluginSelection = undefined
+      if (pending) {
+        if (themes.some((theme) => theme.id === pending.themeId)) this.settings.themeId = pending.themeId
+        for (const mode of ['light', 'dark'] as const) {
+          const id = pending.appearance?.[`${mode}ThemeId`]
+          if (id && this.settings.appearance && themes.some((theme) => theme.id === id))
+            this.settings.appearance[`${mode}ThemeId`] = id
+        }
+      }
+      const snapshot = await this.reloadThemes()
+      await this.saveNow(snapshot.settings)
+      return this.snapshot()
+    })
+  }
+
   snapshot(): SettingsSnapshot {
     return {
       settings: structuredClone(this.settings),
       themes: [...this.themes],
       themesDirectory: this.themesDirectory,
-      extensionsDirectory: this.extensionsDirectory,
       errors: [...this.errors],
     }
   }

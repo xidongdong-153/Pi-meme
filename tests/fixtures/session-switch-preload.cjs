@@ -79,9 +79,19 @@ function snapshot() {
 
 contextBridge.exposeInMainWorld('piMemeTestBridge', {
   getConnection: async () => connection,
+  resolveAppSession: async (key) => ({
+    hostId: 'local',
+    sessionId: key,
+    project: { hostId: 'local', projectId: connection.cwd },
+    cwd: connection.cwd,
+    createdAt: '',
+    configuration: { agentPlugins: [] },
+    status: running.has(key) ? 'running' : 'idle',
+  }),
   getSnapshot: async () => snapshot(),
   getCommands: async () => [],
   getGitEnvironment: async () => ({ cwd: connection.cwd, root: '', dirty: false, branches: [] }),
+  getGitSnapshot: async () => ({ cwd: connection.cwd, files: [], insertions: 0, deletions: 0 }),
   getSessions: async () => ({
     recents: entries.map((name) => ({
       id: name,

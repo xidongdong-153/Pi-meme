@@ -4,7 +4,7 @@ import { create as createSandboxMacos } from '@pi-meme/sandbox-macos/agent/entry
 import { create as createSandboxLinux } from '@pi-meme/sandbox-linux/agent/entry'
 import { sandboxPluginId } from './sandbox-platform'
 import { create as createResources } from '@pi-meme/resources/agent/entry'
-import { create as createInteraction } from '@pi-meme/pi-extensions/agent/entry'
+import { create as createInteraction } from '@pi-meme/interaction/agent/entry'
 import { create as createCodemode } from '@pi-meme/codemode/agent/entry'
 import { create as createMcp } from '@pi-meme/mcp/agent/entry'
 import { create as createSubagents } from '@pi-meme/subagents/agent/entry'
@@ -13,7 +13,7 @@ runSessionWorker({
   '@pi-meme/permissions': createPermissions,
   [sandboxPluginId()]: sandboxPluginId() === '@pi-meme/sandbox-linux' ? createSandboxLinux : createSandboxMacos,
   '@pi-meme/resources': createResources,
-  '@pi-meme/pi-extensions': createInteraction,
+  '@pi-meme/interaction': createInteraction,
   '@pi-meme/codemode': createCodemode,
   '@pi-meme/mcp': createMcp,
   '@pi-meme/subagents': createSubagents,

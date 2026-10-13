@@ -134,6 +134,7 @@ export function ServicesApp({ registry, nativeWindow }: { registry: ServiceRegis
           <App
             key={service.id}
             bridge={client.bridge}
+            host={client.host}
             plugins={client.plugins}
             call={(method, args) => client.rpc(method, args)}
             hostId={service.hostId}

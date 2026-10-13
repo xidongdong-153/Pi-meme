@@ -7,6 +7,20 @@ export function applyTheme(theme: Theme) {
   for (const [key, value] of Object.entries(theme.colors)) root.style.setProperty(`--color-${key}`, value)
   root.style.setProperty('--font-ui', theme.fonts.ui)
   root.style.setProperty('--font-code', theme.fonts.code)
+  root.style.setProperty('--theme-space-scale', String(theme.tokens?.spacing ?? 1))
+  root.style.setProperty('--radius', `${theme.tokens?.radius ?? 8}px`)
+  root.style.setProperty('--theme-surface-opacity', `${(theme.tokens?.surfaceOpacity ?? 1) * 100}%`)
+  const background = theme.background
+  root.dataset.themeBackground = background?.url ? background.area : ''
+  root.style.setProperty(
+    '--theme-background-image',
+    background?.url ? `url(${JSON.stringify(background.url)})` : 'none',
+  )
+  root.style.setProperty('--theme-background-fit', background?.fit ?? 'cover')
+  root.style.setProperty('--theme-background-position', background?.position ?? 'center')
+  root.style.setProperty('--theme-background-opacity', String(background?.opacity ?? 0))
+  root.style.setProperty('--theme-background-overlay', background?.overlay ?? theme.colors.background)
+  root.style.setProperty('--theme-background-blur', `${background?.blur ?? 0}px`)
 }
 
 export function applyAppearance(

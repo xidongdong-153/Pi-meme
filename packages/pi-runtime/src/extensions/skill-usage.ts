@@ -59,7 +59,6 @@ export function createSkillUsageExtension(snapshot: ResourceSnapshot): InlineExt
             id: snapshot.id,
             generation: snapshot.generation,
             skills: skills.map(({ id, revision }) => ({ id, revision })),
-            extensions: snapshot.extensions.map(({ id, revision }) => ({ id, revision })),
           })
       })
       pi.on('message_end', (event, ctx) => {

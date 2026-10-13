@@ -1,19 +1,17 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { copyFile, mkdir, mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
 import { PiSessionPool } from '@pi-meme/pi-runtime/session-pool'
 import { SdkSession } from '@pi-meme/pi-runtime/sdk/session'
 import { fromSnapshot, applyEvent } from '@pi-meme/chat/ui/model/state'
 import type { DesktopEvent } from '@pi-meme/contracts/desktop'
-import type { ResourceSnapshot } from '@pi-meme/contracts/resources'
 import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
 import { requestText } from '../../../tests/fixtures/fake-provider.mjs'
 
-const extension = fileURLToPath(new URL('../../../tests/fixtures/smoke-extension.mjs', import.meta.url))
+const extensionUrl = new URL('../../../tests/fixtures/smoke-extension.mjs', import.meta.url).href
 
 async function waitFor(check: () => boolean) {
   const deadline = Date.now() + 5000
@@ -40,34 +38,6 @@ test('切回后台流式会话时，快照恢复已生成的正文和未结束�
         ? { text: '后台流式正文', tool: { name: 'slow-tool', arguments: JSON.stringify({ seconds: 5 }) } }
         : '收到',
   })
-  const extensionsDirectory = path.join(directory, '.agents', 'extensions')
-  await mkdir(extensionsDirectory, { recursive: true })
-  const extensionPath = path.join(extensionsDirectory, `${path.parse(extension).name}.js`)
-  await copyFile(extension, extensionPath)
-  const resources: ResourceSnapshot = {
-    id: 'background-resources',
-    generation: 1,
-    cwd: directory,
-    skills: [],
-    extensions: [
-      {
-        id: 'smoke-extension',
-        kind: 'extension',
-        name: 'smoke-extension',
-        revision: 'smoke-1',
-        path: extensionPath,
-        sourcePath: extensionPath,
-        baseDir: extensionsDirectory,
-        scope: 'project',
-        owner: { id: 'smoke-extension', type: 'loose' },
-        enabled: true,
-        defaultPolicy: { enabled: true, invocation: 'automatic' },
-        invocation: 'automatic',
-        diagnostics: [],
-        editable: false,
-      },
-    ],
-  }
   const events: DesktopEvent[] = []
   const pool = new PiSessionPool(
     directory,
@@ -80,8 +50,25 @@ test('切回后台流式会话时，快照恢复已生成的正文和未结束�
     undefined,
     agent.runtimePaths,
     agent.credentials,
-    (cwd, notify, paths, credentials, mcp) =>
-      new SdkSession(cwd, notify, paths, credentials, mcp, { resourceSnapshot: resources }),
+    (cwd, notify, paths, credentials, mcp) => {
+      const session = new SdkSession(cwd, notify, paths, credentials, mcp)
+      const configure = session.configureInlineExtensions.bind(session)
+      session.configureInlineExtensions = (extensions) =>
+        configure([
+          ...extensions,
+          {
+            name: 'test-native:smoke',
+            factory: async (pi) => {
+              const module = (await import(extensionUrl)) as {
+                default: import('@earendil-works/pi-coding-agent').ExtensionFactory
+              }
+              await module.default(pi)
+            },
+          },
+        ])
+      session.configureInlineExtensions([])
+      return session
+    },
   )
   try {
     pool.prepare(directory)

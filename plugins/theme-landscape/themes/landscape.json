@@ -1,0 +1,28 @@
+{
+  "id": "landscape",
+  "name": "山色",
+  "appearance": "dark",
+  "colors": {
+    "background": "#16202b",
+    "surface": "#1b2a36",
+    "accent": "#8ebcbb"
+  },
+  "fonts": {
+    "ui": "-apple-system, sans-serif",
+    "code": "ui-monospace, monospace"
+  },
+  "tokens": {
+    "spacing": 1,
+    "radius": 10,
+    "surfaceOpacity": 0.82
+  },
+  "background": {
+    "image": "assets/landscape.png",
+    "area": "workspace",
+    "fit": "cover",
+    "position": "center",
+    "opacity": 0.35,
+    "overlay": "#16202b",
+    "blur": 0
+  }
+}

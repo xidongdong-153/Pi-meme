@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { SettingsStore } from '../src/server/store'
 import { builtinThemes, parseTheme } from '../src/shared/themes'
 
-test('读取并忽略旧的外部扩展路径设置，Desktop 扩展目录固定在应用数据目录', async () => {
+test('设置忽略旧扩展路径，不再暴露或创建扩展目录', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pi-extension-settings-'))
   try {
     const file = path.join(directory, 'settings.json')
@@ -19,8 +19,7 @@ test('读取并忽略旧的外部扩展路径设置，Desktop 扩展目录固定
     const store = new SettingsStore(directory)
     const loaded = await store.load()
     assert.equal('userExtensionPaths' in loaded.settings, false)
-    assert.equal(loaded.extensionsDirectory, path.join(directory, 'extensions'))
-    await mkdir(loaded.extensionsDirectory, { recursive: true })
+    assert.equal('extensionsDirectory' in loaded, false)
     assert.equal(await readFile(file, 'utf8'), original)
     await store.save({ themeId: 'light' })
     await store.togglePin('/tmp/project')
@@ -42,7 +41,7 @@ test('扩展目录不接受 Desktop 设置中的外部路径', async () => {
     await store.load()
     await store.save({ ...store.settings, userExtensionPaths: [path.join(directory, 'outside.mjs')] } as never)
     assert.equal('userExtensionPaths' in store.settings, false)
-    assert.equal((await store.snapshot()).extensionsDirectory, path.join(directory, 'extensions'))
+    assert.equal('extensionsDirectory' in store.snapshot(), false)
   } finally {
     await rm(directory, { recursive: true, force: true })
   }

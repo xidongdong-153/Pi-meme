@@ -2,7 +2,7 @@
 
 Pi Coding Agent 的 Desktop 和 Web 客户端。Electron 负责窗口与本机平台操作；独立 Node Host 运行会话 Worker、内置业务模块和用户插件。两种界面共用 React App、HTTP/WebSocket 协议与 Pi 1.1 原生会话，不需要安装 Pi CLI。
 
-支持图片输入、运行中插话和排队、命令与文件补全、Markdown、思考折叠、工具卡片、消息编辑与分支、模型配置、主题、MCP 和 SubAgent。内置业务实现在 `packages/*`，随应用构建。用户插件可通过构建目录或 `.pim` 安装，并单独管理生命周期。
+支持图片输入、运行中插话和排队、命令与文件补全、Markdown、思考折叠、工具卡片、消息编辑与分支、模型配置、主题、MCP 和 SubAgent。内置业务实现在 `packages/*`，随应用构建。用户插件使用 App SDK 2，可通过构建目录或 `.pim` 安装，并单独管理生命周期。产品资源分为 AI 模型配置、技能、App 插件和 MCP；用户不安装裸 Pi 扩展或原生 Pi 包。
 
 ## 运行 Desktop
 
@@ -57,19 +57,21 @@ Linux/WSL2 的安装、路径和验收范围见 [Linux 与 WSL 文档](docs/linu
 
 聊天、工作区、历史、模型、设置、资源、交互、SubAgent、MCP、codemode、权限、当前平台沙箱、用量和 Git 由 Host 静态装配，随 App 发布，不出现在用户插件清单。第三方 `.pim` 才进入插件安装、启停与卸载流程，接口见 [插件文档](docs/plugins.md)。
 
-设置一级入口为模型、外观、偏好和扩展。扩展页统一管理技能、Pi 原生扩展和 App 插件，MCP 保留独立连接页；关于、用量、Host 连接和开发者操作位于“更多”。本地导入、编辑、使用策略和 Host 路径见[技能与扩展管理](docs/skills-and-extensions.md)。插件重新加载和高级指令保留在开发者页面。
+设置侧栏按个人、集成和系统分组。集成区只有“技能、插件、MCP”三个独立入口，技能页与插件页各自管理所属内容；AI 模型配置在个人区的“模型”页。导入、编辑、使用策略和 Host 路径见[技能与 App 资源管理](docs/skills-and-extensions.md)。插件重新加载和高级指令保留在开发者页面。
+
+App 插件可提供 Server、Agent、UI 入口和包内资源。安装不等于将 Agent 工具加入每个会话：新会话默认不选外部 Agent，可在插件页设置新会话默认列表，也可在当前会话选择；运行中拒绝修改选择。左侧固定为置顶、项目、最近，中间固定聊天；文件、终端、Git 与插件面板全部在右侧栏，通过“＋”选择工具并打开可关闭标签页。右侧标签按聊天保存，细部贡献有七类，见[插件文档](docs/plugins.md)。
 
 Pi 的 JSONL、恢复、分支和压缩继续由公开 SDK 处理。历史模块只查询与展示。外部插件按代次切换，父子 Worker 分别持有租约，外部服务组切换等待相关任务、工具、交互和租约释放，不取消正在执行的任务。主任务停止与 Host 退出才取消后代及未启动任务。
 
-MCP 按服务启停与授权，配置在 Host 的 `pi/mcp.json`；项目 `.pi/mcp.json` 只读，工作区覆盖在 `workspaces/`。升级前 `mcpEnabled: false` 的配置保留不连接外部服务的选择，需要逐个“启用并授权”；升级不会自动连接旧服务。MCP 和第三方 Pi 扩展仍只在完全权限会话加载，codemode 是内置执行工具，不需要普通设置开关。
+MCP 按服务启停与授权，配置在 Host 的 `pi/mcp.json`；项目 `.pi/mcp.json` 只读，工作区覆盖在 `workspaces/`。升级前 `mcpEnabled: false` 的配置保留不连接外部服务的选择，需要逐个“启用并授权”；升级不会自动连接旧服务。MCP 和已选择的外部 AppAgent 只在完全权限的普通任务加载；未选择、受限权限和规划模式均不加载外部 AppAgent，codemode 是内置执行工具，不需要普通设置开关。
 
 SubAgent 默认可用，不要求先启用角色文件。模型可调用 `spawn_agent`、`send_message`、`followup_task`、`interrupt_agent`、`list_agents` 和 `wait_agent`；子任务共享工作目录，继承父模型、思考等级、权限和模式。`wait_agent` 工具结果写入 Pi JSONL 后按消息身份确认已读；普通来源消息也在安全边界落盘后确认，入队不代表已读。最多 4 个活动子 Agent、嵌套两层、16 个身份。主会话只显示“名称 已完成”等简短阶段，不展开子报告和内部控制消息。右侧栏“子代理”按运行与结束分组，只显示名称、状态、时长，后代按层级缩进；详情只展示子任务自己的消息、工具与后续轮次。默认 `fork_turns=all` 仍把安全父历史提供给模型作为背景，委派消息指定当前任务；`none` 使用新上下文。自动续跑不新增用户消息或改写输入草稿；继续任务保留身份与 JSONL，不把子会话放进普通最近列表。
 
 输入 `/plan`、`/计划` 或 `/计划模式` 切换规划模式；只有命令时不会调用模型。计划模式只读，禁止 bash、edit、write、codemode、MCP 和外部工具，也检查嵌套工具执行。根 Agent 等子任务结束并读取结果后调用 `save_plan`，保存到 `plans/<sessionId>/<id>.md`，右侧栏“计划”标签显示完整文档，可切换已保存计划、复制和导出 Markdown。保存后不自动执行；鼠标移入输入工具栏的“计划”标记后点击关闭，才返回默认模式。
 
-三档 Agent 权限是仅可查看、工作区内修改、完全权限。只读与工作区写入使用所属 Host 的平台沙箱；内置权限或沙箱失效时拒绝启动，不自动授予完全权限。Pi 的原生 hook 使用 `pi.on`；选择、确认、输入、编辑和文本挂件映射到图形界面，TUI `custom()` 组件需要单独编写 App UI。
+三档 Agent 权限是仅可查看、工作区内修改、完全权限。只读与工作区写入使用所属 Host 的平台沙箱；内置权限或沙箱失效时拒绝启动，不自动授予完全权限。内置 Pi hook 使用 `pi.on`；外部 Agent 使用 App SDK 的工具、命令、生命周期和交互接口，不直接操作 Pi。图形界面使用 App UI 面板与贡献接口。
 
-主题位于 Host 的 `themes/`，保持 JSON。颜色与字体只按已声明字段解析，不执行 JavaScript 或任意 CSS。配置在 `settings.json`；会话按工作区路径分组写入 `sessions/`；插件代码在 `plugins/`，插件数据在 `plugin-data/`。
+用户主题位于 Host 的 `themes/`，保持 JSON。App 插件可声明 `resources.themes` 和 `resources.assets`，分发主题 JSON 与包内背景图；停用或卸载后撤销该插件主题。颜色、字体和背景参数只按已声明字段解析，不执行 JavaScript 或任意 CSS。配置在 `settings.json`；会话按工作区路径分组写入 `sessions/`；插件代码在 `plugins/`，插件数据在 `plugin-data/`。
 
 ## 修改功能
 
@@ -79,7 +81,7 @@ apps/server/             # 独立 Node Host 入口
 apps/web/                # 浏览器入口与构建
 packages/contracts/      # 功能、Host、事件与平台契约
 packages/ui/             # 通用 UI 原语和 tokens
-packages/app-ui/         # 共用 App、插件中心和 UI 槽
+packages/app-ui/         # 共用 App、技能/插件页和 UI 面板
 packages/client/         # HTTP/WebSocket 客户端
 packages/host/           # 认证、路由、会话身份与插件装配
 packages/pi-adapter/     # Worker、原生 SDK 与凭据接线
@@ -91,6 +93,8 @@ packages/chat/           # 聊天；其他内置业务包同级放置
 ```
 
 聊天组件在 `packages/chat/src/ui/`：输入区 `composer/`，对话与工具卡片 `conversation/`，Markdown `content/`，流式消息和状态 `model/`。历史树在 `packages/history/src/ui/`。业务包不互导私有实现，app-ui 与 Host 使用契约、Props 和服务组合。
+
+正式 `HostApi` 位于 `packages/contracts/src/app-host.ts`，通过稳定的 `ProjectRef` 和 `SessionRef` 操作指定目标，不改变界面选择。Node 客户端位于 `packages/client/src/node-host-client.ts`；幂等提交回执、事件补读、重启中断和认证规则见 [Remote 文档](docs/remote.md)。后续 Bot 使用独立客户端，本轮未实现 Bot。
 
 完整边界、会话恢复、插件代次和配置路径见 [基础架构](docs/architecture.md)。
 

@@ -47,7 +47,7 @@ import { createDesktopModelRuntime } from './model-runtime'
 import { createDesktopSettingsManager } from './settings'
 import { readDesktopAgentContextFiles } from './context-files'
 import { ExtensionUiBridge } from './ui-bridge'
-import { approvedSnapshotExtensions, freezeResourceLoader, snapshotSkills } from './resource-loader'
+import { freezeResourceLoader, snapshotSkills } from './resource-loader'
 import { eventUiSource, persistMessageSource, projectMessageSources } from './ui-source'
 
 type Notify = {
@@ -84,8 +84,7 @@ export type RuntimePolicy = {
   initialGeneration?: number
   onAdmission?: (message: string, mode: TaskMode, continuation: boolean, signal: AbortSignal) => Promise<void>
   uiEnabled?: boolean
-  agentPaths?: string[]
-  resourcePaths?: { skills: string[]; prompts: string[]; extensions: string[] }
+  resourcePaths?: { skills: string[]; prompts: string[] }
   resourceSnapshot?: ResourceSnapshot
   agentSources?: Array<{ pluginId: string; generation: number; path: string }>
   requireRestrictedPolicy?: boolean
@@ -374,7 +373,9 @@ export class SdkSession {
           ? [this.desktopMcpExtension(sdk, cwd), sdk.createToolSearchExtension()]
           : []),
         ...this.inlineExtensions.filter(
-          (extension) => !plan || extension.name === 'pi-meme-collaboration' || extension.name === 'pi-meme-user-input',
+          (extension) =>
+            (!restricted || !extension.name.startsWith('app-agent:')) &&
+            (!plan || extension.name === 'pi-meme-collaboration' || extension.name === 'pi-meme-user-input'),
         ),
         ...(this.policy.resourceSnapshot ? [createSkillUsageExtension(this.policy.resourceSnapshot)] : []),
         createPlanGuard(() => this.activeMode ?? this.preparationMode ?? this.mode),
@@ -399,14 +400,7 @@ export class SdkSession {
           noExtensions: true,
           noPromptTemplates: this.policy.requireRestrictedPolicy,
           additionalPromptTemplatePaths: this.policy.resourcePaths?.prompts ?? [],
-          additionalExtensionPaths: plan
-            ? []
-            : [
-                ...(this.policy.agentPaths ?? []),
-                ...(!restricted
-                  ? approvedSnapshotExtensions(this.policy.resourceSnapshot).map((item) => item.path)
-                  : []),
-              ],
+          additionalExtensionPaths: [],
           noSkills: true,
           noContextFiles: true,
           additionalSkillPaths: [],
@@ -533,7 +527,7 @@ export class SdkSession {
         }
         this.emitQueue()
       } else if (desktopEvent) {
-        const source = eventUiSource(desktopEvent, session, this.policy.resourceSnapshot, this.policy.agentSources)
+        const source = eventUiSource(desktopEvent, session, this.policy.agentSources)
         if (source) {
           queueMicrotask(() => {
             if (this.runtime === runtime && generation === this.generation)
@@ -542,7 +536,17 @@ export class SdkSession {
           this.handleEvent({
             ...desktopEvent,
             source,
-            ...('message' in desktopEvent ? { message: { ...desktopEvent.message, source } } : {}),
+            ...('message' in desktopEvent
+              ? {
+                  message: {
+                    ...desktopEvent.message,
+                    source,
+                    ...(desktopEvent.message.role === 'custom' && source.customType
+                      ? { customType: source.customType }
+                      : {}),
+                  },
+                }
+              : {}),
           } as PiEvent)
         } else this.handleEvent(desktopEvent)
       }

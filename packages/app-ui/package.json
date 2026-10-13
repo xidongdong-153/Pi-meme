@@ -27,7 +27,7 @@
     "@pi-meme/models": "workspace:*",
     "@pi-meme/settings": "workspace:*",
     "@pi-meme/mcp": "workspace:*",
-    "@pi-meme/pi-extensions": "workspace:*",
+    "@pi-meme/interaction": "workspace:*",
     "lucide-react": "^1.48.0",
     "tailwindcss": "^4.3.3",
     "katex": "^0.16.47",

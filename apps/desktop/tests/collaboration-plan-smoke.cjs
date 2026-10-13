@@ -1,3 +1,4 @@
+const { openTool } = require('./tool-tabs-smoke.cjs')
 const assert = require('node:assert/strict')
 const fs = require('node:fs/promises')
 const path = require('node:path')
@@ -60,7 +61,7 @@ module.exports = async (window, waitFor, directory, screenshots) => {
     if (name === 'plan-preview' || name === 'plan-copied' || name === 'plan-exported')
       assert.equal(
         await evaluate(`(() => {
-          const flow = document.querySelector('aside[aria-label="右侧栏"] [aria-label="计划文档"]');
+          const flow = document.querySelector('#workspace-right-sidebar [aria-label="计划文档"]');
           const bounds = flow.getBoundingClientRect();
           const card = flow.querySelector('section[aria-label="已保存计划：桌面验收计划"]');
           const rect = card?.getBoundingClientRect();
@@ -74,16 +75,7 @@ module.exports = async (window, waitFor, directory, screenshots) => {
   const root = await evaluate('window.piMemeClient.getConnection().then(value => value.sessionKey)')
   await draft('collaboration-smoke')
   await evaluate('document.querySelector("button[aria-label=发送消息]").click()')
-  await evaluate('document.querySelector("button[aria-label=展开右侧栏]").click()')
-  await waitFor(() => evaluate('Boolean(document.querySelector("aside[aria-label=右侧栏]"))'), '协作右侧栏')
-  await waitFor(
-    () =>
-      evaluate(
-        `[...document.querySelectorAll('aside[aria-label="右侧栏"] [role="tab"]')].some(node => node.textContent.trim() === '子代理')`,
-      ),
-    '创建子代理后显示标签',
-  )
-  await clickText('子代理', 'aside[aria-label=右侧栏]')
+  await openTool(window, waitFor, '子代理')
   await waitFor(
     () => evaluate('Boolean(document.querySelector("section[aria-label=运行中子代理] button"))'),
     '运行中子代理列表',
@@ -152,7 +144,7 @@ module.exports = async (window, waitFor, directory, screenshots) => {
   }
   await capture('agents-completed')
   await evaluate('document.querySelector("section[aria-label=已结束子代理] button").click()')
-  const panel = 'aside[aria-label=右侧栏]'
+  const panel = '#workspace-right-sidebar'
   await waitFor(
     () => evaluate(`document.querySelector(${JSON.stringify(panel)})?.textContent.includes('子代理第二轮完整回复')`),
     '子代理完整对话',
@@ -186,7 +178,7 @@ module.exports = async (window, waitFor, directory, screenshots) => {
   )
   await capture('agent-conversation')
   await clickText('返回列表', panel)
-  await evaluate('document.querySelector("button[aria-label=关闭右侧栏]").click()')
+  await evaluate('document.querySelector("button[aria-label=收起右侧栏]").click()')
 
   const beforeSummary = await evaluate('window.piMemeClient.getSnapshot()')
   const parentFile = beforeSummary.connection.sessionFile
@@ -236,8 +228,7 @@ module.exports = async (window, waitFor, directory, screenshots) => {
     '自动汇总完成阶段',
   )
   await capture('agent-summary-stages')
-  await evaluate('document.querySelector("button[aria-label=展开右侧栏]").click()')
-  await clickText('子代理', 'aside[aria-label=右侧栏]')
+  await openTool(window, waitFor, '子代理')
   await waitFor(
     () =>
       evaluate(
@@ -263,7 +254,7 @@ module.exports = async (window, waitFor, directory, screenshots) => {
     '(() => { const node = [...document.querySelectorAll("section[aria-label=已结束子代理] button")].find(button => button.textContent.includes("Summarizer")); node.click() })()',
   )
   await waitFor(
-    () => evaluate('document.querySelector("aside[aria-label=右侧栏]")?.textContent.includes("AUTO-CHILD-RAW-REPORT")'),
+    () => evaluate('document.querySelector("#workspace-right-sidebar")?.textContent.includes("AUTO-CHILD-RAW-REPORT")'),
     '子代理详情仍显示完整报告',
   )
   assert.equal(
@@ -273,7 +264,7 @@ module.exports = async (window, waitFor, directory, screenshots) => {
   )
   await capture('agent-summary-conversation')
   await clickText('返回列表', panel)
-  await clickText('会话树', panel)
+  await openTool(window, waitFor, '会话树')
   await waitFor(() => evaluate('Boolean(document.querySelector("[aria-label=会话节点列表]"))'), '汇总后的会话树')
   await clickText('全部', panel)
   const treeText = await evaluate('document.querySelector("[aria-label=会话节点列表]").textContent')
@@ -293,7 +284,7 @@ module.exports = async (window, waitFor, directory, screenshots) => {
     '仅用户视图无假的自动消息',
   )
   await capture('agent-summary-user-tree')
-  await evaluate('document.querySelector("button[aria-label=关闭右侧栏]").click()')
+  await evaluate('document.querySelector("button[aria-label=收起右侧栏]").click()')
 
   await require('./plan-composer-smoke.cjs')(window, waitFor, directory, screenshots, {
     capture,

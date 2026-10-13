@@ -1,3 +1,4 @@
+const { openTool } = require('./tool-tabs-smoke.cjs')
 const assert = require('node:assert/strict')
 const fs = require('node:fs/promises')
 const path = require('node:path')
@@ -53,7 +54,7 @@ module.exports = async (window, waitFor, directory, screenshots, options = {}) =
       if (name === 'plan-preview' || name === 'plan-copied' || name === 'plan-exported')
         assert.equal(
           await evaluate(`(() => {
-          const flow = document.querySelector('aside[aria-label="右侧栏"] [aria-label="计划文档"]');
+          const flow = document.querySelector('#workspace-right-sidebar [aria-label="计划文档"]');
           const bounds = flow.getBoundingClientRect();
           const card = flow.querySelector('section[aria-label="已保存计划：桌面验收计划"]');
           const rect = card?.getBoundingClientRect();
@@ -259,13 +260,13 @@ module.exports = async (window, waitFor, directory, screenshots, options = {}) =
   )
   const documentSession = await evaluate('window.piMemeClient.getConnection().then(value => value.sessionKey)')
   await evaluate('document.querySelector("button[aria-label=发送消息]").click()')
-  const card = 'aside[aria-label="右侧栏"] section[aria-label="已保存计划：桌面验收计划"]'
+  const card = '#workspace-right-sidebar section[aria-label="已保存计划：桌面验收计划"]'
   await waitFor(() => evaluate(`Boolean(document.querySelector(${JSON.stringify(card)}))`), '计划文档卡片')
   await waitFor(() => evaluate('window.piMemeClient.getSnapshot().then(value => !value.state.isStreaming)'), '计划完成')
   await waitFor(
     () =>
       evaluate(
-        'document.querySelector("aside[aria-label=右侧栏] [role=tab][aria-selected=true]")?.textContent.trim() === "计划"',
+        'document.querySelector("[aria-label=右侧栏标签] [role=tab][aria-selected=true]")?.textContent.trim() === "计划"',
       ),
     '实时保存计划自动打开计划标签',
   )
@@ -298,20 +299,20 @@ module.exports = async (window, waitFor, directory, screenshots, options = {}) =
     )
   }
   await assertRootTarget()
-  await clickText('会话树', 'aside[aria-label=右侧栏]')
+  await openTool(window, waitFor, '会话树')
   await waitFor(
     () =>
       evaluate(
-        'document.querySelector("aside[aria-label=右侧栏] [role=tab][aria-selected=true]")?.textContent.trim() === "会话树"',
+        'document.querySelector("[aria-label=右侧栏标签] [role=tab][aria-selected=true]")?.textContent.trim() === "会话树"',
       ),
     '计划保存后可切到会话树',
   )
   await assertRootTarget()
-  await clickText('计划', 'aside[aria-label=右侧栏]')
+  await openTool(window, waitFor, '计划')
   await waitFor(
     () =>
       evaluate(
-        `document.querySelector('aside[aria-label=右侧栏] [role=tab][aria-selected=true]')?.textContent.trim() === '计划' && Boolean(document.querySelector(${JSON.stringify(card)}))`,
+        `document.querySelector('[aria-label=右侧栏标签] [role=tab][aria-selected=true]')?.textContent.trim() === '计划' && Boolean(document.querySelector(${JSON.stringify(card)}))`,
       ),
     '切回计划保留文档',
   )

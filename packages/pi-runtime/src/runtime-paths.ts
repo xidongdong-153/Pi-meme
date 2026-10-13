@@ -6,7 +6,6 @@ export type PiRuntimePaths = {
   dataRoot: string
   agentDir: string
   skillsDirectory: string
-  extensionsDirectory: string
   builtinSkillsDirectory: string
   sessionsDirectory: string
   workspaceDataRoot: string
@@ -37,7 +36,6 @@ export function createPiRuntimePaths(userData: string): PiRuntimePaths {
     dataRoot: userData,
     agentDir: root,
     skillsDirectory: path.join(userData, 'skills'),
-    extensionsDirectory: path.join(userData, 'extensions'),
     builtinSkillsDirectory: path.join(userData, 'builtin-resources', 'skills'),
     sessionsDirectory,
     workspaceDataRoot,

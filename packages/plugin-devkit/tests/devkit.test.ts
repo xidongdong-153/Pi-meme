@@ -20,14 +20,15 @@ test('模板构建出 Node 工具和浏览器 UI，验证打包并安装服务',
       'dir',
     )
     await buildPlugin(directory)
-    assert.equal((await validatePlugin(directory)).piMeme.sdkVersion, 1)
+    assert.equal((await validatePlugin(directory)).piMeme.sdkVersion, 2)
     const agent = await readFile(path.join(directory, 'dist/agent/entry.js'), 'utf8')
-    assert.match(agent, /registerTool/)
-    assert.match(agent, /session_start/)
+    assert.match(agent, /tools\.register/)
+    assert.match(agent, /sessionStart/)
     assert.doesNotMatch(agent, /from ["']typebox["']/)
     const ui = await readFile(path.join(directory, 'dist/ui/entry.js'), 'utf8')
     assert.match(ui, /react\/jsx-runtime/)
     assert.doesNotMatch(ui, /module\.exports/)
+    assert.match(ui, /location: ["']right["']/)
     const packed = await packagePlugin(directory, path.join(root, 'clock.pim'))
     await manager.installPackage(await readFile(packed))
     assert.match(String(await manager.handlers()['clock:time']!()), /^\d{4}-\d{2}/)
@@ -54,7 +55,7 @@ test('DevKit 构建和打包保留显式资源目录、辅助脚本与显示图�
       'dir',
     )
     const manifest = JSON.parse(await readFile(path.join(directory, 'package.json'), 'utf8')) as PluginManifest
-    manifest.piMeme.resources = { skills: ['skills/review'], extensions: ['extensions/review'] }
+    manifest.piMeme.resources = { skills: ['skills/review'], assets: ['assets'] }
     manifest.piMeme.display = { name: '代码检查', icon: 'assets/icon.svg' }
     for (const child of ['skills/review/scripts', 'extensions/review', 'assets'])
       await mkdir(path.join(directory, child), { recursive: true })
@@ -74,7 +75,6 @@ test('DevKit 构建和打包保留显式资源目录、辅助脚本与显示图�
       await readFile(path.join(installed.directory, 'skills/review/scripts/check.js'), 'utf8'),
       'export const check = true',
     )
-    assert.match(await readFile(path.join(installed.directory, 'extensions/review/index.ts'), 'utf8'), /extension/)
     assert.match(await readFile(path.join(installed.directory, 'assets/icon.svg'), 'utf8'), /<svg/)
   } finally {
     await manager.dispose()

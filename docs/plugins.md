@@ -1,185 +1,200 @@
-# 插件开发与安装
+# App 插件开发
 
-本文描述带 Host 或 React 界面的 App 插件。统一扩展中心还管理技能和 Pi 原生扩展，其目录、导入方式和接口见 [技能与扩展管理](skills-and-extensions.md)。内置 14 个模块位于 `packages/*`，由 Host 静态装配，不参加启停、卸载或重新加载。
+应用只安装 App 插件。模型配置、技能、插件、MCP 分别管理；Pi 是 Host 内部的会话引擎，不再扫描或导入用户的裸 Pi 扩展、原生 Pi 包、`resources.extensions`。内置模块静态装配，不能从插件列表停用。
 
-插件身份来自 `package.json` 的 `name` 和 `version`。`piMeme` 声明 SDK 版本、构建入口和服务依赖。Host 不执行插件的安装脚本，也不要求用户安装 Pi CLI。
+插件能力可组合，不需要为每个方向另设一种包格式：
+
+| 开发方向     | 可做的功能                                         | 入口与位置                    |
+| ------------ | -------------------------------------------------- | ----------------------------- |
+| Agent 与会话 | 工具、命令、运行前上下文、提问、自定义消息         | `agent`，按会话选择           |
+| 会话界面     | 工具卡片、消息卡片、输入区和消息操作               | `ui` 的 contributions         |
+| 工作区工具   | 文件树、预览、终端、Git 查询                       | `ui` 的 panels，调用 HostApi  |
+| App 集成     | Host 后台服务、项目和任务操作、插件间服务          | `server` 与 HostApi           |
+| 主题与资源   | 颜色、字体、间距、圆角、透明度、背景图片、附带技能 | `resources`，可以没有代码入口 |
+
+当前示范源码在 `plugins/file-directory`、`plugins/terminal`、`plugins/theme-landscape`。Git 查询接口已提供；Git Lens 插件和通讯 Bot 尚未实现。
+
+## 包格式与构建
+
+包身份使用 `package.json` 的 `name` 和 `version`。SDK 只接受 `sdkVersion: 2`，不加载 SDK v1 入口。
 
 ```json
 {
-  "name": "@local/clock",
-  "version": "0.1.0",
+  "name": "my-workspace-plugin",
+  "version": "1.0.0",
   "type": "module",
   "piMeme": {
-    "sdkVersion": 1,
-    "server": "dist/server/chord-facets.json",
+    "sdkVersion": 2,
+    "display": { "name": "工作区工具" },
+    "server": "dist/server/entry.js",
     "agent": "dist/agent/entry.js",
-    "ui": "dist/ui/entry.js"
-  }
-}
-```
-
-三个入口按实际能力选用，至少声明一个。`server` 是 Chord Node facet bundle；`agent` 是 Node ESM；`ui` 是浏览器 ESM。UI 使用宿主的 React，不能导入 Node 模块或使用全局 `require`。
-
-`piMeme.display` 可声明显示名称和包内图标；`piMeme.resources` 可附带技能与 Pi 扩展。例如：
-
-```json
-{
-  "name": "@local/review",
-  "version": "0.1.0",
-  "type": "module",
-  "description": "检查代码修改。",
-  "piMeme": {
-    "sdkVersion": 1,
     "ui": "dist/ui/entry.js",
-    "display": { "name": "代码检查", "icon": "assets/icon.svg" },
     "resources": {
       "skills": ["skills/review"],
-      "extensions": ["extensions/review"]
+      "themes": ["themes/dark.json"],
+      "assets": ["assets"]
     }
   }
 }
 ```
 
-技能目录必须包含 `SKILL.md`，扩展可以是 `.ts`、`.js`、`.mjs` 文件，或包含 `index.ts`、`index.js`、`index.mjs` 的目录。资源声明只接受明确的包内相对路径，不接受通配符、越界路径和重复入口；`agent` 与 `resources.extensions` 不能指向同一个扩展。图标支持 SVG、PNG、JPEG 和 WebP。附带资源不单独复制成可卸载的用户技能；修改包内容后重新构建或上传整个包。只有资源、没有 App 入口的内容使用 Pi 原生包，不使用 `.pim`。
+仅声明实际使用的入口。路径必须在包内，不接受 `..`、绝对路径、通配符和重复项。技能目录包含 `SKILL.md`。纯主题插件可以只有 `package.json`、主题 JSON 和图片，不需要 `dist`。
 
-DevKit 构建三个 App 入口；声明资源按现有文件保存，不额外安装或构建资源依赖。需要相对导入或辅助脚本时声明整个目录。`resources` 只支持 `skills` 和 `extensions`，不打包 MCP 配置。
+在仓库根目录执行：
 
-## 创建、构建和打包
-
-在仓库根目录运行：
-
-```bash
-pnpm exec tsx packages/plugin-devkit/src/cli.ts create /tmp/clock @local/clock
-pnpm --dir /tmp/clock install --ignore-scripts
-pnpm exec tsx packages/plugin-devkit/src/cli.ts build /tmp/clock
-pnpm exec tsx packages/plugin-devkit/src/cli.ts validate /tmp/clock
-pnpm exec tsx packages/plugin-devkit/src/cli.ts pack /tmp/clock /tmp/clock.pim
+```sh
+pnpm exec tsx packages/plugin-devkit/src/cli.ts create /tmp/my-plugin my-plugin
+pnpm --dir /tmp/my-plugin install --ignore-scripts
+pnpm exec tsx packages/plugin-devkit/src/cli.ts build /tmp/my-plugin
+pnpm exec tsx packages/plugin-devkit/src/cli.ts validate /tmp/my-plugin
+pnpm exec tsx packages/plugin-devkit/src/cli.ts pack /tmp/my-plugin /tmp/my-plugin.pim
 ```
 
-构建前先准备开发目录的依赖。模板使用 `typebox`；类型来自 `@pi-meme/plugin-sdk`、Pi 1.1 和 React。模板的 SDK 开发依赖使用本地 `link:`，指向生成模板时使用的 `packages/plugin-sdk`，不会尝试下载未发布的 SDK。移动开发目录后重新设置这个 link。其余依赖通过显式的 `pnpm install --ignore-scripts` 准备；DevKit 不自动安装依赖。仓库外构建测试把现有依赖链接到临时目录，验证构建、打包和安装，不验证联网安装。
+DevKit 分别构建 Node 与浏览器产物。UI 使用宿主 React；CSS 导入得到字符串，需要由插件插入并在释放时移除。主题 JSON 本身不执行 CSS 或 JavaScript。
 
-模板包含一个读取 UTC 时间的 Pi 工具、一个 Host 操作，以及调用该操作的 React 页面。修改 `src/server/entry.ts`、`src/agent/entry.ts` 和 `src/ui/entry.tsx`。`build` 将第三方依赖打入产物，Pi SDK 和 React 分别由 Node Host 和浏览器宿主提供。`validate` 检查身份、SDK 版本、入口、Chord 哈希和浏览器模块，不代替类型检查或业务测试。
+插件页上传 `.pim`；开发者可从所属 Host 加载构建目录并重新加载。上传和目录安装都会生成不可变快照。目录重新加载读取原开发目录；上传包更新需要重新上传 `.pim`。
 
-`.pim` 是带文件清单的 gzip 包，收集 `package.json`、`dist/`、README、许可证、声明的资源目录和图标。资源目录连同辅助文件一起保存；未声明的根目录源码、`node_modules/` 和 `.env` 不会加入包。上传和解压大小均有 32 MiB 限制，路径越界、软链接和不在文件白名单中的上传内容会被拒绝。
+示范构建与打包：
 
-在“设置 → 扩展”上传本机 `.pim`，或从当前 Host 的已构建 App 目录导入。重新加载入口仍在开发者页面。Remote 用户上传自包含包即可；导入 Host 目录时，填写远程 Host 的路径。当前没有在线 npm/git 安装、插件市场或 GitHub 集成。
+```sh
+pnpm --filter @pi-meme/file-directory build
+pnpm --filter @pi-meme/file-directory run pack
+pnpm --filter @pi-meme/terminal build
+pnpm --filter @pi-meme/terminal run pack
+pnpm --filter @pi-meme/theme-landscape run pack
+```
 
-## Server 入口
+输出分别位于各插件的 `dist/plugin.pim`。
+
+## Agent 入口
+
+入口导出 `activate(context)`。适配层在内部调用 Pi SDK；插件不接收 `ExtensionAPI`、会话池、凭据或安全策略对象。
 
 ```ts
-import type { ServerPluginContext } from '@pi-meme/plugin-sdk/server'
+import type { AgentPluginContext } from '@pi-meme/plugin-sdk/agent'
 
-export function create(context: ServerPluginContext) {
-  context.registerHandlers({
-    [`${context.pluginId}:time`]: () => new Date().toISOString(),
+export function activate(context: AgentPluginContext) {
+  context.tools.register({
+    name: 'current_time',
+    title: '读取时间',
+    description: '返回 UTC 时间。',
+    parameters: { type: 'object', properties: {}, additionalProperties: false },
+    execute: () => ({ text: new Date().toISOString() }),
+  })
+  context.hooks.on('beforeRun', () => ({ context: '报告时间时注明 UTC。' }))
+  context.commands.register({
+    name: 'plugin-help',
+    description: '查看插件说明',
+    execute: () => context.interaction.notify('使用 current_time 读取时间'),
   })
 }
 ```
 
-`create` 可以返回带 `dispose` 的对象，也可以用 `context.onDispose` 登记释放函数。释放按登记的逆序执行；一个释放函数失败时仍会继续释放其他资源。
+工具返回 `{ text, data? }`，`data` 必须可序列化为 JSON。执行参数包含 `session`、`run` 与取消 `signal`。生命周期事件是 `sessionStart`、`sessionEnd`、`beforeRun`、`runStart`、`runEnd`。`hooks.on` 返回释放函数，其他资源用 `onDispose` 注册清理。
 
-`piMeme.requires` 列出需要的服务，`piMeme.provides` 列出提供的服务。入口通过 `context.services.require<T>(name)` 获取服务，通过 `context.provide(name, object)` 提供实现。未声明的服务访问、重复提供者和循环依赖会被拒绝。依赖使用 Chord local service handles；插件不直接导入其他插件实现。
+`interaction.request(questions, signal)` 使用图形多题表单；问题格式见 `packages/contracts/src/user-input.ts`。通知使用 `notify`，状态使用 `setStatus`。`messages.emit({ type, text, data? })` 保存自定义消息；内部类型包含插件身份，图形投影恢复插件声明的类型。
 
-插件操作使用 `${pluginId}:` 前缀。内置业务操作由 Host 静态注册；外部插件只能登记自己命名空间的操作，不能覆盖内置操作。`context.dataDirectory` 是该插件在 `plugin-data/` 下的独立数据目录。
+新会话默认选择空 Agent 插件列表。输入区可以选择当前会话插件并保存新会话默认值。Host 层也可用 `sessions.configure(ref, { agentPlugins }, options)` 和 `plugins.setDefaultAgentPlugins(ids, options)`。运行中的会话不能修改插件选择；子代理继承父任务的插件代次与权限。安装 UI 或主题插件不要求选择 Agent。
 
-## Agent 与 UI 入口
+Agent 权限与插件安装状态分开处理。当前外部 Agent 入口只在完全权限的普通任务加载；计划模式和受限任务保留内置读取、提问、协作、计划与权限检查。插件安装不会把任务改成完全权限。
 
-普通 Agent 入口导出 Pi 原生 `ExtensionFactory`：
+## UI 面板与贡献
 
-```ts
-import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
-
-export default function extension(pi: ExtensionAPI) {
-  pi.on('session_start', async (_event, context) => {
-    context.ui.setStatus('clock:ready', '时间工具已就绪')
-  })
-}
-```
-
-工具、命令和 hook 使用 Pi 1.1 的公开扩展接口，hook 用 `pi.on`。静态 Worker 内置工厂使用内部上下文注入路径、配置与权限策略；外部 Agent 只有普通 ExtensionFactory，不能注册或覆盖沙箱与访问策略。函数对象不跨 Worker 传递。
-
-UI 入口导出 `activate(context)`，使用 `context.contribute` 登记贡献，返回释放函数：
+入口导出 `activate(context)`，可返回释放函数。`context.host` 是 HostApi，`context.call` 只调用本插件命名空间的 Server 操作；`reactive.getSnapshot/subscribe` 提供当前目标和会话投影。
 
 ```tsx
 import type { UiPluginContext } from '@pi-meme/plugin-sdk/ui'
 
 export function activate(context: UiPluginContext) {
-  return context.contribute({
-    id: `${context.pluginId}:page`,
-    slot: 'page',
-    title: '时间工具',
-    render: () => <p>时间工具页面</p>,
+  return context.panels.register({
+    id: `${context.pluginId}:overview`,
+    title: '项目概览',
+    icon: '项',
+    location: 'right',
+    scope: 'project',
+    render: ({ target }) => <p>项目：{target.project?.projectId}</p>,
   })
 }
 ```
 
-固定槽位是 `page`、`sidebar`、`composer`、`tool-card`、`status`、`settings`、`message`。贡献 ID 使用 `${pluginId}:` 前缀。`context.call<T>(method, args)` 调用本插件的 Host 操作。渲染参数包括所属 Host、会话和快照；`context.iconUrl` 是已认证的当前代次图标地址。内置业务组件接收 App 注入的具体 Props。
+| 接口                     | 可选位置                                                                                        |
+| ------------------------ | ----------------------------------------------------------------------------------------------- |
+| `panels.register`        | 仅 `right`                                                                                      |
+| `contributions.register` | `composer`、`composer-actions`、`tool-card`、`message`、`message-actions`、`status`、`settings` |
 
-自定义消息的 Agent 入口需使用 Pi 的 `registerMessageRenderer(customType, renderer)` 登记类型；图形界面用 React 槽渲染，原生 renderer 可返回 `undefined`。Host 从实际 SDK 注册项建立来源，没有登记或 renderer 不可用时显示消息文字。
+左侧只保留置顶、项目、最近，中间固定聊天。所有工具面板只在当前聊天的右侧栏显示，不接受左侧、中央或底部位置。右侧顶栏提供可关闭标签、“＋”工具选择页、加宽与收起；收起保留当前标签，关闭最后一个标签后收起。标签与宽度按 Host、会话保存；不支持拖拽停靠。`scope` 是 `app`、`project` 或 `session`，缺少对应目标时隐藏。`panels.open(id)` 只能打开本插件已登记的面板。切换目标时读取新的 `target`；异步结果需检查它仍属于发起请求时的目标。
 
-`tool-card` 必须声明 `match.toolName`，`message` 必须声明 `match.customType`：
-
-```tsx
-context.contribute({
-  id: `${context.pluginId}:review-result`,
-  slot: 'message',
-  match: { customType: 'review-result' },
-  render: (props) => <p>{String(props.customType)}</p>,
-})
-```
-
-Registry 把匹配来源固定为 `context.pluginId`，代次固定为当前 UI 代次；插件不能匹配其他插件的来源。聊天消息和工具必须同时匹配 `ownerId`、`generation` 和类型或工具名才会使用贡献。没有可靠来源、没有对应代次或插件已卸载的消息保留普通文字。工具卡片补充通用工具详情。来源由运行时登记，不从消息文本或工具名前缀猜测。
-
-`interaction` 将 Pi 的选择、确认、输入、编辑、通知、状态和文本挂件映射到图形界面。Pi TUI 的 `custom()`、函数式挂件、header 和 footer 不会自动成为 React 组件；图形界面使用 App 插件 UI 入口。
-
-内置 `request_user_input` 工具在普通模式和规划模式均可使用。它在输入框上方显示提问卡片，等待用户回答后再继续本次工具调用；无需安装插件。参数 `questions` 包含 1–3 道题，每题有唯一 `id`、`question` 和可选 `options`。选项使用 `label`，可附 `description`：
-
-```json
-{
-  "questions": [
-    {
-      "id": "scope",
-      "question": "需要修改哪些页面？",
-      "options": [{ "label": "聊天页", "description": "调整输入和消息展示" }, { "label": "设置页" }]
-    }
-  ]
-}
-```
-
-用户可以选择选项或自行填写，选项不会默认选中。多题支持前后切换，最后一次提交整组答案；切换会话保留当前客户端的未提交答案。返回值为 `{ answers: [{ id, value }], cancelled: false }`，跳过题目的 `value` 为 `null`；关闭卡片返回 `{ answers: [], cancelled: true }`。停止任务会移除待答请求。答案按源会话和执行代次处理，重连通过快照恢复仍待答的卡片。
-
-## 更新、停用和卸载
+贡献 ID 以 `${pluginId}:` 开头。工具卡片声明 `match.toolName`，自定义消息声明 `match.customType`。消息、消息操作和工具卡片按运行时真实 `ownerId`、`generation` 与类型匹配；插件不能声明另一个插件的来源。没有对应贡献时保留普通文字和工具详情。
 
 ```mermaid
 %%{init: {"theme": "dark"}}%%
 flowchart LR
-  Source["构建目录或上传包"] --> Validate["校验与不可变快照"]
-  Validate --> Group["计算受影响服务依赖组"]
-  Group --> Agent["纯 Agent：新会话取新代次"]
-  Agent --> Retain["旧任务保留旧代次租约"]
-  Retain --> Release["租约结束后释放旧代码"]
-  Group --> Server["共享 Server：阻止本组新调用"]
-  Server --> Drain["等待相关任务、工具、子任务与交互结束"]
-  Drain --> Switch["释放旧作用域，创建新版"]
-  Switch --> Restore["启动失败时恢复旧版"]
+  Navigation["左侧：置顶、项目、最近"] --> Chat["中间：当前聊天"]
+  Chat --> Tabs["右侧：当前聊天的工具标签"]
+  Tabs --> Picker["＋ 工具选择页"]
+  Picker --> Files["文件目录与预览"]
+  Picker --> Terminal["终端"]
+  Picker --> Git["Git、子代理与计划"]
+  Picker --> Plugin["其他插件面板"]
 ```
 
-纯 Agent 插件允许新旧代次并存。只有附带资源、没有 `agent` 的 App 插件也取得会话租约，旧任务继续使用原资源修订。服务插件按 `requires`/`provides` 组成依赖组；切换共享服务时先等待这个组的使用者释放，避免文件、端口等资源同时被两个版本使用。只更新 Git 或历史查询时，不等待无关 Agent 任务。UI 使用所属代次的资源地址。
+## Host 服务
 
-图形交互桥是内置能力。外部插件切换仍等待相关工具、子任务与交互租约；父子 Worker 各自持有外部 Agent 代次，不因根会话停止读取界面就提前释放。
+Server 入口导出 `create(context)`。可用字段见 `packages/plugin-sdk/src/server.ts`：
 
-目录安装保存原目录位置。“重新加载”会读取那里重新构建的产物；Host 当前使用的目录是不可变快照，修改源文件不会改变正在运行的旧任务。上传包没有开发目录，重新加载只重启当前版本；更新代码需要上传新包。内置 ID 的启用、停用、卸载和重新加载一律拒绝。
+- `host`：显式 ProjectRef/SessionRef 的 HostApi。
+- `dataDirectory`：插件自己的持久数据目录，卸载默认保留。
+- `registerHandlers`：操作名称以 `${pluginId}:` 开头。
+- `provide/services.require`：只使用 manifest 声明的插件间服务。
+- `onDispose`：关闭订阅、计时器、连接和文件句柄。
 
-停用后撤销操作、Agent 入口和 UI 贡献。若其他启用插件依赖它提供的必需服务，Host 拒绝停用或卸载；先停用使用者。外部插件不能提供或替换内置安全服务。卸载释放资源并删除不再使用的代码快照，默认保留插件数据和 Pi 会话。
+外部 Server 不能取得内置 Store、PiSessionPool 或 DesktopBridge。协议与 Node 客户端见 [独立 Host](remote.md)。Host 文件预览仅支持目标工作区中的 UTF-8 普通文件，最大 1 MiB；拒绝目录越界、越界符号链接和二进制文件。
 
-项目策略只控制所属项目的 Agent 入口、附带资源和 UI。App Server 仍由 Host 全局管理，不为每个项目另建 Chord 实例；Host 停用会撤销 Server 操作。App 附带资源显示包归属，卸载整个 App 包时一并撤销，不能通过技能删除接口拆掉包内文件。
+终端使用 `node-pty`，客户端使用 xterm.js。能力不可用时 `capabilities().features` 不包含 `terminal`。每个 Host 最多 16 个活动终端，每个终端保留 256 KiB 输出；单次输入最多 64 KiB。隐藏面板保留进程，关闭实例、释放示范插件或 Host 退出时关闭。重新连接使用 `terminal.attach` 获取当前缓冲；输出事件本身不持久化。
 
-插件属于可信宿主代码，拥有 Node Host 权限。Agent 的三档文件权限和沙箱另行约束；插件可信不表示 Agent 自动获得完全权限。内置权限/沙箱不可用或初始化失败时，受限任务拒绝启动。Pi SDK 和 Host 二进制升级随应用发布，不通过插件热更新替换。
+## 结构化主题
 
-## 内置身份与启动恢复
+主题 JSON 保留 `id/name/appearance/colors/fonts`，增加：
 
-`packages/plugin-sdk/src/reserved.ts` 保存内置身份和保留服务。目录安装、`.pim` 安装、替换与启动恢复在执行外部入口前检查身份冲突，来源字段或相同包名不能把外部代码变成内置代码。
+```json
+{
+  "id": "landscape",
+  "name": "山色",
+  "appearance": "dark",
+  "tokens": { "spacing": 1, "radius": 10, "surfaceOpacity": 0.82 },
+  "background": {
+    "image": "assets/landscape.png",
+    "area": "workspace",
+    "fit": "cover",
+    "position": "center",
+    "opacity": 0.35,
+    "overlay": "#16202b",
+    "blur": 0
+  }
+}
+```
 
-`plugins/installed.json` 只保存外部记录。旧内置记录经过校验后移出安装清单；同名外部覆盖、损坏包、缺失依赖和初始化失败按依赖组隔离，保留源目录与用户数据。安装清单无法解析时保留原文件、本次不加载外部项；基础 Host 仍运行，开发者页面展示诊断。内置初始化失败则明确中止启动。
+`spacing` 范围 0.5–2，`radius` 范围 0–24，`surfaceOpacity` 范围 0.4–1。背景位置支持 `app/workspace/sidebar`，填充支持 `cover/contain`，锚点支持 `center/top/bottom`，透明度 0–1，模糊 0–32。
 
-外部插件拥有可信 Host 权限。Agent 的三档权限和计划模式执行检查独立生效；安装插件不会让任务越过父权限，规划模式也不加载外部工具或 MCP。
+图片必须在 `resources.assets` 中声明，支持 PNG、JPEG、WebP、AVIF，最大 8 MiB；主题 JSON 最大 256 KiB。拒绝远程 URL、SVG、CSS 和脚本字段。Host 生成绑定插件代次的认证资源地址。安装前校验失败保留旧版；停用或卸载后使用内置主题；重启恢复仍有效的主题选择。
+
+外观页可调背景透明度、模糊、间距、圆角与表面透明度。单文件 JSON 导出包含颜色、字体和布局；背景资源通过 `.pim` 分发，不放进单文件主题导入。
+
+## 释放与更新
+
+```mermaid
+%%{init: {"theme": "dark"}}%%
+flowchart LR
+  Package["包与资源校验"] --> Snapshot["不可变快照"]
+  Snapshot --> Group["计算服务依赖组"]
+  Group --> Agent["纯 Agent：新旧代次并存"]
+  Group --> Server["共享 Server：等待使用者释放"]
+  Agent --> Lease["旧任务持有租约"]
+  Server --> Replace["释放旧作用域并创建新版"]
+  Replace --> Restore["失败恢复旧版"]
+  Lease --> Dispose["释放旧代码和 UI 贡献"]
+```
+
+Chord 1.1 的 `reload` 不负责新增/删除 facet 或服务 shape；安装、卸载和依赖变化通过独立作用域完成。调用 gate、任务、工具、子代理、未答交互和 UI 代次仍由 Host 管理。必需服务的唯一提供者不能直接停用。外部插件恢复失败隔离相关组，内置模块初始化失败中止启动。
+
+插件是可信 Host 代码，不是恶意代码沙箱。Pi 和 Host 二进制升级随应用发布，不能通过插件热更新。

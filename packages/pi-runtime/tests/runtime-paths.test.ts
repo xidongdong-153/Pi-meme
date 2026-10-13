@@ -18,7 +18,6 @@ test('Pi 运行数据位于 Desktop userData，工作区按规范化路径分组
     assert.equal(paths.agentDir, path.join(userData, 'pi'))
     assert.equal(paths.dataRoot, userData)
     assert.equal(paths.skillsDirectory, path.join(userData, 'skills'))
-    assert.equal(paths.extensionsDirectory, path.join(userData, 'extensions'))
     assert.equal(paths.builtinSkillsDirectory, path.join(userData, 'builtin-resources', 'skills'))
     assert.equal(paths.sessionsDirectory, path.join(userData, 'sessions'))
     assert.equal(paths.secureCredentialsFile, path.join(userData, 'secure', 'credentials.bin'))

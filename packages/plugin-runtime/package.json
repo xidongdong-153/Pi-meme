@@ -14,7 +14,8 @@
   "dependencies": {
     "@pi-meme/plugin-sdk": "workspace:*",
     "@earendil-works/chord": "1.1.0",
-    "acorn": "^8.18.0"
+    "acorn": "^8.18.0",
+    "@pi-meme/contracts": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^24.0.0"

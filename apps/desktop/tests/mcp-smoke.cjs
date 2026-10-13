@@ -20,10 +20,21 @@ module.exports = async (window, waitFor, output) => {
       `(() => { const node = [...document.querySelectorAll('button')].find(node => node.textContent.trim() === ${JSON.stringify(text)}); node.click() })()`,
     )
   }
-  const input = (label, value) =>
-    evaluate(
+  const input = async (label, value) => {
+    await waitFor(
+      () =>
+        evaluate(
+          `(() => {
+            const node = document.querySelector('[aria-label=${JSON.stringify(label)}]');
+            return node && ['INPUT','TEXTAREA'].includes(node.tagName) && node.checkVisibility() && !node.disabled && !node.readOnly;
+          })()`,
+        ),
+      `MCP 表单字段：${label}`,
+    )
+    await evaluate(
       `(() => { const node = document.querySelector('[aria-label=${JSON.stringify(label)}]'); const prototype = node.tagName === 'TEXTAREA' ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype; Object.getOwnPropertyDescriptor(prototype, 'value').set.call(node, ${JSON.stringify(value)}); node.dispatchEvent(new Event('input', { bubbles: true })) })()`,
     )
+  }
   const ready = async () => {
     await waitFor(() => evaluate('!document.body.textContent.includes("正在处理 MCP 操作")'), 'MCP 配置操作结束')
     await waitFor(
@@ -41,7 +52,6 @@ module.exports = async (window, waitFor, output) => {
     await fs.writeFile(path.join(output, `${name}.png`), (await window.webContents.capturePage()).toPNG())
   }
   await evaluate('document.querySelector("button[aria-label=设置]").click()')
-  await click('扩展')
   await click('MCP')
   await waitFor(() => evaluate('document.body.textContent.includes("尚未配置 Desktop 全局 MCP 服务")'), '空配置')
   assert.equal(await evaluate(`document.querySelector('input[aria-label="在 Desktop 中启用 MCP"]') === null`), true)
@@ -145,7 +155,6 @@ module.exports = async (window, waitFor, output) => {
   const connection = await evaluate('window.piMemeClient.getConnection()')
   await evaluate(`window.piMemeClient.setAccessMode(${JSON.stringify(connection.sessionKey)}, 'full-access')`)
   await evaluate('document.querySelector("button[aria-label=设置]").click()')
-  await click('扩展')
   await click('MCP')
   await waitFor(
     () =>

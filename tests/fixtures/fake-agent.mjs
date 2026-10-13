@@ -27,7 +27,6 @@ function createRuntimePaths(userData) {
     dataRoot: userData,
     agentDir,
     skillsDirectory: path.join(userData, 'skills'),
-    extensionsDirectory: path.join(userData, 'extensions'),
     builtinSkillsDirectory: path.join(userData, 'builtin-resources', 'skills'),
     sessionsDirectory,
     workspaceDataRoot,

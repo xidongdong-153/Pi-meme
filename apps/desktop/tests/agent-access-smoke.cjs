@@ -19,7 +19,19 @@ module.exports = async function agentAccessSmoke(window, waitFor, directory) {
     )
   const choose = async (label, mode) => {
     await open()
-    await waitFor(() => evaluate(`document.querySelectorAll('[role="option"]').length === 3`), '权限菜单展开')
+    try {
+      await waitFor(() => evaluate(`document.querySelectorAll('[role="option"]').length === 3`), '权限菜单展开')
+    } catch (cause) {
+      console.error('权限菜单诊断', {
+        nativeFocus: window.isFocused(),
+        renderer: await evaluate(`(() => {
+          const trigger = document.querySelector('${selector}');
+          return {focused:document.hasFocus(),active:document.activeElement?.outerHTML,trigger:trigger?.outerHTML,
+            options:[...document.querySelectorAll('[role="option"]')].map(node=>({state:node.dataset.state,text:node.textContent}))};
+        })()`),
+      })
+      throw cause
+    }
     await evaluate(
       `([...document.querySelectorAll('[role="option"]')].find(node => node.textContent.includes(${JSON.stringify(label)}))).click()`,
     )
@@ -47,7 +59,7 @@ module.exports = async function agentAccessSmoke(window, waitFor, directory) {
   )
   await open()
   await waitFor(() => evaluate(`document.querySelectorAll('[role="option"]').length === 3`), '权限菜单键盘展开')
-  assert.equal(await evaluate(`document.body.textContent.includes('受限模式不加载第三方 Pi 扩展')`), true)
+  assert.equal(await evaluate(`document.body.textContent.includes('受限模式不加载外部 Agent 插件')`), true)
   await fs.writeFile(
     path.join(__dirname, '..', 'out', 'desktop-smoke', 'agent-access-menu.png'),
     (await window.webContents.capturePage()).toPNG(),

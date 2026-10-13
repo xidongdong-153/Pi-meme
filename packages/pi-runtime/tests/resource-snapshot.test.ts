@@ -14,7 +14,7 @@ import { readSessionHistory } from '../src/session-history'
 import { requestText } from '../../../tests/fixtures/fake-provider.mjs'
 import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
 
-function item(file: string, kind: 'skill' | 'extension', name: string): ResourceItem {
+function item(file: string, kind: 'skill', name: string): ResourceItem {
   return {
     id: `host:${name}`,
     kind,
@@ -25,7 +25,7 @@ function item(file: string, kind: 'skill' | 'extension', name: string): Resource
     sourcePath: file,
     baseDir: path.dirname(file),
     scope: 'host',
-    owner: { id: 'test-package', type: 'pi-package' },
+    owner: { id: 'test-package', type: 'app-package' },
     enabled: true,
     defaultPolicy: { enabled: true, invocation: 'automatic' },
     invocation: 'automatic',
@@ -83,7 +83,6 @@ test('snapshot 同时限制技能、扩展预加载和动态发现，原生调�
     generation: 4,
     cwd: root,
     skills: [item(skillFile, 'skill', 'automatic'), { ...item(manualFile, 'skill', 'manual'), invocation: 'manual' }],
-    extensions: [item(approved, 'extension', 'approved')],
   }
   const errors: string[] = []
   const session = new SdkSession(
@@ -101,11 +100,10 @@ test('snapshot 同时限制技能、扩展预加载和动态发现，原生调�
       commands.filter((command) => command.source === 'skill').map((command) => command.name),
       ['skill:automatic', 'skill:manual'],
     )
-    assert.ok(commands.some((command) => command.name === 'approved'))
+    assert.ok(!commands.some((command) => command.name === 'approved'))
     assert.equal(commands.find((command) => command.name === 'skill:manual')?.invocation, 'manual')
     await assert.rejects(access(marker), { code: 'ENOENT' })
-    assert.ok(errors.some((message) => message.includes('动态技能路径未加载')))
-    assert.ok(commands.some((command) => command.name === 'dynamic'))
+    assert.ok(!commands.some((command) => command.name === 'dynamic'))
     await session.setModel({ provider: 'fake', id: 'first' })
     await session.prompt('使用自动技能')
     await settled(session)
@@ -159,7 +157,6 @@ test('工具与注册的 custom renderer 来源写入 JSONL，历史不改原生
     generation: 7,
     cwd: root,
     skills: [],
-    extensions: [item(entry, 'extension', 'owned')],
   }
   const events: PiEvent[] = []
   const session = new SdkSession(
@@ -168,8 +165,26 @@ test('工具与注册的 custom renderer 来源写入 JSONL，历史不改原生
     fake.runtimePaths,
     fake.credentials,
     undefined,
-    { resourceSnapshot: snapshot },
+    { resourceSnapshot: snapshot, agentSources: [{ pluginId: 'test-package', generation: 7, path: entry }] },
   )
+  session.configureInlineExtensions([
+    {
+      name: 'app-agent:test-package:7',
+      factory: (pi) => {
+        pi.registerMessageRenderer('owned-message', () => undefined)
+        pi.registerTool({
+          name: 'owned-tool',
+          label: '测试',
+          description: '测试来源',
+          parameters: { type: 'object', properties: {} },
+          execute: async () => {
+            pi.sendMessage({ customType: 'owned-message', content: '资源消息', display: true })
+            return { content: [{ type: 'text', text: '资源工具' }], details: { original: true } }
+          },
+        })
+      },
+    },
+  ])
   try {
     session.start(root)
     await session.snapshot()

@@ -101,10 +101,5 @@ export function createSettingsHandlers({
         Promise.reject(new Error('当前客户端不能打开 Host 目录')))
       if (error) throw new Error(`无法打开主题目录：${error}`)
     },
-    'settings:open-extensions': async () => {
-      const error = await (openPath?.(settings.extensionsDirectory) ??
-        Promise.reject(new Error('当前客户端不能打开 Host 目录')))
-      if (error) throw new Error(`无法打开扩展目录：${error}`)
-    },
   }
 }

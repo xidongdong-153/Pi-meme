@@ -7,10 +7,9 @@ export const manifest: PluginManifest = {
   name: '@pi-meme/resources',
   version: '0.1.0',
   piMeme: {
-    sdkVersion: 1,
+    sdkVersion: 2,
     server: 'dist/server/chord-facets.json',
     agent: 'dist/agent/entry.js',
-    ui: 'dist/ui/entry.js',
     requires: ['host.resources'],
   },
 }

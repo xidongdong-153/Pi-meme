@@ -19,18 +19,19 @@ class FixtureManager extends PluginManager {
     assertExternalManifest(manifest)
     const wrapped: ServerPluginModule = {
       create: (context) =>
-        module.create({
-          ...context,
-          registerHandlers: (handlers) => {
-            const namespaced: PluginHandlers = {}
-            for (const [channel, handler] of Object.entries(handlers)) {
-              const name = channel.startsWith(`${manifest.name}:`) ? channel : `${manifest.name}:${channel}`
-              this.aliases.set(channel, name)
-              namespaced[name] = handler
-            }
-            return context.registerHandlers(namespaced)
-          },
-        }),
+        module.create(
+          Object.assign(Object.create(context), {
+            registerHandlers: (handlers: PluginHandlers) => {
+              const namespaced: PluginHandlers = {}
+              for (const [channel, handler] of Object.entries(handlers)) {
+                const name = channel.startsWith(`${manifest.name}:`) ? channel : `${manifest.name}:${channel}`
+                this.aliases.set(channel, name)
+                namespaced[name] = handler
+              }
+              return context.registerHandlers(namespaced)
+            },
+          }),
+        ),
     }
     return (
       this as unknown as {
@@ -66,17 +67,16 @@ function manifest(name: string, version = '1.0.0', provides: string[] = [], requ
   return {
     name,
     version,
-    piMeme: { sdkVersion: 1, server: 'dist/server/chord-facets.json', provides, requires },
+    piMeme: { sdkVersion: 2, server: 'dist/server/chord-facets.json', provides, requires },
   }
 }
 
-async function setup(drain?: (pluginIds: string[]) => Promise<void>, services?: Record<string, object>) {
+async function setup(drain?: (pluginIds: string[]) => Promise<void>) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'pi-meme-plugins-'))
   const manager = new FixtureManager({
     directory: path.join(directory, 'installed'),
     dataDirectory: path.join(directory, 'data'),
     drain,
-    services,
   })
   return {
     directory,
@@ -238,7 +238,7 @@ test('纯 Agent 新旧代次并存，新会话取新版本，无关服务更新�
     const agentManifest: PluginManifest = {
       name: 'agent',
       version: '1.0.0',
-      piMeme: { sdkVersion: 1, agent: 'dist/agent/entry.js' },
+      piMeme: { sdkVersion: 2, agent: 'dist/agent/entry.js' },
     }
     await manager.registerFixture(agentManifest, { create() {} }, directory)
     const oldLease = manager.acquire()
@@ -285,7 +285,7 @@ test('外部目录停用经重启保留，源目录改动不影响已加载快�
     const uiManifest: PluginManifest = {
       name: 'ui-plugin',
       version: '1.0.0',
-      piMeme: { sdkVersion: 1, ui: 'dist/ui/entry.js' },
+      piMeme: { sdkVersion: 2, ui: 'dist/ui/entry.js' },
     }
     await writeFile(path.join(source, 'package.json'), JSON.stringify(uiManifest))
     await writeFile(path.join(source, 'dist/ui/entry.js'), 'export function activate() { return "old" }')
@@ -373,15 +373,15 @@ test('目录重新构建后 reload 取新版，旧 Agent 租约仍读取旧快�
     const agentManifest: PluginManifest = {
       name: 'agent',
       version: '1.0.0',
-      piMeme: { sdkVersion: 1, agent: 'dist/agent/entry.js' },
+      piMeme: { sdkVersion: 2, agent: 'dist/agent/entry.js' },
     }
     await writeFile(path.join(source, 'package.json'), JSON.stringify(agentManifest))
-    await writeFile(path.join(source, 'dist/agent/entry.js'), 'export default function extension() { return "old" }')
+    await writeFile(path.join(source, 'dist/agent/entry.js'), 'export function activate() { return "old" }')
     await manager.loadDirectory(source)
     const lease = manager.acquire()
     const oldPath = lease.agentEntries[0]!.path
     await writeFile(path.join(source, 'package.json'), JSON.stringify({ ...agentManifest, version: '2.0.0' }))
-    await writeFile(path.join(source, 'dist/agent/entry.js'), 'export default function extension() { return "new" }')
+    await writeFile(path.join(source, 'dist/agent/entry.js'), 'export function activate() { return "new" }')
     await manager.reload('agent')
     const next = manager.acquire()
     assert.equal(next.descriptors[0]!.version, '2.0.0')
@@ -396,37 +396,18 @@ test('目录重新构建后 reload 取新版，旧 Agent 租约仍读取旧快�
   }
 })
 
-test('恢复的外部插件可以依赖 Host 静态服务', async () => {
-  const services = { clock: { now: () => 7 } }
-  const { directory, manager, cleanup } = await setup(undefined, services)
-  let restarted: FixtureManager | undefined
+test('外部插件只能依赖插件声明服务，不能取得 Host 内部装配', async () => {
+  const { directory, manager, cleanup } = await setup()
   try {
-    const source = path.join(directory, 'external-consumer')
-    await mkdir(path.join(source, 'dist/server'), { recursive: true })
-    await writeFile(path.join(source, 'package.json'), JSON.stringify(manifest('external', '1.0.0', [], ['clock'])))
-    await writeFile(
-      path.join(source, 'entry.ts'),
-      `import { defineFacet, defineService } from '@earendil-works/chord'
-export default defineFacet({ id:'external-module', setup(env) { env.provide(defineService('pi-meme.plugin.module:external', {local:true}), {
-  create(ctx) { const clock = ctx.services.require('clock'); ctx.registerHandlers({ 'external:time': () => clock.now() }) }
-}) } })`,
+    assert.throws(
+      () => manager.registerFixture(manifest('external', '1.0.0', [], ['host.workspace']), { create() {} }, directory),
+      /内置装配服务/,
     )
-    await bundleFacets({
-      plugin: { id: 'external' },
-      entries: { server: path.join(source, 'entry.ts') },
-      outdir: path.join(source, 'dist/server'),
-    })
-    await manager.loadDirectory(source)
-    await manager.dispose()
-    restarted = new FixtureManager({
-      directory: path.join(directory, 'installed'),
-      dataDirectory: path.join(directory, 'data'),
-      services,
-    })
-    await restarted.restore()
-    assert.equal(await restarted.runHandler('external:time'), 7)
+    await assert.rejects(
+      manager.registerFixture(manifest('external', '1.0.0', [], ['clock']), { create() {} }, directory),
+      /所需服务不可用/,
+    )
   } finally {
-    await restarted?.dispose()
     await cleanup()
   }
 })
@@ -438,7 +419,7 @@ test('较大浏览器产物打包上传不触发 Base64 正则堆栈溢出', asy
     await mkdir(path.join(source, 'dist/ui'), { recursive: true })
     await writeFile(
       path.join(source, 'package.json'),
-      JSON.stringify({ name: 'large-ui', version: '1.0.0', piMeme: { sdkVersion: 1, ui: 'dist/ui/entry.js' } }),
+      JSON.stringify({ name: 'large-ui', version: '1.0.0', piMeme: { sdkVersion: 2, ui: 'dist/ui/entry.js' } }),
     )
     await writeFile(
       path.join(source, 'dist/ui/entry.js'),
@@ -458,7 +439,7 @@ test('一个旧代次释放失败仍释放其余租约，重复释放不会再�
     const agent = (name: string, version: string): PluginManifest => ({
       name,
       version,
-      piMeme: { sdkVersion: 1, agent: 'dist/agent/entry.js' },
+      piMeme: { sdkVersion: 2, agent: 'dist/agent/entry.js' },
     })
     for (const name of ['first', 'second']) {
       await manager.registerFixture(
@@ -494,10 +475,13 @@ test('外部交互插件保留会话交互代次', async () => {
   const manager = new FixtureManager({
     directory: path.join(directory, 'installed'),
     dataDirectory: path.join(directory, 'data'),
-    services: { 'host.interaction': {} },
   })
   try {
-    const externalManifest = { ...interactionManifest, name: 'interaction-fixture' }
+    const externalManifest = {
+      ...interactionManifest,
+      name: 'interaction-fixture',
+      piMeme: { ...interactionManifest.piMeme, requires: [] },
+    }
     await manager.registerFixture(externalManifest, { create() {} }, directory)
     const lease = manager.acquire()
     try {

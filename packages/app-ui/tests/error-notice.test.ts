@@ -28,9 +28,9 @@ test('错误提示保留普通英文原因，CLI 路径错误仍提供设置入�
   assert.ok(html.includes('打开设置'))
 })
 
-test('扩展加载失败提供扩展配置说明，不提示重发消息', () => {
+test('扩展加载失败指向插件设置，不提示重发消息', () => {
   const html = renderNotice('Pi 进程已退出：Failed to load extension /tmp/broken.ts: 错误')
-  assert.ok(html.includes('Pi 扩展中移除该路径'))
+  assert.ok(html.includes('插件设置中检查加载状态'))
   assert.ok(html.includes('打开设置'))
   assert.ok(!html.includes('再次点击发送'))
 })

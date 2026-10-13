@@ -5,7 +5,7 @@ import * as workspace from '@pi-meme/workspace/server/entry'
 import * as git from '@pi-meme/git/server/entry'
 import * as models from '@pi-meme/models/server/entry'
 import * as settings from '@pi-meme/settings/server/entry'
-import * as interaction from '@pi-meme/pi-extensions/server/entry'
+import * as interaction from '@pi-meme/interaction/server/entry'
 import * as mcp from '@pi-meme/mcp/server/entry'
 import * as history from '@pi-meme/history/server/entry'
 import * as usage from '@pi-meme/usage/server/entry'
@@ -36,7 +36,11 @@ const modules = [
   subagents,
 ]
 
-export async function createBuiltinModules(dataRoot: string, contexts: Record<string, object>) {
+export async function createBuiltinModules(
+  dataRoot: string,
+  contexts: Record<string, object>,
+  hostApi?: () => import('@pi-meme/contracts/app-host').HostApi,
+) {
   const services = { ...contexts }
   const handlers: PluginHandlers = {}
   const scope = new PluginScope()
@@ -46,6 +50,10 @@ export async function createBuiltinModules(dataRoot: string, contexts: Record<st
       const dataDirectory = path.join(dataRoot, 'plugin-data', encodeURIComponent(manifest.name))
       await mkdir(dataDirectory, { recursive: true })
       const instance = await (module as ServerPluginModule).create({
+        get host() {
+          if (!hostApi) throw new Error('Host API 尚未初始化')
+          return hostApi()
+        },
         pluginId: manifest.name,
         generation: 1,
         dataDirectory,

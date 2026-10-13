@@ -1,3 +1,4 @@
+import { createAppAgent } from '@pi-meme/pi-runtime/sdk/app-agent'
 import { parentPort, workerData } from 'node:worker_threads'
 import { randomUUID } from 'node:crypto'
 import type { CollaborationRequest, CollaborationResults } from '@pi-meme/contracts/collaboration'
@@ -129,7 +130,6 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
     const sdk = await loadPiSdk()
     const agentCore = await loadPiAgentCore()
     const extensions: InlineExtension[] = []
-    policy.agentPaths = []
     for (const [pluginId, create] of Object.entries(builtins)) {
       if (pluginId === '@pi-meme/mcp' && data.access !== 'full-access') continue
       extensions.push(
@@ -163,7 +163,7 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
     }
     for (const entry of data.agentEntries) {
       if (entry.pluginId in builtins) throw new Error('外部 Agent 不能替换内置能力')
-      policy.agentPaths.push(entry.path)
+      extensions.push(createAppAgent(entry, (questions, signal) => session.requestUserInput(questions, signal)))
     }
     session.configureInlineExtensions(extensions)
     session.configureCapabilities({ codemodeEnabled: false, mcpEnabled: false })

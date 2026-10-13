@@ -20,7 +20,8 @@
     "./sdk/session": "./src/sdk/session.ts",
     "./sdk/access-sandbox": "./src/sdk/access-sandbox.ts",
     "./extensions/agent-access": "./src/extensions/agent-access.ts",
-    "./sdk/linux-sandbox": "./src/sdk/linux-sandbox.ts"
+    "./sdk/linux-sandbox": "./src/sdk/linux-sandbox.ts",
+    "./sdk/app-agent": "./src/sdk/app-agent.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit",
@@ -30,6 +31,7 @@
     "@earendil-works/pi-agent-core": "1.1.0",
     "@earendil-works/pi-coding-agent": "1.1.0",
     "@pi-meme/contracts": "workspace:*",
-    "@earendil-works/pi-ai": "1.1.0"
+    "@earendil-works/pi-ai": "1.1.0",
+    "@pi-meme/plugin-sdk": "workspace:*"
   }
 }

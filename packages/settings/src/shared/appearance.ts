@@ -5,7 +5,7 @@ import type {
   FontStyle,
   Theme,
 } from '@pi-meme/contracts/settings'
-import { builtinThemes, parseTheme } from './themes'
+import { builtinThemes, parseTheme, parseThemeTokens } from './themes'
 
 export const fontStyles: FontStyle[] = ['regular', 'bold', 'italic', 'bold-italic']
 export function defaultAppearance(): AppearanceSettings {
@@ -76,6 +76,25 @@ export function validateAppearance(value: unknown): asserts value is AppearanceS
       fonts: overrides.fonts,
       fontStyles: overrides.fontStyles,
     })
+    if (overrides.tokens !== undefined) parseThemeTokens(overrides.tokens)
+    if (overrides.background !== undefined) {
+      if (
+        !record(overrides.background) ||
+        Object.keys(overrides.background).some((key) => !['opacity', 'blur'].includes(key))
+      )
+        throw new Error('背景覆盖只支持透明度和模糊值')
+      for (const [key, maximum] of [
+        ['opacity', 1],
+        ['blur', 32],
+      ] as const) {
+        const number = overrides.background[key]
+        if (
+          number !== undefined &&
+          (typeof number !== 'number' || !Number.isFinite(number) || number < 0 || number > maximum)
+        )
+          throw new Error('背景透明度或模糊值无效')
+      }
+    }
   }
 }
 export function editingOverrides(value: AppearanceSettings, mode: 'light' | 'dark'): AppearanceOverrides {
@@ -145,5 +164,12 @@ export function resolveTheme(
   const fontStyles = { ...base.fontStyles, ...overrides.fontStyles }
   if (overrides.fonts?.content === 'inherit' && !overrides.fontStyles?.content)
     fontStyles.content = fontStyles.ui ?? 'regular'
-  return { ...base, colors, fonts, fontStyles }
+  return {
+    ...base,
+    colors,
+    fonts,
+    fontStyles,
+    tokens: { spacing: 1, radius: 8, surfaceOpacity: 1, ...base.tokens, ...overrides.tokens },
+    ...(base.background ? { background: { ...base.background, ...overrides.background } } : {}),
+  }
 }

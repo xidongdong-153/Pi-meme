@@ -21,7 +21,6 @@ export function useSettings(
     | 'selectTheme'
     | 'reloadThemes'
     | 'openThemesDirectory'
-    | 'openExtensionsDirectory'
     | 'saveSettings'
     | 'saveAppearance'
     | 'getInstalledFonts'
@@ -179,7 +178,17 @@ export function useSettings(
       }
     })
   }
+  const refresh = useCallback(async () => {
+    if (!enabled) return
+    try {
+      await appearanceSaver.flush()
+      accept(await bridgeRef.current.getSettings())
+    } catch (cause) {
+      setError(`刷新外观失败：${String(cause)}`)
+    }
+  }, [enabled, appearanceSaver, accept])
   return {
+    refresh,
     snapshot,
     subagents,
     saveAppearance,
@@ -194,7 +203,6 @@ export function useSettings(
     selectTheme: (id: string) => action(() => bridgeRef.current.selectTheme(id)),
     reload: () => action(() => bridgeRef.current.reloadThemes()),
     openDirectory: () => action(() => bridgeRef.current.openThemesDirectory()),
-    openExtensionsDirectory: () => action(() => bridgeRef.current.openExtensionsDirectory()),
     saveCapabilities: (value: { codemodeEnabled: boolean; mcpEnabled: boolean }) =>
       saveRuntime({
         ...snapshot?.settings,

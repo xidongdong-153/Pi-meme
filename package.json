@@ -23,7 +23,8 @@
     "build:server": "pnpm --filter @pi-meme/server build",
     "test:host": "pnpm --filter @pi-meme/host test",
     "test:plugins": "pnpm --filter @pi-meme/plugin-runtime test",
-    "test:server": "pnpm build:server && pnpm --filter @pi-meme/server test:dist"
+    "test:server": "pnpm build:server && pnpm --filter @pi-meme/server test:dist",
+    "postinstall": "node scripts/prepare-node-pty.mjs"
   },
   "devDependencies": {
     "@antfu/eslint-config": "^9.5.1",

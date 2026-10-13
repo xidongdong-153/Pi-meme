@@ -7,10 +7,9 @@ export const manifest: PluginManifest = {
   name: '@pi-meme/subagents',
   version: '0.0.0',
   piMeme: {
-    sdkVersion: 1,
+    sdkVersion: 2,
     server: 'dist/server/chord-facets.json',
     agent: 'dist/agent/entry.js',
-    ui: 'dist/ui/entry.js',
     requires: ['host.settings'],
   },
 }

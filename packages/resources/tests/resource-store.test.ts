@@ -140,34 +140,6 @@ test('拒绝路径越界、软链接、过大上传和应用插件误导入', as
   assert.equal((await store.catalog()).items.length, 0)
 })
 
-test('Pi公共API发现约定目录，不执行扩展代码，包技能加namespace', async (t) => {
-  const { cwd, store } = await fixture(t)
-  const catalog = await store.import(
-    {
-      kind: 'pi-package',
-      files: [
-        { path: 'package.json', content: JSON.stringify({ name: 'native-tools', version: '1.0.0' }) },
-        { path: 'skills/search/SKILL.md', content: skill('search') },
-        { path: 'extensions/index.ts', content: "throw new Error('不能执行')" },
-      ],
-    },
-    cwd,
-  )
-  assert.equal(catalog.items.find((entry) => entry.kind === 'skill')?.name, 'native-tools:search')
-  assert.equal(catalog.items.find((entry) => entry.kind === 'skill')?.owner.version, '1.0.0')
-  assert.equal(catalog.items.filter((entry) => entry.kind === 'extension').length, 1)
-  await assert.rejects(
-    store.import({
-      kind: 'pi-package',
-      files: [
-        { path: 'package.json', content: JSON.stringify({ name: 'missing-tools', dependencies: { missing: '1' } }) },
-        { path: 'extensions/index.ts', content: 'export default () => {}' },
-      ],
-    }),
-    /缺少依赖/,
-  )
-})
-
 test('App资源继承项目策略与代次，项目停用不改变其他项目', async (t) => {
   const { directory, root, cwd } = await fixture(t)
   const appDirectory = path.join(directory, 'app')
@@ -263,37 +235,6 @@ test('目录分别返回Host与项目策略，reset只清除指定作用域覆�
   assert.equal(defaults.hostPolicy, undefined)
   assert.equal(defaults.enabled, true)
   assert.equal(defaults.invocation, 'automatic')
-})
-
-test('原生入口校验拒绝缺依赖、语法错误与越界，失败更新保留状态和来源', async (t) => {
-  const { directory, root, cwd, store } = await fixture(t)
-  const source = path.join(directory, 'native-source')
-  await mkdir(source)
-  const entry = path.join(source, 'index.ts')
-  const valid = 'export default () => {}'
-  await writeFile(entry, valid)
-  const first = await store.import({ kind: 'extension', path: source, name: 'guarded' }, cwd)
-  const item = first.items[0]
-  await writeFile(path.join(directory, 'outside.ts'), 'export const outside = true')
-  for (const invalid of [
-    "import './missing.js'; export default () => {}",
-    'export default ( => {}',
-    "import '../outside.ts'; export default () => {}",
-    "import 'not-installed-resource-dependency'; export default () => {}",
-  ]) {
-    await writeFile(entry, invalid)
-    await assert.rejects(store.import({ kind: 'extension', path: source, name: 'guarded' }, cwd), /入口校验失败/)
-    const catalog = await store.catalog(cwd)
-    assert.equal(catalog.generation, first.generation)
-    assert.equal(catalog.items[0].id, item.id)
-    assert.equal(catalog.items[0].revision, item.revision)
-    assert.equal(await readFile(path.join(root, 'extensions/guarded/index.ts'), 'utf8'), valid)
-  }
-  const refreshedSource = path.join(root, 'extensions/guarded/index.ts')
-  await writeFile(refreshedSource, "import './missing.js'; export default () => {}")
-  const diagnostics = await store.catalog(cwd)
-  assert.ok(diagnostics.diagnostics.some((message) => message.includes('入口校验失败')))
-  assert.equal(await readFile(item.path, 'utf8'), valid)
 })
 
 test('完整本地技能保留脚本执行权限，权限变更产生新修订', async (t) => {
@@ -397,7 +338,6 @@ test('无附带资源的App项目开关改变snapshot身份并保留禁用项', 
   const store = new ResourceStore(root, { getAppPackages: () => [app] })
   const original = await store.snapshot(cwd)
   assert.equal(original.skills.length, 0)
-  assert.equal(original.extensions.length, 0)
   assert.equal(original.appPlugins?.[0].enabled, true)
   await store.setPolicy({ id: 'app:agent-only-app', scope: 'project', cwd, enabled: false })
   const disabled = await store.snapshot(cwd)
@@ -448,55 +388,6 @@ test('Web技能上传显式更新完整辅助文件，身份不变且过期修�
   assert.equal((await store.readSkill(first.id, cwd)).content, skill('web-writer', '更新版'))
 })
 
-test('通过包子技能显式更新整个Web Pi包，失败保留已发布包与状态', async (t) => {
-  const { root, cwd, store } = await fixture(t)
-  const files = (version: string, extension = 'export default () => {}') => [
-    { path: 'package.json', content: JSON.stringify({ name: 'web-package', version }) },
-    { path: 'skills/search/SKILL.md', content: skill('search', version) },
-    { path: 'skills/search/references/context.md', content: `资料${version}` },
-    { path: 'extensions/index.ts', content: extension },
-  ]
-  const initial = await store.import({ kind: 'pi-package', files: files('1.0.0') }, cwd)
-  const first = initial.items.find((item) => item.kind === 'skill')!
-  const extension = initial.items.find((item) => item.kind === 'extension')!
-  const replacement = await store.import(
-    { files: files('1.1.0'), replace: { id: first.id, revision: first.revision } },
-    cwd,
-  )
-  const current = replacement.items.find((item) => item.kind === 'skill')!
-  assert.equal(current.id, first.id)
-  assert.equal(current.owner.id, first.owner.id)
-  assert.equal(current.owner.version, '1.1.0')
-  assert.equal(replacement.items.find((item) => item.kind === 'extension')?.id, extension.id)
-  assert.equal(await readFile(path.join(current.baseDir, 'references/context.md'), 'utf8'), '资料1.1.0')
-  assert.equal(await readFile(first.path, 'utf8'), skill('search', '1.0.0'))
-  const managed = path.join(root, 'extensions/packages', (await readdir(path.join(root, 'extensions/packages')))[0])
-  await assert.rejects(
-    store.import(
-      {
-        files: files('1.2.0', "import './missing.js'; export default () => {}"),
-        replace: { id: current.id, revision: current.revision },
-      },
-      cwd,
-    ),
-    /入口校验失败/,
-  )
-  const afterFailure = await store.catalog(cwd)
-  assert.equal(afterFailure.generation, replacement.generation)
-  assert.equal(afterFailure.items.find((item) => item.id === current.id)?.revision, current.revision)
-  assert.equal(JSON.parse(await readFile(path.join(managed, 'package.json'), 'utf8')).version, '1.1.0')
-  const renamed = files('1.2.0')
-  renamed[0].content = JSON.stringify({ name: 'another-package', version: '1.2.0' })
-  await assert.rejects(
-    store.import({ files: renamed, replace: { id: current.id, revision: current.revision } }, cwd),
-    /名称.*原包一致/,
-  )
-  await assert.rejects(
-    store.import({ files: files('1.2.0'), replace: { id: first.id, revision: first.revision } }, cwd),
-    /已更新/,
-  )
-})
-
 test('显式更新拒绝技能改名、类型变化、内置、项目和App资源', async (t) => {
   const { root, cwd, store } = await fixture(t)
   const first = (await store.import({ content: skill('replace-guard') }, cwd)).items[0]
@@ -507,13 +398,13 @@ test('显式更新拒绝技能改名、类型变化、内置、项目和App资�
   await assert.rejects(
     store.import(
       {
-        kind: 'extension',
+        kind: 'extension' as never,
         files: [{ path: 'replace-guard.ts', content: 'export default () => {}' }],
         replace: { id: first.id, revision: first.revision },
       },
       cwd,
     ),
-    /类型.*不一致/,
+    /类型无效/,
   )
   await writeSkill(path.join(root, 'builtin-resources/skills/builtin'), 'builtin')
   await writeSkill(path.join(cwd, '.agents/skills/project'), 'project')
@@ -521,54 +412,15 @@ test('显式更新拒绝技能改名、类型变化、内置、项目和App资�
   for (const item of catalog.items.filter((entry) => entry.scope !== 'host'))
     await assert.rejects(
       store.import({ content: skill(item.name), replace: { id: item.id, revision: item.revision } }, cwd),
-      /只能更新Host用户/,
+      /只能更新 Host 用户/,
     )
   const app: ResourceAppPackage = { id: 'app', version: '1', generation: 1, directory: root, enabled: true }
   const withApp = new ResourceStore(root, { getAppPackages: () => [app] })
   await assert.rejects(
     withApp.import({ content: skill('app'), replace: { id: 'app:app', revision: '1:1' } }, cwd),
-    /只能更新Host用户/,
+    /只能更新 Host 用户/,
   )
   assert.equal((await store.readSkill(first.id, cwd)).content, skill('replace-guard'))
-})
-
-test('Web原生扩展显式更新，持久化后的回调失败恢复完整旧版', async (t) => {
-  const { root, cwd, store } = await fixture(t)
-  const first = (
-    await store.import(
-      { kind: 'extension', files: [{ path: 'web-extension.mjs', content: 'export default () => 1' }] },
-      cwd,
-    )
-  ).items[0]
-  const files = [{ path: 'web-extension.mjs', content: 'export default () => 2' }]
-  const updated = (
-    await store.import({ kind: 'extension', files, replace: { id: first.id, revision: first.revision } }, cwd)
-  ).items[0]
-  assert.equal(updated.id, first.id)
-  assert.notEqual(updated.revision, first.revision)
-  const failing = new ResourceStore(root, {
-    onChange: () => {
-      throw new Error('退役失败')
-    },
-  })
-  await assert.rejects(
-    failing.import(
-      {
-        kind: 'extension',
-        files: [{ path: 'web-extension.mjs', content: 'export default () => 3' }],
-        replace: { id: updated.id, revision: updated.revision },
-      },
-      cwd,
-    ),
-    /退役失败/,
-  )
-  const reopened = await new ResourceStore(root).catalog(cwd)
-  assert.equal(reopened.items[0].revision, updated.revision)
-  assert.equal(
-    await readFile(path.join(root, 'extensions/web-extension/web-extension.mjs'), 'utf8'),
-    'export default () => 2',
-  )
-  assert.equal(await readFile(first.path, 'utf8'), 'export default () => 1')
 })
 
 test('ZIP显式更新使用原管理目录并保留完整辅助文件', async (t) => {
@@ -670,4 +522,30 @@ test('同一作用域重复技能全部诊断并退出快照，停用重复项�
   assert.equal((await store.snapshot(cwd)).skills[0].id, catalog.items[0].id)
   await store.setPolicy({ id: catalog.items[1].id, scope: 'host', reset: true })
   assert.equal((await store.snapshot(cwd)).skills.length, 0)
+})
+
+test('资源中心忽略旧裸扩展与 Pi 包记录，保留原文件并拒绝旧导入类型', async (t) => {
+  const { root, cwd } = await fixture(t)
+  const legacy = path.join(root, 'extensions/legacy.ts')
+  const project = path.join(cwd, '.agents/extensions/project.ts')
+  for (const file of [legacy, project]) {
+    await mkdir(path.dirname(file), { recursive: true })
+    await writeFile(file, 'throw new Error("不能执行旧扩展")')
+  }
+  await mkdir(path.join(root, 'resources'), { recursive: true })
+  await writeFile(
+    path.join(root, 'resources/state.json'),
+    JSON.stringify({
+      generation: 1,
+      imports: [{ id: 'old', kind: 'pi-package', directory: path.dirname(legacy), sourcePath: legacy, name: 'old' }],
+      policies: {},
+    }),
+  )
+  const store = new ResourceStore(root)
+  assert.deepEqual((await store.catalog(cwd)).items, [])
+  assert.deepEqual((await store.catalog(cwd)).diagnostics, [])
+  assert.equal(await readFile(legacy, 'utf8'), 'throw new Error("不能执行旧扩展")')
+  assert.equal(await readFile(project, 'utf8'), 'throw new Error("不能执行旧扩展")')
+  for (const kind of ['extension', 'pi-package'])
+    await assert.rejects(store.import({ kind: kind as never, content: 'export default () => {}' }), /类型无效/)
 })

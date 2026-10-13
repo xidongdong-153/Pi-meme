@@ -10,7 +10,7 @@ const signingIdentity = process.env.PI_DESKTOP_SIGNING_IDENTITY
 
 const config: ForgeConfig = {
   packagerConfig: {
-    asar: { unpackDir: 'node_modules/@esbuild' },
+    asar: { unpackDir: 'node_modules/{@esbuild,node-pty}' },
     // 不带扩展名，@electron/packager 按平台补 .icns / .ico
     icon: path.join(__dirname, 'assets/icons/pi-dev-dark'),
     // 本地包使用 ad-hoc 签名；正式证书通过 PI_DESKTOP_SIGNING_IDENTITY 指定。

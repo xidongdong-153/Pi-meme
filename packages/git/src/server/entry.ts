@@ -6,9 +6,8 @@ export const manifest: PluginManifest = {
   name: '@pi-meme/git',
   version: '0.0.0',
   piMeme: {
-    sdkVersion: 1,
+    sdkVersion: 2,
     server: 'dist/server/chord-facets.json',
-    ui: 'dist/ui/entry.js',
     requires: ['host.git'],
   },
 }

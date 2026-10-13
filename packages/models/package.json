@@ -13,9 +13,7 @@
     "./ui/model-picker-popover": "./src/ui/model-picker-popover.tsx",
     "./ui/model-select": "./src/ui/model-select.tsx",
     "./ui/thinking-config": "./src/ui/thinking-config.ts",
-    "./server/entry": "./src/server/entry.ts",
-    "./ui/plugin": "./src/ui/plugin.ts",
-    "./ui/entry": "./src/ui/entry.tsx"
+    "./server/entry": "./src/server/entry.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit",
@@ -37,9 +35,8 @@
     "react": "^19.3.0"
   },
   "piMeme": {
-    "sdkVersion": 1,
+    "sdkVersion": 2,
     "server": "dist/server/chord-facets.json",
-    "ui": "dist/ui/entry.js",
     "requires": [
       "host.models"
     ]

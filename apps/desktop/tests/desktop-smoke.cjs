@@ -4,6 +4,7 @@ const fsSync = require('node:fs')
 const os = require('node:os')
 const path = require('node:path')
 const { execFileSync } = require('node:child_process')
+const { openTool } = require('./tool-tabs-smoke.cjs')
 const { app, BrowserWindow } = require('electron')
 
 if (process.env.PI_DESKTOP_DEV_SERVER_URL) {
@@ -30,6 +31,392 @@ async function waitFor(check, label = '界面状态') {
     await new Promise((resolve) => setTimeout(resolve, 50))
   }
   throw new Error(`桌面验收等待超时：${label}`)
+}
+const smokePluginId = '@pi-meme-fixtures/desktop-smoke'
+async function prepareSmokeApp(window, installAgent = true) {
+  const evaluate = (code) => window.webContents.executeJavaScript(code)
+  await waitFor(() => evaluate('Boolean(window.piMemeClient && window.piPlatform)'), 'Host 客户端初始化')
+  await evaluate(`(async () => {
+    const connection = await window.piPlatform.getHostConnection();
+    window.smokeRpc = async (method,args = [],sessionId) => {
+      const response = await fetch(new URL('/api/rpc',connection.url),{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({requestId:crypto.randomUUID(),clientId:'desktop-smoke-admin',method,args,sessionId})});
+      const value = await response.json(); if (!response.ok || value.error) throw new Error(value.error?.message || 'Host 操作失败'); return value.result;
+    };
+    window.smokeControl = async (method,args = [],mutation = false) => {
+      const response = await fetch(new URL('/api/control',connection.url),{method:'POST',credentials:'include',headers:{'Content-Type':'application/json'},body:JSON.stringify({apiVersion:2,clientId:'desktop-smoke-admin',method,args,...(mutation ? {idempotencyKey:crypto.randomUUID()} : {})})});
+      const value = await response.json(); if (!response.ok || value.error) throw new Error(value.error?.message || 'Host 控制操作失败'); return value.result;
+    };
+    if (!${JSON.stringify(installAgent)}) return;
+    await window.smokeRpc('plugins:install-directory',[${JSON.stringify(path.join(directory, 'smoke-app'))}]);
+    await window.smokeControl('plugins.setDefaultAgentPlugins',[[${JSON.stringify(smokePluginId)}]],true);
+    const connectionState = await window.piMemeClient.getConnection();
+    if (connectionState.sessionKey) {
+      const session = await window.piMemeClient.resolveAppSession(connectionState.sessionKey);
+      await window.smokeControl('sessions.configure',[{hostId:session.hostId,sessionId:session.sessionId},{agentPlugins:[${JSON.stringify(smokePluginId)}]}],true);
+    }
+  })()`)
+}
+async function runAppPlugins(window) {
+  const evaluate = (code) => window.webContents.executeJavaScript(code)
+  const clickText = (text, scope = 'body') =>
+    evaluate(`(() => {
+    const button = [...document.querySelector(${JSON.stringify(scope)}).querySelectorAll('button')].find(node => node.checkVisibility() && node.textContent.trim() === ${JSON.stringify(text)});
+    if (!button) throw new Error('未找到按钮：' + ${JSON.stringify(text)}); button.click();
+  })()`)
+  const capture = async (name) => {
+    await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
+    await evaluate('new Promise(resolve => setTimeout(resolve,250))')
+    await fs.writeFile(
+      path.join(root, 'out', 'desktop-smoke', `${name}.png`),
+      (await window.webContents.capturePage()).toPNG(),
+    )
+  }
+  const repository = path.resolve(root, '..', '..')
+  for (const name of ['file-directory', 'terminal', 'theme-landscape']) {
+    const pluginDirectory = path.join(repository, 'plugins', name)
+    const manifest = JSON.parse(await fs.readFile(path.join(pluginDirectory, 'package.json'), 'utf8'))
+    if (manifest.piMeme.ui) await fs.access(path.join(pluginDirectory, manifest.piMeme.ui))
+    await evaluate(`window.smokeRpc('plugins:install-directory',[${JSON.stringify(pluginDirectory)}])`)
+  }
+  const installed = await evaluate(`window.smokeRpc('plugins:list')`)
+  for (const id of ['@pi-meme/file-directory', '@pi-meme/terminal', '@pi-meme/theme-landscape']) {
+    assert.ok(
+      installed.some((plugin) => plugin.id === id && plugin.enabled && plugin.status === 'active'),
+      `插件已实际启用：${id}`,
+    )
+  }
+  const capabilities = await evaluate(`window.smokeControl('capabilities')`)
+  assert.ok(capabilities.features.includes('files'), '专项验收要求 Host 文件接口可用')
+  assert.ok(capabilities.features.includes('terminal'), '专项验收要求真实 PTY 可用')
+  await evaluate(`window.piMemeClient.chooseDirectory(${JSON.stringify(gitDirectory)})`)
+  await waitFor(
+    () =>
+      evaluate(
+        `window.piMemeClient.getConnection().then(value => value.cwd === ${JSON.stringify(gitDirectory)} && Boolean(value.sessionKey))`,
+      ),
+    '示范插件项目与会话目标',
+  )
+  await evaluate(`document.querySelector('button[aria-label="设置"]').click()`)
+  await waitFor(() => evaluate(`Boolean(document.querySelector('nav[aria-label="设置分类"]'))`), '独立设置导航')
+  assert.deepEqual(
+    await evaluate(
+      `[...document.querySelectorAll('nav[aria-label="设置分类"] section[aria-label="集成"] button')].map(node => node.textContent.trim())`,
+    ),
+    ['技能', '插件', 'MCP'],
+  )
+  await clickText('技能', 'nav[aria-label="设置分类"]')
+  await waitFor(() => evaluate(`Boolean(document.querySelector('section[aria-label="技能管理"]'))`), '独立技能页面')
+  assert.equal(
+    await evaluate(`document.querySelector('section[aria-label="技能管理"] [aria-label="资源类型"]') === null`),
+    true,
+  )
+  assert.equal(
+    await evaluate(`document.querySelector('section[aria-label="技能管理"]').textContent.includes('安装插件包')`),
+    false,
+  )
+  await capture('app-plugins-skills')
+  await clickText('插件', 'nav[aria-label="设置分类"]')
+  await waitFor(
+    () => evaluate(`document.querySelectorAll('ul[aria-label="App 插件列表"] li').length === 3`),
+    '三个示范 App 插件列表',
+  )
+  assert.equal(
+    await evaluate(`document.querySelector('section[aria-label="插件管理"] [aria-label="资源类型"]') === null`),
+    true,
+  )
+  assert.equal(
+    await evaluate(`document.querySelector('section[aria-label="插件管理"]').textContent.includes('新建技能')`),
+    false,
+  )
+  await capture('app-plugins-list')
+  await clickText('MCP', 'nav[aria-label="设置分类"]')
+  await waitFor(
+    () => evaluate(`document.querySelector('#settings-content h2')?.textContent === 'MCP'`),
+    '独立 MCP 页面',
+  )
+  await capture('app-plugins-mcp')
+  await clickText('外观', 'nav[aria-label="设置分类"]')
+  await waitFor(() => evaluate(`Boolean(document.querySelector('button[aria-label="深色模式"]'))`), '主题设置')
+  await evaluate(`document.querySelector('button[aria-label="深色模式"]').click()`)
+  const themeSelector = '[role="combobox"][aria-label="外观主题"]'
+  await evaluate(
+    `document.querySelector(${JSON.stringify(themeSelector)}).dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))`,
+  )
+  await waitFor(
+    () => evaluate(`[...document.querySelectorAll('[role="option"]')].some(node => node.textContent.includes('山色'))`),
+    '山色主题选项',
+  )
+  await evaluate(
+    `[...document.querySelectorAll('[role="option"]')].find(node => node.textContent.includes('山色')).click()`,
+  )
+  await waitFor(() => evaluate(`document.documentElement.dataset.themeBackground === 'workspace'`), '山色主题背景应用')
+  const image = await evaluate(`(async () => {
+    const style = getComputedStyle(document.querySelector('.theme-workspace'),'::before');
+    const url = style.backgroundImage.slice(4,-1).replace(/^"|"$/g,'');
+    const image = new Image(); image.src = url; await image.decode();
+    return {width:image.naturalWidth,height:image.naturalHeight,url,opacity:Number(style.opacity)};
+  })()`)
+  assert.ok(image.width > 0 && image.height > 0 && image.opacity > 0, '主题背景资产已加载且可见')
+  assert.ok(image.url.includes('/api/plugins/'), '主题图片来自认证插件资源接口')
+  await capture('app-plugins-theme')
+  await clickText('返回聊天')
+  const assertFixedChat = async () => {
+    assert.equal(
+      await evaluate(`(() => {
+        const chat = document.querySelector('#chat-workspace');
+        return chat?.checkVisibility() && chat.getBoundingClientRect().width > 0;
+      })()`),
+      true,
+      '聊天始终可见',
+    )
+    assert.equal(
+      await evaluate(`document.querySelector('#workspace-sidebar [role="tablist"]') === null`),
+      true,
+      '左栏没有插件页签',
+    )
+    assert.equal(
+      await evaluate(`document.querySelector('#workspace-sidebar [role="tabpanel"]') === null`),
+      true,
+      '左栏只有内置会话导航',
+    )
+    assert.equal(
+      await evaluate(`document.querySelector('#chat-workspace [role="tabpanel"]') === null`),
+      true,
+      '插件工具不替换聊天',
+    )
+    assert.equal(
+      await evaluate(
+        `[...document.querySelectorAll('summary')].some(node => node.checkVisibility() && node.textContent.trim() === '面板')`,
+      ),
+      false,
+      '不存在旧面板菜单',
+    )
+    assert.equal(
+      await evaluate(`document.querySelector('[role="tablist"][aria-label="底部面板"]') === null`),
+      true,
+      '不存在底部插件区域',
+    )
+  }
+  await evaluate(`document.querySelector('button[aria-label="展开右侧栏"]')?.click()`)
+  await waitFor(
+    () =>
+      evaluate(`Boolean(document.querySelector('#workspace-right-sidebar [role="tabpanel"][aria-label="新标签页"]'))`),
+    '默认工具选择页',
+  )
+  await assertFixedChat()
+  await capture('app-plugins-tool-picker')
+  const regularWidth = await evaluate(
+    `document.querySelector('#workspace-right-sidebar').getBoundingClientRect().width`,
+  )
+  await evaluate(`document.querySelector('button[aria-label="加宽右侧栏"]').click()`)
+  await waitFor(
+    () => evaluate(`Boolean(document.querySelector('button[aria-label="还原右侧栏宽度"]'))`),
+    '右侧工具栏加宽',
+  )
+  assert.ok(
+    (await evaluate(`document.querySelector('#workspace-right-sidebar').getBoundingClientRect().width`)) >=
+      regularWidth,
+    '加宽工具栏保留可见聊天区域',
+  )
+  await assertFixedChat()
+  await capture('app-plugins-tool-picker-wide')
+  await evaluate(`document.querySelector('button[aria-label="还原右侧栏宽度"]').click()`)
+  await waitFor(
+    () =>
+      evaluate(`document.querySelector('#workspace-right-sidebar').getBoundingClientRect().width === ${regularWidth}`),
+    '还原工具栏宽度',
+  )
+  await openTool(window, waitFor, '文件目录')
+  await waitFor(
+    () =>
+      evaluate(`document.querySelector('[role="tabpanel"][aria-label="文件目录"]')?.textContent.includes('README.md')`),
+    '真实项目文件目录',
+  )
+  await assertFixedChat()
+  await capture('app-plugins-directory')
+  await clickText('README.md', '[role="tabpanel"][aria-label="文件目录"]')
+  await waitFor(
+    () =>
+      evaluate(
+        `document.querySelector('[role="tabpanel"][aria-label="文件预览"] pre')?.textContent.includes('# 验收项目')`,
+      ),
+    '点击文件自动打开右侧预览标签',
+  )
+  await assertFixedChat()
+  await capture('app-plugins-preview')
+  await openTool(window, waitFor, 'Git')
+  await waitFor(
+    () => evaluate(`Boolean(document.querySelector('#workspace-right-sidebar [role="tabpanel"][aria-label="Git"]'))`),
+    '内置 Git 右侧面板',
+  )
+  await openTool(window, waitFor, '终端')
+  await clickText('创建终端', '[role="tabpanel"][aria-label="终端"]')
+  await waitFor(
+    () => evaluate(`Boolean(document.querySelector('[role="tabpanel"][aria-label="终端"] .xterm-helper-textarea'))`),
+    '示范终端真实挂载',
+  )
+  await evaluate(`document.querySelector('[role="tabpanel"][aria-label="终端"] .xterm-helper-textarea').focus()`)
+  await window.webContents.insertText("printf '\\101\\120\\120\\137\\120\\114\\125\\107\\111\\116\\137\\117\\113\\n'")
+  window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'Return' })
+  window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'Return' })
+  await waitFor(
+    () =>
+      evaluate(
+        `document.querySelector('[role="tabpanel"][aria-label="终端"] .xterm-screen')?.textContent.includes('APP_PLUGIN_OK')`,
+      ),
+    '真实 PTY 输入与回显',
+  )
+  await assertFixedChat()
+  const terminalControls = await evaluate(`(() => {
+    const panel = document.querySelector('#workspace-right-sidebar');
+    const bounds = panel.getBoundingClientRect();
+    return [...panel.querySelectorAll('button')].filter(node=>/重新连接|关闭终端/.test(node.textContent)).map(node=>{
+      const rect = node.getBoundingClientRect();
+      return {title:node.textContent.trim(),left:rect.left,right:rect.right,panelLeft:bounds.left,panelRight:bounds.right};
+    });
+  })()`)
+  assert.equal(terminalControls.length, 2, '终端连接与关闭操作可用')
+  for (const control of terminalControls)
+    assert.ok(
+      control.left >= control.panelLeft && control.right <= control.panelRight,
+      `终端操作完整显示：${JSON.stringify(control)}`,
+    )
+  await capture('app-plugins-terminal')
+  const selectedTab = () =>
+    evaluate(
+      `document.querySelector('[role="tablist"][aria-label="右侧栏标签"] [role="tab"][aria-selected="true"]')?.textContent.trim()`,
+    )
+  const terminalTitle = await selectedTab()
+  await evaluate(`document.querySelector('button[aria-label="收起右侧栏"]').click()`)
+  await waitFor(() => evaluate(`document.querySelector('#workspace-right-sidebar') === null`), '右侧工具栏收起')
+  await assertFixedChat()
+  await evaluate(`document.querySelector('button[aria-label="展开右侧栏"]').click()`)
+  await waitFor(async () => (await selectedTab()) === terminalTitle, '展开保留当前工具标签')
+  await openTool(window, waitFor, 'Git')
+  await capture('app-plugins-tabs-git')
+  await evaluate(`document.querySelector('button[aria-label="关闭标签页：Git"]').click()`)
+  await waitFor(
+    () =>
+      evaluate(
+        `[...document.querySelectorAll('[role="tablist"][aria-label="右侧栏标签"] [role="tab"]')].every(node=>!node.textContent.includes('Git'))`,
+      ),
+    '关闭 Git 标签',
+  )
+  await openTool(window, waitFor, 'Git')
+  await assertFixedChat()
+  await capture('app-plugins-tabs-reopened')
+  const firstSession = await evaluate(`window.piMemeClient.getConnection()`)
+  await evaluate(
+    `window.piMemeClient.setModel(${JSON.stringify(firstSession.sessionKey)},{provider:'fake',id:'first'})`,
+  )
+  await evaluate(`window.piMemeClient.prompt(${JSON.stringify(firstSession.sessionKey)},'右侧工具会话隔离验收')`)
+  await waitFor(
+    () =>
+      evaluate(
+        `window.piMemeClient.getSnapshot().then(value=>Boolean(value.connection.sessionFile)&&!value.state.isStreaming)`,
+      ),
+    '首会话落盘',
+  )
+  const firstFile = await evaluate(`window.piMemeClient.getConnection().then(value=>value.sessionFile)`)
+  const firstTabs = await evaluate(
+    `[...document.querySelectorAll('[role="tablist"][aria-label="右侧栏标签"] [role="tab"]')].map(node=>node.textContent.trim())`,
+  )
+  const firstActive = await selectedTab()
+  await evaluate(`window.piMemeClient.newSession()`)
+  await waitFor(
+    () =>
+      evaluate(
+        `window.piMemeClient.getConnection().then(value=>value.sessionKey!==${JSON.stringify(firstSession.sessionKey)})`,
+      ),
+    '新会话拥有独立身份',
+  )
+  await evaluate(`document.querySelector('button[aria-label="展开右侧栏"]')?.click()`)
+  await waitFor(
+    () =>
+      evaluate(`Boolean(document.querySelector('#workspace-right-sidebar [role="tabpanel"][aria-label="新标签页"]'))`),
+    '新会话从工具选择页开始',
+  )
+  await waitFor(
+    () =>
+      evaluate(
+        `document.querySelector('#workspace-right-sidebar [role="tabpanel"][aria-label="新标签页"]')?.textContent.includes('终端')`,
+      ),
+    '新会话稳定目标与工具选择完成',
+  )
+  assert.equal(
+    await evaluate(
+      `[...document.querySelectorAll('[role="tablist"][aria-label="右侧栏标签"] [role="tab"]')].some(node=>/Git|文件目录|文件预览|终端/.test(node.textContent))`,
+    ),
+    false,
+    '新会话不继承旧会话工具标签',
+  )
+  await openTool(window, waitFor, '文件目录')
+  await assertFixedChat()
+  await capture('app-plugins-session-new')
+  await evaluate(`window.piMemeClient.switchSession(${JSON.stringify(firstFile)})`)
+  await waitFor(
+    () => evaluate(`window.piMemeClient.getConnection().then(value=>value.sessionFile===${JSON.stringify(firstFile)})`),
+    '恢复首会话',
+  )
+  await evaluate(`document.querySelector('button[aria-label="展开右侧栏"]')?.click()`)
+  await waitFor(async () => (await selectedTab()) === firstActive, '恢复原会话当前工具')
+  assert.deepEqual(
+    await evaluate(
+      `[...document.querySelectorAll('[role="tablist"][aria-label="右侧栏标签"] [role="tab"]')].map(node=>node.textContent.trim())`,
+    ),
+    firstTabs,
+    '原会话标签列表完整恢复',
+  )
+  await assertFixedChat()
+  await capture('app-plugins-session-restored')
+  await openTool(window, waitFor, '终端')
+  await waitFor(
+    () =>
+      evaluate(
+        `document.querySelector('#workspace-right-sidebar [aria-label="终端"] .xterm-screen')?.textContent.includes('APP_PLUGIN_OK')`,
+      ),
+    '切换标签及会话后保留原终端输出',
+  )
+  await capture('app-plugins-terminal-restored')
+  await clickText('关闭终端', '#workspace-right-sidebar [role="tabpanel"][aria-label="终端"]')
+  await evaluate(`document.querySelector('button[aria-label="设置"]').click()`)
+  await clickText('外观', 'nav[aria-label="设置分类"]')
+  await waitFor(() => evaluate(`Boolean(document.querySelector(${JSON.stringify(themeSelector)}))`), '恢复内置深色主题')
+  await evaluate(
+    `document.querySelector(${JSON.stringify(themeSelector)}).dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))`,
+  )
+  await waitFor(
+    () =>
+      evaluate(`[...document.querySelectorAll('[role="option"]')].some(node => node.textContent.trim() === '深色')`),
+    '内置深色主题选项',
+  )
+  await evaluate(
+    `[...document.querySelectorAll('[role="option"]')].find(node => node.textContent.trim() === '深色').click()`,
+  )
+  await waitFor(
+    () => evaluate(`document.documentElement.dataset.themeBackground !== 'workspace'`),
+    '默认深色主题清除背景图片',
+  )
+  await clickText('返回聊天')
+  await evaluate(`window.piMemeClient.newSession()`)
+  await evaluate(`document.querySelector('button[aria-label="展开右侧栏"]')?.click()`)
+  await waitFor(
+    () =>
+      evaluate(`Boolean(document.querySelector('#workspace-right-sidebar [role="tabpanel"][aria-label="新标签页"]'))`),
+    '默认深色三栏工具选择页',
+  )
+  await waitFor(
+    () =>
+      evaluate(
+        `document.querySelector('#workspace-right-sidebar [aria-label="新标签页"]')?.textContent.includes('终端')`,
+      ),
+    '深色总览工具目录加载',
+  )
+  await assertFixedChat()
+  await capture('app-plugins-dark-overview')
+  console.log(
+    'App 插件专项验收通过：固定左栏与聊天、独立设置、山色背景、右侧工具标签切换关闭重开、终端回显、会话标签隔离',
+  )
 }
 async function run(window) {
   assert.equal(window.webContents.session.isPersistent(), false, '应用使用内存 Session')
@@ -62,14 +449,14 @@ async function run(window) {
     evaluate(
       `(() => { const input = document.querySelector('[contenteditable=true][aria-label="消息"]'); input.textContent = ${JSON.stringify(value)}; input.focus(); const range = document.createRange(); range.selectNodeContents(input); range.collapse(false); const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(range); input.dispatchEvent(new Event('input', { bubbles: true })); })()`,
     )
-  const dialog = '[role="dialog"][aria-label="Pi 扩展请求"]'
+  const dialog = '[role="region"][aria-label="Agent 提问"]'
   const waitTitle = (title) =>
     waitFor(
       () =>
         evaluate(
           `document.querySelector(${JSON.stringify(dialog)})?.querySelector('h2')?.textContent === ${JSON.stringify(title)}`,
         ),
-      `扩展弹窗：${title}`,
+      `App 插件提问：${title}`,
     )
   const choose = async (selector, text) => {
     await evaluate(
@@ -221,7 +608,7 @@ async function run(window) {
     await evaluate(
       '[...document.querySelectorAll("nav[aria-label=设置分类] button")].map(node => node.textContent.trim())',
     ),
-    ['模型', '外观', '偏好', '用量', '扩展', '技能', 'MCP', '远程', '开发者', '关于'],
+    ['模型', '外观', '偏好', '用量', '技能', '插件', 'MCP', '远程', '开发者', '关于'],
   )
   assert.equal(await evaluate('document.querySelector("aside details") === null'), true)
   await clickText('关于')
@@ -289,35 +676,36 @@ async function run(window) {
     '项目目录切换',
   )
   await require('./file-completion-smoke.cjs')(window, waitFor, setDraft, capture)
-  await click('button[aria-label="展开右侧栏"]')
+  await evaluate(`document.querySelector('button[aria-label="展开右侧栏"]')?.click()`)
   await waitFor(
     () =>
-      evaluate(
-        `document.querySelector('aside[aria-label="右侧栏"] [role="tab"][aria-selected="true"]')?.textContent === 'Git 变更'`,
-      ),
-    'Git 右侧栏',
+      evaluate(`Boolean(document.querySelector('#workspace-right-sidebar [role="tabpanel"][aria-label="新标签页"]'))`),
+    '默认右侧工具选择页',
   )
+  await openTool(window, waitFor, 'Git')
   assert.equal(
     await evaluate(
-      `document.querySelector('aside[aria-label="右侧栏"] [role="tab"][aria-selected="true"]').textContent`,
+      `document.querySelector('[role="tablist"][aria-label="右侧栏标签"] [role="tab"][aria-selected="true"]').textContent.trim()`,
     ),
-    'Git 变更',
-    'Git 标签默认激活',
+    'Git',
+    '从工具选择页打开 Git',
   )
   // 拖拽右句柄：宽度随拖动变化并受最小宽度约束
-  const rightBefore = await evaluate(`(() => {
+  const expectedRightWidth = await evaluate(`(() => {
     const handle = document.querySelector('[aria-label="调整右侧栏宽度"]')
-    const width = () => Math.round(document.querySelector('aside[aria-label="右侧栏"]').getBoundingClientRect().width)
+    const width = () => Math.round(document.querySelector('#workspace-right-sidebar').getBoundingClientRect().width)
     const before = width()
+    const workspaceWidth = handle.parentElement.getBoundingClientRect().width - document.querySelector('#workspace-sidebar').getBoundingClientRect().width
+    const maxWidth = workspaceWidth - Math.min(320, workspaceWidth * 0.45)
     handle.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: 800, pointerId: 1 }))
     window.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: 740, pointerId: 1 }))
     window.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, clientX: 740, pointerId: 1 }))
-    return before
+    return Math.round(Math.min(before + 60, maxWidth))
   })()`)
   await waitFor(
     () =>
       evaluate(
-        `Math.round(document.querySelector('aside[aria-label="右侧栏"]').getBoundingClientRect().width) === ${rightBefore + 60}`,
+        `Math.round(document.querySelector('#workspace-right-sidebar').getBoundingClientRect().width) === ${expectedRightWidth}`,
       ),
     '右句柄拖拽调宽',
   )
@@ -329,9 +717,7 @@ async function run(window) {
   })()`)
   await waitFor(
     () =>
-      evaluate(
-        `Math.round(document.querySelector('aside[aria-label="右侧栏"]').getBoundingClientRect().width) === 280`,
-      ),
+      evaluate(`Math.round(document.querySelector('#workspace-right-sidebar').getBoundingClientRect().width) === 280`),
     '右句柄最小宽度',
   )
   // 拖拽左句柄
@@ -365,15 +751,15 @@ async function run(window) {
       ),
     '左句柄恢复宽度',
   )
-  await click('button[aria-label="关闭右侧栏"]')
-  await waitFor(() => evaluate(`!document.querySelector('aside[aria-label="右侧栏"]')`), '右侧栏关闭')
+  await click('button[aria-label="收起右侧栏"]')
+  await waitFor(() => evaluate(`!document.querySelector('#workspace-right-sidebar')`), '右侧栏关闭')
   await click('button[aria-label="展开右侧栏"]')
-  await waitFor(() => evaluate(`Boolean(document.querySelector('aside[aria-label="右侧栏"]'))`), '右侧栏开关')
+  await waitFor(() => evaluate(`Boolean(document.querySelector('#workspace-right-sidebar'))`), '右侧栏开关')
   assert.equal(
     await evaluate(
-      `document.querySelector('aside[aria-label="右侧栏"] [role="tab"][aria-selected="true"]').textContent`,
+      `document.querySelector('[role="tablist"][aria-label="右侧栏标签"] [role="tab"][aria-selected="true"]').textContent`,
     ),
-    'Git 变更',
+    'Git',
     '重开保持上次标签',
   )
   assert.equal(
@@ -385,34 +771,34 @@ async function run(window) {
   )
   assert.deepEqual(
     await evaluate(
-      `[...document.querySelectorAll('aside[aria-label="右侧栏"] [role="tab"]')].map(node => node.textContent.trim())`,
+      `[...document.querySelectorAll('[role="tablist"][aria-label="右侧栏标签"] [role="tab"]')].map(node => node.textContent.trim()).filter(title=>title!=='新标签页')`,
     ),
-    ['Git 变更'],
-    '新会话只显示已存在的 Git 标签',
+    ['Git'],
+    '新会话仅显式打开 Git 工具标签',
   )
-  await click('button[aria-label="关闭右侧栏"]')
-  await waitFor(() => evaluate(`!document.querySelector('aside[aria-label="右侧栏"]')`), '右侧栏关闭')
+  await click('button[aria-label="收起右侧栏"]')
+  await waitFor(() => evaluate(`!document.querySelector('#workspace-right-sidebar')`), '右侧栏关闭')
 
   const originalSize = window.getSize()
   for (const width of [720, 860, 1100]) {
     window.setSize(width, 650)
     await waitFor(() => evaluate(`window.innerWidth === ${width}`), '窄窗口尺寸')
     await click('button[aria-label="展开右侧栏"]')
-    await waitFor(() => evaluate(`Boolean(document.querySelector('aside[aria-label="右侧栏"]'))`), '右侧栏并排显示')
+    await waitFor(() => evaluate(`Boolean(document.querySelector('#workspace-right-sidebar'))`), '右侧栏并排显示')
     assert.equal(
       await evaluate(`(() => {
         const workspace = document.querySelector('[aria-label="工作区"]')
         const sidebar = document.querySelector('#workspace-sidebar')
-        const panel = document.querySelector('aside[aria-label="右侧栏"]').getBoundingClientRect()
+        const panel = document.querySelector('#workspace-right-sidebar').getBoundingClientRect()
         return !sidebar.inert && sidebar.getBoundingClientRect().width > 0 && workspace.closest('[inert]') === null && panel.width < window.innerWidth
       })()`),
       true,
       `${width}px 右侧栏与主舞台并排，不接管全屏`,
     )
-    await evaluate(`document.querySelector('aside[aria-label="右侧栏"] button')?.focus()`)
+    await evaluate(`document.querySelector('#workspace-right-sidebar button')?.focus()`)
     window.webContents.sendInputEvent({ type: 'keyDown', keyCode: 'ESCAPE' })
     window.webContents.sendInputEvent({ type: 'keyUp', keyCode: 'ESCAPE' })
-    await waitFor(() => evaluate(`!document.querySelector('aside[aria-label="右侧栏"]')`), 'Escape 关闭右侧栏')
+    await waitFor(() => evaluate(`!document.querySelector('#workspace-right-sidebar')`), 'Escape 收起右侧栏')
   }
   window.setSize(...originalSize)
 
@@ -446,10 +832,15 @@ async function run(window) {
   await click(model)
 
   await click('button[aria-label="收起侧边栏"]')
-  assert.equal(await evaluate('document.querySelector("#workspace-sidebar").getAttribute("aria-hidden")'), 'true')
+  assert.equal(
+    await evaluate(
+      '(() => { const sidebar = document.querySelector("#workspace-sidebar"); return !sidebar || sidebar.getAttribute("aria-hidden") === "true" })()',
+    ),
+    true,
+  )
   await waitFor(
-    () => evaluate('document.querySelector("#workspace-sidebar").getBoundingClientRect().width === 0'),
-    '侧栏收起动画',
+    () => evaluate('(document.querySelector("#workspace-sidebar")?.getBoundingClientRect().width ?? 0) === 0'),
+    '侧栏收起后不占宽度',
   )
   await click('button[aria-label="展开侧边栏"]')
   await waitFor(
@@ -474,35 +865,42 @@ async function run(window) {
   )
   await clickText('关于')
   await capture('settings-about')
-  await clickText('扩展', 'nav[aria-label="设置分类"]')
-  await clickText('技能', '#settings-content')
-  await waitFor(() => evaluate(`Boolean(document.querySelector('ul[aria-label="技能与扩展"]'))`), '技能列表')
+  await clickText('技能', 'nav[aria-label="设置分类"]')
+  await waitFor(() => evaluate(`Boolean(document.querySelector('ul[aria-label="技能列表"]'))`), '技能列表')
+  assert.equal(
+    await evaluate(`document.querySelector('section[aria-label="技能管理"] [aria-label="资源类型"]') === null`),
+    true,
+  )
+  assert.equal(
+    await evaluate(`document.querySelector('section[aria-label="技能管理"]').textContent.includes("安装插件包")`),
+    false,
+  )
   const skillEntries = await evaluate(
-    `[...document.querySelectorAll('ul[aria-label="技能与扩展"] li')].map(node => node.textContent).join("\\n")`,
+    `[...document.querySelectorAll('ul[aria-label="技能列表"] li')].map(node => node.textContent).join("\\n")`,
   )
   // 校验 Desktop 应用数据目录中的两个验收技能都在列表中。
   assert.equal(skillEntries.includes('TypeScript 技能') && skillEntries.includes('review-code'), true)
   assert.equal(
-    await evaluate(`document.querySelector('ul[aria-label="技能与扩展"]').textContent.includes("TypeScript 技能")`),
+    await evaluate(`document.querySelector('ul[aria-label="技能列表"]').textContent.includes("TypeScript 技能")`),
     true,
   )
   assert.equal(
     await evaluate(
-      `document.querySelector('ul[aria-label="技能与扩展"]').textContent.includes("/skills/typescript/SKILL.md")`,
+      `document.querySelector('ul[aria-label="技能列表"]').textContent.includes("/skills/typescript/SKILL.md")`,
     ),
     false,
   )
-  await click('button[aria-label="查看资源：typescript"]')
-  await waitFor(() => evaluate(`Boolean(document.querySelector('section[aria-label="资源中心"]'))`), '技能详情')
+  await click('button[aria-label="查看技能：typescript"]')
+  await waitFor(() => evaluate(`Boolean(document.querySelector('section[aria-label="技能管理"]'))`), '技能详情')
   assert.equal(
     await evaluate(
-      `document.querySelector('section[aria-label="资源中心"]').textContent.includes("/skills/typescript/SKILL.md")`,
+      `document.querySelector('section[aria-label="技能管理"]').textContent.includes("/skills/typescript/SKILL.md")`,
     ),
     true,
   )
-  await clickText('返回资源')
+  await clickText('返回技能')
   assert.equal(
-    await evaluate(`document.querySelector('ul[aria-label="技能与扩展"]').textContent.includes("review-code")`),
+    await evaluate(`document.querySelector('ul[aria-label="技能列表"]').textContent.includes("review-code")`),
     true,
   )
   await capture('settings-skills')
@@ -564,36 +962,22 @@ async function run(window) {
   await setDraft('桌面验收')
   await waitFor(() => evaluate('!document.querySelector("button[aria-label=发送消息]").disabled'), '发送按钮启用')
   const editingKey = await evaluate('window.piMemeClient.getConnection().then(connection => connection.sessionKey)')
-  await evaluate(`window.piMemeClient.setAccessMode(${JSON.stringify(editingKey)}, 'full-access')`)
-  await waitFor(
-    () => evaluate('window.piMemeClient.getConnection().then(connection => connection.accessMode === "full-access")'),
-    '完全权限加载用户扩展',
-  )
+  await evaluate(`(async () => {
+    const session = await window.piMemeClient.resolveAppSession(${JSON.stringify(editingKey)});
+    await window.smokeControl('sessions.configure',[{hostId:session.hostId,sessionId:session.sessionId},{agentPlugins:[${JSON.stringify(smokePluginId)}],accessMode:'full-access'}],true);
+  })()`)
   await click('button[aria-label="发送消息"]')
-  await waitTitle('确认')
+  await waitTitle('确认继续执行')
   assert.equal(await evaluate(`document.querySelector(${JSON.stringify(model)}).disabled`), true)
   assert.equal(
     await evaluate('document.querySelector("[contenteditable=true][aria-label=消息]").isContentEditable'),
     true,
   )
   assert.equal(
-    await evaluate('document.querySelector("[aria-label=扩展通知]")?.textContent.includes("Pi 扩展通知")'),
+    await evaluate('document.querySelector("[aria-label=扩展通知]")?.textContent.includes("App 插件通知")'),
     true,
   )
   assert.equal(await evaluate('document.querySelector("[aria-label=扩展状态]").textContent.includes("准备完成")'), true)
-  assert.equal(
-    await evaluate('document.querySelector("[aria-label=输入框上方扩展挂件]").textContent.includes("顶部提示")'),
-    true,
-  )
-  assert.equal(
-    await evaluate('document.querySelector("[aria-label=输入框下方扩展挂件]").textContent.includes("底部提示")'),
-    true,
-  )
-  assert.equal(await evaluate('document.title'), 'Pi SDK 验收')
-  assert.equal(
-    await evaluate('document.querySelector("[contenteditable=true][aria-label=消息]").textContent'),
-    '扩展预填',
-  )
   const imagePart = 'snapshot.messages.flatMap(message => Array.isArray(message.content) ? message.content : [])'
   assert.equal(
     await evaluate(
@@ -608,41 +992,40 @@ async function run(window) {
     { type: 'image', data: png, mimeType: 'image/png' },
   )
 
-  await clickText('确认', dialog)
+  const answerOption = (text) =>
+    evaluate(
+      `(() => {const option = [...document.querySelector(${JSON.stringify(dialog)}).querySelectorAll('[role=radio]')].find(node => node.textContent.includes(${JSON.stringify(text)})); if (!option) throw new Error('找不到回答选项'); option.click()})()`,
+    )
+  const answerText = (text) =>
+    evaluate(
+      `(() => {const input = document.querySelector(${JSON.stringify(dialog)}).querySelector('textarea[aria-label="自行撰写回复"]'); Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype,'value').set.call(input,${JSON.stringify(text)});input.dispatchEvent(new Event('input',{bubbles:true}))})()`,
+    )
+  await answerOption('确认')
+  await clickText('下一步', dialog)
   await waitTitle('选择环境')
-  await choose('[role="combobox"][aria-label="扩展选择项"]', '生产')
-  await clickText('完成', dialog)
+  await answerOption('生产')
+  await clickText('下一步', dialog)
   await waitTitle('可取消输入')
-  await clickText('取消', dialog)
+  await clickText('跳过', dialog)
   await waitTitle('输入名称')
-  await evaluate(
-    `(() => { const input = document.querySelector(${JSON.stringify(dialog)}).querySelector('input'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'Pi 桌面端'); input.dispatchEvent(new Event('input', { bubbles: true })); })()`,
-  )
-  await clickText('完成', dialog)
+  await answerText('Pi 桌面端')
+  await clickText('下一步', dialog)
   await waitTitle('编辑内容')
-  assert.equal(
-    await evaluate(`document.querySelector(${JSON.stringify(dialog)}).querySelector('.cm-content').textContent`),
-    '扩展预填',
-  )
-  await evaluate(
-    `(() => { const editor = document.querySelector(${JSON.stringify(dialog)}).querySelector('.cm-content'); editor.focus(); document.execCommand('selectAll'); document.execCommand('insertText', false, '扩展编辑结果'); })()`,
-  )
+  await answerText('App 编辑结果')
+  await clickText('发送', dialog)
+  await waitFor(() => evaluate(`!document.querySelector(${JSON.stringify(dialog)})`), 'App 提问回答完成')
   await waitFor(
     () =>
       evaluate(
-        `document.querySelector(${JSON.stringify(dialog)}).querySelector('.cm-content').textContent === '扩展编辑结果'`,
+        'window.piMemeClient.getSnapshot().then(snapshot => snapshot.messages.some(message => message.role === "assistant" && message.content.some(part => part.type === "text" && part.text.includes("App 编辑结果"))))',
       ),
-    '编辑器输入',
+    'App 回答回传模型',
   )
-  await clickText('完成', dialog)
-  await waitFor(() => evaluate(`!document.querySelector(${JSON.stringify(dialog)})`), '扩展队列清空')
-  await waitFor(
-    () =>
-      evaluate(
-        'window.piMemeClient.getSnapshot().then(snapshot => snapshot.messages.some(message => message.role === "assistant" && message.content.some(part => part.type === "text" && part.text.includes("扩展编辑结果"))))',
-      ),
-    '编辑器响应回传模型',
+  const appResult = await evaluate(
+    'window.piMemeClient.getSnapshot().then(snapshot => snapshot.messages.find(message => message.role === "custom" && message.customType === "smoke-dialog-result"))',
   )
+  assert.equal(appResult.source.ownerId, smokePluginId)
+  assert.equal(typeof appResult.source.generation, 'number')
 
   await assertImageLoaded('img[alt=用户附件图片]', '消息图片缩略图')
   await evaluate('document.querySelector("img[alt=用户附件图片]").closest("button").click()')
@@ -812,28 +1195,56 @@ async function run(window) {
     '长对话',
   )
   await waitFor(() => evaluate(`!document.querySelector(${JSON.stringify(model)}).disabled`), '长对话结束')
+  const scrollGeometry = await evaluate(`(() => {
+    const container = document.querySelector('[aria-label="对话消息流"]');
+    const parents = []; let node = container;
+    while (node && parents.length < 6) {
+      parents.push({tag:node.tagName,id:node.id,label:node.getAttribute('aria-label'),height:node.getBoundingClientRect().height,minHeight:getComputedStyle(node).minHeight});
+      node = node.parentElement;
+    }
+    return {scrollHeight:container.scrollHeight,clientHeight:container.clientHeight,viewportHeight:window.innerHeight,parents};
+  })()`)
+  assert.ok(
+    scrollGeometry.scrollHeight > scrollGeometry.clientHeight,
+    `长对话在消息容器内滚动：${JSON.stringify(scrollGeometry)}`,
+  )
   await evaluate(
     '(() => { const container = document.querySelector("[aria-label=对话消息流]"); container.scrollTo({ top: 0, behavior: "instant" }); container.dispatchEvent(new Event("scroll")); })()',
   )
   await waitFor(() => evaluate('Boolean(document.querySelector("button[aria-label=滚动到底部]"))'), '回到底部按钮')
   await click('button[aria-label="滚动到底部"]')
   await waitFor(() => evaluate('!document.querySelector("button[aria-label=滚动到底部]")'), '回到底部')
+  console.log('桌面验收阶段通过：模型、MCP、设置、右侧标签、App 交互、流式消息与长对话滚动')
   await require('./collaboration-plan-smoke.cjs')(window, waitFor, directory, path.join(root, 'out', 'desktop-smoke'))
+  console.log('桌面验收阶段通过：子代理协作与计划')
   await require('./extensions-smoke.cjs')(window, waitFor, directory, path.join(root, 'out', 'desktop-smoke'))
   await require('./agent-access-smoke.cjs')(window, waitFor, directory)
-  await require('./lazy-sessions-smoke.cjs')(window, waitFor, directory)
-  await require('./project-selector-smoke.cjs')(window, waitFor, directory, path.join(root, 'out', 'desktop-smoke'))
-  await require('./sidebar-menu-smoke.cjs')(window, waitFor, directory, path.join(root, 'out', 'desktop-smoke'))
+  console.log('桌面验收阶段通过：App 插件与会话权限')
+  await require('./lazy-sessions-smoke.cjs')(window, waitFor, directory, gitDirectory)
+  await require('./project-selector-smoke.cjs')(
+    window,
+    waitFor,
+    directory,
+    path.join(root, 'out', 'desktop-smoke'),
+    gitDirectory,
+  )
+  await require('./sidebar-menu-smoke.cjs')(
+    window,
+    waitFor,
+    directory,
+    path.join(root, 'out', 'desktop-smoke'),
+    gitDirectory,
+  )
   await require('./background-sessions-smoke.cjs')(window, waitFor, gitDirectory)
   await require('./session-switch-smoke.cjs')(window.webContents.getURL(), waitFor)
   await require('./multi-service-smoke.cjs')(window.webContents.getURL(), waitFor)
   console.log(
-    '桌面验收通过：Radix 模型与主题、侧栏、输入法、图片、扩展弹窗与编辑器、工作过程折叠、命令补全、队列、停止、新建会话、正式流式消息与滚动',
+    '桌面验收通过：Radix 模型与主题、侧栏、输入法、图片、App 插件多题交互、工作过程折叠、命令补全、队列、停止、新建会话、正式流式消息与滚动',
   )
 }
 
 ;(async () => {
-  gitDirectory = path.join(directory, 'git-project')
+  gitDirectory = fsSync.realpathSync(await fs.mkdtemp(path.join(os.tmpdir(), 'pi-desktop-smoke-project-')))
   await fs.mkdir(path.join(gitDirectory, 'src'), { recursive: true })
   await fs.mkdir(path.join(gitDirectory, 'reference-fixture'))
   await fs.writeFile(path.join(gitDirectory, 'README.md'), '# 验收项目\n')
@@ -842,7 +1253,7 @@ async function run(window) {
   await fs.writeFile(path.join(gitDirectory, 'reference-fixture', 'nested-file.ts'), 'export const nested = true\n')
   execFileSync('git', ['init', '--quiet', gitDirectory])
   await fs.mkdir(path.join(root, 'out', 'desktop-smoke'), { recursive: true })
-  const { startSmokeAgent, smokeExtension } = await import('./smoke-agent.mjs')
+  const { startSmokeAgent } = await import('./smoke-agent.mjs')
   smokeAgent = await startSmokeAgent(directory, {
     queueReview: process.env.PI_DESKTOP_QUEUE_REVIEW === '1',
     queueSmoke: process.env.PI_DESKTOP_QUEUE_SMOKE_ONLY === '1',
@@ -861,11 +1272,20 @@ async function run(window) {
   }
   await fs.mkdir(path.join(directory, 'secure'), { recursive: true })
   await fs.writeFile(path.join(directory, 'auth.json'), JSON.stringify(modelCredentials), { mode: 0o600 })
-  const extensionsDirectory = path.join(directory, 'extensions')
-  await fs.mkdir(extensionsDirectory, { recursive: true })
+  const appDirectory = path.join(directory, 'smoke-app')
+  await fs.mkdir(appDirectory, { recursive: true })
+  await fs.writeFile(
+    path.join(appDirectory, 'package.json'),
+    JSON.stringify({
+      name: smokePluginId,
+      version: '1.0.0',
+      type: 'module',
+      piMeme: { sdkVersion: 2, agent: 'dist/agent.js' },
+    }),
+  )
   await require('esbuild').build({
-    entryPoints: [smokeExtension],
-    outfile: path.join(extensionsDirectory, 'smoke-extension.js'),
+    entryPoints: [path.join(root, '..', '..', 'tests', 'fixtures', 'smoke-app-agent.mjs')],
+    outfile: path.join(appDirectory, 'dist', 'agent.js'),
     bundle: true,
     platform: 'node',
     format: 'esm',
@@ -917,28 +1337,82 @@ async function run(window) {
         console.log(`人工验收窗口已启动，临时数据目录：${directory}`)
         return
       }
-      const task =
-        process.env.PI_DESKTOP_PAUSE_SMOKE_ONLY === '1'
-          ? require('./pause-display-smoke.cjs')(
-              window,
-              waitFor,
-              directory,
-              path.join(root, 'out', 'desktop-smoke'),
-              smokeAgent,
-            )
-          : process.env.PI_DESKTOP_QUEUE_SMOKE_ONLY === '1'
-            ? require('./queue-composer-smoke.cjs')(
+      const task = prepareSmokeApp(
+        window,
+        process.env.PI_DESKTOP_APP_PLUGIN_SMOKE_ONLY !== '1' && process.env.PI_DESKTOP_SIDEBAR_SMOKE_ONLY !== '1',
+      ).then(() =>
+        process.env.PI_DESKTOP_APP_PLUGIN_SMOKE_ONLY === '1'
+          ? runAppPlugins(window)
+          : process.env.PI_DESKTOP_SIDEBAR_SMOKE_ONLY === '1'
+            ? require('./sidebar-menu-smoke.cjs')(
                 window,
                 waitFor,
                 directory,
                 path.join(root, 'out', 'desktop-smoke'),
-                smokeAgent,
+                gitDirectory,
               )
-            : run(window)
+            : process.env.PI_DESKTOP_ACCESS_SMOKE_ONLY === '1'
+              ? (async () => {
+                  const evaluate = (code) => window.webContents.executeJavaScript(code)
+                  await evaluate(`window.piMemeClient.chooseDirectory(${JSON.stringify(gitDirectory)})`)
+                  const key = await evaluate('window.piMemeClient.getConnection().then(value=>value.sessionKey)')
+                  await evaluate(`window.piMemeClient.setModel(${JSON.stringify(key)},{provider:'fake',id:'first'})`)
+                  await evaluate(`window.piMemeClient.prompt(${JSON.stringify(key)},'权限验收前置会话')`)
+                  await waitFor(
+                    () =>
+                      evaluate(
+                        'window.piMemeClient.getSnapshot().then(value=>Boolean(value.connection.sessionFile)&&!value.state.isStreaming)',
+                      ),
+                    '权限验收前置会话完成',
+                  )
+                  await require('./agent-access-smoke.cjs')(window, waitFor, directory)
+                })()
+              : process.env.PI_DESKTOP_SESSION_SMOKE_ONLY === '1'
+                ? (async () => {
+                    await require('./session-switch-smoke.cjs')(window.webContents.getURL(), waitFor)
+                    console.log('会话专项通过：并发会话切换')
+                    await require('./multi-service-smoke.cjs')(window.webContents.getURL(), waitFor)
+                    console.log('会话专项通过：多服务设备隔离')
+                    const evaluate = (code) => window.webContents.executeJavaScript(code)
+                    const firstDirectory = path.join(gitDirectory, 'background-first')
+                    await fs.mkdir(firstDirectory)
+                    await evaluate(`window.piMemeClient.chooseDirectory(${JSON.stringify(firstDirectory)})`)
+                    const key = await evaluate('window.piMemeClient.getConnection().then(value=>value.sessionKey)')
+                    await evaluate(`window.piMemeClient.setModel(${JSON.stringify(key)},{provider:'fake',id:'first'})`)
+                    await require('./background-sessions-smoke.cjs')(window, waitFor, gitDirectory)
+                    console.log('会话专项通过：后台任务与路由')
+                  })()
+                : process.env.PI_DESKTOP_PAUSE_SMOKE_ONLY === '1'
+                  ? require('./pause-display-smoke.cjs')(
+                      window,
+                      waitFor,
+                      directory,
+                      path.join(root, 'out', 'desktop-smoke'),
+                      smokeAgent,
+                    )
+                  : process.env.PI_DESKTOP_QUEUE_SMOKE_ONLY === '1'
+                    ? require('./queue-composer-smoke.cjs')(
+                        window,
+                        waitFor,
+                        directory,
+                        path.join(root, 'out', 'desktop-smoke'),
+                        smokeAgent,
+                      )
+                    : run(window),
+      )
       task
         .catch(async (error) => {
           failed = true
           console.error(error)
+          if (process.env.PI_DESKTOP_SIDEBAR_SMOKE_ONLY === '1')
+            console.error(
+              '侧栏窗口焦点诊断',
+              JSON.stringify({
+                nativeFocus: window.isFocused(),
+                webContentsFocus: window.webContents.isFocused(),
+                blurCount: await window.webContents.executeJavaScript('window.sidebarWindowBlurCount'),
+              }),
+            )
           await fs.writeFile(
             path.join(root, 'out', 'desktop-smoke', 'failed.png'),
             (await window.webContents.capturePage()).toPNG(),
@@ -954,9 +1428,11 @@ async function run(window) {
   app.on('will-quit', (event) => {
     event.preventDefault()
     smokeAgent?.releaseQueueReply()
-    void Promise.all([smokeAgent?.provider.close(), fs.rm(directory, { recursive: true, force: true })]).finally(() =>
-      app.exit(failed ? 1 : 0),
-    )
+    void Promise.all([
+      smokeAgent?.provider.close(),
+      fs.rm(directory, { recursive: true, force: true }),
+      fs.rm(gitDirectory, { recursive: true, force: true }),
+    ]).finally(() => app.exit(failed ? 1 : 0))
   })
   const main =
     process.env.PI_DESKTOP_PACKAGED_SMOKE === '1'

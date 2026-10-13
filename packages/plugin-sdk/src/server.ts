@@ -1,3 +1,4 @@
+import type { HostApi } from '@pi-meme/contracts/app-host'
 import type { Disposer } from './scope'
 
 export type PluginHandler = (...args: unknown[]) => unknown | Promise<unknown>
@@ -8,6 +9,7 @@ export type ServerPluginContext = {
   pluginId: string
   generation: number
   dataDirectory: string
+  readonly host: HostApi
   services: PluginServices
   registerHandlers: (handlers: PluginHandlers) => Disposer
   provide: <T>(name: string, service: T) => Disposer

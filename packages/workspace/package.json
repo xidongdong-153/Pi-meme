@@ -19,8 +19,6 @@
     "./server/project-store": "./src/server/project-store.ts",
     "./ui/project-selector": "./src/ui/project-selector.tsx",
     "./server/entry": "./src/server/entry.ts",
-    "./ui/plugin": "./src/ui/plugin.ts",
-    "./ui/entry": "./src/ui/entry.tsx",
     "./ui/sidebar/sidebar-menus": "./src/ui/sidebar/sidebar-menus.tsx",
     "./ui/sidebar/sidebar-model": "./src/ui/sidebar/sidebar-model.ts",
     "./ui/sidebar/sidebar-controls": "./src/ui/sidebar/sidebar-controls.tsx",
@@ -46,9 +44,8 @@
     "react": "^19.3.0"
   },
   "piMeme": {
-    "sdkVersion": 1,
+    "sdkVersion": 2,
     "server": "dist/server/chord-facets.json",
-    "ui": "dist/ui/entry.js",
     "requires": [
       "host.workspace"
     ]

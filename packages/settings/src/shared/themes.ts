@@ -1,4 +1,4 @@
-import type { FontStyle, Theme, ThemeColors } from '@pi-meme/contracts/settings'
+import type { FontStyle, Theme, ThemeColors, ThemeTokens, ThemeBackground } from '@pi-meme/contracts/settings'
 
 const fonts = {
   ui: '-apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif',
@@ -207,6 +207,61 @@ export const builtinThemes: Theme[] = [
 function object(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
 }
+export function parseThemeTokens(value: unknown): ThemeTokens {
+  if (!object(value) || Object.keys(value).some((key) => !['spacing', 'radius', 'surfaceOpacity'].includes(key)))
+    throw new Error('主题 tokens 只支持 spacing、radius 和 surfaceOpacity')
+  const tokens = { spacing: 1, radius: 8, surfaceOpacity: 1, ...value }
+  for (const [key, minimum, maximum] of [
+    ['spacing', 0.5, 2],
+    ['radius', 0, 24],
+    ['surfaceOpacity', 0.4, 1],
+  ] as const) {
+    const number = tokens[key]
+    if (typeof number !== 'number' || !Number.isFinite(number) || number < minimum || number > maximum)
+      throw new Error(`主题 ${key} 必须在 ${minimum} 到 ${maximum} 之间`)
+  }
+  return tokens as ThemeTokens
+}
+function parseBackground(value: unknown): ThemeBackground {
+  if (
+    !object(value) ||
+    Object.keys(value).some((key) => !['image', 'area', 'fit', 'position', 'opacity', 'overlay', 'blur'].includes(key))
+  )
+    throw new Error('主题背景字段无效，不接受 URL、CSS 或脚本')
+  const background = {
+    image: value.image,
+    area: 'app',
+    fit: 'cover',
+    position: 'center',
+    opacity: 0.25,
+    overlay: '#18181a',
+    blur: 0,
+    ...value,
+  }
+  if (
+    typeof background.image !== 'string' ||
+    !/\.(?:png|jpe?g|webp|avif)$/i.test(background.image) ||
+    background.image.startsWith('/') ||
+    /[\\:%?#]/.test(background.image) ||
+    Array.from(background.image).some((character) => character.charCodeAt(0) < 32) ||
+    background.image.split('/').some((part) => !part || part === '.' || part === '..') ||
+    !['app', 'workspace', 'sidebar'].includes(String(background.area)) ||
+    !['cover', 'contain'].includes(String(background.fit)) ||
+    !['center', 'top', 'bottom'].includes(String(background.position)) ||
+    typeof background.overlay !== 'string' ||
+    !/^#[0-9a-f]{6}$/i.test(background.overlay) ||
+    typeof background.opacity !== 'number' ||
+    !Number.isFinite(background.opacity) ||
+    background.opacity < 0 ||
+    background.opacity > 1 ||
+    typeof background.blur !== 'number' ||
+    !Number.isFinite(background.blur) ||
+    background.blur < 0 ||
+    background.blur > 32
+  )
+    throw new Error('主题背景需要包内图片、合法显示区域和有效的透明度及模糊值')
+  return background as ThemeBackground
+}
 export function parseTheme(value: unknown): Theme {
   if (
     !object(value) ||
@@ -218,6 +273,7 @@ export function parseTheme(value: unknown): Theme {
   ) {
     throw new Error('主题需要有效的 id、name 和 appearance')
   }
+  if (value.css !== undefined || value.script !== undefined) throw new Error('主题只接受结构化 JSON，不执行 CSS 或脚本')
   const base = builtinThemes.find((theme) => theme.appearance === value.appearance)!
   if (value.colors !== undefined && !object(value.colors)) throw new Error('colors 必须是对象')
   const colors = { ...base.colors }
@@ -253,5 +309,14 @@ export function parseTheme(value: unknown): Theme {
       fontStyles[key as keyof typeof fontStyles] = style as FontStyle
     }
   }
-  return { fontStyles, id: value.id, name: value.name, appearance: value.appearance, colors, fonts: resolvedFonts }
+  return {
+    fontStyles,
+    id: value.id,
+    name: value.name,
+    appearance: value.appearance,
+    colors,
+    fonts: resolvedFonts,
+    ...(value.tokens !== undefined ? { tokens: parseThemeTokens(value.tokens) } : {}),
+    ...(value.background !== undefined ? { background: parseBackground(value.background) } : {}),
+  }
 }

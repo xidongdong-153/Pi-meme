@@ -12,7 +12,7 @@
 
   --background: var(--color-background);
   --foreground: var(--color-text);
-  --card: var(--color-surface);
+  --card: color-mix(in srgb, var(--color-surface) var(--theme-surface-opacity, 100%), transparent);
   --card-foreground: var(--color-text);
   --popover: var(--color-surface);
   --popover-foreground: var(--color-text);
@@ -33,12 +33,12 @@
 
   --font-ui: -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif;
   --font-code: ui-monospace, SFMono-Regular, Menlo, monospace;
-  --space-1: 4px;
-  --space-2: 8px;
-  --space-3: 12px;
-  --space-4: 16px;
-  --space-5: 24px;
-  --space-6: 32px;
+  --space-1: calc(4px * var(--theme-space-scale, 1));
+  --space-2: calc(8px * var(--theme-space-scale, 1));
+  --space-3: calc(12px * var(--theme-space-scale, 1));
+  --space-4: calc(16px * var(--theme-space-scale, 1));
+  --space-5: calc(24px * var(--theme-space-scale, 1));
+  --space-6: calc(32px * var(--theme-space-scale, 1));
   --radius-small: 7px;
   --radius-large: 12px;
   --text-small: 12px;
@@ -66,8 +66,37 @@
 }
 
 .appearance-sidebar {
-  background: var(--color-surface) !important;
+  background: color-mix(in srgb, var(--color-surface) var(--theme-surface-opacity, 100%), transparent) !important;
   backdrop-filter: none;
+}
+
+:root[data-theme-background='app'] .theme-app,
+:root[data-theme-background='workspace'] .theme-workspace,
+:root[data-theme-background='sidebar'] .appearance-sidebar {
+  isolation: isolate;
+  position: relative;
+  background-color: var(--theme-background-overlay);
+}
+
+:root[data-theme-background='app'] .theme-app::before,
+:root[data-theme-background='workspace'] .theme-workspace::before,
+:root[data-theme-background='sidebar'] .appearance-sidebar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background-image: var(--theme-background-image);
+  background-size: var(--theme-background-fit);
+  background-position: var(--theme-background-position);
+  background-repeat: no-repeat;
+  opacity: var(--theme-background-opacity);
+  filter: blur(var(--theme-background-blur));
+}
+
+:root[data-theme-background='app'] .theme-app .bg-background,
+:root[data-theme-background='workspace'] .theme-workspace .bg-background {
+  background-color: transparent;
 }
 
 :root[data-translucent-sidebar='true'] .appearance-sidebar {

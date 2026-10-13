@@ -16,7 +16,7 @@ const businessPackages = new Set(
     'models',
     'settings',
     'resources',
-    'pi-extensions',
+    'interaction',
     'subagents',
     'mcp',
     'codemode',

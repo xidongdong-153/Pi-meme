@@ -7,7 +7,7 @@ export async function createPlugin(directory: string, name: string) {
     name,
     version: '0.1.0',
     piMeme: {
-      sdkVersion: 1,
+      sdkVersion: 2,
       server: 'dist/server/chord-facets.json',
       agent: 'dist/agent/entry.js',
       ui: 'dist/ui/entry.js',
@@ -24,10 +24,8 @@ export async function createPlugin(directory: string, name: string) {
         type: 'module',
         peerDependencies: {
           '@pi-meme/plugin-sdk': '^0.1.0',
-          '@earendil-works/pi-coding-agent': '1.1.0',
           react: '^19.3.0',
         },
-        dependencies: { typebox: '1.3.27' },
         devDependencies: { '@pi-meme/plugin-sdk': sdkLink },
       },
       null,
@@ -36,24 +34,26 @@ export async function createPlugin(directory: string, name: string) {
     'src/server/entry.ts': `import type { ServerPluginContext } from '@pi-meme/plugin-sdk/server'
 
 export function create(context: ServerPluginContext) {
-  context.registerHandlers({ [context.pluginId + ':time']: () => new Date().toISOString() })
+  context.registerHandlers({
+    [context.pluginId + ':time']: () => new Date().toISOString(),
+    [context.pluginId + ':projects']: () => context.host.projects.list(),
+  })
 }
 `,
-    'src/agent/entry.ts': `import type { ExtensionAPI } from '@earendil-works/pi-coding-agent'
-import { Type } from 'typebox'
+    'src/agent/entry.ts': `import type { AgentPluginContext } from '@pi-meme/plugin-sdk/agent'
 
-export default function extension(pi: ExtensionAPI) {
-  pi.registerTool({
+export function activate(context: AgentPluginContext) {
+  context.tools.register({
     name: '${name.replace(/[^a-z0-9]/g, '_')}_time',
-    label: '读取当前时间',
+    title: '读取当前时间',
     description: '返回当前 UTC 时间。',
-    parameters: Type.Object({}),
-    async execute() {
-      return { content: [{ type: 'text', text: new Date().toISOString() }], details: {} }
+    parameters: { type: 'object', properties: {}, additionalProperties: false },
+    execute() {
+      return { text: new Date().toISOString() }
     },
   })
-  pi.on('session_start', async (_event, context) => {
-    context.ui.setStatus('${name}:time', '时间工具已就绪')
+  context.hooks.on('sessionStart', () => {
+    context.interaction.setStatus('time', '时间工具已就绪')
   })
 }
 `,
@@ -69,9 +69,11 @@ function ClockPage({ readTime }: { readTime: () => Promise<string> }) {
 }
 
 export function activate(context: UiPluginContext) {
-  return context.contribute({
+  return context.panels.register({
     id: context.pluginId + ':clock',
-    slot: 'page',
+    location: 'right',
+    scope: 'app',
+    icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></svg>,
     title: '时间工具',
     render: () => <ClockPage readTime={() => context.call<string>(context.pluginId + ':time')} />,
   })
@@ -79,7 +81,7 @@ export function activate(context: UiPluginContext) {
 `,
     'README.md': `# ${name}
 
-\`src/agent/entry.ts\` 注册 Pi 工具和原生事件；\`src/ui/entry.tsx\` 注册页面；\`src/server/entry.ts\` 注册 Host 操作。
+\`src/agent/entry.ts\` 注册 App 工具和生命周期事件；\`src/ui/entry.tsx\` 注册页面；\`src/server/entry.ts\` 注册 Host 操作。
 
 SDK 开发依赖已链接到生成模板时使用的本地 SDK。移动开发目录后，重新配置 package.json 的 SDK link 路径。
 

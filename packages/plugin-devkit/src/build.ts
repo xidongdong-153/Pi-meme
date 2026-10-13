@@ -29,7 +29,7 @@ export default defineFacet({ id: ${JSON.stringify(`module:${manifest.name}`)}, s
           outdir: path.resolve(directory, 'dist/server'),
           workingDirectory: path.resolve(directory),
           platform: 'node',
-          external: ['@earendil-works/pi-coding-agent', '@earendil-works/pi-coding-agent/*'],
+          external: [],
           sourceMap: true,
         })
       } finally {
@@ -46,12 +46,10 @@ export default defineFacet({ id: ${JSON.stringify(`module:${manifest.name}`)}, s
       platform: kind === 'ui' ? 'browser' : 'node',
       target: kind === 'ui' ? 'es2022' : 'node22',
       jsx: 'automatic',
+      loader: { '.css': 'text' },
       sourcemap: true,
 
-      external:
-        kind === 'ui'
-          ? ['react', 'react-dom', 'react-dom/*', 'react/*']
-          : ['@earendil-works/pi-coding-agent', '@earendil-works/pi-coding-agent/*'],
+      external: kind === 'ui' ? ['react', 'react-dom', 'react-dom/*', 'react/*'] : [],
       absWorkingDir: path.resolve(directory),
       logLevel: 'silent',
     })

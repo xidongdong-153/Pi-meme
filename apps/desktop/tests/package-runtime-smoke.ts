@@ -5,13 +5,14 @@ import { get } from 'node:https'
 import { startHostServer } from '@pi-meme/host/server'
 import { once } from 'node:events'
 import { constants } from 'node:fs'
-import { access, mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
+import { access, mkdtemp, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
 import test from 'node:test'
+import type { AppHostCapabilities, AppProject, AppSession, TerminalSnapshot } from '@pi-meme/contracts/app-host'
 import type { PiSlashCommand } from '@pi-meme/contracts/pi'
 import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
 import { createDevkitAppPackage } from '../../../tests/fixtures/devkit-app'
@@ -38,6 +39,20 @@ async function runPackagedSmoke(mode: 'local' | 'recovery' | 'remote' | 'fresh',
   )
   assert.ok((await stat(esbuildBinary)).isFile(), '打包应用必须包含真实解包的esbuild二进制文件')
   await access(esbuildBinary, constants.X_OK)
+  const ptyDirectory = path.join(packagedApp, 'Contents/Resources/app.asar.unpacked/node_modules/node-pty')
+  const ptyCandidates = ['build/Release', 'build/Debug', `prebuilds/${process.platform}-${process.arch}`]
+  let ptyNativeDirectory: string | undefined
+  for (const relative of ptyCandidates) {
+    const directory = path.join(ptyDirectory, relative)
+    if ((await stat(path.join(directory, 'pty.node')).catch(() => undefined))?.isFile()) {
+      ptyNativeDirectory = directory
+      break
+    }
+  }
+  assert.ok(ptyNativeDirectory, '打包应用必须包含真实解包的 node-pty 原生模块')
+  const spawnHelper = path.join(ptyNativeDirectory, 'spawn-helper')
+  assert.ok((await stat(spawnHelper)).isFile(), '打包应用必须包含 node-pty spawn-helper')
+  await access(spawnHelper, constants.X_OK)
   const root = existingRoot ?? (await mkdtemp(path.join(tmpdir(), 'pi-meme-package-test-')))
   const fixture = await useFakeAgent(root, { reply: () => ({ text: '打包应用回复', delayMs: 100 }) })
   const dataRoot = path.join(root, 'userData')
@@ -201,31 +216,84 @@ async function runPackagedSmoke(mode: 'local' | 'recovery' | 'remote' | 'fresh',
       assert.equal(app.installed.status, 'active')
       assert.match(app.time, /^\d{4}-\d{2}-\d{2}T/)
       assert.match(app.reloadedTime, /^\d{4}-\d{2}-\d{2}T/)
-      const result = (await evaluate(`(async () => {
+      const legacy = (await evaluate(`(async () => {
         const call = async input => {
           const response = await fetch('/api/rpc', {method:'POST', headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({requestId:crypto.randomUUID(), clientId:'package-native-test', method:'resources:import', args:[input]})})
+            body:JSON.stringify({requestId:crypto.randomUUID(), clientId:'package-legacy-test', method:'resources:import', args:[input]})})
           return response.json()
         }
-        const imported = await call({kind:'pi-package', files:[
-          {path:'package.json', content:JSON.stringify({name:'packaged-esbuild-fixture', version:'1.0.0', pi:{extensions:['./extensions/index.ts']}})},
-          {path:'extensions/index.ts', content:"import { value } from './helpers/value'; export default function(pi) { pi.on('session_start', (_event, ctx) => ctx.ui.setStatus('packaged-fixture', value)) }"},
-          {path:'extensions/helpers/value.ts', content:"export const value: string = '打包原生扩展'"},
+        const piPackage = await call({kind:'pi-package', files:[
+          {path:'package.json', content:JSON.stringify({name:'packaged-legacy-fixture', version:'1.0.0', pi:{extensions:['./extensions/index.ts']}})},
+          {path:'extensions/index.ts', content:'export default function() {}'},
         ]})
-        const rejected = await call({kind:'extension', name:'packaged-missing-dependency', content:"import missing from 'pi-meme-fixture-missing-dependency'; export default () => missing()"})
-        return { imported, rejected }
+        const extension = await call({kind:'extension', name:'packaged-legacy-extension', content:'export default function() {}'})
+        return { piPackage, extension }
       })()`)) as {
-        imported: { result?: { items: Array<{ kind: string; owner: { name?: string } }> }; error?: unknown }
-        rejected: { error?: { message: string } }
+        piPackage: { result?: unknown; error?: { message: string } }
+        extension: { result?: unknown; error?: { message: string } }
       }
-      assert.equal(result.imported.error, undefined, JSON.stringify(result.imported.error))
-      assert.ok(
-        result.imported.result?.items.some(
-          (item) => item.kind === 'extension' && item.owner.name === 'packaged-esbuild-fixture',
-        ),
-        '实际打包Host通过esbuild校验并导入带相对TS依赖的原生扩展',
-      )
-      assert.match(result.rejected.error?.message ?? '', /pi-meme-fixture-missing-dependency/)
+      for (const rejected of [legacy.piPackage, legacy.extension]) {
+        assert.equal(rejected.result, undefined)
+        assert.match(rejected.error?.message ?? '', /资源导入类型无效/)
+      }
+      const terminalProjectDirectory = path.join(root, 'terminal-project')
+      await mkdir(terminalProjectDirectory)
+      const terminalInput = "printf '%s%s\\n' 'pi-meme-' 'packaged-pty-ready'\n"
+      const terminal = (await evaluate(`(async () => {
+        const control = async (method, args = [], write = false) => {
+          const response = await fetch('/api/control', {method:'POST', headers:{'Content-Type':'application/json'},
+            body:JSON.stringify({apiVersion:2, clientId:'package-terminal-test', method, args,
+              ...(write ? {idempotencyKey:crypto.randomUUID()} : {})})})
+          const value = await response.json()
+          if (!response.ok || value.error) throw new Error(JSON.stringify(value.error))
+          return value.result
+        }
+        const capabilities = await control('capabilities')
+        if (!capabilities.features.includes('terminal')) throw new Error('打包 Host 未启用终端能力')
+        const project = await control('projects.register', [{cwd:${JSON.stringify(terminalProjectDirectory)}}], true)
+        const projectRef = {hostId:project.hostId, projectId:project.projectId}
+        const session = await control('sessions.create', [{project:projectRef}], true)
+        const sessionRef = {hostId:session.hostId, sessionId:session.sessionId}
+        const opened = await control('terminal.open', [sessionRef, {command:'/bin/sh', cols:80, rows:24}], true)
+        const ref = {hostId:opened.hostId, terminalId:opened.terminalId}
+        let attached
+        try {
+          await control('terminal.input', [ref, ${JSON.stringify(terminalInput)}], true)
+          const deadline = Date.now() + 10000
+          while (Date.now() < deadline) {
+            attached = await control('terminal.attach', [ref])
+            if (attached.output.includes('pi-meme-packaged-pty-ready')) break
+            await new Promise(resolve => setTimeout(resolve, 50))
+          }
+          if (!attached?.output.includes('pi-meme-packaged-pty-ready')) throw new Error('打包终端未输出 printf 标记')
+        } finally {
+          await control('terminal.close', [ref], true)
+        }
+        const afterClose = await control('terminal.attach', [ref]).then(() => '', error => error.message)
+        return {capabilities, project, session, opened, attached, afterClose}
+      })()`)) as {
+        capabilities: AppHostCapabilities
+        project: AppProject
+        session: AppSession
+        opened: TerminalSnapshot
+        attached: TerminalSnapshot
+        afterClose: string
+      }
+      assert.equal(terminal.capabilities.apiVersion, 2)
+      assert.equal(terminal.project.hostId, terminal.capabilities.hostId)
+      assert.ok(terminal.project.projectId)
+      assert.equal(terminal.project.cwd, await realpath(terminalProjectDirectory))
+      assert.equal(terminal.session.hostId, terminal.project.hostId)
+      assert.equal(terminal.session.project?.projectId, terminal.project.projectId)
+      assert.ok(terminal.session.sessionId)
+      assert.equal(terminal.session.sessionFile, undefined, '空会话先保存稳定身份，首次消息后才绑定 Pi 文件')
+      assert.equal(terminal.opened.hostId, terminal.session.hostId)
+      assert.equal(terminal.opened.cwd, terminal.project.cwd)
+      assert.equal(terminal.attached.terminalId, terminal.opened.terminalId)
+      assert.equal(terminal.attached.exited, false)
+      assert.ok(terminal.attached.outputSequence > 0)
+      assert.match(terminal.attached.output, /pi-meme-packaged-pty-ready/)
+      assert.match(terminal.afterClose, /终端不存在或已释放/)
     }
     if (mode === 'remote') {
       const saved = await waitFor(async () => {

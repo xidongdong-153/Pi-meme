@@ -59,6 +59,15 @@ function createService(id) {
   }
   const bridge = {
     getConnection: async () => ({ ...connection }),
+    resolveAppSession: async (key) => ({
+      hostId: id,
+      sessionId: key,
+      project: connection.workspaceKind === 'project' ? { hostId: id, projectId: connection.cwd } : undefined,
+      cwd: connection.cwd,
+      createdAt: '',
+      configuration: { agentPlugins: [] },
+      status: 'idle',
+    }),
     getSnapshot: async () => snapshot(),
     getCommands: async () => {
       if (delayCommands)
@@ -105,7 +114,6 @@ function createService(id) {
       settings: { themeId: 'dark', sidebar },
       themes: [],
       themesDirectory: '/fixture/themes',
-      extensionsDirectory: '/fixture/extensions',
       errors: [],
     }),
     saveSidebarPreferences: async (patch) => {
@@ -120,6 +128,7 @@ function createService(id) {
     getModelConfig: async () => ({ path: '/fixture/models.json', revision: 'fixture-models', providers: [] }),
     getDefaultModel: async () => model,
     getGitEnvironment: async () => ({ cwd: '/same', root: '', dirty: false, branches: [] }),
+    getGitSnapshot: async () => ({ cwd: connection.cwd, files: [], insertions: 0, deletions: 0 }),
     selectWorkspace: select,
     newSession: async () =>
       connection.sessionFile

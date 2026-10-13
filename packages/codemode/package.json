@@ -5,8 +5,6 @@
   "type": "module",
   "exports": {
     "./server/entry": "./src/server/entry.ts",
-    "./ui/plugin": "./src/ui/plugin.ts",
-    "./ui/entry": "./src/ui/entry.tsx",
     "./agent/entry": "./src/agent/entry.ts",
     "./ui/tool-execution-settings": "./src/ui/tool-execution-settings.tsx"
   },
@@ -22,8 +20,7 @@
     "lucide-react": "^1.48.0"
   },
   "piMeme": {
-    "sdkVersion": 1,
-    "ui": "dist/ui/entry.js",
+    "sdkVersion": 2,
     "agent": "dist/agent/entry.js"
   },
   "peerDependencies": {

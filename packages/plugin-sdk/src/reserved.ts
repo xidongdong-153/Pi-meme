@@ -6,7 +6,7 @@ export const reservedPluginIds = [
   '@pi-meme/git',
   '@pi-meme/models',
   '@pi-meme/settings',
-  '@pi-meme/pi-extensions',
+  '@pi-meme/interaction',
   '@pi-meme/mcp',
   '@pi-meme/history',
   '@pi-meme/usage',
@@ -41,7 +41,11 @@ export function assertExternalPluginId(id: string) {
 
 export function assertExternalManifest(manifest: PluginManifest) {
   assertExternalPluginId(manifest.name)
+  for (const name of manifest.piMeme.requires ?? []) {
+    if (/^(?:host|agent)\./.test(name)) throw new Error(`外部插件不能调用内置装配服务：${name}；请使用 context.host`)
+  }
   for (const name of manifest.piMeme.provides ?? []) {
-    if ((reservedServiceNames as readonly string[]).includes(name)) throw new Error(`外部插件不能提供内置服务：${name}`)
+    if ((reservedServiceNames as readonly string[]).includes(name) || /^(?:host|agent)\./.test(name))
+      throw new Error(`外部插件不能提供内置服务：${name}`)
   }
 }

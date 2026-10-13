@@ -91,7 +91,7 @@ export function AgentAccessSelector({
         <SelectSeparator />
         <div className="space-y-1 px-2 py-2 text-xs text-muted-foreground">
           <div className="break-all">当前项目：{cwd}</div>
-          <div>受限模式不加载第三方 Pi 扩展</div>
+          <div>受限模式不加载外部 Agent 插件</div>
           {!supported && <div>{reason ?? '所属 Host 的受限权限沙箱不可用，请检查系统依赖后重启 Host。'}</div>}
         </div>
       </SelectContent>

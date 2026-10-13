@@ -1,0 +1,32 @@
+{
+  "name": "@pi-meme/theme-landscape",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "深色配色、山景背景与半透明界面。",
+  "scripts": {
+    "build": "tsx ../../packages/plugin-devkit/src/cli.ts validate .",
+    "validate": "tsx ../../packages/plugin-devkit/src/cli.ts validate .",
+    "pack": "tsx ../../packages/plugin-devkit/src/cli.ts pack . dist/plugin.pim"
+  },
+  "devDependencies": {
+    "@pi-meme/plugin-devkit": "workspace:*",
+    "@pi-meme/plugin-sdk": "workspace:*",
+    "typescript": "^5.9.3",
+    "tsx": "^4.23.15"
+  },
+  "piMeme": {
+    "sdkVersion": 2,
+    "display": {
+      "name": "山色主题"
+    },
+    "resources": {
+      "themes": [
+        "themes/landscape.json"
+      ],
+      "assets": [
+        "assets/landscape.png"
+      ]
+    }
+  }
+}

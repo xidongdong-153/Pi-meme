@@ -1,5 +1,5 @@
 import type { ResourceLoader, Skill } from '@earendil-works/pi-coding-agent'
-import type { ResourceItem, ResourceSnapshot } from '@pi-meme/contracts/resources'
+import type { ResourceSnapshot } from '@pi-meme/contracts/resources'
 
 export function snapshotSkills(snapshot?: ResourceSnapshot): Skill[] {
   return (snapshot?.skills ?? [])
@@ -18,10 +18,6 @@ export function snapshotSkills(snapshot?: ResourceSnapshot): Skill[] {
         origin: 'top-level' as const,
       },
     }))
-}
-
-export function approvedSnapshotExtensions(snapshot?: ResourceSnapshot): ResourceItem[] {
-  return (snapshot?.extensions ?? []).filter((item) => item.kind === 'extension' && item.enabled && !item.shadowedBy)
 }
 
 /** 保留 Pi 公开加载器；扩展返回的动态资源路径不能扩大 Host 清单。 */
@@ -45,7 +41,7 @@ export function freezeResourceLoader(
       const registered = new Set(snapshot?.skills.map((item) => item.path))
       const extra = (paths.skillPaths ?? []).filter((item) => !registered.has(item.path))
       if (extra.length)
-        report(`扩展动态技能路径未加载，请通过扩展中心登记：${extra.map((item) => item.path).join('、')}`)
+        report(`扩展动态技能路径未加载，请通过技能页面登记：${extra.map((item) => item.path).join('、')}`)
       if (paths.promptPaths?.length || paths.themePaths?.length)
         loader.extendResources({ promptPaths: paths.promptPaths, themePaths: paths.themePaths })
     },

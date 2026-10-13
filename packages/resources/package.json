@@ -6,9 +6,6 @@
   "exports": {
     "./server/entry": "./src/server/entry.ts",
     "./server/install-builtin-skills": "./src/server/install-builtin-skills.ts",
-    "./ui/plugin": "./src/ui/plugin.ts",
-    "./ui/entry": "./src/ui/entry.tsx",
-    "./ui/extensions-settings": "./src/ui/extensions-settings.tsx",
     "./agent/entry": "./src/agent/entry.ts",
     "./server/resource-store": "./src/server/resource-store.ts"
   },
@@ -32,9 +29,8 @@
     "react": "^19.3.0"
   },
   "piMeme": {
-    "sdkVersion": 1,
+    "sdkVersion": 2,
     "server": "dist/server/chord-facets.json",
-    "ui": "dist/ui/entry.js",
     "requires": [
       "host.resources"
     ],

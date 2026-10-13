@@ -37,8 +37,8 @@ const groups = [
   {
     label: '集成',
     sections: [
-      { id: 'plugins', label: '扩展', icon: Puzzle, description: '管理技能、Pi 扩展和应用插件。' },
-      { id: 'skills', label: '技能', icon: BookOpen, description: '创建、导入和管理技能，设置当前项目的调用方式。' },
+      { id: 'skills', label: '技能', icon: BookOpen, description: '导入、创建和编辑技能，设置设备或项目的调用方式。' },
+      { id: 'plugins', label: '插件', icon: Puzzle, description: '安装和更新 App 插件，查看能力并启停或卸载。' },
       { id: 'mcp', label: 'MCP', icon: Network, description: '管理 MCP 服务和授权。' },
     ],
   },
@@ -46,7 +46,7 @@ const groups = [
     label: '系统',
     sections: [
       { id: 'host', label: '远程', icon: Server, description: '添加、重试或移除远程服务。' },
-      { id: 'extensions', label: '开发者', icon: CodeXml, description: '查看 Pi 原生扩展目录和装载状态。' },
+      { id: 'developer', label: '开发者', icon: CodeXml, description: '查看插件恢复诊断。' },
       { id: 'general', label: '关于', icon: Info, description: '查看当前执行服务的 Pi 运行时。' },
     ],
   },
@@ -167,16 +167,6 @@ export function SettingsPage({
               <h2 className="text-3xl font-semibold tracking-tight">{section.label}</h2>
               <p className="mt-3 text-sm text-muted-foreground">{section.description}</p>
             </div>
-            {sectionId === 'plugins' && (
-              <div className="flex flex-wrap gap-2">
-                <Button variant="outline" onClick={() => navigate('skills')}>
-                  技能
-                </Button>
-                <Button variant="outline" onClick={() => navigate('mcp')}>
-                  MCP
-                </Button>
-              </div>
-            )}
             {renderContent(sectionId, navigate)}
           </FadeContent>
         </div>

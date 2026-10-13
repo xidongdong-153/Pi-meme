@@ -153,7 +153,7 @@ test('真实Worker运行和已提交队列固定完整旧修订，退役后从JS
       JSON.stringify({
         name: 'resource-only-app',
         version: '1.0.0',
-        piMeme: { sdkVersion: 1, ui: 'dist/ui.js', resources: { skills: ['skills/addon'] } },
+        piMeme: { sdkVersion: 2, ui: 'dist/ui.js', resources: { skills: ['skills/addon'] } },
       }),
     )
     await writeFile(path.join(app, 'dist/ui.js'), 'export function activate() {}')

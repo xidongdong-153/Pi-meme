@@ -37,7 +37,7 @@ export function WorkspaceContent({
 }) {
   const hasConversation = chat.messages.length > 0 || chat.live !== null || chat.running
   return (
-    <section className="relative flex flex-1 min-w-0 flex-col bg-background" aria-label="工作区">
+    <section className="relative flex flex-1 min-h-0 min-w-0 flex-col bg-background" aria-label="工作区">
       {notice}
       {hasConversation ? (
         <ErrorBoundary fallbackTitle="当前会话内容渲染失败，可尝试切换其他会话">{conversation}</ErrorBoundary>

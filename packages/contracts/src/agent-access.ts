@@ -12,7 +12,7 @@ export const agentAccessChoices = [
   {
     mode: 'full-access',
     label: '完全权限',
-    description: '允许修改项目外文件，并加载第三方 Pi 扩展。',
+    description: '允许修改项目外文件，并加载外部 Agent 插件。',
   },
 ] as const satisfies ReadonlyArray<{ mode: AgentAccessMode; label: string; description: string }>
 

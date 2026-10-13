@@ -96,7 +96,7 @@ export function AppHeader({
   }
 
   return (
-    <header className="flex h-10 items-center justify-between border-b border-border/70 pr-3 window-drag bg-background/80 backdrop-blur-md select-none shrink-0 z-30">
+    <header className="flex h-11 min-w-0 flex-1 items-center justify-between border-b border-border/70 pr-3 window-drag bg-background/80 backdrop-blur-md select-none z-30">
       <div className="flex h-full items-center min-w-0 flex-1">
         {/* 侧边栏对应顶部区域 */}
         <div
@@ -250,24 +250,26 @@ export function AppHeader({
           </Popover>
         </div>
 
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              onClick={onToggleRightPane}
-              aria-label={rightPaneOpen ? '收起右侧栏' : '展开右侧栏'}
-              aria-expanded={rightPaneOpen}
-              className={cn(
-                'size-7 text-muted-foreground hover:text-foreground',
-                rightPaneOpen && 'bg-secondary/70 text-foreground',
-              )}
-            >
-              {rightPaneOpen ? <PanelRightClose className="size-4" /> : <PanelRightOpen className="size-4" />}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">{rightPaneOpen ? '收起右侧栏' : '展开右侧栏'}</TooltipContent>
-        </Tooltip>
+        {!rightPaneOpen && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={onToggleRightPane}
+                aria-label={rightPaneOpen ? '收起右侧栏' : '展开右侧栏'}
+                aria-expanded={rightPaneOpen}
+                className={cn(
+                  'size-7 text-muted-foreground hover:text-foreground',
+                  rightPaneOpen && 'bg-secondary/70 text-foreground',
+                )}
+              >
+                {rightPaneOpen ? <PanelRightClose className="size-4" /> : <PanelRightOpen className="size-4" />}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">{rightPaneOpen ? '收起右侧栏' : '展开右侧栏'}</TooltipContent>
+          </Tooltip>
+        )}
       </div>
     </header>
   )

@@ -36,6 +36,21 @@ export type Theme = {
   colors: ThemeColors
   fonts: { ui: string; code: string; content?: string }
   fontStyles?: Partial<Record<FontRole, FontStyle>>
+  tokens?: ThemeTokens
+  background?: ThemeBackground
+  plugin?: { id: string; generation: number }
+}
+export type ThemeTokens = { spacing: number; radius: number; surfaceOpacity: number }
+export type ThemeBackground = {
+  image: string
+  area: 'app' | 'workspace' | 'sidebar'
+  fit: 'cover' | 'contain'
+  position: 'center' | 'top' | 'bottom'
+  opacity: number
+  overlay: string
+  blur: number
+  /** 由 Host 生成的认证资源地址，不从主题文件读取。 */
+  url?: string
 }
 export type ToolExecutionSettings = { codemodeEnabled: boolean; mcpEnabled: boolean }
 
@@ -67,6 +82,7 @@ export type SidebarPreferencesPatch = {
 }
 
 export type DesktopSettings = {
+  defaultAgentPlugins?: string[]
   sidebar?: SidebarPreferences
   codemodeEnabled?: boolean
   mcpEnabled?: boolean
@@ -82,7 +98,6 @@ export type SettingsSnapshot = {
   settings: DesktopSettings
   themes: Theme[]
   themesDirectory: string
-  extensionsDirectory: string
   errors: string[]
 }
 
@@ -93,6 +108,8 @@ export type AppearanceOverrides = {
   colors?: Partial<Pick<ThemeColors, 'background' | 'text' | 'accent'>>
   fonts?: Partial<Record<FontRole, string>>
   fontStyles?: Partial<Record<FontRole, FontStyle>>
+  tokens?: Partial<ThemeTokens>
+  background?: Partial<Pick<ThemeBackground, 'opacity' | 'blur'>>
 }
 export type AppearanceSettings = {
   mode: AppearanceMode

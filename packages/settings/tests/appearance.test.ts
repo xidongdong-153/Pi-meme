@@ -26,7 +26,6 @@ function snapshot(appearance: AppearanceSettings): SettingsSnapshot {
     themes: builtinThemes,
     errors: [],
     themesDirectory: '',
-    extensionsDirectory: '',
   }
 }
 test('旧主题按明暗迁移，新设置跟随系统，系统变化选择匹配模式', () => {

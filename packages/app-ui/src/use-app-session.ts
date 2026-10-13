@@ -16,7 +16,7 @@ import type { PiModel, PiSessionStats, PiSlashCommand, PiState, ThinkingLevel } 
 import { applyEvent as reduceEvent } from '@pi-meme/chat/ui/model/state'
 import type { ChatState } from '@pi-meme/chat/ui/model/types'
 import { useChatSession, type ComposerSnapshot } from '@pi-meme/chat/ui/use-chat-session'
-import { useExtensionUI } from '@pi-meme/pi-extensions/ui/use-extension-ui'
+import { useExtensionUI } from '@pi-meme/interaction/ui/use-extension-ui'
 import { useSessions } from '@pi-meme/workspace/ui/use-sessions'
 import { SessionSelection } from './session-selection'
 import { SnapshotSync } from './snapshot-sync'
@@ -32,7 +32,7 @@ export function useAppSession(
   }: {
     chatEnabled?: boolean
     workspaceEnabled?: boolean
-    onPlanSaved?: (document: PlanDocument) => void
+    onPlanSaved?: (document: PlanDocument, sessionKey: string | undefined) => void
   } = {},
 ) {
   const onPlanSavedRef = useRef(onPlanSaved)
@@ -342,7 +342,7 @@ export function useAppSession(
         if (known && known.revision >= event.document.revision) return
         setPlanDocuments((value) => [...value.filter((doc) => doc.id !== event.document.id), event.document])
         chatRef.current?.applyEvent(event)
-        onPlanSavedRef.current?.(event.document)
+        onPlanSavedRef.current?.(event.document, record.sessionKey)
         return
       }
       const cached = record.sessionKey && views.current.get(record.sessionKey)

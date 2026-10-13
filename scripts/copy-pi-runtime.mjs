@@ -15,6 +15,8 @@
 import fs from 'node:fs/promises'
 import { build } from 'esbuild'
 import path from 'node:path'
+import { createRequire } from 'node:module'
+import { prepareNodePty } from './prepare-node-pty.mjs'
 import { fileURLToPath } from 'node:url'
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
@@ -58,6 +60,12 @@ export async function copyPiRuntime(targetDir) {
     await fs.cp(source, target, { recursive: true, dereference: true, filter: entry.filter })
     copied.push(entry.name)
   }
+  const hostRequire = createRequire(path.join(repoRoot, 'packages/host/package.json'))
+  const ptyRoot = path.dirname(hostRequire.resolve('node-pty/package.json'))
+  const ptyTarget = path.join(targetDir, 'node-pty')
+  await fs.cp(ptyRoot, ptyTarget, { recursive: true, dereference: true, filter: copyFilter })
+  await prepareNodePty(ptyTarget)
+  copied.push('node-pty')
   const coreDirectory = path.join(targetDir, '@earendil-works/pi-agent-core')
   await build({
     entryPoints: [path.join(sourceRoot, '@earendil-works/pi-agent-core/dist/index.js')],

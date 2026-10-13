@@ -227,6 +227,12 @@ module.exports = async function sessionSwitchSmoke(url, waitFor) {
     console.log(
       '会话切换验收通过：跨项目保留输入与草稿、同项目复用连接、慢历史与迟到预览、连续点击、最后一次选择、上下文统计、取消与失败恢复、缺少统计、多种窗口宽度与长内容',
     )
+  } catch (cause) {
+    console.error(
+      '会话切换页面诊断',
+      await evaluate(`({url:location.href,fixture:Boolean(window.piMemeTestBridge),text:document.body.textContent})`),
+    )
+    throw cause
   } finally {
     window.destroy()
   }

@@ -87,7 +87,7 @@ test('异步资源和租约只初始化一次；停止等待索引时取消启�
   }
 })
 
-test('仓库外原生 Agent 插件通过 Pi 公开模块加载，缺权限能力时受限执行拒绝', async () => {
+test('仓库外 AppAgent 通过 App 接口加载，缺权限能力时受限执行拒绝', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'pi-meme-native-plugin-test-'))
   const paths = createPiRuntimePaths(root)
   const entry = path.join(root, 'external', 'entry.js')
@@ -95,7 +95,7 @@ test('仓库外原生 Agent 插件通过 Pi 公开模块加载，缺权限能力
   const { writeFile } = await import('node:fs/promises')
   await writeFile(
     entry,
-    `import { SessionManager } from '@earendil-works/pi-coding-agent'\nexport default (pi) => { if (typeof SessionManager.create !== 'function') throw new Error('SDK导入失败'); pi.registerCommand('external-worker', { description: '外部插件命令', handler: async () => {} }) }\n`,
+    `export function activate(ctx) { ctx.commands.register({name:'external-worker', description:'外部插件命令', execute:async()=>{}}) }\n`,
   )
   const session = createWorkerSession(root, { connection: () => {}, event: () => {}, error: () => {} }, paths, () => ({
     dataRoot: root,
@@ -132,7 +132,7 @@ runSessionWorker({ interaction: (context) => { context.registerInteractionPolicy
   )
   await writeFile(
     entry,
-    `export default (pi) => pi.registerTool({name:'generation-dialog',label:'确认',description:'验证Worker重开后的交互',parameters:{type:'object',properties:{}},execute:async(_id,_params,_signal,_update,ctx)=>({content:[{type:'text',text:String(await ctx.ui.confirm('重开确认','确认继续'))}],details:{}})})`,
+    `export function activate(ctx) {ctx.tools.register({name:'generation-dialog',title:'确认',description:'验证Worker重开后的交互',parameters:{type:'object',properties:{}},execute:async(_params,execution)=>({text:JSON.stringify(await ctx.interaction.request([{id:'continue',question:'确认继续'}],execution.signal))})})}`,
   )
   const session = createWorkerSession(
     root,
@@ -163,18 +163,18 @@ runSessionWorker({ interaction: (context) => { context.registerInteractionPolicy
     await session.setModel({ provider: 'fake', id: 'first' })
     await session.prompt('请求原生确认')
     const deadline = Date.now() + 5000
-    while (!events.some((value) => value.event.type === 'extension_ui_request' && value.event.method === 'confirm')) {
+    while (!events.some((value) => value.event.type === 'extension_ui_request' && value.event.method === 'questions')) {
       if (Date.now() > deadline) throw new Error('Worker重开后未发出弹窗')
       await delay(10)
     }
     const event = events.find(
-      (value) => value.event.type === 'extension_ui_request' && value.event.method === 'confirm',
+      (value) => value.event.type === 'extension_ui_request' && value.event.method === 'questions',
     )!
     assert.equal(event.generation, reopened)
     assert.equal((await session.snapshot()).connection.generation, reopened)
     assert.ok(connections.every((value, index) => !index || value >= connections[index - 1]!))
     assert.ok(event.event.type === 'extension_ui_request')
-    await session.respondExtensionUI(event.event.id, { confirmed: true })
+    await session.respondExtensionUI(event.event.id, { answers: [{ id: 'continue', value: 'true' }] })
     while ((await session.snapshot()).state.isStreaming) {
       if (Date.now() > deadline) throw new Error('Worker重开后的交互未完成')
       await delay(10)

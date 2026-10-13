@@ -6,9 +6,8 @@ export const manifest: PluginManifest = {
   name: '@pi-meme/mcp',
   version: '0.0.0',
   piMeme: {
-    sdkVersion: 1,
+    sdkVersion: 2,
     server: 'dist/server/chord-facets.json',
-    ui: 'dist/ui/entry.js',
     agent: 'dist/agent/entry.js',
     requires: ['host.mcp'],
   },

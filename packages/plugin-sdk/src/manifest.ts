@@ -1,14 +1,14 @@
-export const pluginSdkVersion = 1
+export const pluginSdkVersion = 2
 
 export type PluginDisplay = { name?: string; icon?: string }
-export type PluginResources = { skills?: string[]; extensions?: string[] }
+export type PluginResources = { skills?: string[]; themes?: string[]; assets?: string[] }
 
 export type PluginManifest = {
   name: string
   version: string
   description?: string
   piMeme: {
-    sdkVersion: 1
+    sdkVersion: 2
     server?: string
     agent?: string
     ui?: string
@@ -31,7 +31,13 @@ export function parsePluginManifest(value: unknown): PluginManifest {
     throw new Error('插件 description 必须是字符串')
   if (!config || typeof config !== 'object' || config.sdkVersion !== pluginSdkVersion)
     throw new Error(`插件 piMeme.sdkVersion 必须为 ${pluginSdkVersion}`)
-  if (!config.server && !config.agent && !config.ui) throw new Error('插件必须声明 server、agent 或 ui 入口')
+  if (
+    !config.server &&
+    !config.agent &&
+    !config.ui &&
+    !Object.values(config.resources ?? {}).some((paths) => Array.isArray(paths) && paths.length)
+  )
+    throw new Error('插件必须声明入口或包内资源')
   for (const field of ['server', 'agent', 'ui'] as const) {
     const entry = config[field]
     if (
@@ -68,9 +74,9 @@ export function parsePluginManifest(value: unknown): PluginManifest {
     const resources = config.resources
     if (!resources || typeof resources !== 'object' || Array.isArray(resources))
       throw new Error('插件 resources 必须是对象')
-    if (Object.keys(resources).some((key) => key !== 'skills' && key !== 'extensions'))
-      throw new Error('插件 resources 只支持 skills 和 extensions')
-    for (const kind of ['skills', 'extensions'] as const) {
+    if (Object.keys(resources).some((key) => !['skills', 'themes', 'assets'].includes(key)))
+      throw new Error('插件 resources 只支持 skills、themes 和 assets')
+    for (const kind of ['skills', 'themes', 'assets'] as const) {
       const paths = resources[kind]
       if (
         paths !== undefined &&
@@ -79,8 +85,6 @@ export function parsePluginManifest(value: unknown): PluginManifest {
         throw new Error(`插件 resources.${kind} 必须是包内相对路径数组，不支持通配符`)
       if (paths && new Set(paths).size !== paths.length) throw new Error(`插件 resources.${kind} 不能重复`)
     }
-    if (config.agent && resources.extensions?.includes(config.agent))
-      throw new Error('插件 agent 与 resources.extensions 不能声明同一入口')
   }
   return manifest as PluginManifest
 }

@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { copyFile, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { setTimeout as delay } from 'node:timers/promises'
 import { PiSessionPool, type SessionFactory } from '../src/session-pool'
 import { readdirSync } from 'node:fs'
@@ -16,40 +16,37 @@ import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
 import { requestText } from '../../../tests/fixtures/fake-provider.mjs'
 
 function createTestSession(...[cwd, notify, paths, credentials, mcp]: Parameters<SessionFactory>) {
-  const readSnapshot = () => {
-    const directory = path.join(cwd, '.agents', 'extensions')
+  const session = new SdkSession(cwd, notify, paths, credentials, mcp)
+  const configure = session.configureInlineExtensions.bind(session)
+  let builtins: Parameters<typeof configure>[0] = []
+  const refresh = () => {
+    const directory = path.join(cwd, 'test-native-agents')
     let files: string[] = []
     try {
       files = readdirSync(directory)
     } catch {}
-    return {
-      id: `test:${cwd}`,
-      generation: 1,
-      cwd,
-      skills: [],
-      extensions: files.map((name) => ({
-        id: name,
-        kind: 'extension' as const,
-        name,
-        revision: '1',
-        path: path.join(directory, name),
-        sourcePath: path.join(directory, name),
-        baseDir: directory,
-        scope: 'project' as const,
-        owner: { id: name, type: 'loose' as const },
-        enabled: true,
-        defaultPolicy: { enabled: true, invocation: 'automatic' as const },
-        invocation: 'automatic' as const,
-        diagnostics: [],
-        editable: false,
+    configure([
+      ...builtins,
+      ...files.map((name) => ({
+        name: `test-native:${path.join(directory, name)}`,
+        factory: async (pi: import('@earendil-works/pi-coding-agent').ExtensionAPI) => {
+          const module = (await import(pathToFileURL(path.join(directory, name)).href)) as {
+            default: import('@earendil-works/pi-coding-agent').ExtensionFactory
+          }
+          await module.default(pi)
+        },
       })),
-    }
+    ])
   }
-  const session = new SdkSession(cwd, notify, paths, credentials, mcp, { resourceSnapshot: readSnapshot() })
+  session.configureInlineExtensions = (extensions) => {
+    builtins = extensions
+    refresh()
+  }
+  refresh()
   const stop = session.stopAndWait.bind(session)
   session.stopAndWait = async () => {
     await stop()
-    session.configureResourceSnapshot(readSnapshot())
+    refresh()
   }
   return session
 }
@@ -170,7 +167,7 @@ test('先登记退役再等待任务树，新消息等待旧 Worker 释放后启
 test('扩展命令已 settled 而消息回复尚未返回时，快照不会重新标记运行并阻塞退役', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pi-settled-prompt-'))
   const agent = await useFakeAgent(directory)
-  const extensions = path.join(directory, '.agents', 'extensions')
+  const extensions = path.join(directory, 'test-native-agents')
   await mkdir(extensions, { recursive: true })
   await writeFile(
     path.join(extensions, 'settled-command.js'),
@@ -285,7 +282,7 @@ test('退役先提供本地快照，在途 Worker 快照失败也回落，不等
 })
 
 async function installProjectExtension(directory: string, source = extension) {
-  const extensionsDirectory = path.join(directory, '.agents', 'extensions')
+  const extensionsDirectory = path.join(directory, 'test-native-agents')
   await mkdir(extensionsDirectory, { recursive: true })
   const installed = path.join(extensionsDirectory, `${path.basename(source, path.extname(source))}.js`)
   await copyFile(source, installed)
@@ -293,7 +290,7 @@ async function installProjectExtension(directory: string, source = extension) {
 }
 
 async function installBrokenProjectExtension(directory: string) {
-  const extensionsDirectory = path.join(directory, '.agents', 'extensions')
+  const extensionsDirectory = path.join(directory, 'test-native-agents')
   await mkdir(extensionsDirectory, { recursive: true })
   const installed = path.join(extensionsDirectory, 'broken-extension.js')
   await writeFile(installed, "throw new Error('模拟扩展加载失败')\n")
@@ -1189,7 +1186,7 @@ test('用户扩展按会话生效，后台扩展异常不污染当前会话，�
     const first = sessions.find((entry) => entry.id === key)!
     await pool.switchSession(first.path)
     const snapshot = await pool.snapshot()
-    assert.equal(snapshot.extensionError?.extension?.path, projectExtension)
+    assert.equal(snapshot.extensionError?.extension?.path, `<inline:test-native:${projectExtension}>`)
     assert.equal(snapshot.extensionError?.generation, snapshot.connection.generation)
     assert.equal(snapshot.connection.error, undefined)
     await pool.idle(() => pool.reconnectModels(), true)

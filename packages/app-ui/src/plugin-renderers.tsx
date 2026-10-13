@@ -22,7 +22,15 @@ export function PluginRenderers({
     >
       <PluginMessageProvider
         render={(message, source, fallback) => (
-          <PluginSlot registry={registry} slot="message" props={{ ...props, ...source, message }} fallback={fallback} />
+          <>
+            <PluginSlot
+              registry={registry}
+              slot="message"
+              props={{ ...props, ...source, message }}
+              fallback={fallback}
+            />
+            <PluginSlot registry={registry} slot="message-actions" props={{ ...props, ...source, message }} />
+          </>
         )}
       >
         {children}

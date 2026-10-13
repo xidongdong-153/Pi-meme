@@ -14,10 +14,10 @@ async function directory(root: string, id: string, config: Partial<PluginManifes
   const manifest: PluginManifest = {
     name: id,
     version: '1.0.0',
-    piMeme: { sdkVersion: 1, agent: 'dist/agent/entry.js', ...config },
+    piMeme: { sdkVersion: 2, agent: 'dist/agent/entry.js', ...config },
   }
   await mkdir(path.join(target, 'dist/agent'), { recursive: true })
-  await writeFile(path.join(target, 'dist/agent/entry.js'), 'export default function() {}')
+  await writeFile(path.join(target, 'dist/agent/entry.js'), 'export function activate() {}')
   if (create) {
     manifest.piMeme.server = 'dist/server/chord-facets.json'
     await writeFile(
@@ -39,12 +39,11 @@ export default defineFacet({ id: ${JSON.stringify(id)}, setup(env) {
   return target
 }
 
-async function fixture(services?: Record<string, object>, reservedHandlers?: string[]) {
+async function fixture(reservedHandlers?: string[]) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'external-recovery-'))
   const options = {
     directory: path.join(root, 'installed'),
     dataDirectory: path.join(root, 'data'),
-    services,
     reservedHandlers,
   }
   const manager = new PluginManager(options)
@@ -110,14 +109,16 @@ test('旧内置记录不控制运行，manifest builtin 声明不能获得内置
 })
 
 test('内置 service 与 handler 不能由外部提供或覆盖', async () => {
-  const f = await fixture({ custom: {} }, ['external:protected', 'host:directories'])
+  const f = await fixture(['external:protected', 'host:directories'])
   try {
     for (const name of reservedServiceNames) {
       const source = await directory(f.root, 'external', { provides: [name] })
       await assert.rejects(f.manager.loadDirectory(source), /内置服务/)
       await assert.rejects(f.manager.installPackage(await packPlugin(source)), /内置服务/)
     }
-    const override = await directory(f.root, 'external', { provides: ['custom'] })
+    const provider = await directory(f.root, 'provider', { provides: ['custom'] }, "ctx.provide('custom', {})")
+    await f.manager.loadDirectory(provider)
+    const override = await directory(f.root, 'external', { provides: ['custom'] }, "ctx.provide('custom', {})")
     await assert.rejects(f.manager.loadDirectory(override), /服务已有提供者/)
     const handler = await directory(f.root, 'external', {}, "ctx.registerHandlers({ 'external:protected': () => 1 })")
     await assert.rejects(f.manager.loadDirectory(handler), /重复/)

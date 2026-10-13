@@ -4,7 +4,7 @@ import { ErrorBoundary } from '@pi-meme/ui/components/error-boundary'
 import type { UiPluginRegistry } from './plugin-registry'
 
 export function matchesContribution(entry: UiContribution, props: UiContributionProps) {
-  if (entry.slot !== 'tool-card' && entry.slot !== 'message') return true
+  if (entry.slot !== 'tool-card' && entry.slot !== 'message' && entry.slot !== 'message-actions') return true
   if (!entry.match?.ownerId || entry.match.ownerId !== props.ownerId) return false
   if (props.generation === undefined || entry.generation !== props.generation) return false
   return entry.slot === 'tool-card'

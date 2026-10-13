@@ -4,8 +4,8 @@
 @import 'katex/dist/katex.min.css';
 @import '@pi-meme/chat/ui/content/markdown.css';
 @import '@pi-meme/chat/ui/composer/composer.css';
-@import '@pi-meme/pi-extensions/ui/extension-editor.css';
-@import '@pi-meme/pi-extensions/ui/user-input-panel.css';
+@import '@pi-meme/interaction/ui/extension-editor.css';
+@import '@pi-meme/interaction/ui/user-input-panel.css';
 @import './settings-page.css';
 
 /* 显式扫描 UI 与功能包源码，Tailwind 默认只扫描 Vite 根目录 */

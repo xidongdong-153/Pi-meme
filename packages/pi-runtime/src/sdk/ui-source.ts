@@ -1,7 +1,5 @@
-import path from 'node:path'
 import type { AgentSession, SessionEntry } from '@earendil-works/pi-coding-agent'
 import type { PiEvent, PiMessage, PiUiSource } from '@pi-meme/contracts/pi'
-import type { ResourceSnapshot } from '@pi-meme/contracts/resources'
 
 export const uiSourceEntry = 'pi-meme.ui-source'
 type AgentSource = { pluginId: string; generation: number; path: string }
@@ -9,16 +7,12 @@ type AgentSource = { pluginId: string; generation: number; path: string }
 export function eventUiSource(
   event: PiEvent,
   session: AgentSession,
-  snapshot?: ResourceSnapshot,
   agents: AgentSource[] = [],
 ): PiUiSource | undefined {
   const owner = (file: string): Pick<PiUiSource, 'ownerId' | 'generation'> | undefined => {
-    if (file.startsWith('<') || file.startsWith('builtin:')) return undefined
-    const resolved = path.resolve(file)
-    const agent = agents.find((item) => path.resolve(item.path) === resolved)
-    if (agent) return { ownerId: agent.pluginId, generation: agent.generation }
-    const item = snapshot?.extensions.find((item) => path.resolve(item.path) === resolved)
-    return item ? { ownerId: item.owner.id, generation: item.owner.generation ?? snapshot!.generation } : undefined
+    const inline = agents.find((item) => file === `<inline:app-agent:${item.pluginId}:${item.generation}>`)
+    if (inline) return { ownerId: inline.pluginId, generation: inline.generation }
+    return undefined
   }
   const toolName =
     'toolName' in event
@@ -38,7 +32,14 @@ export function eventUiSource(
   const extensions = session.resourceLoader.getExtensions().extensions
   const extension = extensions.find((item) => item.messageRenderers.get(customType) === renderer)
   const source = extension ? owner(extension.sourceInfo.path) : undefined
-  return source ? { ...source, customType } : undefined
+  return source
+    ? {
+        ...source,
+        customType: customType.startsWith(`${source.ownerId}:`)
+          ? customType.slice(source.ownerId.length + 1)
+          : customType,
+      }
+    : undefined
 }
 
 function messageKey(message: PiMessage) {
@@ -90,7 +91,13 @@ export function projectMessageSources(
     const source = key ? sources.get(key) : undefined
     const completedAt = message.role === 'assistant' ? completions.get(message.timestamp) : undefined
     return source || completedAt !== undefined
-      ? { ...message, ...(source ? { source } : {}), ...(completedAt !== undefined ? { completedAt } : {}) }
+      ? {
+          ...message,
+          ...(source
+            ? { source, ...(message.role === 'custom' && source.customType ? { customType: source.customType } : {}) }
+            : {}),
+          ...(completedAt !== undefined ? { completedAt } : {}),
+        }
       : message
   })
 }

@@ -5,8 +5,6 @@
   "type": "module",
   "exports": {
     "./server/entry": "./src/server/entry.ts",
-    "./ui/plugin": "./src/ui/plugin.ts",
-    "./ui/entry": "./src/ui/entry.tsx",
     "./ui/profile-settings": "./src/ui/profile-settings.tsx",
     "./ui/token-activity": "./src/ui/token-activity.tsx",
     "./ui/usage-chart-model": "./src/ui/usage-chart-model.ts",
@@ -30,9 +28,8 @@
     "react": "^19.3.0"
   },
   "piMeme": {
-    "sdkVersion": 1,
+    "sdkVersion": 2,
     "server": "dist/server/chord-facets.json",
-    "ui": "dist/ui/entry.js",
     "requires": [
       "host.usage"
     ]

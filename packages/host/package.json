@@ -15,32 +15,34 @@
     "test": "node --import tsx --test tests/*.test.ts"
   },
   "dependencies": {
-    "@pi-meme/contracts": "workspace:*",
+    "@earendil-works/pi-coding-agent": "1.1.0",
     "@pi-meme/chat": "workspace:*",
+    "@pi-meme/codemode": "workspace:*",
+    "@pi-meme/contracts": "workspace:*",
     "@pi-meme/git": "workspace:*",
-    "@pi-meme/models": "workspace:*",
-    "@pi-meme/pi-extensions": "workspace:*",
-    "@pi-meme/settings": "workspace:*",
-    "@pi-meme/workspace": "workspace:*",
-    "@pi-meme/pi-runtime": "workspace:*",
-    "@pi-meme/subagents": "workspace:*",
+    "@pi-meme/history": "workspace:*",
+    "@pi-meme/interaction": "workspace:*",
     "@pi-meme/mcp": "workspace:*",
+    "@pi-meme/models": "workspace:*",
+    "@pi-meme/permissions": "workspace:*",
     "@pi-meme/pi-adapter": "workspace:*",
-    "ws": "^8.18.3",
-    "proper-lockfile": "4.1.2",
+    "@pi-meme/pi-runtime": "workspace:*",
     "@pi-meme/plugin-runtime": "workspace:*",
     "@pi-meme/plugin-sdk": "workspace:*",
-    "@pi-meme/history": "workspace:*",
-    "@pi-meme/usage": "workspace:*",
     "@pi-meme/resources": "workspace:*",
+    "@pi-meme/sandbox-linux": "workspace:*",
     "@pi-meme/sandbox-macos": "workspace:*",
-    "@pi-meme/permissions": "workspace:*",
-    "@pi-meme/codemode": "workspace:*",
-    "@earendil-works/pi-coding-agent": "1.1.0",
-    "@pi-meme/sandbox-linux": "workspace:*"
+    "@pi-meme/settings": "workspace:*",
+    "@pi-meme/subagents": "workspace:*",
+    "@pi-meme/usage": "workspace:*",
+    "@pi-meme/workspace": "workspace:*",
+    "node-pty": "^1.1.0",
+    "proper-lockfile": "4.1.2",
+    "ws": "^8.18.3"
   },
   "devDependencies": {
-    "@types/ws": "^8.18.1",
-    "@types/proper-lockfile": "^4.1.4"
+    "@pi-meme/client": "workspace:*",
+    "@types/proper-lockfile": "^4.1.4",
+    "@types/ws": "^8.18.1"
   }
 }

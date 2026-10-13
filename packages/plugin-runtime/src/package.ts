@@ -23,7 +23,11 @@ async function packagePath(root: string, relative: string) {
 }
 
 function resourceRoots(manifest: PluginManifest) {
-  return [...(manifest.piMeme.resources?.skills ?? []), ...(manifest.piMeme.resources?.extensions ?? [])]
+  return [
+    ...(manifest.piMeme.resources?.skills ?? []),
+    ...(manifest.piMeme.resources?.themes ?? []),
+    ...(manifest.piMeme.resources?.assets ?? []),
+  ]
 }
 
 function allowedPackageFile(manifest: PluginManifest, relative: string) {
@@ -66,25 +70,15 @@ export async function readPluginManifest(directory: string): Promise<PluginManif
     const target = await packagePath(root, `${skill}/SKILL.md`)
     if (!(await lstat(target)).isFile()) throw new Error(`插件技能缺少 SKILL.md：${skill}`)
   }
-  const extensionEntries = new Set(manifest.piMeme.agent ? [path.join(root, manifest.piMeme.agent)] : [])
-  for (const extension of manifest.piMeme.resources?.extensions ?? []) {
-    const target = await packagePath(root, extension)
-    const info = await lstat(target)
-    if (info.isDirectory()) {
-      const entries = await readdir(target)
-      const entry = ['index.ts', 'index.js', 'index.mjs'].find((name) => entries.includes(name))
-      if (!entry) throw new Error(`插件扩展目录缺少 index.ts、index.js 或 index.mjs：${extension}`)
-      const resolvedEntry = await packagePath(root, `${extension}/${entry}`)
-      if (!(await lstat(resolvedEntry)).isFile()) throw new Error(`插件扩展入口必须是文件：${extension}/${entry}`)
-      if (extensionEntries.has(resolvedEntry)) throw new Error('插件不能重复声明同一扩展入口')
-      extensionEntries.add(resolvedEntry)
-    } else if (!info.isFile() || !/\.(?:ts|js|mjs)$/.test(extension)) {
-      throw new Error(`插件扩展必须是 .ts、.js、.mjs 文件或扩展目录：${extension}`)
-    } else {
-      if (extensionEntries.has(target)) throw new Error('插件不能重复声明同一扩展入口')
-      extensionEntries.add(target)
-    }
+  for (const theme of manifest.piMeme.resources?.themes ?? []) {
+    if (!theme.endsWith('.json')) throw new Error(`插件主题必须是 JSON 文件：${theme}`)
+    const target = await packagePath(root, theme)
+    if (!(await lstat(target)).isFile()) throw new Error(`插件主题必须是包内文件：${theme}`)
+    const value: unknown = JSON.parse(await readFile(target, 'utf8'))
+    if (!value || typeof value !== 'object' || Array.isArray(value))
+      throw new Error(`插件主题必须是 JSON 对象：${theme}`)
   }
+  for (const asset of manifest.piMeme.resources?.assets ?? []) await packagePath(root, asset)
   return manifest
 }
 
@@ -113,7 +107,7 @@ export async function packPlugin(directory: string): Promise<Buffer> {
     }
   }
   await visit('package.json')
-  await visit('dist')
+  if (manifest.piMeme.server || manifest.piMeme.agent || manifest.piMeme.ui) await visit('dist')
   for (const resource of resourceRoots(manifest)) await visit(resource)
   if (manifest.piMeme.display?.icon) await visit(manifest.piMeme.display.icon)
   for (const optional of ['README.md', 'LICENSE', 'LICENSE.md']) {

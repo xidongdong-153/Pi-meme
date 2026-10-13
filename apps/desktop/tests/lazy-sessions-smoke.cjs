@@ -2,17 +2,17 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs/promises')
 const path = require('node:path')
 
-module.exports = async function lazySessionsSmoke(window, waitFor, directory) {
+module.exports = async function lazySessionsSmoke(window, waitFor, directory, projectDirectory) {
   const evaluate = (code) => window.webContents.executeJavaScript(code)
   const idle = () => evaluate('window.piMemeClient.getConnection().then((value) => value.status === "idle")')
   const fixtures = path.resolve(__dirname, '../../../tests/fixtures')
   const { assistantMessage, userMessage } = await import(path.join(fixtures, 'messages.mjs'))
-  const sessionsDirectory = require('./runtime-paths.cjs').sessionDirectory(directory, directory)
+  const sessionsDirectory = require('./runtime-paths.cjs').sessionDirectory(directory, projectDirectory)
   await fs.mkdir(sessionsDirectory, { recursive: true })
   const file = path.join(sessionsDirectory, 'saved.jsonl')
   const timestamp = '2026-09-29T00:00:00Z'
   const content = [
-    { type: 'session', id: 'lazy', version: 3, cwd: directory, timestamp },
+    { type: 'session', id: 'lazy', version: 3, cwd: projectDirectory, timestamp },
     { type: 'model_change', id: 'model', parentId: null, timestamp, provider: 'fake', modelId: 'first' },
     { type: 'message', id: 'user', parentId: 'model', timestamp, message: userMessage('按需加载的历史问题', 1) },
     {
@@ -27,7 +27,7 @@ module.exports = async function lazySessionsSmoke(window, waitFor, directory) {
     .map((entry) => JSON.stringify(entry))
     .join('\n')
   await fs.writeFile(file, content)
-  await evaluate(`window.piMemeClient.chooseDirectory(${JSON.stringify(directory)})`)
+  await evaluate(`window.piMemeClient.chooseDirectory(${JSON.stringify(projectDirectory)})`)
   for (let count = 0; count < 3; count++) await evaluate('window.piMemeClient.newSession()')
   assert.equal(await idle(), true, '新建会话不启动运行时')
   const selector = `aside [data-session-path=${JSON.stringify(file)}] > button:first-child`

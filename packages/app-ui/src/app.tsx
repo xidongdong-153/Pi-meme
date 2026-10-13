@@ -4,10 +4,10 @@ import type { ServiceUI } from './service-ui'
 import { DeveloperSettings } from './developer-settings'
 import { SubagentsPanel } from './subagents-panel'
 import { ProfileSettings } from '@pi-meme/usage/ui/profile-settings'
-import { ResourceCenter } from './resource-center'
+import { SkillPage } from './skill-page'
+import { PluginPage } from './plugin-page'
 import { createResourceClient } from '@pi-meme/client/resource-client'
 import { skillMarker } from '@pi-meme/contracts/skills'
-import { ExtensionsSettings } from '@pi-meme/resources/ui/extensions-settings'
 import { AccessSettings } from '@pi-meme/permissions/ui/access-settings'
 import { AgentAccessSelector } from '@pi-meme/permissions/ui/agent-access-selector'
 import { AppHeader } from './app-header'
@@ -22,11 +22,11 @@ import { ModelPickerPopover } from '@pi-meme/models/ui/model-picker-popover'
 import { ModelConfigSettings } from '@pi-meme/models/ui/model-config/model-config-settings'
 import { McpSettings } from '@pi-meme/mcp/ui/mcp-settings'
 import { SettingsPage as SettingsContent } from '@pi-meme/settings/ui/settings-page'
-import { ExtensionWidgets } from '@pi-meme/pi-extensions/ui/extension-widgets'
-import { ExtensionStatusBadges } from '@pi-meme/pi-extensions/ui/extension-statuses'
-import { ExtensionDialog } from '@pi-meme/pi-extensions/ui/extension-dialog'
-import { UserInputPanel } from '@pi-meme/pi-extensions/ui/user-input-panel'
-import { ExtensionNotices } from '@pi-meme/pi-extensions/ui/extension-notices'
+import { ExtensionWidgets } from '@pi-meme/interaction/ui/extension-widgets'
+import { ExtensionStatusBadges } from '@pi-meme/interaction/ui/extension-statuses'
+import { ExtensionDialog } from '@pi-meme/interaction/ui/extension-dialog'
+import { UserInputPanel } from '@pi-meme/interaction/ui/user-input-panel'
+import { ExtensionNotices } from '@pi-meme/interaction/ui/extension-notices'
 import { GitPanel } from '@pi-meme/git/ui/git-panel'
 import { ProjectSelector } from '@pi-meme/workspace/ui/project-selector'
 import { formatSessionTitle } from '@pi-meme/workspace/ui/sidebar/session-title'
@@ -36,16 +36,17 @@ import { ContextUsageRing } from '@pi-meme/models/ui/context-usage-ring'
 import { useSettings } from '@pi-meme/settings/ui/use-settings'
 import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 import { SessionTreePanel } from '@pi-meme/history/ui/session-tree-panel'
-import { RightSidebar } from './right-sidebar'
 import { PlanPanel } from './plan-panel'
-import { ResizeHandle } from './resize-handle'
 import type { RightSidebarTab } from './right-sidebar'
 import type { PluginClient } from '@pi-meme/client/plugin-client'
-import type { UiPluginDescriptor, UiPluginSlot } from '@pi-meme/plugin-sdk/ui'
+import type { UiContributionProps, UiPluginDescriptor, UiPluginSlot, UiPanel } from '@pi-meme/plugin-sdk/ui'
 import { PluginRenderers } from './plugin-renderers'
 import { UiPluginRegistry } from './plugin-registry'
 import { PluginSlot } from './plugin-slot'
-import { PluginCenter } from './plugin-center'
+import { WorkspacePanels } from './workspace-panels'
+import { AgentPluginSelector } from './agent-plugin-selector'
+import { GitBranch, Network, ListTree, NotebookPen } from 'lucide-react'
+import type { HostApi, AppProject, AppSession } from '@pi-meme/contracts/app-host'
 import { SettingsPage } from './settings-page'
 import { HostSettings } from './host-settings'
 import { loadPluginUI } from './load-plugin-ui'
@@ -53,6 +54,7 @@ import type { DesktopBridge, ProjectApp } from '@pi-meme/contracts/desktop'
 
 export function App({
   bridge,
+  host,
   plugins,
   call,
   nativeWindow = false,
@@ -66,6 +68,7 @@ export function App({
 }: {
   serviceUI?: ServiceUI
   bridge: DesktopBridge
+  host: HostApi
   plugins: PluginClient
   call: <T>(method: string, args?: unknown[]) => Promise<T>
   nativeWindow?: boolean
@@ -77,32 +80,21 @@ export function App({
   hostConnections?: ComponentProps<typeof HostSettings>['connections']
 }) {
   const resources = useMemo(() => createResourceClient(call, plugins.onChange), [call, plugins])
-  const [registry] = useState(() => new UiPluginRegistry(bridge, loadPluginUI, call))
+  const [registry] = useState(() => new UiPluginRegistry(host, loadPluginUI, call))
   const [pluginDescriptors, setPluginDescriptors] = useState<UiPluginDescriptor[]>([])
-  const [rightPaneOpen, setRightPaneOpen] = useState(false)
-  const [rightPaneMounted, setRightPaneMounted] = useState(false)
-  const [rightTab, setRightTab] = useState<RightSidebarTab>('git')
+  const [planRequest, setPlanRequest] = useState<{ sessionKey?: string; id: string; revision: number }>()
   const [selectedPlanId, setSelectedPlanId] = useState<string>()
-  useEffect(() => {
-    if (rightPaneOpen) {
-      setRightPaneMounted(true)
-      return
-    }
-    const timer = window.setTimeout(setRightPaneMounted, 260, false)
-    return () => window.clearTimeout(timer)
-  }, [rightPaneOpen])
   const chat = useAppSession(bridge, {
-    onPlanSaved: (document) => {
+    onPlanSaved: (document, sessionKey) => {
       setSelectedPlanId(document.id)
-      setRightTab('plan')
-      setRightPaneOpen(true)
+      setPlanRequest({ id: document.id, revision: document.revision, sessionKey })
     },
   })
   const active = serviceUI?.active ?? true
   const [gitCwd, setGitCwd] = useState<string>()
   const cwd = chat.connection.cwd
   useEffect(() => {
-    if (!active || !rightPaneOpen || !cwd) return
+    if (!active || !cwd) return
     let current = true
     void bridge
       .getGitSnapshot()
@@ -115,20 +107,25 @@ export function App({
     return () => {
       current = false
     }
-  }, [active, bridge, cwd, chat.refreshToken, rightPaneOpen])
+  }, [active, bridge, cwd, chat.refreshToken])
   const availableRightTabs: RightSidebarTab[] = []
   if (gitCwd && gitCwd === cwd) availableRightTabs.push('git')
   if (chat.chat.sessionEntries?.entries.length) availableRightTabs.push('session-tree')
   if (chat.chat.agents?.some((agent) => agent.parentAgentId && agent.rootSessionKey === chat.connection.sessionKey))
     availableRightTabs.push('subagents')
   if (chat.planDocuments.length) availableRightTabs.push('plan')
-  const activeRightTab = availableRightTabs.includes(rightTab) ? rightTab : availableRightTabs[0]
   const settings = useSettings(bridge, true, false, !serviceUI)
   const appearance = useSettings(serviceUI?.appearanceBridge ?? bridge, Boolean(serviceUI) && active, false)
-  const contributions = useSyncExternalStore(registry.subscribe, registry.getSnapshot, registry.getSnapshot)
-  const [selectedPage, setSelectedPage] = useState<string>()
-  const pluginPages = contributions.filter((entry) => entry.slot === 'page')
-  const activePage = pluginPages.find((entry) => entry.id === selectedPage)
+  useEffect(
+    () =>
+      plugins.onChange(() => {
+        void settings.refresh()
+        void appearance.refresh()
+      }),
+    [plugins, settings.refresh, appearance.refresh],
+  )
+  const pluginPanels = useSyncExternalStore(registry.subscribe, registry.getPanels, registry.getPanels)
+  const panelRequest = useSyncExternalStore(registry.subscribe, registry.getPanelRequest, registry.getPanelRequest)
   const refreshPlugins = useCallback(async () => {
     setPluginDescriptors(await plugins.list())
     await chat.refreshUiPlugins()
@@ -155,14 +152,76 @@ export function App({
       }),
     [resources, chat.refreshSnapshot],
   )
-  const pluginProps = {
-    bridge,
-    hostId,
-    sessionId: chat.connection.sessionKey,
-    snapshot: chat.state
-      ? { connection: chat.connection, state: chat.state, messages: chat.chat.messages, models: chat.models }
-      : null,
-  }
+  const [agentPlugins, setAgentPlugins] = useState<string[]>([])
+  const [projectRef, setProjectRef] = useState<AppProject>()
+  useEffect(() => {
+    let current = true
+    setProjectRef(undefined)
+    if (cwd)
+      void host.projects
+        .list()
+        .then((projects) => {
+          if (current) setProjectRef(projects.find((project) => project.cwd === cwd))
+        })
+        .catch((cause) => chat.setError(String(cause)))
+    return () => {
+      current = false
+    }
+  }, [host, cwd, chat.setError])
+  const [resolvedSession, setResolvedSession] = useState<{ key: string; value: AppSession }>()
+  const runtimeSessionKey = chat.connection.sessionKey
+  useEffect(() => {
+    let current = true
+    setResolvedSession(undefined)
+    if (runtimeSessionKey)
+      void bridge
+        .resolveAppSession(runtimeSessionKey)
+        .then((value) => {
+          if (current) setResolvedSession({ key: runtimeSessionKey, value })
+        })
+        .catch((cause) => {
+          if (current) chat.setError(String(cause))
+        })
+    return () => {
+      current = false
+    }
+  }, [bridge, runtimeSessionKey, chat.setError])
+  const appSession = resolvedSession && resolvedSession.key === runtimeSessionKey ? resolvedSession.value : undefined
+  const pluginProps: UiContributionProps = useMemo(
+    () => ({
+      host,
+      target: {
+        hostId: hostId ?? '',
+        project: projectRef?.cwd === cwd ? projectRef : undefined,
+        session: appSession ? { hostId: appSession.hostId, sessionId: appSession.sessionId } : undefined,
+      },
+      snapshot:
+        chat.state && appSession
+          ? {
+              status: chat.connection.status,
+              running: chat.chat.running,
+              agentPlugins,
+              messages: chat.chat.messages.map((message) => ({ role: message.role, text: messageText(message) })),
+            }
+          : null,
+    }),
+    [
+      host,
+      hostId,
+      appSession,
+      agentPlugins,
+      cwd,
+      projectRef,
+      chat.connection.sessionKey,
+      chat.connection.status,
+      chat.state,
+      chat.chat.running,
+      chat.chat.messages,
+    ],
+  )
+  useEffect(() => {
+    registry.updateTarget({ target: pluginProps.target, snapshot: pluginProps.snapshot })
+  }, [registry, pluginProps])
   const extra = (slot: UiPluginSlot, props: Record<string, unknown> = {}) => (
     <PluginSlot registry={registry} slot={slot} props={{ ...pluginProps, ...props }} />
   )
@@ -194,8 +253,6 @@ export function App({
   })
   const [instructionsDirty, setInstructionsDirty] = useState(false)
   const [instructionsSaving, setInstructionsSaving] = useState(false)
-  const [rightPaneWidth, setRightPaneWidth] = useState(352)
-  const [resizingSide, setResizingSide] = useState<'left' | 'right' | null>(null)
   const [preferredApp, setPreferredApp] = useState<ProjectApp['id']>('finder')
   const ready = chat.connection.status === 'ready' || chat.connection.status === 'idle'
   const project =
@@ -341,7 +398,21 @@ export function App({
         {extra('composer')}
       </>
     ),
-    widgetsBelow: <ExtensionWidgets {...{ widgets: chat.extensionWidgets, placement: 'belowEditor' }} />,
+    widgetsBelow: (
+      <>
+        <ExtensionWidgets {...{ widgets: chat.extensionWidgets, placement: 'belowEditor' }} />
+        {extra('composer-actions')}
+        <AgentPluginSelector
+          host={host}
+          target={pluginProps.target.session}
+          plugins={pluginDescriptors}
+          busy={chat.busy}
+          onChanged={chat.refreshSnapshot}
+          onSelection={setAgentPlugins}
+          onError={chat.setError}
+        />
+      </>
+    ),
     statusBadges: (
       <>
         <ExtensionStatusBadges {...{ statuses: chat.extensionStatuses }} />
@@ -448,6 +519,165 @@ export function App({
         }
       : undefined
 
+  const sidebar = serviceUI?.sidebar ?? (
+    <Sidebar
+      {...{
+        menuBridge: bridge,
+        sidebarSettingsBridge: bridge,
+        serviceId: hostId ?? 'local',
+        searchEnabled: !settingsOpen && !serviceUI,
+        onSelectProject: (cwd) => void chat.selectLocation({ kind: 'project', cwd }),
+        onMenuChanged: chat.refreshMenu,
+        onMenuDeleted: chat.applyMenuDeletion,
+        projectName: project,
+        cwd: chat.connection.sourceProjectCwd ?? chat.connection.cwd,
+        ready,
+        status,
+        sessionsSnapshot: chat.sessions,
+        sessionsLoading: chat.sessionsLoading,
+        activeSessionId: chat.sessions?.activeSessionId,
+        activeSessionPath: chat.sessions?.activeSessionPath,
+        switchingToPath: chat.switchingToPath,
+        onDirectory: () => void chat.chooseDirectory(),
+        onNewSession: () => void chat.newSession(),
+        onNewSessionInProject: (targetCwd) => void chat.newSessionInProject(targetCwd),
+        onSwitchSession: (sessionPath) => void chat.switchSession(sessionPath),
+        onTogglePin: (targetPath) => void chat.togglePin(targetPath),
+        onPrefetchSession: (sessionPath) => void bridge.prefetchSession(sessionPath).catch(() => {}),
+        onSettings: () => setSettingsOpen(true),
+      }}
+    />
+  )
+  const conversation = (
+    <WorkspaceContent
+      chat={chat.chat}
+      connection={chat.connection}
+      ready={ready}
+      hasConnected={chat.hasConnected || Boolean(chat.connection.sessionKey)}
+      composer={composer}
+      conversation={
+        <Conversation
+          {...{
+            chat: chat.chat,
+            stream: chat.chatStream,
+            canEditMessages: !chat.busy && !chat.navigationBusy && !chat.editing,
+            onEditMessage: chat.editMessage,
+            onSwitchMessageVersion: (timestamp, version) => void chat.switchMessageVersion(timestamp, version),
+            onForkReply: (timestamp) => void chat.forkReply(timestamp),
+            onCopyError: chat.setError,
+            editor,
+            switchingVersion: chat.switchingVersion,
+          }}
+        />
+      }
+      canEditMessages={!chat.busy && !chat.navigationBusy && !chat.editing}
+      onEditMessage={chat.editMessage}
+      onSwitchMessageVersion={(timestamp, version) => void chat.switchMessageVersion(timestamp, version)}
+      onForkReply={(timestamp) => void chat.forkReply(timestamp)}
+      onCopyError={chat.setError}
+      onSettings={() => setSettingsOpen(true)}
+      editor={editor}
+      switchingVersion={chat.switchingVersion}
+      notice={
+        <>
+          <ErrorNotice
+            message={chat.error || settings.error}
+            onOpenSettings={() => {
+              chat.setError('')
+              settings.dismissError()
+              setSettingsOpen(true)
+            }}
+            onDismiss={() => {
+              chat.setError('')
+              settings.dismissError()
+            }}
+          />
+          <ErrorNotice
+            message={chat.extensionError?.message ?? ''}
+            extension
+            onOpenSettings={() => setSettingsOpen(true)}
+            onDismiss={chat.dismissExtensionError}
+          />
+        </>
+      }
+    >
+      <ForkNotice
+        forking={chat.forking}
+        sourcePath={chat.forkNotice?.sourcePath}
+        sourceTitle={forkSourceTitle}
+        onOpenSource={(path) => void chat.openForkSource(path)}
+        onDismiss={chat.dismissForkNotice}
+      />
+    </WorkspaceContent>
+  )
+  const panels: UiPanel[] = [
+    ...(availableRightTabs.includes('git')
+      ? [
+          {
+            id: 'builtin:git',
+            title: 'Git',
+            icon: <GitBranch />,
+            location: 'right' as const,
+            scope: 'project' as const,
+            render: () => <GitPanel cwd={cwd} bridge={bridge} refreshToken={chat.refreshToken} />,
+          },
+        ]
+      : []),
+    ...(availableRightTabs.includes('subagents')
+      ? [
+          {
+            id: 'builtin:subagents',
+            title: '子代理',
+            icon: <Network />,
+            location: 'right' as const,
+            scope: 'session' as const,
+            render: () => (
+              <SubagentsPanel
+                key={chat.connection.sessionKey}
+                bridge={bridge}
+                sessionKey={chat.connection.sessionKey}
+              />
+            ),
+          },
+        ]
+      : []),
+    ...(availableRightTabs.includes('plan')
+      ? [
+          {
+            id: 'builtin:plan',
+            title: '计划',
+            icon: <NotebookPen />,
+            location: 'right' as const,
+            scope: 'session' as const,
+            render: () => (
+              <PlanPanel documents={chat.planDocuments} selectedId={selectedPlanId} onSelect={setSelectedPlanId} />
+            ),
+          },
+        ]
+      : []),
+    ...(availableRightTabs.includes('session-tree')
+      ? [
+          {
+            id: 'builtin:session-tree',
+            title: '会话树',
+            icon: <ListTree />,
+            location: 'right' as const,
+            scope: 'session' as const,
+            render: () => (
+              <SessionTreePanel
+                sessionEntries={chat.chat.sessionEntries}
+                onSwitchVersion={(timestamp, version) => void chat.switchMessageVersion(timestamp, version)}
+              />
+            ),
+          },
+        ]
+      : []),
+    ...pluginPanels,
+  ]
+  const handleSidebar = useCallback((open: boolean, width: number) => {
+    setSidebarOpen(open)
+    setSidebarWidth(width)
+  }, [])
   if (!active) return null
 
   return (
@@ -455,243 +685,57 @@ export function App({
       <TooltipProvider delayDuration={200}>
         <main
           data-active-service={serviceUI?.serviceId ?? 'local'}
-          className="flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground select-none"
+          className="theme-app flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground select-none"
         >
           <div className={settingsOpen ? 'hidden' : 'flex flex-1 min-h-0 flex-col'} inert={settingsOpen}>
-            {/* 全局顶栏：横贯窗口顶部，统一交通灯安全区与操作工具栏 */}
-            <AppHeader
-              nativeWindow={nativeWindow}
-              canOpenProject={localPlatform}
-              loadProjectApps={bridge.getProjectApps}
+            <WorkspacePanels
+              panels={panels}
+              errors={registry.errors()}
+              props={pluginProps}
+              session={appSession?.sessionId ?? runtimeSessionKey ?? ''}
+              runtimeSession={runtimeSessionKey ?? ''}
+              sidebar={sidebar}
               sidebarOpen={sidebarOpen}
               sidebarWidth={sidebarWidth}
-              onToggleSidebar={() => setSidebarOpen((value) => !value)}
-              busy={Boolean(chat.workspaceDisabledReason)}
-              cwd={chat.connection.cwd}
-              directoryDisabledReason={chat.workspaceDisabledReason}
-              onDirectory={(trigger) => {
-                workspacePickerReturnFocus.current = trigger ?? null
-                setWorkspacePickerOpen(true)
-              }}
-              project={project}
-              title={title}
-              sessionName={chat.state?.sessionName}
-              onOpenProject={(app) => void bridge.openProject(app).catch((cause) => chat.setError(String(cause)))}
-              preferredApp={preferredApp}
-              onPreferredApp={(app) => {
-                setPreferredApp(app)
-                void bridge.setPreferredProjectApp(app).catch((cause) => chat.setError(String(cause)))
-              }}
-              rightPaneOpen={rightPaneOpen}
-              onToggleRightPane={() => setRightPaneOpen((value) => !value)}
-              forkedFrom={forkedFrom}
-              onOpenForkSource={(path) => void chat.openForkSource(path)}
-            />
-
-            {/* 下方主体内容工作区 */}
-            <div className="relative flex flex-1 min-h-0 w-full overflow-hidden">
-              {/* 侧边栏 */}
-              <div
-                id="workspace-sidebar"
-                aria-hidden={!sidebarOpen}
-                inert={!sidebarOpen}
-                style={{ width: sidebarOpen ? sidebarWidth : 0 }}
-                className={`flex h-full shrink-0 flex-col overflow-hidden ${
-                  resizingSide === 'left' ? '' : 'transition-[width] duration-250 ease-[cubic-bezier(0.22,1,0.36,1)]'
-                }`}
-              >
-                <div className="min-h-0 flex-1 overflow-hidden">
-                  {serviceUI?.sidebar ?? (
-                    <Sidebar
-                      {...{
-                        menuBridge: bridge,
-                        sidebarSettingsBridge: bridge,
-                        serviceId: hostId ?? 'local',
-                        searchEnabled: !settingsOpen && !serviceUI,
-                        onSelectProject: (cwd) => void chat.selectLocation({ kind: 'project', cwd }),
-                        onMenuChanged: chat.refreshMenu,
-                        onMenuDeleted: chat.applyMenuDeletion,
-                        projectName: project,
-                        cwd: chat.connection.sourceProjectCwd ?? chat.connection.cwd,
-                        ready,
-                        status,
-                        sessionsSnapshot: chat.sessions,
-                        sessionsLoading: chat.sessionsLoading,
-                        activeSessionId: chat.sessions?.activeSessionId,
-                        activeSessionPath: chat.sessions?.activeSessionPath,
-                        switchingToPath: chat.switchingToPath,
-                        onDirectory: () => void chat.chooseDirectory(),
-                        onNewSession: () => void chat.newSession(),
-                        onNewSessionInProject: (targetCwd) => void chat.newSessionInProject(targetCwd),
-                        onSwitchSession: (sessionPath) => void chat.switchSession(sessionPath),
-                        onTogglePin: (targetPath) => void chat.togglePin(targetPath),
-                        onPrefetchSession: (sessionPath) => void bridge.prefetchSession(sessionPath).catch(() => {}),
-                        onSettings: () => setSettingsOpen(true),
-                      }}
-                    />
-                  )}
-                </div>
-                {extra('sidebar')}
-                {pluginPages.length > 0 && (
-                  <nav aria-label="插件页面" className="shrink-0 space-y-1 border-t border-border p-2">
-                    <button
-                      type="button"
-                      className="w-full rounded px-2 py-1 text-left text-xs hover:bg-secondary"
-                      onClick={() => setSelectedPage(undefined)}
-                    >
-                      聊天
-                    </button>
-                    {pluginPages.map((page) => (
-                      <button
-                        key={page.id}
-                        type="button"
-                        aria-pressed={page.id === activePage?.id}
-                        className="w-full rounded px-2 py-1 text-left text-xs hover:bg-secondary"
-                        onClick={() => setSelectedPage(page.id)}
-                      >
-                        {page.title ?? page.id}
-                      </button>
-                    ))}
-                  </nav>
-                )}
-              </div>
-              {sidebarOpen && (
-                <ResizeHandle
-                  side="left"
-                  width={sidebarWidth}
-                  min={200}
-                  max={420}
-                  onResize={setSidebarWidth}
-                  onDraggingChange={(dragging) => setResizingSide(dragging ? 'left' : null)}
+              requestPanel={panelRequest}
+              onPanelRequestHandled={registry.consumePanelRequest}
+              requestRight={planRequest && planRequest.sessionKey === runtimeSessionKey ? 'builtin:plan' : undefined}
+              requestRightToken={planRequest ? `${planRequest.id}:${planRequest.revision}` : undefined}
+              onRightRequestHandled={() => setPlanRequest(undefined)}
+              onSidebar={handleSidebar}
+              header={(toggleSidebar, toggleRight, rightOpen) => (
+                <AppHeader
+                  nativeWindow={nativeWindow}
+                  canOpenProject={localPlatform}
+                  loadProjectApps={bridge.getProjectApps}
+                  sidebarOpen={sidebarOpen}
+                  sidebarWidth={sidebarWidth}
+                  onToggleSidebar={toggleSidebar}
+                  busy={Boolean(chat.workspaceDisabledReason)}
+                  cwd={chat.connection.cwd}
+                  directoryDisabledReason={chat.workspaceDisabledReason}
+                  onDirectory={(trigger) => {
+                    workspacePickerReturnFocus.current = trigger ?? null
+                    setWorkspacePickerOpen(true)
+                  }}
+                  project={project}
+                  title={title}
+                  sessionName={chat.state?.sessionName}
+                  onOpenProject={(app) => void bridge.openProject(app).catch((cause) => chat.setError(String(cause)))}
+                  preferredApp={preferredApp}
+                  onPreferredApp={(app) => {
+                    setPreferredApp(app)
+                    void bridge.setPreferredProjectApp(app).catch((cause) => chat.setError(String(cause)))
+                  }}
+                  rightPaneOpen={rightOpen}
+                  onToggleRightPane={toggleRight}
+                  forkedFrom={forkedFrom}
+                  onOpenForkSource={(path) => void chat.openForkSource(path)}
                 />
               )}
-
-              {/* 工作区主舞台 */}
-              {activePage ? (
-                <section className="flex-1 min-w-0 overflow-auto p-4" aria-label={activePage.title ?? activePage.id}>
-                  <PluginSlot registry={registry} contributionId={activePage.id} slot="page" props={pluginProps} />
-                </section>
-              ) : (
-                <WorkspaceContent
-                  chat={chat.chat}
-                  connection={chat.connection}
-                  ready={ready}
-                  hasConnected={chat.hasConnected || Boolean(chat.connection.sessionKey)}
-                  composer={composer}
-                  conversation={
-                    <Conversation
-                      {...{
-                        chat: chat.chat,
-                        stream: chat.chatStream,
-                        canEditMessages: !chat.busy && !chat.navigationBusy && !chat.editing,
-                        onEditMessage: chat.editMessage,
-                        onSwitchMessageVersion: (timestamp, version) =>
-                          void chat.switchMessageVersion(timestamp, version),
-                        onForkReply: (timestamp) => void chat.forkReply(timestamp),
-                        onCopyError: chat.setError,
-                        editor,
-                        switchingVersion: chat.switchingVersion,
-                      }}
-                    />
-                  }
-                  canEditMessages={!chat.busy && !chat.navigationBusy && !chat.editing}
-                  onEditMessage={chat.editMessage}
-                  onSwitchMessageVersion={(timestamp, version) => void chat.switchMessageVersion(timestamp, version)}
-                  onForkReply={(timestamp) => void chat.forkReply(timestamp)}
-                  onCopyError={chat.setError}
-                  onSettings={() => setSettingsOpen(true)}
-                  editor={editor}
-                  switchingVersion={chat.switchingVersion}
-                  notice={
-                    <>
-                      <ErrorNotice
-                        message={chat.error || settings.error}
-                        onOpenSettings={() => {
-                          chat.setError('')
-                          settings.dismissError()
-                          setSettingsOpen(true)
-                        }}
-                        onDismiss={() => {
-                          chat.setError('')
-                          settings.dismissError()
-                        }}
-                      />
-                      <ErrorNotice
-                        message={chat.extensionError?.message ?? ''}
-                        extension
-                        onOpenSettings={() => setSettingsOpen(true)}
-                        onDismiss={chat.dismissExtensionError}
-                      />
-                    </>
-                  }
-                >
-                  <ForkNotice
-                    forking={chat.forking}
-                    sourcePath={chat.forkNotice?.sourcePath}
-                    sourceTitle={forkSourceTitle}
-                    onOpenSource={(path) => void chat.openForkSource(path)}
-                    onDismiss={chat.dismissForkNotice}
-                  />
-                </WorkspaceContent>
-              )}
-              <div
-                id="workspace-right-sidebar"
-                aria-hidden={!rightPaneOpen}
-                inert={!rightPaneOpen}
-                style={{ width: rightPaneOpen ? rightPaneWidth + 1 : 0 }}
-                className={`flex h-full shrink-0 overflow-hidden ${
-                  resizingSide === 'right' ? '' : 'transition-[width] duration-250 ease-[cubic-bezier(0.22,1,0.36,1)]'
-                }`}
-              >
-                {(rightPaneOpen || rightPaneMounted) && (
-                  <>
-                    <ResizeHandle
-                      side="right"
-                      width={rightPaneWidth}
-                      min={280}
-                      max={560}
-                      onResize={setRightPaneWidth}
-                      onDraggingChange={(dragging) => setResizingSide(dragging ? 'right' : null)}
-                    />
-                    <RightSidebar
-                      tab={activeRightTab}
-                      availableTabs={availableRightTabs}
-                      onTab={setRightTab}
-                      onClose={() => setRightPaneOpen(false)}
-                      width={rightPaneWidth}
-                    >
-                      {activeRightTab === 'subagents' ? (
-                        <SubagentsPanel
-                          key={chat.connection.sessionKey}
-                          bridge={bridge}
-                          sessionKey={chat.connection.sessionKey}
-                        />
-                      ) : activeRightTab === 'plan' ? (
-                        <PlanPanel
-                          key={chat.connection.sessionKey}
-                          documents={chat.planDocuments}
-                          selectedId={selectedPlanId}
-                          onSelect={setSelectedPlanId}
-                        />
-                      ) : activeRightTab === 'git' ? (
-                        <GitPanel {...{ cwd: chat.connection.cwd, bridge, refreshToken: chat.refreshToken }} />
-                      ) : activeRightTab === 'session-tree' ? (
-                        <SessionTreePanel
-                          {...{
-                            sessionEntries: chat.chat.sessionEntries,
-                            onSwitchVersion: (timestamp, version) => void chat.switchMessageVersion(timestamp, version),
-                          }}
-                        />
-                      ) : (
-                        <p className="px-3 py-5 text-center text-xs text-muted-foreground">
-                          当前项目暂无可显示的内容。
-                        </p>
-                      )}
-                    </RightSidebar>
-                  </>
-                )}
-              </div>
-            </div>
+            >
+              {conversation}
+            </WorkspacePanels>
           </div>
 
           {/* 扩展通知 Toast 堆栈 */}
@@ -746,29 +790,35 @@ export function App({
                       call={call}
                     />
                   )
-                if (section === 'plugins' || section === 'skills')
+                if (section === 'skills')
                   return (
-                    <ResourceCenter
-                      key={section}
+                    <SkillPage
                       client={resources}
-                      plugins={plugins}
-                      initialKind={section === 'skills' ? 'skill' : 'all'}
                       cwd={cwd}
                       commands={chat.commands}
                       skillUsages={chat.chat.skillUsages}
                       resourceSnapshot={chat.state?.resourceSnapshot}
                       onChanged={async () => {
-                        await refreshPlugins()
                         await chat.refreshSnapshot()
                       }}
                       onUse={(command) => {
-                        if (command.source === 'skill') {
-                          chat.setSelectedSkills([...chat.selectedSkills, command])
-                          chat.setDraft(`${chat.draft}${chat.draft ? ' ' : ''}${skillMarker} `)
-                        } else chat.setDraft(`${chat.draft}${chat.draft ? ' ' : ''}/${command.name} `)
+                        chat.setSelectedSkills([...chat.selectedSkills, command])
+                        chat.setDraft(`${chat.draft}${chat.draft ? ' ' : ''}${skillMarker} `)
                         setSettingsOpen(false)
                       }}
-                      renderPluginSettings={(id) => (
+                    />
+                  )
+                if (section === 'plugins')
+                  return (
+                    <PluginPage
+                      client={plugins}
+                      plugins={pluginDescriptors}
+                      errors={registry.errors()}
+                      onChanged={async () => {
+                        await refreshPlugins()
+                        await chat.refreshSnapshot()
+                      }}
+                      renderSettings={(id) => (
                         <PluginSlot registry={registry} pluginId={id} slot="settings" props={pluginProps} />
                       )}
                     />
@@ -814,27 +864,7 @@ export function App({
                     />
                   )
                 if (section === 'profile') return <ProfileSettings {...{ loadUsage: bridge.getUsageStats }} />
-                if (section === 'extensions')
-                  return (
-                    <DeveloperSettings call={call}>
-                      <ExtensionsSettings
-                        mode={chat.connection.accessMode}
-                        busy={chat.busy}
-                        onOpen={() => void settings.openExtensionsDirectory()}
-                      />
-                      <SettingsContent section="personalization" advanced {...contentProps} />
-                      <PluginCenter
-                        developer
-                        client={plugins}
-                        plugins={pluginDescriptors}
-                        errors={registry.errors()}
-                        onRefresh={refreshPlugins}
-                        renderSettings={(id) => (
-                          <PluginSlot registry={registry} pluginId={id} slot="settings" props={pluginProps} />
-                        )}
-                      />
-                    </DeveloperSettings>
-                  )
+                if (section === 'developer') return <DeveloperSettings call={call}>{null}</DeveloperSettings>
                 return null
               }}
             />

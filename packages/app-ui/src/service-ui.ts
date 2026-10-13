@@ -32,5 +32,5 @@ export type ServiceRegistry = Pick<
   'localServiceId' | 'list' | 'subscribe' | 'initialize' | 'register' | 'retry' | 'remove' | 'refresh'
 > & {
   local: Pick<HostClient, 'bridge'>
-  get: (id: string) => Pick<HostClient, 'bridge' | 'plugins' | 'rpc' | 'nativePlatformAvailable'>
+  get: (id: string) => Pick<HostClient, 'bridge' | 'host' | 'plugins' | 'rpc' | 'nativePlatformAvailable'>
 }

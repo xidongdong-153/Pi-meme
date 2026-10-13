@@ -7,7 +7,9 @@
     "./host-client": "./src/host-client.ts",
     "./plugin-client": "./src/plugin-client.ts",
     "./service-registry": "./src/service-registry.ts",
-    "./resource-client": "./src/resource-client.ts"
+    "./resource-client": "./src/resource-client.ts",
+    "./app-host-client": "./src/app-host-client.ts",
+    "./node-host-client": "./src/node-host-client.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit",

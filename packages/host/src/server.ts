@@ -4,6 +4,7 @@ import { readFile, stat, realpath } from 'node:fs/promises'
 import path from 'node:path'
 import { randomBytes, timingSafeEqual, createHash } from 'node:crypto'
 import { WebSocketServer } from 'ws'
+import type { HostControlRequest, EventSubscription } from '@pi-meme/contracts/app-host'
 import type { HostRpcRequest } from '@pi-meme/contracts/host'
 import { createHost, type HostOptions } from './service'
 import { RemoteServices } from './remote-services'
@@ -48,6 +49,7 @@ const mime: Record<string, string> = {
   '.svg': 'image/svg+xml',
   '.png': 'image/png',
   '.webp': 'image/webp',
+  '.avif': 'image/avif',
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
   '.woff2': 'font/woff2',
@@ -175,6 +177,9 @@ export async function startHostServer(options: ServerOptions = {}) {
           response.end(data)
           return
         }
+        if (url.pathname === '/api/control' && request.method === 'POST') {
+          return reply(response, 200, await host.control.dispatch((await jsonBody(request)) as HostControlRequest))
+        }
         if (url.pathname === '/api/rpc' && request.method === 'POST') {
           const value = (await jsonBody(request, true)) as HostRpcRequest
           if (
@@ -283,7 +288,9 @@ export async function startHostServer(options: ServerOptions = {}) {
       !authenticated(request) ||
       !allowedOrigin(request) ||
       (localAutoLogin && !localRequest(request)) ||
-      (url.pathname !== '/api/events' && !/^\/api\/services\/[a-f0-9]{24}\/api\/events$/.test(url.pathname))
+      (url.pathname !== '/api/events' &&
+        url.pathname !== '/api/control/events' &&
+        !/^\/api\/services\/[a-f0-9]{24}\/api\/(?:control\/)?events$/.test(url.pathname))
     ) {
       socket.destroy()
       return
@@ -294,9 +301,37 @@ export async function startHostServer(options: ServerOptions = {}) {
       return
     }
     sockets.handleUpgrade(request, socket, head, (connection) => {
-      const remote = url.pathname.match(/^\/api\/services\/([a-f0-9]{24})\/api\/events$/)
+      if (url.pathname === '/api/control/events') {
+        try {
+          const input: EventSubscription = JSON.parse(url.searchParams.get('subscription') ?? '{}')
+          if (
+            !input ||
+            typeof input !== 'object' ||
+            (input.after &&
+              (typeof input.after.journalEpoch !== 'string' ||
+                !Number.isSafeInteger(input.after.seq) ||
+                input.after.seq < 0))
+          )
+            throw new Error('事件订阅参数无效')
+          const dispose = host.control.subscribe(input, (event) => {
+            if (connection.readyState === 1) connection.send(JSON.stringify(event))
+          })
+          connection.on('close', dispose)
+        } catch {
+          connection.close(1008, '事件订阅参数无效')
+        }
+        return
+      }
+      const remote = url.pathname.match(/^\/api\/services\/([a-f0-9]{24})\/api\/(control\/)?events$/)
       if (remote) {
-        void remotes.events(remote[1], clientId, connection).catch(() => connection.close(1011, '远程服务订阅失败'))
+        void remotes
+          .events(
+            remote[1],
+            clientId,
+            connection,
+            remote[2] ? (url.searchParams.get('subscription') ?? '{}') : undefined,
+          )
+          .catch(() => connection.close(1011, '远程服务订阅失败'))
         return
       }
       let dispose: (() => void) | undefined

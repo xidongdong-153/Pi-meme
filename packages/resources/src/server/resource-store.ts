@@ -1,7 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { chmod, lstat, mkdir, readFile, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { build } from 'esbuild'
 import { loadPiSdk } from '@pi-meme/pi-runtime/sdk/load'
 import type {
   ResourceAppPackage,
@@ -28,7 +27,7 @@ import {
 
 type ImportRecord = {
   id: string
-  kind: 'skill' | 'extension' | 'pi-package'
+  kind: 'skill'
   directory: string
   sourcePath: string
   name: string
@@ -75,7 +74,6 @@ export class ResourceStore {
   private readonly directory: string
   private state?: StoreState
   private pending: Promise<unknown> = Promise.resolve()
-  private readonly validatedExtensions = new Set<string>()
   private readonly leases = new Map<string, number>()
   constructor(
     root: string,
@@ -110,13 +108,13 @@ export class ResourceStore {
   }
   private async initialize() {
     if (this.state) return this.state
-    for (const directory of ['skills', 'extensions', 'builtin-resources/skills', 'resources/snapshots'])
+    for (const directory of ['skills', 'builtin-resources/skills', 'resources/snapshots'])
       await mkdir(path.join(this.dataRoot, directory), { recursive: true })
     try {
       const state = JSON.parse(await readFile(path.join(this.directory, 'state.json'), 'utf8')) as StoreState
       if (!Number.isSafeInteger(state.generation) || !Array.isArray(state.imports) || !state.policies)
         throw new Error('资源状态格式错误')
-      this.state = state
+      this.state = { ...state, imports: state.imports.filter((record) => record.kind === 'skill') }
     } catch (cause) {
       if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw cause
       this.state = { generation: 0, imports: [], policies: {} }
@@ -212,15 +210,6 @@ export class ResourceStore {
       revision: resourceRevision(files),
     }
   }
-  private async packageResources(directory: string) {
-    const { DefaultPackageManager, SettingsManager } = await loadPiSdk()
-    const manager = new DefaultPackageManager({
-      cwd: directory,
-      agentDir: path.join(this.directory, 'pi-discovery'),
-      settingsManager: SettingsManager.inMemory(),
-    })
-    return manager.resolveExtensionSources([directory], { temporary: true })
-  }
   private async skillInterface(directory: string) {
     const metadata: { displayName?: string; shortDescription?: string; manual: boolean; diagnostics: string[] } = {
       manual: false,
@@ -268,81 +257,6 @@ export class ResourceStore {
     }
     return metadata
   }
-  private async extensionResources(directory: string) {
-    if ((await lstat(directory)).isFile() || (await exists(path.join(directory, 'package.json'))))
-      return this.packageResources(directory)
-    const files = (await readdir(directory, { withFileTypes: true })).filter(
-      (entry) => entry.isFile() && /\.(?:ts|js|mjs)$/.test(entry.name),
-    )
-    const entry =
-      files.find((file) => /^(?:index|extension)\.(?:ts|js|mjs)$/.test(file.name)) ??
-      (files.length === 1 ? files[0] : undefined)
-    if (!entry) throw new Error('扩展目录必须包含单个 ts、js、mjs 文件或明确的 index 入口；多个入口请使用 Pi 包声明')
-    return this.packageResources(path.join(directory, entry.name))
-  }
-  private async validateExtensions(directory: string, paths: string[]) {
-    if (!paths.length) return
-    const key = `${directory}:${paths.join(':')}`
-    if (this.validatedExtensions.has(key)) return
-    const actualDirectory = await realpath(directory)
-    const roots: string[] = []
-    for (const entry of paths) {
-      if (!isInside(directory, entry)) throw new Error('扩展入口不能越过完整资源目录')
-      if ((await lstat(entry)).isDirectory()) {
-        const resources = await this.extensionResources(entry)
-        roots.push(...(await Promise.all(resources.extensions.map((resource) => realpath(resource.path)))))
-      } else roots.push(await realpath(entry))
-    }
-    try {
-      const result = await build({
-        absWorkingDir: actualDirectory,
-        entryPoints: roots,
-        outdir: path.join(actualDirectory, '.validate'),
-        bundle: true,
-        write: false,
-        platform: 'node',
-        format: 'esm',
-        metafile: true,
-        logLevel: 'silent',
-        external: [
-          '@earendil-works/pi-coding-agent',
-          '@earendil-works/pi-coding-agent/*',
-          '@earendil-works/pi-ai',
-          '@earendil-works/pi-ai/*',
-          '@earendil-works/pi-tui',
-          '@earendil-works/pi-tui/*',
-          '@earendil-works/pi-agent-core',
-          '@earendil-works/pi-agent-core/*',
-          'node:*',
-        ],
-        plugins: [
-          {
-            name: 'resource-paths',
-            setup(plugin) {
-              plugin.onResolve({ filter: /.*/ }, (args) => {
-                if (args.path.startsWith('.') || path.isAbsolute(args.path)) {
-                  const target = path.resolve(args.resolveDir || actualDirectory, args.path)
-                  if (!isInside(actualDirectory, target))
-                    return { errors: [{ text: '扩展导入路径不能越过完整资源目录' }] }
-                }
-                return undefined
-              })
-            },
-          },
-        ],
-      })
-      for (const input of Object.keys(result.metafile?.inputs ?? {})) {
-        if (!isInside(actualDirectory, await realpath(path.resolve(actualDirectory, input))))
-          throw new Error('扩展依赖不能越过完整资源目录')
-      }
-      this.validatedExtensions.add(key)
-    } catch (cause) {
-      throw new Error(
-        `扩展入口校验失败，请检查语法、依赖与包内路径：${cause instanceof Error ? cause.message : String(cause)}`,
-        { cause },
-      )
-    }
-  }
   private async scan(cwd?: string): Promise<ResourceCatalog> {
     const { loadSkills, parseFrontmatter } = await loadPiSdk()
     if (cwd) cwd = await canonicalCwd(cwd)
@@ -354,25 +268,17 @@ export class ResourceStore {
       source: string,
       scope: ResourceScope,
       owner: ResourceOwner,
-      kind: 'skill' | 'extension' | 'pi-package',
       enabled = true,
-      declared?: { skills?: string[]; extensions?: string[] },
+      declared?: { skills?: string[]; themes?: string[]; assets?: string[] },
     ) => {
       try {
         const frozen = await this.freeze(source)
         const root = frozen.directory
-        if (owner.type === 'pi-package') {
-          const manifest = JSON.parse(await readFile(path.join(root, 'package.json'), 'utf8')) as {
-            name?: string
-            version?: string
-          }
-          owner = { ...owner, name: manifest.name ?? owner.name, version: manifest.version }
-        }
         const sourceIsFile = (await lstat(source)).isFile()
         const relativeSource = sourceIsFile ? path.basename(source) : ''
         const fileSource = (relative: string) => (sourceIsFile ? source : path.join(source, relative))
         const base = (entry: {
-          kind: 'skill' | 'extension'
+          kind: 'skill'
           name: string
           filePath: string
           baseDir: string
@@ -381,10 +287,7 @@ export class ResourceStore {
           diagnostics?: string[]
         }): ResourceItem => {
           const relative = path.relative(root, entry.filePath)
-          const name =
-            owner.type === 'pi-package' || owner.type === 'app-package'
-              ? `${owner.name ?? owner.id}:${entry.name}`
-              : entry.name
+          const name = owner.type === 'app-package' ? `${owner.name ?? owner.id}:${entry.name}` : entry.name
           const id = identity(`${this.options.hostId ?? this.dataRoot}:${scope}:${owner.id}:${entry.kind}:${relative}`)
           const hostPolicy = state.policies[`host:${id}`]
           const projectPolicy = projectPolicies[id]
@@ -408,23 +311,10 @@ export class ResourceStore {
             editable: scope === 'host' && owner.type === 'loose' && entry.kind === 'skill',
           }
         }
-        let skillPaths: string[] = []
-        let extensionPaths: string[] = []
-        if (declared) {
-          skillPaths = (declared.skills ?? []).map((value) => path.join(root, safeRelative(value)))
-          extensionPaths = (declared.extensions ?? []).map((value) => path.join(root, safeRelative(value)))
-        } else if (kind === 'pi-package') {
-          const found = await this.packageResources(root)
-          skillPaths = found.skills.map((entry) => entry.path)
-          extensionPaths = found.extensions.map((entry) => entry.path)
-        } else if (kind === 'skill') skillPaths = [relativeSource ? path.join(root, relativeSource) : root]
-        else {
-          const found = await this.extensionResources(relativeSource ? path.join(root, relativeSource) : root)
-          extensionPaths = found.extensions.map((entry) => entry.path)
-        }
-        await this.validateExtensions(root, extensionPaths)
-        for (const location of [...skillPaths, ...extensionPaths])
-          if (!isInside(root, location)) throw new Error('包资源路径超出资源目录')
+        const skillPaths = declared
+          ? (declared.skills ?? []).map((value) => path.join(root, safeRelative(value)))
+          : [relativeSource ? path.join(root, relativeSource) : root]
+        for (const location of skillPaths) if (!isInside(root, location)) throw new Error('包资源路径超出资源目录')
         for (const location of skillPaths) {
           const loaded = loadSkills({ cwd: root, agentDir: root, skillPaths: [location], includeDefaults: false })
           for (const diagnostic of loaded.diagnostics) {
@@ -472,46 +362,27 @@ export class ResourceStore {
             items.push(item)
           }
         }
-        for (const location of extensionPaths) {
-          const info = await lstat(location)
-          const name = info.isDirectory() ? path.basename(location) : path.basename(location, path.extname(location))
-          items.push(
-            base({
-              kind: 'extension',
-              name,
-              filePath: location,
-              baseDir: info.isDirectory() ? location : path.dirname(location),
-            }),
-          )
-        }
       } catch (cause) {
         diagnostics.push(`${source}：${cause instanceof Error ? cause.message : String(cause)}`)
       }
     }
-    const loose = async (directory: string, scope: ResourceScope, kind: 'skill' | 'extension') => {
+    const loose = async (directory: string, scope: ResourceScope) => {
       if (!(await exists(directory))) return
       for (const entry of (await readdir(directory)).sort()) {
-        if (entry.startsWith('.') || (kind === 'extension' && entry === 'packages')) continue
+        if (entry.startsWith('.')) continue
         const source = path.join(directory, entry)
         const owner: ResourceOwner = { id: identity(source), type: scope === 'builtin' ? 'builtin' : 'loose' }
         if (state.imports.some((record) => record.id === owner.id)) continue
-        await addRoot(source, scope, owner, kind)
+        await addRoot(source, scope, owner)
       }
     }
-    await loose(path.join(this.dataRoot, 'builtin-resources/skills'), 'builtin', 'skill')
-    await loose(path.join(this.dataRoot, 'skills'), 'host', 'skill')
-    await loose(path.join(this.dataRoot, 'extensions'), 'host', 'extension')
+    await loose(path.join(this.dataRoot, 'builtin-resources/skills'), 'builtin')
+    await loose(path.join(this.dataRoot, 'skills'), 'host')
     for (const record of state.imports) {
-      await addRoot(
-        record.directory,
-        'host',
-        { id: record.id, type: record.kind === 'pi-package' ? 'pi-package' : 'loose', name: record.name },
-        record.kind,
-      )
+      await addRoot(record.directory, 'host', { id: record.id, type: 'loose', name: record.name })
     }
     if (cwd) {
-      await loose(path.join(path.resolve(cwd), '.agents/skills'), 'project', 'skill')
-      await loose(path.join(path.resolve(cwd), '.agents/extensions'), 'project', 'extension')
+      await loose(path.join(path.resolve(cwd), '.agents/skills'), 'project')
     }
     for (const app of (await this.options.getAppPackages?.()) ?? []) {
       const appPolicy = projectPolicies[`app:${app.id}`]
@@ -543,7 +414,7 @@ export class ResourceStore {
         diagnostics: [],
         editable: false,
       })
-      if (app.resources) await addRoot(app.directory, 'host', owner, 'pi-package', appEnabled, app.resources)
+      if (app.resources) await addRoot(app.directory, 'host', owner, appEnabled, app.resources)
     }
     const duplicates = new Map<string, ResourceItem[]>()
     for (const item of items.filter((entry) => entry.kind === 'skill' && entry.enabled)) {
@@ -588,21 +459,18 @@ export class ResourceStore {
       const catalog = await this.scan(cwd)
       const active = catalog.items.filter((item) => item.enabled && !item.shadowedBy)
       const skills = active.filter((item) => item.kind === 'skill')
-      const extensions = active.filter((item) => item.kind === 'extension')
       const appPlugins = catalog.items.filter((item) => item.kind === 'app-plugin')
       return {
         id: identity(
           JSON.stringify([
             catalog.cwd,
             skills.map((item) => [item.id, item.revision, item.invocation, item.owner.generation]),
-            extensions.map((item) => [item.id, item.revision, item.owner.generation]),
             appPlugins.map((item) => [item.id, item.revision, item.enabled]),
           ]),
         ),
         generation: catalog.generation,
         cwd: catalog.cwd!,
         skills,
-        extensions,
         appPlugins,
       }
     })
@@ -648,73 +516,35 @@ export class ResourceStore {
     return {
       files: [
         {
-          path: input.kind === 'extension' ? `${input.name ?? 'extension'}.ts` : 'SKILL.md',
+          path: 'SKILL.md',
           content: Buffer.from(input.content ?? ''),
         },
       ],
       sourcePath: 'upload:text',
     }
   }
-  private async validateImport(directory: string, kind: ImportRecord['kind']) {
-    if (kind === 'skill') {
-      const { loadSkills } = await loadPiSdk()
-      const found = loadSkills({ cwd: directory, agentDir: directory, skillPaths: [directory], includeDefaults: false })
-      if (!found.skills.length || found.diagnostics.some((item) => item.type === 'error'))
-        throw new Error(`技能校验失败：${found.diagnostics.map((item) => item.message).join('；') || '没有有效技能'}`)
-      return found.skills[0].name
-    }
-    let name = path.basename(directory)
-    if (kind === 'pi-package') {
-      const manifest = JSON.parse(await readFile(path.join(directory, 'package.json'), 'utf8')) as {
-        name?: string
-        version?: string
-        pi?: unknown
-        dependencies?: Record<string, string>
-      }
-      if (!manifest.name) throw new Error('Pi 包必须声明 package.json 的 name')
-      name = manifest.name
-      for (const dependency of Object.keys(manifest.dependencies ?? {})) {
-        if (
-          dependency === '@earendil-works/pi-coding-agent' ||
-          dependency === '@earendil-works/pi-ai' ||
-          dependency === '@earendil-works/pi-tui' ||
-          dependency === '@earendil-works/pi-agent-core'
-        )
-          continue
-        if (!(await exists(path.join(directory, 'node_modules', dependency, 'package.json'))))
-          throw new Error(`Pi 包缺少依赖 ${dependency}；请上传依赖齐备或自包含的构建目录`)
-      }
-    }
-    const found =
-      kind === 'extension' ? await this.extensionResources(directory) : await this.packageResources(directory)
-    if (!found.extensions.length && (kind !== 'pi-package' || !found.skills.length))
-      throw new Error('没有发现可用的 Pi 资源')
-    await this.validateExtensions(
-      directory,
-      found.extensions.map((item) => item.path),
-    )
-    for (const item of [...found.skills, ...found.extensions])
-      if (!isInside(directory, item.path)) throw new Error('Pi 包资源不能越过包目录')
-    return name
+  private async validateImport(directory: string) {
+    const { loadSkills } = await loadPiSdk()
+    const found = loadSkills({ cwd: directory, agentDir: directory, skillPaths: [directory], includeDefaults: false })
+    if (!found.skills.length || found.diagnostics.some((item) => item.type === 'error'))
+      throw new Error(`技能校验失败：${found.diagnostics.map((item) => item.message).join('；') || '没有有效技能'}`)
+    return found.skills[0].name
   }
   import(input: ResourceImportInput, cwd?: string) {
     return this.serialize(async () => {
       const state = await this.initialize()
-      if (input.kind !== undefined && !['skill', 'extension', 'pi-package'].includes(input.kind))
-        throw new Error('资源导入类型无效')
+      if (input.kind !== undefined && input.kind !== 'skill') throw new Error('资源导入类型无效')
       const replaceItem = input.replace
         ? (await this.scan(cwd)).items.find((item) => item.id === input.replace?.id)
         : undefined
       if (input.replace) {
         if (!replaceItem) throw new Error('待更新资源不存在')
-        if (replaceItem.scope !== 'host' || !['loose', 'pi-package'].includes(replaceItem.owner.type))
-          throw new Error('只能更新Host用户技能、扩展或Pi包')
+        if (replaceItem.scope !== 'host' || replaceItem.owner.type !== 'loose')
+          throw new Error('只能更新 Host 用户技能')
         if (input.replace.revision !== replaceItem.revision) throw new Error('资源已更新，请重新读取修订后上传')
       }
       const replaceRecord = replaceItem ? state.imports.find((record) => record.id === replaceItem.owner.id) : undefined
-      const replaceKind = replaceItem
-        ? (replaceRecord?.kind ?? (replaceItem.owner.type === 'pi-package' ? 'pi-package' : replaceItem.kind))
-        : undefined
+      const replaceKind = replaceItem ? (replaceRecord?.kind ?? replaceItem.kind) : undefined
       const replaceTarget = replaceItem
         ? (replaceRecord?.directory ?? (await this.looseSource(replaceItem)))
         : undefined
@@ -724,7 +554,7 @@ export class ResourceStore {
         if (first && files.every((file) => file.path.startsWith(`${first}/`)))
           files = files.map((file) => ({ ...file, path: file.path.slice(first.length + 1) }))
       }
-      if (!input.replace && input.name && input.kind !== 'extension' && input.kind !== 'pi-package') {
+      if (!input.replace && input.name) {
         const name = skillName(input.name)
         const documents = files.filter(
           (file) => path.basename(file.path) === 'SKILL.md' || (file.path.endsWith('.md') && !file.path.includes('/')),
@@ -751,58 +581,27 @@ export class ResourceStore {
         }
         if (manifest.piMeme) throw new Error('这是应用插件，请通过应用插件安装入口导入')
       }
-      const kind =
-        input.kind ??
-        ((await exists(path.join(directory, 'package.json')))
-          ? 'pi-package'
-          : files.some((file) => path.basename(file.path) === 'SKILL.md' || file.path.endsWith('.md'))
-            ? 'skill'
-            : 'extension')
-      const name = await this.validateImport(directory, kind)
+      const kind = 'skill' as const
+      const name = await this.validateImport(directory)
       if (replaceItem) {
         if (kind !== replaceKind) throw new Error('更新资源类型与原资源不一致')
-        if (kind === 'pi-package') {
-          if (name !== replaceItem.owner.name || (input.name !== undefined && input.name !== name))
-            throw new Error('更新Pi包的名称必须与原包一致')
-        } else if (kind === 'skill') {
-          const { loadSkills } = await loadPiSdk()
-          const loaded = loadSkills({
-            cwd: directory,
-            agentDir: directory,
-            skillPaths: [directory],
-            includeDefaults: false,
-          })
-          const relative = path.relative(path.join(this.directory, 'snapshots', replaceItem.revision), replaceItem.path)
-          const updated = loaded.skills.find((skill) => path.relative(directory, skill.filePath) === relative)
-          if (
-            !updated ||
-            updated.name !== replaceItem.name ||
-            (input.name !== undefined && input.name !== replaceItem.name)
-          )
-            throw new Error('更新技能的入口和名称必须与原技能一致')
-        } else {
-          const resources = await this.extensionResources(directory)
-          const relative = path.relative(path.join(this.directory, 'snapshots', replaceItem.revision), replaceItem.path)
-          if (
-            !resources.extensions.some((entry) => path.relative(directory, entry.path) === relative) ||
-            (input.name !== undefined && input.name !== replaceItem.name)
-          )
-            throw new Error('更新扩展的入口和名称必须与原扩展一致')
-        }
+        const { loadSkills } = await loadPiSdk()
+        const loaded = loadSkills({
+          cwd: directory,
+          agentDir: directory,
+          skillPaths: [directory],
+          includeDefaults: false,
+        })
+        const relative = path.relative(path.join(this.directory, 'snapshots', replaceItem.revision), replaceItem.path)
+        const updated = loaded.skills.find((skill) => path.relative(directory, skill.filePath) === relative)
+        if (
+          !updated ||
+          updated.name !== replaceItem.name ||
+          (input.name !== undefined && input.name !== replaceItem.name)
+        )
+          throw new Error('更新技能的入口和名称必须与原技能一致')
       }
-      const target =
-        replaceTarget ??
-        (kind === 'skill'
-          ? path.join(this.dataRoot, 'skills', skillName(name))
-          : kind === 'pi-package'
-            ? path.join(this.dataRoot, 'extensions/packages', identity(name))
-            : path.join(
-                this.dataRoot,
-                'extensions',
-                skillName(
-                  input.name ?? (files.length === 1 ? path.basename(files[0].path, path.extname(files[0].path)) : name),
-                ),
-              ))
+      const target = replaceTarget ?? path.join(this.dataRoot, 'skills', skillName(name))
       const current = state.imports.find((record) => record.directory === target)
       if (
         !input.replace &&
@@ -815,7 +614,7 @@ export class ResourceStore {
         kind,
         directory: target,
         sourcePath,
-        name: kind === 'extension' ? path.basename(target) : name,
+        name,
       }
       const imports = [...state.imports.filter((entry) => entry.directory !== target), record]
       await this.publish(target, files, { ...state, imports, generation: state.generation + 1 })
@@ -823,7 +622,7 @@ export class ResourceStore {
     })
   }
   private async looseSource(item: ResourceItem) {
-    const root = path.join(this.dataRoot, item.kind === 'skill' ? 'skills' : 'extensions')
+    const root = path.join(this.dataRoot, 'skills')
     for (const entry of await readdir(root)) {
       const source = path.join(root, entry)
       if (identity(source) === item.owner.id) return source
@@ -877,7 +676,7 @@ export class ResourceStore {
       const nextFiles = files.filter((file) => file.path !== relative)
       nextFiles.push({ path: relative, content: Buffer.from(input.content) })
       const directory = await materializeResource(path.join(this.directory, 'snapshots'), nextFiles)
-      await this.validateImport(directory, 'skill')
+      await this.validateImport(directory)
       const target =
         record?.directory ?? (item ? await this.looseSource(item) : path.join(this.dataRoot, 'skills', name))
       if (!item && (await exists(target))) throw new Error('同级技能名称重复')

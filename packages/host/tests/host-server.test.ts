@@ -66,6 +66,30 @@ async function setup(fake = false, clientGraceMs?: number) {
   }
 }
 
+async function selectAgentPlugins(
+  host: Awaited<ReturnType<typeof startHostServer>>['host'],
+  key: string,
+  ids: string[],
+) {
+  const ref = await host.control.sessionForRuntime(key)
+  await host.app.sessions.configure(ref, { agentPlugins: ids }, { idempotencyKey: crypto.randomUUID() })
+}
+
+async function installAgentFixture(
+  host: Awaited<ReturnType<typeof startHostServer>>['host'],
+  directory: string,
+  id: string,
+  content: string,
+) {
+  await mkdir(path.join(directory, 'dist'), { recursive: true })
+  await writeFile(
+    path.join(directory, 'package.json'),
+    JSON.stringify({ name: id, version: '1.0.0', piMeme: { sdkVersion: 2, agent: 'dist/agent.js' } }),
+  )
+  await writeFile(path.join(directory, 'dist/agent.js'), content)
+  await host.plugins.loadDirectory(directory)
+}
+
 test('两客户端选择不同项目不改变彼此快照、命令与 Git 目录', async () => {
   const fixture = await setup()
   try {
@@ -245,17 +269,19 @@ test('目录选择可恢复具体无项目会话，父目录和嵌套目录不�
   }
 })
 
-test('内置资源始终使用 Pi 原生目录扫描，插件接口不能停用加载引擎', async () => {
+test('AppAgent 命令按会话启用，插件接口不能停用内置资源模块', async () => {
   const fixture = await setup(true)
   try {
-    const extensions = path.join(fixture.server.host.root, 'extensions')
-    await mkdir(extensions, { recursive: true })
-    await writeFile(
-      path.join(extensions, 'native-resource.js'),
-      `export default pi => pi.registerCommand('native-resource', { description: '原生资源命令', handler: async () => {} })\n`,
+    const pluginId = 'command-fixture'
+    await installAgentFixture(
+      fixture.server.host,
+      path.join(fixture.root, pluginId),
+      pluginId,
+      `export function activate(context) { context.commands.register({ name: 'native-resource', description: '应用命令', execute: async () => {} }) }\n`,
     )
     const initial = (await fixture.rpc('resource', 'pi:snapshot')).result as Snapshot
     const key = initial.connection.sessionKey!
+    await selectAgentPlugins(fixture.server.host, key, [pluginId])
     assert.equal((await fixture.rpc('resource', 'pi:access-mode', [key, 'full-access'], key)).error, undefined)
     assert.equal((await fixture.rpc('resource', 'pi:prompt', [key, '资源扫描', [], []], key)).error, undefined)
     const commands = (await fixture.rpc('resource', 'pi:commands', [], key)).result as Array<{ name: string }>
@@ -289,7 +315,7 @@ test('同地址新 Host 的插件入口与相对子模块都使用新的实例�
     await mkdir(path.join(directory, 'dist/ui'), { recursive: true })
     await writeFile(
       path.join(directory, 'package.json'),
-      JSON.stringify({ name: 'relative-ui', version: '1.0.0', piMeme: { sdkVersion: 1, ui: 'dist/ui/entry.js' } }),
+      JSON.stringify({ name: 'relative-ui', version: '1.0.0', piMeme: { sdkVersion: 2, ui: 'dist/ui/entry.js' } }),
     )
     await writeFile(
       path.join(directory, 'dist/ui/entry.js'),
@@ -338,14 +364,16 @@ test('内置交互不能被停用，弹框仍能回答，基础 UI 始终可用'
   const fixture = await setup(true)
   let pending: Promise<HostRpcResponse> | undefined
   try {
-    const extensions = path.join(fixture.server.host.root, 'extensions')
-    await mkdir(extensions, { recursive: true })
-    await writeFile(
-      path.join(extensions, 'lease-question.js'),
-      `export default pi => { pi.registerCommand('lease-question', { description: '租约交互验收', handler: async (_args, ctx) => { await ctx.ui.confirm('旧弹框', '请确认') } }); pi.registerCommand('ui-availability', { description: '检查 UI', handler: async (_args, ctx) => { if (!ctx.hasUI) throw new Error('内置交互 UI 不可用') } }) }\n`,
+    const pluginId = 'interaction-fixture'
+    await installAgentFixture(
+      fixture.server.host,
+      path.join(fixture.root, pluginId),
+      pluginId,
+      `export function activate(context) { context.commands.register({ name: 'lease-question', description: '交互验收', execute: async (_args, execution) => { await context.interaction.request([{ id: 'confirm', question: '请确认', options: [{ label: '确认' }, { label: '取消' }] }], execution.signal) } }); context.commands.register({ name: 'ui-availability', description: '检查交互', execute: async () => { context.interaction.notify('交互可用') } }) }\n`,
     )
     const initial = (await fixture.rpc('a', 'pi:snapshot')).result as Snapshot
     const key = initial.connection.sessionKey!
+    await selectAgentPlugins(fixture.server.host, key, [pluginId])
     await fixture.rpc('a', 'pi:access-mode', [key, 'full-access'], key)
     pending = fixture.rpc('a', 'pi:prompt', [key, '/lease-question', [], []], key)
     let id: string | undefined
@@ -353,16 +381,16 @@ test('内置交互不能被停用，弹框仍能回答，基础 UI 始终可用'
       const snapshot = (await fixture.rpc('b', 'pi:snapshot', [], key)).result as Snapshot
       const request = snapshot.events
         ?.map((value) => value.event)
-        .find((event) => event.type === 'extension_ui_request' && event.method === 'confirm')
+        .find((event) => event.type === 'extension_ui_request' && event.method === 'questions')
       if (request?.type === 'extension_ui_request') id = request.id
       if (!id) await delay(25)
     }
     assert.ok(id)
-    const disabling = await fixture.rpc('b', 'plugins:disable', ['@pi-meme/pi-extensions'], key)
+    const disabling = await fixture.rpc('b', 'plugins:disable', ['@pi-meme/interaction'], key)
     assert.match(disabling.error?.message ?? '', /内置模块/)
     const oldSnapshot = (await fixture.rpc('a', 'pi:snapshot', [], key)).result as Snapshot
     assert.equal(
-      oldSnapshot.uiPlugins?.some((descriptor) => descriptor.id === '@pi-meme/pi-extensions'),
+      oldSnapshot.uiPlugins?.some((descriptor) => descriptor.id === '@pi-meme/interaction'),
       false,
     )
     const git = await fixture.rpc('b', 'plugins:disable', ['@pi-meme/git'], key)
@@ -370,8 +398,8 @@ test('内置交互不能被停用，弹框仍能回答，基础 UI 始终可用'
     const invalid = await fixture.rpc('b', 'pi:extension-ui-response', [key, id, { value: '无效确认' }], key)
     assert.ok(invalid.error)
     const answers = await Promise.all([
-      fixture.rpc('a', 'pi:extension-ui-response', [key, id, { confirmed: true }], key),
-      fixture.rpc('b', 'pi:extension-ui-response', [key, id, { confirmed: false }], key),
+      fixture.rpc('a', 'pi:extension-ui-response', [key, id, { answers: [{ id: 'confirm', value: '确认' }] }], key),
+      fixture.rpc('b', 'pi:extension-ui-response', [key, id, { answers: [{ id: 'confirm', value: '取消' }] }], key),
     ])
     assert.equal(answers.filter((answer) => !answer.error).length, 1)
     assert.equal((await pending).error, undefined)
@@ -380,7 +408,9 @@ test('内置交互不能被停用，弹框仍能回答，基础 UI 始终可用'
     assert.equal(next.error, undefined)
     const snapshot = (await fixture.rpc('a', 'pi:snapshot', [], key)).result as Snapshot
     assert.equal(
-      snapshot.events?.some((value) => value.event.type === 'extension_ui_request' && value.event.method === 'confirm'),
+      snapshot.events?.some(
+        (value) => value.event.type === 'extension_ui_request' && value.event.method === 'questions',
+      ),
       false,
     )
   } finally {
@@ -526,11 +556,11 @@ test('运行中安装与卸载 Agent 插件，旧任务保持原工具，新任�
   await mkdir(path.join(directory, 'dist', 'agent'), { recursive: true })
   await writeFile(
     path.join(directory, 'package.json'),
-    JSON.stringify({ name: pluginId, version: '1.0.0', piMeme: { sdkVersion: 1, agent: 'dist/agent/entry.js' } }),
+    JSON.stringify({ name: pluginId, version: '1.0.0', piMeme: { sdkVersion: 2, agent: 'dist/agent/entry.js' } }),
   )
   await writeFile(
     path.join(directory, 'dist', 'agent', 'entry.js'),
-    `export default (pi) => { pi.registerTool({ name: 'hot_fixture_tool', label: '热更工具', description: '验证新会话工具集合', parameters: { type: 'object', properties: {} }, execute: async () => ({ content: [{ type: 'text', text: '工具已执行' }], details: {} }) }); pi.registerCommand('hot-fixture-command', { handler: async () => {} }) }\n`,
+    `export function activate(context) { context.tools.register({ name: 'hot_fixture_tool', title: '热更工具', description: '验证新会话工具集合', parameters: { type: 'object', properties: {} }, execute: async () => ({ text: '工具已执行', data: {} }) }); context.commands.register({ name: 'hot-fixture-command', description: '热更命令', execute: async () => {} }) }\n`,
   )
   const snapshot = async () => {
     const response = await fixture.rpc('a', 'pi:snapshot')
@@ -557,6 +587,7 @@ test('运行中安装与卸载 Agent 插件，旧任务保持原工具，新任�
       false,
     )
     await settled()
+    await selectAgentPlugins(fixture.server.host, key, [pluginId])
     assert.equal((await fixture.rpc('a', 'pi:prompt', [key, '新工具集合'], key)).error, undefined)
     assert.ok(
       ((await fixture.rpc('a', 'pi:commands')).result as Array<{ name: string }>).some(

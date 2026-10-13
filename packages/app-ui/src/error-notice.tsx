@@ -29,7 +29,7 @@ export function ErrorNotice({
       <AlertCircle aria-hidden="true" className="size-4 shrink-0 mt-0.5" />
       <div className="min-w-0 flex-1 space-y-2">
         <p className="max-h-20 overflow-y-auto break-words font-medium whitespace-pre-wrap leading-relaxed">{text}</p>
-        {extensionFailure && <p>在设置的 Pi 扩展中移除该路径后重新保存，或修正对应扩展。</p>}
+        {extensionFailure && <p>在插件设置中检查加载状态，或修正报错的文件。</p>}
         {needsSettings ? (
           <Button
             variant="outline"

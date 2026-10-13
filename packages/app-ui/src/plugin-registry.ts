@@ -1,19 +1,36 @@
-import type { DesktopBridge } from '@pi-meme/contracts/desktop'
+import type { HostApi } from '@pi-meme/contracts/app-host'
 import { PluginScope } from '@pi-meme/plugin-sdk/scope'
-import type { UiContribution, UiPluginDescriptor, UiPluginModule } from '@pi-meme/plugin-sdk/ui'
+import type {
+  UiContribution,
+  UiPanel,
+  UiReactiveState,
+  UiPluginDescriptor,
+  UiPluginModule,
+  UiTarget,
+} from '@pi-meme/plugin-sdk/ui'
 
-type ActivePlugin = { descriptor: UiPluginDescriptor; scope: PluginScope; contributions: Map<string, UiContribution> }
+type ActivePlugin = {
+  descriptor: UiPluginDescriptor
+  scope: PluginScope
+  contributions: Map<string, UiContribution>
+  panels: Map<string, UiPanel>
+}
 
 export class UiPluginRegistry {
   private readonly active = new Map<string, ActivePlugin>()
   private readonly listeners = new Set<() => void>()
   private readonly failures = new Map<string, string>()
   private contributions: UiContribution[] = []
+  private panels: UiPanel[] = []
+  private panelRequest: { id: string; revision: number; target: UiTarget } | null = null
+  private panelRequestRevision = 0
+  private reactiveState: UiReactiveState = { target: { hostId: '' }, snapshot: null }
+  private readonly reactiveListeners = new Set<() => void>()
   private tail: Promise<unknown> = Promise.resolve()
   private closed = false
 
   constructor(
-    private readonly bridge: DesktopBridge,
+    private readonly host: HostApi,
     private readonly load: (url: string) => Promise<UiPluginModule> = (url) =>
       import(/* @vite-ignore */ url) as Promise<UiPluginModule>,
     private readonly call: <T>(method: string, args?: unknown[]) => Promise<T> = async () => {
@@ -29,6 +46,18 @@ export class UiPluginRegistry {
   }
 
   getSnapshot = () => this.contributions
+  getPanels = () => this.panels
+  getPanelRequest = () => this.panelRequest
+  consumePanelRequest = (revision: number) => {
+    if (this.panelRequest?.revision !== revision) return
+    this.panelRequest = null
+    for (const listener of this.listeners) listener()
+  }
+  getReactiveSnapshot = () => this.reactiveState
+  updateTarget(state: UiReactiveState) {
+    this.reactiveState = state
+    for (const listener of this.reactiveListeners) listener()
+  }
   errors() {
     return Object.fromEntries(this.failures)
   }
@@ -41,6 +70,7 @@ export class UiPluginRegistry {
     this.contributions = [...this.active.values()]
       .flatMap((plugin) => [...plugin.contributions.values()])
       .sort((left, right) => (left.order ?? 0) - (right.order ?? 0) || left.id.localeCompare(right.id))
+    this.panels = [...this.active.values()].flatMap((plugin) => [...plugin.panels.values()])
     for (const listener of this.listeners) listener()
   }
 
@@ -80,7 +110,8 @@ export class UiPluginRegistry {
             continue
           const scope = new PluginScope()
           const contributions = new Map<string, UiContribution>()
-          const candidate = { descriptor, scope, contributions }
+          const panels = new Map<string, UiPanel>()
+          const candidate = { descriptor, scope, contributions, panels }
           try {
             const module = await this.load(descriptor.ui)
             if (typeof module.activate !== 'function') throw new Error('插件 UI 入口必须导出 activate(context)')
@@ -88,45 +119,90 @@ export class UiPluginRegistry {
               pluginId: descriptor.id,
               generation: descriptor.generation,
               iconUrl: descriptor.iconUrl,
-              bridge: this.bridge,
+              host: this.host,
+              reactive: {
+                getSnapshot: this.getReactiveSnapshot,
+                subscribe: (listener) => {
+                  this.reactiveListeners.add(listener)
+                  return scope.own(() => {
+                    this.reactiveListeners.delete(listener)
+                  })
+                },
+              },
+              panels: {
+                open: (id) => {
+                  if (!id.startsWith(`${descriptor.id}:`) || !panels.has(id))
+                    throw new Error('只能打开自身已注册的面板')
+                  this.panelRequest = {
+                    id,
+                    revision: ++this.panelRequestRevision,
+                    target: structuredClone(this.reactiveState.target),
+                  }
+                  for (const listener of this.listeners) listener()
+                },
+                register: (panel) => {
+                  if (!panel.id.startsWith(`${descriptor.id}:`)) throw new Error('插件面板标识必须使用插件名称作为前缀')
+                  if (panels.has(panel.id) || contributions.has(panel.id))
+                    throw new Error(`插件面板标识重复：${panel.id}`)
+                  if (panel.location !== 'right') throw new Error('插件面板位置无效，只能注册到聊天右侧栏')
+                  if (!['app', 'project', 'session'].includes(panel.scope)) throw new Error('插件面板范围无效')
+                  if (!panel.title.trim() || typeof panel.render !== 'function')
+                    throw new Error('插件面板必须提供标题和 render(props)')
+                  panels.set(panel.id, { ...panel, generation: descriptor.generation })
+                  if (this.active.get(descriptor.id) === candidate) this.changed()
+                  return scope.own(() => {
+                    panels.delete(panel.id)
+                    if (this.active.get(descriptor.id) === candidate) this.changed()
+                  })
+                },
+              },
               call: <T>(method: string, args?: unknown[]): Promise<T> => {
                 if (!method.startsWith(`${descriptor.id}:`)) throw new Error('插件操作必须使用插件名称作为前缀')
                 return this.call<T>(method, args)
               },
-              contribute: (contribution) => {
-                if (!contribution.id.startsWith(`${descriptor.id}:`))
-                  throw new Error('插件贡献标识必须使用插件名称作为前缀')
-                if (contributions.has(contribution.id)) throw new Error(`插件贡献标识重复：${contribution.id}`)
-                if (
-                  !['page', 'sidebar', 'composer', 'tool-card', 'status', 'settings', 'message'].includes(
-                    contribution.slot,
+              contributions: {
+                register: (contribution) => {
+                  if (!contribution.id.startsWith(`${descriptor.id}:`))
+                    throw new Error('插件贡献标识必须使用插件名称作为前缀')
+                  if (contributions.has(contribution.id) || panels.has(contribution.id))
+                    throw new Error(`插件贡献标识重复：${contribution.id}`)
+                  if (
+                    ![
+                      'composer',
+                      'composer-actions',
+                      'tool-card',
+                      'status',
+                      'settings',
+                      'message',
+                      'message-actions',
+                    ].includes(contribution.slot)
                   )
-                )
-                  throw new Error('插件贡献位置无效')
-                if (typeof contribution.render !== 'function') throw new Error('插件贡献必须提供 render(props)')
-                if (contribution.match?.ownerId && contribution.match.ownerId !== descriptor.id)
-                  throw new Error('插件贡献不能匹配其他插件来源')
-                const matchField =
-                  contribution.slot === 'tool-card'
-                    ? 'toolName'
-                    : contribution.slot === 'message'
-                      ? 'customType'
-                      : undefined
-                if (
-                  matchField &&
-                  (typeof contribution.match?.[matchField] !== 'string' || !contribution.match[matchField]?.trim())
-                )
-                  throw new Error(`插件 ${contribution.slot} 贡献必须声明 match.${matchField}`)
-                contributions.set(contribution.id, {
-                  ...contribution,
-                  generation: descriptor.generation,
-                  match: matchField ? { ...contribution.match, ownerId: descriptor.id } : contribution.match,
-                })
-                if (this.active.get(descriptor.id) === candidate) this.changed()
-                return scope.own(() => {
-                  contributions.delete(contribution.id)
+                    throw new Error('插件贡献位置无效')
+                  if (typeof contribution.render !== 'function') throw new Error('插件贡献必须提供 render(props)')
+                  if (contribution.match?.ownerId && contribution.match.ownerId !== descriptor.id)
+                    throw new Error('插件贡献不能匹配其他插件来源')
+                  const matchField =
+                    contribution.slot === 'tool-card'
+                      ? 'toolName'
+                      : contribution.slot === 'message' || contribution.slot === 'message-actions'
+                        ? 'customType'
+                        : undefined
+                  if (
+                    matchField &&
+                    (typeof contribution.match?.[matchField] !== 'string' || !contribution.match[matchField]?.trim())
+                  )
+                    throw new Error(`插件 ${contribution.slot} 贡献必须声明 match.${matchField}`)
+                  contributions.set(contribution.id, {
+                    ...contribution,
+                    generation: descriptor.generation,
+                    match: matchField ? { ...contribution.match, ownerId: descriptor.id } : contribution.match,
+                  })
                   if (this.active.get(descriptor.id) === candidate) this.changed()
-                })
+                  return scope.own(() => {
+                    contributions.delete(contribution.id)
+                    if (this.active.get(descriptor.id) === candidate) this.changed()
+                  })
+                },
               },
             })
             if (disposer) scope.own(disposer)
@@ -174,6 +250,7 @@ export class UiPluginRegistry {
     this.active.clear()
     this.changed()
     this.listeners.clear()
+    this.reactiveListeners.clear()
     if (errors.length) throw new AggregateError(errors, '插件 UI 资源释放失败')
   }
 }

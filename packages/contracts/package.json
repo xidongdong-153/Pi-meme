@@ -20,7 +20,8 @@
     "./plan": "./src/plan.ts",
     "./collaboration": "./src/collaboration.ts",
     "./user-input": "./src/user-input.ts",
-    "./resources": "./src/resources.ts"
+    "./resources": "./src/resources.ts",
+    "./app-host": "./src/app-host.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit",

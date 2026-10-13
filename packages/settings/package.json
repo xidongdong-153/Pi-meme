@@ -15,8 +15,7 @@
     "./shared/themes": "./src/shared/themes.ts",
     "./shared/appearance": "./src/shared/appearance.ts",
     "./server/entry": "./src/server/entry.ts",
-    "./ui/plugin": "./src/ui/plugin.ts",
-    "./ui/entry": "./src/ui/entry.tsx"
+    "./server/plugin-themes": "./src/server/plugin-themes.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit",
@@ -36,9 +35,8 @@
     "react": "^19.3.0"
   },
   "piMeme": {
-    "sdkVersion": 1,
+    "sdkVersion": 2,
     "server": "dist/server/chord-facets.json",
-    "ui": "dist/ui/entry.js",
     "requires": [
       "host.settings"
     ]

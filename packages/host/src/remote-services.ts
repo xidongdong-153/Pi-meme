@@ -235,10 +235,15 @@ export class RemoteServices {
   }
   async request(id: string, pathname: string, method: string, body?: string) {
     const state = this.get(id)
-    if ((pathname === '/api/auth' || pathname === '/api/rpc') && method !== 'POST')
+    if ((pathname === '/api/auth' || pathname === '/api/rpc' || pathname === '/api/control') && method !== 'POST')
       throw new Error('远程代理请求方法无效')
     if (pathname.startsWith('/api/plugins/') && method !== 'GET') throw new Error('远程资源请求方法无效')
-    if (!(pathname === '/api/auth' || pathname === '/api/rpc' || pathname.startsWith('/api/plugins/')))
+    if (!(
+      pathname === '/api/auth' ||
+      pathname === '/api/rpc' ||
+      pathname === '/api/control' ||
+      pathname.startsWith('/api/plugins/')
+    ))
       throw new Error('远程代理接口无效')
     try {
       await this.authenticate(id)
@@ -309,6 +314,12 @@ export class RemoteServices {
               snapshot: { ...snapshot, uiPlugins: rewriteDescriptors(snapshot.uiPlugins) },
             }
         }
+        if (envelope.result && typeof envelope.result === 'object' && 'themes' in envelope.result) {
+          const result = envelope.result as { themes?: Array<{ background?: { url?: string } }> }
+          for (const theme of result.themes ?? [])
+            if (theme.background?.url?.startsWith('/api/plugins/'))
+              theme.background.url = `/api/services/${id}${theme.background.url}`
+        }
         data = Buffer.from(JSON.stringify(envelope))
         if (!envelope.error && ['workspace:projects', 'pi:sessions'].includes(request.method)) await this.save()
       }
@@ -322,11 +333,12 @@ export class RemoteServices {
       throw cause
     }
   }
-  async events(id: string, clientId: string, downstream: WebSocket) {
+  async events(id: string, clientId: string, downstream: WebSocket, subscription?: string) {
     const state = this.get(id)
     await this.authenticate(id)
     this.assertCurrent(state)
-    const url = new URL('/api/events', state.address)
+    const url = new URL(subscription === undefined ? '/api/events' : '/api/control/events', state.address)
+    if (subscription !== undefined) url.searchParams.set('subscription', subscription)
     url.protocol = 'wss:'
     url.searchParams.set('clientId', clientId)
     const connect = (renewed: boolean) => {

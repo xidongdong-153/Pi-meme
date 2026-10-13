@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from 'react'
 import { App } from '@pi-meme/app-ui/app'
 import { HostDirectoryDialog } from '@pi-meme/app-ui/host-directory-dialog'
 import { HostClient } from '@pi-meme/client/host-client'
+import { createAppHostClient } from '@pi-meme/client/app-host-client'
 import type { HostConnection, HostDirectory, PlatformAdapter } from '@pi-meme/contracts/host'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Input } from '@pi-meme/ui/components/ui/input'
@@ -19,30 +20,16 @@ type DirectoryRequest = {
 async function fixtureUnavailable<T>(): Promise<T> {
   throw new Error('会话切换 fixture 不执行插件管理')
 }
-const fixtureDescriptors: Awaited<ReturnType<PluginClient['list']>> = [
-  'chat',
-  'workspace',
-  'git',
-  'models',
-  'settings',
-  'mcp',
-  'pi-extensions',
-  'history',
-  'permissions',
-  'resources',
-  'codemode',
-  'subagents',
-  'usage',
-].map((name) => ({
-  id: `@pi-meme/${name}`,
-  version: 'fixture',
-  generation: 1,
-  ui: `builtin:@pi-meme/${name}`,
-  enabled: true,
-  status: 'active',
-}))
+const fixtureHost = createAppHostClient({
+  call: async <T,>(method: string): Promise<T> => {
+    if (method === 'projects.list') return [] as T
+    if (method === 'sessions.get') return { configuration: { agentPlugins: [] } } as T
+    return fixtureUnavailable<T>()
+  },
+  subscribe: async () => () => {},
+})
 const fixturePlugins: PluginClient = {
-  list: async () => fixtureDescriptors,
+  list: async () => [],
   installDirectory: fixtureUnavailable,
   installPackage: fixtureUnavailable,
   reload: fixtureUnavailable,
@@ -66,7 +53,7 @@ function ServiceFixture() {
     const clients = new Map(
       Object.entries(bridges).map(([id, bridge]) => [
         id,
-        { bridge, plugins: fixturePlugins, rpc: fixtureUnavailable, nativePlatformAvailable: false },
+        { bridge, host: fixtureHost, plugins: fixturePlugins, rpc: fixtureUnavailable, nativePlatformAvailable: false },
       ]),
     )
     return {
@@ -95,6 +82,7 @@ export function WebApp() {
     return (
       <App
         bridge={window.piMemeTestBridge}
+        host={fixtureHost}
         plugins={fixturePlugins}
         call={fixtureUnavailable}
         nativeWindow

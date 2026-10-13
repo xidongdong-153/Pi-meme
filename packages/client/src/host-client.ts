@@ -1,3 +1,11 @@
+import type {
+  HostApi,
+  HostControlResponse,
+  EventSubscription,
+  EventCursor,
+  HostControlEvent,
+} from '@pi-meme/contracts/app-host'
+import { createAppHostClient } from './app-host-client'
 import type { AgentSummary } from '@pi-meme/contracts/collaboration'
 import type {
   Connection,
@@ -51,6 +59,8 @@ function clientIdentity(options: ClientOptions, endpoint: URL) {
 
 export class HostClient {
   readonly clientId: string
+  readonly host: HostApi
+  private readonly controlClosers = new Set<() => void>()
   readonly bridge: DesktopBridge
   readonly plugins: PluginClient
   readonly resources: ResourceClient
@@ -89,6 +99,7 @@ export class HostClient {
     this.connectedHostId = options.connection.hostId
     this.clientId = clientIdentity(options, this.url)
     this.fetch = options.fetch ?? globalThis.fetch.bind(globalThis)
+    this.host = createAppHostClient({ call: this.controlCall.bind(this), subscribe: this.subscribeControl.bind(this) })
     this.bridge = this.createBridge()
     this.resources = createResourceClient(this.rpc.bind(this), (callback) => {
       this.pluginListeners.add(callback)
@@ -231,6 +242,84 @@ export class HostClient {
     if (envelope.error) throw new Error(envelope.error.message)
     if (!response.ok) throw new Error(`Host 请求失败：HTTP ${response.status}`)
     return envelope.result as T
+  }
+
+  private async controlCall<T>(method: string, args: unknown[], idempotencyKey?: string): Promise<T> {
+    if (this.closed) throw new Error('Host 客户端已关闭')
+    await this.authenticate()
+    const body = JSON.stringify({
+      apiVersion: 2,
+      hostId: this.connectedHostId,
+      clientId: this.clientId,
+      method,
+      args,
+      idempotencyKey,
+    })
+    const send = () =>
+      this.fetch(this.endpoint('/api/control'), {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+      })
+    let response = await send()
+    if (response.status === 401) {
+      await this.renewAuthentication()
+      response = await send()
+    }
+    if (!response.ok) throw new Error(`Host 请求失败：HTTP ${response.status}`)
+    const value = (await response.json()) as HostControlResponse
+    this.acceptHost(value.hostId)
+    if (value.error) throw Object.assign(new Error(value.error.message), { code: value.error.code })
+    return value.result as T
+  }
+
+  private async subscribeControl(input: EventSubscription, listener: (event: HostControlEvent) => void) {
+    let stopped = false
+    let after: EventCursor | undefined = input.after
+    let socket: WebSocket | undefined
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const schedule = () => {
+      if (!stopped && !this.closed)
+        timer = setTimeout(() => {
+          void connect(this).catch(schedule)
+        }, this.options.reconnectDelay ?? 1000)
+    }
+    async function connect(client: HostClient) {
+      if (stopped || client.closed) return
+      await client.authenticate()
+      if (stopped || client.closed) return
+      const url = client.endpoint('/api/control/events')
+      url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+      url.searchParams.set('clientId', client.clientId)
+      url.searchParams.set('subscription', JSON.stringify({ ...input, after }))
+      socket = (client.options.createSocket ?? ((address) => new WebSocket(address)))(url.href)
+      socket.addEventListener('message', (message) => {
+        const event = JSON.parse(String(message.data)) as HostControlEvent
+        client.acceptHost(event.hostId)
+        if (
+          event.stream !== 'live' &&
+          event.type !== 'resync' &&
+          after?.journalEpoch === event.journalEpoch &&
+          event.seq <= after.seq
+        )
+          return
+        if (event.stream !== 'live') after = { journalEpoch: event.journalEpoch, seq: event.seq }
+        listener(event)
+      })
+      socket.addEventListener('close', () => {
+        if (!stopped && !client.closed) void client.renewAuthentication().then(schedule, schedule)
+      })
+    }
+    await connect(this)
+    const close = () => {
+      stopped = true
+      if (timer) clearTimeout(timer)
+      socket?.close()
+      this.controlClosers.delete(close)
+    }
+    this.controlClosers.add(close)
+    return close
   }
 
   private acceptHost(hostId: string) {
@@ -501,6 +590,7 @@ export class HostClient {
 
   close() {
     this.closed = true
+    for (const close of [...this.controlClosers]) close()
     clearTimeout(this.reconnectTimer)
     this.socket?.close()
     this.socket = undefined
@@ -527,13 +617,26 @@ export class HostClient {
       }
     }
     const platform = this.options.connection.local ? this.options.platform : undefined
-    const openPath = async (field: 'themesDirectory' | 'extensionsDirectory') => {
+    const openPath = async (field: 'themesDirectory') => {
       const settings = await rpc<SettingsSnapshot>('settings:get')
       if (!platform) throw new Error(`目录位于 Host：${settings[field]}`)
       await platform.openPath(settings[field])
     }
+    const settingsRpc = async (method: string, args: unknown[] = []) => {
+      const snapshot = await rpc<SettingsSnapshot>(method, args)
+      return {
+        ...snapshot,
+        themes: snapshot.themes.map((theme) => ({
+          ...theme,
+          ...(theme.background?.url
+            ? { background: { ...theme.background, url: this.resourceUrl(theme.background.url) } }
+            : {}),
+        })),
+      }
+    }
     return {
       getConnection: async () => (await this.snapshot()).connection,
+      resolveAppSession: (sessionKey) => rpc('host:session-ref', [sessionKey], sessionKey),
       getSnapshot: () => this.snapshot(),
       onConnection: (callback) => subscribe(this.connectionListeners, callback),
       onEvent: (callback) => subscribe(this.eventListeners, callback),
@@ -643,28 +746,27 @@ export class HostClient {
       discoverModels: (input) => rpc('models:discover', [input]),
       reconnectModels: () => rpc('models:reconnect'),
       getUsageStats: () => rpc('settings:usage-stats'),
-      getSettings: () => rpc('settings:get'),
+      getSettings: () => settingsRpc('settings:get'),
       getInstructions: () => rpc('settings:instructions'),
       saveInstruction: (input) => rpc('settings:save-instruction', [input]),
       getSubagents: () => rpc('settings:subagents'),
       reloadSubagents: () => rpc('settings:reload-subagents'),
-      saveSettings: (settings) => rpc('settings:save', [settings]),
+      saveSettings: (settings) => settingsRpc('settings:save', [settings]),
       saveSidebarPreferences: (patch) => rpc('settings:sidebar', [patch]),
-      saveAppearance: (appearance) => rpc('settings:appearance', [appearance]),
+      saveAppearance: (appearance) => settingsRpc('settings:appearance', [appearance]),
       getInstalledFonts: () => rpc('settings:fonts'),
       importTheme: async () => {
         const content = platform ? await platform.importTheme() : await readThemeFile()
-        return content === null ? null : rpc('settings:import-theme-content', [content])
+        return content === null ? null : settingsRpc('settings:import-theme-content', [content])
       },
       exportTheme: async (theme) => {
         const content = await rpc<Theme>('settings:export-theme-content', [theme])
         if (platform) await platform.exportTheme(content)
         else downloadTheme(content)
       },
-      selectTheme: (id) => rpc('settings:theme', [id]),
-      reloadThemes: () => rpc('settings:reload-themes'),
+      selectTheme: (id) => settingsRpc('settings:theme', [id]),
+      reloadThemes: () => settingsRpc('settings:reload-themes'),
       openThemesDirectory: () => openPath('themesDirectory'),
-      openExtensionsDirectory: () => openPath('extensionsDirectory'),
       getMcpConfig: () => rpc('mcp:get'),
       saveMcpServer: (input) => rpc('mcp:save', [input]),
       deleteMcpServer: (input) => rpc('mcp:delete', [input]),

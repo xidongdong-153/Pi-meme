@@ -1,10 +1,10 @@
-export type ResourceKind = 'skill' | 'extension' | 'app-plugin'
+export type ResourceKind = 'skill' | 'app-plugin'
 export type ResourceScope = 'builtin' | 'host' | 'project'
 export type ResourceInvocation = 'automatic' | 'manual'
 export type ResourcePolicy = { enabled?: boolean; invocation?: ResourceInvocation }
 export type ResourceOwner = {
   id: string
-  type: 'loose' | 'pi-package' | 'app-package' | 'builtin'
+  type: 'loose' | 'app-package' | 'builtin'
   name?: string
   version?: string
   generation?: number
@@ -36,7 +36,6 @@ export type ResourceSnapshot = {
   generation: number
   cwd: string
   skills: ResourceItem[]
-  extensions: ResourceItem[]
   appPlugins?: ResourceItem[]
 }
 export type ResourceCatalog = {
@@ -49,7 +48,7 @@ export type ResourceCatalog = {
 }
 export type ResourceImportInput = {
   replace?: { id: string; revision: string }
-  kind?: 'skill' | 'extension' | 'pi-package'
+  kind?: 'skill'
   path?: string
   name?: string
   content?: string
@@ -72,5 +71,5 @@ export type ResourceAppPackage = {
   directory: string
   enabled: boolean
   display?: { name?: string; description?: string }
-  resources?: { skills?: string[]; extensions?: string[] }
+  resources?: { skills?: string[]; themes?: string[]; assets?: string[] }
 }

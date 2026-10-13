@@ -1,6 +1,9 @@
 import { PluginManager, type PluginDescriptor } from '@pi-meme/plugin-runtime/manager'
 import { fileURLToPath } from 'node:url'
 import { createHostCollaborationBridge } from './collaboration-bridge'
+import { createAppControl } from './app-control'
+import { createWorkspaceFiles } from './workspace-files'
+import { TerminalService } from './terminal-service'
 import { createBuiltinModules } from './builtin-modules'
 import { assertExternalPluginId } from '@pi-meme/plugin-sdk/reserved'
 import { mkdir, readdir, realpath, stat, writeFile } from 'node:fs/promises'
@@ -28,6 +31,7 @@ import { ModelConfigStore } from '@pi-meme/models/server/config-store'
 import { SettingsStore } from '@pi-meme/settings/server/store'
 import { InstructionsStore } from '@pi-meme/settings/server/instructions'
 import { parseTheme } from '@pi-meme/settings/shared/themes'
+import { loadPluginThemes } from '@pi-meme/settings/server/plugin-themes'
 import { getGitEnvironment, resolveGitBase, runGit, switchGitBranch } from '@pi-meme/git/server/git-service'
 import { ProjectStore } from '@pi-meme/workspace/server/project-store'
 import { SessionService } from '@pi-meme/workspace/server/session-service'
@@ -80,6 +84,7 @@ const sessionWrites = new Set([
 ])
 const reads = new Set([
   'pi:connection',
+  'host:session-ref',
   'pi:snapshot',
   'pi:agents',
   'pi:agent-snapshot',
@@ -223,7 +228,10 @@ export async function createHost(options: HostOptions = {}) {
       }
     }
     let pi: PiSessionPool
+    let appControl: Awaited<ReturnType<typeof createAppControl>> | undefined
+    const agentSelections = new Map<string, string[]>()
     const emit = (type: HostEvent['type'], value?: DesktopEvent | Connection | DesktopError) => {
+      appControl?.observe({ hostId, type, value } as HostEvent)
       for (const [clientId, subscribers] of listeners) {
         const view = views.get(clientId)
         if (!view) continue
@@ -314,7 +322,20 @@ export async function createHost(options: HostOptions = {}) {
             const disabled = new Set(
               (snapshot.appPlugins ?? []).filter((item) => !item.enabled).map((item) => item.owner.id),
             )
-            const candidate = plugins.acquire((id) => !disabled.has(id))
+            const selectedAgents =
+              agentSelections.get(parentSessionKey ?? sessionKey) ??
+              appControl?.selectedAgentPlugins(parentSessionKey ?? sessionKey) ??
+              settings.settings.defaultAgentPlugins ??
+              []
+            const agentIds = new Set(
+              plugins
+                .list()
+                .filter((item) => item.agent)
+                .map((item) => item.id),
+            )
+            const candidate = plugins.acquire(
+              (id) => !disabled.has(id) && (!agentIds.has(id) || selectedAgents.includes(id)),
+            )
             const generations = new Map(snapshot.appPlugins?.map((item) => [item.owner.id, item.owner.generation]))
             if (candidate.descriptors.every((item) => generations.get(item.id) === item.generation)) {
               lease = candidate
@@ -467,10 +488,7 @@ export async function createHost(options: HostOptions = {}) {
       if (sessionId && workerPlugins.has(sessionId)) {
         const retained = workerPlugins.get(sessionId)!
         for (const entry of current.values())
-          if (
-            (entry.agent || entry.resources?.skills?.length || entry.resources?.extensions?.length) &&
-            !retained.some((old) => old.id === entry.id)
-          )
+          if ((entry.agent || entry.resources?.skills?.length) && !retained.some((old) => old.id === entry.id))
             current.delete(entry.id)
         for (const entry of retained) current.set(entry.id, entry)
       }
@@ -566,6 +584,7 @@ export async function createHost(options: HostOptions = {}) {
     const settingsHandlers: Record<string, Action> = {
       'settings:import-theme-content': async (value: unknown) => {
         const theme = parseTheme(value)
+        if (theme.background) throw new Error('背景图片必须随 App 插件分发，请安装 .pim 主题插件')
         if (settings.snapshot().themes.some((entry) => entry.id === theme.id)) throw new Error('主题 ID 已存在')
         await writeFile(
           path.join(settings.themesDirectory, `${theme.id}.json`),
@@ -577,7 +596,6 @@ export async function createHost(options: HostOptions = {}) {
       'settings:export-theme-content': (value: unknown) => parseTheme(value),
       'settings:theme-directories': () => ({
         themes: settings.themesDirectory,
-        extensions: settings.extensionsDirectory,
       }),
     }
     const sharedContexts = {
@@ -699,7 +717,10 @@ export async function createHost(options: HostOptions = {}) {
       'host.interaction': { pi },
       'host.mcp': { pi, store: mcp },
     }
-    builtins = await createBuiltinModules(root, sharedContexts)
+    builtins = await createBuiltinModules(root, sharedContexts, () => {
+      if (!appControl) throw new Error('Host API 尚未初始化')
+      return appControl.api
+    })
     pi.configureRestrictedAccess(
       (
         builtins.services['agent.sandbox'] as {
@@ -755,6 +776,10 @@ export async function createHost(options: HostOptions = {}) {
             return { ...result, reconnectError: '凭据已导入，但 Pi 重连失败；请重新连接模型' }
           }
         }, true),
+      'host:session-ref': (key) => {
+        if (typeof key !== 'string') throw new Error('会话 ID 参数无效')
+        return appControl!.sessionForRuntime(key)
+      },
       'pi:connection': () => pi.connection(),
       'pi:snapshot': snapshot,
       'pi:agents': async (key) => {
@@ -803,10 +828,90 @@ export async function createHost(options: HostOptions = {}) {
       'plugins:remove': (value) => plugins.remove(parseId(value)),
       'plugins:reload': (value) => plugins.reload(parseId(value)),
     }
+    const terminal = new TerminalService({
+      hostId,
+      resolveRoot: (ref) => appControl!.resolveRoot(ref),
+      onEvent: (value) => appControl?.publishLive({ type: 'terminal', value }),
+    })
+    const validateAgentIds = (ids: string[]) => {
+      if (
+        !Array.isArray(ids) ||
+        ids.some(
+          (id) =>
+            typeof id !== 'string' || !plugins.list().some((item) => item.id === id && item.agent && item.enabled),
+        )
+      )
+        throw new Error('Agent 插件选择无效')
+    }
+    appControl = await createAppControl({
+      hostId,
+      root,
+      pi,
+      projects,
+      sessions,
+      collaboration,
+      bindRoot,
+      snapshot,
+      onError: (cause) => emit('error', { generation: 0, message: `Host 控制事件处理失败：${String(cause)}` }),
+      availableAgentPlugins: () =>
+        plugins
+          ?.list()
+          .filter((item) => item.agent && item.enabled)
+          .map((item) => item.id) ?? [],
+      defaultAgentPlugins: {
+        getDefaultAgentPlugins: async () =>
+          (settings.settings.defaultAgentPlugins ?? []).filter((id) =>
+            plugins?.list().some((item) => item.id === id && item.agent && item.enabled),
+          ),
+        setDefaultAgentPlugins: async (ids) => {
+          validateAgentIds(ids)
+          await settings.save({ ...settings.settings, defaultAgentPlugins: [...new Set(ids)] })
+          return [...settings.settings.defaultAgentPlugins!]
+        },
+      },
+      configureAgentPlugins: async (key, ids) => {
+        validateAgentIds(ids)
+        if (JSON.stringify(agentSelections.get(key)) === JSON.stringify(ids)) return
+        await retireWorkers([key])
+        agentSelections.set(key, ids)
+      },
+      workspace: {
+        files: createWorkspaceFiles((ref) => appControl!.resolveRoot(ref)),
+        terminal,
+        terminalSupported: terminal.supported,
+      },
+    })
+    let pluginsRestored = false
+    const refreshPluginThemes = async () => {
+      const themes = await loadPluginThemes(
+        plugins.resourcePackages(),
+        (pkg, relative) =>
+          `/api/plugins/${instanceId}/${encodeURIComponent(pkg.id)}/${pkg.generation}/${relative.split('/').map(encodeURIComponent).join('/')}`,
+      )
+      await settings.setPluginThemes(themes)
+      if (!closing) emit('plugins-changed')
+    }
     plugins = new PluginManager({
+      hostApi: appControl.api,
+      hostApiForPlugin: (id) => {
+        const api = appControl!.apiFor(`plugin:${id}`)
+        return {
+          ...api,
+          terminal: {
+            ...api.terminal,
+            open: (ref, input, opts) =>
+              appControl!.store.mutate(`plugin:${id}`, opts.idempotencyKey, 'terminal.open', [ref, input], () =>
+                terminal.openOwned(ref, input, id),
+              ),
+          },
+        }
+      },
+      disposePluginHost: (id) => terminal.closeOwner(id),
+      validateResources: async (pkg) => {
+        await loadPluginThemes([pkg], () => '')
+      },
       directory: path.join(root, 'plugins'),
       dataDirectory: path.join(root, 'plugin-data'),
-      services: builtins.services,
       reservedHandlers: [...Object.keys(builtins.handlers), ...Object.keys(handlers)],
       drain: async (ids) =>
         retireWorkers(
@@ -816,12 +921,21 @@ export async function createHost(options: HostOptions = {}) {
         ),
       onChange: () => {
         emit('plugins-changed')
+        if (pluginsRestored && !closing)
+          void refreshPluginThemes().catch((cause) =>
+            emit('error', { generation: 0, message: `刷新插件主题失败：${String(cause)}` }),
+          )
         if (builtins && !closing)
           void resources
             .refresh()
             .catch((cause: unknown) => emit('error', { generation: 0, message: `刷新插件资源失败：${String(cause)}` }))
         for (const [key, previous] of workerPlugins) {
-          const agents = plugins.list().filter((entry) => entry.agent && entry.enabled && entry.status !== 'pending')
+          const selected = agentSelections.get(key) ?? settings.settings.defaultAgentPlugins ?? []
+          const agents = plugins
+            .list()
+            .filter(
+              (entry) => selected.includes(entry.id) && entry.agent && entry.enabled && entry.status !== 'pending',
+            )
           if (
             agents.some(
               (current) => !previous.some((old) => old.id === current.id && old.generation === current.generation),
@@ -841,6 +955,8 @@ export async function createHost(options: HostOptions = {}) {
       },
     })
     await plugins.restore()
+    pluginsRestored = true
+    await refreshPluginThemes()
     const registry = new RequestRegistry(hostId, path.join(root, 'requests'))
     const client = async (clientId: string) => {
       let view = views.get(clientId)
@@ -865,6 +981,8 @@ export async function createHost(options: HostOptions = {}) {
       hostId,
       instanceId,
       root,
+      app: appControl.api,
+      control: appControl,
       settings,
       pi,
       credentials,
@@ -1027,9 +1145,12 @@ export async function createHost(options: HostOptions = {}) {
         disposal = (async () => {
           for (const timer of clientTimers.values()) clearTimeout(timer)
           clientTimers.clear()
+          await appControl!.beginShutdown()
           await collaboration.stopAndWait()
           await pi.stopAndWait()
           await Promise.allSettled(inflight)
+          await appControl!.dispose()
+          await terminal.dispose()
           await plugins.dispose()
           await builtins!.dispose()
           await resources.waitForIdle()

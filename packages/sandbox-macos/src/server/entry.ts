@@ -11,7 +11,7 @@ export const manifest: PluginManifest = {
   name: '@pi-meme/sandbox-macos',
   version: '0.1.0',
   piMeme: {
-    sdkVersion: 1,
+    sdkVersion: 2,
     server: 'dist/server/chord-facets.json',
     agent: 'dist/agent/entry.js',
     provides: ['agent.sandbox'],

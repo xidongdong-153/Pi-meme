@@ -249,9 +249,15 @@ export function ThemeSettings({
             variant="ghost"
             size="icon-sm"
             aria-label="导出主题"
-            title="导出当前模式主题"
+            title="导出颜色、字体和布局；背景图片随插件分发"
             onClick={() =>
-              onExport({ ...theme, id: `custom-${mode}`, name: `自定义${mode === 'light' ? '浅色' : '深色'}` })
+              onExport({
+                ...theme,
+                plugin: undefined,
+                background: undefined,
+                id: `custom-${mode}`,
+                name: `自定义${mode === 'light' ? '浅色' : '深色'}`,
+              })
             }
           >
             <Download className="size-4" />
@@ -327,6 +333,79 @@ export function ThemeSettings({
             onChange={(next) => color('text', next)}
             onReset={() => color('text')}
           />
+        </AppearanceRow>
+        {theme.background && (
+          <AppearanceRow label="主题背景图" description="图片来自已安装主题插件">
+            {theme.background.url && (
+              <img src={theme.background.url} alt={theme.name} className="h-16 w-24 rounded object-cover" />
+            )}
+            <label className="flex items-center gap-2 text-sm">
+              透明度
+              <input
+                type="range"
+                aria-label="背景图透明度"
+                min={0}
+                max={1}
+                step={0.05}
+                value={theme.background.opacity}
+                onChange={(event) =>
+                  override({ background: { ...overrides.background, opacity: Number(event.target.value) } })
+                }
+              />
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              模糊
+              <input
+                type="range"
+                aria-label="背景图模糊"
+                min={0}
+                max={32}
+                value={theme.background.blur}
+                onChange={(event) =>
+                  override({ background: { ...overrides.background, blur: Number(event.target.value) } })
+                }
+              />
+            </label>
+          </AppearanceRow>
+        )}
+        <AppearanceRow label="间距与圆角">
+          <label className="flex items-center gap-2 text-sm">
+            间距
+            <input
+              type="range"
+              aria-label="主题间距"
+              min={0.5}
+              max={2}
+              step={0.1}
+              value={theme.tokens?.spacing ?? 1}
+              onChange={(event) => override({ tokens: { ...overrides.tokens, spacing: Number(event.target.value) } })}
+            />
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            圆角
+            <input
+              type="range"
+              aria-label="主题圆角"
+              min={0}
+              max={24}
+              value={theme.tokens?.radius ?? 8}
+              onChange={(event) => override({ tokens: { ...overrides.tokens, radius: Number(event.target.value) } })}
+            />
+          </label>
+          <label className="flex items-center gap-2 text-sm">
+            面板透明度
+            <input
+              type="range"
+              aria-label="面板透明度"
+              min={0.4}
+              max={1}
+              step={0.05}
+              value={theme.tokens?.surfaceOpacity ?? 1}
+              onChange={(event) =>
+                override({ tokens: { ...overrides.tokens, surfaceOpacity: Number(event.target.value) } })
+              }
+            />
+          </label>
         </AppearanceRow>
         <AppearanceRow label="字体">{fontControl('ui', '界面字体')}</AppearanceRow>
       </AppearanceGroup>

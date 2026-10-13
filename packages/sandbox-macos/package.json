@@ -5,8 +5,6 @@
   "type": "module",
   "exports": {
     "./server/entry": "./src/server/entry.ts",
-    "./ui/plugin": "./src/ui/plugin.ts",
-    "./ui/entry": "./src/ui/entry.tsx",
     "./agent/entry": "./src/agent/entry.ts"
   },
   "scripts": {
@@ -24,7 +22,7 @@
     "react": "^19.3.0"
   },
   "piMeme": {
-    "sdkVersion": 1,
+    "sdkVersion": 2,
     "server": "dist/server/chord-facets.json",
     "provides": [
       "agent.sandbox"

@@ -1,9 +1,9 @@
 const assert = require('node:assert/strict')
 const fs = require('node:fs/promises')
 const path = require('node:path')
-const { shell, clipboard } = require('electron')
+const { app, shell, clipboard } = require('electron')
 
-module.exports = async function sidebarMenuSmoke(window, waitFor, directory, screenshots) {
+module.exports = async function sidebarMenuSmoke(window, waitFor, directory, screenshots, projectDirectory) {
   const evaluate = async (code) => {
     let timer
     const execution = window.webContents.executeJavaScript(code).catch(async (cause) => {
@@ -27,12 +27,22 @@ module.exports = async function sidebarMenuSmoke(window, waitFor, directory, scr
       clearTimeout(timer)
     }
   }
-  window.show()
-  window.focus()
-  window.webContents.focus()
-  await waitFor(() => evaluate('document.hasFocus()'), '侧栏验收窗口获得焦点')
-  const target = path.join(directory, 'sidebar-menu-project')
-  const other = path.join(directory, 'sidebar-menu-other')
+  const focusWindow = async () => {
+    if (!(await evaluate('document.hasFocus()'))) {
+      if (process.platform === 'darwin') app.focus({ steal: true })
+      window.show()
+      window.focus()
+      window.webContents.focus()
+    }
+    await waitFor(() => evaluate('document.hasFocus()'), '侧栏验收窗口获得焦点')
+  }
+  await focusWindow()
+  await evaluate(`(() => {
+    window.sidebarWindowBlurCount = 0;
+    window.addEventListener('blur',()=>window.sidebarWindowBlurCount++);
+  })()`)
+  const target = path.join(projectDirectory, 'sidebar-menu-project')
+  const other = path.join(projectDirectory, 'sidebar-menu-other')
   await fs.mkdir(target)
   await fs.mkdir(other)
   await fs.writeFile(path.join(target, 'keep.ts'), 'export const value = 1\n')
@@ -63,16 +73,75 @@ module.exports = async function sidebarMenuSmoke(window, waitFor, directory, scr
   const projectSelector = `[data-project-cwd="${target}"]`
   const sessionSelector = `[data-session-path="${files[0]}"]`
   const keyBefore = await evaluate('window.piMemeClient.getConnection().then(value => value.sessionKey)')
-  const openMore = async (selector) => {
-    await evaluate(
-      `(() => { const trigger = document.querySelector(${JSON.stringify(selector)}).querySelector('[aria-label^="更多操作"]'); trigger.focus(); trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })); })()`,
+  let lastMenu
+  const openMore = async (selector, recovering = false) => {
+    await focusWindow()
+    if (!recovering)
+      lastMenu = { selector, blurCount: await evaluate('window.sidebarWindowBlurCount'), recovered: false }
+    await waitFor(
+      () =>
+        evaluate(
+          `[...document.querySelectorAll(${JSON.stringify(selector)})].some(row=>row.checkVisibility() && !row.closest('[inert]') && row.querySelector('[aria-label^="更多操作"]'))`,
+        ),
+      '更多操作所在行可见',
     )
-    await waitFor(() => evaluate('Boolean(document.activeElement?.closest("[role=menu]"))'), '更多菜单聚焦')
+    await evaluate(
+      `(() => { const row = [...document.querySelectorAll(${JSON.stringify(selector)})].find(node=>node.checkVisibility() && !node.closest('[inert]')); const trigger = row.querySelector('[aria-label^="更多操作"]'); trigger.scrollIntoView({block:'nearest'}); trigger.focus(); })()`,
+    )
+    await waitFor(
+      () => evaluate(`document.activeElement?.getAttribute('aria-label')?.startsWith('更多操作')`),
+      '更多操作按钮获得焦点',
+    )
+    await evaluate(
+      `document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))`,
+    )
+    try {
+      await waitFor(
+        () => evaluate('document.activeElement?.closest("[role=menu]")?.dataset.state === "open"'),
+        '更多菜单聚焦',
+      )
+    } catch (cause) {
+      console.error(
+        '更多菜单焦点诊断',
+        await evaluate(`({
+          active:document.activeElement?.outerHTML,
+          focused:document.hasFocus(),
+          rows:[...document.querySelectorAll(${JSON.stringify(selector)})].map(node=>({visible:node.checkVisibility(),rects:node.getClientRects().length,project:node.dataset.projectCwd,session:node.dataset.sessionPath,html:node.outerHTML})),
+          menus:[...document.querySelectorAll('[role="menu"]')].map(node=>({visible:node.checkVisibility(),html:node.outerHTML})),
+        })`),
+      )
+      throw cause
+    }
     await evaluate('new Promise(resolve => requestAnimationFrame(resolve))')
   }
   const selectItem = async (text) => {
+    const ready = () =>
+      waitFor(
+        () =>
+          evaluate(
+            `[...document.querySelectorAll('[role="menu"][data-state="open"] [role="menuitem"]')].some(node=>node.checkVisibility() && node.textContent.trim() === ${JSON.stringify(text)})`,
+          ),
+        `可见菜单操作：${text}`,
+      )
+    try {
+      await ready()
+    } catch (cause) {
+      const blurred = await evaluate(
+        `!document.hasFocus() && window.sidebarWindowBlurCount > ${lastMenu?.blurCount ?? 0}`,
+      )
+      if (!lastMenu || lastMenu.recovered || !blurred) throw cause
+      lastMenu.recovered = true
+      console.log(`菜单窗口失焦，恢复焦点后重开一次：${text}`)
+      await openMore(lastMenu.selector, true)
+      if (text === 'Finder') {
+        await evaluate(
+          `Array.from(document.querySelectorAll('[role="menuitem"]')).find(node=>node.textContent.includes('在…中打开')).dispatchEvent(new KeyboardEvent('keydown',{key:'ArrowRight',bubbles:true}))`,
+        )
+      }
+      await ready()
+    }
     await evaluate(
-      `Array.from(document.querySelectorAll('[role="menuitem"]')).find(node => node.textContent.trim() === ${JSON.stringify(text)}).click()`,
+      `Array.from(document.querySelectorAll('[role="menu"][data-state="open"] [role="menuitem"]')).find(node => node.checkVisibility() && node.textContent.trim() === ${JSON.stringify(text)}).click()`,
     )
   }
   const escape = async () => {
@@ -215,9 +284,6 @@ module.exports = async function sidebarMenuSmoke(window, waitFor, directory, scr
   const originalClipboard = await clipboard.readText()
   try {
     // 复制走渲染进程的 Clipboard API，文档必须处于焦点状态。
-    window.show()
-    window.focus()
-    window.webContents.focus()
     await waitFor(() => evaluate('document.hasFocus()'), '窗口获得焦点')
     await selectItem('复制项目路径')
     await waitFor(async () => (await clipboard.readText()) === target, '项目路径复制')
@@ -294,7 +360,7 @@ module.exports = async function sidebarMenuSmoke(window, waitFor, directory, scr
   await capture('sidebar-session-menu-light')
   await escape()
   const originalSidebar = await evaluate('window.piMemeClient.getSettings().then(value => value.settings.sidebar)')
-  const searchProject = path.join(directory, 'sidebar-search-project')
+  const searchProject = path.join(projectDirectory, 'sidebar-search-project')
   const searchFolder = require('./runtime-paths.cjs').sessionDirectory(directory, searchProject)
   const searchFiles = []
   await fs.mkdir(searchProject)

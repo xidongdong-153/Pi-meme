@@ -3,7 +3,7 @@ const fs = require('node:fs/promises')
 const path = require('node:path')
 const { dialog } = require('electron')
 
-module.exports = async function projectSelectorSmoke(window, waitFor, directory, screenshots) {
+module.exports = async function projectSelectorSmoke(window, waitFor, directory, screenshots, projectDirectory) {
   const evaluate = (code) => window.webContents.executeJavaScript(code)
   const editor = '[contenteditable=true][aria-label="消息"]'
   const panel = '[aria-label="项目选择"]'
@@ -58,8 +58,8 @@ module.exports = async function projectSelectorSmoke(window, waitFor, directory,
     await evaluate(`document.querySelector(${JSON.stringify(trigger)}).click()`)
     await waitFor(() => evaluate(`Boolean(document.querySelector('${panel} [role="option"]'))`), '项目菜单已读取')
   }
-  const first = path.join(directory, 'selector-a', '同名项目')
-  const second = path.join(directory, 'selector-b', '同名项目')
+  const first = path.join(projectDirectory, 'selector-a', '同名项目')
+  const second = path.join(projectDirectory, 'selector-b', '同名项目')
   await fs.mkdir(first, { recursive: true })
   await fs.mkdir(second, { recursive: true })
   await evaluate(`window.piMemeClient.chooseDirectory(${JSON.stringify(first)})`)
@@ -259,7 +259,7 @@ module.exports = async function projectSelectorSmoke(window, waitFor, directory,
     dialog.showOpenDialog = originalDialog
   }
 
-  const deleted = path.join(directory, 'selector-deleted')
+  const deleted = path.join(projectDirectory, 'selector-deleted')
   await fs.mkdir(deleted)
   await evaluate(`window.piMemeClient.chooseDirectory(${JSON.stringify(deleted)})`)
   await evaluate(`window.piMemeClient.chooseDirectory(${JSON.stringify(second)})`)

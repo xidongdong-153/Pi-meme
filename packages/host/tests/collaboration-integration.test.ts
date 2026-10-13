@@ -157,9 +157,9 @@ test('父任务已预约但尚未准入时登记退役，等待后续子任务�
   let acquired = 0
   let released = 0
   const acquire = host.plugins.acquire.bind(host.plugins)
-  host.plugins.acquire = () => {
+  host.plugins.acquire = (...args) => {
     acquired++
-    const lease = acquire()
+    const lease = acquire(...args)
     return {
       ...lease,
       release: async () => {
@@ -185,12 +185,6 @@ test('父任务已预约但尚未准入时登记退役，等待后续子任务�
     await admit.call(this, session, message, mode, continuation, signal)
   }
   try {
-    const key = ((await rpc('pi:snapshot')).result as Snapshot).connection.sessionKey!
-    await rpc('pi:access-mode', [key, 'full-access'], key)
-    await rpc('pi:prompt', [key, '旧任务'], key)
-    await eventually(async () => ((await rpc('pi:agents', [key])).result as AgentSummary[])[0]?.status === 'completed')
-    const prompting = rpc('pi:prompt', [key, '预约后委派'], key)
-    await entering
     const source = path.join(root, 'agent-plugin')
     await mkdir(path.join(source, 'dist/agent'), { recursive: true })
     await writeFile(
@@ -198,11 +192,32 @@ test('父任务已预约但尚未准入时登记退役，等待后续子任务�
       JSON.stringify({
         name: 'retire-admission-fixture',
         version: '1.0.0',
-        piMeme: { sdkVersion: 1, agent: 'dist/agent.js' },
+        piMeme: { sdkVersion: 2, agent: 'dist/agent.js' },
       }),
     )
-    await writeFile(path.join(source, 'dist/agent.js'), 'export default function() {}')
+    await writeFile(path.join(source, 'dist/agent.js'), 'export function activate() {}')
     await host.plugins.loadDirectory(source)
+    const key = ((await rpc('pi:snapshot')).result as Snapshot).connection.sessionKey!
+    await rpc('pi:access-mode', [key, 'full-access'], key)
+    const ref = await host.control.sessionForRuntime(key)
+    await host.app.sessions.configure(
+      ref,
+      { agentPlugins: ['retire-admission-fixture'] },
+      { idempotencyKey: crypto.randomUUID() },
+    )
+    await rpc('pi:prompt', [key, '旧任务'], key)
+    await eventually(async () => ((await rpc('pi:agents', [key])).result as AgentSummary[])[0]?.status === 'completed')
+    const prompting = rpc('pi:prompt', [key, '预约后委派'], key)
+    await entering
+    await writeFile(
+      path.join(source, 'package.json'),
+      JSON.stringify({
+        name: 'retire-admission-fixture',
+        version: '2.0.0',
+        piMeme: { sdkVersion: 2, agent: 'dist/agent.js' },
+      }),
+    )
+    await host.plugins.reload('retire-admission-fixture')
     assert.equal(released, 0)
     release()
     assert.equal((await prompting).error, undefined)
@@ -380,9 +395,9 @@ test('零外部插件能聊天，父子 Worker 分别持有租约，子快照不
   const retained: string[][] = []
   let restarted: Awaited<ReturnType<typeof createHost>> | undefined
   const acquire = host.plugins.acquire.bind(host.plugins)
-  host.plugins.acquire = () => {
+  host.plugins.acquire = (...args) => {
     acquired++
-    const lease = acquire()
+    const lease = acquire(...args)
     retained.push(lease.retainedIds)
     let done = false
     return {
@@ -413,11 +428,13 @@ test('零外部插件能聊天，父子 Worker 分别持有租约，子快照不
       JSON.stringify({
         name: 'lease-fixture',
         version: '1.0.0',
-        piMeme: { sdkVersion: 1, agent: 'dist/agent/entry.js' },
+        piMeme: { sdkVersion: 2, agent: 'dist/agent/entry.js' },
       }),
     )
-    await writeFile(path.join(source, 'dist/agent/entry.js'), 'export default function() {}')
+    await writeFile(path.join(source, 'dist/agent/entry.js'), 'export function activate() {}')
     await host.plugins.loadDirectory(source)
+    const ref = await host.control.sessionForRuntime(key)
+    await host.app.sessions.configure(ref, { agentPlugins: ['lease-fixture'] }, { idempotencyKey: crypto.randomUUID() })
     await eventually(() => released === acquired)
     const firstRun = ((await rpc('pi:agents', [key], key)).result as AgentSummary[])[0]!
     assert.equal((await rpc('pi:prompt', [key, '启动一个子任务', [], []], key)).error, undefined)
@@ -461,7 +478,7 @@ test('零外部插件能聊天，父子 Worker 分别持有租约，子快照不
       JSON.stringify({
         name: 'lease-fixture',
         version: '2.0.0',
-        piMeme: { sdkVersion: 1, agent: 'dist/agent/entry.js' },
+        piMeme: { sdkVersion: 2, agent: 'dist/agent/entry.js' },
       }),
     )
     await host.plugins.reload('lease-fixture')

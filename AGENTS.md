@@ -2,23 +2,23 @@
 
 ## 项目结构与模块职责
 
-仓库使用 pnpm workspace：`apps/` 放运行入口，`packages/` 放基础包与内置业务模块；可选 `plugins/` 只放独立分发的扩展源码。
+仓库使用 pnpm workspace：`apps/` 放运行入口，`packages/` 放基础包与内置业务模块；可选 `plugins/` 只放独立分发的 App 插件源码。
 
 - `apps/desktop`：Electron 窗口、本地 Host 子进程、平台 IPC 与 Desktop 入口；不实现业务服务。
 - `apps/server`：独立 Node Host 启动、环境变量与退出清理。
 - `apps/web`：Web 入口、登录与浏览器构建。
 - `packages/contracts`：Pi、Host、会话、设置、模型、资源和平台契约。
 - `packages/ui`：通用 UI 原语、图标、ErrorBoundary、`cn`、CSS tokens 与工具卡片扩展入口。
-- `packages/app-ui`：Desktop/Web 共用布局、功能协调、插件中心与六类 UI 槽。
+- `packages/app-ui`：Desktop/Web 共用布局、功能协调、技能/插件独立页面、右侧工具标签与七类 UI 贡献槽。
 - `packages/client`：HTTP/WebSocket、快照、功能 Bridge 和平台适配。
 - `packages/host`：认证、唯一数据写入、客户端选择、内置静态装配与外部插件生命周期。
 - `packages/pi-adapter`：Worker、Pi SDK 装配和凭据同步。
 - `packages/pi-runtime`：会话池、事件转换、原生 JSONL 与安全执行底层。
 - `packages/plugin-sdk`、`plugin-runtime`、`plugin-devkit`：插件契约、Chord 作用域及创建/构建/验证/打包。
-- `packages/{chat,workspace,history,models,settings,resources,interaction,subagents,mcp,codemode,permissions,sandbox-macos,usage,git}`：Server、Agent、UI 实现与测试。
-- `tests/fixtures`：共享假模型端点、扩展和技能 fixture，用文件 URL 定位。
+- `packages/{chat,workspace,history,models,settings,resources,interaction,subagents,mcp,codemode,permissions,sandbox-macos,sandbox-linux,usage,git}`：Server、Agent、UI 实现与测试。
+- `tests/fixtures`：共享假模型端点、App 插件和技能 fixture，用文件 URL 定位。
 
-业务包与插件只创建有代码的目录：`src/server`、`src/agent`、`src/ui`、`src/shared`。`packages/interaction` 的包身份仍为 `@pi-meme/pi-extensions`。`dist/`、`.vite/` 和 `out/` 是构建目录，不提交。
+业务包与插件只创建有代码的目录：`src/server`、`src/agent`、`src/ui`、`src/shared`。`packages/interaction` 的包身份为 `@pi-meme/interaction`。`dist/`、`.vite/` 和 `out/` 是构建目录，不提交。
 
 ## 安装、开发与构建
 
@@ -56,7 +56,7 @@
 
 修改前阅读 `docs/architecture.md`，插件契约见 `docs/plugins.md`，独立 Host 运行见 `docs/remote.md`。
 
-内置模块静态装配不读取用户插件启用记录；外部插件 `package.json` 的 `name/version` 是身份，`piMeme` 声明 SDK、入口与服务依赖。Node 与浏览器分别构建；UI 共享宿主 React。插件 hook 使用 Pi 原生 `pi.on`，不假设 TUI `custom()` 组件可以直接在图形界面运行。
+内置模块静态装配不读取用户插件启用记录；外部插件 `package.json` 的 `name/version` 是身份，`piMeme` 声明 SDK、入口与服务依赖。Node 与浏览器分别构建；UI 共享宿主 React。外部插件使用 App SDK 2：Server/UI 调用正式 `HostApi`，Agent 导出 `activate(context)` 并通过 App 接口注册工具、命令和生命周期。外部插件不取得 Pi `ExtensionAPI`、SessionManager、Worker 或内部 Store；不登记 `host.*`、`agent.*` 内部服务依赖。内置 Agent 工厂可继续使用 Pi 原生 `pi.on`。外部 AppAgent 仅在已选择、完全权限且普通任务时加载；未选择、受限权限或规划模式不得导入其入口。
 
 Chord 1.1 `reload` 不能新增/删除 facet 或改变服务 shape。安装、卸载与拓扑变化通过独立 `create/dispose` 作用域完成。保持受影响组的调用 gate、任务/工具/SubAgent/交互租约和 UI 代次；纯 Agent 可新旧共存，共享 Server 等使用者释放。初始化或持久化失败保留/恢复旧版，必需服务的唯一提供者不能被拔掉。
 
@@ -68,9 +68,11 @@ Pi 会话使用公开 SDK 的 JSONL、恢复、分支与压缩。内置历史模
 
 ## 数据与凭据
 
-Host 默认数据目录 `~/.pi-meme`，`PI_MEME_DATA_ROOT` 可修改；同一目录只允许一个 Host 写入。配置、主题、Pi 资源、会话、插件快照与插件数据都在此目录。项目 `.pi` 与 `AGENTS.md` 只读，不导入本机 Pi CLI 全局配置。
+Host 默认数据目录 `~/.pi-meme`，`PI_MEME_DATA_ROOT` 可修改；同一目录只允许一个 Host 写入。配置、主题、技能、会话、插件快照与插件数据都在此目录。项目 `.pi` 与 `AGENTS.md` 只读，不导入本机 Pi CLI 全局配置。
 
-凭据由 Node Host 保存到数据目录的 `auth.json`，权限为 `0600`。启动不读取钥匙串；仅用户主动导入旧凭据时读取。不要提交凭据、个人配置或真实会话。协作身份与计划元数据写入 `collaboration.json`，子会话继续用 Pi JSONL；计划正文在 `plans/<sessionId>/<id>.md`。主题保持 JSON，不执行 JavaScript 或任意 CSS。卸载插件默认保留数据和 Pi 会话。
+凭据由 Node Host 保存到数据目录的 `auth.json`，权限为 `0600`。启动不读取钥匙串；仅用户主动导入旧凭据时读取。不要提交凭据、个人配置或真实会话。协作身份与计划元数据写入 `collaboration.json`，子会话继续用 Pi JSONL；计划正文在 `plans/<sessionId>/<id>.md`。用户资源仅管理 AI 模型配置、技能、App 插件和 MCP；集成区只提供技能、插件、MCP 独立入口，不新增共享资源页或类型筛选；不装配 Host/项目裸 Pi 扩展或原生 Pi 包。App 资源只声明 `skills`、`themes` 和 `assets`。主题保持 JSON，背景图来自声明的包内素材，不执行 JavaScript 或任意 CSS。
+
+正式控制接口使用 `apiVersion: 2`、稳定 `ProjectRef`/`SessionRef` 和调用方幂等键。操作指定目标，不借用界面选择；重启中断的提交不重放。新会话外部 Agent 默认列表为空，会话选择持久化，运行中拒绝改配置。左侧固定为置顶、项目、最近，中间固定聊天；插件面板只允许 `right`，通过当前聊天的右侧标签页打开；贡献槽为 `composer/composer-actions/tool-card/message/message-actions/status/settings`。卸载插件默认保留数据和 Pi 会话。
 
 ## Git 提交与 Pull Request
 

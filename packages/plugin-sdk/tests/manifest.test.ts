@@ -5,13 +5,13 @@ import { PluginScope } from '../src/scope'
 
 test('插件声明拒绝未知 SDK 和越界入口', () => {
   assert.throws(() =>
-    parsePluginManifest({ name: 'clock', version: '1.0.0', piMeme: { sdkVersion: 2, ui: 'dist/ui.js' } }),
+    parsePluginManifest({ name: 'clock', version: '1.0.0', piMeme: { sdkVersion: 1, ui: 'dist/ui.js' } }),
   )
   assert.throws(() =>
-    parsePluginManifest({ name: 'clock', version: '1.0.0', piMeme: { sdkVersion: 1, ui: '../ui.js' } }),
+    parsePluginManifest({ name: 'clock', version: '1.0.0', piMeme: { sdkVersion: 2, ui: '../ui.js' } }),
   )
   assert.equal(
-    parsePluginManifest({ name: '@acme/clock', version: '1.0.0', piMeme: { sdkVersion: 1, agent: 'dist/agent.js' } })
+    parsePluginManifest({ name: '@acme/clock', version: '1.0.0', piMeme: { sdkVersion: 2, agent: 'dist/agent.js' } })
       .name,
     '@acme/clock',
   )
@@ -37,13 +37,13 @@ test('作用域逆序释放全部资源，失败也继续，重复释放不重�
 })
 
 test('显示信息和资源声明保留包内路径，拒绝越界、通配符和重复 Agent 入口', () => {
-  const base = { name: 'resources-app', version: '1.0.0', piMeme: { sdkVersion: 1, ui: 'dist/ui/entry.js' } }
+  const base = { name: 'resources-app', version: '1.0.0', piMeme: { sdkVersion: 2, ui: 'dist/ui/entry.js' } }
   const valid = parsePluginManifest({
     ...base,
     piMeme: {
       ...base.piMeme,
       display: { name: '代码检查', icon: 'assets/icon.svg' },
-      resources: { skills: ['skills/review'], extensions: ['extensions/review.ts'] },
+      resources: { skills: ['skills/review'], themes: ['themes/review.json'], assets: ['assets'] },
     },
   })
   assert.equal(valid.piMeme.display?.name, '代码检查')
@@ -65,5 +65,5 @@ test('显示信息和资源声明保留包内路径，拒绝越界、通配符�
       piMeme: { ...base.piMeme, agent: 'dist/agent.js', resources: { extensions: ['dist/agent.js'] } },
     }),
   )
-  assert.throws(() => parsePluginManifest({ ...base, piMeme: { sdkVersion: 1, resources: { skills: ['skills'] } } }))
+  assert.ok(parsePluginManifest({ ...base, piMeme: { sdkVersion: 2, resources: { themes: ['themes/a.json'] } } }))
 })

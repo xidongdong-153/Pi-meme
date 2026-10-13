@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
-import type { Snapshot, SessionSelectionResult } from '@pi-meme/contracts/desktop'
+import type { SessionSelectionResult } from '@pi-meme/contracts/desktop'
 import type { PiSlashCommand } from '@pi-meme/contracts/pi'
 import type { ResourceCatalog, ResourceItem } from '@pi-meme/contracts/resources'
 import { MemoryCredentialStorage } from '@pi-meme/pi-runtime/secure-store'
@@ -179,64 +179,22 @@ test('项目技能覆盖Host，策略写入Host工作区并保留项目源码', 
   await absent(fixture.workerMarker)
 })
 
-test('native包可冷索引，未启用及受限会话的读取不执行扩展模块', async (t) => {
+test('拒绝原生 Pi 包和扩展上传，保留已有文件且不执行', async (t) => {
   const fixture = await setup(t, true)
-  const marker = path.join(fixture.temporary, 'native-executed')
-  const sideEffect = `import { writeFileSync } from 'node:fs'; writeFileSync(${JSON.stringify(marker)}, 'executed'); export default () => {}`
-  const imported = await fixture.call<ResourceCatalog>('resources:import', [
-    {
-      kind: 'pi-package',
-      files: [
-        { path: 'package.json', content: JSON.stringify({ name: 'native-fixture', version: '1.0.0' }) },
-        { path: 'skills/native-skill/SKILL.md', content: content('native-skill') },
-        { path: 'extensions/index.ts', content: sideEffect },
-      ],
-    },
-    fixture.cwd,
-  ])
-  const extension = imported.items.find((entry) => entry.kind === 'extension' && entry.owner.name === 'native-fixture')!
-  assert.ok(extension)
-  assert.ok(findSkill(imported, 'native-fixture:native-skill'))
-  await absent(marker)
-  await fixture.call<ResourceCatalog>('resources:set-policy', [{ id: extension.id, scope: 'host', enabled: false }])
-  await fixture.call<ResourceCatalog>('resources:refresh', [fixture.cwd])
-  const selected = await fixture.call<SessionSelectionResult>('workspace:select', [
-    { kind: 'project', cwd: fixture.cwd },
-  ])
-  if (selected.cancelled) throw new Error('临时项目选择不能取消')
-  const key = selected.snapshot.connection.sessionKey!
-  await fixture.call('pi:access-mode', [key, 'read-only'], key)
-  const snapshot = await fixture.call<Snapshot>('pi:snapshot')
-  assert.equal(snapshot.connection.accessMode, 'read-only')
-  const commands = await fixture.call<PiSlashCommand[]>('pi:commands')
-  assert.ok(commands.some((entry) => entry.name === 'skill:native-fixture:native-skill'))
-  await absent(marker)
-  await absent(fixture.workerMarker)
-})
-
-test('native单文件上传保留ts、js、mjs文件名并支持正文导入', async (t) => {
-  const fixture = await setup(t, true)
-  for (const extension of ['ts', 'js', 'mjs']) {
-    const name = `native-${extension}`
-    const filename = `${name}.${extension}`
-    const catalog = await fixture.call<ResourceCatalog>('resources:import', [
-      { kind: 'extension', name, files: [{ path: filename, content: 'export default () => {}' }] },
+  const directory = path.join(fixture.root, 'extensions')
+  await mkdir(directory, { recursive: true })
+  const filename = path.join(directory, 'old.js')
+  const source = 'throw new Error("不应执行")'
+  await writeFile(filename, source)
+  for (const kind of ['pi-package', 'extension']) {
+    const result = await fixture.rpc('resources:import', [
+      { kind, name: 'native', files: [{ path: 'index.js', content: source }] },
       fixture.cwd,
     ])
-    const item = catalog.items.find((entry) => entry.kind === 'extension' && entry.name === name)
-    assert.ok(item, `${filename} 应被原生资源发现API识别`)
-    assert.equal(path.basename(item.path), filename)
-    assert.equal(
-      await readFile(path.join(fixture.root, 'extensions', name, filename), 'utf8'),
-      'export default () => {}',
-    )
+    assert.ok(result.error)
   }
-  const catalog = await fixture.call<ResourceCatalog>('resources:import', [
-    { kind: 'extension', name: 'native-content', content: 'export default () => {}' },
-    fixture.cwd,
-  ])
-  const item = catalog.items.find((entry) => entry.kind === 'extension' && entry.name === 'native-content')
-  assert.ok(item)
-  assert.equal(path.basename(item.path), 'native-content.ts')
+  const catalog = await fixture.call<ResourceCatalog>('resources:refresh', [fixture.cwd])
+  assert.ok(catalog.items.every((entry) => entry.kind === 'skill' || entry.kind === 'app-plugin'))
+  assert.equal(await readFile(filename, 'utf8'), source)
   await absent(fixture.workerMarker)
 })

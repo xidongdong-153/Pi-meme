@@ -1,3 +1,4 @@
+import type { HostApi } from '@pi-meme/contracts/app-host'
 import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { Facet, FacetHost } from '@earendil-works/chord'
@@ -37,7 +38,10 @@ export type PluginLease = {
 export type PluginManagerOptions = {
   directory: string
   dataDirectory: string
-  services?: Record<string, object>
+  hostApi?: HostApi
+  hostApiForPlugin?: (id: string) => HostApi
+  disposePluginHost?: (id: string) => Promise<void>
+  validateResources?: (pkg: PluginResourcePackage) => Promise<void>
   drain?: (pluginIds: string[]) => Promise<void>
   onChange?: (plugins: PluginDescriptor[]) => void
   reservedHandlers?: string[]
@@ -105,6 +109,12 @@ export class PluginManager {
       description: manifest.description,
       display: manifest.piMeme.display,
       resources: manifest.piMeme.resources,
+      capabilities: {
+        server: Boolean(manifest.piMeme.server),
+        agent: Boolean(manifest.piMeme.agent),
+        ui: Boolean(manifest.piMeme.ui),
+        resources: Object.values(manifest.piMeme.resources ?? {}).some((paths) => paths.length > 0),
+      },
       generation: active,
       directory,
       enabled,
@@ -202,15 +212,13 @@ export class PluginManager {
     const provider = new Map<string, Registration>()
     for (const item of active) {
       for (const name of item.manifest.piMeme.provides ?? []) {
-        if (provider.has(name) || Object.hasOwn(this.options.services ?? {}, name))
-          throw new Error(`服务已有提供者：${name}`)
+        if (provider.has(name)) throw new Error(`服务已有提供者：${name}`)
         provider.set(name, item)
       }
     }
     for (const item of active) {
       for (const name of item.manifest.piMeme.requires ?? []) {
-        if (!provider.has(name) && !Object.hasOwn(this.options.services ?? {}, name))
-          throw new Error(`${item.manifest.name} 所需服务不可用：${name}`)
+        if (!provider.has(name)) throw new Error(`${item.manifest.name} 所需服务不可用：${name}`)
       }
     }
     const components: Registration[][] = []
@@ -268,15 +276,6 @@ export class PluginManager {
       if (!serviceDefinitions.has(name)) serviceDefinitions.set(name, defineService<object>(name, { local: true }))
       return serviceDefinitions.get(name)!
     }
-    const hostServices = this.options.services ?? {}
-    facets.push(
-      defineFacet({
-        id: `host-services:${generation}`,
-        setup: (env) => {
-          for (const [name, service] of Object.entries(hostServices)) env.provide(definition(name), service)
-        },
-      }),
-    )
     try {
       for (const registration of registrations) {
         if (registration.artifact) {
@@ -285,6 +284,8 @@ export class PluginManager {
           facets.push(...loaded.facets)
         }
         const pluginScope = new PluginScope()
+        if (this.options.disposePluginHost)
+          pluginScope.own(() => this.options.disposePluginHost!(registration.manifest.name))
         scope.own(() => pluginScope.dispose())
         const dataDirectory = path.join(this.options.dataDirectory, encodeURIComponent(registration.manifest.name))
         await mkdir(dataDirectory, { recursive: true })
@@ -325,10 +326,15 @@ export class PluginManager {
               env.onActivate(async () => {
                 if (module) {
                   if (typeof module.create !== 'function') throw new Error('插件 server 入口必须导出 create(context)')
+                  const hostApi = this.options.hostApiForPlugin?.(registration.manifest.name) ?? this.options.hostApi
                   const instance = await module.create({
                     pluginId: registration.manifest.name,
                     generation,
                     dataDirectory,
+                    get host() {
+                      if (!hostApi) throw new Error('插件 Host API 未装配')
+                      return hostApi
+                    },
                     services: {
                       require: <T>(name: string) => {
                         if (!required.has(name)) throw new Error(`插件未声明所需服务：${name}`)
@@ -581,8 +587,21 @@ export class PluginManager {
     return { manifest, directory: path.resolve(directory), artifact, enabled: true }
   }
 
+  private async validateResources(registration: Registration) {
+    await this.options.validateResources?.({
+      id: registration.manifest.name,
+      version: registration.manifest.version,
+      generation: 0,
+      directory: registration.directory,
+      enabled: true,
+      display: registration.manifest.piMeme.display,
+      resources: registration.manifest.piMeme.resources,
+    })
+  }
+
   private async replace(registration: Registration) {
     assertExternalManifest(registration.manifest)
+    await this.validateResources(registration)
     const next = new Map(this.registrations)
     next.set(registration.manifest.name, registration)
     await this.transition(next, [registration.manifest.name])
@@ -688,6 +707,7 @@ export class PluginManager {
       if (!current) throw new Error('插件不存在')
       const next = new Map(this.registrations)
       const registration = { ...current, enabled }
+      if (enabled) await this.validateResources(registration)
       next.set(id, registration)
       await this.transition(next, [id])
       return this.descriptor(registration)
@@ -733,11 +753,7 @@ export class PluginManager {
     }
     const selected = (item: Registration) =>
       isEnabled(item.manifest.name) &&
-      Boolean(
-        item.manifest.piMeme.agent ||
-        item.manifest.piMeme.resources?.skills?.length ||
-        item.manifest.piMeme.resources?.extensions?.length,
-      )
+      Boolean(item.manifest.piMeme.agent || item.manifest.piMeme.resources?.skills?.length)
     const current = candidates.filter((group) =>
       group.registrations.some(
         (item) => selected(item) && (!inherited || inherited.get(item.manifest.name) === group.generation),
@@ -850,6 +866,7 @@ export class PluginManager {
             if (registration.manifest.name !== entry.id) throw new Error('安装记录与插件 manifest 身份不匹配')
             registration.enabled = entry.enabled
             registration.sourceDirectory = entry.sourceDirectory
+            await this.validateResources(registration)
             next.set(entry.id, registration)
           } catch (cause) {
             this.failures.set(entry.id, { id: entry.id, directory: entry.directory, message: String(cause) })
@@ -872,7 +889,7 @@ export class PluginManager {
         for (const item of [...candidates.values()]) {
           if (!item.enabled) continue
           for (const name of item.manifest.piMeme.provides ?? []) {
-            if ((providers.get(name)?.length ?? 0) > 1 || Object.hasOwn(this.options.services ?? {}, name)) {
+            if ((providers.get(name)?.length ?? 0) > 1) {
               fail(item, `服务已有提供者：${name}`)
               break
             }
@@ -884,10 +901,7 @@ export class PluginManager {
           for (const item of [...candidates.values()]) {
             if (!item.enabled) continue
             for (const name of item.manifest.piMeme.requires ?? []) {
-              if (
-                !Object.hasOwn(this.options.services ?? {}, name) &&
-                !(providers.get(name) ?? []).some((id) => candidates.get(id)?.enabled)
-              ) {
+              if (!(providers.get(name) ?? []).some((id) => candidates.get(id)?.enabled)) {
                 fail(item, `${item.manifest.name} 所需服务不可用：${name}`)
                 changed = true
                 break

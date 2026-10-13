@@ -13,7 +13,6 @@ import type { AgentSummary } from '@pi-meme/contracts/collaboration'
 import type { PlanDocument } from '@pi-meme/contracts/plan'
 import type { InstructionsSnapshot, SaveInstructionResult } from '@pi-meme/contracts/settings'
 import type { PiSlashCommand } from '@pi-meme/contracts/pi'
-import type { ResourceCatalog } from '@pi-meme/contracts/resources'
 import { requestText } from '../../../tests/fixtures/fake-provider.mjs'
 
 type Snapshot = {
@@ -241,31 +240,6 @@ test(
         return body.result
       }
       assert.deepEqual(await rpc<unknown[]>('plugins:list'), [])
-      const imported = await rpc<ResourceCatalog>('resources:import', [
-        {
-          kind: 'pi-package',
-          files: [
-            {
-              path: 'package.json',
-              content: JSON.stringify({
-                name: 'server-esbuild-fixture',
-                version: '1.0.0',
-                pi: { extensions: ['./extensions/index.ts'] },
-              }),
-            },
-            {
-              path: 'extensions/index.ts',
-              content:
-                "import { value } from './helpers/value'; export default function(pi) { pi.on('session_start', (_event, ctx) => ctx.ui.setStatus('server-fixture', value)) }",
-            },
-            { path: 'extensions/helpers/value.ts', content: "export const value: string = 'Server 原生扩展'" },
-          ],
-        },
-      ])
-      assert.ok(
-        imported.items.some((item) => item.kind === 'extension' && item.owner.name === 'server-esbuild-fixture'),
-        'Server产物通过esbuild校验带相对TS依赖的原生扩展',
-      )
       const skillSource = path.join(repo, 'pi/skills/skill-creator')
       const skillInstalled = path.join(data, 'builtin-resources/skills/skill-creator')
       for (const entry of await readdir(skillSource, { recursive: true, withFileTypes: true })) {
@@ -302,19 +276,69 @@ test(
         JSON.stringify({
           name: 'dist-agent-probe',
           version: '1.0.0',
-          piMeme: { sdkVersion: 1, agent: 'dist/agent/entry.js' },
+          piMeme: { sdkVersion: 2, agent: 'dist/agent/entry.js' },
         }),
       )
       await writeFile(
         path.join(plugin, 'dist/agent/entry.js'),
-        `export default function(pi) {
-      pi.registerTool({ name: 'dist_probe', label: '产物工具', description: '验证外部工具',
+        `export function activate(context) {
+      context.tools.register({ name: 'dist_probe', title: '产物工具', description: '验证外部工具',
         parameters: { type: 'object', properties: {} },
-        async execute() { return { content: [{ type: 'text', text: 'DIST-EXTERNAL' }], details: {} } }
+        async execute() { return { text: 'DIST-EXTERNAL' } }
       })
     }`,
       )
       await rpc('plugins:install-directory', [plugin])
+      const ref = await rpc('host:session-ref', [key], key)
+      const configured = await fetch(`${url}/api/control`, {
+        method: 'POST',
+        headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          apiVersion: 2,
+          clientId: 'dist',
+          method: 'sessions.configure',
+          args: [ref, { agentPlugins: ['dist-agent-probe'] }],
+          idempotencyKey: crypto.randomUUID(),
+        }),
+      })
+      assert.equal(((await configured.json()) as { error?: unknown }).error, undefined)
+      async function control<T>(method: string, args: unknown[]): Promise<T> {
+        const response = await fetch(`${url}/api/control`, {
+          method: 'POST',
+          headers: { Cookie: cookie, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            apiVersion: 2,
+            hostId,
+            clientId: 'dist',
+            method,
+            args,
+            idempotencyKey: crypto.randomUUID(),
+          }),
+        })
+        const result = (await response.json()) as { result: T; error?: unknown }
+        assert.equal(result.error, undefined)
+        return result.result
+      }
+      const capabilities = await control<{ features: string[] }>('capabilities', [])
+      if (process.platform === 'darwin')
+        assert.ok(capabilities.features.includes('terminal'), 'Server产物包含可加载的PTY原生模块')
+      if (capabilities.features.includes('terminal')) {
+        const terminal = await control<{ hostId: string; terminalId: string }>('terminal.open', [
+          ref,
+          { command: '/bin/sh' },
+        ])
+        await control('terminal.input', [terminal, "printf 'PTY-DIST-%s\\n' OK\nexit\n"])
+        let output = ''
+        for (let count = 0; count < 100; count++) {
+          const state = await control<{ output: string; exited: boolean }>('terminal.attach', [terminal])
+          output = state.output
+          if (state.exited) break
+          await delay(25)
+        }
+        assert.ok(output.includes('PTY-DIST-OK'), output)
+        await control('terminal.close', [terminal])
+      }
+
       for (const step of ['base', 'external', 'mcp', 'subagent', 'codemode', 'codemode-only', 'plan']) {
         mode = step
         if (step === 'codemode-only') {

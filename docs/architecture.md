@@ -7,9 +7,9 @@ Electron 是平台壳；Node Host 持有应用配置、会话池、Worker 和插
 ```mermaid
 %%{init: {"theme": "dark"}}%%
 flowchart TD
-  Desktop["Desktop：Electron 窗口与本机操作"] --> App["app-ui：内置页面与外部 UI 槽"]
+  Desktop["Desktop：Electron 窗口与本机操作"] --> App["app-ui：内置页面、右侧工具标签与贡献槽"]
   Web["Web：浏览器入口"] --> App
-  App --> Client["client：RPC、事件与快照"]
+  App --> Client["client：HostApi、RPC、事件与快照"]
   Client --> Host["Host：认证、路由、静态装配"]
   Host --> Builtins["packages：14 个内置业务模块"]
   Host --> Plugins["plugin-runtime：外部依赖组与 Chord 作用域"]
@@ -28,25 +28,25 @@ flowchart TD
 
 ## 目录与包边界
 
-| 目录                      | 职责                                                          |
-| ------------------------- | ------------------------------------------------------------- |
-| `apps/desktop`            | Electron 窗口、本地 Host 子进程、平台 IPC、Desktop 入口和验收 |
-| `apps/server`             | 独立 Node Host 启动、环境变量与退出清理                       |
-| `apps/web`                | Web 登录入口、Vite 构建及共享 React import map                |
-| `packages/contracts`      | Pi 派生类型、Host 请求/事件、平台适配器与功能契约             |
-| `packages/ui`             | 通用原语、图标、ErrorBoundary、主题 tokens 和工具卡片贡献入口 |
-| `packages/app-ui`         | 共同布局、设置导航、Host 连接、资源中心与七类 UI 槽           |
-| `packages/client`         | 类型化功能 Bridge、HTTP/WebSocket、认证、快照与平台适配       |
-| `packages/host`           | 唯一数据写入者、客户端选择、业务操作分派与插件装配            |
-| `packages/pi-adapter`     | 通用 Worker 调用、通信、SDK 路径、凭据同步和外部 Agent 加载   |
-| `packages/pi-runtime`     | SDK 加载、会话池、事件转换、原生 JSONL 读取及受限执行底层     |
-| `packages/plugin-sdk`     | manifest、Server/Agent/UI 类型与资源释放作用域                |
-| `packages/plugin-runtime` | 目录快照、包校验、持久化状态、Chord 加载与安全切换            |
-| `packages/plugin-devkit`  | 模板创建、Node/浏览器构建、校验与 `.pim` 打包                 |
-| `packages/{chat,...}`     | 14 个内置业务模块，保留 Server、Agent、UI 分层                |
-| `plugins/*`               | 可选的独立扩展源码，不要求此目录存在                          |
+| 目录                      | 职责                                                                       |
+| ------------------------- | -------------------------------------------------------------------------- |
+| `apps/desktop`            | Electron 窗口、本地 Host 子进程、平台 IPC、Desktop 入口和验收              |
+| `apps/server`             | 独立 Node Host 启动、环境变量与退出清理                                    |
+| `apps/web`                | Web 登录入口、Vite 构建及共享 React import map                             |
+| `packages/contracts`      | 正式 HostApi、内部 Pi 类型、平台适配器与功能契约                           |
+| `packages/ui`             | 通用原语、图标、ErrorBoundary、主题 tokens 和工具卡片贡献入口              |
+| `packages/app-ui`         | 共同布局、设置导航、Host 连接、技能/插件独立页面、右侧工具标签与七类贡献槽 |
+| `packages/client`         | 类型化功能 Bridge、HTTP/WebSocket、认证、快照与平台适配                    |
+| `packages/host`           | 唯一数据写入者、客户端选择、业务操作分派与插件装配                         |
+| `packages/pi-adapter`     | 通用 Worker 调用、通信、SDK 路径、凭据同步和外部 Agent 加载                |
+| `packages/pi-runtime`     | SDK 加载、会话池、事件转换、原生 JSONL 读取及受限执行底层                  |
+| `packages/plugin-sdk`     | manifest、Server/Agent/UI 类型与资源释放作用域                             |
+| `packages/plugin-runtime` | 目录快照、包校验、持久化状态、Chord 加载与安全切换                         |
+| `packages/plugin-devkit`  | 模板创建、Node/浏览器构建、校验与 `.pim` 打包                              |
+| `packages/{chat,...}`     | 14 个内置业务模块，保留 Server、Agent、UI 分层                             |
+| `plugins/*`               | 可选的独立 App 插件源码，不要求此目录存在                                  |
 
-内置模块与外部插件按实际能力创建 `src/server/entry.ts`、`src/agent/entry.ts`、`src/ui/entry.tsx` 和 `src/shared`。保留包名与功能身份，例如聊天为 `@pi-meme/chat`；扩展交互包 `@pi-meme/pi-extensions` 位于 `packages/interaction`。对外入口使用 `/server/`、`/agent/`、`/ui/` 子路径。
+内置模块与外部插件按实际能力创建 `src/server/entry.ts`、`src/agent/entry.ts`、`src/ui/entry.tsx` 和 `src/shared`。保留包名与功能身份，例如聊天为 `@pi-meme/chat`；交互包 `@pi-meme/interaction` 位于 `packages/interaction`。对外入口使用 `/server/`、`/agent/`、`/ui/` 子路径。
 
 约束：
 
@@ -59,38 +59,42 @@ flowchart TD
 
 ## 内置业务模块
 
-| 模块            | 实际职责                                                        |
-| --------------- | --------------------------------------------------------------- |
-| `chat`          | 消息投影、输入、附件、队列、编辑与回复操作、Markdown 和工具卡片 |
-| `workspace`     | 项目登记、会话摘要索引、侧栏与会话选择                          |
-| `history`       | 原生 JSONL 历史查询、预取、导出和分支树 UI                      |
-| `models`        | 模型配置、发现、默认模型、选择和上下文用量                      |
-| `settings`      | 偏好存储、外观、主题与个性化指令                                |
-| `resources`     | Host/项目技能与 Pi 扩展、导入、策略、编辑及不可变资源快照       |
-| `interaction`   | Pi 扩展的弹窗、通知、状态、文本挂件和编辑器预填                 |
-| `subagents`     | 持续子代理身份、邮箱、spawn/wait/followup、取消与 Pi JSONL      |
-| `mcp`           | 全局与工作区 MCP 配置、诊断、OAuth 和 Pi 原生 MCP 扩展          |
-| `codemode`      | Pi 原生 codemode 扩展与设置 UI                                  |
-| `permissions`   | 三档权限操作、选择 UI 和 Agent 权限扩展工厂                     |
-| `sandbox-macos` | macOS 沙箱服务与 Worker 沙箱工厂                                |
-| `usage`         | 原生会话用量查询与活动页面                                      |
-| `git`           | Git 状态、Diff 查询和面板                                       |
+| 模块                          | 实际职责                                                        |
+| ----------------------------- | --------------------------------------------------------------- |
+| `chat`                        | 消息投影、输入、附件、队列、编辑与回复操作、Markdown 和工具卡片 |
+| `workspace`                   | 项目登记、会话摘要索引、侧栏与会话选择                          |
+| `history`                     | 原生 JSONL 历史查询、预取、导出和分支树 UI                      |
+| `models`                      | 模型配置、发现、默认模型、选择和上下文用量                      |
+| `settings`                    | 偏好存储、外观、主题与个性化指令                                |
+| `resources`                   | Host/项目/App 技能、导入、策略、编辑及不可变资源快照            |
+| `interaction`                 | Pi 扩展的弹窗、通知、状态、文本挂件和编辑器预填                 |
+| `subagents`                   | 持续子代理身份、邮箱、spawn/wait/followup、取消与 Pi JSONL      |
+| `mcp`                         | 全局与工作区 MCP 配置、诊断、OAuth 和 Pi 原生 MCP 扩展          |
+| `codemode`                    | Pi 原生 codemode 扩展与设置 UI                                  |
+| `permissions`                 | 三档权限操作、选择 UI 和 Agent 权限扩展工厂                     |
+| `sandbox-macos/sandbox-linux` | 当前平台沙箱服务与 Worker 沙箱工厂                              |
+| `usage`                       | 原生会话用量查询与活动页面                                      |
+| `git`                         | Git 状态、Diff 查询和面板                                       |
 
 14 个模块由 `packages/host/src/builtin-modules.ts` 静态组合，UI 由 app-ui 直接组合，不读取用户插件启用状态。内置模块初始化失败会中止 Host 启动；外部插件恢复失败只隔离相关依赖组，并保留恢复诊断。
 
-设置侧栏固定显示“个人、集成、系统”三组，所有入口可搜索。“扩展”和独立“技能”入口使用同一个资源中心，技能入口预设技能筛选。中心保留技能、Pi 扩展和 App 插件类型，直接查询 Host 目录，不要求先启动模型。高级指令和插件重新加载仍在开发者页面。资源目录、接口和调用规则见 [技能与扩展管理](skills-and-extensions.md)。
+设置侧栏显示“个人、集成、系统”三组，所有入口可搜索。集成区只有“技能、插件、MCP”三个独立入口；技能页与插件页不共用 Tab 或类型筛选。AI 模型配置在个人区的模型页。资源目录查询不要求启动模型。高级指令和插件重新加载仍在开发者页面。目录、接口和调用规则见 [技能与 App 资源管理](skills-and-extensions.md)。
 
 ## Host 协议与平台能力
 
-`HostRpcRequest` 携带 `requestId`、`clientId`、可选 `hostId`、可选 `sessionId`、`method` 和 `args`。响应回传 `requestId` 与 Host 身份。Host 使用请求上下文确定客户端正在查看的会话，实际写操作继续传稳定 `sessionKey`；异步完成时不会重新读取界面选择。
+正式控制契约在 `packages/contracts/src/app-host.ts`，公共版本为 `apiVersion: 2`。`ProjectRef = { hostId, projectId }`、`SessionRef = { hostId, sessionId }` 标识持久目标；API 支持项目、会话、文件、终端、Git 读取、交互答复、子代理查询与停止、计划查询和能力检查。Server/UI 插件通过 `context.host` 调用；外部插件不取得内置 Store、Pool 或 Worker。
 
-Host 先查基础操作和静态内置处理函数，再分派到外部插件；外部服务调用单独持有依赖组引用。HTTP、事件 WebSocket、快照和插件静态资源共用认证与来源检查。客户端先读取连接状态；事件订阅建立后补读会话快照，缓冲读取期间的事件，随后按会话、generation 和 sequence 去重。
+HTTP 控制入口是 `/api/control`，事件入口是 `/api/control/events`。写请求携带调用方幂等键；控制日志 `control.json` 保存稳定身份、操作结果、提交回执和关键状态事件。相同客户端与键的相同内容返回已有结果，冲突内容被拒绝。重启将未完成提交记为中断，不重放模型调用；这不是任务自动续跑保证。
+
+关键事件用 `journalEpoch/seq/eventId` 标识，订阅可按目标过滤并补读。游标失效要求重新读取快照；快照带 `controlCursor`。token 流和终端输出只实时发送，不写入控制日志；聊天正文继续保存在 Pi JSONL，终端重连读取输出快照。认证、Cookie 续期和客户端用法见 [Remote 文档](remote.md)。后续 Bot 使用独立客户端，本轮未实现 Bot。
+
+App 内部已有 `/api/rpc`、`HostRpcRequest` 和客户端选择继续服务聊天与设置页面。正式控制操作指定目标，不读取或改变客户端的界面选择。HTTP、事件 WebSocket、快照和插件静态资源共用认证与来源检查。
 
 `PlatformAdapter` 只提供窗口所需的本机操作、连接配置、文件选择、Finder/编辑器启动和主题文件导入导出。Electron preload 仅接这类平台 channel。Remote 目录查询、会话操作与插件安装都经 Host，浏览器不会把 Host 路径交给本机文件选择器。
 
 ## 会话与 Pi 原生数据
 
-`PiSessionPool` 保存稳定会话身份、执行状态和当前客户端选择。首次落盘补充 `sessionFile`，不更换 `sessionKey`。新建、选择历史和切换页面先读取本地投影；首次发送才创建或恢复所属 Worker 中的 Pi 会话。
+正式会话创建立即保存稳定 SessionRef，Pi 会话文件生成后再保存绑定，两个空会话也有不同身份；`sessionKey` 只作当前进程的运行时映射，重启可重新建立。`PiSessionPool` 保存执行状态和内部客户端选择。新建、选择历史和切换页面先读取本地投影；首次发送才创建或恢复所属 Worker。
 
 ```mermaid
 %%{init: {"theme": "dark"}}%%
@@ -127,26 +131,28 @@ Chord 1.1 的 `reload` 只替换已有相同服务 shape 的 facet，不能新�
 
 构建目录和上传包复制为不可变代码快照；目录重新加载读取原开发目录，上传包更新需要新包。代码目录只在没有引用时回收；插件数据默认保留。详细接口见 [插件文档](plugins.md)。
 
-App manifest 的可选 `piMeme.resources` 声明技能与原生扩展，`display` 声明显示名称和包内图标。`PluginManager.resourcePackages()` 提供包目录、启用状态和代次，`ResourceStore` 负责索引和资源快照。按项目选择 Agent 和资源时仍保留整个 Chord 依赖组的引用，项目策略不释放全局 Server 服务。
+App SDK 2 manifest 的 `piMeme.resources` 只声明 `skills`、`themes` 和 `assets`，`display` 声明显示名称和包内图标。`PluginManager.resourcePackages()` 提供包目录、启用状态和代次；`ResourceStore` 索引技能，SettingsStore 加载启用插件的主题 JSON 与包内素材。Server 服务依赖只用于插件之间；App 系统操作走正式 `HostApi`。
 
-UI 贡献有 `page`、`sidebar`、`composer`、`tool-card`、`status`、`settings`、`message` 七类。工具贡献按真实 `ownerId`、`generation` 和 `toolName` 匹配；消息贡献按相同来源与代次、`customType` 匹配。Registry 限制来源为贡献插件自身。没有可信来源或对应代次的消息保留普通文字，工具贡献补充通用详情。图标与 UI 代码通过同一认证资源接口访问。
+Agent 入口导出 `activate(context)`，由 Pi 内部适配层装配工具、命令、hook 和交互。新会话默认不选外部 Agent；Host 可保存新会话默认列表，单个会话的 `configuration.agentPlugins` 独立持久化。运行中拒绝改配置，子 Worker 继承父选择与代次。按选择取得租约时仍保留整个 Chord 依赖组，项目策略不释放全局 Server 服务。
+
+左侧仅置顶、项目与最近，中间固定聊天。UI 面板仅允许 `right`；通过 `panels.register` 登记，并声明 `app/project/session` 作用范围。右侧顶栏提供可关闭标签、“＋”工具选择页、加宽和收起；标签与宽度按 Host、会话保存。聊天和左侧导航不注册为面板。UI 贡献有 `composer`、`composer-actions`、`tool-card`、`message`、`message-actions`、`status`、`settings` 七类，通过 `contributions.register` 登记；`reactive` 提供目标与会话快照订阅。工具贡献按真实 `ownerId`、`generation` 和 `toolName` 匹配；消息贡献按相同来源与代次、`customType` 匹配。Registry 限制来源为贡献插件自身。没有可信来源或对应代次的消息保留普通文字，工具贡献补充通用详情。图标与 UI 代码通过同一认证资源接口访问。
 
 ## 资源目录与 Worker 快照
 
-Host 扫描数据根下的 `skills/`、`extensions/` 和项目 `.agents/skills/`、`.agents/extensions/`。项目目录只读；Host 默认策略在 `resources/state.json`，项目覆盖在 `workspaces/<cwd-hash>/resources.json`。不读取旧 `.pi/skills`、`.pi/extensions`，不迁移旧文件，也不读取本机 Pi CLI 或其他 Agent 的全局技能目录。
+Host 扫描数据根下的 `skills/`、项目 `.agents/skills/` 和 App 插件声明的技能目录。项目目录只读；Host 默认策略在 `resources/state.json`，项目覆盖在 `workspaces/<cwd-hash>/resources.json`。不读取旧 `.pi/skills`、`.pi/extensions`，不迁移旧文件，也不读取本机 Pi CLI 或其他 Agent 的全局技能目录。
 
 `ResourceStore` 校验资源并把完整目录保存到内容哈希快照；目录中的脚本、引用文件和包内相对导入跟随修订。内置同名技能优先，其次项目技能，再其次 Host 技能；包内技能使用包名前缀区分。所有冲突项保留在管理清单中并标记 `shadowedBy`。
 
 ```mermaid
 %%{init: {"theme": "dark"}}%%
 flowchart TD
-  HostFiles["Host skills 与 extensions"] --> Catalog["ResourceStore：校验、策略与清单"]
-  ProjectFiles["项目 .agents：只读"] --> Catalog
+  HostFiles["Host skills"] --> Catalog["ResourceStore：校验、策略与清单"]
+  ProjectFiles["项目 .agents/skills：只读"] --> Catalog
   AppPackages["App 插件目录与代次"] --> Catalog
   Catalog --> Frozen["resources/snapshots：不可变修订"]
   Frozen --> Snapshot["当前项目 ResourceSnapshot"]
   Snapshot --> Worker["Worker：Pi 公开资源加载器"]
-  Catalog --> UI["扩展中心与技能列表"]
+  Catalog --> UI["技能页与插件页"]
   Worker --> History["Pi JSONL：资源修订和技能使用记录"]
 ```
 
@@ -166,7 +172,6 @@ Host 默认数据根目录为 `~/.pi-meme`，可由 `PI_MEME_DATA_ROOT` 修改�
 ├── settings.json
 ├── themes/
 ├── skills/              # Host 散装技能，含 SKILL.md 与辅助文件
-├── extensions/          # Host Pi 扩展；packages/ 保存完整原生包
 ├── builtin-resources/   # 随应用分发的内置技能
 ├── resources/           # 导入清单、Host 策略和不可变资源快照
 ├── pi/                  # SDK 设置、模型、MCP、提示词与 SubAgent 定义
@@ -174,6 +179,7 @@ Host 默认数据根目录为 `~/.pi-meme`，可由 `PI_MEME_DATA_ROOT` 修改�
 ├── workspaces/          # 工作区 MCP 覆盖与 Host 数据
 ├── plugins/             # 不可变代码快照与安装/启用状态
 ├── plugin-data/         # 各模块/插件的数据，卸载默认保留
+├── control.json         # 稳定身份、幂等操作、回执与关键事件
 ├── collaboration.json   # 协作身份、邮箱与计划元数据
 └── plans/               # sessionId/id.md 计划正文
 ```
@@ -197,13 +203,13 @@ flowchart LR
   Local -->|私有通道提供已保存凭据| Desktop
 ```
 
-Pi 1.1 的 `ModelRuntime.create` 没有公开认证环境注入参数。唯一的 private shape 依赖位于 `packages/pi-runtime/src/sdk/model-runtime.ts`：先检查 `runtime.models.authContext`，再注入空环境与不可用文件检查，阻止读取本机环境和认证文件。守卫失败会明确报错。升级 Pi SDK 时必须重新验证此隔离层；会话、JSONL、扩展和资源加载继续使用公开入口。能力接线见 [Pi SDK 说明](rpc-capabilities.md)。
+Pi 1.1 的 `ModelRuntime.create` 没有公开认证环境注入参数。唯一的 private shape 依赖位于 `packages/pi-runtime/src/sdk/model-runtime.ts`：先检查 `runtime.models.authContext`，再注入空环境与不可用文件检查，阻止读取本机环境和认证文件。守卫失败会明确报错。升级 Pi SDK 时必须重新验证此隔离层；会话、JSONL、扩展和资源加载继续使用公开入口。外部插件接口见 [插件文档](plugins.md)。
 
-项目 `.agents` 和 `AGENTS.md` 是只读输入；技能与扩展不从项目 `.pi` 装配。不读取本机 Pi CLI 全局目录、外部认证文件或模型认证环境变量。Pi 的技能与扩展加载被限制在 Host 提供的资源快照中，扩展动态返回的未登记技能路径会产生诊断；提示词和主题保留 Pi 公开加载器的原有处理。主题保持 JSON，只解析允许的颜色与字体，不执行 JavaScript 或任意 CSS。
+项目 `.agents/skills` 和 `AGENTS.md` 是只读输入；不装配 Host/项目裸 Pi 扩展或原生 Pi 包，也不读取本机 Pi CLI 全局目录、外部认证文件或模型认证环境变量。技能加载限定于 Host 资源快照。用户主题和 App 主题保持 JSON，包内背景图经认证资源 URL 读取；只解析允许的颜色、字体和背景参数，不执行 JavaScript 或任意 CSS。
 
-保留 `read-only`、`workspace-write`、`full-access` 三档权限。Worker 的权限策略由静态 `permissions` 与当前平台沙箱 Agent 工厂注入；工厂不可用或沙箱检查失败时拒绝受限会话。外部扩展与 MCP 仍只在完全权限装配，MCP 逐服务启停和授权。旧 `mcpEnabled: false` 继续阻止未重新授权的服务；授权记录绑定服务配置，外部配置变更不能沿用旧授权。codemode 的嵌套工具继续经过实际执行检查；子 Agent 使用独立 Pi 会话与 Worker，继承父任务权限和模式。
+保留 `read-only`、`workspace-write`、`full-access` 三档权限。Worker 的权限策略由静态 `permissions` 与当前平台沙箱 Agent 工厂注入；工厂不可用或沙箱检查失败时拒绝受限会话。MCP 和已选择的外部 AppAgent 只在完全权限普通任务装配；未选择、受限权限或规划模式不加载 AppAgent。MCP 逐服务启停和授权。旧 `mcpEnabled: false` 继续阻止未重新授权的服务；授权记录绑定服务配置，外部配置变更不能沿用旧授权。codemode 的嵌套工具继续经过实际执行检查；子 Agent 使用独立 Pi 会话与 Worker，继承父任务权限和模式。
 
-插件是可信 Node 宿主代码；Agent 权限不会因安装插件自动升级。Pi 原生 hook 使用 `pi.on`，图形 UI 由 `interaction` 与插件 UI 入口补充，不承诺 TUI `custom()` 组件兼容。
+插件是可信 Node 宿主代码；Agent 权限不会因安装插件自动升级。内置 Pi hook 使用 `pi.on`；外部 AppAgent 使用 App SDK，图形 UI 使用面板与贡献入口。
 
 ## 子代理与计划模式
 
