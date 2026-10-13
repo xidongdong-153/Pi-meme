@@ -12,6 +12,7 @@ export const reservedPluginIds = [
   '@pi-meme/usage',
   '@pi-meme/resources',
   '@pi-meme/sandbox-macos',
+  '@pi-meme/sandbox-linux',
   '@pi-meme/permissions',
   '@pi-meme/codemode',
   '@pi-meme/subagents',

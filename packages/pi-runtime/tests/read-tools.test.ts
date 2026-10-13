@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
@@ -14,8 +14,11 @@ test('根与独立分支child在默认和Plan三档权限均能真实执行read�
   for (const mode of ['default', 'plan'] satisfies TaskMode[])
     for (const access of ['full-access', 'read-only', 'workspace-write'] satisfies AgentAccessMode[])
       await t.test(`${mode}/${access}`, async (t) => {
-        if (access !== 'full-access' && process.platform !== 'darwin') return t.skip('受限权限仅支持macOS')
+        if (access !== 'full-access' && !['darwin', 'linux'].includes(process.platform))
+          return t.skip('当前平台没有受支持的沙箱后端')
         const directory = await mkdtemp(path.join(tmpdir(), 'pi-read-tools-'))
+        const project = path.join(directory, 'project')
+        await mkdir(project)
         const calls = [
           { name: 'ls', arguments: '{"path":"."}' },
           { name: 'grep', arguments: '{"path":".","pattern":"unique-search-token"}' },
@@ -32,10 +35,10 @@ test('根与独立分支child在默认和Plan三档权限均能真实执行read�
         let source: string | undefined
         let parentTools: string[] | undefined
         try {
-          await writeFile(path.join(directory, 'example.txt'), 'unique-search-token\n')
+          await writeFile(path.join(project, 'example.txt'), 'unique-search-token\n')
           for (const role of ['root', 'child']) {
             const session = new SdkSession(
-              directory,
+              project,
               { connection: () => {}, error: () => {}, event: () => {} },
               fake.runtimePaths,
               fake.credentials,
@@ -46,11 +49,11 @@ test('根与独立分支child在默认和Plan三档权限均能真实执行read�
             let sessionFile: string | undefined
             if (source) {
               const sdk = await loadPiSdk()
-              const manager = sdk.SessionManager.open(source, path.dirname(source), directory)
+              const manager = sdk.SessionManager.open(source, path.dirname(source), project)
               sessionFile = manager.createBranchedSession(manager.getLeafId()!)
               await session.configureAgentTask('只读取文件和搜索')
             }
-            session.start(directory, sessionFile)
+            session.start(project, sessionFile)
             await session.snapshot()
             await session.setModel({ provider: 'fake', id: 'first' })
             const requestIndex = fake.provider.requests.length

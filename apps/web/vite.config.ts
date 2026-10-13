@@ -39,6 +39,9 @@ export default defineConfig({
   ],
   resolve: { preserveSymlinks: false, dedupe: ['react', 'react-dom'] },
   server: {
+    host: '127.0.0.1',
+    port: 5173,
+    strictPort: true,
     proxy: {
       '/api': { target: process.env.PI_MEME_HOST_URL ?? 'http://127.0.0.1:31415', ws: true, changeOrigin: false },
     },

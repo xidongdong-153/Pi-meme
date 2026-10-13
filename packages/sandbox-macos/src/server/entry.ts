@@ -1,7 +1,11 @@
-import { existsSync } from 'node:fs'
 import type { PluginManifest } from '@pi-meme/plugin-sdk/manifest'
 import type { ServerPluginContext } from '@pi-meme/plugin-sdk/server'
-import { AccessSandbox, type AccessSandboxOptions } from '@pi-meme/pi-runtime/sdk/access-sandbox'
+import {
+  AccessSandbox,
+  probeAccessSandbox,
+  type AccessSandboxOperations,
+  type AccessSandboxOptions,
+} from '@pi-meme/pi-runtime/sdk/access-sandbox'
 
 export const manifest: PluginManifest = {
   name: '@pi-meme/sandbox-macos',
@@ -13,11 +17,15 @@ export const manifest: PluginManifest = {
     provides: ['agent.sandbox'],
   },
 }
-export function create(context: ServerPluginContext) {
-  const running = new Set<AccessSandbox>()
+export async function create(context: ServerPluginContext) {
+  const capability = await probeAccessSandbox()
+  if (!capability.supported) console.error(capability.reason)
+  const running = new Set<AccessSandboxOperations>()
   context.provide('agent.sandbox', {
-    available: () => process.platform === 'darwin' && existsSync('/usr/bin/sandbox-exec'),
+    available: () => capability.supported,
+    capability: () => ({ ...capability }),
     create: async (options: AccessSandboxOptions) => {
+      if (!capability.supported) throw new Error(capability.reason ?? '受限权限沙箱不可用')
       const sandbox = await AccessSandbox.create(options)
       running.add(sandbox)
       return sandbox

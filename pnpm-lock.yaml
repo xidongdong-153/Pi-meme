@@ -405,6 +405,9 @@ importers:
       '@pi-meme/resources':
         specifier: workspace:*
         version: link:../resources
+      '@pi-meme/sandbox-linux':
+        specifier: workspace:*
+        version: link:../sandbox-linux
       '@pi-meme/sandbox-macos':
         specifier: workspace:*
         version: link:../sandbox-macos
@@ -651,6 +654,18 @@ importers:
       react:
         specifier: ^19.3.0
         version: 19.3.0
+
+  packages/sandbox-linux:
+    dependencies:
+      '@pi-meme/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@pi-meme/pi-runtime':
+        specifier: workspace:*
+        version: link:../pi-runtime
+      '@pi-meme/plugin-sdk':
+        specifier: workspace:*
+        version: link:../plugin-sdk
 
   packages/sandbox-macos:
     dependencies:

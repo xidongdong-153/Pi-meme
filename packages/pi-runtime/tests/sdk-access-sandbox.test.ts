@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
-import { AccessSandbox } from '../src/sdk/access-sandbox'
+import { setTimeout as delay } from 'node:timers/promises'
+import { AccessSandbox, probeAccessSandbox } from '../src/sdk/access-sandbox'
 
 test('AccessSandbox.create 拒绝将系统根目录或用户主目录授权为工作区', async (t) => {
-  if (process.platform !== 'darwin') {
-    t.skip('macOS 专有测试')
+  if (!['darwin', 'linux'].includes(process.platform)) {
+    t.skip('当前平台没有受支持的沙箱后端')
     return
   }
 
@@ -57,8 +58,8 @@ test('AccessSandbox.create 拒绝将系统根目录或用户主目录授权为�
 })
 
 test('AccessSandbox read-only 模式拒绝任何本地文件修改', async (t) => {
-  if (process.platform !== 'darwin') {
-    t.skip('macOS 专有测试')
+  if (!['darwin', 'linux'].includes(process.platform)) {
+    t.skip('当前平台没有受支持的沙箱后端')
     return
   }
 
@@ -86,8 +87,8 @@ test('AccessSandbox read-only 模式拒绝任何本地文件修改', async (t) =
 })
 
 test('AccessSandbox workspace-write 模式允许项目内写入与递归创建目录，拒绝越界写入', async (t) => {
-  if (process.platform !== 'darwin') {
-    t.skip('macOS 专有测试')
+  if (!['darwin', 'linux'].includes(process.platform)) {
+    t.skip('当前平台没有受支持的沙箱后端')
     return
   }
 
@@ -130,5 +131,123 @@ test('AccessSandbox workspace-write 模式允许项目内写入与递归创建�
     await rm(temporary, { recursive: true, force: true })
     await rm(agentDir, { recursive: true, force: true })
     await rm(outsideDir, { recursive: true, force: true })
+  }
+})
+
+test('bash 的写入、符号链接与 Host 数据边界由实际后端执行', async (t) => {
+  if (!['darwin', 'linux'].includes(process.platform)) return t.skip('当前平台没有受支持的沙箱后端')
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), 'sandbox-boundaries-')))
+  const project = path.join(root, 'project')
+  const temporary = path.join(root, 'temporary')
+  const dataRoot = path.join(root, 'data')
+  const outside = path.join(root, 'outside')
+  await Promise.all([project, temporary, dataRoot, outside].map((directory) => mkdir(directory)))
+  await writeFile(path.join(outside, 'original'), 'original')
+  await symlink(outside, path.join(project, 'escape'))
+  try {
+    for (const mode of ['workspace-write', 'read-only'] as const) {
+      const sandbox = await AccessSandbox.create({ mode, cwd: project, temporary, agentDir: dataRoot, dataRoot })
+      const run = (command: string) =>
+        sandbox.run('/bin/bash', ['-c', command], {
+          cwd: project,
+          onData: () => {},
+          timeout: 5,
+        })
+      assert.equal((await run('cat /etc/os-release')).exitCode, 0)
+      assert.equal((await run(`echo temporary > ${JSON.stringify(path.join(temporary, mode))}`)).exitCode, 0)
+      assert.equal((await run('echo inside > inside')).exitCode === 0, mode === 'workspace-write')
+      for (const target of [
+        path.join(outside, 'original'),
+        path.join(project, 'escape/original'),
+        path.join(dataRoot, 'auth.json'),
+      ]) {
+        assert.notEqual((await run(`echo forbidden > ${JSON.stringify(target)}`)).exitCode, 0)
+        await assert.rejects(sandbox.writeFile(target, 'forbidden'))
+      }
+      assert.equal(await readFile(path.join(outside, 'original'), 'utf8'), 'original')
+      sandbox.stopAll()
+    }
+    const overlapping = await AccessSandbox.create({
+      mode: 'workspace-write',
+      cwd: root,
+      temporary,
+      agentDir: path.join(dataRoot, 'pi'),
+      dataRoot,
+    })
+    const blocked = await overlapping.run(
+      '/bin/bash',
+      ['-c', `echo forbidden > ${JSON.stringify(path.join(dataRoot, 'auth.json'))}`],
+      { cwd: root, onData: () => {}, timeout: 5 },
+    )
+    assert.notEqual(blocked.exitCode, 0)
+    await assert.rejects(readFile(path.join(dataRoot, 'auth.json')), /ENOENT/)
+    overlapping.stopAll()
+    await assert.rejects(
+      AccessSandbox.create({ mode: 'workspace-write', cwd: dataRoot, temporary, agentDir: dataRoot, dataRoot }),
+      /配置目录|Host 数据/,
+    )
+    await assert.rejects(
+      AccessSandbox.create({ mode: 'workspace-write', cwd: tmpdir(), temporary, agentDir: dataRoot }),
+      /不能将/,
+    )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('能力探测保留 namespace 错误，实际启动失败不执行工具', async (t) => {
+  const create = t.mock.method(AccessSandbox, 'create', async () => {
+    throw new Error('bwrap: namespace: Operation not permitted')
+  })
+  const capability = await probeAccessSandbox()
+  assert.equal(capability.supported, false)
+  assert.match(capability.reason!, /namespace: Operation not permitted/)
+  assert.equal(create.mock.calls.length, 1)
+})
+
+test('取消、超时和 stopAll 清理后台进程及 setsid 后代', { timeout: 15000 }, async (t) => {
+  if (!['darwin', 'linux'].includes(process.platform)) return t.skip('当前平台没有受支持的沙箱后端')
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), 'sandbox-descendants-')))
+  const project = path.join(root, 'project')
+  const temporary = path.join(root, 'temporary')
+  await Promise.all([mkdir(project), mkdir(temporary)])
+  try {
+    const sandbox = await AccessSandbox.create({
+      mode: 'workspace-write',
+      cwd: project,
+      temporary,
+      agentDir: path.join(root, 'agent'),
+    })
+    for (const method of ['abort', 'timeout', 'stopAll']) {
+      const marker = path.join(project, method)
+      const controller = new AbortController()
+      const background = `while true; do echo tick >> ${JSON.stringify(marker)}; sleep 0.05; done`
+      const command = `${process.platform === 'linux' ? 'setsid ' : ''}/bin/bash -c ${JSON.stringify(background)} & wait`
+      const running = sandbox.run('/bin/bash', ['-c', command], {
+        cwd: project,
+        onData: () => {},
+        signal: controller.signal,
+        timeout: method === 'timeout' ? 0.4 : 5,
+      })
+      const settled = running.catch((error: Error) => error)
+      for (let count = 0; count < 100; count++) {
+        try {
+          await readFile(marker)
+          break
+        } catch {
+          await delay(10)
+        }
+      }
+      assert.ok((await readFile(marker, 'utf8')).includes('tick'))
+      if (method === 'abort') controller.abort()
+      else if (method === 'stopAll') sandbox.stopAll()
+      const result = await settled
+      if (method !== 'stopAll') assert.ok(result instanceof Error)
+      const stopped = await readFile(marker, 'utf8')
+      await delay(150)
+      assert.equal(await readFile(marker, 'utf8'), stopped, `${method} 后仍有后代写入`)
+    }
+  } finally {
+    await rm(root, { recursive: true, force: true })
   }
 })

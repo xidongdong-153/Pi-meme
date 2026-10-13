@@ -201,7 +201,7 @@ Pi 1.1 的 `ModelRuntime.create` 没有公开认证环境注入参数。唯一�
 
 项目 `.agents` 和 `AGENTS.md` 是只读输入；技能与扩展不从项目 `.pi` 装配。不读取本机 Pi CLI 全局目录、外部认证文件或模型认证环境变量。Pi 的技能与扩展加载被限制在 Host 提供的资源快照中，扩展动态返回的未登记技能路径会产生诊断；提示词和主题保留 Pi 公开加载器的原有处理。主题保持 JSON，只解析允许的颜色与字体，不执行 JavaScript 或任意 CSS。
 
-保留 `read-only`、`workspace-write`、`full-access` 三档权限。Worker 的权限策略由静态 `permissions` 与 `sandbox-macos` Agent 工厂注入；工厂不可用或沙箱检查失败时拒绝受限会话。外部扩展与 MCP 仍只在完全权限装配，MCP 逐服务启停和授权。旧 `mcpEnabled: false` 继续阻止未重新授权的服务；授权记录绑定服务配置，外部配置变更不能沿用旧授权。codemode 的嵌套工具继续经过实际执行检查；子 Agent 使用独立 Pi 会话与 Worker，继承父任务权限和模式。
+保留 `read-only`、`workspace-write`、`full-access` 三档权限。Worker 的权限策略由静态 `permissions` 与当前平台沙箱 Agent 工厂注入；工厂不可用或沙箱检查失败时拒绝受限会话。外部扩展与 MCP 仍只在完全权限装配，MCP 逐服务启停和授权。旧 `mcpEnabled: false` 继续阻止未重新授权的服务；授权记录绑定服务配置，外部配置变更不能沿用旧授权。codemode 的嵌套工具继续经过实际执行检查；子 Agent 使用独立 Pi 会话与 Worker，继承父任务权限和模式。
 
 插件是可信 Node 宿主代码；Agent 权限不会因安装插件自动升级。Pi 原生 hook 使用 `pi.on`，图形 UI 由 `interaction` 与插件 UI 入口补充，不承诺 TUI `custom()` 组件兼容。
 
@@ -242,3 +242,13 @@ sequenceDiagram
 14 个内置模块位于 `packages/*`，由 Desktop、Server 和 Web 入口直接构建，不再单独构建或复制内置插件 `dist/`。Server 与 Desktop 的会话 Worker 入口为 `packages/host/src/session-worker.ts`，此入口提供静态内置 Agent 工厂；pi-adapter 只做通用调用和通信，不持有业务导入。Desktop 继续复制 Pi SDK 与 native runtime。外部插件继续使用 DevKit 分别构建 Node 和浏览器产物，UI 共享宿主 React。
 
 代码修改后依次运行 `pnpm type-check`、`pnpm lint`、`pnpm format`。`pnpm test` 运行单元与集成测试；`pnpm check-boundaries` 检查依赖与进程边界。涉及 Desktop 平台接线时运行 `pnpm package`、`pnpm test:package` 和 `pnpm test:desktop`，验收截图位于 `apps/desktop/out/desktop-smoke/`。
+
+## Linux 沙箱装配
+
+Host 的 `sandbox-platform.ts` 同时用于 Server 和静态 Worker：Linux 装配 `sandbox-linux`，macOS 装配 `sandbox-macos`，每次只注册一个 `agent.sandbox`。两个身份都在 `reservedPluginIds` 中，外部插件不能使用；`host:modules` 只返回实际装配的身份。未支持平台保留不可用状态。
+
+`pi-runtime/sdk/access-sandbox.ts` 定义 `AccessSandboxOperations`，共用路径校验、写入工具、取消和进程清理。Linux 启动参数和 seccomp 在 `sdk/linux-sandbox.ts`。Linux 将根文件系统挂为只读，按权限覆盖工作区和会话临时目录，并将工作区内的 Host 数据再次覆盖为只读。无项目会话只允许写入分配的 `standalone-workspaces/<id>`，其余 Host 数据不可写。
+
+Server 初始化实际探测白名单写入、项目外写入拒绝及 Linux AF_UNIX 阻断。结果进入会话池，并经 `Connection.restrictedAccessSupported/restrictedAccessReason` 返回。初始化失败保留设置和历史操作，受限会话拒绝执行；每个受限 Worker 创建时还会验证实际命令启动，工具也使用同一后端。已有权限、子代理继承值和默认权限都不自动改为完全权限。
+
+Linux 使用独立 user、mount、PID 与 IPC namespace，禁用嵌套 user namespace，丢弃 capabilities，保留网络。隔离 `/run`、公共临时目录、Windows 驱动器和 WSL 互操作入口；seccomp 阻断 AF_UNIX、i386 socketcall、x32 和 io_uring socket 绕过，未知 ABI 拒绝执行。取消与退出同时使用进程组、`--die-with-parent` 和 PID namespace 清理后代。具体运行与验收见 [Linux 与 WSL](linux-wsl.md)。

@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises'
 import type { BashOperations, ExtensionAPI, InlineExtension } from '@earendil-works/pi-coding-agent'
 import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
-import type { AccessSandbox } from '../sdk/access-sandbox'
+import type { AccessSandboxOperations as AccessSandbox } from '../sdk/access-sandbox'
 import type { PiSdk } from '../sdk/load'
 import { collaborationToolNames } from './plan-mode'
 

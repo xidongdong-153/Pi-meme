@@ -89,7 +89,7 @@ test('首次协作绑定可在权限切换中读取冷快照，执行操作仍�
 
 test(
   '权限落盘期间与快照返回后的切换都保持协作计划；重启恢复模式且旧快照不覆盖手动关闭',
-  { timeout: 30000, skip: process.platform !== 'darwin' },
+  { timeout: 30000, skip: !['darwin', 'linux'].includes(process.platform) },
   async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'host-access-plan-'))
     let saved = false

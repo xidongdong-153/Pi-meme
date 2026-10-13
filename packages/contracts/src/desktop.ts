@@ -58,6 +58,7 @@ export type Connection = {
   accessMode?: AgentAccessMode
   accessChanging?: boolean
   restrictedAccessSupported?: boolean
+  restrictedAccessReason?: string
   /** 内置 Pi 运行时版本，由应用随包分发。 */
   piVersion?: string
 }

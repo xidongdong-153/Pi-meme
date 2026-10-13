@@ -26,11 +26,36 @@ pnpm start:server
 
 打开 `http://127.0.0.1:31415` 即可进入，本机 Web 自动登录。开发界面另开终端运行 `pnpm start:web`。Remote 监听必须配置 HTTPS，启动参数、认证和目录规则见 [Remote 文档](docs/remote.md)。
 
-同一数据目录只允许一个 Host 写入。Desktop 与独立 Server 同时运行时，给其中一个配置不同的 `PI_MEME_DATA_ROOT`。Host 不依赖 Electron；受限沙箱仍需要 macOS。Desktop 连接远程时也保留本地 Host 和本地数据目录写锁。
+同一数据目录只允许一个 Host 写入。Desktop 与独立 Server 同时运行时，给其中一个配置不同的 `PI_MEME_DATA_ROOT`。Host 不依赖 Electron；macOS 使用 `sandbox-exec`，Linux/WSL2 使用 `bubblewrap`。Desktop 连接远程时也保留本地 Host 和本地数据目录写锁。
+
+## Linux 与 WSL2
+
+Ubuntu 24.04 使用 Node.js 24.14.0 和 pnpm 10.29.1。在 Linux shell 安装系统依赖，并把仓库、`node_modules` 和 Host 数据放在 Linux 文件系统；WSL 项目可放在 `~/Code/pi-meme`，不要复用 Windows/macOS 的依赖目录。
+
+```bash
+sudo apt-get update
+sudo apt-get install -y git bubblewrap
+pnpm install --frozen-lockfile
+pnpm start:server
+```
+
+另开终端运行 `pnpm start:web`，Windows 浏览器打开 `http://127.0.0.1:5173`。Web 支持热更新；修改 Host 源码后重启 `start:server`。5173 被占用时启动直接报错。
+
+运行构建产物：
+
+```bash
+pnpm build:web
+pnpm build:server
+node apps/server/dist/main.js
+```
+
+Windows 或 Linux 浏览器打开 `http://127.0.0.1:31415`。产物依赖 Linux 下安装的 `node_modules`。默认权限为工作区内修改；Host 启动会实际检查文件与 socket 隔离，失败时显示原因并拒绝受限执行，保留设置、历史与模型配置。安装 bubblewrap 后重启 Host 重新探测。应用不会修改 AppArmor 或 sysctl。
+
+Linux/WSL2 的安装、路径和验收范围见 [Linux 与 WSL 文档](docs/linux-wsl.md)。本次支持 Host/Web，不提供 Linux Electron 打包或 Windows 原生 Host。
 
 ## 插件与运行配置
 
-聊天、工作区、历史、模型、设置、资源、交互、SubAgent、MCP、codemode、权限、macOS 沙箱、用量和 Git 由 Host 静态装配，随 App 发布，不出现在用户插件清单。第三方 `.pim` 才进入插件安装、启停与卸载流程，接口见 [插件文档](docs/plugins.md)。
+聊天、工作区、历史、模型、设置、资源、交互、SubAgent、MCP、codemode、权限、当前平台沙箱、用量和 Git 由 Host 静态装配，随 App 发布，不出现在用户插件清单。第三方 `.pim` 才进入插件安装、启停与卸载流程，接口见 [插件文档](docs/plugins.md)。
 
 设置一级入口为模型、外观、偏好和扩展。扩展页统一管理技能、Pi 原生扩展和 App 插件，MCP 保留独立连接页；关于、用量、Host 连接和开发者操作位于“更多”。本地导入、编辑、使用策略和 Host 路径见[技能与扩展管理](docs/skills-and-extensions.md)。插件重新加载和高级指令保留在开发者页面。
 
@@ -42,7 +67,7 @@ SubAgent 默认可用，不要求先启用角色文件。模型可调用 `spawn_
 
 输入 `/plan`、`/计划` 或 `/计划模式` 切换规划模式；只有命令时不会调用模型。计划模式只读，禁止 bash、edit、write、codemode、MCP 和外部工具，也检查嵌套工具执行。根 Agent 等子任务结束并读取结果后调用 `save_plan`，保存到 `plans/<sessionId>/<id>.md`，右侧栏“计划”标签显示完整文档，可切换已保存计划、复制和导出 Markdown。保存后不自动执行；鼠标移入输入工具栏的“计划”标记后点击关闭，才返回默认模式。
 
-三档 Agent 权限是仅可查看、工作区内修改、完全权限。只读与工作区写入使用 macOS 沙箱；内置权限或沙箱失效时拒绝启动，不自动授予完全权限。Pi 的原生 hook 使用 `pi.on`；选择、确认、输入、编辑和文本挂件映射到图形界面，TUI `custom()` 组件需要单独编写 App UI。
+三档 Agent 权限是仅可查看、工作区内修改、完全权限。只读与工作区写入使用所属 Host 的平台沙箱；内置权限或沙箱失效时拒绝启动，不自动授予完全权限。Pi 的原生 hook 使用 `pi.on`；选择、确认、输入、编辑和文本挂件映射到图形界面，TUI `custom()` 组件需要单独编写 App UI。
 
 主题位于 Host 的 `themes/`，保持 JSON。颜色与字体只按已声明字段解析，不执行 JavaScript 或任意 CSS。配置在 `settings.json`；会话按工作区路径分组写入 `sessions/`；插件代码在 `plugins/`，插件数据在 `plugin-data/`。
 
@@ -85,7 +110,7 @@ pnpm test:package
 pnpm test:desktop
 ```
 
-类型、Lint、Format 按顺序通过后再交付。测试使用临时目录与假模型端点，不调用真实模型或修改真实配置。Desktop 截图保存到 `apps/desktop/out/desktop-smoke/`。
+类型、Lint、Format 按顺序通过后再交付。Linux 运行到 `pnpm test:server`；`package`、`test:package` 和 `test:desktop` 是 macOS 应用验收。测试使用临时目录与假模型端点，不调用真实模型或修改真实配置。Desktop 截图保存到 `apps/desktop/out/desktop-smoke/`。
 
 并行开发覆盖 `.vite` 缓存时，运行 `PI_DESKTOP_PACKAGED_SMOKE=1 pnpm test:desktop`，从已打包的实际 `.app` 读取入口并执行同一套完整断言。先运行 `pnpm package`，确认 `apps/desktop/out/pi-meme-darwin-arm64/pi-meme.app` 存在。
 

@@ -35,6 +35,7 @@ import type {
   PiState,
   ThinkingLevel,
 } from '@pi-meme/contracts/pi'
+import type { SandboxCapability } from './sdk/access-sandbox'
 import { SdkSession } from './sdk/session'
 import { getPiVersion } from './sdk/load'
 import type { ModelRestore, PiRuntime } from './runtime'
@@ -485,6 +486,10 @@ export class PiSessionPool implements PiRuntime {
   configureCapabilities(value: ToolExecutionSettings) {
     this.capabilities = { ...value, codemodeEnabled: value.codemodeEnabled || value.mcpEnabled }
   }
+  private restrictedAccess?: SandboxCapability
+  configureRestrictedAccess(capability: SandboxCapability) {
+    this.restrictedAccess = { ...capability }
+  }
   private defaultMode: AgentAccessMode = defaultAccessMode
   async configureDefaultAccessMode(mode: AgentAccessMode) {
     if (!isAgentAccessMode(mode)) throw new Error('Agent 访问权限无效')
@@ -503,6 +508,8 @@ export class PiSessionPool implements PiRuntime {
     for (const record of this.sessions.values()) record.session.configureInlineExtensions(this.inlineExtensions)
   }
   private configureSession(record: RuntimeSession) {
+    if (record.accessMode !== 'full-access' && this.restrictedAccess && !this.restrictedAccess.supported)
+      throw new Error(this.restrictedAccess.reason ?? '受限权限沙箱不可用')
     record.extensionError = undefined
     record.session.configureInlineExtensions(this.inlineExtensions)
     record.session.configureCapabilities(this.capabilities)
@@ -555,7 +562,8 @@ export class PiSessionPool implements PiRuntime {
       sessionKey: this.active?.key,
       accessMode: this.active?.accessMode ?? this.defaultMode,
       accessChanging: this.active?.accessChanging || this.active?.stopping,
-      restrictedAccessSupported: process.platform === 'darwin',
+      restrictedAccessSupported: this.restrictedAccess?.supported ?? false,
+      restrictedAccessReason: this.restrictedAccess?.reason,
       sessionFile: this.active?.session.getActiveSession().sessionFile ?? this.active?.sessionFile,
       piVersion: connection?.piVersion ?? getPiVersion(),
     }
@@ -1222,7 +1230,8 @@ export class PiSessionPool implements PiRuntime {
       record.session.connection().status === 'connecting'
     )
       throw new Error('任务结束后可切换权限')
-    if (mode !== 'full-access' && process.platform !== 'darwin') throw new Error('受限权限目前仅支持 macOS')
+    if (mode !== 'full-access' && !this.restrictedAccess?.supported)
+      throw new Error(this.restrictedAccess?.reason ?? '受限权限沙箱不可用')
     record.accessChanging = true
     this.notify.connection(this.withSession(record.key, () => this.connection()))
     try {

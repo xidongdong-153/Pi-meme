@@ -40,7 +40,7 @@ import { toResourceSkillCommand } from '../skill-command'
 import { branchSkillUsages, createSkillUsageExtension, skillUsageEntry } from '../extensions/skill-usage'
 import type { PiRuntimePaths } from '../runtime-paths'
 import type { ModelRestore } from '../runtime'
-import { AccessSandbox } from './access-sandbox'
+import { AccessSandbox, type AccessSandboxOperations } from './access-sandbox'
 import { toDesktopEvent } from './events'
 import { loadPiSdk, type PiSdk } from './load'
 import { createDesktopModelRuntime } from './model-runtime'
@@ -134,7 +134,7 @@ export class SdkSession {
   private stopping: Promise<void> = Promise.resolve()
   private unsubscribe: (() => void) | null = null
   private bridge: ExtensionUiBridge | null = null
-  private sandbox: AccessSandbox | null = null
+  private sandbox: AccessSandboxOperations | null = null
   private accessTemporary: string | null = null
   private inlineExtensions: InlineExtension[] = []
   private capabilities: ToolExecutionSettings = { codemodeEnabled: false, mcpEnabled: false }
@@ -328,6 +328,7 @@ export class SdkSession {
           cwd: this.cwd,
           temporary: this.accessTemporary,
           agentDir: this.paths.agentDir,
+          dataRoot: this.paths.dataRoot,
         })
       } catch (cause) {
         await this.discardAccessTemporary()

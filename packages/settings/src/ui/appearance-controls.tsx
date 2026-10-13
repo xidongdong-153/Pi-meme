@@ -242,13 +242,18 @@ export function FontControl({
       <PopoverContent className="space-y-2" aria-label={`${label}选择器`}>
         <Input
           aria-label={`搜索${label}`}
-          placeholder="搜索本机字体"
+          placeholder="搜索 Host 字体"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
         />
         {loading && (
           <p role="status" className="text-xs text-muted-foreground">
-            正在读取本机字体…
+            正在读取 Host 字体…
+          </p>
+        )}
+        {!loading && !error && !fonts.length && (
+          <p className="text-xs text-muted-foreground">
+            无法枚举浏览器系统字体，可使用跟随主题、系统默认或已保存的主题字体。
           </p>
         )}
         {error && (

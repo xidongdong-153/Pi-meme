@@ -700,6 +700,13 @@ export async function createHost(options: HostOptions = {}) {
       'host.mcp': { pi, store: mcp },
     }
     builtins = await createBuiltinModules(root, sharedContexts)
+    pi.configureRestrictedAccess(
+      (
+        builtins.services['agent.sandbox'] as {
+          capability: () => import('@pi-meme/pi-runtime/sdk/access-sandbox').SandboxCapability
+        }
+      ).capability(),
+    )
     pi.configureResources((cwd) => resources.snapshot(cwd))
     pi.configureResourceDiscovery(true)
     const parseId = (value: unknown) => {

@@ -5,6 +5,7 @@ import path from 'node:path'
 import test from 'node:test'
 import { MemoryCredentialStorage } from '@pi-meme/pi-runtime/secure-store'
 import { reservedPluginIds } from '@pi-meme/plugin-sdk/reserved'
+import { sandboxPluginId } from '../src/sandbox-platform'
 import { createHost } from '../src/service'
 
 test('没有外部插件或恢复清单损坏时，14 个内置模块与基础操作仍可用', async () => {
@@ -28,7 +29,10 @@ test('没有外部插件或恢复清单损坏时，14 个内置模块与基础�
         host!.rpc({ requestId: crypto.randomUUID(), clientId: 'client', method, args })
       assert.deepEqual((await rpc('plugins:list')).result, [])
       const modules = (await rpc('host:modules')).result as Array<{ id: string }>
-      assert.deepEqual(new Set(modules.map((module) => module.id)), new Set(reservedPluginIds))
+      assert.deepEqual(
+        new Set(modules.map((module) => module.id)),
+        new Set(reservedPluginIds.filter((id) => !id.startsWith('@pi-meme/sandbox-') || id === sandboxPluginId())),
+      )
       for (const method of ['settings:get', 'models:get', 'mcp:get', 'resources:catalog'])
         assert.equal((await rpc(method, [])).error, undefined)
       for (const id of reservedPluginIds)

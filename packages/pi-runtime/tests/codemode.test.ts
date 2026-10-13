@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { test } from 'node:test'
@@ -19,11 +19,14 @@ async function waitIdle(session: SdkSession) {
 test('旧codemode开关不影响默认内置能力，嵌套读写仍遵守实际访问权限', async (t) => {
   for (const access of ['full-access', 'read-only', 'workspace-write'] satisfies AgentAccessMode[]) {
     await t.test(access, async (t) => {
-      if (access !== 'full-access' && process.platform !== 'darwin') return t.skip('受限权限仅支持macOS')
+      if (access !== 'full-access' && !['darwin', 'linux'].includes(process.platform))
+        return t.skip('当前平台没有受支持的沙箱后端')
       const directory = await mkdtemp(path.join(tmpdir(), 'pi-codemode-'))
       const outside = await mkdtemp(path.join(tmpdir(), 'pi-codemode-outside-'))
-      const source = path.join(directory, 'source.txt')
-      const insideTarget = path.join(directory, 'inside.txt')
+      const project = path.join(directory, 'project')
+      await mkdir(project)
+      const source = path.join(project, 'source.txt')
+      const insideTarget = path.join(project, 'inside.txt')
       const outsideTarget = path.join(outside, 'outside.txt')
       const code = `text(await tools.read({path:${JSON.stringify(source)}}));
 text(JSON.stringify((await Promise.allSettled([
@@ -35,7 +38,7 @@ text(JSON.stringify((await Promise.allSettled([
           index === 1 ? { tool: { name: 'codemode', arguments: JSON.stringify({ code }) } } : '已检查权限',
       })
       const session = new SdkSession(
-        directory,
+        project,
         { connection: () => {}, error: () => {}, event: () => {} },
         fake.runtimePaths,
         fake.credentials,
@@ -44,7 +47,7 @@ text(JSON.stringify((await Promise.allSettled([
       session.configureAccess(access)
       try {
         await writeFile(source, '可读取的文件')
-        session.start(directory)
+        session.start(project)
         await session.snapshot()
         await session.setModel({ provider: 'fake', id: 'first' })
         await session.prompt('执行工具组合')

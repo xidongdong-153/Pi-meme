@@ -300,6 +300,7 @@ export function App({
           cwd: chat.connection.cwd,
           busy: chat.accessBusy,
           supported: chat.connection.restrictedAccessSupported === true,
+          reason: chat.connection.restrictedAccessReason,
           onChange: (mode) => void chat.setAccessMode(mode),
           compact: interaction?.method === 'questions',
         }}
@@ -717,6 +718,7 @@ export function App({
                     <AccessSettings
                       value={settings.snapshot?.settings.defaultAccessMode}
                       supported={Boolean(chat.connection.restrictedAccessSupported)}
+                      reason={chat.connection.restrictedAccessReason}
                       busy={chat.busy}
                       saving={settings.saving}
                       onSave={(mode) => void settings.saveAccessMode(mode)}

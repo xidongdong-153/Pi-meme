@@ -22,6 +22,7 @@ const businessPackages = new Set(
     'codemode',
     'permissions',
     'sandbox-macos',
+    'sandbox-linux',
     'usage',
     'git',
   ].map((name) => `@pi-meme/${name}`),

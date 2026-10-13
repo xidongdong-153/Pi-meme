@@ -10,7 +10,9 @@ import * as mcp from '@pi-meme/mcp/server/entry'
 import * as history from '@pi-meme/history/server/entry'
 import * as usage from '@pi-meme/usage/server/entry'
 import * as resources from '@pi-meme/resources/server/entry'
-import * as sandbox from '@pi-meme/sandbox-macos/server/entry'
+import * as sandboxMacos from '@pi-meme/sandbox-macos/server/entry'
+import * as sandboxLinux from '@pi-meme/sandbox-linux/server/entry'
+import { sandboxPluginId } from './sandbox-platform'
 import * as permissions from '@pi-meme/permissions/server/entry'
 import * as codemode from '@pi-meme/codemode/server/entry'
 import * as subagents from '@pi-meme/subagents/server/entry'
@@ -28,7 +30,7 @@ const modules = [
   history,
   usage,
   resources,
-  sandbox,
+  sandboxPluginId() === '@pi-meme/sandbox-linux' ? sandboxLinux : sandboxMacos,
   permissions,
   codemode,
   subagents,

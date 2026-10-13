@@ -12,7 +12,9 @@ pnpm start:server
 
 默认地址为 `http://127.0.0.1:31415`。本机 Web 自动登录，无需输入访问令牌。Host 令牌保存到数据目录的 `auth.json`；未指定 `PI_MEME_TOKEN` 时读取已有令牌，首次启动才生成。
 
-开发界面可另开终端运行 `pnpm start:web`。Vite 的 `/api` 代理指向本机 Host，可用 `PI_MEME_HOST_URL` 修改目标。
+开发界面可另开终端运行 `pnpm start:web`，固定监听 `127.0.0.1:5173`，端口占用时直接报错。Vite 的 `/api` 代理指向本机 Host，可用 `PI_MEME_HOST_URL` 修改目标。
+
+WSL2 中的 Host 和 Vite 都保留 loopback 监听。Windows 浏览器使用上述 localhost 地址，不要求填写 WSL IP。Cookie、RPC、事件和插件资源继续经过同源代理，不放宽 Host/Origin 校验。连接失败时先检查 WSL 内服务，再检查 Windows localhost 转发、端口占用和防火墙；详细步骤见 [Linux 与 WSL](linux-wsl.md)。
 
 ## Remote Host
 
@@ -34,7 +36,7 @@ pnpm start:server
 
 服务断线后保留本机 `remote-services.json` 中的项目与会话摘要，可在远程服务页重试。移除服务只删除本机登记、凭据和摘要，不删除远程项目、会话或配置。已有远程连接记录启动时自动读取。显式 `PI_MEME_REMOTE_HOST` 在启动时登记远程服务，令牌来自 `PI_MEME_TOKEN` 或已保存记录；登记失败仍进入本机界面。
 
-凭据使用文件存储，不依赖 macOS 钥匙串。旧凭据仅在主动导入时读取钥匙串，可能出现一次系统密码弹窗。受限沙箱仍使用 macOS `sandbox-exec`；缺失时会明确拒绝受限任务，不切换成完全权限。
+凭据使用文件存储，不依赖 macOS 钥匙串。旧凭据仅在主动导入时读取钥匙串，可能出现一次系统密码弹窗。macOS 受限沙箱使用 `sandbox-exec`，Linux/WSL2 使用 `/usr/bin/bwrap`。Host 启动探测实际隔离能力并通过快照返回原因；缺失或失效时拒绝受限任务，不切换成完全权限。浏览器所在平台不参与沙箱选择。Linux 不提供旧 macOS 钥匙串导入。
 
 ## 配置与认证
 

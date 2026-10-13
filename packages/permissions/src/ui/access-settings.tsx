@@ -9,12 +9,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger } from '@pi-meme/ui/co
 export function AccessSettings({
   value,
   supported,
+  reason,
   busy,
   saving,
   onSave,
 }: {
   value?: AgentAccessMode
   supported: boolean
+  reason?: string
   busy: boolean
   saving: boolean
   onSave: (mode: AgentAccessMode) => void
@@ -60,7 +62,11 @@ export function AccessSettings({
         {selected.description}
         {saving ? ' 正在保存…' : ''}
       </p>
-      {!supported && <p className="text-sm text-muted-foreground">受限权限目前仅支持 macOS，请选择完全权限。</p>}
+      {!supported && (
+        <p className="text-sm text-muted-foreground">
+          {reason ?? '所属 Host 的受限权限沙箱不可用，请检查系统依赖后重启 Host。'}
+        </p>
+      )}
     </div>
   )
 }

@@ -28,7 +28,7 @@ export function parseInstalledFonts(value: unknown): InstalledFont[] {
 }
 let cached: Promise<InstalledFont[]> | undefined
 export function getInstalledFonts(): Promise<InstalledFont[]> {
-  if (process.platform !== 'darwin') return Promise.reject(new Error('当前仅支持读取 macOS 已安装字体'))
+  if (process.platform !== 'darwin') return Promise.resolve([])
   cached ??= execute('/usr/sbin/system_profiler', ['SPFontsDataType', '-json'], {
     timeout: 30000,
     maxBuffer: 16 * 1024 * 1024,
