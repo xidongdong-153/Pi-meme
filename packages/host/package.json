@@ -36,6 +36,8 @@
     "@pi-meme/subagents": "workspace:*",
     "@pi-meme/usage": "workspace:*",
     "@pi-meme/workspace": "workspace:*",
+    "@xterm/addon-serialize": "^0.14.0",
+    "@xterm/headless": "^6.0.0",
     "node-pty": "^1.1.0",
     "proper-lockfile": "4.1.2",
     "ws": "^8.18.3"

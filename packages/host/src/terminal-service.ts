@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { createRequire } from 'node:module'
 import process from 'node:process'
+import xterm from '@xterm/headless'
+import { SerializeAddon } from '@xterm/addon-serialize'
 import type { MutationOptions, TerminalRef, TerminalSnapshot, WorkspaceRef } from '@pi-meme/contracts/app-host'
 import type { ResolveWorkspaceRoot } from './workspace-files'
 
@@ -21,6 +23,11 @@ export type PtyModule = {
 type TerminalRecord = {
   snapshot: TerminalSnapshot
   pty: PtyProcess
+  screen: InstanceType<typeof xterm.Terminal>
+  serializer: SerializeAddon
+  parsedSequence: number
+  cursorVisible: boolean
+  pending: Set<(cause: Error) => void>
   owner: string
   listeners: Array<{ dispose: () => void }>
 }
@@ -30,8 +37,6 @@ type TerminalOptions = {
   onEvent: (event: { terminalId: string; data?: string; outputSequence?: number; exitCode?: number }) => void
   pty?: PtyModule | null
 }
-const maxOutputBytes = 256 * 1024
-
 function loadPty(): PtyModule | null {
   try {
     const require = createRequire(typeof __filename === 'string' ? __filename : import.meta.url)
@@ -85,24 +90,49 @@ export class TerminalService {
       cwd,
       ...dimensions,
       name: 'xterm-256color',
-      env: { ...process.env, TERM: 'xterm-256color' },
+      env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' },
     })
     const snapshot: TerminalSnapshot = {
       hostId: this.options.hostId,
       terminalId: randomUUID(),
       cwd,
+      ...dimensions,
       output: '',
       outputSequence: 0,
       exited: false,
     }
-    const record: TerminalRecord = { snapshot, pty, owner, listeners: [] }
+    const screen = new xterm.Terminal({ ...dimensions, allowProposedApi: true, scrollback: 1000 })
+    const serializer = new SerializeAddon()
+    screen.loadAddon(serializer)
+    const record: TerminalRecord = {
+      snapshot,
+      pty,
+      screen,
+      serializer,
+      parsedSequence: 0,
+      cursorVisible: true,
+      pending: new Set(),
+      owner,
+      listeners: [],
+    }
+    for (const final of ['h', 'l']) {
+      screen.parser.registerCsiHandler({ prefix: '?', final }, (params) => {
+        if (params.includes(25)) record.cursorVisible = final === 'h'
+        return false
+      })
+    }
+    screen.parser.registerEscHandler({ final: 'c' }, () => {
+      record.cursorVisible = true
+      return false
+    })
     this.terminals.set(snapshot.terminalId, record)
     record.listeners.push(
       pty.onData((data) => {
-        const bytes = Buffer.from(snapshot.output + data)
-        snapshot.output = bytes.subarray(Math.max(0, bytes.length - maxOutputBytes)).toString('utf8')
-        snapshot.outputSequence++
-        this.options.onEvent({ terminalId: snapshot.terminalId, data, outputSequence: snapshot.outputSequence })
+        const outputSequence = ++snapshot.outputSequence
+        screen.write(data, () => {
+          record.parsedSequence = outputSequence
+        })
+        this.options.onEvent({ terminalId: snapshot.terminalId, data, outputSequence })
       }),
     )
     record.listeners.push(
@@ -116,7 +146,27 @@ export class TerminalService {
     return structuredClone(snapshot)
   }
   async attach(ref: TerminalRef) {
-    return structuredClone(this.record(ref).snapshot)
+    const record = this.record(ref)
+    return this.flush(record, () => ({
+      ...record.snapshot,
+      cols: record.screen.cols,
+      rows: record.screen.rows,
+      output: record.serializer.serialize() + (record.cursorVisible ? '\x1B[?25h' : '\x1B[?25l'),
+      outputSequence: record.parsedSequence,
+    }))
+  }
+  private flush<T>(record: TerminalRecord, read: () => T): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      record.pending.add(reject)
+      record.screen.write('', () => {
+        record.pending.delete(reject)
+        try {
+          resolve(read())
+        } catch (cause) {
+          reject(cause)
+        }
+      })
+    })
   }
   async input(ref: TerminalRef, data: string, _options?: MutationOptions) {
     const record = this.record(ref)
@@ -128,12 +178,20 @@ export class TerminalService {
     const record = this.record(ref)
     if (record.snapshot.exited) throw new Error('终端进程已退出')
     const next = size(dimensions.cols, dimensions.rows)
-    record.pty.resize(next.cols, next.rows)
+    await this.flush(record, () => {
+      if (record.snapshot.exited) throw new Error('终端进程已退出')
+      record.screen.resize(next.cols, next.rows)
+      Object.assign(record.snapshot, next)
+      record.pty.resize(next.cols, next.rows)
+    })
   }
   async close(ref: TerminalRef, _options?: MutationOptions) {
     const record = this.record(ref)
     if (!record.snapshot.exited) record.pty.kill()
     for (const listener of record.listeners) listener.dispose()
+    for (const reject of record.pending) reject(new Error('终端已关闭'))
+    record.pending.clear()
+    record.screen.dispose()
     this.terminals.delete(ref.terminalId)
   }
   async closeOwner(owner: string) {

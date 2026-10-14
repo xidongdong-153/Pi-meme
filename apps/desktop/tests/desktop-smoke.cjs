@@ -249,9 +249,23 @@ async function runAppPlugins(window) {
     '内置 Git 右侧面板',
   )
   await openTool(window, waitFor, '终端')
+  await evaluate(`(() => {
+    const originalJson = Response.prototype.json;
+    Response.prototype.json = async function () {
+      const value = await originalJson.call(this);
+      if (value.result?.terminalId) {
+        window.smokeTerminalRef = value.result;
+        Response.prototype.json = originalJson;
+      }
+      return value;
+    };
+  })()`)
   await clickText('创建终端', '[role="tabpanel"][aria-label="终端"]')
   await waitFor(
-    () => evaluate(`Boolean(document.querySelector('[role="tabpanel"][aria-label="终端"] .xterm-helper-textarea'))`),
+    () =>
+      evaluate(
+        `Boolean(window.smokeTerminalRef && document.querySelector('[role="tabpanel"][aria-label="终端"] .xterm-screen canvas')) && document.activeElement===document.querySelector('[role="tabpanel"][aria-label="终端"] .xterm-helper-textarea')`,
+      ),
     '示范终端真实挂载',
   )
   await evaluate(`document.querySelector('[role="tabpanel"][aria-label="终端"] .xterm-helper-textarea').focus()`)
@@ -261,9 +275,27 @@ async function runAppPlugins(window) {
   await waitFor(
     () =>
       evaluate(
-        `document.querySelector('[role="tabpanel"][aria-label="终端"] .xterm-screen')?.textContent.includes('APP_PLUGIN_OK')`,
+        `window.smokeControl('terminal.attach',[window.smokeTerminalRef]).then(value=>value.output.includes('APP_PLUGIN_OK'))`,
       ),
     '真实 PTY 输入与回显',
+  )
+  const terminalSize = await evaluate(`window.smokeControl('terminal.attach',[window.smokeTerminalRef])`)
+  const codeSize = await evaluate(`document.documentElement.style.getPropertyValue('--code-size')`)
+  await evaluate(`document.documentElement.style.setProperty('--code-size','24px')`)
+  await waitFor(
+    () =>
+      evaluate(
+        `window.smokeControl('terminal.attach',[window.smokeTerminalRef]).then(value=>value.cols<${terminalSize.cols} && value.rows<${terminalSize.rows})`,
+      ),
+    '字号变化后同步 PTY 行列数',
+  )
+  await evaluate(`document.documentElement.style.setProperty('--code-size',${JSON.stringify(codeSize)})`)
+  await waitFor(
+    () =>
+      evaluate(
+        `window.smokeControl('terminal.attach',[window.smokeTerminalRef]).then(value=>value.cols===${terminalSize.cols} && value.rows===${terminalSize.rows})`,
+      ),
+    '恢复终端字号和 PTY 行列数',
   )
   await assertFixedChat()
   const terminalControls = await evaluate(`(() => {
@@ -372,7 +404,7 @@ async function runAppPlugins(window) {
   await waitFor(
     () =>
       evaluate(
-        `document.querySelector('#workspace-right-sidebar [aria-label="终端"] .xterm-screen')?.textContent.includes('APP_PLUGIN_OK')`,
+        `Boolean(document.querySelector('#workspace-right-sidebar [aria-label="终端"] .xterm-screen canvas')) && window.smokeControl('terminal.attach',[window.smokeTerminalRef]).then(value=>value.output.includes('APP_PLUGIN_OK'))`,
       ),
     '切换标签及会话后保留原终端输出',
   )

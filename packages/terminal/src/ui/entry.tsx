@@ -5,13 +5,17 @@ import type { HostControlEvent, TerminalSnapshot } from '@pi-meme/contracts/app-
 import type { UiContributionProps, UiPluginContext } from '@pi-meme/plugin-sdk/ui'
 
 export async function activate(context: Pick<UiPluginContext, 'host' | 'panels'>) {
-  const [{ Terminal }, { FitAddon }] = await Promise.all([import('@xterm/xterm'), import('@xterm/addon-fit')])
+  const [{ Terminal }, { FitAddon }, { WebglAddon }] = await Promise.all([
+    import('@xterm/xterm'),
+    import('@xterm/addon-fit'),
+    import('@xterm/addon-webgl'),
+  ])
   const capabilities = await context.host.capabilities()
   type Output = { terminalId: string; data?: string; outputSequence?: number; exitCode?: number }
   const instances = new Map<string, TerminalSnapshot>()
   const restoring = new Map<string, Output[]>()
   const listeners = new Set<() => void>()
-  const outputListeners = new Set<(event: { terminalId: string; data?: string; exitCode?: number }) => void>()
+  const outputListeners = new Set<(event: Output) => void>()
   let revision = 0
   let disposed = false
   const notify = () => {
@@ -29,8 +33,6 @@ export async function activate(context: Pick<UiPluginContext, 'host' | 'panels'>
     const instance = [...instances.values()].find((entry) => entry.terminalId === value.terminalId)
     if (!instance) return
     if (value.data && (value.outputSequence ?? 0) > instance.outputSequence) {
-      instance.output += value.data
-      if (instance.output.length > 256 * 1024) instance.output = instance.output.slice(-256 * 1024)
       instance.outputSequence = value.outputSequence ?? instance.outputSequence + 1
       for (const listener of outputListeners) listener(value)
     }
@@ -51,7 +53,6 @@ export async function activate(context: Pick<UiPluginContext, 'host' | 'panels'>
       }
       for (const event of buffered) {
         if (event.data && (event.outputSequence ?? 0) > snapshot.outputSequence) {
-          snapshot.output += event.data
           snapshot.outputSequence = event.outputSequence!
         }
         if (event.exitCode !== undefined) {
@@ -59,7 +60,6 @@ export async function activate(context: Pick<UiPluginContext, 'host' | 'panels'>
           snapshot.exitCode = event.exitCode
         }
       }
-      snapshot.output = snapshot.output.slice(-256 * 1024)
       instances.set(key, snapshot)
       notify()
     } finally {
@@ -72,12 +72,39 @@ export async function activate(context: Pick<UiPluginContext, 'host' | 'panels'>
     useEffect(() => {
       if (!container.current) return
       const fit = new FitAddon()
+      const webgl = new WebglAddon()
+      let disposed = false
+      let ready = false
+      let restoring = true
+      let outputSequence = 0
+      let dimensions = { cols: instance.cols, rows: instance.rows }
+      let resizing = Promise.resolve()
+      const buffered: Output[] = []
       const style = () => getComputedStyle(document.documentElement)
       const terminal = new Terminal({
+        cols: instance.cols,
+        rows: instance.rows,
         fontFamily: style().getPropertyValue('--font-code').trim() || 'monospace',
         fontSize: Number.parseFloat(style().getPropertyValue('--code-size')) || 13,
+        customGlyphs: true,
+        rescaleOverlappingGlyphs: true,
+        disableStdin: true,
         convertEol: false,
       })
+      const syncSize = () => {
+        if (restoring || disposed || !container.current?.clientWidth || !container.current.clientHeight) return
+        fit.fit()
+        if (instance.exited || (terminal.cols === dimensions.cols && terminal.rows === dimensions.rows)) return
+        const next = { cols: terminal.cols, rows: terminal.rows }
+        dimensions = next
+        resizing = resizing
+          .then(async () => {
+            if (!disposed) await host.terminal.resize(instance, next, { idempotencyKey: crypto.randomUUID() })
+          })
+          .catch((cause) => {
+            if (!disposed) setError(String(cause))
+          })
+      }
       const applyTheme = () => {
         const colors = style()
         terminal.options.theme = {
@@ -92,41 +119,82 @@ export async function activate(context: Pick<UiPluginContext, 'host' | 'panels'>
       applyTheme()
       const theme = new MutationObserver(() => {
         applyTheme()
-        fit.fit()
+        syncSize()
       })
       theme.observe(document.documentElement, { attributes: true })
       terminal.loadAddon(fit)
-      terminal.open(container.current)
-      terminal.write(instance.output)
-      const output = (event: { terminalId: string; data?: string }) => {
-        if (event.terminalId === instance.terminalId && event.data) terminal.write(event.data)
+      const writeOutput = (event: Output) => {
+        if (event.data && (event.outputSequence ?? 0) > outputSequence) {
+          outputSequence = event.outputSequence!
+          terminal.write(event.data)
+        }
+      }
+      const output = (event: Output) => {
+        if (event.terminalId !== instance.terminalId) return
+        if (ready) writeOutput(event)
+        else buffered.push(event)
       }
       outputListeners.add(output)
       const input = terminal.onData((data) => {
-        void host.terminal
-          .input(instance, data, { idempotencyKey: crypto.randomUUID() })
-          .catch((cause) => setError(String(cause)))
+        if (!ready) return
+        void host.terminal.input(instance, data, { idempotencyKey: crypto.randomUUID() }).catch((cause) => {
+          if (!disposed) setError(String(cause))
+        })
       })
-      const observer = new ResizeObserver(() => {
-        fit.fit()
-        if (!instance.exited && terminal.cols && terminal.rows)
-          void host.terminal
-            .resize(instance, { cols: terminal.cols, rows: terminal.rows }, { idempotencyKey: crypto.randomUUID() })
-            .catch((cause) => setError(String(cause)))
+      const contextLoss = webgl.onContextLoss(() => {
+        webgl.dispose()
+        setError('终端图形渲染已失效，当前使用字体渲染。')
       })
+      const observer = new ResizeObserver(syncSize)
       observer.observe(container.current)
-      terminal.focus()
+      setError('')
+      void Promise.all([host.terminal.attach(instance), document.fonts.ready])
+        .then(([snapshot]) => {
+          if (disposed) return
+          dimensions = { cols: snapshot.cols, rows: snapshot.rows }
+          outputSequence = snapshot.outputSequence
+          terminal.resize(snapshot.cols, snapshot.rows)
+          terminal.write(snapshot.output, () => {
+            if (disposed || !container.current) return
+            terminal.open(container.current)
+            try {
+              terminal.loadAddon(webgl)
+            } catch (cause) {
+              webgl.dispose()
+              setError(`终端图形渲染不可用：${String(cause)}`)
+            }
+            for (const event of buffered) writeOutput(event)
+            buffered.length = 0
+            ready = true
+            terminal.write('', () => {
+              if (disposed) return
+              restoring = false
+              syncSize()
+              terminal.options.disableStdin = false
+              terminal.focus()
+            })
+          })
+        })
+        .catch((cause) => {
+          if (!disposed) {
+            outputListeners.delete(output)
+            setError(String(cause))
+          }
+        })
       return () => {
+        disposed = true
         observer.disconnect()
         theme.disconnect()
         input.dispose()
+        contextLoss.dispose()
         outputListeners.delete(output)
         terminal.dispose()
+        webgl.dispose()
       }
     }, [host, instance])
     return (
-      <div className="relative min-h-0 flex-1">
-        <div ref={container} className="h-full min-h-24" />
+      <div className="relative min-h-0 min-w-0 flex-1">
+        <div ref={container} className="h-full min-h-24 w-full" />
         {error && (
           <p role="alert" className="break-words text-xs text-destructive">
             {error}
@@ -212,7 +280,7 @@ export async function activate(context: Pick<UiPluginContext, 'host' | 'panels'>
           </p>
         )}
         {instance ? (
-          <div className="flex min-h-0 flex-1 p-3">
+          <div className="flex min-h-0 min-w-0 flex-1 p-3">
             <Console key={instance.terminalId} {...props} instance={instance} />
           </div>
         ) : (

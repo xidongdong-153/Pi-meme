@@ -64,6 +64,8 @@ export type FileWriteInput = FileContent & { revision: string }
 export type TerminalRef = { hostId: string; terminalId: string }
 export type TerminalSnapshot = TerminalRef & {
   cwd: string
+  cols: number
+  rows: number
   output: string
   outputSequence: number
   exited: boolean
