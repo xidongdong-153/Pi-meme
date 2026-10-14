@@ -6,6 +6,7 @@ const path = require('node:path')
 const { execFileSync } = require('node:child_process')
 const { openTool } = require('./tool-tabs-smoke.cjs')
 const { app, BrowserWindow } = require('electron')
+const { within, desktopTestHelpers } = require('./desktop-test-helpers.cjs')
 
 if (process.env.PI_DESKTOP_DEV_SERVER_URL) {
   BrowserWindow.prototype.loadFile = function () {
@@ -14,7 +15,21 @@ if (process.env.PI_DESKTOP_DEV_SERVER_URL) {
 }
 
 const root = path.resolve(__dirname, '..')
-const directory = fsSync.realpathSync(fsSync.mkdtempSync(path.join(os.tmpdir(), 'pi-desktop-smoke-')))
+const smokeName =
+  [
+    ['MODEL', 'model'],
+    ['MCP', 'mcp'],
+    ['SELECT', 'select'],
+    ['IMAGE', 'image'],
+    ['SIDEBAR', 'sidebar-menu'],
+    ['SIDEBAR_CONTROLS', 'sidebar-controls'],
+  ].find(([flag]) => process.env[`PI_DESKTOP_${flag}_SMOKE_ONLY`] === '1')?.[1] ?? 'full'
+const screenshots = process.env.PI_DESKTOP_SMOKE_OUTPUT_DIR ?? path.join(root, 'out', 'desktop-smoke', smokeName)
+const directory = fsSync.realpathSync(
+  process.env.PI_DESKTOP_SMOKE_TEMP_DIR
+    ? path.join(process.env.PI_DESKTOP_SMOKE_TEMP_DIR, 'data')
+    : fsSync.mkdtempSync(path.join(os.tmpdir(), 'pi-desktop-smoke-')),
+)
 const profileDirectory = path.join(directory, 'desktop-cache')
 fsSync.mkdirSync(profileDirectory)
 app.setPath('userData', profileDirectory)
@@ -27,7 +42,7 @@ let smokeAgent
 async function waitFor(check, label = '界面状态') {
   const deadline = Date.now() + 10000
   while (Date.now() < deadline) {
-    if (await check()) return
+    if (await within(Promise.resolve().then(check), Math.max(1, deadline - Date.now()), label)) return
     await new Promise((resolve) => setTimeout(resolve, 50))
   }
   throw new Error(`桌面验收等待超时：${label}`)
@@ -36,6 +51,17 @@ const smokePluginId = '@pi-meme-fixtures/desktop-smoke'
 async function prepareSmokeApp(window, installAgent = true) {
   const evaluate = (code) => window.webContents.executeJavaScript(code)
   await waitFor(() => evaluate('Boolean(window.piMemeClient && window.piPlatform)'), 'Host 客户端初始化')
+  if (
+    !Object.keys(process.env).some(
+      (key) => /^PI_DESKTOP_.*(?:SMOKE_ONLY|REVIEW)$/.test(key) && process.env[key] === '1',
+    )
+  ) {
+    await evaluate(`window.desktopSmokeFonts = null;
+      window.piMemeClient.getInstalledFonts().then(
+        fonts => { window.desktopSmokeFonts = { fonts } },
+        error => { window.desktopSmokeFonts = { error: String(error) } },
+      ); void 0`)
+  }
   await evaluate(`(async () => {
     const connection = await window.piPlatform.getHostConnection();
     window.smokeRpc = async (method,args = [],sessionId) => {
@@ -66,10 +92,7 @@ async function runAppPlugins(window) {
   const capture = async (name) => {
     await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
     await evaluate('new Promise(resolve => setTimeout(resolve,250))')
-    await fs.writeFile(
-      path.join(root, 'out', 'desktop-smoke', `${name}.png`),
-      (await window.webContents.capturePage()).toPNG(),
-    )
+    await fs.writeFile(path.join(screenshots, `${name}.png`), (await window.webContents.capturePage()).toPNG())
   }
   const repository = path.resolve(root, '..', '..')
   for (const name of ['theme-landscape']) {
@@ -489,10 +512,9 @@ async function run(window) {
         ),
       `App 插件提问：${title}`,
     )
+  const { capture, pressKey } = desktopTestHelpers(window, waitFor, screenshots)
   const choose = async (selector, text) => {
-    await evaluate(
-      `document.querySelector(${JSON.stringify(selector)}).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))`,
-    )
+    await pressKey('Enter', selector)
     await waitFor(
       () =>
         evaluate(
@@ -506,13 +528,6 @@ async function run(window) {
     await waitFor(
       () => evaluate(`document.querySelector(${JSON.stringify(selector)})?.getAttribute('aria-expanded') === 'false'`),
       '下拉关闭',
-    )
-  }
-  const capture = async (name) => {
-    await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
-    await fs.writeFile(
-      path.join(root, 'out', 'desktop-smoke', `${name}.png`),
-      (await window.webContents.capturePage()).toPNG(),
     )
   }
   await waitFor(
@@ -621,8 +636,8 @@ async function run(window) {
       await click(trigger)
       await waitFor(() => evaluate('!document.querySelector("[role=slider]")'), '关闭冷聊天模型选择')
     }
-    await fs.mkdir(path.join(root, 'out', 'desktop-smoke'), { recursive: true })
-    await require('./plan-composer-smoke.cjs')(window, waitFor, directory, path.join(root, 'out', 'desktop-smoke'), {
+    await fs.mkdir(screenshots, { recursive: true })
+    await require('./plan-composer-smoke.cjs')(window, waitFor, directory, screenshots, {
       cold: true,
     })
     console.log(
@@ -654,42 +669,41 @@ async function run(window) {
   )
   await setDraft('')
   if (process.env.PI_DESKTOP_SELECT_SMOKE_ONLY === '1') {
-    await fs.mkdir(path.join(root, 'out', 'desktop-smoke'), { recursive: true })
-    await require('./select-controls-smoke.cjs')(window, waitFor, path.join(root, 'out', 'desktop-smoke'))
-    await require('./image-viewer-smoke.cjs')(window, waitFor, path.join(root, 'out', 'desktop-smoke'))
-    console.log('下拉桌面验收通过：主题间距、表单选择、长标签、图片缩放与键盘焦点')
+    await fs.mkdir(screenshots, { recursive: true })
+    await require('./select-controls-smoke.cjs')(window, waitFor, screenshots)
+    console.log('下拉桌面验收通过：主题间距、表单选择与长标签')
     return
   }
   if (process.env.PI_DESKTOP_MCP_SMOKE_ONLY === '1') {
-    await require('./mcp-smoke.cjs')(window, waitFor, path.join(root, 'out', 'desktop-smoke'))
+    await require('./mcp-smoke.cjs')(window, waitFor, screenshots)
     console.log('MCP 桌面验收通过：表单、高级 JSON、启停、逐服务授权、外部冲突、损坏文件与诊断')
     return
   }
   if (process.env.PI_DESKTOP_SIDEBAR_MENU_SMOKE_ONLY === '1') {
-    await require('./sidebar-menu-smoke.cjs')(window, waitFor, directory, path.join(root, 'out', 'desktop-smoke'))
+    await require('./sidebar-menu-smoke.cjs')(window, waitFor, directory, screenshots)
     await require('./multi-service-smoke.cjs')(window.webContents.getURL(), waitFor)
     console.log('侧栏菜单验收通过')
     return
   }
   if (process.env.PI_DESKTOP_PROFILE_SMOKE_ONLY === '1') {
     await click('button[aria-label="设置"]')
-    await require('./profile-smoke.cjs')(window, waitFor, directory, path.join(root, 'out', 'desktop-smoke'))
+    await require('./profile-smoke.cjs')(window, waitFor, directory, screenshots)
     console.log('用量桌面验收通过：统计、活动图、主题、窄窗口、空状态与错误重试')
     return
   }
   if (process.env.PI_DESKTOP_MODEL_PICKER_SMOKE_ONLY === '1') {
-    await fs.mkdir(path.join(root, 'out', 'desktop-smoke'), { recursive: true })
-    await require('./model-picker-smoke.cjs')(window, waitFor, path.join(root, 'out', 'desktop-smoke'))
+    await fs.mkdir(screenshots, { recursive: true })
+    await require('./model-picker-smoke.cjs')(window, waitFor, screenshots)
     console.log('模型选择桌面验收通过：长列表滚动、末项选择、搜索、空状态和小窗口')
     return
   }
   if (process.env.PI_DESKTOP_MODEL_SMOKE_ONLY === '1') {
-    await fs.mkdir(path.join(root, 'out', 'desktop-smoke'), { recursive: true })
-    await require('./model-config-smoke.cjs')(window, waitFor, path.join(root, 'out', 'desktop-smoke'))
+    await fs.mkdir(screenshots, { recursive: true })
+    await require('./model-config-smoke.cjs')(window, waitFor, screenshots)
     console.log('模型配置桌面验收通过：空配置首次添加与选择、失效模型恢复、服务商增删改、模型发现和凭据隐藏')
     return
   }
-  await require('./mcp-smoke.cjs')(window, waitFor, path.join(root, 'out', 'desktop-smoke'))
+  await require('./mcp-smoke.cjs')(window, waitFor, screenshots)
   const model = 'button[aria-label="选择模型与思考强度"]'
   await waitFor(
     () =>
@@ -790,7 +804,7 @@ async function run(window) {
     await evaluate(
       `document.querySelector('[role="tablist"][aria-label="右侧栏标签"] [role="tab"][aria-selected="true"]').textContent`,
     ),
-    'Git',
+    '变更',
     '重开保持上次标签',
   )
   assert.equal(
@@ -804,8 +818,8 @@ async function run(window) {
     await evaluate(
       `[...document.querySelectorAll('[role="tablist"][aria-label="右侧栏标签"] [role="tab"]')].map(node => node.textContent.trim()).filter(title=>title!=='新标签页')`,
     ),
-    ['Git'],
-    '新会话仅显式打开 Git 工具标签',
+    ['变更'],
+    '新会话仅显式打开变更工具标签',
   )
   await click('button[aria-label="收起右侧栏"]')
   await waitFor(() => evaluate(`!document.querySelector('#workspace-right-sidebar')`), '右侧栏关闭')
@@ -844,9 +858,9 @@ async function run(window) {
   )
 
   assert.equal(await evaluate('window.piMemeClient.getSnapshot().then(snapshot => snapshot.models.length)'), 2)
-  await fs.mkdir(path.join(root, 'out', 'desktop-smoke'), { recursive: true })
+  await fs.mkdir(screenshots, { recursive: true })
   await capture('dark')
-  await require('./model-config-smoke.cjs')(window, waitFor, path.join(root, 'out', 'desktop-smoke'))
+  await require('./model-config-smoke.cjs')(window, waitFor, screenshots)
   await click(model)
   await waitFor(() => evaluate('Boolean(document.querySelector("[role=slider]"))'), '思考强度面板')
   await evaluate(
@@ -862,6 +876,7 @@ async function run(window) {
   )
   await click(model)
 
+  await waitFor(() => evaluate('!document.querySelector("[role=dialog]")'), '模型选择面板退场完成')
   await click('button[aria-label="收起侧边栏"]')
   assert.equal(
     await evaluate(
@@ -935,10 +950,10 @@ async function run(window) {
     true,
   )
   await capture('settings-skills')
-  await require('./personalization-smoke.cjs')(window, waitFor, directory, path.join(root, 'out', 'desktop-smoke'))
-  await require('./profile-smoke.cjs')(window, waitFor, directory, path.join(root, 'out', 'desktop-smoke'))
+  await require('./personalization-smoke.cjs')(window, waitFor, directory, screenshots)
+  await require('./profile-smoke.cjs')(window, waitFor, directory, screenshots)
   await clickText('外观', 'nav[aria-label="设置分类"]')
-  await require('./appearance-smoke.cjs')(window, waitFor, directory, path.join(root, 'out', 'desktop-smoke'))
+  await require('./appearance-smoke.cjs')(window, waitFor, directory, screenshots)
   await click('button[aria-label="浅色模式"]')
   await choose('[role="combobox"][aria-label="外观主题"]', '浅色')
   await waitFor(
@@ -974,7 +989,7 @@ async function run(window) {
     false,
   )
   await setDraft('')
-  await require('./image-viewer-smoke.cjs')(window, waitFor, path.join(root, 'out', 'desktop-smoke'))
+  await require('./image-viewer-smoke.cjs')(window, waitFor, screenshots)
   const png =
     'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAdElEQVR4Ae3AA6AkWZbG8f937o3IzKdyS2Oubdu2bdu2bdu2bWmMnpZKr54yMyLu+Xa3anqmhztr1a/+8R//8R/zb0fl34fKvw+Vfx8q/z5U/n2o/PtQ+feh8u9D5d+Hyr8PlX8fKv8+VP59qPz7UPn34R8BOSMDYXRfRXcAAAAASUVORK5CYII='
   const imageTransfer = `const file = new File([Uint8Array.from(atob(${JSON.stringify(png)}), char => char.charCodeAt(0))], 'test.png', { type: 'image/png' }); const transfer = new DataTransfer(); transfer.items.add(file);`
@@ -1246,26 +1261,15 @@ async function run(window) {
   await click('button[aria-label="滚动到底部"]')
   await waitFor(() => evaluate('!document.querySelector("button[aria-label=滚动到底部]")'), '回到底部')
   console.log('桌面验收阶段通过：模型、MCP、设置、右侧标签、App 交互、流式消息与长对话滚动')
-  await require('./collaboration-plan-smoke.cjs')(window, waitFor, directory, path.join(root, 'out', 'desktop-smoke'))
+  await require('./collaboration-plan-smoke.cjs')(window, waitFor, directory, screenshots)
   console.log('桌面验收阶段通过：子代理协作与计划')
-  await require('./extensions-smoke.cjs')(window, waitFor, directory, path.join(root, 'out', 'desktop-smoke'))
-  await require('./agent-access-smoke.cjs')(window, waitFor, directory)
+  await require('./extensions-smoke.cjs')(window, waitFor, directory, screenshots)
+  await require('./agent-access-smoke.cjs')(window, waitFor, directory, screenshots)
   console.log('桌面验收阶段通过：App 插件与会话权限')
   await require('./lazy-sessions-smoke.cjs')(window, waitFor, directory, gitDirectory)
-  await require('./project-selector-smoke.cjs')(
-    window,
-    waitFor,
-    directory,
-    path.join(root, 'out', 'desktop-smoke'),
-    gitDirectory,
-  )
-  await require('./sidebar-menu-smoke.cjs')(
-    window,
-    waitFor,
-    directory,
-    path.join(root, 'out', 'desktop-smoke'),
-    gitDirectory,
-  )
+  await require('./project-selector-smoke.cjs')(window, waitFor, directory, screenshots, gitDirectory)
+  await require('./sidebar-menu-smoke.cjs')(window, waitFor, directory, screenshots, gitDirectory)
+  await require('./sidebar-controls-smoke.cjs')(window, waitFor, directory, screenshots, gitDirectory)
   await require('./background-sessions-smoke.cjs')(window, waitFor, gitDirectory)
   await require('./session-switch-smoke.cjs')(window.webContents.getURL(), waitFor)
   await require('./multi-service-smoke.cjs')(window.webContents.getURL(), waitFor)
@@ -1275,7 +1279,11 @@ async function run(window) {
 }
 
 ;(async () => {
-  gitDirectory = fsSync.realpathSync(await fs.mkdtemp(path.join(os.tmpdir(), 'pi-desktop-smoke-project-')))
+  gitDirectory = fsSync.realpathSync(
+    process.env.PI_DESKTOP_SMOKE_TEMP_DIR
+      ? path.join(process.env.PI_DESKTOP_SMOKE_TEMP_DIR, 'project')
+      : await fs.mkdtemp(path.join(os.tmpdir(), 'pi-desktop-smoke-project-')),
+  )
   await fs.mkdir(path.join(gitDirectory, 'src'), { recursive: true })
   await fs.mkdir(path.join(gitDirectory, 'reference-fixture'))
   await fs.writeFile(path.join(gitDirectory, 'README.md'), '# 验收项目\n')
@@ -1283,7 +1291,7 @@ async function run(window) {
   await fs.writeFile(path.join(gitDirectory, 'reference-fixture', '中文 文件.ts'), 'export const value = 1\n')
   await fs.writeFile(path.join(gitDirectory, 'reference-fixture', 'nested-file.ts'), 'export const nested = true\n')
   execFileSync('git', ['init', '--quiet', gitDirectory])
-  await fs.mkdir(path.join(root, 'out', 'desktop-smoke'), { recursive: true })
+  await fs.mkdir(screenshots, { recursive: true })
   const { startSmokeAgent } = await import('./smoke-agent.mjs')
   smokeAgent = await startSmokeAgent(directory, {
     queueReview: process.env.PI_DESKTOP_QUEUE_REVIEW === '1',
@@ -1326,6 +1334,12 @@ async function run(window) {
     JSON.stringify({ themeId: 'dark', defaultAccessMode: 'workspace-write', mcpEnabled: false }),
   )
   app.once('browser-window-created', (_event, window) => {
+    window.setAlwaysOnTop(true)
+    const execute = window.webContents.executeJavaScript.bind(window.webContents)
+    window.webContents.executeJavaScript = (code, ...args) => within(execute(code, ...args), 10000, `执行脚本：${code}`)
+    const capturePage = window.webContents.capturePage.bind(window.webContents)
+    window.webContents.capturePage = (...args) => within(capturePage(...args), 5000, '捕获桌面截图')
+    const helpers = desktopTestHelpers(window, waitFor, screenshots)
     window.webContents.setBackgroundThrottling(false)
     window.webContents.once('did-finish-load', () => {
       // 复制路径等操作依赖文档获得焦点，验收时主动把窗口拉到前台。
@@ -1374,81 +1388,65 @@ async function run(window) {
       ).then(() =>
         process.env.PI_DESKTOP_APP_PLUGIN_SMOKE_ONLY === '1'
           ? runAppPlugins(window)
-          : process.env.PI_DESKTOP_SIDEBAR_SMOKE_ONLY === '1'
-            ? require('./sidebar-menu-smoke.cjs')(
-                window,
-                waitFor,
-                directory,
-                path.join(root, 'out', 'desktop-smoke'),
-                gitDirectory,
-              )
-            : process.env.PI_DESKTOP_ACCESS_SMOKE_ONLY === '1'
-              ? (async () => {
-                  const evaluate = (code) => window.webContents.executeJavaScript(code)
-                  await evaluate(`window.piMemeClient.chooseDirectory(${JSON.stringify(gitDirectory)})`)
-                  const key = await evaluate('window.piMemeClient.getConnection().then(value=>value.sessionKey)')
-                  await evaluate(`window.piMemeClient.setModel(${JSON.stringify(key)},{provider:'fake',id:'first'})`)
-                  await evaluate(`window.piMemeClient.prompt(${JSON.stringify(key)},'权限验收前置会话')`)
-                  await waitFor(
-                    () =>
-                      evaluate(
-                        'window.piMemeClient.getSnapshot().then(value=>Boolean(value.connection.sessionFile)&&!value.state.isStreaming)',
-                      ),
-                    '权限验收前置会话完成',
-                  )
-                  await require('./agent-access-smoke.cjs')(window, waitFor, directory)
-                })()
-              : process.env.PI_DESKTOP_SESSION_SMOKE_ONLY === '1'
-                ? (async () => {
-                    await require('./session-switch-smoke.cjs')(window.webContents.getURL(), waitFor)
-                    console.log('会话专项通过：并发会话切换')
-                    await require('./multi-service-smoke.cjs')(window.webContents.getURL(), waitFor)
-                    console.log('会话专项通过：多服务设备隔离')
-                    const evaluate = (code) => window.webContents.executeJavaScript(code)
-                    const firstDirectory = path.join(gitDirectory, 'background-first')
-                    await fs.mkdir(firstDirectory)
-                    await evaluate(`window.piMemeClient.chooseDirectory(${JSON.stringify(firstDirectory)})`)
-                    const key = await evaluate('window.piMemeClient.getConnection().then(value=>value.sessionKey)')
-                    await evaluate(`window.piMemeClient.setModel(${JSON.stringify(key)},{provider:'fake',id:'first'})`)
-                    await require('./background-sessions-smoke.cjs')(window, waitFor, gitDirectory)
-                    console.log('会话专项通过：后台任务与路由')
-                  })()
-                : process.env.PI_DESKTOP_PAUSE_SMOKE_ONLY === '1'
-                  ? require('./pause-display-smoke.cjs')(
-                      window,
-                      waitFor,
-                      directory,
-                      path.join(root, 'out', 'desktop-smoke'),
-                      smokeAgent,
-                    )
-                  : process.env.PI_DESKTOP_QUEUE_SMOKE_ONLY === '1'
-                    ? require('./queue-composer-smoke.cjs')(
-                        window,
-                        waitFor,
-                        directory,
-                        path.join(root, 'out', 'desktop-smoke'),
-                        smokeAgent,
+          : process.env.PI_DESKTOP_IMAGE_SMOKE_ONLY === '1'
+            ? require('./image-viewer-smoke.cjs')(window, waitFor, screenshots)
+            : process.env.PI_DESKTOP_SIDEBAR_CONTROLS_SMOKE_ONLY === '1'
+              ? require('./sidebar-controls-smoke.cjs')(window, waitFor, directory, screenshots, gitDirectory)
+              : process.env.PI_DESKTOP_SIDEBAR_SMOKE_ONLY === '1'
+                ? require('./sidebar-menu-smoke.cjs')(window, waitFor, directory, screenshots, gitDirectory)
+                : process.env.PI_DESKTOP_ACCESS_SMOKE_ONLY === '1'
+                  ? (async () => {
+                      const evaluate = (code) => window.webContents.executeJavaScript(code)
+                      await evaluate(`window.piMemeClient.chooseDirectory(${JSON.stringify(gitDirectory)})`)
+                      const key = await evaluate('window.piMemeClient.getConnection().then(value=>value.sessionKey)')
+                      await evaluate(
+                        `window.piMemeClient.setModel(${JSON.stringify(key)},{provider:'fake',id:'first'})`,
                       )
-                    : run(window),
+                      await evaluate(`window.piMemeClient.prompt(${JSON.stringify(key)},'权限验收前置会话')`)
+                      await waitFor(
+                        () =>
+                          evaluate(
+                            'window.piMemeClient.getSnapshot().then(value=>Boolean(value.connection.sessionFile)&&!value.state.isStreaming)',
+                          ),
+                        '权限验收前置会话完成',
+                      )
+                      await require('./agent-access-smoke.cjs')(window, waitFor, directory, screenshots)
+                    })()
+                  : process.env.PI_DESKTOP_SESSION_SMOKE_ONLY === '1'
+                    ? (async () => {
+                        await require('./session-switch-smoke.cjs')(window.webContents.getURL(), waitFor)
+                        console.log('会话专项通过：并发会话切换')
+                        await require('./multi-service-smoke.cjs')(window.webContents.getURL(), waitFor)
+                        console.log('会话专项通过：多服务设备隔离')
+                        const evaluate = (code) => window.webContents.executeJavaScript(code)
+                        const firstDirectory = path.join(gitDirectory, 'background-first')
+                        await fs.mkdir(firstDirectory)
+                        await evaluate(`window.piMemeClient.chooseDirectory(${JSON.stringify(firstDirectory)})`)
+                        const key = await evaluate('window.piMemeClient.getConnection().then(value=>value.sessionKey)')
+                        await evaluate(
+                          `window.piMemeClient.setModel(${JSON.stringify(key)},{provider:'fake',id:'first'})`,
+                        )
+                        await require('./background-sessions-smoke.cjs')(window, waitFor, gitDirectory)
+                        console.log('会话专项通过：后台任务与路由')
+                      })()
+                    : process.env.PI_DESKTOP_PAUSE_SMOKE_ONLY === '1'
+                      ? require('./pause-display-smoke.cjs')(window, waitFor, directory, screenshots, smokeAgent)
+                      : process.env.PI_DESKTOP_QUEUE_SMOKE_ONLY === '1'
+                        ? require('./queue-composer-smoke.cjs')(window, waitFor, directory, screenshots, smokeAgent)
+                        : run(window),
       )
       task
+        .then(() => console.log(`桌面场景完成：${smokeName}`))
         .catch(async (error) => {
           failed = true
           console.error(error)
-          if (process.env.PI_DESKTOP_SIDEBAR_SMOKE_ONLY === '1')
-            console.error(
-              '侧栏窗口焦点诊断',
-              JSON.stringify({
-                nativeFocus: window.isFocused(),
-                webContentsFocus: window.webContents.isFocused(),
-                blurCount: await window.webContents.executeJavaScript('window.sidebarWindowBlurCount'),
-              }),
-            )
-          await fs.writeFile(
-            path.join(root, 'out', 'desktop-smoke', 'failed.png'),
-            (await window.webContents.capturePage()).toPNG(),
-          )
-          console.error(await window.webContents.executeJavaScript('document.body.innerText.slice(0, 3000)'))
+          const diagnostics = await Promise.allSettled([
+            helpers.capture('failed'),
+            helpers.diagnose().then((value) => console.error('桌面失败诊断', JSON.stringify(value))),
+          ])
+          for (const result of diagnostics) {
+            if (result.status === 'rejected') console.error('保存失败诊断时出错', result.reason)
+          }
         })
         .finally(() => {
           process.exitCode = failed ? 1 : 0

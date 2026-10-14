@@ -3,6 +3,7 @@ const fs = require('node:fs/promises')
 const path = require('node:path')
 
 module.exports = async function personalizationSmoke(window, waitFor, directory, screenshots) {
+  const { pressKey, capture } = require('./desktop-test-helpers.cjs').desktopTestHelpers(window, waitFor, screenshots)
   const evaluate = (code) =>
     window.webContents.executeJavaScript(code).catch((error) => {
       console.error('偏好验收脚本执行失败：', code, error)
@@ -16,10 +17,6 @@ module.exports = async function personalizationSmoke(window, waitFor, directory,
     evaluate(
       `(() => { const input = document.querySelector('${tag}[aria-label="${label}"]'); Object.getOwnPropertyDescriptor(${tag === 'textarea' ? 'HTMLTextAreaElement' : 'HTMLInputElement'}.prototype, 'value').set.call(input, ${JSON.stringify(value)}); input.dispatchEvent(new Event('input', { bubbles: true })) })()`,
     )
-  const capture = async (name) => {
-    await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
-    await fs.writeFile(path.join(screenshots, `${name}.png`), (await window.webContents.capturePage()).toPNG())
-  }
   const nav = 'nav[aria-label="设置分类"]'
   const select = async (name) => {
     if (['模型', '外观', '偏好', '插件', '技能', 'MCP'].includes(name)) {
@@ -117,7 +114,9 @@ module.exports = async function personalizationSmoke(window, waitFor, directory,
   )
   await fs.writeFile(path.join(pluginDirectory, 'dist', 'agent', 'entry.js'), 'export function activate() {}')
   await evaluate(`window.piMemePlugins.installDirectory(${JSON.stringify(pluginDirectory)})`)
-  const expectedPluginCount = await evaluate('window.piMemePlugins.list().then(plugins => plugins.length)')
+  const expectedPluginCount = await evaluate(
+    'window.piMemePlugins.list().then(plugins => plugins.filter(plugin => !plugin.builtin).length)',
+  )
   await select('插件')
   await waitFor(
     () => evaluate(`document.querySelectorAll('ul[aria-label="App 插件列表"] li').length === ${expectedPluginCount}`),
@@ -167,7 +166,9 @@ module.exports = async function personalizationSmoke(window, waitFor, directory,
   await clickText('返回插件', 'section[aria-label="插件管理"]')
   await waitFor(
     () =>
-      evaluate(`document.querySelector('button[aria-label="查看插件：${pluginId}"]')?.textContent.includes('已停用')`),
+      evaluate(
+        `document.querySelector('[role="switch"][aria-label="启用插件：${pluginId}"]')?.getAttribute('aria-checked') === 'false'`,
+      ),
     '插件停用列表状态',
   )
   await select('远程')
@@ -188,7 +189,9 @@ module.exports = async function personalizationSmoke(window, waitFor, directory,
   await select('插件')
   await waitFor(
     () =>
-      evaluate(`document.querySelector('button[aria-label="查看插件：${pluginId}"]')?.textContent.includes('已启用')`),
+      evaluate(
+        `document.querySelector('[role="switch"][aria-label="启用插件：${pluginId}"]')?.getAttribute('aria-checked') === 'true'`,
+      ),
     '插件启用列表状态',
   )
   window.setSize(900, 720)
@@ -224,12 +227,24 @@ module.exports = async function personalizationSmoke(window, waitFor, directory,
   )
   await assertResourceCopy()
   await capture('skill-detail-dark')
-  await evaluate(`(() => {
-    const scope = document.querySelector('select[aria-label="技能策略范围"]')
-    scope.value = 'project'
-    scope.dispatchEvent(new Event('change', { bubbles: true }))
-  })()`)
-  assert.equal(await evaluate('document.querySelector("select[aria-label=技能策略范围]").value'), 'project')
+  const scopeSelector = '[role="combobox"][aria-label="技能策略范围"]'
+  await pressKey('Enter', scopeSelector)
+  await waitFor(
+    () => evaluate(`[...document.querySelectorAll('[role="option"]')].some(node => node.textContent === '仅当前项目')`),
+    '技能项目策略选项',
+  )
+  await evaluate(
+    `[...document.querySelectorAll('[role="option"]')].find(node => node.textContent === '仅当前项目').focus()`,
+  )
+  await pressKey('Enter')
+  await waitFor(
+    () =>
+      evaluate(
+        `document.querySelector(${JSON.stringify(scopeSelector)}).textContent === '仅当前项目' && !document.querySelector('[role=listbox]')`,
+      ),
+    '技能项目策略选择完成',
+  )
+  assert.equal(await evaluate(`document.querySelector(${JSON.stringify(scopeSelector)}).textContent`), '仅当前项目')
   await clickText('设为仅手动', 'section[aria-label="技能管理"]')
   await waitFor(
     () =>

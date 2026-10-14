@@ -41,6 +41,7 @@ type MenuState = {
   copy: (cwd: string) => void
   /** 由菜单项打开重命名/删除对话框时置位，用来阻止菜单把焦点抢回触发按钮。 */
   dialogOpening: { current: boolean }
+  dialogTrigger: { current: HTMLElement | null }
 }
 const Menus = createContext<MenuState | null>(null)
 function useMenus() {
@@ -79,6 +80,7 @@ export function SidebarMenus({
   const [notice, setNotice] = useState('')
   const input = useRef<HTMLInputElement>(null)
   const dialogOpening = useRef(false)
+  const dialogTrigger = useRef<HTMLElement | null>(null)
   const prepare = (kind: 'rename' | 'delete', target: MenuTarget) => {
     dialogOpening.current = true
     setError('')
@@ -144,6 +146,7 @@ export function SidebarMenus({
   const value: MenuState = {
     pinnedPaths,
     dialogOpening,
+    dialogTrigger,
     apps,
     onNewSession,
     onTogglePin,
@@ -184,6 +187,14 @@ export function SidebarMenus({
         }}
       >
         <DialogContent
+          onCloseAutoFocus={(event) => {
+            const trigger = dialogTrigger.current
+            dialogTrigger.current = null
+            if (trigger?.isConnected) {
+              event.preventDefault()
+              trigger.focus()
+            }
+          }}
           onOpenAutoFocus={(event) => {
             if (isRename) {
               event.preventDefault()
@@ -333,13 +344,19 @@ function MenuItems({ target, kind }: { target: MenuTarget; kind: 'context' | 'dr
 
 export function SidebarRowMenu({ target, children }: { target: MenuTarget; children: ReactNode }) {
   const menus = useMenus()
+  const row = useRef<HTMLDivElement>(null)
   return (
     <Context.ContextMenu
       onOpenChange={(open) => {
+        if (open)
+          menus.dialogTrigger.current =
+            row.current?.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]') ?? null
         if (open && target.kind === 'project') menus.loadApps()
       }}
     >
-      <Context.ContextMenuTrigger asChild>{children}</Context.ContextMenuTrigger>
+      <Context.ContextMenuTrigger ref={row} asChild>
+        {children}
+      </Context.ContextMenuTrigger>
       <Context.ContextMenuContent
         onCloseAutoFocus={(event) => {
           if (menus.dialogOpening.current) {
@@ -355,15 +372,18 @@ export function SidebarRowMenu({ target, children }: { target: MenuTarget; child
 }
 export function SidebarMoreMenu({ target }: { target: MenuTarget }) {
   const menus = useMenus()
+  const trigger = useRef<HTMLButtonElement>(null)
   const name = target.kind === 'project' ? target.project.name : formatSessionTitle(target.session)
   return (
     <Dropdown.DropdownMenu
       onOpenChange={(open) => {
+        if (open) menus.dialogTrigger.current = trigger.current
         if (open && target.kind === 'project') menus.loadApps()
       }}
     >
       <Dropdown.DropdownMenuTrigger asChild>
         <button
+          ref={trigger}
           type="button"
           aria-label={`更多操作：${name}`}
           onClick={(event) => event.stopPropagation()}

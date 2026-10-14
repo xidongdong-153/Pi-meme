@@ -12,6 +12,7 @@
     "publish": "electron-forge publish",
     "type-check": "tsc --noEmit",
     "test:desktop": "electron tests/desktop-smoke.cjs",
+    "test:desktop:regression": "node --import tsx tests/desktop-regression.ts",
     "test:package": "node --import tsx --test tests/package-*-smoke.ts",
     "test": "node --import tsx --test tests/*.test.ts"
   },

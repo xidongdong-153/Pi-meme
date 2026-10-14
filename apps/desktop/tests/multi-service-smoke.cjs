@@ -12,7 +12,9 @@ module.exports = async function multiServiceSmoke(url, waitFor) {
       sandbox: true,
     },
   })
-  const evaluate = (code) => window.webContents.executeJavaScript(code)
+  window.setAlwaysOnTop(true)
+  const { evaluate } = require('./desktop-test-helpers.cjs').desktopTestHelpers(window, waitFor)
+  window.webContents.setBackgroundThrottling(false)
   const editor = '[contenteditable=true][aria-label="消息"]'
   const setDraft = (text) =>
     evaluate(
@@ -39,7 +41,10 @@ module.exports = async function multiServiceSmoke(url, waitFor) {
       () => evaluate(`Boolean(document.querySelector('[aria-label="搜索工作位置项目"]'))`),
       '所属服务项目列表',
     )
-    assert.equal(await evaluate(`document.querySelector('[role="dialog"] h2')?.textContent === '切换工作位置'`), false)
+    assert.equal(
+      await evaluate(`document.querySelector('[role="dialog"][data-state="open"] h2')?.textContent === '切换工作位置'`),
+      false,
+    )
     await evaluate(`document.querySelector('[aria-label="返回工作位置服务列表"]').click()`)
     await waitFor(
       () => evaluate(`Boolean(document.querySelector('[aria-label="搜索工作位置服务"]'))`),
@@ -56,7 +61,7 @@ module.exports = async function multiServiceSmoke(url, waitFor) {
     )
     await clickText('同名项目', '[aria-label="选择工作位置"]')
     await waitFor(
-      () => evaluate(`document.querySelector('[role="dialog"] h2')?.textContent === '切换工作位置'`),
+      () => evaluate(`document.querySelector('[role="dialog"][data-state="open"] h2')?.textContent === '切换工作位置'`),
       '工作位置确认',
     )
   }
@@ -129,12 +134,12 @@ module.exports = async function multiServiceSmoke(url, waitFor) {
       '跨服务图片草稿',
     )
     await location('remote')
-    await clickText('取消', '[role="dialog"]')
+    await clickText('取消', '[role="dialog"][data-state="open"]')
     assert.equal(await evaluate(`document.querySelector('main').dataset.activeService`), 'local')
     assert.equal(await evaluate('window.multiServiceTest.remote.status().count'), 0)
     await assertDraft('跨服务文字草稿', 1, true)
     await location('remote')
-    await clickText('确认切换', '[role="dialog"]')
+    await clickText('确认切换', '[role="dialog"][data-state="open"]')
     await waitFor(
       () =>
         evaluate(
@@ -162,11 +167,11 @@ module.exports = async function multiServiceSmoke(url, waitFor) {
     await newChat()
     await setDraft('本机独立草稿')
     await location('remote')
-    await clickText('取消', '[role="dialog"]')
+    await clickText('取消', '[role="dialog"][data-state="open"]')
     await assertDraft('本机独立草稿', 0, false)
     await evaluate('window.multiServiceTest.remote.delayCommands()')
     await location('remote')
-    await clickText('确认切换', '[role="dialog"]')
+    await clickText('确认切换', '[role="dialog"][data-state="open"]')
     await waitFor(() => evaluate('window.multiServiceTest.remote.status().pendingCommands'), '远程技能读取延迟')
     await setDraft('等待远程期间追加的文字')
     await evaluate(

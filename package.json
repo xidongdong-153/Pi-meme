@@ -12,6 +12,7 @@
     "publish": "pnpm --filter pi-meme publish",
     "test": "pnpm -r test",
     "test:desktop": "pnpm --filter pi-meme test:desktop",
+    "test:desktop:regression": "pnpm --filter pi-meme test:desktop:regression",
     "test:package": "pnpm --filter pi-meme test:package",
     "lint": "eslint .",
     "type-check": "pnpm -r type-check",

@@ -1,9 +1,12 @@
 const assert = require('node:assert/strict')
 const fs = require('node:fs/promises')
-const path = require('node:path')
 
 module.exports = async (window, waitFor, outputDirectory) => {
-  const evaluate = (code) => window.webContents.executeJavaScript(code)
+  const { evaluate, pressKey, capture } = require('./desktop-test-helpers.cjs').desktopTestHelpers(
+    window,
+    waitFor,
+    outputDirectory,
+  )
   const clickText = async (text, scope = 'body') => {
     const find = `Array.from(document.querySelector(${JSON.stringify(scope)}).querySelectorAll('button')).find(node => node.checkVisibility() && !node.disabled && node.textContent.trim() === ${JSON.stringify(text)})`
     await waitFor(() => evaluate(`Boolean(${find})`), `按钮可用：${text}`)
@@ -21,11 +24,7 @@ module.exports = async (window, waitFor, outputDirectory) => {
     const selector = `[role="combobox"][aria-label="${label}"]`
     await waitFor(() => evaluate(`Boolean(document.querySelector(${JSON.stringify(selector)}))`), `下拉可用：${label}`)
     assert.equal(await evaluate(`document.querySelector(${JSON.stringify(selector)}).disabled`), false)
-    await evaluate(`(() => {
-      const trigger = document.querySelector(${JSON.stringify(selector)});
-      trigger.focus();
-      trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
-    })()`)
+    await pressKey('Enter', selector)
     await waitFor(
       () =>
         evaluate(
@@ -38,18 +37,15 @@ module.exports = async (window, waitFor, outputDirectory) => {
     const selector = `[role="combobox"][aria-label="${label}"]`
     const find = `Array.from(document.querySelectorAll('[role="listbox"] [role="option"]')).find(node => node.textContent.trim() === ${JSON.stringify(text)})`
     await waitFor(() => evaluate(`Boolean(${find})`), `选项可用：${text}`)
-    await evaluate(`${find}.click()`)
+    await evaluate(`${find}.focus()`)
+    await pressKey('Enter')
     await waitFor(
       () =>
         evaluate(
-          `(() => { const trigger = document.querySelector(${JSON.stringify(selector)}); return trigger.textContent.trim() === ${JSON.stringify(text)} && trigger.getAttribute('aria-expanded') === 'false'; })()`,
+          `(() => { const trigger = document.querySelector(${JSON.stringify(selector)}); return trigger.textContent.trim() === ${JSON.stringify(text)} && trigger.getAttribute('aria-expanded') === 'false' && !document.querySelector('[role=listbox]') && document.activeElement === trigger; })()`,
         ),
       `选项生效：${label}`,
     )
-  }
-  const capture = async (name) => {
-    await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
-    await fs.writeFile(path.join(outputDirectory, `${name}.png`), (await window.webContents.capturePage()).toPNG())
   }
   const settingsNavigation = 'nav[aria-label="设置分类"]'
   const originalSize = window.getSize()

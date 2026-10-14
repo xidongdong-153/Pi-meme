@@ -2,21 +2,24 @@ const assert = require('node:assert/strict')
 const fs = require('node:fs/promises')
 const path = require('node:path')
 
-module.exports = async function agentAccessSmoke(window, waitFor, directory) {
+module.exports = async function agentAccessSmoke(
+  window,
+  waitFor,
+  directory,
+  screenshots = path.join(__dirname, '..', 'out', 'desktop-smoke', 'agent-access'),
+) {
   const evaluate = (code) =>
     window.webContents.executeJavaScript(code).catch((cause) => {
       console.error('权限验收脚本失败：', code)
       throw cause
     })
+  const { pressKey, capture } = require('./desktop-test-helpers.cjs').desktopTestHelpers(window, waitFor, screenshots)
   const selector = '[aria-label="Agent 访问权限"]'
   const snapshot = await evaluate('window.piMemeClient.getSnapshot()')
   const key = snapshot.connection.sessionKey
   const sessionFile = snapshot.connection.sessionFile
   assert.equal(snapshot.connection.accessMode, 'workspace-write')
-  const open = () =>
-    evaluate(
-      `document.querySelector('${selector}').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))`,
-    )
+  const open = () => pressKey('Enter', selector)
   const choose = async (label, mode) => {
     await open()
     try {
@@ -33,8 +36,9 @@ module.exports = async function agentAccessSmoke(window, waitFor, directory) {
       throw cause
     }
     await evaluate(
-      `([...document.querySelectorAll('[role="option"]')].find(node => node.textContent.includes(${JSON.stringify(label)}))).click()`,
+      `([...document.querySelectorAll('[role="option"]')].find(node => node.textContent.includes(${JSON.stringify(label)}))).focus()`,
     )
+    await pressKey('Enter')
     await waitFor(
       () =>
         evaluate(
@@ -43,7 +47,10 @@ module.exports = async function agentAccessSmoke(window, waitFor, directory) {
       '权限切换完成',
     )
     await waitFor(
-      () => evaluate(`document.querySelector('${selector}').getAttribute('aria-expanded') === 'false'`),
+      () =>
+        evaluate(
+          `document.querySelector('${selector}').getAttribute('aria-expanded') === 'false' && !document.querySelector('[role=listbox]') && document.activeElement === document.querySelector('${selector}')`,
+        ),
       '权限菜单关闭',
     )
     await waitFor(
@@ -60,15 +67,14 @@ module.exports = async function agentAccessSmoke(window, waitFor, directory) {
   await open()
   await waitFor(() => evaluate(`document.querySelectorAll('[role="option"]').length === 3`), '权限菜单键盘展开')
   assert.equal(await evaluate(`document.body.textContent.includes('受限模式不加载外部 Agent 插件')`), true)
-  await fs.writeFile(
-    path.join(__dirname, '..', 'out', 'desktop-smoke', 'agent-access-menu.png'),
-    (await window.webContents.capturePage()).toPNG(),
-  )
-  await evaluate(
-    `document.querySelector('[role="option"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`,
-  )
+  await fs.mkdir(screenshots, { recursive: true })
+  await capture('agent-access-menu')
+  await pressKey('Escape')
   await waitFor(
-    () => evaluate(`document.querySelector('${selector}').getAttribute('aria-expanded') === 'false'`),
+    () =>
+      evaluate(
+        `document.querySelector('${selector}').getAttribute('aria-expanded') === 'false' && !document.querySelector('[role=listbox]') && document.activeElement === document.querySelector('${selector}')`,
+      ),
     'Escape 关闭菜单',
   )
   assert.equal(await evaluate(`document.activeElement === document.querySelector('${selector}')`), true)

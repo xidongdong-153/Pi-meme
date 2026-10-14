@@ -147,21 +147,35 @@ test('bash 的写入、符号链接与 Host 数据边界由实际后端执行', 
   try {
     for (const mode of ['workspace-write', 'read-only'] as const) {
       const sandbox = await AccessSandbox.create({ mode, cwd: project, temporary, agentDir: dataRoot, dataRoot })
-      const run = (command: string) =>
-        sandbox.run('/bin/bash', ['-c', command], {
+      const run = async (command: string) => {
+        let output = ''
+        const result = await sandbox.run('/bin/bash', ['-c', command], {
           cwd: project,
-          onData: () => {},
+          onData: (chunk) => {
+            output += chunk.toString()
+          },
           timeout: 5,
         })
-      assert.equal((await run('cat /etc/os-release')).exitCode, 0)
-      assert.equal((await run(`echo temporary > ${JSON.stringify(path.join(temporary, mode))}`)).exitCode, 0)
-      assert.equal((await run('echo inside > inside')).exitCode === 0, mode === 'workspace-write')
+        return {
+          ...result,
+          output,
+          diagnostic: `权限：${mode}；命令：${command}；退出码：${result.exitCode}\n${output}`,
+        }
+      }
+      const read = await run(`cat ${JSON.stringify(path.join(outside, 'original'))}`)
+      assert.equal(read.exitCode, 0, read.diagnostic)
+      assert.equal(read.output, 'original', read.diagnostic)
+      const tempWrite = await run(`echo temporary > ${JSON.stringify(path.join(temporary, mode))}`)
+      assert.equal(tempWrite.exitCode, 0, tempWrite.diagnostic)
+      const projectWrite = await run('echo inside > inside')
+      assert.equal(projectWrite.exitCode === 0, mode === 'workspace-write', projectWrite.diagnostic)
       for (const target of [
         path.join(outside, 'original'),
         path.join(project, 'escape/original'),
         path.join(dataRoot, 'auth.json'),
       ]) {
-        assert.notEqual((await run(`echo forbidden > ${JSON.stringify(target)}`)).exitCode, 0)
+        const denied = await run(`echo forbidden > ${JSON.stringify(target)}`)
+        assert.notEqual(denied.exitCode, 0, denied.diagnostic)
         await assert.rejects(sandbox.writeFile(target, 'forbidden'))
       }
       assert.equal(await readFile(path.join(outside, 'original'), 'utf8'), 'original')

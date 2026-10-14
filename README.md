@@ -112,9 +112,12 @@ pnpm test:server
 pnpm package
 pnpm test:package
 pnpm test:desktop
+pnpm test:desktop:regression
 ```
 
 类型、Lint、Format 按顺序通过后再交付。Linux 运行到 `pnpm test:server`；`package`、`test:package` 和 `test:desktop` 是 macOS 应用验收。测试使用临时目录与假模型端点，不调用真实模型或修改真实配置。Desktop 截图保存到 `apps/desktop/out/desktop-smoke/`。
+
+`pnpm test:desktop:regression` 依次运行模型、MCP、表单下拉、图片、侧栏菜单、侧栏搜索与显示控制。每项启动独立 Electron 进程，失败后继续其余专项，存在失败时命令返回非零退出码。每轮的日志、截图和 `results.json` 保存到 `apps/desktop/out/desktop-smoke/regression-<时间戳>/`；完整验收截图保存到 `apps/desktop/out/desktop-smoke/full/`。
 
 并行开发覆盖 `.vite` 缓存时，运行 `PI_DESKTOP_PACKAGED_SMOKE=1 pnpm test:desktop`，从已打包的实际 `.app` 读取入口并执行同一套完整断言。先运行 `pnpm package`，确认 `apps/desktop/out/pi-meme-darwin-arm64/pi-meme.app` 存在。
 

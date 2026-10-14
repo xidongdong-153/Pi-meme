@@ -1,19 +1,15 @@
 const assert = require('node:assert/strict')
-const fs = require('node:fs/promises')
-const path = require('node:path')
 
 module.exports = async function imageViewerSmoke(window, waitFor, screenshots) {
-  const evaluate = (code) =>
-    window.webContents.executeJavaScript(code).catch((error) => {
-      console.error('图片预览验收脚本执行失败：', code, error)
-      throw error
-    })
+  const { evaluate, pressKey, capture } = require('./desktop-test-helpers.cjs').desktopTestHelpers(
+    window,
+    waitFor,
+    screenshots,
+  )
   const click = (selector) => evaluate(`document.querySelector(${JSON.stringify(selector)}).click()`)
   const trigger = '[role="combobox"][aria-label="图片缩放比例"]'
   const open = async () => {
-    await evaluate(
-      `document.querySelector(${JSON.stringify(trigger)}).dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))`,
-    )
+    await pressKey('Enter', trigger)
     await waitFor(() => evaluate('Boolean(document.querySelector("[role=listbox]"))'), '图片缩放菜单')
   }
   const choose = async (text) => {
@@ -22,13 +18,12 @@ module.exports = async function imageViewerSmoke(window, waitFor, screenshots) {
       `Array.from(document.querySelectorAll('[role="option"]')).find(node => node.textContent === ${JSON.stringify(text)}).click()`,
     )
     await waitFor(
-      () => evaluate(`document.querySelector(${JSON.stringify(trigger)})?.getAttribute('aria-expanded') === 'false'`),
+      () =>
+        evaluate(
+          `document.querySelector(${JSON.stringify(trigger)})?.getAttribute('aria-expanded') === 'false' && !document.querySelector('[role=listbox]') && document.activeElement === document.querySelector(${JSON.stringify(trigger)})`,
+        ),
       '图片缩放菜单关闭',
     )
-  }
-  const capture = async (name) => {
-    await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
-    await fs.writeFile(path.join(screenshots, `${name}.png`), (await window.webContents.capturePage()).toPNG())
   }
   const png = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aE9sAAAAASUVORK5CYII='
   for (let index = 0; index < 2; index++) {
@@ -45,25 +40,21 @@ module.exports = async function imageViewerSmoke(window, waitFor, screenshots) {
   await click('button[aria-label="预览第 1 张图片"]')
   await waitFor(() => evaluate(`Boolean(document.querySelector(${JSON.stringify(trigger)}))`), '图片缩放下拉')
   await choose('100%')
-  await evaluate(
-    `document.querySelector(${JSON.stringify(trigger)}).dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true }))`,
-  )
+  await pressKey('ArrowRight', trigger)
   assert.equal(
     await evaluate(`Boolean(document.querySelector('img[alt="图片大图预览，第 1 张"]'))`),
     true,
     '缩放控件的方向键不切换图片',
   )
   await open()
-  await evaluate(
-    'document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true, cancelable: true }))',
-  )
+  await pressKey('ArrowRight')
   assert.equal(
     await evaluate(`Boolean(document.querySelector('img[alt="图片大图预览，第 1 张"]'))`),
     true,
     '菜单内方向键不切换图片',
   )
   await capture('image-viewer-menu')
-  await evaluate('document.activeElement.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))')
+  await pressKey('Escape')
   await waitFor(
     () =>
       evaluate(
@@ -90,10 +81,12 @@ module.exports = async function imageViewerSmoke(window, waitFor, screenshots) {
   )
   await choose('适应窗口')
   await capture('image-viewer-select')
-  await evaluate(
-    'document.querySelector("[aria-label=图片预览区域]").dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }))',
-  )
+  await pressKey('Escape', '[aria-label=图片预览区域]')
   await waitFor(() => evaluate(`!document.querySelector(${JSON.stringify(trigger)})`), '关闭图片预览')
+  await waitFor(
+    () => evaluate('document.activeElement?.getAttribute("aria-label") === "预览第 1 张图片"'),
+    '关闭动画结束后还原附件焦点',
+  )
   assert.equal(
     await evaluate('document.activeElement?.getAttribute("aria-label")'),
     '预览第 1 张图片',

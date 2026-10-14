@@ -1,10 +1,12 @@
 const assert = require('node:assert/strict')
 const http = require('node:http')
-const fs = require('node:fs/promises')
-const path = require('node:path')
 
 module.exports = async (window, waitFor, outputDirectory) => {
-  const evaluate = (code) => window.webContents.executeJavaScript(code)
+  const { evaluate, capture } = require('./desktop-test-helpers.cjs').desktopTestHelpers(
+    window,
+    waitFor,
+    outputDirectory,
+  )
   const clickText = (text) =>
     evaluate(`(() => {
     const button = [...document.querySelectorAll('button')].find(node => node.checkVisibility() && node.textContent.trim() === ${JSON.stringify(text)});
@@ -19,10 +21,7 @@ module.exports = async (window, waitFor, outputDirectory) => {
       input.dispatchEvent(new Event('input', { bubbles: true })); input.dispatchEvent(new Event('change', { bubbles: true }));
     })()`)
   }
-  const capture = async (name) => {
-    await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
-    await fs.writeFile(path.join(outputDirectory, `${name}.png`), (await window.webContents.capturePage()).toPNG())
-  }
+
   const server = http.createServer((request, response) => {
     assert.equal(request.url, '/v1/models')
     assert.equal(request.headers.authorization, 'Bearer test-key')
@@ -110,6 +109,15 @@ module.exports = async (window, waitFor, outputDirectory) => {
     )
     await evaluate(
       'document.querySelector("[aria-label=\\"manual-model-5 maxTokens\\"]").closest("[role=region]").parentElement.querySelector("button[aria-expanded]").click()',
+    )
+    await waitFor(
+      () =>
+        evaluate(`(() => {
+        const region = document.querySelector('[aria-label="manual-model-5 maxTokens"]').closest('[role="region"]');
+        region.getBoundingClientRect();
+        return !region.inert && region.getAttribute('aria-hidden') === 'false' && region.getAnimations().every(animation => animation.playState !== 'running');
+      })()`),
+      '最后一个模型参数展开动画结束',
     )
     assert.equal(
       await evaluate(`(() => {

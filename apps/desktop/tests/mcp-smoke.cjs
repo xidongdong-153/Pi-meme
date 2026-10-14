@@ -3,6 +3,7 @@ const fs = require('node:fs/promises')
 const path = require('node:path')
 
 module.exports = async (window, waitFor, output) => {
+  const { capture } = require('./desktop-test-helpers.cjs').desktopTestHelpers(window, waitFor, output)
   const evaluate = (code) =>
     window.webContents.executeJavaScript(code).catch((cause) => {
       console.error(code)
@@ -56,10 +57,7 @@ module.exports = async (window, waitFor, output) => {
   }
   const saved = (predicate) =>
     waitFor(() => evaluate(`window.piMemeClient.getMcpConfig().then(value => ${predicate})`), 'MCP 配置保存')
-  const capture = async (name) => {
-    await evaluate('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))')
-    await fs.writeFile(path.join(output, `${name}.png`), (await window.webContents.capturePage()).toPNG())
-  }
+
   await evaluate('document.querySelector("button[aria-label=设置]").click()')
   await click('MCP')
   await waitFor(() => evaluate('document.body.textContent.includes("尚未配置 MCP 服务")'), '空配置')

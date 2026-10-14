@@ -25,7 +25,7 @@ module.exports = async (window, capture) => {
         const area = form.closest('[data-testid="composer-area"]');
         const card = area.querySelector('[data-testid="workspace-card"]');
         const cardBounds = card?.getBoundingClientRect();
-        const buttons = [...area.querySelectorAll('button')].filter(node => node.checkVisibility() && node.getBoundingClientRect().width > 0);
+        const buttons = [...area.querySelectorAll('button')].filter(node => !node.closest('[inert]') && node.checkVisibility() && node.getBoundingClientRect().width > 0);
         const bounds = form.getBoundingClientRect();
         const label = node => node.getAttribute('aria-label') || node.textContent.trim();
         return {

@@ -4,7 +4,11 @@ const path = require('node:path')
 const { dialog, nativeTheme } = require('electron')
 
 module.exports = async function appearanceSmoke(window, waitFor, directory, screenshots) {
-  const evaluate = (code) => window.webContents.executeJavaScript(code)
+  const { evaluate, pressKey, capture } = require('./desktop-test-helpers.cjs').desktopTestHelpers(
+    window,
+    waitFor,
+    screenshots,
+  )
   const click = (label) => evaluate(`document.querySelector('button[aria-label="${label}"]').click()`)
   const clickText = (text) =>
     evaluate(
@@ -17,9 +21,7 @@ module.exports = async function appearanceSmoke(window, waitFor, directory, scre
     input.dispatchEvent(new Event('input', { bubbles: true }));
   })()`)
   const choose = async (label, text) => {
-    await evaluate(
-      `document.querySelector('[role="combobox"][aria-label="${label}"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))`,
-    )
+    await pressKey('Enter', `[role="combobox"][aria-label="${label}"]`)
     await waitFor(
       () =>
         evaluate(
@@ -28,12 +30,13 @@ module.exports = async function appearanceSmoke(window, waitFor, directory, scre
       `${label}选项`,
     )
     await evaluate(
-      `Array.from(document.querySelectorAll('[role="option"]')).find(node => node.textContent === ${JSON.stringify(text)}).click()`,
+      `Array.from(document.querySelectorAll('[role="option"]')).find(node => node.textContent === ${JSON.stringify(text)}).focus()`,
     )
+    await pressKey('Enter')
     await waitFor(
       () =>
         evaluate(
-          `document.querySelector('[role="combobox"][aria-label="${label}"]').getAttribute('aria-expanded') === 'false'`,
+          `document.querySelector('[role="combobox"][aria-label="${label}"]').getAttribute('aria-expanded') === 'false' && !document.querySelector('[role=listbox]') && document.activeElement === document.querySelector('[role="combobox"][aria-label="${label}"]')`,
         ),
       `${label}菜单关闭`,
     )
@@ -45,14 +48,38 @@ module.exports = async function appearanceSmoke(window, waitFor, directory, scre
       async () => predicate(JSON.parse(await fs.readFile(path.join(directory, 'settings.json'), 'utf8')).appearance),
       '外观配置保存',
     )
-  const capture = async (name) => {
-    await evaluate(
-      `new Promise((resolve, reject) => { const timer = setTimeout(() => reject(new Error('截图渲染等待超时')), 10000); requestAnimationFrame(() => requestAnimationFrame(() => { clearTimeout(timer); resolve() })) })`,
+  const escape = async (label) => {
+    await pressKey('Escape')
+    await waitFor(
+      () =>
+        evaluate(
+          `!document.querySelector('[role=dialog], [role=listbox]') && document.activeElement === document.querySelector('button[aria-label="${label}"]')`,
+        ),
+      '颜色菜单退场并恢复焦点',
     )
-    await fs.writeFile(path.join(screenshots, `${name}.png`), (await window.webContents.capturePage()).toPNG())
   }
-  const escape = () =>
-    evaluate(`document.activeElement.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))`)
+  const chooseFont = async (label) => {
+    const trigger = `button[aria-label="${label}"]`
+    await pressKey('Enter', trigger)
+    await waitFor(
+      () =>
+        evaluate(
+          `Boolean(document.querySelector('[role="listbox"][aria-label="${label}"]')) && document.activeElement === document.querySelector('[aria-label="搜索${label}"]')`,
+        ),
+      `${label}选择器打开并获得焦点`,
+    )
+    await evaluate(
+      `Array.from(document.querySelector('[role="listbox"][aria-label="${label}"]').querySelectorAll('button')).find(node => node.textContent === '系统').focus()`,
+    )
+    await pressKey('Enter')
+    await waitFor(
+      () =>
+        evaluate(
+          `!document.querySelector('[role=listbox], [role=dialog]') && document.activeElement === document.querySelector(${JSON.stringify(trigger)})`,
+        ),
+      `${label}选择器关闭并恢复焦点`,
+    )
+  }
   assert.equal(await evaluate(`Boolean(document.querySelector('[aria-label="界面字号"]'))`), true)
   assert.equal(await evaluate(`document.querySelector('#settings-content select') === null`), true)
   assert.equal(
@@ -94,31 +121,16 @@ module.exports = async function appearanceSmoke(window, waitFor, directory, scre
   await change('背景 HEX', '#bad')
   assert.equal(await css('--color-background'), '#123456')
   assert.equal(await evaluate(`document.querySelector('[aria-label="背景 HEX"]').getAttribute('aria-invalid')`), 'true')
-  await escape()
+  await escape('背景颜色')
   await click('前景颜色')
   await change('前景 HEX', '#eeeeee')
   await waitFor(() => css('--color-text').then((value) => value === '#eeeeee'), '前景预览')
-  await escape()
-  await click('界面字体')
-  const installedFonts = await Promise.race([
-    evaluate('window.piMemeClient.getInstalledFonts()'),
-    new Promise((_, reject) => setTimeout(() => reject(new Error('系统字体验收等待超时')), 35000)),
-  ])
-  assert.ok(installedFonts.length > 0)
-  await waitFor(() => evaluate(`Boolean(document.querySelector('[aria-label="搜索界面字体"]'))`), '字体搜索')
-  await evaluate(
-    `Array.from(document.querySelector('[role="listbox"][aria-label="界面字体"]').querySelectorAll('button')).find(node => node.textContent === '系统').click()`,
-  )
+  await escape('前景颜色')
+  await chooseFont('界面字体')
   await choose('界面字体样式', '粗体')
   await waitFor(() => css('--font-ui-weight').then((value) => value === '700'), '界面字体样式')
-  await click('内容字体')
-  await evaluate(
-    `Array.from(document.querySelector('[role="listbox"][aria-label="内容字体"]').querySelectorAll('button')).find(node => node.textContent === '系统').click()`,
-  )
-  await click('代码字体')
-  await evaluate(
-    `Array.from(document.querySelector('[role="listbox"][aria-label="代码字体"]').querySelectorAll('button')).find(node => node.textContent === '系统').click()`,
-  )
+  await chooseFont('内容字体')
+  await chooseFont('代码字体')
   await waitFor(() => css('--font-code').then((value) => value.includes('ui-monospace')), '系统代码字体')
   const codeElements = await evaluate(
     `Array.from(document.querySelectorAll('.pi-code-block-content, .pi-code-text, .cm-content')).map(node => getComputedStyle(node).fontSize)`,
@@ -170,9 +182,7 @@ module.exports = async function appearanceSmoke(window, waitFor, directory, scre
       '导入 JSON',
     )
     await click('深色模式')
-    await evaluate(
-      `document.querySelector('[aria-label="外观主题"]').dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))`,
-    )
+    await pressKey('Enter', '[aria-label="外观主题"]')
     await waitFor(
       () =>
         evaluate(
@@ -223,4 +233,9 @@ module.exports = async function appearanceSmoke(window, waitFor, directory, scre
   window.setSize(1100, 760)
   await click('浅色模式')
   await saved((value) => value.mode === 'light')
+  await waitFor(() => evaluate('Boolean(window.desktopSmokeFonts)'), '系统字体读取完成')
+  const fontResult = await evaluate('window.desktopSmokeFonts')
+  assert.equal(fontResult.error, undefined, fontResult.error)
+  const installedFonts = await evaluate('window.piMemeClient.getInstalledFonts()')
+  assert.ok(installedFonts.length > 0)
 }
