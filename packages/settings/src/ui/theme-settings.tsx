@@ -9,17 +9,11 @@ import type {
   SettingsSnapshot,
   Theme,
 } from '@pi-meme/contracts/settings'
+import { Slider } from '@pi-meme/ui/components/ui/slider'
+import { Switch } from '@pi-meme/ui/components/ui/switch'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@pi-meme/ui/components/ui/select'
-import {
-  AppearanceGroup,
-  AppearanceRow,
-  Choice,
-  ColorControl,
-  FontControl,
-  SizeControl,
-  Toggle,
-} from './appearance-controls'
+import { AppearanceGroup, AppearanceRow, Choice, ColorControl, FontControl, SizeControl } from './appearance-controls'
 import {
   defaultAppearance,
   editingOverrides,
@@ -204,13 +198,13 @@ export function ThemeSettings({
         <AppearanceRow label="模式">
           <div role="group" aria-label="外观模式" className="flex flex-wrap gap-3">
             {(['system', 'light', 'dark'] as const).map((entry) => (
-              <button
+              <Button
                 key={entry}
-                type="button"
+                variant="outline"
                 aria-label={`${entry === 'system' ? '系统' : entry === 'light' ? '浅色' : '深色'}模式`}
                 aria-pressed={value.mode === entry}
                 onClick={() => change({ mode: entry })}
-                className={`rounded-xl border-2 p-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${value.mode === entry ? 'border-primary' : 'border-border'}`}
+                className={`h-auto flex-col gap-0 rounded-xl border-2 p-1.5 ${value.mode === entry ? 'border-primary' : 'border-border'}`}
               >
                 <span
                   aria-hidden="true"
@@ -235,7 +229,7 @@ export function ThemeSettings({
                 <span className="mt-1 block text-xs">
                   {entry === 'system' ? '系统' : entry === 'light' ? '浅色' : '深色'}
                 </span>
-              </button>
+              </Button>
             ))}
           </div>
         </AppearanceRow>
@@ -341,8 +335,7 @@ export function ThemeSettings({
             )}
             <label className="flex items-center gap-2 text-sm">
               透明度
-              <input
-                type="range"
+              <Slider
                 aria-label="背景图透明度"
                 min={0}
                 max={1}
@@ -355,8 +348,7 @@ export function ThemeSettings({
             </label>
             <label className="flex items-center gap-2 text-sm">
               模糊
-              <input
-                type="range"
+              <Slider
                 aria-label="背景图模糊"
                 min={0}
                 max={32}
@@ -371,8 +363,7 @@ export function ThemeSettings({
         <AppearanceRow label="间距与圆角">
           <label className="flex items-center gap-2 text-sm">
             间距
-            <input
-              type="range"
+            <Slider
               aria-label="主题间距"
               min={0.5}
               max={2}
@@ -383,8 +374,7 @@ export function ThemeSettings({
           </label>
           <label className="flex items-center gap-2 text-sm">
             圆角
-            <input
-              type="range"
+            <Slider
               aria-label="主题圆角"
               min={0}
               max={24}
@@ -394,8 +384,7 @@ export function ThemeSettings({
           </label>
           <label className="flex items-center gap-2 text-sm">
             面板透明度
-            <input
-              type="range"
+            <Slider
               aria-label="面板透明度"
               min={0.4}
               max={1}
@@ -457,9 +446,9 @@ export function ThemeSettings({
             </div>
           </AppearanceRow>
           <AppearanceRow label="分别设置浅色和深色模式" description="分别选择主题、颜色和字体">
-            <Toggle
+            <Switch
               label="分别设置浅色和深色模式"
-              value={value.separate}
+              checked={value.separate}
               onChange={(separate) => {
                 if (separate) setEditing(mode)
                 onAppearance(toggleSeparate(value, mode, separate))
@@ -478,22 +467,21 @@ export function ThemeSettings({
             {styleControl('code', '代码字体样式')}
           </AppearanceRow>
           <AppearanceRow label="半透明侧边栏">
-            <Toggle
+            <Switch
               label="半透明侧边栏"
-              value={value.translucentSidebar}
+              checked={value.translucentSidebar}
               onChange={(translucentSidebar) => change({ translucentSidebar })}
             />
           </AppearanceRow>
           <AppearanceRow label="对比度" description="调整卡片、边框和辅助文字的层次">
-            <input
-              type="range"
+            <Slider
               aria-label="对比度"
               min={0}
               max={100}
               step={1}
               value={value.contrast}
               onChange={(event) => change({ contrast: Number(event.target.value) })}
-              className="w-40 accent-primary"
+              className="w-40"
             />
             <output className="w-8 text-right text-sm">{value.contrast}</output>
           </AppearanceRow>

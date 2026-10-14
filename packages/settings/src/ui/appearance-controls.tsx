@@ -1,6 +1,8 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { ChevronDown } from 'lucide-react'
 import type { InstalledFont } from '@pi-meme/contracts/settings'
+import { Card } from '@pi-meme/ui/components/ui/card'
+import { ScrollArea } from '@pi-meme/ui/components/ui/scroll-area'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Input } from '@pi-meme/ui/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@pi-meme/ui/components/ui/popover'
@@ -26,7 +28,7 @@ export function AppearanceRow({
   )
 }
 export function AppearanceGroup({ children }: { children: ReactNode }) {
-  return <div className="rounded-2xl border border-border bg-card p-5 divide-y divide-border">{children}</div>
+  return <Card className="rounded-2xl p-5 divide-y divide-border">{children}</Card>
 }
 export function Choice({
   label,
@@ -52,28 +54,6 @@ export function Choice({
         ))}
       </SelectContent>
     </Select>
-  )
-}
-export function Toggle({
-  label,
-  value,
-  onChange,
-}: {
-  label: string
-  value: boolean
-  onChange: (value: boolean) => void
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-label={label}
-      aria-checked={value}
-      onClick={() => onChange(!value)}
-      className={`h-6 w-11 shrink-0 rounded-full p-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${value ? 'bg-primary' : 'bg-secondary'}`}
-    >
-      <span className={`block size-5 rounded-full bg-white transition-transform ${value ? 'translate-x-5' : ''}`} />
-    </button>
   )
 }
 export function ColorControl({
@@ -105,7 +85,7 @@ export function ColorControl({
         </Button>
       </PopoverTrigger>
       <PopoverContent className="space-y-3" aria-label={`${label}颜色选择器`}>
-        <input
+        <Input
           type="color"
           aria-label={`${label}拾色器`}
           value={value}
@@ -266,33 +246,35 @@ export function FontControl({
             </Button>
           </div>
         )}
-        <div role="listbox" aria-label={label} className="max-h-60 overflow-y-auto">
-          {[
-            { family: inherit ? '与界面字体相同' : '跟随主题', value: undefined },
-            { family: '系统', value: system },
-            ...visible.map((font) => ({
-              family: font.family,
-              value: `${JSON.stringify(font.family)}, ${code ? 'monospace' : 'sans-serif'}`,
-            })),
-          ].map((font) => (
-            <button
-              type="button"
-              role="option"
-              aria-selected={font.value === value}
-              key={font.family}
-              className="block w-full rounded px-2 py-1.5 text-left text-sm hover:bg-secondary focus-visible:bg-secondary"
-              onClick={() => {
-                onChange(font.value)
-                setOpen(false)
-              }}
-            >
-              {font.family}
-            </button>
-          ))}
-          {!loading && !error && !visible.length && search && (
-            <p className="p-2 text-xs text-muted-foreground">未找到匹配字体</p>
-          )}
-        </div>
+        <ScrollArea className="h-60">
+          <div role="listbox" aria-label={label}>
+            {[
+              { family: inherit ? '与界面字体相同' : '跟随主题', value: undefined },
+              { family: '系统', value: system },
+              ...visible.map((font) => ({
+                family: font.family,
+                value: `${JSON.stringify(font.family)}, ${code ? 'monospace' : 'sans-serif'}`,
+              })),
+            ].map((font) => (
+              <Button
+                variant="ghost"
+                role="option"
+                aria-selected={font.value === value}
+                key={font.family}
+                className="h-auto w-full justify-start whitespace-normal px-2 py-1.5 text-left font-normal aria-selected:bg-secondary"
+                onClick={() => {
+                  onChange(font.value)
+                  setOpen(false)
+                }}
+              >
+                {font.family}
+              </Button>
+            ))}
+            {!loading && !error && !visible.length && search && (
+              <p className="p-2 text-xs text-muted-foreground">未找到匹配字体</p>
+            )}
+          </div>
+        </ScrollArea>
       </PopoverContent>
     </Popover>
   )
