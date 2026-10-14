@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { CollapsibleSection } from '@pi-meme/ui/components/ui/collapsible'
 import { Settings, RefreshCw, ArrowLeft } from 'lucide-react'
 import { IntegrationHeader } from '@pi-meme/ui/components/integration-header'
 import { Switch } from '@pi-meme/ui/components/ui/switch'
@@ -288,9 +289,8 @@ export function McpSettings({
           当前权限不加载 MCP；切换到完全权限后可使用。
         </p>
       )}
-      <details className="text-sm text-muted-foreground">
-        <summary className="cursor-pointer">连接诊断</summary>
-        <div className="mt-4 space-y-4">
+      <CollapsibleSection title="连接诊断" description="检查已配置服务，查看诊断输出">
+        <div className="space-y-4 text-muted-foreground">
           <Button
             variant="outline"
             disabled={blocked || mode !== 'full-access' || !sessionKey || !snapshot || Boolean(snapshot.error)}
@@ -322,7 +322,7 @@ export function McpSettings({
             </section>
           )}
         </div>
-      </details>
+      </CollapsibleSection>
       {working && (
         <p role="status" className="text-xs text-muted-foreground">
           正在处理 MCP 操作…

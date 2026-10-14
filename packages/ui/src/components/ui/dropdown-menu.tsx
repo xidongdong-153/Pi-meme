@@ -9,7 +9,7 @@ export const DropdownMenuSub = Primitive.Sub
 export const DropdownMenuRadioGroup = Primitive.RadioGroup
 
 const contentClass =
-  'z-50 min-w-48 max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-y-auto rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-xl'
+  'z-50 min-w-48 max-h-[var(--radix-dropdown-menu-content-available-height)] overflow-y-auto rounded-xl border border-border bg-popover p-1 text-popover-foreground shadow-xl origin-[var(--radix-dropdown-menu-content-transform-origin)] duration-150 ease-out data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=open]:fade-in-0 data-[state=closed]:fade-out-0 data-[state=open]:zoom-in-98 data-[state=closed]:zoom-out-98'
 const itemClass =
   'flex items-center gap-2 rounded-md px-2.5 py-2 text-xs outline-none cursor-pointer data-[highlighted]:bg-secondary data-[disabled]:opacity-40 data-[disabled]:pointer-events-none [&_svg]:size-3.5 [&_svg]:shrink-0'
 

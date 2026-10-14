@@ -1,4 +1,5 @@
 @import 'tailwindcss';
+@import 'tw-animate-css';
 @import '@pi-meme/ui/tokens.css';
 @import '@pi-meme/ui/brand-mark.css';
 @import 'katex/dist/katex.min.css';

@@ -130,3 +130,13 @@
   transition: none !important;
   scroll-behavior: auto !important;
 }
+
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-reduced-motion]) *,
+  :root:not([data-reduced-motion]) *::before,
+  :root:not([data-reduced-motion]) *::after {
+    animation: none !important;
+    transition: none !important;
+    scroll-behavior: auto !important;
+  }
+}

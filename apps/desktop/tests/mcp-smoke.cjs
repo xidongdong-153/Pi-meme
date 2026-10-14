@@ -191,7 +191,8 @@ module.exports = async (window, waitFor, output) => {
   await click('启用并授权 check')
   await saved('value.servers[0].config.desktopAuthorized === true')
   assert.equal(await evaluate('window.piMemeClient.getSettings().then(value => value.settings.mcpEnabled)'), false)
-  await evaluate(`document.querySelector('details > summary').click()`)
+  await require('./disclosure-smoke.cjs')(window, waitFor, '连接诊断')
+  await evaluate(`document.querySelector('button[aria-label="连接诊断"]').click()`)
   await click('检查全部全局服务')
   await waitFor(
     () => evaluate('document.querySelector("section[aria-label=\\"MCP 诊断结果\\"]")?.textContent.includes("已连接")'),

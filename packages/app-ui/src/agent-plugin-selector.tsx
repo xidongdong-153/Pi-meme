@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import type { HostApi, SessionRef } from '@pi-meme/contracts/app-host'
 import type { UiPluginDescriptor } from '@pi-meme/plugin-sdk/ui'
+import { CollapsibleSection } from '@pi-meme/ui/components/ui/collapsible'
+import { Button } from '@pi-meme/ui/components/ui/button'
 
 export function AgentPluginSelector({
   host,
@@ -66,10 +68,11 @@ export function AgentPluginSelector({
     }
   }
   return (
-    <details className="px-3 py-1 text-xs">
-      <summary className="cursor-pointer text-muted-foreground">
-        Agent 插件{selected.length ? ` · ${selected.length} 个` : ' · 未选择'}
-      </summary>
+    <CollapsibleSection
+      title={`Agent 插件${selected.length ? ` · ${selected.length} 个` : ' · 未选择'}`}
+      variant="inline"
+      className="mx-3 text-xs"
+    >
       <div className="space-y-2 rounded-lg border border-border p-3">
         <p className="text-muted-foreground">只在当前会话使用所选工具与消息能力。运行中不能修改。</p>
         {agents.map((plugin) => (
@@ -88,8 +91,9 @@ export function AgentPluginSelector({
           </label>
         ))}
         <div className="flex gap-3">
-          <button
-            type="button"
+          <Button
+            variant="ghost"
+            size="sm"
             disabled={busy || saving}
             onClick={() =>
               void host.plugins
@@ -98,9 +102,10 @@ export function AgentPluginSelector({
             }
           >
             设为默认列表
-          </button>
-          <button
-            type="button"
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
             disabled={busy || saving || !target}
             onClick={() =>
               void host.plugins
@@ -110,9 +115,9 @@ export function AgentPluginSelector({
             }
           >
             使用默认列表
-          </button>
+          </Button>
         </div>
       </div>
-    </details>
+    </CollapsibleSection>
   )
 }

@@ -15,6 +15,7 @@ import { ScrollArea } from '@pi-meme/ui/components/ui/scroll-area'
 import { Textarea } from '@pi-meme/ui/components/ui/textarea'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@pi-meme/ui/components/ui/select'
+import { CollapsibleSection } from '@pi-meme/ui/components/ui/collapsible'
 
 export const apiLabels: Record<ModelApi, string> = {
   'openai-completions': 'OpenAI Chat Completions',
@@ -213,9 +214,12 @@ export function ModelConfigForm({
                     placeholder="例如：我的模型服务"
                   />
                 </label>
-                <details className="sm:col-span-2">
-                  <summary className="cursor-pointer text-sm text-muted-foreground">高级连接设置</summary>
-                  <div className="mt-3 grid gap-4 sm:grid-cols-2">
+                <CollapsibleSection
+                  title="高级连接设置"
+                  description={`${apiLabels[api]} · ${baseUrl}`}
+                  className="sm:col-span-2"
+                >
+                  <div className="grid gap-4 sm:grid-cols-2">
                     <label className="space-y-1.5 text-sm">
                       服务商 ID
                       <Input
@@ -257,7 +261,7 @@ export function ModelConfigForm({
                       <span className="text-xs text-muted-foreground">示例：{examples[api]}</span>
                     </label>
                   </div>
-                </details>
+                </CollapsibleSection>
                 <div className="sm:col-span-2 space-y-2">
                   <label className="text-sm" htmlFor="model-api-key">
                     API Key{provider?.hasApiKey && !clearKey ? ' · 已配置，留空保留' : ''}
@@ -295,9 +299,8 @@ export function ModelConfigForm({
                   </p>
                 </div>
               </div>
-              <details className="rounded-lg border border-border p-3">
-                <summary className="cursor-pointer text-sm">服务商高级配置</summary>
-                <p className="mt-2 text-xs text-muted-foreground">
+              <CollapsibleSection title="服务商高级配置" description="请求头与协议兼容参数">
+                <p className="text-xs text-muted-foreground">
                   敏感请求头留空保留原值；删除对应键即可清除。JSON 留空则移除该配置。
                 </p>
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -322,7 +325,7 @@ export function ModelConfigForm({
                     />
                   </label>
                 </div>
-              </details>
+              </CollapsibleSection>
               <div className="grid min-h-0 gap-4 lg:grid-cols-2">
                 <section
                   aria-label="接口模型列表"
@@ -431,9 +434,8 @@ export function ModelConfigForm({
                           onChange={(event) => updateModel(model.id, { name: event.target.value || undefined })}
                         />
                       </label>
-                      <details>
-                        <summary className="cursor-pointer text-xs text-muted-foreground">高级模型参数</summary>
-                        <div className="mt-3 space-y-3">
+                      <CollapsibleSection title="高级模型参数" variant="inline">
+                        <div className="space-y-3">
                           <div className="grid grid-cols-2 gap-3">
                             {(['contextWindow', 'maxTokens'] as const).map((field) => (
                               <label key={field} className="space-y-1 text-xs">
@@ -493,7 +495,7 @@ export function ModelConfigForm({
                             </label>
                           ))}
                         </div>
-                      </details>
+                      </CollapsibleSection>
                     </div>
                   ))}
                 </section>

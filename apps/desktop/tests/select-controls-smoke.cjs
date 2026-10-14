@@ -152,8 +152,8 @@ module.exports = async (window, waitFor, outputDirectory) => {
       '模型服务商草稿表单',
     )
     await evaluate(`(() => {
-      const details = document.querySelector('[role="combobox"][aria-label="API 协议"]').closest('details');
-      if (!details.open) details.querySelector('summary').click();
+      const trigger = document.querySelector('button[aria-label="高级连接设置"]');
+      if (trigger.getAttribute('aria-expanded') === 'false') trigger.click();
     })()`)
     window.setSize(720, 560)
     await waitFor(() => evaluate('window.innerWidth <= 720'), '窄窗口下拉布局')

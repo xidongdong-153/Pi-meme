@@ -8,6 +8,8 @@ import { Button } from '@pi-meme/ui/components/ui/button'
 import { Input } from '@pi-meme/ui/components/ui/input'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
 import { Switch } from '@pi-meme/ui/components/ui/switch'
+import { CollapsibleSection } from '@pi-meme/ui/components/ui/collapsible'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@pi-meme/ui/components/ui/select'
 import { IntegrationHeader } from '@pi-meme/ui/components/integration-header'
 import {
   DropdownMenu,
@@ -190,9 +192,8 @@ export function SkillPage({
               </div>
             ))}
           </dl>
-          <details className="text-sm text-muted-foreground">
-            <summary className="cursor-pointer">文件信息</summary>
-            <dl className="mt-3 space-y-3 text-xs">
+          <CollapsibleSection title="文件信息">
+            <dl className="space-y-3 text-xs text-muted-foreground">
               {Object.entries({ 文件位置: current.sourcePath, 运行副本: current.path }).map(([label, value]) => (
                 <div key={label}>
                   <dt>{label}</dt>
@@ -200,7 +201,7 @@ export function SkillPage({
                 </div>
               ))}
             </dl>
-          </details>
+          </CollapsibleSection>
           <p className="text-sm text-muted-foreground">
             {pending
               ? '当前聊天仍使用原版本，任务结束后更新。'
@@ -224,15 +225,15 @@ export function SkillPage({
             </p>
           ))}
           <div className="flex flex-wrap items-center gap-2">
-            <select
-              aria-label="技能策略范围"
-              value={scope}
-              onChange={(event) => setScope(event.target.value as 'host' | 'project')}
-              className="rounded-lg border border-border bg-background p-2 text-sm"
-            >
-              {current.scope !== 'project' && <option value="host">设备默认设置</option>}
-              {cwd && <option value="project">仅当前项目</option>}
-            </select>
+            <Select value={scope} onValueChange={(value) => setScope(value as 'host' | 'project')}>
+              <SelectTrigger aria-label="技能策略范围" className="w-auto min-w-36">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {current.scope !== 'project' && <SelectItem value="host">设备默认设置</SelectItem>}
+                {cwd && <SelectItem value="project">仅当前项目</SelectItem>}
+              </SelectContent>
+            </Select>
             <Button
               variant="outline"
               disabled={busy}

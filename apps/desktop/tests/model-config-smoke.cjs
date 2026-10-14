@@ -67,6 +67,8 @@ module.exports = async (window, waitFor, outputDirectory) => {
       '服务商表单焦点',
     )
     await fill('服务商名称', '桌面验收接口')
+    await require('./disclosure-smoke.cjs')(window, waitFor, '高级连接设置')
+    await evaluate('document.querySelector("button[aria-label=\\"高级连接设置\\"]").click()')
     await fill('服务商 ID', 'desktop-model-test')
     await fill('Base URL', `http://127.0.0.1:${address.port}/v1`)
     await fill('API Key', 'test-key')
@@ -86,7 +88,7 @@ module.exports = async (window, waitFor, outputDirectory) => {
       await clickText('添加模型')
     }
     await evaluate(
-      `document.querySelector('[aria-label="catalog-test contextWindow"]').closest('details').querySelector('summary').click()`,
+      `document.querySelector('[aria-label="catalog-test contextWindow"]').closest('[role="region"]').parentElement.querySelector('button[aria-expanded]').click()`,
     )
     await fill('catalog-test contextWindow', '64000')
     await fill('catalog-test compat JSON', '{"supportsDeveloperRole":false}')
@@ -107,7 +109,7 @@ module.exports = async (window, waitFor, outputDirectory) => {
       true,
     )
     await evaluate(
-      'document.querySelector("[aria-label=\\"manual-model-5 maxTokens\\"]").closest("details").querySelector("summary").click()',
+      'document.querySelector("[aria-label=\\"manual-model-5 maxTokens\\"]").closest("[role=region]").parentElement.querySelector("button[aria-expanded]").click()',
     )
     assert.equal(
       await evaluate(`(() => {
