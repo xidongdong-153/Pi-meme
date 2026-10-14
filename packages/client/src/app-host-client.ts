@@ -45,6 +45,9 @@ export function createAppHostClient(transport: AppHostTransport): HostApi {
     files: {
       list: (ref, relativePath) => call('files.list', [ref, relativePath]),
       read: (ref, relativePath) => call('files.read', [ref, relativePath]),
+      preview: (ref, relativePath) => call('files.preview', [ref, relativePath]),
+      search: (ref, input) => call('files.search', [ref, input]),
+      write: (ref, input, options) => call('files.write', [ref, input], options.idempotencyKey),
     },
     terminal: {
       open: (ref, input, options) => call('terminal.open', [ref, input], options.idempotencyKey),

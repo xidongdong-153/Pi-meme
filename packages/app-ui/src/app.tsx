@@ -28,6 +28,9 @@ import { ExtensionDialog } from '@pi-meme/interaction/ui/extension-dialog'
 import { UserInputPanel } from '@pi-meme/interaction/ui/user-input-panel'
 import { ExtensionNotices } from '@pi-meme/interaction/ui/extension-notices'
 import { GitPanel } from '@pi-meme/git/ui/git-panel'
+import { FileStore } from '@pi-meme/file-directory/ui/file-store'
+import { FilesPanel } from '@pi-meme/file-directory/ui/files-panel'
+import { activate as activateTerminal } from '@pi-meme/terminal/ui/entry'
 import { ProjectSelector } from '@pi-meme/workspace/ui/project-selector'
 import { formatSessionTitle } from '@pi-meme/workspace/ui/sidebar/session-title'
 import { useAppSession } from './use-app-session'
@@ -39,14 +42,14 @@ import { SessionTreePanel } from '@pi-meme/history/ui/session-tree-panel'
 import { PlanPanel } from './plan-panel'
 import type { RightSidebarTab } from './right-sidebar'
 import type { PluginClient } from '@pi-meme/client/plugin-client'
-import type { UiContributionProps, UiPluginDescriptor, UiPluginSlot, UiPanel } from '@pi-meme/plugin-sdk/ui'
+import type { UiContributionProps, UiPluginDescriptor, UiPluginSlot, UiPanel, UiTarget } from '@pi-meme/plugin-sdk/ui'
 import { PluginRenderers } from './plugin-renderers'
 import { UiPluginRegistry } from './plugin-registry'
 import { PluginSlot } from './plugin-slot'
 import { WorkspacePanels } from './workspace-panels'
 import { sessionUiTarget } from './panel-layout'
 import { AgentPluginSelector } from './agent-plugin-selector'
-import { GitBranch, Network, ListTree, NotebookPen } from 'lucide-react'
+import { FileDiff, Folder, TerminalSquare, Network, ListTree, NotebookPen } from 'lucide-react'
 import type { HostApi, AppSession } from '@pi-meme/contracts/app-host'
 import { SettingsPage } from './settings-page'
 import { HostSettings } from './host-settings'
@@ -83,6 +86,58 @@ export function App({
   const resources = useMemo(() => createResourceClient(call, plugins.onChange), [call, plugins])
   const [registry] = useState(() => new UiPluginRegistry(host, loadPluginUI, call))
   const [pluginDescriptors, setPluginDescriptors] = useState<UiPluginDescriptor[]>([])
+  const fileStore = useMemo(() => new FileStore(host), [host])
+  const [terminalPanel, setTerminalPanel] = useState<UiPanel>()
+  const [systemRequest, setSystemRequest] = useState<{ id: string; revision: number; target: UiTarget }>()
+  useEffect(() => {
+    const unload = (event: BeforeUnloadEvent) => {
+      if (fileStore.hasDirty()) event.preventDefault()
+    }
+    window.addEventListener('beforeunload', unload)
+    return () => {
+      window.removeEventListener('beforeunload', unload)
+      fileStore.dispose()
+    }
+  }, [fileStore])
+  useEffect(() => {
+    let stopped = false
+    let dispose: (() => void | Promise<void>) | undefined
+    void activateTerminal({
+      host,
+      panels: {
+        register: (panel) => {
+          if (!stopped) setTerminalPanel(panel)
+          return () => {
+            if (!stopped) setTerminalPanel(undefined)
+          }
+        },
+        open: () => {},
+      },
+    })
+      .then((release) => {
+        if (stopped) void release()
+        else dispose = release
+      })
+      .catch((cause) => {
+        if (!stopped)
+          setTerminalPanel({
+            id: 'builtin:terminal',
+            title: '终端',
+            icon: <TerminalSquare />,
+            location: 'right',
+            scope: 'session',
+            render: () => (
+              <p role="alert" className="p-4 text-sm text-destructive">
+                无法加载终端：{String(cause)}
+              </p>
+            ),
+          })
+      })
+    return () => {
+      stopped = true
+      void dispose?.()
+    }
+  }, [host])
   const [planRequest, setPlanRequest] = useState<{ sessionKey?: string; id: string; revision: number }>()
   const [selectedPlanId, setSelectedPlanId] = useState<string>()
   const chat = useAppSession(bridge, {
@@ -92,25 +147,8 @@ export function App({
     },
   })
   const active = serviceUI?.active ?? true
-  const [gitCwd, setGitCwd] = useState<string>()
   const cwd = chat.connection.cwd
-  useEffect(() => {
-    if (!active || !cwd) return
-    let current = true
-    void bridge
-      .getGitSnapshot()
-      .then((snapshot) => {
-        if (current && snapshot.cwd === cwd) setGitCwd(snapshot.root ? cwd : undefined)
-      })
-      .catch(() => {
-        if (current) setGitCwd(undefined)
-      })
-    return () => {
-      current = false
-    }
-  }, [active, bridge, cwd, chat.refreshToken])
   const availableRightTabs: RightSidebarTab[] = []
-  if (gitCwd && gitCwd === cwd) availableRightTabs.push('git')
   if (chat.chat.sessionEntries?.entries.length) availableRightTabs.push('session-tree')
   if (chat.chat.agents?.some((agent) => agent.parentAgentId && agent.rootSessionKey === chat.connection.sessionKey))
     availableRightTabs.push('subagents')
@@ -202,6 +240,15 @@ export function App({
   useEffect(() => {
     registry.updateTarget({ target: pluginProps.target, snapshot: pluginProps.snapshot })
   }, [registry, pluginProps])
+  useEffect(() => {
+    if (
+      systemRequest &&
+      (systemRequest.target.hostId !== pluginProps.target.hostId ||
+        systemRequest.target.session?.sessionId !== pluginProps.target.session?.sessionId ||
+        systemRequest.target.project?.projectId !== pluginProps.target.project?.projectId)
+    )
+      setSystemRequest(undefined)
+  }, [systemRequest, pluginProps.target])
   const extra = (slot: UiPluginSlot, props: Record<string, unknown> = {}) => (
     <PluginSlot registry={registry} slot={slot} props={{ ...pluginProps, ...props }} />
   )
@@ -591,18 +638,46 @@ export function App({
     </WorkspaceContent>
   )
   const panels: UiPanel[] = [
-    ...(availableRightTabs.includes('git')
-      ? [
-          {
-            id: 'builtin:git',
-            title: 'Git',
-            icon: <GitBranch />,
-            location: 'right' as const,
-            scope: 'project' as const,
-            render: () => <GitPanel cwd={cwd} bridge={bridge} refreshToken={chat.refreshToken} />,
-          },
-        ]
-      : []),
+    {
+      id: 'builtin:git',
+      title: '变更',
+      icon: <FileDiff />,
+      location: 'right',
+      scope: 'session',
+      render: (props) =>
+        props.target.session ? (
+          <GitPanel
+            key={JSON.stringify(props.target.session)}
+            cwd={appSession?.cwd ?? cwd}
+            bridge={{
+              getGitSnapshot: () => host.git.snapshot(props.target.session!),
+              getGitDiff: (path, kind) =>
+                host.git.diff(props.target.session!, { path, staged: kind === 'staged', kind }),
+            }}
+            refreshToken={chat.refreshToken}
+          />
+        ) : null,
+    },
+    {
+      id: 'builtin:files',
+      title: '文件',
+      icon: <Folder />,
+      location: 'right',
+      scope: 'session',
+      render: (props) => <FilesPanel store={fileStore} target={props.target} />,
+    },
+    terminalPanel ?? {
+      id: 'builtin:terminal',
+      title: '终端',
+      icon: <TerminalSquare />,
+      location: 'right',
+      scope: 'session',
+      render: () => (
+        <p role="status" className="p-4 text-sm text-muted-foreground">
+          正在读取终端配置…
+        </p>
+      ),
+    },
     ...(availableRightTabs.includes('subagents')
       ? [
           {
@@ -677,8 +752,11 @@ export function App({
               sidebar={sidebar}
               sidebarOpen={sidebarOpen}
               sidebarWidth={sidebarWidth}
-              requestPanel={panelRequest}
-              onPanelRequestHandled={registry.consumePanelRequest}
+              requestPanel={systemRequest ?? panelRequest}
+              onPanelRequestHandled={(revision) => {
+                if (systemRequest) setSystemRequest(undefined)
+                else registry.consumePanelRequest(revision)
+              }}
               requestRight={planRequest && planRequest.sessionKey === runtimeSessionKey ? 'builtin:plan' : undefined}
               requestRightToken={planRequest ? `${planRequest.id}:${planRequest.revision}` : undefined}
               onRightRequestHandled={() => setPlanRequest(undefined)}
@@ -798,6 +876,23 @@ export function App({
                         await refreshPlugins()
                         await chat.refreshSnapshot()
                       }}
+                      onOpenSystem={
+                        appSession
+                          ? (id) => {
+                              setSettingsOpen(false)
+                              setSystemRequest({
+                                id:
+                                  id === '@pi-meme/git'
+                                    ? 'builtin:git'
+                                    : id === '@pi-meme/file-directory'
+                                      ? 'builtin:files'
+                                      : 'builtin:terminal',
+                                revision: Date.now(),
+                                target: pluginProps.target,
+                              })
+                            }
+                          : undefined
+                      }
                       renderSettings={(id) => (
                         <PluginSlot registry={registry} pluginId={id} slot="settings" props={pluginProps} />
                       )}

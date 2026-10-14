@@ -38,7 +38,10 @@
     "@pi-meme/resources": "workspace:*",
     "@pi-meme/codemode": "workspace:*",
     "@pi-meme/subagents": "workspace:*",
-    "@pi-meme/usage": "workspace:*"
+    "@pi-meme/usage": "workspace:*",
+    "@pi-meme/file-directory": "workspace:*",
+    "@pi-meme/terminal": "workspace:*",
+    "@xterm/xterm": "^6.0.0"
   },
   "peerDependencies": {
     "react": "^19.3.0",

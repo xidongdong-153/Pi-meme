@@ -9,7 +9,8 @@
     "./agent": "./src/agent.ts",
     "./ui": "./src/ui.ts",
     "./scope": "./src/scope.ts",
-    "./reserved": "./src/reserved.ts"
+    "./reserved": "./src/reserved.ts",
+    "./system-plugins": "./src/system-plugins.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit",

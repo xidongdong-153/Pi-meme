@@ -239,7 +239,10 @@ test(
         assert.equal(body.error, undefined, `${method}：${JSON.stringify(body.error)}`)
         return body.result
       }
-      assert.deepEqual(await rpc<unknown[]>('plugins:list'), [])
+      assert.deepEqual(
+        (await rpc<Array<{ builtin?: boolean }>>('plugins:list')).filter((plugin) => !plugin.builtin),
+        [],
+      )
       const skillSource = path.join(repo, 'pi/skills/skill-creator')
       const skillInstalled = path.join(data, 'builtin-resources/skills/skill-creator')
       for (const entry of await readdir(skillSource, { recursive: true, withFileTypes: true })) {

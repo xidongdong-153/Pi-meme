@@ -27,11 +27,20 @@ test('没有外部插件或恢复清单损坏时，14 个内置模块与基础�
       host = await createHost({ dataRoot: root, credentials: new MemoryCredentialStorage() })
       const rpc = (method: string, args: unknown[] = []) =>
         host!.rpc({ requestId: crypto.randomUUID(), clientId: 'client', method, args })
-      assert.deepEqual((await rpc('plugins:list')).result, [])
+      assert.deepEqual(
+        ((await rpc('plugins:list')).result as Array<{ builtin?: boolean }>).filter((plugin) => !plugin.builtin),
+        [],
+      )
       const modules = (await rpc('host:modules')).result as Array<{ id: string }>
       assert.deepEqual(
         new Set(modules.map((module) => module.id)),
-        new Set(reservedPluginIds.filter((id) => !id.startsWith('@pi-meme/sandbox-') || id === sandboxPluginId())),
+        new Set(
+          reservedPluginIds.filter(
+            (id) =>
+              !['@pi-meme/file-directory', '@pi-meme/terminal'].includes(id) &&
+              (!id.startsWith('@pi-meme/sandbox-') || id === sandboxPluginId()),
+          ),
+        ),
       )
       for (const method of ['settings:get', 'models:get', 'mcp:get', 'resources:catalog'])
         assert.equal((await rpc(method, [])).error, undefined)

@@ -74,7 +74,7 @@ test('所有内置 ID 在目录、包、恢复和生命周期入口均被拒绝'
     await writeFile(path.join(f.options.directory, 'installed.json'), JSON.stringify(entries))
     await f.manager.restore()
     assert.deepEqual(f.manager.list(), [])
-    assert.equal(f.manager.diagnostics().length, reservedPluginIds.length)
+    assert.equal(f.manager.diagnostics().length, reservedPluginIds.length - 2)
     const saved = JSON.parse(await readFile(path.join(f.options.directory, 'installed.json'), 'utf8'))
     assert.equal(saved.length, reservedPluginIds.length)
     for (const entry of entries) await access(entry.directory)

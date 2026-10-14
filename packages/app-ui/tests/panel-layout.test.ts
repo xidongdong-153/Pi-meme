@@ -194,3 +194,17 @@ test('切换到无项目或尚未解析的会话时，不保留上一个项目�
   assert.equal(panelAvailable(panel, unresolved), false)
   assert.equal(panelAvailable({ ...panel, scope: 'session' }, unresolved), false)
 })
+
+test('旧文件目录、预览和终端标签迁移为系统工具并保留当前选中项', () => {
+  const layout = readPanelLayout(
+    JSON.stringify({
+      ...defaultPanelLayout(),
+      open: true,
+      tabs: ['@pi-meme/file-directory:directory', '@pi-meme/file-directory:preview', '@pi-meme/terminal:terminal'],
+      active: '@pi-meme/file-directory:preview',
+    }),
+  )
+  assert.deepEqual(layout.tabs, ['builtin:files', 'builtin:terminal'])
+  assert.equal(layout.active, 'builtin:files')
+  assert.equal(layout.open, true)
+})

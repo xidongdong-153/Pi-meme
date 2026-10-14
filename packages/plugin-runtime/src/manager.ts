@@ -5,6 +5,7 @@ import type { Facet, FacetHost } from '@earendil-works/chord'
 import type { FacetBundleArtifact } from '@earendil-works/chord/node'
 import { parsePluginManifest, type PluginManifest } from '@pi-meme/plugin-sdk/manifest'
 import { assertExternalPluginId, assertExternalManifest, isReservedPluginId } from '@pi-meme/plugin-sdk/reserved'
+import { legacySystemPluginIds } from '@pi-meme/plugin-sdk/system-plugins'
 import type { AgentPluginEntry } from '@pi-meme/plugin-sdk/agent'
 import type { PluginHandlers, ServerPluginModule } from '@pi-meme/plugin-sdk/server'
 import { PluginScope } from '@pi-meme/plugin-sdk/scope'
@@ -858,6 +859,10 @@ export class PluginManager {
       await this.track(async () => {
         const next = new Map<string, Registration>()
         for (const entry of entries) {
+          if (legacySystemPluginIds.includes(entry.id)) {
+            if (entry.builtin !== true) this.records.set(entry.id, entry)
+            continue
+          }
           if (entry.builtin === true && isReservedPluginId(entry.id)) continue
           this.records.set(entry.id, { ...entry, builtin: undefined })
           try {

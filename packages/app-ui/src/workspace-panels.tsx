@@ -266,7 +266,7 @@ export function WorkspacePanels({
                 id="right-tool-content"
                 role="tabpanel"
                 aria-label={selected?.title ?? '新标签页'}
-                className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+                className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden @container"
               >
                 {selected ? (
                   <ErrorBoundary

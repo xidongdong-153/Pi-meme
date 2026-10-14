@@ -1,15 +1,12 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
-import { Terminal } from '@xterm/xterm'
-import { FitAddon } from '@xterm/addon-fit'
-import styles from '@xterm/xterm/css/xterm.css'
+import { Button } from '@pi-meme/ui/components/ui/button'
+import { Play, RefreshCw, Square, TerminalSquare } from 'lucide-react'
 import type { HostControlEvent, TerminalSnapshot } from '@pi-meme/contracts/app-host'
 import type { UiContributionProps, UiPluginContext } from '@pi-meme/plugin-sdk/ui'
 
-export async function activate(context: UiPluginContext) {
+export async function activate(context: Pick<UiPluginContext, 'host' | 'panels'>) {
+  const [{ Terminal }, { FitAddon }] = await Promise.all([import('@xterm/xterm'), import('@xterm/addon-fit')])
   const capabilities = await context.host.capabilities()
-  const css = document.createElement('style')
-  css.textContent = styles
-  document.head.append(css)
   type Output = { terminalId: string; data?: string; outputSequence?: number; exitCode?: number }
   const instances = new Map<string, TerminalSnapshot>()
   const restoring = new Map<string, Output[]>()
@@ -22,6 +19,10 @@ export async function activate(context: UiPluginContext) {
     for (const listener of listeners) listener()
   }
   const unsubscribe = await context.host.events.subscribe({}, (event: HostControlEvent) => {
+    if (event.type === 'resync') {
+      for (const [key, instance] of instances) void attachInstance(key, instance).catch(() => {})
+      return
+    }
     if (event.type !== 'terminal' || !('terminalId' in event.value)) return
     const value = event.value as Output
     restoring.get(value.terminalId)?.push(value)
@@ -44,8 +45,8 @@ export async function activate(context: UiPluginContext) {
     restoring.set(ref.terminalId, buffered)
     try {
       const snapshot = await context.host.terminal.attach(ref)
-      if (disposed) {
-        await context.host.terminal.close(ref, { idempotencyKey: crypto.randomUUID() })
+      if (disposed || instances.get(key)?.terminalId !== ref.terminalId) {
+        if (disposed) await context.host.terminal.close(ref, { idempotencyKey: crypto.randomUUID() })
         return
       }
       for (const event of buffered) {
@@ -70,13 +71,30 @@ export async function activate(context: UiPluginContext) {
     const [error, setError] = useState('')
     useEffect(() => {
       if (!container.current) return
+      const fit = new FitAddon()
+      const style = () => getComputedStyle(document.documentElement)
       const terminal = new Terminal({
-        fontFamily: 'var(--font-code)',
-        fontSize: 13,
-        theme: { background: '#16202b' },
+        fontFamily: style().getPropertyValue('--font-code').trim() || 'monospace',
+        fontSize: Number.parseFloat(style().getPropertyValue('--code-size')) || 13,
         convertEol: false,
       })
-      const fit = new FitAddon()
+      const applyTheme = () => {
+        const colors = style()
+        terminal.options.theme = {
+          background: colors.getPropertyValue('--color-background').trim(),
+          foreground: colors.getPropertyValue('--color-text').trim(),
+          cursor: colors.getPropertyValue('--color-accent').trim(),
+          selectionBackground: colors.getPropertyValue('--color-elevated').trim(),
+        }
+        terminal.options.fontFamily = colors.getPropertyValue('--font-code').trim() || 'monospace'
+        terminal.options.fontSize = Number.parseFloat(colors.getPropertyValue('--code-size')) || 13
+      }
+      applyTheme()
+      const theme = new MutationObserver(() => {
+        applyTheme()
+        fit.fit()
+      })
+      theme.observe(document.documentElement, { attributes: true })
       terminal.loadAddon(fit)
       terminal.open(container.current)
       terminal.write(instance.output)
@@ -100,15 +118,20 @@ export async function activate(context: UiPluginContext) {
       terminal.focus()
       return () => {
         observer.disconnect()
+        theme.disconnect()
         input.dispose()
         outputListeners.delete(output)
         terminal.dispose()
       }
     }, [host, instance])
     return (
-      <div style={{ flex: 1, minHeight: 0 }}>
-        <div ref={container} style={{ height: '100%', minHeight: 100 }} />
-        {error && <p role="alert">{error}</p>}
+      <div className="relative min-h-0 flex-1">
+        <div ref={container} className="h-full min-h-24" />
+        {error && (
+          <p role="alert" className="break-words text-xs text-destructive">
+            {error}
+          </p>
+        )}
       </div>
     )
   }
@@ -164,42 +187,59 @@ export async function activate(context: UiPluginContext) {
       }
     }
     return (
-      <div style={{ display: 'flex', flexDirection: 'column', height: '100%', padding: 8, gap: 8 }}>
-        <div style={{ display: 'flex', gap: 12, alignItems: 'center', fontSize: 13, flexShrink: 0 }}>
-          {!instance ? (
-            <button
-              type="button"
-              disabled={busy || !root || !capabilities.features.includes('terminal')}
-              onClick={() => void open()}
-            >
-              {busy ? '正在创建…' : '创建终端'}
-            </button>
-          ) : (
+      <section aria-label="终端工具" className="flex h-full min-h-0 flex-col">
+        <div className="flex min-h-11 shrink-0 items-center gap-2 border-b border-border/70 px-3 text-xs">
+          {instance ? (
             <>
-              <span
-                title={instance.cwd}
-                style={{ flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}
-              >
+              <span title={instance.cwd} className="min-w-0 flex-1 truncate text-muted-foreground">
                 {instance.cwd}
                 {instance.exited ? `（已退出 ${instance.exitCode}）` : ''}
               </span>
-              <button type="button" style={{ flexShrink: 0, whiteSpace: 'nowrap' }} onClick={() => void attach()}>
-                重新连接
-              </button>
-              <button type="button" style={{ flexShrink: 0, whiteSpace: 'nowrap' }} onClick={() => void close()}>
-                关闭终端
-              </button>
+              <Button variant="ghost" size="icon-sm" aria-label="重新连接终端" onClick={() => void attach()}>
+                <RefreshCw className="size-3.5" />
+              </Button>
+              <Button variant="ghost" size="icon-sm" aria-label="关闭终端实例" onClick={() => void close()}>
+                <Square className="size-3.5" />
+              </Button>
             </>
+          ) : (
+            <span className="text-muted-foreground">当前会话终端</span>
           )}
         </div>
-        {!capabilities.features.includes('terminal') && <p role="status">所属 Host 的 node-pty 原生模块不可用。</p>}
-        {error && <p role="alert">{error}</p>}
-        {instance && <Console key={instance.terminalId} {...props} instance={instance} />}
-      </div>
+        {error && (
+          <p role="alert" className="break-words px-3 py-2 text-xs text-destructive">
+            {error}
+          </p>
+        )}
+        {instance ? (
+          <div className="flex min-h-0 flex-1 p-3">
+            <Console key={instance.terminalId} {...props} instance={instance} />
+          </div>
+        ) : (
+          <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center">
+            <TerminalSquare className="size-8 text-muted-foreground" strokeWidth={1.3} />
+            <p className="text-xs text-muted-foreground">
+              {!capabilities.features.includes('terminal')
+                ? '所属 Host 的 node-pty 原生模块不可用。'
+                : '在当前会话目录中启动 shell。关闭面板会保留终端。'}
+            </p>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={busy || !root || !capabilities.features.includes('terminal')}
+              onClick={() => void open()}
+            >
+              <Play className="size-3.5" />
+              {busy ? '正在创建…' : '创建终端'}
+            </Button>
+          </div>
+        )}
+      </section>
     )
   }
+
   const release = context.panels.register({
-    id: `${context.pluginId}:terminal`,
+    id: 'builtin:terminal',
     title: '终端',
     icon: (
       <svg
@@ -219,7 +259,7 @@ export async function activate(context: UiPluginContext) {
     ),
     location: 'right',
     scope: 'session',
-    render: (props) => <Panel {...props} />,
+    render: (props) => <Panel key={JSON.stringify(props.target.session ?? props.target.project)} {...props} />,
   })
   return async () => {
     disposed = true
@@ -227,7 +267,6 @@ export async function activate(context: UiPluginContext) {
     unsubscribe()
     outputListeners.clear()
     listeners.clear()
-    css.remove()
     await Promise.allSettled(
       [...instances.values()].map((instance) =>
         context.host.terminal.close(instance, { idempotencyKey: crypto.randomUUID() }),

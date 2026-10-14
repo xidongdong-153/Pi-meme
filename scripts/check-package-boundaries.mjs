@@ -25,6 +25,8 @@ const businessPackages = new Set(
     'sandbox-linux',
     'usage',
     'git',
+    'file-directory',
+    'terminal',
   ].map((name) => `@pi-meme/${name}`),
 )
 const nodeModules = new Set(builtinModules)

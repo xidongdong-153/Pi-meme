@@ -4,6 +4,8 @@ export const reservedPluginIds = [
   '@pi-meme/chat',
   '@pi-meme/workspace',
   '@pi-meme/git',
+  '@pi-meme/file-directory',
+  '@pi-meme/terminal',
   '@pi-meme/models',
   '@pi-meme/settings',
   '@pi-meme/interaction',

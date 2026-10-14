@@ -344,3 +344,18 @@ test('插件不能向左栏、工作区或底部注册面板，失败更新保�
     await registry.dispose()
   }
 })
+
+test('旧 Host 的文件和终端插件不再导入外部 UI，系统工具由应用静态装配', async () => {
+  const loaded: string[] = []
+  const registry = new UiPluginRegistry({} as HostApi, async (url) => {
+    loaded.push(url)
+    return { activate() {} }
+  })
+  await registry.synchronize(
+    ['@pi-meme/file-directory', '@pi-meme/terminal', '@pi-meme/git'].map((id) => ({ ...plugin(1), id })),
+  )
+  assert.deepEqual(loaded, [])
+  assert.deepEqual(registry.getPanels(), [])
+  assert.deepEqual(registry.errors(), {})
+  await registry.dispose()
+})

@@ -1,9 +1,13 @@
 import { useRef, useState, type ReactNode } from 'react'
-import { ArrowLeft, Puzzle, RefreshCw, Search, Upload } from 'lucide-react'
+import { ArrowLeft, Puzzle, RefreshCw, Upload, FileDiff, Folder, TerminalSquare, PanelRight } from 'lucide-react'
 import type { PluginClient } from '@pi-meme/client/plugin-client'
 import type { UiPluginDescriptor } from '@pi-meme/plugin-sdk/ui'
 import { Button } from '@pi-meme/ui/components/ui/button'
-import { Input } from '@pi-meme/ui/components/ui/input'
+import { Switch } from '@pi-meme/ui/components/ui/switch'
+import { IntegrationHeader } from '@pi-meme/ui/components/integration-header'
+import { systemPlugins } from '@pi-meme/plugin-sdk/system-plugins'
+import { isReservedPluginId } from '@pi-meme/plugin-sdk/reserved'
+import { cn } from '@pi-meme/ui/lib/utils'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
 
 const statusNames = { active: '已启用', disabled: '已停用', pending: '等待使用中的任务结束', failed: '加载失败' }
@@ -14,13 +18,16 @@ export function PluginPage({
   errors,
   onChanged,
   renderSettings,
+  onOpenSystem,
 }: {
   client: PluginClient
   plugins: UiPluginDescriptor[]
   errors: Record<string, string>
   onChanged: () => Promise<void>
   renderSettings?: (id: string) => ReactNode
+  onOpenSystem?: (id: string) => void
 }) {
+  const [tab, setTab] = useState<'installed' | 'system'>('installed')
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<string>()
   const [busy, setBusy] = useState(false)
@@ -28,8 +35,10 @@ export function PluginPage({
   const [removing, setRemoving] = useState<UiPluginDescriptor>()
   const [installResult, setInstallResult] = useState('')
   const uploadRef = useRef<HTMLInputElement>(null)
-  const detail = plugins.find((plugin) => plugin.id === selected)
-  const filtered = plugins.filter((plugin) =>
+  const installed = plugins.filter((plugin) => !plugin.builtin && !isReservedPluginId(plugin.id))
+  const catalog = [...installed, ...systemPlugins]
+  const detail = catalog.find((plugin) => plugin.id === selected)
+  const filtered = (tab === 'system' ? systemPlugins : installed).filter((plugin) =>
     `${plugin.id} ${plugin.display?.name ?? ''} ${plugin.description ?? ''}`
       .toLowerCase()
       .includes(query.trim().toLowerCase()),
@@ -124,82 +133,146 @@ export function PluginPage({
               {detail.error || errors[detail.id]}
             </p>
           )}
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="outline"
-              disabled={busy}
-              onClick={() => void action(() => (detail.enabled ? client.disable(detail.id) : client.enable(detail.id)))}
-            >
-              {detail.enabled ? '停用插件' : '启用插件'}
-            </Button>
-            {installButton}
-            <Button variant="outline" disabled={busy} onClick={() => void action(() => client.reload(detail.id))}>
-              重新加载插件
-            </Button>
-            <Button variant="destructive" disabled={busy} onClick={() => setRemoving(detail)}>
-              卸载插件
-            </Button>
-          </div>
-          <p className="text-xs text-muted-foreground">
-            更新时请选择相同包名的 .pim 文件；正在使用的旧代次会保留到任务结束。
-          </p>
-          {renderSettings?.(detail.id)}
+          {detail.builtin ? (
+            <div className="space-y-3">
+              <p className="text-sm text-muted-foreground">随应用提供，始终启用。可在当前会话右侧栏打开。</p>
+              <Button variant="outline" disabled={!onOpenSystem} onClick={() => onOpenSystem?.(detail.id)}>
+                <PanelRight />
+                在聊天中打开
+              </Button>
+            </div>
+          ) : (
+            <>
+              <div className="flex flex-wrap gap-2">
+                <Button
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() =>
+                    void action(() => (detail.enabled ? client.disable(detail.id) : client.enable(detail.id)))
+                  }
+                >
+                  {detail.enabled ? '停用插件' : '启用插件'}
+                </Button>
+                {installButton}
+                <Button variant="outline" disabled={busy} onClick={() => void action(() => client.reload(detail.id))}>
+                  重新加载插件
+                </Button>
+                <Button variant="destructive" disabled={busy} onClick={() => setRemoving(detail)}>
+                  卸载插件
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                更新时请选择相同包名的 .pim 文件；正在使用的旧代次会保留到任务结束。
+              </p>
+              {renderSettings?.(detail.id)}
+            </>
+          )}
         </>
       ) : (
         <>
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative mr-auto w-full max-w-sm">
-              <Search className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
-              <Input
-                aria-label="搜索插件"
-                placeholder="搜索插件"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                className="pl-9"
-              />
-            </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="刷新插件列表"
-              disabled={busy}
-              onClick={() => void action(onChanged)}
-            >
-              <RefreshCw />
-            </Button>
-            {installButton}
-          </div>
-          <ul aria-label="App 插件列表" className="grid gap-2 lg:grid-cols-2">
-            {filtered.map((plugin) => (
-              <li key={plugin.id}>
-                <button
-                  type="button"
-                  aria-label={`查看插件：${plugin.id}`}
-                  onClick={() => {
-                    setSelected(plugin.id)
-                    setInstallResult('')
-                  }}
-                  className="flex min-h-24 w-full items-center gap-4 rounded-xl border border-border p-4 text-left hover:bg-secondary/50"
+          <IntegrationHeader
+            title="插件"
+            description="管理已安装的 App 插件和应用自带的工具。"
+            query={query}
+            onQuery={setQuery}
+            searchLabel="搜索插件"
+            actions={
+              <>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="刷新插件列表"
+                  disabled={busy}
+                  onClick={() => void action(onChanged)}
                 >
-                  <PluginIcon plugin={plugin} />
-                  <span className="min-w-0">
-                    <span className="block truncate text-sm font-medium">{plugin.display?.name ?? plugin.id}</span>
-                    <span className="mt-1 line-clamp-2 text-sm text-muted-foreground">
-                      {plugin.description || '未提供说明'}
-                    </span>
-                    <span className="mt-2 block text-xs text-muted-foreground">
-                      {plugin.version} · {errors[plugin.id] ? 'UI 加载失败' : statusNames[plugin.status]}
-                    </span>
-                  </span>
+                  <RefreshCw />
+                </Button>
+                {installButton}
+              </>
+            }
+          >
+            <div role="tablist" aria-label="插件来源" className="flex items-center gap-1">
+              {(
+                [
+                  { id: 'installed', label: '已安装', count: installed.length },
+                  { id: 'system', label: '系统', count: systemPlugins.length },
+                ] as const
+              ).map((entry) => (
+                <button
+                  key={entry.id}
+                  type="button"
+                  role="tab"
+                  id={`plugin-source-${entry.id}`}
+                  tabIndex={tab === entry.id ? 0 : -1}
+                  onKeyDown={(event) => {
+                    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+                    event.preventDefault()
+                    const next =
+                      event.key === 'Home'
+                        ? 'installed'
+                        : event.key === 'End'
+                          ? 'system'
+                          : tab === 'installed'
+                            ? 'system'
+                            : 'installed'
+                    setTab(next)
+                    document.getElementById(`plugin-source-${next}`)?.focus()
+                  }}
+                  aria-selected={tab === entry.id}
+                  aria-controls="plugin-list"
+                  onClick={() => setTab(entry.id)}
+                  className={cn(
+                    'rounded-xl px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                    tab === entry.id ? 'bg-secondary font-medium' : 'text-muted-foreground hover:text-foreground',
+                  )}
+                >
+                  {entry.label}
+                  <span className="ml-2 text-muted-foreground">{entry.count}</span>
                 </button>
-              </li>
-            ))}
-          </ul>
-          {!filtered.length && (
-            <p role="status" className="py-8 text-center text-sm text-muted-foreground">
-              {plugins.length ? '没有匹配的插件。' : '没有已安装的 App 插件。'}
-            </p>
-          )}
+              ))}
+            </div>
+          </IntegrationHeader>
+          <div id="plugin-list" role="tabpanel" aria-labelledby={`plugin-source-${tab}`}>
+            <ul aria-label="App 插件列表" className="space-y-1 pt-6">
+              {filtered.map((plugin) => (
+                <li key={plugin.id} className="flex min-h-24 items-center gap-4 rounded-xl px-3 hover:bg-secondary/30">
+                  <button
+                    type="button"
+                    aria-label={`查看插件：${plugin.id}`}
+                    onClick={() => {
+                      setSelected(plugin.id)
+                      setInstallResult('')
+                    }}
+                    className="flex min-w-0 flex-1 items-center gap-4 rounded-lg py-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <PluginIcon plugin={plugin} />
+                    <span className="min-w-0">
+                      <span className="block truncate text-base font-medium">{plugin.display?.name ?? plugin.id}</span>
+                      <span className="mt-1 block truncate text-sm text-muted-foreground">
+                        {plugin.description || '未提供说明'}
+                      </span>
+                    </span>
+                  </button>
+                  {plugin.builtin && (
+                    <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">始终启用</span>
+                  )}
+                  <Switch
+                    label={`${plugin.builtin ? '系统插件' : '启用插件'}：${plugin.display?.name ?? plugin.id}`}
+                    checked={plugin.enabled}
+                    disabled={busy || plugin.builtin || plugin.status === 'pending'}
+                    onChange={(enabled) =>
+                      void action(() => (enabled ? client.enable(plugin.id) : client.disable(plugin.id)))
+                    }
+                  />
+                </li>
+              ))}
+            </ul>
+            {!filtered.length && (
+              <p role="status" className="py-8 text-center text-sm text-muted-foreground">
+                {query ? '没有匹配的插件。' : '没有已安装的 App 插件。'}
+              </p>
+            )}
+          </div>
         </>
       )}
       <Dialog
@@ -239,10 +312,22 @@ export function PluginPage({
   )
 }
 function PluginIcon({ plugin }: { plugin: UiPluginDescriptor }) {
-  return plugin.iconUrl ? (
-    <img src={plugin.iconUrl} alt="" className="size-6 shrink-0 object-contain" />
-  ) : (
-    <Puzzle className="size-6 shrink-0 text-muted-foreground" />
+  const Icon =
+    plugin.id === '@pi-meme/git'
+      ? FileDiff
+      : plugin.id === '@pi-meme/file-directory'
+        ? Folder
+        : plugin.id === '@pi-meme/terminal'
+          ? TerminalSquare
+          : Puzzle
+  return (
+    <span className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-secondary/50 text-muted-foreground">
+      {plugin.iconUrl ? (
+        <img src={plugin.iconUrl} alt="" className="size-full object-contain" />
+      ) : (
+        <Icon className="size-6" strokeWidth={1.6} />
+      )}
+    </span>
   )
 }
 export function PluginCapabilities({ plugin }: { plugin: UiPluginDescriptor }) {
@@ -255,7 +340,7 @@ export function PluginCapabilities({ plugin }: { plugin: UiPluginDescriptor }) {
         {capabilities?.agent && (
           <li>Agent 工具与消息：在聊天输入区逐会话选择；运行中不能修改。安装或启用插件不会自动加入当前聊天。</li>
         )}
-        {capabilities?.ui && <li>界面：从聊天顶部“面板”菜单开启插件面板，聊天贡献跟随插件代次。</li>}
+        {capabilities?.ui && <li>界面：从聊天右侧栏的“＋”工具页打开面板。</li>}
         {capabilities?.resources && (
           <li>包内资源：附带的技能在技能页管理调用策略，主题在外观设置中选择。包内文件随插件一起更新和卸载。</li>
         )}

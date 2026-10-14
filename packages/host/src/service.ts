@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url'
 import { createHostCollaborationBridge } from './collaboration-bridge'
 import { createAppControl } from './app-control'
 import { createWorkspaceFiles } from './workspace-files'
+import { systemPlugins } from '@pi-meme/plugin-sdk/system-plugins'
 import { TerminalService } from './terminal-service'
 import { createBuiltinModules } from './builtin-modules'
 import { assertExternalPluginId } from '@pi-meme/plugin-sdk/reserved'
@@ -816,7 +817,7 @@ export async function createHost(options: HostOptions = {}) {
 
       'plugins:diagnostics': () => plugins.diagnostics(),
       'host:modules': () => builtins!.diagnostics(),
-      'plugins:list': () => uiDescriptors(plugins.list()),
+      'plugins:list': () => [...systemPlugins, ...uiDescriptors(plugins.list())],
       'plugins:session': (key) => sessionDescriptors(typeof key === 'string' ? key : pi.connection().sessionKey),
       'plugins:install-directory': (value) => plugins.loadDirectory(parseId(value)),
       'plugins:install-package': (value) => {

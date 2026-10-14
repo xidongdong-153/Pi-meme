@@ -1,0 +1,83 @@
+.file-editor .cm-editor {
+  height: 100%;
+  background: var(--background);
+  color: var(--foreground);
+}
+.file-editor .cm-scroller {
+  overflow: auto;
+  font-family: var(--font-code);
+}
+.file-editor .cm-gutters {
+  background: var(--card);
+  color: var(--muted-foreground);
+  border-right: 1px solid var(--border);
+}
+.file-editor .cm-activeLine,
+.file-editor .cm-activeLineGutter {
+  background: color-mix(in srgb, var(--secondary) 50%, transparent);
+}
+.file-editor .cm-cursor {
+  border-left-color: var(--foreground);
+}
+.file-editor .cm-selectionBackground {
+  background: color-mix(in srgb, var(--primary) 25%, transparent) !important;
+}
+.file-editor .cm-panels {
+  background: var(--card);
+  color: var(--foreground);
+}
+.file-markdown {
+  line-height: 1.8;
+  overflow-wrap: anywhere;
+}
+.file-markdown h1 {
+  font-size: 1.7em;
+  font-weight: 600;
+  margin-bottom: 1em;
+}
+.file-markdown h2,
+.file-markdown h3 {
+  font-size: 1.3em;
+  font-weight: 600;
+  margin: 1em 0;
+}
+.file-markdown p,
+.file-markdown pre,
+.file-markdown ul,
+.file-markdown ol {
+  margin: 0.8em 0;
+}
+.file-markdown ul {
+  list-style: disc;
+  padding-left: 1.5em;
+}
+.file-markdown ol {
+  list-style: decimal;
+  padding-left: 1.5em;
+}
+.file-markdown pre {
+  overflow: auto;
+  border-radius: var(--radius);
+  background: var(--secondary);
+  padding: 1em;
+}
+.file-markdown code {
+  font-family: var(--font-code);
+  font-size: 0.9em;
+}
+.file-markdown a {
+  color: var(--primary);
+  text-decoration: underline;
+}
+.file-markdown table {
+  border-collapse: collapse;
+}
+.file-markdown th,
+.file-markdown td {
+  border: 1px solid var(--border);
+  padding: 0.4em 0.8em;
+}
+.file-image-stage {
+  background-image: repeating-conic-gradient(var(--secondary) 0% 25%, transparent 0% 50%);
+  background-size: 20px 20px;
+}

@@ -1,6 +1,6 @@
 import type { AgentAccessMode } from './agent-access'
 import type { AgentSummary } from './collaboration'
-import type { GitEnvironment, GitSnapshot, Snapshot } from './desktop'
+import type { GitEnvironment, GitSnapshot, GitFileChange, Snapshot } from './desktop'
 import type { ThinkingLevel } from './pi'
 import type { PlanDocument, TaskMode } from './plan'
 import type { SessionHistoryData } from './sessions'
@@ -55,6 +55,12 @@ export type SubmissionReceipt = {
 }
 export type FileEntry = { name: string; relativePath: string; kind: 'file' | 'directory'; size: number }
 export type FileContent = { relativePath: string; content: string }
+export type FilePreview =
+  | (FileContent & { kind: 'text'; revision: string })
+  | { kind: 'image'; relativePath: string; dataUrl: string; size: number }
+  | { kind: 'unsupported'; relativePath: string; reason: 'binary' | 'too-large' | 'encoding' }
+export type FileSearchResult = { entries: FileEntry[]; nextCursor?: string }
+export type FileWriteInput = FileContent & { revision: string }
 export type TerminalRef = { hostId: string; terminalId: string }
 export type TerminalSnapshot = TerminalRef & {
   cwd: string
@@ -67,6 +73,7 @@ export type AppHostCapabilities = {
   apiVersion: 2
   hostId: string
   features: Array<'projects' | 'sessions' | 'files' | 'terminal' | 'git' | 'interaction' | 'agents' | 'plans'>
+  fileOperations?: Array<'preview' | 'search' | 'write'>
 }
 export type EventCursor = { journalEpoch: string; seq: number }
 export type HostControlEvent = EventCursor & {
@@ -129,6 +136,9 @@ export type HostApi = {
   files: {
     list: (root: WorkspaceRef, relativePath?: string) => Promise<FileEntry[]>
     read: (root: WorkspaceRef, relativePath: string) => Promise<FileContent>
+    preview: (root: WorkspaceRef, relativePath: string) => Promise<FilePreview>
+    search: (root: WorkspaceRef, input: { query: string; cursor?: string }) => Promise<FileSearchResult>
+    write: (root: WorkspaceRef, input: FileWriteInput, options: MutationOptions) => Promise<{ revision: string }>
   }
   terminal: {
     open: (
@@ -144,7 +154,10 @@ export type HostApi = {
   git: {
     environment: (root: WorkspaceRef) => Promise<GitEnvironment>
     snapshot: (root: WorkspaceRef) => Promise<GitSnapshot>
-    diff: (root: WorkspaceRef, input: { path: string; staged?: boolean }) => Promise<string>
+    diff: (
+      root: WorkspaceRef,
+      input: { path: string; staged?: boolean; kind?: GitFileChange['kind'] },
+    ) => Promise<string>
   }
   interaction: {
     respond: (

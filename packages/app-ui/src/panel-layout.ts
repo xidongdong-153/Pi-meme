@@ -58,11 +58,15 @@ export function readPanelLayout(raw: string | null): PanelLayoutState {
     const value = JSON.parse(raw) as Partial<PanelLayoutState>
     if (value.version !== 2) return initial
     if (Array.isArray(value.tabs)) {
-      const tabs = [...new Set(value.tabs.filter((id) => typeof id === 'string' && id.length > 0))].slice(0, 32)
+      const tabs = [
+        ...new Set(value.tabs.filter((id) => typeof id === 'string' && id.length > 0).map(migratePanelId)),
+      ].slice(0, 32)
       if (tabs.length) initial.tabs = tabs
     }
     initial.active =
-      typeof value.active === 'string' && initial.tabs.includes(value.active) ? value.active : initial.tabs[0]
+      typeof value.active === 'string' && initial.tabs.includes(migratePanelId(value.active))
+        ? migratePanelId(value.active)
+        : initial.tabs[0]
     if (typeof value.open === 'boolean') initial.open = value.open
     if (typeof value.expanded === 'boolean') initial.expanded = value.expanded
     if (typeof value.width === 'number' && Number.isFinite(value.width))
@@ -71,4 +75,10 @@ export function readPanelLayout(raw: string | null): PanelLayoutState {
   } catch {
     return initial
   }
+}
+
+function migratePanelId(id: string) {
+  if (['@pi-meme/file-directory:directory', '@pi-meme/file-directory:preview'].includes(id)) return 'builtin:files'
+  if (id === '@pi-meme/terminal:terminal') return 'builtin:terminal'
+  return id
 }

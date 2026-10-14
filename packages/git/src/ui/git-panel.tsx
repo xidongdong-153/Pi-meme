@@ -16,7 +16,7 @@ export function GitPanel({
   refreshToken,
 }: {
   cwd: string
-  bridge: GitBridge
+  bridge: Pick<GitBridge, 'getGitSnapshot' | 'getGitDiff'>
   /** desktop 在会话状态变化时递增，用于替代全局事件触发刷新 */
   refreshToken: number
 }) {

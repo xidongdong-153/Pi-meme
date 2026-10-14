@@ -9,15 +9,24 @@ module.exports = async (window, waitFor, output) => {
       throw cause
     })
   const click = async (text) => {
+    if (text.startsWith('删除 ')) await click(`设置 MCP 服务：${text.slice(3)}`)
+    const label = text.startsWith('编辑 ')
+      ? `设置 MCP 服务：${text.slice(3)}`
+      : /^(?:禁用|启用并授权) /.test(text)
+        ? `启用 MCP 服务：${text.split(' ').at(-1)}`
+        : text === '重新加载配置' &&
+            !(await evaluate('Boolean(document.querySelector("form[aria-label=\\"MCP 服务编辑\\"]"))'))
+          ? '重新加载 MCP 配置'
+          : text
     await waitFor(
       () =>
         evaluate(
-          `[...document.querySelectorAll('button')].some(node => node.textContent.trim() === ${JSON.stringify(text)} && !node.disabled)`,
+          `[...document.querySelectorAll('button')].some(node => (node.textContent.trim() === ${JSON.stringify(label)} || node.getAttribute('aria-label') === ${JSON.stringify(label)}) && !node.disabled)`,
         ),
       `按钮可用：${text}`,
     )
     await evaluate(
-      `(() => { const node = [...document.querySelectorAll('button')].find(node => node.textContent.trim() === ${JSON.stringify(text)}); node.click() })()`,
+      `[...document.querySelectorAll('button')].find(node => node.textContent.trim() === ${JSON.stringify(label)} || node.getAttribute('aria-label') === ${JSON.stringify(label)}).click()`,
     )
   }
   const input = async (label, value) => {
@@ -53,7 +62,7 @@ module.exports = async (window, waitFor, output) => {
   }
   await evaluate('document.querySelector("button[aria-label=设置]").click()')
   await click('MCP')
-  await waitFor(() => evaluate('document.body.textContent.includes("尚未配置 Desktop 全局 MCP 服务")'), '空配置')
+  await waitFor(() => evaluate('document.body.textContent.includes("尚未配置 MCP 服务")'), '空配置')
   assert.equal(await evaluate(`document.querySelector('input[aria-label="在 Desktop 中启用 MCP"]') === null`), true)
   assert.equal(await evaluate('document.body.textContent.includes("原配置关闭了 MCP")'), true)
   assert.equal(
@@ -172,10 +181,17 @@ module.exports = async (window, waitFor, output) => {
     JSON.stringify({ mcpServers: { check: { command: nodeBinary, args: [mcpFixture, '--stdio'] } } }),
   )
   await click('重新加载配置')
-  await waitFor(() => evaluate('document.body.textContent.includes("待重新授权")'), '旧关闭配置保留')
+  await waitFor(
+    () =>
+      evaluate(
+        `document.querySelector('button[aria-label="启用 MCP 服务：check"]')?.getAttribute('aria-checked') === 'false'`,
+      ),
+    '旧关闭配置保留',
+  )
   await click('启用并授权 check')
   await saved('value.servers[0].config.desktopAuthorized === true')
   assert.equal(await evaluate('window.piMemeClient.getSettings().then(value => value.settings.mcpEnabled)'), false)
+  await evaluate(`document.querySelector('details > summary').click()`)
   await click('检查全部全局服务')
   await waitFor(
     () => evaluate('document.querySelector("section[aria-label=\\"MCP 诊断结果\\"]")?.textContent.includes("已连接")'),

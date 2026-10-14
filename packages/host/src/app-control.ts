@@ -371,6 +371,7 @@ export async function createAppControl(options: Options) {
     capabilities: async () => ({
       apiVersion: 2,
       hostId,
+      fileOperations: ['preview', 'search', 'write'],
       features: [
         'projects',
         'sessions',
@@ -564,7 +565,11 @@ export async function createAppControl(options: Options) {
       read: async (input = {}) => store.read(input ?? {}),
       subscribe: async (input, callback) => store.subscribe(input, callback),
     },
-    files: options.workspace.files,
+    files: {
+      ...options.workspace.files,
+      write: (ref, input, opts) =>
+        mutate(clientId, 'files.write', [ref, input], opts, () => options.workspace.files.write(ref, input, opts)),
+    },
     terminal: {
       open: (ref, input, opts) =>
         mutate(clientId, 'terminal.open', [ref, input], opts, () => options.workspace.terminal.open(ref, input, opts)),
@@ -581,7 +586,8 @@ export async function createAppControl(options: Options) {
     git: {
       environment: async (ref) => getGitEnvironment(await resolveRoot(ref)),
       snapshot: async (ref) => getGitSnapshot(await resolveRoot(ref)),
-      diff: async (ref, input) => getGitDiff(await resolveRoot(ref), input.path, input.staged ? 'staged' : 'unstaged'),
+      diff: async (ref, input) =>
+        getGitDiff(await resolveRoot(ref), input.path, input.kind ?? (input.staged ? 'staged' : 'unstaged')),
     },
     interaction: {
       respond: (ref, input, opts) =>
@@ -609,6 +615,7 @@ export async function createAppControl(options: Options) {
   })
   const api = apiFor('host-internal')
   const writes = new Set([
+    'files.write',
     'plugins.setDefaultAgentPlugins',
     'projects.register',
     'sessions.create',

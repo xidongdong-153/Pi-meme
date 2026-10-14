@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./components/ui/switch": "./src/components/ui/switch.tsx",
+    "./components/integration-header": "./src/components/integration-header.tsx",
     "./brand-mark.css": "./src/brand-mark.css",
     "./components/brand-mark": "./src/components/brand-mark.tsx",
     "./components/agent-avatar": "./src/components/agent-avatar.tsx",

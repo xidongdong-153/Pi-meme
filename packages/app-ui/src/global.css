@@ -7,6 +7,8 @@
 @import '@pi-meme/interaction/ui/extension-editor.css';
 @import '@pi-meme/interaction/ui/user-input-panel.css';
 @import './settings-page.css';
+@import '@pi-meme/file-directory/ui/files.css';
+@import '@xterm/xterm/css/xterm.css';
 
 /* 显式扫描 UI 与功能包源码，Tailwind 默认只扫描 Vite 根目录 */
 @source '../../ui/src';
@@ -18,6 +20,8 @@
 @source '../../mcp/src';
 @source '../../interaction/src';
 @source '../../resources/src';
+@source '../../file-directory/src';
+@source '../../terminal/src';
 
 @theme {
   --color-background: var(--background);

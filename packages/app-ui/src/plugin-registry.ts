@@ -1,5 +1,6 @@
 import type { HostApi } from '@pi-meme/contracts/app-host'
 import { PluginScope } from '@pi-meme/plugin-sdk/scope'
+import { isReservedPluginId } from '@pi-meme/plugin-sdk/reserved'
 import type {
   UiContribution,
   UiPanel,
@@ -79,8 +80,9 @@ export class UiPluginRegistry {
       .catch(() => {})
       .then(async () => {
         if (this.closed) return
+        const external = descriptors.filter((descriptor) => !isReservedPluginId(descriptor.id))
         const wanted = new Set(
-          descriptors
+          external
             .filter(
               (plugin) =>
                 plugin.enabled &&
@@ -99,7 +101,7 @@ export class UiPluginRegistry {
           }
           this.changed()
         }
-        for (const descriptor of descriptors) {
+        for (const descriptor of external) {
           if (!descriptor.enabled || !descriptor.ui || descriptor.status !== 'active') continue
           const previous = this.active.get(descriptor.id)
           if (

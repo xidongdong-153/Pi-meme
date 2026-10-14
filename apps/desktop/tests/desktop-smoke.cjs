@@ -72,7 +72,7 @@ async function runAppPlugins(window) {
     )
   }
   const repository = path.resolve(root, '..', '..')
-  for (const name of ['file-directory', 'terminal', 'theme-landscape']) {
+  for (const name of ['theme-landscape']) {
     const pluginDirectory = path.join(repository, 'plugins', name)
     const manifest = JSON.parse(await fs.readFile(path.join(pluginDirectory, 'package.json'), 'utf8'))
     if (manifest.piMeme.ui) await fs.access(path.join(pluginDirectory, manifest.piMeme.ui))
@@ -117,8 +117,8 @@ async function runAppPlugins(window) {
   await capture('app-plugins-skills')
   await clickText('插件', 'nav[aria-label="设置分类"]')
   await waitFor(
-    () => evaluate(`document.querySelectorAll('ul[aria-label="App 插件列表"] li').length === 3`),
-    '三个示范 App 插件列表',
+    () => evaluate(`document.querySelectorAll('ul[aria-label="App 插件列表"] li').length === 1`),
+    '主题 App 插件列表',
   )
   assert.equal(
     await evaluate(`document.querySelector('section[aria-label="插件管理"] [aria-label="资源类型"]') === null`),
@@ -226,27 +226,26 @@ async function runAppPlugins(window) {
       evaluate(`document.querySelector('#workspace-right-sidebar').getBoundingClientRect().width === ${regularWidth}`),
     '还原工具栏宽度',
   )
-  await openTool(window, waitFor, '文件目录')
+  await openTool(window, waitFor, '文件')
   await waitFor(
-    () =>
-      evaluate(`document.querySelector('[role="tabpanel"][aria-label="文件目录"]')?.textContent.includes('README.md')`),
+    () => evaluate(`document.querySelector('[role="tabpanel"][aria-label="文件"]')?.textContent.includes('README.md')`),
     '真实项目文件目录',
   )
   await assertFixedChat()
   await capture('app-plugins-directory')
-  await clickText('README.md', '[role="tabpanel"][aria-label="文件目录"]')
+  await clickText('README.md', '[role="tabpanel"][aria-label="文件"]')
   await waitFor(
     () =>
       evaluate(
-        `document.querySelector('[role="tabpanel"][aria-label="文件预览"] pre')?.textContent.includes('# 验收项目')`,
+        `document.querySelector('[role="tabpanel"][aria-label="文件"] .cm-content')?.textContent.includes('# 验收项目')`,
       ),
-    '点击文件自动打开右侧预览标签',
+    '点击文件在同一面板打开编辑器',
   )
   await assertFixedChat()
   await capture('app-plugins-preview')
-  await openTool(window, waitFor, 'Git')
+  await openTool(window, waitFor, '变更')
   await waitFor(
-    () => evaluate(`Boolean(document.querySelector('#workspace-right-sidebar [role="tabpanel"][aria-label="Git"]'))`),
+    () => evaluate(`Boolean(document.querySelector('#workspace-right-sidebar [role="tabpanel"][aria-label="变更"]'))`),
     '内置 Git 右侧面板',
   )
   await openTool(window, waitFor, '终端')
@@ -270,9 +269,9 @@ async function runAppPlugins(window) {
   const terminalControls = await evaluate(`(() => {
     const panel = document.querySelector('#workspace-right-sidebar');
     const bounds = panel.getBoundingClientRect();
-    return [...panel.querySelectorAll('button')].filter(node=>/重新连接|关闭终端/.test(node.textContent)).map(node=>{
+    return [...panel.querySelectorAll('button')].filter(node=>/重新连接终端|关闭终端实例/.test(node.getAttribute('aria-label') || '')).map(node=>{
       const rect = node.getBoundingClientRect();
-      return {title:node.textContent.trim(),left:rect.left,right:rect.right,panelLeft:bounds.left,panelRight:bounds.right};
+      return {title:node.getAttribute('aria-label'),left:rect.left,right:rect.right,panelLeft:bounds.left,panelRight:bounds.right};
     });
   })()`)
   assert.equal(terminalControls.length, 2, '终端连接与关闭操作可用')
@@ -292,17 +291,17 @@ async function runAppPlugins(window) {
   await assertFixedChat()
   await evaluate(`document.querySelector('button[aria-label="展开右侧栏"]').click()`)
   await waitFor(async () => (await selectedTab()) === terminalTitle, '展开保留当前工具标签')
-  await openTool(window, waitFor, 'Git')
+  await openTool(window, waitFor, '变更')
   await capture('app-plugins-tabs-git')
-  await evaluate(`document.querySelector('button[aria-label="关闭标签页：Git"]').click()`)
+  await evaluate(`document.querySelector('button[aria-label="关闭标签页：变更"]').click()`)
   await waitFor(
     () =>
       evaluate(
-        `[...document.querySelectorAll('[role="tablist"][aria-label="右侧栏标签"] [role="tab"]')].every(node=>!node.textContent.includes('Git'))`,
+        `[...document.querySelectorAll('[role="tablist"][aria-label="右侧栏标签"] [role="tab"]')].every(node=>!node.textContent.includes('变更'))`,
       ),
     '关闭 Git 标签',
   )
-  await openTool(window, waitFor, 'Git')
+  await openTool(window, waitFor, '变更')
   await assertFixedChat()
   await capture('app-plugins-tabs-reopened')
   const firstSession = await evaluate(`window.piMemeClient.getConnection()`)
@@ -345,12 +344,12 @@ async function runAppPlugins(window) {
   )
   assert.equal(
     await evaluate(
-      `[...document.querySelectorAll('[role="tablist"][aria-label="右侧栏标签"] [role="tab"]')].some(node=>/Git|文件目录|文件预览|终端/.test(node.textContent))`,
+      `[...document.querySelectorAll('[role="tablist"][aria-label="右侧栏标签"] [role="tab"]')].some(node=>/变更|文件|终端/.test(node.textContent))`,
     ),
     false,
     '新会话不继承旧会话工具标签',
   )
-  await openTool(window, waitFor, '文件目录')
+  await openTool(window, waitFor, '文件')
   await assertFixedChat()
   await capture('app-plugins-session-new')
   await evaluate(`window.piMemeClient.switchSession(${JSON.stringify(firstFile)})`)
@@ -378,7 +377,7 @@ async function runAppPlugins(window) {
     '切换标签及会话后保留原终端输出',
   )
   await capture('app-plugins-terminal-restored')
-  await clickText('关闭终端', '#workspace-right-sidebar [role="tabpanel"][aria-label="终端"]')
+  await evaluate(`document.querySelector('button[aria-label="关闭终端实例"]').click()`)
   await evaluate(`document.querySelector('button[aria-label="设置"]').click()`)
   await clickText('外观', 'nav[aria-label="设置分类"]')
   await waitFor(() => evaluate(`Boolean(document.querySelector(${JSON.stringify(themeSelector)}))`), '恢复内置深色主题')
@@ -682,12 +681,12 @@ async function run(window) {
       evaluate(`Boolean(document.querySelector('#workspace-right-sidebar [role="tabpanel"][aria-label="新标签页"]'))`),
     '默认右侧工具选择页',
   )
-  await openTool(window, waitFor, 'Git')
+  await openTool(window, waitFor, '变更')
   assert.equal(
     await evaluate(
       `document.querySelector('[role="tablist"][aria-label="右侧栏标签"] [role="tab"][aria-selected="true"]').textContent.trim()`,
     ),
-    'Git',
+    '变更',
     '从工具选择页打开 Git',
   )
   // 拖拽右句柄：宽度随拖动变化并受最小宽度约束

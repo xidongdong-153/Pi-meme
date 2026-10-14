@@ -1,0 +1,41 @@
+{
+  "name": "@pi-meme/file-directory",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "浏览项目文件，编辑代码并预览 Markdown 和图片。",
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts"
+  },
+  "devDependencies": {
+    "@pi-meme/plugin-sdk": "workspace:*",
+    "typescript": "^5.9.3",
+    "tsx": "^4.23.15",
+    "@types/react": "^19.3.0"
+  },
+  "peerDependencies": {
+    "react": "^19.3.0"
+  },
+  "dependencies": {
+    "@pi-meme/contracts": "workspace:*",
+    "@pi-meme/ui": "workspace:*",
+    "lucide-react": "^1.48.0",
+    "codemirror": "^6.0.2",
+    "@codemirror/lang-javascript": "^6.2.4",
+    "@codemirror/lang-json": "^6.0.2",
+    "@codemirror/lang-markdown": "^6.3.2",
+    "@codemirror/lang-html": "^6.4.9",
+    "@codemirror/lang-css": "^6.3.1",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1",
+    "@codemirror/state": "^6.7.6",
+    "@codemirror/language": "^6.12.4",
+    "@lezer/highlight": "^1.2.5"
+  },
+  "exports": {
+    "./ui/files-panel": "./src/ui/files-panel.tsx",
+    "./ui/file-store": "./src/ui/file-store.ts",
+    "./ui/files.css": "./src/ui/files.css"
+  }
+}

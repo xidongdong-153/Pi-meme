@@ -5,24 +5,13 @@
   "type": "module",
   "description": "在当前会话目录中运行 shell，支持终端重连。",
   "scripts": {
-    "type-check": "tsc --noEmit",
-    "build": "tsx ../../packages/plugin-devkit/src/cli.ts build .",
-    "validate": "tsx ../../packages/plugin-devkit/src/cli.ts validate .",
-    "pack": "tsx ../../packages/plugin-devkit/src/cli.ts pack . dist/plugin.pim"
+    "type-check": "tsc --noEmit"
   },
   "devDependencies": {
-    "@pi-meme/plugin-devkit": "workspace:*",
     "@pi-meme/plugin-sdk": "workspace:*",
     "typescript": "^5.9.3",
     "tsx": "^4.23.15",
     "@types/react": "^19.3.0"
-  },
-  "piMeme": {
-    "sdkVersion": 2,
-    "display": {
-      "name": "终端"
-    },
-    "ui": "dist/ui/entry.js"
   },
   "peerDependencies": {
     "react": "^19.3.0"
@@ -30,6 +19,11 @@
   "dependencies": {
     "@pi-meme/contracts": "workspace:*",
     "@xterm/xterm": "^6.0.0",
-    "@xterm/addon-fit": "^0.11.0"
+    "@xterm/addon-fit": "^0.11.0",
+    "@pi-meme/ui": "workspace:*",
+    "lucide-react": "^1.48.0"
+  },
+  "exports": {
+    "./ui/entry": "./src/ui/entry.tsx"
   }
 }

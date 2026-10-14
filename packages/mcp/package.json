@@ -21,7 +21,8 @@
     "@pi-meme/contracts": "workspace:*",
     "@pi-meme/pi-runtime": "workspace:*",
     "@pi-meme/ui": "workspace:*",
-    "@pi-meme/plugin-sdk": "workspace:*"
+    "@pi-meme/plugin-sdk": "workspace:*",
+    "lucide-react": "^1.48.0"
   },
   "peerDependencies": {
     "react": "^19.3.0"

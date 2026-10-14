@@ -12,7 +12,7 @@
 | App 集成     | Host 后台服务、项目和任务操作、插件间服务          | `server` 与 HostApi           |
 | 主题与资源   | 颜色、字体、间距、圆角、透明度、背景图片、附带技能 | `resources`，可以没有代码入口 |
 
-当前示范源码在 `plugins/file-directory`、`plugins/terminal`、`plugins/theme-landscape`。Git 查询接口已提供；Git Lens 插件和通讯 Bot 尚未实现。
+变更、文件、终端是应用自带的系统插件，始终启用，不能通过插件接口停用、卸载或更新。文件与终端源码在 `packages/file-directory`、`packages/terminal`。可安装的主题示范在 `plugins/theme-landscape`。
 
 ## 包格式与构建
 
@@ -57,14 +57,10 @@ DevKit 分别构建 Node 与浏览器产物。UI 使用宿主 React；CSS 导入
 示范构建与打包：
 
 ```sh
-pnpm --filter @pi-meme/file-directory build
-pnpm --filter @pi-meme/file-directory run pack
-pnpm --filter @pi-meme/terminal build
-pnpm --filter @pi-meme/terminal run pack
 pnpm --filter @pi-meme/theme-landscape run pack
 ```
 
-输出分别位于各插件的 `dist/plugin.pim`。
+主题包输出为 `plugins/theme-landscape/dist/plugin.pim`。
 
 ## Agent 入口
 
@@ -148,9 +144,9 @@ Server 入口导出 `create(context)`。可用字段见 `packages/plugin-sdk/src
 - `provide/services.require`：只使用 manifest 声明的插件间服务。
 - `onDispose`：关闭订阅、计时器、连接和文件句柄。
 
-外部 Server 不能取得内置 Store、PiSessionPool 或 DesktopBridge。协议与 Node 客户端见 [独立 Host](remote.md)。Host 文件预览仅支持目标工作区中的 UTF-8 普通文件，最大 1 MiB；拒绝目录越界、越界符号链接和二进制文件。
+外部 Server 不能取得内置 Store、PiSessionPool 或 DesktopBridge。协议与 Node 客户端见 [独立 Host](remote.md)。Host 文件接口限定显式目标的工作目录。`files.preview` 分类返回文本、图片或不支持原因；`files.search` 按文件名分页搜索；`files.write` 使用读取修订和幂等键保存现有 UTF-8 文件。文本读取和保存上限为 1 MiB，图片为 8 MiB。保存检查外部修改，保留 BOM、LF/CRLF 与权限；拒绝目录越界和越界符号链接。旧 Host 不提供 `capabilities().fileOperations` 时，文件面板保持只读。
 
-终端使用 `node-pty`，客户端使用 xterm.js。能力不可用时 `capabilities().features` 不包含 `terminal`。每个 Host 最多 16 个活动终端，每个终端保留 256 KiB 输出；单次输入最多 64 KiB。隐藏面板保留进程，关闭实例、释放示范插件或 Host 退出时关闭。重新连接使用 `terminal.attach` 获取当前缓冲；输出事件本身不持久化。
+终端使用 `node-pty`，客户端使用 xterm.js。能力不可用时 `capabilities().features` 不包含 `terminal`。每个 Host 最多 16 个活动终端，每个终端保留 256 KiB 输出；单次输入最多 64 KiB。隐藏面板保留进程，关闭实例或 Host 退出时关闭；关闭右侧标签和切换会话保留进程。重新连接使用 `terminal.attach` 获取当前缓冲；输出事件本身不持久化。
 
 ## 结构化主题
 

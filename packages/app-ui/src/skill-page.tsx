@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, BookOpen, Copy, Plus, RefreshCw, Search, Upload } from 'lucide-react'
+import { ArrowLeft, BookOpen, Copy, Plus, RefreshCw, ChevronDown, Upload } from 'lucide-react'
 import type { ResourceCatalog, ResourceItem, ResourceSnapshot } from '@pi-meme/contracts/resources'
 import type { BranchSkillUsage } from '@pi-meme/contracts/skills'
 import type { PiSlashCommand } from '@pi-meme/contracts/pi'
@@ -7,6 +7,14 @@ import type { ResourceClient } from '@pi-meme/client/resource-client'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Input } from '@pi-meme/ui/components/ui/input'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
+import { Switch } from '@pi-meme/ui/components/ui/switch'
+import { IntegrationHeader } from '@pi-meme/ui/components/integration-header'
+import {
+  DropdownMenu,
+  DropdownMenuTrigger,
+  DropdownMenuContent,
+  DropdownMenuItem,
+} from '@pi-meme/ui/components/ui/dropdown-menu'
 import { cn } from '@pi-meme/ui/lib/utils'
 
 const scopes = { builtin: '应用自带', host: '此设备', project: '当前项目' }
@@ -300,47 +308,56 @@ export function SkillPage({
         </div>
       ) : (
         <>
-          <div className="flex flex-wrap items-center gap-2">
-            <div className="relative mr-auto w-full max-w-sm">
-              <Search className="absolute left-3 top-2.5 size-4 text-muted-foreground" />
-              <Input
-                aria-label="搜索技能"
-                placeholder="搜索技能"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                className="pl-9"
-              />
-            </div>
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label="重新扫描技能"
-              disabled={busy}
-              onClick={() => void action(() => client.refresh(cwd))}
-            >
-              <RefreshCw className={cn(busy && 'animate-spin')} />
-            </Button>
-            <Button variant="outline" disabled={busy} onClick={() => void edit()}>
-              <Plus />
-              新建技能
-            </Button>
-            <Button variant="outline" disabled={busy} onClick={() => uploadRef.current?.click()}>
-              <Upload />
-              导入技能
-            </Button>
-            <Button variant="outline" disabled={busy} onClick={() => setImportOpen(true)}>
-              从设备目录导入
-            </Button>
-          </div>
+          <IntegrationHeader
+            title="技能"
+            description="管理技能，设置设备默认或当前项目的调用方式。"
+            query={query}
+            onQuery={setQuery}
+            searchLabel="搜索技能"
+            actions={
+              <>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label="重新扫描技能"
+                  disabled={busy}
+                  onClick={() => void action(() => client.refresh(cwd))}
+                >
+                  <RefreshCw className={cn(busy && 'animate-spin')} />
+                </Button>
+                <Button variant="outline" disabled={busy} onClick={() => setImportOpen(true)}>
+                  从设备目录导入
+                </Button>
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button aria-label="添加技能" disabled={busy}>
+                      添加
+                      <ChevronDown className="size-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem onSelect={() => void edit()}>
+                      <Plus />
+                      新建技能
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onSelect={() => uploadRef.current?.click()}>
+                      <Upload />
+                      导入技能文件
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              </>
+            }
+          />
           {!catalog ? (
             <p role="status" className="text-sm text-muted-foreground">
               正在读取技能…
             </p>
           ) : (
-            <ul className="grid gap-2 lg:grid-cols-2" aria-label="技能列表">
+            <ul className="space-y-1 pt-6" aria-label="技能列表">
               {filtered.map((item) => {
                 return (
-                  <li key={item.id}>
+                  <li key={item.id} className="flex min-h-24 items-center gap-4 rounded-xl px-3 hover:bg-secondary/30">
                     <button
                       type="button"
                       aria-label={`查看技能：${item.name}`}
@@ -348,19 +365,29 @@ export function SkillPage({
                         setSelected(item.id)
                         setScope(item.scope === 'project' ? 'project' : 'host')
                       }}
-                      className="flex min-h-24 w-full items-center gap-4 rounded-2xl border border-border p-4 text-left hover:bg-secondary/50"
+                      className="flex min-w-0 flex-1 items-center gap-4 rounded-lg py-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
-                      <BookOpen className="size-6 shrink-0 text-muted-foreground" />
+                      <span className="flex size-12 shrink-0 items-center justify-center rounded-full border border-border/70 text-muted-foreground">
+                        <BookOpen className="size-5" strokeWidth={1.6} />
+                      </span>
                       <span className="min-w-0">
-                        <span className="block truncate text-sm font-medium">{item.displayName ?? item.name}</span>
-                        <span className="mt-1 line-clamp-2 text-sm text-muted-foreground">
+                        <span className="block truncate text-base font-medium">{item.displayName ?? item.name}</span>
+                        <span className="mt-1 block truncate text-sm text-muted-foreground">
                           {item.shortDescription ?? item.description ?? '未提供说明'}
-                        </span>
-                        <span className="mt-2 block text-xs text-muted-foreground">
-                          技能 · {scopes[item.scope]} · {state(item)}
                         </span>
                       </span>
                     </button>
+                    <span className="hidden shrink-0 text-sm text-muted-foreground sm:inline" title={state(item)}>
+                      {item.owner.type === 'app-package' ? '来自插件' : scopes[item.scope]}
+                    </span>
+                    <Switch
+                      label={`启用技能：${item.displayName ?? item.name}`}
+                      checked={item.hostPolicy?.enabled ?? item.defaultPolicy.enabled ?? true}
+                      disabled={busy || Boolean(item.diagnostics.length)}
+                      onChange={(enabled) =>
+                        void action(() => client.setPolicy({ id: item.id, scope: 'host', cwd, enabled }))
+                      }
+                    />
                   </li>
                 )
               })}
