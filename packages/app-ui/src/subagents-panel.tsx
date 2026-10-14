@@ -3,6 +3,7 @@ import type { AgentSummary, AgentStatus } from '@pi-meme/contracts/collaboration
 import type { DesktopBridge } from '@pi-meme/contracts/desktop'
 import { Conversation } from '@pi-meme/chat/ui/conversation/conversation'
 import { AgentAvatar } from '@pi-meme/ui/components/agent-avatar'
+import { ErrorLine } from '@pi-meme/ui/components/error-line'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { formatAgentName } from '@pi-meme/ui/lib/agent-name'
 import { AgentConversationStore } from './agent-conversation-store'
@@ -91,11 +92,7 @@ const AgentConversation = memo(({ bridge, id, onBack }: { bridge: DesktopBridge;
           正在读取对话…
         </p>
       )}
-      {(view.error || copyError) && (
-        <p role="alert" className="p-3 text-xs text-destructive">
-          {view.error || copyError}
-        </p>
-      )}
+      {(view.error || copyError) && <ErrorLine message={view.error || copyError} className="p-3 text-xs" />}
       <Conversation
         chat={view.chat}
         readOnly
@@ -165,11 +162,7 @@ const SubagentsContent = memo(({ bridge, sessionKey }: { bridge: DesktopBridge; 
     return <AgentConversation key={selected} bridge={bridge} id={selected} onBack={() => setSelected(undefined)} />
   return (
     <div className="min-h-0 flex-1 overflow-auto px-3 py-4 text-xs">
-      {error && (
-        <p role="alert" className="mb-2 text-destructive">
-          {error}
-        </p>
-      )}
+      {error && <ErrorLine message={error} className="mb-2 text-xs" />}
       {[true, false].map((opened) => {
         const group = orderAgents(agents, opened)
         return (

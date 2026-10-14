@@ -4,7 +4,8 @@ import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import remarkMath from 'remark-math'
 import rehypeKatex from 'rehype-katex'
-import { AlertCircle, Loader2 } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
+import { ErrorLine } from '@pi-meme/ui/components/error-line'
 import type { PiImage, PiMessage } from '@pi-meme/contracts/pi'
 import type { ChatState } from '../model/types'
 import { groupMessageParts } from '../model/message-parts'
@@ -60,7 +61,10 @@ export function ChatMessage({
               name: 'bash',
               command: message.command,
               output: message.output,
-              status: 'success',
+              status:
+                !message.cancelled && typeof message.exitCode === 'number' && message.exitCode !== 0
+                  ? 'error'
+                  : 'success',
             },
           ]}
         />
@@ -143,16 +147,8 @@ export function ChatMessage({
             })
           ) : null}
 
-          {(message.role === 'assistant' ? message.errorMessage : undefined) && (
-            <div
-              role="alert"
-              className="mt-2.5 flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive"
-            >
-              <AlertCircle className="size-4 shrink-0 mt-0.5" />
-              <div className="font-medium whitespace-pre-wrap leading-relaxed">
-                {message.role === 'assistant' ? message.errorMessage : undefined}
-              </div>
-            </div>
+          {message.role === 'assistant' && message.stopReason !== 'aborted' && message.errorMessage && (
+            <ErrorLine className="mt-2" message={message.role === 'assistant' ? message.errorMessage! : ''} />
           )}
         </div>
         {isUser && (

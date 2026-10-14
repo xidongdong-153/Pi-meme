@@ -1,4 +1,5 @@
 import * as React from 'react'
+import { ErrorLine } from '@pi-meme/ui/components/error-line'
 import { ArrowRight, ChevronLeft, ChevronRight, MessageCircleQuestionMark, Pencil, X } from 'lucide-react'
 import type { PiExtensionUIResponse } from '@pi-meme/contracts/pi'
 import type { PiUserInputRequest } from '@pi-meme/contracts/user-input'
@@ -219,11 +220,7 @@ function UserInputPanelContent({ request, onRespond, sourceName, draft: savedDra
         ) : null}
       </div>
       <div className="user-input-footer">
-        {error ? (
-          <p role="alert" className="user-input-error">
-            {error}
-          </p>
-        ) : null}
+        {error ? <ErrorLine message={error} className="user-input-error" /> : null}
         <div className="user-input-response">
           <Pencil aria-hidden="true" className="user-input-pencil" />
           <textarea

@@ -1,10 +1,12 @@
 import * as React from 'react'
 import { AlertCircle, RotateCcw } from 'lucide-react'
 import { Button } from './ui/button'
+import { ErrorLine } from './error-line'
 
 type Props = {
   children: React.ReactNode
   fallbackTitle?: string
+  inline?: boolean
 }
 
 type State = {
@@ -32,6 +34,23 @@ export class ErrorBoundary extends React.Component<Props, State> {
 
   override render() {
     if (this.state.hasError) {
+      if (this.props.inline)
+        return (
+          <ErrorLine
+            message={this.state.error?.message || '发生未知渲染异常'}
+            summary={this.props.fallbackTitle || '界面渲染遇到错误'}
+            className="px-4 py-2 text-xs"
+            actions={
+              <button
+                type="button"
+                onClick={this.handleReset}
+                className="shrink-0 cursor-pointer text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                重试加载
+              </button>
+            }
+          />
+        )
       return (
         <div className="flex h-full w-full flex-col items-center justify-center p-6 text-foreground select-none">
           <div className="flex max-w-md flex-col items-center text-center">

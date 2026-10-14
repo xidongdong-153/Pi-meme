@@ -40,7 +40,9 @@ export function WorkspaceContent({
     <section className="relative flex flex-1 min-h-0 min-w-0 flex-col bg-background" aria-label="工作区">
       {notice}
       {hasConversation ? (
-        <ErrorBoundary fallbackTitle="当前会话内容渲染失败，可尝试切换其他会话">{conversation}</ErrorBoundary>
+        <ErrorBoundary inline fallbackTitle="当前会话内容渲染失败">
+          {conversation}
+        </ErrorBoundary>
       ) : !ready && (!hasConnected || connection.status === 'disconnected') ? (
         <div className="flex flex-1 flex-col items-center justify-center p-6 min-h-0">
           {connection.status === 'connecting' ? (

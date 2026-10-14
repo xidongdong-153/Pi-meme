@@ -79,6 +79,13 @@ export type PiModel = { provider: string; id: string; name?: string; reasoning?:
 export type PiSessionStats = SessionStats
 export type PiRunInterval = { startedAt: number; endedAt?: number }
 export type PiPauseInterval = { startedAt: number; endedAt?: number }
+export type PiRetryState = {
+  kind: 'model' | 'summary'
+  attempt: number
+  maxAttempts: number
+  delayMs: number
+  errorMessage: string
+}
 
 export type PiState = Pick<
   RpcSessionState,
@@ -89,6 +96,8 @@ export type PiState = Pick<
   pauseRevision?: number
   pauseIntervals?: PiPauseInterval[]
   runIntervals?: PiRunInterval[]
+  retry?: PiRetryState
+  compactionError?: string
   mode: TaskMode
   activeMode?: TaskMode
   skillUsages?: BranchSkillUsage[]
@@ -113,6 +122,11 @@ export type PiEvent =
             | 'tool_execution_end'
             | 'compaction_start'
             | 'compaction_end'
+            | 'auto_retry_start'
+            | 'auto_retry_end'
+            | 'summarization_retry_scheduled'
+            | 'summarization_retry_attempt_start'
+            | 'summarization_retry_finished'
         }
       >
     > & { runIntervals?: PiRunInterval[]; source?: PiUiSource })

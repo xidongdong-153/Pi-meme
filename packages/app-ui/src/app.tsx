@@ -625,6 +625,7 @@ export function App({
             onOpenSettings={() => setSettingsOpen(true)}
             onDismiss={chat.dismissExtensionError}
           />
+          <ExtensionNotices {...{ notices: chat.extensionNotices, onDismiss: chat.dismissNotice }} />
         </>
       }
     >
@@ -795,9 +796,6 @@ export function App({
               {conversation}
             </WorkspacePanels>
           </div>
-
-          {/* 扩展通知 Toast 堆栈 */}
-          <ExtensionNotices {...{ notices: chat.extensionNotices, onDismiss: chat.dismissNotice }} />
 
           {/* 设置页面 */}
           {settingsOpen && (

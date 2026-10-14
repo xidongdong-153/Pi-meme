@@ -740,6 +740,7 @@ export class PiSessionPool implements PiRuntime {
       record.liveEvents = []
       record.tools.clear()
     }
+    this.rememberRecoveryEvent(record, event)
     if (event.type === 'message_start' && event.message.role === 'assistant') record.liveEvents = [recordEvent]
     if (event.type === 'message_update') record.liveEvents.push(recordEvent)
     if (event.type === 'message_end') {
@@ -778,6 +779,33 @@ export class PiSessionPool implements PiRuntime {
       this.notify.sessionsChanged()
       if (event.type === 'agent_settled') this.prune()
     }
+  }
+  private rememberRecoveryEvent(record: RuntimeSession, event: DesktopEvent['event']) {
+    if (event.type === 'auto_retry_start' || event.type === 'summarization_retry_scheduled')
+      record.state = {
+        ...record.state,
+        retry: {
+          kind: event.type === 'auto_retry_start' ? 'model' : 'summary',
+          attempt: event.attempt,
+          maxAttempts: event.maxAttempts,
+          delayMs: event.delayMs,
+          errorMessage: event.errorMessage,
+        },
+      }
+    if (
+      event.type === 'agent_settled' ||
+      (event.type === 'auto_retry_end' && record.state.retry?.kind === 'model') ||
+      (event.type === 'summarization_retry_finished' && record.state.retry?.kind === 'summary')
+    )
+      record.state = { ...record.state, retry: undefined }
+    if (event.type === 'agent_start' || event.type === 'compaction_start')
+      record.state = { ...record.state, compactionError: undefined }
+    if (event.type === 'compaction_end')
+      record.state = {
+        ...record.state,
+        compactionError: event.aborted ? undefined : event.errorMessage,
+        retry: record.state.retry?.kind === 'summary' ? undefined : record.state.retry,
+      }
   }
   private rememberMessage(record: RuntimeSession, message: PiMessage) {
     const index = record.messages.findIndex((saved) => sameMessage(saved, message))
@@ -1052,11 +1080,16 @@ export class PiSessionPool implements PiRuntime {
       this.rememberSnapshot(record, snapshot)
       if (record.sessionFile && !record.accessChanging)
         await this.accessStore.set(record.sessionFile, record.accessMode)
-      for (const value of buffer)
+      for (const value of buffer) {
         if (value.event.type === 'message_end') this.rememberMessage(record, value.event.message)
+        this.rememberRecoveryEvent(record, value.event)
+      }
       if (!buffer.some((value) => value.event.type === 'agent_start' || value.event.type === 'agent_settled'))
         record.running =
-          (!record.settled && record.pendingPrompt) || snapshot.state.isStreaming || snapshot.state.isCompacting
+          (!record.settled && record.pendingPrompt) ||
+          snapshot.state.isStreaming ||
+          snapshot.state.isCompacting ||
+          Boolean(record.state.retry)
       return {
         ...snapshot,
         extensionError: record.extensionError ? { ...record.extensionError, generation } : undefined,
@@ -1068,6 +1101,8 @@ export class PiSessionPool implements PiRuntime {
           pauseRevision: record.state.pauseRevision,
           pauseIntervals: record.state.pauseIntervals,
           runIntervals: record.state.runIntervals,
+          retry: record.state.retry,
+          compactionError: record.state.compactionError,
           isStreaming: record.running,
           isCompacting: record.running && snapshot.state.isCompacting,
         },

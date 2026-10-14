@@ -12,6 +12,7 @@
     "./components/agent-avatar": "./src/components/agent-avatar.tsx",
     "./components/fade-content": "./src/components/fade-content.tsx",
     "./components/error-boundary": "./src/components/error-boundary.tsx",
+    "./components/error-line": "./src/components/error-line.tsx",
     "./components/icon": "./src/components/icon.tsx",
     "./components/ui/badge": "./src/components/ui/badge.tsx",
     "./components/ui/button": "./src/components/ui/button.tsx",

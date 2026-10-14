@@ -14,6 +14,11 @@ const desktopEventTypes = new Set<PiEvent['type']>([
   'tool_execution_end',
   'compaction_start',
   'compaction_end',
+  'auto_retry_start',
+  'auto_retry_end',
+  'summarization_retry_scheduled',
+  'summarization_retry_attempt_start',
+  'summarization_retry_finished',
 ])
 
 /**

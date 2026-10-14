@@ -419,7 +419,8 @@ test('相邻工具折叠成组，正文与思考保留原来顺序并分隔工�
   assert.match(markup, /读取了 1 个文件 · 执行了 1 条命令/)
   assert.match(markup, /已经确认 <strong[^>]*>结构<\/strong>。/)
   assert.match(markup, /工具详情：edit/)
-  assert.match(markup, /lucide-circle-x/)
+  assert.match(markup, /读取了 1 个文件|失败/)
+  assert.doesNotMatch(markup, /lucide-circle-x/)
   assert.doesNotMatch(markup, /max-h-80|animate-spin/)
 })
 

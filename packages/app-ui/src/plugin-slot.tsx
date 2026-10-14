@@ -1,4 +1,5 @@
-import { useSyncExternalStore, type ReactNode } from 'react'
+import { Fragment, useSyncExternalStore, type ReactNode } from 'react'
+import { ChevronRight } from 'lucide-react'
 import type { UiContribution, UiContributionProps, UiPluginSlot } from '@pi-meme/plugin-sdk/ui'
 import { ErrorBoundary } from '@pi-meme/ui/components/error-boundary'
 import type { UiPluginRegistry } from './plugin-registry'
@@ -38,14 +39,34 @@ export function PluginSlot({
   if (!matched.length) return <>{fallback}</>
   return (
     <>
-      {matched.map((entry) => (
-        <ErrorBoundary
-          key={`${entry.id}:${registry.identity(entry.id)}`}
-          fallbackTitle={`插件界面渲染失败：${entry.title ?? entry.id}`}
-        >
-          <Contribution render={entry.render} props={props} />
-        </ErrorBoundary>
-      ))}
+      {matched.map((entry) => {
+        const key = `${entry.id}:${registry.identity(entry.id)}`
+        const contribution = (
+          <ErrorBoundary inline={slot !== 'settings'} fallbackTitle={`插件界面渲染失败：${entry.title ?? entry.id}`}>
+            <Contribution render={entry.render} props={props} />
+          </ErrorBoundary>
+        )
+        const content =
+          slot === 'message' || slot === 'tool-card' ? (
+            <div className="conversation-contribution contents">{contribution}</div>
+          ) : (
+            contribution
+          )
+        return slot === 'message' ? (
+          <details key={key} className="group/contribution min-w-0 py-1 text-sm">
+            <summary className="flex min-w-0 cursor-pointer list-none items-center gap-1.5 rounded-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&::-webkit-details-marker]:hidden">
+              <span className="truncate">{entry.title ?? props.customType ?? '插件信息'}</span>
+              <ChevronRight
+                aria-hidden="true"
+                className="size-3 shrink-0 transition-transform group-open/contribution:rotate-90"
+              />
+            </summary>
+            {content}
+          </details>
+        ) : (
+          <Fragment key={key}>{content}</Fragment>
+        )
+      })}
     </>
   )
 }

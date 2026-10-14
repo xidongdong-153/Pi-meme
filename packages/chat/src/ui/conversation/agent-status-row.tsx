@@ -18,7 +18,7 @@ export function AgentStatusRow({
         ))}
       </span>
       <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">
-        {name} {status}
+        {name} <span className={status === '失败' ? 'text-destructive' : undefined}>{status}</span>
       </span>
     </p>
   )

@@ -28,7 +28,7 @@ export function fromSnapshot(snapshot: Snapshot): ChatState {
     agentMessages: snapshot.agentMessages ?? [],
     sessionEntries: snapshot.sessionEntries,
     skillUsages: snapshot.state.skillUsages,
-    running: snapshot.state.isStreaming || isCompacting,
+    running: snapshot.state.isStreaming || isCompacting || Boolean(snapshot.state.retry),
     paused: snapshot.state.isPaused ?? false,
     queuePaused: snapshot.state.queuePaused ?? false,
     pauseRevision: snapshot.state.pauseRevision ?? 0,
@@ -36,6 +36,8 @@ export function fromSnapshot(snapshot: Snapshot): ChatState {
     runIntervals: snapshot.state.runIntervals ?? [],
     activeMode: snapshot.state.activeMode,
     compacting: isCompacting ? { active: true } : null,
+    retry: snapshot.state.retry,
+    compactionError: snapshot.state.compactionError,
     tools: {},
   }
   for (const message of snapshot.messages) {
@@ -125,7 +127,12 @@ export function applyEvent(
       }
     }
     case 'agent_start':
-      return { ...state, running: true, runIntervals: mergeRunIntervals(state.runIntervals, event.runIntervals) }
+      return {
+        ...state,
+        running: true,
+        compactionError: undefined,
+        runIntervals: mergeRunIntervals(state.runIntervals, event.runIntervals),
+      }
     case 'agent_end':
       return state
     case 'compaction_start':
@@ -133,12 +140,35 @@ export function applyEvent(
         ...state,
         running: true,
         compacting: { active: true },
+        compactionError: undefined,
       }
     case 'compaction_end':
       return {
         ...state,
         compacting: null,
+        compactionError: event.aborted ? undefined : event.errorMessage,
+        retry: state.retry?.kind === 'summary' ? undefined : state.retry,
       }
+    case 'auto_retry_start':
+    case 'summarization_retry_scheduled':
+      return {
+        ...state,
+        running: true,
+        compactionError: event.type === 'summarization_retry_scheduled' ? undefined : state.compactionError,
+        retry: {
+          kind: event.type === 'auto_retry_start' ? 'model' : 'summary',
+          attempt: event.attempt,
+          maxAttempts: event.maxAttempts,
+          delayMs: event.delayMs,
+          errorMessage: event.errorMessage,
+        },
+      }
+    case 'auto_retry_end':
+      return { ...state, retry: state.retry?.kind === 'model' ? undefined : state.retry }
+    case 'summarization_retry_finished':
+      return { ...state, retry: state.retry?.kind === 'summary' ? undefined : state.retry }
+    case 'summarization_retry_attempt_start':
+      return state
     case 'agent_settled':
       return {
         ...state,
@@ -146,6 +176,7 @@ export function applyEvent(
         running: false,
         activeMode: undefined,
         compacting: null,
+        retry: undefined,
         live: null,
         stream: emptyChat.stream,
       }

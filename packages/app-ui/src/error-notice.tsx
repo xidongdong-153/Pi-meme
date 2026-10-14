@@ -1,5 +1,4 @@
-import { AlertCircle, X } from 'lucide-react'
-import { Button } from '@pi-meme/ui/components/ui/button'
+import { ErrorLine } from '@pi-meme/ui/components/error-line'
 
 export function ErrorNotice({
   message,
@@ -22,35 +21,21 @@ export function ErrorNotice({
   const needsSettings =
     extensionFailure || /Pi.*路径|CLI|Node\.js|models\.json|API Key|API key|apiKey|模型配置|服务商配置/.test(text)
   return (
-    <div
-      role="alert"
-      className="shrink-0 mx-4 my-2 rounded-xl border border-destructive/50 bg-card p-3 text-xs flex items-start gap-2.5 text-destructive"
-    >
-      <AlertCircle aria-hidden="true" className="size-4 shrink-0 mt-0.5" />
-      <div className="min-w-0 flex-1 space-y-2">
-        <p className="max-h-20 overflow-y-auto break-words font-medium whitespace-pre-wrap leading-relaxed">{text}</p>
-        {extensionFailure && <p>在插件设置中检查加载状态，或修正报错的文件。</p>}
-        {needsSettings ? (
-          <Button
-            variant="outline"
-            size="xs"
+    <ErrorLine
+      message={text}
+      onDismiss={onDismiss}
+      className="shrink-0 mx-4 my-2 text-xs"
+      actions={
+        needsSettings ? (
+          <button
+            type="button"
             onClick={onOpenSettings}
-            className="h-6 text-xs border-destructive/40 text-destructive hover:bg-destructive/10"
+            className="cursor-pointer text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             打开设置
-          </Button>
-        ) : (
-          <p>发送失败时，可检查输入内容后再次点击发送。</p>
-        )}
-      </div>
-      <button
-        type="button"
-        aria-label="关闭错误提示"
-        onClick={onDismiss}
-        className="shrink-0 rounded text-destructive/70 hover:text-destructive cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      >
-        <X className="size-3.5" />
-      </button>
-    </div>
+          </button>
+        ) : undefined
+      }
+    />
   )
 }

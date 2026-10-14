@@ -134,12 +134,11 @@ export function ActivityGroup({
                       onClick={() => toggleChild(groupId)}
                       className={cn(
                         'flex max-w-full items-center gap-2 rounded-sm py-1 text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                        hasError && 'text-destructive',
                       )}
                     >
                       <IconComponent className="size-4 shrink-0" />
-                      <span className="truncate">{meta.summary}</span>
-                      {hasError && <span className="shrink-0">调用失败</span>}
+                      <span className={cn('truncate', hasError && 'text-destructive')}>{meta.summary}</span>
+                      {hasError && <span className="shrink-0 text-destructive">有调用失败</span>}
                       <ChevronDown
                         className={cn(
                           'size-3.5 shrink-0 transition-transform duration-300 ease-out',

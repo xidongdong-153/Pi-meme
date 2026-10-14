@@ -1,6 +1,7 @@
 import { composingKey } from './interaction-queue'
 import * as React from 'react'
 import { ExtensionEditor } from './extension-editor'
+import { ErrorLine } from '@pi-meme/ui/components/error-line'
 import type { PiExtensionDialogRequest, PiExtensionUIResponse } from '@pi-meme/contracts/pi'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { BrandMark } from '@pi-meme/ui/components/brand-mark'
@@ -114,11 +115,7 @@ export function ExtensionDialog({
 
           {request.method === 'editor' && <ExtensionEditor request={request} valueRef={editorValue} />}
 
-          {error && (
-            <p role="alert" className="text-xs text-destructive font-medium bg-destructive/10 p-2 rounded">
-              {error}
-            </p>
-          )}
+          {error && <ErrorLine message={error} className="text-xs" />}
         </div>
 
         <DialogFooter className="gap-2 sm:gap-0">

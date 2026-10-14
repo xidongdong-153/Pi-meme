@@ -1,5 +1,5 @@
-import { AlertCircle } from 'lucide-react'
-import type { PiPauseInterval } from '@pi-meme/contracts/pi'
+import type { PiPauseInterval, PiRetryState } from '@pi-meme/contracts/pi'
+import { ErrorLine } from '@pi-meme/ui/components/error-line'
 import type { TurnChunk } from '../model/types'
 import { AttachmentPreview } from '../content/attachment-preview'
 import { MarkdownContent } from '../content/markdown-content'
@@ -15,6 +15,7 @@ export function AssistantTurnView({
   canFork,
   onFork,
   onCopyError,
+  retry,
 }: {
   turn: Extract<TurnChunk, { type: 'assistant_turn' }>
   className?: string
@@ -23,6 +24,7 @@ export function AssistantTurnView({
   canFork?: boolean
   onFork?: (timestamp: number) => void
   onCopyError?: (message: string) => void
+  retry?: PiRetryState
 }) {
   const hasReplyContent = Boolean(turn.finalText.trim()) || turn.images.length > 0
 
@@ -47,14 +49,12 @@ export function AssistantTurnView({
           {turn.images.length > 0 && <AttachmentPreview images={turn.images} />}
 
           {turn.finalText ? <MarkdownContent>{turn.finalText}</MarkdownContent> : null}
-          {turn.errorMessage && (
-            <div
-              role="alert"
-              className="mt-2.5 flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive"
-            >
-              <AlertCircle className="size-4 shrink-0 mt-0.5" />
-              <div className="font-medium whitespace-pre-wrap leading-relaxed">{turn.errorMessage}</div>
-            </div>
+          {(retry?.errorMessage || turn.errorMessage) && (
+            <ErrorLine
+              className="mt-2"
+              message={retry?.errorMessage || turn.errorMessage!}
+              suffix={retry ? `重试中（${retry.attempt}/${retry.maxAttempts}）` : undefined}
+            />
           )}
         </div>
         {hasReplyContent && (

@@ -130,3 +130,20 @@ body {
 @source '../../codemode/src';
 @source '../../subagents/src';
 @source '../../usage/src';
+
+.conversation-contribution
+  :is(
+    [role='alert'],
+    [class*='border-destructive'],
+    [class*='bg-destructive'],
+    [class*='border-red-'],
+    [class*='bg-red-']
+  ) {
+  border: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.conversation-contribution [role='alert'] svg {
+  color: var(--muted-foreground) !important;
+}

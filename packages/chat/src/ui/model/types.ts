@@ -6,6 +6,7 @@ import type {
   PiMessage,
   PiPauseInterval,
   PiRunInterval,
+  PiRetryState,
   PiSessionEntries,
   PiUiSource,
 } from '@pi-meme/contracts/pi'
@@ -42,6 +43,8 @@ export type ChatState = {
   activeMode?: import('@pi-meme/contracts/plan').TaskMode
   running: boolean
   compacting: ChatCompactionState | null
+  retry?: PiRetryState
+  compactionError?: string
   steering: readonly QueuedInput[]
   followUp: readonly QueuedInput[]
 }

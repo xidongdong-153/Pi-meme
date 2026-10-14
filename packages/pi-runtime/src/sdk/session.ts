@@ -28,6 +28,7 @@ import type {
   PiModel,
   PiPauseInterval,
   PiRunInterval,
+  PiRetryState,
   PiSlashCommand,
   PiState,
   ThinkingLevel,
@@ -121,6 +122,8 @@ export class SdkSession {
   private generation = 0
   private startSeq = 0
   private running = false
+  private retry?: PiRetryState
+  private compactionError?: string
   private pendingSend = false
   private changing = false
   private preparationMode?: TaskMode
@@ -554,9 +557,32 @@ export class SdkSession {
   }
 
   private handleEvent(event: PiEvent, forceSettled = false) {
+    if (event.type === 'auto_retry_start' || event.type === 'summarization_retry_scheduled') {
+      this.retry = {
+        kind: event.type === 'auto_retry_start' ? 'model' : 'summary',
+        attempt: event.attempt,
+        maxAttempts: event.maxAttempts,
+        delayMs: event.delayMs,
+        errorMessage: event.errorMessage,
+      }
+      this.running = true
+      this.activityRevision += 1
+    }
+    if (
+      (event.type === 'auto_retry_end' && this.retry?.kind === 'model') ||
+      (event.type === 'summarization_retry_finished' && this.retry?.kind === 'summary')
+    ) {
+      this.retry = undefined
+      this.activityRevision += 1
+    }
+    if (event.type === 'compaction_end') {
+      this.compactionError = event.aborted ? undefined : event.errorMessage
+      if (this.retry?.kind === 'summary') this.retry = undefined
+    }
     if (event.type === 'message_end' && event.message.role === 'assistant')
       event = { ...event, message: { ...event.message, completedAt: Date.now() } }
     if (event.type === 'agent_start' || event.type === 'compaction_start') {
+      this.compactionError = undefined
       this.pendingSend = false
       this.activityRevision += 1
       this.running = true
@@ -566,6 +592,7 @@ export class SdkSession {
       if (event.type === 'agent_start') event = { ...event, runIntervals: structuredClone(this.runIntervals) }
     }
     if (event.type === 'agent_settled') {
+      this.retry = undefined
       this.pendingSend = false
       if (!this.running && !forceSettled) return
       this.running = false
@@ -596,6 +623,8 @@ export class SdkSession {
   }
 
   private teardownRuntime() {
+    this.retry = undefined
+    this.compactionError = undefined
     this.pendingDeliveries.clear()
     this.unsubscribe?.()
     this.unsubscribe = null
@@ -709,7 +738,7 @@ export class SdkSession {
     this.sessionFile = state.sessionFile
     this.sessionId = state.sessionId
     if (revision === this.activityRevision)
-      this.running = this.pendingSend || state.isStreaming || Boolean(state.isCompacting)
+      this.running = this.pendingSend || state.isStreaming || Boolean(state.isCompacting) || Boolean(this.retry)
     const own = this.conversationOrigin
       ? projectAgentConversation(entries.entries, entries.leafId, this.conversationOrigin)
       : undefined
@@ -744,6 +773,8 @@ export class SdkSession {
       pauseRevision: this.pauseRevision,
       pauseIntervals: structuredClone(this.pauseIntervals),
       runIntervals: structuredClone(this.runIntervals),
+      retry: this.retry ? { ...this.retry } : undefined,
+      compactionError: this.compactionError,
       mode: this.mode,
       activeMode: this.activeMode,
       skillUsages: this.getSkillUsages(),

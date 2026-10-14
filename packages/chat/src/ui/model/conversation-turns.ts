@@ -219,8 +219,8 @@ export function groupConversationTurns(
       turnEndTimestamp = Math.max(turnEndTimestamp || 0, msg.completedAt ?? msg.timestamp)
     }
 
-    if (msg.role === 'assistant' && msg.errorMessage) {
-      turnErrorMessage = msg.errorMessage
+    if (msg.role === 'assistant') {
+      turnErrorMessage = msg.stopReason === 'aborted' ? undefined : msg.errorMessage
     }
 
     if (msg.role === 'bashExecution') {
@@ -232,7 +232,7 @@ export function groupConversationTurns(
           name: 'bash',
           command: msg.command,
           output: msg.output,
-          status: 'success',
+          status: !msg.cancelled && typeof msg.exitCode === 'number' && msg.exitCode !== 0 ? 'error' : 'success',
         },
       })
       continue

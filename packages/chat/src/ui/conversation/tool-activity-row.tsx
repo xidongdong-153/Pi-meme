@@ -13,7 +13,6 @@ import {
   Sparkles,
   SquareTerminal,
   Wrench,
-  XCircle,
 } from 'lucide-react'
 import { extractDiff, extractImages, formatDetailValue, parseToolMeta } from '../model/tool-details'
 import { runningActivityLabel } from '../model/activity-summary'
@@ -65,7 +64,7 @@ export function ToolActivityRow({
       : undefined
   const rawText =
     item.output || (script && item.result === undefined ? '' : formatDetailValue(item.result ?? item.args))
-  const hasDetail = Boolean(script || diff || images.length > 0 || rawText || item.children?.length)
+  const hasDetail = Boolean(script || diff || images.length > 0 || rawText || item.children?.length || item.source)
 
   const handleCopy = React.useCallback(
     async (e: React.MouseEvent) => {
@@ -105,18 +104,12 @@ export function ToolActivityRow({
           !hasDetail && 'cursor-default',
         )}
       >
-        {!isPaused && (
-          <IconComponent
-            className={cn(
-              'size-4 shrink-0 text-muted-foreground group-hover:text-foreground',
-              isError && 'text-destructive',
-            )}
-          />
-        )}
+        {!isPaused && <IconComponent className="size-4 shrink-0 text-muted-foreground group-hover:text-foreground" />}
 
-        <span className={cn('truncate', isError && 'text-destructive font-medium')}>{summary}</span>
-
-        {isError && !isPaused && <XCircle className="size-3 text-destructive shrink-0 ml-1" />}
+        <span className={cn('truncate', isError && 'text-destructive')}>
+          {isError ? summary.replace(/^已/u, '') : summary}
+          {isError ? ' · 失败' : ''}
+        </span>
 
         {hasDetail && (
           <ChevronDown
@@ -172,9 +165,7 @@ export function ToolActivityRow({
               {diff ? (
                 <ToolDiff diff={diff} />
               ) : rawText ? (
-                <pre className={cn('max-h-56 overflow-auto whitespace-pre-wrap', isError && 'text-destructive/90')}>
-                  {rawText}
-                </pre>
+                <pre className="max-h-56 overflow-auto whitespace-pre-wrap">{rawText}</pre>
               ) : null}
 
               {item.children?.map((child) => (
@@ -192,11 +183,11 @@ export function ToolActivityRow({
                   ))}
                 </div>
               )}
+              {!isError && <PluginToolCard tool={item} {...item.source} />}
             </div>
           </div>
         </div>
       )}
-      <PluginToolCard tool={item} {...item.source} />
     </div>
   )
 }

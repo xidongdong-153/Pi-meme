@@ -2,7 +2,7 @@ import * as React from 'react'
 import type { ChatState } from '../model/types'
 
 export function useConversationScroll(
-  chat: Pick<ChatState, 'messages' | 'live' | 'tools' | 'agents' | 'agentMessages'>,
+  chat: Pick<ChatState, 'messages' | 'live' | 'tools' | 'agents' | 'agentMessages' | 'retry' | 'compactionError'>,
 ) {
   const containerRef = React.useRef<HTMLDivElement>(null)
   const bottomRef = React.useRef<HTMLDivElement>(null)
@@ -26,7 +26,7 @@ export function useConversationScroll(
     if (isAtBottomRef.current) {
       bottomRef.current?.scrollIntoView({ behavior: 'instant' })
     }
-  }, [chat.messages, chat.live, chat.tools, chat.agents, chat.agentMessages])
+  }, [chat.messages, chat.live, chat.tools, chat.agents, chat.agentMessages, chat.retry, chat.compactionError])
 
   const scrollToBottom = React.useCallback(() => {
     isJumpingRef.current = false

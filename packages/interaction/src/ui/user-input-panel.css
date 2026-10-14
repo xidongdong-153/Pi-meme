@@ -174,7 +174,6 @@
 
 .user-input-error {
   margin: 0 10px 4px;
-  color: var(--destructive);
   font-size: inherit;
 }
 

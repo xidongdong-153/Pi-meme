@@ -16,6 +16,18 @@ test('toDesktopEvent 原样透传非 message_update 的白名单事件', () => {
   assert.equal(toDesktopEvent(queueEvent), null)
 })
 
+test('模型与摘要重试透传 SDK 原始次数、等待时间和最终结果', () => {
+  const events: AgentSessionEvent[] = [
+    { type: 'auto_retry_start', attempt: 2, maxAttempts: 7, delayMs: 4000, errorMessage: 'network error' },
+    { type: 'auto_retry_end', success: true, attempt: 2 },
+    { type: 'auto_retry_end', success: false, attempt: 7, finalError: '请求失败' },
+    { type: 'summarization_retry_scheduled', attempt: 1, maxAttempts: 4, delayMs: 2000, errorMessage: '摘要请求失败' },
+    { type: 'summarization_retry_attempt_start', source: 'compaction', reason: 'threshold' },
+    { type: 'summarization_retry_finished' },
+  ]
+  for (const event of events) assert.equal(toDesktopEvent(event), event)
+})
+
 test('toDesktopEvent 转换 toolcall_start 事件并剥离 partial', () => {
   const event = {
     type: 'message_update',

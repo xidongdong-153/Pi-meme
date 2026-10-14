@@ -16,6 +16,7 @@ import { ConversationOutline } from './conversation-outline'
 import { PluginMessage } from '@pi-meme/ui/components/plugin-message'
 import { messageText } from '../model/message-text'
 import { AgentStatusRow } from './agent-status-row'
+import { ErrorLine } from '@pi-meme/ui/components/error-line'
 
 function noSubscription() {
   return () => {}
@@ -242,6 +243,7 @@ export const Conversation = React.memo(
                 <AssistantTurnView
                   key={turn.key}
                   turn={turn}
+                  retry={turn.isLive && chat.retry?.kind === 'model' ? chat.retry : undefined}
                   isPaused={Boolean(chat.paused && turn.isLive)}
                   pauseIntervals={chat.pauseIntervals}
                   canFork={canEditMessages}
@@ -251,7 +253,16 @@ export const Conversation = React.memo(
               )
             })}
 
-            {chat.compacting?.active && <CompactionProgressCard />}
+            {chat.retry?.kind === 'summary' ? (
+              <ErrorLine
+                message={chat.retry.errorMessage}
+                suffix={`重试中（${chat.retry.attempt}/${chat.retry.maxAttempts}）`}
+              />
+            ) : chat.compactionError ? (
+              <ErrorLine message={chat.compactionError} summary="上下文压缩失败" />
+            ) : chat.compacting?.active ? (
+              <CompactionProgressCard />
+            ) : null}
 
             <div ref={bottomRef} className="h-2" />
           </div>
