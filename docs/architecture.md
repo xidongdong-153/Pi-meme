@@ -82,6 +82,8 @@ flowchart TD
 
 ## Host 协议与平台能力
 
+Host 的 HTTP 与 WebSocket 路由由 Hono 和 `@hono/node-server` 处理，底层使用 Node HTTP/HTTPS 与 `ws`。`packages/host/src/server.ts` 负责启动和退出，`transport-auth.ts` 管理认证与来源检查，`transport-app.ts` 注册路由、资源响应和事件订阅。HTTP 与 WebSocket 共用认证状态；适配器不替换全局 `Request` 和 `Response`。
+
 正式控制契约在 `packages/contracts/src/app-host.ts`，公共版本为 `apiVersion: 2`。`ProjectRef = { hostId, projectId }`、`SessionRef = { hostId, sessionId }` 标识持久目标；API 支持项目、会话、文件、终端、Git 读取、交互答复、子代理查询与停止、计划查询和能力检查。Server/UI 插件通过 `context.host` 调用；外部插件不取得内置 Store、Pool 或 Worker。
 
 HTTP 控制入口是 `/api/control`，事件入口是 `/api/control/events`。写请求携带调用方幂等键；控制日志 `control.json` 保存稳定身份、操作结果、提交回执和关键状态事件。相同客户端与键的相同内容返回已有结果，冲突内容被拒绝。重启将未完成提交记为中断，不重放模型调用；这不是任务自动续跑保证。

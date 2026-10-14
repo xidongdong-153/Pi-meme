@@ -52,6 +52,8 @@ pnpm start:server
 
 认证后使用 HttpOnly、SameSite Cookie，Remote HTTPS Cookie 带 Secure。HTTP 操作、事件 WebSocket 和插件资源均要求认证并检查来源。令牌不放在资源 URL 或事件 URL 里。Desktop 使用一次性登录票据建立浏览器会话。独立 Server 仅监听 loopback 时允许本机自动登录，即使配置了 `PI_MEME_TOKEN` 也不要求本机输入令牌；请求来源、Host 和 Origin 必须匹配本机。开发代理保留原始 Host 和 Origin。非 loopback 监听始终要求令牌。
 
+WebSocket 升级前返回 HTTP 拒绝状态：来源无效为 `403`，未登录为 `401`，未知事件路径为 `404`，已认证事件请求缺少 `clientId` 或长度超过 128 字符为 `400`。拒绝请求不会建立订阅。连接建立后，控制订阅参数无效仍以 `1008` 关闭，订阅或代理失败以 `1011` 关闭。
+
 同一数据目录只允许一个 Host 写入，通过带心跳的目录锁保证。Desktop 本地 Host 和独立 Server 想同时运行时，给其中一个配置不同的 `PI_MEME_DATA_ROOT`。
 
 ## 连接与恢复
