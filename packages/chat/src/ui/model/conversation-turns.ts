@@ -284,5 +284,20 @@ export function groupConversationTurns(
   }
 
   flushTurn(true)
-  return chunks
+  const grouped: TurnChunk[] = []
+  for (const chunk of chunks) {
+    const previous = grouped.at(-1)
+    if (
+      chunk.type === 'agent_status' &&
+      chunk.phase === 'finished' &&
+      chunk.status === '已完成' &&
+      previous?.type === 'agent_status' &&
+      previous.phase === 'finished' &&
+      previous.status === '已完成' &&
+      !chunk.agents.some((agent) => previous.agents.some((entry) => entry.agentId === agent.agentId))
+    ) {
+      grouped[grouped.length - 1] = { ...previous, agents: [...previous.agents, ...chunk.agents] }
+    } else grouped.push(chunk)
+  }
+  return grouped
 }

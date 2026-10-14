@@ -395,6 +395,43 @@ test('同请求只创建一次；followup复用身份，忙时排队；idle消�
   }
 })
 
+test('子结果落盘后立即通知界面，父任务尚未读取时也保留本轮开始时间', async () => {
+  const context = await setup()
+  let release!: () => void
+  context.root.faults.deliveryGate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  try {
+    await context.begin()
+    const child = await context.spawn('worker')
+    context.children.get(child.sessionKey)!.finish('子任务已完成')
+    await context.until(async () =>
+      context.events.some((record) => record.event.type === 'agent_mailbox' && record.event.message.kind === 'result'),
+    )
+    const record = context.events.find(
+      (entry) => entry.event.type === 'agent_mailbox' && entry.event.message.kind === 'result',
+    )!
+    assert.equal(record.sessionKey, 'root-key')
+    assert.equal(record.event.type, 'agent_mailbox')
+    if (record.event.type !== 'agent_mailbox') return
+    const message = record.event.message
+    assert.equal(message.startedAt, child.runStartedAt)
+    assert.equal(message.runId, child.runId)
+    assert.equal(message.status, 'completed')
+    assert.equal(context.root.delivered.length, 0)
+    const saved = JSON.parse(await readFile(path.join(context.directory, 'collaboration.json'), 'utf8')) as {
+      records: Array<{ summary: AgentSummary; mailbox: Array<{ id: string; startedAt?: string }> }>
+    }
+    const root = saved.records.find((entry) => entry.summary.depth === 0)!
+    assert.equal(root.mailbox.find((entry) => entry.id === message.id)?.startedAt, child.runStartedAt)
+    release()
+    await context.until(async () => context.root.delivered.length === 1)
+  } finally {
+    release()
+    await context.cleanup()
+  }
+})
+
 test('计划运行中关闭下一轮模式不提升child权限；计划落盘ACK后才发saved', async () => {
   const context = await setup()
   try {

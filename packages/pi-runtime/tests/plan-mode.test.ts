@@ -209,6 +209,66 @@ test('准入拒绝与准入期间Abort都回到idle，下一轮仍能正常发�
   }
 })
 
+test('子代理结果的开始和完成时间写入原生记录，重建后保留且重复交付不追加', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pi-result-timestamps-'))
+  const fake = await useFakeAgent(directory)
+  const session = new SdkSession(
+    directory,
+    { connection: () => {}, error: () => {}, event: () => {} },
+    fake.runtimePaths,
+    fake.credentials,
+  )
+  const message = {
+    id: 'result-stable',
+    fromAgentId: 'child',
+    toAgentId: 'root',
+    rootTaskId: 'task',
+    epoch: 1,
+    runId: 'child-run',
+    kind: 'result' as const,
+    status: 'completed' as const,
+    name: 'reviewer',
+    text: '完整结果正文',
+    startedAt: new Date(1000).toISOString(),
+    completedAt: new Date(2000).toISOString(),
+    createdAt: new Date(2100).toISOString(),
+  }
+  try {
+    session.start(directory)
+    await session.snapshot()
+    await session.setModel({ provider: 'fake', id: 'first' })
+    await session.prompt('主任务')
+    const deadline = Date.now() + 5000
+    while ((await session.snapshot()).state.isStreaming) {
+      if (Date.now() > deadline) throw new Error('主任务未完成')
+      await delay(10)
+    }
+    assert.equal((await session.deliverCollaborationMessage(message)).persisted, true)
+    const file = session.getActiveSession().sessionFile!
+    await session.stopAndWait()
+    session.start(directory, file)
+    const restored = await session.snapshot()
+    const report = restored.messages.find(
+      (entry) => entry.role === 'custom' && entry.customType === 'pi-meme-collaboration',
+    )
+    assert.ok(report?.role === 'custom')
+    assert.equal(report.display, false)
+    assert.equal((report.details as { startedAt?: string }).startedAt, message.startedAt)
+    assert.equal((report.details as { completedAt?: string }).completedAt, message.completedAt)
+    assert.equal((await session.deliverCollaborationMessage(message)).persisted, true)
+    assert.equal(
+      (await session.getEntries()).entries.filter(
+        (entry) => entry.type === 'custom_message' && entry.customType === 'pi-meme-collaboration',
+      ).length,
+      1,
+    )
+  } finally {
+    await session.stopAndWait()
+    await fake.dispose()
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
 test('公开CustomMessage在安全边界写原生JSONL，以messageId去重，重建后重复交付不追加', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pi-source-message-'))
   const fake = await useFakeAgent(directory, { reply: { text: '等待边界', holdMs: 100 } })

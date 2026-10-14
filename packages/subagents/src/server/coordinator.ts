@@ -909,10 +909,11 @@ export class HostCollaborationBridge {
       runCompletedAt: new Date().toISOString(),
     })
     const parent = this.records.get(record.summary.parentAgentId ?? '')
+    let result: AgentMailboxMessage | undefined
     if (parent) {
       const id = `result:${record.summary.agentId}:${runId}`
-      if (!parent.mailbox.some((message) => message.id === id) && !parent.consumed.includes(id))
-        parent.mailbox.push({
+      if (!parent.mailbox.some((message) => message.id === id) && !parent.consumed.includes(id)) {
+        result = {
           id,
           fromAgentId: record.summary.agentId,
           toAgentId: parent.summary.agentId,
@@ -922,12 +923,16 @@ export class HostCollaborationBridge {
           kind: 'result',
           name: record.summary.name,
           status: record.summary.status,
+          startedAt: record.summary.runStartedAt,
           completedAt: record.summary.runCompletedAt,
           text: [record.summary.error, report].filter(Boolean).join('\n\n') || '子 Agent 已结束，未返回正文',
           createdAt: new Date().toISOString(),
-        })
+        }
+        parent.mailbox.push(result)
+      }
     }
     await this.persist()
+    if (parent && result) this.emit(parent, { type: 'agent_mailbox', message: result })
     this.changed(record)
     if (parent) {
       try {

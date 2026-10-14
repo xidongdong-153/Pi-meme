@@ -63,6 +63,7 @@ export type AgentMailboxMessage = {
   kind: 'message' | 'result'
   name?: string
   status?: AgentStatus
+  startedAt?: string
   completedAt?: string
   text: string
   createdAt: string

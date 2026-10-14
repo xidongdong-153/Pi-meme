@@ -179,7 +179,7 @@ export const Conversation = React.memo(
 
             {visibleTurns.map((turn) => {
               if (turn.type === 'agent_status')
-                return <AgentStatusRow key={turn.key} agentId={turn.agentId} name={turn.name} status={turn.status} />
+                return <AgentStatusRow key={turn.key} agents={turn.agents} status={turn.status} />
               if (turn.type === 'compaction') {
                 return (
                   <CompactionCard

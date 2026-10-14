@@ -1,5 +1,5 @@
 import type { PiMessage } from '@pi-meme/contracts/pi'
-import type { AgentMailboxMessage } from '@pi-meme/contracts/collaboration'
+import type { AgentMailboxMessage, AgentSummary, CollaborationResults } from '@pi-meme/contracts/collaboration'
 import type { ChatState, TurnChunk } from './types'
 
 const collaborationTools = new Set([
@@ -55,6 +55,36 @@ export function projectMainConversation(chat: ChatState) {
     ),
   )
   const byRun = new Map<string, AgentStatusTurn>()
+  const agents = new Map(chat.agents?.map((agent) => [agent.agentId, agent]))
+  const started = (agentId: string, name: string, startedAt?: string) => {
+    if (!startedAt) return
+    const timestamp = Date.parse(startedAt)
+    if (!Number.isFinite(timestamp)) return
+    const key = `agent-start-${agentId}:${timestamp}`
+    if (!byRun.has(key))
+      byRun.set(key, {
+        type: 'agent_status',
+        phase: 'started',
+        agents: [{ agentId, name }],
+        key,
+        status: '开始工作',
+        timestamp,
+      })
+  }
+  const agentStarted = (agent: AgentSummary) => {
+    if (!agent.parentAgentId || !agent.runId || agent.status === 'idle' || agent.status === 'starting') return
+    started(agent.agentId, agent.name, agent.runStartedAt)
+  }
+  for (const agent of agents.values()) agentStarted(agent)
+  for (const message of chat.messages) {
+    if (message.role !== 'toolResult' || message.isError || !message.details || typeof message.details !== 'object')
+      continue
+    if (message.toolName === 'spawn_agent') agentStarted(message.details as CollaborationResults['spawn_agent'])
+    if (message.toolName === 'followup_task') {
+      const details = message.details as CollaborationResults['followup_task']
+      if (!details.queued && details.agent) agentStarted(details.agent)
+    }
+  }
   const nativeResults = chat.messages.flatMap((message) => {
     if (message.role !== 'custom' || message.customType !== 'pi-meme-collaboration') return []
     if (!message.details || typeof message.details !== 'object') return []
@@ -63,23 +93,51 @@ export function projectMainConversation(chat: ChatState) {
       ? [{ ...details, id: details.messageId, createdAt: new Date(message.timestamp).toISOString() }]
       : []
   })
-  for (const message of [...(chat.agentMessages ?? []), ...nativeResults]) {
+  const currentResults = [...agents.values()].flatMap((agent) =>
+    agent.parentAgentId && agent.runId && agent.status in terminalLabels
+      ? [
+          {
+            id: agent.runId,
+            kind: 'result' as const,
+            fromAgentId: agent.agentId,
+            name: agent.name,
+            status: agent.status,
+            runId: agent.runId,
+            startedAt: agent.runStartedAt,
+            completedAt: agent.runCompletedAt,
+            createdAt: agent.updatedAt,
+          },
+        ]
+      : [],
+  )
+  for (const message of [...(chat.agentMessages ?? []), ...nativeResults, ...currentResults]) {
     if (message.kind !== 'result' || !message.fromAgentId) continue
-    const agent = chat.agents?.find((entry) => entry.agentId === message.fromAgentId)
+    const agent = agents.get(message.fromAgentId)
     const currentRun = agent && (!message.runId || message.runId === agent.runId)
     const runStatus = message.status ?? (currentRun ? agent.status : undefined)
     const status = terminalLabels[runStatus as keyof typeof terminalLabels]
     if (runStatus && !status) continue
+    const name = message.name || agent?.name || '子代理'
+    started(message.fromAgentId, name, message.startedAt ?? (currentRun ? agent.runStartedAt : undefined))
+    const timestamp = Date.parse(message.completedAt ?? message.createdAt)
+    if (!Number.isFinite(timestamp)) continue
     const key = `agent-status-${message.fromAgentId}:${message.runId ?? message.id}`
     if (byRun.has(key)) continue
     byRun.set(key, {
       type: 'agent_status',
-      agentId: message.fromAgentId,
+      phase: 'finished',
+      agents: [{ agentId: message.fromAgentId, name }],
       key,
-      name: message.name || agent?.name || '子代理',
       status: status ?? '已结束',
-      timestamp: Date.parse(message.completedAt ?? message.createdAt),
+      timestamp,
     })
   }
-  return { messages, live, tools, agentStatuses: [...byRun.values()] }
+  return {
+    messages,
+    live,
+    tools,
+    agentStatuses: [...byRun.values()].sort(
+      (a, b) => a.timestamp - b.timestamp || a.agents[0].agentId.localeCompare(b.agents[0].agentId),
+    ),
+  }
 }

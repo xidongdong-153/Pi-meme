@@ -52,11 +52,11 @@ test('主投影按完成阶段插入一次短行，mailbox与原生报告重放�
     ['user', 'assistant_turn', 'agent_status', 'user'],
   )
   assert.deepEqual(
-    view.agentStatuses.map(({ name, status, timestamp }) => ({ name, status, timestamp })),
+    view.agentStatuses.map(({ agents, status, timestamp }) => ({ name: agents[0].name, status, timestamp })),
     [{ name: '审查', status: '已完成', timestamp: 2000 }],
   )
   assert.doesNotMatch(JSON.stringify(turns), /私有完整子报告|自动协作续跑正文/)
-  assert.equal(view.agentStatuses[0].agentId, result.fromAgentId)
+  assert.equal(view.agentStatuses[0].agents[0].agentId, result.fromAgentId)
   assert.deepEqual(state, original)
 })
 

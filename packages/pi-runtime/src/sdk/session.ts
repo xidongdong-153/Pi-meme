@@ -1317,6 +1317,7 @@ export class SdkSession {
             details: {
               name: message.name,
               status: message.status,
+              startedAt: message.startedAt,
               completedAt: message.completedAt,
               messageId: message.id,
               fromAgentId: message.fromAgentId,
