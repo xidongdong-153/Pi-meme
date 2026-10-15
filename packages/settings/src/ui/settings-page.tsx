@@ -2,11 +2,11 @@ import type { ReactNode } from 'react'
 import type { SettingsSnapshot, AppearanceSettings, InstalledFont, Theme } from '@pi-meme/contracts/settings'
 import type { SettingsBridge, ModelsBridge } from '@pi-meme/contracts/desktop'
 import { ThemeSettings } from './theme-settings'
-import { PersonalizationSettings } from './personalization-settings'
+import { GeneralSettings } from './general-settings'
 import { InstructionSettings } from './instruction-settings'
 
 export type SettingsPageProps = {
-  section: 'general' | 'appearance' | 'personalization' | 'instructions'
+  section: 'about' | 'appearance' | 'general' | 'instructions'
   snapshot: SettingsSnapshot | null
   piVersion?: string
   error: string
@@ -43,9 +43,9 @@ export function SettingsPage({
     <div className="space-y-6">
       {section === 'instructions' ? (
         <InstructionSettings bridge={bridge} cwd={cwd} busy={busy} onDirty={onDirty} onSaving={onSaving} />
-      ) : section === 'personalization' ? (
-        <PersonalizationSettings accessSettings={accessSettings} />
       ) : section === 'general' ? (
+        <GeneralSettings accessSettings={accessSettings} />
+      ) : section === 'about' ? (
         <div className="space-y-4 rounded-2xl border border-border bg-card p-6">
           <h3 className="text-sm font-medium">Pi 运行时</h3>
           <dl className="grid grid-cols-2 gap-2 text-xs">

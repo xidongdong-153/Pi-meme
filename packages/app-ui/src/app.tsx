@@ -909,9 +909,9 @@ export function App({
                     />
                   )
                 if (
-                  section === 'general' ||
+                  section === 'about' ||
                   section === 'appearance' ||
-                  section === 'personalization' ||
+                  section === 'general' ||
                   section === 'instructions'
                 )
                   return (

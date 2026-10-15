@@ -10,7 +10,7 @@ import {
   ScrollText,
   Search,
   Server,
-  SlidersHorizontal,
+  Settings,
   Sparkles,
 } from 'lucide-react'
 import { Button } from '@pi-meme/ui/components/ui/button'
@@ -23,13 +23,13 @@ const groups = [
   {
     label: '个人',
     sections: [
-      { id: 'appearance', label: '外观', icon: Palette, description: '调整主题、字号和界面效果。' },
       {
-        id: 'personalization',
-        label: '偏好',
-        icon: SlidersHorizontal,
+        id: 'general',
+        label: '常规',
+        icon: Settings,
         description: '设置新会话的默认访问权限。',
       },
+      { id: 'appearance', label: '外观', icon: Palette, description: '调整主题、字号和界面效果。' },
       { id: 'profile', label: '用量', icon: ChartNoAxesCombined, description: '查看 Token 用量与活动记录。' },
     ],
   },
@@ -47,7 +47,7 @@ const groups = [
     label: '系统',
     sections: [
       { id: 'host', label: '远程', icon: Server, description: '添加、重试或移除远程服务。' },
-      { id: 'general', label: '关于', icon: Info, description: '查看当前执行服务的 Pi 运行时。' },
+      { id: 'about', label: '关于', icon: Info, description: '查看当前执行服务的 Pi 运行时。' },
     ],
   },
 ] as const
@@ -68,7 +68,7 @@ export function SettingsPage({
   onDiscard: () => void
   onDismiss: () => void
 }) {
-  const [sectionId, setSectionId] = useState<SettingsSection>('models')
+  const [sectionId, setSectionId] = useState<SettingsSection>('general')
   const [query, setQuery] = useState('')
   const [pending, setPending] = useState<(() => void) | null>(null)
   const section = sections.find((entry) => entry.id === sectionId)!

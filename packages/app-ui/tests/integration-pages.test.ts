@@ -37,6 +37,24 @@ test('Agent 导航以模型开头，随后是指令、技能、插件、MCP，�
   assert.doesNotMatch(html, />资源<|data-section="extensions"/)
 })
 
+test('个人导航以常规开头，打开设置时停在常规', () => {
+  const html = renderToStaticMarkup(
+    createElement(SettingsPage, {
+      dirty: false,
+      saving: false,
+      onDiscard: () => {},
+      onDismiss: () => {},
+      renderContent: () => null,
+    }),
+  )
+  const personal = html.slice(html.indexOf('>个人<'), html.indexOf('>Agent<'))
+  const labels = [...personal.matchAll(/<span class="truncate">([^<]+)<\/span>/g)].map((match) => match[1])
+  assert.deepEqual(labels, ['常规', '外观', '用量'])
+  const current = personal.slice(personal.indexOf('aria-current="page"'))
+  assert.match(current, /<span class="truncate">常规<\/span>/)
+  assert.doesNotMatch(html, />偏好</)
+})
+
 test('技能页按个人和系统分类，并提供导入，不混入插件、MCP或模型', () => {
   const html = renderToStaticMarkup(
     createElement(SkillPage, {
