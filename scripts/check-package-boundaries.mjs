@@ -122,6 +122,7 @@ for (const full of files) {
           'packages/plugin-devkit',
           'packages/client',
           'packages/ui',
+          'packages/assets',
         ].includes(owner) &&
         (businessPackages.has(base) || target.startsWith('plugins/'))
       )

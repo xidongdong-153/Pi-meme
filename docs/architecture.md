@@ -14,6 +14,7 @@ paths:
   - 'packages/pi-runtime/src/**'
   - 'packages/plugin-sdk/src/system-plugins.ts'
   - 'packages/ui/**'
+  - 'packages/assets/**'
   - 'packages/chat/**'
   - 'packages/workspace/**'
   - 'packages/history/**'
@@ -59,6 +60,7 @@ Host 使用 Hono、`@hono/node-server` 和 `ws`，由 [transport-app.ts](../pack
 | [apps/web](../apps/web/)                               | Web 登录、Vite 构建与共享 React import map           |
 | [packages/contracts](../packages/contracts/)           | HostApi、内部 Pi 类型、事件、资源与平台契约          |
 | [packages/ui](../packages/ui/)                         | 基础交互原语、ErrorBoundary、`cn`、tokens 和通用卡片 |
+| [packages/assets](../packages/assets/)                 | 内置界面图片、应用图标和 Dock 图标                   |
 | [packages/app-ui](../packages/app-ui/)                 | 页面与布局组合、连接管理、右侧工具标签和贡献槽       |
 | [packages/client](../packages/client/)                 | HostApi 客户端、内部功能 Bridge、认证、事件与快照    |
 | [packages/host](../packages/host/)                     | 数据目录写入锁、会话身份、操作分派、内置与外部装配   |

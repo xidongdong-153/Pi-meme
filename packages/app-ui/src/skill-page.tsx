@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { ArrowLeft, BookOpen, Copy, Plus, RefreshCw, ChevronDown, Sparkles, Upload } from 'lucide-react'
+import { systemSkillIcons } from '@pi-meme/assets/builtin'
 import type { ResourceCatalog, ResourceItem, ResourceSnapshot } from '@pi-meme/contracts/resources'
 import type { BranchSkillUsage } from '@pi-meme/contracts/skills'
 import type { PiSlashCommand } from '@pi-meme/contracts/pi'
@@ -21,10 +22,6 @@ import { cn } from '@pi-meme/ui/lib/utils'
 import { CategoryTabs } from './category-tabs'
 
 const scopes = { builtin: '系统', host: '此设备', project: '当前项目' }
-const systemSkillIcons: Record<string, string> = {
-  'skill-creator': new URL('./assets/skills/skill-creator.png', import.meta.url).href,
-  'plugin-creator': new URL('./assets/skills/plugin-creator.png', import.meta.url).href,
-}
 
 export function SkillPage({
   client,

@@ -1,5 +1,6 @@
 import { useRef, useState, type ReactNode } from 'react'
 import { ArrowLeft, Puzzle, RefreshCw, Upload, PanelRight, ChevronDown, Plus } from 'lucide-react'
+import { systemPluginIcons } from '@pi-meme/assets/builtin'
 import type { PluginClient } from '@pi-meme/client/plugin-client'
 import type { UiPluginDescriptor } from '@pi-meme/plugin-sdk/ui'
 import { Button } from '@pi-meme/ui/components/ui/button'
@@ -18,11 +19,6 @@ import {
 import { CategoryTabs } from './category-tabs'
 
 const statusNames = { active: '已启用', disabled: '已停用', pending: '等待使用中的任务结束', failed: '加载失败' }
-const systemPluginIcons: Record<string, string> = {
-  '@pi-meme/git': new URL('./assets/plugins/git.png', import.meta.url).href,
-  '@pi-meme/file-directory': new URL('./assets/plugins/file-directory.png', import.meta.url).href,
-  '@pi-meme/terminal': new URL('./assets/plugins/terminal.png', import.meta.url).href,
-}
 
 export function PluginPage({
   client,

@@ -36,5 +36,6 @@ pi-meme 的 Desktop 和 Web 共用 Node Host。应用入口在 `apps/`，基础�
 | 子代理、规划模式与会话恢复 | [会话与协作](sessions.md)                                      | [协调器](../packages/subagents/src/server/coordinator.ts)、[会话池](../packages/pi-runtime/src/session-pool.ts)                                                         |
 | 技能、插件和 UI 扩展       | [技能与资源](skills-and-extensions.md)、[App 插件](plugins.md) | [资源存储](../packages/resources/src/server/resource-store.ts)、[插件管理器](../packages/plugin-runtime/src/manager.ts)                                                 |
 | 平台窗口、preload 与分发   | [开发与验证](development.md)、[架构](architecture.md)          | [Electron main](../apps/desktop/src/main/main.ts)、[Forge 配置](../apps/desktop/forge.config.ts)                                                                        |
+| 内置图片与应用图标         | [开发与验证](development.md)                                   | [packages/assets/files](../packages/assets/files/)                                                                                                                      |
 
 文档中的源码链接相对于仓库；页面元数据的 `paths` 用于按源码检索。新增或调整实现时更新所属主题及本索引。长期规则以 [AGENTS.md](../AGENTS.md) 为准。

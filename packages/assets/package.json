@@ -1,0 +1,13 @@
+{
+  "name": "@pi-meme/assets",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./builtin": "./src/builtin.ts"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit",
+    "test": "node --import tsx --test tests/*.test.ts"
+  }
+}

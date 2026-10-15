@@ -1,16 +1,6 @@
+import { agentAvatars } from '@pi-meme/assets/builtin'
 import * as React from 'react'
 import { cn } from '../lib/utils'
-
-const avatars = [
-  new URL('../assets/agents/general.png', import.meta.url).href,
-  new URL('../assets/agents/research.png', import.meta.url).href,
-  new URL('../assets/agents/plan.png', import.meta.url).href,
-  new URL('../assets/agents/code.png', import.meta.url).href,
-  new URL('../assets/agents/review.png', import.meta.url).href,
-  new URL('../assets/agents/test.png', import.meta.url).href,
-  new URL('../assets/agents/design.png', import.meta.url).href,
-  new URL('../assets/agents/docs.png', import.meta.url).href,
-]
 
 const roles = [
   { variant: 4, pattern: /(?:^|[_-])(?:review|reviewer|audit)(?:$|[_-])|审查|评审|审核/i },
@@ -31,14 +21,14 @@ export const AgentAvatar = React.memo(
     // 未识别职责时用 agentId 稳定分配；同一身份续跑保留头像。
     let hash = 2166136261
     for (const character of seed) hash = Math.imul(hash ^ character.codePointAt(0)!, 16777619) >>> 0
-    const variant = roles.find(({ pattern }) => pattern.test(name ?? ''))?.variant ?? hash % avatars.length
+    const variant = roles.find(({ pattern }) => pattern.test(name ?? ''))?.variant ?? hash % agentAvatars.length
     return (
       <img
         aria-hidden
         alt=""
         data-agent-avatar=""
         data-variant={variant}
-        src={avatars[variant]}
+        src={agentAvatars[variant]}
         className={cn('size-6 shrink-0 object-contain', className)}
         draggable={false}
       />

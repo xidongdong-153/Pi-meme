@@ -15,6 +15,8 @@ paths:
   - 'packages/chat/src/ui/**'
   - 'packages/ui/src/**'
   - 'packages/app-ui/src/**'
+  - 'packages/assets/**'
+  - 'apps/desktop/src/main/dock-icon.ts'
 ---
 
 # 开发与验证
@@ -31,12 +33,15 @@ paths:
 | 项目、会话索引与侧栏                    | [packages/workspace/src](../packages/workspace/src/)                                 |
 | 原生会话历史、导出与分支树              | [packages/history/src](../packages/history/src/)                                     |
 | 设置导航、独立技能/插件页、右侧工具标签 | [packages/app-ui/src](../packages/app-ui/src/)                                       |
+| 内置图片、应用图标与 Dock 图标          | [packages/assets/files](../packages/assets/files/)                                   |
 | 公共类型与正式控制接口                  | [packages/contracts/src](../packages/contracts/src/)                                 |
 | 协议、认证、路由与内置装配              | [packages/host/src](../packages/host/src/)                                           |
 | Electron 窗口、preload 和平台 IPC       | [apps/desktop/src](../apps/desktop/src/)                                             |
 | 新的外部 App 插件                       | [DevKit](../packages/plugin-devkit/src/cli.ts)，用法见 [插件开发](plugins.md)        |
 
 业务包按实际需要创建 `src/server`、`src/agent`、`src/ui` 和 `src/shared`，不创建空层。新增功能先确认是内置能力还是可独立安装、移除的 App 插件。
+
+内置界面图片、应用图标和 Dock 图标只放在 [packages/assets/files](../packages/assets/files/)。目录按用途分开：`brand`、`agents`、`system-plugins`、`system-skills`、`desktop/dock`、`desktop/icons`。界面从 [builtin.ts](../packages/assets/src/builtin.ts) 按固定文件名读取，每张图都写成字面量 `new URL`，不要拼路径，否则打包不会带上文件；Forge 用 `desktop/icons/pi-dev-dark`（不带扩展名）作为应用图标，并把 `desktop/dock` 拷到打包产物的 `Resources/dock`。换图时覆盖同名文件，不改引用。子代理头像在 `agentAvatars` 里的顺序就是 `data-variant`，不要调换。插件自己的 `assets/` 留在插件包内，不放进这个目录。
 
 ## TypeScript 与 UI 约定
 

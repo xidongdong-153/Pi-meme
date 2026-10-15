@@ -20,6 +20,7 @@
     "test": "tsx --tsconfig ../../tsconfig.json --test tests/*.test.ts"
   },
   "dependencies": {
+    "@pi-meme/assets": "workspace:*",
     "@pi-meme/contracts": "workspace:*",
     "@pi-meme/ui": "workspace:*",
     "@pi-meme/chat": "workspace:*",

@@ -11,8 +11,8 @@ const signingIdentity = process.env.PI_DESKTOP_SIGNING_IDENTITY
 const config: ForgeConfig = {
   packagerConfig: {
     asar: { unpackDir: 'node_modules/{@esbuild,node-pty}' },
-    // 不带扩展名，@electron/packager 按平台补 .icns / .ico
-    icon: path.join(__dirname, 'assets/icons/pi-dev-dark'),
+    // 不带扩展名，@electron/packager 按平台补 .icns / .ico。文件在 packages/assets/files/desktop/icons。
+    icon: path.join(__dirname, '../../packages/assets/files/desktop/icons/pi-dev-dark'),
     // 本地包使用 ad-hoc 签名；正式证书通过 PI_DESKTOP_SIGNING_IDENTITY 指定。
     osxSign: signingIdentity
       ? { identity: signingIdentity }
@@ -21,8 +21,8 @@ const config: ForgeConfig = {
           identityValidation: false,
           optionsForFile: () => ({ hardenedRuntime: false, timestamp: false }),
         },
-    // Vite 插件只把 .vite 打进 asar，运行时切换的 Dock 图标要额外拷到 Resources 下
-    extraResource: [path.join(__dirname, 'assets/dock')],
+    // Vite 插件只把 .vite 打进 asar。目录名 dock 会变成 Resources/dock。
+    extraResource: [path.join(__dirname, '../../packages/assets/files/desktop/dock')],
   },
   rebuildConfig: {},
   makers: [new MakerZIP({}, ['darwin'])],
