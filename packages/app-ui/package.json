@@ -12,6 +12,7 @@
     "./host-directory-dialog": "./src/host-directory-dialog.tsx",
     "./plugin-registry": "./src/plugin-registry.ts",
     "./services-app": "./src/services-app.tsx",
+    "./startup-splash": "./src/startup-splash.tsx",
     "./service-ui": "./src/service-ui.ts"
   },
   "scripts": {

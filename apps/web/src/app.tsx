@@ -1,8 +1,9 @@
 import type { ServiceRegistry } from '@pi-meme/app-ui/service-ui'
 import { ServicesApp } from '@pi-meme/app-ui/services-app'
 import { HostServiceRegistry } from '@pi-meme/client/service-registry'
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { App } from '@pi-meme/app-ui/app'
+import { StartupSplash, useStartupSplash } from '@pi-meme/app-ui/startup-splash'
 import { HostDirectoryDialog } from '@pi-meme/app-ui/host-directory-dialog'
 import { HostClient } from '@pi-meme/client/host-client'
 import { createAppHostClient } from '@pi-meme/client/app-host-client'
@@ -99,6 +100,9 @@ function ConnectedWebApp() {
   const [directory, setDirectory] = useState<DirectoryRequest>()
   const [error, setError] = useState('')
   const [connecting, setConnecting] = useState(true)
+  const [chatReady, setChatReady] = useState(false)
+  const splashPhase = useStartupSplash(Boolean(client) && chatReady)
+  const markBootComplete = useCallback(() => setChatReady(true), [])
   const [token, setToken] = useState('')
   const clientRef = useRef<HostClient | undefined>(undefined)
   const directoryRef = useRef<DirectoryRequest | undefined>(undefined)
@@ -178,57 +182,52 @@ function ConnectedWebApp() {
     await connect({ url: window.location.origin, token, hostId: '', local: Boolean(platform) })
   }
 
-  if (!client && connecting)
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-background text-foreground" role="status">
-        正在连接服务
-      </main>
-    )
-
-  if (!client)
-    return (
-      <main className="flex min-h-screen items-center justify-center bg-background px-6 text-foreground">
-        <form
-          onSubmit={(event) => void submit(event).catch((cause: unknown) => setError(String(cause)))}
-          className="w-full max-w-sm space-y-4 rounded-xl border border-border p-6"
-        >
-          <h1 className="text-lg font-semibold">登录 pi-meme</h1>
-          <label className="block space-y-2 text-sm">
-            访问令牌
-            <Input
-              type="password"
-              autoComplete="off"
-              aria-label="访问令牌"
-              value={token}
-              onChange={(event) => setToken(event.target.value)}
-            />
-          </label>
-          {error && (
-            <p role="alert" className="text-sm text-destructive break-words">
-              {error}
-            </p>
-          )}
-          <Button className="w-full" disabled={connecting} type="submit">
-            {connecting ? '连接中' : '连接'}
-          </Button>
-          {platform && (
-            <Button
-              className="w-full"
-              variant="outline"
-              disabled={connecting}
-              type="button"
-              onClick={() => void connect().catch((cause: unknown) => setError(String(cause)))}
-            >
-              重试连接服务
-            </Button>
-          )}
-        </form>
-      </main>
-    )
+  const showSplash = splashPhase !== 'done' && (connecting || Boolean(client))
 
   return (
     <>
-      {registry && <ServicesApp registry={registry} nativeWindow={Boolean(platform)} />}
+      {client && registry ? (
+        <ServicesApp registry={registry} nativeWindow={Boolean(platform)} onBootComplete={markBootComplete} />
+      ) : !client && !connecting ? (
+        <main className="flex min-h-screen items-center justify-center bg-background px-6 text-foreground">
+          <form
+            onSubmit={(event) => void submit(event).catch((cause: unknown) => setError(String(cause)))}
+            className="w-full max-w-sm space-y-4 rounded-xl border border-border p-6"
+          >
+            <h1 className="text-lg font-semibold">登录 pi-meme</h1>
+            <label className="block space-y-2 text-sm">
+              访问令牌
+              <Input
+                type="password"
+                autoComplete="off"
+                aria-label="访问令牌"
+                value={token}
+                onChange={(event) => setToken(event.target.value)}
+              />
+            </label>
+            {error && (
+              <p role="alert" className="text-sm text-destructive break-words">
+                {error}
+              </p>
+            )}
+            <Button className="w-full" disabled={connecting} type="submit">
+              {connecting ? '连接中' : '连接'}
+            </Button>
+            {platform && (
+              <Button
+                className="w-full"
+                variant="outline"
+                disabled={connecting}
+                type="button"
+                onClick={() => void connect().catch((cause: unknown) => setError(String(cause)))}
+              >
+                重试连接服务
+              </Button>
+            )}
+          </form>
+        </main>
+      ) : null}
+      {showSplash && <StartupSplash exiting={splashPhase === 'exiting'} />}
       {directory && (
         <HostDirectoryDialog
           load={directory.load}

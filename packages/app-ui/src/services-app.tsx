@@ -8,7 +8,15 @@ import { MultiServiceSidebar } from './multi-service-sidebar'
 import { RemoteSettings } from './remote-settings'
 import { serviceAddress, type ServiceController, type ServiceRegistry } from './service-ui'
 
-export function ServicesApp({ registry, nativeWindow }: { registry: ServiceRegistry; nativeWindow: boolean }) {
+export function ServicesApp({
+  registry,
+  nativeWindow,
+  onBootComplete,
+}: {
+  registry: ServiceRegistry
+  nativeWindow: boolean
+  onBootComplete?: () => void
+}) {
   const [services, setServices] = useState(() => registry.list())
   const [activeId, setActiveId] = useState(registry.localServiceId)
   const [, setRevision] = useState(0)
@@ -143,6 +151,7 @@ export function ServicesApp({ registry, nativeWindow }: { registry: ServiceRegis
             nativeWindow={nativeWindow}
             localPlatform={service.local && client.nativePlatformAvailable}
             onHostConnection={() => {}}
+            onBootComplete={onBootComplete}
             serviceUI={{
               serviceId: service.id,
               active: service.id === activeId,

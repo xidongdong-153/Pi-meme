@@ -68,6 +68,7 @@ export function App({
   onHostConnection,
   hostConnections,
   serviceUI,
+  onBootComplete,
 }: {
   serviceUI?: ServiceUI
   bridge: DesktopBridge
@@ -81,6 +82,8 @@ export function App({
   hostLocal?: boolean
   onHostConnection: () => void
   hostConnections?: ComponentProps<typeof HostSettings>['connections']
+  /** 当前服务的聊天主界面已经可以显示，或连接失败需要把界面交还用户。 */
+  onBootComplete?: () => void
 }) {
   const resources = useMemo(() => createResourceClient(call, plugins.onChange), [call, plugins])
   const [registry] = useState(() => new UiPluginRegistry(host, loadPluginUI, call))
@@ -281,6 +284,10 @@ export function App({
   const [instructionsSaving, setInstructionsSaving] = useState(false)
   const [preferredApp, setPreferredApp] = useState<ProjectApp['id']>('finder')
   const ready = chat.connection.status === 'ready' || chat.connection.status === 'idle'
+  const bootComplete = !chat.loading && (ready || chat.connection.status === 'disconnected' || Boolean(chat.error))
+  useEffect(() => {
+    if (active && bootComplete) onBootComplete?.()
+  }, [active, bootComplete, onBootComplete])
   const project =
     chat.connection.workspaceKind === 'standalone'
       ? '不在项目中工作'
