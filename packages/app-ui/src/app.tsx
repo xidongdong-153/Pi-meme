@@ -908,7 +908,12 @@ export function App({
                       )}
                     />
                   )
-                if (section === 'general' || section === 'appearance' || section === 'personalization')
+                if (
+                  section === 'general' ||
+                  section === 'appearance' ||
+                  section === 'personalization' ||
+                  section === 'instructions'
+                )
                   return (
                     <SettingsContent
                       section={section}

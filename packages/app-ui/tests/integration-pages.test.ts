@@ -21,7 +21,7 @@ const plugin: UiPluginDescriptor = {
   capabilities: { server: true, agent: true, ui: true, resources: true },
 }
 
-test('Agent 导航以模型开头，随后是技能、插件、MCP，移除资源入口与页面内切换按钮', () => {
+test('Agent 导航以模型开头，随后是指令、技能、插件、MCP，移除资源入口与页面内切换按钮', () => {
   const html = renderToStaticMarkup(
     createElement(SettingsPage, {
       dirty: false,
@@ -33,7 +33,7 @@ test('Agent 导航以模型开头，随后是技能、插件、MCP，移除资�
   )
   const agent = html.slice(html.indexOf('>Agent<'), html.indexOf('>系统<'))
   const labels = [...agent.matchAll(/<span class="truncate">([^<]+)<\/span>/g)].map((match) => match[1])
-  assert.deepEqual(labels, ['模型', '技能', '插件', 'MCP'])
+  assert.deepEqual(labels, ['模型', '指令', '技能', '插件', 'MCP'])
   assert.doesNotMatch(html, />资源<|data-section="extensions"/)
 })
 

@@ -3,10 +3,10 @@ import type { SettingsSnapshot, AppearanceSettings, InstalledFont, Theme } from 
 import type { SettingsBridge, ModelsBridge } from '@pi-meme/contracts/desktop'
 import { ThemeSettings } from './theme-settings'
 import { PersonalizationSettings } from './personalization-settings'
+import { InstructionSettings } from './instruction-settings'
 
 export type SettingsPageProps = {
-  advanced?: boolean
-  section: 'general' | 'appearance' | 'personalization'
+  section: 'general' | 'appearance' | 'personalization' | 'instructions'
   snapshot: SettingsSnapshot | null
   piVersion?: string
   error: string
@@ -28,7 +28,6 @@ export type SettingsPageProps = {
 
 export function SettingsPage({
   section,
-  advanced,
   snapshot,
   piVersion,
   error,
@@ -42,16 +41,10 @@ export function SettingsPage({
 }: SettingsPageProps) {
   return (
     <div className="space-y-6">
-      {section === 'personalization' ? (
-        <PersonalizationSettings
-          advanced={advanced}
-          bridge={bridge}
-          cwd={cwd}
-          busy={busy}
-          onDirty={onDirty}
-          onSaving={onSaving}
-          accessSettings={accessSettings}
-        />
+      {section === 'instructions' ? (
+        <InstructionSettings bridge={bridge} cwd={cwd} busy={busy} onDirty={onDirty} onSaving={onSaving} />
+      ) : section === 'personalization' ? (
+        <PersonalizationSettings accessSettings={accessSettings} />
       ) : section === 'general' ? (
         <div className="space-y-4 rounded-2xl border border-border bg-card p-6">
           <h3 className="text-sm font-medium">Pi 运行时</h3>
