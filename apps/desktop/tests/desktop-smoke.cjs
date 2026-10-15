@@ -654,7 +654,7 @@ async function run(window) {
     await evaluate(
       '[...document.querySelectorAll("nav[aria-label=设置分类] button")].map(node => node.textContent.trim())',
     ),
-    ['模型', '外观', '偏好', '用量', '技能', '插件', 'MCP', '远程', '开发者', '关于'],
+    ['模型', '外观', '偏好', '用量', '技能', '插件', 'MCP', '远程', '关于'],
   )
   assert.equal(await evaluate('document.querySelector("aside details") === null'), true)
   await clickText('关于')

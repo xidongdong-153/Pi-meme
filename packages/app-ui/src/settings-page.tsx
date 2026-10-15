@@ -3,7 +3,6 @@ import {
   ArrowLeft,
   BookOpen,
   ChartNoAxesCombined,
-  CodeXml,
   Cpu,
   Info,
   Network,
@@ -46,7 +45,6 @@ const groups = [
     label: '系统',
     sections: [
       { id: 'host', label: '远程', icon: Server, description: '添加、重试或移除远程服务。' },
-      { id: 'developer', label: '开发者', icon: CodeXml, description: '查看插件恢复诊断。' },
       { id: 'general', label: '关于', icon: Info, description: '查看当前执行服务的 Pi 运行时。' },
     ],
   },

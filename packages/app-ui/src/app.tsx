@@ -1,7 +1,6 @@
 import { GitMenu } from '@pi-meme/git/ui/git-menu'
 import { LocationSelector } from './location-selector'
 import type { ServiceUI } from './service-ui'
-import { DeveloperSettings } from './developer-settings'
 import { SubagentsPanel } from './subagents-panel'
 import { ProfileSettings } from '@pi-meme/usage/ui/profile-settings'
 import { SkillPage } from './skill-page'
@@ -937,7 +936,6 @@ export function App({
                     />
                   )
                 if (section === 'profile') return <ProfileSettings {...{ loadUsage: bridge.getUsageStats }} />
-                if (section === 'developer') return <DeveloperSettings call={call}>{null}</DeveloperSettings>
                 return null
               }}
             />
