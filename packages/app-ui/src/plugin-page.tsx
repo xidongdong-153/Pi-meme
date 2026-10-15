@@ -31,6 +31,7 @@ export function PluginPage({
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<string>()
   const [busy, setBusy] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
   const [removing, setRemoving] = useState<UiPluginDescriptor>()
   const [installResult, setInstallResult] = useState('')
@@ -43,6 +44,25 @@ export function PluginPage({
       .toLowerCase()
       .includes(query.trim().toLowerCase()),
   )
+
+  async function refresh() {
+    if (refreshing || busy) return
+    setRefreshing(true)
+    setError('')
+    const start = Date.now()
+    try {
+      await onChanged()
+    } catch (cause) {
+      setError(String(cause))
+    } finally {
+      const elapsed = Date.now() - start
+      if (elapsed < 400) {
+        await new Promise((resolve) => setTimeout(resolve, 400 - elapsed))
+      }
+      setRefreshing(false)
+    }
+  }
+
   async function action(work: () => Promise<unknown>) {
     if (busy) return
     setBusy(true)
@@ -182,10 +202,10 @@ export function PluginPage({
                   variant="ghost"
                   size="icon"
                   aria-label="刷新插件列表"
-                  disabled={busy}
-                  onClick={() => void action(onChanged)}
+                  disabled={refreshing || busy}
+                  onClick={() => void refresh()}
                 >
-                  <RefreshCw />
+                  <RefreshCw className={cn(refreshing && 'animate-spin')} />
                 </Button>
                 {installButton}
               </>

@@ -43,6 +43,7 @@ export function SkillPage({
   const [scope, setScope] = useState<'host' | 'project'>('host')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
   const [removing, setRemoving] = useState<ResourceItem>()
   const [editor, setEditor] = useState<{ item?: ResourceItem; name: string; content: string }>()
   const [dirty, setDirty] = useState(false)
@@ -65,6 +66,27 @@ export function SkillPage({
       off()
     }
   }, [client, load])
+
+  async function refresh() {
+    if (refreshing || busy) return false
+    setRefreshing(true)
+    setError('')
+    const start = Date.now()
+    try {
+      await client.refresh(cwd)
+      await Promise.all([load(), onChanged()])
+      return true
+    } catch (cause) {
+      setError(String(cause))
+      return false
+    } finally {
+      const elapsed = Date.now() - start
+      if (elapsed < 400) {
+        await new Promise((resolve) => setTimeout(resolve, 400 - elapsed))
+      }
+      setRefreshing(false)
+    }
+  }
 
   async function action(work: () => Promise<unknown>) {
     if (busy) return false
@@ -321,10 +343,10 @@ export function SkillPage({
                   variant="ghost"
                   size="icon"
                   aria-label="重新扫描技能"
-                  disabled={busy}
-                  onClick={() => void action(() => client.refresh(cwd))}
+                  disabled={refreshing || busy}
+                  onClick={() => void refresh()}
                 >
-                  <RefreshCw className={cn(busy && 'animate-spin')} />
+                  <RefreshCw className={cn(refreshing && 'animate-spin')} />
                 </Button>
                 <Button variant="outline" disabled={busy} onClick={() => setImportOpen(true)}>
                   从设备目录导入

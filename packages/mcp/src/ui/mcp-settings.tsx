@@ -9,6 +9,7 @@ import type { ToolExecutionSettings } from '@pi-meme/contracts/settings'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { ServerForm } from './server-form'
 import { object } from '../shared/config'
+import { cn } from '@pi-meme/ui/lib/utils'
 
 export function McpSettings({
   bridge,
@@ -29,6 +30,7 @@ export function McpSettings({
   const [snapshot, setSnapshot] = useState<McpConfigSnapshot | null>(null)
   const [error, setError] = useState('')
   const [working, setWorking] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
   const [editing, setEditing] = useState<McpServerEntry | 'new' | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
   const [diagnostic, setDiagnostic] = useState<McpDiagnostic | null>(null)
@@ -49,6 +51,24 @@ export function McpSettings({
     }
   }, [bridge])
   const blocked = busy || saving || working
+
+  async function refresh() {
+    if (refreshing || blocked) return
+    setRefreshing(true)
+    setError('')
+    const start = Date.now()
+    try {
+      setSnapshot(await bridge.getMcpConfig())
+    } catch (cause) {
+      setError(String(cause))
+    } finally {
+      const elapsed = Date.now() - start
+      if (elapsed < 400) {
+        await new Promise((resolve) => setTimeout(resolve, 400 - elapsed))
+      }
+      setRefreshing(false)
+    }
+  }
   const act = async (work: () => Promise<void>) => {
     if (blocked) return
     setWorking(true)
@@ -89,14 +109,10 @@ export function McpSettings({
                 variant="ghost"
                 size="icon"
                 aria-label="重新加载 MCP 配置"
-                disabled={blocked}
-                onClick={() =>
-                  void act(async () => {
-                    setSnapshot(await bridge.getMcpConfig())
-                  })
-                }
+                disabled={refreshing || blocked}
+                onClick={() => void refresh()}
               >
-                <RefreshCw />
+                <RefreshCw className={cn(refreshing && 'animate-spin')} />
               </Button>
               <Button
                 disabled={blocked || !snapshot || Boolean(snapshot.error)}

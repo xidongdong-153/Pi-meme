@@ -12,6 +12,8 @@ import type { ModelsBridge } from '@pi-meme/contracts/desktop'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { BrandMark } from '@pi-meme/ui/components/brand-mark'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
+import { RefreshCw } from 'lucide-react'
+import { cn } from '@pi-meme/ui/lib/utils'
 import { apiLabels, ModelConfigForm } from './model-config-form'
 import { ModelSelect } from '../model-select'
 
@@ -145,6 +147,7 @@ export function ModelConfigSettings({
         <p className="text-sm text-muted-foreground">管理自定义接口和 API Key，保存后自动重新连接 Pi。</p>
         <div className="flex gap-2">
           <Button variant="outline" disabled={loading || saving} onClick={() => void load()}>
+            <RefreshCw className={cn('mr-1.5 size-3.5', loading && 'animate-spin')} />
             刷新配置
           </Button>
           <Button disabled={!snapshot || loading || saving} onClick={() => setEditing('new')}>
@@ -152,7 +155,7 @@ export function ModelConfigSettings({
           </Button>
         </div>
       </div>
-      {loading && (
+      {!snapshot && loading && (
         <p role="status" className="text-sm text-muted-foreground">
           正在加载模型配置…
         </p>

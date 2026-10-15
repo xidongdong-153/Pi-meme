@@ -100,10 +100,22 @@ export function ProjectSelector({
     }
   }
 
+  const [activeAnchor, setActiveAnchor] = useState<HTMLElement | null>(null)
+  const virtualAnchorRef = useRef<{ current: HTMLElement | null }>({ current: null })
+
+  if (open) {
+    const nextAnchor = returnFocus?.isConnected ? returnFocus : null
+    if (activeAnchor !== nextAnchor) {
+      setActiveAnchor(nextAnchor)
+    }
+  }
+
+  virtualAnchorRef.current.current = activeAnchor
+
   return (
     <div className="flex min-w-0 max-w-[min(60%,260px)] shrink items-center">
       <Popover open={open} onOpenChange={(next) => void changeOpen(next)}>
-        {open && returnFocus?.isConnected && <PopoverAnchor virtualRef={{ current: returnFocus }} />}
+        {Boolean(activeAnchor?.isConnected) && <PopoverAnchor virtualRef={virtualAnchorRef.current} />}
         <PopoverTrigger asChild>
           <button
             type="button"
@@ -120,7 +132,7 @@ export function ProjectSelector({
         <PopoverContent
           ref={contentRef}
           aria-label="项目选择"
-          side="top"
+          side={activeAnchor || returnFocus ? 'bottom' : 'top'}
           align="start"
           className="flex flex-col w-64 max-w-[calc(100vw-24px)] p-1.5 rounded-2xl select-none"
           style={{ maxHeight: 'min(360px, var(--radix-popover-content-available-height))' }}
@@ -130,6 +142,7 @@ export function ProjectSelector({
             void readProjects()
           }}
           onCloseAutoFocus={(event) => {
+            setActiveAnchor(null)
             if (!focusEditor.current) {
               if (returnFocus?.isConnected) {
                 event.preventDefault()
