@@ -53,6 +53,24 @@ test('个人导航以常规开头，打开设置时停在常规', () => {
   const current = personal.slice(personal.indexOf('aria-current="page"'))
   assert.match(current, /<span class="truncate">常规<\/span>/)
   assert.doesNotMatch(html, />偏好</)
+  assert.match(html, /sr-only">返回聊天</)
+  assert.match(html, /class="[^"]*\bpl-3\b/)
+  assert.doesNotMatch(html, /\bpl-24\b/)
+})
+
+test('Desktop 设置返回键让出交通灯，Web 靠左', () => {
+  const desktop = renderToStaticMarkup(
+    createElement(SettingsPage, {
+      dirty: false,
+      saving: false,
+      nativeWindow: true,
+      onDiscard: () => {},
+      onDismiss: () => {},
+      renderContent: () => null,
+    }),
+  )
+  assert.match(desktop, /\bpl-24\b/)
+  assert.doesNotMatch(desktop, /\bpl-3\b/)
 })
 
 test('技能页按个人和系统分类，并提供导入，不混入插件、MCP或模型', () => {

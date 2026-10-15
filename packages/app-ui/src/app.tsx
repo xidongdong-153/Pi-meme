@@ -812,6 +812,7 @@ export function App({
             <SettingsPage
               dirty={instructionsDirty}
               saving={instructionsSaving}
+              nativeWindow={nativeWindow}
               onDiscard={() => setInstructionsDirty(false)}
               onDismiss={() => setSettingsOpen(false)}
               renderContent={(section) => {

@@ -1,8 +1,8 @@
 import { useState, type ReactNode } from 'react'
 import {
-  ArrowLeft,
   BookOpen,
   ChartNoAxesCombined,
+  ChevronLeft,
   Info,
   Network,
   Palette,
@@ -59,12 +59,15 @@ export function SettingsPage({
   renderContent,
   dirty,
   saving,
+  nativeWindow = false,
   onDiscard,
   onDismiss,
 }: {
   renderContent: (section: SettingsSection, navigate: (section: SettingsSection) => void) => ReactNode
   dirty: boolean
   saving: boolean
+  /** Desktop 隐藏标题栏需要让出交通灯；Web 不留这段间距。 */
+  nativeWindow?: boolean
   onDiscard: () => void
   onDismiss: () => void
 }) {
@@ -95,17 +98,22 @@ export function SettingsPage({
 
   return (
     <section aria-label="设置页面" className="flex min-h-0 flex-1 flex-col">
-      <header className="window-drag flex h-10 shrink-0 items-center border-b border-border/70 pl-24 pr-3">
+      <header
+        className={cn(
+          'window-drag flex h-10 shrink-0 items-center border-b border-border/70 pr-3',
+          nativeWindow ? 'pl-24' : 'pl-3',
+        )}
+      >
         <Button
           variant="ghost"
-          size="sm"
+          size="icon-sm"
           onClick={() => leave(onDismiss)}
           disabled={saving}
           autoFocus
-          className="no-drag text-muted-foreground"
+          className="no-drag size-7 p-0 text-muted-foreground hover:text-foreground"
         >
-          <ArrowLeft className="size-4" />
-          返回聊天
+          <ChevronLeft className="size-4" />
+          <span className="sr-only">返回聊天</span>
         </Button>
       </header>
       <div className="flex min-h-0 flex-1">
