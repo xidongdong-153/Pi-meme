@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from 'react'
 import type { ModelsBridge } from '@pi-meme/contracts/desktop'
 import type { BuiltinAuthType, BuiltinProviderInfo, ModelLoginState } from '@pi-meme/contracts/model-config'
+import { Badge } from '@pi-meme/ui/components/ui/badge'
 import { Button } from '@pi-meme/ui/components/ui/button'
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@pi-meme/ui/components/ui/card'
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
 import { Input } from '@pi-meme/ui/components/ui/input'
 import { ScrollArea } from '@pi-meme/ui/components/ui/scroll-area'
-import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
+import { Search } from 'lucide-react'
 
 type LoginBridge = Pick<
   ModelsBridge,
@@ -17,16 +20,33 @@ type LoginBridge = Pick<
   | 'reconnectModels'
 >
 
-function statusText(provider: BuiltinProviderInfo) {
-  const signedIn = provider.subscription
-    ? '已登录订阅账号'
-    : provider.authType === 'oauth'
-      ? '已登录'
-      : provider.configured
-        ? '已保存 API Key'
-        : '未登录'
-  const interactive = provider.methods.some((method) => method.interactive)
-  return interactive ? signedIn : `${signedIn} · 不能在应用内登录`
+function statusBadge(provider: BuiltinProviderInfo) {
+  if (provider.subscription) {
+    return (
+      <Badge variant="success" className="h-5 px-1.5 text-[0.6875rem]">
+        已登录订阅账号
+      </Badge>
+    )
+  }
+  if (provider.authType === 'oauth') {
+    return (
+      <Badge variant="success" className="h-5 px-1.5 text-[0.6875rem]">
+        已登录
+      </Badge>
+    )
+  }
+  if (provider.configured) {
+    return (
+      <Badge variant="success" className="h-5 px-1.5 text-[0.6875rem]">
+        已保存 API Key
+      </Badge>
+    )
+  }
+  return (
+    <Badge variant="outline" className="h-5 px-1.5 text-[0.6875rem] text-muted-foreground">
+      未登录
+    </Badge>
+  )
 }
 
 function methodLabel(provider: BuiltinProviderInfo, type: BuiltinAuthType) {
@@ -141,74 +161,97 @@ export function BuiltinProviders({ bridge, disabled }: { bridge: LoginBridge; di
   )
   const prompt = login?.prompt
   return (
-    <div className="space-y-3">
-      <div className="flex flex-wrap items-end justify-between gap-3">
-        <div className="min-w-0 space-y-1">
-          <h3 className="font-medium">内置服务商</h3>
-          <p className="text-sm text-muted-foreground">
-            登录 Pi 自带目录中的服务商。凭据只保存在此 Host，不写入 models.json。
-          </p>
-        </div>
-        <Input
-          aria-label="搜索内置服务商"
-          value={query}
-          onChange={(event) => setQuery(event.target.value)}
-          placeholder="搜索服务商"
-          className="w-48"
-        />
-      </div>
-      {!providers && !error && (
-        <p role="status" className="text-sm text-muted-foreground">
-          正在加载内置服务商…
-        </p>
-      )}
-      {providers && (
-        <ScrollArea className="h-96 rounded-xl border border-border">
-          <div className="divide-y divide-border">
-            {visible.map((provider) => (
-              <div key={provider.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-                <div className="min-w-0 space-y-1">
-                  <h4 className="text-sm font-medium">
-                    {provider.name}
-                    <span className="ml-2 font-mono text-xs text-muted-foreground">{provider.id}</span>
-                  </h4>
-                  <p className="text-xs text-muted-foreground">
-                    {statusText(provider)}
-                    {' · '}
-                    {provider.methods.map((method) => method.name).join('、')}
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  {provider.methods
-                    .filter((method) => method.interactive)
-                    .map((method) => (
-                      <Button
-                        key={method.type}
-                        size="sm"
-                        variant="outline"
-                        disabled={disabled || Boolean(busyId) || Boolean(login)}
-                        onClick={() => void begin(provider, method.type)}
-                      >
-                        {busyId === provider.id ? '正在处理…' : methodLabel(provider, method.type)}
-                      </Button>
-                    ))}
-                  {provider.configured && (
-                    <Button
-                      size="sm"
-                      variant="ghost"
-                      disabled={disabled || Boolean(busyId) || Boolean(login)}
-                      onClick={() => void logout(provider)}
-                    >
-                      退出登录
-                    </Button>
-                  )}
-                </div>
-              </div>
-            ))}
-            {!visible.length && <p className="px-4 py-8 text-center text-sm text-muted-foreground">没有匹配的服务商</p>}
+    <div className="space-y-4">
+      <Card className="overflow-hidden">
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 border-b border-border bg-card p-4">
+          <div className="min-w-0 space-y-1">
+            <CardTitle className="text-base font-medium">内置服务商</CardTitle>
+            <CardDescription className="text-xs">
+              登录 Pi 自带目录中的服务商。凭据只保存在此 Host，不写入 models.json。
+            </CardDescription>
           </div>
-        </ScrollArea>
-      )}
+          <div className="relative w-full sm:w-56">
+            <Search
+              aria-hidden="true"
+              className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-muted-foreground"
+            />
+            <Input
+              aria-label="搜索内置服务商"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="搜索服务商"
+              className="h-9 rounded-lg bg-secondary/40 pl-8 text-xs"
+            />
+          </div>
+        </CardHeader>
+        <CardContent className="p-0">
+          {!providers && !error && (
+            <p role="status" className="p-8 text-center text-sm text-muted-foreground">
+              正在加载内置服务商…
+            </p>
+          )}
+          {providers && (
+            <ScrollArea className="h-96">
+              <div className="divide-y divide-border">
+                {visible.map((provider) => {
+                  const interactive = provider.methods.some((method) => method.interactive)
+                  return (
+                    <div key={provider.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                      <div className="min-w-0 space-y-1.5">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h4 className="text-sm font-medium">{provider.name}</h4>
+                          <span className="font-mono text-xs text-muted-foreground">{provider.id}</span>
+                          {statusBadge(provider)}
+                        </div>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          {provider.methods.map((method) => (
+                            <Badge
+                              key={method.type}
+                              variant="secondary"
+                              className="h-4.5 px-1.5 text-[0.625rem] font-normal text-muted-foreground"
+                            >
+                              {method.name}
+                            </Badge>
+                          ))}
+                          {!interactive && <span className="text-xs text-muted-foreground">（不能在应用内登录）</span>}
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap items-center gap-2">
+                        {provider.methods
+                          .filter((method) => method.interactive)
+                          .map((method) => (
+                            <Button
+                              key={method.type}
+                              size="sm"
+                              variant="outline"
+                              disabled={disabled || Boolean(busyId) || Boolean(login)}
+                              onClick={() => void begin(provider, method.type)}
+                            >
+                              {busyId === provider.id ? '正在处理…' : methodLabel(provider, method.type)}
+                            </Button>
+                          ))}
+                        {provider.configured && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            disabled={disabled || Boolean(busyId) || Boolean(login)}
+                            onClick={() => void logout(provider)}
+                          >
+                            退出登录
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+                {!visible.length && (
+                  <p className="px-4 py-8 text-center text-sm text-muted-foreground">没有匹配的服务商</p>
+                )}
+              </div>
+            </ScrollArea>
+          )}
+        </CardContent>
+      </Card>
       {logoutError && (
         <div role="alert" className="space-y-2 rounded-lg bg-destructive/10 p-3">
           <p className="text-sm text-destructive">{logoutError}</p>
