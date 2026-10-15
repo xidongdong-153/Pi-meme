@@ -64,6 +64,9 @@ test('无凭据与Worker的Host目录和UI命令都提供内置Skill Creator且�
   const command = commands.find((entry) => entry.name === 'skill:skill-creator')!
   assert.ok(command)
   assert.equal(command.displayName, 'Skill Creator')
+  const pluginCreator = findSkill(catalog, 'plugin-creator', 'builtin')
+  assert.equal(pluginCreator.editable, false)
+  assert.equal(pluginCreator.displayName, 'Plugin Creator')
   assert.equal(command.resourceId, creator.id)
   assert.equal(command.resourceRevision, creator.revision)
   assert.equal(command.sourceInfo.path, creator.path)

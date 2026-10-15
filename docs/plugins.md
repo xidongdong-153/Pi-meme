@@ -26,7 +26,7 @@ paths:
 | App 集成     | Host 后台服务、项目和任务操作、插件间服务          | `server` 与 HostApi           |
 | 主题与资源   | 颜色、字体、间距、圆角、透明度、背景图片、附带技能 | `resources`，可以没有代码入口 |
 
-变更、文件、终端是应用自带的系统插件，始终启用，不能通过插件接口停用、卸载或更新。文件与终端源码在 `packages/file-directory`、`packages/terminal`。可安装的主题示范在 `plugins/theme-landscape`。
+插件页分“个人”和“系统”。变更、文件、终端是系统插件，始终启用，不能通过插件接口停用、卸载或更新。用户安装的 App 插件属于个人。“添加 → 创建插件”会在当前对话插入系统技能 Plugin Creator，并填入“帮我创建一个插件”；源码默认写到当前工作区，安装后才出现在个人列表。文件与终端源码在 `packages/file-directory`、`packages/terminal`。可安装的主题示范在 `plugins/theme-landscape`。系统技能正文在 [pi/skills/plugin-creator](../pi/skills/plugin-creator/SKILL.md)。
 
 ## 包格式与构建
 

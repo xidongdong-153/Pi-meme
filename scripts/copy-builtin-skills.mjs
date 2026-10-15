@@ -1,8 +1,8 @@
-import { cp } from 'node:fs/promises'
+import { cp, readdir } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const skillSource = fileURLToPath(new URL('../pi/skills/skill-creator', import.meta.url))
+const skillsRoot = fileURLToPath(new URL('../pi/skills', import.meta.url))
 
 export function copyBuiltinSkillsPlugin() {
   let outputDirectory = ''
@@ -13,7 +13,13 @@ export function copyBuiltinSkillsPlugin() {
       outputDirectory = path.resolve(config.root, config.build.outDir)
     },
     async closeBundle() {
-      await cp(skillSource, path.join(outputDirectory, 'skills/skill-creator'), { recursive: true })
+      const entries = await readdir(skillsRoot, { withFileTypes: true })
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue
+        await cp(path.join(skillsRoot, entry.name), path.join(outputDirectory, 'skills', entry.name), {
+          recursive: true,
+        })
+      }
     },
   }
 }

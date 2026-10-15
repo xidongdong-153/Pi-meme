@@ -1,5 +1,16 @@
 import { useRef, useState, type ReactNode } from 'react'
-import { ArrowLeft, Puzzle, RefreshCw, Upload, FileDiff, Folder, TerminalSquare, PanelRight } from 'lucide-react'
+import {
+  ArrowLeft,
+  Puzzle,
+  RefreshCw,
+  Upload,
+  FileDiff,
+  Folder,
+  TerminalSquare,
+  PanelRight,
+  ChevronDown,
+  Plus,
+} from 'lucide-react'
 import type { PluginClient } from '@pi-meme/client/plugin-client'
 import type { UiPluginDescriptor } from '@pi-meme/plugin-sdk/ui'
 import { Button } from '@pi-meme/ui/components/ui/button'
@@ -9,6 +20,13 @@ import { systemPlugins } from '@pi-meme/plugin-sdk/system-plugins'
 import { isReservedPluginId } from '@pi-meme/plugin-sdk/reserved'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@pi-meme/ui/components/ui/dropdown-menu'
+import { CategoryTabs } from './category-tabs'
 
 const statusNames = { active: '已启用', disabled: '已停用', pending: '等待使用中的任务结束', failed: '加载失败' }
 
@@ -19,6 +37,7 @@ export function PluginPage({
   onChanged,
   renderSettings,
   onOpenSystem,
+  onCreate,
 }: {
   client: PluginClient
   plugins: UiPluginDescriptor[]
@@ -26,8 +45,9 @@ export function PluginPage({
   onChanged: () => Promise<void>
   renderSettings?: (id: string) => ReactNode
   onOpenSystem?: (id: string) => void
+  onCreate?: () => boolean
 }) {
-  const [tab, setTab] = useState<'installed' | 'system'>('installed')
+  const [category, setCategory] = useState<'personal' | 'system'>('personal')
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<string>()
   const [busy, setBusy] = useState(false)
@@ -39,7 +59,7 @@ export function PluginPage({
   const installed = plugins.filter((plugin) => !plugin.builtin && !isReservedPluginId(plugin.id))
   const catalog = [...installed, ...systemPlugins]
   const detail = catalog.find((plugin) => plugin.id === selected)
-  const filtered = (tab === 'system' ? systemPlugins : installed).filter((plugin) =>
+  const filtered = (category === 'system' ? systemPlugins : installed).filter((plugin) =>
     `${plugin.id} ${plugin.display?.name ?? ''} ${plugin.description ?? ''}`
       .toLowerCase()
       .includes(query.trim().toLowerCase()),
@@ -192,7 +212,7 @@ export function PluginPage({
         <>
           <IntegrationHeader
             title="插件"
-            description="管理已安装的 App 插件和应用自带的工具。"
+            description="个人插件由你安装，系统插件是应用自带的工具。创建插件会打开聊天并调用 Plugin Creator。"
             query={query}
             onQuery={setQuery}
             searchLabel="搜索插件"
@@ -207,52 +227,50 @@ export function PluginPage({
                 >
                   <RefreshCw className={cn(refreshing && 'animate-spin')} />
                 </Button>
-                {installButton}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button aria-label="添加插件" disabled={busy}>
+                      添加
+                      <ChevronDown className="size-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                      onSelect={() => {
+                        if (!onCreate?.())
+                          setError('系统技能 Plugin Creator 尚未进入当前会话。请刷新或开始聊天后再试。')
+                      }}
+                    >
+                      <Plus />
+                      创建插件
+                    </DropdownMenuItem>
+                    <DropdownMenuItem
+                      onSelect={() => {
+                        setInstallResult('')
+                        uploadRef.current?.click()
+                      }}
+                    >
+                      <Upload />
+                      上传插件包
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </>
             }
           >
-            <div role="tablist" aria-label="插件来源" className="flex items-center gap-1">
-              {(
-                [
-                  { id: 'installed', label: '已安装', count: installed.length },
-                  { id: 'system', label: '系统', count: systemPlugins.length },
-                ] as const
-              ).map((entry) => (
-                <button
-                  key={entry.id}
-                  type="button"
-                  role="tab"
-                  id={`plugin-source-${entry.id}`}
-                  tabIndex={tab === entry.id ? 0 : -1}
-                  onKeyDown={(event) => {
-                    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
-                    event.preventDefault()
-                    const next =
-                      event.key === 'Home'
-                        ? 'installed'
-                        : event.key === 'End'
-                          ? 'system'
-                          : tab === 'installed'
-                            ? 'system'
-                            : 'installed'
-                    setTab(next)
-                    document.getElementById(`plugin-source-${next}`)?.focus()
-                  }}
-                  aria-selected={tab === entry.id}
-                  aria-controls="plugin-list"
-                  onClick={() => setTab(entry.id)}
-                  className={cn(
-                    'rounded-xl px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                    tab === entry.id ? 'bg-secondary font-medium' : 'text-muted-foreground hover:text-foreground',
-                  )}
-                >
-                  {entry.label}
-                  <span className="ml-2 text-muted-foreground">{entry.count}</span>
-                </button>
-              ))}
-            </div>
+            <CategoryTabs
+              label="插件类别"
+              idPrefix="plugin-category"
+              value={category}
+              onChange={setCategory}
+              controls="plugin-list"
+              options={[
+                { id: 'personal', label: '个人', count: installed.length },
+                { id: 'system', label: '系统', count: systemPlugins.length },
+              ]}
+            />
           </IntegrationHeader>
-          <div id="plugin-list" role="tabpanel" aria-labelledby={`plugin-source-${tab}`}>
+          <div id="plugin-list" role="tabpanel" aria-labelledby={`plugin-category-${category}`}>
             <ul aria-label="App 插件列表" className="space-y-1 pt-6">
               {filtered.map((plugin) => (
                 <li key={plugin.id} className="flex min-h-24 items-center gap-4 rounded-xl px-3 hover:bg-secondary/30">
@@ -289,7 +307,7 @@ export function PluginPage({
             </ul>
             {!filtered.length && (
               <p role="status" className="py-8 text-center text-sm text-muted-foreground">
-                {query ? '没有匹配的插件。' : '没有已安装的 App 插件。'}
+                {query ? '没有匹配的插件。' : category === 'system' ? '没有系统插件。' : '没有个人插件。'}
               </p>
             )}
           </div>

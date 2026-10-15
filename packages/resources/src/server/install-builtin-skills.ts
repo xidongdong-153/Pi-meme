@@ -12,13 +12,29 @@ async function copySkillDirectory(source: string, target: string) {
 }
 
 export async function installBuiltinSkills(source: string, target: string) {
-  const skill = path.join(source, 'skill-creator')
+  let entries
   try {
-    await readFile(path.join(skill, 'SKILL.md'), 'utf8')
-    await copySkillDirectory(skill, path.join(target, 'skill-creator'))
+    entries = await readdir(source, { withFileTypes: true })
   } catch (cause) {
-    throw new Error(`无法安装内置 Skill Creator：${skill}；${cause instanceof Error ? cause.message : String(cause)}`, {
-      cause,
-    })
+    throw new Error(`无法读取内置技能：${source}；${cause instanceof Error ? cause.message : String(cause)}`, { cause })
+  }
+  const installed: string[] = []
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue
+    const skill = path.join(source, entry.name)
+    try {
+      await readFile(path.join(skill, 'SKILL.md'), 'utf8')
+    } catch (cause) {
+      if (entry.name !== 'skill-creator') continue
+      throw new Error(
+        `无法安装内置 Skill Creator：${skill}；${cause instanceof Error ? cause.message : String(cause)}`,
+        { cause },
+      )
+    }
+    await copySkillDirectory(skill, path.join(target, entry.name))
+    installed.push(entry.name)
+  }
+  if (!installed.includes('skill-creator')) {
+    throw new Error(`无法安装内置 Skill Creator：${path.join(source, 'skill-creator')}`)
   }
 }

@@ -100,7 +100,7 @@ Host 与 app-ui 是组合根。基础包和契约不得反向依赖业务实现�
 
 ## 界面组合
 
-[设置导航](../packages/app-ui/src/settings-page.tsx) 分三组：个人包含模型、外观、偏好、用量；集成包含技能、插件、MCP；系统包含远程、关于。技能与插件是独立页面，没有共享资源页或类型筛选。[插件页](../packages/app-ui/src/plugin-page.tsx) 在“已安装 / 系统”间切换。
+[设置导航](../packages/app-ui/src/settings-page.tsx) 分三组：个人包含模型、外观、偏好、用量；集成包含技能、插件、MCP；系统包含远程、关于。技能与插件是独立页面，没有共享资源页。[技能页](../packages/app-ui/src/skill-page.tsx)和[插件页](../packages/app-ui/src/plugin-page.tsx)各自在“个人 / 系统”间切换。创建技能或插件会把对应系统技能插入当前对话。
 
 左侧为置顶、项目、最近，中间固定聊天。工具面板位置只允许 `right`，在当前聊天右侧栏打开可关闭标签页；标签和宽度按 Host、会话保存。七类贡献槽为 `composer`、`composer-actions`、`tool-card`、`message`、`message-actions`、`status`、`settings`。
 

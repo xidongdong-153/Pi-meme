@@ -77,10 +77,11 @@ description: 编辑业务报告中的正文和表格，用于按现有模板更�
 
 - 用户已说明任务时直接执行；只有缺失信息会影响结果或产生返工时才提问。
 - 更新已有技能时先读取该技能及本次涉及的资源，只修改当前任务需要的部分，不重新初始化目录。
-- 用户指定输出位置时保留该位置。未指定时，在当前工作区 `pi/skills/<skill-name>/` 生成可审阅的源码；创建目录前检查已有内容，不能覆盖同名技能。
-- pi-meme 应用内置技能位于 `<Host 数据根>/pi/builtin-skills/`，属于应用资源，不能由本技能直接修改或覆盖。需要变更内置技能时，修改对应仓库源码并经过应用构建。
-- 项目 `.pi` 和 `AGENTS.md` 是只读输入，不往其中写入生成结果。
-- 全局安装位置为 `<Host 数据根>/pi/skills/`；默认数据根是 `~/.pi-meme`，可由 `PI_MEME_DATA_ROOT` 修改。创建源码不等于完成安装，不在未授权时复制到 Host 数据目录或更改资源配置。
+- 用户指定输出位置时保留该位置。未指定时，在当前工作区 `.agents/skills/<skill-name>/` 创建项目技能。创建前检查目录，不能覆盖已有技能。
+- 写入 `.agents/skills/` 的技能属于个人技能，范围是当前项目。用户在设置的技能页重新扫描后，它出现在「个人」中，来源为当前项目。
+- 用户要求在所有项目中使用时，写入 Host 数据根的 `skills/<skill-name>/`。默认数据根是 `~/.pi-meme`，可由 `PI_MEME_DATA_ROOT` 修改。这是设备上的个人技能。当前权限不能写数据根时，把源码留在工作区并说明尚未安装到设备，不擅自提权。
+- 系统技能随应用安装，位于数据根 `builtin-resources/skills/`，源码在应用仓库 `pi/skills/`。不能覆盖、删除，也不能用同名个人技能替换系统技能。要改系统技能时，修改仓库源码并重新构建应用。
+- 不要把普通技能写到 `pi/skills/`，除非用户正在修改 pi-meme 仓库中的系统技能。不写入 `.pi` 或 `.agents/extensions`，应用不从这些目录加载技能。`AGENTS.md` 是项目说明，不是技能目录。
 - 会话处于规划模式、只读权限或路径不允许写入时，只提供可执行的文件方案，不切换权限、不执行写入、不绕过 Host 限制。
 
 ### 2. 选择必要资源
@@ -96,8 +97,8 @@ description: 编辑业务报告中的正文和表格，用于按现有模板更�
 目标环境有 Node.js 时，可使用本技能目录下的初始化脚本：
 
 ```bash
-node scripts/init-skill.mjs report-editor --path <已授权输出目录>/pi/skills
-node scripts/init-skill.mjs report-editor --path <已授权输出目录>/pi/skills --resources references
+node scripts/init-skill.mjs report-editor --path <当前工作区>/.agents/skills
+node scripts/init-skill.mjs report-editor --path <当前工作区>/.agents/skills --resources references
 ```
 
 命令中的 `scripts/` 相对于本技能目录，运行前换成绝对路径。脚本不覆盖已有目录，只生成 `SKILL.md` 和所选资源目录；完成生成后的 TODO 再交付。无 Node.js 时按同样的目录结构直接创建文件。

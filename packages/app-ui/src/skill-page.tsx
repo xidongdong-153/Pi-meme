@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, BookOpen, Copy, Plus, RefreshCw, ChevronDown, Upload } from 'lucide-react'
+import { ArrowLeft, BookOpen, Copy, Plus, RefreshCw, ChevronDown, Sparkles, Upload } from 'lucide-react'
 import type { ResourceCatalog, ResourceItem, ResourceSnapshot } from '@pi-meme/contracts/resources'
 import type { BranchSkillUsage } from '@pi-meme/contracts/skills'
 import type { PiSlashCommand } from '@pi-meme/contracts/pi'
@@ -18,8 +18,9 @@ import {
   DropdownMenuItem,
 } from '@pi-meme/ui/components/ui/dropdown-menu'
 import { cn } from '@pi-meme/ui/lib/utils'
+import { CategoryTabs } from './category-tabs'
 
-const scopes = { builtin: '应用自带', host: '此设备', project: '当前项目' }
+const scopes = { builtin: '系统', host: '此设备', project: '当前项目' }
 export function SkillPage({
   client,
   cwd,
@@ -27,6 +28,7 @@ export function SkillPage({
   skillUsages = [],
   resourceSnapshot,
   onUse,
+  onCreate,
   onChanged,
 }: {
   client: ResourceClient
@@ -35,10 +37,12 @@ export function SkillPage({
   skillUsages?: BranchSkillUsage[]
   resourceSnapshot?: ResourceSnapshot
   onUse: (command: PiSlashCommand) => void
+  onCreate?: () => boolean
   onChanged: () => Promise<void>
 }) {
   const [catalog, setCatalog] = useState<ResourceCatalog>()
   const [query, setQuery] = useState('')
+  const [category, setCategory] = useState<'personal' | 'system'>('personal')
   const [selected, setSelected] = useState<string>()
   const [scope, setScope] = useState<'host' | 'project'>('host')
   const [error, setError] = useState('')
@@ -105,8 +109,10 @@ export function SkillPage({
   }
 
   const items = catalog?.items.filter((item) => item.kind === 'skill') ?? []
+  const personal = items.filter((item) => item.scope !== 'builtin')
+  const system = items.filter((item) => item.scope === 'builtin')
   const current = items.find((item) => item.id === selected)
-  const filtered = items.filter((item) =>
+  const filtered = (category === 'system' ? system : personal).filter((item) =>
     `${item.name} ${item.displayName ?? ''} ${item.description ?? ''} ${item.owner.name ?? ''}`
       .toLowerCase()
       .includes(query.trim().toLowerCase()),
@@ -333,7 +339,7 @@ export function SkillPage({
         <>
           <IntegrationHeader
             title="技能"
-            description="管理技能，设置设备默认或当前项目的调用方式。"
+            description="个人技能来自当前设备和项目，系统技能随应用提供。创建技能会打开聊天并调用 Skill Creator。"
             query={query}
             onQuery={setQuery}
             searchLabel="搜索技能"
@@ -359,6 +365,15 @@ export function SkillPage({
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                      onSelect={() => {
+                        if (!onCreate?.())
+                          setError('系统技能 Skill Creator 尚未进入当前会话。请刷新技能或开始聊天后再试。')
+                      }}
+                    >
+                      <Sparkles />
+                      创建技能
+                    </DropdownMenuItem>
                     <DropdownMenuItem onSelect={() => void edit()}>
                       <Plus />
                       新建技能
@@ -371,55 +386,72 @@ export function SkillPage({
                 </DropdownMenu>
               </>
             }
-          />
+          >
+            <CategoryTabs
+              label="技能类别"
+              idPrefix="skill-category"
+              value={category}
+              onChange={setCategory}
+              controls="skill-list"
+              options={[
+                { id: 'personal', label: '个人', count: personal.length },
+                { id: 'system', label: '系统', count: system.length },
+              ]}
+            />
+          </IntegrationHeader>
           {!catalog ? (
             <p role="status" className="text-sm text-muted-foreground">
               正在读取技能…
             </p>
           ) : (
-            <ul className="space-y-1 pt-6" aria-label="技能列表">
-              {filtered.map((item) => {
-                return (
-                  <li key={item.id} className="flex min-h-24 items-center gap-4 rounded-xl px-3 hover:bg-secondary/30">
-                    <button
-                      type="button"
-                      aria-label={`查看技能：${item.name}`}
-                      onClick={() => {
-                        setSelected(item.id)
-                        setScope(item.scope === 'project' ? 'project' : 'host')
-                      }}
-                      className="flex min-w-0 flex-1 items-center gap-4 rounded-lg py-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            <div id="skill-list" role="tabpanel" aria-labelledby={`skill-category-${category}`}>
+              <ul className="space-y-1 pt-6" aria-label="技能列表">
+                {filtered.map((item) => {
+                  return (
+                    <li
+                      key={item.id}
+                      className="flex min-h-24 items-center gap-4 rounded-xl px-3 hover:bg-secondary/30"
                     >
-                      <span className="flex size-12 shrink-0 items-center justify-center rounded-full border border-border/70 text-muted-foreground">
-                        <BookOpen className="size-5" strokeWidth={1.6} />
-                      </span>
-                      <span className="min-w-0">
-                        <span className="block truncate text-base font-medium">{item.displayName ?? item.name}</span>
-                        <span className="mt-1 block truncate text-sm text-muted-foreground">
-                          {item.shortDescription ?? item.description ?? '未提供说明'}
+                      <button
+                        type="button"
+                        aria-label={`查看技能：${item.name}`}
+                        onClick={() => {
+                          setSelected(item.id)
+                          setScope(item.scope === 'project' ? 'project' : 'host')
+                        }}
+                        className="flex min-w-0 flex-1 items-center gap-4 rounded-lg py-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      >
+                        <span className="flex size-12 shrink-0 items-center justify-center rounded-full border border-border/70 text-muted-foreground">
+                          <BookOpen className="size-5" strokeWidth={1.6} />
                         </span>
+                        <span className="min-w-0">
+                          <span className="block truncate text-base font-medium">{item.displayName ?? item.name}</span>
+                          <span className="mt-1 block truncate text-sm text-muted-foreground">
+                            {item.shortDescription ?? item.description ?? '未提供说明'}
+                          </span>
+                        </span>
+                      </button>
+                      <span className="hidden shrink-0 text-sm text-muted-foreground sm:inline" title={state(item)}>
+                        {item.owner.type === 'app-package' ? '来自插件' : scopes[item.scope]}
                       </span>
-                    </button>
-                    <span className="hidden shrink-0 text-sm text-muted-foreground sm:inline" title={state(item)}>
-                      {item.owner.type === 'app-package' ? '来自插件' : scopes[item.scope]}
-                    </span>
-                    <Switch
-                      label={`启用技能：${item.displayName ?? item.name}`}
-                      checked={item.hostPolicy?.enabled ?? item.defaultPolicy.enabled ?? true}
-                      disabled={busy || Boolean(item.diagnostics.length)}
-                      onChange={(enabled) =>
-                        void action(() => client.setPolicy({ id: item.id, scope: 'host', cwd, enabled }))
-                      }
-                    />
-                  </li>
-                )
-              })}
-            </ul>
-          )}
-          {catalog && !filtered.length && (
-            <p role="status" className="py-8 text-center text-sm text-muted-foreground">
-              没有匹配的技能。
-            </p>
+                      <Switch
+                        label={`启用技能：${item.displayName ?? item.name}`}
+                        checked={item.hostPolicy?.enabled ?? item.defaultPolicy.enabled ?? true}
+                        disabled={busy || Boolean(item.diagnostics.length)}
+                        onChange={(enabled) =>
+                          void action(() => client.setPolicy({ id: item.id, scope: 'host', cwd, enabled }))
+                        }
+                      />
+                    </li>
+                  )
+                })}
+              </ul>
+              {!filtered.length && (
+                <p role="status" className="py-8 text-center text-sm text-muted-foreground">
+                  {query.trim() ? '没有匹配的技能。' : category === 'system' ? '没有系统技能。' : '没有个人技能。'}
+                </p>
+              )}
+            </div>
           )}
         </>
       )}

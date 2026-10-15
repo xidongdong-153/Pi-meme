@@ -44,7 +44,11 @@ module.exports = async (window, waitFor, directory, outputDirectory) => {
       false,
     )
     assert.equal(
-      await evaluate(`document.querySelector('section[aria-label="插件管理"]').textContent.includes("安装插件包")`),
+      await evaluate(`Boolean(document.querySelector('section[aria-label="插件管理"] [aria-label="添加插件"]'))`),
+      true,
+    )
+    assert.equal(
+      await evaluate(`Boolean(document.querySelector('section[aria-label="插件管理"] input[accept=".pim"]'))`),
       true,
     )
     assert.equal(await evaluate('document.body.innerText.includes("Pi 扩展")'), false)

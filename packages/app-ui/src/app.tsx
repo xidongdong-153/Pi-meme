@@ -6,7 +6,7 @@ import { ProfileSettings } from '@pi-meme/usage/ui/profile-settings'
 import { SkillPage } from './skill-page'
 import { PluginPage } from './plugin-page'
 import { createResourceClient } from '@pi-meme/client/resource-client'
-import { skillMarker } from '@pi-meme/contracts/skills'
+import { appendSkillInvocation } from './invoke-skill'
 import { AccessSettings } from '@pi-meme/permissions/ui/access-settings'
 import { AgentAccessSelector } from '@pi-meme/permissions/ui/agent-access-selector'
 import { AppHeader } from './app-header'
@@ -733,6 +733,14 @@ export function App({
     setSidebarOpen(open)
     setSidebarWidth(width)
   }, [])
+  function invokeSystemSkill(name: string, prompt?: string) {
+    const command = chat.commands.find((entry) => entry.source === 'skill' && entry.name === `skill:${name}`)
+    if (!command) return false
+    chat.setSelectedSkills([...chat.selectedSkills, command])
+    chat.setDraft(appendSkillInvocation(chat.draft, prompt))
+    setSettingsOpen(false)
+    return true
+  }
   if (!active) return null
 
   return (
@@ -858,9 +866,10 @@ export function App({
                       }}
                       onUse={(command) => {
                         chat.setSelectedSkills([...chat.selectedSkills, command])
-                        chat.setDraft(`${chat.draft}${chat.draft ? ' ' : ''}${skillMarker} `)
+                        chat.setDraft(appendSkillInvocation(chat.draft))
                         setSettingsOpen(false)
                       }}
+                      onCreate={() => invokeSystemSkill('skill-creator')}
                     />
                   )
                 if (section === 'plugins')
@@ -873,6 +882,7 @@ export function App({
                         await refreshPlugins()
                         await chat.refreshSnapshot()
                       }}
+                      onCreate={() => invokeSystemSkill('plugin-creator', '帮我创建一个插件')}
                       onOpenSystem={
                         appSession
                           ? (id) => {

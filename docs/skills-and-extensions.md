@@ -17,7 +17,9 @@ paths:
 
 技能由 Host 统一扫描与管理，裸 Pi 扩展不在支持范围。配置与凭据见 [配置与安全](configuration.md)，插件开发见 [App 插件](plugins.md)。
 
-设置集成区只有“技能、插件、MCP”三个独立入口。技能页管理技能，插件页管理 App 插件，不共用 Tab 或类型筛选；AI 模型配置位于个人区的模型页。目录查询不需要启动模型；用于当前聊天时，技能必须进入当前会话的有效清单。
+设置集成区只有“技能、插件、MCP”三个独立入口。技能页和插件页各自用“个人 / 系统”分类，不在同一页混合类型。个人技能来自当前设备、当前项目或已安装插件；系统技能随应用提供。个人插件是用户安装的 App 插件；系统插件是应用自带工具。AI 模型配置位于个人区的模型页。目录查询不需要启动模型；用于当前聊天时，技能必须进入当前会话的有效清单。
+
+“添加 → 创建技能”和“添加 → 创建插件”关闭设置，把系统技能 Skill Creator、Plugin Creator 插入当前对话。创建插件时草稿为“帮我创建一个插件”。技能尚未进入当前会话命令列表时留在设置页并提示，不发送消息。
 
 Desktop 和 Web 都通过 Host RPC 管理资源。连接远程 Host 时，所有导入、保存和策略修改写入远程 Host 数据根；从 Host 目录导入时填写远程路径，上传文件则读取当前电脑上的文件。
 
@@ -50,7 +52,7 @@ Host 数据根默认为 `~/.pi-meme`，可用 `PI_MEME_DATA_ROOT` 修改：
 
 模型配置与 MCP 通过各自设置页管理，文件与授权规则见 [配置与安全](configuration.md)。App Server 由 Host 全局管理，不为每个项目另建实例。
 
-资源扫描、冲突与快照由 [ResourceStore](../packages/resources/src/server/resource-store.ts) 管理。内置 `skill-creator` 源码在 [pi/skills/skill-creator](../pi/skills/skill-creator/)，Desktop 与 Server 构建携带完整目录，Host 启动复制到 `builtin-resources/skills/skill-creator`，不改用户技能目录；见 [install-builtin-skills.ts](../packages/resources/src/server/install-builtin-skills.ts)。
+资源扫描、冲突与快照由 [ResourceStore](../packages/resources/src/server/resource-store.ts) 管理。系统技能源码在 [pi/skills](../pi/skills/)，目前包括 [skill-creator](../pi/skills/skill-creator/) 和 [plugin-creator](../pi/skills/plugin-creator/)。Desktop 与 Server 构建携带这些目录，Host 启动复制到 `builtin-resources/skills/`，不改用户技能目录；见 [install-builtin-skills.ts](../packages/resources/src/server/install-builtin-skills.ts)。缺少 Skill Creator 时 Host 拒绝启动。
 
 ## 导入与编辑
 
