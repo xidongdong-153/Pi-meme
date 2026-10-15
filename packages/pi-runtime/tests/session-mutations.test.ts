@@ -41,6 +41,35 @@ async function idle(pool: PiSessionPool) {
   throw new Error('等待会话空闲超时')
 }
 
+test('删除当前会话后，仍指向旧会话的视图读快照不会碰到空的 accessReady', async () => {
+  const pool = await poolFor('stale-snapshot')
+  const view = pool.createClientView()
+  try {
+    const key = await pool.withClientView(view, () => {
+      pool.prepare(path.join(root, 'stale-snapshot'))
+      return view.sessionKey!
+    })
+    const copy = { ...view }
+    const active = pool.withClientView(copy, () => pool.getActiveSession())
+    const targets = [key, active.sessionFile].filter((item): item is string => Boolean(item))
+    await pool.withClientView(copy, () =>
+      pool.deleteSessions(targets, undefined, async () => ({ deletedPaths: targets, errors: [] })),
+    )
+    await assert.rejects(
+      pool.withClientView(view, () => pool.snapshot()),
+      (cause: unknown) => {
+        assert.ok(cause instanceof Error)
+        assert.match(cause.message, /当前查看的会话已更换/)
+        assert.equal(cause.message.includes('accessReady'), false)
+        return true
+      },
+    )
+  } finally {
+    pool.releaseClientView(view)
+    await pool.stopAndWait()
+  }
+})
+
 test('运行中拒绝删除和改名，空闲删除等待运行结束，操作期间拒绝发送和选择', async () => {
   const pool = await poolFor('busy')
   try {

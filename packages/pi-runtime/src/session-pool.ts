@@ -1037,6 +1037,8 @@ export class PiSessionPool implements PiRuntime {
   }
   async snapshot(): Promise<Snapshot> {
     const record = this.active
+    // 当前会话被删掉后，视图可能仍指向旧 key，这里不能再读 accessReady。
+    if (!record) throw new Error('当前查看的会话已更换')
     const generation = this.generation
     await record.accessReady
     if (record !== this.active || generation !== this.generation) throw new Error('当前查看的会话已更换')

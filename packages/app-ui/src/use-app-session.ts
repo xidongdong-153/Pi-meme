@@ -187,7 +187,20 @@ export function useAppSession(
   const refreshUiPlugins = useCallback(async () => {
     const connection = current.current
     const pluginRevision = pluginSynchronization.current.begin()
-    const snapshot = await bridge.getSnapshot()
+    let snapshot: Snapshot
+    try {
+      snapshot = await bridge.getSnapshot()
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause)
+      // 删除当前会话时，插件变更会按旧会话再读一次快照。这次作废，不能冒泡成「无法读取插件列表」。
+      if (
+        !mounted.current ||
+        connection.sessionKey !== current.current.sessionKey ||
+        message.includes('当前查看的会话已更换')
+      )
+        return
+      throw cause
+    }
     if (
       mounted.current &&
       !selection.current.current &&
