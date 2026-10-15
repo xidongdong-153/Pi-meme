@@ -193,6 +193,9 @@ export class ModelConfigStore {
     private readonly credentialsStore: SecureCredentialStorage,
     readonly agentDir = path.dirname(filePath),
   ) {}
+  get credentialStorage() {
+    return this.credentialsStore
+  }
   private async read() {
     let content = ''
     try {

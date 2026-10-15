@@ -96,3 +96,16 @@ export async function createDesktopModelRuntime(
   await runtime.refresh({ allowNetwork: false })
   return runtime
 }
+
+let builtinProviderIds: Promise<ReadonlySet<string>> | undefined
+
+/** Pi 安装包自带的服务商 ID。自定义 models.json 服务商不在其中。 */
+export function desktopBuiltinProviderIds() {
+  builtinProviderIds ??= import('@earendil-works/pi-ai/providers/all')
+    .then(({ builtinProviders }) => new Set(builtinProviders().map((provider) => provider.id)))
+    .catch((cause: unknown) => {
+      builtinProviderIds = undefined
+      throw cause
+    })
+  return builtinProviderIds
+}

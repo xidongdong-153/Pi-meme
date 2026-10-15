@@ -608,8 +608,11 @@ export class HostClient {
   }
 
   private createBridge(): DesktopBridge {
-    const rpc = <T>(method: string, args: unknown[] = [], sessionId = this.selected?.sessionKey) =>
-      this.rpc<T>(method, args, sessionId)
+    const rpc = <T>(
+      method: string,
+      args: unknown[] = [],
+      sessionId: string | null | undefined = this.selected?.sessionKey,
+    ) => this.rpc<T>(method, args, sessionId)
     const subscribe = <T>(listeners: Set<(value: T) => void>, callback: (value: T) => void) => {
       listeners.add(callback)
       return () => {
@@ -747,6 +750,12 @@ export class HostClient {
       deleteModelProvider: (id, revision) => rpc('models:delete', [id, revision]),
       discoverModels: (input) => rpc('models:discover', [input]),
       reconnectModels: () => rpc('models:reconnect'),
+      listBuiltinProviders: () => rpc('models:builtins', [], null),
+      startBuiltinLogin: (input) => rpc('models:builtin-login', [input], null),
+      getBuiltinLogin: () => rpc('models:builtin-login-state', [], null),
+      respondBuiltinLogin: (input) => rpc('models:builtin-login-respond', [input], null),
+      cancelBuiltinLogin: () => rpc('models:builtin-login-cancel', [], null),
+      logoutBuiltinProvider: (providerId) => rpc('models:builtin-logout', [providerId], null),
       getUsageStats: () => rpc('settings:usage-stats'),
       getSettings: () => settingsRpc('settings:get'),
       getInstructions: () => rpc('settings:instructions'),

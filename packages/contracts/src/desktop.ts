@@ -16,6 +16,11 @@ import type {
   ModelConfigSnapshot,
   SaveModelProvider,
   ModelConfigResult,
+  BuiltinProviderInfo,
+  ModelLoginState,
+  StartBuiltinLogin,
+  RespondBuiltinLogin,
+  BuiltinLogoutResult,
 } from './model-config'
 import type { SkillReference } from './skills'
 import type {
@@ -272,6 +277,12 @@ export interface ModelsBridge {
   deleteModelProvider: (id: string, revision: string) => Promise<ModelConfigResult>
   discoverModels: (input: DiscoverModels) => Promise<ConfiguredModel[]>
   reconnectModels: () => Promise<void>
+  listBuiltinProviders: () => Promise<BuiltinProviderInfo[]>
+  startBuiltinLogin: (input: StartBuiltinLogin) => Promise<ModelLoginState>
+  getBuiltinLogin: () => Promise<ModelLoginState | null>
+  respondBuiltinLogin: (input: RespondBuiltinLogin) => Promise<ModelLoginState>
+  cancelBuiltinLogin: () => Promise<ModelLoginState | null>
+  logoutBuiltinProvider: (providerId: string) => Promise<BuiltinLogoutResult>
 }
 
 /** 桌面设置与主题。 */

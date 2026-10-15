@@ -3,6 +3,7 @@ import type { PiModel } from '@pi-meme/contracts/pi'
 import type { ModelConfigSnapshot } from '@pi-meme/contracts/model-config'
 import { text } from '@pi-meme/contracts/ipc'
 import type { ModelConfigStore } from './config-store'
+import { createBuiltinAuth } from './builtin-auth'
 import { discoverModels } from './discovery'
 import { readDefaultModel, saveDefaultModel } from './default-model'
 import { isThinkingLevel, readDefaultThinkingLevel, saveDefaultThinkingLevel } from './default-thinking'
@@ -14,6 +15,22 @@ export type ModelHandlerContext = {
 }
 
 export function createModelHandlers({ pi, models, agentDir }: ModelHandlerContext) {
+  const reconnect = async () => {
+    try {
+      await pi.idle(async () => {
+        if (pi.connection().status === 'connecting') throw new Error('Pi 正在连接，请等待完成后重试')
+        await pi.reconnectModels(await pi.captureRestoreState())
+      }, true)
+    } catch (cause) {
+      return `凭据已更新，但 Pi 重连失败：${cause instanceof Error ? cause.message : String(cause)}。请在会话空闲后点击重新连接。`
+    }
+  }
+  const builtin = createBuiltinAuth({
+    agentDir,
+    modelsPath: models.filePath,
+    credentials: models.credentialStorage,
+    reconnect,
+  })
   const changeModels = (write: () => Promise<ModelConfigSnapshot>) =>
     pi.idle(async () => {
       if (pi.connection().status === 'connecting') throw new Error('Pi 正在连接，请等待完成后重试')
@@ -60,5 +77,11 @@ export function createModelHandlers({ pi, models, agentDir }: ModelHandlerContex
     'models:delete': (id: unknown, revision: unknown) => changeModels(() => models.delete(id, revision)),
     'models:discover': (input: unknown) => discoverModels(input, models),
     'models:reconnect': () => pi.idle(() => pi.reconnectModels(), true),
+    'models:builtins': () => builtin.providers(),
+    'models:builtin-login': (input: unknown) => builtin.start(input),
+    'models:builtin-login-state': () => builtin.state(),
+    'models:builtin-login-respond': (input: unknown) => builtin.respond(input),
+    'models:builtin-login-cancel': () => builtin.cancel(),
+    'models:builtin-logout': (id: unknown) => builtin.logout(id),
   }
 }

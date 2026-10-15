@@ -102,6 +102,8 @@ const reads = new Set([
   'git:snapshot',
   'git:diff',
   'models:get',
+  'models:builtins',
+  'models:builtin-login-state',
   'models:default',
   'models:default-thinking',
   'host:credential-import-status',
@@ -207,6 +209,10 @@ export async function createHost(options: HostOptions = {}) {
       'resources:save-skill',
       'resources:set-policy',
       'resources:refresh',
+      'models:builtin-login',
+      'models:builtin-login-respond',
+      'models:builtin-login-cancel',
+      'models:builtin-logout',
     ])
     const clientRequests = new Map<string, number>()
     const clientTimers = new Map<string, ReturnType<typeof setTimeout>>()

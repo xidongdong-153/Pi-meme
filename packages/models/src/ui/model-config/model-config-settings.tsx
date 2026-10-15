@@ -15,6 +15,7 @@ import { BrandMark } from '@pi-meme/ui/components/brand-mark'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
 import { RefreshCw } from 'lucide-react'
 import { cn } from '@pi-meme/ui/lib/utils'
+import { BuiltinProviders } from '../builtin-providers'
 import { apiLabels, ModelConfigForm } from './model-config-form'
 import { ModelSelect } from '../model-select'
 import { THINKING_LEVEL_LABELS } from '../thinking-config'
@@ -199,6 +200,7 @@ export function ModelConfigSettings({
           </SelectContent>
         </Select>
       </div>
+      <BuiltinProviders bridge={bridge} disabled={busy || saving || loading} />
       <div className="flex flex-wrap justify-between gap-3">
         <p className="text-sm text-muted-foreground">管理自定义接口和 API Key，保存后自动重新连接 Pi。</p>
         <div className="flex gap-2">
