@@ -14,6 +14,7 @@ paths:
   - 'packages/client/src/host-client.ts'
   - 'packages/app-ui/src/remote-settings.tsx'
 ---
+
 # 独立 Host 与 Remote
 
 工作区文件、模型、MCP、插件与 Pi 会话存放在执行它们的 Host 机器。Desktop 和 Web 共用界面与协议，浏览器不执行 Host 上的文件工具。架构见 [进程与调用](architecture.md#进程与调用)，正式控制接口见 [HostApi v2](host-api.md)。
@@ -51,16 +52,16 @@ pnpm start:server
 
 ## 运行参数
 
-| 环境变量                                   | 作用范围       | 用途与默认值                                                        |
-| ------------------------------------------ | -------------- | ------------------------------------------------------------------- |
-| `PI_MEME_DATA_ROOT`                      | Host           | 数据根目录，默认 `~/.pi-meme`                                     |
-| `PI_MEME_HOST`                           | 独立 Server    | 监听地址，默认 `127.0.0.1`                                        |
-| `PI_MEME_PORT`                           | 独立 Server    | 监听端口，默认 `31415`                                            |
-| `PI_MEME_TOKEN`                          | 独立 Server    | 登录令牌；未设置时读取 `auth.json`，首次生成                      |
-| `PI_MEME_WEB_ROOT`                       | 独立 Server    | 页面目录，默认应用相邻的 `apps/web/dist`                          |
-| `PI_MEME_TLS_CERT` / `PI_MEME_TLS_KEY` | 独立 Server    | HTTPS 证书与私钥文件路径，必须同时提供                              |
-| `PI_MEME_HOST_URL`                       | Web 开发服务器 | `/api` 代理目标，默认 `http://127.0.0.1:31415`                  |
-| `PI_MEME_REMOTE_HOST`                    | Desktop        | 启动时登记指定远程服务；登录令牌来自 `PI_MEME_TOKEN` 或已保存记录 |
+| 环境变量                               | 作用范围       | 用途与默认值                                                      |
+| -------------------------------------- | -------------- | ----------------------------------------------------------------- |
+| `PI_MEME_DATA_ROOT`                    | Host           | 数据根目录，默认 `~/.pi-meme`                                     |
+| `PI_MEME_HOST`                         | 独立 Server    | 监听地址，默认 `127.0.0.1`                                        |
+| `PI_MEME_PORT`                         | 独立 Server    | 监听端口，默认 `31415`                                            |
+| `PI_MEME_TOKEN`                        | 独立 Server    | 登录令牌；未设置时读取 `auth.json`，首次生成                      |
+| `PI_MEME_WEB_ROOT`                     | 独立 Server    | 页面目录，默认应用相邻的 `apps/web/dist`                          |
+| `PI_MEME_TLS_CERT` / `PI_MEME_TLS_KEY` | 独立 Server    | HTTPS 证书与私钥文件路径，必须同时提供                            |
+| `PI_MEME_HOST_URL`                     | Web 开发服务器 | `/api` 代理目标，默认 `http://127.0.0.1:31415`                    |
+| `PI_MEME_REMOTE_HOST`                  | Desktop        | 启动时登记指定远程服务；登录令牌来自 `PI_MEME_TOKEN` 或已保存记录 |
 
 Server 参数来自 [main.ts](../apps/server/src/main.ts)，开发代理来自 [Vite 配置](../apps/web/vite.config.ts)，Desktop 登记来自 [main.ts](../apps/desktop/src/main/main.ts)。测试凭据与 Worker 路径覆盖属于开发接线，不是日常部署所需参数。
 
@@ -114,14 +115,14 @@ Desktop 本地启动使用一次性票据建立内存浏览器会话。长期凭
 
 ## 排错与验证
 
-| 现象                             | 检查位置                                                                 |
-| -------------------------------- | ------------------------------------------------------------------------ |
+| 现象                             | 检查位置                                                               |
+| -------------------------------- | ---------------------------------------------------------------------- |
 | 启动提示已有 Host                | 核对 `PI_MEME_DATA_ROOT`；停止占用它的进程或使用另一数据目录           |
-| 非本机监听被拒绝                 | 同时设置 TLS 证书与私钥，核对文件路径和读取权限                          |
+| 非本机监听被拒绝                 | 同时设置 TLS 证书与私钥，核对文件路径和读取权限                        |
 | 5173 被占用                      | 停止占用进程后重启；Vite 的 `strictPort` 不会换端口                    |
-| WSL 内可访问、Windows 浏览器失败 | 先确认 WSL 服务，再检查 localhost 转发、端口和防火墙，不放宽认证         |
-| 页面能打开，WebSocket 失败       | 查看升级 HTTP 状态、Origin、Cookie、clientId 及代理是否支持 WebSocket    |
-| 远程身份变化                     | 核对所连 Host 数据目录与持久 host-id，重新确认连接目标                   |
+| WSL 内可访问、Windows 浏览器失败 | 先确认 WSL 服务，再检查 localhost 转发、端口和防火墙，不放宽认证       |
+| 页面能打开，WebSocket 失败       | 查看升级 HTTP 状态、Origin、Cookie、clientId 及代理是否支持 WebSocket  |
+| 远程身份变化                     | 核对所连 Host 数据目录与持久 host-id，重新确认连接目标                 |
 | 受限任务无法启动                 | 查看 `restrictedAccessReason`；安装平台依赖后重启 Host，不切换权限绕过 |
 
 `pnpm test:server` 从实际构建产物启动临时 Host，使用内存凭据和假模型验证静态 Worker、JSONL、外部 Agent、MCP、codemode、持续子代理、计划与默认受限权限。平台运行与测试入口见 [开发与验证](development.md) 和 [Linux 与 WSL](linux-wsl.md)。这些是验证命令说明，不表示本次文档整理运行过应用验收。
