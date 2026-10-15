@@ -3,7 +3,6 @@ import {
   ArrowLeft,
   BookOpen,
   ChartNoAxesCombined,
-  Cpu,
   Info,
   Network,
   Palette,
@@ -11,6 +10,7 @@ import {
   Search,
   Server,
   SlidersHorizontal,
+  Sparkles,
 } from 'lucide-react'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Input } from '@pi-meme/ui/components/ui/input'
@@ -22,7 +22,6 @@ const groups = [
   {
     label: '个人',
     sections: [
-      { id: 'models', label: '模型', icon: Cpu, description: '连接服务商并选择默认模型。' },
       { id: 'appearance', label: '外观', icon: Palette, description: '调整主题、字号和界面效果。' },
       {
         id: 'personalization',
@@ -34,8 +33,9 @@ const groups = [
     ],
   },
   {
-    label: '集成',
+    label: 'Agent',
     sections: [
+      { id: 'models', label: '模型', icon: Sparkles, description: '连接服务商并选择默认模型。' },
       { id: 'skills', label: '技能', icon: BookOpen, description: '导入、创建和编辑技能，设置设备或项目的调用方式。' },
       { id: 'plugins', label: '插件', icon: Puzzle, description: '安装和更新 App 插件，查看能力并启停或卸载。' },
       { id: 'mcp', label: 'MCP', icon: Network, description: '管理 MCP 服务和授权。' },

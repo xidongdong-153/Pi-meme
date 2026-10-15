@@ -103,6 +103,7 @@ const reads = new Set([
   'git:diff',
   'models:get',
   'models:default',
+  'models:default-thinking',
   'host:credential-import-status',
   'settings:get',
   'settings:instructions',

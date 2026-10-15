@@ -30,7 +30,7 @@ pnpm start
 
 命令启动 Electron Forge，构建并运行应用。Desktop 启动本地 Host，通过一次性票据自动登录；默认数据目录是 `~/.pi-meme`。启动接线见 [main.ts](../apps/desktop/src/main/main.ts) 与 [host-process.ts](../apps/desktop/src/main/host-process.ts)。
 
-打开“设置 → 个人 → 模型”，连接服务商并选择默认模型，再新建项目或会话。未配置模型时仍可查看设置、资源和历史。应用不读取本机 Pi CLI 的模型凭据，配置位置见 [配置与安全](configuration.md)。
+打开“设置 → Agent → 模型”，连接服务商并选择默认模型和思考强度，再新建项目或会话。未配置模型时仍可查看设置、资源和历史。应用不读取本机 Pi CLI 的模型凭据，配置位置见 [配置与安全](configuration.md)。
 
 ## 本机 Web
 

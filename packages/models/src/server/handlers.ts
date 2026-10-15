@@ -1,10 +1,11 @@
 import type { PiRuntime } from '@pi-meme/pi-runtime/runtime'
-import type { PiModel, ThinkingLevel } from '@pi-meme/contracts/pi'
+import type { PiModel } from '@pi-meme/contracts/pi'
 import type { ModelConfigSnapshot } from '@pi-meme/contracts/model-config'
 import { text } from '@pi-meme/contracts/ipc'
 import type { ModelConfigStore } from './config-store'
 import { discoverModels } from './discovery'
 import { readDefaultModel, saveDefaultModel } from './default-model'
+import { isThinkingLevel, readDefaultThinkingLevel, saveDefaultThinkingLevel } from './default-thinking'
 
 export type ModelHandlerContext = {
   pi: PiRuntime
@@ -36,9 +37,8 @@ export function createModelHandlers({ pi, models, agentDir }: ModelHandlerContex
     },
     'pi:set-thinking-level': (sessionKey: unknown, value: unknown) => {
       text(sessionKey)
-      const validLevels = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']
-      if (typeof value !== 'string' || !validLevels.includes(value)) throw new Error('思考强度参数无效')
-      return pi.setThinkingLevel(sessionKey, value as ThinkingLevel)
+      if (!isThinkingLevel(value)) throw new Error('思考强度参数无效')
+      return pi.setThinkingLevel(sessionKey, value)
     },
     'pi:thinking-levels': () => pi.getAvailableThinkingLevels(),
     'pi:session-stats': () => pi.getSessionStats(),
@@ -49,6 +49,11 @@ export function createModelHandlers({ pi, models, agentDir }: ModelHandlerContex
       text(model.provider)
       text(model.id)
       return saveDefaultModel(agentDir, model.provider.trim(), model.id.trim())
+    },
+    'models:default-thinking': () => readDefaultThinkingLevel(agentDir),
+    'models:set-default-thinking': (value: unknown) => {
+      if (!isThinkingLevel(value)) throw new Error('思考强度参数无效')
+      return saveDefaultThinkingLevel(agentDir, value)
     },
     'models:get': () => models.snapshot(),
     'models:save': (input: unknown) => changeModels(() => models.save(input)),

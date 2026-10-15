@@ -15,7 +15,8 @@ import type {
   SourceInfo,
 } from '@earendil-works/pi-coding-agent'
 
-export type ThinkingLevel = 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh' | 'max'
+export const thinkingLevels = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
+export type ThinkingLevel = (typeof thinkingLevels)[number]
 
 export type PiImage = ImageContent
 export type PiContent = TextContent | ThinkingContent | ImageContent | ToolCall

@@ -266,6 +266,8 @@ export interface ModelsBridge {
   getModelConfig: () => Promise<ModelConfigSnapshot>
   getDefaultModel: () => Promise<PiModel | null>
   setDefaultModel: (model: PiModel) => Promise<void>
+  getDefaultThinkingLevel: () => Promise<ThinkingLevel | null>
+  setDefaultThinkingLevel: (level: ThinkingLevel) => Promise<void>
   saveModelProvider: (input: SaveModelProvider) => Promise<ModelConfigResult>
   deleteModelProvider: (id: string, revision: string) => Promise<ModelConfigResult>
   discoverModels: (input: DiscoverModels) => Promise<ConfiguredModel[]>

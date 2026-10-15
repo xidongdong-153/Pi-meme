@@ -1,4 +1,4 @@
-import { Cpu } from 'lucide-react'
+import { Sparkles } from 'lucide-react'
 import type { PiModel } from '@pi-meme/contracts/pi'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@pi-meme/ui/components/ui/select'
 
@@ -33,7 +33,7 @@ export function ModelSelect({
           aria-label="模型选择"
           className="h-8 min-w-[140px] max-w-[220px] text-xs bg-secondary/50 border-border hover:bg-secondary/80 focus:outline-none gap-1.5"
         >
-          <Cpu className="size-3.5 text-muted-foreground shrink-0" />
+          <Sparkles className="size-3.5 text-muted-foreground shrink-0" />
           <SelectValue
             placeholder={models.length ? (placeholder ?? '选择模型') : disabled ? '加载模型中...' : '暂无可用模型'}
           />

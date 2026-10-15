@@ -7,15 +7,17 @@ import type {
   SaveModelProvider,
 } from '@pi-meme/contracts/model-config'
 import { modelApis } from '@pi-meme/contracts/model-config'
-import type { PiModel } from '@pi-meme/contracts/pi'
+import { thinkingLevels, type PiModel, type ThinkingLevel } from '@pi-meme/contracts/pi'
 import type { ModelsBridge } from '@pi-meme/contracts/desktop'
 import { Button } from '@pi-meme/ui/components/ui/button'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@pi-meme/ui/components/ui/select'
 import { BrandMark } from '@pi-meme/ui/components/brand-mark'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
 import { RefreshCw } from 'lucide-react'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { apiLabels, ModelConfigForm } from './model-config-form'
 import { ModelSelect } from '../model-select'
+import { THINKING_LEVEL_LABELS } from '../thinking-config'
 
 export function ModelConfigSettings({
   busy,
@@ -33,11 +35,14 @@ export function ModelConfigSettings({
   const [saving, setSaving] = useState(false)
   const [defaultModel, setDefaultModel] = useState<PiModel | null>(null)
   const [defaultSaving, setDefaultSaving] = useState(false)
+  const [defaultThinking, setDefaultThinking] = useState<ThinkingLevel | null>(null)
+  const [thinkingSaving, setThinkingSaving] = useState(false)
   const [editing, setEditing] = useState<ConfiguredProvider | 'new' | null>(null)
   const [deleting, setDeleting] = useState<ConfiguredProvider | null>(null)
   const active = useRef(true)
   const lock = useRef(false)
   const defaultLock = useRef(false)
+  const thinkingLock = useRef(false)
   async function load() {
     if (lock.current) return
     lock.current = true
@@ -64,6 +69,29 @@ export function ModelConfigSettings({
       if (active.current) setError(String(cause))
     }
   }
+  async function loadThinking() {
+    try {
+      const level = await bridge.getDefaultThinkingLevel()
+      if (active.current) setDefaultThinking(level)
+    } catch (cause) {
+      if (active.current) setError(String(cause))
+    }
+  }
+  async function selectThinking(level: ThinkingLevel) {
+    if (thinkingLock.current || level === (defaultThinking ?? 'medium')) return
+    thinkingLock.current = true
+    setThinkingSaving(true)
+    setError('')
+    try {
+      await bridge.setDefaultThinkingLevel(level)
+      if (active.current) setDefaultThinking(level)
+    } catch (cause) {
+      if (active.current) setError(String(cause))
+    } finally {
+      thinkingLock.current = false
+      if (active.current) setThinkingSaving(false)
+    }
+  }
   async function selectDefault(model: PiModel) {
     if (defaultLock.current) return
     defaultLock.current = true
@@ -83,6 +111,7 @@ export function ModelConfigSettings({
     active.current = true
     void load()
     void loadDefault()
+    void loadThinking()
     return () => {
       active.current = false
     }
@@ -138,10 +167,37 @@ export function ModelConfigSettings({
         <ModelSelect
           models={models}
           current={defaultModel ?? undefined}
-          disabled={busy || saving || defaultSaving}
+          disabled={busy || saving || defaultSaving || thinkingSaving}
           placeholder="Pi 自动选择"
           onSelect={(model) => void selectDefault(model)}
         />
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-card p-5">
+        <div className="min-w-0 space-y-1">
+          <h3 className="font-medium">思考强度默认值</h3>
+          <p className="text-sm text-muted-foreground">新建会话默认使用的思考强度，不影响已打开的会话。</p>
+        </div>
+        <Select
+          value={defaultThinking ?? 'medium'}
+          disabled={busy || saving || defaultSaving || thinkingSaving}
+          onValueChange={(value) => {
+            if ((thinkingLevels as readonly string[]).includes(value)) void selectThinking(value as ThinkingLevel)
+          }}
+        >
+          <SelectTrigger
+            aria-label="思考强度默认值"
+            className="h-8 w-[140px] text-xs bg-secondary/50 border-border hover:bg-secondary/80 focus:outline-none"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {thinkingLevels.map((level) => (
+              <SelectItem key={level} value={level} className="text-xs">
+                {THINKING_LEVEL_LABELS[level]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
       <div className="flex flex-wrap justify-between gap-3">
         <p className="text-sm text-muted-foreground">管理自定义接口和 API Key，保存后自动重新连接 Pi。</p>

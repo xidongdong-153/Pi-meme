@@ -741,6 +741,8 @@ export class HostClient {
       getModelConfig: () => rpc('models:get'),
       getDefaultModel: () => rpc('models:default'),
       setDefaultModel: (model) => rpc('models:set-default', [model]),
+      getDefaultThinkingLevel: () => rpc('models:default-thinking'),
+      setDefaultThinkingLevel: (level) => rpc('models:set-default-thinking', [level]),
       saveModelProvider: (input) => rpc('models:save', [input]),
       deleteModelProvider: (id, revision) => rpc('models:delete', [id, revision]),
       discoverModels: (input) => rpc('models:discover', [input]),

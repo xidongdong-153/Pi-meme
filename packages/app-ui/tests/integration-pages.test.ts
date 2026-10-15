@@ -21,7 +21,7 @@ const plugin: UiPluginDescriptor = {
   capabilities: { server: true, agent: true, ui: true, resources: true },
 }
 
-test('集成导航只有技能、插件、MCP，移除资源入口与页面内切换按钮', () => {
+test('Agent 导航以模型开头，随后是技能、插件、MCP，移除资源入口与页面内切换按钮', () => {
   const html = renderToStaticMarkup(
     createElement(SettingsPage, {
       dirty: false,
@@ -31,9 +31,9 @@ test('集成导航只有技能、插件、MCP，移除资源入口与页面内�
       renderContent: () => null,
     }),
   )
-  const integration = html.slice(html.indexOf('>集成<'), html.indexOf('>系统<'))
-  const labels = [...integration.matchAll(/<span class="truncate">([^<]+)<\/span>/g)].map((match) => match[1])
-  assert.deepEqual(labels, ['技能', '插件', 'MCP'])
+  const agent = html.slice(html.indexOf('>Agent<'), html.indexOf('>系统<'))
+  const labels = [...agent.matchAll(/<span class="truncate">([^<]+)<\/span>/g)].map((match) => match[1])
+  assert.deepEqual(labels, ['模型', '技能', '插件', 'MCP'])
   assert.doesNotMatch(html, />资源<|data-section="extensions"/)
 })
 

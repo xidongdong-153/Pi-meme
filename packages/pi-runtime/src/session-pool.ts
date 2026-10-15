@@ -612,7 +612,8 @@ export class PiSessionPool implements PiRuntime {
       state: {
         mode: 'default',
         model: history?.model ?? this.defaults?.model,
-        thinkingLevel: history?.thinkingLevel ?? this.defaults?.thinkingLevel,
+        // 已有会话沿用记录；新建会话留给 Pi 默认思考强度，不复制上一次的选择。
+        thinkingLevel: history?.thinkingLevel ?? (sessionFile ? this.defaults?.thinkingLevel : undefined),
         sessionName: history?.sessionName,
         skillUsages: history?.skillUsages,
         isStreaming: false,
@@ -1131,7 +1132,12 @@ export class PiSessionPool implements PiRuntime {
         target.state.model =
           models.find((model) => model.id === preferences.modelId && model.provider === preferences.provider) ??
           models[0]
-        target.state.thinkingLevel ??= preferences.thinkingLevel
+      }
+      if (!target.sessionFile && target.state.thinkingLevel == null) {
+        const model = target.state.model
+        const perModel = model ? preferences.modelThinkingLevels[`${model.provider}/${model.id}`] : undefined
+        const level = perModel ?? preferences.thinkingLevel
+        if (level) target.state.thinkingLevel = level
       }
     } catch (cause) {
       if (record === this.active && this.sessions.has(record.key))
