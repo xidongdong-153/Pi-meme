@@ -1,16 +1,5 @@
 import { useRef, useState, type ReactNode } from 'react'
-import {
-  ArrowLeft,
-  Puzzle,
-  RefreshCw,
-  Upload,
-  FileDiff,
-  Folder,
-  TerminalSquare,
-  PanelRight,
-  ChevronDown,
-  Plus,
-} from 'lucide-react'
+import { ArrowLeft, Puzzle, RefreshCw, Upload, PanelRight, ChevronDown, Plus } from 'lucide-react'
 import type { PluginClient } from '@pi-meme/client/plugin-client'
 import type { UiPluginDescriptor } from '@pi-meme/plugin-sdk/ui'
 import { Button } from '@pi-meme/ui/components/ui/button'
@@ -29,6 +18,11 @@ import {
 import { CategoryTabs } from './category-tabs'
 
 const statusNames = { active: '已启用', disabled: '已停用', pending: '等待使用中的任务结束', failed: '加载失败' }
+const systemPluginIcons: Record<string, string> = {
+  '@pi-meme/git': new URL('./assets/plugins/git.png', import.meta.url).href,
+  '@pi-meme/file-directory': new URL('./assets/plugins/file-directory.png', import.meta.url).href,
+  '@pi-meme/terminal': new URL('./assets/plugins/terminal.png', import.meta.url).href,
+}
 
 export function PluginPage({
   client,
@@ -350,20 +344,15 @@ export function PluginPage({
   )
 }
 function PluginIcon({ plugin }: { plugin: UiPluginDescriptor }) {
-  const Icon =
-    plugin.id === '@pi-meme/git'
-      ? FileDiff
-      : plugin.id === '@pi-meme/file-directory'
-        ? Folder
-        : plugin.id === '@pi-meme/terminal'
-          ? TerminalSquare
-          : Puzzle
+  const systemIcon = plugin.builtin ? systemPluginIcons[plugin.id] : undefined
+  if (systemIcon)
+    return <img aria-hidden alt="" src={systemIcon} className="size-12 shrink-0 object-contain" draggable={false} />
   return (
     <span className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-secondary/50 text-muted-foreground">
       {plugin.iconUrl ? (
         <img src={plugin.iconUrl} alt="" className="size-full object-contain" />
       ) : (
-        <Icon className="size-6" strokeWidth={1.6} />
+        <Puzzle className="size-6" strokeWidth={1.6} />
       )}
     </span>
   )

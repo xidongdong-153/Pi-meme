@@ -21,6 +21,11 @@ import { cn } from '@pi-meme/ui/lib/utils'
 import { CategoryTabs } from './category-tabs'
 
 const scopes = { builtin: '系统', host: '此设备', project: '当前项目' }
+const systemSkillIcons: Record<string, string> = {
+  'skill-creator': new URL('./assets/skills/skill-creator.png', import.meta.url).href,
+  'plugin-creator': new URL('./assets/skills/plugin-creator.png', import.meta.url).href,
+}
+
 export function SkillPage({
   client,
   cwd,
@@ -202,11 +207,14 @@ export function SkillPage({
             <ArrowLeft />
             返回技能
           </Button>
-          <div>
-            <h3 className="text-xl font-semibold">{current.displayName ?? current.name}</h3>
-            <p className="mt-2 text-sm text-muted-foreground">
-              技能 · {scopes[current.scope]} · {state(current)}
-            </p>
+          <div className="flex items-center gap-3">
+            <SkillIcon item={current} />
+            <div>
+              <h3 className="text-xl font-semibold">{current.displayName ?? current.name}</h3>
+              <p className="mt-2 text-sm text-muted-foreground">
+                技能 · {scopes[current.scope]} · {state(current)}
+              </p>
+            </div>
           </div>
           <p className="whitespace-pre-wrap text-sm leading-7">{current.description || '未提供说明'}</p>
           <dl className="grid gap-4 rounded-2xl border border-border p-5 text-sm">
@@ -421,9 +429,7 @@ export function SkillPage({
                         }}
                         className="flex min-w-0 flex-1 items-center gap-4 rounded-lg py-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       >
-                        <span className="flex size-12 shrink-0 items-center justify-center rounded-full border border-border/70 text-muted-foreground">
-                          <BookOpen className="size-5" strokeWidth={1.6} />
-                        </span>
+                        <SkillIcon item={item} />
                         <span className="min-w-0">
                           <span className="block truncate text-base font-medium">{item.displayName ?? item.name}</span>
                           <span className="mt-1 block truncate text-sm text-muted-foreground">
@@ -598,5 +604,16 @@ export function SkillPage({
         </DialogContent>
       </Dialog>
     </section>
+  )
+}
+
+function SkillIcon({ item }: { item: ResourceItem }) {
+  const iconUrl = item.scope === 'builtin' ? systemSkillIcons[item.name] : undefined
+  if (iconUrl)
+    return <img aria-hidden alt="" src={iconUrl} className="size-12 shrink-0 object-contain" draggable={false} />
+  return (
+    <span className="flex size-12 shrink-0 items-center justify-center rounded-full border border-border/70 text-muted-foreground">
+      <BookOpen className="size-5" strokeWidth={1.6} />
+    </span>
   )
 }
