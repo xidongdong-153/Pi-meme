@@ -6,6 +6,7 @@ import { useCommandCompletion } from './use-command-completion'
 import { FileSuggestions } from './file-suggestions'
 import { CommandSuggestions } from './command-suggestions'
 import { skillMarker } from '@pi-meme/contracts/skills'
+import { cn } from '@pi-meme/ui/lib/utils'
 import { editorCaret, readEditorText, setEditorCaret } from './rich-draft'
 
 export function ComposerEditor({
@@ -17,6 +18,9 @@ export function ComposerEditor({
   onSkills,
   draft,
   onDraft,
+  hint,
+  onAcceptHint,
+  onDismissHint,
   commands,
   focusVersion,
   onClearQueue,
@@ -31,6 +35,9 @@ export function ComposerEditor({
   | 'loadProjectFiles'
   | 'draft'
   | 'onDraft'
+  | 'hint'
+  | 'onAcceptHint'
+  | 'onDismissHint'
   | 'selectedSkills'
   | 'onSkills'
   | 'commands'
@@ -67,6 +74,9 @@ export function ComposerEditor({
     loadProjectFiles,
     draft,
     onDraft,
+    hint,
+    onAcceptHint,
+    onDismissHint,
     onSkills,
     selectedSkills,
     commands,
@@ -169,7 +179,8 @@ export function ComposerEditor({
         aria-expanded={fileCompletion || matches.length > 0}
         aria-controls={fileCompletion || matches.length ? 'composer-suggestions' : undefined}
         aria-activedescendant={fileMatches.length || matches.length ? `composer-option-${suggestionIndex}` : undefined}
-        data-placeholder="说说你的想法"
+        data-placeholder={hint || '说说你的想法'}
+        aria-describedby={hint ? 'composer-next-step' : undefined}
         onInput={acceptInput}
         onCompositionStart={() => {
           composing.current = true
@@ -211,8 +222,24 @@ export function ComposerEditor({
           event.preventDefault()
           insertText(event.clipboardData.getData('text/plain'))
         }}
-        className="composer-draft w-full min-h-[40px] max-h-[220px] overflow-y-auto whitespace-pre-wrap break-words px-2 py-1 text-sm leading-relaxed text-foreground outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground/70"
+        className={cn(
+          'composer-draft w-full min-h-[40px] max-h-[220px] overflow-y-auto whitespace-pre-wrap break-words px-2 py-1 text-sm leading-relaxed text-foreground outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground/70',
+          hint && 'pr-10',
+        )}
       />
+      {hint && (
+        <>
+          <span id="composer-next-step" className="sr-only">
+            按 Tab 填入：{hint}
+          </span>
+          <span
+            aria-hidden
+            className="pointer-events-none absolute top-1 right-1 rounded border border-border/70 px-1 text-[10px] leading-4 text-muted-foreground/70"
+          >
+            Tab
+          </span>
+        </>
+      )}
       {dragging && (
         <div className="pointer-events-none absolute inset-0 flex items-center justify-center rounded-lg border-2 border-dashed border-primary bg-primary/10 text-xs font-medium text-primary">
           <ImagePlus className="size-4 mr-1.5" />

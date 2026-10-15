@@ -25,6 +25,10 @@ export type ComposerProps = {
   onSkills: (skills: PiSlashCommand[]) => void
   draft: string
   onDraft: (value: string) => void
+  /** 空草稿时显示的下一步提示。Tab 填入草稿，不发送。 */
+  hint?: string
+  onAcceptHint?: () => void
+  onDismissHint?: () => void
   attachments: ComposerAttachment[]
   onAddImages: (images: ComposerAttachment[]) => void
   onRemoveImage: (id: string) => void
@@ -75,6 +79,9 @@ export function Composer({
   onSkills,
   draft,
   onDraft,
+  hint,
+  onAcceptHint,
+  onDismissHint,
   attachments,
   onAddImages,
   onRemoveImage,
@@ -234,6 +241,9 @@ export function Composer({
             onSkills={onSkills}
             draft={draft}
             onDraft={onDraft}
+            hint={hint}
+            onAcceptHint={onAcceptHint}
+            onDismissHint={onDismissHint}
             commands={commands}
             focusVersion={focusVersion}
             onClearQueue={onClearQueue}

@@ -1,3 +1,4 @@
+import { visibleComposerHint } from './composer/composer-hint'
 import { queuedDraft } from './composer/restore-queued-input'
 import { ChatStream } from './model/chat-stream'
 import type { ChatState } from './model/types'
@@ -55,6 +56,9 @@ export function useChatSession(options: ChatSessionOptions) {
     [chatStream],
   )
   const [draft, setDraft] = useState('')
+  const [dismissedHint, setDismissedHint] = useState<string | undefined>(undefined)
+  const hintSession = useRef<string | undefined>(undefined)
+  const composerHintRef = useRef<string | undefined>(undefined)
   const [selectedSkills, setSelectedSkills] = useState<PiSlashCommand[]>([])
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [mode, setMode] = useState<TaskMode>('default')
@@ -75,19 +79,39 @@ export function useChatSession(options: ChatSessionOptions) {
   const promptPending = useRef(false)
   const optionsRef = useRef(options)
   optionsRef.current = options
+  composerHintRef.current = chat.composerHint
+
+  const dismissComposerHint = useCallback(() => {
+    if (composerHintRef.current) setDismissedHint(composerHintRef.current)
+  }, [])
+
+  const acceptComposerHint = useCallback(() => {
+    const hint = composerHintRef.current
+    if (!hint) return
+    setDraft(hint)
+  }, [])
 
   const loadSnapshot = useCallback(
     (snapshot: Snapshot, buffered: DesktopEvent[] | null, readModeRevision = modes.current.revision) => {
       const next = restoreSnapshot(snapshot, buffered)
-      setChat(next)
-      activeMode.current = snapshot.state.activeMode
       const key = snapshot.connection.sessionKey
+      const previousKey = hintSession.current
+      if (previousKey !== key) {
+        hintSession.current = key
+        setDismissedHint(undefined)
+      }
+      // 结算后的快照可能早于提示返回。同一会话的迟到快照不要把已经显示的提示清掉。
+      const kept =
+        !next.composerHint && previousKey === key && !next.running ? chatStream.getSnapshot().composerHint : undefined
+      const merged = kept ? { ...next, composerHint: kept } : next
+      setChat(merged)
+      activeMode.current = snapshot.state.activeMode
       const nextMode = modes.current.snapshot(key, snapshot.state.mode, readModeRevision)
       modeRef.current = nextMode
       setMode(nextMode)
-      return next
+      return merged
     },
-    [setChat],
+    [chatStream, setChat],
   )
 
   const applyEvent = useCallback(
@@ -251,6 +275,7 @@ export function useChatSession(options: ChatSessionOptions) {
       const restore = editRestore.current
       const previousMessages = chat.messages
       onError('')
+      dismissComposerHint()
       setDraft('')
       setSelectedSkills([])
       setAttachments([])
@@ -290,6 +315,7 @@ export function useChatSession(options: ChatSessionOptions) {
     const sendMode = running ? 'followUp' : 'prompt'
     const generation = currentGeneration()
     onError('')
+    dismissComposerHint()
     setDraft('')
     setSelectedSkills([])
     setAttachments([])
@@ -329,6 +355,7 @@ export function useChatSession(options: ChatSessionOptions) {
     editingTimestamp,
     beginEditBranch,
     changeMode,
+    dismissComposerHint,
     loadSnapshot,
   ])
 
@@ -523,6 +550,19 @@ export function useChatSession(options: ChatSessionOptions) {
     restoreQueuedInput,
     restoreChat: setChat,
     draft,
+    composerHint: visibleComposerHint({
+      hint: chat.composerHint,
+      dismissed: dismissedHint,
+      draft,
+      skills: selectedSkills.length,
+      attachments: attachments.length,
+      running: chat.running,
+      paused: Boolean(chat.paused || chat.queuePaused),
+      queued: chat.steering.length > 0 || chat.followUp.length > 0,
+      editing: editingTimestamp !== null || editingQueue !== null,
+    }),
+    acceptComposerHint,
+    dismissComposerHint,
     setDraft,
     selectedSkills: draft.includes(skillMarker) ? selectedSkills : emptySkills,
     setSelectedSkills,

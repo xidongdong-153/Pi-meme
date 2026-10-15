@@ -42,6 +42,12 @@ import { branchSkillUsages, createSkillUsageExtension, skillUsageEntry } from '.
 import type { PiRuntimePaths } from '../runtime-paths'
 import type { ModelRestore } from '../runtime'
 import { AccessSandbox, type AccessSandboxOperations } from './access-sandbox'
+import {
+  composerHintFromAssistant,
+  composerHintSystemPrompt,
+  summarizeTurn,
+  type HintSourceMessage,
+} from './composer-hint'
 import { toDesktopEvent } from './events'
 import { loadPiSdk, type PiSdk } from './load'
 import { createDesktopModelRuntime } from './model-runtime'
@@ -145,6 +151,8 @@ export class SdkSession {
   private cachedCommands: PiSlashCommand[] | null = null
   private modelRestore: ModelRestore | undefined
   private modelSelectionRequired = false
+  private composerHint?: string
+  private hintController?: AbortController
   private sessionFile?: string
   private sessionId?: string
   cwd: string
@@ -582,6 +590,7 @@ export class SdkSession {
     if (event.type === 'message_end' && event.message.role === 'assistant')
       event = { ...event, message: { ...event.message, completedAt: Date.now() } }
     if (event.type === 'agent_start' || event.type === 'compaction_start') {
+      if (event.type === 'agent_start') this.cancelComposerHint()
       this.compactionError = undefined
       this.pendingSend = false
       this.activityRevision += 1
@@ -592,6 +601,7 @@ export class SdkSession {
       if (event.type === 'agent_start') event = { ...event, runIntervals: structuredClone(this.runIntervals) }
     }
     if (event.type === 'agent_settled') {
+      const aborted = Boolean(event.aborted)
       this.retry = undefined
       this.pendingSend = false
       if (!this.running && !forceSettled) return
@@ -606,9 +616,14 @@ export class SdkSession {
       event = { ...event, runIntervals: structuredClone(this.runIntervals) }
       this.activityRevision += 1
       this.activeMode = undefined
+      if (aborted) this.clearComposerHint()
       if (!this.queueCancelled)
         queueMicrotask(() => {
-          void this.advanceQueue().catch((cause: unknown) => this.report(String(cause)))
+          void this.advanceQueue()
+            .catch((cause: unknown) => this.report(String(cause)))
+            .finally(() => {
+              if (!forceSettled && !aborted) void this.refreshComposerHint()
+            })
         })
     }
     if (
@@ -647,6 +662,7 @@ export class SdkSession {
   }
 
   stop(preserveTiming = false) {
+    this.cancelComposerHint()
     this.cancelPause(!preserveTiming)
     if (!preserveTiming) {
       const interval = this.runIntervals.at(-1)
@@ -778,6 +794,7 @@ export class SdkSession {
       mode: this.mode,
       activeMode: this.activeMode,
       skillUsages: this.getSkillUsages(),
+      composerHint: this.composerHint,
     }
   }
 
@@ -1230,6 +1247,85 @@ export class SdkSession {
       this.handoffs.delete(id)
       this.handingOff -= 1
       this.scheduleQueue()
+    }
+  }
+
+  private cancelComposerHint() {
+    this.hintController?.abort()
+    this.hintController = undefined
+    this.composerHint = undefined
+  }
+
+  private clearComposerHint() {
+    const hadHint = this.composerHint !== undefined
+    this.cancelComposerHint()
+    if (hadHint) this.notify.event({ generation: this.generation, event: { type: 'composer_hint' } })
+  }
+
+  /** 队列确认不会接下一轮之后，再问模型要不要给一句下一步。失败或超时就当不显示。 */
+  private async refreshComposerHint() {
+    if (
+      this.running ||
+      this.paused ||
+      this.queuePaused ||
+      this.changing ||
+      this.draining ||
+      this.queueCancelled ||
+      this.ownQueue.steering.length > 0 ||
+      this.ownQueue.followUp.length > 0 ||
+      this.status !== 'ready'
+    )
+      return
+    const generation = this.generation
+    const revision = this.activityRevision
+    let summary: string | null
+    let model: NonNullable<AgentSession['model']> | undefined
+    let runtime: AgentSession['modelRuntime']
+    try {
+      runtime = this.session.modelRuntime
+      model = this.session.model ?? undefined
+      summary = summarizeTurn(this.session.messages as HintSourceMessage[])
+    } catch {
+      return
+    }
+    if (!model || !summary) return
+    const controller = new AbortController()
+    this.hintController?.abort()
+    this.hintController = controller
+    const timer = setTimeout(() => controller.abort(), 8000)
+    try {
+      const result = await runtime.completeSimple(
+        model,
+        {
+          systemPrompt: composerHintSystemPrompt,
+          messages: [{ role: 'user', content: summary, timestamp: Date.now() }],
+        },
+        { maxTokens: 80, temperature: 0, reasoning: 'minimal', signal: controller.signal },
+      )
+      if (
+        this.hintController !== controller ||
+        controller.signal.aborted ||
+        generation !== this.generation ||
+        revision !== this.activityRevision ||
+        this.running
+      )
+        return
+      const hint = composerHintFromAssistant(result) ?? undefined
+      if (this.composerHint === hint) return
+      this.composerHint = hint
+      this.notify.event({ generation: this.generation, event: { type: 'composer_hint', text: hint } })
+    } catch {
+      if (
+        this.hintController === controller &&
+        !controller.signal.aborted &&
+        generation === this.generation &&
+        revision === this.activityRevision &&
+        !this.running
+      )
+        this.clearComposerHint()
+    } finally {
+      clearTimeout(timer)
+      if (this.hintController === controller) this.hintController = undefined
     }
   }
 

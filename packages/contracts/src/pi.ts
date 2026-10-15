@@ -102,6 +102,8 @@ export type PiState = Pick<
   activeMode?: TaskMode
   skillUsages?: BranchSkillUsage[]
   resourceSnapshot?: ResourceSnapshot
+  /** 输入框下一步提示。不写入会话 JSONL，只随状态快照恢复。 */
+  composerHint?: string
   model?: PiModel
   modelSelectionRequired?: boolean
   thinkingLevel?: ThinkingLevel
@@ -140,6 +142,7 @@ export type PiEvent =
     }
   | { type: 'queue_update'; steering: QueuedInput[]; followUp: QueuedInput[] }
   | { type: 'skill_usage_update'; usages: BranchSkillUsage[] }
+  | { type: 'composer_hint'; text?: string }
 export type PiExtensionDialogRequest =
   Extract<RpcExtensionUIRequest, { method: 'select' | 'confirm' | 'input' | 'editor' }> | PiUserInputRequest
 export type PiExtensionEvent =

@@ -733,6 +733,7 @@ export async function createAppControl(options: Options) {
           'extension_ui_closed',
           'extension_ui_timeout',
           'plan_saved',
+          'composer_hint',
         ])
         const stored =
           event.type === 'event'

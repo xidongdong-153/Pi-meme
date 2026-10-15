@@ -38,6 +38,7 @@ export function fromSnapshot(snapshot: Snapshot): ChatState {
     compacting: isCompacting ? { active: true } : null,
     retry: snapshot.state.retry,
     compactionError: snapshot.state.compactionError,
+    composerHint: snapshot.state.composerHint,
     tools: {},
   }
   for (const message of snapshot.messages) {
@@ -131,8 +132,11 @@ export function applyEvent(
         ...state,
         running: true,
         compactionError: undefined,
+        composerHint: undefined,
         runIntervals: mergeRunIntervals(state.runIntervals, event.runIntervals),
       }
+    case 'composer_hint':
+      return { ...state, composerHint: event.text || undefined }
     case 'agent_end':
       return state
     case 'compaction_start':

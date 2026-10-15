@@ -14,6 +14,9 @@ export function useCommandCompletion({
   loadProjectFiles,
   draft,
   onDraft,
+  hint,
+  onAcceptHint,
+  onDismissHint,
   onSkills,
   selectedSkills,
   commands,
@@ -25,6 +28,9 @@ export function useCommandCompletion({
   | 'loadProjectFiles'
   | 'draft'
   | 'onDraft'
+  | 'hint'
+  | 'onAcceptHint'
+  | 'onDismissHint'
   | 'onSkills'
   | 'selectedSkills'
   | 'commands'
@@ -216,7 +222,15 @@ export function useCommandCompletion({
       if (matches.length) {
         event.preventDefault()
         setSuggestionsOpen(false)
+      } else if (hint) {
+        event.preventDefault()
+        onDismissHint?.()
       }
+      return
+    }
+    if (hint && event.key === 'Tab' && !event.shiftKey && !draft.trim()) {
+      event.preventDefault()
+      onAcceptHint?.()
       return
     }
     if (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing) {

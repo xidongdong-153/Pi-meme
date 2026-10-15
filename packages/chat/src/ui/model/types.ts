@@ -47,6 +47,8 @@ export type ChatState = {
   compactionError?: string
   steering: readonly QueuedInput[]
   followUp: readonly QueuedInput[]
+  /** 模型给出的下一步提示。空草稿时显示为占位，不进入消息列表。 */
+  composerHint?: string
 }
 
 export type LiveStream = { arguments: Record<number, string>; completed: Record<number, boolean> }
