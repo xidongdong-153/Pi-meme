@@ -1,40 +1,41 @@
 import { useEffect, useState } from 'react'
-import { type Highlighter, createHighlighter } from 'shiki'
+import { type HighlighterCore, createHighlighterCore } from 'shiki/core'
+import { createOnigurumaEngine } from 'shiki/engine/oniguruma'
 
-let instance: Highlighter | null = null
-let pending: Promise<Highlighter> | null = null
+let instance: HighlighterCore | null = null
+let pending: Promise<HighlighterCore> | null = null
 
-async function getHighlighter(): Promise<Highlighter> {
+export async function getHighlighter(): Promise<HighlighterCore> {
   if (instance) return instance
   if (!pending) {
-    pending = createHighlighter({
-      themes: ['github-dark-default'],
+    pending = createHighlighterCore({
+      engine: createOnigurumaEngine(import('shiki/wasm')),
+      themes: [import('shiki/themes/github-dark-default.mjs')],
       langs: [
-        'javascript',
-        'typescript',
-        'tsx',
-        'jsx',
-        'python',
-        'html',
-        'css',
-        'json',
-        'markdown',
-        'bash',
-        'shellscript',
-        'yaml',
-        'sql',
-        'rust',
-        'go',
-        'java',
-        'c',
-        'cpp',
-        'ruby',
-        'php',
-        'swift',
-        'kotlin',
-        'toml',
-        'diff',
-        'dockerfile',
+        import('shiki/langs/javascript.mjs'),
+        import('shiki/langs/typescript.mjs'),
+        import('shiki/langs/tsx.mjs'),
+        import('shiki/langs/jsx.mjs'),
+        import('shiki/langs/python.mjs'),
+        import('shiki/langs/html.mjs'),
+        import('shiki/langs/css.mjs'),
+        import('shiki/langs/json.mjs'),
+        import('shiki/langs/markdown.mjs'),
+        import('shiki/langs/shellscript.mjs'),
+        import('shiki/langs/yaml.mjs'),
+        import('shiki/langs/sql.mjs'),
+        import('shiki/langs/rust.mjs'),
+        import('shiki/langs/go.mjs'),
+        import('shiki/langs/java.mjs'),
+        import('shiki/langs/c.mjs'),
+        import('shiki/langs/cpp.mjs'),
+        import('shiki/langs/ruby.mjs'),
+        import('shiki/langs/php.mjs'),
+        import('shiki/langs/swift.mjs'),
+        import('shiki/langs/kotlin.mjs'),
+        import('shiki/langs/toml.mjs'),
+        import('shiki/langs/diff.mjs'),
+        import('shiki/langs/docker.mjs'),
       ],
     }).then((h) => {
       instance = h
@@ -45,14 +46,24 @@ async function getHighlighter(): Promise<Highlighter> {
 }
 
 export function useHighlighter() {
-  const [highlighter, setHighlighter] = useState<Highlighter | null>(instance)
+  const [highlighter, setHighlighter] = useState<HighlighterCore | null>(instance)
 
   useEffect(() => {
     if (instance) {
       setHighlighter(instance)
       return
     }
-    getHighlighter().then(setHighlighter)
+    let current = true
+    void getHighlighter()
+      .then((value) => {
+        if (current) setHighlighter(value)
+      })
+      .catch(() => {
+        // 加载失败时继续显示代码原文。
+      })
+    return () => {
+      current = false
+    }
   }, [])
 
   return highlighter

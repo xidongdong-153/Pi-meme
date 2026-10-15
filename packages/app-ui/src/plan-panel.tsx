@@ -4,7 +4,15 @@ import { MarkdownContent } from '@pi-meme/chat/ui/content/markdown-content'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@pi-meme/ui/components/ui/select'
 
-function SavedPlanDocument({ document }: { document: PlanDocument }) {
+function SavedPlanDocument({
+  document,
+  onContinue,
+  continueDisabled,
+}: {
+  document: PlanDocument
+  onContinue?: (document: PlanDocument) => void
+  continueDisabled?: boolean
+}) {
   const [error, setError] = useState('')
   const [copied, setCopied] = useState(false)
   function download() {
@@ -25,7 +33,12 @@ function SavedPlanDocument({ document }: { document: PlanDocument }) {
         <span className="text-xs text-muted-foreground">已保存 · 第 {document.revision} 版</span>
       </div>
       <MarkdownContent>{document.markdown}</MarkdownContent>
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
+        {onContinue && (
+          <Button size="sm" disabled={continueDisabled} onClick={() => onContinue(document)}>
+            按此计划继续
+          </Button>
+        )}
         <Button
           size="sm"
           variant="outline"
@@ -42,6 +55,9 @@ function SavedPlanDocument({ document }: { document: PlanDocument }) {
           导出 Markdown
         </Button>
       </div>
+      {onContinue && (
+        <p className="text-xs text-muted-foreground">将计划加入当前草稿，不会自动发送。检查访问权限后再发送任务。</p>
+      )}
       {error && (
         <p role="alert" className="text-xs text-destructive">
           {error}
@@ -55,10 +71,14 @@ export function PlanPanel({
   documents,
   selectedId,
   onSelect,
+  onContinue,
+  continueDisabled,
 }: {
   documents: PlanDocument[]
   selectedId?: string
   onSelect: (id: string) => void
+  onContinue?: (document: PlanDocument) => void
+  continueDisabled?: boolean
 }) {
   const ordered = [...documents].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
   const document = ordered.find((item) => item.id === selectedId) ?? ordered[0]
@@ -82,7 +102,12 @@ export function PlanPanel({
               </SelectContent>
             </Select>
           )}
-          <SavedPlanDocument key={`${document.id}:${document.revision}`} document={document} />
+          <SavedPlanDocument
+            key={`${document.id}:${document.revision}`}
+            document={document}
+            onContinue={onContinue}
+            continueDisabled={continueDisabled}
+          />
         </>
       )}
     </div>

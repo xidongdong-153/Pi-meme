@@ -2,9 +2,6 @@ import { GitMenu } from '@pi-meme/git/ui/git-menu'
 import { LocationSelector } from './location-selector'
 import type { ServiceUI } from './service-ui'
 import { SubagentsPanel } from './subagents-panel'
-import { ProfileSettings } from '@pi-meme/usage/ui/profile-settings'
-import { SkillPage } from './skill-page'
-import { PluginPage } from './plugin-page'
 import { createResourceClient } from '@pi-meme/client/resource-client'
 import { appendSkillInvocation } from './invoke-skill'
 import { AccessSettings } from '@pi-meme/permissions/ui/access-settings'
@@ -13,14 +10,20 @@ import { AppHeader } from './app-header'
 import { ForkNotice } from './fork-notice'
 import { WorkspaceContent } from './workspace-content'
 import { ErrorNotice } from './error-notice'
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentProps } from 'react'
+import {
+  lazy,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type ComponentProps,
+} from 'react'
 import { Composer } from '@pi-meme/chat/ui/composer/composer'
 import { Conversation } from '@pi-meme/chat/ui/conversation/conversation'
 import { Sidebar } from '@pi-meme/workspace/ui/sidebar/sidebar'
 import { ModelPickerPopover } from '@pi-meme/models/ui/model-picker-popover'
-import { ModelConfigSettings } from '@pi-meme/models/ui/model-config/model-config-settings'
-import { McpSettings } from '@pi-meme/mcp/ui/mcp-settings'
-import { SettingsPage as SettingsContent } from '@pi-meme/settings/ui/settings-page'
 import { ExtensionWidgets } from '@pi-meme/interaction/ui/extension-widgets'
 import { ExtensionStatusBadges } from '@pi-meme/interaction/ui/extension-statuses'
 import { ExtensionDialog } from '@pi-meme/interaction/ui/extension-dialog'
@@ -39,6 +42,7 @@ import { useSettings } from '@pi-meme/settings/ui/use-settings'
 import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 import { SessionTreePanel } from '@pi-meme/history/ui/session-tree-panel'
 import { PlanPanel } from './plan-panel'
+import { planExecutionDraft } from './plan-execution-draft'
 import type { RightSidebarTab } from './right-sidebar'
 import type { PluginClient } from '@pi-meme/client/plugin-client'
 import type { UiContributionProps, UiPluginDescriptor, UiPluginSlot, UiPanel, UiTarget } from '@pi-meme/plugin-sdk/ui'
@@ -51,9 +55,26 @@ import { AgentPluginSelector } from './agent-plugin-selector'
 import { FileDiff, Folder, TerminalSquare, Network, ListTree, NotebookPen } from 'lucide-react'
 import type { HostApi, AppSession } from '@pi-meme/contracts/app-host'
 import { SettingsPage } from './settings-page'
-import { HostSettings } from './host-settings'
 import { loadPluginUI } from './load-plugin-ui'
 import type { DesktopBridge, ProjectApp } from '@pi-meme/contracts/desktop'
+
+const SkillPage = lazy(() => import('./skill-page').then((module) => ({ default: module.SkillPage })))
+const PluginPage = lazy(() => import('./plugin-page').then((module) => ({ default: module.PluginPage })))
+const HostSettings = lazy(() => import('./host-settings').then((module) => ({ default: module.HostSettings })))
+const ModelConfigSettings = lazy(() =>
+  import('@pi-meme/models/ui/model-config/model-config-settings').then((module) => ({
+    default: module.ModelConfigSettings,
+  })),
+)
+const McpSettings = lazy(() =>
+  import('@pi-meme/mcp/ui/mcp-settings').then((module) => ({ default: module.McpSettings })),
+)
+const SettingsContent = lazy(() =>
+  import('@pi-meme/settings/ui/settings-page').then((module) => ({ default: module.SettingsPage })),
+)
+const ProfileSettings = lazy(() =>
+  import('@pi-meme/usage/ui/profile-settings').then((module) => ({ default: module.ProfileSettings })),
+)
 
 export function App({
   bridge,
@@ -91,16 +112,7 @@ export function App({
   const fileStore = useMemo(() => new FileStore(host), [host])
   const [terminalPanel, setTerminalPanel] = useState<UiPanel>()
   const [systemRequest, setSystemRequest] = useState<{ id: string; revision: number; target: UiTarget }>()
-  useEffect(() => {
-    const unload = (event: BeforeUnloadEvent) => {
-      if (fileStore.hasDirty()) event.preventDefault()
-    }
-    window.addEventListener('beforeunload', unload)
-    return () => {
-      window.removeEventListener('beforeunload', unload)
-      fileStore.dispose()
-    }
-  }, [fileStore])
+  useEffect(() => () => fileStore.dispose(), [fileStore])
   useEffect(() => {
     let stopped = false
     let dispose: (() => void | Promise<void>) | undefined
@@ -143,11 +155,19 @@ export function App({
   const [planRequest, setPlanRequest] = useState<{ sessionKey?: string; id: string; revision: number }>()
   const [selectedPlanId, setSelectedPlanId] = useState<string>()
   const chat = useAppSession(bridge, {
+    hostId: hostId ?? hostAddress,
     onPlanSaved: (document, sessionKey) => {
       setSelectedPlanId(document.id)
       setPlanRequest({ id: document.id, revision: document.revision, sessionKey })
     },
   })
+  useEffect(() => {
+    const unload = (event: BeforeUnloadEvent) => {
+      if (fileStore.hasDirty() || chat.hasUnstoredDraft()) event.preventDefault()
+    }
+    window.addEventListener('beforeunload', unload)
+    return () => window.removeEventListener('beforeunload', unload)
+  }, [fileStore, chat.hasUnstoredDraft])
   const active = serviceUI?.active ?? true
   const cwd = chat.connection.cwd
   const availableRightTabs: RightSidebarTab[] = []
@@ -203,7 +223,10 @@ export function App({
       void bridge
         .resolveAppSession(runtimeSessionKey)
         .then((value) => {
-          if (current) setResolvedSession({ key: runtimeSessionKey, value })
+          if (current) {
+            chat.bindDraftSession(runtimeSessionKey, value.sessionId)
+            setResolvedSession({ key: runtimeSessionKey, value })
+          }
         })
         .catch((cause) => {
           if (current) chat.setError(String(cause))
@@ -211,7 +234,7 @@ export function App({
     return () => {
       current = false
     }
-  }, [bridge, runtimeSessionKey, chat.setError])
+  }, [bridge, runtimeSessionKey, chat.bindDraftSession, chat.setError])
   const appSession = resolvedSession && resolvedSession.key === runtimeSessionKey ? resolvedSession.value : undefined
   const pluginProps: UiContributionProps = useMemo(
     () => ({
@@ -562,6 +585,7 @@ export function App({
         sidebarSettingsBridge: bridge,
         serviceId: hostId ?? 'local',
         searchEnabled: !settingsOpen && !serviceUI,
+        searchHistory: bridge.searchSessions,
         onSelectProject: (cwd) => void chat.selectLocation({ kind: 'project', cwd }),
         onMenuChanged: chat.refreshMenu,
         onMenuDeleted: chat.applyMenuDeletion,
@@ -715,7 +739,18 @@ export function App({
             location: 'right' as const,
             scope: 'session' as const,
             render: () => (
-              <PlanPanel documents={chat.planDocuments} selectedId={selectedPlanId} onSelect={setSelectedPlanId} />
+              <PlanPanel
+                documents={chat.planDocuments}
+                selectedId={selectedPlanId}
+                onSelect={setSelectedPlanId}
+                continueDisabled={chat.busy || chat.editing || Boolean(chat.editingQueue)}
+                onContinue={(document) => {
+                  if (chat.busy || chat.editing || chat.editingQueue) return
+                  chat.setDraft(planExecutionDraft(chat.draft, document))
+                  chat.changeMode('default')
+                  chat.focusDraft()
+                }}
+              />
             ),
           },
         ]

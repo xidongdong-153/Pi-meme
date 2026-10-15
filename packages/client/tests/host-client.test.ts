@@ -63,6 +63,22 @@ function create(handle: (request: HostRpcRequest) => unknown | Promise<unknown>,
 
 const tick = () => new Promise<void>((resolve) => setTimeout(resolve, 10))
 
+test('历史正文搜索发送显式路径，不绑定当前选择，也不发布会话切换', async () => {
+  const matches = [{ path: '/saved.jsonl', excerpt: '正文命中' }]
+  const { client, requests } = create(() => matches)
+  const connections: string[] = []
+  client.bridge.onConnection((connection) => connections.push(connection.sessionKey!))
+  try {
+    assert.deepEqual(await client.bridge.searchSessions('正文', ['/saved.jsonl']), matches)
+    assert.equal(requests[0].method, 'session:search')
+    assert.deepEqual(requests[0].args, ['正文', ['/saved.jsonl']])
+    assert.equal(requests[0].sessionId, undefined)
+    assert.deepEqual(connections, [])
+  } finally {
+    client.close()
+  }
+})
+
 test('侧栏设置通过独立 RPC 保存补丁并返回偏好', async () => {
   const preferences = {
     groupMode: 'merged',

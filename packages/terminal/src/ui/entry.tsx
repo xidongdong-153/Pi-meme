@@ -1,17 +1,14 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { lazy, Suspense, useState, useSyncExternalStore } from 'react'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Play, RefreshCw, Square, TerminalSquare } from 'lucide-react'
 import type { HostControlEvent, TerminalSnapshot } from '@pi-meme/contracts/app-host'
 import type { UiContributionProps, UiPluginContext } from '@pi-meme/plugin-sdk/ui'
+import type { TerminalOutput as Output } from './terminal-console'
+
+const Console = lazy(() => import('./terminal-console').then((module) => ({ default: module.TerminalConsole })))
 
 export async function activate(context: Pick<UiPluginContext, 'host' | 'panels'>) {
-  const [{ Terminal }, { FitAddon }, { WebglAddon }] = await Promise.all([
-    import('@xterm/xterm'),
-    import('@xterm/addon-fit'),
-    import('@xterm/addon-webgl'),
-  ])
   const capabilities = await context.host.capabilities()
-  type Output = { terminalId: string; data?: string; outputSequence?: number; exitCode?: number }
   const instances = new Map<string, TerminalSnapshot>()
   const restoring = new Map<string, Output[]>()
   const listeners = new Set<() => void>()
@@ -65,143 +62,6 @@ export async function activate(context: Pick<UiPluginContext, 'host' | 'panels'>
     } finally {
       if (restoring.get(ref.terminalId) === buffered) restoring.delete(ref.terminalId)
     }
-  }
-  function Console({ host, instance }: UiContributionProps & { instance: TerminalSnapshot }) {
-    const container = useRef<HTMLDivElement>(null)
-    const [error, setError] = useState('')
-    useEffect(() => {
-      if (!container.current) return
-      const fit = new FitAddon()
-      const webgl = new WebglAddon()
-      let disposed = false
-      let ready = false
-      let restoring = true
-      let outputSequence = 0
-      let dimensions = { cols: instance.cols, rows: instance.rows }
-      let resizing = Promise.resolve()
-      const buffered: Output[] = []
-      const style = () => getComputedStyle(document.documentElement)
-      const terminal = new Terminal({
-        cols: instance.cols,
-        rows: instance.rows,
-        fontFamily: style().getPropertyValue('--font-code').trim() || 'monospace',
-        fontSize: Number.parseFloat(style().getPropertyValue('--code-size')) || 13,
-        customGlyphs: true,
-        rescaleOverlappingGlyphs: true,
-        disableStdin: true,
-        convertEol: false,
-      })
-      const syncSize = () => {
-        if (restoring || disposed || !container.current?.clientWidth || !container.current.clientHeight) return
-        fit.fit()
-        if (instance.exited || (terminal.cols === dimensions.cols && terminal.rows === dimensions.rows)) return
-        const next = { cols: terminal.cols, rows: terminal.rows }
-        dimensions = next
-        resizing = resizing
-          .then(async () => {
-            if (!disposed) await host.terminal.resize(instance, next, { idempotencyKey: crypto.randomUUID() })
-          })
-          .catch((cause) => {
-            if (!disposed) setError(String(cause))
-          })
-      }
-      const applyTheme = () => {
-        const colors = style()
-        terminal.options.theme = {
-          background: colors.getPropertyValue('--color-background').trim(),
-          foreground: colors.getPropertyValue('--color-text').trim(),
-          cursor: colors.getPropertyValue('--color-accent').trim(),
-          selectionBackground: colors.getPropertyValue('--color-elevated').trim(),
-        }
-        terminal.options.fontFamily = colors.getPropertyValue('--font-code').trim() || 'monospace'
-        terminal.options.fontSize = Number.parseFloat(colors.getPropertyValue('--code-size')) || 13
-      }
-      applyTheme()
-      const theme = new MutationObserver(() => {
-        applyTheme()
-        syncSize()
-      })
-      theme.observe(document.documentElement, { attributes: true })
-      terminal.loadAddon(fit)
-      const writeOutput = (event: Output) => {
-        if (event.data && (event.outputSequence ?? 0) > outputSequence) {
-          outputSequence = event.outputSequence!
-          terminal.write(event.data)
-        }
-      }
-      const output = (event: Output) => {
-        if (event.terminalId !== instance.terminalId) return
-        if (ready) writeOutput(event)
-        else buffered.push(event)
-      }
-      outputListeners.add(output)
-      const input = terminal.onData((data) => {
-        if (!ready) return
-        void host.terminal.input(instance, data, { idempotencyKey: crypto.randomUUID() }).catch((cause) => {
-          if (!disposed) setError(String(cause))
-        })
-      })
-      const contextLoss = webgl.onContextLoss(() => {
-        webgl.dispose()
-        setError('终端图形渲染已失效，当前使用字体渲染。')
-      })
-      const observer = new ResizeObserver(syncSize)
-      observer.observe(container.current)
-      setError('')
-      void Promise.all([host.terminal.attach(instance), document.fonts.ready])
-        .then(([snapshot]) => {
-          if (disposed) return
-          dimensions = { cols: snapshot.cols, rows: snapshot.rows }
-          outputSequence = snapshot.outputSequence
-          terminal.resize(snapshot.cols, snapshot.rows)
-          terminal.write(snapshot.output, () => {
-            if (disposed || !container.current) return
-            terminal.open(container.current)
-            try {
-              terminal.loadAddon(webgl)
-            } catch (cause) {
-              webgl.dispose()
-              setError(`终端图形渲染不可用：${String(cause)}`)
-            }
-            for (const event of buffered) writeOutput(event)
-            buffered.length = 0
-            ready = true
-            terminal.write('', () => {
-              if (disposed) return
-              restoring = false
-              syncSize()
-              terminal.options.disableStdin = false
-              terminal.focus()
-            })
-          })
-        })
-        .catch((cause) => {
-          if (!disposed) {
-            outputListeners.delete(output)
-            setError(String(cause))
-          }
-        })
-      return () => {
-        disposed = true
-        observer.disconnect()
-        theme.disconnect()
-        input.dispose()
-        contextLoss.dispose()
-        outputListeners.delete(output)
-        terminal.dispose()
-        webgl.dispose()
-      }
-    }, [host, instance])
-    return (
-      <div className="relative min-h-0 min-w-0 flex-1">
-        <div ref={container} className="h-full min-h-24 w-full" />
-        {error && (
-          <p role="alert" className="break-words text-xs text-destructive">
-            {error}
-          </p>
-        )}
-      </div>
-    )
   }
   function Panel(props: UiContributionProps) {
     useSyncExternalStore(
@@ -281,7 +141,14 @@ export async function activate(context: Pick<UiPluginContext, 'host' | 'panels'>
         )}
         {instance ? (
           <div className="flex min-h-0 min-w-0 flex-1 p-3">
-            <Console key={instance.terminalId} {...props} instance={instance} />
+            <Suspense fallback={<p role="status">正在加载终端…</p>}>
+              <Console
+                key={instance.terminalId}
+                host={props.host}
+                instance={instance}
+                outputListeners={outputListeners}
+              />
+            </Suspense>
           </div>
         ) : (
           <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center">

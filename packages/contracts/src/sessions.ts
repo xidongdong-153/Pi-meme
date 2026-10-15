@@ -42,6 +42,8 @@ export type PiSessionsSnapshot = {
   activeSessionPath?: string
 }
 
+export type SessionSearchMatch = { path: string; excerpt: string }
+
 export type SessionHistoryData = {
   cwd: string
   created: string

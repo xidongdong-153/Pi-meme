@@ -1,5 +1,5 @@
 import { SidebarMenus, type SidebarMenuBridge } from './sidebar-menus'
-import type { SettingsBridge, WorkspaceDeletionResult } from '@pi-meme/contracts/desktop'
+import type { SettingsBridge, WorkspaceBridge, WorkspaceDeletionResult } from '@pi-meme/contracts/desktop'
 import { useEffect, useMemo, useState } from 'react'
 import { Search, Settings, SquarePen } from 'lucide-react'
 import type { PiSessionsSnapshot } from '@pi-meme/contracts/sessions'
@@ -17,6 +17,7 @@ import { RecentsSection } from './recents-section'
 export type SidebarProps = {
   serviceId?: string
   searchEnabled?: boolean
+  searchHistory?: WorkspaceBridge['searchSessions']
   sidebarSettingsBridge?: Pick<SettingsBridge, 'getSettings' | 'saveSidebarPreferences'>
   onSelectProject: (cwd: string) => void
   menuBridge: SidebarMenuBridge
@@ -47,6 +48,7 @@ export type SidebarProps = {
 export function Sidebar({
   serviceId = 'local',
   searchEnabled = true,
+  searchHistory: loadSessionMatches,
   sidebarSettingsBridge,
   menuBridge,
   onMenuChanged,
@@ -72,6 +74,13 @@ export function Sidebar({
   // 切换中使用乐观路径，否则使用实际路径
   const effectiveActivePath = switchingToPath ?? activeSessionPath
   const [searchOpen, setSearchOpen] = useState(false)
+  const searchHistory = useMemo(
+    () =>
+      loadSessionMatches
+        ? (_serviceId: string, query: string, paths: string[]) => loadSessionMatches(query, paths)
+        : undefined,
+    [loadSessionMatches],
+  )
   const { preferences, loaded, error, save } = useSidebarPreferences(
     sidebarSettingsBridge,
     Boolean(sidebarSettingsBridge),
@@ -326,6 +335,7 @@ export function Sidebar({
         </div>
       </aside>
       <SessionSearchDialog
+        searchHistory={searchHistory}
         open={searchOpen}
         onOpenChange={setSearchOpen}
         entries={model.sessions}

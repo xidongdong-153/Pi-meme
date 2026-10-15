@@ -2,7 +2,7 @@ import type { PlanDocument } from '@pi-meme/contracts/plan'
 import type { SelectWorkspace } from '@pi-meme/contracts/sessions'
 import { transferDraft } from '@pi-meme/chat/ui/composer/transfer-draft'
 import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
   DesktopBridge,
   Connection,
@@ -21,6 +21,7 @@ import { useSessions } from '@pi-meme/workspace/ui/use-sessions'
 import { SessionSelection } from './session-selection'
 import { SnapshotSync } from './snapshot-sync'
 import { PluginSnapshotSync } from './plugin-snapshot-sync'
+import { ComposerDrafts } from './composer-drafts'
 
 /** 主对话事件订阅；选择事务和快照读取分别隔离过期结果，子代理对话独立订阅。 */
 export function useAppSession(
@@ -28,10 +29,12 @@ export function useAppSession(
   {
     chatEnabled = true,
     workspaceEnabled = true,
+    hostId = '',
     onPlanSaved,
   }: {
     chatEnabled?: boolean
     workspaceEnabled?: boolean
+    hostId?: string
     onPlanSaved?: (document: PlanDocument, sessionKey: string | undefined) => void
   } = {},
 ) {
@@ -69,7 +72,7 @@ export function useAppSession(
   const synchronization = useRef(new SnapshotSync())
   const pluginSynchronization = useRef(new PluginSnapshotSync())
   const views = useRef(new Map<string, { snapshot: Snapshot; chat: ChatState; sequence: number }>())
-  const drafts = useRef(new Map<string, ComposerSnapshot>())
+  const drafts = useMemo(() => new ComposerDrafts(hostId), [hostId])
   const chatRef = useRef<ReturnType<typeof useChatSession> | null>(null)
   const extensionsRef = useRef<ReturnType<typeof useExtensionUI> | null>(null)
   const { sessions, sessionsLoading, refreshSessions, setActiveSession } = useSessions(bridge, workspaceEnabled)
@@ -230,15 +233,37 @@ export function useAppSession(
     currentGeneration: () => current.current.generation,
     currentSessionKey: () => current.current.sessionKey,
     onError: setError,
+    onSendStarted: (key, composer) => drafts.startSend(key, composer),
     onSendFailed: (key, composer) => {
       if (!key || key === current.current.sessionKey) void refresh()
       else {
-        const saved = drafts.current.get(key)
-        drafts.current.set(key, saved?.draft ? saved : composer)
+        const saved = drafts.get(key)
+        drafts.set(key, saved?.draft ? saved : composer)
       }
     },
   })
   chatRef.current = chat
+  const bindDraftSession = useCallback(
+    (key: string, sessionId: string) => {
+      const saved = drafts.bind(key, sessionId)
+      if (saved && key === current.current.sessionKey && !selection.current.current)
+        chatRef.current?.restoreComposer(saved)
+    },
+    [drafts],
+  )
+  useEffect(() => {
+    if (connection.sessionKey && !switching) drafts.set(connection.sessionKey, chat.captureComposer())
+  }, [
+    drafts,
+    connection.sessionKey,
+    switching,
+    chat.draft,
+    chat.selectedSkills,
+    chat.attachments,
+    chat.queueMode,
+    chat.editingTimestamp,
+    chat.editingQueue,
+  ])
   const extensions = useExtensionUI(bridge, chat.setDraft, () => current.current.sessionKey)
   extensionsRef.current = extensions
 
@@ -256,8 +281,7 @@ export function useAppSession(
       if (selection.current.current) return
       if (next.generation !== previous.generation || next.sessionKey !== previous.sessionKey) {
         synchronization.current.cancel()
-        if (previous.sessionKey && chatRef.current)
-          drafts.current.set(previous.sessionKey, chatRef.current.captureComposer())
+        if (previous.sessionKey && chatRef.current) drafts.set(previous.sessionKey, chatRef.current.captureComposer())
         if (next.sessionKey !== previous.sessionKey) {
           currentRootAgentId.current = undefined
           currentAgentTree.current = []
@@ -267,7 +291,7 @@ export function useAppSession(
           if (cached) chatRef.current?.restoreChat(cached.chat)
           else chatRef.current?.reset()
           chatRef.current?.clearComposer()
-          const draft = next.sessionKey && drafts.current.get(next.sessionKey)
+          const draft = next.sessionKey && drafts.get(next.sessionKey)
           if (draft) chatRef.current?.restoreComposer(draft)
         }
         extensionsRef.current?.reset()
@@ -395,7 +419,7 @@ export function useAppSession(
       offError()
       offEvent()
     }
-  }, [bridge, refresh, setActiveSession])
+  }, [bridge, drafts, refresh, setActiveSession])
 
   useEffect(() => {
     if (!sessions) return
@@ -407,10 +431,10 @@ export function useAppSession(
     for (const [key, view] of views.current) {
       if (key !== current.current.sessionKey && !visible.has(key) && !view.chat.running && !view.chat.messages.length) {
         views.current.delete(key)
-        drafts.current.delete(key)
+        drafts.delete(key)
       }
     }
-  }, [sessions])
+  }, [drafts, sessions])
 
   const action = useCallback(async (work: (key: string, owns: () => boolean) => Promise<void>) => {
     const key = current.current.sessionKey
@@ -450,9 +474,9 @@ export function useAppSession(
     const previous = displayed.current
     const previousPath = previous.sessionFile ?? previous.sessionKey
     const previousComposer =
-      replacing && previous.sessionKey ? drafts.current.get(previous.sessionKey) : chatRef.current?.captureComposer()
+      replacing && previous.sessionKey ? drafts.get(previous.sessionKey) : chatRef.current?.captureComposer()
     const previousView = previous.sessionKey && views.current.get(previous.sessionKey)
-    if (previous.sessionKey && previousComposer) drafts.current.set(previous.sessionKey, previousComposer)
+    if (previous.sessionKey && previousComposer) drafts.set(previous.sessionKey, previousComposer)
     if (!replacing && previousView && chatRef.current) previousView.chat = chatRef.current.captureChat()
     synchronization.current.cancel()
     setSwitching(true)
@@ -514,12 +538,12 @@ export function useAppSession(
         }
         const draft =
           transferred?.composer ??
-          (result.snapshot.connection.sessionKey && drafts.current.get(result.snapshot.connection.sessionKey))
+          (result.snapshot.connection.sessionKey && drafts.get(result.snapshot.connection.sessionKey))
         commitSnapshot(result.snapshot, transaction.events, pluginRevision, modeRevision)
         if (draft) chatRef.current?.restoreComposer(draft)
         if (transferred) {
           if (previousMode) chatRef.current?.changeMode(previousMode)
-          if (previous.sessionKey) drafts.current.delete(previous.sessionKey)
+          if (previous.sessionKey) drafts.delete(previous.sessionKey)
           setWorkspaceNotice(
             [
               transferred.removedSkills ? '部分技能在当前项目不可用，已转为文字' : '',
@@ -622,10 +646,12 @@ export function useAppSession(
     Boolean(connection.accessChanging)
 
   return {
+    bindDraftSession,
+    hasUnstoredDraft: drafts.hasUnstoredInput,
     captureDraft: () => ({ composer: chat.captureComposer(), mode: chat.mode }),
     clearDraft: () => {
       chat.clearComposer()
-      if (current.current.sessionKey) drafts.current.delete(current.current.sessionKey)
+      if (current.current.sessionKey) drafts.delete(current.current.sessionKey)
     },
     selectLocation: async (
       input: SelectWorkspace,
@@ -702,7 +728,7 @@ export function useAppSession(
     },
     applyMenuDeletion: async (result: WorkspaceDeletionResult) => {
       for (const key of result.deletedKeys) {
-        drafts.current.delete(key)
+        drafts.delete(key)
         views.current.delete(key)
       }
       if (result.selection && !result.selection.cancelled) {

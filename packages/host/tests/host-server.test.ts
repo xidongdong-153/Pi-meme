@@ -6,6 +6,7 @@ import path from 'node:path'
 import { WebSocket } from 'ws'
 import { startHostServer } from '../src/server'
 import { MemoryCredentialStorage } from '@pi-meme/pi-runtime/secure-store'
+import { createPiRuntimePaths } from '@pi-meme/pi-runtime/runtime-paths'
 import { lockDataRoot } from '../src/data-root'
 import type { HostRpcResponse } from '@pi-meme/contracts/host'
 import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
@@ -89,6 +90,35 @@ async function installAgentFixture(
   await writeFile(path.join(directory, 'dist/agent.js'), content)
   await host.plugins.loadDirectory(directory)
 }
+
+test('历史正文搜索经真实HTTP路由返回摘要，不改变客户端当前会话', async () => {
+  const fixture = await setup()
+  try {
+    const folder = path.join(createPiRuntimePaths(fixture.root).sessionsDirectory, 'search-fixture')
+    await mkdir(folder, { recursive: true })
+    const file = path.join(folder, 'saved.jsonl')
+    await writeFile(
+      file,
+      [
+        { type: 'session', id: 'saved', cwd: fixture.root },
+        { type: 'message', message: { role: 'user', content: '标题里没有的正文关键字' } },
+      ]
+        .map((entry) => JSON.stringify(entry))
+        .join('\n'),
+    )
+    const before = await fixture.rpc('search-client', 'pi:connection')
+    const result = await fixture.rpc('search-client', 'session:search', ['正文关键字', [file]])
+    assert.equal(result.error, undefined, JSON.stringify(result.error))
+    assert.deepEqual(result.result, [{ path: file, excerpt: '标题里没有的正文关键字' }])
+    const after = await fixture.rpc('search-client', 'pi:connection')
+    assert.equal(
+      (after.result as Snapshot['connection']).sessionKey,
+      (before.result as Snapshot['connection']).sessionKey,
+    )
+  } finally {
+    await fixture.dispose()
+  }
+})
 
 test('两客户端选择不同项目不改变彼此快照、命令与 Git 目录', async () => {
   const fixture = await setup()

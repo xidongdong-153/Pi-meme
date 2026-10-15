@@ -14,6 +14,7 @@ paths:
   - 'packages/chat/src/ui/composer/**'
   - 'packages/app-ui/src/subagents-panel.tsx'
   - 'packages/app-ui/src/plan-panel.tsx'
+  - 'packages/app-ui/src/composer-drafts.ts'
   - 'packages/workspace/**'
   - 'packages/history/**'
 ---
@@ -51,6 +52,16 @@ Worker 创建时固定技能资源快照与外部插件代次。资源变更发�
 每条输入保存自己的 `mode`，包含发送、插话、排队、撤回和失败重试；后续队列项不跟随界面当前的规划开关变化。结构见 [QueuedInput](../packages/contracts/src/plan.ts)，输入实现见 [composer](../packages/chat/src/ui/composer/)。
 
 正式 API 的投递方式是 `start`、`queue`、`steer`；运行中拒绝 `start`，队列与回执规则见 [HostApi 提交](host-api.md#提交与回执)。网络断线只恢复连接和快照，不自动重发 prompt。Host 重启将未完成提交标记为中断，不重放模型调用。
+
+## 草稿与历史搜索
+
+Desktop 和 Web 将文字草稿、已选技能引用和队列模式保存到当前界面的 `localStorage`，按 Host 与正式会话 ID 隔离。刷新页面后恢复；发送请求尚未确认时保留原草稿，成功后清理，等待期间输入的新草稿不被清理。实现见 [composer-drafts.ts](../packages/app-ui/src/composer-drafts.ts)。
+
+图片只保留在窗口内，不写入 `localStorage`；存在未保存图片、浏览器禁用存储或空间不足时，离开页面会要求确认。草稿是未加密的浏览器本地数据，不跨设备同步；清理网站数据也会清理草稿。
+
+侧栏搜索可按服务和项目筛选。标题即时匹配，正文输入停顿 250ms 后在所属 Host 检索，只返回命中摘要，不把完整历史传到界面。每次请求最多 100 个会话，每个请求最多并行读取 4 个文件；界面分批请求，结果每次展开 100 条。
+
+正文搜索包含会话文件中保存的用户与助手消息及分支正文，不搜索思考、工具输出和图片。打开结果进入该会话，不自动切换到命中的旧分支。单个 Host 搜索失败时保留其他 Host 的结果并显示错误；关闭搜索或更改查询后不再采用旧响应。入口见 [历史检索](../packages/history/src/server/session-search.ts) 和 [搜索窗口](../packages/workspace/src/ui/sidebar/session-search-dialog.tsx)。
 
 ## 持续子代理
 
@@ -114,8 +125,10 @@ flowchart TD
   Save --> File["原子写入 Markdown 与计划元数据"]
   File --> Panel["右侧计划全文、复制与导出"]
   Panel --> Next["等待下一步输入"]
+  Panel -->|用户点击按此计划继续| Draft["追加到普通任务草稿，权限不变"]
+  Draft --> Confirm["用户检查访问权限并手动发送"]
 ```
 
 只有规划模式根 Agent 可保存计划，子任务或其队列未结束、结果未读时拒绝保存。同一轮再次保存更新同一计划的修订。正文在 `plans/<sessionId>/<id>.md`，目录中的 sessionId 来自 Pi 原生会话；元数据在 `collaboration.json`。失败恢复上一版正文和元数据，成功后发出 `plan_saved`。
 
-[计划面板](../packages/app-ui/src/plan-panel.tsx) 展示完整只读 Markdown，可切换文档、复制和导出。保存计划不会自动执行，也不会自动关闭规划标记。实现与验证见 [coordinator.ts](../packages/subagents/src/server/coordinator.ts)、[plan-mode.test.ts](../packages/pi-runtime/tests/plan-mode.test.ts) 和 [coordinator.test.ts](../packages/subagents/tests/coordinator.test.ts)。
+[计划面板](../packages/app-ui/src/plan-panel.tsx) 展示完整只读 Markdown，可切换文档、复制和导出。保存计划不会自动执行，也不会自动关闭规划标记。“按此计划继续”把当前文档的标题、修订和完整正文追加到已有草稿，切回普通任务模式，不修改访问权限、不自动发送；运行、切换或编辑消息期间禁用该按钮。实现与验证见 [coordinator.ts](../packages/subagents/src/server/coordinator.ts)、[plan-mode.test.ts](../packages/pi-runtime/tests/plan-mode.test.ts) 和 [coordinator.test.ts](../packages/subagents/tests/coordinator.test.ts)。

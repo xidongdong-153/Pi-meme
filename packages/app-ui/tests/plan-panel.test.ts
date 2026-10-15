@@ -4,6 +4,7 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { PlanDocument } from '@pi-meme/contracts/plan'
 import { PlanPanel } from '../src/plan-panel'
+import { planExecutionDraft } from '../src/plan-execution-draft'
 import { RightSidebar } from '../src/right-sidebar'
 
 const older: PlanDocument = {
@@ -63,6 +64,28 @@ test('多篇计划默认显示最新，可选择旧文档；无效选择回到�
   assert.doesNotMatch(previous, /完整计划正文/)
   assert.match(renderPanel(documents, 'other-session-plan'), /完整计划正文/)
   assert.deepEqual(documents, [older, latest])
+})
+
+test('按当前选择的计划准备草稿，保留原输入、完整正文和修订；运行中禁用继续', () => {
+  const draft = planExecutionDraft('已有要求  ', latest)
+  assert.match(draft, /^已有要求\n\n请按已保存的计划「新计划」（第 2 版）继续执行。/)
+  assert.ok(draft.endsWith(latest.markdown))
+  assert.equal(planExecutionDraft('', older), `请按已保存的计划「旧计划」（第 1 版）继续执行。\n\n${older.markdown}`)
+  for (const disabled of [false, true]) {
+    const markup = renderToStaticMarkup(
+      createElement(PlanPanel, {
+        documents: [older, latest],
+        selectedId: older.id,
+        onSelect: () => {},
+        onContinue: () => assert.fail('渲染计划不执行回调'),
+        continueDisabled: disabled,
+      }),
+    )
+    assert.match(markup, /按此计划继续/)
+    assert.match(markup, /不会自动发送/)
+    assert.match(markup, /旧文档正文/)
+    assert.equal(/<button[^>]*disabled=""[^>]*>按此计划继续<\/button>/.test(markup), disabled)
+  }
 })
 
 test('空会话计划栏显示空态，不呈现其他会话的选择和文档操作', () => {

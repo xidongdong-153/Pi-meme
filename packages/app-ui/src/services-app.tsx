@@ -28,6 +28,10 @@ export function ServicesApp({
     save: savePreferences,
   } = useSidebarPreferences(registry.local.bridge)
   const openSearch = useCallback(() => setSearchOpen(true), [])
+  const searchHistory = useCallback(
+    (serviceId: string, query: string, paths: string[]) => registry.get(serviceId).bridge.searchSessions(query, paths),
+    [registry],
+  )
   const controllers = useRef(new Map<string, ServiceController>())
   const navigation = useRef(0)
   const activeRef = useRef(activeId)
@@ -167,6 +171,7 @@ export function ServicesApp({
         )
       })}
       <SessionSearchDialog
+        searchHistory={searchHistory}
         open={searchOpen}
         onOpenChange={setSearchOpen}
         entries={model.sessions}

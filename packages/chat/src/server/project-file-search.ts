@@ -5,11 +5,12 @@ import type { ProjectFile } from '@pi-meme/contracts/desktop'
 const excluded = new Set(['.git', 'node_modules', 'dist', 'build', 'out', 'coverage', '.vite', '.next', '.venv'])
 
 export class ProjectFileSearch {
-  private cached?: { root: string; expires: number; entries: Promise<ProjectFile[]> }
+  private cached?: { root: string; includeHidden: boolean; expires: number; entries: Promise<ProjectFile[]> }
 
   async list(cwd: string, query: string): Promise<ProjectFile[]> {
     const root = resolve(cwd)
     const slash = query.lastIndexOf('/')
+    const includeHidden = query.split('/').some((part) => part.startsWith('.'))
     let entries: ProjectFile[]
     let fragment = query
     if (!query || slash >= 0) {
@@ -26,16 +27,20 @@ export class ProjectFileSearch {
         const status = await lstat(current).catch(() => null)
         if (!status?.isDirectory() || status.isSymbolicLink()) return []
       }
-      entries = await readDirectory(target, directory)
+      entries = await readDirectory(target, directory, includeHidden)
     } else {
-      if (!this.cached || this.cached.root !== root || this.cached.expires < Date.now()) {
-        this.cached = { root, expires: Date.now() + 5000, entries: scan(root) }
+      if (
+        !this.cached ||
+        this.cached.root !== root ||
+        this.cached.includeHidden !== includeHidden ||
+        this.cached.expires < Date.now()
+      ) {
+        this.cached = { root, includeHidden, expires: Date.now() + 5000, entries: scan(root, includeHidden) }
       }
       entries = await this.cached.entries
     }
     const needle = fragment.toLowerCase()
     return entries
-      .filter((entry) => !entry.path.split('/').some((part) => part.startsWith('.')) || fragment.startsWith('.'))
       .map((entry) => ({ entry, score: score(entry.path, needle) }))
       .filter((item) => item.score >= 0)
       .sort(
@@ -47,9 +52,10 @@ export class ProjectFileSearch {
   }
 }
 
-async function readDirectory(directory: string, prefix: string): Promise<ProjectFile[]> {
+async function readDirectory(directory: string, prefix: string, includeHidden: boolean): Promise<ProjectFile[]> {
   const entries = await readdir(directory, { withFileTypes: true })
   return entries.flatMap((entry): ProjectFile[] => {
+    if (!includeHidden && entry.name.startsWith('.')) return []
     if (
       [...entry.name].some((character) => {
         const code = character.charCodeAt(0)
@@ -62,12 +68,12 @@ async function readDirectory(directory: string, prefix: string): Promise<Project
   })
 }
 
-async function scan(root: string) {
+async function scan(root: string, includeHidden: boolean) {
   const entries: ProjectFile[] = []
   const directories = ['']
   for (let cursor = 0; cursor < directories.length && entries.length < 10000; cursor++) {
     const prefix = directories[cursor]
-    const children = await readDirectory(join(root, prefix), prefix).catch((error: unknown) => {
+    const children = await readDirectory(join(root, prefix), prefix, includeHidden).catch((error: unknown) => {
       if (!prefix) throw error
       return []
     })

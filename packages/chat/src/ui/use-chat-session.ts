@@ -38,7 +38,9 @@ export type ChatSessionOptions = {
   currentGeneration: () => number
   currentSessionKey: () => string | undefined
   onError: (message: string) => void
-  /** 首次发送失败并回滚草稿后触发，由 desktop 重新读取快照 */
+  /** 请求返回前保留待发送草稿；返回的函数在请求结束后释放保留记录。 */
+  onSendStarted?: (sessionKey: string, composer: ComposerSnapshot) => () => void
+  /** 发送失败并回滚草稿后触发，由 desktop 重新读取快照。 */
   onSendFailed?: (sessionKey: string | undefined, composer: ComposerSnapshot) => void
 }
 
@@ -314,6 +316,7 @@ export function useChatSession(options: ChatSessionOptions) {
     const running = chat.running || chat.paused || chat.queuePaused || promptPending.current
     const sendMode = running ? 'followUp' : 'prompt'
     const generation = currentGeneration()
+    const finishSend = optionsRef.current.onSendStarted?.(sessionKey, { draft, selectedSkills, attachments, queueMode })
     onError('')
     dismissComposerHint()
     setDraft('')
@@ -333,7 +336,7 @@ export function useChatSession(options: ChatSessionOptions) {
       const sameSession = sessionKey
         ? sessionKey === optionsRef.current.currentSessionKey()
         : generation === currentGeneration()
-      if (!running) onSendFailed?.(sessionKey, { draft, selectedSkills, attachments, queueMode })
+      onSendFailed?.(sessionKey, { draft, selectedSkills, attachments, queueMode })
       if (sameSession) {
         setDraft((value) => value || draft)
         setSelectedSkills((value) => (value.length ? value : selectedSkills))
@@ -343,6 +346,8 @@ export function useChatSession(options: ChatSessionOptions) {
         }
         onError(String(cause))
       }
+    } finally {
+      finishSend?.()
     }
   }, [
     chat.running,

@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from 'react'
+import { Suspense, useState, type ReactNode } from 'react'
 import {
   BookOpen,
   ChartNoAxesCombined,
@@ -177,7 +177,15 @@ export function SettingsPage({
                 <p className="mt-3 text-sm text-muted-foreground">{section.description}</p>
               </div>
             )}
-            {renderContent(sectionId, navigate)}
+            <Suspense
+              fallback={
+                <p role="status" className="text-sm text-muted-foreground">
+                  正在加载设置…
+                </p>
+              }
+            >
+              {renderContent(sectionId, navigate)}
+            </Suspense>
           </FadeContent>
         </div>
       </div>

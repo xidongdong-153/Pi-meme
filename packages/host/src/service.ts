@@ -118,6 +118,7 @@ const reads = new Set([
   'host:modules',
   'settings:theme-directories',
   'session:history',
+  'session:search',
   'session:prefetch',
   'history:query',
   'history:export',

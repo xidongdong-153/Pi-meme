@@ -672,6 +672,7 @@ export class HostClient {
       newSession: () => this.selection('pi:new-session'),
       switchSession: (path) => this.selection('pi:switch-session', [path]),
       readSessionHistory: (path) => rpc('session:history', [path]),
+      searchSessions: (query, paths) => rpc('session:search', [query, paths], null),
       prefetchSession: (path) => rpc('session:prefetch', [path]),
       togglePin: (path) => rpc('settings:toggle-pin', [path]),
       prompt: (key, message, images, skills, options) =>

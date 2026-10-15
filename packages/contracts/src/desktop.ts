@@ -37,7 +37,14 @@ import type {
   ThinkingLevel,
   PiSessionStats,
 } from './pi'
-import type { DesktopProject, SelectWorkspace, WorkspaceKind, PiSessionsSnapshot, SessionHistoryData } from './sessions'
+import type {
+  DesktopProject,
+  SelectWorkspace,
+  WorkspaceKind,
+  PiSessionsSnapshot,
+  SessionHistoryData,
+  SessionSearchMatch,
+} from './sessions'
 import type {
   AppearanceSettings,
   DesktopSettings,
@@ -186,6 +193,7 @@ export interface WorkspaceBridge {
   newSession: () => Promise<SessionSelectionResult>
   switchSession: (sessionPath: string) => Promise<SessionSelectionResult>
   readSessionHistory: (sessionPath: string) => Promise<SessionHistoryData>
+  searchSessions: (query: string, paths: string[]) => Promise<SessionSearchMatch[]>
   prefetchSession: (sessionPath: string) => Promise<void>
   togglePin: (targetPath: string) => Promise<string[]>
 }
