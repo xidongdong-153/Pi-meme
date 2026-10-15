@@ -1,6 +1,14 @@
-# 当前 WSL 验收记录
+---
+description: '2026-10-13 WSL2 历史验收的环境、自动检查、隔离结果与未执行项'
+status: implemented
+paths: []
+---
 
-验收日期：2026-10-13。当前机器可运行 Linux Host/Web，也可在默认工作区权限下执行真实 Worker 会话。
+# WSL 验收记录：2026-10-13
+
+本页保留 2026-10-13 的验收结果，测试数量、环境和未执行项均属于该次记录，不代表当前版本或本次文档整理重新验收。当前运行方法与测试入口见 [Linux 与 WSL](linux-wsl.md)。
+
+该次环境可运行 Linux Host/Web，也可在默认工作区权限下执行真实 Worker 会话。
 
 ## 环境
 
@@ -64,10 +72,10 @@ Server 产物测试同时保留完全权限的外部工具、MCP、持续子代�
 
 HMR 检查临时修改 `apps/web/src/app.tsx`，完成后恢复原文。Edge 截图和原始检查结果保存在本次会话的 `/tmp/pi-meme-edge-31415.png`、`/tmp/pi-meme-edge-5173.png` 和 `/tmp/pi-meme-edge-results.json`；这些临时文件不属于分发产物。
 
-## 未执行项
+## 该次未执行项
 
-新增的 Ubuntu 24.04 GitHub Actions 工作流尚未在原生 Ubuntu runner 执行。WSL 的结果不代替原生 Linux CI。
+截至记录日期，Ubuntu 24.04 GitHub Actions 工作流尚未在原生 Ubuntu runner 执行。WSL 的结果不代替原生 Linux CI。
 
-当前机器无法运行 macOS 的 `package`、`test:package`、`test:desktop`，macOS 沙箱与应用回归仍需在 macOS 执行。
+该次 WSL 机器无法运行 macOS 的 `package`、`test:package`、`test:desktop`，macOS 沙箱与应用回归仍需在 macOS 执行。
 
 文档保留内联 Mermaid 图。Kroki 在线 SVG 导出返回 HTTP 403，未生成导出图像；未改换图形实现。

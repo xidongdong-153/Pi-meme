@@ -1,6 +1,20 @@
+---
+description: 'Linux/WSL2 的 Host/Web 启动、bubblewrap 隔离、平台限制与检查入口'
+status: implemented
+paths:
+  - 'packages/sandbox-linux/**'
+  - 'packages/host/src/sandbox-platform.ts'
+  - 'packages/host/src/data-root.ts'
+  - 'packages/pi-runtime/src/sdk/linux-sandbox.ts'
+  - 'packages/pi-runtime/src/sdk/access-sandbox.ts'
+  - 'packages/pi-runtime/tests/linux-sandbox.test.ts'
+  - 'apps/server/tests/restricted-dist.test.ts'
+  - '.github/workflows/linux.yml'
+---
+
 # Linux 与 WSL 开发运行
 
-Ubuntu 24.04 和 WSL2 使用独立 Node Host 与 Web。WSL 按 Linux 装配沙箱；Windows 浏览器只处理界面，工作区、Git、模型凭据、MCP 和会话都在 Linux Host。
+Ubuntu 24.04 和 WSL2 使用独立 Node Host 与 Web。WSL 按 Linux 装配沙箱；Windows 浏览器只处理界面，工作区、Git、模型凭据、MCP 和会话都在 Linux Host。通用入口见 [快速开始](getting-started.md)，配置和凭据见 [配置与安全](configuration.md)。
 
 ## 安装与运行
 
@@ -14,7 +28,7 @@ pnpm --version
 pnpm install --frozen-lockfile
 ```
 
-终端一运行 `pnpm start:server`，终端二运行 `pnpm start:web`。Windows 或 Linux 浏览器打开 `http://127.0.0.1:5173`。Vite 固定 loopback 地址与端口，同源代理保留 Cookie、Host、Origin 和 WebSocket。Web 源码修改支持热更新，Host 源码修改后重启终端一。
+以下项目命令在仓库根目录执行。终端一运行 `pnpm start:server`，终端二运行 `pnpm start:web`。Windows 或 Linux 浏览器打开 `http://127.0.0.1:5173`。Vite 固定 loopback 地址与端口，同源代理保留 Cookie、Host、Origin 和 WebSocket。Web 源码修改支持热更新，Host 源码修改后重启终端一。
 
 构建后由一个 Host 提供 Web：
 
@@ -39,6 +53,8 @@ flowchart TD
 ```
 
 ## 默认权限和隔离
+
+平台选择见 [sandbox-platform.ts](../packages/host/src/sandbox-platform.ts)，bubblewrap 参数与 seccomp 见 [linux-sandbox.ts](../packages/pi-runtime/src/sdk/linux-sandbox.ts)，文件与进程操作共用 [access-sandbox.ts](../packages/pi-runtime/src/sdk/access-sandbox.ts)。
 
 新会话默认 `workspace-write`。两档受限模式都通过 `/usr/bin/bwrap` 运行 bash、mkdir 和 tee；`write/edit` 还有路径校验。根文件系统只读，工作区内修改只允许项目真实目录和会话临时目录写入。仅可查看只允许临时目录和必要设备写入，文件工具拒绝业务文件修改。读取和 TCP/UDP 沿用现有权限含义，没有秘密文件读取隔离或网络访问控制。
 
@@ -66,14 +82,16 @@ pnpm build:web
 pnpm test:server
 ```
 
-Linux CI 使用 Ubuntu 24.04、Node.js 24.14.0、pnpm 10.29.1，安装 bubblewrap 后执行这些命令。Linux 受限回归遇到探测失败会失败，不能用 skip 代替安装依赖。WSL 互操作测试只在真实 WSL2 执行，原生 CI 会明确跳过该项。
+[Linux CI](../.github/workflows/linux.yml) 配置使用 Ubuntu 24.04、Node.js 24.14.0、pnpm 10.29.1，安装 bubblewrap 后执行这些命令。Linux 受限回归遇到探测失败会失败，不能用 skip 代替安装依赖。WSL 互操作测试只在真实 WSL2 执行，原生 CI 会明确跳过该项。
 
 `test:server` 构建后从实际产物执行默认工作区权限，覆盖 bash/write/edit、越界、只读和重启恢复；同时保留完全权限下外部工具、MCP、子代理和计划测试。通用测试覆盖主任务、子代理、规划模式、codemode 嵌套调用、权限不可用及 setsid 后代清理。测试只使用临时数据与假模型。
 
 Windows 访问另外验收：从 Windows 浏览器访问两个 localhost 地址，确认本机登录、Cookie、RPC、事件 WebSocket、插件资源与 Vite 热更新。微软说明 Windows 应用可经 localhost 访问 WSL 服务，见 [WSL 网络说明](https://learn.microsoft.com/en-us/windows/wsl/networking#accessing-linux-networking-apps-from-windows-localhost)。失败时先检查 WSL 内服务，再检查 Windows 转发、端口和防火墙，记录实际来源和失败规则，不放宽认证。局域网访问继续使用 [Remote HTTPS](remote.md)。
 
-Linux 不执行 macOS 的 `package`、`test:package` 和 `test:desktop`。macOS 回归需在 macOS 机器上运行；本次不包含 Linux Electron、Windows 原生 Host、WSL1、Alpine/musl 和 systemd 安装。
+Linux 不执行 macOS 的 `package`、`test:package` 和 `test:desktop`。macOS 回归需在 macOS 机器上运行。当前 Linux/WSL2 支持范围为 Host/Web，不包含 Linux Electron、Windows 原生 Host、WSL1、Alpine/musl 和 systemd 安装。
 
-## 当前 WSL 验收记录
+平台回归见 [linux-sandbox.test.ts](../packages/pi-runtime/tests/linux-sandbox.test.ts) 和 [restricted-dist.test.ts](../apps/server/tests/restricted-dist.test.ts)。通用命令与 macOS 验收条件见 [开发与验证](development.md)。
 
-环境和实际检查结果见 [WSL 验收记录](wsl-validation.md)。原生 Ubuntu CI 与 macOS 应用回归需在对应机器执行，不以 WSL 的结果代替。
+## WSL 历史验收记录
+
+2026-10-13 的环境和实际结果见 [WSL 验收记录](wsl-validation.md)，不表示本次文档整理重跑过验收。原生 Ubuntu CI 与 macOS 应用回归需在对应机器执行，不以 WSL 的结果代替。

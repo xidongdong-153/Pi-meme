@@ -1,4 +1,18 @@
+---
+description: 'App SDK 2 插件的 manifest、DevKit、Agent/Server/UI 接口、主题与安全切换'
+status: implemented
+paths:
+  - 'packages/plugin-sdk/**'
+  - 'packages/plugin-runtime/**'
+  - 'packages/plugin-devkit/**'
+  - 'packages/app-ui/src/plugin-*'
+  - 'packages/app-ui/src/load-plugin-ui.ts'
+  - 'plugins/**'
+---
+
 # App 插件开发
+
+本文描述外部 App 插件。整体进程与内置模块见 [架构](architecture.md)，正式操作接口见 [HostApi v2](host-api.md)。
 
 应用只安装 App 插件。模型配置、技能、插件、MCP 分别管理；Pi 是 Host 内部的会话引擎，不再扫描或导入用户的裸 Pi 扩展、原生 Pi 包、`resources.extensions`。内置模块静态装配，不能从插件列表停用。
 
@@ -26,7 +40,7 @@
   "piMeme": {
     "sdkVersion": 2,
     "display": { "name": "工作区工具" },
-    "server": "dist/server/entry.js",
+    "server": "dist/server/chord-facets.json",
     "agent": "dist/agent/entry.js",
     "ui": "dist/ui/entry.js",
     "resources": {
@@ -38,7 +52,9 @@
 }
 ```
 
-仅声明实际使用的入口。路径必须在包内，不接受 `..`、绝对路径、通配符和重复项。技能目录包含 `SKILL.md`。纯主题插件可以只有 `package.json`、主题 JSON 和图片，不需要 `dist`。
+仅声明实际使用的入口。Server 指向 Chord 构建清单 `chord-facets.json`，Agent/UI 指向 `.js`；源码入口仍是 `src/server/entry.ts`、`src/agent/entry.ts`、`src/ui/entry.tsx`。DevKit 固定使用示例中的三个输出路径，见 [build.ts](../packages/plugin-devkit/src/build.ts)。
+
+路径必须在包内，不接受 `..`、绝对路径、通配符和重复项。技能目录包含 `SKILL.md`。纯主题插件可以只有 `package.json`、主题 JSON 和图片，不需要 `dist`。完整校验见 [manifest.ts](../packages/plugin-sdk/src/manifest.ts) 与 [package.ts](../packages/plugin-runtime/src/package.ts)。
 
 在仓库根目录执行：
 
@@ -49,6 +65,8 @@ pnpm exec tsx packages/plugin-devkit/src/cli.ts build /tmp/my-plugin
 pnpm exec tsx packages/plugin-devkit/src/cli.ts validate /tmp/my-plugin
 pnpm exec tsx packages/plugin-devkit/src/cli.ts pack /tmp/my-plugin /tmp/my-plugin.pim
 ```
+
+命令定义见 [cli.ts](../packages/plugin-devkit/src/cli.ts)。`create` 要求目标目录尚不存在，模板的 SDK 开发依赖链接到当前仓库；移动目录后需修正 link 路径。DevKit 不安装依赖、不执行安装脚本。
 
 DevKit 分别构建 Node 与浏览器产物。UI 使用宿主 React；CSS 导入得到字符串，需要由插件插入并在释放时移除。主题 JSON 本身不执行 CSS 或 JavaScript。
 
@@ -64,7 +82,7 @@ pnpm --filter @pi-meme/theme-landscape run pack
 
 ## Agent 入口
 
-入口导出 `activate(context)`。适配层在内部调用 Pi SDK；插件不接收 `ExtensionAPI`、会话池、凭据或安全策略对象。
+入口导出 `activate(context)`，类型见 [agent.ts](../packages/plugin-sdk/src/agent.ts)。适配层在内部调用 Pi SDK；插件不接收 `ExtensionAPI`、会话池、凭据或安全策略对象。
 
 ```ts
 import type { AgentPluginContext } from '@pi-meme/plugin-sdk/agent'
@@ -96,22 +114,25 @@ Agent 权限与插件安装状态分开处理。当前外部 Agent 入口只在�
 
 ## UI 面板与贡献
 
-入口导出 `activate(context)`，可返回释放函数。`context.host` 是 HostApi，`context.call` 只调用本插件命名空间的 Server 操作；`reactive.getSnapshot/subscribe` 提供当前目标和会话投影。
+入口导出 `activate(context)`，可返回释放函数，类型见 [ui.ts](../packages/plugin-sdk/src/ui.ts)。`context.host` 是 HostApi，`context.call` 只调用本插件命名空间的 Server 操作；`reactive.getSnapshot/subscribe` 提供当前目标和会话投影。
 
 ```tsx
+import { Folder } from 'lucide-react'
 import type { UiPluginContext } from '@pi-meme/plugin-sdk/ui'
 
 export function activate(context: UiPluginContext) {
   return context.panels.register({
     id: `${context.pluginId}:overview`,
     title: '项目概览',
-    icon: '项',
+    icon: <Folder size={18} />,
     location: 'right',
     scope: 'project',
     render: ({ target }) => <p>项目：{target.project?.projectId}</p>,
   })
 }
 ```
+
+示例使用 `lucide-react`，插件需自行声明该依赖；UI 构建将它打包，React 继续使用宿主提供的版本。
 
 | 接口                     | 可选位置                                                                                        |
 | ------------------------ | ----------------------------------------------------------------------------------------------- |
@@ -136,7 +157,7 @@ flowchart LR
 
 ## Host 服务
 
-Server 入口导出 `create(context)`。可用字段见 `packages/plugin-sdk/src/server.ts`：
+Server 源码入口导出 `create(context)`。可用字段见 [server.ts](../packages/plugin-sdk/src/server.ts)：
 
 - `host`：显式 ProjectRef/SessionRef 的 HostApi。
 - `dataDirectory`：插件自己的持久数据目录，卸载默认保留。
@@ -144,13 +165,13 @@ Server 入口导出 `create(context)`。可用字段见 `packages/plugin-sdk/src
 - `provide/services.require`：只使用 manifest 声明的插件间服务。
 - `onDispose`：关闭订阅、计时器、连接和文件句柄。
 
-外部 Server 不能取得内置 Store、PiSessionPool 或 DesktopBridge。协议与 Node 客户端见 [独立 Host](remote.md)。Host 文件接口限定显式目标的工作目录。`files.preview` 分类返回文本、图片或不支持原因；`files.search` 按文件名分页搜索；`files.write` 使用读取修订和幂等键保存现有 UTF-8 文件。文本读取和保存上限为 1 MiB，图片为 8 MiB。保存检查外部修改，保留 BOM、LF/CRLF 与权限；拒绝目录越界和越界符号链接。旧 Host 不提供 `capabilities().fileOperations` 时，文件面板保持只读。
+外部 Server 不能取得内置 Store、PiSessionPool 或 DesktopBridge，不登记 `host.*`、`agent.*` 内部服务依赖。插件间 `requires/provides` 只描述外部服务依赖，App 操作使用 `context.host`。
 
-终端使用 `node-pty`，客户端使用 xterm.js。能力不可用时 `capabilities().features` 不包含 `terminal`。每个 Host 最多 16 个活动终端，每个终端保留 256 KiB 输出；单次输入最多 64 KiB。隐藏面板保留进程，关闭实例或 Host 退出时关闭；关闭右侧标签和切换会话保留进程。重新连接使用 `terminal.attach` 获取当前缓冲；输出事件本身不持久化。
+文件、终端和 Git 面板调用 HostApi，使用显式目标并先检查能力。文件大小、修订冲突、PTY 输出缓冲与关闭规则统一见 [文件与终端](host-api.md#文件与终端)，认证与远程连接见 [Remote](remote.md)。
 
 ## 结构化主题
 
-主题 JSON 保留 `id/name/appearance/colors/fonts`，增加：
+主题字段定义见 [settings.ts](../packages/contracts/src/settings.ts)，可安装的完整示例见 [landscape.json](../plugins/theme-landscape/themes/landscape.json)。下例省略 `colors/fonts`，只展示标识、布局与背景字段：
 
 ```json
 {
@@ -191,6 +212,18 @@ flowchart LR
   Lease --> Dispose["释放旧代码和 UI 贡献"]
 ```
 
-Chord 1.1 的 `reload` 不负责新增/删除 facet 或服务 shape；安装、卸载和依赖变化通过独立作用域完成。调用 gate、任务、工具、子代理、未答交互和 UI 代次仍由 Host 管理。必需服务的唯一提供者不能直接停用。外部插件恢复失败隔离相关组，内置模块初始化失败中止启动。
+Chord 1.1 的 `reload` 只替换已有相同服务 shape 的 facet；安装、卸载和依赖变化通过独立作用域完成。PluginManager 按 `requires/provides` 组装连通依赖组，每组持有独立 Chord host 和释放作用域：
+
+- 纯 Agent 版本可共存，新任务使用新代次，旧任务持有原租约直到结束。
+- 共享 Server 组切换先阻止新调用，等待相关任务、工具、子代理和未答交互释放，再释放旧资源并创建新版。
+- 服务调用单独持有引用；Git、历史查询等服务更新不等待无关 Agent 会话。
+- UI 贡献绑定插件来源与代次，无关服务组和 UI 贡献继续使用现有版本。
+- 初始化失败重建上一版作用域，持久化失败不先撤销旧版；必需服务的唯一提供者不能直接停用。
+
+Server 产物使用 Chord fresh VM loader，释放后丢弃模块引用，不通过累加 ESM query 参数重载。不可变代码快照没有引用后才回收；卸载默认保留插件数据和 Pi 会话。
+
+启动恢复失败只隔离相关外部组，内置模块初始化失败中止启动。安装清单无法解析时保留 `installed.json`，本次不加载外部项并报告诊断；内置身份冲突不能删除源目录或用户数据。恢复边界见 [external-recovery.test.ts](../packages/plugin-runtime/tests/external-recovery.test.ts)。
 
 插件是可信 Host 代码，不是恶意代码沙箱。Pi 和 Host 二进制升级随应用发布，不能通过插件热更新。
+
+源码与测试：[插件管理器](../packages/plugin-runtime/src/manager.ts)、[释放作用域](../packages/plugin-sdk/src/scope.ts)、[运行时测试](../packages/plugin-runtime/tests/)、[Host 内置边界测试](../packages/host/tests/builtin-modules.test.ts)。

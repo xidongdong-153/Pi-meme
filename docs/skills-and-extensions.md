@@ -1,4 +1,21 @@
-# 技能与 App 资源管理
+---
+description: '技能来源、导入编辑、调用策略、Host RPC 和 Worker 不可变资源快照'
+status: implemented
+paths:
+  - 'packages/resources/**'
+  - 'packages/contracts/src/resources.ts'
+  - 'packages/contracts/src/skills.ts'
+  - 'packages/client/src/resource-client.ts'
+  - 'packages/pi-runtime/src/sdk/resource-loader.ts'
+  - 'packages/pi-runtime/src/skill-prompt.ts'
+  - 'packages/pi-runtime/src/extensions/skill-usage.ts'
+  - 'packages/app-ui/src/skill-page.tsx'
+  - 'pi/skills/**'
+---
+
+# 技能与 App 资源
+
+技能由 Host 统一扫描与管理，裸 Pi 扩展不在支持范围。配置与凭据见 [配置与安全](configuration.md)，插件开发见 [App 插件](plugins.md)。
 
 设置集成区只有“技能、插件、MCP”三个独立入口。技能页管理技能，插件页管理 App 插件，不共用 Tab 或类型筛选；AI 模型配置位于个人区的模型页。目录查询不需要启动模型；用于当前聊天时，技能必须进入当前会话的有效清单。
 
@@ -31,11 +48,13 @@ Host 数据根默认为 `~/.pi-meme`，可用 `PI_MEME_DATA_ROOT` 修改：
 | App 插件    | App SDK 2 manifest、构建目录或 `.pim` | Server、Agent、UI 入口及包内技能、主题和素材 |
 | MCP         | 服务配置、授权与连接状态              | 内置 MCP 客户端连接明确授权的服务            |
 
-App 插件开发方式见 [插件文档](plugins.md)，模型配置与 MCP 通过各自设置页管理。App Server 由 Host 全局管理，不为每个项目另建实例。
+模型配置与 MCP 通过各自设置页管理，文件与授权规则见 [配置与安全](configuration.md)。App Server 由 Host 全局管理，不为每个项目另建实例。
+
+资源扫描、冲突与快照由 [ResourceStore](../packages/resources/src/server/resource-store.ts) 管理。内置 `skill-creator` 源码在 [pi/skills/skill-creator](../pi/skills/skill-creator/)，Desktop 与 Server 构建携带完整目录，Host 启动复制到 `builtin-resources/skills/skill-creator`，不改用户技能目录；见 [install-builtin-skills.ts](../packages/resources/src/server/install-builtin-skills.ts)。
 
 ## 导入与编辑
 
-技能导入接受 `SKILL.md`、完整技能目录或自包含 ZIP；App 插件使用构建目录或 `.pim` 安装。ZIP 支持普通存储和 Deflate，不支持加密、软链接、分卷和 ZIP64。上传和解压内容上限均为 32 MiB；目录与文件列表不能越过包根。导入只保存已有文件，不安装 npm 依赖、不执行安装脚本，也不执行构建。
+导入、ZIP 解包和路径校验见 [resource-files.ts](../packages/resources/src/server/resource-files.ts)。技能导入接受 `SKILL.md`、完整技能目录或自包含 ZIP；App 插件使用构建目录或 `.pim` 安装。ZIP 支持普通存储和 Deflate，不支持加密、软链接、分卷和 ZIP64。上传和解压内容上限均为 32 MiB；目录与文件列表不能越过包根。导入只保存已有文件，不安装 npm 依赖、不执行安装脚本，也不执行构建。
 
 一个技能的可移植形式是：
 
@@ -75,7 +94,7 @@ Pi 使用逐步加载：先把可自动调用技能的名称、描述和路径�
 
 输入 `$` 选择技能是显式调用入口。“用于当前聊天”只选择技能并返回输入框，不自动发送。选中项携带 `id`、`revision` 和 `name`；发送时校验当前会话清单，把对应快照中的正文展开成 `<skill>` 内容。资源已删除或修订改变时要求重新选择，不静默替换成同名技能。
 
-`$` 的交互参考 Codex 的显式技能选择，技能正文、自动描述发现和运行时加载继续使用 Pi。技能格式和逐步加载概念可参考 [OpenAI Skills 文档](https://developers.openai.com/plugins/concepts/skills)；Pi 的技能规则见依赖中的 `node_modules/@earendil-works/pi-coding-agent/docs/skills.md`。这不会读取 Codex 配置，也不会把技能变成新的权限来源。
+显式展开见 [skill-prompt.ts](../packages/pi-runtime/src/skill-prompt.ts)，Pi 资源适配见 [resource-loader.ts](../packages/pi-runtime/src/sdk/resource-loader.ts)。正文、描述发现和运行时加载使用 Pi，不读取其他 Agent 配置，也不授予新的权限。
 
 ```mermaid
 %%{init: {"theme": "dark"}}%%
@@ -95,7 +114,7 @@ Worker 创建时固定资源快照，子代理继承父快照。安装、编辑�
 
 ## Host 接口
 
-类型在 `packages/contracts/src/resources.ts`，客户端在 `packages/client/src/resource-client.ts`，处理函数在 `packages/resources/src/server/entry.ts`。调用继续使用已有 `/api/rpc` 协议。
+类型见 [resources.ts](../packages/contracts/src/resources.ts)，客户端见 [resource-client.ts](../packages/client/src/resource-client.ts)，处理函数见 [entry.ts](../packages/resources/src/server/entry.ts)。以下为内置界面的 `/api/rpc` 方法，不是正式 HostApi v2 的方法；外部 App 对系统目标的操作使用 [HostApi](host-api.md)。
 
 | 方法                   | 参数                                 | 结果                                          |
 | ---------------------- | ------------------------------------ | --------------------------------------------- |
@@ -118,6 +137,8 @@ Worker 创建时固定资源快照，子代理继承父快照。安装、编辑�
 
 App SDK 2 的 `resources` 只接受 `skills`、`themes` 和 `assets`。主题用 JSON 描述颜色、字体和可选背景；背景图片必须位于插件包内，并在 `assets` 中声明。Host 为启用插件加载主题，图片通过认证资源 URL 提供。停用或卸载撤销主题并恢复可用的内置主题；不执行主题 JavaScript 或任意 CSS。
 
-App UI 面板位置为 `sidebar`、`workspace`、`right` 和 `bottom`；贡献槽为 `composer`、`composer-actions`、`tool-card`、`message`、`message-actions`、`status`、`settings`。工具和消息贡献校验真实来源与代次，详见 [插件文档](plugins.md)。AppAgent 通过 `context.interaction.request` 提问，不直接使用 Pi UI 或 TUI 组件。
+App UI 面板只允许 `right`；七类贡献槽及工具、消息来源代次校验见 [UI 面板与贡献](plugins.md#ui-面板与贡献)。AppAgent 通过 `context.interaction.request` 提问，不直接使用 Pi UI 或 TUI 组件。
 
 `read-only`、`workspace-write`、`full-access` 三档权限保持不变。技能在原任务权限内读取和执行；MCP 和已选择的外部 AppAgent 只在完全权限普通任务装配；未选择、受限权限和规划模式均不加载外部 AppAgent，规划模式也不运行 MCP。App Server 是可信 Host 代码，Agent 的沙箱限制不会把 Server 变成受限代码。
+
+验证入口：[resources.test.ts](../packages/host/tests/resources.test.ts)、[resource-lifecycle.test.ts](../packages/host/tests/resource-lifecycle.test.ts)、[resource-snapshot.test.ts](../packages/pi-runtime/tests/resource-snapshot.test.ts)。
