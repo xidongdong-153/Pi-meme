@@ -158,13 +158,6 @@ export function SizeControl({
     </div>
   )
 }
-function monospace(family: string) {
-  const canvas = document.createElement('canvas')
-  const context = canvas.getContext('2d')
-  if (!context) return false
-  context.font = `16px ${JSON.stringify(family)}, monospace`
-  return Math.abs(context.measureText('iiiiiiii').width - context.measureText('WWWWWWWW').width) < 0.1
-}
 export function FontControl({
   label,
   value,
@@ -188,15 +181,11 @@ export function FontControl({
 }) {
   const [search, setSearch] = useState('')
   const [open, setOpen] = useState(false)
-  const [mono, setMono] = useState<Set<string>>(new Set())
-  useEffect(() => {
-    if (code && open) setMono(new Set(fonts.filter((font) => monospace(font.family)).map((font) => font.family)))
-  }, [fonts, code, open])
   const system = code
     ? 'ui-monospace, SFMono-Regular, Menlo, monospace'
     : '-apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif'
   const visible = fonts.filter((font) => font.family.toLowerCase().includes(search.toLowerCase()))
-  if (code) visible.sort((a, b) => Number(mono.has(b.family)) - Number(mono.has(a.family)))
+  if (code) visible.sort((a, b) => Number(b.monospace) - Number(a.monospace))
   const text =
     !value || value === 'inherit'
       ? inherit
@@ -206,13 +195,7 @@ export function FontControl({
         ? '系统'
         : value.split(',')[0].replaceAll('"', '')
   return (
-    <Popover
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next)
-        if (next) load()
-      }}
-    >
+    <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
         <Button variant="outline" aria-label={label} className="h-8 max-w-56 gap-3 rounded-full text-sm">
           <span className="truncate">{text}</span>

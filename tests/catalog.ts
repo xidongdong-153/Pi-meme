@@ -67,6 +67,7 @@ const files: Array<[string, Feature[]]> = [
   ['apps/web/tests/sessions.e2e.spec.ts', ['sessions', 'chat']],
   ['apps/web/tests/settings.e2e.spec.ts', ['settings', 'skills', 'plugins', 'mcp']],
   ['packages/app-ui/tests/agent-conversation-store.unit.test.ts', ['subagents']],
+  ['packages/app-ui/tests/appearance-fonts.component.test.tsx', ['settings']],
   ['packages/app-ui/tests/composer-drafts.unit.test.ts', ['chat', 'sessions']],
   ['packages/app-ui/tests/conversation-error-surfaces.unit.test.ts', ['chat']],
   ['packages/app-ui/tests/error-notice.component.test.tsx', ['chat', 'connection']],

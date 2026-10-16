@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { test } from 'vitest'
+import { afterEach, test, vi } from 'vitest'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -16,9 +16,20 @@ import {
 } from '../src/shared/appearance'
 import { builtinThemes, parseTheme } from '../src/shared/themes'
 import { SettingsStore } from '../src/server/store'
-import { parseInstalledFonts } from '../src/server/fonts'
+import { getInstalledFonts, parseInstalledFonts } from '../src/server/fonts'
 import { AppearanceSaver } from '../src/ui/appearance-save'
 import type { AppearanceSettings, SettingsSnapshot } from '@pi-meme/contracts/settings'
+
+const executeFonts = vi.hoisted(() => vi.fn())
+vi.mock('node:child_process', async (importOriginal) => {
+  const childProcess = await importOriginal<typeof import('node:child_process')>()
+  const { promisify } = await import('node:util')
+  return {
+    ...childProcess,
+    execFile: Object.assign(vi.fn(), { [promisify.custom]: executeFonts }),
+  }
+})
+afterEach(() => vi.unstubAllGlobals())
 
 function snapshot(appearance: AppearanceSettings): SettingsSnapshot {
   return {
@@ -120,20 +131,89 @@ test('读取旧配置不写文件，独立保存保留运行配置，导入导�
     await rm(directory, { recursive: true, force: true })
   }
 })
-test('本机字体按字体族合并实际样式，拒绝无效字体列表', () => {
-  const fonts = parseInstalledFonts({
-    SPFontsDataType: [
-      {
-        typefaces: [
-          { family: 'Mono', style: 'Regular' },
-          { family: 'Mono', style: 'Bold Italic' },
-          { family: 'Hidden', enabled: 'no' },
-        ],
-      },
-    ],
-  })
-  assert.deepEqual(fonts, [{ family: 'Mono', styles: ['regular', 'bold-italic'] }])
-  assert.throws(() => parseInstalledFonts({}), /格式无效/)
+test('原生字体保留中文名，合并字体族的实际样式和等宽属性', () => {
+  const fonts = parseInstalledFonts([
+    { family: '苹方-简', members: [['PingFangSC-Regular', '常规', 5, 0]] },
+    {
+      family: 'Mono',
+      members: [
+        ['Mono-Regular', 'Regular', 5, 1028],
+        ['Mono-Oblique', '倾斜', 5, 1025],
+      ],
+    },
+    {
+      family: 'Mono',
+      members: [
+        ['Mono-Bold', '粗体', 9, 1026],
+        ['Mono-BoldItalic', '粗斜体', 9, 1027],
+        ['Mono-Regular', 'Regular', 5, 1028],
+      ],
+    },
+    { family: 'Light Only', members: [['LightOnly', 'Light', 3, 0]] },
+  ])
+  assert.deepEqual(
+    fonts.find((font) => font.family === 'Mono'),
+    { family: 'Mono', styles: ['regular', 'italic', 'bold', 'bold-italic'], monospace: true },
+  )
+  assert.deepEqual(
+    fonts.find((font) => font.family === '苹方-简'),
+    {
+      family: '苹方-简',
+      styles: ['regular'],
+      monospace: false,
+    },
+  )
+  assert.equal(fonts.length, 2)
+  assert.deepEqual(
+    fonts,
+    [...fonts].sort((a, b) => a.family.localeCompare(b.family)),
+  )
+  assert.deepEqual(parseInstalledFonts([]), [])
+})
+test('原生字体数据结构无效时拒绝读取，不把损坏数据缓存为空列表', () => {
+  for (const value of [
+    null,
+    {},
+    { SPFontsDataType: [] },
+    [null],
+    [{ family: '', members: [] }],
+    [{ family: 'Invalid', members: null }],
+    [{ family: 'Invalid', members: [[]] }],
+    [{ family: 'Invalid', members: [['Invalid', 'Regular', 5, '1024']] }],
+  ])
+    assert.throws(() => parseInstalledFonts(value), /格式无效/)
+})
+test('字体读取失败和解析失败可重试，并发与成功结果共用 Host 缓存', async () => {
+  vi.stubGlobal('process', { ...process, platform: 'darwin' })
+  executeFonts.mockReset()
+  executeFonts
+    .mockRejectedValueOnce(new Error('测试权限不足'))
+    .mockResolvedValueOnce({ stdout: '{bad' })
+    .mockResolvedValueOnce({ stdout: '[{"family":"Mono","members":[["Mono-Regular","Regular",5,1028]]}]' })
+  const first = getInstalledFonts()
+  assert.equal(first, getInstalledFonts())
+  await assert.rejects(first, /无法读取系统字体.*测试权限不足/)
+  await assert.rejects(getInstalledFonts(), /无法读取系统字体/)
+  const retry = getInstalledFonts()
+  assert.equal(retry, getInstalledFonts())
+  const fonts = await retry
+  assert.deepEqual(fonts, [{ family: 'Mono', styles: ['regular'], monospace: true }])
+  assert.equal(getInstalledFonts(), retry)
+  assert.equal(await getInstalledFonts(), fonts)
+  assert.equal(executeFonts.mock.calls.length, 3)
+  const [command, args, options] = executeFonts.mock.calls[0]
+  assert.equal(command, '/usr/bin/osascript')
+  assert.deepEqual(args.slice(0, 3), ['-l', 'JavaScript', '-e'])
+  assert.match(args[3], /NSFontManager/)
+  assert.deepEqual(options, { timeout: 5000, maxBuffer: 1024 * 1024 })
+})
+test('非 macOS Host 不启动字体枚举，保持空列表', async () => {
+  executeFonts.mockReset()
+  for (const platform of ['linux', 'win32']) {
+    vi.stubGlobal('process', { ...process, platform })
+    assert.deepEqual(await getInstalledFonts(), [])
+  }
+  assert.equal(executeFonts.mock.calls.length, 0)
 })
 test('连续修改合并保存，保存过程中更新不被旧结果覆盖，离开页面立即刷新', async () => {
   const calls: number[] = []

@@ -125,4 +125,4 @@ export type AppearanceSettings = {
   translucentSidebar: boolean
   contrast: number
 }
-export type InstalledFont = { family: string; styles: FontStyle[] }
+export type InstalledFont = { family: string; styles: FontStyle[]; monospace: boolean }

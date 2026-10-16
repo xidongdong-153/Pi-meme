@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Download, FolderOpen, RefreshCw, Upload } from 'lucide-react'
 import type {
   AppearanceOverrides,
@@ -69,16 +69,38 @@ export function ThemeSettings({
   const loaded = useRef(false)
   const loading = useRef(false)
   const live = useRef(true)
-  const callbacks = useRef({ onPreview, onFlush })
-  callbacks.current = { onPreview, onFlush }
+  const callbacks = useRef({ onPreview, onFlush, loadFonts })
+  callbacks.current = { onPreview, onFlush, loadFonts }
+  const getFonts = useCallback(() => {
+    if (loaded.current || loading.current) return
+    loading.current = true
+    setFontLoading(true)
+    setFontError('')
+    void callbacks.current
+      .loadFonts()
+      .then((next) => {
+        if (live.current) {
+          setFonts(next)
+          loaded.current = true
+        }
+      })
+      .catch((cause) => {
+        if (live.current) setFontError(String(cause))
+      })
+      .finally(() => {
+        loading.current = false
+        if (live.current) setFontLoading(false)
+      })
+  }, [])
   useEffect(() => {
     live.current = true
+    getFonts()
     return () => {
       live.current = false
       callbacks.current.onPreview(null)
       void callbacks.current.onFlush()
     }
-  }, [])
+  }, [getFonts])
   useEffect(() => {
     callbacks.current.onPreview(value.separate ? editing : null)
   }, [editing, value.separate])
@@ -97,26 +119,6 @@ export function ThemeSettings({
     if (next) colors[key] = next
     else delete colors[key]
     override({ colors })
-  }
-  function getFonts() {
-    if (loaded.current || loading.current) return
-    loading.current = true
-    setFontLoading(true)
-    setFontError('')
-    void loadFonts()
-      .then((next) => {
-        if (live.current) {
-          setFonts(next)
-          loaded.current = true
-        }
-      })
-      .catch((cause) => {
-        if (live.current) setFontError(String(cause))
-      })
-      .finally(() => {
-        loading.current = false
-        if (live.current) setFontLoading(false)
-      })
   }
   function font(role: FontRole, next?: string) {
     const nextFonts = { ...overrides.fonts }
@@ -160,7 +162,7 @@ export function ThemeSettings({
       (role === 'content' && theme.fonts.content === theme.fonts.ui ? theme.fontStyles?.ui : undefined) ??
       'regular'
     return (
-      <span onFocus={getFonts}>
+      <span>
         <Choice
           label={label}
           value={style}
