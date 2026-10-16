@@ -84,7 +84,6 @@ const files: Array<[string, Feature[]]> = [
   ['packages/app-ui/tests/plugin-snapshot-sync.unit.test.ts', ['plugins']],
   ['packages/app-ui/tests/right-sidebar.component.test.tsx', ['desktop']],
   ['packages/app-ui/tests/session-coordination.unit.test.ts', ['sessions']],
-  ['packages/app-ui/tests/settings-page.unit.test.ts', ['settings']],
   ['packages/app-ui/tests/storage-settings.component.test.tsx', ['settings']],
   ['packages/app-ui/tests/skill-page.unit.test.ts', ['skills']],
   ['packages/app-ui/tests/startup-splash.unit.test.ts', ['desktop']],

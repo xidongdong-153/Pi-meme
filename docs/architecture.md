@@ -109,7 +109,7 @@ Host 与 app-ui 是组合根。基础包和契约不得反向依赖业务实现�
 
 “系统插件”是插件页面中的工具展示分类，不是全部内置服务的启停清单。[system-plugins.ts](../packages/plugin-sdk/src/system-plugins.ts) 只列出变更、文件、终端，始终启用。文件和终端的 UI 分别在 [file-directory](../packages/file-directory/src/ui/) 和 [terminal](../packages/terminal/src/ui/)，底层操作由 HostApi 提供。
 
-外部 App 插件由用户安装，进入独立启停、卸载和更新流程。内置身份冲突在执行外部入口前拒绝；内置初始化失败中止 Host，外部插件恢复失败隔离相关依赖组并保留诊断。对应测试见 [builtin-modules.test.ts](../packages/host/tests/builtin-modules.test.ts)。
+外部 App 插件由用户安装，进入独立启停、卸载和更新流程。内置身份冲突在执行外部入口前拒绝；内置初始化失败中止 Host，外部插件恢复失败隔离相关依赖组并保留诊断。对应测试见 [builtin-modules.integration.test.ts](../packages/host/tests/builtin-modules.integration.test.ts)。
 
 ## 界面组合
 

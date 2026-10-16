@@ -56,41 +56,47 @@ paths:
 
 ## 质量检查
 
-代码修改后按顺序执行，前一项通过后再执行下一项：
+代码任务收尾按顺序执行一轮，前一项通过后再执行下一项。类型检查保留全仓，Lint 和 Format 只检查本任务修改且仍存在的适用文件。以下以一个测试文件为例，实际传入全部适用的本任务变更文件：
 
 ```bash
 pnpm type-check
-pnpm lint
-pnpm format
+pnpm exec eslint packages/contracts/tests/plan-message.unit.test.ts
+pnpm exec prettier --check packages/contracts/tests/plan-message.unit.test.ts
 ```
 
-`format` 运行 `prettier --check .`，不会写文件。只修本次改动引入的问题，既有错误单独报告。仅修改文档时检查文档格式、链接、来源路径和图示，不无条件运行应用构建。
+变更文件包含本任务新增和暂存的文件，不包含已有无关改动或已删除路径；Markdown 不传给 ESLint。失败修复后重跑受影响的检查，只修本次改动引入的问题，既有错误单独报告。仅修改文档时检查文档格式、链接、来源路径和图示，不运行类型检查或应用构建。
 
-按改动范围继续验证，选测表和完整命令见 [测试](testing.md)。
+`pnpm lint` 和 `pnpm format` 仍为全仓命令，供 CI 或明确的全仓检查使用；Format 只检查，不写文件。涉及包依赖、导入方向或 UI/进程边界时补跑 `pnpm check-boundaries`。
 
-| 命令                                                    | 用途                                        |
-| ------------------------------------------------------- | ------------------------------------------- |
-| `pnpm check-boundaries`                                 | 包依赖声明、导入方向与 UI/进程边界          |
-| `pnpm test --feature chat`                              | 聊天功能跨包的单元、组件和集成测试          |
-| `pnpm test --feature plugins --layer integration`       | 插件集成测试                                |
-| `pnpm test --file <路径> --name <名称模式>`             | 单文件中的指定用例                          |
-| `pnpm test --all --layer artifact --target server`      | 构建并验证 Server 产物                      |
-| `pnpm test --all --layer e2e,artifact --target desktop` | 构建并验证开发态 Electron 与真实 macOS 应用 |
-| `pnpm test:all`                                         | 当前平台支持的全部测试与产物验收            |
+日常测试优先使用 `--file`，需要时用 `--name` 缩到用例；确需跨包验证时才用 `--feature`。普通新功能不强制补测试，文案、CSS、普通布局不新增展示细节断言。修 bug 先最窄复现，必要时补最小回归；会话持久化、存储迁移、凭据、认证和权限改动保留针对性验证。具体新增条件和扩大范围索引见 [测试](testing.md)。
+
+| 命令                                                    | 用途                                      |
+| ------------------------------------------------------- | ----------------------------------------- |
+| `pnpm check-boundaries`                                 | 包依赖声明、导入方向与 UI/进程边界        |
+| `pnpm test --file <路径> --name <名称模式>`             | 日常优先：单文件中的指定用例              |
+| `pnpm test --feature chat`                              | 确需扩大时：聊天功能跨包源码测试          |
+| `pnpm test --feature plugins --layer integration`       | 确需扩大时：插件集成测试                  |
+| `pnpm test --feature testing`                           | 测试清单、选测入口和配置改动              |
+| `pnpm test --all --list`                                | 只检查完整清单，不执行或构建              |
+| `pnpm test --all --layer artifact --target server`      | 明确验收时：构建并验证 Server 产物        |
+| `pnpm test --all --layer e2e,artifact --target desktop` | 明确验收时：Desktop E2E 与真实 macOS 应用 |
+| `pnpm test:all`                                         | 明确完整验收时：当前平台全部测试与产物    |
 
 测试归所属包；共享假模型与测试环境在 [tests/fixtures](../tests/fixtures/)。测试使用临时数据目录，不调用真实模型、不读写真实凭据或会话。新增测试必须登记到 [catalog.ts](../tests/catalog.ts)，登记完整性由 `testing` 功能检查。
 
-Linux PR 检查运行源码测试和 Web 核心流程；手动 [完整测试](../.github/workflows/full-tests.yml) 分别运行 Linux、macOS 验收。配置存在不表示本次运行过远程 CI。
+日常 [Linux CI](../.github/workflows/linux.yml) 保留全仓静态检查、包边界检查和全部源码测试，不安装浏览器或运行 Web E2E；手动 [完整测试](../.github/workflows/full-tests.yml) 保留 Linux、macOS 的 Web E2E 和对应平台产物验收。修改测试清单或入口只验证 `testing` 和受影响文件，不自动运行 `test:all`。
+
+未经用户明确要求相应验收，普通 Agent 任务不运行或等待全量测试、E2E、打包和产物验收；窗口、preload、IPC、打包接线和测试基础设施改动也不例外。报告已通过、未运行的检查与剩余风险，不把本地任务完成写成发布验收通过；配置存在不表示本次运行过远程 CI。
 
 ## macOS 打包与验收
 
-使用 Node.js 24.14.0。Forge 退出成功后仍要验证实际 `.app`。修改窗口、preload、平台 IPC 或打包接线时运行：
+使用 Node.js 24.14.0。Forge 退出成功后仍要验证实际 `.app`。只有用户明确要求 Desktop 完整验收时才运行下列命令；普通窗口、preload、平台 IPC 或打包接线改动先验证相关源码，不自动执行它：
 
 ```bash
 pnpm test --all --layer e2e,artifact --target desktop
 ```
 
-入口只打包一次，再运行 Playwright 桌面用例和真实应用验收。正式 `.app` 关闭 Node 调试 Fuse，产物测试直接启动 `Contents/MacOS/pi-meme`，不修改发布配置。报告和截图在 `out/tests/`。
+入口只打包一次，再运行 Playwright 桌面用例和真实应用验收。用户只要求单项验收时，用 `--file` 选择对应文件，不扩大到整套 Desktop。发布前由明确的验收任务或手动完整 workflow 验证目标平台。正式 `.app` 关闭 Node 调试 Fuse，产物测试直接启动 `Contents/MacOS/pi-meme`，不修改发布配置。报告和截图在 `out/tests/`。
 
 `pnpm make` 生成分发包。签名由 [Forge 配置](../apps/desktop/forge.config.ts) 管理：没有证书时使用 ad-hoc 签名，可用 `PI_DESKTOP_SIGNING_IDENTITY` 指定证书。当前没有配置公证或自动更新。
 

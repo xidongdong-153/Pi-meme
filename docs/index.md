@@ -16,7 +16,7 @@ pi-meme 的 Desktop 和 Web 共用 Node Host。应用入口在 `apps/`，基础�
 | ------------------------------------------- | ------------------------------------------------- | ---------------------- | ------------------------------------------------------------ |
 | [快速开始](getting-started.md)              | 安装依赖，启动 Desktop、Web 和构建后的 Server     | 现状                   | `apps/desktop`、`apps/server`、`apps/web`                    |
 | [开发与验证](development.md)                | 确定修改位置、质量检查、测试与打包命令            | 现状                   | `package.json`、`scripts/`、`tests/`                         |
-| [测试](testing.md)                          | 按功能、文件和测试层次选择验证范围                | 现状                   | `tests/catalog.ts`、`scripts/test.mts`                       |
+| [测试](testing.md)                          | 区分日常文件级验证、CI 与手动完整验收             | 现状                   | `tests/catalog.ts`、`scripts/test.mts`                       |
 | [架构](architecture.md)                     | 理解进程、Host 复用、组合根、包边界和内置模块     | 现状                   | `packages/host`、`packages/app-ui`、`packages/pi-*`          |
 | [会话与协作](sessions.md)                   | 查会话生命周期、子代理、消息队列与计划保存        | 现状                   | `packages/pi-runtime`、`packages/subagents`、`packages/chat` |
 | [配置与安全](configuration.md)              | 查配置文件、凭据、权限和沙箱边界                  | 现状                   | `packages/settings`、`packages/models`、`packages/mcp`       |

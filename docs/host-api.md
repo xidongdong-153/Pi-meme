@@ -9,9 +9,9 @@ paths:
   - 'packages/host/src/terminal-service.ts'
   - 'packages/client/src/app-host-client.ts'
   - 'packages/client/src/node-host-client.ts'
-  - 'packages/host/tests/app-control.test.ts'
-  - 'packages/host/tests/control-store.test.ts'
-  - 'packages/host/tests/node-client.test.ts'
+  - 'packages/host/tests/app-control.integration.test.ts'
+  - 'packages/host/tests/control-store.integration.test.ts'
+  - 'packages/host/tests/node-client.integration.test.ts'
 ---
 
 # HostApi v2
@@ -163,7 +163,7 @@ try {
 
 客户端处理 Cookie 登录、401 续期、事件重连和序号去重，拒绝 Host 身份变化。远程地址要求无账号信息的 HTTPS，本机回环允许 HTTP。示例只查询当前回执，不等待执行完成；同一业务操作重试时保留幂等键。
 
-验证入口：[app-control.test.ts](../packages/host/tests/app-control.test.ts)、[control-store.test.ts](../packages/host/tests/control-store.test.ts)、[node-client.test.ts](../packages/host/tests/node-client.test.ts)、[workspace-files.test.ts](../packages/host/tests/workspace-files.test.ts) 和 [terminal-service.test.ts](../packages/host/tests/terminal-service.test.ts)。
+验证入口：[app-control.integration.test.ts](../packages/host/tests/app-control.integration.test.ts)、[control-store.integration.test.ts](../packages/host/tests/control-store.integration.test.ts)、[node-client.integration.test.ts](../packages/host/tests/node-client.integration.test.ts)、[workspace-files.integration.test.ts](../packages/host/tests/workspace-files.integration.test.ts) 和 [terminal-service.unit.test.ts](../packages/host/tests/terminal-service.unit.test.ts)。
 
 ## 待确认规划：Bot 接入
 

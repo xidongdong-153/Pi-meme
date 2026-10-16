@@ -7,8 +7,8 @@ paths:
   - 'packages/host/src/data-root.ts'
   - 'packages/pi-runtime/src/sdk/linux-sandbox.ts'
   - 'packages/pi-runtime/src/sdk/access-sandbox.ts'
-  - 'packages/pi-runtime/tests/linux-sandbox.test.ts'
-  - 'apps/server/tests/restricted-dist.test.ts'
+  - 'packages/pi-runtime/tests/linux-sandbox.integration.test.ts'
+  - 'apps/server/tests/restricted-dist.artifact.test.ts'
   - '.github/workflows/linux.yml'
 ---
 
@@ -72,17 +72,28 @@ Linux 返回空的可选系统字体列表，界面保留跟随主题、系统�
 
 ## 检查
 
+本地开发按 [开发与验证](development.md) 保留全仓类型检查，只对变更文件执行 Lint、Format，并选择直接相关的源码测试。普通任务不自动运行全量测试、E2E、构建或产物验收。
+
+日常 [Linux CI](../.github/workflows/linux.yml) 使用 Ubuntu 24.04、Node.js 24.14.0、pnpm 10.29.1，安装 bubblewrap 后执行全仓静态检查和源码测试：
+
 ```bash
 pnpm type-check
 pnpm lint
 pnpm format
 pnpm check-boundaries
 pnpm test --all --layer unit,component,integration
-pnpm build:web
+```
+
+日常 CI 不安装浏览器、不运行 Web E2E。Linux 受限回归遇到探测失败会失败，不能用 skip 代替安装依赖。WSL 互操作测试只在真实 WSL2 执行，原生 CI 会明确跳过该项。
+
+用户明确要求平台完整验收时，手动触发 [完整测试](../.github/workflows/full-tests.yml)。单独验收 Web E2E 或 Server 产物时可以选择下列范围，入口会准备必要构建；本地 Web E2E 需先安装 Chromium，见 [测试环境](testing.md#环境报告与完整验收)：
+
+```bash
+pnpm test --all --layer e2e --target web
 pnpm test --all --layer artifact --target server
 ```
 
-[Linux CI](../.github/workflows/linux.yml) 配置使用 Ubuntu 24.04、Node.js 24.14.0、pnpm 10.29.1，安装 bubblewrap 后执行这些命令。Linux 受限回归遇到探测失败会失败，不能用 skip 代替安装依赖。WSL 互操作测试只在真实 WSL2 执行，原生 CI 会明确跳过该项。
+这些是手动验收命令，不是普通开发任务的完成条件。
 
 Server 产物测试构建后从实际产物执行默认工作区权限，覆盖 bash/write/edit、越界、只读和重启恢复；同时保留完全权限下外部工具、MCP、子代理和计划测试。通用测试覆盖主任务、子代理、规划模式、codemode 嵌套调用、权限不可用及 setsid 后代清理。测试只使用临时数据与假模型。
 
@@ -90,7 +101,7 @@ Windows 访问另外验收：从 Windows 浏览器访问两个 localhost 地址�
 
 Linux 不执行 macOS Desktop 的 e2e 和 artifact 层。macOS 回归需在 macOS 机器上运行。当前 Linux/WSL2 支持范围为 Host/Web，不包含 Linux Electron、Windows 原生 Host、WSL1、Alpine/musl 和 systemd 安装。
 
-平台回归见 [linux-sandbox.test.ts](../packages/pi-runtime/tests/linux-sandbox.test.ts) 和 [restricted-dist.test.ts](../apps/server/tests/restricted-dist.test.ts)。通用命令与 macOS 验收条件见 [开发与验证](development.md)。
+平台回归见 [linux-sandbox.integration.test.ts](../packages/pi-runtime/tests/linux-sandbox.integration.test.ts) 和 [restricted-dist.artifact.test.ts](../apps/server/tests/restricted-dist.artifact.test.ts)。通用命令与 macOS 验收条件见 [开发与验证](development.md)。
 
 ## WSL 历史验收记录
 

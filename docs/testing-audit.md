@@ -13,11 +13,25 @@ paths:
 
 ## 清单与判定
 
-原有 149 个常规测试文件与 2 个独立打包测试均有下表对应记录。当前登记 176 个测试文件：unit 69、component 8、integration 82、e2e 13、artifact 4。
+原有 149 个常规测试文件与 2 个独立打包测试均有下表对应记录。当前登记 191 个测试文件：unit 73、component 11、integration 87、e2e 15、artifact 5。
 
 保留的测试验证公开输入和可观察结果：状态投影、参数校验、目标隔离、持久化、真实协议、Worker、SDK、插件和权限边界。跨包覆盖可以承担业务包的集成验证，不以每个包都有测试文件为目标。
 
 组件测试验证真实挂载、effect、点击、键盘、失败提示和回调。保留的 SSR 测试只用于初始结构、只读边界、可访问属性和消息展示契约；它们不代表状态更新或布局已验证。布局、焦点、图片、原生键盘与对话框由 E2E 验证。
+
+## 展示断言清理
+
+删除下列六个只检查导航、页面标签或说明文案的用例，以及 CSS 字符串断言。不以删文件数量为目标，不因耗时删除数据、凭据、权限或真实产物保护。执行范围与新增条件见 [测试](testing.md)。
+
+| 文件                                                                                | 处理                                                              |
+| ----------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `packages/app-ui/tests/settings-page.unit.test.ts`                                  | 删除整个文件的两个用例及清单登记，不再检查导航排列和 CSS class    |
+| [plugin-page.unit.test.ts](../packages/app-ui/tests/plugin-page.unit.test.ts)       | 删除一个说明文案用例，保留内置插件条目过滤行为                    |
+| [skill-page.unit.test.ts](../packages/app-ui/tests/skill-page.unit.test.ts)         | 删除三个导航、标签和静态入口用例，保留草稿插入技能标记行为        |
+| [startup-splash.unit.test.ts](../packages/app-ui/tests/startup-splash.unit.test.ts) | 删除品牌文案与 CSS 标记断言，保留忙碌状态、退出状态和时序计算     |
+| [panel-layout.unit.test.ts](../packages/app-ui/tests/panel-layout.unit.test.ts)     | 删除完整 CSS class 字符串断言，保留面板状态、目标隔离和可用性验证 |
+
+## 原有测试处理位置
 
 | 原文件                                                      | 处理结论                                                           | 当前位置                                                                                                                                                                                                                                                                                                                                          |
 | ----------------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -31,7 +45,7 @@ paths:
 | `packages/app-ui/tests/composer-drafts.test.ts`             | 保留行为断言，迁移运行器与生命周期                                 | [composer-drafts.unit.test.ts](../packages/app-ui/tests/composer-drafts.unit.test.ts)                                                                                                                                                                                                                                                             |
 | `packages/app-ui/tests/conversation-error-surfaces.test.ts` | 保留行为断言，迁移运行器与生命周期                                 | [conversation-error-surfaces.unit.test.ts](../packages/app-ui/tests/conversation-error-surfaces.unit.test.ts)                                                                                                                                                                                                                                     |
 | `packages/app-ui/tests/error-notice.test.ts`                | 改为真实挂载与交互，移除 SSR 代替交互或 React 私有 dispatcher 操作 | [error-notice.component.test.tsx](../packages/app-ui/tests/error-notice.component.test.tsx)                                                                                                                                                                                                                                                       |
-| `packages/app-ui/tests/integration-pages.test.ts`           | 按功能拆分，公共准备移到同包 fixture                               | [skill-page.unit.test.ts](../packages/app-ui/tests/skill-page.unit.test.ts)、[plugin-page.unit.test.ts](../packages/app-ui/tests/plugin-page.unit.test.ts)、[settings-page.unit.test.ts](../packages/app-ui/tests/settings-page.unit.test.ts)                                                                                                     |
+| `packages/app-ui/tests/integration-pages.test.ts`           | 按功能拆分，公共准备移到同包 fixture                               | [skill-page.unit.test.ts](../packages/app-ui/tests/skill-page.unit.test.ts)、[plugin-page.unit.test.ts](../packages/app-ui/tests/plugin-page.unit.test.ts)                                                                                                                                                                                        |
 | `packages/app-ui/tests/multi-service-sidebar.test.ts`       | 保留行为断言，迁移运行器与生命周期                                 | [multi-service-sidebar.unit.test.ts](../packages/app-ui/tests/multi-service-sidebar.unit.test.ts)                                                                                                                                                                                                                                                 |
 | `packages/app-ui/tests/panel-layout.test.ts`                | 保留行为断言，迁移运行器与生命周期                                 | [panel-layout.unit.test.ts](../packages/app-ui/tests/panel-layout.unit.test.ts)                                                                                                                                                                                                                                                                   |
 | `packages/app-ui/tests/pause-sidebar.test.ts`               | 保留行为断言，迁移运行器与生命周期                                 | [pause-sidebar.unit.test.ts](../packages/app-ui/tests/pause-sidebar.unit.test.ts)                                                                                                                                                                                                                                                                 |
@@ -201,7 +215,9 @@ Vitest 默认保持文件隔离，完整运行限制四个 worker；Playwright �
 
 命令与选测表见 [测试](testing.md)。
 
-## 本次验证
+## 既有完整验收记录
+
+以下是既有验收记录，不表示本轮展示断言清理重新执行了完整验收。当前执行状态以测试报告为准。
 
 2026-10-16 在 macOS arm64、Node.js 24.14.0、pnpm 10.29.1 上执行：
 

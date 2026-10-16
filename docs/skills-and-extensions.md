@@ -143,4 +143,4 @@ App UI 面板只允许 `right`；七类贡献槽及工具、消息来源代次�
 
 `read-only`、`workspace-write`、`full-access` 三档权限保持不变。技能在原任务权限内读取和执行；MCP 和已选择的外部 AppAgent 只在完全权限普通任务装配；未选择、受限权限和规划模式均不加载外部 AppAgent，规划模式也不运行 MCP。App Server 是可信 Host 代码，Agent 的沙箱限制不会把 Server 变成受限代码。
 
-验证入口：[resources.test.ts](../packages/host/tests/resources.test.ts)、[resource-lifecycle.test.ts](../packages/host/tests/resource-lifecycle.test.ts)、[resource-snapshot.test.ts](../packages/pi-runtime/tests/resource-snapshot.test.ts)。
+验证入口：[resources.integration.test.ts](../packages/host/tests/resources.integration.test.ts)、[resource-lifecycle.integration.test.ts](../packages/host/tests/resource-lifecycle.integration.test.ts)、[resource-snapshot.integration.test.ts](../packages/pi-runtime/tests/resource-snapshot.integration.test.ts)。

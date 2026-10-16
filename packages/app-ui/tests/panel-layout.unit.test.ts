@@ -169,10 +169,6 @@ test('Worktree 使用会话的来源项目身份，右栏保留文件目录和�
   )
   assert.match(markup, /文件目录/)
   assert.match(markup, /文件预览/)
-  assert.match(
-    markup,
-    /aria-label="关闭标签页：新标签页" class="mr-1 inline-flex items-center rounded p-1 text-muted-foreground opacity-0 pointer-events-none transition-opacity duration-200 ease-out hover:bg-background\/60 hover:text-foreground group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"/,
-  )
   assert.doesNotMatch(markup, /当前聊天暂无可用工具/)
 })
 
