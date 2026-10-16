@@ -29,6 +29,7 @@ test('文件与 Git 面板始终保留聊天，关闭标签后可重新打开', 
   await expect(page.getByRole('combobox', { name: '消息', exact: true })).toBeVisible()
   await openTool(page, '变更')
   await expect(page.getByRole('tabpanel', { name: '变更', exact: true })).toBeVisible()
+  await page.getByRole('tab', { name: '变更', exact: true }).hover()
   await page.getByRole('button', { name: '关闭标签页：变更', exact: true }).click()
   await expect(page.getByRole('tab', { name: '变更', exact: true })).toHaveCount(0)
   await openTool(page, '变更')

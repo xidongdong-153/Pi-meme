@@ -207,7 +207,7 @@ export function WorkspacePanels({
                   return (
                     <div
                       key={id}
-                      className={`flex min-w-0 shrink-0 items-center rounded-lg border ${active === id ? 'border-border/70 bg-secondary text-foreground' : 'border-transparent text-muted-foreground hover:bg-secondary/60'}`}
+                      className={`group flex min-w-0 shrink-0 items-center rounded-lg border ${active === id ? 'border-border/70 bg-secondary text-foreground' : 'border-transparent text-muted-foreground hover:bg-secondary/60'}`}
                     >
                       <button
                         type="button"
@@ -227,7 +227,7 @@ export function WorkspacePanels({
                       <button
                         type="button"
                         aria-label={`关闭标签页：${title}`}
-                        className="mr-1 rounded p-1 text-muted-foreground hover:bg-background/60 hover:text-foreground"
+                        className="mr-1 inline-flex items-center rounded p-1 text-muted-foreground opacity-0 pointer-events-none transition-opacity duration-200 ease-out hover:bg-background/60 hover:text-foreground group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                         onClick={() => setLayout((value) => closePanel({ ...value, tabs, active }, id))}
                       >
                         <X className="size-3" />
