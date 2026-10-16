@@ -37,6 +37,7 @@ import { ProjectSelector } from '@pi-meme/workspace/ui/project-selector'
 import { formatSessionTitle } from '@pi-meme/workspace/ui/sidebar/session-title'
 import { useAppSession } from './session/use-app-session'
 import { messageText } from '@pi-meme/chat/ui/model/message-text'
+import { collectTurnChanges } from '@pi-meme/chat/ui/model/turn-changes'
 import { ContextUsageRing } from '@pi-meme/models/ui/context-usage-ring'
 import { useSettings } from '@pi-meme/settings/ui/use-settings'
 import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
@@ -689,6 +690,7 @@ export function App({
                 host.git.diff(props.target.session!, { path, staged: kind === 'staged', kind }),
             }}
             refreshToken={chat.refreshToken}
+            turnChanges={collectTurnChanges(chat.chat.messages, chat.chat.tools)}
           />
         ) : null,
     },

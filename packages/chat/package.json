@@ -45,6 +45,7 @@
     "./ui/model/message-versions": "./src/ui/model/message-versions.ts",
     "./ui/model/state": "./src/ui/model/state.ts",
     "./ui/model/tool-details": "./src/ui/model/tool-details.ts",
+    "./ui/model/turn-changes": "./src/ui/model/turn-changes.ts",
     "./ui/model/types": "./src/ui/model/types.ts",
     "./ui/use-chat-session": "./src/ui/use-chat-session.ts",
     "./ui/composer/transfer-draft": "./src/ui/composer/transfer-draft.ts",

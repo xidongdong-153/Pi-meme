@@ -79,22 +79,22 @@ Host 与 app-ui 是组合根。基础包和契约不得反向依赖业务实现�
 
 [builtin-modules.ts](../packages/host/src/builtin-modules.ts) 每次静态装配 14 个服务模块；两个平台沙箱包按当前平台选一个。内置 UI 由 app-ui 直接组合，不读取外部插件启用记录。
 
-| 模块                              | 职责与源码                                                                                 |
-| --------------------------------- | ------------------------------------------------------------------------------------------ |
-| `chat`                            | [消息、输入、队列与聊天操作](../packages/chat/src/)                                        |
-| `workspace`                       | [项目、会话摘要索引与侧栏](../packages/workspace/src/)                                     |
-| `history`                         | [Pi JSONL 查询、导出和分支树](../packages/history/src/)                                    |
-| `models`                          | [模型配置、发现、默认选择和上下文用量](../packages/models/src/)                            |
-| `settings`                        | [偏好、外观、主题和指令](../packages/settings/src/)                                        |
-| `resources`                       | [技能导入、策略、编辑与资源快照](../packages/resources/src/)                               |
-| `interaction`                     | [Agent 提问、通知、状态与图形交互](../packages/interaction/src/)                           |
-| `subagents`                       | [持续身份、任务树、邮箱、调度与计划元数据](../packages/subagents/src/)                     |
-| `mcp`                             | [服务配置、逐服务授权、诊断和 Pi MCP 扩展](../packages/mcp/src/)                           |
-| `codemode`                        | [Pi codemode 扩展与工具执行设置](../packages/codemode/src/)                                |
-| `permissions`                     | [三档权限与 Agent 权限扩展工厂](../packages/permissions/src/)                              |
-| `sandbox-macos` / `sandbox-linux` | [macOS 沙箱](../packages/sandbox-macos/src/)、[Linux 沙箱](../packages/sandbox-linux/src/) |
-| `usage`                           | [原生会话用量与活动展示](../packages/usage/src/)                                           |
-| `git`                             | [工作区 Git 状态、Diff 与面板](../packages/git/src/)                                       |
+| 模块                              | 职责与源码                                                                                                         |
+| --------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `chat`                            | [消息、输入、队列与聊天操作](../packages/chat/src/)                                                                |
+| `workspace`                       | [项目、会话摘要索引与侧栏](../packages/workspace/src/)                                                             |
+| `history`                         | [Pi JSONL 查询、导出和分支树](../packages/history/src/)                                                            |
+| `models`                          | [模型配置、发现、默认选择和上下文用量](../packages/models/src/)                                                    |
+| `settings`                        | [偏好、外观、主题和指令](../packages/settings/src/)                                                                |
+| `resources`                       | [技能导入、策略、编辑与资源快照](../packages/resources/src/)                                                       |
+| `interaction`                     | [Agent 提问、通知、状态与图形交互](../packages/interaction/src/)                                                   |
+| `subagents`                       | [持续身份、任务树、邮箱、调度与计划元数据](../packages/subagents/src/)                                             |
+| `mcp`                             | [服务配置、逐服务授权、诊断和 Pi MCP 扩展](../packages/mcp/src/)                                                   |
+| `codemode`                        | [Pi codemode 扩展与工具执行设置](../packages/codemode/src/)                                                        |
+| `permissions`                     | [三档权限与 Agent 权限扩展工厂](../packages/permissions/src/)                                                      |
+| `sandbox-macos` / `sandbox-linux` | [macOS 沙箱](../packages/sandbox-macos/src/)、[Linux 沙箱](../packages/sandbox-linux/src/)                         |
+| `usage`                           | [原生会话用量与活动展示](../packages/usage/src/)                                                                   |
+| `git`                             | [本轮查看当前会话最后一次用户发送之后的 edit patch 和 write 路径，工作区查看目录的 Git 状态](../packages/git/src/) |
 
 “系统插件”是插件页面中的工具展示分类，不是全部内置服务的启停清单。[system-plugins.ts](../packages/plugin-sdk/src/system-plugins.ts) 只列出变更、文件、终端，始终启用。文件和终端的 UI 分别在 [file-directory](../packages/file-directory/src/ui/) 和 [terminal](../packages/terminal/src/ui/)，底层操作由 HostApi 提供。
 
