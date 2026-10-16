@@ -961,6 +961,14 @@ export class PluginManager {
       this.restoreDiagnostics.push({ message: this.stateFailure.message })
     }
   }
+  assertIdle() {
+    if (
+      this.operations.size ||
+      this.pending.size ||
+      [...this.groups, ...this.retired].some((group) => group.references)
+    )
+      throw new Error('插件仍有执行中的操作，请稍后再维护存储')
+  }
   async dispose() {
     this.disposed = true
     await this.options.drain?.([...this.registrations.keys()])

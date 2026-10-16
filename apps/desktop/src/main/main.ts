@@ -8,6 +8,8 @@ import { createWindow } from './window/create-window'
 import { registerPlatformIpc } from './ipc/register'
 import { recoveryUrl } from './window/recovery-page'
 import { retryHostPage } from './window/load-host-page'
+import { createStorageController } from './storage/controller'
+import { pendingStorageJob } from './storage/preferences'
 
 if (['memory', 'file'].includes(process.env.PI_MEME_TEST_CREDENTIALS ?? '')) {
   if (!process.env.PI_MEME_DATA_ROOT) throw new Error('Desktop 验收必须指定临时 PI_MEME_DATA_ROOT')
@@ -16,11 +18,47 @@ if (['memory', 'file'].includes(process.env.PI_MEME_TEST_CREDENTIALS ?? '')) {
   app.setPath('userData', cache)
 }
 
+if (
+  process.env.PI_MEME_DATA_ROOT === undefined &&
+  pendingStorageJob(path.join(app.getPath('userData'), 'storage-location.json'))
+) {
+  const maintenanceSession = path.join(app.getPath('userData'), 'storage-maintenance-session')
+  mkdirSync(maintenanceSession, { recursive: true, mode: 0o700 })
+  app.setPath('sessionData', maintenanceSession)
+}
+
 let window: BrowserWindow | null = null
 let ownedHost: UtilityProcess | undefined
 let localConnection: { url: string; hostId: string } | undefined
 let lastConnectionError: HostConnectionError | null = null
 let switching = false
+const instanceLocked = app.requestSingleInstanceLock()
+if (!instanceLocked) app.exit(0)
+app.on('second-instance', () => {
+  window?.show()
+  window?.focus()
+})
+const storage = createStorageController({
+  anchor: app.getPath('userData'),
+  override: process.env.PI_MEME_DATA_ROOT,
+  getWindow: () => window,
+  getHostId: () => localConnection?.hostId,
+  recoverHost: retryConnection,
+  stopHost: async () => {
+    await hostRequest('maintenance:prepare', { hostId: localConnection?.hostId ?? '' })
+    const child = ownedHost
+    if (!child) throw new Error('本机 Host 已退出')
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('Host 正常停机超时，维护已取消；不会强制终止后迁移')), 60000)
+      child.once('exit', (code) => {
+        clearTimeout(timer)
+        if (code === 0) resolve()
+        else reject(new Error(`Host 未正常退出（${code}），维护已取消`))
+      })
+      child.postMessage({ type: 'stop' })
+    })
+  },
+})
 const connectionRequests = new Map<
   string,
   { resolve: (value: unknown) => void; reject: (cause: Error) => void; timer: NodeJS.Timeout }
@@ -56,7 +94,8 @@ async function connection(): Promise<HostConnection> {
   })
   return { ...localConnection, token, local: true }
 }
-function startHost() {
+async function startHost() {
+  await storage.initialize()
   return new Promise<void>((resolve, reject) => {
     const child = utilityProcess.fork(path.join(__dirname, 'host-process.js'), [], {
       serviceName: 'Pi Meme Host',
@@ -73,6 +112,7 @@ function startHost() {
             }
           : {}),
         PI_MEME_FRONTEND_URL: MAIN_WINDOW_VITE_DEV_SERVER_URL ?? process.env.PI_DESKTOP_DEV_SERVER_URL ?? '',
+        PI_MEME_DATA_ROOT: storage.root,
       },
       stdio: 'pipe',
     })
@@ -193,11 +233,19 @@ app
       lastConnectionError = { local: true, message: cause instanceof Error ? cause.message : String(cause) }
       console.error(`Host 初始化失败：${String(cause)}`)
     }
-    registerPlatformIpc(() => window, connection, trustedOrigin, setConnection, retryConnection, {
-      list: () => hostRequest<SavedHostConnection[]>('connection:list'),
-      remove: (url) => hostRequest<void>('connection:remove', { url }),
-      error: () => lastConnectionError,
-    })
+    registerPlatformIpc(
+      () => window,
+      connection,
+      trustedOrigin,
+      setConnection,
+      retryConnection,
+      {
+        list: () => hostRequest<SavedHostConnection[]>('connection:list'),
+        remove: (url) => hostRequest<void>('connection:remove', { url }),
+        error: () => lastConnectionError,
+      },
+      storage.adapter,
+    )
     if (!failed && process.env.PI_MEME_REMOTE_HOST) {
       try {
         await setConnection({ url: process.env.PI_MEME_REMOTE_HOST, token: process.env.PI_MEME_TOKEN ?? '' })
@@ -220,6 +268,10 @@ app.on('window-all-closed', () => {
 })
 let stopped = false
 app.on('before-quit', (event) => {
+  if (storage.busy) {
+    event.preventDefault()
+    return
+  }
   if (!ownedHost || stopped) return
   event.preventDefault()
   const child = ownedHost

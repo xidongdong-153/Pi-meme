@@ -15,6 +15,7 @@ import type {
   ResourceSkillSaveInput,
   ResourceSnapshot,
 } from '@pi-meme/contracts/resources'
+import { resourceIdentity as identity } from './resource-identity'
 import {
   materializeResource,
   readResourceFiles,
@@ -33,14 +34,17 @@ type ImportRecord = {
   name: string
 }
 type Policy = ResourcePolicy
-type StoreState = { generation: number; imports: ImportRecord[]; policies: Record<string, Policy> }
+type StoreState = {
+  generation: number
+  imports: ImportRecord[]
+  policies: Record<string, Policy>
+  /** 迁移时保留原路径身份，键相对于数据根目录。 */
+  ownerIds?: Record<string, string>
+}
 export type ResourceStoreOptions = {
   hostId?: string
   getAppPackages?: () => ResourceAppPackage[] | Promise<ResourceAppPackage[]>
   onChange?: (generation: number) => void | Promise<void>
-}
-function identity(value: string) {
-  return createHash('sha256').update(value).digest('hex').slice(0, 24)
 }
 async function exists(value: string) {
   try {
@@ -74,6 +78,10 @@ export class ResourceStore {
   private readonly directory: string
   private state?: StoreState
   private pending: Promise<unknown> = Promise.resolve()
+  private pendingCount = 0
+  assertIdle() {
+    if (this.pendingCount) throw new Error('资源仍有操作正在执行，请稍后再维护存储')
+  }
   private readonly leases = new Map<string, number>()
   constructor(
     root: string,
@@ -102,7 +110,10 @@ export class ResourceStore {
     }
   }
   private serialize<T>(action: () => Promise<T>): Promise<T> {
-    const result = this.pending.then(action)
+    this.pendingCount++
+    const result = this.pending.then(action).finally(() => {
+      this.pendingCount--
+    })
     this.pending = result.catch(() => {})
     return result
   }
@@ -371,7 +382,10 @@ export class ResourceStore {
       for (const entry of (await readdir(directory)).sort()) {
         if (entry.startsWith('.')) continue
         const source = path.join(directory, entry)
-        const owner: ResourceOwner = { id: identity(source), type: scope === 'builtin' ? 'builtin' : 'loose' }
+        const owner: ResourceOwner = {
+          id: state.ownerIds?.[path.relative(this.dataRoot, source)] ?? identity(source),
+          type: scope === 'builtin' ? 'builtin' : 'loose',
+        }
         if (state.imports.some((record) => record.id === owner.id)) continue
         await addRoot(source, scope, owner)
       }
@@ -610,7 +624,7 @@ export class ResourceStore {
       )
         throw new Error('同级资源名称重复，请更换名称或更新原导入来源')
       const record: ImportRecord = {
-        id: replaceItem?.owner.id ?? identity(target),
+        id: replaceItem?.owner.id ?? state.ownerIds?.[path.relative(this.dataRoot, target)] ?? identity(target),
         kind,
         directory: target,
         sourcePath,
@@ -625,7 +639,11 @@ export class ResourceStore {
     const root = path.join(this.dataRoot, 'skills')
     for (const entry of await readdir(root)) {
       const source = path.join(root, entry)
-      if (identity(source) === item.owner.id) return source
+      if (
+        ((await this.initialize()).ownerIds?.[path.relative(this.dataRoot, source)] ?? identity(source)) ===
+        item.owner.id
+      )
+        return source
     }
     throw new Error('资源来源目录不存在')
   }
@@ -681,7 +699,7 @@ export class ResourceStore {
         record?.directory ?? (item ? await this.looseSource(item) : path.join(this.dataRoot, 'skills', name))
       if (!item && (await exists(target))) throw new Error('同级技能名称重复')
       const nextRecord: ImportRecord = {
-        id: item?.owner.id ?? identity(target),
+        id: item?.owner.id ?? state.ownerIds?.[path.relative(this.dataRoot, target)] ?? identity(target),
         kind: 'skill',
         directory: target,
         sourcePath: record?.sourcePath ?? target,

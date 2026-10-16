@@ -757,6 +757,8 @@ export class HostClient {
       respondBuiltinLogin: (input) => rpc('models:builtin-login-respond', [input], null),
       cancelBuiltinLogin: () => rpc('models:builtin-login-cancel', [], null),
       logoutBuiltinProvider: (providerId) => rpc('models:builtin-logout', [providerId], null),
+      getStorageInfo: () => rpc('host:storage-info', [], null),
+      storage: platform?.storage,
       getUsageStats: () => rpc('settings:usage-stats'),
       getSettings: () => settingsRpc('settings:get'),
       getInstructions: () => rpc('settings:instructions'),

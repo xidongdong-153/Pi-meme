@@ -1,0 +1,116 @@
+import '@testing-library/jest-dom/vitest'
+import { afterEach, expect, test, vi } from 'vitest'
+import { cleanup, render, screen, within } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
+import type { DesktopStorageAdapter, DesktopStorageInfo } from '@pi-meme/contracts/storage'
+import { StorageSettings } from '@pi-meme/settings/ui/storage-settings'
+
+afterEach(cleanup)
+const nativeInfo: DesktopStorageInfo = {
+  hostId: 'local-host',
+  dataRoot: '/data/local',
+  source: 'default',
+  cacheBytes: 2048,
+  backupPaths: [],
+}
+function setup(overrides: Partial<DesktopStorageInfo> = {}, native = true) {
+  const storage: DesktopStorageAdapter = {
+    getInfo: vi.fn(async () => ({ ...nativeInfo, ...overrides })),
+    chooseTarget: vi.fn(async () => ({
+      selectionId: 'chosen',
+      path: '/data/new',
+      bytes: 1024,
+      availableBytes: 1048576,
+    })),
+    migrate: vi.fn(async () => {}),
+    clearCache: vi.fn(async () => {}),
+    openDirectory: vi.fn(async () => {}),
+  }
+  const bridge = {
+    getStorageInfo: vi.fn(async () => ({ hostId: 'local-host', dataRoot: '/data/local' })),
+    storage: native ? storage : undefined,
+  }
+  const beforeRestart = vi.fn(async () => {})
+  const maintaining = vi.fn()
+  render(<StorageSettings bridge={bridge} onBeforeRestart={beforeRestart} onMaintaining={maintaining} />)
+  return { storage, bridge, beforeRestart, maintaining }
+}
+
+test('Web 和远程只显示 Host 路径与配置说明，不暴露本机维护操作', async () => {
+  setup({}, false)
+  expect(await screen.findByTestId('storage-root')).toHaveTextContent('/data/local')
+  expect(screen.getByText(/在 Host 启动环境中设置 PI_MEME_DATA_ROOT/)).toBeVisible()
+  for (const name of ['更改目录', '清理缓存', '打开目录'])
+    expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
+})
+
+test('选择新目录后先确认，取消不迁移，确认传递选择凭据和 Host 身份', async () => {
+  const user = userEvent.setup()
+  const f = setup()
+  await screen.findByTestId('storage-root')
+  await user.click(screen.getByRole('button', { name: '更改目录' }))
+  let dialog = await screen.findByRole('dialog')
+  expect(dialog).toHaveTextContent('/data/new')
+  expect(f.storage.migrate).not.toHaveBeenCalled()
+  await user.click(within(dialog).getByRole('button', { name: '取消' }))
+  expect(f.storage.migrate).not.toHaveBeenCalled()
+  await user.click(screen.getByRole('button', { name: '更改目录' }))
+  dialog = await screen.findByRole('dialog')
+  await user.click(within(dialog).getByRole('button', { name: '迁移并重启' }))
+  expect(f.beforeRestart).toHaveBeenCalledTimes(1)
+  expect(f.storage.migrate).toHaveBeenCalledWith({ expectedHostId: 'local-host', selectionId: 'chosen' })
+  expect(f.maintaining).toHaveBeenCalledWith(true)
+})
+
+test('未保存内容守卫阻止维护，错误可见且不会调用原生清理', async () => {
+  const user = userEvent.setup()
+  const f = setup()
+  f.beforeRestart.mockRejectedValue(new Error('仍有草稿，请先处理'))
+  await screen.findByTestId('storage-root')
+  await user.click(screen.getByRole('button', { name: '清理缓存' }))
+  const dialog = await screen.findByRole('dialog')
+  expect(dialog).toHaveTextContent('2 KiB')
+  await user.click(within(dialog).getByRole('button', { name: '清理并重启' }))
+  expect(await within(dialog).findByRole('alert')).toHaveTextContent('仍有草稿')
+  expect(f.storage.clearCache).not.toHaveBeenCalled()
+  expect(f.maintaining).not.toHaveBeenCalled()
+})
+
+test('清理请求只携带本机身份，原生错误保留内容并允许重试', async () => {
+  const user = userEvent.setup()
+  const f = setup()
+  vi.mocked(f.storage.clearCache).mockRejectedValueOnce(new Error('仍有活动终端'))
+  await screen.findByTestId('storage-root')
+  await user.click(screen.getByRole('button', { name: '清理缓存' }))
+  const dialog = await screen.findByRole('dialog')
+  await user.click(within(dialog).getByRole('button', { name: '清理并重启' }))
+  expect(await within(dialog).findByRole('alert')).toHaveTextContent('活动终端')
+  await user.click(within(dialog).getByRole('button', { name: '清理并重启' }))
+  expect(f.storage.clearCache).toHaveBeenCalledTimes(2)
+  expect(f.storage.clearCache).toHaveBeenCalledWith('local-host')
+})
+
+test.each([
+  { source: 'environment' as const, cacheBytes: 2048 },
+  { cacheBytes: 0 },
+  { cacheBytes: null, cacheError: '权限不足' },
+])('环境变量、零占用与统计失败不允许误清理：%j', async (info) => {
+  setup(info)
+  await screen.findByTestId('storage-root')
+  expect(screen.getByRole('button', { name: '清理缓存' })).toBeDisabled()
+  if (info.source === 'environment') expect(screen.getByRole('button', { name: '更改目录' })).toBeDisabled()
+  if (info.cacheBytes === null) {
+    expect(screen.getByText('占用统计不可用')).toBeVisible()
+    expect(screen.getByRole('alert')).toHaveTextContent('权限不足')
+  }
+})
+
+test('备份仅有打开入口，不混入清理或自动删除', async () => {
+  const user = userEvent.setup()
+  const f = setup({ backupPaths: ['/data/old'] })
+  const backup = await screen.findByRole('region', { name: '迁移备份' })
+  expect(backup).toHaveTextContent('会话和凭据')
+  await user.click(within(backup).getByRole('button', { name: '打开备份' }))
+  expect(f.storage.openDirectory).toHaveBeenCalledWith({ expectedHostId: 'local-host', path: '/data/old' })
+  expect(within(backup).queryByRole('button', { name: /删除|清理/ })).not.toBeInTheDocument()
+})

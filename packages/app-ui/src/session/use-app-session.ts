@@ -648,6 +648,7 @@ export function useAppSession(
   return {
     bindDraftSession,
     hasUnstoredDraft: drafts.hasUnstoredInput,
+    hasDraftInput: drafts.hasInput,
     captureDraft: () => ({ composer: chat.captureComposer(), mode: chat.mode }),
     clearDraft: () => {
       chat.clearComposer()

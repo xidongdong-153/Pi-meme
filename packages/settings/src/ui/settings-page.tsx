@@ -10,7 +10,9 @@ export type SettingsPageProps = {
   snapshot: SettingsSnapshot | null
   piVersion?: string
   error: string
-  bridge: Pick<SettingsBridge, 'getInstructions' | 'saveInstruction'> & Pick<ModelsBridge, 'reconnectModels'>
+  bridge: Pick<SettingsBridge, 'getInstructions' | 'saveInstruction' | 'getStorageInfo' | 'storage'> &
+    Pick<ModelsBridge, 'reconnectModels'>
+  onBeforeRestart: () => Promise<void>
   cwd: string
   busy: boolean
   onDirty: (dirty: boolean) => void
@@ -37,6 +39,7 @@ export function SettingsPage({
   onDirty,
   onSaving,
   accessSettings,
+  onBeforeRestart,
   ...appearance
 }: SettingsPageProps) {
   return (
@@ -44,7 +47,12 @@ export function SettingsPage({
       {section === 'instructions' ? (
         <InstructionSettings bridge={bridge} cwd={cwd} busy={busy} onDirty={onDirty} onSaving={onSaving} />
       ) : section === 'general' ? (
-        <GeneralSettings accessSettings={accessSettings} />
+        <GeneralSettings
+          accessSettings={accessSettings}
+          bridge={bridge}
+          onBeforeRestart={onBeforeRestart}
+          onMaintaining={onSaving}
+        />
       ) : section === 'about' ? (
         <div className="space-y-4 rounded-2xl border border-border bg-card p-6">
           <h3 className="text-sm font-medium">Pi 运行时</h3>

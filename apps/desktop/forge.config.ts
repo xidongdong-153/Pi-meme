@@ -45,6 +45,7 @@ const config: ForgeConfig = {
           target: 'main',
         },
         { entry: 'src/main/host-process.ts', config: 'vite.main.config.mts', target: 'main' },
+        { entry: 'src/main/storage-process.ts', config: 'vite.main.config.mts', target: 'main' },
         { entry: '../../packages/host/src/session-worker.ts', config: 'vite.main.config.mts', target: 'main' },
         {
           entry: 'src/preload/preload.ts',

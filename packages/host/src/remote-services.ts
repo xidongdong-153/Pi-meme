@@ -62,6 +62,23 @@ async function responseBody(response: Response, limit: number) {
 
 export class RemoteServices {
   private readonly states = new Map<string, HostService>()
+  private closing = false
+  private readonly operations = new Set<Promise<unknown>>()
+  private track<T>(action: () => Promise<T>): Promise<T> {
+    if (this.closing) return Promise.reject(new Error('本机 Host 正在退出，远程服务操作未接纳'))
+    const pending = Promise.resolve().then(action)
+    this.operations.add(pending)
+    void pending.finally(() => this.operations.delete(pending)).catch(() => {})
+    return pending
+  }
+  assertIdle() {
+    if (this.operations.size || this.authenticating.size)
+      throw new Error('远程服务登记或摘要仍在处理，请稍后再维护存储')
+  }
+  prepareMaintenance() {
+    this.assertIdle()
+    this.closing = true
+  }
   private readonly cookies = new Map<string, string>()
   private readonly authenticating = new Map<string, Promise<void>>()
   private writing = Promise.resolve()
@@ -160,7 +177,10 @@ export class RemoteServices {
     if (!cookie) throw new Error('远程服务未返回认证会话')
     return { hostId: value.hostId, cookie }
   }
-  async register(url: string, token?: string) {
+  register(url: string, token?: string) {
+    return this.track(() => this.registerService(url, token))
+  }
+  private async registerService(url: string, token?: string) {
     const address = new URL(url)
     if (address.protocol !== 'https:' || address.username || address.password)
       throw new Error('远程服务必须使用 HTTPS，地址不能包含凭据')
@@ -187,6 +207,7 @@ export class RemoteServices {
     return this.get(id)
   }
   async authenticate(id: string) {
+    if (this.closing) throw new Error('本机 Host 正在退出')
     const state = this.get(id)
     if (this.cookies.has(id)) return
     let pending = this.authenticating.get(id)
@@ -206,7 +227,10 @@ export class RemoteServices {
     }
     await pending
   }
-  async retry(id: string) {
+  retry(id: string) {
+    return this.track(() => this.retryService(id))
+  }
+  private async retryService(id: string) {
     const state = this.get(id)
     this.cookies.delete(id)
     try {
@@ -217,7 +241,10 @@ export class RemoteServices {
     }
     return this.get(id)
   }
-  async remove(id: string) {
+  remove(id: string) {
+    return this.track(() => this.removeService(id))
+  }
+  private async removeService(id: string) {
     const state = this.get(id)
     await this.connections.remove(state.address)
     this.states.delete(id)
@@ -233,7 +260,10 @@ export class RemoteServices {
       if (state.error.includes('身份已变化')) this.disconnect(id)
     }
   }
-  async request(id: string, pathname: string, method: string, body?: string) {
+  request(id: string, pathname: string, method: string, body?: string) {
+    return this.track(() => this.proxyRequest(id, pathname, method, body))
+  }
+  private async proxyRequest(id: string, pathname: string, method: string, body?: string) {
     const state = this.get(id)
     if ((pathname === '/api/auth' || pathname === '/api/rpc' || pathname === '/api/control') && method !== 'POST')
       throw new Error('远程代理请求方法无效')
@@ -398,7 +428,12 @@ export class RemoteServices {
     }
     connect(false)
   }
+  async flush() {
+    await Promise.allSettled([...this.operations, ...this.authenticating.values()])
+    await this.writing
+  }
   dispose() {
+    this.closing = true
     for (const id of this.states.keys()) this.disconnect(id)
     this.states.clear()
   }

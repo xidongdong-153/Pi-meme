@@ -246,6 +246,9 @@ export class ControlStore {
       this.listeners.delete(listener)
     }
   }
+  assertIdle() {
+    if (this.running.size) throw new Error('仍有未完成的控制操作，请稍后再维护存储')
+  }
   async flush() {
     await this.saving
   }

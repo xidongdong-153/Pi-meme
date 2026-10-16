@@ -3,6 +3,10 @@ description: 'Host 数据目录、模型与 MCP 配置、指令、凭据和三�
 status: implemented
 paths:
   - 'packages/host/src/data-root.ts'
+  - 'packages/host/src/storage/**'
+  - 'apps/desktop/src/main/storage/**'
+  - 'apps/desktop/src/main/storage-process.ts'
+  - 'packages/contracts/src/storage.ts'
   - 'packages/host/src/service.ts'
   - 'packages/host/src/credentials.ts'
   - 'packages/pi-adapter/src/file-credentials.ts'
@@ -26,7 +30,7 @@ paths:
 
 ## 数据目录
 
-默认根目录为 `~/.pi-meme`，`PI_MEME_DATA_ROOT` 可覆盖。[data-root.ts](../packages/host/src/data-root.ts) 将路径解析为绝对路径，用带心跳的 `host.lock` 保证一个 Host 写入。Desktop 切换或登记远程服务后仍保留本地 Host 与写锁；与独立 Server 同时运行需使用不同目录。
+默认根目录为 `~/.pi-meme`。Desktop 按 `PI_MEME_DATA_ROOT`、已保存的自定义目录、默认目录依次选择；独立 Server 只读取环境变量或默认目录。[data-root.ts](../packages/host/src/data-root.ts) 将路径解析为绝对路径，用带心跳的 `host.lock` 保证一个 Host 写入。Desktop 切换或登记远程服务后仍保留本地 Host 与写锁；与独立 Server 同时运行需使用不同目录。
 
 主要文件如下；子目录按功能使用时创建：
 
@@ -46,6 +50,7 @@ paths:
 ├── sessions/<cwd-hash>/             # Pi 原生 JSONL
 ├── workspaces/<cwd-hash>/           # 工作区覆盖配置
 ├── standalone-workspaces/<id>/      # 无项目会话的工作目录
+├── worktrees/<id>/                  # 应用创建的 Git Worktree
 ├── plugins/                        # 外部插件代码快照与安装记录
 ├── plugin-data/                    # 内置模块与插件数据
 ├── requests/                       # 内部 RPC 请求记录
@@ -55,6 +60,45 @@ paths:
 ```
 
 工作区分组使用规范化真实路径的 SHA-256，见 [runtime-paths.ts](../packages/pi-runtime/src/runtime-paths.ts)。项目登记见 [project-store.ts](../packages/workspace/src/server/project-store.ts)，远程摘要见 [remote-services.ts](../packages/host/src/remote-services.ts)。Linux 拒绝把 Host 数据放在识别到的 Windows 驱动器挂载中。
+
+### Desktop 自定义目录
+
+从“设置 → 常规 → 存储 → 更改目录”选择空文件夹。所选文件夹直接成为数据根目录。确认框显示来源、目标、复制大小和目标可用空间；点击“迁移并重启”后，应用正常停止本机 Host，再离线复制、校验和修复路径关联，成功后才切换目录。
+
+Electron 固定 `userData` 下的 `storage-location.json` 保存目录定位、备份路径、待执行任务与错误；它不放在 Host 的 `settings.json` 中，也不随数据根目录迁移。显式设置 `PI_MEME_DATA_ROOT` 时，界面只读并禁用维护。Web 和远程页面只展示所连接 Host 的目录，不调用本机文件选择器，不提供远程迁移或清理接口。
+
+```mermaid
+%%{init: {"theme": "dark"}}%%
+flowchart TD
+  A["选择空目录并确认"] --> B["检查草稿、文件、本机任务和终端"]
+  B --> C["正常关闭 Host 后保存任务并重启"]
+  C --> D["离线进程取得源与目标目录写锁"]
+  D --> E["复制、校验、修复路径与 Worktree 登记"]
+  E --> F["原子发布目录定位并保留原目录"]
+  F --> G["再次启动普通 Host 与桌面页面"]
+  E -->|失败| H["不切换目录，保留数据并显示原因"]
+```
+
+维护前必须处理所有桌面服务页面中未发送的草稿、附件、未保存文件和指令，以及本机 Host 的运行、暂停、排队任务、待答交互、插件或资源操作和活动终端。停机超时或非零退出会取消本次维护，不会强行停止后继续复制。维护窗口使用独立的内存 Session 和临时 `sessionData`，普通 Host 在维护完成后的下一轮启动中创建。
+
+迁移会保留 Host、会话和业务 ID，更新已知会话路径、cwd 哈希分组、权限、置顶与侧栏排序、技能身份与策略、插件安装路径及应用创建的 Worktree 登记。`auth.json`、历史正文、提示词和未知插件私有数据不作字符串替换。外部项目目录不移动。第三方插件自行保存的绝对路径需要插件自行适配。
+
+源目录保留为备份，其中仍有会话和凭据；常规页面只提供打开备份，不自动删除。`.pi-meme-relocated.json` 标记已迁移或正在维护的源目录，普通 Host 拒绝将其重新作为活动目录。旧 Worktree 副本仅作文件备份，不再作为活动 Worktree 使用。目标 `.pi-meme-storage-job.json` 记录任务和复制校验信息，未提交的目标副本同样不能启动普通 Host。
+
+中断后只允许同一任务继续处理所属副本；来源已变化、目标出现无关文件、校验失败或路径冲突时停止，不清空目标。进程异常退出后写锁最多需要约 30 秒失效，再从恢复页面重试。若 Worktree 登记尚未恢复，任务保留并阻止正常启动。自定义磁盘不可用或定位文件损坏时，不会自动退回默认目录创建空数据。
+
+独立 Server 不读取 Desktop 定位文件。迁移后若改用 Server，应将 `PI_MEME_DATA_ROOT` 设置为新目录；旧目录已被标记为备份，不能继续启动。Desktop 和 Server 仍不能同时写同一个数据目录。
+
+### 缓存清理
+
+从“设置 → 常规 → 缓存”刷新占用，再点击“清理缓存”，确认后重启执行。统计失败显示未知占用和错误，不显示为 `0 B`。统计与删除使用相同白名单：
+
+- Host：`sessions-cache.json`、`sessions-cache.json.tmp`、`remote-services.json`、`remote-services.json.tmp`。
+- Electron 固定 `userData`：存在的 `Cache`、`Code Cache`、`GPUCache`、`DawnCache`、`ShaderCache`、`GrShaderCache`、`GraphiteDawnCache`。
+
+缓存包含链接或特殊文件时停止清理并显示路径，不沿链接删除外部文件。会话索引和远程摘要可重新生成；远程连接凭据保留，摘要在重连后重建。缓存可能在重启后立即重新产生。
+
+不会删除会话、计划、工作目录、`auth.json`、技能、插件、整个 Electron profile 或系统临时目录。`resources/snapshots/` 被历史技能使用记录引用，`requests/` 与 `control.json` 承担请求去重及回执语义，均不属于清理白名单。
 
 ## 应用设置与模型
 

@@ -143,6 +143,15 @@ export class PiSessionPool implements PiRuntime {
   configureCheckoutGate(assertAvailable: (cwd: string) => void) {
     this.checkoutGate = assertAvailable
   }
+  assertMaintenanceIdle() {
+    this.assertCheckoutIdle(() => true)
+    if (
+      [...this.sessions.values()].some(
+        (record) => record.state.isPaused || record.state.queuePaused || record.state.isCompacting,
+      )
+    )
+      throw new Error('仍有暂停或整理中的会话，请先处理后再维护存储')
+  }
   assertCheckoutIdle(matches: (cwd: string) => boolean) {
     const records = [...this.sessions.values()].filter((record) => matches(record.cwd))
     this.assertMutable(records)

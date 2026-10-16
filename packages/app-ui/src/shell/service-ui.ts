@@ -6,7 +6,10 @@ import type { HostService } from '@pi-meme/contracts/host'
 import type { SelectWorkspace } from '@pi-meme/contracts/sessions'
 import type { useAppSession } from '../session/use-app-session'
 
-export type ServiceController = ReturnType<typeof useAppSession> & { openSettings: () => void }
+export type ServiceController = ReturnType<typeof useAppSession> & {
+  openSettings: () => void
+  assertRestartAllowed: () => void
+}
 export type ServiceUI = {
   serviceId: string
   active: boolean
@@ -17,6 +20,7 @@ export type ServiceUI = {
   onController: (id: string, controller: ServiceController) => void
   onLocation: (serviceId: string, input: SelectWorkspace) => Promise<boolean>
   onSearch: () => void
+  beforeRestart: () => void
 }
 
 export function serviceAddress(address: string) {

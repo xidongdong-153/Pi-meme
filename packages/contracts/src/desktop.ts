@@ -1,4 +1,5 @@
 import type { AppSession } from './app-host'
+import type { DesktopStorageAdapter, HostStorageInfo } from './storage'
 import type { McpBridge } from './mcp'
 import type {
   AgentMailboxMessage,
@@ -295,6 +296,8 @@ export interface ModelsBridge {
 
 /** 桌面设置与主题。 */
 export interface SettingsBridge {
+  getStorageInfo: () => Promise<HostStorageInfo>
+  storage?: DesktopStorageAdapter
   getInstructions: () => Promise<InstructionsSnapshot>
   saveInstruction: (input: SaveInstruction) => Promise<SaveInstructionResult>
   getUsageStats: () => Promise<UsageStatsSnapshot>

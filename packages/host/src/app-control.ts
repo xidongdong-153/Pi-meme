@@ -365,7 +365,10 @@ export async function createAppControl(options: Options) {
     args: unknown[],
     opts: MutationOptions,
     action: (operationId: string) => Promise<T>,
-  ) => store.mutate(clientId, opts?.idempotencyKey, method, args, action)
+  ) => {
+    if (closing) return Promise.reject<T>(new Error('Host 正在退出，操作未接纳'))
+    return store.mutate(clientId, opts?.idempotencyKey, method, args, action)
+  }
   const apiFor = (clientId: string): HostApi => ({
     apiVersion: 2,
     capabilities: async () => ({
@@ -809,6 +812,12 @@ export async function createAppControl(options: Options) {
     publishLive: store.publishLive.bind(store),
     subscribe: store.subscribe.bind(store),
     store,
+    prepareMaintenance() {
+      store.assertIdle()
+      if (active.size || locks.size || jobs.size || restores.size || [...queues.values()].some((queue) => queue.length))
+        throw new Error('仍有运行或排队的任务，请先处理后再维护存储')
+      closing = true
+    },
     async beginShutdown() {
       closing = true
       for (const run of active.values()) run.cancelled = true

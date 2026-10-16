@@ -40,7 +40,7 @@ import { McpConfigStore } from '@pi-meme/mcp/server/config-store'
 import { optionalRuntimeExtensions } from './runtime-extensions'
 import { RequestRegistry } from './request-registry'
 import { ConnectionCredentialStore } from './connection-credentials'
-import { hostDataRoot, lockDataRoot } from './data-root'
+import { assertActiveDataRoot, hostDataRoot, lockDataRoot } from './data-root'
 import { installBuiltinSkills } from '@pi-meme/resources/server/install-builtin-skills'
 import { ResourceStore } from '@pi-meme/resources/server/resource-store'
 import type { ResourceImportInput, ResourceSnapshot } from '@pi-meme/contracts/resources'
@@ -112,6 +112,7 @@ const reads = new Set([
   'settings:fonts',
   'mcp:get',
   'host:directories',
+  'host:storage-info',
   'plugins:list',
   'plugins:session',
   'plugins:diagnostics',
@@ -145,6 +146,7 @@ export async function createHost(options: HostOptions = {}) {
   const unlock = await lockDataRoot(root)
   let cleanup: (() => Promise<void>) | undefined
   try {
+    await assertActiveDataRoot(root)
     const hostIdFile = path.join(root, 'host-id')
     const { readFile } = await import('node:fs/promises')
     let hostId = await readFile(hostIdFile, 'utf8').catch(() => '')
@@ -789,6 +791,7 @@ export async function createHost(options: HostOptions = {}) {
         if (typeof key !== 'string') throw new Error('会话 ID 参数无效')
         return appControl!.sessionForRuntime(key)
       },
+      'host:storage-info': () => ({ hostId, dataRoot: root }),
       'pi:connection': () => pi.connection(),
       'pi:snapshot': snapshot,
       'pi:agents': async (key) => {
@@ -990,6 +993,16 @@ export async function createHost(options: HostOptions = {}) {
       hostId,
       instanceId,
       root,
+      prepareMaintenance() {
+        if (closing || inflight.size || checkoutGates.size) throw new Error('Host 仍有操作正在执行，请稍后再维护存储')
+        pi.assertMaintenanceIdle()
+        resources.assertIdle()
+        collaboration.assertCheckoutIdle(() => true)
+        terminal.assertIdle()
+        plugins.assertIdle()
+        appControl!.prepareMaintenance()
+        closing = true
+      },
       app: appControl.api,
       control: appControl,
       settings,

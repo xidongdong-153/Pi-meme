@@ -85,7 +85,11 @@ export async function startHostServer(options: ServerOptions = {}) {
         if ('closeAllConnections' in server) server.closeAllConnections()
         await new Promise<void>((resolve, reject) => server.close((cause) => (cause ? reject(cause) : resolve())))
         auth.dispose()
-        await host.dispose()
+        try {
+          await remotes.flush()
+        } finally {
+          await host.dispose()
+        }
       })()
       return disposing
     },

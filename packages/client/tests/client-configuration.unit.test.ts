@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
 import { snapshot, create } from './host-client-fixture'
+import type { PlatformAdapter } from '@pi-meme/contracts/host'
 
 test('侧栏设置通过独立 RPC 保存补丁并返回偏好', async () => {
   const preferences = {
@@ -51,4 +52,45 @@ test('选择会话后插件管理仍请求 Host，不携带当前 sessionId', as
   assert.equal(pluginRequests.length, 7)
   assert.ok(pluginRequests.every((request) => !Object.hasOwn(request, 'sessionId')))
   client.close()
+})
+
+test('存储只读信息不携带界面会话；远程客户端不暴露本机维护能力', async () => {
+  const platform: PlatformAdapter = {
+    storage: {
+      getInfo: async () => {
+        throw new Error('不应调用')
+      },
+      chooseTarget: async () => null,
+      migrate: async () => {},
+      clearCache: async () => {},
+      openDirectory: async () => {},
+    },
+    getHostConnection: async () => ({ hostId: 'host-1', url: 'http://127.0.0.1:3141', token: '', local: true }),
+    setHostConnection: async () => {},
+    chooseDirectory: async () => null,
+    getProjectApps: async () => [],
+    openProject: async () => {},
+    importTheme: async () => null,
+    exportTheme: async () => {},
+    openPath: async () => {},
+  }
+  for (const local of [true, false]) {
+    const { client, requests } = create(
+      (request) =>
+        request.method === 'pi:snapshot' ? snapshot('selected') : { hostId: 'host-1', dataRoot: '/profile' },
+      {
+        platform,
+        connection: { hostId: 'host-1', url: 'http://127.0.0.1:3141', token: '', local },
+      },
+    )
+    try {
+      await client.bridge.getConnection()
+      assert.deepEqual(await client.bridge.getStorageInfo(), { hostId: 'host-1', dataRoot: '/profile' })
+      assert.equal(requests.at(-1)?.method, 'host:storage-info')
+      assert.equal(requests.at(-1)?.sessionId, undefined)
+      assert.equal(client.bridge.storage, local ? platform.storage : undefined)
+    } finally {
+      client.close()
+    }
+  }
 })

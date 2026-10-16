@@ -27,7 +27,7 @@ const groups = [
         id: 'general',
         label: '常规',
         icon: Settings,
-        description: '设置新会话的默认访问权限。',
+        description: '设置默认访问权限、应用存储目录和缓存清理。',
       },
       { id: 'appearance', label: '外观', icon: Palette, description: '调整主题、字号和界面效果。' },
       { id: 'profile', label: '用量', icon: ChartNoAxesCombined, description: '查看 Token 用量与活动记录。' },

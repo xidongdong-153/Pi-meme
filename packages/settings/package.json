@@ -8,6 +8,7 @@
     "./server/store": "./src/server/store.ts",
     "./server/instructions": "./src/server/instructions.ts",
     "./ui/settings-page": "./src/ui/settings-page.tsx",
+    "./ui/storage-settings": "./src/ui/storage-settings.tsx",
     "./ui/skills-settings": "./src/ui/skills-settings.tsx",
     "./ui/theme-settings": "./src/ui/theme-settings.tsx",
     "./ui/theme/apply": "./src/ui/theme/apply.ts",

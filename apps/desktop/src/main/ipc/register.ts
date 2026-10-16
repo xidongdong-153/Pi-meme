@@ -4,6 +4,7 @@ import { readFile, writeFile, realpath, stat } from 'node:fs/promises'
 import path from 'node:path'
 import type { HostConnection, HostConnectionError, SavedHostConnection } from '@pi-meme/contracts/host'
 import { isTrustedPlatformSource } from './platform-source'
+import type { DesktopStorageAdapter } from '@pi-meme/contracts/storage'
 
 const projectApps = [
   { id: 'finder', name: 'Finder' },
@@ -22,6 +23,7 @@ export function registerPlatformIpc(
     remove: (url: string) => Promise<void>
     error: () => HostConnectionError | null
   },
+  storage?: DesktopStorageAdapter,
 ) {
   const handle = (channel: string, action: (...args: unknown[]) => unknown) =>
     ipcMain.handle(channel, (event, ...args: unknown[]) => {
@@ -47,6 +49,35 @@ export function registerPlatformIpc(
     const target = await realpath(value)
     const error = await shell.openPath(target)
     if (error) throw new Error(`无法打开本机路径：${error}`)
+  }
+  if (storage) {
+    handle('platform:storage-info', (id) => storage.getInfo(id as string))
+    handle('platform:storage-choose', (id) => storage.chooseTarget(id as string))
+    handle('platform:storage-migrate', (input) => {
+      if (
+        !input ||
+        typeof input !== 'object' ||
+        !('expectedHostId' in input) ||
+        !('selectionId' in input) ||
+        typeof input.expectedHostId !== 'string' ||
+        typeof input.selectionId !== 'string'
+      )
+        throw new Error('存储迁移参数无效')
+      return storage.migrate({ expectedHostId: input.expectedHostId, selectionId: input.selectionId })
+    })
+    handle('platform:storage-cache', (id) => storage.clearCache(id as string))
+    handle('platform:storage-open', (input) => {
+      if (
+        !input ||
+        typeof input !== 'object' ||
+        !('expectedHostId' in input) ||
+        !('path' in input) ||
+        typeof input.expectedHostId !== 'string' ||
+        typeof input.path !== 'string'
+      )
+        throw new Error('存储目录参数无效')
+      return storage.openDirectory({ expectedHostId: input.expectedHostId, path: input.path })
+    })
   }
   handle('platform:connection', getConnection)
   handle('platform:saved-connections', savedConnections.list)
@@ -125,6 +156,11 @@ export function registerPlatformIpc(
       'open-project',
       'import-theme',
       'export-theme',
+      'storage-info',
+      'storage-choose',
+      'storage-migrate',
+      'storage-cache',
+      'storage-open',
     ])
       ipcMain.removeHandler(`platform:${channel}`)
   })

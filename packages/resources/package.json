@@ -7,7 +7,8 @@
     "./server/entry": "./src/server/entry.ts",
     "./server/install-builtin-skills": "./src/server/install-builtin-skills.ts",
     "./agent/entry": "./src/agent/entry.ts",
-    "./server/resource-store": "./src/server/resource-store.ts"
+    "./server/resource-store": "./src/server/resource-store.ts",
+    "./server/resource-identity": "./src/server/resource-identity.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit"

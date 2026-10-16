@@ -56,6 +56,10 @@ export class TerminalService {
   private readonly pty: PtyModule | null
   private disposed = false
   readonly supported: boolean
+  assertIdle() {
+    if ([...this.terminals.values()].some((entry) => !entry.snapshot.exited))
+      throw new Error('仍有活动终端，请先关闭终端再维护存储')
+  }
   constructor(private readonly options: TerminalOptions) {
     this.pty = options.pty === undefined ? loadPty() : options.pty
     this.supported = this.pty !== null

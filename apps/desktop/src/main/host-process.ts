@@ -70,6 +70,21 @@ void startHostServer({
             }),
         )
       }
+      if (value.type === 'maintenance:prepare') {
+        try {
+          if (value.hostId !== server.host.hostId) throw new Error('维护目标 Host 身份不匹配')
+          server.remotes.assertIdle()
+          server.host.prepareMaintenance()
+          server.remotes.prepareMaintenance()
+          parent.postMessage({ type: 'connection:result', id: value.id })
+        } catch (cause) {
+          parent.postMessage({
+            type: 'connection:result',
+            id: value.id,
+            error: cause instanceof Error ? cause.message : String(cause),
+          })
+        }
+      }
       if (value.type === 'ticket')
         parent.postMessage({ type: 'ticket', id: value.id, token: server.createBootstrapTicket() })
       if (value.type === 'stop')

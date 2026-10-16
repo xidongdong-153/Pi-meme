@@ -5,6 +5,34 @@ import lockfile from 'proper-lockfile'
 import { windowsMounts } from '@pi-meme/pi-runtime/sdk/linux-sandbox'
 import { pathWithin } from '@pi-meme/pi-runtime/sdk/access-sandbox'
 
+export const relocatedMarker = '.pi-meme-relocated.json'
+export const storageOwnerFile = '.pi-meme-storage-job.json'
+
+export async function assertActiveDataRoot(root: string) {
+  try {
+    await readFile(path.join(root, relocatedMarker))
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw cause
+    let contents: string
+    try {
+      contents = await readFile(path.join(root, storageOwnerFile), 'utf8')
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return
+      throw error
+    }
+    const job = JSON.parse(contents) as { version?: number; stage?: string; target?: string; hostId?: string }
+    if (
+      job.version !== 1 ||
+      job.stage !== 'committed' ||
+      job.target !== (await realpath(root)) ||
+      job.hostId !== (await readFile(path.join(root, 'host-id'), 'utf8'))
+    )
+      throw new Error('此目录是尚未提交或身份不符的迁移副本，请通过 Desktop 完成维护后使用')
+    return
+  }
+  throw new Error(`此数据目录已迁移或正在维护，不能启动 Host：${root}。请通过 Desktop 查看当前目录或完成维护`)
+}
+
 export function hostDataRoot(value = process.env.PI_MEME_DATA_ROOT) {
   return path.resolve(value ?? path.join(homedir(), '.pi-meme'))
 }

@@ -301,11 +301,20 @@ export function App({
     document.addEventListener('keydown', handleKey)
     return () => document.removeEventListener('keydown', handleKey)
   }, [searchActive, openSearch])
-  useEffect(() => {
-    serviceUI?.onController(serviceUI.serviceId, { ...chat, openSettings: () => setSettingsOpen(true) })
-  })
   const [instructionsDirty, setInstructionsDirty] = useState(false)
   const [instructionsSaving, setInstructionsSaving] = useState(false)
+  const assertRestartAllowed = () => {
+    if (fileStore.hasDirty() || instructionsDirty || instructionsSaving)
+      throw new Error('仍有未保存的文件或指令，请先保存后再维护存储')
+    if (chat.hasDraftInput()) throw new Error('仍有未发送的草稿或附件，请先处理后再维护存储')
+  }
+  useEffect(() => {
+    serviceUI?.onController(serviceUI.serviceId, {
+      ...chat,
+      openSettings: () => setSettingsOpen(true),
+      assertRestartAllowed,
+    })
+  })
   const [preferredApp, setPreferredApp] = useState<ProjectApp['id']>('finder')
   const ready = chat.connection.status === 'ready' || chat.connection.status === 'idle'
   const bootComplete = !chat.loading && (ready || chat.connection.status === 'disconnected' || Boolean(chat.error))
@@ -866,6 +875,12 @@ export function App({
                   error: settings.error,
                   onDirty: setInstructionsDirty,
                   onSaving: setInstructionsSaving,
+                  onBeforeRestart: async () => {
+                    if (serviceUI) serviceUI.beforeRestart()
+                    else assertRestartAllowed()
+                    await settings.flushAppearance()
+                    if (serviceUI) await appearance.flushAppearance()
+                  },
                   accessSettings: (
                     <AccessSettings
                       value={settings.snapshot?.settings.defaultAccessMode}

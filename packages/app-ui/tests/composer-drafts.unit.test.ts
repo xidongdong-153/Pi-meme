@@ -120,6 +120,25 @@ test('历史消息编辑不覆盖普通草稿，清空文字后不恢复技能�
   assert.equal(open().get('session'), undefined)
 })
 
+test('存储维护检查所有会话的已保存草稿、技能与发送中的输入', () => {
+  const { open } = fixture()
+  const drafts = open()
+  drafts.set('session', empty)
+  assert.equal(drafts.hasInput(), false)
+  drafts.set('other-session', { ...empty, draft: '另一个会话的草稿' })
+  assert.equal(drafts.hasInput(), true)
+  drafts.delete('other-session')
+  drafts.set('session', { ...empty, selectedSkills: [skill] })
+  assert.equal(drafts.hasInput(), true)
+  drafts.set('session', { ...empty, editing: { timestamp: 1, restore: empty } })
+  assert.equal(drafts.hasInput(), true)
+  drafts.set('session', empty)
+  const finish = drafts.startSend('session', composer)
+  assert.equal(drafts.hasInput(), true)
+  finish()
+  assert.equal(drafts.hasInput(), false)
+})
+
 test('损坏、旧结构和无效技能不会导致恢复崩溃；存储被禁用时窗口内仍可切换草稿', () => {
   const { values, open } = fixture()
   const key = composerDraftPrefix + JSON.stringify(['host-a', 'session'])

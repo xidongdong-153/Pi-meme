@@ -2,6 +2,13 @@ import { contextBridge, ipcRenderer } from 'electron'
 import type { PlatformAdapter } from '@pi-meme/contracts/host'
 
 const platform: PlatformAdapter = {
+  storage: {
+    getInfo: (hostId) => ipcRenderer.invoke('platform:storage-info', hostId),
+    chooseTarget: (hostId) => ipcRenderer.invoke('platform:storage-choose', hostId),
+    migrate: (input) => ipcRenderer.invoke('platform:storage-migrate', input),
+    clearCache: (hostId) => ipcRenderer.invoke('platform:storage-cache', hostId),
+    openDirectory: (input) => ipcRenderer.invoke('platform:storage-open', input),
+  },
   listSavedHostConnections: () => ipcRenderer.invoke('platform:saved-connections'),
   removeSavedHostConnection: (url) => ipcRenderer.invoke('platform:remove-connection', url),
   getHostConnectionError: () => ipcRenderer.invoke('platform:connection-error'),

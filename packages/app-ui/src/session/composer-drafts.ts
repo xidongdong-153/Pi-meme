@@ -88,6 +88,11 @@ export class ComposerDrafts {
     this.persist(sessionKey)
   }
 
+  hasInput = () =>
+    [...this.values.values()].some(
+      (composer) => composer.draft || composer.attachments.length || composer.selectedSkills.length || composer.editing,
+    ) || [...this.pending.values()].some((pending) => pending.size > 0)
+
   hasUnstoredInput = () => {
     for (const [key, composer] of this.values) {
       if (composer.attachments.length || (composer.draft && (!this.key(key) || this.failed.has(key)))) return true

@@ -166,6 +166,9 @@ export function ServicesApp({
               onController: captureController,
               onLocation: changeLocation,
               onSearch: openSearch,
+              beforeRestart: () => {
+                for (const controller of controllers.current.values()) controller.assertRestartAllowed()
+              },
             }}
           />
         )

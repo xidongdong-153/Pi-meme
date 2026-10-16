@@ -8,6 +8,9 @@
     "./server": "./src/server.ts",
     "./credentials": "./src/credentials.ts",
     "./data-root": "./src/data-root.ts",
+    "./storage/files": "./src/storage/files.ts",
+    "./storage/cache": "./src/storage/cache.ts",
+    "./storage/migrate": "./src/storage/migrate.ts",
     "./runtime-extensions": "./src/runtime-extensions.ts"
   },
   "scripts": {
