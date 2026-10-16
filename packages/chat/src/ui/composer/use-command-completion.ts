@@ -2,11 +2,14 @@ import { planCompletion } from './plan-input'
 import * as React from 'react'
 import type { ProjectFile } from '@pi-meme/contracts/desktop'
 import type { KeyboardEvent } from 'react'
-import type { ComposerProps } from './composer'
+import type { AgentPluginOption, ComposerProps } from './composer'
 import { editorCaret, setEditorCaret } from './rich-draft'
 import { skillMarker } from '@pi-meme/contracts/skills'
 import { completionQuery } from './completion-query'
 import type { PiSlashCommand } from '@pi-meme/contracts/pi'
+
+export type CompletionItem =
+  { kind: 'command' | 'skill'; command: PiSlashCommand } | { kind: 'plugin'; plugin: AgentPluginOption }
 
 export function useCommandCompletion({
   onPlanCommand,
@@ -19,6 +22,8 @@ export function useCommandCompletion({
   onDismissHint,
   onSkills,
   selectedSkills,
+  agentPlugins,
+  onPluginPosition,
   commands,
   focusVersion,
 }: Pick<
@@ -33,11 +38,13 @@ export function useCommandCompletion({
   | 'onDismissHint'
   | 'onSkills'
   | 'selectedSkills'
+  | 'agentPlugins'
   | 'commands'
   | 'focusVersion'
   | 'onClearQueue'
 > & {
   hasQueue: boolean
+  onPluginPosition?: (id: string, offset: number) => void
 }) {
   const editor = React.useRef<HTMLDivElement>(null)
   const previousFocusVersion = React.useRef(focusVersion)
@@ -92,43 +99,77 @@ export function useCommandCompletion({
     }
   }, [fileCompletion, projectPath, fileQuery, loadProjectFiles])
   const skillCompletion = query?.kind === 'skill'
-  const matches = React.useMemo(() => {
+  const commandCompletion = suggestionsOpen && Boolean(query && query.kind !== 'file')
+  const commandStart = query?.kind === 'command' && !draft.slice(0, query.start).trim()
+  const matches = React.useMemo<CompletionItem[]>(() => {
     if (!suggestionsOpen || !query || query.kind === 'file') return []
     const prefix = query.query.toLowerCase()
-    if (query.kind === 'skill') {
-      return commands.filter(
+    const skills: CompletionItem[] = commands
+      .filter(
         (command) =>
           command.source === 'skill' &&
-          (command.name.slice(6).toLowerCase().includes(prefix) ||
+          (command.name
+            .replace(/^skill:/, '')
+            .toLowerCase()
+            .includes(prefix.replace(/^skill:/, '')) ||
             command.displayName?.toLowerCase().includes(prefix) ||
             command.shortDescription?.toLowerCase().includes(prefix) ||
             command.description?.toLowerCase().includes(prefix)),
       )
-    }
+      .map((command) => ({ kind: 'skill', command }))
+    if (query.kind === 'skill') return skills
     const canonicalPlan = commands.find((command) => command.source === 'builtin' && command.name === 'plan')
     let planSeen = false
-    return commands.flatMap((command) => {
-      const plan = command.source === 'builtin' && ['plan', '计划', '计划模式'].includes(command.name)
-      if (plan && planSeen) return []
-      if (plan) planSeen = true
-      const preferred = plan ? (canonicalPlan ?? command) : command
-      const candidate = plan && preferred.name !== 'plan' ? { ...preferred, name: 'plan' } : preferred
-      return candidate.name.toLowerCase().startsWith(prefix) || (plan && '计划模式'.startsWith(prefix))
-        ? [candidate]
-        : []
-    })
-  }, [commands, query?.kind, query?.query, suggestionsOpen])
-  const matchCount = fileCompletion ? fileMatches.length : matches.length
-  const activeIndex = Math.min(suggestionIndex, Math.max(0, matchCount - 1))
+    const top = commandStart
+      ? commands.flatMap<CompletionItem>((command) => {
+          if (command.source === 'skill') return []
+          const plan = command.source === 'builtin' && ['plan', '计划', '计划模式'].includes(command.name)
+          if (plan && planSeen) return []
+          if (plan) planSeen = true
+          const preferred = plan ? (canonicalPlan ?? command) : command
+          const candidate = plan && preferred.name !== 'plan' ? { ...preferred, name: 'plan' } : preferred
+          return candidate.name.toLowerCase().startsWith(prefix) || (plan && '计划模式'.startsWith(prefix))
+            ? [{ kind: 'command', command: candidate }]
+            : []
+        })
+      : []
+    top.sort(
+      (left, right) =>
+        Number(right.kind !== 'plugin' && right.command.source === 'builtin') -
+        Number(left.kind !== 'plugin' && left.command.source === 'builtin'),
+    )
+    const plugins: CompletionItem[] = (agentPlugins?.options ?? [])
+      .filter((plugin) =>
+        [plugin.id, plugin.name, plugin.description].some((value) => value?.toLowerCase().includes(prefix)),
+      )
+      .map((plugin) => ({ kind: 'plugin', plugin }))
+    return [...top, ...skills, ...plugins]
+  }, [commands, commandStart, query?.kind, query?.query, suggestionsOpen, agentPlugins?.options])
+  const selectable = matches.flatMap((item, index) =>
+    item.kind === 'plugin' && agentPlugins?.disabledReason ? [] : [index],
+  )
+  const matchCount = fileCompletion ? fileMatches.length : selectable.length
+  const activeIndex = fileCompletion
+    ? Math.min(suggestionIndex, Math.max(0, matchCount - 1))
+    : (selectable[Math.min(suggestionIndex, Math.max(0, matchCount - 1))] ?? -1)
 
   React.useEffect(() => setSuggestionIndex(0), [query?.kind, query?.query, projectPath])
   React.useEffect(() => {
     document.getElementById(`composer-option-${activeIndex}`)?.scrollIntoView({ block: 'nearest' })
   }, [activeIndex, matchCount])
 
-  function completeCommand(command: PiSlashCommand) {
+  function completeItem(item: CompletionItem) {
     if (!query) return
-    const plan = planCompletion(command, draft, query.start, draftCaret)
+    if (item.kind === 'plugin') {
+      if (!agentPlugins || agentPlugins.disabledReason) return
+      const { id } = item.plugin
+      if (!agentPlugins.mentions.some((plugin) => plugin.id === id)) onPluginPosition?.(id, query.start)
+      replaceQuery('')
+      void agentPlugins.select(id)
+      return
+    }
+    const command = item.command
+    const plan = item.kind === 'command' ? planCompletion(command, draft, query.start, draftCaret) : undefined
     if (plan !== undefined && onPlanCommand) {
       onPlanCommand(plan)
       completionCaret.current = 0
@@ -142,14 +183,17 @@ export function useCommandCompletion({
       return
     }
     const before = draft.slice(0, query.start)
-    const after = draft.slice(draftCaret)
-    const insertion = query.kind === 'skill' ? `${skillMarker} ` : `/${command.name} `
-    const caret = before.length + insertion.length
-    if (query.kind === 'skill') {
+    if (item.kind === 'skill') {
       const index = before.split(skillMarker).length - 1
       onSkills([...selectedSkills.slice(0, index), command, ...selectedSkills.slice(index)])
     }
-    onDraft(`${before}${insertion}${after}`)
+    replaceQuery(item.kind === 'skill' ? `${skillMarker} ` : `/${command.name} `)
+  }
+
+  function replaceQuery(insertion: string) {
+    if (!query) return
+    const caret = query.start + insertion.length
+    onDraft(draft.slice(0, query.start) + insertion + draft.slice(draftCaret))
     completionCaret.current = caret
     setDraftCaret(caret)
     setSuggestionsOpen(false)
@@ -204,22 +248,22 @@ export function useCommandCompletion({
         return
       }
     }
-    if (matches.length && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+    if (commandCompletion && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
       event.preventDefault()
       const direction = event.key === 'ArrowDown' ? 1 : -1
-      setSuggestionIndex((index) => (index + direction + matches.length) % matches.length)
+      if (matchCount) setSuggestionIndex((index) => (index + direction + matchCount) % matchCount)
       return
     }
     if (
-      matches.length &&
+      commandCompletion &&
       (event.key === 'Tab' || (event.key === 'Enter' && !event.shiftKey && !event.nativeEvent.isComposing))
     ) {
       event.preventDefault()
-      completeCommand(matches[activeIndex])
+      if (matches[activeIndex]) completeItem(matches[activeIndex])
       return
     }
     if (event.key === 'Escape') {
-      if (matches.length) {
+      if (commandCompletion) {
         event.preventDefault()
         setSuggestionsOpen(false)
       } else if (hint) {
@@ -242,6 +286,7 @@ export function useCommandCompletion({
   return {
     editor,
     matches,
+    commandCompletion,
     fileCompletion,
     fileMatches,
     fileQuery,
@@ -251,7 +296,7 @@ export function useCommandCompletion({
     replaceFileQuery,
     skillCompletion,
     suggestionIndex: activeIndex,
-    completeCommand,
+    completeItem,
     keyDown,
     setDraftCaret,
     updateCaret: () => {

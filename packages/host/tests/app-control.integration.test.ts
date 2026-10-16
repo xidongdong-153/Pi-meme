@@ -446,6 +446,63 @@ export function activate() {}`,
     })
 })
 
+test('已有会话中途选择Agent插件后，后续消息无需再次引用仍保留工具和上下文', { timeout: 40000 }, async () => {
+  const f = await fixture('持续使用插件完成任务')
+  try {
+    const api = f.host.app
+    const cwd = path.join(f.root, 'project')
+    await mkdir(cwd)
+    const pluginId = 'mid-session-agent'
+    const source = path.join(f.root, pluginId)
+    await mkdir(path.join(source, 'dist'), { recursive: true })
+    await writeFile(
+      path.join(source, 'package.json'),
+      JSON.stringify({
+        name: pluginId,
+        version: '1.0.0',
+        type: 'module',
+        piMeme: { sdkVersion: 2, agent: 'dist/agent.js' },
+      }),
+    )
+    await writeFile(
+      path.join(source, 'dist/agent.js'),
+      `export function activate(context) {
+      context.tools.register({ name: 'mid_session_tool', title: '插件工具', description: '中途启用的工具', parameters: { type: 'object', properties: {} }, execute: () => ({ text: '完成' }) })
+      context.hooks.on('beforeRun', () => ({ context: '后续轮次持续保留的插件信息' }))
+    }`,
+    )
+    await f.host.plugins.loadDirectory(source)
+    const project = await api.projects.register({ cwd }, key('project'))
+    const ref = await session(api, project, 'mid-session')
+    const first = await api.sessions.submit(
+      ref,
+      { delivery: 'start', text: '未选择插件时的第一轮' },
+      key('before-plugin'),
+    )
+    assert.equal((await eventually(() => api.sessions.receipt(first.operationId), finished)).status, 'completed')
+    assert.ok(
+      !f.fake.provider.requests[0]!.tools.some(
+        (tool: { function: { name: string } }) => tool.function.name === 'mid_session_tool',
+      ),
+    )
+    await api.sessions.configure(ref, { agentPlugins: [pluginId] }, key('select-mid-session'))
+    for (const index of [1, 2]) {
+      const receipt = await api.sessions.submit(
+        ref,
+        { delivery: 'start', text: `不携带插件引用的第${index}次消息` },
+        key(`after-plugin-${index}`),
+      )
+      assert.equal((await eventually(() => api.sessions.receipt(receipt.operationId), finished)).status, 'completed')
+      const request = f.fake.provider.requests.at(-1)!
+      assert.ok(request.tools.some((tool: { function: { name: string } }) => tool.function.name === 'mid_session_tool'))
+      assert.match(requestText(request), /后续轮次持续保留的插件信息/)
+      assert.deepEqual((await api.sessions.get(ref)).configuration.agentPlugins, [pluginId])
+    }
+  } finally {
+    await f.dispose()
+  }
+})
+
 test('并发枚举UI项目和历史会话只创建一份稳定身份', { timeout: 25000 }, async () => {
   const f = await fixture({ text: 'UI历史回复', delayMs: 40 })
   try {

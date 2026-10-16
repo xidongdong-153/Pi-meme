@@ -11,6 +11,24 @@ import { ComposerToolbar } from './composer-toolbar'
 import { ComposerAttachments } from './composer-attachments'
 import { ComposerQueues } from './composer-queues'
 
+export type AgentPluginOption = {
+  id: string
+  name: string
+  description?: string
+  iconUrl?: string
+}
+
+export type ComposerAgentPlugins = {
+  options: AgentPluginOption[]
+  selected: AgentPluginOption[]
+  mentions: AgentPluginOption[]
+  select: (id: string) => Promise<boolean>
+  loading: boolean
+  saving: boolean
+  disabledReason?: string
+  change: (ids: string[]) => Promise<boolean>
+}
+
 export type ComposerProps = {
   compact?: boolean
   mode?: TaskMode
@@ -23,6 +41,7 @@ export type ComposerProps = {
   loadProjectFiles?: ChatBridge['getProjectFiles']
   selectedSkills: PiSlashCommand[]
   onSkills: (skills: PiSlashCommand[]) => void
+  agentPlugins?: ComposerAgentPlugins
   draft: string
   onDraft: (value: string) => void
   /** 空草稿时显示的下一步提示。Tab 填入草稿，不发送。 */
@@ -77,6 +96,7 @@ export function Composer({
   loadProjectFiles,
   selectedSkills,
   onSkills,
+  agentPlugins,
   draft,
   onDraft,
   hint,
@@ -174,7 +194,8 @@ export function Composer({
         style={{ backgroundColor: 'color-mix(in srgb, var(--background), var(--foreground) 14%)' }}
         onSubmit={(event) => {
           event.preventDefault()
-          if (!disabled && (draft.trim() || selectedSkills.length || attachments.length)) onSend()
+          if (!disabled && !agentPlugins?.saving && (draft.trim() || selectedSkills.length || attachments.length))
+            onSend()
         }}
         onDragEnter={(event) => {
           if (!disabled && event.dataTransfer.types.includes('Files')) setDragging(true)
@@ -234,6 +255,8 @@ export function Composer({
         <div className="composer-layout">
           <ComposerEditor
             disabled={disabled}
+            sessionKey={sessionKey}
+            agentPlugins={agentPlugins}
             onPlanCommand={onPlanCommand}
             projectPath={projectPath}
             loadProjectFiles={loadProjectFiles}
@@ -262,6 +285,7 @@ export function Composer({
             editingQueue={editingQueue}
             onResume={onResume}
             disabled={disabled}
+            sendDisabled={agentPlugins?.saving}
             draft={draft}
             hasAttachments={attachments.length > 0 || selectedSkills.length > 0}
             queueMode={queueMode}

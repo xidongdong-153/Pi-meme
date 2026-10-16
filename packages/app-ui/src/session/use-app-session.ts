@@ -238,7 +238,7 @@ export function useAppSession(
       if (!key || key === current.current.sessionKey) void refresh()
       else {
         const saved = drafts.get(key)
-        drafts.set(key, saved?.draft ? saved : composer)
+        drafts.set(key, saved && (saved.draft || saved.pluginMentions?.length) ? saved : composer)
       }
     },
   })
@@ -259,6 +259,7 @@ export function useAppSession(
     switching,
     chat.draft,
     chat.selectedSkills,
+    chat.pluginMentions,
     chat.attachments,
     chat.queueMode,
     chat.editingTimestamp,
@@ -764,6 +765,8 @@ export function useAppSession(
     dismissComposerHint: chat.dismissComposerHint,
     selectedSkills: chat.selectedSkills,
     setSelectedSkills: chat.setSelectedSkills,
+    pluginMentions: chat.pluginMentions,
+    setPluginMentions: chat.setPluginMentions,
     attachments: chat.attachments,
     queueMode: chat.queueMode,
     ...extensions,

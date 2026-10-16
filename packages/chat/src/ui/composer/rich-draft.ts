@@ -2,6 +2,7 @@ import { skillMarker } from '@pi-meme/contracts/skills'
 
 export function readEditorText(node: Node): string {
   if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? ''
+  if (node instanceof HTMLElement && node.dataset.pluginToken !== undefined) return ''
   if (node instanceof HTMLElement && node.dataset.skillToken !== undefined) return skillMarker
   if (node.nodeName === 'BR') return '\n'
   let text = ''
@@ -27,6 +28,15 @@ export function setEditorCaret(editor: HTMLElement, offset: number) {
   let remaining = offset
   for (const node of editor.childNodes) {
     const length = readEditorText(node).length
+    if (node instanceof HTMLElement && node.dataset.pluginToken !== undefined) continue
+    if (
+      remaining === length &&
+      node.nextSibling instanceof HTMLElement &&
+      node.nextSibling.dataset.pluginToken !== undefined
+    ) {
+      remaining = 0
+      continue
+    }
     if (remaining <= length) {
       if (node.nodeType === Node.TEXT_NODE) range.setStart(node, remaining)
       else if (remaining === 0) range.setStartBefore(node)

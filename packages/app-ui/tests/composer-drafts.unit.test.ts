@@ -139,10 +139,33 @@ test('存储维护检查所有会话的已保存草稿、技能与发送中的�
   assert.equal(drafts.hasInput(), false)
 })
 
+test('待发送插件引用只保存 ID，空正文可恢复，发送成功后不再显示旧引用', () => {
+  const { open, values } = fixture()
+  const drafts = open()
+  const pending = { ...empty, pluginMentions: ['cloud'] }
+  drafts.set('session', pending)
+  assert.equal(drafts.hasInput(), true)
+  assert.deepEqual(open().get('session'), pending)
+  assert.doesNotMatch([...values.values()].join(''), /agentPlugins|capabilities|enabled/)
+  const finish = drafts.startSend('session', { ...pending, draft: '调用插件' })
+  drafts.set('session', empty)
+  assert.deepEqual(open().get('session')?.pluginMentions, ['cloud'])
+  finish()
+  assert.equal(open().get('session'), undefined)
+  drafts.set('session', { ...empty, draft: '后续消息' })
+  assert.equal(open().get('session')?.pluginMentions, undefined)
+})
+
 test('损坏、旧结构和无效技能不会导致恢复崩溃；存储被禁用时窗口内仍可切换草稿', () => {
   const { values, open } = fixture()
   const key = composerDraftPrefix + JSON.stringify(['host-a', 'session'])
-  for (const value of ['{', 'null', '{}', JSON.stringify({ ...composer, selectedSkills: [{}] })]) {
+  for (const value of [
+    '{',
+    'null',
+    '{}',
+    JSON.stringify({ ...composer, selectedSkills: [{}] }),
+    JSON.stringify({ ...empty, pluginMentions: [{}] }),
+  ]) {
     values.set(key, value)
     assert.equal(open().get('session'), undefined)
   }

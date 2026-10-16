@@ -109,7 +109,7 @@ export function activate(context: AgentPluginContext) {
 
 `interaction.request(questions, signal)` 使用图形多题表单；问题格式见 `packages/contracts/src/user-input.ts`。通知使用 `notify`，状态使用 `setStatus`。`messages.emit({ type, text, data? })` 保存自定义消息；内部类型包含插件身份，图形投影恢复插件声明的类型。
 
-新会话默认选择空 Agent 插件列表。输入区可以选择当前会话插件并保存新会话默认值。Host 层也可用 `sessions.configure(ref, { agentPlugins }, options)` 和 `plugins.setDefaultAgentPlugins(ids, options)`。运行中的会话不能修改插件选择；子代理继承父任务的插件代次与权限。安装 UI 或主题插件不要求选择 Agent。
+新会话默认选择空 Agent 插件列表；Host 可通过 `plugins.setDefaultAgentPlugins(ids, options)` 修改后续会话的默认列表。输入 `/` 后，顶部保留命令，下面分“技能”“插件”；插件分类只列当前项目可用且具有 Agent 入口的已安装插件。选择插件通过 `sessions.configure(ref, { agentPlugins }, options)` 保存到当前会话，成功后在编辑器内显示图标与名称，不显示额外启用说明或插件管理区。同一草稿内重复选择不重复插入，删除未发送的行内引用取消会话选择。发送后清空输入框中的插件引用，但不清除会话配置；后续消息持续使用所选插件，不重新渲染旧引用。待发送引用只以插件 ID 随本地草稿保存，发送失败随草稿恢复，不写入消息正文，也不能通过恢复草稿自动启用插件。运行中不能修改插件选择，保存期间阻止发送但允许继续编辑正文。子代理继承父任务的插件代次与权限。安装 UI 或主题插件不要求选择 Agent。
 
 Agent 权限与插件安装状态分开处理。当前外部 Agent 入口只在完全权限的普通任务加载；计划模式和受限任务保留内置读取、提问、协作、计划与权限检查。插件安装不会把任务改成完全权限。
 

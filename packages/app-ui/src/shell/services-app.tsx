@@ -86,7 +86,8 @@ export function ServicesApp({
         current.mode === draft.mode &&
         current.composer.draft === draft.composer.draft &&
         current.composer.attachments === draft.composer.attachments &&
-        current.composer.selectedSkills === draft.composer.selectedSkills
+        current.composer.selectedSkills === draft.composer.selectedSkills &&
+        current.composer.pluginMentions === draft.composer.pluginMentions
       )
         latestSource.clearDraft()
     }

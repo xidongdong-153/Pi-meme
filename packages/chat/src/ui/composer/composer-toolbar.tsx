@@ -14,6 +14,7 @@ export type ComposerToolbarProps = {
   onResume?: () => void
   running: boolean
   disabled: boolean
+  sendDisabled?: boolean
   draft: string
   hasAttachments: boolean
   queueMode: 'steering' | 'followUp'
@@ -39,6 +40,7 @@ export function ComposerToolbar({
   editingQueue,
   onResume,
   disabled,
+  sendDisabled,
   draft,
   hasAttachments,
   onStop,
@@ -106,7 +108,7 @@ export function ComposerToolbar({
         {compact && plan}
         <button
           type={canSend || editingQueue ? 'submit' : 'button'}
-          disabled={disabled || (editingQueue ? !canSend : !canSend && !running && !paused)}
+          disabled={disabled || sendDisabled || (editingQueue ? !canSend : !canSend && !running && !paused)}
           onClick={!canSend && !editingQueue ? (paused ? onResume : running ? onStop : undefined) : undefined}
           aria-label={
             editingQueue
@@ -137,7 +139,7 @@ export function ComposerToolbar({
           className={cn(
             'inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-[#2f6bca] text-white transition-all shadow-xs cursor-pointer hover:bg-[#3675d8] active:scale-95',
             compact && 'size-7',
-            (disabled || (editingQueue ? !canSend : !canSend && !running && !paused)) &&
+            (disabled || sendDisabled || (editingQueue ? !canSend : !canSend && !running && !paused)) &&
               'opacity-40 cursor-not-allowed hover:bg-[#2f6bca] active:scale-100',
           )}
         >

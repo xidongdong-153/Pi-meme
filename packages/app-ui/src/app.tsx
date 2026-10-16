@@ -52,7 +52,7 @@ import { UiPluginRegistry } from './plugins/plugin-registry'
 import { PluginSlot } from './plugins/plugin-slot'
 import { WorkspacePanels } from './layout/workspace-panels'
 import { sessionUiTarget } from './layout/panel-layout'
-import { AgentPluginSelector } from './plugins/agent-plugin-selector'
+import { useAgentPluginSelection } from './plugins/use-agent-plugin-selection'
 import { FileDiff, Folder, TerminalSquare, Network, ListTree, NotebookPen } from 'lucide-react'
 import type { HostApi, AppSession } from '@pi-meme/contracts/app-host'
 import { SettingsPage } from './settings/settings-page'
@@ -214,7 +214,6 @@ export function App({
       }),
     [resources, chat.refreshSnapshot],
   )
-  const [agentPlugins, setAgentPlugins] = useState<string[]>([])
   const [resolvedSession, setResolvedSession] = useState<{ key: string; value: AppSession }>()
   const runtimeSessionKey = chat.connection.sessionKey
   useEffect(() => {
@@ -237,6 +236,19 @@ export function App({
     }
   }, [bridge, runtimeSessionKey, chat.bindDraftSession, chat.setError])
   const appSession = resolvedSession && resolvedSession.key === runtimeSessionKey ? resolvedSession.value : undefined
+  const agentPluginSelection = useAgentPluginSelection({
+    host,
+    session: appSession,
+    plugins: pluginDescriptors,
+    resources,
+    cwd,
+    pluginMentions: chat.pluginMentions,
+    onPluginMentions: chat.setPluginMentions,
+    busy: Boolean(chat.busy || chat.chat.paused || chat.chat.queuePaused),
+    onChanged: chat.refreshSnapshot,
+    onError: chat.setError,
+  })
+  const agentPlugins = agentPluginSelection.ids
   const pluginProps: UiContributionProps = useMemo(
     () => ({
       host,
@@ -431,6 +443,7 @@ export function App({
     ),
     selectedSkills: chat.selectedSkills,
     onSkills: chat.setSelectedSkills,
+    agentPlugins: agentPluginSelection,
     draft: chat.draft,
     onDraft: chat.setDraft,
     hint: chat.composerHint,
@@ -471,15 +484,6 @@ export function App({
       <>
         <ExtensionWidgets {...{ widgets: chat.extensionWidgets, placement: 'belowEditor' }} />
         {extra('composer-actions')}
-        <AgentPluginSelector
-          host={host}
-          target={pluginProps.target.session}
-          plugins={pluginDescriptors}
-          busy={chat.busy}
-          onChanged={chat.refreshSnapshot}
-          onSelection={setAgentPlugins}
-          onError={chat.setError}
-        />
       </>
     ),
     statusBadges: (

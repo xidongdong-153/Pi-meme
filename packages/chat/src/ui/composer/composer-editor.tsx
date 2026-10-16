@@ -1,16 +1,26 @@
-import { useLayoutEffect, useRef } from 'react'
+import { useLayoutEffect, useReducer, useRef } from 'react'
 import type { ClipboardEvent } from 'react'
 import { ImagePlus } from 'lucide-react'
-import type { ComposerProps } from './composer'
+import type { AgentPluginOption, ComposerProps } from './composer'
 import { useCommandCompletion } from './use-command-completion'
 import { FileSuggestions } from './file-suggestions'
 import { CommandSuggestions } from './command-suggestions'
 import { skillMarker } from '@pi-meme/contracts/skills'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { editorCaret, readEditorText, setEditorCaret } from './rich-draft'
+import {
+  adjacentPluginToken,
+  createEditorToken,
+  editorPluginPositions,
+  movePluginPositions,
+} from './editor-plugin-tokens'
+
+const emptyPlugins: AgentPluginOption[] = []
 
 export function ComposerEditor({
   disabled,
+  sessionKey,
+  agentPlugins,
   onPlanCommand,
   projectPath,
   loadProjectFiles,
@@ -31,6 +41,8 @@ export function ComposerEditor({
 }: Pick<
   ComposerProps,
   | 'onPlanCommand'
+  | 'sessionKey'
+  | 'agentPlugins'
   | 'projectPath'
   | 'loadProjectFiles'
   | 'draft'
@@ -51,9 +63,13 @@ export function ComposerEditor({
   /** Escape 未被命令补全或队列清空消费时触发，例如取消历史消息编辑。 */
   onEscape?: () => void
 }) {
+  const positions = useRef({ sessionKey, draft, offsets: new Map<string, number>() })
+  const plugins = agentPlugins?.mentions ?? emptyPlugins
+  const [pluginRevision, redrawPlugins] = useReducer((value: number) => value + 1, 0)
   const {
     editor,
     matches,
+    commandCompletion,
     fileCompletion,
     fileMatches,
     fileQuery,
@@ -63,7 +79,7 @@ export function ComposerEditor({
     replaceFileQuery,
     skillCompletion,
     suggestionIndex,
-    completeCommand,
+    completeItem,
     keyDown,
     setDraftCaret,
     updateCaret,
@@ -79,6 +95,8 @@ export function ComposerEditor({
     onDismissHint,
     onSkills,
     selectedSkills,
+    agentPlugins,
+    onPluginPosition: (id, offset) => positions.current.offsets.set(id, offset),
     commands,
     focusVersion,
     onClearQueue,
@@ -86,11 +104,25 @@ export function ComposerEditor({
   })
   const composing = useRef(false)
   const renderedSkill = useRef(selectedSkills)
+  const renderedPlugins = useRef(plugins)
 
   function acceptInput() {
     const element = editor.current
     if (!element || composing.current) return
     const text = readEditorText(element)
+    movePluginPositions(positions.current.offsets, positions.current.draft, text)
+    positions.current.draft = text
+    const presentPlugins = editorPluginPositions(element)
+    for (const [id, offset] of presentPlugins) positions.current.offsets.set(id, offset)
+    if (plugins.some((plugin) => !presentPlugins.has(plugin.id))) {
+      if (!disabled && agentPlugins && !agentPlugins.disabledReason)
+        void agentPlugins.change(
+          agentPlugins.selected
+            .filter((plugin) => !plugins.some((mention) => mention.id === plugin.id && !presentPlugins.has(plugin.id)))
+            .map((plugin) => plugin.id),
+        )
+      redrawPlugins()
+    }
     const skills = [...element.querySelectorAll<HTMLElement>('[data-skill-token]')].flatMap((token) => {
       const skill = selectedSkills.find((entry) => (entry.resourceId ?? entry.name) === token.dataset.skillToken)
       return skill ? [skill] : []
@@ -105,39 +137,54 @@ export function ComposerEditor({
   useLayoutEffect(() => {
     const element = editor.current
     if (!element || composing.current) return
-    if (readEditorText(element) === draft && renderedSkill.current === selectedSkills) return
+    if (positions.current.sessionKey !== sessionKey) positions.current = { sessionKey, draft, offsets: new Map() }
+    const presentPlugins = editorPluginPositions(element)
+    if (
+      readEditorText(element) === draft &&
+      renderedSkill.current === selectedSkills &&
+      renderedPlugins.current === plugins &&
+      presentPlugins.size === plugins.length &&
+      plugins.every((plugin) => presentPlugins.has(plugin.id))
+    )
+      return
     const focused = document.activeElement === element
     const caret = editorCaret(element)
+    movePluginPositions(positions.current.offsets, positions.current.draft, draft)
+    positions.current.draft = draft
+    const mentions: Array<{ offset: number; length: number; node: Node }> = plugins.map((plugin) => ({
+      offset: Math.min(positions.current.offsets.get(plugin.id) ?? 0, draft.length),
+      length: 0,
+      node: createEditorToken('plugin', plugin.id, plugin.name, plugin.description, plugin.iconUrl),
+    }))
+    let skillIndex = 0
+    for (let offset = 0; offset < draft.length; offset++) {
+      if (draft[offset] !== skillMarker) continue
+      const skill = selectedSkills[skillIndex++]
+      if (skill)
+        mentions.push({
+          offset,
+          length: 1,
+          node: createEditorToken(
+            'skill',
+            skill.resourceId ?? skill.name,
+            skill.displayName ?? skill.name.replace(/^skill:/, ''),
+            skill.sourceInfo.path,
+          ),
+        })
+    }
+    mentions.sort((left, right) => left.offset - right.offset || left.length - right.length)
     const nodes: Node[] = []
-    const parts = draft.split(skillMarker)
-    parts.forEach((text, index) => {
-      const skill = selectedSkills[index - 1]
-      if (index && skill) {
-        const token = document.createElement('span')
-        token.dataset.skillToken = skill.resourceId ?? skill.name
-        token.contentEditable = 'false'
-        token.className = 'inline text-blue-400 select-none'
-        token.setAttribute('aria-label', '已选择技能')
-        token.title = skill.sourceInfo.path
-        const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
-        icon.setAttribute('viewBox', '0 0 24 24')
-        icon.setAttribute('fill', 'none')
-        icon.setAttribute('stroke', 'currentColor')
-        icon.setAttribute('stroke-width', '1.5')
-        icon.setAttribute('class', 'inline-block size-4 align-[-0.125em] mr-1')
-        icon.setAttribute('aria-hidden', 'true')
-        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
-        path.setAttribute('d', 'M12 3 3 8v10l9 5 9-5V8L12 3Zm0 10 9-5M12 13 3 8m9 5v10M7.5 5.5l9 5')
-        icon.append(path)
-        token.append(icon, document.createTextNode(skill.displayName ?? skill.name.replace(/^skill:/, '')))
-        nodes.push(token)
-      }
-      nodes.push(document.createTextNode(text))
-    })
+    let offset = 0
+    for (const mention of mentions) {
+      nodes.push(document.createTextNode(draft.slice(offset, mention.offset)), mention.node)
+      offset = mention.offset + mention.length
+    }
+    nodes.push(document.createTextNode(draft.slice(offset)))
     element.replaceChildren(...nodes)
     renderedSkill.current = selectedSkills
+    renderedPlugins.current = plugins
     if (focused) setEditorCaret(element, Math.min(caret, draft.length))
-  }, [draft, selectedSkills, editor])
+  }, [draft, selectedSkills, plugins, sessionKey, pluginRevision, editor])
 
   function insertText(text: string) {
     const element = editor.current
@@ -162,12 +209,15 @@ export function ComposerEditor({
           onDirectory={replaceFileQuery}
         />
       )}
-      <CommandSuggestions
-        matches={matches}
-        skillCompletion={skillCompletion}
-        suggestionIndex={suggestionIndex}
-        onComplete={completeCommand}
-      />
+      {commandCompletion && (
+        <CommandSuggestions
+          matches={matches}
+          skillCompletion={skillCompletion}
+          agentPlugins={agentPlugins}
+          suggestionIndex={suggestionIndex}
+          onComplete={completeItem}
+        />
+      )}
       <div
         ref={editor}
         contentEditable={!disabled}
@@ -176,9 +226,13 @@ export function ComposerEditor({
         aria-label="消息"
         aria-multiline="true"
         aria-autocomplete="list"
-        aria-expanded={fileCompletion || matches.length > 0}
-        aria-controls={fileCompletion || matches.length ? 'composer-suggestions' : undefined}
-        aria-activedescendant={fileMatches.length || matches.length ? `composer-option-${suggestionIndex}` : undefined}
+        aria-expanded={fileCompletion || commandCompletion}
+        aria-controls={fileCompletion || commandCompletion ? 'composer-suggestions' : undefined}
+        aria-activedescendant={
+          suggestionIndex >= 0 && (fileMatches.length || matches.length)
+            ? `composer-option-${suggestionIndex}`
+            : undefined
+        }
         data-placeholder={hint || '说说你的想法'}
         aria-describedby={hint ? 'composer-next-step' : undefined}
         onInput={acceptInput}
@@ -191,9 +245,23 @@ export function ComposerEditor({
         }}
         onKeyUp={updateCaret}
         onMouseUp={updateCaret}
+        onBlur={() => setSuggestionsOpen(false)}
         onKeyDown={(event) => {
           if (composing.current || event.nativeEvent.isComposing || event.keyCode === 229) return
           const caret = editor.current ? editorCaret(editor.current) : 0
+          if (editor.current && (event.key === 'Backspace' || event.key === 'Delete')) {
+            const plugin = adjacentPluginToken(editor.current, event.key === 'Backspace')
+            if (plugin) {
+              event.preventDefault()
+              if (!disabled && agentPlugins && !agentPlugins.disabledReason)
+                void agentPlugins.change(
+                  agentPlugins.selected
+                    .filter((entry) => entry.id !== plugin.dataset.pluginToken)
+                    .map((entry) => entry.id),
+                )
+              return
+            }
+          }
           const tokenIndex = event.key === 'Backspace' ? caret - 1 : event.key === 'Delete' ? caret : -1
           if (window.getSelection()?.isCollapsed && tokenIndex >= 0 && draft[tokenIndex] === skillMarker) {
             event.preventDefault()

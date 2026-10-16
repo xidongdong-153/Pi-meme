@@ -19,6 +19,7 @@ export type QueueMode = 'steering' | 'followUp'
 export type ComposerSnapshot = {
   draft: string
   selectedSkills: PiSlashCommand[]
+  pluginMentions?: string[]
   attachments: Attachment[]
   queueMode: QueueMode
   recoveredInputs?: QueuedInput[]
@@ -62,6 +63,7 @@ export function useChatSession(options: ChatSessionOptions) {
   const hintSession = useRef<string | undefined>(undefined)
   const composerHintRef = useRef<string | undefined>(undefined)
   const [selectedSkills, setSelectedSkills] = useState<PiSlashCommand[]>([])
+  const [pluginMentions, setPluginMentions] = useState<string[]>([])
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [mode, setMode] = useState<TaskMode>('default')
   const modeWrites = useRef<Promise<unknown>>(Promise.resolve())
@@ -77,7 +79,13 @@ export function useChatSession(options: ChatSessionOptions) {
   const queueEditPending = useRef(false)
   const [savingQueue, setSavingQueue] = useState(false)
   const latestComposer = useRef<ComposerSnapshot>({ draft, selectedSkills, attachments, queueMode })
-  latestComposer.current = { draft, selectedSkills, attachments, queueMode }
+  latestComposer.current = {
+    draft,
+    selectedSkills,
+    attachments,
+    queueMode,
+    ...(pluginMentions.length ? { pluginMentions } : {}),
+  }
   const promptPending = useRef(false)
   const optionsRef = useRef(options)
   optionsRef.current = options
@@ -140,6 +148,7 @@ export function useChatSession(options: ChatSessionOptions) {
     releaseQueueEdit()
     setDraft('')
     setSelectedSkills([])
+    setPluginMentions([])
     setAttachments([])
     setRecoveredInputs([])
     setEditingTimestamp(null)
@@ -151,6 +160,7 @@ export function useChatSession(options: ChatSessionOptions) {
     setChat(emptyChat)
     setDraft('')
     setSelectedSkills([])
+    setPluginMentions([])
     setAttachments([])
     promptPending.current = false
     setEditingTimestamp(null)
@@ -252,6 +262,7 @@ export function useChatSession(options: ChatSessionOptions) {
           setEditingQueue(null)
           setDraft(queuedEdit.restore.draft)
           setSelectedSkills(queuedEdit.restore.selectedSkills)
+          setPluginMentions(queuedEdit.restore.pluginMentions ?? [])
           setAttachments(queuedEdit.restore.attachments)
           changeMode(queuedEdit.mode)
         }
@@ -280,6 +291,7 @@ export function useChatSession(options: ChatSessionOptions) {
       dismissComposerHint()
       setDraft('')
       setSelectedSkills([])
+      setPluginMentions([])
       setAttachments([])
       // 立即退出编辑态并截断旧分支展示，避免同时出现编辑操作和生成状态。
       setEditingTimestamp(null)
@@ -292,6 +304,7 @@ export function useChatSession(options: ChatSessionOptions) {
         if (restore && sessionKey === optionsRef.current.currentSessionKey()) {
           setDraft(restore.draft)
           setSelectedSkills(restore.selectedSkills)
+          setPluginMentions(restore.pluginMentions ?? [])
           setAttachments(restore.attachments)
           setQueueMode(restore.queueMode)
         }
@@ -304,10 +317,17 @@ export function useChatSession(options: ChatSessionOptions) {
           setEditingTimestamp(target)
           setDraft(draft)
           setSelectedSkills(selectedSkills)
+          setPluginMentions(pluginMentions)
           setAttachments(attachments)
           setChat((value) => ({ ...value, messages: previousMessages, running: false }))
         }
-        onSendFailed?.(sessionKey, { draft, selectedSkills, attachments, queueMode })
+        onSendFailed?.(sessionKey, {
+          draft,
+          selectedSkills,
+          attachments,
+          queueMode,
+          ...(pluginMentions.length ? { pluginMentions } : {}),
+        })
         if (sameSession) onError(String(cause))
       }
       return
@@ -316,11 +336,18 @@ export function useChatSession(options: ChatSessionOptions) {
     const running = chat.running || chat.paused || chat.queuePaused || promptPending.current
     const sendMode = running ? 'followUp' : 'prompt'
     const generation = currentGeneration()
-    const finishSend = optionsRef.current.onSendStarted?.(sessionKey, { draft, selectedSkills, attachments, queueMode })
+    const finishSend = optionsRef.current.onSendStarted?.(sessionKey, {
+      draft,
+      selectedSkills,
+      attachments,
+      queueMode,
+      ...(pluginMentions.length ? { pluginMentions } : {}),
+    })
     onError('')
     dismissComposerHint()
     setDraft('')
     setSelectedSkills([])
+    setPluginMentions([])
     setAttachments([])
     if (!running) {
       promptPending.current = true
@@ -336,10 +363,17 @@ export function useChatSession(options: ChatSessionOptions) {
       const sameSession = sessionKey
         ? sessionKey === optionsRef.current.currentSessionKey()
         : generation === currentGeneration()
-      onSendFailed?.(sessionKey, { draft, selectedSkills, attachments, queueMode })
+      onSendFailed?.(sessionKey, {
+        draft,
+        selectedSkills,
+        attachments,
+        queueMode,
+        ...(pluginMentions.length ? { pluginMentions } : {}),
+      })
       if (sameSession) {
         setDraft((value) => value || draft)
         setSelectedSkills((value) => (value.length ? value : selectedSkills))
+        setPluginMentions((value) => [...new Set([...pluginMentions, ...value])])
         setAttachments((value) => (value.length ? value : attachments))
         if (!running) {
           promptPending.current = false
@@ -355,6 +389,7 @@ export function useChatSession(options: ChatSessionOptions) {
     chat.queuePaused,
     draft,
     selectedSkills,
+    pluginMentions,
     attachments,
     queueMode,
     editingTimestamp,
@@ -397,13 +432,20 @@ export function useChatSession(options: ChatSessionOptions) {
           return skillMarker
         })
         .join('')
-      editRestore.current = { draft, selectedSkills, attachments, queueMode }
+      editRestore.current = {
+        draft,
+        selectedSkills,
+        attachments,
+        queueMode,
+        ...(pluginMentions.length ? { pluginMentions } : {}),
+      }
       setEditingTimestamp(message.timestamp)
       setDraft(restoredDraft)
       setSelectedSkills(restoredSkills)
+      setPluginMentions([])
       setAttachments(images)
     },
-    [chat.running, draft, selectedSkills, attachments, queueMode],
+    [chat.running, draft, selectedSkills, pluginMentions, attachments, queueMode],
   )
 
   const cancelEdit = useCallback(async () => {
@@ -423,6 +465,7 @@ export function useChatSession(options: ChatSessionOptions) {
         setEditingQueue(null)
         setDraft(queued.restore.draft)
         setSelectedSkills(queued.restore.selectedSkills)
+        setPluginMentions(queued.restore.pluginMentions ?? [])
         setAttachments(queued.restore.attachments)
         changeMode(queued.mode)
       } catch (cause) {
@@ -446,6 +489,7 @@ export function useChatSession(options: ChatSessionOptions) {
     if (!restore) return
     setDraft(restore.draft)
     setSelectedSkills(restore.selectedSkills)
+    setPluginMentions(restore.pluginMentions ?? [])
     setAttachments(restore.attachments)
     setQueueMode(restore.queueMode)
   }, [changeMode])
@@ -504,6 +548,7 @@ export function useChatSession(options: ChatSessionOptions) {
         setEditingQueue(id)
         setDraft(restored.draft)
         setSelectedSkills(restored.selectedSkills)
+        setPluginMentions([])
         setAttachments(restored.attachments)
         changeMode(restored.mode)
       } catch (cause) {
@@ -539,6 +584,7 @@ export function useChatSession(options: ChatSessionOptions) {
     const restored = queuedDraft(input, optionsRef.current.commands)
     setDraft(restored.draft)
     setSelectedSkills(restored.selectedSkills)
+    setPluginMentions([])
     setAttachments(restored.attachments)
     changeMode(restored.mode)
     setRecoveredInputs((value) => value.filter((entry) => entry.id !== input.id))
@@ -571,6 +617,8 @@ export function useChatSession(options: ChatSessionOptions) {
     setDraft,
     selectedSkills: draft.includes(skillMarker) ? selectedSkills : emptySkills,
     setSelectedSkills,
+    pluginMentions,
+    setPluginMentions,
     attachments,
     setAttachments,
     queueMode,
@@ -585,6 +633,7 @@ export function useChatSession(options: ChatSessionOptions) {
       queueEdit.current?.restore ?? {
         draft,
         selectedSkills,
+        ...(pluginMentions.length ? { pluginMentions } : {}),
         attachments,
         queueMode,
         recoveredInputs,
@@ -597,6 +646,7 @@ export function useChatSession(options: ChatSessionOptions) {
       releaseQueueEdit()
       setDraft(value.draft)
       setSelectedSkills(value.selectedSkills)
+      setPluginMentions(value.pluginMentions ?? [])
       setAttachments(value.attachments)
       setQueueMode(value.queueMode)
       setRecoveredInputs(value.recoveredInputs ?? [])

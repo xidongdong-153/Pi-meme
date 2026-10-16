@@ -35,17 +35,17 @@ afterEach(cleanup)
 
 test('斜杠候选仅有一个 plan，中文前缀匹配该候选且技能保持', () => {
   assert.deepEqual(
-    completion('/').result.matches.map((command) => command.name),
+    completion('/').result.matches.map((item) => (item.kind === 'plugin' ? item.plugin.id : item.command.name)),
     ['plan', 'compact', 'name', 'skill:verify'],
   )
   for (const draft of ['/p', '/pl', '/plan', '/计', '/计划', '/计划模', '/计划模式'])
     assert.deepEqual(
-      completion(draft).result.matches.map((command) => command.name),
+      completion(draft).result.matches.map((item) => (item.kind === 'plugin' ? item.plugin.id : item.command.name)),
       ['plan'],
       draft,
     )
   assert.deepEqual(
-    completion('$ver').result.matches.map((command) => command.name),
+    completion('$ver').result.matches.map((item) => (item.kind === 'plugin' ? item.plugin.id : item.command.name)),
     ['skill:verify'],
   )
   assert.equal(completion('正文 /计划').result.matches.length, 0)
@@ -58,7 +58,7 @@ test('中文计划候选沿用 Enter、Tab 与鼠标选择，IME和Shift+Enter�
   try {
     for (const key of ['Enter', 'Tab', 'click', 'IME', '229', 'Shift+Enter']) {
       const { result, accepted, changedDrafts } = completion('/计划模')
-      if (key === 'click') result.completeCommand(result.matches[0])
+      if (key === 'click') result.completeItem(result.matches[0])
       else
         result.keyDown({
           key: key === 'Tab' ? 'Tab' : 'Enter',
@@ -83,7 +83,9 @@ test('旧Host的builtin计划别名合并为canonical候选，Enter、Tab与鼠�
   globalThis.requestAnimationFrame = () => 0
   try {
     for (const commands of [[plan, old], [old], [old, plan], [plan, plan, old], [chinese, old, plan]]) {
-      const choices = completion('/', commands).result.matches.filter((command) => command.source === 'builtin')
+      const choices = completion('/', commands).result.matches.flatMap((item) =>
+        item.kind !== 'plugin' && item.command.source === 'builtin' ? [item.command] : [],
+      )
       assert.deepEqual(
         choices.map((command) => command.name),
         ['plan'],
@@ -91,7 +93,7 @@ test('旧Host的builtin计划别名合并为canonical候选，Enter、Tab与鼠�
       if (commands.includes(plan)) assert.equal(choices[0], plan)
       for (const method of ['Enter', 'Tab', 'click']) {
         const { result, accepted, changedDrafts } = completion('/计', commands)
-        if (method === 'click') result.completeCommand(result.matches[0])
+        if (method === 'click') result.completeItem(result.matches[0])
         else result.keyDown({ key: method, nativeEvent: {}, preventDefault: () => {} } as KeyboardEvent<HTMLDivElement>)
         assert.deepEqual(accepted, ['/plan '], method)
         assert.deepEqual(changedDrafts, [], method)
@@ -112,7 +114,9 @@ test('合并旧builtin计划命令不隐藏同名外部命令或技能', () => {
     { ...plan, name: 'skill:计划模式', source: 'skill' },
   ]
   assert.deepEqual(
-    completion('/', commands).result.matches.map((command) => [command.source, command.name]),
+    completion('/', commands).result.matches.map((item) =>
+      item.kind === 'plugin' ? ['plugin', item.plugin.id] : [item.command.source, item.command.name],
+    ),
     [
       ['builtin', 'plan'],
       ['extension', 'plan'],

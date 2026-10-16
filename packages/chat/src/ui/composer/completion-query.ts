@@ -10,6 +10,6 @@ export function completionQuery(draft: string, caret: number) {
     }
   const skill = before.match(/(?:^|\s|\uFFFC)\$([^\s$]*)$/)
   if (skill) return { kind: 'skill' as const, query: skill[1], start: before.lastIndexOf('$') }
-  const command = before.match(/^\s*\/(\S*)$/)
-  return command ? { kind: 'command' as const, query: command[1], start: before.indexOf('/') } : null
+  const command = before.match(/(?:^|\s|\uFFFC)\/([^\s/]*)$/)
+  return command ? { kind: 'command' as const, query: command[1], start: before.lastIndexOf('/') } : null
 }

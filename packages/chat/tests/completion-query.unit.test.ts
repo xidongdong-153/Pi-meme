@@ -10,10 +10,12 @@ test('$ 技能补全支持开头、句中、换行和光标之后的正文', () 
   assert.equal(completionQuery('$type 已选完', 9), null)
 })
 
-test('斜杠命令只在消息开头补全，不匹配路径或句中的命令', () => {
+test('/ 资源补全支持空白和换行边界，不匹配路径、网址和单词内斜杠', () => {
   assert.deepEqual(completionQuery('  /skill:ty', 11), { kind: 'command', query: 'skill:ty', start: 2 })
-  assert.equal(completionQuery('读取 src/main', 11), null)
-  assert.equal(completionQuery('请用 /review', 10), null)
+  assert.deepEqual(completionQuery('请用 /review', 10), { kind: 'command', query: 'review', start: 3 })
+  assert.deepEqual(completionQuery('检查\n/', 4), { kind: 'command', query: '', start: 3 })
+  for (const value of ['读取 src/main', '/Users/me', 'https://example.com', '1/2'])
+    assert.equal(completionQuery(value, value.length), null)
 })
 
 test('@ 文件补全支持句中、嵌套路径和含空格的引号路径，不匹配邮箱和已闭合引用', () => {

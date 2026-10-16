@@ -36,7 +36,10 @@ export class ComposerDrafts {
     if (this.identities.get(sessionKey) === sessionId) return
     this.identities.set(sessionKey, sessionId)
     const current = this.values.get(sessionKey)
-    if (current && (current.draft || current.attachments.length || current.selectedSkills.length)) {
+    if (
+      current &&
+      (current.draft || current.attachments.length || current.selectedSkills.length || current.pluginMentions?.length)
+    ) {
       this.persist(sessionKey)
       return
     }
@@ -61,12 +64,16 @@ export class ComposerDrafts {
         typeof value.draft !== 'string' ||
         !Array.isArray(value.selectedSkills) ||
         !value.selectedSkills.every(isSkill) ||
+        (value.pluginMentions !== undefined &&
+          (!Array.isArray(value.pluginMentions) ||
+            !value.pluginMentions.every((id) => typeof id === 'string' && id.length > 0))) ||
         (value.queueMode !== 'steering' && value.queueMode !== 'followUp')
       )
         return
       const composer: ComposerSnapshot = {
         draft: value.draft,
         selectedSkills: value.selectedSkills,
+        ...(value.pluginMentions?.length ? { pluginMentions: value.pluginMentions } : {}),
         attachments: [],
         queueMode: value.queueMode,
       }
@@ -90,12 +97,21 @@ export class ComposerDrafts {
 
   hasInput = () =>
     [...this.values.values()].some(
-      (composer) => composer.draft || composer.attachments.length || composer.selectedSkills.length || composer.editing,
+      (composer) =>
+        composer.draft ||
+        composer.attachments.length ||
+        composer.selectedSkills.length ||
+        composer.pluginMentions?.length ||
+        composer.editing,
     ) || [...this.pending.values()].some((pending) => pending.size > 0)
 
   hasUnstoredInput = () => {
     for (const [key, composer] of this.values) {
-      if (composer.attachments.length || (composer.draft && (!this.key(key) || this.failed.has(key)))) return true
+      if (
+        composer.attachments.length ||
+        ((composer.draft || composer.pluginMentions?.length) && (!this.key(key) || this.failed.has(key)))
+      )
+        return true
     }
     return [...this.pending.values()].some((pending) =>
       [...pending].some((composer) => composer.attachments.length > 0),
@@ -120,14 +136,16 @@ export class ComposerDrafts {
     const current = this.values.get(sessionKey)
     // 历史消息和队列编辑不替换普通草稿；图片只在当前窗口内保留。
     let composer = current?.editing?.restore ?? current
-    if (!composer?.draft) composer = this.pending.get(sessionKey)?.values().next().value ?? composer
+    if (!composer?.draft && !composer?.pluginMentions?.length)
+      composer = this.pending.get(sessionKey)?.values().next().value ?? composer
     try {
-      if (composer?.draft)
+      if (composer && (composer.draft || composer.pluginMentions?.length))
         this.storage().setItem(
           key,
           JSON.stringify({
             draft: composer.draft,
             selectedSkills: composer.selectedSkills,
+            ...(composer.pluginMentions?.length ? { pluginMentions: composer.pluginMentions } : {}),
             queueMode: composer.queueMode,
           }),
         )
