@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
 import { Grid2X2, Maximize2, Minimize2, PanelRightClose, Plus, Search, X } from 'lucide-react'
 import { ErrorBoundary } from '@pi-meme/ui/components/error-boundary'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
@@ -13,6 +13,7 @@ import {
   toolsTabId,
   type PanelLayoutState,
 } from './panel-layout'
+import { usePaneMotion, useReducedMotion } from './pane-motion'
 import { ResizeHandle } from './resize-handle'
 
 export function WorkspacePanels({
@@ -47,7 +48,7 @@ export function WorkspacePanels({
   sidebarOpen: boolean
   sidebarWidth: number
   onSidebar: (open: boolean, width: number) => void
-  header: (toggleSidebar: () => void, toggleRight: () => void, rightOpen: boolean) => ReactNode
+  header: (toggleSidebar: () => void, toggleRight: () => void, rightOpen: boolean, rightVisible: boolean) => ReactNode
   children: ReactNode
 }) {
   const storageKey = panelStorageKey(props.target.hostId, session)
@@ -127,130 +128,196 @@ export function WorkspacePanels({
   const workspaceWidth = Math.max(0, containerWidth - (sidebarOpen ? sidebarWidth : 0))
   const maxWidth = Math.max(0, workspaceWidth - Math.min(320, workspaceWidth * 0.45))
   const rightWidth = Math.min(layout.expanded ? maxWidth : layout.width, maxWidth)
+  const reducedMotion = useReducedMotion()
+  const leftPane = usePaneMotion(sidebarOpen, sidebarWidth, reducedMotion)
+  const rightPane = usePaneMotion(layout.open, rightWidth, reducedMotion)
+  const [motionReady, setMotionReady] = useState(false)
+  const containerRef = useRef(containerWidth)
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setMotionReady(true))
+    return () => cancelAnimationFrame(frame)
+  }, [])
+  // 只在窗口尺寸变化时取消过渡。折叠左栏也会改变右栏上限，不能因此把左栏宽度动画关掉。
+  useLayoutEffect(() => {
+    if (containerRef.current === containerWidth) return
+    containerRef.current = containerWidth
+    rightPane.jump()
+  }, [containerWidth, rightPane.jump])
   const toggleRight = () => setLayout((value) => ({ ...value, open: !value.open }))
   const filtered = available.filter((panel) =>
     panel.title.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()),
   )
+  const directMotion =
+    !motionReady || reducedMotion || leftPane.dragging || rightPane.dragging || leftPane.instant || rightPane.instant
+  const overscroll = leftPane.overscroll ? 'sidebar' : rightPane.overscroll ? 'right' : undefined
+  const shellStyle = {
+    '--workspace-sidebar-width': `${leftPane.presented}px`,
+    '--workspace-right-width': `${rightPane.presented}px`,
+  } as CSSProperties
 
   return (
-    <div ref={container} className="flex min-h-0 flex-1 flex-col overflow-hidden">
+    <div
+      ref={container}
+      data-motion={directMotion ? 'direct' : 'slide'}
+      data-pane-sidebar={sidebarOpen ? 'open' : 'closed'}
+      data-pane-right={layout.open ? 'open' : 'closed'}
+      data-overscroll={overscroll}
+      style={shellStyle}
+      className="workspace-panes flex min-h-0 flex-1 flex-col overflow-hidden"
+    >
       <div className="flex h-11 shrink-0">
-        {header(() => onSidebar(!sidebarOpen, sidebarWidth), toggleRight, layout.open)}
-        {layout.open && (
+        {header(() => onSidebar(!sidebarOpen, sidebarWidth), toggleRight, layout.open, rightPane.mounted)}
+        {rightPane.mounted && (
           <div
-            className="flex shrink-0 items-center gap-1 border-b border-l border-border/70 bg-secondary/40 px-2 window-drag"
-            style={{ width: rightWidth }}
+            className="right-pane flex shrink-0 overflow-hidden border-b border-l border-border/70 bg-secondary/40 window-drag"
+            style={{ width: 'var(--workspace-right-width)' }}
             data-testid="right-panel-header"
           >
             <div
-              ref={tabList}
-              role="tablist"
-              aria-label="右侧栏标签"
-              className="flex min-w-0 items-center gap-1 overflow-x-auto no-drag"
-              style={{ scrollbarWidth: 'none' }}
-              onKeyDown={(event) => {
-                if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
-                const index = tabs.indexOf(active)
-                const next =
-                  event.key === 'Home'
-                    ? 0
-                    : event.key === 'End'
-                      ? tabs.length - 1
-                      : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length
-                event.preventDefault()
-                setLayout((value) => ({ ...value, active: tabs[next] }))
-                tabList.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus()
-              }}
+              className="pane-clip flex h-full items-center gap-1 px-2"
+              style={{ width: rightPane.dragging ? '100%' : rightWidth }}
             >
-              {tabs.map((id) => {
-                const panel = available.find((entry) => entry.id === id)
-                const title = panel?.title ?? '新标签页'
-                return (
-                  <div
-                    key={id}
-                    className={`flex min-w-0 shrink-0 items-center rounded-lg border ${active === id ? 'border-border/70 bg-secondary text-foreground' : 'border-transparent text-muted-foreground hover:bg-secondary/60'}`}
-                  >
-                    <button
-                      type="button"
-                      role="tab"
-                      aria-selected={active === id}
-                      aria-controls="right-tool-content"
-                      tabIndex={active === id ? 0 : -1}
-                      onClick={() => setLayout((value) => ({ ...value, active: id }))}
-                      className="flex h-8 min-w-0 items-center gap-2 pl-2.5 pr-1 text-xs"
-                      title={title}
-                    >
-                      <span className="flex size-4 shrink-0 items-center justify-center [&>svg]:size-4">
-                        {panel?.icon ?? <Grid2X2 />}
-                      </span>
-                      <span className="max-w-28 truncate">{title}</span>
-                    </button>
-                    <button
-                      type="button"
-                      aria-label={`关闭标签页：${title}`}
-                      className="mr-1 rounded p-1 text-muted-foreground hover:bg-background/60 hover:text-foreground"
-                      onClick={() => setLayout((value) => closePanel({ ...value, tabs, active }, id))}
-                    >
-                      <X className="size-3" />
-                    </button>
-                  </div>
-                )
-              })}
-            </div>
-            <HeaderButton label="新建工具标签页" onClick={() => open(toolsTabId)}>
-              <Plus />
-            </HeaderButton>
-            <div className="ml-auto flex shrink-0 items-center gap-0.5 no-drag">
-              <HeaderButton
-                label={layout.expanded ? '还原右侧栏宽度' : '加宽右侧栏'}
-                onClick={() => setLayout((value) => ({ ...value, expanded: !value.expanded }))}
+              <div
+                ref={tabList}
+                role="tablist"
+                aria-label="右侧栏标签"
+                className="flex min-w-0 items-center gap-1 overflow-x-auto no-drag"
+                style={{ scrollbarWidth: 'none' }}
+                onKeyDown={(event) => {
+                  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+                  const index = tabs.indexOf(active)
+                  const next =
+                    event.key === 'Home'
+                      ? 0
+                      : event.key === 'End'
+                        ? tabs.length - 1
+                        : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length
+                  event.preventDefault()
+                  setLayout((value) => ({ ...value, active: tabs[next] }))
+                  tabList.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus()
+                }}
               >
-                {layout.expanded ? <Minimize2 /> : <Maximize2 />}
+                {tabs.map((id) => {
+                  const panel = available.find((entry) => entry.id === id)
+                  const title = panel?.title ?? '新标签页'
+                  return (
+                    <div
+                      key={id}
+                      className={`flex min-w-0 shrink-0 items-center rounded-lg border ${active === id ? 'border-border/70 bg-secondary text-foreground' : 'border-transparent text-muted-foreground hover:bg-secondary/60'}`}
+                    >
+                      <button
+                        type="button"
+                        role="tab"
+                        aria-selected={active === id}
+                        aria-controls="right-tool-content"
+                        tabIndex={active === id ? 0 : -1}
+                        onClick={() => setLayout((value) => ({ ...value, active: id }))}
+                        className="flex h-8 min-w-0 items-center gap-2 pl-2.5 pr-1 text-xs"
+                        title={title}
+                      >
+                        <span className="flex size-4 shrink-0 items-center justify-center [&>svg]:size-4">
+                          {panel?.icon ?? <Grid2X2 />}
+                        </span>
+                        <span className="max-w-28 truncate">{title}</span>
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`关闭标签页：${title}`}
+                        className="mr-1 rounded p-1 text-muted-foreground hover:bg-background/60 hover:text-foreground"
+                        onClick={() => setLayout((value) => closePanel({ ...value, tabs, active }, id))}
+                      >
+                        <X className="size-3" />
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+              <HeaderButton label="新建工具标签页" onClick={() => open(toolsTabId)}>
+                <Plus />
               </HeaderButton>
-              <HeaderButton label="收起右侧栏" onClick={toggleRight} expanded>
-                <PanelRightClose />
-              </HeaderButton>
+              <div className="ml-auto flex shrink-0 items-center gap-0.5 no-drag">
+                <HeaderButton
+                  label={layout.expanded ? '还原右侧栏宽度' : '加宽右侧栏'}
+                  onClick={() => setLayout((value) => ({ ...value, expanded: !value.expanded }))}
+                >
+                  {layout.expanded ? <Minimize2 /> : <Maximize2 />}
+                </HeaderButton>
+                <HeaderButton label="收起右侧栏" onClick={toggleRight} expanded>
+                  <PanelRightClose />
+                </HeaderButton>
+              </div>
             </div>
           </div>
         )}
       </div>
       <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-        {sidebarOpen && (
-          <>
+        {leftPane.mounted && (
+          <div
+            className="sidebar-pane relative flex min-w-0 shrink-0 overflow-hidden"
+            style={{ width: 'var(--workspace-sidebar-width)' }}
+          >
             <aside
               id="workspace-sidebar"
               aria-label="会话导航"
-              className="appearance-sidebar flex min-h-0 shrink-0 flex-col border-r border-border/70"
-              style={{ width: sidebarWidth }}
+              aria-hidden={!sidebarOpen}
+              inert={!sidebarOpen}
+              className="appearance-sidebar flex min-h-0 w-full flex-col overflow-hidden border-r border-border/70"
             >
-              {sidebar}
+              <div
+                className="pane-clip flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+                style={{
+                  width: leftPane.dragging ? '100%' : sidebarWidth,
+                  minWidth: leftPane.dragging ? undefined : sidebarWidth,
+                }}
+              >
+                {sidebar}
+              </div>
             </aside>
-            <ResizeHandle
-              side="left"
-              width={sidebarWidth}
-              min={200}
-              max={420}
-              onResize={(size) => onSidebar(true, size)}
-            />
-          </>
+            {sidebarOpen && (
+              <ResizeHandle
+                side="left"
+                width={leftPane.presented}
+                min={200}
+                max={420}
+                onDragStart={leftPane.beginDrag}
+                onDrag={leftPane.dragTo}
+                onDragEnd={(result) => {
+                  leftPane.endDrag(result)
+                  onSidebar(!result.collapse, result.collapse ? sidebarWidth : result.width)
+                }}
+              />
+            )}
+          </div>
         )}
         <div id="chat-workspace" className="theme-workspace flex min-h-0 min-w-0 flex-1 flex-col">
           {children}
         </div>
-        {layout.open && (
-          <>
-            <ResizeHandle
-              side="right"
-              width={rightWidth}
-              min={Math.min(280, maxWidth)}
-              max={maxWidth}
-              onResize={(width) => setLayout((value) => ({ ...value, width, expanded: false }))}
-            />
+        {rightPane.mounted && (
+          <div className="right-pane relative flex shrink-0" style={{ width: 'var(--workspace-right-width)' }}>
+            {layout.open && (
+              <ResizeHandle
+                side="right"
+                width={rightPane.presented}
+                min={Math.min(280, maxWidth)}
+                max={maxWidth}
+                onDragStart={rightPane.beginDrag}
+                onDrag={rightPane.dragTo}
+                onDragEnd={(result) => {
+                  rightPane.endDrag(result)
+                  setLayout((value) =>
+                    result.collapse
+                      ? { ...value, open: false }
+                      : { ...value, open: true, width: result.width, expanded: false },
+                  )
+                }}
+              />
+            )}
             <aside
               id="workspace-right-sidebar"
               aria-label="右侧栏"
-              className="flex min-h-0 min-w-0 shrink-0 flex-col border-l border-border/70 bg-background"
-              style={{ width: rightWidth }}
+              aria-hidden={!layout.open}
+              inert={!layout.open}
+              className="flex min-h-0 w-full flex-col overflow-hidden border-l border-border/70 bg-background"
               onKeyDown={(event) => {
                 if (
                   event.key !== 'Escape' ||
@@ -266,7 +333,8 @@ export function WorkspacePanels({
                 id="right-tool-content"
                 role="tabpanel"
                 aria-label={selected?.title ?? '新标签页'}
-                className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden @container"
+                className="pane-clip flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden @container"
+                style={{ width: rightPane.dragging ? '100%' : rightWidth }}
               >
                 {selected ? (
                   <ErrorBoundary
@@ -321,7 +389,7 @@ export function WorkspacePanels({
                 )}
               </div>
             </aside>
-          </>
+          </div>
         )}
       </div>
     </div>

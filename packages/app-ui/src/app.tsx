@@ -814,13 +814,13 @@ export function App({
               requestRightToken={planRequest ? `${planRequest.id}:${planRequest.revision}` : undefined}
               onRightRequestHandled={() => setPlanRequest(undefined)}
               onSidebar={handleSidebar}
-              header={(toggleSidebar, toggleRight, rightOpen) => (
+              header={(toggleSidebar, toggleRight, rightOpen, rightVisible) => (
                 <AppHeader
                   nativeWindow={nativeWindow}
                   canOpenProject={localPlatform}
                   loadProjectApps={bridge.getProjectApps}
                   sidebarOpen={sidebarOpen}
-                  sidebarWidth={sidebarWidth}
+                  rightPaneVisible={rightVisible}
                   onToggleSidebar={toggleSidebar}
                   busy={Boolean(chat.workspaceDisabledReason)}
                   cwd={chat.connection.cwd}

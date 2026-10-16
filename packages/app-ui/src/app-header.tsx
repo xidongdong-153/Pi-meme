@@ -24,13 +24,54 @@ const appNames: Record<ProjectApp['id'], string> = {
 }
 const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPod|iPad/i.test(navigator.userAgent)
 
+function SidebarTools({
+  nativeWindow,
+  sidebarOpen,
+  onToggleSidebar,
+}: {
+  nativeWindow: boolean
+  sidebarOpen: boolean
+  onToggleSidebar: () => void
+}) {
+  return (
+    <>
+      <div className="flex min-w-0 shrink-0 items-center gap-1.5">
+        {nativeWindow && isMac && <div className="w-[74px] shrink-0" aria-hidden="true" />}
+        <div className="flex shrink-0 items-center gap-0.5 text-muted-foreground/30" aria-hidden="true">
+          <Button variant="ghost" size="icon-sm" disabled aria-label="后退" className="size-6 p-0 disabled:opacity-30">
+            <ChevronLeft className="size-3.5" />
+          </Button>
+          <Button variant="ghost" size="icon-sm" disabled aria-label="前进" className="size-6 p-0 disabled:opacity-30">
+            <ChevronRight className="size-3.5" />
+          </Button>
+        </div>
+      </div>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            onClick={onToggleSidebar}
+            aria-label={sidebarOpen ? '收起侧边栏' : '展开侧边栏'}
+            aria-expanded={sidebarOpen}
+            className="size-7 shrink-0 text-muted-foreground hover:text-foreground"
+          >
+            <PanelLeft className="size-4" />
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">{sidebarOpen ? '收起侧边栏' : '展开侧边栏'}</TooltipContent>
+      </Tooltip>
+    </>
+  )
+}
+
 export function AppHeader({
   nativeWindow,
   canOpenProject,
   loadProjectApps,
   sidebarOpen,
   onToggleSidebar,
-  sidebarWidth,
+  rightPaneVisible,
   busy,
   cwd,
   onDirectory,
@@ -51,7 +92,8 @@ export function AppHeader({
   loadProjectApps: () => Promise<ProjectApp[]>
   sidebarOpen: boolean
   onToggleSidebar: () => void
-  sidebarWidth: number
+  /** 右侧栏仍挂在树上（含收起动画）时不显示展开按钮。 */
+  rightPaneVisible: boolean
   busy: boolean
   cwd: string
   onDirectory: (trigger?: HTMLButtonElement) => void
@@ -98,52 +140,12 @@ export function AppHeader({
   return (
     <header className="flex h-11 min-w-0 flex-1 items-center justify-between border-b border-border/70 pr-3 window-drag bg-background/80 backdrop-blur-md select-none z-30">
       <div className="flex h-full items-center min-w-0 flex-1">
-        {/* 侧边栏对应顶部区域 */}
+        {/* 按钮始终留在这里。宽度跟侧栏走，但不会小于按钮本身，避免折叠时图标先消失再出现。 */}
         <div
-          className={cn(
-            'flex h-full items-center min-w-0 no-drag shrink-0',
-            sidebarOpen ? 'justify-between px-3' : 'gap-1.5 px-3',
-          )}
-          style={sidebarOpen ? { width: sidebarWidth } : undefined}
+          className="flex h-full min-w-max shrink-0 items-center justify-between gap-1.5 px-3 no-drag"
+          style={{ width: 'var(--workspace-sidebar-width)' }}
         >
-          <div className="flex items-center gap-1.5 min-w-0 shrink-0">
-            {nativeWindow && isMac && <div className="w-[74px] shrink-0" aria-hidden="true" />}
-            <div className="flex items-center gap-0.5 text-muted-foreground/30 shrink-0" aria-hidden="true">
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                disabled
-                aria-label="后退"
-                className="size-6 p-0 disabled:opacity-30"
-              >
-                <ChevronLeft className="size-3.5" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                disabled
-                aria-label="前进"
-                className="size-6 p-0 disabled:opacity-30"
-              >
-                <ChevronRight className="size-3.5" />
-              </Button>
-            </div>
-          </div>
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={onToggleSidebar}
-                aria-label={sidebarOpen ? '收起侧边栏' : '展开侧边栏'}
-                aria-expanded={sidebarOpen}
-                className="size-7 text-muted-foreground hover:text-foreground shrink-0"
-              >
-                <PanelLeft className="size-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">{sidebarOpen ? '收起侧边栏' : '展开侧边栏'}</TooltipContent>
-          </Tooltip>
+          <SidebarTools nativeWindow={nativeWindow} sidebarOpen={sidebarOpen} onToggleSidebar={onToggleSidebar} />
         </div>
 
         {/* 折叠图标右侧的分割短线：在展开时正好与侧栏右侧对齐 */}
@@ -250,7 +252,7 @@ export function AppHeader({
           </Popover>
         </div>
 
-        {!rightPaneOpen && (
+        {!rightPaneVisible && (
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
