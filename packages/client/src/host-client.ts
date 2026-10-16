@@ -158,13 +158,28 @@ export class HostClient {
   private authenticate() {
     if (this.options.endpoint?.authenticate === false) return Promise.resolve()
     this.authenticated ??= (async () => {
-      const response = await this.fetch(this.endpoint('/api/auth'), {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: this.options.connection.token }),
-      })
+      let response: Response
+      try {
+        response = await this.fetch(this.endpoint('/api/auth'), {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: this.options.connection.token }),
+        })
+      } catch (cause) {
+        throw new Error('无法连接 Host，请启动 Desktop 或 pnpm start:server', { cause })
+      }
+      if (response.status === 502 || response.status === 503) {
+        const value: unknown = await response.json().catch(() => undefined)
+        const message = value && typeof value === 'object' && 'error' in value ? value.error : undefined
+        throw new Error(
+          typeof message === 'string' ? message : 'Host 未启动或尚未就绪，请启动 Desktop 或 pnpm start:server',
+        )
+      }
       if (!response.ok) throw new Error('Host 认证失败，请检查访问令牌')
+      const identity = (await response.json()) as { hostId?: unknown }
+      if (typeof identity.hostId !== 'string' || !identity.hostId) throw new Error('Host 没有返回有效身份')
+      this.acceptHost(identity.hostId)
       this.options.connection.token = ''
     })().catch((error: unknown) => {
       this.authenticated = undefined

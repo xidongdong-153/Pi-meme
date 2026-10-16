@@ -15,7 +15,9 @@ pnpm install --frozen-lockfile
 pnpm start
 ```
 
-Web：
+启动 Desktop 后，也可在浏览器打开 [Web 开发界面](http://127.0.0.1:5173)，两端使用同一个 Host，不需要再启动 Server 或第二个 Vite。
+
+不启动 Desktop、只运行 Web：
 
 ```bash
 pnpm install --frozen-lockfile
@@ -25,7 +27,7 @@ pnpm start:server
 
 浏览器打开 [本机 Host](http://127.0.0.1:31415)，本机访问自动登录。在“设置 → 个人 → 模型”中配置模型后发送任务。Linux/WSL2 还需安装 bubblewrap，见 [Linux 与 WSL](docs/linux-wsl.md)。
 
-数据默认保存在 `~/.pi-meme`，可用 `PI_MEME_DATA_ROOT` 修改。同一数据目录只允许一个 Host 写入；Desktop 与独立 Server 同时运行时需使用不同数据目录。凭据由 Host 保存到 `auth.json`，不读取本机 Pi CLI 配置。
+数据默认保存在 `~/.pi-meme`，可用 `PI_MEME_DATA_ROOT` 修改。Desktop 和 Server 默认使用 `127.0.0.1:31415`；目录和端口一致时复用同一个 Host，创建它的入口退出时 Host 停止。运行多套独立 Host 必须同时使用不同目录和 `PI_MEME_PORT`。凭据由 Host 保存到 `auth.json`，不读取本机 Pi CLI 配置。
 
 ## 文档
 

@@ -10,6 +10,7 @@ const nativeInfo: DesktopStorageInfo = {
   hostId: 'local-host',
   dataRoot: '/data/local',
   source: 'default',
+  canMaintain: true,
   cacheBytes: 2048,
   backupPaths: [],
 }
@@ -35,6 +36,18 @@ function setup(overrides: Partial<DesktopStorageInfo> = {}, native = true) {
   render(<StorageSettings bridge={bridge} onBeforeRestart={beforeRestart} onMaintaining={maintaining} />)
   return { storage, bridge, beforeRestart, maintaining }
 }
+
+test('复用 Host 显示维护禁用原因，允许打开目录但禁止迁移和清缓存', async () => {
+  const f = setup({ canMaintain: false, maintenanceDisabledReason: '当前 Host 由其他入口管理，不能从 Desktop 维护。' })
+  await screen.findByTestId('storage-root')
+  expect(screen.getByText(/当前 Host 由其他入口管理/)).toBeVisible()
+  expect(screen.getByRole('button', { name: '更改目录' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: '清理缓存' })).toBeDisabled()
+  await userEvent.setup().click(screen.getByRole('button', { name: '打开目录' }))
+  expect(f.storage.openDirectory).toHaveBeenCalledWith({ expectedHostId: 'local-host', path: '/data/local' })
+  expect(f.storage.migrate).not.toHaveBeenCalled()
+  expect(f.storage.clearCache).not.toHaveBeenCalled()
+})
 
 test('Web 和远程只显示 Host 路径与配置说明，不暴露本机维护操作', async () => {
   setup({}, false)
@@ -91,7 +104,7 @@ test('清理请求只携带本机身份，原生错误保留内容并允许重�
 })
 
 test.each([
-  { source: 'environment' as const, cacheBytes: 2048 },
+  { source: 'environment' as const, canMaintain: false, cacheBytes: 2048 },
   { cacheBytes: 0 },
   { cacheBytes: null, cacheError: '权限不足' },
 ])('环境变量、零占用与统计失败不允许误清理：%j', async (info) => {

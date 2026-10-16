@@ -30,7 +30,7 @@ paths:
 
 ## 数据目录
 
-默认根目录为 `~/.pi-meme`。Desktop 按 `PI_MEME_DATA_ROOT`、已保存的自定义目录、默认目录依次选择；独立 Server 只读取环境变量或默认目录。[data-root.ts](../packages/host/src/data-root.ts) 将路径解析为绝对路径，用带心跳的 `host.lock` 保证一个 Host 写入。Desktop 切换或登记远程服务后仍保留本地 Host 与写锁；与独立 Server 同时运行需使用不同目录。
+默认根目录为 `~/.pi-meme`。Desktop 按 `PI_MEME_DATA_ROOT`、已保存的自定义目录、默认目录依次选择；独立 Server 只读取环境变量或默认目录。[data-root.ts](../packages/host/src/data-root.ts) 将路径解析为绝对路径，用带心跳的 `host.lock` 保证一个 Host 写入。登记远程服务不会关闭本机 Host。Desktop 与 Server 的端口和真实数据目录一致时复用同一个 Host；只有创建方持有写锁和停机权限。运行多套独立 Host 必须同时区分目录和端口。
 
 主要文件如下；子目录按功能使用时创建：
 
@@ -65,7 +65,7 @@ paths:
 
 从“设置 → 常规 → 存储 → 更改目录”选择空文件夹。所选文件夹直接成为数据根目录。确认框显示来源、目标、复制大小和目标可用空间；点击“迁移并重启”后，应用正常停止本机 Host，再离线复制、校验和修复路径关联，成功后才切换目录。
 
-Electron 固定 `userData` 下的 `storage-location.json` 保存目录定位、备份路径、待执行任务与错误；它不放在 Host 的 `settings.json` 中，也不随数据根目录迁移。显式设置 `PI_MEME_DATA_ROOT` 时，界面只读并禁用维护。Web 和远程页面只展示所连接 Host 的目录，不调用本机文件选择器，不提供远程迁移或清理接口。
+Electron 固定 `userData` 下的 `storage-location.json` 保存目录定位、备份路径、待执行任务与错误；它不放在 Host 的 `settings.json` 中，也不随数据根目录迁移。显式设置 `PI_MEME_DATA_ROOT` 时，界面只读并禁用维护。Desktop 复用其他入口创建的 Host 时也禁止迁移和缓存清理；界面显示原因，主进程再次检查所有权，但仍可查看信息和打开本机目录。Web 和远程页面只展示所连接 Host 的目录，不调用本机文件选择器，不提供远程迁移或清理接口。
 
 ```mermaid
 %%{init: {"theme": "dark"}}%%
@@ -87,7 +87,7 @@ flowchart TD
 
 中断后只允许同一任务继续处理所属副本；来源已变化、目标出现无关文件、校验失败或路径冲突时停止，不清空目标。进程异常退出后写锁最多需要约 30 秒失效，再从恢复页面重试。若 Worktree 登记尚未恢复，任务保留并阻止正常启动。自定义磁盘不可用或定位文件损坏时，不会自动退回默认目录创建空数据。
 
-独立 Server 不读取 Desktop 定位文件。迁移后若改用 Server，应将 `PI_MEME_DATA_ROOT` 设置为新目录；旧目录已被标记为备份，不能继续启动。Desktop 和 Server 仍不能同时写同一个数据目录。
+独立 Server 不读取 Desktop 定位文件。迁移后若改用 Server，应将 `PI_MEME_DATA_ROOT` 设置为新目录；旧目录已被标记为备份，不能继续启动。Desktop 和 Server 可以复用同一个运行中的 Host，但不能各自创建 Host 同时写同一目录。
 
 ### 缓存清理
 
@@ -141,7 +141,7 @@ Host 指令在 `pi/AGENTS.md`、`pi/SYSTEM.md`、`pi/APPEND_SYSTEM.md`；当前�
 
 启动不读系统钥匙串。旧 macOS 凭据只通过主动导入操作读取，保留已有文件凭据和旧钥匙串条目；实现见 [credentials.ts](../packages/host/src/credentials.ts) 与 [HostSettings](../packages/app-ui/src/settings/host-settings.tsx)。Linux 不提供该导入操作。
 
-Desktop 使用内存 Electron Session，认证 Cookie 不写磁盘；本地自动登录使用一次性票据，远程令牌留在本地 Host 凭据存储，不返回 Renderer。认证与远程代理规则见 [Remote](remote.md)。
+Desktop 使用内存 Electron Session，认证 Cookie 不写磁盘；本机 Host 的自动登录同时校验真实连接来源、Host 和 Origin，不向 Renderer 传递长期令牌。远程令牌留在本地 Host 凭据存储，不返回 Renderer。认证与远程代理规则见 [Remote](remote.md)。
 
 Pi 1.1 的 `ModelRuntime.create` 没有公开的认证环境注入参数。[model-runtime.ts](../packages/pi-runtime/src/sdk/model-runtime.ts) 是唯一依赖 SDK private shape 的认证隔离层：检查 `runtime.models.authContext` 后注入空环境和不可用文件检查，阻止隐式读取本机模型认证。守卫失败报错；升级 SDK 时需重新核对该守卫，并验证 [model-config.test.ts](../packages/models/tests/model-config.test.ts) 与 [sdk-settings-isolation.test.ts](../packages/pi-runtime/tests/sdk-settings-isolation.test.ts)。会话、JSONL 与扩展仍使用公开 SDK。
 

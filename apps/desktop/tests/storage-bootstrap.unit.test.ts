@@ -25,7 +25,7 @@ vi.mock('../src/main/storage/process', () => ({ runStorageProcess: mocks.process
 afterEach(() => {
   vi.resetAllMocks()
 })
-async function fixture(override?: string) {
+async function fixture(override?: string, ownsHost = () => true) {
   const directory = await realpath(await mkdtemp(path.join(tmpdir(), 'pi-meme-storage-bootstrap-')))
   const anchor = path.join(directory, 'desktop')
   const defaultRoot = path.join(directory, 'default')
@@ -38,6 +38,7 @@ async function fixture(override?: string) {
     override,
     getWindow: () => ({}) as never,
     getHostId: () => 'fixture-host',
+    ownsHost,
     stopHost,
   })
   mocks.process.mockResolvedValue(12)
@@ -68,6 +69,7 @@ test('环境变量、自定义目录和默认目录按优先级解析，环境�
       defaultRoot: f.defaultRoot,
       getWindow: () => null,
       getHostId: () => 'fixture-host',
+      ownsHost: () => true,
       stopHost: f.stopHost,
     })
     await normal.initialize()
@@ -177,6 +179,35 @@ test('缓存统计失败返回未知占用，打开目录仅允许当前目录�
     mocks.openPath.mockResolvedValue('')
     await f.controller.adapter.openDirectory({ expectedHostId: 'fixture-host', path: f.defaultRoot })
     assert.equal(mocks.openPath.mock.calls.length, 1)
+  } finally {
+    await f.dispose()
+  }
+})
+
+test('复用的 Host 允许查看与打开目录，禁止维护；选择后失去所有权也不能迁移', async () => {
+  let owned = false
+  const f = await fixture(undefined, () => owned)
+  try {
+    await f.controller.initialize()
+    const info = await f.controller.adapter.getInfo('fixture-host')
+    assert.equal(info.canMaintain, false)
+    assert.match(info.maintenanceDisabledReason!, /其他入口管理/)
+    await assert.rejects(f.controller.adapter.chooseTarget('fixture-host'), /其他入口管理/)
+    await assert.rejects(f.controller.adapter.clearCache('fixture-host'), /其他入口管理/)
+    assert.equal(mocks.choose.mock.calls.length, 0)
+    mocks.openPath.mockResolvedValue('')
+    await f.controller.adapter.openDirectory({ expectedHostId: 'fixture-host', path: f.defaultRoot })
+    owned = true
+    mocks.choose.mockResolvedValue({ canceled: false, filePaths: [f.target] })
+    mocks.process.mockResolvedValue({ path: f.target, bytes: 1, availableBytes: 1024 })
+    const chosen = await f.controller.adapter.chooseTarget('fixture-host')
+    owned = false
+    await assert.rejects(
+      f.controller.adapter.migrate({ expectedHostId: 'fixture-host', selectionId: chosen!.selectionId }),
+      /其他入口管理/,
+    )
+    assert.equal(f.stopHost.mock.calls.length, 0)
+    assert.equal(mocks.relaunch.mock.calls.length, 0)
   } finally {
     await f.dispose()
   }

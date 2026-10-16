@@ -54,7 +54,8 @@ export async function lockDataRoot(root: string) {
       retries: 0,
     })
   } catch (cause) {
-    if ((cause as NodeJS.ErrnoException).code === 'ELOCKED') throw new Error(`此数据目录已有 Host：${root}`)
+    if ((cause as NodeJS.ErrnoException).code === 'ELOCKED')
+      throw Object.assign(new Error(`此数据目录已有 Host：${root}`, { cause }), { code: 'ELOCKED' })
     throw cause
   }
 }

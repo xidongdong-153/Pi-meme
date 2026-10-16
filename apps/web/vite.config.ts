@@ -2,6 +2,8 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { fileURLToPath } from 'node:url'
+import { hostPort, localHostUrl } from '@pi-meme/contracts/host-runtime'
+import { waitForLocalHost } from '@pi-meme/host/host-status'
 
 const sharedModules = {
   react: 'shared-react',
@@ -11,54 +13,87 @@ const sharedModules = {
   'react-dom/client': 'shared-react-dom-client',
 }
 
-export default defineConfig({
-  plugins: [
-    tailwindcss(),
-    react(),
-    {
-      name: 'plugin-shared-react',
-      transformIndexHtml: {
-        order: 'pre',
-        handler: (_html, context) => [
-          {
-            tag: 'script',
-            attrs: { type: 'importmap' },
-            injectTo: 'head-prepend',
-            children: JSON.stringify({
-              imports: Object.fromEntries(
-                Object.entries(sharedModules).map(([name, entry]) => [
-                  name,
-                  context.server ? `/src/${entry}.ts` : `/assets/${entry}.js`,
-                ]),
-              ),
-            }),
-          },
-        ],
+export function createWebConfig(
+  hostUrl = process.env.PI_MEME_HOST_URL ?? localHostUrl(hostPort(process.env.PI_MEME_PORT)),
+) {
+  let hostId: string | undefined
+  return defineConfig({
+    plugins: [
+      {
+        name: 'local-host-readiness',
+        configureServer(server) {
+          server.middlewares.use((request, response, next) => {
+            if (
+              request.url?.split('?')[0] !== '/api/auth' ||
+              !['127.0.0.1', 'localhost', '[::1]'].includes(new URL(hostUrl).hostname)
+            ) {
+              next()
+              return
+            }
+            void waitForLocalHost(hostUrl, { hostId })
+              .then((status) => {
+                hostId ??= status.hostId
+                if (!response.destroyed) next()
+              })
+              .catch((cause: unknown) => {
+                if (response.destroyed) return
+                response.writeHead(503, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
+                response.end(
+                  JSON.stringify({ error: cause instanceof Error ? cause.message : 'Host 未启动或尚未就绪' }),
+                )
+              })
+          })
+        },
+      },
+      tailwindcss(),
+      react(),
+      {
+        name: 'plugin-shared-react',
+        transformIndexHtml: {
+          order: 'pre',
+          handler: (_html, context) => [
+            {
+              tag: 'script',
+              attrs: { type: 'importmap' },
+              injectTo: 'head-prepend',
+              children: JSON.stringify({
+                imports: Object.fromEntries(
+                  Object.entries(sharedModules).map(([name, entry]) => [
+                    name,
+                    context.server ? `/src/${entry}.ts` : `/assets/${entry}.js`,
+                  ]),
+                ),
+              }),
+            },
+          ],
+        },
+      },
+    ],
+    resolve: { preserveSymlinks: false, dedupe: ['react', 'react-dom'] },
+    server: {
+      host: '127.0.0.1',
+      port: 5173,
+      strictPort: true,
+      proxy: {
+        '/api': { target: hostUrl, ws: true, changeOrigin: false },
       },
     },
-  ],
-  resolve: { preserveSymlinks: false, dedupe: ['react', 'react-dom'] },
-  server: {
-    host: '127.0.0.1',
-    port: 5173,
-    strictPort: true,
-    proxy: {
-      '/api': { target: process.env.PI_MEME_HOST_URL ?? 'http://127.0.0.1:31415', ws: true, changeOrigin: false },
-    },
-  },
-  build: {
-    rollupOptions: {
-      input: {
-        app: fileURLToPath(new URL('./index.html', import.meta.url)),
-        ...Object.fromEntries(
-          Object.values(sharedModules).map((entry) => [
-            entry,
-            fileURLToPath(new URL(`./src/${entry}.ts`, import.meta.url)),
-          ]),
-        ),
+    build: {
+      rollupOptions: {
+        input: {
+          app: fileURLToPath(new URL('./index.html', import.meta.url)),
+          ...Object.fromEntries(
+            Object.values(sharedModules).map((entry) => [
+              entry,
+              fileURLToPath(new URL(`./src/${entry}.ts`, import.meta.url)),
+            ]),
+          ),
+        },
+        preserveEntrySignatures: 'strict',
+        output: { entryFileNames: 'assets/[name].js' },
       },
-      preserveEntrySignatures: 'strict',
-      output: { entryFileNames: 'assets/[name].js' },
     },
-  },
-})
+  })
+}
+
+export default createWebConfig()

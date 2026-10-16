@@ -9,10 +9,10 @@
     "build": "vite build"
   },
   "dependencies": {
+    "@pi-meme/contracts": "workspace:*",
     "@pi-meme/host": "workspace:*"
   },
   "devDependencies": {
-    "@pi-meme/contracts": "workspace:*",
     "vite": "^8.3.1"
   }
 }

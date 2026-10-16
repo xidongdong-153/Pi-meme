@@ -18,6 +18,7 @@
     "./mcp": "./src/mcp.ts",
     "./secure-storage": "./src/secure-storage.ts",
     "./host": "./src/host.ts",
+    "./host-runtime": "./src/host-runtime.ts",
     "./plan": "./src/plan.ts",
     "./collaboration": "./src/collaboration.ts",
     "./user-input": "./src/user-input.ts",

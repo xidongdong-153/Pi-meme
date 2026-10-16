@@ -28,7 +28,7 @@ Linux/WSL2 的系统依赖和文件系统要求先看 [Linux 与 WSL](linux-wsl.
 pnpm start
 ```
 
-命令启动 Electron Forge，构建并运行应用。Desktop 启动本地 Host，通过一次性票据自动登录；默认数据目录是 `~/.pi-meme`。启动接线见 [main.ts](../apps/desktop/src/main/main.ts) 与 [host-process.ts](../apps/desktop/src/main/host-process.ts)。
+命令启动 Electron Forge、Vite 和 Desktop。浏览器可同时打开 [开发界面](http://127.0.0.1:5173)，与 Desktop 共用默认 `127.0.0.1:31415` 的 Host，不需要再执行 `pnpm start:web` 或 `pnpm start:server`。已有兼容 Host 时直接复用，没有才启动本机子进程；两端均通过本机同源检查自动登录。默认数据目录是 `~/.pi-meme`。启动接线见 [main.ts](../apps/desktop/src/main/main.ts)、[local-host.ts](../apps/desktop/src/main/local-host.ts) 与 [host-process.ts](../apps/desktop/src/main/host-process.ts)。
 
 打开“设置 → Agent → 模型”，连接服务商并选择默认模型和思考强度，再新建项目或会话。未配置模型时仍可查看设置、资源和历史。应用不读取本机 Pi CLI 的模型凭据，配置位置见 [配置与安全](configuration.md)。
 
@@ -43,7 +43,7 @@ pnpm start:server
 
 打开 [本机 Host](http://127.0.0.1:31415)。独立入口默认监听 `127.0.0.1:31415`，从 `apps/web/dist` 提供页面，本机来源自动登录。默认值见 [Server 入口](../apps/server/src/main.ts)。
 
-开发时分别在两个终端运行：
+不启动 Desktop 的 Web 开发方式，在两个终端分别运行：
 
 ```bash
 # 终端一
@@ -57,13 +57,21 @@ pnpm start:web
 
 打开 [Web 开发界面](http://127.0.0.1:5173)。Vite 将 `/api` 的 HTTP 和 WebSocket 请求代理给 Host；Web 代码支持热更新，Host 源码修改后需重启终端一。5173 被占用时直接报错，不自动换端口。代理目标可用 `PI_MEME_HOST_URL` 修改，见 [Vite 配置](../apps/web/vite.config.ts)。
 
-Desktop 和独立 Server 各自启动 Host；同时运行时，为其中一个选择不同数据目录，例如：
+## Desktop 与 Server 共享 Host
+
+Desktop 和 Server 使用相同端口、相同真实数据目录时，只创建一个 Host。创建方负责停机；Desktop 仅复用 Server 的 Host 时，退出 Desktop 不会停止 Server，也不能在 Desktop 中迁移目录或清缓存。Server 入口发现已有 Host 后打印复用结果并成功退出，不接管生命周期。
+
+Desktop 自定义目录保存在本机定位文件，Server 不读取它。先在 Desktop 查看数据目录，再以相同 `PI_MEME_DATA_ROOT` 启动 Server。目录不同、协议不兼容或端口被其他程序占用时明确报错，不会悄悄换端口。设置新的令牌、TLS 或 Web 根目录属于创建配置，不能应用到已运行的 Host。
+
+运行另一套独立 Host，目录和端口都要区分：
 
 ```bash
-PI_MEME_DATA_ROOT=/absolute/path/pi-meme-web-data pnpm start:server
+PI_MEME_DATA_ROOT=/absolute/path/pi-meme-other-data PI_MEME_PORT=31416 pnpm start:server
 ```
 
-数据锁、权限与路径规则见 [配置与安全](configuration.md)。
+独立 Web 的 `PI_MEME_HOST_URL` 优先于 `PI_MEME_PORT`；未设置地址时使用本机端口。Forge Renderer 始终跟随 Desktop 的本机端口。已由 `pnpm start` 占用 5173 时，直接打开该页面，不再启动第二个 Vite。
+
+管理方退出后其他客户端断线，不会自动创建替代 Host；可重新启动管理方或在 Desktop 显式重试。旧版本随机端口 Host 需要先退出再使用新入口。数据锁、权限与路径规则见 [配置与安全](configuration.md)。
 
 ## 运行构建后的 Server
 

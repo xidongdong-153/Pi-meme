@@ -55,7 +55,7 @@ export function StorageSettings({
       revision.current++
     }
   }, [load])
-  const managed = Boolean(bridge.storage && desktop && desktop.source !== 'environment')
+  const managed = Boolean(bridge.storage && desktop?.canMaintain)
   const disabled = loading || Boolean(action) || !managed
   async function choose() {
     if (!info || !bridge.storage || disabled || operation.current) return
@@ -133,11 +133,7 @@ export function StorageSettings({
               )}
               {desktop && (
                 <p className="text-xs text-muted-foreground">
-                  {desktop.source === 'environment'
-                    ? '由 PI_MEME_DATA_ROOT 管理，不能从界面维护。'
-                    : desktop.source === 'custom'
-                      ? '自定义目录'
-                      : '默认目录'}
+                  {desktop.maintenanceDisabledReason ?? (desktop.source === 'custom' ? '自定义目录' : '默认目录')}
                 </p>
               )}
             </div>
@@ -269,7 +265,8 @@ export function StorageSettings({
             <p className="text-sm">当前可清理：{size(desktop.cacheBytes)}</p>
           )}
           <p className="text-xs text-muted-foreground">
-            请先处理未发送的草稿、附件和未保存的文件，并结束本机任务及终端。重启会关闭当前桌面页面。
+            请先处理未发送的草稿、附件和未保存的文件，并结束本机任务及终端。重启会关闭当前桌面页面，并断开共享此 Host
+            的其他客户端。
           </p>
           {error && (
             <p role="alert" className="break-words text-sm text-destructive">

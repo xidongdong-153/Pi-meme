@@ -128,6 +128,7 @@ export const test = base.extend<{ desktop: DesktopFixture; agentMode: AgentMode 
         env: {
           ...process.env,
           PI_MEME_DATA_ROOT: directory,
+          PI_MEME_PORT: '0',
           PI_MEME_TEST_CREDENTIALS: 'file',
           PI_MEME_REMOTE_HOST: '',
           PI_MEME_TOKEN: '',

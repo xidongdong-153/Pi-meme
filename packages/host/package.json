@@ -6,6 +6,9 @@
   "exports": {
     "./service": "./src/service.ts",
     "./server": "./src/server.ts",
+    "./local-host": "./src/local-host.ts",
+    "./host-status": "./src/host-status.ts",
+    "./frontend-server": "./src/frontend-server.ts",
     "./credentials": "./src/credentials.ts",
     "./data-root": "./src/data-root.ts",
     "./storage/files": "./src/storage/files.ts",

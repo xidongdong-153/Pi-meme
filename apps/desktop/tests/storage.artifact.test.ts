@@ -66,7 +66,13 @@ test(
     const app =
       process.env.PI_DESKTOP_PACKAGED_APP ??
       path.resolve('apps/desktop/out', `pi-meme-darwin-${process.arch}`, 'pi-meme.app')
-    const env: NodeJS.ProcessEnv = { ...process.env, HOME: home, PI_MEME_REMOTE_HOST: '', PI_MEME_TOKEN: '' }
+    const env: NodeJS.ProcessEnv = {
+      ...process.env,
+      HOME: home,
+      PI_MEME_PORT: '0',
+      PI_MEME_REMOTE_HOST: '',
+      PI_MEME_TOKEN: '',
+    }
     delete env.PI_MEME_DATA_ROOT
     delete env.PI_MEME_TEST_CREDENTIALS
     let child: ChildProcess | undefined

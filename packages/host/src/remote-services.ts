@@ -244,6 +244,13 @@ export class RemoteServices {
   remove(id: string) {
     return this.track(() => this.removeService(id))
   }
+  removeSavedConnection(url: string) {
+    return this.track(async () => {
+      const service = [...this.states.values()].find((service) => service.address === new URL(url).origin)
+      if (service) await this.removeService(service.id)
+      else await this.connections.remove(url)
+    })
+  }
   private async removeService(id: string) {
     const state = this.get(id)
     await this.connections.remove(state.address)

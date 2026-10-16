@@ -23,6 +23,32 @@ test('重连只重新读取快照，不重发 prompt，WebSocket 地址不包含
   client.close()
 })
 
+test('Host 不可用与认证失败区分，认证身份变化时不发送业务请求', async () => {
+  for (const failure of ['unavailable', 'network', 'identity'] as const) {
+    let businessRequests = 0
+    const client = new HostClient({
+      connection: { url: 'http://127.0.0.1:3141', token: '', hostId: 'host-1', local: false },
+      selectDirectory: async () => null,
+      fetch: (async (url) => {
+        if (!String(url).endsWith('/api/auth')) businessRequests++
+        if (failure === 'network') throw new Error('连接已断开')
+        return failure === 'unavailable'
+          ? new Response('{}', { status: 503 })
+          : Response.json({ hostId: 'another-host' })
+      }) as typeof fetch,
+    })
+    try {
+      await assert.rejects(
+        client.bridge.prompt('A', '不应发出'),
+        failure === 'identity' ? /身份已变化/ : /Host.*启动|无法连接 Host/,
+      )
+      assert.equal(businessRequests, 0)
+    } finally {
+      client.close()
+    }
+  }
+})
+
 test('远程 HTTP 地址被拒绝', () => {
   assert.throws(
     () =>
@@ -73,7 +99,7 @@ test('连续 401 只重试一次，网络失败不重发消息', async () => {
       connection: { url: 'http://127.0.0.1:3141', token: '', hostId: '', local: false },
       selectDirectory: async () => null,
       fetch: (async (url) => {
-        if (new URL(String(url)).pathname === '/api/auth') return new Response('{}')
+        if (new URL(String(url)).pathname === '/api/auth') return new Response(JSON.stringify({ hostId: 'host-1' }))
         attempts++
         if (networkFailure) throw new Error('连接已断开')
         return new Response('{}', { status: 401 })
@@ -99,7 +125,7 @@ test('多服务代理端点保持本机origin并隔离客户端和相同sessionK
         fetch: (async (input, init) => {
           const url = String(input)
           urls.push(url)
-          if (url.endsWith('/api/auth')) return new Response('{}')
+          if (url.endsWith('/api/auth')) return new Response(JSON.stringify({ hostId: service }))
           const request = JSON.parse(String(init?.body)) as HostRpcRequest
           return new Response(
             JSON.stringify({ requestId: request.requestId, hostId: service, result: snapshot('same-key') }),

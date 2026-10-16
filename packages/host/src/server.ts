@@ -13,6 +13,7 @@ export type ServerOptions = HostOptions & {
   port?: number
   token?: string
   localAutoLogin?: boolean
+  owner?: 'desktop' | 'server'
   staticDirectory?: string
   frontendUrl?: string
   tls?: { key: string | Buffer; cert: string | Buffer }

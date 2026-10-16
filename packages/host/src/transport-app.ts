@@ -1,15 +1,17 @@
-import { readFile, stat, realpath } from 'node:fs/promises'
+import { readFile, realpath } from 'node:fs/promises'
 import path from 'node:path'
-import { randomBytes, createHash } from 'node:crypto'
+import { randomBytes } from 'node:crypto'
 import { Hono, type Context } from 'hono'
 import { upgradeWebSocket, type HttpBindings } from '@hono/node-server'
 import { WebSocket } from 'ws'
 import type { HostControlRequest, EventSubscription } from '@pi-meme/contracts/app-host'
 import type { HostRpcRequest } from '@pi-meme/contracts/host'
+import { hostRuntimeProtocolVersion, type LocalHostStatus } from '@pi-meme/contracts/host-runtime'
 import type { createHost } from './service'
 import type { RemoteServices } from './remote-services'
 import type { createTransportAuth } from './transport-auth'
 import type { ServerOptions } from './server'
+import { frontendMime, serveFrontend } from './frontend'
 
 type TransportEnv = {
   Bindings: Pick<HttpBindings, 'incoming'> & Partial<Pick<HttpBindings, 'outgoing'>>
@@ -20,7 +22,7 @@ type TransportServices = {
   host: Awaited<ReturnType<typeof createHost>>
   remotes: RemoteServices
   auth: ReturnType<typeof createTransportAuth>
-  options: Pick<ServerOptions, 'staticDirectory' | 'frontendUrl'>
+  options: Pick<ServerOptions, 'staticDirectory' | 'frontendUrl' | 'owner'>
 }
 
 function reply(status: number, value: unknown, headers?: Record<string, string>) {
@@ -59,18 +61,17 @@ async function jsonBody(request: Request, pluginUpload = false) {
   return value
 }
 
-const mime: Record<string, string> = {
-  '.html': 'text/html; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json',
-  '.svg': 'image/svg+xml',
-  '.png': 'image/png',
-  '.webp': 'image/webp',
-  '.avif': 'image/avif',
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.woff2': 'font/woff2',
+function serviceRegistrationError(cause: unknown) {
+  if (!(cause instanceof Error)) return '远程服务登记失败'
+  const source = cause.cause
+  const code =
+    source && typeof source === 'object' && 'code' in source && typeof source.code === 'string'
+      ? source.code
+      : undefined
+  if (code && /CERT|SELF_SIGNED|ISSUER|TLS/.test(code)) return `远程服务 HTTPS 证书校验失败：${code}`
+  if (cause.message === 'fetch failed')
+    return code ? `无法连接远程服务：${code}` : '无法连接远程服务，请检查网络和 HTTPS 地址'
+  return cause.message.replace(/https?:\/\/\S+/g, '[Host 地址]')
 }
 
 function registerRpc(app: Hono<TransportEnv>, { host, remotes, auth }: TransportServices) {
@@ -97,6 +98,17 @@ function registerRpc(app: Hono<TransportEnv>, { host, remotes, auth }: Transport
     )
       throw new Error('请求参数无效')
     if (value.hostId && value.hostId !== host.hostId) throw new Error('请求 Host 身份不匹配')
+    if (value.method === 'host:connections:list' || value.method === 'host:connections:remove') {
+      if (!auth.localRequest(c.env.incoming)) return reply(403, { error: '本机连接记录只能在本机管理' })
+      let result: unknown
+      if (value.method === 'host:connections:list') result = host.connections.list()
+      else {
+        const url = value.args[0]
+        if (typeof url !== 'string') throw new Error('Host 地址无效')
+        await remotes.removeSavedConnection(url)
+      }
+      return reply(200, { requestId: value.requestId, hostId: host.hostId, result })
+    }
     if (value.method.startsWith('host:services:')) {
       let result: unknown
       switch (value.method) {
@@ -107,7 +119,9 @@ function registerRpc(app: Hono<TransportEnv>, { host, remotes, auth }: Transport
           const input = value.args[0] as { url?: unknown; token?: unknown }
           if (typeof input?.url !== 'string' || (input.token !== undefined && typeof input.token !== 'string'))
             throw new Error('远程服务登记参数无效')
-          result = await remotes.register(input.url, input.token)
+          result = await remotes.register(input.url, input.token).catch((cause: unknown) => {
+            throw new Error(serviceRegistrationError(cause))
+          })
           break
         }
         case 'host:services:retry':
@@ -236,40 +250,11 @@ function registerResources(app: Hono<TransportEnv>, { host, remotes }: Transport
     if (!target.startsWith(`${root}${path.sep}`)) return reply(403, { error: '插件资源路径无效' })
     return new Response(new Uint8Array(await readFile(target)), {
       headers: {
-        'Content-Type': mime[path.extname(target)] ?? 'application/octet-stream',
+        'Content-Type': frontendMime[path.extname(target)] ?? 'application/octet-stream',
         'X-Content-Type-Options': 'nosniff',
         'Cache-Control': 'private, max-age=31536000, immutable',
       },
     })
-  })
-}
-
-async function frontend(c: TransportContext, options: TransportServices['options']) {
-  if (options.frontendUrl) {
-    const upstream = await fetch(new URL(c.env.incoming.url ?? '/', options.frontendUrl))
-    return new Response(await upstream.arrayBuffer(), {
-      status: upstream.status,
-      headers: { 'Content-Type': upstream.headers.get('content-type') ?? 'application/octet-stream' },
-    })
-  }
-  if (!options.staticDirectory) return reply(404, { error: '没有配置 Web 静态目录' })
-  const root = path.resolve(options.staticDirectory)
-  let target = path.resolve(root, `.${decodeURIComponent(c.get('url').pathname)}`)
-  if (target !== root && !target.startsWith(`${root}${path.sep}`)) return reply(403, { error: '文件路径无效' })
-  if (!(await stat(target).catch(() => undefined))?.isFile()) target = path.join(root, 'index.html')
-  const data = await readFile(target)
-  const hashes =
-    path.extname(target) === '.html'
-      ? [...data.toString('utf8').matchAll(/<script\s[^>]*type=["']importmap["'][^>]*>([\s\S]*?)<\/script>/g)]
-          .map((match) => `'sha256-${createHash('sha256').update(match[1]).digest('base64')}'`)
-          .join(' ')
-      : ''
-  return new Response(new Uint8Array(data), {
-    headers: {
-      'Content-Type': mime[path.extname(target)] ?? 'application/octet-stream',
-      'X-Content-Type-Options': 'nosniff',
-      'Content-Security-Policy': `default-src 'self'; script-src 'self' ${hashes}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; font-src 'self' data:; frame-ancestors 'none'`,
-    },
   })
 }
 
@@ -283,6 +268,18 @@ export function createTransportApp(services: TransportServices) {
     const url = new URL(request.url ?? '/', 'http://host')
     c.set('url', url)
     const upgrade = !c.env.outgoing
+    if (url.pathname === '/api/status' && c.req.method === 'GET' && !upgrade) {
+      if (!auth.localRequest(request)) return reply(403, { error: 'Host 状态只允许本机来源读取' })
+      const status: LocalHostStatus = {
+        product: 'pi-meme',
+        runtimeProtocolVersion: hostRuntimeProtocolVersion,
+        hostId: host.hostId,
+        instanceId: host.instanceId,
+        dataRoot: await realpath(host.root),
+        owner: options.owner ?? 'server',
+      }
+      return reply(200, status)
+    }
     if (
       (upgrade || url.pathname.startsWith('/api/')) &&
       !(url.pathname === '/api/auth' && c.req.method === 'POST' && !upgrade) &&
@@ -315,7 +312,7 @@ export function createTransportApp(services: TransportServices) {
   app.notFound((c) =>
     c.get('url').pathname.startsWith('/api/') || !c.env.outgoing
       ? reply(404, { error: 'Host 接口不存在' })
-      : frontend(c, options),
+      : serveFrontend(c.env.incoming.url ?? '/', options),
   )
   return app
 }

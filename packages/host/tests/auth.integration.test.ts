@@ -77,7 +77,7 @@ for (const explicitToken of [undefined, 'configured-token']) {
   })
 }
 
-test('空令牌不能登录 Desktop 私有 Host，非法本机来源和伪造转发头不能自动登录', async () => {
+test('未启用本机自动登录时拒绝空令牌，非法来源和伪造转发头不能自动登录', async () => {
   const directory = await root()
   let server = await startHostServer({ dataRoot: directory })
   try {

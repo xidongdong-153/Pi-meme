@@ -36,7 +36,8 @@ flowchart TD
   Desktop["Desktop：Electron 窗口与本机操作"] --> App["app-ui：共享 React 界面"]
   Web["Web：浏览器入口"] --> App
   App --> Client["client：HTTP、WebSocket 与快照"]
-  Client --> Host["Node Host：认证、路由与数据目录"]
+  Client --> Entry["同源界面入口：Vite、Desktop 代理或 Host 静态页面"]
+  Entry --> Host["唯一 Node Host：默认 31415"]
   Host --> Builtins["内置服务：静态装配"]
   Host --> Plugins["外部插件：Chord 依赖组"]
   Host --> Adapter["pi-adapter：Worker 通信"]
@@ -50,6 +51,16 @@ flowchart TD
 入口证据：[Desktop main](../apps/desktop/src/main/main.ts)、[Server main](../apps/server/src/main.ts)、[Web main](../apps/web/src/main.tsx)、[Host 启动](../packages/host/src/server.ts)、[Worker 工厂](../packages/host/src/session-worker.ts)。
 
 Host 使用 Hono、`@hono/node-server` 和 `ws`，由 [transport-app.ts](../packages/host/src/transport-app.ts) 注册路由，[transport-auth.ts](../packages/host/src/transport-auth.ts) 处理认证与来源检查，不替换全局 `Request`、`Response`。
+
+### 本机 Host 复用与界面入口
+
+[运行契约](../packages/contracts/src/host-runtime.ts) 统一默认端口 `31415` 与运行协议版本。[local-host.ts](../packages/host/src/local-host.ts) 先探测 `/api/status`，校验产品、协议、真实数据目录和持久 Host 身份；没有监听者才创建。并发创建依靠 `host.lock` 决定唯一写入者，其余入口等待并复用。状态只允许本机来源读取，不包含令牌或 Cookie。
+
+Desktop 的连接状态分 `owned` 与 `attached`。[本机进程管理](../apps/desktop/src/main/local-host.ts) 只为 `owned` 保留 utilityProcess、维护和停机操作；`attached` Desktop 退出不停止 Server。Server 入口发现兼容 Host 后输出地址并退出，不转移所有权。管理方退出后其他客户端只重连，不自动创建替代 Host。
+
+开发态 Desktop 直接加载 Vite；正式版加载随包界面，由 [frontend-server.ts](../packages/host/src/frontend-server.ts) 提供同源 HTTP/WebSocket 代理。该入口不持有数据锁、不装配业务服务、不创建会话 Worker，因此不是第二个 Host。已有 Server 没有 Web 静态资源时，也不影响 Desktop 加载自己的界面。Host 自身仍可为普通浏览器提供 Web 页面；静态资源逻辑共用 [frontend.ts](../packages/host/src/frontend.ts)。
+
+主进程保留真实后端地址，Renderer 的 `HostConnection.url` 指向自己的同源界面入口。平台 IPC 只信任该 origin；远程登记与已保存连接管理通过已认证 HTTP 完成，停机和维护准备只走拥有方的私有进程通道。存储维护按所有权再次校验，见 [配置与安全](configuration.md#desktop-自定义目录)。
 
 ## 包职责与依赖方向
 

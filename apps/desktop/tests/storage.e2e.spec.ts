@@ -29,6 +29,7 @@ test('常规设置通过真实维护进程迁移、重新启动、清理缓存�
       Object.entries(process.env).filter((entry): entry is [string, string] => entry[1] !== undefined),
     ),
     HOME: home,
+    PI_MEME_PORT: '0',
     PI_MEME_STORAGE_TEST_TARGET: target,
     PI_MEME_REMOTE_HOST: '',
     PI_MEME_TOKEN: '',

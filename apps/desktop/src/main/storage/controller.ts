@@ -23,6 +23,7 @@ export function createStorageController(options: {
   defaultRoot?: string
   getWindow: () => BrowserWindow | null
   getHostId: () => string | undefined
+  ownsHost: () => boolean
   stopHost: () => Promise<void>
   recoverHost?: () => Promise<void>
 }) {
@@ -34,10 +35,11 @@ export function createStorageController(options: {
   let chosen: StorageTarget | null = null
   const assertHost = (hostId: string) => {
     if (typeof hostId !== 'string' || hostId !== options.getHostId())
-      throw new Error('存储操作必须指向 Desktop 当前拥有的本机 Host')
+      throw new Error('存储操作必须指向 Desktop 当前连接的本机 Host')
   }
   const assertManaged = (hostId: string) => {
     assertHost(hostId)
+    if (!options.ownsHost()) throw new Error('当前 Host 由其他入口管理，不能从 Desktop 维护')
     if (options.override !== undefined) throw new Error('数据目录由 PI_MEME_DATA_ROOT 管理，不能从界面维护')
     if (busy || preferences.pending) throw new Error('已有存储维护任务，请等待完成')
   }
@@ -81,6 +83,14 @@ export function createStorageController(options: {
             : preferences.dataRoot && preferences.dataRoot !== defaultRoot
               ? 'custom'
               : 'default',
+        canMaintain: options.ownsHost() && options.override === undefined && !busy && !preferences.pending,
+        maintenanceDisabledReason: !options.ownsHost()
+          ? '当前 Host 由其他入口管理，不能从 Desktop 维护。'
+          : options.override !== undefined
+            ? '由 PI_MEME_DATA_ROOT 管理，不能从界面维护。'
+            : busy || preferences.pending
+              ? '已有存储维护任务，请等待完成。'
+              : undefined,
         cacheBytes,
         cacheError,
         backupPaths: preferences.backupPaths,

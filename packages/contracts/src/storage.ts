@@ -6,6 +6,8 @@ export type StorageProgress = {
 }
 export type DesktopStorageInfo = HostStorageInfo & {
   source: 'default' | 'custom' | 'environment'
+  canMaintain: boolean
+  maintenanceDisabledReason?: string
   cacheBytes: number | null
   cacheError?: string
   backupPaths: string[]

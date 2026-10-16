@@ -1,0 +1,123 @@
+import { utilityProcess, type UtilityProcess } from 'electron'
+import { randomUUID } from 'node:crypto'
+import { hostPort, localHostUrl } from '@pi-meme/contracts/host-runtime'
+import { acquireLocalHost } from '@pi-meme/host/local-host'
+
+export type DesktopHostProcess = {
+  url: string
+  child: UtilityProcess
+  prepareMaintenance: () => Promise<void>
+  stopForMaintenance: () => Promise<void>
+  dispose: () => Promise<void>
+}
+
+function launchHost(entry: string, env: NodeJS.ProcessEnv): Promise<DesktopHostProcess> {
+  return new Promise((resolve, reject) => {
+    const child = utilityProcess.fork(entry, [], { serviceName: 'Pi Meme Host', env, stdio: 'pipe' })
+    let exited = false
+    let exitCode: number | undefined
+    let hostId = ''
+    let disposing: Promise<void> | undefined
+    const requests = new Map<string, { resolve: () => void; reject: (cause: Error) => void; timer: NodeJS.Timeout }>()
+    const startup = setTimeout(() => {
+      child.kill()
+      reject(new Error('本机 Host 启动超时'))
+    }, 30000)
+    child.stderr?.on('data', (data: Buffer) => console.error(data.toString()))
+    function stop(timeoutMs: number, force: boolean) {
+      if (exited)
+        return !force && exitCode !== 0
+          ? Promise.reject(new Error(`Host 未正常退出（${exitCode}）`))
+          : Promise.resolve()
+      return new Promise<void>((resolve, reject) => {
+        let timer: NodeJS.Timeout
+        const onExit = (code: number) => {
+          clearTimeout(timer)
+          if (code === 0) resolve()
+          else reject(new Error(`Host 未正常退出（${code}）`))
+        }
+        timer = setTimeout(() => {
+          child.removeListener('exit', onExit)
+          if (force) child.kill()
+          reject(new Error(force ? '本机 Host 停机超时' : 'Host 正常停机超时，维护已取消；不会强制终止后迁移'))
+        }, timeoutMs)
+        child.once('exit', onExit)
+        child.postMessage({ type: 'stop', hostId })
+      })
+    }
+    child.on(
+      'message',
+      (value: {
+        type: string
+        url: string
+        hostId: string
+        id: string
+        message?: string
+        error?: string
+        code?: string
+      }) => {
+        if (value.type === 'ready') {
+          clearTimeout(startup)
+          hostId = value.hostId
+          resolve({
+            url: value.url,
+            child,
+            prepareMaintenance: () =>
+              new Promise<void>((resolve, reject) => {
+                if (exited) {
+                  reject(new Error('本机 Host 已退出'))
+                  return
+                }
+                const id = randomUUID()
+                const timer = setTimeout(() => {
+                  requests.delete(id)
+                  reject(new Error('本机 Host 维护准备超时'))
+                }, 10000)
+                requests.set(id, { resolve, reject, timer })
+                child.postMessage({ type: 'maintenance:prepare', id, hostId })
+              }),
+            stopForMaintenance: () => stop(60000, false),
+            dispose() {
+              disposing ??= stop(10000, true)
+              return disposing
+            },
+          })
+        }
+        if (value.type === 'failed') {
+          clearTimeout(startup)
+          reject(Object.assign(new Error(value.message ?? 'Host 启动失败'), { code: value.code }))
+        }
+        if (value.type === 'maintenance:result') {
+          const request = requests.get(value.id)
+          if (!request) return
+          requests.delete(value.id)
+          clearTimeout(request.timer)
+          if (value.error) request.reject(new Error(value.error))
+          else request.resolve()
+        }
+      },
+    )
+    child.once('exit', (code) => {
+      exitCode = code
+      exited = true
+      clearTimeout(startup)
+      const cause = new Error(`本机 Host 已退出（${code}）`)
+      for (const request of requests.values()) {
+        clearTimeout(request.timer)
+        request.reject(cause)
+      }
+      requests.clear()
+      reject(cause)
+    })
+  })
+}
+
+export function acquireDesktopHost(options: { entry: string; env: NodeJS.ProcessEnv; dataRoot: string }) {
+  const port = hostPort(options.env.PI_MEME_PORT)
+  return acquireLocalHost({
+    url: localHostUrl(port),
+    dataRoot: options.dataRoot,
+    create: () =>
+      launchHost(options.entry, { ...options.env, PI_MEME_PORT: String(port), PI_MEME_DATA_ROOT: options.dataRoot }),
+  })
+}

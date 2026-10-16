@@ -122,6 +122,7 @@ async function runPackagedSmoke(mode: 'local' | 'recovery' | 'remote' | 'fresh',
       env: {
         ...process.env,
         PI_MEME_DATA_ROOT: dataRoot,
+        PI_MEME_PORT: '0',
         ...(certificateFile ? { PI_MEME_TEST_TLS_CA: certificateFile } : {}),
         PI_MEME_TEST_CREDENTIALS: 'file',
         PI_MEME_REMOTE_HOST: mode === 'recovery' ? `https://127.0.0.1:${port}` : (remoteHost?.url ?? ''),
