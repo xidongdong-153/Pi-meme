@@ -201,8 +201,6 @@ export function PluginPage({
       ) : (
         <>
           <IntegrationHeader
-            title="插件"
-            description="个人插件由你安装，系统插件是应用自带的工具。创建插件会打开聊天并调用 Plugin Creator。"
             query={query}
             onQuery={setQuery}
             searchLabel="搜索插件"
@@ -261,42 +259,47 @@ export function PluginPage({
             />
           </IntegrationHeader>
           <div id="plugin-list" role="tabpanel" aria-labelledby={`plugin-category-${category}`}>
-            <ul aria-label="App 插件列表" className="space-y-1 pt-6">
-              {filtered.map((plugin) => (
-                <li key={plugin.id} className="flex min-h-24 items-center gap-4 rounded-xl px-3 hover:bg-secondary/30">
-                  <button
-                    type="button"
-                    aria-label={`查看插件：${plugin.id}`}
-                    onClick={() => {
-                      setSelected(plugin.id)
-                      setInstallResult('')
-                    }}
-                    className="flex min-w-0 flex-1 items-center gap-4 rounded-lg py-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    <PluginIcon plugin={plugin} />
-                    <span className="min-w-0">
-                      <span className="block truncate text-base font-medium">{plugin.display?.name ?? plugin.id}</span>
-                      <span className="mt-1 block truncate text-sm text-muted-foreground">
-                        {plugin.description || '未提供说明'}
+            {filtered.length > 0 && (
+              <ul
+                aria-label="App 插件列表"
+                className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card"
+              >
+                {filtered.map((plugin) => (
+                  <li key={plugin.id} className="flex items-center gap-4 p-5">
+                    <button
+                      type="button"
+                      aria-label={`查看插件：${plugin.id}`}
+                      onClick={() => {
+                        setSelected(plugin.id)
+                        setInstallResult('')
+                      }}
+                      className="flex min-w-0 flex-1 items-center gap-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <PluginIcon plugin={plugin} compact />
+                      <span className="min-w-0">
+                        <span className="block truncate text-sm font-medium">{plugin.display?.name ?? plugin.id}</span>
+                        <span className="mt-1 block truncate text-sm text-muted-foreground">
+                          {plugin.description || '未提供说明'}
+                        </span>
                       </span>
-                    </span>
-                  </button>
-                  {plugin.builtin && (
-                    <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">始终启用</span>
-                  )}
-                  <Switch
-                    label={`${plugin.builtin ? '系统插件' : '启用插件'}：${plugin.display?.name ?? plugin.id}`}
-                    checked={plugin.enabled}
-                    disabled={busy || plugin.builtin || plugin.status === 'pending'}
-                    onChange={(enabled) =>
-                      void action(() => (enabled ? client.enable(plugin.id) : client.disable(plugin.id)))
-                    }
-                  />
-                </li>
-              ))}
-            </ul>
+                    </button>
+                    {plugin.builtin && (
+                      <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">始终启用</span>
+                    )}
+                    <Switch
+                      label={`${plugin.builtin ? '系统插件' : '启用插件'}：${plugin.display?.name ?? plugin.id}`}
+                      checked={plugin.enabled}
+                      disabled={busy || plugin.builtin || plugin.status === 'pending'}
+                      onChange={(enabled) =>
+                        void action(() => (enabled ? client.enable(plugin.id) : client.disable(plugin.id)))
+                      }
+                    />
+                  </li>
+                ))}
+              </ul>
+            )}
             {!filtered.length && (
-              <p role="status" className="py-8 text-center text-sm text-muted-foreground">
+              <p role="status" className="text-sm text-muted-foreground">
                 {query ? '没有匹配的插件。' : category === 'system' ? '没有系统插件。' : '没有个人插件。'}
               </p>
             )}
@@ -339,16 +342,22 @@ export function PluginPage({
     </section>
   )
 }
-function PluginIcon({ plugin }: { plugin: UiPluginDescriptor }) {
+function PluginIcon({ plugin, compact = false }: { plugin: UiPluginDescriptor; compact?: boolean }) {
   const systemIcon = plugin.builtin ? systemPluginIcons[plugin.id] : undefined
+  const box = compact ? 'size-8' : 'size-12'
   if (systemIcon)
-    return <img aria-hidden alt="" src={systemIcon} className="size-12 shrink-0 object-contain" draggable={false} />
+    return <img aria-hidden alt="" src={systemIcon} className={cn(box, 'shrink-0 object-contain')} draggable={false} />
   return (
-    <span className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-secondary/50 text-muted-foreground">
+    <span
+      className={cn(
+        'flex shrink-0 items-center justify-center overflow-hidden rounded-xl bg-secondary/50 text-muted-foreground',
+        box,
+      )}
+    >
       {plugin.iconUrl ? (
         <img src={plugin.iconUrl} alt="" className="size-full object-contain" />
       ) : (
-        <Puzzle className="size-6" strokeWidth={1.6} />
+        <Puzzle className={compact ? 'size-4' : 'size-6'} strokeWidth={1.6} />
       )}
     </span>
   )

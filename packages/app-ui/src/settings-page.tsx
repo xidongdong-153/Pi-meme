@@ -75,7 +75,6 @@ export function SettingsPage({
   const [query, setQuery] = useState('')
   const [pending, setPending] = useState<(() => void) | null>(null)
   const section = sections.find((entry) => entry.id === sectionId)!
-  const catalog = sectionId === 'plugins' || sectionId === 'skills' || sectionId === 'mcp'
   const search = query.trim().toLowerCase()
   const visibleGroups = groups
     .map((group) => ({
@@ -170,13 +169,11 @@ export function SettingsPage({
           </nav>
         </aside>
         <div id="settings-content" className="min-w-0 flex-1 overflow-y-auto px-6 py-10 lg:px-12 lg:py-14">
-          <FadeContent key={sectionId} className={cn('mx-auto space-y-8', catalog ? 'max-w-6xl' : 'max-w-3xl')}>
-            {!catalog && (
-              <div>
-                <h2 className="text-3xl font-semibold tracking-tight">{section.label}</h2>
-                <p className="mt-3 text-sm text-muted-foreground">{section.description}</p>
-              </div>
-            )}
+          <FadeContent key={sectionId} className="mx-auto max-w-3xl space-y-8">
+            <div>
+              <h2 className="text-3xl font-semibold tracking-tight">{section.label}</h2>
+              <p className="mt-3 text-sm text-muted-foreground">{section.description}</p>
+            </div>
             <Suspense
               fallback={
                 <p role="status" className="text-sm text-muted-foreground">

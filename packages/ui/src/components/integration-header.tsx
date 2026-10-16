@@ -3,47 +3,46 @@ import { Search } from 'lucide-react'
 import { Input } from './ui/input'
 
 export function IntegrationHeader({
-  title,
-  description,
   actions,
   children,
   query,
   onQuery,
   searchLabel,
 }: {
-  title: string
-  description: string
   actions: ReactNode
   children?: ReactNode
   query: string
   onQuery: (value: string) => void
   searchLabel: string
 }) {
+  const search = (
+    <div className="relative min-w-0 flex-1">
+      <Search aria-hidden="true" className="pointer-events-none absolute left-3 top-2.5 size-4 text-muted-foreground" />
+      <Input
+        aria-label={searchLabel}
+        placeholder={searchLabel}
+        value={query}
+        onChange={(event) => onQuery(event.target.value)}
+        className="bg-card pl-9 shadow-none"
+      />
+    </div>
+  )
+  const actionRow = <div className="flex flex-wrap items-center gap-2">{actions}</div>
+  if (!children) {
+    return (
+      <div className="flex flex-wrap items-center gap-3">
+        {search}
+        {actionRow}
+      </div>
+    )
+  }
   return (
-    <header className="space-y-10">
-      <div className="flex flex-wrap items-start justify-between gap-5">
-        <div>
-          <h2 className="text-3xl font-semibold tracking-tight">{title}</h2>
-          <p className="mt-3 text-sm text-muted-foreground">{description}</p>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">{actions}</div>
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="min-w-0">{children}</div>
+        {actionRow}
       </div>
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <div>{children}</div>
-        <div className="relative ml-auto w-full sm:w-72 lg:w-80">
-          <Search
-            aria-hidden="true"
-            className="pointer-events-none absolute left-3.5 top-3 size-4 text-muted-foreground"
-          />
-          <Input
-            aria-label={searchLabel}
-            placeholder={searchLabel}
-            value={query}
-            onChange={(event) => onQuery(event.target.value)}
-            className="h-10 rounded-xl bg-secondary/60 pl-10"
-          />
-        </div>
-      </div>
-    </header>
+      {search}
+    </div>
   )
 }

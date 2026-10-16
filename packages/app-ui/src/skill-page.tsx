@@ -343,8 +343,6 @@ export function SkillPage({
       ) : (
         <>
           <IntegrationHeader
-            title="技能"
-            description="个人技能来自当前设备和项目，系统技能随应用提供。创建技能会打开聊天并调用 Skill Creator。"
             query={query}
             onQuery={setQuery}
             searchLabel="搜索技能"
@@ -410,47 +408,49 @@ export function SkillPage({
             </p>
           ) : (
             <div id="skill-list" role="tabpanel" aria-labelledby={`skill-category-${category}`}>
-              <ul className="space-y-1 pt-6" aria-label="技能列表">
-                {filtered.map((item) => {
-                  return (
-                    <li
-                      key={item.id}
-                      className="flex min-h-24 items-center gap-4 rounded-xl px-3 hover:bg-secondary/30"
-                    >
-                      <button
-                        type="button"
-                        aria-label={`查看技能：${item.name}`}
-                        onClick={() => {
-                          setSelected(item.id)
-                          setScope(item.scope === 'project' ? 'project' : 'host')
-                        }}
-                        className="flex min-w-0 flex-1 items-center gap-4 rounded-lg py-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                      >
-                        <SkillIcon item={item} />
-                        <span className="min-w-0">
-                          <span className="block truncate text-base font-medium">{item.displayName ?? item.name}</span>
-                          <span className="mt-1 block truncate text-sm text-muted-foreground">
-                            {item.shortDescription ?? item.description ?? '未提供说明'}
+              {filtered.length > 0 && (
+                <ul
+                  className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card"
+                  aria-label="技能列表"
+                >
+                  {filtered.map((item) => {
+                    return (
+                      <li key={item.id} className="flex items-center gap-4 p-5">
+                        <button
+                          type="button"
+                          aria-label={`查看技能：${item.name}`}
+                          onClick={() => {
+                            setSelected(item.id)
+                            setScope(item.scope === 'project' ? 'project' : 'host')
+                          }}
+                          className="flex min-w-0 flex-1 items-center gap-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        >
+                          <SkillIcon item={item} compact />
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm font-medium">{item.displayName ?? item.name}</span>
+                            <span className="mt-1 block truncate text-sm text-muted-foreground">
+                              {item.shortDescription ?? item.description ?? '未提供说明'}
+                            </span>
                           </span>
+                        </button>
+                        <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline" title={state(item)}>
+                          {item.owner.type === 'app-package' ? '来自插件' : scopes[item.scope]}
                         </span>
-                      </button>
-                      <span className="hidden shrink-0 text-sm text-muted-foreground sm:inline" title={state(item)}>
-                        {item.owner.type === 'app-package' ? '来自插件' : scopes[item.scope]}
-                      </span>
-                      <Switch
-                        label={`启用技能：${item.displayName ?? item.name}`}
-                        checked={item.hostPolicy?.enabled ?? item.defaultPolicy.enabled ?? true}
-                        disabled={busy || Boolean(item.diagnostics.length)}
-                        onChange={(enabled) =>
-                          void action(() => client.setPolicy({ id: item.id, scope: 'host', cwd, enabled }))
-                        }
-                      />
-                    </li>
-                  )
-                })}
-              </ul>
+                        <Switch
+                          label={`启用技能：${item.displayName ?? item.name}`}
+                          checked={item.hostPolicy?.enabled ?? item.defaultPolicy.enabled ?? true}
+                          disabled={busy || Boolean(item.diagnostics.length)}
+                          onChange={(enabled) =>
+                            void action(() => client.setPolicy({ id: item.id, scope: 'host', cwd, enabled }))
+                          }
+                        />
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
               {!filtered.length && (
-                <p role="status" className="py-8 text-center text-sm text-muted-foreground">
+                <p role="status" className="text-sm text-muted-foreground">
                   {query.trim() ? '没有匹配的技能。' : category === 'system' ? '没有系统技能。' : '没有个人技能。'}
                 </p>
               )}
@@ -604,13 +604,19 @@ export function SkillPage({
   )
 }
 
-function SkillIcon({ item }: { item: ResourceItem }) {
+function SkillIcon({ item, compact = false }: { item: ResourceItem; compact?: boolean }) {
   const iconUrl = item.scope === 'builtin' ? systemSkillIcons[item.name] : undefined
+  const box = compact ? 'size-8' : 'size-12'
   if (iconUrl)
-    return <img aria-hidden alt="" src={iconUrl} className="size-12 shrink-0 object-contain" draggable={false} />
+    return <img aria-hidden alt="" src={iconUrl} className={cn(box, 'shrink-0 object-contain')} draggable={false} />
   return (
-    <span className="flex size-12 shrink-0 items-center justify-center rounded-full border border-border/70 text-muted-foreground">
-      <BookOpen className="size-5" strokeWidth={1.6} />
+    <span
+      className={cn(
+        'flex shrink-0 items-center justify-center rounded-full border border-border/70 text-muted-foreground',
+        box,
+      )}
+    >
+      <BookOpen className={compact ? 'size-4' : 'size-5'} strokeWidth={1.6} />
     </span>
   )
 }

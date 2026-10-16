@@ -98,8 +98,6 @@ export function McpSettings({
     <section aria-label="MCP 管理" className="space-y-6" aria-busy={blocked}>
       {!editing && (
         <IntegrationHeader
-          title="MCP"
-          description="管理 MCP 服务和连接授权。"
           query={query}
           onQuery={setQuery}
           searchLabel="搜索 MCP 服务器"
@@ -234,19 +232,15 @@ export function McpSettings({
           )}
         </div>
       ) : (
-        <div className="space-y-5 pt-6">
-          <h3 className="text-sm font-semibold">服务器</h3>
+        <div className="space-y-4">
+          <h3 className="text-sm font-medium">服务器</h3>
           {servers.length ? (
-            <div className="divide-y divide-border/70 rounded-2xl border border-border bg-card/50 px-5">
+            <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card">
               {servers.map((entry) => {
                 const value = object(entry.config) ? entry.config : {}
                 const authorizationRequired = capabilities.mcpEnabled === false && value.desktopAuthorized !== true
                 return (
-                  <div
-                    key={entry.name}
-                    aria-label={`MCP 服务：${entry.name}`}
-                    className="flex min-h-16 items-center gap-4 py-3"
-                  >
+                  <div key={entry.name} aria-label={`MCP 服务：${entry.name}`} className="flex items-center gap-4 p-5">
                     <div className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-medium">{entry.name}</span>
                       {entry.error && (
@@ -289,7 +283,7 @@ export function McpSettings({
               })}
             </div>
           ) : (
-            <p role="status" className="py-5 text-sm text-muted-foreground">
+            <p role="status" className="text-sm text-muted-foreground">
               {query ? '没有匹配的 MCP 服务。' : '尚未配置 MCP 服务。'}
             </p>
           )}
