@@ -57,13 +57,13 @@ export function ComposerToolbar({
             type="button"
             aria-label="关闭计划模式"
             onClick={() => onMode('default')}
-            className="group inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full bg-secondary px-2 text-xs text-foreground transition-colors hover:bg-secondary/70 cursor-pointer select-none"
+            className="group inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full bg-secondary p-1.5 @min-[500px]:px-2 text-xs text-foreground transition-colors hover:bg-secondary/70 cursor-pointer select-none"
           >
             <Lightbulb className="size-4 group-hover:hidden group-focus-visible:hidden" />
             <span className="hidden size-4 items-center justify-center rounded-full bg-muted-foreground/20 group-hover:flex group-focus-visible:flex">
               <X className="size-3" />
             </span>
-            <span>计划</span>
+            <span className="hidden @min-[500px]:inline">计划</span>
           </button>
         </TooltipTrigger>
         <TooltipContent side="top">关闭计划模式</TooltipContent>

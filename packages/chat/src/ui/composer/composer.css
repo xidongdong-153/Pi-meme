@@ -1,3 +1,7 @@
+.composer {
+  container-type: inline-size;
+}
+
 .composer-compact {
   container: composer / inline-size;
   padding: 7px 8px;

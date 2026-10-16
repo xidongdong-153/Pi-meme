@@ -167,7 +167,7 @@ export function Composer({
       <form
         aria-label="消息输入"
         className={cn(
-          'composer relative flex flex-col rounded-[24px] border border-border/80 p-3 shadow-lg transition-colors',
+          'composer @container relative flex flex-col rounded-[24px] border border-border/80 p-3 shadow-lg transition-colors',
           compact && 'composer-compact',
           dragging && 'border-primary ring-2 ring-primary/20',
         )}

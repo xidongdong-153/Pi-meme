@@ -132,16 +132,16 @@ export function ModelPickerPopover({
           className={cn(
             'inline-flex min-w-0 max-w-full whitespace-nowrap items-center justify-center select-none cursor-pointer transition-colors rounded-full',
             'bg-secondary/60 hover:bg-secondary text-foreground/90 hover:text-foreground',
-            'size-7 p-0 lg:h-auto lg:w-auto lg:px-2.5 lg:py-1 lg:text-xs lg:font-normal lg:gap-1.5',
+            'size-7 p-0 @min-[500px]:h-auto @min-[500px]:w-auto @min-[500px]:px-2.5 @min-[500px]:py-1 @min-[500px]:text-xs @min-[500px]:font-normal @min-[500px]:gap-1.5',
             disabled && 'cursor-not-allowed opacity-60',
             open && 'bg-secondary text-foreground',
           )}
         >
-          {/* 窄视口：仅显示大脑图标（参考 GPT） */}
-          <Brain className="size-4 shrink-0 lg:hidden text-foreground/80" />
+          {/* 窄视口或窄容器：仅显示大脑图标（参考 GPT） */}
+          <Brain className="size-4 shrink-0 @min-[500px]:hidden text-foreground/80" />
 
-          {/* 宽视口：显示模型名称、思考强度与下拉箭头 */}
-          <div className="hidden min-w-0 lg:inline-flex items-center gap-1.5">
+          {/* 宽容器：显示模型名称、思考强度与下拉箭头 */}
+          <div className="hidden min-w-0 @min-[500px]:inline-flex items-center gap-1.5">
             {open && view === 'thinking' ? (
               <span className="truncate font-normal">选择强度</span>
             ) : (
