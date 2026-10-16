@@ -84,28 +84,31 @@ test('仅接受右侧面板，项目和会话作用域必须有对应目标', ()
 test('左栏和聊天固定渲染，插件不能生成左侧或中央工作区标签', async () => {
   const { createElement } = await import('react')
   const { renderToStaticMarkup } = await import('react-dom/server')
+  const { TooltipProvider } = await import('@pi-meme/ui/components/ui/tooltip')
   const { WorkspacePanels } = await import('../src/layout/workspace-panels')
   const host = {} as import('@pi-meme/contracts/app-host').HostApi
   const markup = renderToStaticMarkup(
-    createElement(WorkspacePanels, {
-      props: { host, target: { hostId: 'host' }, snapshot: null },
-      session: 'chat',
-      sidebar: '置顶、项目、最近',
-      sidebarOpen: true,
-      sidebarWidth: 256,
-      children: '聊天正文',
-      onSidebar: () => {},
-      header: () => null,
-      panels: [
-        {
-          id: 'example:files',
-          title: '文件目录',
-          icon: null,
-          location: 'right',
-          scope: 'app',
-          render: () => '插件正文',
-        },
-      ],
+    createElement(TooltipProvider, {
+      children: createElement(WorkspacePanels, {
+        props: { host, target: { hostId: 'host' }, snapshot: null },
+        session: 'chat',
+        sidebar: '置顶、项目、最近',
+        sidebarOpen: true,
+        sidebarWidth: 256,
+        children: '聊天正文',
+        onSidebar: () => {},
+        header: () => null,
+        panels: [
+          {
+            id: 'example:files',
+            title: '文件目录',
+            icon: null,
+            location: 'right',
+            scope: 'app',
+            render: () => '插件正文',
+          },
+        ],
+      }),
     }),
   )
   assert.match(markup, /会话导航/)

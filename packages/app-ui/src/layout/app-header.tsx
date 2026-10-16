@@ -1,15 +1,5 @@
 import { useState } from 'react'
-import {
-  ChevronDown,
-  ChevronLeft,
-  ChevronRight,
-  Copy,
-  FolderOpen,
-  GitFork,
-  PanelLeft,
-  PanelRightClose,
-  PanelRightOpen,
-} from 'lucide-react'
+import { ChevronDown, ChevronLeft, ChevronRight, Copy, FolderOpen, GitFork, PanelLeft } from 'lucide-react'
 import type { ProjectApp } from '@pi-meme/contracts/desktop'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@pi-meme/ui/components/ui/popover'
@@ -71,7 +61,6 @@ export function AppHeader({
   loadProjectApps,
   sidebarOpen,
   onToggleSidebar,
-  rightPaneVisible,
   busy,
   cwd,
   onDirectory,
@@ -82,8 +71,6 @@ export function AppHeader({
   onOpenProject,
   preferredApp,
   onPreferredApp,
-  rightPaneOpen,
-  onToggleRightPane,
   forkedFrom,
   onOpenForkSource,
 }: {
@@ -92,8 +79,6 @@ export function AppHeader({
   loadProjectApps: () => Promise<ProjectApp[]>
   sidebarOpen: boolean
   onToggleSidebar: () => void
-  /** 右侧栏仍挂在树上（含收起动画）时不显示展开按钮。 */
-  rightPaneVisible: boolean
   busy: boolean
   cwd: string
   onDirectory: (trigger?: HTMLButtonElement) => void
@@ -104,8 +89,6 @@ export function AppHeader({
   onOpenProject: (app: ProjectApp['id']) => void
   preferredApp: ProjectApp['id']
   onPreferredApp: (app: ProjectApp['id']) => void
-  rightPaneOpen: boolean
-  onToggleRightPane: () => void
   /** 当前会话的分叉来源，用于显示来源标识并支持返回。 */
   forkedFrom?: { path: string; title: string }
   onOpenForkSource?: (sourcePath: string) => void
@@ -138,7 +121,7 @@ export function AppHeader({
   }
 
   return (
-    <header className="flex h-11 min-w-0 flex-1 items-center justify-between border-b border-border/70 pr-3 window-drag bg-background/80 backdrop-blur-md select-none z-30">
+    <header className="flex h-full min-w-0 w-full items-center justify-between window-drag select-none">
       <div className="flex h-full items-center min-w-0 flex-1">
         {/* 按钮始终留在这里。宽度跟侧栏走，但不会小于按钮本身，避免折叠时图标先消失再出现。 */}
         <div
@@ -251,27 +234,6 @@ export function AppHeader({
             </PopoverContent>
           </Popover>
         </div>
-
-        {!rightPaneVisible && (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                onClick={onToggleRightPane}
-                aria-label={rightPaneOpen ? '收起右侧栏' : '展开右侧栏'}
-                aria-expanded={rightPaneOpen}
-                className={cn(
-                  'size-7 text-muted-foreground hover:text-foreground',
-                  rightPaneOpen && 'bg-secondary/70 text-foreground',
-                )}
-              >
-                {rightPaneOpen ? <PanelRightClose className="size-4" /> : <PanelRightOpen className="size-4" />}
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">{rightPaneOpen ? '收起右侧栏' : '展开右侧栏'}</TooltipContent>
-          </Tooltip>
-        )}
       </div>
     </header>
   )

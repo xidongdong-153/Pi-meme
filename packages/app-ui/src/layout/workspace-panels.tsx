@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { Grid2X2, Maximize2, Minimize2, PanelRightClose, Plus, Search, X } from 'lucide-react'
+import { Grid2X2, Maximize2, Minimize2, PanelRightClose, PanelRightOpen, Plus, Search, X } from 'lucide-react'
 import { ErrorBoundary } from '@pi-meme/ui/components/error-boundary'
+import { Button } from '@pi-meme/ui/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
 import type { UiContributionProps, UiPanel, UiTarget } from '@pi-meme/plugin-sdk/ui'
 import {
@@ -48,7 +49,7 @@ export function WorkspacePanels({
   sidebarOpen: boolean
   sidebarWidth: number
   onSidebar: (open: boolean, width: number) => void
-  header: (toggleSidebar: () => void, toggleRight: () => void, rightOpen: boolean, rightVisible: boolean) => ReactNode
+  header: (toggleSidebar: () => void) => ReactNode
   children: ReactNode
 }) {
   const storageKey = panelStorageKey(props.target.hostId, session)
@@ -165,16 +166,19 @@ export function WorkspacePanels({
       style={shellStyle}
       className="workspace-panes flex min-h-0 flex-1 flex-col overflow-hidden"
     >
-      <div className="flex h-11 shrink-0">
-        {header(() => onSidebar(!sidebarOpen, sidebarWidth), toggleRight, layout.open, rightPane.mounted)}
+      <div className="workspace-topbar relative z-30 flex h-11 shrink-0">
+        <div className="workspace-main-header flex h-full min-w-0 overflow-hidden border-b border-border/70 bg-background/80 backdrop-blur-md window-drag select-none">
+          {header(() => onSidebar(!sidebarOpen, sidebarWidth))}
+        </div>
         {rightPane.mounted && (
           <div
-            className="right-pane flex shrink-0 overflow-hidden border-b border-l border-border/70 bg-secondary/40 window-drag"
+            className="right-pane absolute inset-y-0 right-0 overflow-hidden border-b border-l border-border/70 bg-secondary/40 window-drag"
             style={{ width: 'var(--workspace-right-width)' }}
             data-testid="right-panel-header"
           >
+            {/* 内容靠右钉住。栏宽拉开时从左侧露出，而不是等宽度到位后整组冒出来。 */}
             <div
-              className="pane-clip flex h-full items-center gap-1 px-2"
+              className="pane-clip absolute inset-y-0 right-0 flex items-center gap-1 pl-2"
               style={{ width: rightPane.dragging ? '100%' : rightWidth }}
             >
               <div
@@ -242,13 +246,28 @@ export function WorkspacePanels({
                 >
                   {layout.expanded ? <Minimize2 /> : <Maximize2 />}
                 </HeaderButton>
-                <HeaderButton label="收起右侧栏" onClick={toggleRight} expanded>
-                  <PanelRightClose />
-                </HeaderButton>
               </div>
             </div>
           </div>
         )}
+        {/* 开关盖在右栏右缘上，不单独占一列。 */}
+        <div className="absolute inset-y-0 right-3 z-10 flex items-center">
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={toggleRight}
+                aria-label={layout.open ? '收起右侧栏' : '展开右侧栏'}
+                aria-expanded={layout.open}
+                className="no-drag size-7 text-muted-foreground hover:text-foreground"
+              >
+                {layout.open ? <PanelRightClose className="size-4" /> : <PanelRightOpen className="size-4" />}
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent side="bottom">{layout.open ? '收起右侧栏' : '展开右侧栏'}</TooltipContent>
+          </Tooltip>
+        </div>
       </div>
       <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
         {leftPane.mounted && (
@@ -396,24 +415,13 @@ export function WorkspacePanels({
   )
 }
 
-function HeaderButton({
-  label,
-  onClick,
-  children,
-  expanded,
-}: {
-  label: string
-  onClick: () => void
-  children: ReactNode
-  expanded?: boolean
-}) {
+function HeaderButton({ label, onClick, children }: { label: string; onClick: () => void; children: ReactNode }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <button
           type="button"
           aria-label={label}
-          aria-expanded={expanded}
           onClick={onClick}
           className="flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground no-drag [&>svg]:size-4"
         >

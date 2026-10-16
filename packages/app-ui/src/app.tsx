@@ -814,13 +814,12 @@ export function App({
               requestRightToken={planRequest ? `${planRequest.id}:${planRequest.revision}` : undefined}
               onRightRequestHandled={() => setPlanRequest(undefined)}
               onSidebar={handleSidebar}
-              header={(toggleSidebar, toggleRight, rightOpen, rightVisible) => (
+              header={(toggleSidebar) => (
                 <AppHeader
                   nativeWindow={nativeWindow}
                   canOpenProject={localPlatform}
                   loadProjectApps={bridge.getProjectApps}
                   sidebarOpen={sidebarOpen}
-                  rightPaneVisible={rightVisible}
                   onToggleSidebar={toggleSidebar}
                   busy={Boolean(chat.workspaceDisabledReason)}
                   cwd={chat.connection.cwd}
@@ -838,8 +837,6 @@ export function App({
                     setPreferredApp(app)
                     void bridge.setPreferredProjectApp(app).catch((cause) => chat.setError(String(cause)))
                   }}
-                  rightPaneOpen={rightOpen}
-                  onToggleRightPane={toggleRight}
                   forkedFrom={forkedFrom}
                   onOpenForkSource={(path) => void chat.openForkSource(path)}
                 />

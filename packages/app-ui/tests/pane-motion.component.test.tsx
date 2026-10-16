@@ -3,11 +3,13 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'
 import type { HostApi } from '@pi-meme/contracts/app-host'
+import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 import { WorkspacePanels } from '../src/layout/workspace-panels'
 
 afterEach(cleanup)
 
 beforeEach(() => {
+  window.localStorage.clear()
   vi.stubGlobal(
     'ResizeObserver',
     class {
@@ -22,26 +24,28 @@ function Panes({ onSidebar }: { onSidebar?: (open: boolean, width: number) => vo
   const [open, setOpen] = useState(true)
   const [width, setWidth] = useState(256)
   return (
-    <WorkspacePanels
-      panels={[]}
-      props={{ host: {} as HostApi, target: { hostId: 'host' }, snapshot: null }}
-      session="chat"
-      sidebar="会话列表"
-      sidebarOpen={open}
-      sidebarWidth={width}
-      onSidebar={(next, size) => {
-        onSidebar?.(next, size)
-        setOpen(next)
-        setWidth(size)
-      }}
-      header={(toggleSidebar) => (
-        <button type="button" onClick={toggleSidebar}>
-          切换侧栏
-        </button>
-      )}
-    >
-      聊天正文
-    </WorkspacePanels>
+    <TooltipProvider>
+      <WorkspacePanels
+        panels={[]}
+        props={{ host: {} as HostApi, target: { hostId: 'host' }, snapshot: null }}
+        session="chat"
+        sidebar="会话列表"
+        sidebarOpen={open}
+        sidebarWidth={width}
+        onSidebar={(next, size) => {
+          onSidebar?.(next, size)
+          setOpen(next)
+          setWidth(size)
+        }}
+        header={(toggleSidebar) => (
+          <button type="button" onClick={toggleSidebar}>
+            切换侧栏
+          </button>
+        )}
+      >
+        聊天正文
+      </WorkspacePanels>
+    </TooltipProvider>
   )
 }
 
@@ -78,4 +82,17 @@ test('拖过收起阈值后松手关闭，并保留原来的宽度', () => {
   fireEvent.pointerMove(window, { clientX: 400 - 220 })
   fireEvent.pointerUp(window)
   expect(onSidebar).toHaveBeenCalledWith(false, 256)
+})
+
+test('右侧栏开关留在顶栏，展开后不另挂收起按钮', () => {
+  render(<Panes />)
+  const toggle = screen.getByRole('button', { name: '展开右侧栏' })
+  fireEvent.click(toggle)
+  expect(screen.getByRole('button', { name: '收起右侧栏' })).toBe(toggle)
+  expect(screen.getAllByRole('button', { name: '收起右侧栏' })).toHaveLength(1)
+  const paneHeader = document.querySelector('[data-testid="right-panel-header"]')
+  if (!(paneHeader instanceof HTMLElement)) throw new Error('缺少右侧栏顶栏')
+  expect(paneHeader).toHaveClass('absolute', 'right-0')
+  expect(paneHeader.contains(toggle)).toBe(false)
+  expect(paneHeader.querySelector('.pane-clip')).toHaveClass('right-0')
 })
