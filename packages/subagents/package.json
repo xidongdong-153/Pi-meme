@@ -11,8 +11,7 @@
     "./server/coordinator": "./src/server/coordinator.ts"
   },
   "scripts": {
-    "type-check": "tsc --noEmit",
-    "test": "node --import tsx --test tests/*.test.ts"
+    "type-check": "tsc --noEmit"
   },
   "dependencies": {
     "@earendil-works/pi-agent-core": "1.1.0",
@@ -36,6 +35,7 @@
     "react": "^19.3.0"
   },
   "devDependencies": {
-    "react": "^19.3.0"
+    "react": "^19.3.0",
+    "vitest": "5.0.5"
   }
 }

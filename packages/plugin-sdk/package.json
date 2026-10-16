@@ -13,8 +13,7 @@
     "./system-plugins": "./src/system-plugins.ts"
   },
   "scripts": {
-    "type-check": "tsc --noEmit",
-    "test": "node --import tsx --test tests/*.test.ts"
+    "type-check": "tsc --noEmit"
   },
   "dependencies": {
     "@pi-meme/contracts": "workspace:*"
@@ -23,6 +22,7 @@
     "react": "^19.3.0"
   },
   "devDependencies": {
-    "react": "^19.3.0"
+    "react": "^19.3.0",
+    "vitest": "5.0.5"
   }
 }

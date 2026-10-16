@@ -5,14 +5,14 @@
   "type": "module",
   "description": "浏览项目文件，编辑代码并预览 Markdown 和图片。",
   "scripts": {
-    "type-check": "tsc --noEmit",
-    "test": "node --import tsx --test tests/*.test.ts"
+    "type-check": "tsc --noEmit"
   },
   "devDependencies": {
     "@pi-meme/plugin-sdk": "workspace:*",
     "typescript": "^5.9.3",
     "tsx": "^4.23.15",
-    "@types/react": "^19.3.0"
+    "@types/react": "^19.3.0",
+    "vitest": "5.0.5"
   },
   "peerDependencies": {
     "react": "^19.3.0"

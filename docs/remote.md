@@ -125,4 +125,4 @@ Desktop 本地启动使用一次性票据建立内存浏览器会话。长期凭
 | 远程身份变化                     | 核对所连 Host 数据目录与持久 host-id，重新确认连接目标                 |
 | 受限任务无法启动                 | 查看 `restrictedAccessReason`；安装平台依赖后重启 Host，不切换权限绕过 |
 
-`pnpm test:server` 从实际构建产物启动临时 Host，使用内存凭据和假模型验证静态 Worker、JSONL、外部 Agent、MCP、codemode、持续子代理、计划与默认受限权限。平台运行与测试入口见 [开发与验证](development.md) 和 [Linux 与 WSL](linux-wsl.md)。这些是验证命令说明，不表示本次文档整理运行过应用验收。
+`pnpm test --all --layer artifact --target server` 从实际构建产物启动临时 Host，使用内存凭据和假模型验证静态 Worker、JSONL、外部 Agent、MCP、codemode、持续子代理、计划与默认受限权限。平台运行与测试入口见 [开发与验证](development.md) 和 [Linux 与 WSL](linux-wsl.md)。这些是验证命令说明，不表示本次文档整理运行过应用验收。

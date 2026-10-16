@@ -51,8 +51,7 @@
     "./server/entry": "./src/server/entry.ts"
   },
   "scripts": {
-    "type-check": "tsc --noEmit",
-    "test": "node --import tsx --test tests/*.test.ts"
+    "type-check": "tsc --noEmit"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "1.1.0",
@@ -73,7 +72,12 @@
   },
   "devDependencies": {
     "react": "^19.3.0",
-    "react-dom": "^19.3.0"
+    "react-dom": "^19.3.0",
+    "vitest": "5.0.5",
+    "@testing-library/react": "16.3.3",
+    "@testing-library/dom": "10.4.2",
+    "@testing-library/user-event": "14.6.8",
+    "@testing-library/jest-dom": "7.0.1"
   },
   "piMeme": {
     "sdkVersion": 2,

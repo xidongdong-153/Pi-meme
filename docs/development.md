@@ -66,47 +66,31 @@ pnpm format
 
 `format` 运行 `prettier --check .`，不会写文件。只修本次改动引入的问题，既有错误单独报告。仅修改文档时检查文档格式、链接、来源路径和图示，不无条件运行应用构建。
 
-按改动范围继续验证：
+按改动范围继续验证，选测表和完整命令见 [测试](testing.md)。
 
-| 命令                    | 覆盖范围与使用条件                                                                                              |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `pnpm check-boundaries` | 静态/动态导入、re-export、包依赖声明及 UI/进程边界；检查器在 [scripts](../scripts/check-package-boundaries.mjs) |
-| `pnpm test`             | 递归运行各包测试，测试命令使用 `node:test`、`node:assert/strict` 和 tsx                                         |
-| `pnpm test:host`        | Host 协议、资源、控制 API 和集成测试                                                                            |
-| `pnpm test:plugins`     | 外部插件运行时测试                                                                                              |
-| `pnpm build:web`        | 浏览器入口与共享 React 产物                                                                                     |
-| `pnpm build:server`     | 独立 Host 与静态 Worker 构建                                                                                    |
-| `pnpm test:server`      | 先构建，再运行 [Server 产物测试](../apps/server/tests/)；包含默认受限权限与完全权限案例                         |
+| 命令                                                    | 用途                                        |
+| ------------------------------------------------------- | ------------------------------------------- |
+| `pnpm check-boundaries`                                 | 包依赖声明、导入方向与 UI/进程边界          |
+| `pnpm test --feature chat`                              | 聊天功能跨包的单元、组件和集成测试          |
+| `pnpm test --feature plugins --layer integration`       | 插件集成测试                                |
+| `pnpm test --file <路径> --name <名称模式>`             | 单文件中的指定用例                          |
+| `pnpm test --all --layer artifact --target server`      | 构建并验证 Server 产物                      |
+| `pnpm test --all --layer e2e,artifact --target desktop` | 构建并验证开发态 Electron 与真实 macOS 应用 |
+| `pnpm test:all`                                         | 当前平台支持的全部测试与产物验收            |
 
-测试放在所属包或插件的 `tests/<功能>.test.ts`。修 bug 先复现，再添加回归断言。共享假模型、MCP 与 App 插件 fixture 位于 [tests/fixtures](../tests/fixtures/)，通过文件 URL 定位。使用临时数据目录，不调用真实模型、不读写真实凭据或会话。
+测试归所属包；共享假模型与测试环境在 [tests/fixtures](../tests/fixtures/)。测试使用临时数据目录，不调用真实模型、不读写真实凭据或会话。新增测试必须登记到 [catalog.ts](../tests/catalog.ts)，登记完整性由 `testing` 功能检查。
 
-Linux CI 配置在 [linux.yml](../.github/workflows/linux.yml)：Ubuntu 24.04、Node.js 24.14.0、pnpm 10.29.1，安装 bubblewrap 后执行质量检查、边界检查、测试、Web 构建与 Server 产物验收。配置存在不表示本次运行过 CI。
+Linux PR 检查运行源码测试和 Web 核心流程；手动 [完整测试](../.github/workflows/full-tests.yml) 分别运行 Linux、macOS 验收。配置存在不表示本次运行过远程 CI。
 
 ## macOS 打包与验收
 
-使用 Node.js 24.14.0。Node.js 26 下曾复现 Forge 退出码为 0 但没有生成 `.app`，需要检查实际产物，不能只看退出码。
+使用 Node.js 24.14.0。Forge 退出成功后仍要验证实际 `.app`。修改窗口、preload、平台 IPC 或打包接线时运行：
 
 ```bash
-pnpm package
-pnpm test:package
-pnpm test:desktop
+pnpm test --all --layer e2e,artifact --target desktop
 ```
 
-修改窗口、preload、平台 IPC 或打包接线时执行以上三项。`package` 生成本机应用，`test:package` 检查签名和运行时，`test:desktop` 运行 Electron 完整验收。arm64 产物路径为 `apps/desktop/out/pi-meme-darwin-arm64/pi-meme.app`；截图在 `apps/desktop/out/desktop-smoke/`。
-
-如果其他开发进程覆盖 `.vite` 缓存，可在完成 `package` 后从实际应用运行同一套验收：
-
-```bash
-PI_DESKTOP_PACKAGED_SMOKE=1 pnpm test:desktop
-```
-
-专项回归：
-
-```bash
-pnpm test:desktop:regression
-```
-
-专项回归依次运行模型、MCP、表单下拉、图片、侧栏菜单、侧栏搜索与显示控制。每项使用独立 Electron 进程，失败后继续其余项；存在失败时返回非零退出码。日志、截图和 `results.json` 写入 `apps/desktop/out/desktop-smoke/regression-<时间戳>/`。具体编排见 [desktop-regression.ts](../apps/desktop/tests/desktop-regression.ts)。
+入口只打包一次，再运行 Playwright 桌面用例和真实应用验收。正式 `.app` 关闭 Node 调试 Fuse，产物测试直接启动 `Contents/MacOS/pi-meme`，不修改发布配置。报告和截图在 `out/tests/`。
 
 `pnpm make` 生成分发包。签名由 [Forge 配置](../apps/desktop/forge.config.ts) 管理：没有证书时使用 ad-hoc 签名，可用 `PI_DESKTOP_SIGNING_IDENTITY` 指定证书。当前没有配置公证或自动更新。
 

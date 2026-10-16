@@ -9,8 +9,7 @@
     "./create": "./src/create.ts"
   },
   "scripts": {
-    "type-check": "tsc --noEmit",
-    "test": "node --import tsx --test tests/*.test.ts"
+    "type-check": "tsc --noEmit"
   },
   "dependencies": {
     "@pi-meme/plugin-sdk": "workspace:*",
@@ -19,6 +18,7 @@
     "@earendil-works/chord": "1.1.0"
   },
   "devDependencies": {
-    "@types/node": "^24.0.0"
+    "@types/node": "^24.0.0",
+    "vitest": "5.0.5"
   }
 }

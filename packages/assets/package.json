@@ -7,7 +7,9 @@
     "./builtin": "./src/builtin.ts"
   },
   "scripts": {
-    "type-check": "tsc --noEmit",
-    "test": "node --import tsx --test tests/*.test.ts"
+    "type-check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "vitest": "5.0.5"
   }
 }

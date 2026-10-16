@@ -11,8 +11,7 @@
     "./runtime-extensions": "./src/runtime-extensions.ts"
   },
   "scripts": {
-    "type-check": "tsc --noEmit",
-    "test": "node --import tsx --test tests/*.test.ts"
+    "type-check": "tsc --noEmit"
   },
   "dependencies": {
     "@earendil-works/pi-coding-agent": "1.1.0",
@@ -47,6 +46,7 @@
   "devDependencies": {
     "@pi-meme/client": "workspace:*",
     "@types/proper-lockfile": "^4.1.4",
-    "@types/ws": "^8.18.1"
+    "@types/ws": "^8.18.1",
+    "vitest": "5.0.5"
   }
 }

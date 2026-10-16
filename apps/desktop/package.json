@@ -10,11 +10,7 @@
     "package": "electron-forge package",
     "make": "electron-forge make",
     "publish": "electron-forge publish",
-    "type-check": "tsc --noEmit",
-    "test:desktop": "electron tests/desktop-smoke.cjs",
-    "test:desktop:regression": "node --import tsx tests/desktop-regression.ts",
-    "test:package": "node --import tsx --test tests/package-*-smoke.ts",
-    "test": "node --import tsx --test tests/*.test.ts"
+    "type-check": "tsc --noEmit"
   },
   "keywords": [],
   "author": {
@@ -38,7 +34,9 @@
     "@electron-forge/shared-types": "^7.11.2",
     "@pi-meme/chat": "workspace:*",
     "@pi-meme/models": "workspace:*",
-    "@pi-meme/pi-runtime": "workspace:*"
+    "@pi-meme/pi-runtime": "workspace:*",
+    "vitest": "5.0.5",
+    "@playwright/test": "1.64.1"
   },
   "dependencies": {
     "@pi-meme/contracts": "workspace:*",

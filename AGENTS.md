@@ -22,30 +22,24 @@ pnpm type-check            # 全 workspace tsc --noEmit
 pnpm lint                  # eslint .
 pnpm format                # prettier --check .（只检查，不写文件）
 pnpm check-boundaries      # 包导入、依赖声明、UI/进程边界
-pnpm test                  # 递归跑各包测试
-pnpm test:host             # Host 协议、资源、控制 API
-pnpm test:plugins          # 外部插件运行时
+pnpm test --list           # 列出可选业务功能，不执行测试
+pnpm test --feature chat   # 只跑聊天功能的单元、组件和集成测试
+pnpm test:all              # 显式运行当前平台完整测试，包含必要构建和产物验收
 pnpm build:web             # 浏览器入口
 pnpm build:server          # 独立 Host 与静态 Worker
-pnpm test:server           # 先 build:server，再跑产物测试（含默认受限权限与完全权限）
 pnpm package               # 生成本机 .app
-pnpm test:package          # 签名与运行时
-pnpm test:desktop          # Electron 完整验收
-pnpm test:desktop:regression
 pnpm make                  # 分发包
 ```
 
 改代码后按顺序跑 `pnpm type-check`、`pnpm lint`、`pnpm format`，前一项过了再跑下一项。只修本次改动引入的问题。只改文档时不跑应用构建。
 
-单个测试：各包脚本是 `node --import tsx --test tests/*.test.ts`。跑一个文件用
+默认按业务功能或测试文件验证，不因单个功能修改运行全量测试。跨功能改动显式选择多个 `--feature`；修改测试基础设施或发布前才运行 `pnpm test:all`。无参数 `pnpm test` 返回选测帮助并失败，不执行测试。
 
-```bash
-pnpm --filter @pi-meme/host exec node --import tsx --test tests/<file>.test.ts
-```
+测试使用 Vitest；组件交互使用 React Testing Library，Web 与开发态 Electron 使用 Playwright；真实产物保留 Node 原生测试。文件后缀明确标记 `unit`、`component`、`integration`、`e2e`、`artifact`，所有测试必须登记到 `tests/catalog.ts`。具体命令和改动选测表见 [测试](docs/testing.md)。
 
-把 filter 换成所属包名。测试放在所属包或插件的 `tests/<功能>.test.ts`，用 `node:test` 和 `node:assert/strict`。修 bug 先复现再加回归。共享 fixture 在 `tests/fixtures/`。用临时数据目录，不调用真实模型，不读写真实凭据或会话。
+修 bug 先复现再加回归。用临时数据目录、本地假模型和可释放的 fixture，不读写真实凭据或会话。只修本次引入的问题。
 
-改窗口、preload、平台 IPC 或打包接线时跑 `pnpm package`、`pnpm test:package`、`pnpm test:desktop`。arm64 产物在 `apps/desktop/out/pi-meme-darwin-arm64/pi-meme.app`。若其他进程盖掉 `.vite` 缓存，打包后再跑 `PI_DESKTOP_PACKAGED_SMOKE=1 pnpm test:desktop`。`dist/`、`.vite/`、`out/` 不提交。
+修改窗口、preload、平台 IPC 或打包接线后，显式运行 Desktop 的 `e2e,artifact` 层，入口自动准备产物。arm64 应用在 `apps/desktop/out/pi-meme-darwin-arm64/pi-meme.app`。`dist/`、`.vite/`、`out/`、`.vitest/` 不提交。
 
 ## 架构
 

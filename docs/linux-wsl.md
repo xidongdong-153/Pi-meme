@@ -77,18 +77,18 @@ pnpm type-check
 pnpm lint
 pnpm format
 pnpm check-boundaries
-pnpm test
+pnpm test --all --layer unit,component,integration
 pnpm build:web
-pnpm test:server
+pnpm test --all --layer artifact --target server
 ```
 
 [Linux CI](../.github/workflows/linux.yml) 配置使用 Ubuntu 24.04、Node.js 24.14.0、pnpm 10.29.1，安装 bubblewrap 后执行这些命令。Linux 受限回归遇到探测失败会失败，不能用 skip 代替安装依赖。WSL 互操作测试只在真实 WSL2 执行，原生 CI 会明确跳过该项。
 
-`test:server` 构建后从实际产物执行默认工作区权限，覆盖 bash/write/edit、越界、只读和重启恢复；同时保留完全权限下外部工具、MCP、子代理和计划测试。通用测试覆盖主任务、子代理、规划模式、codemode 嵌套调用、权限不可用及 setsid 后代清理。测试只使用临时数据与假模型。
+Server 产物测试构建后从实际产物执行默认工作区权限，覆盖 bash/write/edit、越界、只读和重启恢复；同时保留完全权限下外部工具、MCP、子代理和计划测试。通用测试覆盖主任务、子代理、规划模式、codemode 嵌套调用、权限不可用及 setsid 后代清理。测试只使用临时数据与假模型。
 
 Windows 访问另外验收：从 Windows 浏览器访问两个 localhost 地址，确认本机登录、Cookie、RPC、事件 WebSocket、插件资源与 Vite 热更新。微软说明 Windows 应用可经 localhost 访问 WSL 服务，见 [WSL 网络说明](https://learn.microsoft.com/en-us/windows/wsl/networking#accessing-linux-networking-apps-from-windows-localhost)。失败时先检查 WSL 内服务，再检查 Windows 转发、端口和防火墙，记录实际来源和失败规则，不放宽认证。局域网访问继续使用 [Remote HTTPS](remote.md)。
 
-Linux 不执行 macOS 的 `package`、`test:package` 和 `test:desktop`。macOS 回归需在 macOS 机器上运行。当前 Linux/WSL2 支持范围为 Host/Web，不包含 Linux Electron、Windows 原生 Host、WSL1、Alpine/musl 和 systemd 安装。
+Linux 不执行 macOS Desktop 的 e2e 和 artifact 层。macOS 回归需在 macOS 机器上运行。当前 Linux/WSL2 支持范围为 Host/Web，不包含 Linux Electron、Windows 原生 Host、WSL1、Alpine/musl 和 systemd 安装。
 
 平台回归见 [linux-sandbox.test.ts](../packages/pi-runtime/tests/linux-sandbox.test.ts) 和 [restricted-dist.test.ts](../apps/server/tests/restricted-dist.test.ts)。通用命令与 macOS 验收条件见 [开发与验证](development.md)。
 

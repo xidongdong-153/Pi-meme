@@ -10,8 +10,7 @@
     "./file-credentials": "./src/file-credentials.ts"
   },
   "scripts": {
-    "type-check": "tsc --noEmit",
-    "test": "node --import tsx --test tests/*.test.ts"
+    "type-check": "tsc --noEmit"
   },
   "dependencies": {
     "@pi-meme/contracts": "workspace:*",
@@ -19,5 +18,8 @@
     "@earendil-works/pi-coding-agent": "1.1.0",
     "@earendil-works/pi-agent-core": "1.1.0",
     "@napi-rs/keyring": "2.1.0"
+  },
+  "devDependencies": {
+    "vitest": "5.0.5"
   }
 }

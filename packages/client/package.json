@@ -12,11 +12,13 @@
     "./node-host-client": "./src/node-host-client.ts"
   },
   "scripts": {
-    "type-check": "tsc --noEmit",
-    "test": "node --import tsx --test tests/*.test.ts"
+    "type-check": "tsc --noEmit"
   },
   "dependencies": {
     "@pi-meme/contracts": "workspace:*",
     "@pi-meme/plugin-sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "vitest": "5.0.5"
   }
 }
