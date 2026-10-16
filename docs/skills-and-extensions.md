@@ -9,7 +9,7 @@ paths:
   - 'packages/pi-runtime/src/sdk/resource-loader.ts'
   - 'packages/pi-runtime/src/skill-prompt.ts'
   - 'packages/pi-runtime/src/extensions/skill-usage.ts'
-  - 'packages/app-ui/src/skill-page.tsx'
+  - 'packages/app-ui/src/settings/skill-page.tsx'
   - 'pi/skills/**'
 ---
 

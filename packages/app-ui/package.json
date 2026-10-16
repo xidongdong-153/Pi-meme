@@ -6,14 +6,14 @@
   "exports": {
     "./app": "./src/app.tsx",
     "./global.css": "./src/global.css",
-    "./session-selection": "./src/session-selection.ts",
-    "./snapshot-sync": "./src/snapshot-sync.ts",
-    "./error-notice": "./src/error-notice.tsx",
-    "./host-directory-dialog": "./src/host-directory-dialog.tsx",
-    "./plugin-registry": "./src/plugin-registry.ts",
-    "./services-app": "./src/services-app.tsx",
-    "./startup-splash": "./src/startup-splash.tsx",
-    "./service-ui": "./src/service-ui.ts"
+    "./session-selection": "./src/session/session-selection.ts",
+    "./snapshot-sync": "./src/session/snapshot-sync.ts",
+    "./error-notice": "./src/layout/error-notice.tsx",
+    "./host-directory-dialog": "./src/shell/host-directory-dialog.tsx",
+    "./plugin-registry": "./src/plugins/plugin-registry.ts",
+    "./services-app": "./src/shell/services-app.tsx",
+    "./startup-splash": "./src/shell/startup-splash.tsx",
+    "./service-ui": "./src/shell/service-ui.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit"

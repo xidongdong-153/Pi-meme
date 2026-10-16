@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'vitest'
 import type { HostApi } from '@pi-meme/contracts/app-host'
 import type { UiPanel, UiPanelLocation, UiPluginDescriptor, UiPluginModule, UiTarget } from '@pi-meme/plugin-sdk/ui'
-import { UiPluginRegistry } from '../src/plugin-registry'
+import { UiPluginRegistry } from '../src/plugins/plugin-registry'
 
 function plugin(generation: number): UiPluginDescriptor {
   return {

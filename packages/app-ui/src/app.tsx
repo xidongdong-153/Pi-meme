@@ -1,15 +1,15 @@
 import { GitMenu } from '@pi-meme/git/ui/git-menu'
-import { LocationSelector } from './location-selector'
-import type { ServiceUI } from './service-ui'
-import { SubagentsPanel } from './subagents-panel'
+import { LocationSelector } from './shell/location-selector'
+import type { ServiceUI } from './shell/service-ui'
+import { SubagentsPanel } from './panels/subagents-panel'
 import { createResourceClient } from '@pi-meme/client/resource-client'
-import { appendSkillInvocation } from './invoke-skill'
+import { appendSkillInvocation } from './settings/invoke-skill'
 import { AccessSettings } from '@pi-meme/permissions/ui/access-settings'
 import { AgentAccessSelector } from '@pi-meme/permissions/ui/agent-access-selector'
-import { AppHeader } from './app-header'
-import { ForkNotice } from './fork-notice'
-import { WorkspaceContent } from './workspace-content'
-import { ErrorNotice } from './error-notice'
+import { AppHeader } from './layout/app-header'
+import { ForkNotice } from './layout/fork-notice'
+import { WorkspaceContent } from './layout/workspace-content'
+import { ErrorNotice } from './layout/error-notice'
 import {
   lazy,
   useCallback,
@@ -35,32 +35,32 @@ import { FilesPanel } from '@pi-meme/file-directory/ui/files-panel'
 import { activate as activateTerminal } from '@pi-meme/terminal/ui/entry'
 import { ProjectSelector } from '@pi-meme/workspace/ui/project-selector'
 import { formatSessionTitle } from '@pi-meme/workspace/ui/sidebar/session-title'
-import { useAppSession } from './use-app-session'
+import { useAppSession } from './session/use-app-session'
 import { messageText } from '@pi-meme/chat/ui/model/message-text'
 import { ContextUsageRing } from '@pi-meme/models/ui/context-usage-ring'
 import { useSettings } from '@pi-meme/settings/ui/use-settings'
 import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 import { SessionTreePanel } from '@pi-meme/history/ui/session-tree-panel'
-import { PlanPanel } from './plan-panel'
-import { planExecutionDraft } from './plan-execution-draft'
-import type { RightSidebarTab } from './right-sidebar'
+import { PlanPanel } from './panels/plan-panel'
+import { planExecutionDraft } from './panels/plan-execution-draft'
+import type { RightSidebarTab } from './layout/right-sidebar'
 import type { PluginClient } from '@pi-meme/client/plugin-client'
 import type { UiContributionProps, UiPluginDescriptor, UiPluginSlot, UiPanel, UiTarget } from '@pi-meme/plugin-sdk/ui'
-import { PluginRenderers } from './plugin-renderers'
-import { UiPluginRegistry } from './plugin-registry'
-import { PluginSlot } from './plugin-slot'
-import { WorkspacePanels } from './workspace-panels'
-import { sessionUiTarget } from './panel-layout'
-import { AgentPluginSelector } from './agent-plugin-selector'
+import { PluginRenderers } from './plugins/plugin-renderers'
+import { UiPluginRegistry } from './plugins/plugin-registry'
+import { PluginSlot } from './plugins/plugin-slot'
+import { WorkspacePanels } from './layout/workspace-panels'
+import { sessionUiTarget } from './layout/panel-layout'
+import { AgentPluginSelector } from './plugins/agent-plugin-selector'
 import { FileDiff, Folder, TerminalSquare, Network, ListTree, NotebookPen } from 'lucide-react'
 import type { HostApi, AppSession } from '@pi-meme/contracts/app-host'
-import { SettingsPage } from './settings-page'
-import { loadPluginUI } from './load-plugin-ui'
+import { SettingsPage } from './settings/settings-page'
+import { loadPluginUI } from './plugins/load-plugin-ui'
 import type { DesktopBridge, ProjectApp } from '@pi-meme/contracts/desktop'
 
-const SkillPage = lazy(() => import('./skill-page').then((module) => ({ default: module.SkillPage })))
-const PluginPage = lazy(() => import('./plugin-page').then((module) => ({ default: module.PluginPage })))
-const HostSettings = lazy(() => import('./host-settings').then((module) => ({ default: module.HostSettings })))
+const SkillPage = lazy(() => import('./settings/skill-page').then((module) => ({ default: module.SkillPage })))
+const PluginPage = lazy(() => import('./settings/plugin-page').then((module) => ({ default: module.PluginPage })))
+const HostSettings = lazy(() => import('./settings/host-settings').then((module) => ({ default: module.HostSettings })))
 const ModelConfigSettings = lazy(() =>
   import('@pi-meme/models/ui/model-config/model-config-settings').then((module) => ({
     default: module.ModelConfigSettings,

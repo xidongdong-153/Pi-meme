@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
-import { paneCollapsePull, resistWidth, settlePane } from '../src/pane-motion'
+import { paneCollapsePull, resistWidth, settlePane } from '../src/layout/pane-motion'
 
 test('区间内宽度跟手，越界后位移变短', () => {
   assert.equal(resistWidth(240, 200, 420), 240)

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
 import type { PlanDocument } from '@pi-meme/contracts/plan'
-import { planExecutionDraft } from '../src/plan-execution-draft'
+import { planExecutionDraft } from '../src/panels/plan-execution-draft'
 
 test('继续计划保留已有输入、标题、修订和完整正文', () => {
   const document: PlanDocument = {

@@ -5,8 +5,9 @@ paths:
   - 'packages/plugin-sdk/**'
   - 'packages/plugin-runtime/**'
   - 'packages/plugin-devkit/**'
-  - 'packages/app-ui/src/plugin-*'
-  - 'packages/app-ui/src/load-plugin-ui.ts'
+  - 'packages/app-ui/src/plugins/**'
+  - 'packages/app-ui/src/settings/plugin-page.tsx'
+  - 'packages/app-ui/src/session/plugin-snapshot-sync.ts'
   - 'plugins/**'
 ---
 

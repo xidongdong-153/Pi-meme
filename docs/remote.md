@@ -12,7 +12,7 @@ paths:
   - 'packages/host/src/remote-services.ts'
   - 'packages/host/src/connection-credentials.ts'
   - 'packages/client/src/host-client.ts'
-  - 'packages/app-ui/src/remote-settings.tsx'
+  - 'packages/app-ui/src/shell/remote-settings.tsx'
 ---
 
 # 独立 Host 与 Remote
@@ -67,7 +67,7 @@ Server 参数来自 [main.ts](../apps/server/src/main.ts)，开发代理来自 [
 
 ## 在界面登记远程服务
 
-进入“设置 → 系统 → 远程”，点击“配置远程服务”，填写 HTTPS 地址与访问令牌。登记后在工作位置中选择远程项目；每个项目和会话使用所属 Host 的目录、配置与运行状态。入口见 [设置导航](../packages/app-ui/src/settings-page.tsx) 与 [RemoteSettings](../packages/app-ui/src/remote-settings.tsx)。
+进入“设置 → 系统 → 远程”，点击“配置远程服务”，填写 HTTPS 地址与访问令牌。登记后在工作位置中选择远程项目；每个项目和会话使用所属 Host 的目录、配置与运行状态。入口见 [设置导航](../packages/app-ui/src/settings/settings-page.tsx) 与 [RemoteSettings](../packages/app-ui/src/shell/remote-settings.tsx)。
 
 本机 Node Host 保存远程地址、Host 身份与令牌，分别维护各上游的内存 Cookie。Renderer 不保存远程令牌或 Cookie；HTTP、事件 WebSocket、控制接口和插件资源经已登记服务代理，页面保留本机 origin。代理不接受任意临时上游 URL、不跟随重定向、不修改远程 CORS。
 

@@ -30,7 +30,7 @@ test('开发模式直接加载 workspace 聊天源码，发送时保留会话标
   })
   try {
     const app = await server.transformRequest(
-      `/@fs${path.resolve(root, '../../packages/app-ui/src/use-app-session.ts')}`,
+      `/@fs${path.resolve(root, '../../packages/app-ui/src/session/use-app-session.ts')}`,
     )
     assert.ok(app)
     const chatUrl = app.code.match(/from\s*["']([^"']*use-chat-session\.ts[^"']*)["']/)?.[1]

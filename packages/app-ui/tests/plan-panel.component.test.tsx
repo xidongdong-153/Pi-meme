@@ -4,7 +4,7 @@ import { cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import type { PlanDocument } from '@pi-meme/contracts/plan'
-import { PlanPanel } from '../src/plan-panel'
+import { PlanPanel } from '../src/panels/plan-panel'
 
 afterEach(cleanup)
 

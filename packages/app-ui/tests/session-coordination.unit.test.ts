@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
-import { SessionSelection } from '../src/session-selection'
-import { SnapshotSync } from '../src/snapshot-sync'
+import { SessionSelection } from '../src/session/session-selection'
+import { SnapshotSync } from '../src/session/snapshot-sync'
 import type { Connection, DesktopEvent } from '@pi-meme/contracts/desktop'
 
 test('后一次选择替代前一次，旧请求完成不能清空新事务', () => {

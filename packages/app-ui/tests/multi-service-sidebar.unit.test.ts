@@ -8,7 +8,7 @@ import type { SidebarPreferences } from '@pi-meme/contracts/settings'
 import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 import { buildSidebarModel } from '@pi-meme/workspace/ui/sidebar/sidebar-model'
 import { Sidebar } from '@pi-meme/workspace/ui/sidebar/sidebar'
-import { MultiServiceSidebar } from '../src/multi-service-sidebar'
+import { MultiServiceSidebar } from '../src/shell/multi-service-sidebar'
 
 function noop() {}
 const preferences: SidebarPreferences = {

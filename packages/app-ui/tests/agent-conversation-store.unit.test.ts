@@ -4,7 +4,7 @@ import type { AgentSummary } from '@pi-meme/contracts/collaboration'
 import type { DesktopEvent, Snapshot } from '@pi-meme/contracts/desktop'
 import { groupConversationTurns } from '@pi-meme/chat/ui/model/conversation-turns'
 import { assistantMessage } from '../../../tests/fixtures/messages.mjs'
-import { AgentConversationStore } from '../src/agent-conversation-store'
+import { AgentConversationStore } from '../src/panels/agent-conversation-store'
 
 const agent: AgentSummary = {
   agentId: 'child',

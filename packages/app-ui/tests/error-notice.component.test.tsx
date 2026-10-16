@@ -2,7 +2,7 @@ import '@testing-library/jest-dom/vitest'
 import { afterEach, expect, test, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { ErrorNotice } from '../src/error-notice'
+import { ErrorNotice } from '../src/layout/error-notice'
 
 afterEach(cleanup)
 

@@ -3,7 +3,7 @@ import { afterEach, expect, test } from 'vitest'
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import type { DesktopBridge, DesktopEvent, SessionSelectionResult, Snapshot } from '@pi-meme/contracts/desktop'
 import type { PlanDocument } from '@pi-meme/contracts/plan'
-import { useAppSession } from '../src/use-app-session'
+import { useAppSession } from '../src/session/use-app-session'
 
 afterEach(cleanup)
 

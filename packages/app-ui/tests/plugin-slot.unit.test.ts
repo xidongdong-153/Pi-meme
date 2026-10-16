@@ -5,8 +5,8 @@ import { renderToStaticMarkup } from 'react-dom/server'
 import type { HostApi } from '@pi-meme/contracts/app-host'
 import type { UiContribution, UiContributionProps } from '@pi-meme/plugin-sdk/ui'
 import { PluginMessage, PluginMessageProvider } from '@pi-meme/ui/components/plugin-message'
-import { matchesContribution, PluginSlot } from '../src/plugin-slot'
-import { UiPluginRegistry } from '../src/plugin-registry'
+import { matchesContribution, PluginSlot } from '../src/plugins/plugin-slot'
+import { UiPluginRegistry } from '../src/plugins/plugin-registry'
 
 const props: UiContributionProps = {
   host: {} as HostApi,

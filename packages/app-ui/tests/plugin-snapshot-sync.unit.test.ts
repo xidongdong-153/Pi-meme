@@ -1,7 +1,7 @@
 import { test } from 'vitest'
 import assert from 'node:assert/strict'
 import type { Snapshot } from '@pi-meme/contracts/desktop'
-import { PluginSnapshotSync } from '../src/plugin-snapshot-sync'
+import { PluginSnapshotSync } from '../src/session/plugin-snapshot-sync'
 
 function snapshot(generation: number, sessionKey = 'A') {
   return { connection: { sessionKey }, uiPlugins: [{ id: 'demo', generation }] } as Snapshot

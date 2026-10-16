@@ -102,11 +102,11 @@ Host 与 app-ui 是组合根。基础包和契约不得反向依赖业务实现�
 
 ## 界面组合
 
-[设置导航](../packages/app-ui/src/settings-page.tsx) 分三组：个人包含常规、外观、用量；Agent 包含模型、指令、技能、插件、MCP；系统包含远程、关于。常规只设置新会话默认权限。指令页编辑 Host 的用户指令与系统提示词。技能与插件是独立页面，没有共享资源页。[技能页](../packages/app-ui/src/skill-page.tsx)和[插件页](../packages/app-ui/src/plugin-page.tsx)各自在“个人 / 系统”间切换。创建技能或插件会把对应系统技能插入当前对话。
+[设置导航](../packages/app-ui/src/settings/settings-page.tsx) 分三组：个人包含常规、外观、用量；Agent 包含模型、指令、技能、插件、MCP；系统包含远程、关于。常规只设置新会话默认权限。指令页编辑 Host 的用户指令与系统提示词。技能与插件是独立页面，没有共享资源页。[技能页](../packages/app-ui/src/settings/skill-page.tsx)和[插件页](../packages/app-ui/src/settings/plugin-page.tsx)各自在“个人 / 系统”间切换。创建技能或插件会把对应系统技能插入当前对话。
 
 左侧为置顶、项目、最近，中间固定聊天。工具面板位置只允许 `right`，在当前聊天右侧栏打开可关闭标签页；标签和宽度按 Host、会话保存。七类贡献槽为 `composer`、`composer-actions`、`tool-card`、`message`、`message-actions`、`status`、`settings`。
 
-源码见 [workspace-panels.tsx](../packages/app-ui/src/workspace-panels.tsx)、[right-sidebar.tsx](../packages/app-ui/src/right-sidebar.tsx)、[UI 契约](../packages/plugin-sdk/src/ui.ts)。插件不能替换左侧导航或中央聊天。
+源码见 [workspace-panels.tsx](../packages/app-ui/src/layout/workspace-panels.tsx)、[right-sidebar.tsx](../packages/app-ui/src/layout/right-sidebar.tsx)、[UI 契约](../packages/plugin-sdk/src/ui.ts)。插件不能替换左侧导航或中央聊天。
 
 ## 协议与平台适配
 

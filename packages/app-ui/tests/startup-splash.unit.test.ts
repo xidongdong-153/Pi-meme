@@ -7,7 +7,7 @@ import {
   STARTUP_SPLASH_MIN_MS,
   StartupSplash,
   startupSplashSchedule,
-} from '../src/startup-splash'
+} from '../src/shell/startup-splash'
 
 test('启动画面只淡入图标和名称', () => {
   const html = renderToStaticMarkup(createElement(StartupSplash))

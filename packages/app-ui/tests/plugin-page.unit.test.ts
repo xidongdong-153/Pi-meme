@@ -3,7 +3,7 @@ import { test } from 'vitest'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { PluginClient } from '@pi-meme/client/plugin-client'
-import { PluginPage, PluginCapabilities } from '../src/plugin-page'
+import { PluginPage, PluginCapabilities } from '../src/settings/plugin-page'
 import { plugin } from './integration-pages-fixture'
 
 test('插件能力明确说明后台服务、逐会话Agent、面板、包内资源的行为', () => {

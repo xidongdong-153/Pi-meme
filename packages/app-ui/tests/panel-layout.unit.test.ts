@@ -11,7 +11,7 @@ import {
   readPanelLayout,
   sessionUiTarget,
   toolsTabId,
-} from '../src/panel-layout'
+} from '../src/layout/panel-layout'
 
 test('右侧标签按 Host 与会话隔离，保存顺序、选中项和宽度', () => {
   assert.notEqual(panelStorageKey('local', 'chat'), panelStorageKey('remote', 'chat'))
@@ -84,7 +84,7 @@ test('仅接受右侧面板，项目和会话作用域必须有对应目标', ()
 test('左栏和聊天固定渲染，插件不能生成左侧或中央工作区标签', async () => {
   const { createElement } = await import('react')
   const { renderToStaticMarkup } = await import('react-dom/server')
-  const { WorkspacePanels } = await import('../src/workspace-panels')
+  const { WorkspacePanels } = await import('../src/layout/workspace-panels')
   const host = {} as import('@pi-meme/contracts/app-host').HostApi
   const markup = renderToStaticMarkup(
     createElement(WorkspacePanels, {
@@ -120,7 +120,7 @@ test('Worktree 使用会话的来源项目身份，右栏保留文件目录和�
   const { createElement } = await import('react')
   const { renderToStaticMarkup } = await import('react-dom/server')
   const { TooltipProvider } = await import('@pi-meme/ui/components/ui/tooltip')
-  const { WorkspacePanels } = await import('../src/workspace-panels')
+  const { WorkspacePanels } = await import('../src/layout/workspace-panels')
   const session: AppSession = {
     hostId: 'host',
     sessionId: 'worktree-session',

@@ -3,7 +3,7 @@ import { test } from 'vitest'
 import type { ComposerSnapshot } from '@pi-meme/chat/ui/use-chat-session'
 import type { PiSlashCommand } from '@pi-meme/contracts/pi'
 import { skillMarker } from '@pi-meme/contracts/skills'
-import { ComposerDrafts, composerDraftPrefix } from '../src/composer-drafts'
+import { ComposerDrafts, composerDraftPrefix } from '../src/session/composer-drafts'
 
 function fixture() {
   const values = new Map<string, string>()

@@ -3,7 +3,7 @@ import { afterEach, expect, test, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
-import { RightSidebar, type RightSidebarTab } from '../src/right-sidebar'
+import { RightSidebar, type RightSidebarTab } from '../src/layout/right-sidebar'
 
 afterEach(cleanup)
 

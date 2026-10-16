@@ -4,7 +4,7 @@ import type { ReactNode } from 'react'
 import type { DesktopBridge } from '@pi-meme/contracts/desktop'
 import type { HostService } from '@pi-meme/contracts/host'
 import type { SelectWorkspace } from '@pi-meme/contracts/sessions'
-import type { useAppSession } from './use-app-session'
+import type { useAppSession } from '../session/use-app-session'
 
 export type ServiceController = ReturnType<typeof useAppSession> & { openSettings: () => void }
 export type ServiceUI = {

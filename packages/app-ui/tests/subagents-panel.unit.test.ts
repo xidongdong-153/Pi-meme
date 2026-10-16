@@ -4,7 +4,13 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { AgentSummary, AgentStatus } from '@pi-meme/contracts/collaboration'
 import type { DesktopBridge } from '@pi-meme/contracts/desktop'
-import { agentElapsed, agentFinishedAgo, agentRunning, orderAgents, SubagentsPanel } from '../src/subagents-panel'
+import {
+  agentElapsed,
+  agentFinishedAgo,
+  agentRunning,
+  orderAgents,
+  SubagentsPanel,
+} from '../src/panels/subagents-panel'
 
 const now = Date.parse('2026-10-11T12:00:00Z')
 function agent(id: string, status: AgentStatus = 'completed', overrides: Partial<AgentSummary> = {}): AgentSummary {

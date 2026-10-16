@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'vitest'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import { SettingsPage } from '../src/settings-page'
+import { SettingsPage } from '../src/settings/settings-page'
 
 test('个人导航以常规开头，打开设置时停在常规', () => {
   const html = renderToStaticMarkup(

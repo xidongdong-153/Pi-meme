@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { useState } from 'react'
 import type { HostApi } from '@pi-meme/contracts/app-host'
-import { WorkspacePanels } from '../src/workspace-panels'
+import { WorkspacePanels } from '../src/layout/workspace-panels'
 
 afterEach(cleanup)
 

@@ -7,7 +7,7 @@
 @import '@pi-meme/chat/ui/composer/composer.css';
 @import '@pi-meme/interaction/ui/extension-editor.css';
 @import '@pi-meme/interaction/ui/user-input-panel.css';
-@import './settings-page.css';
+@import './settings/settings-page.css';
 @import '@pi-meme/file-directory/ui/files.css';
 @import '@xterm/xterm/css/xterm.css';
 
