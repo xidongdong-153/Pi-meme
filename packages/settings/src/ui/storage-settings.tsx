@@ -11,6 +11,12 @@ function size(bytes: number) {
 }
 const message = (cause: unknown) => (cause instanceof Error ? cause.message : String(cause))
 
+const storageCache = new WeakMap<object, { info: HostStorageInfo; desktop: DesktopStorageInfo | null }>()
+
+export function clearStorageCache(bridge?: object) {
+  if (bridge) storageCache.delete(bridge)
+}
+
 export function StorageSettings({
   bridge,
   onBeforeRestart,
@@ -20,9 +26,10 @@ export function StorageSettings({
   onBeforeRestart: () => Promise<void>
   onMaintaining: (value: boolean) => void
 }) {
-  const [info, setInfo] = useState<HostStorageInfo | null>(null)
-  const [desktop, setDesktop] = useState<DesktopStorageInfo | null>(null)
-  const [loading, setLoading] = useState(false)
+  const cached = storageCache.get(bridge)
+  const [info, setInfo] = useState<HostStorageInfo | null>(() => cached?.info ?? null)
+  const [desktop, setDesktop] = useState<DesktopStorageInfo | null>(() => cached?.desktop ?? null)
+  const [loading, setLoading] = useState(() => !cached)
   const [action, setAction] = useState<'choose' | 'open' | 'restart' | null>(null)
   const [target, setTarget] = useState<StorageTarget | null>(null)
   const [confirmation, setConfirmation] = useState<'migrate' | 'cache' | null>(null)
@@ -38,6 +45,7 @@ export function StorageSettings({
       const host = await bridge.getStorageInfo()
       const native = bridge.storage ? await bridge.storage.getInfo(host.hostId) : null
       if (mounted.current && current === revision.current) {
+        storageCache.set(bridge, { info: host, desktop: native })
         setInfo(host)
         setDesktop(native)
       }
@@ -99,6 +107,7 @@ export function StorageSettings({
       await onBeforeRestart()
       onMaintaining(true)
       maintaining = true
+      storageCache.delete(bridge)
       if (confirmation === 'migrate' && target)
         await bridge.storage.migrate({ expectedHostId: info.hostId, selectionId: target.selectionId })
       else if (confirmation === 'cache') await bridge.storage.clearCache(info.hostId)
@@ -126,16 +135,25 @@ export function StorageSettings({
                 <p className="break-all font-mono text-xs" data-testid="storage-root">
                   {info.dataRoot}
                 </p>
+              ) : loading ? (
+                <div className="flex h-4 items-center" data-testid="storage-skeleton-root">
+                  <div className="h-3 w-56 max-w-full animate-pulse rounded bg-muted/80" />
+                  <span className="sr-only">正在读取存储信息…</span>
+                </div>
               ) : (
                 <p role="status" className="text-xs text-muted-foreground">
-                  {loading ? '正在读取存储信息…' : '存储信息不可用'}
+                  存储信息不可用
                 </p>
               )}
-              {desktop && (
+              {desktop ? (
                 <p className="text-xs text-muted-foreground">
                   {desktop.maintenanceDisabledReason ?? (desktop.source === 'custom' ? '自定义目录' : '默认目录')}
                 </p>
-              )}
+              ) : loading ? (
+                <div className="flex h-4 items-center" data-testid="storage-skeleton-status">
+                  <div className="h-3 w-20 animate-pulse rounded bg-muted/50" />
+                </div>
+              ) : null}
             </div>
             {bridge.storage && (
               <div className="flex gap-2">
@@ -161,8 +179,8 @@ export function StorageSettings({
               此目录位于所连接的 Host。Web 和远程服务只读展示；请在 Host 启动环境中设置 PI_MEME_DATA_ROOT 后重启服务。
             </p>
           )}
-          {!info && (
-            <Button variant="outline" size="sm" disabled={loading} onClick={() => void load()}>
+          {!loading && !info && (
+            <Button variant="outline" size="sm" onClick={() => void load()}>
               重试读取
             </Button>
           )}
@@ -176,7 +194,11 @@ export function StorageSettings({
               <div className="space-y-2">
                 <h4 className="text-sm font-medium">可清理缓存</h4>
                 <p role="status" className="text-xs text-muted-foreground">
-                  {loading ? '正在统计…' : desktop?.cacheBytes == null ? '占用统计不可用' : size(desktop.cacheBytes)}
+                  {loading && !desktop
+                    ? '正在统计…'
+                    : desktop?.cacheBytes == null
+                      ? '占用统计不可用'
+                      : size(desktop.cacheBytes)}
                 </p>
               </div>
               <div className="flex gap-2">

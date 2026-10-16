@@ -127,3 +127,83 @@ test('备份仅有打开入口，不混入清理或自动删除', async () => {
   expect(f.storage.openDirectory).toHaveBeenCalledWith({ expectedHostId: 'local-host', path: '/data/old' })
   expect(within(backup).queryByRole('button', { name: /删除|清理/ })).not.toBeInTheDocument()
 })
+
+test('首次加载中保持对称骨架占位且不出现重试按钮，缓存卡片显示统计中', async () => {
+  let resolveHost: (value: { hostId: string; dataRoot: string }) => void = () => {}
+  const pendingHost = new Promise<{ hostId: string; dataRoot: string }>((resolve) => {
+    resolveHost = resolve
+  })
+  const bridge = {
+    getStorageInfo: vi.fn(() => pendingHost),
+    storage: {
+      getInfo: vi.fn(async () => nativeInfo),
+      chooseTarget: vi.fn(async () => null),
+      migrate: vi.fn(async () => {}),
+      clearCache: vi.fn(async () => {}),
+      openDirectory: vi.fn(async () => {}),
+    },
+  }
+  render(<StorageSettings bridge={bridge} onBeforeRestart={async () => {}} onMaintaining={() => {}} />)
+
+  expect(screen.getByTestId('storage-skeleton-root')).toBeVisible()
+  expect(screen.getByTestId('storage-skeleton-status')).toBeVisible()
+  expect(screen.getByText('正在统计…')).toBeVisible()
+  expect(screen.queryByRole('button', { name: '重试读取' })).not.toBeInTheDocument()
+
+  resolveHost({ hostId: 'local-host', dataRoot: '/data/local' })
+  expect(await screen.findByTestId('storage-root')).toHaveTextContent('/data/local')
+  expect(screen.queryByTestId('storage-skeleton-root')).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '重试读取' })).not.toBeInTheDocument()
+})
+
+test('同一 Bridge 再次挂载直接从缓存同步渲染，零加载骨架', async () => {
+  const bridge = {
+    getStorageInfo: vi.fn(async () => ({ hostId: 'local-host', dataRoot: '/data/cached-root' })),
+    storage: {
+      getInfo: vi.fn(async () => ({ ...nativeInfo, dataRoot: '/data/cached-root' })),
+      chooseTarget: vi.fn(async () => null),
+      migrate: vi.fn(async () => {}),
+      clearCache: vi.fn(async () => {}),
+      openDirectory: vi.fn(async () => {}),
+    },
+  }
+  const { unmount } = render(
+    <StorageSettings bridge={bridge} onBeforeRestart={async () => {}} onMaintaining={() => {}} />,
+  )
+  expect(await screen.findByTestId('storage-root')).toHaveTextContent('/data/cached-root')
+
+  unmount()
+
+  render(<StorageSettings bridge={bridge} onBeforeRestart={async () => {}} onMaintaining={() => {}} />)
+  // 同步挂载时即可立即查得数据，骨架屏不存在
+  expect(screen.getByTestId('storage-root')).toHaveTextContent('/data/cached-root')
+  expect(screen.queryByTestId('storage-skeleton-root')).not.toBeInTheDocument()
+})
+
+test('读取失败时展示错误提示与重试读取按钮，重试成功后恢复', async () => {
+  const user = userEvent.setup()
+  let succeed = false
+  const bridge = {
+    getStorageInfo: vi.fn(async () => {
+      if (!succeed) throw new Error('网络断开')
+      return { hostId: 'local-host', dataRoot: '/data/recovered' }
+    }),
+    storage: {
+      getInfo: vi.fn(async () => nativeInfo),
+      chooseTarget: vi.fn(async () => null),
+      migrate: vi.fn(async () => {}),
+      clearCache: vi.fn(async () => {}),
+      openDirectory: vi.fn(async () => {}),
+    },
+  }
+  render(<StorageSettings bridge={bridge} onBeforeRestart={async () => {}} onMaintaining={() => {}} />)
+
+  expect(await screen.findByText('网络断开')).toBeVisible()
+  const retryBtn = screen.getByRole('button', { name: '重试读取' })
+  expect(retryBtn).toBeVisible()
+
+  succeed = true
+  await user.click(retryBtn)
+  expect(await screen.findByTestId('storage-root')).toHaveTextContent('/data/recovered')
+  expect(screen.queryByRole('button', { name: '重试读取' })).not.toBeInTheDocument()
+})
