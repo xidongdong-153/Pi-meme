@@ -5,6 +5,7 @@ import type { InstructionFile, InstructionKind, InstructionsSnapshot } from '@pi
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Textarea } from '@pi-meme/ui/components/ui/textarea'
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@pi-meme/ui/components/ui/dialog'
+import { BentoSkeletonBar, BentoSkeletonCard, BentoSkeletonCircle } from '@pi-meme/ui/components/bento-skeleton'
 
 const titles: Record<InstructionKind, { title: string; description: string; file: string }> = {
   agents: { title: '用户指令', description: '配置语言、回复风格与长期工作约定。', file: 'AGENTS.md' },
@@ -243,9 +244,40 @@ export function InstructionSettings({
       ) : (
         <>
           {!snapshot && !error && (
-            <p role="status" className="text-sm text-muted-foreground">
-              正在读取指令…
-            </p>
+            <div className="space-y-6" data-testid="instruction-skeleton">
+              <section className="space-y-4">
+                <BentoSkeletonBar className="w-12" size="sm" />
+                <BentoSkeletonCard delay={0} className="p-0">
+                  <div className="flex items-center gap-4 p-5">
+                    <BentoSkeletonCircle className="size-6" />
+                    <div className="min-w-0 flex-1 space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <BentoSkeletonBar className="w-20" size="sm" />
+                        <BentoSkeletonBar className="w-24" size="xs" />
+                      </div>
+                      <BentoSkeletonBar className="w-56 max-w-full" size="xs" />
+                    </div>
+                    <BentoSkeletonBar className="size-4 rounded" />
+                  </div>
+                </BentoSkeletonCard>
+              </section>
+              <section className="space-y-4">
+                <BentoSkeletonBar className="w-12" size="sm" />
+                <BentoSkeletonCard delay={80} className="divide-y divide-border/60 p-0">
+                  <div className="flex items-center gap-4 p-5">
+                    <BentoSkeletonCircle className="size-6" />
+                    <div className="min-w-0 flex-1 space-y-1.5">
+                      <div className="flex items-center gap-2">
+                        <BentoSkeletonBar className="w-24" size="sm" />
+                        <BentoSkeletonBar className="w-24" size="xs" />
+                      </div>
+                      <BentoSkeletonBar className="w-64 max-w-full" size="xs" />
+                    </div>
+                    <BentoSkeletonBar className="size-4 rounded" />
+                  </div>
+                </BentoSkeletonCard>
+              </section>
+            </div>
           )}
           {snapshot &&
             groups.map((group) => (

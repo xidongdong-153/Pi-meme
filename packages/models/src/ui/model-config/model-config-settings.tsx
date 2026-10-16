@@ -15,6 +15,7 @@ import { BrandMark } from '@pi-meme/ui/components/brand-mark'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
 import { RefreshCw } from 'lucide-react'
 import { cn } from '@pi-meme/ui/lib/utils'
+import { BentoSkeletonBar, BentoSkeletonCard } from '@pi-meme/ui/components/bento-skeleton'
 import { BuiltinProviders } from '../builtin-providers'
 import { apiLabels, ModelConfigForm } from './model-config-form'
 import { ModelSelect } from '../model-select'
@@ -214,9 +215,26 @@ export function ModelConfigSettings({
         </div>
       </div>
       {!snapshot && loading && (
-        <p role="status" className="text-sm text-muted-foreground">
-          正在加载模型配置…
-        </p>
+        <div className="space-y-3" data-testid="models-skeleton-providers">
+          <BentoSkeletonCard delay={0}>
+            <div className="flex items-center justify-between">
+              <div className="space-y-1.5">
+                <BentoSkeletonBar className="w-32" size="sm" />
+                <BentoSkeletonBar className="w-48" size="xs" />
+              </div>
+              <BentoSkeletonBar className="h-8 w-24 rounded-lg" />
+            </div>
+          </BentoSkeletonCard>
+          <BentoSkeletonCard delay={80}>
+            <div className="flex items-center justify-between">
+              <div className="space-y-1.5">
+                <BentoSkeletonBar className="w-28" size="sm" />
+                <BentoSkeletonBar className="w-40" size="xs" />
+              </div>
+              <BentoSkeletonBar className="h-8 w-24 rounded-lg" />
+            </div>
+          </BentoSkeletonCard>
+        </div>
       )}
       {snapshot && (
         <>

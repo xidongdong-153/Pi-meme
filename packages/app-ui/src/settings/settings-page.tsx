@@ -18,6 +18,7 @@ import { Input } from '@pi-meme/ui/components/ui/input'
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@pi-meme/ui/components/ui/dialog'
 import { FadeContent } from '@pi-meme/ui/components/fade-content'
 import { cn } from '@pi-meme/ui/lib/utils'
+import { SettingsSkeleton } from './settings-skeleton'
 
 const groups = [
   {
@@ -174,13 +175,7 @@ export function SettingsPage({
               <h2 className="text-3xl font-semibold tracking-tight">{section.label}</h2>
               <p className="mt-3 text-sm text-muted-foreground">{section.description}</p>
             </div>
-            <Suspense
-              fallback={
-                <p role="status" className="text-sm text-muted-foreground">
-                  正在加载设置…
-                </p>
-              }
-            >
+            <Suspense fallback={<SettingsSkeleton section={sectionId} />}>
               {renderContent(sectionId, navigate)}
             </Suspense>
           </FadeContent>

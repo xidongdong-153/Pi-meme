@@ -10,6 +10,12 @@ import { Button } from '@pi-meme/ui/components/ui/button'
 import { ServerForm } from './server-form'
 import { object } from '../shared/config'
 import { cn } from '@pi-meme/ui/lib/utils'
+import {
+  BentoSkeletonBar,
+  BentoSkeletonCard,
+  BentoSkeletonCircle,
+  BentoSkeletonPill,
+} from '@pi-meme/ui/components/bento-skeleton'
 
 export function McpSettings({
   bridge,
@@ -131,9 +137,21 @@ export function McpSettings({
         </p>
       )}
       {!snapshot ? (
-        <p role="status" className="text-sm text-muted-foreground">
-          正在读取 MCP 配置…
-        </p>
+        <BentoSkeletonCard delay={60} className="divide-y divide-border/60 p-0" testId="mcp-skeleton">
+          {Array.from({ length: 3 }).map((_, index) => (
+            <div key={index} className="flex items-center gap-4 p-5">
+              <BentoSkeletonCircle className="size-8 rounded-lg" />
+              <div className="min-w-0 flex-1 space-y-1.5">
+                <div className="flex items-center gap-2">
+                  <BentoSkeletonBar className="w-28" size="sm" />
+                  <BentoSkeletonBar className="w-16" size="xs" />
+                </div>
+                <BentoSkeletonBar className="w-64 max-w-full" size="xs" />
+              </div>
+              <BentoSkeletonPill className="h-6 w-12" />
+            </div>
+          ))}
+        </BentoSkeletonCard>
       ) : editing ? (
         <div className="space-y-5">
           <Button

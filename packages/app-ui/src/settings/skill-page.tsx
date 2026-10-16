@@ -19,6 +19,12 @@ import {
   DropdownMenuItem,
 } from '@pi-meme/ui/components/ui/dropdown-menu'
 import { cn } from '@pi-meme/ui/lib/utils'
+import {
+  BentoSkeletonBar,
+  BentoSkeletonCard,
+  BentoSkeletonCircle,
+  BentoSkeletonPill,
+} from '@pi-meme/ui/components/bento-skeleton'
 import { CategoryTabs } from './category-tabs'
 
 const scopes = { builtin: '系统', host: '此设备', project: '当前项目' }
@@ -403,9 +409,21 @@ export function SkillPage({
             />
           </IntegrationHeader>
           {!catalog ? (
-            <p role="status" className="text-sm text-muted-foreground">
-              正在读取技能…
-            </p>
+            <BentoSkeletonCard delay={60} className="divide-y divide-border/60 p-0" testId="skill-skeleton">
+              {Array.from({ length: 4 }).map((_, index) => (
+                <div key={index} className="flex items-center gap-4 p-5">
+                  <BentoSkeletonCircle className="size-9 rounded-xl" />
+                  <div className="min-w-0 flex-1 space-y-1.5">
+                    <div className="flex items-center gap-2">
+                      <BentoSkeletonBar className="w-32" size="sm" />
+                      <BentoSkeletonBar className="w-16" size="xs" />
+                    </div>
+                    <BentoSkeletonBar className="w-72 max-w-full" size="xs" />
+                  </div>
+                  <BentoSkeletonPill className="h-6 w-12" />
+                </div>
+              ))}
+            </BentoSkeletonCard>
           ) : (
             <div id="skill-list" role="tabpanel" aria-labelledby={`skill-category-${category}`}>
               {filtered.length > 0 && (
