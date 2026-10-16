@@ -28,7 +28,7 @@ test('Worker使用稳定SDK懒启动会话，停止后可重新创建运行时',
     const snapshot = await session.snapshot()
     assert.equal(snapshot.connection.status, 'ready')
     assert.equal(snapshot.messages.length, 0)
-    assert.equal(snapshot.connection.piVersion, '1.1.0')
+    assert.equal(snapshot.connection.piVersion, '1.3.0')
     await session.stopAndWait()
     assert.equal(session.connection().status, 'disconnected')
     await session.reconnectModels()

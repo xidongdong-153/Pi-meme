@@ -655,7 +655,7 @@ test('根任务普通与规划模式均加载内置提问，快照恢复多题�
   try {
     const key = ((await rpc('pi:snapshot')).result as Snapshot).connection.sessionKey!
     await rpc('pi:access-mode', [key, 'full-access'], key)
-    for (const mode of ['default', 'plan'] as const) {
+    for (const mode of ['default', 'plan', 'default'] as const) {
       assert.equal((await rpc('pi:prompt', [key, `请提问 ${mode}`, [], [], { mode }], key)).error, undefined)
       let pending: import('@pi-meme/contracts/collaboration').PendingInteraction | undefined
       await eventually(async () => {
@@ -720,8 +720,15 @@ test('根任务普通与规划模式均加载内置提问，快照恢复多题�
     assert.ok(tools.slice(0, 2).every((names: string[]) => !names.includes('save_plan')))
     assert.ok(
       tools
-        .slice(2)
+        .slice(2, 4)
         .every((names: string[]) => names.includes('save_plan') && !names.includes('write') && !names.includes('bash')),
+      JSON.stringify(tools),
+    )
+    assert.ok(
+      tools
+        .slice(4)
+        .every((names: string[]) => !names.includes('save_plan') && names.includes('write') && names.includes('bash')),
+      JSON.stringify(tools),
     )
   } finally {
     await host.dispose()

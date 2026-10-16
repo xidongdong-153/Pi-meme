@@ -31,7 +31,7 @@ test('AppAgent 使用 JSON Schema、文本和结构化结果，生命周期上�
     `import {writeFile} from 'node:fs/promises'
 export function activate(ctx) {
   if ('pi' in ctx || 'sdk' in ctx || 'registerSandbox' in ctx) throw new Error('不能公开 Pi 或权限策略')
-  ctx.hooks.on('beforeRun', () => ({context:'附加的 App 上下文'}))
+  ctx.hooks.on('beforeRun', event => ({context:'附加的 App 上下文：'+event.prompt}))
   ctx.tools.register({name:'app_echo',title:'回显',description:'验证 App 工具',parameters:{type:'object',properties:{value:{type:'string'}},required:['value'],additionalProperties:false},
     execute: async (params, execution) => {
       if (!execution.session.id || execution.session.cwd !== ${JSON.stringify(root)} || !execution.run.id || !(execution.signal instanceof AbortSignal)) throw new Error('执行上下文无效')
@@ -67,7 +67,7 @@ export function activate(ctx) {
   await session.prompt('运行工具')
   await settled(session)
   assert.equal(requested, 1)
-  assert.match(requestText(fake.provider.requests[0]), /附加的 App 上下文/)
+  assert.match(requestText(fake.provider.requests[0]), /附加的 App 上下文：运行工具/)
   const messages = (await session.snapshot()).messages
   const tool = messages.find((message) => message.role === 'toolResult' && message.toolName === 'app_echo')
   assert.ok(tool?.role === 'toolResult' && !tool.isError)
@@ -77,6 +77,15 @@ export function activate(ctx) {
   assert.equal(tool.source.generation, 8)
   const custom = messages.find((message) => message.role === 'custom' && message.customType === 'app-result')
   assert.equal(custom?.source?.ownerId, 'app-fixture')
+  await session.continueCollaborationTask('继续处理子任务结果', 'default')
+  await settled(session)
+  assert.match(requestText(fake.provider.requests.at(-1)!), /附加的 App 上下文：继续处理子任务结果/)
+  await session.prompt('只读分析', undefined, [], { mode: 'plan' })
+  await settled(session)
+  await session.prompt('恢复普通任务', undefined, [], { mode: 'default' })
+  await settled(session)
+  const tools = fake.provider.requests.at(-1)!.tools?.map((tool: { function: { name: string } }) => tool.function.name)
+  for (const name of ['write', 'bash', 'app_echo']) assert.ok(tools?.includes(name), JSON.stringify(tools))
   await session.stopAndWait()
   assert.equal(await readFile(disposed, 'utf8'), '已释放')
 })

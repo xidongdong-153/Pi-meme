@@ -15,8 +15,8 @@
   "dependencies": {
     "@pi-meme/contracts": "workspace:*",
     "@pi-meme/pi-runtime": "workspace:*",
-    "@earendil-works/pi-coding-agent": "1.1.0",
-    "@earendil-works/pi-agent-core": "1.1.0",
+    "@earendil-works/pi-coding-agent": "1.3.0",
+    "@earendil-works/pi-agent-core": "1.3.0",
     "@napi-rs/keyring": "2.1.0"
   },
   "devDependencies": {

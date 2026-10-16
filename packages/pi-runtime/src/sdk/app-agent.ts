@@ -119,8 +119,15 @@ export function createAppAgent(
                 break
               case 'beforeRun':
                 dispose = pi.on('before_agent_start', async (event, ctx) => {
-                  const result = (await invoke({ ...execution(ctx), prompt: event.prompt })) as
-                    { context?: unknown } | undefined
+                  const content = event.messageType === 'user' ? event.prompt : event.message.content
+                  const prompt =
+                    typeof content === 'string'
+                      ? content
+                      : content
+                          .filter((part) => part.type === 'text')
+                          .map((part) => part.text)
+                          .join('\n')
+                  const result = (await invoke({ ...execution(ctx), prompt })) as { context?: unknown } | undefined
                   if (result?.context !== undefined) {
                     if (typeof result.context !== 'string') throw new Error('beforeRun 追加上下文必须是字符串')
                     return { systemPrompt: `${event.systemPrompt}\n${result.context}` }

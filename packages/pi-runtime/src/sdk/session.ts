@@ -429,7 +429,15 @@ export class SdkSession {
       const created = await sdk.createAgentSessionFromServices({
         services,
         sessionManager,
-        tools: ['+read', '+grep', '+find', '+ls'],
+        // 按当前设置、模式和资源快照装配工具，避免历史清单覆盖本轮工具。
+        noTools: 'builtin',
+        tools: [
+          ...(settingsManager.getDefaultTools() ?? ['read', 'bash', 'edit', 'write']).map((name) => `+${name}`),
+          '+read',
+          '+grep',
+          '+find',
+          '+ls',
+        ],
       })
       extensionErrors = services.resourceLoader.getExtensions().errors
       return { ...created, services, diagnostics: services.diagnostics }

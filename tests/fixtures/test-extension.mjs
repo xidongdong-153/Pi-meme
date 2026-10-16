@@ -8,6 +8,7 @@ export default function testExtension(pi) {
   pi.on(
     'before_agent_start',
     async (/** @type {import('@earendil-works/pi-coding-agent').BeforeAgentStartEvent} */ event, ctx) => {
+      if (event.messageType !== 'user') return {}
       if (event.prompt.includes('扩展任务')) await ctx.ui.confirm('后台确认', '确认继续？')
       if (event.prompt.includes('扩展异常')) throw new Error('扩展故意失败')
       return {}
