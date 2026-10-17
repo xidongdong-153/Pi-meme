@@ -8,6 +8,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { test } from 'node:test'
 import type { Snapshot, SessionSelectionResult } from '@pi-meme/contracts/desktop'
 import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
+import { serverArtifact } from '../../../tests/fixtures/server-artifact'
 
 test(
   'Server 产物默认工作区权限执行 bash/write/edit，拒绝越界；仅可查看和恢复保留权限',
@@ -22,6 +23,7 @@ test(
     const targets = { inside: path.join(project, 'inside.txt'), outside: path.join(outside, 'original') }
     await writeFile(targets.outside, 'original')
     await symlink(outside, path.join(project, 'escape'))
+    const artifact = await serverArtifact(repo, root, path.join(root, 'userData'))
     let call: { name: string; arguments: string } | undefined
     let issued = false
     const fake = await useFakeAgent(root, {
@@ -42,14 +44,9 @@ test(
     let output = ''
     const start = () => {
       output = ''
-      const process = spawn(globalThis.process.execPath, [path.join(repo, 'apps/server/dist/main.js')], {
-        cwd: repo,
-        env: {
-          ...globalThis.process.env,
-          PI_MEME_DATA_ROOT: data,
-          PI_MEME_PORT: '0',
-          PI_MEME_TEST_CREDENTIALS: 'memory',
-        },
+      const process = spawn(artifact.command, artifact.args, {
+        cwd: artifact.cwd,
+        env: artifact.env,
         stdio: ['ignore', 'pipe', 'pipe'],
       })
       process.stdout.on('data', (chunk) => {
@@ -89,13 +86,14 @@ test(
       assert.equal(body.error, undefined, JSON.stringify(body.error))
       return body.result
     }
-    const stop = async () => {
+    const stop = async (verify = false) => {
       child.kill('SIGTERM')
-      await Promise.race([closed, delay(5000)])
-      if (child.exitCode === null) {
+      await Promise.race([closed, delay(5000, undefined, { ref: false })])
+      if (child.exitCode === null && child.signalCode === null) {
         child.kill('SIGKILL')
         await closed
       }
+      if (verify) assert.equal(child.exitCode, 0, `Host 必须在 SIGTERM 后正常退出：${output}`)
     }
     try {
       await connect()
@@ -144,7 +142,7 @@ test(
       await execute('edit', { path: targets.inside, oldText: 'edited', newText: 'forbidden' }, true)
       const sessionFile = snapshot.connection.sessionFile!
       assert.equal(await readFile(targets.inside, 'utf8'), 'edited')
-      await stop()
+      await stop(true)
       child = start()
       closed = new Promise<void>((resolve) => child.once('close', () => resolve()))
       url = ''

@@ -98,6 +98,12 @@ pnpm test --all --layer e2e,artifact --target desktop
 
 入口只打包一次，再运行 Playwright 桌面用例和真实应用验收。用户只要求单项验收时，用 `--file` 选择对应文件，不扩大到整套 Desktop。发布前由明确的验收任务或手动完整 workflow 验证目标平台。正式 `.app` 关闭 Node 调试 Fuse，产物测试直接启动 `Contents/MacOS/pi-meme`，不修改发布配置。报告和截图在 `out/tests/`。
 
-`pnpm make` 生成分发包。签名由 [Forge 配置](../apps/desktop/forge.config.ts) 管理：没有证书时使用 ad-hoc 签名，可用 `PI_DESKTOP_SIGNING_IDENTITY` 指定证书。当前没有配置公证或自动更新。
+`pnpm make` 生成分发包；发布 workflow 在验收 `.app` 后使用 `pnpm make --skip-package --arch arm64`，避免再次打包改变待发布应用。应用标识固定为 `io.github.xidongdong153.pi-meme`。版本、commit 和第三方许可通过 Forge `prePackage` 生成并复制到 Resources，相关逻辑在 [release.mts](../scripts/release.mts) 和 [release-licenses.mts](../scripts/release-licenses.mts)。签名由 [Forge 配置](../apps/desktop/forge.config.ts) 管理：没有证书时使用 ad-hoc 签名，可用 `PI_DESKTOP_SIGNING_IDENTITY` 指定证书。当前没有配置公证或自动更新。
 
 Desktop 与 Server 直接构建内置模块和 [静态 Worker](../packages/host/src/session-worker.ts)，不为内置模块单独生成插件 `dist/`。Desktop 还复制 Pi SDK 与 native runtime，相关脚本在 [copy-pi-runtime.mjs](../scripts/copy-pi-runtime.mjs) 与 [prepare-node-pty.mjs](../scripts/prepare-node-pty.mjs)。构建目录 `dist/`、`.vite/`、`out/` 不提交。
+
+## Host 独立包与 GitHub 发布
+
+`pnpm package:host` 使用 Node.js 24.14.0 和 pnpm 10.29.1，在当前原生平台构建完整 Host/Web 目录包。只支持 macOS arm64 或 Linux x64；通过 `pnpm deploy --prod --frozen-lockfile` 从共享锁文件收集依赖，workspace 启用依赖注入并在 `build` 后同步。发布构建只在命令或 workflow 中指定官方 npm 源，不改全局 registry；使用官方下载并校验的 Node 运行时，不复用 Desktop 的原生模块构建结果。产物在 `out/release/`。
+
+版本统一、草稿发布、最终包验收与维护者操作见[版本发布](releasing.md)。发布只走 `.github/workflows/release.yml`，没有 `pnpm publish` 入口，不发布 npm 包或自动公开 Release。

@@ -114,7 +114,9 @@ pnpm exec playwright install chromium
 
 手动完整验收使用 `pnpm exec playwright install --with-deps chromium` 安装浏览器；Linux 还需安装 bubblewrap，日常 CI 只安装 bubblewrap，不安装浏览器。Web E2E 使用构建后的界面、临时 Host 和本地假模型。Desktop E2E 使用可调试的开发态 Electron；真实产物直接启动应用可执行文件，保留正式 Fuse 设置。
 
-包含 e2e 或 artifact 的命令会准备相应构建，同次执行每个构建只运行一次。修改测试本身后调试已有构建，可以直接用运行器的文件过滤：
+包含 e2e 或 artifact 的命令会准备相应构建，同次执行每个构建只运行一次。明确设置 `PI_MEME_HOST_BUNDLE_ROOT` 时，Server artifact 从仓库外的独立包启动，不重新构建 Server；设置 `PI_DESKTOP_PACKAGED_APP` 时，Desktop artifact 使用指定 `.app`，不重新打包。不存在或无效的产物会在验收中失败；这两个测试变量不跳过 E2E 所需的开发构建。最终发布包的解压与选测步骤见[版本发布](releasing.md)。
+
+修改测试本身后调试已有构建，可以直接用运行器的文件过滤：
 
 ```bash
 pnpm exec playwright test apps/web/tests/chat.e2e.spec.ts --project web

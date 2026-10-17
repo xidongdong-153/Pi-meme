@@ -60,7 +60,7 @@ const files: Array<[string, Feature[]]> = [
   ['apps/desktop/tests/tools.e2e.spec.ts', ['files', 'git', 'terminal', 'plugins']],
   [
     'apps/server/tests/dist-smoke.artifact.test.ts',
-    ['desktop', 'connection', 'plugins', 'mcp', 'subagents', 'codemode', 'permissions'],
+    ['desktop', 'connection', 'plugins', 'mcp', 'subagents', 'codemode', 'permissions', 'terminal'],
   ],
   ['apps/server/tests/restricted-dist.artifact.test.ts', ['permissions']],
   ['apps/web/tests/chat.e2e.spec.ts', ['chat', 'sessions', 'connection']],
@@ -232,6 +232,7 @@ const files: Array<[string, Feature[]]> = [
   ['packages/workspace/tests/sidebar-model.unit.test.ts', ['workspace', 'sessions']],
   ['packages/workspace/tests/sidebar-operations.integration.test.ts', ['workspace', 'sessions']],
   ['packages/workspace/tests/sidebar-preferences.unit.test.ts', ['workspace', 'settings']],
+  ['tests/release.unit.test.ts', ['desktop', 'testing']],
   ['tests/selection.unit.test.ts', ['testing']],
 ]
 

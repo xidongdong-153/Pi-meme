@@ -1,0 +1,12 @@
+name: 准备 Linux CI 沙箱
+description: 在 GitHub 临时 runner 上为 bubblewrap 配置 user namespace 权限
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y bubblewrap apparmor
+        sudo install -m 0644 "$GITHUB_ACTION_PATH/bwrap.apparmor" /etc/apparmor.d/pi-meme-ci-bwrap
+        sudo apparmor_parser -r /etc/apparmor.d/pi-meme-ci-bwrap
+        bwrap --unshare-user --uid 0 --gid 0 --ro-bind / / -- /bin/true

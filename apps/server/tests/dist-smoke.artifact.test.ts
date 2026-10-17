@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { spawn, type ChildProcess } from 'node:child_process'
 import { openSync, closeSync } from 'node:fs'
-import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
+import { copyFile, mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url'
 import test from 'node:test'
 import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
 import { createDevkitAppPackage } from '../../../tests/fixtures/devkit-app'
+import { serverArtifact } from '../../../tests/fixtures/server-artifact'
 import type { AgentSummary } from '@pi-meme/contracts/collaboration'
 import type { PlanDocument } from '@pi-meme/contracts/plan'
 import type { InstructionsSnapshot, SaveInstructionResult } from '@pi-meme/contracts/settings'
@@ -158,6 +159,9 @@ test(
     try {
       const project = path.join(root, 'project')
       await mkdir(project)
+      const artifact = await serverArtifact(repo, root, data)
+      const mcpServer = path.join(root, 'mcp-server.mjs')
+      await copyFile(path.join(repo, 'tests/fixtures/mcp-server.mjs'), mcpServer)
       await writeFile(
         path.join(data, 'test-credentials.json'),
         JSON.stringify(Object.fromEntries(agent.credentials.entries())),
@@ -177,24 +181,17 @@ test(
         JSON.stringify({
           mcpServers: {
             fixture: {
-              command: process.execPath,
-              args: [path.join(repo, 'tests/fixtures/mcp-server.mjs'), '--stdio'],
+              command: artifact.node,
+              args: [mcpServer, '--stdio'],
               exposure: 'direct',
               env: { MCP_FIXTURE_LOG: path.join(root, 'mcp.log') },
             },
           },
         }),
       )
-      child = spawn(process.execPath, [path.join(repo, 'apps/server/dist/main.js')], {
-        cwd: repo,
-        env: {
-          PATH: process.env.PATH,
-          HOME: process.env.HOME,
-          PI_MEME_DATA_ROOT: data,
-          PI_MEME_TEST_CREDENTIALS: 'memory',
-          PI_MEME_PORT: '0',
-          PI_MEME_TOKEN: 'dist-smoke-token',
-        },
+      child = spawn(artifact.command, artifact.args, {
+        cwd: artifact.cwd,
+        env: { ...artifact.env, PI_MEME_TOKEN: 'dist-smoke-token' },
         stdio: ['ignore', 'pipe', stderrFd],
       })
       closed = new Promise((resolve) => child!.once('close', () => resolve()))
@@ -220,6 +217,19 @@ test(
         await delay(25)
       }
       assert.ok(url, `Host 产物未在 60 秒内启动：${stdout}`)
+      if (artifact.bundled) {
+        const page = await fetch(url)
+        assert.equal(page.status, 200, '独立包提供 Web 首页')
+        const html = await page.text()
+        const script = /<script[^>]+src="([^"]+)"/.exec(html)?.[1]
+        assert.ok(script, '首页引用构建后的脚本')
+        const resource = await fetch(new URL(script, url))
+        assert.equal(resource.status, 200, '独立包提供 Web 脚本')
+        assert.match(resource.headers.get('content-type') ?? '', /javascript/)
+        await resource.body?.cancel()
+        const rejected = await fetch(`${url}/api/rpc`, { method: 'POST', body: '{}' })
+        assert.equal(rejected.status, 401, '未认证请求不能调用 Host')
+      }
       const auth = await fetch(`${url}/api/auth`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -323,8 +333,8 @@ test(
         return result.result
       }
       const capabilities = await control<{ features: string[] }>('capabilities', [])
-      if (process.platform === 'darwin')
-        assert.ok(capabilities.features.includes('terminal'), 'Server产物包含可加载的PTY原生模块')
+      if (artifact.bundled || process.platform === 'darwin')
+        assert.ok(capabilities.features.includes('terminal'), 'Server 产物包含可加载的 PTY 原生模块')
       if (capabilities.features.includes('terminal')) {
         const terminal = await control<{ hostId: string; terminalId: string }>('terminal.open', [
           ref,
@@ -443,6 +453,10 @@ test(
       assert.equal(afterInstructions.connection.sessionFile, beforeInstructions.connection.sessionFile)
       assert.ok(JSON.stringify(afterInstructions.messages).includes('DIST-base-OK'))
       assert.match(requestText(agent.provider.requests.at(-1)), /DIST-HOST-INSTRUCTIONS/)
+      child.kill('SIGTERM')
+      await Promise.race([closed, delay(10_000, undefined, { ref: false })])
+      assert.equal(child.exitCode, 0, `Host 必须在 SIGTERM 后正常退出：${await readFile(stderrPath, 'utf8')}`)
+      assert.equal(child.signalCode, null)
     } finally {
       if (child && child.exitCode === null) {
         child.kill('SIGTERM')

@@ -3,6 +3,7 @@ lockfileVersion: '9.0'
 settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
+  injectWorkspacePackages: true
 
 patchedDependencies:
   '@electron-forge/plugin-vite@7.11.2':
@@ -21,7 +22,7 @@ importers:
         version: link:packages/contracts
       '@pi-meme/host':
         specifier: workspace:*
-        version: link:packages/host
+        version: file:packages/host(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)
       '@pi-meme/plugin-devkit':
         specifier: workspace:*
         version: link:packages/plugin-devkit
@@ -72,7 +73,7 @@ importers:
         version: link:../../packages/contracts
       '@pi-meme/host':
         specifier: workspace:*
-        version: link:../../packages/host
+        version: file:packages/host(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)
       react:
         specifier: ^19.3.0
         version: 19.3.0
@@ -142,7 +143,7 @@ importers:
         version: link:../../packages/contracts
       '@pi-meme/host':
         specifier: workspace:*
-        version: link:../../packages/host
+        version: file:packages/host(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)
     devDependencies:
       vite:
         specifier: ^8.3.1
@@ -171,7 +172,7 @@ importers:
     devDependencies:
       '@pi-meme/host':
         specifier: workspace:*
-        version: link:../../packages/host
+        version: file:packages/host(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)
       '@playwright/test':
         specifier: 1.64.1
         version: 1.64.1
@@ -539,31 +540,31 @@ importers:
         version: 2.1.5(hono@4.13.13)
       '@pi-meme/chat':
         specifier: workspace:*
-        version: link:../chat
+        version: file:packages/chat(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
       '@pi-meme/codemode':
         specifier: workspace:*
-        version: link:../codemode
+        version: file:packages/codemode(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
       '@pi-meme/contracts':
         specifier: workspace:*
         version: link:../contracts
       '@pi-meme/git':
         specifier: workspace:*
-        version: link:../git
+        version: file:packages/git(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
       '@pi-meme/history':
         specifier: workspace:*
-        version: link:../history
+        version: file:packages/history(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
       '@pi-meme/interaction':
         specifier: workspace:*
-        version: link:../interaction
+        version: file:packages/interaction(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
       '@pi-meme/mcp':
         specifier: workspace:*
-        version: link:../mcp
+        version: file:packages/mcp(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
       '@pi-meme/models':
         specifier: workspace:*
-        version: link:../models
+        version: file:packages/models(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
       '@pi-meme/permissions':
         specifier: workspace:*
-        version: link:../permissions
+        version: file:packages/permissions(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
       '@pi-meme/pi-adapter':
         specifier: workspace:*
         version: link:../pi-adapter
@@ -578,7 +579,7 @@ importers:
         version: link:../plugin-sdk
       '@pi-meme/resources':
         specifier: workspace:*
-        version: link:../resources
+        version: file:packages/resources(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
       '@pi-meme/sandbox-linux':
         specifier: workspace:*
         version: link:../sandbox-linux
@@ -587,16 +588,16 @@ importers:
         version: link:../sandbox-macos
       '@pi-meme/settings':
         specifier: workspace:*
-        version: link:../settings
+        version: file:packages/settings(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
       '@pi-meme/subagents':
         specifier: workspace:*
-        version: link:../subagents
+        version: file:packages/subagents(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
       '@pi-meme/usage':
         specifier: workspace:*
-        version: link:../usage
+        version: file:packages/usage(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
       '@pi-meme/workspace':
         specifier: workspace:*
-        version: link:../workspace
+        version: file:packages/workspace(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
       '@xterm/addon-serialize':
         specifier: ^0.14.0
         version: 0.14.0
@@ -2111,6 +2112,108 @@ packages:
 
   '@oxc-project/types@0.151.0':
     resolution: {integrity: sha512-J1yXrIlNDZVzE3ada310xeAw7nH8yCAyLPuUIsjKatFPmfn5bS1oW+cM+QsGOtVWd5nhSpbwZWx/rue+r5Z+PA==}
+
+  '@pi-meme/assets@file:packages/assets':
+    resolution: {directory: packages/assets, type: directory}
+
+  '@pi-meme/chat@file:packages/chat':
+    resolution: {directory: packages/chat, type: directory}
+    peerDependencies:
+      react: ^19.3.0
+      react-dom: ^19.3.0
+
+  '@pi-meme/codemode@file:packages/codemode':
+    resolution: {directory: packages/codemode, type: directory}
+    peerDependencies:
+      react: ^19.3.0
+
+  '@pi-meme/contracts@file:packages/contracts':
+    resolution: {directory: packages/contracts, type: directory}
+
+  '@pi-meme/git@file:packages/git':
+    resolution: {directory: packages/git, type: directory}
+    peerDependencies:
+      react: ^19.3.0
+
+  '@pi-meme/history@file:packages/history':
+    resolution: {directory: packages/history, type: directory}
+    peerDependencies:
+      react: ^19.3.0
+
+  '@pi-meme/host@file:packages/host':
+    resolution: {directory: packages/host, type: directory}
+
+  '@pi-meme/interaction@file:packages/interaction':
+    resolution: {directory: packages/interaction, type: directory}
+    peerDependencies:
+      react: ^19.3.0
+
+  '@pi-meme/mcp@file:packages/mcp':
+    resolution: {directory: packages/mcp, type: directory}
+    peerDependencies:
+      react: ^19.3.0
+
+  '@pi-meme/models@file:packages/models':
+    resolution: {directory: packages/models, type: directory}
+    peerDependencies:
+      react: ^19.3.0
+
+  '@pi-meme/permissions@file:packages/permissions':
+    resolution: {directory: packages/permissions, type: directory}
+    peerDependencies:
+      react: ^19.3.0
+
+  '@pi-meme/pi-adapter@file:packages/pi-adapter':
+    resolution: {directory: packages/pi-adapter, type: directory}
+
+  '@pi-meme/pi-runtime@file:packages/pi-runtime':
+    resolution: {directory: packages/pi-runtime, type: directory}
+
+  '@pi-meme/plugin-runtime@file:packages/plugin-runtime':
+    resolution: {directory: packages/plugin-runtime, type: directory}
+
+  '@pi-meme/plugin-sdk@file:packages/plugin-sdk':
+    resolution: {directory: packages/plugin-sdk, type: directory}
+    peerDependencies:
+      react: ^19.3.0
+
+  '@pi-meme/resources@file:packages/resources':
+    resolution: {directory: packages/resources, type: directory}
+    peerDependencies:
+      react: ^19.3.0
+
+  '@pi-meme/sandbox-linux@file:packages/sandbox-linux':
+    resolution: {directory: packages/sandbox-linux, type: directory}
+
+  '@pi-meme/sandbox-macos@file:packages/sandbox-macos':
+    resolution: {directory: packages/sandbox-macos, type: directory}
+    peerDependencies:
+      react: ^19.3.0
+
+  '@pi-meme/settings@file:packages/settings':
+    resolution: {directory: packages/settings, type: directory}
+    peerDependencies:
+      react: ^19.3.0
+
+  '@pi-meme/subagents@file:packages/subagents':
+    resolution: {directory: packages/subagents, type: directory}
+    peerDependencies:
+      react: ^19.3.0
+
+  '@pi-meme/ui@file:packages/ui':
+    resolution: {directory: packages/ui, type: directory}
+    peerDependencies:
+      react: ^19.3.0
+
+  '@pi-meme/usage@file:packages/usage':
+    resolution: {directory: packages/usage, type: directory}
+    peerDependencies:
+      react: ^19.3.0
+
+  '@pi-meme/workspace@file:packages/workspace':
+    resolution: {directory: packages/workspace, type: directory}
+    peerDependencies:
+      react: ^19.3.0
 
   '@pkgr/core@0.3.6':
     resolution: {integrity: sha512-SEeaJLb3qBNF/OaXnaR1NmmBbFYk1zC0ZH/52fATcRPLFg/p791YrcyFFy44Bo9sLaGuSuLp5Q6axbb/O+v/RA==}
@@ -4183,7 +4286,7 @@ packages:
   glob@8.1.0:
     resolution: {integrity: sha512-r8hpEjiQEYlF2QU0df3dS+nxxSIreXQS1qRhMJM0Q5NDdR386C7jb7Hwwod8Fgiuex+k0GFjgft18yvxm5XoCQ==}
     engines: {node: '>=12'}
-    deprecated: Glob versions prior to v9 are no longer supported
+    deprecated: Old versions of glob are not supported, and contain widely publicized security vulnerabilities, which have been fixed in the current version. Please update. Support for old versions may be purchased (at exorbitant rates) by contacting i@izs.me
 
   global-agent@3.0.0:
     resolution: {integrity: sha512-PT6XReJ+D07JvGoxQMkT6qji/jVNfX/h364XHZOWeRzy64sSFr+xJ5OX7LI3b4MPQzdL4H8Y8M0xzPpsVMwA8Q==}
@@ -7776,6 +7879,1308 @@ snapshots:
 
   '@oxc-project/types@0.151.0': {}
 
+  '@pi-meme/assets@file:packages/assets': {}
+
+  '@pi-meme/chat@file:packages/chat(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@earendil-works/pi-ai': 1.3.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/pi-runtime': file:packages/pi-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/ui': file:packages/ui(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      lucide-react: 1.48.0(react@19.3.0)
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
+      react-markdown: 10.1.0(@types/react@19.3.0)(react@19.3.0)
+      rehype-katex: 7.0.1
+      remark-gfm: 4.0.1
+      remark-math: 6.0.0
+      shiki: 4.4.3
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - '@types/react'
+      - '@types/react-dom'
+      - bufferutil
+      - kerberos
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/chat@file:packages/chat(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@earendil-works/pi-ai': 1.3.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/pi-runtime': file:packages/pi-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/ui': file:packages/ui(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      lucide-react: 1.48.0(react@19.3.0)
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
+      react-markdown: 10.1.0(@types/react@19.3.0)(react@19.3.0)
+      rehype-katex: 7.0.1
+      remark-gfm: 4.0.1
+      remark-math: 6.0.0
+      shiki: 4.4.3
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - '@types/react'
+      - '@types/react-dom'
+      - bufferutil
+      - kerberos
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/chat@file:packages/chat(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@earendil-works/pi-ai': 1.3.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/pi-runtime': file:packages/pi-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/ui': file:packages/ui(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      lucide-react: 1.48.0(react@19.3.0)
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
+      react-markdown: 10.1.0(@types/react@19.3.0)(react@19.3.0)
+      rehype-katex: 7.0.1
+      remark-gfm: 4.0.1
+      remark-math: 6.0.0
+      shiki: 4.4.3
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - '@types/react'
+      - '@types/react-dom'
+      - bufferutil
+      - kerberos
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/codemode@file:packages/codemode(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@earendil-works/pi-coding-agent': 1.3.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(ws@8.22.0)
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/pi-runtime': file:packages/pi-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/ui': file:packages/ui(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      lucide-react: 1.48.0(react@19.3.0)
+      react: 19.3.0
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - '@types/react'
+      - '@types/react-dom'
+      - bufferutil
+      - kerberos
+      - react-dom
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/codemode@file:packages/codemode(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@earendil-works/pi-coding-agent': 1.3.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(ws@8.22.0)
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/pi-runtime': file:packages/pi-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/ui': file:packages/ui(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      lucide-react: 1.48.0(react@19.3.0)
+      react: 19.3.0
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - '@types/react'
+      - '@types/react-dom'
+      - bufferutil
+      - kerberos
+      - react-dom
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/codemode@file:packages/codemode(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@earendil-works/pi-coding-agent': 1.3.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(ws@8.22.0)
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/pi-runtime': file:packages/pi-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/ui': file:packages/ui(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      lucide-react: 1.48.0(react@19.3.0)
+      react: 19.3.0
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - '@types/react'
+      - '@types/react-dom'
+      - bufferutil
+      - kerberos
+      - react-dom
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/contracts@file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@earendil-works/pi-ai': 1.3.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@earendil-works/pi-coding-agent': 1.3.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(ws@8.22.0)
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - bufferutil
+      - kerberos
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/git@file:packages/git(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/ui': file:packages/ui(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      lucide-react: 1.48.0(react@19.3.0)
+      react: 19.3.0
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - '@types/react'
+      - '@types/react-dom'
+      - bufferutil
+      - kerberos
+      - react-dom
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/git@file:packages/git(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/ui': file:packages/ui(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      lucide-react: 1.48.0(react@19.3.0)
+      react: 19.3.0
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - '@types/react'
+      - '@types/react-dom'
+      - bufferutil
+      - kerberos
+      - react-dom
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/git@file:packages/git(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/ui': file:packages/ui(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      lucide-react: 1.48.0(react@19.3.0)
+      react: 19.3.0
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - '@types/react'
+      - '@types/react-dom'
+      - bufferutil
+      - kerberos
+      - react-dom
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/history@file:packages/history(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/pi-runtime': file:packages/pi-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/ui': file:packages/ui(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      lucide-react: 1.48.0(react@19.3.0)
+      react: 19.3.0
+      react-markdown: 10.1.0(@types/react@19.3.0)(react@19.3.0)
+      rehype-katex: 7.0.1
+      remark-gfm: 4.0.1
+      remark-math: 6.0.0
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - '@types/react'
+      - '@types/react-dom'
+      - bufferutil
+      - kerberos
+      - react-dom
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/history@file:packages/history(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/pi-runtime': file:packages/pi-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/ui': file:packages/ui(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      lucide-react: 1.48.0(react@19.3.0)
+      react: 19.3.0
+      react-markdown: 10.1.0(@types/react@19.3.0)(react@19.3.0)
+      rehype-katex: 7.0.1
+      remark-gfm: 4.0.1
+      remark-math: 6.0.0
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - '@types/react'
+      - '@types/react-dom'
+      - bufferutil
+      - kerberos
+      - react-dom
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/history@file:packages/history(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/pi-runtime': file:packages/pi-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/ui': file:packages/ui(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      lucide-react: 1.48.0(react@19.3.0)
+      react: 19.3.0
+      react-markdown: 10.1.0(@types/react@19.3.0)(react@19.3.0)
+      rehype-katex: 7.0.1
+      remark-gfm: 4.0.1
+      remark-math: 6.0.0
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - '@types/react'
+      - '@types/react-dom'
+      - bufferutil
+      - kerberos
+      - react-dom
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/host@file:packages/host(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)':
+    dependencies:
+      '@earendil-works/pi-coding-agent': 1.3.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(ws@8.22.0)
+      '@hono/node-server': 2.1.5(hono@4.13.13)
+      '@pi-meme/chat': file:packages/chat(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/codemode': file:packages/codemode(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/git': file:packages/git(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/history': file:packages/history(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/interaction': file:packages/interaction(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/mcp': file:packages/mcp(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/models': file:packages/models(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/permissions': file:packages/permissions(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/pi-adapter': file:packages/pi-adapter(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/pi-runtime': file:packages/pi-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-runtime': file:packages/plugin-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/resources': file:packages/resources(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/sandbox-linux': file:packages/sandbox-linux(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/sandbox-macos': file:packages/sandbox-macos(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/settings': file:packages/settings(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/subagents': file:packages/subagents(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/usage': file:packages/usage(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/workspace': file:packages/workspace(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@xterm/addon-serialize': 0.14.0
+      '@xterm/headless': 6.0.0
+      hono: 4.13.13
+      node-pty: 1.1.0
+      proper-lockfile: 4.1.2
+      ws: 8.22.0
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - '@types/react'
+      - '@types/react-dom'
+      - bufferutil
+      - kerberos
+      - react
+      - react-dom
+      - supports-color
+      - undici
+      - utf-8-validate
+      - zod
+
+  '@pi-meme/host@file:packages/host(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)':
+    dependencies:
+      '@earendil-works/pi-coding-agent': 1.3.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(ws@8.22.0)
+      '@hono/node-server': 2.1.5(hono@4.13.13)
+      '@pi-meme/chat': file:packages/chat(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/codemode': file:packages/codemode(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/git': file:packages/git(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/history': file:packages/history(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/interaction': file:packages/interaction(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/mcp': file:packages/mcp(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/models': file:packages/models(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/permissions': file:packages/permissions(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/pi-adapter': file:packages/pi-adapter(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/pi-runtime': file:packages/pi-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-runtime': file:packages/plugin-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/resources': file:packages/resources(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/sandbox-linux': file:packages/sandbox-linux(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/sandbox-macos': file:packages/sandbox-macos(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/settings': file:packages/settings(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/subagents': file:packages/subagents(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/usage': file:packages/usage(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/workspace': file:packages/workspace(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@xterm/addon-serialize': 0.14.0
+      '@xterm/headless': 6.0.0
+      hono: 4.13.13
+      node-pty: 1.1.0
+      proper-lockfile: 4.1.2
+      ws: 8.22.0
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - '@types/react'
+      - '@types/react-dom'
+      - bufferutil
+      - kerberos
+      - react
+      - react-dom
+      - supports-color
+      - undici
+      - utf-8-validate
+      - zod
+
+  '@pi-meme/interaction@file:packages/interaction(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@earendil-works/pi-coding-agent': 1.3.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(ws@8.22.0)
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/pi-runtime': file:packages/pi-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/ui': file:packages/ui(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      codemirror: 6.0.2
+      lucide-react: 1.48.0(react@19.3.0)
+      react: 19.3.0
+      typebox: 1.3.27
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - '@types/react'
+      - '@types/react-dom'
+      - bufferutil
+      - kerberos
+      - react-dom
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/interaction@file:packages/interaction(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@earendil-works/pi-coding-agent': 1.3.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(ws@8.22.0)
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/pi-runtime': file:packages/pi-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/ui': file:packages/ui(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      codemirror: 6.0.2
+      lucide-react: 1.48.0(react@19.3.0)
+      react: 19.3.0
+      typebox: 1.3.27
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - '@types/react'
+      - '@types/react-dom'
+      - bufferutil
+      - kerberos
+      - react-dom
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/interaction@file:packages/interaction(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@earendil-works/pi-coding-agent': 1.3.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(ws@8.22.0)
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/pi-runtime': file:packages/pi-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/ui': file:packages/ui(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      codemirror: 6.0.2
+      lucide-react: 1.48.0(react@19.3.0)
+      react: 19.3.0
+      typebox: 1.3.27
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - '@types/react'
+      - '@types/react-dom'
+      - bufferutil
+      - kerberos
+      - react-dom
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/mcp@file:packages/mcp(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@earendil-works/pi-coding-agent': 1.3.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(ws@8.22.0)
+      '@earendil-works/pi-mcp': 1.3.0
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/pi-runtime': file:packages/pi-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/ui': file:packages/ui(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      lucide-react: 1.48.0(react@19.3.0)
+      react: 19.3.0
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - '@types/react'
+      - '@types/react-dom'
+      - bufferutil
+      - kerberos
+      - react-dom
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/mcp@file:packages/mcp(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@earendil-works/pi-coding-agent': 1.3.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(ws@8.22.0)
+      '@earendil-works/pi-mcp': 1.3.0
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/pi-runtime': file:packages/pi-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/ui': file:packages/ui(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      lucide-react: 1.48.0(react@19.3.0)
+      react: 19.3.0
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - '@types/react'
+      - '@types/react-dom'
+      - bufferutil
+      - kerberos
+      - react-dom
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/mcp@file:packages/mcp(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@earendil-works/pi-coding-agent': 1.3.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(ws@8.22.0)
+      '@earendil-works/pi-mcp': 1.3.0
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/pi-runtime': file:packages/pi-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/ui': file:packages/ui(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      lucide-react: 1.48.0(react@19.3.0)
+      react: 19.3.0
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - '@types/react'
+      - '@types/react-dom'
+      - bufferutil
+      - kerberos
+      - react-dom
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/models@file:packages/models(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@earendil-works/pi-coding-agent': 1.3.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(ws@8.22.0)
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/pi-runtime': file:packages/pi-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/ui': file:packages/ui(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      jsonc-parser: 3.3.1
+      lucide-react: 1.48.0(react@19.3.0)
+      react: 19.3.0
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - '@types/react'
+      - '@types/react-dom'
+      - bufferutil
+      - kerberos
+      - react-dom
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/models@file:packages/models(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@earendil-works/pi-coding-agent': 1.3.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(ws@8.22.0)
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/pi-runtime': file:packages/pi-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/ui': file:packages/ui(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      jsonc-parser: 3.3.1
+      lucide-react: 1.48.0(react@19.3.0)
+      react: 19.3.0
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - '@types/react'
+      - '@types/react-dom'
+      - bufferutil
+      - kerberos
+      - react-dom
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/models@file:packages/models(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@earendil-works/pi-coding-agent': 1.3.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(ws@8.22.0)
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/pi-runtime': file:packages/pi-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/ui': file:packages/ui(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      jsonc-parser: 3.3.1
+      lucide-react: 1.48.0(react@19.3.0)
+      react: 19.3.0
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - '@types/react'
+      - '@types/react-dom'
+      - bufferutil
+      - kerberos
+      - react-dom
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/permissions@file:packages/permissions(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/pi-runtime': file:packages/pi-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/ui': file:packages/ui(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      lucide-react: 1.48.0(react@19.3.0)
+      react: 19.3.0
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - '@types/react'
+      - '@types/react-dom'
+      - bufferutil
+      - kerberos
+      - react-dom
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/permissions@file:packages/permissions(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/pi-runtime': file:packages/pi-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/ui': file:packages/ui(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      lucide-react: 1.48.0(react@19.3.0)
+      react: 19.3.0
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - '@types/react'
+      - '@types/react-dom'
+      - bufferutil
+      - kerberos
+      - react-dom
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/permissions@file:packages/permissions(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/pi-runtime': file:packages/pi-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/ui': file:packages/ui(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      lucide-react: 1.48.0(react@19.3.0)
+      react: 19.3.0
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - '@types/react'
+      - '@types/react-dom'
+      - bufferutil
+      - kerberos
+      - react-dom
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/pi-adapter@file:packages/pi-adapter(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@earendil-works/pi-agent-core': 1.3.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@earendil-works/pi-coding-agent': 1.3.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(ws@8.22.0)
+      '@napi-rs/keyring': 2.1.0
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/pi-runtime': file:packages/pi-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - bufferutil
+      - kerberos
+      - react
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/pi-runtime@file:packages/pi-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@earendil-works/pi-agent-core': 1.3.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@earendil-works/pi-ai': 1.3.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@earendil-works/pi-coding-agent': 1.3.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(ws@8.22.0)
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - bufferutil
+      - kerberos
+      - react
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/plugin-runtime@file:packages/plugin-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@earendil-works/chord': 1.1.0
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      acorn: 8.18.0
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - bufferutil
+      - kerberos
+      - react
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/plugin-sdk@file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      react: 19.3.0
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - bufferutil
+      - kerberos
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/resources@file:packages/resources(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@earendil-works/pi-coding-agent': 1.3.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(ws@8.22.0)
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/pi-runtime': file:packages/pi-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/ui': file:packages/ui(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      esbuild: 0.28.2
+      lucide-react: 1.48.0(react@19.3.0)
+      react: 19.3.0
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - '@types/react'
+      - '@types/react-dom'
+      - bufferutil
+      - kerberos
+      - react-dom
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/resources@file:packages/resources(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@earendil-works/pi-coding-agent': 1.3.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(ws@8.22.0)
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/pi-runtime': file:packages/pi-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/ui': file:packages/ui(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      esbuild: 0.28.2
+      lucide-react: 1.48.0(react@19.3.0)
+      react: 19.3.0
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - '@types/react'
+      - '@types/react-dom'
+      - bufferutil
+      - kerberos
+      - react-dom
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/resources@file:packages/resources(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@earendil-works/pi-coding-agent': 1.3.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(ws@8.22.0)
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/pi-runtime': file:packages/pi-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/ui': file:packages/ui(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      esbuild: 0.28.2
+      lucide-react: 1.48.0(react@19.3.0)
+      react: 19.3.0
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - '@types/react'
+      - '@types/react-dom'
+      - bufferutil
+      - kerberos
+      - react-dom
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/sandbox-linux@file:packages/sandbox-linux(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/pi-runtime': file:packages/pi-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - bufferutil
+      - kerberos
+      - react
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/sandbox-macos@file:packages/sandbox-macos(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/pi-runtime': file:packages/pi-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      react: 19.3.0
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - bufferutil
+      - kerberos
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/settings@file:packages/settings(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/pi-runtime': file:packages/pi-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/ui': file:packages/ui(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      lucide-react: 1.48.0(react@19.3.0)
+      react: 19.3.0
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - '@types/react'
+      - '@types/react-dom'
+      - bufferutil
+      - kerberos
+      - react-dom
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/settings@file:packages/settings(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/pi-runtime': file:packages/pi-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/ui': file:packages/ui(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      lucide-react: 1.48.0(react@19.3.0)
+      react: 19.3.0
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - '@types/react'
+      - '@types/react-dom'
+      - bufferutil
+      - kerberos
+      - react-dom
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/settings@file:packages/settings(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/pi-runtime': file:packages/pi-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/ui': file:packages/ui(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      lucide-react: 1.48.0(react@19.3.0)
+      react: 19.3.0
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - '@types/react'
+      - '@types/react-dom'
+      - bufferutil
+      - kerberos
+      - react-dom
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/subagents@file:packages/subagents(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@earendil-works/pi-agent-core': 1.3.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@earendil-works/pi-coding-agent': 1.3.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(ws@8.22.0)
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/pi-runtime': file:packages/pi-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/ui': file:packages/ui(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      lucide-react: 1.48.0(react@19.3.0)
+      react: 19.3.0
+      typebox: 1.3.27
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - '@types/react'
+      - '@types/react-dom'
+      - bufferutil
+      - kerberos
+      - react-dom
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/subagents@file:packages/subagents(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@earendil-works/pi-agent-core': 1.3.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@earendil-works/pi-coding-agent': 1.3.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(ws@8.22.0)
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/pi-runtime': file:packages/pi-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/ui': file:packages/ui(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      lucide-react: 1.48.0(react@19.3.0)
+      react: 19.3.0
+      typebox: 1.3.27
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - '@types/react'
+      - '@types/react-dom'
+      - bufferutil
+      - kerberos
+      - react-dom
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/subagents@file:packages/subagents(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@earendil-works/pi-agent-core': 1.3.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@earendil-works/pi-coding-agent': 1.3.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(ws@8.22.0)
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/pi-runtime': file:packages/pi-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/ui': file:packages/ui(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      lucide-react: 1.48.0(react@19.3.0)
+      react: 19.3.0
+      typebox: 1.3.27
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - '@types/react'
+      - '@types/react-dom'
+      - bufferutil
+      - kerberos
+      - react-dom
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/ui@file:packages/ui(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+    dependencies:
+      '@pi-meme/assets': file:packages/assets
+      '@radix-ui/react-collapsible': 1.1.20(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-context-menu': 2.3.7(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-dialog': 1.1.23(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-dropdown-menu': 2.1.24(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-popover': 1.1.23(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-scroll-area': 1.2.18(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-select': 2.3.7(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-separator': 1.1.15(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-tooltip': 1.2.16(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      class-variance-authority: 0.7.1
+      clsx: 2.1.1
+      gsap: 3.15.0
+      lucide-react: 1.48.0(react@19.3.0)
+      react: 19.3.0
+      tailwind-merge: 3.7.0
+    transitivePeerDependencies:
+      - '@types/react'
+      - '@types/react-dom'
+      - react-dom
+
+  '@pi-meme/ui@file:packages/ui(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+    dependencies:
+      '@pi-meme/assets': file:packages/assets
+      '@radix-ui/react-collapsible': 1.1.20(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-context-menu': 2.3.7(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-dialog': 1.1.23(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-dropdown-menu': 2.1.24(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-popover': 1.1.23(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-scroll-area': 1.2.18(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-select': 2.3.7(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-separator': 1.1.15(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-tooltip': 1.2.16(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      class-variance-authority: 0.7.1
+      clsx: 2.1.1
+      gsap: 3.15.0
+      lucide-react: 1.48.0(react@19.3.0)
+      react: 19.3.0
+      tailwind-merge: 3.7.0
+    transitivePeerDependencies:
+      - '@types/react'
+      - '@types/react-dom'
+      - react-dom
+
+  '@pi-meme/ui@file:packages/ui(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+    dependencies:
+      '@pi-meme/assets': file:packages/assets
+      '@radix-ui/react-collapsible': 1.1.20(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-context-menu': 2.3.7(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-dialog': 1.1.23(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-dropdown-menu': 2.1.24(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-popover': 1.1.23(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-scroll-area': 1.2.18(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-select': 2.3.7(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-separator': 1.1.15(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-tooltip': 1.2.16(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      class-variance-authority: 0.7.1
+      clsx: 2.1.1
+      gsap: 3.15.0
+      lucide-react: 1.48.0(react@19.3.0)
+      react: 19.3.0
+      tailwind-merge: 3.7.0
+    transitivePeerDependencies:
+      - '@types/react'
+      - '@types/react-dom'
+      - react-dom
+
+  '@pi-meme/usage@file:packages/usage(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/pi-runtime': file:packages/pi-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/ui': file:packages/ui(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      lucide-react: 1.48.0(react@19.3.0)
+      react: 19.3.0
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - '@types/react'
+      - '@types/react-dom'
+      - bufferutil
+      - kerberos
+      - react-dom
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/usage@file:packages/usage(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/pi-runtime': file:packages/pi-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/ui': file:packages/ui(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      lucide-react: 1.48.0(react@19.3.0)
+      react: 19.3.0
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - '@types/react'
+      - '@types/react-dom'
+      - bufferutil
+      - kerberos
+      - react-dom
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/usage@file:packages/usage(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/pi-runtime': file:packages/pi-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/ui': file:packages/ui(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      lucide-react: 1.48.0(react@19.3.0)
+      react: 19.3.0
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - '@types/react'
+      - '@types/react-dom'
+      - bufferutil
+      - kerberos
+      - react-dom
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/workspace@file:packages/workspace(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@earendil-works/pi-coding-agent': 1.3.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(ws@8.22.0)
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/pi-runtime': file:packages/pi-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/ui': file:packages/ui(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      lucide-react: 1.48.0(react@19.3.0)
+      react: 19.3.0
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - '@types/react'
+      - '@types/react-dom'
+      - bufferutil
+      - kerberos
+      - react-dom
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/workspace@file:packages/workspace(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@earendil-works/pi-coding-agent': 1.3.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(ws@8.22.0)
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/pi-runtime': file:packages/pi-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/ui': file:packages/ui(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      lucide-react: 1.48.0(react@19.3.0)
+      react: 19.3.0
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - '@types/react'
+      - '@types/react-dom'
+      - bufferutil
+      - kerberos
+      - react-dom
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
+  '@pi-meme/workspace@file:packages/workspace(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)(undici@8.10.2)(ws@8.22.0)':
+    dependencies:
+      '@earendil-works/pi-coding-agent': 1.3.0(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(ws@8.22.0)
+      '@pi-meme/contracts': file:packages/contracts(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/pi-runtime': file:packages/pi-runtime(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/plugin-sdk': file:packages/plugin-sdk(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(react@19.3.0)(undici@8.10.2)(ws@8.22.0)
+      '@pi-meme/ui': file:packages/ui(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      lucide-react: 1.48.0(react@19.3.0)
+      react: 19.3.0
+    transitivePeerDependencies:
+      - '@aws-sdk/credential-provider-node'
+      - '@modelcontextprotocol/sdk'
+      - '@smithy/hash-node'
+      - '@smithy/signature-v4'
+      - '@types/react'
+      - '@types/react-dom'
+      - bufferutil
+      - kerberos
+      - react-dom
+      - supports-color
+      - undici
+      - utf-8-validate
+      - ws
+      - zod
+
   '@pkgr/core@0.3.6': {}
 
   '@playwright/test@1.64.1':
@@ -7815,6 +9220,12 @@ snapshots:
       '@types/react': 19.3.0
       '@types/react-dom': 19.3.0(@types/react@19.3.0)
 
+  '@radix-ui/react-arrow@1.1.15(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+    dependencies:
+      '@radix-ui/react-primitive': 2.1.10(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
+
   '@radix-ui/react-collapsible@1.1.20(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
       '@radix-ui/primitive': 1.1.7
@@ -7831,6 +9242,19 @@ snapshots:
       '@types/react': 19.3.0
       '@types/react-dom': 19.3.0(@types/react@19.3.0)
 
+  '@radix-ui/react-collapsible@1.1.20(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+    dependencies:
+      '@radix-ui/primitive': 1.1.7
+      '@radix-ui/react-compose-refs': 1.1.5(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-context': 1.2.2(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-id': 1.1.4(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-presence': 1.1.10(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-primitive': 2.1.10(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-use-controllable-state': 1.2.6(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-use-layout-effect': 1.1.4(@types/react@19.3.0)(react@19.3.0)
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
+
   '@radix-ui/react-collection@1.1.15(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
       '@radix-ui/react-compose-refs': 1.1.5(@types/react@19.3.0)(react@19.3.0)
@@ -7842,6 +9266,15 @@ snapshots:
     optionalDependencies:
       '@types/react': 19.3.0
       '@types/react-dom': 19.3.0(@types/react@19.3.0)
+
+  '@radix-ui/react-collection@1.1.15(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+    dependencies:
+      '@radix-ui/react-compose-refs': 1.1.5(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-context': 1.2.2(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-primitive': 2.1.10(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-slot': 1.3.3(@types/react@19.3.0)(react@19.3.0)
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
 
   '@radix-ui/react-compose-refs@1.1.5(@types/react@19.3.0)(react@19.3.0)':
     dependencies:
@@ -7861,6 +9294,28 @@ snapshots:
     optionalDependencies:
       '@types/react': 19.3.0
       '@types/react-dom': 19.3.0(@types/react@19.3.0)
+
+  '@radix-ui/react-context-menu@2.3.7(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+    dependencies:
+      '@radix-ui/primitive': 1.1.7
+      '@radix-ui/react-context': 1.2.2(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-menu': 2.1.24(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-primitive': 2.1.10(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-use-controllable-state': 1.2.6(@types/react@19.3.0)(react@19.3.0)
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
+    optionalDependencies:
+      '@types/react': 19.3.0
+
+  '@radix-ui/react-context-menu@2.3.7(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+    dependencies:
+      '@radix-ui/primitive': 1.1.7
+      '@radix-ui/react-context': 1.2.2(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-menu': 2.1.24(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-primitive': 2.1.10(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-use-controllable-state': 1.2.6(@types/react@19.3.0)(react@19.3.0)
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
 
   '@radix-ui/react-context@1.2.2(@types/react@19.3.0)(react@19.3.0)':
     dependencies:
@@ -7891,6 +9346,26 @@ snapshots:
       '@types/react': 19.3.0
       '@types/react-dom': 19.3.0(@types/react@19.3.0)
 
+  '@radix-ui/react-dialog@1.1.23(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+    dependencies:
+      '@radix-ui/primitive': 1.1.7
+      '@radix-ui/react-compose-refs': 1.1.5(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-context': 1.2.2(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-dismissable-layer': 1.1.19(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-focus-guards': 1.1.6(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-focus-scope': 1.1.16(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-id': 1.1.4(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-portal': 1.1.17(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-presence': 1.1.10(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-primitive': 2.1.10(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-slot': 1.3.3(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-use-controllable-state': 1.2.6(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-use-layout-effect': 1.1.4(@types/react@19.3.0)(react@19.3.0)
+      aria-hidden: 1.2.6
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
+      react-remove-scroll: 2.7.2(@types/react@19.3.0)(react@19.3.0)
+
   '@radix-ui/react-direction@1.1.4(@types/react@19.3.0)(react@19.3.0)':
     dependencies:
       react: 19.3.0
@@ -7910,6 +9385,16 @@ snapshots:
       '@types/react': 19.3.0
       '@types/react-dom': 19.3.0(@types/react@19.3.0)
 
+  '@radix-ui/react-dismissable-layer@1.1.19(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+    dependencies:
+      '@radix-ui/primitive': 1.1.7
+      '@radix-ui/react-compose-refs': 1.1.5(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-primitive': 2.1.10(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-use-callback-ref': 1.1.4(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-use-effect-event': 0.0.5(@types/react@19.3.0)(react@19.3.0)
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
+
   '@radix-ui/react-dropdown-menu@2.1.24(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
       '@radix-ui/primitive': 1.1.7
@@ -7924,6 +9409,32 @@ snapshots:
     optionalDependencies:
       '@types/react': 19.3.0
       '@types/react-dom': 19.3.0(@types/react@19.3.0)
+
+  '@radix-ui/react-dropdown-menu@2.1.24(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+    dependencies:
+      '@radix-ui/primitive': 1.1.7
+      '@radix-ui/react-compose-refs': 1.1.5(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-context': 1.2.2(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-id': 1.1.4(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-menu': 2.1.24(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-primitive': 2.1.10(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-use-controllable-state': 1.2.6(@types/react@19.3.0)(react@19.3.0)
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
+    optionalDependencies:
+      '@types/react': 19.3.0
+
+  '@radix-ui/react-dropdown-menu@2.1.24(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+    dependencies:
+      '@radix-ui/primitive': 1.1.7
+      '@radix-ui/react-compose-refs': 1.1.5(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-context': 1.2.2(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-id': 1.1.4(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-menu': 2.1.24(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-primitive': 2.1.10(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-use-controllable-state': 1.2.6(@types/react@19.3.0)(react@19.3.0)
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
 
   '@radix-ui/react-focus-guards@1.1.6(@types/react@19.3.0)(react@19.3.0)':
     dependencies:
@@ -7941,6 +9452,14 @@ snapshots:
     optionalDependencies:
       '@types/react': 19.3.0
       '@types/react-dom': 19.3.0(@types/react@19.3.0)
+
+  '@radix-ui/react-focus-scope@1.1.16(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+    dependencies:
+      '@radix-ui/react-compose-refs': 1.1.5(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-primitive': 2.1.10(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-use-callback-ref': 1.1.4(@types/react@19.3.0)(react@19.3.0)
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
 
   '@radix-ui/react-id@1.1.4(@types/react@19.3.0)(react@19.3.0)':
     dependencies:
@@ -7975,6 +9494,54 @@ snapshots:
       '@types/react': 19.3.0
       '@types/react-dom': 19.3.0(@types/react@19.3.0)
 
+  '@radix-ui/react-menu@2.1.24(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+    dependencies:
+      '@radix-ui/primitive': 1.1.7
+      '@radix-ui/react-collection': 1.1.15(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-compose-refs': 1.1.5(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-context': 1.2.2(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-direction': 1.1.4(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-dismissable-layer': 1.1.19(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-focus-guards': 1.1.6(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-focus-scope': 1.1.16(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-id': 1.1.4(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-popper': 1.3.7(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-portal': 1.1.17(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-presence': 1.1.10(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-primitive': 2.1.10(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-roving-focus': 1.1.19(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-slot': 1.3.3(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-use-callback-ref': 1.1.4(@types/react@19.3.0)(react@19.3.0)
+      aria-hidden: 1.2.6
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
+      react-remove-scroll: 2.7.2(@types/react@19.3.0)(react@19.3.0)
+    optionalDependencies:
+      '@types/react': 19.3.0
+
+  '@radix-ui/react-menu@2.1.24(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+    dependencies:
+      '@radix-ui/primitive': 1.1.7
+      '@radix-ui/react-collection': 1.1.15(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-compose-refs': 1.1.5(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-context': 1.2.2(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-direction': 1.1.4(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-dismissable-layer': 1.1.19(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-focus-guards': 1.1.6(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-focus-scope': 1.1.16(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-id': 1.1.4(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-popper': 1.3.7(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-portal': 1.1.17(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-presence': 1.1.10(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-primitive': 2.1.10(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-roving-focus': 1.1.19(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-slot': 1.3.3(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-use-callback-ref': 1.1.4(@types/react@19.3.0)(react@19.3.0)
+      aria-hidden: 1.2.6
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
+      react-remove-scroll: 2.7.2(@types/react@19.3.0)(react@19.3.0)
+
   '@radix-ui/react-popover@1.1.23(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
       '@radix-ui/primitive': 1.1.7
@@ -7998,6 +9565,48 @@ snapshots:
       '@types/react': 19.3.0
       '@types/react-dom': 19.3.0(@types/react@19.3.0)
 
+  '@radix-ui/react-popover@1.1.23(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+    dependencies:
+      '@radix-ui/primitive': 1.1.7
+      '@radix-ui/react-compose-refs': 1.1.5(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-context': 1.2.2(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-dismissable-layer': 1.1.19(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-focus-guards': 1.1.6(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-focus-scope': 1.1.16(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-id': 1.1.4(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-popper': 1.3.7(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-portal': 1.1.17(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-presence': 1.1.10(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-primitive': 2.1.10(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-slot': 1.3.3(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-use-controllable-state': 1.2.6(@types/react@19.3.0)(react@19.3.0)
+      aria-hidden: 1.2.6
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
+      react-remove-scroll: 2.7.2(@types/react@19.3.0)(react@19.3.0)
+    optionalDependencies:
+      '@types/react': 19.3.0
+
+  '@radix-ui/react-popover@1.1.23(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+    dependencies:
+      '@radix-ui/primitive': 1.1.7
+      '@radix-ui/react-compose-refs': 1.1.5(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-context': 1.2.2(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-dismissable-layer': 1.1.19(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-focus-guards': 1.1.6(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-focus-scope': 1.1.16(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-id': 1.1.4(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-popper': 1.3.7(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-portal': 1.1.17(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-presence': 1.1.10(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-primitive': 2.1.10(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-slot': 1.3.3(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-use-controllable-state': 1.2.6(@types/react@19.3.0)(react@19.3.0)
+      aria-hidden: 1.2.6
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
+      react-remove-scroll: 2.7.2(@types/react@19.3.0)(react@19.3.0)
+
   '@radix-ui/react-popper@1.3.7(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
       '@floating-ui/react-dom': 2.1.9(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -8016,6 +9625,21 @@ snapshots:
       '@types/react': 19.3.0
       '@types/react-dom': 19.3.0(@types/react@19.3.0)
 
+  '@radix-ui/react-popper@1.3.7(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+    dependencies:
+      '@floating-ui/react-dom': 2.1.9(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-arrow': 1.1.15(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-compose-refs': 1.1.5(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-context': 1.2.2(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-primitive': 2.1.10(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-use-callback-ref': 1.1.4(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-use-layout-effect': 1.1.4(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-use-rect': 1.1.4(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-use-size': 1.1.4(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/rect': 1.1.3
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
+
   '@radix-ui/react-portal@1.1.17(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
       '@radix-ui/react-primitive': 2.1.10(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -8026,6 +9650,13 @@ snapshots:
       '@types/react': 19.3.0
       '@types/react-dom': 19.3.0(@types/react@19.3.0)
 
+  '@radix-ui/react-portal@1.1.17(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+    dependencies:
+      '@radix-ui/react-primitive': 2.1.10(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-use-layout-effect': 1.1.4(@types/react@19.3.0)(react@19.3.0)
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
+
   '@radix-ui/react-presence@1.1.10(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
       '@radix-ui/react-use-layout-effect': 1.1.4(@types/react@19.3.0)(react@19.3.0)
@@ -8035,6 +9666,12 @@ snapshots:
       '@types/react': 19.3.0
       '@types/react-dom': 19.3.0(@types/react@19.3.0)
 
+  '@radix-ui/react-presence@1.1.10(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+    dependencies:
+      '@radix-ui/react-use-layout-effect': 1.1.4(@types/react@19.3.0)(react@19.3.0)
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
+
   '@radix-ui/react-primitive@2.1.10(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
       '@radix-ui/react-slot': 1.3.3(@types/react@19.3.0)(react@19.3.0)
@@ -8043,6 +9680,12 @@ snapshots:
     optionalDependencies:
       '@types/react': 19.3.0
       '@types/react-dom': 19.3.0(@types/react@19.3.0)
+
+  '@radix-ui/react-primitive@2.1.10(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+    dependencies:
+      '@radix-ui/react-slot': 1.3.3(@types/react@19.3.0)(react@19.3.0)
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
 
   '@radix-ui/react-roving-focus@1.1.19(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
@@ -8063,6 +9706,22 @@ snapshots:
       '@types/react': 19.3.0
       '@types/react-dom': 19.3.0(@types/react@19.3.0)
 
+  '@radix-ui/react-roving-focus@1.1.19(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+    dependencies:
+      '@radix-ui/primitive': 1.1.7
+      '@radix-ui/react-collection': 1.1.15(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-compose-refs': 1.1.5(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-context': 1.2.2(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-direction': 1.1.4(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-id': 1.1.4(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-primitive': 2.1.10(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-use-callback-ref': 1.1.4(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-use-controllable-state': 1.2.6(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-use-is-hydrated': 0.1.3(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-use-layout-effect': 1.1.4(@types/react@19.3.0)(react@19.3.0)
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
+
   '@radix-ui/react-scroll-area@1.2.18(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
       '@radix-ui/number': 1.1.3
@@ -8079,6 +9738,20 @@ snapshots:
     optionalDependencies:
       '@types/react': 19.3.0
       '@types/react-dom': 19.3.0(@types/react@19.3.0)
+
+  '@radix-ui/react-scroll-area@1.2.18(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+    dependencies:
+      '@radix-ui/number': 1.1.3
+      '@radix-ui/primitive': 1.1.7
+      '@radix-ui/react-compose-refs': 1.1.5(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-context': 1.2.2(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-direction': 1.1.4(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-presence': 1.1.10(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-primitive': 2.1.10(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-use-callback-ref': 1.1.4(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-use-layout-effect': 1.1.4(@types/react@19.3.0)(react@19.3.0)
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
 
   '@radix-ui/react-select@2.3.7(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
@@ -8110,6 +9783,62 @@ snapshots:
       '@types/react': 19.3.0
       '@types/react-dom': 19.3.0(@types/react@19.3.0)
 
+  '@radix-ui/react-select@2.3.7(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+    dependencies:
+      '@radix-ui/number': 1.1.3
+      '@radix-ui/primitive': 1.1.7
+      '@radix-ui/react-collection': 1.1.15(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-compose-refs': 1.1.5(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-context': 1.2.2(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-direction': 1.1.4(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-dismissable-layer': 1.1.19(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-focus-guards': 1.1.6(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-focus-scope': 1.1.16(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-id': 1.1.4(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-popper': 1.3.7(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-portal': 1.1.17(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-presence': 1.1.10(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-primitive': 2.1.10(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-slot': 1.3.3(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-use-callback-ref': 1.1.4(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-use-controllable-state': 1.2.6(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-use-layout-effect': 1.1.4(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-use-previous': 1.1.4(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-visually-hidden': 1.2.11(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      aria-hidden: 1.2.6
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
+      react-remove-scroll: 2.7.2(@types/react@19.3.0)(react@19.3.0)
+    optionalDependencies:
+      '@types/react': 19.3.0
+
+  '@radix-ui/react-select@2.3.7(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+    dependencies:
+      '@radix-ui/number': 1.1.3
+      '@radix-ui/primitive': 1.1.7
+      '@radix-ui/react-collection': 1.1.15(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-compose-refs': 1.1.5(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-context': 1.2.2(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-direction': 1.1.4(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-dismissable-layer': 1.1.19(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-focus-guards': 1.1.6(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-focus-scope': 1.1.16(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-id': 1.1.4(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-popper': 1.3.7(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-portal': 1.1.17(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-presence': 1.1.10(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-primitive': 2.1.10(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-slot': 1.3.3(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-use-callback-ref': 1.1.4(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-use-controllable-state': 1.2.6(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-use-layout-effect': 1.1.4(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-use-previous': 1.1.4(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-visually-hidden': 1.2.11(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      aria-hidden: 1.2.6
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
+      react-remove-scroll: 2.7.2(@types/react@19.3.0)(react@19.3.0)
+
   '@radix-ui/react-separator@1.1.15(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
     dependencies:
       '@radix-ui/react-primitive': 2.1.10(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
@@ -8118,6 +9847,12 @@ snapshots:
     optionalDependencies:
       '@types/react': 19.3.0
       '@types/react-dom': 19.3.0(@types/react@19.3.0)
+
+  '@radix-ui/react-separator@1.1.15(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+    dependencies:
+      '@radix-ui/react-primitive': 2.1.10(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
 
   '@radix-ui/react-slot@1.3.3(@types/react@19.3.0)(react@19.3.0)':
     dependencies:
@@ -8146,6 +9881,44 @@ snapshots:
     optionalDependencies:
       '@types/react': 19.3.0
       '@types/react-dom': 19.3.0(@types/react@19.3.0)
+
+  '@radix-ui/react-tooltip@1.2.16(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+    dependencies:
+      '@radix-ui/primitive': 1.1.7
+      '@radix-ui/react-compose-refs': 1.1.5(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-context': 1.2.2(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-dismissable-layer': 1.1.19(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-id': 1.1.4(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-popper': 1.3.7(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-portal': 1.1.17(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-presence': 1.1.10(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-primitive': 2.1.10(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-slot': 1.3.3(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-use-controllable-state': 1.2.6(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-use-layout-effect': 1.1.4(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-visually-hidden': 1.2.11(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
+    optionalDependencies:
+      '@types/react': 19.3.0
+
+  '@radix-ui/react-tooltip@1.2.16(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+    dependencies:
+      '@radix-ui/primitive': 1.1.7
+      '@radix-ui/react-compose-refs': 1.1.5(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-context': 1.2.2(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-dismissable-layer': 1.1.19(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-id': 1.1.4(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-popper': 1.3.7(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-portal': 1.1.17(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-presence': 1.1.10(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-primitive': 2.1.10(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@radix-ui/react-slot': 1.3.3(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-use-controllable-state': 1.2.6(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-use-layout-effect': 1.1.4(@types/react@19.3.0)(react@19.3.0)
+      '@radix-ui/react-visually-hidden': 1.2.11(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
 
   '@radix-ui/react-use-callback-ref@1.1.4(@types/react@19.3.0)(react@19.3.0)':
     dependencies:
@@ -8209,6 +9982,12 @@ snapshots:
     optionalDependencies:
       '@types/react': 19.3.0
       '@types/react-dom': 19.3.0(@types/react@19.3.0)
+
+  '@radix-ui/react-visually-hidden@1.2.11(react-dom@19.3.0(react@19.3.0))(react@19.3.0)':
+    dependencies:
+      '@radix-ui/react-primitive': 2.1.10(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      react: 19.3.0
+      react-dom: 19.3.0(react@19.3.0)
 
   '@radix-ui/rect@1.1.3': {}
 

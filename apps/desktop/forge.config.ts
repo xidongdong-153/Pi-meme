@@ -3,13 +3,16 @@ import { MakerZIP } from '@electron-forge/maker-zip'
 import { VitePlugin } from '@electron-forge/plugin-vite'
 import { FusesPlugin } from '@electron-forge/plugin-fuses'
 import { FuseV1Options, FuseVersion } from '@electron/fuses'
+import { copyFile } from 'node:fs/promises'
 import path from 'node:path'
 import { copyPiRuntime } from '../../scripts/copy-pi-runtime.mjs'
+import { desktopResources, releaseResourceFiles, writeReleaseResources } from '../../scripts/release.mjs'
 
 const signingIdentity = process.env.PI_DESKTOP_SIGNING_IDENTITY
 
 const config: ForgeConfig = {
   packagerConfig: {
+    appBundleId: 'io.github.xidongdong153.pi-meme',
     asar: { unpackDir: 'node_modules/{@esbuild,node-pty}' },
     // 不带扩展名，@electron/packager 按平台补 .icns / .ico。文件在 packages/assets/files/desktop/icons。
     icon: path.join(__dirname, '../../packages/assets/files/desktop/icons/pi-dev-dark'),
@@ -22,11 +25,23 @@ const config: ForgeConfig = {
           optionsForFile: () => ({ hardenedRuntime: false, timestamp: false }),
         },
     // Vite 插件只把 .vite 打进 asar。目录名 dock 会变成 Resources/dock。
-    extraResource: [path.join(__dirname, '../../packages/assets/files/desktop/dock')],
+    extraResource: [
+      path.join(__dirname, '../../packages/assets/files/desktop/dock'),
+      ...releaseResourceFiles.map((name) => path.join(desktopResources, name)),
+    ],
   },
   rebuildConfig: {},
   makers: [new MakerZIP({}, ['darwin'])],
   hooks: {
+    prePackage: async () => {
+      await writeReleaseResources(desktopResources, 'desktop')
+    },
+    packageAfterExtract: async (_config, buildPath, _electronVersion, platform) => {
+      if (platform !== 'darwin') throw new Error('Desktop 当前只分发 macOS 应用')
+      const resources = path.join(buildPath, 'Electron.app/Contents/Resources')
+      await copyFile(path.join(buildPath, 'LICENSE'), path.join(resources, 'ELECTRON_LICENSE'))
+      await copyFile(path.join(buildPath, 'LICENSES.chromium.html'), path.join(resources, 'LICENSES.chromium.html'))
+    },
     // Vite 会把主进程代码打成单文件，Pi SDK 以 external 保留；这里把运行时需要的
     // SDK 文件复制进打包目录，让打包应用不依赖本机安装的 pi。
     packageAfterCopy: async (_config, buildPath) => {

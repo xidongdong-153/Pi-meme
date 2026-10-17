@@ -3,6 +3,8 @@ description: '独立 Host 与远程部署、HTTPS 环境变量、认证、远程
 status: implemented
 paths:
   - 'apps/server/src/main.ts'
+  - 'scripts/package-host.mts'
+  - 'apps/server/README.md'
   - 'apps/web/vite.config.ts'
   - 'apps/desktop/src/main/host-process.ts'
   - 'apps/desktop/src/main/remote-auth.ts'
@@ -24,7 +26,13 @@ paths:
 
 ## 本机启动
 
-在仓库根目录执行：
+优先下载与机器匹配的 Host 独立包，按[快速开始](getting-started.md#安装独立-host)完成校验与解压。在解压目录的父目录运行：
+
+```bash
+./pi-meme-host/bin/pi-meme-host
+```
+
+独立包已包含 Web 和 Node.js，不需要 pnpm。首发目标为 macOS 15 arm64、Ubuntu 24.04 x64，不自动安装系统服务；包内说明见 [Host README](../apps/server/README.md)。源码模式仍可在仓库根目录执行：
 
 ```bash
 pnpm build:web
@@ -39,7 +47,7 @@ Host 数据目录默认 `~/.pi-meme`，同一目录只允许一个 Host 写入�
 
 ## 部署远程 Host
 
-非 loopback 监听必须同时配置 HTTPS 证书与私钥。在仓库根目录运行，示例路径和令牌需替换为部署环境值：
+非 loopback 监听必须同时配置 HTTPS 证书与私钥。使用普通用户，在解压目录 `pi-meme-host` 的父目录运行；示例路径和令牌需替换为部署环境值：
 
 ```bash
 PI_MEME_HOST=0.0.0.0 \
@@ -48,10 +56,12 @@ PI_MEME_DATA_ROOT=/absolute/path/pi-meme-data \
 PI_MEME_TLS_CERT=/absolute/path/fullchain.pem \
 PI_MEME_TLS_KEY=/absolute/path/private-key.pem \
 PI_MEME_TOKEN=replace-with-your-access-token \
-pnpm start:server
+./pi-meme-host/bin/pi-meme-host
 ```
 
-浏览器访问证书对应的 HTTPS 地址并登录；页面需先运行 `pnpm build:web` 生成。也可先执行 `pnpm build:server`，将最后一行换为 `node apps/server/dist/main.js`。产物仍依赖当前机器的 `node_modules`。
+浏览器访问证书对应的 HTTPS 地址并登录；独立包已经包含页面。Desktop 也可在远程设置中登记这个地址和令牌。不额外放宽 Origin、认证或 HTTPS 规则供反向代理使用。
+
+源码部署时先在仓库根目录执行 `pnpm build:web`，再将最后一行换成 `pnpm start:server`；若还执行了 `pnpm build:server`，也可用 `node apps/server/dist/main.js`。源码构建产物仍依赖仓库的 `node_modules`，不能只压缩 `dist` 当作独立包。升级时停止旧管理方并备份数据目录，见[升级](getting-started.md#升级)。
 
 监听检查见 [server.ts](../packages/host/src/server.ts)，证书读取与环境变量见 [Server main](../apps/server/src/main.ts)。macOS 受限执行使用 `sandbox-exec`，Linux/WSL2 使用 bubblewrap；平台隔离由 Host 决定，见 [权限与沙箱](configuration.md#权限与沙箱)。
 
@@ -120,15 +130,16 @@ Desktop 使用内存浏览器会话；正式界面由随包资源提供，不依
 
 ## 排错与验证
 
-| 现象                                      | 检查位置                                                                  |
-| ----------------------------------------- | ------------------------------------------------------------------------- |
-| 启动提示已有 Host、目录不一致或协议不兼容 | 核对两个入口的目录和端口；停止旧版本 Host，或为独立实例指定另一目录和端口 |
-| `/api/auth` 返回 503 或代理连接被拒绝     | 确认管理方仍在运行、`PI_MEME_PORT` 与代理目标一致；首次启动等待最多 30 秒 |
-| 非本机监听被拒绝                          | 同时设置 TLS 证书与私钥，核对文件路径和读取权限                           |
-| 5173 被占用                               | 停止占用进程后重启；Vite 的 `strictPort` 不会换端口                       |
-| WSL 内可访问、Windows 浏览器失败          | 先确认 WSL 服务，再检查 localhost 转发、端口和防火墙，不放宽认证          |
-| 页面能打开，WebSocket 失败                | 查看升级 HTTP 状态、Origin、Cookie、clientId 及代理是否支持 WebSocket     |
-| 远程身份变化                              | 核对所连 Host 数据目录与持久 host-id，重新确认连接目标                    |
-| 受限任务无法启动                          | 查看 `restrictedAccessReason`；安装平台依赖后重启 Host，不切换权限绕过    |
+| 现象                                      | 检查位置                                                                                           |
+| ----------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| 解压后提示原生模块或运行时不可用          | 核对下载平台、CPU 架构与 `release.json`；不要从源码目录单独复制 `dist` 或跨平台复用 `node_modules` |
+| 启动提示已有 Host、目录不一致或协议不兼容 | 核对两个入口的目录和端口；停止旧版本 Host，或为独立实例指定另一目录和端口                          |
+| `/api/auth` 返回 503 或代理连接被拒绝     | 确认管理方仍在运行、`PI_MEME_PORT` 与代理目标一致；首次启动等待最多 30 秒                          |
+| 非本机监听被拒绝                          | 同时设置 TLS 证书与私钥，核对文件路径和读取权限                                                    |
+| 5173 被占用                               | 停止占用进程后重启；Vite 的 `strictPort` 不会换端口                                                |
+| WSL 内可访问、Windows 浏览器失败          | 先确认 WSL 服务，再检查 localhost 转发、端口和防火墙，不放宽认证                                   |
+| 页面能打开，WebSocket 失败                | 查看升级 HTTP 状态、Origin、Cookie、clientId 及代理是否支持 WebSocket                              |
+| 远程身份变化                              | 核对所连 Host 数据目录与持久 host-id，重新确认连接目标                                             |
+| 受限任务无法启动                          | 查看 `restrictedAccessReason`；安装平台依赖后重启 Host，不切换权限绕过                             |
 
 `pnpm test --all --layer artifact --target server` 从实际构建产物启动临时 Host，使用内存凭据和假模型验证静态 Worker、JSONL、外部 Agent、MCP、codemode、持续子代理、计划与默认受限权限。平台运行与测试入口见 [开发与验证](development.md) 和 [Linux 与 WSL](linux-wsl.md)。这些是验证命令说明，不表示本次文档整理运行过应用验收。

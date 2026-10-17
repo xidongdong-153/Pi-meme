@@ -61,6 +61,15 @@ test('完整测试按当前平台列出，显式选择不支持的产物必须�
   assert.throws(() => selectTests(['--all', '--coverage']), /--layer/)
 })
 
+test('显式提供已构建产物时不重建它们，但不影响开发态 E2E 的构建', () => {
+  const artifacts = selectTests(['--all', '--layer', 'artifact'], 'darwin')
+  assert.deepEqual(requiredBuilds(artifacts.suites, { serverBundle: true, desktopApp: true }), [])
+  assert.deepEqual(requiredBuilds(artifacts.suites, { serverBundle: true }), ['package'])
+  assert.deepEqual(requiredBuilds(artifacts.suites, { desktopApp: true }), ['build:server'])
+  const desktop = selectTests(['--all', '--layer', 'e2e', '--target', 'desktop'], 'darwin')
+  assert.deepEqual(requiredBuilds(desktop.suites, { desktopApp: true }), ['package'])
+})
+
 test('所有测试都必须登记功能与层次，清单不能重复或引用不存在的文件', async () => {
   const files: string[] = []
   async function walk(directory: string) {
@@ -75,7 +84,7 @@ test('所有测试都必须登记功能与层次，清单不能重复或引用�
       const directory = `${area}/${owner.name}/tests`
       if (owner.isDirectory() && (await stat(directory).catch(() => undefined))?.isDirectory()) await walk(directory)
     }
-  files.push('tests/selection.unit.test.ts')
+  await walk('tests')
   assert.equal(new Set(suites.map((suite) => suite.file)).size, suites.length)
   assert.deepEqual([...files].sort(), suites.map((suite) => suite.file).sort())
   for (const suite of suites) {

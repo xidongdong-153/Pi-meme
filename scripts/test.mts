@@ -78,7 +78,10 @@ try {
   const selection = selectTests(process.argv.slice(2))
   if (selection.help) console.log(help)
   else {
-    const builds = requiredBuilds(selection.suites)
+    const builds = requiredBuilds(selection.suites, {
+      serverBundle: Boolean(process.env.PI_MEME_HOST_BUNDLE_ROOT),
+      desktopApp: Boolean(process.env.PI_DESKTOP_PACKAGED_APP),
+    })
     console.log(`测试范围：${selection.suites.length} 个文件；当前平台：${process.platform}`)
     for (const suite of selection.suites) console.log(`  [${suite.layer}/${suite.target}] ${suite.file}`)
     if (builds.length) console.log(`必要构建：${builds.join('、')}`)

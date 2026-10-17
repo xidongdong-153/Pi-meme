@@ -1,6 +1,7 @@
 {
   "name": "pi-meme-monorepo",
   "private": true,
+  "license": "MIT",
   "packageManager": "pnpm@10.29.1",
   "engines": {
     "node": ">=22.19.0"
@@ -9,7 +10,7 @@
     "start": "pnpm --filter pi-meme start",
     "package": "pnpm --filter pi-meme package",
     "make": "pnpm --filter pi-meme make",
-    "publish": "pnpm --filter pi-meme publish",
+    "package:host": "node --import tsx scripts/package-host.mts",
     "lint": "eslint .",
     "type-check": "pnpm -r type-check && tsc --noEmit -p tsconfig.tests.json",
     "format": "prettier --check .",

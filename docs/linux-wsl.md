@@ -10,13 +10,24 @@ paths:
   - 'packages/pi-runtime/tests/linux-sandbox.integration.test.ts'
   - 'apps/server/tests/restricted-dist.artifact.test.ts'
   - '.github/workflows/linux.yml'
+  - '.github/workflows/release.yml'
+  - '.github/actions/setup-linux-sandbox/**'
+  - 'scripts/package-host.mts'
 ---
 
 # Linux 与 WSL 开发运行
 
 Ubuntu 24.04 和 WSL2 使用独立 Node Host 与 Web。WSL 按 Linux 装配沙箱；Windows 浏览器只处理界面，工作区、Git、模型凭据、MCP 和会话都在 Linux Host。通用入口见 [快速开始](getting-started.md)，配置和凭据见 [配置与安全](configuration.md)。
 
-## 安装与运行
+## 下载包运行
+
+首发提供 Ubuntu 24.04 x64 的 Host/Web 独立包，包含 Node.js 24.14.0、Worker、技能与生产依赖。下载、SHA256 校验、解压和启动命令见[快速开始](getting-started.md#安装独立-host)。使用前安装 `git`、`bash` 和 `bubblewrap`，不需要 Node.js 或 pnpm。
+
+WSL2 需要匹配的 x64 Ubuntu 环境；解压目录、数据与项目放在 Linux 文件系统，不使用 Windows 的 Node 或 `node_modules`。Windows 浏览器仍通过 localhost 访问，具体互操作和浏览器接线需在真实 WSL2 验收。
+
+其他 Linux 发行版未作为首发验收平台；不提供 Linux arm64、Alpine/musl 或 Windows 原生下载包，不自动安装 systemd。发布流程见[版本发布](releasing.md)。
+
+## 源码安装与运行
 
 使用 Linux 的 Node.js 24.14.0、pnpm 10.29.1。仓库和数据放在 Linux 文件系统，例如 `~/Code/pi-meme` 和 `~/.pi-meme`。Windows 编辑器通过 WSL 连接编辑；不要复用 Windows/macOS 的 `node_modules`。参考 [微软文件系统说明](https://learn.microsoft.com/en-us/windows/wsl/filesystems)。
 
@@ -38,7 +49,7 @@ pnpm build:server
 node apps/server/dist/main.js
 ```
 
-打开 `http://127.0.0.1:31415`，本机自动登录。Server 和 Worker 产物依赖当前 Linux 的 `node_modules`，不是独立单文件。`PI_MEME_DATA_ROOT` 和 `PI_MEME_WEB_ROOT` 继续支持覆盖；Host 数据必须位于 Linux 文件系统，Windows 驱动器挂载会被拒绝。
+打开 `http://127.0.0.1:31415`，本机自动登录。这组源码构建的 Server 和 Worker 依赖当前 Linux 的 `node_modules`，不是独立单文件；下载包则由 `pnpm package:host` 另行收集完整运行目录。`PI_MEME_DATA_ROOT` 和 `PI_MEME_WEB_ROOT` 继续支持覆盖；Host 数据必须位于 Linux 文件系统，Windows 驱动器挂载会被拒绝。
 
 ```mermaid
 %%{init: {"theme": "dark"}}%%
@@ -83,6 +94,8 @@ pnpm format
 pnpm check-boundaries
 pnpm test --all --layer unit,component,integration
 ```
+
+CI 通过[沙箱准备 action](../.github/actions/setup-linux-sandbox/action.yml)安装 bubblewrap，并加载仅供 GitHub 临时 runner 使用的 [AppArmor profile](../.github/actions/setup-linux-sandbox/bwrap.apparmor)。它为 `/usr/bin/bwrap` 显式授予 user namespace 权限，再实际运行 namespace 探测，避免 Ubuntu 的默认限制导致 `setting up uid map: Permission denied`。此配置不随 Host 安装，不关闭 AppArmor、不修改全局 sysctl；受限测试仍验证文件边界和 seccomp。profile 方式见 [Ubuntu AppArmor 文档](https://documentation.ubuntu.com/security/security-features/privilege-restriction/apparmor/)。
 
 日常 CI 不安装浏览器、不运行 Web E2E。Linux 受限回归遇到探测失败会失败，不能用 skip 代替安装依赖。WSL 互操作测试只在真实 WSL2 执行，原生 CI 会明确跳过该项。
 

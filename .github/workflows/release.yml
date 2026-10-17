@@ -1,0 +1,206 @@
+name: 构建发布包
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  npm_config_registry: https://registry.npmjs.org
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      commit: ${{ steps.version.outputs.commit }}
+      prerelease: ${{ steps.version.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.29.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.14.0
+          cache: pnpm
+      - uses: ./.github/actions/setup-linux-sandbox
+      - run: pnpm install --frozen-lockfile
+      - id: version
+        run: node --import tsx scripts/release.mts check
+      - run: pnpm type-check
+      - run: pnpm lint
+      - run: pnpm format
+      - run: pnpm check-boundaries
+      - run: pnpm test --all --layer unit,component,integration
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: check-test-reports
+          path: out/tests/
+          retention-days: 7
+
+  build:
+    needs: check
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - product: desktop
+            os: macos-15
+            platform: darwin
+            name: macos
+            arch: arm64
+          - product: host
+            os: macos-15
+            platform: darwin
+            name: macos
+            arch: arm64
+          - product: host
+            os: ubuntu-24.04
+            platform: linux
+            name: linux
+            arch: x64
+    runs-on: ${{ matrix.os }}
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+      PLATFORM: ${{ matrix.platform }}
+      TARGET_NAME: ${{ matrix.name }}
+      TARGET_ARCH: ${{ matrix.arch }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.29.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.14.0
+      - if: runner.os == 'Linux'
+        uses: ./.github/actions/setup-linux-sandbox
+      - run: pnpm install --frozen-lockfile
+      - name: 核对原生构建平台
+        run: |
+          node --input-type=module -e "import assert from 'node:assert/strict'; assert.equal(process.platform, process.env.PLATFORM); assert.equal(process.arch, process.env.TARGET_ARCH)"
+      - name: 构建 Host 独立包
+        if: matrix.product == 'host'
+        run: pnpm package:host
+      - name: 解压到仓库外
+        if: matrix.product == 'host'
+        run: |
+          mkdir -p "$RUNNER_TEMP/Host bundle"
+          tar -xzf "out/release/pi-meme-host-${VERSION}-${TARGET_NAME}-${TARGET_ARCH}.tar.gz" -C "$RUNNER_TEMP/Host bundle"
+          printf 'PI_MEME_HOST_BUNDLE_ROOT=%s\n' "$RUNNER_TEMP/Host bundle/pi-meme-host" >> "$GITHUB_ENV"
+      - name: 验收最终 Host 包
+        if: matrix.product == 'host'
+        run: |
+          pnpm test --file apps/server/tests/dist-smoke.artifact.test.ts --file apps/server/tests/restricted-dist.artifact.test.ts
+      - name: 构建并验收 Desktop 应用
+        if: matrix.product == 'desktop'
+        run: |
+          pnpm test --file apps/desktop/tests/package-runtime.artifact.test.ts --file apps/desktop/tests/package-signing.artifact.test.ts
+      - name: 从已验收应用生成 ZIP 并复核
+        if: matrix.product == 'desktop'
+        run: |
+          pnpm make --skip-package --arch arm64
+          node --import tsx scripts/release.mts desktop
+      - uses: actions/upload-artifact@v4
+        with:
+          name: platform-${{ matrix.product }}-${{ matrix.name }}-${{ matrix.arch }}
+          path: out/release/*
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: reports-${{ matrix.product }}-${{ matrix.name }}-${{ matrix.arch }}
+          path: out/tests/
+          retention-days: 7
+
+  assemble:
+    needs: [check, build]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.29.1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24.14.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: platform-*
+          path: out/release
+          merge-multiple: true
+      - name: 核对全部产物并生成校验清单
+        run: node --import tsx scripts/release.mts checksums
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-complete
+          path: |
+            out/release/
+            out/release-notes.md
+          if-no-files-found: error
+          overwrite: true
+          retention-days: 7
+
+  publish:
+    if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
+    needs: [check, assemble]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      TAG: ${{ github.ref_name }}
+      VERSION: ${{ needs.check.outputs.version }}
+      COMMIT: ${{ needs.check.outputs.commit }}
+      PRERELEASE: ${{ needs.check.outputs.prerelease }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: release-complete
+          path: out
+      - name: 只创建或更新同一 commit 的草稿
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/$GH_REPO/commits/$TAG" --jq .sha)" = "$COMMIT"
+          cd out/release
+          sha256sum --check SHA256SUMS
+          assets=(
+            "pi-meme-desktop-${VERSION}-macos-arm64.zip"
+            "pi-meme-host-${VERSION}-macos-arm64.tar.gz"
+            "pi-meme-host-${VERSION}-linux-x64.tar.gz"
+            SHA256SUMS
+          )
+          if gh release view "$TAG" --json isDraft,body > "$RUNNER_TEMP/existing-release.json"; then
+            jq --exit-status --arg marker "<!-- pi-meme-release-commit:$COMMIT -->" \
+              '.isDraft == true and (.body | contains($marker))' "$RUNNER_TEMP/existing-release.json"
+            gh release upload "$TAG" "${assets[@]}" --clobber
+            gh release edit "$TAG" --draft --prerelease="$PRERELEASE" --notes-file ../release-notes.md
+          else
+            gh release create "$TAG" "${assets[@]}" --verify-tag --draft --prerelease="$PRERELEASE" \
+              --title "pi-meme $TAG" --notes-file ../release-notes.md
+          fi
+          diff <(printf '%s\n' "${assets[@]}" | sort) <(gh release view "$TAG" --json assets --jq '.assets[].name' | sort)

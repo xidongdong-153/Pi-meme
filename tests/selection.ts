@@ -68,12 +68,16 @@ export function selectTests(args: string[], platform: NodeJS.Platform = process.
   return { suites: selected, list: Boolean(values.list), help: false, name, coverage: Boolean(values.coverage) }
 }
 
-export function requiredBuilds(selected: TestSuite[]): string[] {
+export function requiredBuilds(
+  selected: TestSuite[],
+  artifacts: { serverBundle?: boolean; desktopApp?: boolean } = {},
+): string[] {
   const builds = new Set<string>()
   for (const suite of selected) {
     if (suite.layer === 'e2e' && suite.target === 'web') builds.add('build:web')
-    if (suite.layer === 'artifact' && suite.target === 'server') builds.add('build:server')
-    if (['e2e', 'artifact'].includes(suite.layer) && suite.target === 'desktop') builds.add('package')
+    if (suite.layer === 'artifact' && suite.target === 'server' && !artifacts.serverBundle) builds.add('build:server')
+    if (suite.target === 'desktop' && (suite.layer === 'e2e' || (suite.layer === 'artifact' && !artifacts.desktopApp)))
+      builds.add('package')
   }
   return [...builds]
 }

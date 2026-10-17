@@ -1,0 +1,7 @@
+# 仅用于 GitHub 临时 runner，不随 Host 安装，不修改全局 sysctl。
+abi <abi/4.0>,
+include <tunables/global>
+
+profile pi-meme-ci-bwrap /usr/bin/bwrap flags=(unconfined) {
+  userns,
+}
