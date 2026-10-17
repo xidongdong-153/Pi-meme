@@ -97,6 +97,8 @@ pnpm test --all --layer unit,component,integration
 
 CI 通过[沙箱准备 action](../.github/actions/setup-linux-sandbox/action.yml)安装 bubblewrap，并加载仅供 GitHub 临时 runner 使用的 [AppArmor profile](../.github/actions/setup-linux-sandbox/bwrap.apparmor)。它为 `/usr/bin/bwrap` 显式授予 user namespace 权限，再实际运行 namespace 探测，避免 Ubuntu 的默认限制导致 `setting up uid map: Permission denied`。此配置不随 Host 安装，不关闭 AppArmor、不修改全局 sysctl；受限测试仍验证文件边界和 seccomp。profile 方式见 [Ubuntu AppArmor 文档](https://documentation.ubuntu.com/security/security-features/privilege-restriction/apparmor/)。
 
+该 action 还把后续 CI 步骤的 `TMPDIR` 设置为 `RUNNER_TEMP`。普通工作区外文件夹具因此不落在被沙箱隐藏的公共 `/tmp` 中；产品的临时目录、挂载、写入边界和 seccomp 不变。
+
 日常 CI 不安装浏览器、不运行 Web E2E。Linux 受限回归遇到探测失败会失败，不能用 skip 代替安装依赖。WSL 互操作测试只在真实 WSL2 执行，原生 CI 会明确跳过该项。
 
 用户明确要求平台完整验收时，手动触发 [完整测试](../.github/workflows/full-tests.yml)。单独验收 Web E2E 或 Server 产物时可以选择下列范围，入口会准备必要构建；本地 Web E2E 需先安装 Chromium，见 [测试环境](testing.md#环境报告与完整验收)：

@@ -10,3 +10,4 @@ runs:
         sudo install -m 0644 "$GITHUB_ACTION_PATH/bwrap.apparmor" /etc/apparmor.d/pi-meme-ci-bwrap
         sudo apparmor_parser -r /etc/apparmor.d/pi-meme-ci-bwrap
         bwrap --unshare-user --uid 0 --gid 0 --ro-bind / / -- /bin/true
+        printf 'TMPDIR=%s\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"

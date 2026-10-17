@@ -4,6 +4,7 @@ import { chmod, copyFile, cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'no
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { prepareNodePty } from './prepare-node-pty.mjs'
+import { assertLockedDependencies, stageHostWorkspace } from './release-workspace.mjs'
 import {
   assertPortableLinks,
   nodeVersion,
@@ -15,10 +16,10 @@ import {
   writeReleaseResources,
 } from './release.mjs'
 
-function pnpm(args: string[]) {
+function pnpm(args: string[], cwd = repoRoot) {
   assert.ok(process.env.npm_execpath, '请通过 pnpm package:host 执行打包')
   execFileSync(process.execPath, [process.env.npm_execpath, ...args], {
-    cwd: repoRoot,
+    cwd,
     stdio: 'inherit',
     env: { ...process.env, CI: 'true' },
   })
@@ -44,15 +45,34 @@ async function main() {
     const server = path.join(bundle, 'apps/server')
     pnpm(['build:web'])
     pnpm(['build:server'])
-    pnpm([
-      '--filter',
-      '@pi-meme/server',
-      'deploy',
-      '--prod',
-      '--frozen-lockfile',
-      '--registry=https://registry.npmjs.org',
-      server,
-    ])
+    const workspace = path.join(directory, 'workspace')
+    await stageHostWorkspace(repoRoot, workspace)
+    pnpm(
+      [
+        'install',
+        '--lockfile-only',
+        '--ignore-scripts',
+        '--no-frozen-lockfile',
+        '--registry=https://registry.npmjs.org',
+      ],
+      workspace,
+    )
+    assertLockedDependencies(
+      await readFile(path.join(repoRoot, 'pnpm-lock.yaml'), 'utf8'),
+      await readFile(path.join(workspace, 'pnpm-lock.yaml'), 'utf8'),
+    )
+    pnpm(
+      [
+        '--filter',
+        '@pi-meme/server',
+        'deploy',
+        '--prod',
+        '--frozen-lockfile',
+        '--registry=https://registry.npmjs.org',
+        server,
+      ],
+      workspace,
+    )
     await prepareNodePty(path.join(server, 'node_modules/node-pty'))
     await cp(path.join(repoRoot, 'apps/web/dist'), path.join(bundle, 'apps/web/dist'), { recursive: true })
     for (const file of ['main.js', 'session-worker.js', 'skills/skill-creator/SKILL.md'])

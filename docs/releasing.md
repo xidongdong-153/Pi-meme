@@ -9,6 +9,7 @@ paths:
   - 'scripts/package-host.mts'
   - 'scripts/release.mts'
   - 'scripts/release-licenses.mts'
+  - 'scripts/release-workspace.mts'
   - 'apps/desktop/forge.config.ts'
   - 'apps/desktop/tests/package-runtime.artifact.test.ts'
   - 'apps/desktop/tests/package-signing.artifact.test.ts'
@@ -60,7 +61,19 @@ pnpm install --frozen-lockfile --registry=https://registry.npmjs.org
 pnpm package:host
 ```
 
-脚本会构建 Web 和 Server，然后通过 `pnpm deploy --prod --frozen-lockfile` 从共享锁文件生成独立部署锁文件，并按锁定版本安装生产依赖。`pnpm-workspace.yaml` 启用 `injectWorkspacePackages`，在 `build` 后通过 `syncInjectedDepsAfterScripts` 同步注入副本；pnpm 在依赖图一致时仍可去重为工作区软链接。新增源码文件或调整依赖后应重新执行 `pnpm install`，再构建。
+脚本先在日常源码工作区构建 Web 和 Server，再复制到临时发布工作区；排除 `node_modules`、Electron 产物、缓存和环境文件，只在暂存配置启用 `injectWorkspacePackages`。日常安装继续使用源码软链接，避免把 TS 源文件放入 `node_modules` 后破坏开发入口、Vite 配置和源码热更新。暂存根复用 Desktop 已声明的 `@types/react`、`@types/react-dom` 开发依赖，明确既有的 peer 上下文，避免冷元数据缓存生成额外依赖图；不新增外部版本。
+
+暂存区通过 `pnpm install --lockfile-only --ignore-scripts --no-frozen-lockfile` 从已有锁文件派生工作区注入关系；该步骤允许读取官方 npm 元数据，不运行安装脚本。脚本逐项比较外部依赖版本、下载校验值与依赖图，任何变化都会中止，不接受重新解析出的其他版本。然后执行非 legacy 的 `pnpm deploy --prod --frozen-lockfile`，按核对后的锁文件安装生产依赖；不修改仓库的锁文件或 `node_modules`。不能添加 `--offline`：只有已下载的包内容、不含 registry 元数据的干净 runner 无法派生注入关系。实现见 [release-workspace.mts](../scripts/release-workspace.mts)。
+
+```mermaid
+%%{init: {"theme": "dark"}}%%
+flowchart LR
+  Source["源码工作区与冻结锁文件"] --> Build["构建 Web 与 Server"]
+  Build --> Stage["临时发布工作区启用注入"]
+  Stage --> Verify["核对外部版本、校验值与依赖图"]
+  Verify --> Deploy["非 legacy 冻结部署"]
+  Deploy --> Host["Host 独立包"]
+```
 
 部署沿用仓库既有的 hoisted 布局，以适配 SSR 外部导入和 Pi SDK 动态查找；发布安装与部署仅通过命令参数或 workflow 环境指定 `https://registry.npmjs.org`，不改全局 registry。不使用会重新解析依赖的 legacy 部署，也不直接复用为 Electron 定制的 `copy-pi-runtime.mjs`。
 
@@ -160,7 +173,7 @@ flowchart TD
   Draft --> Manual["下载抽查后人工公开预览版"]
 ```
 
-Linux job 复用[沙箱准备 action](../.github/actions/setup-linux-sandbox/action.yml)，在临时 runner 上为 `/usr/bin/bwrap` 加载定向 AppArmor user namespace 许可并实际探测，不关闭 AppArmor、不更改全局 sysctl，不把测试切换成完全权限。该 action 不属于用户 Host 安装步骤。
+Linux job 复用[沙箱准备 action](../.github/actions/setup-linux-sandbox/action.yml)，在临时 runner 上为 `/usr/bin/bwrap` 加载定向 AppArmor user namespace 许可并实际探测，并将测试临时文件放到 `RUNNER_TEMP`，避免公共 `/tmp` 的隔离挂载影响普通文件边界夹具。不关闭 AppArmor、不更改全局 sysctl，不把测试切换成完全权限，也不改变产品沙箱的挂载或 `TMPDIR` 规则。该 action 不属于用户 Host 安装步骤。
 
 只有发布 job 有 `contents: write`，使用 GitHub 自带 `GITHUB_TOKEN`，不需要个人 PAT 或 Apple 凭据。其他 job 只读；发布 job 不执行依赖安装或构建脚本。平台 job 不缓存原生构建结果。Linux 的版本检查 job 执行全仓静态检查和源码测试，平台 job 运行直接对应的产物验收；不会用本机结果代替另一平台。
 

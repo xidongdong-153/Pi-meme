@@ -3,8 +3,10 @@ import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { test } from 'vitest'
+import { parse, stringify } from 'yaml'
 import { assertPortableLinks, releaseAssetNames, sha256, validateVersion, writeChecksums } from '../scripts/release.mjs'
 import { writeThirdPartyLicenses } from '../scripts/release-licenses.mjs'
+import { assertLockedDependencies, stageHostWorkspace } from '../scripts/release-workspace.mjs'
 
 const version = '0.1.0-beta.1'
 
@@ -33,6 +35,78 @@ test('第三方许可收集不跟进自有 workspace 链接，保留实际第三
   } finally {
     await rm(root, { recursive: true, force: true })
   }
+})
+
+test('Host 暂存仅启用自己的注入，保留构建产物并排除开发依赖和缓存', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'pi-meme-release-workspace-'))
+  const repo = path.join(root, 'repo')
+  const workspace = path.join(root, 'workspace')
+  const config = 'packages:\n  - apps/*\n  - packages/*\n  - plugins/*\n'
+  const peers = { '@types/react': '^19.0.0', '@types/react-dom': '^19.0.0' }
+  try {
+    await mkdir(repo)
+    for (const directory of ['apps', 'packages', 'plugins', 'patches']) await mkdir(path.join(repo, directory))
+    for (const file of ['.npmrc', 'pnpm-lock.yaml']) await writeFile(path.join(repo, file), 'fixture')
+    await writeFile(path.join(repo, 'package.json'), JSON.stringify({ devDependencies: {} }))
+    await mkdir(path.join(repo, 'apps/desktop'), { recursive: true })
+    await writeFile(path.join(repo, 'apps/desktop/package.json'), JSON.stringify({ devDependencies: peers }))
+    await writeFile(path.join(repo, 'pnpm-workspace.yaml'), config)
+    const files = [
+      'apps/server/dist/main.js',
+      'apps/server/node_modules/dependency/index.js',
+      'apps/desktop/out/application',
+      'apps/desktop/.vite/build/main.js',
+      'apps/server/.env.local',
+    ]
+    for (const file of files) {
+      await mkdir(path.dirname(path.join(repo, file)), { recursive: true })
+      await writeFile(path.join(repo, file), 'fixture')
+    }
+    await stageHostWorkspace(repo, workspace)
+    assert.equal(await readFile(path.join(repo, 'pnpm-workspace.yaml'), 'utf8'), config)
+    assert.deepEqual(JSON.parse(await readFile(path.join(repo, 'package.json'), 'utf8')).devDependencies, {})
+    assert.deepEqual(JSON.parse(await readFile(path.join(workspace, 'package.json'), 'utf8')).devDependencies, peers)
+    assert.equal(
+      parse(await readFile(path.join(workspace, 'pnpm-workspace.yaml'), 'utf8')).injectWorkspacePackages,
+      true,
+    )
+    assert.equal(await readFile(path.join(workspace, files[0]), 'utf8'), 'fixture')
+    for (const file of files.slice(1)) await assert.rejects(readFile(path.join(workspace, file)), { code: 'ENOENT' })
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('注入锁文件只能添加工作区副本，不得改变外部依赖版本、校验值或依赖图', () => {
+  const before = {
+    lockfileVersion: '9.0',
+    packages: { 'fixture@1.0.0': { resolution: { integrity: 'sha512-fixture' } } },
+    snapshots: { 'fixture@1.0.0': { dependencies: { leaf: '1.0.0' } } },
+  }
+  const after = {
+    ...before,
+    packages: {
+      ...before.packages,
+      '@pi-meme/host@file:packages/host': { resolution: { directory: 'packages/host' } },
+    },
+    snapshots: { ...before.snapshots, '@pi-meme/host@file:packages/host': { dependencies: { fixture: '1.0.0' } } },
+  }
+  assertLockedDependencies(stringify(before), stringify(after))
+  const metadata = structuredClone(after)
+  Object.assign(metadata.packages['fixture@1.0.0'], { deprecated: '更新声明' })
+  assertLockedDependencies(stringify(before), stringify(metadata))
+  const version = structuredClone(after)
+  Object.assign(version.packages, { 'fixture@2.0.0': { resolution: { integrity: 'sha512-other' } } })
+  assert.throws(() => assertLockedDependencies(stringify(before), stringify(version)), /外部依赖/)
+  const checksum = structuredClone(after)
+  checksum.packages['fixture@1.0.0'].resolution.integrity = 'sha512-other'
+  assert.throws(() => assertLockedDependencies(stringify(before), stringify(checksum)), /校验值/)
+  const graph = structuredClone(after)
+  graph.snapshots['fixture@1.0.0'].dependencies.leaf = '2.0.0'
+  assert.throws(() => assertLockedDependencies(stringify(before), stringify(graph)), /依赖图/)
+  const context = structuredClone(after)
+  Object.assign(context.snapshots, { 'fixture@1.0.0(peer@1.0.0)': { dependencies: { leaf: '1.0.0' } } })
+  assert.throws(() => assertLockedDependencies(stringify(before), stringify(context)), /依赖图/)
 })
 
 test('Desktop、Host 和 Tag 必须使用同一个可分发版本', () => {
