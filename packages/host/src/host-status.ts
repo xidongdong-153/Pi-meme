@@ -27,7 +27,12 @@ export async function readLocalHostStatus(url: string): Promise<LocalHostStatus 
   const origin = assertLocalHostUrl(url)
   let response: Response
   try {
-    response = await fetch(`${origin}/api/status`, { redirect: 'error', signal: AbortSignal.timeout(1000) })
+    // 状态探测不复用长连接，避免拿到 Host 停机时已关闭的 socket。
+    response = await fetch(`${origin}/api/status`, {
+      headers: { Connection: 'close' },
+      redirect: 'error',
+      signal: AbortSignal.timeout(1000),
+    })
   } catch (cause) {
     if (errorCode(cause) === 'ECONNREFUSED') return undefined
     throw new Error('本机端口没有返回有效的 Host 状态，请检查端口占用和监听地址', { cause })

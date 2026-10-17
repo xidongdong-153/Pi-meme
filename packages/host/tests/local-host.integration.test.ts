@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { createServer } from 'node:net'
+import { createServer, type Socket } from 'node:net'
 import { createServer as createHttpServer, request } from 'node:http'
 import { mkdtemp, realpath, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -51,6 +51,35 @@ test('本机入口默认端口统一，非法端口被拒绝，0 仅用于显式
   assert.equal(localHostUrl(), 'http://127.0.0.1:31415')
   assert.equal(hostPort('0'), 0)
   for (const value of ['', '-1', '65536', '1.2', 'abc']) assert.throws(() => hostPort(value), /PI_MEME_PORT/)
+})
+
+test('本机状态探测使用独立连接，服务停机后立即返回未监听', async () => {
+  const connections = new Set<Socket>()
+  const status = {
+    product: 'pi-meme',
+    runtimeProtocolVersion: 1,
+    hostId: 'fixture',
+    instanceId: 'instance',
+    dataRoot: path.join(tmpdir(), 'pi-status-fixture'),
+    owner: 'server',
+  }
+  const server = createHttpServer((request, response) => {
+    connections.add(request.socket)
+    response.end(JSON.stringify(status))
+  })
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  const address = server.address()
+  assert.ok(address && typeof address !== 'string')
+  const url = localHostUrl(address.port)
+  try {
+    for (let index = 0; index < 4; index++) assert.deepEqual(await readLocalHostStatus(url), status)
+    assert.equal(connections.size, 4, '状态探测不能复用可能在 Host 停机时被关闭的连接')
+    await new Promise<void>((resolve, reject) => server.close((cause) => (cause ? reject(cause) : resolve())))
+    assert.equal(await readLocalHostStatus(url), undefined)
+  } finally {
+    server.closeAllConnections()
+    if (server.listening) await new Promise<void>((resolve) => server.close(() => resolve()))
+  }
 })
 
 test('本机状态无需 Cookie，但拒绝跨源，不包含凭据', async () => {
@@ -142,7 +171,12 @@ test('其他程序或不兼容协议占用端口时，不创建第二个 Host', 
     owner: 'desktop',
   }
   let status: Record<string, unknown> = base
-  const server = createHttpServer((_request, response) => {
+  let disconnect = false
+  const server = createHttpServer((request, response) => {
+    if (disconnect) {
+      request.socket.destroy()
+      return
+    }
     response.end(JSON.stringify(status))
   })
   let created = 0
@@ -164,6 +198,18 @@ test('其他程序或不兼容协议占用端口时，不创建第二个 Host', 
         /不是兼容/,
       )
     }
+    disconnect = true
+    await assert.rejects(
+      acquireLocalHost({
+        url: localHostUrl(address.port),
+        dataRoot: f.root,
+        create: () => {
+          created++
+          return f.create()
+        },
+      }),
+      /没有返回有效的 Host 状态/,
+    )
     assert.equal(created, 0)
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()))
