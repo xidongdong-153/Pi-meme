@@ -5,6 +5,7 @@ import type { AppearanceSettings, DesktopSettings, SettingsSnapshot, Theme } fro
 import { defaultAppearance, migrateAppearance, selectAppearanceTheme, validateAppearance } from '../shared/appearance'
 import { builtinThemes, parseTheme } from '../shared/themes'
 import { defaultSidebarPreferences, parseSidebarPreferencesPatch, validateSidebarPreferences } from '../shared/sidebar'
+import { DEFAULT_USER_PROFILE } from '../shared/user-profile'
 
 function normalizeEnabledSubagents(value: unknown): string[] {
   if (
@@ -48,9 +49,9 @@ export class SettingsStore {
   }) {
     await mkdir(this.profileDirectory, { recursive: true })
     const profileFile = path.join(this.profileDirectory, 'profile.json')
-    let current: Record<string, unknown> = {}
+    let current: Partial<typeof DEFAULT_USER_PROFILE> & { avatarFile?: string } = {}
     try {
-      current = JSON.parse(await readFile(profileFile, 'utf8')) as Record<string, unknown>
+      current = JSON.parse(await readFile(profileFile, 'utf8')) as typeof current
     } catch (cause) {
       if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw cause
     }
@@ -68,10 +69,10 @@ export class SettingsStore {
 
     const next = {
       ...current,
-      name: profile.name ?? current.name ?? 'xi dongdong',
-      username: profile.username ?? current.username ?? '@youzegehq',
-      email: profile.email ?? current.email ?? 'youzegehq@gmail.com',
-      avatarText: profile.avatarText ?? current.avatarText ?? 'XD',
+      name: (profile.name ?? current.name)?.trim() || DEFAULT_USER_PROFILE.name,
+      username: (profile.username ?? current.username)?.trim() || DEFAULT_USER_PROFILE.username,
+      email: (profile.email ?? current.email)?.trim() || DEFAULT_USER_PROFILE.email,
+      avatarText: (profile.avatarText ?? current.avatarText)?.trim() || DEFAULT_USER_PROFILE.avatarText,
       avatarFile: avatarFileName,
       updatedAt: new Date().toISOString(),
     }
@@ -109,10 +110,10 @@ export class SettingsStore {
     }
 
     return {
-      name: current.name || 'xi dongdong',
-      username: current.username || '@youzegehq',
-      email: current.email || 'youzegehq@gmail.com',
-      avatarText: current.avatarText || 'XD',
+      name: current.name?.trim() || DEFAULT_USER_PROFILE.name,
+      username: current.username?.trim() || DEFAULT_USER_PROFILE.username,
+      email: current.email?.trim() || DEFAULT_USER_PROFILE.email,
+      avatarText: current.avatarText?.trim() || DEFAULT_USER_PROFILE.avatarText,
       avatarUrl,
     }
   }

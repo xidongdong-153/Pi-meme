@@ -3,9 +3,12 @@ import { test } from 'vitest'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import type { AgentMailboxMessage, AgentSummary } from '@pi-meme/contracts/collaboration'
+import { agentAvatarScenes } from '@pi-meme/contracts/collaboration'
+import { AgentAvatar } from '@pi-meme/ui/components/agent-avatar'
 import type { PiMessage } from '@pi-meme/contracts/pi'
 import type { Snapshot } from '@pi-meme/contracts/desktop'
 import { Conversation } from '../src/ui/conversation/conversation'
+import { AgentStatusRow } from '../src/ui/conversation/agent-status-row'
 import { projectMainConversation } from '../src/ui/model/conversation-projection'
 import { groupConversationTurns } from '../src/ui/model/conversation-turns'
 import { applyEvent, emptyChat, fromSnapshot } from '../src/ui/model/state'
@@ -68,6 +71,70 @@ function turns(messages: PiMessage[], agentMessages: AgentMailboxMessage[]) {
   const view = projectMainConversation({ ...emptyChat, messages, agentMessages })
   return groupConversationTurns(view.messages, view.live, view.tools, false, {}, view.agentStatuses)
 }
+
+test('全部场景头像可显式选择并覆盖名称，未识别职责保留原来的头像', () => {
+  for (const avatar of agentAvatarScenes) {
+    const markup = renderToStaticMarkup(
+      createElement(AgentAvatar, {
+        seed: 'existing-unclassified-agent',
+        name: 'review',
+        avatar,
+      }),
+    )
+    assert.match(markup, new RegExp(`src="[^"]*/agents/${avatar}\\.png"`))
+  }
+  const legacy = renderToStaticMarkup(
+    createElement(AgentAvatar, {
+      seed: 'existing-unclassified-agent',
+      name: 'unclassified',
+    }),
+  )
+  assert.match(legacy, /data-variant="3"/)
+  assert.match(legacy, /src="[^"]*\/agents\/code\.png"/)
+  for (const [name, scene] of [
+    ['frontend_ui', 'frontend'],
+    ['backend_api', 'backend'],
+    ['db_migration', 'database'],
+    ['ci_pipeline', 'devops'],
+    ['security_audit', 'security'],
+    ['debug_worker', 'debug'],
+    ['performance_bench', 'performance'],
+    ['refactor_chat', 'refactor'],
+    ['browser_e2e', 'browser'],
+    ['data_metrics', 'data'],
+    ['product_prd', 'product'],
+    ['i18n_copy', 'localization'],
+  ]) {
+    const markup = renderToStaticMarkup(createElement(AgentAvatar, { seed: 'worker', name }))
+    assert.match(markup, new RegExp(`src="[^"]*/agents/${scene}\\.png"`))
+  }
+})
+
+test('实时状态、工具历史和结果重放都使用调度选择的场景头像', () => {
+  const mail = result({ avatar: 'security' })
+  const report: PiMessage = {
+    role: 'custom',
+    customType: 'pi-meme-collaboration',
+    display: false,
+    content: mail.text,
+    details: { ...mail, messageId: mail.id },
+    timestamp: 2500,
+  }
+  for (const chat of [
+    { ...emptyChat, agents: [agent({ avatar: 'security' })] },
+    { ...emptyChat, messages: [toolResult('spawn_agent', agent({ avatar: 'security' }))] },
+    { ...emptyChat, agentMessages: [result({ avatar: 'security' })] },
+    { ...emptyChat, messages: [report] },
+  ]) {
+    const view = projectMainConversation(chat)
+    assert.ok(view.agentStatuses.length > 0)
+    for (const row of view.agentStatuses) {
+      assert.equal(row.agents[0].avatar, 'security')
+      const markup = renderToStaticMarkup(createElement(AgentStatusRow, { agents: row.agents, status: row.status }))
+      assert.match(markup, /src="[^"]*\/agents\/security\.png"/)
+    }
+  }
+})
 
 test('实时状态立即生成开始和完成提示，不等待父任务读取结果，根代理不生成提示', () => {
   const running = agent()

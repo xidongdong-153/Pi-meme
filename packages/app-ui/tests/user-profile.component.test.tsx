@@ -30,6 +30,32 @@ afterEach(() => {
   window.localStorage.clear()
 })
 
+test('未配置的资料使用默认头像，保存文本时不上传内置头像地址或缓存构建路径', async () => {
+  const saveUserProfile = vi.fn().mockResolvedValue({})
+  const bridge = {
+    getUserProfile: vi.fn().mockResolvedValue({ name: ' ', username: '', email: '\t', avatarText: '' }),
+    saveUserProfile,
+  }
+  const { result } = renderHook(() => useUserProfile(bridge))
+
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  expect(result.current.profile).toEqual(DEFAULT_PROFILE)
+  expect(result.current.profile.avatarUrl).toBeTruthy()
+  expect(JSON.parse(window.localStorage.getItem(storageKey)!)).not.toHaveProperty('avatarUrl')
+
+  act(() => result.current.updateProfile({ name: '新名字' }))
+
+  expect(result.current.profile.avatarUrl).toBe(DEFAULT_PROFILE.avatarUrl)
+  expect(saveUserProfile).toHaveBeenCalledWith({
+    name: '新名字',
+    username: DEFAULT_PROFILE.username,
+    email: DEFAULT_PROFILE.email,
+    avatarText: DEFAULT_PROFILE.avatarText,
+    avatarData: undefined,
+  })
+  expect(JSON.parse(window.localStorage.getItem(storageKey)!)).not.toHaveProperty('avatarUrl')
+})
+
 test('缓存写入失败时仍显示 Host 资料，后续修改不丢失已加载字段', async () => {
   vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
     throw new DOMException('缓存空间不足', 'QuotaExceededError')

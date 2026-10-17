@@ -11,6 +11,49 @@ import { SdkSession } from '@pi-meme/pi-runtime/sdk/session'
 import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
 import { fakeSession, setup } from './coordinator-fixture'
 
+test('场景头像保存在身份与结果中，续跑保留，后代不继承且无效配置不创建身份', async () => {
+  const context = await setup()
+  try {
+    await context.begin()
+    const child = (await context.call(context.root.session, 'spawn_agent', {
+      task_name: 'worker',
+      message: '检查认证边界',
+      avatar: 'security',
+      fork_turns: 'none',
+    })) as AgentSummary
+    assert.equal(child.avatar, 'security')
+    for (const avatar of ['unknown', '', null, 1])
+      await assert.rejects(
+        context.call(context.root.session, 'spawn_agent', {
+          task_name: 'invalid_avatar',
+          message: '任务',
+          avatar,
+          fork_turns: 'none',
+        }),
+        /头像场景无效/,
+      )
+    assert.equal((await context.bridge.getAgents('root-key')).length, 2)
+    const childSession = context.children.get(child.sessionKey)!
+    childSession.finish('审查完成')
+    await context.until(
+      async () =>
+        (await context.bridge.getAgents('root-key')).find((entry) => entry.agentId === child.agentId)!.status ===
+        'completed',
+    )
+    const snapshot = await context.bridge.snapshot('root-key')
+    assert.equal(snapshot.agentMessages.find((entry) => entry.fromAgentId === child.agentId)?.avatar, 'security')
+    const followup = (await context.call(context.root.session, 'followup_task', {
+      target: child.agentId,
+      message: '继续检查',
+    })) as CollaborationResults['followup_task']
+    assert.equal(followup.agent.avatar, 'security')
+    const nested = await context.spawn('code', childSession.session)
+    assert.equal(nested.avatar, undefined)
+  } finally {
+    await context.cleanup()
+  }
+})
+
 test('容量计入等待任务；等待可取消，取消后同树仍可调度', async () => {
   const context = await setup()
   try {
@@ -260,12 +303,17 @@ test('child先结束轮次，grandchild延迟结果触发同epoch汇总后再交
   }
 })
 
-test('Host 重启绑定根会话使用当前运行时代次，保留子代理身份和代次', async () => {
+test('Host 重启绑定根会话使用当前运行时代次，保留子代理身份、头像和代次', async () => {
   const context = await setup()
   let restored: ReturnType<typeof createHostCollaborationBridge> | undefined
   try {
     await context.begin()
-    const child = await context.spawn('worker')
+    const child = (await context.call(context.root.session, 'spawn_agent', {
+      task_name: 'worker',
+      message: '验证浏览器行为',
+      avatar: 'browser',
+      fork_turns: 'none',
+    })) as AgentSummary
     const binding = {
       sessionKey: 'root-key',
       cwd: context.directory,
@@ -293,6 +341,7 @@ test('Host 重启绑定根会话使用当前运行时代次，保留子代理身
     assert.equal(snapshot.agent.agentId, original.agentId)
     assert.equal(snapshot.agent.executionGeneration, 0)
     const savedChild = snapshot.agents.find((agent) => agent.agentId === child.agentId)!
+    assert.equal(savedChild.avatar, 'browser')
     assert.equal(savedChild.executionGeneration, child.executionGeneration)
     assert.equal(savedChild.rootAgentId, original.agentId)
     current.session.connection = () => ({ cwd: context.directory, generation: 1, status: 'ready' })

@@ -1,4 +1,4 @@
-/* 品牌底图在 packages/assets/files/brand。默认深色版，主题 appearance 为 light 时切浅色版。换图覆盖同名文件。 */
+/* 品牌图标在 packages/assets/files/brand。深浅主题文件使用同一透明图案，换图覆盖同名文件。 */
 .brand-mark {
   display: inline-block;
   flex-shrink: 0;

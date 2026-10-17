@@ -23,8 +23,8 @@ test('AccountSettings 渲染表单时已移除状态与年龄，保留姓名、�
   expect(screen.getByText('姓名')).toBeInTheDocument()
   expect(screen.getByText('用户名')).toBeInTheDocument()
   expect(screen.getByText('电子邮箱')).toBeInTheDocument()
-  expect(screen.getAllByText('@youzegehq')[0]).toBeInTheDocument()
-  expect(screen.getByText('youzegehq@gmail.com')).toBeInTheDocument()
+  expect(screen.getAllByText('@meme')[0]).toBeInTheDocument()
+  expect(screen.getByText('meme@example.com')).toBeInTheDocument()
 })
 
 test('AccountSettings 具备头像上传编辑按钮并触发文件选择', () => {

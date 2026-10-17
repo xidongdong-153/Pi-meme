@@ -1026,6 +1026,9 @@ importers:
       '@pi-meme/assets':
         specifier: workspace:*
         version: link:../assets
+      '@pi-meme/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@radix-ui/react-collapsible':
         specifier: ^1.1.20
         version: 1.1.20(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)

@@ -5,6 +5,7 @@ import path from 'node:path'
 import type { DesktopEvent, Snapshot } from '@pi-meme/contracts/desktop'
 import {
   collaborationLimits,
+  agentAvatarScenes,
   type AgentSummary,
   type AgentMailboxMessage,
   type CollaborationRequest,
@@ -516,8 +517,9 @@ export class HostCollaborationBridge {
       return this.wait(caller, request.params.targets, request.params.timeout_ms, signal)
     if (request.method === 'spawn_agent') {
       this.options.assertCheckoutAvailable?.(caller.summary.cwd)
-      const { task_name: name, message, fork_turns: fork = 'all' } = request.params
+      const { task_name: name, message, avatar, fork_turns: fork = 'all' } = request.params
       if (!/^[a-z][a-z0-9_]{0,63}$/.test(name) || !message.trim()) throw new Error('子 Agent 名称或任务无效')
+      if (avatar !== undefined && !agentAvatarScenes.includes(avatar)) throw new Error('子 Agent 头像场景无效')
       if (caller.summary.depth >= collaborationLimits.depth) throw new Error('子 Agent 最多嵌套两层')
       this.capacity(caller)
       if (this.tree(caller).length - 1 >= collaborationLimits.identities) throw new Error('子 Agent 身份最多 16 个')
@@ -531,6 +533,7 @@ export class HostCollaborationBridge {
           agentId,
           parentAgentId: caller.summary.agentId,
           name,
+          avatar,
           taskPath,
           depth: caller.summary.depth + 1,
           sessionKey: `agent:${agentId}`,
@@ -922,6 +925,7 @@ export class HostCollaborationBridge {
           runId,
           kind: 'result',
           name: record.summary.name,
+          avatar: record.summary.avatar,
           status: record.summary.status,
           startedAt: record.summary.runStartedAt,
           completedAt: record.summary.runCompletedAt,

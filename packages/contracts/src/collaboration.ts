@@ -4,6 +4,30 @@ import type { PiExtensionDialogRequest, PiModel, ThinkingLevel } from './pi'
 import type { TaskMode } from './plan'
 
 export const collaborationLimits = { activeChildren: 4, depth: 2, identities: 16 } as const
+/** 顺序对应子代理头像资源；已有场景保留位置，新场景只追加。 */
+export const agentAvatarScenes = [
+  'general',
+  'research',
+  'plan',
+  'code',
+  'review',
+  'test',
+  'design',
+  'docs',
+  'frontend',
+  'backend',
+  'database',
+  'devops',
+  'security',
+  'debug',
+  'performance',
+  'refactor',
+  'browser',
+  'data',
+  'product',
+  'localization',
+] as const
+export type AgentAvatarScene = (typeof agentAvatarScenes)[number]
 export type AgentStatus =
   | 'idle'
   | 'starting'
@@ -19,6 +43,7 @@ export type AgentIdentity = {
   rootAgentId: string
   parentAgentId?: string
   name: string
+  avatar?: AgentAvatarScene
   taskPath: string
   depth: number
 }
@@ -62,6 +87,7 @@ export type AgentMailboxMessage = {
   runId?: string
   kind: 'message' | 'result'
   name?: string
+  avatar?: AgentAvatarScene
   status?: AgentStatus
   startedAt?: string
   completedAt?: string
@@ -69,7 +95,7 @@ export type AgentMailboxMessage = {
   createdAt: string
 }
 export type CollaborationRequests = {
-  spawn_agent: { task_name: string; message: string; fork_turns?: 'all' | 'none' }
+  spawn_agent: { task_name: string; message: string; avatar?: AgentAvatarScene; fork_turns?: 'all' | 'none' }
   send_message: { target: string; message: string }
   followup_task: { target: string; message: string }
   interrupt_agent: { target: string }

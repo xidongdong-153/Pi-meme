@@ -1,3 +1,5 @@
+export const defaultUserAvatar = new URL('../files/profile/default-avatar.png', import.meta.url).href
+
 /** 子代理头像。下标是 data-variant，换图时覆盖同名文件，不要改顺序。 */
 export const agentAvatars = [
   new URL('../files/agents/general.png', import.meta.url).href,
@@ -8,6 +10,18 @@ export const agentAvatars = [
   new URL('../files/agents/test.png', import.meta.url).href,
   new URL('../files/agents/design.png', import.meta.url).href,
   new URL('../files/agents/docs.png', import.meta.url).href,
+  new URL('../files/agents/frontend.png', import.meta.url).href,
+  new URL('../files/agents/backend.png', import.meta.url).href,
+  new URL('../files/agents/database.png', import.meta.url).href,
+  new URL('../files/agents/devops.png', import.meta.url).href,
+  new URL('../files/agents/security.png', import.meta.url).href,
+  new URL('../files/agents/debug.png', import.meta.url).href,
+  new URL('../files/agents/performance.png', import.meta.url).href,
+  new URL('../files/agents/refactor.png', import.meta.url).href,
+  new URL('../files/agents/browser.png', import.meta.url).href,
+  new URL('../files/agents/data.png', import.meta.url).href,
+  new URL('../files/agents/product.png', import.meta.url).href,
+  new URL('../files/agents/localization.png', import.meta.url).href,
 ] as const
 
 /** 系统插件页图标。键是插件 id，换图时覆盖 system-plugins 下的同名文件。 */

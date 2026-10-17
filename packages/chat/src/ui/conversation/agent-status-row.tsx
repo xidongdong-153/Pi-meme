@@ -1,11 +1,12 @@
 import { AgentAvatar } from '@pi-meme/ui/components/agent-avatar'
 import { formatAgentName } from '@pi-meme/ui/lib/agent-name'
+import type { TurnChunk } from '../model/types'
 
 export function AgentStatusRow({
   agents,
   status,
 }: {
-  agents: Array<{ agentId: string; name: string }>
+  agents: Extract<TurnChunk, { type: 'agent_status' }>['agents']
   status: string
 }) {
   const names = agents.map((agent) => formatAgentName(agent.name))
@@ -14,7 +15,13 @@ export function AgentStatusRow({
     <p aria-label="子代理状态" className="flex items-start gap-2 py-2 text-sm text-muted-foreground">
       <span className="flex max-w-[40%] shrink-0 flex-wrap gap-1">
         {agents.map((agent) => (
-          <AgentAvatar key={agent.agentId} seed={agent.agentId} name={agent.name} className="size-5" />
+          <AgentAvatar
+            key={agent.agentId}
+            seed={agent.agentId}
+            name={agent.name}
+            avatar={agent.avatar}
+            className="size-5"
+          />
         ))}
       </span>
       <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">

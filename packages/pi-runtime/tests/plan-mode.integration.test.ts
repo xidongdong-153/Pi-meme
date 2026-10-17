@@ -209,7 +209,7 @@ test('准入拒绝与准入期间Abort都回到idle，下一轮仍能正常发�
   }
 })
 
-test('子代理结果的开始和完成时间写入原生记录，重建后保留且重复交付不追加', async () => {
+test('子代理结果的头像和起止时间写入原生记录，重建后保留且重复交付不追加', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pi-result-timestamps-'))
   const fake = await useFakeAgent(directory)
   const session = new SdkSession(
@@ -228,6 +228,7 @@ test('子代理结果的开始和完成时间写入原生记录，重建后保�
     kind: 'result' as const,
     status: 'completed' as const,
     name: 'reviewer',
+    avatar: 'security' as const,
     text: '完整结果正文',
     startedAt: new Date(1000).toISOString(),
     completedAt: new Date(2000).toISOString(),
@@ -253,6 +254,7 @@ test('子代理结果的开始和完成时间写入原生记录，重建后保�
     )
     assert.ok(report?.role === 'custom')
     assert.equal(report.display, false)
+    assert.equal((report.details as { avatar?: string }).avatar, message.avatar)
     assert.equal((report.details as { startedAt?: string }).startedAt, message.startedAt)
     assert.equal((report.details as { completedAt?: string }).completedAt, message.completedAt)
     assert.equal((await session.deliverCollaborationMessage(message)).persisted, true)

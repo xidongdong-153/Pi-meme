@@ -6,6 +6,57 @@ import path from 'node:path'
 import { SettingsStore } from '../src/server/store'
 import { builtinThemes, parseTheme } from '../src/shared/themes'
 
+test('未配置的个人资料使用通用默认值，空白字段保存后仍可恢复', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pi-default-profile-'))
+  try {
+    const store = new SettingsStore(directory)
+    const expected = {
+      name: 'meme 用户',
+      username: '@meme',
+      email: 'meme@example.com',
+      avatarText: 'M',
+      avatarUrl: undefined,
+    }
+    assert.deepEqual(await store.getUserProfile(), expected)
+
+    const profileFile = path.join(store.profileDirectory, 'profile.json')
+    await writeFile(profileFile, JSON.stringify({ name: ' ', username: '', email: '\t', avatarText: '' }))
+    assert.deepEqual(await store.getUserProfile(), expected)
+    assert.deepEqual(await store.saveUserProfile({ name: '', username: ' ', email: '', avatarText: ' ' }), expected)
+    const saved = JSON.parse(await readFile(profileFile, 'utf8'))
+    for (const key of ['name', 'username', 'email', 'avatarText'] as const) assert.equal(saved[key], expected[key])
+    assert.deepEqual(await new SettingsStore(directory).getUserProfile(), expected)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('修改个人资料的单个字段时保留自定义内容和头像，重启后仍可恢复', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pi-custom-profile-'))
+  try {
+    const store = new SettingsStore(directory)
+    const custom = {
+      name: '自定义姓名',
+      username: '@custom',
+      email: 'custom@example.com',
+      avatarText: '自',
+      avatarData: 'data:image/png;base64,YXZhdGFy',
+    }
+    await store.saveUserProfile(custom)
+    await store.saveUserProfile({ name: '新姓名' })
+
+    assert.deepEqual(await new SettingsStore(directory).getUserProfile(), {
+      name: '新姓名',
+      username: custom.username,
+      email: custom.email,
+      avatarText: custom.avatarText,
+      avatarUrl: custom.avatarData,
+    })
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
 test('设置忽略旧扩展路径，不再暴露或创建扩展目录', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pi-extension-settings-'))
   try {

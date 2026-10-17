@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
 import type { ExtensionAPI, ToolDefinition } from '@earendil-works/pi-coding-agent'
+import { agentAvatarScenes } from '@pi-meme/contracts/collaboration'
 import { create } from '../src/agent/entry'
 
 test('六协作工具常驻注册，不依赖旧目录定义或Task开关', async () => {
@@ -28,7 +29,18 @@ test('六协作工具常驻注册，不依赖旧目录定义或Task开关', asyn
   await list.execute('tool-list', {}, undefined, undefined, {} as never)
   assert.deepEqual(requests, [{ method: 'list_agents', params: {} }])
   const spawn = tools.find((tool) => tool.name === 'spawn_agent')!
-  const schema = spawn.parameters as { properties: { task_name: { description: string; pattern: string } } }
+  const schema = spawn.parameters as {
+    properties: {
+      task_name: { description: string; pattern: string }
+      avatar: { anyOf: Array<{ const: string }> }
+    }
+    required: string[]
+  }
+  assert.deepEqual(
+    schema.properties.avatar.anyOf.map((entry) => entry.const),
+    agentAvatarScenes,
+  )
+  assert.equal(schema.required.includes('avatar'), false)
   const taskName = schema.properties.task_name
   assert.match(taskName.description, /子任务职责.*snake_case/)
   assert.match(spawn.description, /task_name.*任务职责.*snake_case/)
@@ -42,4 +54,7 @@ test('六协作工具常驻注册，不依赖旧目录定义或Task开关', asyn
     await spawn.execute(`tool-${name}`, params, undefined, undefined, {} as never)
     assert.deepEqual(requests.at(-1), { method: 'spawn_agent', params })
   }
+  const params = { task_name: 'worker', message: '审查认证边界', avatar: 'security', fork_turns: 'none' }
+  await spawn.execute('tool-avatar', params, undefined, undefined, {} as never)
+  assert.deepEqual(requests.at(-1), { method: 'spawn_agent', params })
 })

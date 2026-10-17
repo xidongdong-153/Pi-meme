@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
+import { defaultUserAvatar } from '@pi-meme/assets/builtin'
 import type { SettingsBridge } from '@pi-meme/contracts/desktop'
+import { DEFAULT_USER_PROFILE } from '@pi-meme/settings/shared/user-profile'
 
 export type UserProfile = {
   name: string
@@ -14,10 +16,8 @@ type ProfileBridge = Pick<SettingsBridge, 'getUserProfile' | 'saveUserProfile'>
 const STORAGE_KEY = 'pi-meme-user-profile'
 
 export const DEFAULT_PROFILE: UserProfile = {
-  name: 'xi dongdong',
-  username: '@youzegehq',
-  email: 'youzegehq@gmail.com',
-  avatarText: 'XD',
+  ...DEFAULT_USER_PROFILE,
+  avatarUrl: defaultUserAvatar,
 }
 
 function normalizeProfile(profile: Partial<UserProfile>): UserProfile {
@@ -26,7 +26,7 @@ function normalizeProfile(profile: Partial<UserProfile>): UserProfile {
     username: profile.username?.trim() || DEFAULT_PROFILE.username,
     email: profile.email?.trim() || DEFAULT_PROFILE.email,
     avatarText: profile.avatarText?.trim() || DEFAULT_PROFILE.avatarText,
-    avatarUrl: profile.avatarUrl || undefined,
+    avatarUrl: profile.avatarUrl?.trim() || DEFAULT_PROFILE.avatarUrl,
   }
 }
 
@@ -44,7 +44,8 @@ function loadUserProfile(): UserProfile | null {
 function cacheUserProfile(profile: UserProfile) {
   if (typeof window === 'undefined') return
   try {
-    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(profile))
+    const avatarUrl = profile.avatarUrl === DEFAULT_PROFILE.avatarUrl ? undefined : profile.avatarUrl
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...profile, avatarUrl }))
   } catch {
     // 缓存不可用时仍使用内存中的资料。
   }
@@ -103,7 +104,7 @@ export function useUserProfile(bridge?: ProfileBridge) {
 
   const updateProfile = (patch: Partial<UserProfile>) => {
     if (state.loading) return
-    const next = { ...state.profile, ...patch }
+    const next = normalizeProfile({ ...state.profile, ...patch })
     setState((current) => ({ ...current, profile: next, hasProfile: true }))
     cacheUserProfile(next)
     if (bridge?.saveUserProfile) {
@@ -113,7 +114,7 @@ export function useUserProfile(bridge?: ProfileBridge) {
           username: next.username,
           email: next.email,
           avatarText: next.avatarText,
-          avatarData: next.avatarUrl,
+          avatarData: next.avatarUrl === DEFAULT_PROFILE.avatarUrl ? undefined : next.avatarUrl,
         })
         .catch(() => {
           // 保留现有保存语义：Host 保存失败时继续使用本地资料。

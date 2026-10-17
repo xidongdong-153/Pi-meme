@@ -1451,6 +1451,7 @@ export class SdkSession {
             display: message.kind !== 'result',
             details: {
               name: message.name,
+              avatar: message.avatar,
               status: message.status,
               startedAt: message.startedAt,
               completedAt: message.completedAt,

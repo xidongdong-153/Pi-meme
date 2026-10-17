@@ -3,11 +3,12 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { test } from 'vitest'
 import { pathToFileURL } from 'node:url'
-import { agentAvatars, systemPluginIcons, systemSkillIcons } from '../src/builtin'
+import { agentAvatars, defaultUserAvatar, systemPluginIcons, systemSkillIcons } from '../src/builtin'
 
 const filesRoot = path.resolve(import.meta.dirname, '../files')
 
 const rendererFiles = [
+  'profile/default-avatar.png',
   'agents/general.png',
   'agents/research.png',
   'agents/plan.png',
@@ -16,6 +17,18 @@ const rendererFiles = [
   'agents/test.png',
   'agents/design.png',
   'agents/docs.png',
+  'agents/frontend.png',
+  'agents/backend.png',
+  'agents/database.png',
+  'agents/devops.png',
+  'agents/security.png',
+  'agents/debug.png',
+  'agents/performance.png',
+  'agents/refactor.png',
+  'agents/browser.png',
+  'agents/data.png',
+  'agents/product.png',
+  'agents/localization.png',
   'system-plugins/git.png',
   'system-plugins/file-directory.png',
   'system-plugins/terminal.png',
@@ -35,7 +48,12 @@ const desktopFiles = [
 ]
 
 test('内置图片都在 files 目录，界面引用指向这些文件', () => {
-  const referenced = [...agentAvatars, ...Object.values(systemPluginIcons), ...Object.values(systemSkillIcons)]
+  const referenced = [
+    defaultUserAvatar,
+    ...agentAvatars,
+    ...Object.values(systemPluginIcons),
+    ...Object.values(systemSkillIcons),
+  ]
   assert.deepEqual(
     referenced,
     rendererFiles

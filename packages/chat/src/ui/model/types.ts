@@ -87,7 +87,7 @@ export type TurnChunk =
   | {
       type: 'agent_status'
       phase: 'started' | 'finished'
-      agents: Array<{ agentId: string; name: string }>
+      agents: Array<Pick<AgentSummary, 'agentId' | 'name' | 'avatar'>>
       status: '开始工作' | '已完成' | '失败' | '已中断' | '已停止' | '已结束'
       timestamp: number
       key: string

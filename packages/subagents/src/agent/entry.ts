@@ -1,6 +1,10 @@
 import type { InlineExtension } from '@earendil-works/pi-coding-agent'
 import { Type } from 'typebox'
-import type { CollaborationRequest, CollaborationResults } from '@pi-meme/contracts/collaboration'
+import {
+  agentAvatarScenes,
+  type CollaborationRequest,
+  type CollaborationResults,
+} from '@pi-meme/contracts/collaboration'
 import type { PlanDocument, SavePlanInput } from '@pi-meme/contracts/plan'
 
 export type CollaborationExtensionContext = {
@@ -21,6 +25,15 @@ const schemas = {
         description: '按子任务职责填写简短的 snake_case 名称，例如 chat_activity、workspace_sidebar、settings。',
       }),
       message: text(),
+      avatar: Type.Optional(
+        Type.Union(
+          agentAvatarScenes.map((scene) => Type.Literal(scene)),
+          {
+            description:
+              '按任务场景选择展示头像，例如 frontend（前端）、security（安全）、browser（浏览器验证）；省略时按任务名称匹配。仅影响头像。',
+          },
+        ),
+      ),
       fork_turns: Type.Optional(Type.Union([Type.Literal('all'), Type.Literal('none')])),
     },
     { additionalProperties: false },
@@ -39,7 +52,7 @@ const schemas = {
 }
 const descriptions = {
   spawn_agent:
-    '启动后台子 Agent。task_name 用任务职责的 snake_case 短名，例如 chat_activity、workspace_sidebar、settings；后续 target 可使用返回的 agentId、taskPath 或相对任务名。共享工作目录并继承当前模型、思考等级、访问权限和任务模式。最多 4 个活动子 Agent、嵌套两层、16 个身份。fork_turns=all 继承最新闭合历史；none 使用新上下文。',
+    '启动后台子 Agent。task_name 用任务职责的 snake_case 短名，例如 chat_activity、workspace_sidebar、settings；avatar 可按任务场景指定头像，省略时按名称匹配。后续 target 可使用返回的 agentId、taskPath 或相对任务名。共享工作目录并继承当前模型、思考等级、访问权限和任务模式。最多 4 个活动子 Agent、嵌套两层、16 个身份。fork_turns=all 继承最新闭合历史；none 使用新上下文。',
   send_message: '向同树 Agent 发消息。运行中在安全边界收到；空闲时只保存到邮箱，不启动任务。',
   followup_task: '继续后代 Agent 的任务，保留 agentId 和会话文件；忙时按顺序排队，完成时启动新轮。',
   interrupt_agent: '停止后代 Agent 的当前任务及其后代，取消待启动任务；保留身份、历史与已完成结果。',

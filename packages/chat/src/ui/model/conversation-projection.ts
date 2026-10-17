@@ -56,7 +56,7 @@ export function projectMainConversation(chat: ChatState) {
   )
   const byRun = new Map<string, AgentStatusTurn>()
   const agents = new Map(chat.agents?.map((agent) => [agent.agentId, agent]))
-  const started = (agentId: string, name: string, startedAt?: string) => {
+  const started = (agentId: string, name: string, startedAt?: string, avatar?: AgentSummary['avatar']) => {
     if (!startedAt) return
     const timestamp = Date.parse(startedAt)
     if (!Number.isFinite(timestamp)) return
@@ -65,7 +65,7 @@ export function projectMainConversation(chat: ChatState) {
       byRun.set(key, {
         type: 'agent_status',
         phase: 'started',
-        agents: [{ agentId, name }],
+        agents: [{ agentId, name, ...(avatar ? { avatar } : {}) }],
         key,
         status: '开始工作',
         timestamp,
@@ -73,7 +73,7 @@ export function projectMainConversation(chat: ChatState) {
   }
   const agentStarted = (agent: AgentSummary) => {
     if (!agent.parentAgentId || !agent.runId || agent.status === 'idle' || agent.status === 'starting') return
-    started(agent.agentId, agent.name, agent.runStartedAt)
+    started(agent.agentId, agent.name, agent.runStartedAt, agent.avatar)
   }
   for (const agent of agents.values()) agentStarted(agent)
   for (const message of chat.messages) {
@@ -101,6 +101,7 @@ export function projectMainConversation(chat: ChatState) {
             kind: 'result' as const,
             fromAgentId: agent.agentId,
             name: agent.name,
+            avatar: agent.avatar,
             status: agent.status,
             runId: agent.runId,
             startedAt: agent.runStartedAt,
@@ -118,7 +119,8 @@ export function projectMainConversation(chat: ChatState) {
     const status = terminalLabels[runStatus as keyof typeof terminalLabels]
     if (runStatus && !status) continue
     const name = message.name || agent?.name || '子代理'
-    started(message.fromAgentId, name, message.startedAt ?? (currentRun ? agent.runStartedAt : undefined))
+    const avatar = message.avatar ?? agent?.avatar
+    started(message.fromAgentId, name, message.startedAt ?? (currentRun ? agent.runStartedAt : undefined), avatar)
     const timestamp = Date.parse(message.completedAt ?? message.createdAt)
     if (!Number.isFinite(timestamp)) continue
     const key = `agent-status-${message.fromAgentId}:${message.runId ?? message.id}`
@@ -126,7 +128,7 @@ export function projectMainConversation(chat: ChatState) {
     byRun.set(key, {
       type: 'agent_status',
       phase: 'finished',
-      agents: [{ agentId: message.fromAgentId, name }],
+      agents: [{ agentId: message.fromAgentId, name, ...(avatar ? { avatar } : {}) }],
       key,
       status: status ?? '已结束',
       timestamp,

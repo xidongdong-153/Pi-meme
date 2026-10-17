@@ -35,7 +35,7 @@ test('AppRail 用户菜单顶部展示姓名且不含 Pro，点击触发个人�
   const avatarBtn = screen.getByRole('button', { name: '用户菜单与设置' })
   openUserMenu(avatarBtn)
 
-  const nameElement = await screen.findByText('xi dongdong')
+  const nameElement = await screen.findByText('meme 用户')
   expect(nameElement).toBeInTheDocument()
   expect(screen.queryByText('Pro')).not.toBeInTheDocument()
 
