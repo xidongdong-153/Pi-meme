@@ -3,13 +3,17 @@ import { RefreshCw } from 'lucide-react'
 import type { UsageStatsSnapshot } from '@pi-meme/contracts/usage'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
-import { BentoSkeletonCard, BentoSkeletonBar } from '@pi-meme/ui/components/bento-skeleton'
 import { compactTokens, taskDuration } from './usage-chart-model'
 import { TokenActivity } from './token-activity'
+import { ProfileSkeleton } from './profile-skeleton'
+
+/** 会话级内存缓存，使设置页内标签切换时 0 延迟秒开，避免重复展示骨架屏 */
+let cachedUsageSnapshot: UsageStatsSnapshot | null = null
+let lastUsageFetchTime = 0
 
 export function ProfileSettings({ loadUsage }: { loadUsage: () => Promise<UsageStatsSnapshot> }) {
-  const [snapshot, setSnapshot] = useState<UsageStatsSnapshot | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [snapshot, setSnapshot] = useState<UsageStatsSnapshot | null>(cachedUsageSnapshot)
+  const [loading, setLoading] = useState(() => cachedUsageSnapshot === null)
   const [error, setError] = useState('')
   const revision = useRef(0)
   const refresh = useCallback(async () => {
@@ -18,7 +22,11 @@ export function ProfileSettings({ loadUsage }: { loadUsage: () => Promise<UsageS
     setError('')
     try {
       const next = await loadUsage()
-      if (request === revision.current) setSnapshot(next)
+      if (request === revision.current) {
+        cachedUsageSnapshot = next
+        lastUsageFetchTime = Date.now()
+        setSnapshot(next)
+      }
     } catch (cause) {
       if (request === revision.current)
         setError(`无法加载 Token 统计：${cause instanceof Error ? cause.message : String(cause)}`)
@@ -28,8 +36,17 @@ export function ProfileSettings({ loadUsage }: { loadUsage: () => Promise<UsageS
   }, [loadUsage])
 
   useEffect(() => {
-    void refresh()
-    const onFocus = () => void refresh()
+    // 若已有缓存且在 10 秒之内获取过，跳过首次无意义重复请求；否则后台静默更新
+    const isFresh = cachedUsageSnapshot !== null && Date.now() - lastUsageFetchTime < 10_000
+    if (!isFresh) {
+      void refresh()
+    }
+    const onFocus = () => {
+      // 窗口切回时增加 15 秒防抖，避免频繁切屏触发全盘扫描
+      if (Date.now() - lastUsageFetchTime > 15_000) {
+        void refresh()
+      }
+    }
     window.addEventListener('focus', onFocus)
     return () => {
       revision.current += 1
@@ -89,38 +106,9 @@ export function ProfileSettings({ loadUsage }: { loadUsage: () => Promise<UsageS
           </Button>
         </div>
       )}
-      {!snapshot && !error && (
-        <div className="space-y-6" data-testid="profile-skeleton">
-          <div className="grid grid-cols-2 gap-3 @min-[600px]:grid-cols-5">
-            {Array.from({ length: 5 }).map((_, index) => (
-              <BentoSkeletonCard key={index} delay={index * 50} className="space-y-3 p-4">
-                <BentoSkeletonBar className="w-16" size="lg" />
-                <BentoSkeletonBar className="w-20" size="xs" />
-              </BentoSkeletonCard>
-            ))}
-          </div>
-          <BentoSkeletonCard delay={200} className="space-y-6 p-6">
-            <div className="flex items-center justify-between">
-              <div className="space-y-1.5">
-                <BentoSkeletonBar className="w-32" size="md" />
-                <BentoSkeletonBar className="w-48" size="xs" />
-              </div>
-              <BentoSkeletonBar className="w-24" size="xs" />
-            </div>
-            <div className="flex h-36 items-end gap-2 pt-4">
-              {Array.from({ length: 16 }).map((_, index) => (
-                <div
-                  key={index}
-                  className="flex-1 animate-pulse rounded-t-sm bg-muted/50"
-                  style={{ height: `${20 + ((index * 37) % 75)}%` }}
-                />
-              ))}
-            </div>
-          </BentoSkeletonCard>
-        </div>
-      )}
+      {!snapshot && !error && <ProfileSkeleton showHeader={false} testId="profile-skeleton" className="space-y-10" />}
       {snapshot && (
-        <>
+        <div className="space-y-10 animate-in fade-in-0 duration-200 fill-mode-forwards ease-out">
           <TooltipProvider delayDuration={100}>
             <dl
               className="grid grid-cols-2 gap-y-5 rounded-2xl border border-border bg-card/30 px-3 py-5 @min-[600px]:grid-cols-5"
@@ -151,7 +139,7 @@ export function ProfileSettings({ loadUsage }: { loadUsage: () => Promise<UsageS
               </p>
             ))}
           </div>
-        </>
+        </div>
       )}
     </div>
   )

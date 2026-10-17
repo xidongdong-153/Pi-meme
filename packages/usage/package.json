@@ -6,6 +6,7 @@
   "exports": {
     "./server/entry": "./src/server/entry.ts",
     "./ui/profile-settings": "./src/ui/profile-settings.tsx",
+    "./ui/profile-skeleton": "./src/ui/profile-skeleton.tsx",
     "./ui/token-activity": "./src/ui/token-activity.tsx",
     "./ui/usage-chart-model": "./src/ui/usage-chart-model.ts",
     "./server/usage-service": "./src/server/usage-service.ts"

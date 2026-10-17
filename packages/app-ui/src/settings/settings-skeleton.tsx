@@ -5,6 +5,7 @@ import {
   BentoSkeletonCircle,
   BentoSkeletonPill,
 } from '@pi-meme/ui/components/bento-skeleton'
+import { ProfileSkeleton } from '@pi-meme/usage/ui/profile-skeleton'
 import type { SettingsSection } from './settings-page'
 
 export function GeneralSkeleton() {
@@ -121,42 +122,7 @@ export function AppearanceSkeleton() {
   )
 }
 
-export function ProfileSkeleton() {
-  return (
-    <div className="@container min-w-0 space-y-10" data-testid="settings-skeleton-profile">
-      <div className="flex items-center justify-between gap-3">
-        <BentoSkeletonBar className="w-64 max-w-full" size="xs" />
-        <BentoSkeletonButton className="w-16" />
-      </div>
-      <div className="grid grid-cols-2 gap-3 @min-[600px]:grid-cols-5">
-        {Array.from({ length: 5 }).map((_, index) => (
-          <BentoSkeletonCard key={index} delay={index * 50} className="space-y-3 p-4">
-            <BentoSkeletonBar className="w-16" size="lg" />
-            <BentoSkeletonBar className="w-20" size="xs" />
-          </BentoSkeletonCard>
-        ))}
-      </div>
-      <BentoSkeletonCard delay={200} className="space-y-6 p-6">
-        <div className="flex items-center justify-between">
-          <div className="space-y-1.5">
-            <BentoSkeletonBar className="w-32" size="md" />
-            <BentoSkeletonBar className="w-48" size="xs" />
-          </div>
-          <BentoSkeletonBar className="w-24" size="xs" />
-        </div>
-        <div className="flex h-36 items-end gap-2 pt-4">
-          {Array.from({ length: 16 }).map((_, index) => (
-            <div
-              key={index}
-              className="flex-1 animate-pulse rounded-t-sm bg-muted/50"
-              style={{ height: `${20 + ((index * 37) % 75)}%` }}
-            />
-          ))}
-        </div>
-      </BentoSkeletonCard>
-    </div>
-  )
-}
+export { ProfileSkeleton }
 
 export function ModelsSkeleton() {
   return (
