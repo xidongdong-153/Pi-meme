@@ -34,10 +34,20 @@ export function DropdownMenuSubTrigger({ children, className, ...props }: Compon
     </Primitive.SubTrigger>
   )
 }
-export function DropdownMenuSubContent({ className, ...props }: ComponentProps<typeof Primitive.SubContent>) {
+export function DropdownMenuSubContent({
+  className,
+  sideOffset = 12,
+  alignOffset = -4,
+  ...props
+}: ComponentProps<typeof Primitive.SubContent>) {
   return (
     <Primitive.Portal>
-      <Primitive.SubContent className={cn(contentClass, className)} {...props} />
+      <Primitive.SubContent
+        sideOffset={sideOffset}
+        alignOffset={alignOffset}
+        className={cn(contentClass, className)}
+        {...props}
+      />
     </Primitive.Portal>
   )
 }

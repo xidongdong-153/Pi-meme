@@ -33,10 +33,20 @@ export function ContextMenuSubTrigger({ children, className, ...props }: Compone
     </Primitive.SubTrigger>
   )
 }
-export function ContextMenuSubContent({ className, ...props }: ComponentProps<typeof Primitive.SubContent>) {
+export function ContextMenuSubContent({
+  className,
+  sideOffset = 12,
+  alignOffset = -4,
+  ...props
+}: ComponentProps<typeof Primitive.SubContent>) {
   return (
     <Primitive.Portal>
-      <Primitive.SubContent className={cn(contentClass, className)} {...props} />
+      <Primitive.SubContent
+        sideOffset={sideOffset}
+        alignOffset={alignOffset}
+        className={cn(contentClass, className)}
+        {...props}
+      />
     </Primitive.Portal>
   )
 }

@@ -97,7 +97,7 @@ export function SidebarPreferencesMenu({
             <PanelLeft />
             整理侧边栏
           </Dropdown.DropdownMenuSubTrigger>
-          <Dropdown.DropdownMenuSubContent sideOffset={4} alignOffset={-4} className="w-45 min-w-45 rounded-2xl p-1">
+          <Dropdown.DropdownMenuSubContent sideOffset={12} alignOffset={-4} className="w-45 min-w-45 rounded-2xl p-1">
             <Dropdown.DropdownMenuRadioGroup
               value={preferences.groupMode}
               onValueChange={(value) => {
@@ -120,7 +120,7 @@ export function SidebarPreferencesMenu({
             <ArrowDownUp />
             聊天排序方式
           </Dropdown.DropdownMenuSubTrigger>
-          <Dropdown.DropdownMenuSubContent sideOffset={4} alignOffset={-4} className="w-45 min-w-45 rounded-2xl p-1">
+          <Dropdown.DropdownMenuSubContent sideOffset={12} alignOffset={-4} className="w-45 min-w-45 rounded-2xl p-1">
             <Dropdown.DropdownMenuRadioGroup
               value={preferences.sortMode}
               onValueChange={(value) => {

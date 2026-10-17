@@ -143,7 +143,7 @@ export function AppRail({
                 <LifeBuoy className="size-4 text-muted-foreground" />
                 <span>帮助</span>
               </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent sideOffset={6} className="w-40 p-1">
+              <DropdownMenuSubContent sideOffset={14} alignOffset={-4} className="w-40 p-1">
                 <DropdownMenuItem disabled className="gap-2.5 py-1.5">
                   <Gift className="size-4 text-muted-foreground" />
                   <span>新功能</span>
