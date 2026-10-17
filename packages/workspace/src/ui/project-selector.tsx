@@ -111,6 +111,7 @@ export function ProjectSelector({
   }
 
   virtualAnchorRef.current.current = activeAnchor
+  const isHeader = Boolean((activeAnchor || returnFocus)?.closest('header'))
 
   return (
     <div className="flex min-w-0 max-w-[min(60%,260px)] shrink items-center">
@@ -132,8 +133,8 @@ export function ProjectSelector({
         <PopoverContent
           ref={contentRef}
           aria-label="项目选择"
-          side={activeAnchor || returnFocus ? 'bottom' : 'top'}
-          align="start"
+          side={isHeader ? 'bottom' : 'top'}
+          align={activeAnchor && !isHeader ? 'center' : 'start'}
           className="flex flex-col w-64 max-w-[calc(100vw-24px)] p-1.5 rounded-2xl select-none"
           style={{ maxHeight: 'min(360px, var(--radix-popover-content-available-height))' }}
           onOpenAutoFocus={(event) => {
@@ -142,11 +143,10 @@ export function ProjectSelector({
             void readProjects()
           }}
           onCloseAutoFocus={(event) => {
-            setActiveAnchor(null)
             if (!focusEditor.current) {
               if (returnFocus?.isConnected) {
                 event.preventDefault()
-                returnFocus.focus()
+                returnFocus.focus({ preventScroll: true })
               }
               return
             }
@@ -154,7 +154,7 @@ export function ProjectSelector({
             focusEditor.current = false
             document
               .querySelector<HTMLElement>('[data-active-service] [contenteditable=true][aria-label="消息"]')
-              ?.focus()
+              ?.focus({ preventScroll: true })
           }}
           onKeyDown={(event) => {
             if (event.nativeEvent.isComposing || event.keyCode === 229) return

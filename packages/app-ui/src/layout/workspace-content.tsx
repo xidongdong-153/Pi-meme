@@ -5,28 +5,7 @@ import type { MessageEditorState } from '@pi-meme/chat/ui/conversation/inline-me
 import { ErrorBoundary } from '@pi-meme/ui/components/error-boundary'
 import { BrandMark } from '@pi-meme/ui/components/brand-mark'
 import { Button } from '@pi-meme/ui/components/ui/button'
-import { cn } from '@pi-meme/ui/lib/utils'
 import type { PiMessage } from '@pi-meme/contracts/pi'
-
-function TerminalCloudIcon({ className }: { className?: string }) {
-  return (
-    <div className={cn('inline-flex items-center justify-center text-muted-foreground/50', className)}>
-      <svg
-        viewBox="0 0 48 48"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="2.2"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        className="size-14"
-      >
-        <path d="M12 36a8 8 0 0 1-2-15.7 11 11 0 0 1 20-5.3A8 8 0 0 1 40 28a8 8 0 0 1-6 8H12z" />
-        <path d="M19 25l3 3-3 3" />
-        <line x1="26" y1="31" x2="30" y2="31" />
-      </svg>
-    </div>
-  )
-}
 
 export function WorkspaceContent({
   chat,
@@ -36,6 +15,8 @@ export function WorkspaceContent({
   composer,
   conversation,
   onSettings,
+  onSelectProject,
+  projectSelectorOpen,
   notice,
   children,
 }: {
@@ -51,13 +32,16 @@ export function WorkspaceContent({
   onForkReply: (timestamp: number) => void
   onCopyError: (message: string) => void
   onSettings: () => void
+  onSelectProject?: (trigger?: HTMLElement) => void
+  projectSelectorOpen?: boolean
   editor?: MessageEditorState
   switchingVersion?: number
   notice: ReactNode
   children: ReactNode
 }) {
   const hasConversation = chat.messages.length > 0 || chat.live !== null || chat.running
-  const projectName = connection.cwd.split(/[\\/]/).filter(Boolean).pop() || '当前项目'
+  const isStandalone = connection.workspaceKind === 'standalone' || !connection.cwd
+  const projectName = (connection.sourceProjectCwd ?? connection.cwd).split(/[\\/]/).filter(Boolean).pop() || '当前项目'
   return (
     <section className="relative flex flex-1 min-h-0 min-w-0 flex-col bg-background" aria-label="工作区">
       {notice}
@@ -96,14 +80,34 @@ export function WorkspaceContent({
       ) : (
         <div className="flex flex-1 flex-col items-center justify-center p-6 min-h-0 overflow-y-auto">
           <div className="w-full max-w-2xl text-center space-y-6">
-            <TerminalCloudIcon className="mx-auto" />
+            <BrandMark size={56} className="mx-auto" />
             <div className="space-y-2">
               <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-                你想让我们在{' '}
-                <span className="underline decoration-dotted underline-offset-8 decoration-muted-foreground/60">
-                  {projectName}
-                </span>{' '}
-                中构建什么？
+                {isStandalone ? (
+                  '我们要构建什么？'
+                ) : (
+                  <>
+                    你想让我们在{' '}
+                    {onSelectProject ? (
+                      <button
+                        type="button"
+                        onClick={(event) => onSelectProject(event.currentTarget)}
+                        data-state={projectSelectorOpen ? 'open' : 'closed'}
+                        className="inline-flex items-center rounded-md px-1.5 py-0.5 -my-0.5 underline decoration-dotted underline-offset-8 decoration-muted-foreground/60 transition-colors hover:bg-secondary/70 hover:decoration-foreground/80 data-[state=open]:bg-secondary/70 data-[state=open]:decoration-foreground/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 cursor-pointer"
+                        title="切换项目"
+                        aria-label={`切换项目：当前为 ${projectName}`}
+                        aria-expanded={projectSelectorOpen}
+                      >
+                        {projectName}
+                      </button>
+                    ) : (
+                      <span className="underline decoration-dotted underline-offset-8 decoration-muted-foreground/60">
+                        {projectName}
+                      </span>
+                    )}{' '}
+                    中构建什么？
+                  </>
+                )}
               </h1>
             </div>
 

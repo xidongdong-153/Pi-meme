@@ -654,6 +654,15 @@ export function App({
       onForkReply={(timestamp) => void chat.forkReply(timestamp)}
       onCopyError={chat.setError}
       onSettings={() => setSettingsSection('general')}
+      onSelectProject={(trigger) => {
+        if (workspacePickerOpen && workspacePickerReturnFocus.current === trigger) {
+          setWorkspacePickerOpen(false)
+        } else {
+          workspacePickerReturnFocus.current = trigger ?? null
+          setWorkspacePickerOpen(true)
+        }
+      }}
+      projectSelectorOpen={workspacePickerOpen}
       editor={editor}
       switchingVersion={chat.switchingVersion}
       notice={
