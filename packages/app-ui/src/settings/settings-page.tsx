@@ -126,26 +126,28 @@ export function SettingsPage({
         </Button>
       </header>
       <div className="flex min-h-0 flex-1">
-        <aside className="appearance-sidebar settings-sidebar w-48 shrink-0 overflow-y-auto border-r border-border bg-card/50 px-3 py-7 sm:w-64">
-          <h1 className="px-3 text-xl font-semibold">设置</h1>
-          <div className="relative mt-5">
+        <aside className="appearance-sidebar settings-sidebar w-52 shrink-0 overflow-y-auto border-r border-border bg-card/50 px-2.5 py-4 sm:w-60 sm:py-5">
+          <h1 className="px-2.5 text-base font-semibold tracking-tight text-foreground">设置</h1>
+          <div className="relative mt-3">
             <Search
               aria-hidden="true"
-              className="pointer-events-none absolute left-3.5 top-3 size-4 text-muted-foreground"
-              strokeWidth={1.7}
+              className="pointer-events-none absolute left-2.5 top-2.5 size-3.5 text-muted-foreground"
+              strokeWidth={1.8}
             />
             <Input
               aria-label="搜索设置"
               placeholder="搜索设置"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
-              className="h-10 rounded-full border-0 bg-secondary/70 pl-10 transition-colors duration-200 focus-visible:bg-secondary"
+              className="h-8 rounded-lg border-0 bg-secondary/60 pl-8 pr-2.5 text-xs transition-colors duration-200 focus-visible:bg-secondary"
             />
           </div>
-          <nav aria-label="设置分类" className="mt-6 space-y-6">
+          <nav aria-label="设置分类" className="mt-4 space-y-4">
             {visibleGroups.map((group) => (
               <section key={group.label} aria-label={group.label}>
-                <h2 className="mb-2 px-3 text-xs font-medium text-muted-foreground/75">{group.label}</h2>
+                <h2 className="mb-1 px-2.5 text-[11px] font-medium text-muted-foreground/60 select-none">
+                  {group.label}
+                </h2>
                 <div className="space-y-0.5">
                   {group.sections.map(({ id, label, icon: Icon }) => (
                     <button
@@ -156,14 +158,14 @@ export function SettingsPage({
                       disabled={saving}
                       onClick={() => navigate(id)}
                       className={cn(
-                        'settings-nav-item flex h-10 w-full items-center gap-3 rounded-xl px-3 text-left text-sm focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50',
+                        'settings-nav-item flex h-8 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-[13px] font-normal transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50',
                         sectionId === id
                           ? 'bg-secondary font-medium text-foreground'
-                          : 'text-muted-foreground hover:bg-secondary/60 hover:text-foreground',
+                          : 'text-muted-foreground hover:bg-secondary/50 hover:text-foreground',
                       )}
                     >
-                      <span className="settings-nav-icon flex size-5 shrink-0 items-center justify-center">
-                        <Icon aria-hidden="true" className="size-[18px]" strokeWidth={1.7} />
+                      <span className="settings-nav-icon flex size-4 shrink-0 items-center justify-center">
+                        <Icon aria-hidden="true" className="size-3.5 sm:size-4" strokeWidth={1.8} />
                       </span>
                       <span className="truncate">{label}</span>
                     </button>
@@ -172,17 +174,17 @@ export function SettingsPage({
               </section>
             ))}
             {visibleGroups.length === 0 && (
-              <p role="status" className="px-3 text-sm text-muted-foreground">
+              <p role="status" className="px-2.5 text-xs text-muted-foreground">
                 没有匹配的设置
               </p>
             )}
           </nav>
         </aside>
-        <div id="settings-content" className="min-w-0 flex-1 overflow-y-auto px-6 py-10 lg:px-12 lg:py-14">
-          <FadeContent key={sectionId} className="mx-auto max-w-3xl space-y-8">
+        <div id="settings-content" className="min-w-0 flex-1 overflow-y-auto px-6 py-6 sm:px-8 lg:px-12 lg:py-8">
+          <FadeContent key={sectionId} className="mx-auto max-w-3xl space-y-6">
             <div>
-              <h2 className="text-3xl font-semibold tracking-tight">{section.label}</h2>
-              <p className="mt-3 text-sm text-muted-foreground">{section.description}</p>
+              <h2 className="text-xl font-semibold tracking-tight sm:text-2xl">{section.label}</h2>
+              <p className="mt-1 text-xs text-muted-foreground">{section.description}</p>
             </div>
             <Suspense fallback={<SettingsSkeleton section={sectionId} />}>
               {renderContent(sectionId, navigate)}

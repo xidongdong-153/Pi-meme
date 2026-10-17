@@ -13,10 +13,11 @@ function renderAccount(props: Partial<Parameters<typeof AccountSettings>[0]> = {
 test('AccountSettings 渲染表单时已移除状态与年龄，保留姓名、用户名与邮箱', () => {
   renderAccount()
 
-  // 验证不包含状态和年龄
+  // 验证不包含状态、年龄与环境授权
   expect(screen.queryByText('状态')).not.toBeInTheDocument()
   expect(screen.queryByText('年龄')).not.toBeInTheDocument()
   expect(screen.queryByText('18 岁及以上')).not.toBeInTheDocument()
+  expect(screen.queryByText('环境与授权')).not.toBeInTheDocument()
 
   // 验证包含姓名、用户名与邮箱
   expect(screen.getByText('姓名')).toBeInTheDocument()

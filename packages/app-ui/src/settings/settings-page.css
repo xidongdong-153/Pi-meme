@@ -11,7 +11,7 @@
 
 .settings-nav-item:hover:not(:disabled) .settings-nav-icon,
 .settings-nav-item[aria-current='page'] .settings-nav-icon {
-  transform: scale(1.08);
+  transform: scale(1.05);
 }
 
 .settings-nav-item:active:not(:disabled) {

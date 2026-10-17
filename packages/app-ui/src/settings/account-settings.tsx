@@ -1,5 +1,5 @@
 import { useRef, useState, type ChangeEvent } from 'react'
-import { Check, Pencil, ShieldCheck, Sparkles, UserCheck } from 'lucide-react'
+import { Check, Pencil, UserCheck } from 'lucide-react'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Input } from '@pi-meme/ui/components/ui/input'
 import type { UserProfile } from './user-profile'
@@ -61,7 +61,7 @@ export function AccountSettings({
   }
 
   return (
-    <div className="space-y-8 max-w-2xl text-foreground">
+    <div className="space-y-6 max-w-2xl text-foreground">
       {/* 头部个人展示卡片（包含头像上传配置，参考图设计） */}
       <section className="flex flex-col items-center justify-center py-6 px-4 rounded-2xl border border-border bg-card/50 text-center gap-3">
         {/* 隐藏的文件上传 input */}
@@ -94,7 +94,7 @@ export function AccountSettings({
               e.stopPropagation()
               handleAvatarClick()
             }}
-            className="absolute -top-1 -right-1 flex size-7 items-center justify-center rounded-full bg-neutral-800 text-white border border-neutral-600/80 shadow-md transition-all group-hover:opacity-100 opacity-90 hover:scale-110 active:scale-95 cursor-pointer"
+            className="absolute -top-1 -right-1 flex size-7 items-center justify-center rounded-full bg-neutral-800 text-white border border-neutral-600/80 shadow-md transition-all opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:scale-110 active:scale-95 cursor-pointer"
           >
             <Pencil className="size-3.5 text-white" />
           </button>
@@ -190,28 +190,6 @@ export function AccountSettings({
                   更改
                 </Button>
               )}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* 补充说明卡片 */}
-      <section className="space-y-3">
-        <h3 className="text-sm font-semibold text-foreground px-1">环境与授权</h3>
-        <div className="rounded-2xl border border-border bg-card/60 p-5 space-y-3">
-          <div className="flex items-start gap-3">
-            <div className="p-2 rounded-xl bg-primary/10 text-primary shrink-0 mt-0.5">
-              <ShieldCheck className="size-5" />
-            </div>
-            <div className="space-y-1">
-              <h4 className="text-xs font-semibold text-foreground flex items-center gap-1.5">
-                <span>本地 Pi 执行环境</span>
-                <Sparkles className="size-3 text-amber-400" />
-              </h4>
-              <p className="text-xs text-muted-foreground leading-relaxed">
-                当前客户端基于本地 Pi 运行时与自定义 API
-                构建，原生调度模型与工具调用。所有会话数据与个人资料均安全保存在本机数据目录下。
-              </p>
             </div>
           </div>
         </div>
