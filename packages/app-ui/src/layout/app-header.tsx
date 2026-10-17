@@ -121,36 +121,33 @@ export function AppHeader({
   }
 
   return (
-    <header className="flex h-full min-w-0 w-full items-center justify-between window-drag select-none">
-      <div className="flex h-full items-center min-w-0 flex-1">
-        {/* 按钮始终留在这里。宽度跟侧栏走，但不会小于按钮本身，避免折叠时图标先消失再出现。 */}
-        <div
-          className="flex h-full min-w-max shrink-0 items-center justify-between gap-1.5 px-3 no-drag"
-          style={{ width: 'var(--workspace-sidebar-width)' }}
-        >
-          <SidebarTools nativeWindow={nativeWindow} sidebarOpen={sidebarOpen} onToggleSidebar={onToggleSidebar} />
-        </div>
+    <header className="flex h-full min-w-0 w-full items-center justify-between window-drag select-none bg-transparent">
+      {/* 分区 1：左顶栏（宽度 = 50px AppRail + var(--workspace-sidebar-width)，与下方左侧栏精确对齐） */}
+      <div
+        className="flex h-full min-w-max shrink-0 items-center justify-between px-3 no-drag bg-transparent relative"
+        style={{ width: 'calc(50px + var(--workspace-sidebar-width))' }}
+      >
+        <SidebarTools nativeWindow={nativeWindow} sidebarOpen={sidebarOpen} onToggleSidebar={onToggleSidebar} />
+        {/* 与下方目录栏右边缘严格对齐的短竖向分割线，折叠时隐藏 */}
+        {sidebarOpen && <div className="absolute right-0 top-1/2 -translate-y-1/2 h-4 w-px bg-white/15 shrink-0" />}
+      </div>
 
-        {/* 折叠图标右侧的分割短线：在展开时正好与侧栏右侧对齐 */}
-        <div className="flex h-full items-center shrink-0 -ml-px">
-          <div className="h-3.5 w-px bg-border/60 shrink-0" />
-        </div>
-
-        {/* 主面板对应顶部区域（项目目录与会话名称） */}
-        <div className="flex items-center gap-1.5 min-w-0 no-drag flex-1 px-3">
+      {/* 分区 2：中间顶栏（flex-1，与下方主会话画布精确对齐） */}
+      <div className="flex h-full items-center justify-between min-w-0 flex-1 px-4 no-drag bg-transparent">
+        <div className="flex items-center gap-1.5 min-w-0">
           <button
             type="button"
             disabled={busy}
             title={directoryDisabledReason || cwd}
             aria-label="在顶栏选择项目"
             onClick={(event) => onDirectory(event.currentTarget)}
-            className="flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs font-medium text-foreground hover:bg-secondary/70 transition-colors max-w-[180px] truncate disabled:opacity-50"
+            className="flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs font-medium text-muted-foreground hover:bg-background/50 hover:text-foreground transition-colors max-w-[160px] truncate disabled:opacity-50 cursor-pointer"
           >
-            <FolderOpen className="size-3.5 text-primary shrink-0" />
+            <FolderOpen className="size-3.5 text-muted-foreground shrink-0" />
             <span className="truncate">{project}</span>
           </button>
-          <ChevronRight className="size-3 text-muted-foreground/50 shrink-0" />
-          <span className="text-xs font-medium text-foreground/90 truncate max-w-[360px]" title={sessionName || title}>
+          <span className="text-muted-foreground/30 text-xs select-none">/</span>
+          <span className="text-xs font-medium text-foreground/90 truncate max-w-[420px]" title={sessionName || title}>
             {title}
           </span>
           {forkedFrom && (
@@ -171,68 +168,68 @@ export function AppHeader({
             </Tooltip>
           )}
         </div>
-      </div>
 
-      <div className="flex items-center gap-1.5 no-drag shrink-0">
-        <div
-          className={cn(
-            'flex h-7 items-center rounded-md text-muted-foreground transition-colors',
-            menuOpen ? 'bg-secondary/70 text-foreground' : 'hover:bg-secondary/70 hover:text-foreground',
-          )}
-        >
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label={`在 ${preferredName} 中打开项目`}
-                disabled={!canOpenProject}
-                onClick={() => onOpenProject(preferredApp)}
-                className="size-7 rounded-none border-0 text-inherit hover:bg-transparent"
-              >
-                <FolderOpen className="size-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">
-              {canOpenProject ? `在 ${preferredName} 中打开项目` : '当前连接不支持打开本机项目'}
-            </TooltipContent>
-          </Tooltip>
-          <Popover open={menuOpen} onOpenChange={(open) => void loadApps(open)}>
-            <PopoverTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label="选择打开项目的应用"
-                disabled={!canOpenProject}
-                className="h-7 w-4.5 rounded-none border-0 px-0 text-inherit hover:bg-transparent"
-              >
-                <ChevronDown className="size-3" />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-52 p-1">
-              <div className="px-2 py-1.5 text-[0.6875rem] text-muted-foreground">打开项目</div>
-              {apps.map((app) => (
-                <button
-                  key={app.id}
-                  type="button"
-                  onClick={() => chooseApp(app.id)}
-                  className="flex w-full items-center rounded-md px-2 py-1.5 text-left text-xs hover:bg-secondary"
+        <div className="flex items-center gap-1 shrink-0">
+          <div
+            className={cn(
+              'flex h-7 items-center rounded-md text-muted-foreground transition-colors',
+              menuOpen ? 'bg-background/60 text-foreground' : 'hover:bg-background/40 hover:text-foreground',
+            )}
+          >
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={`在 ${preferredName} 中打开项目`}
+                  disabled={!canOpenProject}
+                  onClick={() => onOpenProject(preferredApp)}
+                  className="size-7 rounded-none border-0 text-inherit hover:bg-transparent"
                 >
-                  <span className="flex-1">{app.name}</span>
-                  {preferredApp === app.id && <span className="text-primary">默认</span>}
+                  <FolderOpen className="size-3.5" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom">
+                {canOpenProject ? `在 ${preferredName} 中打开项目` : '当前连接不支持打开本机项目'}
+              </TooltipContent>
+            </Tooltip>
+            <Popover open={menuOpen} onOpenChange={(open) => void loadApps(open)}>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="选择打开项目的应用"
+                  disabled={!canOpenProject}
+                  className="h-7 w-4.5 rounded-none border-0 px-0 text-inherit hover:bg-transparent"
+                >
+                  <ChevronDown className="size-3" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-52 p-1">
+                <div className="px-2 py-1.5 text-[0.6875rem] text-muted-foreground">打开项目</div>
+                {apps.map((app) => (
+                  <button
+                    key={app.id}
+                    type="button"
+                    onClick={() => chooseApp(app.id)}
+                    className="flex w-full items-center rounded-md px-2 py-1.5 text-left text-xs hover:bg-secondary"
+                  >
+                    <span className="flex-1">{app.name}</span>
+                    {preferredApp === app.id && <span className="text-primary">默认</span>}
+                  </button>
+                ))}
+                <div className="my-1 h-px bg-border" />
+                <button
+                  type="button"
+                  onClick={() => void copyPath()}
+                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-secondary"
+                >
+                  <Copy className="size-3.5" />
+                  {copied ? '已复制路径' : '复制项目路径'}
                 </button>
-              ))}
-              <div className="my-1 h-px bg-border" />
-              <button
-                type="button"
-                onClick={() => void copyPath()}
-                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-secondary"
-              >
-                <Copy className="size-3.5" />
-                {copied ? '已复制路径' : '复制项目路径'}
-              </button>
-            </PopoverContent>
-          </Popover>
+              </PopoverContent>
+            </Popover>
+          </div>
         </div>
       </div>
     </header>

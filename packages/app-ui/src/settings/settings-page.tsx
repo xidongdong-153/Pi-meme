@@ -60,6 +60,7 @@ export function SettingsPage({
   renderContent,
   dirty,
   saving,
+  initialSection = 'general',
   nativeWindow = false,
   onDiscard,
   onDismiss,
@@ -67,12 +68,13 @@ export function SettingsPage({
   renderContent: (section: SettingsSection, navigate: (section: SettingsSection) => void) => ReactNode
   dirty: boolean
   saving: boolean
+  initialSection?: SettingsSection
   /** Desktop 隐藏标题栏需要让出交通灯；Web 不留这段间距。 */
   nativeWindow?: boolean
   onDiscard: () => void
   onDismiss: () => void
 }) {
-  const [sectionId, setSectionId] = useState<SettingsSection>('general')
+  const [sectionId, setSectionId] = useState<SettingsSection>(initialSection)
   const [query, setQuery] = useState('')
   const [pending, setPending] = useState<(() => void) | null>(null)
   const section = sections.find((entry) => entry.id === sectionId)!

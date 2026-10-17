@@ -55,8 +55,10 @@ export function AgentAccessSelector({
               aria-label="Agent 访问权限"
               iconClassName={compact ? 'hidden' : 'hidden @min-[500px]:block'}
               className={cn(
-                'h-7 w-7 p-0 justify-center border-0 text-xs shadow-none hover:bg-secondary/40 focus-visible:ring-2 focus-visible:ring-ring @min-[500px]:w-auto @min-[500px]:px-1.5 @min-[500px]:py-0.5 @min-[500px]:gap-1',
-                mode === 'full-access' ? 'text-[#e58a4e]' : 'text-muted-foreground',
+                'h-7 w-7 p-0 justify-center border-0 rounded-full text-xs shadow-none focus-visible:ring-2 focus-visible:ring-ring @min-[500px]:w-auto @min-[500px]:px-2 @min-[500px]:py-0.5 @min-[500px]:gap-1 transition-colors cursor-pointer',
+                mode === 'full-access'
+                  ? 'text-[#e58a4e] bg-[#e58a4e]/10 hover:bg-[#e58a4e]/20'
+                  : 'text-muted-foreground hover:bg-secondary/40',
                 compact && '@min-[500px]:w-7 @min-[500px]:p-0 @min-[500px]:gap-0',
               )}
             >

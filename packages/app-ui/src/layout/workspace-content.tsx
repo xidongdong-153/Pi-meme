@@ -5,7 +5,28 @@ import type { MessageEditorState } from '@pi-meme/chat/ui/conversation/inline-me
 import { ErrorBoundary } from '@pi-meme/ui/components/error-boundary'
 import { BrandMark } from '@pi-meme/ui/components/brand-mark'
 import { Button } from '@pi-meme/ui/components/ui/button'
+import { cn } from '@pi-meme/ui/lib/utils'
 import type { PiMessage } from '@pi-meme/contracts/pi'
+
+function TerminalCloudIcon({ className }: { className?: string }) {
+  return (
+    <div className={cn('inline-flex items-center justify-center text-muted-foreground/50', className)}>
+      <svg
+        viewBox="0 0 48 48"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="size-14"
+      >
+        <path d="M12 36a8 8 0 0 1-2-15.7 11 11 0 0 1 20-5.3A8 8 0 0 1 40 28a8 8 0 0 1-6 8H12z" />
+        <path d="M19 25l3 3-3 3" />
+        <line x1="26" y1="31" x2="30" y2="31" />
+      </svg>
+    </div>
+  )
+}
 
 export function WorkspaceContent({
   chat,
@@ -36,6 +57,7 @@ export function WorkspaceContent({
   children: ReactNode
 }) {
   const hasConversation = chat.messages.length > 0 || chat.live !== null || chat.running
+  const projectName = connection.cwd.split(/[\\/]/).filter(Boolean).pop() || '当前项目'
   return (
     <section className="relative flex flex-1 min-h-0 min-w-0 flex-col bg-background" aria-label="工作区">
       {notice}
@@ -74,12 +96,15 @@ export function WorkspaceContent({
       ) : (
         <div className="flex flex-1 flex-col items-center justify-center p-6 min-h-0 overflow-y-auto">
           <div className="w-full max-w-2xl text-center space-y-6">
-            <BrandMark size={56} />
+            <TerminalCloudIcon className="mx-auto" />
             <div className="space-y-2">
-              <h1 className="text-2xl font-bold tracking-tight text-foreground">开始一个新任务</h1>
-              <p className="text-xs text-muted-foreground max-w-md mx-auto leading-relaxed">
-                选择项目目录，向 Pi 描述你的编码任务、Bug 修复或需求构想。
-              </p>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                你想让我们在{' '}
+                <span className="underline decoration-dotted underline-offset-8 decoration-muted-foreground/60">
+                  {projectName}
+                </span>{' '}
+                中构建什么？
+              </h1>
             </div>
 
             <div className="pt-2 text-left">{composer}</div>

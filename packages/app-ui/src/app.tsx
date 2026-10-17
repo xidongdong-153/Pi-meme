@@ -55,7 +55,7 @@ import { sessionUiTarget } from './layout/panel-layout'
 import { useAgentPluginSelection } from './plugins/use-agent-plugin-selection'
 import { FileDiff, Folder, TerminalSquare, Network, ListTree, NotebookPen } from 'lucide-react'
 import type { HostApi, AppSession } from '@pi-meme/contracts/app-host'
-import { SettingsPage } from './settings/settings-page'
+import { SettingsPage, type SettingsSection } from './settings/settings-page'
 import { loadPluginUI } from './plugins/load-plugin-ui'
 import type { DesktopBridge, ProjectApp } from '@pi-meme/contracts/desktop'
 
@@ -294,7 +294,8 @@ export function App({
   const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [sidebarWidth, setSidebarWidth] = useState(256)
-  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null)
+  const settingsOpen = settingsSection !== null
   const searchActive = Boolean(serviceUI?.active) && !settingsOpen
   const openSearch = serviceUI?.onSearch
   useEffect(() => {
@@ -323,7 +324,7 @@ export function App({
   useEffect(() => {
     serviceUI?.onController(serviceUI.serviceId, {
       ...chat,
-      openSettings: () => setSettingsOpen(true),
+      openSettings: () => setSettingsSection('general'),
       assertRestartAllowed,
     })
   })
@@ -618,7 +619,7 @@ export function App({
         onSwitchSession: (sessionPath) => void chat.switchSession(sessionPath),
         onTogglePin: (targetPath) => void chat.togglePin(targetPath),
         onPrefetchSession: (sessionPath) => void bridge.prefetchSession(sessionPath).catch(() => {}),
-        onSettings: () => setSettingsOpen(true),
+        onSettings: () => setSettingsSection('general'),
       }}
     />
   )
@@ -649,7 +650,7 @@ export function App({
       onSwitchMessageVersion={(timestamp, version) => void chat.switchMessageVersion(timestamp, version)}
       onForkReply={(timestamp) => void chat.forkReply(timestamp)}
       onCopyError={chat.setError}
-      onSettings={() => setSettingsOpen(true)}
+      onSettings={() => setSettingsSection('general')}
       editor={editor}
       switchingVersion={chat.switchingVersion}
       notice={
@@ -659,7 +660,7 @@ export function App({
             onOpenSettings={() => {
               chat.setError('')
               settings.dismissError()
-              setSettingsOpen(true)
+              setSettingsSection('general')
             }}
             onDismiss={() => {
               chat.setError('')
@@ -669,7 +670,7 @@ export function App({
           <ErrorNotice
             message={chat.extensionError?.message ?? ''}
             extension
-            onOpenSettings={() => setSettingsOpen(true)}
+            onOpenSettings={() => setSettingsSection('general')}
             onDismiss={chat.dismissExtensionError}
           />
           <ExtensionNotices {...{ notices: chat.extensionNotices, onDismiss: chat.dismissNotice }} />
@@ -798,7 +799,7 @@ export function App({
     if (!command) return false
     chat.setSelectedSkills([...chat.selectedSkills, command])
     chat.setDraft(appendSkillInvocation(chat.draft, prompt))
-    setSettingsOpen(false)
+    setSettingsSection(null)
     return true
   }
   if (!active) return null
@@ -829,6 +830,9 @@ export function App({
               requestRightToken={planRequest ? `${planRequest.id}:${planRequest.revision}` : undefined}
               onRightRequestHandled={() => setPlanRequest(undefined)}
               onSidebar={handleSidebar}
+              onSettings={() => setSettingsSection('general')}
+              onNewSession={() => void chat.newSession()}
+              onPlugins={() => setSettingsSection('plugins')}
               header={(toggleSidebar) => (
                 <AppHeader
                   nativeWindow={nativeWindow}
@@ -862,13 +866,14 @@ export function App({
           </div>
 
           {/* 设置页面 */}
-          {settingsOpen && (
+          {settingsSection && (
             <SettingsPage
+              initialSection={settingsSection}
               dirty={instructionsDirty}
               saving={instructionsSaving}
               nativeWindow={nativeWindow}
               onDiscard={() => setInstructionsDirty(false)}
-              onDismiss={() => setSettingsOpen(false)}
+              onDismiss={() => setSettingsSection(null)}
               renderContent={(section) => {
                 const contentProps: Omit<ComponentProps<typeof SettingsContent>, 'section'> = {
                   bridge,
@@ -931,7 +936,7 @@ export function App({
                       onUse={(command) => {
                         chat.setSelectedSkills([...chat.selectedSkills, command])
                         chat.setDraft(appendSkillInvocation(chat.draft))
-                        setSettingsOpen(false)
+                        setSettingsSection(null)
                       }}
                       onCreate={() => invokeSystemSkill('skill-creator')}
                     />
@@ -950,7 +955,7 @@ export function App({
                       onOpenSystem={
                         appSession
                           ? (id) => {
-                              setSettingsOpen(false)
+                              setSettingsSection(null)
                               setSystemRequest({
                                 id:
                                   id === '@pi-meme/git'

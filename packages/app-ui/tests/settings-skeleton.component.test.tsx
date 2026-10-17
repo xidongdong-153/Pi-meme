@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom/vitest'
 import { afterEach, expect, test } from 'vitest'
-import { cleanup, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { BentoSkeletonCard } from '@pi-meme/ui/components/bento-skeleton'
 import { SettingsSkeleton } from '../src/settings/settings-skeleton'
 import { SettingsPage } from '../src/settings/settings-page'
@@ -41,6 +41,23 @@ test('SettingsSkeleton 针对各个设置模块渲染对应的 Bento 骨架屏�
     expect(screen.getByTestId(testId)).toBeInTheDocument()
     unmount()
   }
+})
+
+test('插件入口直接打开插件分类，随后仍可切换其他设置', () => {
+  render(
+    <SettingsPage
+      initialSection="plugins"
+      renderContent={(section) => <p>{section}正文</p>}
+      dirty={false}
+      saving={false}
+      onDiscard={() => {}}
+      onDismiss={() => {}}
+    />,
+  )
+  expect(screen.getByRole('button', { name: '插件' })).toHaveAttribute('aria-current', 'page')
+  expect(screen.getByText('plugins正文')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '常规' }))
+  expect(screen.getByText('general正文')).toBeInTheDocument()
 })
 
 test('SettingsPage 在异步挂起时渲染专属骨架屏，而非正在加载文本', () => {

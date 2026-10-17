@@ -104,7 +104,7 @@ export function ChatMessage({
           className={cn(
             'text-sm text-foreground leading-relaxed',
             isUser
-              ? 'rounded-2xl px-4 py-2.5 bg-[#1e3a5f]/80 text-white border border-blue-500/25 whitespace-pre-wrap shadow-xs'
+              ? 'rounded-2xl px-4 py-2.5 bg-[#183d6e] text-white whitespace-pre-wrap shadow-xs'
               : 'bg-transparent px-0 py-0.5 w-full',
           )}
         >

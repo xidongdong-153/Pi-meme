@@ -1,10 +1,9 @@
 import { SidebarMenus, type SidebarMenuBridge } from './sidebar-menus'
 import type { SettingsBridge, WorkspaceBridge, WorkspaceDeletionResult } from '@pi-meme/contracts/desktop'
 import { useEffect, useMemo, useState } from 'react'
-import { Search, Settings, SquarePen } from 'lucide-react'
+import { Bell, ChevronDown, Search, Settings, SquarePen } from 'lucide-react'
 import type { PiSessionsSnapshot } from '@pi-meme/contracts/sessions'
 import { Button } from '@pi-meme/ui/components/ui/button'
-import { BrandMark } from '@pi-meme/ui/components/brand-mark'
 import { ScrollArea } from '@pi-meme/ui/components/ui/scroll-area'
 import { buildSidebarModel, sidebarManualOrders } from './sidebar-model'
 import { SidebarPreferencesMenu } from './sidebar-controls'
@@ -177,22 +176,37 @@ export function Sidebar({
       onDeleted={onMenuDeleted}
     >
       <aside
-        className="appearance-sidebar flex h-full w-full flex-col border-r border-border bg-card/60 backdrop-blur-md select-none shrink-0"
+        className="appearance-sidebar flex h-full w-full flex-col bg-card/60 backdrop-blur-md select-none shrink-0"
         aria-label="侧边栏"
       >
-        {/* 侧边栏顶部品牌 */}
-        <div className="flex h-10 items-center px-3 border-b border-border/40 shrink-0">
-          <div className="flex items-center gap-2 font-semibold text-xs text-foreground/90">
-            <BrandMark size={20} />
+        {/* 侧边栏顶部品牌与搜索 */}
+        <div className="flex h-10 items-center justify-between px-3 shrink-0">
+          <button
+            type="button"
+            onClick={onDirectory}
+            aria-label="切换项目目录"
+            className="flex items-center gap-1 rounded-md px-1.5 py-1 text-xs font-semibold text-foreground/90 hover:bg-secondary/60 transition-colors cursor-pointer"
+          >
             <span>pi-meme</span>
-          </div>
-          <div className="ml-auto flex items-center gap-1">
+            <ChevronDown className="size-3 text-muted-foreground/60" />
+          </button>
+          <div className="flex items-center gap-0.5">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              aria-label="通知"
+              title="暂无新通知"
+              className="size-7 text-muted-foreground hover:text-foreground cursor-pointer"
+            >
+              <Bell className="size-3.5" />
+            </Button>
             <Button
               variant="ghost"
               size="icon-sm"
               aria-label="搜索聊天"
               title="搜索聊天（⌘K / Ctrl+K）"
               onClick={() => setSearchOpen(true)}
+              className="size-7 text-muted-foreground hover:text-foreground cursor-pointer"
             >
               <Search className="size-3.5" />
             </Button>

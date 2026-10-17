@@ -214,18 +214,21 @@ body {
     --workspace-right-width 280ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
-/* 开关盖在右缘上，不占列宽。主顶栏让出右栏宽度，收起时仍给按钮留位。 */
+:root[data-theme-background='app'] .workspace-panes {
+  background-color: transparent;
+}
+
 .workspace-topbar {
-  --right-toggle-slot: calc(1.75rem + 0.75rem + 0.375rem);
+  --right-toggle-slot: 40px;
 }
 
 .workspace-topbar > .workspace-main-header {
   width: calc(100% - var(--workspace-right-width));
-  padding-right: max(0.75rem, calc(var(--right-toggle-slot) - var(--workspace-right-width)));
+  padding-right: max(0px, calc(var(--right-toggle-slot) - var(--workspace-right-width)));
 }
 
 .workspace-topbar .right-pane .pane-clip {
-  padding-right: calc(var(--right-toggle-slot) - 0.25rem);
+  padding-right: var(--right-toggle-slot);
 }
 
 .workspace-panes[data-motion='direct'] {

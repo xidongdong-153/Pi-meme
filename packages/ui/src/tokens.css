@@ -68,6 +68,7 @@
 .appearance-sidebar {
   background: color-mix(in srgb, var(--color-surface) var(--theme-surface-opacity, 100%), transparent) !important;
   backdrop-filter: none;
+  border-right: none !important;
 }
 
 :root[data-theme-background='app'] .theme-app,

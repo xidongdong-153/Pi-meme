@@ -1,9 +1,21 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { Grid2X2, Maximize2, Minimize2, PanelRightClose, PanelRightOpen, Plus, Search, X } from 'lucide-react'
+import {
+  Globe,
+  Grid2X2,
+  Layers,
+  Maximize2,
+  Minimize2,
+  PanelRightClose,
+  PanelRightOpen,
+  Plus,
+  Search,
+  X,
+} from 'lucide-react'
 import { ErrorBoundary } from '@pi-meme/ui/components/error-boundary'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
 import type { UiContributionProps, UiPanel, UiTarget } from '@pi-meme/plugin-sdk/ui'
+import { AppRail } from './app-rail'
 import {
   closePanel,
   defaultPanelLayout,
@@ -33,6 +45,9 @@ export function WorkspacePanels({
   sidebarWidth,
   onSidebar,
   header,
+  onSettings,
+  onNewSession,
+  onPlugins,
   children,
 }: {
   panels: UiPanel[]
@@ -50,6 +65,9 @@ export function WorkspacePanels({
   sidebarWidth: number
   onSidebar: (open: boolean, width: number) => void
   header: (toggleSidebar: () => void) => ReactNode
+  onSettings?: () => void
+  onNewSession?: () => void
+  onPlugins?: () => void
   children: ReactNode
 }) {
   const storageKey = panelStorageKey(props.target.hostId, session)
@@ -84,8 +102,11 @@ export function WorkspacePanels({
   useEffect(() => {
     const element = container.current
     if (!element) return
-    const observer = new ResizeObserver(() => setContainerWidth(element.clientWidth))
-    setContainerWidth(element.clientWidth)
+    const measure = () => {
+      if (element.clientWidth > 0) setContainerWidth(element.clientWidth)
+    }
+    const observer = new ResizeObserver(measure)
+    measure()
     observer.observe(element)
     return () => observer.disconnect()
   }, [])
@@ -127,8 +148,17 @@ export function WorkspacePanels({
   const active = tabs.includes(layout.active) ? layout.active : tabs[0]
   const selected = available.find((panel) => panel.id === active)
   const workspaceWidth = Math.max(0, containerWidth - (sidebarOpen ? sidebarWidth : 0))
-  const maxWidth = Math.max(0, workspaceWidth - Math.min(320, workspaceWidth * 0.45))
+  const maxWidth = Math.max(0, workspaceWidth - Math.min(320, containerWidth * 0.45))
   const rightWidth = Math.min(layout.expanded ? maxWidth : layout.width, maxWidth)
+  const bothPanesFit = containerWidth - sidebarWidth >= 320 + 280
+  useEffect(() => {
+    if (layout.open && sidebarOpen && !bothPanesFit) onSidebar(false, sidebarWidth)
+  }, [layout.open, sidebarOpen, bothPanesFit, sidebarWidth, onSidebar])
+  const changeSidebar = (open: boolean, width: number) => {
+    if (open && containerWidth - width < 320 + 280) setLayout((value) => ({ ...value, open: false }))
+    onSidebar(open, width)
+  }
+  const toggleSidebar = () => changeSidebar(!sidebarOpen, sidebarWidth)
   const reducedMotion = useReducedMotion()
   const leftPane = usePaneMotion(sidebarOpen, sidebarWidth, reducedMotion)
   const rightPane = usePaneMotion(layout.open, rightWidth, reducedMotion)
@@ -158,27 +188,29 @@ export function WorkspacePanels({
 
   return (
     <div
-      ref={container}
       data-motion={directMotion ? 'direct' : 'slide'}
       data-pane-sidebar={sidebarOpen ? 'open' : 'closed'}
       data-pane-right={layout.open ? 'open' : 'closed'}
       data-overscroll={overscroll}
       style={shellStyle}
-      className="workspace-panes flex min-h-0 flex-1 flex-col overflow-hidden"
+      className="workspace-panes flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-secondary"
     >
-      <div className="workspace-topbar relative z-30 flex h-11 shrink-0">
-        <div className="workspace-main-header flex h-full min-w-0 overflow-hidden border-b border-border/70 bg-background/80 backdrop-blur-md window-drag select-none">
-          {header(() => onSidebar(!sidebarOpen, sidebarWidth))}
+      {/* 顶部栏：位于最外层外框中，与最左侧 ICON 栏同底色 */}
+      <div className="workspace-topbar relative z-30 flex h-10 shrink-0 select-none bg-transparent pr-2">
+        <div className="workspace-main-header flex h-full min-w-0 overflow-hidden bg-transparent window-drag">
+          {header(toggleSidebar)}
         </div>
         {rightPane.mounted && (
           <div
-            className="right-pane absolute inset-y-0 right-0 overflow-hidden border-b border-l border-border/70 bg-secondary/40 window-drag"
+            className="right-pane relative flex h-full shrink-0 overflow-hidden bg-transparent window-drag"
             style={{ width: 'var(--workspace-right-width)' }}
             data-testid="right-panel-header"
           >
+            {/* 与下方右侧栏左边缘严格对齐的短竖向分割线，折叠时隐藏 */}
+            {layout.open && <div className="absolute left-0 top-1/2 -translate-y-1/2 h-4 w-px bg-white/15 shrink-0" />}
             {/* 内容靠右钉住。栏宽拉开时从左侧露出，而不是等宽度到位后整组冒出来。 */}
             <div
-              className="pane-clip absolute inset-y-0 right-0 flex items-center gap-1 pl-2"
+              className="pane-clip flex h-full w-full items-center justify-between pl-3 pr-2"
               style={{ width: rightPane.dragging ? '100%' : rightWidth }}
             >
               <div
@@ -207,7 +239,7 @@ export function WorkspacePanels({
                   return (
                     <div
                       key={id}
-                      className={`group flex min-w-0 shrink-0 items-center rounded-lg border ${active === id ? 'border-border/70 bg-secondary text-foreground' : 'border-transparent text-muted-foreground hover:bg-secondary/60'}`}
+                      className={`group flex min-w-0 shrink-0 items-center rounded-md ${active === id ? 'bg-background/80 text-foreground shadow-xs' : 'text-muted-foreground hover:bg-background/40'}`}
                     >
                       <button
                         type="button"
@@ -216,10 +248,10 @@ export function WorkspacePanels({
                         aria-controls="right-tool-content"
                         tabIndex={active === id ? 0 : -1}
                         onClick={() => setLayout((value) => ({ ...value, active: id }))}
-                        className="flex h-8 min-w-0 items-center gap-2 pl-2.5 pr-1 text-xs"
+                        className="flex h-7 min-w-0 items-center gap-1.5 pl-2.5 pr-1 text-xs"
                         title={title}
                       >
-                        <span className="flex size-4 shrink-0 items-center justify-center [&>svg]:size-4">
+                        <span className="flex size-3.5 shrink-0 items-center justify-center [&>svg]:size-3.5">
                           {panel?.icon ?? <Grid2X2 />}
                         </span>
                         <span className="max-w-28 truncate">{title}</span>
@@ -236,10 +268,10 @@ export function WorkspacePanels({
                   )
                 })}
               </div>
-              <HeaderButton label="新建工具标签页" onClick={() => open(toolsTabId)}>
-                <Plus />
-              </HeaderButton>
-              <div className="ml-auto flex shrink-0 items-center gap-0.5 no-drag">
+              <div className="flex items-center gap-1 shrink-0 no-drag ml-auto">
+                <HeaderButton label="新建工具标签页" onClick={() => open(toolsTabId)}>
+                  <Plus />
+                </HeaderButton>
                 <HeaderButton
                   label={layout.expanded ? '还原右侧栏宽度' : '加宽右侧栏'}
                   onClick={() => setLayout((value) => ({ ...value, expanded: !value.expanded }))}
@@ -250,8 +282,7 @@ export function WorkspacePanels({
             </div>
           </div>
         )}
-        {/* 开关盖在右栏右缘上，不单独占一列。 */}
-        <div className="absolute inset-y-0 right-3 z-10 flex items-center">
+        <div className="absolute inset-y-0 right-3 z-10 flex items-center no-drag">
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
@@ -260,7 +291,8 @@ export function WorkspacePanels({
                 onClick={toggleRight}
                 aria-label={layout.open ? '收起右侧栏' : '展开右侧栏'}
                 aria-expanded={layout.open}
-                className="no-drag size-7 text-muted-foreground hover:text-foreground"
+                aria-controls="workspace-right-sidebar"
+                className="size-7 text-muted-foreground hover:text-foreground cursor-pointer"
               >
                 {layout.open ? <PanelRightClose className="size-4" /> : <PanelRightOpen className="size-4" />}
               </Button>
@@ -269,147 +301,188 @@ export function WorkspacePanels({
           </Tooltip>
         </div>
       </div>
+
+      {/* 顶部栏下方：最左侧为 AppRail，右侧为圈起来的圆角内容框体 */}
       <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-        {leftPane.mounted && (
-          <div
-            className="sidebar-pane relative flex min-w-0 shrink-0 overflow-hidden"
-            style={{ width: 'var(--workspace-sidebar-width)' }}
-          >
-            <aside
-              id="workspace-sidebar"
-              aria-label="会话导航"
-              aria-hidden={!sidebarOpen}
-              inert={!sidebarOpen}
-              className="appearance-sidebar flex min-h-0 w-full flex-col overflow-hidden border-r border-border/70"
+        {/* 最左侧：AppRail（与顶部外框同色） */}
+        <AppRail sidebarOpen={sidebarOpen} onToggleSidebar={toggleSidebar} onSettings={onSettings} />
+
+        {/* 内容部分：被有圆角框体圈起来的 3 部分容器（四角全圆角，右侧与底部留外框边距，复刻 Codex 设计） */}
+        <div
+          ref={container}
+          className="content-frame mr-2 mb-2 flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-xl border border-white/[0.08] bg-background shadow-xs"
+        >
+          {leftPane.mounted && (
+            <div
+              className="sidebar-pane relative flex min-w-0 shrink-0 overflow-hidden"
+              style={{ width: 'var(--workspace-sidebar-width)' }}
             >
-              <div
-                className="pane-clip flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
-                style={{
-                  width: leftPane.dragging ? '100%' : sidebarWidth,
-                  minWidth: leftPane.dragging ? undefined : sidebarWidth,
-                }}
+              <aside
+                id="workspace-sidebar"
+                aria-label="会话导航"
+                aria-hidden={!sidebarOpen}
+                inert={!sidebarOpen}
+                className="appearance-sidebar flex min-h-0 w-full flex-col overflow-hidden bg-card/40"
               >
-                {sidebar}
-              </div>
-            </aside>
-            {sidebarOpen && (
-              <ResizeHandle
-                side="left"
-                width={leftPane.presented}
-                min={200}
-                max={420}
-                onDragStart={leftPane.beginDrag}
-                onDrag={leftPane.dragTo}
-                onDragEnd={(result) => {
-                  leftPane.endDrag(result)
-                  onSidebar(!result.collapse, result.collapse ? sidebarWidth : result.width)
-                }}
-              />
-            )}
+                <div
+                  className="pane-clip flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+                  style={{
+                    width: leftPane.dragging ? '100%' : sidebarWidth,
+                    minWidth: leftPane.dragging ? undefined : sidebarWidth,
+                  }}
+                >
+                  {sidebar}
+                </div>
+              </aside>
+              {sidebarOpen && (
+                <ResizeHandle
+                  side="left"
+                  width={leftPane.presented}
+                  min={200}
+                  max={420}
+                  onDragStart={leftPane.beginDrag}
+                  onDrag={leftPane.dragTo}
+                  onDragEnd={(result) => {
+                    leftPane.endDrag(result)
+                    changeSidebar(!result.collapse, result.collapse ? sidebarWidth : result.width)
+                  }}
+                />
+              )}
+            </div>
+          )}
+          <div id="chat-workspace" className="theme-workspace flex min-h-0 min-w-0 flex-1 flex-col bg-background">
+            {children}
           </div>
-        )}
-        <div id="chat-workspace" className="theme-workspace flex min-h-0 min-w-0 flex-1 flex-col">
-          {children}
-        </div>
-        {rightPane.mounted && (
-          <div className="right-pane relative flex shrink-0" style={{ width: 'var(--workspace-right-width)' }}>
-            {layout.open && (
-              <ResizeHandle
-                side="right"
-                width={rightPane.presented}
-                min={Math.min(280, maxWidth)}
-                max={maxWidth}
-                onDragStart={rightPane.beginDrag}
-                onDrag={rightPane.dragTo}
-                onDragEnd={(result) => {
-                  rightPane.endDrag(result)
-                  setLayout((value) =>
-                    result.collapse
-                      ? { ...value, open: false }
-                      : { ...value, open: true, width: result.width, expanded: false },
-                  )
-                }}
-              />
-            )}
-            <aside
-              id="workspace-right-sidebar"
-              aria-label="右侧栏"
-              aria-hidden={!layout.open}
-              inert={!layout.open}
-              className="flex min-h-0 w-full flex-col overflow-hidden border-l border-border/70 bg-background"
-              onKeyDown={(event) => {
-                if (
-                  event.key !== 'Escape' ||
-                  event.defaultPrevented ||
-                  (event.target as HTMLElement).closest('[role="dialog"]')
-                )
-                  return
-                event.stopPropagation()
-                setLayout((value) => ({ ...value, open: false }))
-              }}
+          {rightPane.mounted && (
+            <div
+              className="right-pane relative flex shrink-0 border-l border-white/10"
+              style={{ width: 'var(--workspace-right-width)' }}
             >
-              <div
-                id="right-tool-content"
-                role="tabpanel"
-                aria-label={selected?.title ?? '新标签页'}
-                className="pane-clip flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden @container"
-                style={{ width: rightPane.dragging ? '100%' : rightWidth }}
+              {layout.open && (
+                <ResizeHandle
+                  side="right"
+                  width={rightPane.presented}
+                  min={Math.min(280, maxWidth)}
+                  max={maxWidth}
+                  onDragStart={rightPane.beginDrag}
+                  onDrag={rightPane.dragTo}
+                  onDragEnd={(result) => {
+                    rightPane.endDrag(result)
+                    setLayout((value) =>
+                      result.collapse
+                        ? { ...value, open: false }
+                        : { ...value, open: true, width: result.width, expanded: false },
+                    )
+                  }}
+                />
+              )}
+              <aside
+                id="workspace-right-sidebar"
+                aria-label="右侧栏"
+                aria-hidden={!layout.open}
+                inert={!layout.open}
+                className="flex min-h-0 w-full flex-col overflow-hidden bg-card/40"
+                onKeyDown={(event) => {
+                  if (
+                    event.key !== 'Escape' ||
+                    event.defaultPrevented ||
+                    (event.target as HTMLElement).closest('[role="dialog"]')
+                  )
+                    return
+                  event.stopPropagation()
+                  setLayout((value) => ({ ...value, open: false }))
+                }}
               >
-                {selected ? (
-                  <ErrorBoundary
-                    key={`${scope}:${selected.id}:${selected.generation ?? 0}`}
-                    fallbackTitle={`面板渲染失败：${selected.title}`}
-                  >
-                    <PanelContent panel={selected} props={props} />
-                  </ErrorBoundary>
-                ) : (
-                  <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-                    <div className="border-b border-border/60 px-4 py-3">
-                      <label className="flex items-center gap-2 rounded-full bg-secondary/70 px-3 py-2 text-muted-foreground">
-                        <Search className="size-4 shrink-0" />
-                        <input
-                          aria-label="查找工具和插件"
-                          placeholder="查找工具和插件"
-                          value={search}
-                          onChange={(event) => setSearch(event.target.value)}
-                          className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
-                        />
-                      </label>
-                    </div>
-                    <div className="p-5 @container">
-                      <h2 className="mb-4 text-xs font-medium">工具</h2>
-                      <div className="grid grid-cols-1 gap-2 @min-[400px]:grid-cols-2">
-                        {filtered.map((panel) => (
-                          <button
-                            key={panel.id}
-                            type="button"
-                            onClick={() => open(panel.id)}
-                            className="flex min-w-0 items-center gap-3 rounded-lg bg-secondary/40 px-4 py-3.5 text-left text-sm transition-colors hover:bg-secondary/80"
-                          >
-                            <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground [&>svg]:size-4">
-                              {panel.icon}
-                            </span>
-                            <span className="truncate">{panel.title}</span>
-                          </button>
+                <div
+                  id="right-tool-content"
+                  role="tabpanel"
+                  aria-label={selected?.title ?? '新标签页'}
+                  className="pane-clip flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden @container"
+                  style={{ width: rightPane.dragging ? '100%' : rightWidth }}
+                >
+                  {selected ? (
+                    <ErrorBoundary
+                      key={`${scope}:${selected.id}:${selected.generation ?? 0}`}
+                      fallbackTitle={`面板渲染失败：${selected.title}`}
+                    >
+                      <PanelContent panel={selected} props={props} />
+                    </ErrorBoundary>
+                  ) : (
+                    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+                      <div className="flex items-center gap-1.5 px-3 py-2">
+                        <label className="flex min-w-0 flex-1 items-center gap-2 rounded-full bg-secondary/50 px-3 py-1 text-xs text-muted-foreground focus-within:ring-1 focus-within:ring-ring">
+                          <Search className="size-3.5 shrink-0 text-muted-foreground" />
+                          <input
+                            aria-label="查找工具和插件"
+                            placeholder="查找工具和插件"
+                            value={search}
+                            onChange={(event) => setSearch(event.target.value)}
+                            className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
+                          />
+                        </label>
+                      </div>
+                      <div className="p-4 @container">
+                        <h2 className="mb-2 text-xs font-medium text-muted-foreground/80">工具</h2>
+                        <div className="flex flex-col gap-1">
+                          {filtered.map((panel) => (
+                            <button
+                              key={panel.id}
+                              type="button"
+                              onClick={() => open(panel.id)}
+                              className="flex min-w-0 items-center justify-between rounded-lg px-3 py-2 text-left text-xs text-foreground/90 transition-colors hover:bg-secondary/60 cursor-pointer group"
+                            >
+                              <div className="flex items-center gap-2.5 min-w-0">
+                                <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground group-hover:text-foreground [&>svg]:size-4">
+                                  {panel.icon}
+                                </span>
+                                <span className="truncate">{panel.title}</span>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                        {!filtered.length && (
+                          <p className="py-4 text-xs text-muted-foreground">
+                            {search ? '没有匹配的工具。' : '当前聊天暂无可用工具。可在插件页面安装工具插件。'}
+                          </p>
+                        )}
+                        <div className="mt-5">
+                          <h2 className="mb-2.5 text-xs font-medium text-muted-foreground/80">推荐</h2>
+                          <div className="grid grid-cols-2 gap-2.5">
+                            <button
+                              type="button"
+                              onClick={onNewSession}
+                              disabled={!onNewSession}
+                              className="flex flex-col items-center justify-center gap-2 rounded-xl bg-secondary/30 p-3.5 transition-colors hover:bg-secondary/60 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              <Globe className="size-5 text-primary/80" />
+                              <span className="text-xs text-foreground/80 font-medium">新会话</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={onPlugins}
+                              disabled={!onPlugins}
+                              className="flex flex-col items-center justify-center gap-2 rounded-xl bg-secondary/30 p-3.5 transition-colors hover:bg-secondary/60 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                              <Layers className="size-5 text-teal-400" />
+                              <span className="text-xs text-foreground/80 font-medium truncate max-w-full">
+                                扩展中心
+                              </span>
+                            </button>
+                          </div>
+                        </div>
+                        {Object.entries(errors).map(([id, error]) => (
+                          <p key={id} role="alert" className="mt-3 break-words text-xs text-destructive">
+                            {id}：{error}
+                          </p>
                         ))}
                       </div>
-                      {!filtered.length && (
-                        <p className="py-4 text-xs text-muted-foreground">
-                          {search ? '没有匹配的工具。' : '当前聊天暂无可用工具。可在插件页面安装工具插件。'}
-                        </p>
-                      )}
-                      {Object.entries(errors).map(([id, error]) => (
-                        <p key={id} role="alert" className="mt-3 break-words text-xs text-destructive">
-                          {id}：{error}
-                        </p>
-                      ))}
                     </div>
-                  </div>
-                )}
-              </div>
-            </aside>
-          </div>
-        )}
+                  )}
+                </div>
+              </aside>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

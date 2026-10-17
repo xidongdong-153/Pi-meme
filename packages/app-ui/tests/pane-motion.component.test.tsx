@@ -1,8 +1,10 @@
 import '@testing-library/jest-dom/vitest'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import type { HostApi } from '@pi-meme/contracts/app-host'
+import type { UiPanel } from '@pi-meme/plugin-sdk/ui'
 import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 import { WorkspacePanels } from '../src/layout/workspace-panels'
 
@@ -20,13 +22,25 @@ beforeEach(() => {
   )
 })
 
-function Panes({ onSidebar }: { onSidebar?: (open: boolean, width: number) => void }) {
+function Panes({
+  onSidebar,
+  panels = [],
+  onNewSession,
+  onPlugins,
+}: {
+  onSidebar?: (open: boolean, width: number) => void
+  panels?: UiPanel[]
+  onNewSession?: () => void
+  onPlugins?: () => void
+}) {
   const [open, setOpen] = useState(true)
   const [width, setWidth] = useState(256)
   return (
     <TooltipProvider>
       <WorkspacePanels
-        panels={[]}
+        panels={panels}
+        onNewSession={onNewSession}
+        onPlugins={onPlugins}
         props={{ host: {} as HostApi, target: { hostId: 'host' }, snapshot: null }}
         session="chat"
         sidebar="会话列表"
@@ -84,15 +98,66 @@ test('拖过收起阈值后松手关闭，并保留原来的宽度', () => {
   expect(onSidebar).toHaveBeenCalledWith(false, 256)
 })
 
-test('右侧栏开关留在顶栏，展开后不另挂收起按钮', () => {
+test('窄窗口展开一侧时收起另一侧，并保留原栏宽', () => {
+  vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(660)
+  const onSidebar = vi.fn()
+  render(<Panes onSidebar={onSidebar} />)
+  fireEvent.click(screen.getByRole('button', { name: '展开右侧栏' }))
+  expect(shell()).toHaveAttribute('data-pane-sidebar', 'closed')
+  expect(shell()).toHaveAttribute('data-pane-right', 'open')
+  expect(onSidebar).toHaveBeenLastCalledWith(false, 256)
+
+  fireEvent.click(screen.getByRole('button', { name: '切换侧栏' }))
+  expect(shell()).toHaveAttribute('data-pane-sidebar', 'open')
+  expect(shell()).toHaveAttribute('data-pane-right', 'closed')
+  expect(onSidebar).toHaveBeenLastCalledWith(true, 256)
+})
+
+test('打开工具后仍可新增其他工具标签，并保留已有工具', () => {
+  const panels: UiPanel[] = ['文件', '终端'].map((title) => ({
+    id: `example:${title}`,
+    title,
+    icon: null,
+    location: 'right',
+    scope: 'app',
+    render: () => `${title}正文`,
+  }))
+  render(<Panes panels={panels} />)
+  fireEvent.click(screen.getByRole('button', { name: '展开右侧栏' }))
+  fireEvent.click(screen.getByRole('button', { name: '文件' }))
+  fireEvent.click(screen.getByRole('button', { name: '新建工具标签页' }))
+  fireEvent.click(screen.getByRole('button', { name: '终端' }))
+  expect(screen.getByRole('tab', { name: '文件' })).toBeInTheDocument()
+  expect(screen.getByRole('tab', { name: '终端' })).toHaveAttribute('aria-selected', 'true')
+  fireEvent.click(screen.getByRole('tab', { name: '文件' }))
+  expect(screen.getByRole('tabpanel', { name: '文件' })).toHaveTextContent('文件正文')
+})
+
+test('新会话与扩展中心分别调用对应操作', () => {
+  const onNewSession = vi.fn()
+  const onPlugins = vi.fn()
+  render(<Panes onNewSession={onNewSession} onPlugins={onPlugins} />)
+  fireEvent.click(screen.getByRole('button', { name: '展开右侧栏' }))
+  fireEvent.click(screen.getByRole('button', { name: '新会话' }))
+  expect(onNewSession).toHaveBeenCalledOnce()
+  fireEvent.click(screen.getByRole('button', { name: '扩展中心' }))
+  expect(onPlugins).toHaveBeenCalledOnce()
+})
+
+test('键盘开合右侧栏后保留顶栏开关焦点', async () => {
+  const user = userEvent.setup()
   render(<Panes />)
   const toggle = screen.getByRole('button', { name: '展开右侧栏' })
-  fireEvent.click(toggle)
+  toggle.focus()
+  await user.keyboard('{Enter}')
   expect(screen.getByRole('button', { name: '收起右侧栏' })).toBe(toggle)
+  expect(toggle).toHaveFocus()
+  expect(toggle).toHaveAttribute('aria-expanded', 'true')
   expect(screen.getAllByRole('button', { name: '收起右侧栏' })).toHaveLength(1)
-  const paneHeader = document.querySelector('[data-testid="right-panel-header"]')
-  if (!(paneHeader instanceof HTMLElement)) throw new Error('缺少右侧栏顶栏')
-  expect(paneHeader).toHaveClass('absolute', 'right-0')
-  expect(paneHeader.contains(toggle)).toBe(false)
-  expect(paneHeader.querySelector('.pane-clip')).toHaveClass('right-0')
+  expect(toggle.closest('.workspace-topbar')).not.toBeNull()
+
+  await user.keyboard('{Enter}')
+  expect(screen.getByRole('button', { name: '展开右侧栏' })).toBe(toggle)
+  expect(toggle).toHaveFocus()
+  expect(toggle).toHaveAttribute('aria-expanded', 'false')
 })

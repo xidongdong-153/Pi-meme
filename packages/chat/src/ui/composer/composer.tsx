@@ -187,11 +187,11 @@ export function Composer({
       <form
         aria-label="消息输入"
         className={cn(
-          'composer @container relative flex flex-col rounded-[24px] border border-border/80 p-3 shadow-lg transition-colors',
+          'composer @container relative flex flex-col rounded-[20px] p-3 shadow-md transition-colors',
           compact && 'composer-compact',
-          dragging && 'border-primary ring-2 ring-primary/20',
+          dragging && 'ring-2 ring-primary/40',
         )}
-        style={{ backgroundColor: 'color-mix(in srgb, var(--background), var(--foreground) 14%)' }}
+        style={{ backgroundColor: 'color-mix(in srgb, var(--background), var(--foreground) 11%)' }}
         onSubmit={(event) => {
           event.preventDefault()
           if (!disabled && !agentPlugins?.saving && (draft.trim() || selectedSkills.length || attachments.length))

@@ -48,15 +48,15 @@ export function ActivityGroup({
   )
 
   return (
-    <div className={cn('my-3 w-full', className)}>
-      <div className="border-b border-border/60 pb-2">
+    <div className={cn('my-2 w-full', className)}>
+      <div className="pb-1.5">
         {canExpand ? (
           <button
             type="button"
             aria-label="工作过程"
             aria-expanded={groupOpen}
             onClick={() => setManualOpen((previous) => !(previous ?? isLive))}
-            className="inline-flex items-center gap-1.5 rounded-sm py-1 text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 bg-secondary/50 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
           >
             <span>{elapsedTime}</span>
             <ChevronDown
@@ -64,7 +64,10 @@ export function ActivityGroup({
             />
           </button>
         ) : (
-          <div role="status" className="py-1 text-sm text-muted-foreground">
+          <div
+            role="status"
+            className="inline-flex rounded-full px-2.5 py-0.5 bg-secondary/40 text-xs text-muted-foreground"
+          >
             {elapsedTime}
           </div>
         )}
