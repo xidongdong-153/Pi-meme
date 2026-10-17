@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Plus, Search, Settings, SquarePen } from 'lucide-react'
+import { Plus, Search, SquarePen } from 'lucide-react'
 import type { HostService } from '@pi-meme/contracts/host'
 import type { SidebarPreferences, SidebarPreferencesPatch } from '@pi-meme/contracts/settings'
 import { BrandMark } from '@pi-meme/ui/components/brand-mark'
@@ -28,7 +28,7 @@ export function MultiServiceSidebar({
   onPreferencesChange,
   onSearch,
   onActivate,
-  onSettings,
+  onSettings: _onSettings,
 }: {
   services: HostService[]
   registry: ServiceRegistry
@@ -337,14 +337,6 @@ export function MultiServiceSidebar({
           )}
         </SidebarSection>
       </div>
-      <button
-        type="button"
-        aria-label="设置"
-        onClick={onSettings}
-        className="flex shrink-0 items-center border-t border-border p-3 text-muted-foreground hover:text-foreground"
-      >
-        <Settings className="size-4" />
-      </button>
     </aside>
   )
 }

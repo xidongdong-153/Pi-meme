@@ -76,6 +76,9 @@ const SettingsContent = lazy(() =>
 const ProfileSettings = lazy(() =>
   import('@pi-meme/usage/ui/profile-settings').then((module) => ({ default: module.ProfileSettings })),
 )
+const AccountSettings = lazy(() =>
+  import('./settings/account-settings').then((module) => ({ default: module.AccountSettings })),
+)
 
 export function App({
   bridge,
@@ -831,6 +834,8 @@ export function App({
               onRightRequestHandled={() => setPlanRequest(undefined)}
               onSidebar={handleSidebar}
               onSettings={() => setSettingsSection('general')}
+              onUsage={() => setSettingsSection('profile')}
+              onAccount={() => setSettingsSection('account')}
               onNewSession={() => void chat.newSession()}
               onPlugins={() => setSettingsSection('plugins')}
               header={(toggleSidebar) => (
@@ -1019,6 +1024,7 @@ export function App({
                       }}
                     />
                   )
+                if (section === 'account') return <AccountSettings bridge={bridge} />
                 if (section === 'profile') return <ProfileSettings {...{ loadUsage: bridge.getUsageStats }} />
                 return null
               }}

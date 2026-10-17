@@ -1,7 +1,7 @@
 import { SidebarMenus, type SidebarMenuBridge } from './sidebar-menus'
 import type { SettingsBridge, WorkspaceBridge, WorkspaceDeletionResult } from '@pi-meme/contracts/desktop'
 import { useEffect, useMemo, useState } from 'react'
-import { Bell, ChevronDown, Search, Settings, SquarePen } from 'lucide-react'
+import { Bell, ChevronDown, Search, SquarePen } from 'lucide-react'
 import type { PiSessionsSnapshot } from '@pi-meme/contracts/sessions'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { ScrollArea } from '@pi-meme/ui/components/ui/scroll-area'
@@ -334,19 +334,6 @@ export function Sidebar({
             </div>
           )}
         </ScrollArea>
-
-        {/* 底部设置入口 */}
-        <div className="flex items-center justify-between border-t border-border px-3 py-2.5 text-xs text-muted-foreground bg-card/40">
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={onSettings}
-            aria-label="设置"
-            className="text-muted-foreground hover:text-foreground size-7 shrink-0"
-          >
-            <Settings className="size-4" />
-          </Button>
-        </div>
       </aside>
       <SessionSearchDialog
         searchHistory={searchHistory}

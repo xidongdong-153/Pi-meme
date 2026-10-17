@@ -46,6 +46,8 @@ export function WorkspacePanels({
   onSidebar,
   header,
   onSettings,
+  onUsage,
+  onAccount,
   onNewSession,
   onPlugins,
   children,
@@ -66,6 +68,8 @@ export function WorkspacePanels({
   onSidebar: (open: boolean, width: number) => void
   header: (toggleSidebar: () => void) => ReactNode
   onSettings?: () => void
+  onUsage?: () => void
+  onAccount?: () => void
   onNewSession?: () => void
   onPlugins?: () => void
   children: ReactNode
@@ -305,7 +309,13 @@ export function WorkspacePanels({
       {/* 顶部栏下方：最左侧为 AppRail，右侧为圈起来的圆角内容框体 */}
       <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
         {/* 最左侧：AppRail（与顶部外框同色） */}
-        <AppRail sidebarOpen={sidebarOpen} onToggleSidebar={toggleSidebar} onSettings={onSettings} />
+        <AppRail
+          sidebarOpen={sidebarOpen}
+          onToggleSidebar={toggleSidebar}
+          onSettings={onSettings}
+          onUsage={onUsage}
+          onAccount={onAccount}
+        />
 
         {/* 内容部分：被有圆角框体圈起来的 3 部分容器（四角全圆角，右侧与底部留外框边距，复刻 Codex 设计） */}
         <div

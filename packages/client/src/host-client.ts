@@ -796,6 +796,8 @@ export class HostClient {
       selectTheme: (id) => settingsRpc('settings:theme', [id]),
       reloadThemes: () => settingsRpc('settings:reload-themes'),
       openThemesDirectory: () => openPath('themesDirectory'),
+      getUserProfile: () => rpc('settings:get-user-profile'),
+      saveUserProfile: (profile) => rpc('settings:save-user-profile', [profile]),
       getMcpConfig: () => rpc('mcp:get'),
       saveMcpServer: (input) => rpc('mcp:save', [input]),
       deleteMcpServer: (input) => rpc('mcp:delete', [input]),

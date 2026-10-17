@@ -313,6 +313,20 @@ export interface SettingsBridge {
   selectTheme: (id: string) => Promise<SettingsSnapshot>
   reloadThemes: () => Promise<SettingsSnapshot>
   openThemesDirectory: () => Promise<void>
+  getUserProfile?: () => Promise<{
+    name: string
+    username: string
+    email: string
+    avatarText?: string
+    avatarUrl?: string
+  }>
+  saveUserProfile?: (profile: {
+    name?: string
+    username?: string
+    email?: string
+    avatarData?: string
+    avatarText?: string
+  }) => Promise<{ name: string; username: string; email: string; avatarUrl?: string }>
 }
 
 export type DesktopBridge = ConnectionBridge &

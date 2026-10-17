@@ -30,11 +30,91 @@ export class SettingsStore {
   private themes = [...builtinThemes]
   private errors: string[] = []
   readonly themesDirectory: string
+  readonly profileDirectory: string
   private pluginThemes: Theme[] = []
   private readonly settingsFile: string
   constructor(directory: string) {
     this.themesDirectory = path.join(directory, 'themes')
+    this.profileDirectory = path.join(directory, 'profile')
     this.settingsFile = path.join(directory, 'settings.json')
+  }
+
+  async saveUserProfile(profile: {
+    name?: string
+    username?: string
+    email?: string
+    avatarData?: string
+    avatarText?: string
+  }) {
+    await mkdir(this.profileDirectory, { recursive: true })
+    const profileFile = path.join(this.profileDirectory, 'profile.json')
+    let current: Record<string, unknown> = {}
+    try {
+      current = JSON.parse(await readFile(profileFile, 'utf8')) as Record<string, unknown>
+    } catch (cause) {
+      if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw cause
+    }
+
+    let avatarFileName = typeof current.avatarFile === 'string' ? current.avatarFile : 'avatar.png'
+    if (profile.avatarData && typeof profile.avatarData === 'string') {
+      const match = profile.avatarData.match(/^data:image\/([a-zA-Z0-9+]+);base64,(.+)$/)
+      if (match) {
+        const ext = match[1] === 'jpeg' ? 'jpg' : match[1]
+        avatarFileName = `avatar.${ext}`
+        const buffer = Buffer.from(match[2], 'base64')
+        await writeFile(path.join(this.profileDirectory, avatarFileName), buffer)
+      }
+    }
+
+    const next = {
+      ...current,
+      name: profile.name ?? current.name ?? 'xi dongdong',
+      username: profile.username ?? current.username ?? '@youzegehq',
+      email: profile.email ?? current.email ?? 'youzegehq@gmail.com',
+      avatarText: profile.avatarText ?? current.avatarText ?? 'XD',
+      avatarFile: avatarFileName,
+      updatedAt: new Date().toISOString(),
+    }
+    await writeFile(profileFile, JSON.stringify(next, null, 2), 'utf8')
+    return this.getUserProfile()
+  }
+
+  async getUserProfile() {
+    await mkdir(this.profileDirectory, { recursive: true })
+    const profileFile = path.join(this.profileDirectory, 'profile.json')
+    let current: {
+      name?: string
+      username?: string
+      email?: string
+      avatarText?: string
+      avatarFile?: string
+    } = {}
+    try {
+      current = JSON.parse(await readFile(profileFile, 'utf8')) as typeof current
+    } catch (cause) {
+      if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw cause
+    }
+
+    let avatarUrl: string | undefined
+    if (current.avatarFile) {
+      try {
+        const avatarPath = path.join(this.profileDirectory, current.avatarFile)
+        const buffer = await readFile(avatarPath)
+        const ext = path.extname(current.avatarFile).replace('.', '') || 'png'
+        const mime = ext === 'jpg' ? 'image/jpeg' : `image/${ext}`
+        avatarUrl = `data:${mime};base64,${buffer.toString('base64')}`
+      } catch {
+        // 头像文件不存在则忽略
+      }
+    }
+
+    return {
+      name: current.name || 'xi dongdong',
+      username: current.username || '@youzegehq',
+      email: current.email || 'youzegehq@gmail.com',
+      avatarText: current.avatarText || 'XD',
+      avatarUrl,
+    }
   }
 
   private pendingPluginSelection?: Pick<DesktopSettings, 'themeId' | 'appearance'>

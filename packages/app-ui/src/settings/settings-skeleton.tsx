@@ -294,10 +294,32 @@ export function AboutSkeleton() {
   )
 }
 
+export function AccountSkeleton() {
+  return (
+    <div className="space-y-6" data-testid="settings-skeleton-account">
+      <BentoSkeletonCard delay={0} className="flex flex-col items-center justify-center p-6 space-y-3">
+        <div className="size-20 rounded-full bg-secondary/60 animate-pulse" />
+        <BentoSkeletonBar className="w-28" size="sm" />
+        <BentoSkeletonBar className="w-20" size="xs" />
+      </BentoSkeletonCard>
+      <section className="space-y-3">
+        <BentoSkeletonBar className="w-20" size="sm" />
+        <BentoSkeletonCard delay={60} className="space-y-4 p-5">
+          <BentoSkeletonBar className="w-full" size="sm" />
+          <BentoSkeletonBar className="w-full" size="sm" />
+          <BentoSkeletonBar className="w-full" size="sm" />
+        </BentoSkeletonCard>
+      </section>
+    </div>
+  )
+}
+
 export function SettingsSkeleton({ section }: { section: SettingsSection }) {
   switch (section) {
     case 'general':
       return <GeneralSkeleton />
+    case 'account':
+      return <AccountSkeleton />
     case 'appearance':
       return <AppearanceSkeleton />
     case 'profile':

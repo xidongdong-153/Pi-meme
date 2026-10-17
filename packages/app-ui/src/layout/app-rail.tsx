@@ -1,18 +1,36 @@
-import { Home } from 'lucide-react'
+import { BookOpen, Gauge, Gift, Home, Keyboard, LifeBuoy, Settings } from 'lucide-react'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from '@pi-meme/ui/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
 import { cn } from '@pi-meme/ui/lib/utils'
+import { useUserProfile } from '../settings/user-profile'
 
 export function AppRail({
   onSettings,
+  onUsage,
+  onAccount,
   onToggleSidebar,
   sidebarOpen = true,
   className,
 }: {
   onSettings?: () => void
+  onUsage?: () => void
+  onAccount?: () => void
   onToggleSidebar?: () => void
   sidebarOpen?: boolean
   className?: string
 }) {
+  const { profile } = useUserProfile()
+  const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent)
+
   return (
     <nav
       aria-label="应用导航轨"
@@ -40,23 +58,100 @@ export function AppRail({
         </Tooltip>
       </div>
 
-      {/* 底部个人账户头像 */}
+      {/* 底部个人账户头像与菜单 */}
       <div className="flex flex-col items-center">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              aria-label="打开设置与个人资料"
-              onClick={onSettings}
-              className="flex size-7 items-center justify-center rounded-full bg-[#e8a838] text-[0.625rem] font-bold text-neutral-900 shadow-xs transition-transform hover:scale-105 active:scale-95 cursor-pointer"
+        <DropdownMenu>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <DropdownMenuTrigger asChild>
+                <button
+                  type="button"
+                  aria-label="用户菜单与设置"
+                  className="flex size-7 items-center justify-center rounded-full bg-[#e8a838] text-[0.625rem] font-bold text-neutral-900 shadow-xs transition-transform hover:scale-105 active:scale-95 cursor-pointer outline-none overflow-hidden"
+                >
+                  {profile.avatarUrl ? (
+                    <img src={profile.avatarUrl} alt={profile.name} className="size-full rounded-full object-cover" />
+                  ) : (
+                    profile.avatarText
+                  )}
+                </button>
+              </DropdownMenuTrigger>
+            </TooltipTrigger>
+            <TooltipContent side="right" sideOffset={8}>
+              设置与账户
+            </TooltipContent>
+          </Tooltip>
+
+          <DropdownMenuContent side="right" align="end" sideOffset={12} className="w-52 p-1.5">
+            {/* 1. 顶部展示头像 - 名称（无 Pro 订阅标识，点击直达个人资料） */}
+            <div
+              role="button"
+              tabIndex={0}
+              onClick={onAccount}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' || e.key === ' ') {
+                  e.preventDefault()
+                  onAccount?.()
+                }
+              }}
+              className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg select-none hover:bg-secondary/60 transition-colors cursor-pointer group"
             >
-              XD
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="right" sideOffset={8}>
-            设置与账户
-          </TooltipContent>
-        </Tooltip>
+              <div className="flex size-7 items-center justify-center rounded-full bg-[#e8a838] text-[0.625rem] font-bold text-neutral-900 shrink-0 shadow-xs overflow-hidden">
+                {profile.avatarUrl ? (
+                  <img src={profile.avatarUrl} alt={profile.name} className="size-full rounded-full object-cover" />
+                ) : (
+                  profile.avatarText
+                )}
+              </div>
+              <span className="text-xs font-semibold text-foreground truncate group-hover:text-primary transition-colors">
+                {profile.name}
+              </span>
+            </div>
+
+            <DropdownMenuSeparator />
+
+            {/* 2. 用量 */}
+            <DropdownMenuItem onClick={onUsage} className="gap-2.5 py-2">
+              <Gauge className="size-4 text-muted-foreground" />
+              <span>用量</span>
+            </DropdownMenuItem>
+
+            {/* 3. 设置 */}
+            <DropdownMenuItem onClick={onSettings} className="gap-2.5 py-2 justify-between">
+              <div className="flex items-center gap-2.5">
+                <Settings className="size-4 text-muted-foreground" />
+                <span>设置</span>
+              </div>
+              <span className="text-[10px] text-muted-foreground/80 font-mono tracking-tighter">
+                {isMac ? '⌘,' : 'Ctrl+,'}
+              </span>
+            </DropdownMenuItem>
+
+            <DropdownMenuSeparator />
+
+            {/* 4. 帮助二级菜单 */}
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger className="gap-2.5 py-2">
+                <LifeBuoy className="size-4 text-muted-foreground" />
+                <span>帮助</span>
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent sideOffset={6} className="w-40 p-1">
+                <DropdownMenuItem disabled className="gap-2.5 py-1.5">
+                  <Gift className="size-4 text-muted-foreground" />
+                  <span>新功能</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled className="gap-2.5 py-1.5">
+                  <Keyboard className="size-4 text-muted-foreground" />
+                  <span>快捷键设置</span>
+                </DropdownMenuItem>
+                <DropdownMenuItem disabled className="gap-2.5 py-1.5">
+                  <BookOpen className="size-4 text-muted-foreground" />
+                  <span>用户指南</span>
+                </DropdownMenuItem>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </nav>
   )

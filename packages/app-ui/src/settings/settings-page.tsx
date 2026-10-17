@@ -12,6 +12,7 @@ import {
   Server,
   Settings,
   Sparkles,
+  User,
 } from 'lucide-react'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Input } from '@pi-meme/ui/components/ui/input'
@@ -29,6 +30,12 @@ const groups = [
         label: '常规',
         icon: Settings,
         description: '设置默认访问权限、应用存储目录和缓存清理。',
+      },
+      {
+        id: 'account',
+        label: '个人资料',
+        icon: User,
+        description: '查看并管理个人账户信息与显示偏好。',
       },
       { id: 'appearance', label: '外观', icon: Palette, description: '调整主题、字号和界面效果。' },
       { id: 'profile', label: '用量', icon: ChartNoAxesCombined, description: '查看 Token 用量与活动记录。' },

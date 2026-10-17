@@ -64,6 +64,17 @@ export function createSettingsHandlers({
       if (filename) await settings.exportTheme(filename, theme)
     },
     'settings:get': () => settings.snapshot(),
+    'settings:save-user-profile': (value: unknown) => {
+      const input = (value && typeof value === 'object' ? value : {}) as Record<string, unknown>
+      return settings.saveUserProfile({
+        name: typeof input.name === 'string' ? input.name : undefined,
+        username: typeof input.username === 'string' ? input.username : undefined,
+        email: typeof input.email === 'string' ? input.email : undefined,
+        avatarData: typeof input.avatarData === 'string' ? input.avatarData : undefined,
+        avatarText: typeof input.avatarText === 'string' ? input.avatarText : undefined,
+      })
+    },
+    'settings:get-user-profile': () => settings.getUserProfile(),
     'settings:save': (value: unknown) =>
       pi.idle(async () => {
         const previous = settings.snapshot().settings

@@ -25,6 +25,7 @@ test('BentoSkeletonCard 渲染包含流光层与基础圆角样式', () => {
 test('SettingsSkeleton 针对各个设置模块渲染对应的 Bento 骨架屏结构', () => {
   const sections = [
     { id: 'general', testId: 'settings-skeleton-general' },
+    { id: 'account', testId: 'settings-skeleton-account' },
     { id: 'appearance', testId: 'settings-skeleton-appearance' },
     { id: 'profile', testId: 'settings-skeleton-profile' },
     { id: 'models', testId: 'settings-skeleton-models' },
