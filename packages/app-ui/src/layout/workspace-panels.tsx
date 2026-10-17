@@ -16,6 +16,7 @@ import { Button } from '@pi-meme/ui/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
 import type { UiContributionProps, UiPanel, UiTarget } from '@pi-meme/plugin-sdk/ui'
 import { AppRail } from './app-rail'
+import type { UserProfile } from '../settings/user-profile'
 import {
   closePanel,
   defaultPanelLayout,
@@ -45,6 +46,8 @@ export function WorkspacePanels({
   sidebarWidth,
   onSidebar,
   header,
+  profile,
+  profileLoading,
   onSettings,
   onUsage,
   onAccount,
@@ -67,6 +70,8 @@ export function WorkspacePanels({
   sidebarWidth: number
   onSidebar: (open: boolean, width: number) => void
   header: (toggleSidebar: () => void) => ReactNode
+  profile: UserProfile
+  profileLoading: boolean
   onSettings?: () => void
   onUsage?: () => void
   onAccount?: () => void
@@ -310,6 +315,8 @@ export function WorkspacePanels({
       <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
         {/* 最左侧：AppRail（与顶部外框同色） */}
         <AppRail
+          profile={profile}
+          profileLoading={profileLoading}
           sidebarOpen={sidebarOpen}
           onToggleSidebar={toggleSidebar}
           onSettings={onSettings}

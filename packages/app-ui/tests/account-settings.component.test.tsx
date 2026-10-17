@@ -2,11 +2,16 @@ import '@testing-library/jest-dom/vitest'
 import { afterEach, expect, test, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { AccountSettings } from '../src/settings/account-settings'
+import { DEFAULT_PROFILE } from '../src/settings/user-profile'
 
 afterEach(cleanup)
 
+function renderAccount(props: Partial<Parameters<typeof AccountSettings>[0]> = {}) {
+  return render(<AccountSettings profile={DEFAULT_PROFILE} loading={false} updateProfile={vi.fn()} {...props} />)
+}
+
 test('AccountSettings 渲染表单时已移除状态与年龄，保留姓名、用户名与邮箱', () => {
-  render(<AccountSettings />)
+  renderAccount()
 
   // 验证不包含状态和年龄
   expect(screen.queryByText('状态')).not.toBeInTheDocument()
@@ -22,7 +27,7 @@ test('AccountSettings 渲染表单时已移除状态与年龄，保留姓名、�
 })
 
 test('AccountSettings 具备头像上传编辑按钮并触发文件选择', () => {
-  render(<AccountSettings />)
+  renderAccount()
 
   const editAvatarBtn = screen.getByRole('button', { name: '修改头像' })
   expect(editAvatarBtn).toBeInTheDocument()
@@ -37,13 +42,9 @@ test('AccountSettings 具备头像上传编辑按钮并触发文件选择', () =
   expect(clickSpy).toHaveBeenCalledTimes(1)
 })
 
-test('AccountSettings 保存姓名时调用持久化保存', () => {
-  const saveUserProfile = vi.fn().mockResolvedValue({
-    name: '新名字',
-    username: '@youzegehq',
-    email: 'youzegehq@gmail.com',
-  })
-  render(<AccountSettings bridge={{ getUserProfile: async () => null as never, saveUserProfile }} />)
+test('AccountSettings 保存姓名时通知应用更新资料', () => {
+  const updateProfile = vi.fn()
+  renderAccount({ updateProfile })
 
   const nameInput = screen.getByPlaceholderText('请输入姓名')
   fireEvent.change(nameInput, { target: { value: '新名字' } })
@@ -52,9 +53,38 @@ test('AccountSettings 保存姓名时调用持久化保存', () => {
   expect(saveBtn).not.toBeDisabled()
   fireEvent.click(saveBtn)
 
-  expect(saveUserProfile).toHaveBeenCalledWith(
-    expect.objectContaining({
-      name: '新名字',
-    }),
-  )
+  expect(updateProfile).toHaveBeenCalledWith({ name: '新名字' })
+})
+
+test('异步资料到达时同步表单，加载期间禁用编辑', () => {
+  const { rerender } = renderAccount({ loading: true })
+  const nameInput = screen.getByPlaceholderText('请输入姓名')
+  expect(nameInput).toBeDisabled()
+  expect(screen.getByLabelText('上传个人头像图片')).toBeDisabled()
+  expect(screen.getByRole('button', { name: '修改头像' })).toBeDisabled()
+  expect(screen.getByRole('button', { name: '更改' })).toBeDisabled()
+
+  const profile = { ...DEFAULT_PROFILE, name: '真实姓名', email: 'host@example.com' }
+  rerender(<AccountSettings profile={profile} loading={false} updateProfile={vi.fn()} />)
+
+  expect(nameInput).toBeEnabled()
+  expect(nameInput).toHaveValue(profile.name)
+  fireEvent.click(screen.getByRole('button', { name: '更改' }))
+  expect(screen.getByPlaceholderText('请输入邮箱')).toHaveValue(profile.email)
+})
+
+test('资料更新不覆盖未保存的姓名和邮箱草稿，取消邮箱编辑恢复最新值', () => {
+  const { rerender } = renderAccount()
+  fireEvent.change(screen.getByPlaceholderText('请输入姓名'), { target: { value: '未保存姓名' } })
+  fireEvent.click(screen.getByRole('button', { name: '更改' }))
+  fireEvent.change(screen.getByPlaceholderText('请输入邮箱'), { target: { value: 'draft@example.com' } })
+
+  const profile = { ...DEFAULT_PROFILE, name: '新资料姓名', email: 'updated@example.com' }
+  rerender(<AccountSettings profile={profile} loading={false} updateProfile={vi.fn()} />)
+
+  expect(screen.getByPlaceholderText('请输入姓名')).toHaveValue('未保存姓名')
+  expect(screen.getByPlaceholderText('请输入邮箱')).toHaveValue('draft@example.com')
+  fireEvent.click(screen.getByRole('button', { name: '取消' }))
+  fireEvent.click(screen.getByRole('button', { name: '更改' }))
+  expect(screen.getByPlaceholderText('请输入邮箱')).toHaveValue(profile.email)
 })

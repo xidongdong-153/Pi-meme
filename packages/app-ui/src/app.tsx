@@ -56,6 +56,7 @@ import { useAgentPluginSelection } from './plugins/use-agent-plugin-selection'
 import { FileDiff, Folder, TerminalSquare, Network, ListTree, NotebookPen } from 'lucide-react'
 import type { HostApi, AppSession } from '@pi-meme/contracts/app-host'
 import { SettingsPage, type SettingsSection } from './settings/settings-page'
+import { useUserProfile } from './settings/user-profile'
 import { loadPluginUI } from './plugins/load-plugin-ui'
 import type { DesktopBridge, ProjectApp } from '@pi-meme/contracts/desktop'
 
@@ -110,6 +111,7 @@ export function App({
   /** 当前服务的聊天主界面已经可以显示，或连接失败需要把界面交还用户。 */
   onBootComplete?: () => void
 }) {
+  const userProfile = useUserProfile(bridge)
   const resources = useMemo(() => createResourceClient(call, plugins.onChange), [call, plugins])
   const [registry] = useState(() => new UiPluginRegistry(host, loadPluginUI, call))
   const [pluginDescriptors, setPluginDescriptors] = useState<UiPluginDescriptor[]>([])
@@ -825,6 +827,8 @@ export function App({
         >
           <div className={settingsOpen ? 'hidden' : 'flex flex-1 min-h-0 flex-col'} inert={settingsOpen}>
             <WorkspacePanels
+              profile={userProfile.profile}
+              profileLoading={userProfile.showPlaceholder}
               panels={panels}
               errors={registry.errors()}
               props={pluginProps}
@@ -1033,7 +1037,14 @@ export function App({
                       }}
                     />
                   )
-                if (section === 'account') return <AccountSettings bridge={bridge} />
+                if (section === 'account')
+                  return (
+                    <AccountSettings
+                      profile={userProfile.profile}
+                      loading={userProfile.loading}
+                      updateProfile={userProfile.updateProfile}
+                    />
+                  )
                 if (section === 'profile') return <ProfileSettings {...{ loadUsage: bridge.getUsageStats }} />
                 return null
               }}

@@ -9,6 +9,8 @@ export type UserProfile = {
   avatarUrl?: string
 }
 
+type ProfileBridge = Pick<SettingsBridge, 'getUserProfile' | 'saveUserProfile'>
+
 const STORAGE_KEY = 'pi-meme-user-profile'
 
 export const DEFAULT_PROFILE: UserProfile = {
@@ -18,98 +20,111 @@ export const DEFAULT_PROFILE: UserProfile = {
   avatarText: 'XD',
 }
 
-export function loadUserProfile(): UserProfile {
-  if (typeof window === 'undefined') return DEFAULT_PROFILE
+function normalizeProfile(profile: Partial<UserProfile>): UserProfile {
+  return {
+    name: profile.name?.trim() || DEFAULT_PROFILE.name,
+    username: profile.username?.trim() || DEFAULT_PROFILE.username,
+    email: profile.email?.trim() || DEFAULT_PROFILE.email,
+    avatarText: profile.avatarText?.trim() || DEFAULT_PROFILE.avatarText,
+    avatarUrl: profile.avatarUrl || undefined,
+  }
+}
+
+function loadUserProfile(): UserProfile | null {
+  if (typeof window === 'undefined') return null
   try {
     const raw = window.localStorage.getItem(STORAGE_KEY)
-    if (!raw) return DEFAULT_PROFILE
-    const parsed = JSON.parse(raw) as Partial<UserProfile>
-    return {
-      name: parsed.name?.trim() || DEFAULT_PROFILE.name,
-      username: parsed.username?.trim() || DEFAULT_PROFILE.username,
-      email: parsed.email?.trim() || DEFAULT_PROFILE.email,
-      avatarText: parsed.avatarText?.trim() || DEFAULT_PROFILE.avatarText,
-      avatarUrl: parsed.avatarUrl || undefined,
-    }
-  } catch {
-    return DEFAULT_PROFILE
-  }
-}
-
-export function saveUserProfile(
-  patch: Partial<UserProfile>,
-  bridge?: Pick<SettingsBridge, 'saveUserProfile'>,
-): UserProfile {
-  const current = loadUserProfile()
-  const next: UserProfile = {
-    ...current,
-    ...patch,
-  }
-  if (typeof window !== 'undefined') {
-    try {
-      window.localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
-      window.dispatchEvent(new CustomEvent('pi-user-profile-changed', { detail: next }))
-    } catch {
-      // 忽略存储配额错误
-    }
-  }
-  if (bridge?.saveUserProfile) {
-    void bridge
-      .saveUserProfile({
-        name: next.name,
-        username: next.username,
-        email: next.email,
-        avatarText: next.avatarText,
-        avatarData: next.avatarUrl,
-      })
-      .catch(() => {
-        // 后端离线或异常时忽略，以本地存储为准
-      })
-  }
-  return next
-}
-
-export async function syncUserProfileFromHost(
-  bridge?: Pick<SettingsBridge, 'getUserProfile'>,
-): Promise<UserProfile | null> {
-  if (!bridge?.getUserProfile) return null
-  try {
-    const hostProfile = await bridge.getUserProfile()
-    if (!hostProfile) return null
-    return saveUserProfile({
-      name: hostProfile.name,
-      username: hostProfile.username,
-      email: hostProfile.email,
-      avatarText: hostProfile.avatarText,
-      avatarUrl: hostProfile.avatarUrl,
-    })
+    if (!raw) return null
+    return normalizeProfile(JSON.parse(raw) as Partial<UserProfile>)
   } catch {
     return null
   }
 }
 
-export function useUserProfile(bridge?: Pick<SettingsBridge, 'getUserProfile' | 'saveUserProfile'>) {
-  const [profile, setProfile] = useState<UserProfile>(loadUserProfile)
+function cacheUserProfile(profile: UserProfile) {
+  if (typeof window === 'undefined') return
+  try {
+    window.localStorage.setItem(STORAGE_KEY, JSON.stringify(profile))
+  } catch {
+    // 缓存不可用时仍使用内存中的资料。
+  }
+}
+
+function initialProfileState(bridge?: ProfileBridge) {
+  const cached = loadUserProfile()
+  return {
+    bridge,
+    profile: cached ?? DEFAULT_PROFILE,
+    loading: Boolean(bridge?.getUserProfile),
+    hasProfile: cached !== null,
+  }
+}
+
+export function useUserProfile(bridge?: ProfileBridge) {
+  const [state, setState] = useState(() => initialProfileState(bridge))
+  if (state.bridge !== bridge) setState(initialProfileState(bridge))
 
   useEffect(() => {
-    const handleUpdate = () => {
-      setProfile(loadUserProfile())
+    const getUserProfile = bridge?.getUserProfile
+    if (!getUserProfile) return
+    let active = true
+    const load = async () => {
+      let profile: UserProfile | undefined
+      try {
+        const hostProfile = await getUserProfile()
+        if (hostProfile) profile = normalizeProfile(hostProfile)
+      } catch {
+        // Host 不可用时保留缓存或默认资料，不阻塞聊天。
+      }
+      if (!active) return
+      setState((current) => ({
+        ...current,
+        profile: profile ?? current.profile,
+        loading: false,
+        hasProfile: profile !== undefined || current.hasProfile,
+      }))
+      if (profile) cacheUserProfile(profile)
     }
-    window.addEventListener('pi-user-profile-changed', handleUpdate)
-    window.addEventListener('storage', handleUpdate)
-    if (bridge?.getUserProfile) {
-      void syncUserProfileFromHost(bridge)
-    }
+    void load()
     return () => {
-      window.removeEventListener('pi-user-profile-changed', handleUpdate)
-      window.removeEventListener('storage', handleUpdate)
+      active = false
     }
   }, [bridge])
 
-  const update = (patch: Partial<UserProfile>) => saveUserProfile(patch, bridge)
+  useEffect(() => {
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== null && event.key !== STORAGE_KEY) return
+      const cached = loadUserProfile()
+      setState((current) => ({ ...current, profile: cached ?? DEFAULT_PROFILE, hasProfile: cached !== null }))
+    }
+    window.addEventListener('storage', handleStorage)
+    return () => window.removeEventListener('storage', handleStorage)
+  }, [])
+
+  const updateProfile = (patch: Partial<UserProfile>) => {
+    if (state.loading) return
+    const next = { ...state.profile, ...patch }
+    setState((current) => ({ ...current, profile: next, hasProfile: true }))
+    cacheUserProfile(next)
+    if (bridge?.saveUserProfile) {
+      void bridge
+        .saveUserProfile({
+          name: next.name,
+          username: next.username,
+          email: next.email,
+          avatarText: next.avatarText,
+          avatarData: next.avatarUrl,
+        })
+        .catch(() => {
+          // 保留现有保存语义：Host 保存失败时继续使用本地资料。
+        })
+    }
+  }
 
   return {
-    profile,
-    updateProfile: update,
+    profile: state.profile,
+    loading: state.loading,
+    showPlaceholder: state.loading && !state.hasProfile,
+    updateProfile,
   }
 }

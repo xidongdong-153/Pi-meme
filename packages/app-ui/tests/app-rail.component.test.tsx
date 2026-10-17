@@ -3,13 +3,14 @@ import { afterEach, expect, test, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 import { AppRail } from '../src/layout/app-rail'
+import { DEFAULT_PROFILE } from '../src/settings/user-profile'
 
 afterEach(cleanup)
 
 function renderRail(props: Partial<Parameters<typeof AppRail>[0]> = {}) {
   return render(
     <TooltipProvider>
-      <AppRail {...props} />
+      <AppRail profile={DEFAULT_PROFILE} profileLoading={false} {...props} />
     </TooltipProvider>,
   )
 }

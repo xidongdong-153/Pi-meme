@@ -93,6 +93,7 @@ const files: Array<[string, Feature[]]> = [
   ['packages/app-ui/tests/skill-page.unit.test.ts', ['skills']],
   ['packages/app-ui/tests/startup-splash.unit.test.ts', ['desktop']],
   ['packages/app-ui/tests/subagents-panel.unit.test.ts', ['subagents']],
+  ['packages/app-ui/tests/user-profile.component.test.tsx', ['settings']],
   ['packages/assets/tests/files.integration.test.ts', ['desktop']],
   ['packages/chat/tests/agent-lifecycle.unit.test.ts', ['subagents', 'chat']],
   ['packages/chat/tests/attachment-preview.unit.test.ts', ['chat']],

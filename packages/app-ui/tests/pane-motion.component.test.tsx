@@ -7,6 +7,7 @@ import type { HostApi } from '@pi-meme/contracts/app-host'
 import type { UiPanel } from '@pi-meme/plugin-sdk/ui'
 import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 import { WorkspacePanels } from '../src/layout/workspace-panels'
+import { DEFAULT_PROFILE } from '../src/settings/user-profile'
 
 afterEach(cleanup)
 
@@ -38,6 +39,8 @@ function Panes({
   return (
     <TooltipProvider>
       <WorkspacePanels
+        profile={DEFAULT_PROFILE}
+        profileLoading={false}
         panels={panels}
         onNewSession={onNewSession}
         onPlugins={onPlugins}

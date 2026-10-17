@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'vitest'
 import type { UiPanel } from '@pi-meme/plugin-sdk/ui'
 import type { AppSession, HostApi } from '@pi-meme/contracts/app-host'
+import { DEFAULT_PROFILE } from '../src/settings/user-profile'
 import {
   closePanel,
   defaultPanelLayout,
@@ -90,6 +91,8 @@ test('左栏和聊天固定渲染，插件不能生成左侧或中央工作区�
   const markup = renderToStaticMarkup(
     createElement(TooltipProvider, {
       children: createElement(WorkspacePanels, {
+        profile: DEFAULT_PROFILE,
+        profileLoading: false,
         props: { host, target: { hostId: 'host' }, snapshot: null },
         session: 'chat',
         sidebar: '置顶、项目、最近',
@@ -155,6 +158,8 @@ test('Worktree 使用会话的来源项目身份，右栏保留文件目录和�
   const markup = renderToStaticMarkup(
     createElement(TooltipProvider, {
       children: createElement(WorkspacePanels, {
+        profile: DEFAULT_PROFILE,
+        profileLoading: false,
         panels,
         props: { host: {} as HostApi, target, snapshot: null },
         session: session.sessionId,

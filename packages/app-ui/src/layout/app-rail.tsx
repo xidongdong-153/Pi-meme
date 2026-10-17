@@ -11,9 +11,11 @@ import {
 } from '@pi-meme/ui/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
 import { cn } from '@pi-meme/ui/lib/utils'
-import { useUserProfile } from '../settings/user-profile'
+import type { UserProfile } from '../settings/user-profile'
 
 export function AppRail({
+  profile,
+  profileLoading,
   onSettings,
   onUsage,
   onAccount,
@@ -21,6 +23,8 @@ export function AppRail({
   sidebarOpen = true,
   className,
 }: {
+  profile: UserProfile
+  profileLoading: boolean
   onSettings?: () => void
   onUsage?: () => void
   onAccount?: () => void
@@ -28,7 +32,6 @@ export function AppRail({
   sidebarOpen?: boolean
   className?: string
 }) {
-  const { profile } = useUserProfile()
   const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent)
 
   return (
@@ -67,9 +70,12 @@ export function AppRail({
                 <button
                   type="button"
                   aria-label="用户菜单与设置"
+                  aria-busy={profileLoading}
                   className="flex size-7 items-center justify-center rounded-full bg-[#e8a838] text-[0.625rem] font-bold text-neutral-900 shadow-xs transition-transform hover:scale-105 active:scale-95 cursor-pointer outline-none overflow-hidden"
                 >
-                  {profile.avatarUrl ? (
+                  {profileLoading ? (
+                    <span className="size-full animate-pulse rounded-full bg-muted" />
+                  ) : profile.avatarUrl ? (
                     <img src={profile.avatarUrl} alt={profile.name} className="size-full rounded-full object-cover" />
                   ) : (
                     profile.avatarText
@@ -97,14 +103,16 @@ export function AppRail({
               className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg select-none hover:bg-secondary/60 transition-colors cursor-pointer group"
             >
               <div className="flex size-7 items-center justify-center rounded-full bg-[#e8a838] text-[0.625rem] font-bold text-neutral-900 shrink-0 shadow-xs overflow-hidden">
-                {profile.avatarUrl ? (
+                {profileLoading ? (
+                  <span className="size-full animate-pulse rounded-full bg-muted" />
+                ) : profile.avatarUrl ? (
                   <img src={profile.avatarUrl} alt={profile.name} className="size-full rounded-full object-cover" />
                 ) : (
                   profile.avatarText
                 )}
               </div>
               <span className="text-xs font-semibold text-foreground truncate group-hover:text-primary transition-colors">
-                {profile.name}
+                {profileLoading ? '正在加载个人资料…' : profile.name}
               </span>
             </div>
 

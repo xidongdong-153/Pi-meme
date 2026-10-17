@@ -1,15 +1,23 @@
 import { useRef, useState, type ChangeEvent } from 'react'
 import { Check, Pencil, ShieldCheck, Sparkles, UserCheck } from 'lucide-react'
-import type { SettingsBridge } from '@pi-meme/contracts/desktop'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Input } from '@pi-meme/ui/components/ui/input'
-import { useUserProfile } from './user-profile'
+import type { UserProfile } from './user-profile'
 
-export function AccountSettings({ bridge }: { bridge?: Pick<SettingsBridge, 'getUserProfile' | 'saveUserProfile'> }) {
-  const { profile, updateProfile } = useUserProfile(bridge)
-  const [nameInput, setNameInput] = useState(profile.name)
+export function AccountSettings({
+  profile,
+  loading,
+  updateProfile,
+}: {
+  profile: UserProfile
+  loading: boolean
+  updateProfile: (patch: Partial<UserProfile>) => void
+}) {
+  const [nameDraft, setNameDraft] = useState<string | null>(null)
   const [isEditingEmail, setIsEditingEmail] = useState(false)
-  const [emailInput, setEmailInput] = useState(profile.email)
+  const [emailDraft, setEmailDraft] = useState<string | null>(null)
+  const nameInput = nameDraft ?? profile.name
+  const emailInput = emailDraft ?? profile.email
   const [nameSavedNotice, setNameSavedNotice] = useState(false)
   const [emailSavedNotice, setEmailSavedNotice] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -17,21 +25,24 @@ export function AccountSettings({ bridge }: { bridge?: Pick<SettingsBridge, 'get
   const isNameChanged = nameInput.trim() !== '' && nameInput.trim() !== profile.name
 
   const handleSaveName = () => {
-    if (!nameInput.trim()) return
+    if (loading || !nameInput.trim()) return
     updateProfile({ name: nameInput.trim() })
+    setNameDraft(null)
     setNameSavedNotice(true)
     setTimeout(setNameSavedNotice, 2000, false)
   }
 
   const handleSaveEmail = () => {
-    if (!emailInput.trim()) return
+    if (loading || !emailInput.trim()) return
     updateProfile({ email: emailInput.trim() })
+    setEmailDraft(null)
     setIsEditingEmail(false)
     setEmailSavedNotice(true)
     setTimeout(setEmailSavedNotice, 2000, false)
   }
 
   const handleAvatarClick = () => {
+    if (loading) return
     fileInputRef.current?.click()
   }
 
@@ -58,6 +69,7 @@ export function AccountSettings({ bridge }: { bridge?: Pick<SettingsBridge, 'get
           ref={fileInputRef}
           type="file"
           accept="image/png,image/jpeg,image/webp,image/gif"
+          disabled={loading}
           onChange={handleFileChange}
           className="hidden"
           aria-label="上传个人头像图片"
@@ -77,6 +89,7 @@ export function AccountSettings({ bridge }: { bridge?: Pick<SettingsBridge, 'get
           <button
             type="button"
             aria-label="修改头像"
+            disabled={loading}
             onClick={(e) => {
               e.stopPropagation()
               handleAvatarClick()
@@ -106,14 +119,15 @@ export function AccountSettings({ bridge }: { bridge?: Pick<SettingsBridge, 'get
             <div className="flex items-center gap-2 max-w-xs w-full justify-end">
               <Input
                 value={nameInput}
-                onChange={(e) => setNameInput(e.target.value)}
+                disabled={loading}
+                onChange={(e) => setNameDraft(e.target.value)}
                 placeholder="请输入姓名"
                 className="h-8 text-xs bg-background/60"
               />
               <Button
                 size="sm"
                 variant={isNameChanged ? 'default' : 'secondary'}
-                disabled={!isNameChanged}
+                disabled={loading || !isNameChanged}
                 onClick={handleSaveName}
                 className="h-8 text-xs shrink-0 cursor-pointer"
               >
@@ -139,18 +153,25 @@ export function AccountSettings({ bridge }: { bridge?: Pick<SettingsBridge, 'get
                 <>
                   <Input
                     value={emailInput}
-                    onChange={(e) => setEmailInput(e.target.value)}
+                    disabled={loading}
+                    onChange={(e) => setEmailDraft(e.target.value)}
                     placeholder="请输入邮箱"
                     className="h-8 text-xs w-52 bg-background/60"
                   />
-                  <Button size="sm" variant="default" onClick={handleSaveEmail} className="h-8 text-xs cursor-pointer">
+                  <Button
+                    size="sm"
+                    variant="default"
+                    disabled={loading}
+                    onClick={handleSaveEmail}
+                    className="h-8 text-xs cursor-pointer"
+                  >
                     {emailSavedNotice ? <Check className="size-3 text-emerald-400" /> : '确定'}
                   </Button>
                   <Button
                     size="sm"
                     variant="ghost"
                     onClick={() => {
-                      setEmailInput(profile.email)
+                      setEmailDraft(null)
                       setIsEditingEmail(false)
                     }}
                     className="h-8 text-xs cursor-pointer"
@@ -162,6 +183,7 @@ export function AccountSettings({ bridge }: { bridge?: Pick<SettingsBridge, 'get
                 <Button
                   size="sm"
                   variant="outline"
+                  disabled={loading}
                   onClick={() => setIsEditingEmail(true)}
                   className="h-8 text-xs cursor-pointer"
                 >
