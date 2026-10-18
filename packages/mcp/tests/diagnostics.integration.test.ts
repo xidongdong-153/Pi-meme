@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
-import { test } from 'vitest'
+import { test, vi } from 'vitest'
 import { createServer } from 'node:http'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -9,6 +9,42 @@ import { checkMcpServers } from '../src/server/diagnostics'
 import { mcpReply } from '../../../tests/fixtures/mcp-server.mjs'
 
 const fixture = fileURLToPath(new URL('../../../tests/fixtures/mcp-server.mjs', import.meta.url))
+
+test.skipIf(process.platform === 'win32')('stdio 服务继承 Host 的工具 PATH，显式 env.PATH 仍优先', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pi-mcp-path-'))
+  const bin = path.join(directory, 'user bin')
+  const overrideBin = path.join(directory, 'override bin')
+  const file = path.join(directory, 'mcp.json')
+  const inheritedLog = path.join(directory, 'inherited.log')
+  const overrideLog = path.join(directory, 'override.log')
+  try {
+    await Promise.all([mkdir(bin), mkdir(overrideBin)])
+    await Promise.all([
+      symlink(process.execPath, path.join(bin, 'mcp-node')),
+      symlink(process.execPath, path.join(overrideBin, 'mcp-override-node')),
+    ])
+    vi.stubEnv('PATH', `${bin}${path.delimiter}/usr/bin${path.delimiter}/bin`)
+    await writeFile(
+      file,
+      JSON.stringify({
+        mcpServers: {
+          inherited: { command: 'mcp-node', args: [fixture, '--stdio'], env: { MCP_FIXTURE_LOG: inheritedLog } },
+          override: {
+            command: 'mcp-override-node',
+            args: [fixture, '--stdio'],
+            env: { PATH: overrideBin, MCP_FIXTURE_LOG: overrideLog },
+          },
+        },
+      }),
+    )
+    const result = await checkMcpServers(file)
+    assert.equal(result.exitCode, 0, result.output)
+    for (const log of [inheritedLog, overrideLog]) assert.match(await readFile(log, 'utf8'), /tools\/list/)
+  } finally {
+    vi.unstubAllEnvs()
+    await rm(directory, { recursive: true, force: true })
+  }
+})
 
 test('在隔离目录检查 HTTP 和 stdio 服务，关闭后清理服务进程', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pi-mcp-diagnostic-'))

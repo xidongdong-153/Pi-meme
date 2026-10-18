@@ -6,6 +6,8 @@ paths:
   - 'packages/host/src/storage/**'
   - 'apps/desktop/src/main/storage/**'
   - 'apps/desktop/src/main/storage-process.ts'
+  - 'apps/desktop/src/main/user-login-path.ts'
+  - 'apps/desktop/src/main/local-host.ts'
   - 'packages/contracts/src/storage.ts'
   - 'packages/host/src/service.ts'
   - 'packages/host/src/credentials.ts'
@@ -147,6 +149,16 @@ Desktop 使用内存 Electron Session，认证 Cookie 不写磁盘；本机 Host
 
 Pi 1.1 的 `ModelRuntime.create` 没有公开的认证环境注入参数。[model-runtime.ts](../packages/pi-runtime/src/sdk/model-runtime.ts) 是唯一依赖 SDK private shape 的认证隔离层：检查 `runtime.models.authContext` 后注入空环境和不可用文件检查，阻止隐式读取本机模型认证。守卫失败报错；升级 SDK 时需重新核对该守卫，并验证 [model-config.integration.test.ts](../packages/models/tests/model-config.integration.test.ts) 与 [sdk-settings-isolation.integration.test.ts](../packages/pi-runtime/tests/sdk-settings-isolation.integration.test.ts)。会话、JSONL 与扩展仍使用公开 SDK。
 
+## macOS Desktop 命令环境
+
+Desktop 创建本机 Host 前，通过用户 Shell 的 `-lic` 读取 PATH，兼容 `.zprofile`、`.zshrc` 中的工具初始化。探测异步执行，最多 5 秒，成功与失败都在当前 Desktop 进程内缓存；超时回收探测进程及其后代。只读取 PATH，不导入 Shell 导出的其他变量。
+
+PATH 按登录 Shell、启动时继承值、已存在的常用工具目录依次合并，保留首次出现的目录并删除空项和重复项。常用目录包括 Homebrew、`/usr/local/bin`、`~/.local/bin`、`~/.cargo/bin`、`~/Library/pnpm` 和已声明的 `PNPM_HOME`，不递归扫描版本目录。探测失败会记录一次原因，继续使用继承值和常用目录。
+
+Bash、会话 Worker、MCP 和项目终端继承本机 Host 的 PATH；MCP 显式配置的 `env.PATH` 仍优先。连接已有 Host 时不会重新探测或修改它的环境；独立 Server 和远程 Host 使用各自的启动环境。修改 Shell 配置后，需退出并重新启动拥有该 Host 的入口。
+
+命令返回 `command not found` 时，Agent 的内置提示要求先检查 `command -v`、PATH 和明确的安装位置；无法定位时说明缺失信息，不自动执行 `find /` 或遍历整个用户目录。这是工具定位指导，不是 Shell 命令拦截。
+
 ## 权限与沙箱
 
 默认权限为 `workspace-write`，枚举与说明见 [agent-access.ts](../packages/contracts/src/agent-access.ts)。
@@ -156,6 +168,10 @@ Pi 1.1 的 `ModelRuntime.create` 没有公开的认证环境注入参数。[mode
 | `read-only`       | 允许读取和联网，拒绝修改业务文件；沙箱临时目录与必要设备仍可写       |
 | `workspace-write` | 允许修改当前工作区和会话临时目录，项目外写入被拒绝；读取和联网不受限 |
 | `full-access`     | 允许项目外写入，可在普通任务加载已选择的外部 AppAgent 和已授权 MCP   |
+
+三档权限只控制 Agent 的执行范围，文件访问仍受运行所在 Host 的操作系统授权限制。macOS 的“系统设置 → 隐私与安全性 → 文件与文件夹”控制桌面、文稿、下载目录等位置的访问，首次访问这些位置可能出现系统授权提示。“完全磁盘访问权限”是另一项系统授权，需要用户在系统设置中添加应用；选择 Agent 的“完全权限”不会自动授予它。普通项目操作不要求预先开启完全磁盘访问权限。参见 [Apple 文件访问说明](https://support.apple.com/zh-cn/guide/security/secddd1d86a6/web)。
+
+开发态从终端启动时，系统可能把权限责任归到终端应用；Finder 或 Dock 启动的安装版使用 pi-meme 自身的身份，不能用开发态未弹窗证明安装版已经获得系统授权。需要访问受保护目录时按具体目录授权，目录拒绝访问也不能直接归因于 Agent 权限模式。
 
 ```mermaid
 %%{init: {"theme": "dark"}}%%

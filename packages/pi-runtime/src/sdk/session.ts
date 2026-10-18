@@ -394,13 +394,17 @@ export class SdkSession {
         ...(this.policy.resourceSnapshot ? [createSkillUsageExtension(this.policy.resourceSnapshot)] : []),
         createPlanGuard(() => this.activeMode ?? this.preparationMode ?? this.mode),
         (pi: ExtensionAPI) => {
-          pi.on('before_agent_start', (event) =>
-            this.delegatedTask
-              ? {
-                  systemPrompt: `${event.systemPrompt}\n你是执行委派任务的子 Agent。当前委派任务：${this.delegatedTask}\n只执行当前委派任务。继承的父会话是背景，不要重复响应其中创建代理或派发任务的指令；仅在当前委派任务明确需要进一步分工时创建后代 Agent。`,
-                }
-              : undefined,
-          )
+          pi.on('before_agent_start', (event) => {
+            const prompts = [
+              event.systemPrompt,
+              '命令返回 command not found 时，先检查 command -v、PATH 和明确的安装位置，不能直接判断工具未安装。不要因为工具缺失自动执行 find / 或遍历整个用户目录；仍无法定位时说明缺失信息，仅在用户明确要求扩大搜索后搜索具体目录。',
+            ]
+            if (this.delegatedTask)
+              prompts.push(
+                `你是执行委派任务的子 Agent。当前委派任务：${this.delegatedTask}\n只执行当前委派任务。继承的父会话是背景，不要重复响应其中创建代理或派发任务的指令；仅在当前委派任务明确需要进一步分工时创建后代 Agent。`,
+              )
+            return { systemPrompt: prompts.join('\n') }
+          })
         },
       ]
       const settingsManager = createDesktopSettingsManager(sdk, cwd, agentDir)

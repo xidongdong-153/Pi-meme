@@ -58,6 +58,7 @@ const files: Array<[string, Feature[]]> = [
   ['apps/desktop/tests/storage.artifact.test.ts', ['settings', 'desktop', 'sessions']],
   ['apps/desktop/tests/storage.e2e.spec.ts', ['settings', 'desktop', 'sessions']],
   ['apps/desktop/tests/tools.e2e.spec.ts', ['files', 'git', 'terminal', 'plugins']],
+  ['apps/desktop/tests/user-login-path.integration.test.ts', ['desktop']],
   [
     'apps/server/tests/dist-smoke.artifact.test.ts',
     ['desktop', 'connection', 'plugins', 'mcp', 'subagents', 'codemode', 'permissions', 'terminal'],
@@ -164,6 +165,7 @@ const files: Array<[string, Feature[]]> = [
   ['packages/host/tests/sandbox-capability.integration.test.ts', ['permissions']],
   ['packages/host/tests/storage-maintenance.integration.test.ts', ['settings', 'desktop', 'sessions', 'skills', 'git']],
   ['packages/host/tests/system-tools.integration.test.ts', ['files', 'plugins']],
+  ['packages/host/tests/terminal-path.integration.test.ts', ['terminal', 'desktop']],
   ['packages/host/tests/terminal-service.unit.test.ts', ['terminal']],
   ['packages/host/tests/transport-tls.integration.test.ts', ['connection']],
   ['packages/host/tests/transport.integration.test.ts', ['connection']],

@@ -2,6 +2,7 @@ import { utilityProcess, type UtilityProcess } from 'electron'
 import { randomUUID } from 'node:crypto'
 import { hostPort, localHostUrl } from '@pi-meme/contracts/host-runtime'
 import { acquireLocalHost } from '@pi-meme/host/local-host'
+import { prepareDesktopHostEnv } from './user-login-path'
 
 export type DesktopHostProcess = {
   url: string
@@ -117,7 +118,11 @@ export function acquireDesktopHost(options: { entry: string; env: NodeJS.Process
   return acquireLocalHost({
     url: localHostUrl(port),
     dataRoot: options.dataRoot,
-    create: () =>
-      launchHost(options.entry, { ...options.env, PI_MEME_PORT: String(port), PI_MEME_DATA_ROOT: options.dataRoot }),
+    create: async () =>
+      launchHost(options.entry, {
+        ...(await prepareDesktopHostEnv(options.env)),
+        PI_MEME_PORT: String(port),
+        PI_MEME_DATA_ROOT: options.dataRoot,
+      }),
   })
 }

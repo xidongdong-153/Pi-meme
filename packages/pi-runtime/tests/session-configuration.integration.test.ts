@@ -1,15 +1,62 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { PiSessionPool } from '../src/session-pool'
-import type { SdkSession } from '../src/sdk/session'
+import { SdkSession } from '../src/sdk/session'
 import type { DesktopEvent } from '@pi-meme/contracts/desktop'
 import type { PiExtensionDialogRequest } from '@pi-meme/contracts/pi'
 import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
 import { createTestSession, installProjectExtension, waitFor, savedSession } from './session-pool-fixture'
+
+test('工具定位规则与用户 SYSTEM.md、主会话和子代理提示共存', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pi-tool-discovery-'))
+  const agent = await useFakeAgent(directory)
+  const systemFile = path.join(agent.agentDir, 'SYSTEM.md')
+  const system = '用户自定义系统提示：只处理当前项目。'
+  await writeFile(systemFile, system)
+  try {
+    for (const delegated of [false, true]) {
+      const session = new SdkSession(
+        directory,
+        { connection: () => {}, event: () => {}, error: () => {} },
+        agent.runtimePaths,
+        agent.credentials,
+      )
+      try {
+        if (delegated) await session.configureAgentTask('定位项目工具')
+        session.start(directory)
+        await session.snapshot()
+        await session.setModel({ provider: 'fake', id: 'first' })
+        await session.prompt('检查可用工具')
+        const deadline = Date.now() + 5000
+        while ((await session.snapshot()).state.isStreaming) {
+          if (Date.now() > deadline) throw new Error('等待工具定位提示请求超时')
+          await delay(10)
+        }
+        const request = agent.provider.requests.at(-1)!
+        const text = request.messages
+          .filter((message: { role: string }) => message.role === 'system' || message.role === 'developer')
+          .map((message: { content: unknown }) => JSON.stringify(message.content))
+          .join('\n')
+        assert.match(text, /用户自定义系统提示/)
+        assert.match(text, /command not found/)
+        assert.match(text, /command -v、PATH 和明确的安装位置/)
+        assert.match(text, /不要因为工具缺失自动执行 find \/ 或遍历整个用户目录/)
+        assert.equal(text.includes('你是执行委派任务的子 Agent'), delegated)
+        if (delegated) assert.match(text, /当前委派任务：定位项目工具/)
+      } finally {
+        await session.stopAndWait()
+      }
+    }
+    assert.equal(await readFile(systemFile, 'utf8'), system)
+  } finally {
+    await agent.dispose()
+    await rm(directory, { recursive: true, force: true })
+  }
+})
 
 test('权限切换保留实际执行代次，确认请求通过过期过滤且回答后正确关闭', { timeout: 15000 }, async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pi-pool-dialog-generation-'))
