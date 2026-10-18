@@ -1,5 +1,11 @@
 import type { ReactNode } from 'react'
-import type { SettingsSnapshot, AppearanceSettings, InstalledFont, Theme } from '@pi-meme/contracts/settings'
+import type {
+  DesktopSettings,
+  SettingsSnapshot,
+  AppearanceSettings,
+  InstalledFont,
+  Theme,
+} from '@pi-meme/contracts/settings'
 import type { SettingsBridge, ModelsBridge } from '@pi-meme/contracts/desktop'
 import { ThemeSettings } from './theme-settings'
 import { GeneralSettings } from './general-settings'
@@ -24,6 +30,7 @@ export type SettingsPageProps = {
   onDirty: (dirty: boolean) => void
   onSaving: (saving: boolean) => void
   accessSettings: ReactNode
+  onEditor: (value: Pick<DesktopSettings, 'showComposerHint' | 'showContextUsage'>) => void
   onAppearance: (value: AppearanceSettings) => void
   onPreview: (mode: 'light' | 'dark' | null) => void
   onFlush: () => Promise<void>
@@ -45,6 +52,7 @@ export function SettingsPage({
   onDirty,
   onSaving,
   accessSettings,
+  onEditor,
   onBeforeRestart,
   ...appearance
 }: SettingsPageProps) {
@@ -55,6 +63,8 @@ export function SettingsPage({
       ) : section === 'general' ? (
         <GeneralSettings
           accessSettings={accessSettings}
+          settings={snapshot?.settings}
+          onEditor={onEditor}
           bridge={bridge}
           onBeforeRestart={onBeforeRestart}
           onMaintaining={onSaving}

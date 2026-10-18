@@ -12,6 +12,15 @@ import { AppearanceSaver } from './appearance-save'
 import { migrateAppearance, resolveTheme, resolvedMode } from '../shared/appearance'
 import { applyAppearance } from './theme/apply'
 
+type EditorSettings = Required<Pick<DesktopSettings, 'showComposerHint' | 'showContextUsage'>>
+
+function readEditorSettings(snapshot: SettingsSnapshot): EditorSettings {
+  return {
+    showComposerHint: snapshot.settings.showComposerHint !== false,
+    showContextUsage: snapshot.settings.showContextUsage !== false,
+  }
+}
+
 export function useSettings(
   bridge: Pick<
     SettingsBridge,
@@ -22,6 +31,7 @@ export function useSettings(
     | 'reloadThemes'
     | 'openThemesDirectory'
     | 'saveSettings'
+    | 'saveEditorSettings'
     | 'saveAppearance'
     | 'getInstalledFonts'
     | 'importTheme'
@@ -37,6 +47,11 @@ export function useSettings(
   const [saving, setSaving] = useState(false)
   const appearanceRevision = useRef(0)
   const confirmed = useRef<SettingsSnapshot | null>(null)
+  const [editorSettings, setEditorSettings] = useState<EditorSettings | null>(null)
+  const confirmedEditor = useRef<EditorSettings | null>(null)
+  const pendingEditor = useRef<EditorSettings | null>(null)
+  const editorRevision = useRef(0)
+  const editorWrites = useRef(Promise.resolve())
   const [previewMode, setPreviewMode] = useState<'light' | 'dark' | null>(null)
   const [systemDark, setSystemDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches)
   const [systemMotion, setSystemMotion] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches)
@@ -47,6 +62,8 @@ export function useSettings(
     (next: SettingsSnapshot) => {
       confirmed.current = next
       setSnapshot(next)
+      confirmedEditor.current = readEditorSettings(next)
+      if (!pendingEditor.current) setEditorSettings(confirmedEditor.current)
     },
     [enabled],
   )
@@ -164,8 +181,11 @@ export function useSettings(
   function saveRuntime(value: DesktopSettings) {
     return action(async () => {
       try {
+        const runtime = { ...value }
+        delete runtime.showComposerHint
+        delete runtime.showContextUsage
         return await bridgeRef.current.saveSettings({
-          ...value,
+          ...runtime,
           themeId: confirmed.current?.settings.themeId ?? value.themeId,
         })
       } catch (cause) {
@@ -178,6 +198,42 @@ export function useSettings(
       }
     })
   }
+  function saveEditor(value: Partial<EditorSettings>) {
+    if (!enabled || !snapshot) return Promise.resolve()
+    const current = pendingEditor.current ?? confirmedEditor.current ?? readEditorSettings(snapshot)
+    const next = {
+      showComposerHint: value.showComposerHint ?? current.showComposerHint,
+      showContextUsage: value.showContextUsage ?? current.showContextUsage,
+    }
+    const revision = ++editorRevision.current
+    const editorBridge = bridgeRef.current
+    pendingEditor.current = next
+    setEditorSettings(next)
+    setError('')
+    editorWrites.current = editorWrites.current.then(async () => {
+      try {
+        confirmedEditor.current = readEditorSettings(await editorBridge.saveEditorSettings(next))
+        if (revision === editorRevision.current) {
+          pendingEditor.current = null
+          setEditorSettings(confirmedEditor.current)
+          setError('')
+        }
+      } catch (cause) {
+        if (revision !== editorRevision.current) return
+        try {
+          confirmedEditor.current = readEditorSettings(await editorBridge.getSettings())
+        } catch {
+          // 读取失败时恢复最后一次确认的显示设置。
+        }
+        if (revision === editorRevision.current) {
+          pendingEditor.current = null
+          setEditorSettings(confirmedEditor.current)
+          setError(`编辑器设置保存失败：${String(cause)}`)
+        }
+      }
+    })
+    return editorWrites.current
+  }
   const refresh = useCallback(async () => {
     if (!enabled) return
     try {
@@ -189,7 +245,7 @@ export function useSettings(
   }, [enabled, appearanceSaver, accept])
   return {
     refresh,
-    snapshot,
+    snapshot: snapshot ? { ...snapshot, settings: { ...snapshot.settings, ...editorSettings } } : null,
     subagents,
     saveAppearance,
     previewAppearance: setPreviewMode,
@@ -238,5 +294,6 @@ export function useSettings(
         themeId: snapshot?.settings.themeId ?? 'dark',
         defaultAccessMode: mode,
       }),
+    saveEditor,
   }
 }

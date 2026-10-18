@@ -4,6 +4,7 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { SettingsStore } from '../src/server/store'
+import { createSettingsHandlers } from '../src/server/handlers'
 import { builtinThemes, parseTheme } from '../src/shared/themes'
 
 test('未配置的个人资料使用通用默认值，空白字段保存后仍可恢复', async () => {
@@ -201,6 +202,79 @@ test('默认访问权限保存后保留，非法值拒绝写入', async () => {
     const restarted = new SettingsStore(directory)
     assert.equal((await restarted.load()).settings.defaultAccessMode, 'full-access')
     await assert.rejects(store.save({ ...store.settings, defaultAccessMode: 'unsafe' }), /访问权限/)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('编辑器显示设置默认开启，旧配置缺少字段时保持开启', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pi-editor-defaults-'))
+  try {
+    const fresh = await new SettingsStore(directory).load()
+    assert.equal(fresh.settings.showComposerHint, true)
+    assert.equal(fresh.settings.showContextUsage, true)
+    await writeFile(path.join(directory, 'settings.json'), JSON.stringify({ themeId: 'dark' }))
+    const legacy = await new SettingsStore(directory).load()
+    assert.equal(legacy.settings.showComposerHint, true)
+    assert.equal(legacy.settings.showContextUsage, true)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('编辑器显示开关独立保存、重启恢复，拒绝非布尔值且不覆盖已有设置', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pi-editor-settings-'))
+  try {
+    const store = new SettingsStore(directory)
+    await store.load()
+    await store.save({ themeId: 'dark', showComposerHint: false })
+    assert.equal(store.settings.showComposerHint, false)
+    assert.equal(store.settings.showContextUsage, true)
+    await store.save({ themeId: 'dark', showContextUsage: false })
+    await store.save({ themeId: 'light' })
+    const restarted = new SettingsStore(directory)
+    const restored = await restarted.load()
+    assert.equal(restored.settings.showComposerHint, false)
+    assert.equal(restored.settings.showContextUsage, false)
+    await restarted.save({ themeId: 'light', showComposerHint: true })
+    assert.equal(restarted.settings.showContextUsage, false)
+    const file = path.join(directory, 'settings.json')
+    const saved = await readFile(file, 'utf8')
+    for (const key of ['showComposerHint', 'showContextUsage'] as const) {
+      for (const value of ['false', 0, null]) {
+        await assert.rejects(restarted.save({ themeId: 'light', [key]: value }), /编辑器显示开关必须是布尔值/)
+        assert.equal(await readFile(file, 'utf8'), saved)
+      }
+    }
+    const final = await new SettingsStore(directory).load()
+    assert.equal(final.settings.showComposerHint, true)
+    assert.equal(final.settings.showContextUsage, false)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('编辑器显示设置保存不等待会话空闲、不触发重连，也不能修改运行时字段', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pi-editor-rpc-'))
+  try {
+    const settings = new SettingsStore(directory)
+    await settings.load()
+    const handlers = createSettingsHandlers({
+      settings,
+      pi: {
+        idle: () => assert.fail('编辑器显示设置不得等待会话空闲'),
+        reconnectModels: () => assert.fail('编辑器显示设置不得重连'),
+      } as never,
+    })
+    const saved = await handlers['settings:editor']({ showComposerHint: false, showContextUsage: false })
+    assert.equal(saved.settings.showComposerHint, false)
+    assert.equal(saved.settings.showContextUsage, false)
+    await assert.rejects(handlers['settings:editor']({ defaultAccessMode: 'full-access' }), /编辑器/)
+    await assert.rejects(handlers['settings:editor']({ showComposerHint: 'false' }), /布尔值/)
+    assert.equal(settings.settings.defaultAccessMode, undefined)
+    const restored = await new SettingsStore(directory).load()
+    assert.equal(restored.settings.showComposerHint, false)
+    assert.equal(restored.settings.showContextUsage, false)
   } finally {
     await rm(directory, { recursive: true, force: true })
   }

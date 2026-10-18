@@ -29,7 +29,6 @@ export function AccessSettings({
         <p className="text-sm font-medium">新会话默认权限</p>
         <p role="status" className="text-sm leading-relaxed text-muted-foreground">
           {selected.description} 仅影响新建会话，已保存的会话保留各自权限。
-          {saving ? ' 正在保存…' : ''}
         </p>
         <p className="text-sm leading-relaxed text-muted-foreground">
           此处控制 Agent 的执行范围，文件访问仍受运行所在 Host 的操作系统授权限制。

@@ -24,6 +24,8 @@ export class SettingsStore {
     mcpEnabled: true,
     subagentsEnabled: true,
     enabledSubagents: [],
+    showComposerHint: true,
+    showContextUsage: true,
     appearance: defaultAppearance(),
     sidebar: defaultSidebarPreferences(),
   }
@@ -133,6 +135,8 @@ export class SettingsStore {
         mcpEnabled: Boolean(value.mcpEnabled),
         subagentsEnabled: Boolean(value.subagentsEnabled),
         enabledSubagents: normalizeEnabledSubagents(value.enabledSubagents ?? []),
+        showComposerHint: value.showComposerHint ?? true,
+        showContextUsage: value.showContextUsage ?? true,
         sidebar: value.sidebar ?? defaultSidebarPreferences(),
       }
     } catch (error) {
@@ -167,6 +171,10 @@ export class SettingsStore {
     for (const key of ['codemodeEnabled', 'mcpEnabled', 'subagentsEnabled'] as const) {
       if (settings[key] !== undefined && typeof settings[key] !== 'boolean') throw new Error('工具执行开关必须是布尔值')
     }
+    for (const key of ['showComposerHint', 'showContextUsage'] as const) {
+      if (settings[key] !== undefined && typeof settings[key] !== 'boolean')
+        throw new Error('编辑器显示开关必须是布尔值')
+    }
     if (settings.enabledSubagents !== undefined) normalizeEnabledSubagents(settings.enabledSubagents)
     if (settings.appearance !== undefined) validateAppearance(settings.appearance)
     if (settings.sidebar !== undefined) validateSidebarPreferences(settings.sidebar)
@@ -182,6 +190,17 @@ export class SettingsStore {
 
   save(value: unknown) {
     return this.enqueue(() => this.saveNow(value))
+  }
+
+  saveEditorSettings(value: unknown) {
+    return this.enqueue(() => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('编辑器显示设置无效')
+      for (const [key, entry] of Object.entries(value)) {
+        if (key !== 'showComposerHint' && key !== 'showContextUsage') throw new Error('编辑器显示设置包含未知字段')
+        if (typeof entry !== 'boolean') throw new Error('编辑器显示开关必须是布尔值')
+      }
+      return this.saveNow({ ...this.settings, ...value })
+    })
   }
 
   saveSidebarPreferences(value: unknown) {
@@ -264,6 +283,8 @@ export class SettingsStore {
         (value.mcpEnabled ?? this.settings.mcpEnabled) || (value.codemodeEnabled ?? this.settings.codemodeEnabled),
       ),
       defaultAccessMode: value.defaultAccessMode ?? this.settings.defaultAccessMode,
+      showComposerHint: value.showComposerHint ?? this.settings.showComposerHint ?? true,
+      showContextUsage: value.showContextUsage ?? this.settings.showContextUsage ?? true,
       pinnedPaths: Array.isArray(value.pinnedPaths)
         ? value.pinnedPaths.filter((entry): entry is string => typeof entry === 'string')
         : (this.settings.pinnedPaths ?? []),

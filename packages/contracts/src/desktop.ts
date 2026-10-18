@@ -305,6 +305,9 @@ export interface SettingsBridge {
   getSubagents: () => Promise<SubagentCatalogSnapshot>
   reloadSubagents: () => Promise<SubagentCatalogSnapshot>
   saveSettings: (settings: DesktopSettings) => Promise<SettingsSnapshot>
+  saveEditorSettings: (
+    settings: Pick<DesktopSettings, 'showComposerHint' | 'showContextUsage'>,
+  ) => Promise<SettingsSnapshot>
   saveSidebarPreferences: (patch: SidebarPreferencesPatch) => Promise<SidebarPreferences>
   saveAppearance: (appearance: AppearanceSettings) => Promise<SettingsSnapshot>
   getInstalledFonts: () => Promise<InstalledFont[]>

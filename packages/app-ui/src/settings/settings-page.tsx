@@ -29,7 +29,7 @@ const groups = [
         id: 'general',
         label: '常规',
         icon: Settings,
-        description: '设置默认访问权限、应用存储目录和缓存清理。',
+        description: '设置输入预测、上下文用量显示、默认访问权限、应用存储目录和缓存清理。',
       },
       {
         id: 'account',

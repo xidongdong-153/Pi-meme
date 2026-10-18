@@ -93,6 +93,8 @@ export type DesktopSettings = {
   pinnedPaths?: string[]
   preferredProjectApp?: 'finder' | 'vscode' | 'cursor' | 'zed'
   defaultAccessMode?: AgentAccessMode
+  showComposerHint?: boolean
+  showContextUsage?: boolean
 }
 export type SettingsSnapshot = {
   settings: DesktopSettings

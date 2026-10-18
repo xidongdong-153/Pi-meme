@@ -457,7 +457,7 @@ export function App({
     agentPlugins: agentPluginSelection,
     draft: chat.draft,
     onDraft: chat.setDraft,
-    hint: chat.composerHint,
+    hint: settings.snapshot?.settings.showComposerHint !== false ? chat.composerHint : undefined,
     onAcceptHint: chat.acceptComposerHint,
     onDismissHint: chat.dismissComposerHint,
     attachments: chat.attachments,
@@ -505,7 +505,10 @@ export function App({
     ),
     focusVersion: chat.draftFocusVersion,
     onError: chat.setError,
-    contextUsage: <ContextUsageRing {...{ stats: chat.sessionStats, generationMetrics }} />,
+    contextUsage:
+      settings.snapshot?.settings.showContextUsage !== false ? (
+        <ContextUsageRing {...{ stats: chat.sessionStats, generationMetrics }} />
+      ) : null,
     model: (
       <ModelPickerPopover
         {...{
@@ -935,6 +938,7 @@ export function App({
                     />
                   ),
                   onAppearance: settings.saveAppearance,
+                  onEditor: (value) => void settings.saveEditor(value),
                   onPreview: settings.previewAppearance,
                   onFlush: settings.flushAppearance,
                   loadFonts: settings.getInstalledFonts,

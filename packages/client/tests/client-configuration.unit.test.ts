@@ -21,6 +21,26 @@ test('侧栏设置通过独立 RPC 保存补丁并返回偏好', async () => {
   }
 })
 
+test('编辑器显示设置经独立 RPC 保存，不携带当前会话且不走运行时配置接口', async () => {
+  const saved = {
+    settings: { themeId: 'dark', showComposerHint: false, showContextUsage: true },
+    themes: [],
+    themesDirectory: '/test/themes',
+    errors: [],
+  }
+  const { client, requests } = create((request) => (request.method === 'pi:snapshot' ? snapshot('selected') : saved))
+  try {
+    await client.bridge.getConnection()
+    const patch = { showComposerHint: false }
+    assert.deepEqual(await client.bridge.saveEditorSettings(patch), saved)
+    assert.equal(requests.at(-1)?.method, 'settings:editor')
+    assert.deepEqual(requests.at(-1)?.args, [patch])
+    assert.equal(requests.at(-1)?.sessionId, undefined)
+  } finally {
+    client.close()
+  }
+})
+
 test('指令接口经当前 Host RPC，连接展示信息不包含令牌', async () => {
   const { client, requests } = create(() => ({}))
   const input = { kind: 'agents' as const, content: '测试指令', revision: 'a'.repeat(64) }

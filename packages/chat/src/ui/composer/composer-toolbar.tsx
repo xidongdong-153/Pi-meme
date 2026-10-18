@@ -102,7 +102,7 @@ export function ComposerToolbar({
         )}
       </div>
       <div className="composer-controls ml-auto flex min-w-0 shrink-0 items-center justify-end gap-1.5">
-        <div className="composer-context">{contextUsage}</div>
+        {contextUsage ? <div className="composer-context">{contextUsage}</div> : null}
         <div className="composer-model flex min-w-0 max-w-[220px] items-center">{model}</div>
         {compact && access}
         {compact && plan}
