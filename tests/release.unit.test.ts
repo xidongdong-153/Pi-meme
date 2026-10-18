@@ -4,7 +4,14 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { test } from 'vitest'
 import { parse, stringify } from 'yaml'
-import { assertPortableLinks, releaseAssetNames, sha256, validateVersion, writeChecksums } from '../scripts/release.mjs'
+import {
+  assertPortableLinks,
+  releaseAssetNames,
+  releaseInfo,
+  sha256,
+  validateVersion,
+  writeChecksums,
+} from '../scripts/release.mjs'
 import { writeThirdPartyLicenses } from '../scripts/release-licenses.mjs'
 import { assertLockedDependencies, stageHostWorkspace } from '../scripts/release-workspace.mjs'
 
@@ -147,7 +154,7 @@ test('校验和不能把缺少平台、额外文件或软链接发布文件当�
   const root = await mkdtemp(path.join(tmpdir(), 'pi-meme-release-sums-'))
   try {
     await assert.rejects(writeChecksums(root), /三个预期平台包/)
-    const names = releaseAssetNames(version)
+    const names = releaseAssetNames((await releaseInfo()).version)
     for (const name of names) await writeFile(path.join(root, name), 'fixture')
     await writeFile(path.join(root, 'unexpected.zip'), 'fixture')
     await assert.rejects(writeChecksums(root), /三个预期平台包/)
