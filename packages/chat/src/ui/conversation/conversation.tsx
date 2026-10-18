@@ -17,6 +17,7 @@ import { PluginMessage } from '@pi-meme/ui/components/plugin-message'
 import { messageText } from '../model/message-text'
 import { AgentStatusRow } from './agent-status-row'
 import { ErrorLine } from '@pi-meme/ui/components/error-line'
+import { cn } from '@pi-meme/ui/lib/utils'
 
 function noSubscription() {
   return () => {}
@@ -37,6 +38,7 @@ export const Conversation = React.memo(
     editor,
     switchingVersion,
     readOnly = false,
+    agentOnly = false,
   }: {
     chat: ChatState
     stream?: ChatStream
@@ -50,6 +52,7 @@ export const Conversation = React.memo(
     /** 正在切换版本的原始消息时间戳，用于展示切换进度。 */
     switchingVersion?: number
     readOnly?: boolean
+    agentOnly?: boolean
   }) => {
     const chat = React.useSyncExternalStore(
       stream?.subscribe ?? noSubscription,
@@ -62,7 +65,7 @@ export const Conversation = React.memo(
     // 按对话轮次（Turn）聚合消息流：将同一交互轮次内的思考、多次工具调用、Bash 与最终正文聚合成单一轮次卡片
     const turns = React.useMemo(() => {
       const view = readOnly ? chat : projectMainConversation(chat)
-      return groupConversationTurns(
+      const grouped = groupConversationTurns(
         view.messages,
         view.live,
         view.tools,
@@ -71,8 +74,14 @@ export const Conversation = React.memo(
         'agentStatuses' in view ? view.agentStatuses : [],
         chat.runIntervals,
       )
-    }, [chat, readOnly])
-    const outline = React.useMemo(() => conversationOutline(turns), [turns])
+      return agentOnly
+        ? grouped.filter(
+            (turn) =>
+              turn.type !== 'user' && !(turn.type === 'custom' && turn.message.customType === 'pi-meme-collaboration'),
+          )
+        : grouped
+    }, [chat, readOnly, agentOnly])
+    const outline = React.useMemo(() => (agentOnly ? [] : conversationOutline(turns)), [turns, agentOnly])
 
     const [visibleCount, setVisibleCount] = React.useState(INITIAL_VISIBLE_TURNS)
     const [pinnedStartKey, setPinnedStartKey] = React.useState<string>()
@@ -136,7 +145,7 @@ export const Conversation = React.memo(
 
     React.useEffect(() => {
       const container = containerRef.current
-      if (!container) return
+      if (!container || agentOnly) return
       let frame = 0
       const scheduleUpdate = () => {
         cancelAnimationFrame(frame)
@@ -152,7 +161,7 @@ export const Conversation = React.memo(
         container.removeEventListener('scroll', scheduleUpdate)
         cancelAnimationFrame(frame)
       }
-    }, [containerRef, updateActiveTurn, firstTurnKey])
+    }, [containerRef, updateActiveTurn, firstTurnKey, agentOnly])
 
     return (
       <div className="relative flex flex-1 min-h-0 min-w-0">
@@ -160,7 +169,10 @@ export const Conversation = React.memo(
         <div
           ref={containerRef}
           onScroll={handleScroll}
-          className="flex-1 min-h-0 min-w-0 overflow-x-hidden overflow-y-auto pl-12 pr-4 py-6 text-sm [--code-size:var(--text-ui)] select-text"
+          className={cn(
+            'flex-1 min-h-0 min-w-0 overflow-x-hidden overflow-y-auto pr-4 py-6 text-sm [--code-size:var(--text-ui)] select-text',
+            agentOnly ? 'pl-4' : 'pl-12',
+          )}
           aria-label="对话消息流"
         >
           <div className="max-w-3xl mx-auto space-y-3 [overflow-wrap:anywhere]">

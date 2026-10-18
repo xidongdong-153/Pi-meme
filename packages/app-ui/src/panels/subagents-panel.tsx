@@ -1,7 +1,9 @@
 import { memo, useEffect, useState, useSyncExternalStore } from 'react'
+import { ArrowLeft } from 'lucide-react'
 import type { AgentSummary, AgentStatus } from '@pi-meme/contracts/collaboration'
 import type { DesktopBridge } from '@pi-meme/contracts/desktop'
 import { Conversation } from '@pi-meme/chat/ui/conversation/conversation'
+import { THINKING_LEVEL_LABELS } from '@pi-meme/models/ui/thinking-config'
 import { AgentAvatar } from '@pi-meme/ui/components/agent-avatar'
 import { ErrorLine } from '@pi-meme/ui/components/error-line'
 import { Button } from '@pi-meme/ui/components/ui/button'
@@ -72,19 +74,37 @@ const AgentConversation = memo(({ bridge, id, onBack }: { bridge: DesktopBridge;
     void store.start()
     return () => store.close()
   }, [store])
+  const name = view.agent ? formatAgentName(view.agent.name) : '子代理'
+  const status = view.agent ? (view.agent.isPaused ? '已暂停' : labels[view.agent.status]) : '读取中'
+  const model = view.agent?.model?.name || view.agent?.model?.id || '模型未知'
+  const thinking = view.agent?.thinkingLevel ? THINKING_LEVEL_LABELS[view.agent.thinkingLevel] : '强度未知'
   return (
     <>
-      <header className="flex shrink-0 items-center gap-2 border-b border-border p-2">
-        <Button size="sm" variant="ghost" onClick={onBack}>
-          返回列表
+      <header className="flex h-12 min-w-0 shrink-0 items-center gap-2 border-b border-border px-2">
+        <Button
+          size="icon-sm"
+          variant="ghost"
+          className="shrink-0"
+          onClick={onBack}
+          aria-label="返回子代理列表"
+          title="返回子代理列表"
+        >
+          <ArrowLeft />
         </Button>
         <AgentAvatar seed={id} name={view.agent?.name} avatar={view.agent?.avatar} className="size-6 shrink-0" />
-        <div className="min-w-0 text-xs">
-          <p className="truncate font-medium">{view.agent ? formatAgentName(view.agent.name) : '子代理'}</p>
-          <p className="truncate text-muted-foreground">
-            {view.agent?.taskPath} ·{' '}
-            {view.agent ? (view.agent.isPaused ? '已暂停' : labels[view.agent.status]) : '读取中'}
-          </p>
+        <p className="min-w-0 flex-1 truncate text-xs font-medium" title={`${name} · ${status}`}>
+          {name}
+        </p>
+        <div className="ml-auto flex min-w-0 max-w-[55%] shrink-0 items-center gap-1 text-xs text-muted-foreground">
+          <span className="min-w-0 truncate" title={model}>
+            {model}
+          </span>
+          <span aria-hidden="true" className="shrink-0">
+            ·
+          </span>
+          <span className="shrink-0" title={`思考强度：${thinking}`}>
+            {thinking}
+          </span>
         </div>
       </header>
       {view.loading && (
@@ -96,6 +116,7 @@ const AgentConversation = memo(({ bridge, id, onBack }: { bridge: DesktopBridge;
       <Conversation
         chat={view.chat}
         readOnly
+        agentOnly
         canEditMessages={false}
         onEditMessage={noop}
         onSwitchMessageVersion={noop}

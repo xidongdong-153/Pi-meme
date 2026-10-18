@@ -26,8 +26,11 @@ export function ActivityGroup({
   startedAt?: number
   className?: string
 }) {
-  const [manualOpen, setManualOpen] = React.useState<boolean | null>(null)
-  const groupOpen = manualOpen ?? isLive
+  const [disclosure, setDisclosure] = React.useState({ isLive, open: isLive })
+  if (disclosure.isLive !== isLive) {
+    setDisclosure({ isLive, open: isLive })
+  }
+  const groupOpen = disclosure.open
   const [childOpenMap, setChildOpenMap] = React.useState<Record<string, boolean>>({})
   const [mountedAt] = React.useState(Date.now)
   const activityGroups = React.useMemo(() => groupAdjacentActivities(items), [items])
@@ -49,14 +52,14 @@ export function ActivityGroup({
 
   return (
     <div className={cn('my-2 w-full', className)}>
-      <div className="pb-1.5">
+      <div className="border-b border-border/50 pb-2">
         {canExpand ? (
           <button
             type="button"
             aria-label="工作过程"
             aria-expanded={groupOpen}
-            onClick={() => setManualOpen((previous) => !(previous ?? isLive))}
-            className="inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 bg-secondary/50 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
+            onClick={() => setDisclosure({ isLive, open: !groupOpen })}
+            className="inline-flex min-h-6 items-center gap-1.5 rounded-sm py-0.5 text-xs text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
           >
             <span>{elapsedTime}</span>
             <ChevronDown
@@ -64,10 +67,7 @@ export function ActivityGroup({
             />
           </button>
         ) : (
-          <div
-            role="status"
-            className="inline-flex rounded-full px-2.5 py-0.5 bg-secondary/40 text-xs text-muted-foreground"
-          >
+          <div role="status" className="inline-flex min-h-6 items-center py-0.5 text-xs text-muted-foreground">
             {elapsedTime}
           </div>
         )}
@@ -84,7 +84,7 @@ export function ActivityGroup({
           )}
         >
           <div className="min-h-0 overflow-hidden">
-            <div className="space-y-2 pt-3 pb-2">
+            <div className="space-y-1 pt-2 pb-1">
               {activityGroups.map((group) => {
                 if (group.type === 'item') {
                   const item = group.item
@@ -136,7 +136,7 @@ export function ActivityGroup({
                       aria-expanded={open}
                       onClick={() => toggleChild(groupId)}
                       className={cn(
-                        'flex max-w-full items-center gap-2 rounded-sm py-1 text-sm text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                        'flex min-h-6 max-w-full items-center gap-2 rounded-sm py-0.5 text-sm leading-5 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                       )}
                     >
                       <IconComponent className="size-4 shrink-0" />

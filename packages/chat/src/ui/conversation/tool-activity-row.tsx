@@ -98,7 +98,7 @@ export function ToolActivityRow({
         }}
         title={meta.fullPath}
         className={cn(
-          'group inline-flex max-w-full items-center gap-2 py-1 pr-1 rounded cursor-pointer transition-colors',
+          'group flex min-h-6 w-fit max-w-full items-center gap-2 py-0.5 pr-1 rounded leading-5 cursor-pointer transition-colors',
           'text-muted-foreground hover:text-foreground hover:bg-secondary/30',
           isNested && 'pl-2',
           !hasDetail && 'cursor-default',
@@ -131,7 +131,7 @@ export function ToolActivityRow({
           )}
         >
           <div className="min-h-0 overflow-hidden">
-            <div className="relative mt-1 mb-2 max-w-full rounded border border-border/40 bg-secondary/20 p-2 font-mono text-sm leading-relaxed text-muted-foreground select-text">
+            <div className="relative my-1 max-w-full rounded border border-border/40 bg-secondary/20 p-2 font-mono text-sm leading-relaxed text-muted-foreground select-text">
               <div className="flex items-center justify-between mb-1 pb-1 border-b border-border/30 font-sans text-muted-foreground/80">
                 <span>{diff ? '变更内容 (Diff)' : isError ? '错误详情' : '输出内容'}</span>
                 <button
@@ -203,7 +203,7 @@ function NestedToolActivity({
 }) {
   const [open, setOpen] = React.useState(false)
   return (
-    <div className="mt-2 border-l border-border/40 pl-2" data-parent-tool={tool.parentToolCallId}>
+    <div className="mt-1 border-l border-border/40 pl-2" data-parent-tool={tool.parentToolCallId}>
       <ToolActivityRow
         item={tool}
         open={open}

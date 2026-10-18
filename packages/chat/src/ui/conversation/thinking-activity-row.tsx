@@ -34,7 +34,7 @@ export function ThinkingActivityRow({
           }
         }}
         className={cn(
-          'group inline-flex max-w-full items-center gap-2 py-1 pr-1 rounded cursor-pointer transition-colors',
+          'group flex min-h-6 w-fit max-w-full items-center gap-2 py-0.5 pr-1 rounded leading-5 cursor-pointer transition-colors',
           'text-muted-foreground hover:text-foreground hover:bg-secondary/30',
           isNested && 'pl-2',
         )}
@@ -58,9 +58,9 @@ export function ThinkingActivityRow({
         )}
       >
         <div className="min-h-0 overflow-hidden">
-          <div className={cn('my-1 select-text', isNested ? 'pl-6' : 'pl-4')}>
+          <div className={cn('mt-1 pb-1 select-text', isNested ? 'pl-8' : 'pl-6')}>
             <pre className="pi-content max-h-72 overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground/75">
-              {item.thinking || '正在梳理思路…'}
+              {item.thinking.trimEnd() || '正在梳理思路…'}
             </pre>
           </div>
         </div>

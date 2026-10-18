@@ -113,6 +113,61 @@ test('只读子代理对话不渲染传入的内联编辑器', () => {
   assert.doesNotMatch(markup, /inline-message-editor|编辑历史消息|发送编辑后的消息|编辑草稿/)
 })
 
+test('子代理展示只过滤派发消息，保留原始分轮、计时和自身操作', () => {
+  const chat: ChatState = {
+    ...emptyChat,
+    messages: [
+      userMessage('主代理派发的任务', 1000),
+      assistantMessage([{ type: 'toolCall', id: 'read', name: 'read', arguments: { path: 'a.ts' } }], 2000),
+      toolResult('read', '文件内容', 3000),
+      assistantMessage('第一轮结果', 5000),
+      {
+        role: 'custom',
+        customType: 'pi-meme-collaboration',
+        display: true,
+        content: '主代理发来的补充消息',
+        details: { fromAgentId: 'root', kind: 'message' },
+        timestamp: 6000,
+      },
+      userMessage('主代理派发的后续任务', 7000),
+      assistantMessage('第二轮结果', 12000),
+      {
+        role: 'custom',
+        customType: 'plugin-output',
+        display: true,
+        content: '本代理的插件输出',
+        timestamp: 13000,
+      },
+    ],
+    tools: { read: { id: 'read', name: 'read', status: 'success', result: '文件内容' } },
+  }
+  const original = structuredClone(chat)
+  const markup = renderToStaticMarkup(
+    createElement(
+      TooltipProvider,
+      null,
+      createElement(Conversation, {
+        chat,
+        readOnly: true,
+        agentOnly: true,
+        canEditMessages: false,
+        onEditMessage: () => {},
+        onSwitchMessageVersion: () => {},
+        onForkReply: () => {},
+        onCopyError: () => {},
+      }),
+    ),
+  )
+  assert.doesNotMatch(markup, /主代理派发|主代理发来|data-message-role="user"|对话索引|data-conversation-user/)
+  assert.equal((markup.match(/data-message-role="assistant"/g) ?? []).length, 2)
+  assert.match(markup, /工具详情：read/)
+  assert.match(markup, /用时 4秒/)
+  assert.match(markup, /用时 5秒/)
+  assert.match(markup, /本代理的插件输出/)
+  assert.ok(markup.indexOf('第一轮结果') < markup.indexOf('第二轮结果'))
+  assert.deepEqual(chat, original)
+})
+
 test('主对话保留编辑、分叉和版本操作，运行时只禁用按钮', () => {
   for (const canEdit of [true, false]) {
     const markup = renderConversation(false, canEdit)
@@ -475,6 +530,15 @@ test('ThinkingActivityRow 展开时为无边框无框体设计，不包含复制
   const openMarkup = renderToStaticMarkup(createElement(ThinkingActivityRow, { item, open: true, onToggle: () => {} }))
   assert.match(openMarkup, /正在分析用户诉求/)
   assert.doesNotMatch(openMarkup, /复制|思考内容|border-border/)
+})
+
+test('思考展示清理尾部空白，保留内部空行、前导缩进和原始内容', async () => {
+  const { ThinkingActivityRow } = await import('../src/ui/conversation/thinking-activity-row')
+  const thinking = '  第一行\n\n    第二行\n\n\n\n\n\n  '
+  const item: Extract<ActivityItem, { type: 'thinking' }> = { id: 'trailing', type: 'thinking', thinking }
+  const markup = renderToStaticMarkup(createElement(ThinkingActivityRow, { item, open: true, onToggle: () => {} }))
+  assert.equal(markup.match(/<pre[^>]*>([\s\S]*?)<\/pre>/)?.[1], '  第一行\n\n    第二行')
+  assert.equal(item.thinking, thinking)
 })
 
 test('恢复的助手回复以完成时间显示真实用时，后续命令不影响时间戳身份', () => {
