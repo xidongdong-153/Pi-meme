@@ -7,9 +7,62 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { PiSessionPool } from '../src/session-pool'
 import { SdkSession } from '../src/sdk/session'
 import type { DesktopEvent } from '@pi-meme/contracts/desktop'
-import type { PiExtensionDialogRequest } from '@pi-meme/contracts/pi'
+import { thinkingLevels, type PiExtensionDialogRequest } from '@pi-meme/contracts/pi'
 import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
 import { createTestSession, installProjectExtension, waitFor, savedSession } from './session-pool-fixture'
+
+test('自定义模型无需映射即可保留全部思考档位，发送和恢复后仍保留最大档位', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pi-thinking-levels-'))
+  const agent = await useFakeAgent(directory, {
+    models: [
+      { id: 'first', reasoning: true },
+      { id: 'second', reasoning: false },
+    ],
+  })
+  const createSession = () =>
+    new SdkSession(
+      directory,
+      { connection: () => {}, event: () => {}, error: () => {} },
+      agent.runtimePaths,
+      agent.credentials,
+    )
+  let session = createSession()
+  try {
+    session.start(directory)
+    await session.snapshot()
+    for (const id of ['first', 'second']) {
+      await session.setModel({ provider: 'fake', id })
+      assert.deepEqual(await session.getAvailableThinkingLevels(), thinkingLevels)
+      for (const level of thinkingLevels) {
+        await session.setThinkingLevel(level)
+        assert.equal((await session.snapshot()).state.thinkingLevel, level)
+      }
+    }
+    await session.setModel({ provider: 'fake', id: 'first' })
+    await session.setThinkingLevel('max')
+    await session.prompt('检查最大思考档位')
+    const deadline = Date.now() + 5000
+    while ((await session.snapshot()).state.isStreaming) {
+      if (Date.now() > deadline) throw new Error('等待思考档位请求完成超时')
+      await delay(10)
+    }
+    assert.equal((await session.snapshot()).state.thinkingLevel, 'max')
+    assert.equal(agent.provider.requests.at(-1)?.reasoning_effort, 'high')
+    const file = session.getActiveSession().sessionFile!
+    assert.ok(file)
+    await session.stopAndWait()
+    session = createSession()
+    session.start(directory, file)
+    const restored = await session.snapshot()
+    assert.equal(restored.state.thinkingLevel, 'max')
+    assert.deepEqual(restored.thinkingLevels, thinkingLevels)
+    assert.equal(restored.messages.at(-1)?.role, 'assistant')
+  } finally {
+    await session.stopAndWait()
+    await agent.dispose()
+    await rm(directory, { recursive: true, force: true })
+  }
+})
 
 test('工具定位规则与用户 SYSTEM.md、主会话和子代理提示共存', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pi-tool-discovery-'))

@@ -1,7 +1,7 @@
 import type { ThinkingLevel } from '@pi-meme/contracts/pi'
 
 export const THINKING_LEVEL_LABELS: Record<ThinkingLevel, string> = {
-  off: '关',
+  off: '关闭',
   minimal: '极小',
   low: '低',
   medium: '中',
@@ -9,8 +9,6 @@ export const THINKING_LEVEL_LABELS: Record<ThinkingLevel, string> = {
   xhigh: '极高',
   max: '最大',
 }
-
-export const DEFAULT_THINKING_LEVELS: ThinkingLevel[] = ['off', 'low', 'medium', 'high', 'max']
 
 export function formatTokenCount(count: number): string {
   if (count >= 1_000_000) {

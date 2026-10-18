@@ -1,16 +1,15 @@
 import * as React from 'react'
 import { Brain, Check, ChevronDown, ChevronLeft, ChevronRight, RotateCcw, Search, X } from 'lucide-react'
-import type { PiModel, ThinkingLevel } from '@pi-meme/contracts/pi'
+import { thinkingLevels as activeLevels, type PiModel, type ThinkingLevel } from '@pi-meme/contracts/pi'
 import { Popover, PopoverContent, PopoverTrigger } from '@pi-meme/ui/components/ui/popover'
 import { Input } from '@pi-meme/ui/components/ui/input'
 import { cn } from '@pi-meme/ui/lib/utils'
-import { DEFAULT_THINKING_LEVELS, THINKING_LEVEL_LABELS } from './thinking-config'
+import { THINKING_LEVEL_LABELS } from './thinking-config'
 
 export type ModelPickerPopoverProps = {
   models: PiModel[]
   currentModel?: PiModel
   thinkingLevel?: ThinkingLevel
-  availableThinkingLevels?: ThinkingLevel[]
   disabled: boolean
   busy?: boolean
   onSelectModel: (model: PiModel) => void
@@ -30,7 +29,6 @@ export function ModelPickerPopover({
   models,
   currentModel,
   thinkingLevel = 'medium',
-  availableThinkingLevels = [],
   disabled,
   busy = false,
   onSelectModel,
@@ -44,18 +42,7 @@ export function ModelPickerPopover({
   const [dragRatio, setDragRatio] = React.useState<number | null>(null)
   const isDragging = dragRatio !== null
 
-  // 可用思考档位过滤（若无则退回默认 5 挡）
-  const activeLevels = React.useMemo(() => {
-    if (availableThinkingLevels && availableThinkingLevels.length > 0) {
-      return availableThinkingLevels
-    }
-    return DEFAULT_THINKING_LEVELS
-  }, [availableThinkingLevels])
-
-  const currentIndex = React.useMemo(() => {
-    const idx = activeLevels.indexOf(thinkingLevel)
-    return idx >= 0 ? idx : Math.min(2, activeLevels.length - 1)
-  }, [activeLevels, thinkingLevel])
+  const currentIndex = activeLevels.indexOf(thinkingLevel)
 
   // 离散步进比例
   const stepRatio = activeLevels.length > 1 ? currentIndex / (activeLevels.length - 1) : 0.5
@@ -175,8 +162,7 @@ export function ModelPickerPopover({
 
   // 默认级别重置
   const handleResetLevel = () => {
-    const defaultLevel = activeLevels.includes('medium') ? 'medium' : activeLevels[0] || 'off'
-    onSelectThinkingLevel(defaultLevel)
+    onSelectThinkingLevel('medium')
   }
 
   return (

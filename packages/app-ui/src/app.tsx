@@ -529,7 +529,6 @@ export function App({
           models: chat.models,
           currentModel: chat.state?.model,
           thinkingLevel: chat.state?.thinkingLevel,
-          availableThinkingLevels: chat.thinkingLevels,
           disabled: chat.modelPickerDisabled,
           busy: chat.modelSaving,
           onSelectModel: (model) => void chat.selectModel(model),

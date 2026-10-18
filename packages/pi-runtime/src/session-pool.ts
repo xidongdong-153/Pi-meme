@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { defaultAccessMode, isAgentAccessMode, type AgentAccessMode } from '@pi-meme/contracts/agent-access'
 import { AgentAccessStore } from './access-store'
-import { builtinCommand, builtinCommands, sameMessage } from '@pi-meme/contracts/pi'
+import { builtinCommand, builtinCommands, sameMessage, thinkingLevels } from '@pi-meme/contracts/pi'
 import { branchEndpoint } from '@pi-meme/contracts/session-tree'
 import { randomUUID } from 'node:crypto'
 import type { SecureCredentialStorage } from '@pi-meme/contracts/secure-storage'
@@ -517,7 +517,7 @@ export class PiSessionPool implements PiRuntime {
     if (view) view.defaults = value
     else this.defaultPreferences = value
   }
-  private thinkingLevels: ThinkingLevel[] = []
+  private thinkingLevels: ThinkingLevel[] = [...thinkingLevels]
   private epoch = 0
   private commands = new Map<string, PiSlashCommand[]>()
   private defaultSelection = 0
@@ -1781,7 +1781,7 @@ export class PiSessionPool implements PiRuntime {
     )
     this.localModels = null
     this.localAvailableModels = null
-    this.thinkingLevels = []
+    this.thinkingLevels = [...thinkingLevels]
     this.commands.clear()
     for (const entry of retained) {
       this.stopRecord(entry)

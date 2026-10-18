@@ -1,11 +1,34 @@
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import type { DesktopBridge, SessionSelectionResult, Snapshot } from '@pi-meme/contracts/desktop'
-import type { PiModel, ThinkingLevel } from '@pi-meme/contracts/pi'
+import { thinkingLevels, type PiModel, type ThinkingLevel } from '@pi-meme/contracts/pi'
 import { ModelPickerPopover } from '@pi-meme/models/ui/model-picker-popover'
 import { useAppSession } from '../src/session/use-app-session'
 
 afterEach(cleanup)
+
+test.each([true, false])('模型 reasoning=%s 时均可选择关闭到最大的全部思考档位', (reasoning) => {
+  const model = { provider: 'custom', id: 'custom-model', name: '自定义模型', reasoning }
+  const onSelectThinkingLevel = vi.fn()
+  const props = {
+    models: [model],
+    currentModel: model,
+    disabled: false,
+    onSelectModel: vi.fn(),
+    onSelectThinkingLevel,
+  }
+  const { rerender } = render(<ModelPickerPopover {...props} thinkingLevel="off" />)
+  fireEvent.click(screen.getByRole('button', { name: '选择模型与思考强度' }))
+  const slider = screen.getByRole('slider', { name: '思考强度滑块' })
+  expect(slider.getAttribute('aria-valuemax')).toBe(String(thinkingLevels.length - 1))
+  for (let index = 1; index < thinkingLevels.length; index++) {
+    fireEvent.keyDown(slider, { key: 'ArrowRight' })
+    expect(onSelectThinkingLevel).toHaveBeenLastCalledWith(thinkingLevels[index])
+    rerender(<ModelPickerPopover {...props} thinkingLevel={thinkingLevels[index]} />)
+  }
+  fireEvent.keyDown(screen.getByRole('slider'), { key: 'Home' })
+  expect(onSelectThinkingLevel).toHaveBeenLastCalledWith('off')
+})
 
 test('选择模型后直接收起弹框，不再跳回思考面板', () => {
   const models = [

@@ -21,7 +21,7 @@ import type {
   SessionEntry,
 } from '@earendil-works/pi-coding-agent'
 import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
-import { builtinCommand } from '@pi-meme/contracts/pi'
+import { builtinCommand, thinkingLevels } from '@pi-meme/contracts/pi'
 import { normalizePlanMessage, type MessageOptions, type QueuedInput, type TaskMode } from '@pi-meme/contracts/plan'
 import { randomUUID } from 'node:crypto'
 import { createPlanGuard } from '../extensions/plan-mode'
@@ -470,6 +470,10 @@ export class SdkSession {
         (message) => this.report(message),
         this.policy.resourceSnapshot,
       )
+      const savedThinking = sessionManager
+        .getBranch()
+        .filter((entry) => entry.type === 'thinking_level_change')
+        .at(-1)
       const created = await sdk.createAgentSessionFromServices({
         services,
         sessionManager,
@@ -483,6 +487,15 @@ export class SdkSession {
           '+ls',
         ],
       })
+      // 会话保留用户选择的完整档位；具体模型的参数适配由 Pi provider 在发送时处理。
+      created.session.getAvailableThinkingLevels = () => [...thinkingLevels]
+      const model = created.session.model
+      created.session.setThinkingLevel(
+        thinkingLevels.find((level) => level === savedThinking?.thinkingLevel) ??
+          (model && settingsManager.getModelThinkingLevel(model.provider, model.id)) ??
+          settingsManager.getDefaultThinkingLevel() ??
+          'medium',
+      )
       extensionErrors = services.resourceLoader.getExtensions().errors
       return { ...created, services, diagnostics: services.diagnostics }
     }
