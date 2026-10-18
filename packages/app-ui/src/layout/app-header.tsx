@@ -1,10 +1,11 @@
 import { useState } from 'react'
-import { ChevronDown, ChevronLeft, ChevronRight, Copy, FolderOpen, GitFork, PanelLeft } from 'lucide-react'
+import { ChevronDown, Copy, FolderOpen, GitFork, PanelLeft } from 'lucide-react'
 import type { ProjectApp } from '@pi-meme/contracts/desktop'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@pi-meme/ui/components/ui/popover'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
 import { cn } from '@pi-meme/ui/lib/utils'
+import { PageHeaderNavigation } from './page-header'
 
 const appNames: Record<ProjectApp['id'], string> = {
   finder: 'Finder',
@@ -12,8 +13,6 @@ const appNames: Record<ProjectApp['id'], string> = {
   cursor: 'Cursor',
   zed: 'Zed',
 }
-const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPod|iPad/i.test(navigator.userAgent)
-
 function SidebarTools({
   nativeWindow,
   sidebarOpen,
@@ -25,17 +24,7 @@ function SidebarTools({
 }) {
   return (
     <>
-      <div className="flex min-w-0 shrink-0 items-center gap-1.5">
-        {nativeWindow && isMac && <div className="w-[74px] shrink-0" aria-hidden="true" />}
-        <div className="flex shrink-0 items-center gap-0.5 text-muted-foreground/30" aria-hidden="true">
-          <Button variant="ghost" size="icon-sm" disabled aria-label="后退" className="size-6 p-0 disabled:opacity-30">
-            <ChevronLeft className="size-3.5" />
-          </Button>
-          <Button variant="ghost" size="icon-sm" disabled aria-label="前进" className="size-6 p-0 disabled:opacity-30">
-            <ChevronRight className="size-3.5" />
-          </Button>
-        </div>
-      </div>
+      <PageHeaderNavigation nativeWindow={nativeWindow} />
       <Tooltip>
         <TooltipTrigger asChild>
           <Button
@@ -121,10 +110,10 @@ export function AppHeader({
   }
 
   return (
-    <header className="flex h-full min-w-0 w-full items-center justify-between window-drag select-none bg-transparent">
+    <div className="flex h-full min-w-0 w-full items-center justify-between window-drag select-none bg-transparent">
       {/* 分区 1：左顶栏（宽度 = 50px AppRail + var(--workspace-sidebar-width)，与下方左侧栏精确对齐） */}
       <div
-        className="flex h-full min-w-max shrink-0 items-center justify-between px-3 no-drag bg-transparent relative"
+        className="flex h-full min-w-max shrink-0 items-center justify-between pr-3 no-drag bg-transparent relative"
         style={{ width: 'calc(50px + var(--workspace-sidebar-width))' }}
       >
         <SidebarTools nativeWindow={nativeWindow} sidebarOpen={sidebarOpen} onToggleSidebar={onToggleSidebar} />
@@ -232,6 +221,6 @@ export function AppHeader({
           </div>
         </div>
       </div>
-    </header>
+    </div>
   )
 }

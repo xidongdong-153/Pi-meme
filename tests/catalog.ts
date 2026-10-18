@@ -75,6 +75,7 @@ const files: Array<[string, Feature[]]> = [
   ['packages/app-ui/tests/conversation-error-surfaces.unit.test.ts', ['chat']],
   ['packages/app-ui/tests/error-notice.component.test.tsx', ['chat', 'connection']],
   ['packages/app-ui/tests/multi-service-sidebar.unit.test.ts', ['workspace', 'connection']],
+  ['packages/app-ui/tests/page-header.component.test.tsx', ['workspace', 'settings']],
   ['packages/app-ui/tests/pane-motion.component.test.tsx', ['workspace']],
   ['packages/app-ui/tests/pane-motion.unit.test.ts', ['workspace']],
   ['packages/app-ui/tests/panel-layout.unit.test.ts', ['plugins', 'files', 'terminal']],

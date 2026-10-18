@@ -76,6 +76,7 @@ Web (Vite) ──────────┘                                    
 - 文件名 kebab-case；组件和类型 PascalCase；函数与变量 camelCase；Hook 用 `use` 前缀。
 - 组件 Props 留在组件文件。共享聊天类型在 `packages/chat/src/ui/model/types.ts`。
 - 基础交互用 `packages/ui` 的原语，图标用 `lucide-react`，类名用 `cn`。
+- 页面顶栏复用 `packages/app-ui/src/layout/page-header.tsx` 的 `PageHeader` 和 `PageHeaderNavigation`；顶栏高度、交通灯留白和导航按钮样式只在该文件维护。页面自己的操作通过子组件组合，并使用 `no-drag` 标记交互区域。
 - 新功能先判断是内置能力还是可独立安装的 App 插件。业务包按需建 `src/server`、`src/agent`、`src/ui`、`src/shared`，不建空层。
 - 刷新保留已有列表结构；加载和禁用只作用在触发操作上。Popover 关闭动画结束前保留虚拟 Anchor，并显式指定展开方向。
 - Prettier：两空格、单引号、无分号、LF、120 列、尾随逗号。

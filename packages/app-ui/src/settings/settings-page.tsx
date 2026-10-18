@@ -2,7 +2,6 @@ import { Suspense, useState, type ReactNode } from 'react'
 import {
   BookOpen,
   ChartNoAxesCombined,
-  ChevronLeft,
   Info,
   Network,
   Palette,
@@ -19,6 +18,7 @@ import { Input } from '@pi-meme/ui/components/ui/input'
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@pi-meme/ui/components/ui/dialog'
 import { FadeContent } from '@pi-meme/ui/components/fade-content'
 import { cn } from '@pi-meme/ui/lib/utils'
+import { PageHeader, PageHeaderNavigation } from '../layout/page-header'
 import { SettingsSkeleton } from './settings-skeleton'
 
 const groups = [
@@ -65,6 +65,7 @@ const sections = groups.flatMap<Section>((group) => group.sections)
 
 export function SettingsPage({
   renderContent,
+  renderRail,
   dirty,
   saving,
   initialSection = 'general',
@@ -73,6 +74,7 @@ export function SettingsPage({
   onDismiss,
 }: {
   renderContent: (section: SettingsSection, navigate: (section: SettingsSection) => void) => ReactNode
+  renderRail?: (onDismiss: () => void, navigate: (section: SettingsSection) => void) => ReactNode
   dirty: boolean
   saving: boolean
   initialSection?: SettingsSection
@@ -106,90 +108,87 @@ export function SettingsPage({
   }
 
   return (
-    <section aria-label="设置页面" className="flex min-h-0 flex-1 flex-col">
-      <header
-        className={cn(
-          'window-drag flex h-10 shrink-0 items-center border-b border-border/70 pr-3',
-          nativeWindow ? 'pl-24' : 'pl-3',
-        )}
-      >
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          onClick={() => leave(onDismiss)}
-          disabled={saving}
-          autoFocus
-          className="no-drag size-7 p-0 text-muted-foreground hover:text-foreground"
-        >
-          <ChevronLeft className="size-4" />
-          <span className="sr-only">返回聊天</span>
-        </Button>
-      </header>
-      <div className="flex min-h-0 flex-1">
-        <aside className="appearance-sidebar settings-sidebar w-52 shrink-0 overflow-y-auto border-r border-border bg-card/50 px-2.5 py-4 sm:w-60 sm:py-5">
-          <h1 className="px-2.5 text-base font-semibold tracking-tight text-foreground">设置</h1>
-          <div className="relative mt-3">
-            <Search
-              aria-hidden="true"
-              className="pointer-events-none absolute left-2.5 top-2.5 size-3.5 text-muted-foreground"
-              strokeWidth={1.8}
-            />
-            <Input
-              aria-label="搜索设置"
-              placeholder="搜索设置"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              className="h-8 rounded-lg border-0 bg-secondary/60 pl-8 pr-2.5 text-xs transition-colors duration-200 focus-visible:bg-secondary"
-            />
-          </div>
-          <nav aria-label="设置分类" className="mt-4 space-y-4">
-            {visibleGroups.map((group) => (
-              <section key={group.label} aria-label={group.label}>
-                <h2 className="mb-1 px-2.5 text-[11px] font-medium text-muted-foreground/60 select-none">
-                  {group.label}
-                </h2>
-                <div className="space-y-0.5">
-                  {group.sections.map(({ id, label, icon: Icon }) => (
-                    <button
-                      key={id}
-                      type="button"
-                      aria-current={sectionId === id ? 'page' : undefined}
-                      aria-controls="settings-content"
-                      disabled={saving}
-                      onClick={() => navigate(id)}
-                      className={cn(
-                        'settings-nav-item flex h-8 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-[13px] font-normal transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50',
-                        sectionId === id
-                          ? 'bg-secondary font-medium text-foreground'
-                          : 'text-muted-foreground hover:bg-secondary/50 hover:text-foreground',
-                      )}
-                    >
-                      <span className="settings-nav-icon flex size-4 shrink-0 items-center justify-center">
-                        <Icon aria-hidden="true" className="size-3.5 sm:size-4" strokeWidth={1.8} />
-                      </span>
-                      <span className="truncate">{label}</span>
-                    </button>
-                  ))}
-                </div>
-              </section>
-            ))}
-            {visibleGroups.length === 0 && (
-              <p role="status" className="px-2.5 text-xs text-muted-foreground">
-                没有匹配的设置
-              </p>
-            )}
-          </nav>
-        </aside>
-        <div id="settings-content" className="min-w-0 flex-1 overflow-y-auto px-6 py-6 sm:px-8 lg:px-12 lg:py-8">
-          <FadeContent key={sectionId} className="mx-auto max-w-3xl space-y-6">
-            <div>
-              <h2 className="text-xl font-semibold tracking-tight sm:text-2xl">{section.label}</h2>
-              <p className="mt-1 text-xs text-muted-foreground">{section.description}</p>
+    <section
+      aria-label="设置页面"
+      className="workspace-panes flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-secondary"
+    >
+      <PageHeader>
+        <PageHeaderNavigation
+          nativeWindow={nativeWindow}
+          back={{ label: '返回聊天', onClick: () => leave(onDismiss), disabled: saving, autoFocus: true }}
+        />
+      </PageHeader>
+      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+        {renderRail?.(() => leave(onDismiss), navigate)}
+        <div className="content-frame bg-background">
+          <aside className="appearance-sidebar settings-sidebar w-52 shrink-0 overflow-y-auto border-r border-border bg-card/40 px-2.5 py-4 sm:w-64 sm:py-5">
+            <h1 className="px-2.5 text-base font-semibold tracking-tight text-foreground">设置</h1>
+            <div className="relative mt-3">
+              <Search
+                aria-hidden="true"
+                className="pointer-events-none absolute left-2.5 top-2.5 size-3.5 text-muted-foreground"
+                strokeWidth={1.8}
+              />
+              <Input
+                aria-label="搜索设置"
+                placeholder="搜索设置"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                className="h-9 rounded-full border-0 bg-secondary/60 pl-8 pr-2.5 text-xs transition-colors duration-200 focus-visible:bg-secondary"
+              />
             </div>
-            <Suspense fallback={<SettingsSkeleton section={sectionId} />}>
-              {renderContent(sectionId, navigate)}
-            </Suspense>
-          </FadeContent>
+            <nav aria-label="设置分类" className="mt-4 space-y-4">
+              {visibleGroups.map((group) => (
+                <section key={group.label} aria-label={group.label}>
+                  <h2 className="mb-1 px-2.5 text-[11px] font-medium text-muted-foreground/60 select-none">
+                    {group.label}
+                  </h2>
+                  <div className="space-y-0.5">
+                    {group.sections.map(({ id, label, icon: Icon }) => (
+                      <button
+                        key={id}
+                        type="button"
+                        aria-current={sectionId === id ? 'page' : undefined}
+                        aria-controls="settings-content"
+                        disabled={saving}
+                        onClick={() => navigate(id)}
+                        className={cn(
+                          'settings-nav-item flex h-8 w-full items-center gap-2.5 rounded-lg px-2.5 text-left text-[13px] font-normal transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50',
+                          sectionId === id
+                            ? 'bg-secondary font-medium text-foreground'
+                            : 'text-muted-foreground hover:bg-secondary/50 hover:text-foreground',
+                        )}
+                      >
+                        <span className="settings-nav-icon flex size-4 shrink-0 items-center justify-center">
+                          <Icon aria-hidden="true" className="size-3.5 sm:size-4" strokeWidth={1.8} />
+                        </span>
+                        <span className="truncate">{label}</span>
+                      </button>
+                    ))}
+                  </div>
+                </section>
+              ))}
+              {visibleGroups.length === 0 && (
+                <p role="status" className="px-2.5 text-xs text-muted-foreground">
+                  没有匹配的设置
+                </p>
+              )}
+            </nav>
+          </aside>
+          <div
+            id="settings-content"
+            className="theme-workspace min-w-0 flex-1 overflow-y-auto bg-background px-6 py-8 sm:px-8 lg:px-12 lg:py-12"
+          >
+            <FadeContent key={sectionId} className="mx-auto max-w-3xl space-y-8">
+              <div>
+                <h2 className="text-xl font-semibold tracking-tight sm:text-2xl">{section.label}</h2>
+                <p className="mt-1 text-xs text-muted-foreground">{section.description}</p>
+              </div>
+              <Suspense fallback={<SettingsSkeleton section={sectionId} />}>
+                {renderContent(sectionId, navigate)}
+              </Suspense>
+            </FadeContent>
+          </div>
         </div>
       </div>
       <Dialog

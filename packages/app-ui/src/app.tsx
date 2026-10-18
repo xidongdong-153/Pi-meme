@@ -7,6 +7,7 @@ import { appendSkillInvocation } from './settings/invoke-skill'
 import { AccessSettings } from '@pi-meme/permissions/ui/access-settings'
 import { AgentAccessSelector } from '@pi-meme/permissions/ui/agent-access-selector'
 import { AppHeader } from './layout/app-header'
+import { AppRail } from './layout/app-rail'
 import { ForkNotice } from './layout/fork-notice'
 import { WorkspaceContent } from './layout/workspace-content'
 import { ErrorNotice } from './layout/error-notice'
@@ -892,6 +893,16 @@ export function App({
               nativeWindow={nativeWindow}
               onDiscard={() => setInstructionsDirty(false)}
               onDismiss={() => setSettingsSection(null)}
+              renderRail={(onDismiss, navigate) => (
+                <AppRail
+                  profile={userProfile.profile}
+                  profileLoading={userProfile.showPlaceholder}
+                  onHome={onDismiss}
+                  onSettings={() => navigate('general')}
+                  onUsage={() => navigate('profile')}
+                  onAccount={() => navigate('account')}
+                />
+              )}
               renderContent={(section) => {
                 const contentProps: Omit<ComponentProps<typeof SettingsContent>, 'section'> = {
                   bridge,

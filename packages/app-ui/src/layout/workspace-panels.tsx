@@ -16,6 +16,7 @@ import { Button } from '@pi-meme/ui/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
 import type { UiContributionProps, UiPanel, UiTarget } from '@pi-meme/plugin-sdk/ui'
 import { AppRail } from './app-rail'
+import { PageHeader } from './page-header'
 import type { UserProfile } from '../settings/user-profile'
 import {
   closePanel,
@@ -205,7 +206,7 @@ export function WorkspacePanels({
       className="workspace-panes flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-secondary"
     >
       {/* 顶部栏：位于最外层外框中，与最左侧 ICON 栏同底色 */}
-      <div className="workspace-topbar relative z-30 flex h-10 shrink-0 select-none bg-transparent pr-2">
+      <PageHeader>
         <div className="workspace-main-header flex h-full min-w-0 overflow-hidden bg-transparent window-drag">
           {header(toggleSidebar)}
         </div>
@@ -309,7 +310,7 @@ export function WorkspacePanels({
             <TooltipContent side="bottom">{layout.open ? '收起右侧栏' : '展开右侧栏'}</TooltipContent>
           </Tooltip>
         </div>
-      </div>
+      </PageHeader>
 
       {/* 顶部栏下方：最左侧为 AppRail，右侧为圈起来的圆角内容框体 */}
       <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
@@ -325,10 +326,7 @@ export function WorkspacePanels({
         />
 
         {/* 内容部分：被有圆角框体圈起来的 3 部分容器（四角全圆角，右侧与底部留外框边距，复刻 Codex 设计） */}
-        <div
-          ref={container}
-          className="content-frame mr-2 mb-2 flex min-h-0 min-w-0 flex-1 overflow-hidden rounded-xl border border-white/[0.08] bg-background shadow-xs"
-        >
+        <div ref={container} className="content-frame bg-background">
           {leftPane.mounted && (
             <div
               className="sidebar-pane relative flex min-w-0 shrink-0 overflow-hidden"

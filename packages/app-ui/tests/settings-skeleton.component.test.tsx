@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest'
-import { afterEach, expect, test } from 'vitest'
+import { afterEach, expect, test, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { BentoSkeletonCard } from '@pi-meme/ui/components/bento-skeleton'
 import { SettingsSkeleton } from '../src/settings/settings-skeleton'
@@ -81,4 +81,70 @@ test('SettingsPage 在异步挂起时渲染专属骨架屏，而非正在加载�
   expect(screen.getByTestId('settings-skeleton-general')).toBeInTheDocument()
   // 确认不再有“正在加载设置…”这行纯文字
   expect(screen.queryByText('正在加载设置…')).toBeNull()
+})
+
+test('设置页通过共用顶栏返回聊天，进入时聚焦返回按钮', () => {
+  const onDismiss = vi.fn()
+  render(
+    <SettingsPage
+      renderContent={() => <p>设置正文</p>}
+      dirty={false}
+      saving={false}
+      onDiscard={vi.fn()}
+      onDismiss={onDismiss}
+    />,
+  )
+  const back = screen.getByRole('button', { name: '返回聊天' })
+  expect(back).toHaveFocus()
+  fireEvent.click(back)
+  expect(onDismiss).toHaveBeenCalledOnce()
+})
+
+test('设置页返回仍确认未保存的指令，取消后继续编辑，确认后先丢弃再离开', () => {
+  const onDiscard = vi.fn()
+  const onDismiss = vi.fn()
+  render(
+    <SettingsPage
+      renderContent={() => <p>未保存的指令正文</p>}
+      dirty
+      saving={false}
+      onDiscard={onDiscard}
+      onDismiss={onDismiss}
+    />,
+  )
+
+  fireEvent.click(screen.getByRole('button', { name: '返回聊天' }))
+  expect(screen.getByRole('dialog')).toHaveTextContent('丢弃未保存的指令？')
+  expect(onDismiss).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: '继续编辑' }))
+  expect(screen.getByText('未保存的指令正文')).toBeInTheDocument()
+  expect(onDiscard).not.toHaveBeenCalled()
+
+  fireEvent.click(screen.getByRole('button', { name: '返回聊天' }))
+  fireEvent.click(screen.getByRole('button', { name: '丢弃修改' }))
+  expect(onDiscard).toHaveBeenCalledOnce()
+  expect(onDismiss).toHaveBeenCalledOnce()
+  expect(onDiscard.mock.invocationCallOrder[0]).toBeLessThan(onDismiss.mock.invocationCallOrder[0])
+})
+
+test('保存指令期间禁用共用顶栏返回和分类导航', () => {
+  const onDismiss = vi.fn()
+  render(
+    <SettingsPage
+      renderContent={(section) => <p>{section}正文</p>}
+      dirty
+      saving
+      onDiscard={vi.fn()}
+      onDismiss={onDismiss}
+    />,
+  )
+
+  const back = screen.getByRole('button', { name: '返回聊天' })
+  const models = screen.getByRole('button', { name: '模型' })
+  expect(back).toBeDisabled()
+  expect(models).toBeDisabled()
+  fireEvent.click(back)
+  fireEvent.click(models)
+  expect(onDismiss).not.toHaveBeenCalled()
+  expect(screen.getByText('general正文')).toBeInTheDocument()
 })
