@@ -243,6 +243,7 @@
 
 /* ---- 代码块 ---- */
 .pi-code-block {
+  --code-size: calc(var(--text-ui) - 1px);
   background: var(--color-surface);
   border: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
@@ -255,6 +256,7 @@
 }
 
 .pi-code-block-content {
+  max-height: 320px;
   font-family: var(--font-code);
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--color-border) 50%, transparent) transparent;
@@ -284,6 +286,7 @@
 
 /* 代码块滚动条 */
 .pi-code-block-content::-webkit-scrollbar {
+  width: 5px;
   height: 5px;
 }
 

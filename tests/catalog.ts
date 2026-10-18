@@ -105,6 +105,7 @@ const files: Array<[string, Feature[]]> = [
   ['packages/chat/tests/attachment-preview.unit.test.ts', ['chat']],
   ['packages/chat/tests/chat-rendering.unit.test.ts', ['chat']],
   ['packages/chat/tests/chat.unit.test.ts', ['chat']],
+  ['packages/chat/tests/code-block.component.test.tsx', ['chat']],
   ['packages/chat/tests/compaction.unit.test.ts', ['chat', 'sessions']],
   ['packages/chat/tests/completion-query.unit.test.ts', ['chat', 'skills', 'files']],
   ['packages/chat/tests/composer-hint.unit.test.ts', ['chat']],

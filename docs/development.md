@@ -45,7 +45,7 @@ paths:
 
 文件目录和搜索结果使用 [FileIcon](../packages/ui/src/components/file-icon.tsx)，内置 [Catppuccin vscode-icons v1.26.0](https://github.com/catppuccin/vscode-icons/tree/b6915da9f6889b683a110aa747de96c2820a537d) 的 SVG 图标与官方名称映射。资源在 `packages/assets/files/file-icons/`，运行时不请求外网；明暗模式分别使用 Latte 和 Mocha 配色。先匹配文件名，再匹配最长扩展名；目录按名称匹配并区分展开状态，未知类型使用默认图标。更新时修改 [sync-file-icons.mts](../scripts/sync-file-icons.mts) 中的固定提交，再运行 `pnpm exec tsx scripts/sync-file-icons.mts`。MIT 许可保存在同目录，并由发布脚本收录。
 
-聊天消息和输入区共用 [global.css](../packages/app-ui/src/global.css) 的 `.chat-content-column`，按聊天面板宽度居中，最大宽度为 `48rem`。Markdown 代码块根据围栏上的语言标记交给 Shiki 高亮，支持 `ts`、`js`、`c++`、`c#`、`shell` 等别名；未标记或不支持的语言保留原文。高亮随应用明暗模式切换；长代码和宽表格在各自容器内横向滚动。入口在 [markdown-components.tsx](../packages/chat/src/ui/content/markdown-components.tsx)、[code-block.tsx](../packages/chat/src/ui/content/code-block.tsx) 和 [use-highlighter.ts](../packages/chat/src/ui/content/use-highlighter.ts)。
+聊天消息和输入区共用 [global.css](../packages/app-ui/src/global.css) 的 `.chat-content-column`，按聊天面板宽度居中，最大宽度为 `48rem`。Markdown 代码块根据围栏上的语言标记交给 Shiki 高亮，支持 `ts`、`js`、`c++`、`c#`、`shell` 等别名；未标记或不支持的语言保留原文。高亮随应用明暗模式切换；代码块默认展开，点击标题栏可折叠，折叠后仍可复制完整代码。代码正文比聊天正文字号小 `1px`，最大高度为 `320px`，超出后在块内滚动；长行和宽表格在各自容器内横向滚动。入口在 [markdown-components.tsx](../packages/chat/src/ui/content/markdown-components.tsx)、[code-block.tsx](../packages/chat/src/ui/content/code-block.tsx) 和 [use-highlighter.ts](../packages/chat/src/ui/content/use-highlighter.ts)。
 
 ## TypeScript 与 UI 约定
 
