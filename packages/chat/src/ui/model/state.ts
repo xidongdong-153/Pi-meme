@@ -34,6 +34,9 @@ export function fromSnapshot(snapshot: Snapshot): ChatState {
     pauseRevision: snapshot.state.pauseRevision ?? 0,
     pauseIntervals: snapshot.state.pauseIntervals ?? [],
     runIntervals: snapshot.state.runIntervals ?? [],
+    generationMetrics: snapshot.state.generationMetrics
+      ? { ...snapshot.state.generationMetrics, receivedAt: performance.now() }
+      : undefined,
     activeMode: snapshot.state.activeMode,
     compacting: isCompacting ? { active: true } : null,
     retry: snapshot.state.retry,
@@ -104,6 +107,13 @@ export function applyEvent(
   state: ChatState,
   event: PiEvent | AgentAccessEvent | PlanEvent | CollaborationEvent,
 ): ChatState {
+  if ('generationMetrics' in event)
+    state = {
+      ...state,
+      generationMetrics: event.generationMetrics
+        ? { ...event.generationMetrics, receivedAt: performance.now() }
+        : undefined,
+    }
   switch (event.type) {
     case 'agents_update': {
       const root = event.agents.find((agent) => agent.depth === 0 && agent.agentId === agent.rootAgentId)
@@ -138,6 +148,7 @@ export function applyEvent(
     case 'composer_hint':
       return { ...state, composerHint: event.text || undefined }
     case 'agent_end':
+    case 'turn_start':
       return state
     case 'compaction_start':
       return {

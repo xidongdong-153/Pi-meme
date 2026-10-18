@@ -3,6 +3,7 @@ import type { BranchSkillUsage } from '@pi-meme/contracts/skills'
 import type { QueuedInput, PlanDocument } from '@pi-meme/contracts/plan'
 import type {
   PiImage,
+  PiGenerationMetrics,
   PiMessage,
   PiPauseInterval,
   PiRunInterval,
@@ -40,6 +41,7 @@ export type ChatState = {
   pauseRevision?: number
   pauseIntervals?: PiPauseInterval[]
   runIntervals?: PiRunInterval[]
+  generationMetrics?: PiGenerationMetrics & { receivedAt: number }
   activeMode?: import('@pi-meme/contracts/plan').TaskMode
   running: boolean
   compacting: ChatCompactionState | null

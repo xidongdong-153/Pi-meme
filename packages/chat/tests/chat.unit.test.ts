@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
+import type { PiGenerationMetrics } from '@pi-meme/contracts/pi'
 import { applyEvent, emptyChat, fromSnapshot } from '../src/ui/model/state'
 import { messageText } from '../src/ui/model/message-text'
 import { groupConversationTurns } from '../src/ui/model/conversation-turns'
@@ -19,6 +20,38 @@ function startLive(timestamp = 1) {
     message: assistantMessage([], timestamp),
   })
 }
+
+test('生成指标随流式事件更新，快照恢复不沿用其他会话的指标', () => {
+  const metrics: PiGenerationMetrics = {
+    running: true,
+    phase: 'generating',
+    elapsedMs: 2000,
+    generationMs: 1500,
+    generationActive: true,
+    ttftMs: 1000,
+    outputTokens: 50,
+    estimated: true,
+  }
+  const started = startLive()
+  const next = applyEvent(started, {
+    ...streamUpdate({ type: 'text_delta', contentIndex: 0, delta: '正文' }),
+    generationMetrics: metrics,
+  })
+  assert.equal(next.generationMetrics?.outputTokens, 50)
+  assert.equal(typeof next.generationMetrics?.receivedAt, 'number')
+  assert.equal(started.generationMetrics, undefined)
+  const snapshot = {
+    connection: { generation: 1, cwd: '/', status: 'ready' as const },
+    state: { ...sessionState(), mode: 'default' as const, generationMetrics: metrics },
+    messages: [],
+    models: [],
+  }
+  assert.equal(fromSnapshot(snapshot).generationMetrics?.ttftMs, 1000)
+  assert.equal(
+    fromSnapshot({ ...snapshot, state: { ...snapshot.state, generationMetrics: undefined } }).generationMetrics,
+    undefined,
+  )
+})
 
 test('最终消息替换流式内容，重复 message_end 不添加副本，agent_end 不代表空闲', () => {
   let state = startLive()

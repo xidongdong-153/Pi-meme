@@ -168,6 +168,13 @@ export function App({
       setPlanRequest({ id: document.id, revision: document.revision, sessionKey })
     },
   })
+  const generationMetrics = useMemo(
+    () => ({
+      subscribe: chat.chatStream.subscribe,
+      getSnapshot: () => chat.chatStream.getSnapshot().generationMetrics,
+    }),
+    [chat.chatStream],
+  )
   useEffect(() => {
     const unload = (event: BeforeUnloadEvent) => {
       if (fileStore.hasDirty() || chat.hasUnstoredDraft()) event.preventDefault()
@@ -369,9 +376,6 @@ export function App({
     : []
   const activeSummary = sessionList.find((session) => session.path === chat.sessions?.activeSessionPath)
   const showWorkspaceSlot =
-    ready &&
-    !chat.loading &&
-    !chat.navigationBusy &&
     Boolean(chat.state) &&
     !chat.connection.sessionFile &&
     !activeSummary &&
@@ -501,7 +505,7 @@ export function App({
     ),
     focusVersion: chat.draftFocusVersion,
     onError: chat.setError,
-    contextUsage: <ContextUsageRing {...{ stats: chat.sessionStats }} />,
+    contextUsage: <ContextUsageRing {...{ stats: chat.sessionStats, generationMetrics }} />,
     model: (
       <ModelPickerPopover
         {...{
@@ -510,6 +514,7 @@ export function App({
           thinkingLevel: chat.state?.thinkingLevel,
           availableThinkingLevels: chat.thinkingLevels,
           disabled: chat.modelPickerDisabled,
+          busy: chat.modelSaving,
           onSelectModel: (model) => void chat.selectModel(model),
           onSelectThinkingLevel: (level) => void chat.selectThinkingLevel(level),
         }}

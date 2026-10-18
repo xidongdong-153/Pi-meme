@@ -1,9 +1,36 @@
 import * as React from 'react'
 import type { PiSessionStats } from '@pi-meme/contracts/pi'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
+import { Popover, PopoverContent, PopoverTrigger } from '@pi-meme/ui/components/ui/popover'
 import { formatTokenCount } from './thinking-config'
+import { GenerationMetrics, type GenerationMetricsSource } from './generation-metrics'
+import { MetricLabel } from './metric-label'
 
-export function ContextUsageRing({ stats }: { stats?: PiSessionStats | null }) {
+export function ContextUsageRing({
+  stats,
+  generationMetrics,
+}: {
+  stats?: PiSessionStats | null
+  generationMetrics?: GenerationMetricsSource
+}) {
+  const [open, setOpen] = React.useState(false)
+  const hoverTimer = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const contentRef = React.useRef<HTMLDivElement>(null)
+  const clearHoverTimer = () => clearTimeout(hoverTimer.current)
+  React.useEffect(() => () => clearTimeout(hoverTimer.current), [])
+  const onOpenChange = (value: boolean) => {
+    clearHoverTimer()
+    setOpen(value)
+  }
+  const scheduleOpen = () => {
+    clearHoverTimer()
+    hoverTimer.current = setTimeout(setOpen, 150, true)
+  }
+  const scheduleClose = () => {
+    clearHoverTimer()
+    hoverTimer.current = setTimeout(() => {
+      if (!contentRef.current?.contains(document.activeElement)) setOpen(false)
+    }, 250)
+  }
   const usage = stats?.contextUsage
   const percent = usage?.percent ?? 0
   const usedTokens = Math.round(usage?.tokens ?? stats?.tokens.total ?? 0)
@@ -49,11 +76,15 @@ export function ContextUsageRing({ stats }: { stats?: PiSessionStats | null }) {
   const hasData = displayPercent > 0 || usedTokens > 0
 
   return (
-    <Tooltip delayDuration={150}>
-      <TooltipTrigger asChild>
+    <Popover open={open} onOpenChange={onOpenChange}>
+      <PopoverTrigger asChild>
         <button
           type="button"
           aria-label="背景信息窗口占用"
+          onPointerEnter={(event) => {
+            if (event.pointerType === 'mouse') scheduleOpen()
+          }}
+          onPointerLeave={scheduleClose}
           className="relative inline-flex size-6 shrink-0 items-center justify-center rounded-full hover:bg-secondary/60 focus:outline-hidden cursor-default"
         >
           <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="-rotate-90">
@@ -84,17 +115,28 @@ export function ContextUsageRing({ stats }: { stats?: PiSessionStats | null }) {
             )}
           </svg>
         </button>
-      </TooltipTrigger>
-      <TooltipContent
+      </PopoverTrigger>
+      <PopoverContent
+        ref={contentRef}
+        aria-label="上下文与生成指标"
         side="top"
         align="end"
         sideOffset={8}
-        className="w-64 p-3 bg-popover/95 backdrop-blur-md shadow-2xl border border-border/80 rounded-xl space-y-2 select-none"
+        onPointerEnter={clearHoverTimer}
+        onPointerLeave={scheduleClose}
+        onOpenAutoFocus={(event) => event.preventDefault()}
+        onCloseAutoFocus={(event) => event.preventDefault()}
+        className="w-72 max-w-[calc(100vw-2rem)] p-3 bg-popover/95 backdrop-blur-md shadow-2xl border border-border/80 rounded-xl space-y-2 select-none"
       >
         {/* 顶部标题与整体指标 */}
         <div className="flex items-center justify-between text-xs font-normal">
           <div>
-            <span className="text-muted-foreground">上下文已用 </span>
+            <span className="text-muted-foreground">
+              <MetricLabel
+                label="上下文已用"
+                description="当前上下文占模型可用窗口的比例。右侧显示已用 token 和上下文上限。"
+              />{' '}
+            </span>
             <span className="font-semibold text-foreground">{displayPercent}%</span>
           </div>
           <div className="text-muted-foreground/80 font-mono text-[0.6875rem]">
@@ -116,7 +158,12 @@ export function ContextUsageRing({ stats }: { stats?: PiSessionStats | null }) {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className="size-2 rounded-[2px] bg-slate-300 shrink-0" />
-              <span className="text-foreground/90">系统提示词</span>
+              <span className="text-foreground/90">
+                <MetricLabel
+                  label="系统提示词"
+                  description="指导模型行为的系统指令。此处分项按上下文总量估算，不代表模型返回的精确用量。"
+                />
+              </span>
             </div>
             <span className="text-muted-foreground/90 font-mono text-[0.6875rem]">
               ~{formatTokenCount(breakdown.systemTokens)}
@@ -126,7 +173,12 @@ export function ContextUsageRing({ stats }: { stats?: PiSessionStats | null }) {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className="size-2 rounded-[2px] bg-purple-400 shrink-0" />
-              <span className="text-foreground/90">工具定义</span>
+              <span className="text-foreground/90">
+                <MetricLabel
+                  label="工具定义"
+                  description="发送给模型的工具名称、说明和参数结构。此处分项按上下文总量估算。"
+                />
+              </span>
             </div>
             <span className="text-muted-foreground/90 font-mono text-[0.6875rem]">
               ~{formatTokenCount(breakdown.toolsTokens)}
@@ -136,14 +188,20 @@ export function ContextUsageRing({ stats }: { stats?: PiSessionStats | null }) {
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
               <span className="size-2 rounded-[2px] bg-blue-500 shrink-0" />
-              <span className="text-foreground/90">对话消息</span>
+              <span className="text-foreground/90">
+                <MetricLabel
+                  label="对话消息"
+                  description="用户消息、模型回复和工具结果等内容的上下文占用。此处分项按上下文总量估算。"
+                />
+              </span>
             </div>
             <span className="text-muted-foreground/90 font-mono text-[0.6875rem]">
               ~{formatTokenCount(breakdown.messagesTokens)}
             </span>
           </div>
         </div>
-      </TooltipContent>
-    </Tooltip>
+        {generationMetrics && <GenerationMetrics source={generationMetrics} />}
+      </PopoverContent>
+    </Popover>
   )
 }

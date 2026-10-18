@@ -49,6 +49,7 @@ import {
   type HintSourceMessage,
 } from './composer-hint'
 import { toDesktopEvent } from './events'
+import { GenerationMetricsTracker } from './generation-metrics'
 import { loadPiSdk, type PiSdk } from './load'
 import { createDesktopModelRuntime } from './model-runtime'
 import { createDesktopSettingsManager } from './settings'
@@ -105,6 +106,7 @@ export class SdkSession {
   private pauseControlApplied = true
   private pauseIntervals: PiPauseInterval[] = []
   private runIntervals: PiRunInterval[] = []
+  private readonly generationMetrics = new GenerationMetricsTracker()
   private pauseGate?: Promise<void>
   private releasePause?: () => void
   private frozenView?: { messages: Snapshot['messages']; entries: SessionEntry[]; leafId: string | null }
@@ -242,6 +244,7 @@ export class SdkSession {
     if (!pause && (!sessionFile || cwd !== this.cwd || sessionFile !== this.sessionFile)) {
       this.pauseIntervals = []
       this.runIntervals = []
+      this.generationMetrics.reset()
     }
     if (pause) {
       this.pauseIntervals = pause.pauseIntervals
@@ -454,6 +457,7 @@ export class SdkSession {
       if (runtime.session.sessionId !== boundSessionId) {
         this.pauseIntervals = []
         this.runIntervals = []
+        this.generationMetrics.reset()
         boundSessionId = runtime.session.sessionId
         this.emitPause()
       }
@@ -642,7 +646,11 @@ export class SdkSession {
       const id = (event.message.details as { messageId?: string } | undefined)?.messageId
       if (id) this.pendingDeliveries.delete(id)
     }
-    this.notify.event({ generation: this.generation, event })
+    this.generationMetrics.handle(event)
+    this.notify.event({
+      generation: this.generation,
+      event: { ...event, generationMetrics: this.generationMetrics.snapshot() },
+    })
   }
 
   private teardownRuntime() {
@@ -797,6 +805,7 @@ export class SdkSession {
       pauseRevision: this.pauseRevision,
       pauseIntervals: structuredClone(this.pauseIntervals),
       runIntervals: structuredClone(this.runIntervals),
+      generationMetrics: this.generationMetrics.snapshot(),
       retry: this.retry ? { ...this.retry } : undefined,
       compactionError: this.compactionError,
       mode: this.mode,

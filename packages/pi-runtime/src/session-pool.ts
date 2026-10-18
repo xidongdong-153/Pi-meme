@@ -733,6 +733,7 @@ export class PiSessionPool implements PiRuntime {
     }
     recordEvent = this.collaboration?.decorateEvent?.(record.key, recordEvent) ?? recordEvent
     if (recordEvent.runId) record.executionRunId = recordEvent.runId
+    if ('generationMetrics' in event) record.state = { ...record.state, generationMetrics: event.generationMetrics }
     for (const buffer of record.buffers) buffer.push(recordEvent)
     if ((event.type === 'agent_start' || event.type === 'agent_settled') && event.runIntervals)
       record.state = { ...record.state, runIntervals: event.runIntervals }

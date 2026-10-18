@@ -1,0 +1,132 @@
+import '@testing-library/jest-dom/vitest'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import type { ComponentProps } from 'react'
+import { afterEach, expect, test, vi } from 'vitest'
+import { ContextUsageRing } from '@pi-meme/models/ui/context-usage-ring'
+import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
+
+type GenerationMetricsSource = NonNullable<ComponentProps<typeof ContextUsageRing>['generationMetrics']>
+
+afterEach(() => {
+  cleanup()
+  vi.useRealTimers()
+})
+
+function createSource() {
+  let value: ReturnType<GenerationMetricsSource['getSnapshot']>
+  const listeners = new Set<() => void>()
+  return {
+    subscribe: (listener: () => void) => {
+      listeners.add(listener)
+      return () => {
+        listeners.delete(listener)
+      }
+    },
+    getSnapshot: () => value,
+    update: (next: typeof value) => {
+      value = next
+      for (const listener of listeners) listener()
+    },
+    listeners,
+  }
+}
+
+function renderMetrics(source: GenerationMetricsSource) {
+  const view = render(
+    <TooltipProvider>
+      <ContextUsageRing generationMetrics={source} />
+    </TooltipProvider>,
+  )
+  fireEvent.click(screen.getByRole('button', { name: '背景信息窗口占用' }))
+  return view
+}
+
+test('空状态显示占位，生成时标记估算，结束后显示实际速率', () => {
+  const source = createSource()
+  renderMetrics(source)
+  expect(screen.getByText('暂无记录')).toBeInTheDocument()
+  act(() =>
+    source.update({
+      running: true,
+      phase: 'generating',
+      elapsedMs: 2000,
+      generationMs: 2000,
+      generationActive: true,
+      ttftMs: 1200,
+      outputTokens: 60,
+      estimated: true,
+      receivedAt: performance.now(),
+    }),
+  )
+  expect(screen.getByText('≈ 30.0')).toBeInTheDocument()
+  expect(screen.getByText('1.2s')).toBeInTheDocument()
+  act(() =>
+    source.update({
+      running: false,
+      phase: 'complete',
+      elapsedMs: 20200,
+      generationMs: 16000,
+      generationActive: false,
+      ttftMs: 6200,
+      outputTokens: 561,
+      estimated: false,
+      receivedAt: performance.now(),
+    }),
+  )
+  expect(screen.getByText('35.1')).toBeInTheDocument()
+  expect(screen.getByText('20.2s')).toBeInTheDocument()
+  expect(screen.getByText('6.2s')).toBeInTheDocument()
+  expect(screen.queryByText('≈ 30.0')).not.toBeInTheDocument()
+})
+
+test('重新打开时计入采样后经过的时间，工具执行只增加总耗时，卸载释放计时和订阅', () => {
+  vi.useFakeTimers()
+  vi.spyOn(performance, 'now').mockImplementation(() => Date.now())
+  const interval = vi.spyOn(globalThis, 'setInterval')
+  const clear = vi.spyOn(globalThis, 'clearInterval')
+  const source = createSource()
+  source.update({
+    running: true,
+    phase: 'tools',
+    elapsedMs: 5000,
+    generationMs: 2000,
+    generationActive: false,
+    ttftMs: 1000,
+    outputTokens: 20,
+    estimated: false,
+    receivedAt: performance.now() - 3000,
+  })
+  const view = renderMetrics(source)
+  expect(screen.getByText('8.0s')).toBeInTheDocument()
+  expect(screen.getByText('10.0')).toBeInTheDocument()
+  act(() => {
+    vi.advanceTimersByTime(1000)
+  })
+  expect(screen.getByText('9.0s')).toBeInTheDocument()
+  expect(screen.getByText('10.0')).toBeInTheDocument()
+  const timer = interval.mock.results[interval.mock.calls.findIndex(([, delay]) => delay === 250)].value
+  view.unmount()
+  expect(source.listeners.size).toBe(0)
+  expect(clear).toHaveBeenCalledWith(timer)
+})
+
+test('悬停指标文字不打开说明，移入感叹号或聚焦图标后才显示', () => {
+  vi.useFakeTimers()
+  renderMetrics(createSource())
+  expect(screen.getAllByRole('button', { name: /说明$/ })).toHaveLength(7)
+  expect(screen.queryByText('输入 ↑')).not.toBeInTheDocument()
+  expect(screen.queryByText('输出 ↓')).not.toBeInTheDocument()
+  expect(screen.queryByText('速率含首响应等待，不计工具执行时间。')).not.toBeInTheDocument()
+  const info = screen.getByRole('button', { name: 'TPS说明' })
+  fireEvent.pointerMove(screen.getByText('TPS'), { pointerType: 'mouse' })
+  act(() => vi.advanceTimersByTime(200))
+  expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
+  fireEvent.pointerMove(info, { pointerType: 'mouse' })
+  act(() => vi.advanceTimersByTime(200))
+  expect(screen.getByRole('tooltip')).toHaveTextContent('排除工具执行时间')
+  expect(screen.getByRole('dialog', { name: '上下文与生成指标' })).toBeInTheDocument()
+  fireEvent.pointerLeave(info)
+  fireEvent.focus(screen.getByRole('button', { name: '首响应 TTFT说明' }))
+  expect(screen.getByRole('tooltip')).toHaveTextContent('首次有效响应')
+  expect(screen.getByRole('dialog', { name: '上下文与生成指标' })).toBeInTheDocument()
+})

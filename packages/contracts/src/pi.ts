@@ -78,6 +78,18 @@ export function builtinCommand(message: string) {
 }
 export type PiModel = { provider: string; id: string; name?: string; reasoning?: boolean }
 export type PiSessionStats = SessionStats
+/** 当前一次 Agent 运行的生成指标；不写入会话 JSONL。 */
+export type PiGenerationMetrics = {
+  running: boolean
+  phase: 'waiting' | 'generating' | 'tools' | 'complete' | 'aborted'
+  elapsedMs: number
+  generationMs: number
+  generationActive: boolean
+  ttftMs?: number
+  outputTokens: number
+  /** 流式期间没有输出用量时，按内容字节数估算；结束后以模型用量校准。 */
+  estimated: boolean
+}
 export type PiRunInterval = { startedAt: number; endedAt?: number }
 export type PiPauseInterval = { startedAt: number; endedAt?: number }
 export type PiRetryState = {
@@ -97,6 +109,7 @@ export type PiState = Pick<
   pauseRevision?: number
   pauseIntervals?: PiPauseInterval[]
   runIntervals?: PiRunInterval[]
+  generationMetrics?: PiGenerationMetrics
   retry?: PiRetryState
   compactionError?: string
   mode: TaskMode
@@ -109,7 +122,7 @@ export type PiState = Pick<
   modelSelectionRequired?: boolean
   thinkingLevel?: ThinkingLevel
 }
-export type PiEvent =
+type PiCoreEvent =
   | (WithMessageMetadata<
       Extract<
         JsonAgentSessionEvent,
@@ -117,6 +130,7 @@ export type PiEvent =
           type:
             | 'agent_start'
             | 'agent_end'
+            | 'turn_start'
             | 'message_start'
             | 'message_update'
             | 'message_end'
@@ -144,6 +158,7 @@ export type PiEvent =
   | { type: 'queue_update'; steering: QueuedInput[]; followUp: QueuedInput[] }
   | { type: 'skill_usage_update'; usages: BranchSkillUsage[] }
   | { type: 'composer_hint'; text?: string }
+export type PiEvent = PiCoreEvent & { generationMetrics?: PiGenerationMetrics }
 export type PiExtensionDialogRequest =
   Extract<RpcExtensionUIRequest, { method: 'select' | 'confirm' | 'input' | 'editor' }> | PiUserInputRequest
 export type PiExtensionEvent =

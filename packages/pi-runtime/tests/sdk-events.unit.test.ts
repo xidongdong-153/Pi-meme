@@ -4,13 +4,15 @@ import type { AgentSessionEvent } from '@earendil-works/pi-coding-agent'
 import { toDesktopEvent } from '../src/sdk/events'
 
 test('toDesktopEvent 忽略桌面端不需要的事件类型', () => {
-  const ignoredEvent = { type: 'turn_start' } as unknown as AgentSessionEvent
+  const ignoredEvent = { type: 'turn_end' } as unknown as AgentSessionEvent
   assert.equal(toDesktopEvent(ignoredEvent), null)
 })
 
 test('toDesktopEvent 原样透传非 message_update 的白名单事件', () => {
   const startEvent = { type: 'agent_start' } as AgentSessionEvent
   assert.equal(toDesktopEvent(startEvent), startEvent)
+  const turnEvent = { type: 'turn_start' } as AgentSessionEvent
+  assert.equal(toDesktopEvent(turnEvent), turnEvent)
 
   const queueEvent = { type: 'queue_update' } as AgentSessionEvent
   assert.equal(toDesktopEvent(queueEvent), null)

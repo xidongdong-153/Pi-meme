@@ -66,7 +66,6 @@ export function ProjectSelector({
     setActiveIndex(0)
     setLoading(true)
     setLoadError('')
-    setProjects([])
     try {
       const result = await loadProjects()
       if (id === request.current) setProjects(result)
@@ -90,7 +89,7 @@ export function ProjectSelector({
             )
       if (changed) {
         focusEditor.current = true
-        await changeOpen(false)
+        changeOpen(false)
       }
     } catch (cause) {
       onError(String(cause))
@@ -100,23 +99,33 @@ export function ProjectSelector({
     }
   }
 
-  const [activeAnchor, setActiveAnchor] = useState<HTMLElement | null>(null)
-  const virtualAnchorRef = useRef<{ current: HTMLElement | null }>({ current: null })
+  const [activeAnchor, setActiveAnchor] = useState<{ element: HTMLElement; isHeader: boolean } | null>(null)
+  const anchorRect = useRef<DOMRect | null>(null)
+  const virtualAnchorRef = useRef<{ current: { getBoundingClientRect: () => DOMRect } | null }>({ current: null })
 
   if (open) {
-    const nextAnchor = returnFocus?.isConnected ? returnFocus : null
-    if (activeAnchor !== nextAnchor) {
-      setActiveAnchor(nextAnchor)
+    const nextAnchor = returnFocus ?? null
+    if ((activeAnchor?.element ?? null) !== nextAnchor) {
+      if (nextAnchor?.isConnected) anchorRect.current = nextAnchor.getBoundingClientRect()
+      setActiveAnchor(nextAnchor ? { element: nextAnchor, isHeader: Boolean(nextAnchor.closest('header')) } : null)
     }
   }
 
   virtualAnchorRef.current.current = activeAnchor
-  const isHeader = Boolean((activeAnchor || returnFocus)?.closest('header'))
+    ? {
+        getBoundingClientRect: () => {
+          if (open && activeAnchor.element.isConnected)
+            anchorRect.current = activeAnchor.element.getBoundingClientRect()
+          return anchorRect.current ?? new DOMRect()
+        },
+      }
+    : null
+  const isHeader = activeAnchor?.isHeader ?? false
 
   return (
     <div className="flex min-w-0 max-w-[min(60%,260px)] shrink items-center">
       <Popover open={open} onOpenChange={(next) => void changeOpen(next)}>
-        {Boolean(activeAnchor?.isConnected) && <PopoverAnchor virtualRef={virtualAnchorRef.current} />}
+        {activeAnchor && <PopoverAnchor virtualRef={virtualAnchorRef.current} />}
         <PopoverTrigger asChild>
           <button
             type="button"
@@ -188,8 +197,8 @@ export function ProjectSelector({
             />
           </div>
           <div className="min-h-0 max-h-60 overflow-y-auto">
-            <div role="listbox" aria-label="项目列表" className="space-y-0.5 py-1">
-              {loading || loadError || !filtered.length ? (
+            <div role="listbox" aria-label="项目列表" aria-busy={loading} className="space-y-0.5 py-1">
+              {loadError || !filtered.length ? (
                 <p className="px-2 py-3 text-xs text-muted-foreground" role={loadError ? 'alert' : 'status'}>
                   {loading ? '正在读取项目' : loadError || '未找到项目'}
                 </p>

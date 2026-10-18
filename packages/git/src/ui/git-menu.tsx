@@ -27,6 +27,7 @@ export function GitMenu({
   const [open, setOpen] = useState(false)
   const [environment, setEnvironment] = useState<GitEnvironment | null>(null)
   const [error, setError] = useState('')
+  const [notRepository, setNotRepository] = useState(false)
   const [query, setQuery] = useState('')
   const [create, setCreate] = useState<'branch' | 'worktree'>()
   const [branchName, setBranchName] = useState('codex/')
@@ -39,6 +40,11 @@ export function GitMenu({
     if (previousKey.current !== sessionKey) {
       previousKey.current = sessionKey
       setEnvironment(null)
+      setError('')
+      setNotRepository(false)
+      setOpen(false)
+      setCreate(undefined)
+      setQuery('')
     }
     if (!sessionKey) return
     void bridge
@@ -47,15 +53,22 @@ export function GitMenu({
         if (current) {
           setEnvironment(value)
           setError('')
+          setNotRepository(!value.root)
         }
       })
       .catch((cause: unknown) => {
-        if (current)
+        if (current) {
+          const message = String(cause).replace(/^Error:\s*/, '')
+          const outsideRepository = message.includes('当前目录不是 Git 仓库')
+          setNotRepository(outsideRepository)
           setError(
-            /不支持|未知|不存在|unsupported|unknown/i.test(String(cause))
-              ? '当前远程服务尚不支持 Git 工作位置操作'
-              : String(cause),
+            outsideRepository
+              ? ''
+              : /不支持|未知|不存在|unsupported|unknown/i.test(message)
+                ? '当前远程服务尚不支持 Git 工作位置操作'
+                : message,
           )
+        }
       })
     return () => {
       current = false
@@ -64,7 +77,7 @@ export function GitMenu({
   const branches =
     environment?.branches.filter((branch) => branch.name.toLocaleLowerCase().includes(query.toLocaleLowerCase())) ?? []
   const unavailable =
-    disabledReason || (!environment ? error || '正在读取 Git 状态' : !environment.root ? '当前项目不是 Git 仓库' : '')
+    disabledReason || (notRepository ? '当前项目未使用 Git' : !environment ? error || '正在读取 Git 状态' : '')
   async function run(action: () => Promise<boolean>) {
     if (busy) return
     setBusy(true)
@@ -110,7 +123,14 @@ export function GitMenu({
             searchRef.current?.focus()
           }}
         >
-          {unavailable ? (
+          {notRepository ? (
+            <div role="status" className="space-y-1 px-2 py-1">
+              <p className="text-xs text-foreground/85">当前项目未使用 Git</p>
+              <p className="text-xs leading-relaxed text-muted-foreground">
+                可以正常对话。分支和 Worktree 功能需要 Git 仓库。
+              </p>
+            </div>
+          ) : unavailable ? (
             <p role="status" className="px-2 py-1 text-xs text-muted-foreground">
               {unavailable}
             </p>

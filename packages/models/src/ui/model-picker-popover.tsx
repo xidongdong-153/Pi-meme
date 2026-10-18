@@ -12,8 +12,18 @@ export type ModelPickerPopoverProps = {
   thinkingLevel?: ThinkingLevel
   availableThinkingLevels?: ThinkingLevel[]
   disabled: boolean
+  busy?: boolean
   onSelectModel: (model: PiModel) => void
   onSelectThinkingLevel: (level: ThinkingLevel) => void
+}
+
+type SliderGesture = {
+  pointerId: number
+  left: number
+  width: number
+  offset: number
+  startX: number
+  dragging: boolean
 }
 
 export function ModelPickerPopover({
@@ -22,6 +32,7 @@ export function ModelPickerPopover({
   thinkingLevel = 'medium',
   availableThinkingLevels = [],
   disabled,
+  busy = false,
   onSelectModel,
   onSelectThinkingLevel,
 }: ModelPickerPopoverProps) {
@@ -29,6 +40,9 @@ export function ModelPickerPopover({
   const [view, setView] = React.useState<'thinking' | 'models'>('thinking')
   const [query, setQuery] = React.useState('')
   const [showSearch, setShowSearch] = React.useState(false)
+
+  const [dragRatio, setDragRatio] = React.useState<number | null>(null)
+  const isDragging = dragRatio !== null
 
   // 可用思考档位过滤（若无则退回默认 5 挡）
   const activeLevels = React.useMemo(() => {
@@ -42,6 +56,20 @@ export function ModelPickerPopover({
     const idx = activeLevels.indexOf(thinkingLevel)
     return idx >= 0 ? idx : Math.min(2, activeLevels.length - 1)
   }, [activeLevels, thinkingLevel])
+
+  // 离散步进比例
+  const stepRatio = activeLevels.length > 1 ? currentIndex / (activeLevels.length - 1) : 0.5
+  // 渲染时使用的实际比例（拖拽时连续跟随手指，松手吸附到档位）
+  const activeRatio = dragRatio ?? stepRatio
+
+  // 实时根据 activeRatio 计算当前高亮的档位索引（用于拖拽时上方文字和刻度实时高亮）
+  const activeIndex =
+    dragRatio !== null
+      ? Math.max(0, Math.min(activeLevels.length - 1, Math.round(dragRatio * (activeLevels.length - 1))))
+      : currentIndex
+
+  const activeLevel = activeLevels[activeIndex] || thinkingLevel
+  const currentLevelLabel = THINKING_LEVEL_LABELS[activeLevel] || '中'
 
   const modelKey = (m: PiModel) => `${m.provider}:${m.id}`
   const choices = React.useMemo(() => {
@@ -57,48 +85,91 @@ export function ModelPickerPopover({
   )
 
   const displayName = currentModel?.name || currentModel?.id || '选择模型'
-  const currentLevelLabel = THINKING_LEVEL_LABELS[thinkingLevel] || '中'
 
   // 处理滑块拖动或点击
   const trackRef = React.useRef<HTMLDivElement>(null)
-  const isDragging = React.useRef(false)
+  const thumbRef = React.useRef<HTMLDivElement>(null)
+  const gestureRef = React.useRef<SliderGesture | null>(null)
 
-  const updateFromPosition = React.useCallback(
-    (clientX: number) => {
-      const track = trackRef.current
-      if (!track || activeLevels.length <= 1) return
-      const rect = track.getBoundingClientRect()
-      // 轨道左右留有 padding 12px（白圈半径 12px），有效可滑动中心范围在 [12px, rect.width - 12px]
-      const padding = 12
-      const trackWidth = rect.width - padding * 2
-      if (trackWidth <= 0) return
-      const offset = clientX - rect.left - padding
-      const ratio = Math.max(0, Math.min(1, offset / trackWidth))
-      const targetIndex = Math.round(ratio * (activeLevels.length - 1))
-      const nextLevel = activeLevels[targetIndex]
-      if (nextLevel && nextLevel !== thinkingLevel) {
-        onSelectThinkingLevel(nextLevel)
-      }
-    },
-    [activeLevels, thinkingLevel, onSelectThinkingLevel],
-  )
+  const getPointerRatio = (clientX: number, gesture: SliderGesture) =>
+    Math.max(0, Math.min(1, (clientX - gesture.left - gesture.offset) / gesture.width))
 
   const handlePointerDown = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (disabled || busy || activeLevels.length <= 1 || event.button !== 0 || gestureRef.current) return
+    const track = trackRef.current?.getBoundingClientRect()
+    const thumb = thumbRef.current?.getBoundingClientRect()
+    if (!track || !thumb || track.width <= 24) return
+    const onThumb = event.clientX >= thumb.left && event.clientX <= thumb.right
+    const gesture: SliderGesture = {
+      pointerId: event.pointerId,
+      left: track.left + 12,
+      width: track.width - 24,
+      offset: onThumb ? event.clientX - (thumb.left + thumb.width / 2) : 0,
+      startX: event.clientX,
+      dragging: onThumb,
+    }
+    gestureRef.current = gesture
+    event.preventDefault()
+    event.currentTarget.focus({ preventScroll: true })
     event.currentTarget.setPointerCapture(event.pointerId)
-    isDragging.current = true
-    updateFromPosition(event.clientX)
+    if (onThumb) setDragRatio(getPointerRatio(event.clientX, gesture))
   }
 
   const handlePointerMove = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (isDragging.current) {
-      updateFromPosition(event.clientX)
-    }
+    const gesture = gestureRef.current
+    if (!gesture || gesture.pointerId !== event.pointerId || disabled || busy) return
+    if (!gesture.dragging && Math.abs(event.clientX - gesture.startX) < 3) return
+    gesture.dragging = true
+    setDragRatio(getPointerRatio(event.clientX, gesture))
   }
 
   const handlePointerUp = (event: React.PointerEvent<HTMLDivElement>) => {
-    if (isDragging.current) {
-      isDragging.current = false
+    const gesture = gestureRef.current
+    if (!gesture || gesture.pointerId !== event.pointerId) return
+    gestureRef.current = null
+    setDragRatio(null)
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+    if (disabled || busy || activeLevels.length <= 1) return
+    const ratio = getPointerRatio(event.clientX, gesture)
+    const targetIndex = Math.round(ratio * (activeLevels.length - 1))
+    const nextLevel = activeLevels[targetIndex] || thinkingLevel
+    if (nextLevel !== thinkingLevel) {
+      onSelectThinkingLevel(nextLevel)
+    }
+  }
+
+  const handlePointerCancel = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (gestureRef.current?.pointerId !== event.pointerId) return
+    gestureRef.current = null
+    setDragRatio(null)
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId)
+    }
+  }
+
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (disabled || busy || activeLevels.length <= 1) return
+    let nextIndex = currentIndex
+    if (event.key === 'ArrowRight' || event.key === 'ArrowUp') {
+      event.preventDefault()
+      nextIndex = Math.min(activeLevels.length - 1, currentIndex + 1)
+    } else if (event.key === 'ArrowLeft' || event.key === 'ArrowDown') {
+      event.preventDefault()
+      nextIndex = Math.max(0, currentIndex - 1)
+    } else if (event.key === 'Home') {
+      event.preventDefault()
+      nextIndex = 0
+    } else if (event.key === 'End') {
+      event.preventDefault()
+      nextIndex = activeLevels.length - 1
+    } else {
+      return
+    }
+    const nextLevel = activeLevels[nextIndex]
+    if (nextLevel && nextLevel !== thinkingLevel) {
+      onSelectThinkingLevel(nextLevel)
     }
   }
 
@@ -108,31 +179,31 @@ export function ModelPickerPopover({
     onSelectThinkingLevel(defaultLevel)
   }
 
-  // 当前激活比例（0 到 1）
-  const ratio = activeLevels.length > 1 ? currentIndex / (activeLevels.length - 1) : 0.5
-
   return (
     <Popover
       open={open}
       onOpenChange={(nextOpen) => {
-        setOpen(nextOpen)
-        if (!nextOpen) {
+        gestureRef.current = null
+        setDragRatio(null)
+        if (nextOpen) {
           setQuery('')
           setShowSearch(false)
           setView('thinking')
         }
+        setOpen(nextOpen)
       }}
     >
       <PopoverTrigger asChild>
         <button
           type="button"
           disabled={disabled}
+          aria-busy={busy || undefined}
           aria-label="选择模型与思考强度"
           title={`${displayName} · ${currentLevelLabel}`}
           className={cn(
             'inline-flex min-w-0 max-w-full whitespace-nowrap items-center justify-center select-none cursor-pointer transition-colors rounded-full',
             'bg-secondary/60 hover:bg-secondary text-foreground/90 hover:text-foreground',
-            'size-7 p-0 @min-[500px]:h-auto @min-[500px]:w-auto @min-[500px]:px-2.5 @min-[500px]:py-1 @min-[500px]:text-xs @min-[500px]:font-normal @min-[500px]:gap-1.5',
+            'size-7 p-0 @min-[500px]:h-7 @min-[500px]:w-auto @min-[500px]:px-2.5 @min-[500px]:text-xs @min-[500px]:font-normal @min-[500px]:gap-1.5',
             disabled && 'cursor-not-allowed opacity-60',
             open && 'bg-secondary text-foreground',
           )}
@@ -140,16 +211,14 @@ export function ModelPickerPopover({
           {/* 窄视口或窄容器：仅显示大脑图标（参考 GPT） */}
           <Brain className="size-4 shrink-0 @min-[500px]:hidden text-foreground/80" />
 
-          {/* 宽容器：显示模型名称、思考强度与下拉箭头 */}
+          {/* 宽容器：稳定显示模型名称、思考强度与下拉箭头，结构稳定不突变 */}
           <div className="hidden min-w-0 @min-[500px]:inline-flex items-center gap-1.5">
-            {open && view === 'thinking' ? (
-              <span className="truncate font-normal">选择强度</span>
-            ) : (
-              <div className="flex min-w-0 items-center gap-1 max-w-[160px]">
-                <span className="min-w-0 truncate">{displayName}</span>
-                <span className="text-muted-foreground shrink-0 text-[0.6875rem]">{currentLevelLabel}</span>
-              </div>
-            )}
+            <div className="flex min-w-0 items-center gap-1 max-w-[160px]">
+              <span className="min-w-0 truncate">{displayName}</span>
+              <span className="w-[2em] text-center text-muted-foreground shrink-0 text-[0.6875rem]">
+                {currentLevelLabel}
+              </span>
+            </div>
             <ChevronDown className="size-3 text-muted-foreground/80 shrink-0 ml-0.5" />
           </div>
         </button>
@@ -185,6 +254,7 @@ export function ModelPickerPopover({
               <button
                 type="button"
                 onClick={handleResetLevel}
+                disabled={disabled || busy}
                 aria-label="重置思考强度"
                 title="重置为默认强度"
                 className="flex size-6 items-center justify-center text-muted-foreground/70 hover:text-foreground transition-colors rounded-md hover:bg-secondary/60 cursor-pointer"
@@ -201,38 +271,47 @@ export function ModelPickerPopover({
                 aria-label="思考强度滑块"
                 aria-valuemin={0}
                 aria-valuemax={activeLevels.length - 1}
-                aria-valuenow={currentIndex}
+                aria-valuenow={activeIndex}
                 aria-valuetext={currentLevelLabel}
+                aria-disabled={disabled || busy || activeLevels.length <= 1}
                 tabIndex={0}
+                onKeyDown={handleKeyDown}
                 onPointerDown={handlePointerDown}
                 onPointerMove={handlePointerMove}
                 onPointerUp={handlePointerUp}
-                className="relative flex items-center w-full py-1.5 cursor-pointer touch-none select-none"
+                onPointerCancel={handlePointerCancel}
+                onLostPointerCapture={() => {
+                  if (!gestureRef.current) return
+                  gestureRef.current = null
+                  setDragRatio(null)
+                }}
+                className="relative flex items-center w-full py-1.5 cursor-pointer touch-none select-none outline-none focus-visible:ring-2 focus-visible:ring-blue-500/40 rounded-full"
               >
-                {/* 轨道层：高 24px，半透明底，rounded-full 且 overflow-hidden */}
-                <div className="relative h-6 w-full rounded-full bg-white/10 flex items-center overflow-hidden">
-                  {/* 激活段蓝色填充：最低(关)时无蓝色，拉满时100%全满圆角，中间时右端平直连接白圈中心 */}
+                {/* 轨道层：高 24px，圆球两侧各留 12px。 */}
+                <div className="relative h-6 w-full rounded-full bg-white/10 flex items-center">
+                  {/* 填充条和圆球共用右边界，只对填充宽度做动画。 */}
                   <div
                     className={cn(
-                      'absolute left-0 top-0 bottom-0 bg-blue-600 rounded-l-full transition-[width] duration-200 ease-out motion-reduce:transition-none',
-                      activeLevels.length > 1 && currentIndex === activeLevels.length - 1
-                        ? 'rounded-r-full'
-                        : 'rounded-r-none',
+                      'absolute left-0 top-0 bottom-0 rounded-l-full',
+                      activeLevels.length > 1 && 'bg-blue-600',
+                      isDragging
+                        ? 'transition-none'
+                        : 'transition-[width] duration-150 ease-out motion-reduce:transition-none',
                     )}
                     style={{
-                      width:
-                        currentIndex === 0
-                          ? '0px'
-                          : activeLevels.length > 1 && currentIndex === activeLevels.length - 1
-                            ? '100%'
-                            : `calc(12px + ${ratio} * (100% - 24px))`,
+                      width: `calc(12px + ${activeRatio} * (100% - 24px))`,
                     }}
-                  />
+                  >
+                    <div
+                      ref={thumbRef}
+                      className="absolute -right-3 top-0 z-20 size-6 rounded-full bg-white shadow-[0_2px_5px_rgba(0,0,0,0.35),0_1px_2px_rgba(0,0,0,0.2)] pointer-events-none"
+                    />
+                  </div>
 
                   {/* 各档位刻度点（与滑块停靠中心完全重合） */}
                   {activeLevels.map((lvl, index) => {
                     const r = activeLevels.length > 1 ? index / (activeLevels.length - 1) : 0.5
-                    const isPassed = index < currentIndex
+                    const isPassed = index < activeIndex
                     return (
                       <div
                         key={lvl}
@@ -240,21 +319,13 @@ export function ModelPickerPopover({
                           left: `calc(12px + ${r} * (100% - 24px))`,
                         }}
                         className={cn(
-                          'absolute top-1/2 -translate-x-1/2 -translate-y-1/2 size-1 rounded-full pointer-events-none transition-colors',
+                          'absolute top-1/2 -translate-x-1/2 -translate-y-1/2 z-10 size-1 rounded-full pointer-events-none transition-colors duration-150',
                           isPassed ? 'bg-white/80' : 'bg-white/25',
                         )}
                       />
                     )
                   })}
                 </div>
-
-                {/* 白色圆形滑块 Thumb：直径 24px，完整覆盖轨道两端 */}
-                <div
-                  className="absolute top-1/2 -translate-x-1/2 -translate-y-1/2 size-6 rounded-full bg-white shadow-[0_2px_5px_rgba(0,0,0,0.35),0_1px_2px_rgba(0,0,0,0.2)] transition-[left] duration-200 ease-out motion-reduce:transition-none pointer-events-none"
-                  style={{
-                    left: `calc(12px + ${ratio} * (100% - 24px))`,
-                  }}
-                />
               </div>
             </div>
           </div>
@@ -335,9 +406,10 @@ export function ModelPickerPopover({
                   <button
                     key={modelKey(model)}
                     type="button"
+                    disabled={disabled || busy}
                     onClick={() => {
+                      setOpen(false)
                       onSelectModel(model)
-                      setView('thinking')
                     }}
                     className={cn(
                       'w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer text-left',

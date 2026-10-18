@@ -54,6 +54,7 @@ export function useAppSession(
   const [extensionError, setExtensionError] = useState<DesktopError>()
   const dismissedExtensionError = useRef<DesktopError | undefined>(undefined)
   const [acting, setActing] = useState(false)
+  const [modelSaving, setModelSaving] = useState(false)
   const [switching, setSwitching] = useState(false)
   const [switchingToPath, setSwitchingToPath] = useState<string>()
   const [switchingVersion, setSwitchingVersion] = useState<number>()
@@ -68,6 +69,9 @@ export function useAppSession(
   const displayed = useRef(connection)
   const mounted = useRef(false)
   const actionLock = useRef(false)
+  const modelSelection = useRef<Promise<boolean> | null>(null)
+  const modelSaveError = useRef<unknown>(undefined)
+  const thinkingRequest = useRef(0)
   const selection = useRef(new SessionSelection())
   const synchronization = useRef(new SnapshotSync())
   const pluginSynchronization = useRef(new PluginSnapshotSync())
@@ -215,8 +219,23 @@ export function useAppSession(
       setUiPlugins(snapshot.uiPlugins)
   }, [bridge])
 
+  const chatBridge = useMemo(() => {
+    function afterModelSelection<Args extends unknown[], Result>(send: (...args: Args) => Promise<Result>) {
+      return async (...args: Args) => {
+        const pending = modelSelection.current
+        if (pending && !(await pending)) throw modelSaveError.current ?? new Error('模型切换失败，消息尚未发送')
+        return send.apply(bridge, args)
+      }
+    }
+    return {
+      ...bridge,
+      prompt: afterModelSelection(bridge.prompt),
+      followUp: afterModelSelection(bridge.followUp),
+      editAndPrompt: afterModelSelection(bridge.editAndPrompt),
+    }
+  }, [bridge])
   const chat = useChatSession({
-    bridge,
+    bridge: chatBridge,
     refresh,
     commands,
     canSend: () =>
@@ -437,23 +456,25 @@ export function useAppSession(
     }
   }, [drafts, sessions])
 
-  const action = useCallback(async (work: (key: string, owns: () => boolean) => Promise<void>) => {
+  const action = useCallback(async (work: (key: string, owns: () => boolean) => Promise<void>, blocking = true) => {
     const key = current.current.sessionKey
     const generation = current.current.generation
     const owns = () =>
       mounted.current && key === current.current.sessionKey && generation === current.current.generation
-    if (!key || actionLock.current || selection.current.current) return
+    if (!key || actionLock.current || selection.current.current) return false
     actionLock.current = true
     synchronization.current.cancel()
-    setActing(true)
+    if (blocking) setActing(true)
     setError('')
     try {
       await work(key, owns)
+      return true
     } catch (cause) {
       if (owns()) setError(String(cause))
+      return false
     } finally {
       actionLock.current = false
-      if (mounted.current) setActing(false)
+      if (blocking && mounted.current) setActing(false)
     }
   }, [])
 
@@ -488,7 +509,7 @@ export function useAppSession(
     setSessionStats(null)
     setThinkingLevels([])
     if (target) setActiveSession(target)
-    chatRef.current?.clearComposer()
+    if (!carryDraft) chatRef.current?.clearComposer()
     chatRef.current?.clearPromptPending()
     extensionsRef.current?.reset()
     if (target)
@@ -792,6 +813,7 @@ export function useAppSession(
       }),
     busy: inputDisabled || chat.chat.running,
     modelPickerDisabled,
+    modelSaving,
     navigationBusy: acting || switching,
     inputDisabled,
     loading,
@@ -885,19 +907,60 @@ export function useAppSession(
         const next = await bridge.setFollowUpMode(key, mode)
         if (owns()) setState(next)
       }),
-    selectModel: (model: PiModel) =>
-      action(async (key, owns) => {
-        const selected = await bridge.setModel(key, model)
-        if (!owns()) return
-        setState((value) => value && { ...value, model: selected, modelSelectionRequired: false })
-        const levels = await bridge.getAvailableThinkingLevels().catch(() => [])
-        if (owns()) setThinkingLevels(levels)
-      }),
-    selectThinkingLevel: (level: ThinkingLevel) =>
-      action(async (key, owns) => {
-        await bridge.setThinkingLevel(key, level)
-        if (owns()) setState((value) => value && { ...value, thinkingLevel: level })
-      }),
+    selectModel: (model: PiModel) => {
+      if (!current.current.sessionKey || actionLock.current || selection.current.current) return Promise.resolve(false)
+      if (state?.model?.provider === model.provider && state.model.id === model.id && !state.modelSelectionRequired)
+        return Promise.resolve(true)
+      const previousModel = state?.model
+      const previousRequired = state?.modelSelectionRequired
+      setModelSaving(true)
+      modelSaveError.current = undefined
+      const pending = action(async (key, owns) => {
+        setState((value) => value && { ...value, model, modelSelectionRequired: false })
+        try {
+          const selected = await bridge.setModel(key, model)
+          if (!owns()) return
+          const levels = await bridge.getAvailableThinkingLevels().catch(() => [])
+          if (!owns()) return
+          setState((value) => value && { ...value, model: selected, modelSelectionRequired: false })
+          setThinkingLevels(levels)
+        } catch (cause) {
+          modelSaveError.current = cause
+          if (owns())
+            setState((value) => value && { ...value, model: previousModel, modelSelectionRequired: previousRequired })
+          throw cause
+        }
+      }, false)
+      modelSelection.current = pending
+      void pending.then(() => {
+        if (modelSelection.current === pending) modelSelection.current = null
+        if (mounted.current) setModelSaving(false)
+      })
+      return pending
+    },
+    selectThinkingLevel: (level: ThinkingLevel) => {
+      const key = current.current.sessionKey
+      const generation = current.current.generation
+      const owns = () =>
+        mounted.current && key === current.current.sessionKey && generation === current.current.generation
+      if (!key || actionLock.current || selection.current.current) return
+      const request = ++thinkingRequest.current
+      const previousLevel = state?.thinkingLevel
+      synchronization.current.cancel()
+      setError('')
+      setState((value) => value && { ...value, thinkingLevel: level })
+      void bridge.setThinkingLevel(key, level).catch(async (cause) => {
+        if (owns() && request === thinkingRequest.current) {
+          setError(String(cause))
+          const savedLevel = await bridge
+            .getSnapshot()
+            .then((snapshot) => snapshot.state.thinkingLevel)
+            .catch(() => previousLevel)
+          if (owns() && request === thinkingRequest.current)
+            setState((value) => value && { ...value, thinkingLevel: savedLevel })
+        }
+      })
+    },
     thinkingLevels,
     sessionStats,
   }

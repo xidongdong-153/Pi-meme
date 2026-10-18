@@ -1,11 +1,12 @@
 import type { AgentSessionEvent, MessageUpdateEvent } from '@earendil-works/pi-coding-agent'
 import type { PiEvent } from '@pi-meme/contracts/pi'
 
-/** 桌面端消费的事件类型；其余 SDK 事件（如 turn_start）不透传。 */
+/** 桌面端消费的事件类型；turn_start 用于记录每次模型请求的起点。 */
 const desktopEventTypes = new Set<PiEvent['type']>([
   'agent_start',
   'agent_end',
   'agent_settled',
+  'turn_start',
   'message_start',
   'message_update',
   'message_end',
