@@ -157,14 +157,15 @@ test('/ 按命令、技能、插件排列，$ 仅技能；两类资源都插入�
   f.input('/')
   const options = screen.getAllByRole('option')
   expect(options.map((item) => item.textContent)).toEqual([
-    expect.stringContaining('/plan'),
-    expect.stringContaining('/compact'),
-    expect.stringContaining('/name'),
+    expect.stringContaining('计划'),
+    expect.stringContaining('目标'),
+    expect.stringContaining('压缩'),
+    expect.stringContaining('命名'),
     expect.stringContaining('Review'),
     expect.stringContaining('Cloud Environment'),
   ])
   expect(screen.queryByText('已启用')).toBeNull()
-  fireEvent.click(options[4])
+  fireEvent.click(options[5])
   await waitFor(() => expect(f.editor.querySelector('[data-plugin-token="cloud"]')).not.toBeNull())
   expect(f.state().draft).toBe('')
   expect(readEditorText(f.editor)).toBe('')

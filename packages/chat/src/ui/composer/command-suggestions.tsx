@@ -1,9 +1,17 @@
 import { Box } from 'lucide-react'
+import { builtinCommandIcons } from '@pi-meme/assets/builtin'
 import { Badge } from '@pi-meme/ui/components/ui/badge'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
 import { cn } from '@pi-meme/ui/lib/utils'
 import type { ComposerAgentPlugins } from './composer'
 import type { CompletionItem } from './use-command-completion'
+
+const builtinCommandLabels: Record<string, string> = {
+  plan: '计划',
+  goal: '目标',
+  compact: '压缩',
+  name: '命名',
+}
 
 export function CommandSuggestions({
   matches,
@@ -23,8 +31,11 @@ export function CommandSuggestions({
     const command = item.kind === 'plugin' ? undefined : item.command
     const resource = item.kind !== 'command'
     const key = plugin ? `plugin-${plugin.id}` : `${command!.source}-${command!.name}-${command!.sourceInfo.path}`
+    const commandTitle =
+      command?.source === 'builtin' ? (builtinCommandLabels[command.name] ?? `/${command.name}`) : `/${command?.name}`
+    const commandIcon = command?.source === 'builtin' ? builtinCommandIcons[command.name] : undefined
     const title =
-      plugin?.name ?? (resource ? (command!.displayName ?? command!.name.replace(/^skill:/, '')) : `/${command!.name}`)
+      plugin?.name ?? (resource ? (command!.displayName ?? command!.name.replace(/^skill:/, '')) : commandTitle)
     const description =
       plugin?.description ?? (resource ? (command?.shortDescription ?? command?.description) : command?.description)
     const disabled = Boolean(plugin && agentPlugins?.disabledReason)
@@ -49,12 +60,23 @@ export function CommandSuggestions({
         )}
       >
         <div className="flex flex-1 items-center gap-2 min-w-0">
-          {resource &&
+          {commandIcon ? (
+            <img
+              src={commandIcon}
+              alt=""
+              width={24}
+              height={24}
+              draggable={false}
+              className="size-6 shrink-0 object-contain"
+            />
+          ) : (
+            resource &&
             (plugin?.iconUrl ? (
               <img src={plugin.iconUrl} alt="" className="size-4 shrink-0 object-contain" />
             ) : (
               <Box className="size-4 shrink-0 text-muted-foreground" />
-            ))}
+            ))
+          )}
           <span className={cn('min-w-0 truncate font-medium', resource && 'max-w-[45%] shrink-0')}>{title}</span>
           <span className="min-w-0 flex-1 truncate text-muted-foreground">{description}</span>
         </div>

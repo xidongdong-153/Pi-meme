@@ -3,7 +3,13 @@ import fs from 'node:fs'
 import path from 'node:path'
 import { test } from 'vitest'
 import { pathToFileURL } from 'node:url'
-import { agentAvatars, defaultUserAvatar, systemPluginIcons, systemSkillIcons } from '../src/builtin'
+import {
+  agentAvatars,
+  builtinCommandIcons,
+  defaultUserAvatar,
+  systemPluginIcons,
+  systemSkillIcons,
+} from '../src/builtin'
 import { fileIconSprite, resolveFileIcon } from '../src/file-icons'
 import { fileExtensionIcons, fileNameIcons, folderNameIcons } from '../src/file-icon-data'
 
@@ -36,6 +42,10 @@ const rendererFiles = [
   'system-plugins/terminal.png',
   'system-skills/skill-creator.png',
   'system-skills/plugin-creator.png',
+  'commands/plan.png',
+  'commands/goal.png',
+  'commands/compact.png',
+  'commands/name.png',
   'brand/pi-dev-dark-128x128.png',
   'brand/pi-dev-light-128x128.png',
 ]
@@ -55,6 +65,7 @@ test('内置图片都在 files 目录，界面引用指向这些文件', () => {
     ...agentAvatars,
     ...Object.values(systemPluginIcons),
     ...Object.values(systemSkillIcons),
+    ...Object.values(builtinCommandIcons),
   ]
   assert.deepEqual(
     referenced,

@@ -9,6 +9,7 @@
 | `files/agents/`                    | 子代理任务场景，见下表                 | 256 × 256，20 张透明 PNG |
 | `files/system-plugins/`            | Git、文件、终端                        | 256 × 256，3 张透明 PNG  |
 | `files/system-skills/`             | 技能创建、插件创建                     | 256 × 256，2 张透明 PNG  |
+| `files/commands/`                  | 斜杠菜单的内置命令                     | 256 × 256，4 张透明 PNG  |
 | `files/profile/default-avatar.png` | 默认用户头像                           | 512 × 512，透明 PNG      |
 | `files/brand/`                     | 界面品牌图标，深浅主题共用同一透明图案 | 128 × 128，2 张透明 PNG  |
 | `files/desktop/dock/`              | Dock 图标，深浅两版                    | 512 × 512，2 张透明 PNG  |
@@ -62,3 +63,16 @@ pnpm test --file packages/assets/tests/files.integration.test.ts
 | `localization` | 本地化     | 蓝色软帽、地球仪       |
 
 图片位于 `files/agents/<场景 ID>.png`，均为 256 × 256 透明 PNG。[20 种场景总览](agent-scenes-preview.png) 展示全部头像及缩小效果。
+
+## 斜杠菜单图标
+
+输入 `/` 后，四个内置命令在中文名称左侧显示 24px 猫猫图标。资源由 [builtin.ts](src/builtin.ts) 的 `builtinCommandIcons` 提供。
+
+| 命令       | 名称 | 图像特征                 |
+| ---------- | ---- | ------------------------ |
+| `/plan`    | 计划 | 展开紫色路线图，爪子指图 |
+| `/goal`    | 目标 | 抱着珊瑚红靶心与黄色箭   |
+| `/compact` | 压缩 | 双爪将文件压进黄色纸盒   |
+| `/name`    | 命名 | 举着青绿色空白名牌       |
+
+[图标预览](command-icons-preview.png) 展示四张图及深浅底色下的小尺寸效果。

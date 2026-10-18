@@ -36,3 +36,11 @@ export const systemSkillIcons: Record<string, string> = {
   'skill-creator': new URL('../files/system-skills/skill-creator.png', import.meta.url).href,
   'plugin-creator': new URL('../files/system-skills/plugin-creator.png', import.meta.url).href,
 }
+
+/** 斜杠菜单的内置命令图标。 */
+export const builtinCommandIcons: Record<string, string> = {
+  plan: new URL('../files/commands/plan.png', import.meta.url).href,
+  goal: new URL('../files/commands/goal.png', import.meta.url).href,
+  compact: new URL('../files/commands/compact.png', import.meta.url).href,
+  name: new URL('../files/commands/name.png', import.meta.url).href,
+}
