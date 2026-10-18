@@ -62,7 +62,11 @@ export async function writeThirdPartyLicenses(repo: string, output: string) {
     '第三方依赖许可集合，包含生产依赖和构建依赖。许可文本保持原文。',
     ...[...notices].sort(([a], [b]) => a.localeCompare(b)).map(([, text]) => text),
   ]
-  for (const source of ['packages/ui/src/components/react-bits.LICENSE.md', 'pi/skills/skill-creator/license.txt'])
+  for (const source of [
+    'packages/ui/src/components/react-bits.LICENSE.md',
+    'pi/skills/skill-creator/license.txt',
+    'packages/assets/files/file-icons/LICENSE',
+  ])
     sections.push(`${source}\n\n${await readFile(path.join(repo, source), 'utf8')}`)
   await writeFile(output, `${sections.join('\n\n========================================\n\n')}\n`)
 }

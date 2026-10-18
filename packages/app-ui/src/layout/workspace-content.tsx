@@ -117,7 +117,11 @@ export function WorkspaceContent({
       )}
 
       {/* 对话流底部的输入区 Dock */}
-      {hasConversation && <div className="w-full max-w-3xl mx-auto px-4 pb-4 pt-1 shrink-0">{composer}</div>}
+      {hasConversation && (
+        <div className="chat-surface w-full pb-4 pt-1 shrink-0">
+          <div className="chat-content-column">{composer}</div>
+        </div>
+      )}
 
       {children}
     </section>

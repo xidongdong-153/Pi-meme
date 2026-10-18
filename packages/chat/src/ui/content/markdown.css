@@ -2,6 +2,8 @@
 
 /* 容器基础排版 */
 .pi-markdown {
+  min-width: 0;
+  max-width: 100%;
   --code-size: var(--text-ui);
   font-family: var(--font-content);
   font-weight: var(--font-content-weight);
@@ -141,6 +143,15 @@
   margin-bottom: 0.25em;
 }
 
+.pi-li.task-list-item {
+  list-style: none;
+}
+
+.pi-li.task-list-item > input[type='checkbox'] {
+  margin: 0 0.45em 0 -1.4em;
+  accent-color: var(--color-accent);
+}
+
 /* ---- 引用块 ---- */
 .pi-blockquote {
   margin: 0 0 0.9em;
@@ -232,7 +243,7 @@
 
 /* ---- 代码块 ---- */
 .pi-code-block {
-  background: color-mix(in srgb, var(--color-surface) 90%, #000);
+  background: var(--color-surface);
   border: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
 }
@@ -247,6 +258,9 @@
   font-family: var(--font-code);
   scrollbar-width: thin;
   scrollbar-color: color-mix(in srgb, var(--color-border) 50%, transparent) transparent;
+  overflow-wrap: normal;
+  word-break: normal;
+  white-space: pre;
 }
 
 /* shiki 输出覆盖 */
@@ -288,6 +302,7 @@
 
 /* ---- 表格 ---- */
 .pi-table-wrapper {
+  max-width: 100%;
   overflow-x: auto;
   margin: 0 0 0.9em;
   border-radius: 8px;

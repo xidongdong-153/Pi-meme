@@ -29,7 +29,11 @@ test('第三方许可收集不跟进自有 workspace 链接，保留实际第三
       JSON.stringify({ name: 'fixture-dependency', version: '1.0.0', license: 'MIT' }),
     )
     await writeFile(path.join(dependency, 'LICENSE'), 'Copyright fixture-dependency')
-    for (const source of ['packages/ui/src/components/react-bits.LICENSE.md', 'pi/skills/skill-creator/license.txt']) {
+    for (const source of [
+      'packages/ui/src/components/react-bits.LICENSE.md',
+      'pi/skills/skill-creator/license.txt',
+      'packages/assets/files/file-icons/LICENSE',
+    ]) {
       await mkdir(path.dirname(path.join(root, source)), { recursive: true })
       await writeFile(path.join(root, source), '许可原文')
     }
@@ -38,6 +42,7 @@ test('第三方许可收集不跟进自有 workspace 链接，保留实际第三
     const content = await readFile(output, 'utf8')
     assert.match(content, /fixture-dependency@1\.0\.0/)
     assert.match(content, /Copyright fixture-dependency/)
+    assert.match(content, /packages\/assets\/files\/file-icons\/LICENSE/)
     assert.doesNotMatch(content, /@pi-meme\/host/)
   } finally {
     await rm(root, { recursive: true, force: true })

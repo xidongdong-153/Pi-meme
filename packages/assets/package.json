@@ -4,6 +4,8 @@
   "private": true,
   "type": "module",
   "exports": {
+    "./file-icons": "./src/file-icons.ts",
+    "./file-icons.css": "./src/file-icons.css",
     "./builtin": "./src/builtin.ts"
   },
   "scripts": {

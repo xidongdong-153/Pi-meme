@@ -1,4 +1,6 @@
 import * as React from 'react'
+import type { ExtraProps } from 'react-markdown'
+import { cn } from '@pi-meme/ui/lib/utils'
 import { CodeBlock } from './code-block'
 
 /**
@@ -48,17 +50,18 @@ const alertLabels: Record<string, string> = {
 export function useMarkdownComponents() {
   return React.useMemo(
     () => ({
-      code({ className, children, ...props }: React.ComponentPropsWithoutRef<'code'>) {
-        const match = /language-(\w+)/.exec(className || '')
-        const isInline = !match && !String(children).includes('\n')
-        if (isInline) {
-          return (
-            <code className="pi-inline-code" {...props}>
-              {children}
-            </code>
-          )
-        }
-        return <CodeBlock code={String(children).replace(/\n$/, '')} language={match ? match[1] : 'text'} />
+      pre({ children }: React.ComponentPropsWithoutRef<'pre'>) {
+        const child = React.Children.toArray(children)[0]
+        if (!React.isValidElement<React.ComponentPropsWithoutRef<'code'>>(child)) return <pre>{children}</pre>
+        const language = /(?:^|\s)language-(\S+)/.exec(child.props.className ?? '')?.[1]
+        return <CodeBlock code={String(child.props.children ?? '').replace(/\n$/, '')} language={language} />
+      },
+      code({ className, children, node: _node, ...props }: React.ComponentPropsWithoutRef<'code'> & ExtraProps) {
+        return (
+          <code className={cn('pi-inline-code', className)} {...props}>
+            {children}
+          </code>
+        )
       },
 
       table({ children }: React.ComponentPropsWithoutRef<'table'>) {
@@ -102,14 +105,18 @@ export function useMarkdownComponents() {
         return <blockquote className="pi-blockquote">{children}</blockquote>
       },
 
-      ul({ children }: React.ComponentPropsWithoutRef<'ul'>) {
-        return <ul className="pi-ul">{children}</ul>
+      ul({ children, className }: React.ComponentPropsWithoutRef<'ul'>) {
+        return <ul className={cn('pi-ul', className)}>{children}</ul>
       },
-      ol({ children }: React.ComponentPropsWithoutRef<'ol'>) {
-        return <ol className="pi-ol">{children}</ol>
+      ol({ children, start, className }: React.ComponentPropsWithoutRef<'ol'>) {
+        return (
+          <ol start={start} className={cn('pi-ol', className)}>
+            {children}
+          </ol>
+        )
       },
-      li({ children }: React.ComponentPropsWithoutRef<'li'>) {
-        return <li className="pi-li">{children}</li>
+      li({ children, className }: React.ComponentPropsWithoutRef<'li'>) {
+        return <li className={cn('pi-li', className)}>{children}</li>
       },
 
       p({ children }: React.ComponentPropsWithoutRef<'p'>) {

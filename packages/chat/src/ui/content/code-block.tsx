@@ -2,7 +2,7 @@ import * as React from 'react'
 import { Check, Copy } from 'lucide-react'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { cn } from '@pi-meme/ui/lib/utils'
-import { useHighlighter } from './use-highlighter'
+import { normalizeCodeLanguage, useHighlighter } from './use-highlighter'
 
 export interface CodeBlockProps extends React.HTMLAttributes<HTMLDivElement> {
   code: string
@@ -12,19 +12,17 @@ export interface CodeBlockProps extends React.HTMLAttributes<HTMLDivElement> {
 export function CodeBlock({ code, language = 'text', className, ...props }: CodeBlockProps) {
   const [copied, setCopied] = React.useState(false)
   const highlighter = useHighlighter()
-  const [html, setHtml] = React.useState<string>('')
-
-  React.useEffect(() => {
-    if (!highlighter) return
+  const html = React.useMemo(() => {
+    if (!highlighter) return ''
     try {
-      const result = highlighter.codeToHtml(code, {
-        lang: language,
-        theme: 'github-dark-default',
+      return highlighter.codeToHtml(code, {
+        lang: normalizeCodeLanguage(language),
+        themes: { light: 'github-light-default', dark: 'github-dark-default' },
+        defaultColor: 'light-dark()',
       })
-      setHtml(result)
     } catch {
-      // 语言不支持时回退到纯文本
-      setHtml('')
+      // 未标记或不支持的语言保留原文。
+      return ''
     }
   }, [highlighter, code, language])
 
@@ -41,11 +39,16 @@ export function CodeBlock({ code, language = 'text', className, ...props }: Code
 
   return (
     <div
-      className={cn('pi-code-block group relative my-3 overflow-hidden rounded-lg font-mono text-sm', className)}
+      className={cn(
+        'pi-code-block group relative my-3 min-w-0 max-w-full overflow-hidden rounded-lg font-mono text-sm',
+        className,
+      )}
       {...props}
     >
       <div className="pi-code-block-header flex h-8 items-center justify-between px-3 select-none">
-        <span className="font-sans text-sm font-medium tracking-wider uppercase">{language}</span>
+        <span className="truncate font-sans text-xs font-medium tracking-wide">
+          {language === 'text' ? '纯文本' : language}
+        </span>
         <Button
           variant="ghost"
           size="icon-sm"

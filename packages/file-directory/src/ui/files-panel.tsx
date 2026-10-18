@@ -1,11 +1,12 @@
 import { lazy, Suspense, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
-import { ChevronDown, ChevronRight, File, Folder, FolderOpen, PanelLeft, RefreshCw, Save, Search } from 'lucide-react'
+import { ChevronDown, ChevronRight, PanelLeft, RefreshCw, Save, Search } from 'lucide-react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { FileEntry, WorkspaceRef } from '@pi-meme/contracts/app-host'
 import type { UiContributionProps } from '@pi-meme/plugin-sdk/ui'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Input } from '@pi-meme/ui/components/ui/input'
+import { FileIcon } from '@pi-meme/ui/components/file-icon'
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@pi-meme/ui/components/ui/dialog'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { type FileStore, fileDirty } from './file-store'
@@ -131,7 +132,7 @@ function Browser({ store, root }: { store: FileStore; root: WorkspaceRef }) {
                       )}
                       title={entry.relativePath}
                     >
-                      <File className="size-3.5 shrink-0 text-muted-foreground" />
+                      <FileIcon path={entry.name} />
                       <span className="min-w-0">
                         <span className="block truncate">{entry.name}</span>
                         <span className="block truncate text-[10px] text-muted-foreground">{entry.relativePath}</span>
@@ -202,7 +203,7 @@ function Browser({ store, root }: { store: FileStore; root: WorkspaceRef }) {
             </p>
           ) : (
             <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-6 text-center text-muted-foreground">
-              <FolderOpen className="size-8" strokeWidth={1.3} />
+              <FileIcon path="" directory expanded className="size-8" />
               <p>选择文件以查看内容。</p>
             </div>
           )}
@@ -319,11 +320,7 @@ function Entry({
         ) : (
           <span className="w-3 shrink-0" />
         )}
-        {directory ? (
-          <Folder className="size-3.5 shrink-0 text-muted-foreground" />
-        ) : (
-          <File className="size-3.5 shrink-0 text-muted-foreground" />
-        )}
+        <FileIcon path={entry.name} directory={directory} expanded={expanded} />
         <span className="truncate">{entry.name}</span>
       </button>
       {directory && expanded && (

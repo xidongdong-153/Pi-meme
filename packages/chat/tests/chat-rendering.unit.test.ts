@@ -10,11 +10,38 @@ import { extractDiff, extractImages, formatDetailValue, parseToolMeta } from '..
 import { groupAdjacentActivities, summarizeActivities } from '../src/ui/model/activity-summary'
 import { Conversation } from '../src/ui/conversation/conversation'
 import { AssistantTurnView } from '../src/ui/conversation/assistant-turn'
+import { MarkdownContent } from '../src/ui/content/markdown-content'
 import { applyEvent, emptyChat } from '../src/ui/model/state'
 import type { ActivityItem, ChatState } from '../src/ui/model/types'
 import type { MessageEditorState } from '../src/ui/conversation/inline-message-editor'
 import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 import { assistantMessage, bashMessage, toolResult, userMessage } from '../../../tests/fixtures/messages.mjs'
+
+test('Markdown 代码块保留完整语言标记，且不在 pre 中嵌套块级容器', () => {
+  const markup = renderToStaticMarkup(createElement(MarkdownContent, { children: '```c++\nint main() {}\n```' }))
+  assert.match(markup, />c\+\+<\/span>/)
+  assert.doesNotMatch(markup, /<pre><div/)
+})
+
+test('Markdown 单行和空代码围栏仍渲染为代码块，行内代码保持行内', () => {
+  for (const code of ['单行原文', '']) {
+    const markup = renderToStaticMarkup(createElement(MarkdownContent, { children: `\`\`\`\n${code}\n\`\`\`` }))
+    assert.match(markup, /pi-code-block-header/)
+    assert.doesNotMatch(markup, /<pre><div/)
+  }
+  const inline = renderToStaticMarkup(createElement(MarkdownContent, { children: '运行 `pnpm start`。' }))
+  assert.match(inline, /<code class="pi-inline-code">pnpm start<\/code>/)
+  assert.doesNotMatch(inline, /pi-code-block/)
+})
+
+test('Markdown 保留有序列表起始序号和任务列表语义', () => {
+  const markup = renderToStaticMarkup(
+    createElement(MarkdownContent, { children: '3. 第三步\n4. 第四步\n\n- [x] 已完成' }),
+  )
+  assert.match(markup, /<ol[^>]*start="3"/)
+  assert.match(markup, /class="[^"]*contains-task-list/)
+  assert.match(markup, /class="[^"]*task-list-item/)
+})
 
 function conversationFixture(): ChatState {
   return {

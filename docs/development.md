@@ -43,12 +43,16 @@ paths:
 
 内置界面图片、应用图标和 Dock 图标只放在 [packages/assets/files](../packages/assets/files/)。目录按用途分开：`brand`、`agents`、`system-plugins`、`system-skills`、`desktop/dock`、`desktop/icons`。界面从 [builtin.ts](../packages/assets/src/builtin.ts) 按固定文件名读取，每张图都写成字面量 `new URL`，不要拼路径，否则打包不会带上文件；Forge 用 `desktop/icons/pi-dev-dark`（不带扩展名）作为应用图标，并把 `desktop/dock` 拷到打包产物的 `Resources/dock`。换图时覆盖同名文件，不改引用。子代理头像在 `agentAvatars` 里的顺序就是 `data-variant`，不要调换。插件自己的 `assets/` 留在插件包内，不放进这个目录。
 
+文件目录和搜索结果使用 [FileIcon](../packages/ui/src/components/file-icon.tsx)，内置 [Catppuccin vscode-icons v1.26.0](https://github.com/catppuccin/vscode-icons/tree/b6915da9f6889b683a110aa747de96c2820a537d) 的 SVG 图标与官方名称映射。资源在 `packages/assets/files/file-icons/`，运行时不请求外网；明暗模式分别使用 Latte 和 Mocha 配色。先匹配文件名，再匹配最长扩展名；目录按名称匹配并区分展开状态，未知类型使用默认图标。更新时修改 [sync-file-icons.mts](../scripts/sync-file-icons.mts) 中的固定提交，再运行 `pnpm exec tsx scripts/sync-file-icons.mts`。MIT 许可保存在同目录，并由发布脚本收录。
+
+聊天消息和输入区共用 [global.css](../packages/app-ui/src/global.css) 的 `.chat-content-column`，按聊天面板宽度居中，最大宽度为 `48rem`。Markdown 代码块根据围栏上的语言标记交给 Shiki 高亮，支持 `ts`、`js`、`c++`、`c#`、`shell` 等别名；未标记或不支持的语言保留原文。高亮随应用明暗模式切换；长代码和宽表格在各自容器内横向滚动。入口在 [markdown-components.tsx](../packages/chat/src/ui/content/markdown-components.tsx)、[code-block.tsx](../packages/chat/src/ui/content/code-block.tsx) 和 [use-highlighter.ts](../packages/chat/src/ui/content/use-highlighter.ts)。
+
 ## TypeScript 与 UI 约定
 
 - 文件名用 kebab-case，组件和类型用 PascalCase，函数和变量用 camelCase，Hook 用 `use` 前缀。
 - 包内使用相对导入；跨包使用 `@pi-meme/<包名>/<子路径>`，直接导入具体文件，不新增批量导出的 `index.ts`。
 - 组件 Props 留在组件文件；共享聊天类型放在 [model/types.ts](../packages/chat/src/ui/model/types.ts)。
-- 基础交互使用 [ui/components/ui](../packages/ui/src/components/ui/) 原语；图标使用 `lucide-react`，类名组合使用 [cn](../packages/ui/src/lib/utils.ts)。
+- 基础交互使用 [ui/components/ui](../packages/ui/src/components/ui/) 原语；文件与目录图标使用 `FileIcon`，其他图标使用 `lucide-react`，类名组合使用 [cn](../packages/ui/src/lib/utils.ts)。
 - 刷新保留已有列表结构；加载与禁用状态只影响触发操作。快速刷新动画保底约 400ms，Switch 包含 opacity 过渡。
 - Popover 关闭动画结束前保留虚拟 Anchor，显式指定展开方向。规则原文见 [AGENTS.md](../AGENTS.md)。
 

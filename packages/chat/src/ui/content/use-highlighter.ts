@@ -10,7 +10,7 @@ export async function getHighlighter(): Promise<HighlighterCore> {
   if (!pending) {
     pending = createHighlighterCore({
       engine: createOnigurumaEngine(import('shiki/wasm')),
-      themes: [import('shiki/themes/github-dark-default.mjs')],
+      themes: [import('shiki/themes/github-dark-default.mjs'), import('shiki/themes/github-light-default.mjs')],
       langs: [
         import('shiki/langs/javascript.mjs'),
         import('shiki/langs/typescript.mjs'),
@@ -29,6 +29,10 @@ export async function getHighlighter(): Promise<HighlighterCore> {
         import('shiki/langs/java.mjs'),
         import('shiki/langs/c.mjs'),
         import('shiki/langs/cpp.mjs'),
+        import('shiki/langs/csharp.mjs'),
+        import('shiki/langs/jsonc.mjs'),
+        import('shiki/langs/vue.mjs'),
+        import('shiki/langs/svelte.mjs'),
         import('shiki/langs/ruby.mjs'),
         import('shiki/langs/php.mjs'),
         import('shiki/langs/swift.mjs'),
@@ -37,12 +41,29 @@ export async function getHighlighter(): Promise<HighlighterCore> {
         import('shiki/langs/diff.mjs'),
         import('shiki/langs/docker.mjs'),
       ],
-    }).then((h) => {
-      instance = h
-      return h
     })
+      .then((h) => {
+        instance = h
+        return h
+      })
+      .catch((cause: unknown) => {
+        pending = null
+        throw cause
+      })
   }
   return pending
+}
+
+const languageAliases: Record<string, string> = {
+  'c++': 'cpp',
+  'c#': 'csharp',
+  shell: 'shellscript',
+  zsh: 'shellscript',
+}
+
+export function normalizeCodeLanguage(language: string) {
+  const name = language.trim().toLowerCase()
+  return languageAliases[name] ?? name
 }
 
 export function useHighlighter() {

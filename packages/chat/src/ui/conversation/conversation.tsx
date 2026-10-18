@@ -164,18 +164,23 @@ export const Conversation = React.memo(
     }, [containerRef, updateActiveTurn, firstTurnKey, agentOnly])
 
     return (
-      <div className="relative flex flex-1 min-h-0 min-w-0">
+      <div className="chat-surface relative flex flex-1 min-h-0 min-w-0">
         <ConversationOutline entries={outline} activeKey={activeKey} onSelect={handleSelectTurn} />
         <div
           ref={containerRef}
           onScroll={handleScroll}
           className={cn(
-            'flex-1 min-h-0 min-w-0 overflow-x-hidden overflow-y-auto pr-4 py-6 text-sm [--code-size:var(--text-ui)] select-text',
-            agentOnly ? 'pl-4' : 'pl-12',
+            'flex-1 min-h-0 min-w-0 overflow-x-hidden overflow-y-auto py-6 text-sm [--code-size:var(--text-ui)] select-text [scrollbar-gutter:stable_both-edges]',
+            agentOnly && 'px-4',
           )}
           aria-label="对话消息流"
         >
-          <div className="max-w-3xl mx-auto space-y-3 [overflow-wrap:anywhere]">
+          <div
+            className={cn(
+              'space-y-3 [overflow-wrap:anywhere]',
+              agentOnly ? 'max-w-3xl mx-auto' : 'chat-content-column',
+            )}
+          >
             {hasHiddenTurns && (
               <div className="flex items-center justify-center py-2">
                 <Button

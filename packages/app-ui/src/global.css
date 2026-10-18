@@ -2,6 +2,7 @@
 @import 'tw-animate-css';
 @import '@pi-meme/ui/tokens.css';
 @import '@pi-meme/ui/brand-mark.css';
+@import '@pi-meme/assets/file-icons.css';
 @import 'katex/dist/katex.min.css';
 @import '@pi-meme/chat/ui/content/markdown.css';
 @import '@pi-meme/chat/ui/composer/composer.css';
@@ -10,6 +11,16 @@
 @import './settings/settings-page.css';
 @import '@pi-meme/file-directory/ui/files.css';
 @import '@xterm/xterm/css/xterm.css';
+
+.chat-surface {
+  container-type: inline-size;
+}
+
+.chat-content-column {
+  width: min(48rem, calc(100cqw - 6rem));
+  max-width: 100%;
+  margin-inline: auto;
+}
 
 /* 显式扫描 UI 与功能包源码，Tailwind 默认只扫描 Vite 根目录 */
 @source '../../ui/src';

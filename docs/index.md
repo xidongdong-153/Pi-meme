@@ -30,14 +30,14 @@ pi-meme 的 Desktop 和 Web 共用 Node Host。应用入口在 `apps/`，基础�
 
 ## 按修改目标查源码
 
-| 修改目标                   | 先读文档                                                       | 代码入口                                                                                                                                                                |
-| -------------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 输入框、消息、工具卡片     | [开发与验证](development.md)、[会话与协作](sessions.md)        | [聊天 UI](../packages/chat/src/ui/)、[App 组合](../packages/app-ui/src/app.tsx)                                                                                         |
-| Host 路由、认证与远程代理  | [Remote](remote.md)、[HostApi v2](host-api.md)                 | [传输路由](../packages/host/src/transport-app.ts)、[远程服务](../packages/host/src/remote-services.ts)                                                                  |
-| 模型、MCP、指令与主题      | [配置与安全](configuration.md)                                 | [模型存储](../packages/models/src/server/config-store.ts)、[MCP 存储](../packages/mcp/src/server/config-store.ts)、[设置存储](../packages/settings/src/server/store.ts) |
-| 子代理、规划模式与会话恢复 | [会话与协作](sessions.md)                                      | [协调器](../packages/subagents/src/server/coordinator.ts)、[会话池](../packages/pi-runtime/src/session-pool.ts)                                                         |
-| 技能、插件和 UI 扩展       | [技能与资源](skills-and-extensions.md)、[App 插件](plugins.md) | [资源存储](../packages/resources/src/server/resource-store.ts)、[插件管理器](../packages/plugin-runtime/src/manager.ts)                                                 |
-| 平台窗口、preload 与分发   | [开发与验证](development.md)、[架构](architecture.md)          | [Electron main](../apps/desktop/src/main/main.ts)、[Forge 配置](../apps/desktop/forge.config.ts)                                                                        |
-| 内置图片与应用图标         | [开发与验证](development.md)                                   | [packages/assets/files](../packages/assets/files/)                                                                                                                      |
+| 修改目标                     | 先读文档                                                       | 代码入口                                                                                                                                                                |
+| ---------------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 输入框、消息、工具卡片       | [开发与验证](development.md)、[会话与协作](sessions.md)        | [聊天 UI](../packages/chat/src/ui/)、[App 组合](../packages/app-ui/src/app.tsx)                                                                                         |
+| Host 路由、认证与远程代理    | [Remote](remote.md)、[HostApi v2](host-api.md)                 | [传输路由](../packages/host/src/transport-app.ts)、[远程服务](../packages/host/src/remote-services.ts)                                                                  |
+| 模型、MCP、指令与主题        | [配置与安全](configuration.md)                                 | [模型存储](../packages/models/src/server/config-store.ts)、[MCP 存储](../packages/mcp/src/server/config-store.ts)、[设置存储](../packages/settings/src/server/store.ts) |
+| 子代理、规划模式与会话恢复   | [会话与协作](sessions.md)                                      | [协调器](../packages/subagents/src/server/coordinator.ts)、[会话池](../packages/pi-runtime/src/session-pool.ts)                                                         |
+| 技能、插件和 UI 扩展         | [技能与资源](skills-and-extensions.md)、[App 插件](plugins.md) | [资源存储](../packages/resources/src/server/resource-store.ts)、[插件管理器](../packages/plugin-runtime/src/manager.ts)                                                 |
+| 平台窗口、preload 与分发     | [开发与验证](development.md)、[架构](architecture.md)          | [Electron main](../apps/desktop/src/main/main.ts)、[Forge 配置](../apps/desktop/forge.config.ts)                                                                        |
+| 内置图片、应用图标与文件图标 | [开发与验证](development.md)                                   | [packages/assets/files](../packages/assets/files/)、[FileIcon](../packages/ui/src/components/file-icon.tsx)                                                             |
 
 文档中的源码链接相对于仓库；页面元数据的 `paths` 用于按源码检索。新增或调整实现时更新所属主题及本索引。长期规则以 [AGENTS.md](../AGENTS.md) 为准。
