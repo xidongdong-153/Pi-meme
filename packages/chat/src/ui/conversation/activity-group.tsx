@@ -97,6 +97,7 @@ export function ActivityGroup({
                       onToggle={() => toggleChild(item.id)}
                       isPaused={isPaused}
                       isNested={false}
+                      isLive={isLive}
                     />
                   )
                 }

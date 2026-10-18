@@ -20,7 +20,15 @@ export function ActionItemRow({
   }, [item.status])
 
   if (item.type === 'thinking') {
-    return <ThinkingActivityRow item={item} open={open} onToggle={() => setOpen(!open)} isNested={isNested} />
+    return (
+      <ThinkingActivityRow
+        item={item}
+        open={open}
+        onToggle={() => setOpen(!open)}
+        isNested={isNested}
+        isLive={item.status === 'running'}
+      />
+    )
   }
 
   if (item.type === 'narration') {

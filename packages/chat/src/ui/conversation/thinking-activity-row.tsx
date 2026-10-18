@@ -10,14 +10,41 @@ export function ThinkingActivityRow({
   onToggle,
   isPaused = false,
   isNested = true,
+  isLive = false,
 }: {
   item: Extract<ActivityItem, { type: 'thinking' }>
   open: boolean
   onToggle: () => void
   isPaused?: boolean
   isNested?: boolean
+  isLive?: boolean
 }) {
   const label = React.useMemo(() => getThinkingLabel(item.id || item.thinking), [item.id, item.thinking])
+  const isWorking = (item.status === 'running' || (isLive && item.status !== 'success')) && !isPaused
+
+  const [elapsed, setElapsed] = React.useState<number | null>(null)
+  const startTimeRef = React.useRef<number | null>(null)
+
+  React.useEffect(() => {
+    if (isWorking) {
+      const started = startTimeRef.current ?? performance.now()
+      startTimeRef.current = started
+      const timer = window.setInterval(() => {
+        setElapsed((performance.now() - started) / 1000)
+      }, 100)
+      return () => window.clearInterval(timer)
+    }
+
+    if (startTimeRef.current !== null) {
+      setElapsed((performance.now() - startTimeRef.current) / 1000)
+      startTimeRef.current = null
+    }
+  }, [isWorking])
+
+  const formattedTime = React.useMemo(() => {
+    if (elapsed === null) return null
+    return `${elapsed.toFixed(1)}s`
+  }, [elapsed])
 
   return (
     <div className="text-sm select-none">
@@ -39,8 +66,47 @@ export function ThinkingActivityRow({
           isNested && 'pl-2',
         )}
       >
-        {!isPaused && <Sparkles className="size-4 shrink-0 text-muted-foreground group-hover:text-foreground" />}
-        <span className="truncate">{label}</span>
+        {!isPaused && (
+          <Sparkles
+            className={cn(
+              'size-4 shrink-0 transition-all duration-300',
+              isWorking
+                ? 'text-primary animate-[thought-pulse_1.6s_ease-in-out_infinite]'
+                : 'text-muted-foreground group-hover:text-foreground',
+            )}
+          />
+        )}
+        <span className="relative inline-grid items-center min-w-0">
+          <span
+            aria-hidden={!isWorking}
+            className={cn(
+              'col-start-1 row-start-1 truncate transition-[filter,opacity] duration-300 ease-out',
+              isWorking ? 'opacity-100 filter-none' : 'opacity-0 blur-[2px] pointer-events-none select-none',
+            )}
+          >
+            <span className="thought-shimmer">{label}</span>
+          </span>
+          <span
+            aria-hidden={isWorking}
+            className={cn(
+              'col-start-1 row-start-1 truncate transition-[filter,opacity] duration-300 ease-out',
+              !isWorking ? 'opacity-100 filter-none' : 'opacity-0 blur-[2px] pointer-events-none select-none',
+            )}
+          >
+            <span>{label}</span>
+          </span>
+        </span>
+        {formattedTime !== null && (
+          <span
+            aria-label={`思考用时 ${formattedTime}`}
+            className={cn(
+              'shrink-0 text-xs tabular-nums font-mono transition-opacity duration-300',
+              isWorking ? 'text-primary/90 font-medium' : 'text-muted-foreground/60',
+            )}
+          >
+            {formattedTime}
+          </span>
+        )}
         <ChevronDown
           className={cn(
             'size-3.5 shrink-0 text-muted-foreground/70 transition-transform duration-300 ease-out ml-0.5',
@@ -59,9 +125,11 @@ export function ThinkingActivityRow({
       >
         <div className="min-h-0 overflow-hidden">
           <div className={cn('mt-1 pb-1 select-text', isNested ? 'pl-8' : 'pl-6')}>
-            <pre className="pi-content max-h-72 overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground/75">
-              {item.thinking.trimEnd() || '正在梳理思路…'}
-            </pre>
+            <div className="border-l-2 border-primary/20 hover:border-primary/40 pl-3 py-0.5 transition-colors">
+              <pre className="pi-content max-h-72 overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground/75">
+                {item.thinking.trimEnd() || '正在梳理思路…'}
+              </pre>
+            </div>
           </div>
         </div>
       </div>

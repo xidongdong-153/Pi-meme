@@ -145,6 +145,55 @@
   animation: bento-shimmer 2.2s cubic-bezier(0.4, 0, 0.2, 1) infinite;
 }
 
+@keyframes thought-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+    transform: scale(0.96);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.04);
+  }
+}
+
+@keyframes thought-shimmer {
+  0% {
+    background-position: 125% 0;
+  }
+  100% {
+    background-position: -125% 0;
+  }
+}
+
+.thought-shimmer {
+  background-image: linear-gradient(
+    100deg,
+    color-mix(in srgb, currentColor 45%, transparent) 20%,
+    currentColor 55%,
+    color-mix(in srgb, currentColor 45%, transparent) 80%
+  );
+  background-size: 250% 100%;
+  background-position: 125% 0;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: thought-shimmer 2.2s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .thought-shimmer {
+    background: none !important;
+    -webkit-text-fill-color: currentColor !important;
+    animation: none !important;
+  }
+}
+
+:root[data-reduced-motion='true'] .thought-shimmer {
+  background: none !important;
+  -webkit-text-fill-color: currentColor !important;
+  animation: none !important;
+}
+
 @media (prefers-reduced-motion: reduce) {
   :root:not([data-reduced-motion]) *,
   :root:not([data-reduced-motion]) *::before,
