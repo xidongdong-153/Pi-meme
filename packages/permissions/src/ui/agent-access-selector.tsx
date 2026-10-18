@@ -11,7 +11,6 @@ import {
   SelectGroup,
   SelectItem,
   SelectLabel,
-  SelectSeparator,
   SelectTrigger,
 } from '@pi-meme/ui/components/ui/select'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
@@ -23,18 +22,14 @@ const choices = agentAccessChoices.map((choice) => ({ ...choice, icon: icons[cho
 
 export function AgentAccessSelector({
   mode = defaultAccessMode,
-  cwd,
   busy,
   supported,
-  reason,
   onChange,
   compact = false,
 }: {
   mode?: AgentAccessMode
-  cwd: string
   busy: boolean
   supported: boolean
-  reason?: string
   onChange: (mode: AgentAccessMode) => void
   compact?: boolean
 }) {
@@ -90,13 +85,6 @@ export function AgentAccessSelector({
             </SelectItem>
           ))}
         </SelectGroup>
-        <SelectSeparator />
-        <div className="space-y-1 px-2 py-2 text-xs text-muted-foreground">
-          <div className="break-all">当前项目：{cwd}</div>
-          <div>受限模式不加载外部 Agent 插件</div>
-          <div>此处控制 Agent 的执行范围，文件访问仍受运行所在 Host 的操作系统授权限制。</div>
-          {!supported && <div>{reason ?? '所属 Host 的受限权限沙箱不可用，请检查系统依赖后重启 Host。'}</div>}
-        </div>
       </SelectContent>
     </Select>
   )

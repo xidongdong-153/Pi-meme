@@ -459,10 +459,8 @@ export function App({
       <AgentAccessSelector
         {...{
           mode: chat.connection.accessMode,
-          cwd: chat.connection.cwd,
           busy: chat.accessBusy,
           supported: chat.connection.restrictedAccessSupported === true,
-          reason: chat.connection.restrictedAccessReason,
           onChange: (mode) => void chat.setAccessMode(mode),
           compact: interaction?.method === 'questions',
         }}

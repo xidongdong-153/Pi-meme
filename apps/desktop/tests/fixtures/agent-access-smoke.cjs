@@ -66,7 +66,7 @@ module.exports = async function agentAccessSmoke(
   )
   await open()
   await waitFor(() => evaluate(`document.querySelectorAll('[role="option"]').length === 3`), '权限菜单键盘展开')
-  assert.equal(await evaluate(`document.body.textContent.includes('受限模式不加载外部 Agent 插件')`), true)
+  assert.equal(await evaluate(`document.body.textContent.includes('受限模式不加载外部 Agent 插件')`), false)
   await fs.mkdir(screenshots, { recursive: true })
   await capture('agent-access-menu')
   await pressKey('Escape')
