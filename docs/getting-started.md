@@ -5,6 +5,10 @@ paths:
   - 'package.json'
   - 'pnpm-workspace.yaml'
   - 'apps/desktop/package.json'
+  - 'apps/desktop/forge.config.ts'
+  - 'apps/desktop/src/main/local-host.ts'
+  - 'apps/desktop/src/main/user-login-path.ts'
+  - 'packages/permissions/src/ui/agent-access-selector.tsx'
   - 'scripts/package-host.mts'
   - 'apps/server/README.md'
   - 'apps/server/src/main.ts'
@@ -16,27 +20,69 @@ paths:
 
 ## 下载使用
 
-从 [GitHub Releases](https://github.com/xidongdong-153/Pi-meme/releases) 下载 `v0.1.0-beta.1` 对应附件与 `SHA256SUMS`。预览版不依赖 `/releases/latest` 入口；没有附件时表示还未公开版本。不要把 GitHub 自动生成的 Source code 当作安装包。
+从 [v0.1.0-beta.3 发布页](https://github.com/xidongdong-153/Pi-meme/releases/tag/v0.1.0-beta.3) 下载对应附件与 `SHA256SUMS`。GitHub 自动生成的 Source code 是源码归档，不是安装包。
 
-首发下载包的验收基线为 macOS 15 arm64、Ubuntu 24.04 x64。Desktop 已包含本机 Host，普通 Mac 用户只需要 Desktop。独立 Host 已包含 Web、Node.js 24.14.0、Worker、技能和生产依赖，不需要 Node.js、pnpm 或 Pi CLI。
+下载包的产物验收基线为 macOS 15 arm64、Ubuntu 24.04 x64。Desktop 支持 Apple Silicon Mac，不提供 Intel Mac 或 Windows 原生安装包。Desktop 已包含本机 Host，使用桌面应用只需下载 `pi-meme-desktop-0.1.0-beta.3-macos-arm64.zip`。独立 Host 已包含 Web、Node.js 24.14.0、Worker、技能和生产依赖；启动下载版无需另外安装 Node.js、pnpm 或 Pi CLI。
 
-### 安装 Desktop
+### 安装 macOS Desktop
 
-在下载目录执行，并将结果与 `SHA256SUMS` 中对应文件的校验值逐字比较：
+1. 从同一个 beta.3 发布页下载 Desktop ZIP 和 `SHA256SUMS`。
+2. 在下载目录打开终端，执行下方命令，将输出的 SHA256 与 `SHA256SUMS` 中同名文件的值逐字比较。
+
+   ```bash
+   shasum -a 256 pi-meme-desktop-0.1.0-beta.3-macos-arm64.zip
+   ```
+
+3. 校验一致后解压 ZIP。升级时先退出旧 Desktop；若独立 Host 正在使用同一数据目录，也先停止它，避免新版复用旧 Host。数据备份见[升级](#升级)。
+4. 在 Finder 中将 `pi-meme.app` 拖到“应用程序”（`/Applications`），再从该目录双击打开。
+5. 如遇系统启动提示，先完成下节的首次打开确认。看到主界面后，在设置中配置模型服务商和模型，选择项目开始聊天。已有 `~/.pi-meme` 配置会继续使用。
+
+### macOS 首次打开
+
+beta.3 使用 ad-hoc 签名，尚未做 Developer ID 签名和 Apple 公证，macOS 的 Gatekeeper 可能阻止首次启动。这个阶段应用还未进入聊天界面，调整模型或 Agent 的“完全权限”不能解决启动拦截。
+
+| 看到的提示或现象                               | 处理方式                                                                                                                                                             |
+| ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| “从互联网下载，是否打开”                       | 确认应用来自上述发布页且 SHA256 一致后，选择“打开”。这是首次运行下载应用的系统确认。                                                                                 |
+| 无法验证开发者、Apple 无法检查是否包含恶意软件 | 先尝试从 `/Applications` 打开一次，再进入“系统设置 → 隐私与安全性”，在“安全性”区域找到 pi-meme 的阻止信息，选择“仍要打开”，按系统提示确认；可能需要密码或 Touch ID。 |
+| Dock 图标跳动，但没有主窗口                    | 可能有首次打开确认等待处理。先查看系统弹窗及“隐私与安全性”中的 pi-meme 提示，完成确认后等待主界面；不要反复启动多个实例。                                            |
+| 没有“仍要打开”入口                             | 核对刚尝试打开的是否为 `/Applications/pi-meme.app`。受管理的 Mac 可能限制该入口，需要联系设备管理员。仍无法打开时按下方格式反馈。                                    |
+| SHA256 不一致，或提示应用已损坏                | 停止打开，重新从同一发布页下载并校验；再次校验一致后仍异常时，保留原始提示并反馈。                                                                                   |
+| 提示检测到恶意软件或应用会损坏电脑             | 停止打开，保留系统提示并反馈。不要按普通首次打开确认处理。                                                                                                           |
+
+Gatekeeper 确认只处理应用启动，不授予项目目录访问权限。正式签名和公证尚未接入，正常的互联网下载确认与“未验证开发者”拦截也要分别判断。系统提示说明见 [Apple：安全地打开 Mac 上的 App](https://support.apple.com/zh-cn/102445)。
+
+### 首次打开与目录授权的区别
+
+| 名称与位置                                                 | 控制什么                           | 使用时怎么处理                                                                                          |
+| ---------------------------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Gatekeeper 首次打开确认；系统弹窗或“隐私与安全性 → 安全性” | 应用能否启动                       | 只在已确认下载来源和校验值后，处理对应 pi-meme 的启动提示。                                             |
+| “隐私与安全性 → 文件与文件夹”                              | 桌面、文稿、下载等受保护目录的访问 | 当前任务确实需要该位置时再允许。误点“不允许”后，可在这里查看并调整 pi-meme 对应目录的开关，再重试任务。 |
+| “隐私与安全性 → 完全磁盘访问权限”                          | 更广泛的受保护文件访问             | 普通项目操作无需预先开启；仅在具体访问需求和错误说明明确需要时，由用户决定是否授予。                    |
+| App 内“完全权限”                                           | Agent 在当前 Host 上的执行范围     | 允许 Agent 执行更广范围的任务，文件访问仍受 Host 所在操作系统授权限制，不会自动打开上面的系统权限。     |
+
+首次验证可选择 `~/Code/项目名` 等普通项目目录。项目位于桌面、文稿或下载目录时，首次访问可能出现必要授权；拒绝后该位置可能读取失败，可按需调整授权或另选项目目录。
+
+任务不涉及照片、媒体库等内容时，遇到这些无关授权可以先选择“不允许”，让 Agent 说明访问的具体路径和原因。不要为定位一个命令而同意遍历整个用户目录。开发版可能沿用终端的系统授权，不能据此判断 Finder 启动的安装版已有相同权限。
+
+目录权限由实际执行任务的 Host 所在系统控制；远程 Host 的文件访问不会因为本机 App 选择“完全权限”而自动获得授权。详见[配置与安全](configuration.md#权限与沙箱)和 [Apple 文件访问说明](https://support.apple.com/zh-cn/guide/security/secddd1d86a6/web)。
+
+### 检查项目命令
+
+beta.3 会在 Desktop 新建本机 Host 前恢复用户登录 Shell 的 PATH；会话命令、MCP 和项目终端继承该环境。它帮助定位已安装的工具，不会自动安装 pnpm、ego-browser、Python 等项目依赖。需要使用这些工具时，可以让 Agent 在项目目录执行：
 
 ```bash
-shasum -a 256 pi-meme-desktop-0.1.0-beta.1-macos-arm64.zip
+command -v pnpm
+pnpm --version
+command -v ego-browser
+ego-browser skill
 ```
 
-校验一致后解压，将 `pi-meme.app` 拖到 `/Applications`，再打开应用。配置模型后开始使用。
+只检查当前任务需要的工具，不用先手动 `export PATH`。命令不存在时，先核对安装情况、`command -v` 和明确的安装位置，不要通过 `find /` 或遍历整个用户目录寻找工具。
 
-macOS 包使用 ad-hoc 签名，未经过 Developer ID 签名与公证。若系统阻止打开，在“系统设置 → 隐私与安全性”查看该应用的阻止信息，确认下载来源和校验值后选择“仍要打开”。如果提示已损坏且上述入口不能放行，仅对已校验的应用执行：
+如果工具在系统终端可用、App 内却找不到，先完全退出 Desktop 并停止同数据目录的旧独立 Host，再从 Finder 启动 beta.3。连接已运行 Host 时不会改写它的环境，独立 Server 和远程 Host 也使用各自的启动环境。详细规则见[macOS Desktop 命令环境](configuration.md#macos-desktop-命令环境)。
 
-```bash
-xattr -dr com.apple.quarantine /Applications/pi-meme.app
-```
-
-不使用 `sudo`，不关闭 Gatekeeper，不批量清理整个下载目录。CI 的签名检查不能代替从 GitHub 下载后的首次打开验收。
+仍无法安装或执行时，在 [GitHub Issues](https://github.com/xidongdong-153/Pi-meme/issues) 提供：应用版本、macOS 版本与芯片、下载附件名、SHA256 校验结果、失败步骤、完整提示，以及任务涉及的目录类型。路径中的个人信息可隐藏，不上传 `~/.pi-meme` 整个目录、`auth.json`、令牌或模型凭据。
 
 ### 安装独立 Host
 
@@ -45,26 +91,26 @@ Linux x64 在下载目录执行：
 ```bash
 sudo apt-get update
 sudo apt-get install -y git bash bubblewrap
-sha256sum pi-meme-host-0.1.0-beta.1-linux-x64.tar.gz
+sha256sum pi-meme-host-0.1.0-beta.3-linux-x64.tar.gz
 ```
 
 与 `SHA256SUMS` 中对应值一致后：
 
 ```bash
-tar -xzf pi-meme-host-0.1.0-beta.1-linux-x64.tar.gz
+tar -xzf pi-meme-host-0.1.0-beta.3-linux-x64.tar.gz
 ./pi-meme-host/bin/pi-meme-host
 ```
 
 macOS arm64 需要 Git 和 bash，改用 macOS 包：
 
 ```bash
-shasum -a 256 pi-meme-host-0.1.0-beta.1-macos-arm64.tar.gz
+shasum -a 256 pi-meme-host-0.1.0-beta.3-macos-arm64.tar.gz
 ```
 
 校验一致后：
 
 ```bash
-tar -xzf pi-meme-host-0.1.0-beta.1-macos-arm64.tar.gz
+tar -xzf pi-meme-host-0.1.0-beta.3-macos-arm64.tar.gz
 ./pi-meme-host/bin/pi-meme-host
 ```
 
