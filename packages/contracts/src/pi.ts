@@ -59,6 +59,13 @@ export const builtinCommands: PiSlashCommand[] = [
     sourceInfo: { path: '', source: 'desktop', scope: 'temporary', origin: 'top-level' },
   },
   {
+    name: 'goal',
+    displayName: '目标',
+    description: '设置要持续推进的目标',
+    source: 'builtin',
+    sourceInfo: { path: '', source: 'desktop', scope: 'temporary', origin: 'top-level' },
+  },
+  {
     name: 'compact',
     description: '压缩当前会话上下文，可在命令后填写压缩要求',
     source: 'builtin',

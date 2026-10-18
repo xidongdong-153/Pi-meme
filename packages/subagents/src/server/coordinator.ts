@@ -431,6 +431,29 @@ export class HostCollaborationBridge {
     this.changed(root)
     await this.summarize(root)
   }
+  goalCaller(session: RuntimeSdkSession) {
+    const record = this.callers.get(session)
+    if (!record || record.session !== session) throw new Error('目标请求来自无效 Worker')
+    return { ...record.summary }
+  }
+  async goalReady(key: string, completion = false) {
+    await this.ready
+    const root = this.root(key)
+    if (!completion && (!root.settled || root.summary.status !== 'completed')) return false
+    return (
+      !this.paused(root) &&
+      !this.tree(root).some(
+        (record) =>
+          record.interactions.length ||
+          record.queued.length ||
+          record.pendingStart ||
+          record.draining ||
+          (record !== root && activeStatuses.has(record.summary.status)) ||
+          this.pending(record).some((message) => message.kind === 'result'),
+      )
+    )
+  }
+
   private caller(session: RuntimeSdkSession) {
     const record = this.callers.get(session)
     if (!record || record.session !== session || !activeStatuses.has(record.summary.status))

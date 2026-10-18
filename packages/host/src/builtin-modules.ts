@@ -1,3 +1,4 @@
+import * as goals from '@pi-meme/goals/server/entry'
 import path from 'node:path'
 import { mkdir } from 'node:fs/promises'
 import * as chat from '@pi-meme/chat/server/entry'
@@ -20,6 +21,7 @@ import type { PluginHandlers, ServerPluginModule } from '@pi-meme/plugin-sdk/ser
 import { PluginScope } from '@pi-meme/plugin-sdk/scope'
 
 const modules = [
+  goals,
   chat,
   workspace,
   git,

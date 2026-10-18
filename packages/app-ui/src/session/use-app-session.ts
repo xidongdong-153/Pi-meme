@@ -277,6 +277,7 @@ export function useAppSession(
     connection.sessionKey,
     switching,
     chat.draft,
+    chat.goalDraft,
     chat.selectedSkills,
     chat.pluginMentions,
     chat.attachments,
@@ -666,6 +667,11 @@ export function useAppSession(
     chat.chat.running ||
     (connection.status !== 'ready' && connection.status !== 'idle') ||
     Boolean(connection.accessChanging)
+  const supportedCommands = useMemo(
+    () =>
+      commands.filter((command) => command.name !== 'goal' || command.source !== 'builtin' || chat.chat.goalsSupported),
+    [commands, chat.chat.goalsSupported],
+  )
 
   return {
     bindDraftSession,
@@ -729,7 +735,7 @@ export function useAppSession(
     hasConnected,
     state,
     models,
-    commands,
+    commands: supportedCommands,
     uiPlugins,
     refreshSnapshot: refresh,
     refreshCommands: async () => {
@@ -778,6 +784,17 @@ export function useAppSession(
     mode: chat.mode,
     changeMode: chat.changeMode,
     activatePlan: chat.activatePlan,
+    activateGoal: chat.activateGoal,
+    goal: chat.chat.goal,
+    goalsSupported: chat.chat.goalsSupported,
+    goalDraft: chat.goalDraft,
+    setGoalDraft: chat.setGoalDraft,
+    goalOpen: chat.goalOpen,
+    setGoalOpen: chat.setGoalOpen,
+    goalEditing: chat.goalEditing,
+    goalAction: chat.goalAction,
+    saveGoal: chat.saveGoal,
+    setMessageGoal: chat.setMessageGoal,
     recoveredInputs: chat.recoveredInputs,
     restoreQueuedInput: chat.restoreQueuedInput,
     draft: chat.draft,

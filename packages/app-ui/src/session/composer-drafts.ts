@@ -38,7 +38,11 @@ export class ComposerDrafts {
     const current = this.values.get(sessionKey)
     if (
       current &&
-      (current.draft || current.attachments.length || current.selectedSkills.length || current.pluginMentions?.length)
+      (current.draft ||
+        current.goalDraft ||
+        current.attachments.length ||
+        current.selectedSkills.length ||
+        current.pluginMentions?.length)
     ) {
       this.persist(sessionKey)
       return
@@ -73,6 +77,7 @@ export class ComposerDrafts {
       const composer: ComposerSnapshot = {
         draft: value.draft,
         selectedSkills: value.selectedSkills,
+        ...(value.goalDraft ? { goalDraft: true as const } : {}),
         ...(value.pluginMentions?.length ? { pluginMentions: value.pluginMentions } : {}),
         attachments: [],
         queueMode: value.queueMode,
@@ -99,6 +104,7 @@ export class ComposerDrafts {
     [...this.values.values()].some(
       (composer) =>
         composer.draft ||
+        composer.goalDraft ||
         composer.attachments.length ||
         composer.selectedSkills.length ||
         composer.pluginMentions?.length ||
@@ -109,7 +115,8 @@ export class ComposerDrafts {
     for (const [key, composer] of this.values) {
       if (
         composer.attachments.length ||
-        ((composer.draft || composer.pluginMentions?.length) && (!this.key(key) || this.failed.has(key)))
+        ((composer.draft || composer.goalDraft || composer.pluginMentions?.length) &&
+          (!this.key(key) || this.failed.has(key)))
       )
         return true
     }
@@ -139,11 +146,12 @@ export class ComposerDrafts {
     if (!composer?.draft && !composer?.pluginMentions?.length)
       composer = this.pending.get(sessionKey)?.values().next().value ?? composer
     try {
-      if (composer && (composer.draft || composer.pluginMentions?.length))
+      if (composer && (composer.draft || composer.goalDraft || composer.pluginMentions?.length))
         this.storage().setItem(
           key,
           JSON.stringify({
             draft: composer.draft,
+            ...(composer.goalDraft ? { goalDraft: composer.goalDraft } : {}),
             selectedSkills: composer.selectedSkills,
             ...(composer.pluginMentions?.length ? { pluginMentions: composer.pluginMentions } : {}),
             queueMode: composer.queueMode,

@@ -1,3 +1,4 @@
+import type { Goal, GoalControl, GoalEdit, GoalEvent, GoalInput, GoalStartResult } from './goal'
 import type { AppSession } from './app-host'
 import type { DesktopStorageAdapter, HostStorageInfo } from './storage'
 import type { McpBridge } from './mcp'
@@ -114,7 +115,7 @@ export type DesktopEvent = {
   rootAgentId?: string
   agentId?: string
   runId?: string
-  event: PiEvent | PiExtensionEvent | AgentAccessEvent | CollaborationEvent | PlanEvent
+  event: PiEvent | PiExtensionEvent | AgentAccessEvent | CollaborationEvent | PlanEvent | GoalEvent
 }
 export type DesktopError = {
   generation: number
@@ -134,6 +135,8 @@ export type SessionPluginDescriptor = {
 export type Snapshot = {
   agent?: AgentSummary
   agents?: AgentSummary[]
+  goal?: Goal
+  goalsSupported?: boolean
   planDocuments?: PlanDocument[]
   pendingInteractions?: PendingInteraction[]
   agentMessages?: AgentMailboxMessage[]
@@ -201,6 +204,11 @@ export interface WorkspaceBridge {
 
 /** 对话发送、队列、命令与中止。 */
 export interface ChatBridge {
+  startGoal?: (key: string, input: GoalInput) => Promise<GoalStartResult>
+  editGoal?: (key: string, input: GoalEdit) => Promise<Goal>
+  pauseGoal?: (key: string, input: GoalControl) => Promise<Goal>
+  resumeGoal?: (key: string, input: GoalControl) => Promise<Goal>
+  clearGoal?: (key: string, input: GoalControl) => Promise<void>
   prompt: (
     sessionKey: string,
     message: string,

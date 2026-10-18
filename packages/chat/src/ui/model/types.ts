@@ -1,3 +1,4 @@
+import type { Goal } from '@pi-meme/contracts/goal'
 import type { AgentMailboxMessage, AgentSummary } from '@pi-meme/contracts/collaboration'
 import type { BranchSkillUsage } from '@pi-meme/contracts/skills'
 import type { QueuedInput, PlanDocument } from '@pi-meme/contracts/plan'
@@ -27,6 +28,8 @@ export type ChatCompactionState = {
 }
 
 export type ChatState = {
+  goal?: Goal
+  goalsSupported?: boolean
   agents?: AgentSummary[]
   agentMessages?: AgentMailboxMessage[]
   planDocuments?: PlanDocument[]

@@ -1,3 +1,12 @@
+import type { GoalService } from '@pi-meme/goals/server/service'
+import {
+  parseGoalCommand,
+  validateGoalControl,
+  type GoalControl,
+  type GoalInput,
+  type GoalStartResult,
+} from '@pi-meme/contracts/goal'
+import { skillMessageText } from '@pi-meme/contracts/skills'
 import { randomUUID } from 'node:crypto'
 import type {
   AppProject,
@@ -23,12 +32,14 @@ import type { CollaborationBridge } from '@pi-meme/contracts/collaboration'
 import { ControlStore, ControlError } from './control-store'
 
 type Options = {
+  goals: GoalService
   hostId: string
   root: string
   pi: PiSessionPool
   projects: ProjectStore
   sessions: SessionService
   collaboration: CollaborationBridge & {
+    goalReady: (key: string, completion?: boolean) => Promise<boolean>
     respondExtensionUI: (
       key: string,
       id: string,
@@ -43,10 +54,10 @@ type Options = {
   workspace: { files: HostApi['files']; terminal: HostApi['terminal']; terminalSupported: boolean }
   onError: (cause: unknown) => void
 }
-type Pending = { input: SubmissionInput; receipt: SubmissionReceipt }
+type Pending = { input: SubmissionInput; receipt: SubmissionReceipt; goal?: GoalControl }
 type Active = { receipts: SubmissionReceipt[]; error?: string; cancelled?: boolean; runId?: string }
 export async function createAppControl(options: Options) {
-  const { hostId, pi, projects, sessions, collaboration } = options
+  const { hostId, pi, projects, sessions, collaboration, goals } = options
   const store = new ControlStore(options.root, hostId)
   await store.init()
   const runtime = new Map<string, ClientView>()
@@ -57,6 +68,8 @@ export async function createAppControl(options: Options) {
   const locks = new Map<string, Promise<unknown>>()
   const paused = new Set<string>()
   const jobs = new Set<Promise<unknown>>()
+  const goalTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  const goalErrors = new Map<string, { source?: string; reason: string }>()
   let closing = false
   function track(job: Promise<unknown>) {
     jobs.add(job)
@@ -140,6 +153,19 @@ export async function createAppControl(options: Options) {
     )
       throw new Error('模型标识无效')
     const key = view.sessionKey!
+    if (config.mode === 'plan' && goals.get(session)?.status === 'active') {
+      await goals.stop(session, 'paused', '进入规划模式，目标已暂停')
+      paused.add(session.sessionId)
+      for (const pending of queues.get(session.sessionId) ?? []) {
+        pending.receipt.status = 'cancelled'
+        await publishReceipt(session, pending.receipt)
+      }
+      queues.delete(session.sessionId)
+      const run = active.get(session.sessionId)
+      if (run) run.cancelled = true
+      await pi.abort(key)
+      if (run) await finish(session, view, run, true)
+    }
     if (active.has(session.sessionId) || busy(key)) throw new Error('会话正在运行，不能修改配置')
     if (config.agentPlugins !== undefined) await options.configureAgentPlugins(key, config.agentPlugins)
     if (config.mode !== undefined) await pi.setSessionMode(key, config.mode)
@@ -269,13 +295,14 @@ export async function createAppControl(options: Options) {
     }
     await store.save()
   }
-  const publishReceipt = (session: AppSession, receipt: SubmissionReceipt) =>
-    store.publish({
+  function publishReceipt(session: AppSession, receipt: SubmissionReceipt) {
+    return store.publish({
       type: 'submission',
       sessionId: session.sessionId,
       projectId: session.project?.projectId,
       value: receipt,
     })
+  }
   const publishSession = (session: AppSession) =>
     store.publish({
       type: 'session',
@@ -295,7 +322,8 @@ export async function createAppControl(options: Options) {
           const key = view.sessionKey!
           await options.bindRoot(key)
           if (run.cancelled) return
-          if (input.delivery === 'steer')
+          if (pending.goal) await pi.continueGoalTask(key, input.text, pending.goal)
+          else if (input.delivery === 'steer')
             await pi.steer(key, input.text, input.images, input.skills, { mode: input.mode })
           else await pi.prompt(key, input.text, input.images, input.skills, { mode: input.mode })
           await sync(session, view)
@@ -341,6 +369,116 @@ export async function createAppControl(options: Options) {
     await publishSession(session)
     await startNext(session, view)
   }
+  const submitInput = async (
+    session: AppSession,
+    view: ClientView,
+    input: SubmissionInput,
+    operationId: string,
+    goal?: GoalControl,
+  ): Promise<SubmissionReceipt> => {
+    const key = view.sessionKey!
+    if (typeof input?.text !== 'string' || !input.text.trim() || !['start', 'queue', 'steer'].includes(input.delivery))
+      throw new Error('提交正文或投递方式无效')
+    if (input.mode !== undefined && input.mode !== 'default' && input.mode !== 'plan') throw new Error('会话模式无效')
+    const running = active.has(session.sessionId) || busy(key)
+    if (input.delivery === 'start' && running) throw new Error('会话正在运行，请使用 queue 或 steer')
+    if (input.delivery === 'steer' && !running) throw new Error('会话未运行，不能 steer')
+    const receipt: SubmissionReceipt = {
+      operationId,
+      submissionId: randomUUID(),
+      session: { hostId, sessionId: session.sessionId },
+      delivery: input.delivery,
+      status: input.delivery === 'queue' && running ? 'queued' : 'accepted',
+    }
+    store.state.receipts.push(receipt)
+    await publishReceipt(session, receipt)
+    if (input.delivery === 'steer') {
+      let run = active.get(session.sessionId)
+      if (!run) {
+        run = { receipts: [] }
+        active.set(session.sessionId, run)
+      }
+      run.receipts.push(receipt)
+      receipt.runId = run.runId
+      await dispatchInput(session, view, { input, receipt }, run)
+    } else {
+      const queue = queues.get(session.sessionId) ?? []
+      queue.push({ input, receipt, goal })
+      queues.set(session.sessionId, queue)
+      await startNext(session, view)
+      if (receipt.status === 'accepted') {
+        receipt.status = 'queued'
+        await publishReceipt(session, receipt)
+      }
+    }
+    return receipt
+  }
+  async function createGoalSubmission(
+    key: string,
+    session: AppSession,
+    view: ClientView,
+    input: GoalInput,
+    operationId: string,
+  ): Promise<GoalStartResult> {
+    if (!pi.isSessionIdle(key) || active.has(session.sessionId) || queues.get(session.sessionId)?.length)
+      throw new Error('请等待当前会话停止后再创建目标')
+    let inputEntryId: string | undefined
+    if (input?.sourceMessageTimestamp !== undefined) {
+      if (!Number.isFinite(input.sourceMessageTimestamp)) throw new Error('来源消息时间戳无效')
+      const snapshot = await options.snapshot()
+      const source = snapshot.messages.find(
+        (message) => message.role === 'user' && message.timestamp === input.sourceMessageTimestamp,
+      )
+      const entries = snapshot.sessionEntries?.entries ?? []
+      const byId = new Map(entries.map((entry) => [entry.id, entry]))
+      let entry = snapshot.sessionEntries?.leafId ? byId.get(snapshot.sessionEntries.leafId) : undefined
+      const visited = new Set<string>()
+      while (entry && !visited.has(entry.id)) {
+        visited.add(entry.id)
+        if (entry.role === 'user' && entry.messageTimestamp === input.sourceMessageTimestamp) {
+          inputEntryId = entry.id
+          break
+        }
+        entry = entry.parentId ? byId.get(entry.parentId) : undefined
+      }
+      if (!source || source.role !== 'user' || !inputEntryId) throw new Error('来源消息不在当前会话分支')
+      const content = source.content
+      input = {
+        objective: skillMessageText(
+          typeof content === 'string'
+            ? content
+            : content
+                .filter((part) => part.type === 'text')
+                .map((part) => part.text)
+                .join('\n'),
+        ),
+        sourceMessageTimestamp: input.sourceMessageTimestamp,
+      }
+    }
+    await pi.setSessionMode(key, 'default')
+    const goal = await goals.start(session, input, inputEntryId)
+    goalErrors.delete(session.sessionId)
+    paused.delete(session.sessionId)
+    try {
+      const receipt = await submitInput(
+        session,
+        view,
+        {
+          text: inputEntryId ? '将指定的已有用户消息作为持久目标，核对当前进展后继续执行并验收。' : input.objective,
+          images: input.images,
+          skills: input.skills,
+          mode: 'default',
+          delivery: 'start',
+        },
+        operationId,
+        inputEntryId ? goal : undefined,
+      )
+      return { goal, receipt }
+    } catch (cause) {
+      await goals.stop(session, 'paused', `首轮启动失败：${String(cause)}`)
+      throw cause
+    }
+  }
   const stop = (ref: SessionRef) =>
     target(ref, (key, session, view) =>
       serial(session.sessionId, async () => {
@@ -351,6 +489,8 @@ export async function createAppControl(options: Options) {
           await publishReceipt(session, pending.receipt)
         }
         queues.delete(session.sessionId)
+        const goal = goals.get(session)
+        if (goal?.status === 'active') await goals.stop(session, 'paused', '用户停止了目标执行')
         await pi.abort(key)
         if (run) await finish(session, view, run, true)
         else {
@@ -383,6 +523,7 @@ export async function createAppControl(options: Options) {
         'interaction',
         'agents',
         'plans',
+        'goals',
         ...(options.workspace.terminalSupported ? ['terminal' as const] : []),
       ],
     }),
@@ -451,7 +592,7 @@ export async function createAppControl(options: Options) {
           const controlCursor = store.read().cursor
           const result = await options.snapshot()
           await sync(session, view)
-          return { ...result, controlCursor }
+          return { ...result, goal: goals.get(session), goalsSupported: true, controlCursor }
         }),
       history: (ref, input) =>
         target(ref, async (key, session) => {
@@ -475,52 +616,50 @@ export async function createAppControl(options: Options) {
           target(ref, (_key, session, view) => serial(session.sessionId, () => configure(session, view, config))),
         ),
       submit: (ref, input, opts) =>
-        mutate(clientId, 'sessions.submit', [ref, input], opts, (operationId) =>
-          target(ref, (key, session, view) =>
+        mutate(clientId, 'sessions.submit', [ref, input], opts, async (operationId) => {
+          const command = typeof input?.text === 'string' ? parseGoalCommand(input.text) : undefined
+          if (command && command.action !== 'start') {
+            const session = getSession(ref)
+            if (command.action !== 'open') {
+              const goal = goals.get(session)
+              if (!goal) throw new Error('当前会话没有目标')
+              const method = command.action === 'edit' ? 'pause' : command.action
+              await apiFor(clientId).goals[method](ref, goal, { idempotencyKey: `${operationId}:goal-control` })
+            }
+            const receipt: SubmissionReceipt = {
+              operationId,
+              submissionId: randomUUID(),
+              session: { hostId, sessionId: ref.sessionId },
+              delivery: input.delivery,
+              status: 'completed',
+            }
+            store.state.receipts.push(receipt)
+            await publishReceipt(session, receipt)
+            return receipt
+          }
+          return target(ref, (key, session, view) =>
             serial(session.sessionId, async () => {
-              if (
-                typeof input?.text !== 'string' ||
-                !input.text.trim() ||
-                !['start', 'queue', 'steer'].includes(input.delivery)
-              )
-                throw new Error('提交正文或投递方式无效')
-              if (input.mode !== undefined && input.mode !== 'default' && input.mode !== 'plan')
-                throw new Error('会话模式无效')
-              const running = active.has(session.sessionId) || busy(key)
-              if (input.delivery === 'start' && running) throw new Error('会话正在运行，请使用 queue 或 steer')
-              if (input.delivery === 'steer' && !running) throw new Error('会话未运行，不能 steer')
-              const receipt: SubmissionReceipt = {
-                operationId,
-                submissionId: randomUUID(),
-                session: { hostId, sessionId: session.sessionId },
-                delivery: input.delivery,
-                status: input.delivery === 'queue' && running ? 'queued' : 'accepted',
+              const command = parseGoalCommand(input.text)
+              if (command) {
+                if (command.action !== 'start') throw new Error('纯目标命令请使用目标控制接口')
+                return (
+                  await createGoalSubmission(
+                    key,
+                    session,
+                    view,
+                    {
+                      objective: command.objective,
+                      images: input.images,
+                      skills: input.skills,
+                    },
+                    operationId,
+                  )
+                ).receipt
               }
-              store.state.receipts.push(receipt)
-              await publishReceipt(session, receipt)
-              if (input.delivery === 'steer') {
-                let run = active.get(session.sessionId)
-                if (!run) {
-                  run = { receipts: [] }
-                  active.set(session.sessionId, run)
-                }
-                run.receipts.push(receipt)
-                receipt.runId = run.runId
-                await dispatchInput(session, view, { input, receipt }, run)
-              } else {
-                const queue = queues.get(session.sessionId) ?? []
-                queue.push({ input, receipt })
-                queues.set(session.sessionId, queue)
-                await startNext(session, view)
-                if (receipt.status === 'accepted') {
-                  receipt.status = 'queued'
-                  await publishReceipt(session, receipt)
-                }
-              }
-              return receipt
+              return submitInput(session, view, input, operationId)
             }),
-          ),
-        ),
+          )
+        }),
       stop: (ref, opts) => mutate(clientId, 'sessions.stop', [ref], opts, () => stop(ref)),
       pause: (ref, opts) =>
         mutate(clientId, 'sessions.pause', [ref], opts, () =>
@@ -614,6 +753,62 @@ export async function createAppControl(options: Options) {
       get: (id) => collaboration.getAgentSnapshot(id),
       stop: (id, opts) => mutate(clientId, 'agents.stop', [id], opts, () => collaboration.interruptAgent(id)),
     },
+    goals: {
+      get: async (ref) => {
+        getSession(ref)
+        return goals.get(ref)
+      },
+      start: (ref, input, opts) =>
+        mutate(clientId, 'goals.start', [ref, input], opts, (operationId) =>
+          target(ref, (key, session, view) =>
+            serial(session.sessionId, () => createGoalSubmission(key, session, view, input, operationId)),
+          ),
+        ),
+      edit: (ref, input, opts) =>
+        mutate(clientId, 'goals.edit', [ref, input], opts, () =>
+          target(ref, (key, session) =>
+            serial(session.sessionId, async () => {
+              if (!pi.isSessionIdle(key, true)) throw new Error('请等待目标完全停止后再编辑')
+              return goals.edit(session, input)
+            }),
+          ),
+        ),
+      pause: (ref, input, opts) =>
+        mutate(clientId, 'goals.pause', [ref, input], opts, async () => {
+          getSession(ref)
+          validateGoalControl(input)
+          await goals.stop(ref, 'paused', '用户暂停了目标', input)
+          await stop(ref)
+          return goals.get(ref)!
+        }),
+      resume: (ref, input, opts) =>
+        mutate(clientId, 'goals.resume', [ref, input], opts, () =>
+          target(ref, (key, session) =>
+            serial(session.sessionId, async () => {
+              if (!pi.isSessionIdle(key) || active.has(session.sessionId) || queues.get(session.sessionId)?.length)
+                throw new Error('请先结束当前执行和排队输入')
+              const state = pi.getSessionContext(key).state
+              if (!state.model || state.modelSelectionRequired) throw new Error('请先选择可用模型')
+              await pi.setSessionMode(key, 'default')
+              paused.delete(session.sessionId)
+              const goal = await goals.resume(session, input)
+              goalErrors.delete(session.sessionId)
+              scheduleGoal(session)
+              return goal
+            }),
+          ),
+        ),
+      clear: (ref, input, opts) =>
+        mutate(clientId, 'goals.clear', [ref, input], opts, async () => {
+          getSession(ref)
+          const goal = goals.get(ref)
+          if (!goal || goal.goalId !== input?.goalId || goal.revision !== input?.revision)
+            throw new Error('目标已更新，请刷新后重试')
+          if (goal.status === 'active') await goals.stop(ref, 'paused', '正在清除目标', input)
+          await stop(ref)
+          await goals.clear(ref, goals.get(ref)!)
+        }),
+    },
     plans: { list: (ref) => target(ref, async () => (await options.snapshot()).planDocuments ?? []) },
   })
   const api = apiFor('host-internal')
@@ -634,6 +829,11 @@ export async function createAppControl(options: Options) {
     'terminal.close',
     'interaction.respond',
     'agents.stop',
+    'goals.start',
+    'goals.edit',
+    'goals.pause',
+    'goals.resume',
+    'goals.clear',
   ])
   const dispatch = async (request: HostControlRequest): Promise<HostControlResponse> => {
     try {
@@ -670,6 +870,51 @@ export async function createAppControl(options: Options) {
         },
       }
     }
+  }
+  function scheduleGoal(session: AppSession) {
+    if (closing || goalTimers.has(session.sessionId) || goals.get(session)?.status !== 'active') return
+    const timer = setTimeout(() => {
+      goalTimers.delete(session.sessionId)
+      track(
+        target(session, (key, current, view) =>
+          serial(current.sessionId, async () => {
+            if (
+              closing ||
+              paused.has(current.sessionId) ||
+              active.has(current.sessionId) ||
+              queues.get(current.sessionId)?.length ||
+              !pi.isSessionIdle(key)
+            )
+              return
+            const goal = goals.get(current)
+            if (goal?.status !== 'active') return
+            await options.bindRoot(key)
+            const previousRun = goals.currentRun(current)
+            if (previousRun && !(await collaboration.goalReady(key))) return
+            if (previousRun) await goals.settled(previousRun)
+            const latest = goals.get(current)
+            if (latest?.status !== 'active' || closing || !pi.isSessionIdle(key)) return
+            try {
+              const initial = goals.pendingInput(current)
+              if (initial) await pi.prompt(key, initial.objective, initial.images, initial.skills, { mode: 'default' })
+              else {
+                await pi.continueGoalTask(
+                  key,
+                  '继续推进当前持久目标。先核对当前事实和最近进展，执行下一步；完成后提交逐项验收证据。',
+                  latest,
+                )
+              }
+              current.status = 'running'
+              await sync(current, view)
+              await publishSession(current)
+            } catch (cause) {
+              await goals.stop(current, 'paused', `目标续跑失败：${String(cause)}`)
+            }
+          }),
+        ),
+      )
+    }, 0)
+    goalTimers.set(session.sessionId, timer)
   }
   const observe = (event: HostEvent) => {
     if (closing || !event.value || !('sessionKey' in event.value)) return
@@ -726,6 +971,53 @@ export async function createAppControl(options: Options) {
             await startNext(session, view)
           }
         }
+        const goal = goals.get(session)
+        if (goal?.status === 'complete' && isRoot && piEvent?.type === 'agent_settled') {
+          const run = goals.currentRun(session)
+          if (run) await goals.settled(run)
+        }
+        if (goal?.status === 'active') {
+          if (
+            (event.type === 'error' && isRoot) ||
+            (piEvent?.type === 'message_end' &&
+              piEvent.message.role === 'assistant' &&
+              piEvent.message.stopReason === 'error')
+          ) {
+            const reason =
+              event.type === 'error'
+                ? event.value.message
+                : piEvent?.type === 'message_end' && piEvent.message.role === 'assistant'
+                  ? (piEvent.message.errorMessage ?? '模型执行失败')
+                  : '执行失败'
+            goalErrors.set(session.sessionId, { source: eventKey, reason })
+          }
+          if (
+            (piEvent?.type === 'message_end' &&
+              piEvent.message.role === 'assistant' &&
+              !['error', 'aborted'].includes(piEvent.message.stopReason)) ||
+            (piEvent?.type === 'auto_retry_end' && piEvent.success)
+          ) {
+            if (goalErrors.get(session.sessionId)?.source === eventKey) goalErrors.delete(session.sessionId)
+          }
+          const failure = goalErrors.get(session.sessionId)
+          if (piEvent?.type === 'agent_settled' && failure && failure.source === eventKey) {
+            goalErrors.delete(session.sessionId)
+            const quota =
+              /insufficient_quota|quota_exceeded|billing_hard_limit|credit balance is too low|exceeded your current quota/i.test(
+                failure.reason,
+              )
+            await goals.stop(session, quota ? 'usage_limited' : 'paused', failure.reason)
+          }
+          const run = goals.currentRun(session)
+          if (run && piEvent?.type === 'tool_execution_end' && !['get_goal', 'update_goal'].includes(piEvent.toolName))
+            goals.activity(run)
+          const agents = await collaboration.getAgents(view.sessionKey!)
+          goals.setRunning(
+            session,
+            agents.some((agent) => ['running', 'starting'].includes(agent.status) && !agent.isPaused),
+          )
+          scheduleGoal(session)
+        }
         // 消息正文由 Pi JSONL 保存；控制日志只保留状态及关联信息。
         const fullStateEvents = new Set([
           'agent_start',
@@ -736,6 +1028,8 @@ export async function createAppControl(options: Options) {
           'extension_ui_closed',
           'extension_ui_timeout',
           'plan_saved',
+          'goal_updated',
+          'goal_cleared',
           'composer_hint',
         ])
         const stored =
@@ -766,6 +1060,32 @@ export async function createAppControl(options: Options) {
   return {
     api,
     apiFor,
+    goalRuntimeKey: (ref: SessionRef) => runtime.get(ref.sessionId)?.sessionKey,
+    async admitGoal(key: string, origin: import('@pi-meme/contracts/goal').PromptOrigin, expected?: GoalControl) {
+      const session = await this.sessionForRuntime(key)
+      const goal = goals.get(session)
+      if (
+        origin === 'goal' &&
+        (!goal || goal.status !== 'active' || goal.goalId !== expected?.goalId || goal.revision !== expected.revision)
+      )
+        throw new Error('目标已停止或发生变更')
+      return goals.begin(session, origin === 'collaboration')
+    },
+    async goalForRuntime(key: string) {
+      return goals.get(await this.sessionForRuntime(key))
+    },
+    async goalRunForRuntime(key: string) {
+      return goals.currentRun(await this.sessionForRuntime(key))
+    },
+    async goalCanComplete(key: string) {
+      const session = await this.sessionForRuntime(key)
+      return (
+        !queues.get(session.sessionId)?.length &&
+        !pi.hasRunningGoalTools(key) &&
+        !pi.hasPendingGoalInput(key) &&
+        (await collaboration.goalReady(key, true))
+      )
+    },
     dispatch,
     observe,
     resolveRoot,
@@ -820,6 +1140,10 @@ export async function createAppControl(options: Options) {
     },
     async beginShutdown() {
       closing = true
+      for (const timer of goalTimers.values()) clearTimeout(timer)
+      goalTimers.clear()
+      for (const goal of goals.list())
+        if (goal.status === 'active') await goals.stop(goal.session, 'paused', 'Host 已关闭，请手动恢复目标')
       for (const run of active.values()) run.cancelled = true
       for (const receipt of store.state.receipts)
         if (['accepted', 'queued', 'running'].includes(receipt.status)) {
@@ -836,6 +1160,7 @@ export async function createAppControl(options: Options) {
       await Promise.allSettled(jobs)
       for (const view of runtime.values()) pi.releaseClientView(view)
       await store.flush()
+      await goals.flush()
     },
   }
 }

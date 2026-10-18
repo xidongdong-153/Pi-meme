@@ -3,8 +3,10 @@ description: 'HostApi v2 的稳定目标、HTTP 控制、幂等提交、回执�
 status: mixed
 paths:
   - 'packages/contracts/src/app-host.ts'
+  - 'packages/contracts/src/goal.ts'
   - 'packages/host/src/app-control.ts'
   - 'packages/host/src/control-store.ts'
+  - 'packages/goals/src/server/service.ts'
   - 'packages/host/src/workspace-files.ts'
   - 'packages/host/src/terminal-service.ts'
   - 'packages/client/src/app-host-client.ts'
@@ -35,10 +37,15 @@ paths:
 | `git`            | `environment`、`snapshot`、`diff`，只读                                                                                                        |
 | `interaction`    | `respond`，按根会话或子任务来源回答                                                                                                            |
 | `agents`         | `list`、`get`、`stop`                                                                                                                          |
+| `goals`          | `get`、`start`、`edit`、`pause`、`resume`、`clear`                                                                                             |
 | `plans`          | `list`，读取已保存计划                                                                                                                         |
 | `events`         | `read`、`subscribe`                                                                                                                            |
 
 完整参数与返回类型以 [HostApi](../packages/contracts/src/app-host.ts) 为准。`sessions.history` 使用 `offset/limit`，默认 100 条、最大 500 条，返回 `totalMessages/nextOffset`。`sessions.configure` 可设置模型、思考等级、访问权限、任务模式和 `agentPlugins`；运行中拒绝变更配置。
+
+`capabilities().features` 包含 `goals` 时，可以按 `SessionRef` 调用目标接口。`goals.start(ref, { objective, images?, skills?, sourceMessageTimestamp? }, options)` 返回 `{ goal, receipt }`；指定来源时间戳时由 Host 核对当前分支并引用原消息，正文与图片以原生记录为准。已有目标的编辑、暂停、恢复、清除需要 `goalId` 和 `revision`，旧修订会被拒绝。`edit` 只接受新正文且要求执行已停止，保留累计用量和耗时；创建和恢复均以普通模式执行，进入 Plan 会先暂停活跃目标。
+
+目标类型见 [goal.ts](../packages/contracts/src/goal.ts)。`sessions.snapshot` 返回 `goal` 和 `goalsSupported`；`goal_updated`、`goal_cleared` 沿现有事件补读通道发送。提交回执只表示对应提交是否结束，目标是否结束以 `goal.status` 为准。目标持久化、重启恢复和 UI 操作见 [会话与协作](sessions.md#持久目标-goal)。
 
 ## HTTP 与认证
 

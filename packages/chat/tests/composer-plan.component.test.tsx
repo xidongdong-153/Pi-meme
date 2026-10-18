@@ -36,7 +36,7 @@ afterEach(cleanup)
 test('斜杠候选仅有一个 plan，中文前缀匹配该候选且技能保持', () => {
   assert.deepEqual(
     completion('/').result.matches.map((item) => (item.kind === 'plugin' ? item.plugin.id : item.command.name)),
-    ['plan', 'compact', 'name', 'skill:verify'],
+    ['plan', 'goal', 'compact', 'name', 'skill:verify'],
   )
   for (const draft of ['/p', '/pl', '/plan', '/计', '/计划', '/计划模', '/计划模式'])
     assert.deepEqual(

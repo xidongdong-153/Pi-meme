@@ -23,7 +23,8 @@
     "./collaboration": "./src/collaboration.ts",
     "./user-input": "./src/user-input.ts",
     "./resources": "./src/resources.ts",
-    "./app-host": "./src/app-host.ts"
+    "./app-host": "./src/app-host.ts",
+    "./goal": "./src/goal.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit"

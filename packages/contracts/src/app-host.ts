@@ -1,3 +1,4 @@
+import type { Goal, GoalControl, GoalEdit, GoalInput, GoalStartResult } from './goal'
 import type { AgentAccessMode } from './agent-access'
 import type { AgentSummary } from './collaboration'
 import type { GitEnvironment, GitSnapshot, GitFileChange, Snapshot } from './desktop'
@@ -74,7 +75,7 @@ export type TerminalSnapshot = TerminalRef & {
 export type AppHostCapabilities = {
   apiVersion: 2
   hostId: string
-  features: Array<'projects' | 'sessions' | 'files' | 'terminal' | 'git' | 'interaction' | 'agents' | 'plans'>
+  features: Array<'projects' | 'sessions' | 'files' | 'terminal' | 'git' | 'interaction' | 'agents' | 'plans' | 'goals'>
   fileOperations?: Array<'preview' | 'search' | 'write'>
 }
 export type EventCursor = { journalEpoch: string; seq: number }
@@ -172,6 +173,14 @@ export type HostApi = {
     list: (ref: SessionRef) => Promise<AgentSummary[]>
     get: (agentId: string) => Promise<Snapshot>
     stop: (agentId: string, options: MutationOptions) => Promise<void>
+  }
+  goals: {
+    get: (ref: SessionRef) => Promise<Goal | undefined>
+    start: (ref: SessionRef, input: GoalInput, options: MutationOptions) => Promise<GoalStartResult>
+    edit: (ref: SessionRef, input: GoalEdit, options: MutationOptions) => Promise<Goal>
+    pause: (ref: SessionRef, input: GoalControl, options: MutationOptions) => Promise<Goal>
+    resume: (ref: SessionRef, input: GoalControl, options: MutationOptions) => Promise<Goal>
+    clear: (ref: SessionRef, input: GoalControl, options: MutationOptions) => Promise<void>
   }
   plans: { list: (ref: SessionRef) => Promise<PlanDocument[]> }
 }

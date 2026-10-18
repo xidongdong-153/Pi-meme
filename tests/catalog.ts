@@ -2,6 +2,7 @@ export const features = {
   chat: '聊天、输入、队列与问答',
   sessions: '会话、历史、分支与恢复',
   plan: '计划模式与计划文档',
+  goals: '持久目标、自动续跑与用量',
   subagents: '子代理与协作',
   models: '模型配置与凭据',
   plugins: 'App 插件与开发工具',
@@ -31,6 +32,9 @@ export interface TestSuite {
 }
 
 const files: Array<[string, Feature[]]> = [
+  ['packages/chat/tests/composer-goal.component.test.tsx', ['goals']],
+  ['packages/goals/tests/goal-service.unit.test.ts', ['goals']],
+  ['packages/host/tests/goal-control.integration.test.ts', ['goals']],
   ['packages/interaction/tests/user-input-panel.component.test.tsx', ['chat']],
 
   ['apps/desktop/tests/composer.e2e.spec.ts', ['chat', 'files']],

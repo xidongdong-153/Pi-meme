@@ -22,6 +22,7 @@ export function ComposerEditor({
   sessionKey,
   agentPlugins,
   onPlanCommand,
+  onGoalCommand,
   projectPath,
   loadProjectFiles,
   selectedSkills,
@@ -41,6 +42,7 @@ export function ComposerEditor({
 }: Pick<
   ComposerProps,
   | 'onPlanCommand'
+  | 'onGoalCommand'
   | 'sessionKey'
   | 'agentPlugins'
   | 'projectPath'
@@ -86,6 +88,7 @@ export function ComposerEditor({
     setSuggestionsOpen,
   } = useCommandCompletion({
     onPlanCommand,
+    onGoalCommand,
     projectPath,
     loadProjectFiles,
     draft,

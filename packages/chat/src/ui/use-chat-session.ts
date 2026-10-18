@@ -1,6 +1,8 @@
+import { parseGoalCommand, validateGoalInput, type GoalEdit } from '@pi-meme/contracts/goal'
 import { visibleComposerHint } from './composer/composer-hint'
 import { queuedDraft } from './composer/restore-queued-input'
 import { ChatStream } from './model/chat-stream'
+import { messageText } from './model/message-text'
 import type { ChatState } from './model/types'
 import { prepareComposerMessage } from './composer/plan-input'
 import { SessionMode } from './composer/session-mode'
@@ -8,7 +10,7 @@ import { normalizePlanMessage, type TaskMode, type QueuedInput } from '@pi-meme/
 import { skillMarker, skillMessageParts } from '@pi-meme/contracts/skills'
 import { useCallback, useRef, useState } from 'react'
 import type { ChatBridge, DesktopEvent, Snapshot } from '@pi-meme/contracts/desktop'
-import type { PiEvent, PiSlashCommand } from '@pi-meme/contracts/pi'
+import type { PiEvent, PiMessage, PiSlashCommand } from '@pi-meme/contracts/pi'
 import { applyEvent as reduceEvent, emptyChat, restoreSnapshot } from './model/state'
 import type { ComposerAttachment as Attachment } from './composer/image-attachment'
 
@@ -17,6 +19,7 @@ const emptySkills: PiSlashCommand[] = []
 export type QueueMode = 'steering' | 'followUp'
 
 export type ComposerSnapshot = {
+  goalDraft?: true
   draft: string
   selectedSkills: PiSlashCommand[]
   pluginMentions?: string[]
@@ -59,6 +62,9 @@ export function useChatSession(options: ChatSessionOptions) {
     [chatStream],
   )
   const [draft, setDraft] = useState('')
+  const [goalDraft, setGoalDraft] = useState<ComposerSnapshot['goalDraft']>()
+  const [goalOpen, setGoalOpen] = useState(false)
+  const [goalEditing, setGoalEditing] = useState(false)
   const [dismissedHint, setDismissedHint] = useState<string | undefined>(undefined)
   const hintSession = useRef<string | undefined>(undefined)
   const composerHintRef = useRef<string | undefined>(undefined)
@@ -81,6 +87,7 @@ export function useChatSession(options: ChatSessionOptions) {
   const latestComposer = useRef<ComposerSnapshot>({ draft, selectedSkills, attachments, queueMode })
   latestComposer.current = {
     draft,
+    goalDraft,
     selectedSkills,
     attachments,
     queueMode,
@@ -146,6 +153,9 @@ export function useChatSession(options: ChatSessionOptions) {
 
   const clearComposer = useCallback(() => {
     releaseQueueEdit()
+    setGoalDraft(undefined)
+    setGoalOpen(false)
+    setGoalEditing(false)
     setDraft('')
     setSelectedSkills([])
     setPluginMentions([])
@@ -191,21 +201,125 @@ export function useChatSession(options: ChatSessionOptions) {
     })
   }, [])
 
-  const changeMode = useCallback((next: TaskMode) => {
-    const key = optionsRef.current.currentSessionKey()
-    if (!key) return
-    modeRef.current = next
-    const revision = modes.current.change(key, next)
-    setMode(next)
-    modeWrites.current = modeWrites.current
-      .catch(() => {})
-      .then(() => optionsRef.current.bridge.setSessionMode(key, next))
-      .catch((cause) => {
-        if (key === optionsRef.current.currentSessionKey())
-          optionsRef.current.onError(`无法保存计划模式：${String(cause)}`)
-      })
-      .finally(() => modes.current.settled(key, revision))
-  }, [])
+  const changeMode = useCallback(
+    (next: TaskMode) => {
+      const key = optionsRef.current.currentSessionKey()
+      if (!key) return
+      if (next === 'plan') setGoalDraft(undefined)
+      modeRef.current = next
+      const pausesGoal = next === 'plan' && chatStream.getSnapshot().goal?.status === 'active'
+      const revision = modes.current.change(key, next)
+      setMode(next)
+      modeWrites.current = modeWrites.current
+        .catch(() => {})
+        .then(async () => {
+          await optionsRef.current.bridge.setSessionMode(key, next)
+          if (pausesGoal) {
+            const cleared = await optionsRef.current.bridge.clearQueue(key)
+            if (key === optionsRef.current.currentSessionKey())
+              setRecoveredInputs((current) => [...current, ...cleared.steering, ...cleared.followUp])
+          }
+        })
+        .catch((cause) => {
+          if (key === optionsRef.current.currentSessionKey())
+            optionsRef.current.onError(`无法保存计划模式：${String(cause)}`)
+        })
+        .finally(() => modes.current.settled(key, revision))
+    },
+    [chatStream],
+  )
+
+  const goalAction = useCallback(
+    async (action: 'pause' | 'resume' | 'edit' | 'clear') => {
+      const { bridge, currentSessionKey, currentGeneration } = optionsRef.current
+      const key = currentSessionKey()
+      const generation = currentGeneration()
+      const goal = chatStream.getSnapshot().goal
+      if (!key || !goal) throw new Error('当前会话没有目标')
+      const owns = () => key === currentSessionKey() && generation === currentGeneration()
+      const method = action === 'edit' ? 'pauseGoal' : (`${action}Goal` as 'pauseGoal' | 'resumeGoal' | 'clearGoal')
+      const operation = bridge[method]
+      if (!operation) throw new Error('当前 Host 不支持目标')
+      const next = await operation(key, goal)
+      if (action !== 'resume' && bridge.clearQueue) {
+        const cleared = await bridge.clearQueue(key)
+        if (owns()) setRecoveredInputs((current) => [...current, ...cleared.steering, ...cleared.followUp])
+      }
+      if (owns()) {
+        setChat((state) => ({ ...state, goal: next || undefined }))
+        setGoalEditing(action === 'edit')
+        setGoalOpen(action !== 'clear')
+        await optionsRef.current.refresh?.()
+      }
+    },
+    [chatStream, setChat],
+  )
+
+  const saveGoal = useCallback(
+    async (input: GoalEdit) => {
+      const { bridge, currentSessionKey, currentGeneration } = optionsRef.current
+      const key = currentSessionKey()
+      const generation = currentGeneration()
+      if (!key || !bridge.editGoal) throw new Error('当前 Host 不支持目标')
+      const goal = await bridge.editGoal(key, input)
+      if (key === currentSessionKey() && generation === currentGeneration()) {
+        setChat((state) => ({ ...state, goal }))
+        setGoalEditing(false)
+      }
+    },
+    [setChat],
+  )
+
+  const setMessageGoal = useCallback(
+    async (message: PiMessage) => {
+      const { bridge, currentSessionKey, currentGeneration, canSend, onError } = optionsRef.current
+      const key = currentSessionKey()
+      const generation = currentGeneration()
+      if (!key || !canSend() || message.role !== 'user' || typeof message.timestamp !== 'number') return
+      try {
+        if (!bridge.startGoal) throw new Error('当前 Host 不支持目标')
+        const objective = messageText(message)
+        validateGoalInput({ objective })
+        changeMode('default')
+        await modeWrites.current
+        const result = await bridge.startGoal(key, { objective, sourceMessageTimestamp: message.timestamp })
+        if (key === currentSessionKey() && generation === currentGeneration()) {
+          setGoalDraft(undefined)
+          setGoalEditing(false)
+          setGoalOpen(false)
+          setChat((state) => (state.goal?.goalId === result.goal.goalId ? state : { ...state, goal: result.goal }))
+          await optionsRef.current.refresh?.()
+        }
+      } catch (cause) {
+        if (key === currentSessionKey() && generation === currentGeneration()) onError(String(cause))
+      }
+    },
+    [changeMode, setChat],
+  )
+
+  const activateGoal = useCallback(
+    (value: string) => {
+      const command = parseGoalCommand(value)
+      if (!command) return
+      if (editingTimestamp !== null || editingQueue) {
+        optionsRef.current.onError('请先结束消息编辑')
+        return
+      }
+      const goal = chatStream.getSnapshot().goal
+      if (command.action !== 'open' && command.action !== 'start') {
+        void goalAction(command.action).catch((cause) => optionsRef.current.onError(String(cause)))
+        return
+      }
+      setDraft((current) => command.objective || (current.trimStart().startsWith('/') ? '' : current))
+      setGoalEditing(false)
+      setGoalOpen(!!goal && goal.status !== 'complete')
+      if (!goal || goal.status === 'complete') {
+        changeMode('default')
+        setGoalDraft(true)
+      }
+    },
+    [chatStream, changeMode, goalAction, editingTimestamp, editingQueue],
+  )
 
   const activatePlan = useCallback(
     (value: string) => {
@@ -219,9 +333,28 @@ export function useChatSession(options: ChatSessionOptions) {
     const { bridge, canSend, isSwitching, awaitPendingSwitch, currentGeneration, onError, onSendFailed } =
       optionsRef.current
     const selectedGeneration = currentGeneration()
+    await modeWrites.current
     await awaitPendingSwitch()
     if (isSwitching() || selectedGeneration !== currentGeneration()) return
-    const normalized = prepareComposerMessage(draft, modeRef.current)
+    const goalCommand = chatStream.getSnapshot().goalsSupported ? parseGoalCommand(draft) : undefined
+    if (goalCommand && goalCommand.action !== 'start') {
+      if (goalCommand.action === 'open') activateGoal(draft)
+      else {
+        setDraft('')
+        try {
+          await goalAction(goalCommand.action)
+        } catch (cause) {
+          setDraft((current) => current || draft)
+          onError(String(cause))
+        }
+      }
+      return
+    }
+    const startingGoal = !!goalDraft || goalCommand?.action === 'start'
+    const normalized = prepareComposerMessage(
+      goalCommand?.action === 'start' ? goalCommand.objective : draft,
+      startingGoal ? 'default' : modeRef.current,
+    )
     const messageMode = normalized.mode
     if (messageMode !== modeRef.current) changeMode(messageMode)
     if (normalized.commandOnly) {
@@ -242,6 +375,27 @@ export function useChatSession(options: ChatSessionOptions) {
     }
     const images = attachments.map(({ type, data, mimeType }) => ({ type, data, mimeType }))
     if ((!message && !images.length && !skills.length) || !canSend()) return
+    if (startingGoal) {
+      try {
+        validateGoalInput({
+          objective: message,
+        })
+      } catch (cause) {
+        onError(String(cause))
+        return
+      }
+      if (
+        chat.running ||
+        chat.paused ||
+        chat.queuePaused ||
+        promptPending.current ||
+        editingTimestamp !== null ||
+        queueEdit.current
+      ) {
+        onError('请等待当前会话停止后再创建目标')
+        return
+      }
+    }
     const sessionKey = optionsRef.current.currentSessionKey()
     if (!sessionKey) return
 
@@ -354,7 +508,20 @@ export function useChatSession(options: ChatSessionOptions) {
       setChat((value) => ({ ...value, running: true, activeMode: messageMode }))
     }
     try {
-      if (sendMode === 'followUp') await bridge.followUp(sessionKey, message, images, skills, { mode: messageMode })
+      if (startingGoal) {
+        if (!bridge.startGoal) throw new Error('当前 Host 不支持目标')
+        const result = await bridge.startGoal(sessionKey, {
+          objective: message,
+          images,
+          skills,
+        })
+        if (sessionKey === optionsRef.current.currentSessionKey() && generation === currentGeneration()) {
+          setGoalDraft((current) => (current === goalDraft ? undefined : current))
+          setGoalOpen(false)
+          setChat((state) => (state.goal?.goalId === result.goal.goalId ? state : { ...state, goal: result.goal }))
+        }
+      } else if (sendMode === 'followUp')
+        await bridge.followUp(sessionKey, message, images, skills, { mode: messageMode })
       else {
         activeMode.current = messageMode
         await bridge.prompt(sessionKey, message, images, skills, { mode: messageMode })
@@ -384,6 +551,10 @@ export function useChatSession(options: ChatSessionOptions) {
       finishSend?.()
     }
   }, [
+    goalDraft,
+    goalAction,
+    activateGoal,
+    chatStream,
     chat.running,
     chat.paused,
     chat.queuePaused,
@@ -499,11 +670,14 @@ export function useChatSession(options: ChatSessionOptions) {
     onError('')
     try {
       const key = optionsRef.current.currentSessionKey()
-      if (key) await bridge.pause(key)
+      if (key) {
+        if (chatStream.getSnapshot().goal?.status === 'active' && bridge.pauseGoal) await goalAction('pause')
+        else await bridge.pause(key)
+      }
     } catch (cause) {
       onError(String(cause))
     }
-  }, [])
+  }, [chatStream, goalAction])
 
   const queueAction = useCallback(
     async (action: 'resume' | 'steerQueueInput' | 'deleteQueueInput', id?: string) => {
@@ -597,6 +771,15 @@ export function useChatSession(options: ChatSessionOptions) {
     mode,
     changeMode,
     activatePlan,
+    activateGoal,
+    goalDraft,
+    setGoalDraft,
+    goalOpen,
+    setGoalOpen,
+    goalEditing,
+    goalAction,
+    saveGoal,
+    setMessageGoal,
     recoveredInputs,
     restoreQueuedInput,
     restoreChat: setChat,
@@ -607,7 +790,7 @@ export function useChatSession(options: ChatSessionOptions) {
       draft,
       skills: selectedSkills.length,
       attachments: attachments.length,
-      running: chat.running,
+      running: chat.running || chat.goal?.status === 'active',
       paused: Boolean(chat.paused || chat.queuePaused),
       queued: chat.steering.length > 0 || chat.followUp.length > 0,
       editing: editingTimestamp !== null || editingQueue !== null,
@@ -632,6 +815,7 @@ export function useChatSession(options: ChatSessionOptions) {
     captureComposer: () =>
       queueEdit.current?.restore ?? {
         draft,
+        goalDraft,
         selectedSkills,
         ...(pluginMentions.length ? { pluginMentions } : {}),
         attachments,
@@ -644,6 +828,9 @@ export function useChatSession(options: ChatSessionOptions) {
       },
     restoreComposer: (value: ComposerSnapshot) => {
       releaseQueueEdit()
+      setGoalDraft(value.goalDraft)
+      setGoalOpen(false)
+      setGoalEditing(false)
       setDraft(value.draft)
       setSelectedSkills(value.selectedSkills)
       setPluginMentions(value.pluginMentions ?? [])

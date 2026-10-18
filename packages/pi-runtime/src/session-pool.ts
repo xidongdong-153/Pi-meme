@@ -1,3 +1,4 @@
+import type { GoalControl } from '@pi-meme/contracts/goal'
 import { validateExtensionDialogResponse } from '@pi-meme/contracts/user-input'
 import { normalizePlanMessage, type TaskMode, type MessageOptions } from '@pi-meme/contracts/plan'
 import { AsyncLocalStorage } from 'node:async_hooks'
@@ -134,6 +135,55 @@ export type CollaborationLifecycle = {
   stop: (sessionKey: string) => void | Promise<void>
 }
 export class PiSessionPool implements PiRuntime {
+  private aborts = new Map<string, Promise<void>>()
+  private goalSessions = new Set<string>()
+  goalStopStamp(key: string) {
+    const record = this.sessions.get(key)
+    return record ? `${record.run}:${record.session.connection().generation}` : undefined
+  }
+  retainGoalSession(key: string, retain: boolean) {
+    if (retain) this.goalSessions.add(key)
+    else this.goalSessions.delete(key)
+  }
+  hasRunningGoalTools(key: string) {
+    return [...(this.sessions.get(key)?.tools.values() ?? [])].some(
+      ({ event }) =>
+        (event.type === 'tool_execution_start' || event.type === 'tool_execution_update') &&
+        event.toolName !== 'update_goal',
+    )
+  }
+  hasPendingGoalInput(key: string) {
+    const record = this.sessions.get(key)
+    return (
+      !!record &&
+      !!(
+        record.state.pendingMessageCount ||
+        (record.queue?.event.type === 'queue_update' &&
+          (record.queue.event.steering.length || record.queue.event.followUp.length))
+      )
+    )
+  }
+  isSessionIdle(key: string, allowQueued = false) {
+    const record = this.sessions.get(key)
+    return (
+      !!record &&
+      !this.changing &&
+      !record.running &&
+      !record.pendingPrompt &&
+      !record.starting &&
+      !record.retiring &&
+      !record.stopping &&
+      !record.accessChanging &&
+      (allowQueued || (!record.state.isPaused && !record.state.queuePaused)) &&
+      !record.state.isCompacting &&
+      !record.state.retry &&
+      (allowQueued ||
+        !(
+          record.queue?.event.type === 'queue_update' &&
+          (record.queue.event.steering.length || record.queue.event.followUp.length)
+        ))
+    )
+  }
   private collaboration?: CollaborationLifecycle
   configureCollaboration(value: CollaborationLifecycle) {
     this.collaboration = value
@@ -868,6 +918,7 @@ export class PiSessionPool implements PiRuntime {
       .filter(
         (record) =>
           record !== this.active &&
+          !this.goalSessions.has(record.key) &&
           !record.running &&
           !record.state.isPaused &&
           !record.state.queuePaused &&
@@ -1435,6 +1486,7 @@ export class PiSessionPool implements PiRuntime {
     images?: PiImage[],
     skills: SkillReference[] = [],
     options?: MessageOptions,
+    goalControl?: GoalControl,
   ) {
     const normalized = normalizePlanMessage(message, options?.mode ?? this.target(sessionKey).state.mode)
     if (normalized.commandOnly) {
@@ -1454,7 +1506,7 @@ export class PiSessionPool implements PiRuntime {
     record.pendingPrompt = true
     record.running = true
     record.touched = Date.now()
-    if (!record.restored && !builtinCommand(message)) record.firstMessage ||= message
+    if (!goalControl && !record.restored && !builtinCommand(message)) record.firstMessage ||= message
     this.notify.sessionsChanged()
     try {
       await this.setSessionMode(sessionKey, normalized.mode)
@@ -1462,7 +1514,9 @@ export class PiSessionPool implements PiRuntime {
       if (record.cancelledPrompt || !this.sessions.has(record.key)) throw new Error('消息发送已取消')
       await this.collaboration?.beforePrompt(sessionKey, { mode: normalized.mode, message })
       record.state.activeMode = normalized.mode
-      const result = await record.session.prompt(message, images, skills, { mode: normalized.mode }, false, true)
+      const result = goalControl
+        ? await record.session.continueGoalTask(message, goalControl)
+        : await record.session.prompt(message, images, skills, { mode: normalized.mode }, false, true)
       await record.session.setSessionMode(record.state.mode)
       return result
     } catch (cause) {
@@ -1504,6 +1558,9 @@ export class PiSessionPool implements PiRuntime {
       if (record.settled) record.running = false
       this.signalSettled()
     }
+  }
+  continueGoalTask(key: string, message: string, control: GoalControl) {
+    return this.prompt(key, message, undefined, [], { mode: 'default' }, control)
   }
   steer(sessionKey: string, message: string, images?: PiImage[], skills?: SkillReference[], options?: MessageOptions) {
     return this.target(sessionKey).session.steer(message, images, skills, options)
@@ -1560,12 +1617,24 @@ export class PiSessionPool implements PiRuntime {
     if (record.modeRevision !== revision) return
     if (!record.dormant && !record.pendingPrompt) await record.session.setSessionMode(mode)
   }
-  async abort(sessionKey: string) {
+  abort(sessionKey: string) {
+    const pending = this.aborts.get(sessionKey)
+    if (pending) return pending
+    const stopping = Promise.resolve().then(() => this.abortSession(sessionKey))
+    this.aborts.set(sessionKey, stopping)
+    void stopping
+      .finally(() => {
+        if (this.aborts.get(sessionKey) === stopping) this.aborts.delete(sessionKey)
+      })
+      .catch(() => {})
+    return stopping
+  }
+  private async abortSession(sessionKey: string) {
     const record = this.target(sessionKey)
-    await this.collaboration?.stop(sessionKey)
     record.stopping = true
     this.notify.connection(this.withSession(record.key, () => this.connection()))
     try {
+      await this.collaboration?.stop(sessionKey)
       if (record.pendingPrompt && record.starting) {
         record.cancelledPrompt = true
         await record.starting.catch(() => {})

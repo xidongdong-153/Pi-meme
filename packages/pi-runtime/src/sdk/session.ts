@@ -1,3 +1,11 @@
+import {
+  goalEntryUsage,
+  isGoalUsageEntry,
+  goalRunEntry,
+  type GoalControl,
+  type GoalRun,
+  type PromptOrigin,
+} from '@pi-meme/contracts/goal'
 import type { AgentConversationOrigin, AgentMailboxMessage } from '@pi-meme/contracts/collaboration'
 import { mkdtemp, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
@@ -90,7 +98,16 @@ function toModel(model: SessionModel | undefined): PiModel | undefined {
  */
 export type RuntimePolicy = {
   initialGeneration?: number
-  onAdmission?: (message: string, mode: TaskMode, continuation: boolean, signal: AbortSignal) => Promise<void>
+  onAdmission?: (
+    message: string,
+    mode: TaskMode,
+    continuation: boolean,
+    signal: AbortSignal,
+    origin?: PromptOrigin,
+    expected?: GoalControl,
+  ) => Promise<void | GoalRun>
+  onGoalGate?: (tool: boolean) => Promise<unknown>
+  onGoalUsage?: (run: GoalRun, entryId: string, usage: unknown, inputEntryId?: string) => Promise<void>
   uiEnabled?: boolean
   resourcePaths?: { skills: string[]; prompts: string[] }
   resourceSnapshot?: ResourceSnapshot
@@ -115,6 +132,13 @@ export class SdkSession {
   private draining = false
   private handingOff = 0
   private handoffs = new Map<string, { kind: 'steering' | 'followUp'; input: QueuedInput; cancelled?: boolean }>()
+  private goalRun?: GoalRun
+  private goalAccounted = new Set<string>()
+  private goalInputEntryId?: string
+  private goalAccounting: Promise<void> = Promise.resolve()
+  getGoalRun() {
+    return this.goalRun
+  }
   private mode: TaskMode = 'default'
   private activeMode?: TaskMode
   private runtimeMode: TaskMode = 'default'
@@ -369,6 +393,19 @@ export class SdkSession {
           pi.on('agent_end', gate)
           pi.on('tool_call', gate)
           pi.on('before_provider_request', gate)
+          pi.on('cache_warming_decision', () => (this.goalRun ? { action: 'stop' as const } : undefined))
+          const goalGate = async (_event: unknown, context: { abort: () => void }, tool = false) => {
+            if (!this.goalRun) return
+            try {
+              await this.accountGoalUsage()
+              await this.policy.onGoalGate?.(tool)
+            } catch (cause) {
+              context.abort()
+              if (tool) throw cause
+            }
+          }
+          pi.on('before_provider_request', (event, context) => goalGate(event, context))
+          pi.on('tool_call', (event, context) => goalGate(event, context, true))
         },
         ...(restricted
           ? [
@@ -540,6 +577,8 @@ export class SdkSession {
           generation: this.generation,
           event: { type: 'skill_usage_update', usages: this.getSkillUsages() },
         })
+      if (event.type === 'entry_appended' && this.goalRun)
+        void this.accountGoalUsage().catch((cause: unknown) => this.report(String(cause)))
       const desktopEvent = toDesktopEvent(event)
       if (event.type === 'queue_update') {
         for (const key of ['steering', 'followUp'] as const) {
@@ -580,7 +619,36 @@ export class SdkSession {
     })
   }
 
-  private handleEvent(event: PiEvent, forceSettled = false) {
+  private accountGoalUsage() {
+    const run = this.goalRun
+    if (!run || !this.runtime) return this.goalAccounting
+    let belongs = false
+    for (const entry of this.session.sessionManager.getEntries()) {
+      if (entry.type === 'custom' && entry.customType === goalRunEntry) {
+        const data = entry.data as Partial<GoalRun> | undefined
+        belongs = data?.goalId === run.goalId && data?.cycleId === run.cycleId
+      }
+      if (!belongs) continue
+      if (entry.type === 'message' && entry.message.role === 'user') this.goalInputEntryId ??= entry.id
+      const usage = goalEntryUsage(entry)
+      if (isGoalUsageEntry(entry) && !this.goalAccounted.has(entry.id)) {
+        this.goalAccounted.add(entry.id)
+        const inputEntryId = this.goalInputEntryId
+        this.goalAccounting = this.goalAccounting.then(() =>
+          this.policy.onGoalUsage?.(run, entry.id, usage, inputEntryId),
+        )
+      }
+    }
+    return this.goalAccounting
+  }
+
+  private handleEvent(event: PiEvent, forceSettled = false, accounted = false) {
+    if (event.type === 'agent_settled' && this.goalRun && !accounted) {
+      void this.accountGoalUsage()
+        .catch((cause: unknown) => this.report(String(cause)))
+        .finally(() => this.handleEvent(event, forceSettled, true))
+      return
+    }
     if (event.type === 'auto_retry_start' || event.type === 'summarization_retry_scheduled') {
       this.retry = {
         kind: event.type === 'auto_retry_start' ? 'model' : 'summary',
@@ -638,7 +706,7 @@ export class SdkSession {
           void this.advanceQueue()
             .catch((cause: unknown) => this.report(String(cause)))
             .finally(() => {
-              if (!forceSettled && !aborted) void this.refreshComposerHint()
+              if (!forceSettled && !aborted && !this.goalRun) void this.refreshComposerHint()
             })
         })
     }
@@ -865,8 +933,9 @@ export class SdkSession {
     images?: PiImage[],
     skills: SkillReference[] = [],
     options?: MessageOptions,
-    continuation = false,
+    continuation: boolean | 'goal' = false,
     preserveMode = false,
+    expectedGoal?: GoalControl,
   ) {
     const normalized = normalizePlanMessage(message, options?.mode ?? this.mode)
     if (!normalized.commandOnly && (this.changing || this.running))
@@ -902,7 +971,27 @@ export class SdkSession {
       this.running = true
       this.pendingSend = true
       this.activeMode = normalized.mode
-      if (!command) await this.policy.onAdmission?.(message, normalized.mode, continuation, this.admission.signal)
+      if (!command) {
+        const run = await this.policy.onAdmission?.(
+          message,
+          normalized.mode,
+          Boolean(continuation),
+          this.admission.signal,
+          continuation === 'goal' ? 'goal' : continuation ? 'collaboration' : 'user',
+          expectedGoal,
+        )
+        this.goalRun = run || undefined
+        this.goalInputEntryId = undefined
+        this.goalAccounted.clear()
+        this.goalAccounting = Promise.resolve()
+        // 原生 entry ID 在分支复制时保持稳定，用于恢复核对和去重。
+        const lastGoal = this.session.sessionManager
+          .getEntries()
+          .findLast((entry) => entry.type === 'custom' && entry.customType === goalRunEntry)
+        if (this.goalRun || (lastGoal?.type === 'custom' && (lastGoal.data as Partial<GoalRun> | undefined)?.goalId))
+          this.session.sessionManager.appendCustomEntry(goalRunEntry, this.goalRun ?? { goalId: null })
+        if (this.goalRun) this.clearComposerHint()
+      }
       if (generation !== this.generation || this.queueCancelled) throw new Error('消息发送已取消')
       this.activityRevision += 1
     } catch (cause) {
@@ -933,11 +1022,15 @@ export class SdkSession {
   }
 
   /** 预检完成即返回，整轮运行通过事件推送，与 RPC 模式一致。 */
+  continueGoalTask(message: string, expected: GoalControl) {
+    return this.prompt(message, undefined, [], { mode: 'default' }, 'goal', true, expected)
+  }
+
   continueCollaborationTask(message: string, mode: TaskMode) {
     return this.prompt(message, undefined, [], { mode }, true)
   }
 
-  private async sendPrompt(message: string, images?: PiImage[], continuation = false) {
+  private async sendPrompt(message: string, images?: PiImage[], continuation: boolean | 'goal' = false) {
     const generation = this.generation
     await this.ready
     await this.waitForResume()
@@ -956,10 +1049,13 @@ export class SdkSession {
         void session
           .sendCustomMessage(
             {
-              customType: 'pi-meme-collaboration-control',
+              customType: continuation === 'goal' ? 'pi-meme-goal-control' : 'pi-meme-collaboration-control',
               content: message,
               display: false,
-              details: { kind: 'continuation' },
+              details: {
+                kind: 'continuation',
+                ...(this.goalRun ? { goalId: this.goalRun.goalId, cycleId: this.goalRun.cycleId } : {}),
+              },
             },
             { triggerTurn: true },
           )

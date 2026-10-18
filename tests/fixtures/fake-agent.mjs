@@ -58,7 +58,7 @@ function createCredentials() {
  * 启动假模型端点并在 Desktop 专属目录写入模型配置和加密存储接口。
  *
  * @param {string} directory 测试用临时根目录
- * @param {{ models?: { id: string; name?: string; reasoning?: boolean }[]; providers?: Record<string, unknown>; reply?: FakeProviderOptions['reply'] }} [options]
+ * @param {{ models?: { id: string; name?: string; reasoning?: boolean; input?: ('text' | 'image')[] }[]; providers?: Record<string, unknown>; reply?: FakeProviderOptions['reply'] }} [options]
  * @returns {Promise<{ agentDir: string; modelsFile: string; runtimePaths: ReturnType<typeof createRuntimePaths>; credentials: ReturnType<typeof createCredentials>; provider: Awaited<ReturnType<typeof startFakeProvider>>; dispose: () => Promise<void> }>}
  *   agentDir 供断言使用，dispose 关闭假模型端点。
  */

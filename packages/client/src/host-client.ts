@@ -654,6 +654,11 @@ export class HostClient {
     }
     return {
       getConnection: async () => (await this.snapshot()).connection,
+      startGoal: (key, input) => rpc('goal:start', [key, input], key),
+      editGoal: (key, input) => rpc('goal:edit', [key, input], key),
+      pauseGoal: (key, input) => rpc('goal:pause', [key, input], key),
+      resumeGoal: (key, input) => rpc('goal:resume', [key, input], key),
+      clearGoal: (key, input) => rpc('goal:clear', [key, input], key),
       resolveAppSession: (sessionKey) => rpc('host:session-ref', [sessionKey], sessionKey),
       getSnapshot: () => this.snapshot(),
       onConnection: (callback) => subscribe(this.connectionListeners, callback),

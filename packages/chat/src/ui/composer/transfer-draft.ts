@@ -26,7 +26,13 @@ export function transferDraft(composer: ComposerSnapshot, commands: PiSlashComma
     return `$${skill.name.replace(/^skill:/, '')}`
   })
   return {
-    composer: { draft, selectedSkills, attachments: composer.attachments, queueMode: composer.queueMode },
+    composer: {
+      draft,
+      selectedSkills,
+      ...(composer.goalDraft ? { goalDraft: composer.goalDraft } : {}),
+      attachments: composer.attachments,
+      queueMode: composer.queueMode,
+    },
     removedSkills,
   }
 }

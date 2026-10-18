@@ -34,6 +34,9 @@ export type ComposerProps = {
   mode?: TaskMode
   onMode?: (mode: TaskMode) => void
   onPlanCommand?: (text: string) => void
+  onGoalCommand?: (text: string) => void
+  goalControl?: ReactNode
+  goalBanner?: ReactNode
   recoveredInputs?: QueuedInput[]
   onRestoreQueuedInput?: (input: QueuedInput) => void
   sessionKey?: string
@@ -89,6 +92,9 @@ export function Composer({
   mode,
   onMode,
   onPlanCommand,
+  onGoalCommand,
+  goalControl,
+  goalBanner,
   recoveredInputs,
   onRestoreQueuedInput,
   sessionKey,
@@ -184,6 +190,7 @@ export function Composer({
       <ComposerQueues
         {...{ queues, paused, activeMode, disabled, onResume, onSteerQueueInput, onDeleteQueueInput, onEditQueueInput }}
       />
+      {goalBanner}
       <form
         aria-label="消息输入"
         className={cn(
@@ -258,6 +265,7 @@ export function Composer({
             sessionKey={sessionKey}
             agentPlugins={agentPlugins}
             onPlanCommand={onPlanCommand}
+            onGoalCommand={onGoalCommand}
             projectPath={projectPath}
             loadProjectFiles={loadProjectFiles}
             selectedSkills={selectedSkills}
@@ -278,6 +286,7 @@ export function Composer({
           <div className="composer-below">{widgetsBelow}</div>
           <ComposerToolbar
             compact={compact}
+            goalControl={goalControl}
             mode={mode}
             onMode={onMode}
             running={running}

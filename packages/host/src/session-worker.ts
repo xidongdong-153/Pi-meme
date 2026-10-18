@@ -1,3 +1,4 @@
+import { create as createGoals } from '@pi-meme/goals/agent/entry'
 import { runSessionWorker } from '@pi-meme/pi-adapter/session-worker'
 import { create as createPermissions } from '@pi-meme/permissions/agent/entry'
 import { create as createSandboxMacos } from '@pi-meme/sandbox-macos/agent/entry'
@@ -10,6 +11,7 @@ import { create as createMcp } from '@pi-meme/mcp/agent/entry'
 import { create as createSubagents } from '@pi-meme/subagents/agent/entry'
 
 runSessionWorker({
+  '@pi-meme/goals': createGoals,
   '@pi-meme/permissions': createPermissions,
   [sandboxPluginId()]: sandboxPluginId() === '@pi-meme/sandbox-linux' ? createSandboxLinux : createSandboxMacos,
   '@pi-meme/resources': createResources,

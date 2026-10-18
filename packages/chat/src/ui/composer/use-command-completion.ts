@@ -1,3 +1,4 @@
+import { goalCommands } from '@pi-meme/contracts/goal'
 import { planCompletion } from './plan-input'
 import * as React from 'react'
 import type { ProjectFile } from '@pi-meme/contracts/desktop'
@@ -13,6 +14,7 @@ export type CompletionItem =
 
 export function useCommandCompletion({
   onPlanCommand,
+  onGoalCommand,
   projectPath,
   loadProjectFiles,
   draft,
@@ -29,6 +31,7 @@ export function useCommandCompletion({
 }: Pick<
   ComposerProps,
   | 'onPlanCommand'
+  | 'onGoalCommand'
   | 'projectPath'
   | 'loadProjectFiles'
   | 'draft'
@@ -128,7 +131,11 @@ export function useCommandCompletion({
           if (plan) planSeen = true
           const preferred = plan ? (canonicalPlan ?? command) : command
           const candidate = plan && preferred.name !== 'plan' ? { ...preferred, name: 'plan' } : preferred
-          return candidate.name.toLowerCase().startsWith(prefix) || (plan && '计划模式'.startsWith(prefix))
+          return candidate.name.toLowerCase().startsWith(prefix) ||
+            (plan && '计划模式'.startsWith(prefix)) ||
+            (candidate.source === 'builtin' &&
+              candidate.name === 'goal' &&
+              ['目标', '目标模式'].some((name) => name.startsWith(prefix)))
             ? [{ kind: 'command', command: candidate }]
             : []
         })
@@ -169,6 +176,18 @@ export function useCommandCompletion({
       return
     }
     const command = item.command
+    if (
+      item.kind === 'command' &&
+      command.source === 'builtin' &&
+      (goalCommands as readonly string[]).includes(command.name) &&
+      onGoalCommand &&
+      query.start === draft.search(/\S/u)
+    ) {
+      onGoalCommand(`/goal ${draft.slice(draftCaret).trimStart()}`)
+      setSuggestionsOpen(false)
+      editor.current?.focus()
+      return
+    }
     const plan = item.kind === 'command' ? planCompletion(command, draft, query.start, draftCaret) : undefined
     if (plan !== undefined && onPlanCommand) {
       onPlanCommand(plan)

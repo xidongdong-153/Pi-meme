@@ -24,6 +24,7 @@ const businessPackages = new Set(
     'sandbox-macos',
     'sandbox-linux',
     'usage',
+    'goals',
     'git',
     'file-directory',
     'terminal',

@@ -1,3 +1,4 @@
+import type { GoalEvent } from '@pi-meme/contracts/goal'
 import type { CollaborationEvent } from '@pi-meme/contracts/collaboration'
 import type { PlanEvent } from '@pi-meme/contracts/plan'
 import type { AgentAccessEvent } from '@pi-meme/contracts/agent-access'
@@ -23,6 +24,8 @@ export function fromSnapshot(snapshot: Snapshot): ChatState {
   const state: ChatState = {
     ...emptyChat,
     messages: snapshot.messages,
+    goal: snapshot.goal,
+    goalsSupported: snapshot.goalsSupported,
     planDocuments: snapshot.planDocuments ?? [],
     agents: snapshot.agents ?? [],
     agentMessages: snapshot.agentMessages ?? [],
@@ -105,7 +108,7 @@ function mergeRunIntervals(current: PiRunInterval[] | undefined, incoming: PiRun
 
 export function applyEvent(
   state: ChatState,
-  event: PiEvent | AgentAccessEvent | PlanEvent | CollaborationEvent,
+  event: PiEvent | AgentAccessEvent | PlanEvent | CollaborationEvent | GoalEvent,
 ): ChatState {
   if ('generationMetrics' in event)
     state = {
@@ -126,6 +129,10 @@ export function applyEvent(
         : { ...state, agentMessages: [...(state.agentMessages ?? []), event.message] }
     case 'access_mode_changed':
       return state
+    case 'goal_updated':
+      return { ...state, goal: event.goal, composerHint: undefined }
+    case 'goal_cleared':
+      return state.goal?.goalId === event.goalId ? { ...state, goal: undefined } : state
     case 'plan_saved': {
       const current = state.planDocuments?.find((document) => document.id === event.document.id)
       if (current && current.revision >= event.document.revision) return state

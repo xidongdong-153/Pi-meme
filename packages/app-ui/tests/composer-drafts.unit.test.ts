@@ -50,6 +50,19 @@ test('刷新恢复文字与技能引用，Host和会话分别隔离，图片不�
   assert.doesNotMatch([...values.values()].join(''), /不应保存的图片数据|attachments/)
 })
 
+test('目标草稿只保存创建标记，旧预算设置读取后移除', () => {
+  const { open, values } = fixture()
+  const key = composerDraftPrefix + JSON.stringify(['host-a', 'session'])
+  values.set(key, JSON.stringify({ ...empty, draft: '已有目标草稿', goalDraft: { budget: '1214' } }))
+  const drafts = open()
+  const restored = drafts.get('session')!
+  assert.equal(restored.goalDraft, true)
+  assert.equal(restored.draft, '已有目标草稿')
+  drafts.set('session', restored)
+  assert.equal(JSON.parse(values.get(key)!).goalDraft, true)
+  assert.doesNotMatch(values.get(key)!, /budget|1214/)
+})
+
 test('Host重启改变运行时key后，仍按稳定会话ID恢复；迟到身份不覆盖新输入', () => {
   const { storage } = fixture()
   const previous = new ComposerDrafts('host-a', storage)

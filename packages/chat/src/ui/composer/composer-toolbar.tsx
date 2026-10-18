@@ -6,6 +6,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/
 import { cn } from '@pi-meme/ui/lib/utils'
 
 export type ComposerToolbarProps = {
+  goalControl?: ReactNode
   compact?: boolean
   mode?: TaskMode
   onMode?: (mode: TaskMode) => void
@@ -32,6 +33,7 @@ export type ComposerToolbarProps = {
 }
 
 export function ComposerToolbar({
+  goalControl,
   compact,
   mode,
   onMode,
@@ -94,6 +96,7 @@ export function ComposerToolbar({
           <TooltipContent side="top">添加图片或附件</TooltipContent>
         </Tooltip>
         {!compact && access}
+        {goalControl}
         {!compact && plan && (
           <>
             <span aria-hidden="true" className="mx-0.5 h-3 w-px shrink-0 bg-border" />

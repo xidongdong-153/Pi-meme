@@ -1,3 +1,4 @@
+import type { Goal, GoalRequest, GoalRun } from '@pi-meme/contracts/goal'
 import { createAppAgent } from '@pi-meme/pi-runtime/sdk/app-agent'
 import { parentPort, workerData } from 'node:worker_threads'
 import { randomUUID } from 'node:crypto'
@@ -25,6 +26,7 @@ export type SessionWorkerContext = {
     request: Omit<CollaborationRequest, 'id'>,
     signal?: AbortSignal,
   ) => Promise<CollaborationResults[keyof CollaborationResults]>
+  requestGoal: (request: GoalRequest, signal?: AbortSignal) => Promise<Goal | undefined>
   savePlan: (input: SavePlanInput, signal?: AbortSignal) => Promise<PlanDocument>
   requestUserInput: (
     questions: import('@pi-meme/contracts/user-input').UserInputQuestion[],
@@ -85,8 +87,13 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
     requireRestrictedPolicy: true,
     resourceSnapshot: data.resourceSnapshot,
     agentSources: data.agentEntries,
-    onAdmission: (message, mode, continuation, signal) =>
-      hostRequest('admission', { message, mode, continuation }, signal) as Promise<void>,
+    onAdmission: (message, mode, continuation, signal, origin, expected) =>
+      hostRequest('admission', { message, mode, continuation, origin, expected }, signal) as Promise<
+        GoalRun | undefined
+      >,
+    onGoalGate: (tool) => hostRequest('goal', { goalRequest: { method: 'gate', tool }, goalRun: session.getGoalRun() }),
+    onGoalUsage: (goalRun, entryId, usage, inputEntryId) =>
+      hostRequest('goalUsage', { goalRun, entryId, usage, inputEntryId }) as Promise<void>,
   }
   session = new SdkSession(
     data.cwd,
@@ -106,7 +113,7 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
     { resolve: (value: unknown) => void; reject: (cause: Error) => void; cleanup: () => void }
   >()
   function hostRequest(
-    kind: 'collaboration' | 'savePlan' | 'admission',
+    kind: 'collaboration' | 'savePlan' | 'admission' | 'goal' | 'goalUsage',
     request: object,
     signal?: AbortSignal,
   ): Promise<unknown> {
@@ -144,6 +151,8 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
           taskMode: () => session.getTaskMode(),
           requestCollaboration: (request, signal) =>
             hostRequest('collaboration', request, signal) as Promise<CollaborationResults[keyof CollaborationResults]>,
+          requestGoal: (goalRequest, signal) =>
+            hostRequest('goal', { goalRequest, goalRun: session.getGoalRun() }, signal) as Promise<Goal | undefined>,
           savePlan: (input, signal) => hostRequest('savePlan', { input }, signal) as Promise<PlanDocument>,
           requestUserInput: (questions, signal) => session.requestUserInput(questions, signal),
           registerInteractionPolicy: (enabled) => {

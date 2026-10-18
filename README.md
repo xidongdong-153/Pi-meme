@@ -2,7 +2,7 @@
 
 Pi Coding Agent 的 macOS Desktop 和 Web 客户端。Electron 提供窗口与本机操作，Node Host 运行会话 Worker、内置模块和 App 插件；两种界面共用 React App 和 HTTP/WebSocket 协议。Pi SDK 随应用分发，不需要安装 Pi CLI。
 
-支持图片输入、插话与排队、消息编辑与分支、模型配置、技能、MCP、子代理和只读规划模式。文件、终端、Git 与插件工具在当前聊天的右侧栏打开。
+支持图片输入、插话与排队、消息编辑与分支、模型配置、技能、MCP、子代理、持久目标自动续跑和只读规划模式。文件、终端、Git 与插件工具在当前聊天的右侧栏打开。
 
 ## 下载使用
 

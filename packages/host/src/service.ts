@@ -1,3 +1,6 @@
+import { GoalService } from '@pi-meme/goals/server/service'
+import { parseGoalCommand, type GoalRun } from '@pi-meme/contracts/goal'
+import { normalizePlanMessage } from '@pi-meme/contracts/plan'
 import { PluginManager, type PluginDescriptor } from '@pi-meme/plugin-runtime/manager'
 import { fileURLToPath } from 'node:url'
 import { createHostCollaborationBridge } from './collaboration-bridge'
@@ -155,6 +158,8 @@ export async function createHost(options: HostOptions = {}) {
       await writeFile(hostIdFile, hostId, { mode: 0o600 })
     }
     const paths = createPiRuntimePaths(root)
+    const goals = new GoalService({ root, sessionsDirectory: paths.sessionsDirectory })
+    await goals.init()
     await installBuiltinSkills(
       options.builtinSkillsSource ?? fileURLToPath(new URL('../../../pi/skills', import.meta.url)),
       paths.builtinSkillsDirectory,
@@ -316,6 +321,8 @@ export async function createHost(options: HostOptions = {}) {
     const workerPlugins = new Map<string, PluginDescriptor[]>()
     const workerPluginIds = new Map<string, Set<string>>()
     const workers = new Map<string, RuntimeSdkSession>()
+    const goalRuns = new WeakMap<RuntimeSdkSession, GoalRun>()
+    const admittedGoalRuns = new WeakMap<RuntimeSdkSession, Set<string>>()
     const createSession = (
       cwd: string,
       notify: Parameters<typeof createWorkerSession>[1],
@@ -369,8 +376,70 @@ export async function createHost(options: HostOptions = {}) {
           agentEntries: lease.agentEntries,
           resourceSnapshot: snapshot,
           workerPath: options.workerPath ?? fileURLToPath(new URL('./session-worker.ts', import.meta.url)),
-          admit: (message, mode, continuation, signal) =>
-            collaboration.admit(session, message, mode, continuation, signal),
+          admit: async (
+            message,
+            mode,
+            continuation,
+            signal,
+            origin = continuation ? 'collaboration' : 'user',
+            expected,
+          ) => {
+            const actor = collaboration.goalCaller(session)
+            const current = await appControl?.goalForRuntime(actor.rootSessionKey)
+            if (
+              origin === 'goal' &&
+              (!current ||
+                current.status !== 'active' ||
+                current.goalId !== expected?.goalId ||
+                current.revision !== expected?.revision)
+            )
+              throw new Error('目标已暂停或发生变更')
+            if (mode === 'plan' && current?.status === 'active')
+              await goals.stop(current.session, 'paused', '进入规划模式，目标已暂停')
+            await collaboration.admit(session, message, mode, origin === 'collaboration', signal)
+            const run =
+              actor.depth === 0
+                ? await appControl?.admitGoal(actor.rootSessionKey, origin, expected)
+                : current?.status === 'active'
+                  ? await appControl?.goalRunForRuntime(actor.rootSessionKey)
+                  : undefined
+            if (run) {
+              goalRuns.set(session, run)
+              const known = admittedGoalRuns.get(session) ?? new Set<string>()
+              known.add(`${run.goalId}:${run.cycleId}`)
+              admittedGoalRuns.set(session, known)
+            } else goalRuns.delete(session)
+            return run
+          },
+          goal: async (request, run, signal) => {
+            if (signal.aborted) throw new Error('目标请求已取消')
+            const actor = collaboration.goalCaller(session)
+            if (request.method === 'get')
+              return actor.depth === 0 ? appControl?.goalForRuntime(actor.rootSessionKey) : undefined
+            const current = goalRuns.get(session)
+            if (!run || !current || run.goalId !== current.goalId || run.cycleId !== current.cycleId)
+              throw new Error('目标请求来自过期执行')
+            await goals.flush()
+            if (request.method === 'gate') {
+              const goal = goals.get(run.session)
+              if (actor.depth === 0 && !request.tool && goal?.goalId === run.goalId && goal.status === 'complete')
+                return goal
+              goals.assertActive(run)
+              return goal
+            }
+            if (actor.depth !== 0) throw new Error('子代理不能修改根目标')
+            if (!['running', 'waiting_children', 'waiting_input'].includes(actor.status))
+              throw new Error('目标执行已结束')
+            const canComplete = await appControl!.goalCanComplete(actor.rootSessionKey)
+            if (request.input.progress === 'waiting' && canComplete)
+              throw new Error('没有仍在执行的子任务或待答交互，请记录实际进展或阻塞')
+            return goals.update(run, request.input, canComplete)
+          },
+          goalUsage: async (run, entryId, usage, inputEntryId) => {
+            if (!admittedGoalRuns.get(session)?.has(`${run.goalId}:${run.cycleId}`))
+              throw new Error('用量来自未接纳的目标执行')
+            await goals.usage(run, entryId, usage, inputEntryId)
+          },
           collaboration: (request, signal) => collaboration.dispatch(session, request, signal),
           savePlan: (input, signal) => collaboration.savePlan(session, input, signal),
           release: async () => {
@@ -421,6 +490,12 @@ export async function createHost(options: HostOptions = {}) {
     pi.configureCollaboration({
       pause: async (key) => {
         await bindRoot(key)
+        const goal = await appControl?.goalForRuntime(key)
+        if (goal?.status === 'active') {
+          await goals.stop(goal.session, 'paused', '用户停止了目标执行')
+          await pi.abort(key)
+          return
+        }
         await collaboration.pauseRoot(key)
       },
       resume: async (key) => {
@@ -445,6 +520,8 @@ export async function createHost(options: HostOptions = {}) {
       },
       stop: async (key) => {
         await bindRoot(key)
+        const goal = await appControl?.goalForRuntime(key)
+        if (goal?.status === 'active') await goals.stop(goal.session, 'paused', '目标执行已停止')
         await collaboration.stopRoot(key)
       },
     })
@@ -517,6 +594,8 @@ export async function createHost(options: HostOptions = {}) {
           : binding?.state.mode
       return {
         ...value,
+        goalsSupported: true,
+        goal: key ? await appControl?.goalForRuntime(key) : undefined,
         connection: { ...value.connection, sourceProjectCwd: projects.sourceProjectCwd(value.connection.cwd) },
         state: {
           ...value.state,
@@ -610,6 +689,7 @@ export async function createHost(options: HostOptions = {}) {
       }),
     }
     const sharedContexts = {
+      'host.goals': { goals },
       'host.usage': { sessionsDirectory: paths.sessionsDirectory },
       'host.chat': { pi, getCwd: () => pi.cwd },
       'host.workspace': {
@@ -808,8 +888,36 @@ export async function createHost(options: HostOptions = {}) {
         if (typeof id !== 'string') throw new Error('Agent ID 参数无效')
         return collaboration.interruptAgent(id)
       },
+      'goal:start': async (key, input) => {
+        if (typeof key !== 'string') throw new Error('会话 ID 参数无效')
+        return appControl!.api.goals.start(
+          await appControl!.sessionForRuntime(key),
+          input as Parameters<import('@pi-meme/contracts/app-host').HostApi['goals']['start']>[1],
+          { idempotencyKey: randomUUID() },
+        )
+      },
+      ...Object.fromEntries(
+        (['edit', 'pause', 'resume', 'clear'] as const).map((method) => [
+          `goal:${method}`,
+          async (key: unknown, input: unknown) => {
+            if (typeof key !== 'string') throw new Error('会话 ID 参数无效')
+            const ref = await appControl!.sessionForRuntime(key)
+            const action = appControl!.api.goals[method] as (
+              ref: import('@pi-meme/contracts/app-host').SessionRef,
+              input: unknown,
+              options: { idempotencyKey: string },
+            ) => Promise<unknown>
+            return action(ref, input, { idempotencyKey: randomUUID() })
+          },
+        ]),
+      ),
       'pi:session-mode': async (key, mode) => {
         if (typeof key !== 'string' || (mode !== 'default' && mode !== 'plan')) throw new Error('会话模式参数无效')
+        if (mode === 'plan') {
+          const ref = await appControl!.sessionForRuntime(key)
+          const goal = goals.get(ref)
+          if (goal?.status === 'active') await appControl!.api.goals.pause(ref, goal, { idempotencyKey: randomUUID() })
+        }
         await pi.setSessionMode(key, mode)
       },
       'host:directories': async (input?: unknown) => {
@@ -858,6 +966,7 @@ export async function createHost(options: HostOptions = {}) {
     appControl = await createAppControl({
       hostId,
       root,
+      goals,
       pi,
       projects,
       sessions,
@@ -989,6 +1098,34 @@ export async function createHost(options: HostOptions = {}) {
     }
     let disposal: Promise<void> | undefined
     const inflight = new Set<Promise<unknown>>()
+    const goalStates = new Map(goals.list().map((goal) => [goal.goalId, goal.status]))
+    const unsubscribeGoals = goals.subscribe((ref, goal, goalId) => {
+      const previousStatus = goalStates.get(goalId)
+      if (goal) goalStates.set(goalId, goal.status)
+      else goalStates.delete(goalId)
+      const key = appControl?.goalRuntimeKey(ref)
+      if (!key) return
+      pi.retainGoalSession(key, goal?.status === 'active')
+      pi.publishSessionEvent(key, {
+        generation: 0,
+        event: goal ? { type: 'goal_updated', goal } : { type: 'goal_cleared', goalId },
+      })
+      if (previousStatus === 'active' && goal && ['usage_limited', 'paused', 'blocked'].includes(goal.status)) {
+        const stamp = pi.goalStopStamp(key)
+        setTimeout(() => {
+          if (
+            closing ||
+            goals.get(ref)?.goalId !== goalId ||
+            goals.get(ref)?.status === 'active' ||
+            pi.goalStopStamp(key) !== stamp
+          )
+            return
+          void pi
+            .abort(key)
+            .catch((cause: unknown) => emit('error', { generation: 0, sessionKey: key, message: String(cause) }))
+        }, 0)
+      }
+    })
     return {
       hostId,
       instanceId,
@@ -1058,7 +1195,58 @@ export async function createHost(options: HostOptions = {}) {
             const run = () =>
               pi.withClientView(selected, async () => {
                 if (epoch !== undefined) await pi.releaseQueueEdits(request.clientId)
-                let result = await action(...request.args)
+                const key = selected.sessionKey
+                const sends = ['pi:prompt', 'pi:steer', 'pi:follow-up']
+                const command =
+                  sends.includes(request.method) && typeof request.args[1] === 'string'
+                    ? parseGoalCommand(request.args[1])
+                    : undefined
+                let result: unknown
+                if (request.method.startsWith('goal:') && key) {
+                  const ref = await appControl!.sessionForRuntime(key)
+                  const method = request.method.slice(5) as 'start' | 'edit' | 'pause' | 'resume' | 'clear'
+                  const operation = appControl!.apiFor(request.clientId).goals[method] as (
+                    ref: import('@pi-meme/contracts/app-host').SessionRef,
+                    input: unknown,
+                    options: { idempotencyKey: string },
+                  ) => Promise<unknown>
+                  result = await operation(ref, request.args[1], { idempotencyKey: request.requestId })
+                } else if (command && key) {
+                  const ref = await appControl!.sessionForRuntime(key)
+                  if (command.action === 'start')
+                    result = await appControl!.api.goals.start(
+                      ref,
+                      {
+                        objective: command.objective,
+                        images: request.args[2] as import('@pi-meme/contracts/pi').PiImage[] | undefined,
+                        skills: request.args[3] as import('@pi-meme/contracts/skills').SkillReference[] | undefined,
+                      },
+                      { idempotencyKey: request.requestId },
+                    )
+                  else if (command.action !== 'open') {
+                    const goal = goals.get(ref)
+                    if (!goal) throw new Error('当前会话没有目标')
+                    const method = command.action === 'edit' ? 'pause' : command.action
+                    result = await appControl!.api.goals[method](ref, goal, { idempotencyKey: request.requestId })
+                  }
+                } else {
+                  if (
+                    key &&
+                    (['pi:edit-and-prompt', 'pi:fork-reply', 'pi:switch-message-version'].includes(request.method) ||
+                      (sends.includes(request.method) &&
+                        typeof request.args[1] === 'string' &&
+                        normalizePlanMessage(
+                          request.args[1],
+                          (request.args[4] as { mode?: 'default' | 'plan' } | undefined)?.mode ?? 'default',
+                        ).mode === 'plan'))
+                  ) {
+                    const ref = await appControl!.sessionForRuntime(key)
+                    const goal = goals.get(ref)
+                    if (goal?.status === 'active')
+                      await appControl!.api.goals.pause(ref, goal, { idempotencyKey: randomUUID() })
+                  }
+                  result = await action(...request.args)
+                }
                 if (deletion) {
                   const outcome = result as WorkspaceDeletionResult
                   if (outcome.selection && !outcome.selection.cancelled) {
@@ -1172,6 +1360,7 @@ export async function createHost(options: HostOptions = {}) {
           await pi.stopAndWait()
           await Promise.allSettled(inflight)
           await appControl!.dispose()
+          unsubscribeGoals()
           await terminal.dispose()
           await plugins.dispose()
           await builtins!.dispose()

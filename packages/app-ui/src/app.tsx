@@ -1,3 +1,4 @@
+import { GoalControl } from '@pi-meme/goals/ui/goal-control'
 import { GitMenu } from '@pi-meme/git/ui/git-menu'
 import { LocationSelector } from './shell/location-selector'
 import type { ServiceUI } from './shell/service-ui'
@@ -434,6 +435,21 @@ export function App({
     mode: chat.mode,
     onMode: chat.changeMode,
     onPlanCommand: chat.activatePlan,
+    onGoalCommand: chat.goalsSupported ? chat.activateGoal : undefined,
+    [chat.goalDraft ? 'goalControl' : 'goalBanner']: chat.goalsSupported ? (
+      <GoalControl
+        goal={chat.goalDraft ? undefined : chat.goal}
+        draft={chat.goalDraft}
+        onDraft={chat.setGoalDraft}
+        open={chat.goalOpen}
+        onOpen={chat.setGoalOpen}
+        editing={chat.goalEditing}
+        running={chat.chat.running}
+        onAction={chat.goalAction}
+        onSave={chat.saveGoal}
+        onError={chat.setError}
+      />
+    ) : undefined,
     recoveredInputs: chat.recoveredInputs,
     onRestoreQueuedInput: chat.restoreQueuedInput,
     sessionKey: chat.connection.sessionKey,
@@ -651,6 +667,9 @@ export function App({
             stream: chat.chatStream,
             canEditMessages: !chat.busy && !chat.navigationBusy && !chat.editing,
             onEditMessage: chat.editMessage,
+            onSetGoal: chat.goalsSupported ? chat.setMessageGoal : undefined,
+            canSetGoal:
+              !chat.busy && !chat.navigationBusy && !chat.editing && (!chat.goal || chat.goal.status === 'complete'),
             onSwitchMessageVersion: (timestamp, version) => void chat.switchMessageVersion(timestamp, version),
             onForkReply: (timestamp) => void chat.forkReply(timestamp),
             onCopyError: chat.setError,

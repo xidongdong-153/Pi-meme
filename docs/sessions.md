@@ -11,6 +11,8 @@ paths:
   - 'packages/host/src/collaboration-bridge.ts'
   - 'packages/contracts/src/collaboration.ts'
   - 'packages/contracts/src/plan.ts'
+  - 'packages/contracts/src/goal.ts'
+  - 'packages/goals/**'
   - 'packages/chat/src/ui/composer/**'
   - 'packages/app-ui/src/panels/subagents-panel.tsx'
   - 'packages/app-ui/src/panels/plan-panel.tsx'
@@ -132,3 +134,40 @@ flowchart TD
 只有规划模式根 Agent 可保存计划，子任务或其队列未结束、结果未读时拒绝保存。同一轮再次保存更新同一计划的修订。正文在 `plans/<sessionId>/<id>.md`，目录中的 sessionId 来自 Pi 原生会话；元数据在 `collaboration.json`。失败恢复上一版正文和元数据，成功后发出 `plan_saved`。
 
 [计划面板](../packages/app-ui/src/panels/plan-panel.tsx) 展示完整只读 Markdown，可切换文档、复制和导出。保存计划不会自动执行，也不会自动关闭规划标记。“按此计划继续”把当前文档的标题、修订和完整正文追加到已有草稿，切回普通任务模式，不修改访问权限、不自动发送；运行、切换或编辑消息期间禁用该按钮。实现与验证见 [coordinator.ts](../packages/subagents/src/server/coordinator.ts)、[plan-mode.integration.test.ts](../packages/pi-runtime/tests/plan-mode.integration.test.ts) 和 [agent-plans.integration.test.ts](../packages/subagents/tests/agent-plans.integration.test.ts)。
+
+## 持久目标 Goal
+
+在输入框选择 `/goal`、`/目标` 或 `/目标模式`，填写目标后发送。纯命令只打开目标标记或已有目标详情，不创建目标或调用模型；`/goal <正文>` 直接创建并执行。图片和技能使用现有附件入口。创建标记与 Plan 一样，悬停或键盘聚焦时显示关闭按钮，点击取消创建并保留草稿，不弹出说明窗口。
+
+已有目标显示在输入框上方的独立状态条，包含状态、目标摘要、用量和累计执行时间；右侧可以清除、暂停或恢复、展开详情。用户消息的“设为目标”操作会引用当前分支的原生消息及图片，直接继续推进，不重复添加用户消息，也不清空输入草稿。会话运行或已有未完成目标时不能创建新目标。
+
+Goal 绑定正式 `SessionRef`，每个会话只有一个当前目标；未完成目标需要编辑或清除后才能替换。它独立于 `TaskMode`，执行使用普通模式。Desktop 和 Web 共用 Host 调度；切换聊天或关闭 Web 页面不会停止已开始的目标，Host 退出会停止执行。
+
+| 命令           | 行为                             |
+| -------------- | -------------------------------- |
+| `/goal pause`  | 暂停目标并停止当前轮和后代任务   |
+| `/goal resume` | 检查执行条件后恢复目标           |
+| `/goal edit`   | 暂停后打开目标正文编辑           |
+| `/goal clear`  | 停止并清除当前目标，保留会话记录 |
+
+详情显示状态、累计 Token、累计执行时间、最近进展和停止原因。编辑目标保留已用 Token 与执行时间。进入 Plan、停止会话或编辑历史前暂停目标；退出 Plan 和新分支均不自动启动目标。Host 重启核对原生会话中的用量后保留暂停状态，需要手动恢复。
+
+```mermaid
+%%{init: {"theme": "dark"}}%%
+flowchart TD
+  Input["用户提交目标"] --> Host["Host 保存 goals.json"]
+  Host --> Worker["Worker 执行普通任务"]
+  Worker --> Settle["agent_settled 与用量核对"]
+  Settle --> Gate{"目标活跃且执行空闲"}
+  Gate -->|是| Continue["隐藏 continuation"]
+  Continue --> Worker
+  Gate -->|否| Wait["等待队列、交互或用户控制"]
+```
+
+状态为 `active`、`paused`、`blocked`、`usage_limited`、`complete`。用户队列、待答交互、重试和子代理协作唤醒优先于 Goal 续跑。同一真实阻塞连续三轮才进入 `blocked`；连续三轮没有实质执行也会停止并显示原因。
+
+根 Agent 通过 `get_goal` 读取状态，通过 `update_goal` 记录进展或提交完成证据。完成前需要逐项核对原目标，Host 同时检查子任务、未读结果、交互、工具和用户队列。子代理不能修改根目标。
+
+目标元数据保存在数据目录的 `goals.json`，图片与执行正文由 Pi JSONL 保存；首轮输入尚未成功写入原生会话时，目标存储暂存输入，恢复后重试首轮，确认原生记录后移除暂存。用量沿用 Pi 的 `totalTokens`，包括缓存、目标所属子代理、上下文压缩和有用量的失败调用；按原生记录去重。服务商未提供有效用量时，标记统计不完整；已知用量继续累计。
+
+实现入口是 [目标服务](../packages/goals/src/server/service.ts)、[目标工具](../packages/goals/src/agent/entry.ts) 和 [目标详情](../packages/goals/src/ui/goal-control.tsx)。

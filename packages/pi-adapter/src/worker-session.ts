@@ -1,3 +1,4 @@
+import type { Goal, GoalControl, GoalRequest, GoalRun, PromptOrigin } from '@pi-meme/contracts/goal'
 import type { CollaborationRequest, CollaborationResults } from '@pi-meme/contracts/collaboration'
 import type { PlanDocument, SavePlanInput, TaskMode } from '@pi-meme/contracts/plan'
 import { Worker } from 'node:worker_threads'
@@ -12,12 +13,21 @@ import type { RuntimeSdkSession } from '@pi-meme/pi-runtime/session-pool'
 import type { ResourceSnapshot } from '@pi-meme/contracts/resources'
 
 export type WorkerOptions = {
-  admit?: (message: string, mode: TaskMode, continuation: boolean, signal: AbortSignal) => Promise<void>
+  admit?: (
+    message: string,
+    mode: TaskMode,
+    continuation: boolean,
+    signal: AbortSignal,
+    origin?: PromptOrigin,
+    expected?: GoalControl,
+  ) => Promise<void | GoalRun>
   collaboration?: (
     request: CollaborationRequest,
     signal: AbortSignal,
   ) => Promise<CollaborationResults[keyof CollaborationResults]>
   savePlan?: (input: SavePlanInput, signal: AbortSignal) => Promise<PlanDocument>
+  goal?: (request: GoalRequest, run: GoalRun | undefined, signal: AbortSignal) => Promise<Goal | undefined>
+  goalUsage?: (run: GoalRun, entryId: string, usage: unknown, inputEntryId?: string) => Promise<void>
   credentials: SecureCredentialStorage & { flush?: () => Promise<void> }
   dataRoot: string
   settings: DesktopSettings
@@ -103,10 +113,17 @@ export function createWorkerSession(
         reply: WorkerReply & {
           hostCancel?: string
           hostRequest?: {
-            kind: 'collaboration' | 'savePlan' | 'admission'
+            kind: 'collaboration' | 'savePlan' | 'admission' | 'goal' | 'goalUsage'
             message?: string
             mode?: TaskMode
             continuation?: boolean
+            origin?: PromptOrigin
+            expected?: GoalControl
+            goalRequest?: GoalRequest
+            goalRun?: GoalRun
+            entryId?: string
+            usage?: unknown
+            inputEntryId?: string
             id: string
             input?: SavePlanInput
           } & CollaborationRequest
@@ -126,8 +143,22 @@ export function createWorkerSession(
           void Promise.resolve()
             .then(async () => {
               if (request.kind === 'admission') {
-                await options.admit?.(request.message!, request.mode!, Boolean(request.continuation), controller.signal)
-                return
+                return options.admit?.(
+                  request.message!,
+                  request.mode!,
+                  Boolean(request.continuation),
+                  controller.signal,
+                  request.origin,
+                  request.expected,
+                )
+              }
+              if (request.kind === 'goal') {
+                if (!options.goal || !request.goalRequest) return undefined
+                return options.goal(request.goalRequest, request.goalRun, controller.signal)
+              }
+              if (request.kind === 'goalUsage') {
+                if (!options.goalUsage || !request.goalRun || !request.entryId) throw new Error('目标用量桥未配置')
+                return options.goalUsage(request.goalRun, request.entryId, request.usage, request.inputEntryId)
               }
               if (request.kind === 'savePlan') {
                 if (!options.savePlan || !request.input) throw new Error('计划保存桥未配置')

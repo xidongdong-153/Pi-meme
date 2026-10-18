@@ -32,6 +32,8 @@ export const Conversation = React.memo(
     stream,
     canEditMessages,
     onEditMessage,
+    onSetGoal,
+    canSetGoal,
     onSwitchMessageVersion,
     onForkReply,
     onCopyError,
@@ -44,6 +46,8 @@ export const Conversation = React.memo(
     stream?: ChatStream
     canEditMessages: boolean
     onEditMessage: (message: Extract<TurnChunk, { type: 'user' }>['message']) => void
+    onSetGoal?: (message: Extract<TurnChunk, { type: 'user' }>['message']) => void
+    canSetGoal?: boolean
     onSwitchMessageVersion: (timestamp: number, version: number) => void
     onForkReply: (timestamp: number) => void
     onCopyError: (message: string) => void
@@ -241,6 +245,8 @@ export const Conversation = React.memo(
                         tools={chat.tools}
                         onEdit={readOnly ? undefined : onEditMessage}
                         canEdit={canEditMessages}
+                        onSetGoal={readOnly ? undefined : onSetGoal}
+                        canSetGoal={canSetGoal}
                         onCopyError={onCopyError}
                         versions={versions}
                         versionSwitchBusy={versionSwitchBusy}

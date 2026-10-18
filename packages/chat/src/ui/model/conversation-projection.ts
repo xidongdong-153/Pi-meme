@@ -23,6 +23,8 @@ function mainMessage(message: PiMessage): PiMessage | undefined {
     message.role === 'custom' &&
     (message.customType === 'pi-meme-collaboration' ||
       message.customType === 'pi-meme-collaboration-control' ||
+      message.customType === 'pi-meme-goal-control' ||
+      message.customType === 'pi-meme-goal-context' ||
       !message.display)
   )
     return
