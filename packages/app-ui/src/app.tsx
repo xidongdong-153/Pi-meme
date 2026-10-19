@@ -15,7 +15,6 @@ import { WorkspaceContent } from './layout/workspace-content'
 import { ErrorNotice } from './layout/error-notice'
 import {
   lazy,
-  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -59,16 +58,14 @@ import { sessionUiTarget } from './layout/panel-layout'
 import { useAgentPluginSelection } from './plugins/use-agent-plugin-selection'
 import { FileDiff, Folder, TerminalSquare, Network, ListTree, NotebookPen } from 'lucide-react'
 import type { HostApi, AppSession } from '@pi-meme/contracts/app-host'
+import { CustomizationPage } from './plugins/customization-page'
+import { PluginPage } from './settings/plugin-page'
 import { SettingsPage, type SettingsSection } from './settings/settings-page'
+import { SkillPage } from './settings/skill-page'
 import { useUserProfile } from './settings/user-profile'
 import { loadPluginUI } from './plugins/load-plugin-ui'
 import type { DesktopBridge, ProjectApp } from '@pi-meme/contracts/desktop'
 
-const SkillPage = lazy(() => import('./settings/skill-page').then((module) => ({ default: module.SkillPage })))
-const PluginPage = lazy(() => import('./settings/plugin-page').then((module) => ({ default: module.PluginPage })))
-const CustomizationPage = lazy(() =>
-  import('./plugins/customization-page').then((module) => ({ default: module.CustomizationPage })),
-)
 const HostSettings = lazy(() => import('./settings/host-settings').then((module) => ({ default: module.HostSettings })))
 const ModelConfigSettings = lazy(() =>
   import('@pi-meme/models/ui/model-config/model-config-settings').then((module) => ({
@@ -999,67 +996,65 @@ export function App({
 
           {customizationOpen && (
             <div className={settingsOpen ? 'hidden' : 'flex min-h-0 flex-1 flex-col'} inert={settingsOpen}>
-              <Suspense fallback={null}>
-                <CustomizationPage
-                  plugins={pluginDescriptors}
-                  nativeWindow={nativeWindow}
-                  onDismiss={() => setCustomizationOpen(false)}
-                  rail={
-                    <AppRail
-                      profile={userProfile.profile}
-                      profileLoading={userProfile.showPlaceholder}
-                      pluginsActive
-                      onHome={() => setCustomizationOpen(false)}
-                      onProjects={() => {
-                        setCustomizationOpen(false)
-                        setProjectsOpen(true)
+              <CustomizationPage
+                plugins={pluginDescriptors}
+                nativeWindow={nativeWindow}
+                onDismiss={() => setCustomizationOpen(false)}
+                rail={
+                  <AppRail
+                    profile={userProfile.profile}
+                    profileLoading={userProfile.showPlaceholder}
+                    pluginsActive
+                    onHome={() => setCustomizationOpen(false)}
+                    onProjects={() => {
+                      setCustomizationOpen(false)
+                      setProjectsOpen(true)
+                    }}
+                    onPlugins={() => setCustomizationOpen(true)}
+                    onSettings={() => setSettingsSection('general')}
+                    onUsage={() => setSettingsSection('profile')}
+                    onAccount={() => setSettingsSection('account')}
+                  />
+                }
+                renderContent={(section, selection) =>
+                  section === 'plugins' ? (
+                    <PluginPage
+                      client={plugins}
+                      plugins={pluginDescriptors}
+                      errors={registry.errors()}
+                      view="catalog"
+                      selection={selection}
+                      onSettings={() => setSettingsSection('plugins')}
+                      onChanged={async () => {
+                        await refreshPlugins()
+                        await chat.refreshSnapshot()
                       }}
-                      onPlugins={() => setCustomizationOpen(true)}
-                      onSettings={() => setSettingsSection('general')}
-                      onUsage={() => setSettingsSection('profile')}
-                      onAccount={() => setSettingsSection('account')}
+                      onCreate={() => invokeSystemSkill('plugin-creator', '帮我创建一个插件')}
+                      renderSettings={(id) => (
+                        <PluginSlot registry={registry} pluginId={id} slot="settings" props={pluginProps} />
+                      )}
                     />
-                  }
-                  renderContent={(section, selection) =>
-                    section === 'plugins' ? (
-                      <PluginPage
-                        client={plugins}
-                        plugins={pluginDescriptors}
-                        errors={registry.errors()}
-                        view="catalog"
-                        selection={selection}
-                        onSettings={() => setSettingsSection('plugins')}
-                        onChanged={async () => {
-                          await refreshPlugins()
-                          await chat.refreshSnapshot()
-                        }}
-                        onCreate={() => invokeSystemSkill('plugin-creator', '帮我创建一个插件')}
-                        renderSettings={(id) => (
-                          <PluginSlot registry={registry} pluginId={id} slot="settings" props={pluginProps} />
-                        )}
-                      />
-                    ) : (
-                      <SkillPage
-                        client={resources}
-                        cwd={cwd}
-                        commands={chat.commands}
-                        skillUsages={chat.chat.skillUsages}
-                        resourceSnapshot={chat.state?.resourceSnapshot}
-                        view="catalog"
-                        onSettings={() => setSettingsSection('skills')}
-                        onChanged={chat.refreshSnapshot}
-                        onUse={(command) => {
-                          chat.setSelectedSkills([...chat.selectedSkills, command])
-                          chat.setDraft(appendSkillInvocation(chat.draft))
-                          chat.focusDraft()
-                          setCustomizationOpen(false)
-                        }}
-                        onCreate={() => invokeSystemSkill('skill-creator')}
-                      />
-                    )
-                  }
-                />
-              </Suspense>
+                  ) : (
+                    <SkillPage
+                      client={resources}
+                      cwd={cwd}
+                      commands={chat.commands}
+                      skillUsages={chat.chat.skillUsages}
+                      resourceSnapshot={chat.state?.resourceSnapshot}
+                      view="catalog"
+                      onSettings={() => setSettingsSection('skills')}
+                      onChanged={chat.refreshSnapshot}
+                      onUse={(command) => {
+                        chat.setSelectedSkills([...chat.selectedSkills, command])
+                        chat.setDraft(appendSkillInvocation(chat.draft))
+                        chat.focusDraft()
+                        setCustomizationOpen(false)
+                      }}
+                      onCreate={() => invokeSystemSkill('skill-creator')}
+                    />
+                  )
+                }
+              />
             </div>
           )}
 
