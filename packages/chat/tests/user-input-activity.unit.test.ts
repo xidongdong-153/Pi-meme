@@ -76,10 +76,10 @@ test('历史工具分组和嵌套工具都不显示运行文案，当前轮次�
     },
   ]
   const history = renderToStaticMarkup(createElement(ActivityGroup, { items }))
-  assert.match(history, /工具调用组/)
-  assert.equal((history.match(/已向用户提问/g) ?? []).length, 2)
+  assert.match(history, /活动详情：调用了 2 项工具/)
   assert.doesNotMatch(history, /等待你的回答|正在执行 codemode/)
   const active = renderToStaticMarkup(createElement(ActivityGroup, { items, isLive: true }))
-  assert.equal((active.match(/等待你的回答/g) ?? []).length, 2)
-  assert.match(active, /正在执行 codemode/)
+  assert.match(active, /活动详情：调用了 2 项工具/)
+  assert.match(active, /等待你的回答/)
+  assert.doesNotMatch(active, /工具详情：codemode/)
 })

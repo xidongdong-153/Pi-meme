@@ -211,7 +211,7 @@ export function groupConversationTurns(
     }
 
     if (!turnKey) {
-      turnKey = `turn-init-${msg.timestamp ?? i}-${i}`
+      turnKey = `turn-init-${msg.timestamp ?? i}`
     }
 
     if (msg.timestamp) {
@@ -262,7 +262,7 @@ export function groupConversationTurns(
               turnItems.push({
                 kind: 'activity',
                 item: {
-                  id: `thinking-${i}-${pIdx}`,
+                  id: `thinking-${msg.timestamp ?? i}-${pIdx}`,
                   type: 'thinking',
                   thinking: part.thinking,
                   status: msg === liveMessage && isAgentRunning && !completed[pIdx] ? 'running' : 'success',

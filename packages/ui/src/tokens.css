@@ -157,12 +157,13 @@
   }
 }
 
+/* 光带宽度为容器的 75%，定位位移 300% 恰好移动一条光带，首尾重合。 */
 @keyframes thought-shimmer {
   0% {
-    background-position: 125% 0;
+    background-position: 0% 0;
   }
   100% {
-    background-position: -125% 0;
+    background-position: 300% 0;
   }
 }
 
@@ -173,8 +174,9 @@
     currentColor 55%,
     color-mix(in srgb, currentColor 45%, transparent) 80%
   );
-  background-size: 250% 100%;
-  background-position: 125% 0;
+  background-size: 75% 100%;
+  background-position: 0% 0;
+  background-repeat: repeat-x;
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   animation: thought-shimmer 2.2s linear infinite;

@@ -1,22 +1,25 @@
-import type { ActivityItem } from './types'
+import type { ActivityItem, RenderSegment } from './types'
 import { parseToolMeta, type ToolKind } from './tool-details'
 import { getThinkingLabel } from './thinking-labels'
 
-type ToolActivity = Extract<ActivityItem, { type?: 'tool' }>
-
-export function groupAdjacentActivities(
-  items: ActivityItem[],
-): Array<{ type: 'item'; item: Exclude<ActivityItem, ToolActivity> } | { type: 'tools'; items: ToolActivity[] }> {
-  const groups: ReturnType<typeof groupAdjacentActivities> = []
+export function groupAdjacentActivities(items: ActivityItem[], finalText = ''): RenderSegment[] {
+  const groups: RenderSegment[] = []
+  const appendText = (text: string) => {
+    if (!text.trim()) return
+    const previous = groups.at(-1)
+    if (previous?.type === 'text') previous.text += `\n\n${text}`
+    else groups.push({ type: 'text', text })
+  }
   for (const item of items) {
-    if (item.type === 'thinking' || item.type === 'narration') {
-      groups.push({ type: 'item', item })
+    if (item.type === 'narration') {
+      appendText(item.text)
       continue
     }
     const previous = groups.at(-1)
-    if (previous?.type === 'tools') previous.items.push(item)
-    else groups.push({ type: 'tools', items: [item] })
+    if (previous?.type === 'activity') previous.items.push(item)
+    else groups.push({ type: 'activity', items: [item] })
   }
+  appendText(finalText)
   return groups
 }
 
@@ -120,7 +123,8 @@ export function runningActivityLabel(items: ActivityItem[]): string {
       if (item.type === 'thinking') return getThinkingLabel(item.id)
       if (item.name === 'request_user_input') return '等待你的回答…'
       const meta = parseToolMeta(item)
-      if (meta.kind === 'command') return '正在运行命令…'
+      if (meta.kind === 'command')
+        return meta.summary.startsWith('已运行 ') ? `${meta.summary.replace(/^已运行/u, '正在运行')}…` : '正在运行命令…'
       if (meta.kind === 'image') return '正在查看图像…'
       if (meta.kind === 'read') return `${meta.summary.replace('已读取', '正在读取')}…`
       if (meta.kind === 'edit') return `${meta.summary.replace('已编辑', '正在编辑').replace('已修改', '正在修改')}…`

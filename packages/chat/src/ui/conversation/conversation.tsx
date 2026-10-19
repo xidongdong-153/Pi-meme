@@ -67,7 +67,7 @@ export const Conversation = React.memo(
       useConversationScroll(chat)
 
     // 按对话轮次（Turn）聚合消息流：将同一交互轮次内的思考、多次工具调用、Bash 与最终正文聚合成单一轮次卡片
-    const turns = React.useMemo(() => {
+    const { turns, finalReplyKeys } = React.useMemo(() => {
       const view = readOnly ? chat : projectMainConversation(chat)
       const grouped = groupConversationTurns(
         view.messages,
@@ -78,12 +78,27 @@ export const Conversation = React.memo(
         'agentStatuses' in view ? view.agentStatuses : [],
         chat.runIntervals,
       )
-      return agentOnly
-        ? grouped.filter(
-            (turn) =>
-              turn.type !== 'user' && !(turn.type === 'custom' && turn.message.customType === 'pi-meme-collaboration'),
-          )
-        : grouped
+      const finalReplyKeys = new Set<string>()
+      let canBeFinal = !chat.running && !chat.live
+      // 子代理状态只切分展示段，每条用户输入仅最后一个已完成的助手段保留消息操作。
+      for (let index = grouped.length - 1; index >= 0; index--) {
+        const turn = grouped[index]!
+        if (turn.type === 'user') canBeFinal = true
+        else if (turn.type === 'assistant_turn') {
+          if (canBeFinal && !turn.isLive) finalReplyKeys.add(turn.key)
+          canBeFinal = false
+        }
+      }
+      return {
+        turns: agentOnly
+          ? grouped.filter(
+              (turn) =>
+                turn.type !== 'user' &&
+                !(turn.type === 'custom' && turn.message.customType === 'pi-meme-collaboration'),
+            )
+          : grouped,
+        finalReplyKeys,
+      }
     }, [chat, readOnly, agentOnly])
     const outline = React.useMemo(() => (agentOnly ? [] : conversationOutline(turns)), [turns, agentOnly])
 
@@ -266,12 +281,14 @@ export const Conversation = React.memo(
                 <AssistantTurnView
                   key={turn.key}
                   turn={turn}
+                  isFinalReply={finalReplyKeys.has(turn.key)}
                   retry={turn.isLive && chat.retry?.kind === 'model' ? chat.retry : undefined}
                   isPaused={Boolean(chat.paused && turn.isLive)}
                   pauseIntervals={chat.pauseIntervals}
                   canFork={canEditMessages}
                   onFork={readOnly ? undefined : onForkReply}
                   onCopyError={onCopyError}
+                  onActivityToggle={scrollToMessage}
                 />
               )
             })}

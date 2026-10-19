@@ -115,7 +115,7 @@ test('只读子代理对话保留正文、复制和工作过程，隐藏编辑�
   assert.match(markup, /任务结果/)
   assert.match(markup, /aria-label="复制消息"/)
   assert.match(markup, /用时不足1秒/)
-  assert.match(markup, /aria-label="工作过程"/)
+  assert.match(markup, /aria-label="活动详情：/)
   assert.doesNotMatch(markup, /编辑消息|从这段回复新建会话|用户消息版本|查看上一个版本|查看下一个版本/)
 })
 
@@ -187,7 +187,7 @@ test('子代理展示只过滤派发消息，保留原始分轮、计时和自�
   )
   assert.doesNotMatch(markup, /主代理派发|主代理发来|data-message-role="user"|对话索引|data-conversation-user/)
   assert.equal((markup.match(/data-message-role="assistant"/g) ?? []).length, 2)
-  assert.match(markup, /工具详情：read/)
+  assert.match(markup, /活动详情：已读取 a.ts/)
   assert.match(markup, /用时 4秒/)
   assert.match(markup, /用时 5秒/)
   assert.match(markup, /本代理的插件输出/)
@@ -262,7 +262,7 @@ test('只有工作过程的回复不保留空正文的复制和分叉操作栏',
     ),
   )
   assert.match(markup, /用时 26秒/)
-  assert.match(markup, /aria-label="工作过程"/)
+  assert.match(markup, /aria-label="活动详情：/)
   assert.doesNotMatch(markup, /复制消息|从这段回复新建会话/)
 })
 
@@ -304,7 +304,7 @@ test('子代理状态后只有正文的回复不显示零秒过程头，仍可�
     ),
   )
   assert.match(markup, /调研结论/)
-  assert.equal((markup.match(/aria-label="工作过程"/g) ?? []).length, 1)
+  assert.equal((markup.match(/aria-label="活动详情：/g) ?? []).length, 1)
   assert.doesNotMatch(markup, /用时 0秒/)
   assert.equal((markup.match(/aria-label="从这段回复新建会话"/g) ?? []).length, 1)
 })
@@ -455,30 +455,29 @@ test('只有思考活动时不显示思考过程摘要', () => {
   })
 })
 
-test('工作过程标题只显示用时，运行时展开、历史折叠，均不显示转圈', () => {
+test('用时独立显示，运行与历史的活动摘要均默认折叠且不显示转圈', () => {
   const items = [
     { id: 'read', type: 'tool' as const, name: 'read', args: { path: 'src/main.ts' }, status: 'success' as const },
     { id: 'thought', type: 'thinking' as const, thinking: '检查文件', status: 'success' as const },
   ]
   const live = renderToStaticMarkup(createElement(ActivityGroup, { items, isLive: true, startedAt: Date.now() }))
-  const liveHeader = live.match(/<button[^>]*aria-label="工作过程".*?<\/button>/)?.[0]
+  const liveHeader = live.match(/<button[^>]*aria-label="活动详情：.*?<\/button>/)?.[0]
   assert.ok(liveHeader)
-  assert.match(liveHeader, /aria-expanded="true"/)
-  assert.match(liveHeader, /处理中/)
-  assert.doesNotMatch(liveHeader, /读取了|思考过程|工作了|lucide-sparkles/)
+  assert.match(liveHeader, /aria-expanded="false"/)
+  assert.match(live, /处理中/)
+  assert.match(liveHeader, /读取了 1 个文件/)
   assert.doesNotMatch(live, /animate-spin|lucide-loader/)
 
   const completed = renderToStaticMarkup(createElement(ActivityGroup, { items, durationMs: 45000 }))
-  const completedHeader = completed.match(/<button[^>]*aria-label="工作过程".*?<\/button>/)?.[0]
+  const completedHeader = completed.match(/<button[^>]*aria-label="活动详情：.*?<\/button>/)?.[0]
   assert.ok(completedHeader)
   assert.match(completedHeader, /aria-expanded="false"/)
-  assert.match(completedHeader, /用时 45秒/)
-  assert.doesNotMatch(completedHeader, /读取了|思考过程|工作了|lucide-sparkles/)
-  assert.match(completed, /aria-label="工作过程详情" aria-hidden="true" inert=""/)
+  assert.match(completed, /用时 45秒/)
+  assert.match(completedHeader, /读取了 1 个文件/)
   assert.doesNotMatch(completed, /animate-spin|lucide-loader/)
 })
 
-test('相邻工具折叠成组，正文与思考保留原来顺序并分隔工具组', () => {
+test('正文分隔活动组，思考与工具连续合并且保留原来顺序', () => {
   const items: ActivityItem[] = [
     { id: 'read-1', type: 'tool', name: 'read', args: { path: 'a.ts' }, status: 'success' },
     { id: 'bash', name: 'bash', args: { command: 'pnpm test' }, status: 'success' },
@@ -489,18 +488,17 @@ test('相邻工具折叠成组，正文与思考保留原来顺序并分隔工�
   ]
   const groups = groupAdjacentActivities(items)
   assert.deepEqual(groups, [
-    { type: 'tools', items: items.slice(0, 2) },
-    { type: 'item', item: items[2] },
-    { type: 'tools', items: [items[3]] },
-    { type: 'item', item: items[4] },
-    { type: 'tools', items: [items[5]] },
+    { type: 'activity', items: items.slice(0, 2) },
+    { type: 'text', text: '已经确认 **结构**。' },
+    { type: 'activity', items: items.slice(3) },
   ])
   assert.equal(items.length, 6)
   const markup = renderToStaticMarkup(createElement(ActivityGroup, { items, isLive: true }))
-  assert.match(markup, /aria-label="工具调用组" aria-expanded="false"/)
+  assert.match(markup, /aria-label="活动详情：[^>]*aria-expanded="false"/)
   assert.match(markup, /读取了 1 个文件 · 执行了 1 条命令/)
   assert.match(markup, /已经确认 <strong[^>]*>结构<\/strong>。/)
-  assert.match(markup, /工具详情：edit/)
+  assert.doesNotMatch(markup, /工具详情：edit/)
+  assert.match(markup, /有调用失败/)
   assert.match(markup, /读取了 1 个文件|失败/)
   assert.doesNotMatch(markup, /lucide-circle-x/)
   assert.doesNotMatch(markup, /max-h-80|animate-spin/)

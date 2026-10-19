@@ -61,7 +61,7 @@ export function ThinkingActivityRow({
           }
         }}
         className={cn(
-          'group flex min-h-6 w-fit max-w-full items-center gap-2 py-0.5 pr-1 rounded leading-5 cursor-pointer transition-colors',
+          'group/thinking-toggle flex min-h-6 w-fit max-w-full items-center gap-2 py-0.5 pr-1 rounded leading-5 cursor-pointer transition-colors',
           'text-muted-foreground hover:text-foreground hover:bg-secondary/30',
           isNested && 'pl-2',
         )}
@@ -72,7 +72,7 @@ export function ThinkingActivityRow({
               'size-4 shrink-0 transition-all duration-300',
               isWorking
                 ? 'text-primary animate-[thought-pulse_1.6s_ease-in-out_infinite]'
-                : 'text-muted-foreground group-hover:text-foreground',
+                : 'text-muted-foreground group-hover/thinking-toggle:text-foreground',
             )}
           />
         )}
@@ -107,12 +107,15 @@ export function ThinkingActivityRow({
             {formattedTime}
           </span>
         )}
-        <ChevronDown
+        <span
+          aria-hidden="true"
           className={cn(
-            'size-3.5 shrink-0 text-muted-foreground/70 transition-transform duration-300 ease-out ml-0.5',
+            'inline-flex size-3.5 shrink-0 text-muted-foreground/70 opacity-0 transition-[opacity,transform] duration-200 ease-out ml-0.5 group-hover/thinking-toggle:opacity-100 group-focus-visible/thinking-toggle:opacity-100',
             open ? 'rotate-0' : '-rotate-90',
           )}
-        />
+        >
+          <ChevronDown className="size-3.5" />
+        </span>
       </div>
 
       <div

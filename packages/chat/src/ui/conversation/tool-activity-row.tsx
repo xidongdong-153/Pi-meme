@@ -98,13 +98,15 @@ export function ToolActivityRow({
         }}
         title={meta.fullPath}
         className={cn(
-          'group flex min-h-6 w-fit max-w-full items-center gap-2 py-0.5 pr-1 rounded leading-5 cursor-pointer transition-colors',
+          'group/tool-toggle flex min-h-6 w-fit max-w-full items-center gap-2 py-0.5 pr-1 rounded leading-5 cursor-pointer transition-colors',
           'text-muted-foreground hover:text-foreground hover:bg-secondary/30',
           isNested && 'pl-2',
           !hasDetail && 'cursor-default',
         )}
       >
-        {!isPaused && <IconComponent className="size-4 shrink-0 text-muted-foreground group-hover:text-foreground" />}
+        {!isPaused && (
+          <IconComponent className="size-4 shrink-0 text-muted-foreground group-hover/tool-toggle:text-foreground" />
+        )}
 
         <span className={cn('truncate', isError && 'text-destructive')}>
           {isError ? summary.replace(/^已/u, '') : summary}
@@ -112,12 +114,15 @@ export function ToolActivityRow({
         </span>
 
         {hasDetail && (
-          <ChevronDown
+          <span
+            aria-hidden="true"
             className={cn(
-              'size-3.5 shrink-0 text-muted-foreground/70 transition-transform duration-300 ease-out ml-0.5',
+              'inline-flex size-3.5 shrink-0 text-muted-foreground/70 opacity-0 transition-[opacity,transform] duration-200 ease-out ml-0.5 group-hover/tool-toggle:opacity-100 group-focus-visible/tool-toggle:opacity-100',
               open ? 'rotate-0' : '-rotate-90',
             )}
-          />
+          >
+            <ChevronDown className="size-3.5" />
+          </span>
         )}
       </div>
 
