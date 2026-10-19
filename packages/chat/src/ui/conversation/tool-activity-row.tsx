@@ -17,6 +17,8 @@ import {
 import { extractDiff, extractImages, formatDetailValue, parseToolMeta } from '../model/tool-details'
 import { runningActivityLabel } from '../model/activity-summary'
 import { ToolDiff } from './tool-diff'
+import { ImageThumbnail } from '../content/message-image'
+import { imageSource } from '../content/image-viewer'
 
 export function ToolActivityRow({
   item,
@@ -81,6 +83,30 @@ export function ToolActivityRow({
     },
     [diff, rawText],
   )
+
+  const imagePreviews = images.length > 0 && (
+    <div className={cn('flex flex-wrap', isNested && 'pl-2')}>
+      {images.map((image, index) => (
+        <ImageThumbnail
+          key={index}
+          src={imageSource({ type: 'image', ...image })}
+          label="工具输出图片"
+          filename={meta.fullPath?.split(/[\\/]/).pop() || `image-${index + 1}`}
+          remote={false}
+        />
+      ))}
+    </div>
+  )
+  if (
+    images.length > 0 &&
+    (meta.kind === 'image' || !rawText) &&
+    !isError &&
+    !script &&
+    !diff &&
+    !item.children?.length &&
+    !item.source
+  )
+    return <div className={className}>{imagePreviews}</div>
 
   return (
     <div className={cn('text-sm select-none', className)}>
@@ -176,20 +202,9 @@ export function ToolActivityRow({
               {item.children?.map((child) => (
                 <NestedToolActivity key={child.id} tool={child} isLive={isLive} isPaused={isPaused} parentOpen={open} />
               ))}
-              {images.length > 0 && (
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {images.map((img, i) => (
-                    <img
-                      key={i}
-                      src={`data:${img.mimeType};base64,${img.data}`}
-                      alt="工具输出图片"
-                      className="max-h-60 max-w-full rounded border border-border/40 object-contain"
-                    />
-                  ))}
-                </div>
-              )}
               {!isError && <PluginToolCard tool={item} {...item.source} />}
             </div>
+            {imagePreviews}
           </div>
         </div>
       )}

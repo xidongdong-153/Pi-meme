@@ -430,6 +430,8 @@ test('工具详情解析保留嵌套 Diff、图片和未知工具输出', () => 
   }
   assert.equal(extractDiff(result), result.details.diff)
   assert.deepEqual(extractImages(result), [{ data: 'AAAA', mimeType: 'image/png' }])
+  assert.equal(formatDetailValue(result), '完成')
+  assert.equal(formatDetailValue({ content: [result.content[1]] }), '')
   assert.equal(formatDetailValue({ content: [{ type: 'text', text: '自定义输出' }] }), '自定义输出')
   assert.deepEqual(parseToolMeta({ id: 'custom', type: 'tool', name: 'custom-tool', result: {} }), {
     kind: 'generic',

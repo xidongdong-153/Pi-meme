@@ -68,7 +68,7 @@ export function formatDetailValue(value: unknown): string {
         else if (b && typeof b === 'object' && 'text' in b && typeof b.text === 'string') {
           parts.push(b.text)
         } else if (b && typeof b === 'object' && 'type' in b && b.type === 'image') {
-          parts.push('[图片]')
+          continue
         } else {
           parts.push(JSON.stringify(b, null, 2))
         }

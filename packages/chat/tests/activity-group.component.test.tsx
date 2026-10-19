@@ -5,6 +5,7 @@ import userEvent from '@testing-library/user-event'
 import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 import { ActivityGroup } from '../src/ui/conversation/activity-group'
 import { AssistantTurnView } from '../src/ui/conversation/assistant-turn'
+import { ToolActivityRow } from '../src/ui/conversation/tool-activity-row'
 import type { ActivityItem, ChatState } from '../src/ui/model/types'
 import { groupConversationTurns } from '../src/ui/model/conversation-turns'
 import { Conversation } from '../src/ui/conversation/conversation'
@@ -19,6 +20,69 @@ const items: ActivityItem[] = [
   { id: 'thinking', type: 'thinking', thinking: '检查文件', status: 'success' },
   { id: 'read', type: 'tool', name: 'read', args: { path: 'a.ts' }, result: '文件结果', status: 'success' },
 ]
+
+test('成功查看图片直接显示可预览的小图，不再显示工具输出框和占位文字', async () => {
+  const user = userEvent.setup()
+  render(
+    <ToolActivityRow
+      item={{
+        id: 'image-read',
+        name: 'read',
+        args: { path: 'out/screenshots/check.png' },
+        result: {
+          content: [
+            { type: 'text', text: 'Read image file [image/png]' },
+            { type: 'image', data: 'YWJj', mimeType: 'image/png' },
+          ],
+        },
+        status: 'success',
+      }}
+      open={false}
+      onToggle={vi.fn()}
+    />,
+  )
+  const thumbnail = screen.getByRole('button', { name: '预览图片：工具输出图片' })
+  expect(screen.getByRole('img', { name: '工具输出图片' })).toHaveAttribute('src', 'data:image/png;base64,YWJj')
+  expect(screen.queryByRole('button', { name: '工具详情：read' })).not.toBeInTheDocument()
+  expect(screen.queryByText('输出内容')).not.toBeInTheDocument()
+  expect(screen.queryByTitle('复制输出')).not.toBeInTheDocument()
+  expect(screen.queryByText('Read image file [image/png]')).not.toBeInTheDocument()
+  expect(screen.queryByText('[图片]')).not.toBeInTheDocument()
+  await user.click(thumbnail)
+  expect(await screen.findByRole('dialog', { name: '图片预览' })).toBeVisible()
+  await user.keyboard('{Escape}')
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  expect(thumbnail).toHaveFocus()
+})
+
+test('图文混合工具保留脚本和文字，图片单独以缩略图显示；失败时保留错误详情', () => {
+  const result = {
+    content: [
+      { type: 'text', text: '执行结果' },
+      { type: 'image', data: 'YWJj', mimeType: 'image/png' },
+    ],
+  }
+  const { rerender } = render(
+    <ToolActivityRow
+      item={{ id: 'mixed', name: 'codemode', args: { code: 'console.log(1)' }, result, status: 'success' }}
+      open
+      onToggle={vi.fn()}
+    />,
+  )
+  expect(screen.getByLabelText('codemode 执行脚本')).toHaveTextContent('console.log(1)')
+  expect(screen.getByText('执行结果')).toBeVisible()
+  expect(screen.queryByText('[图片]')).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '预览图片：工具输出图片' })).toBeVisible()
+  rerender(
+    <ToolActivityRow
+      item={{ id: 'failed', name: 'read', args: { path: 'check.png' }, result, status: 'error' }}
+      open
+      onToggle={vi.fn()}
+    />,
+  )
+  expect(screen.getByText('错误详情')).toBeVisible()
+  expect(screen.getByText('执行结果')).toBeVisible()
+})
 
 test('计时总开关保留运行中的手动选择，完成时收起全部过程并保留最终回复', async () => {
   const user = userEvent.setup()

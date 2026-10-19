@@ -67,7 +67,7 @@ export function MessageImage({ src, alt }: { src: string; alt?: string }) {
 
   const url = remote ? src : current?.url
   return (
-    <MessageImageCard
+    <ImageThumbnail
       key={url ?? src}
       src={url}
       label={imageLabel(src, alt)}
@@ -78,7 +78,7 @@ export function MessageImage({ src, alt }: { src: string; alt?: string }) {
   )
 }
 
-function MessageImageCard({
+export function ImageThumbnail({
   src,
   label,
   filename,
@@ -94,7 +94,14 @@ function MessageImageCard({
   const [failed, setFailed] = React.useState(false)
   const [loaded, setLoaded] = React.useState(false)
   const [previewSource, setPreviewSource] = React.useState<string | null>(null)
+  const [source, setSource] = React.useState(src)
   const triggerRef = React.useRef<HTMLButtonElement>(null)
+  if (source !== src) {
+    setSource(src)
+    setFailed(false)
+    setLoaded(false)
+    setPreviewSource(null)
+  }
   const failure = error || (failed ? '图片加载失败' : '')
   const originalLink = src ? (
     <a
