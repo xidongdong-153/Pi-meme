@@ -19,13 +19,12 @@ function openUserMenu(btn: HTMLElement) {
   fireEvent.pointerDown(btn, { button: 0, ctrlKey: false })
 }
 
-test('AppRail 渲染顶部切换按钮并响应点击', () => {
-  const onToggleSidebar = vi.fn()
-  renderRail({ onToggleSidebar })
+test('AppRail 顶部首页入口调用新聊天操作', () => {
+  const onHome = vi.fn()
+  renderRail({ onHome, homeActive: true })
 
-  const toggleBtn = screen.getByRole('button', { name: '收起会话抽屉' })
-  fireEvent.click(toggleBtn)
-  expect(onToggleSidebar).toHaveBeenCalledTimes(1)
+  fireEvent.click(screen.getByRole('button', { name: '首页' }))
+  expect(onHome).toHaveBeenCalledTimes(1)
 })
 
 test('AppRail 用户菜单顶部展示姓名且不含 Pro，点击触发个人资料回调', async () => {

@@ -9,19 +9,19 @@ async function openTool(window, waitFor, title) {
   })()`)
   if (!hasTab) {
     const choosing = await evaluate(
-      `document.querySelector('#workspace-right-sidebar [role="tabpanel"][aria-label="新标签页"]') !== null`,
+      `document.querySelector('#workspace-right-sidebar [role="tabpanel"][aria-label="工具"]') !== null`,
     )
     if (!choosing) await evaluate(`document.querySelector('button[aria-label="新建工具标签页"]').click()`)
     await waitFor(
       () =>
         evaluate(`(() => {
-      const page = document.querySelector('#workspace-right-sidebar [role="tabpanel"][aria-label="新标签页"]');
+      const page = document.querySelector('#workspace-right-sidebar [role="tabpanel"][aria-label="工具"]');
       return page && [...page.querySelectorAll('button')].some(node => node.textContent.includes(${JSON.stringify(title)}) && !node.disabled);
     })()`),
       `工具选择项：${title}`,
     )
     await evaluate(`(() => {
-      const page = document.querySelector('#workspace-right-sidebar [role="tabpanel"][aria-label="新标签页"]');
+      const page = document.querySelector('#workspace-right-sidebar [role="tabpanel"][aria-label="工具"]');
       [...page.querySelectorAll('button')].find(node => node.textContent.includes(${JSON.stringify(title)}) && !node.disabled).click();
     })()`)
   }

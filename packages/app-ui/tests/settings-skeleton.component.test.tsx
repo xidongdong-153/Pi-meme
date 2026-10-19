@@ -1,11 +1,17 @@
 import '@testing-library/jest-dom/vitest'
 import { afterEach, expect, test, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render as renderUi, screen } from '@testing-library/react'
+import type { ReactNode } from 'react'
 import { BentoSkeletonCard } from '@pi-meme/ui/components/bento-skeleton'
+import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 import { SettingsSkeleton } from '../src/settings/settings-skeleton'
 import { SettingsPage } from '../src/settings/settings-page'
 
 afterEach(cleanup)
+
+function render(children: ReactNode) {
+  return renderUi(<TooltipProvider>{children}</TooltipProvider>)
+}
 
 test('BentoSkeletonCard 渲染包含流光层与基础圆角样式', () => {
   render(

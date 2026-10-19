@@ -2,7 +2,18 @@ import type { SidebarSessionEntry } from './sidebar-model'
 import { SidebarSection, SidebarSortable } from './sidebar-controls'
 import { SessionItem } from './session-item'
 import type { SidebarProps } from './sidebar'
-import type { ReactNode } from 'react'
+import { Fragment, type ReactNode } from 'react'
+
+function recentGroup(session: SidebarSessionEntry['session'], today: Date): string {
+  const time = Date.parse(session.completedAt ?? session.created)
+  if (time >= today.getTime()) return '今天'
+  const yesterday = new Date(today)
+  yesterday.setDate(yesterday.getDate() - 1)
+  if (time >= yesterday.getTime()) return '昨天'
+  const week = new Date(today)
+  week.setDate(week.getDate() - 6)
+  return time >= week.getTime() ? '近 7 天' : '更早'
+}
 
 export function RecentsSection({
   recentsLimit,
@@ -37,27 +48,28 @@ export function RecentsSection({
     ({ session }, index) =>
       index < recentsLimit || session.running || session.path === activeSessionPath || session.id === activeSessionId,
   )
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const groups = sortable ? [] : visibleRecents.map((entry) => recentGroup(entry.session, today))
   return (
     <SidebarSection id="recents" title="最近" collapsed={collapsed} onToggle={onToggle} actions={actions}>
       <div className="space-y-0.5">
-        {visibleRecents.map((entry) => (
-          <SidebarSortable
-            key={entry.key}
-            itemKey={entry.key}
-            listKey="recents"
-            keys={keys}
-            enabled={sortable}
-            onReorder={onReorder}
-          >
-            <SessionItem
-              session={entry.session}
-              variant="recent"
-              isActive={activeSessionId === entry.session.id || activeSessionPath === entry.session.path}
-              onSwitchSession={onSwitchSession}
-              onTogglePin={onTogglePin}
-              onPrefetchSession={onPrefetchSession}
-            />
-          </SidebarSortable>
+        {visibleRecents.map((entry, index) => (
+          <Fragment key={entry.key}>
+            {groups[index] && groups[index] !== groups[index - 1] && (
+              <div className="px-2.5 pb-1 pt-2 text-[0.6875rem] text-muted-foreground/60">{groups[index]}</div>
+            )}
+            <SidebarSortable itemKey={entry.key} listKey="recents" keys={keys} enabled={sortable} onReorder={onReorder}>
+              <SessionItem
+                session={entry.session}
+                variant="recent"
+                isActive={activeSessionId === entry.session.id || activeSessionPath === entry.session.path}
+                onSwitchSession={onSwitchSession}
+                onTogglePin={onTogglePin}
+                onPrefetchSession={onPrefetchSession}
+              />
+            </SidebarSortable>
+          </Fragment>
         ))}
         {entries.length > 8 && (
           <button

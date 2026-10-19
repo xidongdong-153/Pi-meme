@@ -47,7 +47,7 @@ test('选择模型后直接收起弹框，不再跳回思考面板', () => {
   )
   const openModels = () => {
     fireEvent.click(screen.getByRole('button', { name: '选择模型与思考强度' }))
-    fireEvent.click(screen.getByRole('button', { name: '模型 Alpha' }))
+    fireEvent.click(screen.getByRole('button', { name: '切换模型' }))
   }
   openModels()
   fireEvent.click(screen.getByRole('button', { name: '模型 Beta' }))

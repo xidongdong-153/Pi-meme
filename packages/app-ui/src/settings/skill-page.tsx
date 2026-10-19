@@ -340,7 +340,7 @@ export function SkillPage({
               </Button>
             </>
             {current.scope === 'host' && current.owner.type === 'loose' && (
-              <Button variant="outline" disabled={busy} onClick={() => setRemoving(current)}>
+              <Button variant="destructive" disabled={busy} onClick={() => setRemoving(current)}>
                 卸载
               </Button>
             )}
@@ -381,7 +381,7 @@ export function SkillPage({
                       }}
                     >
                       <Sparkles />
-                      创建技能
+                      使用向导创建技能
                     </DropdownMenuItem>
                     <DropdownMenuItem onSelect={() => void edit()}>
                       <Plus />

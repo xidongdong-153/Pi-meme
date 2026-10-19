@@ -28,21 +28,28 @@ function fixture(fail = false) {
     return { goal, receipt: { operationId: 'operation' } }
   })
   const prompt = vi.fn(async () => {})
+  const clearGoal = vi.fn(async () => {})
+  const clearQueue = vi.fn(async () => ({ steering: [], followUp: [] }))
+  const refresh = vi.fn(async () => {})
+  const control = { generation: 1, sessionKey: 'session' }
   const errors: string[] = []
   const result = renderHook(() =>
     useChatSession({
       bridge: {
         startGoal,
         prompt,
+        clearGoal,
+        clearQueue,
         setSessionMode: async () => {},
         cancelQueueEdit: async () => {},
       } as unknown as ChatBridge,
       commands: builtinCommands,
+      refresh,
       canSend: () => true,
       isSwitching: () => false,
       awaitPendingSwitch: async () => {},
-      currentGeneration: () => 1,
-      currentSessionKey: () => 'session',
+      currentGeneration: () => control.generation,
+      currentSessionKey: () => control.sessionKey,
       onError: (message) => {
         errors.push(message)
       },
@@ -67,8 +74,49 @@ function fixture(fail = false) {
       null,
     )
   })
-  return { result, startGoal, prompt, errors }
+  return { result, startGoal, prompt, errors, clearGoal, clearQueue, refresh, control }
 }
+
+test('清除目标期间连接代次递增，成功后仍立即移除当前目标和控制条', async () => {
+  const { result, clearGoal, refresh, control } = fixture()
+  act(() => {
+    result.current.restoreChat({ ...result.current.chat, goal })
+    result.current.setGoalOpen(true)
+  })
+  clearGoal.mockImplementationOnce(async () => {
+    control.generation += 1
+  })
+  await act(async () => result.current.goalAction('clear'))
+  assert.equal(result.current.chat.goal, undefined)
+  assert.equal(result.current.goalOpen, false)
+  assert.equal(refresh.mock.calls.length, 1)
+})
+
+test.each(['切换会话', '替换目标'])('清除目标的迟到响应不会影响%s后的目标和队列', async (change) => {
+  const { result, clearGoal, clearQueue, refresh, control } = fixture()
+  const replacement = { ...goal, goalId: 'replacement' }
+  act(() => result.current.restoreChat({ ...result.current.chat, goal }))
+  clearGoal.mockImplementationOnce(async () => {
+    if (change === '切换会话') control.sessionKey = 'other-session'
+    result.current.restoreChat({ ...result.current.chat, goal: replacement })
+  })
+  await act(async () => result.current.goalAction('clear'))
+  assert.equal(result.current.chat.goal, replacement)
+  assert.equal(clearQueue.mock.calls.length, 0)
+  assert.equal(refresh.mock.calls.length, 0)
+})
+
+test('目标已清除后队列恢复失败，仍移除目标控制条', async () => {
+  const { result, clearQueue } = fixture()
+  act(() => {
+    result.current.restoreChat({ ...result.current.chat, goal })
+    result.current.setGoalOpen(true)
+  })
+  clearQueue.mockRejectedValueOnce(new Error('队列恢复失败'))
+  await act(async () => assert.rejects(result.current.goalAction('clear'), /队列恢复失败/))
+  assert.equal(result.current.chat.goal, undefined)
+  assert.equal(result.current.goalOpen, false)
+})
 
 test('已有用户消息设为目标保留未发送草稿，提交来源引用', async () => {
   const { result, startGoal } = fixture()

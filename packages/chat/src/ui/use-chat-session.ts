@@ -236,19 +236,27 @@ export function useChatSession(options: ChatSessionOptions) {
       const generation = currentGeneration()
       const goal = chatStream.getSnapshot().goal
       if (!key || !goal) throw new Error('当前会话没有目标')
-      const owns = () => key === currentSessionKey() && generation === currentGeneration()
+      const owns = () => {
+        if (key !== currentSessionKey()) return false
+        if (action !== 'clear') return generation === currentGeneration()
+        const currentGoal = chatStream.getSnapshot().goal
+        return !currentGoal || currentGoal.goalId === goal.goalId
+      }
       const method = action === 'edit' ? 'pauseGoal' : (`${action}Goal` as 'pauseGoal' | 'resumeGoal' | 'clearGoal')
       const operation = bridge[method]
       if (!operation) throw new Error('当前 Host 不支持目标')
       const next = await operation(key, goal)
+      if (action === 'clear' && !owns()) return
+      if (owns()) {
+        setChat((state) => ({ ...state, goal: next || undefined }))
+        setGoalEditing(action === 'edit')
+        setGoalOpen(action !== 'clear')
+      }
       if (action !== 'resume' && bridge.clearQueue) {
         const cleared = await bridge.clearQueue(key)
         if (owns()) setRecoveredInputs((current) => [...current, ...cleared.steering, ...cleared.followUp])
       }
       if (owns()) {
-        setChat((state) => ({ ...state, goal: next || undefined }))
-        setGoalEditing(action === 'edit')
-        setGoalOpen(action !== 'clear')
         await optionsRef.current.refresh?.()
       }
     },

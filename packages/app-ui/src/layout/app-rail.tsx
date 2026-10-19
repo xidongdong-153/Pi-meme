@@ -20,8 +20,7 @@ export function AppRail({
   onUsage,
   onAccount,
   onHome,
-  onToggleSidebar,
-  sidebarOpen = true,
+  homeActive = false,
   className,
 }: {
   profile: UserProfile
@@ -30,8 +29,7 @@ export function AppRail({
   onUsage?: () => void
   onAccount?: () => void
   onHome?: () => void
-  onToggleSidebar?: () => void
-  sidebarOpen?: boolean
+  homeActive?: boolean
   className?: string
 }) {
   const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent)
@@ -50,19 +48,21 @@ export function AppRail({
           <TooltipTrigger asChild>
             <button
               type="button"
-              aria-label={onHome ? '首页' : sidebarOpen ? '收起会话抽屉' : '展开会话抽屉'}
-              aria-current={onHome ? undefined : 'page'}
-              onClick={onHome ?? onToggleSidebar}
+              aria-label="首页"
+              aria-current={homeActive ? 'page' : undefined}
+              onClick={onHome}
               className={cn(
                 'flex size-8 items-center justify-center rounded-lg transition-colors hover:bg-background cursor-pointer',
-                onHome ? 'text-muted-foreground hover:text-foreground' : 'bg-background/80 text-foreground shadow-xs',
+                homeActive
+                  ? 'bg-background/80 text-foreground shadow-xs'
+                  : 'text-muted-foreground hover:text-foreground',
               )}
             >
               <Home className="size-4" />
             </button>
           </TooltipTrigger>
           <TooltipContent side="right" sideOffset={8}>
-            {onHome ? '返回聊天' : sidebarOpen ? '会话抽屉（点击折叠）' : '展开会话抽屉'}
+            {homeActive ? '新聊天' : '返回聊天'}
           </TooltipContent>
         </Tooltip>
       </div>

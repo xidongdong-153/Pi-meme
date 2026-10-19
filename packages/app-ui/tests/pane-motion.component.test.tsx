@@ -116,6 +116,16 @@ test('窄窗口展开一侧时收起另一侧，并保留原栏宽', () => {
   expect(onSidebar).toHaveBeenLastCalledWith(true, 256)
 })
 
+test.each([1280, 1024, 800])('容器宽 %d 时加宽右侧栏仍为聊天保留至少 480px', (width) => {
+  vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(width)
+  render(<Panes />)
+  fireEvent.click(screen.getByRole('button', { name: '展开右侧栏' }))
+  fireEvent.click(screen.getByRole('button', { name: '加宽右侧栏' }))
+  const leftWidth = Number.parseFloat(shell().style.getPropertyValue('--workspace-sidebar-width'))
+  const rightWidth = Number.parseFloat(shell().style.getPropertyValue('--workspace-right-width'))
+  expect(width - leftWidth - rightWidth).toBeGreaterThanOrEqual(480)
+})
+
 test('打开工具后仍可新增其他工具标签，并保留已有工具', () => {
   const panels: UiPanel[] = ['文件', '终端'].map((title) => ({
     id: `example:${title}`,

@@ -8,7 +8,7 @@ async function openTool(page: Page, title: string) {
   const tab = page.getByRole('tab', { name: title, exact: true })
   if (await tab.count()) await tab.click()
   else {
-    const chooser = page.getByRole('tabpanel', { name: '新标签页', exact: true })
+    const chooser = page.getByRole('tabpanel', { name: '工具', exact: true })
     if (!(await chooser.isVisible())) await page.getByRole('button', { name: '新建工具标签页', exact: true }).click()
     await chooser.getByRole('button', { name: title, exact: true }).click()
   }

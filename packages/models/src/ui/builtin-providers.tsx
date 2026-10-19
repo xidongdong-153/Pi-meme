@@ -160,6 +160,10 @@ export function BuiltinProviders({ bridge, disabled }: { bridge: LoginBridge; di
     `${provider.name} ${provider.id}`.toLowerCase().includes(query.trim().toLowerCase()),
   )
   const prompt = login?.prompt
+  const promptMessage =
+    login?.authType === 'api_key' && prompt?.type === 'secret'
+      ? `请输入 ${login.providerName} API Key`
+      : prompt?.message
   return (
     <div className="space-y-4">
       <Card className="overflow-hidden">
@@ -346,7 +350,7 @@ export function BuiltinProviders({ bridge, disabled }: { bridge: LoginBridge; di
                     void submit()
                   }}
                 >
-                  <p className="text-sm">{prompt.message}</p>
+                  <p className="text-sm">{promptMessage}</p>
                   {prompt.type === 'select' ? (
                     <div className="space-y-2">
                       {prompt.options?.map((option) => (
@@ -380,12 +384,14 @@ export function BuiltinProviders({ bridge, disabled }: { bridge: LoginBridge; di
                   ) : (
                     <div className="flex gap-2">
                       <Input
-                        aria-label={prompt.message}
+                        aria-label={promptMessage}
                         autoFocus
                         type={prompt.type === 'secret' && !showSecret ? 'password' : 'text'}
                         autoComplete="off"
                         value={answer}
-                        placeholder={prompt.placeholder}
+                        placeholder={
+                          login.authType === 'api_key' && prompt.type === 'secret' ? promptMessage : prompt.placeholder
+                        }
                         onChange={(event) => setAnswer(event.target.value)}
                       />
                       {prompt.type === 'secret' && (

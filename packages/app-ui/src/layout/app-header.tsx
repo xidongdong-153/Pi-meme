@@ -167,33 +167,50 @@ export function AppHeader({
           >
             <Tooltip>
               <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label={`在 ${preferredName} 中打开项目`}
-                  disabled={!canOpenProject}
-                  onClick={() => onOpenProject(preferredApp)}
-                  className="size-7 rounded-none border-0 text-inherit hover:bg-transparent"
+                <span
+                  className={cn('inline-flex', !canOpenProject && 'cursor-not-allowed')}
+                  tabIndex={canOpenProject ? undefined : 0}
                 >
-                  <FolderOpen className="size-3.5" />
-                </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    aria-label={`在 ${preferredName} 中打开项目`}
+                    disabled={!canOpenProject}
+                    onClick={() => onOpenProject(preferredApp)}
+                    className="size-7 rounded-none border-0 text-inherit hover:bg-transparent"
+                  >
+                    <FolderOpen className="size-3.5" />
+                  </Button>
+                </span>
               </TooltipTrigger>
               <TooltipContent side="bottom">
                 {canOpenProject ? `在 ${preferredName} 中打开项目` : '当前连接不支持打开本机项目'}
               </TooltipContent>
             </Tooltip>
             <Popover open={menuOpen} onOpenChange={(open) => void loadApps(open)}>
-              <PopoverTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon-sm"
-                  aria-label="选择打开项目的应用"
-                  disabled={!canOpenProject}
-                  className="h-7 w-4.5 rounded-none border-0 px-0 text-inherit hover:bg-transparent"
-                >
-                  <ChevronDown className="size-3" />
-                </Button>
-              </PopoverTrigger>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span
+                    className={cn('inline-flex', !canOpenProject && 'cursor-not-allowed')}
+                    tabIndex={canOpenProject ? undefined : 0}
+                  >
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        aria-label="选择打开项目的应用"
+                        disabled={!canOpenProject}
+                        className="h-7 w-4.5 rounded-none border-0 px-0 text-inherit hover:bg-transparent"
+                      >
+                        <ChevronDown className="size-3" />
+                      </Button>
+                    </PopoverTrigger>
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {canOpenProject ? '选择打开项目的应用' : '当前连接不支持打开本机项目'}
+                </TooltipContent>
+              </Tooltip>
               <PopoverContent align="end" className="w-52 p-1">
                 <div className="px-2 py-1.5 text-[0.6875rem] text-muted-foreground">打开项目</div>
                 {apps.map((app) => (

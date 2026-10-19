@@ -158,14 +158,14 @@ export function WorkspacePanels({
   const active = tabs.includes(layout.active) ? layout.active : tabs[0]
   const selected = available.find((panel) => panel.id === active)
   const workspaceWidth = Math.max(0, containerWidth - (sidebarOpen ? sidebarWidth : 0))
-  const maxWidth = Math.max(0, workspaceWidth - Math.min(320, containerWidth * 0.45))
+  const maxWidth = Math.max(0, workspaceWidth - Math.min(480, containerWidth * 0.6))
   const rightWidth = Math.min(layout.expanded ? maxWidth : layout.width, maxWidth)
-  const bothPanesFit = containerWidth - sidebarWidth >= 320 + 280
+  const bothPanesFit = containerWidth - sidebarWidth >= 480 + 280
   useEffect(() => {
     if (layout.open && sidebarOpen && !bothPanesFit) onSidebar(false, sidebarWidth)
   }, [layout.open, sidebarOpen, bothPanesFit, sidebarWidth, onSidebar])
   const changeSidebar = (open: boolean, width: number) => {
-    if (open && containerWidth - width < 320 + 280) setLayout((value) => ({ ...value, open: false }))
+    if (open && containerWidth - width < 480 + 280) setLayout((value) => ({ ...value, open: false }))
     onSidebar(open, width)
   }
   const toggleSidebar = () => changeSidebar(!sidebarOpen, sidebarWidth)
@@ -245,7 +245,7 @@ export function WorkspacePanels({
               >
                 {tabs.map((id) => {
                   const panel = available.find((entry) => entry.id === id)
-                  const title = panel?.title ?? '新标签页'
+                  const title = panel?.title ?? '工具'
                   return (
                     <div
                       key={id}
@@ -318,8 +318,8 @@ export function WorkspacePanels({
         <AppRail
           profile={profile}
           profileLoading={profileLoading}
-          sidebarOpen={sidebarOpen}
-          onToggleSidebar={toggleSidebar}
+          homeActive
+          onHome={onNewSession}
           onSettings={onSettings}
           onUsage={onUsage}
           onAccount={onAccount}
@@ -411,7 +411,7 @@ export function WorkspacePanels({
                 <div
                   id="right-tool-content"
                   role="tabpanel"
-                  aria-label={selected?.title ?? '新标签页'}
+                  aria-label={selected?.title ?? '工具'}
                   className="pane-clip flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden @container"
                   style={{ width: rightPane.dragging ? '100%' : rightWidth }}
                 >
