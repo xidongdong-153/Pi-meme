@@ -233,28 +233,40 @@ export function App({
       }),
     [resources, chat.refreshSnapshot],
   )
-  const [resolvedSession, setResolvedSession] = useState<{ key: string; value: AppSession }>()
+  // 按运行时会话缓存已解析的 AppSession：回到看过的会话立即有目标，首次进入仍等解析完成。
+  const [resolvedSessions, setResolvedSessions] = useState<Record<string, AppSession>>({})
   const runtimeSessionKey = chat.connection.sessionKey
   useEffect(() => {
     let current = true
-    setResolvedSession(undefined)
-    if (runtimeSessionKey)
-      void bridge
-        .resolveAppSession(runtimeSessionKey)
-        .then((value) => {
-          if (current) {
-            chat.bindDraftSession(runtimeSessionKey, value.sessionId)
-            setResolvedSession({ key: runtimeSessionKey, value })
-          }
+    if (!runtimeSessionKey) return
+    void bridge
+      .resolveAppSession(runtimeSessionKey)
+      .then((value) => {
+        if (!current) return
+        chat.bindDraftSession(runtimeSessionKey, value.sessionId)
+        setResolvedSessions((sessions) => {
+          const next = { ...sessions, [runtimeSessionKey]: value }
+          const keys = Object.keys(next)
+          for (const key of keys.slice(0, Math.max(0, keys.length - 20))) delete next[key]
+          return next
         })
-        .catch((cause) => {
-          if (current) chat.setError(String(cause))
+      })
+      .catch((cause) => {
+        if (!current) return
+        chat.setError(String(cause))
+        // 解析失败时移除该会话的目标，避免右栏和插件作用域指向已失效会话。
+        setResolvedSessions((sessions) => {
+          if (!(runtimeSessionKey in sessions)) return sessions
+          const next = { ...sessions }
+          delete next[runtimeSessionKey]
+          return next
         })
+      })
     return () => {
       current = false
     }
   }, [bridge, runtimeSessionKey, chat.bindDraftSession, chat.setError])
-  const appSession = resolvedSession && resolvedSession.key === runtimeSessionKey ? resolvedSession.value : undefined
+  const appSession = runtimeSessionKey ? resolvedSessions[runtimeSessionKey] : undefined
   const agentPluginSelection = useAgentPluginSelection({
     host,
     session: appSession,
@@ -680,6 +692,7 @@ export function App({
             onCopyError: chat.setError,
             editor,
             switchingVersion: chat.switchingVersion,
+            sessionKey: chat.connection.sessionKey,
           }}
         />
       }
@@ -874,7 +887,6 @@ export function App({
               errors={registry.errors()}
               props={pluginProps}
               session={appSession?.sessionId ?? runtimeSessionKey ?? ''}
-              runtimeSession={runtimeSessionKey ?? ''}
               sidebar={sidebar}
               sidebarOpen={sidebarOpen}
               sidebarWidth={sidebarWidth}

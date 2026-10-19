@@ -35,7 +35,6 @@ export function WorkspacePanels({
   panels,
   props,
   session,
-  runtimeSession,
   requestPanel,
   onPanelRequestHandled,
   errors = {},
@@ -60,7 +59,6 @@ export function WorkspacePanels({
   panels: UiPanel[]
   props: UiContributionProps
   session: string
-  runtimeSession?: string
   errors?: Record<string, string>
   requestPanel?: { id: string; revision: number; target: UiTarget } | null
   onPanelRequestHandled?: (revision: number) => void
@@ -83,30 +81,36 @@ export function WorkspacePanels({
   children: ReactNode
 }) {
   const storageKey = panelStorageKey(props.target.hostId, session)
-  const scope = panelStorageKey(props.target.hostId, runtimeSession ?? session)
-  const readLayout = () => {
+  const readLayout = (): PanelLayoutState | undefined => {
     try {
-      return readPanelLayout(window.localStorage.getItem(storageKey))
+      const raw = window.localStorage.getItem(storageKey)
+      if (raw === null) return undefined
+      // 损坏或旧版本存档按“无存档”处理，避免用默认布局覆盖原记录。
+      if ((JSON.parse(raw) as { version?: unknown }).version !== 2) return undefined
+      return readPanelLayout(raw)
     } catch {
-      return defaultPanelLayout()
+      return undefined
     }
   }
-  const [state, updateState] = useState(() => ({
-    scope,
-    storageKey,
-    modified: false,
-    layout: readLayout(),
-  }))
+  const [state, updateState] = useState(() => {
+    const saved = readLayout()
+    return {
+      storageKey,
+      // inherited 表示当前布局沿用自其他会话，尚未写入本会话存档。
+      inherited: saved === undefined,
+      layout: saved ?? defaultPanelLayout(),
+    }
+  })
   const [search, setSearch] = useState('')
-  if (state.scope !== scope) {
-    updateState({ scope, storageKey, modified: false, layout: readLayout() })
+  if (state.storageKey !== storageKey) {
+    // 新会话没有存档时沿用当前布局，切换会话不收起右栏或重置宽度。
+    const saved = readLayout()
+    updateState({ storageKey, inherited: saved === undefined, layout: saved ?? state.layout })
     setSearch('')
-  } else if (state.storageKey !== storageKey) {
-    updateState({ ...state, storageKey, layout: state.modified ? state.layout : readLayout() })
   }
   const layout = state.layout
   const setLayout = useCallback((update: (value: PanelLayoutState) => PanelLayoutState) => {
-    updateState((value) => ({ ...value, modified: true, layout: update(value.layout) }))
+    updateState((value) => ({ ...value, inherited: false, layout: update(value.layout) }))
   }, [])
   const container = useRef<HTMLDivElement>(null)
   const [containerWidth, setContainerWidth] = useState(1280)
@@ -123,12 +127,14 @@ export function WorkspacePanels({
     return () => observer.disconnect()
   }, [])
   useEffect(() => {
+    // 沿用的布局不写入新会话，避免把上一会话的标签和宽度固化成新会话初始值。
+    if (state.inherited) return
     try {
       window.localStorage.setItem(storageKey, JSON.stringify(layout))
     } catch {
       /* 浏览器禁用存储时仍可使用标签页。 */
     }
-  }, [storageKey, layout])
+  }, [state.inherited, storageKey, layout])
   const available = panels.filter((panel) => panelAvailable(panel, props.target))
   const open = useCallback((id: string) => {
     setSearch('')
@@ -421,7 +427,7 @@ export function WorkspacePanels({
                 >
                   {selected ? (
                     <ErrorBoundary
-                      key={`${scope}:${selected.id}:${selected.generation ?? 0}`}
+                      key={`${storageKey}:${selected.id}:${selected.generation ?? 0}`}
                       fallbackTitle={`面板渲染失败：${selected.title}`}
                     >
                       <PanelContent panel={selected} props={props} />

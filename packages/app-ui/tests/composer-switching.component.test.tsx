@@ -273,6 +273,49 @@ test('思考强度即时更新且不禁用输入，过期失败不覆盖新选�
   expect(result.current.error).toContain('保存失败')
 })
 
+test('切换会话时不提前清空统计与思考档位，也不再读取历史预览', async () => {
+  const selection = deferred<SessionSelectionResult>()
+  const readSessionHistory = vi.fn()
+  const stats = { tokens: { input: 3, output: 4, total: 7 } } as Snapshot['stats']
+  const { result, snapshot } = setup({
+    switchSession: () => selection.promise,
+    readSessionHistory,
+  })
+  snapshot.stats = stats
+  await act(async () => {
+    await result.current.refreshSnapshot()
+  })
+  expect(result.current.sessionStats).toEqual(stats)
+  expect(result.current.thinkingLevels).toEqual(['off', 'low', 'medium', 'high'])
+
+  let selecting!: Promise<boolean>
+  act(() => {
+    selecting = result.current.switchSession('/tmp/second.jsonl')
+  })
+  expect(result.current.switching).toBe(true)
+  // 切换期间输入保持只读，但统计和思考档位不应先被清空。
+  expect(result.current.inputDisabled).toBe(true)
+  expect(result.current.sessionStats).toEqual(stats)
+  expect(result.current.thinkingLevels).toEqual(['off', 'low', 'medium', 'high'])
+  // 不再先读取历史预览，避免提交两次对话。
+  expect(readSessionHistory).not.toHaveBeenCalled()
+
+  await act(async () => {
+    selection.resolve({
+      cancelled: false,
+      snapshot: {
+        ...snapshot,
+        connection: { ...snapshot.connection, generation: 2, sessionKey: 'second' },
+        stats: { tokens: { input: 5, output: 7, total: 12 } } as Snapshot['stats'],
+      },
+    })
+    await selecting
+  })
+  expect(result.current.switching).toBe(false)
+  expect(result.current.sessionStats).toEqual({ tokens: { input: 5, output: 7, total: 12 } })
+  expect(result.current.inputDisabled).toBe(false)
+})
+
 test('项目切换期间保留多行草稿，完成后将草稿转移到新项目', async () => {
   const selection = deferred<SessionSelectionResult>()
   const { result, snapshot } = setup({ selectWorkspace: () => selection.promise })
@@ -299,4 +342,25 @@ test('项目切换期间保留多行草稿，完成后将草稿转移到新项�
   expect(result.current.connection.cwd).toBe('/tmp/second')
   expect(result.current.draft).toBe(draft)
   expect(result.current.switching).toBe(false)
+})
+
+test('外部连接切换会话时清空旧对话与草稿，不把内容带到新会话', async () => {
+  let notifyConnection: ((value: Snapshot['connection']) => void) | undefined
+  const { result, snapshot } = setup({
+    onConnection: (callback) => {
+      notifyConnection = callback
+      return () => {}
+    },
+  })
+  snapshot.messages = [{ role: 'user', content: '旧会话内容', timestamp: 1 }]
+  await waitFor(() => expect(result.current.chat.messages).toHaveLength(1))
+  act(() => result.current.setDraft('旧会话草稿'))
+
+  act(() => {
+    notifyConnection?.({ ...snapshot.connection, generation: 2, sessionKey: 'external', cwd: '/tmp/external' })
+  })
+
+  expect(result.current.connection.sessionKey).toBe('external')
+  expect(result.current.chat.messages).toEqual([])
+  expect(result.current.draft).toBe('')
 })

@@ -26,6 +26,9 @@ function noSubscription() {
 const INITIAL_VISIBLE_TURNS = 30
 const TURN_INCREMENT = 30
 
+// 按会话保留“加载更早记录”展开的窗口大小，切回会话时连同滚动位置一起恢复。
+const visibleWindows = new Map<string, number>()
+
 export const Conversation = React.memo(
   ({
     chat: initialChat,
@@ -39,6 +42,7 @@ export const Conversation = React.memo(
     onCopyError,
     editor,
     switchingVersion,
+    sessionKey,
     readOnly = false,
     agentOnly = false,
   }: {
@@ -55,6 +59,8 @@ export const Conversation = React.memo(
     editor?: MessageEditorState
     /** 正在切换版本的原始消息时间戳，用于展示切换进度。 */
     switchingVersion?: number
+    /** 当前会话标识，用于按会话恢复滚动位置。 */
+    sessionKey?: string
     readOnly?: boolean
     agentOnly?: boolean
   }) => {
@@ -64,7 +70,7 @@ export const Conversation = React.memo(
       stream?.getSnapshot ?? (() => initialChat),
     )
     const { containerRef, bottomRef, showScrollBottom, handleScroll, scrollToBottom, scrollToMessage } =
-      useConversationScroll(chat)
+      useConversationScroll(chat, sessionKey)
 
     // 按对话轮次（Turn）聚合消息流：将同一交互轮次内的思考、多次工具调用、Bash 与最终正文聚合成单一轮次卡片
     const { turns, finalReplyKeys } = React.useMemo(() => {
@@ -102,7 +108,34 @@ export const Conversation = React.memo(
     }, [chat, readOnly, agentOnly])
     const outline = React.useMemo(() => (agentOnly ? [] : conversationOutline(turns)), [turns, agentOnly])
 
-    const [visibleCount, setVisibleCount] = React.useState(INITIAL_VISIBLE_TURNS)
+    const [visible, setVisible] = React.useState({ key: sessionKey, count: INITIAL_VISIBLE_TURNS })
+    if (visible.key !== sessionKey)
+      setVisible({
+        key: sessionKey,
+        count: (sessionKey ? visibleWindows.get(sessionKey) : undefined) ?? INITIAL_VISIBLE_TURNS,
+      })
+    const visibleCount =
+      visible.key === sessionKey
+        ? visible.count
+        : ((sessionKey ? visibleWindows.get(sessionKey) : undefined) ?? INITIAL_VISIBLE_TURNS)
+    const setVisibleCount = React.useCallback(
+      (next: number | ((previous: number) => number)) => {
+        setVisible((value) => {
+          const previous =
+            value.key === sessionKey
+              ? value.count
+              : ((sessionKey ? visibleWindows.get(sessionKey) : undefined) ?? INITIAL_VISIBLE_TURNS)
+          const count = typeof next === 'function' ? next(previous) : next
+          if (sessionKey) {
+            visibleWindows.delete(sessionKey)
+            visibleWindows.set(sessionKey, count)
+            if (visibleWindows.size > 200) visibleWindows.delete(visibleWindows.keys().next().value!)
+          }
+          return { key: sessionKey, count }
+        })
+      },
+      [sessionKey],
+    )
     const [pinnedStartKey, setPinnedStartKey] = React.useState<string>()
     const [activeKey, setActiveKey] = React.useState<string>()
     const [pendingKey, setPendingKey] = React.useState<string>()
@@ -110,11 +143,10 @@ export const Conversation = React.memo(
     const firstTurnKey = turns[0]?.key
     const prevFirstKeyRef = React.useRef(firstTurnKey)
 
-    // 切换会话时重置窗口大小
+    // 切换会话时清理锚点；展开的窗口大小已按会话保存，不再统一重置。
     React.useEffect(() => {
       if (prevFirstKeyRef.current !== firstTurnKey) {
         prevFirstKeyRef.current = firstTurnKey
-        setVisibleCount(INITIAL_VISIBLE_TURNS)
         setPinnedStartKey(undefined)
         setPendingKey(undefined)
       }

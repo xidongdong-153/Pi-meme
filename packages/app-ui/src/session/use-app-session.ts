@@ -76,6 +76,7 @@ export function useAppSession(
   const synchronization = useRef(new SnapshotSync())
   const pluginSynchronization = useRef(new PluginSnapshotSync())
   const views = useRef(new Map<string, { snapshot: Snapshot; chat: ChatState; sequence: number }>())
+  const synced = useRef<{ generation: number; sessionKey?: string; status?: string } | undefined>(undefined)
   const drafts = useMemo(() => new ComposerDrafts(hostId), [hostId])
   const chatRef = useRef<ReturnType<typeof useChatSession> | null>(null)
   const extensionsRef = useRef<ReturnType<typeof useExtensionUI> | null>(null)
@@ -83,6 +84,8 @@ export function useAppSession(
 
   const commitSnapshot = useCallback(
     (snapshot: Snapshot, events: DesktopEvent[] | null, pluginRevision: number, modeRevision?: number) => {
+      const previousKey = displayed.current.sessionKey
+      const previousGeneration = displayed.current.generation
       currentRootAgentId.current = snapshot.agent?.rootAgentId ?? snapshot.agent?.agentId
       currentAgentTree.current = snapshot.agents ?? []
       setPlanDocuments(snapshot.planDocuments ?? [])
@@ -111,7 +114,13 @@ export function useAppSession(
             ...(events ?? []).filter((record) => record.sessionKey === key).map((record) => record.sequence ?? 0),
           ),
         })
+      if (previousKey !== key || previousGeneration !== snapshot.connection.generation) extensionsRef.current?.reset()
       extensionsRef.current?.restoreInteractions(snapshot.pendingInteractions ?? [])
+      synced.current = {
+        generation: snapshot.connection.generation,
+        sessionKey: snapshot.connection.sessionKey,
+        status: snapshot.connection.status,
+      }
       setState(snapshot.state)
       if (pluginSynchronization.current.commit(pluginRevision, snapshot, current.current.sessionKey))
         setUiPlugins(snapshot.uiPlugins)
@@ -182,6 +191,8 @@ export function useAppSession(
       commitSnapshot(snapshot, read.events, pluginRevision, modeRevision)
       setCommands(nextCommands)
     } catch (cause) {
+      // 读取失败时清掉已提交标记，下一次 ready/idle 连接事件可以重试。
+      synced.current = undefined
       if (mounted.current && synchronization.current.owns(read, current.current)) {
         setError(String(cause))
         setLoading(false)
@@ -311,19 +322,28 @@ export function useAppSession(
           const cached = next.sessionKey && views.current.get(next.sessionKey)
           if (cached) chatRef.current?.restoreChat(cached.chat)
           else chatRef.current?.reset()
-          chatRef.current?.clearComposer()
           const draft = next.sessionKey && drafts.get(next.sessionKey)
           if (draft) chatRef.current?.restoreComposer(draft)
+          else chatRef.current?.clearComposer()
         }
+        // 会话或代次变化时旧 Worker 的扩展状态和命令都不再可信。
         extensionsRef.current?.reset()
+        setCommands([])
         setExtensionError(undefined)
         dismissedExtensionError.current = undefined
-        setCommands([])
-        setSessionStats(null)
-        setThinkingLevels([])
         setError(next.error ?? '')
       }
-      if (next.status === 'ready' || next.status === 'idle') void refresh()
+      const syncedConnection = synced.current
+      if (
+        (next.status === 'ready' || next.status === 'idle') &&
+        (previous.status !== next.status ||
+          next.generation !== previous.generation ||
+          next.sessionKey !== previous.sessionKey ||
+          !syncedConnection ||
+          syncedConnection.generation !== next.generation ||
+          syncedConnection.sessionKey !== next.sessionKey)
+      )
+        void refresh()
     }
     const offConnection = bridge.onConnection(updateConnection)
     const offError = bridge.onError((value) => {
@@ -491,7 +511,6 @@ export function useAppSession(
     const transaction = selection.current.begin(target)
     const pluginRevision = pluginSynchronization.current.begin()
     const modeRevision = chatRef.current?.captureModeRevision()
-    let previewAllowed = true
     const owns = () => mounted.current && selection.current.owns(transaction)
     const previousMode = chatRef.current?.mode
     const previous = displayed.current
@@ -507,43 +526,12 @@ export function useAppSession(
     setSwitchingVersion(undefined)
     setLoading(false)
     setError('')
-    setSessionStats(null)
-    setThinkingLevels([])
     if (target) setActiveSession(target)
-    if (!carryDraft) chatRef.current?.clearComposer()
     chatRef.current?.clearPromptPending()
-    extensionsRef.current?.reset()
-    if (target)
-      void bridge
-        .readSessionHistory(target)
-        .then((history) => {
-          if (!owns() || !previewAllowed) return
-          chatRef.current?.loadSnapshot(
-            {
-              connection: previous,
-              messages: history.messages,
-              models,
-              state: {
-                mode: 'default',
-                model: history.model,
-                thinkingLevel: history.thinkingLevel,
-                sessionName: history.sessionName,
-                isStreaming: false,
-                isCompacting: false,
-                steeringMode: 'one-at-a-time',
-                followUpMode: 'all',
-                pendingMessageCount: 0,
-              },
-            },
-            null,
-          )
-        })
-        .catch(() => {})
     const pending = (async () => {
       try {
         const result = await work()
         if (!owns()) return
-        previewAllowed = false
         if (result.cancelled) {
           const snapshot = await bridge.getSnapshot()
           if (!owns()) return
@@ -564,6 +552,7 @@ export function useAppSession(
           (result.snapshot.connection.sessionKey && drafts.get(result.snapshot.connection.sessionKey))
         commitSnapshot(result.snapshot, transaction.events, pluginRevision, modeRevision)
         if (draft) chatRef.current?.restoreComposer(draft)
+        else chatRef.current?.clearComposer()
         if (transferred) {
           if (previousMode) chatRef.current?.changeMode(previousMode)
           if (previous.sessionKey) drafts.delete(previous.sessionKey)
@@ -590,7 +579,6 @@ export function useAppSession(
             .catch(() => {})
       } catch (cause) {
         if (!owns()) return
-        previewAllowed = false
         try {
           if (current.current.sessionKey !== previous.sessionKey && previousPath) {
             const restored = await bridge.switchSession(previousPath)
@@ -653,6 +641,7 @@ export function useAppSession(
       return false
     }
   }
+  // 统计、思考档位和扩展状态不再因切换清空；输入仍按原规则在切换期间只读，避免写入旧会话。
   const inputDisabled =
     loading ||
     acting ||
