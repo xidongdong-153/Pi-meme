@@ -42,6 +42,7 @@ export async function startHostServer(options: ServerOptions = {}) {
     }
   }
   const auth = createTransportAuth({
+    hostId: host.hostId,
     hostname,
     token,
     tls: Boolean(options.tls),

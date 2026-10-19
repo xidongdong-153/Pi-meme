@@ -4,6 +4,7 @@ import path from 'node:path'
 import WebSocket from 'ws'
 import type { HostService, HostRpcResponse } from '@pi-meme/contracts/host'
 import type { ConnectionCredentialStore } from './connection-credentials'
+import { sessionCookieName } from './transport-auth'
 
 function record(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value))
@@ -170,10 +171,12 @@ export class RemoteServices {
     const value = JSON.parse((await responseBody(response, 64 * 1024)).toString()) as { hostId?: unknown }
     if (typeof value.hostId !== 'string' || !value.hostId || (expected && value.hostId !== expected))
       throw new Error('远程服务身份已变化，请重新登记')
-    const cookie = response.headers
-      .getSetCookie()
-      .find((cookie) => cookie.startsWith('pi_meme_session='))
-      ?.split(';')[0]
+    const cookies = response.headers.getSetCookie()
+    const cookieName = sessionCookieName(value.hostId)
+    const cookie = (
+      cookies.find((cookie) => cookie.startsWith(`${cookieName}=`)) ??
+      cookies.find((cookie) => cookie.startsWith('pi_meme_session='))
+    )?.split(';')[0]
     if (!cookie) throw new Error('远程服务未返回认证会话')
     return { hostId: value.hostId, cookie }
   }

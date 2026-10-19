@@ -11,7 +11,10 @@ paths:
   - 'packages/permissions/src/ui/agent-access-selector.tsx'
   - 'scripts/package-host.mts'
   - 'apps/server/README.md'
+  - 'apps/server/package.json'
+  - 'apps/server/src/dev.ts'
   - 'apps/server/src/main.ts'
+  - 'packages/host/src/transport-auth.ts'
   - 'apps/web/src/**'
   - 'apps/web/vite.config.ts'
 ---
@@ -146,16 +149,7 @@ pnpm start
 
 ### 本机 Web 开发
 
-先构建浏览器页面，再启动源码模式的独立 Host：
-
-```bash
-pnpm build:web
-pnpm start:server
-```
-
-打开 [本机 Host](http://127.0.0.1:31415)。独立入口默认监听 `127.0.0.1:31415`，从 `apps/web/dist` 提供页面，本机来源自动登录。默认值见 [Server 入口](../apps/server/src/main.ts)。
-
-不启动 Desktop 的 Web 开发方式，在两个终端分别运行：
+不启动 Desktop 时，在两个终端分别运行，无需额外设置环境变量：
 
 ```bash
 # 终端一
@@ -167,7 +161,20 @@ pnpm start:server
 pnpm start:web
 ```
 
-打开 [Web 开发界面](http://127.0.0.1:5173)。Vite 将 `/api` 的 HTTP 和 WebSocket 请求代理给 Host；Web 代码支持热更新，Host 源码修改后需重启终端一。5173 被占用时直接报错，不自动换端口。代理目标可用 `PI_MEME_HOST_URL` 修改，见 [Vite 配置](../apps/web/vite.config.ts)。
+打开 [Web 开发界面](http://127.0.0.1:5173)。Vite 默认将 `/api` 的 HTTP 和 WebSocket 请求代理给 `127.0.0.1:31416`；Web 代码支持热更新，Host 源码修改后需重启终端一。5173 被占用时直接报错，不自动换端口。代理目标可用 `PI_MEME_HOST_URL` 修改，见 [Vite 配置](../apps/web/vite.config.ts)。
+
+`pnpm start:server` 从 [dev.ts](../apps/server/src/dev.ts) 启动，默认监听 `127.0.0.1:31416`，数据目录为 `~/.pi-meme-dev`，与正式环境的 `31415` 和 `~/.pi-meme` 分开。该入口和 Vite 开发服务器都会使用 `NODE_ENV=development`，即使终端继承了 `NODE_ENV=production`。开发环境需单独配置模型凭据，不自动复制正式数据。
+
+显式设置 `PI_MEME_PORT`、`PI_MEME_DATA_ROOT` 或 `PI_MEME_HOST_URL` 时仍以环境变量为准；不要把开发端口、目录或代理地址覆盖成正式环境。登录 Cookie 按 Host 身份区分，避免同一 `127.0.0.1` 下不同端口的登录互相覆盖。这里隔离的是应用数据和登录状态，不隔离项目源码和用户共享技能目录；两套环境修改同一个文件时仍会相互影响。
+
+需要查看构建后的页面时执行：
+
+```bash
+pnpm build:web
+pnpm start:server
+```
+
+打开 [开发 Host](http://127.0.0.1:31416)，从 `apps/web/dist` 提供页面，本机来源自动登录。这里仍启动开发 Host；正式源码部署使用下文的[源码构建的 Server](#源码构建的-server)。
 
 ## Desktop 与 Server 共享 Host
 
@@ -175,7 +182,7 @@ Desktop 和 Server 使用相同端口、相同真实数据目录时，只创建�
 
 Desktop 自定义目录保存在本机定位文件，Server 不读取它。先在 Desktop 查看数据目录，再以相同 `PI_MEME_DATA_ROOT` 启动 Server。目录不同、协议不兼容或端口被其他程序占用时明确报错，不会悄悄换端口。设置新的令牌、TLS 或 Web 根目录属于创建配置，不能应用到已运行的 Host。
 
-Server 默认连接构建 App 使用的 `31415` 和 `~/.pi-meme`。需要连接 Desktop 开发版时，显式设置 `PI_MEME_PORT=31416` 和 `PI_MEME_DATA_ROOT="$HOME/.pi-meme-dev"`；独立 Web 的代理也需设置 `PI_MEME_PORT=31416`。
+`pnpm start:server` 默认与 Desktop 开发版共用 `31416` 和 `~/.pi-meme-dev`，独立 Web 的代理也默认连接 `31416`，无需额外设置。构建后的 `node apps/server/dist/main.js` 和 Host 独立包默认使用 `31415` 和 `~/.pi-meme`，与构建 App 一致。
 
 运行另一套独立 Host，目录和端口都要区分：
 
@@ -194,6 +201,8 @@ pnpm build:web
 pnpm build:server
 node apps/server/dist/main.js
 ```
+
+打开 [本机 Host](http://127.0.0.1:31415)。构建入口默认使用 `31415` 和 `~/.pi-meme`，不使用开发入口的默认值；显式设置 `PI_MEME_PORT` 或 `PI_MEME_DATA_ROOT` 时仍以环境变量为准。
 
 Server 构建包含 `main.js`、静态会话 Worker 和内置技能；仍依赖本机安装的 `node_modules`，不是独立单文件。构建定义见 [vite.config.mts](../apps/server/vite.config.mts)。它不同于 `pnpm package:host` 生成的独立目录包，打包与验收见[版本发布](releasing.md)。远程监听和 HTTPS 参数见 [Remote](remote.md)。
 

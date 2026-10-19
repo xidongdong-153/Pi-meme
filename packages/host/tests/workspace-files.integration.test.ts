@@ -3,7 +3,7 @@ import { test } from 'vitest'
 import { mkdtemp, mkdir, writeFile, symlink, rm, readdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { createWorkspaceFiles, maxFilePreviewBytes } from '../src/workspace-files'
+import { createWorkspaceFiles, maxFilePreviewBytes, maxImagePreviewBytes } from '../src/workspace-files'
 
 test('文件预览限定目标目录，拒绝越界链接、二进制和过大文件', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'app-files-'))
@@ -15,6 +15,8 @@ test('文件预览限定目标目录，拒绝越界链接、二进制和过大�
     await writeFile(path.join(root, 'secret.txt'), 'outside')
     await symlink(path.join(root, 'secret.txt'), path.join(project, 'outside'))
     await symlink(path.join(project, 'readme.txt'), path.join(project, 'inside'))
+    await writeFile(path.join(root, 'outside.png'), 'outside')
+    await symlink(path.join(root, 'outside.png'), path.join(project, 'outside.png'))
     await writeFile(path.join(project, 'large.txt'), Buffer.alloc(maxFilePreviewBytes + 1, 'a'))
     await writeFile(path.join(project, 'binary'), Buffer.from([0, 255]))
     const files = createWorkspaceFiles(async (ref) => {
@@ -30,6 +32,8 @@ test('文件预览限定目标目录，拒绝越界链接、二进制和过大�
     assert.equal((await files.read(ref, 'inside')).content, '中文文本')
     for (const filename of ['../secret.txt', '/etc/passwd', 'outside', 'large.txt', 'binary', 'folder'])
       await assert.rejects(files.read(ref, filename))
+    for (const filename of ['../outside.png', path.join(root, 'outside.png'), 'outside.png'])
+      await assert.rejects(files.preview(ref, filename))
   } finally {
     await rm(root, { recursive: true, force: true })
   }
@@ -88,6 +92,7 @@ test('图片、二进制、编码和大小边界分别返回可识别的预览�
   await writeFile(path.join(root, 'binary'), Buffer.from([0, 255]))
   await writeFile(path.join(root, 'invalid'), Buffer.from([255]))
   await writeFile(path.join(root, 'large.txt'), Buffer.alloc(maxFilePreviewBytes + 1))
+  await writeFile(path.join(root, 'large.png'), Buffer.alloc(maxImagePreviewBytes + 1))
   assert.deepEqual(await files.preview(ref, 'image.png'), {
     kind: 'image',
     relativePath: 'image.png',
@@ -98,6 +103,7 @@ test('图片、二进制、编码和大小边界分别返回可识别的预览�
     ['binary', 'binary'],
     ['invalid', 'encoding'],
     ['large.txt', 'too-large'],
+    ['large.png', 'too-large'],
   ])
     assert.deepEqual(await files.preview(ref, filename), { kind: 'unsupported', relativePath: filename, reason })
 })

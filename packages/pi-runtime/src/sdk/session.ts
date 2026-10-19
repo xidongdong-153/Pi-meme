@@ -435,6 +435,14 @@ export class SdkSession {
             const prompts = [
               event.systemPrompt,
               '命令返回 command not found 时，先检查 command -v、PATH 和明确的安装位置，不能直接判断工具未安装。不要因为工具缺失自动执行 find / 或遍历整个用户目录；仍无法定位时说明缺失信息，仅在用户明确要求扩大搜索后搜索具体目录。',
+              'Image output in user-facing replies:',
+              '- Present a local screenshot or generated image with one standard Markdown image reference, for example ![Brief description](out/screenshots/example.png). Use a path relative to the current session working directory, not the browser URL. Do not wrap the image reference in inline code or a code block.',
+              '- Prefer out/screenshots/ for new screenshots. Existing images inside the session working directory may be referenced in place.',
+              '- If a tool returns an image outside the session working directory, such as a temporary file, copy only the image needed for the reply into out/screenshots/ before referencing it. Respect filesystem permissions; do not bypass a denied read or write.',
+              '- Verify that the file exists before referencing it. If the image cannot be saved or read, explain the limitation instead of inventing a usable path or URL.',
+              '- Do not use file:// URLs, absolute filesystem paths, or temporary localhost URLs to present local images. Do not start a server solely to display an image.',
+              '- Do not list multiple path or markup variants for the same image to probe the renderer unless the user explicitly requests a rendering test. Add a plain or inline-code path only when the user needs to copy it.',
+              '- Keep valid remote HTTP(S) image URLs unchanged and use standard Markdown image syntax to display them.',
             ]
             if (this.delegatedTask)
               prompts.push(

@@ -7,7 +7,7 @@
     "dist"
   ],
   "scripts": {
-    "start": "node --import tsx src/main.ts",
+    "start": "node --import tsx src/dev.ts",
     "type-check": "tsc --noEmit",
     "build": "vite build"
   },
@@ -16,6 +16,7 @@
     "@pi-meme/host": "workspace:*"
   },
   "devDependencies": {
-    "vite": "^8.3.1"
+    "vite": "^8.3.1",
+    "vitest": "5.0.5"
   }
 }

@@ -264,6 +264,11 @@ export function App({
     }
   }, [bridge, runtimeSessionKey, chat.bindDraftSession, chat.setError])
   const appSession = runtimeSessionKey ? resolvedSessions[runtimeSessionKey] : undefined
+  const loadConversationImage = useMemo(() => {
+    if (!appSession) return undefined
+    const ref = { hostId: appSession.hostId, sessionId: appSession.sessionId }
+    return (relativePath: string) => host.files.preview(ref, relativePath)
+  }, [host, appSession])
   const agentPluginSelection = useAgentPluginSelection({
     host,
     session: appSession,
@@ -690,6 +695,7 @@ export function App({
             editor,
             switchingVersion: chat.switchingVersion,
             sessionKey: chat.connection.sessionKey,
+            loadImage: loadConversationImage,
           }}
         />
       }

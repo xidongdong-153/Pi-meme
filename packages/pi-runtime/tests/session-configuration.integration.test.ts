@@ -64,7 +64,7 @@ test('自定义模型无需映射即可保留全部思考档位，发送和恢�
   }
 })
 
-test('工具定位规则与用户 SYSTEM.md、主会话和子代理提示共存', async () => {
+test('内置工具定位和图片输出规则与用户 SYSTEM.md、主会话和子代理提示共存', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pi-tool-discovery-'))
   const agent = await useFakeAgent(directory)
   const systemFile = path.join(agent.agentDir, 'SYSTEM.md')
@@ -98,6 +98,14 @@ test('工具定位规则与用户 SYSTEM.md、主会话和子代理提示共存'
         assert.match(text, /command not found/)
         assert.match(text, /command -v、PATH 和明确的安装位置/)
         assert.match(text, /不要因为工具缺失自动执行 find \/ 或遍历整个用户目录/)
+        assert.match(text, /Image output in user-facing replies:/)
+        assert.match(text, /!\[Brief description\]\(out\/screenshots\/example\.png\)/)
+        assert.match(text, /relative to the current session working directory/)
+        assert.match(text, /copy only the image needed for the reply into out\/screenshots\//)
+        assert.match(text, /Verify that the file exists before referencing it/)
+        assert.match(text, /Do not use file:\/\/ URLs, absolute filesystem paths, or temporary localhost URLs/)
+        assert.match(text, /Do not list multiple path or markup variants/)
+        assert.match(text, /Keep valid remote HTTP\(S\) image URLs unchanged/)
         assert.equal(text.includes('你是执行委派任务的子 Agent'), delegated)
         if (delegated) assert.match(text, /当前委派任务：定位项目工具/)
       } finally {

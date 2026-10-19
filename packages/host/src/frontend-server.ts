@@ -47,7 +47,13 @@ export async function startFrontendServer(options: {
   readinessTimeoutMs?: number
 }) {
   const upstream = assertLocalHostUrl(options.upstreamUrl)
-  const auth = createTransportAuth({ hostname: '127.0.0.1', token: '', tls: false, localAutoLogin: true })
+  const auth = createTransportAuth({
+    hostId: options.hostId,
+    hostname: '127.0.0.1',
+    token: '',
+    tls: false,
+    localAutoLogin: true,
+  })
   const sockets = new Set<Duplex>()
   let url = ''
   const allowed = (request: IncomingMessage) =>

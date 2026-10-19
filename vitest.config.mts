@@ -22,7 +22,7 @@ export default defineConfig({
         test: {
           name: 'node',
           environment: 'node',
-          include: ['packages/*/tests/**/*.test.ts', 'apps/desktop/tests/**/*.test.ts', 'tests/**/*.test.ts'],
+          include: ['packages/*/tests/**/*.test.ts', 'apps/*/tests/**/*.test.ts', 'tests/**/*.test.ts'],
           exclude: ['**/*.component.test.*', '**/*.artifact.test.*'],
         },
       },

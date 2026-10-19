@@ -2,7 +2,7 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { fileURLToPath } from 'node:url'
-import { hostPort, localHostUrl } from '@pi-meme/contracts/host-runtime'
+import { defaultDevelopmentHostPort, hostPort, localHostUrl } from '@pi-meme/contracts/host-runtime'
 import { waitForLocalHost } from '@pi-meme/host/host-status'
 
 const sharedModules = {
@@ -14,13 +14,17 @@ const sharedModules = {
 }
 
 export function createWebConfig(
-  hostUrl = process.env.PI_MEME_HOST_URL ?? localHostUrl(hostPort(process.env.PI_MEME_PORT)),
+  hostUrl = process.env.PI_MEME_HOST_URL ??
+    localHostUrl(hostPort(process.env.PI_MEME_PORT, defaultDevelopmentHostPort)),
 ) {
   let hostId: string | undefined
   return defineConfig({
     plugins: [
       {
         name: 'local-host-readiness',
+        config(_config, { command }) {
+          if (command === 'serve') process.env.NODE_ENV = 'development'
+        },
         configureServer(server) {
           server.middlewares.use((request, response, next) => {
             if (

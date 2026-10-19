@@ -64,6 +64,7 @@ const files: Array<[string, Feature[]]> = [
   ['apps/desktop/tests/storage.e2e.spec.ts', ['settings', 'desktop', 'sessions']],
   ['apps/desktop/tests/tools.e2e.spec.ts', ['files', 'git', 'terminal', 'plugins']],
   ['apps/desktop/tests/user-login-path.integration.test.ts', ['desktop']],
+  ['apps/server/tests/dev-startup.unit.test.ts', ['connection', 'desktop']],
   [
     'apps/server/tests/dist-smoke.artifact.test.ts',
     ['desktop', 'connection', 'plugins', 'mcp', 'subagents', 'codemode', 'permissions', 'terminal'],
@@ -125,6 +126,7 @@ const files: Array<[string, Feature[]]> = [
   ['packages/chat/tests/conversation-projection.unit.test.ts', ['subagents', 'chat']],
   ['packages/chat/tests/handlers.unit.test.ts', ['chat']],
   ['packages/chat/tests/highlighter.unit.test.ts', ['chat']],
+  ['packages/chat/tests/markdown-images.component.test.tsx', ['chat']],
   ['packages/chat/tests/message-versions.unit.test.ts', ['sessions']],
   ['packages/chat/tests/mermaid.component.test.tsx', ['chat']],
   ['packages/chat/tests/pause-display.unit.test.ts', ['chat']],

@@ -18,6 +18,7 @@ import { messageText } from '../model/message-text'
 import { AgentStatusRow } from './agent-status-row'
 import { ErrorLine } from '@pi-meme/ui/components/error-line'
 import { cn } from '@pi-meme/ui/lib/utils'
+import { MessageImageLoaderContext, type MessageImageLoader } from '../content/message-image'
 
 function noSubscription() {
   return () => {}
@@ -43,6 +44,7 @@ export const Conversation = React.memo(
     editor,
     switchingVersion,
     sessionKey,
+    loadImage,
     readOnly = false,
     agentOnly = false,
   }: {
@@ -61,6 +63,7 @@ export const Conversation = React.memo(
     switchingVersion?: number
     /** 当前会话标识，用于按会话恢复滚动位置。 */
     sessionKey?: string
+    loadImage?: MessageImageLoader
     readOnly?: boolean
     agentOnly?: boolean
   }) => {
@@ -214,7 +217,9 @@ export const Conversation = React.memo(
       }
     }, [containerRef, updateActiveTurn, firstTurnKey, agentOnly])
 
-    return (
+    return React.createElement(
+      MessageImageLoaderContext.Provider,
+      { value: loadImage },
       <div className="chat-surface relative flex flex-1 min-h-0 min-w-0">
         <ConversationOutline entries={outline} activeKey={activeKey} onSelect={handleSelectTurn} />
         <div
@@ -354,7 +359,7 @@ export const Conversation = React.memo(
             </Button>
           </div>
         )}
-      </div>
+      </div>,
     )
   },
 )

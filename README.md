@@ -52,9 +52,9 @@ pnpm build:web
 pnpm start:server
 ```
 
-浏览器打开 [本机 Host](http://127.0.0.1:31415)，本机访问自动登录。在“设置 → 个人 → 模型”中配置模型后发送任务。Linux/WSL2 还需安装 bubblewrap，见 [Linux 与 WSL](docs/linux-wsl.md)。
+浏览器打开 [开发 Host](http://127.0.0.1:31416)，本机访问自动登录。在“设置 → 个人 → 模型”中配置模型后发送任务。需要前端热更新时，省略 `pnpm build:web`，另开终端运行 `pnpm start:web`，打开 `http://127.0.0.1:5173`。Linux/WSL2 还需安装 bubblewrap，见 [Linux 与 WSL](docs/linux-wsl.md)。
 
-Server 和构建 App 的数据默认保存在 `~/.pi-meme`，端口为 `127.0.0.1:31415`。Desktop 开发版默认使用 `~/.pi-meme-dev` 和 `31416`。可用 `PI_MEME_DATA_ROOT`、`PI_MEME_PORT` 覆盖；目录和端口一致时复用同一个 Host，创建它的入口退出时 Host 停止。运行多套独立 Host 必须同时使用不同目录和端口。凭据由 Host 保存到 `auth.json`，不读取本机 Pi CLI 配置。
+构建后的 Server、Host 独立包和构建 App 默认使用 `~/.pi-meme` 和端口 `31415`。Desktop 开发版和 `pnpm start:server` 默认使用 `~/.pi-meme-dev` 和 `31416`，Web 开发代理也默认连接 `31416`。可用 `PI_MEME_DATA_ROOT`、`PI_MEME_PORT` 覆盖；目录和端口一致时复用同一个 Host，创建它的入口退出时 Host 停止。运行多套独立 Host 必须同时使用不同目录和端口。凭据由 Host 保存到 `auth.json`，不读取本机 Pi CLI 配置。
 
 ## 文档
 

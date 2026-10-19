@@ -14,7 +14,7 @@ pi-meme 的 Desktop 和 Web 共用 Node Host。应用入口在 `apps/`，基础�
 
 | 文档                                        | 解决什么问题                                         | 状态                   | 关联路径                                                                           |
 | ------------------------------------------- | ---------------------------------------------------- | ---------------------- | ---------------------------------------------------------------------------------- |
-| [快速开始](getting-started.md)              | 下载独立包或从源码启动 Desktop、Web 和 Server        | 现状                   | `apps/desktop`、`apps/server`、`apps/web`                                          |
+| [快速开始](getting-started.md)              | 下载独立包、启动默认隔离的开发环境或部署 Server      | 现状                   | `apps/desktop`、`apps/server`、`apps/web`                                          |
 | [开发与验证](development.md)                | 确定修改位置、质量检查、测试与打包命令               | 现状                   | `package.json`、`scripts/`、`tests/`                                               |
 | [版本发布](releasing.md)                    | 构建三个原生平台包，验收并创建 GitHub 草稿           | 现状                   | `scripts/package-host.mts`、`scripts/release.mts`、`.github/workflows/release.yml` |
 | [测试](testing.md)                          | 区分日常文件级验证、CI 与手动完整验收                | 现状                   | `tests/catalog.ts`、`scripts/test.mts`                                             |

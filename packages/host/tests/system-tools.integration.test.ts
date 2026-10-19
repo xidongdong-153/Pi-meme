@@ -34,8 +34,22 @@ test('系统插件常驻且不可通过外部接口修改，文件写入按目�
   await writeFile(path.join(a, 'file.txt'), 'A')
   await writeFile(path.join(b, 'file.txt'), 'B')
   const project = await host.app.projects.register({ cwd: a }, { idempotencyKey: 'project' })
-  await host.app.projects.register({ cwd: b }, { idempotencyKey: 'other' })
+  const other = await host.app.projects.register({ cwd: b }, { idempotencyKey: 'other' })
   const session = await host.app.sessions.create({ project }, { idempotencyKey: 'session' })
+  const otherSession = await host.app.sessions.create({ project: other }, { idempotencyKey: 'other-session' })
+  await writeFile(path.join(a, 'same.png'), 'image-a')
+  await writeFile(path.join(b, 'same.png'), 'image-b')
+  for (const [ref, content] of [
+    [session, 'image-a'],
+    [otherSession, 'image-b'],
+  ] as const) {
+    const image = await host.app.files.preview(ref, 'same.png')
+    assert.equal(image.kind, 'image')
+    if (image.kind === 'image')
+      assert.equal(image.dataUrl, `data:image/png;base64,${Buffer.from(content).toString('base64')}`)
+  }
+  await assert.rejects(host.app.files.preview({ ...session, hostId: 'wrong-host' }, 'same.png'))
+  await assert.rejects(host.app.files.preview({ ...session, sessionId: 'missing-session' }, 'same.png'))
   const preview = await host.app.files.preview(session, 'file.txt')
   if (preview.kind !== 'text') throw new Error('必须是文本')
   const request = {

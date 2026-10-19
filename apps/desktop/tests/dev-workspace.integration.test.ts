@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url'
 import { test, vi } from 'vitest'
 import { createServer as createNetServer } from 'node:net'
 import { startHostServer } from '@pi-meme/host/server'
-import { createServer, loadConfigFromFile, mergeConfig } from 'vite'
+import { createServer, loadConfigFromFile, mergeConfig, resolveConfig } from 'vite'
 
 test('Desktop 开发代理默认使用 31416，与构建 App 的 31415 隔离', async () => {
   vi.stubEnv('PI_MEME_PORT', undefined)
@@ -26,6 +26,39 @@ test('Desktop 开发代理默认使用 31416，与构建 App 的 31415 隔离', 
     const proxy = loaded.config.server?.proxy?.['/api']
     assert.ok(typeof proxy === 'object')
     assert.equal(proxy.target, 'http://127.0.0.1:31416')
+  } finally {
+    vi.unstubAllEnvs()
+  }
+})
+
+test.each([
+  { port: undefined, url: undefined, target: 'http://127.0.0.1:31416' },
+  { port: '31417', url: undefined, target: 'http://127.0.0.1:31417' },
+  { port: '31417', url: 'http://127.0.0.1:31418', target: 'http://127.0.0.1:31418' },
+])('Web 开发代理使用 $target，不继承正式 NODE_ENV', async ({ port, url, target }) => {
+  vi.stubEnv('PI_MEME_PORT', port)
+  vi.stubEnv('PI_MEME_HOST_URL', url)
+  vi.stubEnv('NODE_ENV', 'production')
+  const root = fileURLToPath(new URL('../../web', import.meta.url))
+  try {
+    const config = await resolveConfig({ root, configFile: path.join(root, 'vite.config.ts') }, 'serve')
+    const proxy = config.server.proxy?.['/api']
+    assert.ok(typeof proxy === 'object')
+    assert.equal(proxy.target, target)
+    assert.equal(config.isProduction, false)
+    assert.equal(process.env.NODE_ENV, 'development')
+  } finally {
+    vi.unstubAllEnvs()
+  }
+})
+
+test('Web 正式构建配置保留 production 模式', async () => {
+  vi.stubEnv('NODE_ENV', 'production')
+  const root = fileURLToPath(new URL('../../web', import.meta.url))
+  try {
+    const config = await resolveConfig({ root, configFile: path.join(root, 'vite.config.ts') }, 'build')
+    assert.equal(config.isProduction, true)
+    assert.equal(process.env.NODE_ENV, 'production')
   } finally {
     vi.unstubAllEnvs()
   }

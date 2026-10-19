@@ -39,7 +39,7 @@ pnpm --version
 pnpm install --frozen-lockfile
 ```
 
-以下项目命令在仓库根目录执行。终端一运行 `pnpm start:server`，终端二运行 `pnpm start:web`。Windows 或 Linux 浏览器打开 `http://127.0.0.1:5173`。Vite 固定 loopback 地址与端口，同源代理保留 Cookie、Host、Origin 和 WebSocket。Web 源码修改支持热更新，Host 源码修改后重启终端一。
+以下项目命令在仓库根目录执行。终端一运行 `pnpm start:server`，终端二运行 `pnpm start:web`。开发 Host 默认使用 `31416` 和 `~/.pi-meme-dev`，与正式环境分开。Windows 或 Linux 浏览器打开 `http://127.0.0.1:5173`。Vite 固定 loopback 地址与端口，同源代理保留 Cookie、Host、Origin 和 WebSocket。Web 源码修改支持热更新，Host 源码修改后重启终端一。
 
 构建后由一个 Host 提供 Web：
 
@@ -55,12 +55,12 @@ node apps/server/dist/main.js
 %%{init: {"theme": "dark"}}%%
 flowchart TD
   Browser["Windows 或 Linux 浏览器"] -->|开发：5173| Vite["Vite：同源 HTTP/WebSocket 代理"]
-  Vite --> Host["Linux Node Host：31415"]
+  Vite --> Host["Linux Node Host：开发 31416 / 构建后 31415"]
   Browser -->|构建后：31415| Host
   Host --> Worker["静态 Worker 与 Pi SDK"]
   Worker --> Sandbox["bubblewrap：受限文件工具"]
   Sandbox --> Project["Linux 工作区与会话临时目录"]
-  Host --> Data["Host 数据：~/.pi-meme"]
+  Host --> Data["Host 数据：开发 ~/.pi-meme-dev / 正式 ~/.pi-meme"]
 ```
 
 ## 默认权限和隔离

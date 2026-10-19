@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
 import { request } from 'node:http'
+import { createHash } from 'node:crypto'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -37,6 +38,45 @@ test('默认文件存储启动不读取旧凭据，Host 令牌重启后保持且
     assert.equal(legacyReads, 0)
   } finally {
     await server?.dispose()
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('不同 Host 的 Cookie 不同名覆盖，共存时各自认证且不能串认证', async () => {
+  const directory = await root()
+  const servers: Awaited<ReturnType<typeof startHostServer>>[] = []
+  try {
+    for (const name of ['one', 'two'])
+      servers.push(await startHostServer({ dataRoot: path.join(directory, name), testCredentials: true, token: name }))
+    const cookies: string[] = []
+    const browserCookies = new Map<string, string>()
+    for (const server of servers) {
+      const response = await fetch(`${server.url}/api/auth`, {
+        method: 'POST',
+        headers: { Origin: server.url, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: server.token }),
+      })
+      assert.equal(response.status, 200)
+      const cookie = response.headers.get('set-cookie')!.split(';')[0]
+      cookies.push(cookie)
+      const [name, value] = cookie.split('=')
+      browserCookies.set(name, value)
+    }
+    assert.equal(browserCookies.size, 2, '同域名不同端口的 Host Cookie 不能互相覆盖')
+    for (const [index, server] of servers.entries()) {
+      const name = cookies[index].split('=')[0]
+      assert.equal(name, `pi_meme_session_${createHash('sha256').update(server.host.hostId).digest('hex')}`)
+      const authenticate = (cookie: string) =>
+        fetch(`${server.url}/api/auth`, { method: 'POST', headers: { Cookie: cookie }, body: '{}' })
+      const sharedCookies = [...browserCookies].map(([key, value]) => `${key}=${value}`).join('; ')
+      assert.equal((await authenticate(sharedCookies)).status, 200)
+      const otherCookie = cookies[1 - index]
+      assert.equal((await authenticate(otherCookie)).status, 401)
+      assert.equal((await authenticate(`${name}=${otherCookie.split('=')[1]}`)).status, 401)
+      assert.equal((await authenticate(`pi_meme_session=${cookies[index].split('=')[1]}`)).status, 401)
+    }
+  } finally {
+    await Promise.all(servers.map((server) => server.dispose()))
     await rm(directory, { recursive: true, force: true })
   }
 })

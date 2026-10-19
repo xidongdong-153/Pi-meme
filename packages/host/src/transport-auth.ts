@@ -1,12 +1,18 @@
 import type { IncomingMessage } from 'node:http'
-import { randomBytes, timingSafeEqual } from 'node:crypto'
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto'
+
+export function sessionCookieName(hostId: string) {
+  return `pi_meme_session_${createHash('sha256').update(hostId).digest('hex')}`
+}
 
 export function createTransportAuth(options: {
+  hostId: string
   hostname: string
   token: string
   tls: boolean
   localAutoLogin?: boolean
 }) {
+  const cookieName = sessionCookieName(options.hostId)
   const local = ['127.0.0.1', 'localhost', '::1'].includes(options.hostname)
   const localAutoLogin = Boolean(options.localAutoLogin && local)
   const protocol = options.tls ? 'https' : 'http'
@@ -30,8 +36,8 @@ export function createTransportAuth(options: {
     const cookie = request.headers.cookie
       ?.split(';')
       .map((value) => value.trim())
-      .find((value) => value.startsWith('pi_meme_session='))
-      ?.slice('pi_meme_session='.length)
+      .find((value) => value.startsWith(`${cookieName}=`))
+      ?.slice(cookieName.length + 1)
     const expires = cookie ? sessions.get(cookie) : undefined
     return Boolean(expires && expires > Date.now())
   }
@@ -67,7 +73,7 @@ export function createTransportAuth(options: {
       sessions.set(session, Date.now() + 24 * 60 * 60 * 1000)
       return {
         status: 200,
-        cookie: `pi_meme_session=${session}; HttpOnly; SameSite=Strict; Path=/; Max-Age=86400${options.tls ? '; Secure' : ''}`,
+        cookie: `${cookieName}=${session}; HttpOnly; SameSite=Strict; Path=/; Max-Age=86400${options.tls ? '; Secure' : ''}`,
       }
     },
     createBootstrapTicket() {

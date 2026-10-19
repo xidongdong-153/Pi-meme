@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
+import { createHash } from 'node:crypto'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -76,6 +77,47 @@ test('同主机不同端口隔离凭据和资源地址，401只重试一次且�
     await rm(root, { recursive: true, force: true })
   }
 })
+
+for (const scoped of [false, true]) {
+  test(`远程服务兼容${scoped ? '按 Host 区分的新' : '旧版'} Cookie 登记和重新登录`, async () => {
+    const { root, credentials, services } = await setup()
+    const original = globalThis.fetch
+    const hostId = 'remote-cookie-host'
+    const cookieName = scoped
+      ? `pi_meme_session_${createHash('sha256').update(hostId).digest('hex')}`
+      : 'pi_meme_session'
+    const cookie = `${cookieName}=remote-session`
+    let logins = 0
+    globalThis.fetch = (async (input, init) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/api/auth') {
+        logins++
+        const headers = new Headers()
+        headers.append('Set-Cookie', 'unrelated=value; HttpOnly')
+        if (scoped) headers.append('Set-Cookie', 'pi_meme_session=legacy-session; HttpOnly')
+        headers.append('Set-Cookie', `${cookie}; HttpOnly; Secure`)
+        return new Response(JSON.stringify({ hostId }), { headers })
+      }
+      assert.equal((init?.headers as Record<string, string>).Cookie, cookie)
+      return new Response(JSON.stringify({ hostId, result: [] }))
+    }) as typeof fetch
+    try {
+      const state = await services.register('https://remote.example', 'token')
+      assert.equal(state.hostId, hostId)
+      assert.equal(credentials.read(state.address)?.hostId, hostId)
+      const body = JSON.stringify({ method: 'plugins:list', args: [] })
+      assert.equal((await services.request(state.id, '/api/rpc', 'POST', body)).status, 200)
+      await services.retry(state.id)
+      assert.equal(logins, 2)
+      assert.equal((await services.request(state.id, '/api/rpc', 'POST', body)).status, 200)
+    } finally {
+      globalThis.fetch = original
+      services.dispose()
+      await services.flush()
+      await rm(root, { recursive: true, force: true })
+    }
+  })
+}
 
 test('网络失败不重发，移除阻止进行中的认证恢复Cookie', async () => {
   const { root, services } = await setup()
