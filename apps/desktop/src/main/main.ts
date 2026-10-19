@@ -43,6 +43,7 @@ let uiUrl = ''
 let starting: Promise<void> | undefined
 let lastConnectionError: HostConnectionError | null = null
 let switching = false
+let stopping = false
 const instanceLocked = app.requestSingleInstanceLock()
 if (!instanceLocked) app.exit(0)
 app.on('second-instance', () => {
@@ -218,7 +219,7 @@ app
     }
     await open(failed)
     app.on('activate', () => {
-      if (!window) void open().catch((cause: unknown) => console.error(String(cause)))
+      if (!window && !stopping) void open().catch((cause: unknown) => console.error(String(cause)))
     })
   })
   .catch((cause: unknown) => {
@@ -229,7 +230,6 @@ app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
 let stopped = false
-let stopping = false
 app.on('before-quit', (event) => {
   if (storage.busy) {
     event.preventDefault()
@@ -239,18 +239,32 @@ app.on('before-quit', (event) => {
   event.preventDefault()
   if (stopping) return
   stopping = true
-  const lease = localHost
-  hostClient?.dispose()
-  void (async () => {
-    try {
-      await frontend?.dispose()
-    } finally {
-      if (lease?.ownership === 'owned') await lease.resource.dispose()
-    }
-  })()
-    .catch((cause: unknown) => console.error(`桌面退出清理失败：${String(cause)}`))
-    .finally(() => {
-      stopped = true
-      app.quit()
-    })
+  const target = window
+  const contents = target?.webContents
+  function cancelQuit() {
+    target?.removeListener('closed', dispose)
+    stopping = false
+  }
+  function dispose() {
+    contents?.removeListener('will-prevent-unload', cancelQuit)
+    const lease = localHost
+    hostClient?.dispose()
+    void (async () => {
+      try {
+        await frontend?.dispose()
+      } finally {
+        if (lease?.ownership === 'owned') await lease.resource.dispose()
+      }
+    })()
+      .catch((cause: unknown) => console.error(`桌面退出清理失败：${String(cause)}`))
+      .finally(() => {
+        stopped = true
+        app.quit()
+      })
+  }
+  if (target) {
+    target.once('closed', dispose)
+    contents?.once('will-prevent-unload', cancelQuit)
+    target.close()
+  } else dispose()
 })

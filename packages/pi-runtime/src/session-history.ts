@@ -7,6 +7,7 @@ import type { SessionHistoryData } from '@pi-meme/contracts/sessions'
 import { branchSkillUsages } from './extensions/skill-usage'
 import { projectBranchEntries } from './session-tree-entries'
 import { projectMessageSources } from './sdk/ui-source'
+import { loadPiSdk } from './sdk/load'
 
 export type { SessionHistoryData } from '@pi-meme/contracts/sessions'
 
@@ -157,8 +158,7 @@ export async function readSessionHistory(filePath: string): Promise<SessionHisto
       cache.set(filePath, cached)
       return cached.data
     }
-    const { parseSessionEntries, migrateSessionEntries, buildSessionContext } =
-      await import('@earendil-works/pi-coding-agent')
+    const { parseSessionEntries, migrateSessionEntries, buildSessionContext } = await loadPiSdk()
     const entries = parseSessionEntries(await readFile(filePath, 'utf8'))
     const header = entries.find((entry) => entry.type === 'session')
     if (!header?.cwd) throw new Error('会话文件缺少工作目录')

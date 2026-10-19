@@ -56,6 +56,7 @@ const files: Array<[string, Feature[]]> = [
   ['apps/desktop/tests/sessions.e2e.spec.ts', ['sessions', 'workspace']],
   ['apps/desktop/tests/settings.e2e.spec.ts', ['settings', 'usage', 'mcp']],
   ['apps/desktop/tests/shared-host.e2e.spec.ts', ['connection', 'desktop', 'sessions', 'settings']],
+  ['apps/desktop/tests/shutdown.unit.test.ts', ['desktop', 'connection']],
   ['apps/desktop/tests/storage-bootstrap.unit.test.ts', ['settings', 'desktop']],
   ['apps/desktop/tests/storage-ipc.unit.test.ts', ['settings', 'desktop', 'connection']],
   ['apps/desktop/tests/storage-task.integration.test.ts', ['settings', 'desktop']],
@@ -254,6 +255,7 @@ const files: Array<[string, Feature[]]> = [
   ['packages/workspace/tests/sidebar-model.unit.test.ts', ['workspace', 'sessions']],
   ['packages/workspace/tests/sidebar-operations.integration.test.ts', ['workspace', 'sessions']],
   ['packages/workspace/tests/sidebar-preferences.unit.test.ts', ['workspace', 'settings']],
+  ['tests/pi-runtime-bundle.integration.test.ts', ['desktop', 'sessions', 'skills']],
   ['tests/release.unit.test.ts', ['desktop', 'testing']],
   ['tests/selection.unit.test.ts', ['testing']],
 ]

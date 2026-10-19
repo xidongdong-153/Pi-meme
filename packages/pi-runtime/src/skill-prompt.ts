@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { PiSlashCommand } from '@pi-meme/contracts/pi'
 import { skillMarker, type SkillReference } from '@pi-meme/contracts/skills'
+import { loadPiSdk } from './sdk/load'
 
 function escapeAttribute(value: string) {
   return value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;').replaceAll('>', '&gt;')
@@ -10,7 +11,7 @@ function escapeAttribute(value: string) {
 export async function expandSkills(message: string, references: SkillReference[], commands: PiSlashCommand[]) {
   if ((message.match(/\uFFFC/g)?.length ?? 0) !== references.length)
     throw new Error('技能标记与选择数量不一致，请重新选择技能')
-  const { stripFrontmatter } = await import('@earendil-works/pi-coding-agent')
+  const { stripFrontmatter } = await loadPiSdk()
   const blocks = await Promise.all(
     references.map(async ({ id, revision, name }) => {
       const skill = commands.find((command) => command.source === 'skill' && command.resourceId === id)

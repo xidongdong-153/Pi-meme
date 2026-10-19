@@ -38,7 +38,7 @@ import type {
 } from '@pi-meme/contracts/pi'
 import type { SandboxCapability } from './sdk/access-sandbox'
 import { SdkSession } from './sdk/session'
-import { getPiVersion } from './sdk/load'
+import { getPiVersion, loadPiSdk } from './sdk/load'
 import type { ModelRestore, PiRuntime } from './runtime'
 import { invalidateSessionHistory, readSessionHistory, type SessionHistoryData } from './session-history'
 import { readLocalModels, readLocalPreferences, readLocalSkills } from './session-metadata'
@@ -424,7 +424,7 @@ export class PiSessionPool implements PiRuntime {
       if (record && !record.dormant && record.session.connection().status === 'ready') {
         await record.session.setSessionName(name)
       } else if (!sessionPath.startsWith('runtime:')) {
-        const { SessionManager } = await import('@earendil-works/pi-coding-agent')
+        const { SessionManager } = await loadPiSdk()
         const cwd = record?.cwd ?? (await readSessionHistory(sessionPath)).cwd
         const sessionDirectory = this.runtimePaths.sessionDirectory(cwd)
         SessionManager.open(sessionPath, sessionDirectory, cwd).appendSessionInfo(name)
