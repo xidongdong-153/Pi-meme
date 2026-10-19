@@ -1,11 +1,12 @@
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
-import type { DesktopBridge, SessionSelectionResult, Snapshot } from '@pi-meme/contracts/desktop'
+import type { DesktopBridge, DesktopEvent, SessionSelectionResult, Snapshot } from '@pi-meme/contracts/desktop'
 import { thinkingLevels, type PiModel, type PiSlashCommand, type ThinkingLevel } from '@pi-meme/contracts/pi'
 import { skillMarker } from '@pi-meme/contracts/skills'
 import { ModelPickerPopover } from '@pi-meme/models/ui/model-picker-popover'
 import { useAppSession } from '../src/session/use-app-session'
 import { invokeSkillInNewSession } from '../src/settings/invoke-skill'
+import { assistantMessage, toolResult, userMessage } from '../../../tests/fixtures/messages.mjs'
 
 afterEach(cleanup)
 
@@ -97,6 +98,101 @@ function setup(overrides: Partial<DesktopBridge> = {}) {
   const hook = renderHook(() => useAppSession(bridge, { chatEnabled: false, workspaceEnabled: false }))
   return { ...hook, snapshot }
 }
+
+function contextStats(tokens: number): NonNullable<Snapshot['stats']> {
+  return {
+    sessionFile: undefined,
+    sessionId: 'main',
+    userMessages: 1,
+    assistantMessages: 1,
+    toolCalls: 0,
+    toolResults: 0,
+    totalMessages: 2,
+    tokens: { input: tokens, output: 0, cacheRead: 0, cacheWrite: 0, total: tokens },
+    cost: 0,
+    contextUsage: { tokens, contextWindow: 100000, percent: tokens / 1000 },
+  }
+}
+
+const assistantEnd: DesktopEvent = {
+  generation: 1,
+  sessionKey: 'main',
+  event: { type: 'message_end', message: assistantMessage('继续执行工具', 1, { stopReason: 'toolUse' }) },
+}
+
+test('上下文统计在模型回复结束后单独刷新，不等待工具或整次运行结束', async () => {
+  let emit!: (event: DesktopEvent) => void
+  const stats = contextStats(12000)
+  const getSessionStats = vi.fn().mockResolvedValue(stats)
+  const getSnapshot = vi.fn<DesktopBridge['getSnapshot']>()
+  const { result, snapshot } = setup({
+    getSessionStats,
+    getSnapshot,
+    onEvent: (callback) => {
+      emit = callback
+      return () => {}
+    },
+  })
+  getSnapshot.mockResolvedValue(snapshot)
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  const snapshotReads = getSnapshot.mock.calls.length
+  act(() => {
+    emit({ ...assistantEnd, sessionKey: 'background' })
+    emit({ ...assistantEnd, generation: 0 })
+    emit({ ...assistantEnd, event: { type: 'message_end', message: userMessage('用户消息', 2) } })
+    emit({ ...assistantEnd, event: { type: 'message_end', message: toolResult('tool', '工具结果', 3) } })
+    emit({ ...assistantEnd, event: { type: 'agent_start' } })
+  })
+  expect(getSessionStats).not.toHaveBeenCalled()
+
+  await act(async () => emit(assistantEnd))
+  expect(result.current.sessionStats).toEqual(stats)
+  expect(result.current.chatStream.getSnapshot().running).toBe(true)
+  expect(getSessionStats).toHaveBeenCalledTimes(1)
+  expect(getSnapshot).toHaveBeenCalledTimes(snapshotReads)
+
+  getSessionStats.mockRejectedValueOnce(new Error('统计读取失败'))
+  await act(async () => emit(assistantEnd))
+  expect(result.current.sessionStats).toEqual(stats)
+})
+
+test.each(['reply', 'snapshot', 'session'] as const)(
+  '上下文统计迟到结果不覆盖新回复、快照或会话：%s',
+  async (replacement) => {
+    let emit!: (event: DesktopEvent) => void
+    const pending = deferred<NonNullable<Snapshot['stats']>>()
+    const latest = contextStats(24000)
+    const getSessionStats = vi.fn().mockReturnValueOnce(pending.promise).mockResolvedValue(latest)
+    const { result, snapshot } = setup({
+      getSessionStats,
+      onEvent: (callback) => {
+        emit = callback
+        return () => {}
+      },
+      switchSession: async () => ({
+        cancelled: false,
+        snapshot: {
+          ...snapshot,
+          connection: { ...snapshot.connection, generation: 2, sessionKey: 'second' },
+          stats: latest,
+        },
+      }),
+    })
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    act(() => emit(assistantEnd))
+    expect(getSessionStats).toHaveBeenCalledTimes(1)
+    await act(async () => {
+      if (replacement === 'reply') emit(assistantEnd)
+      else if (replacement === 'snapshot') {
+        snapshot.stats = latest
+        await result.current.refreshSnapshot()
+      } else await result.current.switchSession('second')
+    })
+    expect(result.current.sessionStats).toEqual(latest)
+    await act(async () => pending.resolve(contextStats(12000)))
+    expect(result.current.sessionStats).toEqual(latest)
+  },
+)
 
 test.each([
   ['plugin-creator', '帮我创建一个插件'],

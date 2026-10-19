@@ -32,12 +32,22 @@ export function ContextUsageRing({
     }, 250)
   }
   const usage = stats?.contextUsage
-  const percent = usage?.percent ?? 0
-  const usedTokens = Math.round(usage?.tokens ?? stats?.tokens.total ?? 0)
-  const maxTokens = Math.round(usage?.contextWindow ?? (usedTokens > 0 ? 256000 : 0))
+  const tokens = usage?.tokens
+  const percent = usage?.percent
+  const hasUsage =
+    typeof tokens === 'number' &&
+    Number.isFinite(tokens) &&
+    tokens >= 0 &&
+    typeof percent === 'number' &&
+    Number.isFinite(percent) &&
+    percent >= 0
+  const usedTokens = hasUsage ? Math.round(tokens) : 0
+  const contextWindow = usage?.contextWindow ?? 0
+  const maxTokens = Number.isFinite(contextWindow) && contextWindow > 0 ? Math.round(contextWindow) : 0
+  const usedTokensLabel = hasUsage ? `~${formatTokenCount(usedTokens)}` : '—'
 
   // 严格整数百分比，绝无小数点
-  const displayPercent = Math.min(100, Math.max(0, Math.round(percent)))
+  const displayPercent = hasUsage ? Math.min(100, Math.round(percent)) : 0
 
   // 估算或提取三个组成部分的 token 数量（系统提示词、工具定义、对话消息），并确保三者之和为 usedTokens
   const breakdown = React.useMemo(() => {
@@ -137,12 +147,10 @@ export function ContextUsageRing({
                 description="当前上下文占模型可用窗口的比例。右侧显示已用 token 和上下文上限。"
               />{' '}
             </span>
-            <span className="font-semibold text-foreground">{displayPercent}%</span>
+            <span className="font-semibold text-foreground">{hasUsage ? `${displayPercent}%` : '待统计'}</span>
           </div>
           <div className="text-muted-foreground/80 font-mono text-[0.6875rem]">
-            {maxTokens > 0
-              ? `~${formatTokenCount(usedTokens)} / ${formatTokenCount(maxTokens)}`
-              : `~${formatTokenCount(usedTokens)}`}
+            {maxTokens > 0 ? `${usedTokensLabel} / ${formatTokenCount(maxTokens)}` : usedTokensLabel}
           </div>
         </div>
 
@@ -166,7 +174,7 @@ export function ContextUsageRing({
               </span>
             </div>
             <span className="text-muted-foreground/90 font-mono text-[0.6875rem]">
-              ~{formatTokenCount(breakdown.systemTokens)}
+              {hasUsage ? `~${formatTokenCount(breakdown.systemTokens)}` : '—'}
             </span>
           </div>
 
@@ -181,7 +189,7 @@ export function ContextUsageRing({
               </span>
             </div>
             <span className="text-muted-foreground/90 font-mono text-[0.6875rem]">
-              ~{formatTokenCount(breakdown.toolsTokens)}
+              {hasUsage ? `~${formatTokenCount(breakdown.toolsTokens)}` : '—'}
             </span>
           </div>
 
@@ -196,7 +204,7 @@ export function ContextUsageRing({
               </span>
             </div>
             <span className="text-muted-foreground/90 font-mono text-[0.6875rem]">
-              ~{formatTokenCount(breakdown.messagesTokens)}
+              {hasUsage ? `~${formatTokenCount(breakdown.messagesTokens)}` : '—'}
             </span>
           </div>
         </div>

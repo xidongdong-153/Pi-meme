@@ -46,6 +46,7 @@ export function useAppSession(
   const [models, setModels] = useState<PiModel[]>([])
   const [thinkingLevels, setThinkingLevels] = useState<ThinkingLevel[]>([])
   const [sessionStats, setSessionStats] = useState<PiSessionStats | null>(null)
+  const statsRequest = useRef(0)
   const [commands, setCommands] = useState<PiSlashCommand[]>([])
   const [uiPlugins, setUiPlugins] = useState<Snapshot['uiPlugins']>()
   const [loading, setLoading] = useState(true)
@@ -126,6 +127,7 @@ export function useAppSession(
         setUiPlugins(snapshot.uiPlugins)
       setModels(snapshot.models)
       setThinkingLevels(snapshot.thinkingLevels ?? [])
+      statsRequest.current++
       setSessionStats(snapshot.stats ?? null)
       setHasConnected(true)
       setLoading(false)
@@ -301,6 +303,22 @@ export function useAppSession(
 
   useEffect(() => {
     mounted.current = true
+    const refreshStats = async () => {
+      const connection = current.current
+      const request = ++statsRequest.current
+      const owns = () =>
+        mounted.current &&
+        !selection.current.current &&
+        request === statsRequest.current &&
+        connection.generation === current.current.generation &&
+        connection.sessionKey === current.current.sessionKey
+      try {
+        const stats = await bridge.getSessionStats()
+        if (owns()) setSessionStats(stats)
+      } catch (cause) {
+        if (owns()) setError(`无法读取上下文用量：${String(cause)}`)
+      }
+    }
     const updateConnection = (next: Connection) => {
       if (!mounted.current || next.generation < current.current.generation) return
       const previous = current.current
@@ -437,6 +455,7 @@ export function useAppSession(
         return
       if (event.type === 'agent_settled') chatRef.current?.clearPromptPending()
       chatRef.current?.applyEvent(event)
+      if (event.type === 'message_end' && event.message.role === 'assistant') void refreshStats()
       if (event.type === 'agent_settled' || event.type === 'compaction_end') {
         setRefreshToken((value) => value + 1)
         void refresh()

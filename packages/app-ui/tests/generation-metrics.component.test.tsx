@@ -6,6 +6,7 @@ import { ContextUsageRing } from '@pi-meme/models/ui/context-usage-ring'
 import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 
 type GenerationMetricsSource = NonNullable<ComponentProps<typeof ContextUsageRing>['generationMetrics']>
+type SessionStats = NonNullable<ComponentProps<typeof ContextUsageRing>['stats']>
 
 afterEach(() => {
   cleanup()
@@ -31,15 +32,70 @@ function createSource() {
   }
 }
 
-function renderMetrics(source: GenerationMetricsSource) {
+function createStats(contextUsage?: SessionStats['contextUsage']): SessionStats {
+  return {
+    sessionFile: undefined,
+    sessionId: 'test',
+    userMessages: 1,
+    assistantMessages: 1,
+    toolCalls: 0,
+    toolResults: 0,
+    totalMessages: 2,
+    tokens: { input: 80000, output: 10000, cacheRead: 0, cacheWrite: 0, total: 90000 },
+    cost: 0,
+    contextUsage,
+  }
+}
+
+function renderMetrics(source: GenerationMetricsSource, stats?: SessionStats | null) {
   const view = render(
     <TooltipProvider>
-      <ContextUsageRing generationMetrics={source} />
+      <ContextUsageRing generationMetrics={source} stats={stats} />
     </TooltipProvider>,
   )
   fireEvent.click(screen.getByRole('button', { name: '背景信息窗口占用' }))
   return view
 }
+
+test.each([
+  undefined,
+  null,
+  createStats(),
+  createStats({ tokens: null, percent: null, contextWindow: 100000 }),
+  createStats({ tokens: 10000, percent: null, contextWindow: 100000 }),
+  createStats({ tokens: null, percent: 10, contextWindow: 100000 }),
+])('上下文用量未知时显示待统计和占位，不使用累计 token，TPS 保持可用 %#', (stats) => {
+  const source = createSource()
+  source.update({
+    running: false,
+    phase: 'complete',
+    elapsedMs: 2000,
+    generationMs: 2000,
+    generationActive: false,
+    ttftMs: 1200,
+    outputTokens: 60,
+    estimated: false,
+    receivedAt: performance.now(),
+  })
+  renderMetrics(source, stats)
+  expect(screen.getByText('待统计')).toBeInTheDocument()
+  expect(screen.queryByText('0%')).not.toBeInTheDocument()
+  expect(screen.queryByText(/^~/)).not.toBeInTheDocument()
+  expect(screen.getAllByText('—')).toHaveLength(stats?.contextUsage ? 3 : 4)
+  if (stats?.contextUsage) expect(screen.getByText('— / 100K')).toBeInTheDocument()
+  expect(screen.getByText('30.0')).toBeInTheDocument()
+})
+
+test.each([
+  { tokens: 0, percent: 0, expected: ['~0 / 100K', '~0', '~0', '~0'] },
+  { tokens: 1000, percent: 1, expected: ['~1K / 100K', '~180', '~620', '~200'] },
+  { tokens: 10000, percent: 10, expected: ['~10K / 100K', '~2K', '~8K', '~200'] },
+])('有效上下文 tokens=$tokens 保留真实零值及现有分项估算', ({ tokens, percent, expected }) => {
+  renderMetrics(createSource(), createStats({ tokens, percent, contextWindow: 100000 }))
+  expect(screen.queryByText('待统计')).not.toBeInTheDocument()
+  expect(screen.getByText(`${percent}%`)).toBeInTheDocument()
+  expect(screen.getAllByText(/^~/).map((element) => element.textContent)).toEqual(expected)
+})
 
 test('空状态显示占位，生成时标记估算，结束后显示实际速率', () => {
   const source = createSource()
