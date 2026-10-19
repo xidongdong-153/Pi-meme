@@ -21,7 +21,7 @@ test('计划运行中关闭下一轮模式不提升child权限；计划落盘ACK
       ),
       /尚未全部结束/,
     )
-    context.children.get(child.sessionKey)!.finish('调查完成')
+    await context.children.get(child.sessionKey)!.finish('调查完成')
     await context.until(
       async () =>
         (await context.bridge.getAgents('root-key')).find((agent) => agent.name === 'reader')!.status === 'completed',
@@ -213,7 +213,7 @@ test('child已completed但queued followup尚未启动时不能保存计划或结
     context.root.faults.deliveryGate = new Promise<void>((resolve) => {
       release = resolve
     })
-    context.children.get(child.sessionKey)!.finish('首轮结果')
+    await context.children.get(child.sessionKey)!.finish('首轮结果')
     await context.until(
       async () =>
         (await context.bridge.getAgents('root-key')).find((entry) => entry.agentId === child.agentId)!.status ===

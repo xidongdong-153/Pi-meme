@@ -25,6 +25,7 @@ const reservedTools = new Set([
   'followup_task',
   'send_message',
   'wait_agent',
+  'finish_agent',
   'list_agents',
   'interrupt_agent',
   'save_plan',

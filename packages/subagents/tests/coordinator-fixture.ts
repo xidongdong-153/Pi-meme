@@ -11,7 +11,11 @@ import type { SdkSession } from '@pi-meme/pi-runtime/sdk/session'
 
 type Notify = ConstructorParameters<typeof SdkSession>[1]
 
-function fakeSession(cwd: string, notify: Notify) {
+function fakeSession(
+  cwd: string,
+  notify: Notify,
+  complete?: (session: RuntimeSdkSession, report: string) => Promise<unknown>,
+) {
   const sessionId = randomUUID()
   const state: Snapshot['state'] = {
     mode: 'default',
@@ -28,6 +32,7 @@ function fakeSession(cwd: string, notify: Notify) {
   const faults: {
     continuation?: boolean
     deliveryGate?: Promise<void>
+    deliveryStarted?: () => void
     snapshotGate?: Promise<void>
     pauseGate?: Promise<void>
   } = {}
@@ -72,6 +77,7 @@ function fakeSession(cwd: string, notify: Notify) {
       state.isStreaming = true
     },
     deliverCollaborationMessage: async (message: { id: string; text?: string }) => {
+      faults.deliveryStarted?.()
       await faults.deliveryGate
       if (!delivered.includes(message.id)) {
         delivered.push(message.id)
@@ -110,7 +116,7 @@ function fakeSession(cwd: string, notify: Notify) {
       status = 'disconnected'
     },
   } as unknown as RuntimeSdkSession
-  const finish = (text: string) => {
+  const reply = (text: string) => {
     messages.push({
       role: 'assistant',
       content: [{ type: 'text', text }],
@@ -119,7 +125,11 @@ function fakeSession(cwd: string, notify: Notify) {
     state.isStreaming = false
     notify.event({ generation: 1, event: { type: 'agent_settled' } })
   }
-  return { session, finish, prompts, delivered, continuations, state, faults, notify, pauses }
+  const finish = async (text: string) => {
+    if (complete) await complete(session, text)
+    reply(text)
+  }
+  return { session, finish, reply, prompts, delivered, continuations, state, faults, notify, pauses }
 }
 
 async function setup(assertCheckoutAvailable?: (cwd: string) => void) {
@@ -131,7 +141,13 @@ async function setup(assertCheckoutAvailable?: (cwd: string) => void) {
     assertCheckoutAvailable,
     dataRoot: directory,
     createSession: (cwd, notify, key) => {
-      const fake = fakeSession(cwd, notify)
+      const fake = fakeSession(cwd, notify, (session, report) =>
+        bridge.dispatch(
+          session,
+          { id: randomUUID(), method: 'finish_agent', params: { report } },
+          new AbortController().signal,
+        ),
+      )
       Object.assign(fake.faults, creationFaults)
       children.set(key, fake)
       return fake.session
@@ -164,8 +180,8 @@ async function setup(assertCheckoutAvailable?: (cwd: string) => void) {
     id = randomUUID(),
   ) => {
     const result = await bridge.dispatch(session, { id, method, params } as CollaborationRequest, signal)
-    if (method === 'wait_agent' && session === root.session)
-      bridge.decorateRootEvent('root-key', {
+    if (method === 'wait_agent') {
+      const event: DesktopEvent = {
         generation: 1,
         event: {
           type: 'message_end',
@@ -179,7 +195,10 @@ async function setup(assertCheckoutAvailable?: (cwd: string) => void) {
             timestamp: Date.now(),
           },
         },
-      })
+      }
+      if (session === root.session) bridge.decorateRootEvent('root-key', event)
+      else [...children.values()].find((child) => child.session === session)!.notify.event(event)
+    }
     return result
   }
   const spawn = async (name: string, session = root.session) =>

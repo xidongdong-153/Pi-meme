@@ -47,6 +47,18 @@ export type AgentIdentity = {
   taskPath: string
   depth: number
 }
+export function resolveAgentTarget<T extends Pick<AgentIdentity, 'agentId' | 'taskPath'>>(
+  agents: T[],
+  caller: Pick<AgentIdentity, 'taskPath'>,
+  target: string,
+): T | undefined {
+  const exact = agents.find((agent) => agent.agentId === target || agent.taskPath === target)
+  if (exact) return exact
+  const child = agents.find((agent) => agent.taskPath === `${caller.taskPath}/${target}`)
+  if (child) return child
+  const parentPath = caller.taskPath.slice(0, caller.taskPath.lastIndexOf('/'))
+  return agents.find((agent) => agent.taskPath === `${parentPath}/${target}`)
+}
 export type AgentExecution = AgentIdentity & {
   rootSessionKey: string
   sessionKey: string
@@ -101,6 +113,7 @@ export type CollaborationRequests = {
   interrupt_agent: { target: string }
   list_agents: { path_prefix?: string }
   wait_agent: { targets?: string[]; timeout_ms?: number }
+  finish_agent: { report: string }
 }
 export type CollaborationResults = {
   spawn_agent: AgentSummary
@@ -108,7 +121,8 @@ export type CollaborationResults = {
   followup_task: { agent: AgentSummary; queued: boolean }
   interrupt_agent: { agent: AgentSummary; previousStatus: AgentStatus }
   list_agents: { agents: AgentSummary[] }
-  wait_agent: { agents: AgentSummary[]; messages: AgentMailboxMessage[]; timedOut: boolean }
+  wait_agent: { agents: AgentSummary[]; messages: AgentMailboxMessage[]; notifiedBy?: string[]; timedOut: boolean }
+  finish_agent: { accepted: true }
 }
 export type CollaborationMethod = keyof CollaborationRequests
 export type CollaborationRequest = {

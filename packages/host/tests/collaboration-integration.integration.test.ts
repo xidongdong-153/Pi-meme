@@ -8,7 +8,7 @@ import type { AgentSummary } from '@pi-meme/contracts/collaboration'
 import type { PiSessionsSnapshot } from '@pi-meme/contracts/sessions'
 import type { DesktopEvent, Snapshot } from '@pi-meme/contracts/desktop'
 import type { PlanDocument } from '@pi-meme/contracts/plan'
-import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
+import { finishAgentReply, useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
 import { createHost } from '../src/service'
 import { HostCollaborationBridge } from '@pi-meme/subagents/server/coordinator'
 
@@ -19,6 +19,146 @@ async function eventually(check: () => boolean | Promise<boolean>) {
   }
   throw new Error('等待 Host 状态超时')
 }
+
+test(
+  '真实父子会话与同级代理持续联调、修改和验收，不新建任务或会话且只在确认完成后结束',
+  { timeout: 30000 },
+  async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'host-multiround-collaboration-'))
+    const fake = await useFakeAgent(directory, {
+      reply: (body) => {
+        const messages = body.messages ?? []
+        const firstUser = JSON.stringify(messages.find((message: { role: string }) => message.role === 'user')?.content)
+        const context = JSON.stringify(messages)
+        const calls = messages.flatMap(
+          (message: { tool_calls?: Array<{ function: { name: string; arguments: string } }> }) =>
+            message.tool_calls ?? [],
+        )
+        const called = (name: string, value: string) =>
+          calls.some(
+            (call: { function: { name: string; arguments: string } }) =>
+              call.function.name === name && call.function.arguments.includes(value),
+          )
+        const tool = (name: string, params: unknown) => ({ tool: { name, arguments: JSON.stringify(params) } })
+        const send = (target: string, message: string) => tool('send_message', { target, message })
+        const wait = (targets: string[]) => tool('wait_agent', { targets, timeout_ms: 5000 })
+        if (firstUser.includes('MULTI_FRONT')) {
+          if (!called('send_message', 'REQUEST_FIRST')) return send('backend', 'REQUEST_FIRST')
+          if (!context.includes('API_FIRST')) return wait(['backend'])
+          if (!called('send_message', 'FRONT_STAGE_FIRST')) return send('/root', 'FRONT_STAGE_FIRST')
+          if (!context.includes('CHANGE_REQUEST')) return wait(['/root'])
+          if (!called('send_message', 'REQUEST_SECOND')) return send('backend', 'REQUEST_SECOND')
+          if (!context.includes('API_SECOND')) return wait(['backend'])
+          if (!called('send_message', 'FRONT_STAGE_SECOND')) return send('/root', 'FRONT_STAGE_SECOND')
+          if (!context.includes('ACCEPT_FRONT')) return wait(['/root'])
+          return finishAgentReply(body, 'FRONT_DONE')
+        }
+        if (firstUser.includes('MULTI_BACK')) {
+          if (context.includes('ACCEPT_BACK')) return finishAgentReply(body, 'BACK_DONE')
+          if (!context.includes('REQUEST_FIRST')) return { text: '后端准备就绪，等待联调需求' }
+          if (!called('send_message', 'API_FIRST')) return send('frontend', 'API_FIRST')
+          if (!context.includes('REQUEST_SECOND')) return wait(['frontend'])
+          if (!called('send_message', 'API_SECOND')) return send('frontend', 'API_SECOND')
+          return wait(['/root'])
+        }
+        if (!called('spawn_agent', 'backend'))
+          return tool('spawn_agent', {
+            task_name: 'backend',
+            message: 'MULTI_BACK：提供接口并根据反馈修改，等待验收',
+            fork_turns: 'none',
+          })
+        if (!called('spawn_agent', 'frontend'))
+          return tool('spawn_agent', {
+            task_name: 'frontend',
+            message: 'MULTI_FRONT：和后端联调，等待主代理验收后完成',
+            fork_turns: 'none',
+          })
+        if (context.includes('FRONT_STAGE_FIRST') && !called('send_message', 'CHANGE_REQUEST'))
+          return send('frontend', 'CHANGE_REQUEST')
+        if (context.includes('FRONT_STAGE_SECOND') && !called('send_message', 'ACCEPT_FRONT'))
+          return send('frontend', 'ACCEPT_FRONT')
+        if (context.includes('FRONT_STAGE_SECOND') && !called('send_message', 'ACCEPT_BACK'))
+          return send('backend', 'ACCEPT_BACK')
+        if (context.includes('FRONT_DONE') && context.includes('BACK_DONE')) return { text: '联调、修改和验收已完成' }
+        return wait(['frontend', 'backend'])
+      },
+    })
+    const host = await createHost({ dataRoot: fake.runtimePaths.dataRoot, credentials: fake.credentials })
+    const rpc = async <T>(method: string, args: unknown[] = [], sessionId?: string): Promise<T> => {
+      const reply = await host.rpc({ requestId: crypto.randomUUID(), clientId: 'multi-round', method, args, sessionId })
+      assert.equal(reply.error, undefined, JSON.stringify(reply.error))
+      return reply.result as T
+    }
+    const identities = new Map<string, AgentSummary>()
+    const off = await host.subscribe('multi-round', (value) => {
+      if (value.type !== 'event' || value.value.event.type !== 'agents_update') return
+      for (const agent of value.value.event.agents)
+        if (agent.status === 'running' && agent.sessionId && !identities.has(agent.agentId))
+          identities.set(agent.agentId, agent)
+    })
+    try {
+      const key = (await rpc<Snapshot>('pi:snapshot')).connection.sessionKey!
+      await rpc('pi:access-mode', [key, 'full-access'], key)
+      await rpc('pi:prompt', [key, '持续协作完成接口与页面，并完成两轮验收'], key)
+      await eventually(async () => (await rpc<Snapshot>('pi:snapshot', [], key)).agent?.status === 'completed')
+      const snapshot = await rpc<Snapshot>('pi:snapshot', [], key)
+      assert.equal(snapshot.agents!.length, 3)
+      assert.ok(snapshot.agents!.every((agent) => agent.status === 'completed'))
+      assert.match(JSON.stringify(snapshot.messages), /联调、修改和验收已完成/)
+      assert.equal(snapshot.messages.filter((message) => message.role === 'user').length, 1)
+      for (const agent of snapshot.agents!) {
+        const first = identities.get(agent.agentId)!
+        assert.ok(first)
+        for (const field of [
+          'runId',
+          'rootTaskId',
+          'epoch',
+          'sessionId',
+          'sessionFile',
+          'executionGeneration',
+          'runStartedAt',
+        ] as const)
+          assert.equal(agent[field], first[field])
+        if (!agent.parentAgentId) continue
+        const child = await rpc<Snapshot>('pi:agent-snapshot', [agent.agentId])
+        assert.equal(child.messages.filter((message) => message.role === 'user').length, 1)
+        assert.equal(
+          child.messages.filter((message) => message.role === 'toolResult' && message.toolName === 'finish_agent')
+            .length,
+          1,
+        )
+        assert.equal(child.messages.filter((message) => message.role === 'toolResult' && message.isError).length, 0)
+        const sourceIds = child.messages.flatMap((message) => {
+          if (message.role === 'custom' && message.customType === 'pi-meme-collaboration')
+            return [(message.details as { messageId: string }).messageId]
+          if (message.role === 'toolResult' && message.toolName === 'wait_agent')
+            return (message.details as { messages: Array<{ id: string }> }).messages.map((entry) => entry.id)
+          return []
+        })
+        assert.ok(sourceIds.length >= 3)
+        assert.equal(new Set(sourceIds).size, sourceIds.length)
+        assert.ok(
+          child.messages.filter((message) => message.role === 'toolResult' && message.toolName === 'send_message')
+            .length >= 2,
+        )
+        assert.equal(
+          child.messages.filter((message) => message.role === 'toolResult' && message.toolName === 'followup_task')
+            .length,
+          0,
+        )
+        const history = await readFile(agent.sessionFile!, 'utf8')
+        assert.match(history, /finish_agent/)
+        assert.ok(sourceIds.every((id) => history.includes(id)))
+        assert.deepEqual((await rpc<Snapshot>('pi:agent-snapshot', [agent.agentId])).messages, child.messages)
+      }
+    } finally {
+      off()
+      await host.dispose()
+      await fake.dispose()
+      await rm(directory, { recursive: true, force: true })
+    }
+  },
+)
 
 test('父任务等待子 Agent 时引导及时投递一次，子任务不被取消且父子继续完成', { timeout: 60000 }, async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'host-child-steering-'))
@@ -31,7 +171,7 @@ test('父任务等待子 Agent 时引导及时投递一次，子任务不被取�
     reply: (body) => {
       const users = (body.messages ?? []).filter((message: { role: string }) => message.role === 'user')
       if (JSON.stringify(users).includes('等待引导的独立子任务'))
-        return { text: '子任务已完成', deltaBarrier: childBarrier }
+        return finishAgentReply(body, '子任务已完成', { deltaBarrier: childBarrier })
       parentRequests.push(body.messages ?? [])
       if (parentRequests.length === 1)
         return {
@@ -134,7 +274,7 @@ test('父任务已预约但尚未准入时登记退役，等待后续子任务�
   const fake = await useFakeAgent(root, {
     reply: (body) => {
       const text = JSON.stringify((body.messages ?? []).filter((message: { role: string }) => message.role === 'user'))
-      if (text.includes('退役窗口独立子任务')) return { text: '子任务已完成', delayMs: 750 }
+      if (text.includes('退役窗口独立子任务')) return finishAgentReply(body, '子任务已完成', { delayMs: 750 })
       if (text.includes('子 Agent 已返回结果')) {
         resumed = true
         return { text: '汇总已完成', delayMs: 50 }
@@ -370,7 +510,7 @@ test('零外部插件能聊天，父子 Worker 分别持有租约，子快照不
         .filter((message: { role: string }) => message.role === 'user')
         .map((message: { content: unknown }) => JSON.stringify(message.content))
         .join('\n')
-      if (userText.includes('独立子任务')) return { text: '子任务已完成', delayMs: 500 }
+      if (userText.includes('独立子任务')) return finishAgentReply(body, '子任务已完成', { delayMs: 500 })
       if (!spawned && userText.includes('启动一个子任务')) {
         spawned = true
         return {
@@ -536,7 +676,8 @@ test('根快照包含子会话待答问题，回答按实际子 sessionKey 分�
     reply: (body) => {
       const text = JSON.stringify(body.messages ?? [])
       if (text.includes('提问子任务')) {
-        if ((body.messages ?? []).some((message: { role: string }) => message.role === 'tool')) return '子问题已回答'
+        if ((body.messages ?? []).some((message: { role: string }) => message.role === 'tool'))
+          return finishAgentReply(body, '子问题已回答')
         return {
           tool: {
             name: 'request_user_input',

@@ -7,7 +7,7 @@ import { test } from 'vitest'
 import { setTimeout as delay } from 'node:timers/promises'
 import type { Snapshot } from '@pi-meme/contracts/desktop'
 import type { SettingsSnapshot } from '@pi-meme/contracts/settings'
-import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
+import { finishAgentReply, useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
 import { createHost } from '../src/service'
 
 async function eventually(check: () => Promise<boolean>) {
@@ -129,7 +129,7 @@ test('规划根任务与后代拒绝伪造codemode调用，保持继承权限且
           },
         }
       }
-      return { text: '只读检查完成' }
+      return child ? finishAgentReply(body, '只读检查完成') : { text: '只读检查完成' }
     },
   })
   const host = await createHost({ dataRoot: path.join(root, 'userData'), credentials: fake.credentials })

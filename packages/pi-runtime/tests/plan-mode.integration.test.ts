@@ -46,7 +46,7 @@ test('安全分支排除整个未闭合工具批次，保留闭合prefix和compa
   assert.equal(safeBranchLeaf([...entries, entry('other', 'u', { role: 'user', content: '其他分支' })], 'r1'), 'c')
 })
 
-test('Plan执行链拒绝写入、bash、MCP、codemode和第三方工具，同时允许六协作工具', () => {
+test('Plan执行链拒绝写入、bash、MCP、codemode和第三方工具，同时允许协作及完成工具', () => {
   for (const name of ['bash', 'user_bash', 'write', 'edit', 'mcp__read', 'codemode', 'external'])
     assert.throws(() => assertPlanTool('plan', name), /规划模式不能执行/)
   for (const name of [
@@ -60,6 +60,7 @@ test('Plan执行链拒绝写入、bash、MCP、codemode和第三方工具，同�
     'interrupt_agent',
     'list_agents',
     'wait_agent',
+    'finish_agent',
     'request_user_input',
     'save_plan',
   ])
@@ -388,6 +389,9 @@ test('真实Pi wait_agent工具结果保留details.messages，message_end可作�
     )
     assert.ok(result?.type === 'message' && result.message.role === 'toolResult')
     assert.deepEqual((result.message.details as { messages: unknown[] }).messages, [source])
+    const before = (await session.getEntries()).entries
+    assert.deepEqual(await session.deliverCollaborationMessage(source), { persisted: true })
+    assert.deepEqual((await session.getEntries()).entries, before)
   } finally {
     await session.stopAndWait()
     await fake.dispose()

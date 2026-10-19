@@ -6,6 +6,24 @@ import { realpathSync } from 'node:fs'
 import path from 'node:path'
 import { startFakeProvider } from './fake-provider.mjs'
 
+/**
+ * 子任务先提交完成报告，工具返回后结束模型回复；供协作测试明确区分阶段回复和任务完成。
+ * @param {any} body
+ * @param {string} report
+ * @param {Omit<import('./fake-provider.mjs').FakeReply, 'text' | 'tool'>} [options]
+ * @returns {import('./fake-provider.mjs').FakeReply} 完成工具调用或工具返回后的最终回复。
+ */
+export function finishAgentReply(body, report, options = {}) {
+  const messages = body.messages ?? []
+  const assistant = messages.findLast((/** @type {any} */ message) => message.role === 'assistant')
+  const submitted =
+    messages.at(-1)?.role === 'tool' &&
+    assistant?.tool_calls?.some((/** @type {any} */ call) => call.function?.name === 'finish_agent')
+  return submitted
+    ? { ...options, text: report }
+    : { ...options, tool: { name: 'finish_agent', arguments: JSON.stringify({ report }) } }
+}
+
 /** @typedef {import('./fake-provider.mjs').FakeProviderOptions} FakeProviderOptions */
 
 /** @param {string} userData */

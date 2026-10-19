@@ -1566,9 +1566,16 @@ export class SdkSession {
           .getEntries()
           .some(
             (entry) =>
-              entry.type === 'custom_message' &&
-              entry.customType === 'pi-meme-collaboration' &&
-              (entry.details as { messageId?: string } | undefined)?.messageId === message.id,
+              (entry.type === 'custom_message' &&
+                entry.customType === 'pi-meme-collaboration' &&
+                (entry.details as { messageId?: string } | undefined)?.messageId === message.id) ||
+              (entry.type === 'message' &&
+                entry.message.role === 'toolResult' &&
+                entry.message.toolName === 'wait_agent' &&
+                !entry.message.isError &&
+                (entry.message.details as { messages?: AgentMailboxMessage[] } | undefined)?.messages?.some(
+                  (saved) => saved.id === message.id,
+                )),
           )
       if (persisted()) return { persisted: true }
       if (this.pendingDeliveries.has(message.id)) return { persisted: false }

@@ -6,6 +6,7 @@ import type { DesktopEvent, Snapshot } from '@pi-meme/contracts/desktop'
 import {
   collaborationLimits,
   agentAvatarScenes,
+  resolveAgentTarget,
   type AgentSummary,
   type AgentMailboxMessage,
   type CollaborationRequest,
@@ -42,6 +43,10 @@ type Record = {
   sequence: number
   events?: DesktopEvent[]
   settled?: boolean
+  completion?: { report: string }
+  feedbackSent?: boolean
+  waitingMessages?: string[]
+  delivering?: string[]
   pauseRequested?: boolean
   pauseRevision?: number
   pauseApplied?: boolean
@@ -136,6 +141,8 @@ export class HostCollaborationBridge {
           pauseApplied: _applied,
           pendingStart: _start,
           draining: _draining,
+          waitingMessages: _waitingMessages,
+          delivering: _delivering,
           ...record
         }) => ({ ...record, summary: { ...record.summary, isPaused: undefined } }),
       ),
@@ -365,6 +372,8 @@ export class HostCollaborationBridge {
     const root = this.root(sessionKey)
     if (this.stopping) throw new Error('Host 正在停止')
     this.userSteering.delete(root)
+    root.waitingMessages = undefined
+    root.delivering = undefined
     root.settled = false
     root.summary.epoch += 1
     root.summary.rootTaskId = randomUUID()
@@ -423,10 +432,13 @@ export class HostCollaborationBridge {
           entry.summary.rootTaskId === root.summary.rootTaskId &&
           entry.summary.epoch === root.summary.epoch &&
           (activeStatuses.has(entry.summary.status) || entry.queued.length > 0),
-      ) || this.pending(root).some((message) => message.kind === 'result')
+      ) ||
+      this.pending(root).some(
+        (message) => message.rootTaskId === root.summary.rootTaskId && message.epoch === root.summary.epoch,
+      )
         ? 'waiting_children'
         : 'completed'
-    root.summary.runCompletedAt = new Date().toISOString()
+    root.summary.runCompletedAt = root.summary.status === 'completed' ? new Date().toISOString() : undefined
     await this.persist()
     this.changed(root)
     await this.summarize(root)
@@ -461,12 +473,12 @@ export class HostCollaborationBridge {
     return record
   }
   private target(caller: Record, target: string) {
-    const found = this.tree(caller).find(
-      (entry) =>
-        entry.summary.agentId === target ||
-        entry.summary.taskPath === target ||
-        entry.summary.taskPath === `${caller.summary.taskPath}/${target}`,
+    const identity = resolveAgentTarget(
+      this.tree(caller).map((entry) => entry.summary),
+      caller.summary,
+      target,
     )
+    const found = identity && this.records.get(identity.agentId)
     if (!found) throw new Error(`子 Agent 不存在：${target}`)
     return found
   }
@@ -538,6 +550,21 @@ export class HostCollaborationBridge {
     }
     if (request.method === 'wait_agent')
       return this.wait(caller, request.params.targets, request.params.timeout_ms, signal)
+    if (request.method === 'finish_agent') {
+      if (!caller.summary.parentAgentId) throw new Error('只有子 Agent 可以提交任务完成结果')
+      if (!request.params.report.trim()) throw new Error('完成报告不能为空')
+      if (
+        this.tree(caller).some(
+          (entry) =>
+            this.descendant(caller, entry) && (activeStatuses.has(entry.summary.status) || entry.queued.length),
+        ) ||
+        this.pending(caller).length
+      )
+        throw new Error('请先处理未读反馈并等待下级任务完成，再提交完成结果')
+      caller.completion = { report: request.params.report }
+      await this.persist()
+      return { accepted: true }
+    }
     if (request.method === 'spawn_agent') {
       this.options.assertCheckoutAvailable?.(caller.summary.cwd)
       const { task_name: name, message, avatar, fork_turns: fork = 'all' } = request.params
@@ -682,6 +709,10 @@ export class HostCollaborationBridge {
     }
     const task = { message, rootTaskId, epoch, policy, runId }
     this.userSteering.delete(record)
+    record.completion = undefined
+    record.feedbackSent = false
+    record.waitingMessages = undefined
+    record.delivering = undefined
     Object.assign(record.summary, {
       rootTaskId,
       epoch,
@@ -764,7 +795,7 @@ export class HostCollaborationBridge {
       assertStarting()
       await record.session.setSessionMode(record.summary.mode)
       assertStarting()
-      await record.session.configureAgentTask(message, record.summary.conversationOrigin)
+      await record.session.configureAgentTask(this.taskContext(record, message), record.summary.conversationOrigin)
       assertStarting()
       record.session.start(record.summary.cwd, record.summary.sessionFile)
       await record.session.snapshot()
@@ -775,7 +806,7 @@ export class HostCollaborationBridge {
       record.summary.sessionFile = record.session.getActiveSession().sessionFile
       await this.persist()
     }
-    await record.session.configureAgentTask(message, record.summary.conversationOrigin)
+    await record.session.configureAgentTask(this.taskContext(record, message), record.summary.conversationOrigin)
     if (record.summary.model) await record.session.setModel(record.summary.model)
     if (record.summary.thinkingLevel) await record.session.setThinkingLevel(record.summary.thinkingLevel)
     assertStarting()
@@ -794,6 +825,10 @@ export class HostCollaborationBridge {
       this.changed(record)
     })
   }
+  private taskContext(record: Record, message: string) {
+    const parent = this.records.get(record.summary.parentAgentId ?? '')
+    return `${message}\n当前代理：${record.summary.taskPath}。委派方：${parent?.summary.taskPath ?? '/root'}。主代理：/root。协作寻址使用这些完整路径或同级任务短名。`
+  }
   private acknowledge(record: Record, event: DesktopEvent['event']) {
     if (event.type !== 'message_end') return
     const message = event.message
@@ -807,6 +842,8 @@ export class HostCollaborationBridge {
       ids = details?.messages?.map((entry) => entry.id) ?? []
     }
     const known = new Set(record.mailbox.map((entry) => entry.id))
+    record.waitingMessages = record.waitingMessages?.filter((id) => !ids.includes(id))
+    record.delivering = record.delivering?.filter((id) => !ids.includes(id))
     const fresh = ids.filter((id) => known.has(id) && !record.consumed.includes(id))
     if (fresh.length) {
       record.consumed.push(...fresh)
@@ -901,6 +938,7 @@ export class HostCollaborationBridge {
     const runId = record.summary.runId
     if (record.settled) return
     record.settled = true
+    record.waitingMessages = undefined
     const snapshot = await record.session!.snapshot().catch((cause: unknown) => {
       record.summary.error = String(cause)
       return { messages: [] }
@@ -911,21 +949,25 @@ export class HostCollaborationBridge {
     record.summary.sessionId = record.session!.getActiveSession().sessionId
     const last = snapshot.messages.filter((message) => message.role === 'assistant').at(-1)
     const report =
-      last?.role === 'assistant'
+      record.completion?.report ??
+      (last?.role === 'assistant'
         ? last.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('\n')
-        : ''
+        : '')
     if (
       !aborted &&
       !record.summary.error &&
-      (this.tree(record).some(
-        (entry) =>
-          this.descendant(record, entry) && (activeStatuses.has(entry.summary.status) || entry.queued.length > 0),
-      ) ||
-        this.pending(record).some((message) => message.kind === 'result'))
+      (!record.completion ||
+        this.tree(record).some(
+          (entry) =>
+            this.descendant(record, entry) && (activeStatuses.has(entry.summary.status) || entry.queued.length > 0),
+        ) ||
+        this.pending(record).length > 0)
     ) {
       record.summary.status = 'waiting_children'
       await this.persist()
       this.changed(record)
+      const parent = this.records.get(record.summary.parentAgentId ?? '')
+      if (parent && report && !record.feedbackSent) await this.send(record, parent, report)
       await this.summarize(record)
       return
     }
@@ -1010,10 +1052,14 @@ export class HostCollaborationBridge {
       createdAt: new Date().toISOString(),
     }
     target.mailbox.push(message)
+    if (target.summary.rootTaskId === caller.summary.rootTaskId && target.summary.epoch === caller.summary.epoch)
+      target.completion = undefined
+    if (target.summary.agentId === caller.summary.parentAgentId) caller.feedbackSent = true
     await this.persist()
     const delivered = await this.deliver(target)
     this.emit(target, { type: 'agent_mailbox', message })
     this.changed(target)
+    await this.summarize(target)
     return { messageId: message.id, delivered }
   }
   private pending(record: Record) {
@@ -1025,14 +1071,32 @@ export class HostCollaborationBridge {
     )
   }
   private async deliver(record: Record) {
-    if (this.paused(record) || record.summary.status !== 'running' || !record.session) return false
-    const pending = this.pending(record)
+    if (this.paused(record) || record.settled || record.summary.status !== 'running' || !record.session) return false
+    const pending = this.pending(record).filter(
+      (message) => !record.waitingMessages?.includes(message.id) && !record.delivering?.includes(message.id),
+    )
     if (!pending.length) return false
     const persisted: string[] = []
     for (const message of pending) {
       if (this.paused(record)) return false
-      const ack = await record.session.deliverCollaborationMessage(message)
-      if (ack?.persisted) persisted.push(message.id)
+      if (
+        record.delivering?.includes(message.id) ||
+        record.waitingMessages?.includes(message.id) ||
+        record.consumed.includes(message.id)
+      )
+        continue
+      record.delivering ??= []
+      record.delivering.push(message.id)
+      try {
+        const ack = await record.session.deliverCollaborationMessage(message)
+        if (ack?.persisted) {
+          persisted.push(message.id)
+          record.delivering = record.delivering?.filter((id) => id !== message.id)
+        }
+      } catch (cause) {
+        record.delivering = record.delivering?.filter((id) => id !== message.id)
+        throw cause
+      }
     }
     const fresh = persisted.filter((id) => !record.consumed.includes(id))
     if (fresh.length) {
@@ -1050,7 +1114,9 @@ export class HostCollaborationBridge {
       this.stopping
     )
       return
-    const pending = this.pending(record).filter((message) => message.kind === 'result')
+    const pending = this.pending(record).filter(
+      (message) => message.rootTaskId === record.summary.rootTaskId && message.epoch === record.summary.epoch,
+    )
     if (!pending.length) return
     const epoch = record.summary.epoch
     const rootTaskId = record.summary.rootTaskId
@@ -1064,7 +1130,9 @@ export class HostCollaborationBridge {
       return
     record.settled = false
     record.summary.status = 'running'
-    const runId = (record.summary.runId = randomUUID())
+    record.feedbackSent = false
+    record.completion = undefined
+    const runId = record.summary.runId
     const isCurrent = () => {
       const current =
         record.summary.epoch === epoch &&
@@ -1095,7 +1163,9 @@ export class HostCollaborationBridge {
       await this.persist()
       if (!isCurrent()) return
       await record.session.continueCollaborationTask(
-        '子 Agent 已返回结果，请结合已保存的协作消息检查并继续当前任务。',
+        pending.some((message) => message.kind === 'result')
+          ? '子 Agent 已返回结果，请结合已保存的协作消息检查并继续当前任务。'
+          : '已收到协作反馈，请结合已保存的消息继续当前任务；需要后续反馈时继续发送、等待，确认完成后再结束。',
         record.summary.mode,
       )
     } catch (cause) {
@@ -1121,12 +1191,18 @@ export class HostCollaborationBridge {
     timeout = 30000,
     signal: AbortSignal,
   ): Promise<CollaborationResults['wait_agent']> {
+    const runId = record.summary.runId
+    const current = () => record.summary.runId === runId && activeStatuses.has(record.summary.status)
     const selected = targets?.map((target) => this.target(record, target))
-    if (selected?.some((target) => target === record || this.descendant(target, record)))
-      throw new Error('不能等待自己或祖先 Agent')
+    if (selected?.includes(record)) throw new Error('不能等待自己')
     if (!Number.isFinite(timeout) || timeout < 0 || timeout > 3600000)
       throw new Error('等待时长必须在 0 到 3600000 毫秒之间')
-    const watched = selected ?? this.tree(record).filter((entry) => this.descendant(record, entry))
+    const sources = new Set(this.pending(record).map((message) => message.fromAgentId))
+    const watched =
+      selected ??
+      this.tree(record).filter(
+        (entry) => entry !== record && (activeStatuses.has(entry.summary.status) || sources.has(entry.summary.agentId)),
+      )
     const runs = new Map(
       watched.map((target) => [target.summary.agentId, target.queued.at(-1)?.runId ?? target.summary.runId]),
     )
@@ -1139,15 +1215,17 @@ export class HostCollaborationBridge {
         ),
       )
     const available = () =>
+      !current() ||
       this.userSteering.has(record) ||
       matches().length > 0 ||
       watched.some(
         (target) =>
-          (target.summary.runId === runs.get(target.summary.agentId) && !activeStatuses.has(target.summary.status)) ||
-          (['stopped', 'interrupted'].includes(target.summary.status) &&
-            !target.queued.some((task) => task.runId === runs.get(target.summary.agentId))),
+          !this.descendant(target, record) &&
+          ((target.summary.runId === runs.get(target.summary.agentId) && !activeStatuses.has(target.summary.status)) ||
+            (['stopped', 'interrupted'].includes(target.summary.status) &&
+              !target.queued.some((task) => task.runId === runs.get(target.summary.agentId)))),
       )
-    let timedOut = false
+    let timedOut = timeout === 0 && !available()
     const previous = record.summary.status
     record.summary.status = 'waiting_children'
     this.changed(record)
@@ -1182,11 +1260,26 @@ export class HostCollaborationBridge {
           if (signal.aborted) abort()
           else check()
         })
-      const messages = matches()
+      if (!current()) throw new Error('等待所属任务已结束或更换')
+      const matched = matches()
+      const messages = matched.filter((message) => !record.delivering?.includes(message.id))
+      const notifiedBy = [
+        ...new Set(
+          matched.filter((message) => record.delivering?.includes(message.id)).map((message) => message.fromAgentId),
+        ),
+      ]
+      record.waitingMessages = [
+        ...new Set([...(record.waitingMessages ?? []), ...messages.map((message) => message.id)]),
+      ]
       await this.persist()
-      return { agents: (selected ?? this.tree(record)).map((entry) => ({ ...entry.summary })), messages, timedOut }
+      return {
+        agents: (selected ?? this.tree(record)).map((entry) => ({ ...entry.summary })),
+        messages,
+        timedOut,
+        ...(notifiedBy.length ? { notifiedBy } : {}),
+      }
     } finally {
-      if (record.summary.status === 'waiting_children') record.summary.status = previous
+      if (current() && record.summary.status === 'waiting_children') record.summary.status = previous
       this.changed(record)
     }
   }
@@ -1198,6 +1291,8 @@ export class HostCollaborationBridge {
       this.userSteering.delete(child)
       child.queued = []
       child.pendingStart = undefined
+      child.waitingMessages = undefined
+      child.delivering = undefined
       child.summary.isPaused = false
       const wasPaused = child.pauseApplied
       child.pauseApplied = false

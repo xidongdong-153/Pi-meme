@@ -4,7 +4,7 @@ import type { ExtensionAPI, ToolDefinition } from '@earendil-works/pi-coding-age
 import { agentAvatarScenes } from '@pi-meme/contracts/collaboration'
 import { create } from '../src/agent/entry'
 
-test('六协作工具常驻注册，不依赖旧目录定义或Task开关', async () => {
+test('协作工具和明确完成工具常驻注册，不依赖旧目录定义或Task开关', async () => {
   const tools: ToolDefinition[] = []
   const requests: unknown[] = []
   const [extension] = create({
@@ -23,7 +23,16 @@ test('六协作工具常驻注册，不依赖旧目录定义或Task开关', asyn
   } as unknown as ExtensionAPI)
   assert.deepEqual(
     tools.map((tool) => tool.name),
-    ['spawn_agent', 'send_message', 'followup_task', 'interrupt_agent', 'list_agents', 'wait_agent', 'save_plan'],
+    [
+      'spawn_agent',
+      'send_message',
+      'followup_task',
+      'interrupt_agent',
+      'list_agents',
+      'wait_agent',
+      'finish_agent',
+      'save_plan',
+    ],
   )
   const list = tools.find((tool) => tool.name === 'list_agents')!
   await list.execute('tool-list', {}, undefined, undefined, {} as never)
@@ -57,4 +66,7 @@ test('六协作工具常驻注册，不依赖旧目录定义或Task开关', asyn
   const params = { task_name: 'worker', message: '审查认证边界', avatar: 'security', fork_turns: 'none' }
   await spawn.execute('tool-avatar', params, undefined, undefined, {} as never)
   assert.deepEqual(requests.at(-1), { method: 'spawn_agent', params })
+  const finish = tools.find((tool) => tool.name === 'finish_agent')!
+  await finish.execute('tool-finish', { report: '任务已完成并通过验收' }, undefined, undefined, {} as never)
+  assert.deepEqual(requests.at(-1), { method: 'finish_agent', params: { report: '任务已完成并通过验收' } })
 })

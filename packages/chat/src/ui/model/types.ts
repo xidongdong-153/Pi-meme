@@ -87,6 +87,14 @@ export type ActionItemData = ActivityItem
 
 export type RenderSegment = { type: 'text'; text: string } | { type: 'activity'; items: ActivityItem[] }
 
+export type AgentCollaborationStatus = {
+  id: string
+  afterActivityId?: string
+  kind: 'wait' | 'feedback'
+  status: 'running' | 'success' | 'inactive' | 'error'
+  text: string
+}
+
 export type TurnChunk =
   | { type: 'custom'; message: Extract<PiMessage, { role: 'custom' }>; key: string }
   | {
@@ -105,6 +113,7 @@ export type TurnChunk =
   | {
       type: 'assistant_turn'
       activities: ActivityItem[]
+      collaboration?: AgentCollaborationStatus[]
       finalText: string
       images: Array<PiImage & { id?: string }>
       errorMessage?: string

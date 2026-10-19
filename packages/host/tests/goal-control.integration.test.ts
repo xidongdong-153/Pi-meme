@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { createHost } from '../src/service'
-import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
+import { finishAgentReply, useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
 import { requestText } from '../../../tests/fixtures/fake-provider.mjs'
 
 type Reply = NonNullable<Parameters<typeof useFakeAgent>[1]>['reply']
@@ -215,7 +215,7 @@ test('子代理用量归属根目标，子代理不能修改根目标，协作�
     const child = requestText(body).includes('你是执行委派任务的子 Agent')
     if (child)
       return calls.includes('update_goal')
-        ? '子任务已核对，不能替父任务结束目标。'
+        ? finishAgentReply(body, '子任务已核对，不能替父任务结束目标。')
         : {
             tool: {
               name: 'update_goal',

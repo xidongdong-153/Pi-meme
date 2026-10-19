@@ -8,7 +8,7 @@ import type { AgentSummary } from '@pi-meme/contracts/collaboration'
 import type { SessionSelectionResult, Snapshot } from '@pi-meme/contracts/desktop'
 import type { ResourceCatalog, ResourceItem } from '@pi-meme/contracts/resources'
 import { skillMarker } from '@pi-meme/contracts/skills'
-import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
+import { finishAgentReply, useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
 import { createHost } from '../src/service'
 
 type ModelRequest = { messages: Array<{ role: string; content: unknown }> }
@@ -253,7 +253,8 @@ test('fork none子Worker在Host更新后仍继承父资源修订及读取来源'
     const firstUser = body.messages.find((message) => message.role === 'user')
     if (JSON.stringify(firstUser?.content).includes('独立资源子任务')) {
       childRequests.push(body)
-      return readReply(body, item)
+      const reply = readReply(body, item)
+      return reply.text ? finishAgentReply(body, reply.text) : reply
     }
     if (!spawned) {
       spawned = true

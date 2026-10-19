@@ -81,16 +81,23 @@ Desktop 和 Web 将文字草稿、已选技能引用和队列模式保存到当�
 
 子代理由 [coordinator.ts](../packages/subagents/src/server/coordinator.ts) 管理身份、父子树、容量、邮箱与调度。[Host 协作桥](../packages/host/src/collaboration-bridge.ts) 校验真实 Worker 身份，不接受客户端伪造工具调用。每个子任务有独立 Worker 和 Pi JSONL，共享父任务工作目录。
 
-| 工具              | 行为                                                           |
-| ----------------- | -------------------------------------------------------------- |
-| `spawn_agent`     | 创建子身份与首次任务；`task_name` 用职责明确的 snake_case 短名 |
-| `send_message`    | 投递邮箱消息；目标空闲时不自动启动新一轮                       |
-| `followup_task`   | 保留 agentId 和 JSONL；空闲时开启新 runId，运行中按顺序排队    |
-| `interrupt_agent` | 中断目标任务，保留身份供后续使用                               |
-| `list_agents`     | 查询任务树与状态，不消费邮箱                                   |
-| `wait_agent`      | 等待并读取消息与结果；结果写入 Pi JSONL 后确认已读             |
+| 工具              | 行为                                                                 |
+| ----------------- | -------------------------------------------------------------------- |
+| `spawn_agent`     | 创建子身份与首次任务；`task_name` 用职责明确的 snake_case 短名       |
+| `send_message`    | 投递阶段反馈；等待反馈的原任务在原会话继续，已结束任务只保存到邮箱   |
+| `followup_task`   | 保留 agentId 和 JSONL；空闲时开启新 runId，运行中按顺序排队          |
+| `interrupt_agent` | 中断目标任务，保留身份供后续使用                                     |
+| `list_agents`     | 查询任务树与状态，不消费邮箱                                         |
+| `wait_agent`      | 等待并读取消息与结果；结果写入 Pi JSONL 后确认已读                   |
+| `finish_agent`    | 子代理确认整个委派任务完成后提交最终报告；回复结束后向委派方交付结果 |
 
 工具参数见 [Agent 入口](../packages/subagents/src/agent/entry.ts) 和 [协作契约](../packages/contracts/src/collaboration.ts)。当前上限为 4 个活动子 Agent、两层后代、16 个子身份；等待子任务仍占活动容量。旧角色定义与启用字段保留兼容，不是使用协作工具的前提。
+
+同一任务内使用 `send_message` 反馈、`wait_agent` 等待，收到消息后继续执行；多轮协作保留原 task、runId 和原生会话。普通回复只结束本次模型输出，子任务继续等待反馈；未主动向委派方发送的阶段正文会自动反馈一次。只有调用 `finish_agent` 且本次回复结束，才标记任务完成并提交最终结果。需要验收的任务先等待确认；仍有未读反馈或活动下级任务时拒绝完成。`followup_task` 用于派发下一项任务。
+
+发送和等待均支持 agentId、完整 taskPath、下级或同级任务短名；短名重合时优先下级，跨层使用完整路径。子代理可等待委派方或主代理的消息，祖先任务结束不会代替消息唤醒。等待超时不完成任务；暂停期间保存反馈，恢复后继续原任务。停止和中断后的迟到消息不会重新启动任务。
+
+同一条反馈只通过等待结果或普通消息投递接收一次。已经开始普通投递的反馈不再复制到 `wait_agent.messages`，等待结果的 `notifiedBy` 记录发送方；正文随普通消息写入原会话。历史中的等待结果也参与消息去重。
 
 子任务继承父模型、思考等级、访问权限、任务模式、外部 Agent 选择和资源快照。默认 `fork_turns=all` 从最新闭合历史取安全分支，父历史只作为模型背景，委派消息指定当前子任务；`none` 使用新上下文。分支与来源边界见 [safe-session-fork.ts](../packages/pi-runtime/src/safe-session-fork.ts) 和 [agent-conversation.ts](../packages/pi-runtime/src/agent-conversation.ts)。
 
@@ -128,7 +135,7 @@ sequenceDiagram
 
 输入 `/plan`、`/计划` 或 `/计划模式` 激活输入区的规划标记。纯命令只切换模式，带正文时发送计划任务；关闭标记返回 default。解析规则见 [normalizePlanMessage](../packages/contracts/src/plan.ts)。
 
-规划模式只允许 `read`、`grep`、`find`、`ls`、六个协作工具、`request_user_input` 和 `save_plan`。[plan-mode.ts](../packages/pi-runtime/src/extensions/plan-mode.ts) 同时过滤可用工具并检查实际调用；bash、edit、write、codemode、MCP、外部工具与嵌套越权均被拒绝。子代理继承规划模式，不能向仍在默认模式运行的子任务派发消息来绕过限制。
+规划模式只允许 `read`、`grep`、`find`、`ls`、协作工具（含 `finish_agent`）、`request_user_input` 和 `save_plan`。[plan-mode.ts](../packages/pi-runtime/src/extensions/plan-mode.ts) 同时过滤可用工具并检查实际调用；bash、edit、write、codemode、MCP、外部工具与嵌套越权均被拒绝。子代理继承规划模式，不能向仍在默认模式运行的子任务派发消息来绕过限制。
 
 ```mermaid
 %%{init: {"theme": "dark"}}%%

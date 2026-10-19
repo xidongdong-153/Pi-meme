@@ -12,6 +12,8 @@ import { Conversation } from '../src/ui/conversation/conversation'
 import { ChatStream } from '../src/ui/model/chat-stream'
 import { applyEvent, emptyChat } from '../src/ui/model/state'
 import type { PiEvent } from '@pi-meme/contracts/pi'
+import type { AgentSummary } from '@pi-meme/contracts/collaboration'
+import { projectAgentConversation } from '../src/ui/model/agent-collaboration'
 import { assistantMessage, streamUpdate, toolResult, userMessage } from '../../../tests/fixtures/messages.mjs'
 
 afterEach(cleanup)
@@ -20,6 +22,207 @@ const items: ActivityItem[] = [
   { id: 'thinking', type: 'thinking', thinking: '检查文件', status: 'success' },
   { id: 'read', type: 'tool', name: 'read', args: { path: 'a.ts' }, result: '文件结果', status: 'success' },
 ]
+
+test('子代理多轮状态位于工具段之间，全部过程折叠后仍可见且最终回复复制不混入状态', async () => {
+  const user = userEvent.setup()
+  const writeText = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue()
+  const statuses = [
+    {
+      id: 'send',
+      afterActivityId: 'send',
+      kind: 'feedback' as const,
+      status: 'success' as const,
+      text: '已向 UI impl 反馈',
+    },
+    {
+      id: 'wait',
+      afterActivityId: 'wait',
+      kind: 'wait' as const,
+      status: 'success' as const,
+      text: '已收到 UI impl 的反馈',
+    },
+    { id: 'report', kind: 'feedback' as const, status: 'success' as const, text: '已向主代理反馈' },
+  ]
+  const activities: ActivityItem[] = [
+    ...items,
+    { id: 'send', name: 'send_message', args: { target: 'ui', message: '内部正文' }, status: 'success' },
+    { id: 'verify', name: 'bash', args: { command: 'tsc --noEmit' }, status: 'success' },
+    { id: 'wait', name: 'wait_agent', args: { targets: ['ui'] }, status: 'success' },
+  ]
+  const { container } = render(
+    <TooltipProvider>
+      <AssistantTurnView
+        turn={{
+          type: 'assistant_turn',
+          key: 'agent',
+          activities,
+          collaboration: statuses,
+          finalText: '最终任务报告',
+          images: [],
+          durationMs: 2000,
+          isLive: false,
+        }}
+      />
+    </TooltipProvider>,
+  )
+  const process = screen.getByRole('button', { name: '工作过程' })
+  const rows = screen.getAllByRole('status', { name: '协作状态' })
+  const assertRowsVisible = () => {
+    for (const row of rows) {
+      expect(row).toBeVisible()
+      expect(row.closest('[aria-hidden="true"], [inert]')).toBeNull()
+    }
+  }
+  expect(process).toHaveAttribute('aria-expanded', 'false')
+  assertRowsVisible()
+  expect(container.querySelectorAll('[aria-label="工作过程"]')).toHaveLength(1)
+  await user.click(process)
+  const disclosures = screen.getAllByRole('button', { name: /^活动详情：/ })
+  expect(disclosures).toHaveLength(2)
+  const siblings = [...rows[0].parentElement!.children]
+  expect(siblings.indexOf(disclosures[0].closest('[id]')!)).toBeLessThan(siblings.indexOf(rows[0]))
+  expect(siblings.indexOf(rows[0])).toBeLessThan(siblings.indexOf(disclosures[1].closest('[id]')!))
+  await user.click(disclosures[0])
+  await user.click(disclosures[0])
+  assertRowsVisible()
+  await user.click(process)
+  assertRowsVisible()
+  expect(screen.getByText('最终任务报告')).toBeVisible()
+  await user.click(screen.getByRole('button', { name: '复制消息' }))
+  expect(writeText).toHaveBeenLastCalledWith('最终任务报告')
+})
+
+test('等待行在反馈、暂停和中断时原位更新，完成后停止动画', () => {
+  const agent: AgentSummary = {
+    agentId: 'api',
+    rootAgentId: 'root',
+    parentAgentId: 'root',
+    name: 'api_impl',
+    taskPath: '/root/api_impl',
+    depth: 1,
+    rootSessionKey: 'main',
+    sessionKey: 'api',
+    rootTaskId: 'task',
+    epoch: 1,
+    executionGeneration: 1,
+    status: 'running',
+    cwd: '/tmp/project',
+    accessMode: 'workspace-write',
+    mode: 'default',
+    updatedAt: new Date().toISOString(),
+  }
+  const peer = { ...agent, agentId: 'ui', name: 'ui_impl', taskPath: '/root/ui_impl' }
+  const call = assistantMessage(
+    [{ type: 'toolCall', id: 'wait', name: 'wait_agent', arguments: { targets: ['ui'] } }],
+    1000,
+  )
+  const chat: ChatState = { ...emptyChat, running: true, agents: [agent, peer], messages: [call] }
+  const view = (state: ChatState, identity = agent) => {
+    const turn = projectAgentConversation(state, identity).find((turn) => turn.type === 'assistant_turn')!
+    if (turn.type !== 'assistant_turn') throw new Error('缺少测试轮次')
+    return (
+      <TooltipProvider>
+        <AssistantTurnView turn={turn} />
+      </TooltipProvider>
+    )
+  }
+  const { rerender } = render(view(chat))
+  const row = screen.getByRole('status', { name: '协作状态' })
+  expect(row).toHaveTextContent('正在等待 UI impl 的反馈…')
+  expect(row.querySelector('.motion-reduce\\:animate-none')).not.toBeNull()
+  rerender(view(chat, { ...agent, isPaused: true }))
+  expect(screen.getByRole('status', { name: '协作状态' })).toBe(row)
+  expect(row).toHaveTextContent('已暂停等待 UI impl 的反馈…')
+  expect(row.querySelector('.motion-reduce\\:animate-none')).toBeNull()
+  const received: ChatState = {
+    ...chat,
+    running: false,
+    messages: [
+      call,
+      {
+        ...toolResult('wait', '', 2000),
+        toolName: 'wait_agent',
+        details: { messages: [{ fromAgentId: 'ui' }], timedOut: false },
+      },
+      assistantMessage('已完成', 2100),
+    ],
+  }
+  rerender(view(received))
+  expect(screen.getByRole('status', { name: '协作状态' })).toBe(row)
+  expect(row).toHaveTextContent('已收到 UI impl 的反馈')
+  expect(row.querySelector('.motion-reduce\\:animate-none')).toBeNull()
+  expect(screen.getByRole('button', { name: '工作过程' })).toHaveAttribute('aria-expanded', 'false')
+  expect(row).toBeVisible()
+  rerender(view({ ...chat, running: false }, { ...agent, status: 'interrupted' }))
+  expect(row).toHaveTextContent('等待 UI impl 的反馈已中断')
+  expect(row.querySelector('.motion-reduce\\:animate-none')).toBeNull()
+})
+
+test('协作状态仅出现在子代理详情，主聊天继续隐藏内部工具和反馈正文', () => {
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  )
+  const agent: AgentSummary = {
+    agentId: 'api',
+    rootAgentId: 'root',
+    parentAgentId: 'root',
+    name: 'api_impl',
+    taskPath: '/root/api_impl',
+    depth: 1,
+    rootSessionKey: 'main',
+    sessionKey: 'api',
+    rootTaskId: 'task',
+    epoch: 1,
+    executionGeneration: 1,
+    status: 'running',
+    cwd: '/tmp/project',
+    accessMode: 'workspace-write',
+    mode: 'default',
+    updatedAt: new Date().toISOString(),
+  }
+  const chat: ChatState = {
+    ...emptyChat,
+    running: true,
+    messages: [
+      assistantMessage(
+        [
+          {
+            type: 'toolCall',
+            id: 'send',
+            name: 'send_message',
+            arguments: { target: 'root', message: '内部协作正文' },
+          },
+        ],
+        1000,
+      ),
+    ],
+  }
+  const view = (agentOnly: boolean) => (
+    <TooltipProvider>
+      <Conversation
+        chat={chat}
+        agent={agent}
+        agentOnly={agentOnly}
+        readOnly={agentOnly}
+        canEditMessages={false}
+        onEditMessage={() => {}}
+        onSwitchMessageVersion={() => {}}
+        onForkReply={() => {}}
+        onCopyError={() => {}}
+      />
+    </TooltipProvider>
+  )
+  const { rerender } = render(view(false))
+  expect(screen.queryByRole('status', { name: '协作状态' })).not.toBeInTheDocument()
+  expect(screen.queryByText('内部协作正文')).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '工具详情：send_message' })).not.toBeInTheDocument()
+  rerender(view(true))
+  expect(screen.getByRole('status', { name: '协作状态' })).toHaveTextContent('正在向主代理反馈…')
+})
 
 test('成功查看图片直接显示可预览的小图，不再显示工具输出框和占位文字', async () => {
   const user = userEvent.setup()

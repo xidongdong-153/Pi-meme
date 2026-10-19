@@ -8,8 +8,366 @@ import { createHostCollaborationBridge } from '../src/server/coordinator'
 import type { RuntimeSdkSession } from '@pi-meme/pi-runtime/session-pool'
 import type { CollaborationRequest, CollaborationResults, AgentSummary } from '@pi-meme/contracts/collaboration'
 import { SdkSession } from '@pi-meme/pi-runtime/sdk/session'
-import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
+import { finishAgentReply, useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
+import { create as collaborationExtension } from '../src/agent/entry'
 import { fakeSession, setup } from './coordinator-fixture'
+
+function enableCollaboration(bridge: ReturnType<typeof createHostCollaborationBridge>, session: SdkSession) {
+  session.configureInlineExtensions(
+    collaborationExtension({
+      requestCollaboration: (request, signal) =>
+        bridge.dispatch(
+          session,
+          { ...request, id: randomUUID() } as CollaborationRequest,
+          signal ?? new AbortController().signal,
+        ),
+      savePlan: async () => {
+        throw new Error('本测试不保存计划')
+      },
+    }),
+  )
+}
+
+test('同级代理短名称按当前层级寻址，发送和等待反馈不需要重新派发任务', async () => {
+  const context = await setup()
+  try {
+    await context.begin()
+    const frontend = await context.spawn('frontend')
+    const backend = await context.spawn('backend')
+    const front = context.children.get(frontend.sessionKey)!
+    const back = context.children.get(backend.sessionKey)!
+    const [result, sent] = (await Promise.all([
+      context.call(front.session, 'wait_agent', { targets: ['backend'], timeout_ms: 1000 }),
+      context.call(back.session, 'send_message', { target: 'frontend', message: '接口已经准备好，请联调' }),
+    ])) as [CollaborationResults['wait_agent'], CollaborationResults['send_message']]
+    assert.deepEqual(
+      result.messages.map((message) => message.id),
+      [sent.messageId],
+    )
+    assert.equal(result.agents[0]!.agentId, backend.agentId)
+  } finally {
+    await context.cleanup()
+  }
+})
+
+test('阶段回复保留原任务，收到主代理反馈后在原会话继续', async () => {
+  const context = await setup()
+  try {
+    await context.begin()
+    const child = await context.spawn('worker')
+    const worker = context.children.get(child.sessionKey)!
+    worker.reply('接口初稿已经完成，等待验收意见')
+    await context.until(async () => !(await context.bridge.getAgentSnapshot(child.agentId)).state.isStreaming)
+    const parked = (await context.bridge.getAgents('root-key')).find((agent) => agent.agentId === child.agentId)!
+    assert.equal(parked.status, 'waiting_children')
+    assert.equal(parked.runCompletedAt, undefined)
+    await context.call(context.root.session, 'send_message', { target: 'worker', message: '请补充错误分支' })
+    await context.until(async () => worker.continuations.length === 1)
+    const resumed = (await context.bridge.getAgents('root-key')).find((agent) => agent.agentId === child.agentId)!
+    for (const key of [
+      'agentId',
+      'sessionId',
+      'sessionKey',
+      'rootTaskId',
+      'runId',
+      'epoch',
+      'executionGeneration',
+    ] as const)
+      assert.equal(resumed[key], child[key])
+    assert.equal(worker.prompts.length, 1)
+  } finally {
+    await context.cleanup()
+  }
+})
+
+test('主代理和同级代理多轮反馈、等待、修改、验收都保留原任务和会话，仅明确完成后交付最终结果', async () => {
+  const context = await setup()
+  try {
+    await context.begin()
+    const frontend = await context.spawn('frontend')
+    const backend = await context.spawn('backend')
+    const front = context.children.get(frontend.sessionKey)!
+    const back = context.children.get(backend.sessionKey)!
+    const root = (await context.bridge.getAgents('root-key'))[0]!
+    await context.bridge.rootSettled('root-key')
+
+    const waiting = context.call(front.session, 'wait_agent', { targets: ['backend'], timeout_ms: 1000 })
+    await context.call(back.session, 'send_message', { target: 'frontend', message: '接口初稿，请联调' })
+    const api = (await waiting) as CollaborationResults['wait_agent']
+    assert.equal(api.messages[0]!.text, '接口初稿，请联调')
+    await context.call(front.session, 'send_message', { target: '/root', message: '页面初稿，请验收' })
+    await context.until(async () => context.root.continuations.length === 1)
+    front.reply('等待验收')
+    await context.until(
+      async () => (await context.bridge.getAgentSnapshot(frontend.agentId)).agent!.status === 'waiting_children',
+    )
+    await context.bridge.rootSettled('root-key')
+    await context.call(context.root.session, 'send_message', { target: 'frontend', message: '错误提示需修改' })
+    await context.until(async () => front.continuations.length === 1)
+    await context.call(front.session, 'send_message', { target: 'backend', message: '请补充错误状态码' })
+    const correction = context.call(front.session, 'wait_agent', { targets: ['backend'], timeout_ms: 1000 })
+    await context.call(back.session, 'send_message', { target: 'frontend', message: '错误状态码已补充' })
+    assert.equal(((await correction) as CollaborationResults['wait_agent']).messages[0]!.text, '错误状态码已补充')
+    front.reply('修改已完成，请再次验收')
+    await context.until(async () => context.root.continuations.length === 2)
+    await context.until(
+      async () => (await context.bridge.getAgentSnapshot(frontend.agentId)).agent!.status === 'waiting_children',
+    )
+    const beforeConfirmation = await context.bridge.getAgents('root-key')
+    assert.ok(beforeConfirmation.filter((agent) => agent.depth > 0).every((agent) => !agent.runCompletedAt))
+    assert.equal(
+      context.events.filter((event) => event.event.type === 'agent_mailbox' && event.event.message.kind === 'result')
+        .length,
+      0,
+    )
+    await context.call(context.root.session, 'send_message', { target: 'frontend', message: '验收通过，可以完成' })
+    await context.until(async () => front.continuations.length === 2)
+    await front.finish('页面和错误处理完成，验收通过')
+    await back.finish('接口和状态码完成')
+    await context.until(async () =>
+      (await context.bridge.getAgents('root-key'))
+        .filter((agent) => agent.depth > 0)
+        .every((agent) => agent.status === 'completed'),
+    )
+    await context.until(async () => context.root.delivered.length === 4)
+    await context.bridge.rootSettled('root-key')
+    const after = await context.bridge.getAgents('root-key')
+    assert.equal(after[0]!.status, 'completed')
+    for (const before of [root, frontend, backend]) {
+      const current = after.find((agent) => agent.agentId === before.agentId)!
+      for (const key of [
+        'runId',
+        'sessionId',
+        'sessionKey',
+        'rootTaskId',
+        'epoch',
+        'executionGeneration',
+        'runStartedAt',
+      ] as const)
+        assert.equal(current[key], before[key])
+    }
+    assert.equal(front.prompts.length, 1)
+    assert.equal(back.prompts.length, 1)
+    assert.equal(context.children.size, 2)
+    assert.equal(
+      context.events.filter((event) => event.event.type === 'agent_mailbox' && event.event.message.kind === 'result')
+        .length,
+      2,
+    )
+  } finally {
+    await context.cleanup()
+  }
+})
+
+test('子代理可以等待主代理反馈；超时、暂停和中断不提交完成结果，终态不因迟到消息重新启动', async () => {
+  const context = await setup()
+  try {
+    await context.begin()
+    const child = await context.spawn('worker')
+    const worker = context.children.get(child.sessionKey)!
+    const timed = (await context.call(worker.session, 'wait_agent', {
+      targets: ['/root'],
+      timeout_ms: 1,
+    })) as CollaborationResults['wait_agent']
+    assert.equal(timed.timedOut, true)
+    await assert.rejects(context.call(worker.session, 'wait_agent', { targets: [child.agentId] }), /不能等待自己/)
+    const waiting = context.call(worker.session, 'wait_agent', { targets: ['/root'], timeout_ms: 1000 })
+    await context.call(context.root.session, 'send_message', { target: 'worker', message: '请继续修改' })
+    assert.equal(((await waiting) as CollaborationResults['wait_agent']).messages[0]!.text, '请继续修改')
+    worker.reply('等待下一次意见')
+    await context.until(
+      async () => (await context.bridge.getAgentSnapshot(child.agentId)).agent!.status === 'waiting_children',
+    )
+    await context.bridge.pauseRoot('root-key')
+    await context.call(context.root.session, 'send_message', { target: 'worker', message: '暂停期间的反馈' })
+    assert.equal(worker.continuations.length, 0)
+    await context.bridge.resumeRoot('root-key')
+    await context.until(async () => worker.continuations.length === 1)
+    const abort = new AbortController()
+    const interruptedWait = context.call(
+      worker.session,
+      'wait_agent',
+      { targets: ['/root'], timeout_ms: 1000 },
+      abort.signal,
+    )
+    const cancelled = assert.rejects(interruptedWait, /等待已取消/)
+    await context.until(
+      async () => (await context.bridge.getAgentSnapshot(child.agentId)).agent!.status === 'waiting_children',
+    )
+    abort.abort()
+    await cancelled
+    await context.call(context.root.session, 'interrupt_agent', { target: 'worker' })
+    await context.call(context.root.session, 'send_message', { target: 'worker', message: '迟到反馈' })
+    assert.equal(worker.continuations.length, 1)
+    assert.equal((await context.bridge.getAgentSnapshot(child.agentId)).agent!.status, 'interrupted')
+    assert.equal(
+      context.events.filter((event) => event.event.type === 'agent_mailbox' && event.event.message.kind === 'result')
+        .length,
+      0,
+    )
+  } finally {
+    await context.cleanup()
+  }
+})
+
+test('嵌套同级短名优先当前层，下级同名优先下级，跨层必须用完整路径', async () => {
+  const context = await setup()
+  try {
+    await context.begin()
+    const outerWorker = await context.spawn('worker')
+    const owner = await context.spawn('owner')
+    const ownerSession = context.children.get(owner.sessionKey)!.session
+    const worker = await context.spawn('worker', ownerSession)
+    const peer = await context.spawn('peer', ownerSession)
+    const peerSession = context.children.get(peer.sessionKey)!.session
+    await context.call(peerSession, 'send_message', { target: 'worker', message: '同级请求' })
+    assert.equal(context.children.get(worker.sessionKey)!.delivered.length, 1)
+    assert.equal(context.children.get(outerWorker.sessionKey)!.delivered.length, 0)
+    await context.call(ownerSession, 'send_message', { target: 'worker', message: '下级请求' })
+    assert.equal(context.children.get(worker.sessionKey)!.delivered.length, 2)
+    await context.call(peerSession, 'send_message', { target: outerWorker.taskPath, message: '跨层请求' })
+    assert.equal(context.children.get(outerWorker.sessionKey)!.delivered.length, 1)
+    await assert.rejects(context.call(ownerSession, 'finish_agent', { report: '不应完成' }), /下级任务完成/)
+    await assert.rejects(context.call(context.root.session, 'finish_agent', { report: '不应完成' }), /只有子 Agent/)
+  } finally {
+    await context.cleanup()
+  }
+})
+
+test('等待已返回但工具结果尚未确认时，其他反馈不会把同一条消息再次投递', async () => {
+  const context = await setup()
+  try {
+    await context.begin()
+    const child = await context.spawn('worker')
+    const worker = context.children.get(child.sessionKey)!
+    const id = randomUUID()
+    const waiting = context.bridge.dispatch(
+      context.root.session,
+      {
+        id,
+        method: 'wait_agent',
+        params: { targets: ['worker'], timeout_ms: 1000 },
+      },
+      new AbortController().signal,
+    )
+    await context.until(async () => (await context.bridge.getAgents('root-key'))[0]!.status === 'waiting_children')
+    const first = (await context.call(worker.session, 'send_message', {
+      target: '/root',
+      message: '第一条反馈',
+    })) as CollaborationResults['send_message']
+    const result = (await waiting) as CollaborationResults['wait_agent']
+    assert.equal(result.messages[0]!.id, first.messageId)
+    const second = (await context.call(worker.session, 'send_message', {
+      target: '/root',
+      message: '第二条反馈',
+    })) as CollaborationResults['send_message']
+    assert.deepEqual(context.root.delivered, [second.messageId])
+    context.bridge.decorateRootEvent('root-key', {
+      generation: 1,
+      event: {
+        type: 'message_end',
+        message: {
+          role: 'toolResult',
+          toolCallId: id,
+          toolName: 'wait_agent',
+          details: result,
+          content: [],
+          isError: false,
+          timestamp: Date.now(),
+        },
+      },
+    })
+    await context.bridge.resumeRoot('root-key')
+    assert.deepEqual(context.root.delivered, [second.messageId])
+    const saved = JSON.parse(await readFile(path.join(context.directory, 'collaboration.json'), 'utf8'))
+    assert.ok(saved.records.every((record: { waitingMessages?: string[] }) => record.waitingMessages === undefined))
+  } finally {
+    await context.cleanup()
+  }
+})
+
+test('完成意向遇到新反馈会撤销，处理并重新确认后才提交最终结果', async () => {
+  const context = await setup()
+  try {
+    await context.begin()
+    const child = await context.spawn('worker')
+    const worker = context.children.get(child.sessionKey)!
+    await context.call(worker.session, 'finish_agent', { report: '第一版报告' })
+    await context.call(context.root.session, 'send_message', { target: 'worker', message: '还有一项修改' })
+    worker.reply('收到，等待补充要求')
+    await context.until(
+      async () => (await context.bridge.getAgentSnapshot(child.agentId)).agent!.status === 'waiting_children',
+    )
+    await context.call(context.root.session, 'send_message', { target: 'worker', message: '修改后验收通过' })
+    await context.until(async () => worker.continuations.length === 1)
+    await worker.finish('已修改并通过验收')
+    await context.until(
+      async () => (await context.bridge.getAgentSnapshot(child.agentId)).agent!.status === 'completed',
+    )
+    assert.equal((await context.bridge.getAgentSnapshot(child.agentId)).agent!.report, '已修改并通过验收')
+  } finally {
+    await context.cleanup()
+  }
+})
+
+test('消息投递已经开始时，等待只报告发送方，正文不重复进入等待结果', async () => {
+  const context = await setup()
+  let release!: () => void
+  try {
+    await context.begin()
+    const child = await context.spawn('worker')
+    const worker = context.children.get(child.sessionKey)!
+    let entered!: () => void
+    const entering = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    worker.faults.deliveryStarted = entered
+    worker.faults.deliveryGate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const sending = context.call(context.root.session, 'send_message', {
+      target: 'worker',
+      message: '已经开始投递的反馈',
+    })
+    await entering
+    const result = (await context.call(worker.session, 'wait_agent', {
+      targets: ['/root'],
+      timeout_ms: 1000,
+    })) as CollaborationResults['wait_agent']
+    assert.deepEqual(result.messages, [])
+    assert.deepEqual(result.notifiedBy, [child.rootAgentId])
+    assert.equal(result.timedOut, false)
+    release()
+    const sent = (await sending) as CollaborationResults['send_message']
+    assert.deepEqual(worker.delivered, [sent.messageId])
+    const next = (await context.call(worker.session, 'wait_agent', {
+      targets: ['/root'],
+      timeout_ms: 0,
+    })) as CollaborationResults['wait_agent']
+    assert.deepEqual(next.messages, [])
+    assert.equal(next.notifiedBy, undefined)
+    assert.equal(next.timedOut, true)
+  } finally {
+    release?.()
+    await context.cleanup()
+  }
+})
+
+test('旧任务的等待在新任务开始后取消，不恢复新任务状态或读取新反馈', async () => {
+  const context = await setup()
+  try {
+    await context.begin()
+    await context.spawn('worker')
+    const waiting = context.call(context.root.session, 'wait_agent', { targets: ['worker'], timeout_ms: 1000 })
+    const cancelled = assert.rejects(waiting, /等待所属任务已结束或更换/)
+    await context.until(async () => (await context.bridge.getAgents('root-key'))[0]!.status === 'waiting_children')
+    await context.begin()
+    await cancelled
+    assert.equal((await context.bridge.getAgents('root-key'))[0]!.status, 'running')
+  } finally {
+    await context.cleanup()
+  }
+})
 
 test('场景头像保存在身份与结果中，续跑保留，后代不继承且无效配置不创建身份', async () => {
   const context = await setup()
@@ -34,7 +392,7 @@ test('场景头像保存在身份与结果中，续跑保留，后代不继承�
       )
     assert.equal((await context.bridge.getAgents('root-key')).length, 2)
     const childSession = context.children.get(child.sessionKey)!
-    childSession.finish('审查完成')
+    await childSession.finish('审查完成')
     await context.until(
       async () =>
         (await context.bridge.getAgents('root-key')).find((entry) => entry.agentId === child.agentId)!.status ===
@@ -67,7 +425,7 @@ test('容量计入等待任务；等待可取消，取消后同树仍可调度',
     await assert.rejects(waiting, /等待已取消/)
     assert.equal((await context.bridge.getAgents('root-key'))[0]!.status, 'running')
     const first = (await context.bridge.getAgents('root-key')).find((agent) => agent.name === 'one')!
-    context.children.get(first.sessionKey)!.finish('结果一')
+    await context.children.get(first.sessionKey)!.finish('结果一')
     await context.until(
       async () =>
         (await context.bridge.getAgents('root-key')).find((agent) => agent.name === 'one')!.status === 'completed',
@@ -150,7 +508,7 @@ describe('用户插话唤醒父子 Agent 等待，排队输入不唤醒，消费
           )
           await new Promise<void>((resolve) => setTimeout(resolve, 5))
           assert.equal(resumed, false)
-          context.children.get(target.sessionKey)!.finish('完成')
+          await context.children.get(target.sessionKey)!.finish('完成')
           await next
         } finally {
           controller.abort()
@@ -188,7 +546,7 @@ test('停止后新轮次不继承未消费插话的等待唤醒状态', async ()
     await context.until(async () => (await context.bridge.getAgents('root-key'))[0]!.status === 'waiting_children')
     await new Promise<void>((resolve) => setTimeout(resolve, 5))
     assert.equal(resumed, false)
-    context.children.get(child.sessionKey)!.finish('完成')
+    await context.children.get(child.sessionKey)!.finish('完成')
     await waiting
   } finally {
     controller.abort()
@@ -213,10 +571,10 @@ test('同请求只创建一次；followup复用身份，忙时排队；idle消�
     assert.equal(one!.agentId, two!.agentId)
     const fake = context.children.get(one!.sessionKey)!
     await context.call(context.root.session, 'followup_task', { target: one!.agentId, message: '排队任务' })
-    fake.finish('第一次完成')
+    await fake.finish('第一次完成')
     await context.until(async () => fake.prompts.length === 2)
     assert.equal(fake.prompts[1], '排队任务')
-    fake.finish('第二次完成')
+    await fake.finish('第二次完成')
     await context.until(
       async () =>
         (await context.bridge.getAgents('root-key')).find((agent) => agent.agentId === one!.agentId)!.status ===
@@ -244,7 +602,7 @@ test('子结果落盘后立即通知界面，父任务尚未读取时也保留�
   try {
     await context.begin()
     const child = await context.spawn('worker')
-    context.children.get(child.sessionKey)!.finish('子任务已完成')
+    await context.children.get(child.sessionKey)!.finish('子任务已完成')
     await context.until(async () =>
       context.events.some((record) => record.event.type === 'agent_mailbox' && record.event.message.kind === 'result'),
     )
@@ -280,19 +638,19 @@ test('child先结束轮次，grandchild延迟结果触发同epoch汇总后再交
     const childSession = context.children.get(child.sessionKey)!
     const grandchild = await context.spawn('leaf', childSession.session)
     await assert.rejects(context.spawn('deep', context.children.get(grandchild.sessionKey)!.session), /嵌套两层/)
-    childSession.finish('等待调查')
+    childSession.reply('等待调查')
     await context.until(
       async () =>
         (await context.bridge.getAgents('root-key')).find((agent) => agent.agentId === child.agentId)!.status ===
         'waiting_children',
     )
-    context.children.get(grandchild.sessionKey)!.finish('叶节点完成')
+    await context.children.get(grandchild.sessionKey)!.finish('叶节点完成')
     await context.until(async () => childSession.continuations.length === 1)
     const resumed = (await context.bridge.getAgents('root-key')).find((agent) => agent.agentId === child.agentId)!
     assert.equal(resumed.epoch, child.epoch)
     assert.equal(resumed.rootTaskId, child.rootTaskId)
-    assert.notEqual(resumed.runId, child.runId)
-    childSession.finish('整理完成')
+    assert.equal(resumed.runId, child.runId)
+    await childSession.finish('整理完成')
     await context.until(
       async () =>
         (await context.bridge.getAgents('root-key')).find((agent) => agent.agentId === child.agentId)!.status ===
@@ -365,7 +723,7 @@ test('旧epoch结果持久可见但不唤醒新用户任务；restart标interrup
     await context.begin()
     const child = await context.spawn('old')
     await context.begin('plan')
-    context.children.get(child.sessionKey)!.finish('旧任务结果')
+    await context.children.get(child.sessionKey)!.finish('旧任务结果')
     await context.until(
       async () =>
         (await context.bridge.getAgents('root-key')).find((agent) => agent.agentId === child.agentId)!.status ===
@@ -428,10 +786,10 @@ test('queued followup的wait等待预定新run，不被旧run完成结果提前�
         return result
       })
     await context.until(async () => (await context.bridge.getAgents('root-key'))[0]!.status === 'waiting_children')
-    fake.finish('旧轮结果')
+    await fake.finish('旧轮结果')
     await context.until(async () => fake.prompts.length === 2)
     assert.equal(answered, false)
-    fake.finish('新轮结果')
+    await fake.finish('新轮结果')
     await waiting
     assert.equal(answered, true)
   } finally {
@@ -446,7 +804,7 @@ test('自动汇总准入失败转failed并保留未读取结果，释放容量�
     const child = await context.spawn('worker')
     context.root.faults.continuation = true
     await context.bridge.rootSettled('root-key')
-    context.children.get(child.sessionKey)!.finish('结果正文')
+    await context.children.get(child.sessionKey)!.finish('结果正文')
     await context.until(async () => {
       const saved = JSON.parse(await readFile(path.join(context.directory, 'collaboration.json'), 'utf8'))
       return (
@@ -480,7 +838,7 @@ test('自动汇总来源交付期间新用户epoch撤销旧resume；迟到旧set
       release = resolve
     })
     await context.bridge.rootSettled('root-key')
-    context.children.get(child.sessionKey)!.finish('旧结果')
+    await context.children.get(child.sessionKey)!.finish('旧结果')
     await context.until(async () => (await context.bridge.getAgents('root-key'))[0]!.status === 'running')
     await context.begin('plan')
     const current = (await context.bridge.getAgents('root-key'))[0]!
@@ -510,7 +868,7 @@ test('新用户任务撤销整树多条旧followup，旧run继续但结果不唤
       (await context.bridge.getAgents('root-key')).find((entry) => entry.agentId === child.agentId)!.status,
       'running',
     )
-    fake.finish('旧结果')
+    await fake.finish('旧结果')
     await context.until(
       async () =>
         (await context.bridge.getAgents('root-key')).find((entry) => entry.agentId === child.agentId)!.status ===
@@ -535,7 +893,7 @@ test('Worker退役后followup递增持久代次，丢弃旧Worker事件；问答
     await context.begin()
     const child = await context.spawn('worker')
     const old = context.children.get(child.sessionKey)!
-    old.finish('结束')
+    await old.finish('结束')
     await context.until(
       async () =>
         (await context.bridge.getAgents('root-key')).find((entry) => entry.agentId === child.agentId)!.status ===
@@ -586,13 +944,14 @@ test('Worker退役后followup递增持久代次，丢弃旧Worker事件；问答
 
 test('idle来源消息在后续新task followup中写真实Pi JSONL，保留旧来源且不重复交付', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pi-collaboration-native-'))
-  const fake = await useFakeAgent(directory)
+  const fake = await useFakeAgent(directory, { reply: (body) => finishAgentReply(body, '任务完成') })
   const sessions = new Map<string, SdkSession>()
   const bridge = createHostCollaborationBridge({
     dataRoot: directory,
     emit: () => {},
     createSession: (cwd, notify, key) => {
       const session = new SdkSession(cwd, notify, fake.runtimePaths, fake.credentials)
+      enableCollaboration(bridge, session)
       sessions.set(key, session)
       return session
     },
@@ -636,7 +995,7 @@ test('idle来源消息在后续新task followup中写真实Pi JSONL，保留旧�
     const sent = (await call('send_message', { target: child.agentId, message: '来自旧任务的补充信息' })) as {
       messageId: string
     }
-    assert.equal(fake.provider.requests.length, 1)
+    assert.equal(fake.provider.requests.length, 2)
     await bridge.beginRootRun('root', { mode: 'default', message: '新用户任务' })
     await call('followup_task', { target: child.agentId, message: '明确继续' })
     await completed(child.agentId)
@@ -688,7 +1047,7 @@ test('子任务启动snapshot和父汇总来源交付期间stop都不会重新pr
       release = resolve
     })
     await context.bridge.rootSettled('root-key')
-    context.children.get(child.sessionKey)!.finish('结果')
+    await context.children.get(child.sessionKey)!.finish('结果')
     await context.until(async () => (await context.bridge.getAgents('root-key'))[0]!.status === 'running')
     await context.bridge.stopRoot('root-key')
     const runId = (await context.bridge.getAgents('root-key'))[0]!.runId
@@ -704,13 +1063,19 @@ test('子任务启动snapshot和父汇总来源交付期间stop都不会重新pr
 
 test('forkall保留模型父上下文但child详情只显示自身任务，followup及旧身份重启边界可恢复', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pi-agent-origin-'))
-  const fake = await useFakeAgent(directory)
+  const fake = await useFakeAgent(directory, {
+    reply: (body) =>
+      JSON.stringify(body.messages).includes('你是执行委派任务的子 Agent')
+        ? finishAgentReply(body, '子任务完成')
+        : '父任务阶段回复',
+  })
   const children = new Map<string, SdkSession>()
   const bridge = createHostCollaborationBridge({
     dataRoot: directory,
     emit: () => {},
     createSession: (cwd, notify, key) => {
       const session = new SdkSession(cwd, notify, fake.runtimePaths, fake.credentials)
+      enableCollaboration(bridge, session)
       children.set(key, session)
       return session
     },
@@ -1143,7 +1508,7 @@ test('checkout gate 阻止新子代理与已有 Worker followup，busy 包含排
       /正在切换分支/,
     )
     locked = false
-    context.children.get(child.sessionKey)!.finish('结果')
+    await context.children.get(child.sessionKey)!.finish('结果')
     await context.until(
       async () =>
         (await context.bridge.getAgents('root-key')).find((agent) => agent.agentId === child.agentId)!.status ===
@@ -1182,7 +1547,7 @@ test('整树暂停不等待 wait_agent，恢复保持当前运行身份', async 
     }
     assert.equal(worker.prompts.length, 1)
     assert.equal(worker.continuations.length, 0)
-    worker.finish('完成')
+    await worker.finish('完成')
     await waiting
   } finally {
     await context.cleanup()
@@ -1196,7 +1561,7 @@ test('暂停时子结果留在邮箱，spawn 和 followup 返回后恢复按序�
     const child = await context.spawn('worker')
     const worker = context.children.get(child.sessionKey)!
     await context.bridge.pauseRoot('root-key')
-    worker.finish('结果')
+    await worker.finish('结果')
     await context.until(
       async () =>
         (await context.bridge.getAgents('root-key')).find((agent) => agent.agentId === child.agentId)?.status ===
@@ -1211,7 +1576,7 @@ test('暂停时子结果留在邮箱，spawn 和 followup 返回后恢复按序�
     await context.until(async () => context.children.get(fresh.sessionKey)?.prompts.length === 1)
     const freshWorker = context.children.get(fresh.sessionKey)!
     assert.deepEqual(freshWorker.prompts, ['子任务'])
-    freshWorker.finish('首轮完成')
+    await freshWorker.finish('首轮完成')
     await context.until(async () => freshWorker.prompts.length === 2)
     assert.deepEqual(freshWorker.prompts, ['子任务', '第二轮'])
     await context.until(async () => context.root.delivered.length > 0)

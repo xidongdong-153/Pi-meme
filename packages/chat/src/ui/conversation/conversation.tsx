@@ -7,6 +7,8 @@ import { AssistantTurnView } from './assistant-turn'
 import { InlineMessageEditor, type MessageEditorState } from './inline-message-editor'
 import { groupConversationTurns } from '../model/conversation-turns'
 import { projectMainConversation } from '../model/conversation-projection'
+import { projectAgentConversation } from '../model/agent-collaboration'
+import type { AgentSummary } from '@pi-meme/contracts/collaboration'
 import { useConversationScroll } from './use-conversation-scroll'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { messageVersions } from '../model/message-versions'
@@ -47,6 +49,7 @@ export const Conversation = React.memo(
     loadImage,
     readOnly = false,
     agentOnly = false,
+    agent,
   }: {
     chat: ChatState
     stream?: ChatStream
@@ -66,6 +69,7 @@ export const Conversation = React.memo(
     loadImage?: MessageImageLoader
     readOnly?: boolean
     agentOnly?: boolean
+    agent?: AgentSummary
   }) => {
     const chat = React.useSyncExternalStore(
       stream?.subscribe ?? noSubscription,
@@ -78,15 +82,18 @@ export const Conversation = React.memo(
     // 按对话轮次（Turn）聚合消息流：将同一交互轮次内的思考、多次工具调用、Bash 与最终正文聚合成单一轮次卡片
     const { turns, finalReplyKeys } = React.useMemo(() => {
       const view = readOnly ? chat : projectMainConversation(chat)
-      const grouped = groupConversationTurns(
-        view.messages,
-        view.live,
-        view.tools,
-        chat.running,
-        chat.stream.completed,
-        'agentStatuses' in view ? view.agentStatuses : [],
-        chat.runIntervals,
-      )
+      const grouped =
+        agentOnly && agent
+          ? projectAgentConversation(chat, agent)
+          : groupConversationTurns(
+              view.messages,
+              view.live,
+              view.tools,
+              chat.running,
+              chat.stream.completed,
+              'agentStatuses' in view ? view.agentStatuses : [],
+              chat.runIntervals,
+            )
       const finalReplyKeys = new Set<string>()
       let canBeFinal = !chat.running && !chat.live
       // 子代理状态只切分展示段，每条用户输入仅最后一个已完成的助手段保留消息操作。
@@ -108,7 +115,7 @@ export const Conversation = React.memo(
           : grouped,
         finalReplyKeys,
       }
-    }, [chat, readOnly, agentOnly])
+    }, [chat, readOnly, agentOnly, agent])
     const outline = React.useMemo(() => (agentOnly ? [] : conversationOutline(turns)), [turns, agentOnly])
 
     const [visible, setVisible] = React.useState({ key: sessionKey, count: INITIAL_VISIBLE_TURNS })

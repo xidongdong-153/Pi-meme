@@ -6,7 +6,7 @@ import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import type { HostApi, HostControlEvent, SubmissionReceipt } from '@pi-meme/contracts/app-host'
 import { createHost } from '../src/service'
-import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
+import { finishAgentReply, useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
 import { requestText } from '../../../tests/fixtures/fake-provider.mjs'
 import type { SessionSelectionResult } from '@pi-meme/contracts/desktop'
 
@@ -565,7 +565,7 @@ test('控制日志不复制根任务与子代理task/report正文，正式Agent�
   let parentRequests = 0
   const f = await fixture((body) => {
     const users = (body.messages ?? []).filter((message: { role: string }) => message.role === 'user')
-    if (JSON.stringify(users).includes(childTask)) return childReport
+    if (JSON.stringify(users).includes(childTask)) return finishAgentReply(body, childReport)
     parentRequests++
     if (parentRequests === 1)
       return {

@@ -47,8 +47,8 @@ export class AgentConversationStore {
     if (this.closed) return
     if (record.event.type === 'agents_update') {
       const summary = record.event.agents.find((agent) => agent.agentId === this.agentId)
-      if (summary && (!this.value.agent || summary.executionGeneration >= this.value.agent.executionGeneration))
-        this.publish({ ...this.value, agent: summary })
+      if (!summary || (this.value.agent && summary.executionGeneration < this.value.agent.executionGeneration)) return
+      this.publish({ ...this.value, agent: summary, chat: { ...this.value.chat, agents: record.event.agents } })
       if (summary && summary.executionGeneration !== this.executionGeneration) void this.refresh()
       return
     }

@@ -14,7 +14,7 @@ const labels: Record<AgentStatus, string> = {
   idle: '空闲',
   starting: '启动中',
   running: '运行中',
-  waiting_children: '等待子任务',
+  waiting_children: '等待反馈',
   waiting_input: '等待回答',
   completed: '已完成',
   failed: '失败',
@@ -115,6 +115,7 @@ const AgentConversation = memo(({ bridge, id, onBack }: { bridge: DesktopBridge;
       {(view.error || copyError) && <ErrorLine message={view.error || copyError} className="p-3 text-xs" />}
       <Conversation
         chat={view.chat}
+        agent={view.agent}
         readOnly
         agentOnly
         canEditMessages={false}

@@ -6,7 +6,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { test, vi } from 'vitest'
 import type { Snapshot } from '@pi-meme/contracts/desktop'
 import { AccessSandbox } from '@pi-meme/pi-runtime/sdk/access-sandbox'
-import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
+import { finishAgentReply, useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
 import { createHost } from '../src/service'
 
 for (const reason of [
@@ -78,7 +78,7 @@ test('默认工作区会话的子代理沿用同一沙箱，bash 和 codemode �
               }),
             },
           }
-        return '子任务完成'
+        return finishAgentReply(body, '子任务完成')
       }
       if (!spawned) {
         spawned = true

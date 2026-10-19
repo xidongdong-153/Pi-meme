@@ -9,6 +9,7 @@ const collaborationTools = new Set([
   'interrupt_agent',
   'list_agents',
   'wait_agent',
+  'finish_agent',
 ])
 const terminalLabels = {
   completed: '已完成',

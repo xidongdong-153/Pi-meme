@@ -6,7 +6,8 @@ import type { TurnChunk } from '../model/types'
 import { AttachmentPreview } from '../content/attachment-preview'
 import { MarkdownContent } from '../content/markdown-content'
 import { ActivityElapsedTime, ActivityGroup } from './activity-group'
-import { groupAdjacentActivities } from '../model/activity-summary'
+import { groupAgentActivities } from '../model/agent-collaboration'
+import { AgentCollaborationRow } from './agent-collaboration-row'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { MessageActions } from './message-actions'
 
@@ -35,13 +36,15 @@ export function AssistantTurnView({
 }) {
   const hasReplyContent = isFinalReply && !turn.isLive && (Boolean(turn.finalText.trim()) || turn.images.length > 0)
   const segments = React.useMemo(
-    () => groupAdjacentActivities(turn.activities, turn.finalText),
-    [turn.activities, turn.finalText],
+    () => groupAgentActivities(turn.activities, turn.finalText, turn.collaboration),
+    [turn.activities, turn.finalText, turn.collaboration],
   )
   const hasTrailingText = segments.at(-1)?.type === 'text'
   const replyIndex = !turn.isLive && turn.finalText.trim() ? segments.length - 1 : -1
   const processId = React.useId()
-  const processIds = segments.flatMap((_, index) => (index === replyIndex ? [] : [`${processId}-${index}`]))
+  const processIds = segments.flatMap((segment, index) =>
+    index === replyIndex || segment.type === 'collaboration' ? [] : [`${processId}-${index}`],
+  )
   const [process, setProcess] = React.useState(() => ({ isLive: turn.isLive, open: turn.isLive }))
   if (process.isLive !== turn.isLive) {
     setProcess({ isLive: turn.isLive, open: turn.isLive })
@@ -93,38 +96,42 @@ export function AssistantTurnView({
               )}
             </div>
           )}
-          {segments.map((segment, index) => (
-            <div
-              key={segment.type === 'activity' ? `activity-${segment.items[0]!.id}` : `text-${index}`}
-              id={`${processId}-${index}`}
-              aria-hidden={index !== replyIndex && !process.open}
-              inert={index !== replyIndex && !process.open}
-              className={cn(
-                'grid transition-[grid-template-rows,opacity] duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)]',
-                index === replyIndex || process.open ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0',
-              )}
-            >
-              <div className="min-h-0 overflow-hidden">
-                {index === segments.length - 1 && hasTrailingText && turn.images.length > 0 && (
-                  <AttachmentPreview images={turn.images} />
+          {segments.map((segment, index) =>
+            segment.type === 'collaboration' ? (
+              <AgentCollaborationRow key={`collaboration-${segment.item.id}`} item={segment.item} />
+            ) : (
+              <div
+                key={segment.type === 'activity' ? `activity-${segment.items[0]!.id}` : `text-${index}`}
+                id={`${processId}-${index}`}
+                aria-hidden={index !== replyIndex && !process.open}
+                inert={index !== replyIndex && !process.open}
+                className={cn(
+                  'grid transition-[grid-template-rows,opacity] duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)]',
+                  index === replyIndex || process.open ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0',
                 )}
-                {segment.type === 'text' ? (
-                  <MarkdownContent isStreaming={turn.isLive && index === segments.length - 1}>
-                    {segment.text}
-                  </MarkdownContent>
-                ) : (
-                  <ActivityGroup
-                    items={segment.items}
-                    isLive={turn.isLive && index === segments.length - 1}
-                    isPaused={isPaused}
-                    showElapsedTime={false}
-                    collapsed={!process.open}
-                    onToggle={onActivityToggle}
-                  />
-                )}
+              >
+                <div className="min-h-0 overflow-hidden">
+                  {index === segments.length - 1 && hasTrailingText && turn.images.length > 0 && (
+                    <AttachmentPreview images={turn.images} />
+                  )}
+                  {segment.type === 'text' ? (
+                    <MarkdownContent isStreaming={turn.isLive && index === segments.length - 1}>
+                      {segment.text}
+                    </MarkdownContent>
+                  ) : (
+                    <ActivityGroup
+                      items={segment.items}
+                      isLive={turn.isLive && index === segments.length - 1}
+                      isPaused={isPaused}
+                      showElapsedTime={false}
+                      collapsed={!process.open}
+                      onToggle={onActivityToggle}
+                    />
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            ),
+          )}
           {!hasTrailingText && turn.images.length > 0 && <AttachmentPreview images={turn.images} />}
           {(retry?.errorMessage || turn.errorMessage) && (
             <ErrorLine

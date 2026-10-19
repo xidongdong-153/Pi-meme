@@ -91,6 +91,38 @@ test('子流缺口读取独立快照，重放其后的buffer，不切主会话�
     event: { type: 'agents_update', agents: [{ ...agent, status: 'completed', report: '完成' }] },
   })
   assert.equal(store.getSnapshot().agent?.status, 'completed')
+  assert.equal(store.getSnapshot().chat.agents?.[0].status, 'completed')
+  store.close()
+})
+
+test('详情同步同树对象的名称与关系，重放和旧执行事件不覆盖当前代理树', async () => {
+  const peer: AgentSummary = { ...agent, agentId: 'peer', name: '旧名称', taskPath: '/root/peer' }
+  const store = new AgentConversationStore(
+    {
+      getAgentSnapshot: async () => ({ ...snapshot(1, '初始'), agents: [agent, peer] }),
+      onEvent: () => () => {},
+      onConnection: () => () => {},
+    },
+    agent.agentId,
+  )
+  await store.start()
+  const event = (name: string, generation = 1): DesktopEvent => ({
+    generation: 1,
+    sessionKey: 'main',
+    event: {
+      type: 'agents_update',
+      agents: [
+        { ...agent, executionGeneration: generation },
+        { ...peer, name },
+      ],
+    },
+  })
+  store.receive(event('新名称'))
+  store.receive(event('新名称'))
+  assert.equal(store.getSnapshot().chat.agents?.find((entry) => entry.agentId === 'peer')?.name, '新名称')
+  store.receive(event('迟到旧名称', 0))
+  assert.equal(store.getSnapshot().chat.agents?.find((entry) => entry.agentId === 'peer')?.name, '新名称')
+  assert.equal(store.getSnapshot().chat.messages.length, 1)
   store.close()
 })
 test('连接恢复刷新子快照，关闭后的迟到响应不重新发布', async () => {

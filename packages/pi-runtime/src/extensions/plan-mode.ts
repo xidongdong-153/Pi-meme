@@ -8,6 +8,7 @@ export const collaborationToolNames = [
   'interrupt_agent',
   'list_agents',
   'wait_agent',
+  'finish_agent',
 ] as const
 export const planToolNames = new Set<string>([
   'read',
