@@ -95,6 +95,7 @@ const files: Array<[string, Feature[]]> = [
   ['packages/app-ui/tests/plugin-registry.unit.test.ts', ['plugins']],
   ['packages/app-ui/tests/plugin-slot.unit.test.ts', ['plugins']],
   ['packages/app-ui/tests/plugin-snapshot-sync.unit.test.ts', ['plugins']],
+  ['packages/app-ui/tests/projects-page.component.test.tsx', ['workspace']],
   ['packages/app-ui/tests/right-sidebar.component.test.tsx', ['desktop']],
   ['packages/app-ui/tests/session-coordination.unit.test.ts', ['sessions']],
   ['packages/app-ui/tests/settings-skeleton.component.test.tsx', ['settings']],

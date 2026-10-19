@@ -3,6 +3,16 @@ import { test } from 'vitest'
 import type { Snapshot, WorkspaceDeletionResult } from '@pi-meme/contracts/desktop'
 import { snapshot, create, tick } from './host-client-fixture'
 
+test('选择项目源目录不登记项目，也不切换当前会话', async () => {
+  const { client, requests } = create(() => null, { selectDirectory: async () => '/work/new-project' })
+  try {
+    assert.equal(await client.bridge.pickProjectDirectory(), '/work/new-project')
+    assert.deepEqual(requests, [])
+  } finally {
+    client.close()
+  }
+})
+
 test('历史正文搜索发送显式路径，不绑定当前选择，也不发布会话切换', async () => {
   const matches = [{ path: '/saved.jsonl', excerpt: '正文命中' }]
   const { client, requests } = create(() => matches)

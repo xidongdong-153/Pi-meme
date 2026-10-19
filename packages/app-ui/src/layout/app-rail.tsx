@@ -1,4 +1,4 @@
-import { BookOpen, Gauge, Gift, Home, Keyboard, LifeBuoy, Settings } from 'lucide-react'
+import { BookOpen, Folder, Gauge, Gift, Home, Keyboard, LifeBuoy, Settings } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,6 +21,8 @@ export function AppRail({
   onAccount,
   onHome,
   homeActive = false,
+  onProjects,
+  projectsActive = false,
   className,
 }: {
   profile: UserProfile
@@ -30,6 +32,8 @@ export function AppRail({
   onAccount?: () => void
   onHome?: () => void
   homeActive?: boolean
+  onProjects?: () => void
+  projectsActive?: boolean
   className?: string
 }) {
   const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent)
@@ -42,7 +46,7 @@ export function AppRail({
         className,
       )}
     >
-      {/* 顶部仅保留首页 (主聊天页面) */}
+      {/* 顶部应用入口 */}
       <div className="flex w-full flex-col items-center gap-1.5 pt-2">
         <Tooltip>
           <TooltipTrigger asChild>
@@ -63,6 +67,27 @@ export function AppRail({
           </TooltipTrigger>
           <TooltipContent side="right" sideOffset={8}>
             {homeActive ? '新聊天' : '返回聊天'}
+          </TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              aria-label="项目"
+              aria-current={projectsActive ? 'page' : undefined}
+              onClick={onProjects}
+              className={cn(
+                'flex size-8 items-center justify-center rounded-lg transition-colors hover:bg-background cursor-pointer',
+                projectsActive
+                  ? 'bg-background/80 text-foreground shadow-xs'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <Folder className="size-4" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right" sideOffset={8}>
+            项目
           </TooltipContent>
         </Tooltip>
       </div>

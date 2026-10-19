@@ -72,9 +72,14 @@ export function SettingsPage({
   nativeWindow = false,
   onDiscard,
   onDismiss,
+  onProjects,
 }: {
   renderContent: (section: SettingsSection, navigate: (section: SettingsSection) => void) => ReactNode
-  renderRail?: (onDismiss: () => void, navigate: (section: SettingsSection) => void) => ReactNode
+  renderRail?: (
+    onDismiss: () => void,
+    navigate: (section: SettingsSection) => void,
+    onProjects?: () => void,
+  ) => ReactNode
   dirty: boolean
   saving: boolean
   initialSection?: SettingsSection
@@ -82,6 +87,7 @@ export function SettingsPage({
   nativeWindow?: boolean
   onDiscard: () => void
   onDismiss: () => void
+  onProjects?: () => void
 }) {
   const [sectionId, setSectionId] = useState<SettingsSection>(initialSection)
   const [query, setQuery] = useState('')
@@ -119,7 +125,7 @@ export function SettingsPage({
         />
       </PageHeader>
       <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-        {renderRail?.(() => leave(onDismiss), navigate)}
+        {renderRail?.(() => leave(onDismiss), navigate, onProjects ? () => leave(onProjects) : undefined)}
         <div className="content-frame bg-background">
           <aside className="appearance-sidebar settings-sidebar w-52 shrink-0 overflow-y-auto border-r border-border bg-card/40 px-2.5 py-4 sm:w-64 sm:py-5">
             <h1 className="px-2.5 text-base font-semibold tracking-tight text-foreground">设置</h1>

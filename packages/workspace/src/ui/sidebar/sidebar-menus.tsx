@@ -370,7 +370,7 @@ export function SidebarRowMenu({ target, children }: { target: MenuTarget; child
     </Context.ContextMenu>
   )
 }
-export function SidebarMoreMenu({ target }: { target: MenuTarget }) {
+export function SidebarMoreMenu({ target, className }: { target: MenuTarget; className?: string }) {
   const menus = useMenus()
   const trigger = useRef<HTMLButtonElement>(null)
   const name = target.kind === 'project' ? target.project.name : formatSessionTitle(target.session)
@@ -390,6 +390,7 @@ export function SidebarMoreMenu({ target }: { target: MenuTarget }) {
           className={cn(
             'p-1 rounded text-muted-foreground hover:text-foreground transition-opacity duration-200 ease-out opacity-0 group-hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
             target.kind === 'session' && 'group-focus-within:opacity-100 data-[state=open]:opacity-100',
+            className,
           )}
         >
           <MoreHorizontal className="size-3.5" />

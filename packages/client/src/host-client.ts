@@ -665,6 +665,7 @@ export class HostClient {
       onEvent: (callback) => subscribe(this.eventListeners, callback),
       onError: (callback) => subscribe(this.errorListeners, callback),
       onSessionsChanged: (callback) => subscribe(this.sessionsListeners, callback),
+      pickProjectDirectory: () => this.directory(),
       addProjectDirectory: async () => {
         const path = await this.directory()
         return path ? rpc('project:register', [path]) : null

@@ -9,6 +9,7 @@ import { AccessSettings } from '@pi-meme/permissions/ui/access-settings'
 import { AgentAccessSelector } from '@pi-meme/permissions/ui/agent-access-selector'
 import { AppHeader } from './layout/app-header'
 import { AppRail } from './layout/app-rail'
+import { ProjectsPage } from './projects/projects-page'
 import { ForkNotice } from './layout/fork-notice'
 import { WorkspaceContent } from './layout/workspace-content'
 import { ErrorNotice } from './layout/error-notice'
@@ -309,8 +310,9 @@ export function App({
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [sidebarWidth, setSidebarWidth] = useState(256)
   const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null)
+  const [projectsOpen, setProjectsOpen] = useState(false)
   const settingsOpen = settingsSection !== null
-  const searchActive = Boolean(serviceUI?.active) && !settingsOpen
+  const searchActive = Boolean(serviceUI?.active) && !settingsOpen && !projectsOpen
   const openSearch = serviceUI?.onSearch
   useEffect(() => {
     if (!searchActive || !openSearch) return
@@ -403,8 +405,8 @@ export function App({
   }, [settings.snapshot?.settings.preferredProjectApp])
 
   useEffect(() => {
-    if (active) document.title = chat.extensionTitle || title
-  }, [chat.extensionTitle, title, active])
+    if (active) document.title = projectsOpen ? '项目' : chat.extensionTitle || title
+  }, [chat.extensionTitle, title, active, projectsOpen])
 
   const projectSelector = (
     <ProjectSelector
@@ -626,7 +628,7 @@ export function App({
         menuBridge: bridge,
         sidebarSettingsBridge: bridge,
         serviceId: hostId ?? 'local',
-        searchEnabled: !settingsOpen && !serviceUI,
+        searchEnabled: !settingsOpen && !projectsOpen && !serviceUI,
         searchHistory: bridge.searchSessions,
         onSelectProject: (cwd) => void chat.selectLocation({ kind: 'project', cwd }),
         onMenuChanged: chat.refreshMenu,
@@ -850,7 +852,10 @@ export function App({
           data-active-service={serviceUI?.serviceId ?? 'local'}
           className="theme-app flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground select-none"
         >
-          <div className={settingsOpen ? 'hidden' : 'flex flex-1 min-h-0 flex-col'} inert={settingsOpen}>
+          <div
+            className={settingsOpen || projectsOpen ? 'hidden' : 'flex flex-1 min-h-0 flex-col'}
+            inert={settingsOpen || projectsOpen}
+          >
             <WorkspacePanels
               profile={userProfile.profile}
               profileLoading={userProfile.showPlaceholder}
@@ -874,6 +879,7 @@ export function App({
               onSettings={() => setSettingsSection('general')}
               onUsage={() => setSettingsSection('profile')}
               onAccount={() => setSettingsSection('account')}
+              onProjects={() => setProjectsOpen(true)}
               onNewSession={() => void chat.newSession()}
               onPlugins={() => setSettingsSection('plugins')}
               header={(toggleSidebar) => (
@@ -908,6 +914,62 @@ export function App({
             </WorkspacePanels>
           </div>
 
+          {projectsOpen && !settingsOpen && (
+            <ProjectsPage
+              bridge={bridge}
+              sessions={chat.sessions}
+              nativeWindow={nativeWindow}
+              canOpenProject={localPlatform}
+              onDismiss={() => setProjectsOpen(false)}
+              onCreate={async (input) => {
+                await host.projects.register(input, { idempotencyKey: window.crypto.randomUUID() })
+              }}
+              onChanged={chat.refreshMenu}
+              onDeleted={chat.applyMenuDeletion}
+              onNewSession={async (cwd) => {
+                if (await chat.newSessionInProject(cwd)) setProjectsOpen(false)
+              }}
+              onSwitchSession={async (path) => {
+                if (await chat.switchSession(path)) setProjectsOpen(false)
+              }}
+              onTogglePin={async (cwd) => {
+                await chat.togglePin(cwd)
+              }}
+              onPrefetchSession={(path) => void bridge.prefetchSession(path).catch(() => {})}
+              notice={
+                <ErrorNotice
+                  message={chat.error}
+                  onDismiss={() => chat.setError('')}
+                  onOpenSettings={() => {
+                    setProjectsOpen(false)
+                    setSettingsSection('general')
+                  }}
+                />
+              }
+              rail={
+                <AppRail
+                  profile={userProfile.profile}
+                  profileLoading={userProfile.showPlaceholder}
+                  projectsActive
+                  onHome={() => setProjectsOpen(false)}
+                  onProjects={() => setProjectsOpen(true)}
+                  onSettings={() => {
+                    setProjectsOpen(false)
+                    setSettingsSection('general')
+                  }}
+                  onUsage={() => {
+                    setProjectsOpen(false)
+                    setSettingsSection('profile')
+                  }}
+                  onAccount={() => {
+                    setProjectsOpen(false)
+                    setSettingsSection('account')
+                  }}
+                />
+              }
+            />
+          )}
+
           {/* 设置页面 */}
           {settingsSection && (
             <SettingsPage
@@ -917,11 +979,16 @@ export function App({
               nativeWindow={nativeWindow}
               onDiscard={() => setInstructionsDirty(false)}
               onDismiss={() => setSettingsSection(null)}
-              renderRail={(onDismiss, navigate) => (
+              onProjects={() => {
+                setSettingsSection(null)
+                setProjectsOpen(true)
+              }}
+              renderRail={(onDismiss, navigate, onProjects) => (
                 <AppRail
                   profile={userProfile.profile}
                   profileLoading={userProfile.showPlaceholder}
                   onHome={onDismiss}
+                  onProjects={onProjects}
                   onSettings={() => navigate('general')}
                   onUsage={() => navigate('profile')}
                   onAccount={() => navigate('account')}

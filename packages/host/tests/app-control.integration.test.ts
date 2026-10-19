@@ -56,6 +56,26 @@ async function session(api: HostApi, project: import('@pi-meme/contracts/app-hos
   )
 }
 
+test('登记自定义项目名称后重启保留，不创建会话或切换当前目录', async () => {
+  const f = await fixture()
+  try {
+    const cwd = path.join(f.root, 'custom-project')
+    await mkdir(cwd)
+    const previousCwd = f.host.pi.cwd
+    const previousSessions = await f.host.app.sessions.list()
+    const project = await f.host.app.projects.register({ cwd, name: '我的项目' }, key('custom-project'))
+    assert.equal(project.name, '我的项目')
+    assert.equal(project.cwd, cwd)
+    assert.equal(f.host.pi.cwd, previousCwd)
+    assert.deepEqual(await f.host.app.sessions.list(), previousSessions)
+    await f.restart()
+    assert.equal((await f.host.app.projects.get(project)).name, '我的项目')
+    assert.equal((await f.host.app.projects.get(project)).cwd, cwd)
+  } finally {
+    await f.dispose()
+  }
+})
+
 test('空会话保持不同稳定ref，同一项目目标隔离，提交幂等且冲突键拒绝', { timeout: 25000 }, async () => {
   const f = await fixture('目标回复')
   try {

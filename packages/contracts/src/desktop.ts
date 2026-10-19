@@ -176,6 +176,7 @@ export interface ConnectionBridge {
 
 /** 平台操作：目录选择、Finder 与编辑器启动。 */
 export interface PlatformBridge {
+  pickProjectDirectory: () => Promise<string | null>
   addProjectDirectory: () => Promise<DesktopProject | null>
   chooseDirectory: (targetPath?: string) => Promise<string | null>
   getProjectApps: () => Promise<ProjectApp[]>

@@ -54,6 +54,7 @@ export function WorkspacePanels({
   onAccount,
   onNewSession,
   onPlugins,
+  onProjects,
   children,
 }: {
   panels: UiPanel[]
@@ -78,6 +79,7 @@ export function WorkspacePanels({
   onAccount?: () => void
   onNewSession?: () => void
   onPlugins?: () => void
+  onProjects?: () => void
   children: ReactNode
 }) {
   const storageKey = panelStorageKey(props.target.hostId, session)
@@ -320,6 +322,7 @@ export function WorkspacePanels({
           profileLoading={profileLoading}
           homeActive
           onHome={onNewSession}
+          onProjects={onProjects}
           onSettings={onSettings}
           onUsage={onUsage}
           onAccount={onAccount}
