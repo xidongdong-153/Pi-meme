@@ -136,9 +136,9 @@ export function sidebarManualOrdersPatch(
     attempted.clear()
     return
   }
-  if (preferences.sortMode !== 'manual') return
   const orders: SidebarPreferences['orders'] = {}
   for (const [list, keys] of Object.entries(sidebarManualOrders(model, preferences.orders))) {
+    if (preferences.sortMode !== 'manual' && list !== 'projects' && list !== 'pinned') continue
     if (keys === preferences.orders[list]) continue
     const attempt = JSON.stringify(keys)
     if (attempted.get(list) === attempt) continue

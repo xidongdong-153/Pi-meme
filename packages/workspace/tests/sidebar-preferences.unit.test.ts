@@ -184,6 +184,40 @@ test('自动追加只在读取完成且手动排序时保存变化列表，不�
   assert.equal(sidebarManualOrdersPatch(model, preferences, true, attempted), undefined)
 })
 
+test('最近更新模式也保存项目和置顶顺序，不固定聊天顺序', () => {
+  const source = manualSource()
+  source.projects.push({
+    cwd: '/project',
+    name: '项目',
+    sessionCount: 0,
+    lastModified: '2026-01-01',
+    sessions: [],
+  })
+  source.pinnedPaths = ['/first']
+  const sources = [{ serviceId: 'a', snapshot: source }]
+  const preferences = defaults()
+  const attempted = new Map<string, string>()
+  const initial = buildSidebarModel(sources, preferences)
+  assert.equal(sidebarManualOrdersPatch(initial, preferences, false, attempted), undefined)
+  const patch = sidebarManualOrdersPatch(initial, preferences, true, attempted)
+  assert.deepEqual(patch, {
+    orders: {
+      projects: [sidebarItemKey('a', 'project', '/project')],
+      pinned: [sidebarItemKey('a', 'session', '/first')],
+    },
+  })
+  preferences.orders = { ...patch?.orders }
+  source.projects.unshift({ ...source.projects[0], cwd: '/second-project', lastModified: '2026-03-01' })
+  source.recents.push({ ...source.recents[0], id: 'second', path: '/second', created: '2026-02-01' })
+  source.pinnedPaths.push('/second')
+  assert.deepEqual(sidebarManualOrdersPatch(buildSidebarModel(sources, preferences), preferences, true, attempted), {
+    orders: {
+      projects: [sidebarItemKey('a', 'project', '/project'), sidebarItemKey('a', 'project', '/second-project')],
+      pinned: [sidebarItemKey('a', 'session', '/first'), sidebarItemKey('a', 'session', '/second')],
+    },
+  })
+})
+
 test('自动追加保存失败后保留回滚值且不无限重试，之后新增项仍可保存', async () => {
   const source = manualSource()
   const sources = [{ serviceId: 'a', snapshot: source }]

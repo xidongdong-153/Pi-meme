@@ -20,6 +20,7 @@ export function ProjectsSection({
   toggleProjectItems,
   onSelectProject,
   sortable,
+  reorderEnabled,
   onReorder,
   onReorderSessions,
 }: {
@@ -48,6 +49,7 @@ export function ProjectsSection({
   toggleProjectItems: (cwd: string) => void
   onSelectProject?: (cwd: string) => void
   sortable: boolean
+  reorderEnabled: boolean
   onReorder: (keys: string[]) => void
   onReorderSessions: (listKey: string, keys: string[]) => void
 }) {
@@ -94,7 +96,7 @@ export function ProjectsSection({
             itemKey={key}
             listKey="projects"
             keys={keys}
-            enabled={sortable}
+            enabled={reorderEnabled}
             onReorder={onReorder}
           >
             <ProjectItem

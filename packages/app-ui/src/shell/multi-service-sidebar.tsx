@@ -181,7 +181,7 @@ export function MultiServiceSidebar({
       itemKey={entry.key}
       listKey={listKey}
       keys={keys}
-      enabled={manual}
+      enabled={listKey === 'recents' ? manual : preferencesLoaded}
       onReorder={(next) => saveOrder(listKey, next)}
     >
       {entry.kind === 'project' ? renderProject(entry, pinned) : renderSession(entry, pinned)}

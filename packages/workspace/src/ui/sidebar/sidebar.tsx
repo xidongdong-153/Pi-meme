@@ -272,6 +272,7 @@ export function Sidebar({
                 toggleProject={toggleProject}
                 toggleProjectItems={toggleProjectItems}
                 sortable={sortable}
+                reorderEnabled={loaded}
                 onReorder={(keys) => onReorderSessions('pinned', keys)}
                 onReorderSessions={onReorderSessions}
               />
@@ -293,6 +294,7 @@ export function Sidebar({
                   toggleProject={toggleProject}
                   toggleProjectItems={toggleProjectItems}
                   sortable={sortable}
+                  reorderEnabled={loaded}
                   onReorder={(keys) => onReorderSessions('projects', keys)}
                   onReorderSessions={onReorderSessions}
                 />

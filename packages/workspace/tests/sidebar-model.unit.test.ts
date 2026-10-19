@@ -269,3 +269,60 @@ test('补全所有列表保留移出项位置，新项目、置顶项和项目�
   assert.deepEqual(state.orders, before)
   assert.deepEqual(sidebarManualOrders(buildSidebarModel(sources, { ...state, orders: next }), next), next)
 })
+
+test('项目默认保存首次顺序，聊天更新和切换排序模式不改位置，新项目追加末尾', () => {
+  const source = snapshot()
+  source.projects.push({
+    cwd: '/second-project',
+    name: '第二个项目',
+    sessionCount: 0,
+    lastModified: '2026-02-01',
+    sessions: [],
+  })
+  const sources = [{ serviceId: 'a', snapshot: source }]
+  const initial = buildSidebarModel(sources, preferences)
+  const original = initial.projects.map((entry) => entry.key)
+  const orders = sidebarManualOrders(initial, {})
+  source.projects[1].lastModified = '2026-10-01'
+  source.projects[0].sessions.push(session('/latest', '2026-11-01'))
+  source.projects.unshift({
+    cwd: '/new-project',
+    name: '新项目',
+    sessionCount: 0,
+    lastModified: '2026-12-01',
+    sessions: [],
+  })
+  for (const sortMode of ['recent', 'manual'] as const) {
+    assert.deepEqual(
+      buildSidebarModel(sources, { ...preferences, sortMode, orders }).projects.map((entry) => entry.key),
+      [...original, sidebarItemKey('a', 'project', '/new-project')],
+    )
+  }
+  const reversed = [...original].reverse()
+  assert.deepEqual(
+    buildSidebarModel(sources, { ...preferences, orders: { ...orders, projects: reversed } }).projects.map(
+      (entry) => entry.key,
+    ),
+    [...reversed, sidebarItemKey('a', 'project', '/new-project')],
+  )
+})
+
+test('置顶项目保留普通项目位置，首次保存时也记录已置顶项目', () => {
+  const source = snapshot(['/project'])
+  const sources = [{ serviceId: 'a', snapshot: source }]
+  const projectKey = sidebarItemKey('a', 'project', '/project')
+  const orders = sidebarManualOrders(buildSidebarModel(sources, preferences), {})
+  assert.deepEqual(orders.projects, [projectKey])
+  source.projects.unshift({
+    cwd: '/new-project',
+    name: '新项目',
+    sessionCount: 0,
+    lastModified: '2026-12-01',
+    sessions: [],
+  })
+  source.pinnedPaths = []
+  assert.deepEqual(
+    buildSidebarModel(sources, { ...preferences, orders }).projects.map((entry) => entry.key),
+    [projectKey, sidebarItemKey('a', 'project', '/new-project')],
+  )
+})

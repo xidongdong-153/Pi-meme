@@ -45,6 +45,24 @@ test('旧设置读取补全侧栏默认值，不改写文件', async () => {
   }
 })
 
+test('项目和置顶拖拽顺序重读后保留，不改变聊天最近更新模式', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pi-sidebar-orders-'))
+  try {
+    const store = new SettingsStore(directory)
+    await store.load()
+    await store.saveSidebarPreferences({ orders: { projects: ['a', 'b'], pinned: ['x', 'y'] } })
+    await store.saveSidebarPreferences({ orders: { projects: ['b', 'a'] } })
+    await store.saveSidebarPreferences({ orders: { pinned: ['y', 'x'] } })
+    const restored = new SettingsStore(directory)
+    const sidebar = (await restored.load()).settings.sidebar
+    assert.ok(sidebar)
+    assert.equal(sidebar.sortMode, 'recent')
+    assert.deepEqual(sidebar.orders, { projects: ['b', 'a'], pinned: ['y', 'x'] })
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
 test('侧栏补丁拒绝无效类型、未知字段和重复排序项', () => {
   for (const value of [
     null,

@@ -74,6 +74,7 @@ test('普通和置顶项目在运行、暂停和空闲状态下都显示静态�
               expandedProjectItemLimits: new Set<string>(),
               toggleProjectItems: noop,
               sortable: false,
+              reorderEnabled: true,
               onReorder: noop,
               onReorderSessions: noop,
               expandedProjects: new Set<string>(),

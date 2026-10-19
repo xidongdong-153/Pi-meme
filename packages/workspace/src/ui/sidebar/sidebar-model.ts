@@ -101,13 +101,12 @@ export function buildSidebarModel(
     if (preferences.sortMode === 'manual') items = orderEntries(items, preferences.orders[`project:${entry.key}`])
     return { ...entry, project: { ...entry.project, sessions: items.map((item) => item.session) } }
   }
-  let projects = [...allProjects.values()]
+  const projects = [...allProjects.values()]
     .filter((entry) => !pinnedKeys.has(entry.key))
     .sort((a, b) => projectTimes.get(b.key)! - projectTimes.get(a.key)!)
     .map(prepareProject)
   let recents = sessions.filter((entry) => !pinnedKeys.has(entry.key) && !pinnedProjectSessions.has(entry.key))
   if (preferences.sortMode === 'manual') {
-    projects = orderEntries(projects, preferences.orders.projects)
     recents = orderEntries(recents, preferences.orders.recents)
   }
   return {
@@ -115,7 +114,7 @@ export function buildSidebarModel(
       pinned.map((entry) => (entry.kind === 'project' ? prepareProject(entry) : entry)),
       preferences.orders.pinned,
     ),
-    projects,
+    projects: orderEntries(projects, preferences.orders.projects),
     recents,
     sessions,
   }
@@ -155,7 +154,11 @@ export function sidebarManualOrders(
     const additions = keys.filter((key) => !seen.has(key))
     if (!Object.hasOwn(orders, list) || additions.length) next[list] = [...existing, ...additions]
   }
-  for (const list of ['pinned', 'projects', 'recents'] as const)
+  append(
+    'projects',
+    [...model.projects, ...model.pinned.filter((entry) => entry.kind === 'project')].map((entry) => entry.key),
+  )
+  for (const list of ['pinned', 'recents'] as const)
     append(
       list,
       model[list].map((entry) => entry.key),

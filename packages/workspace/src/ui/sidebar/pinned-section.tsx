@@ -13,6 +13,7 @@ export function PinnedSection({
   toggleProject,
   toggleProjectItems,
   sortable,
+  reorderEnabled,
   onReorder,
   onReorderSessions,
 }: {
@@ -35,6 +36,7 @@ export function PinnedSection({
   toggleProject: (cwd: string) => void
   toggleProjectItems: (cwd: string) => void
   sortable: boolean
+  reorderEnabled: boolean
   onReorder: (keys: string[]) => void
   onReorderSessions: (listKey: string, keys: string[]) => void
 }) {
@@ -49,7 +51,7 @@ export function PinnedSection({
             itemKey={entry.key}
             listKey="pinned"
             keys={keys}
-            enabled={sortable}
+            enabled={reorderEnabled}
             onReorder={onReorder}
           >
             {entry.kind === 'project' ? (
