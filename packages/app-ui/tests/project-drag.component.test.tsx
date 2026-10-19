@@ -2,9 +2,9 @@ import '@testing-library/jest-dom/vitest'
 import type { ComponentProps, ReactNode } from 'react'
 import { afterEach, expect, test, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { ProjectsSection } from '../src/ui/sidebar/projects-section'
+import { ProjectsSection } from '@pi-meme/workspace/ui/sidebar/projects-section'
 
-vi.mock('../src/ui/sidebar/sidebar-menus', () => ({
+vi.mock('@pi-meme/workspace/ui/sidebar/sidebar-menus', () => ({
   SidebarRowMenu: ({ children }: { children: ReactNode }) => children,
   SidebarMoreMenu: () => <button type="button">更多</button>,
 }))

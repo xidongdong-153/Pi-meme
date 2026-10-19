@@ -7,7 +7,12 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/
 import { ProjectItem } from '@pi-meme/workspace/ui/sidebar/project-item'
 import { SessionItem } from '@pi-meme/workspace/ui/sidebar/session-item'
 import { SidebarMenus } from '@pi-meme/workspace/ui/sidebar/sidebar-menus'
-import { SidebarPreferencesMenu, SidebarSection, SidebarSortable } from '@pi-meme/workspace/ui/sidebar/sidebar-controls'
+import {
+  SidebarPreferencesMenu,
+  SidebarSection,
+  SidebarSortable,
+  type SidebarDragProps,
+} from '@pi-meme/workspace/ui/sidebar/sidebar-controls'
 import type {
   buildSidebarModel,
   SidebarEntry,
@@ -107,7 +112,7 @@ export function MultiServiceSidebar({
       </SidebarMenus>
     )
   }
-  const renderProject = (entry: SidebarProjectEntry, pinned: boolean) => {
+  const renderProject = (entry: SidebarProjectEntry, pinned: boolean, dragProps: SidebarDragProps) => {
     const { serviceId, project, key } = entry
     const service = servicesById.get(serviceId)!
     const controller = controllers.get(serviceId)
@@ -141,6 +146,7 @@ export function MultiServiceSidebar({
             </p>
           )}
           <ProjectItem
+            dragProps={dragProps}
             project={project}
             cwd={selected ? (controller?.connection.sourceProjectCwd ?? controller?.connection.cwd ?? '') : ''}
             isExpanded={expanded.has(key)}
@@ -184,7 +190,7 @@ export function MultiServiceSidebar({
       enabled={listKey === 'recents' ? manual : preferencesLoaded}
       onReorder={(next) => saveOrder(listKey, next)}
     >
-      {entry.kind === 'project' ? renderProject(entry, pinned) : renderSession(entry, pinned)}
+      {entry.kind === 'project' ? (dragProps) => renderProject(entry, pinned, dragProps) : renderSession(entry, pinned)}
     </SidebarSortable>
   )
   const visibleProjects = showAllProjects

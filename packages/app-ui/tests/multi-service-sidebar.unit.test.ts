@@ -97,6 +97,9 @@ function sections(markup: string): Record<string, string> {
 function attributes(markup: string, attribute: string): string[] {
   return [...markup.matchAll(new RegExp(`${attribute}="([^"]+)"`, 'g'))].map((match) => match[1])
 }
+function draggableCount(markup: string): number {
+  return attributes(markup, 'draggable').filter((value) => value === 'true').length
+}
 
 test('分项目显示按置顶、项目、最近排序，最近包含项目聊天且排除独立置顶聊天', () => {
   const markup = render([service('local', true, snapshot(['/pinned-child.jsonl']))])
@@ -114,35 +117,35 @@ test('分项目显示按置顶、项目、最近排序，最近包含项目聊�
 
 test('最近更新模式下项目和置顶项可拖拽，项目内聊天和最近不显示拖拽按钮', () => {
   const groups = sections(render([service('local', true, snapshot(['/pinned-child.jsonl']))]))
-  assert.equal(attributes(groups.projects, 'draggable').length, 1)
-  assert.equal(attributes(groups.pinned, 'draggable').length, 1)
-  assert.equal(attributes(groups.recents, 'draggable').length, 0)
+  assert.equal(draggableCount(groups.projects), 1)
+  assert.equal(draggableCount(groups.pinned), 1)
+  assert.equal(draggableCount(groups.recents), 0)
 
   const pinnedProject = sections(render([service('local', true, snapshot(['/project']))]))
-  assert.equal(attributes(pinnedProject.pinned, 'draggable').length, 1)
-  assert.equal(attributes(pinnedProject.recents, 'draggable').length, 0)
+  assert.equal(draggableCount(pinnedProject.pinned), 1)
+  assert.equal(draggableCount(pinnedProject.recents), 0)
 })
 
 test('偏好读取完成前不启用项目和置顶区拖拽', () => {
   const groups = sections(render([service('local', true, snapshot(['/pinned-child.jsonl']))], preferences, false))
-  assert.equal(attributes(groups.projects, 'draggable').length, 0)
-  assert.equal(attributes(groups.pinned, 'draggable').length, 0)
-  assert.equal(attributes(groups.recents, 'draggable').length, 0)
+  assert.equal(draggableCount(groups.projects), 0)
+  assert.equal(draggableCount(groups.pinned), 0)
+  assert.equal(draggableCount(groups.recents), 0)
 })
 
 test('手动聊天排序仍启用项目内聊天和最近的拖拽', () => {
   const groups = sections(
     render([service('local', true, snapshot(['/pinned-child.jsonl']))], { ...preferences, sortMode: 'manual' }),
   )
-  assert.equal(attributes(groups.projects, 'draggable').length, 2)
-  assert.equal(attributes(groups.pinned, 'draggable').length, 1)
-  assert.equal(attributes(groups.recents, 'draggable').length, 2)
+  assert.equal(draggableCount(groups.projects), 2)
+  assert.equal(draggableCount(groups.pinned), 1)
+  assert.equal(draggableCount(groups.recents), 2)
 
   const pinnedProject = sections(
     render([service('local', true, snapshot(['/project']))], { ...preferences, sortMode: 'manual' }),
   )
-  assert.equal(attributes(pinnedProject.pinned, 'draggable').length, 3)
-  assert.equal(attributes(pinnedProject.recents, 'draggable').length, 1)
+  assert.equal(draggableCount(pinnedProject.pinned), 3)
+  assert.equal(draggableCount(pinnedProject.recents), 1)
 })
 
 test('单服务分区独立控制顶层拖拽，不启用项目内聊天拖拽', () => {
@@ -195,8 +198,8 @@ test('单服务分区独立控制顶层拖拽，不启用项目内聊天拖拽',
         }),
       )
       const groups = sections(markup)
-      assert.equal(attributes(groups.pinned, 'draggable').length, reorderEnabled ? model.pinned.length : 0)
-      assert.equal(attributes(groups.projects, 'draggable').length, reorderEnabled ? model.projects.length : 0)
+      assert.equal(draggableCount(groups.pinned), reorderEnabled ? model.pinned.length : 0)
+      assert.equal(draggableCount(groups.projects), reorderEnabled ? model.projects.length : 0)
     }
   }
 })
