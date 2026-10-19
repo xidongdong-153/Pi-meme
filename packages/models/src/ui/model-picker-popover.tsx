@@ -232,10 +232,10 @@ export function ModelPickerPopover({
                   type="button"
                   onClick={() => setView('models')}
                   aria-label="切换模型"
-                  className="mt-1.5 inline-flex items-center gap-1 rounded-full border border-border bg-secondary/50 px-2 py-1 text-xs text-foreground/80 transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring cursor-pointer"
+                  className="group mt-1 inline-flex items-center gap-0.5 text-xs font-mono text-muted-foreground hover:text-foreground transition-colors cursor-pointer select-none focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring rounded-sm"
                 >
-                  <span className="truncate max-w-[150px]">{displayName}</span>
-                  <ChevronRight className="size-3 shrink-0" />
+                  <span className="truncate max-w-[160px]">{displayName}</span>
+                  <ChevronRight className="size-3 shrink-0 text-muted-foreground/70 group-hover:text-foreground transition-colors" />
                 </button>
               </div>
               <button
