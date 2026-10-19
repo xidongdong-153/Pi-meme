@@ -1,5 +1,5 @@
-import { useRef, useState, type ReactNode } from 'react'
-import { ArrowLeft, Puzzle, RefreshCw, Upload, PanelRight, ChevronDown, Plus } from 'lucide-react'
+import { useId, useRef, useState, type ReactNode } from 'react'
+import { ArrowLeft, Check, Puzzle, RefreshCw, Settings, Upload, PanelRight, ChevronDown, Plus } from 'lucide-react'
 import { systemPluginIcons } from '@pi-meme/assets/builtin'
 import type { PluginClient } from '@pi-meme/client/plugin-client'
 import type { UiPluginDescriptor } from '@pi-meme/plugin-sdk/ui'
@@ -28,6 +28,9 @@ export function PluginPage({
   renderSettings,
   onOpenSystem,
   onCreate,
+  view = 'settings',
+  selection,
+  onSettings,
 }: {
   client: PluginClient
   plugins: UiPluginDescriptor[]
@@ -35,24 +38,53 @@ export function PluginPage({
   onChanged: () => Promise<void>
   renderSettings?: (id: string) => ReactNode
   onOpenSystem?: (id: string) => void
-  onCreate?: () => boolean
+  onCreate?: () => boolean | Promise<boolean>
+  view?: 'settings' | 'catalog'
+  selection?: { id?: string; onChange: (id?: string) => void }
+  onSettings?: () => void
 }) {
+  const listId = useId()
   const [category, setCategory] = useState<'personal' | 'system'>('personal')
   const [query, setQuery] = useState('')
   const [selected, setSelected] = useState<string>()
   const [busy, setBusy] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
+  const [creating, setCreating] = useState(false)
   const [error, setError] = useState('')
   const [removing, setRemoving] = useState<UiPluginDescriptor>()
   const [installResult, setInstallResult] = useState('')
   const uploadRef = useRef<HTMLInputElement>(null)
   const installed = plugins.filter((plugin) => !plugin.builtin && !isReservedPluginId(plugin.id))
   const catalog = [...installed, ...systemPlugins]
-  const detail = catalog.find((plugin) => plugin.id === selected)
+  const detail = catalog.find((plugin) => plugin.id === (selection ? selection.id : selected))
   const filtered = (category === 'system' ? systemPlugins : installed).filter((plugin) =>
     `${plugin.id} ${plugin.display?.name ?? ''} ${plugin.description ?? ''}`
       .toLowerCase()
       .includes(query.trim().toLowerCase()),
+  )
+
+  function select(id?: string) {
+    if (selection) selection.onChange(id)
+    else setSelected(id)
+  }
+
+  async function create() {
+    if (creating) return
+    setCreating(true)
+    setError('')
+    try {
+      if (!(await onCreate?.())) setError('无法调用系统技能 Plugin Creator，请刷新插件或技能后再试。')
+    } catch (cause) {
+      setError(`无法创建插件会话：${String(cause)}`)
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  const settingsButton = onSettings && (
+    <Button variant="ghost" size="icon" aria-label="插件设置" title="插件设置" onClick={onSettings}>
+      <Settings />
+    </Button>
   )
 
   async function refresh() {
@@ -137,10 +169,13 @@ export function PluginPage({
       )}
       {detail ? (
         <>
-          <Button variant="ghost" onClick={() => setSelected(undefined)}>
-            <ArrowLeft />
-            返回插件
-          </Button>
+          <div className="flex items-center justify-between">
+            <Button variant="ghost" onClick={() => select(undefined)}>
+              <ArrowLeft />
+              返回插件
+            </Button>
+            {settingsButton}
+          </div>
           <div className="flex items-center gap-3">
             <PluginIcon plugin={detail} />
             <div>
@@ -204,6 +239,8 @@ export function PluginPage({
             query={query}
             onQuery={setQuery}
             searchLabel="搜索插件"
+            title={view === 'catalog' ? '插件' : undefined}
+            description={view === 'catalog' ? '查看已安装的插件，扩展聊天中的工具与功能。' : undefined}
             actions={
               <>
                 <Button
@@ -215,67 +252,85 @@ export function PluginPage({
                 >
                   <RefreshCw className={cn(refreshing && 'animate-spin')} />
                 </Button>
+                {settingsButton}
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button aria-label="添加插件" disabled={busy}>
+                    <Button aria-label="添加插件" disabled={busy || creating} className="rounded-full">
                       添加
                       <ChevronDown className="size-4" />
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem
-                      onSelect={() => {
-                        if (!onCreate?.())
-                          setError('系统技能 Plugin Creator 尚未进入当前会话。请刷新或开始聊天后再试。')
-                      }}
-                    >
+                  <DropdownMenuContent side="bottom" align="end">
+                    <DropdownMenuItem onSelect={() => void create()}>
                       <Plus />
                       创建插件
                     </DropdownMenuItem>
-                    <DropdownMenuItem
-                      onSelect={() => {
-                        setInstallResult('')
-                        uploadRef.current?.click()
-                      }}
-                    >
-                      <Upload />
-                      上传插件包
-                    </DropdownMenuItem>
+                    {view === 'settings' && (
+                      <DropdownMenuItem
+                        onSelect={() => {
+                          setInstallResult('')
+                          uploadRef.current?.click()
+                        }}
+                      >
+                        <Upload />
+                        上传插件包
+                      </DropdownMenuItem>
+                    )}
                   </DropdownMenuContent>
                 </DropdownMenu>
               </>
             }
           >
-            <CategoryTabs
-              label="插件类别"
-              idPrefix="plugin-category"
-              value={category}
-              onChange={setCategory}
-              controls="plugin-list"
-              options={[
-                { id: 'personal', label: '个人', count: installed.length },
-                { id: 'system', label: '系统', count: systemPlugins.length },
-              ]}
-            />
+            {view === 'catalog' ? (
+              <h2 className="text-sm font-medium">
+                已安装 <span className="ml-2 text-muted-foreground">{installed.length}</span>
+              </h2>
+            ) : (
+              <CategoryTabs
+                label="插件类别"
+                idPrefix={`${listId}-category`}
+                value={category}
+                onChange={setCategory}
+                controls={listId}
+                options={[
+                  { id: 'personal', label: '个人', count: installed.length },
+                  { id: 'system', label: '系统', count: systemPlugins.length },
+                ]}
+              />
+            )}
           </IntegrationHeader>
-          <div id="plugin-list" role="tabpanel" aria-labelledby={`plugin-category-${category}`}>
+          <div
+            id={listId}
+            role={view === 'settings' ? 'tabpanel' : undefined}
+            aria-labelledby={view === 'settings' ? `${listId}-category-${category}` : undefined}
+          >
             {filtered.length > 0 && (
               <ul
                 aria-label="App 插件列表"
-                className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card"
+                className={
+                  view === 'catalog'
+                    ? 'grid grid-cols-1 gap-x-6 gap-y-2 xl:grid-cols-2'
+                    : 'divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card'
+                }
               >
                 {filtered.map((plugin) => (
-                  <li key={plugin.id} className="flex items-center gap-4 p-5">
+                  <li
+                    key={plugin.id}
+                    className={cn(
+                      'flex items-center gap-4',
+                      view === 'catalog' ? 'rounded-2xl p-3 transition-colors hover:bg-secondary/60' : 'p-5',
+                    )}
+                  >
                     <button
                       type="button"
                       aria-label={`查看插件：${plugin.id}`}
                       onClick={() => {
-                        setSelected(plugin.id)
+                        select(plugin.id)
                         setInstallResult('')
                       }}
                       className="flex min-w-0 flex-1 items-center gap-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
-                      <PluginIcon plugin={plugin} compact />
+                      <PluginIcon plugin={plugin} compact={view === 'settings'} />
                       <span className="min-w-0">
                         <span className="block truncate text-sm font-medium">{plugin.display?.name ?? plugin.id}</span>
                         <span className="mt-1 block truncate text-sm text-muted-foreground">
@@ -286,14 +341,24 @@ export function PluginPage({
                     {plugin.builtin && (
                       <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">始终启用</span>
                     )}
-                    <Switch
-                      label={`${plugin.builtin ? '系统插件' : '启用插件'}：${plugin.display?.name ?? plugin.id}`}
-                      checked={plugin.enabled}
-                      disabled={busy || plugin.builtin || plugin.status === 'pending'}
-                      onChange={(enabled) =>
-                        void action(() => (enabled ? client.enable(plugin.id) : client.disable(plugin.id)))
-                      }
-                    />
+                    {view === 'catalog' ? (
+                      <span className="shrink-0 text-xs text-muted-foreground" title={statusNames[plugin.status]}>
+                        {plugin.enabled && plugin.status === 'active' ? (
+                          <Check aria-label="已启用" className="size-4" />
+                        ) : (
+                          statusNames[plugin.status]
+                        )}
+                      </span>
+                    ) : (
+                      <Switch
+                        label={`${plugin.builtin ? '系统插件' : '启用插件'}：${plugin.display?.name ?? plugin.id}`}
+                        checked={plugin.enabled}
+                        disabled={busy || plugin.builtin || plugin.status === 'pending'}
+                        onChange={(enabled) =>
+                          void action(() => (enabled ? client.enable(plugin.id) : client.disable(plugin.id)))
+                        }
+                      />
+                    )}
                   </li>
                 ))}
               </ul>
@@ -330,7 +395,7 @@ export function PluginPage({
                 void action(async () => {
                   await client.remove(removing.id)
                   setRemoving(undefined)
-                  setSelected(undefined)
+                  select(undefined)
                 })
               }
             >
@@ -342,16 +407,33 @@ export function PluginPage({
     </section>
   )
 }
-function PluginIcon({ plugin, compact = false }: { plugin: UiPluginDescriptor; compact?: boolean }) {
+export function PluginIcon({
+  plugin,
+  compact = false,
+  className,
+}: {
+  plugin: UiPluginDescriptor
+  compact?: boolean
+  className?: string
+}) {
   const systemIcon = plugin.builtin ? systemPluginIcons[plugin.id] : undefined
   const box = compact ? 'size-8' : 'size-12'
   if (systemIcon)
-    return <img aria-hidden alt="" src={systemIcon} className={cn(box, 'shrink-0 object-contain')} draggable={false} />
+    return (
+      <img
+        aria-hidden
+        alt=""
+        src={systemIcon}
+        className={cn(box, 'shrink-0 object-contain', className)}
+        draggable={false}
+      />
+    )
   return (
     <span
       className={cn(
         'flex shrink-0 items-center justify-center overflow-hidden rounded-xl bg-secondary/50 text-muted-foreground',
         box,
+        className,
       )}
     >
       {plugin.iconUrl ? (

@@ -1,5 +1,16 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { ArrowLeft, BookOpen, Copy, Plus, RefreshCw, ChevronDown, Sparkles, Upload } from 'lucide-react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import {
+  ArrowLeft,
+  BookOpen,
+  Check,
+  Copy,
+  Plus,
+  RefreshCw,
+  ChevronDown,
+  Settings,
+  Sparkles,
+  Upload,
+} from 'lucide-react'
 import { systemSkillIcons } from '@pi-meme/assets/builtin'
 import type { ResourceCatalog, ResourceItem, ResourceSnapshot } from '@pi-meme/contracts/resources'
 import type { BranchSkillUsage } from '@pi-meme/contracts/skills'
@@ -38,6 +49,8 @@ export function SkillPage({
   onUse,
   onCreate,
   onChanged,
+  view = 'settings',
+  onSettings,
 }: {
   client: ResourceClient
   cwd?: string
@@ -45,9 +58,12 @@ export function SkillPage({
   skillUsages?: BranchSkillUsage[]
   resourceSnapshot?: ResourceSnapshot
   onUse: (command: PiSlashCommand) => void
-  onCreate?: () => boolean
+  onCreate?: () => boolean | Promise<boolean>
   onChanged: () => Promise<void>
+  view?: 'settings' | 'catalog'
+  onSettings?: () => void
 }) {
+  const listId = useId()
   const [catalog, setCatalog] = useState<ResourceCatalog>()
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState<'personal' | 'system'>('personal')
@@ -56,6 +72,8 @@ export function SkillPage({
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
+  const [creating, setCreating] = useState(false)
+  const [installedExpanded, setInstalledExpanded] = useState(false)
   const [removing, setRemoving] = useState<ResourceItem>()
   const [editor, setEditor] = useState<{ item?: ResourceItem; name: string; content: string }>()
   const [dirty, setDirty] = useState(false)
@@ -120,11 +138,12 @@ export function SkillPage({
   const personal = items.filter((item) => item.scope !== 'builtin')
   const system = items.filter((item) => item.scope === 'builtin')
   const current = items.find((item) => item.id === selected)
-  const filtered = (category === 'system' ? system : personal).filter((item) =>
+  const matchesQuery = (item: ResourceItem) =>
     `${item.name} ${item.displayName ?? ''} ${item.description ?? ''} ${item.owner.name ?? ''}`
       .toLowerCase()
-      .includes(query.trim().toLowerCase()),
-  )
+      .includes(query.trim().toLowerCase())
+  const filtered = (category === 'system' ? system : personal).filter(matchesQuery)
+  const installed = items.filter(matchesQuery)
   const activePolicy = current && (scope === 'host' ? current.hostPolicy : current.projectPolicy)
   const policyEnabled =
     scope === 'host' ? (current?.hostPolicy?.enabled ?? current?.defaultPolicy?.enabled ?? true) : current?.enabled
@@ -170,6 +189,30 @@ export function SkillPage({
     return item.invocation === 'manual' ? '仅手动调用' : '已启用'
   }
 
+  function select(item: ResourceItem) {
+    setSelected(item.id)
+    setScope(item.scope === 'project' ? 'project' : 'host')
+  }
+
+  async function create() {
+    if (creating) return
+    setCreating(true)
+    setError('')
+    try {
+      if (!(await onCreate?.())) setError('无法调用系统技能 Skill Creator，请刷新技能后再试。')
+    } catch (cause) {
+      setError(`无法创建技能会话：${String(cause)}`)
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  const settingsButton = onSettings && (
+    <Button variant="ghost" size="icon" aria-label="技能设置" title="技能设置" onClick={onSettings}>
+      <Settings />
+    </Button>
+  )
+
   return (
     <section aria-label="技能管理" className="space-y-6" aria-busy={busy}>
       <input
@@ -206,10 +249,13 @@ export function SkillPage({
       ))}
       {current ? (
         <div className="space-y-6">
-          <Button variant="ghost" onClick={() => setSelected(undefined)}>
-            <ArrowLeft />
-            返回技能
-          </Button>
+          <div className="flex items-center justify-between">
+            <Button variant="ghost" onClick={() => setSelected(undefined)}>
+              <ArrowLeft />
+              返回技能
+            </Button>
+            {settingsButton}
+          </div>
           <div className="flex items-center gap-3">
             <SkillIcon item={current} />
             <div>
@@ -352,6 +398,8 @@ export function SkillPage({
             query={query}
             onQuery={setQuery}
             searchLabel="搜索技能"
+            title={view === 'catalog' ? '技能' : undefined}
+            description={view === 'catalog' ? '通过技能，为聊天添加专门的工作方法。' : undefined}
             actions={
               <>
                 <Button
@@ -363,45 +411,99 @@ export function SkillPage({
                 >
                   <RefreshCw className={cn(refreshing && 'animate-spin')} />
                 </Button>
-                <Button variant="outline" disabled={busy} onClick={() => setImportOpen(true)}>
-                  从设备目录导入
-                </Button>
+                {settingsButton}
+                {view === 'settings' && (
+                  <Button variant="outline" disabled={busy} onClick={() => setImportOpen(true)}>
+                    从设备目录导入
+                  </Button>
+                )}
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button aria-label="添加技能" disabled={busy}>
+                    <Button aria-label="添加技能" disabled={busy || creating} className="rounded-full">
                       添加
                       <ChevronDown className="size-4" />
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem
-                      onSelect={() => {
-                        if (!onCreate?.())
-                          setError('系统技能 Skill Creator 尚未进入当前会话。请刷新技能或开始聊天后再试。')
-                      }}
-                    >
+                  <DropdownMenuContent side="bottom" align="end">
+                    <DropdownMenuItem onSelect={() => void create()}>
                       <Sparkles />
-                      使用向导创建技能
+                      {view === 'catalog' ? '创建技能' : '使用向导创建技能'}
                     </DropdownMenuItem>
-                    <DropdownMenuItem onSelect={() => void edit()}>
-                      <Plus />
-                      新建技能
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onSelect={() => uploadRef.current?.click()}>
-                      <Upload />
-                      导入技能文件
-                    </DropdownMenuItem>
+                    {view === 'settings' && (
+                      <>
+                        <DropdownMenuItem onSelect={() => void edit()}>
+                          <Plus />
+                          新建技能
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onSelect={() => uploadRef.current?.click()}>
+                          <Upload />
+                          导入技能文件
+                        </DropdownMenuItem>
+                      </>
+                    )}
                   </DropdownMenuContent>
                 </DropdownMenu>
               </>
             }
           >
+            {view === 'catalog' && catalog && (
+              <section aria-label="已安装技能" className="space-y-3">
+                <h2 className="border-b border-border pb-3 text-sm font-medium">
+                  已安装 <span className="ml-2 text-muted-foreground">{installed.length}</span>
+                </h2>
+                <div>
+                  <SkillCatalogList label="已安装技能列表" items={installed.slice(0, 6)} onSelect={select} />
+                  <div
+                    id="installed-skill-more"
+                    aria-hidden={!installedExpanded}
+                    inert={!installedExpanded}
+                    className={cn(
+                      'grid transition-[grid-template-rows,opacity] duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
+                      installedExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0',
+                    )}
+                  >
+                    <div className="min-h-0 overflow-hidden">
+                      <div className="pt-2">
+                        <SkillCatalogList label="更多已安装技能" items={installed.slice(6)} onSelect={select} />
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                {installed.length > 6 && (
+                  <Button
+                    variant="ghost"
+                    aria-expanded={installedExpanded}
+                    aria-controls="installed-skill-more"
+                    onClick={() => setInstalledExpanded((value) => !value)}
+                    className="text-muted-foreground"
+                  >
+                    {installedExpanded
+                      ? '收起已安装技能'
+                      : `查看 ${installed
+                          .slice(6, 8)
+                          .map((item) => item.displayName ?? item.name)
+                          .join('、')}${installed.length > 8 ? `，另有 ${installed.length - 8} 项` : ''}`}
+                    <ChevronDown
+                      className={cn(
+                        'size-4 transition-transform duration-250 motion-reduce:transition-none',
+                        installedExpanded && 'rotate-180',
+                      )}
+                    />
+                  </Button>
+                )}
+                {!installed.length && (
+                  <p role="status" className="py-4 text-sm text-muted-foreground">
+                    {query.trim() ? '没有匹配的技能。' : '暂无已安装技能。'}
+                  </p>
+                )}
+              </section>
+            )}
             <CategoryTabs
               label="技能类别"
-              idPrefix="skill-category"
+              idPrefix={`${listId}-category`}
               value={category}
               onChange={setCategory}
-              controls="skill-list"
+              controls={listId}
               options={[
                 { id: 'personal', label: '个人', count: personal.length },
                 { id: 'system', label: '系统', count: system.length },
@@ -425,48 +527,52 @@ export function SkillPage({
               ))}
             </BentoSkeletonCard>
           ) : (
-            <div id="skill-list" role="tabpanel" aria-labelledby={`skill-category-${category}`}>
-              {filtered.length > 0 && (
-                <ul
-                  className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card"
-                  aria-label="技能列表"
-                >
-                  {filtered.map((item) => {
-                    return (
-                      <li key={item.id} className="flex items-center gap-4 p-5">
-                        <button
-                          type="button"
-                          aria-label={`查看技能：${item.name}`}
-                          onClick={() => {
-                            setSelected(item.id)
-                            setScope(item.scope === 'project' ? 'project' : 'host')
-                          }}
-                          className="flex min-w-0 flex-1 items-center gap-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        >
-                          <SkillIcon item={item} compact />
-                          <span className="min-w-0">
-                            <span className="block truncate text-sm font-medium">{item.displayName ?? item.name}</span>
-                            <span className="mt-1 block truncate text-sm text-muted-foreground">
-                              {item.shortDescription ?? item.description ?? '未提供说明'}
+            <div id={listId} role="tabpanel" aria-labelledby={`${listId}-category-${category}`}>
+              {filtered.length > 0 &&
+                (view === 'catalog' ? (
+                  <SkillCatalogList label="技能列表" items={filtered} onSelect={select} />
+                ) : (
+                  <ul
+                    className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card"
+                    aria-label="技能列表"
+                  >
+                    {filtered.map((item) => {
+                      return (
+                        <li key={item.id} className="flex items-center gap-4 p-5">
+                          <button
+                            type="button"
+                            aria-label={`查看技能：${item.name}`}
+                            onClick={() => {
+                              select(item)
+                            }}
+                            className="flex min-w-0 flex-1 items-center gap-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                          >
+                            <SkillIcon item={item} compact />
+                            <span className="min-w-0">
+                              <span className="block truncate text-sm font-medium">
+                                {item.displayName ?? item.name}
+                              </span>
+                              <span className="mt-1 block truncate text-sm text-muted-foreground">
+                                {item.shortDescription ?? item.description ?? '未提供说明'}
+                              </span>
                             </span>
+                          </button>
+                          <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline" title={state(item)}>
+                            {item.owner.type === 'app-package' ? '来自插件' : scopes[item.scope]}
                           </span>
-                        </button>
-                        <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline" title={state(item)}>
-                          {item.owner.type === 'app-package' ? '来自插件' : scopes[item.scope]}
-                        </span>
-                        <Switch
-                          label={`启用技能：${item.displayName ?? item.name}`}
-                          checked={item.hostPolicy?.enabled ?? item.defaultPolicy.enabled ?? true}
-                          disabled={busy || Boolean(item.diagnostics.length)}
-                          onChange={(enabled) =>
-                            void action(() => client.setPolicy({ id: item.id, scope: 'host', cwd, enabled }))
-                          }
-                        />
-                      </li>
-                    )
-                  })}
-                </ul>
-              )}
+                          <Switch
+                            label={`启用技能：${item.displayName ?? item.name}`}
+                            checked={item.hostPolicy?.enabled ?? item.defaultPolicy.enabled ?? true}
+                            disabled={busy || Boolean(item.diagnostics.length)}
+                            onChange={(enabled) =>
+                              void action(() => client.setPolicy({ id: item.id, scope: 'host', cwd, enabled }))
+                            }
+                          />
+                        </li>
+                      )
+                    })}
+                  </ul>
+                ))}
               {!filtered.length && (
                 <p role="status" className="text-sm text-muted-foreground">
                   {query.trim() ? '没有匹配的技能。' : category === 'system' ? '没有系统技能。' : '没有个人技能。'}
@@ -636,5 +742,42 @@ function SkillIcon({ item, compact = false }: { item: ResourceItem; compact?: bo
     >
       <BookOpen className={compact ? 'size-4' : 'size-5'} strokeWidth={1.6} />
     </span>
+  )
+}
+
+function SkillCatalogList({
+  label,
+  items,
+  onSelect,
+}: {
+  label: string
+  items: ResourceItem[]
+  onSelect: (item: ResourceItem) => void
+}) {
+  return (
+    <ul aria-label={label} className="grid grid-cols-1 gap-x-6 gap-y-2 xl:grid-cols-2">
+      {items.map((item) => (
+        <li key={item.id}>
+          <button
+            type="button"
+            aria-label={`查看技能：${item.name}`}
+            onClick={() => onSelect(item)}
+            className="flex w-full min-w-0 items-center gap-3 rounded-2xl p-3 text-left transition-colors hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            <SkillIcon item={item} />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-medium">{item.displayName ?? item.name}</span>
+              <span className="mt-1 block truncate text-sm text-muted-foreground">
+                {item.shortDescription ?? item.description ?? '未提供说明'}
+              </span>
+            </span>
+            <Check
+              aria-label={item.enabled ? '已启用' : '已停用'}
+              className={cn('size-4 shrink-0 text-muted-foreground', !item.enabled && 'opacity-30')}
+            />
+          </button>
+        </li>
+      ))}
+    </ul>
   )
 }

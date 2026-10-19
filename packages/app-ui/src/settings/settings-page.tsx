@@ -73,12 +73,16 @@ export function SettingsPage({
   onDiscard,
   onDismiss,
   onProjects,
+  onPlugins,
+  onHome,
+  dismissLabel = '返回聊天',
 }: {
   renderContent: (section: SettingsSection, navigate: (section: SettingsSection) => void) => ReactNode
   renderRail?: (
     onDismiss: () => void,
     navigate: (section: SettingsSection) => void,
     onProjects?: () => void,
+    onPlugins?: () => void,
   ) => ReactNode
   dirty: boolean
   saving: boolean
@@ -88,6 +92,9 @@ export function SettingsPage({
   onDiscard: () => void
   onDismiss: () => void
   onProjects?: () => void
+  onPlugins?: () => void
+  onHome?: () => void
+  dismissLabel?: string
 }) {
   const [sectionId, setSectionId] = useState<SettingsSection>(initialSection)
   const [query, setQuery] = useState('')
@@ -121,11 +128,16 @@ export function SettingsPage({
       <PageHeader>
         <PageHeaderNavigation
           nativeWindow={nativeWindow}
-          back={{ label: '返回聊天', onClick: () => leave(onDismiss), disabled: saving, autoFocus: true }}
+          back={{ label: dismissLabel, onClick: () => leave(onDismiss), disabled: saving, autoFocus: true }}
         />
       </PageHeader>
       <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-        {renderRail?.(() => leave(onDismiss), navigate, onProjects ? () => leave(onProjects) : undefined)}
+        {renderRail?.(
+          () => leave(onHome ?? onDismiss),
+          navigate,
+          onProjects ? () => leave(onProjects) : undefined,
+          onPlugins ? () => leave(onPlugins) : undefined,
+        )}
         <div className="content-frame bg-background">
           <aside className="appearance-sidebar settings-sidebar w-52 shrink-0 overflow-y-auto border-r border-border bg-card/40 px-2.5 py-4 sm:w-64 sm:py-5">
             <h1 className="px-2.5 text-base font-semibold tracking-tight text-foreground">设置</h1>

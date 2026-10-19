@@ -8,12 +8,16 @@ export function IntegrationHeader({
   query,
   onQuery,
   searchLabel,
+  title,
+  description,
 }: {
   actions: ReactNode
   children?: ReactNode
   query: string
   onQuery: (value: string) => void
   searchLabel: string
+  title?: string
+  description?: string
 }) {
   const search = (
     <div className="relative min-w-0 flex-1">
@@ -28,6 +32,23 @@ export function IntegrationHeader({
     </div>
   )
   const actionRow = <div className="flex flex-wrap items-center gap-2">{actions}</div>
+  if (title) {
+    return (
+      <div className="space-y-6">
+        <div className="flex flex-wrap items-start justify-between gap-5">
+          <div>
+            <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
+            {description && <p className="mt-2 text-sm text-muted-foreground">{description}</p>}
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="w-48 sm:w-56">{search}</div>
+            {actionRow}
+          </div>
+        </div>
+        {children}
+      </div>
+    )
+  }
   if (!children) {
     return (
       <div className="flex flex-wrap items-center gap-3">

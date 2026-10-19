@@ -1,9 +1,11 @@
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import type { DesktopBridge, SessionSelectionResult, Snapshot } from '@pi-meme/contracts/desktop'
-import { thinkingLevels, type PiModel, type ThinkingLevel } from '@pi-meme/contracts/pi'
+import { thinkingLevels, type PiModel, type PiSlashCommand, type ThinkingLevel } from '@pi-meme/contracts/pi'
+import { skillMarker } from '@pi-meme/contracts/skills'
 import { ModelPickerPopover } from '@pi-meme/models/ui/model-picker-popover'
 import { useAppSession } from '../src/session/use-app-session'
+import { invokeSkillInNewSession } from '../src/settings/invoke-skill'
 
 afterEach(cleanup)
 
@@ -95,6 +97,54 @@ function setup(overrides: Partial<DesktopBridge> = {}) {
   const hook = renderHook(() => useAppSession(bridge, { chatEnabled: false, workspaceEnabled: false }))
   return { ...hook, snapshot }
 }
+
+test.each([
+  ['plugin-creator', '帮我创建一个插件'],
+  ['skill-creator', undefined],
+])('创建向导 %s 在新会话预填技能，并保留原会话草稿', async (name, prompt) => {
+  let active = 'main'
+  const command: PiSlashCommand = {
+    name: `skill:${name}`,
+    source: 'skill',
+    resourceId: name,
+    resourceRevision: 'new-revision',
+    sourceInfo: { path: `/skills/${name}/SKILL.md`, source: 'builtin', scope: 'user', origin: 'top-level' },
+  }
+  const getCommands = async () => (active === 'created' ? [command] : [])
+  const { result, snapshot } = setup({
+    getCommands,
+    newSession: async () => {
+      active = 'created'
+      return {
+        cancelled: false,
+        snapshot: {
+          ...snapshot,
+          connection: { ...snapshot.connection, generation: 2, sessionKey: active },
+        },
+      }
+    },
+    switchSession: async () => {
+      active = 'main'
+      return { cancelled: false, snapshot }
+    },
+    readSessionHistory: async () => ({ messages: [], cwd: '/tmp/first', created: '' }),
+  })
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  act(() => result.current.setDraft('保留原会话的内容'))
+
+  await act(async () => {
+    expect(await invokeSkillInNewSession(result.current, getCommands, name!, prompt)).toBe(true)
+  })
+  expect(result.current.connection.sessionKey).toBe('created')
+  expect(result.current.selectedSkills).toEqual([command])
+  expect(result.current.draft).toBe(prompt ? `${skillMarker} ${prompt}` : `${skillMarker} `)
+
+  await act(async () => {
+    await result.current.switchSession('main')
+  })
+  expect(result.current.draft).toBe('保留原会话的内容')
+  expect(result.current.selectedSkills).toEqual([])
+})
 
 test('切模型立即更新名称且不禁用输入，发送等待模型和思考档位保存完成', async () => {
   const model = deferred<PiModel>()

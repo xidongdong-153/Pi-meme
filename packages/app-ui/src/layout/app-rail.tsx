@@ -1,4 +1,4 @@
-import { BookOpen, Folder, Gauge, Gift, Home, Keyboard, LifeBuoy, Settings } from 'lucide-react'
+import { BookOpen, Folder, Gauge, Gift, Home, Keyboard, LifeBuoy, Puzzle, Settings } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -23,6 +23,8 @@ export function AppRail({
   homeActive = false,
   onProjects,
   projectsActive = false,
+  onPlugins,
+  pluginsActive = false,
   className,
 }: {
   profile: UserProfile
@@ -34,6 +36,8 @@ export function AppRail({
   homeActive?: boolean
   onProjects?: () => void
   projectsActive?: boolean
+  onPlugins?: () => void
+  pluginsActive?: boolean
   className?: string
 }) {
   const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent)
@@ -88,6 +92,27 @@ export function AppRail({
           </TooltipTrigger>
           <TooltipContent side="right" sideOffset={8}>
             项目
+          </TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              aria-label="插件"
+              aria-current={pluginsActive ? 'page' : undefined}
+              onClick={onPlugins}
+              className={cn(
+                'flex size-8 items-center justify-center rounded-lg transition-colors hover:bg-background cursor-pointer',
+                pluginsActive
+                  ? 'bg-background/80 text-foreground shadow-xs'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <Puzzle className="size-4" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right" sideOffset={8}>
+            插件与技能
           </TooltipContent>
         </Tooltip>
       </div>

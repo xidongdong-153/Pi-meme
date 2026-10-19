@@ -323,6 +323,7 @@ export function WorkspacePanels({
           homeActive
           onHome={onNewSession}
           onProjects={onProjects}
+          onPlugins={onPlugins}
           onSettings={onSettings}
           onUsage={onUsage}
           onAccount={onAccount}

@@ -78,6 +78,7 @@ const files: Array<[string, Feature[]]> = [
   ['packages/app-ui/tests/appearance-fonts.component.test.tsx', ['settings']],
   ['packages/app-ui/tests/composer-drafts.unit.test.ts', ['chat', 'sessions']],
   ['packages/app-ui/tests/composer-switching.component.test.tsx', ['chat', 'workspace', 'models']],
+  ['packages/app-ui/tests/customization-page.component.test.tsx', ['plugins', 'skills', 'settings']],
   ['packages/app-ui/tests/conversation-error-surfaces.unit.test.ts', ['chat']],
   ['packages/app-ui/tests/error-notice.component.test.tsx', ['chat', 'connection']],
   ['packages/app-ui/tests/editor-settings.component.test.tsx', ['settings']],

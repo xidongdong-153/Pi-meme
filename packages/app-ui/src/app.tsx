@@ -4,7 +4,7 @@ import { LocationSelector } from './shell/location-selector'
 import type { ServiceUI } from './shell/service-ui'
 import { SubagentsPanel } from './panels/subagents-panel'
 import { createResourceClient } from '@pi-meme/client/resource-client'
-import { appendSkillInvocation } from './settings/invoke-skill'
+import { appendSkillInvocation, invokeSkillInNewSession } from './settings/invoke-skill'
 import { AccessSettings } from '@pi-meme/permissions/ui/access-settings'
 import { AgentAccessSelector } from '@pi-meme/permissions/ui/agent-access-selector'
 import { AppHeader } from './layout/app-header'
@@ -15,6 +15,7 @@ import { WorkspaceContent } from './layout/workspace-content'
 import { ErrorNotice } from './layout/error-notice'
 import {
   lazy,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -65,6 +66,9 @@ import type { DesktopBridge, ProjectApp } from '@pi-meme/contracts/desktop'
 
 const SkillPage = lazy(() => import('./settings/skill-page').then((module) => ({ default: module.SkillPage })))
 const PluginPage = lazy(() => import('./settings/plugin-page').then((module) => ({ default: module.PluginPage })))
+const CustomizationPage = lazy(() =>
+  import('./plugins/customization-page').then((module) => ({ default: module.CustomizationPage })),
+)
 const HostSettings = lazy(() => import('./settings/host-settings').then((module) => ({ default: module.HostSettings })))
 const ModelConfigSettings = lazy(() =>
   import('@pi-meme/models/ui/model-config/model-config-settings').then((module) => ({
@@ -311,8 +315,10 @@ export function App({
   const [sidebarWidth, setSidebarWidth] = useState(256)
   const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null)
   const [projectsOpen, setProjectsOpen] = useState(false)
+  const [customizationOpen, setCustomizationOpen] = useState(false)
+  const creatingSkillSession = useRef(false)
   const settingsOpen = settingsSection !== null
-  const searchActive = Boolean(serviceUI?.active) && !settingsOpen && !projectsOpen
+  const searchActive = Boolean(serviceUI?.active) && !settingsOpen && !projectsOpen && !customizationOpen
   const openSearch = serviceUI?.onSearch
   useEffect(() => {
     if (!searchActive || !openSearch) return
@@ -405,8 +411,8 @@ export function App({
   }, [settings.snapshot?.settings.preferredProjectApp])
 
   useEffect(() => {
-    if (active) document.title = projectsOpen ? '项目' : chat.extensionTitle || title
-  }, [chat.extensionTitle, title, active, projectsOpen])
+    if (active) document.title = customizationOpen ? '插件与技能' : projectsOpen ? '项目' : chat.extensionTitle || title
+  }, [chat.extensionTitle, title, active, projectsOpen, customizationOpen])
 
   const projectSelector = (
     <ProjectSelector
@@ -835,13 +841,18 @@ export function App({
     setSidebarOpen(open)
     setSidebarWidth(width)
   }, [])
-  function invokeSystemSkill(name: string, prompt?: string) {
-    const command = chat.commands.find((entry) => entry.source === 'skill' && entry.name === `skill:${name}`)
-    if (!command) return false
-    chat.setSelectedSkills([...chat.selectedSkills, command])
-    chat.setDraft(appendSkillInvocation(chat.draft, prompt))
-    setSettingsSection(null)
-    return true
+  async function invokeSystemSkill(name: string, prompt?: string) {
+    if (creatingSkillSession.current) return false
+    creatingSkillSession.current = true
+    try {
+      if (!(await invokeSkillInNewSession(chat, bridge.getCommands, name, prompt))) return false
+      setSettingsSection(null)
+      setProjectsOpen(false)
+      setCustomizationOpen(false)
+      return true
+    } finally {
+      creatingSkillSession.current = false
+    }
   }
   if (!active) return null
 
@@ -853,8 +864,8 @@ export function App({
           className="theme-app flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground select-none"
         >
           <div
-            className={settingsOpen || projectsOpen ? 'hidden' : 'flex flex-1 min-h-0 flex-col'}
-            inert={settingsOpen || projectsOpen}
+            className={settingsOpen || projectsOpen || customizationOpen ? 'hidden' : 'flex flex-1 min-h-0 flex-col'}
+            inert={settingsOpen || projectsOpen || customizationOpen}
           >
             <WorkspacePanels
               profile={userProfile.profile}
@@ -881,7 +892,7 @@ export function App({
               onAccount={() => setSettingsSection('account')}
               onProjects={() => setProjectsOpen(true)}
               onNewSession={() => void chat.newSession()}
-              onPlugins={() => setSettingsSection('plugins')}
+              onPlugins={() => setCustomizationOpen(true)}
               header={(toggleSidebar) => (
                 <AppHeader
                   nativeWindow={nativeWindow}
@@ -914,7 +925,7 @@ export function App({
             </WorkspacePanels>
           </div>
 
-          {projectsOpen && !settingsOpen && (
+          {projectsOpen && !settingsOpen && !customizationOpen && (
             <ProjectsPage
               bridge={bridge}
               sessions={chat.sessions}
@@ -953,6 +964,10 @@ export function App({
                   projectsActive
                   onHome={() => setProjectsOpen(false)}
                   onProjects={() => setProjectsOpen(true)}
+                  onPlugins={() => {
+                    setProjectsOpen(false)
+                    setCustomizationOpen(true)
+                  }}
                   onSettings={() => {
                     setProjectsOpen(false)
                     setSettingsSection('general')
@@ -970,6 +985,72 @@ export function App({
             />
           )}
 
+          {customizationOpen && (
+            <div className={settingsOpen ? 'hidden' : 'flex min-h-0 flex-1 flex-col'} inert={settingsOpen}>
+              <Suspense fallback={null}>
+                <CustomizationPage
+                  plugins={pluginDescriptors}
+                  nativeWindow={nativeWindow}
+                  onDismiss={() => setCustomizationOpen(false)}
+                  rail={
+                    <AppRail
+                      profile={userProfile.profile}
+                      profileLoading={userProfile.showPlaceholder}
+                      pluginsActive
+                      onHome={() => setCustomizationOpen(false)}
+                      onProjects={() => {
+                        setCustomizationOpen(false)
+                        setProjectsOpen(true)
+                      }}
+                      onPlugins={() => setCustomizationOpen(true)}
+                      onSettings={() => setSettingsSection('general')}
+                      onUsage={() => setSettingsSection('profile')}
+                      onAccount={() => setSettingsSection('account')}
+                    />
+                  }
+                  renderContent={(section, selection) =>
+                    section === 'plugins' ? (
+                      <PluginPage
+                        client={plugins}
+                        plugins={pluginDescriptors}
+                        errors={registry.errors()}
+                        view="catalog"
+                        selection={selection}
+                        onSettings={() => setSettingsSection('plugins')}
+                        onChanged={async () => {
+                          await refreshPlugins()
+                          await chat.refreshSnapshot()
+                        }}
+                        onCreate={() => invokeSystemSkill('plugin-creator', '帮我创建一个插件')}
+                        renderSettings={(id) => (
+                          <PluginSlot registry={registry} pluginId={id} slot="settings" props={pluginProps} />
+                        )}
+                      />
+                    ) : (
+                      <SkillPage
+                        client={resources}
+                        cwd={cwd}
+                        commands={chat.commands}
+                        skillUsages={chat.chat.skillUsages}
+                        resourceSnapshot={chat.state?.resourceSnapshot}
+                        view="catalog"
+                        onSettings={() => setSettingsSection('skills')}
+                        onChanged={chat.refreshSnapshot}
+                        onUse={(command) => {
+                          chat.setSelectedSkills([...chat.selectedSkills, command])
+                          chat.setDraft(appendSkillInvocation(chat.draft))
+                          chat.focusDraft()
+                          setCustomizationOpen(false)
+                        }}
+                        onCreate={() => invokeSystemSkill('skill-creator')}
+                      />
+                    )
+                  }
+                />
+              </Suspense>
+            </div>
+          )}
+
           {/* 设置页面 */}
           {settingsSection && (
             <SettingsPage
@@ -979,16 +1060,28 @@ export function App({
               nativeWindow={nativeWindow}
               onDiscard={() => setInstructionsDirty(false)}
               onDismiss={() => setSettingsSection(null)}
+              onHome={() => {
+                setSettingsSection(null)
+                setCustomizationOpen(false)
+              }}
+              dismissLabel={customizationOpen ? '返回插件与技能' : undefined}
               onProjects={() => {
                 setSettingsSection(null)
+                setCustomizationOpen(false)
                 setProjectsOpen(true)
               }}
-              renderRail={(onDismiss, navigate, onProjects) => (
+              onPlugins={() => {
+                setSettingsSection(null)
+                setProjectsOpen(false)
+                setCustomizationOpen(true)
+              }}
+              renderRail={(onDismiss, navigate, onProjects, onPlugins) => (
                 <AppRail
                   profile={userProfile.profile}
                   profileLoading={userProfile.showPlaceholder}
                   onHome={onDismiss}
                   onProjects={onProjects}
+                  onPlugins={onPlugins}
                   onSettings={() => navigate('general')}
                   onUsage={() => navigate('profile')}
                   onAccount={() => navigate('account')}
