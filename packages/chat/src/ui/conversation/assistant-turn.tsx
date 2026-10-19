@@ -48,7 +48,7 @@ export function AssistantTurnView({
 
           {turn.images.length > 0 && <AttachmentPreview images={turn.images} />}
 
-          {turn.finalText ? <MarkdownContent>{turn.finalText}</MarkdownContent> : null}
+          {turn.finalText ? <MarkdownContent isStreaming={turn.isLive}>{turn.finalText}</MarkdownContent> : null}
           {(retry?.errorMessage || turn.errorMessage) && (
             <ErrorLine
               className="mt-2"

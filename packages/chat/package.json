@@ -61,6 +61,7 @@
     "@pi-meme/pi-runtime": "workspace:*",
     "@pi-meme/ui": "workspace:*",
     "lucide-react": "^1.48.0",
+    "mermaid": "12.2.0",
     "react-markdown": "^10.1.0",
     "rehype-katex": "^7.0.1",
     "remark-gfm": "^4.0.1",

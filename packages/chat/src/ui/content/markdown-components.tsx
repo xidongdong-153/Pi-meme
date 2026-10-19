@@ -2,6 +2,22 @@ import * as React from 'react'
 import type { ExtraProps } from 'react-markdown'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { CodeBlock } from './code-block'
+import { MermaidBlock } from './mermaid-block'
+
+export const MarkdownStreamingContext = React.createContext(false)
+
+function MarkdownPre({ children }: React.ComponentPropsWithoutRef<'pre'>) {
+  const isStreaming = React.useContext(MarkdownStreamingContext)
+  const child = React.Children.toArray(children)[0]
+  if (!React.isValidElement<React.ComponentPropsWithoutRef<'code'>>(child)) return <pre>{children}</pre>
+  const language = /(?:^|\s)language-(\S+)/.exec(child.props.className ?? '')?.[1]
+  const code = String(child.props.children ?? '').replace(/\n$/, '')
+  return language?.toLowerCase() === 'mermaid' ? (
+    <MermaidBlock code={code} isStreaming={isStreaming} />
+  ) : (
+    <CodeBlock code={code} language={language} />
+  )
+}
 
 /**
  * 解析 GitHub-style alert blockquote。
@@ -50,12 +66,7 @@ const alertLabels: Record<string, string> = {
 export function useMarkdownComponents() {
   return React.useMemo(
     () => ({
-      pre({ children }: React.ComponentPropsWithoutRef<'pre'>) {
-        const child = React.Children.toArray(children)[0]
-        if (!React.isValidElement<React.ComponentPropsWithoutRef<'code'>>(child)) return <pre>{children}</pre>
-        const language = /(?:^|\s)language-(\S+)/.exec(child.props.className ?? '')?.[1]
-        return <CodeBlock code={String(child.props.children ?? '').replace(/\n$/, '')} language={language} />
-      },
+      pre: MarkdownPre,
       code({ className, children, node: _node, ...props }: React.ComponentPropsWithoutRef<'code'> & ExtraProps) {
         return (
           <code className={cn('pi-inline-code', className)} {...props}>

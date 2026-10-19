@@ -121,6 +121,7 @@ const files: Array<[string, Feature[]]> = [
   ['packages/chat/tests/handlers.unit.test.ts', ['chat']],
   ['packages/chat/tests/highlighter.unit.test.ts', ['chat']],
   ['packages/chat/tests/message-versions.unit.test.ts', ['sessions']],
+  ['packages/chat/tests/mermaid.component.test.tsx', ['chat']],
   ['packages/chat/tests/pause-display.unit.test.ts', ['chat']],
   ['packages/chat/tests/plan-input.unit.test.ts', ['plan', 'chat']],
   ['packages/chat/tests/plugin-completion.component.test.tsx', ['chat', 'plugins', 'skills']],

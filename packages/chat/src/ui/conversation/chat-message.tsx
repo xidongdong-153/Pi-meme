@@ -1,15 +1,11 @@
 import { UserMessageContent } from './user-message-content'
 import * as React from 'react'
-import Markdown from 'react-markdown'
-import remarkGfm from 'remark-gfm'
-import remarkMath from 'remark-math'
-import rehypeKatex from 'rehype-katex'
 import { Loader2 } from 'lucide-react'
 import { ErrorLine } from '@pi-meme/ui/components/error-line'
 import type { PiImage, PiMessage } from '@pi-meme/contracts/pi'
 import type { ChatState } from '../model/types'
 import { groupMessageParts } from '../model/message-parts'
-import { useMarkdownComponents } from '../content/markdown-components'
+import { MarkdownContent } from '../content/markdown-content'
 import { AttachmentPreview } from '../content/attachment-preview'
 import { ActivityGroup } from './activity-group'
 import { cn } from '@pi-meme/ui/lib/utils'
@@ -45,7 +41,6 @@ export function ChatMessage({
   onSwitchVersion?: (version: number) => void
   versionSwitchBusy?: boolean
 }) {
-  const markdownComponents = useMarkdownComponents()
   const content = 'content' in message ? message.content : undefined
   const segments = React.useMemo(
     () => (Array.isArray(content) ? groupMessageParts(content, tools, live) : null),
@@ -118,30 +113,16 @@ export function ChatMessage({
             isUser ? (
               <UserMessageContent text={content} />
             ) : (
-              <div className="pi-markdown">
-                <Markdown
-                  remarkPlugins={[remarkGfm, remarkMath]}
-                  rehypePlugins={[rehypeKatex]}
-                  components={markdownComponents}
-                >
-                  {content}
-                </Markdown>
-              </div>
+              <MarkdownContent isStreaming={live}>{content}</MarkdownContent>
             )
           ) : segments ? (
             segments.map((seg, idx) => {
               if (seg.type === 'text') {
                 if (isUser) return <UserMessageContent key={idx} text={seg.text} />
                 return (
-                  <div key={idx} className="pi-markdown">
-                    <Markdown
-                      remarkPlugins={[remarkGfm, remarkMath]}
-                      rehypePlugins={[rehypeKatex]}
-                      components={markdownComponents}
-                    >
-                      {seg.text}
-                    </Markdown>
-                  </div>
+                  <MarkdownContent key={idx} isStreaming={live}>
+                    {seg.text}
+                  </MarkdownContent>
                 )
               }
               if (seg.type === 'activity') {

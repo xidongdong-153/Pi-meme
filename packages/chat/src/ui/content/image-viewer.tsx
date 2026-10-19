@@ -2,8 +2,8 @@ import * as React from 'react'
 import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from 'lucide-react'
 import type { PiImage } from '@pi-meme/contracts/pi'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
-import { BrandMark } from '@pi-meme/ui/components/brand-mark'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@pi-meme/ui/components/ui/select'
+import { cn } from '@pi-meme/ui/lib/utils'
 
 type PreviewImage = PiImage & { id?: string }
 
@@ -17,9 +17,18 @@ interface ImageViewerProps {
   activeIndex: number | null
   onActiveIndexChange: (index: number | null) => void
   triggerRef: React.RefObject<HTMLButtonElement | null>
+  variant?: 'image' | 'diagram'
+  actions?: React.ReactNode
 }
 
-export function ImageViewer({ images, activeIndex, onActiveIndexChange, triggerRef }: ImageViewerProps) {
+export function ImageViewer({
+  images,
+  activeIndex,
+  onActiveIndexChange,
+  triggerRef,
+  variant = 'image',
+  actions,
+}: ImageViewerProps) {
   const index = activeIndex === null ? null : Math.min(activeIndex, images.length - 1)
   const image = index === null ? null : images[index]
   const navigate = (offset: number) => {
@@ -30,7 +39,10 @@ export function ImageViewer({ images, activeIndex, onActiveIndexChange, triggerR
   return (
     <Dialog open={Boolean(image)} onOpenChange={(open) => !open && onActiveIndexChange(null)}>
       <DialogContent
-        className="w-[calc(100vw-2rem)] max-w-5xl gap-2 overflow-hidden border-border bg-card p-3"
+        className={cn(
+          'w-[calc(100vw-2rem)] h-[calc(100dvh-2rem)] max-h-[calc(100dvh-2rem)] max-w-none grid-rows-[auto_minmax(0,1fr)_auto] gap-2 overflow-hidden border-0 bg-background p-4',
+          '[&>button:last-child]:inline-flex [&>button:last-child]:size-8 [&>button:last-child]:items-center [&>button:last-child]:justify-center',
+        )}
         onCloseAutoFocus={(event) => {
           event.preventDefault()
           triggerRef.current?.focus()
@@ -49,8 +61,10 @@ export function ImageViewer({ images, activeIndex, onActiveIndexChange, triggerR
           }
         }}
       >
-        <DialogTitle className="sr-only">图片预览</DialogTitle>
-        <DialogDescription className="sr-only">左右方向键切换图片，滚轮缩放，Esc 关闭预览。</DialogDescription>
+        <DialogTitle className="sr-only">{variant === 'diagram' ? '图表预览' : '图片预览'}</DialogTitle>
+        <DialogDescription className="sr-only">
+          {variant === 'diagram' ? '滚轮缩放，Esc 关闭图表。' : '左右方向键切换图片，滚轮缩放，Esc 关闭预览。'}
+        </DialogDescription>
         {image && index !== null && (
           <ImageViewerContent
             key={`${index}:${image.id ?? image.mimeType}`}
@@ -58,6 +72,8 @@ export function ImageViewer({ images, activeIndex, onActiveIndexChange, triggerR
             index={index}
             count={images.length}
             onNavigate={navigate}
+            variant={variant}
+            actions={actions}
           />
         )}
       </DialogContent>
@@ -79,12 +95,17 @@ function ImageViewerContent({
   index,
   count,
   onNavigate,
+  variant,
+  actions,
 }: {
   image: PreviewImage
   index: number
   count: number
   onNavigate: (offset: number) => void
+  variant: 'image' | 'diagram'
+  actions?: React.ReactNode
 }) {
+  const isDiagram = variant === 'diagram'
   const viewportRef = React.useRef<HTMLDivElement>(null)
   const imageRef = React.useRef<HTMLImageElement>(null)
   const [zoom, setZoom] = React.useState<number | null>(null)
@@ -118,72 +139,54 @@ function ImageViewerContent({
     return () => viewport.removeEventListener('wheel', onWheel)
   }, [changeZoom])
 
+  const zoomControls = (
+    <>
+      <button
+        type="button"
+        aria-label={isDiagram ? '缩小图表' : '缩小图片'}
+        disabled={zoom !== null && zoom <= 0.01}
+        onClick={() => changeZoom(1 / 1.25)}
+        className={controlClass}
+      >
+        <ZoomOut className="size-4" />
+      </button>
+      <Select
+        value={zoom === null ? 'fit' : String(zoom)}
+        onValueChange={(value) => setZoom(value === 'fit' ? null : Number(value))}
+      >
+        <SelectTrigger aria-label={isDiagram ? '图表缩放比例' : '图片缩放比例'} className="h-8 w-32 bg-card">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent align="end">
+          <SelectItem value="fit">适应窗口</SelectItem>
+          {zoom !== null && !zoomOptions.includes(zoom) && <SelectItem value={String(zoom)}>{zoom}%</SelectItem>}
+          {zoomOptions.map((value) => (
+            <SelectItem key={value} value={String(value)}>
+              {value}%
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+      <button
+        type="button"
+        aria-label={isDiagram ? '放大图表' : '放大图片'}
+        disabled={zoom === 500}
+        onClick={() => changeZoom(1.25)}
+        className={controlClass}
+      >
+        <ZoomIn className="size-4" />
+      </button>
+    </>
+  )
+
   return (
     <>
-      <div className="flex min-w-0 flex-wrap items-center gap-2 pr-8">
-        <BrandMark size={24} />
-        <span aria-live="polite" className="mr-auto text-sm text-muted-foreground">
-          {index + 1} / {count}
-        </span>
-        <button
-          type="button"
-          aria-label="上一张图片"
-          disabled={index === 0}
-          onClick={() => onNavigate(-1)}
-          className={controlClass}
-        >
-          <ChevronLeft className="size-4" />
-        </button>
-        <button
-          type="button"
-          aria-label="下一张图片"
-          disabled={index === count - 1}
-          onClick={() => onNavigate(1)}
-          className={controlClass}
-        >
-          <ChevronRight className="size-4" />
-        </button>
-        <button
-          type="button"
-          aria-label="缩小图片"
-          disabled={zoom !== null && zoom <= 0.01}
-          onClick={() => changeZoom(1 / 1.25)}
-          className={controlClass}
-        >
-          <ZoomOut className="size-4" />
-        </button>
-        <Select
-          value={zoom === null ? 'fit' : String(zoom)}
-          onValueChange={(value) => setZoom(value === 'fit' ? null : Number(value))}
-        >
-          <SelectTrigger aria-label="图片缩放比例" className="h-8 w-32 bg-card">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent align="end">
-            <SelectItem value="fit">适应窗口</SelectItem>
-            {zoom !== null && !zoomOptions.includes(zoom) && <SelectItem value={String(zoom)}>{zoom}%</SelectItem>}
-            {zoomOptions.map((value) => (
-              <SelectItem key={value} value={String(value)}>
-                {value}%
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-        <button
-          type="button"
-          aria-label="放大图片"
-          disabled={zoom === 500}
-          onClick={() => changeZoom(1.25)}
-          className={controlClass}
-        >
-          <ZoomIn className="size-4" />
-        </button>
-      </div>
+      <div className="flex min-h-8 min-w-0 items-center justify-end gap-2 pr-10">{actions}</div>
       <div
         ref={viewportRef}
         tabIndex={0}
-        className="h-[min(70vh,50rem)] min-h-0 overflow-auto rounded-md bg-secondary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        aria-label="图片预览区域"
+        className="h-full min-h-0 overflow-auto rounded-md bg-secondary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        aria-label={isDiagram ? '图表预览区域' : '图片预览区域'}
       >
         <div
           className={
@@ -195,15 +198,13 @@ function ImageViewerContent({
           <img
             ref={imageRef}
             src={imageSource(image)}
-            alt={`图片大图预览，第 ${index + 1} 张`}
+            alt={isDiagram ? 'Mermaid 图表大图预览' : `图片大图预览，第 ${index + 1} 张`}
             draggable={false}
             onLoad={(event) =>
               setNaturalSize({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight })
             }
             className={
-              zoom === null
-                ? 'max-h-[min(70vh,50rem)] max-w-full object-contain select-none'
-                : 'max-w-none shrink-0 select-none'
+              zoom === null ? 'max-h-full max-w-full object-contain select-none' : 'max-w-none shrink-0 select-none'
             }
             style={
               zoom !== null && naturalSize
@@ -212,6 +213,34 @@ function ImageViewerContent({
             }
           />
         </div>
+      </div>
+      <div className="flex flex-wrap items-center justify-center gap-2">
+        {!isDiagram && count > 1 && (
+          <>
+            <button
+              type="button"
+              aria-label="上一张图片"
+              disabled={index === 0}
+              onClick={() => onNavigate(-1)}
+              className={controlClass}
+            >
+              <ChevronLeft className="size-4" />
+            </button>
+            <span aria-live="polite" className="text-sm text-muted-foreground">
+              {index + 1} / {count}
+            </span>
+            <button
+              type="button"
+              aria-label="下一张图片"
+              disabled={index === count - 1}
+              onClick={() => onNavigate(1)}
+              className={controlClass}
+            >
+              <ChevronRight className="size-4" />
+            </button>
+          </>
+        )}
+        {zoomControls}
       </div>
     </>
   )
