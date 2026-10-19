@@ -118,6 +118,7 @@ export function AssistantTurnView({
                     isLive={turn.isLive && index === segments.length - 1}
                     isPaused={isPaused}
                     showElapsedTime={false}
+                    collapsed={!process.open}
                     onToggle={onActivityToggle}
                   />
                 )}

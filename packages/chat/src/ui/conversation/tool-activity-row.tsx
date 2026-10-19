@@ -174,7 +174,7 @@ export function ToolActivityRow({
               ) : null}
 
               {item.children?.map((child) => (
-                <NestedToolActivity key={child.id} tool={child} isLive={isLive} isPaused={isPaused} />
+                <NestedToolActivity key={child.id} tool={child} isLive={isLive} isPaused={isPaused} parentOpen={open} />
               ))}
               {images.length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-2">
@@ -201,12 +201,15 @@ function NestedToolActivity({
   tool,
   isLive,
   isPaused,
+  parentOpen,
 }: {
   tool: import('../model/types').ToolRun
   isLive: boolean
   isPaused: boolean
+  parentOpen: boolean
 }) {
   const [open, setOpen] = React.useState(false)
+  if (!parentOpen && open) setOpen(false)
   return (
     <div className="mt-1 border-l border-border/40 pl-2" data-parent-tool={tool.parentToolCallId}>
       <ToolActivityRow

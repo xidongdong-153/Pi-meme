@@ -29,6 +29,7 @@ export function ActivityGroup({
   durationMs,
   startedAt,
   showElapsedTime = true,
+  collapsed = false,
   onToggle,
   className,
 }: {
@@ -39,6 +40,7 @@ export function ActivityGroup({
   durationMs?: number
   startedAt?: number
   showElapsedTime?: boolean
+  collapsed?: boolean
   onToggle?: () => void
   className?: string
 }) {
@@ -68,6 +70,7 @@ export function ActivityGroup({
             items={segment.items}
             isLive={isLive && index === segments.length - 1}
             isPaused={isPaused}
+            collapsed={collapsed}
             onToggle={onToggle}
           />
         ),
@@ -86,20 +89,25 @@ function ActivityDisclosure({
   items,
   isLive,
   isPaused,
+  collapsed,
   onToggle,
 }: {
   items: ActivityItem[]
   isLive: boolean
   isPaused: boolean
+  collapsed: boolean
   onToggle?: () => void
 }) {
   const [open, setOpen] = React.useState(false)
   const [hasOpened, setHasOpened] = React.useState(false)
   const [childOpenMap, setChildOpenMap] = React.useState<Record<string, boolean>>({})
   const detailsId = React.useId()
+  if (collapsed && open) {
+    setOpen(false)
+    setChildOpenMap({})
+  }
   const meta = summarizeActivities(items)
   const activities = items.flatMap(flattenActivities)
-  const hasError = activities.some((item) => item.status === 'error')
   const completedSummary =
     items.length === 1 && items[0]!.type !== 'thinking' ? parseToolMeta(items[0]!).summary : meta.summary || '思考过程'
   const waitingForInput =
@@ -117,12 +125,7 @@ function ActivityDisclosure({
   const toggle = () => {
     onToggle?.()
     if (!open) setHasOpened(true)
-    if (!open && hasError) {
-      const failed = items.find((item) => flattenActivities(item).some((activity) => activity.status === 'error'))
-      if (failed && childOpenMap[failed.id] === undefined) {
-        setChildOpenMap((previous) => ({ ...previous, [failed.id]: true }))
-      }
-    }
+    else setChildOpenMap({})
     setOpen(!open)
   }
   const toggleChild = (id: string) => setChildOpenMap((previous) => ({ ...previous, [id]: !previous[id] }))
@@ -131,7 +134,7 @@ function ActivityDisclosure({
     <div className="min-w-0 py-1">
       <button
         type="button"
-        aria-label={`活动详情：${completedSummary}${hasError ? ' · 有调用失败' : ''}`}
+        aria-label={`活动详情：${completedSummary}`}
         aria-expanded={open}
         aria-controls={detailsId}
         onClick={toggle}
@@ -150,7 +153,6 @@ function ActivityDisclosure({
           </span>
         )}
         <span className={cn('min-w-0 truncate', isWorking && 'thought-shimmer')}>{completedSummary}</span>
-        {hasError && <span className="shrink-0 text-destructive">有调用失败</span>}
         {waitingForInput && (
           <span role="status" className="shrink-0">
             等待你的回答…

@@ -51,11 +51,16 @@ test('计时总开关保留运行中的手动选择，完成时收起全部过�
   expect(disclosure).toHaveAttribute('aria-expanded', 'true')
   expect(tool).toHaveAttribute('aria-expanded', 'true')
   await user.click(process)
+  expect(disclosure).toHaveAttribute('aria-expanded', 'false')
+  expect(tool).toHaveAttribute('aria-expanded', 'false')
   expect(disclosure.closest('[aria-hidden="true"]')).not.toBeNull()
   expect(tool.closest('[aria-hidden="true"]')).not.toBeNull()
   rerender(view(true))
   expect(process).toHaveAttribute('aria-expanded', 'false')
   await user.click(process)
+  expect(disclosure).toHaveAttribute('aria-expanded', 'false')
+  await user.click(disclosure)
+  await user.click(tool)
   rerender(view(false))
   expect(process).toHaveAttribute('aria-expanded', 'false')
   expect(disclosure.closest('[aria-hidden="true"]')).not.toBeNull()
@@ -63,8 +68,8 @@ test('计时总开关保留运行中的手动选择，完成时收起全部过�
   expect(screen.getByText('最终回复保持可见')).toBeVisible()
   await user.click(process)
   expect(disclosure).toBeVisible()
-  expect(disclosure).toHaveAttribute('aria-expanded', 'true')
-  expect(tool).toHaveAttribute('aria-expanded', 'true')
+  expect(disclosure).toHaveAttribute('aria-expanded', 'false')
+  expect(tool).toHaveAttribute('aria-expanded', 'false')
   rerender(view(false))
   expect(process).toHaveAttribute('aria-expanded', 'true')
   rerender(view(true))
@@ -99,6 +104,8 @@ test('连续思考和工具只占一个活动组，分组和思考均可用键�
   expect(thinking).toHaveAttribute('aria-expanded', 'true')
   await user.keyboard(' ')
   expect(thinking).toHaveAttribute('aria-expanded', 'false')
+  await user.keyboard('{Enter}')
+  expect(thinking).toHaveAttribute('aria-expanded', 'true')
   group.focus()
   await user.keyboard(' ')
   expect(group).toHaveAttribute('aria-expanded', 'false')
@@ -106,7 +113,8 @@ test('连续思考和工具只占一个活动组，分组和思考均可用键�
   expect(tool.closest('[aria-hidden="true"]')).not.toBeNull()
   await user.keyboard('{Enter}')
   expect(screen.getByRole('button', { name: '工具详情：read' })).toBe(tool)
-  expect(tool).toHaveAttribute('aria-expanded', 'true')
+  expect(tool).toHaveAttribute('aria-expanded', 'false')
+  expect(thinking).toHaveAttribute('aria-expanded', 'false')
 })
 
 test('流式正文进入工作过程后保留原节点，结束时收起中间正文并支持再次展开', async () => {
@@ -266,7 +274,7 @@ test('子代理状态切开的中间回复不显示消息操作，整轮结束�
   expectNoActions(replies().at(-1)!)
 })
 
-test('折叠的活动组显示失败，展开后直接看到失败工具的输出', async () => {
+test('活动摘要不提示调用失败，错误输出仅在手动展开工具后显示', async () => {
   const user = userEvent.setup()
   render(
     <ActivityGroup
@@ -282,11 +290,69 @@ test('折叠的活动组显示失败，展开后直接看到失败工具的输�
       ]}
     />,
   )
-  const group = screen.getByRole('button', { name: /^活动详情：.*失败/ })
+  const group = screen.getByRole('button', { name: /^活动详情：/ })
   expect(group).toHaveAttribute('aria-expanded', 'false')
+  expect(group).not.toHaveAccessibleName(/失败/)
+  expect(screen.queryByText('有调用失败')).toBeNull()
   await user.click(group)
-  expect(screen.getByRole('button', { name: '工具详情：bash' })).toHaveAttribute('aria-expanded', 'true')
+  const tool = screen.getByRole('button', { name: '工具详情：bash' })
+  expect(tool).toHaveAttribute('aria-expanded', 'false')
+  expect(screen.getByText('关闭状态的类型不匹配').closest('[aria-hidden]')).toHaveAttribute('aria-hidden', 'true')
+  expect(tool).toHaveTextContent('失败')
+  await user.click(tool)
   expect(screen.getByText('关闭状态的类型不匹配')).toBeVisible()
+  await user.click(group)
+  await user.click(group)
+  expect(tool).toHaveAttribute('aria-expanded', 'false')
+  expect(screen.queryByText('有调用失败')).toBeNull()
+})
+
+test('折叠工具或活动组时递归收起嵌套工具，再次展开保留节点但不恢复展开状态', async () => {
+  const user = userEvent.setup()
+  render(
+    <ActivityGroup
+      items={[
+        {
+          id: 'outer',
+          name: 'codemode',
+          status: 'success',
+          children: [
+            {
+              id: 'middle',
+              name: 'bash',
+              status: 'success',
+              children: [{ id: 'inner', name: 'read', status: 'success', result: '嵌套文件结果' }],
+            },
+          ],
+        },
+      ]}
+    />,
+  )
+  const group = screen.getByRole('button', { name: /^活动详情：/ })
+  await user.click(group)
+  const outer = screen.getByRole('button', { name: '工具详情：codemode' })
+  await user.click(outer)
+  const middle = screen.getByRole('button', { name: '工具详情：bash' })
+  await user.click(middle)
+  const inner = screen.getByRole('button', { name: '工具详情：read' })
+  await user.click(inner)
+  expect(screen.getByText('嵌套文件结果')).toBeVisible()
+  await user.click(outer)
+  expect(middle).toHaveAttribute('aria-expanded', 'false')
+  expect(inner).toHaveAttribute('aria-expanded', 'false')
+  await user.click(outer)
+  await user.click(middle)
+  expect(screen.getByRole('button', { name: '工具详情：read' })).toBe(inner)
+  expect(inner).toHaveAttribute('aria-expanded', 'false')
+  await user.click(inner)
+  await user.click(group)
+  expect(outer).toHaveAttribute('aria-expanded', 'false')
+  expect(middle).toHaveAttribute('aria-expanded', 'false')
+  expect(inner).toHaveAttribute('aria-expanded', 'false')
+  await user.click(group)
+  await user.click(outer)
+  expect(screen.getByRole('button', { name: '工具详情：bash' })).toBe(middle)
+  expect(middle).toHaveAttribute('aria-expanded', 'false')
 })
 
 test('折叠的嵌套提问显示等待，完成后不再使用等待文案', () => {
