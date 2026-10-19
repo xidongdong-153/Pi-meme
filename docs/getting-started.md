@@ -140,7 +140,7 @@ Linux/WSL2 的系统依赖和文件系统要求先看 [Linux 与 WSL](linux-wsl.
 pnpm start
 ```
 
-命令启动 Electron Forge、Vite 和 Desktop。浏览器可同时打开 [开发界面](http://127.0.0.1:5173)，与 Desktop 共用默认 `127.0.0.1:31415` 的 Host，不需要再执行 `pnpm start:web` 或 `pnpm start:server`。已有兼容 Host 时直接复用，没有才启动本机子进程；两端均通过本机同源检查自动登录。默认数据目录是 `~/.pi-meme`。启动接线见 [main.ts](../apps/desktop/src/main/main.ts)、[local-host.ts](../apps/desktop/src/main/local-host.ts) 与 [host-process.ts](../apps/desktop/src/main/host-process.ts)。
+命令启动 Electron Forge、Vite 和 Desktop。浏览器可同时打开 [开发界面](http://127.0.0.1:5173)，与 Desktop 共用默认 `127.0.0.1:31416` 的 Host，不需要再执行 `pnpm start:web` 或 `pnpm start:server`。已有兼容 Host 时直接复用，没有才启动本机子进程；两端均通过本机同源检查自动登录。开发版默认数据目录是 `~/.pi-meme-dev`，Electron 缓存和单实例锁使用 `appData/pi-meme-dev`（macOS 为 `~/Library/Application Support/pi-meme-dev`）。构建 App 继续使用 `31415` 和 `~/.pi-meme`，两者可同时运行。开发版需单独配置模型，不自动复制正式数据。显式设置 `PI_MEME_PORT` 或 `PI_MEME_DATA_ROOT` 时仍以环境变量为准；需要并行运行时，不要将两者覆盖成同一端口或目录。启动接线见 [main.ts](../apps/desktop/src/main/main.ts)、[local-host.ts](../apps/desktop/src/main/local-host.ts) 与 [host-process.ts](../apps/desktop/src/main/host-process.ts)。
 
 打开“设置 → Agent → 模型”，连接服务商并选择默认模型和思考强度，再新建项目或会话。未配置模型时仍可查看设置、资源和历史。应用不读取本机 Pi CLI 的模型凭据，配置位置见 [配置与安全](configuration.md)。
 
@@ -175,10 +175,12 @@ Desktop 和 Server 使用相同端口、相同真实数据目录时，只创建�
 
 Desktop 自定义目录保存在本机定位文件，Server 不读取它。先在 Desktop 查看数据目录，再以相同 `PI_MEME_DATA_ROOT` 启动 Server。目录不同、协议不兼容或端口被其他程序占用时明确报错，不会悄悄换端口。设置新的令牌、TLS 或 Web 根目录属于创建配置，不能应用到已运行的 Host。
 
+Server 默认连接构建 App 使用的 `31415` 和 `~/.pi-meme`。需要连接 Desktop 开发版时，显式设置 `PI_MEME_PORT=31416` 和 `PI_MEME_DATA_ROOT="$HOME/.pi-meme-dev"`；独立 Web 的代理也需设置 `PI_MEME_PORT=31416`。
+
 运行另一套独立 Host，目录和端口都要区分：
 
 ```bash
-PI_MEME_DATA_ROOT=/absolute/path/pi-meme-other-data PI_MEME_PORT=31416 pnpm start:server
+PI_MEME_DATA_ROOT=/absolute/path/pi-meme-other-data PI_MEME_PORT=31417 pnpm start:server
 ```
 
 独立 Web 的 `PI_MEME_HOST_URL` 优先于 `PI_MEME_PORT`；未设置地址时使用本机端口。Forge Renderer 始终跟随 Desktop 的本机端口。已由 `pnpm start` 占用 5173 时，直接打开该页面，不再启动第二个 Vite。

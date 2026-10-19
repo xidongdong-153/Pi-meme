@@ -1,6 +1,7 @@
 import { app, type BrowserWindow } from 'electron'
 import path from 'node:path'
 import { mkdirSync } from 'node:fs'
+import { homedir } from 'node:os'
 import type { HostConnection, HostConnectionError, SavedHostConnection } from '@pi-meme/contracts/host'
 import { createNodeHostClient, type NodeHostClient } from '@pi-meme/client/node-host-client'
 import { readLocalHostStatus } from '@pi-meme/host/host-status'
@@ -17,6 +18,10 @@ import { acquireDesktopHost } from './local-host'
 if (['memory', 'file'].includes(process.env.PI_MEME_TEST_CREDENTIALS ?? '')) {
   if (!process.env.PI_MEME_DATA_ROOT) throw new Error('Desktop 验收必须指定临时 PI_MEME_DATA_ROOT')
   const cache = path.join(process.env.PI_MEME_DATA_ROOT, 'desktop-cache')
+  mkdirSync(cache, { recursive: true })
+  app.setPath('userData', cache)
+} else if (!app.isPackaged) {
+  const cache = path.join(app.getPath('appData'), 'pi-meme-dev')
   mkdirSync(cache, { recursive: true })
   app.setPath('userData', cache)
 }
@@ -47,6 +52,7 @@ app.on('second-instance', () => {
 const storage = createStorageController({
   anchor: app.getPath('userData'),
   override: process.env.PI_MEME_DATA_ROOT,
+  defaultRoot: app.isPackaged ? undefined : path.join(homedir(), '.pi-meme-dev'),
   getWindow: () => window,
   getHostId: () => localHost?.status.hostId,
   ownsHost: () => localHost?.ownership === 'owned',

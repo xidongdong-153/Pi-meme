@@ -1,13 +1,43 @@
 import assert from 'node:assert/strict'
 import { EventEmitter } from 'node:events'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { homedir, tmpdir } from 'node:os'
+import path from 'node:path'
 import { afterEach, beforeEach, test, vi } from 'vitest'
 import { acquireDesktopHost } from '../src/main/local-host'
 
-const mocks = vi.hoisted(() => ({ fork: vi.fn(), prepareEnv: vi.fn(), acquire: vi.fn() }))
-vi.mock('electron', () => ({ utilityProcess: { fork: mocks.fork } }))
+const mocks = vi.hoisted(() => ({
+  fork: vi.fn(),
+  prepareEnv: vi.fn(),
+  acquire: vi.fn(),
+  storage: vi.fn(),
+  pendingStorageJob: vi.fn(),
+  app: {
+    isPackaged: false,
+    getPath: vi.fn(),
+    setPath: vi.fn(),
+    requestSingleInstanceLock: vi.fn(),
+    on: vi.fn(),
+    whenReady: vi.fn(),
+    exit: vi.fn(),
+  },
+}))
+vi.mock('electron', () => ({
+  app: mocks.app,
+  utilityProcess: { fork: mocks.fork },
+  BrowserWindow: vi.fn(),
+  dialog: {},
+  ipcMain: {},
+  shell: {},
+  nativeImage: {},
+  nativeTheme: {},
+}))
 vi.mock('../src/main/user-login-path', () => ({ prepareDesktopHostEnv: mocks.prepareEnv }))
 vi.mock('@pi-meme/host/local-host', () => ({ acquireLocalHost: mocks.acquire }))
+vi.mock('../src/main/storage/controller', () => ({ createStorageController: mocks.storage }))
+vi.mock('../src/main/storage/preferences', () => ({ pendingStorageJob: mocks.pendingStorageJob }))
 beforeEach(() => {
+  mocks.app.isPackaged = false
   mocks.prepareEnv.mockImplementation(async (env: NodeJS.ProcessEnv) => ({ ...env }))
   mocks.acquire.mockImplementation(async ({ create }: { create: () => Promise<{ url: string }> }) => {
     const resource = await create()
@@ -16,6 +46,7 @@ beforeEach(() => {
 })
 afterEach(() => {
   vi.useRealTimers()
+  vi.unstubAllEnvs()
   vi.resetAllMocks()
 })
 
@@ -26,14 +57,84 @@ async function fixture(env: NodeJS.ProcessEnv = {}) {
       queueMicrotask(() => child.emit('message', { type: 'maintenance:result', id: value.id }))
     if (value.type === 'stop') queueMicrotask(() => child.emit('exit', 0))
   })
-  mocks.fork.mockImplementation(() => {
-    queueMicrotask(() => child.emit('message', { type: 'ready', url: 'http://127.0.0.1:31415', hostId: 'fixture' }))
+  mocks.fork.mockImplementation((_entry, _args, options: { env: NodeJS.ProcessEnv }) => {
+    queueMicrotask(() =>
+      child.emit('message', { type: 'ready', url: `http://127.0.0.1:${options.env.PI_MEME_PORT}`, hostId: 'fixture' }),
+    )
     return child
   })
   const lease = await acquireDesktopHost({ entry: '/fixture/host-process.js', env, dataRoot: '/fixture/data' })
   if (lease.ownership !== 'owned') throw new Error('fixture 应拥有 Host')
   return { child, process: lease.resource }
 }
+
+test.each([
+  { packaged: false, override: undefined, port: '31416' },
+  { packaged: true, override: undefined, port: '31415' },
+  { packaged: false, override: '31417', port: '31417' },
+  { packaged: true, override: '31417', port: '31417' },
+  { packaged: false, override: '0', port: '0' },
+  { packaged: true, override: '0', port: '0' },
+])('Desktop packaged=$packaged、覆盖端口=$override 使用端口 $port', async ({ packaged, override, port }) => {
+  mocks.app.isPackaged = packaged
+  const f = await fixture({ PI_MEME_PORT: override })
+  try {
+    assert.equal(mocks.acquire.mock.calls[0][0].url, `http://127.0.0.1:${port}`)
+    assert.equal(mocks.fork.mock.calls[0][2].env.PI_MEME_PORT, port)
+  } finally {
+    await f.process.dispose()
+  }
+})
+
+test.each([
+  { packaged: false, testCredentials: false },
+  { packaged: true, testCredentials: false },
+  { packaged: false, testCredentials: true },
+  { packaged: true, testCredentials: true },
+])(
+  'Desktop packaged=$packaged、测试凭据=$testCredentials 在申请单实例锁前隔离目录',
+  async ({ packaged, testCredentials }) => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'pi-desktop-profile-'))
+    const appData = path.join(directory, 'application-support')
+    const userData = path.join(appData, 'pi-meme')
+    const dataRoot = testCredentials ? path.join(directory, 'test-data') : undefined
+    const expectedCache = dataRoot
+      ? path.join(dataRoot, 'desktop-cache')
+      : packaged
+        ? userData
+        : path.join(appData, 'pi-meme-dev')
+    const paths = new Map([
+      ['appData', appData],
+      ['userData', userData],
+    ])
+    mocks.app.isPackaged = packaged
+    mocks.app.getPath.mockImplementation((name: string) => paths.get(name))
+    mocks.app.setPath.mockImplementation((name: string, value: string) => paths.set(name, value))
+    mocks.app.requestSingleInstanceLock.mockImplementation(() => {
+      assert.equal(paths.get('userData'), expectedCache)
+      return true
+    })
+    mocks.app.whenReady.mockReturnValue(new Promise(() => {}))
+    mocks.storage.mockReturnValue({})
+    vi.stubEnv('PI_MEME_DATA_ROOT', dataRoot)
+    vi.stubEnv('PI_MEME_TEST_CREDENTIALS', testCredentials ? 'memory' : undefined)
+    try {
+      vi.resetModules()
+      await import('../src/main/main')
+      assert.equal(mocks.app.requestSingleInstanceLock.mock.calls.length, 1)
+      assert.equal(mocks.storage.mock.calls[0][0].anchor, expectedCache)
+      assert.equal(mocks.storage.mock.calls[0][0].override, dataRoot)
+      assert.equal(
+        mocks.storage.mock.calls[0][0].defaultRoot ?? path.join(homedir(), '.pi-meme'),
+        path.join(homedir(), packaged ? '.pi-meme' : '.pi-meme-dev'),
+      )
+      if (!testCredentials)
+        assert.equal(mocks.pendingStorageJob.mock.calls[0][0], path.join(expectedCache, 'storage-location.json'))
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  },
+)
 
 test('启动 Host 前恢复 PATH，并保留 Host 参数与其他环境变量', async () => {
   const env = { PATH: '/usr/bin:/bin', ESBUILD_BINARY_PATH: '/fixture/esbuild', PI_MEME_PORT: '31416' }

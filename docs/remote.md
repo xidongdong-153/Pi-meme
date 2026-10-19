@@ -41,7 +41,7 @@ pnpm start:server
 
 打开 [本机 Host](http://127.0.0.1:31415)，本机来源自动登录。开发时另开终端执行 `pnpm start:web`，访问 [开发界面](http://127.0.0.1:5173)。完整安装、双终端与构建产物用法见 [快速开始](getting-started.md)。
 
-Host 数据目录默认 `~/.pi-meme`，同一目录只允许一个 Host 写入。Desktop 和 Server 的目录、端口一致时复用同一个运行实例；创建方负责停机。先运行 `pnpm start` 时可直接打开 5173，不再运行第二个 Vite 或 Server；先运行 Server 时 Desktop 只连接，不接管生命周期。不同目录不能复用同一端口；多套独立 Host 必须同时区分 `PI_MEME_DATA_ROOT` 和 `PI_MEME_PORT`。
+构建 App 和独立 Server 默认使用 `~/.pi-meme` 和端口 `31415`；`pnpm start` 的 Desktop 开发版使用 `~/.pi-meme-dev` 和端口 `31416`。同一目录只允许一个 Host 写入。Desktop 和 Server 的目录、端口一致时复用同一个运行实例；创建方负责停机。先运行 `pnpm start` 时可直接打开 5173，不再运行第二个 Vite 或 Server；Server 需要复用开发 Host 时，同时设置 `PI_MEME_DATA_ROOT="$HOME/.pi-meme-dev"` 和 `PI_MEME_PORT=31416`。不同目录不能复用同一端口；多套独立 Host 必须同时区分目录和端口。
 
 本机共享入口通过 `GET /api/status` 校验产品、运行协议、Host 身份和真实目录。状态仅允许本机来源读取，不返回令牌、Cookie 或远程密钥。Server 入口发现兼容 Host 后打印复用结果并成功退出；显式设置令牌、TLS 或 Web 根目录时不能静默应用到已有 Host，需先停止管理方。实现见 [local-host.ts](../packages/host/src/local-host.ts) 与 [运行契约](../packages/contracts/src/host-runtime.ts)。
 
@@ -67,16 +67,16 @@ PI_MEME_TOKEN=replace-with-your-access-token \
 
 ## 运行参数
 
-| 环境变量                               | 作用范围                      | 用途与默认值                                                        |
-| -------------------------------------- | ----------------------------- | ------------------------------------------------------------------- |
-| `PI_MEME_DATA_ROOT`                    | Host                          | 数据根目录，默认 `~/.pi-meme`                                       |
-| `PI_MEME_HOST`                         | 独立 Server                   | 监听地址，默认 `127.0.0.1`                                          |
-| `PI_MEME_PORT`                         | Desktop、Server、Web 开发代理 | 本机端口，默认 `31415`；`0` 用于隔离测试，不参与自动复用            |
-| `PI_MEME_TOKEN`                        | 独立 Server                   | 登录令牌；未设置时读取 `auth.json`，首次生成                        |
-| `PI_MEME_WEB_ROOT`                     | 独立 Server                   | 页面目录，默认应用相邻的 `apps/web/dist`                            |
-| `PI_MEME_TLS_CERT` / `PI_MEME_TLS_KEY` | 独立 Server                   | HTTPS 证书与私钥文件路径，必须同时提供                              |
-| `PI_MEME_HOST_URL`                     | 独立 Web 开发服务器           | `/api` 代理目标，优先于 `PI_MEME_PORT`；Forge Renderer 不使用此覆盖 |
-| `PI_MEME_REMOTE_HOST`                  | Desktop                       | 启动时登记指定远程服务；登录令牌来自 `PI_MEME_TOKEN` 或已保存记录   |
+| 环境变量                               | 作用范围                      | 用途与默认值                                                                                                       |
+| -------------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `PI_MEME_DATA_ROOT`                    | Host                          | 数据根目录，构建 App、Server 默认 `~/.pi-meme`；Desktop 开发版默认 `~/.pi-meme-dev`                                |
+| `PI_MEME_HOST`                         | 独立 Server                   | 监听地址，默认 `127.0.0.1`                                                                                         |
+| `PI_MEME_PORT`                         | Desktop、Server、Web 开发代理 | 构建 App、Server 和独立 Web 代理默认 `31415`；Desktop 开发版及其代理默认 `31416`；`0` 用于隔离测试，不参与自动复用 |
+| `PI_MEME_TOKEN`                        | 独立 Server                   | 登录令牌；未设置时读取 `auth.json`，首次生成                                                                       |
+| `PI_MEME_WEB_ROOT`                     | 独立 Server                   | 页面目录，默认应用相邻的 `apps/web/dist`                                                                           |
+| `PI_MEME_TLS_CERT` / `PI_MEME_TLS_KEY` | 独立 Server                   | HTTPS 证书与私钥文件路径，必须同时提供                                                                             |
+| `PI_MEME_HOST_URL`                     | 独立 Web 开发服务器           | `/api` 代理目标，优先于 `PI_MEME_PORT`；Forge Renderer 不使用此覆盖                                                |
+| `PI_MEME_REMOTE_HOST`                  | Desktop                       | 启动时登记指定远程服务；登录令牌来自 `PI_MEME_TOKEN` 或已保存记录                                                  |
 
 Server 参数来自 [main.ts](../apps/server/src/main.ts)，开发代理来自 [Vite 配置](../apps/web/vite.config.ts)，Desktop 登记来自 [main.ts](../apps/desktop/src/main/main.ts)。测试凭据与 Worker 路径覆盖属于开发接线，不是日常部署所需参数。
 

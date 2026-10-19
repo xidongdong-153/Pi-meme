@@ -8,6 +8,29 @@ import { createServer as createNetServer } from 'node:net'
 import { startHostServer } from '@pi-meme/host/server'
 import { createServer, loadConfigFromFile, mergeConfig } from 'vite'
 
+test('Desktop 开发代理默认使用 31416，与构建 App 的 31415 隔离', async () => {
+  vi.stubEnv('PI_MEME_PORT', undefined)
+  const root = fileURLToPath(new URL('..', import.meta.url))
+  try {
+    const loaded = await loadConfigFromFile(
+      {
+        command: 'serve',
+        mode: 'development',
+        root,
+        forgeConfig: { build: [], renderer: [] },
+        forgeConfigSelf: { name: 'main_window', config: 'vite.renderer.config.mts' },
+      },
+      path.join(root, 'vite.renderer.config.mts'),
+    )
+    assert.ok(loaded)
+    const proxy = loaded.config.server?.proxy?.['/api']
+    assert.ok(typeof proxy === 'object')
+    assert.equal(proxy.target, 'http://127.0.0.1:31416')
+  } finally {
+    vi.unstubAllEnvs()
+  }
+})
+
 test('开发模式直接加载 workspace 聊天源码，发送时保留会话标识', async () => {
   const root = fileURLToPath(new URL('..', import.meta.url))
   const cacheDir = await mkdtemp(path.join(os.tmpdir(), 'pi-desktop-vite-'))

@@ -1,6 +1,6 @@
-import { utilityProcess, type UtilityProcess } from 'electron'
+import { app, utilityProcess, type UtilityProcess } from 'electron'
 import { randomUUID } from 'node:crypto'
-import { hostPort, localHostUrl } from '@pi-meme/contracts/host-runtime'
+import { defaultDevelopmentHostPort, defaultHostPort, hostPort, localHostUrl } from '@pi-meme/contracts/host-runtime'
 import { acquireLocalHost } from '@pi-meme/host/local-host'
 import { prepareDesktopHostEnv } from './user-login-path'
 
@@ -114,7 +114,7 @@ function launchHost(entry: string, env: NodeJS.ProcessEnv): Promise<DesktopHostP
 }
 
 export function acquireDesktopHost(options: { entry: string; env: NodeJS.ProcessEnv; dataRoot: string }) {
-  const port = hostPort(options.env.PI_MEME_PORT)
+  const port = hostPort(options.env.PI_MEME_PORT, app.isPackaged ? defaultHostPort : defaultDevelopmentHostPort)
   return acquireLocalHost({
     url: localHostUrl(port),
     dataRoot: options.dataRoot,
