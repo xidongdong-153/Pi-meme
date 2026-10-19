@@ -6,7 +6,7 @@ import { normalizePlanMessage } from '../src/plan'
 test('计划候选仅注册 canonical plan，原有命令保持', () => {
   assert.deepEqual(
     builtinCommands.map((command) => command.name),
-    ['plan', 'compact', 'name'],
+    ['plan', 'goal', 'compact', 'name'],
   )
 })
 

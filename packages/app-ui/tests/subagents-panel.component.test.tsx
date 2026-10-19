@@ -88,7 +88,7 @@ test('详情隐藏派发消息和路径，模型及强度随事件更新，图�
     })
   })
   expect(screen.getByText('next-model')).toBeVisible()
-  expect(screen.getByTitle('思考强度：关')).toBeVisible()
+  expect(screen.getByTitle('思考强度：关闭')).toBeVisible()
   expect(screen.getByText('检查布局')).toHaveAttribute('title', '检查布局 · 已暂停')
   expect(getAgentSnapshot).toHaveBeenCalledExactlyOnceWith('child')
   expect(snapshot).toEqual(original)

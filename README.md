@@ -6,13 +6,13 @@ Pi Coding Agent 的 macOS Desktop 和 Web 客户端。Electron 提供窗口与�
 
 ## 下载使用
 
-当前公开预览版：[v0.1.0-beta.3](https://github.com/xidongdong-153/Pi-meme/releases/tag/v0.1.0-beta.3)。从该页面下载下表附件和 `SHA256SUMS`；GitHub 自动生成的 Source code 是源码归档，不是安装包。
+当前公开预览版：[v0.1.0-beta.4](https://github.com/xidongdong-153/Pi-meme/releases/tag/v0.1.0-beta.4)。从该页面下载下表附件和 `SHA256SUMS`；GitHub 自动生成的 Source code 是源码归档，不是安装包。
 
 | 下载包                                         | 适用场景                                      |
 | ---------------------------------------------- | --------------------------------------------- |
-| `pi-meme-desktop-0.1.0-beta.3-macos-arm64.zip` | Apple Silicon Mac 桌面应用，已经包含本机 Host |
-| `pi-meme-host-0.1.0-beta.3-macos-arm64.tar.gz` | Apple Silicon Mac 独立 Host 与 Web            |
-| `pi-meme-host-0.1.0-beta.3-linux-x64.tar.gz`   | Linux x64 独立 Host 与 Web                    |
+| `pi-meme-desktop-0.1.0-beta.4-macos-arm64.zip` | Apple Silicon Mac 桌面应用，已经包含本机 Host |
+| `pi-meme-host-0.1.0-beta.4-macos-arm64.tar.gz` | Apple Silicon Mac 独立 Host 与 Web            |
+| `pi-meme-host-0.1.0-beta.4-linux-x64.tar.gz`   | Linux x64 独立 Host 与 Web                    |
 | `SHA256SUMS`                                   | 校验下载包                                    |
 
 启动下载包不需要另外安装 Node.js、pnpm 或 Pi CLI；项目任务使用的 pnpm、Python、ego-browser 等外部工具仍需自行安装。产物验收基线是 macOS 15 arm64、Ubuntu 24.04 x64。Linux 需要 Git、bash 和 bubblewrap；其他 macOS 版本与 Linux 发行版未完成同等验收，不支持 Intel Mac、Linux arm64、Alpine/musl 和 Windows 原生运行。
@@ -21,11 +21,11 @@ macOS Desktop 安装步骤：
 
 1. 下载 Desktop ZIP 和 `SHA256SUMS`，按[安装说明](docs/getting-started.md#安装-macos-desktop)核对 SHA256。
 2. 退出旧版应用，解压 ZIP，在 Finder 中将 `pi-meme.app` 拖到“应用程序”（`/Applications`），再从该目录双击打开。
-3. beta.3 使用 ad-hoc 签名，尚未做 Developer ID 签名和 Apple 公证。若 macOS 阻止启动，确认来源与校验值后，在“系统设置 → 隐私与安全性”中针对 pi-meme 选择“仍要打开”，按系统提示确认。具体提示与处理步骤见[首次打开](docs/getting-started.md#macos-首次打开)。
+3. beta.4 使用 ad-hoc 签名，尚未做 Developer ID 签名和 Apple 公证。若 macOS 阻止启动，确认来源与校验值后，在“系统设置 → 隐私与安全性”中针对 pi-meme 选择“仍要打开”，按系统提示确认。具体提示与处理步骤见[首次打开](docs/getting-started.md#macos-首次打开)。
 
 首次打开确认决定应用能否启动；“文件与文件夹”授权决定能否访问桌面、文稿、下载等受保护目录；App 内“完全权限”只控制 Agent 的执行范围，不会授予 macOS 的“完全磁盘访问权限”。普通项目无需预先开启完全磁盘访问，目录授权应按任务需要处理。对照说明见[首次打开与目录授权的区别](docs/getting-started.md#首次打开与目录授权的区别)。
 
-应用打开后，在设置中配置模型服务商和模型，再选择项目开始聊天。已有 `~/.pi-meme` 配置会继续使用。beta.3 会为 Desktop 新建的本机 Host 恢复用户登录 Shell 的 PATH，已安装工具的检查方法见[检查项目命令](docs/getting-started.md#检查项目命令)。
+应用打开后，在设置中配置模型服务商和模型，再选择项目开始聊天。已有 `~/.pi-meme` 配置会继续使用。beta.4 会为 Desktop 新建的本机 Host 恢复用户登录 Shell 的 PATH，已安装工具的检查方法见[检查项目命令](docs/getting-started.md#检查项目命令)。
 
 Host 包含 Web，解压后运行 `./pi-meme-host/bin/pi-meme-host`，浏览器打开 `http://127.0.0.1:31415`。远程监听继续要求 HTTPS，见 [Remote](docs/remote.md)。
 

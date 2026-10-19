@@ -20,17 +20,17 @@ paths:
 
 ## 下载使用
 
-从 [v0.1.0-beta.3 发布页](https://github.com/xidongdong-153/Pi-meme/releases/tag/v0.1.0-beta.3) 下载对应附件与 `SHA256SUMS`。GitHub 自动生成的 Source code 是源码归档，不是安装包。
+从 [v0.1.0-beta.4 发布页](https://github.com/xidongdong-153/Pi-meme/releases/tag/v0.1.0-beta.4) 下载对应附件与 `SHA256SUMS`。GitHub 自动生成的 Source code 是源码归档，不是安装包。
 
-下载包的产物验收基线为 macOS 15 arm64、Ubuntu 24.04 x64。Desktop 支持 Apple Silicon Mac，不提供 Intel Mac 或 Windows 原生安装包。Desktop 已包含本机 Host，使用桌面应用只需下载 `pi-meme-desktop-0.1.0-beta.3-macos-arm64.zip`。独立 Host 已包含 Web、Node.js 24.14.0、Worker、技能和生产依赖；启动下载版无需另外安装 Node.js、pnpm 或 Pi CLI。
+下载包的产物验收基线为 macOS 15 arm64、Ubuntu 24.04 x64。Desktop 支持 Apple Silicon Mac，不提供 Intel Mac 或 Windows 原生安装包。Desktop 已包含本机 Host，使用桌面应用只需下载 `pi-meme-desktop-0.1.0-beta.4-macos-arm64.zip`。独立 Host 已包含 Web、Node.js 24.14.0、Worker、技能和生产依赖；启动下载版无需另外安装 Node.js、pnpm 或 Pi CLI。
 
 ### 安装 macOS Desktop
 
-1. 从同一个 beta.3 发布页下载 Desktop ZIP 和 `SHA256SUMS`。
+1. 从同一个 beta.4 发布页下载 Desktop ZIP 和 `SHA256SUMS`。
 2. 在下载目录打开终端，执行下方命令，将输出的 SHA256 与 `SHA256SUMS` 中同名文件的值逐字比较。
 
    ```bash
-   shasum -a 256 pi-meme-desktop-0.1.0-beta.3-macos-arm64.zip
+   shasum -a 256 pi-meme-desktop-0.1.0-beta.4-macos-arm64.zip
    ```
 
 3. 校验一致后解压 ZIP。升级时先退出旧 Desktop；若独立 Host 正在使用同一数据目录，也先停止它，避免新版复用旧 Host。数据备份见[升级](#升级)。
@@ -39,7 +39,7 @@ paths:
 
 ### macOS 首次打开
 
-beta.3 使用 ad-hoc 签名，尚未做 Developer ID 签名和 Apple 公证，macOS 的 Gatekeeper 可能阻止首次启动。这个阶段应用还未进入聊天界面，调整模型或 Agent 的“完全权限”不能解决启动拦截。
+beta.4 使用 ad-hoc 签名，尚未做 Developer ID 签名和 Apple 公证，macOS 的 Gatekeeper 可能阻止首次启动。这个阶段应用还未进入聊天界面，调整模型或 Agent 的“完全权限”不能解决启动拦截。
 
 | 看到的提示或现象                               | 处理方式                                                                                                                                                             |
 | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -69,7 +69,7 @@ Gatekeeper 确认只处理应用启动，不授予项目目录访问权限。正
 
 ### 检查项目命令
 
-beta.3 会在 Desktop 新建本机 Host 前恢复用户登录 Shell 的 PATH；会话命令、MCP 和项目终端继承该环境。它帮助定位已安装的工具，不会自动安装 pnpm、ego-browser、Python 等项目依赖。需要使用这些工具时，可以让 Agent 在项目目录执行：
+beta.4 会在 Desktop 新建本机 Host 前恢复用户登录 Shell 的 PATH；会话命令、MCP 和项目终端继承该环境。它帮助定位已安装的工具，不会自动安装 pnpm、ego-browser、Python 等项目依赖。需要使用这些工具时，可以让 Agent 在项目目录执行：
 
 ```bash
 command -v pnpm
@@ -80,7 +80,7 @@ ego-browser skill
 
 只检查当前任务需要的工具，不用先手动 `export PATH`。命令不存在时，先核对安装情况、`command -v` 和明确的安装位置，不要通过 `find /` 或遍历整个用户目录寻找工具。
 
-如果工具在系统终端可用、App 内却找不到，先完全退出 Desktop 并停止同数据目录的旧独立 Host，再从 Finder 启动 beta.3。连接已运行 Host 时不会改写它的环境，独立 Server 和远程 Host 也使用各自的启动环境。详细规则见[macOS Desktop 命令环境](configuration.md#macos-desktop-命令环境)。
+如果工具在系统终端可用、App 内却找不到，先完全退出 Desktop 并停止同数据目录的旧独立 Host，再从 Finder 启动 beta.4。连接已运行 Host 时不会改写它的环境，独立 Server 和远程 Host 也使用各自的启动环境。详细规则见[macOS Desktop 命令环境](configuration.md#macos-desktop-命令环境)。
 
 仍无法安装或执行时，在 [GitHub Issues](https://github.com/xidongdong-153/Pi-meme/issues) 提供：应用版本、macOS 版本与芯片、下载附件名、SHA256 校验结果、失败步骤、完整提示，以及任务涉及的目录类型。路径中的个人信息可隐藏，不上传 `~/.pi-meme` 整个目录、`auth.json`、令牌或模型凭据。
 
@@ -91,26 +91,26 @@ Linux x64 在下载目录执行：
 ```bash
 sudo apt-get update
 sudo apt-get install -y git bash bubblewrap
-sha256sum pi-meme-host-0.1.0-beta.3-linux-x64.tar.gz
+sha256sum pi-meme-host-0.1.0-beta.4-linux-x64.tar.gz
 ```
 
 与 `SHA256SUMS` 中对应值一致后：
 
 ```bash
-tar -xzf pi-meme-host-0.1.0-beta.3-linux-x64.tar.gz
+tar -xzf pi-meme-host-0.1.0-beta.4-linux-x64.tar.gz
 ./pi-meme-host/bin/pi-meme-host
 ```
 
 macOS arm64 需要 Git 和 bash，改用 macOS 包：
 
 ```bash
-shasum -a 256 pi-meme-host-0.1.0-beta.3-macos-arm64.tar.gz
+shasum -a 256 pi-meme-host-0.1.0-beta.4-macos-arm64.tar.gz
 ```
 
 校验一致后：
 
 ```bash
-tar -xzf pi-meme-host-0.1.0-beta.3-macos-arm64.tar.gz
+tar -xzf pi-meme-host-0.1.0-beta.4-macos-arm64.tar.gz
 ./pi-meme-host/bin/pi-meme-host
 ```
 

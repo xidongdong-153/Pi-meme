@@ -1093,7 +1093,7 @@ export async function createAppControl(options: Options) {
       await refresh()
       let session = store.state.sessions.find((item) => runtime.get(item.sessionId)?.sessionKey === key)
       if (!session) {
-        const context = pi.getSessionContext(key)
+        const context = pi.readSessionBinding(key)
         session = context.sessionFile
           ? store.state.sessions.find((item) => item.sessionFile === context.sessionFile)
           : undefined
