@@ -85,7 +85,7 @@ export function createEditorToken(
     icon.src = iconUrl
     icon.alt = ''
     icon.draggable = false
-    icon.className = 'inline-block size-4 align-[-0.125em] mr-1'
+    icon.className = 'inline-block size-4 align-[-0.2em] mr-1'
     token.append(icon)
   } else {
     const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
@@ -93,7 +93,7 @@ export function createEditorToken(
     icon.setAttribute('fill', 'none')
     icon.setAttribute('stroke', 'currentColor')
     icon.setAttribute('stroke-width', '1.5')
-    icon.setAttribute('class', 'inline-block size-4 align-[-0.125em] mr-1')
+    icon.setAttribute('class', 'inline-block size-4 align-[-0.2em] mr-1')
     icon.setAttribute('aria-hidden', 'true')
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path')
     path.setAttribute('d', 'M12 3 3 8v10l9 5 9-5V8L12 3Zm0 10 9-5M12 13 3 8m9 5v10M7.5 5.5l9 5')
