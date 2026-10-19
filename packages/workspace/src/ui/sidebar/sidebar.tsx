@@ -4,7 +4,6 @@ import { useEffect, useMemo, useState } from 'react'
 import { Bell, ChevronDown, Search, SquarePen } from 'lucide-react'
 import type { PiSessionsSnapshot } from '@pi-meme/contracts/sessions'
 import { Button } from '@pi-meme/ui/components/ui/button'
-import { ScrollArea } from '@pi-meme/ui/components/ui/scroll-area'
 import { buildSidebarModel, sidebarManualOrders } from './sidebar-model'
 import { SidebarPreferencesMenu } from './sidebar-controls'
 import { SessionSearchDialog } from './session-search-dialog'
@@ -226,7 +225,7 @@ export function Sidebar({
         </div>
 
         {/* 滚动区域：未连接占位 vs 置顶、项目与最近列表 */}
-        <ScrollArea className="flex-1 px-3">
+        <div className="flex-1 min-h-0 overflow-x-hidden overflow-y-auto pl-3 pr-1.5 [scrollbar-gutter:stable]">
           {!ready && !sessionsSnapshot ? (
             status === '连接中' ? (
               <div className="space-y-4 py-3 px-1 animate-pulse">
@@ -333,7 +332,7 @@ export function Sidebar({
               />
             </div>
           )}
-        </ScrollArea>
+        </div>
       </aside>
       <SessionSearchDialog
         searchHistory={searchHistory}
