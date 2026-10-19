@@ -99,21 +99,24 @@ export function ProjectsSection({
             enabled={reorderEnabled}
             onReorder={onReorder}
           >
-            <ProjectItem
-              {...projectProps}
-              project={project}
-              isExpanded={expandedProjects.has(project.cwd)}
-              isPinned={false}
-              isItemsExpandedAll={expandedProjectItemLimits.has(project.cwd)}
-              onToggle={() => toggleProject(project.cwd)}
-              onToggleItems={() => toggleProjectItems(project.cwd)}
-              onSelectProject={onSelectProject}
-              sortable={{
-                serviceId,
-                enabled: sortable,
-                onReorder: (keys) => onReorderSessions(`project:${key}`, keys),
-              }}
-            />
+            {(dragProps) => (
+              <ProjectItem
+                {...projectProps}
+                dragProps={dragProps}
+                project={project}
+                isExpanded={expandedProjects.has(project.cwd)}
+                isPinned={false}
+                isItemsExpandedAll={expandedProjectItemLimits.has(project.cwd)}
+                onToggle={() => toggleProject(project.cwd)}
+                onToggleItems={() => toggleProjectItems(project.cwd)}
+                onSelectProject={onSelectProject}
+                sortable={{
+                  serviceId,
+                  enabled: sortable,
+                  onReorder: (keys) => onReorderSessions(`project:${key}`, keys),
+                }}
+              />
+            )}
           </SidebarSortable>
         ))}
         {entries.length > 5 && (

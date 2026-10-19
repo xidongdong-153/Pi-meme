@@ -3,7 +3,7 @@ import { Folder, Pin, SquarePen } from 'lucide-react'
 import { cn } from '@pi-meme/ui/lib/utils'
 import type { PiProjectGroup } from '@pi-meme/contracts/sessions'
 import { SessionItem } from './session-item'
-import { SidebarSortable } from './sidebar-controls'
+import { SidebarSortable, type SidebarDragProps } from './sidebar-controls'
 import { sidebarItemKey } from './sidebar-model'
 
 export type ProjectItemProps = {
@@ -16,6 +16,7 @@ export type ProjectItemProps = {
   activeSessionId?: string
   activeSessionPath?: string
   onSelectProject?: (cwd: string) => void
+  dragProps?: SidebarDragProps
   sortable?: { serviceId: string; enabled: boolean; onReorder: (keys: string[]) => void }
   onToggle: () => void
   onToggleItems: () => void
@@ -36,6 +37,7 @@ export function ProjectItem({
   activeSessionPath,
   onToggle,
   onSelectProject,
+  dragProps,
   sortable,
   onToggleItems,
   onNewSessionInProject,
@@ -63,9 +65,11 @@ export function ProjectItem({
     <div key={project.cwd} className="space-y-0.5">
       <SidebarRowMenu target={{ kind: 'project', project }}>
         <div
+          {...dragProps}
           className={cn(
             'group relative flex w-full min-w-0 items-center justify-between rounded-lg pr-2.5 text-xs transition-colors duration-200 ease-out cursor-pointer',
             isCurrentCwd ? 'bg-secondary/70 font-medium text-foreground' : 'text-foreground/85 hover:bg-secondary/50',
+            dragProps?.draggable && 'cursor-grab active:cursor-grabbing',
           )}
           title={project.cwd}
           data-project-cwd={project.cwd}
@@ -74,12 +78,12 @@ export function ProjectItem({
             type="button"
             onClick={() => (onSelectProject ? onSelectProject(project.cwd) : onToggle())}
             aria-expanded={onSelectProject ? undefined : isExpanded}
-            className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden pl-2 py-2 text-left rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden pl-2 py-2 text-left rounded cursor-[inherit] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <Folder data-project-folder-icon aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
             <span className="truncate font-medium">{project.name}</span>
           </button>
-          <div className="flex items-center gap-1 shrink-0 ml-1">
+          <div data-sidebar-drag-ignore draggable={false} className="flex items-center gap-1 shrink-0 ml-1">
             <button
               type="button"
               title="在项目中新建会话"

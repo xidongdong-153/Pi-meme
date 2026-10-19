@@ -1,4 +1,4 @@
-import { useId, type ReactNode } from 'react'
+import { useId, useRef, type HTMLAttributes, type ReactNode } from 'react'
 import { ArrowDownUp, ChevronRight, Folder, GripVertical, List, MoreHorizontal, PanelLeft } from 'lucide-react'
 import type { SidebarPreferences, SidebarPreferencesPatch } from '@pi-meme/contracts/settings'
 import * as Dropdown from '@pi-meme/ui/components/ui/dropdown-menu'
@@ -140,6 +140,11 @@ export function SidebarPreferencesMenu({
     </Dropdown.DropdownMenu>
   )
 }
+export type SidebarDragProps = Pick<
+  HTMLAttributes<HTMLElement>,
+  'draggable' | 'onPointerDownCapture' | 'onDragStart' | 'onKeyDown'
+>
+
 export function SidebarSortable({
   itemKey,
   listKey,
@@ -153,16 +158,42 @@ export function SidebarSortable({
   keys: string[]
   enabled: boolean
   onReorder: (keys: string[]) => void
-  children: ReactNode
+  children: ReactNode | ((dragProps: SidebarDragProps) => ReactNode)
 }) {
+  const dragBlocked = useRef(false)
   const dragType = `application/x-pi-sidebar-${encodeURIComponent(listKey).toLowerCase()}`
   const move = (key: string, targetKey: string) => {
     const next = reorderSidebarItems(keys, key, targetKey)
     if (next !== keys) onReorder(next)
   }
+  const rowDrag = typeof children === 'function'
+  const dragProps: SidebarDragProps = {
+    draggable: enabled,
+    onPointerDownCapture: (event) => {
+      dragBlocked.current = Boolean((event.target as HTMLElement).closest('[data-sidebar-drag-ignore]'))
+    },
+    onDragStart: (event) => {
+      event.stopPropagation()
+      if (!enabled || dragBlocked.current || (event.target as HTMLElement).closest('[data-sidebar-drag-ignore]')) {
+        event.preventDefault()
+        return
+      }
+      event.dataTransfer.effectAllowed = 'move'
+      event.dataTransfer.setData(dragType, JSON.stringify({ listKey, key: itemKey }))
+    },
+    onKeyDown: (event) => {
+      if (!enabled || (event.target as HTMLElement).closest('[data-sidebar-drag-ignore]')) return
+      if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
+      event.preventDefault()
+      event.stopPropagation()
+      const index = keys.indexOf(itemKey)
+      const target = keys[index + (event.key === 'ArrowUp' ? -1 : 1)]
+      if (index >= 0 && target !== undefined) move(itemKey, target)
+    },
+  }
   return (
     <div
-      className={cn('group/sortable relative min-w-0', enabled && 'pl-3')}
+      className={cn('group/sortable relative min-w-0', enabled && !rowDrag && 'pl-3')}
       data-sidebar-item-key={itemKey}
       onDragOver={(event) => {
         if (enabled && event.dataTransfer.types.includes(dragType)) {
@@ -191,32 +222,19 @@ export function SidebarSortable({
         }
       }}
     >
-      {enabled && (
+      {enabled && !rowDrag && (
         <button
+          {...dragProps}
           type="button"
-          draggable
           aria-label="拖动排序，方向键上下移动"
           title="拖动排序，方向键上下移动"
           className="absolute left-0 top-1.5 z-10 rounded text-muted-foreground opacity-0 group-hover/sortable:opacity-100 group-focus-within/sortable:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-grab active:cursor-grabbing"
           onClick={(event) => event.stopPropagation()}
-          onDragStart={(event) => {
-            event.stopPropagation()
-            event.dataTransfer.effectAllowed = 'move'
-            event.dataTransfer.setData(dragType, JSON.stringify({ listKey, key: itemKey }))
-          }}
-          onKeyDown={(event) => {
-            if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
-            event.preventDefault()
-            event.stopPropagation()
-            const index = keys.indexOf(itemKey)
-            const target = keys[index + (event.key === 'ArrowUp' ? -1 : 1)]
-            if (index >= 0 && target !== undefined) move(itemKey, target)
-          }}
         >
           <GripVertical className="size-3" />
         </button>
       )}
-      {children}
+      {typeof children === 'function' ? children(dragProps) : children}
     </div>
   )
 }

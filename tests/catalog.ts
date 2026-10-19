@@ -247,6 +247,7 @@ const files: Array<[string, Feature[]]> = [
   ['packages/subagents/tests/extension.unit.test.ts', ['subagents']],
   ['packages/usage/tests/usage-chart.unit.test.ts', ['usage']],
   ['packages/usage/tests/usage-service.integration.test.ts', ['usage']],
+  ['packages/workspace/tests/project-drag.component.test.tsx', ['workspace']],
   ['packages/workspace/tests/project-sessions.integration.test.ts', ['workspace', 'sessions']],
   ['packages/workspace/tests/project-store.integration.test.ts', ['workspace']],
   ['packages/workspace/tests/session-activity.unit.test.ts', ['sessions']],

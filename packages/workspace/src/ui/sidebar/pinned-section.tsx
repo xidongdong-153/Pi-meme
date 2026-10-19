@@ -55,20 +55,23 @@ export function PinnedSection({
             onReorder={onReorder}
           >
             {entry.kind === 'project' ? (
-              <ProjectItem
-                {...projectProps}
-                project={entry.project}
-                isExpanded={expandedProjects.has(entry.project.cwd)}
-                isPinned
-                isItemsExpandedAll={expandedProjectItemLimits.has(entry.project.cwd)}
-                onToggle={() => toggleProject(entry.project.cwd)}
-                onToggleItems={() => toggleProjectItems(entry.project.cwd)}
-                sortable={{
-                  serviceId: entry.serviceId,
-                  enabled: sortable,
-                  onReorder: (keys) => onReorderSessions(`project:${entry.key}`, keys),
-                }}
-              />
+              (dragProps) => (
+                <ProjectItem
+                  dragProps={dragProps}
+                  {...projectProps}
+                  project={entry.project}
+                  isExpanded={expandedProjects.has(entry.project.cwd)}
+                  isPinned
+                  isItemsExpandedAll={expandedProjectItemLimits.has(entry.project.cwd)}
+                  onToggle={() => toggleProject(entry.project.cwd)}
+                  onToggleItems={() => toggleProjectItems(entry.project.cwd)}
+                  sortable={{
+                    serviceId: entry.serviceId,
+                    enabled: sortable,
+                    onReorder: (keys) => onReorderSessions(`project:${entry.key}`, keys),
+                  }}
+                />
+              )
             ) : (
               <SessionItem
                 session={entry.session}
