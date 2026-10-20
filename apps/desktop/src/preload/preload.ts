@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { PlatformAdapter } from '@pi-meme/contracts/host'
 
 const platform: PlatformAdapter = {
@@ -16,6 +16,7 @@ const platform: PlatformAdapter = {
   retryHostConnection: () => ipcRenderer.invoke('platform:retry-connection'),
   setHostConnection: (value) => ipcRenderer.invoke('platform:set-connection', value),
   chooseDirectory: () => ipcRenderer.invoke('platform:directory'),
+  getPathForFile: (file) => webUtils.getPathForFile(file),
   getProjectApps: () => ipcRenderer.invoke('platform:project-apps'),
   openProject: (app, cwd) => ipcRenderer.invoke('platform:open-project', app, cwd),
   importTheme: () => ipcRenderer.invoke('platform:import-theme'),

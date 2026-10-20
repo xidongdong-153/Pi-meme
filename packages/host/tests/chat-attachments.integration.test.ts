@@ -100,6 +100,25 @@ test('新附件允许超过 20 MiB 的原始文件和零字节，不缓存整个
     await assert.rejects(storeChatAttachment(root, name, Readable.from([])), /文件名/)
 })
 
+test('附件允许 50 MiB 边界，流式超限后清理半成品', async (t) => {
+  const root = await temporaryRoot()
+  t.onTestFinished(() => rm(root, { recursive: true, force: true }))
+  const chunk = Buffer.alloc(1024 * 1024)
+  function source(extraBytes = 0) {
+    return Readable.from(
+      (function* () {
+        for (let count = 0; count < 50; count++) yield chunk
+        if (extraBytes) yield Buffer.alloc(extraBytes)
+      })(),
+    )
+  }
+  const file = await storeChatAttachment(root, 'boundary.bin', source())
+  assert.equal((await stat(file.path)).size, 50 * 1024 * 1024)
+  const before = await readdir(path.join(root, 'attachments'))
+  await assert.rejects(storeChatAttachment(root, 'oversized.bin', source(1)), /单个上传文件不能超过 50 MB/)
+  assert.deepEqual(await readdir(path.join(root, 'attachments')), before)
+})
+
 test('附件输入中断或取消后清理随机目录和半成品', async (t) => {
   const root = await temporaryRoot()
   t.onTestFinished(() => rm(root, { recursive: true, force: true }))
@@ -181,6 +200,50 @@ test('直连客户端二进制上传超过 32 MiB，图片及空文件均不检�
       name: 'AbortError',
     })
     assert.equal((await readdir(path.join(fixture.root, 'attachments'))).length, 3)
+  } finally {
+    client.close()
+    await fixture.dispose()
+  }
+})
+
+test('HTTP 附件超限返回 413，声明大小或分块上传均不能绕过且不留下半成品', async () => {
+  const fixture = await setup()
+  const client = clientFor(fixture)
+  try {
+    const key = (await client.bridge.getSnapshot()).connection.sessionKey!
+    const url = attachmentUrl(fixture, key)
+    const declared = await new Promise<number>((resolve, reject) => {
+      const req = request(
+        url,
+        {
+          method: 'POST',
+          agent: false,
+          headers: { Cookie: fixture.cookie, 'Content-Length': 50 * 1024 * 1024 + 1 },
+        },
+        (response) => {
+          response.resume()
+          response.on('end', () => resolve(response.statusCode!))
+        },
+      )
+      req.on('error', reject)
+      req.end()
+    })
+    assert.equal(declared, 413)
+    const chunked = await new Promise<{ status: number; body: string }>((resolve, reject) => {
+      const req = request(url, { method: 'POST', headers: { Cookie: fixture.cookie } }, (response) => {
+        let body = ''
+        response.setEncoding('utf8')
+        response.on('data', (chunk) => (body += chunk))
+        response.on('end', () => resolve({ status: response.statusCode!, body }))
+      })
+      req.on('error', reject)
+      const chunk = Buffer.alloc(1024 * 1024)
+      for (let count = 0; count < 50; count++) req.write(chunk)
+      req.end(Buffer.alloc(1))
+    })
+    assert.equal(chunked.status, 413, chunked.body)
+    assert.match(JSON.parse(chunked.body).error, /单个上传文件不能超过 50 MB/)
+    assert.deepEqual(await readdir(path.join(fixture.root, 'attachments')), [])
   } finally {
     client.close()
     await fixture.dispose()

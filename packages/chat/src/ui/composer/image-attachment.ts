@@ -5,17 +5,30 @@ export type ComposerImageAttachment = PiImage & { id: string; name?: string }
 export type ComposerAttachment =
   ComposerImageAttachment | (ChatUploadedFile & { id: string; type: 'file'; preview?: File })
 
+export type ComposerPendingAttachment = {
+  id: string
+  type: 'file'
+  name: string
+  preview?: File
+  progress: number
+}
+
+export function filePreview(file: File) {
+  return file.type.startsWith('image/') || /\.(?:avif|bmp|gif|heic|heif|ico|jpe?g|png|svg|tiff?|webp)$/i.test(file.name)
+    ? file
+    : undefined
+}
+
 export async function fileToAttachment(
   file: File,
   upload: (input: ChatFileUpload) => Promise<ChatUploadedFile>,
+  id: string = crypto.randomUUID(),
 ): Promise<ComposerAttachment> {
-  const preview =
-    file.type.startsWith('image/') || /\.(?:avif|bmp|gif|heic|heif|ico|jpe?g|png|svg|tiff?|webp)$/i.test(file.name)
   return {
     ...(await upload({ name: file.name, data: file })),
-    id: crypto.randomUUID(),
+    id,
     type: 'file',
-    ...(preview ? { preview: file } : {}),
+    preview: filePreview(file),
   }
 }
 

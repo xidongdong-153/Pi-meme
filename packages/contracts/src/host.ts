@@ -52,6 +52,7 @@ export interface PlatformAdapter {
   setHostConnection: (value: { url: string; token: string } | null) => Promise<void>
   getHostConnection: () => Promise<HostConnection>
   chooseDirectory: () => Promise<string | null>
+  getPathForFile?: (file: File) => string
   getProjectApps: () => Promise<ProjectApp[]>
   openProject: (app: ProjectApp['id'], cwd: string) => Promise<void>
   importTheme: () => Promise<unknown | null>

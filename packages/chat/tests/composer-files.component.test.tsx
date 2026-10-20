@@ -170,6 +170,77 @@ test('读取或上传期间 pending 计数准确，同一 tick 即可阻止提�
   assert.deepEqual(hook.errors, [])
 })
 
+test('上传开始立即出现文件卡片，真实进度更新后以同一附件替换，完成前不能发送', async () => {
+  const upload = deferred<ChatUploadedFile>()
+  const hook = filesHook(() => upload.promise)
+  let pending!: Promise<void>
+  act(() => {
+    pending = hook.result.current.addFiles([new File(['content'], 'report.pdf')])
+  })
+  const id = hook.result.current.uploads[0].id
+  const cards = () =>
+    createElement(ComposerAttachments, {
+      attachments: hook.added,
+      uploads: hook.result.current.uploads,
+      onRemoveImage: () => {},
+      onCancelUpload: hook.result.current.cancelUpload,
+    })
+  const view = render(cards())
+  assert.equal(view.getByRole('progressbar', { name: '上传文件：report.pdf' }).getAttribute('aria-valuenow'), '0')
+  assert.equal(hook.result.current.isUploading(), true)
+  act(() => hook.uploads[0][3]?.(46))
+  view.rerender(cards())
+  assert.equal(view.getByRole('progressbar').getAttribute('aria-valuenow'), '46')
+  act(() => hook.uploads[0][3]?.(100))
+  assert.equal(hook.result.current.isUploading(), true, '发送完字节后仍等待 Host 确认')
+  await act(async () => {
+    upload.resolve({ name: 'report.pdf', path: '/host/attachments/report.pdf' })
+    await pending
+  })
+  view.rerender(cards())
+  assert.equal(view.queryByRole('progressbar'), null)
+  assert.equal(hook.added[0].id, id)
+  assert.ok(view.getByRole('button', { name: '移除文件：report.pdf' }))
+  assert.equal(hook.result.current.isUploading(), false)
+})
+
+test('从文件卡片取消单个上传不影响其余文件，晚到进度和结果不能恢复已取消附件', async () => {
+  const first = deferred<ChatUploadedFile>()
+  const second = deferred<ChatUploadedFile>()
+  const hook = filesHook((_session, input) => (input.name === 'first.txt' ? first.promise : second.promise))
+  let pending!: Promise<void>
+  act(() => {
+    pending = hook.result.current.addFiles([new File(['first'], 'first.txt'), new File(['second'], 'second.txt')])
+  })
+  const view = render(
+    createElement(ComposerAttachments, {
+      attachments: [],
+      uploads: hook.result.current.uploads,
+      onRemoveImage: () => {},
+      onCancelUpload: hook.result.current.cancelUpload,
+    }),
+  )
+  fireEvent.click(view.getByRole('button', { name: '取消上传：first.txt' }))
+  assert.equal(hook.uploads[0][2]?.aborted, true)
+  assert.equal(hook.result.current.pending, 1)
+  act(() => hook.uploads[0][3]?.(80))
+  assert.equal(hook.result.current.uploads[0].name, 'second.txt')
+  assert.equal(hook.result.current.uploads[0].progress, 0)
+  await act(async () => first.resolve({ name: 'first.txt', path: '/host/first.txt' }))
+  await waitFor(() => assert.equal(hook.uploads.length, 2))
+  assert.equal(hook.uploads[1][2]?.aborted, false)
+  await act(async () => {
+    second.resolve({ name: 'second.txt', path: '/host/second.txt' })
+    await pending
+  })
+  assert.deepEqual(
+    hook.added.map(({ name }) => name),
+    ['second.txt'],
+  )
+  assert.deepEqual(hook.errors, [])
+  assert.equal(hook.result.current.pending, 0)
+})
+
 test.each([
   ['切换会话', { sessionKey: 'session-b' }],
   ['切换历史消息编辑对象', { contextKey: 'history:200' }],

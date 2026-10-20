@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
-import { test } from 'vitest'
-import type { HostRpcRequest } from '@pi-meme/contracts/host'
+import { test, vi } from 'vitest'
+import type { HostRpcRequest, PlatformAdapter } from '@pi-meme/contracts/host'
 import { HostClient, type ClientOptions } from '../src/host-client'
 import { snapshot, FakeSocket, create, tick, withBrowserStorage } from './host-client-fixture'
 
@@ -46,6 +46,219 @@ test('Host 不可用与认证失败区分，认证身份变化时不发送业务
     } finally {
       client.close()
     }
+  }
+})
+
+function attachmentClient(options: Partial<ClientOptions> = {}) {
+  const requests: URL[] = []
+  const client = new HostClient({
+    connection: { url: 'http://127.0.0.1:3141', token: '', hostId: 'host-1', local: true },
+    clientId: 'attachment-client',
+    selectDirectory: async () => null,
+    fetch: async (input) => {
+      const url = new URL(String(input))
+      requests.push(url)
+      return Response.json({ hostId: 'host-1', result: { name: url.searchParams.get('name'), path: '/uploaded/file' } })
+    },
+    ...options,
+  })
+  return { client, requests }
+}
+
+function attachmentPlatform(getPathForFile: (file: File) => string): PlatformAdapter {
+  return {
+    getPathForFile,
+    setHostConnection: async () => {},
+    getHostConnection: async () => ({ url: 'http://127.0.0.1:3141', token: '', hostId: 'host-1', local: true }),
+    chooseDirectory: async () => null,
+    getProjectApps: async () => [],
+    openProject: async () => {},
+    importTheme: async () => null,
+    exportTheme: async () => {},
+    openPath: async () => {},
+  }
+}
+
+class AttachmentRequest {
+  upload = {
+    onprogress: null as ((event: Pick<ProgressEvent, 'lengthComputable' | 'loaded' | 'total'>) => void) | null,
+  }
+  onload: (() => void) | null = null
+  onerror: (() => void) | null = null
+  onabort: (() => void) | null = null
+  withCredentials = false
+  status = 200
+  responseText = JSON.stringify({ hostId: 'host-1', result: { name: 'file.txt', path: '/uploaded/file' } })
+  method?: string
+  url?: string
+  headers = new Map<string, string>()
+  body?: Blob
+  aborted = false
+  static requests: AttachmentRequest[] = []
+  static send: (request: AttachmentRequest) => void = () => {}
+
+  constructor() {
+    AttachmentRequest.requests.push(this)
+  }
+
+  open(method: string, url: string) {
+    this.method = method
+    this.url = url
+  }
+
+  setRequestHeader(name: string, value: string) {
+    this.headers.set(name, value)
+  }
+
+  send(body: Blob) {
+    this.body = body
+    AttachmentRequest.send(this)
+  }
+
+  abort() {
+    this.aborted = true
+    this.onabort?.()
+  }
+}
+
+test('上传文件限制为单个 50 MiB，超限在认证和请求前拒绝，临界值和空文件可上传', async () => {
+  const { client, requests } = attachmentClient()
+  const data = new Blob([])
+  Object.defineProperty(data, 'size', { configurable: true, value: 50 * 1024 * 1024 + 1 })
+  try {
+    await assert.rejects(client.bridge.uploadAttachment('A', { name: 'too-large.bin', data }), /50.*MB/)
+    assert.equal(requests.length, 0)
+    Object.defineProperty(data, 'size', { value: 50 * 1024 * 1024 })
+    const progress: number[] = []
+    await client.bridge.uploadAttachment('A', { name: 'limit.bin', data }, undefined, (value) => progress.push(value))
+    await client.bridge.uploadAttachment('A', { name: 'empty.txt', data: new Blob([]) })
+    assert.equal(requests.filter((url) => url.pathname === '/api/chat/attachments').length, 2)
+    assert.deepEqual(progress, [], 'Node fetch 不模拟上传进度')
+  } finally {
+    client.close()
+  }
+})
+
+test('仅本机 Desktop 原生文件直接返回路径且不限制大小，剪贴板与远程连接仍上传', async () => {
+  const native = new File([], 'native.bin')
+  Object.defineProperty(native, 'size', { value: 50 * 1024 * 1024 + 1 })
+  const lookup = vi.fn((file: File) => (file === native ? '/local/native.bin' : ''))
+  const platform = attachmentPlatform(lookup)
+  const local = attachmentClient({ platform })
+  const remote = attachmentClient({
+    platform,
+    connection: { url: 'https://remote.example', token: '', hostId: 'host-1', local: false },
+  })
+  try {
+    assert.deepEqual(await local.client.bridge.uploadAttachment('A', { name: native.name, data: native }), {
+      name: 'native.bin',
+      path: '/local/native.bin',
+    })
+    assert.equal(local.requests.length, 0)
+    await local.client.bridge.uploadAttachment('A', { name: 'clipboard.png', data: new File([], 'clipboard.png') })
+    assert.equal(local.requests.filter((url) => url.pathname === '/api/chat/attachments').length, 1)
+    lookup.mockClear()
+    await assert.rejects(remote.client.bridge.uploadAttachment('A', { name: native.name, data: native }), /50.*MB/)
+    await remote.client.bridge.uploadAttachment('A', { name: 'remote.txt', data: new File([], 'remote.txt') })
+    assert.equal(lookup.mock.calls.length, 0)
+    assert.equal(remote.requests.filter((url) => url.pathname === '/api/chat/attachments').length, 1)
+  } finally {
+    local.client.close()
+    remote.client.close()
+  }
+})
+
+test('浏览器附件使用真实 upload 事件，保留代理 endpoint、认证续期与原始文件', async (t) => {
+  AttachmentRequest.requests = []
+  vi.stubGlobal('XMLHttpRequest', AttachmentRequest)
+  t.onTestFinished(() => {
+    vi.unstubAllGlobals()
+  })
+  AttachmentRequest.send = (request) => {
+    if (AttachmentRequest.requests.length === 1) {
+      request.status = 401
+      request.responseText = '{"error":"需要登录 Host"}'
+    } else {
+      request.upload.onprogress?.({ lengthComputable: false, loaded: 1, total: 0 })
+      request.upload.onprogress?.({ lengthComputable: true, loaded: 1, total: 4 })
+      request.upload.onprogress?.({ lengthComputable: true, loaded: 4, total: 4 })
+    }
+    request.onload?.()
+  }
+  let renewed = 0
+  const { client, requests } = attachmentClient({
+    connection: { url: 'https://remote.example', token: '', hostId: 'host-1', local: false },
+    endpoint: {
+      baseUrl: 'http://127.0.0.1:3141',
+      apiPrefix: '/api/services/remote',
+      renewAuthentication: async () => {
+        renewed++
+      },
+    },
+  })
+  const data = new File(['test'], 'file.txt')
+  const progress: number[] = []
+  try {
+    assert.deepEqual(
+      await client.bridge.uploadAttachment('explicit-session', { name: data.name, data }, undefined, (value) =>
+        progress.push(value),
+      ),
+      { name: 'file.txt', path: '/uploaded/file' },
+    )
+    assert.deepEqual(progress, [25, 100])
+    assert.equal(renewed, 1)
+    assert.equal(requests.length, 2)
+    assert.ok(requests.every((url) => url.pathname === '/api/services/remote/api/auth'))
+    assert.equal(AttachmentRequest.requests.length, 2)
+    for (const request of AttachmentRequest.requests) {
+      const url = new URL(request.url!)
+      assert.equal(url.origin, 'http://127.0.0.1:3141')
+      assert.equal(url.pathname, '/api/services/remote/api/chat/attachments')
+      assert.equal(url.searchParams.get('sessionKey'), 'explicit-session')
+      assert.equal(url.searchParams.get('clientId'), 'attachment-client')
+      assert.equal(url.searchParams.get('hostId'), 'host-1')
+      assert.equal(request.method, 'POST')
+      assert.equal(request.headers.get('Content-Type'), 'application/octet-stream')
+      assert.equal(request.withCredentials, true)
+      assert.equal(request.body, data)
+    }
+  } finally {
+    client.close()
+  }
+})
+
+test('浏览器上传响应 AbortSignal，失败不自动重试且结束后清理进度监听', async (t) => {
+  AttachmentRequest.requests = []
+  AttachmentRequest.send = () => {}
+  vi.stubGlobal('XMLHttpRequest', AttachmentRequest)
+  t.onTestFinished(() => {
+    vi.unstubAllGlobals()
+  })
+  const { client } = attachmentClient()
+  const controller = new AbortController()
+  const data = new Blob(['test'])
+  try {
+    const rejected = assert.rejects(
+      client.bridge.uploadAttachment('A', { name: 'file.txt', data }, controller.signal),
+      { name: 'AbortError' },
+    )
+    await tick()
+    assert.equal(AttachmentRequest.requests.length, 1)
+    controller.abort()
+    await rejected
+    assert.equal(AttachmentRequest.requests[0].aborted, true)
+    assert.equal(AttachmentRequest.requests[0].upload.onprogress, null)
+    AttachmentRequest.send = (request) => request.onerror?.()
+    await assert.rejects(client.bridge.uploadAttachment('A', { name: 'file.txt', data }), /网络|上传失败/)
+    assert.equal(AttachmentRequest.requests.length, 2)
+    const cancelled = new AbortController()
+    cancelled.abort()
+    await assert.rejects(client.bridge.uploadAttachment('A', { name: 'file.txt', data }, cancelled.signal), {
+      name: 'AbortError',
+    })
+    assert.equal(AttachmentRequest.requests.length, 2)
+  } finally {
+    client.close()
   }
 })
 

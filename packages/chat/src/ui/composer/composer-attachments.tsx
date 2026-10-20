@@ -2,10 +2,12 @@ import * as React from 'react'
 import { X } from 'lucide-react'
 import { FileIcon } from '@pi-meme/ui/components/file-icon'
 import type { ComposerProps } from './composer'
-import type { ComposerAttachment, ComposerImageAttachment } from './image-attachment'
+import type { ComposerAttachment, ComposerImageAttachment, ComposerPendingAttachment } from './image-attachment'
 import { ImageViewer, imageSource } from '../content/image-viewer'
 
-function useAttachmentImages(attachments: ComposerAttachment[]): ComposerImageAttachment[] {
+function useAttachmentImages(
+  attachments: (ComposerAttachment | ComposerPendingAttachment)[],
+): ComposerImageAttachment[] {
   const urls = React.useRef(new Map<File, string>())
   const [sources, setSources] = React.useState(() => new Map<File, string>())
 
@@ -52,10 +54,17 @@ export function ComposerAttachments({
   attachments,
   onRemoveImage,
   disabled,
-}: Pick<ComposerProps, 'attachments' | 'onRemoveImage'> & { disabled?: boolean }) {
+  uploads = [],
+  onCancelUpload,
+}: Pick<ComposerProps, 'attachments' | 'onRemoveImage'> & {
+  disabled?: boolean
+  uploads?: ComposerPendingAttachment[]
+  onCancelUpload?: (id: string) => void
+}) {
+  const items = [...attachments, ...uploads]
   const [activeId, setActiveId] = React.useState<string | null>(null)
   const triggerRef = React.useRef<HTMLButtonElement>(null)
-  const previews = useAttachmentImages(attachments)
+  const previews = useAttachmentImages(items)
   const [failedSources, setFailedSources] = React.useState(() => new Set<string>())
   const images = previews.filter((image) => !failedSources.has(imageSource(image)))
   const activeIndex = activeId === null ? -1 : images.findIndex((image) => image.id === activeId)
@@ -64,9 +73,10 @@ export function ComposerAttachments({
 
   return (
     <>
-      {attachments.length > 0 && (
+      {items.length > 0 && (
         <div className="mb-2 flex min-w-0 gap-2 overflow-x-auto pb-1" aria-label="已附加文件">
-          {attachments.map((attachment) => {
+          {items.map((attachment) => {
+            const progress = 'progress' in attachment ? attachment.progress : undefined
             const imageIndex = images.findIndex((image) => image.id === attachment.id)
             const image = images[imageIndex]
             const name = attachment.name || `图片 ${previews.findIndex((preview) => preview.id === attachment.id) + 1}`
@@ -112,11 +122,51 @@ export function ComposerAttachments({
                 ) : (
                   <div className="flex size-full flex-col">{content}</div>
                 )}
+                {progress !== undefined && (
+                  <div className="pointer-events-none absolute inset-x-0 top-0 flex h-[calc(100%-1.75rem)] items-center justify-center bg-black/40">
+                    <div
+                      role="progressbar"
+                      aria-label={`上传文件：${name}`}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={progress}
+                      aria-valuetext={progress === 100 ? '上传完成，正在处理' : `${progress}%`}
+                      className="relative flex size-12 items-center justify-center rounded-full bg-black/60 text-white"
+                    >
+                      <svg viewBox="0 0 40 40" className="absolute inset-0 size-full -rotate-90" aria-hidden="true">
+                        <circle
+                          cx="20"
+                          cy="20"
+                          r="17"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="3"
+                          opacity="0.25"
+                        />
+                        <circle
+                          cx="20"
+                          cy="20"
+                          r="17"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="3"
+                          strokeLinecap="round"
+                          pathLength="100"
+                          strokeDasharray="100"
+                          strokeDashoffset={100 - progress}
+                        />
+                      </svg>
+                      <span className="text-[10px] font-medium tabular-nums">{progress}%</span>
+                    </div>
+                  </div>
+                )}
                 <button
                   type="button"
                   disabled={disabled}
-                  aria-label={`移除${image ? '图片' : '文件'}：${name}`}
-                  onClick={() => onRemoveImage(attachment.id)}
+                  aria-label={progress !== undefined ? `取消上传：${name}` : `移除${image ? '图片' : '文件'}：${name}`}
+                  onClick={() =>
+                    progress !== undefined ? onCancelUpload?.(attachment.id) : onRemoveImage(attachment.id)
+                  }
                   className="absolute right-1 top-1 flex size-5 cursor-pointer items-center justify-center rounded-full bg-black/70 text-white opacity-70 transition-opacity hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-30"
                 >
                   <X className="size-3" />

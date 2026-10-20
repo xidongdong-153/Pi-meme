@@ -6,7 +6,11 @@ import type {
   HostControlEvent,
 } from '@pi-meme/contracts/app-host'
 import { createAppHostClient } from './app-host-client'
-import type { ChatFileUpload, ChatUploadedFile } from '@pi-meme/contracts/chat-attachments'
+import {
+  MAX_CHAT_ATTACHMENT_BYTES,
+  type ChatFileUpload,
+  type ChatUploadedFile,
+} from '@pi-meme/contracts/chat-attachments'
 import type { AgentSummary } from '@pi-meme/contracts/collaboration'
 import type {
   Connection,
@@ -264,9 +268,15 @@ export class HostClient {
     sessionKey: string,
     input: ChatFileUpload,
     signal?: AbortSignal,
+    onProgress?: (percent: number) => void,
   ): Promise<ChatUploadedFile> {
     if (this.closed) throw new Error('Host 客户端已关闭')
     signal?.throwIfAborted()
+    if (this.nativePlatformAvailable && typeof File !== 'undefined' && input.data instanceof File) {
+      const path = this.options.platform?.getPathForFile?.(input.data)
+      if (path) return { name: input.name, path }
+    }
+    if (input.data.size > MAX_CHAT_ATTACHMENT_BYTES) throw new Error('单个上传文件不能超过 50 MB')
     await this.authenticate()
     const url = this.endpoint('/api/chat/attachments')
     url.search = new URLSearchParams({
@@ -278,12 +288,47 @@ export class HostClient {
     const send = () => {
       signal?.throwIfAborted()
       if (this.closed) throw new Error('Host 客户端已关闭')
-      return this.fetch(url, {
-        method: 'POST',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/octet-stream' },
-        body: input.data,
-        signal,
+      if (typeof XMLHttpRequest === 'undefined') {
+        return this.fetch(url, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/octet-stream' },
+          body: input.data,
+          signal,
+        })
+      }
+      return new Promise<Response>((resolve, reject) => {
+        const request = new XMLHttpRequest()
+        const cleanup = () => {
+          signal?.removeEventListener('abort', abort)
+          request.upload.onprogress = null
+          request.onload = null
+          request.onerror = null
+          request.onabort = null
+        }
+        const fail = (error: unknown) => {
+          cleanup()
+          reject(error)
+        }
+        function abort() {
+          request.abort()
+          fail(signal?.reason ?? new DOMException('附件上传已取消', 'AbortError'))
+        }
+        request.open('POST', url.href)
+        request.withCredentials = true
+        request.setRequestHeader('Content-Type', 'application/octet-stream')
+        request.upload.onprogress = (event) => {
+          if (event.lengthComputable && event.total > 0)
+            onProgress?.(Math.min(100, Math.round((event.loaded / event.total) * 100)))
+        }
+        request.onload = () => {
+          cleanup()
+          resolve(new Response(request.responseText, { status: request.status }))
+        }
+        request.onerror = () => fail(new Error('附件上传失败，请检查网络连接'))
+        request.onabort = () => fail(signal?.reason ?? new DOMException('附件上传已取消', 'AbortError'))
+        signal?.addEventListener('abort', abort, { once: true })
+        request.send(input.data)
       })
     }
     let response = await send()
@@ -758,7 +803,7 @@ export class HostClient {
       searchSessions: (query, paths) => rpc('session:search', [query, paths], null),
       prefetchSession: (path) => rpc('session:prefetch', [path]),
       togglePin: (path) => rpc('settings:toggle-pin', [path]),
-      uploadAttachment: (key, input, signal) => this.uploadAttachment(key, input, signal),
+      uploadAttachment: (key, input, signal, onProgress) => this.uploadAttachment(key, input, signal, onProgress),
       prompt: (key, message, images, skills, options) =>
         rpc('pi:prompt', [key, message, images ?? [], skills ?? [], ...(options === undefined ? [] : [options])], key),
       steer: (key, message, images, skills, options) =>

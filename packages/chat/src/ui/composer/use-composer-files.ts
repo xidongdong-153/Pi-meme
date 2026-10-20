@@ -1,6 +1,11 @@
 import { useEffect, useReducer, useRef } from 'react'
 import type { ChatBridge } from '@pi-meme/contracts/desktop'
-import { fileToAttachment, type ComposerAttachment } from './image-attachment'
+import {
+  filePreview,
+  fileToAttachment,
+  type ComposerAttachment,
+  type ComposerPendingAttachment,
+} from './image-attachment'
 
 type ComposerFilesOptions = {
   contextKey: string
@@ -9,6 +14,11 @@ type ComposerFilesOptions = {
   uploadAttachment: ChatBridge['uploadAttachment']
   onAdd: (attachments: ComposerAttachment[]) => void
   onError: (message: string) => void
+}
+
+type PendingUpload = {
+  attachment: ComposerPendingAttachment
+  controller: AbortController
 }
 
 export function useComposerFiles(options: ComposerFilesOptions) {
@@ -21,8 +31,7 @@ export function useComposerFiles(options: ComposerFilesOptions) {
     sessionKey,
     disabled,
     revision: 0,
-    pending: 0,
-    controllers: new Set<AbortController>(),
+    uploads: new Map<string, PendingUpload>(),
   })
   const [, refresh] = useReducer((value: number) => value + 1, 0)
   if (
@@ -35,8 +44,7 @@ export function useComposerFiles(options: ComposerFilesOptions) {
       sessionKey,
       disabled,
       revision: context.current.revision + 1,
-      pending: 0,
-      controllers: new Set<AbortController>(),
+      uploads: new Map<string, PendingUpload>(),
     }
   }
   const currentContext = context.current
@@ -46,18 +54,25 @@ export function useComposerFiles(options: ComposerFilesOptions) {
     return () => {
       mounted.current = false
       currentContext.revision++
-      currentContext.pending = 0
-      for (const controller of currentContext.controllers) controller.abort()
-      currentContext.controllers.clear()
+      for (const { controller } of currentContext.uploads.values()) controller.abort()
+      currentContext.uploads.clear()
     }
   }, [currentContext])
 
   function cancel() {
     const current = context.current
     current.revision++
-    current.pending = 0
-    for (const controller of current.controllers) controller.abort()
-    current.controllers.clear()
+    for (const { controller } of current.uploads.values()) controller.abort()
+    current.uploads.clear()
+    refresh()
+  }
+
+  function cancelUpload(id: string) {
+    const current = context.current
+    const upload = current.uploads.get(id)
+    if (!upload) return
+    current.uploads.delete(id)
+    upload.controller.abort()
     refresh()
   }
 
@@ -66,51 +81,65 @@ export function useComposerFiles(options: ComposerFilesOptions) {
     const current = context.current
     const revision = current.revision
     const targetSession = current.sessionKey
-    const controller = new AbortController()
     const isCurrent = () =>
-      mounted.current &&
-      context.current === current &&
-      current.revision === revision &&
-      !current.disabled &&
-      !controller.signal.aborted
+      mounted.current && context.current === current && current.revision === revision && !current.disabled
     const failures: string[] = []
-    current.controllers.add(controller)
-    current.pending += files.length
+    const uploads = files.map((file) => {
+      const attachment: ComposerPendingAttachment = {
+        id: crypto.randomUUID(),
+        type: 'file',
+        name: file.name,
+        preview: filePreview(file),
+        progress: 0,
+      }
+      const upload = { attachment, controller: new AbortController() }
+      current.uploads.set(attachment.id, upload)
+      return { file, ...upload }
+    })
     refresh()
-    try {
-      optionsRef.current.onError('')
-      for (const file of files) {
-        if (!isCurrent()) return
-        try {
-          const attachment = await fileToAttachment(file, (input) => {
+    optionsRef.current.onError('')
+    for (const { file, attachment, controller } of uploads) {
+      if (!isCurrent()) return
+      if (controller.signal.aborted) continue
+      try {
+        const completed = await fileToAttachment(
+          file,
+          (input) => {
             if (!isCurrent()) throw new Error('附件上传已取消')
             if (!targetSession) throw new Error('请先连接会话再添加文件')
-            return optionsRef.current.uploadAttachment(targetSession, input, controller.signal)
-          })
-          if (isCurrent()) optionsRef.current.onAdd([attachment])
-        } catch (cause) {
-          if (isCurrent()) {
-            const message = cause instanceof Error ? cause.message : String(cause)
-            failures.push(file.name && !message.includes(file.name) ? `${file.name}：${message}` : message)
-          }
-        } finally {
-          if (isCurrent()) {
-            current.pending--
-            refresh()
-          }
+            return optionsRef.current.uploadAttachment(targetSession, input, controller.signal, (progress) => {
+              if (!isCurrent() || controller.signal.aborted) return
+              const next = Math.max(0, Math.min(100, Math.round(progress)))
+              if (!Number.isFinite(next) || attachment.progress === next) return
+              attachment.progress = next
+              refresh()
+            })
+          },
+          attachment.id,
+        )
+        if (isCurrent() && !controller.signal.aborted) optionsRef.current.onAdd([completed])
+      } catch (cause) {
+        if (isCurrent() && !controller.signal.aborted) {
+          const message = cause instanceof Error ? cause.message : String(cause)
+          failures.push(file.name && !message.includes(file.name) ? `${file.name}：${message}` : message)
+        }
+      } finally {
+        if (isCurrent()) {
+          current.uploads.delete(attachment.id)
+          refresh()
         }
       }
-      if (isCurrent() && failures.length) optionsRef.current.onError(failures.join('\n'))
-    } finally {
-      current.controllers.delete(controller)
     }
+    if (isCurrent() && failures.length) optionsRef.current.onError(failures.join('\n'))
   }
 
   return {
     addFiles,
     cancel,
-    pending: context.current.pending,
-    uploading: context.current.pending > 0,
-    isUploading: () => context.current.pending > 0,
+    cancelUpload,
+    uploads: Array.from(context.current.uploads.values(), ({ attachment }) => attachment),
+    pending: context.current.uploads.size,
+    uploading: context.current.uploads.size > 0,
+    isUploading: () => context.current.uploads.size > 0,
   }
 }

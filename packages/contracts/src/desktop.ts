@@ -206,7 +206,12 @@ export interface WorkspaceBridge {
 
 /** 对话发送、队列、命令与中止。 */
 export interface ChatBridge {
-  uploadAttachment: (sessionKey: string, input: ChatFileUpload, signal?: AbortSignal) => Promise<ChatUploadedFile>
+  uploadAttachment: (
+    sessionKey: string,
+    input: ChatFileUpload,
+    signal?: AbortSignal,
+    onProgress?: (percent: number) => void,
+  ) => Promise<ChatUploadedFile>
   startGoal?: (key: string, input: GoalInput) => Promise<GoalStartResult>
   editGoal?: (key: string, input: GoalEdit) => Promise<Goal>
   pauseGoal?: (key: string, input: GoalControl) => Promise<Goal>

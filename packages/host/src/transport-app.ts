@@ -6,6 +6,7 @@ import { Hono, type Context } from 'hono'
 import { upgradeWebSocket, type HttpBindings } from '@hono/node-server'
 import { WebSocket } from 'ws'
 import type { HostControlRequest, EventSubscription } from '@pi-meme/contracts/app-host'
+import { MAX_CHAT_ATTACHMENT_BYTES } from '@pi-meme/contracts/chat-attachments'
 import type { HostRpcRequest } from '@pi-meme/contracts/host'
 import { hostRuntimeProtocolVersion, type LocalHostStatus } from '@pi-meme/contracts/host-runtime'
 import type { createHost } from './service'
@@ -13,6 +14,7 @@ import type { RemoteServices } from './remote-services'
 import type { createTransportAuth } from './transport-auth'
 import type { ServerOptions } from './server'
 import { frontendMime, serveFrontend } from './frontend'
+import { ChatAttachmentTooLargeError } from './chat-attachments'
 
 type TransportEnv = {
   Bindings: Pick<HttpBindings, 'incoming'> & Partial<Pick<HttpBindings, 'outgoing'>>
@@ -77,6 +79,7 @@ function serviceRegistrationError(cause: unknown) {
 
 function registerRpc(app: Hono<TransportEnv>, { host, remotes, auth }: TransportServices) {
   app.post('/api/chat/attachments', async (c) => {
+    if (Number(c.req.header('Content-Length')) > MAX_CHAT_ATTACHMENT_BYTES) throw new ChatAttachmentTooLargeError()
     const query = c.get('url').searchParams
     const result = await host.uploadAttachment(
       {
@@ -283,7 +286,7 @@ function registerResources(app: Hono<TransportEnv>, { host, remotes }: Transport
 export function createTransportApp(services: TransportServices) {
   const { host, auth, options } = services
   const app = new Hono<TransportEnv>({ getPath: (request) => new URL(request.url).pathname })
-  app.onError((cause) => reply(400, { error: cause.message }))
+  app.onError((cause) => reply(cause instanceof ChatAttachmentTooLargeError ? 413 : 400, { error: cause.message }))
   app.use('*', async (c, next) => {
     const request = c.env.incoming
     if (!auth.allowedSource(request)) return reply(403, { error: '请求来源无效' })

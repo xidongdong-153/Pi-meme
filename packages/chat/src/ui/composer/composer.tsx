@@ -261,7 +261,13 @@ export function Composer({
             {input.images?.length ? `（${input.images.length} 张图片）` : ''}
           </button>
         ))}
-        <ComposerAttachments attachments={attachments} onRemoveImage={onRemoveImage} disabled={disabled} />
+        <ComposerAttachments
+          attachments={attachments}
+          onRemoveImage={onRemoveImage}
+          disabled={disabled}
+          uploads={files.uploads}
+          onCancelUpload={files.cancelUpload}
+        />
         {files.uploading && (
           <p role="status" className="mb-2 text-xs text-muted-foreground">
             正在添加附件（剩余 {files.pending} 个）…

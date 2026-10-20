@@ -1,9 +1,15 @@
 import { createWriteStream } from 'node:fs'
 import { mkdir, mkdtemp, realpath, rm } from 'node:fs/promises'
 import path from 'node:path'
-import type { Readable } from 'node:stream'
+import { type Readable, Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
-import type { ChatUploadedFile } from '@pi-meme/contracts/chat-attachments'
+import { MAX_CHAT_ATTACHMENT_BYTES, type ChatUploadedFile } from '@pi-meme/contracts/chat-attachments'
+
+export class ChatAttachmentTooLargeError extends Error {
+  constructor() {
+    super('单个上传文件不能超过 50 MB')
+  }
+}
 
 /** 保留展示名，磁盘名称去掉目录、控制字符与平台保留字符。 */
 function attachmentFilename(name: string) {
@@ -30,7 +36,14 @@ export async function storeChatAttachment(
   const directory = await mkdtemp(path.join(root, 'upload-'))
   const file = path.join(directory, attachmentFilename(name))
   try {
-    await pipeline(body, createWriteStream(file, { flags: 'wx', mode: 0o600 }), { signal })
+    let bytes = 0
+    const limit = new Transform({
+      transform(chunk: Buffer, _encoding, callback) {
+        bytes += chunk.byteLength
+        callback(bytes > MAX_CHAT_ATTACHMENT_BYTES ? new ChatAttachmentTooLargeError() : null, chunk)
+      },
+    })
+    await pipeline(body, limit, createWriteStream(file, { flags: 'wx', mode: 0o600 }), { signal })
   } catch (cause) {
     await rm(directory, { recursive: true, force: true })
     throw cause

@@ -105,6 +105,8 @@ export function InlineMessageEditor({ editor }: { editor: MessageEditorState }) 
           attachments={editor.attachments}
           onRemoveImage={editor.onRemoveImage}
           disabled={editor.disabled}
+          uploads={files.uploads}
+          onCancelUpload={files.cancelUpload}
         />
         {files.uploading && (
           <p role="status" className="mb-2 text-xs text-muted-foreground">
