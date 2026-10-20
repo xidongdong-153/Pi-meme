@@ -447,16 +447,16 @@ export function WorkspacePanels({
                         </label>
                       </div>
                       <div className="p-4 @container">
-                        <h2 className="mb-2 text-xs font-medium text-muted-foreground/80">工具</h2>
-                        <div className="flex flex-col gap-1">
+                        <h2 className="mb-4 text-sm font-medium text-foreground">工具</h2>
+                        <div className="grid grid-cols-1 gap-2 @min-[32rem]:grid-cols-2 @min-[32rem]:gap-x-3">
                           {filtered.map((panel) => (
                             <button
                               key={panel.id}
                               type="button"
                               onClick={() => open(panel.id)}
-                              className="flex min-w-0 items-center justify-between rounded-lg px-3 py-2 text-left text-xs text-foreground/90 transition-colors hover:bg-secondary/60 cursor-pointer group"
+                              className="group flex min-h-10 min-w-0 items-center rounded-lg bg-secondary/40 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
                             >
-                              <div className="flex items-center gap-2.5 min-w-0">
+                              <div className="flex min-w-0 items-center gap-3">
                                 <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground group-hover:text-foreground [&>svg]:size-4">
                                   {panel.icon}
                                 </span>
@@ -472,26 +472,24 @@ export function WorkspacePanels({
                         )}
                         <div className="mt-5">
                           <h2 className="mb-2.5 text-xs font-medium text-muted-foreground/80">推荐</h2>
-                          <div className="grid grid-cols-2 gap-2.5">
+                          <div className="grid grid-cols-1 gap-2 @min-[32rem]:grid-cols-2 @min-[32rem]:gap-x-3">
                             <button
                               type="button"
                               onClick={onNewSession}
                               disabled={!onNewSession}
-                              className="flex flex-col items-center justify-center gap-2 rounded-xl bg-secondary/30 p-3.5 transition-colors hover:bg-secondary/60 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                              className="group flex min-h-10 min-w-0 items-center gap-3 rounded-lg bg-secondary/40 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                              <Globe className="size-5 text-primary/80" />
-                              <span className="text-xs text-foreground/80 font-medium">新会话</span>
+                              <Globe className="size-4 shrink-0 text-muted-foreground group-hover:text-foreground" />
+                              <span className="truncate">新会话</span>
                             </button>
                             <button
                               type="button"
                               onClick={onPlugins}
                               disabled={!onPlugins}
-                              className="flex flex-col items-center justify-center gap-2 rounded-xl bg-secondary/30 p-3.5 transition-colors hover:bg-secondary/60 cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                              className="group flex min-h-10 min-w-0 items-center gap-3 rounded-lg bg-secondary/40 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                              <Layers className="size-5 text-teal-400" />
-                              <span className="text-xs text-foreground/80 font-medium truncate max-w-full">
-                                扩展中心
-                              </span>
+                              <Layers className="size-4 shrink-0 text-muted-foreground group-hover:text-foreground" />
+                              <span className="truncate">扩展中心</span>
                             </button>
                           </div>
                         </div>

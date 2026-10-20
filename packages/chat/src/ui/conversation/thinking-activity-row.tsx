@@ -62,7 +62,7 @@ export function ThinkingActivityRow({
         }}
         className={cn(
           'group/thinking-toggle flex min-h-6 w-fit max-w-full items-center gap-2 py-0.5 pr-1 rounded leading-5 cursor-pointer transition-colors',
-          'text-muted-foreground hover:text-foreground hover:bg-secondary/30',
+          'text-muted-foreground hover:text-foreground',
           isNested && 'pl-2',
         )}
       >

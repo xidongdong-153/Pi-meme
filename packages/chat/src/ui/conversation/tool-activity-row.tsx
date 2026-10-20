@@ -125,7 +125,7 @@ export function ToolActivityRow({
         title={meta.fullPath}
         className={cn(
           'group/tool-toggle flex min-h-6 w-fit max-w-full items-center gap-2 py-0.5 pr-1 rounded leading-5 cursor-pointer transition-colors',
-          'text-muted-foreground hover:text-foreground hover:bg-secondary/30',
+          'text-muted-foreground hover:text-foreground',
           isNested && 'pl-2',
           !hasDetail && 'cursor-default',
         )}
@@ -168,7 +168,7 @@ export function ToolActivityRow({
                 <button
                   type="button"
                   onClick={handleCopy}
-                  className="inline-flex items-center gap-1 px-1 py-0.5 rounded hover:bg-secondary/60 hover:text-foreground cursor-pointer"
+                  className="inline-flex items-center gap-1 px-1 py-0.5 rounded hover:text-foreground cursor-pointer"
                   title="复制输出"
                 >
                   {copied ? (

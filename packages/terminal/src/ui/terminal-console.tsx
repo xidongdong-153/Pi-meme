@@ -34,6 +34,7 @@ export function TerminalConsole({
       rows: instance.rows,
       fontFamily: style().getPropertyValue('--font-code').trim() || 'monospace',
       fontSize: Number.parseFloat(style().getPropertyValue('--code-size')) || 13,
+      allowTransparency: true,
       customGlyphs: true,
       rescaleOverlappingGlyphs: true,
       disableStdin: true,
@@ -56,7 +57,7 @@ export function TerminalConsole({
     const applyTheme = () => {
       const colors = style()
       terminal.options.theme = {
-        background: colors.getPropertyValue('--color-background').trim(),
+        background: '#00000000',
         foreground: colors.getPropertyValue('--color-text').trim(),
         cursor: colors.getPropertyValue('--color-accent').trim(),
         selectionBackground: colors.getPropertyValue('--color-elevated').trim(),
@@ -142,7 +143,7 @@ export function TerminalConsole({
   }, [host, instance, outputListeners])
   return (
     <div className="relative min-h-0 min-w-0 flex-1">
-      <div ref={container} className="h-full min-h-24 w-full" />
+      <div ref={container} className="h-full min-h-24 w-full [&_.xterm-viewport]:bg-transparent!" />
       {error && (
         <p role="alert" className="break-words text-xs text-destructive">
           {error}

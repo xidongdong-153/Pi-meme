@@ -64,7 +64,7 @@ export function SessionItem({
           onMouseEnter={handleMouseEnter}
           className={cn(
             'group relative flex w-full min-w-0 items-center justify-between rounded-lg pr-2.5 text-xs transition-colors duration-200 ease-out cursor-pointer',
-            isActive ? 'bg-secondary/80 font-medium text-foreground' : 'text-foreground/90 hover:bg-secondary/60',
+            isActive ? 'font-medium text-foreground' : 'text-foreground/90 hover:text-foreground',
           )}
           data-session-path={session.path}
           title={formatSessionTitle(session)}
@@ -107,9 +107,7 @@ export function SessionItem({
           onMouseEnter={handleMouseEnter}
           className={cn(
             'group relative flex w-full min-w-0 items-center justify-between rounded-lg pr-2 text-xs transition-colors duration-200 ease-out cursor-pointer',
-            isActive
-              ? 'bg-secondary/80 font-medium text-foreground'
-              : 'text-muted-foreground hover:bg-secondary/50 hover:text-foreground',
+            isActive ? 'font-medium text-foreground' : 'text-muted-foreground hover:text-foreground',
           )}
           data-session-path={session.path}
           title={formatSessionTitle(session)}
@@ -155,7 +153,7 @@ export function SessionItem({
         onMouseEnter={handleMouseEnter}
         className={cn(
           'group relative flex w-full min-w-0 items-center justify-between rounded-lg pr-2.5 text-xs transition-colors duration-200 ease-out cursor-pointer',
-          isActive ? 'bg-secondary/80 font-medium text-foreground' : 'text-foreground/85 hover:bg-secondary/50',
+          isActive ? 'font-medium text-foreground' : 'text-foreground/85 hover:text-foreground',
         )}
         data-session-path={session.path}
         title={formatSessionTitle(session)}

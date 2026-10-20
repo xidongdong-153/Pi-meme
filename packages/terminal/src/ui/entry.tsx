@@ -116,7 +116,7 @@ export async function activate(context: Pick<UiPluginContext, 'host' | 'panels'>
     }
     return (
       <section aria-label="终端工具" className="flex h-full min-h-0 flex-col">
-        <div className="flex min-h-11 shrink-0 items-center gap-2 border-b border-border/70 px-3 text-xs">
+        <div className="flex min-h-11 shrink-0 items-center gap-2 px-3 text-xs">
           {instance ? (
             <>
               <span title={instance.cwd} className="min-w-0 flex-1 truncate text-muted-foreground">

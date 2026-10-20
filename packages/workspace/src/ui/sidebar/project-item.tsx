@@ -68,7 +68,7 @@ export function ProjectItem({
           {...dragProps}
           className={cn(
             'group relative flex w-full min-w-0 items-center justify-between rounded-lg pr-2.5 text-xs transition-colors duration-200 ease-out cursor-pointer',
-            isCurrentCwd ? 'bg-secondary/70 font-medium text-foreground' : 'text-foreground/85 hover:bg-secondary/50',
+            isCurrentCwd ? 'font-medium text-foreground' : 'text-foreground/85 hover:text-foreground',
             dragProps?.draggable && 'cursor-grab active:cursor-grabbing',
           )}
           title={project.cwd}
