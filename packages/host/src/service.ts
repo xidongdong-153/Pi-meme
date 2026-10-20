@@ -84,7 +84,6 @@ const sessionWrites = new Set([
   'pi:set-thinking-level',
   'pi:extension-ui-response',
   'pi:edit-and-prompt',
-  'pi:switch-message-version',
   'pi:fork-reply',
   'git:switch-branch',
   'git:create-branch',
@@ -1327,7 +1326,7 @@ export async function createHost(options: HostOptions = {}) {
                 } else {
                   if (
                     key &&
-                    (['pi:edit-and-prompt', 'pi:fork-reply', 'pi:switch-message-version'].includes(request.method) ||
+                    (['pi:edit-and-prompt', 'pi:fork-reply'].includes(request.method) ||
                       (sends.includes(request.method) &&
                         typeof request.args[1] === 'string' &&
                         normalizePlanMessage(

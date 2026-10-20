@@ -4,7 +4,7 @@ import type { PiBranchEntry, PiSessionEntries } from '@pi-meme/contracts/pi'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Input } from '@pi-meme/ui/components/ui/input'
 import { cn } from '@pi-meme/ui/lib/utils'
-import { buildSessionTreeRows, isUserEntry, type FilterMode, type SessionTreeRow } from './model/session-tree-rows'
+import { buildSessionTreeRows, type FilterMode, type SessionTreeRow } from './model/session-tree-rows'
 import { HistoryMarkdown } from './history-markdown'
 
 const FILTERS: Array<{ mode: FilterMode; label: string }> = [
@@ -114,13 +114,7 @@ function treePrefix(row: SessionTreeRow): string {
   return prefix
 }
 
-export function SessionTreePanel({
-  sessionEntries,
-  onSwitchVersion,
-}: {
-  sessionEntries: PiSessionEntries | undefined
-  onSwitchVersion: (timestamp: number, version: number) => void
-}) {
+export function SessionTreePanel({ sessionEntries }: { sessionEntries: PiSessionEntries | undefined }) {
   const [searchQuery, setSearchQuery] = useState('')
   const [filterMode, setFilterMode] = useState<FilterMode>('default')
   const [foldedIds, setFoldedIds] = useState<Set<string>>(new Set())
@@ -189,24 +183,6 @@ export function SessionTreePanel({
     })
   }
 
-  const userSiblings = (entry: PiBranchEntry) =>
-    (model.childrenMap.get(entry.parentId ?? null) ?? []).filter(isUserEntry)
-
-  const versionOf = (entry: PiBranchEntry): { index: number; total: number; current: boolean } | null => {
-    if (!isUserEntry(entry) || typeof entry.messageTimestamp !== 'number') return null
-    const siblings = userSiblings(entry)
-    if (siblings.length < 2) return null
-    const index = siblings.findIndex((sibling) => sibling.id === entry.id)
-    return { index: index + 1, total: siblings.length, current: model.activeIds.has(entry.id) }
-  }
-
-  const switchToVersion = (entry: PiBranchEntry) => {
-    if (!isUserEntry(entry) || typeof entry.messageTimestamp !== 'number') return
-    const siblings = userSiblings(entry)
-    const index = siblings.findIndex((sibling) => sibling.id === entry.id)
-    if (index !== -1) onSwitchVersion(entry.messageTimestamp, index)
-  }
-
   const handleCopy = (text: string) => {
     if (!text) return
     void navigator.clipboard.writeText(text).then(() => {
@@ -216,7 +192,6 @@ export function SessionTreePanel({
     })
   }
 
-  const selectedVersion = selectedEntry ? versionOf(selectedEntry) : null
   const selectedIndex = model.rows.findIndex((row) => row.entry.id === resolvedSelectedId)
   const filterLabel = FILTERS.find((item) => item.mode === filterMode)?.label ?? ''
 
@@ -263,7 +238,6 @@ export function SessionTreePanel({
         ) : (
           model.rows.map((row) => {
             const chip = roleChip(row.entry)
-            const version = versionOf(row.entry)
             const active = model.activeIds.has(row.entry.id)
             const selected = row.entry.id === resolvedSelectedId
             const isLeaf = row.entry.id === model.leafId
@@ -312,11 +286,6 @@ export function SessionTreePanel({
                     {row.childCount}
                   </span>
                 )}
-                {version && !version.current && (
-                  <span className="shrink-0 text-[0.625rem] text-muted-foreground">
-                    v{version.index}/{version.total}
-                  </span>
-                )}
               </div>
             )
           })
@@ -345,19 +314,6 @@ export function SessionTreePanel({
             </div>
 
             <div className="flex shrink-0 items-center gap-1.5">
-              {selectedVersion && (
-                <Button
-                  size="xs"
-                  variant={selectedVersion.current ? 'outline' : 'secondary'}
-                  disabled={selectedVersion.current}
-                  className="h-6 px-2 text-[0.625rem]"
-                  onClick={() => switchToVersion(selectedEntry)}
-                >
-                  {selectedVersion.current
-                    ? `当前 v${selectedVersion.index}/${selectedVersion.total}`
-                    : `切到此版本 v${selectedVersion.index}/${selectedVersion.total}`}
-                </Button>
-              )}
               {selectedEntry.preview?.trim() && (
                 <Button
                   size="icon-sm"

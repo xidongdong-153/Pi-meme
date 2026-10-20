@@ -26,6 +26,7 @@ import {
   type ComponentProps,
 } from 'react'
 import { Composer } from '@pi-meme/chat/ui/composer/composer'
+import { MessageImageLoaderContext } from '@pi-meme/chat/ui/content/message-image'
 import { Conversation } from '@pi-meme/chat/ui/conversation/conversation'
 import { Sidebar } from '@pi-meme/workspace/ui/sidebar/sidebar'
 import { SidebarMenus } from '@pi-meme/workspace/ui/sidebar/sidebar-menus'
@@ -616,7 +617,9 @@ export function App({
             onDraft={(draft) => chat.saveQuestionDraft(interaction.id, draft)}
           />
         )}
-        <Composer {...composerProps} />
+        <MessageImageLoaderContext value={loadConversationImage}>
+          <Composer {...composerProps} />
+        </MessageImageLoaderContext>
       </div>
       {chat.workspaceNotice && (
         <p role="status" className="px-3 text-xs text-muted-foreground">
@@ -698,11 +701,9 @@ export function App({
             onSetGoal: chat.goalsSupported ? chat.setMessageGoal : undefined,
             canSetGoal:
               !chat.busy && !chat.navigationBusy && !chat.editing && (!chat.goal || chat.goal.status === 'complete'),
-            onSwitchMessageVersion: (timestamp, version) => void chat.switchMessageVersion(timestamp, version),
             onForkReply: (timestamp) => void chat.forkReply(timestamp),
             onCopyError: chat.setError,
             editor,
-            switchingVersion: chat.switchingVersion,
             sessionKey: chat.connection.sessionKey,
             loadImage: loadConversationImage,
           }}
@@ -710,7 +711,6 @@ export function App({
       }
       canEditMessages={!chat.busy && !chat.navigationBusy && !chat.editing}
       onEditMessage={chat.editMessage}
-      onSwitchMessageVersion={(timestamp, version) => void chat.switchMessageVersion(timestamp, version)}
       onForkReply={(timestamp) => void chat.forkReply(timestamp)}
       onCopyError={chat.setError}
       onSettings={() => setSettingsSection('general')}
@@ -724,7 +724,6 @@ export function App({
       }}
       projectSelectorOpen={workspacePickerOpen}
       editor={editor}
-      switchingVersion={chat.switchingVersion}
       notice={
         <>
           <ErrorNotice
@@ -868,12 +867,7 @@ export function App({
             icon: <ListTree />,
             location: 'right' as const,
             scope: 'session' as const,
-            render: () => (
-              <SessionTreePanel
-                sessionEntries={chat.chat.sessionEntries}
-                onSwitchVersion={(timestamp, version) => void chat.switchMessageVersion(timestamp, version)}
-              />
-            ),
+            render: () => <SessionTreePanel sessionEntries={chat.chat.sessionEntries} />,
           },
         ]
       : []),

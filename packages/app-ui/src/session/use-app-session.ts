@@ -58,7 +58,6 @@ export function useAppSession(
   const [modelSaving, setModelSaving] = useState(false)
   const [switching, setSwitching] = useState(false)
   const [switchingToPath, setSwitchingToPath] = useState<string>()
-  const [switchingVersion, setSwitchingVersion] = useState<number>()
   const [forking, setForking] = useState(false)
   const [forkNotice, setForkNotice] = useState<{ sourcePath: string } | null>(null)
   const forkNoticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -542,7 +541,6 @@ export function useAppSession(
     synchronization.current.cancel()
     setSwitching(true)
     setSwitchingToPath(target)
-    setSwitchingVersion(undefined)
     setLoading(false)
     setError('')
     if (target) setActiveSession(target)
@@ -893,17 +891,6 @@ export function useAppSession(
       setForkNotice(null)
       return select(() => bridge.switchSession(sourcePath), sourcePath)
     },
-    switchMessageVersion: (timestamp: number, version: number) =>
-      action(async (key, owns) => {
-        setSwitchingVersion(timestamp)
-        try {
-          await bridge.switchMessageVersion(key, timestamp, version)
-          if (owns()) await refresh()
-        } finally {
-          if (mounted.current) setSwitchingVersion(undefined)
-        }
-      }),
-    switchingVersion,
     togglePin: (path: string) =>
       action(async () => {
         await bridge.togglePin(path)

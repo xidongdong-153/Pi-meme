@@ -2,7 +2,6 @@ import { UserMessageContent } from './user-message-content'
 import { UserMessageAttachments } from './user-message-attachments'
 import { messageAttachmentParts } from '../model/message-attachments'
 import * as React from 'react'
-import { Loader2 } from 'lucide-react'
 import { ErrorLine } from '@pi-meme/ui/components/error-line'
 import type { PiImage, PiMessage } from '@pi-meme/contracts/pi'
 import type { ChatState } from '../model/types'
@@ -11,10 +10,8 @@ import { MarkdownContent } from '../content/markdown-content'
 import { AttachmentPreview } from '../content/attachment-preview'
 import { ActivityGroup } from './activity-group'
 import { cn } from '@pi-meme/ui/lib/utils'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
 import { MessageActions } from './message-actions'
 import { messageText } from '../model/message-text'
-import type { MessageVersion } from '../model/message-versions'
 
 export function ChatMessage({
   message,
@@ -26,9 +23,6 @@ export function ChatMessage({
   canSetGoal,
   canEdit,
   onCopyError,
-  versions,
-  onSwitchVersion,
-  versionSwitchBusy = false,
 }: {
   message: PiMessage
   tools: ChatState['tools']
@@ -39,9 +33,6 @@ export function ChatMessage({
   canSetGoal?: boolean
   canEdit?: boolean
   onCopyError?: (message: string) => void
-  versions?: MessageVersion[]
-  onSwitchVersion?: (version: number) => void
-  versionSwitchBusy?: boolean
 }) {
   const content = 'content' in message ? message.content : undefined
   const segments = React.useMemo(
@@ -151,58 +142,6 @@ export function ChatMessage({
               <time className="mr-1 tabular-nums" dateTime={new Date(message.timestamp).toISOString()}>
                 {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </time>
-            )}
-            {versions && versions.length > 1 && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div
-                    data-testid="version-control"
-                    aria-label="用户消息版本"
-                    aria-busy={versionSwitchBusy}
-                    className="flex items-center gap-0.5 rounded-full border border-border/80 bg-secondary/50 pl-1.5 pr-0.5 text-sm text-foreground/80"
-                  >
-                    <span className="select-none">版本</span>
-                    <button
-                      type="button"
-                      disabled={!canEdit || versionSwitchBusy || versions.findIndex((version) => version.selected) <= 0}
-                      onClick={() => onSwitchVersion?.(versions.findIndex((version) => version.selected) - 1)}
-                      aria-label="查看上一个版本"
-                      className="inline-flex size-5 items-center justify-center rounded-full hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer"
-                    >
-                      ‹
-                    </button>
-                    <span className="min-w-7 text-center tabular-nums">
-                      {versionSwitchBusy ? (
-                        <Loader2 aria-hidden="true" className="mx-auto size-3 animate-spin text-primary" />
-                      ) : (
-                        <>
-                          {Math.max(
-                            versions.findIndex((version) => version.selected),
-                            0,
-                          ) + 1}
-                          /{versions.length}
-                        </>
-                      )}
-                    </span>
-                    <button
-                      type="button"
-                      disabled={
-                        !canEdit ||
-                        versionSwitchBusy ||
-                        versions.findIndex((version) => version.selected) >= versions.length - 1
-                      }
-                      onClick={() => onSwitchVersion?.(versions.findIndex((version) => version.selected) + 1)}
-                      aria-label="查看下一个版本"
-                      className="inline-flex size-5 items-center justify-center rounded-full hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-35 disabled:cursor-not-allowed cursor-pointer"
-                    >
-                      ›
-                    </button>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="text-sm">
-                  切换版本会同时恢复该版本所属的完整后续对话
-                </TooltipContent>
-              </Tooltip>
             )}
             <MessageActions
               onCopy={() => navigator.clipboard.writeText(messageText(message))}

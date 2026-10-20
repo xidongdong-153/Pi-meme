@@ -28,14 +28,12 @@ export function WorkspaceContent({
   conversation: ReactNode
   canEditMessages: boolean
   onEditMessage: (message: PiMessage) => void
-  onSwitchMessageVersion: (timestamp: number, version: number) => void
   onForkReply: (timestamp: number) => void
   onCopyError: (message: string) => void
   onSettings: () => void
   onSelectProject?: (trigger?: HTMLElement) => void
   projectSelectorOpen?: boolean
   editor?: MessageEditorState
-  switchingVersion?: number
   notice: ReactNode
   children: ReactNode
 }) {

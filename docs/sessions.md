@@ -25,7 +25,7 @@ paths:
 
 # 会话与协作
 
-Desktop 和 Web 使用同一 Host 会话实现。Pi SDK 负责原生 JSONL、恢复、分支、编辑版本与压缩；内置历史模块只索引、查询、导出和展示，不提供任意存储替换。源码入口是 [会话池](../packages/pi-runtime/src/session-pool.ts)、[SDK 会话](../packages/pi-runtime/src/sdk/session.ts) 和 [历史模块](../packages/history/src/)。
+Desktop 和 Web 使用同一 Host 会话实现。Pi SDK 负责原生 JSONL、恢复、分支与压缩；内置历史模块只索引、查询、导出和展示，不提供任意存储替换。源码入口是 [会话池](../packages/pi-runtime/src/session-pool.ts)、[SDK 会话](../packages/pi-runtime/src/sdk/session.ts) 和 [历史模块](../packages/history/src/)。
 
 ## 会话与 Worker 生命周期
 
@@ -84,6 +84,12 @@ Agent 本轮结束、停止响应、Worker 回收、切换会话、关闭工具�
 每条输入保存自己的 `mode`，包含发送、插话、排队、撤回和失败重试；后续队列项不跟随界面当前的规划开关变化。结构见 [QueuedInput](../packages/contracts/src/plan.ts)，输入实现见 [composer](../packages/chat/src/ui/composer/)。
 
 正式 API 的投递方式是 `start`、`queue`、`steer`；运行中拒绝 `start`，队列与回执规则见 [HostApi 提交](host-api.md#提交与回执)。网络断线只恢复连接和快照，不自动重发 prompt。Host 重启将未完成提交标记为中断，不重放模型调用。
+
+## 编辑用户消息
+
+点击用户消息的“编辑”后重新发送，会覆盖这条输入，并删除它原来的回复及后续对话，再从编辑位置生成回复。原会话身份和编辑位置之前的上下文保持不变，不保留可切换的消息版本。取消编辑不修改会话记录。“从这段回复新建会话”仍用于创建独立会话，不属于消息编辑。
+
+实现见 [SDK 会话](../packages/pi-runtime/src/sdk/session.ts) 与 [聊天输入状态](../packages/chat/src/ui/use-chat-session.ts)，持久化验证见 [session-branch.integration.test.ts](../packages/pi-runtime/tests/session-branch.integration.test.ts)。
 
 ## 草稿与历史搜索
 

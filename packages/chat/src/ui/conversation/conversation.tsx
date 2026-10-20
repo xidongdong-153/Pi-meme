@@ -11,7 +11,6 @@ import { projectAgentConversation } from '../model/agent-collaboration'
 import type { AgentSummary } from '@pi-meme/contracts/collaboration'
 import { useConversationScroll } from './use-conversation-scroll'
 import { Button } from '@pi-meme/ui/components/ui/button'
-import { messageVersions } from '../model/message-versions'
 import { CompactionCard, CompactionProgressCard } from './compaction-card'
 import { conversationOutline } from '../model/conversation-outline'
 import { ConversationOutline } from './conversation-outline'
@@ -40,11 +39,9 @@ export const Conversation = React.memo(
     onEditMessage,
     onSetGoal,
     canSetGoal,
-    onSwitchMessageVersion,
     onForkReply,
     onCopyError,
     editor,
-    switchingVersion,
     sessionKey,
     loadImage,
     readOnly = false,
@@ -57,13 +54,10 @@ export const Conversation = React.memo(
     onEditMessage: (message: Extract<TurnChunk, { type: 'user' }>['message']) => void
     onSetGoal?: (message: Extract<TurnChunk, { type: 'user' }>['message']) => void
     canSetGoal?: boolean
-    onSwitchMessageVersion: (timestamp: number, version: number) => void
     onForkReply: (timestamp: number) => void
     onCopyError: (message: string) => void
     /** 正在原位置编辑的用户消息，命中该时间戳时用编辑器替换消息气泡。 */
     editor?: MessageEditorState
-    /** 正在切换版本的原始消息时间戳，用于展示切换进度。 */
-    switchingVersion?: number
     /** 当前会话标识，用于按会话恢复滚动位置。 */
     sessionKey?: string
     loadImage?: MessageImageLoader
@@ -284,9 +278,6 @@ export const Conversation = React.memo(
                 )
               }
               if (turn.type === 'user') {
-                const versions = readOnly ? undefined : messageVersions(chat.sessionEntries, turn.message)
-                const versionSwitchBusy =
-                  typeof turn.message.timestamp === 'number' && switchingVersion === turn.message.timestamp
                 return (
                   <div
                     key={turn.key}
@@ -307,15 +298,6 @@ export const Conversation = React.memo(
                         onSetGoal={readOnly ? undefined : onSetGoal}
                         canSetGoal={canSetGoal}
                         onCopyError={onCopyError}
-                        versions={versions}
-                        versionSwitchBusy={versionSwitchBusy}
-                        onSwitchVersion={
-                          readOnly
-                            ? undefined
-                            : (version) =>
-                                typeof turn.message.timestamp === 'number' &&
-                                onSwitchMessageVersion(turn.message.timestamp, version)
-                        }
                       />
                     )}
                   </div>

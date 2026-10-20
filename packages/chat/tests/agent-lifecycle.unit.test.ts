@@ -360,7 +360,6 @@ test('主聊天用并排头像和一句完成文案显示多个子代理，开�
       },
       canEditMessages: false,
       onEditMessage: () => {},
-      onSwitchMessageVersion: () => {},
       onForkReply: () => {},
       onCopyError: () => {},
     }),

@@ -7,6 +7,8 @@ import type { ChatBridge } from '@pi-meme/contracts/desktop'
 import { fileToAttachment, messageWithAttachments, type ComposerAttachment } from '../src/ui/composer/image-attachment'
 import { useComposerFiles } from '../src/ui/composer/use-composer-files'
 import { ComposerAttachments } from '../src/ui/composer/composer-attachments'
+import { useChatSession } from '../src/ui/use-chat-session'
+import { queuedDraft } from '../src/ui/composer/restore-queued-input'
 
 afterEach(() => {
   cleanup()
@@ -138,6 +140,120 @@ test('发送新文件只引用 Host 路径，编辑已有图片消息时仍保�
   assert.doesNotMatch(result.message, /photo\.png|cG5n|image-1|file-1/)
   assert.deepEqual(messageWithAttachments('', [file]).images, [])
   assert.equal(messageWithAttachments('正文', [image]).message, '正文')
+})
+
+test.each(['string', 'parts'] as const)(
+  '编辑 %s 用户消息时把 Host 附件恢复为卡片数据，重新发送不重复追加路径',
+  async (contentType) => {
+    const attachments: ComposerAttachment[] = [
+      { id: 'photo', type: 'file', name: '图片.png', path: '/host/attachments/photo.png' },
+      { id: 'document', type: 'file', name: '说明.pdf', path: '/host/attachments/report.pdf' },
+    ]
+    const original = messageWithAttachments('你好啊', attachments)
+    const legacyImage = { type: 'image' as const, mimeType: 'image/png', data: 'cG5n' }
+    const editAndPrompt = vi.fn<ChatBridge['editAndPrompt']>().mockResolvedValue(undefined)
+    const uploadAttachment = vi.fn<ChatBridge['uploadAttachment']>()
+    const hook = renderHook(() =>
+      useChatSession({
+        bridge: { editAndPrompt, uploadAttachment } as unknown as ChatBridge,
+        commands: [],
+        canSend: () => true,
+        isSwitching: () => false,
+        awaitPendingSwitch: async () => {},
+        currentGeneration: () => 1,
+        currentSessionKey: () => 'session-a',
+        onError: () => {},
+      }),
+    )
+    act(() => {
+      hook.result.current.editMessage({
+        role: 'user',
+        timestamp: 100,
+        content: contentType === 'string' ? original.message : [{ type: 'text', text: original.message }, legacyImage],
+      })
+    })
+    assert.equal(hook.result.current.draft, '你好啊')
+    assert.deepEqual(
+      hook.result.current.attachments
+        .filter((attachment) => attachment.type === 'file')
+        .map(({ name, path }) => ({ name, path })),
+      attachments.map((attachment) => ({
+        name: attachment.name,
+        path: attachment.type === 'file' ? attachment.path : '',
+      })),
+    )
+    act(() => hook.result.current.setDraft('改一下正文'))
+    await act(async () => hook.result.current.send())
+    assert.deepEqual(editAndPrompt.mock.calls[0], [
+      'session-a',
+      100,
+      messageWithAttachments('改一下正文', attachments).message,
+      contentType === 'parts' ? [legacyImage] : [],
+      [],
+      { mode: 'default' },
+    ])
+    assert.equal(uploadAttachment.mock.calls.length, 0)
+  },
+)
+
+test('编辑时可移除 Host 附件，发送失败保留修改，取消后恢复编辑前的草稿附件', async () => {
+  const file: ComposerAttachment = { id: 'file', type: 'file', name: 'report.pdf', path: '/host/report.pdf' }
+  const draftFile: ComposerAttachment = { id: 'draft', type: 'file', name: 'draft.txt', path: '/host/draft.txt' }
+  const editAndPrompt = vi.fn<ChatBridge['editAndPrompt']>().mockRejectedValue(new Error('发送失败'))
+  const hook = renderHook(() =>
+    useChatSession({
+      bridge: { editAndPrompt } as unknown as ChatBridge,
+      commands: [],
+      canSend: () => true,
+      isSwitching: () => false,
+      awaitPendingSwitch: async () => {},
+      currentGeneration: () => 1,
+      currentSessionKey: () => 'session-a',
+      onError: () => {},
+    }),
+  )
+  act(() => {
+    hook.result.current.setDraft('编辑前草稿')
+    hook.result.current.setAttachments([draftFile])
+  })
+  act(() =>
+    hook.result.current.editMessage({
+      role: 'user',
+      timestamp: 100,
+      content: messageWithAttachments('原消息', [file]).message,
+    }),
+  )
+  const view = render(
+    createElement(ComposerAttachments, {
+      attachments: hook.result.current.attachments,
+      onRemoveImage: (id) =>
+        hook.result.current.setAttachments((current) => current.filter((attachment) => attachment.id !== id)),
+    }),
+  )
+  fireEvent.click(view.getByRole('button', { name: '移除文件：report.pdf' }))
+  await act(async () => hook.result.current.send())
+  assert.equal(editAndPrompt.mock.calls[0][2], '原消息')
+  assert.deepEqual(hook.result.current.attachments, [])
+  assert.equal(hook.result.current.draft, '原消息')
+  assert.equal(hook.result.current.editing, true)
+  await act(async () => hook.result.current.cancelEdit())
+  assert.equal(hook.result.current.draft, '编辑前草稿')
+  assert.deepEqual(hook.result.current.attachments, [draftFile])
+})
+
+test('排队消息恢复时也分离 Host 附件，并保留原生图片', () => {
+  const file: ComposerAttachment = { id: 'file', type: 'file', name: 'notes.txt', path: '/host/notes.txt' }
+  const image = { type: 'image' as const, mimeType: 'image/png', data: 'cG5n' }
+  const restored = queuedDraft(
+    { id: 'queued', text: messageWithAttachments('待发送', [file]).message, images: [image], mode: 'default' },
+    [],
+  )
+  assert.equal(restored.draft, '待发送')
+  assert.equal(restored.attachments.length, 2)
+  assert.deepEqual(messageWithAttachments(restored.draft, restored.attachments), {
+    message: messageWithAttachments('待发送', [file]).message,
+    images: [image],
+  })
 })
 
 test('读取或上传期间 pending 计数准确，同一 tick 即可阻止提交，全部完成后恢复', async () => {

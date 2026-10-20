@@ -4,6 +4,7 @@ import { FileIcon } from '@pi-meme/ui/components/file-icon'
 import type { ComposerProps } from './composer'
 import type { ComposerAttachment, ComposerImageAttachment, ComposerPendingAttachment } from './image-attachment'
 import { ImageViewer, imageSource } from '../content/image-viewer'
+import { isImageLink, MessageImage } from '../content/message-image'
 
 function useAttachmentImages(
   attachments: (ComposerAttachment | ComposerPendingAttachment)[],
@@ -79,6 +80,13 @@ export function ComposerAttachments({
             const progress = 'progress' in attachment ? attachment.progress : undefined
             const imageIndex = images.findIndex((image) => image.id === attachment.id)
             const image = images[imageIndex]
+            const hostImage =
+              attachment.type === 'file' &&
+              !attachment.preview &&
+              'path' in attachment &&
+              isImageLink(encodeURIComponent(attachment.name))
+                ? attachment
+                : undefined
             const name = attachment.name || `图片 ${previews.findIndex((preview) => preview.id === attachment.id) + 1}`
             const iconPath = attachment.name || 'image.png'
             const content = (
@@ -91,6 +99,8 @@ export function ComposerAttachments({
                       onError={() => setFailedSources((current) => new Set(current).add(imageSource(image)))}
                       className="size-full object-cover"
                     />
+                  ) : hostImage ? (
+                    <MessageImage src={encodeURIComponent(hostImage.path)} alt={name} className="m-0 size-full" />
                   ) : (
                     <FileIcon path={iconPath} className="size-8" />
                   )}
@@ -163,7 +173,11 @@ export function ComposerAttachments({
                 <button
                   type="button"
                   disabled={disabled}
-                  aria-label={progress !== undefined ? `取消上传：${name}` : `移除${image ? '图片' : '文件'}：${name}`}
+                  aria-label={
+                    progress !== undefined
+                      ? `取消上传：${name}`
+                      : `移除${image || hostImage ? '图片' : '文件'}：${name}`
+                  }
                   onClick={() =>
                     progress !== undefined ? onCancelUpload?.(attachment.id) : onRemoveImage(attachment.id)
                   }

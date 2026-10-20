@@ -10,7 +10,8 @@ import { emptyChat } from '../src/ui/model/state'
 import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 import { assistantMessage, userMessage } from '../../../tests/fixtures/messages.mjs'
 import { ChatMessage } from '../src/ui/conversation/chat-message'
-import { messageWithAttachments } from '../src/ui/composer/image-attachment'
+import { messageWithAttachments, type ComposerAttachment } from '../src/ui/composer/image-attachment'
+import { ComposerAttachments } from '../src/ui/composer/composer-attachments'
 
 const dataUrl = 'data:image/png;base64,YWJj'
 function preview(data = dataUrl): FilePreview {
@@ -52,6 +53,60 @@ test.each(['string', 'blocks'])('用户附件从正文分离，图片使用 Host
   expect(file.closest('button, a, [role="button"]')).toBeNull()
   fireEvent.click(file)
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+})
+
+test('编辑已上传 Host 图片恢复缩略图和点击预览，附件仍仅保存路径并可移除', async () => {
+  const user = userEvent.setup()
+  const loadImage = vi.fn(async () => preview())
+  const onRemoveImage = vi.fn()
+  const attachment: ComposerAttachment = {
+    id: 'host-image',
+    type: 'file',
+    name: '截图 #1%.png',
+    path: '/host/attachments/upload-test/file-截图 #1%.png',
+  }
+  const original = structuredClone(attachment)
+  render(
+    <MessageImageLoaderContext value={loadImage}>
+      <ComposerAttachments attachments={[attachment]} onRemoveImage={onRemoveImage} />
+    </MessageImageLoaderContext>,
+  )
+  expect(await screen.findByRole('img', { name: attachment.name })).toHaveAttribute('src', dataUrl)
+  expect(loadImage).toHaveBeenCalledExactlyOnceWith(attachment.path)
+  await user.click(screen.getByRole('button', { name: `预览图片：${attachment.name}` }))
+  expect(screen.getByRole('img', { name: '图片大图预览，第 1 张' })).toHaveAttribute('src', dataUrl)
+  await user.keyboard('{Escape}')
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  await user.click(screen.getByRole('button', { name: `移除图片：${attachment.name}` }))
+  expect(onRemoveImage).toHaveBeenCalledExactlyOnceWith(attachment.id)
+  expect(attachment).toEqual(original)
+  expect(messageWithAttachments('正文', [attachment]).images).toEqual([])
+})
+
+test('编辑 Host 图片读取失败仍保留文件卡片和路径引用，允许移除', async () => {
+  const loadImage = vi.fn().mockRejectedValue(new Error('ENOENT'))
+  const onRemoveImage = vi.fn()
+  const attachment: ComposerAttachment = {
+    id: 'missing',
+    type: 'file',
+    name: 'missing.png',
+    path: '/host/attachments/missing.png',
+  }
+  render(
+    <MessageImageLoaderContext value={loadImage}>
+      <ComposerAttachments attachments={[attachment]} onRemoveImage={onRemoveImage} />
+    </MessageImageLoaderContext>,
+  )
+  expect(
+    await screen.findByRole('status', { name: '图片不存在或无法读取，请确认路径相对于当前会话工作目录。' }),
+  ).toBeInTheDocument()
+  expect(screen.getByText('missing.png')).toBeInTheDocument()
+  expect(screen.queryByRole('img')).not.toBeInTheDocument()
+  const sent = messageWithAttachments('继续发送', [attachment])
+  expect(sent.message).toContain(JSON.stringify(attachment.path))
+  expect(sent.images).toEqual([])
+  fireEvent.click(screen.getByRole('button', { name: '移除图片：missing.png' }))
+  expect(onRemoveImage).toHaveBeenCalledExactlyOnceWith('missing')
 })
 
 test('仅附件消息不显示路径说明，类似附件说明但不完整的正文保持原样', () => {
@@ -221,7 +276,6 @@ test('Conversation 注入自己的读取器，未绑定的只读会话不继承�
           readOnly
           canEditMessages={false}
           onEditMessage={vi.fn()}
-          onSwitchMessageVersion={vi.fn()}
           onForkReply={vi.fn()}
           onCopyError={vi.fn()}
         />

@@ -210,7 +210,6 @@ test('协作状态仅出现在子代理详情，主聊天继续隐藏内部工�
         readOnly={agentOnly}
         canEditMessages={false}
         onEditMessage={() => {}}
-        onSwitchMessageVersion={() => {}}
         onForkReply={() => {}}
         onCopyError={() => {}}
       />
@@ -531,7 +530,6 @@ test('子代理状态切开的中间回复不显示消息操作，整轮结束�
         chat={state}
         canEditMessages={!state.running}
         onEditMessage={() => {}}
-        onSwitchMessageVersion={() => {}}
         onForkReply={onFork}
         onCopyError={() => {}}
       />
@@ -743,7 +741,6 @@ test('完整工具事件流持续保留父活动行，结果补录不重建已�
         stream={stream}
         canEditMessages={false}
         onEditMessage={() => {}}
-        onSwitchMessageVersion={() => {}}
         onForkReply={() => {}}
         onCopyError={() => {}}
       />

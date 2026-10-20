@@ -27,7 +27,6 @@ export interface PiRuntime {
     skills?: SkillReference[],
     options?: MessageOptions,
   ) => Promise<void>
-  switchMessageVersion: (sessionKey: string, timestamp: number, version: number) => Promise<boolean>
   forkReply: (sessionKey: string, userTimestamp: number) => Promise<SessionSelectionResult>
   idle: <T>(action: () => Promise<T>, allowDisconnected?: boolean) => Promise<T>
   prompt: (

@@ -120,7 +120,6 @@ const AgentConversation = memo(({ bridge, id, onBack }: { bridge: DesktopBridge;
         agentOnly
         canEditMessages={false}
         onEditMessage={noop}
-        onSwitchMessageVersion={noop}
         onForkReply={noop}
         onCopyError={setCopyError}
       />

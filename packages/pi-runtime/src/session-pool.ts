@@ -10,7 +10,6 @@ import path from 'node:path'
 import { defaultAccessMode, isAgentAccessMode, type AgentAccessMode } from '@pi-meme/contracts/agent-access'
 import { AgentAccessStore } from './access-store'
 import { builtinCommand, builtinCommands, sameMessage, thinkingLevels } from '@pi-meme/contracts/pi'
-import { branchEndpoint } from '@pi-meme/contracts/session-tree'
 import { randomUUID } from 'node:crypto'
 import type { SecureCredentialStorage } from '@pi-meme/contracts/secure-storage'
 import type { PiSdk } from './sdk/load'
@@ -1374,52 +1373,20 @@ export class PiSessionPool implements PiRuntime {
     options?: MessageOptions,
   ) {
     const record = this.target(sessionKey)
-    if (record.running || this.changing) throw new Error('会话正在运行，请等待完成后再编辑')
-    if (record.dormant) await this.ensureRuntime(record)
-    const data = await record.session.getEntries()
-    const target = data.entries.find(
-      (entry) => messageEntry(entry) && entry.message.role === 'user' && entry.message.timestamp === timestamp,
-    )
-    if (!target || !messageEntry(target)) throw new Error('找不到这条用户消息，请刷新会话后重试')
-    const previousLeaf = data.leafId
-    const result = await record.session.navigateToEntry(target.id)
-    if (result.cancelled) throw new Error('Pi 扩展已取消消息编辑')
-    try {
-      await this.prompt(sessionKey, message, images, skills, options)
-    } catch (cause) {
-      if (previousLeaf) {
-        await record.session.navigateToEntry(previousLeaf).catch(() => {})
-        await record.session
-          .snapshot()
-          .then((snapshot) => this.rememberSnapshot(record, snapshot))
-          .catch(() => {})
-      }
-      throw cause
+    await this.prompt(sessionKey, message, images, skills, options, undefined, timestamp)
+    const { entries } = await record.session.getEntries()
+    const first = entries.find((entry) => messageEntry(entry) && entry.message.role === 'user')
+    if (first && messageEntry(first) && first.message.role === 'user') {
+      const content = first.message.content
+      record.firstMessage =
+        typeof content === 'string'
+          ? content
+          : content
+              .filter((part) => part.type === 'text')
+              .map((part) => part.text)
+              .join('\n')
+      this.notify.sessionsChanged()
     }
-  }
-  async switchMessageVersion(sessionKey: string, timestamp: number, version: number) {
-    const record = this.target(sessionKey)
-    if (record.running) throw new Error('会话正在运行，请等待完成后切换版本')
-    if (record.dormant) await this.ensureRuntime(record)
-    const data = await record.session.getEntries()
-    const userEntries = data.entries.filter(
-      (entry): entry is Extract<PiSessionEntry, { type: 'message' }> =>
-        messageEntry(entry) && entry.message.role === 'user',
-    )
-    const targetUser = userEntries.find((entry) => entry.message.timestamp === timestamp)
-    if (!targetUser) throw new Error('找不到这条用户消息，请刷新会话后重试')
-    const versions = userEntries
-      .filter((entry) => entry.parentId === targetUser.parentId)
-      .sort((a, b) => a.timestamp.localeCompare(b.timestamp))
-    const selected = versions[version]
-    if (!selected) throw new Error('消息版本已变化，请刷新后重试')
-    // 版本切换要恢复该版本所属的完整后续对话，取该子树的分支终点而不是下一条用户消息的父节点。
-    const endpoint = branchEndpoint(data.entries, data.leafId, selected.id)
-    if (!endpoint) throw new Error('该版本没有可切换的会话节点')
-    const result = await record.session.navigateToEntry(endpoint.id)
-    if (result.cancelled) return false
-    this.notify.connection(this.connection())
-    return true
   }
   async forkReply(sessionKey: string, userTimestamp: number): Promise<SessionSelectionResult> {
     const source = this.target(sessionKey)
@@ -1487,8 +1454,11 @@ export class PiSessionPool implements PiRuntime {
     skills: SkillReference[] = [],
     options?: MessageOptions,
     goalControl?: GoalControl,
+    editTimestamp?: number,
   ) {
     const normalized = normalizePlanMessage(message, options?.mode ?? this.target(sessionKey).state.mode)
+    if (editTimestamp !== undefined && (normalized.commandOnly || builtinCommand(normalized.text)))
+      throw new Error('编辑消息需要重新发送正文，不能执行内置命令')
     if (normalized.commandOnly) {
       await this.setSessionMode(sessionKey, normalized.mode)
       return
@@ -1516,7 +1486,16 @@ export class PiSessionPool implements PiRuntime {
       record.state.activeMode = normalized.mode
       const result = goalControl
         ? await record.session.continueGoalTask(message, goalControl)
-        : await record.session.prompt(message, images, skills, { mode: normalized.mode }, false, true)
+        : await record.session.prompt(
+            message,
+            images,
+            skills,
+            { mode: normalized.mode },
+            false,
+            true,
+            undefined,
+            editTimestamp,
+          )
       await record.session.setSessionMode(record.state.mode)
       return result
     } catch (cause) {

@@ -268,7 +268,6 @@ export interface ChatBridge {
     skills?: SkillReference[],
     options?: MessageOptions,
   ) => Promise<void>
-  switchMessageVersion: (sessionKey: string, timestamp: number, version: number) => Promise<boolean>
   forkReply: (sessionKey: string, userTimestamp: number) => Promise<SessionSelectionResult>
 }
 

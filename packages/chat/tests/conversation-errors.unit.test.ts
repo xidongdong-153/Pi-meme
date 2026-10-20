@@ -25,7 +25,6 @@ function renderConversation(chat: ChatState) {
         chat,
         canEditMessages: false,
         onEditMessage: noop,
-        onSwitchMessageVersion: noop,
         onForkReply: noop,
         onCopyError: noop,
       }),

@@ -8,6 +8,7 @@ import {
 } from '@pi-meme/contracts/goal'
 import type { AgentConversationOrigin, AgentMailboxMessage } from '@pi-meme/contracts/collaboration'
 import { mkdtemp, realpath, rm } from 'node:fs/promises'
+import { closeSync, fsyncSync, openSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { SecureCredentialStorage } from '@pi-meme/contracts/secure-storage'
@@ -26,7 +27,7 @@ import { normalizePlanMessage, type MessageOptions, type QueuedInput, type TaskM
 import { randomUUID } from 'node:crypto'
 import { createPlanGuard } from '../extensions/plan-mode'
 import type { ToolExecutionSettings } from '@pi-meme/contracts/settings'
-import type { SkillReference } from '@pi-meme/contracts/skills'
+import type { SkillReference, SkillUsage } from '@pi-meme/contracts/skills'
 import type { ResourceSnapshot } from '@pi-meme/contracts/resources'
 import type { Connection, DesktopError, DesktopEvent, Snapshot } from '@pi-meme/contracts/desktop'
 import type {
@@ -957,10 +958,13 @@ export class SdkSession {
     continuation: boolean | 'goal' = false,
     preserveMode = false,
     expectedGoal?: GoalControl,
+    editTimestamp?: number,
   ) {
     const normalized = normalizePlanMessage(message, options?.mode ?? this.mode)
     if (!normalized.commandOnly && (this.changing || this.running))
       throw new Error('Pi 正在运行或切换，请等待完成后重试')
+    if (editTimestamp !== undefined && (normalized.commandOnly || builtinCommand(normalized.text)))
+      throw new Error('编辑消息需要重新发送正文，不能执行内置命令')
     if (normalized.commandOnly) {
       await this.setSessionMode(normalized.mode)
       return
@@ -968,6 +972,13 @@ export class SdkSession {
     message = normalized.text
     this.queueCancelled = false
     const command = builtinCommand(message)
+    const extensionCommand = message.match(/^\/(\S+)/)?.[1]
+    if (
+      editTimestamp !== undefined &&
+      extensionCommand &&
+      this.session.extensionRunner.getRegisteredCommands().some((entry) => entry.invocationName === extensionCommand)
+    )
+      throw new Error('编辑消息需要重新发送正文，不能执行扩展命令')
     if (command && (images?.length || skills.length)) throw new Error('内置命令不能附带图片或技能，请移除后重试')
     if (command?.name === 'name' && !command.args) throw new Error('请输入会话名称：/name <会话名称>')
     if (this.modelSelectionRequired && command?.name !== 'name') throw new Error('当前模型已不可用，请先重新选择模型')
@@ -976,6 +987,7 @@ export class SdkSession {
     this.preparationMode = normalized.mode
     if (!preserveMode && !continuation) this.mode = normalized.mode
     this.admission = new AbortController()
+    let edit: { commit: () => void; restore: () => void } | undefined
     try {
       if (this.runtime && this.runtimeMode !== normalized.mode) {
         const restore = await this.captureRestoreState()
@@ -1001,6 +1013,8 @@ export class SdkSession {
           continuation === 'goal' ? 'goal' : continuation ? 'collaboration' : 'user',
           expectedGoal,
         )
+        if (generation !== this.generation || this.queueCancelled) throw new Error('消息发送已取消')
+        if (editTimestamp !== undefined) edit = this.prepareUserMessageEdit(editTimestamp)
         this.goalRun = run || undefined
         this.goalInputEntryId = undefined
         this.goalAccounted.clear()
@@ -1016,10 +1030,14 @@ export class SdkSession {
       if (generation !== this.generation || this.queueCancelled) throw new Error('消息发送已取消')
       this.activityRevision += 1
     } catch (cause) {
-      this.running = false
-      this.pendingSend = false
-      this.activeMode = undefined
-      this.activityRevision += 1
+      try {
+        edit?.restore()
+      } finally {
+        this.running = false
+        this.pendingSend = false
+        this.activeMode = undefined
+        this.activityRevision += 1
+      }
       throw cause
     } finally {
       this.admission = undefined
@@ -1030,12 +1048,28 @@ export class SdkSession {
       let handled = false
       if (command?.name === 'compact') await this.call(() => this.session.compact(command.args))
       else if (command?.name === 'name') await this.call(() => this.session.setSessionName(command.args!))
-      else handled = (await this.sendPrompt(message, images, continuation)) === 'handled'
+      else handled = (await this.sendPrompt(message, images, continuation, Boolean(edit))) === 'handled'
+      if (handled && edit) throw new Error('Pi 扩展未发送编辑后的消息，已保留原对话')
+      edit?.commit()
+      edit = undefined
       const state = this.getState()
       if (!state.isStreaming && !state.isCompacting && (this.running || command || handled))
         this.handleEvent({ type: 'agent_settled' }, Boolean(command || handled))
     } catch (cause) {
-      this.pendingSend = false
+      if (edit) this.changing = true
+      try {
+        if (edit) {
+          if (!this.session.isIdle) await this.session.abort()
+          edit.restore()
+        }
+      } finally {
+        if (edit) {
+          this.running = false
+          this.activeMode = undefined
+          this.changing = false
+        }
+        this.pendingSend = false
+      }
       if (command) this.handleEvent({ type: 'agent_settled' }, true)
       void this.snapshot().catch(() => {})
       throw cause
@@ -1051,7 +1085,12 @@ export class SdkSession {
     return this.prompt(message, undefined, [], { mode }, true)
   }
 
-  private async sendPrompt(message: string, images?: PiImage[], continuation: boolean | 'goal' = false) {
+  private async sendPrompt(
+    message: string,
+    images?: PiImage[],
+    continuation: boolean | 'goal' = false,
+    waitForUserEntry = false,
+  ) {
     const generation = this.generation
     await this.ready
     await this.waitForResume()
@@ -1087,17 +1126,41 @@ export class SdkSession {
       })
     return new Promise<'handled' | 'queued' | 'started'>((resolve, reject) => {
       let started = false
+      const unsubscribe = waitForUserEntry
+        ? session.subscribe((event) => {
+            if (event.type === 'agent_settled' && !started) {
+              unsubscribe?.()
+              reject(new Error('编辑后的消息未保存，已保留原对话'))
+            }
+            if (event.type !== 'message_end' || event.message.role !== 'user') return
+            // SDK 在公开 message_end 之后同步 append；下一 microtask 再确认原生节点已落盘。
+            queueMicrotask(() => {
+              if (
+                !session.sessionManager
+                  .getBranch()
+                  .some((entry) => entry.type === 'message' && entry.message === event.message)
+              )
+                return
+              started = true
+              unsubscribe?.()
+              resolve('started')
+            })
+          })
+        : undefined
       void session
         .prompt(message, {
           images,
           source: 'rpc',
           preflightResult: (disposition) => {
             this.pendingSend = false
+            if (waitForUserEntry && disposition === 'started') return
             started = true
+            unsubscribe?.()
             resolve(disposition)
           },
         })
         .catch((cause: unknown) => {
+          unsubscribe?.()
           if (!started) reject(new Error(`Pi 操作失败：${String(cause)}`))
         })
     })
@@ -1703,11 +1766,67 @@ export class SdkSession {
     return this.call(() => this.session.getSessionStats())
   }
 
-  navigateToEntry(entryId: string) {
-    return this.call(async () => {
-      const result = await this.session.navigateTree(entryId, { summarize: false })
-      return { cancelled: result.cancelled }
-    })
+  /** 编辑只保留目标之前的当前上下文；原记录仅在内存中用于发送预检失败时恢复。 */
+  private prepareUserMessageEdit(timestamp: number): { commit: () => void; restore: () => void } {
+    const session = this.session
+    const manager = session.sessionManager
+    const sessionFile = manager.getSessionFile()
+    const branch = manager.getBranch()
+    let index = branch.findIndex(
+      (entry) => entry.type === 'message' && entry.message.role === 'user' && entry.message.timestamp === timestamp,
+    )
+    if (index === -1) throw new Error('找不到这条用户消息，请刷新会话后重试')
+    if (!sessionFile) throw new Error('会话尚未保存，无法编辑消息')
+    const original = readFileSync(sessionFile, 'utf8')
+    const previousLeaf = manager.getLeafId()
+    // 显式技能引用在用户 message_end 落盘前写入，编辑时一并移除该消息自己的引用。
+    while (index > 0) {
+      const entry = branch[index - 1]
+      if (entry.type !== 'custom' || entry.customType !== skillUsageEntry) break
+      const usage = entry.data as Partial<SkillUsage> | undefined
+      if (usage?.source !== 'explicit' || usage.messageTimestamp !== timestamp) break
+      index -= 1
+    }
+    const parentId = branch[index].parentId
+    try {
+      if (parentId) manager.branch(parentId)
+      else manager.resetLeaf()
+      session.refreshContext()
+    } catch (cause) {
+      if (previousLeaf) manager.branch(previousLeaf)
+      else manager.resetLeaf()
+      session.refreshContext()
+      throw cause
+    }
+    const replace = (content: string, leaf?: string | null) => {
+      const temporary = `${sessionFile}.${randomUUID()}.tmp`
+      try {
+        const fd = openSync(temporary, 'wx', 0o600)
+        try {
+          writeFileSync(fd, content)
+          fsyncSync(fd)
+        } finally {
+          closeSync(fd)
+        }
+        renameSync(temporary, sessionFile)
+      } finally {
+        rmSync(temporary, { force: true })
+      }
+      manager.setSessionFile(sessionFile)
+      if (leaf) manager.branch(leaf)
+      else if (leaf === null) manager.resetLeaf()
+      session.refreshContext()
+    }
+    return {
+      commit: () => {
+        const retained = manager.getBranch()
+        const info = manager.getEntries().findLast((entry) => entry.type === 'session_info')
+        if (info && !retained.some((entry) => entry.id === info.id))
+          retained.push({ ...info, parentId: retained.at(-1)?.id ?? null })
+        replace(`${[manager.getHeader(), ...retained].map((entry) => JSON.stringify(entry)).join('\n')}\n`)
+      },
+      restore: () => replace(original, previousLeaf),
+    }
   }
 
   async forkAtEntry(entryId: string) {

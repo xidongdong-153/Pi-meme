@@ -109,12 +109,6 @@ export function createChatHandlers({ pi, getCwd }: ChatHandlerContext) {
         messageOptions(options),
       )
     },
-    'pi:switch-message-version': (sessionKey: unknown, valueTimestamp: unknown, valueVersion: unknown) => {
-      text(sessionKey)
-      if (typeof valueTimestamp !== 'number' || !Number.isFinite(valueTimestamp)) throw new Error('用户消息时间无效')
-      if (!Number.isInteger(valueVersion) || Number(valueVersion) < 0) throw new Error('消息版本无效')
-      return pi.switchMessageVersion(sessionKey, valueTimestamp, Number(valueVersion))
-    },
     'pi:fork-reply': (sessionKey: unknown, valueTimestamp: unknown) => {
       text(sessionKey)
       if (typeof valueTimestamp !== 'number' || !Number.isFinite(valueTimestamp)) throw new Error('用户消息时间无效')

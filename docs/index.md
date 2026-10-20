@@ -19,7 +19,7 @@ pi-meme 的 Desktop 和 Web 共用 Node Host。应用入口在 `apps/`，基础�
 | [版本发布](releasing.md)                    | 构建三个原生平台包，验收并创建 GitHub 草稿           | 现状                   | `scripts/package-host.mts`、`scripts/release.mts`、`.github/workflows/release.yml` |
 | [测试](testing.md)                          | 区分日常文件级验证、CI 与手动完整验收                | 现状                   | `tests/catalog.ts`、`scripts/test.mts`                                             |
 | [架构](architecture.md)                     | 理解进程、Host 复用、组合根、包边界和内置模块        | 现状                   | `packages/host`、`packages/app-ui`、`packages/pi-*`                                |
-| [会话与协作](sessions.md)                   | 查会话生命周期、活动服务、子代理、目标续跑与计划保存 | 现状                   | `packages/pi-runtime`、`packages/subagents`、`packages/chat`                       |
+| [会话与协作](sessions.md)                   | 查会话生命周期、消息编辑、活动服务、子代理与目标续跑 | 现状                   | `packages/pi-runtime`、`packages/subagents`、`packages/chat`                       |
 | [配置与安全](configuration.md)              | 查配置文件、凭据、权限和沙箱边界                     | 现状                   | `packages/settings`、`packages/models`、`packages/mcp`                             |
 | [Remote](remote.md)                         | 部署 Host、配置 HTTPS、连接远程服务与排错            | 现状                   | `apps/server`、`packages/host/src/transport-*`                                     |
 | [HostApi v2](host-api.md)                   | 使用稳定目标、幂等提交、回执和事件补读               | 现状；末节为待确认规划 | `packages/contracts/src/app-host.ts`、`packages/client`                            |

@@ -75,7 +75,6 @@ function renderConversation(readOnly: boolean, canEditMessages: boolean, editor?
         canEditMessages,
         editor,
         onEditMessage: () => {},
-        onSwitchMessageVersion: () => {},
         onForkReply: () => {},
         onCopyError: () => {},
       }),
@@ -96,7 +95,6 @@ test('侧边索引包含尚未加载的早期输入，定位锚点只出现在�
         chat: { ...emptyChat, messages },
         canEditMessages: false,
         onEditMessage: () => {},
-        onSwitchMessageVersion: () => {},
         onForkReply: () => {},
         onCopyError: () => {},
       }),
@@ -109,7 +107,7 @@ test('侧边索引包含尚未加载的早期输入，定位锚点只出现在�
   assert.match(markup, /data-conversation-user="user-3300-46"/)
 })
 
-test('只读子代理对话保留正文、复制和工作过程，隐藏编辑、分叉与版本操作', () => {
+test('只读子代理对话保留正文、复制和工作过程，隐藏编辑与分叉操作', () => {
   const markup = renderConversation(true, false)
   assert.match(markup, /子任务正文/)
   assert.match(markup, /任务结果/)
@@ -181,7 +179,6 @@ test('子代理展示只过滤派发消息，保留原始分轮、计时和自�
         agentOnly: true,
         canEditMessages: false,
         onEditMessage: () => {},
-        onSwitchMessageVersion: () => {},
         onForkReply: () => {},
         onCopyError: () => {},
       }),
@@ -197,15 +194,16 @@ test('子代理展示只过滤派发消息，保留原始分轮、计时和自�
   assert.deepEqual(chat, original)
 })
 
-test('主对话保留编辑、分叉和版本操作，运行时只禁用按钮', () => {
+test('主对话保留编辑与分叉，运行时只禁用按钮，历史数据也不显示消息版本操作', () => {
   for (const canEdit of [true, false]) {
     const markup = renderConversation(false, canEdit)
-    for (const label of ['编辑消息', '从这段回复新建会话', '查看下一个版本']) {
+    for (const label of ['编辑消息', '从这段回复新建会话']) {
       const button = markup.match(new RegExp(`<button[^>]*aria-label="${label}"[^>]*>`))?.[0]
       assert.ok(button, label)
       assert.equal(button.includes('disabled=""'), !canEdit, label)
     }
     assert.match(markup, /aria-label="复制消息"/)
+    assert.doesNotMatch(markup, /用户消息版本|查看上一个版本|查看下一个版本|version-control/)
   }
 })
 
@@ -231,7 +229,6 @@ test('主会话子代理结果只显示短状态，不渲染报告正文或来�
       },
       canEditMessages: false,
       onEditMessage: () => {},
-      onSwitchMessageVersion: () => {},
       onForkReply: () => {},
       onCopyError: () => {},
     }),
@@ -299,7 +296,6 @@ test('子代理状态后只有正文的回复不显示零秒过程头，仍可�
         },
         canEditMessages: true,
         onEditMessage: () => {},
-        onSwitchMessageVersion: () => {},
         onForkReply: () => {},
         onCopyError: () => {},
       }),
@@ -332,7 +328,6 @@ test('主对话与只读子详情都不在消息流显示已保存计划正文',
         readOnly,
         canEditMessages: false,
         onEditMessage: () => {},
-        onSwitchMessageVersion: () => {},
         onForkReply: () => {},
         onCopyError: () => {},
       }),
@@ -653,7 +648,6 @@ test('持久自定义消息保留序列化payload与实际来源，缺renderer�
       chat: { ...emptyChat, messages: [message] },
       canEditMessages: false,
       onEditMessage: () => {},
-      onSwitchMessageVersion: () => {},
       onForkReply: () => {},
       onCopyError: () => {},
     }),

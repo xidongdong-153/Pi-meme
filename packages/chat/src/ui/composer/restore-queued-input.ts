@@ -1,7 +1,8 @@
 import type { PiSlashCommand } from '@pi-meme/contracts/pi'
 import type { QueuedInput } from '@pi-meme/contracts/plan'
 import { skillMarker, skillMessageParts } from '@pi-meme/contracts/skills'
-import type { ComposerImageAttachment } from './image-attachment'
+import type { ComposerAttachment } from './image-attachment'
+import { messageAttachmentParts } from '../model/message-attachments'
 
 export function queuedDraft(input: QueuedInput, commands: PiSlashCommand[]) {
   const selectedSkills: PiSlashCommand[] = []
@@ -18,7 +19,8 @@ export function queuedDraft(input: QueuedInput, commands: PiSlashCommand[]) {
     selectedSkills.push(skill)
     return skillMarker
   }
-  let draft = skillMessageParts(input.text)
+  const parts = messageAttachmentParts(input.text)
+  let draft = skillMessageParts(parts.text)
     .map((part) => {
       if (part.type === 'text') return part.text.replaceAll(skillMarker, restoreReference)
       const skill = commands.find(
@@ -40,9 +42,9 @@ export function queuedDraft(input: QueuedInput, commands: PiSlashCommand[]) {
     }
     draft += ` ${restoreReference()}`
   }
-  const attachments: ComposerImageAttachment[] = (input.images ?? []).map((image) => ({
-    ...image,
-    id: crypto.randomUUID(),
-  }))
+  const attachments: ComposerAttachment[] = [
+    ...(input.images ?? []).map((image) => ({ ...image, id: crypto.randomUUID() })),
+    ...parts.attachments.map((file) => ({ ...file, id: crypto.randomUUID(), type: 'file' as const })),
+  ]
   return { draft, selectedSkills, attachments, mode: input.mode }
 }

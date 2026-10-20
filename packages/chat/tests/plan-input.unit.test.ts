@@ -93,6 +93,7 @@ test('撤回队列逐条恢复模式、图片和技能，不合并不同模式�
   assert.equal(restored.mode, 'plan')
   assert.equal(restored.selectedSkills[0], skill)
   assert.ok(restored.draft.includes(skillMarker))
+  assert.ok(restored.attachments[0].type === 'image')
   assert.equal(restored.attachments[0].data, 'fake-image')
   assert.equal(restored.attachments[0].mimeType, 'image/png')
   assert.ok(restored.attachments[0].id)

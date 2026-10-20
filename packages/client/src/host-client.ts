@@ -839,8 +839,6 @@ export class HostClient {
           [key, timestamp, message, images ?? [], skills ?? [], ...(options === undefined ? [] : [options])],
           key,
         ),
-      switchMessageVersion: (key, timestamp, version) =>
-        rpc('pi:switch-message-version', [key, timestamp, version], key),
       forkReply: (key, timestamp) => this.selection('pi:fork-reply', [key, timestamp], key),
       respondExtensionUI: (key, id, response) => rpc('pi:extension-ui-response', [key, id, response], key),
       getGitEnvironment: (key) => rpc('git:environment', [key], key),

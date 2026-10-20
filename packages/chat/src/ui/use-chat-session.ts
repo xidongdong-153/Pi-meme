@@ -3,6 +3,7 @@ import { visibleComposerHint } from './composer/composer-hint'
 import { queuedDraft } from './composer/restore-queued-input'
 import { ChatStream } from './model/chat-stream'
 import { messageText } from './model/message-text'
+import { messageAttachmentParts } from './model/message-attachments'
 import type { ChatState } from './model/types'
 import { prepareComposerMessage } from './composer/plan-input'
 import { SessionMode } from './composer/session-mode'
@@ -183,9 +184,9 @@ export function useChatSession(options: ChatSessionOptions) {
 
   /**
    * 提交编辑后立即截断被编辑消息之后的展示内容。
-   * 这些后续轮次属于旧分支，重新发送会生成新版本；真实结果以快照刷新为准。
+   * 重新发送会覆盖这条输入并清除后续对话；真实结果以快照刷新为准。
    */
-  const beginEditBranch = useCallback((timestamp: number) => {
+  const beginMessageOverwrite = useCallback((timestamp: number) => {
     setChat((value) => {
       const index = value.messages.findIndex((message) => message.role === 'user' && message.timestamp === timestamp)
       return {
@@ -454,11 +455,11 @@ export function useChatSession(options: ChatSessionOptions) {
       setSelectedSkills([])
       setPluginMentions([])
       setAttachments([])
-      // 立即退出编辑态并截断旧分支展示，避免同时出现编辑操作和生成状态。
+      // 立即退出编辑态并截断待覆盖的对话展示，避免同时出现编辑操作和生成状态。
       setEditingTimestamp(null)
       editRestore.current = null
       promptPending.current = true
-      beginEditBranch(target)
+      beginMessageOverwrite(target)
       try {
         await bridge.editAndPrompt(sessionKey, target, message, images, skills, { mode: messageMode })
         // 编辑期间可能已切换会话，只有仍停留在原会话时才恢复编辑前的草稿与附件。
@@ -571,7 +572,7 @@ export function useChatSession(options: ChatSessionOptions) {
     attachments,
     queueMode,
     editingTimestamp,
-    beginEditBranch,
+    beginMessageOverwrite,
     changeMode,
     dismissComposerHint,
     loadSnapshot,
@@ -597,8 +598,9 @@ export function useChatSession(options: ChatSessionOptions) {
                 .map((part) => part.text)
                 .join('')
             : ''
+      const parts = messageAttachmentParts(text)
       const restoredSkills: PiSlashCommand[] = []
-      const restoredDraft = skillMessageParts(text)
+      const restoredDraft = skillMessageParts(parts.text)
         .map((part) => {
           if (part.type === 'text') return part.text
           const skill = optionsRef.current.commands.find(
@@ -621,7 +623,10 @@ export function useChatSession(options: ChatSessionOptions) {
       setDraft(restoredDraft)
       setSelectedSkills(restoredSkills)
       setPluginMentions([])
-      setAttachments(images)
+      setAttachments([
+        ...images,
+        ...parts.attachments.map((file) => ({ ...file, id: crypto.randomUUID(), type: 'file' as const })),
+      ])
     },
     [chat.running, draft, selectedSkills, pluginMentions, attachments, queueMode],
   )
