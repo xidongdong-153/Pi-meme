@@ -7,7 +7,7 @@ import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import test from 'node:test'
-import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
+import { finishAgentReply, useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
 import { createDevkitAppPackage } from '../../../tests/fixtures/devkit-app'
 import { serverArtifact } from '../../../tests/fixtures/server-artifact'
 import type { AgentSummary } from '@pi-meme/contracts/collaboration'
@@ -78,8 +78,8 @@ test(
         })
         if (mode === 'subagent') {
           collaborationTrace.push({ step: collaborationStep, prompt, result: toolResult })
-          if (prompt.includes('DIST-CHILD-FOLLOWUP')) return { text: 'DIST-CHILD-FOLLOWUP-OK' }
-          if (prompt.includes('DIST-CHILD-FIRST')) return { text: 'DIST-CHILD-FIRST-OK' }
+          if (prompt.includes('DIST-CHILD-FOLLOWUP')) return finishAgentReply(body, 'DIST-CHILD-FOLLOWUP-OK')
+          if (prompt.includes('DIST-CHILD-FIRST')) return finishAgentReply(body, 'DIST-CHILD-FIRST-OK')
           if (spawned) {
             const prefix = `[来自 ${spawned.agentId}] `
             for (const message of body.messages ?? []) {
