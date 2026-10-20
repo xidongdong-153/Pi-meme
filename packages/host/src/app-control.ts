@@ -478,7 +478,9 @@ export async function createAppControl(options: Options) {
         session,
         view,
         {
-          text: inputEntryId ? '将指定的已有用户消息作为持久目标，核对当前进展后继续执行并验收。' : input.objective,
+          text: inputEntryId
+            ? 'Treat the selected existing user message as the persistent goal. Check the current state and recorded progress, then continue execution and verify the original requirements.'
+            : input.objective,
           images: input.images,
           skills: input.skills,
           mode: 'default',
@@ -935,7 +937,7 @@ export async function createAppControl(options: Options) {
               else {
                 await pi.continueGoalTask(
                   key,
-                  '继续推进当前持久目标。先核对当前事实和最近进展，执行下一步；完成后提交逐项验收证据。',
+                  'Continue the active persistent goal. Recheck current facts and latest progress, then take the next concrete step. Before completing the goal, provide evidence for every original requirement.',
                   latest,
                 )
               }

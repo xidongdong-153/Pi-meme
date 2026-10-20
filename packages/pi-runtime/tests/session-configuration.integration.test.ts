@@ -64,14 +64,19 @@ test('自定义模型无需映射即可保留全部思考档位，发送和恢�
   }
 })
 
-test('内置工具定位和图片输出规则与用户 SYSTEM.md、主会话和子代理提示共存', async () => {
+test('英文 App 区块与用户 SYSTEM.md、普通和 Plan 主子会话共存且各注入一次', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pi-tool-discovery-'))
   const agent = await useFakeAgent(directory)
   const systemFile = path.join(agent.agentDir, 'SYSTEM.md')
   const system = '用户自定义系统提示：只处理当前项目。'
   await writeFile(systemFile, system)
   try {
-    for (const delegated of [false, true]) {
+    for (const { delegated, mode } of [
+      { delegated: false, mode: 'default' },
+      { delegated: true, mode: 'default' },
+      { delegated: false, mode: 'plan' },
+      { delegated: true, mode: 'plan' },
+    ] as const) {
       const session = new SdkSession(
         directory,
         { connection: () => {}, event: () => {}, error: () => {} },
@@ -80,10 +85,11 @@ test('内置工具定位和图片输出规则与用户 SYSTEM.md、主会话和�
       )
       try {
         if (delegated) await session.configureAgentTask('定位项目工具')
+        await session.setSessionMode(mode)
         session.start(directory)
         await session.snapshot()
         await session.setModel({ provider: 'fake', id: 'first' })
-        await session.prompt('检查可用工具')
+        await session.prompt('检查可用工具', undefined, [], { mode })
         const deadline = Date.now() + 5000
         while ((await session.snapshot()).state.isStreaming) {
           if (Date.now() > deadline) throw new Error('等待工具定位提示请求超时')
@@ -96,18 +102,38 @@ test('内置工具定位和图片输出规则与用户 SYSTEM.md、主会话和�
           .join('\n')
         assert.match(text, /用户自定义系统提示/)
         assert.match(text, /command not found/)
-        assert.match(text, /command -v、PATH 和明确的安装位置/)
-        assert.match(text, /不要因为工具缺失自动执行 find \/ 或遍历整个用户目录/)
-        assert.match(text, /Image output in user-facing replies:/)
+        assert.match(text, /command -v, PATH, and known installation locations/)
+        assert.match(text, /Do not conclude that the tool is uninstalled or search \/ or the entire home directory/)
+        for (const section of ['app_runtime', 'app_output']) {
+          assert.equal(text.split(`<${section}>`).length - 1, 1, section)
+        }
+        assert.match(text, /Preserve the user’s requested language/)
+        assert.match(text, /unless the user requests an exact output format/)
+        assert.match(text, /GFM tables/)
+        assert.match(text, /KaTeX-compatible syntax/)
+        assert.match(text, /fenced `mermaid` block/)
+        assert.match(text, /File references are not guaranteed to open in an editor/)
         assert.match(text, /!\[Brief description\]\(out\/screenshots\/example\.png\)/)
         assert.match(text, /relative to the current session working directory/)
-        assert.match(text, /copy only the image needed for the reply into out\/screenshots\//)
-        assert.match(text, /Verify that the file exists before referencing it/)
-        assert.match(text, /Do not use file:\/\/ URLs, absolute filesystem paths, or temporary localhost URLs/)
-        assert.match(text, /Do not list multiple path or markup variants/)
+        assert.match(text, /Verify that the file exists/)
+        assert.match(text, /up to 8 MiB/)
+        assert.match(text, /In Plan\/read-only mode, do not copy, generate, or resize files for display/)
+        assert.match(text, /Do not use file:\/\/, absolute paths, temporary localhost URLs, or a new server/)
+        assert.match(text, /Do not try multiple markup variants/)
         assert.match(text, /Keep valid remote HTTP\(S\) image URLs unchanged/)
-        assert.equal(text.includes('你是执行委派任务的子 Agent'), delegated)
-        if (delegated) assert.match(text, /当前委派任务：定位项目工具/)
+        assert.match(text, /cards are created by actual tool events, not reply markup/)
+        assert.equal(text.includes('<app_delegation>'), delegated)
+        if (delegated) {
+          assert.equal(text.split('<app_delegation>').length - 1, 1)
+          assert.match(text, /Current delegated task: 定位项目工具/)
+          assert.match(text, /Inherited parent conversation is background context/)
+        }
+        if (mode === 'plan') {
+          assert.ok(JSON.stringify(request.messages).includes('Plan mode is active'))
+          const tools = request.tools.map((tool: { function: { name: string } }) => tool.function.name)
+          for (const name of ['bash', 'edit', 'write', 'codemode', 'get_goal', 'update_goal'])
+            assert.ok(!tools.includes(name), name)
+        }
       } finally {
         await session.stopAndWait()
       }

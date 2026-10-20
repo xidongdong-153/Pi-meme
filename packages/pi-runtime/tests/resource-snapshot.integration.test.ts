@@ -9,6 +9,7 @@ import type { ResourceItem, ResourceSnapshot } from '@pi-meme/contracts/resource
 import type { PiEvent } from '@pi-meme/contracts/pi'
 import { skillMarker } from '@pi-meme/contracts/skills'
 import { SdkSession } from '../src/sdk/session'
+import { createAppAgent } from '../src/sdk/app-agent'
 import { branchSkillUsages, skillUsageEntry } from '../src/extensions/skill-usage'
 import { readSessionHistory } from '../src/session-history'
 import { requestText } from '../../../tests/fixtures/fake-provider.mjs'
@@ -128,13 +129,80 @@ test('snapshot 同时限制技能、扩展预加载和动态发现，原生调�
     await settled(session)
     await session.prompt('继续适用的技能')
     await settled(session)
-    assert.match(requestText(fake.provider.requests.at(-1)), /当前分支已使用以下技能/)
+    assert.match(requestText(fake.provider.requests.at(-1)), /The following skills have been used on this branch/)
     const restore = await session.captureRestoreState()
     await session.reconnectModels(restore)
     await session.prompt('恢复后继续')
     await settled(session)
-    assert.match(requestText(fake.provider.requests.at(-1)), /当前分支已使用以下技能/)
+    assert.match(requestText(fake.provider.requests.at(-1)), /The following skills have been used on this branch/)
     assert.ok((await readFile(session.getActiveSession().sessionFile!, 'utf8')).includes(skillUsageEntry))
+  } finally {
+    await session.stopAndWait()
+    await fake.dispose()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('App beforeRun 上下文不遮住后加载的技能区块，工具调用和后续轮次保留两者', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'pi-prompt-sections-'))
+  const skillFile = path.join(root, 'SKILL.md')
+  const pluginFile = path.join(root, 'plugin.mjs')
+  const fake = await useFakeAgent(root, {
+    reply: (_body, index) =>
+      index === 1 ? { tool: { name: 'read', arguments: JSON.stringify({ path: skillFile }) } } : '检查完成',
+  })
+  await writeFile(skillFile, '---\nname: section-skill\ndescription: 技能区块检查\n---\n技能正文')
+  await writeFile(path.join(fake.agentDir, 'SYSTEM.md'), '用户系统原文：保持中文回复。')
+  await writeFile(
+    pluginFile,
+    `export function activate(ctx) {
+      ctx.hooks.on('beforeRun', event => ({context:'PLUGIN_FIRST:'+event.prompt}))
+      ctx.hooks.on('beforeRun', event => ({context:'PLUGIN_SECOND:'+event.prompt}))
+    }`,
+  )
+  const source = { pluginId: 'prompt-plugin', generation: 1, path: pluginFile }
+  const session = new SdkSession(
+    root,
+    { connection: () => {}, event: () => {}, error: () => {} },
+    fake.runtimePaths,
+    fake.credentials,
+    undefined,
+    {
+      resourceSnapshot: {
+        id: 'prompt-snapshot',
+        generation: 1,
+        cwd: root,
+        skills: [item(skillFile, 'skill', 'section-skill')],
+      },
+      agentSources: [source],
+    },
+  )
+  session.configureInlineExtensions([createAppAgent(source, async () => ({ answers: [], cancelled: true }))])
+  try {
+    session.start(root)
+    await session.snapshot()
+    await session.setModel({ provider: 'fake', id: 'first' })
+    await session.prompt('先读技能')
+    await settled(session)
+    assert.equal((await session.snapshot()).state.skillUsages?.length, 1)
+    const requestStart = fake.provider.requests.length
+    await session.prompt('继续当前任务')
+    await settled(session)
+    const text = requestText(fake.provider.requests[requestStart])
+    for (const section of ['skill_usage', 'app_plugin_context', 'app_runtime', 'app_output']) {
+      assert.equal(text.split(`<${section}>`).length - 1, 1, section)
+    }
+    assert.match(text, /section-skill/)
+    assert.match(text, /用户系统原文：保持中文回复/)
+    assert.ok(text.indexOf('PLUGIN_FIRST:继续当前任务') < text.indexOf('PLUGIN_SECOND:继续当前任务'))
+    assert.match(text, /PLUGIN_SECOND:继续当前任务/)
+    await session.prompt('再次核对')
+    await settled(session)
+    const next = requestText(fake.provider.requests.at(-1))
+    assert.match(next, /<skill_usage>/)
+    assert.match(next, /PLUGIN_FIRST:再次核对/)
+    assert.match(next, /PLUGIN_SECOND:再次核对/)
+    assert.doesNotMatch(next, /PLUGIN_FIRST:继续当前任务|PLUGIN_SECOND:继续当前任务/)
   } finally {
     await session.stopAndWait()
     await fake.dispose()

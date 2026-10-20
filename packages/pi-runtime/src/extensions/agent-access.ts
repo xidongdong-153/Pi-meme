@@ -75,8 +75,8 @@ export function createAgentAccessExtension(options: {
           customType: 'pi-desktop-access',
           content:
             mode === 'read-only'
-              ? '当前访问权限：仅可查看。允许读取文件和联网，禁止修改本地业务文件。'
-              : `当前访问权限：工作区内修改。仅允许修改 ${sandbox.workspace} 和会话临时目录，读取和联网不受限。`,
+              ? 'Access mode: read-only. Reading files and network access are allowed; modifying local project files is not. Tool availability and Plan-mode restrictions still apply.'
+              : `Access mode: workspace-write. Writes are limited to ${sandbox.workspace} and the session temporary directory. Reading and network access are not restricted by this access mode. Other tool and task-mode restrictions still apply.`,
           display: false,
         },
       }))

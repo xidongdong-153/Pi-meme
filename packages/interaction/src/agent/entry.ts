@@ -5,7 +5,7 @@ import { validateUserInputQuestions } from '@pi-meme/contracts/user-input'
 
 export function create(context: InteractionPluginContext): InlineExtension[] {
   context.registerInteractionPolicy(true)
-  const text = () => Type.String({ minLength: 1 })
+  const text = (description: string) => Type.String({ minLength: 1, description })
   return [
     {
       name: 'pi-meme-user-input',
@@ -14,30 +14,38 @@ export function create(context: InteractionPluginContext): InlineExtension[] {
           name: 'request_user_input',
           label: '向用户提问',
           description:
-            '向用户提出 1 到 3 道问题，等待用户逐题选择、输入或跳过。普通模式和规划模式均可使用；每道题使用唯一 id，选项可附说明，也允许用户自由输入。',
+            'Ask 1–3 focused questions and wait for the user to answer, choose an option, or skip. Available in default and Plan modes when the client supports interactive input. Use a unique id for each question. Omit options for free-text questions; supplied options must have unique labels within each question. Inspect cancelled and each answer value; null means skipped. A skipped or cancelled answer is not approval.',
           parameters: Type.Object(
             {
               questions: Type.Array(
                 Type.Object(
                   {
-                    id: text(),
-                    question: text(),
+                    id: text('Non-empty question identifier, unique within this request and returned with the answer.'),
+                    question: text('The question to show to the user, in the requested language.'),
                     options: Type.Optional(
                       Type.Array(
                         Type.Object(
                           {
-                            label: text(),
-                            description: Type.Optional(text()),
+                            label: text('Non-empty option label, unique within this question.'),
+                            description: Type.Optional(text('Optional non-empty explanation of this option.')),
                           },
                           { additionalProperties: false },
                         ),
-                        { minItems: 1 },
+                        {
+                          minItems: 1,
+                          description:
+                            'Suggested choices. Omit for free text; when supplied, include at least one option. The user may also enter a custom answer.',
+                        },
                       ),
                     ),
                   },
                   { additionalProperties: false },
                 ),
-                { minItems: 1, maxItems: 3 },
+                {
+                  minItems: 1,
+                  maxItems: 3,
+                  description: 'One to three questions with distinct ids. The user may answer or skip each question.',
+                },
               ),
             },
             { additionalProperties: false },

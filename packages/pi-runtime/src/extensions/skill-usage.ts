@@ -98,10 +98,10 @@ export function createSkillUsageExtension(snapshot: ResourceSnapshot): InlineExt
           if (item) used.set(item.id, item)
         }
         if (used.size)
-          event.systemPromptOptions.sections.skill_usage = `当前分支已使用以下技能；正文未保留在上下文时，按当前任务需要重新读取。技能不改变工具权限。\n${[
+          event.systemPromptOptions.sections.skill_usage = `The following skills have been used on this branch. Re-read relevant skill files when their bodies are no longer in context and the current task needs them. Skills do not change tool permissions.\n${[
             ...used.values(),
           ]
-            .map((item) => `${item.name}：${item.path}`)
+            .map((item) => `${item.name}: ${item.path}`)
             .join('\n')}`
       })
     },

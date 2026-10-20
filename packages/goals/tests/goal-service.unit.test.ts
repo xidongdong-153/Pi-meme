@@ -124,7 +124,11 @@ test('完成要求证据与执行空闲；完成后的尾部用量仍累计', as
   const { service } = await fixture()
   await service.start(ref, { objective: '原目标' })
   const run = (await service.begin(ref, false))!
-  await assert.rejects(async () => service.update(run, { status: 'complete', summary: '已完成' }, true), /证据/)
+  for (const evidence of [undefined, [], ['  ']])
+    await assert.rejects(
+      async () => service.update(run, { status: 'complete', summary: '已完成', evidence }, true),
+      /证据/,
+    )
   await assert.rejects(
     async () => service.update(run, { status: 'complete', summary: '已完成', evidence: ['命令退出码 0'] }, false),
     /子任务/,

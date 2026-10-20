@@ -45,7 +45,64 @@ test('interaction 内置工厂注册提问工具并返回完整答案，不要�
   assert.deepEqual(JSON.parse((result.content[0] as { text: string }).text), result.details)
 })
 
-test('提问工具拒绝无 UI 和重复题目，不发送无效请求', async () => {
+test('提问工具英文说明明确跳过语义，保留问题数量和可选字段契约', async () => {
+  const { question } = await tool()
+  assert.equal(question.label, '向用户提问')
+  assert.match(question.description, /default and Plan modes/)
+  assert.match(question.description, /null means skipped/)
+  assert.match(question.description, /skipped or cancelled answer is not approval/)
+  const schema = question.parameters as {
+    required: string[]
+    additionalProperties: boolean
+    properties: {
+      questions: {
+        minItems: number
+        maxItems: number
+        description: string
+        items: {
+          required: string[]
+          additionalProperties: boolean
+          properties: {
+            id: { description: string; minLength: number }
+            question: { description: string; minLength: number }
+            options: {
+              minItems: number
+              description: string
+              items: {
+                required: string[]
+                additionalProperties: boolean
+                properties: {
+                  label: { description: string; minLength: number }
+                  description: { description: string; minLength: number }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  assert.deepEqual(schema.required, ['questions'])
+  assert.equal(schema.additionalProperties, false)
+  const questions = schema.properties.questions
+  assert.equal(questions.minItems, 1)
+  assert.equal(questions.maxItems, 3)
+  assert.deepEqual(questions.items.required, ['id', 'question'])
+  assert.equal(questions.items.additionalProperties, false)
+  assert.match(questions.items.properties.id.description, /unique within this request/)
+  assert.equal(questions.items.properties.id.minLength, 1)
+  assert.equal(questions.items.properties.question.minLength, 1)
+  const options = questions.items.properties.options
+  assert.equal(options.minItems, 1)
+  assert.match(options.description, /Omit for free text/)
+  assert.deepEqual(options.items.required, ['label'])
+  assert.equal(options.items.additionalProperties, false)
+  assert.match(options.items.properties.label.description, /unique within this question/)
+  assert.equal(options.items.properties.label.minLength, 1)
+  assert.equal(options.items.properties.description.minLength, 1)
+})
+
+test('提问工具拒绝无 UI 和重复题目或选项，不发送无效请求', async () => {
   const { question, requests } = await tool()
   const input = { questions: [{ id: 'scope', question: '范围' }] }
   await assert.rejects(question.execute('call', input, undefined, undefined, { hasUI: false } as never), /当前客户端/)
@@ -54,6 +111,16 @@ test('提问工具拒绝无 UI 和重复题目，不发送无效请求', async (
       hasUI: true,
     } as never),
     /不能重复/,
+  )
+  await assert.rejects(
+    question.execute(
+      'call',
+      { questions: [{ id: 'scope', question: '范围', options: [{ label: '全部' }, { label: '全部' }] }] },
+      undefined,
+      undefined,
+      { hasUI: true } as never,
+    ),
+    /选项 label 不能重复/,
   )
   assert.equal(requests.length, 0)
 })

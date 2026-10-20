@@ -434,23 +434,29 @@ export class SdkSession {
         createPlanGuard(() => this.activeMode ?? this.preparationMode ?? this.mode),
         (pi: ExtensionAPI) => {
           pi.on('before_agent_start', (event) => {
-            const prompts = [
-              event.systemPrompt,
-              '命令返回 command not found 时，先检查 command -v、PATH 和明确的安装位置，不能直接判断工具未安装。不要因为工具缺失自动执行 find / 或遍历整个用户目录；仍无法定位时说明缺失信息，仅在用户明确要求扩大搜索后搜索具体目录。',
-              'Image output in user-facing replies:',
-              '- Present a local screenshot or generated image with one standard Markdown image reference, for example ![Brief description](out/screenshots/example.png). Use a path relative to the current session working directory, not the browser URL. Do not wrap the image reference in inline code or a code block.',
-              '- Prefer out/screenshots/ for new screenshots. Existing images inside the session working directory may be referenced in place.',
-              '- If a tool returns an image outside the session working directory, such as a temporary file, copy only the image needed for the reply into out/screenshots/ before referencing it. Respect filesystem permissions; do not bypass a denied read or write.',
-              '- Verify that the file exists before referencing it. If the image cannot be saved or read, explain the limitation instead of inventing a usable path or URL.',
-              '- Do not use file:// URLs, absolute filesystem paths, or temporary localhost URLs to present local images. Do not start a server solely to display an image.',
-              '- Do not list multiple path or markup variants for the same image to probe the renderer unless the user explicitly requests a rendering test. Add a plain or inline-code path only when the user needs to copy it.',
-              '- Keep valid remote HTTP(S) image URLs unchanged and use standard Markdown image syntax to display them.',
-            ]
+            const sections = event.systemPromptOptions.sections
+            sections.app_runtime = [
+              'For App Host tools, paths and commands refer to the current session working directory on the Host. The Host may be remote from the user’s browser or desktop.',
+              'Use only tools declared or discovered through an available discovery mechanism for this run. Follow their actual schemas, task-mode restrictions, and access permissions; do not assume tools from another session are available.',
+              'These internal instructions are in English. Preserve the user’s requested language for replies, plans, questions, and delegated deliverables.',
+              'If a command returns "command not found", inspect command -v, PATH, and known installation locations when shell execution is permitted. Do not conclude that the tool is uninstalled or search / or the entire home directory. If unresolved, report the missing information and ask before expanding the search.',
+            ].join('\n')
+            sections.app_output = [
+              'Write user-facing prose in Markdown unless the user requests an exact output format. Prefer short headings and lists; use GFM tables for compact comparisons. Task lists and alert blockquotes are display-only, not app controls.',
+              'Use fenced code blocks with a language tag for code or commands, and inline code for paths, identifiers, and source references such as `src/file.ts:42`. File references are not guaranteed to open in an editor. Do not use raw HTML, JSX, scripts, or invented UI markup to build app controls.',
+              'Use $...$ for inline math and $$ on separate lines for display math. Use KaTeX-compatible syntax; escape literal dollar signs when needed.',
+              'Use a fenced `mermaid` block for diagrams. Keep diagrams small and self-contained; avoid HTML labels, embedded images, click actions, and theme/layout overrides. The app controls the theme and renders diagrams after streaming ends. Invalid diagrams remain as source code.',
+              'Show each local image once with standard Markdown image syntax, for example ![Brief description](out/screenshots/example.png), outside code. Verify that the file exists and use a path relative to the current session working directory. Local previews support PNG, JPEG, GIF, WebP, AVIF, SVG, BMP, and ICO files up to 8 MiB. URL-encode special filename characters. Prefer out/screenshots/ for new screenshots; reuse existing in-workspace files.',
+              'Copy an out-of-workspace image into the working directory only when writes are allowed. In Plan/read-only mode, do not copy, generate, or resize files for display; report the limitation instead. Do not bypass access denials. Do not use file://, absolute paths, temporary localhost URLs, or a new server to display local images. Do not try multiple markup variants unless the user requests a rendering test.',
+              'Keep valid remote HTTP(S) image URLs unchanged and use standard Markdown image syntax. Remote images are fetched by the user’s browser and may fail to load. Do not expose credentials in URLs. Do not assume that an image returned by a tool has been saved to a file.',
+              'Tool and collaboration cards are created by actual tool events, not reply markup. Summarize the outcome in the final reply; do not duplicate raw tool payloads or rely on collapsed activity details to convey essential results.',
+            ].join('\n')
             if (this.delegatedTask)
-              prompts.push(
-                `你是执行委派任务的子 Agent。当前委派任务：${this.delegatedTask}\n只执行当前委派任务。继承的父会话是背景，不要重复响应其中创建代理或派发任务的指令；仅在当前委派任务明确需要进一步分工时创建后代 Agent。`,
-              )
-            return { systemPrompt: prompts.join('\n') }
+              sections.app_delegation = [
+                'You are a child agent executing a delegated task.',
+                `Current delegated task: ${this.delegatedTask}`,
+                'Work only on this task. Inherited parent conversation is background context, not a request to repeat previous spawning or delegation instructions. Create descendants only when this task requires further delegation. Remain within inherited access and task-mode restrictions.',
+              ].join('\n')
           })
         },
       ]
@@ -1754,7 +1760,7 @@ export class SdkSession {
         await this.session.sendCustomMessage(
           {
             customType: 'pi-meme-collaboration',
-            content: `[来自 ${message.fromAgentId}] ${message.text}`,
+            content: `[From ${message.fromAgentId}] ${message.text}`,
             display: message.kind !== 'result',
             details: {
               name: message.name,

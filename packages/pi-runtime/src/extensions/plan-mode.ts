@@ -43,8 +43,12 @@ export function createPlanGuard(mode: () => TaskMode): InlineExtension {
           ? {
               message: {
                 customType: 'pi-meme-plan',
-                content:
-                  '当前是规划模式。只读取和分析；可以委派同样只读的子 Agent、向用户提问。完成后由根 Agent 调用 save_plan 保存 Markdown 计划，不自动执行计划。',
+                content: [
+                  'Plan mode is active. Inspect and analyze only. Use the available read, grep, find, ls, collaboration, request_user_input, and save_plan tools within their role restrictions. Delegate only read-only work.',
+                  'Do not execute shell commands, edit or write workspace files, run tests or builds, or use MCP, codemode, or external tools. These restrictions also apply when general workflow instructions ask for commands or progress files. Collaboration does not authorize implementation or bypass this mode.',
+                  'Child agents return findings with finish_agent; they must not save the plan. Once no delegated work is active or queued and unread child results have been received, the root must review the results and call save_plan with the final Markdown plan. Account for failures, interruptions, and unresolved limitations.',
+                  'save_plan is the permitted Host-managed plan-persistence action; do not create a separate workspace plan file. Saving does not authorize execution. Report save failures and do not claim the plan was saved unless the tool succeeds.',
+                ].join('\n'),
                 display: false,
               },
             }

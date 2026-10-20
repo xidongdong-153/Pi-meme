@@ -853,7 +853,7 @@ export class HostCollaborationBridge {
   }
   private taskContext(record: Record, message: string) {
     const parent = this.records.get(record.summary.parentAgentId ?? '')
-    return `${message}\n当前代理：${record.summary.taskPath}。委派方：${parent?.summary.taskPath ?? '/root'}。主代理：/root。协作寻址使用这些完整路径或同级任务短名。`
+    return `${message}\nCurrent agent: ${record.summary.taskPath}. Delegating agent: ${parent?.summary.taskPath ?? '/root'}. Root agent: /root. Address collaborators by these full paths, direct-child short names, or sibling short names.`
   }
   private acknowledge(record: Record, event: DesktopEvent['event']) {
     if (event.type !== 'message_end') return
@@ -1190,8 +1190,8 @@ export class HostCollaborationBridge {
       if (!isCurrent()) return
       await record.session.continueCollaborationTask(
         pending.some((message) => message.kind === 'result')
-          ? '子 Agent 已返回结果，请结合已保存的协作消息检查并继续当前任务。'
-          : '已收到协作反馈，请结合已保存的消息继续当前任务；需要后续反馈时继续发送、等待，确认完成后再结束。',
+          ? 'A child agent has returned a result. Review the recorded collaboration messages and continue the current task. A returned result is evidence to review, not automatic acceptance.'
+          : 'Collaboration feedback has arrived. Continue the current task using the recorded messages. Send and wait again if more feedback is needed. Complete only after the task and any required review criteria are satisfied.',
         record.summary.mode,
       )
     } catch (cause) {

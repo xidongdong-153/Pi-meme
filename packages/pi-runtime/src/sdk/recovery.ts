@@ -4,7 +4,7 @@ import type { TaskMode } from '@pi-meme/contracts/plan'
 
 export const recoveryEntryType = 'pi-meme-recovery'
 export const recoveryMessage =
-  '连接中断后继续当前未完成的任务。沿用已有上下文和工具结果，不重复已完成的操作；结果不确定的操作先核对。'
+  'Continue the unfinished task after the connection interruption. Reuse the existing context and tool results. Do not repeat completed operations; verify the current state before retrying any operation whose outcome is uncertain.'
 
 type FailureEntry = Extract<SessionEntry, { type: 'message' }>
 

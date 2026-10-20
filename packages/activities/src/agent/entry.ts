@@ -16,14 +16,44 @@ export function create(context: Context): InlineExtension[] {
           name: 'manage_service',
           label: '管理项目服务',
           description:
-            '启动、查看或停止当前会话的常驻项目服务。需要 Web/API 预览时使用 start；构建和测试仍用 bash。start 传前台命令，不使用 &、nohup 或 daemon，不接管已有 PID。服务在回复结束后继续运行，用户可在活动面板停止。启动前先 list 检查已有服务；用户停止后不得擅自重启。logs 只返回有限日志尾部。规划模式禁止调用。',
+            'Manage long-running project services owned by the current session. Call list before start to avoid duplicates. Start a foreground command for Web/API previews; do not use &, nohup, daemon mode, or attach an existing PID. Use bash for finite builds and tests. Services survive the assistant reply; do not restart a user-stopped service without explicit permission. A running process or detected URL does not prove application readiness. logs returns only a bounded tail and may be truncated. Unavailable in Plan mode; startup supports macOS and Linux Hosts and obeys the current access policy.',
           parameters: Type.Object(
             {
-              action: Type.Union(['start', 'list', 'logs', 'stop'].map((action) => Type.Literal(action))),
-              name: Type.Optional(Type.String({ minLength: 1, maxLength: 120 })),
-              command: Type.Optional(Type.String({ minLength: 1, maxLength: 16384 })),
-              cwd: Type.Optional(Type.String({ minLength: 1 })),
-              serviceId: Type.Optional(Type.String({ minLength: 1 })),
+              action: Type.Union(
+                ['start', 'list', 'logs', 'stop'].map((action) => Type.Literal(action)),
+                {
+                  description:
+                    'start requires name and command; logs and stop require serviceId. Call list before starting a service.',
+                },
+              ),
+              name: Type.Optional(
+                Type.String({
+                  minLength: 1,
+                  maxLength: 120,
+                  description: 'Display name for the service; required for start.',
+                }),
+              ),
+              command: Type.Optional(
+                Type.String({
+                  minLength: 1,
+                  maxLength: 16384,
+                  description: 'Foreground service command; required for start. Do not background or daemonize it.',
+                }),
+              ),
+              cwd: Type.Optional(
+                Type.String({
+                  minLength: 1,
+                  description:
+                    'Optional service working directory. Relative paths resolve from the session working directory; omitted means that directory.',
+                }),
+              ),
+              serviceId: Type.Optional(
+                Type.String({
+                  minLength: 1,
+                  description:
+                    "Service identifier returned by this session's service operations; required for logs and stop.",
+                }),
+              ),
             },
             { additionalProperties: false },
           ),

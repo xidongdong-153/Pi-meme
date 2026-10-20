@@ -114,10 +114,69 @@ test('Goal 多轮自动续跑至完成，首轮提交幂等，隐藏内部续跑
       (snapshot) => !snapshot.state.isStreaming,
     )
     assert.equal(snapshot.goal?.status, 'complete')
+    const initialRequest = f.fake.provider.requests[0]
+    const initialText = requestText(initialRequest)
+    assert.match(initialText, /This session has an active persistent goal/)
+    assert.match(initialText, /<objective>\n完整执行并逐项验收\n<\/objective>/)
+    assert.match(initialText, /current authoritative evidence/)
+    assert.match(initialText, /stable blockerKey/)
+    assert.match(initialText, /Repeated updates in one cycle are not multiple cycles/)
+    assert.match(initialText, /receive required results, and resolve pending input and interactions/)
+    assert.match(initialText, /directly and alone as the last tool action, never inside codemode or a parallel batch/)
+    assert.match(initialText, /give the final answer without further tools/)
+    const descriptions = JSON.stringify(initialRequest.tools)
+    assert.match(descriptions, /Returns null when no goal is available, including in child agents/)
+    assert.match(descriptions, /Required and non-empty for complete/)
+    assert.match(descriptions, /which original requirements each item verifies/)
+    assert.match(requestText(f.fake.provider.requests[1]), /Continue the active persistent goal/)
     assert.equal(snapshot.messages.filter((message) => message.role === 'user').length, 1)
     assert.equal(f.fake.provider.sideRequests.length, 0)
     const events = await f.host.app.events.read({ sessionId: f.session.sessionId })
     assert.ok(JSON.stringify(events).includes('goal_updated'))
+  } finally {
+    await f.dispose()
+  }
+})
+
+test('Goal 完成必须在 codemode 结束后直接调用，完成后不再执行工具', { timeout: 25000 }, async () => {
+  const completed = { status: 'complete', summary: '直接调用完成验收', evidence: ['已核对原目标'] }
+  const f = await fixture((_body, index) => {
+    if (index === 1)
+      return {
+        tool: {
+          name: 'codemode',
+          arguments: JSON.stringify({
+            code: `try { text(await tools.update_goal(${JSON.stringify(completed)})) } catch (error) { text(error.message) }`,
+          }),
+        },
+      }
+    if (index === 2) return { tool: { name: 'update_goal', arguments: JSON.stringify(completed) } }
+    if (index === 3) return { tool: { name: 'get_goal', arguments: '{}' } }
+    return '不应再次调用模型。'
+  })
+  try {
+    await f.host.app.goals.start(f.session, { objective: '核对完成工具门禁' }, key('start'))
+    await eventually(
+      () => f.host.app.goals.get(f.session),
+      (goal) => goal?.status === 'complete',
+    )
+    const snapshot = await eventually(
+      () => f.host.app.sessions.snapshot(f.session),
+      (snapshot) => !snapshot.state.isStreaming,
+    )
+    const nested = snapshot.messages.find((message) => message.role === 'toolResult' && message.toolName === 'codemode')
+    assert.ok(nested?.role === 'toolResult')
+    assert.match(JSON.stringify(nested.content), /完成目标需要验收证据/)
+    const direct = snapshot.messages.find(
+      (message) => message.role === 'toolResult' && message.toolName === 'update_goal',
+    )
+    assert.ok(direct?.role === 'toolResult' && !direct.isError)
+    const rejected = snapshot.messages.find(
+      (message) => message.role === 'toolResult' && message.toolName === 'get_goal',
+    )
+    assert.ok(rejected?.role === 'toolResult' && rejected.isError)
+    assert.equal(f.fake.provider.requests.length, 3)
+    assert.equal((await f.host.app.goals.get(f.session))?.status, 'complete')
   } finally {
     await f.dispose()
   }
@@ -250,8 +309,11 @@ test('子代理用量归属根目标，子代理不能修改根目标，协作�
     const calls = (body.messages as Array<{ tool_calls?: Array<{ function: { name: string } }> }>)
       .flatMap((message) => message.tool_calls ?? [])
       .map((call) => call.function.name)
-    const child = requestText(body).includes('你是执行委派任务的子 Agent')
-    if (child)
+    const child = requestText(body).includes('Current delegated task:')
+    if (child) {
+      assert.match(requestText(body), /child agent/)
+      assert.doesNotMatch(requestText(body), /This session has an active persistent goal/)
+      if (!calls.includes('get_goal')) return { tool: { name: 'get_goal', arguments: '{}' } }
       return calls.includes('update_goal')
         ? finishAgentReply(body, '子任务已核对，不能替父任务结束目标。')
         : {
@@ -264,6 +326,8 @@ test('子代理用量归属根目标，子代理不能修改根目标，协作�
               }),
             },
           }
+    }
+    if (!calls.includes('get_goal')) return { tool: { name: 'get_goal', arguments: '{}' } }
     if (!calls.includes('spawn_agent'))
       return {
         tool: {
@@ -305,6 +369,23 @@ test('子代理用量归属根目标，子代理不能修改根目标，协作�
         (message) => message.role === 'toolResult' && message.isError && JSON.stringify(message).includes('子代理不能'),
       ),
     )
+    assert.ok(
+      snapshot.messages.some(
+        (message) =>
+          message.role === 'toolResult' &&
+          message.toolName === 'get_goal' &&
+          message.content.some((part) => part.type === 'text' && part.text === 'null'),
+      ),
+    )
+    const root = await f.host.app.sessions.snapshot(f.session)
+    assert.ok(
+      root.messages.some(
+        (message) =>
+          message.role === 'toolResult' &&
+          message.toolName === 'get_goal' &&
+          JSON.stringify(message).includes(goal.goalId),
+      ),
+    )
     assert.ok(goal.tokensUsed >= 80)
     const final = (await f.host.app.goals.get(f.session))!
     assert.equal(final.tokensUsed, f.fake.provider.requests.length * 16)
@@ -331,6 +412,24 @@ test('进入 Plan 暂停活跃目标，退出 Plan 保持暂停；控制参数�
     const count = f.fake.provider.requests.length
     await delay(60)
     assert.equal(f.fake.provider.requests.length, count)
+    const plan = await f.host.app.sessions.create(
+      { project: f.session.project, configuration: { mode: 'plan', model: { provider: 'fake', id: 'first' } } },
+      key('fresh-plan'),
+    )
+    const submission = await f.host.app.sessions.submit(
+      plan,
+      { delivery: 'start', text: '只分析目标工具可见性' },
+      key('inspect-plan'),
+    )
+    await eventually(
+      () => f.host.app.sessions.receipt(submission.operationId),
+      (receipt) => receipt.status === 'completed',
+    )
+    const request = f.fake.provider.requests.at(-1)!
+    assert.doesNotMatch(requestText(request), /This session has an active persistent goal/)
+    const tools = request.tools.map((tool: { function: { name: string } }) => tool.function.name)
+    assert.ok(!tools.includes('get_goal'))
+    assert.ok(!tools.includes('update_goal'))
     await assert.rejects(f.host.app.goals.pause(f.session, undefined as never, key('missing')), /goalId/)
     await assert.rejects(f.host.app.goals.get({ ...f.session, hostId: 'foreign' }), /Host/)
     assert.ok((await f.host.app.capabilities()).features.includes('goals'))
@@ -415,6 +514,11 @@ test('已有消息设为目标复用原生记录及图片，不复制消息、�
     const goal = (await f.host.app.goals.get(f.session))!
     assert.equal(goal.tokensUsed, (f.fake.provider.requests.length - 1) * 16)
     assert.ok(JSON.stringify(f.fake.provider.requests[1]).includes('image_url'))
+    assert.match(
+      requestText(f.fake.provider.requests[1]),
+      /Treat the selected existing user message as the persistent goal/,
+    )
+    assert.match(requestText(f.fake.provider.requests[1]), /<objective>\n依据这张图完成任务\n<\/objective>/)
   } finally {
     await f.dispose()
   }

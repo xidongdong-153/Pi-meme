@@ -47,7 +47,18 @@ test('安全分支排除整个未闭合工具批次，保留闭合prefix和compa
 })
 
 test('Plan执行链拒绝写入、bash、MCP、codemode和第三方工具，同时允许协作及完成工具', () => {
-  for (const name of ['bash', 'user_bash', 'write', 'edit', 'mcp__read', 'codemode', 'external'])
+  for (const name of [
+    'bash',
+    'user_bash',
+    'write',
+    'edit',
+    'mcp__read',
+    'codemode',
+    'external',
+    'get_goal',
+    'update_goal',
+    'manage_service',
+  ])
     assert.throws(() => assertPlanTool('plan', name), /规划模式不能执行/)
   for (const name of [
     'read',
@@ -102,7 +113,17 @@ test('跨模式输入保留各自mode，计划队列逐条admission且关闭模�
     assert.deepEqual(admissions, ['default', 'plan', 'plan'])
     assert.equal((await session.snapshot()).state.mode, 'default')
     assert.equal(fake.provider.requests.length, 3)
+    assert.doesNotMatch(JSON.stringify(fake.provider.requests[0]!.messages), /Plan mode is active/)
     for (const request of fake.provider.requests.slice(1)) {
+      const text = JSON.stringify(request.messages)
+      assert.match(text, /Plan mode is active/)
+      assert.match(text, /read, grep, find, ls, collaboration, request_user_input, and save_plan/)
+      assert.match(text, /Do not execute shell commands/)
+      assert.match(text, /commands or progress files/)
+      assert.match(text, /Child agents return findings with finish_agent; they must not save the plan/)
+      assert.match(text, /no delegated work is active or queued and unread child results have been received/)
+      assert.match(text, /root must review the results and call save_plan/)
+      assert.match(text, /Saving does not authorize execution/)
       const tools = request.tools?.map((tool: { function: { name: string } }) => tool.function.name) ?? []
       assert.ok(!tools.includes('bash') && !tools.includes('write') && !tools.includes('edit'))
     }

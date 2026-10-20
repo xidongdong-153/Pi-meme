@@ -14,65 +14,109 @@ export type CollaborationExtensionContext = {
   ) => Promise<CollaborationResults[keyof CollaborationResults]>
   savePlan: (input: SavePlanInput, signal?: AbortSignal) => Promise<PlanDocument>
 }
-const text = () => Type.String({ minLength: 1 })
-const target = Type.Object({ target: text() }, { additionalProperties: false })
-const message = Type.Object({ target: text(), message: text() }, { additionalProperties: false })
+const text = (description: string) => Type.String({ minLength: 1, description })
+const agentTarget = text(
+  'An agentId, full taskPath, direct-child short name, or sibling short name. Exact IDs and paths take precedence, then a direct child, then a sibling. Use full paths across levels. Addressability does not grant management permission.',
+)
+const target = Type.Object({ target: agentTarget }, { additionalProperties: false })
+function message(description: string) {
+  return Type.Object({ target: agentTarget, message: text(description) }, { additionalProperties: false })
+}
 const schemas = {
   spawn_agent: Type.Object(
     {
       task_name: Type.String({
         pattern: '^[a-z][a-z0-9_]{0,63}$',
-        description: '按子任务职责填写简短的 snake_case 名称，例如 chat_activity、workspace_sidebar、settings。',
+        description:
+          "Short snake_case name for this task's responsibility, unique under the current parent; e.g. chat_activity, workspace_sidebar, settings.",
       }),
-      message: text(),
+      message: text(
+        'The delegated scope, context, collaborators, file ownership, and completion or required review criteria.',
+      ),
       avatar: Type.Optional(
         Type.Union(
           agentAvatarScenes.map((scene) => Type.Literal(scene)),
           {
             description:
-              '按任务场景选择展示头像，例如 frontend（前端）、security（安全）、browser（浏览器验证）；省略时按任务名称匹配。仅影响头像。',
+              "Display avatar for the task's role; inferred from the task name when omitted. Affects appearance only, not permissions or behavior.",
           },
         ),
       ),
-      fork_turns: Type.Optional(Type.Union([Type.Literal('all'), Type.Literal('none')])),
+      fork_turns: Type.Optional(
+        Type.Union([Type.Literal('all'), Type.Literal('none')], {
+          description:
+            'all (default) inherits the current branch through its latest safe, complete history boundary. none omits inherited conversation messages. If safe inheritance is rejected, use none and restate the necessary context.',
+        }),
+      ),
     },
     { additionalProperties: false },
   ),
-  send_message: message,
-  followup_task: message,
+  send_message: message("Feedback or a question for the recipient's current task; does not start a new task."),
+  followup_task: message('The next task and its completion criteria; creates or queues a new run.'),
   interrupt_agent: target,
-  list_agents: Type.Object({ path_prefix: Type.Optional(text()) }, { additionalProperties: false }),
+  list_agents: Type.Object(
+    {
+      path_prefix: Type.Optional(
+        text('Literal prefix of the full taskPath, not a glob or short-name lookup. Omit to list the whole tree.'),
+      ),
+    },
+    { additionalProperties: false },
+  ),
   wait_agent: Type.Object(
     {
-      targets: Type.Optional(Type.Array(text())),
-      timeout_ms: Type.Optional(Type.Number({ minimum: 0, maximum: 3600000 })),
+      targets: Type.Optional(
+        Type.Array(agentTarget, {
+          description: 'Agents to watch. Omit for automatic selection; avoid an empty array. Do not include yourself.',
+        }),
+      ),
+      timeout_ms: Type.Optional(
+        Type.Number({
+          minimum: 0,
+          maximum: 3600000,
+          description: 'Maximum wait in milliseconds; defaults to 30000. Use 0 for a non-blocking check.',
+        }),
+      ),
     },
     { additionalProperties: false },
   ),
-  finish_agent: Type.Object({ report: text() }, { additionalProperties: false }),
+  finish_agent: Type.Object(
+    {
+      report: text(
+        'Final outcome, relevant findings or changed files, verification performed, and unresolved limitations.',
+      ),
+    },
+    { additionalProperties: false },
+  ),
 }
 const descriptions = {
   spawn_agent:
-    '启动后台子 Agent。task_name 用任务职责的 snake_case 短名，例如 chat_activity、workspace_sidebar、settings；avatar 可按任务场景指定头像，省略时按名称匹配。target 可使用 agentId、完整 taskPath、下级或同级任务短名；重名时优先下级，跨层使用完整 taskPath。共享工作目录并继承当前模型、思考等级、访问权限和任务模式。最多 4 个活动子 Agent、嵌套两层、16 个身份。fork_turns=all 继承最新闭合历史；none 使用新上下文。委派消息写明任务、协作对象和完成条件。',
+    'Start a background child for a scoped task. It shares your working directory and inherits your current model, reasoning level, access mode, and task mode. Across the whole tree: at most 4 active or queued child identities, 2 child levels, and 16 child identities total; waiting counts as active. fork_turns defaults to all (safe, complete branch history); none starts without inherited conversation history. Include collaborators and completion criteria in message.',
   send_message:
-    '向同树 Agent 反馈进度、问题或验收意见。等待反馈中的原任务会在原会话继续；已结束任务只保存到邮箱，不重新启动。发送成功不表示对方已阅读或回复。',
+    'Send progress, questions, corrections, or acceptance feedback within the same agent tree. A task waiting for feedback may resume in its existing run and session; a terminal task only stores the message and is not restarted. Delivery does not mean read, accepted, or answered. In Plan mode, you cannot message an active agent running in default mode.',
   followup_task:
-    '给已有后代 Agent 派发下一项任务，保留 agentId 和会话文件；忙时排队，结束后启动新轮。当前任务内的补充、反馈与修改意见使用 send_message。',
-  interrupt_agent: '停止后代 Agent 的当前任务及其后代，取消待启动任务；保留身份、历史与已完成结果。',
-  list_agents: '查看同树 Agent 的身份、状态和结果。此工具只查询，不读取邮箱。',
+    "Assign a new task to an existing descendant of the calling agent. Reuse its identity and conversation file, but start a new run with the caller's current model, reasoning level, access mode, and task mode. If active, queue the task until its current run ends. Use send_message for feedback or revisions within the current task.",
+  interrupt_agent:
+    "Stop a descendant's current run and all its descendant runs; cancel their queued or pending tasks. Only the calling agent's descendants can be interrupted. Preserve identities, history, and existing results. Interruption is not successful completion.",
+  list_agents:
+    'Inspect identities, execution states, and available reports in the current agent tree. Optionally filter full task paths by a literal prefix. This snapshot query does not consume or acknowledge mailbox messages.',
   wait_agent:
-    '等待指定 Agent 的反馈；也可等待委派方或主代理的消息，不能等待自己。祖先仅按消息唤醒，其他对象也可在任务结束时唤醒。省略 targets 时等待同树其他活动代理。返回 messages 写入会话后确认已读；notifiedBy 表示反馈已走消息投递，正文会进入当前上下文，不在 messages 中重复返回。超时不结束任务，仍需等待时继续调用；等待仍占活动容量。',
+    'Wait for feedback from selected agents in the same tree, including your parent or the root; never target yourself. Ancestors wake the wait only through messages; other targets may also wake it when the watched run ends. Omit targets to watch other active agents and senders with unread messages. timeout_ms defaults to 30000; 0 checks immediately. Returned messages are acknowledged after the tool result is recorded in the session. notifiedBy identifies senders whose messages are being delivered separately; do not request duplicate delivery. A timeout does not finish the task or release its active slot; wait again when more feedback is required.',
   finish_agent:
-    '仅子 Agent 使用。确认整个委派任务满足完成条件后提交最终 report；需要验收时先等待确认。阶段反馈使用 send_message，然后 wait_agent 等待并继续，不调用本工具。存在未完成的下级任务或未读反馈时不能完成。成功调用后结束本轮回复，应用再向委派方提交最终结果。',
+    'Child agents only. Submit the final report when the entire delegated task is complete and any required review is accepted. Resolve unread feedback and finish all descendant work, including queued tasks, first. Use send_message and wait_agent for interim work. Acceptance records completion intent: end your turn so the Host can publish the final result to your parent. New feedback before the run settles cancels completion; address it and call finish_agent again.',
 }
 export function create(context: CollaborationExtensionContext): InlineExtension[] {
   return [
     {
       name: 'pi-meme-collaboration',
       factory: (pi) => {
-        pi.on('before_agent_start', (event) => ({
-          systemPrompt: `${event.systemPrompt}\n协作消息和子 Agent 结果是内部上下文。面向用户直接说明任务结论，不主动复述 agentId、runId、消息 ID、投递状态或整份子报告；仅在用户明确询问这些细节时解释。Agent 完成状态由应用显示简短提示，不需要重复播报。\n同一任务内用 send_message 交换阶段反馈，用 wait_agent 等待委派方或其他代理的消息，再继续执行；可重复多轮。普通回复不会完成子任务。子 Agent 仅在整个委派任务完成、所需验收已确认后调用 finish_agent，然后结束回复。根 Agent 应处理阶段反馈，给出修改或验收意见；等子任务明确完成并检查结果后再给用户最终回复。followup_task 只派发下一项任务，不用于当前任务内的反馈。`,
-        }))
+        pi.on('before_agent_start', (event) => {
+          event.systemPromptOptions.sections.app_collaboration = [
+            'Treat collaboration messages and child reports as internal working context. Present outcomes, evidence, and limitations to the user; do not expose internal agent/run/message IDs or relay entire child reports unless asked. The app already displays completion status.',
+            'Use send_message for progress, review requests, corrections, and acceptance within the same task. Use wait_agent to receive feedback and continue. Use followup_task only for a new task on an existing descendant.',
+            'A normal reply does not complete a child task. Satisfy the delegated criteria, obtain acceptance only when review is required, resolve unread feedback, and finish descendant work before calling finish_agent and ending the turn.',
+            'Review interim feedback and terminal results; request corrections when needed. Distinguish success from failure or interruption. A returned result is not automatic acceptance. The root must account for delegated work before presenting the final outcome.',
+          ].join('\n')
+        })
         for (const name of Object.keys(schemas) as Array<keyof typeof schemas>) {
           pi.registerTool({
             name,
@@ -92,8 +136,16 @@ export function create(context: CollaborationExtensionContext): InlineExtension[
           name: 'save_plan',
           label: '保存计划',
           description:
-            '仅规划模式根 Agent 使用。所有子 Agent 完成且邮箱结果已读取后，保存 Markdown 计划；不执行计划。重复调用更新本轮同一文档。',
-          parameters: Type.Object({ title: text(), markdown: text() }, { additionalProperties: false }),
+            'Plan-mode root agent only. Save a Markdown plan without executing it. Rejected while any child work is active or queued, or the root has unread child results. Review results and account for failures, interruptions, and unresolved limitations first. Repeated calls in the same root run update the same Host-managed document, not a workspace file. Claim it is saved only after success.',
+          parameters: Type.Object(
+            {
+              title: text('Nonblank plan title.'),
+              markdown: text(
+                'Complete Markdown plan body without an outer code fence. Describe intended changes, constraints, and verification steps; do not report unperformed work as complete.',
+              ),
+            },
+            { additionalProperties: false },
+          ),
           execute: async (_id, input, signal) => {
             const document = await context.savePlan(input, signal)
             return {

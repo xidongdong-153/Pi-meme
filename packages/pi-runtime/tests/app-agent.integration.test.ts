@@ -68,6 +68,11 @@ export function activate(ctx) {
   await settled(session)
   assert.equal(requested, 1)
   assert.match(requestText(fake.provider.requests[0]), /附加的 App 上下文：运行工具/)
+  const afterTool = requestText(fake.provider.requests[1])
+  for (const section of ['app_plugin_context', 'app_runtime', 'app_output']) {
+    assert.equal(afterTool.split(`<${section}>`).length - 1, 1, section)
+  }
+  assert.match(afterTool, /附加的 App 上下文：运行工具/)
   const messages = (await session.snapshot()).messages
   const tool = messages.find((message) => message.role === 'toolResult' && message.toolName === 'app_echo')
   assert.ok(tool?.role === 'toolResult' && !tool.isError)
@@ -82,6 +87,7 @@ export function activate(ctx) {
   assert.match(requestText(fake.provider.requests.at(-1)!), /附加的 App 上下文：继续处理子任务结果/)
   await session.prompt('只读分析', undefined, [], { mode: 'plan' })
   await settled(session)
+  assert.doesNotMatch(requestText(fake.provider.requests.at(-1)!), /附加的 App 上下文：只读分析/)
   await session.prompt('恢复普通任务', undefined, [], { mode: 'default' })
   await settled(session)
   const tools = fake.provider.requests.at(-1)!.tools?.map((tool: { function: { name: string } }) => tool.function.name)
@@ -230,6 +236,10 @@ describe('受限权限不导入 AppAgent 顶层，也不注册外部工具', () 
       await session.setModel({ provider: 'fake', id: 'first' })
       await session.prompt('受限权限分析')
       await settled(session)
+      const request = requestText(fake.provider.requests[0])
+      assert.match(request, new RegExp(`Access mode: ${mode}`))
+      assert.match(request, /restrictions still apply/)
+      if (mode === 'workspace-write') assert.ok(request.includes(root))
       await assert.rejects(access(marker), { code: 'ENOENT' })
       assert.ok(
         !fake.provider.requests[0].tools.some(

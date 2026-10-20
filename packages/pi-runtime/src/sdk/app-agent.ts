@@ -133,7 +133,10 @@ export function createAppAgent(
                   const result = (await invoke({ ...execution(ctx), prompt })) as { context?: unknown } | undefined
                   if (result?.context !== undefined) {
                     if (typeof result.context !== 'string') throw new Error('beforeRun 追加上下文必须是字符串')
-                    return { systemPrompt: `${event.systemPrompt}\n${result.context}` }
+                    const sections = event.systemPromptOptions.sections
+                    sections.app_plugin_context = [sections.app_plugin_context, result.context]
+                      .filter(Boolean)
+                      .join('\n')
                   }
                   return undefined
                 })

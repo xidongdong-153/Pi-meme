@@ -106,6 +106,11 @@ test('真实 SDK 恢复保留工具结果、省略失败且不新增用户消息
       )
       assert.equal(fake.provider.requests.length, 3)
       assert.match(JSON.stringify(fake.provider.requests.at(-1)), /已经完成的工具结果/)
+      assert.match(
+        JSON.stringify(fake.provider.requests.at(-1)),
+        /Continue the unfinished task after the connection interruption/,
+      )
+      assert.match(JSON.stringify(fake.provider.requests.at(-1)), /Do not repeat completed operations/)
       assert.doesNotMatch(JSON.stringify(fake.provider.requests.at(-1)), /network error/)
       assert.equal(events.filter((event) => event.type === 'tool_execution_start').length, 1)
       assert.ok(events.some((event) => event.type === 'recovery_start'))

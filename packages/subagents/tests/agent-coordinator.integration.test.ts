@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { test, describe } from 'vitest'
+import { test, describe, vi } from 'vitest'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -34,6 +34,7 @@ test('失败恢复只重激活原根任务，保留子树、排队任务和未�
     await context.begin('plan')
     const child = await context.spawn('worker')
     const worker = context.children.get(child.sessionKey)!
+    const configureTask = vi.spyOn(worker.session, 'configureAgentTask')
     await context.call(context.root.session, 'followup_task', { target: 'worker', message: '下一项子任务' })
     const before = (await context.bridge.getAgents('root-key'))[0]!
     await context.bridge.rootFailed('root-key', new Error('network error'), before.runId)
@@ -51,6 +52,9 @@ test('失败恢复只重激活原根任务，保留子树、排队任务和未�
     await worker.finish('首项子任务完成')
     await context.until(async () => worker.prompts.length === 2)
     assert.equal(worker.prompts[1], '下一项子任务')
+    assert.match(configureTask.mock.calls.at(-1)![0], /^下一项子任务\nCurrent agent: \/root\/worker\./)
+    assert.match(configureTask.mock.calls.at(-1)![0], /Delegating agent: \/root\. Root agent: \/root\./)
+    assert.match(configureTask.mock.calls.at(-1)![0], /full paths, direct-child short names, or sibling short names/)
   } finally {
     await context.cleanup()
   }
@@ -127,6 +131,8 @@ test('阶段回复保留原任务，收到主代理反馈后在原会话继续',
     assert.equal(parked.runCompletedAt, undefined)
     await context.call(context.root.session, 'send_message', { target: 'worker', message: '请补充错误分支' })
     await context.until(async () => worker.continuations.length === 1)
+    assert.match(worker.continuations[0]!, /^Collaboration feedback has arrived\./)
+    assert.match(worker.continuations[0]!, /any required review criteria/)
     const resumed = (await context.bridge.getAgents('root-key')).find((agent) => agent.agentId === child.agentId)!
     for (const key of [
       'agentId',
@@ -710,6 +716,8 @@ test('child先结束轮次，grandchild延迟结果触发同epoch汇总后再交
     )
     await context.children.get(grandchild.sessionKey)!.finish('叶节点完成')
     await context.until(async () => childSession.continuations.length === 1)
+    assert.match(childSession.continuations[0]!, /^A child agent has returned a result\./)
+    assert.match(childSession.continuations[0]!, /evidence to review, not automatic acceptance/)
     const resumed = (await context.bridge.getAgents('root-key')).find((agent) => agent.agentId === child.agentId)!
     assert.equal(resumed.epoch, child.epoch)
     assert.equal(resumed.rootTaskId, child.rootTaskId)
@@ -1072,7 +1080,7 @@ test('idle来源消息在后续新task followup中写真实Pi JSONL，保留旧�
       (entry) => entry.type === 'custom_message' && entry.details?.messageId === sent.messageId,
     )
     assert.equal(sources.length, 1)
-    assert.equal(sources[0].content, `[来自 ${child.parentAgentId}] 来自旧任务的补充信息`)
+    assert.equal(sources[0].content, `[From ${child.parentAgentId}] 来自旧任务的补充信息`)
     assert.equal(sources[0].details.fromAgentId, child.parentAgentId)
     assert.equal(sources[0].details.rootTaskId, child.rootTaskId)
     await call('followup_task', { target: child.agentId, message: '再继续一次' })
@@ -1129,7 +1137,7 @@ test('forkall保留模型父上下文但child详情只显示自身任务，follo
   const directory = await mkdtemp(path.join(tmpdir(), 'pi-agent-origin-'))
   const fake = await useFakeAgent(directory, {
     reply: (body) =>
-      JSON.stringify(body.messages).includes('你是执行委派任务的子 Agent')
+      JSON.stringify(body.messages).includes('You are a child agent executing a delegated task.')
         ? finishAgentReply(body, '子任务完成')
         : '父任务阶段回复',
   })
@@ -1196,7 +1204,7 @@ test('forkall保留模型父上下文但child详情只显示自身任务，follo
     const childRequest = JSON.stringify(fake.provider.requests[1])
     assert.ok(childRequest.includes(parentText))
     assert.ok(childRequest.includes(ownText))
-    assert.ok(childRequest.includes('继承的父会话是背景'))
+    assert.ok(childRequest.includes('Inherited parent conversation is background context'))
     assert.ok(child.conversationOrigin!.inheritedEntryIds.length > 0)
     const view = await bridge.getAgentSnapshot(child.agentId)
     assert.equal(view.messages.filter((message) => message.role === 'user').length, 1)
