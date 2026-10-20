@@ -28,6 +28,7 @@ import {
 import { Composer } from '@pi-meme/chat/ui/composer/composer'
 import { Conversation } from '@pi-meme/chat/ui/conversation/conversation'
 import { Sidebar } from '@pi-meme/workspace/ui/sidebar/sidebar'
+import { SidebarMenus } from '@pi-meme/workspace/ui/sidebar/sidebar-menus'
 import { ModelPickerPopover } from '@pi-meme/models/ui/model-picker-popover'
 import { ExtensionWidgets } from '@pi-meme/interaction/ui/extension-widgets'
 import { ExtensionStatusBadges } from '@pi-meme/interaction/ui/extension-statuses'
@@ -942,31 +943,43 @@ export function App({
               onNewSession={() => void chat.newSession()}
               onPlugins={() => setCustomizationOpen(true)}
               header={(toggleSidebar) => (
-                <AppHeader
-                  nativeWindow={nativeWindow}
+                <SidebarMenus
+                  bridge={bridge}
+                  pinnedPaths={chat.sessions?.pinnedPaths ?? []}
+                  onNewSession={(cwd) => void chat.newSessionInProject(cwd)}
+                  onTogglePin={(path) => void chat.togglePin(path)}
+                  onChanged={chat.refreshMenu}
+                  onDeleted={chat.applyMenuDeletion}
                   canOpenProject={localPlatform}
-                  loadProjectApps={bridge.getProjectApps}
-                  sidebarOpen={sidebarOpen}
-                  onToggleSidebar={toggleSidebar}
-                  busy={Boolean(chat.workspaceDisabledReason)}
-                  cwd={chat.connection.cwd}
-                  directoryDisabledReason={chat.workspaceDisabledReason}
-                  onDirectory={(trigger) => {
-                    workspacePickerReturnFocus.current = trigger ?? null
-                    setWorkspacePickerOpen(true)
-                  }}
-                  project={project}
-                  title={title}
-                  sessionName={chat.state?.sessionName}
-                  onOpenProject={(app) => void bridge.openProject(app).catch((cause) => chat.setError(String(cause)))}
-                  preferredApp={preferredApp}
-                  onPreferredApp={(app) => {
-                    setPreferredApp(app)
-                    void bridge.setPreferredProjectApp(app).catch((cause) => chat.setError(String(cause)))
-                  }}
-                  forkedFrom={forkedFrom}
-                  onOpenForkSource={(path) => void chat.openForkSource(path)}
-                />
+                >
+                  <AppHeader
+                    nativeWindow={nativeWindow}
+                    canOpenProject={localPlatform}
+                    loadProjectApps={bridge.getProjectApps}
+                    sidebarOpen={sidebarOpen}
+                    onToggleSidebar={toggleSidebar}
+                    busy={Boolean(chat.workspaceDisabledReason)}
+                    cwd={chat.connection.cwd}
+                    directoryDisabledReason={chat.workspaceDisabledReason}
+                    onDirectory={(trigger) => {
+                      workspacePickerReturnFocus.current = trigger ?? null
+                      setWorkspacePickerOpen(true)
+                    }}
+                    project={project}
+                    title={title}
+                    sessionName={chat.state?.sessionName}
+                    session={activeSummary}
+                    canRenameSession={ready && !chat.workspaceDisabledReason && !chat.chat.running}
+                    onOpenProject={(app) => void bridge.openProject(app).catch((cause) => chat.setError(String(cause)))}
+                    preferredApp={preferredApp}
+                    onPreferredApp={(app) => {
+                      setPreferredApp(app)
+                      void bridge.setPreferredProjectApp(app).catch((cause) => chat.setError(String(cause)))
+                    }}
+                    forkedFrom={forkedFrom}
+                    onOpenForkSource={(path) => void chat.openForkSource(path)}
+                  />
+                </SidebarMenus>
               )}
             >
               {conversation}

@@ -1,4 +1,4 @@
-import { createContext, useContext, useRef, useState, type ReactNode } from 'react'
+import { createContext, useContext, useId, useRef, useState, type ReactNode } from 'react'
 import { Copy, FolderOpen, MoreHorizontal, Pencil, Pin, PinOff, SquarePen, Trash2 } from 'lucide-react'
 import type { DesktopBridge, ProjectApp, WorkspaceDeletionResult } from '@pi-meme/contracts/desktop'
 import type { PiProjectGroup, PiSessionSummary } from '@pi-meme/contracts/sessions'
@@ -44,7 +44,7 @@ type MenuState = {
   dialogTrigger: { current: HTMLElement | null }
 }
 const Menus = createContext<MenuState | null>(null)
-function useMenus() {
+export function useSidebarMenus() {
   const value = useContext(Menus)
   if (!value) throw new Error('侧栏菜单缺少操作上下文')
   return value
@@ -69,6 +69,7 @@ export function SidebarMenus({
   onChanged: () => Promise<void>
   onDeleted: (result: WorkspaceDeletionResult) => Promise<void>
 }) {
+  const renameFormId = useId()
   const [apps, setApps] = useState<ProjectApp[]>(canOpenProject ? [{ id: 'finder', name: 'Finder' }] : [])
   const appsLoading = useRef(false)
   const [action, setAction] = useState<{ kind: 'rename' | 'delete'; target: MenuTarget } | null>(null)
@@ -226,7 +227,7 @@ export function SidebarMenus({
           {project && <p className="text-xs text-muted-foreground break-all">{project.cwd}</p>}
           {isRename ? (
             <form
-              id="sidebar-rename"
+              id={renameFormId}
               onSubmit={(event) => {
                 event.preventDefault()
                 void submit()
@@ -274,7 +275,7 @@ export function SidebarMenus({
 }
 
 function MenuItems({ target, kind }: { target: MenuTarget; kind: 'context' | 'dropdown' }) {
-  const menus = useMenus()
+  const menus = useSidebarMenus()
   const Item = kind === 'context' ? Context.ContextMenuItem : Dropdown.DropdownMenuItem
   const Separator = kind === 'context' ? Context.ContextMenuSeparator : Dropdown.DropdownMenuSeparator
   const Sub = kind === 'context' ? Context.ContextMenuSub : Dropdown.DropdownMenuSub
@@ -343,7 +344,7 @@ function MenuItems({ target, kind }: { target: MenuTarget; kind: 'context' | 'dr
 }
 
 export function SidebarRowMenu({ target, children }: { target: MenuTarget; children: ReactNode }) {
-  const menus = useMenus()
+  const menus = useSidebarMenus()
   const row = useRef<HTMLDivElement>(null)
   return (
     <Context.ContextMenu
@@ -371,7 +372,7 @@ export function SidebarRowMenu({ target, children }: { target: MenuTarget; child
   )
 }
 export function SidebarMoreMenu({ target, className }: { target: MenuTarget; className?: string }) {
-  const menus = useMenus()
+  const menus = useSidebarMenus()
   const trigger = useRef<HTMLButtonElement>(null)
   const name = target.kind === 'project' ? target.project.name : formatSessionTitle(target.session)
   return (

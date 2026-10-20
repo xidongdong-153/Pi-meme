@@ -1,18 +1,22 @@
-import { useState } from 'react'
-import { ChevronDown, Copy, FolderOpen, GitFork, PanelLeft } from 'lucide-react'
+import { useRef, useState } from 'react'
+import { ArrowUpRight, Copy, Ellipsis, FolderOpen, GitFork, PanelLeft, Pencil, Pin, PinOff } from 'lucide-react'
 import type { ProjectApp } from '@pi-meme/contracts/desktop'
+import type { PiSessionSummary } from '@pi-meme/contracts/sessions'
+import { useSidebarMenus } from '@pi-meme/workspace/ui/sidebar/sidebar-menus'
 import { Button } from '@pi-meme/ui/components/ui/button'
-import { Popover, PopoverContent, PopoverTrigger } from '@pi-meme/ui/components/ui/popover'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
+  DropdownMenuTrigger,
+} from '@pi-meme/ui/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
-import { cn } from '@pi-meme/ui/lib/utils'
 import { PageHeaderNavigation } from './page-header'
 
-const appNames: Record<ProjectApp['id'], string> = {
-  finder: 'Finder',
-  vscode: 'Visual Studio Code',
-  cursor: 'Cursor',
-  zed: 'Zed',
-}
 function SidebarTools({
   nativeWindow,
   sidebarOpen,
@@ -57,6 +61,8 @@ export function AppHeader({
   project,
   title,
   sessionName,
+  session,
+  canRenameSession,
   onOpenProject,
   preferredApp,
   onPreferredApp,
@@ -75,6 +81,8 @@ export function AppHeader({
   project: string
   title: string
   sessionName?: string
+  session?: PiSessionSummary
+  canRenameSession: boolean
   onOpenProject: (app: ProjectApp['id']) => void
   preferredApp: ProjectApp['id']
   onPreferredApp: (app: ProjectApp['id']) => void
@@ -82,14 +90,17 @@ export function AppHeader({
   forkedFrom?: { path: string; title: string }
   onOpenForkSource?: (sourcePath: string) => void
 }) {
+  const menus = useSidebarMenus()
+  const trigger = useRef<HTMLButtonElement>(null)
+  const isPinned = Boolean(session && menus.pinnedPaths.includes(session.path))
   const [menuOpen, setMenuOpen] = useState(false)
   const [apps, setApps] = useState<ProjectApp[]>([])
   const [copied, setCopied] = useState(false)
-  const preferredName = apps.find((app) => app.id === preferredApp)?.name ?? appNames[preferredApp]
 
   async function loadApps(open: boolean) {
     setMenuOpen(open)
-    if (!open) return
+    if (open) menus.dialogTrigger.current = trigger.current
+    if (!open || !canOpenProject) return
     try {
       setApps(await loadProjectApps())
     } catch {
@@ -158,85 +169,71 @@ export function AppHeader({
           )}
         </div>
 
-        <div className="flex items-center gap-1 shrink-0">
-          <div
-            className={cn(
-              'flex h-7 items-center rounded-md text-muted-foreground transition-colors',
-              menuOpen ? 'bg-background/60 text-foreground' : 'hover:bg-background/40 hover:text-foreground',
-            )}
+        <DropdownMenu open={menuOpen} onOpenChange={(open) => void loadApps(open)}>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              ref={trigger}
+              aria-label="会话菜单"
+              className="size-7 shrink-0 text-muted-foreground hover:text-foreground data-[state=open]:bg-background/60 data-[state=open]:text-foreground"
+            >
+              <Ellipsis className="size-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent
+            side="bottom"
+            align="end"
+            sideOffset={6}
+            className="w-52"
+            onCloseAutoFocus={(event) => {
+              if (menus.dialogOpening.current) {
+                menus.dialogOpening.current = false
+                event.preventDefault()
+              }
+            }}
           >
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <span
-                  className={cn('inline-flex', !canOpenProject && 'cursor-not-allowed')}
-                  tabIndex={canOpenProject ? undefined : 0}
-                >
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={`在 ${preferredName} 中打开项目`}
-                    disabled={!canOpenProject}
-                    onClick={() => onOpenProject(preferredApp)}
-                    className="size-7 rounded-none border-0 text-inherit hover:bg-transparent"
-                  >
-                    <FolderOpen className="size-3.5" />
-                  </Button>
-                </span>
-              </TooltipTrigger>
-              <TooltipContent side="bottom">
-                {canOpenProject ? `在 ${preferredName} 中打开项目` : '当前连接不支持打开本机项目'}
-              </TooltipContent>
-            </Tooltip>
-            <Popover open={menuOpen} onOpenChange={(open) => void loadApps(open)}>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <span
-                    className={cn('inline-flex', !canOpenProject && 'cursor-not-allowed')}
-                    tabIndex={canOpenProject ? undefined : 0}
-                  >
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        aria-label="选择打开项目的应用"
-                        disabled={!canOpenProject}
-                        className="h-7 w-4.5 rounded-none border-0 px-0 text-inherit hover:bg-transparent"
-                      >
-                        <ChevronDown className="size-3" />
-                      </Button>
-                    </PopoverTrigger>
-                  </span>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">
-                  {canOpenProject ? '选择打开项目的应用' : '当前连接不支持打开本机项目'}
-                </TooltipContent>
-              </Tooltip>
-              <PopoverContent align="end" className="w-52 p-1">
-                <div className="px-2 py-1.5 text-[0.6875rem] text-muted-foreground">打开项目</div>
+            <DropdownMenuItem
+              disabled={!session || !canRenameSession}
+              onSelect={() => session && menus.rename({ kind: 'session', session })}
+            >
+              <Pencil />
+              重命名
+            </DropdownMenuItem>
+            <DropdownMenuItem disabled={!session || busy} onSelect={() => session && menus.onTogglePin(session.path)}>
+              {isPinned ? <PinOff /> : <Pin />}
+              {isPinned ? '取消置顶' : '置顶'}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger
+                disabled={!canOpenProject}
+                title={canOpenProject ? undefined : '当前连接不支持打开本机项目'}
+              >
+                <ArrowUpRight />
+                在…打开
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent className="w-52">
                 {apps.map((app) => (
-                  <button
-                    key={app.id}
-                    type="button"
-                    onClick={() => chooseApp(app.id)}
-                    className="flex w-full items-center rounded-md px-2 py-1.5 text-left text-xs hover:bg-secondary"
-                  >
+                  <DropdownMenuItem key={app.id} onSelect={() => chooseApp(app.id)}>
                     <span className="flex-1">{app.name}</span>
                     {preferredApp === app.id && <span className="text-primary">默认</span>}
-                  </button>
+                  </DropdownMenuItem>
                 ))}
-                <div className="my-1 h-px bg-border" />
-                <button
-                  type="button"
-                  onClick={() => void copyPath()}
-                  className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-xs hover:bg-secondary"
+                <DropdownMenuSeparator />
+                <DropdownMenuItem
+                  onSelect={(event) => {
+                    event.preventDefault()
+                    void copyPath()
+                  }}
                 >
-                  <Copy className="size-3.5" />
+                  <Copy />
                   {copied ? '已复制路径' : '复制项目路径'}
-                </button>
-              </PopoverContent>
-            </Popover>
-          </div>
-        </div>
+                </DropdownMenuItem>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
     </div>
   )
