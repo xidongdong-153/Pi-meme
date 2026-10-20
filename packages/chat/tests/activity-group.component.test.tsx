@@ -20,7 +20,7 @@ afterEach(cleanup)
 
 const items: ActivityItem[] = [
   { id: 'thinking', type: 'thinking', thinking: '检查文件', status: 'success' },
-  { id: 'read', type: 'tool', name: 'read', args: { path: 'a.ts' }, result: '文件结果', status: 'success' },
+  { id: 'write', type: 'tool', name: 'write', args: { path: 'a.ts' }, result: '文件结果', status: 'success' },
 ]
 
 test('子代理多轮状态位于工具段之间，全部过程折叠后仍可见且最终回复复制不混入状态', async () => {
@@ -224,6 +224,26 @@ test('协作状态仅出现在子代理详情，主聊天继续隐藏内部工�
   expect(screen.getByRole('status', { name: '协作状态' })).toHaveTextContent('正在向主代理反馈…')
 })
 
+test.each(['success', 'running', 'error'] as const)('读取文件只显示静态摘要，不展开详情：%s', async (status) => {
+  const user = userEvent.setup()
+  const onToggle = vi.fn()
+  render(
+    <ToolActivityRow
+      item={{ id: 'read', name: 'read', args: { path: 'src/a.ts' }, result: '文件内容或错误原因', status }}
+      open
+      onToggle={onToggle}
+    />,
+  )
+  const summary = screen.getByText(/a\.ts/)
+  expect(summary).toBeVisible()
+  expect(screen.queryByRole('button')).not.toBeInTheDocument()
+  expect(screen.queryByText('文件内容或错误原因')).not.toBeInTheDocument()
+  expect(screen.queryByTitle('复制输出')).not.toBeInTheDocument()
+  if (status === 'error') expect(summary).toHaveTextContent('失败')
+  await user.click(summary)
+  expect(onToggle).not.toHaveBeenCalled()
+})
+
 test('成功查看图片直接显示可预览的小图，不再显示工具输出框和占位文字', async () => {
   const user = userEvent.setup()
   render(
@@ -312,7 +332,7 @@ test('计时总开关保留运行中的手动选择，完成时收起全部过�
   expect(disclosure).toHaveAttribute('aria-expanded', 'false')
   await user.click(disclosure)
   expect(disclosure).toHaveAttribute('aria-expanded', 'true')
-  const tool = screen.getByRole('button', { name: '工具详情：read' })
+  const tool = screen.getByRole('button', { name: '工具详情：write' })
   await user.click(tool)
   rerender(view(true, [...items, { id: 'more', name: 'bash', args: { command: 'git diff' }, status: 'running' }]))
   expect(disclosure).toHaveAttribute('aria-expanded', 'true')
@@ -361,7 +381,7 @@ test('连续思考和工具只占一个活动组，分组和思考均可用键�
   expect(group).toHaveAttribute('aria-expanded', 'false')
   group.focus()
   await user.keyboard('{Enter}')
-  const tool = screen.getByRole('button', { name: '工具详情：read' })
+  const tool = screen.getByRole('button', { name: '工具详情：write' })
   await user.click(tool)
   expect(tool).toHaveAttribute('aria-expanded', 'true')
   expect(screen.getByText('文件结果').closest('[aria-hidden]')).toHaveAttribute('aria-hidden', 'false')
@@ -379,7 +399,7 @@ test('连续思考和工具只占一个活动组，分组和思考均可用键�
   expect(tool.isConnected).toBe(true)
   expect(tool.closest('[aria-hidden="true"]')).not.toBeNull()
   await user.keyboard('{Enter}')
-  expect(screen.getByRole('button', { name: '工具详情：read' })).toBe(tool)
+  expect(screen.getByRole('button', { name: '工具详情：write' })).toBe(tool)
   expect(tool).toHaveAttribute('aria-expanded', 'false')
   expect(thinking).toHaveAttribute('aria-expanded', 'false')
 })
@@ -588,7 +608,7 @@ test('折叠工具或活动组时递归收起嵌套工具，再次展开保留�
               id: 'middle',
               name: 'bash',
               status: 'success',
-              children: [{ id: 'inner', name: 'read', status: 'success', result: '嵌套文件结果' }],
+              children: [{ id: 'inner', name: 'write', status: 'success', result: '嵌套文件结果' }],
             },
           ],
         },
@@ -601,7 +621,7 @@ test('折叠工具或活动组时递归收起嵌套工具，再次展开保留�
   await user.click(outer)
   const middle = screen.getByRole('button', { name: '工具详情：bash' })
   await user.click(middle)
-  const inner = screen.getByRole('button', { name: '工具详情：read' })
+  const inner = screen.getByRole('button', { name: '工具详情：write' })
   await user.click(inner)
   expect(screen.getByText('嵌套文件结果')).toBeVisible()
   await user.click(outer)
@@ -609,7 +629,7 @@ test('折叠工具或活动组时递归收起嵌套工具，再次展开保留�
   expect(inner).toHaveAttribute('aria-expanded', 'false')
   await user.click(outer)
   await user.click(middle)
-  expect(screen.getByRole('button', { name: '工具详情：read' })).toBe(inner)
+  expect(screen.getByRole('button', { name: '工具详情：write' })).toBe(inner)
   expect(inner).toHaveAttribute('aria-expanded', 'false')
   await user.click(inner)
   await user.click(group)

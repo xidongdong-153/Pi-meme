@@ -126,10 +126,10 @@ export function ThinkingActivityRow({
           open ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0',
         )}
       >
-        <div className="min-h-0 overflow-hidden">
+        <div className="min-h-0 max-h-[min(20rem,50vh)] overflow-auto overscroll-contain">
           <div className={cn('mt-1 pb-1 select-text', isNested ? 'pl-8' : 'pl-6')}>
             <div className="border-l-2 border-primary/20 hover:border-primary/40 pl-3 py-0.5 transition-colors">
-              <pre className="pi-content max-h-72 overflow-y-auto whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground/75">
+              <pre className="pi-content whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground/75">
                 {item.thinking.trimEnd() || '正在梳理思路…'}
               </pre>
             </div>

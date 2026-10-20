@@ -66,7 +66,9 @@ export function ToolActivityRow({
       : undefined
   const rawText =
     item.output || (script && item.result === undefined ? '' : formatDetailValue(item.result ?? item.args))
-  const hasDetail = Boolean(script || diff || images.length > 0 || rawText || item.children?.length || item.source)
+  const hasDetail =
+    meta.kind !== 'read' &&
+    Boolean(script || diff || images.length > 0 || rawText || item.children?.length || item.source)
 
   const handleCopy = React.useCallback(
     async (e: React.MouseEvent) => {
@@ -109,12 +111,12 @@ export function ToolActivityRow({
     return <div className={className}>{imagePreviews}</div>
 
   return (
-    <div className={cn('text-sm select-none', className)}>
+    <div className={cn('text-xs select-none', className)}>
       <div
-        role="button"
-        aria-label={`工具详情：${item.name ?? '未知工具'}`}
-        aria-expanded={open}
-        tabIndex={0}
+        role={hasDetail ? 'button' : undefined}
+        aria-label={hasDetail ? `工具详情：${item.name ?? '未知工具'}` : undefined}
+        aria-expanded={hasDetail ? open : undefined}
+        tabIndex={hasDetail ? 0 : undefined}
         onClick={() => hasDetail && onToggle()}
         onKeyDown={(e) => {
           if (e.key === 'Enter' || e.key === ' ') {
@@ -134,7 +136,7 @@ export function ToolActivityRow({
           <IconComponent className="size-4 shrink-0 text-muted-foreground group-hover/tool-toggle:text-foreground" />
         )}
 
-        <span className={cn('truncate', isError && 'text-destructive')}>
+        <span className="truncate">
           {isError ? summary.replace(/^已/u, '') : summary}
           {isError ? ' · 失败' : ''}
         </span>
@@ -161,8 +163,8 @@ export function ToolActivityRow({
             open ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0',
           )}
         >
-          <div className="min-h-0 overflow-hidden">
-            <div className="relative my-1 max-w-full rounded border border-border/40 bg-secondary/20 p-2 font-mono text-sm leading-relaxed text-muted-foreground select-text">
+          <div className="min-h-0 max-h-[min(20rem,50vh)] overflow-auto overscroll-contain">
+            <div className="relative my-1 max-w-full rounded border border-border/40 bg-secondary/20 p-2 font-mono text-xs leading-relaxed text-muted-foreground select-text">
               <div className="flex items-center justify-between mb-1 pb-1 border-b border-border/30 font-sans text-muted-foreground/80">
                 <span>{diff ? '变更内容 (Diff)' : isError ? '错误详情' : '输出内容'}</span>
                 <button

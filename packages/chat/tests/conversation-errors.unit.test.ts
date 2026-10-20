@@ -63,18 +63,18 @@ test('后续成功回复清除同轮旧错误，原始消息和上一轮最终�
   assert.equal(history[1]?.type === 'assistant_turn' && history[1].errorMessage, failure.errorMessage)
 })
 
-test('工具失败保留可读摘要与折叠输出，图标和详情容器不变红', () => {
+test('工具失败保留可读摘要与折叠输出，摘要、图标和详情容器均使用普通颜色', () => {
   const html = renderToStaticMarkup(
     createElement(ToolActivityRow, {
-      item: { id: 'read', name: 'read', args: { path: 'missing.ts' }, result: 'ENOENT', status: 'error' },
+      item: { id: 'write', name: 'write', args: { path: 'missing.ts' }, result: 'ENOENT', status: 'error' },
       open: false,
       onToggle: noop,
       isLive: false,
     }),
   )
-  assert.match(html, /text-destructive/)
+  assert.match(html, /失败/)
   assert.match(html, /ENOENT/)
-  assert.doesNotMatch(html, /border-destructive|bg-destructive|lucide-circle-x|<svg[^>]*text-destructive/)
+  assert.doesNotMatch(html, /text-destructive|border-destructive|bg-destructive|lucide-circle-x/)
 })
 
 test('独立命令非零退出按失败显示，主动取消和助手中断不新增错误行', () => {
@@ -82,7 +82,8 @@ test('独立命令非零退出按失败显示，主动取消和助手中断不�
   const turn = groupConversationTurns([userMessage('任务', 1000), command], null, {}, false)[1]!
   assert.equal(turn.type === 'assistant_turn' && turn.activities[0]?.status, 'error')
   const html = renderToStaticMarkup(createElement(ChatMessage, { message: command, tools: {} }))
-  assert.match(html, /text-destructive/)
+  assert.match(html, /已运行 false/)
+  assert.doesNotMatch(html, /text-destructive/)
   const cancelled = groupConversationTurns(
     [userMessage('任务', 1000), { ...command, cancelled: true }],
     null,

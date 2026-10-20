@@ -96,7 +96,8 @@ test('工作过程和空回复仅显示用时且没有转圈，暂停后计时�
     }),
   )
   assert.doesNotMatch(tool, /animate-spin|lucide-wrench|lucide-book-open/)
-  assert.match(tool, /工具详情：read/)
+  assert.match(tool, /已读取文件/)
+  assert.doesNotMatch(tool, /工具详情：read/)
   const history = renderToStaticMarkup(
     createElement(ActivityGroup, {
       items: [{ ...items[0]!, status: 'success' }],
