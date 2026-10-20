@@ -1,6 +1,6 @@
 {
   "name": "pi-meme",
-  "productName": "pi-meme",
+  "productName": "Pi meme",
   "version": "0.1.0-beta.4",
   "description": "本地 Pi Coding Agent 的 macOS 桌面客户端",
   "main": ".vite/build/main.js",

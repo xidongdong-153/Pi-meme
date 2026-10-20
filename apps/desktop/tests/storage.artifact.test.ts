@@ -65,7 +65,7 @@ test(
     await new Promise<void>((resolve, reject) => listener.close((cause) => (cause ? reject(cause) : resolve())))
     const app =
       process.env.PI_DESKTOP_PACKAGED_APP ??
-      path.resolve('apps/desktop/out', `pi-meme-darwin-${process.arch}`, 'pi-meme.app')
+      path.resolve('apps/desktop/out', `Pi meme-darwin-${process.arch}`, 'Pi meme.app')
     const env: NodeJS.ProcessEnv = {
       ...process.env,
       HOME: home,
@@ -100,7 +100,7 @@ test(
     }
     try {
       child = spawn(
-        path.join(app, 'Contents/MacOS/pi-meme'),
+        path.join(app, 'Contents/MacOS/Pi meme'),
         [`--user-data-dir=${anchor}`, `--remote-debugging-port=${port}`, '--remote-debugging-address=127.0.0.1'],
         { env, stdio: ['ignore', 'pipe', 'pipe'] },
       )
@@ -166,7 +166,7 @@ test(
       await browser?.close().catch(() => {})
       if (child?.exitCode === null && child.signalCode === null) child.kill('SIGTERM')
       const escape = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-      const pattern = `^${escape(path.join(app, 'Contents/MacOS/pi-meme'))} --user-data-dir=${escape(anchor)}( |$)`
+      const pattern = `^${escape(path.join(app, 'Contents/MacOS/Pi meme'))} --user-data-dir=${escape(anchor)}( |$)`
       // relaunch 后 PID 已变；只终止命令行严格匹配本次临时 profile 的主进程。
       for (let attempt = 0; attempt < 10; attempt++) {
         const result = await promisify(execFile)('pgrep', ['-f', pattern]).catch(() => ({ stdout: '' }))

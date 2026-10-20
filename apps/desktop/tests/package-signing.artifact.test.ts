@@ -10,7 +10,7 @@ import test from 'node:test'
 const desktopDirectory = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
 const packagedApp =
   process.env.PI_DESKTOP_PACKAGED_APP ??
-  path.join(desktopDirectory, 'out', `pi-meme-darwin-${process.arch}`, 'pi-meme.app')
+  path.join(desktopDirectory, 'out', `Pi meme-darwin-${process.arch}`, 'Pi meme.app')
 const skip = process.platform !== 'darwin' ? 'macOS 签名检查只适用于 Darwin' : false
 
 test('macOS 打包应用具有有效的完整签名', { skip }, () => {
@@ -20,7 +20,7 @@ test('macOS 打包应用具有有效的完整签名', { skip }, () => {
 })
 
 test('macOS 打包应用保留 Electron 与 Chromium 的完整许可', { skip }, async () => {
-  const distribution = path.join(desktopDirectory, 'out', `pi-meme-darwin-${process.arch}`)
+  const distribution = path.join(desktopDirectory, 'out', `Pi meme-darwin-${process.arch}`)
   for (const [source, target] of [
     ['LICENSE', 'ELECTRON_LICENSE'],
     ['LICENSES.chromium.html', 'LICENSES.chromium.html'],

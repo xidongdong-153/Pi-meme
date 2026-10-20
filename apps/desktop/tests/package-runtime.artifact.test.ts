@@ -30,7 +30,7 @@ async function waitFor<T>(read: () => Promise<T | undefined>, label: string) {
 async function runPackagedSmoke(mode: 'local' | 'recovery' | 'remote' | 'fresh', existingRoot?: string) {
   const desktop = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
   const packagedApp =
-    process.env.PI_DESKTOP_PACKAGED_APP ?? path.join(desktop, 'out', `pi-meme-darwin-${process.arch}`, 'pi-meme.app')
+    process.env.PI_DESKTOP_PACKAGED_APP ?? path.join(desktop, 'out', `Pi meme-darwin-${process.arch}`, 'Pi meme.app')
   const esbuildBinary = path.join(
     packagedApp,
     'Contents/Resources/app.asar.unpacked/node_modules/@esbuild',
@@ -112,7 +112,7 @@ async function runPackagedSmoke(mode: 'local' | 'recovery' | 'remote' | 'fresh',
   const port = address.port
   await new Promise<void>((resolve, reject) => listener.close((cause) => (cause ? reject(cause) : resolve())))
   const child = spawn(
-    path.join(packagedApp, 'Contents/MacOS/pi-meme'),
+    path.join(packagedApp, 'Contents/MacOS/Pi meme'),
     [
       `--remote-debugging-port=${port}`,
       '--remote-debugging-address=127.0.0.1',

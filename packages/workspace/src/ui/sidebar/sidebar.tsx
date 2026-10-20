@@ -186,7 +186,7 @@ export function Sidebar({
             aria-label="切换项目目录"
             className="flex items-center gap-1 rounded-md px-1.5 py-1 text-xs font-semibold text-foreground/90 hover:bg-secondary/60 transition-colors cursor-pointer"
           >
-            <span>pi-meme</span>
+            <span>Pi meme</span>
             <ChevronDown className="size-3 text-muted-foreground/60" />
           </button>
           <div className="flex items-center gap-0.5">

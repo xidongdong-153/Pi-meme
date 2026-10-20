@@ -46,7 +46,7 @@ pnpm make                  # 分发包
 
 测试使用 Vitest；组件交互使用 React Testing Library，Web 与开发态 Electron 使用 Playwright；真实产物保留 Node 原生测试。文件后缀明确标记 `unit`、`component`、`integration`、`e2e`、`artifact`，所有测试必须登记到 `tests/catalog.ts`。用临时数据目录、本地假模型和可释放的 fixture，不读写真实凭据或会话。具体选测和新增测试条件见 [测试](docs/testing.md)。
 
-arm64 应用在 `apps/desktop/out/pi-meme-darwin-arm64/pi-meme.app`。`dist/`、`.vite/`、`out/`、`.vitest/` 不提交。
+arm64 应用在 `apps/desktop/out/Pi meme-darwin-arm64/Pi meme.app`。`dist/`、`.vite/`、`out/`、`.vitest/` 不提交。
 
 ## 架构
 

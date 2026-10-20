@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => ({
     isPackaged: false,
     getPath: vi.fn(),
     setPath: vi.fn(),
+    commandLine: { hasSwitch: vi.fn() },
     requestSingleInstanceLock: vi.fn(),
     on: vi.fn(),
     whenReady: vi.fn(),
@@ -87,27 +88,31 @@ test.each([
 })
 
 test.each([
-  { packaged: false, testCredentials: false },
-  { packaged: true, testCredentials: false },
-  { packaged: false, testCredentials: true },
-  { packaged: true, testCredentials: true },
+  { packaged: false, testCredentials: false, profile: undefined },
+  { packaged: true, testCredentials: false, profile: undefined },
+  { packaged: false, testCredentials: true, profile: undefined },
+  { packaged: true, testCredentials: true, profile: undefined },
+  { packaged: true, testCredentials: false, profile: 'custom-cache' },
 ])(
-  'Desktop packaged=$packaged、测试凭据=$testCredentials 在申请单实例锁前隔离目录',
-  async ({ packaged, testCredentials }) => {
+  'Desktop packaged=$packaged、测试凭据=$testCredentials、自定义目录=$profile 在申请单实例锁前隔离目录',
+  async ({ packaged, testCredentials, profile }) => {
     const directory = await mkdtemp(path.join(tmpdir(), 'pi-desktop-profile-'))
     const appData = path.join(directory, 'application-support')
-    const userData = path.join(appData, 'pi-meme')
+    const userData = path.join(appData, profile ?? 'Pi meme')
     const dataRoot = testCredentials ? path.join(directory, 'test-data') : undefined
     const expectedCache = dataRoot
       ? path.join(dataRoot, 'desktop-cache')
       : packaged
-        ? userData
+        ? profile
+          ? userData
+          : path.join(appData, 'pi-meme')
         : path.join(appData, 'pi-meme-dev')
     const paths = new Map([
       ['appData', appData],
       ['userData', userData],
     ])
     mocks.app.isPackaged = packaged
+    mocks.app.commandLine.hasSwitch.mockImplementation((name: string) => name === 'user-data-dir' && Boolean(profile))
     mocks.app.getPath.mockImplementation((name: string) => paths.get(name))
     mocks.app.setPath.mockImplementation((name: string, value: string) => paths.set(name, value))
     mocks.app.requestSingleInstanceLock.mockImplementation(() => {

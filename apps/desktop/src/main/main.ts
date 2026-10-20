@@ -20,8 +20,8 @@ if (['memory', 'file'].includes(process.env.PI_MEME_TEST_CREDENTIALS ?? '')) {
   const cache = path.join(process.env.PI_MEME_DATA_ROOT, 'desktop-cache')
   mkdirSync(cache, { recursive: true })
   app.setPath('userData', cache)
-} else if (!app.isPackaged) {
-  const cache = path.join(app.getPath('appData'), 'pi-meme-dev')
+} else if (!app.isPackaged || !app.commandLine.hasSwitch('user-data-dir')) {
+  const cache = path.join(app.getPath('appData'), app.isPackaged ? 'pi-meme' : 'pi-meme-dev')
   mkdirSync(cache, { recursive: true })
   app.setPath('userData', cache)
 }

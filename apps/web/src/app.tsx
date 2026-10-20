@@ -194,7 +194,7 @@ function ConnectedWebApp() {
             onSubmit={(event) => void submit(event).catch((cause: unknown) => setError(String(cause)))}
             className="w-full max-w-sm space-y-4 rounded-xl border border-border p-6"
           >
-            <h1 className="text-lg font-semibold">登录 pi-meme</h1>
+            <h1 className="text-lg font-semibold">登录 Pi meme</h1>
             <label className="block space-y-2 text-sm">
               访问令牌
               <Input

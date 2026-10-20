@@ -375,7 +375,7 @@ export function App({
       ? '不在项目中工作'
       : (chat.connection.sourceProjectCwd ?? chat.connection.cwd)
         ? (chat.connection.sourceProjectCwd ?? chat.connection.cwd).split(/[\\/]/).filter(Boolean).at(-1) || '选择项目'
-        : 'pi-meme'
+        : 'Pi meme'
   const first = chat.chat.messages.find((message) => message.role === 'user')
   const status = chat.chat.running
     ? '正在运行'

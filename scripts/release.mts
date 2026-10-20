@@ -107,14 +107,14 @@ async function prepareDesktopAsset() {
   assert.equal(process.platform, 'darwin', 'Desktop 发布包只在 macOS 构建')
   assert.equal(process.arch, 'arm64', '首发 Desktop 仅支持 arm64')
   const { version } = await releaseInfo()
-  const source = path.join(repoRoot, 'apps/desktop/out/make/zip/darwin/arm64', `pi-meme-darwin-arm64-${version}.zip`)
+  const source = path.join(repoRoot, 'apps/desktop/out/make/zip/darwin/arm64', `Pi meme-darwin-arm64-${version}.zip`)
   const destination = path.join(releaseDirectory, releaseAssetNames(version)[0])
   await mkdir(releaseDirectory, { recursive: true })
   await copyFile(source, destination)
   const directory = await mkdtemp(path.join(tmpdir(), 'pi-meme desktop '))
   try {
     execFileSync('unzip', ['-q', destination, '-d', directory])
-    const app = path.join(directory, 'pi-meme.app')
+    const app = path.join(directory, 'Pi meme.app')
     const metadata = await readFile(path.join(app, 'Contents/Resources/release.json'), 'utf8')
     await checkMetadata(metadata, 'darwin', 'arm64', false)
     const bundleId = execFileSync(
@@ -154,7 +154,7 @@ export async function writeChecksums(directory: string) {
     const metadata = execFileSync(
       index === 0 ? 'unzip' : 'tar',
       index === 0
-        ? ['-p', file, 'pi-meme.app/Contents/Resources/release.json']
+        ? ['-p', file, 'Pi meme.app/Contents/Resources/release.json']
         : ['-xOf', file, 'pi-meme-host/release.json'],
       { encoding: 'utf8', maxBuffer: 1024 * 1024 },
     )
@@ -169,7 +169,7 @@ async function writeReleaseNotes() {
   const names = releaseAssetNames(version)
   await writeFile(
     path.join(repoRoot, 'out/release-notes.md'),
-    `# pi-meme v${version}
+    `# Pi meme v${version}
 
 首个公开预览版。Desktop 包含本机 Host；只使用桌面应用时无需再下载 Host。Host 包含 Web、Worker、内置技能、生产依赖和 Node.js ${nodeVersion}，不需要安装 pnpm 或 Pi CLI。
 
@@ -184,7 +184,7 @@ async function writeReleaseNotes() {
 
 ## 安装与限制
 
-Desktop 解压后将 pi-meme.app 放入 /Applications。macOS 使用 ad-hoc 签名，未做 Developer ID 签名与公证，首次打开可能被 Gatekeeper 阻止。仅在确认来源并校验文件后允许打开具体应用，不要关闭系统 Gatekeeper。
+Desktop 解压后将 Pi meme.app 放入 /Applications。macOS 使用 ad-hoc 签名，未做 Developer ID 签名与公证，首次打开可能被 Gatekeeper 阻止。仅在确认来源并校验文件后允许打开具体应用，不要关闭系统 Gatekeeper。
 
 Host 解压后运行 \`./pi-meme-host/bin/pi-meme-host\`，访问 http://127.0.0.1:31415。需要 Git 和 bash；Linux 还需要可用的 bubblewrap。远程监听必须配置 HTTPS 证书、私钥和令牌。
 

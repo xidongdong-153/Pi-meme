@@ -56,8 +56,8 @@ export function StartupSplash({ exiting = false }: { exiting?: boolean }) {
     >
       <FadeContent className="startup-splash-card no-drag">
         <BrandMark size={64} />
-        <div className="startup-splash-name">pi-meme</div>
-        <span className="sr-only">正在启动 pi-meme…</span>
+        <div className="startup-splash-name">Pi meme</div>
+        <span className="sr-only">正在启动 Pi meme…</span>
       </FadeContent>
     </div>
   )

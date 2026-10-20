@@ -100,7 +100,7 @@ pnpm exec prettier --check packages/contracts/tests/plan-message.unit.test.ts
 pnpm test --all --layer e2e,artifact --target desktop
 ```
 
-入口只打包一次，再运行 Playwright 桌面用例和真实应用验收。用户只要求单项验收时，用 `--file` 选择对应文件，不扩大到整套 Desktop。发布前由明确的验收任务或手动完整 workflow 验证目标平台。正式 `.app` 关闭 Node 调试 Fuse，产物测试直接启动 `Contents/MacOS/pi-meme`，不修改发布配置。报告和截图在 `out/tests/`。
+入口只打包一次，再运行 Playwright 桌面用例和真实应用验收。用户只要求单项验收时，用 `--file` 选择对应文件，不扩大到整套 Desktop。发布前由明确的验收任务或手动完整 workflow 验证目标平台。正式 `.app` 关闭 Node 调试 Fuse，产物测试直接启动 `Contents/MacOS/Pi meme`，不修改发布配置。报告和截图在 `out/tests/`。
 
 `pnpm make` 生成分发包；发布 workflow 在验收 `.app` 后使用 `pnpm make --skip-package --arch arm64`，避免再次打包改变待发布应用。应用标识固定为 `io.github.xidongdong153.pi-meme`。版本、commit 和第三方许可通过 Forge `prePackage` 生成并复制到 Resources，相关逻辑在 [release.mts](../scripts/release.mts) 和 [release-licenses.mts](../scripts/release-licenses.mts)。签名由 [Forge 配置](../apps/desktop/forge.config.ts) 管理：没有证书时使用 ad-hoc 签名，可用 `PI_DESKTOP_SIGNING_IDENTITY` 指定证书。当前没有配置公证或自动更新。
 
