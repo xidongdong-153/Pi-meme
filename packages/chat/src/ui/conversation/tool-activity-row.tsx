@@ -68,6 +68,7 @@ export function ToolActivityRow({
     item.output || (script && item.result === undefined ? '' : formatDetailValue(item.result ?? item.args))
   const hasDetail =
     meta.kind !== 'read' &&
+    meta.kind !== 'edit' &&
     Boolean(script || diff || images.length > 0 || rawText || item.children?.length || item.source)
 
   const handleCopy = React.useCallback(

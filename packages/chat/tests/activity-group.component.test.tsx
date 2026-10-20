@@ -224,12 +224,25 @@ test('协作状态仅出现在子代理详情，主聊天继续隐藏内部工�
   expect(screen.getByRole('status', { name: '协作状态' })).toHaveTextContent('正在向主代理反馈…')
 })
 
-test.each(['success', 'running', 'error'] as const)('读取文件只显示静态摘要，不展开详情：%s', async (status) => {
+test.each(
+  (['read', 'edit', 'apply_patch', 'replace'] as const).flatMap((name) =>
+    (['success', 'running', 'error'] as const).map((status) => ({ name, status })),
+  ),
+)('读取和编辑文件只显示静态摘要，不展开详情：$name / $status', async ({ name, status }) => {
   const user = userEvent.setup()
   const onToggle = vi.fn()
   render(
     <ToolActivityRow
-      item={{ id: 'read', name: 'read', args: { path: 'src/a.ts' }, result: '文件内容或错误原因', status }}
+      item={{
+        id: name,
+        name,
+        args: { path: 'src/a.ts' },
+        result: {
+          content: [{ type: 'text', text: '文件内容或错误原因' }],
+          details: { diff: '@@ -1 +1 @@\n-old\n+new' },
+        },
+        status,
+      }}
       open
       onToggle={onToggle}
     />,
@@ -239,6 +252,9 @@ test.each(['success', 'running', 'error'] as const)('读取文件只显示静态
   expect(screen.queryByRole('button')).not.toBeInTheDocument()
   expect(screen.queryByText('文件内容或错误原因')).not.toBeInTheDocument()
   expect(screen.queryByTitle('复制输出')).not.toBeInTheDocument()
+  expect(screen.queryByText('变更内容 (Diff)')).not.toBeInTheDocument()
+  expect(screen.queryByText('old')).not.toBeInTheDocument()
+  expect(screen.queryByText('new')).not.toBeInTheDocument()
   if (status === 'error') expect(summary).toHaveTextContent('失败')
   await user.click(summary)
   expect(onToggle).not.toHaveBeenCalled()
