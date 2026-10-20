@@ -1,5 +1,5 @@
 import { SidebarMoreMenu, SidebarRowMenu } from './sidebar-menus'
-import { Folder, Pin, SquarePen } from 'lucide-react'
+import { Folder, Pin, PinOff, SquarePen } from 'lucide-react'
 import { cn } from '@pi-meme/ui/lib/utils'
 import type { PiProjectGroup } from '@pi-meme/contracts/sessions'
 import { SessionItem } from './session-item'
@@ -92,7 +92,7 @@ export function ProjectItem({
                 e.stopPropagation()
                 onNewSessionInProject(project.cwd)
               }}
-              className="p-1 hover:text-foreground text-muted-foreground cursor-pointer rounded transition-opacity opacity-0 group-hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="p-1 hover:text-foreground text-muted-foreground cursor-pointer rounded transition-opacity opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               <SquarePen className="size-3.5" />
             </button>
@@ -106,11 +106,11 @@ export function ProjectItem({
                 onTogglePin(project.cwd)
               }}
               className={cn(
-                'transition-opacity p-1 hover:text-foreground cursor-pointer rounded opacity-0 group-hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                'transition-opacity p-1 hover:text-foreground cursor-pointer rounded opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 isPinned ? 'text-primary' : 'text-muted-foreground',
               )}
             >
-              <Pin className="size-3" />
+              {isPinned ? <PinOff className="size-3" /> : <Pin className="size-3" />}
             </button>
 
             <SidebarMoreMenu target={{ kind: 'project', project }} />

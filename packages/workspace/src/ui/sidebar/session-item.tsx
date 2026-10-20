@@ -1,8 +1,9 @@
 import { SidebarMoreMenu, SidebarRowMenu } from './sidebar-menus'
-import { GitFork, Loader2, Pin, PinOff } from 'lucide-react'
+import { GitFork, Loader2, MessageSquare, Pin, PinOff } from 'lucide-react'
 import { cn } from '@pi-meme/ui/lib/utils'
 import type { PiSessionSummary } from '@pi-meme/contracts/sessions'
 import { formatSessionTitle } from './session-title'
+import type { SidebarDragProps } from './sidebar-controls'
 
 /** 分叉会话的来源标识：头部 parentSession 来自 SDK 会话元数据。同时显示创建时间，区分同名分支。 */
 function ForkBadge({ session }: { session: PiSessionSummary }) {
@@ -32,17 +33,21 @@ function formatForkTime(created: string): string {
 
 export function SessionItem({
   session,
+  projectName,
   variant,
   isActive,
   isPinned = false,
+  dragProps,
   onSwitchSession,
   onTogglePin,
   onPrefetchSession,
 }: {
   session: PiSessionSummary
+  projectName?: string
   variant: 'pinned' | 'project' | 'recent'
   isActive: boolean
   isPinned?: boolean
+  dragProps?: SidebarDragProps
   onSwitchSession: (path: string) => void
   onTogglePin?: (path: string) => void
   onPrefetchSession?: (path: string) => void
@@ -61,13 +66,15 @@ export function SessionItem({
     return (
       <SidebarRowMenu target={{ kind: 'session', session }}>
         <div
+          {...dragProps}
           onMouseEnter={handleMouseEnter}
           className={cn(
             'group relative flex w-full min-w-0 items-center justify-between rounded-lg pr-2.5 text-xs transition-colors duration-200 ease-out cursor-pointer',
-            isActive ? 'font-medium text-foreground' : 'text-foreground/90 hover:text-foreground',
+            isActive ? 'bg-secondary/70 font-medium text-foreground' : 'text-foreground/90 hover:text-foreground',
+            dragProps?.draggable && 'cursor-grab active:cursor-grabbing',
           )}
           data-session-path={session.path}
-          title={formatSessionTitle(session)}
+          title={`${formatSessionTitle(session)}\n所属项目：${projectName ?? '无项目'}`}
         >
           <button
             type="button"
@@ -76,12 +83,13 @@ export function SessionItem({
               if (!isActive) onSwitchSession(session.path)
             }}
             onFocus={handleMouseEnter}
-            className="flex min-w-0 flex-1 items-center gap-1 pl-2.5 pr-1 py-1.5 text-left rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden pl-2 py-2 text-left rounded cursor-[inherit] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
+            <MessageSquare aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
             <span className="truncate min-w-0">{formatSessionTitle(session)}</span>
             <ForkBadge session={session} />
           </button>
-          <div className="flex items-center gap-1 shrink-0">
+          <div data-sidebar-drag-ignore draggable={false} className="flex items-center gap-1 shrink-0 ml-1">
             <button
               type="button"
               aria-label={`取消置顶：${formatSessionTitle(session)}`}
@@ -89,7 +97,7 @@ export function SessionItem({
                 e.stopPropagation()
                 onTogglePin?.(session.path)
               }}
-              className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring text-muted-foreground hover:text-foreground transition-opacity p-0.5 shrink-0"
+              className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring text-muted-foreground hover:text-foreground transition-opacity p-1 shrink-0"
             >
               <PinOff className="size-3" />
             </button>

@@ -10,7 +10,7 @@ import { MultiServiceSidebar } from '../src/shell/multi-service-sidebar'
 
 afterEach(cleanup)
 
-function renderSidebar(pinned: boolean, preferencesLoaded = true) {
+function renderSidebar(pinned: boolean, preferencesLoaded = true, withSessions = false) {
   const services: HostService[] = ['local', 'remote'].map((id) => ({
     id,
     hostId: id,
@@ -20,8 +20,21 @@ function renderSidebar(pinned: boolean, preferencesLoaded = true) {
     projects: [],
     sessions: {
       projects: [{ cwd: '/work/project', name: `${id} 项目`, sessions: [], sessionCount: 0, lastModified: '' }],
-      recents: [],
-      pinnedPaths: pinned ? ['/work/project'] : [],
+      recents: withSessions
+        ? [
+            {
+              id: `${id}-session`,
+              name: `${id} 会话`,
+              path: `/work/${id}-session.jsonl`,
+              cwd: '/work/project',
+              created: '2026-01-01',
+              modified: '2026-01-01',
+              messageCount: 0,
+              workspaceKind: 'standalone',
+            },
+          ]
+        : [],
+      pinnedPaths: pinned ? ['/work/project', ...(withSessions ? [`/work/${id}-session.jsonl`] : [])] : [],
     },
   }))
   const preferences: SidebarPreferences = {
@@ -36,7 +49,9 @@ function renderSidebar(pinned: boolean, preferencesLoaded = true) {
   )
   const props = {
     services,
-    registry: { get: () => ({ bridge: {} }) } as unknown as ComponentProps<typeof MultiServiceSidebar>['registry'],
+    registry: {
+      get: () => ({ bridge: { prefetchSession: vi.fn().mockResolvedValue(undefined) } }),
+    } as unknown as ComponentProps<typeof MultiServiceSidebar>['registry'],
     controllers: new Map(),
     activeId: 'local',
     model,
@@ -54,7 +69,8 @@ function renderSidebar(pinned: boolean, preferencesLoaded = true) {
     </TooltipProvider>,
   )
   const rows = [...container.querySelectorAll<HTMLElement>('[data-project-cwd]')]
-  return { props, rows }
+  const sessionRows = [...container.querySelectorAll<HTMLElement>('[data-session-path]')]
+  return { props, rows, sessionRows }
 }
 
 function createTransfer() {
@@ -90,6 +106,54 @@ test.each([false, true])('多服务侧边栏置顶=%s 的项目直接从行内�
     expect(props.onPreferencesChange).toHaveBeenLastCalledWith({ orders: { [listKey]: [keys[1], keys[0]] } })
   }
   expect(props.onActivate).not.toHaveBeenCalled()
+})
+
+test('置顶会话从行内拖拽并支持方向键排序，操作按钮不触发排序', () => {
+  const { props, sessionRows } = renderSidebar(true, true, true)
+  expect(screen.queryByRole('button', { name: '拖动排序，方向键上下移动' })).not.toBeInTheDocument()
+  const [source, target] = sessionRows
+  expect(source).toHaveAttribute('draggable', 'true')
+  expect(source.closest('[data-sidebar-item-key]')).not.toHaveClass('pl-3')
+  const keys = props.model.pinned.map((entry) => entry.key)
+  const sourceKey = source.closest<HTMLElement>('[data-sidebar-item-key]')!.dataset.sidebarItemKey!
+  const targetKey = target.closest<HTMLElement>('[data-sidebar-item-key]')!.dataset.sidebarItemKey!
+  const reordered = keys.filter((key) => key !== sourceKey)
+  reordered.splice(keys.indexOf(targetKey), 0, sourceKey)
+  const dataTransfer = createTransfer()
+  fireEvent.pointerDown(screen.getByText('local 会话'))
+  fireEvent.dragStart(source, { dataTransfer })
+  fireEvent.dragOver(target, { dataTransfer })
+  fireEvent.drop(target, { dataTransfer })
+  expect(props.onPreferencesChange).toHaveBeenLastCalledWith({ orders: { pinned: reordered } })
+
+  props.onPreferencesChange.mockClear()
+  fireEvent.keyDown(screen.getByRole('button', { name: 'local 会话' }), { key: 'ArrowDown' })
+  expect(props.onPreferencesChange).toHaveBeenCalledOnce()
+  props.onPreferencesChange.mockClear()
+  const unpin = screen.getByRole('button', { name: '取消置顶：local 会话' })
+  const more = screen.getByRole('button', { name: '更多操作：local 会话' })
+  for (const button of [unpin, more]) {
+    const blockedTransfer = createTransfer()
+    fireEvent.pointerDown(button)
+    expect(fireEvent.dragStart(source, { dataTransfer: blockedTransfer })).toBe(false)
+    fireEvent.keyDown(button, { key: 'ArrowDown' })
+    expect(blockedTransfer.setData).not.toHaveBeenCalled()
+  }
+  expect(props.onPreferencesChange).not.toHaveBeenCalled()
+  expect(props.onActivate).not.toHaveBeenCalled()
+  fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' })
+  fireEvent.click(screen.getByRole('button', { name: 'local 会话' }))
+  expect(props.onActivate).toHaveBeenCalledExactlyOnceWith('local', expect.any(Function))
+})
+
+test('偏好读取完成前禁止置顶会话行内排序', () => {
+  const { props, sessionRows } = renderSidebar(true, false, true)
+  const dataTransfer = createTransfer()
+  expect(sessionRows[0]).toHaveAttribute('draggable', 'false')
+  expect(fireEvent.dragStart(sessionRows[0], { dataTransfer })).toBe(false)
+  fireEvent.keyDown(screen.getByRole('button', { name: 'local 会话' }), { key: 'ArrowDown' })
+  expect(dataTransfer.setData).not.toHaveBeenCalled()
+  expect(props.onPreferencesChange).not.toHaveBeenCalled()
 })
 
 test('多服务项目操作按钮不触发拖拽，点击新建仍使用所属服务', () => {

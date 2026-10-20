@@ -64,7 +64,7 @@ export function MultiServiceSidebar({
     })
   const saveOrder = (listKey: string, keys: string[]) => onPreferencesChange({ orders: { [listKey]: keys } })
 
-  const renderSession = (entry: SidebarSessionEntry, pinned: boolean) => {
+  const renderSession = (entry: SidebarSessionEntry, pinned: boolean, dragProps?: SidebarDragProps) => {
     const { serviceId, session } = entry
     const service = servicesById.get(serviceId)!
     const controller = controllers.get(serviceId)
@@ -92,7 +92,9 @@ export function MultiServiceSidebar({
             </p>
           )}
           <SessionItem
+            dragProps={dragProps}
             session={session}
+            projectName={entry.projectName}
             variant={pinned ? 'pinned' : 'recent'}
             isActive={
               activeId === serviceId &&
@@ -190,7 +192,11 @@ export function MultiServiceSidebar({
       enabled={listKey === 'recents' ? manual : preferencesLoaded}
       onReorder={(next) => saveOrder(listKey, next)}
     >
-      {entry.kind === 'project' ? (dragProps) => renderProject(entry, pinned, dragProps) : renderSession(entry, pinned)}
+      {entry.kind === 'project'
+        ? (dragProps) => renderProject(entry, pinned, dragProps)
+        : pinned
+          ? (dragProps) => renderSession(entry, pinned, dragProps)
+          : renderSession(entry, pinned)}
     </SidebarSortable>
   )
   const visibleProjects = showAllProjects

@@ -54,8 +54,8 @@ export function PinnedSection({
             enabled={reorderEnabled}
             onReorder={onReorder}
           >
-            {entry.kind === 'project' ? (
-              (dragProps) => (
+            {(dragProps) =>
+              entry.kind === 'project' ? (
                 <ProjectItem
                   dragProps={dragProps}
                   {...projectProps}
@@ -71,20 +71,22 @@ export function PinnedSection({
                     onReorder: (keys) => onReorderSessions(`project:${entry.key}`, keys),
                   }}
                 />
+              ) : (
+                <SessionItem
+                  dragProps={dragProps}
+                  session={entry.session}
+                  projectName={entry.projectName}
+                  variant="pinned"
+                  isActive={
+                    entry.session.path === projectProps.activeSessionPath ||
+                    entry.session.id === projectProps.activeSessionId
+                  }
+                  onSwitchSession={projectProps.onSwitchSession}
+                  onTogglePin={projectProps.onTogglePin}
+                  onPrefetchSession={projectProps.onPrefetchSession}
+                />
               )
-            ) : (
-              <SessionItem
-                session={entry.session}
-                variant="pinned"
-                isActive={
-                  entry.session.path === projectProps.activeSessionPath ||
-                  entry.session.id === projectProps.activeSessionId
-                }
-                onSwitchSession={projectProps.onSwitchSession}
-                onTogglePin={projectProps.onTogglePin}
-                onPrefetchSession={projectProps.onPrefetchSession}
-              />
-            )}
+            }
           </SidebarSortable>
         ))}
       </div>
