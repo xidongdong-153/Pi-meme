@@ -55,12 +55,12 @@ export function SessionItem({
   const handleMouseEnter = () => {
     if (!isActive) onPrefetchSession?.(session.path)
   }
-  const runningIndicator =
-    session.running && !session.isPaused ? (
-      <span className="inline-flex shrink-0 animate-spin text-muted-foreground">
-        <Loader2 aria-label="会话运行中" className="size-3.5" />
-      </span>
-    ) : null
+  const isRunning = session.running && !session.isPaused
+  const runningIndicator = isRunning ? (
+    <span className="inline-flex shrink-0 animate-spin text-muted-foreground group-hover:hidden group-has-[:focus-visible]:hidden group-has-[[data-state=open]]:hidden">
+      <Loader2 aria-label="会话运行中" className="size-3.5" />
+    </span>
+  ) : null
 
   if (variant === 'pinned') {
     return (
@@ -89,7 +89,11 @@ export function SessionItem({
             <span className="truncate min-w-0">{formatSessionTitle(session)}</span>
             <ForkBadge session={session} />
           </button>
-          <div data-sidebar-drag-ignore draggable={false} className="flex items-center gap-1 shrink-0 ml-1">
+          <div
+            data-sidebar-drag-ignore
+            draggable={false}
+            className={cn('flex items-center gap-1 shrink-0 ml-1', isRunning && '[&_button]:transition-none')}
+          >
             <button
               type="button"
               aria-label={`取消置顶：${formatSessionTitle(session)}`}
@@ -97,7 +101,7 @@ export function SessionItem({
                 e.stopPropagation()
                 onTogglePin?.(session.path)
               }}
-              className="opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring text-muted-foreground hover:text-foreground transition-opacity p-1 shrink-0"
+              className="opacity-0 group-hover:opacity-100 group-has-[:focus-visible]:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring text-muted-foreground hover:text-foreground transition-opacity p-1 shrink-0"
             >
               <PinOff className="size-3" />
             </button>
@@ -132,7 +136,7 @@ export function SessionItem({
             <span className="truncate min-w-0">{formatSessionTitle(session)}</span>
             <ForkBadge session={session} />
           </button>
-          <div className="flex items-center gap-1 shrink-0">
+          <div className={cn('flex items-center gap-1 shrink-0', isRunning && '[&_button]:transition-none')}>
             <button
               type="button"
               title={isPinned ? '取消置顶会话' : '置顶会话'}
@@ -142,7 +146,7 @@ export function SessionItem({
                 onTogglePin?.(session.path)
               }}
               className={cn(
-                'transition-opacity p-0.5 hover:text-foreground cursor-pointer rounded opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                'transition-opacity p-0.5 hover:text-foreground cursor-pointer rounded opacity-0 group-hover:opacity-100 group-has-[:focus-visible]:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                 isPinned ? 'text-primary' : 'text-muted-foreground',
               )}
             >
@@ -178,7 +182,7 @@ export function SessionItem({
           <span className="truncate min-w-0">{formatSessionTitle(session)}</span>
           <ForkBadge session={session} />
         </button>
-        <div className="flex items-center gap-1 shrink-0">
+        <div className={cn('flex items-center gap-1 shrink-0', isRunning && '[&_button]:transition-none')}>
           <button
             type="button"
             aria-label={`${isPinned ? '取消置顶会话' : '置顶会话'}：${formatSessionTitle(session)}`}
@@ -187,7 +191,7 @@ export function SessionItem({
               onTogglePin?.(session.path)
             }}
             className={cn(
-              'transition-opacity p-0.5 hover:text-foreground cursor-pointer rounded opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              'transition-opacity p-0.5 hover:text-foreground cursor-pointer rounded opacity-0 group-hover:opacity-100 group-has-[:focus-visible]:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
               isPinned ? 'text-primary' : 'text-muted-foreground',
             )}
           >

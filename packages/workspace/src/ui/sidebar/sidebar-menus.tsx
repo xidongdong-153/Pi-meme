@@ -390,7 +390,7 @@ export function SidebarMoreMenu({ target, className }: { target: MenuTarget; cla
           onClick={(event) => event.stopPropagation()}
           className={cn(
             'p-1 rounded text-muted-foreground hover:text-foreground transition-opacity duration-200 ease-out opacity-0 group-hover:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-            target.kind === 'session' && 'group-focus-within:opacity-100 data-[state=open]:opacity-100',
+            target.kind === 'session' && 'group-has-[:focus-visible]:opacity-100 data-[state=open]:opacity-100',
             className,
           )}
         >
