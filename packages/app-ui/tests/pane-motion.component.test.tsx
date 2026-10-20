@@ -28,7 +28,11 @@ function Panes({
   panels = [],
   onNewSession,
   onPlugins,
+  activity,
+  session = 'chat',
 }: {
+  activity?: { count: number; known: boolean }
+  session?: string
   onSidebar?: (open: boolean, width: number) => void
   panels?: UiPanel[]
   onNewSession?: () => void
@@ -42,10 +46,11 @@ function Panes({
         profile={DEFAULT_PROFILE}
         profileLoading={false}
         panels={panels}
+        activity={activity}
         onNewSession={onNewSession}
         onPlugins={onPlugins}
         props={{ host: {} as HostApi, target: { hostId: 'host' }, snapshot: null }}
-        session="chat"
+        session={session}
         sidebar="会话列表"
         sidebarOpen={open}
         sidebarWidth={width}
@@ -173,4 +178,48 @@ test('键盘开合右侧栏后保留顶栏开关焦点', async () => {
   expect(screen.getByRole('button', { name: '展开右侧栏' })).toBe(toggle)
   expect(toggle).toHaveFocus()
   expect(toggle).toHaveAttribute('aria-expanded', 'false')
+})
+
+const activityPanels: UiPanel[] = [
+  {
+    id: 'builtin:activities',
+    title: '活动',
+    icon: null,
+    location: 'right',
+    scope: 'app',
+    render: () => '活动服务结果',
+  },
+]
+
+test('活动入口按运行数显示且不自动打开，最后结束保留已开标签，关闭后不再出现', () => {
+  const view = render(<Panes panels={activityPanels} activity={{ count: 0, known: true }} />)
+  expect(shell()).toHaveAttribute('data-pane-right', 'closed')
+  view.rerender(<Panes panels={activityPanels} activity={{ count: 1, known: true }} />)
+  expect(shell()).toHaveAttribute('data-pane-right', 'closed')
+  expect(screen.getByLabelText('1 个活动服务')).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '展开右侧栏' }))
+  fireEvent.click(screen.getByRole('button', { name: '活动' }))
+  view.rerender(<Panes panels={activityPanels} activity={{ count: 0, known: true }} />)
+  expect(screen.getByRole('tab', { name: '活动' })).toBeInTheDocument()
+  expect(screen.getByRole('tabpanel')).toHaveTextContent('活动服务结果')
+  fireEvent.click(screen.getByRole('button', { name: '新建工具标签页' }))
+  expect(screen.queryByRole('button', { name: '活动' })).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '关闭标签页：活动' }))
+  expect(screen.queryByRole('tab', { name: '活动' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '活动' })).not.toBeInTheDocument()
+})
+
+test('切换会话与刷新不会恢复空活动标签，读取未知时不误删原活动标签', () => {
+  const view = render(<Panes panels={activityPanels} activity={{ count: 1, known: true }} />)
+  fireEvent.click(screen.getByRole('button', { name: '展开右侧栏' }))
+  fireEvent.click(screen.getByRole('button', { name: '活动' }))
+  view.rerender(<Panes session="other" panels={activityPanels} activity={{ count: 0, known: false }} />)
+  expect(screen.getByRole('tab', { name: '活动' })).toBeInTheDocument()
+  view.rerender(<Panes session="other" panels={activityPanels} activity={{ count: 0, known: true }} />)
+  expect(screen.queryByRole('tab', { name: '活动' })).not.toBeInTheDocument()
+  view.rerender(<Panes panels={activityPanels} activity={{ count: 0, known: true }} />)
+  expect(screen.queryByRole('tab', { name: '活动' })).not.toBeInTheDocument()
+  view.unmount()
+  render(<Panes panels={activityPanels} activity={{ count: 0, known: true }} />)
+  expect(screen.queryByRole('tab', { name: '活动' })).not.toBeInTheDocument()
 })

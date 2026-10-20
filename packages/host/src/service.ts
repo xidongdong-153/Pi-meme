@@ -1,4 +1,7 @@
 import { GoalService } from '@pi-meme/goals/server/service'
+import { ActivityService } from '@pi-meme/activities/server/service'
+import { createActivityBridge } from './activity-bridge'
+import { isLiveServiceActivity } from '@pi-meme/contracts/service-activity'
 import { parseGoalCommand, type GoalRun } from '@pi-meme/contracts/goal'
 import { normalizePlanMessage } from '@pi-meme/contracts/plan'
 import { PluginManager, type PluginDescriptor } from '@pi-meme/plugin-runtime/manager'
@@ -256,6 +259,25 @@ export async function createHost(options: HostOptions = {}) {
         for (const subscriber of subscribers) subscriber({ hostId, type, value: adjusted } as HostEvent)
       }
     }
+    const activities = new ActivityService({
+      hostId,
+      dataRoot: root,
+      onChange: (activity) => {
+        void appControl
+          ?.publish({
+            type: 'activity',
+            sessionId: activity.sessionId,
+            value: { serviceId: activity.serviceId, revision: activity.revision },
+          })
+          .catch((cause: unknown) => emit('error', { generation: 0, message: `活动状态更新失败：${String(cause)}` }))
+      },
+      onLogs: ({ session, serviceId, sequence }) =>
+        appControl?.publishLive({
+          type: 'activity',
+          sessionId: session.sessionId,
+          value: { serviceId, logSequence: sequence },
+        }),
+    })
     const scheduleClientRelease = (clientId: string) => {
       const previous = clientTimers.get(clientId)
       if (previous) clearTimeout(previous)
@@ -288,6 +310,27 @@ export async function createHost(options: HostOptions = {}) {
     let collaboration: ReturnType<typeof createHostCollaborationBridge>
     let plugins: PluginManager
     let closing = false
+    const activityBridge = createActivityBridge({
+      activities,
+      agentDir: paths.agentDir,
+      caller: (session) => {
+        const actor = collaboration.activityCaller(session)
+        if (actor.depth !== 0) return actor
+        const binding = pi.readSessionBinding(actor.rootSessionKey)
+        return {
+          ...actor,
+          cwd: binding.cwd,
+          accessMode: binding.accessMode,
+          mode: binding.state.activeMode ?? actor.mode,
+        }
+      },
+      sessionForRuntime: (key) => appControl!.sessionForRuntime(key),
+      assertAvailable: (cwd) => {
+        if (closing) throw new Error('Host 正在退出，不能管理项目服务')
+        assertCheckoutAvailable(cwd)
+        pi.assertWorkspaceAvailable(cwd)
+      },
+    })
     let resourceGeneration = 0
     const publishResourcesChanged = (generation = resourceGeneration) => {
       resourceGeneration = Math.max(resourceGeneration, generation)
@@ -440,6 +483,7 @@ export async function createHost(options: HostOptions = {}) {
               throw new Error('用量来自未接纳的目标执行')
             await goals.usage(run, entryId, usage, inputEntryId)
           },
+          activity: (request, signal) => activityBridge.dispatch(session, request, signal),
           collaboration: (request, signal) => collaboration.dispatch(session, request, signal),
           savePlan: (input, signal) => collaboration.savePlan(session, input, signal),
           release: async () => {
@@ -539,6 +583,7 @@ export async function createHost(options: HostOptions = {}) {
     cleanup = async () => {
       await collaboration?.stopAndWait()
       await pi.stopAndWait()
+      await activities.dispose()
       await plugins?.dispose()
       await builtins?.dispose()
       await resources.waitForIdle()
@@ -697,6 +742,20 @@ export async function createHost(options: HostOptions = {}) {
         projects,
         sessions,
         mutations: pi,
+        beforeDelete: async (targets: string[]) => {
+          const refs = await appControl!.api.sessions.list()
+          for (const ref of refs) {
+            const key = appControl!.goalRuntimeKey(ref)
+            if (!targets.includes(ref.sessionFile ?? '') && (!key || !targets.includes(key))) continue
+            if (key) {
+              await bindRoot(key)
+              await collaboration.stopRoot(key)
+              await activityBridge.waitForStarts(key)
+            }
+            for (const activity of activities.list(ref).activities)
+              if (isLiveServiceActivity(activity)) await activities.stop(ref, activity.serviceId, '删除会话')
+          }
+        },
         removePins: (value: string[]) => settings.removePins(value),
         getPinnedPaths: () => settings.settings.pinnedPaths ?? [],
         getRuntimeSessions: () => pi.getRuntimeSessions(),
@@ -722,6 +781,7 @@ export async function createHost(options: HostOptions = {}) {
             try {
               pi.assertCheckoutIdle(matches)
               collaboration.assertCheckoutIdle(matches)
+              activityBridge.assertIdle(environment.root)
               const current = await getGitEnvironment(cwd)
               const sha = baseRef ? await resolveGitBase(current, baseRef) : undefined
               if (current.dirty) throw new Error('工作目录存在未提交更改，请先处理后再切换分支')
@@ -967,6 +1027,7 @@ export async function createHost(options: HostOptions = {}) {
       hostId,
       root,
       goals,
+      activities,
       pi,
       projects,
       sessions,
@@ -1136,6 +1197,7 @@ export async function createHost(options: HostOptions = {}) {
         resources.assertIdle()
         collaboration.assertCheckoutIdle(() => true)
         terminal.assertIdle()
+        activityBridge.assertIdle()
         plugins.assertIdle()
         appControl!.prepareMaintenance()
         closing = true
@@ -1244,6 +1306,10 @@ export async function createHost(options: HostOptions = {}) {
                     const goal = goals.get(ref)
                     if (goal?.status === 'active')
                       await appControl!.api.goals.pause(ref, goal, { idempotencyKey: randomUUID() })
+                  }
+                  if (request.method === 'pi:access-mode' && key) {
+                    const ref = await appControl!.sessionForRuntime(key)
+                    appControl!.assertActivityAccess(ref, request.args[1])
                   }
                   result = await action(...request.args)
                 }
@@ -1359,6 +1425,7 @@ export async function createHost(options: HostOptions = {}) {
           await collaboration.stopAndWait()
           await pi.stopAndWait()
           await Promise.allSettled(inflight)
+          await activities.dispose()
           await appControl!.dispose()
           unsubscribeGoals()
           await terminal.dispose()

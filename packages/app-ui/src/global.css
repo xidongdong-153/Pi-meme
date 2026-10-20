@@ -34,6 +34,7 @@
 @source '../../resources/src';
 @source '../../file-directory/src';
 @source '../../terminal/src';
+@source '../../activities/src/ui';
 
 @theme {
   --color-background: var(--background);

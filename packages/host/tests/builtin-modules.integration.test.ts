@@ -37,7 +37,7 @@ test('没有外部插件或恢复清单损坏时，14 个内置模块与基础�
         new Set(
           reservedPluginIds.filter(
             (id) =>
-              !['@pi-meme/file-directory', '@pi-meme/terminal'].includes(id) &&
+              !['@pi-meme/file-directory', '@pi-meme/terminal', '@pi-meme/activities'].includes(id) &&
               (!id.startsWith('@pi-meme/sandbox-') || id === sandboxPluginId()),
           ),
         ),

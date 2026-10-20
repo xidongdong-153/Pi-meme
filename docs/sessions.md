@@ -13,6 +13,8 @@ paths:
   - 'packages/contracts/src/plan.ts'
   - 'packages/contracts/src/goal.ts'
   - 'packages/goals/**'
+  - 'packages/activities/**'
+  - 'packages/contracts/src/service-activity.ts'
   - 'packages/chat/src/ui/composer/**'
   - 'packages/app-ui/src/panels/subagents-panel.tsx'
   - 'packages/app-ui/src/panels/plan-panel.tsx'
@@ -48,6 +50,22 @@ stateDiagram-v2
 Worker 创建时固定技能资源快照与外部插件代次。资源变更发布新修订后，相关任务和未答交互结束才退役旧 Worker；新一轮读取新修订。纯 Agent 插件版本可共存，共享 Server 组切换需等待所属调用和租约释放，详见 [插件生命周期](plugins.md#释放与更新)。
 
 模型配置修改保留空闲检查、恢复状态捕获、写文件、重连和恢复顺序。失败保留会话身份、正文和已保存配置；原模型已不存在时要求重新选择，模型与命令缓存随重连失效。回归入口见 [session-mutations.integration.test.ts](../packages/pi-runtime/tests/session-mutations.integration.test.ts) 与 [model-reconnect.integration.test.ts](../apps/desktop/tests/model-reconnect.integration.test.ts)。
+
+## 当前活动：项目服务
+
+Agent 通过内置 `manage_service` 工具启动常驻项目服务，例如 `pnpm run start:web`。工具提供 `start`、`list`、`logs`、`stop`；构建、测试等短命令仍使用 `bash`。启动命令须前台运行，不使用 `&`、`nohup` 或自行脱离进程组的 daemon；不接管已有 PID。
+
+服务归属正式根会话，子 Agent 启动的服务也显示在根会话，并标明来源。Host 从真实 Worker 校验来源、权限和任务模式，受限服务仍使用原工作区的沙箱授权。规划模式不能调用该工具。
+
+右侧工具目录在有启动中、运行中或停止中服务时显示“活动”及数量。面板可复制命令、查看只读日志和直接停止服务；停止调用 Host 控制接口，不发送聊天消息或启动模型轮次。最后一个服务结束后入口隐藏，已经打开的标签保留结果；关闭、切换或刷新后不恢复空标签。
+
+Agent 本轮结束、停止响应、Worker 回收、切换会话、关闭工具标签和刷新页面都不停止已移交 Host 的服务。用户明确停止或 Host 正常退出才清理；删除会话前先停止所属服务，失败则不删除。应用内切换 Git 分支、维护存储或降低相关权限前，需要先处理活动服务。新分叉不继承旧会话的服务。
+
+停止先请求进程组退出，超时后强制清理；确认清理完成才显示已停止。进程存活只表示“运行中”，不代表 HTTP 已就绪。断线保留最后快照并标记状态待确认，重连后重新读取。远程 Host 的回环地址只能代表 Host 本机，不提供端口转发。
+
+运行记录和日志保留在 Host 内存，不在重启后恢复服务。日志尾部有大小上限，不持续发送给模型。Host 被强制终止、系统崩溃或程序主动脱离管理时，不保证所有平台都没有残留进程，也不会按保存的旧 PID 盲目终止其他进程。第一版受管执行支持 macOS 和 Linux/WSL，未支持的平台明确拒绝启动。
+
+实现见 [活动服务](../packages/activities/src/server/service.ts)、[Agent 工具](../packages/activities/src/agent/entry.ts)、[活动面板](../packages/activities/src/ui/activity-panel.tsx) 和 [活动契约](../packages/contracts/src/service-activity.ts)。
 
 ## 对话中的正文与活动
 

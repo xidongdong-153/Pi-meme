@@ -17,6 +17,7 @@ const allowedTools = new Set([
   ...collaborationToolNames,
   'request_user_input',
   'save_plan',
+  'manage_service',
 ])
 
 /**

@@ -19,6 +19,7 @@ export const reservedPluginIds = [
   '@pi-meme/codemode',
   '@pi-meme/subagents',
   '@pi-meme/goals',
+  '@pi-meme/activities',
 ] as const
 
 export const reservedServiceNames = [

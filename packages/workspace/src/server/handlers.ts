@@ -13,6 +13,7 @@ import { readSessionCwd } from './session-reader'
 export type WorkspaceHandlerContext = {
   mutations?: Pick<PiSessionPool, 'renameSession' | 'deleteSessions' | 'assertWorkspaceAvailable'>
   removePins?: (paths: string[]) => Promise<unknown>
+  beforeDelete?: (paths: string[]) => Promise<void>
   projects?: ProjectStore
   pi: PiRuntime
   sessions: SessionService
@@ -25,6 +26,7 @@ export function createWorkspaceHandlers({
   pi,
   mutations,
   removePins,
+  beforeDelete,
   projects,
   sessions,
   getPinnedPaths,
@@ -111,6 +113,7 @@ export function createWorkspaceHandlers({
           const current = await preview(cwd)
           if (JSON.stringify(current.paths) !== JSON.stringify([...new Set(paths)].sort()))
             throw new Error('项目会话清单已变化，请重新确认删除')
+          await beforeDelete?.(current.paths)
           const deleted = await deleteSessionFiles(root, current.paths)
           return { ...deleted, warnings: current.warnings }
         },
@@ -134,7 +137,10 @@ export function createWorkspaceHandlers({
       return mutations!.deleteSessions(
         [value],
         undefined,
-        () => deleteSessionFiles(root, [value]),
+        async () => {
+          await beforeDelete?.([value])
+          return deleteSessionFiles(root, [value])
+        },
         (result) => finishDeletion(result),
       )
     },

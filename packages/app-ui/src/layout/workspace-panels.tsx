@@ -33,6 +33,7 @@ import { ResizeHandle } from './resize-handle'
 
 export function WorkspacePanels({
   panels,
+  activity,
   props,
   session,
   requestPanel,
@@ -57,6 +58,7 @@ export function WorkspacePanels({
   children,
 }: {
   panels: UiPanel[]
+  activity?: { count: number; known: boolean }
   props: UiContributionProps
   session: string
   errors?: Record<string, string>
@@ -96,6 +98,7 @@ export function WorkspacePanels({
     const saved = readLayout()
     return {
       storageKey,
+      retainActivity: false,
       // inherited 表示当前布局沿用自其他会话，尚未写入本会话存档。
       inherited: saved === undefined,
       layout: saved ?? defaultPanelLayout(),
@@ -105,7 +108,7 @@ export function WorkspacePanels({
   if (state.storageKey !== storageKey) {
     // 新会话没有存档时沿用当前布局，切换会话不收起右栏或重置宽度。
     const saved = readLayout()
-    updateState({ storageKey, inherited: saved === undefined, layout: saved ?? state.layout })
+    updateState({ storageKey, retainActivity: false, inherited: saved === undefined, layout: saved ?? state.layout })
     setSearch('')
   }
   const layout = state.layout
@@ -135,11 +138,28 @@ export function WorkspacePanels({
       /* 浏览器禁用存储时仍可使用标签页。 */
     }
   }, [state.inherited, storageKey, layout])
-  const available = panels.filter((panel) => panelAvailable(panel, props.target))
+  const activityId = 'builtin:activities'
+  const activityTabVisible = !activity || activity.count > 0 || !activity.known || state.retainActivity
+  const available = panels.filter(
+    (panel) => panelAvailable(panel, props.target) && (panel.id !== activityId || activityTabVisible),
+  )
   const open = useCallback((id: string) => {
     setSearch('')
-    setLayout((value) => openPanel(value, id))
+    updateState((value) => ({
+      ...value,
+      inherited: false,
+      retainActivity: value.retainActivity || id === 'builtin:activities',
+      layout: openPanel(value.layout, id),
+    }))
   }, [])
+  useEffect(() => {
+    if (!activity || state.storageKey !== storageKey) return
+    if (activity.count > 0 && layout.open && layout.tabs.includes(activityId) && !state.retainActivity) {
+      updateState((value) => ({ ...value, retainActivity: true }))
+    } else if (activity.known && activity.count === 0 && !state.retainActivity && layout.tabs.includes(activityId)) {
+      setLayout((value) => closePanel(value, activityId))
+    }
+  }, [activity?.count, activity?.known, layout, state.retainActivity, state.storageKey, storageKey, setLayout])
   useEffect(() => {
     if (requestRight && panels.some((panel) => panel.id === requestRight && panelAvailable(panel, props.target))) {
       open(requestRight)
@@ -193,8 +213,10 @@ export function WorkspacePanels({
     rightPane.jump()
   }, [containerWidth, rightPane.jump])
   const toggleRight = () => setLayout((value) => ({ ...value, open: !value.open }))
-  const filtered = available.filter((panel) =>
-    panel.title.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()),
+  const filtered = available.filter(
+    (panel) =>
+      (panel.id !== activityId || !activity || activity.count > 0) &&
+      panel.title.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()),
   )
   const directMotion =
     !motionReady || reducedMotion || leftPane.dragging || rightPane.dragging || leftPane.instant || rightPane.instant
@@ -278,7 +300,14 @@ export function WorkspacePanels({
                         type="button"
                         aria-label={`关闭标签页：${title}`}
                         className="mr-1 inline-flex items-center rounded p-1 text-muted-foreground opacity-0 pointer-events-none transition-opacity duration-200 ease-out hover:bg-background/60 hover:text-foreground group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        onClick={() => setLayout((value) => closePanel({ ...value, tabs, active }, id))}
+                        onClick={() =>
+                          updateState((value) => ({
+                            ...value,
+                            inherited: false,
+                            retainActivity: id === activityId ? false : value.retainActivity,
+                            layout: closePanel({ ...value.layout, tabs, active }, id),
+                          }))
+                        }
                       >
                         <X className="size-3" />
                       </button>
@@ -310,12 +339,22 @@ export function WorkspacePanels({
                 aria-label={layout.open ? '收起右侧栏' : '展开右侧栏'}
                 aria-expanded={layout.open}
                 aria-controls="workspace-right-sidebar"
-                className="size-7 text-muted-foreground hover:text-foreground cursor-pointer"
+                className="relative size-7 text-muted-foreground hover:text-foreground cursor-pointer"
               >
                 {layout.open ? <PanelRightClose className="size-4" /> : <PanelRightOpen className="size-4" />}
+                {Boolean(activity?.count) && (
+                  <span
+                    aria-label={`${activity!.count} 个活动服务`}
+                    className="absolute -right-1 -top-1 min-w-3.5 rounded-full bg-primary px-0.5 text-[9px] leading-3.5 text-primary-foreground tabular-nums"
+                  >
+                    {activity!.count}
+                  </span>
+                )}
               </Button>
             </TooltipTrigger>
-            <TooltipContent side="bottom">{layout.open ? '收起右侧栏' : '展开右侧栏'}</TooltipContent>
+            <TooltipContent side="bottom">
+              {activity?.count ? `本会话有 ${activity.count} 个活动服务` : layout.open ? '收起右侧栏' : '展开右侧栏'}
+            </TooltipContent>
           </Tooltip>
         </div>
       </PageHeader>

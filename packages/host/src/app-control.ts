@@ -1,4 +1,7 @@
 import type { GoalService } from '@pi-meme/goals/server/service'
+import type { ActivityService } from '@pi-meme/activities/server/service'
+import { isLiveServiceActivity } from '@pi-meme/contracts/service-activity'
+import { isAgentAccessMode } from '@pi-meme/contracts/agent-access'
 import {
   parseGoalCommand,
   validateGoalControl,
@@ -33,6 +36,7 @@ import { ControlStore, ControlError } from './control-store'
 
 type Options = {
   goals: GoalService
+  activities?: Pick<ActivityService, 'list' | 'logs' | 'stop'>
   hostId: string
   root: string
   pi: PiSessionPool
@@ -99,6 +103,13 @@ export async function createAppControl(options: Options) {
     const session = store.state.sessions.find((item) => item.sessionId === ref.sessionId)
     if (!session) throw new Error('会话不存在')
     return session
+  }
+  const assertActivityAccess = (ref: SessionRef, mode: unknown) => {
+    if (!isAgentAccessMode(mode)) throw new Error('会话权限无效')
+    const rank = { 'read-only': 0, 'workspace-write': 1, 'full-access': 2 }
+    const activities = options.activities?.list(ref).activities ?? []
+    if (activities.some((activity) => isLiveServiceActivity(activity) && rank[activity.accessMode] > rank[mode]))
+      throw new Error('仍有更高权限的项目服务运行，请先在活动面板停止，再降低权限')
   }
   const projectFor = async (cwd: string): Promise<AppProject | undefined> => {
     const source = projects.sourceProjectCwd(cwd) ?? cwd
@@ -169,7 +180,10 @@ export async function createAppControl(options: Options) {
     if (active.has(session.sessionId) || busy(key)) throw new Error('会话正在运行，不能修改配置')
     if (config.agentPlugins !== undefined) await options.configureAgentPlugins(key, config.agentPlugins)
     if (config.mode !== undefined) await pi.setSessionMode(key, config.mode)
-    if (config.accessMode !== undefined) await pi.setAccessMode(key, config.accessMode)
+    if (config.accessMode !== undefined) {
+      assertActivityAccess(session, config.accessMode)
+      await pi.setAccessMode(key, config.accessMode)
+    }
     if (config.model !== undefined) await pi.setModel(key, config.model)
     if (config.thinkingLevel !== undefined) await pi.setThinkingLevel(key, config.thinkingLevel)
     session.configuration = { ...session.configuration, ...config }
@@ -524,6 +538,7 @@ export async function createAppControl(options: Options) {
         'agents',
         'plans',
         'goals',
+        ...(options.activities ? ['activities' as const] : []),
         ...(options.workspace.terminalSupported ? ['terminal' as const] : []),
       ],
     }),
@@ -753,6 +768,25 @@ export async function createAppControl(options: Options) {
       get: (id) => collaboration.getAgentSnapshot(id),
       stop: (id, opts) => mutate(clientId, 'agents.stop', [id], opts, () => collaboration.interruptAgent(id)),
     },
+    activities: {
+      list: async (ref) => {
+        getSession(ref)
+        if (!options.activities) throw new Error('当前 Host 不支持活动服务')
+        const cursor = store.read().cursor
+        return { ...options.activities.list(ref), cursor }
+      },
+      logs: async (ref, id) => {
+        getSession(ref)
+        if (!options.activities) throw new Error('当前 Host 不支持活动服务')
+        return options.activities.logs(ref, id)
+      },
+      stop: (ref, id, opts) =>
+        mutate(clientId, 'activities.stop', [ref, id], opts, async () => {
+          getSession(ref)
+          if (!options.activities) throw new Error('当前 Host 不支持活动服务')
+          return options.activities.stop(ref, id, '用户停止')
+        }),
+    },
     goals: {
       get: async (ref) => {
         getSession(ref)
@@ -829,6 +863,7 @@ export async function createAppControl(options: Options) {
     'terminal.close',
     'interaction.respond',
     'agents.stop',
+    'activities.stop',
     'goals.start',
     'goals.edit',
     'goals.pause',
@@ -1060,6 +1095,7 @@ export async function createAppControl(options: Options) {
   return {
     api,
     apiFor,
+    assertActivityAccess,
     goalRuntimeKey: (ref: SessionRef) => runtime.get(ref.sessionId)?.sessionKey,
     async admitGoal(key: string, origin: import('@pi-meme/contracts/goal').PromptOrigin, expected?: GoalControl) {
       const session = await this.sessionForRuntime(key)

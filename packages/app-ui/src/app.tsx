@@ -1,3 +1,5 @@
+import { ActivityPanel } from '@pi-meme/activities/ui/activity-panel'
+import { useActivities } from '@pi-meme/activities/ui/activity-store'
 import { GoalControl } from '@pi-meme/goals/ui/goal-control'
 import { GitMenu } from '@pi-meme/git/ui/git-menu'
 import { LocationSelector } from './shell/location-selector'
@@ -56,7 +58,7 @@ import { PluginSlot } from './plugins/plugin-slot'
 import { WorkspacePanels } from './layout/workspace-panels'
 import { sessionUiTarget } from './layout/panel-layout'
 import { useAgentPluginSelection } from './plugins/use-agent-plugin-selection'
-import { FileDiff, Folder, TerminalSquare, Network, ListTree, NotebookPen } from 'lucide-react'
+import { Activity, FileDiff, Folder, TerminalSquare, Network, ListTree, NotebookPen } from 'lucide-react'
 import type { HostApi, AppSession } from '@pi-meme/contracts/app-host'
 import { CustomizationPage } from './plugins/customization-page'
 import { PluginPage } from './settings/plugin-page'
@@ -264,6 +266,7 @@ export function App({
     }
   }, [bridge, runtimeSessionKey, chat.bindDraftSession, chat.setError])
   const appSession = runtimeSessionKey ? resolvedSessions[runtimeSessionKey] : undefined
+  const activities = useActivities(host, appSession)
   const loadConversationImage = useMemo(() => {
     if (!appSession) return undefined
     const ref = { hostId: appSession.hostId, sessionId: appSession.sessionId }
@@ -751,6 +754,23 @@ export function App({
   )
   const panels: UiPanel[] = [
     {
+      id: 'builtin:activities',
+      title: activities.count ? `活动 · ${activities.count}` : '活动',
+      icon: <Activity />,
+      location: 'right',
+      scope: 'session',
+      render: (props) =>
+        props.target.session ? (
+          <ActivityPanel
+            key={`${props.target.session.hostId}:${props.target.session.sessionId}`}
+            store={activities.store}
+            session={props.target.session}
+            local={hostLocal}
+            hostAddress={hostAddress}
+          />
+        ) : null,
+    },
+    {
       id: 'builtin:git',
       title: '变更',
       icon: <FileDiff />,
@@ -887,6 +907,14 @@ export function App({
               profile={userProfile.profile}
               profileLoading={userProfile.showPlaceholder}
               panels={panels}
+              activity={{
+                count: activities.count,
+                known:
+                  activities.state.known &&
+                  activities.state.connected &&
+                  !activities.state.loading &&
+                  !activities.state.error,
+              }}
               errors={registry.errors()}
               props={pluginProps}
               session={appSession?.sessionId ?? runtimeSessionKey ?? ''}

@@ -1,3 +1,4 @@
+import type { ServiceActivity, ServiceActivityList, ServiceActivityLogs } from './service-activity'
 import type { Goal, GoalControl, GoalEdit, GoalInput, GoalStartResult } from './goal'
 import type { AgentAccessMode } from './agent-access'
 import type { AgentSummary } from './collaboration'
@@ -75,7 +76,9 @@ export type TerminalSnapshot = TerminalRef & {
 export type AppHostCapabilities = {
   apiVersion: 2
   hostId: string
-  features: Array<'projects' | 'sessions' | 'files' | 'terminal' | 'git' | 'interaction' | 'agents' | 'plans' | 'goals'>
+  features: Array<
+    'projects' | 'sessions' | 'files' | 'terminal' | 'git' | 'interaction' | 'agents' | 'plans' | 'goals' | 'activities'
+  >
   fileOperations?: Array<'preview' | 'search' | 'write'>
 }
 export type EventCursor = { journalEpoch: string; seq: number }
@@ -86,7 +89,7 @@ export type HostControlEvent = EventCursor & {
   timestamp: string
   projectId?: string
   sessionId?: string
-  type: 'session' | 'submission' | 'runtime' | 'terminal' | 'resync'
+  type: 'session' | 'submission' | 'runtime' | 'terminal' | 'activity' | 'resync'
   value:
     | AppSession
     | SubmissionReceipt
@@ -181,6 +184,11 @@ export type HostApi = {
     pause: (ref: SessionRef, input: GoalControl, options: MutationOptions) => Promise<Goal>
     resume: (ref: SessionRef, input: GoalControl, options: MutationOptions) => Promise<Goal>
     clear: (ref: SessionRef, input: GoalControl, options: MutationOptions) => Promise<void>
+  }
+  activities: {
+    list: (ref: SessionRef) => Promise<ServiceActivityList>
+    logs: (ref: SessionRef, serviceId: string) => Promise<ServiceActivityLogs>
+    stop: (ref: SessionRef, serviceId: string, options: MutationOptions) => Promise<ServiceActivity>
   }
   plans: { list: (ref: SessionRef) => Promise<PlanDocument[]> }
 }

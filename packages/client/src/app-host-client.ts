@@ -69,6 +69,11 @@ export function createAppHostClient(transport: AppHostTransport): HostApi {
       get: (id) => call('agents.get', [id]),
       stop: (id, options) => call('agents.stop', [id], options.idempotencyKey),
     },
+    activities: {
+      list: (ref) => call('activities.list', [ref]),
+      logs: (ref, id) => call('activities.logs', [ref, id]),
+      stop: (ref, id, options) => call('activities.stop', [ref, id], options.idempotencyKey),
+    },
     goals: {
       get: (ref) => call('goals.get', [ref]),
       start: (ref, input, options) => call('goals.start', [ref, input], options.idempotencyKey),

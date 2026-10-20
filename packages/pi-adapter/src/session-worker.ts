@@ -1,4 +1,5 @@
 import type { Goal, GoalRequest, GoalRun } from '@pi-meme/contracts/goal'
+import type { ServiceActivityRequest, ServiceActivityResult } from '@pi-meme/contracts/service-activity'
 import { createAppAgent } from '@pi-meme/pi-runtime/sdk/app-agent'
 import { parentPort, workerData } from 'node:worker_threads'
 import { randomUUID } from 'node:crypto'
@@ -27,6 +28,7 @@ export type SessionWorkerContext = {
     signal?: AbortSignal,
   ) => Promise<CollaborationResults[keyof CollaborationResults]>
   requestGoal: (request: GoalRequest, signal?: AbortSignal) => Promise<Goal | undefined>
+  requestActivity: (request: ServiceActivityRequest, signal?: AbortSignal) => Promise<ServiceActivityResult>
   savePlan: (input: SavePlanInput, signal?: AbortSignal) => Promise<PlanDocument>
   requestUserInput: (
     questions: import('@pi-meme/contracts/user-input').UserInputQuestion[],
@@ -113,7 +115,7 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
     { resolve: (value: unknown) => void; reject: (cause: Error) => void; cleanup: () => void }
   >()
   function hostRequest(
-    kind: 'collaboration' | 'savePlan' | 'admission' | 'goal' | 'goalUsage',
+    kind: 'collaboration' | 'savePlan' | 'admission' | 'goal' | 'goalUsage' | 'activity',
     request: object,
     signal?: AbortSignal,
   ): Promise<unknown> {
@@ -151,6 +153,8 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
           taskMode: () => session.getTaskMode(),
           requestCollaboration: (request, signal) =>
             hostRequest('collaboration', request, signal) as Promise<CollaborationResults[keyof CollaborationResults]>,
+          requestActivity: (activityRequest, signal) =>
+            hostRequest('activity', { activityRequest }, signal) as Promise<ServiceActivityResult>,
           requestGoal: (goalRequest, signal) =>
             hostRequest('goal', { goalRequest, goalRun: session.getGoalRun() }, signal) as Promise<Goal | undefined>,
           savePlan: (input, signal) => hostRequest('savePlan', { input }, signal) as Promise<PlanDocument>,

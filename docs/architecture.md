@@ -22,6 +22,7 @@ paths:
   - 'packages/git/**'
   - 'packages/file-directory/**'
   - 'packages/terminal/**'
+  - 'packages/activities/**'
 ---
 
 # 架构
@@ -109,13 +110,15 @@ Host 与 app-ui 是组合根。基础包和契约不得反向依赖业务实现�
 
 “系统插件”是插件页面中的工具展示分类，不是全部内置服务的启停清单。[system-plugins.ts](../packages/plugin-sdk/src/system-plugins.ts) 只列出变更、文件、终端，始终启用。文件和终端的 UI 分别在 [file-directory](../packages/file-directory/src/ui/) 和 [terminal](../packages/terminal/src/ui/)，底层操作由 HostApi 提供。
 
+Agent 项目服务由 [activities](../packages/activities/src/server/service.ts) 管理，Host 持有进程，不依赖会话 Worker 或右侧面板的生命周期。启动走内置 `manage_service` 工具；列表、日志和用户停止走正式 HostApi。受限服务复用 [AccessSandbox](../packages/pi-runtime/src/sdk/access-sandbox.ts)，不借用无 Agent 沙箱的用户终端。
+
 外部 App 插件由用户安装，进入独立启停、卸载和更新流程。内置身份冲突在执行外部入口前拒绝；内置初始化失败中止 Host，外部插件恢复失败隔离相关依赖组并保留诊断。对应测试见 [builtin-modules.integration.test.ts](../packages/host/tests/builtin-modules.integration.test.ts)。
 
 ## 界面组合
 
 [设置导航](../packages/app-ui/src/settings/settings-page.tsx) 分三组：个人包含常规、外观、用量；Agent 包含模型、指令、技能、插件、MCP；系统包含远程、关于。常规只设置新会话默认权限。指令页编辑 Host 的用户指令与系统提示词。技能与插件是独立页面，没有共享资源页。[技能页](../packages/app-ui/src/settings/skill-page.tsx)和[插件页](../packages/app-ui/src/settings/plugin-page.tsx)各自在“个人 / 系统”间切换。创建技能或插件会把对应系统技能插入当前对话。
 
-左侧为置顶、项目、最近，中间固定聊天。工具面板位置只允许 `right`，在当前聊天右侧栏打开可关闭标签页；标签和宽度按 Host、会话保存。七类贡献槽为 `composer`、`composer-actions`、`tool-card`、`message`、`message-actions`、`status`、`settings`。
+左侧为置顶、项目、最近，中间固定聊天。工具面板位置只允许 `right`，在当前聊天右侧栏打开可关闭标签页；标签和宽度按 Host、会话保存。活动工具仅在当前会话存在受管服务时出现在工具目录；停止最后一个服务后，已经打开的标签保留结果，关闭、切换或刷新后不恢复空标签。关闭标签不会停止服务。七类贡献槽为 `composer`、`composer-actions`、`tool-card`、`message`、`message-actions`、`status`、`settings`。
 
 源码见 [workspace-panels.tsx](../packages/app-ui/src/layout/workspace-panels.tsx)、[right-sidebar.tsx](../packages/app-ui/src/layout/right-sidebar.tsx)、[UI 契约](../packages/plugin-sdk/src/ui.ts)。插件不能替换左侧导航或中央聊天。
 

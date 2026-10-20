@@ -1,4 +1,5 @@
 import type { Goal, GoalControl, GoalRequest, GoalRun, PromptOrigin } from '@pi-meme/contracts/goal'
+import type { ServiceActivityRequest, ServiceActivityResult } from '@pi-meme/contracts/service-activity'
 import type { CollaborationRequest, CollaborationResults } from '@pi-meme/contracts/collaboration'
 import type { PlanDocument, SavePlanInput, TaskMode } from '@pi-meme/contracts/plan'
 import { Worker } from 'node:worker_threads'
@@ -28,6 +29,7 @@ export type WorkerOptions = {
   savePlan?: (input: SavePlanInput, signal: AbortSignal) => Promise<PlanDocument>
   goal?: (request: GoalRequest, run: GoalRun | undefined, signal: AbortSignal) => Promise<Goal | undefined>
   goalUsage?: (run: GoalRun, entryId: string, usage: unknown, inputEntryId?: string) => Promise<void>
+  activity?: (request: ServiceActivityRequest, signal: AbortSignal) => Promise<ServiceActivityResult>
   credentials: SecureCredentialStorage & { flush?: () => Promise<void> }
   dataRoot: string
   settings: DesktopSettings
@@ -113,7 +115,8 @@ export function createWorkerSession(
         reply: WorkerReply & {
           hostCancel?: string
           hostRequest?: {
-            kind: 'collaboration' | 'savePlan' | 'admission' | 'goal' | 'goalUsage'
+            kind: 'collaboration' | 'savePlan' | 'admission' | 'goal' | 'goalUsage' | 'activity'
+            activityRequest?: ServiceActivityRequest
             message?: string
             mode?: TaskMode
             continuation?: boolean
@@ -159,6 +162,10 @@ export function createWorkerSession(
               if (request.kind === 'goalUsage') {
                 if (!options.goalUsage || !request.goalRun || !request.entryId) throw new Error('目标用量桥未配置')
                 return options.goalUsage(request.goalRun, request.entryId, request.usage, request.inputEntryId)
+              }
+              if (request.kind === 'activity') {
+                if (!options.activity || !request.activityRequest) throw new Error('活动服务桥未配置')
+                return options.activity(request.activityRequest, controller.signal)
               }
               if (request.kind === 'savePlan') {
                 if (!options.savePlan || !request.input) throw new Error('计划保存桥未配置')

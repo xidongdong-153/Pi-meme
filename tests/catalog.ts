@@ -14,6 +14,7 @@ export const features = {
   git: 'Git 与 Worktree',
   files: '文件目录、预览与保存',
   terminal: '终端与 PTY',
+  activities: 'Agent 项目服务与活动面板',
   settings: '设置、指令与外观',
   usage: '用量与统计',
   connection: '连接、认证与协议',
@@ -32,6 +33,12 @@ export interface TestSuite {
 }
 
 const files: Array<[string, Feature[]]> = [
+  ['packages/activities/tests/service.integration.test.ts', ['activities', 'permissions']],
+  ['packages/host/tests/activity-bridge.unit.test.ts', ['activities', 'permissions', 'subagents']],
+  ['packages/host/tests/service-activities.integration.test.ts', ['activities', 'permissions']],
+  ['packages/activities/tests/activity-panel.component.test.tsx', ['activities']],
+  ['packages/activities/tests/agent-entry.unit.test.ts', ['activities', 'permissions', 'plan']],
+  ['packages/pi-runtime/tests/managed-process.integration.test.ts', ['activities', 'permissions']],
   ['packages/chat/tests/composer-goal.component.test.tsx', ['goals']],
   ['packages/goals/tests/goal-service.unit.test.ts', ['goals']],
   ['packages/host/tests/goal-control.integration.test.ts', ['goals']],

@@ -219,8 +219,8 @@ export function SidebarMenus({
                   ? '仅修改显示名称，磁盘目录不变。'
                   : '修改此会话的显示名称。'
                 : project
-                  ? `将永久删除 ${preview?.paths.length ?? '…'} 个会话，并移除项目。项目目录、代码和附件文件保留。此操作无法撤销。`
-                  : '将永久删除此会话及其全部消息分支。此操作无法撤销。'}
+                  ? `将停止所属会话的活动服务，永久删除 ${preview?.paths.length ?? '…'} 个会话，并移除项目。项目目录、代码和附件文件保留。此操作无法撤销。`
+                  : '将停止此会话的活动服务，并永久删除会话及其全部消息分支。此操作无法撤销。'}
             </DialogDescription>
           </DialogHeader>
           {project && <p className="text-xs text-muted-foreground break-all">{project.cwd}</p>}

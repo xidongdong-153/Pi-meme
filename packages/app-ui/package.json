@@ -19,6 +19,7 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
+    "@pi-meme/activities": "workspace:*",
     "@pi-meme/assets": "workspace:*",
     "@pi-meme/chat": "workspace:*",
     "@pi-meme/client": "workspace:*",

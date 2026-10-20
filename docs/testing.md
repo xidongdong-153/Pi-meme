@@ -73,23 +73,24 @@ jsdom 不计算布局；测试环境只补 Radix 需要的指针捕获和滚动�
 
 先查找直接覆盖改动的文件。下表是确需跨包扩大范围时的功能索引，不是每次改动的必跑清单；多个功能也只在实际涉及对应行为时选择。
 
-| 改动                           | 先选择的功能              | 需要扩大的条件                                     |
-| ------------------------------ | ------------------------- | -------------------------------------------------- |
-| 输入框、流式消息、暂停和队列   | `chat`                    | 模式切换加 `plan`；技能引用加 `skills`             |
-| 历史、分支、客户端选择和恢复   | `sessions`                | 跨服务加 `connection`；项目归属加 `workspace`      |
-| 计划文档与规划限制             | `plan`                    | 子任务协作加 `subagents`；权限守卫加 `permissions` |
-| 子代理调度、消息与完成状态     | `subagents`               | 计划落盘加 `plan`                                  |
-| 模型配置和凭据                 | `models`                  | 登录、重连和远程凭据加 `connection`                |
-| 插件、DevKit、资源代次         | `plugins`                 | 技能快照加 `skills`；主题加 `settings`             |
-| 技能导入、编辑和调用           | `skills`                  | 插件附带资源加 `plugins`                           |
-| MCP 配置、诊断与连接           | `mcp`                     | 规划模式限制加 `plan`                              |
-| 权限、沙箱和嵌套工具           | `permissions`、`codemode` | 规划限制加 `plan`                                  |
-| 工作区、侧栏、Git 和 Worktree  | `workspace`、`git`        | 会话目标加 `sessions`                              |
-| 文件、预览、保存和终端         | `files`、`terminal`       | 工具标签与插件作用域加 `plugins`                   |
-| 设置、指令、外观和用量         | `settings`、`usage`       | 凭据加 `models`                                    |
-| HTTP/WebSocket、认证与重连     | `connection`              | 目标恢复加 `sessions`                              |
-| Electron 壳、preload、平台 IPC | `desktop`、`connection`   | 先验证相关源码；E2E、产物验收需明确要求            |
-| 选测入口、清单和框架配置       | `testing`                 | 加受影响文件；用 `--all --list` 核对完整清单       |
+| 改动                           | 先选择的功能              | 需要扩大的条件                                                 |
+| ------------------------------ | ------------------------- | -------------------------------------------------------------- |
+| 输入框、流式消息、暂停和队列   | `chat`                    | 模式切换加 `plan`；技能引用加 `skills`                         |
+| 历史、分支、客户端选择和恢复   | `sessions`                | 跨服务加 `connection`；项目归属加 `workspace`                  |
+| 计划文档与规划限制             | `plan`                    | 子任务协作加 `subagents`；权限守卫加 `permissions`             |
+| 子代理调度、消息与完成状态     | `subagents`               | 计划落盘加 `plan`                                              |
+| 模型配置和凭据                 | `models`                  | 登录、重连和远程凭据加 `connection`                            |
+| 插件、DevKit、资源代次         | `plugins`                 | 技能快照加 `skills`；主题加 `settings`                         |
+| 技能导入、编辑和调用           | `skills`                  | 插件附带资源加 `plugins`                                       |
+| MCP 配置、诊断与连接           | `mcp`                     | 规划模式限制加 `plan`                                          |
+| 权限、沙箱和嵌套工具           | `permissions`、`codemode` | 规划限制加 `plan`                                              |
+| 工作区、侧栏、Git 和 Worktree  | `workspace`、`git`        | 会话目标加 `sessions`                                          |
+| 文件、预览、保存和终端         | `files`、`terminal`       | 工具标签与插件作用域加 `plugins`                               |
+| Agent 项目服务与活动面板       | `activities`              | 沙箱权限加 `permissions`；目标与来源加 `sessions`、`subagents` |
+| 设置、指令、外观和用量         | `settings`、`usage`       | 凭据加 `models`                                                |
+| HTTP/WebSocket、认证与重连     | `connection`              | 目标恢复加 `sessions`                                          |
+| Electron 壳、preload、平台 IPC | `desktop`、`connection`   | 先验证相关源码；E2E、产物验收需明确要求                        |
+| 选测入口、清单和框架配置       | `testing`                 | 加受影响文件；用 `--all --list` 核对完整清单                   |
 
 同一文件同时验证多个功能时，可以登记多个功能，选择结果会去重。独立行为较多的大文件按功能拆分，共用所属包内的 fixture。新增文件必须登记到 [catalog.ts](../tests/catalog.ts)；`testing` 功能检查漏登记、重复登记、未知功能和层次后缀。
 

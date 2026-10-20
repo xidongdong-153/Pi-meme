@@ -9,6 +9,8 @@ paths:
   - 'packages/goals/src/server/service.ts'
   - 'packages/host/src/workspace-files.ts'
   - 'packages/host/src/terminal-service.ts'
+  - 'packages/contracts/src/service-activity.ts'
+  - 'packages/activities/src/server/service.ts'
   - 'packages/client/src/app-host-client.ts'
   - 'packages/client/src/node-host-client.ts'
   - 'packages/host/tests/app-control.integration.test.ts'
@@ -38,6 +40,7 @@ paths:
 | `interaction`    | `respond`，按根会话或子任务来源回答                                                                                                            |
 | `agents`         | `list`、`get`、`stop`                                                                                                                          |
 | `goals`          | `get`、`start`、`edit`、`pause`、`resume`、`clear`                                                                                             |
+| `activities`     | `list`、`logs`、`stop`，查看和停止 Agent 启动的项目服务                                                                                        |
 | `plans`          | `list`，读取已保存计划                                                                                                                         |
 | `events`         | `read`、`subscribe`                                                                                                                            |
 
@@ -133,6 +136,20 @@ Host 退出或重启将未完成提交记为 `interrupted`，不重放任务。`
 终端由 [terminal-service.ts](../packages/host/src/terminal-service.ts) 使用 `node-pty`，界面使用 xterm.js。每个 Host 最多 16 个活动终端，单终端保留 256 KiB 输出，单次输入最多 64 KiB。能力不可用时 `capabilities().features` 不包含 `terminal`。
 
 隐藏面板、关闭右侧标签和切换会话保留 PTY；显式关闭终端实例或 Host 退出才关闭进程。重新附着读取输出序号与缓冲，重启不恢复 PTY 进程。
+
+## Agent 项目服务
+
+`capabilities().features` 包含 `activities` 时，可按正式 `SessionRef` 管理所属根会话的受管服务，包括子 Agent 启动的服务：
+
+- `activities.list(ref)` 返回 `activities`、列表 `revision` 和 `cursor`。服务包含名称、命令、目录、来源、状态和启动/结束信息；进程存活不代表应用健康。
+- `activities.logs(ref, serviceId)` 返回有界日志尾部 `output`、`sequence` 和 `truncated`，不创建终端。
+- `activities.stop(ref, serviceId, options)` 使用幂等键停止指定服务，返回服务状态。目标不匹配会被拒绝；已经结束的服务返回当前结果，不执行其他命令。
+
+启动仅由可信 Agent 请求桥处理，用户停止不走 `sessions.submit` 或模型续跑。服务不随 UI、Worker 或 Agent 单轮结束而终止，Host 正常退出统一清理。
+
+状态变化使用 `type: activity` 的最小失效通知，包含服务标识和修订，可沿事件游标补读；收到后重新读取列表。日志通知走 `stream: live`，只携带服务标识和日志序号，不写入控制日志；查看日志的客户端再读取日志尾部。重连或 `resync` 后重新读取列表，不能仅凭旧服务标识认定 Host 重启后的进程仍存在。
+
+活动运行态和日志不跨 Host 重启恢复，不支持按任意 PID 或端口接管进程。契约见 [service-activity.ts](../packages/contracts/src/service-activity.ts)，生命周期见 [会话与协作](sessions.md#当前活动项目服务)。
 
 ## Node 客户端
 

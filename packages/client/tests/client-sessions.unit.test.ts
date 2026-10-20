@@ -1,7 +1,39 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
 import type { Snapshot, WorkspaceDeletionResult } from '@pi-meme/contracts/desktop'
+import type { HostControlEvent } from '@pi-meme/contracts/app-host'
 import { snapshot, create, tick } from './host-client-fixture'
+
+test('控制订阅独立报告 Host 断线与重连，不使用 Worker 状态或推进事件游标', async () => {
+  const { client, sockets, socketUrls } = create(() => null)
+  const events: HostControlEvent[] = []
+  const cursor = { journalEpoch: 'epoch', seq: 42 }
+  const release = await client.host.events.subscribe({ sessionId: 'session', after: cursor }, (event) => {
+    events.push(event)
+  })
+  try {
+    sockets[0].open()
+    sockets[0].close()
+    await tick()
+    assert.equal(sockets.length, 2)
+    sockets[1].open()
+    assert.deepEqual(
+      events.map((event) => [event.type, event.stream, event.value]),
+      [
+        ['resync', 'live', { reason: 'connected' }],
+        ['resync', 'live', { reason: 'disconnected' }],
+        ['resync', 'live', { reason: 'connected' }],
+      ],
+    )
+    assert.deepEqual(JSON.parse(new URL(socketUrls[1]).searchParams.get('subscription')!).after, cursor)
+    assert.ok(events.every((event) => event.sessionId === 'session' && event.hostId === 'host-1'))
+    release()
+    assert.equal(events.length, 3)
+  } finally {
+    release()
+    client.close()
+  }
+})
 
 test('选择项目源目录不登记项目，也不切换当前会话', async () => {
   const { client, requests } = create(() => null, { selectDirectory: async () => '/work/new-project' })

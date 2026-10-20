@@ -443,6 +443,11 @@ export class HostCollaborationBridge {
     this.changed(root)
     await this.summarize(root)
   }
+  activityCaller(session: RuntimeSdkSession) {
+    const record = this.caller(session)
+    if (this.stopping || this.paused(record)) throw new Error('当前任务已暂停或正在结束')
+    return { ...record.summary }
+  }
   goalCaller(session: RuntimeSdkSession) {
     const record = this.callers.get(session)
     if (!record || record.session !== session) throw new Error('目标请求来自无效 Worker')

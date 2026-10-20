@@ -3,6 +3,7 @@ import { access, mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
 import { linuxSandboxLaunch } from './linux-sandbox'
+import { serviceProcessEnvironment, spawnManagedProcess, type ManagedProcess } from './managed-process'
 import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
 
 export type AccessSandboxOptions = {
@@ -28,6 +29,11 @@ export type SandboxCapability = { supported: boolean; reason?: string }
 export interface AccessSandboxOperations {
   readonly workspace: string
   run: (executable: string, args: string[], options: SandboxRunOptions) => Promise<{ exitCode: number }>
+  startManaged: (
+    executable: string,
+    args: string[],
+    options: Pick<SandboxRunOptions, 'cwd' | 'env' | 'onData'>,
+  ) => Promise<ManagedProcess>
   stopAll: () => void
   assertWritable: (target: string) => Promise<void>
   mkdir: (target: string, signal?: AbortSignal) => Promise<void>
@@ -96,29 +102,43 @@ class SandboxProcess implements AccessSandboxOperations {
     return this.cwd
   }
 
+  private environment(env?: NodeJS.ProcessEnv) {
+    const result = serviceProcessEnvironment(env)
+    if (this.launch.seccomp) {
+      delete result.WSL_INTEROP
+      delete result.WSLENV
+      delete result.LD_PRELOAD
+      delete result.LD_LIBRARY_PATH
+      result.PATH = (result.PATH ?? '/usr/bin:/bin')
+        .split(path.delimiter)
+        .filter((entry) => path.isAbsolute(entry) && !this.launch.hiddenRoots?.some((root) => pathWithin(root, entry)))
+        .join(path.delimiter)
+      result.TMPDIR = this.temporary
+    }
+    return result
+  }
+
+  async startManaged(executable: string, args: string[], options: Pick<SandboxRunOptions, 'cwd' | 'env' | 'onData'>) {
+    const cwd = await realpath(options.cwd)
+    const launchArgs = [...this.launch.args]
+    if (this.launch.seccomp) launchArgs[launchArgs.indexOf('--chdir') + 1] = cwd
+    const child = await spawnManagedProcess(this.launch.executable, [...launchArgs, executable, ...args], {
+      cwd,
+      env: this.environment(options.env),
+      onData: options.onData,
+      seccomp: this.launch.seccomp,
+    })
+    this.running.add(child.kill)
+    void child.completion.finally(() => this.running.delete(child.kill)).catch(() => {})
+    return child
+  }
+
   /** 在沙箱里运行进程；取消、超时和进程退出都会终止整个进程组。 */
   async run(executable: string, args: string[], options: SandboxRunOptions): Promise<{ exitCode: number }> {
     const cwd = await realpath(options.cwd)
     return new Promise((resolve, reject) => {
       if (options.signal?.aborted) return reject(new Error('aborted'))
-      const env = { ...process.env, ...options.env }
-      delete env.NODE_OPTIONS
-      delete env.NODE_PATH
-      delete env.BASH_ENV
-      delete env.ENV
-      if (this.launch.seccomp) {
-        delete env.WSL_INTEROP
-        delete env.WSLENV
-        delete env.LD_PRELOAD
-        delete env.LD_LIBRARY_PATH
-        env.PATH = (env.PATH ?? '/usr/bin:/bin')
-          .split(path.delimiter)
-          .filter(
-            (entry) => path.isAbsolute(entry) && !this.launch.hiddenRoots?.some((root) => pathWithin(root, entry)),
-          )
-          .join(path.delimiter)
-        env.TMPDIR = this.temporary
-      }
+      const env = this.environment(options.env)
       const launchArgs = [...this.launch.args]
       if (this.launch.seccomp) launchArgs[launchArgs.indexOf('--chdir') + 1] = cwd
       const child = spawn(this.launch.executable, [...launchArgs, executable, ...args], {

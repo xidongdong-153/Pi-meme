@@ -294,10 +294,27 @@ export class HostClient {
     let after: EventCursor | undefined = input.after
     let socket: WebSocket | undefined
     let timer: ReturnType<typeof setTimeout> | undefined
+    const connection = (reason: 'connected' | 'disconnected') => {
+      if (stopped || this.closed) return
+      listener({
+        stream: 'live',
+        type: 'resync',
+        hostId: this.connectedHostId,
+        sessionId: input.sessionId,
+        eventId: crypto.randomUUID(),
+        timestamp: new Date().toISOString(),
+        journalEpoch: after?.journalEpoch ?? '',
+        seq: after?.seq ?? 0,
+        value: { reason },
+      })
+    }
     const schedule = () => {
       if (!stopped && !this.closed)
         timer = setTimeout(() => {
-          void connect(this).catch(schedule)
+          void connect(this).catch(() => {
+            connection('disconnected')
+            schedule()
+          })
         }, this.options.reconnectDelay ?? 1000)
     }
     async function connect(client: HostClient) {
@@ -309,6 +326,7 @@ export class HostClient {
       url.searchParams.set('clientId', client.clientId)
       url.searchParams.set('subscription', JSON.stringify({ ...input, after }))
       socket = (client.options.createSocket ?? ((address) => new WebSocket(address)))(url.href)
+      socket.addEventListener('open', () => connection('connected'))
       socket.addEventListener('message', (message) => {
         const event = JSON.parse(String(message.data)) as HostControlEvent
         client.acceptHost(event.hostId)
@@ -323,7 +341,10 @@ export class HostClient {
         listener(event)
       })
       socket.addEventListener('close', () => {
-        if (!stopped && !client.closed) void client.renewAuthentication().then(schedule, schedule)
+        if (!stopped && !client.closed) {
+          connection('disconnected')
+          void client.renewAuthentication().then(schedule, schedule)
+        }
       })
     }
     await connect(this)
