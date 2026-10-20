@@ -21,7 +21,7 @@ function imageLabel(src: string, alt?: string) {
   }
 }
 
-export function MessageImage({ src, alt }: { src: string; alt?: string }) {
+export function MessageImage({ src, alt, className }: { src: string; alt?: string; className?: string }) {
   const loadImage = React.useContext(MessageImageLoaderContext)
   const remote = /^(?:https?:)?\/\//i.test(src)
   const [result, setResult] = React.useState<{
@@ -74,6 +74,7 @@ export function MessageImage({ src, alt }: { src: string; alt?: string }) {
       filename={imageLabel(src)}
       error={current?.error}
       remote={remote}
+      className={className}
     />
   )
 }
@@ -84,12 +85,14 @@ export function ImageThumbnail({
   filename,
   error,
   remote,
+  className,
 }: {
   src?: string
   label: string
   filename: string
   error?: string
   remote: boolean
+  className?: string
 }) {
   const [failed, setFailed] = React.useState(false)
   const [loaded, setLoaded] = React.useState(false)
@@ -116,7 +119,7 @@ export function ImageThumbnail({
   ) : null
 
   return (
-    <span className="my-2 mr-2 inline-flex size-24 max-w-full align-top">
+    <span className={cn('my-2 mr-2 inline-flex size-24 max-w-full align-top', className)}>
       {failure ? (
         <span role="status" aria-label={failure} className="size-full rounded-xl bg-secondary/30" />
       ) : (

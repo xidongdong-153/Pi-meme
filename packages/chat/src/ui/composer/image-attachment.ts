@@ -1,5 +1,6 @@
 import type { ChatFileUpload, ChatUploadedFile } from '@pi-meme/contracts/chat-attachments'
 import type { PiImage } from '@pi-meme/contracts/pi'
+import { attachmentReferencesHeading } from '../model/message-attachments'
 
 export type ComposerImageAttachment = PiImage & { id: string; name?: string }
 export type ComposerAttachment =
@@ -38,7 +39,7 @@ export function messageWithAttachments(text: string, attachments: ComposerAttach
     .filter((attachment) => attachment.type === 'image')
     .map(({ type, data, mimeType }) => ({ type, data, mimeType }))
   const references = files.length
-    ? `附加文件（Host 路径，请按需读取）：\n${files.map(({ name, path }) => `- ${JSON.stringify(name)}：${JSON.stringify(path)}`).join('\n')}`
+    ? `${attachmentReferencesHeading}\n${files.map(({ name, path }) => `- ${JSON.stringify(name)}：${JSON.stringify(path)}`).join('\n')}`
     : ''
   return { message: [text, references].filter(Boolean).join('\n\n'), images }
 }

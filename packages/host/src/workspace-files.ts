@@ -53,7 +53,7 @@ async function readBytes(filename: string, maximum: number) {
   }
 }
 
-export function createWorkspaceFiles(resolveRoot: ResolveWorkspaceRoot) {
+export function createWorkspaceFiles(resolveRoot: ResolveWorkspaceRoot, attachmentsRoot?: string) {
   const writes = new Map<string, Promise<unknown>>()
   const searches = new Map<
     string,
@@ -71,6 +71,16 @@ export function createWorkspaceFiles(resolveRoot: ResolveWorkspaceRoot) {
     const filename = await realpath(path.resolve(root, relative))
     if (filename !== root && !filename.startsWith(`${root}${path.sep}`)) throw new Error('文件路径越出工作目录')
     return { root, filename }
+  }
+  async function attachmentTarget(ref: WorkspaceRef, absolute: string) {
+    await resolveRoot(ref)
+    const root = path.resolve(attachmentsRoot!)
+    if ((await realpath(root)) !== root) throw new Error('附件目录不能是符号链接')
+    if (!path.resolve(absolute).startsWith(`${root}${path.sep}`)) throw new Error('图片路径越出附件目录')
+    const filename = await realpath(absolute)
+    if (!filename.startsWith(`${root}${path.sep}`)) throw new Error('图片路径越出附件目录')
+    if (!imageTypes[path.extname(filename).toLowerCase()]) throw new Error('附件预览只支持图片')
+    return { filename }
   }
   const api = {
     async list(ref: WorkspaceRef, relative = ''): Promise<FileEntry[]> {
@@ -101,7 +111,10 @@ export function createWorkspaceFiles(resolveRoot: ResolveWorkspaceRoot) {
       return { relativePath: relative, content: text(bytes) }
     },
     async preview(ref: WorkspaceRef, relative: string): Promise<FilePreview> {
-      const { filename } = await target(ref, relative)
+      const { filename } =
+        attachmentsRoot && typeof relative === 'string' && path.isAbsolute(relative)
+          ? await attachmentTarget(ref, relative)
+          : await target(ref, relative)
       const mime = imageTypes[path.extname(filename).toLowerCase()]
       const { bytes } = await readBytes(filename, mime ? maxImagePreviewBytes : maxFilePreviewBytes)
       if (!bytes) return { kind: 'unsupported', relativePath: relative, reason: 'too-large' }

@@ -126,9 +126,9 @@ Host 退出或重启将未完成提交记为 `interrupted`，不重放任务。`
 
 ## 文件与终端
 
-文件操作始终限定显式目标的工作目录。[workspace-files.ts](../packages/host/src/workspace-files.ts) 校验路径与真实符号链接目标，拒绝越界：
+文件操作使用显式目标的工作目录内相对路径；只有 `preview` 额外接受当前 Host 附件目录内的图片绝对路径，用于显示用户消息中的上传图片。[workspace-files.ts](../packages/host/src/workspace-files.ts) 校验目标、路径与真实符号链接目标，拒绝越界：
 
-- `preview` 分类返回文本、图片或不支持原因；`search` 按文件名搜索并返回分页游标。
+- `preview` 分类返回文本、图片或不支持原因；附件预览只读取数据目录 `attachments/` 内的图片，拒绝符号链接根目录与越界链接，不允许读取附件文本或修改附件。`search` 按文件名搜索并返回分页游标。
 - `write` 只保存现有 UTF-8 文本文件，携带读取时的 `revision` 和幂等键，外部修改后拒绝覆盖。
 - 文本读取/保存上限为 1 MiB，图片上限 8 MiB；保存保留 BOM、LF/CRLF 与文件权限。
 - `capabilities().fileOperations` 用于协商 `preview/search/write`，旧 Host 未提供该字段时文件面板保持只读。

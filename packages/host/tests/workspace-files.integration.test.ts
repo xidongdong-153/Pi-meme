@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
-import { mkdtemp, mkdir, writeFile, symlink, rm, readdir } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, symlink, rm, readdir, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { createWorkspaceFiles, maxFilePreviewBytes, maxImagePreviewBytes } from '../src/workspace-files'
@@ -37,6 +37,52 @@ test('文件预览限定目标目录，拒绝越界链接、二进制和过大�
   } finally {
     await rm(root, { recursive: true, force: true })
   }
+})
+
+test('附件图片绝对路径仅可预览，保留目标校验、大小限制和附件目录边界', async (t) => {
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), 'app-attachment-preview-')))
+  t.onTestFinished(() => rm(root, { recursive: true, force: true }))
+  const project = path.join(root, 'project')
+  const attachments = path.join(root, 'attachments')
+  const upload = path.join(attachments, 'upload-test')
+  await mkdir(project)
+  await mkdir(upload, { recursive: true })
+  const image = Buffer.from('image bytes')
+  const filename = path.join(upload, 'image.png')
+  await writeFile(filename, image)
+  await writeFile(path.join(upload, 'notes.txt'), '不允许读取附件文本')
+  await writeFile(path.join(upload, 'large.png'), Buffer.alloc(maxImagePreviewBytes + 1))
+  await writeFile(path.join(root, 'outside.png'), image)
+  await symlink(path.join(root, 'outside.png'), path.join(upload, 'outside.png'))
+  await symlink(attachments, path.join(root, 'linked-attachments'))
+  const files = createWorkspaceFiles(async (ref) => {
+    if (ref.hostId !== 'host') throw new Error('目标 Host 无效')
+    return project
+  }, attachments)
+  const ref = { hostId: 'host', sessionId: 'session' }
+  assert.deepEqual(await files.preview(ref, filename), {
+    kind: 'image',
+    relativePath: filename,
+    dataUrl: `data:image/png;base64,${image.toString('base64')}`,
+    size: image.length,
+  })
+  assert.deepEqual(await files.preview(ref, path.join(upload, 'large.png')), {
+    kind: 'unsupported',
+    relativePath: path.join(upload, 'large.png'),
+    reason: 'too-large',
+  })
+  for (const invalid of [
+    path.join(root, 'outside.png'),
+    path.join(upload, 'outside.png'),
+    path.join(upload, 'notes.txt'),
+  ])
+    await assert.rejects(files.preview(ref, invalid))
+  await assert.rejects(files.preview({ ...ref, hostId: 'wrong-host' }, filename), /目标 Host 无效/)
+  await assert.rejects(files.read(ref, filename))
+  await assert.rejects(files.list(ref, upload))
+  await assert.rejects(files.write(ref, { relativePath: filename, content: '不允许写入', revision: '' }))
+  const linked = createWorkspaceFiles(async () => project, path.join(root, 'linked-attachments'))
+  await assert.rejects(linked.preview(ref, path.join(root, 'linked-attachments', 'upload-test', 'image.png')))
 })
 
 test('文件分类预览与保存保留 BOM、CRLF、权限，并拒绝冲突、越界和并发覆盖', async (t) => {

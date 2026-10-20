@@ -8,7 +8,9 @@ import { MessageImageLoaderContext } from '../src/ui/content/message-image'
 import { Conversation } from '../src/ui/conversation/conversation'
 import { emptyChat } from '../src/ui/model/state'
 import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
-import { assistantMessage } from '../../../tests/fixtures/messages.mjs'
+import { assistantMessage, userMessage } from '../../../tests/fixtures/messages.mjs'
+import { ChatMessage } from '../src/ui/conversation/chat-message'
+import { messageWithAttachments } from '../src/ui/composer/image-attachment'
 
 const dataUrl = 'data:image/png;base64,YWJj'
 function preview(data = dataUrl): FilePreview {
@@ -17,6 +19,58 @@ function preview(data = dataUrl): FilePreview {
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
+})
+
+test.each(['string', 'blocks'])('用户附件从正文分离，图片使用 Host 预览，文件不可点击：%s', async (format) => {
+  const loadImage = vi.fn(async () => preview())
+  const path = '/host/attachments/upload-test/file-截图 #1%.png'
+  const { message } = messageWithAttachments('只保留用户输入的文字', [
+    { id: 'image', type: 'file', name: '截图 #1%.png', path },
+    { id: 'file', type: 'file', name: 'report.pdf', path: '/host/attachments/upload-doc/file-report.pdf' },
+  ])
+  const { container } = render(
+    <TooltipProvider>
+      <MessageImageLoaderContext value={loadImage}>
+        <ChatMessage
+          message={userMessage(format === 'string' ? message : [{ type: 'text', text: message }])}
+          tools={{}}
+        />
+      </MessageImageLoaderContext>
+    </TooltipProvider>,
+  )
+  const body = container.querySelector('[data-message-body]')!
+  expect(body.textContent).toBe('只保留用户输入的文字')
+  expect(body).not.toHaveTextContent('附加文件')
+  expect(body).not.toHaveTextContent('/host/attachments')
+  const image = await screen.findByRole('img', { name: '截图 #1%.png' })
+  expect(image).toHaveAttribute('src', dataUrl)
+  expect(image.closest('[data-message-body]')).toBeNull()
+  expect(loadImage).toHaveBeenCalledExactlyOnceWith(path)
+  expect(body).not.toHaveTextContent('截图 #1%.png')
+  expect(screen.queryByRole('button', { name: /移除|关闭|取消/ })).not.toBeInTheDocument()
+  const file = screen.getByText('report.pdf')
+  expect(file.closest('button, a, [role="button"]')).toBeNull()
+  fireEvent.click(file)
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+})
+
+test('仅附件消息不显示路径说明，类似附件说明但不完整的正文保持原样', () => {
+  const { message } = messageWithAttachments('', [
+    { id: 'file', type: 'file', name: 'notes.txt', path: '/host/attachments/upload-doc/file-notes.txt' },
+  ])
+  const renderMessage = (text: string) => (
+    <TooltipProvider>
+      <ChatMessage message={userMessage(text)} tools={{}} />
+    </TooltipProvider>
+  )
+  const { container, rerender } = render(renderMessage(message))
+  expect(container).toHaveTextContent('notes.txt')
+  expect(container).not.toHaveTextContent('附加文件')
+  expect(container).not.toHaveTextContent('/host/attachments')
+  const malformed = '请解释这段文字\n\n附加文件（Host 路径，请按需读取）：\n- "notes.txt"：路径不完整'
+  expect(container.querySelector('[data-message-body]')).toBeNull()
+  rerender(renderMessage(malformed))
+  expect(container.querySelector('[data-message-body]')?.textContent).toBe(malformed)
 })
 
 test('图片链接显示缩略图，原地打开预览、缩放，Esc 关闭后返回焦点', async () => {

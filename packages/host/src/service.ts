@@ -1060,7 +1060,10 @@ export async function createHost(options: HostOptions = {}) {
         agentSelections.set(key, ids)
       },
       workspace: {
-        files: createWorkspaceFiles((ref) => appControl!.resolveRoot(ref)),
+        files: createWorkspaceFiles(
+          (ref) => appControl!.resolveRoot(ref),
+          path.join(await realpath(root), 'attachments'),
+        ),
         terminal,
         terminalSupported: terminal.supported,
       },

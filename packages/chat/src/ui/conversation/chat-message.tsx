@@ -1,4 +1,6 @@
 import { UserMessageContent } from './user-message-content'
+import { UserMessageAttachments } from './user-message-attachments'
+import { messageAttachmentParts } from '../model/message-attachments'
 import * as React from 'react'
 import { Loader2 } from 'lucide-react'
 import { ErrorLine } from '@pi-meme/ui/components/error-line'
@@ -72,6 +74,13 @@ export function ChatMessage({
   }
 
   const isUser = message.role === 'user'
+  const userContent = isUser
+    ? messageAttachmentParts(
+        typeof content === 'string'
+          ? content
+          : (segments?.flatMap((segment) => (segment.type === 'text' ? [segment.text] : [])).join('') ?? ''),
+      )
+    : null
 
   // 提取消息中的图片
   const images: Array<PiImage & { id?: string }> = []
@@ -98,44 +107,44 @@ export function ChatMessage({
       )}
     >
       <div className={cn('flex flex-col min-w-0', isUser ? 'max-w-[85%] items-end' : 'w-full items-start')}>
-        <div
-          data-message-body=""
-          className={cn(
-            'text-sm text-foreground leading-relaxed',
-            isUser
-              ? 'rounded-2xl px-4 py-2.5 bg-[#183d6e] text-white whitespace-pre-wrap shadow-xs'
-              : 'bg-transparent px-0 py-0.5 w-full',
-          )}
-        >
-          {images.length > 0 && <AttachmentPreview images={images} />}
+        {userContent && <UserMessageAttachments attachments={userContent.attachments} images={images} />}
+        {(!userContent || userContent.text) && (
+          <div
+            data-message-body=""
+            className={cn(
+              'text-sm text-foreground leading-relaxed',
+              isUser
+                ? 'rounded-2xl px-4 py-2.5 bg-[#183d6e] text-white whitespace-pre-wrap shadow-xs'
+                : 'bg-transparent px-0 py-0.5 w-full',
+            )}
+          >
+            {!isUser && images.length > 0 && <AttachmentPreview images={images} />}
 
-          {typeof content === 'string' ? (
-            isUser ? (
-              <UserMessageContent text={content} />
-            ) : (
+            {userContent ? (
+              <UserMessageContent text={userContent.text} />
+            ) : typeof content === 'string' ? (
               <MarkdownContent isStreaming={live}>{content}</MarkdownContent>
-            )
-          ) : segments ? (
-            segments.map((seg, idx) => {
-              if (seg.type === 'text') {
-                if (isUser) return <UserMessageContent key={idx} text={seg.text} />
-                return (
-                  <MarkdownContent key={idx} isStreaming={live}>
-                    {seg.text}
-                  </MarkdownContent>
-                )
-              }
-              if (seg.type === 'activity') {
-                return <ActivityGroup key={idx} items={seg.items} isLive={live} />
-              }
-              return null
-            })
-          ) : null}
+            ) : segments ? (
+              segments.map((seg, idx) => {
+                if (seg.type === 'text') {
+                  return (
+                    <MarkdownContent key={idx} isStreaming={live}>
+                      {seg.text}
+                    </MarkdownContent>
+                  )
+                }
+                if (seg.type === 'activity') {
+                  return <ActivityGroup key={idx} items={seg.items} isLive={live} />
+                }
+                return null
+              })
+            ) : null}
 
-          {message.role === 'assistant' && message.stopReason !== 'aborted' && message.errorMessage && (
-            <ErrorLine className="mt-2" message={message.role === 'assistant' ? message.errorMessage! : ''} />
-          )}
-        </div>
+            {message.role === 'assistant' && message.stopReason !== 'aborted' && message.errorMessage && (
+              <ErrorLine className="mt-2" message={message.role === 'assistant' ? message.errorMessage! : ''} />
+            )}
+          </div>
+        )}
         {isUser && (
           <div className="mt-1 flex h-7 items-center gap-1 text-sm text-muted-foreground/70 opacity-0 transition-opacity focus-within:opacity-100 group-hover/message:opacity-100">
             {typeof message.timestamp === 'number' && (
