@@ -31,6 +31,11 @@ export function createChatHandlers({ pi, getCwd }: ChatHandlerContext) {
       text(key)
       return pi.resume(key)
     },
+    'pi:recover': (key: unknown, failureEntryId: unknown) => {
+      text(key)
+      text(failureEntryId)
+      return pi.recover(key, failureEntryId)
+    },
     'pi:steer-queue-input': (key: unknown, id: unknown) => {
       text(key)
       text(id)

@@ -191,6 +191,65 @@ runSessionWorker({ interaction: (context) => { context.registerInteractionPolicy
   }
 })
 
+test('Worker 传递失败节点恢复，在同一会话继续且不新增用户消息', { timeout: 15000 }, async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'pi-meme-worker-recovery-'))
+  const fake = await useFakeAgent(root, {
+    reply: (_body, index) => (index === 1 ? { status: 503, text: 'network error' } : '恢复完成'),
+  })
+  await writeFile(
+    path.join(fake.agentDir, 'settings.json'),
+    JSON.stringify({ retry: { enabled: false, provider: { maxRetries: 0 } } }),
+  )
+  const events: DesktopEvent[] = []
+  const session = createWorkerSession(
+    root,
+    { connection: () => {}, event: (event) => events.push(event), error: () => {} },
+    fake.runtimePaths,
+    () => ({
+      dataRoot: path.dirname(fake.agentDir),
+      credentials: fake.credentials,
+      settings: { themeId: 'dark' },
+      agentEntries: [],
+    }),
+  )
+  const settled = async (count: number) => {
+    const deadline = Date.now() + 5000
+    while (events.filter((event) => event.event.type === 'agent_settled').length < count) {
+      if (Date.now() > deadline) throw new Error('等待 Worker 恢复结束超时')
+      await delay(10)
+    }
+  }
+  try {
+    await session.reconnectModels()
+    await session.setModel({ provider: 'fake', id: 'first' })
+    await session.prompt('继续当前任务')
+    await settled(1)
+    const failed = await session.snapshot()
+    assert.ok(failed.state.recovery?.entryId)
+    const failureEntryId = failed.state.recovery.entryId
+    await assert.rejects(session.recover('stale-entry'))
+    assert.equal(fake.provider.requests.length, 1)
+    await session.recover(failureEntryId)
+    await settled(2)
+    const recovered = await session.snapshot()
+    assert.equal(recovered.connection.sessionFile, failed.connection.sessionFile)
+    assert.equal(recovered.messages.filter((message) => message.role === 'user').length, 1)
+    assert.equal(
+      recovered.messages.some((message) => message.role === 'assistant' && message.stopReason === 'error'),
+      false,
+    )
+    assert.equal(recovered.state.recovery, undefined)
+    assert.equal(fake.provider.requests.length, 2)
+    assert.ok(events.some(({ event }) => event.type === 'recovery_start'))
+    await assert.rejects(session.recover(failureEntryId))
+    assert.equal(fake.provider.requests.length, 2)
+  } finally {
+    await session.stopAndWait()
+    await fake.dispose()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 test('冷 Worker 暂停和释放编辑不启动运行时，启动继承最新门闸且停止清除缓存', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'pi-meme-worker-pause-'))
   const paths = createPiRuntimePaths(root)

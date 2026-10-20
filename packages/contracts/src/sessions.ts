@@ -1,4 +1,4 @@
-import type { PiMessage, PiModel, PiSessionEntries, PiSessionStats, ThinkingLevel } from './pi'
+import type { PiMessage, PiModel, PiRecoveryState, PiSessionEntries, PiSessionStats, ThinkingLevel } from './pi'
 import type { BranchSkillUsage } from './skills'
 import type { SessionInfo } from '@earendil-works/pi-coding-agent'
 
@@ -50,6 +50,7 @@ export type SessionHistoryData = {
   messages: PiMessage[]
   sessionEntries?: PiSessionEntries
   skillUsages?: BranchSkillUsage[]
+  recovery?: PiRecoveryState
   sessionName?: string
   /** 分叉来源会话文件路径，来自会话头部的 parentSession。 */
   parentSessionPath?: string

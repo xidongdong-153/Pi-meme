@@ -1,6 +1,7 @@
 import { homedir } from 'node:os'
 import type { SessionEntry } from '@earendil-works/pi-coding-agent'
 import type { PiBranchEntry } from '@pi-meme/contracts/pi'
+import { activePathIds } from '@pi-meme/contracts/session-tree'
 import { skillMessageText } from '@pi-meme/contracts/skills'
 
 const PREVIEW_LIMIT = 500
@@ -132,8 +133,18 @@ function entryPreview(entry: SessionEntry, toolCalls: Map<string, ToolCallInfo>)
 }
 
 /** 把会话条目投影成 Session Tree 需要的扁平结构，附带单行摘要 preview。 */
-export function projectBranchEntries(entries: readonly SessionEntry[]): PiBranchEntry[] {
+export function projectBranchEntries(
+  entries: readonly SessionEntry[],
+  leafId: string | null = entries.at(-1)?.id ?? null,
+): PiBranchEntry[] {
   const toolCalls = collectToolCalls(entries)
+  const activeIds = activePathIds(entries, leafId)
+  const omitted = new Set<string>()
+  for (const entry of entries) {
+    if (entry.type !== 'context_edit' || !activeIds.has(entry.id)) continue
+    if (entry.replacement === null) omitted.add(entry.targetId)
+    else omitted.delete(entry.targetId)
+  }
   return entries.map((entry) => ({
     id: entry.id,
     parentId: entry.parentId,
@@ -142,7 +153,15 @@ export function projectBranchEntries(entries: readonly SessionEntry[]): PiBranch
     role: entry.type === 'message' ? entry.message.role : undefined,
     messageTimestamp: entry.type === 'message' ? entry.message.timestamp : undefined,
     customType: entry.type === 'custom_message' ? entry.customType : undefined,
-    display: entry.type === 'custom_message' ? entry.display : undefined,
+    display:
+      entry.type === 'custom_message'
+        ? entry.display
+        : entry.type === 'message' &&
+            entry.message.role === 'assistant' &&
+            entry.message.stopReason === 'error' &&
+            omitted.has(entry.id)
+          ? false
+          : undefined,
     toolName: entry.type === 'message' && entry.message.role === 'toolResult' ? entry.message.toolName : undefined,
     preview: entryPreview(entry, toolCalls) || undefined,
   }))

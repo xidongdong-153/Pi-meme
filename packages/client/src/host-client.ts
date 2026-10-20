@@ -820,6 +820,7 @@ export class HostClient {
       setSessionMode: (key, mode) => rpc('pi:session-mode', [key, mode], key),
       pause: (key) => rpc('pi:pause', [key], key),
       resume: (key) => rpc('pi:resume', [key], key),
+      recover: (key, failureEntryId) => rpc('pi:recover', [key, failureEntryId], key),
       steerQueueInput: (key, id) => rpc('pi:steer-queue-input', [key, id], key),
       deleteQueueInput: (key, id) => rpc('pi:delete-queue-input', [key, id], key),
       beginQueueEdit: (key, id) => rpc('pi:begin-queue-edit', [key, id], key),

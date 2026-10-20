@@ -41,6 +41,8 @@ const files: Array<[string, Feature[]]> = [
   ['packages/pi-runtime/tests/managed-process.integration.test.ts', ['activities', 'permissions']],
   ['packages/chat/tests/composer-goal.component.test.tsx', ['goals']],
   ['packages/chat/tests/composer-files.component.test.tsx', ['chat']],
+  ['packages/chat/tests/recovery-composer.component.test.tsx', ['chat']],
+  ['packages/pi-runtime/tests/session-recovery.integration.test.ts', ['chat', 'sessions', 'connection']],
   ['packages/host/tests/chat-attachments.integration.test.ts', ['chat', 'files', 'connection']],
   ['packages/pi-runtime/tests/linux-sandbox-attachments.unit.test.ts', ['chat', 'permissions']],
   ['packages/goals/tests/goal-service.unit.test.ts', ['goals']],

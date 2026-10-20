@@ -85,6 +85,12 @@ Agent 本轮结束、停止响应、Worker 回收、切换会话、关闭工具�
 
 正式 API 的投递方式是 `start`、`queue`、`steer`；运行中拒绝 `start`，队列与回执规则见 [HostApi 提交](host-api.md#提交与回执)。网络断线只恢复连接和快照，不自动重发 prompt。Host 重启将未完成提交标记为中断，不重放模型调用。
 
+模型连接失败且自动重试结束后，输入框为空、没有附件或技能引用时，右下角显示“恢复当前任务”；错误行不增加操作。恢复请求等待期间不能重复提交，空输入按 Enter 不恢复。有草稿时仍显示发送，恢复不清空草稿。存在未结束 Goal 时仍使用目标状态条的恢复，普通恢复入口隐藏，Host 也拒绝该操作，避免绕过目标暂停和用量限制。
+
+恢复只接受当前分支最新可重试错误的原生 entry ID，通过内部 `pi:recover` 控制接口继续原会话，不新增用户消息、不重发原始任务。Pi `context_edit` 省略尾部失败助手消息，保留此前成功回复和工具结果；聊天与会话树隐藏已省略的错误，原始 JSONL 记录保留用于记账。重新打开会话仍采用省略后的上下文。恢复沿用失败轮次的任务模式和当前访问权限，不修改输入框的模式选择。中断中的文本可能重新生成，执行结果不确定的外部操作仍需先核对。
+
+实现见 [恢复判定](../packages/pi-runtime/src/sdk/recovery.ts)、[SDK 会话](../packages/pi-runtime/src/sdk/session.ts) 和 [输入框按钮](../packages/chat/src/ui/composer/composer-toolbar.tsx)；持久化回归见 [session-recovery.integration.test.ts](../packages/pi-runtime/tests/session-recovery.integration.test.ts)。
+
 ## 编辑用户消息
 
 点击用户消息的“编辑”后重新发送，会覆盖这条输入，并删除它原来的回复及后续对话，再从编辑位置生成回复。原会话身份和编辑位置之前的上下文保持不变，不保留可切换的消息版本。取消编辑不修改会话记录。“从这段回复新建会话”仍用于创建独立会话，不属于消息编辑。

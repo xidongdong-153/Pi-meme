@@ -81,6 +81,23 @@ test('消息正文摘要保留换行，用户条目的结构字段不丢', () =>
   assert.equal(reply.preview, '已完成的回复')
 })
 
+test('恢复后隐藏被当前分支省略的错误，保留树结构与成功消息', () => {
+  const entries = [
+    assistant('u1', null, userMessage('继续任务', 1)),
+    assistant('a1', 'u1', assistantMessage('已完成的工作', 2)),
+    assistant('e1', 'a1', assistantMessage('', 3, { stopReason: 'error', errorMessage: 'Connection error.' })),
+    { type: 'context_edit', id: 'omit', parentId: 'e1', timestamp: '4', targetId: 'e1', replacement: null },
+    { type: 'context_edit', id: 'other', parentId: 'e1', timestamp: '5', targetId: 'a1', replacement: null },
+  ] as unknown as SessionEntry[]
+
+  const recovered = projectBranchEntries(entries, 'omit')
+  assert.equal(recovered.find((entry) => entry.id === 'e1')?.display, false)
+  assert.equal(recovered.find((entry) => entry.id === 'a1')?.display, undefined)
+  assert.equal(recovered.find((entry) => entry.id === 'omit')?.parentId, 'e1')
+  assert.equal(projectBranchEntries(entries, 'other').find((entry) => entry.id === 'e1')?.display, undefined)
+  assert.equal(projectBranchEntries(entries, 'e1').find((entry) => entry.id === 'e1')?.display, undefined)
+})
+
 test('中止的助手消息给出可读占位摘要', () => {
   const entries = [
     assistant('a1', null, assistantMessage('', 1, { stopReason: 'aborted' })),

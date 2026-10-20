@@ -241,6 +241,7 @@ export interface ChatBridge {
   setSessionMode: (sessionKey: string, mode: TaskMode) => Promise<void>
   pause: (sessionKey: string) => Promise<void>
   resume: (sessionKey: string) => Promise<void>
+  recover: (sessionKey: string, failureEntryId: string) => Promise<void>
   steerQueueInput: (sessionKey: string, id: string) => Promise<void>
   deleteQueueInput: (sessionKey: string, id: string) => Promise<void>
   beginQueueEdit: (sessionKey: string, id: string) => Promise<QueuedInput>

@@ -900,6 +900,8 @@ export function useAppSession(
     send: chat.send,
     stop: chat.stop,
     resume: chat.resume,
+    recover: chat.recover,
+    recovering: chat.recovering,
     steerQueueInput: chat.steerQueueInput,
     deleteQueueInput: chat.deleteQueueInput,
     editingQueue: chat.editingQueue,

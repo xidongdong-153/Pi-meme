@@ -407,6 +407,27 @@ export class HostCollaborationBridge {
     else if (record.summary.mode !== mode || !activeStatuses.has(record.summary.status))
       throw new Error('任务轮次已结束或模式发生变化')
   }
+  async admitRecovery(actualSession: RuntimeSdkSession, mode: TaskMode, signal?: AbortSignal) {
+    await this.ready
+    const root = this.callers.get(actualSession)
+    if (!root || root.session !== actualSession || root.summary.depth !== 0 || signal?.aborted)
+      throw new Error('恢复请求必须来自已绑定的根会话')
+    if (this.stopping || this.paused(root)) throw new Error('当前任务已暂停或正在结束')
+    const restarted = root.summary.status === 'interrupted' && root.summary.error === 'Host 已重启，任务未自动恢复'
+    if (!restarted && !['idle', 'completed', 'failed', 'waiting_children', 'stopped'].includes(root.summary.status))
+      throw new Error('当前任务不能恢复，请重新读取会话状态')
+    root.settled = false
+    Object.assign(root.summary, {
+      runId: root.summary.runId ?? randomUUID(),
+      runStartedAt: root.summary.runStartedAt ?? new Date().toISOString(),
+      status: 'running',
+      mode,
+      runCompletedAt: undefined,
+      error: undefined,
+    })
+    await this.persist()
+    this.changed(root)
+  }
   async rootFailed(sessionKey: string, cause: unknown, runId?: string) {
     const root = this.root(sessionKey)
     if ((runId && root.summary.runId !== runId) || ['stopped', 'interrupted'].includes(root.summary.status)) return

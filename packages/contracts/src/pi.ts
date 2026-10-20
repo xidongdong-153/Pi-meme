@@ -99,6 +99,8 @@ export type PiGenerationMetrics = {
 }
 export type PiRunInterval = { startedAt: number; endedAt?: number }
 export type PiPauseInterval = { startedAt: number; endedAt?: number }
+/** 最新失败轮次的恢复入口；由 Host 校验是否仍可执行。 */
+export type PiRecoveryState = { entryId: string; mode: TaskMode }
 export type PiRetryState = {
   kind: 'model' | 'summary'
   attempt: number
@@ -118,6 +120,7 @@ export type PiState = Pick<
   runIntervals?: PiRunInterval[]
   generationMetrics?: PiGenerationMetrics
   retry?: PiRetryState
+  recovery?: PiRecoveryState
   compactionError?: string
   mode: TaskMode
   activeMode?: TaskMode
@@ -154,7 +157,8 @@ type PiCoreEvent =
         }
       >
     > & { runIntervals?: PiRunInterval[]; source?: PiUiSource })
-  | { type: 'agent_settled'; aborted?: boolean; runIntervals?: PiRunInterval[] }
+  | { type: 'agent_settled'; aborted?: boolean; runIntervals?: PiRunInterval[]; recovery?: PiRecoveryState }
+  | { type: 'recovery_start'; removedMessageTimestamps: number[] }
   | {
       type: 'pause_update'
       isPaused: boolean

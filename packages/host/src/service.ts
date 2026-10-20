@@ -74,6 +74,7 @@ const sessionWrites = new Set([
   'pi:abort',
   'pi:pause',
   'pi:resume',
+  'pi:recover',
   'pi:steer-queue-input',
   'pi:delete-queue-input',
   'pi:begin-queue-edit',
@@ -199,6 +200,7 @@ export async function createHost(options: HostOptions = {}) {
       'pi:abort',
       'pi:pause',
       'pi:resume',
+      'pi:recover',
       'pi:steer-queue-input',
       'pi:delete-queue-input',
       'pi:begin-queue-edit',
@@ -440,7 +442,8 @@ export async function createHost(options: HostOptions = {}) {
               throw new Error('目标已暂停或发生变更')
             if (mode === 'plan' && current?.status === 'active')
               await goals.stop(current.session, 'paused', '进入规划模式，目标已暂停')
-            await collaboration.admit(session, message, mode, origin === 'collaboration', signal)
+            if (origin === 'recovery') await collaboration.admitRecovery(session, mode, signal)
+            else await collaboration.admit(session, message, mode, origin === 'collaboration', signal)
             const run =
               actor.depth === 0
                 ? await appControl?.admitGoal(actor.rootSessionKey, origin, expected)
@@ -1342,6 +1345,10 @@ export async function createHost(options: HostOptions = {}) {
                   if (request.method === 'pi:access-mode' && key) {
                     const ref = await appControl!.sessionForRuntime(key)
                     appControl!.assertActivityAccess(ref, request.args[1])
+                  }
+                  if (request.method === 'pi:recover' && key) {
+                    const goal = await appControl!.goalForRuntime(key)
+                    if (goal && goal.status !== 'complete') throw new Error('当前会话有未结束的目标，请使用目标恢复')
                   }
                   result = await action(...request.args)
                 }

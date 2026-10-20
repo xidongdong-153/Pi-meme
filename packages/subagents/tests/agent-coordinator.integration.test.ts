@@ -28,6 +28,70 @@ function enableCollaboration(bridge: ReturnType<typeof createHostCollaborationBr
   )
 }
 
+test('失败恢复只重激活原根任务，保留子树、排队任务和未来选择的模式', async () => {
+  const context = await setup()
+  try {
+    await context.begin('plan')
+    const child = await context.spawn('worker')
+    const worker = context.children.get(child.sessionKey)!
+    await context.call(context.root.session, 'followup_task', { target: 'worker', message: '下一项子任务' })
+    const before = (await context.bridge.getAgents('root-key'))[0]!
+    await context.bridge.rootFailed('root-key', new Error('network error'), before.runId)
+    await context.bridge.setSessionMode('root-key', 'default')
+    await context.bridge.admitRecovery(context.root.session, 'plan')
+    const recovered = await context.bridge.getAgents('root-key')
+    for (const field of ['agentId', 'rootTaskId', 'epoch', 'runId', 'task', 'runStartedAt', 'mode'] as const)
+      assert.equal(recovered[0]![field], before[field], field)
+    assert.equal(recovered[0]!.status, 'running')
+    assert.equal(recovered[0]!.error, undefined)
+    assert.equal(recovered[0]!.runCompletedAt, undefined)
+    assert.deepEqual(recovered[1], child)
+    assert.equal(await context.bridge.getSessionMode('root-key'), 'default')
+    assert.equal(worker.prompts.length, 1)
+    await worker.finish('首项子任务完成')
+    await context.until(async () => worker.prompts.length === 2)
+    assert.equal(worker.prompts[1], '下一项子任务')
+  } finally {
+    await context.cleanup()
+  }
+})
+
+test('恢复准入接受已结算和首次绑定历史，拒绝暂停、子会话和取消请求且不重启已停止子任务', async () => {
+  const context = await setup()
+  try {
+    await context.bridge.admitRecovery(context.root.session, 'default')
+    const initial = (await context.bridge.getAgents('root-key'))[0]!
+    assert.ok(initial.runId)
+    await context.bridge.rootSettled('root-key')
+    await context.bridge.admitRecovery(context.root.session, 'default')
+    assert.equal((await context.bridge.getAgents('root-key'))[0]!.runId, initial.runId)
+    const child = await context.spawn('worker')
+    await context.bridge.rootSettled('root-key')
+    await context.bridge.admitRecovery(context.root.session, 'default')
+    const current = (await context.bridge.getAgents('root-key'))[0]!
+    assert.equal(current.status, 'running')
+    await assert.rejects(
+      context.bridge.admitRecovery(context.children.get(child.sessionKey)!.session, 'default'),
+      /根会话/,
+    )
+    await context.bridge.rootFailed('root-key', new Error('network error'))
+    const cancelled = new AbortController()
+    cancelled.abort()
+    await assert.rejects(context.bridge.admitRecovery(context.root.session, 'default', cancelled.signal), /根会话/)
+    await context.bridge.pauseRoot('root-key')
+    await assert.rejects(context.bridge.admitRecovery(context.root.session, 'default'), /暂停/)
+    await context.bridge.stopRoot('root-key')
+    await context.bridge.admitRecovery(context.root.session, 'default')
+    const resumed = await context.bridge.getAgents('root-key')
+    assert.equal(resumed[0]!.status, 'running')
+    assert.equal(resumed[0]!.runId, initial.runId)
+    assert.equal(resumed[1]!.status, 'interrupted')
+    assert.equal(context.children.get(child.sessionKey)!.prompts.length, 1)
+  } finally {
+    await context.cleanup()
+  }
+})
+
 test('同级代理短名称按当前层级寻址，发送和等待反馈不需要重新派发任务', async () => {
   const context = await setup()
   try {

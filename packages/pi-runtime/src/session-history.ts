@@ -8,6 +8,7 @@ import { branchSkillUsages } from './extensions/skill-usage'
 import { projectBranchEntries } from './session-tree-entries'
 import { projectMessageSources } from './sdk/ui-source'
 import { loadPiSdk } from './sdk/load'
+import { findSessionRecovery } from './sdk/recovery'
 
 export type { SessionHistoryData } from '@pi-meme/contracts/sessions'
 
@@ -176,10 +177,12 @@ export async function readSessionHistory(filePath: string): Promise<SessionHisto
       branch.push(branchEntry)
       branchEntry = branchEntry.parentId ? byId.get(branchEntry.parentId) : undefined
     }
+    const recovery = findSessionRecovery(history, history.at(-1)?.id ?? null)
     const data: SessionHistoryData = {
       cwd: header.cwd,
       created: header.timestamp,
       skillUsages: branchSkillUsages(branch.reverse()),
+      recovery: recovery ? { entryId: recovery.entryId, mode: recovery.mode } : undefined,
       messages: projectMessageSources(history, context.messages),
       sessionEntries: {
         entries: projectBranchEntries(history),

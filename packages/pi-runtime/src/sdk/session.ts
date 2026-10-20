@@ -59,6 +59,7 @@ import {
 } from './composer-hint'
 import { toDesktopEvent } from './events'
 import { GenerationMetricsTracker } from './generation-metrics'
+import { findSessionRecovery, recoveryEntryType, recoveryMessage } from './recovery'
 import { loadPiSdk, type PiSdk } from './load'
 import { createDesktopModelRuntime } from './model-runtime'
 import { createDesktopSettingsManager } from './settings'
@@ -719,7 +720,17 @@ export class SdkSession {
         pause.endedAt = interval?.endedAt ?? Date.now()
         this.emitPause()
       }
-      event = { ...event, runIntervals: structuredClone(this.runIntervals) }
+      const candidate = this.findRecovery()
+      if (!aborted && candidate && this.activeMode)
+        this.session.sessionManager.appendCustomEntry(recoveryEntryType, {
+          entryId: candidate.entryId,
+          mode: this.activeMode,
+        })
+      event = {
+        ...event,
+        runIntervals: structuredClone(this.runIntervals),
+        recovery: aborted ? undefined : this.recoveryState(),
+      }
       this.activityRevision += 1
       this.activeMode = undefined
       if (aborted) this.clearComposerHint()
@@ -879,7 +890,10 @@ export class SdkSession {
       models,
       thinkingLevels,
       stats,
-      sessionEntries: own?.sessionEntries ?? { entries: projectBranchEntries(entries.entries), leafId: entries.leafId },
+      sessionEntries: own?.sessionEntries ?? {
+        entries: projectBranchEntries(entries.entries, entries.leafId),
+        leafId: entries.leafId,
+      },
     }
   }
 
@@ -901,11 +915,84 @@ export class SdkSession {
       runIntervals: structuredClone(this.runIntervals),
       generationMetrics: this.generationMetrics.snapshot(),
       retry: this.retry ? { ...this.retry } : undefined,
+      recovery: this.recoveryState(),
       compactionError: this.compactionError,
       mode: this.mode,
       activeMode: this.activeMode,
       skillUsages: this.getSkillUsages(),
       composerHint: this.composerHint,
+    }
+  }
+
+  private findRecovery() {
+    if (!this.runtime) return undefined
+    const manager = this.session.sessionManager
+    return findSessionRecovery(manager.getEntries(), manager.getLeafId())
+  }
+
+  private recoveryState(): PiState['recovery'] {
+    if (this.running || this.changing || this.paused || this.queuePaused || this.retry) return undefined
+    const recovery = this.findRecovery()
+    return recovery ? { entryId: recovery.entryId, mode: recovery.mode } : undefined
+  }
+
+  async recover(failureEntryId: string) {
+    if (this.paused || this.queuePaused) throw new Error('会话已暂停，请先继续当前任务')
+    if (this.running || this.changing || this.pendingSend) throw new Error('Pi 正在运行或切换，请等待完成后恢复')
+    const recovery = this.findRecovery()
+    if (!recovery || recovery.entryId !== failureEntryId) throw new Error('恢复入口已失效，请刷新当前会话')
+    if (!this.session.isIdle) throw new Error('Pi 正在运行，请等待完成后恢复')
+    return this.prompt(
+      recoveryMessage,
+      undefined,
+      [],
+      { mode: recovery.mode },
+      'recovery',
+      true,
+      undefined,
+      undefined,
+      failureEntryId,
+    )
+  }
+
+  private prepareRecovery(failureEntryId: string) {
+    const recovery = this.findRecovery()
+    if (!recovery || recovery.entryId !== failureEntryId) throw new Error('恢复入口已失效，请刷新当前会话')
+    const session = this.session
+    const manager = session.sessionManager
+    const failureIds = new Set(recovery.failures.map((entry) => entry.id))
+    const originals = manager.buildSessionProjection().entries.flatMap(({ sourceEntry, messages }) => {
+      const message = messages.find((entry) => entry.role === 'assistant')
+      return failureIds.has(sourceEntry.id) && message?.role === 'assistant'
+        ? [{ entryId: sourceEntry.id, content: message.content }]
+        : []
+    })
+    const omitted: typeof originals = []
+    const restore = () => {
+      for (const entry of omitted) manager.appendContextEdit(entry.entryId, { content: entry.content })
+      session.refreshContext()
+    }
+    try {
+      for (const entry of originals) {
+        manager.appendContextEdit(entry.entryId, null)
+        omitted.push(entry)
+      }
+      session.refreshContext()
+    } catch (cause) {
+      restore()
+      throw cause
+    }
+    return {
+      started: () => {
+        this.notify.event({
+          generation: this.generation,
+          event: {
+            type: 'recovery_start',
+            removedMessageTimestamps: recovery.failures.map((entry) => entry.message.timestamp),
+          },
+        })
+      },
+      restore,
     }
   }
 
@@ -955,10 +1042,11 @@ export class SdkSession {
     images?: PiImage[],
     skills: SkillReference[] = [],
     options?: MessageOptions,
-    continuation: boolean | 'goal' = false,
+    continuation: boolean | 'goal' | 'recovery' = false,
     preserveMode = false,
     expectedGoal?: GoalControl,
     editTimestamp?: number,
+    failureEntryId?: string,
   ) {
     const normalized = normalizePlanMessage(message, options?.mode ?? this.mode)
     if (!normalized.commandOnly && (this.changing || this.running))
@@ -988,6 +1076,7 @@ export class SdkSession {
     if (!preserveMode && !continuation) this.mode = normalized.mode
     this.admission = new AbortController()
     let edit: { commit: () => void; restore: () => void } | undefined
+    let recovery: ReturnType<SdkSession['prepareRecovery']> | undefined
     try {
       if (this.runtime && this.runtimeMode !== normalized.mode) {
         const restore = await this.captureRestoreState()
@@ -1010,11 +1099,18 @@ export class SdkSession {
           normalized.mode,
           Boolean(continuation),
           this.admission.signal,
-          continuation === 'goal' ? 'goal' : continuation ? 'collaboration' : 'user',
+          continuation === 'goal'
+            ? 'goal'
+            : continuation === 'recovery'
+              ? 'recovery'
+              : continuation
+                ? 'collaboration'
+                : 'user',
           expectedGoal,
         )
         if (generation !== this.generation || this.queueCancelled) throw new Error('消息发送已取消')
         if (editTimestamp !== undefined) edit = this.prepareUserMessageEdit(editTimestamp)
+        if (failureEntryId !== undefined) recovery = this.prepareRecovery(failureEntryId)
         this.goalRun = run || undefined
         this.goalInputEntryId = undefined
         this.goalAccounted.clear()
@@ -1032,6 +1128,7 @@ export class SdkSession {
     } catch (cause) {
       try {
         edit?.restore()
+        recovery?.restore()
       } finally {
         this.running = false
         this.pendingSend = false
@@ -1048,7 +1145,9 @@ export class SdkSession {
       let handled = false
       if (command?.name === 'compact') await this.call(() => this.session.compact(command.args))
       else if (command?.name === 'name') await this.call(() => this.session.setSessionName(command.args!))
-      else handled = (await this.sendPrompt(message, images, continuation, Boolean(edit))) === 'handled'
+      else
+        handled = (await this.sendPrompt(message, images, continuation, Boolean(edit), recovery?.started)) === 'handled'
+      recovery = undefined
       if (handled && edit) throw new Error('Pi 扩展未发送编辑后的消息，已保留原对话')
       edit?.commit()
       edit = undefined
@@ -1056,14 +1155,15 @@ export class SdkSession {
       if (!state.isStreaming && !state.isCompacting && (this.running || command || handled))
         this.handleEvent({ type: 'agent_settled' }, Boolean(command || handled))
     } catch (cause) {
-      if (edit) this.changing = true
+      if (edit || recovery) this.changing = true
       try {
         if (edit) {
           if (!this.session.isIdle) await this.session.abort()
           edit.restore()
         }
+        recovery?.restore()
       } finally {
-        if (edit) {
+        if (edit || recovery) {
           this.running = false
           this.activeMode = undefined
           this.changing = false
@@ -1088,8 +1188,9 @@ export class SdkSession {
   private async sendPrompt(
     message: string,
     images?: PiImage[],
-    continuation: boolean | 'goal' = false,
+    continuation: boolean | 'goal' | 'recovery' = false,
     waitForUserEntry = false,
+    onStarted?: () => void,
   ) {
     const generation = this.generation
     await this.ready
@@ -1104,12 +1205,18 @@ export class SdkSession {
           if (event.type !== 'agent_start') return
           started = true
           unsubscribe()
+          onStarted?.()
           resolve('started')
         })
         void session
           .sendCustomMessage(
             {
-              customType: continuation === 'goal' ? 'pi-meme-goal-control' : 'pi-meme-collaboration-control',
+              customType:
+                continuation === 'goal'
+                  ? 'pi-meme-goal-control'
+                  : continuation === 'recovery'
+                    ? 'pi-meme-recovery-control'
+                    : 'pi-meme-collaboration-control',
               content: message,
               display: false,
               details: {

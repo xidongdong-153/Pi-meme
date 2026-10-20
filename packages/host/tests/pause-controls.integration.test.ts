@@ -17,11 +17,16 @@ function deferred() {
   return { promise, resolve }
 }
 
-test('暂停和队列控制不被普通发送阻塞，写操作校验稳定会话标识', async () => {
+test('暂停、恢复和队列控制不被普通发送阻塞，写操作校验稳定会话标识', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'host-pause-controls-'))
   const entered = deferred()
   const release = deferred()
   const original = PiSessionPool.prototype.prompt
+  const originalRecover = PiSessionPool.prototype.recover
+  const recoveries: Array<[string, string]> = []
+  PiSessionPool.prototype.recover = async (key, entryId) => {
+    recoveries.push([key, entryId])
+  }
   const originalBegin = PiSessionPool.prototype.beginQueueEdit
   PiSessionPool.prototype.beginQueueEdit = async () => ({ id: 'input-id', text: '排队任务', mode: 'default' })
   PiSessionPool.prototype.prompt = async () => {
@@ -39,6 +44,7 @@ test('暂停和队列控制不被普通发送阻塞，写操作校验稳定会�
     for (const method of [
       'pi:pause',
       'pi:resume',
+      'pi:recover',
       'pi:steer-queue-input',
       'pi:delete-queue-input',
       'pi:begin-queue-edit',
@@ -58,6 +64,18 @@ test('暂停和队列控制不被普通发送阻塞，写操作校验稳定会�
     ])
     assert.equal(paused.error, undefined)
     assert.equal((await rpc('pi:resume', [key], key)).error, undefined)
+    for (const invalidId of [undefined, '', ' ', 123]) {
+      const invalid = await rpc('pi:recover', [key, invalidId], key)
+      assert.match(invalid.error!.message, /非空文本/)
+    }
+    const recovered = await Promise.race([
+      rpc('pi:recover', [key, 'failure-entry'], key),
+      delay(1000).then(() => {
+        throw new Error('恢复被发送阻塞')
+      }),
+    ])
+    assert.equal(recovered.error, undefined)
+    assert.deepEqual(recoveries, [[key, 'failure-entry']])
     const absent = await Promise.race([
       rpc('pi:begin-queue-edit', [key, 'input-id'], key),
       delay(1000).then(() => {
@@ -71,6 +89,7 @@ test('暂停和队列控制不被普通发送阻塞，写操作校验稳定会�
     release.resolve()
     await prompting
     PiSessionPool.prototype.prompt = original
+    PiSessionPool.prototype.recover = originalRecover
     PiSessionPool.prototype.beginQueueEdit = originalBegin
     await host.dispose()
     await rm(root, { recursive: true, force: true })

@@ -20,6 +20,56 @@ async function eventually(check: () => boolean | Promise<boolean>) {
   throw new Error('等待 Host 状态超时')
 }
 
+for (const restart of [false, true]) {
+  test(`真实 Host ${restart ? '退出重开后' : ''}恢复失败模型请求时保留原协作任务身份`, { timeout: 15000 }, async () => {
+    const directory = await mkdtemp(path.join(os.tmpdir(), 'host-recovery-identity-'))
+    const fake = await useFakeAgent(directory, {
+      reply: (_body, index) => (index === 1 ? { status: 503, text: 'network error' } : '原任务已恢复'),
+    })
+    await writeFile(
+      path.join(fake.agentDir, 'settings.json'),
+      JSON.stringify({ retry: { enabled: false, provider: { maxRetries: 0 } } }),
+    )
+    let host = await createHost({ dataRoot: fake.runtimePaths.dataRoot, credentials: fake.credentials })
+    const rpc = async <T>(method: string, args: unknown[] = [], sessionId?: string): Promise<T> => {
+      const reply = await host.rpc({ requestId: crypto.randomUUID(), clientId: 'recovery', method, args, sessionId })
+      assert.equal(reply.error, undefined, JSON.stringify(reply.error))
+      return reply.result as T
+    }
+    try {
+      let key = (await rpc<Snapshot>('pi:snapshot')).connection.sessionKey!
+      await rpc('pi:access-mode', [key, 'full-access'], key)
+      await rpc('pi:prompt', [key, '继续原有开发任务'], key)
+      await eventually(async () => Boolean((await rpc<Snapshot>('pi:snapshot', [], key)).state.recovery))
+      const failed = await rpc<Snapshot>('pi:snapshot', [], key)
+      assert.ok(failed.agent)
+      assert.ok(failed.state.recovery)
+      if (restart) {
+        assert.ok(failed.connection.sessionFile)
+        await host.dispose()
+        host = await createHost({ dataRoot: fake.runtimePaths.dataRoot, credentials: fake.credentials })
+        await rpc('pi:switch-session', [failed.connection.sessionFile])
+        key = (await rpc<Snapshot>('pi:snapshot')).connection.sessionKey!
+      }
+      await rpc('pi:recover', [key, failed.state.recovery.entryId], key)
+      await eventually(async () => {
+        const snapshot = await rpc<Snapshot>('pi:snapshot', [], key)
+        return !snapshot.state.isStreaming && JSON.stringify(snapshot.messages).includes('原任务已恢复')
+      })
+      const recovered = await rpc<Snapshot>('pi:snapshot', [], key)
+      assert.ok(recovered.agent)
+      for (const field of ['agentId', 'rootTaskId', 'epoch', 'runId', 'task', 'runStartedAt', 'mode'] as const)
+        assert.equal(recovered.agent[field], failed.agent[field], field)
+      assert.equal(recovered.messages.filter((message) => message.role === 'user').length, 1)
+      assert.equal(fake.provider.requests.length, 2)
+    } finally {
+      await host.dispose()
+      await fake.dispose()
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+}
+
 test(
   '真实父子会话与同级代理持续联调、修改和验收，不新建任务或会话且只在确认完成后结束',
   { timeout: 30000 },

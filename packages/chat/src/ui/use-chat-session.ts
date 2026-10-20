@@ -95,6 +95,8 @@ export function useChatSession(options: ChatSessionOptions) {
     ...(pluginMentions.length ? { pluginMentions } : {}),
   }
   const promptPending = useRef(false)
+  const recoveryPending = useRef<{ key: string; generation: number } | null>(null)
+  const [recoveryRequest, setRecoveryRequest] = useState<{ key: string; generation: number } | null>(null)
   const optionsRef = useRef(options)
   optionsRef.current = options
   composerHintRef.current = chat.composerHint
@@ -344,7 +346,13 @@ export function useChatSession(options: ChatSessionOptions) {
     const selectedGeneration = currentGeneration()
     await modeWrites.current
     await awaitPendingSwitch()
-    if (isSwitching() || selectedGeneration !== currentGeneration()) return
+    if (
+      isSwitching() ||
+      selectedGeneration !== currentGeneration() ||
+      (recoveryPending.current?.key === optionsRef.current.currentSessionKey() &&
+        recoveryPending.current?.generation === selectedGeneration)
+    )
+      return
     const goalCommand = chatStream.getSnapshot().goalsSupported ? parseGoalCommand(draft) : undefined
     if (goalCommand && goalCommand.action !== 'start') {
       if (goalCommand.action === 'open') activateGoal(draft)
@@ -691,6 +699,59 @@ export function useChatSession(options: ChatSessionOptions) {
     }
   }, [chatStream, goalAction])
 
+  const recover = useCallback(async () => {
+    const { bridge, canSend, isSwitching, currentSessionKey, currentGeneration } = optionsRef.current
+    const key = currentSessionKey()
+    const generation = currentGeneration()
+    const state = chatStream.getSnapshot()
+    const composer = latestComposer.current
+    if (
+      !key ||
+      !state.recovery ||
+      (state.goal && state.goal.status !== 'complete') ||
+      !canSend() ||
+      isSwitching() ||
+      state.running ||
+      state.paused ||
+      state.queuePaused ||
+      promptPending.current ||
+      editingTimestamp !== null ||
+      queueEdit.current ||
+      queueEditPending.current ||
+      composer.draft.trim() ||
+      composer.attachments.length ||
+      composer.selectedSkills.length ||
+      (recoveryPending.current?.key === key && recoveryPending.current.generation === generation)
+    )
+      return
+    const request = { key, generation }
+    recoveryPending.current = request
+    setRecoveryRequest(request)
+    const owns = () => {
+      const current = optionsRef.current
+      return key === current.currentSessionKey() && generation === current.currentGeneration()
+    }
+    let failed = false
+    optionsRef.current.onError('')
+    try {
+      await bridge.recover(key, state.recovery.entryId)
+    } catch (cause) {
+      failed = true
+      if (owns()) optionsRef.current.onError(String(cause))
+    } finally {
+      try {
+        if (owns()) await optionsRef.current.refresh?.()
+      } catch (cause) {
+        if (owns() && !failed) optionsRef.current.onError(`无法同步恢复后的会话：${String(cause)}`)
+      } finally {
+        if (recoveryPending.current === request) {
+          recoveryPending.current = null
+          setRecoveryRequest(null)
+        }
+      }
+    }
+  }, [chatStream, editingTimestamp])
+
   const queueAction = useCallback(
     async (action: 'resume' | 'steerQueueInput' | 'deleteQueueInput', id?: string) => {
       const { bridge, currentSessionKey, currentGeneration, onError } = optionsRef.current
@@ -856,6 +917,11 @@ export function useChatSession(options: ChatSessionOptions) {
     send,
     stop,
     resume: () => queueAction('resume'),
+    recover,
+    recovering:
+      recoveryRequest !== null &&
+      recoveryRequest.key === options.currentSessionKey() &&
+      recoveryRequest.generation === options.currentGeneration(),
     steerQueueInput: (id: string) => queueAction('steerQueueInput', id),
     deleteQueueInput: (id: string) => queueAction('deleteQueueInput', id),
     editQueueInput,

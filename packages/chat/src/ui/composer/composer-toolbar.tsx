@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react'
-import { ArrowUp, CornerDownLeft, Lightbulb, Play, Plus, Square, X } from 'lucide-react'
+import { ArrowUp, CornerDownLeft, Lightbulb, LoaderCircle, Play, Plus, RotateCcw, Square, X } from 'lucide-react'
 import type { TaskMode } from '@pi-meme/contracts/plan'
 import type { PiState } from '@pi-meme/contracts/pi'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
@@ -13,6 +13,9 @@ export type ComposerToolbarProps = {
   paused?: boolean
   editingQueue?: boolean
   onResume?: () => void
+  recovery?: PiState['recovery']
+  recovering?: boolean
+  onRecover?: () => void
   running: boolean
   disabled: boolean
   sendDisabled?: boolean
@@ -41,6 +44,9 @@ export function ComposerToolbar({
   paused,
   editingQueue,
   onResume,
+  recovery,
+  recovering,
+  onRecover,
   disabled,
   sendDisabled,
   draft,
@@ -52,7 +58,12 @@ export function ComposerToolbar({
   contextUsage,
   editing,
 }: ComposerToolbarProps) {
-  const canSend = !disabled && (Boolean(draft.trim()) || hasAttachments)
+  const hasInput = Boolean(draft.trim()) || hasAttachments
+  const canSend = !disabled && hasInput
+  const canRecover = !hasInput && !editing && !editingQueue && !running && !paused && Boolean(recovery && onRecover)
+  const showRecovering = recovering && !hasInput && !editing && !editingQueue
+  const buttonDisabled =
+    disabled || sendDisabled || recovering || (editingQueue ? !canSend : !canSend && !running && !paused && !canRecover)
   const plan =
     mode === 'plan' && onMode ? (
       <Tooltip delayDuration={300}>
@@ -111,42 +122,59 @@ export function ComposerToolbar({
         {compact && plan}
         <button
           type={canSend || editingQueue ? 'submit' : 'button'}
-          disabled={disabled || sendDisabled || (editingQueue ? !canSend : !canSend && !running && !paused)}
-          onClick={!canSend && !editingQueue ? (paused ? onResume : running ? onStop : undefined) : undefined}
-          aria-label={
-            editingQueue
-              ? '保存排队消息'
-              : canSend
-                ? editing
-                  ? '重新发送消息'
-                  : running || paused
-                    ? '发送排队任务'
-                    : '发送消息'
-                : paused
-                  ? '继续当前任务'
+          disabled={buttonDisabled}
+          onClick={
+            canRecover
+              ? onRecover
+              : !canSend && !editingQueue
+                ? paused
+                  ? onResume
                   : running
-                    ? '暂停当前任务'
-                    : '发送消息'
+                    ? onStop
+                    : undefined
+                : undefined
+          }
+          aria-label={
+            canRecover || showRecovering
+              ? '恢复当前任务'
+              : editingQueue
+                ? '保存排队消息'
+                : canSend
+                  ? editing
+                    ? '重新发送消息'
+                    : running || paused
+                      ? '发送排队任务'
+                      : '发送消息'
+                  : paused
+                    ? '继续当前任务'
+                    : running
+                      ? '暂停当前任务'
+                      : '发送消息'
           }
           title={
-            editingQueue
-              ? '保存排队消息'
-              : canSend
-                ? '发送 (Enter)'
-                : paused
-                  ? '继续当前任务'
-                  : running
-                    ? '暂停当前任务'
-                    : '发送 (Enter)'
+            canRecover || showRecovering
+              ? '恢复当前任务'
+              : editingQueue
+                ? '保存排队消息'
+                : canSend
+                  ? '发送 (Enter)'
+                  : paused
+                    ? '继续当前任务'
+                    : running
+                      ? '暂停当前任务'
+                      : '发送 (Enter)'
           }
           className={cn(
             'inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-[#2f6bca] text-white transition-all shadow-xs cursor-pointer hover:bg-[#3675d8] active:scale-95',
             compact && 'size-7',
-            (disabled || sendDisabled || (editingQueue ? !canSend : !canSend && !running && !paused)) &&
-              'opacity-40 cursor-not-allowed hover:bg-[#2f6bca] active:scale-100',
+            buttonDisabled && 'opacity-40 cursor-not-allowed hover:bg-[#2f6bca] active:scale-100',
           )}
         >
-          {!canSend && paused && !editingQueue ? (
+          {showRecovering ? (
+            <LoaderCircle className="size-4 animate-spin" />
+          ) : canRecover ? (
+            <RotateCcw className="size-4" />
+          ) : !canSend && paused && !editingQueue ? (
             <Play className="size-3.5 fill-current" />
           ) : !canSend && running && !editingQueue ? (
             <Square className="size-3.5 fill-current" />

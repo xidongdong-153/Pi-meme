@@ -38,7 +38,7 @@ export type GoalUpdate = {
 }
 export type GoalEvent = { type: 'goal_updated'; goal: Goal } | { type: 'goal_cleared'; goalId: string }
 export type GoalRun = { goalId: string; cycleId: string; session: SessionRef }
-export type PromptOrigin = 'user' | 'collaboration' | 'goal'
+export type PromptOrigin = 'user' | 'collaboration' | 'goal' | 'recovery'
 export type GoalRequest =
   { method: 'get' } | { method: 'gate'; tool?: boolean } | { method: 'update'; input: GoalUpdate }
 export const goalRunEntry = 'pi-meme-goal-run'

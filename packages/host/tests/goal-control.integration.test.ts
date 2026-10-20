@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
-import { mkdir, mkdtemp, realpath, rm, readFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, realpath, rm, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -43,6 +43,44 @@ async function fixture(reply: Reply) {
     },
   }
 }
+
+test('网络失败暂停的 Goal 不能通过普通恢复绕过目标状态', { timeout: 25000 }, async () => {
+  const f = await fixture({ status: 503, text: 'network error' })
+  try {
+    await writeFile(
+      path.join(f.fake.agentDir, 'settings.json'),
+      JSON.stringify({ retry: { enabled: false, provider: { maxRetries: 0 } } }),
+    )
+    await f.host.app.goals.start(f.session, { objective: '保留目标的恢复控制' }, key('start'))
+    const goal = await eventually(
+      () => f.host.app.goals.get(f.session),
+      (goal) => goal?.status === 'paused',
+    )
+    const before = await eventually(
+      () => f.host.app.sessions.snapshot(f.session),
+      (snapshot) =>
+        !snapshot.state.isStreaming && Boolean(snapshot.state.recovery) && snapshot.agent?.status === 'stopped',
+    )
+    const sessionId = before.connection.sessionKey!
+    const count = f.fake.provider.requests.length
+    const response = await f.host.rpc({
+      requestId: 'recover-paused-goal',
+      clientId: 'goal-recovery-client',
+      method: 'pi:recover',
+      args: [sessionId, before.state.recovery!.entryId],
+      sessionId,
+    })
+    assert.match(response.error?.message ?? '', /未结束的目标|目标恢复/)
+    assert.equal(f.fake.provider.requests.length, count)
+    assert.deepEqual(await f.host.app.goals.get(f.session), goal)
+    const after = await f.host.app.sessions.snapshot(f.session)
+    assert.deepEqual(after.state.recovery, before.state.recovery)
+    assert.deepEqual(after.messages, before.messages)
+    assert.deepEqual(after.agents, before.agents)
+  } finally {
+    await f.dispose()
+  }
+})
 
 test('Goal 多轮自动续跑至完成，首轮提交幂等，隐藏内部续跑并核算用量', { timeout: 25000 }, async () => {
   const f = await fixture((_body, index) =>

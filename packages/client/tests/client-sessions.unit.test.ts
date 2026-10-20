@@ -160,6 +160,26 @@ test('已有目录通过 pi:directory 选择并发布连接，显式项目选择
   client.close()
 })
 
+test('恢复请求绑定失败会话和原生节点，不使用当前选择或重发聊天消息', async () => {
+  const { client, requests } = create((request) => {
+    if (request.method === 'pi:snapshot') return snapshot('selected')
+    return undefined
+  })
+  try {
+    await client.bridge.getConnection()
+    await client.bridge.recover('failed-session', 'failure-entry')
+    const recovered = requests.at(-1)!
+    assert.equal(recovered.method, 'pi:recover')
+    assert.equal(recovered.sessionId, 'failed-session')
+    assert.deepEqual(recovered.args, ['failed-session', 'failure-entry'])
+    await client.bridge.getCommands()
+    assert.equal(requests.at(-1)?.sessionId, 'selected')
+    assert.ok(requests.every((request) => request.method !== 'pi:prompt'))
+  } finally {
+    client.close()
+  }
+})
+
 test('省略聊天图片和技能时传空数组，显式 null 参数仍保留', async () => {
   const { client, requests } = create(() => undefined)
   await client.bridge.prompt('A', '发送')

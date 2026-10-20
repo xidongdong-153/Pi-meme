@@ -61,6 +61,9 @@ export type ComposerProps = {
   activeMode?: TaskMode
   editingQueue?: boolean
   onResume?: () => void
+  recovery?: PiState['recovery']
+  recovering?: boolean
+  onRecover?: () => void
   onSteerQueueInput?: (id: string) => void
   onDeleteQueueInput?: (id: string) => void
   onEditQueueInput?: (id: string) => void
@@ -121,6 +124,9 @@ export function Composer({
   activeMode,
   editingQueue,
   onResume,
+  recovery,
+  recovering,
+  onRecover,
   onSteerQueueInput,
   onDeleteQueueInput,
   onEditQueueInput,
@@ -198,6 +204,7 @@ export function Composer({
           event.preventDefault()
           if (
             !disabled &&
+            !recovering &&
             !files.isUploading() &&
             !agentPlugins?.saving &&
             (draft.trim() || selectedSkills.length || attachments.length)
@@ -307,6 +314,9 @@ export function Composer({
             paused={paused}
             editingQueue={editingQueue}
             onResume={onResume}
+            recovery={recovery}
+            recovering={recovering}
+            onRecover={onRecover}
             disabled={disabled}
             sendDisabled={agentPlugins?.saving || (files.uploading && !running && !paused)}
             draft={files.uploading ? '' : draft}

@@ -43,6 +43,7 @@ export function fromSnapshot(snapshot: Snapshot): ChatState {
     activeMode: snapshot.state.activeMode,
     compacting: isCompacting ? { active: true } : null,
     retry: snapshot.state.retry,
+    recovery: snapshot.state.recovery,
     compactionError: snapshot.state.compactionError,
     composerHint: snapshot.state.composerHint,
     tools: {},
@@ -144,10 +145,41 @@ export function applyEvent(
         ],
       }
     }
+    case 'recovery_start': {
+      const removed = new Set(event.removedMessageTimestamps)
+      const failed = new Set(
+        state.messages.flatMap((message) =>
+          message.role === 'assistant' && message.stopReason === 'error' && removed.has(message.timestamp)
+            ? [message.timestamp]
+            : [],
+        ),
+      )
+      return {
+        ...state,
+        messages: state.messages.filter(
+          (message) => message.role !== 'assistant' || message.stopReason !== 'error' || !failed.has(message.timestamp),
+        ),
+        sessionEntries: state.sessionEntries
+          ? {
+              ...state.sessionEntries,
+              entries: state.sessionEntries.entries.map((entry) =>
+                entry.role === 'assistant' && entry.messageTimestamp !== undefined && failed.has(entry.messageTimestamp)
+                  ? { ...entry, display: false }
+                  : entry,
+              ),
+            }
+          : undefined,
+        live: null,
+        stream: emptyChat.stream,
+        retry: undefined,
+        recovery: undefined,
+      }
+    }
     case 'agent_start':
       return {
         ...state,
         running: true,
+        recovery: undefined,
         compactionError: undefined,
         composerHint: undefined,
         runIntervals: mergeRunIntervals(state.runIntervals, event.runIntervals),
@@ -199,6 +231,7 @@ export function applyEvent(
         activeMode: undefined,
         compacting: null,
         retry: undefined,
+        recovery: event.recovery,
         live: null,
         stream: emptyChat.stream,
       }

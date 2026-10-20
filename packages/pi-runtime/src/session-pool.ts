@@ -37,6 +37,7 @@ import type {
 } from '@pi-meme/contracts/pi'
 import type { SandboxCapability } from './sdk/access-sandbox'
 import { SdkSession } from './sdk/session'
+import { recoveryMessage } from './sdk/recovery'
 import { getPiVersion, loadPiSdk } from './sdk/load'
 import type { ModelRestore, PiRuntime } from './runtime'
 import { invalidateSessionHistory, readSessionHistory, type SessionHistoryData } from './session-history'
@@ -674,6 +675,7 @@ export class PiSessionPool implements PiRuntime {
         thinkingLevel: history?.thinkingLevel ?? (sessionFile ? this.defaults?.thinkingLevel : undefined),
         sessionName: history?.sessionName,
         skillUsages: history?.skillUsages,
+        recovery: history?.recovery,
         isStreaming: false,
         isCompacting: false,
         steeringMode: this.defaults?.steeringMode ?? 'one-at-a-time',
@@ -841,6 +843,26 @@ export class PiSessionPool implements PiRuntime {
     }
   }
   private rememberRecoveryEvent(record: RuntimeSession, event: DesktopEvent['event']) {
+    if (event.type === 'agent_settled') record.state = { ...record.state, recovery: event.recovery }
+    if (event.type === 'agent_start' || event.type === 'recovery_start')
+      record.state = { ...record.state, recovery: undefined }
+    if (event.type === 'recovery_start') {
+      const removed = new Set(event.removedMessageTimestamps)
+      record.messages = record.messages.filter(
+        (message) =>
+          !(message.role === 'assistant' && message.stopReason === 'error' && removed.has(message.timestamp)),
+      )
+      if (record.sessionEntries)
+        record.sessionEntries = {
+          ...record.sessionEntries,
+          entries: record.sessionEntries.entries.map((entry) =>
+            entry.role === 'assistant' && entry.messageTimestamp !== undefined && removed.has(entry.messageTimestamp)
+              ? { ...entry, display: false }
+              : entry,
+          ),
+        }
+      if (record.sessionFile) invalidateSessionHistory([record.sessionFile])
+    }
     if (event.type === 'auto_retry_start' || event.type === 'summarization_retry_scheduled')
       record.state = {
         ...record.state,
@@ -1028,7 +1050,12 @@ export class PiSessionPool implements PiRuntime {
           existing.messages = history.messages.slice()
           existing.sessionEntries = history.sessionEntries
           existing.name = history.sessionName
-          existing.state = { ...existing.state, sessionName: history.sessionName, skillUsages: history.skillUsages }
+          existing.state = {
+            ...existing.state,
+            sessionName: history.sessionName,
+            skillUsages: history.skillUsages,
+            recovery: history.recovery,
+          }
           existing.stats = history.stats
         }
         this.assertPathAvailable(existing.key)
@@ -1165,6 +1192,7 @@ export class PiSessionPool implements PiRuntime {
           pauseIntervals: record.state.pauseIntervals,
           runIntervals: record.state.runIntervals,
           retry: record.state.retry,
+          recovery: record.state.recovery,
           compactionError: record.state.compactionError,
           isStreaming: record.running,
           isCompacting: record.running && snapshot.state.isCompacting,
@@ -1455,6 +1483,7 @@ export class PiSessionPool implements PiRuntime {
     options?: MessageOptions,
     goalControl?: GoalControl,
     editTimestamp?: number,
+    recoveryEntryId?: string,
   ) {
     const normalized = normalizePlanMessage(message, options?.mode ?? this.target(sessionKey).state.mode)
     if (editTimestamp !== undefined && (normalized.commandOnly || builtinCommand(normalized.text)))
@@ -1469,6 +1498,8 @@ export class PiSessionPool implements PiRuntime {
     await record.retiring
     this.target(sessionKey)
     if (this.changing || record.running) throw new Error('当前会话正在运行或修改配置，请稍后发送')
+    if (recoveryEntryId && (!this.isSessionIdle(sessionKey) || record.state.recovery?.entryId !== recoveryEntryId))
+      throw new Error('当前失败已失效或会话正在运行，请重新读取状态')
     const run = ++record.run
     record.settled = false
     record.cancelledPrompt = false
@@ -1476,26 +1507,29 @@ export class PiSessionPool implements PiRuntime {
     record.pendingPrompt = true
     record.running = true
     record.touched = Date.now()
-    if (!goalControl && !record.restored && !builtinCommand(message)) record.firstMessage ||= message
+    if (!goalControl && !recoveryEntryId && !record.restored && !builtinCommand(message))
+      record.firstMessage ||= message
     this.notify.sessionsChanged()
     try {
-      await this.setSessionMode(sessionKey, normalized.mode)
+      if (!recoveryEntryId) await this.setSessionMode(sessionKey, normalized.mode)
       await this.ensureRuntime(record, normalized.mode)
       if (record.cancelledPrompt || !this.sessions.has(record.key)) throw new Error('消息发送已取消')
       await this.collaboration?.beforePrompt(sessionKey, { mode: normalized.mode, message })
       record.state.activeMode = normalized.mode
-      const result = goalControl
-        ? await record.session.continueGoalTask(message, goalControl)
-        : await record.session.prompt(
-            message,
-            images,
-            skills,
-            { mode: normalized.mode },
-            false,
-            true,
-            undefined,
-            editTimestamp,
-          )
+      const result = recoveryEntryId
+        ? await record.session.recover(recoveryEntryId)
+        : goalControl
+          ? await record.session.continueGoalTask(message, goalControl)
+          : await record.session.prompt(
+              message,
+              images,
+              skills,
+              { mode: normalized.mode },
+              false,
+              true,
+              undefined,
+              editTimestamp,
+            )
       await record.session.setSessionMode(record.state.mode)
       return result
     } catch (cause) {
@@ -1509,12 +1543,13 @@ export class PiSessionPool implements PiRuntime {
         .snapshot()
         .then((snapshot) => {
           if (!this.sessions.has(record.key) || run !== record.run) return
+          if (recoveryEntryId) this.rememberSnapshot(record, snapshot)
           record.running = snapshot.state.isStreaming || snapshot.state.isCompacting
           if (!record.running)
             this.handleEvent(record, {
               generation: this.generation,
               executionGeneration: record.session.connection().generation,
-              event: { type: 'agent_settled' },
+              event: { type: 'agent_settled', recovery: snapshot.state.recovery },
             })
           this.notify.sessionsChanged()
         })
@@ -1537,6 +1572,22 @@ export class PiSessionPool implements PiRuntime {
       if (record.settled) record.running = false
       this.signalSettled()
     }
+  }
+  recover(sessionKey: string, failureEntryId: string) {
+    const record = this.target(sessionKey)
+    const recovery = record.state.recovery
+    if (!this.isSessionIdle(sessionKey) || !recovery || recovery.entryId !== failureEntryId)
+      throw new Error('当前失败已失效或会话正在运行，请重新读取状态')
+    return this.prompt(
+      sessionKey,
+      recoveryMessage,
+      undefined,
+      [],
+      { mode: recovery.mode },
+      undefined,
+      undefined,
+      failureEntryId,
+    )
   }
   continueGoalTask(key: string, message: string, control: GoalControl) {
     return this.prompt(key, message, undefined, [], { mode: 'default' }, control)
