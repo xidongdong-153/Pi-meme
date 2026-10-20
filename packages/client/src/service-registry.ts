@@ -14,6 +14,7 @@ export class HostServiceRegistry {
   private readonly states = new Map<string, HostService>()
   private readonly disposers = new Map<string, Array<() => void>>()
   private readonly listeners = new Set<() => void>()
+  private readonly refreshes = new Map<string, symbol>()
   readonly localServiceId = 'local'
   constructor(
     readonly local: HostClient,
@@ -107,33 +108,53 @@ export class HostServiceRegistry {
     this.clients.get(id)?.close()
     this.clients.delete(id)
     this.states.delete(id)
+    this.refreshes.delete(id)
     this.publish()
   }
   async refresh(id: string) {
     const state = this.states.get(id)
     if (!state) throw new Error('服务不存在')
     const client = this.get(id)
-    state.status = 'connecting'
-    this.publish()
+    const refresh = Symbol(id)
+    this.refreshes.set(id, refresh)
+    const isCurrent = () => this.refreshes.get(id) === refresh
+    if (state.status !== 'connected') {
+      state.status = 'connecting'
+      this.publish()
+    }
+    let connected = false
     try {
       await client.connect()
+      connected = true
+      if (!isCurrent()) return
+      if (state.status === 'connecting') {
+        state.status = 'connected'
+        this.publish()
+      }
       const [projects, sessions] = await Promise.all([client.bridge.getProjects(), client.bridge.getSessions()])
+      if (!isCurrent()) return
       state.projects = projects
       state.sessions = sessions
       state.hostId = client.hostId
       state.status = 'connected'
       delete state.error
     } catch (cause) {
-      state.status = 'disconnected'
-      state.error = cause instanceof Error ? cause.message : String(cause)
+      if (isCurrent()) {
+        if (!connected) state.status = 'disconnected'
+        state.error = cause instanceof Error ? cause.message : String(cause)
+      }
       throw cause
     } finally {
-      this.publish()
+      if (isCurrent()) {
+        this.refreshes.delete(id)
+        this.publish()
+      }
     }
   }
   close() {
     for (const disposers of this.disposers.values()) for (const dispose of disposers) dispose()
     this.disposers.clear()
+    this.refreshes.clear()
     for (const client of this.clients.values()) client.close()
     this.listeners.clear()
   }

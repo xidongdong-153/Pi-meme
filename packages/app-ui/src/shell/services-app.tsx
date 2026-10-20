@@ -55,8 +55,8 @@ export function ServicesApp({
       return
     }
     const controller = controllers.current.get(id)
-    if (!controller || registry.list().find((service) => service.id === id)?.status !== 'connected') {
-      source?.setError('此远程服务未连接，请在设置中重试')
+    if (!controller) {
+      source?.setError('会话界面尚未就绪，请稍后重试')
       return
     }
     const transaction = ++navigation.current
@@ -64,7 +64,9 @@ export function ServicesApp({
       .then((changed) => {
         if (changed && transaction === navigation.current) setActiveId(id)
       })
-      .catch((cause: unknown) => source?.setError(String(cause)))
+      .catch((cause: unknown) => {
+        if (transaction === navigation.current) source?.setError(String(cause))
+      })
   }
   async function changeLocation(id: string, input: SelectWorkspace) {
     const sourceId = activeRef.current
