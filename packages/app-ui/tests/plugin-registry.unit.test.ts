@@ -1,8 +1,20 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
 import type { HostApi } from '@pi-meme/contracts/app-host'
-import type { UiPanel, UiPanelLocation, UiPluginDescriptor, UiPluginModule, UiTarget } from '@pi-meme/plugin-sdk/ui'
-import { UiPluginRegistry } from '../src/plugins/plugin-registry'
+import type {
+  UiPanel,
+  UiPanelLocation,
+  UiPluginDescriptor,
+  UiPluginModule,
+  UiTarget,
+  UiPluginContext,
+} from '@pi-meme/plugin-sdk/ui'
+import { beforeSendHookAvailable, UiPluginRegistry } from '../src/plugins/plugin-registry'
+import { emptyPluginGrant, type PluginUiCapability } from '@pi-meme/plugin-sdk/permissions'
+import type { PluginClient } from '@pi-meme/client/plugin-client'
+import type { PluginCallRequest } from '@pi-meme/plugin-sdk/rpc'
+import type { UiMessage } from '@pi-meme/contracts/plugin-ui-data'
+import type { ComposerRef, RegisteredBeforeSendHook } from '@pi-meme/plugin-sdk/composer'
 
 function plugin(generation: number): UiPluginDescriptor {
   return {
@@ -12,8 +24,275 @@ function plugin(generation: number): UiPluginDescriptor {
     enabled: true,
     ui: `/plugin-${generation}.js`,
     status: 'active',
+    policyHash: 'test-policy',
+    permissions: { ui: ['reactive.read'] },
+    grant: {
+      ...emptyPluginGrant('test-policy'),
+      trusted: { ui: true, server: false, agent: false },
+      ui: ['reactive.read'],
+    },
   }
 }
+
+function withUiCapabilities(generation: number, ui: PluginUiCapability[]): UiPluginDescriptor {
+  const value = plugin(generation)
+  return { ...value, permissions: { ui }, grant: { ...value.grant!, ui } }
+}
+
+test('项目旧代快照只判断可用性，首条发送仍使用当前已授权的处理器代次', () => {
+  const value = withUiCapabilities(2, ['composer.before-send'])
+  const current = {
+    ...value,
+    permissions: { ...value.permissions, beforeSend: ['validate'] },
+    grant: { ...value.grant!, beforeSend: ['validate'] },
+  }
+  const hook: RegisteredBeforeSendHook = {
+    pluginId: 'example',
+    generation: 2,
+    id: 'validate',
+    title: '校验',
+    process: () => ({ kind: 'pass' }),
+  }
+  const project = plugin(1)
+  assert.equal(beforeSendHookAvailable(hook, current, project), true)
+  for (const [live, available] of [
+    [undefined, project],
+    [current, undefined],
+    [{ ...current, generation: 1 }, project],
+    [{ ...current, status: 'pending' as const }, project],
+    [{ ...current, grantChanging: true }, project],
+    [{ ...current, policyHash: 'different' }, project],
+    [{ ...current, grant: { ...current.grant, beforeSend: [] } }, project],
+    [current, { ...project, id: 'another' }],
+    [current, { ...project, enabled: false }],
+    [current, { ...project, status: 'failed' as const }],
+  ]) {
+    assert.equal(beforeSendHookAvailable(hook, live, available), false)
+  }
+})
+
+test('未信任UI或policyHash不一致时不执行插件代码', async () => {
+  let loaded = 0
+  const registry = new UiPluginRegistry({} as HostApi, async () => {
+    loaded++
+    return { activate: () => {} }
+  })
+  await registry.synchronize([{ ...plugin(1), grant: undefined }])
+  await registry.synchronize([{ ...plugin(1), policyHash: 'different' }])
+  assert.equal(loaded, 0)
+  await registry.dispose()
+})
+
+test('授权变更开始即退役旧UI，不把撤权当普通pending更新等待', async () => {
+  let context!: UiPluginContext
+  let disposed = 0
+  const registry = new UiPluginRegistry({} as HostApi, async () => ({
+    activate(value) {
+      context = value
+      return () => {
+        disposed++
+      }
+    },
+  }))
+  const descriptor = plugin(1)
+  await registry.synchronize([descriptor])
+  await registry.synchronize([{ ...descriptor, status: 'pending' }])
+  assert.equal(disposed, 0)
+  assert.doesNotThrow(() => context.reactive.getSnapshot())
+  await registry.synchronize([{ ...descriptor, status: 'pending', grantChanging: true }])
+  assert.equal(disposed, 1)
+  assert.throws(() => context.reactive.getSnapshot(), /plugin-retired|permission-denied/)
+  await registry.dispose()
+})
+
+test('同代撤销消息读取授权后，进行中的正文响应不能迟到交给插件', async () => {
+  let context!: UiPluginContext
+  let finish!: (message: UiMessage) => void
+  const host = {
+    sessions: {
+      message: () =>
+        new Promise<UiMessage>((resolve) => {
+          finish = resolve
+        }),
+    },
+  } as unknown as HostApi
+  const registry = new UiPluginRegistry(host, async () => ({
+    activate(value) {
+      context = value
+    },
+  }))
+  await registry.synchronize([withUiCapabilities(1, ['messages.read'])])
+  const ref = { session: { hostId: 'host', sessionId: 'session' }, entryId: 'native' }
+  const pending = context.messages.getMessage(ref)
+  await registry.synchronize([withUiCapabilities(1, [])])
+  finish({ id: 'native', ref, role: 'user', revision: 'native', state: 'complete', text: '不再交付', images: [] })
+  await assert.rejects(pending, /permission-denied/)
+  await registry.dispose()
+})
+
+test('旧UI通信上下文不能调用新代Server', async () => {
+  const contexts: UiPluginContext[] = []
+  const calls: PluginCallRequest[] = []
+  const client = {
+    callOperation: async (request: PluginCallRequest) => {
+      calls.push(request)
+      return request.generation
+    },
+  } as unknown as PluginClient
+  const registry = new UiPluginRegistry(
+    {} as HostApi,
+    async () => ({
+      activate(context) {
+        contexts.push(context)
+      },
+    }),
+    client,
+  )
+  registry.setConfirmation(
+    async () => true,
+    () => {},
+  )
+  await registry.synchronize([plugin(1)])
+  assert.equal(await contexts[0].server.call('read', null), 1)
+  await registry.synchronize([plugin(2)])
+  await assert.rejects(contexts[0].server.call('read', null), /plugin-retired/)
+  assert.equal(await contexts[1].server.call('read', null), 2)
+  assert.deepEqual(
+    calls.map((call) => call.generation),
+    [1, 2],
+  )
+  await registry.dispose()
+})
+
+test('离开聊天后composer读接口返回null，不返回旧草稿引用', async () => {
+  let context!: UiPluginContext
+  const registry = new UiPluginRegistry({} as HostApi, async () => ({
+    activate(value) {
+      context = value
+    },
+  }))
+  await registry.synchronize([withUiCapabilities(1, ['composer.read'])])
+  registry.setChatVisible(false)
+  const ref: ComposerRef = {
+    id: 'draft',
+    epoch: 1,
+    target: { kind: 'standalone-draft', draftKey: 'one' },
+    context: { kind: 'draft' },
+  }
+  assert.equal(context.composer.current(), null)
+  assert.equal(context.composer.getSnapshot(ref), null)
+  await registry.dispose()
+})
+
+test('dirty编辑持有旧代，允许旧代保存，释放后才切换新版', async () => {
+  const contexts: UiPluginContext[] = []
+  const calls: PluginCallRequest[] = []
+  const released: string[] = []
+  const client = {
+    callOperation: async (request: PluginCallRequest) => {
+      calls.push(request)
+      return request.generation
+    },
+    acquireUiLease: async () => ({
+      id: 'edit-lease',
+      pluginId: 'example',
+      generation: 1,
+      expiresAt: Date.now() + 60_000,
+    }),
+    renewUiLease: async () => {},
+    releaseUiLease: async (id: string) => {
+      released.push(id)
+    },
+  } as unknown as PluginClient
+  const registry = new UiPluginRegistry(
+    {} as HostApi,
+    async () => ({
+      activate(context) {
+        contexts.push(context)
+      },
+    }),
+    client,
+  )
+  registry.setConfirmation(
+    async () => true,
+    () => {},
+  )
+  try {
+    await registry.synchronize([plugin(1)])
+    await registry.setPageDirty('example', 1, 'route', true)
+    await registry.synchronize([plugin(2)])
+    assert.equal(contexts.length, 1)
+    assert.equal(await contexts[0].server.call('save', null), 1)
+    assert.equal(calls[0].leaseId, 'edit-lease')
+    await registry.setPageDirty('example', 1, 'route', false)
+    await registry.synchronize([plugin(2)])
+    assert.equal(contexts.length, 2)
+    assert.deepEqual(released, ['edit-lease'])
+    assert.equal(await contexts[1].server.call('read', null), 2)
+  } finally {
+    await registry.dispose()
+  }
+})
+
+test('授权修订变化不被dirty租约延后，立即释放旧租约并拒绝旧页面写入', async () => {
+  const contexts: UiPluginContext[] = []
+  const released: string[] = []
+  let invoked = 0
+  const client = {
+    callOperation: async () => {
+      invoked++
+      return null
+    },
+    acquireUiLease: async () => ({
+      id: 'old-edit',
+      pluginId: 'example',
+      generation: 1,
+      expiresAt: Date.now() + 60_000,
+    }),
+    renewUiLease: async () => {},
+    releaseUiLease: async (id: string) => {
+      released.push(id)
+    },
+  } as unknown as PluginClient
+  const registry = new UiPluginRegistry(
+    {} as HostApi,
+    async () => ({
+      activate(context) {
+        contexts.push(context)
+      },
+    }),
+    client,
+  )
+  registry.setConfirmation(
+    async () => true,
+    () => {},
+  )
+  try {
+    await registry.synchronize([plugin(1)])
+    await registry.setPageDirty('example', 1, 'old-route', true)
+    const next = plugin(2)
+    next.grant = { ...next.grant!, revision: 1 }
+    await registry.synchronize([next])
+    assert.equal(contexts.length, 2)
+    assert.deepEqual(released, ['old-edit'])
+    assert.equal(registry.hasDirtyPage(), false)
+    await assert.rejects(contexts[0].server.call('save', null), /plugin-retired/)
+    assert.equal(invoked, 0)
+    assert.equal(
+      registry.getPageHost({
+        id: 'example:form',
+        pluginId: 'example',
+        generation: 1,
+        title: '旧页',
+        scope: 'app',
+        render: () => null,
+      }),
+      undefined,
+    )
+  } finally {
+    await registry.dispose()
+  }
+})
 
 function rightPanelLocation(location: UiPanelLocation): 'right' {
   return location
@@ -180,7 +459,7 @@ test('右栏面板可注册并打开，卸载后面板和响应订阅一起释�
   let changes = 0
   let seenHost: HostApi | undefined
   let leakedBridge = false
-  const host = {} as HostApi
+  const host = { capabilities: async () => ({ apiVersion: 2, hostId: 'host', features: [] }) } as unknown as HostApi
   const registry = new UiPluginRegistry(host, async () => ({
     activate(context) {
       seenHost = context.host
@@ -201,16 +480,21 @@ test('右栏面板可注册并打开，卸载后面板和响应订阅一起释�
     },
   }))
   await registry.synchronize([plugin(1)])
-  assert.equal(seenHost, host)
+  assert.notEqual(seenHost, host)
+  assert.deepEqual(await seenHost!.capabilities(), { apiVersion: 2, hostId: 'host', features: [] })
   assert.equal(leakedBridge, false)
   assert.equal(registry.getPanels().length, 1)
   assert.equal(registry.getPanelRequest()?.id, 'example:right')
-  registry.updateTarget({ target: { hostId: 'host', session: { hostId: 'host', sessionId: 'one' } }, snapshot: null })
+  registry.updateTarget({
+    target: { hostId: 'host', session: { hostId: 'host', sessionId: 'one' } },
+    session: null,
+    messages: [],
+  })
   assert.equal(changes, 1)
   assert.equal(registry.getReactiveSnapshot().target.session?.sessionId, 'one')
   await registry.synchronize([])
   assert.equal(registry.getPanels().length, 0)
-  registry.updateTarget({ target: { hostId: 'host' }, snapshot: null })
+  registry.updateTarget({ target: { hostId: 'host' }, session: null, messages: [] })
   assert.equal(changes, 1)
   await registry.dispose()
 })
@@ -240,14 +524,14 @@ test('打开面板捕获所属会话，切换目标不修改旧请求或推进re
     project: { hostId: 'host', projectId: 'second-project' },
     session: { hostId: 'host', sessionId: 'second-session' },
   }
-  registry.updateTarget({ target: firstTarget, snapshot: null })
+  registry.updateTarget({ target: firstTarget, session: null, messages: [] })
   await registry.synchronize([plugin(1)])
   open()
   const firstRequest = registry.getPanelRequest()!
   assert.deepEqual(firstRequest, { id: 'example:preview', revision: 1, target: firstTarget })
   firstTarget.session!.sessionId = 'changed-source'
   assert.equal(firstRequest.target.session?.sessionId, 'first-session')
-  registry.updateTarget({ target: secondTarget, snapshot: null })
+  registry.updateTarget({ target: secondTarget, session: null, messages: [] })
   assert.equal(registry.getPanelRequest(), firstRequest)
   assert.equal(registry.getPanelRequest()!.revision, 1)
   assert.equal(registry.getPanelRequest()!.target.session?.sessionId, 'first-session')

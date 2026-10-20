@@ -1,11 +1,15 @@
 import type { Goal, GoalRequest, GoalRun } from '@pi-meme/contracts/goal'
 import type { ServiceActivityRequest, ServiceActivityResult } from '@pi-meme/contracts/service-activity'
 import { createAppAgent } from '@pi-meme/pi-runtime/sdk/app-agent'
+import { createRestrictedAgent } from '@pi-meme/pi-runtime/sdk/restricted-agent'
+import { createPluginServerClient } from '@pi-meme/plugin-sdk/rpc'
+import type { PluginRuntimeRequest, PluginUiRequest } from '@pi-meme/contracts/plugin-call'
+import type { AgentPluginEntry } from '@pi-meme/plugin-sdk/agent'
 import { parentPort, workerData } from 'node:worker_threads'
 import { randomUUID } from 'node:crypto'
 import type { CollaborationRequest, CollaborationResults } from '@pi-meme/contracts/collaboration'
 import type { PlanDocument, SavePlanInput } from '@pi-meme/contracts/plan'
-import type { InlineExtension } from '@earendil-works/pi-coding-agent'
+import type { InlineExtension, ExtensionAPI, ToolDefinition } from '@earendil-works/pi-coding-agent'
 import type { DesktopSettings } from '@pi-meme/contracts/settings'
 import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
 import type { ResourceSnapshot } from '@pi-meme/contracts/resources'
@@ -45,7 +49,7 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
     cwd: string
     root: string
     settings: DesktopSettings
-    agentEntries: Array<{ pluginId: string; generation: number; path: string }>
+    agentEntries: AgentPluginEntry[]
     credentials: Array<[string, string]>
     access: AgentAccessMode
     capabilities: DesktopSettings
@@ -89,6 +93,8 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
     requireRestrictedPolicy: true,
     resourceSnapshot: data.resourceSnapshot,
     agentSources: data.agentEntries,
+    externalTools: new Map(),
+    pluginFailures: new Map(),
     onAdmission: (message, mode, continuation, signal, origin, expected) =>
       hostRequest('admission', { message, mode, continuation, origin, expected }, signal) as Promise<
         GoalRun | undefined
@@ -115,7 +121,7 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
     { resolve: (value: unknown) => void; reject: (cause: Error) => void; cleanup: () => void }
   >()
   function hostRequest(
-    kind: 'collaboration' | 'savePlan' | 'admission' | 'goal' | 'goalUsage' | 'activity',
+    kind: 'collaboration' | 'savePlan' | 'admission' | 'goal' | 'goalUsage' | 'activity' | 'plugin',
     request: object,
     signal?: AbortSignal,
   ): Promise<unknown> {
@@ -135,6 +141,8 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
       port.postMessage({ hostRequest: { kind, id, ...request } })
     })
   }
+  const pluginUi = new Map<string, (input: PluginUiRequest) => Promise<unknown>>()
+  const pluginUiControllers = new Map<string, AbortController>()
   const ready = (async () => {
     const sdk = await loadPiSdk()
     const agentCore = await loadPiAgentCore()
@@ -174,9 +182,84 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
         })),
       )
     }
+    const reservedNames = new Set<string>()
+    const instrumentBuiltin = (api: ExtensionAPI) =>
+      new Proxy(api, {
+        get(target, key, receiver) {
+          if (key === 'registerTool')
+            return (tool: ToolDefinition) => {
+              reservedNames.add(tool.name)
+              target.registerTool(tool)
+            }
+          return Reflect.get(target, key, receiver)
+        },
+      })
+    for (let index = 0; index < extensions.length; index++) {
+      const extension = extensions[index]
+      const factory = typeof extension === 'function' ? extension : extension.factory
+      extensions[index] = {
+        ...(typeof extension === 'function' ? {} : extension),
+        name: extension.name,
+        factory: (api) => factory(instrumentBuiltin(api)),
+      }
+    }
     for (const entry of data.agentEntries) {
       if (entry.pluginId in builtins) throw new Error('外部 Agent 不能替换内置能力')
-      extensions.push(createAppAgent(entry, (questions, signal) => session.requestUserInput(questions, signal)))
+      const offset = extensions.length
+      const pluginRequest = (request: PluginRuntimeRequest, signal?: AbortSignal) =>
+        hostRequest('plugin', { pluginRequest: request }, signal)
+      if (entry.restricted)
+        extensions.push(
+          createRestrictedAgent({
+            entry,
+            request: pluginRequest,
+            registerUi: (id, handler) => pluginUi.set(id, handler),
+            requestInput: (questions, signal) => session.requestUserInput(questions, signal),
+            tools: policy.externalTools!,
+            reservedNames,
+          }),
+        )
+      if ((entry.trusted && entry.grant?.trusted.agent) || entry.path)
+        extensions.push(
+          createAppAgent(
+            entry,
+            (questions, signal) => session.requestUserInput(questions, signal),
+            createPluginServerClient({
+              pluginId: entry.pluginId,
+              generation: entry.generation,
+              policyHash: entry.grant?.policyHash,
+              invoke: (request, signal) =>
+                pluginRequest(
+                  {
+                    pluginId: entry.pluginId,
+                    generation: entry.generation,
+                    action: 'server',
+                    name: request.operation,
+                    input: request.input,
+                  },
+                  signal,
+                ),
+            }),
+            policy.externalTools,
+            reservedNames,
+          ),
+        )
+      for (let index = offset; index < extensions.length; index++) {
+        const extension = extensions[index]
+        if (typeof extension === 'function') continue
+        extensions[index] = {
+          ...extension,
+          factory: async (api) => {
+            try {
+              await extension.factory(api)
+            } catch (cause) {
+              policy.pluginFailures!.set(entry.pluginId, cause instanceof Error ? cause.message : String(cause))
+              for (const [name, source] of policy.externalTools!)
+                if (source.pluginId === entry.pluginId) policy.externalTools!.delete(name)
+            }
+          },
+        }
+      }
     }
     session.configureInlineExtensions(extensions)
     session.configureCapabilities({ codemodeEnabled: false, mcpEnabled: false })
@@ -212,6 +295,26 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
         .then(async () => {
           if (request.method === 'configureCapabilities') {
             send({ id: request.id })
+            return
+          }
+          if (request.method === 'pluginUiCancel') {
+            pluginUiControllers.get(String(request.args[0]))?.abort()
+            send({ id: request.id })
+            return
+          }
+          if (request.method === 'pluginUi') {
+            const input = request.args[0] as PluginUiRequest
+            const action = pluginUi.get(input.pluginId)
+            if (!action || !input.scopeId || pluginUiControllers.has(input.scopeId))
+              throw new Error('scope-expired: 插件交互已失效')
+            const controller = new AbortController()
+            pluginUiControllers.set(input.scopeId, controller)
+            try {
+              send({ id: request.id, result: await action({ ...input, signal: controller.signal }) })
+            } finally {
+              pluginUiControllers.delete(input.scopeId)
+              controller.abort()
+            }
             return
           }
           const method = Reflect.get(session, request.method) as unknown

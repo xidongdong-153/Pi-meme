@@ -14,13 +14,5 @@
     "@pi-meme/contracts": "workspace:*",
     "@pi-meme/plugin-sdk": "workspace:*",
     "@pi-meme/pi-runtime": "workspace:*"
-  },
-  "piMeme": {
-    "sdkVersion": 2,
-    "server": "dist/server/chord-facets.json",
-    "provides": [
-      "agent.sandbox"
-    ],
-    "agent": "dist/agent/entry.js"
   }
 }

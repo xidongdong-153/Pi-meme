@@ -66,7 +66,8 @@ import { createDesktopSettingsManager } from './settings'
 import { readDesktopAgentContextFiles } from './context-files'
 import { ExtensionUiBridge } from './ui-bridge'
 import { freezeResourceLoader, snapshotSkills } from './resource-loader'
-import { eventUiSource, persistMessageSource, projectMessageSources } from './ui-source'
+import { eventUiSource, persistMessageSource } from './ui-source'
+import { projectStableMessageMetadata, projectStableMessages } from './message-projection'
 
 type Notify = {
   connection: (value: Connection) => void
@@ -113,7 +114,9 @@ export type RuntimePolicy = {
   uiEnabled?: boolean
   resourcePaths?: { skills: string[]; prompts: string[] }
   resourceSnapshot?: ResourceSnapshot
-  agentSources?: Array<{ pluginId: string; generation: number; path: string }>
+  agentSources?: import('@pi-meme/plugin-sdk/agent').AgentPluginEntry[]
+  externalTools?: import('./restricted-agent').ExternalToolPolicy
+  pluginFailures?: Map<string, string>
   requireRestrictedPolicy?: boolean
   createSandbox?: typeof AccessSandbox.create
   createAccessExtension?: typeof createAgentAccessExtension
@@ -350,7 +353,22 @@ export class SdkSession {
     }
   }
 
+  private assertPluginAvailability(mode: TaskMode) {
+    for (const entry of this.policy.agentSources ?? []) {
+      const failure = mode === this.runtimeMode ? this.policy.pluginFailures?.get(entry.pluginId) : undefined
+      if (failure) throw new Error(`operation-unavailable-in-runtime: ${entry.pluginId}：${failure}`)
+    }
+    for (const entry of this.policy.agentSources ?? [])
+      if (
+        !entry.path &&
+        !entry.restricted &&
+        (mode === 'plan' || this.accessMode !== 'full-access' || !entry.grant?.trusted.agent)
+      )
+        throw new Error(`grant-required: 已选择的插件 ${entry.pluginId} 在当前权限或模式不可用`)
+  }
+
   private async createRuntime(sessionFile: string | undefined, seq: number) {
+    this.policy.pluginFailures?.clear()
     const generation = this.generation
     const runtimeMode = this.preparationMode ?? this.mode
     const plan = runtimeMode === 'plan'
@@ -416,6 +434,7 @@ export class SdkSession {
                 sandbox: this.sandbox!,
                 cwd,
                 mode: this.accessMode,
+                externalToolAllowed: (name) => this.policy.externalTools?.has(name) ?? false,
               }),
             ]
           : []),
@@ -428,10 +447,25 @@ export class SdkSession {
         ...this.inlineExtensions.filter(
           (extension) =>
             (!restricted || !extension.name.startsWith('app-agent:')) &&
-            (!plan || extension.name === 'pi-meme-collaboration' || extension.name === 'pi-meme-user-input'),
+            (!extension.name.startsWith('restricted-agent:') ||
+              plan ||
+              restricted ||
+              !this.policy.agentSources?.some(
+                (entry) =>
+                  extension.name === `restricted-agent:${entry.pluginId}:${entry.generation}` &&
+                  entry.trusted &&
+                  entry.grant?.trusted.agent,
+              )) &&
+            (!plan ||
+              extension.name.startsWith('restricted-agent:') ||
+              extension.name === 'pi-meme-collaboration' ||
+              extension.name === 'pi-meme-user-input'),
         ),
         ...(this.policy.resourceSnapshot ? [createSkillUsageExtension(this.policy.resourceSnapshot)] : []),
-        createPlanGuard(() => this.activeMode ?? this.preparationMode ?? this.mode),
+        createPlanGuard(
+          () => this.activeMode ?? this.preparationMode ?? this.mode,
+          (name) => this.policy.externalTools?.get(name)?.effect === 'read',
+        ),
         (pi: ExtensionAPI) => {
           pi.on('before_agent_start', (event) => {
             const sections = event.systemPromptOptions.sections
@@ -595,8 +629,43 @@ export class SdkSession {
       session.setActiveToolsByName([...new Set([...session.getActiveToolNames(), 'codemode'])])
     }
     this.unsubscribe?.()
+    const publishedEntries = new Set(session.sessionManager.getEntries().map((entry) => entry.id))
+    const customEntries = new WeakMap<object, string>()
+    const commitMessage = (entryId: string) => {
+      if (this.runtime !== runtime || generation !== this.generation || publishedEntries.has(entryId)) return
+      const manager = session.sessionManager
+      const message = projectStableMessageMetadata(
+        manager.getEntries(),
+        manager.buildSessionProjection(),
+        manager.getLeafId(),
+      ).find((item) => item.sourceEntry?.id === entryId)
+      if (!message) return
+      publishedEntries.add(entryId)
+      const committed: PiEvent = { type: 'message_end', message }
+      const source = eventUiSource(committed, session, this.policy.agentSources)
+      this.handleEvent(
+        source
+          ? {
+              ...committed,
+              source,
+              message: {
+                ...message,
+                source,
+                ...(message.role === 'custom' && source.customType ? { customType: source.customType } : {}),
+              },
+            }
+          : committed,
+      )
+    }
     this.unsubscribe = session.subscribe((event) => {
       if (generation !== this.generation) return
+      if (
+        event.type === 'entry_appended' &&
+        (event.entry.type === 'message' || event.entry.type === 'custom_message')
+      ) {
+        const entryId = event.entry.id
+        queueMicrotask(() => commitMessage(entryId))
+      }
       if (
         event.type === 'entry_appended' &&
         event.entry.type === 'custom' &&
@@ -609,6 +678,48 @@ export class SdkSession {
       if (event.type === 'entry_appended' && this.goalRun)
         void this.accountGoalUsage().catch((cause: unknown) => this.report(String(cause)))
       const desktopEvent = toDesktopEvent(event)
+      if (desktopEvent?.type === 'message_start' && desktopEvent.message.role === 'custom') {
+        // sendMessage 的非运行路径先追加再广播；在开始边界捕获刚追加的原生条目。
+        const leaf = session.sessionManager.getLeafEntry()
+        if (
+          leaf?.type === 'custom_message' &&
+          !publishedEntries.has(leaf.id) &&
+          leaf.customType === desktopEvent.message.customType &&
+          leaf.content === desktopEvent.message.content &&
+          leaf.details === desktopEvent.message.details
+        )
+          customEntries.set(desktopEvent.message, leaf.id)
+      }
+      if (
+        desktopEvent?.type === 'message_end' &&
+        ['user', 'assistant', 'toolResult', 'custom'].includes(desktopEvent.message.role)
+      ) {
+        const message = desktopEvent.message
+        const before = new Set(session.sessionManager.getEntries().map((entry) => entry.id))
+        const captured = customEntries.get(message)
+        const source = eventUiSource(desktopEvent, session, this.policy.agentSources)
+        queueMicrotask(() => {
+          if (this.runtime !== runtime || generation !== this.generation) return
+          if (source) persistMessageSource(session, desktopEvent, source)
+          const entries = session.sessionManager.getEntries()
+          const original = entries.find((entry) => entry.type === 'message' && entry.message === message)
+          if (original) commitMessage(original.id)
+          else if (captured) commitMessage(captured)
+          else if (message.role === 'custom') {
+            const appended = entries.filter(
+              (entry) =>
+                !before.has(entry.id) &&
+                entry.type === 'custom_message' &&
+                entry.customType === message.customType &&
+                entry.content === message.content &&
+                entry.details === message.details,
+            )
+            if (appended.length === 1) commitMessage(appended[0]!.id)
+            else this.report('消息已保存但原生来源无法唯一确认，请刷新会话快照')
+          }
+        })
+        return
+      }
       if (event.type === 'queue_update') {
         for (const key of ['steering', 'followUp'] as const) {
           const source = this.nativeQueue[key].slice()
@@ -857,12 +968,9 @@ export class SdkSession {
   async snapshot(): Promise<Snapshot> {
     const revision = this.activityRevision
     const generation = this.generation
-    const [state, messages, entries, models, thinkingLevels, stats] = await this.call(() =>
+    const [state, entries, models, thinkingLevels, stats] = await this.call(() =>
       Promise.all([
         Promise.resolve(this.getState()),
-        Promise.resolve(
-          this.frozenView?.messages ?? this.session.messages.filter((message) => message.role !== 'system'),
-        ),
         Promise.resolve({
           entries: this.frozenView?.entries ?? this.session.sessionManager.getEntries(),
           leafId: this.frozenView ? this.frozenView.leafId : this.session.sessionManager.getLeafId(),
@@ -885,6 +993,14 @@ export class SdkSession {
     const own = this.conversationOrigin
       ? projectAgentConversation(entries.entries, entries.leafId, this.conversationOrigin)
       : undefined
+    const projected = own?.messages ?? (await projectStableMessages(entries.entries, entries.leafId))
+    if (generation !== this.generation) throw new Error('Pi 连接已更换')
+    const streaming = this.frozenView ? undefined : this.session.state.streamingMessage
+    const uncommitted =
+      streaming?.role === 'assistant' &&
+      !entries.entries.some((entry) => entry.type === 'message' && entry.message === streaming)
+        ? streaming
+        : undefined
     return {
       connection: this.connection(),
       state: this.toState(
@@ -892,7 +1008,7 @@ export class SdkSession {
           ? state
           : { ...state, isStreaming: this.running, isCompacting: this.running && state.isCompacting },
       ),
-      messages: projectMessageSources(entries.entries, own?.messages ?? messages, entries.leafId),
+      messages: uncommitted ? [...projected, uncommitted] : projected,
       models,
       thinkingLevels,
       stats,
@@ -904,7 +1020,37 @@ export class SdkSession {
   }
 
   private toState(state: RpcSessionState): PiState {
+    const mode = this.activeMode ?? this.preparationMode ?? this.mode
+    const effective = (this.policy.agentSources ?? []).filter(
+      (entry) =>
+        !this.policy.pluginFailures?.has(entry.pluginId) &&
+        Boolean(
+          entry.restricted ||
+          (mode !== 'plan' &&
+            this.accessMode === 'full-access' &&
+            (entry.path || (entry.trusted && entry.grant?.trusted.agent))),
+        ),
+    )
+    const capabilities = [...new Set(effective.flatMap((entry) => entry.grant?.restricted.capabilities ?? []))].filter(
+      (capability) => capability !== 'workspace.write' || (mode !== 'plan' && this.accessMode !== 'read-only'),
+    )
     return {
+      pluginPolicy: {
+        policyRevision: (this.policy.agentSources ?? [])
+          .map(
+            (entry) =>
+              `${entry.pluginId}:${entry.generation}:${entry.grant?.revision ?? 0}:${mode}:${this.accessMode}:${this.policy.pluginFailures?.has(entry.pluginId) ? 'unavailable' : 'available'}`,
+          )
+          .join('|'),
+        capabilities,
+        effectivePlugins: effective.map((entry) => ({ id: entry.pluginId, generation: entry.generation })),
+        unavailablePlugins: (this.policy.agentSources ?? [])
+          .filter((entry) => !effective.includes(entry))
+          .map((entry) => ({
+            id: entry.pluginId,
+            reason: this.policy.pluginFailures?.get(entry.pluginId) ?? '当前模式、权限或信任授权不允许此入口',
+          })),
+      },
       model: this.modelSelectionRequired ? this.modelRestore?.model : toModel(state.model),
       modelSelectionRequired: this.modelSelectionRequired,
       thinkingLevel: state.thinkingLevel,
@@ -1077,6 +1223,7 @@ export class SdkSession {
     if (command?.name === 'name' && !command.args) throw new Error('请输入会话名称：/name <会话名称>')
     if (this.modelSelectionRequired && command?.name !== 'name') throw new Error('当前模型已不可用，请先重新选择模型')
     if (this.changing || this.running) throw new Error('Pi 正在运行或切换，请等待完成后重试')
+    this.assertPluginAvailability(normalized.mode)
     this.changing = true
     this.preparationMode = normalized.mode
     if (!preserveMode && !continuation) this.mode = normalized.mode
@@ -1091,11 +1238,13 @@ export class SdkSession {
       }
       const generation = this.generation
       const state = this.getState()
+      this.assertPluginAvailability(normalized.mode)
       if (state.isStreaming || state.isCompacting) {
         this.running = true
         throw new Error('Pi 正在运行，请先停止当前任务')
       }
       message = await this.prepareSkills(message, skills)
+      if (options?.clientProcessingAudit?.length) this.persistClientProcessingAudit(options.clientProcessingAudit)
       this.running = true
       this.pendingSend = true
       this.activeMode = normalized.mode
@@ -1304,6 +1453,24 @@ export class SdkSession {
     })
   }
 
+  private persistClientProcessingAudit(audit: readonly import('@pi-meme/contracts/plan').ClientProcessingAudit[]) {
+    if (
+      audit.length > 64 ||
+      audit.some(
+        (v) =>
+          !v ||
+          ![v.attemptId, v.pluginId, v.hookId].every((id) => typeof id === 'string' && id.length <= 256) ||
+          !Number.isSafeInteger(v.generation) ||
+          !['pass', 'replace', 'block', 'error', 'timeout', 'skipped'].includes(v.outcome),
+      )
+    )
+      throw new Error('客户端处理来源记录无效')
+    this.session.sessionManager.appendCustomEntry('pi-meme-client-processing', {
+      clientDeclared: true,
+      entries: audit.map((v) => ({ ...v, reason: v.reason?.slice(0, 256) })),
+    })
+  }
+
   private async enqueue(
     kind: 'steering' | 'followUp',
     message: string,
@@ -1315,7 +1482,14 @@ export class SdkSession {
     this.mode = normalized.mode
     if (normalized.commandOnly) return
     if (builtinCommand(normalized.text)) throw new Error('内置命令不能插话或排队，请等待当前任务完成后执行')
-    const input: QueuedInput = { id: randomUUID(), text: normalized.text, mode: normalized.mode, images, skills }
+    const input: QueuedInput = {
+      id: randomUUID(),
+      text: normalized.text,
+      mode: normalized.mode,
+      images,
+      skills,
+      clientProcessingAudit: options?.clientProcessingAudit,
+    }
     if (kind === 'followUp' || normalized.mode === 'plan' || normalized.mode !== this.activeMode || !this.running) {
       await this.withQueueLock(() => {
         this.ownQueue[kind].push(input)
@@ -1325,6 +1499,7 @@ export class SdkSession {
       return
     }
     const prepared = await this.prepareSkills(input.text, skills)
+    if (input.clientProcessingAudit?.length) this.persistClientProcessingAudit(input.clientProcessingAudit)
     this.preparedQueueText.set(input.id, prepared)
     this.nativeQueue[kind].push(input)
     await this.call(() =>
@@ -1446,7 +1621,14 @@ export class SdkSession {
       if (!input.editing || this.queueEdits.get(id) !== clientId) throw new Error('此客户端未持有排队输入编辑权')
       const normalized = normalizePlanMessage(message, options?.mode ?? input.mode)
       if (normalized.commandOnly || builtinCommand(normalized.text)) throw new Error('排队输入必须包含任务正文')
-      Object.assign(input, { text: normalized.text, mode: normalized.mode, images, skills, editing: undefined })
+      Object.assign(input, {
+        text: normalized.text,
+        mode: normalized.mode,
+        images,
+        skills,
+        clientProcessingAudit: options?.clientProcessingAudit,
+        editing: undefined,
+      })
       this.queueEdits.delete(id)
       this.emitQueue()
     }).then(() => this.scheduleQueue())
@@ -1671,7 +1853,7 @@ export class SdkSession {
         selected.input.text,
         selected.input.images,
         selected.input.skills,
-        { mode: selected.input.mode },
+        { mode: selected.input.mode, clientProcessingAudit: selected.input.clientProcessingAudit },
         false,
         true,
       )

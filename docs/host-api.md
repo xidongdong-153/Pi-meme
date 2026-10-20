@@ -4,6 +4,8 @@ status: mixed
 paths:
   - 'packages/contracts/src/app-host.ts'
   - 'packages/contracts/src/goal.ts'
+  - 'packages/contracts/src/plugin-ui-data.ts'
+  - 'packages/contracts/src/plugin-ui-message.ts'
   - 'packages/host/src/app-control.ts'
   - 'packages/host/src/control-store.ts'
   - 'packages/goals/src/server/service.ts'
@@ -28,27 +30,39 @@ paths:
 
 操作指定目标，不读取或改变客户端的界面选择。会话创建立即持久化身份，首次生成 Pi JSONL 后补充文件绑定；内部 `sessionKey` 不作为公开持久 ID。
 
-| 接口组           | 已实现操作                                                                                                                                     |
-| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `capabilities()` | Host 身份、API 版本、功能及可选文件操作能力                                                                                                    |
-| `plugins`        | `getDefaultAgentPlugins`、`setDefaultAgentPlugins`                                                                                             |
-| `projects`       | `list`、`register`、`get`                                                                                                                      |
-| `sessions`       | `create`、`list`、`get`、`snapshot`、`history`、`configure`、`submit`、`stop`、`pause`、`resume`、`receipt`、`submissions`、`cancelSubmission` |
-| `files`          | `list`、`read`、`preview`、`search`、`write`                                                                                                   |
-| `terminal`       | `open`、`attach`、`input`、`resize`、`close`                                                                                                   |
-| `git`            | `environment`、`snapshot`、`diff`，只读                                                                                                        |
-| `interaction`    | `respond`，按根会话或子任务来源回答                                                                                                            |
-| `agents`         | `list`、`get`、`stop`                                                                                                                          |
-| `goals`          | `get`、`start`、`edit`、`pause`、`resume`、`clear`                                                                                             |
-| `activities`     | `list`、`logs`、`stop`，查看和停止 Agent 启动的项目服务                                                                                        |
-| `plans`          | `list`，读取已保存计划                                                                                                                         |
-| `events`         | `read`、`subscribe`                                                                                                                            |
+| 接口组           | 已实现操作                                                                                                                                                            |
+| ---------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `capabilities()` | Host 身份、API 版本、功能及可选文件操作能力                                                                                                                           |
+| `plugins`        | `getDefaultAgentPlugins`、`setDefaultAgentPlugins`                                                                                                                    |
+| `projects`       | `list`、`register`、`get`                                                                                                                                             |
+| `sessions`       | `create`、`list`、`get`、`snapshot`、`history`、`messages`、`message`、`configure`、`submit`、`stop`、`pause`、`resume`、`receipt`、`submissions`、`cancelSubmission` |
+| `files`          | `list`、`read`、`preview`、`search`、`write`                                                                                                                          |
+| `terminal`       | `open`、`attach`、`input`、`resize`、`close`                                                                                                                          |
+| `git`            | `environment`、`snapshot`、`diff`，只读                                                                                                                               |
+| `interaction`    | `respond`，按根会话或子任务来源回答                                                                                                                                   |
+| `agents`         | `list`、`get`、`stop`                                                                                                                                                 |
+| `goals`          | `get`、`start`、`edit`、`pause`、`resume`、`clear`                                                                                                                    |
+| `activities`     | `list`、`logs`、`stop`，查看和停止 Agent 启动的项目服务                                                                                                               |
+| `plans`          | `list`，读取已保存计划                                                                                                                                                |
+| `events`         | `read`、`subscribe`                                                                                                                                                   |
 
 完整参数与返回类型以 [HostApi](../packages/contracts/src/app-host.ts) 为准。`sessions.history` 使用 `offset/limit`，默认 100 条、最大 500 条，返回 `totalMessages/nextOffset`。`sessions.configure` 可设置模型、思考等级、访问权限、任务模式和 `agentPlugins`；运行中拒绝变更配置。
 
 `capabilities().features` 包含 `goals` 时，可以按 `SessionRef` 调用目标接口。`goals.start(ref, { objective, images?, skills?, sourceMessageTimestamp? }, options)` 返回 `{ goal, receipt }`；指定来源时间戳时由 Host 核对当前分支并引用原消息，正文与图片以原生记录为准。已有目标的编辑、暂停、恢复、清除需要 `goalId` 和 `revision`，旧修订会被拒绝。`edit` 只接受新正文且要求执行已停止，保留累计用量和耗时；创建和恢复均以普通模式执行，进入 Plan 会先暂停活跃目标。
 
 目标类型见 [goal.ts](../packages/contracts/src/goal.ts)。`sessions.snapshot` 返回 `goal` 和 `goalsSupported`；`goal_updated`、`goal_cleared` 沿现有事件补读通道发送。提交回执只表示对应提交是否结束，目标是否结束以 `goal.status` 为准。目标持久化、重启恢复和 UI 操作见 [会话与协作](sessions.md#持久目标-goal)。
+
+## 消息查找与分页
+
+SDK 3 的消息数据仍使用 HostApi v2，不增加 HostApi v3。公共类型见 [plugin-ui-data.ts](../packages/contracts/src/plugin-ui-data.ts)，可见内容转换见 [plugin-ui-message.ts](../packages/contracts/src/plugin-ui-message.ts)。
+
+- `sessions.messages(ref, { offset?, limit?, cursor? })`：读取当前原生分支的公共消息投影，默认 100、最大 500 条。返回 `messages/totalMessages/nextOffset/nextCursor/branchRevision/leafId`。
+- `sessions.message(ref, { entryId })`：按原生条目 ID 查单条消息。调用 UI SDK 时使用 `MessageRef = { session: ref, entryId }`。
+- `messages` 每项包含角色、状态、内容 revision、来源插件与 generation、工具或自定义类型，以及可见 `text`、JSON `data` 和图片元数据。不返回隐藏 thinking、技能展开全文、原始 Pi 对象或图片 base64。
+- 持久 ref 只对应原生 `message/custom_message`；流式内容和压缩、分支摘要等合成内容不伪造可操作 ref。assistant 聚合回复保留多个真实 refs，不分配虚构聚合 ID。
+- cursor 绑定 session、由 leaf 与消息 sourceEntry 计算的 branch revision，以及下一页 offset；分支或 context edit 改变后返回 `stale-cursor`，调用方应重新读取，不能拼接不同分支。
+
+旧 `sessions.history` 的 offset 接口继续用于既有历史功能。这里改善公共数据契约与 UI 的按需读取，不承诺 JSONL 随机 IO；Host 仍可能读取原生文件并构建分支投影。插件消息动作不提供通用历史修改、删除或工具重跑接口。
 
 ## HTTP 与认证
 

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { test } from 'vitest'
@@ -11,6 +11,7 @@ import type { PlanDocument } from '@pi-meme/contracts/plan'
 import { finishAgentReply, useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
 import { createHost } from '../src/service'
 import { HostCollaborationBridge } from '@pi-meme/subagents/server/coordinator'
+import { agentFixtureManifest, trustPluginFixture, writeAgentFixture } from './plugin-fixture'
 
 async function eventually(check: () => boolean | Promise<boolean>) {
   for (let count = 0; count < 200; count++) {
@@ -325,7 +326,7 @@ test('父任务已预约但尚未准入时登记退役，等待后续子任务�
     reply: (body) => {
       const text = JSON.stringify((body.messages ?? []).filter((message: { role: string }) => message.role === 'user'))
       if (text.includes('退役窗口独立子任务')) return finishAgentReply(body, '子任务已完成', { delayMs: 750 })
-      if (text.includes('子 Agent 已返回结果')) {
+      if (text.includes('A child agent has returned a result.')) {
         resumed = true
         return { text: '汇总已完成', delayMs: 50 }
       }
@@ -376,17 +377,9 @@ test('父任务已预约但尚未准入时登记退役，等待后续子任务�
   }
   try {
     const source = path.join(root, 'agent-plugin')
-    await mkdir(path.join(source, 'dist/agent'), { recursive: true })
-    await writeFile(
-      path.join(source, 'package.json'),
-      JSON.stringify({
-        name: 'retire-admission-fixture',
-        version: '1.0.0',
-        piMeme: { sdkVersion: 2, agent: 'dist/agent.js' },
-      }),
-    )
-    await writeFile(path.join(source, 'dist/agent.js'), 'export function activate() {}')
+    await writeAgentFixture(source, 'retire-admission-fixture', 'export function activate() {}')
     await host.plugins.loadDirectory(source)
+    await trustPluginFixture(host.plugins, 'retire-admission-fixture')
     const key = ((await rpc('pi:snapshot')).result as Snapshot).connection.sessionKey!
     await rpc('pi:access-mode', [key, 'full-access'], key)
     const ref = await host.control.sessionForRuntime(key)
@@ -401,11 +394,7 @@ test('父任务已预约但尚未准入时登记退役，等待后续子任务�
     await entering
     await writeFile(
       path.join(source, 'package.json'),
-      JSON.stringify({
-        name: 'retire-admission-fixture',
-        version: '2.0.0',
-        piMeme: { sdkVersion: 2, agent: 'dist/agent.js' },
-      }),
+      JSON.stringify(agentFixtureManifest('retire-admission-fixture', '2.0.0')),
     )
     await host.plugins.reload('retire-admission-fixture')
     assert.equal(released, 0)
@@ -612,17 +601,9 @@ test('零外部插件能聊天，父子 Worker 分别持有租约，子快照不
       ((await rpc('pi:snapshot', [], key)).result as Snapshot).messages.some((message) => message.role === 'assistant'),
     )
     const source = path.join(root, 'agent-plugin')
-    await mkdir(path.join(source, 'dist/agent'), { recursive: true })
-    await writeFile(
-      path.join(source, 'package.json'),
-      JSON.stringify({
-        name: 'lease-fixture',
-        version: '1.0.0',
-        piMeme: { sdkVersion: 2, agent: 'dist/agent/entry.js' },
-      }),
-    )
-    await writeFile(path.join(source, 'dist/agent/entry.js'), 'export function activate() {}')
+    await writeAgentFixture(source, 'lease-fixture', 'export function activate() {}', '1.0.0', 'dist/agent/entry.js')
     await host.plugins.loadDirectory(source)
+    await trustPluginFixture(host.plugins, 'lease-fixture')
     const ref = await host.control.sessionForRuntime(key)
     await host.app.sessions.configure(ref, { agentPlugins: ['lease-fixture'] }, { idempotencyKey: crypto.randomUUID() })
     await eventually(() => released === acquired)
@@ -665,11 +646,7 @@ test('零外部插件能聊天，父子 Worker 分别持有租约，子快照不
     )
     await writeFile(
       path.join(source, 'package.json'),
-      JSON.stringify({
-        name: 'lease-fixture',
-        version: '2.0.0',
-        piMeme: { sdkVersion: 2, agent: 'dist/agent/entry.js' },
-      }),
+      JSON.stringify(agentFixtureManifest('lease-fixture', '2.0.0', 'dist/agent/entry.js')),
     )
     await host.plugins.reload('lease-fixture')
     await eventually(() => released === acquired)
@@ -681,6 +658,7 @@ test('零外部插件能聊天，父子 Worker 分别持有租约，子快照不
       .map((event) => event.sequence!)
     assert.equal(new Set(rootSequences).size, rootSequences.length)
     assert.ok(rootSequences.every((sequence, index) => index === 0 || sequence > rootSequences[index - 1]!))
+    await trustPluginFixture(host.plugins, 'lease-fixture')
     assert.equal((await rpc('pi:prompt', [key, '新任务加载外部插件', [], []], key)).error, undefined)
     await eventually(async () => ((await rpc('pi:snapshot', [], key)).result as Snapshot).agent?.status === 'completed')
     const parentFile = ((await rpc('pi:snapshot', [], key)).result as Snapshot).connection.sessionFile!

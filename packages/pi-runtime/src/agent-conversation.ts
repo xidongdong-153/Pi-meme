@@ -6,6 +6,7 @@ import { branchSkillUsages } from './extensions/skill-usage'
 import { projectBranchEntries } from './session-tree-entries'
 import { loadPiSdk } from './sdk/load'
 import { projectMessageSources } from './sdk/ui-source'
+import { stableMessageRevision } from './sdk/message-projection'
 
 export function projectAgentConversation(
   entries: readonly SessionEntry[],
@@ -25,17 +26,51 @@ export function projectAgentConversation(
     entry = entry.parentId ? byId.get(entry.parentId) : undefined
   }
   branch.reverse()
+  const edits = new Map(
+    branch.flatMap((current) => (current.type === 'context_edit' ? [[current.targetId, current] as const] : [])),
+  )
   const messages: PiMessage[] = branch.flatMap((current): PiMessage[] => {
-    if (current.type === 'message') return current.message.role === 'system' ? [] : [current.message]
+    if (current.type === 'message') {
+      if (current.message.role === 'system') return []
+      const edit = edits.get(current.id)
+      if (edit?.replacement === null) return []
+      const message = edit?.replacement
+        ? ({ ...current.message, content: edit.replacement.content } as PiMessage)
+        : current.message
+      return [
+        {
+          ...message,
+          ...(['user', 'assistant', 'toolResult'].includes(message.role)
+            ? {
+                sourceEntry: {
+                  id: current.id,
+                  type: 'message' as const,
+                  revision: stableMessageRevision(current, message, edit?.id),
+                },
+              }
+            : {}),
+        },
+      ]
+    }
     if (current.type !== 'custom_message') return []
+    const edit = edits.get(current.id)
+    if (edit?.replacement === null) return []
+    const message: PiMessage = {
+      role: 'custom',
+      customType: current.customType,
+      content: (edit?.replacement?.content ?? current.content) as typeof current.content,
+      display: current.display,
+      details: current.details,
+      timestamp: new Date(current.timestamp).getTime(),
+    }
     return [
       {
-        role: 'custom',
-        customType: current.customType,
-        content: current.content,
-        display: current.display,
-        details: current.details,
-        timestamp: new Date(current.timestamp).getTime(),
+        ...message,
+        sourceEntry: {
+          id: current.id,
+          type: 'custom_message',
+          revision: stableMessageRevision(current, message, edit?.id),
+        },
       },
     ]
   })

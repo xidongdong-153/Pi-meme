@@ -3,7 +3,7 @@ import { test } from 'vitest'
 import { mkdtemp, mkdir, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import type { ServerPluginContext } from '@pi-meme/plugin-sdk/server'
+import type { BuiltinModuleContext } from '@pi-meme/contracts/builtin-module'
 import { create } from '../src/server/entry'
 import { searchSessionFile, sessionSearchExcerpt } from '../src/server/session-search'
 import { assistantMessage, userMessage } from '../../../tests/fixtures/messages.mjs'
@@ -67,7 +67,7 @@ test('搜索仅读取显式目标，拒绝越界和外部链接，支持运行�
     registerHandlers: (value: typeof handlers) => {
       handlers = value
     },
-  } as unknown as ServerPluginContext)
+  } as unknown as BuiltinModuleContext)
   assert.deepEqual(await handlers['session:search']('正文', [file, file, 'runtime:active']), [
     { path: file, excerpt: '需要找到的正文' },
     { path: 'runtime:active', excerpt: '运行中的正文' },

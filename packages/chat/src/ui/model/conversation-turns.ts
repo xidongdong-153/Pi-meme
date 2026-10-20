@@ -2,7 +2,7 @@ import { nestedTools } from './nested-tools'
 import type { PiImage, PiMessage, PiRunInterval } from '@pi-meme/contracts/pi'
 import type { ActivityItem, ChatState, TurnChunk } from './types'
 
-type RawTurnItem = { kind: 'activity'; item: ActivityItem } | { kind: 'text'; text: string }
+type RawTurnItem = { kind: 'activity'; item: ActivityItem } | { kind: 'text'; text: string; message?: PiMessage }
 
 /** 按交互轮次（Turn）聚合整个对话流中的所有思考、工具调用与最终文本 */
 export function groupConversationTurns(
@@ -47,6 +47,7 @@ export function groupConversationTurns(
       type: 'tool' as const,
       name: t.name,
       source: t.source,
+      sourceEntry: t.sourceEntry,
       args: t.args,
       result: t.result,
       status: t.status,
@@ -54,6 +55,7 @@ export function groupConversationTurns(
     }))
 
   let turnItems: RawTurnItem[] = []
+  let sourceMessages: PiMessage[] = []
   let turnImages: Array<PiImage & { id?: string }> = []
   let turnErrorMessage: string | undefined
   let turnStartTimestamp: number | undefined
@@ -106,6 +108,13 @@ export function groupConversationTurns(
     }
 
     const finalText = finalTextParts.join('\n\n').trim()
+    const finalReplyMessages = [
+      ...new Set(
+        turnItems
+          .slice(lastWorkIdx + 1)
+          .flatMap((item) => (item.kind === 'text' && item.message ? [item.message] : [])),
+      ),
+    ]
     const isLive = isLastTurn && (isAgentRunning || Boolean(liveMessage))
     const hasWorkOrText = activities.length > 0 || Boolean(finalText) || Boolean(turnErrorMessage)
 
@@ -134,6 +143,8 @@ export function groupConversationTurns(
         type: 'assistant_turn',
         activities,
         finalText,
+        sourceMessages,
+        finalReplyMessages,
         images: turnImages,
         errorMessage: turnErrorMessage,
         durationMs,
@@ -144,6 +155,7 @@ export function groupConversationTurns(
     }
 
     turnItems = []
+    sourceMessages = []
     turnImages = []
     turnErrorMessage = undefined
     turnStartTimestamp = undefined
@@ -220,6 +232,7 @@ export function groupConversationTurns(
     }
 
     if (msg.role === 'assistant') {
+      sourceMessages.push(msg)
       turnErrorMessage = msg.stopReason === 'aborted' ? undefined : msg.errorMessage
     }
 
@@ -251,6 +264,7 @@ export function groupConversationTurns(
                 type: 'tool',
                 name: part.name,
                 source: toolRun?.source,
+                sourceEntry: toolRun?.sourceEntry,
                 args: part.arguments,
                 result: toolRun?.result,
                 children: nestedTools(part.id, toolsMap),
@@ -271,13 +285,13 @@ export function groupConversationTurns(
             }
           } else if (part.type === 'text') {
             if (part.text) {
-              turnItems.push({ kind: 'text', text: part.text })
+              turnItems.push({ kind: 'text', text: part.text, message: msg })
             }
           }
         }
       } else if (typeof msg.content === 'string') {
         if (msg.content) {
-          turnItems.push({ kind: 'text', text: msg.content })
+          turnItems.push({ kind: 'text', text: msg.content, message: msg })
         }
       }
     }

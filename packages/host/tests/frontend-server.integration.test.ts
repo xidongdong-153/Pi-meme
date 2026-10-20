@@ -8,6 +8,7 @@ import { createNodeHostClient } from '@pi-meme/client/node-host-client'
 import { startHostServer } from '../src/server'
 import { startFrontendServer } from '../src/frontend-server'
 import { readLocalHostStatus } from '../src/host-status'
+import { trustPluginFixture } from './plugin-fixture'
 
 async function fixture() {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), 'pi-frontend-')))
@@ -69,10 +70,11 @@ test('API-only Host 可服务独立随包界面，同源认证和插件资源正
       await mkdir(path.join(directory, 'dist'), { recursive: true })
       await writeFile(
         path.join(directory, 'package.json'),
-        JSON.stringify({ name: 'shared-ui-fixture', version: '1.0.0', piMeme: { sdkVersion: 2, ui: 'dist/entry.js' } }),
+        JSON.stringify({ name: 'shared-ui-fixture', version: '1.0.0', piMeme: { sdkVersion: 3, ui: 'dist/entry.js' } }),
       )
       await writeFile(path.join(directory, 'dist/entry.js'), 'export const shared = true\n')
       await f.host.host.plugins.loadDirectory(directory)
+      await trustPluginFixture(f.host.host.plugins, 'shared-ui-fixture')
       const plugins = await client.rpc<Array<{ id: string; ui: string }>>('plugins:list')
       const resource = plugins.find((plugin) => plugin.id === 'shared-ui-fixture')!.ui
       const auth = await fetch(`${f.frontend.url}/api/auth`, {

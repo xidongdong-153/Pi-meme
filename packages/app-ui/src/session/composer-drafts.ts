@@ -79,6 +79,19 @@ export class ComposerDrafts {
         selectedSkills: value.selectedSkills,
         ...(value.goalDraft ? { goalDraft: true as const } : {}),
         ...(value.pluginMentions?.length ? { pluginMentions: value.pluginMentions } : {}),
+        ...(value.pluginAnchors && typeof value.pluginAnchors === 'object'
+          ? {
+              pluginAnchors: Object.fromEntries(
+                Object.entries(value.pluginAnchors).filter(
+                  ([id, offset]) =>
+                    value.pluginMentions?.includes(id) &&
+                    Number.isInteger(offset) &&
+                    offset >= 0 &&
+                    offset <= value.draft!.length,
+                ),
+              ),
+            }
+          : {}),
         attachments: [],
         queueMode: value.queueMode,
       }
@@ -153,7 +166,12 @@ export class ComposerDrafts {
             draft: composer.draft,
             ...(composer.goalDraft ? { goalDraft: composer.goalDraft } : {}),
             selectedSkills: composer.selectedSkills,
-            ...(composer.pluginMentions?.length ? { pluginMentions: composer.pluginMentions } : {}),
+            ...(composer.pluginMentions?.length
+              ? {
+                  pluginMentions: composer.pluginMentions,
+                  ...(composer.pluginAnchors ? { pluginAnchors: composer.pluginAnchors } : {}),
+                }
+              : {}),
             queueMode: composer.queueMode,
           }),
         )

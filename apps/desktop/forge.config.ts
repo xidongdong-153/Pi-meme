@@ -6,6 +6,7 @@ import { FuseV1Options, FuseVersion } from '@electron/fuses'
 import { copyFile } from 'node:fs/promises'
 import path from 'node:path'
 import { copyPiRuntime } from '../../scripts/copy-pi-runtime.mjs'
+import { prepareNodeRuntime } from '../../scripts/node-runtime.mjs'
 import { desktopResources, releaseResourceFiles, writeReleaseResources } from '../../scripts/release.mjs'
 
 const signingIdentity = process.env.PI_DESKTOP_SIGNING_IDENTITY
@@ -27,6 +28,7 @@ const config: ForgeConfig = {
     // Vite 插件只把 .vite 打进 asar。目录名 dock 会变成 Resources/dock。
     extraResource: [
       path.join(__dirname, '../../packages/assets/files/desktop/dock'),
+      path.join(desktopResources, 'runtime'),
       ...releaseResourceFiles.map((name) => path.join(desktopResources, name)),
     ],
   },
@@ -34,6 +36,7 @@ const config: ForgeConfig = {
   makers: [new MakerZIP({}, ['darwin'])],
   hooks: {
     prePackage: async () => {
+      await prepareNodeRuntime(path.join(desktopResources, 'runtime'))
       await writeReleaseResources(desktopResources, 'desktop')
     },
     packageAfterExtract: async (_config, buildPath, _electronVersion, platform) => {

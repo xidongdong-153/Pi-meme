@@ -15,6 +15,10 @@
     "./ui/composer/composer-toolbar": "./src/ui/composer/composer-toolbar.tsx",
     "./ui/composer/image-attachment": "./src/ui/composer/image-attachment.ts",
     "./ui/composer/rich-draft": "./src/ui/composer/rich-draft.ts",
+    "./ui/composer/composer-state": "./src/ui/composer/composer-state.ts",
+    "./ui/composer/composer-document": "./src/ui/composer/composer-document.ts",
+    "./ui/composer/composer-submit": "./src/ui/composer/composer-submit.ts",
+    "./ui/composer/use-composer-files": "./src/ui/composer/use-composer-files.ts",
     "./ui/composer/use-command-completion": "./src/ui/composer/use-command-completion.ts",
     "./ui/content/attachment-preview": "./src/ui/content/attachment-preview.tsx",
     "./ui/content/code-block": "./src/ui/content/code-block.tsx",
@@ -39,6 +43,7 @@
     "./ui/conversation/use-conversation-scroll": "./src/ui/conversation/use-conversation-scroll.ts",
     "./ui/conversation/user-message-content": "./src/ui/conversation/user-message-content.tsx",
     "./ui/model/activity-summary": "./src/ui/model/activity-summary.ts",
+    "./ui/model/chat-stream": "./src/ui/model/chat-stream.ts",
     "./ui/model/conversation-turns": "./src/ui/model/conversation-turns.ts",
     "./ui/model/live-message": "./src/ui/model/live-message.ts",
     "./ui/model/message-parts": "./src/ui/model/message-parts.ts",
@@ -81,12 +86,5 @@
     "@testing-library/dom": "10.4.2",
     "@testing-library/user-event": "14.6.8",
     "@testing-library/jest-dom": "7.0.1"
-  },
-  "piMeme": {
-    "sdkVersion": 2,
-    "server": "dist/server/chord-facets.json",
-    "requires": [
-      "host.chat"
-    ]
   }
 }

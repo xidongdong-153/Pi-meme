@@ -19,6 +19,7 @@ export type ToolRun = {
   name: string
   parentToolCallId?: string
   source?: PiUiSource
+  sourceEntry?: PiMessage['sourceEntry']
   children?: ToolRun[]
   args?: unknown
   result?: unknown
@@ -76,6 +77,7 @@ export type ActivityItem =
       id: string
       type?: 'tool'
       source?: PiUiSource
+      sourceEntry?: PiMessage['sourceEntry']
       name?: string
       children?: ToolRun[]
       command?: string
@@ -117,6 +119,8 @@ export type TurnChunk =
       activities: ActivityItem[]
       collaboration?: AgentCollaborationStatus[]
       finalText: string
+      sourceMessages?: PiMessage[]
+      finalReplyMessages?: PiMessage[]
       images: Array<PiImage & { id?: string }>
       errorMessage?: string
       durationMs?: number

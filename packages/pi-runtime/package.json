@@ -22,7 +22,8 @@
     "./sdk/managed-process": "./src/sdk/managed-process.ts",
     "./extensions/agent-access": "./src/extensions/agent-access.ts",
     "./sdk/linux-sandbox": "./src/sdk/linux-sandbox.ts",
-    "./sdk/app-agent": "./src/sdk/app-agent.ts"
+    "./sdk/app-agent": "./src/sdk/app-agent.ts",
+    "./sdk/restricted-agent": "./src/sdk/restricted-agent.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit"

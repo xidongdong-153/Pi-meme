@@ -10,7 +10,8 @@ import {
   type GoalStartResult,
 } from '@pi-meme/contracts/goal'
 import { skillMessageText } from '@pi-meme/contracts/skills'
-import { randomUUID } from 'node:crypto'
+import { randomUUID, createHash } from 'node:crypto'
+import { projectUiMessage } from '@pi-meme/contracts/plugin-ui-message'
 import type {
   AppProject,
   AppSession,
@@ -51,9 +52,8 @@ type Options = {
     ) => Promise<unknown>
   }
   bindRoot: (key: string) => Promise<unknown>
-  configureAgentPlugins: (key: string, ids: string[]) => Promise<void>
+  configureAgentPlugins: (key: string, ids: string[], input?: { restore?: boolean }) => Promise<void>
   defaultAgentPlugins: HostApi['plugins']
-  availableAgentPlugins: () => string[]
   snapshot: () => Promise<import('@pi-meme/contracts/desktop').Snapshot>
   workspace: { files: HostApi['files']; terminal: HostApi['terminal']; terminalSupported: boolean }
   onError: (cause: unknown) => void
@@ -145,7 +145,7 @@ export async function createAppControl(options: Options) {
     if (persist) await store.save()
   }
   const busy = (key: string) => Boolean(pi.getRuntimeSessions().find((item) => item.id === key)?.running)
-  const configure = async (session: AppSession, view: ClientView, config: SessionConfiguration) => {
+  const configure = async (session: AppSession, view: ClientView, config: SessionConfiguration, restore = false) => {
     if (!config || typeof config !== 'object' || Array.isArray(config)) throw new Error('会话配置无效')
     if (config.mode !== undefined && config.mode !== 'default' && config.mode !== 'plan')
       throw new Error('会话模式无效')
@@ -178,7 +178,7 @@ export async function createAppControl(options: Options) {
       if (run) await finish(session, view, run, true)
     }
     if (active.has(session.sessionId) || busy(key)) throw new Error('会话正在运行，不能修改配置')
-    if (config.agentPlugins !== undefined) await options.configureAgentPlugins(key, config.agentPlugins)
+    if (config.agentPlugins !== undefined) await options.configureAgentPlugins(key, config.agentPlugins, { restore })
     if (config.mode !== undefined) await pi.setSessionMode(key, config.mode)
     if (config.accessMode !== undefined) {
       assertActivityAccess(session, config.accessMode)
@@ -190,7 +190,7 @@ export async function createAppControl(options: Options) {
     await sync(session, view)
     return structuredClone(session)
   }
-  const resolveSession = async (ref: SessionRef): Promise<ClientView> => {
+  const resolveSession = async (ref: SessionRef, restore = true): Promise<ClientView> => {
     const session = getSession(ref)
     const current = runtime.get(session.sessionId)
     if (current) {
@@ -212,12 +212,7 @@ export async function createAppControl(options: Options) {
             if (selected.cancelled) throw new Error('会话恢复已取消')
           } else pi.initializeClient(session.cwd)
           runtime.set(session.sessionId, view)
-          await configure(session, view, {
-            ...session.configuration,
-            agentPlugins: session.configuration.agentPlugins?.filter((id) =>
-              options.availableAgentPlugins().includes(id),
-            ),
-          })
+          await configure(session, view, session.configuration, restore)
         })
         return view
       } catch (cause) {
@@ -534,6 +529,7 @@ export async function createAppControl(options: Options) {
       features: [
         'projects',
         'sessions',
+        'messages',
         'files',
         'git',
         'interaction',
@@ -589,7 +585,7 @@ export async function createAppControl(options: Options) {
           }
           store.state.sessions.push(session)
           await store.save()
-          await resolveSession(session)
+          await resolveSession(session, false)
           await publishSession(session)
           return session
         }),
@@ -627,6 +623,73 @@ export async function createAppControl(options: Options) {
             totalMessages,
             nextOffset: offset + limit < totalMessages ? offset + limit : undefined,
           }
+        }),
+      messages: (ref, input = {}) =>
+        target(ref, async (key, session) => {
+          const limit = input.limit ?? 100
+          let offset = input.offset ?? 0
+          if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500 || !Number.isSafeInteger(offset) || offset < 0)
+            throw new ControlError('invalid-input', '消息分页参数无效')
+          const history = session.sessionFile
+            ? await readSessionHistory(session.sessionFile)
+            : pi.getRuntimeHistory(key)!
+          const leafId = 'sessionEntries' in history ? (history.sessionEntries?.leafId ?? null) : null
+          const branchRevision = createHash('sha256')
+            .update(
+              JSON.stringify([
+                ref.sessionId,
+                leafId,
+                'sessionEntries' in history
+                  ? history.sessionEntries?.entries.map((entry) => [entry.id, entry.parentId, entry.type])
+                  : [],
+                history.messages.map((m) => m.sourceEntry),
+              ]),
+            )
+            .digest('hex')
+          if (input.cursor) {
+            let cursor: { sessionId?: string; revision?: string; offset?: number }
+            try {
+              cursor = JSON.parse(Buffer.from(input.cursor, 'base64url').toString())
+            } catch {
+              throw new ControlError('stale-cursor', '消息游标无效')
+            }
+            if (
+              cursor.sessionId !== ref.sessionId ||
+              cursor.revision !== branchRevision ||
+              !Number.isSafeInteger(cursor.offset) ||
+              cursor.offset! < 0
+            )
+              throw new ControlError('stale-cursor', '消息分支已变化，请重新读取')
+            offset = cursor.offset!
+          }
+          const messages = history.messages.flatMap((m) => {
+            const projected = projectUiMessage(m, ref)
+            return projected?.ref ? [projected] : []
+          })
+          const nextOffset = offset + limit < messages.length ? offset + limit : undefined
+          return {
+            messages: messages.slice(offset, offset + limit),
+            totalMessages: messages.length,
+            nextOffset,
+            nextCursor:
+              nextOffset === undefined
+                ? undefined
+                : Buffer.from(
+                    JSON.stringify({ sessionId: ref.sessionId, revision: branchRevision, offset: nextOffset }),
+                  ).toString('base64url'),
+            branchRevision,
+            leafId,
+          }
+        }),
+      message: (ref, input) =>
+        target(ref, async (key, session) => {
+          const history = session.sessionFile
+            ? await readSessionHistory(session.sessionFile)
+            : pi.getRuntimeHistory(key)!
+          const message = history.messages.find((m) => m.sourceEntry?.id === input.entryId)
+          const projected = message && projectUiMessage(message, ref)
+          if (!projected?.ref) throw new ControlError('message-not-found', '消息不存在于当前分支')
+          return projected
         }),
       configure: (ref, config, opts) =>
         mutate(clientId, 'sessions.configure', [ref, config], opts, () =>

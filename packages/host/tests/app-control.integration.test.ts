@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test, describe } from 'vitest'
-import { mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -9,6 +9,7 @@ import { createHost } from '../src/service'
 import { finishAgentReply, useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
 import { requestText } from '../../../tests/fixtures/fake-provider.mjs'
 import type { SessionSelectionResult } from '@pi-meme/contracts/desktop'
+import { trustPluginFixture, writeAgentFixture } from './plugin-fixture'
 
 type FakeReply = NonNullable<Parameters<typeof useFakeAgent>[1]>['reply']
 async function fixture(reply?: FakeReply) {
@@ -116,6 +117,73 @@ test('空会话保持不同稳定ref，同一项目目标隔离，提交幂等�
     assert.equal((await f.host.app.sessions.get(second)).sessionId, second.sessionId)
     assert.equal((await f.host.app.sessions.snapshot(second)).messages.length, 0)
     assert.match(JSON.stringify((await f.host.app.sessions.history(first)).messages), /仅提交到第一个会话/)
+  } finally {
+    await f.dispose()
+  }
+})
+
+test('恢复已有会话保留已卸载的插件选择，只阻止执行；读历史与显式取消选择仍可用', { timeout: 30000 }, async () => {
+  const f = await fixture('恢复后回复')
+  try {
+    const pluginId = 'restore-unavailable-agent'
+    const plugin = path.join(f.root, 'plugin')
+    await writeAgentFixture(plugin, pluginId, 'export function activate() {}')
+    await f.host.plugins.loadDirectory(plugin)
+    await trustPluginFixture(f.host.plugins, pluginId)
+    const cwd = path.join(f.root, 'project')
+    await mkdir(cwd)
+    const project = await f.host.app.projects.register({ cwd }, key('restore-project'))
+    const ref = await session(f.host.app, project, 'unavailable-agent')
+    await f.host.app.sessions.configure(ref, { agentPlugins: [pluginId] }, key('restore-select'))
+    const first = await f.host.app.sessions.submit(
+      ref,
+      { delivery: 'start', text: '卸载前的历史输入' },
+      key('restore-first'),
+    )
+    assert.equal((await eventually(() => f.host.app.sessions.receipt(first.operationId), finished)).status, 'completed')
+    const before = await f.host.app.sessions.snapshot(ref)
+    await f.host.plugins.remove(pluginId)
+    await f.restart()
+    assert.deepEqual((await f.host.app.sessions.get(ref)).configuration.agentPlugins, [pluginId])
+    assert.deepEqual((await f.host.app.sessions.history(ref)).messages, before.messages)
+    assert.deepEqual((await f.host.app.sessions.get(ref)).configuration.agentPlugins, [pluginId])
+    assert.deepEqual((await f.host.app.sessions.snapshot(ref)).messages, before.messages)
+    assert.equal(f.fake.provider.requests.length, 1)
+    const explicitSelection = { agentPlugins: [pluginId], restore: true }
+    await assert.rejects(
+      f.host.app.sessions.configure(ref, explicitSelection, key('unavailable-new-selection')),
+      /Agent 插件选择无效/,
+    )
+    await assert.rejects(
+      f.host.app.sessions.create(
+        { project, configuration: { agentPlugins: [pluginId] } },
+        key('unavailable-new-session'),
+      ),
+      /Agent 插件选择无效/,
+    )
+    const blocked = await f.host.app.sessions.submit(
+      ref,
+      { delivery: 'start', text: '不得投递的卸载后输入' },
+      key('unavailable-submit'),
+    )
+    const failure = await eventually(() => f.host.app.sessions.receipt(blocked.operationId), finished)
+    assert.equal(failure.status, 'failed')
+    assert.equal(
+      failure.error?.endsWith(`operation-unavailable-in-runtime: 已选择的插件 ${pluginId} 不可用：插件已卸载或不存在`),
+      true,
+    )
+    assert.equal(f.fake.provider.requests.length, 1)
+    assert.deepEqual((await f.host.app.sessions.snapshot(ref)).messages, before.messages)
+    assert.deepEqual((await f.host.app.sessions.get(ref)).configuration.agentPlugins, [pluginId])
+    await f.host.app.sessions.configure(ref, { agentPlugins: [] }, key('unavailable-deselect'))
+    const next = await f.host.app.sessions.submit(
+      ref,
+      { delivery: 'start', text: '明确取消选择后的新任务' },
+      key('unavailable-recover'),
+    )
+    assert.equal((await eventually(() => f.host.app.sessions.receipt(next.operationId), finished)).status, 'completed')
+    assert.equal(f.fake.provider.requests.length, 2)
+    assert.deepEqual((await f.host.app.sessions.get(ref)).configuration.agentPlugins, [])
   } finally {
     await f.dispose()
   }
@@ -359,13 +427,9 @@ test('运行时配置切换期间并发get保留会话映射与Agent插件选择
     await mkdir(cwd)
     const pluginId = 'control-changing-fixture'
     const source = path.join(f.root, 'agent-plugin')
-    await mkdir(path.join(source, 'dist'), { recursive: true })
-    await writeFile(
-      path.join(source, 'package.json'),
-      JSON.stringify({ name: pluginId, version: '1.0.0', piMeme: { sdkVersion: 2, agent: 'dist/agent.js' } }),
-    )
-    await writeFile(path.join(source, 'dist/agent.js'), 'export function activate() {}')
+    await writeAgentFixture(source, pluginId, 'export function activate() {}')
     await f.host.plugins.loadDirectory(source)
+    await trustPluginFixture(f.host.plugins, pluginId)
     const project = await api.projects.register({ cwd }, key('project'))
     const ref = await session(api, project, 'changing')
     const runtimeKey = (await api.sessions.snapshot(ref)).connection.sessionKey!
@@ -406,23 +470,15 @@ describe('重启后直接通过UI恢复并发送，保留会话插件选择且�
           const source = path.join(f.root, id)
           const marker = path.join(f.root, `${id}-imported`)
           markers.set(id, marker)
-          await mkdir(path.join(source, 'dist'), { recursive: true })
-          await writeFile(
-            path.join(source, 'package.json'),
-            JSON.stringify({
-              name: id,
-              version: '1.0.0',
-              type: 'module',
-              piMeme: { sdkVersion: 2, agent: 'dist/agent.js' },
-            }),
-          )
-          await writeFile(
-            path.join(source, 'dist/agent.js'),
+          await writeAgentFixture(
+            source,
+            id,
             `import { writeFileSync } from 'node:fs'
 writeFileSync(${JSON.stringify(marker)}, 'imported')
 export function activate() {}`,
           )
           await f.host.plugins.loadDirectory(source)
+          await trustPluginFixture(f.host.plugins, id)
         }
         const cwd = path.join(f.root, 'project')
         await mkdir(cwd)
@@ -474,24 +530,16 @@ test('已有会话中途选择Agent插件后，后续消息无需再次引用仍
     await mkdir(cwd)
     const pluginId = 'mid-session-agent'
     const source = path.join(f.root, pluginId)
-    await mkdir(path.join(source, 'dist'), { recursive: true })
-    await writeFile(
-      path.join(source, 'package.json'),
-      JSON.stringify({
-        name: pluginId,
-        version: '1.0.0',
-        type: 'module',
-        piMeme: { sdkVersion: 2, agent: 'dist/agent.js' },
-      }),
-    )
-    await writeFile(
-      path.join(source, 'dist/agent.js'),
+    await writeAgentFixture(
+      source,
+      pluginId,
       `export function activate(context) {
-      context.tools.register({ name: 'mid_session_tool', title: '插件工具', description: '中途启用的工具', parameters: { type: 'object', properties: {} }, execute: () => ({ text: '完成' }) })
+      context.tools.register({ name: 'mid_session_tool', title: '插件工具', description: '中途启用的工具', parameters: { type: 'object', properties: {} }, effect:'read',capabilities:[], execute: () => ({ text: '完成' }) })
       context.hooks.on('beforeRun', () => ({ context: '后续轮次持续保留的插件信息' }))
     }`,
     )
     await f.host.plugins.loadDirectory(source)
+    await trustPluginFixture(f.host.plugins, pluginId)
     const project = await api.projects.register({ cwd }, key('project'))
     const ref = await session(api, project, 'mid-session')
     const first = await api.sessions.submit(

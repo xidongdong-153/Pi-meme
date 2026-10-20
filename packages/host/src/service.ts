@@ -1,6 +1,11 @@
 import { GoalService } from '@pi-meme/goals/server/service'
 import { ActivityService } from '@pi-meme/activities/server/service'
 import { createActivityBridge } from './activity-bridge'
+import { createPluginCallBridge } from './plugin-call-bridge'
+import { PluginHttpBroker, type PluginCredentialValue } from './plugin-http-broker'
+import { probePluginSandbox } from './plugin-sandbox-probe'
+import type { PluginCallRequest, PluginCallContext } from '@pi-meme/plugin-sdk/rpc'
+import type { PluginGrantUpdate } from '@pi-meme/plugin-sdk/permissions'
 import { isLiveServiceActivity } from '@pi-meme/contracts/service-activity'
 import { parseGoalCommand, type GoalRun } from '@pi-meme/contracts/goal'
 import { normalizePlanMessage } from '@pi-meme/contracts/plan'
@@ -18,6 +23,7 @@ import { mkdir, readdir, realpath, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import { validateExtensionUIResponse } from '@pi-meme/contracts/user-input'
 import type { HostEvent, HostRpcRequest } from '@pi-meme/contracts/host'
 import type {
@@ -55,6 +61,8 @@ import type { ResourceImportInput, ResourceSnapshot } from '@pi-meme/contracts/r
 export type HostOptions = {
   dataRoot?: string
   workerPath?: string
+  restrictedNode?: string
+  restrictedEntry?: string
   builtinSkillsSource?: string
   clientGraceMs?: number
   credentials?: SecureCredentialStorage & { flush?: () => Promise<void> }
@@ -366,7 +374,27 @@ export async function createHost(options: HostOptions = {}) {
     await resources.init()
     const workerPlugins = new Map<string, PluginDescriptor[]>()
     const workerPluginIds = new Map<string, Set<string>>()
+    const pluginNode =
+      options.restrictedNode ?? process.env.PI_MEME_PLUGIN_NODE ?? (process.versions.electron ? '' : process.execPath)
+    const pluginSandboxCapability = await probePluginSandbox(pluginNode)
     const workers = new Map<string, RuntimeSdkSession>()
+    const workerPluginBridges = new Map<string, ReturnType<typeof createPluginCallBridge>>()
+    const pluginCredentialPrefix = (id: string) => `plugin:${encodeURIComponent(id)}:http:`
+    const credentialKey = (id: string, ref: string) => {
+      if (!/^[\w.-]{1,128}$/.test(ref)) throw new Error('invalid-input: 凭据引用无效')
+      return pluginCredentialPrefix(id) + ref
+    }
+    const pluginHttp = new PluginHttpBroker((id, ref) => {
+      const value = credentials.get(credentialKey(id, ref))
+      if (!value) return undefined
+      try {
+        return JSON.parse(value) as PluginCredentialValue
+      } catch {
+        return undefined
+      }
+    })
+    const pluginCalls = new Map<string, { pluginId: string; controller: AbortController }>()
+    const pluginClient = new AsyncLocalStorage<string>()
     const goalRuns = new WeakMap<RuntimeSdkSession, GoalRun>()
     const admittedGoalRuns = new WeakMap<RuntimeSdkSession, Set<string>>()
     const createSession = (
@@ -391,12 +419,24 @@ export async function createHost(options: HostOptions = {}) {
               appControl?.selectedAgentPlugins(parentSessionKey ?? sessionKey) ??
               settings.settings.defaultAgentPlugins ??
               []
-            const agentIds = new Set(
-              plugins
-                .list()
-                .filter((item) => item.agent)
-                .map((item) => item.id),
-            )
+            const catalog = plugins.list()
+            const byId = new Map(catalog.map((item) => [item.id, item]))
+            for (const id of selectedAgents) {
+              const entry = byId.get(id)
+              const reason = !entry
+                ? '插件已卸载或不存在'
+                : !entry.enabled
+                  ? '插件已停用'
+                  : disabled.has(id)
+                    ? '当前项目已禁用此插件'
+                    : entry.status === 'failed'
+                      ? (entry.error ?? '插件加载失败')
+                      : !entry.agent
+                        ? '未提供可用的 Agent 入口'
+                        : undefined
+              if (reason) throw new Error(`operation-unavailable-in-runtime: 已选择的插件 ${id} 不可用：${reason}`)
+            }
+            const agentIds = new Set(catalog.filter((item) => item.agent).map((item) => item.id))
             const candidate = plugins.acquire(
               (id) => !disabled.has(id) && (!agentIds.has(id) || selectedAgents.includes(id)),
             )
@@ -415,6 +455,35 @@ export async function createHost(options: HostOptions = {}) {
         workerPlugins.set(sessionKey, lease.descriptors)
         workerPluginIds.set(sessionKey, new Set(lease.retainedIds))
         workers.set(sessionKey, session)
+        const pluginBridge = createPluginCallBridge({
+          lease,
+          manager: plugins,
+          actor: () => collaboration.goalCaller(session),
+          sessionRef: () => appControl!.sessionForRuntime(collaboration.goalCaller(session).rootSessionKey),
+          node: pluginNode,
+          runnerEntry: options.restrictedEntry ?? (process.env.PI_MEME_PLUGIN_ENTRY || undefined),
+          dataRoot: root,
+          http: pluginHttp,
+          sandboxCapability: pluginSandboxCapability,
+          ui: async (input, signal) => {
+            const target = session as unknown as {
+              pluginUi: (input: unknown) => Promise<unknown>
+              pluginUiCancel: (scopeId: string) => Promise<void>
+            }
+            const scopeId = randomUUID()
+            const cancel = () => {
+              void target.pluginUiCancel(scopeId).catch(() => {})
+            }
+            signal.throwIfAborted()
+            signal.addEventListener('abort', cancel, { once: true })
+            try {
+              return await target.pluginUi({ ...input, scopeId })
+            } finally {
+              signal.removeEventListener('abort', cancel)
+            }
+          },
+        })
+        workerPluginBridges.set(sessionKey, pluginBridge)
         return {
           credentials,
           dataRoot: root,
@@ -487,14 +556,20 @@ export async function createHost(options: HostOptions = {}) {
               throw new Error('用量来自未接纳的目标执行')
             await goals.usage(run, entryId, usage, inputEntryId)
           },
+          plugin: (request, signal) => pluginBridge.dispatch(request, signal),
           activity: (request, signal) => activityBridge.dispatch(session, request, signal),
           collaboration: (request, signal) => collaboration.dispatch(session, request, signal),
           savePlan: (input, signal) => collaboration.savePlan(session, input, signal),
           release: async () => {
             try {
-              await lease.release()
+              try {
+                await pluginBridge.close()
+              } finally {
+                await lease.release()
+              }
             } finally {
               releaseResource()
+              workerPluginBridges.delete(sessionKey)
               workerSnapshots.delete(sessionKey)
               workerPlugins.delete(sessionKey)
               workerPluginIds.delete(sessionKey)
@@ -627,7 +702,15 @@ export async function createHost(options: HostOptions = {}) {
         for (const entry of current.values())
           if ((entry.agent || entry.resources?.skills?.length) && !retained.some((old) => old.id === entry.id))
             current.delete(entry.id)
-        for (const entry of retained) current.set(entry.id, entry)
+        for (const entry of retained) {
+          const latest = current.get(entry.id)
+          current.set(
+            entry.id,
+            latest && latest.policyHash === entry.policyHash
+              ? { ...entry, grant: latest.grant, grantChanging: latest.grantChanging }
+              : entry,
+          )
+        }
       }
       const retainedIds = new Set(sessionId ? workerPlugins.get(sessionId)?.map((item) => item.id) : [])
       return uiDescriptors([...current.values()].filter((item) => retainedIds.has(item.id) || !disabled.has(item.id)))
@@ -645,7 +728,12 @@ export async function createHost(options: HostOptions = {}) {
         ...value,
         goalsSupported: true,
         goal: key ? await appControl?.goalForRuntime(key) : undefined,
-        connection: { ...value.connection, sourceProjectCwd: projects.sourceProjectCwd(value.connection.cwd) },
+        connection: {
+          ...value.connection,
+          sourceProjectCwd: projects.sourceProjectCwd(value.connection.cwd),
+          restrictedPluginRuntimeSupported: pluginSandboxCapability.supported,
+          restrictedPluginRuntimeReason: pluginSandboxCapability.reason,
+        },
         state: {
           ...value.state,
           ...(mode ? { mode } : {}),
@@ -1011,18 +1099,97 @@ export async function createHost(options: HostOptions = {}) {
       'plugins:disable': (value) => plugins.disable(parseId(value)),
       'plugins:remove': (value) => plugins.remove(parseId(value)),
       'plugins:reload': (value) => plugins.reload(parseId(value)),
+      'plugins:set-grant': async (id, update) => {
+        for (const call of pluginCalls.values()) if (call.pluginId === id) call.controller.abort()
+        return plugins.setGrant(parseId(id), update as PluginGrantUpdate)
+      },
+      'plugins:credential-list': (id) =>
+        credentials
+          .entries()
+          .filter(([key]) => key.startsWith(pluginCredentialPrefix(parseId(id))))
+          .flatMap(([key, value]) => {
+            try {
+              const { origin, header } = JSON.parse(value) as PluginCredentialValue
+              return [{ id: key.slice(pluginCredentialPrefix(String(id)).length), origin, header }]
+            } catch {
+              return []
+            }
+          }),
+      'plugins:credential-set': async (id, input) => {
+        const pluginId = parseId(id)
+        const data = input as PluginCredentialValue & { id: string }
+        const plugin = plugins.list().find((p) => p.id === pluginId)
+        if (
+          !plugin?.permissions?.restricted?.network?.some((r) => r.origin === data.origin) ||
+          !['Authorization', 'X-Api-Key'].includes(data.header) ||
+          typeof data.value !== 'string' ||
+          !data.value ||
+          data.value.length > 8192 ||
+          /[\r\n]/.test(data.value)
+        )
+          throw new Error('permission-denied: 凭据目标或内容无效')
+        credentials.set(
+          credentialKey(pluginId, data.id),
+          JSON.stringify({ origin: data.origin, header: data.header, value: data.value }),
+        )
+        await (credentials as SecureCredentialStorage & { flush?: () => Promise<void> }).flush?.()
+      },
+      'plugins:credential-remove': async (id, ref) => {
+        credentials.delete(credentialKey(parseId(id), parseId(ref)))
+        await (credentials as SecureCredentialStorage & { flush?: () => Promise<void> }).flush?.()
+      },
+      'plugins:call-cancel': (id) => {
+        pluginCalls.get(`${pluginClient.getStore()}:${String(id)}`)?.controller.abort()
+      },
+      'plugins:ui-lease-acquire': (input) =>
+        plugins.acquireUiLease(
+          pluginClient.getStore()!,
+          input as { pluginId: string; generation: number; routeInstance: string },
+        ),
+      'plugins:ui-lease-renew': (id) => plugins.renewUiLease(pluginClient.getStore()!, parseId(id)),
+      'plugins:ui-lease-release': (id) => plugins.releaseUiLease(pluginClient.getStore()!, parseId(id)),
+      'plugins:call': async (input) => {
+        const request = input as PluginCallRequest
+        const owner = pluginClient.getStore()!
+        const target = request.target ?? { hostId }
+        if (target.hostId !== hostId) throw new Error('permission-denied: 插件目标不属于当前 Host')
+        if (target.session) await appControl!.api.sessions.get(target.session)
+        if (target.project) await appControl!.api.projects.get(target.project)
+        const key = `${owner}:${request.requestId}`
+        if (pluginCalls.has(key)) throw new Error('invalid-input: 调用标识重复')
+        const controller = new AbortController()
+        pluginCalls.set(key, { pluginId: request.pluginId, controller })
+        try {
+          const grant = plugins.getGeneration(request.pluginId, request.generation)?.grant
+          const context: PluginCallContext = {
+            pluginId: request.pluginId,
+            generation: request.generation,
+            origin: 'ui',
+            target,
+            mode: 'default',
+            accessMode: 'full-access',
+            capabilities: grant?.restricted.capabilities ?? [],
+            signal: controller.signal,
+            requestId: request.requestId,
+          }
+          return await plugins.callUi(owner, request, context)
+        } finally {
+          pluginCalls.delete(key)
+        }
+      },
     }
     const terminal = new TerminalService({
       hostId,
       resolveRoot: (ref) => appControl!.resolveRoot(ref),
       onEvent: (value) => appControl?.publishLive({ type: 'terminal', value }),
     })
-    const validateAgentIds = (ids: string[]) => {
+    const validateAgentIds = (ids: string[], restore = false) => {
       if (
         !Array.isArray(ids) ||
         ids.some(
           (id) =>
-            typeof id !== 'string' || !plugins.list().some((item) => item.id === id && item.agent && item.enabled),
+            typeof id !== 'string' ||
+            (!restore && !plugins.list().some((item) => item.id === id && item.agent && item.enabled)),
         )
       )
         throw new Error('Agent 插件选择无效')
@@ -1039,11 +1206,6 @@ export async function createHost(options: HostOptions = {}) {
       bindRoot,
       snapshot,
       onError: (cause) => emit('error', { generation: 0, message: `Host 控制事件处理失败：${String(cause)}` }),
-      availableAgentPlugins: () =>
-        plugins
-          ?.list()
-          .filter((item) => item.agent && item.enabled)
-          .map((item) => item.id) ?? [],
       defaultAgentPlugins: {
         getDefaultAgentPlugins: async () =>
           (settings.settings.defaultAgentPlugins ?? []).filter((id) =>
@@ -1055,8 +1217,8 @@ export async function createHost(options: HostOptions = {}) {
           return [...settings.settings.defaultAgentPlugins!]
         },
       },
-      configureAgentPlugins: async (key, ids) => {
-        validateAgentIds(ids)
+      configureAgentPlugins: async (key, ids, input) => {
+        validateAgentIds(ids, input?.restore === true)
         if (JSON.stringify(agentSelections.get(key)) === JSON.stringify(ids)) return
         await retireWorkers([key])
         agentSelections.set(key, ids)
@@ -1102,6 +1264,18 @@ export async function createHost(options: HostOptions = {}) {
       directory: path.join(root, 'plugins'),
       dataDirectory: path.join(root, 'plugin-data'),
       reservedHandlers: [...Object.keys(builtins.handlers), ...Object.keys(handlers)],
+      revoke: async (ids) => {
+        for (const call of pluginCalls.values()) if (ids.includes(call.pluginId)) call.controller.abort()
+        const keys = [...workerPluginIds]
+          .filter(([, retained]) => ids.some((id) => retained.has(id)))
+          .map(([key]) => key)
+        await Promise.all(
+          keys.map(async (key) => {
+            await workerPluginBridges.get(key)?.close(undefined, true)
+            await workers.get(key)?.stopAndWait()
+          }),
+        )
+      },
       drain: async (ids) =>
         retireWorkers(
           [...workerPluginIds]
@@ -1350,7 +1524,7 @@ export async function createHost(options: HostOptions = {}) {
                     const goal = await appControl!.goalForRuntime(key)
                     if (goal && goal.status !== 'complete') throw new Error('当前会话有未结束的目标，请使用目标恢复')
                   }
-                  result = await action(...request.args)
+                  result = await pluginClient.run(request.clientId, () => action(...request.args))
                 }
                 if (deletion) {
                   const outcome = result as WorkspaceDeletionResult

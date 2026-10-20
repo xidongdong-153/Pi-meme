@@ -6,7 +6,7 @@ import type { SessionHistoryData } from '@pi-meme/contracts/sessions'
 
 import { branchSkillUsages } from './extensions/skill-usage'
 import { projectBranchEntries } from './session-tree-entries'
-import { projectMessageSources } from './sdk/ui-source'
+import { projectStableMessageMetadata } from './sdk/message-projection'
 import { loadPiSdk } from './sdk/load'
 import { findSessionRecovery } from './sdk/recovery'
 
@@ -159,14 +159,14 @@ export async function readSessionHistory(filePath: string): Promise<SessionHisto
       cache.set(filePath, cached)
       return cached.data
     }
-    const { parseSessionEntries, migrateSessionEntries, buildSessionContext } = await loadPiSdk()
+    const { parseSessionEntries, migrateSessionEntries, buildSessionProjection } = await loadPiSdk()
     const entries = parseSessionEntries(await readFile(filePath, 'utf8'))
     const header = entries.find((entry) => entry.type === 'session')
     if (!header?.cwd) throw new Error('会话文件缺少工作目录')
     // 只迁移内存副本，不使用会改写旧文件的 SessionManager.open。
     migrateSessionEntries(entries)
     const history = entries.filter((entry): entry is SessionEntry => entry.type !== 'session')
-    const context = buildSessionContext(history)
+    const context = buildSessionProjection(history)
     const sessionName = history.findLast((entry) => entry.type === 'session_info')
     const byId = new Map(history.map((entry) => [entry.id, entry]))
     const branch: SessionEntry[] = []
@@ -183,7 +183,7 @@ export async function readSessionHistory(filePath: string): Promise<SessionHisto
       created: header.timestamp,
       skillUsages: branchSkillUsages(branch.reverse()),
       recovery: recovery ? { entryId: recovery.entryId, mode: recovery.mode } : undefined,
-      messages: projectMessageSources(history, context.messages),
+      messages: projectStableMessageMetadata(history, context),
       sessionEntries: {
         entries: projectBranchEntries(history),
         leafId: history.at(-1)?.id ?? null,

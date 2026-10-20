@@ -2,16 +2,21 @@ import type { AgentSession, SessionEntry } from '@earendil-works/pi-coding-agent
 import type { PiEvent, PiMessage, PiUiSource } from '@pi-meme/contracts/pi'
 
 export const uiSourceEntry = 'pi-meme.ui-source'
-type AgentSource = { pluginId: string; generation: number; path: string }
+type AgentSource = { pluginId: string; generation: number; path?: string; grant?: { policyHash: string } }
 
 export function eventUiSource(
   event: PiEvent,
   session: AgentSession,
   agents: AgentSource[] = [],
 ): PiUiSource | undefined {
-  const owner = (file: string): Pick<PiUiSource, 'ownerId' | 'generation'> | undefined => {
-    const inline = agents.find((item) => file === `<inline:app-agent:${item.pluginId}:${item.generation}>`)
-    if (inline) return { ownerId: inline.pluginId, generation: inline.generation }
+  const owner = (file: string): Pick<PiUiSource, 'ownerId' | 'generation' | 'policyHash'> | undefined => {
+    const inline = agents.find(
+      (item) =>
+        file === `<inline:app-agent:${item.pluginId}:${item.generation}>` ||
+        file === `<inline:restricted-agent:${item.pluginId}:${item.generation}>`,
+    )
+    if (inline?.grant?.policyHash)
+      return { ownerId: inline.pluginId, generation: inline.generation, policyHash: inline.grant.policyHash }
     return undefined
   }
   const toolName =
@@ -63,6 +68,7 @@ export function projectMessageSources(
     entry = entry.parentId ? byId.get(entry.parentId) : undefined
   }
   const sources = new Map<string, PiUiSource>()
+  const sourcesByEntry = new Map<string, PiUiSource>()
   const completions = new Map<number, number>()
   for (const entry of branch.reverse()) {
     if (entry.type === 'message' && entry.message.role === 'assistant') {
@@ -78,6 +84,7 @@ export function projectMessageSources(
       typeof data.source.generation === 'number'
     ) {
       sources.set(data.key, data.source as PiUiSource)
+      if (data.entryId) sourcesByEntry.set(data.entryId, data.source as PiUiSource)
       const original = data.entryId ? byId.get(data.entryId) : undefined
       if (original?.type === 'custom_message')
         sources.set(
@@ -88,7 +95,9 @@ export function projectMessageSources(
   }
   return messages.map((message) => {
     const key = messageKey(message)
-    const source = key ? sources.get(key) : undefined
+    const source =
+      (message.sourceEntry ? sourcesByEntry.get(message.sourceEntry.id) : undefined) ??
+      (key ? sources.get(key) : undefined)
     const completedAt = message.role === 'assistant' ? completions.get(message.timestamp) : undefined
     return source || completedAt !== undefined
       ? {

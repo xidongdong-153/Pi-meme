@@ -28,13 +28,5 @@
   "devDependencies": {
     "react": "^19.3.0",
     "vitest": "5.0.5"
-  },
-  "piMeme": {
-    "sdkVersion": 2,
-    "server": "dist/server/chord-facets.json",
-    "requires": [
-      "host.resources"
-    ],
-    "agent": "dist/agent/entry.js"
   }
 }

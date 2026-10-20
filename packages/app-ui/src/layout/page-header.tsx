@@ -18,6 +18,7 @@ export function PageHeader({ children }: { children: ReactNode }) {
 export function PageHeaderNavigation({
   nativeWindow,
   back,
+  forward,
 }: {
   nativeWindow: boolean
   back?: {
@@ -26,6 +27,7 @@ export function PageHeaderNavigation({
     disabled?: boolean
     autoFocus?: boolean
   }
+  forward?: { label: string; onClick: () => void; disabled?: boolean }
 }) {
   const isMac = typeof navigator !== 'undefined' && /Mac|iPhone|iPod|iPad/i.test(navigator.userAgent)
   const backDisabled = !back || back.disabled
@@ -57,13 +59,25 @@ export function PageHeaderNavigation({
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
-            <span className="inline-flex cursor-not-allowed" tabIndex={0}>
-              <Button variant="ghost" size="icon-sm" disabled aria-label="前进" className={navigationButtonClassName}>
+            <span
+              className={cn('inline-flex', (!forward || forward.disabled) && 'cursor-not-allowed')}
+              tabIndex={!forward || forward.disabled ? 0 : undefined}
+            >
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                disabled={!forward || forward.disabled}
+                onClick={forward?.onClick}
+                aria-label={forward?.label ?? '前进'}
+                className={navigationButtonClassName}
+              >
                 <ChevronRight className="size-3.5" />
               </Button>
             </span>
           </TooltipTrigger>
-          <TooltipContent side="bottom">暂无可前进的页面</TooltipContent>
+          <TooltipContent side="bottom">
+            {!forward || forward.disabled ? '暂无可前进的页面' : forward.label}
+          </TooltipContent>
         </Tooltip>
       </div>
     </div>

@@ -8,20 +8,72 @@ import { buildPlugin, packagePlugin, validatePlugin } from '../src/build'
 import { PluginManager } from '@pi-meme/plugin-runtime/manager'
 import type { PluginManifest } from '@pi-meme/plugin-sdk/manifest'
 
+async function addTrustedServer(directory: string) {
+  const manifest = JSON.parse(await readFile(path.join(directory, 'package.json'), 'utf8')) as PluginManifest
+  manifest.piMeme.server = { ...manifest.piMeme.server, trusted: 'dist/server/chord-facets.json' }
+  await writeFile(path.join(directory, 'package.json'), JSON.stringify(manifest))
+  await writeFile(
+    path.join(directory, 'src/server/entry.ts'),
+    `export function create(context) { context.registerOperations([{name:'time',inputSchema:{type:'object',additionalProperties:false},outputSchema:{type:'string'},audience:['ui'],effect:'read',capabilities:[],execute:()=>new Date().toISOString()}]) }`,
+  )
+  const agent = path.join(directory, 'src/agent/restricted.ts')
+  await writeFile(
+    agent,
+    (await readFile(agent, 'utf8')).replace(
+      'export function activate(context: RestrictedAgentContext) {',
+      `export function activate(context: RestrictedAgentContext) {\n  context.hooks.on('sessionStart', () => {})`,
+    ),
+  )
+}
+async function trustInstalled(manager: PluginManager, id: string) {
+  const descriptor = manager.list().find((entry) => entry.id === id)!
+  return manager.setGrant(id, {
+    ...descriptor.grant!,
+    expectedRevision: descriptor.grant!.revision,
+    policyHash: descriptor.policyHash!,
+    trusted: {
+      ui: Boolean(descriptor.ui),
+      agent: Boolean(descriptor.entries?.agent?.trusted),
+      server: Boolean(descriptor.entries?.server?.trusted),
+    },
+  })
+}
+function callTime(manager: PluginManager, id: string) {
+  const descriptor = manager.list().find((entry) => entry.id === id)!
+  const generation = descriptor.generation
+  const requestId = crypto.randomUUID()
+  return manager.callUi(
+    'devkit-fixture',
+    { pluginId: id, generation, policyHash: descriptor.policyHash!, operation: 'time', input: {}, requestId },
+    {
+      pluginId: id,
+      generation,
+      origin: 'ui',
+      target: { hostId: 'fixture-host' },
+      mode: 'default',
+      accessMode: 'full-access',
+      capabilities: [],
+      signal: new AbortController().signal,
+      requestId,
+    },
+  )
+}
+
 test('模板构建出 Node 工具和浏览器 UI，验证打包并安装服务', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'pi-meme-devkit-'))
   const directory = path.join(root, 'clock')
   const manager = new PluginManager({ directory: path.join(root, 'installed'), dataDirectory: path.join(root, 'data') })
   try {
     await createPlugin(directory, 'clock')
+    await addTrustedServer(directory)
     await symlink(
       path.resolve(import.meta.dirname, '../../../node_modules'),
       path.join(directory, 'node_modules'),
       'dir',
     )
     await buildPlugin(directory)
-    assert.equal((await validatePlugin(directory)).piMeme.sdkVersion, 2)
-    const agent = await readFile(path.join(directory, 'dist/agent/entry.js'), 'utf8')
+    assert.equal((await validatePlugin(directory)).piMeme.sdkVersion, 3)
+    const agent = await readFile(path.join(directory, 'dist/agent/restricted.js'), 'utf8')
     assert.match(agent, /tools\.register/)
     assert.match(agent, /sessionStart/)
     assert.doesNotMatch(agent, /from ["']typebox["']/)
@@ -31,7 +83,9 @@ test('模板构建出 Node 工具和浏览器 UI，验证打包并安装服务',
     assert.match(ui, /location: ["']right["']/)
     const packed = await packagePlugin(directory, path.join(root, 'clock.pim'))
     await manager.installPackage(await readFile(packed))
-    assert.match(String(await manager.handlers()['clock:time']!()), /^\d{4}-\d{2}/)
+    await assert.rejects(callTime(manager, 'clock'), /generation-mismatch/)
+    await trustInstalled(manager, 'clock')
+    assert.match(String(await callTime(manager, 'clock')), /^\d{4}-\d{2}/)
     const artifact = JSON.parse(await readFile(path.join(directory, 'dist/server/chord-facets.json'), 'utf8')) as {
       entries: { server: { file: string } }
     }

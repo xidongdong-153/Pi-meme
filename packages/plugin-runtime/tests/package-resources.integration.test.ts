@@ -17,7 +17,7 @@ async function fixture() {
     name: 'review-app',
     version: '1.0.0',
     piMeme: {
-      sdkVersion: 2,
+      sdkVersion: 3,
       ui: 'dist/ui/entry.js',
       display: { name: '代码检查', icon: 'assets/icon.svg' },
       resources: { skills: ['skills/review'], assets: ['assets/review'] },
@@ -75,7 +75,11 @@ test('声明资源拒绝软链接、缺少 SKILL.md 和旧扩展声明', async (
       path.join(source, 'package.json'),
       JSON.stringify({
         ...manifest,
-        piMeme: { ...manifest.piMeme, agent: 'dist/agent/index.js', resources: { extensions: ['dist/agent'] } },
+        piMeme: {
+          ...manifest.piMeme,
+          agent: { trusted: 'dist/agent/index.js' },
+          resources: { extensions: ['dist/agent'] },
+        },
       }),
     )
     await assert.rejects(readPluginManifest(source), /只支持/)
@@ -130,7 +134,7 @@ test('纯主题包无需 dist，保留主题 JSON 与素材并拒绝非 JSON 主
   const manifest: PluginManifest = {
     name: 'theme-only',
     version: '1.0.0',
-    piMeme: { sdkVersion: 2, resources: { themes: ['themes/dark.json'], assets: ['assets'] } },
+    piMeme: { sdkVersion: 3, resources: { themes: ['themes/dark.json'], assets: ['assets'] } },
   }
   await writeFile(path.join(root, 'package.json'), JSON.stringify(manifest))
   const packed = await packPlugin(root)
@@ -147,7 +151,7 @@ test('纯主题包无需 dist，保留主题 JSON 与素材并拒绝非 JSON 主
   assert.ok(manager.list()[0]!.generation > installed.generation)
   await writeFile(
     path.join(root, 'package.json'),
-    JSON.stringify({ ...manifest, piMeme: { sdkVersion: 2, resources: { themes: ['assets/icon.svg'] } } }),
+    JSON.stringify({ ...manifest, piMeme: { sdkVersion: 3, resources: { themes: ['assets/icon.svg'] } } }),
   )
   await assert.rejects(readPluginManifest(root), /JSON/)
 })

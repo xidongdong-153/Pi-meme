@@ -9,6 +9,8 @@ import { parseToolMeta } from '../model/tool-details'
 import { MarkdownContent } from '../content/markdown-content'
 import { ThinkingActivityRow } from './thinking-activity-row'
 import { ToolActivityRow } from './tool-activity-row'
+import { PluginMessageActionsGroup } from '@pi-meme/ui/components/plugin-message-actions'
+import { toolMessageActionAnchor } from '../model/tool-message-action-anchor'
 
 const activityIcons = {
   command: SquareTerminal,
@@ -119,6 +121,14 @@ function ActivityDisclosure({
         item.name === 'request_user_input' &&
         item.status === 'running',
     )
+  const toolAnchors = React.useMemo(
+    () =>
+      items.flatMap((item) => {
+        const anchor = toolMessageActionAnchor(item)
+        return anchor ? [anchor] : []
+      }),
+    [items],
+  )
   const IconComponent = activityIcons[meta.kind]
   const isWorking = isLive && !isPaused && !waitingForInput
 
@@ -132,42 +142,45 @@ function ActivityDisclosure({
 
   return (
     <div className="min-w-0 py-1">
-      <button
-        type="button"
-        aria-label={`活动详情：${completedSummary}`}
-        aria-expanded={open}
-        aria-controls={detailsId}
-        onClick={toggle}
-        title={completedSummary}
-        className="group/activity-toggle flex min-h-7 max-w-full items-center gap-2 rounded-sm py-0.5 pr-1 text-xs leading-5 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
-      >
-        {!isPaused && (
+      <div className="flex min-w-0 items-center gap-1">
+        <button
+          type="button"
+          aria-label={`活动详情：${completedSummary}`}
+          aria-expanded={open}
+          aria-controls={detailsId}
+          onClick={toggle}
+          title={completedSummary}
+          className="group/activity-toggle flex min-h-7 max-w-full items-center gap-2 rounded-sm py-0.5 pr-1 text-xs leading-5 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
+        >
+          {!isPaused && (
+            <span
+              aria-hidden="true"
+              className={cn(
+                'inline-flex size-4 shrink-0',
+                isWorking && 'text-primary animate-[thought-pulse_1.6s_ease-in-out_infinite]',
+              )}
+            >
+              <IconComponent className="size-4" />
+            </span>
+          )}
+          <span className={cn('min-w-0 truncate', isWorking && 'thought-shimmer')}>{completedSummary}</span>
+          {waitingForInput && (
+            <span role="status" className="shrink-0">
+              等待你的回答…
+            </span>
+          )}
           <span
             aria-hidden="true"
             className={cn(
-              'inline-flex size-4 shrink-0',
-              isWorking && 'text-primary animate-[thought-pulse_1.6s_ease-in-out_infinite]',
+              'inline-flex size-3.5 shrink-0 opacity-0 transition-[opacity,transform] duration-200 group-hover/activity-toggle:opacity-100 group-focus-visible/activity-toggle:opacity-100',
+              !open && '-rotate-90',
             )}
           >
-            <IconComponent className="size-4" />
+            <ChevronDown className="size-3.5" />
           </span>
-        )}
-        <span className={cn('min-w-0 truncate', isWorking && 'thought-shimmer')}>{completedSummary}</span>
-        {waitingForInput && (
-          <span role="status" className="shrink-0">
-            等待你的回答…
-          </span>
-        )}
-        <span
-          aria-hidden="true"
-          className={cn(
-            'inline-flex size-3.5 shrink-0 opacity-0 transition-[opacity,transform] duration-200 group-hover/activity-toggle:opacity-100 group-focus-visible/activity-toggle:opacity-100',
-            !open && '-rotate-90',
-          )}
-        >
-          <ChevronDown className="size-3.5" />
-        </span>
-      </button>
+        </button>
+        <PluginMessageActionsGroup anchors={toolAnchors} />
+      </div>
       <div
         id={detailsId}
         aria-hidden={!open}
@@ -203,6 +216,7 @@ function ActivityDisclosure({
                     isLive={isLive}
                     isPaused={isPaused}
                     isNested={false}
+                    actions={null}
                   />
                 ) : null,
               )}

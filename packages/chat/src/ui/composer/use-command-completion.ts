@@ -13,6 +13,7 @@ export type CompletionItem =
   { kind: 'command' | 'skill'; command: PiSlashCommand } | { kind: 'plugin'; plugin: AgentPluginOption }
 
 export function useCommandCompletion({
+  composerStore,
   onPlanCommand,
   onGoalCommand,
   projectPath,
@@ -30,6 +31,7 @@ export function useCommandCompletion({
   focusVersion,
 }: Pick<
   ComposerProps,
+  | 'composerStore'
   | 'onPlanCommand'
   | 'onGoalCommand'
   | 'projectPath'
@@ -204,15 +206,22 @@ export function useCommandCompletion({
     const before = draft.slice(0, query.start)
     if (item.kind === 'skill') {
       const index = before.split(skillMarker).length - 1
-      onSkills([...selectedSkills.slice(0, index), command, ...selectedSkills.slice(index)])
+      const skills = [...selectedSkills.slice(0, index), command, ...selectedSkills.slice(index)]
+      if (composerStore) {
+        replaceQuery(`${skillMarker} `, skills)
+        return
+      }
+      onSkills(skills)
     }
     replaceQuery(item.kind === 'skill' ? `${skillMarker} ` : `/${command.name} `)
   }
 
-  function replaceQuery(insertion: string) {
+  function replaceQuery(insertion: string, skills?: PiSlashCommand[]) {
     if (!query) return
     const caret = query.start + insertion.length
-    onDraft(draft.slice(0, query.start) + insertion + draft.slice(draftCaret))
+    const text = draft.slice(0, query.start) + insertion + draft.slice(draftCaret)
+    if (composerStore && skills) composerStore.patch({ draft: text, selectedSkills: skills })
+    else onDraft(text)
     completionCaret.current = caret
     setDraftCaret(caret)
     setSuggestionsOpen(false)

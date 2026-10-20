@@ -34,7 +34,8 @@
     "./components/ui/context-menu": "./src/components/ui/context-menu.tsx",
     "./components/ui/dropdown-menu": "./src/components/ui/dropdown-menu.tsx",
     "./components/plugin-tool-card": "./src/components/plugin-tool-card.tsx",
-    "./components/plugin-message": "./src/components/plugin-message.tsx"
+    "./components/plugin-message": "./src/components/plugin-message.tsx",
+    "./components/plugin-message-actions": "./src/components/plugin-message-actions.tsx"
   },
   "scripts": {
     "type-check": "tsc --noEmit"

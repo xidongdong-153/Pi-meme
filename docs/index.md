@@ -23,7 +23,7 @@ pi-meme 的 Desktop 和 Web 共用 Node Host。应用入口在 `apps/`，基础�
 | [配置与安全](configuration.md)              | 查配置文件、凭据、权限和沙箱边界                     | 现状                   | `packages/settings`、`packages/models`、`packages/mcp`                             |
 | [Remote](remote.md)                         | 部署 Host、配置 HTTPS、连接远程服务与排错            | 现状                   | `apps/server`、`packages/host/src/transport-*`                                     |
 | [HostApi v2](host-api.md)                   | 使用稳定目标、幂等提交、回执和事件补读               | 现状；末节为待确认规划 | `packages/contracts/src/app-host.ts`、`packages/client`                            |
-| [App 插件开发](plugins.md)                  | 构建 SDK 2 插件、登记面板、分发主题和管理生命周期    | 现状                   | `packages/plugin-*`、`plugins/theme-landscape`                                     |
+| [App 插件开发](plugins.md)                  | 构建 SDK 3 插件、登记业务页与面板、管理授权和更新    | 现状                   | `packages/plugin-*`、`plugins/theme-landscape`                                     |
 | [技能与 App 资源](skills-and-extensions.md) | 导入、编辑技能，配置调用策略与资源快照               | 现状                   | `packages/resources`、`pi/skills`                                                  |
 | [Linux 与 WSL](linux-wsl.md)                | 在 Linux/WSL2 运行 Host/Web，检查平台隔离            | 现状                   | `packages/sandbox-linux`、`.github/workflows/linux.yml`                            |
 | [WSL 验收记录](wsl-validation.md)           | 查看 2026-10-13 的环境、结果与未执行项               | 历史记录               | 记录中的临时环境                                                                   |

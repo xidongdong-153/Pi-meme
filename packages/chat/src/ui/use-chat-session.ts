@@ -9,7 +9,10 @@ import { prepareComposerMessage } from './composer/plan-input'
 import { SessionMode } from './composer/session-mode'
 import { normalizePlanMessage, type TaskMode, type QueuedInput } from '@pi-meme/contracts/plan'
 import { skillMarker, skillMessageParts } from '@pi-meme/contracts/skills'
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useRef, useState, useSyncExternalStore } from 'react'
+import { ComposerDraftStore, type ComposerDraftState } from './composer/composer-state'
+import { useComposerFiles } from './composer/use-composer-files'
+import type { ComposerIntent, ComposerProcessingRecord } from '@pi-meme/plugin-sdk/composer'
 import type { ChatBridge, DesktopEvent, Snapshot } from '@pi-meme/contracts/desktop'
 import type { PiEvent, PiMessage, PiSlashCommand } from '@pi-meme/contracts/pi'
 import { applyEvent as reduceEvent, emptyChat, restoreSnapshot } from './model/state'
@@ -24,6 +27,7 @@ export type ComposerSnapshot = {
   draft: string
   selectedSkills: PiSlashCommand[]
   pluginMentions?: string[]
+  pluginAnchors?: Record<string, number>
   attachments: Attachment[]
   queueMode: QueueMode
   recoveredInputs?: QueuedInput[]
@@ -62,23 +66,37 @@ export function useChatSession(options: ChatSessionOptions) {
     },
     [chatStream],
   )
-  const [draft, setDraft] = useState('')
+  const [composerStore] = useState(() => new ComposerDraftStore())
+  const composerState = useSyncExternalStore(
+    composerStore.subscribe,
+    composerStore.getSnapshot,
+    composerStore.getSnapshot,
+  )
+  const { draft, selectedSkills, pluginMentions, pluginAnchors, attachments, queueMode } = composerState
+  const { setDraft, setSelectedSkills, setPluginMentions, setAttachments, setQueueMode } = composerStore
+  const submissionIntegration = useRef<{
+    blocked: () => string | undefined
+    isPreparedCurrent?: () => boolean
+    prepare: (
+      value: ComposerDraftState,
+      intent: ComposerIntent,
+      signal: AbortSignal,
+    ) => Promise<{ composer: ComposerDraftState; records: readonly ComposerProcessingRecord[] } | null>
+  } | null>(null)
+  const preparingSubmission = useRef(false)
+  const [failedDrafts, setFailedDrafts] = useState<Array<{ sessionKey: string; composer: ComposerSnapshot }>>([])
   const [goalDraft, setGoalDraft] = useState<ComposerSnapshot['goalDraft']>()
   const [goalOpen, setGoalOpen] = useState(false)
   const [goalEditing, setGoalEditing] = useState(false)
   const [dismissedHint, setDismissedHint] = useState<string | undefined>(undefined)
   const hintSession = useRef<string | undefined>(undefined)
   const composerHintRef = useRef<string | undefined>(undefined)
-  const [selectedSkills, setSelectedSkills] = useState<PiSlashCommand[]>([])
-  const [pluginMentions, setPluginMentions] = useState<string[]>([])
-  const [attachments, setAttachments] = useState<Attachment[]>([])
   const [mode, setMode] = useState<TaskMode>('default')
   const modeWrites = useRef<Promise<unknown>>(Promise.resolve())
   const modeRef = useRef<TaskMode>('default')
   const modes = useRef(new SessionMode())
   const activeMode = useRef<TaskMode | undefined>(undefined)
   const [recoveredInputs, setRecoveredInputs] = useState<QueuedInput[]>([])
-  const [queueMode, setQueueMode] = useState<QueueMode>('followUp')
   const [editingTimestamp, setEditingTimestamp] = useState<number | null>(null)
   const editRestore = useRef<ComposerSnapshot | null>(null)
   const [editingQueue, setEditingQueue] = useState<string | null>(null)
@@ -92,7 +110,7 @@ export function useChatSession(options: ChatSessionOptions) {
     selectedSkills,
     attachments,
     queueMode,
-    ...(pluginMentions.length ? { pluginMentions } : {}),
+    ...(pluginMentions.length ? { pluginMentions, pluginAnchors } : {}),
   }
   const promptPending = useRef(false)
   const recoveryPending = useRef<{ key: string; generation: number } | null>(null)
@@ -100,6 +118,19 @@ export function useChatSession(options: ChatSessionOptions) {
   const optionsRef = useRef(options)
   optionsRef.current = options
   composerHintRef.current = chat.composerHint
+  const composerFiles = useComposerFiles({
+    contextKey: JSON.stringify([
+      options.currentGeneration(),
+      options.currentSessionKey(),
+      editingTimestamp,
+      editingQueue,
+    ]),
+    sessionKey: options.currentSessionKey(),
+    disabled: !options.canSend(),
+    uploadAttachment: options.bridge.uploadAttachment,
+    onAdd: (images) => composerStore.setAttachments((value) => [...value, ...images]),
+    onError: options.onError,
+  })
 
   const dismissComposerHint = useCallback(() => {
     if (composerHintRef.current) setDismissedHint(composerHintRef.current)
@@ -340,157 +371,234 @@ export function useChatSession(options: ChatSessionOptions) {
     [changeMode],
   )
 
-  const send = useCallback(async () => {
-    const { bridge, canSend, isSwitching, awaitPendingSwitch, currentGeneration, onError, onSendFailed } =
-      optionsRef.current
-    const selectedGeneration = currentGeneration()
-    await modeWrites.current
-    await awaitPendingSwitch()
-    if (
-      isSwitching() ||
-      selectedGeneration !== currentGeneration() ||
-      (recoveryPending.current?.key === optionsRef.current.currentSessionKey() &&
-        recoveryPending.current?.generation === selectedGeneration)
-    )
-      return
-    const goalCommand = chatStream.getSnapshot().goalsSupported ? parseGoalCommand(draft) : undefined
-    if (goalCommand && goalCommand.action !== 'start') {
-      if (goalCommand.action === 'open') activateGoal(draft)
-      else {
-        setDraft('')
-        try {
-          await goalAction(goalCommand.action)
-        } catch (cause) {
-          setDraft((current) => current || draft)
-          onError(String(cause))
-        }
-      }
-      return
-    }
-    const startingGoal = !!goalDraft || goalCommand?.action === 'start'
-    const normalized = prepareComposerMessage(
-      goalCommand?.action === 'start' ? goalCommand.objective : draft,
-      startingGoal ? 'default' : modeRef.current,
-    )
-    const messageMode = normalized.mode
-    if (messageMode !== modeRef.current) changeMode(messageMode)
-    if (normalized.commandOnly) {
-      setDraft(normalized.text)
-      return
-    }
-    const { message, images } = messageWithAttachments(normalized.text.trim(), attachments)
-    const skills = draft.includes(skillMarker)
-      ? selectedSkills.map(({ name, resourceId, resourceRevision }) => ({
-          name,
-          id: resourceId ?? '',
-          revision: resourceRevision ?? '',
-        }))
-      : []
-    if (skills.some((skill) => !skill.id || !skill.revision)) {
-      onError('技能引用已失效，请重新选择技能')
-      return
-    }
-    if ((!message && !images.length && !skills.length) || !canSend()) return
-    if (startingGoal) {
-      try {
-        validateGoalInput({
-          objective: message,
-        })
-      } catch (cause) {
-        onError(String(cause))
-        return
-      }
+  const dispatchComposer = useCallback(
+    async (prepared?: ComposerDraftState, records: readonly ComposerProcessingRecord[] = []) => {
+      const sourceRevision = composerStore.getSnapshot().revision
+      const { draft, selectedSkills, pluginMentions, attachments, queueMode } = prepared ?? composerStore.getSnapshot()
+      const { bridge, canSend, isSwitching, awaitPendingSwitch, currentGeneration, onError, onSendFailed } =
+        optionsRef.current
+      const selectedGeneration = currentGeneration()
+      const selectedMode = modeRef.current
+      await modeWrites.current
+      await awaitPendingSwitch()
+      const goalCommand = chatStream.getSnapshot().goalsSupported ? parseGoalCommand(draft) : undefined
+      const controlOnly = goalCommand && goalCommand.action !== 'start'
       if (
-        chat.running ||
-        chat.paused ||
-        chat.queuePaused ||
-        promptPending.current ||
-        editingTimestamp !== null ||
-        queueEdit.current
-      ) {
-        onError('请等待当前会话停止后再创建目标')
-        return
-      }
-    }
-    const sessionKey = optionsRef.current.currentSessionKey()
-    if (!sessionKey) return
-
-    const queuedEdit = queueEdit.current
-    if (queuedEdit) {
-      if (queueEditPending.current) return
-      queueEditPending.current = true
-      setSavingQueue(true)
-      onError('')
-      try {
-        await bridge.updateQueueInput(sessionKey, queuedEdit.id, message, images, skills, { mode: messageMode })
-        if (
-          queueEdit.current === queuedEdit &&
-          sessionKey === optionsRef.current.currentSessionKey() &&
-          selectedGeneration === currentGeneration()
-        ) {
-          queueEdit.current = null
-          setEditingQueue(null)
-          setDraft(queuedEdit.restore.draft)
-          setSelectedSkills(queuedEdit.restore.selectedSkills)
-          setPluginMentions(queuedEdit.restore.pluginMentions ?? [])
-          setAttachments(queuedEdit.restore.attachments)
-          changeMode(queuedEdit.mode)
-        }
-      } catch (cause) {
-        if (sessionKey === optionsRef.current.currentSessionKey() && selectedGeneration === currentGeneration()) {
-          onError(String(cause))
+        isSwitching() ||
+        selectedMode !== modeRef.current ||
+        (!controlOnly && submissionIntegration.current?.isPreparedCurrent?.() === false) ||
+        sourceRevision !== composerStore.getSnapshot().revision ||
+        composerStore.getSnapshot().composing ||
+        composerFiles.isUploading() ||
+        submissionIntegration.current?.blocked() ||
+        selectedGeneration !== currentGeneration() ||
+        (recoveryPending.current?.key === optionsRef.current.currentSessionKey() &&
+          recoveryPending.current?.generation === selectedGeneration)
+      )
+        return false
+      if (controlOnly) {
+        if (goalCommand.action === 'open') activateGoal(draft)
+        else {
+          setDraft('')
           try {
-            await optionsRef.current.refresh?.()
-          } catch {
-            /* 保留编辑草稿供重试。 */
+            await goalAction(goalCommand.action)
+          } catch (cause) {
+            setDraft((current) => current || draft)
+            onError(String(cause))
           }
         }
-      } finally {
-        queueEditPending.current = false
-        if (sessionKey === optionsRef.current.currentSessionKey() && selectedGeneration === currentGeneration())
-          setSavingQueue(false)
+        return false
       }
-      return
-    }
+      const startingGoal = !!goalDraft || goalCommand?.action === 'start'
+      const normalized = prepareComposerMessage(
+        goalCommand?.action === 'start' ? goalCommand.objective : draft,
+        startingGoal ? 'default' : modeRef.current,
+      )
+      const messageMode = normalized.mode
+      if (messageMode !== modeRef.current) changeMode(messageMode)
+      if (normalized.commandOnly) {
+        setDraft(normalized.text)
+        return false
+      }
+      const audit = records.length ? { clientProcessingAudit: records } : {}
+      const { message, images } = messageWithAttachments(normalized.text.trim(), attachments)
+      const skills = draft.includes(skillMarker)
+        ? selectedSkills.map(({ name, resourceId, resourceRevision }) => ({
+            name,
+            id: resourceId ?? '',
+            revision: resourceRevision ?? '',
+          }))
+        : []
+      if (skills.some((skill) => !skill.id || !skill.revision)) {
+        onError('技能引用已失效，请重新选择技能')
+        return false
+      }
+      if ((!message && !images.length && !skills.length) || !canSend()) return false
+      if (startingGoal) {
+        try {
+          validateGoalInput({
+            objective: message,
+          })
+        } catch (cause) {
+          onError(String(cause))
+          return false
+        }
+        if (
+          chat.running ||
+          chat.paused ||
+          chat.queuePaused ||
+          promptPending.current ||
+          editingTimestamp !== null ||
+          queueEdit.current
+        ) {
+          onError('请等待当前会话停止后再创建目标')
+          return false
+        }
+      }
+      const sessionKey = optionsRef.current.currentSessionKey()
+      if (!sessionKey) return false
 
-    if (editingTimestamp !== null) {
-      const target = editingTimestamp
-      const restore = editRestore.current
-      const previousMessages = chat.messages
+      const queuedEdit = queueEdit.current
+      if (queuedEdit) {
+        if (queueEditPending.current) return false
+        queueEditPending.current = true
+        setSavingQueue(true)
+        onError('')
+        try {
+          await bridge.updateQueueInput(sessionKey, queuedEdit.id, message, images, skills, {
+            mode: messageMode,
+            ...audit,
+          })
+          if (
+            queueEdit.current === queuedEdit &&
+            sessionKey === optionsRef.current.currentSessionKey() &&
+            selectedGeneration === currentGeneration()
+          ) {
+            queueEdit.current = null
+            setEditingQueue(null)
+            setDraft(queuedEdit.restore.draft)
+            setSelectedSkills(queuedEdit.restore.selectedSkills)
+            setPluginMentions(queuedEdit.restore.pluginMentions ?? [])
+            setAttachments(queuedEdit.restore.attachments)
+            changeMode(queuedEdit.mode)
+          }
+          return true
+        } catch (cause) {
+          if (sessionKey === optionsRef.current.currentSessionKey() && selectedGeneration === currentGeneration()) {
+            onError(String(cause))
+            try {
+              await optionsRef.current.refresh?.()
+            } catch {
+              /* 保留编辑草稿供重试。 */
+            }
+          }
+          return false
+        } finally {
+          queueEditPending.current = false
+          if (sessionKey === optionsRef.current.currentSessionKey() && selectedGeneration === currentGeneration())
+            setSavingQueue(false)
+        }
+      }
+
+      if (editingTimestamp !== null) {
+        const target = editingTimestamp
+        const restore = editRestore.current
+        const previousMessages = chat.messages
+        onError('')
+        dismissComposerHint()
+        composerStore.patch({ draft: '', selectedSkills: [], pluginMentions: [], attachments: [] })
+        const clearedRevision = composerStore.getSnapshot().revision
+        // 立即退出编辑态并截断待覆盖的对话展示，避免同时出现编辑操作和生成状态。
+        setEditingTimestamp(null)
+        editRestore.current = null
+        promptPending.current = true
+        beginMessageOverwrite(target)
+        try {
+          await bridge.editAndPrompt(sessionKey, target, message, images, skills, { mode: messageMode, ...audit })
+          // 编辑期间可能已切换会话，只有仍停留在原会话时才恢复编辑前的草稿与附件。
+          if (
+            restore &&
+            sessionKey === optionsRef.current.currentSessionKey() &&
+            composerStore.getSnapshot().revision === clearedRevision
+          ) {
+            setDraft(restore.draft)
+            setSelectedSkills(restore.selectedSkills)
+            setPluginMentions(restore.pluginMentions ?? [])
+            setAttachments(restore.attachments)
+            setQueueMode(restore.queueMode)
+          }
+          return true
+        } catch (cause) {
+          const sameSession = sessionKey === optionsRef.current.currentSessionKey()
+          promptPending.current = false
+          if (sameSession && composerStore.getSnapshot().revision === clearedRevision) {
+            // 失败时回到编辑态并保留用户修改后的内容，可继续修改或重试。
+            editRestore.current = restore
+            setEditingTimestamp(target)
+            setDraft(draft)
+            setSelectedSkills(selectedSkills)
+            setPluginMentions(pluginMentions)
+            setAttachments(attachments)
+            setChat((value) => ({ ...value, messages: previousMessages, running: false }))
+          } else if (sameSession)
+            setFailedDrafts((values) => [
+              ...values,
+              { sessionKey, composer: { draft, selectedSkills, attachments, queueMode, pluginMentions } },
+            ])
+          onSendFailed?.(sessionKey, {
+            draft,
+            selectedSkills,
+            attachments,
+            queueMode,
+            ...(pluginMentions.length ? { pluginMentions } : {}),
+          })
+          if (sameSession) onError(String(cause))
+          return false
+        }
+      }
+
+      const running = chat.running || chat.paused || chat.queuePaused || promptPending.current
+      const sendMode = running ? 'followUp' : 'prompt'
+      const generation = currentGeneration()
+      const finishSend = optionsRef.current.onSendStarted?.(sessionKey, {
+        draft,
+        selectedSkills,
+        attachments,
+        queueMode,
+        ...(pluginMentions.length ? { pluginMentions } : {}),
+      })
       onError('')
       dismissComposerHint()
-      setDraft('')
-      setSelectedSkills([])
-      setPluginMentions([])
-      setAttachments([])
-      // 立即退出编辑态并截断待覆盖的对话展示，避免同时出现编辑操作和生成状态。
-      setEditingTimestamp(null)
-      editRestore.current = null
-      promptPending.current = true
-      beginMessageOverwrite(target)
+      composerStore.patch({ draft: '', selectedSkills: [], pluginMentions: [], attachments: [] })
+      const clearedRevision = composerStore.getSnapshot().revision
+      if (!running) {
+        promptPending.current = true
+        setChat((value) => ({ ...value, running: true, activeMode: messageMode }))
+      }
       try {
-        await bridge.editAndPrompt(sessionKey, target, message, images, skills, { mode: messageMode })
-        // 编辑期间可能已切换会话，只有仍停留在原会话时才恢复编辑前的草稿与附件。
-        if (restore && sessionKey === optionsRef.current.currentSessionKey()) {
-          setDraft(restore.draft)
-          setSelectedSkills(restore.selectedSkills)
-          setPluginMentions(restore.pluginMentions ?? [])
-          setAttachments(restore.attachments)
-          setQueueMode(restore.queueMode)
+        if (startingGoal) {
+          if (!bridge.startGoal) throw new Error('当前 Host 不支持目标')
+          const result = await bridge.startGoal(sessionKey, {
+            objective: message,
+            images,
+            skills,
+          })
+          if (sessionKey === optionsRef.current.currentSessionKey() && generation === currentGeneration()) {
+            setGoalDraft((current) => (current === goalDraft ? undefined : current))
+            setGoalOpen(false)
+            setChat((state) => (state.goal?.goalId === result.goal.goalId ? state : { ...state, goal: result.goal }))
+          }
+        } else if (sendMode === 'followUp')
+          await bridge.followUp(sessionKey, message, images, skills, { mode: messageMode, ...audit })
+        else {
+          activeMode.current = messageMode
+          await bridge.prompt(sessionKey, message, images, skills, { mode: messageMode, ...audit })
         }
+        return true
       } catch (cause) {
-        const sameSession = sessionKey === optionsRef.current.currentSessionKey()
-        promptPending.current = false
-        if (sameSession) {
-          // 失败时回到编辑态并保留用户修改后的内容，可继续修改或重试。
-          editRestore.current = restore
-          setEditingTimestamp(target)
-          setDraft(draft)
-          setSelectedSkills(selectedSkills)
-          setPluginMentions(pluginMentions)
-          setAttachments(attachments)
-          setChat((value) => ({ ...value, messages: previousMessages, running: false }))
-        }
+        const sameSession = sessionKey
+          ? sessionKey === optionsRef.current.currentSessionKey()
+          : generation === currentGeneration()
         onSendFailed?.(sessionKey, {
           draft,
           selectedSkills,
@@ -498,93 +606,87 @@ export function useChatSession(options: ChatSessionOptions) {
           queueMode,
           ...(pluginMentions.length ? { pluginMentions } : {}),
         })
-        if (sameSession) onError(String(cause))
+        if (sameSession) {
+          if (composerStore.getSnapshot().revision === clearedRevision)
+            composerStore.patch({ draft, selectedSkills, pluginMentions, attachments, queueMode })
+          else
+            setFailedDrafts((values) => [
+              ...values,
+              { sessionKey, composer: { draft, selectedSkills, pluginMentions, attachments, queueMode } },
+            ])
+          if (!running) {
+            promptPending.current = false
+          }
+          onError(String(cause))
+        }
+        return false
+      } finally {
+        finishSend?.()
       }
-      return
-    }
-
-    const running = chat.running || chat.paused || chat.queuePaused || promptPending.current
-    const sendMode = running ? 'followUp' : 'prompt'
-    const generation = currentGeneration()
-    const finishSend = optionsRef.current.onSendStarted?.(sessionKey, {
+    },
+    [
+      goalDraft,
+      goalAction,
+      activateGoal,
+      chatStream,
+      chat.running,
+      chat.paused,
+      chat.queuePaused,
       draft,
       selectedSkills,
+      pluginMentions,
       attachments,
       queueMode,
-      ...(pluginMentions.length ? { pluginMentions } : {}),
+      editingTimestamp,
+      beginMessageOverwrite,
+      changeMode,
+      dismissComposerHint,
+      loadSnapshot,
+    ],
+  )
+
+  const requestSubmit = useCallback(async () => {
+    if (preparingSubmission.current) return false
+    const source = composerStore.getSnapshot()
+    const integration = submissionIntegration.current
+    if (source.composing || composerFiles.isUploading() || integration?.blocked()) return false
+    const controller = new AbortController()
+    const unsubscribe = composerStore.subscribe(() => {
+      if (composerStore.getSnapshot().revision !== source.revision || composerStore.getSnapshot().composing)
+        controller.abort(new Error('草稿已变化，尚未发送'))
     })
-    onError('')
-    dismissComposerHint()
-    setDraft('')
-    setSelectedSkills([])
-    setPluginMentions([])
-    setAttachments([])
-    if (!running) {
-      promptPending.current = true
-      setChat((value) => ({ ...value, running: true, activeMode: messageMode }))
-    }
+    preparingSubmission.current = true
+    let ownsPreparation = true
     try {
-      if (startingGoal) {
-        if (!bridge.startGoal) throw new Error('当前 Host 不支持目标')
-        const result = await bridge.startGoal(sessionKey, {
-          objective: message,
-          images,
-          skills,
-        })
-        if (sessionKey === optionsRef.current.currentSessionKey() && generation === currentGeneration()) {
-          setGoalDraft((current) => (current === goalDraft ? undefined : current))
-          setGoalOpen(false)
-          setChat((state) => (state.goal?.goalId === result.goal.goalId ? state : { ...state, goal: result.goal }))
-        }
-      } else if (sendMode === 'followUp')
-        await bridge.followUp(sessionKey, message, images, skills, { mode: messageMode })
-      else {
-        activeMode.current = messageMode
-        await bridge.prompt(sessionKey, message, images, skills, { mode: messageMode })
-      }
-    } catch (cause) {
-      const sameSession = sessionKey
-        ? sessionKey === optionsRef.current.currentSessionKey()
-        : generation === currentGeneration()
-      onSendFailed?.(sessionKey, {
-        draft,
-        selectedSkills,
-        attachments,
-        queueMode,
-        ...(pluginMentions.length ? { pluginMentions } : {}),
-      })
-      if (sameSession) {
-        setDraft((value) => value || draft)
-        setSelectedSkills((value) => (value.length ? value : selectedSkills))
-        setPluginMentions((value) => [...new Set([...pluginMentions, ...value])])
-        setAttachments((value) => (value.length ? value : attachments))
-        if (!running) {
-          promptPending.current = false
-        }
-        onError(String(cause))
-      }
+      const goalCommand = chatStream.getSnapshot().goalsSupported ? parseGoalCommand(source.draft) : undefined
+      const controlOnly = goalCommand && goalCommand.action !== 'start'
+      const intent: ComposerIntent =
+        editingTimestamp !== null
+          ? 'edit-message'
+          : queueEdit.current
+            ? 'edit-queue'
+            : goalDraft || goalCommand?.action === 'start'
+              ? 'start-goal'
+              : 'message'
+      const prepared =
+        integration && !controlOnly
+          ? await integration.prepare(source, intent, controller.signal)
+          : { composer: source, records: [] }
+      if (!prepared || controller.signal.aborted || source.revision !== composerStore.getSnapshot().revision)
+        return false
+      unsubscribe()
+      preparingSubmission.current = false
+      ownsPreparation = false
+      return await dispatchComposer(prepared.composer, prepared.records)
     } finally {
-      finishSend?.()
+      unsubscribe()
+      if (ownsPreparation) preparingSubmission.current = false
     }
-  }, [
-    goalDraft,
-    goalAction,
-    activateGoal,
-    chatStream,
-    chat.running,
-    chat.paused,
-    chat.queuePaused,
-    draft,
-    selectedSkills,
-    pluginMentions,
-    attachments,
-    queueMode,
-    editingTimestamp,
-    beginMessageOverwrite,
-    changeMode,
-    dismissComposerHint,
-    loadSnapshot,
-  ])
+  }, [composerStore, chatStream, editingTimestamp, goalDraft, dispatchComposer])
+
+  const send = useCallback(async () => {
+    await requestSubmit()
+  }, [requestSubmit])
 
   const editMessage = useCallback(
     (message: Extract<PiEvent, { type: 'message_end' }>['message']) => {
@@ -840,6 +942,41 @@ export function useChatSession(options: ChatSessionOptions) {
   return {
     chat,
     chatStream,
+    composerStore,
+    composerFiles,
+    canSubmitComposer: () =>
+      optionsRef.current.canSend() &&
+      !composerFiles.isUploading() &&
+      !composerStore.getSnapshot().composing &&
+      !submissionIntegration.current?.blocked(),
+    setSubmissionIntegration: (integration: typeof submissionIntegration.current) => {
+      submissionIntegration.current = integration
+    },
+    dispatchPreparedComposer: dispatchComposer,
+    failedDrafts: failedDrafts
+      .filter((item) => item.sessionKey === options.currentSessionKey())
+      .map((item) => item.composer),
+    restoreFailedDraft: (index: number) => {
+      const failed = failedDrafts.filter((item) => item.sessionKey === optionsRef.current.currentSessionKey())[index]
+      const value = failed?.composer
+      const current = composerStore.getSnapshot()
+      if (
+        !value ||
+        current.draft.trim() ||
+        current.attachments.length ||
+        current.selectedSkills.length ||
+        current.pluginMentions.length
+      )
+        return
+      composerStore.patch({
+        draft: value.draft,
+        selectedSkills: value.selectedSkills,
+        pluginMentions: value.pluginMentions ?? [],
+        attachments: value.attachments,
+        queueMode: value.queueMode,
+      })
+      setFailedDrafts((values) => values.filter((item) => item !== failed))
+    },
     captureChat: chatStream.getSnapshot,
     mode,
     changeMode,
@@ -874,6 +1011,7 @@ export function useChatSession(options: ChatSessionOptions) {
     selectedSkills: draft.includes(skillMarker) ? selectedSkills : emptySkills,
     setSelectedSkills,
     pluginMentions,
+    pluginAnchors,
     setPluginMentions,
     attachments,
     setAttachments,
@@ -890,7 +1028,7 @@ export function useChatSession(options: ChatSessionOptions) {
         draft,
         goalDraft,
         selectedSkills,
-        ...(pluginMentions.length ? { pluginMentions } : {}),
+        ...(pluginMentions.length ? { pluginMentions, pluginAnchors } : {}),
         attachments,
         queueMode,
         recoveredInputs,
@@ -904,17 +1042,21 @@ export function useChatSession(options: ChatSessionOptions) {
       setGoalDraft(value.goalDraft)
       setGoalOpen(false)
       setGoalEditing(false)
-      setDraft(value.draft)
-      setSelectedSkills(value.selectedSkills)
-      setPluginMentions(value.pluginMentions ?? [])
-      setAttachments(value.attachments)
-      setQueueMode(value.queueMode)
+      composerStore.patch({
+        draft: value.draft,
+        selectedSkills: value.selectedSkills,
+        pluginMentions: value.pluginMentions ?? [],
+        pluginAnchors: value.pluginAnchors ?? {},
+        attachments: value.attachments,
+        queueMode: value.queueMode,
+      })
       setRecoveredInputs(value.recoveredInputs ?? [])
       setEditingTimestamp(value.editing?.timestamp ?? null)
       editRestore.current = value.editing?.restore ?? null
     },
     reset,
     send,
+    submitComposer: requestSubmit,
     stop,
     resume: () => queueAction('resume'),
     recover,

@@ -1,5 +1,7 @@
 import type { UserInputQuestion, UserInputResult } from '@pi-meme/contracts/user-input'
 import type { Disposer } from './scope'
+import type { PluginEffect, PluginServerClient } from './rpc'
+import type { RestrictedCapability, PluginGrant } from './permissions'
 
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
 export type JsonSchema = {
@@ -17,6 +19,8 @@ export type AgentTool = {
   title: string
   description: string
   parameters: JsonSchema
+  effect?: PluginEffect
+  capabilities?: readonly RestrictedCapability[]
   execute: (
     parameters: Record<string, unknown>,
     context: AgentExecutionContext,
@@ -35,6 +39,7 @@ export type AgentHookResult<K extends keyof AgentHookEvents> = K extends 'before
 export type AgentPluginContext = {
   pluginId: string
   generation: number
+  server: PluginServerClient
   tools: { register: (tool: AgentTool) => void }
   hooks: {
     on: <K extends keyof AgentHookEvents>(
@@ -46,6 +51,8 @@ export type AgentPluginContext = {
     register: (command: {
       name: string
       description: string
+      effect?: PluginEffect
+      capabilities?: readonly RestrictedCapability[]
       execute: (args: string, context: AgentExecutionContext) => void | Promise<void>
     }) => void
   }
@@ -60,7 +67,16 @@ export type AgentPluginContext = {
 export type AgentPluginModule = {
   activate: (context: AgentPluginContext) => void | Disposer | Promise<void | Disposer>
 }
-export type AgentPluginEntry = { pluginId: string; generation: number; path: string }
+export type AgentPluginEntry = {
+  pluginId: string
+  generation: number
+  path?: string
+  trusted?: string
+  restricted?: string
+  restrictedServer?: string
+  directory?: string
+  grant?: PluginGrant
+}
 
 export type InteractionPluginContext = {
   registerInteractionPolicy: (enabled: boolean) => void

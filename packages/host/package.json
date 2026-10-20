@@ -27,6 +27,7 @@
     "@pi-meme/codemode": "workspace:*",
     "@pi-meme/contracts": "workspace:*",
     "@pi-meme/git": "workspace:*",
+    "@pi-meme/goals": "workspace:*",
     "@pi-meme/history": "workspace:*",
     "@pi-meme/interaction": "workspace:*",
     "@pi-meme/mcp": "workspace:*",
@@ -46,12 +47,13 @@
     "@xterm/addon-serialize": "^0.14.0",
     "@xterm/headless": "^6.0.0",
     "hono": "4.13.13",
+    "ipaddr.js": "2.2.0",
     "node-pty": "^1.1.0",
     "proper-lockfile": "4.1.2",
-    "ws": "^8.18.3",
-    "@pi-meme/goals": "workspace:*"
+    "ws": "^8.18.3"
   },
   "devDependencies": {
+    "@earendil-works/chord": "1.1.0",
     "@pi-meme/client": "workspace:*",
     "@types/proper-lockfile": "^4.1.4",
     "@types/ws": "^8.18.1",

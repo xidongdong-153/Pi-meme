@@ -35,7 +35,7 @@ async function fixture() {
     name: pluginId,
     version: '1.0.0',
     type: 'module',
-    piMeme: { sdkVersion: 2, resources: { themes: ['themes/dark.json'], assets: ['assets'] } },
+    piMeme: { sdkVersion: 3, resources: { themes: ['themes/dark.json'], assets: ['assets'] } },
   }
   await writeFile(path.join(source, 'package.json'), JSON.stringify(manifest))
   await writeFile(path.join(source, 'themes/dark.json'), JSON.stringify(themeInput))

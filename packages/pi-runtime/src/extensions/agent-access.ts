@@ -31,6 +31,7 @@ export function createAgentAccessExtension(options: {
   sandbox: AccessSandbox
   cwd: string
   mode: AgentAccessMode
+  externalToolAllowed?: (name: string) => boolean
 }): InlineExtension {
   const { sdk, sandbox, cwd, mode } = options
   return {
@@ -67,8 +68,9 @@ export function createAgentAccessExtension(options: {
         ...editDefinition,
         execute: (id, params, signal, onUpdate, ctx) => editTool(signal).execute(id, params, signal, onUpdate, ctx),
       })
+      const isAllowed = (name: string) => allowedTools.has(name) || options.externalToolAllowed?.(name) === true
       pi.on('session_start', () => {
-        pi.setActiveTools(pi.getActiveTools().filter((name) => allowedTools.has(name)))
+        pi.setActiveTools(pi.getActiveTools().filter(isAllowed))
       })
       pi.on('before_agent_start', () => ({
         message: {
@@ -81,7 +83,7 @@ export function createAgentAccessExtension(options: {
         },
       }))
       pi.on('tool_call', (event) => {
-        if (!allowedTools.has(event.toolName)) throw new Error(`受限权限不允许执行工具：${event.toolName}`)
+        if (!isAllowed(event.toolName)) throw new Error(`受限权限不允许执行工具：${event.toolName}`)
       })
       pi.on('user_bash', () => ({ operations: bashOperations }))
       pi.on('session_shutdown', () => sandbox.stopAll())

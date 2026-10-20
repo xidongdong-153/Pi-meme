@@ -30,7 +30,17 @@ test('历史回复保留开始时间，以当前分支消息落盘时间投影�
     const reply = history.messages.find((message) => message.role === 'assistant')
     assert.equal(reply?.timestamp, startedAt)
     assert.equal(reply?.completedAt, Date.parse(timestamp))
-    assert.deepEqual(history.messages, projectMessageSources(entries, [user, assistant], 'leaf'))
+    assert.deepEqual(
+      history.messages,
+      projectMessageSources(
+        entries,
+        [
+          { ...user, sourceEntry: { id: 'user', type: 'message', revision: 'user' } },
+          { ...assistant, sourceEntry: { id: 'reply', type: 'message', revision: 'reply' } },
+        ],
+        'leaf',
+      ),
+    )
     assert.equal(await readFile(file, 'utf8'), content)
   } finally {
     await rm(directory, { recursive: true, force: true })

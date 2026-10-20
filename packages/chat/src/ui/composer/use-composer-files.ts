@@ -76,8 +76,8 @@ export function useComposerFiles(options: ComposerFilesOptions) {
     refresh()
   }
 
-  async function addFiles(files: File[]) {
-    if (!mounted.current || context.current.disabled || !files.length) return
+  async function addFiles(files: File[], options?: { signal?: AbortSignal }) {
+    if (!mounted.current || context.current.disabled || !files.length || options?.signal?.aborted) return
     const current = context.current
     const revision = current.revision
     const targetSession = current.sessionKey
@@ -96,41 +96,53 @@ export function useComposerFiles(options: ComposerFilesOptions) {
       current.uploads.set(attachment.id, upload)
       return { file, ...upload }
     })
+    const abort = () => {
+      for (const { attachment, controller } of uploads) {
+        controller.abort()
+        current.uploads.delete(attachment.id)
+      }
+      if (isCurrent()) refresh()
+    }
+    options?.signal?.addEventListener('abort', abort, { once: true })
     refresh()
     optionsRef.current.onError('')
-    for (const { file, attachment, controller } of uploads) {
-      if (!isCurrent()) return
-      if (controller.signal.aborted) continue
-      try {
-        const completed = await fileToAttachment(
-          file,
-          (input) => {
-            if (!isCurrent()) throw new Error('附件上传已取消')
-            if (!targetSession) throw new Error('请先连接会话再添加文件')
-            return optionsRef.current.uploadAttachment(targetSession, input, controller.signal, (progress) => {
-              if (!isCurrent() || controller.signal.aborted) return
-              const next = Math.max(0, Math.min(100, Math.round(progress)))
-              if (!Number.isFinite(next) || attachment.progress === next) return
-              attachment.progress = next
-              refresh()
-            })
-          },
-          attachment.id,
-        )
-        if (isCurrent() && !controller.signal.aborted) optionsRef.current.onAdd([completed])
-      } catch (cause) {
-        if (isCurrent() && !controller.signal.aborted) {
-          const message = cause instanceof Error ? cause.message : String(cause)
-          failures.push(file.name && !message.includes(file.name) ? `${file.name}：${message}` : message)
-        }
-      } finally {
-        if (isCurrent()) {
-          current.uploads.delete(attachment.id)
-          refresh()
+    try {
+      for (const { file, attachment, controller } of uploads) {
+        if (!isCurrent()) return
+        if (controller.signal.aborted) continue
+        try {
+          const completed = await fileToAttachment(
+            file,
+            (input) => {
+              if (!isCurrent()) throw new Error('附件上传已取消')
+              if (!targetSession) throw new Error('请先连接会话再添加文件')
+              return optionsRef.current.uploadAttachment(targetSession, input, controller.signal, (progress) => {
+                if (!isCurrent() || controller.signal.aborted) return
+                const next = Math.max(0, Math.min(100, Math.round(progress)))
+                if (!Number.isFinite(next) || attachment.progress === next) return
+                attachment.progress = next
+                refresh()
+              })
+            },
+            attachment.id,
+          )
+          if (isCurrent() && !controller.signal.aborted) optionsRef.current.onAdd([completed])
+        } catch (cause) {
+          if (isCurrent() && !controller.signal.aborted) {
+            const message = cause instanceof Error ? cause.message : String(cause)
+            failures.push(file.name && !message.includes(file.name) ? `${file.name}：${message}` : message)
+          }
+        } finally {
+          if (isCurrent()) {
+            current.uploads.delete(attachment.id)
+            refresh()
+          }
         }
       }
+      if (isCurrent() && failures.length) optionsRef.current.onError(failures.join('\n'))
+    } finally {
+      options?.signal?.removeEventListener('abort', abort)
     }
-    if (isCurrent() && failures.length) optionsRef.current.onError(failures.join('\n'))
   }
 
   return {

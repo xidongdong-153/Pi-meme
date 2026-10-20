@@ -40,12 +40,14 @@ flowchart TD
   Client --> Entry["同源界面入口：Vite、Desktop 代理或 Host 静态页面"]
   Entry --> Host["唯一 Node Host：默认 31415"]
   Host --> Builtins["内置服务：静态装配"]
-  Host --> Plugins["外部插件：Chord 依赖组"]
+  Host --> Plugins["可信 Server：Chord 依赖组"]
+  Host --> Runner["受限插件：独立进程与 OS 沙箱"]
   Host --> Adapter["pi-adapter：Worker 通信"]
   Adapter --> Worker["会话 Worker：静态 Agent 工厂"]
   Worker --> Pi["Pi SDK：会话、工具与 JSONL"]
   Plugins --> Worker
-  Plugins --> UiPlugins["插件浏览器 UI"]
+  Worker --> Runner
+  Plugins --> UiPlugins["可信插件浏览器 UI"]
   UiPlugins --> App
 ```
 
@@ -65,23 +67,23 @@ Desktop 的连接状态分 `owned` 与 `attached`。[本机进程管理](../apps
 
 ## 包职责与依赖方向
 
-| 目录                                                   | 职责                                                 |
-| ------------------------------------------------------ | ---------------------------------------------------- |
-| [apps/desktop](../apps/desktop/)                       | 窗口、本地 Host 子进程、平台 IPC、Desktop 入口与验收 |
-| [apps/server](../apps/server/)                         | 独立 Host 启动、环境变量、退出清理                   |
-| [apps/web](../apps/web/)                               | Web 登录、Vite 构建与共享 React import map           |
-| [packages/contracts](../packages/contracts/)           | HostApi、内部 Pi 类型、事件、资源与平台契约          |
-| [packages/ui](../packages/ui/)                         | 基础交互原语、ErrorBoundary、`cn`、tokens 和通用卡片 |
-| [packages/assets](../packages/assets/)                 | 内置界面图片、应用图标和 Dock 图标                   |
-| [packages/app-ui](../packages/app-ui/)                 | 页面与布局组合、连接管理、右侧工具标签和贡献槽       |
-| [packages/client](../packages/client/)                 | HostApi 客户端、内部功能 Bridge、认证、事件与快照    |
-| [packages/host](../packages/host/)                     | 数据目录写入锁、会话身份、操作分派、内置与外部装配   |
-| [packages/pi-adapter](../packages/pi-adapter/)         | 通用 Worker 调用与通信、凭据同步、外部 AppAgent 接入 |
-| [packages/pi-runtime](../packages/pi-runtime/)         | Pi SDK 装配、会话池、事件、JSONL、历史与安全执行底层 |
-| [packages/plugin-sdk](../packages/plugin-sdk/)         | 外部插件 manifest、Server/Agent/UI 契约与释放作用域  |
-| [packages/plugin-runtime](../packages/plugin-runtime/) | 包校验、安装记录、不可变代码快照、Chord 与安全切换   |
-| [packages/plugin-devkit](../packages/plugin-devkit/)   | 插件创建、Node/浏览器构建、校验与 `.pim` 打包        |
-| [plugins](../plugins/)                                 | 独立分发的 App 插件源码；当前包含主题示范            |
+| 目录                                                   | 职责                                                         |
+| ------------------------------------------------------ | ------------------------------------------------------------ |
+| [apps/desktop](../apps/desktop/)                       | 窗口、本地 Host 子进程、平台 IPC、Desktop 入口与验收         |
+| [apps/server](../apps/server/)                         | 独立 Host 启动、环境变量、退出清理                           |
+| [apps/web](../apps/web/)                               | Web 登录、Vite 构建与共享 React import map                   |
+| [packages/contracts](../packages/contracts/)           | HostApi、内部 Pi 类型、事件、资源与平台契约                  |
+| [packages/ui](../packages/ui/)                         | 基础交互原语、ErrorBoundary、`cn`、tokens 和通用卡片         |
+| [packages/assets](../packages/assets/)                 | 内置界面图片、应用图标和 Dock 图标                           |
+| [packages/app-ui](../packages/app-ui/)                 | 页面与布局组合、连接管理、右侧工具标签和贡献槽               |
+| [packages/client](../packages/client/)                 | HostApi 客户端、内部功能 Bridge、认证、事件与快照            |
+| [packages/host](../packages/host/)                     | 数据目录写入锁、会话身份、操作分派、内置与外部装配           |
+| [packages/pi-adapter](../packages/pi-adapter/)         | 通用 Worker 调用与通信、凭据同步、外部 AppAgent 接入         |
+| [packages/pi-runtime](../packages/pi-runtime/)         | Pi SDK 装配、会话池、事件、JSONL、历史与安全执行底层         |
+| [packages/plugin-sdk](../packages/plugin-sdk/)         | SDK 3 manifest、可信/受限入口、输入框、消息、页面与 RPC 契约 |
+| [packages/plugin-runtime](../packages/plugin-runtime/) | 包校验、授权、代码快照、Chord、受限进程与代次切换            |
+| [packages/plugin-devkit](../packages/plugin-devkit/)   | 插件创建、Node/浏览器构建、校验与 `.pim` 打包                |
+| [plugins](../plugins/)                                 | 独立分发的 App 插件源码；当前包含主题示范                    |
 
 Host 与 app-ui 是组合根。基础包和契约不得反向依赖业务实现；业务包和插件不互导私有实现，通过契约、显式 Props 或声明的服务协作。UI 不导入 Server、Agent、Node 或 Electron；Electron main 不实现聊天、配置、会话或插件生命周期。
 
@@ -118,9 +120,9 @@ Agent 项目服务由 [activities](../packages/activities/src/server/service.ts)
 
 [设置导航](../packages/app-ui/src/settings/settings-page.tsx) 分三组：个人包含常规、外观、用量；Agent 包含模型、指令、技能、插件、MCP；系统包含远程、关于。常规只设置新会话默认权限。指令页编辑 Host 的用户指令与系统提示词。技能与插件是独立页面，没有共享资源页。[技能页](../packages/app-ui/src/settings/skill-page.tsx)和[插件页](../packages/app-ui/src/settings/plugin-page.tsx)各自在“个人 / 系统”间切换。创建技能或插件会把对应系统技能插入当前对话。
 
-左侧为置顶、项目、最近，中间固定聊天。工具面板位置只允许 `right`，在当前聊天右侧栏打开可关闭标签页；标签和宽度按 Host、会话保存。活动工具仅在当前会话存在受管服务时出现在工具目录；停止最后一个服务后，已经打开的标签保留结果，关闭、切换或刷新后不恢复空标签。关闭标签不会停止服务。七类贡献槽为 `composer`、`composer-actions`、`tool-card`、`message`、`message-actions`、`status`、`settings`。
+首页聊天保留置顶、项目、最近列表。插件可新增自己的活动栏入口、分组菜单与中央业务页；返回首页恢复原聊天，切页不终止任务、PTY 或项目服务。页面路由捕获同 Host 目标，不修改后台聊天选择；仅当前插件页挂载。工具面板位置仍只允许 `right`，在当前聊天右侧栏打开可关闭标签页；标签和宽度按 Host、会话保存。活动工具仅在当前会话存在受管服务时出现在工具目录；停止最后一个服务后，已经打开的标签保留结果，关闭、切换或刷新后不恢复空标签。关闭标签不会停止服务。六类 render 槽为 `composer`、`composer-actions`、`tool-card`、`message`、`status`、`settings`；四类消息统一动作使用 `messageActions.register`。输入框 API 复用唯一草稿与提交守卫，发送前处理逐项授权；响应式投影直接订阅 ChatStream，元数据与正文分开订阅。
 
-源码见 [workspace-panels.tsx](../packages/app-ui/src/layout/workspace-panels.tsx)、[right-sidebar.tsx](../packages/app-ui/src/layout/right-sidebar.tsx)、[UI 契约](../packages/plugin-sdk/src/ui.ts)。插件不能替换左侧导航或中央聊天。
+源码见 [workspace-panels.tsx](../packages/app-ui/src/layout/workspace-panels.tsx)、[plugin-workspace-page.tsx](../packages/app-ui/src/layout/plugin-workspace-page.tsx)、[use-app-navigation.ts](../packages/app-ui/src/layout/use-app-navigation.ts)、[UI 契约](../packages/plugin-sdk/src/ui.ts)。插件不能替换内置导航、管理页面或聊天实现。
 
 ## 协议与平台适配
 
@@ -128,6 +130,6 @@ Agent 项目服务由 [activities](../packages/activities/src/server/service.ts)
 
 [PlatformAdapter](../packages/contracts/src/host.ts) 提供本机文件选择、连接配置、Finder/编辑器启动和主题导入导出等平台操作；Electron preload 只连接平台 channel。Remote 目录查询、会话和插件安装经 Host，不把远程路径交给本机文件选择器。
 
-同一个 Host 是其数据目录的唯一写入者。会话 Worker 按执行会话独立创建，持有固定资源快照和插件代次；JSONL 仍由 Pi SDK 保存。外部插件使用独立 Chord 作用域，安装、卸载和服务拓扑变化通过创建/释放作用域完成，不能只依赖 Chord `reload`。
+同一个 Host 是其数据目录的唯一写入者。会话 Worker 按执行会话独立创建，持有固定资源快照和插件代次；JSONL 仍由 Pi SDK 保存。外部可信 Server 使用独立 Chord 作用域，安装、卸载和服务拓扑变化通过创建/释放作用域完成，不能只依赖 Chord `reload`。SDK 3 的 Agent/Server 分 trusted 与 restricted；受限入口由 Host 监督独立进程，不进入可信 Worker，联网和共享数据走窄 broker。UI/Agent 的同插件 RPC 固定 generation，页面未保存编辑使用独立租约，不把旧 UI 调用交给新版 Server。可信 React UI 和可信 Node 入口不是恶意代码沙箱。
 
 具体规则分别见 [会话与协作](sessions.md)、[配置与安全](configuration.md)、[插件生命周期](plugins.md#释放与更新)、[资源快照](skills-and-extensions.md#聊天中的技能)。Pi 和 Host 二进制随应用发布，不通过插件热更新升级。

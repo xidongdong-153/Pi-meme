@@ -46,9 +46,36 @@ export function message(value: unknown, valueImages: unknown, valueSkills?: unkn
 
 export function messageOptions(value: unknown): MessageOptions | undefined {
   if (value === undefined) return undefined
-  if (!value || typeof value !== 'object' || Array.isArray(value) || Object.keys(value).some((key) => key !== 'mode'))
+  if (
+    !value ||
+    typeof value !== 'object' ||
+    Array.isArray(value) ||
+    Object.keys(value).some((key) => key !== 'mode' && key !== 'clientProcessingAudit')
+  )
     throw new Error('消息模式参数无效')
-  const mode = (value as MessageOptions).mode
+  const { mode, clientProcessingAudit } = value as MessageOptions
   if (mode !== undefined && !isTaskMode(mode)) throw new Error('消息模式无效')
-  return { mode }
+  if (
+    clientProcessingAudit !== undefined &&
+    (!Array.isArray(clientProcessingAudit) ||
+      clientProcessingAudit.length > 64 ||
+      clientProcessingAudit.some(
+        (entry) =>
+          !entry ||
+          typeof entry !== 'object' ||
+          Array.isArray(entry) ||
+          Object.keys(entry).some(
+            (key) =>
+              !['attemptId', 'pluginId', 'generation', 'hookId', 'outcome', 'reason', 'userConfirmedAt'].includes(key),
+          ) ||
+          ![entry.attemptId, entry.pluginId, entry.hookId].every((id) => typeof id === 'string' && id.length <= 256) ||
+          !Number.isSafeInteger(entry.generation) ||
+          !['pass', 'replace', 'block', 'error', 'timeout', 'skipped'].includes(entry.outcome) ||
+          (entry.reason !== undefined && typeof entry.reason !== 'string') ||
+          (entry.userConfirmedAt !== undefined &&
+            (typeof entry.userConfirmedAt !== 'string' || !Number.isFinite(Date.parse(entry.userConfirmedAt)))),
+      ))
+  )
+    throw new Error('客户端处理来源记录无效')
+  return { mode, ...(clientProcessingAudit === undefined ? {} : { clientProcessingAudit }) }
 }

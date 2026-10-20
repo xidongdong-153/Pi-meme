@@ -14,7 +14,8 @@ import { Button } from '@pi-meme/ui/components/ui/button'
 import { CompactionCard, CompactionProgressCard } from './compaction-card'
 import { conversationOutline } from '../model/conversation-outline'
 import { ConversationOutline } from './conversation-outline'
-import { PluginMessage } from '@pi-meme/ui/components/plugin-message'
+import { PluginConversationScope, PluginMessage } from '@pi-meme/ui/components/plugin-message'
+import { PluginMessageActions } from '@pi-meme/ui/components/plugin-message-actions'
 import { messageText } from '../model/message-text'
 import { AgentStatusRow } from './agent-status-row'
 import { ErrorLine } from '@pi-meme/ui/components/error-line'
@@ -219,136 +220,149 @@ export const Conversation = React.memo(
     }, [containerRef, updateActiveTurn, firstTurnKey, agentOnly])
 
     return React.createElement(
-      MessageImageLoaderContext.Provider,
-      { value: loadImage },
-      <div className="chat-surface relative flex flex-1 min-h-0 min-w-0">
-        <ConversationOutline entries={outline} activeKey={activeKey} onSelect={handleSelectTurn} />
-        <div
-          ref={containerRef}
-          onScroll={handleScroll}
-          className={cn(
-            'flex-1 min-h-0 min-w-0 overflow-x-hidden overflow-y-auto py-6 text-sm [--code-size:var(--text-ui)] select-text [scrollbar-gutter:stable_both-edges]',
-            agentOnly && 'px-4',
-          )}
-          aria-label="对话消息流"
-        >
+      PluginConversationScope,
+      { publicSession: !agentOnly },
+      React.createElement(
+        MessageImageLoaderContext.Provider,
+        { value: loadImage },
+        <div className="chat-surface relative flex flex-1 min-h-0 min-w-0">
+          <ConversationOutline entries={outline} activeKey={activeKey} onSelect={handleSelectTurn} />
           <div
+            ref={containerRef}
+            onScroll={handleScroll}
             className={cn(
-              'space-y-3 [overflow-wrap:anywhere]',
-              agentOnly ? 'max-w-3xl mx-auto' : 'chat-content-column',
+              'flex-1 min-h-0 min-w-0 overflow-x-hidden overflow-y-auto py-6 text-sm [--code-size:var(--text-ui)] select-text [scrollbar-gutter:stable_both-edges]',
+              agentOnly && 'px-4',
             )}
+            aria-label="对话消息流"
           >
-            {hasHiddenTurns && (
-              <div className="flex items-center justify-center py-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  onClick={handleLoadMore}
-                  className="text-sm text-muted-foreground hover:text-foreground h-7 px-3 rounded-full border-border/80 bg-secondary/40 hover:bg-secondary cursor-pointer"
-                >
-                  加载更早记录（剩余 {hiddenCount} 轮）
-                </Button>
-              </div>
-            )}
-
-            {visibleTurns.map((turn) => {
-              if (turn.type === 'agent_status')
-                return <AgentStatusRow key={turn.key} agents={turn.agents} status={turn.status} />
-              if (turn.type === 'compaction') {
-                return (
-                  <CompactionCard
-                    key={turn.key}
-                    kind={turn.kind}
-                    summary={turn.summary}
-                    tokensBefore={turn.tokensBefore}
-                    timestamp={turn.timestamp}
-                  />
-                )
-              }
-              if (turn.type === 'custom') {
-                return (
-                  <PluginMessage
-                    key={turn.key}
-                    message={turn.message}
-                    {...turn.message.source}
-                    customType={turn.message.customType}
-                    fallback={<div className="whitespace-pre-wrap text-sm">{messageText(turn.message)}</div>}
-                  />
-                )
-              }
-              if (turn.type === 'user') {
-                return (
-                  <div
-                    key={turn.key}
-                    data-conversation-user={turn.key}
-                    ref={(element) => {
-                      if (element) userMessageRefs.current.set(turn.key, element)
-                      else userMessageRefs.current.delete(turn.key)
-                    }}
-                  >
-                    {!readOnly && editor && turn.message.timestamp === editor.timestamp ? (
-                      <InlineMessageEditor editor={editor} />
-                    ) : (
-                      <ChatMessage
-                        message={turn.message}
-                        tools={chat.tools}
-                        onEdit={readOnly ? undefined : onEditMessage}
-                        canEdit={canEditMessages}
-                        onSetGoal={readOnly ? undefined : onSetGoal}
-                        canSetGoal={canSetGoal}
-                        onCopyError={onCopyError}
-                      />
-                    )}
-                  </div>
-                )
-              }
-              return (
-                <AssistantTurnView
-                  key={turn.key}
-                  turn={turn}
-                  isFinalReply={finalReplyKeys.has(turn.key)}
-                  retry={turn.isLive && chat.retry?.kind === 'model' ? chat.retry : undefined}
-                  isPaused={Boolean(chat.paused && turn.isLive)}
-                  pauseIntervals={chat.pauseIntervals}
-                  canFork={canEditMessages}
-                  onFork={readOnly ? undefined : onForkReply}
-                  onCopyError={onCopyError}
-                  onActivityToggle={scrollToMessage}
-                />
-              )
-            })}
-
-            {chat.retry?.kind === 'summary' ? (
-              <ErrorLine
-                message={chat.retry.errorMessage}
-                suffix={`重试中（${chat.retry.attempt}/${chat.retry.maxAttempts}）`}
-              />
-            ) : chat.compactionError ? (
-              <ErrorLine message={chat.compactionError} summary="上下文压缩失败" />
-            ) : chat.compacting?.active ? (
-              <CompactionProgressCard />
-            ) : null}
-
-            <div ref={bottomRef} className="h-2" />
-          </div>
-        </div>
-
-        {/* 回到底部悬浮按钮 */}
-        {showScrollBottom && (
-          <div className="pointer-events-none absolute inset-x-0 bottom-3 z-20 flex justify-center">
-            <Button
-              size="icon"
-              variant="outline"
-              className="pointer-events-auto size-9 rounded-full shadow-md bg-card/95 backdrop-blur-xs border-border hover:bg-secondary transition-[background-color,transform] duration-200 ease-out active:scale-95"
-              onClick={scrollToBottom}
-              aria-label="滚动到底部"
+            <div
+              className={cn(
+                'space-y-3 [overflow-wrap:anywhere]',
+                agentOnly ? 'max-w-3xl mx-auto' : 'chat-content-column',
+              )}
             >
-              <ArrowDown className="size-4" />
-            </Button>
+              {hasHiddenTurns && (
+                <div className="flex items-center justify-center py-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={handleLoadMore}
+                    className="text-sm text-muted-foreground hover:text-foreground h-7 px-3 rounded-full border-border/80 bg-secondary/40 hover:bg-secondary cursor-pointer"
+                  >
+                    加载更早记录（剩余 {hiddenCount} 轮）
+                  </Button>
+                </div>
+              )}
+
+              {visibleTurns.map((turn) => {
+                if (turn.type === 'agent_status')
+                  return <AgentStatusRow key={turn.key} agents={turn.agents} status={turn.status} />
+                if (turn.type === 'compaction') {
+                  return (
+                    <CompactionCard
+                      key={turn.key}
+                      kind={turn.kind}
+                      summary={turn.summary}
+                      tokensBefore={turn.tokensBefore}
+                      timestamp={turn.timestamp}
+                    />
+                  )
+                }
+                if (turn.type === 'custom') {
+                  return (
+                    <div key={turn.key}>
+                      <PluginMessage
+                        message={turn.message}
+                        {...turn.message.source}
+                        customType={turn.message.customType}
+                        fallback={<div className="whitespace-pre-wrap text-sm">{messageText(turn.message)}</div>}
+                      />
+                      <PluginMessageActions
+                        role="custom"
+                        entries={turn.message.sourceEntry ? [turn.message.sourceEntry] : []}
+                        displayedText={messageText(turn.message)}
+                        state="complete"
+                        source={turn.message.source}
+                        customType={turn.message.customType}
+                      />
+                    </div>
+                  )
+                }
+                if (turn.type === 'user') {
+                  return (
+                    <div
+                      key={turn.key}
+                      data-conversation-user={turn.key}
+                      ref={(element) => {
+                        if (element) userMessageRefs.current.set(turn.key, element)
+                        else userMessageRefs.current.delete(turn.key)
+                      }}
+                    >
+                      {!readOnly && editor && turn.message.timestamp === editor.timestamp ? (
+                        <InlineMessageEditor editor={editor} />
+                      ) : (
+                        <ChatMessage
+                          message={turn.message}
+                          tools={chat.tools}
+                          onEdit={readOnly ? undefined : onEditMessage}
+                          canEdit={canEditMessages}
+                          onSetGoal={readOnly ? undefined : onSetGoal}
+                          canSetGoal={canSetGoal}
+                          onCopyError={onCopyError}
+                        />
+                      )}
+                    </div>
+                  )
+                }
+                return (
+                  <AssistantTurnView
+                    key={turn.key}
+                    turn={turn}
+                    isFinalReply={finalReplyKeys.has(turn.key)}
+                    retry={turn.isLive && chat.retry?.kind === 'model' ? chat.retry : undefined}
+                    isPaused={Boolean(chat.paused && turn.isLive)}
+                    pauseIntervals={chat.pauseIntervals}
+                    canFork={canEditMessages}
+                    onFork={readOnly ? undefined : onForkReply}
+                    onCopyError={onCopyError}
+                    onActivityToggle={scrollToMessage}
+                  />
+                )
+              })}
+
+              {chat.retry?.kind === 'summary' ? (
+                <ErrorLine
+                  message={chat.retry.errorMessage}
+                  suffix={`重试中（${chat.retry.attempt}/${chat.retry.maxAttempts}）`}
+                />
+              ) : chat.compactionError ? (
+                <ErrorLine message={chat.compactionError} summary="上下文压缩失败" />
+              ) : chat.compacting?.active ? (
+                <CompactionProgressCard />
+              ) : null}
+
+              <div ref={bottomRef} className="h-2" />
+            </div>
           </div>
-        )}
-      </div>,
+
+          {/* 回到底部悬浮按钮 */}
+          {showScrollBottom && (
+            <div className="pointer-events-none absolute inset-x-0 bottom-3 z-20 flex justify-center">
+              <Button
+                size="icon"
+                variant="outline"
+                className="pointer-events-auto size-9 rounded-full shadow-md bg-card/95 backdrop-blur-xs border-border hover:bg-secondary transition-[background-color,transform] duration-200 ease-out active:scale-95"
+                onClick={scrollToBottom}
+                aria-label="滚动到底部"
+              >
+                <ArrowDown className="size-4" />
+              </Button>
+            </div>
+          )}
+        </div>,
+      ),
     )
   },
 )

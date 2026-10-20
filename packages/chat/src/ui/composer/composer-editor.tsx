@@ -7,17 +7,15 @@ import { FileSuggestions } from './file-suggestions'
 import { CommandSuggestions } from './command-suggestions'
 import { skillMarker } from '@pi-meme/contracts/skills'
 import { cn } from '@pi-meme/ui/lib/utils'
-import { editorCaret, readEditorText, setEditorCaret } from './rich-draft'
-import {
-  adjacentPluginToken,
-  createEditorToken,
-  editorPluginPositions,
-  movePluginPositions,
-} from './editor-plugin-tokens'
+import { editorCaret, editorSelection, readEditorText, setEditorCaret, setEditorSelection } from './rich-draft'
+import { adjacentPluginToken, editorPluginPositions, movePluginPositions } from './editor-plugin-tokens'
+import { applyEditorTransaction, editorDraftNodes, editorMatchesDraft } from './composer-editor-transaction'
+import type { ComposerDraftData } from './composer-state'
 
 const emptyPlugins: AgentPluginOption[] = []
 
 export function ComposerEditor({
+  composerStore,
   disabled,
   sessionKey,
   agentPlugins,
@@ -41,6 +39,7 @@ export function ComposerEditor({
   onEscape,
 }: Pick<
   ComposerProps,
+  | 'composerStore'
   | 'onPlanCommand'
   | 'onGoalCommand'
   | 'sessionKey'
@@ -87,6 +86,7 @@ export function ComposerEditor({
     updateCaret,
     setSuggestionsOpen,
   } = useCommandCompletion({
+    composerStore,
     onPlanCommand,
     onGoalCommand,
     projectPath,
@@ -99,19 +99,23 @@ export function ComposerEditor({
     onSkills,
     selectedSkills,
     agentPlugins,
-    onPluginPosition: (id, offset) => positions.current.offsets.set(id, offset),
+    onPluginPosition: (id, offset) => {
+      positions.current.offsets.set(id, offset)
+      composerStore?.setPluginAnchors(Object.fromEntries(positions.current.offsets))
+    },
     commands,
     focusVersion,
     onClearQueue,
     hasQueue,
   })
   const composing = useRef(false)
-  const renderedSkill = useRef(selectedSkills)
-  const renderedPlugins = useRef(plugins)
+  const nativeEdit = useRef(false)
+  const pluginOptions = useRef(plugins)
+  pluginOptions.current = plugins
 
   function acceptInput() {
     const element = editor.current
-    if (!element || composing.current) return
+    if (!element || composing.current || nativeEdit.current) return
     const text = readEditorText(element)
     movePluginPositions(positions.current.offsets, positions.current.draft, text)
     positions.current.draft = text
@@ -127,12 +131,29 @@ export function ComposerEditor({
       redrawPlugins()
     }
     const skills = [...element.querySelectorAll<HTMLElement>('[data-skill-token]')].flatMap((token) => {
-      const skill = selectedSkills.find((entry) => (entry.resourceId ?? entry.name) === token.dataset.skillToken)
+      const skill = [...selectedSkills, ...commands].find(
+        (entry) =>
+          (entry.resourceId ?? entry.name) === token.dataset.skillToken &&
+          (token.dataset.skillRevision === undefined || (entry.resourceRevision ?? '') === token.dataset.skillRevision),
+      )
       return skill ? [skill] : []
     })
-    if (skills.length !== selectedSkills.length || skills.some((skill, index) => skill !== selectedSkills[index]))
+    if (
+      !composerStore &&
+      (skills.length !== selectedSkills.length || skills.some((skill, index) => skill !== selectedSkills[index]))
+    )
       onSkills(skills)
-    onDraft(text)
+    if (composerStore)
+      composerStore.patch({
+        draft: text,
+        selectedSkills:
+          skills.length === selectedSkills.length && skills.every((skill, index) => skill === selectedSkills[index])
+            ? selectedSkills
+            : skills,
+        pluginAnchors: Object.fromEntries(presentPlugins),
+      })
+    else onDraft(text)
+    composerStore?.setSelection(editorSelection(element))
     setDraftCaret(editorCaret(element))
     setSuggestionsOpen(true)
   }
@@ -141,53 +162,59 @@ export function ComposerEditor({
     const element = editor.current
     if (!element || composing.current) return
     if (positions.current.sessionKey !== sessionKey) positions.current = { sessionKey, draft, offsets: new Map() }
-    const presentPlugins = editorPluginPositions(element)
-    if (
-      readEditorText(element) === draft &&
-      renderedSkill.current === selectedSkills &&
-      renderedPlugins.current === plugins &&
-      presentPlugins.size === plugins.length &&
-      plugins.every((plugin) => presentPlugins.has(plugin.id))
-    )
-      return
+    if (composerStore) positions.current.offsets = new Map(Object.entries(composerStore.getSnapshot().pluginAnchors))
+    else movePluginPositions(positions.current.offsets, positions.current.draft, draft)
+    const value: ComposerDraftData = {
+      draft,
+      selectedSkills,
+      pluginMentions: plugins.map((plugin) => plugin.id),
+      pluginAnchors: Object.fromEntries(positions.current.offsets),
+      attachments: [],
+      queueMode: 'followUp',
+    }
+    positions.current.draft = draft
+    if (editorMatchesDraft(element, value)) return
     const focused = document.activeElement === element
     const caret = editorCaret(element)
-    movePluginPositions(positions.current.offsets, positions.current.draft, draft)
-    positions.current.draft = draft
-    const mentions: Array<{ offset: number; length: number; node: Node }> = plugins.map((plugin) => ({
-      offset: Math.min(positions.current.offsets.get(plugin.id) ?? 0, draft.length),
-      length: 0,
-      node: createEditorToken('plugin', plugin.id, plugin.name, plugin.description, plugin.iconUrl),
-    }))
-    let skillIndex = 0
-    for (let offset = 0; offset < draft.length; offset++) {
-      if (draft[offset] !== skillMarker) continue
-      const skill = selectedSkills[skillIndex++]
-      if (skill)
-        mentions.push({
-          offset,
-          length: 1,
-          node: createEditorToken(
-            'skill',
-            skill.resourceId ?? skill.name,
-            skill.displayName ?? skill.name.replace(/^skill:/, ''),
-            skill.sourceInfo.path,
-          ),
-        })
-    }
-    mentions.sort((left, right) => left.offset - right.offset || left.length - right.length)
-    const nodes: Node[] = []
-    let offset = 0
-    for (const mention of mentions) {
-      nodes.push(document.createTextNode(draft.slice(offset, mention.offset)), mention.node)
-      offset = mention.offset + mention.length
-    }
-    nodes.push(document.createTextNode(draft.slice(offset)))
-    element.replaceChildren(...nodes)
-    renderedSkill.current = selectedSkills
-    renderedPlugins.current = plugins
+    element.replaceChildren(...editorDraftNodes(value, plugins))
     if (focused) setEditorCaret(element, Math.min(caret, draft.length))
   }, [draft, selectedSkills, plugins, sessionKey, pluginRevision, editor])
+
+  useLayoutEffect(() => {
+    if (!composerStore) return
+    const bound = {
+      focus: (selection?: { anchor: number; focus: number }) => {
+        if (!editor.current || composing.current) return
+        editor.current.focus()
+        if (selection) setEditorSelection(editor.current, selection)
+      },
+      applyEdit: (next: ComposerDraftData, selection?: { anchor: number; focus: number }) => {
+        const element = editor.current
+        if (
+          !element?.isConnected ||
+          composing.current ||
+          nativeEdit.current ||
+          element.getAttribute('contenteditable') === 'false'
+        )
+          throw new Error('当前输入框不可执行编辑事务')
+        nativeEdit.current = true
+        try {
+          return applyEditorTransaction(element, composerStore.getSnapshot(), next, pluginOptions.current, selection)
+        } finally {
+          nativeEdit.current = false
+        }
+      },
+    }
+    composerStore.editor = bound
+    return () => {
+      if (composerStore.editor === bound) composerStore.editor = null
+    }
+  }, [composerStore, editor, sessionKey])
+
+  function updateSelection() {
+    updateCaret()
+    if (editor.current) composerStore?.setSelection(editorSelection(editor.current))
+  }
 
   function insertText(text: string) {
     const element = editor.current
@@ -222,6 +249,7 @@ export function ComposerEditor({
         />
       )}
       <div
+        key={sessionKey}
         ref={editor}
         contentEditable={!disabled}
         suppressContentEditableWarning
@@ -241,13 +269,15 @@ export function ComposerEditor({
         onInput={acceptInput}
         onCompositionStart={() => {
           composing.current = true
+          composerStore?.setComposing(true)
         }}
         onCompositionEnd={() => {
           composing.current = false
+          composerStore?.setComposing(false)
           acceptInput()
         }}
-        onKeyUp={updateCaret}
-        onMouseUp={updateCaret}
+        onKeyUp={updateSelection}
+        onMouseUp={updateSelection}
         onBlur={() => setSuggestionsOpen(false)}
         onKeyDown={(event) => {
           if (composing.current || event.nativeEvent.isComposing || event.keyCode === 229) return
@@ -269,8 +299,13 @@ export function ComposerEditor({
           if (window.getSelection()?.isCollapsed && tokenIndex >= 0 && draft[tokenIndex] === skillMarker) {
             event.preventDefault()
             const index = draft.slice(0, tokenIndex).split(skillMarker).length - 1
-            onSkills(selectedSkills.filter((_, skillIndex) => skillIndex !== index))
-            onDraft(draft.slice(0, tokenIndex) + draft.slice(tokenIndex + 1))
+            const skills = selectedSkills.filter((_, skillIndex) => skillIndex !== index)
+            const text = draft.slice(0, tokenIndex) + draft.slice(tokenIndex + 1)
+            if (composerStore) composerStore.patch({ selectedSkills: skills, draft: text })
+            else {
+              onSkills(skills)
+              onDraft(text)
+            }
             setDraftCaret(tokenIndex)
             requestAnimationFrame(() => {
               if (editor.current) setEditorCaret(editor.current, tokenIndex)

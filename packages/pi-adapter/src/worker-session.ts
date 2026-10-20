@@ -12,6 +12,8 @@ import type { PiRuntimePaths } from '@pi-meme/pi-runtime/runtime-paths'
 import type { SecureCredentialStorage } from '@pi-meme/contracts/secure-storage'
 import type { RuntimeSdkSession } from '@pi-meme/pi-runtime/session-pool'
 import type { ResourceSnapshot } from '@pi-meme/contracts/resources'
+import type { PluginRuntimeRequest } from '@pi-meme/contracts/plugin-call'
+import type { AgentPluginEntry } from '@pi-meme/plugin-sdk/agent'
 
 export type WorkerOptions = {
   admit?: (
@@ -33,7 +35,8 @@ export type WorkerOptions = {
   credentials: SecureCredentialStorage & { flush?: () => Promise<void> }
   dataRoot: string
   settings: DesktopSettings
-  agentEntries: Array<{ pluginId: string; generation: number; path: string }>
+  agentEntries: AgentPluginEntry[]
+  plugin?: (request: PluginRuntimeRequest, signal: AbortSignal) => Promise<unknown>
   resourceSnapshot?: ResourceSnapshot
   workerPath?: string
   release?: () => void | Promise<void>
@@ -97,7 +100,7 @@ export function createWorkerSession(
           settings: options.settings,
           agentEntries: options.agentEntries,
           resourceSnapshot: options.resourceSnapshot,
-          credentials: options.credentials.entries(),
+          credentials: options.credentials.entries().filter(([key]) => !key.startsWith('plugin:')),
           capabilities,
           access,
         },
@@ -115,7 +118,8 @@ export function createWorkerSession(
         reply: WorkerReply & {
           hostCancel?: string
           hostRequest?: {
-            kind: 'collaboration' | 'savePlan' | 'admission' | 'goal' | 'goalUsage' | 'activity'
+            kind: 'collaboration' | 'savePlan' | 'admission' | 'goal' | 'goalUsage' | 'activity' | 'plugin'
+            pluginRequest?: PluginRuntimeRequest
             activityRequest?: ServiceActivityRequest
             message?: string
             mode?: TaskMode
@@ -145,6 +149,11 @@ export function createWorkerSession(
           hostRequests.set(request.id, controller)
           void Promise.resolve()
             .then(async () => {
+              if (request.kind === 'plugin') {
+                if (!options.plugin || !request.pluginRequest)
+                  throw new Error('operation-unavailable-in-runtime: 插件桥未配置')
+                return options.plugin(request.pluginRequest, controller.signal)
+              }
               if (request.kind === 'admission') {
                 return options.admit?.(
                   request.message!,
@@ -275,8 +284,14 @@ export function createWorkerSession(
         for (const request of pending.values()) request.reject(new Error('会话运行时已停止'))
         pending.clear()
         connection = { ...connection, generation: connection.generation + 1, status: 'disconnected' }
-        await release?.()
+        const cleanup = release
         release = undefined
+        try {
+          // SDK 的 start/reconnect 也会调用 stop；这里只在 Worker 真正退出后发布断开。
+          notify.connection(connection)
+        } finally {
+          await cleanup?.()
+        }
       }
     })().finally(() => {
       stopping = undefined

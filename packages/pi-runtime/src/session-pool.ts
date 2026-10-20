@@ -95,6 +95,7 @@ type RuntimeSession = {
   sessionEntries?: Snapshot['sessionEntries']
   sequence: number
   executionRunId?: string
+  executionGeneration: number
   modeRevision?: number
   liveEvents: DesktopEvent[]
   tools: Map<string, DesktopEvent>
@@ -694,6 +695,7 @@ export class PiSessionPool implements PiRuntime {
       sessionEntries: history?.sessionEntries,
       stats: history?.stats,
       sequence: 0,
+      executionGeneration: 0,
       liveEvents: [],
       tools: new Map(),
       extensions: new Map(),
@@ -703,11 +705,10 @@ export class PiSessionPool implements PiRuntime {
     record.session = this.sessionFactory(
       cwd,
       {
-        connection: () => {
+        connection: (connection) => {
           if (!this.sessions.has(key)) return
-          if (record.session.connection().status === 'disconnected') {
+          if (connection.status === 'disconnected') {
             const running = record.running || record.pendingPrompt
-            record.running = false
             record.pendingPrompt = false
             record.dormant = true
             record.extensions.clear()
@@ -715,16 +716,28 @@ export class PiSessionPool implements PiRuntime {
             if (running)
               this.handleEvent(record, {
                 generation: this.generation,
-                executionGeneration: record.session.connection().generation,
-                event: { type: 'agent_settled' },
+                executionGeneration: record.executionGeneration,
+                event: {
+                  type: 'agent_settled',
+                  aborted: true,
+                  runIntervals: record.state.runIntervals?.map((interval, index, intervals) =>
+                    index === intervals.length - 1 && interval.endedAt === undefined
+                      ? { ...interval, endedAt: Date.now() }
+                      : interval,
+                  ),
+                },
               })
-          }
+            record.running = false
+          } else record.executionGeneration = connection.generation
           this.notify.connection(this.withSession(record.key, () => this.connection()))
           this.notify.sessionsChanged()
           if (record.session.connection().status === 'ready') this.prune()
           this.signalSettled()
         },
-        event: (value) => this.handleEvent(record, value),
+        event: (value) => {
+          record.executionGeneration = value.executionGeneration ?? value.generation
+          this.handleEvent(record, value)
+        },
         error: (value) => {
           if (!this.sessions.has(key)) return
           const error = { ...value, generation: this.generation, sessionKey: key }
@@ -1307,6 +1320,7 @@ export class PiSessionPool implements PiRuntime {
     record.starting = starting
     return starting.finally(() => {
       record.starting = undefined
+      if (record.session.connection().status === 'disconnected') record.dormant = true
       this.signalSettled()
       if (this.sessions.has(record.key)) this.notify.connection(this.withSession(record.key, () => this.connection()))
     })
@@ -1524,7 +1538,7 @@ export class PiSessionPool implements PiRuntime {
               message,
               images,
               skills,
-              { mode: normalized.mode },
+              { mode: normalized.mode, clientProcessingAudit: options?.clientProcessingAudit },
               false,
               true,
               undefined,
@@ -1592,17 +1606,33 @@ export class PiSessionPool implements PiRuntime {
   continueGoalTask(key: string, message: string, control: GoalControl) {
     return this.prompt(key, message, undefined, [], { mode: 'default' }, control)
   }
-  steer(sessionKey: string, message: string, images?: PiImage[], skills?: SkillReference[], options?: MessageOptions) {
-    return this.target(sessionKey).session.steer(message, images, skills, options)
-  }
-  followUp(
+  async steer(
     sessionKey: string,
     message: string,
     images?: PiImage[],
     skills?: SkillReference[],
     options?: MessageOptions,
   ) {
-    return this.target(sessionKey).session.followUp(message, images, skills, options)
+    const record = this.target(sessionKey)
+    if (record.session.connection().status !== 'ready') {
+      await this.ensureRuntime(record, options?.mode)
+      if (this.isSessionIdle(sessionKey)) return this.prompt(sessionKey, message, images, skills, options)
+    }
+    return record.session.steer(message, images, skills, options)
+  }
+  async followUp(
+    sessionKey: string,
+    message: string,
+    images?: PiImage[],
+    skills?: SkillReference[],
+    options?: MessageOptions,
+  ) {
+    const record = this.target(sessionKey)
+    if (record.session.connection().status !== 'ready') {
+      await this.ensureRuntime(record, options?.mode)
+      if (this.isSessionIdle(sessionKey)) return this.prompt(sessionKey, message, images, skills, options)
+    }
+    return record.session.followUp(message, images, skills, options)
   }
   getRuntimeSession(sessionKey: string) {
     return this.target(sessionKey).session

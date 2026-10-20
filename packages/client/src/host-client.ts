@@ -114,6 +114,25 @@ export class HostClient {
     })
     this.plugins = {
       list: () => this.rpc('plugins:list', [], null),
+      setGrant: (id, update) => this.rpc('plugins:set-grant', [id, update], null),
+      callOperation: async (request, signal) => {
+        const cancel = () => {
+          void this.rpc('plugins:call-cancel', [request.requestId], null).catch(() => {})
+        }
+        signal?.throwIfAborted()
+        signal?.addEventListener('abort', cancel, { once: true })
+        try {
+          return await this.rpc('plugins:call', [request], null, signal)
+        } finally {
+          signal?.removeEventListener('abort', cancel)
+        }
+      },
+      acquireUiLease: (input) => this.rpc('plugins:ui-lease-acquire', [input], null),
+      renewUiLease: (id) => this.rpc('plugins:ui-lease-renew', [id], null),
+      releaseUiLease: (id) => this.rpc('plugins:ui-lease-release', [id], null),
+      listCredentials: (id) => this.rpc('plugins:credential-list', [id], null),
+      setCredential: (id, input) => this.rpc('plugins:credential-set', [id, input], null),
+      removeCredential: (id, credentialId) => this.rpc('plugins:credential-remove', [id, credentialId], null),
       installDirectory: (path) => this.rpc('plugins:install-directory', [path], null),
       installPackage: (base64) => this.rpc('plugins:install-package', [base64], null),
       reload: (id) => this.rpc('plugins:reload', [id], null),
@@ -221,6 +240,7 @@ export class HostClient {
     method: string,
     args: unknown[] = [],
     sessionId: string | null | undefined = this.selected?.sessionKey,
+    signal?: AbortSignal,
   ): Promise<T> {
     if (this.closed) throw new Error('Host 客户端已关闭')
     await this.authenticate()
@@ -231,6 +251,7 @@ export class HostClient {
           method: 'POST',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
+          signal,
           body: JSON.stringify({
             requestId,
             clientId: this.clientId,
@@ -259,7 +280,7 @@ export class HostClient {
     const envelope = value as HostRpcResponse
     if (envelope.requestId !== requestId) throw new Error('Host 返回了不匹配的请求标识')
     this.acceptHost(envelope.hostId)
-    if (envelope.error) throw new Error(envelope.error.message)
+    if (envelope.error) throw Object.assign(new Error(envelope.error.message), { code: envelope.error.code })
     if (!response.ok) throw new Error(`Host 请求失败：HTTP ${response.status}`)
     return envelope.result as T
   }

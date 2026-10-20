@@ -10,6 +10,23 @@ export class ChatStream {
       this.listeners.delete(listener)
     }
   }
+  select<T>(selector: (state: ChatState) => T, equal: (left: T, right: T) => boolean = Object.is) {
+    let selected = selector(this.value)
+    return {
+      getSnapshot: () => {
+        const next = selector(this.value)
+        if (!equal(selected, next)) selected = next
+        return selected
+      },
+      subscribe: (listener: () => void) =>
+        this.subscribe(() => {
+          const next = selector(this.value)
+          if (equal(selected, next)) return
+          selected = next
+          listener()
+        }),
+    }
+  }
   update(value: ChatState | ((state: ChatState) => ChatState)) {
     const next = typeof value === 'function' ? value(this.value) : value
     if (next === this.value) return

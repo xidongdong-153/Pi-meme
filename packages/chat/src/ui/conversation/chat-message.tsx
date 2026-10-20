@@ -12,6 +12,7 @@ import { ActivityGroup } from './activity-group'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { MessageActions } from './message-actions'
 import { messageText } from '../model/message-text'
+import { PluginMessageActions } from '@pi-meme/ui/components/plugin-message-actions'
 
 export function ChatMessage({
   message,
@@ -151,6 +152,13 @@ export function ChatMessage({
               canEdit={Boolean(canEdit && typeof message.timestamp === 'number')}
               onSetGoal={onSetGoal ? () => onSetGoal(message) : undefined}
               canSetGoal={Boolean(canSetGoal && typeof message.timestamp === 'number' && messageText(message).trim())}
+            />
+            <PluginMessageActions
+              role="user"
+              entries={message.sourceEntry ? [message.sourceEntry] : []}
+              displayedText={messageText(message)}
+              state={live ? 'streaming' : 'complete'}
+              source={message.source}
             />
           </div>
         )}

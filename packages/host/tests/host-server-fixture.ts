@@ -9,6 +9,7 @@ import type { HostRpcResponse } from '@pi-meme/contracts/host'
 import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
 import type { SessionSelectionResult, Snapshot, WorkspaceDeletionResult } from '@pi-meme/contracts/desktop'
 import type { PiSessionsSnapshot } from '@pi-meme/contracts/sessions'
+import { trustPluginFixture, writeAgentFixture } from './plugin-fixture'
 
 async function setup(fake = false, clientGraceMs?: number) {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), 'pi-meme-host-test-')))
@@ -77,13 +78,9 @@ async function installAgentFixture(
   id: string,
   content: string,
 ) {
-  await mkdir(path.join(directory, 'dist'), { recursive: true })
-  await writeFile(
-    path.join(directory, 'package.json'),
-    JSON.stringify({ name: id, version: '1.0.0', piMeme: { sdkVersion: 2, agent: 'dist/agent.js' } }),
-  )
-  await writeFile(path.join(directory, 'dist/agent.js'), content)
+  await writeAgentFixture(directory, id, content)
   await host.plugins.loadDirectory(directory)
+  await trustPluginFixture(host.plugins, id)
 }
 
 for (const method of ['session:delete', 'project:remove']) {

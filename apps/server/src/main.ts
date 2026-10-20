@@ -13,6 +13,10 @@ const hostname = process.env.PI_MEME_HOST ?? '127.0.0.1'
 const port = hostPort(process.env.PI_MEME_PORT)
 const options: ServerOptions = {
   dataRoot: process.env.PI_MEME_DATA_ROOT,
+  restrictedNode: process.env.PI_MEME_PLUGIN_NODE || process.execPath,
+  restrictedEntry:
+    process.env.PI_MEME_PLUGIN_ENTRY ||
+    (import.meta.url.endsWith('.js') ? path.join(directory, 'restricted-entry.mjs') : undefined),
   testCredentials: process.env.PI_MEME_TEST_CREDENTIALS === 'memory',
   hostname,
   port,

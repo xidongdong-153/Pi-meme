@@ -62,6 +62,7 @@ export function fromSnapshot(snapshot: Snapshot): ChatState {
         id: message.toolCallId,
         name: message.toolName,
         source: message.source,
+        sourceEntry: message.sourceEntry,
         result: message.content,
         status: message.isError ? 'error' : 'success',
       }
@@ -255,11 +256,19 @@ export function applyEvent(
     case 'message_update':
       return state.live ? { ...state, ...updateLiveMessage(state.live, state.stream, event) } : state
     case 'message_end': {
-      const message: PiMessage = event.source ? { ...event.message, source: event.source } : event.message
+      let message: PiMessage = event.source ? { ...event.message, source: event.source } : event.message
       const index = state.messages.findIndex((message) => sameMessage(message, event.message))
       const messages = [...state.messages]
       if (index === -1) messages.push(message)
-      else messages[index] = message
+      else {
+        message = {
+          ...message,
+          sourceEntry: message.sourceEntry ?? messages[index]?.sourceEntry,
+          source: message.source ?? messages[index]?.source,
+          completedAt: message.completedAt ?? messages[index]?.completedAt,
+        }
+        messages[index] = message
+      }
       const next: ChatState = {
         ...state,
         messages,
@@ -274,6 +283,7 @@ export function applyEvent(
             id: message.toolCallId,
             name: message.toolName,
             source: message.source,
+            sourceEntry: message.sourceEntry,
             result: message.content,
             status: message.isError ? 'error' : 'success',
           },

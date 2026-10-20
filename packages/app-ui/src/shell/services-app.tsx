@@ -60,7 +60,8 @@ export function ServicesApp({
       return
     }
     const transaction = ++navigation.current
-    void work(controller)
+    void Promise.resolve(source?.beforeDeactivate?.() ?? true)
+      .then((allowed) => (allowed && transaction === navigation.current ? work(controller) : false))
       .then((changed) => {
         if (changed && transaction === navigation.current) setActiveId(id)
       })
@@ -74,6 +75,7 @@ export function ServicesApp({
     const target = controllers.current.get(id)
     if (!source || !target || source.workspaceDisabledReason) return false
     const transaction = ++navigation.current
+    if (!(await (source.beforeDeactivate?.() ?? true)) || transaction !== navigation.current) return false
     const sourceKey = source.connection.sessionKey
     const draft = source.captureDraft()
     if (id !== sourceId && draft.composer.attachments.some((attachment) => attachment.type === 'file')) {

@@ -19,10 +19,6 @@
     "@pi-meme/ui": "workspace:*",
     "lucide-react": "^1.48.0"
   },
-  "piMeme": {
-    "sdkVersion": 2,
-    "agent": "dist/agent/entry.js"
-  },
   "peerDependencies": {
     "react": "^19.3.0"
   },

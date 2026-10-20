@@ -23,14 +23,6 @@
     "lucide-react": "^1.48.0",
     "@pi-meme/pi-runtime": "workspace:*"
   },
-  "piMeme": {
-    "sdkVersion": 2,
-    "server": "dist/server/chord-facets.json",
-    "agent": "dist/agent/entry.js",
-    "requires": [
-      "host.settings"
-    ]
-  },
   "peerDependencies": {
     "react": "^19.3.0"
   },

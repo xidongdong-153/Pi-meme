@@ -37,6 +37,14 @@ const fixturePlugins: PluginClient = {
   enable: fixtureUnavailable,
   disable: fixtureUnavailable,
   remove: fixtureUnavailable,
+  setGrant: fixtureUnavailable,
+  callOperation: fixtureUnavailable,
+  acquireUiLease: fixtureUnavailable,
+  renewUiLease: fixtureUnavailable,
+  releaseUiLease: fixtureUnavailable,
+  setCredential: fixtureUnavailable,
+  listCredentials: fixtureUnavailable,
+  removeCredential: fixtureUnavailable,
   onChange: () => () => {},
 }
 

@@ -42,8 +42,14 @@ function allowedPackageFile(manifest: PluginManifest, relative: string) {
 export async function readPluginManifest(directory: string): Promise<PluginManifest> {
   const manifest = parsePluginManifest(JSON.parse(await readFile(path.join(directory, 'package.json'), 'utf8')))
   const root = await realpath(directory)
-  for (const kind of ['server', 'agent', 'ui'] as const) {
-    const entry = manifest.piMeme[kind]
+  const entries = [
+    ['server', manifest.piMeme.server?.trusted],
+    ['restricted', manifest.piMeme.server?.restricted],
+    ['agent', manifest.piMeme.agent?.trusted],
+    ['restricted', manifest.piMeme.agent?.restricted],
+    ['ui', manifest.piMeme.ui],
+  ] as const
+  for (const [kind, entry] of entries) {
     if (!entry) continue
     const target = await packagePath(root, entry)
     if (!target.startsWith(`${root}${path.sep}`) || !(await lstat(target)).isFile())
@@ -85,7 +91,13 @@ export async function readPluginManifest(directory: string): Promise<PluginManif
 export async function packPlugin(directory: string): Promise<Buffer> {
   const root = await realpath(directory)
   const manifest = await readPluginManifest(root)
-  for (const entry of [manifest.piMeme.server, manifest.piMeme.agent, manifest.piMeme.ui])
+  for (const entry of [
+    manifest.piMeme.server?.trusted,
+    manifest.piMeme.server?.restricted,
+    manifest.piMeme.agent?.trusted,
+    manifest.piMeme.agent?.restricted,
+    manifest.piMeme.ui,
+  ])
     if (entry && !entry.startsWith('dist/')) throw new Error('打包入口必须位于 dist/；请使用 DevKit 构建')
   const files: Record<string, string> = {}
   let size = 0

@@ -10,6 +10,7 @@ import { groupAgentActivities } from '../model/agent-collaboration'
 import { AgentCollaborationRow } from './agent-collaboration-row'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { MessageActions } from './message-actions'
+import { PluginMessageActions } from '@pi-meme/ui/components/plugin-message-actions'
 
 export function AssistantTurnView({
   turn,
@@ -150,6 +151,15 @@ export function AssistantTurnView({
               canEdit={false}
               onFork={onFork && typeof turn.startedAt === 'number' ? () => onFork(turn.startedAt!) : undefined}
               canFork={Boolean(canFork && !turn.isLive && typeof turn.startedAt === 'number')}
+            />
+            <PluginMessageActions
+              role="assistant"
+              entries={(turn.finalReplyMessages?.length
+                ? turn.finalReplyMessages
+                : (turn.sourceMessages ?? [])
+              ).flatMap((message) => (message.sourceEntry ? [message.sourceEntry] : []))}
+              displayedText={turn.finalText}
+              state={turn.errorMessage ? 'error' : 'complete'}
             />
           </div>
         )}

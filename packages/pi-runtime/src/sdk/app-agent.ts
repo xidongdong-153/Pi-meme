@@ -9,6 +9,7 @@ import type {
   AgentSession,
 } from '@pi-meme/plugin-sdk/agent'
 import { PluginScope } from '@pi-meme/plugin-sdk/scope'
+import type { PluginServerClient } from '@pi-meme/plugin-sdk/rpc'
 import type { UserInputQuestion, UserInputResult } from '@pi-meme/contracts/user-input'
 
 const reservedTools = new Set([
@@ -32,16 +33,24 @@ const reservedTools = new Set([
   'get_goal',
   'update_goal',
   'request_user_input',
+  'manage_service',
 ])
 
 export function createAppAgent(
   entry: AgentPluginEntry,
   requestInput: (questions: UserInputQuestion[], signal?: AbortSignal) => Promise<UserInputResult>,
+  server: PluginServerClient = {
+    call: async () => {
+      throw new Error('operation-unavailable-in-runtime: Server 桥未配置')
+    },
+  },
+  sourceRegistry?: import('./restricted-agent').ExternalToolPolicy,
+  reservedNames?: ReadonlySet<string>,
 ): InlineExtension {
   return {
     name: `app-agent:${entry.pluginId}:${entry.generation}`,
     factory: async (pi) => {
-      const module = (await import(pathToFileURL(entry.path).href)) as AgentPluginModule
+      const module = (await import(pathToFileURL(entry.trusted ?? entry.path!).href)) as AgentPluginModule
       if (typeof module.activate !== 'function')
         throw new Error(`AppAgent 必须导出 activate(context)：${entry.pluginId}`)
       const scope = new PluginScope()
@@ -59,9 +68,16 @@ export function createAppAgent(
       })
       const names = new Set<string>()
       const validateName = (name: string) => {
-        if (!/^[a-zA-Z][\w-]*$/.test(name) || reservedTools.has(name) || names.has(name))
+        if (
+          !/^[a-zA-Z][\w-]*$/.test(name) ||
+          reservedTools.has(name) ||
+          reservedNames?.has(name) ||
+          names.has(name) ||
+          sourceRegistry?.has(name)
+        )
           throw new Error(`AppAgent 工具或命令名称无效或重复：${name}`)
         names.add(name)
+        sourceRegistry?.set(name, { pluginId: entry.pluginId, generation: entry.generation, effect: 'full-access' })
       }
       pi.on('session_start', (_event, context) => {
         current = context
@@ -74,6 +90,14 @@ export function createAppAgent(
       const context: AgentPluginContext = {
         pluginId: entry.pluginId,
         generation: entry.generation,
+        server: {
+          call: (operation: never, input: never, options?: import('@pi-meme/plugin-sdk/rpc').PluginCallOptions) => {
+            if (!current || runController.signal.aborted) throw new Error('scope-expired: 插件调用没有有效执行')
+            return server.call(operation, input, {
+              signal: options?.signal ? AbortSignal.any([options.signal, runController.signal]) : runController.signal,
+            })
+          },
+        } as PluginServerClient,
         tools: {
           register: (tool) => {
             validateName(tool.name)
@@ -191,6 +215,7 @@ export function createAppAgent(
         pi.on('session_shutdown', async () => {
           runController.abort()
           await scope.dispose()
+          for (const name of names) sourceRegistry?.delete(name)
           current = undefined
         })
       } catch (cause) {

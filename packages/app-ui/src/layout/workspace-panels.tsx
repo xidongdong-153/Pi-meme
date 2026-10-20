@@ -15,6 +15,7 @@ import { ErrorBoundary } from '@pi-meme/ui/components/error-boundary'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
 import type { UiContributionProps, UiPanel, UiTarget } from '@pi-meme/plugin-sdk/ui'
+import type { RegisteredNavigation } from '@pi-meme/plugin-sdk/navigation'
 import { AppRail } from './app-rail'
 import { PageHeader } from './page-header'
 import type { UserProfile } from '../settings/user-profile'
@@ -55,6 +56,8 @@ export function WorkspacePanels({
   onNewSession,
   onPlugins,
   onProjects,
+  pluginNavigation,
+  onPlugin,
   children,
 }: {
   panels: UiPanel[]
@@ -80,6 +83,8 @@ export function WorkspacePanels({
   onNewSession?: () => void
   onPlugins?: () => void
   onProjects?: () => void
+  pluginNavigation?: readonly RegisteredNavigation[]
+  onPlugin?: (entry: RegisteredNavigation) => void
   children: ReactNode
 }) {
   const storageKey = panelStorageKey(props.target.hostId, session)
@@ -365,6 +370,8 @@ export function WorkspacePanels({
         <AppRail
           profile={profile}
           profileLoading={profileLoading}
+          pluginNavigation={pluginNavigation}
+          onPlugin={onPlugin}
           homeActive
           onHome={onNewSession}
           onProjects={onProjects}

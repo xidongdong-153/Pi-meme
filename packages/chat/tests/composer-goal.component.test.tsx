@@ -175,7 +175,11 @@ test('英文和中文目标补全只激活输入标记，不插入普通命令�
 
 test('纯目标命令不创建目标；激活后正文走目标提交', async () => {
   const { result, startGoal, prompt } = fixture()
+  const prepare = vi.fn(async () => {
+    throw new Error('目标控制命令不应进入发送前处理')
+  })
   act(() => {
+    result.current.setSubmissionIntegration({ blocked: () => undefined, prepare, isPreparedCurrent: () => false })
     result.current.setDraft('/goal')
   })
   await act(async () => {
@@ -184,7 +188,9 @@ test('纯目标命令不创建目标；激活后正文走目标提交', async ()
   assert.ok(result.current.goalDraft)
   assert.equal(startGoal.mock.calls.length, 0)
   assert.equal(prompt.mock.calls.length, 0)
+  assert.equal(prepare.mock.calls.length, 0)
   act(() => {
+    result.current.setSubmissionIntegration(null)
     result.current.setDraft('完成目标')
   })
   await act(async () => {

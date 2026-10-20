@@ -10,6 +10,7 @@ import type { ResourceCatalog, ResourceItem } from '@pi-meme/contracts/resources
 import { skillMarker } from '@pi-meme/contracts/skills'
 import { finishAgentReply, useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
 import { createHost } from '../src/service'
+import { trustPluginFixture } from './plugin-fixture'
 
 type ModelRequest = { messages: Array<{ role: string; content: unknown }> }
 function skillContent(version: string) {
@@ -153,7 +154,7 @@ test('真实Worker运行和已提交队列固定完整旧修订，退役后从JS
       JSON.stringify({
         name: 'resource-only-app',
         version: '1.0.0',
-        piMeme: { sdkVersion: 2, ui: 'dist/ui.js', resources: { skills: ['skills/addon'] } },
+        piMeme: { sdkVersion: 3, ui: 'dist/ui.js', resources: { skills: ['skills/addon'] } },
       }),
     )
     await writeFile(path.join(app, 'dist/ui.js'), 'export function activate() {}')
@@ -162,6 +163,7 @@ test('真实Worker运行和已提交队列固定完整旧修订，退役后从JS
       '---\nname: addon\ndescription: 包内技能。\n---\n包内正文\n',
     )
     await fixture.host.plugins.loadDirectory(app)
+    await trustPluginFixture(fixture.host.plugins, 'resource-only-app')
     const active = await fixture.snapshot()
     assert.equal(
       active.uiPlugins?.some((plugin) => plugin.id === 'resource-only-app'),

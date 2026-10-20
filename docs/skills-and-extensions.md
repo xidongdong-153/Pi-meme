@@ -43,12 +43,12 @@ Host 数据根默认为 `~/.pi-meme`，可用 `PI_MEME_DATA_ROOT` 修改：
 
 项目资源只读取当前工作目录的 `.agents/skills/`。这些文件不由管理页直接修改；项目策略保存到所属 Host。裸 Pi 扩展、原生 Pi 包、Host `extensions/` 和项目 `.agents/extensions/` 不再装配；旧文件不自动转换成 App 插件。应用不读取本机 Pi CLI、Codex、Claude 或 Gemini 的全局技能目录。
 
-| 类型        | 管理内容                              | 执行方式                                     |
-| ----------- | ------------------------------------- | -------------------------------------------- |
-| AI 模型配置 | 服务商、模型、协议、地址与凭据        | Host 保存配置与凭据，Worker 调用模型         |
-| 技能        | `SKILL.md` 与脚本、引用、素材目录     | 按描述自动选择，或用户显式调用；正文按需读取 |
-| App 插件    | App SDK 2 manifest、构建目录或 `.pim` | Server、Agent、UI 入口及包内技能、主题和素材 |
-| MCP         | 服务配置、授权与连接状态              | 内置 MCP 客户端连接明确授权的服务            |
+| 类型        | 管理内容                              | 执行方式                                            |
+| ----------- | ------------------------------------- | --------------------------------------------------- |
+| AI 模型配置 | 服务商、模型、协议、地址与凭据        | Host 保存配置与凭据，Worker 调用模型                |
+| 技能        | `SKILL.md` 与脚本、引用、素材目录     | 按描述自动选择，或用户显式调用；正文按需读取        |
+| App 插件    | App SDK 3 manifest、构建目录或 `.pim` | 可信/受限 Server 与 Agent、UI、包内技能、主题和素材 |
+| MCP         | 服务配置、授权与连接状态              | 内置 MCP 客户端连接明确授权的服务                   |
 
 模型配置与 MCP 通过各自设置页管理，文件与授权规则见 [配置与安全](configuration.md)。App Server 由 Host 全局管理，不为每个项目另建实例。
 
@@ -139,10 +139,10 @@ Worker 创建时固定资源快照，子代理继承父快照。安装、编辑�
 
 ## App 主题与图形能力
 
-App SDK 2 的 `resources` 只接受 `skills`、`themes` 和 `assets`。主题用 JSON 描述颜色、字体和可选背景；背景图片必须位于插件包内，并在 `assets` 中声明。Host 为启用插件加载主题，图片通过认证资源 URL 提供。停用或卸载撤销主题并恢复可用的内置主题；不执行主题 JavaScript 或任意 CSS。
+App SDK 3 的 `resources` 只接受 `skills`、`themes` 和 `assets`。主题用 JSON 描述颜色、字体和可选背景；背景图片必须位于插件包内，并在 `assets` 中声明。Host 为启用插件加载主题，图片通过认证资源 URL 提供。停用或卸载撤销主题并恢复可用的内置主题；不执行主题 JavaScript 或任意 CSS。
 
-App UI 面板只允许 `right`；七类贡献槽及工具、消息来源代次校验见 [UI 面板与贡献](plugins.md#ui-面板与贡献)。AppAgent 通过 `context.interaction.request` 提问，不直接使用 Pi UI 或 TUI 组件。
+App UI 面板仍只允许 `right`；六类 render 贡献槽、正文来源代次校验、输入框 API、统一消息动作与插件业务页见 [App 插件](plugins.md#ui-面板与贡献)。页面可新增自己的活动栏入口与中央业务内容，但不能替换内置导航或聊天。AppAgent 通过 `context.interaction.request` 提问，不直接使用 Pi UI 或 TUI 组件。
 
-`read-only`、`workspace-write`、`full-access` 三档权限保持不变。技能在原任务权限内读取和执行；MCP 和已选择的外部 AppAgent 只在完全权限普通任务装配；未选择、受限权限和规划模式均不加载外部 AppAgent，规划模式也不运行 MCP。App Server 是可信 Host 代码，Agent 的沙箱限制不会把 Server 变成受限代码。
+`read-only`、`workspace-write`、`full-access` 三档权限保持不变。技能在原任务权限内读取和执行。MCP 仍只在完全权限普通任务中装配；SDK 3 外部 AppAgent 则按所选入口和授权决定：Plan 与受限权限仅加载获准的受限入口，可信入口仅在完全权限普通任务中加载。未选择或不可用的插件不会隐式启用。可信 Server 仍是 Host 代码，不因 Agent 权限而受限；受限 Server 使用独立进程内的窄接口，不能回退可信 Server。执行矩阵与实际平台边界见 [插件执行与授权](configuration.md#插件执行与授权)。
 
 验证入口：[resources.integration.test.ts](../packages/host/tests/resources.integration.test.ts)、[resource-lifecycle.integration.test.ts](../packages/host/tests/resource-lifecycle.integration.test.ts)、[resource-snapshot.integration.test.ts](../packages/pi-runtime/tests/resource-snapshot.integration.test.ts)。

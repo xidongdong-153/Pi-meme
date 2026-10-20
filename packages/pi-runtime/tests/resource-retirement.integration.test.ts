@@ -547,7 +547,10 @@ test('重连报告项目扩展错误时保留会话内容，修复后清除错�
     await pool.switchSession(first)
     assert.equal(pool.connection().sessionKey, firstKey)
     assert.equal(pool.connection().status, 'idle')
-    assert.deepEqual(dialogue((await pool.snapshot()).messages)[0], userMessage('first', 1))
+    assert.deepEqual(dialogue((await pool.snapshot()).messages)[0], {
+      ...userMessage('first', 1),
+      sourceEntry: { type: 'message', id: 'user', revision: 'user' },
+    })
     assert.equal((await pool.snapshot()).state.steeringMode, 'all')
     await pool.prompt(firstKey, 'long-conversation')
     await waitFor(() => pool.getRuntimeSessions().every((session) => !session.running))

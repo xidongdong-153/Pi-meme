@@ -12,7 +12,7 @@ import { cn } from '@pi-meme/ui/lib/utils'
 /** 原位置编辑用户历史消息所需的状态与操作，由 desktop 从 useChatSession 装配。 */
 export type MessageEditorState = Pick<
   ComposerProps,
-  'projectPath' | 'loadProjectFiles' | 'sessionKey' | 'uploadAttachment' | 'onError'
+  'projectPath' | 'loadProjectFiles' | 'sessionKey' | 'uploadAttachment' | 'onError' | 'composerStore' | 'files'
 > & {
   timestamp: number
   draft: string
@@ -35,14 +35,15 @@ export type MessageEditorState = Pick<
 export function InlineMessageEditor({ editor }: { editor: MessageEditorState }) {
   const containerRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const files = useComposerFiles({
+  const ownedFiles = useComposerFiles({
     contextKey: String(editor.timestamp),
     sessionKey: editor.sessionKey,
-    disabled: editor.disabled,
+    disabled: editor.disabled || Boolean(editor.files),
     uploadAttachment: editor.uploadAttachment,
     onAdd: editor.onAddImages,
     onError: editor.onError,
   })
+  const files = editor.files ?? ownedFiles
   const canSubmit =
     !editor.disabled && !files.uploading && (Boolean(editor.draft.trim()) || editor.attachments.length > 0)
 
@@ -114,6 +115,7 @@ export function InlineMessageEditor({ editor }: { editor: MessageEditorState }) 
           </p>
         )}
         <ComposerEditor
+          composerStore={editor.composerStore}
           disabled={editor.disabled}
           sessionKey={editor.sessionKey}
           projectPath={editor.projectPath}

@@ -8,6 +8,7 @@ import { cn } from '@pi-meme/ui/lib/utils'
 import type { ComposerAttachment } from './image-attachment'
 import { useComposerFiles } from './use-composer-files'
 import { ComposerEditor } from './composer-editor'
+import type { ComposerDraftStore } from './composer-state'
 import { ComposerToolbar } from './composer-toolbar'
 import { ComposerAttachments } from './composer-attachments'
 import { ComposerQueues } from './composer-queues'
@@ -32,6 +33,8 @@ export type ComposerAgentPlugins = {
 
 export type ComposerProps = {
   compact?: boolean
+  composerStore?: ComposerDraftStore
+  files?: ReturnType<typeof useComposerFiles>
   mode?: TaskMode
   onMode?: (mode: TaskMode) => void
   onPlanCommand?: (text: string) => void
@@ -95,6 +98,8 @@ export type ComposerProps = {
 
 export function Composer({
   compact,
+  composerStore,
+  files: sharedFiles,
   mode,
   onMode,
   onPlanCommand,
@@ -154,14 +159,15 @@ export function Composer({
   onCancelEdit,
 }: ComposerProps) {
   const [dragging, setDragging] = React.useState(false)
-  const files = useComposerFiles({
+  const ownedFiles = useComposerFiles({
     contextKey: JSON.stringify([attachmentContextKey, editing, editingQueue]),
     sessionKey,
-    disabled,
+    disabled: disabled || Boolean(sharedFiles),
     uploadAttachment,
     onAdd: onAddImages,
     onError,
   })
+  const files = sharedFiles ?? ownedFiles
   const fileInputRef = React.useRef<HTMLInputElement>(null)
   const hasQueue = queues.steering.length > 0 || queues.followUp.length > 0
 
@@ -282,6 +288,7 @@ export function Composer({
         )}
         <div className="composer-layout">
           <ComposerEditor
+            composerStore={composerStore}
             disabled={disabled}
             sessionKey={sessionKey}
             agentPlugins={agentPlugins}

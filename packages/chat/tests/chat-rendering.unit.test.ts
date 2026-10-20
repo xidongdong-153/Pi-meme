@@ -15,7 +15,165 @@ import { applyEvent, emptyChat } from '../src/ui/model/state'
 import type { ActivityItem, ChatState } from '../src/ui/model/types'
 import type { MessageEditorState } from '../src/ui/conversation/inline-message-editor'
 import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
+import { PluginMessageProvider } from '@pi-meme/ui/components/plugin-message'
+import { PluginToolCardProvider } from '@pi-meme/ui/components/plugin-tool-card'
+import {
+  PluginMessageActions,
+  PluginMessageActionsGroup,
+  PluginMessageActionsProvider,
+  type MessageActionAnchor,
+} from '@pi-meme/ui/components/plugin-message-actions'
 import { assistantMessage, bashMessage, toolResult, userMessage } from '../../../tests/fixtures/messages.mjs'
+
+test('子Agent只读会话不借用根Provider引用，仍保留正文和原生复制', () => {
+  const source = { ownerId: 'example', generation: 1 }
+  const messages: PiMessage[] = [
+    userMessage('输入', 1),
+    assistantMessage([{ type: 'toolCall', id: 'call', name: 'custom_tool', arguments: {} }], 2),
+    { ...toolResult('call', '原生工具输出', 3), source },
+    assistantMessage('原生最终回复', 4),
+    {
+      role: 'custom',
+      customType: 'notice',
+      content: '原生自定义文本',
+      details: {},
+      timestamp: 5,
+      display: true,
+      source,
+    },
+  ]
+  const chat: ChatState = {
+    ...emptyChat,
+    messages: messages.map((message, index) => ({
+      ...message,
+      sourceEntry: {
+        id: `native-${index}`,
+        type: message.role === 'custom' ? 'custom_message' : 'message',
+        revision: `native-${index}`,
+      },
+    })),
+    tools: {
+      call: {
+        id: 'call',
+        name: 'custom_tool',
+        status: 'success',
+        source,
+        sourceEntry: { id: 'native-2', type: 'message', revision: 'native-2' },
+        result: '原生工具输出',
+      },
+    },
+  }
+  const render = (agentOnly: boolean) =>
+    renderToStaticMarkup(
+      createElement(
+        TooltipProvider,
+        null,
+        createElement(PluginMessageProvider, {
+          render: () => 'PLUGIN_CUSTOM',
+          children: createElement(PluginToolCardProvider, {
+            render: () => 'PLUGIN_TOOL',
+            children: createElement(PluginMessageActionsProvider, {
+              render: () => 'PLUGIN_ACTION',
+              renderGroup: () => 'PLUGIN_GROUP',
+              children: createElement(Conversation, {
+                chat,
+                agentOnly,
+                readOnly: agentOnly,
+                canEditMessages: false,
+                onEditMessage: () => {},
+                onForkReply: () => {},
+                onCopyError: () => {},
+              }),
+            }),
+          }),
+        }),
+      ),
+    )
+  const main = render(false)
+  assert.match(main, /PLUGIN_CUSTOM/)
+  assert.match(main, /PLUGIN_ACTION/)
+  assert.match(main, /PLUGIN_GROUP/)
+  const child = render(true)
+  assert.doesNotMatch(child, /PLUGIN_CUSTOM|PLUGIN_TOOL|PLUGIN_ACTION|PLUGIN_GROUP/)
+  assert.match(child, /原生自定义文本/)
+  assert.match(child, /原生最终回复/)
+  assert.match(child, /复制消息/)
+})
+
+test('同一Provider的null覆盖同时关闭单条和聚合菜单，不继承根renderer', () => {
+  const anchor: MessageActionAnchor = {
+    role: 'tool',
+    entries: [{ id: 'native', revision: 'r1' }],
+    displayedText: '原生输出',
+    state: 'complete',
+    toolCallId: 'call',
+    toolName: 'read',
+  }
+  const markup = renderToStaticMarkup(
+    createElement(PluginMessageActionsProvider, {
+      render: () => 'ROOT_SINGLE',
+      renderGroup: () => 'ROOT_GROUP',
+      children: createElement(PluginMessageActionsProvider, {
+        render: null,
+        renderGroup: () => 'INNER_GROUP',
+        children: createElement(
+          'div',
+          null,
+          '原生内容',
+          createElement(PluginMessageActions, anchor),
+          createElement(PluginMessageActionsGroup, {
+            anchors: [anchor, { ...anchor, toolCallId: 'other', entries: [{ id: 'other', revision: 'r2' }] }],
+          }),
+        ),
+      }),
+    }),
+  )
+  assert.match(markup, /原生内容/)
+  assert.doesNotMatch(markup, /ROOT_SINGLE|ROOT_GROUP|INNER_GROUP/)
+})
+
+for (const count of [1, 2]) {
+  test(`工作过程的${count}项工具摘要在原详情未挂载时仍提供各自真实消息动作`, () => {
+    const anchors: MessageActionAnchor[] = []
+    const items: ActivityItem[] = Array.from({ length: count }, (_, index) => ({
+      id: `call-${index}`,
+      type: 'tool',
+      name: index ? 'sdk_search_workspace' : 'sdk_read_workspace',
+      args: index ? { query: 'needle' } : {},
+      result: [{ type: 'text', text: `输出${index}` }],
+      source: { ownerId: index ? 'search-plugin' : 'read-plugin', generation: index + 1 },
+      sourceEntry: { id: `native-result-${index}`, type: 'message', revision: `revision-${index}` },
+      status: index ? 'error' : 'success',
+    }))
+    const markup = renderToStaticMarkup(
+      createElement(
+        TooltipProvider,
+        null,
+        createElement(PluginMessageActionsProvider, {
+          render(anchor) {
+            anchors.push(anchor)
+            return createElement('span', { 'data-tool-action': anchor.toolCallId }, anchor.toolName)
+          },
+          children: createElement(AssistantTurnView, {
+            turn: { type: 'assistant_turn', key: 'turn', activities: items, finalText: '', images: [], isLive: true },
+          }),
+        }),
+      ),
+    )
+    assert.doesNotMatch(markup, /aria-label="活动详情列表"/)
+    assert.equal(anchors.length, count)
+    for (let index = 0; index < count; index++) {
+      assert.equal(anchors[index].role, 'tool')
+      assert.deepEqual(anchors[index].entries, [
+        { id: `native-result-${index}`, type: 'message', revision: `revision-${index}` },
+      ])
+      assert.equal(anchors[index].toolCallId, `call-${index}`)
+      assert.equal(anchors[index].toolName, index ? 'sdk_search_workspace' : 'sdk_read_workspace')
+      assert.equal(anchors[index].source?.ownerId, index ? 'search-plugin' : 'read-plugin')
+      assert.equal(anchors[index].source?.generation, index + 1)
+    }
+  })
+}
 
 test('Markdown 代码块保留完整语言标记，且不在 pre 中嵌套块级容器', () => {
   const markup = renderToStaticMarkup(createElement(MarkdownContent, { children: '```c++\nint main() {}\n```' }))

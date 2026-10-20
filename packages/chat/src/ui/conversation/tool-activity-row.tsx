@@ -1,5 +1,6 @@
 import * as React from 'react'
 import { PluginToolCard } from '@pi-meme/ui/components/plugin-tool-card'
+import { PluginMessageActions } from '@pi-meme/ui/components/plugin-message-actions'
 import type { ActivityItem } from '../model/types'
 import { cn } from '@pi-meme/ui/lib/utils'
 import {
@@ -19,6 +20,7 @@ import { runningActivityLabel } from '../model/activity-summary'
 import { ToolDiff } from './tool-diff'
 import { ImageThumbnail } from '../content/message-image'
 import { imageSource } from '../content/image-viewer'
+import { toolMessageActionAnchor } from '../model/tool-message-action-anchor'
 
 export function ToolActivityRow({
   item,
@@ -28,6 +30,7 @@ export function ToolActivityRow({
   isPaused = false,
   isNested = true,
   className,
+  actions,
 }: {
   item: Extract<ActivityItem, { type?: 'tool' }>
   open: boolean
@@ -36,6 +39,7 @@ export function ToolActivityRow({
   isPaused?: boolean
   isNested?: boolean
   className?: string
+  actions?: React.ReactNode
 }) {
   const [copied, setCopied] = React.useState(false)
   const isRunning = isLive && item.status === 'running'
@@ -66,6 +70,7 @@ export function ToolActivityRow({
       : undefined
   const rawText =
     item.output || (script && item.result === undefined ? '' : formatDetailValue(item.result ?? item.args))
+  const actionAnchor = toolMessageActionAnchor(item, rawText)
   const hasDetail =
     meta.kind !== 'read' &&
     meta.kind !== 'edit' &&
@@ -107,52 +112,56 @@ export function ToolActivityRow({
     !script &&
     !diff &&
     !item.children?.length &&
-    !item.source
+    !item.source &&
+    !item.sourceEntry
   )
     return <div className={className}>{imagePreviews}</div>
 
   return (
     <div className={cn('text-xs select-none', className)}>
-      <div
-        role={hasDetail ? 'button' : undefined}
-        aria-label={hasDetail ? `工具详情：${item.name ?? '未知工具'}` : undefined}
-        aria-expanded={hasDetail ? open : undefined}
-        tabIndex={hasDetail ? 0 : undefined}
-        onClick={() => hasDetail && onToggle()}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' || e.key === ' ') {
-            e.preventDefault()
-            if (hasDetail) onToggle()
-          }
-        }}
-        title={meta.fullPath}
-        className={cn(
-          'group/tool-toggle flex min-h-6 w-fit max-w-full items-center gap-2 py-0.5 pr-1 rounded leading-5 cursor-pointer transition-colors',
-          'text-muted-foreground hover:text-foreground',
-          isNested && 'pl-2',
-          !hasDetail && 'cursor-default',
-        )}
-      >
-        {!isPaused && (
-          <IconComponent className="size-4 shrink-0 text-muted-foreground group-hover/tool-toggle:text-foreground" />
-        )}
+      <div className="flex min-w-0 items-center gap-1">
+        <div
+          role={hasDetail ? 'button' : undefined}
+          aria-label={hasDetail ? `工具详情：${item.name ?? '未知工具'}` : undefined}
+          aria-expanded={hasDetail ? open : undefined}
+          tabIndex={hasDetail ? 0 : undefined}
+          onClick={() => hasDetail && onToggle()}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' || e.key === ' ') {
+              e.preventDefault()
+              if (hasDetail) onToggle()
+            }
+          }}
+          title={meta.fullPath}
+          className={cn(
+            'group/tool-toggle flex min-h-6 w-fit max-w-full items-center gap-2 py-0.5 pr-1 rounded leading-5 cursor-pointer transition-colors',
+            'text-muted-foreground hover:text-foreground',
+            isNested && 'pl-2',
+            !hasDetail && 'cursor-default',
+          )}
+        >
+          {!isPaused && (
+            <IconComponent className="size-4 shrink-0 text-muted-foreground group-hover/tool-toggle:text-foreground" />
+          )}
 
-        <span className="truncate">
-          {isError ? summary.replace(/^已/u, '') : summary}
-          {isError ? ' · 失败' : ''}
-        </span>
-
-        {hasDetail && (
-          <span
-            aria-hidden="true"
-            className={cn(
-              'inline-flex size-3.5 shrink-0 text-muted-foreground/70 opacity-0 transition-[opacity,transform] duration-200 ease-out ml-0.5 group-hover/tool-toggle:opacity-100 group-focus-visible/tool-toggle:opacity-100',
-              open ? 'rotate-0' : '-rotate-90',
-            )}
-          >
-            <ChevronDown className="size-3.5" />
+          <span className="truncate">
+            {isError ? summary.replace(/^已/u, '') : summary}
+            {isError ? ' · 失败' : ''}
           </span>
-        )}
+
+          {hasDetail && (
+            <span
+              aria-hidden="true"
+              className={cn(
+                'inline-flex size-3.5 shrink-0 text-muted-foreground/70 opacity-0 transition-[opacity,transform] duration-200 ease-out ml-0.5 group-hover/tool-toggle:opacity-100 group-focus-visible/tool-toggle:opacity-100',
+                open ? 'rotate-0' : '-rotate-90',
+              )}
+            >
+              <ChevronDown className="size-3.5" />
+            </span>
+          )}
+        </div>
+        {actions === undefined ? actionAnchor && <PluginMessageActions {...actionAnchor} /> : actions}
       </div>
 
       {hasDetail && (

@@ -165,7 +165,7 @@ sequenceDiagram
 
 输入 `/plan`、`/计划` 或 `/计划模式` 激活输入区的规划标记。纯命令只切换模式，带正文时发送计划任务；关闭标记返回 default。解析规则见 [normalizePlanMessage](../packages/contracts/src/plan.ts)。
 
-规划模式只允许 `read`、`grep`、`find`、`ls`、协作工具（含 `finish_agent`）、`request_user_input` 和 `save_plan`。[plan-mode.ts](../packages/pi-runtime/src/extensions/plan-mode.ts) 同时过滤可用工具并检查实际调用；bash、edit、write、codemode、MCP、外部工具与嵌套越权均被拒绝。子代理继承规划模式，不能向仍在默认模式运行的子任务派发消息来绕过限制。
+规划模式允许内置 `read`、`grep`、`find`、`ls`、协作工具（含 `finish_agent`）、`request_user_input`、`save_plan`，以及已选择并获准的 SDK 3 受限只读插件工具。[plan-mode.ts](../packages/pi-runtime/src/extensions/plan-mode.ts) 同时过滤可用工具并检查实际调用；bash、edit、write、codemode、MCP、可信外部入口与嵌套越权仍被拒绝。插件放行依据是宿主维护的真实来源、代次、runtime 和 effect/capabilities，不按名称或插件自报 safe 放行。受限 JS 在独立进程与 OS 沙箱中执行，Plan 实际拒绝业务文件写入，也不能跳转到可信 Server。授权和平台边界见 [插件执行与授权](configuration.md#插件执行与授权)。子代理继承父级模式与权限上限，不能向仍在默认模式运行的子任务派发消息来绕过限制。
 
 ```mermaid
 %%{init: {"theme": "dark"}}%%

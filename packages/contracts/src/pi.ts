@@ -3,6 +3,7 @@ import type { ResourceSnapshot } from './resources'
 import type { QueuedInput, TaskMode } from './plan'
 import type { BranchSkillUsage } from './skills'
 import type { PiUserInputRequest, UserInputAnswer } from './user-input'
+import type { PluginExecutionPolicy } from './plugin-call'
 import type {
   AgentSession,
   JsonAgentSessionEvent,
@@ -20,8 +21,19 @@ export type ThinkingLevel = (typeof thinkingLevels)[number]
 
 export type PiImage = ImageContent
 export type PiContent = TextContent | ThinkingContent | ImageContent | ToolCall
-export type PiUiSource = { ownerId: string; generation: number; toolName?: string; customType?: string }
-export type PiMessage = AgentSession['messages'][number] & { source?: PiUiSource; completedAt?: number }
+export type PiUiSource = {
+  ownerId: string
+  generation: number
+  policyHash?: string
+  toolName?: string
+  customType?: string
+}
+export type PiMessage = AgentSession['messages'][number] & {
+  source?: PiUiSource
+  completedAt?: number
+  /** 原生一对一消息条目；压缩和其他合成显示消息不设置此字段。 */
+  sourceEntry?: { id: string; type: 'message' | 'custom_message'; revision: string }
+}
 type WithMessageMetadata<Event> = Event extends { message: PiMessage }
   ? Omit<Event, 'message'> & { message: PiMessage }
   : Event
@@ -126,6 +138,7 @@ export type PiState = Pick<
   activeMode?: TaskMode
   skillUsages?: BranchSkillUsage[]
   resourceSnapshot?: ResourceSnapshot
+  pluginPolicy?: PluginExecutionPolicy
   /** 输入框下一步提示。不写入会话 JSONL，只随状态快照恢复。 */
   composerHint?: string
   model?: PiModel
@@ -183,6 +196,7 @@ export type PiExtensionUIResponse = ResponsePayload<RpcExtensionUIResponse> | { 
 
 /** 协作消息按消息 ID 关联，避免落盘时间与实时事件时间不同而重复显示。 */
 export function sameMessage(a: PiMessage, b: PiMessage): boolean {
+  if (a.sourceEntry && b.sourceEntry) return a.sourceEntry.id === b.sourceEntry.id
   if (a.role === 'toolResult' || b.role === 'toolResult')
     return a.role === 'toolResult' && b.role === 'toolResult' && a.toolCallId === b.toolCallId
   if (

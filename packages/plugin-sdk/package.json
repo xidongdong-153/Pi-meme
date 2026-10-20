@@ -8,6 +8,13 @@
     "./server": "./src/server.ts",
     "./agent": "./src/agent.ts",
     "./ui": "./src/ui.ts",
+    "./composer": "./src/composer.ts",
+    "./navigation": "./src/navigation.ts",
+    "./message-actions": "./src/message-actions.ts",
+    "./reactive": "./src/reactive.ts",
+    "./permissions": "./src/permissions.ts",
+    "./rpc": "./src/rpc.ts",
+    "./restricted": "./src/restricted.ts",
     "./scope": "./src/scope.ts",
     "./reserved": "./src/reserved.ts",
     "./system-plugins": "./src/system-plugins.ts"

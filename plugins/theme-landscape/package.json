@@ -16,7 +16,7 @@
     "tsx": "^4.23.15"
   },
   "piMeme": {
-    "sdkVersion": 2,
+    "sdkVersion": 3,
     "display": {
       "name": "山色主题"
     },

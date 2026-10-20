@@ -5,16 +5,19 @@
   "type": "module",
   "exports": {
     "./manager": "./src/manager.ts",
-    "./package": "./src/package.ts"
+    "./package": "./src/package.ts",
+    "./restricted-runner": "./src/restricted-runner.ts",
+    "./operation": "./src/operation.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@pi-meme/plugin-sdk": "workspace:*",
     "@earendil-works/chord": "1.1.0",
+    "@pi-meme/contracts": "workspace:*",
+    "@pi-meme/plugin-sdk": "workspace:*",
     "acorn": "^8.18.0",
-    "@pi-meme/contracts": "workspace:*"
+    "typebox": "1.3.27"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

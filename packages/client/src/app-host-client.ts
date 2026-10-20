@@ -29,6 +29,8 @@ export function createAppHostClient(transport: AppHostTransport): HostApi {
       get: (ref) => call('sessions.get', [ref]),
       snapshot: (ref) => call('sessions.snapshot', [ref]),
       history: (ref, input) => call('sessions.history', [ref, input]),
+      messages: (ref, input) => call('sessions.messages', [ref, input]),
+      message: (ref, input) => call('sessions.message', [ref, input]),
       configure: (ref, config, options) => call('sessions.configure', [ref, config], options.idempotencyKey),
       submit: (ref, input, options) => call('sessions.submit', [ref, input], options.idempotencyKey),
       stop: (ref, options) => call('sessions.stop', [ref], options.idempotencyKey),

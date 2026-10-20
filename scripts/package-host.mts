@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import { chmod, copyFile, cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { copyFile, cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { prepareNodePty } from './prepare-node-pty.mjs'
+import { prepareNodeRuntime } from './node-runtime.mjs'
 import { assertLockedDependencies, stageHostWorkspace } from './release-workspace.mjs'
 import {
   assertPortableLinks,
@@ -12,7 +13,6 @@ import {
   releaseDirectory,
   releaseInfo,
   repoRoot,
-  sha256,
   writeReleaseResources,
 } from './release.mjs'
 
@@ -23,12 +23,6 @@ function pnpm(args: string[], cwd = repoRoot) {
     stdio: 'inherit',
     env: { ...process.env, CI: 'true' },
   })
-}
-
-async function download(url: string, file: string) {
-  const response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(180_000) })
-  if (!response.ok) throw new Error(`下载 Node.js 失败：${response.status} ${url}`)
-  await writeFile(file, new Uint8Array(await response.arrayBuffer()))
 }
 
 async function main() {
@@ -75,28 +69,11 @@ async function main() {
     )
     await prepareNodePty(path.join(server, 'node_modules/node-pty'))
     await cp(path.join(repoRoot, 'apps/web/dist'), path.join(bundle, 'apps/web/dist'), { recursive: true })
-    for (const file of ['main.js', 'session-worker.js', 'skills/skill-creator/SKILL.md'])
+    for (const file of ['main.js', 'session-worker.js', 'restricted-entry.mjs', 'skills/skill-creator/SKILL.md'])
       await readFile(path.join(server, 'dist', file))
 
-    const distribution = `node-v${nodeVersion}-${process.platform}-${process.arch}`
-    const archiveName = `${distribution}.tar.gz`
-    const archive = path.join(directory, archiveName)
-    const checksums = path.join(directory, 'SHASUMS256.txt')
-    const base = `https://nodejs.org/dist/v${nodeVersion}`
-    await download(`${base}/SHASUMS256.txt`, checksums)
-    await download(`${base}/${archiveName}`, archive)
-    const expected = (await readFile(checksums, 'utf8'))
-      .split('\n')
-      .map((line) => line.trim().split(/\s+/))
-      .find(([, file]) => file === archiveName)?.[0]
-    assert.ok(expected && /^[a-f\d]{64}$/.test(expected), '官方校验清单缺少当前 Node.js 运行时')
-    assert.equal(await sha256(archive), expected, 'Node.js 运行时 SHA256 校验失败')
-    execFileSync('tar', ['-xzf', archive, '-C', directory])
     const runtime = path.join(bundle, 'runtime')
-    await mkdir(path.join(runtime, 'bin'), { recursive: true })
-    await copyFile(path.join(directory, distribution, 'bin/node'), path.join(runtime, 'bin/node'))
-    await chmod(path.join(runtime, 'bin/node'), 0o755)
-    await copyFile(path.join(directory, distribution, 'LICENSE'), path.join(runtime, 'LICENSE'))
+    await prepareNodeRuntime(runtime)
 
     await mkdir(path.join(bundle, 'bin'), { recursive: true })
     const launcher = path.join(bundle, 'bin/pi-meme-host')
@@ -106,7 +83,9 @@ async function main() {
 set -eu
 ROOT=$(CDPATH= cd -P "$(dirname "$0")/.." && pwd)
 PATH="$ROOT/runtime/bin:$PATH"
-export PATH
+PI_MEME_PLUGIN_NODE="$ROOT/runtime/bin/node"
+PI_MEME_PLUGIN_ENTRY="$ROOT/runtime/restricted-entry.mjs"
+export PATH PI_MEME_PLUGIN_NODE PI_MEME_PLUGIN_ENTRY
 exec "$ROOT/runtime/bin/node" "$ROOT/apps/server/dist/main.js"
 `,
       { mode: 0o755 },

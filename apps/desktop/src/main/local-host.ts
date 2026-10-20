@@ -1,5 +1,6 @@
 import { app, utilityProcess, type UtilityProcess } from 'electron'
 import { randomUUID } from 'node:crypto'
+import path from 'node:path'
 import { defaultDevelopmentHostPort, defaultHostPort, hostPort, localHostUrl } from '@pi-meme/contracts/host-runtime'
 import { acquireLocalHost } from '@pi-meme/host/local-host'
 import { prepareDesktopHostEnv } from './user-login-path'
@@ -123,6 +124,12 @@ export function acquireDesktopHost(options: { entry: string; env: NodeJS.Process
         ...(await prepareDesktopHostEnv(options.env)),
         PI_MEME_PORT: String(port),
         PI_MEME_DATA_ROOT: options.dataRoot,
+        PI_MEME_PLUGIN_NODE: app.isPackaged
+          ? path.join(process.resourcesPath, 'runtime/bin/node')
+          : (options.env.PI_MEME_PLUGIN_NODE ?? ''),
+        PI_MEME_PLUGIN_ENTRY: app.isPackaged
+          ? path.join(process.resourcesPath, 'runtime/restricted-entry.mjs')
+          : (options.env.PI_MEME_PLUGIN_ENTRY ?? ''),
       }),
   })
 }

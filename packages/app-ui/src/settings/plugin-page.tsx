@@ -17,6 +17,7 @@ import {
   DropdownMenuTrigger,
 } from '@pi-meme/ui/components/ui/dropdown-menu'
 import { CategoryTabs } from './category-tabs'
+import { PluginPermissions } from './plugin-permissions'
 
 const statusNames = { active: '已启用', disabled: '已停用', pending: '等待使用中的任务结束', failed: '加载失败' }
 
@@ -208,6 +209,14 @@ export function PluginPage({
             </div>
           ) : (
             <>
+              {detail.policyHash && (
+                <PluginPermissions
+                  key={`${detail.id}:${detail.policyHash}:${detail.grant?.revision ?? 0}`}
+                  plugin={detail}
+                  client={client}
+                  onChanged={onChanged}
+                />
+              )}
               <div className="flex flex-wrap gap-2">
                 <Button
                   variant="outline"
@@ -454,7 +463,7 @@ export function PluginCapabilities({ plugin }: { plugin: UiPluginDescriptor }) {
         {capabilities?.agent && (
           <li>Agent 工具与消息：在聊天输入区逐会话选择；运行中不能修改。安装或启用插件不会自动加入当前聊天。</li>
         )}
-        {capabilities?.ui && <li>界面：从聊天右侧栏的“＋”工具页打开面板。</li>}
+        {capabilities?.ui && <li>界面：业务页面从左侧插件图标进入；工具面板仍从聊天右侧栏的“＋”打开。</li>}
         {capabilities?.resources && (
           <li>包内资源：附带的技能在技能页管理调用策略，主题在外观设置中选择。包内文件随插件一起更新和卸载。</li>
         )}

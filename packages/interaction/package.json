@@ -41,13 +41,5 @@
     "@testing-library/dom": "10.4.2",
     "@testing-library/user-event": "14.6.8",
     "@testing-library/jest-dom": "7.0.1"
-  },
-  "piMeme": {
-    "sdkVersion": 2,
-    "server": "dist/server/chord-facets.json",
-    "agent": "dist/agent/entry.js",
-    "requires": [
-      "host.interaction"
-    ]
   }
 }

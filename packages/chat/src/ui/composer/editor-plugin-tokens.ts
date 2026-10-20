@@ -75,7 +75,7 @@ export function createEditorToken(
 ) {
   const token = document.createElement('span')
   token.dataset[kind === 'skill' ? 'skillToken' : 'pluginToken'] = id
-  token.contentEditable = 'false'
+  token.setAttribute('contenteditable', 'false')
   token.className =
     kind === 'plugin' ? 'inline-block mr-2 text-blue-400 select-none' : 'inline text-blue-400 select-none'
   token.setAttribute('aria-label', kind === 'skill' ? '已选择技能' : `插件：${name}`)

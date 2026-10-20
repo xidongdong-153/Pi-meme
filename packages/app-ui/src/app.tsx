@@ -54,8 +54,16 @@ import { planExecutionDraft } from './panels/plan-execution-draft'
 import type { RightSidebarTab } from './layout/right-sidebar'
 import type { PluginClient } from '@pi-meme/client/plugin-client'
 import type { UiContributionProps, UiPluginDescriptor, UiPluginSlot, UiPanel, UiTarget } from '@pi-meme/plugin-sdk/ui'
+import { freezeUiValue } from '@pi-meme/contracts/plugin-ui-data'
 import { PluginRenderers } from './plugins/plugin-renderers'
-import { UiPluginRegistry } from './plugins/plugin-registry'
+import { beforeSendHookAvailable, UiPluginRegistry, pluginUiGranted } from './plugins/plugin-registry'
+import { PluginUiConsent, PluginConsentDialog } from './plugins/plugin-ui-consent'
+import { usePluginComposerController } from './plugins/plugin-composer-adapter'
+import { useAppNavigation } from './layout/use-app-navigation'
+import { PluginWorkspacePage, pluginRouteForEntry, rememberPluginRoute } from './layout/plugin-workspace-page'
+import type { RegisteredNavigation } from '@pi-meme/plugin-sdk/navigation'
+import { Button } from '@pi-meme/ui/components/ui/button'
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
 import { PluginSlot } from './plugins/plugin-slot'
 import { WorkspacePanels } from './layout/workspace-panels'
 import { sessionUiTarget } from './layout/panel-layout'
@@ -121,7 +129,13 @@ export function App({
 }) {
   const userProfile = useUserProfile(bridge)
   const resources = useMemo(() => createResourceClient(call, plugins.onChange), [call, plugins])
-  const [registry] = useState(() => new UiPluginRegistry(host, loadPluginUI, call))
+  const [registry] = useState(() => new UiPluginRegistry(host, loadPluginUI, plugins))
+  const [pluginConsent] = useState(() => new PluginUiConsent())
+  useSyncExternalStore(registry.subscribe, registry.getVersion, registry.getVersion)
+  useEffect(() => {
+    registry.setConfirmation(pluginConsent.request, (id) => pluginConsent.cancel(id))
+    return () => pluginConsent.cancel()
+  }, [registry, pluginConsent])
   const [pluginDescriptors, setPluginDescriptors] = useState<UiPluginDescriptor[]>([])
   const fileStore = useMemo(() => new FileStore(host), [host])
   const [terminalPanel, setTerminalPanel] = useState<UiPanel>()
@@ -219,7 +233,16 @@ export function App({
     return off
   }, [plugins, refreshPlugins, chat.setError])
   useEffect(() => {
-    if (!chat.navigationBusy) void registry.synchronize(chat.uiPlugins ?? pluginDescriptors)
+    if (chat.navigationBusy) return
+    const installed = new Map(pluginDescriptors.map((plugin) => [plugin.id, plugin]))
+    const descriptors = (chat.uiPlugins ?? pluginDescriptors).map((snapshot) => {
+      const current = installed.get(snapshot.id)
+      if (!current || !current.enabled || current.grantChanging || !current.grant?.trusted.ui)
+        return { ...snapshot, enabled: false }
+      if (current.generation === snapshot.generation) return { ...current, ui: snapshot.ui, enabled: snapshot.enabled }
+      return current
+    })
+    void registry.synchronize(descriptors)
   }, [registry, pluginDescriptors, chat.uiPlugins, chat.navigationBusy])
   useEffect(
     () => () => {
@@ -287,35 +310,253 @@ export function App({
     onError: chat.setError,
   })
   const agentPlugins = agentPluginSelection.ids
+  const [instructionsDirty, setInstructionsDirty] = useState(false)
+  const [instructionsSaving, setInstructionsSaving] = useState(false)
+  const [dirtyPage, setDirtyPage] = useState<{ pluginId: string; generation: number; routeInstance: string } | null>(
+    null,
+  )
+  const [pluginPageError, setPluginPageError] = useState('')
+  const discardPluginPage = () => {
+    if (dirtyPage)
+      void registry
+        .setPageDirty(dirtyPage.pluginId, dirtyPage.generation, dirtyPage.routeInstance, false)
+        .catch((cause) => chat.setError(String(cause)))
+    setDirtyPage(null)
+    setPluginPageError('')
+  }
+  const navigation = useAppNavigation({
+    dirty: instructionsDirty || Boolean(dirtyPage),
+    saving: instructionsSaving,
+    onDiscard: () => {
+      setInstructionsDirty(false)
+      discardPluginPage()
+    },
+  })
+  const route = navigation.route
+  useEffect(() => pluginConsent.cancel(), [pluginConsent, route])
+  useEffect(() => {
+    const unload = (event: BeforeUnloadEvent) => {
+      if (dirtyPage || instructionsDirty || instructionsSaving) event.preventDefault()
+    }
+    window.addEventListener('beforeunload', unload)
+    return () => window.removeEventListener('beforeunload', unload)
+  }, [dirtyPage, instructionsDirty, instructionsSaving])
+  const settingsSection = route.kind === 'settings' ? route.section : null
+  const settingsOpen = settingsSection !== null
+  const projectsOpen = route.kind === 'projects'
+  const customizationOpen = route.kind === 'customization'
+  const chatVisible = route.kind === 'chat'
+  const openSettings = (section: SettingsSection = 'general') => navigation.open({ kind: 'settings', section })
+  const pluginPages = useSyncExternalStore(registry.subscribe, registry.getPages, registry.getPages)
+  const pluginNavigation = useSyncExternalStore(registry.subscribe, registry.getNavigation, registry.getNavigation)
+  const pluginPageRequest = useSyncExternalStore(registry.subscribe, registry.getPageRequest, registry.getPageRequest)
+  const pluginBackRequest = useSyncExternalStore(registry.subscribe, registry.getBackRequest, registry.getBackRequest)
+  const beforeSendHooks = useSyncExternalStore(
+    registry.subscribe,
+    registry.getBeforeSendHooks,
+    registry.getBeforeSendHooks,
+  )
+  const pluginMetadata = useSyncExternalStore(
+    registry.dataSource.reactive.metadata.subscribe,
+    registry.dataSource.reactive.metadata.getSnapshot,
+    registry.dataSource.reactive.metadata.getSnapshot,
+  )
+  const pluginTarget = useMemo(
+    () => sessionUiTarget(hostId ?? appSession?.hostId ?? '', appSession),
+    [hostId, appSession],
+  )
+  const publicPluginTarget = useMemo(() => freezeUiValue(structuredClone(pluginTarget)), [pluginTarget])
   const pluginProps: UiContributionProps = useMemo(
     () => ({
       host,
-      target: sessionUiTarget(hostId ?? '', appSession),
-      snapshot:
+      target: publicPluginTarget,
+      snapshot: pluginMetadata.session,
+    }),
+    [host, publicPluginTarget, pluginMetadata.session],
+  )
+  const authorizationRevision = JSON.stringify(
+    pluginDescriptors.map((plugin) => [
+      plugin.id,
+      plugin.generation,
+      plugin.grant?.revision,
+      plugin.grantChanging,
+      plugin.policyHash,
+    ]),
+  )
+  const requiredBeforeSendHooks = useMemo(
+    () =>
+      pluginDescriptors.flatMap((plugin) => {
+        const projectPlugin = chat.uiPlugins?.find((entry) => entry.id === plugin.id)
+        if (!plugin.enabled || !projectPlugin?.enabled || !pluginUiGranted(plugin, 'composer.before-send')) return []
+        return (plugin.permissions?.beforeSend ?? [])
+          .filter((id) => plugin.grant?.beforeSend.includes(id))
+          .map((hookId) => ({ pluginId: plugin.id, hookId, generation: plugin.generation }))
+      }),
+    [pluginDescriptors, chat.uiPlugins],
+  )
+  const pluginComposer = usePluginComposerController({
+    chat,
+    hostId,
+    session: appSession,
+    visible: active && chatVisible,
+    agentPlugins: agentPluginSelection,
+    hooks: beforeSendHooks,
+    requiredHooks: requiredBeforeSendHooks,
+    authorizationRevision,
+    canProcess: (hook) =>
+      beforeSendHookAvailable(
+        hook,
+        pluginDescriptors.find((entry) => entry.id === hook.pluginId),
+        chat.uiPlugins?.find((entry) => entry.id === hook.pluginId),
+      ),
+  })
+  useEffect(() => {
+    registry.setComposerController(pluginComposer.adapter)
+    registry.setChatVisible(active && chatVisible)
+    return () => registry.setComposerController(null)
+  }, [registry, pluginComposer.adapter, active, chatVisible])
+  useEffect(() => registry.dataSource.attach(chat.chatStream), [registry, chat.chatStream])
+  useEffect(() => {
+    registry.dataSource.setEnvironment({
+      target: pluginTarget,
+      connection: { status: chat.connection.status },
+      view:
+        route.kind === 'plugin'
+          ? { kind: 'plugin', pluginId: route.pluginId, pageId: route.pageId, target: route.target }
+          : { kind: 'chat' },
+      session:
         chat.state && appSession
           ? {
               status: chat.connection.status,
               running: chat.chat.running,
               agentPlugins,
-              messages: chat.chat.messages.map((message) => ({ role: message.role, text: messageText(message) })),
+              selectedPlugins: agentPlugins,
+              effectivePlugins: chat.state.pluginPolicy?.effectivePlugins,
+              unavailablePlugins: chat.state.pluginPolicy?.unavailablePlugins,
+              capabilities: chat.state.pluginPolicy?.capabilities,
+              policyRevision: chat.state.pluginPolicy?.policyRevision,
+              deniedReasons: chat.state.pluginPolicy
+                ? Object.fromEntries(
+                    chat.state.pluginPolicy.unavailablePlugins.map((plugin) => [plugin.id, plugin.reason]),
+                  )
+                : undefined,
+              usage: chat.sessionStats
+                ? {
+                    input: chat.sessionStats.tokens.input,
+                    output: chat.sessionStats.tokens.output,
+                    total: chat.sessionStats.tokens.total,
+                    estimated: false,
+                  }
+                : undefined,
+              requestedMode: chat.mode,
+              effectiveMode: chat.chat.activeMode ?? chat.mode,
+              mode: chat.mode,
+              accessMode: chat.connection.accessMode,
+              requestedAccess: chat.connection.accessMode,
+              effectiveAccess:
+                (chat.chat.activeMode ?? chat.mode) === 'plan' ? 'read-only' : chat.connection.accessMode,
+              model: chat.state.model,
+              thinkingLevel: chat.state.thinkingLevel,
+              queue: { steering: chat.chat.steering.length, followUp: chat.chat.followUp.length },
+              paused: chat.chat.paused,
+              queuePaused: chat.chat.queuePaused,
             }
           : null,
-    }),
-    [
-      host,
-      hostId,
-      appSession,
-      agentPlugins,
-      chat.connection.sessionKey,
-      chat.connection.status,
-      chat.state,
-      chat.chat.running,
-      chat.chat.messages,
-    ],
-  )
+    })
+  }, [
+    registry,
+    pluginTarget,
+    route,
+    chat.connection.status,
+    chat.connection.accessMode,
+    chat.state,
+    appSession,
+    agentPlugins,
+    chat.mode,
+    chat.chat.activeMode,
+    chat.chat.running,
+    chat.chat.paused,
+    chat.chat.queuePaused,
+    chat.chat.steering.length,
+    chat.chat.followUp.length,
+    chat.sessionStats,
+  ])
+  const lastBackRequest = useRef(0)
   useEffect(() => {
-    registry.updateTarget({ target: pluginProps.target, snapshot: pluginProps.snapshot })
-  }, [registry, pluginProps])
+    if (pluginBackRequest === lastBackRequest.current) return
+    lastBackRequest.current = pluginBackRequest
+    navigation.back()
+  }, [pluginBackRequest])
+  useEffect(() => {
+    if (!pluginPageRequest) return
+    navigation.open({
+      kind: 'plugin',
+      pluginId: pluginPageRequest.pluginId,
+      pageId: pluginPageRequest.pageId,
+      target: pluginPageRequest.target,
+      params: pluginPageRequest.params,
+    })
+    registry.consumePageRequest(pluginPageRequest.revision)
+  }, [pluginPageRequest, registry])
+  useEffect(() => {
+    navigation.prune(
+      (entry) =>
+        entry.kind !== 'plugin' ||
+        pluginPages.some(
+          (page) => page.pluginId === entry.pluginId && page.id === entry.pageId && entry.target.hostId === hostId,
+        ),
+    )
+  }, [pluginPages, hostId])
+  function openPlugin(entry: RegisteredNavigation) {
+    const next = pluginRouteForEntry(entry, pluginPages, pluginProps.target)
+    if (next) navigation.open(next)
+    else chat.setError('插件页面需要对应项目或会话，请先在聊天中选择目标。')
+  }
+  const pluginRailProps = {
+    pluginNavigation,
+    activePluginId: route.kind === 'plugin' ? route.pluginId : undefined,
+    onPlugin: openPlugin,
+  }
+  const pluginRoute = route.kind === 'plugin' ? route : undefined
+  const currentPluginPage = pluginRoute
+    ? pluginPages.find((page) => page.pluginId === pluginRoute.pluginId && page.id === pluginRoute.pageId)
+    : undefined
+  const currentPluginNavigation = pluginRoute
+    ? pluginNavigation.find((entry) => entry.pluginId === pluginRoute.pluginId)
+    : undefined
+  const currentPluginHost = useMemo(
+    () =>
+      currentPluginPage
+        ? (signal: AbortSignal) => {
+            const scoped = registry.getPageHost(currentPluginPage, signal)
+            if (!scoped) throw new Error('plugin-retired：插件页面已退役')
+            return scoped
+          }
+        : undefined,
+    [registry, currentPluginPage],
+  )
+  const pluginPageInstance =
+    currentPluginPage && pluginRoute
+      ? JSON.stringify([
+          currentPluginPage.pluginId,
+          currentPluginPage.generation,
+          currentPluginPage.id,
+          pluginRoute.target.hostId,
+          pluginRoute.target.project?.projectId,
+          pluginRoute.target.session?.sessionId,
+        ])
+      : ''
+  const currentPluginPageInstance = useRef(pluginPageInstance)
+  currentPluginPageInstance.current = pluginPageInstance
+  useEffect(() => {
+    if (
+      dirtyPage &&
+      !pluginPages.some((page) => page.pluginId === dirtyPage.pluginId && page.generation === dirtyPage.generation)
+    ) {
+      setDirtyPage(null)
+      setPluginPageError('')
+    }
+  }, [pluginPages, dirtyPage])
   useEffect(() => {
     if (
       systemRequest &&
@@ -332,12 +573,8 @@ export function App({
   const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [sidebarWidth, setSidebarWidth] = useState(256)
-  const [settingsSection, setSettingsSection] = useState<SettingsSection | null>(null)
-  const [projectsOpen, setProjectsOpen] = useState(false)
-  const [customizationOpen, setCustomizationOpen] = useState(false)
   const creatingSkillSession = useRef(false)
-  const settingsOpen = settingsSection !== null
-  const searchActive = Boolean(serviceUI?.active) && !settingsOpen && !projectsOpen && !customizationOpen
+  const searchActive = Boolean(serviceUI?.active) && chatVisible
   const openSearch = serviceUI?.onSearch
   useEffect(() => {
     if (!searchActive || !openSearch) return
@@ -355,18 +592,30 @@ export function App({
     document.addEventListener('keydown', handleKey)
     return () => document.removeEventListener('keydown', handleKey)
   }, [searchActive, openSearch])
-  const [instructionsDirty, setInstructionsDirty] = useState(false)
-  const [instructionsSaving, setInstructionsSaving] = useState(false)
   const assertRestartAllowed = () => {
-    if (fileStore.hasDirty() || instructionsDirty || instructionsSaving)
+    if (fileStore.hasDirty() || instructionsDirty || instructionsSaving || dirtyPage)
       throw new Error('仍有未保存的文件或指令，请先保存后再维护存储')
     if (chat.hasDraftInput()) throw new Error('仍有未发送的草稿或附件，请先处理后再维护存储')
   }
   useEffect(() => {
     serviceUI?.onController(serviceUI.serviceId, {
       ...chat,
-      openSettings: () => setSettingsSection('general'),
+      openSettings: () => openSettings('general'),
       assertRestartAllowed,
+      beforeDeactivate: async () => {
+        if (instructionsSaving) return false
+        if (!dirtyPage && !instructionsDirty) return true
+        const accepted = await pluginConsent.request({
+          pluginId: dirtyPage?.pluginId ?? '应用指令',
+          title: '切换前放弃未保存的更改？',
+          description: '当前插件页面或指令有未保存更改。切换会话或服务后，这些修改不会自动恢复。',
+        })
+        if (accepted) {
+          discardPluginPage()
+          setInstructionsDirty(false)
+        }
+        return accepted
+      },
     })
   })
   const [preferredApp, setPreferredApp] = useState<ProjectApp['id']>('finder')
@@ -457,6 +706,72 @@ export function App({
     interaction?.source?.agentId && interaction.source.rootSessionKey !== interaction.sessionKey
       ? interaction.source.name
       : undefined
+  const pluginComposerStatus = (
+    <div className="space-y-2 text-xs text-muted-foreground">
+      {pluginComposer.availabilityReason && <p role="status">{pluginComposer.availabilityReason}</p>}
+      {Boolean(pluginComposer.view?.processors.length) && (
+        <p role="status">
+          发送前处理：{pluginComposer.view?.processors.map((processor) => processor.title).join('、')}
+          {pluginComposer.view?.submissionState === 'preparing' ? ' · 正在处理…' : ''}
+        </p>
+      )}
+      {pluginComposer.view?.failure && (
+        <div role="alert" className="rounded-lg border border-border p-2">
+          <p>
+            {pluginComposer.view.failure.title}：{pluginComposer.view.failure.reason}
+          </p>
+          <div className="mt-1 flex flex-wrap gap-1">
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => void pluginComposer.retry().catch((cause) => chat.setError(String(cause)))}
+            >
+              重试
+            </Button>
+            <Button size="sm" variant="ghost" onClick={chat.focusDraft}>
+              查看草稿
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                const view = pluginComposer.view
+                const failure = view?.failure
+                if (!view || !failure) return
+                const signal = pluginComposer.getFailureSignal(failure.attemptId)
+                if (!signal || signal.aborted) return
+                void pluginConsent
+                  .request({
+                    pluginId: failure.pluginId,
+                    title: '仅本次跳过发送前处理？',
+                    description: `跳过 ${failure.title}，不改变长期授权。目标：${JSON.stringify({ target: view.ref.target, session: view.ref.session, context: view.ref.context })}。草稿或目标变化后，本次许可失效。`,
+                    signal,
+                  })
+                  .then((accepted) => (accepted ? pluginComposer.skip(failure.attemptId) : undefined))
+                  .catch((cause) => chat.setError(String(cause)))
+              }}
+            >
+              仅本次跳过
+            </Button>
+          </div>
+        </div>
+      )}
+      {chat.failedDrafts.map((draft, index) => (
+        <div key={index} className="flex items-center justify-between gap-2 rounded-lg border border-border p-2">
+          <span className="truncate">发送失败的待恢复草稿：{draft.draft.slice(0, 80) || '附件'}</span>
+          <Button
+            size="sm"
+            variant="outline"
+            disabled={Boolean(chat.draft || chat.attachments.length)}
+            title={chat.draft || chat.attachments.length ? '请先处理当前草稿' : undefined}
+            onClick={() => chat.restoreFailedDraft(index)}
+          >
+            恢复草稿
+          </Button>
+        </div>
+      ))}
+    </div>
+  )
   const composerProps: ComponentProps<typeof Composer> = {
     compact: interaction?.method === 'questions',
     mode: chat.mode,
@@ -481,6 +796,8 @@ export function App({
     onRestoreQueuedInput: chat.restoreQueuedInput,
     sessionKey: chat.connection.sessionKey,
     attachmentContextKey: JSON.stringify([chat.editingTimestamp, chat.editingQueue]),
+    composerStore: chat.composerStore,
+    files: chat.composerFiles,
     uploadAttachment: bridge.uploadAttachment,
     projectPath: chat.connection.cwd,
     loadProjectFiles: bridge.getProjectFiles,
@@ -534,6 +851,7 @@ export function App({
     widgetsAbove: (
       <>
         <ExtensionWidgets {...{ widgets: chat.extensionWidgets, placement: 'aboveEditor' }} />
+        {pluginComposerStatus}
         {extra('composer')}
       </>
     ),
@@ -636,6 +954,8 @@ export function App({
     chat.editing && chat.editingTimestamp !== null
       ? {
           timestamp: chat.editingTimestamp,
+          composerStore: chat.composerStore,
+          files: chat.composerFiles,
           sessionKey: chat.connection.sessionKey,
           uploadAttachment: bridge.uploadAttachment,
           onError: chat.setError,
@@ -683,7 +1003,7 @@ export function App({
         onSwitchSession: (sessionPath) => void chat.switchSession(sessionPath),
         onTogglePin: (targetPath) => void chat.togglePin(targetPath),
         onPrefetchSession: (sessionPath) => void bridge.prefetchSession(sessionPath).catch(() => {}),
-        onSettings: () => setSettingsSection('general'),
+        onSettings: () => openSettings('general'),
       }}
     />
   )
@@ -716,7 +1036,7 @@ export function App({
       onEditMessage={chat.editMessage}
       onForkReply={(timestamp) => void chat.forkReply(timestamp)}
       onCopyError={chat.setError}
-      onSettings={() => setSettingsSection('general')}
+      onSettings={() => openSettings('general')}
       onSelectProject={(trigger) => {
         if (workspacePickerOpen && workspacePickerReturnFocus.current === trigger) {
           setWorkspacePickerOpen(false)
@@ -729,12 +1049,13 @@ export function App({
       editor={editor}
       notice={
         <>
+          {chat.editing && pluginComposerStatus}
           <ErrorNotice
             message={chat.error || settings.error}
             onOpenSettings={() => {
               chat.setError('')
               settings.dismissError()
-              setSettingsSection('general')
+              openSettings('general')
             }}
             onDismiss={() => {
               chat.setError('')
@@ -744,7 +1065,7 @@ export function App({
           <ErrorNotice
             message={chat.extensionError?.message ?? ''}
             extension
-            onOpenSettings={() => setSettingsSection('general')}
+            onOpenSettings={() => openSettings('general')}
             onDismiss={chat.dismissExtensionError}
           />
           <ExtensionNotices {...{ notices: chat.extensionNotices, onDismiss: chat.dismissNotice }} />
@@ -885,9 +1206,7 @@ export function App({
     creatingSkillSession.current = true
     try {
       if (!(await invokeSkillInNewSession(chat, bridge.getCommands, name, prompt))) return false
-      setSettingsSection(null)
-      setProjectsOpen(false)
-      setCustomizationOpen(false)
+      navigation.home()
       return true
     } finally {
       creatingSkillSession.current = false
@@ -902,10 +1221,7 @@ export function App({
           data-active-service={serviceUI?.serviceId ?? 'local'}
           className="theme-app flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground select-none"
         >
-          <div
-            className={settingsOpen || projectsOpen || customizationOpen ? 'hidden' : 'flex flex-1 min-h-0 flex-col'}
-            inert={settingsOpen || projectsOpen || customizationOpen}
-          >
+          <div className={!chatVisible ? 'hidden' : 'flex flex-1 min-h-0 flex-col'} inert={!chatVisible}>
             <WorkspacePanels
               profile={userProfile.profile}
               profileLoading={userProfile.showPlaceholder}
@@ -933,12 +1249,14 @@ export function App({
               requestRightToken={planRequest ? `${planRequest.id}:${planRequest.revision}` : undefined}
               onRightRequestHandled={() => setPlanRequest(undefined)}
               onSidebar={handleSidebar}
-              onSettings={() => setSettingsSection('general')}
-              onUsage={() => setSettingsSection('profile')}
-              onAccount={() => setSettingsSection('account')}
-              onProjects={() => setProjectsOpen(true)}
+              onSettings={() => openSettings('general')}
+              onUsage={() => openSettings('profile')}
+              onAccount={() => openSettings('account')}
+              onProjects={() => navigation.open({ kind: 'projects' })}
               onNewSession={() => void chat.newSession()}
-              onPlugins={() => setCustomizationOpen(true)}
+              onPlugins={() => navigation.open({ kind: 'customization' })}
+              pluginNavigation={pluginNavigation}
+              onPlugin={openPlugin}
               header={(toggleSidebar) => (
                 <SidebarMenus
                   bridge={bridge}
@@ -989,17 +1307,17 @@ export function App({
               sessions={chat.sessions}
               nativeWindow={nativeWindow}
               canOpenProject={localPlatform}
-              onDismiss={() => setProjectsOpen(false)}
+              onDismiss={navigation.back}
               onCreate={async (input) => {
                 await host.projects.register(input, { idempotencyKey: window.crypto.randomUUID() })
               }}
               onChanged={chat.refreshMenu}
               onDeleted={chat.applyMenuDeletion}
               onNewSession={async (cwd) => {
-                if (await chat.newSessionInProject(cwd)) setProjectsOpen(false)
+                if (await chat.newSessionInProject(cwd)) navigation.home()
               }}
               onSwitchSession={async (path) => {
-                if (await chat.switchSession(path)) setProjectsOpen(false)
+                if (await chat.switchSession(path)) navigation.home()
               }}
               onTogglePin={async (cwd) => {
                 await chat.togglePin(cwd)
@@ -1009,35 +1327,21 @@ export function App({
                 <ErrorNotice
                   message={chat.error}
                   onDismiss={() => chat.setError('')}
-                  onOpenSettings={() => {
-                    setProjectsOpen(false)
-                    setSettingsSection('general')
-                  }}
+                  onOpenSettings={() => openSettings('general')}
                 />
               }
               rail={
                 <AppRail
                   profile={userProfile.profile}
                   profileLoading={userProfile.showPlaceholder}
+                  {...pluginRailProps}
                   projectsActive
-                  onHome={() => setProjectsOpen(false)}
-                  onProjects={() => setProjectsOpen(true)}
-                  onPlugins={() => {
-                    setProjectsOpen(false)
-                    setCustomizationOpen(true)
-                  }}
-                  onSettings={() => {
-                    setProjectsOpen(false)
-                    setSettingsSection('general')
-                  }}
-                  onUsage={() => {
-                    setProjectsOpen(false)
-                    setSettingsSection('profile')
-                  }}
-                  onAccount={() => {
-                    setProjectsOpen(false)
-                    setSettingsSection('account')
-                  }}
+                  onHome={navigation.home}
+                  onProjects={() => navigation.open({ kind: 'projects' })}
+                  onPlugins={() => navigation.open({ kind: 'customization' })}
+                  onSettings={() => openSettings('general')}
+                  onUsage={() => openSettings('profile')}
+                  onAccount={() => openSettings('account')}
                 />
               }
             />
@@ -1048,21 +1352,19 @@ export function App({
               <CustomizationPage
                 plugins={pluginDescriptors}
                 nativeWindow={nativeWindow}
-                onDismiss={() => setCustomizationOpen(false)}
+                onDismiss={navigation.back}
                 rail={
                   <AppRail
                     profile={userProfile.profile}
                     profileLoading={userProfile.showPlaceholder}
+                    {...pluginRailProps}
                     pluginsActive
-                    onHome={() => setCustomizationOpen(false)}
-                    onProjects={() => {
-                      setCustomizationOpen(false)
-                      setProjectsOpen(true)
-                    }}
-                    onPlugins={() => setCustomizationOpen(true)}
-                    onSettings={() => setSettingsSection('general')}
-                    onUsage={() => setSettingsSection('profile')}
-                    onAccount={() => setSettingsSection('account')}
+                    onHome={navigation.home}
+                    onProjects={() => navigation.open({ kind: 'projects' })}
+                    onPlugins={() => navigation.open({ kind: 'customization' })}
+                    onSettings={() => openSettings('general')}
+                    onUsage={() => openSettings('profile')}
+                    onAccount={() => openSettings('account')}
                   />
                 }
                 renderContent={(section, selection) =>
@@ -1073,7 +1375,7 @@ export function App({
                       errors={registry.errors()}
                       view="catalog"
                       selection={selection}
-                      onSettings={() => setSettingsSection('plugins')}
+                      onSettings={() => openSettings('plugins')}
                       onChanged={async () => {
                         await refreshPlugins()
                         await chat.refreshSnapshot()
@@ -1091,13 +1393,13 @@ export function App({
                       skillUsages={chat.chat.skillUsages}
                       resourceSnapshot={chat.state?.resourceSnapshot}
                       view="catalog"
-                      onSettings={() => setSettingsSection('skills')}
+                      onSettings={() => openSettings('skills')}
                       onChanged={chat.refreshSnapshot}
                       onUse={(command) => {
                         chat.setSelectedSkills([...chat.selectedSkills, command])
                         chat.setDraft(appendSkillInvocation(chat.draft))
                         chat.focusDraft()
-                        setCustomizationOpen(false)
+                        navigation.home()
                       }}
                       onCreate={() => invokeSystemSkill('skill-creator')}
                     />
@@ -1105,6 +1407,57 @@ export function App({
                 }
               />
             </div>
+          )}
+
+          {pluginRoute && currentPluginPage && currentPluginNavigation && currentPluginHost && (
+            <PluginWorkspacePage
+              route={pluginRoute}
+              page={currentPluginPage}
+              navigation={currentPluginNavigation}
+              pages={pluginPages}
+              host={currentPluginHost}
+              nativeWindow={nativeWindow}
+              rail={
+                <AppRail
+                  profile={userProfile.profile}
+                  profileLoading={userProfile.showPlaceholder}
+                  {...pluginRailProps}
+                  onHome={navigation.home}
+                  onProjects={() => navigation.open({ kind: 'projects' })}
+                  onPlugins={() => navigation.open({ kind: 'customization' })}
+                  onSettings={() => openSettings()}
+                  onUsage={() => openSettings('profile')}
+                  onAccount={() => openSettings('account')}
+                />
+              }
+              back={{ label: '返回上一页', onClick: navigation.back, disabled: !navigation.canBack }}
+              forward={{ label: '前进', onClick: navigation.forward, disabled: !navigation.canForward }}
+              onOpen={navigation.open}
+              onParams={(params) => {
+                const next = { ...pluginRoute, params }
+                rememberPluginRoute(next)
+                navigation.replace(next)
+              }}
+              onDirty={(dirty) => {
+                if (dirty)
+                  setDirtyPage({
+                    pluginId: currentPluginPage.pluginId,
+                    generation: currentPluginPage.generation,
+                    routeInstance: pluginPageInstance,
+                  })
+                else {
+                  setDirtyPage((value) => (value?.routeInstance === pluginPageInstance ? null : value))
+                  if (currentPluginPageInstance.current === pluginPageInstance) setPluginPageError('')
+                }
+                void registry
+                  .setPageDirty(currentPluginPage.pluginId, currentPluginPage.generation, pluginPageInstance, dirty)
+                  .catch((cause) => {
+                    if (currentPluginPageInstance.current === pluginPageInstance) setPluginPageError(String(cause))
+                  })
+              }}
+              onManage={() => openSettings('plugins')}
+              unavailableReason={pluginPageError || registry.getEditingError(currentPluginPage.pluginId)}
+            />
           )}
 
           {/* 设置页面 */}
@@ -1115,26 +1468,16 @@ export function App({
               saving={instructionsSaving}
               nativeWindow={nativeWindow}
               onDiscard={() => setInstructionsDirty(false)}
-              onDismiss={() => setSettingsSection(null)}
-              onHome={() => {
-                setSettingsSection(null)
-                setCustomizationOpen(false)
-              }}
-              dismissLabel={customizationOpen ? '返回插件与技能' : undefined}
-              onProjects={() => {
-                setSettingsSection(null)
-                setCustomizationOpen(false)
-                setProjectsOpen(true)
-              }}
-              onPlugins={() => {
-                setSettingsSection(null)
-                setProjectsOpen(false)
-                setCustomizationOpen(true)
-              }}
+              onDismiss={navigation.back}
+              onHome={navigation.home}
+              dismissLabel="返回上一页"
+              onProjects={() => navigation.open({ kind: 'projects' })}
+              onPlugins={() => navigation.open({ kind: 'customization' })}
               renderRail={(onDismiss, navigate, onProjects, onPlugins) => (
                 <AppRail
                   profile={userProfile.profile}
                   profileLoading={userProfile.showPlaceholder}
+                  {...pluginRailProps}
                   onHome={onDismiss}
                   onProjects={onProjects}
                   onPlugins={onPlugins}
@@ -1206,7 +1549,7 @@ export function App({
                       onUse={(command) => {
                         chat.setSelectedSkills([...chat.selectedSkills, command])
                         chat.setDraft(appendSkillInvocation(chat.draft))
-                        setSettingsSection(null)
+                        navigation.home()
                       }}
                       onCreate={() => invokeSystemSkill('skill-creator')}
                     />
@@ -1225,7 +1568,7 @@ export function App({
                       onOpenSystem={
                         appSession
                           ? (id) => {
-                              setSettingsSection(null)
+                              navigation.home()
                               setSystemRequest({
                                 id:
                                   id === '@pi-meme/git'
@@ -1302,6 +1645,25 @@ export function App({
               }}
             />
           )}
+
+          <PluginConsentDialog consent={pluginConsent} />
+          <Dialog
+            open={navigation.confirmation}
+            onOpenChange={(open) => {
+              if (!open) navigation.cancelLeave()
+            }}
+          >
+            <DialogContent>
+              <DialogTitle>放弃未保存的更改？</DialogTitle>
+              <DialogDescription>离开后，当前插件页面或指令中尚未保存的修改不会自动恢复。</DialogDescription>
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={navigation.cancelLeave}>
+                  继续编辑
+                </Button>
+                <Button onClick={navigation.discardAndLeave}>放弃修改并离开</Button>
+              </div>
+            </DialogContent>
+          </Dialog>
 
           {/* 扩展交互请求弹窗 */}
           {interaction && interaction.method !== 'questions' && (

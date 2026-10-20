@@ -8,6 +8,17 @@ import { createAppAgent } from '../src/sdk/app-agent'
 import { SdkSession } from '../src/sdk/session'
 import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
 import { requestText } from '../../../tests/fixtures/fake-provider.mjs'
+import { emptyPluginGrant } from '@pi-meme/plugin-sdk/permissions'
+import type { AgentPluginEntry } from '@pi-meme/plugin-sdk/agent'
+
+function trustedEntry(pluginId: string, generation: number, trusted: string): AgentPluginEntry {
+  return {
+    pluginId,
+    generation,
+    trusted,
+    grant: { ...emptyPluginGrant(`fixture:${pluginId}`), trusted: { ui: false, server: false, agent: true } },
+  }
+}
 
 async function settled(session: SdkSession) {
   const deadline = Date.now() + 5000
@@ -44,7 +55,7 @@ export function activate(ctx) {
 }`,
   )
   let requested = 0
-  const source = { pluginId: 'app-fixture', generation: 8, path: entry }
+  const source = trustedEntry('app-fixture', 8, entry)
   const session = new SdkSession(
     root,
     { connection: () => {}, event: () => {}, error: () => {} },
@@ -80,13 +91,16 @@ export function activate(ctx) {
   assert.equal((tool.details as { value: string }).value, '实际参数')
   assert.equal(tool.source?.ownerId, 'app-fixture')
   assert.equal(tool.source.generation, 8)
+  assert.equal(tool.source.policyHash, source.grant!.policyHash)
   const custom = messages.find((message) => message.role === 'custom' && message.customType === 'app-result')
   assert.equal(custom?.source?.ownerId, 'app-fixture')
+  assert.equal(custom?.source?.policyHash, source.grant!.policyHash)
   await session.continueCollaborationTask('继续处理子任务结果', 'default')
   await settled(session)
   assert.match(requestText(fake.provider.requests.at(-1)!), /附加的 App 上下文：继续处理子任务结果/)
-  await session.prompt('只读分析', undefined, [], { mode: 'plan' })
-  await settled(session)
+  const beforePlan = fake.provider.requests.length
+  await assert.rejects(session.prompt('只读分析', undefined, [], { mode: 'plan' }), /grant-required/)
+  assert.equal(fake.provider.requests.length, beforePlan)
   assert.doesNotMatch(requestText(fake.provider.requests.at(-1)!), /附加的 App 上下文：只读分析/)
   await session.prompt('恢复普通任务', undefined, [], { mode: 'default' })
   await settled(session)
@@ -96,7 +110,7 @@ export function activate(ctx) {
   assert.equal(await readFile(disposed, 'utf8'), '已释放')
 })
 
-test('Plan 不导入 AppAgent 顶层，也不装配外部工具；保留原生内部权限与计划守卫', async (t) => {
+test('Plan 不导入可信 AppAgent 顶层，也不装配其工具；保留原生内部权限与计划守卫', async (t) => {
   const root = await mkdtemp(path.join(tmpdir(), 'app-agent-plan-'))
   t.onTestFinished(() => rm(root, { recursive: true, force: true }))
   const fake = await useFakeAgent(root)
@@ -115,7 +129,7 @@ test('Plan 不导入 AppAgent 顶层，也不装配外部工具；保留原生�
   )
   t.onTestFinished(() => session.stopAndWait())
   session.configureInlineExtensions([
-    createAppAgent({ pluginId: 'plan-app', generation: 1, path: entry }, async () => ({
+    createAppAgent(trustedEntry('plan-app', 1, entry), async () => ({
       answers: [],
       cancelled: true,
     })),
@@ -140,7 +154,7 @@ test('AppAgent 拒绝原生 default 工厂', async (t) => {
   await mkdir(path.join(root, 'entries'))
   const entry = path.join(root, 'entries/default.mjs')
   await writeFile(entry, 'export default () => {}')
-  const extension = createAppAgent({ pluginId: 'invalid-app', generation: 1, path: entry }, async () => ({
+  const extension = createAppAgent(trustedEntry('invalid-app', 1, entry), async () => ({
     answers: [],
     cancelled: true,
   }))
@@ -162,7 +176,7 @@ test('两个 AppAgent 使用同名消息类型时，消息来源与代次仍分�
       entry,
       `export function activate(ctx){ctx.tools.register({name:'owner_tool_${index}',title:'来源',description:'验证同名消息来源',parameters:{type:'object'},execute:()=>{ctx.messages.emit({type:'same-type',text:'消息${index}',data:{index:${index}}});return {text:'工具${index}'}}})}`,
     )
-    sources.push({ pluginId: `owner-${index}`, generation: index, path: entry })
+    sources.push(trustedEntry(`owner-${index}`, index, entry))
   }
   const session = new SdkSession(
     root,
@@ -202,9 +216,13 @@ test('两个 AppAgent 使用同名消息类型时，消息来源与代次仍分�
     persisted.map((message) => message.source?.ownerId),
     ['owner-1', 'owner-2'],
   )
+  assert.deepEqual(
+    persisted.map((message) => message.source?.policyHash),
+    sources.map((entry) => entry.grant!.policyHash),
+  )
 })
 
-describe('受限权限不导入 AppAgent 顶层，也不注册外部工具', () => {
+describe('受限权限不导入可信 AppAgent 顶层，也不注册其工具', () => {
   for (const mode of ['read-only', 'workspace-write'] as const) {
     test(mode, async (t) => {
       const root = await mkdtemp(path.join(tmpdir(), `app-agent-${mode}-`))
@@ -225,7 +243,7 @@ describe('受限权限不导入 AppAgent 顶层，也不注册外部工具', () 
       )
       t.onTestFinished(() => session.stopAndWait())
       session.configureInlineExtensions([
-        createAppAgent({ pluginId: 'restricted-app', generation: 1, path: entry }, async () => ({
+        createAppAgent(trustedEntry('restricted-app', 1, entry), async () => ({
           answers: [],
           cancelled: true,
         })),

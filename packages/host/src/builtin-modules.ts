@@ -17,7 +17,10 @@ import { sandboxPluginId } from './sandbox-platform'
 import * as permissions from '@pi-meme/permissions/server/entry'
 import * as codemode from '@pi-meme/codemode/server/entry'
 import * as subagents from '@pi-meme/subagents/server/entry'
-import type { PluginHandlers, ServerPluginModule } from '@pi-meme/plugin-sdk/server'
+import type {
+  BuiltinHandlers as PluginHandlers,
+  BuiltinModule as ServerPluginModule,
+} from '@pi-meme/contracts/builtin-module'
 import { PluginScope } from '@pi-meme/plugin-sdk/scope'
 
 const modules = [

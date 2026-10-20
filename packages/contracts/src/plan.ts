@@ -2,13 +2,23 @@ import type { PiImage } from './pi'
 import type { SkillReference } from './skills'
 
 export type TaskMode = 'default' | 'plan'
-export type MessageOptions = { mode?: TaskMode }
+export type ClientProcessingAudit = {
+  attemptId: string
+  pluginId: string
+  generation: number
+  hookId: string
+  outcome: 'pass' | 'replace' | 'block' | 'error' | 'timeout' | 'skipped'
+  reason?: string
+  userConfirmedAt?: string
+}
+export type MessageOptions = { mode?: TaskMode; clientProcessingAudit?: readonly ClientProcessingAudit[] }
 export type QueuedInput = {
   id: string
   editing?: boolean
   submitted?: boolean
   text: string
   mode: TaskMode
+  clientProcessingAudit?: readonly ClientProcessingAudit[]
   images?: PiImage[]
   skills?: SkillReference[]
 }

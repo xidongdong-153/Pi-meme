@@ -24,17 +24,5 @@
   },
   "devDependencies": {
     "react": "^19.3.0"
-  },
-  "piMeme": {
-    "sdkVersion": 2,
-    "server": "dist/server/chord-facets.json",
-    "requires": [
-      "host.chat",
-      "agent.sandbox"
-    ],
-    "provides": [
-      "agent.permissions"
-    ],
-    "agent": "dist/agent/entry.js"
   }
 }

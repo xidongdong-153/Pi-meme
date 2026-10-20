@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto'
 import { mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { HostRpcRequest, HostRpcResponse } from '@pi-meme/contracts/host'
+import { pluginFailure } from '@pi-meme/contracts/plugin-call'
 
 /** 写请求 ID 落盘；结果缓存淘汰后明确拒绝重放。读请求不保存快照副本。 */
 export class RequestRegistry {
@@ -48,7 +49,12 @@ export class RequestRegistry {
         const value = await action()
         return { requestId: request.requestId, hostId: this.hostId, result: value }
       })
-      .catch((cause: unknown) => error('operation-failed', cause instanceof Error ? cause.message : String(cause)))
+      .catch((cause: unknown) => {
+        const failure = request.method.startsWith('plugins:')
+          ? pluginFailure(cause)
+          : { code: 'operation-failed', message: cause instanceof Error ? cause.message : String(cause) }
+        return error(failure.code, failure.message)
+      })
     if (retain) {
       this.requests.set(key, { input, result })
       void result.then(() => {

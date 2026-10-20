@@ -1,7 +1,8 @@
 import * as React from 'react'
 import { createContext, useContext, type ReactNode } from 'react'
+import { usePublicPluginSession } from './plugin-message'
 
-export type PluginToolCardSource = { ownerId?: string; generation?: number; toolName?: string }
+export type PluginToolCardSource = { ownerId?: string; generation?: number; policyHash?: string; toolName?: string }
 type ToolCardRenderer = (tool: unknown, source: PluginToolCardSource) => ReactNode
 const ToolCardContext = createContext<ToolCardRenderer | undefined>(undefined)
 
@@ -9,7 +10,14 @@ export function PluginToolCardProvider({ render, children }: { render: ToolCardR
   return <ToolCardContext.Provider value={render}>{children}</ToolCardContext.Provider>
 }
 
-export function PluginToolCard({ tool, ownerId, generation, toolName }: { tool: unknown } & PluginToolCardSource) {
+export function PluginToolCard({
+  tool,
+  ownerId,
+  generation,
+  policyHash,
+  toolName,
+}: { tool: unknown } & PluginToolCardSource) {
   const render = useContext(ToolCardContext)
-  return render ? <>{render(tool, { ownerId, generation, toolName })}</> : null
+  const publicSession = usePublicPluginSession()
+  return render && publicSession ? <>{render(tool, { ownerId, generation, policyHash, toolName })}</> : null
 }

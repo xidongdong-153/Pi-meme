@@ -117,7 +117,10 @@ test('跨模式输入保留各自mode，计划队列逐条admission且关闭模�
     for (const request of fake.provider.requests.slice(1)) {
       const text = JSON.stringify(request.messages)
       assert.match(text, /Plan mode is active/)
-      assert.match(text, /read, grep, find, ls, collaboration, request_user_input, and save_plan/)
+      assert.match(
+        text,
+        /read, grep, find, ls, collaboration, request_user_input, save_plan, and explicitly authorized read-only restricted plugin tools within their role restrictions/,
+      )
       assert.match(text, /Do not execute shell commands/)
       assert.match(text, /commands or progress files/)
       assert.match(text, /Child agents return findings with finish_agent; they must not save the plan/)

@@ -7,6 +7,7 @@ import type { ThinkingLevel } from './pi'
 import type { PlanDocument, TaskMode } from './plan'
 import type { SessionHistoryData } from './sessions'
 import type { SkillReference } from './skills'
+import type { UiMessage, UiMessagePage, UiMessagePageInput } from './plugin-ui-data'
 
 export const appHostApiVersion = 2 as const
 export type ProjectRef = { hostId: string; projectId: string }
@@ -77,7 +78,17 @@ export type AppHostCapabilities = {
   apiVersion: 2
   hostId: string
   features: Array<
-    'projects' | 'sessions' | 'files' | 'terminal' | 'git' | 'interaction' | 'agents' | 'plans' | 'goals' | 'activities'
+    | 'projects'
+    | 'sessions'
+    | 'messages'
+    | 'files'
+    | 'terminal'
+    | 'git'
+    | 'interaction'
+    | 'agents'
+    | 'plans'
+    | 'goals'
+    | 'activities'
   >
   fileOperations?: Array<'preview' | 'search' | 'write'>
 }
@@ -126,6 +137,8 @@ export type HostApi = {
       ref: SessionRef,
       input?: { offset?: number; limit?: number },
     ) => Promise<SessionHistoryData & { totalMessages: number; nextOffset?: number }>
+    messages: (ref: SessionRef, input?: UiMessagePageInput) => Promise<UiMessagePage>
+    message: (ref: SessionRef, input: { entryId: string }) => Promise<UiMessage>
     configure: (ref: SessionRef, configuration: SessionConfiguration, options: MutationOptions) => Promise<AppSession>
     submit: (ref: SessionRef, input: SubmissionInput, options: MutationOptions) => Promise<SubmissionReceipt>
     stop: (ref: SessionRef, options: MutationOptions) => Promise<void>

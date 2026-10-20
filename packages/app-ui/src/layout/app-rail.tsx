@@ -12,6 +12,7 @@ import {
 import { Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
 import { cn } from '@pi-meme/ui/lib/utils'
 import type { UserProfile } from '../settings/user-profile'
+import type { RegisteredNavigation } from '@pi-meme/plugin-sdk/navigation'
 
 export function AppRail({
   profile,
@@ -25,6 +26,9 @@ export function AppRail({
   projectsActive = false,
   onPlugins,
   pluginsActive = false,
+  pluginNavigation = [],
+  activePluginId,
+  onPlugin,
   className,
 }: {
   profile: UserProfile
@@ -38,6 +42,9 @@ export function AppRail({
   projectsActive?: boolean
   onPlugins?: () => void
   pluginsActive?: boolean
+  pluginNavigation?: readonly RegisteredNavigation[]
+  activePluginId?: string
+  onPlugin?: (entry: RegisteredNavigation) => void
   className?: string
 }) {
   const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent)
@@ -51,7 +58,7 @@ export function AppRail({
       )}
     >
       {/* 顶部应用入口 */}
-      <div className="flex w-full flex-col items-center gap-1.5 pt-2">
+      <div className="flex min-h-0 w-full flex-col items-center gap-1.5 pt-2">
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -115,6 +122,32 @@ export function AppRail({
             插件与技能
           </TooltipContent>
         </Tooltip>
+        <div
+          className="mt-1 flex min-h-0 w-full flex-col items-center gap-1.5 overflow-y-auto"
+          aria-label="插件业务入口"
+        >
+          {pluginNavigation.map((entry) => (
+            <Tooltip key={entry.pluginId}>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={`打开插件页面：${entry.title}`}
+                  aria-current={activePluginId === entry.pluginId ? 'page' : undefined}
+                  onClick={() => onPlugin?.(entry)}
+                  className={cn(
+                    'flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg text-muted-foreground transition-colors hover:bg-background hover:text-foreground [&>svg]:size-4',
+                    activePluginId === entry.pluginId && 'bg-background/80 text-foreground shadow-xs',
+                  )}
+                >
+                  {entry.icon ?? <Puzzle className="size-4" />}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right" sideOffset={8}>
+                {entry.title}
+              </TooltipContent>
+            </Tooltip>
+          ))}
+        </div>
       </div>
 
       {/* 底部个人账户头像与菜单 */}

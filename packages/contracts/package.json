@@ -25,6 +25,10 @@
     "./user-input": "./src/user-input.ts",
     "./resources": "./src/resources.ts",
     "./app-host": "./src/app-host.ts",
+    "./plugin-ui-data": "./src/plugin-ui-data.ts",
+    "./plugin-ui-message": "./src/plugin-ui-message.ts",
+    "./builtin-module": "./src/builtin-module.ts",
+    "./plugin-call": "./src/plugin-call.ts",
     "./goal": "./src/goal.ts",
     "./service-activity": "./src/service-activity.ts"
   },

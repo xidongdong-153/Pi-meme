@@ -53,7 +53,8 @@ arm64 应用在 `apps/desktop/out/Pi meme-darwin-arm64/Pi meme.app`。`dist/`、
 ```
 Desktop (Electron) ──┐
                      ├─ app-ui (React) ─ client ─ Node Host ─┬─ 内置服务（静态装配）
-Web (Vite) ──────────┘                                      ├─ 外部插件（Chord 作用域）
+Web (Vite) ──────────┘                                      ├─ 可信插件（Chord 作用域）
+                                                            ├─ 受限插件（独立进程 + OS 沙箱）
                                                             └─ pi-adapter ─ 会话 Worker ─ Pi SDK
 ```
 
@@ -67,7 +68,7 @@ Web (Vite) ──────────┘                                    
 - 跨包导入写 `@pi-meme/<包名>/<具体文件>`，不要新增批量导出的 `index.ts`。包内用相对路径。
 - 边界由 `scripts/check-package-boundaries.mjs` 检查静态导入、动态 `import()`、re-export 和 UI 边界。
 
-内置模块由 `packages/host/src/builtin-modules.ts` 静态装配（聊天、工作区、历史、模型、设置、资源、交互、子代理、MCP、codemode、权限、当前平台沙箱、用量、git）。内置初始化失败会中止 Host。外部 App 插件由用户安装，走独立启停；恢复失败只隔离相关依赖组。插件源码在 `plugins/`，SDK 在 `packages/plugin-sdk`、`plugin-runtime`、`plugin-devkit`。插件不能替换左侧导航或中央聊天；工具面板只允许 `right`。
+内置模块由 `packages/host/src/builtin-modules.ts` 静态装配（聊天、工作区、历史、模型、设置、资源、交互、子代理、MCP、codemode、权限、当前平台沙箱、用量、git）。内置初始化失败会中止 Host。外部 App 插件由用户安装，走独立启停；恢复失败只隔离相关依赖组。插件源码在 `plugins/`，SDK 在 `packages/plugin-sdk`、`plugin-runtime`、`plugin-devkit`。外部插件使用 SDK 3，Agent/Server 入口分 `trusted` 与 `restricted`，不保留 SDK 2 执行路径。插件可新增自己的活动栏入口、次级菜单和中央业务页，但不能替换内置导航或聊天；工具面板仍只允许 `right`。
 
 同一个 Host 是其数据目录的唯一写入者。会话 Worker 按执行会话独立创建，持有固定资源快照和插件代次；JSONL 由 Pi SDK 保存。正式 HostApi v2 用稳定 `ProjectRef` / `SessionRef` 操作显式目标，不读写界面选择。App 内部 `/api/rpc` 继续服务内置界面。`PlatformAdapter`（`packages/contracts`）承载本机文件选择、Finder/编辑器等平台操作；Electron preload 只连接平台 channel。远程路径不要交给本机文件选择器。
 
@@ -78,6 +79,8 @@ Web (Vite) ──────────┘                                    
 - 基础交互用 `packages/ui` 的原语，图标用 `lucide-react`，类名用 `cn`。
 - 页面顶栏复用 `packages/app-ui/src/layout/page-header.tsx` 的 `PageHeader` 和 `PageHeaderNavigation`；顶栏高度、交通灯留白和导航按钮样式只在该文件维护。页面自己的操作通过子组件组合，并使用 `no-drag` 标记交互区域。
 - 新功能先判断是内置能力还是可独立安装的 App 插件。业务包按需建 `src/server`、`src/agent`、`src/ui`、`src/shared`，不建空层。
+- 插件的安装、项目启停、会话选择与能力授权分别校验。Plan 只能使用获准的受限只读入口，不导入可信 Agent/Server。受限 JS 必须在独立进程和 OS 沙箱中运行；UI 与可信 Server 不属于恶意代码沙箱。
+- 插件输入框 API 复用唯一草稿和提交守卫；发送前处理必须显式授权。消息引用使用 Pi 原生 entry ID，不能用时间戳或数组下标代替。插件页目标、执行目标与当前输入框引用不得混用。
 - 刷新保留已有列表结构；加载和禁用只作用在触发操作上。Popover 关闭动画结束前保留虚拟 Anchor，并显式指定展开方向。
 - Prettier：两空格、单引号、无分号、LF、120 列、尾随逗号。
 - 没有配置公证或自动更新。无证书时 Forge 用 ad-hoc 签名，可用 `PI_DESKTOP_SIGNING_IDENTITY` 指定证书。
