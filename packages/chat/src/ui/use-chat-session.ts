@@ -12,7 +12,7 @@ import { useCallback, useRef, useState } from 'react'
 import type { ChatBridge, DesktopEvent, Snapshot } from '@pi-meme/contracts/desktop'
 import type { PiEvent, PiMessage, PiSlashCommand } from '@pi-meme/contracts/pi'
 import { applyEvent as reduceEvent, emptyChat, restoreSnapshot } from './model/state'
-import type { ComposerAttachment as Attachment } from './composer/image-attachment'
+import { messageWithAttachments, type ComposerAttachment as Attachment } from './composer/image-attachment'
 
 const emptySkills: PiSlashCommand[] = []
 
@@ -369,7 +369,7 @@ export function useChatSession(options: ChatSessionOptions) {
       setDraft(normalized.text)
       return
     }
-    const message = normalized.text.trim()
+    const { message, images } = messageWithAttachments(normalized.text.trim(), attachments)
     const skills = draft.includes(skillMarker)
       ? selectedSkills.map(({ name, resourceId, resourceRevision }) => ({
           name,
@@ -381,7 +381,6 @@ export function useChatSession(options: ChatSessionOptions) {
       onError('技能引用已失效，请重新选择技能')
       return
     }
-    const images = attachments.map(({ type, data, mimeType }) => ({ type, data, mimeType }))
     if ((!message && !images.length && !skills.length) || !canSend()) return
     if (startingGoal) {
       try {

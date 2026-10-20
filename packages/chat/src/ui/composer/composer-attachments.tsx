@@ -1,55 +1,135 @@
 import * as React from 'react'
 import { X } from 'lucide-react'
+import { FileIcon } from '@pi-meme/ui/components/file-icon'
 import type { ComposerProps } from './composer'
+import type { ComposerAttachment, ComposerImageAttachment } from './image-attachment'
 import { ImageViewer, imageSource } from '../content/image-viewer'
+
+function useAttachmentImages(attachments: ComposerAttachment[]): ComposerImageAttachment[] {
+  const urls = React.useRef(new Map<File, string>())
+  const [sources, setSources] = React.useState(() => new Map<File, string>())
+
+  React.useEffect(() => {
+    const files = new Set(
+      attachments.flatMap((attachment) =>
+        attachment.type === 'file' && attachment.preview ? [attachment.preview] : [],
+      ),
+    )
+    let changed = false
+    for (const [file, url] of urls.current) {
+      if (files.has(file)) continue
+      URL.revokeObjectURL(url)
+      urls.current.delete(file)
+      changed = true
+    }
+    for (const file of files) {
+      if (urls.current.has(file)) continue
+      urls.current.set(file, URL.createObjectURL(file))
+      changed = true
+    }
+    if (changed) setSources(new Map(urls.current))
+  }, [attachments])
+
+  React.useEffect(() => {
+    const current = urls.current
+    return () => {
+      for (const url of current.values()) URL.revokeObjectURL(url)
+      current.clear()
+    }
+  }, [])
+
+  return attachments.flatMap((attachment) => {
+    if (attachment.type === 'image') return [attachment]
+    if (!attachment.preview) return []
+    const data = sources.get(attachment.preview)
+    return data
+      ? [{ id: attachment.id, name: attachment.name, type: 'image', data, mimeType: attachment.preview.type }]
+      : []
+  })
+}
 
 export function ComposerAttachments({
   attachments,
   onRemoveImage,
   disabled,
 }: Pick<ComposerProps, 'attachments' | 'onRemoveImage'> & { disabled?: boolean }) {
-  const [activeIndex, setActiveIndex] = React.useState<number | null>(null)
+  const [activeId, setActiveId] = React.useState<string | null>(null)
   const triggerRef = React.useRef<HTMLButtonElement>(null)
+  const previews = useAttachmentImages(attachments)
+  const [failedSources, setFailedSources] = React.useState(() => new Set<string>())
+  const images = previews.filter((image) => !failedSources.has(imageSource(image)))
+  const activeIndex = activeId === null ? -1 : images.findIndex((image) => image.id === activeId)
 
-  if (activeIndex !== null && !attachments.length) setActiveIndex(null)
+  if (activeId !== null && activeIndex === -1) setActiveId(null)
 
   return (
     <>
       {attachments.length > 0 && (
-        <div className="mb-2 flex flex-wrap gap-2" aria-label="已附加图片">
-          {attachments.map((image, index) => (
-            <div
-              key={image.id}
-              className="group relative size-16 overflow-hidden rounded-lg border border-border bg-secondary/50 shadow-xs"
-            >
-              <button
-                type="button"
-                aria-label={`预览第 ${index + 1} 张图片`}
-                onClick={(event) => {
-                  triggerRef.current = event.currentTarget
-                  setActiveIndex(index)
-                }}
-                className="size-full cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+        <div className="mb-2 flex min-w-0 gap-2 overflow-x-auto pb-1" aria-label="已附加文件">
+          {attachments.map((attachment) => {
+            const imageIndex = images.findIndex((image) => image.id === attachment.id)
+            const image = images[imageIndex]
+            const name = attachment.name || `图片 ${previews.findIndex((preview) => preview.id === attachment.id) + 1}`
+            const iconPath = attachment.name || 'image.png'
+            const content = (
+              <>
+                <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-background/70">
+                  {image ? (
+                    <img
+                      src={imageSource(image)}
+                      alt={name}
+                      onError={() => setFailedSources((current) => new Set(current).add(imageSource(image)))}
+                      className="size-full object-cover"
+                    />
+                  ) : (
+                    <FileIcon path={iconPath} className="size-8" />
+                  )}
+                </div>
+                <div className="flex h-7 shrink-0 items-center gap-1.5 bg-background/50 px-2 text-xs" title={name}>
+                  <FileIcon path={iconPath} className="size-3.5" />
+                  <span className="min-w-0 truncate">{name}</span>
+                </div>
+              </>
+            )
+
+            return (
+              <div
+                key={attachment.id}
+                className="relative h-28 w-32 shrink-0 overflow-hidden rounded-lg border border-border bg-secondary/50 shadow-xs"
               >
-                <img src={imageSource(image)} alt="待发送图片" className="size-full object-cover" />
-              </button>
-              <button
-                type="button"
-                disabled={disabled}
-                aria-label="移除图片"
-                onClick={() => onRemoveImage(image.id)}
-                className="absolute right-1 top-1 flex size-4 items-center justify-center rounded-full bg-black/70 text-white opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring transition-opacity cursor-pointer"
-              >
-                <X className="size-3" />
-              </button>
-            </div>
-          ))}
+                {image ? (
+                  <button
+                    type="button"
+                    aria-label={`预览第 ${imageIndex + 1} 张图片：${name}`}
+                    onClick={(event) => {
+                      triggerRef.current = event.currentTarget
+                      setActiveId(attachment.id)
+                    }}
+                    className="flex size-full cursor-pointer flex-col text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                  >
+                    {content}
+                  </button>
+                ) : (
+                  <div className="flex size-full flex-col">{content}</div>
+                )}
+                <button
+                  type="button"
+                  disabled={disabled}
+                  aria-label={`移除${image ? '图片' : '文件'}：${name}`}
+                  onClick={() => onRemoveImage(attachment.id)}
+                  className="absolute right-1 top-1 flex size-5 cursor-pointer items-center justify-center rounded-full bg-black/70 text-white opacity-70 transition-opacity hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-30"
+                >
+                  <X className="size-3" />
+                </button>
+              </div>
+            )
+          })}
         </div>
       )}
       <ImageViewer
-        images={attachments}
-        activeIndex={activeIndex}
-        onActiveIndexChange={setActiveIndex}
+        images={images}
+        activeIndex={activeIndex === -1 ? null : activeIndex}
+        onActiveIndexChange={(index) => setActiveId(index === null ? null : (images[index]?.id ?? null))}
         triggerRef={triggerRef}
       />
     </>

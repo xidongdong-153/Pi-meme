@@ -180,5 +180,5 @@ test('提交队列编辑期间禁用图片移除按钮', () => {
       onRemoveImage: () => {},
     }),
   )
-  assert.match(html, /type="button" disabled="" aria-label="移除图片"/)
+  assert.match(html, /type="button" disabled="" aria-label="移除图片：/)
 })

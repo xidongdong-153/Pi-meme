@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url'
 import { createHostCollaborationBridge } from './collaboration-bridge'
 import { createAppControl } from './app-control'
 import { createWorkspaceFiles } from './workspace-files'
+import { storeChatAttachment } from './chat-attachments'
 import { systemPlugins } from '@pi-meme/plugin-sdk/system-plugins'
 import { TerminalService } from './terminal-service'
 import { createBuiltinModules } from './builtin-modules'
@@ -168,6 +169,7 @@ export async function createHost(options: HostOptions = {}) {
       paths.builtinSkillsDirectory,
     )
     await mkdir(paths.sessionsDirectory, { recursive: true })
+    await mkdir(path.join(root, 'attachments'), { recursive: true, mode: 0o700 })
     const settings = new SettingsStore(root)
     const projects = new ProjectStore(root)
     await settings.load()
@@ -1213,6 +1215,34 @@ export async function createHost(options: HostOptions = {}) {
       ),
       flushCredentials: () =>
         (credentials as SecureCredentialStorage & { flush?: () => Promise<void> }).flush?.() ?? Promise.resolve(),
+      async uploadAttachment(
+        metadata: { clientId: string; hostId: string; sessionKey: string; name: string },
+        body: import('node:stream').Readable,
+        signal?: AbortSignal,
+      ) {
+        if (closing) throw new Error('Host 正在退出，操作未接纳')
+        if (!metadata.clientId || metadata.clientId.length > 128) throw new Error('客户端标识无效')
+        if (metadata.hostId !== hostId) throw new Error('Host 身份不匹配')
+        if (!metadata.sessionKey) throw new Error('会话 ID 参数无效')
+        const clientId = metadata.clientId
+        clientRequests.set(clientId, (clientRequests.get(clientId) ?? 0) + 1)
+        const pending = (async () => {
+          await client(clientId)
+          if (closing) throw new Error('Host 正在退出，操作未执行')
+          pi.getSessionContext(metadata.sessionKey)
+          return storeChatAttachment(root, metadata.name, body, signal)
+        })()
+        inflight.add(pending)
+        try {
+          return await pending
+        } finally {
+          inflight.delete(pending)
+          const count = (clientRequests.get(clientId) ?? 1) - 1
+          if (count) clientRequests.set(clientId, count)
+          else clientRequests.delete(clientId)
+          if (!closing) scheduleClientRelease(clientId)
+        }
+      },
       async rpc(request: HostRpcRequest) {
         if (closing) throw new Error('Host 正在退出，操作未接纳')
         if (

@@ -1,5 +1,6 @@
 import { readFile, realpath } from 'node:fs/promises'
 import path from 'node:path'
+import { Readable } from 'node:stream'
 import { randomBytes } from 'node:crypto'
 import { Hono, type Context } from 'hono'
 import { upgradeWebSocket, type HttpBindings } from '@hono/node-server'
@@ -75,6 +76,20 @@ function serviceRegistrationError(cause: unknown) {
 }
 
 function registerRpc(app: Hono<TransportEnv>, { host, remotes, auth }: TransportServices) {
+  app.post('/api/chat/attachments', async (c) => {
+    const query = c.get('url').searchParams
+    const result = await host.uploadAttachment(
+      {
+        clientId: query.get('clientId') ?? '',
+        hostId: query.get('hostId') ?? '',
+        sessionKey: query.get('sessionKey') ?? '',
+        name: query.get('name') ?? '',
+      },
+      c.req.raw.body ? Readable.fromWeb(c.req.raw.body as import('node:stream/web').ReadableStream) : Readable.from([]),
+      c.req.raw.signal,
+    )
+    return reply(200, { hostId: host.hostId, result })
+  })
   app.post('/api/control', async (c) => {
     return reply(200, await host.control.dispatch((await jsonBody(c.req.raw)) as HostControlRequest))
   })
@@ -220,8 +235,15 @@ function registerResources(app: Hono<TransportEnv>, { host, remotes }: Transport
   app.all('/api/services/:id/api/*', async (c, next) => {
     const remote = c.get('url').pathname.match(/^\/api\/services\/([a-f0-9]{24})(\/api\/.*)$/)
     if (!remote) return next()
-    const body = c.req.method === 'POST' ? JSON.stringify(await jsonBody(c.req.raw, true)) : undefined
-    const upstream = await remotes.request(remote[1], remote[2], c.req.method, body)
+    const attachment = remote[2] === '/api/chat/attachments' && c.req.method === 'POST'
+    const upstream = attachment
+      ? await remotes.uploadAttachment(remote[1], c.get('url').searchParams, c.req.raw.body, c.req.raw.signal)
+      : await remotes.request(
+          remote[1],
+          remote[2],
+          c.req.method,
+          c.req.method === 'POST' ? JSON.stringify(await jsonBody(c.req.raw, true)) : undefined,
+        )
     return new Response(new Uint8Array(upstream.data), {
       status: upstream.status,
       headers: {

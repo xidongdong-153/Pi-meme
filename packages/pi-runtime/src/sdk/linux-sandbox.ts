@@ -109,6 +109,17 @@ export async function linuxSandboxLaunch(options: AccessSandboxOptions): Promise
   if (options.mode === 'workspace-write') args.push('--bind', options.cwd, options.cwd)
   if (options.dataRoot && pathWithin(options.cwd, options.dataRoot))
     args.push('--ro-bind', options.dataRoot, options.dataRoot)
+  if (options.dataRoot) {
+    const attachments = path.join(await realpath(options.dataRoot), 'attachments')
+    try {
+      const resolved = await realpath(attachments)
+      if (resolved !== attachments) throw new Error('附件目录不能是符号链接')
+      // 自定义数据目录位于 /tmp 时，仅恢复附件读取，不暴露同级凭据与会话。
+      args.push('--ro-bind', attachments, attachments)
+    } catch (cause) {
+      if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw cause
+    }
+  }
   args.push(
     '--bind',
     options.temporary,

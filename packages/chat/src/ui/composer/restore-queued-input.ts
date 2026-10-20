@@ -1,7 +1,7 @@
 import type { PiSlashCommand } from '@pi-meme/contracts/pi'
 import type { QueuedInput } from '@pi-meme/contracts/plan'
 import { skillMarker, skillMessageParts } from '@pi-meme/contracts/skills'
-import type { ComposerAttachment } from './image-attachment'
+import type { ComposerImageAttachment } from './image-attachment'
 
 export function queuedDraft(input: QueuedInput, commands: PiSlashCommand[]) {
   const selectedSkills: PiSlashCommand[] = []
@@ -40,6 +40,9 @@ export function queuedDraft(input: QueuedInput, commands: PiSlashCommand[]) {
     }
     draft += ` ${restoreReference()}`
   }
-  const attachments: ComposerAttachment[] = (input.images ?? []).map((image) => ({ ...image, id: crypto.randomUUID() }))
+  const attachments: ComposerImageAttachment[] = (input.images ?? []).map((image) => ({
+    ...image,
+    id: crypto.randomUUID(),
+  }))
   return { draft, selectedSkills, attachments, mode: input.mode }
 }

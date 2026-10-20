@@ -270,6 +270,56 @@ export class RemoteServices {
       if (state.error.includes('身份已变化')) this.disconnect(id)
     }
   }
+  uploadAttachment(
+    id: string,
+    metadata: URLSearchParams,
+    body: ReadableStream<Uint8Array> | null,
+    signal?: AbortSignal,
+  ) {
+    return this.track(async () => {
+      const state = this.get(id)
+      if (metadata.get('hostId') !== state.hostId) throw new Error('Host 身份不匹配')
+      try {
+        signal?.throwIfAborted()
+        await this.authenticate(id)
+        this.assertCurrent(state)
+        signal?.throwIfAborted()
+        const url = new URL('/api/chat/attachments', state.address)
+        url.search = metadata.toString()
+        const init: RequestInit & { duplex: 'half' } = {
+          method: 'POST',
+          redirect: 'error',
+          headers: { Cookie: this.cookies.get(id)!, Origin: state.address, 'Content-Type': 'application/octet-stream' },
+          body,
+          duplex: 'half',
+          signal,
+        }
+        const response = await fetch(url, init)
+        this.assertCurrent(state)
+        if (response.status === 401) {
+          // 流不能重放；只续期认证，让持有原始 Blob 的客户端重建请求体。
+          signal?.throwIfAborted()
+          this.cookies.delete(id)
+          await this.authenticate(id)
+          this.assertCurrent(state)
+        }
+        const data = await responseBody(response, 64 * 1024)
+        this.assertCurrent(state)
+        if (response.ok && JSON.parse(data.toString()).hostId !== state.hostId) {
+          this.disconnect(id)
+          throw new Error('远程服务身份已变化')
+        }
+        return {
+          status: response.status,
+          contentType: response.headers.get('content-type') ?? 'application/json',
+          data,
+        }
+      } catch (cause) {
+        if (!signal?.aborted) this.failed(id, cause, state)
+        throw cause
+      }
+    })
+  }
   request(id: string, pathname: string, method: string, body?: string) {
     return this.track(() => this.proxyRequest(id, pathname, method, body))
   }

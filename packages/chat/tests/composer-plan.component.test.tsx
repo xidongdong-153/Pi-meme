@@ -136,6 +136,7 @@ function composerProps(): ComposerProps {
     selectedSkills: [],
     onSkills: () => {},
     attachments: [],
+    uploadAttachment: async () => ({ name: 'file', path: '/attachments/file' }),
     onAddImages: () => {},
     onRemoveImage: () => {},
     running: false,

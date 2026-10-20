@@ -8,7 +8,8 @@ import { cn } from '@pi-meme/ui/lib/utils'
 type PreviewImage = PiImage & { id?: string }
 
 export function imageSource(image: PiImage) {
-  if (image.data.startsWith('data:') || image.data.startsWith('http')) return image.data
+  if (image.data.startsWith('data:') || image.data.startsWith('http') || image.data.startsWith('blob:'))
+    return image.data
   return `data:${image.mimeType || 'image/png'};base64,${image.data}`
 }
 

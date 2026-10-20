@@ -6,6 +6,7 @@ import type {
   HostControlEvent,
 } from '@pi-meme/contracts/app-host'
 import { createAppHostClient } from './app-host-client'
+import type { ChatFileUpload, ChatUploadedFile } from '@pi-meme/contracts/chat-attachments'
 import type { AgentSummary } from '@pi-meme/contracts/collaboration'
 import type {
   Connection,
@@ -257,6 +258,46 @@ export class HostClient {
     if (envelope.error) throw new Error(envelope.error.message)
     if (!response.ok) throw new Error(`Host 请求失败：HTTP ${response.status}`)
     return envelope.result as T
+  }
+
+  private async uploadAttachment(
+    sessionKey: string,
+    input: ChatFileUpload,
+    signal?: AbortSignal,
+  ): Promise<ChatUploadedFile> {
+    if (this.closed) throw new Error('Host 客户端已关闭')
+    signal?.throwIfAborted()
+    await this.authenticate()
+    const url = this.endpoint('/api/chat/attachments')
+    url.search = new URLSearchParams({
+      sessionKey,
+      clientId: this.clientId,
+      hostId: this.hostId,
+      name: input.name,
+    }).toString()
+    const send = () => {
+      signal?.throwIfAborted()
+      if (this.closed) throw new Error('Host 客户端已关闭')
+      return this.fetch(url, {
+        method: 'POST',
+        credentials: 'include',
+        headers: { 'Content-Type': 'application/octet-stream' },
+        body: input.data,
+        signal,
+      })
+    }
+    let response = await send()
+    if (response.status === 401) {
+      signal?.throwIfAborted()
+      await this.renewAuthentication()
+      response = await send()
+    }
+    const value = (await response.json()) as { hostId?: string; result?: ChatUploadedFile; error?: string }
+    if (!response.ok) throw new Error(value.error ?? `附件上传失败：HTTP ${response.status}`)
+    this.acceptHost(value.hostId ?? '')
+    if (!value.result || typeof value.result.path !== 'string' || typeof value.result.name !== 'string')
+      throw new Error('Host 返回的附件信息无效')
+    return value.result
   }
 
   private async controlCall<T>(method: string, args: unknown[], idempotencyKey?: string): Promise<T> {
@@ -717,6 +758,7 @@ export class HostClient {
       searchSessions: (query, paths) => rpc('session:search', [query, paths], null),
       prefetchSession: (path) => rpc('session:prefetch', [path]),
       togglePin: (path) => rpc('settings:toggle-pin', [path]),
+      uploadAttachment: (key, input, signal) => this.uploadAttachment(key, input, signal),
       prompt: (key, message, images, skills, options) =>
         rpc('pi:prompt', [key, message, images ?? [], skills ?? [], ...(options === undefined ? [] : [options])], key),
       steer: (key, message, images, skills, options) =>

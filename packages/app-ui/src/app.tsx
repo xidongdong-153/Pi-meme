@@ -478,6 +478,8 @@ export function App({
     recoveredInputs: chat.recoveredInputs,
     onRestoreQueuedInput: chat.restoreQueuedInput,
     sessionKey: chat.connection.sessionKey,
+    attachmentContextKey: JSON.stringify([chat.editingTimestamp, chat.editingQueue]),
+    uploadAttachment: bridge.uploadAttachment,
     projectPath: chat.connection.cwd,
     loadProjectFiles: bridge.getProjectFiles,
     access: (
@@ -627,6 +629,9 @@ export function App({
     chat.editing && chat.editingTimestamp !== null
       ? {
           timestamp: chat.editingTimestamp,
+          sessionKey: chat.connection.sessionKey,
+          uploadAttachment: bridge.uploadAttachment,
+          onError: chat.setError,
           projectPath: chat.connection.cwd,
           loadProjectFiles: bridge.getProjectFiles,
           draft: chat.draft,

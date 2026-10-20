@@ -127,6 +127,8 @@ test('只读子代理对话不渲染传入的内联编辑器', () => {
     selectedSkills: [],
     onSkills: () => {},
     attachments: [],
+    uploadAttachment: async () => ({ name: 'file', path: '/attachments/file' }),
+    onError: () => {},
     onAddImages: () => {},
     onRemoveImage: () => {},
     commands: [],

@@ -5,7 +5,8 @@ import type { ChatBridge } from '@pi-meme/contracts/desktop'
 import type { PiSlashCommand, PiState } from '@pi-meme/contracts/pi'
 import type { ChatState } from '../model/types'
 import { cn } from '@pi-meme/ui/lib/utils'
-import { imageToAttachment, type ComposerAttachment } from './image-attachment'
+import type { ComposerAttachment } from './image-attachment'
+import { useComposerFiles } from './use-composer-files'
 import { ComposerEditor } from './composer-editor'
 import { ComposerToolbar } from './composer-toolbar'
 import { ComposerAttachments } from './composer-attachments'
@@ -40,6 +41,8 @@ export type ComposerProps = {
   recoveredInputs?: QueuedInput[]
   onRestoreQueuedInput?: (input: QueuedInput) => void
   sessionKey?: string
+  attachmentContextKey?: string
+  uploadAttachment: ChatBridge['uploadAttachment']
   projectPath?: string
   loadProjectFiles?: ChatBridge['getProjectFiles']
   selectedSkills: PiSlashCommand[]
@@ -98,6 +101,8 @@ export function Composer({
   recoveredInputs,
   onRestoreQueuedInput,
   sessionKey,
+  attachmentContextKey,
+  uploadAttachment,
   projectPath,
   loadProjectFiles,
   selectedSkills,
@@ -143,46 +148,36 @@ export function Composer({
   onCancelEdit,
 }: ComposerProps) {
   const [dragging, setDragging] = React.useState(false)
-  const attachmentContext = React.useRef({ sessionKey, editing, editingQueue, disabled, revision: 0 })
-  const previousContext = attachmentContext.current
-  if (
-    previousContext.sessionKey !== sessionKey ||
-    previousContext.editing !== editing ||
-    previousContext.editingQueue !== editingQueue ||
-    previousContext.disabled !== disabled
-  ) {
-    attachmentContext.current = { sessionKey, editing, editingQueue, disabled, revision: previousContext.revision + 1 }
-  }
+  const files = useComposerFiles({
+    contextKey: JSON.stringify([attachmentContextKey, editing, editingQueue]),
+    sessionKey,
+    disabled,
+    uploadAttachment,
+    onAdd: onAddImages,
+    onError,
+  })
   const fileInputRef = React.useRef<HTMLInputElement>(null)
   const hasQueue = queues.steering.length > 0 || queues.followUp.length > 0
 
-  async function addFiles(files: File[]) {
-    if (disabled) return
-    const images = files.filter((file) => file.type.startsWith('image/'))
-    if (!images.length) return
-    const revision = attachmentContext.current.revision
-    const results = await Promise.allSettled(images.map(imageToAttachment))
-    if (revision !== attachmentContext.current.revision || attachmentContext.current.disabled) return
-    const ready = results.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []))
-    const failures = results.flatMap((result) => (result.status === 'rejected' ? [String(result.reason)] : []))
-    if (ready.length) onAddImages(ready)
-    if (failures.length) onError(failures.join('\n'))
+  function cancelEdit() {
+    files.cancel()
+    onCancelEdit()
   }
 
   function paste(event: ClipboardEvent<HTMLDivElement>) {
-    const files = Array.from(event.clipboardData.items)
+    const images = Array.from(event.clipboardData.items)
       .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
       .map((item) => item.getAsFile())
       .filter((file): file is File => file !== null)
-    if (!files.length) return
+    if (!images.length) return
     event.preventDefault()
-    void addFiles(files)
+    void files.addFiles(images)
   }
 
   function drop(event: DragEvent<HTMLFormElement>) {
     event.preventDefault()
     setDragging(false)
-    void addFiles(Array.from(event.dataTransfer.files))
+    void files.addFiles(Array.from(event.dataTransfer.files))
   }
 
   return (
@@ -201,7 +196,12 @@ export function Composer({
         style={{ backgroundColor: 'color-mix(in srgb, var(--background), var(--foreground) 11%)' }}
         onSubmit={(event) => {
           event.preventDefault()
-          if (!disabled && !agentPlugins?.saving && (draft.trim() || selectedSkills.length || attachments.length))
+          if (
+            !disabled &&
+            !files.isUploading() &&
+            !agentPlugins?.saving &&
+            (draft.trim() || selectedSkills.length || attachments.length)
+          )
             onSend()
         }}
         onDragEnter={(event) => {
@@ -215,16 +215,16 @@ export function Composer({
         }}
         onDrop={drop}
       >
-        {/* 隐藏的图片文件选择器 */}
+        {/* 隐藏的附件文件选择器 */}
         <input
           ref={fileInputRef}
           type="file"
           multiple
-          accept="image/*"
+          disabled={disabled}
           className="hidden"
           onChange={(event) => {
             if (event.target.files?.length) {
-              void addFiles(Array.from(event.target.files))
+              void files.addFiles(Array.from(event.target.files))
               event.target.value = ''
             }
           }}
@@ -239,7 +239,7 @@ export function Composer({
             <button
               type="button"
               disabled={disabled}
-              onClick={onCancelEdit}
+              onClick={cancelEdit}
               className="rounded px-2 py-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
               取消编辑
@@ -252,13 +252,21 @@ export function Composer({
             key={input.id}
             type="button"
             className="mb-1 rounded border border-border p-2 text-left text-xs"
-            onClick={() => onRestoreQueuedInput?.(input)}
+            onClick={() => {
+              files.cancel()
+              onRestoreQueuedInput?.(input)
+            }}
           >
             恢复{input.mode === 'plan' ? '计划' : ''}草稿：{input.text || '图片消息'}
             {input.images?.length ? `（${input.images.length} 张图片）` : ''}
           </button>
         ))}
         <ComposerAttachments attachments={attachments} onRemoveImage={onRemoveImage} disabled={disabled} />
+        {files.uploading && (
+          <p role="status" className="mb-2 text-xs text-muted-foreground">
+            正在添加附件（剩余 {files.pending} 个）…
+          </p>
+        )}
         <div className="composer-layout">
           <ComposerEditor
             disabled={disabled}
@@ -279,7 +287,7 @@ export function Composer({
             focusVersion={focusVersion}
             onClearQueue={onClearQueue}
             hasQueue={hasQueue}
-            onEscape={onCancelEdit}
+            onEscape={cancelEdit}
             paste={paste}
             dragging={dragging}
           />
@@ -294,9 +302,9 @@ export function Composer({
             editingQueue={editingQueue}
             onResume={onResume}
             disabled={disabled}
-            sendDisabled={agentPlugins?.saving}
-            draft={draft}
-            hasAttachments={attachments.length > 0 || selectedSkills.length > 0}
+            sendDisabled={agentPlugins?.saving || (files.uploading && !running && !paused)}
+            draft={files.uploading ? '' : draft}
+            hasAttachments={!files.uploading && (attachments.length > 0 || selectedSkills.length > 0)}
             queueMode={queueMode}
             onQueueMode={onQueueMode}
             steeringMode={steeringMode}

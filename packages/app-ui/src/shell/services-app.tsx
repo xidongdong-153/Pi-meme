@@ -74,6 +74,10 @@ export function ServicesApp({
     const transaction = ++navigation.current
     const sourceKey = source.connection.sessionKey
     const draft = source.captureDraft()
+    if (id !== sourceId && draft.composer.attachments.some((attachment) => attachment.type === 'file')) {
+      source.setError('文件附件已保存在当前 Host，请先发送或移除附件，再切换到其他服务')
+      return false
+    }
     const changed = await target.selectLocation(input, id === sourceId ? undefined : draft)
     if (!changed || transaction !== navigation.current) return false
     if (id !== sourceId) {

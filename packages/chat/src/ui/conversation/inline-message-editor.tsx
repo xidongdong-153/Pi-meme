@@ -1,15 +1,19 @@
 import { useEffect, useRef } from 'react'
 import type { ClipboardEvent, DragEvent } from 'react'
+import { Plus } from 'lucide-react'
 import type { PiSlashCommand } from '@pi-meme/contracts/pi'
 import type { ComposerProps } from '../composer/composer'
 import type { ComposerAttachment } from '../composer/image-attachment'
-import { imageToAttachment } from '../composer/image-attachment'
+import { useComposerFiles } from '../composer/use-composer-files'
 import { ComposerEditor } from '../composer/composer-editor'
 import { ComposerAttachments } from '../composer/composer-attachments'
 import { cn } from '@pi-meme/ui/lib/utils'
 
 /** 原位置编辑用户历史消息所需的状态与操作，由 desktop 从 useChatSession 装配。 */
-export type MessageEditorState = Pick<ComposerProps, 'projectPath' | 'loadProjectFiles'> & {
+export type MessageEditorState = Pick<
+  ComposerProps,
+  'projectPath' | 'loadProjectFiles' | 'sessionKey' | 'uploadAttachment' | 'onError'
+> & {
   timestamp: number
   draft: string
   onDraft: (value: string) => void
@@ -30,33 +34,40 @@ export type MessageEditorState = Pick<ComposerProps, 'projectPath' | 'loadProjec
  */
 export function InlineMessageEditor({ editor }: { editor: MessageEditorState }) {
   const containerRef = useRef<HTMLDivElement>(null)
-  const canSubmit = !editor.disabled && (Boolean(editor.draft.trim()) || editor.attachments.length > 0)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const files = useComposerFiles({
+    contextKey: String(editor.timestamp),
+    sessionKey: editor.sessionKey,
+    disabled: editor.disabled,
+    uploadAttachment: editor.uploadAttachment,
+    onAdd: editor.onAddImages,
+    onError: editor.onError,
+  })
+  const canSubmit =
+    !editor.disabled && !files.uploading && (Boolean(editor.draft.trim()) || editor.attachments.length > 0)
 
   useEffect(() => {
     containerRef.current?.querySelector<HTMLElement>('[contenteditable=true][aria-label="消息"]')?.focus()
   }, [])
 
-  async function addFiles(files: File[]) {
-    const images = files.filter((file) => file.type.startsWith('image/'))
-    if (!images.length) return
-    const results = await Promise.allSettled(images.map(imageToAttachment))
-    const ready = results.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []))
-    if (ready.length) editor.onAddImages(ready)
+  function cancelEdit() {
+    files.cancel()
+    editor.onCancel()
   }
 
   function paste(event: ClipboardEvent<HTMLDivElement>) {
-    const files = Array.from(event.clipboardData.items)
+    const images = Array.from(event.clipboardData.items)
       .filter((item) => item.kind === 'file' && item.type.startsWith('image/'))
       .map((item) => item.getAsFile())
       .filter((file): file is File => file !== null)
-    if (!files.length) return
+    if (!images.length) return
     event.preventDefault()
-    void addFiles(files)
+    void files.addFiles(images)
   }
 
   function drop(event: DragEvent<HTMLFormElement>) {
     event.preventDefault()
-    void addFiles(Array.from(event.dataTransfer.files))
+    void files.addFiles(Array.from(event.dataTransfer.files))
   }
 
   return (
@@ -70,15 +81,39 @@ export function InlineMessageEditor({ editor }: { editor: MessageEditorState }) 
         className="flex w-full flex-col rounded-2xl border border-border/80 bg-card/95 p-3 shadow-sm transition-all focus-within:border-border"
         onSubmit={(event) => {
           event.preventDefault()
-          if (canSubmit) editor.onSubmit()
+          if (canSubmit && !files.isUploading()) editor.onSubmit()
         }}
         onDragOver={(event) => {
           if (event.dataTransfer.types.includes('Files')) event.preventDefault()
         }}
         onDrop={drop}
       >
-        <ComposerAttachments attachments={editor.attachments} onRemoveImage={editor.onRemoveImage} />
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          disabled={editor.disabled}
+          className="hidden"
+          onChange={(event) => {
+            if (event.target.files?.length) {
+              void files.addFiles(Array.from(event.target.files))
+              event.target.value = ''
+            }
+          }}
+        />
+        <ComposerAttachments
+          attachments={editor.attachments}
+          onRemoveImage={editor.onRemoveImage}
+          disabled={editor.disabled}
+        />
+        {files.uploading && (
+          <p role="status" className="mb-2 text-xs text-muted-foreground">
+            正在添加附件（剩余 {files.pending} 个）…
+          </p>
+        )}
         <ComposerEditor
+          disabled={editor.disabled}
+          sessionKey={editor.sessionKey}
           projectPath={editor.projectPath}
           loadProjectFiles={editor.loadProjectFiles}
           selectedSkills={editor.selectedSkills}
@@ -91,14 +126,23 @@ export function InlineMessageEditor({ editor }: { editor: MessageEditorState }) 
           hasQueue={false}
           paste={paste}
           dragging={false}
-          onEscape={editor.onCancel}
+          onEscape={cancelEdit}
         />
 
         <div className="mt-2 flex items-center justify-end gap-2">
           <button
             type="button"
+            disabled={editor.disabled}
+            onClick={() => fileInputRef.current?.click()}
+            aria-label="添加附件"
+            className="mr-auto inline-flex size-7 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Plus className="size-4" />
+          </button>
+          <button
+            type="button"
             data-testid="inline-edit-cancel"
-            onClick={editor.onCancel}
+            onClick={cancelEdit}
             aria-label="取消编辑用户消息"
             className="rounded-lg bg-secondary/80 px-3 py-1 text-sm text-foreground/80 transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
