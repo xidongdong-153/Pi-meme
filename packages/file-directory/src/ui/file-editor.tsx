@@ -21,6 +21,31 @@ const colors = syntaxHighlighting(
   ]),
 )
 
+const foldGutterTheme = EditorView.theme({
+  '.cm-foldGutter span': {
+    display: 'inline-block',
+    width: '16px',
+    height: '16px',
+    padding: '0',
+    verticalAlign: 'middle',
+    fontSize: '0',
+  },
+  '.cm-foldGutter span::before': {
+    content: '""',
+    display: 'block',
+    width: '100%',
+    height: '100%',
+    backgroundColor: 'currentColor',
+    maskImage:
+      "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='m6 9 6 6 6-6' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E\")",
+    maskSize: 'contain',
+    maskRepeat: 'no-repeat',
+  },
+  '.cm-foldGutter span[title="Unfold line"]::before': {
+    transform: 'rotate(-90deg)',
+  },
+})
+
 function language(path: string): Extension {
   const ext = path.split('.').at(-1)?.toLowerCase()
   if (['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'mts', 'cts'].includes(ext ?? ''))
@@ -46,6 +71,7 @@ export function FileEditor({
   const change = useRef(onChange)
   change.current = onChange
   const initial = useRef(content)
+  initial.current = content
   useEffect(() => {
     if (!parent.current) return
     const view = new EditorView({
@@ -53,6 +79,7 @@ export function FileEditor({
       doc: initial.current,
       extensions: [
         basicSetup,
+        foldGutterTheme,
         colors,
         language(path),
         EditorState.readOnly.of(!editable),

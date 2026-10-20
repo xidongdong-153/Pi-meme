@@ -1,5 +1,5 @@
-import { lazy, Suspense, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
-import { ChevronDown, ChevronRight, PanelLeft, RefreshCw, Save, Search } from 'lucide-react'
+import { lazy, Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { ChevronRight, PanelLeft, RefreshCw, Save, Search } from 'lucide-react'
 import Markdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { FileEntry, WorkspaceRef } from '@pi-meme/contracts/app-host'
@@ -27,7 +27,12 @@ export function FilesPanel({ store, target }: Pick<UiContributionProps, 'target'
 function Browser({ store, root }: { store: FileStore; root: WorkspaceRef }) {
   const state = useSyncExternalStore(store.subscribe, () => store.state(root))
   const [pending, setPending] = useState<string>()
-  const [preview, setPreview] = useState(false)
+  const [editingPath, setEditingPath] = useState<string>()
+  const preview = editingPath !== state.selected
+  const [treeWidth, setTreeWidth] = useState(176)
+  const treeRef = useRef<HTMLElement>(null)
+  const drag = useRef<{ x: number; width: number } | null>(null)
+  const [resizing, setResizing] = useState(false)
   const dirty = fileDirty(state)
   useEffect(() => {
     void store.loadDirectory(root)
@@ -50,7 +55,10 @@ function Browser({ store, root }: { store: FileStore; root: WorkspaceRef }) {
   }, [store, root])
   function choose(path: string) {
     if (dirty) setPending(path)
-    else void store.select(root, path)
+    else {
+      setEditingPath(undefined)
+      void store.select(root, path)
+    }
   }
   const markdown = /\.(?:md|markdown|mdx)$/i.test(state.selected)
   return (
@@ -68,8 +76,8 @@ function Browser({ store, root }: { store: FileStore; root: WorkspaceRef }) {
           {state.selected || '项目文件'}
           {dirty && <span className="ml-2 text-primary">未保存</span>}
         </span>
-        {markdown && (
-          <Button size="sm" variant="ghost" onClick={() => setPreview(!preview)}>
+        {state.preview?.kind === 'text' && store.canWrite(state) && (
+          <Button size="sm" variant="ghost" onClick={() => setEditingPath(preview ? state.selected : undefined)}>
             {preview ? '编辑' : '预览'}
           </Button>
         )}
@@ -84,7 +92,7 @@ function Browser({ store, root }: { store: FileStore; root: WorkspaceRef }) {
             <RefreshCw className={cn('size-3.5', state.loading && 'animate-spin')} />
           </Button>
         )}
-        {store.canWrite(state) && (
+        {store.canWrite(state) && (!preview || dirty) && (
           <Button size="sm" variant="ghost" disabled={!dirty || state.saving} onClick={() => void store.save(root)}>
             <Save className="size-3.5" />
             {state.saving ? '保存中' : '保存'}
@@ -97,11 +105,18 @@ function Browser({ store, root }: { store: FileStore; root: WorkspaceRef }) {
         </p>
       )}
       <div className="flex min-h-0 flex-1">
-        {!state.treeHidden && (
-          <aside
-            aria-label="文件目录"
-            className="flex w-40 min-w-28 max-w-[42%] shrink-0 flex-col border-r border-border/70 @min-[600px]:w-52"
-          >
+        <aside
+          ref={treeRef}
+          aria-label="文件目录"
+          aria-hidden={state.treeHidden}
+          inert={state.treeHidden}
+          style={{ width: state.treeHidden ? 0 : treeWidth }}
+          className={cn(
+            'relative flex min-w-0 max-w-[60%] shrink-0 flex-col',
+            !resizing && 'transition-[width] duration-200 ease-out motion-reduce:transition-none',
+          )}
+        >
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden border-r border-border/70">
             <div className="flex items-center gap-1 border-b border-border/60 p-2">
               <div className="relative min-w-0 flex-1">
                 <Search className="pointer-events-none absolute left-2 top-2 size-3.5 text-muted-foreground" />
@@ -162,8 +177,49 @@ function Browser({ store, root }: { store: FileStore; root: WorkspaceRef }) {
                 <Directory store={store} root={root} path="" choose={choose} depth={0} />
               )}
             </div>
-          </aside>
-        )}
+          </div>
+          {!state.treeHidden && (
+            <div
+              role="separator"
+              aria-label="调整文件目录宽度"
+              aria-orientation="vertical"
+              aria-valuemin={112}
+              aria-valuemax={480}
+              aria-valuenow={treeWidth}
+              tabIndex={0}
+              className="absolute inset-y-0 right-0 z-10 w-2 translate-x-1/2 touch-none cursor-col-resize hover:bg-primary/20 focus-visible:bg-primary/20 focus-visible:outline-none"
+              onPointerDown={(event) => {
+                if (event.button !== 0) return
+                event.preventDefault()
+                event.currentTarget.setPointerCapture(event.pointerId)
+                drag.current = { x: event.clientX, width: treeRef.current!.getBoundingClientRect().width }
+                setResizing(true)
+              }}
+              onPointerMove={(event) => {
+                if (!drag.current) return
+                const max = Math.min(480, (treeRef.current?.parentElement?.clientWidth ?? 800) * 0.6)
+                setTreeWidth(Math.min(max, Math.max(112, drag.current.width + event.clientX - drag.current.x)))
+              }}
+              onPointerUp={(event) => {
+                if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                  event.currentTarget.releasePointerCapture(event.pointerId)
+                }
+                drag.current = null
+                setResizing(false)
+              }}
+              onLostPointerCapture={() => {
+                drag.current = null
+                setResizing(false)
+              }}
+              onKeyDown={(event) => {
+                if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return
+                event.preventDefault()
+                const max = Math.min(480, (treeRef.current?.parentElement?.clientWidth ?? 800) * 0.6)
+                setTreeWidth((width) => Math.min(max, Math.max(112, width + (event.key === 'ArrowRight' ? 16 : -16))))
+              }}
+            />
+          )}
+        </aside>
         <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
           {state.loading ? (
             <p role="status" className="p-5 text-muted-foreground">
@@ -186,7 +242,7 @@ function Browser({ store, root }: { store: FileStore; root: WorkspaceRef }) {
                   key={`${state.selected}:${state.loadId}`}
                   path={state.selected}
                   content={state.draft}
-                  editable={store.canWrite(state)}
+                  editable={!preview && store.canWrite(state)}
                   onChange={(value) => store.edit(root, value)}
                 />
               </Suspense>
@@ -228,6 +284,7 @@ function Browser({ store, root }: { store: FileStore; root: WorkspaceRef }) {
               onClick={() => {
                 const path = pending!
                 setPending(undefined)
+                setEditingPath(undefined)
                 void store.select(root, path)
               }}
             >
@@ -239,6 +296,7 @@ function Browser({ store, root }: { store: FileStore; root: WorkspaceRef }) {
                 const path = pending!
                 if ((await store.save(root)) && !fileDirty(store.state(root))) {
                   setPending(undefined)
+                  setEditingPath(undefined)
                   await store.select(root, path)
                 }
               }}
@@ -294,6 +352,7 @@ function Entry({
   const state = store.state(root)
   const directory = entry.kind === 'directory'
   const expanded = state.expanded.includes(entry.relativePath)
+  const [visited, setVisited] = useState(expanded)
   return (
     <li>
       <button
@@ -301,7 +360,12 @@ function Entry({
         aria-label={`${directory ? '目录' : '打开文件'}：${entry.relativePath}`}
         aria-expanded={directory ? expanded : undefined}
         aria-current={!directory && state.selected === entry.relativePath ? 'true' : undefined}
-        onClick={() => (directory ? store.toggleDirectory(root, entry.relativePath) : choose(entry.relativePath))}
+        onClick={() => {
+          if (directory) {
+            setVisited(true)
+            store.toggleDirectory(root, entry.relativePath)
+          } else choose(entry.relativePath)
+        }}
         style={{ paddingLeft: 8 + depth * 12 }}
         className={cn(
           'flex h-8 w-full items-center gap-1.5 pr-2 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring',
@@ -312,19 +376,33 @@ function Entry({
         title={entry.relativePath}
       >
         {directory ? (
-          expanded ? (
-            <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
-          ) : (
-            <ChevronRight className="size-3 shrink-0 text-muted-foreground" />
-          )
+          <ChevronRight
+            className={cn(
+              'size-3 shrink-0 text-muted-foreground transition-transform duration-200 motion-reduce:transition-none',
+              expanded && 'rotate-90',
+            )}
+          />
         ) : (
           <span className="w-3 shrink-0" />
         )}
         <FileIcon path={entry.name} directory={directory} expanded={expanded} />
         <span className="truncate">{entry.name}</span>
       </button>
-      {directory && expanded && (
-        <Directory store={store} root={root} path={entry.relativePath} choose={choose} depth={depth + 1} />
+      {directory && (
+        <div
+          aria-hidden={!expanded}
+          inert={!expanded}
+          className={cn(
+            'grid transition-[grid-template-rows,opacity] duration-200 ease-out motion-reduce:transition-none',
+            expanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0',
+          )}
+        >
+          <div className="min-h-0 overflow-hidden">
+            {(visited || expanded) && (
+              <Directory store={store} root={root} path={entry.relativePath} choose={choose} depth={depth + 1} />
+            )}
+          </div>
+        </div>
       )}
     </li>
   )
