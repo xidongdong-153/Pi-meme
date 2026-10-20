@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   app: {
     isPackaged: true,
     getPath: vi.fn(() => '/fixture/application-support/pi-meme'),
+    commandLine: { hasSwitch: vi.fn(() => true) },
     requestSingleInstanceLock: vi.fn(() => true),
     whenReady: vi.fn(),
     on: vi.fn(),

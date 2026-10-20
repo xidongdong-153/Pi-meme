@@ -96,10 +96,19 @@ test.each([
   ['remote', 'disconnected'],
 ] as const)('服务 %s 的缓存状态为 %s 时仍能尝试切换会话', async (id, status) => {
   const { controller, source } = await setup(id, status)
+  let finishSwitch!: (changed: boolean) => void
+  vi.mocked(controller.switchSession).mockImplementationOnce(
+    () =>
+      new Promise<boolean>((resolve) => {
+        finishSwitch = resolve
+      }),
+  )
   fireEvent.click(screen.getByText(`${id} 会话 A`))
   await waitFor(() => expect(controller.switchSession).toHaveBeenCalledExactlyOnceWith(`/${id}-A.jsonl`))
+  expect(screen.getByTestId('active-service').getAttribute('data-service')).toBe('local')
+  await act(async () => finishSwitch(true))
+  await waitFor(() => expect(screen.getByTestId('active-service').getAttribute('data-service')).toBe(id))
   expect(source.setError).not.toHaveBeenCalled()
-  expect(screen.getByTestId('active-service').getAttribute('data-service')).toBe(id)
 })
 
 test('一个会话切换失败不阻止随后切换其他会话，也不自动重放失败操作', async () => {
