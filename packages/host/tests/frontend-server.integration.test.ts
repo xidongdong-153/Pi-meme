@@ -18,6 +18,8 @@ async function fixture() {
     path.join(ui, 'index.html'),
     '<!doctype html><title>随包界面</title><script type="importmap">{}</script>',
   )
+  await writeFile(path.join(ui, 'favicon.ico'), 'fake-ico')
+  await writeFile(path.join(ui, 'site.webmanifest'), '{}')
   let host = await startHostServer({ dataRoot: path.join(root, 'data'), testCredentials: true, localAutoLogin: true })
   const frontend = await startFrontendServer({
     upstreamUrl: host.url,
@@ -55,6 +57,12 @@ test('API-only Host 可服务独立随包界面，同源认证和插件资源正
     const html = await fetch(f.frontend.url)
     assert.match(await html.text(), /随包界面/)
     assert.match(html.headers.get('content-security-policy')!, /sha256-/)
+    const ico = await fetch(`${f.frontend.url}/favicon.ico`)
+    assert.equal(ico.status, 200)
+    assert.equal(ico.headers.get('content-type'), 'image/x-icon')
+    const manifest = await fetch(`${f.frontend.url}/site.webmanifest`)
+    assert.equal(manifest.status, 200)
+    assert.equal(manifest.headers.get('content-type'), 'application/manifest+json')
     assert.equal((await fetch(`${f.frontend.url}/api/rpc`, { method: 'POST' })).status, 401)
     const client = await createNodeHostClient({
       url: f.frontend.url,

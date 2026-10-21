@@ -14,6 +14,8 @@ export const frontendMime: Record<string, string> = {
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
   '.woff2': 'font/woff2',
+  '.ico': 'image/x-icon',
+  '.webmanifest': 'application/manifest+json',
 }
 
 export async function serveFrontend(requestPath: string, options: { staticDirectory?: string; frontendUrl?: string }) {

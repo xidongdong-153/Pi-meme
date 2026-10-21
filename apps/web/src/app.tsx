@@ -12,6 +12,7 @@ import { Button } from '@pi-meme/ui/components/ui/button'
 import { Input } from '@pi-meme/ui/components/ui/input'
 import type { DesktopBridge } from '@pi-meme/contracts/desktop'
 import type { PluginClient } from '@pi-meme/client/plugin-client'
+import { BrandMark } from '@pi-meme/ui/components/brand-mark'
 
 type DirectoryRequest = {
   load: (path?: string) => Promise<HostDirectory>
@@ -200,9 +201,13 @@ function ConnectedWebApp() {
         <main className="flex min-h-screen items-center justify-center bg-background px-6 text-foreground">
           <form
             onSubmit={(event) => void submit(event).catch((cause: unknown) => setError(String(cause)))}
-            className="w-full max-w-sm space-y-4 rounded-xl border border-border p-6"
+            className="w-full max-w-sm space-y-4 rounded-xl border border-border p-6 shadow-sm"
           >
-            <h1 className="text-lg font-semibold">登录 Pi meme</h1>
+            <div className="flex flex-col items-center gap-2 text-center pb-2">
+              <BrandMark size={44} />
+              <h1 className="text-lg font-semibold tracking-tight">登录 Pi meme</h1>
+              <p className="text-xs text-muted-foreground">输入访问令牌连接本地或远程 Host</p>
+            </div>
             <label className="block space-y-2 text-sm">
               访问令牌
               <Input
