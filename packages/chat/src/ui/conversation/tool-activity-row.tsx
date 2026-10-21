@@ -112,10 +112,14 @@ export function ToolActivityRow({
     !script &&
     !diff &&
     !item.children?.length &&
-    !item.source &&
-    !item.sourceEntry
+    !item.source
   )
-    return <div className={className}>{imagePreviews}</div>
+    return (
+      <div className={cn('flex items-start gap-1', className)}>
+        {imagePreviews}
+        {actions === undefined ? actionAnchor && <PluginMessageActions {...actionAnchor} /> : actions}
+      </div>
+    )
 
   return (
     <div className={cn('text-xs select-none', className)}>

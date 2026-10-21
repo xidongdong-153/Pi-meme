@@ -220,8 +220,8 @@ export function SidebarMenus({
                   ? '仅修改显示名称，磁盘目录不变。'
                   : '修改此会话的显示名称。'
                 : project
-                  ? `将停止所属会话的活动服务，永久删除 ${preview?.paths.length ?? '…'} 个会话，并移除项目。项目目录、代码和附件文件保留。此操作无法撤销。`
-                  : '将停止此会话的活动服务，并永久删除会话及其全部消息分支。此操作无法撤销。'}
+                  ? `将停止所属会话中正在运行或暂停的任务及活动服务，永久删除 ${preview?.paths.length ?? '…'} 个会话，并移除项目。项目目录、代码和附件文件保留。此操作无法撤销。`
+                  : '将停止此会话中正在运行或暂停的任务及活动服务，并永久删除会话及其全部消息分支。此操作无法撤销。'}
             </DialogDescription>
           </DialogHeader>
           {project && <p className="text-xs text-muted-foreground break-all">{project.cwd}</p>}
@@ -283,8 +283,6 @@ function MenuItems({ target, kind }: { target: MenuTarget; kind: 'context' | 'dr
   const SubContent = kind === 'context' ? Context.ContextMenuSubContent : Dropdown.DropdownMenuSubContent
   const path = target.kind === 'project' ? target.project.cwd : target.session.path
   const pinned = menus.pinnedPaths.includes(path)
-  const running =
-    target.kind === 'project' ? target.project.sessions.some((session) => session.running) : target.session.running
   return (
     <>
       {target.kind === 'project' && (
@@ -329,16 +327,10 @@ function MenuItems({ target, kind }: { target: MenuTarget; kind: 'context' | 'dr
         </>
       )}
       <Separator />
-      <Item
-        disabled={running}
-        title={running ? '请先停止任务' : undefined}
-        className="text-destructive"
-        onSelect={() => menus.remove(target)}
-      >
+      <Item className="text-destructive" onSelect={() => menus.remove(target)}>
         <Trash2 />
         {target.kind === 'project' ? '移除项目并删除全部会话' : '永久删除'}
       </Item>
-      {running && <div className="px-2.5 py-1 text-xs text-muted-foreground">请先停止任务</div>}
     </>
   )
 }

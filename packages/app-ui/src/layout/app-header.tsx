@@ -124,7 +124,7 @@ export function AppHeader({
     <div className="flex h-full min-w-0 w-full items-center justify-between window-drag select-none bg-transparent">
       {/* 分区 1：左顶栏（宽度 = 50px AppRail + var(--workspace-sidebar-width)，与下方左侧栏精确对齐） */}
       <div
-        className="flex h-full min-w-max shrink-0 items-center justify-between pr-3 no-drag bg-transparent relative"
+        className="flex h-full min-w-max shrink-0 items-center justify-between pr-3 bg-transparent relative"
         style={{ width: 'calc(50px + var(--workspace-sidebar-width))' }}
       >
         <SidebarTools nativeWindow={nativeWindow} sidebarOpen={sidebarOpen} onToggleSidebar={onToggleSidebar} />
@@ -133,7 +133,7 @@ export function AppHeader({
       </div>
 
       {/* 分区 2：中间顶栏（flex-1，与下方主会话画布精确对齐） */}
-      <div className="flex h-full items-center justify-between min-w-0 flex-1 px-4 no-drag bg-transparent">
+      <div className="flex h-full items-center justify-between min-w-0 flex-1 px-4 bg-transparent">
         <div className="flex items-center gap-1.5 min-w-0">
           <button
             type="button"

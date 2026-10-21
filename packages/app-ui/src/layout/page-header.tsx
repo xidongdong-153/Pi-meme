@@ -33,9 +33,9 @@ export function PageHeaderNavigation({
   const backDisabled = !back || back.disabled
 
   return (
-    <div className="no-drag flex h-full min-w-0 shrink-0 items-center gap-1.5 pl-3">
+    <div className="flex h-full min-w-0 shrink-0 items-center gap-1.5 pl-3">
       {nativeWindow && isMac && <div className="w-[74px] shrink-0" aria-hidden="true" />}
-      <div className="flex shrink-0 items-center gap-0.5">
+      <div className="no-drag flex shrink-0 items-center gap-0.5">
         <Tooltip>
           <TooltipTrigger asChild>
             <span

@@ -274,6 +274,7 @@ test('成功查看图片直接显示可预览的小图，不再显示工具输�
           ],
         },
         status: 'success',
+        sourceEntry: { id: 'image-entry', type: 'message', revision: 'r1' },
       }}
       open={false}
       onToggle={vi.fn()}

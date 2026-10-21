@@ -466,7 +466,13 @@ export class PiSessionPool implements PiRuntime {
             paths.includes(item.record.key),
         )
         .map((item) => item.record)
-      this.assertMutable(records)
+      if (
+        this.changing ||
+        records.some(
+          (record) => record.starting || record.accessChanging || record.session.connection().status === 'connecting',
+        )
+      )
+        throw new Error('目标会话正在初始化或修改配置，请稍后重试')
       for (const record of records) {
         if (!paths.includes(record.key)) this.assertPathAvailable(record.key)
         this.mutatingPaths.add(record.key)
@@ -474,7 +480,20 @@ export class PiSessionPool implements PiRuntime {
       }
       await Promise.all(
         records.map(async (record) => {
+          record.cancelledPrompt = true
+          await this.aborts.get(record.key)
+          await this.collaboration?.stop(record.key)
           await record.session.stopAndWait()
+          record.running = false
+          record.pendingPrompt = false
+          record.state = {
+            ...record.state,
+            isStreaming: false,
+            isCompacting: false,
+            isPaused: false,
+            queuePaused: false,
+          }
+          record.queue = undefined
           record.dormant = true
           record.extensions.clear()
         }),
@@ -1529,6 +1548,7 @@ export class PiSessionPool implements PiRuntime {
       await this.ensureRuntime(record, normalized.mode)
       if (record.cancelledPrompt || !this.sessions.has(record.key)) throw new Error('消息发送已取消')
       await this.collaboration?.beforePrompt(sessionKey, { mode: normalized.mode, message })
+      if (record.cancelledPrompt || !this.sessions.has(record.key)) throw new Error('消息发送已取消')
       record.state.activeMode = normalized.mode
       const result = recoveryEntryId
         ? await record.session.recover(recoveryEntryId)

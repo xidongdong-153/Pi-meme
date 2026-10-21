@@ -70,26 +70,18 @@ test('删除当前会话后，仍指向旧会话的视图读快照不会碰到�
   }
 })
 
-test('运行中拒绝删除和改名，空闲删除等待运行结束，操作期间拒绝发送和选择', async () => {
-  const pool = await poolFor('busy')
+test.each([false, true])('删除运行或暂停中的会话会先停止运行，操作期间拒绝发送和选择：暂停 %s', async (paused) => {
+  const pool = await poolFor(`busy-${paused}`)
   try {
     const key = pool.connection().sessionKey!
     await pool.prompt(key, '运行中的任务 slow')
+    const runtime = pool.getRuntimeSession(key)
     const file = pool.getActiveSession().sessionFile!
-    let invoked = false
-    await assert.rejects(
-      pool.deleteSessions([file], undefined, async () => {
-        invoked = true
-        return { deletedPaths: [file], errors: [] }
-      }),
-      /请先停止任务/,
-    )
-    assert.equal(invoked, false)
     await assert.rejects(pool.renameSession(file, '新名称'), /请先停止任务/)
-    await pool.abort(key)
-    await idle(pool)
-    await pool.renameSession(file, '空闲会话')
-    assert.equal((await pool.snapshot()).state.sessionName, '空闲会话')
+    if (paused) {
+      await pool.pause(key)
+      assert.equal((await pool.snapshot()).state.isPaused, true)
+    }
     let release!: () => void
     let entered!: () => void
     const started = new Promise<void>((resolve) => {
@@ -99,11 +91,12 @@ test('运行中拒绝删除和改名，空闲删除等待运行结束，操作�
       release = resolve
     })
     const deleting = pool.deleteSessions([file], undefined, async () => {
+      assert.equal(runtime.connection().status, 'disconnected')
       entered()
       await gate
       return { deletedPaths: [file], errors: [] }
     })
-    await started
+    await Promise.race([started, deleting])
     await assert.rejects(pool.prompt(key, '禁止复活'), /正在修改或删除会话/)
     await assert.rejects(pool.switchSession(file), /正在修改或删除会话/)
     await assert.rejects(
@@ -124,9 +117,7 @@ test('运行中拒绝删除和改名，空闲删除等待运行结束，操作�
 test('项目删除期间锁定目标目录，其他项目继续运行，部分失败保留失败会话', async () => {
   const pool = await poolFor('project-lock')
   try {
-    await pool.prompt(pool.connection().sessionKey!, '目标项目任务')
-    await pool.abort(pool.connection().sessionKey!)
-    await idle(pool)
+    await pool.prompt(pool.connection().sessionKey!, '目标项目任务 slow')
     const target = pool.cwd
     const file = pool.getActiveSession().sessionFile!
     const other = path.join(root, 'other-project')
