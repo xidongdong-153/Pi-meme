@@ -21,6 +21,7 @@
     "./ui/composer/use-composer-files": "./src/ui/composer/use-composer-files.ts",
     "./ui/composer/use-command-completion": "./src/ui/composer/use-command-completion.ts",
     "./ui/content/attachment-preview": "./src/ui/content/attachment-preview.tsx",
+    "./ui/content/image-viewer": "./src/ui/content/image-viewer.tsx",
     "./ui/content/code-block": "./src/ui/content/code-block.tsx",
     "./ui/content/markdown-components": "./src/ui/content/markdown-components.tsx",
     "./ui/content/markdown-content": "./src/ui/content/markdown-content.tsx",

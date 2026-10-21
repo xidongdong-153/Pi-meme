@@ -6,6 +6,7 @@ import type { SessionHistoryData } from '@pi-meme/contracts/sessions'
 
 import { branchSkillUsages } from './extensions/skill-usage'
 import { projectBranchEntries } from './session-tree-entries'
+import { projectBranchAttachments } from './session-attachments'
 import { projectStableMessageMetadata } from './sdk/message-projection'
 import { loadPiSdk } from './sdk/load'
 import { findSessionRecovery } from './sdk/recovery'
@@ -188,6 +189,7 @@ export async function readSessionHistory(filePath: string): Promise<SessionHisto
         entries: projectBranchEntries(history),
         leafId: history.at(-1)?.id ?? null,
       },
+      branchAttachments: projectBranchAttachments(history, history.at(-1)?.id ?? null),
       sessionName: sessionName?.type === 'session_info' ? sessionName.name : undefined,
       parentSessionPath: header.parentSession,
       model: context.model ? { provider: context.model.provider, id: context.model.modelId } : undefined,

@@ -813,6 +813,7 @@ export function useAppSession(
     pluginMentions: chat.pluginMentions,
     setPluginMentions: chat.setPluginMentions,
     attachments: chat.attachments,
+    sendingAttachments: chat.sendingAttachments,
     queueMode: chat.queueMode,
     ...extensions,
     extensionDialogs: switching ? [] : extensions.extensionDialogs,

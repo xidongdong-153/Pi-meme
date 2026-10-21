@@ -1,4 +1,5 @@
 import type { PiMessage, PiModel, PiRecoveryState, PiSessionEntries, PiSessionStats, ThinkingLevel } from './pi'
+import type { ChatBranchAttachment } from './chat-attachments'
 import type { BranchSkillUsage } from './skills'
 import type { SessionInfo } from '@earendil-works/pi-coding-agent'
 
@@ -57,4 +58,5 @@ export type SessionHistoryData = {
   model?: PiModel
   thinkingLevel?: ThinkingLevel
   stats?: PiSessionStats
+  branchAttachments?: ChatBranchAttachment[]
 }

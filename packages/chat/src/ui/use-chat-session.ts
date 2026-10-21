@@ -84,6 +84,7 @@ export function useChatSession(options: ChatSessionOptions) {
     ) => Promise<{ composer: ComposerDraftState; records: readonly ComposerProcessingRecord[] } | null>
   } | null>(null)
   const preparingSubmission = useRef(false)
+  const [sendingAttachments, setSendingAttachments] = useState<Attachment[]>([])
   const [failedDrafts, setFailedDrafts] = useState<Array<{ sessionKey: string; composer: ComposerSnapshot }>>([])
   const [goalDraft, setGoalDraft] = useState<ComposerSnapshot['goalDraft']>()
   const [goalOpen, setGoalOpen] = useState(false)
@@ -206,6 +207,7 @@ export function useChatSession(options: ChatSessionOptions) {
     setSelectedSkills([])
     setPluginMentions([])
     setAttachments([])
+    setSendingAttachments([])
     promptPending.current = false
     setEditingTimestamp(null)
     editRestore.current = null
@@ -567,6 +569,7 @@ export function useChatSession(options: ChatSessionOptions) {
         queueMode,
         ...(pluginMentions.length ? { pluginMentions } : {}),
       })
+      if (attachments.length > 0) setSendingAttachments((current) => [...current, ...attachments])
       onError('')
       dismissComposerHint()
       composerStore.patch({ draft: '', selectedSkills: [], pluginMentions: [], attachments: [] })
@@ -621,6 +624,8 @@ export function useChatSession(options: ChatSessionOptions) {
         }
         return false
       } finally {
+        if (attachments.length > 0)
+          setSendingAttachments((current) => current.filter((item) => !attachments.includes(item)))
         finishSend?.()
       }
     },
@@ -1014,6 +1019,7 @@ export function useChatSession(options: ChatSessionOptions) {
     pluginAnchors,
     setPluginMentions,
     attachments,
+    sendingAttachments,
     setAttachments,
     queueMode,
     setQueueMode,

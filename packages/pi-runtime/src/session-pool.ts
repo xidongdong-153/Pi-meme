@@ -93,6 +93,7 @@ type RuntimeSession = {
   firstMessage?: string
   messages: PiMessage[]
   sessionEntries?: Snapshot['sessionEntries']
+  branchAttachments?: Snapshot['branchAttachments']
   sequence: number
   executionRunId?: string
   executionGeneration: number
@@ -712,6 +713,7 @@ export class PiSessionPool implements PiRuntime {
       name: history?.sessionName,
       messages: history?.messages.slice() ?? [],
       sessionEntries: history?.sessionEntries,
+      branchAttachments: history?.branchAttachments?.slice(),
       stats: history?.stats,
       sequence: 0,
       executionGeneration: 0,
@@ -1081,6 +1083,7 @@ export class PiSessionPool implements PiRuntime {
           if (selection !== this.selection) return { cancelled: true }
           existing.messages = history.messages.slice()
           existing.sessionEntries = history.sessionEntries
+          existing.branchAttachments = history.branchAttachments?.slice()
           existing.name = history.sessionName
           existing.state = {
             ...existing.state,
@@ -1181,6 +1184,7 @@ export class PiSessionPool implements PiRuntime {
         state: { ...record.state, isStreaming: record.running },
         messages: record.messages,
         sessionEntries: record.sessionEntries,
+        branchAttachments: record.branchAttachments,
         models,
         thinkingLevels: this.thinkingLevels,
         stats: record.stats,
@@ -1299,6 +1303,7 @@ export class PiSessionPool implements PiRuntime {
     }
     record.messages = snapshot.messages.slice()
     record.sessionEntries = snapshot.sessionEntries
+    record.branchAttachments = snapshot.branchAttachments?.slice()
     record.sessionFile = record.session.getActiveSession().sessionFile ?? record.sessionFile
     if (record !== this.active) return
     this.defaults = {

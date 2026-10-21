@@ -1,6 +1,6 @@
 import type { Goal, GoalControl, GoalEdit, GoalEvent, GoalInput, GoalStartResult } from './goal'
 import type { AppSession } from './app-host'
-import type { ChatFileUpload, ChatUploadedFile } from './chat-attachments'
+import type { ChatBranchAttachment, ChatFileUpload, ChatUploadedFile } from './chat-attachments'
 import type { DesktopStorageAdapter, HostStorageInfo } from './storage'
 import type { McpBridge } from './mcp'
 import type {
@@ -171,6 +171,7 @@ export type Snapshot = {
   events?: DesktopEvent[]
   eventSequence?: number
   sessionEntries?: PiSessionEntries
+  branchAttachments?: ChatBranchAttachment[]
 }
 
 export type SessionSelectionResult =

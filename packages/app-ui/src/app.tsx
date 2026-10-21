@@ -51,6 +51,8 @@ import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 import { SessionTreePanel } from '@pi-meme/history/ui/session-tree-panel'
 import { PlanPanel } from './panels/plan-panel'
 import { planExecutionDraft } from './panels/plan-execution-draft'
+import { SourcesPanel } from './panels/sources-panel'
+import { collectSources } from './panels/sources-data'
 import type { RightSidebarTab } from './layout/right-sidebar'
 import type { PluginClient } from '@pi-meme/client/plugin-client'
 import type { UiContributionProps, UiPluginDescriptor, UiPluginSlot, UiPanel, UiTarget } from '@pi-meme/plugin-sdk/ui'
@@ -68,7 +70,7 @@ import { PluginSlot } from './plugins/plugin-slot'
 import { WorkspacePanels } from './layout/workspace-panels'
 import { sessionUiTarget } from './layout/panel-layout'
 import { useAgentPluginSelection } from './plugins/use-agent-plugin-selection'
-import { Activity, FileDiff, Folder, TerminalSquare, Network, ListTree, NotebookPen } from 'lucide-react'
+import { Activity, FileDiff, Folder, TerminalSquare, Network, ListTree, NotebookPen, GitFork } from 'lucide-react'
 import type { HostApi, AppSession } from '@pi-meme/contracts/app-host'
 import { CustomizationPage } from './plugins/customization-page'
 import { PluginPage } from './settings/plugin-page'
@@ -1082,6 +1084,25 @@ export function App({
       />
     </WorkspaceContent>
   )
+  const sources = useMemo(
+    () =>
+      collectSources({
+        branchAttachments: chat.chat.branchAttachments,
+        steering: chat.chat.steering,
+        followUp: chat.chat.followUp,
+        sending: chat.sendingAttachments,
+        draft: chat.attachments,
+        failed: chat.failedDrafts.flatMap((d) => d.attachments),
+      }),
+    [
+      chat.chat.branchAttachments,
+      chat.chat.steering,
+      chat.chat.followUp,
+      chat.sendingAttachments,
+      chat.attachments,
+      chat.failedDrafts,
+    ],
+  )
   const panels: UiPanel[] = [
     {
       id: 'builtin:activities',
@@ -1193,6 +1214,23 @@ export function App({
             location: 'right' as const,
             scope: 'session' as const,
             render: () => <SessionTreePanel sessionEntries={chat.chat.sessionEntries} />,
+          },
+        ]
+      : []),
+    ...(sources.length > 0
+      ? [
+          {
+            id: 'builtin:sources',
+            title: '来源',
+            icon: <GitFork />,
+            location: 'right' as const,
+            scope: 'session' as const,
+            render: (props: UiContributionProps) =>
+              props.target.session ? (
+                <MessageImageLoaderContext value={loadConversationImage}>
+                  <SourcesPanel sources={sources} />
+                </MessageImageLoaderContext>
+              ) : null,
           },
         ]
       : []),

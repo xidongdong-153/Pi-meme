@@ -2,7 +2,9 @@ import type { GoalEvent } from '@pi-meme/contracts/goal'
 import type { CollaborationEvent } from '@pi-meme/contracts/collaboration'
 import type { PlanEvent } from '@pi-meme/contracts/plan'
 import type { AgentAccessEvent } from '@pi-meme/contracts/agent-access'
-import type { PiEvent, PiMessage, PiRunInterval } from '@pi-meme/contracts/pi'
+import type { PiEvent, PiImage, PiMessage, PiRunInterval } from '@pi-meme/contracts/pi'
+import type { ChatBranchAttachment } from '@pi-meme/contracts/chat-attachments'
+import { messageAttachmentParts } from '@pi-meme/contracts/chat-attachments'
 import type { Snapshot, DesktopEvent } from '@pi-meme/contracts/desktop'
 import type { ChatState } from './types'
 import { sameMessage } from './message-text'
@@ -30,6 +32,7 @@ export function fromSnapshot(snapshot: Snapshot): ChatState {
     agents: snapshot.agents ?? [],
     agentMessages: snapshot.agentMessages ?? [],
     sessionEntries: snapshot.sessionEntries,
+    branchAttachments: snapshot.branchAttachments ?? [],
     skillUsages: snapshot.state.skillUsages,
     running: snapshot.state.isStreaming || isCompacting || Boolean(snapshot.state.retry),
     paused: snapshot.state.isPaused ?? false,
@@ -72,6 +75,42 @@ export function fromSnapshot(snapshot: Snapshot): ChatState {
     if (message.role === 'toolResult') restoreNestedTools(state, message)
   }
   return state
+}
+
+function extractMessageAttachments(message: PiMessage): ChatBranchAttachment[] {
+  if (message.role !== 'user') return []
+  const entryId = message.sourceEntry?.id ?? String(message.timestamp)
+  let text = ''
+  const images: PiImage[] = []
+  if (typeof message.content === 'string') {
+    text = message.content
+  } else if (Array.isArray(message.content)) {
+    for (const part of message.content) {
+      if (part && typeof part === 'object' && 'type' in part) {
+        if (part.type === 'text' && 'text' in part && typeof part.text === 'string') text += part.text
+        else if (part.type === 'image' && 'data' in part && 'mimeType' in part) images.push(part)
+      }
+    }
+  }
+  const { attachments: files } = messageAttachmentParts(text)
+  const result: ChatBranchAttachment[] = []
+  for (let i = 0; i < files.length; i++) {
+    result.push({
+      id: `${entryId}:file:${i}`,
+      entryId,
+      name: files[i].name,
+      path: files[i].path,
+    })
+  }
+  for (let i = 0; i < images.length; i++) {
+    result.push({
+      id: `${entryId}:image:${i}`,
+      entryId,
+      name: '图片',
+      image: images[i],
+    })
+  }
+  return result
 }
 
 function restoreNestedTools(
@@ -290,6 +329,16 @@ export function applyEvent(
         }
       }
       if (message.role === 'toolResult') restoreNestedTools(next, message)
+      if (message.role === 'user') {
+        const added = extractMessageAttachments(message)
+        if (added.length) {
+          const existingIds = new Set((state.branchAttachments ?? []).map((a) => a.id))
+          const newItems = added.filter((a) => !existingIds.has(a.id))
+          if (newItems.length) {
+            next.branchAttachments = [...(state.branchAttachments ?? []), ...newItems]
+          }
+        }
+      }
       return next
     }
     case 'tool_execution_start':

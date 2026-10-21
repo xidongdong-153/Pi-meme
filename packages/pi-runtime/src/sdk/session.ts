@@ -44,6 +44,7 @@ import type {
 } from '@pi-meme/contracts/pi'
 import { projectAgentConversation } from '../agent-conversation'
 import { projectBranchEntries } from '../session-tree-entries'
+import { projectBranchAttachments } from '../session-attachments'
 import { createAgentAccessExtension } from '../extensions/agent-access'
 import { expandSkills } from '../skill-prompt'
 import { toResourceSkillCommand } from '../skill-command'
@@ -1016,6 +1017,7 @@ export class SdkSession {
         entries: projectBranchEntries(entries.entries, entries.leafId),
         leafId: entries.leafId,
       },
+      branchAttachments: projectBranchAttachments(entries.entries, entries.leafId),
     }
   }
 
