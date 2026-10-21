@@ -25,6 +25,7 @@ function project(sessions: PiSessionSummary[]): PiProjectGroup {
 function render(children: ReactNode) {
   return renderToStaticMarkup(
     createElement(SidebarMenus, {
+      canOpenProject: false,
       bridge: {} as SidebarMenuBridge,
       pinnedPaths: [],
       onNewSession: noop,

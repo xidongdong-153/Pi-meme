@@ -4,6 +4,7 @@ import { afterEach, expect, test, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { DesktopProject, PiSessionsSnapshot } from '@pi-meme/contracts/sessions'
 import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
+import { Sidebar } from '@pi-meme/workspace/ui/sidebar/sidebar'
 import { ProjectsPage } from '../src/projects/projects-page'
 
 afterEach(cleanup)
@@ -40,7 +41,7 @@ function renderPage(overrides: Partial<Omit<ComponentProps<typeof ProjectsPage>,
       getProjects: vi.fn(async () => projects),
       pickProjectDirectory: vi.fn(async () => '/work/new-project'),
       onSessionsChanged: vi.fn((_callback: () => void) => () => {}),
-      getProjectApps: vi.fn(async () => []),
+      getProjectApps: vi.fn(async () => [{ id: 'finder' as const, name: '系统文件管理器' }]),
       openProject: vi.fn(async () => {}),
       renameProject: vi.fn(async () => {}),
       previewProjectDeletion: vi.fn(async () => ({ paths: [], warnings: [] })),
@@ -147,6 +148,62 @@ test('项目支持搜索名称和路径，按更新时间排序并展开会话�
   await waitFor(() => expect(props.onNewSession).toHaveBeenCalledWith('/work/alpha'))
   fireEvent.click(screen.getByRole('button', { name: '置顶项目：Alpha 项目' }))
   await waitFor(() => expect(props.onTogglePin).toHaveBeenCalledWith('/work/alpha'))
+})
+
+test.each([false, true])('项目页打开入口遵循本机能力=%s，复制路径始终保留', async (canOpenProject) => {
+  const props = renderPage({ canOpenProject })
+  const more = await screen.findByRole('button', { name: '更多操作：Alpha 项目' })
+  fireEvent.keyDown(more, { key: 'ArrowDown' })
+  expect(screen.getByRole('menuitem', { name: '复制项目路径' })).toBeInTheDocument()
+  if (canOpenProject) {
+    fireEvent.click(screen.getByRole('menuitem', { name: '在…打开' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: '系统文件管理器' }))
+    expect(props.bridge.openProject).toHaveBeenCalledWith('finder', '/work/alpha')
+    expect(props.bridge.getProjectApps).toHaveBeenCalledOnce()
+  } else {
+    expect(screen.queryByRole('menuitem', { name: /在….*打开/ })).not.toBeInTheDocument()
+    expect(props.bridge.getProjectApps).not.toHaveBeenCalled()
+  }
+})
+
+test.each([false, true])('单服务回退侧栏也遵循本机打开能力=%s', (canOpenProject) => {
+  const props = {
+    canOpenProject,
+    menuBridge: {
+      getProjectApps: vi.fn(async () => [{ id: 'finder' as const, name: '系统文件管理器' }]),
+      openProject: vi.fn(async () => {}),
+      renameProject: vi.fn(async () => {}),
+      previewProjectDeletion: vi.fn(async () => ({ paths: [], warnings: [] })),
+      removeProject: vi.fn(async () => ({ deletedPaths: [], deletedKeys: [], errors: [] })),
+      renameSession: vi.fn(async () => {}),
+      deleteSession: vi.fn(async () => ({ deletedPaths: [], deletedKeys: [], errors: [] })),
+    },
+    onSelectProject: vi.fn(),
+    onMenuChanged: vi.fn(async () => {}),
+    onMenuDeleted: vi.fn(async () => {}),
+    projectName: 'Alpha 项目',
+    cwd: '/work/alpha',
+    ready: true,
+    status: 'ready',
+    sessionsSnapshot: sessions,
+    sessionsLoading: false,
+    onDirectory: vi.fn(),
+    onNewSession: vi.fn(),
+    onNewSessionInProject: vi.fn(),
+    onSwitchSession: vi.fn(),
+    onTogglePin: vi.fn(),
+    onPrefetchSession: vi.fn(),
+    onSettings: vi.fn(),
+  }
+  render(
+    <TooltipProvider>
+      <Sidebar {...props} />
+    </TooltipProvider>,
+  )
+  fireEvent.keyDown(screen.getByRole('button', { name: '更多操作：Alpha 项目' }), { key: 'ArrowDown' })
+  expect(screen.getByRole('menuitem', { name: '复制项目路径' })).toBeInTheDocument()
+  expect(Boolean(screen.queryByRole('menuitem', { name: '在…打开' }))).toBe(canOpenProject)
+  expect(props.menuBridge.getProjectApps).toHaveBeenCalledTimes(canOpenProject ? 1 : 0)
 })
 
 test('刷新期间保留项目行，读取失败保留列表并显示错误', async () => {

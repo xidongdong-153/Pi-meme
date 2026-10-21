@@ -32,6 +32,9 @@ export type SidebarMenuBridge = Pick<
 type MenuState = {
   pinnedPaths: string[]
   apps: ProjectApp[]
+  canOpenProject: boolean
+  appsLoading: boolean
+  appsError: string
   loadApps: () => void
   onNewSession: (cwd: string) => void
   onTogglePin: (path: string) => void
@@ -58,9 +61,9 @@ export function SidebarMenus({
   onTogglePin,
   onChanged,
   onDeleted,
-  canOpenProject = true,
+  canOpenProject,
 }: {
-  canOpenProject?: boolean
+  canOpenProject: boolean
   children: ReactNode
   bridge: SidebarMenuBridge
   pinnedPaths: string[]
@@ -70,8 +73,10 @@ export function SidebarMenus({
   onDeleted: (result: WorkspaceDeletionResult) => Promise<void>
 }) {
   const renameFormId = useId()
-  const [apps, setApps] = useState<ProjectApp[]>(canOpenProject ? [{ id: 'finder', name: 'Finder' }] : [])
-  const appsLoading = useRef(false)
+  const [apps, setApps] = useState<ProjectApp[]>([])
+  const [appsLoading, setAppsLoading] = useState(false)
+  const [appsError, setAppsError] = useState('')
+  const appsLock = useRef(false)
   const [action, setAction] = useState<{ kind: 'rename' | 'delete'; target: MenuTarget } | null>(null)
   const [name, setName] = useState('')
   const [preview, setPreview] = useState<{ paths: string[]; warnings: string[] } | null>(null)
@@ -149,19 +154,31 @@ export function SidebarMenus({
     dialogOpening,
     dialogTrigger,
     apps,
+    canOpenProject,
+    appsLoading,
+    appsError,
     onNewSession,
     onTogglePin,
-    loadApps: () => {
-      if (!canOpenProject) return
-      if (appsLoading.current) return
-      appsLoading.current = true
-      void bridge
-        .getProjectApps()
-        .then(setApps)
-        .catch((cause) => {
-          appsLoading.current = false
-          setNotice(String(cause))
-        })
+    loadApps: async () => {
+      if (!canOpenProject || appsLock.current) return
+      appsLock.current = true
+      setAppsLoading(true)
+      setAppsError('')
+      try {
+        setApps(await bridge.getProjectApps())
+      } catch (cause) {
+        const message = cause instanceof Error ? cause.message : String(cause)
+        const prefix = '无法识别本机应用：'
+        setAppsError(message.includes(prefix) ? message.slice(message.indexOf(prefix)) : `${prefix}${message}`)
+        setApps((previous) =>
+          previous.some((app) => app.id === 'finder')
+            ? previous
+            : [{ id: 'finder', name: '系统文件管理器' }, ...previous],
+        )
+      } finally {
+        appsLock.current = false
+        setAppsLoading(false)
+      }
     },
     rename: (target) => prepare('rename', target),
     remove: (target) => prepare('delete', target),
@@ -307,19 +324,27 @@ function MenuItems({ target, kind }: { target: MenuTarget; kind: 'context' | 'dr
             <Pencil />
             编辑名称
           </Item>
-          <Sub>
-            <SubTrigger>
-              <FolderOpen />
-              在…中打开
-            </SubTrigger>
-            <SubContent>
-              {menus.apps.map((app) => (
-                <Item key={app.id} onSelect={() => menus.open(app.id, target.project.cwd)}>
-                  {app.name}
-                </Item>
-              ))}
-            </SubContent>
-          </Sub>
+          {menus.canOpenProject && (
+            <Sub>
+              <SubTrigger>
+                <FolderOpen />
+                在…打开
+              </SubTrigger>
+              <SubContent>
+                {menus.appsLoading && !menus.apps.length && <Item disabled>正在识别应用…</Item>}
+                {menus.appsError && (
+                  <div role="alert" className="px-2.5 py-2 text-xs text-destructive break-words">
+                    {menus.appsError}
+                  </div>
+                )}
+                {menus.apps.map((app) => (
+                  <Item key={app.id} onSelect={() => menus.open(app.id, target.project.cwd)}>
+                    {app.name}
+                  </Item>
+                ))}
+              </SubContent>
+            </Sub>
+          )}
           <Item onSelect={() => menus.copy(target.project.cwd)}>
             <Copy />
             复制项目路径

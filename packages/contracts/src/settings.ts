@@ -1,4 +1,5 @@
 import type { AgentAccessMode } from './agent-access'
+import type { ProjectApp } from './desktop'
 
 export type InstructionKind = 'agents' | 'append-system' | 'system'
 export type InstructionFile = {
@@ -91,7 +92,7 @@ export type DesktopSettings = {
   appearance?: AppearanceSettings
   themeId: string
   pinnedPaths?: string[]
-  preferredProjectApp?: 'finder' | 'vscode' | 'cursor' | 'zed'
+  preferredProjectApp?: ProjectApp['id']
   defaultAccessMode?: AgentAccessMode
   showComposerHint?: boolean
   showContextUsage?: boolean

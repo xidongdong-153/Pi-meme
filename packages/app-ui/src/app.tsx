@@ -981,6 +981,7 @@ export function App({
     <Sidebar
       {...{
         menuBridge: bridge,
+        canOpenProject: localPlatform,
         sidebarSettingsBridge: bridge,
         serviceId: hostId ?? 'local',
         searchEnabled: !settingsOpen && !projectsOpen && !serviceUI,

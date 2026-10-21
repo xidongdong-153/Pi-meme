@@ -65,6 +65,8 @@ const files: Array<[string, Feature[]]> = [
   ['apps/desktop/tests/permissions.e2e.spec.ts', ['permissions']],
   ['apps/desktop/tests/plan.e2e.spec.ts', ['plan', 'subagents']],
   ['apps/desktop/tests/plugins.e2e.spec.ts', ['plugins', 'settings']],
+  ['apps/desktop/tests/project-apps.unit.test.ts', ['desktop', 'workspace']],
+  ['apps/desktop/tests/project-apps-ipc.unit.test.ts', ['desktop', 'workspace', 'connection']],
   ['apps/desktop/tests/queue.e2e.spec.ts', ['chat']],
   ['apps/desktop/tests/remote-auth.unit.test.ts', ['connection']],
   ['apps/desktop/tests/runtime-extensions.unit.test.ts', ['subagents']],

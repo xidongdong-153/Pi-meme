@@ -256,18 +256,18 @@ module.exports = async function sidebarMenuSmoke(window, waitFor, directory, scr
     try {
       await openMore(projectSelector)
       await evaluate(
-        `Array.from(document.querySelectorAll('[role="menuitem"]')).find(node => node.textContent.includes('在…中打开')).focus()`,
+        `Array.from(document.querySelectorAll('[role="menuitem"]')).find(node => node.textContent.includes('在…打开')).focus()`,
       )
       await pressKey('ArrowRight')
       await waitFor(
         () =>
           evaluate(
-            `Array.from(document.querySelectorAll('[role="menuitem"]')).some(node => node.textContent === 'Finder')`,
+            `Array.from(document.querySelectorAll('[role="menuitem"]')).some(node => node.textContent === '系统文件管理器')`,
           ),
         '打开方式子菜单',
       )
       await capture('sidebar-project-open-submenu')
-      await selectItem('Finder')
+      await selectItem('系统文件管理器')
       await waitFor(() => opened === target, '打开菜单所属项目')
       assert.equal(await evaluate('window.piMemeClient.getConnection().then(value => value.cwd)'), other)
     } finally {

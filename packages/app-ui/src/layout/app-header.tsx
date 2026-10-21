@@ -95,16 +95,33 @@ export function AppHeader({
   const isPinned = Boolean(session && menus.pinnedPaths.includes(session.path))
   const [menuOpen, setMenuOpen] = useState(false)
   const [apps, setApps] = useState<ProjectApp[]>([])
+  const [appsLoading, setAppsLoading] = useState(false)
+  const [appsError, setAppsError] = useState('')
+  const appsLock = useRef(false)
   const [copied, setCopied] = useState(false)
+  const effectivePreferredApp = apps.some((app) => app.id === preferredApp) ? preferredApp : 'finder'
 
   async function loadApps(open: boolean) {
     setMenuOpen(open)
     if (open) menus.dialogTrigger.current = trigger.current
-    if (!open || !canOpenProject) return
+    if (!open || !canOpenProject || appsLock.current) return
+    appsLock.current = true
+    setAppsLoading(true)
+    setAppsError('')
     try {
       setApps(await loadProjectApps())
-    } catch {
-      setApps([])
+    } catch (cause) {
+      const message = cause instanceof Error ? cause.message : String(cause)
+      const prefix = '无法识别本机应用：'
+      setAppsError(message.includes(prefix) ? message.slice(message.indexOf(prefix)) : `${prefix}${message}`)
+      setApps((previous) =>
+        previous.some((app) => app.id === 'finder')
+          ? previous
+          : [{ id: 'finder', name: '系统文件管理器' }, ...previous],
+      )
+    } finally {
+      appsLock.current = false
+      setAppsLoading(false)
     }
   }
 
@@ -204,34 +221,41 @@ export function AppHeader({
               {isPinned ? <PinOff /> : <Pin />}
               {isPinned ? '取消置顶' : '置顶'}
             </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger
-                disabled={!canOpenProject}
-                title={canOpenProject ? undefined : '当前连接不支持打开本机项目'}
-              >
-                <ArrowUpRight />
-                在…打开
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent className="w-52">
-                {apps.map((app) => (
-                  <DropdownMenuItem key={app.id} onSelect={() => chooseApp(app.id)}>
-                    <span className="flex-1">{app.name}</span>
-                    {preferredApp === app.id && <span className="text-primary">默认</span>}
-                  </DropdownMenuItem>
-                ))}
+            {canOpenProject && (
+              <>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  onSelect={(event) => {
-                    event.preventDefault()
-                    void copyPath()
-                  }}
-                >
-                  <Copy />
-                  {copied ? '已复制路径' : '复制项目路径'}
-                </DropdownMenuItem>
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
+                <DropdownMenuSub>
+                  <DropdownMenuSubTrigger>
+                    <ArrowUpRight />
+                    在…打开
+                  </DropdownMenuSubTrigger>
+                  <DropdownMenuSubContent className="w-52">
+                    {appsLoading && !apps.length && <DropdownMenuItem disabled>正在识别应用…</DropdownMenuItem>}
+                    {appsError && (
+                      <div role="alert" className="px-2.5 py-2 text-xs text-destructive break-words">
+                        {appsError}
+                      </div>
+                    )}
+                    {apps.map((app) => (
+                      <DropdownMenuItem key={app.id} onSelect={() => chooseApp(app.id)}>
+                        <span className="flex-1">{app.name}</span>
+                        {effectivePreferredApp === app.id && <span className="text-primary">默认</span>}
+                      </DropdownMenuItem>
+                    ))}
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem
+                      onSelect={(event) => {
+                        event.preventDefault()
+                        void copyPath()
+                      }}
+                    >
+                      <Copy />
+                      {copied ? '已复制路径' : '复制项目路径'}
+                    </DropdownMenuItem>
+                  </DropdownMenuSubContent>
+                </DropdownMenuSub>
+              </>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

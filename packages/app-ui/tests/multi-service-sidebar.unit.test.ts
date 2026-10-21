@@ -175,6 +175,7 @@ test('单服务分区独立控制顶层拖拽，不启用项目内聊天拖拽',
       const markup = renderToStaticMarkup(
         createElement(TooltipProvider, {
           children: createElement(SidebarMenus, {
+            canOpenProject: false,
             bridge: {} as never,
             pinnedPaths,
             onNewSession: noop,
@@ -267,6 +268,7 @@ test('单服务和多服务没有置顶项时不渲染置顶分区', () => {
   const singleMarkup = renderToStaticMarkup(
     createElement(TooltipProvider, {
       children: createElement(Sidebar, {
+        canOpenProject: false,
         cwd: '/project',
         projectName: '共享项目',
         ready: true,

@@ -1,7 +1,8 @@
 import '@testing-library/jest-dom/vitest'
 import type { ComponentProps } from 'react'
 import { afterEach, expect, test, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import type { ProjectApp } from '@pi-meme/contracts/desktop'
 import type { HostService } from '@pi-meme/contracts/host'
 import type { SidebarPreferences } from '@pi-meme/contracts/settings'
 import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
@@ -10,7 +11,12 @@ import { MultiServiceSidebar } from '../src/shell/multi-service-sidebar'
 
 afterEach(cleanup)
 
-function renderSidebar(pinned: boolean, preferencesLoaded = true, withSessions = false) {
+function renderSidebar(
+  pinned: boolean,
+  preferencesLoaded = true,
+  withSessions = false,
+  nativePlatformAvailable = false,
+) {
   const services: HostService[] = ['local', 'remote'].map((id) => ({
     id,
     hostId: id,
@@ -47,10 +53,23 @@ function renderSidebar(pinned: boolean, preferencesLoaded = true, withSessions =
     services.map((service) => ({ serviceId: service.id, snapshot: service.sessions! })),
     preferences,
   )
+  const bridges = new Map(
+    services.map((service) => [
+      service.id,
+      {
+        prefetchSession: vi.fn().mockResolvedValue(undefined),
+        getProjectApps: vi.fn(async (): Promise<ProjectApp[]> => [
+          { id: 'finder', name: '系统文件管理器' },
+          { id: 'cursor', name: 'Cursor' },
+        ]),
+        openProject: vi.fn(async () => {}),
+      },
+    ]),
+  )
   const props = {
     services,
     registry: {
-      get: () => ({ bridge: { prefetchSession: vi.fn().mockResolvedValue(undefined) } }),
+      get: (id: string) => ({ bridge: bridges.get(id), nativePlatformAvailable }),
     } as unknown as ComponentProps<typeof MultiServiceSidebar>['registry'],
     controllers: new Map(),
     activeId: 'local',
@@ -70,8 +89,86 @@ function renderSidebar(pinned: boolean, preferencesLoaded = true, withSessions =
   )
   const rows = [...container.querySelectorAll<HTMLElement>('[data-project-cwd]')]
   const sessionRows = [...container.querySelectorAll<HTMLElement>('[data-session-path]')]
-  return { props, rows, sessionRows }
+  return { props, rows, sessionRows, bridges }
 }
+
+test.each([
+  { native: false, service: 'local', kind: '更多菜单', canOpen: false },
+  { native: false, service: 'local', kind: '右键菜单', canOpen: false },
+  { native: true, service: 'local', kind: '更多菜单', canOpen: true },
+  { native: true, service: 'local', kind: '右键菜单', canOpen: true },
+  { native: true, service: 'remote', kind: '更多菜单', canOpen: false },
+  { native: true, service: 'remote', kind: '右键菜单', canOpen: false },
+])(
+  'native=$native 的 $service 项目$kind按本机能力显示入口，保留复制路径',
+  async ({ native, service, kind, canOpen }) => {
+    const { rows, bridges } = renderSidebar(false, true, false, native)
+    const bridge = bridges.get(service)!
+    if (kind === '右键菜单') fireEvent.contextMenu(rows[service === 'local' ? 0 : 1])
+    else fireEvent.keyDown(screen.getByRole('button', { name: `更多操作：${service} 项目` }), { key: 'ArrowDown' })
+    expect(screen.getByRole('menuitem', { name: '复制项目路径' })).toBeInTheDocument()
+    expect(screen.getAllByRole('separator')).toHaveLength(1)
+    if (canOpen) {
+      fireEvent.click(screen.getByRole('menuitem', { name: '在…打开' }))
+      fireEvent.click(await screen.findByRole('menuitem', { name: 'Cursor' }))
+      expect(bridge.getProjectApps).toHaveBeenCalledOnce()
+      expect(bridge.openProject).toHaveBeenCalledWith('cursor', '/work/project')
+    } else {
+      expect(screen.queryByRole('menuitem', { name: /在….*打开/ })).not.toBeInTheDocument()
+      expect(bridge.getProjectApps).not.toHaveBeenCalled()
+      expect(bridge.openProject).not.toHaveBeenCalled()
+    }
+  },
+)
+
+test('侧栏初次识别不可点击且合并查询，成功和失败后均可刷新并保留已有列表', async () => {
+  const { bridges } = renderSidebar(false, true, false, true)
+  const bridge = bridges.get('local')!
+  let finish!: (apps: ProjectApp[]) => void
+  let fail!: (cause: Error) => void
+  bridge.getProjectApps.mockImplementationOnce(
+    () =>
+      new Promise<ProjectApp[]>((resolve) => {
+        finish = resolve
+      }),
+  )
+  const more = screen.getByRole('button', { name: '更多操作：local 项目' })
+  fireEvent.keyDown(more, { key: 'ArrowDown' })
+  fireEvent.click(screen.getByRole('menuitem', { name: '在…打开' }))
+  expect(screen.getByRole('menuitem', { name: '正在识别应用…' })).toHaveAttribute('aria-disabled', 'true')
+  expect(screen.queryByRole('menuitem', { name: /Finder|系统文件管理器/ })).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('menuitem', { name: '新建会话' }))
+  await waitFor(() => expect(more).toHaveFocus())
+  fireEvent.keyDown(more, { key: 'ArrowDown' })
+  fireEvent.click(screen.getByRole('menuitem', { name: '在…打开' }))
+  expect(bridge.getProjectApps).toHaveBeenCalledOnce()
+  await act(async () => finish([{ id: 'cursor', name: 'Cursor' }]))
+  expect(await screen.findByRole('menuitem', { name: 'Cursor' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('menuitem', { name: '新建会话' }))
+  await waitFor(() => expect(more).toHaveFocus())
+
+  bridge.getProjectApps.mockImplementationOnce(
+    () =>
+      new Promise<ProjectApp[]>((_resolve, reject) => {
+        fail = reject
+      }),
+  )
+  fireEvent.keyDown(more, { key: 'ArrowDown' })
+  fireEvent.click(screen.getByRole('menuitem', { name: '在…打开' }))
+  expect(screen.getByRole('menuitem', { name: 'Cursor' })).toBeInTheDocument()
+  expect(bridge.getProjectApps).toHaveBeenCalledTimes(2)
+  await act(async () => fail(new Error('probe failed')))
+  expect(screen.getByRole('alert')).toHaveTextContent('无法识别本机应用：probe failed')
+  expect(screen.getByRole('menuitem', { name: 'Cursor' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('menuitem', { name: '系统文件管理器' }))
+  expect(bridge.openProject).toHaveBeenCalledWith('finder', '/work/project')
+  await waitFor(() => expect(more).toHaveFocus())
+
+  fireEvent.keyDown(more, { key: 'ArrowDown' })
+  fireEvent.click(screen.getByRole('menuitem', { name: '在…打开' }))
+  await waitFor(() => expect(bridge.getProjectApps).toHaveBeenCalledTimes(3))
+  await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument())
+})
 
 function createTransfer() {
   const values = new Map<string, string>()

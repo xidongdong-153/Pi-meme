@@ -3,6 +3,7 @@ import { test } from 'vitest'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { projectAppIds } from '@pi-meme/contracts/desktop'
 import { SettingsStore } from '../src/server/store'
 import { createSettingsHandlers } from '../src/server/handlers'
 import { builtinThemes, parseTheme } from '../src/shared/themes'
@@ -81,6 +82,49 @@ test('设置忽略旧扩展路径，不再暴露或创建扩展目录', async ()
     assert.equal('userExtensionPaths' in saved, false)
     const restarted = new SettingsStore(directory)
     assert.equal('userExtensionPaths' in (await restarted.load()).settings, false)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('全部内置项目打开应用偏好可保存和重载，普通设置修改保留旧偏好', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pi-project-app-settings-'))
+  try {
+    const store = new SettingsStore(directory)
+    await store.load()
+    for (const app of projectAppIds) {
+      await store.save({ themeId: 'dark', preferredProjectApp: app })
+      const restored = await new SettingsStore(directory).load()
+      assert.equal(restored.settings.preferredProjectApp, app)
+      assert.deepEqual(restored.errors, [])
+    }
+    for (const app of ['finder', 'vscode', 'cursor', 'zed'] as const) {
+      await store.save({ themeId: 'dark', preferredProjectApp: app })
+      await store.save({ themeId: 'light' })
+      assert.equal(store.settings.preferredProjectApp, app)
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('未知项目打开应用不能写入设置，也不能从磁盘加载', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pi-invalid-project-app-'))
+  try {
+    const store = new SettingsStore(directory)
+    await store.load()
+    await store.save({ themeId: 'dark', preferredProjectApp: 'webstorm' })
+    const filename = path.join(directory, 'settings.json')
+    const saved = await readFile(filename, 'utf8')
+    for (const app of ['unknown-editor', '/Applications/Other.app', '', 42, null]) {
+      await assert.rejects(store.save({ themeId: 'dark', preferredProjectApp: app }))
+      assert.equal(store.settings.preferredProjectApp, 'webstorm')
+      assert.equal(await readFile(filename, 'utf8'), saved)
+    }
+    await writeFile(filename, JSON.stringify({ themeId: 'dark', preferredProjectApp: 'unknown-editor' }))
+    const restored = await new SettingsStore(directory).load()
+    assert.equal(restored.settings.preferredProjectApp, undefined)
+    assert.equal(restored.errors.length, 1)
   } finally {
     await rm(directory, { recursive: true, force: true })
   }

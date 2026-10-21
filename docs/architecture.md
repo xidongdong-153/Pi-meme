@@ -128,7 +128,13 @@ Agent 项目服务由 [activities](../packages/activities/src/server/service.ts)
 
 正式接口 [HostApi v2](host-api.md) 使用稳定 `ProjectRef` / `SessionRef` 操作显式目标；App 内部 `/api/rpc` 和客户端选择继续服务内置界面。正式操作不读取或改变界面选择。
 
-[PlatformAdapter](../packages/contracts/src/host.ts) 提供本机文件选择、连接配置、Finder/编辑器启动和主题导入导出等平台操作；Electron preload 只连接平台 channel。Remote 目录查询、会话和插件安装经 Host，不把远程路径交给本机文件选择器。
+[PlatformAdapter](../packages/contracts/src/host.ts) 提供本机文件选择、连接配置、文件管理器/编辑器启动和主题导入导出等平台操作；Electron preload 只连接平台 channel。Remote 目录查询、会话和插件安装经 Host，不把远程路径交给本机文件选择器。
+
+“在…打开”只在 macOS Desktop 的本机项目菜单中显示；Web（包括 localhost Host）和远程项目隐藏入口，不查询本机应用。判断使用服务的本机属性与客户端 `nativePlatformAvailable`，不能只看 `service.local`。顶栏、侧栏和项目页共用此限制，侧栏的“复制项目路径”不受影响。
+
+[应用发现与打开](../apps/desktop/src/main/project-apps.ts) 在 Desktop 主进程通过 AppKit `NSWorkspace` 按 bundle ID 查询 VS Code、Cursor、Zed、Windsurf、Sublime Text，以及 IntelliJ IDEA、WebStorm、PyCharm、GoLand、PhpStorm、RubyMine、CLion、Rider、RustRover。只返回已安装且实际存在的候选应用，同产品的不同 edition 合并；不扫描磁盘、不依赖编辑器 CLI，也不保证识别未注册的便携应用。每次展开菜单刷新，进行中的查询合并，不永久缓存。
+
+系统文件管理器沿用 `finder` ID，通过 Electron `shell.openPath` 使用默认目录处理程序。编辑器打开前重新解析安装位置，由主进程以参数数组调用 `/usr/bin/open -a`，不接受界面传入的启动命令或应用路径；未安装或启动失败明确报错，不自动改用其他编辑器。[平台 IPC](../apps/desktop/src/main/ipc/register.ts) 保留来源、本机连接及项目目录校验。[应用 ID 契约](../packages/contracts/src/desktop.ts) 同时供默认应用偏好校验使用，已有偏好无需迁移。
 
 同一个 Host 是其数据目录的唯一写入者。会话 Worker 按执行会话独立创建，持有固定资源快照和插件代次；JSONL 仍由 Pi SDK 保存。外部可信 Server 使用独立 Chord 作用域，安装、卸载和服务拓扑变化通过创建/释放作用域完成，不能只依赖 Chord `reload`。SDK 3 的 Agent/Server 分 trusted 与 restricted；受限入口由 Host 监督独立进程，不进入可信 Worker，联网和共享数据走窄 broker。UI/Agent 的同插件 RPC 固定 generation，页面未保存编辑使用独立租约，不把旧 UI 调用交给新版 Server。可信 React UI 和可信 Node 入口不是恶意代码沙箱。
 

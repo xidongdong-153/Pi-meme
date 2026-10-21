@@ -1,7 +1,8 @@
 import '@testing-library/jest-dom/vitest'
 import type { ComponentProps } from 'react'
 import { afterEach, expect, test, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import type { ProjectApp } from '@pi-meme/contracts/desktop'
 import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 import { SidebarMenus } from '@pi-meme/workspace/ui/sidebar/sidebar-menus'
 import { AppHeader } from '../src/layout/app-header'
@@ -37,6 +38,7 @@ function renderWorkspaceHeader(overrides: Partial<ComponentProps<typeof AppHeade
     ...overrides,
   } satisfies ComponentProps<typeof AppHeader>
   const menuProps = {
+    canOpenProject: props.canOpenProject,
     bridge: {
       getProjectApps: props.loadProjectApps,
       openProject: vi.fn(),
@@ -98,6 +100,87 @@ test('在…打开通过二级菜单选择默认应用并打开项目', async ()
   expect(screen.queryByRole('menuitem', { name: 'Cursor' })).not.toBeInTheDocument()
 })
 
+test('首次识别期间没有 Finder 占位，并合并进行中的查询', async () => {
+  let finish!: (apps: ProjectApp[]) => void
+  const loadProjectApps = vi.fn(
+    () =>
+      new Promise<ProjectApp[]>((resolve) => {
+        finish = resolve
+      }),
+  )
+  renderWorkspaceHeader({ loadProjectApps })
+  const trigger = openSessionMenu()
+  fireEvent.click(screen.getByRole('menuitem', { name: '在…打开' }))
+  expect(screen.getByRole('menuitem', { name: '正在识别应用…' })).toHaveAttribute('aria-disabled', 'true')
+  expect(screen.queryByRole('menuitem', { name: /Finder|系统文件管理器/ })).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('menuitem', { name: '置顶' }))
+  await waitFor(() => expect(trigger).toHaveFocus())
+  openSessionMenu()
+  expect(loadProjectApps).toHaveBeenCalledOnce()
+  fireEvent.click(screen.getByRole('menuitem', { name: '在…打开' }))
+  await act(async () => finish([{ id: 'cursor', name: 'Cursor' }]))
+  expect(await screen.findByRole('menuitem', { name: 'Cursor' })).toBeInTheDocument()
+  expect(screen.queryByRole('menuitem', { name: '正在识别应用…' })).not.toBeInTheDocument()
+})
+
+test('再次展开刷新时保留应用列表，已卸载的默认应用仅在显示上回退', async () => {
+  const installed: ProjectApp[] = [
+    { id: 'finder', name: '系统文件管理器' },
+    { id: 'cursor', name: 'Cursor' },
+  ]
+  let finish!: (apps: ProjectApp[]) => void
+  const loadProjectApps = vi
+    .fn<() => Promise<ProjectApp[]>>()
+    .mockResolvedValueOnce(installed)
+    .mockImplementationOnce(
+      () =>
+        new Promise<ProjectApp[]>((resolve) => {
+          finish = resolve
+        }),
+    )
+    .mockResolvedValue(installed)
+  const props = renderWorkspaceHeader({ loadProjectApps, preferredApp: 'cursor' })
+  const trigger = openSessionMenu()
+  fireEvent.click(screen.getByRole('menuitem', { name: '在…打开' }))
+  expect(await screen.findByRole('menuitem', { name: 'Cursor默认' })).toBeInTheDocument()
+  fireEvent.click(screen.getByRole('menuitem', { name: '置顶' }))
+  await waitFor(() => expect(trigger).toHaveFocus())
+  openSessionMenu()
+  fireEvent.click(screen.getByRole('menuitem', { name: '在…打开' }))
+  expect(screen.getByRole('menuitem', { name: 'Cursor默认' })).toBeInTheDocument()
+  expect(loadProjectApps).toHaveBeenCalledTimes(2)
+  await act(async () => finish([installed[0]]))
+  expect(await screen.findByRole('menuitem', { name: '系统文件管理器默认' })).toBeInTheDocument()
+  expect(screen.queryByRole('menuitem', { name: /Cursor/ })).not.toBeInTheDocument()
+  expect(props.onPreferredApp).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('menuitem', { name: '置顶' }))
+  await waitFor(() => expect(trigger).toHaveFocus())
+  openSessionMenu()
+  expect(loadProjectApps).toHaveBeenCalledTimes(3)
+})
+
+test('识别失败显示中文错误和可用的系统文件管理器，下次展开可以重试', async () => {
+  const loadProjectApps = vi
+    .fn<() => Promise<ProjectApp[]>>()
+    .mockRejectedValueOnce(
+      new Error("Error invoking remote method 'platform:project-apps': Error: 无法识别本机应用：probe failed"),
+    )
+    .mockResolvedValueOnce([{ id: 'cursor', name: 'Cursor' }])
+  const props = renderWorkspaceHeader({ loadProjectApps, preferredApp: 'cursor' })
+  const trigger = openSessionMenu()
+  fireEvent.click(screen.getByRole('menuitem', { name: '在…打开' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent(/^无法识别本机应用：probe failed$/)
+  expect(screen.queryByRole('menuitem', { name: /Cursor/ })).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('menuitem', { name: '系统文件管理器默认' }))
+  expect(props.onOpenProject).toHaveBeenCalledWith('finder')
+  await waitFor(() => expect(trigger).toHaveFocus())
+  openSessionMenu()
+  fireEvent.click(screen.getByRole('menuitem', { name: '在…打开' }))
+  expect(await screen.findByRole('menuitem', { name: 'Cursor默认' })).toBeInTheDocument()
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  expect(loadProjectApps).toHaveBeenCalledTimes(2)
+})
+
 test('重命名复用现有对话框，保存后刷新会话并恢复菜单按钮焦点', async () => {
   const props = renderWorkspaceHeader()
   const trigger = openSessionMenu()
@@ -140,10 +223,11 @@ test('尚无持久化会话时禁用重命名和置顶', () => {
   expect(screen.getByRole('menuitem', { name: '置顶' })).toHaveAttribute('aria-disabled', 'true')
 })
 
-test('不支持本机项目时只禁用打开子菜单，保留会话操作', () => {
+test('Web 或远程项目隐藏打开子菜单与分隔线，保留会话操作', () => {
   const props = renderWorkspaceHeader({ canOpenProject: false })
   openSessionMenu()
-  expect(screen.getByRole('menuitem', { name: '在…打开' })).toHaveAttribute('aria-disabled', 'true')
+  expect(screen.queryByRole('menuitem', { name: '在…打开' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('separator')).not.toBeInTheDocument()
   expect(screen.getByRole('menuitem', { name: '重命名' })).not.toHaveAttribute('aria-disabled')
   fireEvent.click(screen.getByRole('menuitem', { name: '置顶' }))
   expect(props.onTogglePin).toHaveBeenCalledWith('/tmp/session.jsonl')

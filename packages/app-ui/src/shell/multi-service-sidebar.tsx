@@ -72,7 +72,7 @@ export function MultiServiceSidebar({
     const activePath = controller?.switchingToPath ?? snapshot?.activeSessionPath
     return (
       <SidebarMenus
-        canOpenProject={service.local}
+        canOpenProject={service.local && registry.get(serviceId).nativePlatformAvailable}
         bridge={registry.get(serviceId).bridge}
         pinnedPaths={snapshot?.pinnedPaths ?? []}
         onNewSession={(cwd) => onActivate(serviceId, (chat) => chat.newSessionInProject(cwd))}
@@ -126,7 +126,7 @@ export function MultiServiceSidebar({
     }
     return (
       <SidebarMenus
-        canOpenProject={service.local}
+        canOpenProject={service.local && registry.get(serviceId).nativePlatformAvailable}
         bridge={registry.get(serviceId).bridge}
         pinnedPaths={snapshot?.pinnedPaths ?? []}
         onNewSession={openNewSession}

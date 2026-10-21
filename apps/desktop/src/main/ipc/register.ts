@@ -1,17 +1,11 @@
 import { app, dialog, ipcMain, shell, type BrowserWindow } from 'electron'
-import { spawn } from 'node:child_process'
 import { readFile, writeFile, realpath, stat } from 'node:fs/promises'
 import path from 'node:path'
 import type { HostConnection, HostConnectionError, SavedHostConnection } from '@pi-meme/contracts/host'
 import { isTrustedPlatformSource } from './platform-source'
 import type { DesktopStorageAdapter } from '@pi-meme/contracts/storage'
+import { getProjectApps, openProjectInApp } from '../project-apps'
 
-const projectApps = [
-  { id: 'finder', name: 'Finder' },
-  { id: 'vscode', name: 'Visual Studio Code' },
-  { id: 'cursor', name: 'Cursor' },
-  { id: 'zed', name: 'Zed' },
-] as const
 export function registerPlatformIpc(
   getWindow: () => BrowserWindow | null,
   getConnection: () => Promise<HostConnection>,
@@ -109,7 +103,7 @@ export function registerPlatformIpc(
   })
   handle('platform:project-apps', async () => {
     await local()
-    return projectApps
+    return getProjectApps()
   })
   handle('platform:open-path', openPath)
   handle('platform:open-project', async (id, input) => {
@@ -117,14 +111,8 @@ export function registerPlatformIpc(
     if (typeof input !== 'string' || !path.isAbsolute(input)) throw new Error('本机项目路径无效')
     const cwd = await realpath(input)
     if (!(await stat(cwd)).isDirectory()) throw new Error('所选路径不是文件夹')
-    const entry = projectApps.find((candidate) => candidate.id === id)
-    if (!entry) throw new Error('项目打开方式无效')
-    if (entry.id === 'finder') return openPath(cwd)
-    await new Promise<void>((resolve, reject) => {
-      const child = spawn('open', ['-a', entry.name, cwd], { stdio: 'ignore' })
-      child.once('error', reject)
-      child.once('close', (code) => (code === 0 ? resolve() : reject(new Error(`${entry.name} 无法打开项目`))))
-    })
+    if (id === 'finder') return openPath(cwd)
+    await openProjectInApp(id, cwd)
   })
   handle('platform:import-theme', async () => {
     const result = await dialog.showOpenDialog(await local(), {

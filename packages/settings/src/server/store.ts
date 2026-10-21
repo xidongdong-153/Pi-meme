@@ -1,6 +1,7 @@
 import { mkdir, readFile, readdir, writeFile, rename } from 'node:fs/promises'
 import path from 'node:path'
 import { isAgentAccessMode } from '@pi-meme/contracts/agent-access'
+import { projectAppIds } from '@pi-meme/contracts/desktop'
 import type { AppearanceSettings, DesktopSettings, SettingsSnapshot, Theme } from '@pi-meme/contracts/settings'
 import { defaultAppearance, migrateAppearance, selectAppearanceTheme, validateAppearance } from '../shared/appearance'
 import { builtinThemes, parseTheme } from '../shared/themes'
@@ -158,8 +159,7 @@ export class SettingsStore {
       typeof settings.themeId !== 'string' ||
       (settings.pinnedPaths !== undefined &&
         (!Array.isArray(settings.pinnedPaths) || settings.pinnedPaths.some((entry) => typeof entry !== 'string'))) ||
-      (settings.preferredProjectApp !== undefined &&
-        !['finder', 'vscode', 'cursor', 'zed'].includes(settings.preferredProjectApp))
+      (settings.preferredProjectApp !== undefined && !projectAppIds.includes(settings.preferredProjectApp))
     )
       throw new Error('主题 ID 无效')
     if (

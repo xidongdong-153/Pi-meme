@@ -109,7 +109,24 @@ export type GitWorktreeResult = {
   selectionError?: string
 }
 export type ProjectFile = { path: string; kind: 'file' | 'directory' }
-export type ProjectApp = { id: 'finder' | 'vscode' | 'cursor' | 'zed'; name: string }
+export const projectAppIds = [
+  'finder',
+  'vscode',
+  'cursor',
+  'zed',
+  'windsurf',
+  'sublime-text',
+  'intellij-idea',
+  'webstorm',
+  'pycharm',
+  'goland',
+  'phpstorm',
+  'rubymine',
+  'clion',
+  'rider',
+  'rustrover',
+] as const
+export type ProjectApp = { id: (typeof projectAppIds)[number]; name: string }
 export type DesktopEvent = {
   generation: number
   sessionKey?: string

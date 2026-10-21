@@ -13,6 +13,7 @@ import { ProjectsSection } from './projects-section'
 import { RecentsSection } from './recents-section'
 
 export type SidebarProps = {
+  canOpenProject: boolean
   serviceId?: string
   searchEnabled?: boolean
   searchHistory?: WorkspaceBridge['searchSessions']
@@ -44,6 +45,7 @@ export type SidebarProps = {
 }
 
 export function Sidebar({
+  canOpenProject,
   serviceId = 'local',
   searchEnabled = true,
   searchHistory: loadSessionMatches,
@@ -167,6 +169,7 @@ export function Sidebar({
 
   return (
     <SidebarMenus
+      canOpenProject={canOpenProject}
       bridge={menuBridge}
       pinnedPaths={sessionsSnapshot?.pinnedPaths ?? []}
       onNewSession={openNewSession}
