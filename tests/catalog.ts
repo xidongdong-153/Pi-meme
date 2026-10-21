@@ -43,6 +43,7 @@ const files: Array<[string, Feature[]]> = [
   ['packages/chat/tests/composer-files.component.test.tsx', ['chat']],
   ['packages/chat/tests/composer-transactions.unit.test.ts', ['chat', 'plugins']],
   ['packages/chat/tests/composer-submit.component.test.tsx', ['chat', 'plugins']],
+  ['packages/chat/tests/composer-session-commands.component.test.tsx', ['chat', 'sessions']],
   ['packages/host/tests/plugin-restricted-runner.integration.test.ts', ['plugins', 'permissions']],
   ['packages/host/tests/plugin-http-broker.unit.test.ts', ['plugins', 'permissions']],
   ['packages/chat/tests/recovery-composer.component.test.tsx', ['chat']],

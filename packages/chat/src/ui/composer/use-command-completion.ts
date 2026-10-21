@@ -16,6 +16,9 @@ export function useCommandCompletion({
   composerStore,
   onPlanCommand,
   onGoalCommand,
+  onCompact,
+  onNameCommand,
+  sessionStarted = true,
   projectPath,
   loadProjectFiles,
   draft,
@@ -35,6 +38,7 @@ export function useCommandCompletion({
   | 'composerStore'
   | 'onPlanCommand'
   | 'onGoalCommand'
+  | 'onCompact'
   | 'projectPath'
   | 'loadProjectFiles'
   | 'draft'
@@ -51,6 +55,9 @@ export function useCommandCompletion({
 > & {
   hasQueue: boolean
   onPluginPosition?: (id: string, offset: number) => void
+  onNameCommand?: () => void
+  /** 为 false 时不列出压缩和命名。新会话还没有对话。 */
+  sessionStarted?: boolean
   editing?: boolean
 }) {
   const editor = React.useRef<HTMLDivElement>(null)
@@ -131,6 +138,12 @@ export function useCommandCompletion({
       commandStart && !editing
         ? commands.flatMap<CompletionItem>((command) => {
             if (command.source === 'skill') return []
+            if (
+              !sessionStarted &&
+              command.source === 'builtin' &&
+              (command.name === 'compact' || command.name === 'name')
+            )
+              return []
             const plan = command.source === 'builtin' && ['plan', '计划', '计划模式'].includes(command.name)
             if (plan && planSeen) return []
             if (plan) planSeen = true
@@ -156,7 +169,16 @@ export function useCommandCompletion({
       )
       .map((plugin) => ({ kind: 'plugin', plugin }))
     return [...top, ...skills, ...plugins]
-  }, [commands, commandStart, editing, query?.kind, query?.query, suggestionsOpen, agentPlugins?.options])
+  }, [
+    commands,
+    commandStart,
+    editing,
+    query?.kind,
+    query?.query,
+    sessionStarted,
+    suggestionsOpen,
+    agentPlugins?.options,
+  ])
   const selectable = matches.flatMap((item, index) =>
     item.kind === 'plugin' && agentPlugins?.disabledReason ? [] : [index],
   )
@@ -181,6 +203,19 @@ export function useCommandCompletion({
       return
     }
     const command = item.command
+    if (item.kind === 'command' && command.source === 'builtin' && query.start === draft.search(/\S/u)) {
+      if (command.name === 'compact' && onCompact) {
+        onCompact()
+        setSuggestionsOpen(false)
+        editor.current?.focus()
+        return
+      }
+      if (command.name === 'name' && onNameCommand) {
+        onNameCommand()
+        setSuggestionsOpen(false)
+        return
+      }
+    }
     if (
       item.kind === 'command' &&
       command.source === 'builtin' &&

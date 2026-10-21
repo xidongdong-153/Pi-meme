@@ -1573,9 +1573,10 @@ export class PiSessionPool implements PiRuntime {
       return result
     } catch (cause) {
       if (!this.sessions.has(record.key)) throw cause
-      record.error = String(cause)
+      // 失败只通知当前客户端。写进连接状态的话，之后每次刷新都会把同一条错误再显示出来。
+      const message = String(cause)
       void this.collaboration?.failed(sessionKey, cause, record.executionRunId)
-      this.notify.error({ generation: this.generation, sessionKey: record.key, message: record.error })
+      this.notify.error({ generation: this.generation, sessionKey: record.key, message })
       record.running = false
       this.notify.sessionsChanged()
       void record.session

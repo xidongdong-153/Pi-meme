@@ -79,13 +79,13 @@ export const builtinCommands: PiSlashCommand[] = [
   },
   {
     name: 'compact',
-    description: '压缩当前会话上下文，可在命令后填写压缩要求',
+    description: '立即压缩当前会话上下文',
     source: 'builtin',
     sourceInfo: { path: '', source: 'desktop', scope: 'temporary', origin: 'top-level' },
   },
   {
     name: 'name',
-    description: '重命名当前会话：/name <会话名称>',
+    description: '重命名当前会话',
     source: 'builtin',
     sourceInfo: { path: '', source: 'desktop', scope: 'temporary', origin: 'top-level' },
   },
@@ -93,7 +93,12 @@ export const builtinCommands: PiSlashCommand[] = [
 
 export function builtinCommand(message: string) {
   const match = message.trim().match(/^\/(compact|name)(?:\s([\s\S]*))?$/)
-  return match ? { name: match[1], args: match[2]?.trim() || undefined } : null
+  return match ? { name: match[1] as 'compact' | 'name', args: match[2]?.trim() || undefined } : null
+}
+
+/** 新会话还没有对话时，压缩和命名都不能执行。 */
+export function freshSessionCommandError(name: 'compact' | 'name') {
+  return name === 'compact' ? '当前还是新会话，开始对话后才能压缩' : '当前还是新会话，开始对话后才能重命名'
 }
 export type PiModel = { provider: string; id: string; name?: string; reasoning?: boolean }
 export type PiSessionStats = SessionStats

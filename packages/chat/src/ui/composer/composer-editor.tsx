@@ -1,10 +1,12 @@
-import { useLayoutEffect, useReducer, useRef } from 'react'
+import { useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
 import type { ClipboardEvent } from 'react'
 import { ImagePlus } from 'lucide-react'
 import type { AgentPluginOption, ComposerProps } from './composer'
 import { useCommandCompletion } from './use-command-completion'
 import { FileSuggestions } from './file-suggestions'
 import { CommandSuggestions } from './command-suggestions'
+import { SessionNamePanel } from './session-name-panel'
+import { completionQuery } from './completion-query'
 import { skillMarker } from '@pi-meme/contracts/skills'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { editorCaret, editorSelection, readEditorText, setEditorCaret, setEditorSelection } from './rich-draft'
@@ -21,6 +23,12 @@ export function ComposerEditor({
   agentPlugins,
   onPlanCommand,
   onGoalCommand,
+  onCompact,
+  sessionStarted = true,
+  sessionBusy = false,
+  onError,
+  sessionName,
+  onRenameSession,
   projectPath,
   loadProjectFiles,
   selectedSkills,
@@ -43,6 +51,10 @@ export function ComposerEditor({
   | 'composerStore'
   | 'onPlanCommand'
   | 'onGoalCommand'
+  | 'onCompact'
+  | 'sessionStarted'
+  | 'sessionName'
+  | 'onRenameSession'
   | 'sessionKey'
   | 'agentPlugins'
   | 'projectPath'
@@ -59,6 +71,8 @@ export function ComposerEditor({
   | 'onClearQueue'
 > & {
   disabled?: boolean
+  sessionBusy?: boolean
+  onError?: (message: string) => void
   hasQueue: boolean
   paste: (event: ClipboardEvent<HTMLDivElement>) => void
   dragging: boolean
@@ -69,6 +83,13 @@ export function ComposerEditor({
   const positions = useRef({ sessionKey, draft, offsets: new Map<string, number>() })
   const plugins = agentPlugins?.mentions ?? emptyPlugins
   const [pluginRevision, redrawPlugins] = useReducer((value: number) => value + 1, 0)
+  const [naming, setNaming] = useState(false)
+  const namingOpen = useRef(false)
+  namingOpen.current = naming
+  useEffect(() => setNaming(false), [sessionKey])
+  useEffect(() => {
+    if (!sessionStarted || sessionBusy) setNaming(false)
+  }, [sessionStarted, sessionBusy])
   const {
     editor,
     matches,
@@ -91,6 +112,17 @@ export function ComposerEditor({
     composerStore,
     onPlanCommand,
     onGoalCommand,
+    onCompact,
+    onNameCommand: onRenameSession
+      ? () => {
+          if (sessionBusy) {
+            onError?.('Pi 正在运行或切换，请等待完成后重试')
+            return
+          }
+          setNaming(true)
+        }
+      : undefined,
+    sessionStarted,
     projectPath,
     loadProjectFiles,
     draft,
@@ -157,7 +189,9 @@ export function ComposerEditor({
       })
     else onDraft(text)
     composerStore?.setSelection(editorSelection(element))
-    setDraftCaret(editorCaret(element))
+    const caret = editorCaret(element)
+    setDraftCaret(caret)
+    if (namingOpen.current && completionQuery(text, caret)?.kind === 'command') setNaming(false)
     setSuggestionsOpen(true)
   }
 
@@ -240,6 +274,16 @@ export function ComposerEditor({
           suggestionIndex={suggestionIndex}
           onComplete={completeFile}
           onDirectory={replaceFileQuery}
+        />
+      )}
+      {naming && onRenameSession && (
+        <SessionNamePanel
+          sessionName={sessionName}
+          onRename={onRenameSession}
+          onClose={() => {
+            setNaming(false)
+            editor.current?.focus()
+          }}
         />
       )}
       {commandCompletion && (

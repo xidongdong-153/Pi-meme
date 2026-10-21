@@ -780,6 +780,16 @@ export function App({
     onMode: chat.changeMode,
     onPlanCommand: chat.activatePlan,
     onGoalCommand: chat.goalsSupported ? chat.activateGoal : undefined,
+    onCompact: () => void chat.compactNow(),
+    sessionStarted: chat.chat.messages.length > 0 || chat.chat.live !== null,
+    sessionName: chat.state?.sessionName,
+    onRenameSession: async (name) => {
+      if (!chat.chat.messages.length && !chat.chat.live) throw new Error('当前还是新会话，开始对话后才能重命名')
+      const path = chat.connection.sessionKey
+      if (!path) throw new Error('当前没有可重命名的会话')
+      await bridge.renameSession(path, name)
+      await chat.refreshMenu().catch((cause) => chat.setError(String(cause)))
+    },
     [chat.goalDraft ? 'goalControl' : 'goalBanner']: chat.goalsSupported ? (
       <GoalControl
         goal={chat.goalDraft ? undefined : chat.goal}

@@ -14,7 +14,13 @@ import { ComposerDraftStore, type ComposerDraftState } from './composer/composer
 import { useComposerFiles } from './composer/use-composer-files'
 import type { ComposerIntent, ComposerProcessingRecord } from '@pi-meme/plugin-sdk/composer'
 import type { ChatBridge, DesktopEvent, Snapshot } from '@pi-meme/contracts/desktop'
-import type { PiEvent, PiMessage, PiSlashCommand } from '@pi-meme/contracts/pi'
+import {
+  builtinCommand,
+  freshSessionCommandError,
+  type PiEvent,
+  type PiMessage,
+  type PiSlashCommand,
+} from '@pi-meme/contracts/pi'
 import { applyEvent as reduceEvent, emptyChat, restoreSnapshot } from './model/state'
 import { messageWithAttachments, type ComposerAttachment as Attachment } from './composer/image-attachment'
 
@@ -373,6 +379,66 @@ export function useChatSession(options: ChatSessionOptions) {
     [changeMode],
   )
 
+  const compactNow = useCallback(async () => {
+    const {
+      bridge,
+      canSend,
+      isSwitching,
+      awaitPendingSwitch,
+      currentGeneration,
+      currentSessionKey,
+      onError,
+      onSendFailed,
+    } = optionsRef.current
+    await awaitPendingSwitch()
+    if (!chat.messages.length && !chat.live) {
+      onError(freshSessionCommandError('compact'))
+      return
+    }
+    const sessionKey = currentSessionKey()
+    const busy =
+      !sessionKey ||
+      isSwitching() ||
+      promptPending.current ||
+      chat.running ||
+      Boolean(chat.compacting?.active) ||
+      chat.paused ||
+      chat.queuePaused ||
+      editingTimestamp !== null ||
+      queueEdit.current !== null
+    if (busy) {
+      onError('Pi 正在运行或切换，请等待完成后重试')
+      return
+    }
+    if (!canSend()) {
+      onError('当前模型已不可用，请先重新选择模型')
+      return
+    }
+    const generation = currentGeneration()
+    onError('')
+    promptPending.current = true
+    setChat((value) => ({ ...value, running: true }))
+    try {
+      await bridge.prompt(sessionKey, '/compact', [], [], { mode: modeRef.current })
+    } catch (cause) {
+      const sameSession =
+        sessionKey === optionsRef.current.currentSessionKey() && generation === optionsRef.current.currentGeneration()
+      if (!sameSession) return
+      promptPending.current = false
+      setChat((value) => ({ ...value, running: value.compacting?.active ? value.running : false }))
+      onError(String(cause))
+      onSendFailed?.(sessionKey, latestComposer.current)
+    }
+  }, [
+    chat.compacting?.active,
+    chat.live,
+    chat.messages.length,
+    chat.paused,
+    chat.queuePaused,
+    chat.running,
+    editingTimestamp,
+  ])
+
   const dispatchComposer = useCallback(
     async (prepared?: ComposerDraftState, records: readonly ComposerProcessingRecord[] = []) => {
       const sourceRevision = composerStore.getSnapshot().revision
@@ -421,6 +487,25 @@ export function useChatSession(options: ChatSessionOptions) {
       if (normalized.commandOnly) {
         setDraft(normalized.text)
         return false
+      }
+      const slashCommand = builtinCommand(normalized.text)
+      if (slashCommand) {
+        const currentChat = chatStream.getSnapshot()
+        if (!currentChat.messages.length && !currentChat.live) {
+          onError(freshSessionCommandError(slashCommand.name))
+          return false
+        }
+        if (
+          currentChat.running ||
+          currentChat.paused ||
+          currentChat.queuePaused ||
+          currentChat.compacting?.active ||
+          editingTimestamp !== null ||
+          queueEdit.current
+        ) {
+          onError('Pi 正在运行或切换，请等待完成后重试')
+          return false
+        }
       }
       const audit = records.length ? { clientProcessingAudit: records } : {}
       const { message, images } = messageWithAttachments(normalized.text.trim(), attachments)
@@ -987,6 +1072,7 @@ export function useChatSession(options: ChatSessionOptions) {
     changeMode,
     activatePlan,
     activateGoal,
+    compactNow,
     goalDraft,
     setGoalDraft,
     goalOpen,

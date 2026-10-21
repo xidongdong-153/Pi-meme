@@ -39,6 +39,11 @@ export type ComposerProps = {
   onMode?: (mode: TaskMode) => void
   onPlanCommand?: (text: string) => void
   onGoalCommand?: (text: string) => void
+  onCompact?: () => void
+  /** 已有对话后才提供压缩和命名。默认提供，避免未接线的调用方把命令藏掉。 */
+  sessionStarted?: boolean
+  sessionName?: string
+  onRenameSession?: (name: string) => Promise<void>
   goalControl?: ReactNode
   goalBanner?: ReactNode
   recoveredInputs?: QueuedInput[]
@@ -104,6 +109,10 @@ export function Composer({
   onMode,
   onPlanCommand,
   onGoalCommand,
+  onCompact,
+  sessionStarted,
+  sessionName,
+  onRenameSession,
   goalControl,
   goalBanner,
   recoveredInputs,
@@ -294,6 +303,12 @@ export function Composer({
             agentPlugins={agentPlugins}
             onPlanCommand={onPlanCommand}
             onGoalCommand={onGoalCommand}
+            onCompact={onCompact}
+            sessionStarted={sessionStarted}
+            sessionBusy={Boolean(running || paused)}
+            onError={onError}
+            sessionName={sessionName}
+            onRenameSession={onRenameSession}
             projectPath={projectPath}
             loadProjectFiles={loadProjectFiles}
             selectedSkills={selectedSkills}

@@ -22,7 +22,7 @@ import type {
   SessionEntry,
 } from '@earendil-works/pi-coding-agent'
 import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
-import { builtinCommand, thinkingLevels } from '@pi-meme/contracts/pi'
+import { builtinCommand, freshSessionCommandError, thinkingLevels } from '@pi-meme/contracts/pi'
 import { normalizePlanMessage, type MessageOptions, type QueuedInput, type TaskMode } from '@pi-meme/contracts/plan'
 import { randomUUID } from 'node:crypto'
 import { createPlanGuard } from '../extensions/plan-mode'
@@ -1222,6 +1222,7 @@ export class SdkSession {
     )
       throw new Error('编辑消息需要重新发送正文，不能执行扩展命令')
     if (command && (images?.length || skills.length)) throw new Error('内置命令不能附带图片或技能，请移除后重试')
+    if (command && this.session.messages.length === 0) throw new Error(freshSessionCommandError(command.name))
     if (command?.name === 'name' && !command.args) throw new Error('请输入会话名称：/name <会话名称>')
     if (this.modelSelectionRequired && command?.name !== 'name') throw new Error('当前模型已不可用，请先重新选择模型')
     if (this.changing || this.running) throw new Error('Pi 正在运行或切换，请等待完成后重试')
@@ -1300,8 +1301,17 @@ export class SdkSession {
     }
     try {
       let handled = false
-      if (command?.name === 'compact') await this.call(() => this.session.compact(command.args))
-      else if (command?.name === 'name') await this.call(() => this.session.setSessionName(command.args!))
+      if (command?.name === 'compact') {
+        try {
+          await this.call(() => this.session.compact(command.args))
+        } catch (cause) {
+          const text = String(cause)
+          if (text.includes('Nothing to compact') || text.includes('session too small'))
+            throw new Error('当前对话太短，还不需要压缩')
+          if (text.includes('Already compacted')) throw new Error('刚刚压缩过，没有新内容需要再压缩')
+          throw cause
+        }
+      } else if (command?.name === 'name') await this.call(() => this.session.setSessionName(command.args!))
       else
         handled = (await this.sendPrompt(message, images, continuation, Boolean(edit), recovery?.started)) === 'handled'
       recovery = undefined

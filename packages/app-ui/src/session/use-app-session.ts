@@ -792,6 +792,7 @@ export function useAppSession(
     changeMode: chat.changeMode,
     activatePlan: chat.activatePlan,
     activateGoal: chat.activateGoal,
+    compactNow: chat.compactNow,
     goal: chat.chat.goal,
     goalsSupported: chat.chat.goalsSupported,
     goalDraft: chat.goalDraft,
