@@ -8,6 +8,7 @@
     "./server/discovery": "./src/server/discovery.ts",
     "./server/handlers": "./src/server/handlers.ts",
     "./ui/context-usage-ring": "./src/ui/context-usage-ring.tsx",
+    "./ui/generation-metrics": "./src/ui/generation-metrics.tsx",
     "./ui/model-config/model-config-form": "./src/ui/model-config/model-config-form.tsx",
     "./ui/model-config/model-config-settings": "./src/ui/model-config/model-config-settings.tsx",
     "./ui/model-picker-popover": "./src/ui/model-picker-popover.tsx",

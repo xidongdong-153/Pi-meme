@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { ComponentProps } from 'react'
 import { afterEach, expect, test, vi } from 'vitest'
 import { ContextUsageRing } from '@pi-meme/models/ui/context-usage-ring'
+import { formatMetricDuration } from '@pi-meme/models/ui/generation-metrics'
 import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 
 type GenerationMetricsSource = NonNullable<ComponentProps<typeof ContextUsageRing>['generationMetrics']>
@@ -185,4 +186,56 @@ test('悬停指标文字不打开说明，移入感叹号或聚焦图标后才�
   fireEvent.focus(screen.getByRole('button', { name: '首响应 TTFT说明' }))
   expect(screen.getByRole('tooltip')).toHaveTextContent('首次有效响应')
   expect(screen.getByRole('dialog', { name: '上下文与生成指标' })).toBeInTheDocument()
+})
+
+test('formatMetricDuration 正确转化时分秒并处理临界防跳变与补零', () => {
+  expect(formatMetricDuration(-100)).toBe('0.0s')
+  expect(formatMetricDuration(Number.NaN)).toBe('0.0s')
+  expect(formatMetricDuration(0)).toBe('0.0s')
+  expect(formatMetricDuration(500)).toBe('0.5s')
+  expect(formatMetricDuration(5300)).toBe('5.3s')
+  expect(formatMetricDuration(59940)).toBe('59.9s')
+  expect(formatMetricDuration(59960)).toBe('1m 00s')
+  expect(formatMetricDuration(60000)).toBe('1m 00s')
+  expect(formatMetricDuration(65000)).toBe('1m 05s')
+  expect(formatMetricDuration(683100)).toBe('11m 23s')
+  expect(formatMetricDuration(3599000)).toBe('59m 59s')
+  expect(formatMetricDuration(3600000)).toBe('1h 00m 00s')
+  expect(formatMetricDuration(3665000)).toBe('1h 01m 05s')
+})
+
+test('指标卡片支持展示分秒级总耗时与超长首响应 TTFT，并支持小时级展示', () => {
+  const source = createSource()
+  renderMetrics(source)
+  act(() =>
+    source.update({
+      running: false,
+      phase: 'complete',
+      elapsedMs: 683100,
+      generationMs: 300000,
+      generationActive: false,
+      ttftMs: 125000,
+      outputTokens: 1500,
+      estimated: false,
+      receivedAt: performance.now(),
+    }),
+  )
+  expect(screen.getByText('11m 23s')).toBeInTheDocument()
+  expect(screen.getByText('2m 05s')).toBeInTheDocument()
+
+  act(() =>
+    source.update({
+      running: false,
+      phase: 'complete',
+      elapsedMs: 3665000,
+      generationMs: 2000000,
+      generationActive: false,
+      ttftMs: 3200,
+      outputTokens: 5000,
+      estimated: false,
+      receivedAt: performance.now(),
+    }),
+  )
+  expect(screen.getByText('1h 01m 05s')).toBeInTheDocument()
+  expect(screen.getByText('3.2s')).toBeInTheDocument()
 })

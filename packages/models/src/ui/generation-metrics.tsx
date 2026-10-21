@@ -15,8 +15,28 @@ const phaseLabels: Record<PiGenerationMetrics['phase'], string> = {
   aborted: '已中断',
 }
 
-function seconds(ms: number) {
-  return `${(ms / 1000).toFixed(1)}s`
+export function formatMetricDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms <= 0) return '0.0s'
+
+  if (ms < 60_000) {
+    const sec = (ms / 1000).toFixed(1)
+    if (sec === '60.0') return '1m 00s'
+    return `${sec}s`
+  }
+
+  const totalSeconds = Math.floor(ms / 1000)
+  const seconds = totalSeconds % 60
+  const totalMinutes = Math.floor(totalSeconds / 60)
+  const minutes = totalMinutes % 60
+  const hours = Math.floor(totalMinutes / 60)
+
+  const pad = (n: number) => n.toString().padStart(2, '0')
+
+  if (hours === 0) {
+    return `${minutes}m ${pad(seconds)}s`
+  }
+
+  return `${hours}h ${pad(minutes)}m ${pad(seconds)}s`
 }
 
 export function GenerationMetrics({ source }: { source: GenerationMetricsSource }) {
@@ -62,13 +82,17 @@ export function GenerationMetrics({ source }: { source: GenerationMetricsSource 
               description="从模型请求开始到首段正文、思考或工具调用增量的等待时间。本次运行显示首次有效响应的 TTFT。"
             />
           </dt>
-          <dd className="text-foreground">{metrics?.ttftMs === undefined ? '—' : seconds(metrics.ttftMs)}</dd>
+          <dd className="text-foreground shrink-0 whitespace-nowrap">
+            {metrics?.ttftMs === undefined ? '—' : formatMetricDuration(metrics.ttftMs)}
+          </dd>
         </div>
         <div className="flex items-center justify-between gap-1">
           <dt className="text-muted-foreground">
             <MetricLabel label="总耗时" description="本次运行开始至结束的总时长，包含模型生成、等待和工具执行时间。" />
           </dt>
-          <dd className="text-foreground">{metrics ? seconds(elapsedMs) : '—'}</dd>
+          <dd className="text-foreground shrink-0 whitespace-nowrap">
+            {metrics ? formatMetricDuration(elapsedMs) : '—'}
+          </dd>
         </div>
       </dl>
     </section>
