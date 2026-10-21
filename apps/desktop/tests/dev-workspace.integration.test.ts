@@ -1,12 +1,64 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { execFile } from 'node:child_process'
+import { mkdtemp, realpath, rm } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { promisify } from 'node:util'
 import { test, vi } from 'vitest'
 import { createServer as createNetServer } from 'node:net'
 import { startHostServer } from '@pi-meme/host/server'
-import { createServer, loadConfigFromFile, mergeConfig, resolveConfig } from 'vite'
+import { build, createServer, loadConfigFromFile, mergeConfig, resolveConfig } from 'vite'
+
+test('Desktop CJS 构建保留受限入口文件，并优先使用显式运行时入口', async () => {
+  const root = fileURLToPath(new URL('..', import.meta.url))
+  const directory = await realpath(await mkdtemp(path.join(os.tmpdir(), 'pi-desktop-restricted-entry-')))
+  try {
+    const loaded = await loadConfigFromFile(
+      {
+        command: 'build',
+        mode: 'production',
+        root,
+        forgeConfig: { build: [], renderer: [] },
+        forgeConfigSelf: { entry: 'src/main/host-process.ts', config: 'vite.main.config.mts', target: 'main' },
+      },
+      path.join(root, 'vite.main.config.mts'),
+    )
+    assert.ok(loaded)
+    await build(
+      mergeConfig(loaded.config, {
+        root,
+        configFile: false,
+        logLevel: 'silent',
+        build: {
+          outDir: directory,
+          lib: {
+            entry: path.resolve(root, '../../packages/plugin-runtime/src/restricted-runner.ts'),
+            formats: ['cjs'],
+            fileName: () => 'runner.cjs',
+          },
+          rollupOptions: { external: [/^node:/] },
+        },
+      }),
+    )
+    for (const override of ['', path.join(directory, 'runtime/restricted-entry.mjs')]) {
+      await promisify(execFile)(
+        process.execPath,
+        [
+          '-e',
+          `const assert = require('node:assert/strict')
+const fs = require('node:fs')
+const { RestrictedRunner } = require(${JSON.stringify(path.join(directory, 'runner.cjs'))})
+assert.equal(RestrictedRunner.entry, ${JSON.stringify(override || path.join(directory, 'restricted-entry.mjs'))})
+assert.match(fs.readFileSync(${JSON.stringify(path.join(directory, 'restricted-entry.mjs'))}, 'utf8'), /AsyncLocalStorage/)`,
+        ],
+        { env: { ...process.env, PI_MEME_PLUGIN_ENTRY: override }, timeout: 5000 },
+      )
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
 
 test('Desktop 开发代理默认使用 31416，与构建 App 的 31415 隔离', async () => {
   vi.stubEnv('PI_MEME_PORT', undefined)

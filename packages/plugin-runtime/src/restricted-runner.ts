@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
+import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Readable, Writable } from 'node:stream'
 import type { JsonValue } from '@pi-meme/plugin-sdk/rpc'
@@ -41,7 +42,15 @@ export class RestrictedRunner extends EventEmitter {
   ) {
     super()
   }
-  static entry = fileURLToPath(new URL('./restricted-entry.mjs', import.meta.url))
+  static get entry() {
+    return (
+      process.env.PI_MEME_PLUGIN_ENTRY ||
+      path.join(
+        typeof __dirname === 'string' ? __dirname : path.dirname(fileURLToPath(import.meta.url)),
+        'restricted-entry.mjs',
+      )
+    )
+  }
   start() {
     this.ready ??= this.boot()
     return this.ready
