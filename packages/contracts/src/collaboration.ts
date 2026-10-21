@@ -106,12 +106,22 @@ export type AgentMailboxMessage = {
   text: string
   createdAt: string
 }
+export type AgentModelSelection = {
+  model?: Pick<PiModel, 'provider' | 'id'>
+  thinking_level?: ThinkingLevel
+}
 export type CollaborationRequests = {
-  spawn_agent: { task_name: string; message: string; avatar?: AgentAvatarScene; fork_turns?: 'all' | 'none' }
+  spawn_agent: AgentModelSelection & {
+    task_name: string
+    message: string
+    avatar?: AgentAvatarScene
+    fork_turns?: 'all' | 'none'
+  }
   send_message: { target: string; message: string }
-  followup_task: { target: string; message: string }
+  followup_task: AgentModelSelection & { target: string; message: string }
   interrupt_agent: { target: string }
   list_agents: { path_prefix?: string }
+  list_agent_models: { [key: string]: never }
   wait_agent: { targets?: string[]; timeout_ms?: number }
   finish_agent: { report: string }
 }
@@ -121,6 +131,11 @@ export type CollaborationResults = {
   followup_task: { agent: AgentSummary; queued: boolean }
   interrupt_agent: { agent: AgentSummary; previousStatus: AgentStatus }
   list_agents: { agents: AgentSummary[] }
+  list_agent_models: {
+    models: PiModel[]
+    thinkingLevels: ThinkingLevel[]
+    current: { model?: PiModel; thinkingLevel?: ThinkingLevel }
+  }
   wait_agent: { agents: AgentSummary[]; messages: AgentMailboxMessage[]; notifiedBy?: string[]; timedOut: boolean }
   finish_agent: { accepted: true }
 }

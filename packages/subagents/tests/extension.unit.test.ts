@@ -32,6 +32,7 @@ test('协作工具和明确完成工具常驻注册，不依赖旧目录定义�
       'followup_task',
       'interrupt_agent',
       'list_agents',
+      'list_agent_models',
       'wait_agent',
       'finish_agent',
       'save_plan',
@@ -65,6 +66,7 @@ test('协作工具和明确完成工具常驻注册，不依赖旧目录定义�
     followup_task: ['target', 'message'],
     interrupt_agent: ['target'],
     list_agents: [],
+    list_agent_models: [],
     wait_agent: [],
     finish_agent: ['report'],
     save_plan: ['title', 'markdown'],
@@ -123,9 +125,38 @@ test('协作工具和明确完成工具常驻注册，不依赖旧目录定义�
     await spawn.execute(`tool-${name}`, params, undefined, undefined, {} as never)
     assert.deepEqual(requests.at(-1), { method: 'spawn_agent', params })
   }
-  const params = { task_name: 'worker', message: '审查认证边界', avatar: 'security', fork_turns: 'none' }
+  const params = {
+    task_name: 'worker',
+    message: '审查认证边界',
+    avatar: 'security',
+    fork_turns: 'none',
+    model: { provider: 'fake', id: 'other' },
+    thinking_level: 'low',
+  }
   await spawn.execute('tool-avatar', params, undefined, undefined, {} as never)
   assert.deepEqual(requests.at(-1), { method: 'spawn_agent', params })
+  const models = tools.find((tool) => tool.name === 'list_agent_models')!
+  await models.execute('tool-models', {}, undefined, undefined, {} as never)
+  assert.deepEqual(requests.at(-1), { method: 'list_agent_models', params: {} })
+  const followup = tools.find((tool) => tool.name === 'followup_task')!
+  const next = { target: 'worker', message: '继续', model: params.model, thinking_level: 'off' }
+  await followup.execute('tool-followup', next, undefined, undefined, {} as never)
+  assert.deepEqual(requests.at(-1), { method: 'followup_task', params: next })
+  for (const tool of [spawn, followup]) {
+    const selection = tool.parameters as {
+      properties: {
+        model: { additionalProperties: boolean; required: string[] }
+        thinking_level: { anyOf: Array<{ const: string }> }
+      }
+    }
+    assert.equal(selection.properties.model.additionalProperties, false)
+    assert.deepEqual(selection.properties.model.required, ['provider', 'id'])
+    assert.deepEqual(
+      selection.properties.thinking_level.anyOf.map((entry) => entry.const),
+      ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'],
+    )
+    assert.match(tool.description, /only when explicitly requested by the user/)
+  }
   const finish = tools.find((tool) => tool.name === 'finish_agent')!
   assert.match(finish.description, /completion intent: end your turn/)
   assert.match(finish.description, /New feedback.*cancels completion/)

@@ -7,6 +7,7 @@ import type { RuntimeSdkSession } from '@pi-meme/pi-runtime/session-pool'
 import type { DesktopEvent, Snapshot } from '@pi-meme/contracts/desktop'
 import type { CollaborationRequest, AgentSummary } from '@pi-meme/contracts/collaboration'
 import type { TaskMode } from '@pi-meme/contracts/plan'
+import { thinkingLevels, type PiModel } from '@pi-meme/contracts/pi'
 import type { SdkSession } from '@pi-meme/pi-runtime/sdk/session'
 
 type Notify = ConstructorParameters<typeof SdkSession>[1]
@@ -25,6 +26,7 @@ function fakeSession(
     followUpMode: 'one-at-a-time',
     pendingMessageCount: 0,
   }
+  const models: PiModel[] = []
   const messages: Snapshot['messages'] = []
   const prompts: string[] = []
   const delivered: string[] = []
@@ -104,7 +106,8 @@ function fakeSession(
         connection: { cwd, generation: 1, status },
         state: { ...state },
         messages: messages.slice(),
-        models: [],
+        models: models.slice(),
+        thinkingLevels: [...thinkingLevels],
       }
     },
     getEntries: async () => ({ entries: [], leafId: null }),
@@ -129,7 +132,7 @@ function fakeSession(
     if (complete) await complete(session, text)
     reply(text)
   }
-  return { session, finish, reply, prompts, delivered, continuations, state, faults, notify, pauses }
+  return { session, finish, reply, prompts, delivered, continuations, state, models, faults, notify, pauses }
 }
 
 async function setup(assertCheckoutAvailable?: (cwd: string) => void) {

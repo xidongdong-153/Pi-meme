@@ -70,6 +70,7 @@ test('Plan执行链拒绝写入、bash、MCP、codemode和第三方工具，同�
     'followup_task',
     'interrupt_agent',
     'list_agents',
+    'list_agent_models',
     'wait_agent',
     'finish_agent',
     'request_user_input',

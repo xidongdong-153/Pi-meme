@@ -78,6 +78,7 @@ export function createRestrictedAgent(options: {
         'wait_agent',
         'finish_agent',
         'list_agents',
+        'list_agent_models',
         'followup_task',
         'interrupt_agent',
         'get_goal',

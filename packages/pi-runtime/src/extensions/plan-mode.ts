@@ -7,6 +7,7 @@ export const collaborationToolNames = [
   'followup_task',
   'interrupt_agent',
   'list_agents',
+  'list_agent_models',
   'wait_agent',
   'finish_agent',
 ] as const

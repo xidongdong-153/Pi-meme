@@ -28,6 +28,136 @@ function enableCollaboration(bridge: ReturnType<typeof createHostCollaborationBr
   )
 }
 
+test('查询可用模型和思考强度，子任务默认继承调用方当前配置且逐项覆盖', async () => {
+  const context = await setup()
+  try {
+    const inherited = { provider: 'fake', id: 'first', name: '默认模型', reasoning: true }
+    const selected = { provider: 'other', id: 'second', name: '指定模型', reasoning: true }
+    context.root.models.push(inherited, selected)
+    context.root.state.model = inherited
+    context.root.state.thinkingLevel = 'high'
+    await context.begin()
+    const available = (await context.call(
+      context.root.session,
+      'list_agent_models',
+      {},
+    )) as CollaborationResults['list_agent_models']
+    assert.deepEqual(available.models, [inherited, selected])
+    assert.deepEqual(available.thinkingLevels, ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'])
+    assert.deepEqual(available.current, { model: inherited, thinkingLevel: 'high' })
+    const plain = await context.spawn('plain')
+    assert.deepEqual(plain.model, inherited)
+    assert.equal(plain.thinkingLevel, 'high')
+    const spawn = (name: string, selection: object) =>
+      context.call(context.root.session, 'spawn_agent', {
+        task_name: name,
+        message: '子任务',
+        fork_turns: 'none',
+        ...selection,
+      }) as Promise<AgentSummary>
+    const modelOnly = await spawn('model_only', { model: { provider: 'other', id: 'second' } })
+    assert.deepEqual(modelOnly.model, selected)
+    assert.equal(modelOnly.thinkingLevel, 'high')
+    const thinkingOnly = await spawn('thinking_only', { thinking_level: 'off' })
+    assert.deepEqual(thinkingOnly.model, inherited)
+    assert.equal(thinkingOnly.thinkingLevel, 'off')
+    const worker = context.children.get(modelOnly.sessionKey)!
+    assert.deepEqual(worker.state.model, selected)
+    assert.equal(worker.state.thinkingLevel, 'high')
+    const nested = await context.spawn('nested', worker.session)
+    assert.deepEqual(nested.model, selected)
+    assert.equal(nested.thinkingLevel, 'high')
+    assert.deepEqual(context.root.state.model, inherited)
+    assert.equal(context.root.state.thinkingLevel, 'high')
+  } finally {
+    await context.cleanup()
+  }
+})
+
+test('无效模型或思考强度在创建身份和任务入队前拒绝，不回退默认值', async () => {
+  const context = await setup()
+  try {
+    await context.begin()
+    const invalid = [{ model: { provider: 'missing', id: 'unknown' } }, { thinking_level: 'invalid' }]
+    for (const selection of invalid) {
+      await assert.rejects(
+        context.call(context.root.session, 'spawn_agent', {
+          task_name: 'invalid',
+          message: '子任务',
+          fork_turns: 'none',
+          ...selection,
+        }),
+        /模型不可用|思考强度不可用/,
+      )
+    }
+    assert.equal((await context.bridge.getAgents('root-key')).length, 1)
+    assert.equal(context.children.size, 0)
+    const child = await context.spawn('worker')
+    for (const selection of invalid) {
+      await assert.rejects(
+        context.call(context.root.session, 'followup_task', {
+          target: 'worker',
+          message: '下一任务',
+          ...selection,
+        }),
+        /模型不可用|思考强度不可用/,
+      )
+    }
+    await context.children.get(child.sessionKey)!.finish('完成')
+    await context.until(async () => (await context.bridge.getAgents('root-key'))[1]!.status === 'completed')
+    assert.equal(context.children.get(child.sessionKey)!.prompts.length, 1)
+  } finally {
+    await context.cleanup()
+  }
+})
+
+test('后续任务固定入队时的显式配置，省略时重新继承调用方而非子任务上一轮配置', async () => {
+  const context = await setup()
+  try {
+    const inherited = { provider: 'fake', id: 'first' }
+    const selected = { provider: 'other', id: 'second' }
+    context.root.models.push(inherited, selected)
+    context.root.state.model = inherited
+    context.root.state.thinkingLevel = 'high'
+    await context.begin()
+    const child = await context.spawn('worker')
+    const worker = context.children.get(child.sessionKey)!
+    const queued = (await context.call(context.root.session, 'followup_task', {
+      target: 'worker',
+      message: '指定配置的任务',
+      model: selected,
+      thinking_level: 'low',
+    })) as CollaborationResults['followup_task']
+    assert.equal(queued.queued, true)
+    assert.deepEqual(worker.state.model, inherited)
+    assert.equal(worker.state.thinkingLevel, 'high')
+    context.root.state.thinkingLevel = 'max'
+    const saved = JSON.parse(await readFile(path.join(context.directory, 'collaboration.json'), 'utf8'))
+    const queuedPolicy = saved.records.find(
+      (record: { summary: AgentSummary }) => record.summary.agentId === child.agentId,
+    ).queued[0].policy
+    assert.deepEqual(queuedPolicy.model, selected)
+    assert.equal(queuedPolicy.thinkingLevel, 'low')
+    await worker.finish('首项完成')
+    await context.until(async () => worker.prompts.length === 2)
+    assert.deepEqual(worker.state.model, selected)
+    assert.equal(worker.state.thinkingLevel, 'low')
+    await worker.finish('指定配置任务完成')
+    await context.until(async () => (await context.bridge.getAgents('root-key'))[1]!.status === 'completed')
+    const next = (await context.call(context.root.session, 'followup_task', {
+      target: 'worker',
+      message: '恢复继承配置',
+    })) as CollaborationResults['followup_task']
+    assert.equal(next.queued, false)
+    assert.deepEqual(next.agent.model, inherited)
+    assert.equal(next.agent.thinkingLevel, 'max')
+    assert.deepEqual(worker.state.model, inherited)
+    assert.equal(worker.state.thinkingLevel, 'max')
+  } finally {
+    await context.cleanup()
+  }
+})
+
 test('失败恢复只重激活原根任务，保留子树、排队任务和未来选择的模式', async () => {
   const context = await setup()
   try {

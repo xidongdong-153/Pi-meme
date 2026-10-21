@@ -28,6 +28,7 @@ const reservedTools = new Set([
   'wait_agent',
   'finish_agent',
   'list_agents',
+  'list_agent_models',
   'interrupt_agent',
   'save_plan',
   'get_goal',

@@ -8,13 +8,14 @@ import {
   agentAvatarScenes,
   resolveAgentTarget,
   type AgentSummary,
+  type AgentModelSelection,
   type AgentMailboxMessage,
   type CollaborationRequest,
   type CollaborationResults,
   type PendingInteraction,
 } from '@pi-meme/contracts/collaboration'
 import type { PlanDocument, SavePlanInput, TaskMode } from '@pi-meme/contracts/plan'
-import type { PiState } from '@pi-meme/contracts/pi'
+import { thinkingLevels, type PiState } from '@pi-meme/contracts/pi'
 import type { RuntimeSdkSession } from '@pi-meme/pi-runtime/session-pool'
 import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
 import { loadPiSdk } from '@pi-meme/pi-runtime/sdk/load'
@@ -566,6 +567,14 @@ export class HostCollaborationBridge {
         throw new Error('协作请求所属轮次已结束或更换')
     }
     const params = request.params
+    if (request.method === 'list_agent_models') {
+      const snapshot = await actualSession.snapshot()
+      return {
+        models: snapshot.models,
+        thinkingLevels: snapshot.thinkingLevels ?? [...thinkingLevels],
+        current: { model: snapshot.state.model, thinkingLevel: snapshot.state.thinkingLevel },
+      }
+    }
     if (request.method === 'list_agents') {
       const prefix = request.params.path_prefix
       return {
@@ -597,6 +606,8 @@ export class HostCollaborationBridge {
       if (!/^[a-z][a-z0-9_]{0,63}$/.test(name) || !message.trim()) throw new Error('子 Agent 名称或任务无效')
       if (avatar !== undefined && !agentAvatarScenes.includes(avatar)) throw new Error('子 Agent 头像场景无效')
       if (caller.summary.depth >= collaborationLimits.depth) throw new Error('子 Agent 最多嵌套两层')
+      const policy = await this.policy(caller, request.params)
+      assertCurrent()
       this.capacity(caller)
       if (this.tree(caller).length - 1 >= collaborationLimits.identities) throw new Error('子 Agent 身份最多 16 个')
       const taskPath = `${caller.summary.taskPath}/${name}`
@@ -651,7 +662,7 @@ export class HostCollaborationBridge {
           }
         }
         assertCurrent()
-        await this.start(child, message, admitted.rootTaskId, admitted.epoch, this.policy(caller))
+        await this.start(child, message, admitted.rootTaskId, admitted.epoch, policy)
         return { ...child.summary }
       } catch (cause) {
         this.records.delete(agentId)
@@ -676,12 +687,14 @@ export class HostCollaborationBridge {
     if (request.method === 'followup_task') {
       this.options.assertCheckoutAvailable?.(caller.summary.cwd)
       if (!request.params.message.trim()) throw new Error('任务不能为空')
+      const policy = await this.policy(caller, request.params)
+      assertCurrent()
       if (activeStatuses.has(target.summary.status)) {
         target.queued.push({
           message: request.params.message,
           rootTaskId: caller.summary.rootTaskId,
           epoch: caller.summary.epoch,
-          policy: this.policy(caller),
+          policy,
           runId: randomUUID(),
         })
         await this.persist()
@@ -690,13 +703,7 @@ export class HostCollaborationBridge {
       this.capacity(caller)
       const previous = { ...target.summary }
       try {
-        await this.start(
-          target,
-          request.params.message,
-          caller.summary.rootTaskId,
-          caller.summary.epoch,
-          this.policy(caller),
-        )
+        await this.start(target, request.params.message, caller.summary.rootTaskId, caller.summary.epoch, policy)
       } catch (cause) {
         const generation = target.summary.executionGeneration
         if (activeStatuses.has(target.summary.status)) target.summary = { ...previous, executionGeneration: generation }
@@ -708,12 +715,23 @@ export class HostCollaborationBridge {
     }
     throw new Error('协作工具无效')
   }
-  private policy(record: Record): RunPolicy {
+  private async policy(record: Record, selection: AgentModelSelection): Promise<RunPolicy> {
+    const snapshot = await record.session!.snapshot()
+    const level = selection.thinking_level ?? snapshot.state.thinkingLevel
+    if (level !== undefined && !(snapshot.thinkingLevels ?? thinkingLevels).includes(level))
+      throw new Error(`思考强度不可用：${level}`)
+    const model = selection.model
+      ? snapshot.models.find(
+          (entry) => entry.provider === selection.model!.provider && entry.id === selection.model!.id,
+        )
+      : snapshot.state.model
+    if (selection.model && !model)
+      throw new Error(`模型不可用：${selection.model.provider}/${selection.model.id}，请用 list_agent_models 查询`)
     return {
       mode: record.summary.mode,
       accessMode: record.summary.accessMode,
-      model: record.summary.model,
-      thinkingLevel: record.summary.thinkingLevel,
+      model,
+      thinkingLevel: level,
     }
   }
   private async start(
