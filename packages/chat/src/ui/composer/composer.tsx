@@ -310,6 +310,7 @@ export function Composer({
             onEscape={cancelEdit}
             paste={paste}
             dragging={dragging}
+            editing={Boolean(editing || editingQueue)}
           />
           <div className="composer-below">{widgetsBelow}</div>
           <ComposerToolbar

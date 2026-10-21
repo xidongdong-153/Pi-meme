@@ -12,7 +12,14 @@ import { cn } from '@pi-meme/ui/lib/utils'
 /** 原位置编辑用户历史消息所需的状态与操作，由 desktop 从 useChatSession 装配。 */
 export type MessageEditorState = Pick<
   ComposerProps,
-  'projectPath' | 'loadProjectFiles' | 'sessionKey' | 'uploadAttachment' | 'onError' | 'composerStore' | 'files'
+  | 'projectPath'
+  | 'loadProjectFiles'
+  | 'sessionKey'
+  | 'uploadAttachment'
+  | 'onError'
+  | 'composerStore'
+  | 'files'
+  | 'agentPlugins'
 > & {
   timestamp: number
   draft: string
@@ -118,6 +125,7 @@ export function InlineMessageEditor({ editor }: { editor: MessageEditorState }) 
           composerStore={editor.composerStore}
           disabled={editor.disabled}
           sessionKey={editor.sessionKey}
+          agentPlugins={editor.agentPlugins}
           projectPath={editor.projectPath}
           loadProjectFiles={editor.loadProjectFiles}
           selectedSkills={editor.selectedSkills}
@@ -131,6 +139,7 @@ export function InlineMessageEditor({ editor }: { editor: MessageEditorState }) 
           paste={paste}
           dragging={false}
           onEscape={cancelEdit}
+          editing={true}
         />
 
         <div className="mt-2 flex items-center justify-end gap-2">

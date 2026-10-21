@@ -972,6 +972,7 @@ export function App({
             chat.setAttachments((value) => [...value, ...images]),
           onRemoveImage: (id: string) => chat.setAttachments((value) => value.filter((image) => image.id !== id)),
           commands: chat.commands,
+          agentPlugins: agentPluginSelection,
           focusVersion: chat.draftFocusVersion,
           disabled: !ready,
           onSubmit: () => void chat.send(),

@@ -29,6 +29,7 @@ export function useCommandCompletion({
   onPluginPosition,
   commands,
   focusVersion,
+  editing,
 }: Pick<
   ComposerProps,
   | 'composerStore'
@@ -50,6 +51,7 @@ export function useCommandCompletion({
 > & {
   hasQueue: boolean
   onPluginPosition?: (id: string, offset: number) => void
+  editing?: boolean
 }) {
   const editor = React.useRef<HTMLDivElement>(null)
   const previousFocusVersion = React.useRef(focusVersion)
@@ -125,23 +127,24 @@ export function useCommandCompletion({
     if (query.kind === 'skill') return skills
     const canonicalPlan = commands.find((command) => command.source === 'builtin' && command.name === 'plan')
     let planSeen = false
-    const top = commandStart
-      ? commands.flatMap<CompletionItem>((command) => {
-          if (command.source === 'skill') return []
-          const plan = command.source === 'builtin' && ['plan', '计划', '计划模式'].includes(command.name)
-          if (plan && planSeen) return []
-          if (plan) planSeen = true
-          const preferred = plan ? (canonicalPlan ?? command) : command
-          const candidate = plan && preferred.name !== 'plan' ? { ...preferred, name: 'plan' } : preferred
-          return candidate.name.toLowerCase().startsWith(prefix) ||
-            (plan && '计划模式'.startsWith(prefix)) ||
-            (candidate.source === 'builtin' &&
-              candidate.name === 'goal' &&
-              ['目标', '目标模式'].some((name) => name.startsWith(prefix)))
-            ? [{ kind: 'command', command: candidate }]
-            : []
-        })
-      : []
+    const top =
+      commandStart && !editing
+        ? commands.flatMap<CompletionItem>((command) => {
+            if (command.source === 'skill') return []
+            const plan = command.source === 'builtin' && ['plan', '计划', '计划模式'].includes(command.name)
+            if (plan && planSeen) return []
+            if (plan) planSeen = true
+            const preferred = plan ? (canonicalPlan ?? command) : command
+            const candidate = plan && preferred.name !== 'plan' ? { ...preferred, name: 'plan' } : preferred
+            return candidate.name.toLowerCase().startsWith(prefix) ||
+              (plan && '计划模式'.startsWith(prefix)) ||
+              (candidate.source === 'builtin' &&
+                candidate.name === 'goal' &&
+                ['目标', '目标模式'].some((name) => name.startsWith(prefix)))
+              ? [{ kind: 'command', command: candidate }]
+              : []
+          })
+        : []
     top.sort(
       (left, right) =>
         Number(right.kind !== 'plugin' && right.command.source === 'builtin') -
@@ -153,7 +156,7 @@ export function useCommandCompletion({
       )
       .map((plugin) => ({ kind: 'plugin', plugin }))
     return [...top, ...skills, ...plugins]
-  }, [commands, commandStart, query?.kind, query?.query, suggestionsOpen, agentPlugins?.options])
+  }, [commands, commandStart, editing, query?.kind, query?.query, suggestionsOpen, agentPlugins?.options])
   const selectable = matches.flatMap((item, index) =>
     item.kind === 'plugin' && agentPlugins?.disabledReason ? [] : [index],
   )

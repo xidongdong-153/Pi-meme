@@ -5,6 +5,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/
 import { cn } from '@pi-meme/ui/lib/utils'
 import type { ComposerAgentPlugins } from './composer'
 import type { CompletionItem } from './use-command-completion'
+import { useSuggestionPlacement } from './use-suggestion-placement'
 
 const builtinCommandLabels: Record<string, string> = {
   plan: '计划',
@@ -26,6 +27,8 @@ export function CommandSuggestions({
   suggestionIndex: number
   onComplete: (item: CompletionItem) => void
 }) {
+  const { ref, placement, maxHeight } = useSuggestionPlacement()
+
   function option(item: CompletionItem, index: number) {
     const plugin = item.kind === 'plugin' ? item.plugin : undefined
     const command = item.kind === 'plugin' ? undefined : item.command
@@ -98,7 +101,7 @@ export function CommandSuggestions({
       <Tooltip key={key} delayDuration={300}>
         <TooltipTrigger asChild>{button}</TooltipTrigger>
         <TooltipContent
-          side="top"
+          side={placement === 'bottom' ? 'bottom' : 'top'}
           className="max-w-[min(32rem,calc(100vw-2rem))] break-all rounded-xl px-4 py-2 text-center font-mono text-sm"
         >
           {command.sourceInfo.path}
@@ -114,10 +117,14 @@ export function CommandSuggestions({
   const plugins = matches.flatMap((item, index) => (item.kind === 'plugin' ? [option(item, index)] : []))
   return (
     <div
-      className="absolute bottom-full left-0 right-0 mb-2 max-h-[min(22rem,50vh)] overflow-y-auto overscroll-contain rounded-2xl border border-border bg-popover p-1.5 shadow-xl z-30"
+      ref={ref}
+      className={cn(
+        'absolute left-0 right-0 overflow-y-auto overscroll-contain rounded-2xl border border-border bg-popover p-1.5 shadow-xl z-30',
+        placement === 'bottom' ? 'top-full mt-2' : 'bottom-full mb-2',
+      )}
       id="composer-suggestions"
       role="listbox"
-      style={{ scrollbarWidth: 'thin' }}
+      style={{ scrollbarWidth: 'thin', maxHeight: maxHeight ?? 'min(22rem,50vh)' }}
       aria-label={skillCompletion ? '技能选择' : '命令、技能与插件选择'}
     >
       {skillCompletion ? (

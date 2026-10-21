@@ -1,6 +1,7 @@
 import type { ProjectFile } from '@pi-meme/contracts/desktop'
 import { ChevronRight, File, Folder } from 'lucide-react'
 import { cn } from '@pi-meme/ui/lib/utils'
+import { useSuggestionPlacement } from './use-suggestion-placement'
 
 export function FileSuggestions({
   matches,
@@ -19,11 +20,19 @@ export function FileSuggestions({
   onComplete: (file: ProjectFile, drill?: boolean) => void
   onDirectory: (value: string) => void
 }) {
+  const { ref, placement, maxHeight } = useSuggestionPlacement()
   const slash = query.lastIndexOf('/')
   const directory = slash < 0 ? '' : query.slice(0, slash + 1)
   const segments = directory.split('/').filter(Boolean)
   return (
-    <div className="absolute bottom-full left-0 right-0 mb-2 rounded-xl border border-border bg-popover p-1.5 shadow-xl z-30">
+    <div
+      ref={ref}
+      className={cn(
+        'absolute left-0 right-0 rounded-xl border border-border bg-popover p-1.5 shadow-xl z-30',
+        placement === 'bottom' ? 'top-full mt-2' : 'bottom-full mb-2',
+      )}
+      style={maxHeight ? { maxHeight } : undefined}
+    >
       <div className="flex flex-wrap items-center gap-1 px-2.5 py-1 text-xs text-muted-foreground">
         <span className="shrink-0">文件与文件夹</span>
         {directory && (
@@ -50,7 +59,7 @@ export function FileSuggestions({
         role="listbox"
         aria-label="项目文件选择"
         className="max-h-[min(16rem,50vh)] overflow-y-auto overscroll-contain"
-        style={{ scrollbarWidth: 'thin' }}
+        style={{ scrollbarWidth: 'thin', maxHeight: maxHeight ? Math.max(100, maxHeight - 40) : undefined }}
       >
         {matches.map((file, index) => {
           const folder = file.kind === 'directory'

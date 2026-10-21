@@ -37,6 +37,7 @@ export function ComposerEditor({
   paste,
   dragging,
   onEscape,
+  editing,
 }: Pick<
   ComposerProps,
   | 'composerStore'
@@ -61,6 +62,7 @@ export function ComposerEditor({
   hasQueue: boolean
   paste: (event: ClipboardEvent<HTMLDivElement>) => void
   dragging: boolean
+  editing?: boolean
   /** Escape 未被命令补全或队列清空消费时触发，例如取消历史消息编辑。 */
   onEscape?: () => void
 }) {
@@ -107,6 +109,7 @@ export function ComposerEditor({
     focusVersion,
     onClearQueue,
     hasQueue,
+    editing,
   })
   const composing = useRef(false)
   const nativeEdit = useRef(false)

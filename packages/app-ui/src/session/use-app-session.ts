@@ -869,11 +869,16 @@ export function useAppSession(
     },
     cancelEdit: chat.cancelEdit,
     chooseDirectory,
-    newSession: () => select(() => bridge.newSession()),
-    newSessionInProject: (cwd: string) =>
-      cwd === current.current.cwd
+    newSession: async () => {
+      if (chat.editing) await chat.cancelEdit()
+      return select(() => bridge.newSession())
+    },
+    newSessionInProject: async (cwd: string) => {
+      if (chat.editing) await chat.cancelEdit()
+      return cwd === current.current.cwd
         ? select(() => bridge.newSession())
-        : select(() => bridge.selectWorkspace({ kind: 'project', cwd })),
+        : select(() => bridge.selectWorkspace({ kind: 'project', cwd }))
+    },
     switchSession: (sessionPath: string) => select(() => bridge.switchSession(sessionPath), sessionPath),
     forkReply: (timestamp: number) => {
       const key = current.current.sessionKey

@@ -50,7 +50,10 @@ export function ServicesApp({
   }, [registry])
   const activate = (id: string, work: (controller: ServiceController) => Promise<boolean>) => {
     const source = controllers.current.get(activeRef.current)
-    if (source?.workspaceDisabledReason) {
+    if (source?.editing) {
+      void source.cancelEdit()
+      source.setError('')
+    } else if (source?.workspaceDisabledReason) {
       source.setError(source.workspaceDisabledReason)
       return
     }

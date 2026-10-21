@@ -132,3 +132,31 @@ test('技能标题与短描述可检索，Enter、Tab和鼠标仍插入技能引
     globalThis.requestAnimationFrame = original
   }
 })
+
+test('上方空间不足且下方空间充裕时，建议弹框自适应向下展开', () => {
+  const container = document.createElement('div')
+  document.body.appendChild(container)
+  Object.defineProperty(container, 'getBoundingClientRect', {
+    value: () => ({ top: 50, bottom: 100, left: 0, right: 300, width: 300, height: 50 }),
+    configurable: true,
+  })
+  Object.defineProperty(window, 'innerHeight', { value: 800, writable: true, configurable: true })
+
+  const view = render(
+    createElement(
+      TooltipProvider,
+      null,
+      createElement(CommandSuggestions, {
+        matches: [{ kind: 'skill', command: creator }],
+        skillCompletion: true,
+        suggestionIndex: 0,
+        onComplete: () => {},
+      }),
+    ),
+    { container },
+  )
+  const menu = view.getByRole('listbox', { name: '技能选择' })
+  assert.ok(menu.className.includes('top-full mt-2'))
+  assert.doesNotMatch(menu.className, /bottom-full/)
+  container.remove()
+})

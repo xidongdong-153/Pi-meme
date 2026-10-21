@@ -8,7 +8,11 @@ import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 import { Composer, type ComposerProps } from '../src/ui/composer/composer'
 import { useCommandCompletion } from '../src/ui/composer/use-command-completion'
 
-function completion(draft: string, commands: PiSlashCommand[] = builtinCommands) {
+function completion(
+  draft: string,
+  commands: PiSlashCommand[] = builtinCommands,
+  options?: { editing?: boolean; agentPlugins?: ComposerProps['agentPlugins'] },
+) {
   let result!: ReturnType<typeof useCommandCompletion>
   const accepted: string[] = []
   const changedDrafts: string[] = []
@@ -17,6 +21,8 @@ function completion(draft: string, commands: PiSlashCommand[] = builtinCommands)
     result = useCommandCompletion({
       draft,
       commands: [...commands, skill],
+      agentPlugins: options?.agentPlugins,
+      editing: options?.editing,
       onPlanCommand: (text) => accepted.push(text),
       onDraft: (text) => changedDrafts.push(text),
       onSkills: () => {},
@@ -187,4 +193,25 @@ test('计划胶囊仅在启用时位于权限右侧，禁用时仍可关闭，�
     assert.match(markup, /hidden size-4 .*group-hover:flex group-focus-visible:flex/)
     assert.doesNotMatch(markup, />计划模式<|>关闭</)
   }
+})
+
+test('编辑状态下输入 / 只渲染技能和插件，不展示 plan、goal 等内置命令', () => {
+  const plugin = { id: 'plugin-preview', name: 'Preview Plugin', description: '代码预览' }
+  const agentPlugins = {
+    options: [plugin],
+    selected: [],
+    mentions: [],
+    loading: false,
+    saving: false,
+    select: async () => true,
+    deselect: async () => true,
+    change: async () => true,
+  }
+  const result = completion('/', builtinCommands, { editing: true, agentPlugins }).result
+  assert.deepEqual(
+    result.matches.map((item) => (item.kind === 'plugin' ? item.plugin.id : item.command.name)),
+    ['skill:verify', 'plugin-preview'],
+  )
+  assert.equal(completion('/p', builtinCommands, { editing: true, agentPlugins }).result.matches.length, 1)
+  assert.equal(completion('/plan', builtinCommands, { editing: true, agentPlugins }).result.matches.length, 0)
 })

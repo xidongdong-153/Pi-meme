@@ -137,3 +137,17 @@ test('旧会话切换迟到的错误不覆盖后来成功切换的界面', async
   await act(async () => reject(new Error('旧会话失败')))
   expect(source.setError).not.toHaveBeenCalled()
 })
+
+test('正在编辑时激活切换其他服务或会话，自动取消编辑且不设置错误提示', async () => {
+  const { controller, source } = await setup('remote', 'connected')
+  source.editing = true
+  source.workspaceDisabledReason = '请先完成或取消历史消息编辑'
+  source.cancelEdit = vi.fn().mockImplementation(async () => {
+    source.editing = false
+    source.workspaceDisabledReason = undefined
+  })
+  fireEvent.click(screen.getByText('remote 会话 A'))
+  await waitFor(() => expect(source.cancelEdit).toHaveBeenCalled())
+  await waitFor(() => expect(controller.switchSession).toHaveBeenCalledExactlyOnceWith('/remote-A.jsonl'))
+  expect(source.setError).not.toHaveBeenCalledWith('请先完成或取消历史消息编辑')
+})

@@ -460,3 +460,89 @@ test('外部连接切换会话时清空旧对话与草稿，不把内容带到�
   expect(result.current.chat.messages).toEqual([])
   expect(result.current.draft).toBe('')
 })
+
+test('正在编辑历史消息时新建会话，默认取消编辑并恢复原草稿', async () => {
+  const newSessionResult: SessionSelectionResult = {
+    cancelled: false,
+    snapshot: {
+      connection: { status: 'idle', cwd: '/work', sessionKey: 'new-key', generation: 2 },
+      state: {
+        model: { provider: 'fake', id: 'fake', name: 'Fake' },
+        thinkingLevel: 'off',
+        mode: 'default',
+        isStreaming: false,
+        isCompacting: false,
+        steeringMode: 'one-at-a-time',
+        followUpMode: 'all',
+        pendingMessageCount: 0,
+      },
+      messages: [],
+      models: [],
+      thinkingLevels: ['off'],
+    },
+  }
+  const { result } = setup({
+    newSession: vi.fn().mockResolvedValue(newSessionResult),
+  })
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  act(() => result.current.setDraft('编辑前的初始草稿'))
+  act(() => {
+    result.current.editMessage({
+      role: 'user',
+      timestamp: 12345,
+      content: '正在编辑的历史消息',
+    })
+  })
+  expect(result.current.editing).toBe(true)
+  expect(result.current.draft).toBe('正在编辑的历史消息')
+
+  await act(async () => {
+    await result.current.newSession()
+  })
+
+  expect(result.current.editing).toBe(false)
+  expect(result.current.connection.sessionKey).toBe('new-key')
+})
+
+test('正在编辑历史消息时在指定项目中新建会话，默认取消编辑并选择该项目', async () => {
+  const newSessionResult: SessionSelectionResult = {
+    cancelled: false,
+    snapshot: {
+      connection: { status: 'idle', cwd: '/work/other', sessionKey: 'project-key', generation: 2 },
+      state: {
+        model: { provider: 'fake', id: 'fake', name: 'Fake' },
+        thinkingLevel: 'off',
+        mode: 'default',
+        isStreaming: false,
+        isCompacting: false,
+        steeringMode: 'one-at-a-time',
+        followUpMode: 'all',
+        pendingMessageCount: 0,
+      },
+      messages: [],
+      models: [],
+      thinkingLevels: ['off'],
+    },
+  }
+  const selectWorkspace = vi.fn().mockResolvedValue(newSessionResult)
+  const { result } = setup({
+    selectWorkspace,
+  })
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  act(() => {
+    result.current.editMessage({
+      role: 'user',
+      timestamp: 999,
+      content: '待取消的编辑',
+    })
+  })
+  expect(result.current.editing).toBe(true)
+
+  await act(async () => {
+    await result.current.newSessionInProject('/work/other')
+  })
+
+  expect(result.current.editing).toBe(false)
+  expect(selectWorkspace).toHaveBeenCalledWith({ kind: 'project', cwd: '/work/other' })
+  expect(result.current.connection.sessionKey).toBe('project-key')
+})
