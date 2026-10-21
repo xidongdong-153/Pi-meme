@@ -1,41 +1,70 @@
-import { ErrorLine } from '@pi-meme/ui/components/error-line'
+import type { ReactNode } from 'react'
+import { classifySystemError, SystemErrorCard } from '@pi-meme/ui/components/system-error-card'
+
+const toastCard =
+  'pointer-events-auto w-full min-w-[240px] max-w-md animate-in slide-in-from-right-4 shadow-lg backdrop-blur-xs'
+
+export function SystemErrorToast({ children }: { children: ReactNode }) {
+  return (
+    <div className="pointer-events-none fixed top-16 right-4 z-50 flex w-[min(24rem,calc(100vw-2rem))] flex-col items-end gap-2">
+      {children}
+    </div>
+  )
+}
 
 export function ErrorNotice({
   message,
   onOpenSettings,
   onDismiss,
   extension = false,
+  toast = true,
 }: {
   message: string
   onOpenSettings: () => void
   onDismiss: () => void
   extension?: boolean
+  toast?: boolean
 }) {
-  if (!message) return null
-  const text = message
-    .trim()
-    .replace(/^(?:Error:\s*)*Error invoking remote method '[^']+':\s*/, '')
-    .replace(/\bError:\s*/g, '')
-    .trim()
-  const extensionFailure = extension || /Failed to load extension|无法加载 Pi 扩展/.test(text)
-  const needsSettings =
-    extensionFailure || /Pi.*路径|CLI|Node\.js|models\.json|API Key|API key|apiKey|模型配置|服务商配置/.test(text)
-  return (
-    <ErrorLine
-      message={text}
+  const copy = classifySystemError(message, extension)
+  if (!copy.text) return null
+  const card = (
+    <SystemErrorCard
+      title={copy.title}
+      body={copy.body}
+      detail={copy.text}
+      live={copy.live}
+      onOpenSettings={copy.settings ? onOpenSettings : undefined}
       onDismiss={onDismiss}
-      className="shrink-0 mx-4 my-2 text-xs"
-      actions={
-        needsSettings ? (
-          <button
-            type="button"
-            onClick={onOpenSettings}
-            className="cursor-pointer text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            打开设置
-          </button>
-        ) : undefined
-      }
+      className={toastCard}
     />
   )
+  return toast ? <SystemErrorToast>{card}</SystemErrorToast> : card
+}
+
+export function SystemErrorStack({
+  items,
+  contained = false,
+}: {
+  items: Array<{
+    id: string
+    message: string
+    extension?: boolean
+    onOpenSettings: () => void
+    onDismiss: () => void
+  }>
+  contained?: boolean
+}) {
+  const visible = items.filter((item) => item.message.trim()).slice(0, 2)
+  if (!visible.length) return null
+  const cards = visible.map((item) => (
+    <ErrorNotice
+      key={item.id}
+      toast={false}
+      message={item.message}
+      extension={item.extension}
+      onOpenSettings={item.onOpenSettings}
+      onDismiss={item.onDismiss}
+    />
+  ))
+  return contained ? cards : <SystemErrorToast>{cards}</SystemErrorToast>
 }

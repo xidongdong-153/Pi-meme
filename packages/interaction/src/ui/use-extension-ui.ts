@@ -49,6 +49,7 @@ export function useExtensionUI(
   const showNotice = (message: string, type: ExtensionNotice['type']) => {
     const id = ++noticeId.current
     setExtensionNotices((value) => [...value, { id, message, type }])
+    if (type === 'error') return
     noticeTimers.current.set(
       id,
       setTimeout(() => {

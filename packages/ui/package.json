@@ -15,6 +15,7 @@
     "./components/fade-content": "./src/components/fade-content.tsx",
     "./components/error-boundary": "./src/components/error-boundary.tsx",
     "./components/error-line": "./src/components/error-line.tsx",
+    "./components/system-error-card": "./src/components/system-error-card.tsx",
     "./components/icon": "./src/components/icon.tsx",
     "./components/ui/badge": "./src/components/ui/badge.tsx",
     "./components/ui/button": "./src/components/ui/button.tsx",

@@ -1,7 +1,7 @@
 import { GitFork, Loader2, X } from 'lucide-react'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
 
-/** Fork 的进行中与成功反馈，位于工作区右上角，不与底部错误提示重叠。 */
+/** Fork 的进行中与成功反馈，位于工作区右上角。系统错误 Toast 也在视口右上角，同时出现时错误在上层。 */
 export function ForkNotice({
   forking,
   sourcePath,

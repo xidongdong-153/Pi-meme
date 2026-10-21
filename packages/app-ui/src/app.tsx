@@ -14,7 +14,7 @@ import { AppRail } from './layout/app-rail'
 import { ProjectsPage } from './projects/projects-page'
 import { ForkNotice } from './layout/fork-notice'
 import { WorkspaceContent } from './layout/workspace-content'
-import { ErrorNotice } from './layout/error-notice'
+import { ErrorNotice, SystemErrorStack, SystemErrorToast } from './layout/error-notice'
 import {
   lazy,
   useCallback,
@@ -1011,6 +1011,46 @@ export function App({
       }}
     />
   )
+  const operationError = chat.error || settings.error
+  const systemErrorItems = [
+    ...chat.extensionNotices
+      .filter((notice) => notice.type === 'error')
+      .reverse()
+      .map((notice) => ({
+        id: `extension-notice-${notice.id}`,
+        message: notice.message,
+        onOpenSettings: () => openSettings('general'),
+        onDismiss: () => chat.dismissNotice(notice.id),
+      })),
+    ...(chat.extensionError?.message
+      ? [
+          {
+            id: 'extension-error',
+            message: chat.extensionError.message,
+            extension: true,
+            onOpenSettings: () => openSettings('general'),
+            onDismiss: chat.dismissExtensionError,
+          },
+        ]
+      : []),
+    ...(operationError
+      ? [
+          {
+            id: 'operation-error',
+            message: operationError,
+            onOpenSettings: () => {
+              chat.setError('')
+              settings.dismissError()
+              openSettings('general')
+            },
+            onDismiss: () => {
+              chat.setError('')
+              settings.dismissError()
+            },
+          },
+        ]
+      : []),
+  ]
   const conversation = (
     <WorkspaceContent
       chat={chat.chat}
@@ -1054,25 +1094,14 @@ export function App({
       notice={
         <>
           {chat.editing && pluginComposerStatus}
-          <ErrorNotice
-            message={chat.error || settings.error}
-            onOpenSettings={() => {
-              chat.setError('')
-              settings.dismissError()
-              openSettings('general')
-            }}
-            onDismiss={() => {
-              chat.setError('')
-              settings.dismissError()
-            }}
-          />
-          <ErrorNotice
-            message={chat.extensionError?.message ?? ''}
-            extension
-            onOpenSettings={() => openSettings('general')}
-            onDismiss={chat.dismissExtensionError}
-          />
-          <ExtensionNotices {...{ notices: chat.extensionNotices, onDismiss: chat.dismissNotice }} />
+          <SystemErrorToast>
+            <SystemErrorStack contained items={systemErrorItems} />
+            <ExtensionNotices
+              contained
+              notices={chat.extensionNotices.filter((notice) => notice.type !== 'error')}
+              onDismiss={chat.dismissNotice}
+            />
+          </SystemErrorToast>
         </>
       }
     >
