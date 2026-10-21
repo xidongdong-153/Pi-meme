@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { EventEmitter } from 'node:events'
+import { realpath } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Readable, Writable } from 'node:stream'
@@ -56,6 +57,10 @@ export class RestrictedRunner extends EventEmitter {
     return this.ready
   }
   private async boot(): Promise<RestrictedRegistration> {
+    const initialize = { ...this.options.initialize }
+    // 在父进程解析符号链接，避免受限 Node 导入入口时读取白名单外的祖先目录。
+    for (const key of ['agent', 'server'])
+      if (typeof initialize[key] === 'string') initialize[key] = await realpath(initialize[key])
     const launch = await this.options.launch(this.options)
     const child = spawn(launch.executable, launch.args, {
       cwd: this.options.workspace,
@@ -146,7 +151,7 @@ export class RestrictedRunner extends EventEmitter {
     })
     const signal = AbortSignal.timeout(5000)
     try {
-      return (await this.call('initialize', this.options.initialize, signal)) as RestrictedRegistration
+      return (await this.call('initialize', initialize, signal)) as RestrictedRegistration
     } catch (cause) {
       await this.close()
       throw cause

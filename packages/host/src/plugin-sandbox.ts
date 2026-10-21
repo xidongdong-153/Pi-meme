@@ -93,6 +93,8 @@ export async function pluginSandboxLaunch(options: RestrictedLaunchOptions): Pro
       '(allow sysctl-read)',
       '(allow mach-lookup (global-name "com.apple.system.logger"))',
       '(allow file-read-metadata)',
+      // macOS 动态链接器启动时需打开根目录；literal 不授权读取其子路径。
+      '(allow file-read-data (literal "/"))',
       `(allow file-read* ${readRules} (subpath "/System/Library") (subpath "/usr/lib") (literal "/dev/urandom") (literal "/dev/null"))`,
       `(allow file-write* ${writeRules} (literal "/dev/null"))`,
       `(deny file-write* (subpath ${JSON.stringify(directory)}) (literal ${JSON.stringify(entry)}) (literal ${JSON.stringify(node)}))`,

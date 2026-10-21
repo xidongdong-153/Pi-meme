@@ -1,8 +1,10 @@
 import { test } from 'vitest'
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, writeFile, rm, symlink } from 'node:fs/promises'
+import { execFile } from 'node:child_process'
+import { mkdtemp, mkdir, realpath, writeFile, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { promisify } from 'node:util'
 import { RestrictedRunner } from '@pi-meme/plugin-runtime/restricted-runner'
 import { pluginSandboxLaunch } from '../src/plugin-sandbox'
 import { createHost } from '../src/service'
@@ -40,7 +42,7 @@ test('受限 external-write 仅普通获准写方法可用，Plan/read-only/full
 })
 
 test('受限 Node 真正读取项目，拒绝项目写、秘密、原始网络和派生进程', async () => {
-  const root = await mkdtemp(path.join(tmpdir(), 'plugin-isolation-'))
+  const root = await realpath(await mkdtemp(path.join(tmpdir(), 'plugin-isolation-')))
   const workspace = path.join(root, 'workspace')
   const directory = path.join(root, 'plugin')
   const scratch = path.join(root, 'scratch')
@@ -81,6 +83,47 @@ export function activate(ctx){ctx.tools.register({name:'inspect',title:'检查',
   }
 })
 
+test(
+  'macOS 仅放行根目录本身，关闭 Node 权限检查后 OS 仍拒绝越界读写',
+  { skip: process.platform !== 'darwin' },
+  async () => {
+    const root = await realpath(await mkdtemp(path.join(tmpdir(), 'plugin-os-boundary-')))
+    const workspace = path.join(root, 'workspace')
+    const directory = path.join(root, 'plugin')
+    const scratch = path.join(root, 'scratch')
+    try {
+      await Promise.all([mkdir(workspace), mkdir(directory), mkdir(scratch)])
+      const secret = path.join(root, 'secret')
+      await writeFile(secret, 'FAKE_SECRET')
+      const entry = path.join(directory, 'probe.mjs')
+      await writeFile(
+        entry,
+        `import assert from 'node:assert/strict';import fs from 'node:fs';
+fs.closeSync(fs.openSync('/', 'r'));
+assert.throws(()=>fs.readFileSync(${JSON.stringify(secret)}),/EPERM|EACCES/);
+assert.throws(()=>fs.writeFileSync(${JSON.stringify(path.join(workspace, 'forbidden'))},'bad'),/EPERM|EACCES/);
+console.log('OS 边界通过');`,
+      )
+      const launch = await pluginSandboxLaunch({
+        node: process.execPath,
+        entry,
+        workspace,
+        directory,
+        scratch,
+        writable: false,
+      })
+      const result = await promisify(execFile)(
+        launch.executable,
+        launch.args.filter((arg) => arg !== '--permission' && !arg.startsWith('--allow-fs-')),
+        { cwd: workspace, env: launch.env, timeout: 5000 },
+      )
+      assert.match(result.stdout, /OS 边界通过/)
+    } finally {
+      await rm(root, { recursive: true, force: true })
+    }
+  },
+)
+
 test('Host 数据根等于工作区拒绝，符号链接数据根嵌在项目内仍实际隐藏秘密', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'plugin-host-root-'))
   const workspace = path.join(root, 'project')
@@ -96,6 +139,10 @@ test('Host 数据根等于工作区拒绝，符号链接数据根嵌在项目内
     path.join(directory, 'agent.js'),
     `import fs from 'node:fs';export function activate(ctx){ctx.tools.register({name:'secret',title:'秘密',description:'秘密',parameters:{type:'object'},effect:'read',capabilities:[],execute:()=>{let denied=false;try{fs.readFileSync(${JSON.stringify(secret)})}catch{denied=true}return {text:String(denied)}}})}`,
   )
+  await writeFile(
+    path.join(directory, 'server.js'),
+    `export function create(ctx){ctx.registerOperations([{name:'ready',execute:()=> '服务已加载'}])}`,
+  )
   const options = {
     node: process.execPath,
     entry: RestrictedRunner.entry,
@@ -109,11 +156,21 @@ test('Host 数据根等于工作区拒绝，符号链接数据根嵌在项目内
   const runner = new RestrictedRunner({
     ...options,
     launch: pluginSandboxLaunch,
-    initialize: { pluginId: 'secret', generation: 1, agent: path.join(directory, 'agent.js') },
+    initialize: {
+      pluginId: 'secret',
+      generation: 1,
+      agent: path.join(alias, 'plugins/snapshot/agent.js'),
+      server: path.join(alias, 'plugins/snapshot/server.js'),
+    },
     broker: async () => null,
   })
   try {
-    await runner.start()
+    const registered = await runner.start()
+    assert.equal(registered.operations[0].name, 'ready')
+    assert.equal(
+      await runner.call('server', { operation: 'ready', input: {}, context: {} }, AbortSignal.timeout(5000)),
+      '服务已加载',
+    )
     const result = (await runner.call(
       'tool',
       { name: 'secret', parameters: {}, execution: {} },
