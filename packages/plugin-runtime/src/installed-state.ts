@@ -22,10 +22,10 @@ export type InstalledState = {
 export function installedState(generationHighWaterMark: number, records: SavedPlugin[]): InstalledState {
   return { format: 'pi-meme-plugins', version: 1, generationHighWaterMark, records }
 }
-export async function readInstalledState(directory: string): Promise<InstalledState> {
+export async function readInstalledState(filePath: string): Promise<InstalledState> {
   let source: string
   try {
-    source = await readFile(path.join(directory, 'installed.json'), 'utf8')
+    source = await readFile(filePath, 'utf8')
   } catch (cause) {
     if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return installedState(0, [])
     throw cause
@@ -59,9 +59,10 @@ export async function readInstalledState(directory: string): Promise<InstalledSt
 }
 
 /** 确认文件与目录均已同步后，调用方才能使用预留的代次。 */
-export async function writeInstalledState(directory: string, state: InstalledState) {
-  await mkdir(directory, { recursive: true })
-  const temporary = path.join(directory, `installed-${randomUUID()}.tmp`)
+export async function writeInstalledState(filePath: string, state: InstalledState) {
+  const dir = path.dirname(filePath)
+  await mkdir(dir, { recursive: true })
+  const temporary = path.join(dir, `installed-${randomUUID()}.tmp`)
   try {
     const file = await open(temporary, 'wx', 0o600)
     try {
@@ -70,8 +71,8 @@ export async function writeInstalledState(directory: string, state: InstalledSta
     } finally {
       await file.close()
     }
-    await rename(temporary, path.join(directory, 'installed.json'))
-    const parent = await open(directory, 'r')
+    await rename(temporary, filePath)
+    const parent = await open(dir, 'r')
     try {
       await parent.sync()
     } finally {

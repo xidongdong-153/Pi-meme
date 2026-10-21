@@ -25,6 +25,7 @@ import {
   unzipResource,
   type ResourceFile,
 } from './resource-files'
+import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 
 type ImportRecord = {
   id: string
@@ -75,7 +76,11 @@ function skillName(value: unknown) {
 }
 export class ResourceStore {
   readonly dataRoot: string
-  private readonly directory: string
+  readonly stateFile: string
+  readonly skillsDirectory: string
+  readonly builtinSkillsDirectory: string
+  readonly snapshotsDirectory: string
+  readonly workspacesConfigDirectory: string
   private state?: StoreState
   private pending: Promise<unknown> = Promise.resolve()
   private pendingCount = 0
@@ -88,7 +93,11 @@ export class ResourceStore {
     private readonly options: ResourceStoreOptions = {},
   ) {
     this.dataRoot = path.resolve(root)
-    this.directory = path.join(this.dataRoot, 'resources')
+    this.stateFile = path.join(this.dataRoot, storageLayoutRelativePaths.resourcesFile)
+    this.skillsDirectory = path.join(this.dataRoot, storageLayoutRelativePaths.skillsDirectory)
+    this.builtinSkillsDirectory = path.join(this.dataRoot, storageLayoutRelativePaths.builtinSkillsDirectory)
+    this.snapshotsDirectory = path.join(this.dataRoot, storageLayoutRelativePaths.snapshotsDirectory)
+    this.workspacesConfigDirectory = path.join(this.dataRoot, storageLayoutRelativePaths.workspacesConfigDirectory)
   }
   init(): Promise<void> {
     return this.serialize(async () => {
@@ -119,10 +128,15 @@ export class ResourceStore {
   }
   private async initialize() {
     if (this.state) return this.state
-    for (const directory of ['skills', 'builtin-resources/skills', 'resources/snapshots'])
-      await mkdir(path.join(this.dataRoot, directory), { recursive: true })
+    for (const directory of [
+      this.skillsDirectory,
+      this.builtinSkillsDirectory,
+      this.snapshotsDirectory,
+      path.dirname(this.stateFile),
+    ])
+      await mkdir(directory, { recursive: true })
     try {
-      const state = JSON.parse(await readFile(path.join(this.directory, 'state.json'), 'utf8')) as StoreState
+      const state = JSON.parse(await readFile(this.stateFile, 'utf8')) as StoreState
       if (!Number.isSafeInteger(state.generation) || !Array.isArray(state.imports) || !state.policies)
         throw new Error('资源状态格式错误')
       this.state = { ...state, imports: state.imports.filter((record) => record.kind === 'skill') }
@@ -133,10 +147,11 @@ export class ResourceStore {
     return this.state
   }
   private async persistState(next: StoreState) {
-    const temporary = path.join(this.directory, `.state-${randomUUID()}.json`)
+    await mkdir(path.dirname(this.stateFile), { recursive: true })
+    const temporary = path.join(path.dirname(this.stateFile), `.state-${randomUUID()}.tmp`)
     try {
       await writeFile(temporary, `${JSON.stringify(next, null, 2)}\n`, { flag: 'wx' })
-      await rename(temporary, path.join(this.directory, 'state.json'))
+      await rename(temporary, this.stateFile)
     } finally {
       await rm(temporary, { force: true })
     }
@@ -155,8 +170,7 @@ export class ResourceStore {
   }
   private projectPolicyPath(cwd: string) {
     return path.join(
-      this.dataRoot,
-      'workspaces',
+      this.workspacesConfigDirectory,
       createHash('sha256').update(path.resolve(cwd)).digest('hex'),
       'resources.json',
     )
@@ -217,7 +231,7 @@ export class ResourceStore {
     const files = await readResourceFiles(source)
     return {
       files,
-      directory: await materializeResource(path.join(this.directory, 'snapshots'), files),
+      directory: await materializeResource(this.snapshotsDirectory, files),
       revision: resourceRevision(files),
     }
   }
@@ -390,8 +404,8 @@ export class ResourceStore {
         await addRoot(source, scope, owner)
       }
     }
-    await loose(path.join(this.dataRoot, 'builtin-resources/skills'), 'builtin')
-    await loose(path.join(this.dataRoot, 'skills'), 'host')
+    await loose(this.builtinSkillsDirectory, 'builtin')
+    await loose(this.skillsDirectory, 'host')
     for (const record of state.imports) {
       await addRoot(record.directory, 'host', { id: record.id, type: 'loose', name: record.name })
     }
@@ -588,7 +602,7 @@ export class ResourceStore {
         )
       }
       if (!files.length) throw new Error('资源内容为空')
-      const directory = await materializeResource(path.join(this.directory, 'snapshots'), files)
+      const directory = await materializeResource(this.snapshotsDirectory, files)
       if (await exists(path.join(directory, 'package.json'))) {
         const manifest = JSON.parse(await readFile(path.join(directory, 'package.json'), 'utf8')) as {
           piMeme?: unknown
@@ -606,7 +620,7 @@ export class ResourceStore {
           skillPaths: [directory],
           includeDefaults: false,
         })
-        const relative = path.relative(path.join(this.directory, 'snapshots', replaceItem.revision), replaceItem.path)
+        const relative = path.relative(path.join(this.snapshotsDirectory, replaceItem.revision), replaceItem.path)
         const updated = loaded.skills.find((skill) => path.relative(directory, skill.filePath) === relative)
         if (
           !updated ||
@@ -615,7 +629,7 @@ export class ResourceStore {
         )
           throw new Error('更新技能的入口和名称必须与原技能一致')
       }
-      const target = replaceTarget ?? path.join(this.dataRoot, 'skills', skillName(name))
+      const target = replaceTarget ?? path.join(this.skillsDirectory, skillName(name))
       const current = state.imports.find((record) => record.directory === target)
       if (
         !input.replace &&
@@ -636,7 +650,7 @@ export class ResourceStore {
     })
   }
   private async looseSource(item: ResourceItem) {
-    const root = path.join(this.dataRoot, 'skills')
+    const root = this.skillsDirectory
     for (const entry of await readdir(root)) {
       const source = path.join(root, entry)
       if (
@@ -656,7 +670,7 @@ export class ResourceStore {
         throw new Error('此资源不能从资源管理器删除')
       const record = state.imports.find((entry) => entry.id === item.owner.id)
       const directory = record?.directory ?? (await this.looseSource(item))
-      const backup = path.join(this.directory, `.removed-${randomUUID()}`)
+      const backup = path.join(this.snapshotsDirectory, `.removed-${randomUUID()}`)
       await rename(directory, backup)
       try {
         await this.commit({
@@ -688,15 +702,14 @@ export class ResourceStore {
       if (typeof parsed.description !== 'string' || !parsed.description.trim())
         throw new Error('技能必须填写 description')
       const record = item ? state.imports.find((entry) => entry.id === item.owner.id) : undefined
-      const sourceDirectory = item ? path.join(this.directory, 'snapshots', item.revision) : undefined
+      const sourceDirectory = item ? path.join(this.snapshotsDirectory, item.revision) : undefined
       const files = sourceDirectory ? await readResourceFiles(sourceDirectory) : []
       const relative = item ? path.relative(sourceDirectory!, item.path) : 'SKILL.md'
       const nextFiles = files.filter((file) => file.path !== relative)
       nextFiles.push({ path: relative, content: Buffer.from(input.content) })
-      const directory = await materializeResource(path.join(this.directory, 'snapshots'), nextFiles)
+      const directory = await materializeResource(this.snapshotsDirectory, nextFiles)
       await this.validateImport(directory)
-      const target =
-        record?.directory ?? (item ? await this.looseSource(item) : path.join(this.dataRoot, 'skills', name))
+      const target = record?.directory ?? (item ? await this.looseSource(item) : path.join(this.skillsDirectory, name))
       if (!item && (await exists(target))) throw new Error('同级技能名称重复')
       const nextRecord: ImportRecord = {
         id: item?.owner.id ?? state.ownerIds?.[path.relative(this.dataRoot, target)] ?? identity(target),

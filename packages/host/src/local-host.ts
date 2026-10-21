@@ -1,6 +1,7 @@
 import { readFile, realpath } from 'node:fs/promises'
 import path from 'node:path'
 import type { LocalHostStatus } from '@pi-meme/contracts/host-runtime'
+import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 import { hostDataRoot } from './data-root'
 import { assertLocalHostUrl, errorCode, readLocalHostStatus, waitForLocalHost } from './host-status'
 
@@ -11,7 +12,7 @@ async function verifyDataRoot(status: LocalHostStatus, dataRoot?: string) {
   })
   if (status.dataRoot !== expected)
     throw new Error('此端口的 Host 使用了不同数据目录，请统一 PI_MEME_DATA_ROOT 或指定其他 PI_MEME_PORT')
-  const hostId = await readFile(path.join(expected, 'host-id'), 'utf8')
+  const hostId = await readFile(path.join(expected, storageLayoutRelativePaths.hostIdFile), 'utf8')
   if (hostId !== status.hostId) throw new Error('本机 Host 身份与数据目录不匹配，请停止管理方后重新启动')
 }
 

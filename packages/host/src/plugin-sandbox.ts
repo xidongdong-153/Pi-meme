@@ -3,6 +3,7 @@ import { homedir } from 'node:os'
 import path from 'node:path'
 import { unixSocketFilter, windowsMounts } from '@pi-meme/pi-runtime/sdk/linux-sandbox'
 import type { RestrictedLaunchOptions, RestrictedLaunch } from '@pi-meme/plugin-runtime/restricted-runner'
+import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 
 function within(root: string, value: string) {
   const relative = path.relative(root, value)
@@ -19,12 +20,13 @@ export async function pluginSandboxLaunch(options: RestrictedLaunchOptions): Pro
   const scratch = await realpath(options.scratch)
   const entry = await realpath(options.entry)
   const dataRoot = options.dataRoot ? await realpath(options.dataRoot) : undefined
+  const standaloneWorkspaces = dataRoot
+    ? path.join(dataRoot, storageLayoutRelativePaths.standaloneWorkspacesDirectory)
+    : ''
   if (
     dataRoot &&
     within(dataRoot, workspace) &&
-    (workspace === dataRoot ||
-      workspace === path.join(dataRoot, 'standalone-workspaces') ||
-      !within(path.join(dataRoot, 'standalone-workspaces'), workspace))
+    (workspace === dataRoot || workspace === standaloneWorkspaces || !within(standaloneWorkspaces, workspace))
   )
     throw new Error('sandbox-unavailable: 不能将 Host 数据目录授权为插件工作区')
   if (workspace === path.parse(workspace).root || workspace === (await realpath(homedir())))

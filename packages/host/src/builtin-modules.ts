@@ -22,6 +22,7 @@ import type {
   BuiltinModule as ServerPluginModule,
 } from '@pi-meme/contracts/builtin-module'
 import { PluginScope } from '@pi-meme/plugin-sdk/scope'
+import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 
 const modules = [
   goals,
@@ -52,7 +53,11 @@ export async function createBuiltinModules(
   try {
     for (const module of modules) {
       const { manifest } = module
-      const dataDirectory = path.join(dataRoot, 'plugin-data', encodeURIComponent(manifest.name))
+      const dataDirectory = path.join(
+        dataRoot,
+        storageLayoutRelativePaths.modulesDirectory,
+        encodeURIComponent(manifest.name),
+      )
       await mkdir(dataDirectory, { recursive: true })
       const instance = await (module as ServerPluginModule).create({
         get host() {

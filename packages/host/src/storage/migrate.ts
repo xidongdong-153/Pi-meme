@@ -286,6 +286,7 @@ export async function migrateStorage(input: {
     }
     const allowed = new Set(journal.entries.map((entry) => path.relative(target, copiedPath(entry.relative))))
     allowed.add('resources/state.json')
+    allowed.add('state/resources.json')
     for (const entry of await inventory(target, '', false)) {
       if (!allowed.has(entry.relative) && !/^\.storage-[\da-f-]+\.tmp$/i.test(path.basename(entry.relative)))
         throw new Error(`目标含有本任务之外的文件：${entry.relative}`)

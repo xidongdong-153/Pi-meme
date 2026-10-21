@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto'
-import { readFile, writeFile, rename } from 'node:fs/promises'
+import { readFile, writeFile, rename, mkdir } from 'node:fs/promises'
 import path from 'node:path'
 import WebSocket from 'ws'
 import type { HostService, HostRpcResponse } from '@pi-meme/contracts/host'
+import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 import type { ConnectionCredentialStore } from './connection-credentials'
 import { sessionCookieName } from './transport-auth'
 
@@ -106,10 +107,12 @@ export class RemoteServices {
     let cacheError: string | undefined
     try {
       const source: unknown = JSON.parse(
-        await readFile(path.join(this.root, 'remote-services.json'), 'utf8').catch((cause: NodeJS.ErrnoException) => {
-          if (cause.code === 'ENOENT') return '[]'
-          throw cause
-        }),
+        await readFile(path.join(this.root, storageLayoutRelativePaths.remoteServicesCacheFile), 'utf8').catch(
+          (cause: NodeJS.ErrnoException) => {
+            if (cause.code === 'ENOENT') return '[]'
+            throw cause
+          },
+        ),
       )
       if (!Array.isArray(source)) throw new Error('服务摘要缓存格式无效')
       cached = source.filter(
@@ -147,7 +150,8 @@ export class RemoteServices {
     this.writing = this.writing
       .catch(() => {})
       .then(async () => {
-        const target = path.join(this.root, 'remote-services.json')
+        const target = path.join(this.root, storageLayoutRelativePaths.remoteServicesCacheFile)
+        await mkdir(path.dirname(target), { recursive: true })
         if (this.damagedCache) {
           await rename(target, `${target}.invalid-${Date.now()}`).catch((cause: NodeJS.ErrnoException) => {
             if (cause.code !== 'ENOENT') throw cause

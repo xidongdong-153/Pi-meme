@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, realpath, rename, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { DesktopProject, WorkspaceKind } from '@pi-meme/contracts/sessions'
+import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 
 export type ProjectWorktree = {
   checkoutRoot: string
@@ -19,9 +20,9 @@ export class ProjectStore {
   private standaloneRoot: string
   private readonly file: string
 
-  constructor(directory: string) {
-    this.file = path.join(directory, 'projects.json')
-    this.standaloneRoot = path.join(directory, 'standalone-workspaces')
+  constructor(dataRoot: string) {
+    this.file = path.join(dataRoot, storageLayoutRelativePaths.projectsFile)
+    this.standaloneRoot = path.join(dataRoot, storageLayoutRelativePaths.standaloneWorkspacesDirectory)
   }
 
   async load() {
@@ -95,6 +96,15 @@ export class ProjectStore {
     }
   }
 
+  private async persist(projects: DesktopProject[], worktrees: ProjectWorktree[]) {
+    await mkdir(path.dirname(this.file), { recursive: true })
+    const temporary = `${this.file}.tmp`
+    await writeFile(temporary, JSON.stringify({ version: 1, projects, worktrees }), 'utf8')
+    await rename(temporary, this.file)
+    this.projects = projects
+    this.worktrees = worktrees
+  }
+
   async register(cwd: string) {
     const actual = await this.validateDirectory(cwd)
     const resolved = this.sourceProjectCwd(actual) ?? actual
@@ -110,10 +120,7 @@ export class ProjectStore {
         if (this.loadError) throw this.loadError
         project.name = this.projects.find((item) => item.cwd === resolved)?.name ?? project.name
         const projects = [project, ...this.projects.filter((item) => item.cwd !== resolved)]
-        const temporary = `${this.file}.tmp`
-        await writeFile(temporary, JSON.stringify({ version: 1, projects, worktrees: this.worktrees }), 'utf8')
-        await rename(temporary, this.file)
-        this.projects = projects
+        await this.persist(projects, this.worktrees)
       })
     this.saving = save
     try {
@@ -130,9 +137,7 @@ export class ProjectStore {
       .then(async () => {
         if (this.loadError) throw this.loadError
         const projects = change(this.projects)
-        await writeFile(`${this.file}.tmp`, JSON.stringify({ version: 1, projects, worktrees: this.worktrees }), 'utf8')
-        await rename(`${this.file}.tmp`, this.file)
-        this.projects = projects
+        await this.persist(projects, this.worktrees)
       })
     this.saving = save
     return save
@@ -167,9 +172,7 @@ export class ProjectStore {
       .then(async () => {
         if (this.loadError) throw this.loadError
         const worktrees = [...this.worktrees.filter((item) => item.checkoutRoot !== worktree.checkoutRoot), worktree]
-        await writeFile(`${this.file}.tmp`, JSON.stringify({ version: 1, projects: this.projects, worktrees }), 'utf8')
-        await rename(`${this.file}.tmp`, this.file)
-        this.worktrees = worktrees
+        await this.persist(this.projects, worktrees)
       })
     this.saving = save
     await save
@@ -181,9 +184,7 @@ export class ProjectStore {
       .then(async () => {
         if (this.loadError) throw this.loadError
         const worktrees = this.worktrees.filter((item) => item.checkoutRoot !== checkoutRoot)
-        await writeFile(`${this.file}.tmp`, JSON.stringify({ version: 1, projects: this.projects, worktrees }), 'utf8')
-        await rename(`${this.file}.tmp`, this.file)
-        this.worktrees = worktrees
+        await this.persist(this.projects, worktrees)
       })
     this.saving = save
     await save

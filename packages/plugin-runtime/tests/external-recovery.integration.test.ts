@@ -105,10 +105,12 @@ async function fixture(reservedHandlers?: string[]) {
   const options = {
     directory: path.join(root, 'installed'),
     dataDirectory: path.join(root, 'data'),
+    stateFile: path.join(root, 'state/plugins.json'),
     reservedHandlers,
   }
   const manager = new PluginManager(options)
-  await mkdir(options.directory)
+  await mkdir(options.directory, { recursive: true })
+  await mkdir(path.dirname(options.stateFile), { recursive: true })
   return {
     root,
     options,
@@ -132,11 +134,11 @@ test('所有内置 ID 在目录、包、恢复和生命周期入口均被拒绝'
         await assert.rejects(f.manager[operation](id), /内置模块/)
       entries.push({ id, directory: source, builtin: false, enabled: true })
     }
-    await writeFile(path.join(f.options.directory, 'installed.json'), JSON.stringify(entries))
+    await writeFile(f.options.stateFile, JSON.stringify(entries))
     await f.manager.restore()
     assert.deepEqual(f.manager.list(), [])
     assert.equal(f.manager.diagnostics().length, reservedPluginIds.length - 2)
-    const saved = JSON.parse(await readFile(path.join(f.options.directory, 'installed.json'), 'utf8')).records
+    const saved = JSON.parse(await readFile(f.options.stateFile, 'utf8')).records
     assert.equal(saved.length, reservedPluginIds.length)
     for (const entry of entries) await access(entry.directory)
     const lease = f.manager.acquire()
@@ -158,14 +160,11 @@ test('旧内置记录不控制运行，manifest builtin 声明不能获得内置
     assert.equal(f.manager.list()[0]?.grant?.trusted.server, false)
     await f.manager.remove('declared-builtin')
     const legacyRecords = reservedPluginIds.map((id) => ({ id, directory: '/missing', enabled: false, builtin: true }))
-    await writeFile(path.join(f.options.directory, 'installed.json'), JSON.stringify(legacyRecords))
+    await writeFile(f.options.stateFile, JSON.stringify(legacyRecords))
     await f.manager.restore()
     assert.deepEqual(f.manager.list(), [])
     assert.deepEqual(f.manager.diagnostics(), [])
-    assert.deepEqual(
-      JSON.parse(await readFile(path.join(f.options.directory, 'installed.json'), 'utf8')).records,
-      legacyRecords,
-    )
+    assert.deepEqual(JSON.parse(await readFile(f.options.stateFile, 'utf8')).records, legacyRecords)
     assert.equal('registerBuiltin' in f.manager, false)
   } finally {
     await f.cleanup()
@@ -203,7 +202,7 @@ test('坏 JSON、非法字段和重复 ID 保留原清单，后续变更报告�
   ]) {
     const f = await fixture()
     try {
-      const state = path.join(f.options.directory, 'installed.json')
+      const state = f.options.stateFile
       await writeFile(state, contents)
       await f.manager.restore()
       assert.deepEqual(f.manager.list(), [])
@@ -244,7 +243,7 @@ test('坏包、依赖缺失、循环、服务冲突和初始化失败隔离，�
     cases.push(['bad-package', await directory(f.root, 'bad-package')])
     await rm(path.join(cases.at(-1)![1], 'dist/agent/entry.js'))
     cases.push(['mismatch', await directory(f.root, 'different-id')])
-    const state = path.join(f.options.directory, 'installed.json')
+    const state = f.options.stateFile
     await writeFile(state, JSON.stringify(cases.map(([id, directory]) => savedEntry(id, directory))))
     await f.manager.restore()
     assert.equal(await call(f.manager, 'healthy', 'value'), 7)
@@ -280,20 +279,21 @@ test('迁移原子写入失败保留原清单，恢复目录权限后仍拒绝�
       {},
       `return import('node:fs/promises').then(fs => fs.writeFile(${JSON.stringify(executed)}, '不得执行'))`,
     )
-    const state = path.join(f.options.directory, 'installed.json')
+    const state = f.options.stateFile
     const contents = JSON.stringify([savedEntry('healthy', source)])
     await writeFile(state, contents)
-    await chmod(f.options.directory, 0o500)
+    const stateDir = path.dirname(f.options.stateFile)
+    await chmod(stateDir, 0o500)
     await f.manager.restore()
     assert.deepEqual(f.manager.list(), [])
     assert.match(f.manager.diagnostics()[0]!.message, /预留失败/)
     await assert.rejects(access(executed), /ENOENT/)
-    await chmod(f.options.directory, 0o700)
+    await chmod(stateDir, 0o700)
     await assert.rejects(f.manager.disable('healthy'), /后续变更未接纳/)
     assert.deepEqual(f.manager.list(), [])
     assert.equal(await readFile(state, 'utf8'), contents)
   } finally {
-    await chmod(f.options.directory, 0o700)
+    await chmod(path.dirname(f.options.stateFile), 0o700).catch(() => {})
     await f.cleanup()
   }
 })
@@ -327,7 +327,7 @@ test('SDK 2 旧包只报告升级诊断，不执行代码或删除安装记录�
       }),
     )
     await assert.rejects(f.manager.installPackage(archive), /unsupported-sdk/)
-    const state = path.join(f.options.directory, 'installed.json')
+    const state = f.options.stateFile
     await writeFile(state, JSON.stringify([{ id: 'legacy', directory: source, enabled: true }]))
     await f.manager.restore()
     assert.equal(f.manager.list()[0]?.status, 'failed')

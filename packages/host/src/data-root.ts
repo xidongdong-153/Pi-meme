@@ -4,6 +4,7 @@ import path from 'node:path'
 import lockfile from 'proper-lockfile'
 import { windowsMounts } from '@pi-meme/pi-runtime/sdk/linux-sandbox'
 import { pathWithin } from '@pi-meme/pi-runtime/sdk/access-sandbox'
+import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 
 export const relocatedMarker = '.pi-meme-relocated.json'
 export const storageOwnerFile = '.pi-meme-storage-job.json'
@@ -25,7 +26,7 @@ export async function assertActiveDataRoot(root: string) {
       job.version !== 1 ||
       job.stage !== 'committed' ||
       job.target !== (await realpath(root)) ||
-      job.hostId !== (await readFile(path.join(root, 'host-id'), 'utf8'))
+      job.hostId !== (await readFile(path.join(root, storageLayoutRelativePaths.hostIdFile), 'utf8'))
     )
       throw new Error('此目录是尚未提交或身份不符的迁移副本，请通过 Desktop 完成维护后使用')
     return
@@ -48,7 +49,7 @@ export async function lockDataRoot(root: string) {
   }
   try {
     return await lockfile.lock(root, {
-      lockfilePath: path.join(root, 'host.lock'),
+      lockfilePath: path.join(root, storageLayoutRelativePaths.hostLockFile),
       stale: 30000,
       update: 5000,
       retries: 0,

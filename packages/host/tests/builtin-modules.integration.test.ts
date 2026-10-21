@@ -5,6 +5,8 @@ import path from 'node:path'
 import { test } from 'vitest'
 import { MemoryCredentialStorage } from '@pi-meme/pi-runtime/secure-store'
 import { reservedPluginIds } from '@pi-meme/plugin-sdk/reserved'
+import { initEmptyStorageLayout } from '../src/storage/upgrade'
+import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 import { sandboxPluginId } from '../src/sandbox-platform'
 import { createHost } from '../src/service'
 
@@ -13,8 +15,9 @@ test('没有外部插件或恢复清单损坏时，14 个内置模块与基础�
     const root = await mkdtemp(path.join(os.tmpdir(), 'host-static-modules-'))
     let host: Awaited<ReturnType<typeof createHost>> | undefined
     try {
-      await mkdir(path.join(root, 'plugins'))
-      const state = path.join(root, 'plugins/installed.json')
+      await initEmptyStorageLayout(root)
+      const state = path.join(root, storageLayoutRelativePaths.pluginsFile)
+      await mkdir(path.dirname(state), { recursive: true })
       const contents =
         legacy === '损坏'
           ? '{bad'
@@ -61,8 +64,9 @@ test('持久子历史超过 recent 上限时仍不占 recent、项目计数或�
   const root = await realpath(await mkdtemp(path.join(os.tmpdir(), 'host-child-history-')))
   let host: Awaited<ReturnType<typeof createHost>> | undefined
   try {
+    await initEmptyStorageLayout(root)
     const cwd = path.join(root, 'project')
-    const directory = path.join(root, 'sessions/fixture')
+    const directory = path.join(root, storageLayoutRelativePaths.sessionsDataDirectory, 'fixture')
     await mkdir(cwd)
     await mkdir(directory, { recursive: true })
     const records = []
@@ -139,7 +143,12 @@ test('持久子历史超过 recent 上限时仍不占 recent、项目计数或�
         sequence: 0,
       })
     }
-    await writeFile(path.join(root, 'collaboration.json'), JSON.stringify({ records, plans: [] }))
+    const rootsDir = path.join(root, storageLayoutRelativePaths.collaborationRootsDirectory)
+    await mkdir(rootsDir, { recursive: true })
+    await writeFile(
+      path.join(rootsDir, 'past-root.json'),
+      JSON.stringify({ version: 1, rootAgentId: 'past-root', records }),
+    )
     host = await createHost({ dataRoot: root, credentials: new MemoryCredentialStorage() })
     await host.settings.save({
       ...host.settings.settings,

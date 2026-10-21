@@ -14,13 +14,15 @@ const ref = { hostId: 'host', sessionId: 'session' }
 async function fixture() {
   const root = await mkdtemp(path.join(tmpdir(), 'pi-goal-store-'))
   const sessionsDirectory = path.join(root, 'sessions')
+  const file = path.join(root, 'state', 'goals.json')
   let now = 10000
-  const options = { root, sessionsDirectory, now: () => now }
+  const options = { root, file, sessionsDirectory, now: () => now }
   const service = new GoalService(options)
   await service.init()
   cleanups.push(() => rm(root, { recursive: true, force: true }))
   return {
     root,
+    file,
     service,
     options,
     advance: (ms: number) => {
@@ -155,7 +157,7 @@ test('并行执行时间不相加，暂停与等待用户不累计', async () =>
 })
 
 test('重启核对未记账原生记录，复制历史去重并保持暂停', async () => {
-  const { service, root, options } = await fixture()
+  const { service, options, file } = await fixture()
   await service.start(ref, { objective: '原目标' })
   const run = (await service.begin(ref, false))!
   await service.usage(run, 'recorded', { totalTokens: 3 })
@@ -177,17 +179,17 @@ test('重启核对未记账原生记录，复制历史去重并保持暂停', as
   await restored.clear(ref, restored.get(ref)!)
   await restored.usage(run, 'late', { totalTokens: 99 })
   assert.equal(restored.get(ref), undefined)
-  assert.equal(JSON.parse(await readFile(path.join(root, 'goals.json'), 'utf8')).version, 1)
+  assert.equal(JSON.parse(await readFile(file, 'utf8')).version, 1)
 })
 
 test('存储损坏不会被清空；原子写失败拒绝续跑', async () => {
-  const { service, options } = await fixture()
+  const { service, options, file } = await fixture()
   await service.start(ref, { objective: '原目标' })
-  await writeFile(path.join(options.root, 'goals.json'), '{invalid')
+  await writeFile(file, '{invalid')
   await assert.rejects(new GoalService(options).init())
-  await writeFile(path.join(options.root, 'goals.json'), JSON.stringify({ version: 100, goals: {} }))
+  await writeFile(file, JSON.stringify({ version: 100, goals: {} }))
   await assert.rejects(new GoalService(options).init(), /版本/)
-  await writeFile(path.join(options.root, 'goals.json'), JSON.stringify({ version: 1, goals: {} }))
+  await writeFile(file, JSON.stringify({ version: 1, goals: {} }))
   let fail = false
   const failing = new GoalService({
     ...options,
@@ -202,12 +204,12 @@ test('存储损坏不会被清空；原子写失败拒绝续跑', async () => {
   fail = true
   await assert.rejects(failing.stop(ref, 'paused', '暂停'), /保存失败/)
   assert.throws(() => failing.assertActive(run), /保存失败/)
-  const persisted = JSON.parse(await readFile(path.join(options.root, 'goals.json'), 'utf8'))
+  const persisted = JSON.parse(await readFile(file, 'utf8'))
   assert.equal(persisted.goals.session.goal.status, 'active')
 })
 
 test('首轮尚未写入会话时保留可恢复输入；核对原生记录后改用持久引用', async () => {
-  const { service, options } = await fixture()
+  const { service, options, file } = await fixture()
   const input = {
     objective: '按图片完成任务',
     images: [{ type: 'image' as const, data: 'aW1hZ2U=', mimeType: 'image/png' }],
@@ -238,20 +240,20 @@ test('首轮尚未写入会话时保留可恢复输入；核对原生记录后�
   await reconciled.init()
   assert.equal(reconciled.get(ref)?.inputEntryId, 'original')
   assert.equal(reconciled.pendingInput(ref), undefined)
-  const stored = JSON.parse(await readFile(path.join(options.root, 'goals.json'), 'utf8'))
+  const stored = JSON.parse(await readFile(file, 'utf8'))
   assert.equal(stored.goals.session.pendingInput, undefined)
   assert.equal(reconciled.get(ref)?.tokensUsed, 0)
 })
 
 test('移除旧预算字段，预算停止的旧目标转为暂停并可手动恢复', async () => {
-  const { service, options } = await fixture()
+  const { service, options, file } = await fixture()
   await service.start(ref, { objective: '保留已有目标' })
-  const state = JSON.parse(await readFile(path.join(options.root, 'goals.json'), 'utf8'))
+  const state = JSON.parse(await readFile(file, 'utf8'))
   state.goals.session.goal.status = 'budget_limited'
   state.goals.session.goal.tokenBudget = 3
   state.goals.session.goal.tokensUsed = 5
   state.goals.session.pendingInput.tokenBudget = 3
-  await writeFile(path.join(options.root, 'goals.json'), JSON.stringify(state))
+  await writeFile(file, JSON.stringify(state))
   const restored = new GoalService(options)
   await restored.init()
   const goal = restored.get(ref)!
@@ -292,4 +294,32 @@ test('不同的实质进展重置空转计数，连续重复进展停止续跑',
     await service.settled(run)
   }
   assert.equal(service.get(ref)?.status, 'blocked')
+})
+
+test('deleteSessions 支持批量清理已删除会话的目标并停止计时，新路径 state/goals.json 优先', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'pi-goal-delete-'))
+  cleanups.push(() => rm(root, { recursive: true, force: true }))
+  const sessionsDirectory = path.join(root, 'sessions')
+  const specificFile = path.join(root, 'state', 'goals.json')
+  const service = new GoalService({ file: specificFile, sessionsDirectory })
+  await service.init()
+
+  const s1 = { hostId: 'h', sessionId: 's1' }
+  const s2 = { hostId: 'h', sessionId: 's2' }
+  await service.start(s1, { objective: '目标一' })
+  await service.start(s2, { objective: '目标二' })
+  assert.ok(service.get(s1))
+  assert.ok(service.get(s2))
+
+  // 清理 s1
+  const deleted = await service.deleteSessions(['s1', 'non-existent'])
+  assert.deepEqual(deleted, ['s1'])
+  assert.equal(service.get(s1), undefined)
+  assert.ok(service.get(s2))
+
+  // 重启验证持久化保留 s2
+  const restarted = new GoalService({ file: specificFile, sessionsDirectory })
+  await restarted.init()
+  assert.equal(restarted.get(s1), undefined)
+  assert.ok(restarted.get(s2))
 })

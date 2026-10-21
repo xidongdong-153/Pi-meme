@@ -7,6 +7,7 @@ import { defaultAppearance, migrateAppearance, selectAppearanceTheme, validateAp
 import { builtinThemes, parseTheme } from '../shared/themes'
 import { defaultSidebarPreferences, parseSidebarPreferencesPatch, validateSidebarPreferences } from '../shared/sidebar'
 import { DEFAULT_USER_PROFILE } from '../shared/user-profile'
+import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 
 function normalizeEnabledSubagents(value: unknown): string[] {
   if (
@@ -37,10 +38,10 @@ export class SettingsStore {
   readonly profileDirectory: string
   private pluginThemes: Theme[] = []
   private readonly settingsFile: string
-  constructor(directory: string) {
-    this.themesDirectory = path.join(directory, 'themes')
-    this.profileDirectory = path.join(directory, 'profile')
-    this.settingsFile = path.join(directory, 'settings.json')
+  constructor(dataRoot: string) {
+    this.themesDirectory = path.join(dataRoot, storageLayoutRelativePaths.themesDirectory)
+    this.profileDirectory = path.join(dataRoot, storageLayoutRelativePaths.profileDirectory)
+    this.settingsFile = path.join(dataRoot, storageLayoutRelativePaths.appConfigFile)
   }
 
   async saveUserProfile(profile: {
@@ -290,6 +291,7 @@ export class SettingsStore {
         : (this.settings.pinnedPaths ?? []),
       preferredProjectApp: value.preferredProjectApp ?? this.settings.preferredProjectApp ?? 'finder',
     }
+    await mkdir(path.dirname(this.settingsFile), { recursive: true })
     await writeFile(`${this.settingsFile}.tmp`, `${JSON.stringify(next, null, 2)}\n`, 'utf8')
     await rename(`${this.settingsFile}.tmp`, this.settingsFile)
     this.settings = next

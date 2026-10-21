@@ -90,7 +90,11 @@ test('声明资源拒绝软链接、缺少 SKILL.md 和旧扩展声明', async (
 
 test('资源插件按项目策略取得租约，更新后旧技能目录保留到租约结束', async () => {
   const { root, source, manifest } = await fixture()
-  const manager = new PluginManager({ directory: path.join(root, 'installed'), dataDirectory: path.join(root, 'data') })
+  const manager = new PluginManager({
+    directory: path.join(root, 'installed'),
+    dataDirectory: path.join(root, 'data'),
+    stateFile: path.join(root, 'state/plugins.json'),
+  })
   try {
     await manager.loadDirectory(source)
     const excluded = manager.acquire(() => false)
@@ -138,7 +142,11 @@ test('纯主题包无需 dist，保留主题 JSON 与素材并拒绝非 JSON 主
   }
   await writeFile(path.join(root, 'package.json'), JSON.stringify(manifest))
   const packed = await packPlugin(root)
-  const manager = new PluginManager({ directory: path.join(root, 'installed'), dataDirectory: path.join(root, 'data') })
+  const manager = new PluginManager({
+    directory: path.join(root, 'installed'),
+    dataDirectory: path.join(root, 'data'),
+    stateFile: path.join(root, 'state/plugins.json'),
+  })
   t.onTestFinished(() => manager.dispose())
   const installed = await manager.installPackage(packed)
   assert.equal(installed.status, 'active')
@@ -159,7 +167,11 @@ test('纯主题包无需 dist，保留主题 JSON 与素材并拒绝非 JSON 主
 test('Host 资源校验在切换前执行，失败更新保留旧包且启动恢复隔离坏包', async (t) => {
   const { root, source, manifest } = await fixture()
   t.onTestFinished(() => rm(root, { recursive: true, force: true }))
-  const options = { directory: path.join(root, 'installed'), dataDirectory: path.join(root, 'data') }
+  const options = {
+    directory: path.join(root, 'installed'),
+    dataDirectory: path.join(root, 'data'),
+    stateFile: path.join(root, 'state/plugins.json'),
+  }
   const checked: string[] = []
   let invalid = false
   const validateResources = async (pkg: import('../src/manager').PluginResourcePackage) => {
@@ -172,13 +184,13 @@ test('Host 资源校验在切换前执行，失败更新保留旧包且启动恢
   const manager = new PluginManager({ ...options, validateResources })
   t.onTestFinished(() => manager.dispose())
   const old = await manager.loadDirectory(source)
-  const installedJson = await readFile(path.join(options.directory, 'installed.json'), 'utf8')
+  const installedJson = await readFile(options.stateFile, 'utf8')
   await writeFile(path.join(source, 'package.json'), JSON.stringify({ ...manifest, version: '2.0.0' }))
   invalid = true
   await assert.rejects(manager.reload(manifest.name), /主题图片校验失败/)
   assert.equal(manager.list()[0]?.version, '1.0.0')
   assert.equal(manager.list()[0]?.generation, old.generation)
-  assert.equal(await readFile(path.join(options.directory, 'installed.json'), 'utf8'), installedJson)
+  assert.equal(await readFile(options.stateFile, 'utf8'), installedJson)
   assert.deepEqual(checked, ['1.0.0', '2.0.0'])
   await manager.dispose()
   const restarted = new PluginManager({ ...options, validateResources })

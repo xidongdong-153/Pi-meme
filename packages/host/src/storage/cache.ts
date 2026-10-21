@@ -1,12 +1,13 @@
 import { readdir, rm } from 'node:fs/promises'
 import path from 'node:path'
+import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 import { optionalStat, physicalPath } from './files'
 
 const hostCaches = [
-  'sessions-cache.json',
-  'sessions-cache.json.tmp',
-  'remote-services.json',
-  'remote-services.json.tmp',
+  storageLayoutRelativePaths.sessionsCacheFile,
+  `${storageLayoutRelativePaths.sessionsCacheFile}.tmp`,
+  storageLayoutRelativePaths.remoteServicesCacheFile,
+  `${storageLayoutRelativePaths.remoteServicesCacheFile}.tmp`,
 ]
 const desktopCaches = [
   'Cache',

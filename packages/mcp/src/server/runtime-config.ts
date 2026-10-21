@@ -225,7 +225,7 @@ export function createDesktopMcpExtension(
     credentials: new DesktopMcpOAuthCredentials(credentials) as unknown as NonNullable<
       NonNullable<Parameters<typeof sdk.createMcpExtension>[0]>['credentials']
     >,
-    logPath: path.join(paths.agentDir, 'mcp.log'),
+    logPath: path.join(paths.dataRoot, 'logs', 'mcp.log'),
     updateConfig: (entry: McpServerEntry, patch: McpConfigPatch) => {
       writeDesktopMcpWorkspaceOverride(paths, cwd, entry.name, patch, mcpAuthorization({ ...entry.config, ...patch }))
     },

@@ -13,6 +13,7 @@
     "./sessions": "./src/sessions.ts",
     "./settings": "./src/settings.ts",
     "./storage": "./src/storage.ts",
+    "./storage-paths": "./src/storage-paths.ts",
     "./usage": "./src/usage.ts",
     "./skills": "./src/skills.ts",
     "./agent-access": "./src/agent-access.ts",

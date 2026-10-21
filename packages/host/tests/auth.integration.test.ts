@@ -2,9 +2,11 @@ import assert from 'node:assert/strict'
 import { test } from 'vitest'
 import { request } from 'node:http'
 import { createHash } from 'node:crypto'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
+import { initEmptyStorageLayout } from '../src/storage/upgrade'
 import { startHostServer } from '../src/server'
 import { createHost } from '../src/service'
 
@@ -27,14 +29,20 @@ test('默认文件存储启动不读取旧凭据，Host 令牌重启后保持且
     server = await startHostServer(options)
     const token = server.token
     assert.equal(legacyReads, 0)
-    assert.equal(JSON.parse(await readFile(path.join(directory, 'auth.json'), 'utf8'))['host:token'], token)
+    assert.equal(
+      JSON.parse(await readFile(path.join(directory, storageLayoutRelativePaths.authFile), 'utf8'))['host:token'],
+      token,
+    )
     await server.dispose()
     server = await startHostServer(options)
     assert.equal(server.token, token)
     await server.dispose()
     server = await startHostServer({ ...options, token: 'explicit-token' })
     assert.equal(server.token, 'explicit-token')
-    assert.equal(JSON.parse(await readFile(path.join(directory, 'auth.json'), 'utf8'))['host:token'], 'explicit-token')
+    assert.equal(
+      JSON.parse(await readFile(path.join(directory, storageLayoutRelativePaths.authFile), 'utf8'))['host:token'],
+      'explicit-token',
+    )
     assert.equal(legacyReads, 0)
   } finally {
     await server?.dispose()
@@ -152,9 +160,11 @@ test('未启用本机自动登录时拒绝空令牌，非法来源和伪造转�
 
 test('旧钥匙串仅在手动导入时读取，取消不会改变文件，已有键保留', async () => {
   const directory = await root()
+  await initEmptyStorageLayout(directory)
   let cancelled = true
   let reads = 0
-  const file = path.join(directory, 'auth.json')
+  const file = path.join(directory, storageLayoutRelativePaths.authFile)
+  await mkdir(path.dirname(file), { recursive: true })
   await writeFile(file, JSON.stringify({ 'model-provider:existing': 'current' }))
   const host = await createHost({
     dataRoot: directory,

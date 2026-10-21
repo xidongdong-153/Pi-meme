@@ -14,6 +14,12 @@ export type WorkspaceHandlerContext = {
   mutations?: Pick<PiSessionPool, 'renameSession' | 'deleteSessions' | 'assertWorkspaceAvailable'>
   removePins?: (paths: string[]) => Promise<unknown>
   beforeDelete?: (paths: string[]) => Promise<void>
+  afterDelete?: (
+    result: import('@pi-meme/contracts/desktop').WorkspaceDeletionResult,
+    prepared: any,
+    cwd?: string,
+  ) => Promise<void>
+  prepareDelete?: (paths: string[], cwd?: string) => Promise<any>
   projects?: ProjectStore
   pi: PiRuntime
   sessions: SessionService
@@ -27,6 +33,8 @@ export function createWorkspaceHandlers({
   mutations,
   removePins,
   beforeDelete,
+  afterDelete,
+  prepareDelete,
   projects,
   sessions,
   getPinnedPaths,
@@ -106,6 +114,7 @@ export function createWorkspaceHandlers({
         throw new Error('会话删除清单无效')
       const paths = expected as string[]
       const root = await sessions.getSessionsDirectory()
+      const prepared = await prepareDelete?.(paths, cwd)
       return mutations!.deleteSessions(
         paths,
         cwd,
@@ -117,7 +126,15 @@ export function createWorkspaceHandlers({
           const deleted = await deleteSessionFiles(root, current.paths)
           return { ...deleted, warnings: current.warnings }
         },
-        (result) => finishDeletion(result, cwd),
+        async (result) => {
+          await finishDeletion(result, cwd)
+          try {
+            await afterDelete?.(result, prepared, cwd)
+          } catch (cause) {
+            result.errors.push(`会话已删除，后置清理失败：${String(cause)}`)
+          }
+          return result
+        },
       )
     },
     'session:rename': async (value: unknown, nextName: unknown) => {
@@ -134,6 +151,7 @@ export function createWorkspaceHandlers({
       if (!value.startsWith('runtime:')) await validateSessionFile(root, value)
       else if (!(getRuntimeSessions?.() ?? []).some((session) => session.path === value || session.id === value))
         throw new Error('目标会话不存在')
+      const prepared = await prepareDelete?.([value])
       return mutations!.deleteSessions(
         [value],
         undefined,
@@ -141,7 +159,15 @@ export function createWorkspaceHandlers({
           await beforeDelete?.([value])
           return deleteSessionFiles(root, [value])
         },
-        (result) => finishDeletion(result),
+        async (result) => {
+          await finishDeletion(result)
+          try {
+            await afterDelete?.(result, prepared)
+          } catch (cause) {
+            result.errors.push(`会话已删除，后置清理失败：${String(cause)}`)
+          }
+          return result
+        },
       )
     },
     'workspace:projects': getProjects,

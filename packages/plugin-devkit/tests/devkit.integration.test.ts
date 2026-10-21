@@ -62,7 +62,11 @@ function callTime(manager: PluginManager, id: string) {
 test('模板构建出 Node 工具和浏览器 UI，验证打包并安装服务', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'pi-meme-devkit-'))
   const directory = path.join(root, 'clock')
-  const manager = new PluginManager({ directory: path.join(root, 'installed'), dataDirectory: path.join(root, 'data') })
+  const manager = new PluginManager({
+    directory: path.join(root, 'installed'),
+    dataDirectory: path.join(root, 'data'),
+    stateFile: path.join(root, 'state/plugins.json'),
+  })
   try {
     await createPlugin(directory, 'clock')
     await addTrustedServer(directory)
@@ -100,7 +104,11 @@ test('模板构建出 Node 工具和浏览器 UI，验证打包并安装服务',
 test('DevKit 构建和打包保留显式资源目录、辅助脚本与显示图标', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'pi-meme-devkit-resources-'))
   const directory = path.join(root, 'review')
-  const manager = new PluginManager({ directory: path.join(root, 'installed'), dataDirectory: path.join(root, 'data') })
+  const manager = new PluginManager({
+    directory: path.join(root, 'installed'),
+    dataDirectory: path.join(root, 'data'),
+    stateFile: path.join(root, 'state/plugins.json'),
+  })
   try {
     await createPlugin(directory, 'review')
     await symlink(

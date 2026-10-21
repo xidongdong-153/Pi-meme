@@ -183,7 +183,6 @@ export function activate(context: UiPluginContext) {
 贡献 ID 以 `${pluginId}:` 开头。工具卡片声明 `match.toolName`，自定义消息声明 `match.customType`。正文卡片按运行时真实 `ownerId`、`generation`、代码快照 `policyHash` 与类型匹配；插件不能渲染另一个插件的正文。没有对应贡献时保留普通文字和工具详情。SDK 3 删除旧 `message-actions` render 槽，消息操作改用单独的 typed API，见下节。
 
 ```mermaid
-%%{init: {"theme": "dark"}}%%
 flowchart LR
   Navigation["内置首页"] --> Chat["当前聊天与原侧栏"]
   Navigation --> PluginNav["插件活动栏入口"]
@@ -366,7 +365,6 @@ context.registerOperations([
 ## 释放与更新
 
 ```mermaid
-%%{init: {"theme": "dark"}}%%
 flowchart LR
   Package["包与资源校验"] --> Snapshot["不可变快照"]
   Snapshot --> Group["计算服务依赖组"]
@@ -386,11 +384,11 @@ Chord 1.1 的 `reload` 只替换已有相同服务 shape 的 facet；安装、�
 - UI 贡献绑定插件来源与代次，无关服务组和 UI 贡献继续使用现有版本。
 - 初始化失败重建上一版作用域；普通更新的代次预留或持久化失败不先销毁旧服务、释放活租约。撤权、停用与卸载仍先立即拒绝旧调用，不等待普通更新排空；必需服务的唯一提供者不能直接停用。
 
-`plugins/installed.json` 使用显式 schema envelope 保存全部安装记录和 safe-integer 代次高水位。先写临时文件并同步、原子 rename、同步父目录，确认预留成功后才导入候选代码；每次激活、恢复和回滚重建都分配新值，已消耗值不回退。损坏、未知 schema 或溢出时保留文件并拒绝新激活。旧数组只迁移存储格式，不因数组格式把 SDK 3 误认成 SDK 2，也不删除旧记录。迁移前无 hash 的消息保留文字与通用 JSON 数据，不交给新版富 renderer，不改写历史 JSONL。
+`state/plugins.json`（旧版本为 `plugins/installed.json`）使用显式 schema envelope 保存全部安装记录和 safe-integer 代次高水位。先写临时文件并同步、原子 rename、同步父目录，确认预留成功后才导入候选代码；每次激活、恢复和回滚重建都分配新值，已消耗值不回退。损坏、未知 schema 或溢出时保留文件并拒绝新激活。旧数组只迁移存储格式，不因数组格式把 SDK 3 误认成 SDK 2，也不删除旧记录。迁移前无 hash 的消息保留文字与通用 JSON 数据，不交给新版富 renderer，不改写历史 JSONL。
 
-Server 产物使用 Chord fresh VM loader，释放后丢弃模块引用，不通过累加 ESM query 参数重载。不可变代码快照没有引用后才回收；卸载默认保留插件数据和 Pi 会话。
+Server 产物使用 Chord fresh VM loader，释放后丢弃模块引用，不通过累加 ESM query 参数重载。不可变代码快照没有引用后才回收；卸载默认保留插件私有数据（`plugins/data/`，详见 [数据目录与存储](storage.md)）和 Pi 会话。
 
-启动恢复失败只隔离相关外部组，内置模块初始化失败中止启动。安装清单无法解析时保留 `installed.json`，本次不加载外部项并报告诊断；内置身份冲突不能删除源目录或用户数据。恢复边界见 [external-recovery.integration.test.ts](../packages/plugin-runtime/tests/external-recovery.integration.test.ts)。
+启动恢复失败只隔离相关外部组，内置模块初始化失败中止启动。安装清单无法解析时保留 `state/plugins.json`（旧版本为 `installed.json`），本次不加载外部项并报告诊断；内置身份冲突不能删除源目录或用户数据。恢复边界见 [external-recovery.integration.test.ts](../packages/plugin-runtime/tests/external-recovery.integration.test.ts)。
 
 可信 Server/Agent 是可信 Node 代码，UI 是可信同源代码；受限入口才使用独立进程和 OS 沙箱。撤权不能回滚已经发生的可信代码副作用；怀疑恶意插件时停用并重启 Host。Pi、Host 与受限 Node 运行时随应用发布，不能通过插件热更新。
 

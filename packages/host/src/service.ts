@@ -54,6 +54,10 @@ import { optionalRuntimeExtensions } from './runtime-extensions'
 import { RequestRegistry } from './request-registry'
 import { ConnectionCredentialStore } from './connection-credentials'
 import { assertActiveDataRoot, hostDataRoot, lockDataRoot } from './data-root'
+import { createHostStoragePaths } from './storage/paths'
+import { assertStorageLayout } from './storage/upgrade'
+import { cleanupTemporaryFiles } from './storage/cleanup-temporary-files'
+import { SessionCleanupService } from './session-cleanup'
 import { installBuiltinSkills } from '@pi-meme/resources/server/install-builtin-skills'
 import { ResourceStore } from '@pi-meme/resources/server/resource-store'
 import type { ResourceImportInput, ResourceSnapshot } from '@pi-meme/contracts/resources'
@@ -157,39 +161,50 @@ const selections = new Set([
 
 export async function createHost(options: HostOptions = {}) {
   const root = hostDataRoot(options.dataRoot)
+  const storagePaths = createHostStoragePaths(root)
   const instanceId = randomUUID()
   const unlock = await lockDataRoot(root)
   let cleanup: (() => Promise<void>) | undefined
   try {
     await assertActiveDataRoot(root)
-    const hostIdFile = path.join(root, 'host-id')
+    await assertStorageLayout(root)
+    const cleanupReport = await cleanupTemporaryFiles(storagePaths)
+    const hostIdFile = storagePaths.hostIdFile
     const { readFile } = await import('node:fs/promises')
-    let hostId = await readFile(hostIdFile, 'utf8').catch(() => '')
+    let hostId: string | undefined
+    try {
+      hostId = await readFile(hostIdFile, 'utf8')
+    } catch (cause) {
+      if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw cause
+    }
     if (!hostId) {
       hostId = randomUUID()
       await writeFile(hostIdFile, hostId, { mode: 0o600 })
     }
     const paths = createPiRuntimePaths(root)
-    const goals = new GoalService({ root, sessionsDirectory: paths.sessionsDirectory })
+    const goals = new GoalService({ file: storagePaths.goalsFile, sessionsDirectory: paths.sessionsDirectory })
     await goals.init()
     await installBuiltinSkills(
       options.builtinSkillsSource ?? fileURLToPath(new URL('../../../pi/skills', import.meta.url)),
       paths.builtinSkillsDirectory,
     )
     await mkdir(paths.sessionsDirectory, { recursive: true })
-    await mkdir(path.join(root, 'attachments'), { recursive: true, mode: 0o700 })
+    await mkdir(storagePaths.attachmentsDirectory, { recursive: true, mode: 0o700 })
+    await mkdir(storagePaths.logsDirectory, { recursive: true })
     const settings = new SettingsStore(root)
     const projects = new ProjectStore(root)
     await settings.load()
     await projects.load()
-    const sessions = new SessionService(paths.sessionsDirectory, path.join(root, 'sessions-cache.json'))
+    const sessions = new SessionService(paths.sessionsDirectory, storagePaths.sessionsCacheFile)
     await sessions.init()
     if (options.testCredentials && !options.dataRoot) throw new Error('测试凭据必须同时配置临时数据目录')
     const credentials =
       options.credentials ??
       (options.testCredentials ? new MemoryCredentialStorage() : await FileCredentialStore.create(root))
     if (options.testCredentials) {
-      const seed = await readFile(path.join(root, 'test-credentials.json'), 'utf8').catch(() => '{}')
+      const seed = await readFile(path.join(storagePaths.credentialsDirectory, 'test-credentials.json'), 'utf8').catch(
+        () => '{}',
+      )
       const values: unknown = JSON.parse(seed)
       if (!values || typeof values !== 'object' || Array.isArray(values)) throw new Error('测试凭据文件格式无效')
       for (const [key, value] of Object.entries(values)) {
@@ -320,6 +335,7 @@ export async function createHost(options: HostOptions = {}) {
     }
     let collaboration: ReturnType<typeof createHostCollaborationBridge>
     let plugins: PluginManager
+    let sessionCleanup: SessionCleanupService
     let closing = false
     const activityBridge = createActivityBridge({
       activities,
@@ -581,6 +597,7 @@ export async function createHost(options: HostOptions = {}) {
       })
       return session
     }
+    const accessStore = new AgentAccessStore(storagePaths.agentPermissionsFile)
     pi = new PiSessionPool(
       paths.workspaceDataRoot,
       {
@@ -592,7 +609,7 @@ export async function createHost(options: HostOptions = {}) {
           emit('sessions-changed')
         },
       },
-      new AgentAccessStore(path.join(root, 'agent-permissions.json')),
+      accessStore,
       paths,
       credentials,
       (cwd, notify, runtimePaths, _credentials, _mcp, sessionKey) =>
@@ -601,6 +618,9 @@ export async function createHost(options: HostOptions = {}) {
     pi.configureCheckoutGate(assertCheckoutAvailable)
     collaboration = createHostCollaborationBridge({
       dataRoot: root,
+      collaborationRootsDirectory: storagePaths.collaborationRootsDirectory,
+      collaborationPlansFile: storagePaths.collaborationPlansFile,
+      plansDataDirectory: storagePaths.plansDataDirectory,
       assertCheckoutAvailable,
       createSession: (cwd, notify, key, parentKey) => createSession(cwd, notify, key, paths, parentKey),
       emit: (value) => {
@@ -834,6 +854,12 @@ export async function createHost(options: HostOptions = {}) {
         projects,
         sessions,
         mutations: pi,
+        prepareDelete: (targets: string[], cwd?: string) => sessionCleanup.prepare(targets, cwd),
+        afterDelete: (
+          res: WorkspaceDeletionResult,
+          prepared: import('./session-cleanup').PreparedDeletionContext,
+          cwd?: string,
+        ) => sessionCleanup.afterDelete(res, prepared, cwd),
         beforeDelete: async (targets: string[]) => {
           const refs = await appControl!.api.sessions.list()
           for (const ref of refs) {
@@ -897,7 +923,7 @@ export async function createHost(options: HostOptions = {}) {
             ),
           )
           return serializeGit(common, async () => {
-            const checkoutRoot = path.join(root, 'worktrees', randomUUID())
+            const checkoutRoot = path.join(storagePaths.worktreesDirectory, randomUUID())
             const relative = path.relative(environment.root, cwd)
             const worktree = {
               checkoutRoot,
@@ -949,7 +975,7 @@ export async function createHost(options: HostOptions = {}) {
       'host.models': { pi, models, agentDir: paths.agentDir },
       'host.settings': {
         pi,
-        instructions: new InstructionsStore(paths.agentDir),
+        instructions: new InstructionsStore(root),
         settings,
         handlers: settingsHandlers,
         getSubagents: async () =>
@@ -1197,6 +1223,7 @@ export async function createHost(options: HostOptions = {}) {
     appControl = await createAppControl({
       hostId,
       root,
+      controlPaths: storagePaths,
       goals,
       activities,
       pi,
@@ -1224,14 +1251,31 @@ export async function createHost(options: HostOptions = {}) {
         agentSelections.set(key, ids)
       },
       workspace: {
-        files: createWorkspaceFiles(
-          (ref) => appControl!.resolveRoot(ref),
-          path.join(await realpath(root), 'attachments'),
-        ),
+        files: createWorkspaceFiles((ref) => appControl!.resolveRoot(ref), storagePaths.attachmentsDirectory),
         terminal,
         terminalSupported: terminal.supported,
       },
     })
+    sessionCleanup = new SessionCleanupService({
+      maintenanceDirectory: storagePaths.maintenanceDirectory,
+      accessStore,
+      collaboration,
+      goals,
+      control: {
+        deleteSessions: (res) => appControl!.deleteSessions(res),
+        lookupSessionIds: (paths, keys) => appControl!.lookupSessionIds(paths, keys),
+      },
+      isStandaloneDirectory: (cwd) => projects.isStandaloneDirectory(cwd),
+      hasWorkspaceReferences: async (cwd: string) => {
+        if (pi.cwd === cwd) return true
+        if (pi.getRuntimeSessions().some((s) => s.cwd === cwd)) return true
+        const snapshot = await sessions.getSnapshot(pi.getActiveSession(), settings.settings.pinnedPaths ?? [])
+        if (snapshot.projects.some((group) => group.cwd === cwd && group.sessions.length > 0)) return true
+        if (snapshot.standaloneSessions?.some((s) => s.cwd === cwd)) return true
+        return false
+      },
+    })
+    await sessionCleanup.recoverPending()
     let pluginsRestored = false
     const refreshPluginThemes = async () => {
       const themes = await loadPluginThemes(
@@ -1261,8 +1305,9 @@ export async function createHost(options: HostOptions = {}) {
       validateResources: async (pkg) => {
         await loadPluginThemes([pkg], () => '')
       },
-      directory: path.join(root, 'plugins'),
-      dataDirectory: path.join(root, 'plugin-data'),
+      directory: storagePaths.pluginPackagesDirectory,
+      dataDirectory: storagePaths.pluginDataDirectory,
+      stateFile: storagePaths.pluginsFile,
       reservedHandlers: [...Object.keys(builtins.handlers), ...Object.keys(handlers)],
       revoke: async (ids) => {
         for (const call of pluginCalls.values()) if (ids.includes(call.pluginId)) call.controller.abort()
@@ -1320,7 +1365,7 @@ export async function createHost(options: HostOptions = {}) {
     await plugins.restore()
     pluginsRestored = true
     await refreshPluginThemes()
-    const registry = new RequestRegistry(hostId, path.join(root, 'requests'))
+    const registry = new RequestRegistry(hostId, storagePaths.requestsFile)
     const client = async (clientId: string) => {
       let view = views.get(clientId)
       if (!view) {
@@ -1372,6 +1417,7 @@ export async function createHost(options: HostOptions = {}) {
       hostId,
       instanceId,
       root,
+      cleanupReport,
       prepareMaintenance() {
         if (closing || inflight.size || checkoutGates.size) throw new Error('Host 仍有操作正在执行，请稍后再维护存储')
         pi.assertMaintenanceIdle()

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test, describe } from 'vitest'
-import { mkdir, mkdtemp, readFile, realpath, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
@@ -319,7 +320,7 @@ test('控制事件订阅按目标过滤，live正文不落盘，失效epoch要�
     const page = await api.events.read({ sessionId: ref.sessionId, after: before.cursor })
     assert.ok(page.events.length > 0)
     assert.ok(page.events.every((event) => event.stream === undefined))
-    const data = await readFile(path.join(f.dataRoot, 'control.json'), 'utf8')
+    const data = await readFile(path.join(f.dataRoot, 'state/control/events.jsonl'), 'utf8')
     assert.doesNotMatch(data, /只属于 Pi JSONL 的长正文标记/)
     assert.match(JSON.stringify((await api.sessions.history(ref)).messages), /只属于 Pi JSONL 的长正文标记/)
     const invalid = await api.events.read({ after: { journalEpoch: 'old', seq: 0 } })
@@ -650,9 +651,88 @@ test('控制日志不复制根任务与子代理task/report正文，正式Agent�
         (event.value.event as { type: string }).type === 'agents_update',
     )
     assert.ok(updates.length > 0)
-    const data = await readFile(path.join(f.dataRoot, 'control.json'), 'utf8')
+    const data = await readFile(path.join(f.dataRoot, 'state/control/events.jsonl'), 'utf8')
     for (const marker of [rootText, childTask, childReport])
       assert.equal(data.includes(marker), false, '控制日志不得完整复制任务或报告正文')
+  } finally {
+    await f.dispose()
+  }
+})
+
+test('删除崩溃恢复：无 sessionFile 的空会话在 deleted intent 状态下重启由 recoverPending 补清，prepared 未确认项安全保留', async () => {
+  const f = await fixture()
+  try {
+    const api = f.host.app
+    const cwd = path.join(f.root, 'project-crash-test')
+    await mkdir(cwd)
+    const project = await api.projects.register({ cwd }, key('project'))
+
+    // 1. 创建两个合法的无 sessionFile 的空会话
+    const emptyConfirmed = await api.sessions.create({ project }, key('empty-confirmed'))
+    const emptyUnconfirmed = await api.sessions.create({ project }, key('empty-unconfirmed'))
+    assert.equal(emptyConfirmed.sessionFile, undefined)
+    assert.equal(emptyUnconfirmed.sessionFile, undefined)
+
+    const runtimeKeyConfirmed = `runtime:${randomUUID()}`
+    const runtimeKeyUnconfirmed = `runtime:${randomUUID()}`
+
+    const maintenanceDir = path.join(f.dataRoot, 'state', 'maintenance')
+    await mkdir(maintenanceDir, { recursive: true })
+
+    // 2. 为 emptyConfirmed 写入 stage: 'deleted' 的 pending intent
+    // （模拟用户已确认删除，afterDelete 已落盘，但 control 在提交 journal 前崩溃或写失败）
+    const deletedIntentId = randomUUID()
+    const deletedRecord = {
+      version: 1,
+      id: deletedIntentId,
+      stage: 'deleted',
+      candidatePaths: [],
+      candidateKeys: [runtimeKeyConfirmed],
+      canonicalKeys: [],
+      sessionIdsMap: [[runtimeKeyConfirmed, emptyConfirmed.sessionId]],
+      timestamp: new Date().toISOString(),
+    }
+    const deletedFile = path.join(maintenanceDir, `pending-cleanup-${deletedIntentId}.json`)
+    await writeFile(deletedFile, JSON.stringify(deletedRecord, null, 2), 'utf8')
+
+    // 3. 为 emptyUnconfirmed 写入 stage: 'prepared' 的 pending intent
+    // （模拟用户仅进入 prepare 阶段，尚未确认删除即崩溃）
+    const preparedIntentId = randomUUID()
+    const preparedRecord = {
+      version: 1,
+      id: preparedIntentId,
+      stage: 'prepared',
+      candidatePaths: [],
+      candidateKeys: [runtimeKeyUnconfirmed],
+      canonicalKeys: [],
+      sessionIdsMap: [[runtimeKeyUnconfirmed, emptyUnconfirmed.sessionId]],
+      timestamp: new Date().toISOString(),
+    }
+    const preparedFile = path.join(maintenanceDir, `pending-cleanup-${preparedIntentId}.json`)
+    await writeFile(preparedFile, JSON.stringify(preparedRecord, null, 2), 'utf8')
+
+    // 4. 重启 Host：重启时没有任何 runtime map，createHost 在启动时自动调用 sessionCleanup.recoverPending()
+    await f.restart()
+
+    // 5. 校验：
+    // - emptyConfirmed 已被 recoverPending 成功传入已授权 public sessionId 补清
+    const remainingSessions = await f.host.app.sessions.list({ project })
+    assert.equal(
+      remainingSessions.some((s) => s.sessionId === emptyConfirmed.sessionId),
+      false,
+      '已确认删除的空会话必须被 recoverPending 成功补清',
+    )
+
+    // - emptyUnconfirmed 未确认删除，其 runtime key 绝不被误删，会话被安全保留
+    assert.equal(
+      remainingSessions.some((s) => s.sessionId === emptyUnconfirmed.sessionId),
+      true,
+      'prepared 状态下未确认物理删除的会话必须安全保留',
+    )
+
+    // - 两个 pending intent 文件均在恢复后被清理
+    await assert.rejects(stat(deletedFile), { code: 'ENOENT' })
+    await assert.rejects(stat(preparedFile), { code: 'ENOENT' })
   } finally {
     await f.dispose()
   }

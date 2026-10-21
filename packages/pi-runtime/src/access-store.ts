@@ -39,9 +39,54 @@ export class AgentAccessStore {
     }
   }
 
+  async canonicalKey(sessionFile: string): Promise<string> {
+    return this.key(sessionFile)
+  }
+
   async get(sessionFile: string): Promise<AgentAccessMode> {
     await this.load()
     return this.records[await this.key(sessionFile)] ?? defaultAccessMode
+  }
+
+  async remove(keysOrFiles: string[]): Promise<string[]> {
+    if (!keysOrFiles.length) return []
+    let deleted: string[] = []
+    const write = this.writes.then(async () => {
+      await this.load()
+      const targets = new Set<string>()
+      for (const item of keysOrFiles) {
+        targets.add(item)
+        try {
+          targets.add(await this.key(item))
+        } catch {
+          // 若文件/目录已删除，直接以传入的 key 进行比对
+        }
+      }
+      const next = { ...this.records }
+      const removed: string[] = []
+      for (const key of Object.keys(next)) {
+        if (targets.has(key)) {
+          delete next[key]
+          removed.push(key)
+        }
+      }
+      if (!removed.length) return
+      if (this.file) {
+        await mkdir(path.dirname(this.file), { recursive: true })
+        const temporary = `${this.file}.${randomUUID()}.tmp`
+        try {
+          await writeFile(temporary, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 })
+          await rename(temporary, this.file)
+        } finally {
+          await rm(temporary, { force: true })
+        }
+      }
+      this.records = next
+      deleted = removed
+    })
+    this.writes = write.catch(() => {})
+    await write
+    return deleted
   }
 
   async set(sessionFile: string, mode: AgentAccessMode) {

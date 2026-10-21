@@ -9,6 +9,7 @@ import { test, vi } from 'vitest'
 import { HostClient } from '@pi-meme/client/host-client'
 import { storeChatAttachment } from '../src/chat-attachments'
 import { setup } from './host-server-fixture'
+import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 
 async function temporaryRoot() {
   return realpath(await mkdtemp(path.join(tmpdir(), 'chat-attachments-')))
@@ -60,7 +61,10 @@ test('附件保留展示名，路径穿越和同名文件不能逃逸或覆盖',
     const second = await storeChatAttachment(root, name, Readable.from(['second']))
     assert.equal(first.name, name)
     assert.ok(path.isAbsolute(first.path))
-    assert.equal(path.dirname(path.dirname(first.path)), path.join(root, 'attachments'))
+    assert.equal(
+      path.dirname(path.dirname(first.path)),
+      path.join(root, storageLayoutRelativePaths.attachmentsDirectory),
+    )
     assert.notEqual(first.path, second.path)
     assert.equal(await readFile(first.path, 'utf8'), 'first')
     assert.equal(await readFile(second.path, 'utf8'), 'second')
@@ -83,9 +87,14 @@ test('新附件允许超过 20 MiB 的原始文件和零字节，不缓存整个
           yield chunk
           if (count === 0) {
             await eventually(async () => {
-              const directories = await readdir(path.join(root, 'attachments'))
+              const directories = await readdir(path.join(root, storageLayoutRelativePaths.attachmentsDirectory))
               for (const directory of directories) {
-                const candidate = path.join(root, 'attachments', directory, 'file-large.bin')
+                const candidate = path.join(
+                  root,
+                  storageLayoutRelativePaths.attachmentsDirectory,
+                  directory,
+                  'file-large.bin',
+                )
                 if ((await stat(candidate).catch(() => undefined))?.size) return true
               }
               return false
@@ -114,9 +123,9 @@ test('附件允许 50 MiB 边界，流式超限后清理半成品', async (t) =>
   }
   const file = await storeChatAttachment(root, 'boundary.bin', source())
   assert.equal((await stat(file.path)).size, 50 * 1024 * 1024)
-  const before = await readdir(path.join(root, 'attachments'))
+  const before = await readdir(path.join(root, storageLayoutRelativePaths.attachmentsDirectory))
   await assert.rejects(storeChatAttachment(root, 'oversized.bin', source(1)), /单个上传文件不能超过 50 MB/)
-  assert.deepEqual(await readdir(path.join(root, 'attachments')), before)
+  assert.deepEqual(await readdir(path.join(root, storageLayoutRelativePaths.attachmentsDirectory)), before)
 })
 
 test('附件输入中断或取消后清理随机目录和半成品', async (t) => {
@@ -142,10 +151,12 @@ test('附件输入中断或取消后清理随机目录和半成品', async (t) =
     },
   })
   const uploading = storeChatAttachment(root, 'cancelled.bin', source, controller.signal)
-  await eventually(async () => (await readdir(path.join(root, 'attachments'))).length > 0)
+  await eventually(
+    async () => (await readdir(path.join(root, storageLayoutRelativePaths.attachmentsDirectory))).length > 0,
+  )
   controller.abort()
   await assert.rejects(uploading, { name: 'AbortError' })
-  assert.deepEqual(await readdir(path.join(root, 'attachments')), [])
+  assert.deepEqual(await readdir(path.join(root, storageLayoutRelativePaths.attachmentsDirectory)), [])
 })
 
 test('附件目录不能通过符号链接写入 Host 数据目录之外', async (t) => {
@@ -153,7 +164,9 @@ test('附件目录不能通过符号链接写入 Host 数据目录之外', async
   t.onTestFinished(() => rm(root, { recursive: true, force: true }))
   const outside = path.join(root, 'outside')
   await mkdir(outside)
-  await symlink(outside, path.join(root, 'attachments'), 'dir')
+  const attachDir = path.join(root, storageLayoutRelativePaths.attachmentsDirectory)
+  await mkdir(path.dirname(attachDir), { recursive: true })
+  await symlink(outside, attachDir, 'dir')
   await assert.rejects(storeChatAttachment(root, 'file.txt', Readable.from([])), /符号链接/)
   assert.deepEqual(await readdir(outside), [])
 })
@@ -199,7 +212,7 @@ test('直连客户端二进制上传超过 32 MiB，图片及空文件均不检�
     await assert.rejects(client.bridge.uploadAttachment(key, { name: 'abort', data: blob }, controller.signal), {
       name: 'AbortError',
     })
-    assert.equal((await readdir(path.join(fixture.root, 'attachments'))).length, 3)
+    assert.equal((await readdir(path.join(fixture.root, storageLayoutRelativePaths.attachmentsDirectory))).length, 3)
   } finally {
     client.close()
     await fixture.dispose()
@@ -243,7 +256,7 @@ test('HTTP 附件超限返回 413，声明大小或分块上传均不能绕过�
     })
     assert.equal(chunked.status, 413, chunked.body)
     assert.match(JSON.parse(chunked.body).error, /单个上传文件不能超过 50 MB/)
-    assert.deepEqual(await readdir(path.join(fixture.root, 'attachments')), [])
+    assert.deepEqual(await readdir(path.join(fixture.root, storageLayoutRelativePaths.attachmentsDirectory)), [])
   } finally {
     client.close()
     await fixture.dispose()
@@ -258,10 +271,15 @@ test('HTTP 上传断开后清理半成品，维护期间拒绝进入上传', asy
     const req = request(attachmentUrl(fixture, key), { method: 'POST', headers: { Cookie: fixture.cookie } })
     req.on('error', () => {})
     req.write(Buffer.alloc(64 * 1024))
-    await eventually(async () => (await readdir(path.join(fixture.root, 'attachments'))).length > 0)
+    await eventually(
+      async () => (await readdir(path.join(fixture.root, storageLayoutRelativePaths.attachmentsDirectory))).length > 0,
+    )
     assert.throws(() => fixture.server.host.prepareMaintenance(), /操作正在执行/)
     req.destroy()
-    await eventually(async () => (await readdir(path.join(fixture.root, 'attachments'))).length === 0)
+    await eventually(
+      async () =>
+        (await readdir(path.join(fixture.root, storageLayoutRelativePaths.attachmentsDirectory))).length === 0,
+    )
   } finally {
     client.close()
     await fixture.dispose()
@@ -305,7 +323,7 @@ test('已登记远程服务流式转发超过 32 MiB，401 续期但不重放已
     const large = await client.bridge.uploadAttachment(key, { name: 'remote.bin', data: blob })
     assert.equal((await stat(large.path)).size, blob.size)
     assert.ok(large.path.startsWith(remote.root))
-    assert.deepEqual(await readdir(path.join(local.root, 'attachments')), [])
+    assert.deepEqual(await readdir(path.join(local.root, storageLayoutRelativePaths.attachmentsDirectory)), [])
     assert.ok(!timeout.mock.calls.some(([milliseconds]) => milliseconds === 30000))
     rejectOnce = true
     const renewed = await client.bridge.uploadAttachment(key, { name: 'renewed.txt', data: new Blob(['renewed']) })
@@ -316,10 +334,14 @@ test('已登记远程服务流式转发超过 32 MiB，401 续期但不重放已
     const req = request(uploadUrl, { method: 'POST', headers: { Cookie: local.cookie } })
     req.on('error', () => {})
     req.write(Buffer.alloc(64 * 1024))
-    await eventually(async () => (await readdir(path.join(remote.root, 'attachments'))).length > 2)
+    await eventually(
+      async () => (await readdir(path.join(remote.root, storageLayoutRelativePaths.attachmentsDirectory))).length > 2,
+    )
     req.destroy()
-    await eventually(async () => (await readdir(path.join(remote.root, 'attachments'))).length === 2)
-    assert.equal((await readdir(path.join(remote.root, 'attachments'))).length, 2)
+    await eventually(
+      async () => (await readdir(path.join(remote.root, storageLayoutRelativePaths.attachmentsDirectory))).length === 2,
+    )
+    assert.equal((await readdir(path.join(remote.root, storageLayoutRelativePaths.attachmentsDirectory))).length, 2)
     assert.equal(local.server.remotes.list()[0].status, 'connected')
     assert.equal(local.server.remotes.list()[0].error, undefined)
   } finally {

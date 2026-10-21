@@ -4,6 +4,7 @@ import path from 'node:path'
 import { type Readable, Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { MAX_CHAT_ATTACHMENT_BYTES, type ChatUploadedFile } from '@pi-meme/contracts/chat-attachments'
+import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 
 export class ChatAttachmentTooLargeError extends Error {
   constructor() {
@@ -30,7 +31,7 @@ export async function storeChatAttachment(
 ): Promise<ChatUploadedFile> {
   if (typeof name !== 'string' || !name.trim()) throw new Error('附件文件名无效')
   signal?.throwIfAborted()
-  const root = path.join(await realpath(dataRoot), 'attachments')
+  const root = path.join(await realpath(dataRoot), storageLayoutRelativePaths.attachmentsDirectory)
   await mkdir(root, { recursive: true, mode: 0o700 })
   if ((await realpath(root)) !== root) throw new Error('附件目录不能是符号链接')
   const directory = await mkdtemp(path.join(root, 'upload-'))

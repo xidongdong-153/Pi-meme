@@ -47,7 +47,7 @@ export function create(context) {
 import { readFile } from 'node:fs/promises'
 import { PluginManager } from ${JSON.stringify(fileURLToPath(import.meta.resolve('@pi-meme/plugin-runtime/manager')))}
 async function main() {
-  const manager = new PluginManager({directory:${JSON.stringify(path.join(root, 'installed'))}, dataDirectory:${JSON.stringify(path.join(root, 'data'))}})
+  const manager = new PluginManager({directory:${JSON.stringify(path.join(root, 'installed'))}, dataDirectory:${JSON.stringify(path.join(root, 'data'))}, stateFile:${JSON.stringify(path.join(root, 'state/plugins.json'))}})
   const key = Symbol.for('pi-meme.test.chord-identity')
   process[key] = { defineService: (await import('@earendil-works/chord')).defineService, createContextKey: (await import('@earendil-works/chord/context')).createContextKey }
   async function call() {

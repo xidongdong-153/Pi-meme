@@ -1,6 +1,6 @@
 import { validateExtensionDialogResponse } from '@pi-meme/contracts/user-input'
 import { randomUUID } from 'node:crypto'
-import { mkdir, readFile, rename, writeFile, rm } from 'node:fs/promises'
+import { mkdir, rename, writeFile, rm } from 'node:fs/promises'
 import path from 'node:path'
 import type { DesktopEvent, Snapshot } from '@pi-meme/contracts/desktop'
 import {
@@ -22,6 +22,14 @@ import { loadPiSdk } from '@pi-meme/pi-runtime/sdk/load'
 import { readSessionHistory } from '@pi-meme/pi-runtime/session-history'
 import { inferAgentConversationOrigin, readAgentConversation } from '@pi-meme/pi-runtime/agent-conversation'
 import { safeBranchLeaf } from '@pi-meme/pi-runtime/safe-session-fork'
+
+import {
+  loadCollaborationPartitions,
+  saveCollaborationRoot,
+  deleteCollaborationRoot,
+  saveCollaborationPlans,
+  type CollaborationRootPartition,
+} from './collaboration-store'
 
 const activeStatuses = new Set(['starting', 'running', 'waiting_children', 'waiting_input'])
 type RootBinding = {
@@ -56,8 +64,11 @@ type Record = {
   nextMode?: TaskMode
   replies?: Array<{ id: string; result: CollaborationResults[keyof CollaborationResults] }>
 }
-type Options = {
+export type HostCollaborationOptions = {
   dataRoot: string
+  collaborationRootsDirectory?: string
+  collaborationPlansFile?: string
+  plansDataDirectory?: string
   assertCheckoutAvailable?: (cwd: string) => void
   createSession: (
     cwd: string,
@@ -67,6 +78,7 @@ type Options = {
   ) => RuntimeSdkSession
   emit: (event: DesktopEvent) => void
 }
+type Options = HostCollaborationOptions
 
 export function createHostCollaborationBridge(options: Options) {
   return new HostCollaborationBridge(options)
@@ -96,7 +108,8 @@ export class HostCollaborationBridge {
   private plans: PlanDocument[] = []
   private listeners = new Set<() => void>()
   private userSteering = new WeakSet<Record>()
-  private writes: Promise<void> = Promise.resolve()
+  private rootWrites = new Map<string, Promise<void>>()
+  private planIndexWrites: Promise<void> = Promise.resolve()
   private inFlight = new Map<string, Promise<CollaborationResults[keyof CollaborationResults]>>()
   private planWrites: Promise<void> = Promise.resolve()
   private stopping = false
@@ -104,64 +117,112 @@ export class HostCollaborationBridge {
   constructor(private readonly options: Options) {
     this.ready = this.load()
   }
+  get rootsDirectory(): string {
+    return (
+      this.options.collaborationRootsDirectory ?? path.join(this.options.dataRoot, 'state', 'collaboration', 'roots')
+    )
+  }
+  get plansFile(): string {
+    return (
+      this.options.collaborationPlansFile ?? path.join(this.options.dataRoot, 'state', 'collaboration', 'plans.json')
+    )
+  }
+  get plansDirectory(): string {
+    return this.options.plansDataDirectory ?? path.join(this.options.dataRoot, 'data', 'plans')
+  }
   private async load() {
-    const file = path.join(this.options.dataRoot, 'collaboration.json')
     try {
-      const saved = JSON.parse(await readFile(file, 'utf8')) as {
-        records: Array<Omit<Record, 'session'>>
-        plans: PlanDocument[]
-      }
-      this.plans = saved.plans ?? []
-      for (const record of saved.records ?? []) {
-        if (activeStatuses.has(record.summary.status)) {
-          record.summary.status = 'interrupted'
-          record.summary.error = 'Host 已重启，任务未自动恢复'
-          record.summary.runCompletedAt = new Date().toISOString()
+      const { roots, plans } = await loadCollaborationPartitions(this.rootsDirectory, this.plansFile)
+      this.plans = plans
+      const interruptedRoots = new Set<string>()
+      for (const partition of roots.values()) {
+        for (const record of partition.records ?? []) {
+          const loadedRecord: Record = {
+            ...record,
+            summary: { ...record.summary },
+            pauseRequested: false,
+            pauseRevision: 0,
+            pendingStart: undefined,
+            interactions: [],
+            events: [],
+          }
+          if (activeStatuses.has(loadedRecord.summary.status)) {
+            loadedRecord.summary.status = 'interrupted'
+            loadedRecord.summary.error = 'Host 已重启，任务未自动恢复'
+            loadedRecord.summary.runCompletedAt = new Date().toISOString()
+            interruptedRoots.add(partition.rootAgentId)
+          }
+          loadedRecord.summary.isPaused = false
+          this.records.set(loadedRecord.summary.agentId, loadedRecord)
+          if (loadedRecord.summary.depth === 0) this.roots.set(loadedRecord.summary.rootSessionKey, loadedRecord)
         }
-        record.pauseRequested = false
-        record.pauseRevision = 0
-        record.summary.isPaused = false
-        record.pendingStart = undefined
-        record.interactions = []
-        record.events = []
-        this.records.set(record.summary.agentId, record)
-        if (record.summary.depth === 0) this.roots.set(record.summary.rootSessionKey, record)
       }
-      await this.persist()
+      if (interruptedRoots.size > 0) {
+        await this.persist([...interruptedRoots])
+      }
     } catch (cause) {
       if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw cause
     }
   }
-  private persist() {
-    const content = JSON.stringify({
-      records: [...this.records.values()].map(
-        ({
-          session: _session,
-          pauseRequested: _pause,
-          pauseRevision: _revision,
-          pauseApplied: _applied,
-          pendingStart: _start,
-          draining: _draining,
-          waitingMessages: _waitingMessages,
-          delivering: _delivering,
-          ...record
-        }) => ({ ...record, summary: { ...record.summary, isPaused: undefined } }),
-      ),
-      plans: this.plans,
-    })
-    const write = this.writes.then(async () => {
-      await mkdir(this.options.dataRoot, { recursive: true })
-      const file = path.join(this.options.dataRoot, 'collaboration.json')
-      const temporary = `${file}.${randomUUID()}.tmp`
-      try {
-        await writeFile(temporary, content, { mode: 0o600 })
-        await rename(temporary, file)
-      } finally {
-        await rm(temporary, { force: true })
+  private recordsForRoot(rootAgentId: string): Record[] {
+    return [...this.records.values()].filter((entry) => entry.summary.rootAgentId === rootAgentId)
+  }
+  private persist(targets: string | string[] | Record): Promise<void> {
+    let rootAgentIds: string[]
+    if (typeof targets === 'object' && !Array.isArray(targets)) {
+      rootAgentIds = [targets.summary.rootAgentId]
+    } else {
+      rootAgentIds = (Array.isArray(targets) ? [...new Set(targets)] : [targets]).filter(Boolean)
+    }
+
+    if (!rootAgentIds.length) return Promise.resolve()
+
+    const promises = rootAgentIds.map((rootAgentId) => {
+      const treeRecords = this.recordsForRoot(rootAgentId)
+      if (!treeRecords.length) return Promise.resolve()
+
+      const root = treeRecords.find((r) => r.summary.depth === 0)
+      // 同步序列化冻结当前状态快照，防止后续异步执行期间内存对象被修改
+      const partition: CollaborationRootPartition = {
+        version: 1,
+        rootAgentId,
+        rootSessionKey: root?.summary.rootSessionKey ?? treeRecords[0]?.summary.rootSessionKey ?? '',
+        records: treeRecords.map(
+          ({
+            session: _session,
+            pauseRequested: _pause,
+            pauseRevision: _revision,
+            pauseApplied: _applied,
+            pendingStart: _start,
+            draining: _draining,
+            waitingMessages: _waitingMessages,
+            delivering: _delivering,
+            events: _events,
+            ...record
+          }) => structuredClone({ ...record, summary: { ...record.summary, isPaused: undefined } }),
+        ),
+        updatedAt: new Date().toISOString(),
       }
+      const frozenPayload = `${JSON.stringify(partition, null, 2)}\n`
+
+      const previous = this.rootWrites.get(rootAgentId) ?? Promise.resolve()
+      const write = previous.then(async () => {
+        await saveCollaborationRoot(this.rootsDirectory, rootAgentId, frozenPayload)
+      })
+      this.rootWrites.set(
+        rootAgentId,
+        write.catch(() => {}),
+      )
+      return write
     })
-    this.writes = write.catch(() => {})
-    return write
+
+    return Promise.all(promises).then(() => {})
+  }
+  async flushAll(): Promise<void> {
+    const rootAgentIds = [...new Set([...this.records.values()].map((r) => r.summary.rootAgentId))]
+    if (rootAgentIds.length > 0) {
+      await this.persist(rootAgentIds)
+    }
   }
   private tree(record: Record) {
     return [...this.records.values()].filter((entry) => entry.summary.rootAgentId === record.summary.rootAgentId)
@@ -262,14 +323,14 @@ export class HostCollaborationBridge {
     record.session = binding.session
     this.roots.set(binding.sessionKey, record)
     this.callers.set(binding.session, record)
-    await this.persist()
+    await this.persist(record)
     return { ...record.summary }
   }
   async setSessionMode(sessionKey: string, mode: TaskMode) {
     await this.ready
     const root = this.root(sessionKey)
     root.nextMode = mode
-    await this.persist()
+    await this.persist(root)
     this.changed(root)
   }
   async getSessionMode(sessionKey: string) {
@@ -351,7 +412,7 @@ export class HostCollaborationBridge {
           record.summary.status = 'interrupted'
           record.summary.runCompletedAt = new Date().toISOString()
           await record.session?.abort()
-          await this.persist()
+          await this.persist(record)
           this.changed(record)
           return
         }
@@ -389,7 +450,7 @@ export class HostCollaborationBridge {
       report: undefined,
       error: undefined,
     })
-    await this.persist()
+    await this.persist(root)
     this.changed(root)
     return { ...root.summary }
   }
@@ -426,7 +487,7 @@ export class HostCollaborationBridge {
       runCompletedAt: undefined,
       error: undefined,
     })
-    await this.persist()
+    await this.persist(root)
     this.changed(root)
   }
   async rootFailed(sessionKey: string, cause: unknown, runId?: string) {
@@ -435,7 +496,7 @@ export class HostCollaborationBridge {
     root.summary.status = 'failed'
     root.summary.error = String(cause)
     root.summary.runCompletedAt = new Date().toISOString()
-    await this.persist()
+    await this.persist(root)
     this.changed(root)
   }
   async rootSettled(sessionKey: string, event?: { aborted?: boolean; runId?: string }) {
@@ -461,7 +522,7 @@ export class HostCollaborationBridge {
         ? 'waiting_children'
         : 'completed'
     root.summary.runCompletedAt = root.summary.status === 'completed' ? new Date().toISOString() : undefined
-    await this.persist()
+    await this.persist(root)
     this.changed(root)
     await this.summarize(root)
   }
@@ -540,7 +601,7 @@ export class HostCollaborationBridge {
       .then(async (result) => {
         caller.replies ??= []
         caller.replies.push({ id: request.id, result })
-        await this.persist()
+        await this.persist(caller)
         return result
       })
       .finally(() => this.inFlight.delete(key))
@@ -597,7 +658,7 @@ export class HostCollaborationBridge {
       )
         throw new Error('请先处理未读反馈并等待下级任务完成，再提交完成结果')
       caller.completion = { report: request.params.report }
-      await this.persist()
+      await this.persist(caller)
       return { accepted: true }
     }
     if (request.method === 'spawn_agent') {
@@ -667,7 +728,7 @@ export class HostCollaborationBridge {
       } catch (cause) {
         this.records.delete(agentId)
         await child.session?.stopAndWait()
-        await this.persist()
+        await this.persist(caller)
         this.changed(caller)
         throw cause
       }
@@ -697,7 +758,7 @@ export class HostCollaborationBridge {
           policy,
           runId: randomUUID(),
         })
-        await this.persist()
+        await this.persist([caller.summary.rootAgentId, target.summary.rootAgentId])
         return { agent: { ...target.summary }, queued: true }
       }
       this.capacity(caller)
@@ -707,7 +768,7 @@ export class HostCollaborationBridge {
       } catch (cause) {
         const generation = target.summary.executionGeneration
         if (activeStatuses.has(target.summary.status)) target.summary = { ...previous, executionGeneration: generation }
-        await this.persist()
+        await this.persist(target)
         this.changed(target)
         throw cause
       }
@@ -771,7 +832,7 @@ export class HostCollaborationBridge {
     record.summary.isPaused = this.paused(record)
     if (this.paused(record)) {
       record.pendingStart = task
-      await this.persist()
+      await this.persist(record)
       this.changed(record)
       return
     }
@@ -781,7 +842,7 @@ export class HostCollaborationBridge {
       record.session = undefined
       assertStarting()
     }
-    await this.persist()
+    await this.persist(record)
     assertStarting()
     if (!record.summary.conversationOrigin && record.summary.parentAgentId && record.summary.sessionFile) {
       record.summary.conversationOrigin = await inferAgentConversationOrigin(
@@ -792,7 +853,7 @@ export class HostCollaborationBridge {
     }
     if (!record.session) {
       const generation = ++record.summary.executionGeneration
-      await this.persist()
+      await this.persist(record)
       assertStarting()
       const boundSession = this.options.createSession(
         record.summary.cwd,
@@ -848,7 +909,7 @@ export class HostCollaborationBridge {
       if (record.summary.thinkingLevel) await record.session.setThinkingLevel(record.summary.thinkingLevel)
       record.summary.sessionId = record.session.getActiveSession().sessionId
       record.summary.sessionFile = record.session.getActiveSession().sessionFile
-      await this.persist()
+      await this.persist(record)
     }
     await record.session.configureAgentTask(this.taskContext(record, message), record.summary.conversationOrigin)
     if (record.summary.model) await record.session.setModel(record.summary.model)
@@ -856,7 +917,7 @@ export class HostCollaborationBridge {
     assertStarting()
     if (this.paused(record)) {
       record.pendingStart = task
-      await this.persist()
+      await this.persist(record)
       this.changed(record)
       return
     }
@@ -891,7 +952,7 @@ export class HostCollaborationBridge {
     const fresh = ids.filter((id) => known.has(id) && !record.consumed.includes(id))
     if (fresh.length) {
       record.consumed.push(...fresh)
-      void this.persist().catch((cause: unknown) => {
+      void this.persist(record).catch((cause: unknown) => {
         record.summary.error = String(cause)
         this.changed(record)
       })
@@ -932,7 +993,7 @@ export class HostCollaborationBridge {
     if (active?.sessionId) record.summary.sessionId = active.sessionId
     if (active?.sessionFile && record.summary.sessionFile !== active.sessionFile) {
       record.summary.sessionFile = active.sessionFile
-      void this.persist().catch((cause: unknown) => {
+      void this.persist(record).catch((cause: unknown) => {
         record.summary.error = String(cause)
         this.changed(record)
       })
@@ -1008,7 +1069,7 @@ export class HostCollaborationBridge {
         this.pending(record).length > 0)
     ) {
       record.summary.status = 'waiting_children'
-      await this.persist()
+      await this.persist(record)
       this.changed(record)
       const parent = this.records.get(record.summary.parentAgentId ?? '')
       if (parent && report && !record.feedbackSent) await this.send(record, parent, report)
@@ -1044,7 +1105,7 @@ export class HostCollaborationBridge {
         parent.mailbox.push(result)
       }
     }
-    await this.persist()
+    await this.persist(parent ? [record.summary.rootAgentId, parent.summary.rootAgentId] : record)
     if (parent && result) this.emit(parent, { type: 'agent_mailbox', message: result })
     this.changed(record)
     if (parent) {
@@ -1077,7 +1138,7 @@ export class HostCollaborationBridge {
       next = record.queued.shift()
     }
     if (discarded) {
-      await this.persist()
+      await this.persist(record)
       this.changed(record)
     }
   }
@@ -1099,7 +1160,7 @@ export class HostCollaborationBridge {
     if (target.summary.rootTaskId === caller.summary.rootTaskId && target.summary.epoch === caller.summary.epoch)
       target.completion = undefined
     if (target.summary.agentId === caller.summary.parentAgentId) caller.feedbackSent = true
-    await this.persist()
+    await this.persist([caller.summary.rootAgentId, target.summary.rootAgentId])
     const delivered = await this.deliver(target)
     this.emit(target, { type: 'agent_mailbox', message })
     this.changed(target)
@@ -1145,7 +1206,7 @@ export class HostCollaborationBridge {
     const fresh = persisted.filter((id) => !record.consumed.includes(id))
     if (fresh.length) {
       record.consumed.push(...fresh)
-      await this.persist()
+      await this.persist(record)
     }
     return true
   }
@@ -1193,7 +1254,7 @@ export class HostCollaborationBridge {
       }
       return current
     }
-    await this.persist()
+    await this.persist(record)
     if (!isCurrent()) return
     this.changed(record)
     try {
@@ -1204,7 +1265,7 @@ export class HostCollaborationBridge {
       }
       if (!isCurrent()) return
       record.consumed.push(...pending.map((message) => message.id).filter((id) => !record.consumed.includes(id)))
-      await this.persist()
+      await this.persist(record)
       if (!isCurrent()) return
       await record.session.continueCollaborationTask(
         pending.some((message) => message.kind === 'result')
@@ -1224,7 +1285,7 @@ export class HostCollaborationBridge {
         record.settled = false
         await this.settle(record, false)
       } else {
-        await this.persist()
+        await this.persist(record)
         this.changed(record)
       }
     }
@@ -1315,7 +1376,7 @@ export class HostCollaborationBridge {
       record.waitingMessages = [
         ...new Set([...(record.waitingMessages ?? []), ...messages.map((message) => message.id)]),
       ]
-      await this.persist()
+      await this.persist(record)
       return {
         agents: (selected ?? this.tree(record)).map((entry) => ({ ...entry.summary })),
         messages,
@@ -1350,7 +1411,7 @@ export class HostCollaborationBridge {
       child.interactions = []
       this.changed(child)
     }
-    await this.persist()
+    await this.persist(record)
   }
   async stopRoot(sessionKey: string) {
     await this.ready
@@ -1360,7 +1421,7 @@ export class HostCollaborationBridge {
     await this.interrupt(root)
     root.pauseRequested = false
     root.summary.status = 'stopped'
-    await this.persist()
+    await this.persist(root)
     this.changed(root)
   }
   async interruptAgent(agentId: string) {
@@ -1403,7 +1464,7 @@ export class HostCollaborationBridge {
         record.summary.conversationOrigin = origin
         if (record.session?.connection().status === 'ready')
           await record.session.configureAgentTask(record.summary.task ?? '', origin)
-        await this.persist()
+        await this.persist(record)
       }
     }
     if (!record.session || record.session.connection().status !== 'ready') {
@@ -1525,11 +1586,12 @@ export class HostCollaborationBridge {
       if (signal.aborted || runId !== record.summary.runId || !activeStatuses.has(record.summary.status))
         throw new Error('计划保存轮次已取消或更换')
     }
-    const directory = path.join(this.options.dataRoot, 'plans', sessionId)
+    const directory = path.join(this.plansDirectory, sessionId)
     const file = path.join(directory, `${document.id}.md`)
     const temporary = `${file}.${randomUUID()}.tmp`
     let replaced = false
     let metadataChanged = false
+    const isNewDocument = !existing
     try {
       await mkdir(directory, { recursive: true })
       assertCurrent()
@@ -1542,20 +1604,32 @@ export class HostCollaborationBridge {
       else this.plans.push(document)
       metadataChanged = true
       record.summary.sessionId = sessionId
-      await this.persist()
+      const saveIndex = this.planIndexWrites.then(async () => {
+        await saveCollaborationPlans(this.plansFile, this.plans)
+      })
+      this.planIndexWrites = saveIndex.catch(() => {})
+      await saveIndex
+      await this.persist(record.summary.rootAgentId)
       assertCurrent()
     } catch (cause) {
       if (metadataChanged) {
         if (existing) this.plans[this.plans.indexOf(document)] = existing
         else this.plans = this.plans.filter((plan) => plan !== document)
+        const saveIndex = this.planIndexWrites.then(async () => {
+          await saveCollaborationPlans(this.plansFile, this.plans)
+        })
+        this.planIndexWrites = saveIndex.catch(() => {})
+        await saveIndex.catch(() => {})
       }
       if (replaced) {
         if (existing) {
           await writeFile(temporary, existing.markdown, { mode: 0o600 })
           await rename(temporary, file)
-        } else await rm(file, { force: true })
+        } else if (isNewDocument) {
+          await rm(file, { force: true })
+        }
       }
-      if (metadataChanged) await this.persist()
+      if (metadataChanged) await this.persist(record.summary.rootAgentId)
       throw cause
     } finally {
       await rm(temporary, { force: true })
@@ -1602,6 +1676,65 @@ export class HostCollaborationBridge {
         this.listeners.add(wake)
       })
   }
+  async deleteSessions(targets: {
+    sessionIds: string[]
+    sessionFiles: string[]
+  }): Promise<{ deletedRootAgentIds: string[] }> {
+    await this.ready
+    const targetSessionIds = new Set(targets.sessionIds.filter(Boolean))
+    const targetSessionFiles = new Set(targets.sessionFiles.filter(Boolean))
+    const deletedRootAgentIds: string[] = []
+
+    for (const [key, root] of [...this.roots.entries()]) {
+      const rootSessionId = root.summary.sessionId
+      const rootSessionFile = root.summary.sessionFile
+      const matchesSessionId = Boolean(rootSessionId && targetSessionIds.has(rootSessionId))
+      const matchesSessionFile = Boolean(rootSessionFile && targetSessionFiles.has(rootSessionFile))
+      const matchesSessionKey =
+        targets.sessionIds.includes(root.summary.sessionKey) || targets.sessionFiles.includes(root.summary.sessionKey)
+
+      if (!matchesSessionId && !matchesSessionFile && !matchesSessionKey) {
+        continue
+      }
+
+      const tree = this.tree(root)
+      const hasRetainedHistory = tree.some((entry) => {
+        if (entry.summary.depth > 0) {
+          if (entry.summary.sessionFile && !targetSessionFiles.has(entry.summary.sessionFile)) return true
+          if (entry.summary.sessionId && !targetSessionIds.has(entry.summary.sessionId)) return true
+        }
+        if (entry.replies && entry.replies.length > 0) return true
+        if (entry.mailbox && entry.mailbox.length > 0) return true
+        return false
+      })
+
+      // 检查该根会话是否有计划文档
+      const hasPlans = this.plans.some((p) => p.sessionId === rootSessionId)
+
+      if (hasRetainedHistory || hasPlans) {
+        // 保留该根记录，仅停止其运行状态，使 childSessionIdentities 仍能有效隐藏子会话，去重和通信历史不丢
+        await this.stopRoot(root.summary.rootSessionKey)
+        continue
+      }
+
+      // 无保留引用的整根：停止运行、清理内存记录、删除分片文件
+      await this.stopRoot(root.summary.rootSessionKey)
+      for (const entry of tree) {
+        this.records.delete(entry.summary.agentId)
+        if (entry.session) {
+          this.callers.delete(entry.session)
+        }
+      }
+      this.roots.delete(key)
+      if (root.summary.rootSessionKey) {
+        this.roots.delete(root.summary.rootSessionKey)
+      }
+      await deleteCollaborationRoot(this.rootsDirectory, root.summary.rootAgentId)
+      deletedRootAgentIds.push(root.summary.rootAgentId)
+    }
+
+    return { deletedRootAgentIds }
+  }
   async stopAndWait() {
     this.stopping = true
     await this.ready
@@ -1611,7 +1744,11 @@ export class HostCollaborationBridge {
         .filter((record) => record.summary.depth > 0)
         .map((record) => record.session?.stopAndWait()),
     )
-    await Promise.allSettled([...this.inFlight.values(), this.planWrites])
-    await this.writes
+    await Promise.allSettled([
+      ...this.inFlight.values(),
+      this.planWrites,
+      this.planIndexWrites,
+      ...this.rootWrites.values(),
+    ])
   }
 }

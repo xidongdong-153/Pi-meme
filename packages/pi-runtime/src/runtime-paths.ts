@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto'
 import { realpathSync } from 'node:fs'
 import path from 'node:path'
+import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 
 export type PiRuntimePaths = {
   dataRoot: string
@@ -9,7 +10,6 @@ export type PiRuntimePaths = {
   builtinSkillsDirectory: string
   sessionsDirectory: string
   workspaceDataRoot: string
-  secureCredentialsFile: string
   workspaceKey: (cwd: string) => string
   sessionDirectory: (cwd: string) => string
   workspaceDirectory: (cwd: string) => string
@@ -27,19 +27,19 @@ export function workspaceKey(cwd: string) {
   return createHash('sha256').update(normalizeWorkspacePath(cwd)).digest('hex')
 }
 
-export function createPiRuntimePaths(userData: string): PiRuntimePaths {
-  const root = path.join(userData, 'pi')
-  const sessionsDirectory = path.join(userData, 'sessions')
-  const workspaceDataRoot = path.join(userData, 'workspaces')
+export function createPiRuntimePaths(dataRoot: string): PiRuntimePaths {
+  const rel = storageLayoutRelativePaths
+  const agentDir = path.join(dataRoot, rel.agentDirectory)
+  const sessionsDirectory = path.join(dataRoot, rel.sessionsDataDirectory)
+  const workspaceDataRoot = path.join(dataRoot, rel.workspacesConfigDirectory)
   const keyFor = (cwd: string) => workspaceKey(cwd)
   return {
-    dataRoot: userData,
-    agentDir: root,
-    skillsDirectory: path.join(userData, 'skills'),
-    builtinSkillsDirectory: path.join(userData, 'builtin-resources', 'skills'),
+    dataRoot,
+    agentDir,
+    skillsDirectory: path.join(dataRoot, rel.skillsDirectory),
+    builtinSkillsDirectory: path.join(dataRoot, rel.builtinSkillsDirectory),
     sessionsDirectory,
     workspaceDataRoot,
-    secureCredentialsFile: path.join(userData, 'secure', 'credentials.bin'),
     workspaceKey: keyFor,
     sessionDirectory: (cwd) => path.join(sessionsDirectory, keyFor(cwd)),
     workspaceDirectory: (cwd) => path.join(workspaceDataRoot, keyFor(cwd)),

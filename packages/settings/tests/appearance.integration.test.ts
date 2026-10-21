@@ -15,6 +15,7 @@ import {
   validateAppearance,
 } from '../src/shared/appearance'
 import { builtinThemes, parseTheme } from '../src/shared/themes'
+import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 import { SettingsStore } from '../src/server/store'
 import { getInstalledFonts, parseInstalledFonts } from '../src/server/fonts'
 import { AppearanceSaver } from '../src/ui/appearance-save'
@@ -95,7 +96,8 @@ test('非法颜色、字号、字体及样式被拒绝，对比度只改变层�
 test('读取旧配置不写文件，独立保存保留运行配置，导入导出兼容并拒绝重复 ID', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pi-appearance-'))
   try {
-    const filename = path.join(directory, 'settings.json')
+    const filename = path.join(directory, storageLayoutRelativePaths.appConfigFile)
+    await mkdir(path.dirname(filename), { recursive: true })
     const original = JSON.stringify({
       themeId: 'light',
       pinnedPaths: ['项目'],
@@ -273,11 +275,12 @@ test('磁盘写入失败保留最后成功配置，恢复写入后可继续保�
   try {
     await store.load()
     await store.saveAppearance(defaultAppearance())
-    await mkdir(path.join(directory, 'settings.json.tmp'))
+    const filename = path.join(directory, storageLayoutRelativePaths.appConfigFile)
+    await mkdir(`${filename}.tmp`)
     await assert.rejects(store.saveAppearance({ ...defaultAppearance(), uiSize: 20 }))
     assert.equal(store.settings.appearance?.uiSize, 14)
-    assert.equal(JSON.parse(await readFile(path.join(directory, 'settings.json'), 'utf8')).appearance.uiSize, 14)
-    await rm(path.join(directory, 'settings.json.tmp'), { recursive: true })
+    assert.equal(JSON.parse(await readFile(filename, 'utf8')).appearance.uiSize, 14)
+    await rm(`${filename}.tmp`, { recursive: true })
     await store.saveAppearance({ ...defaultAppearance(), uiSize: 20 })
     assert.equal(store.settings.appearance?.uiSize, 20)
   } finally {

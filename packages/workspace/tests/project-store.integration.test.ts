@@ -3,6 +3,7 @@ import { test } from 'vitest'
 import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 import { ProjectStore } from '../src/server/project-store'
 
 test('登记项目重启后保留，符号链接去重，同名目录分别展示', async () => {
@@ -69,7 +70,8 @@ test('损坏项目文件拒绝覆盖，目录无效和保存失败不改变登�
   try {
     const project = path.join(directory, 'project')
     await mkdir(project)
-    const file = path.join(directory, 'projects.json')
+    const file = path.join(directory, storageLayoutRelativePaths.projectsFile)
+    await mkdir(path.dirname(file), { recursive: true })
     await writeFile(file, '{损坏')
     const store = new ProjectStore(directory)
     await store.load()
@@ -98,8 +100,10 @@ test('版本 1 项目文件兼容 Worktree 来源，重启后过滤重复项目�
     const checkout = path.join(directory, 'worktrees', 'one')
     await mkdir(source)
     await mkdir(checkout, { recursive: true })
+    const projectsFile = path.join(directory, storageLayoutRelativePaths.projectsFile)
+    await mkdir(path.dirname(projectsFile), { recursive: true })
     await writeFile(
-      path.join(directory, 'projects.json'),
+      projectsFile,
       JSON.stringify({ version: 1, projects: [{ cwd: source, name: '项目', lastSelectedAt: '' }] }),
     )
     const store = new ProjectStore(directory)
@@ -119,7 +123,7 @@ test('版本 1 项目文件兼容 Worktree 来源，重启后过滤重复项目�
     assert.equal((await restored.list([checkout])).length, 1)
     await restored.remove(source)
     assert.equal(restored.sourceProjectCwd(checkout), source)
-    assert.equal((await readFile(path.join(checkout, '..', '..', 'projects.json'), 'utf8')).includes(checkout), true)
+    assert.equal((await readFile(projectsFile, 'utf8')).includes(checkout), true)
   } finally {
     await rm(directory, { recursive: true, force: true })
   }

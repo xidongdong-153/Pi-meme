@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { projectAppIds } from '@pi-meme/contracts/desktop'
+import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 import { SettingsStore } from '../src/server/store'
 import { createSettingsHandlers } from '../src/server/handlers'
 import { builtinThemes, parseTheme } from '../src/shared/themes'
@@ -62,7 +63,8 @@ test('修改个人资料的单个字段时保留自定义内容和头像，重�
 test('设置忽略旧扩展路径，不再暴露或创建扩展目录', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pi-extension-settings-'))
   try {
-    const file = path.join(directory, 'settings.json')
+    const file = path.join(directory, storageLayoutRelativePaths.appConfigFile)
+    await mkdir(path.dirname(file), { recursive: true })
     const original = JSON.stringify({
       themeId: 'dark',
       preferredProjectApp: 'cursor',
@@ -114,7 +116,7 @@ test('未知项目打开应用不能写入设置，也不能从磁盘加载', as
     const store = new SettingsStore(directory)
     await store.load()
     await store.save({ themeId: 'dark', preferredProjectApp: 'webstorm' })
-    const filename = path.join(directory, 'settings.json')
+    const filename = path.join(directory, storageLayoutRelativePaths.appConfigFile)
     const saved = await readFile(filename, 'utf8')
     for (const app of ['unknown-editor', '/Applications/Other.app', '', 42, null]) {
       await assert.rejects(store.save({ themeId: 'dark', preferredProjectApp: app }))
@@ -257,7 +259,9 @@ test('编辑器显示设置默认开启，旧配置缺少字段时保持开启',
     const fresh = await new SettingsStore(directory).load()
     assert.equal(fresh.settings.showComposerHint, true)
     assert.equal(fresh.settings.showContextUsage, true)
-    await writeFile(path.join(directory, 'settings.json'), JSON.stringify({ themeId: 'dark' }))
+    const legacyFile = path.join(directory, storageLayoutRelativePaths.appConfigFile)
+    await mkdir(path.dirname(legacyFile), { recursive: true })
+    await writeFile(legacyFile, JSON.stringify({ themeId: 'dark' }))
     const legacy = await new SettingsStore(directory).load()
     assert.equal(legacy.settings.showComposerHint, true)
     assert.equal(legacy.settings.showContextUsage, true)
@@ -282,7 +286,7 @@ test('编辑器显示开关独立保存、重启恢复，拒绝非布尔值且�
     assert.equal(restored.settings.showContextUsage, false)
     await restarted.save({ themeId: 'light', showComposerHint: true })
     assert.equal(restarted.settings.showContextUsage, false)
-    const file = path.join(directory, 'settings.json')
+    const file = path.join(directory, storageLayoutRelativePaths.appConfigFile)
     const saved = await readFile(file, 'utf8')
     for (const key of ['showComposerHint', 'showContextUsage'] as const) {
       for (const value of ['false', 0, null]) {
@@ -354,7 +358,9 @@ test('全新设置常驻内置能力，旧MCP关闭选择在加载和保存后�
   try {
     const fresh = new SettingsStore(directory)
     assert.equal((await fresh.load()).settings.mcpEnabled, true)
-    await writeFile(path.join(directory, 'settings.json'), JSON.stringify({ themeId: 'dark', mcpEnabled: false }))
+    const mcpFile = path.join(directory, storageLayoutRelativePaths.appConfigFile)
+    await mkdir(path.dirname(mcpFile), { recursive: true })
+    await writeFile(mcpFile, JSON.stringify({ themeId: 'dark', mcpEnabled: false }))
     const migrated = new SettingsStore(directory)
     const snapshot = await migrated.load()
     assert.equal(snapshot.settings.mcpEnabled, false)

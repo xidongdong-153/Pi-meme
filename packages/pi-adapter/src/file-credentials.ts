@@ -2,6 +2,7 @@ import { chmod, mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import path from 'node:path'
 import type { SecureCredentialStorage } from '@pi-meme/contracts/secure-storage'
+import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 
 function records(value: unknown): Record<string, string> {
   if (
@@ -24,7 +25,8 @@ export class FileCredentialStore implements SecureCredentialStorage {
   private constructor(readonly filePath: string) {}
 
   static async create(dataRoot: string) {
-    const store = new FileCredentialStore(path.join(dataRoot, 'auth.json'))
+    const filePath = path.join(dataRoot, storageLayoutRelativePaths.authFile)
+    const store = new FileCredentialStore(filePath)
     let source: string
     try {
       source = await readFile(store.filePath, 'utf8')

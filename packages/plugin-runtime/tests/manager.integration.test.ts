@@ -121,9 +121,11 @@ function manifest(name: string, version = '1.0.0', provides: string[] = [], requ
 
 async function setup(drain?: (pluginIds: string[]) => Promise<void>) {
   const directory = await mkdtemp(path.join(os.tmpdir(), 'pi-meme-plugins-'))
+  await mkdir(path.join(directory, 'state'), { recursive: true })
   const manager = new FixtureManager({
     directory: path.join(directory, 'installed'),
     dataDirectory: path.join(directory, 'data'),
+    stateFile: path.join(directory, 'state/plugins.json'),
     drain,
   })
   return {
@@ -358,6 +360,7 @@ test('外部目录停用经重启保留，源目录改动不影响已加载快�
     restarted = new FixtureManager({
       directory: path.join(directory, 'installed'),
       dataDirectory: path.join(directory, 'data'),
+      stateFile: path.join(directory, 'state/plugins.json'),
     })
     await restarted.restore()
     assert.equal(restarted.list().find((item) => item.id === 'ui-plugin')?.enabled, false)
@@ -398,7 +401,7 @@ test('持久化失败不释放旧服务，依赖组先释放使用者再释放�
       directory,
     )
     order.length = 0
-    const state = path.join(directory, 'installed/installed.json')
+    const state = path.join(directory, 'state/plugins.json')
     await rm(state)
     await mkdir(state)
     await assert.rejects(
@@ -558,6 +561,7 @@ test('外部交互插件保留会话交互代次', async () => {
   const manager = new FixtureManager({
     directory: path.join(directory, 'installed'),
     dataDirectory: path.join(directory, 'data'),
+    stateFile: path.join(directory, 'state/plugins.json'),
   })
   try {
     const externalManifest = {
@@ -691,8 +695,7 @@ test('交互组新版启动失败只恢复本组，不覆盖排空期间发布�
     await assert.rejects(update, /交互新版启动失败/)
     assert.equal(manager.list().find((entry) => entry.id === 'git-stable')!.version, '2.0.0')
     assert.equal(manager.list().find((entry) => entry.id === original.name)!.version, '1.0.0')
-    const saved = JSON.parse(await readFile(path.join(directory, 'installed/installed.json'), 'utf8'))
-      .records as Array<{
+    const saved = JSON.parse(await readFile(path.join(directory, 'state/plugins.json'), 'utf8')).records as Array<{
       id: string
       enabled: boolean
     }>
@@ -707,7 +710,11 @@ test('交互组新版启动失败只恢复本组，不覆盖排空期间发布�
 
 test('跨重启恢复不复用代次，旧clean UI请求和旧编辑租约不能落入新版Server', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'plugin-generation-restart-'))
-  const options = { directory: path.join(root, 'installed'), dataDirectory: path.join(root, 'data') }
+  const options = {
+    directory: path.join(root, 'installed'),
+    dataDirectory: path.join(root, 'data'),
+    stateFile: path.join(root, 'state/plugins.json'),
+  }
   const source = path.join(root, 'source')
   const managers: PluginManager[] = []
   const create = () => {
@@ -818,7 +825,7 @@ test('代次预留失败不排空或释放旧服务与活租约，失败号码�
       },
       directory,
     )
-    const state = path.join(directory, 'installed/installed.json')
+    const state = path.join(directory, 'state/plugins.json')
     const original = await readFile(state, 'utf8')
     const high = JSON.parse(original).generationHighWaterMark as number
     lease = manager.acquire()
@@ -858,7 +865,7 @@ test('同代码重新激活和失败回滚都分配新代次，高水位不回�
     const reloaded = await manager.registerFixture(entry, module, directory)
     assert.equal(first.policyHash, reloaded.policyHash)
     assert.ok(reloaded.generation > first.generation)
-    const state = path.join(directory, 'installed/installed.json')
+    const state = path.join(directory, 'state/plugins.json')
     const before = JSON.parse(await readFile(state, 'utf8')).generationHighWaterMark
     await assert.rejects(
       manager.registerFixture(
@@ -896,7 +903,7 @@ test.each([
   const { directory, manager, cleanup } = await setup()
   try {
     await mkdir(path.join(directory, 'installed'), { recursive: true })
-    const state = path.join(directory, 'installed/installed.json')
+    const state = path.join(directory, 'state/plugins.json')
     await writeFile(state, contents)
     await manager.restore()
     assert.deepEqual(manager.list(), [])
@@ -919,7 +926,7 @@ test('代次溢出恢复不激活任何候选，不重写原记录', async () =>
       JSON.stringify({ name: 'overflow', version: '1.0.0', piMeme: { sdkVersion: 3, ui: 'dist/ui/entry.js' } }),
     )
     await mkdir(path.join(directory, 'installed'))
-    const state = path.join(directory, 'installed/installed.json')
+    const state = path.join(directory, 'state/plugins.json')
     const contents = JSON.stringify({
       format: 'pi-meme-plugins',
       version: 1,
@@ -1023,7 +1030,7 @@ test('legacy数组只迁移envelope，保留SDK2与未知record字段原样且�
       { id: 'disabled-ui', directory: sdk3, enabled: false, customMetadata: { preserve: ['sdk3'] } },
     ]
     await mkdir(path.join(directory, 'installed'))
-    const state = path.join(directory, 'installed/installed.json')
+    const state = path.join(directory, 'state/plugins.json')
     await writeFile(state, JSON.stringify(records))
     await manager.restore()
     const saved = JSON.parse(await readFile(state, 'utf8'))

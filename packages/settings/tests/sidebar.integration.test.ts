@@ -6,11 +6,13 @@ import path from 'node:path'
 import { SettingsStore } from '../src/server/store'
 import { createSettingsHandlers } from '../src/server/handlers'
 import { defaultSidebarPreferences, parseSidebarPreferencesPatch } from '../src/shared/sidebar'
+import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 
 test('旧设置读取补全侧栏默认值，不改写文件', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pi-sidebar-settings-'))
   try {
-    const file = path.join(directory, 'settings.json')
+    const file = path.join(directory, storageLayoutRelativePaths.appConfigFile)
+    await mkdir(path.dirname(file), { recursive: true })
     const original = JSON.stringify({ themeId: 'dark', preferredProjectApp: 'cursor', pinnedPaths: ['项目'] })
     await writeFile(file, original)
     const store = new SettingsStore(directory)

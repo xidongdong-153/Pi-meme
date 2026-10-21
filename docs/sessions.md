@@ -34,7 +34,6 @@ Desktop 和 Web 使用同一 Host 会话实现。Pi SDK 负责原生 JSONL、恢
 新建会话、选择历史或切换页面先读取本地投影，首次发送才创建或恢复所属 Worker。每个执行会话持有独立 Worker，切换到其他会话不改变已发送消息的执行目标。
 
 ```mermaid
-%%{init: {"theme": "dark"}}%%
 stateDiagram-v2
   [*] --> Dormant: 新建或读取历史
   Dormant --> Starting: 首次发送
@@ -132,7 +131,6 @@ Desktop 和 Web 将文字草稿、已选技能引用和队列模式保存到当�
 子任务继承父模型、思考等级、访问权限、任务模式、外部 Agent 选择和资源快照。默认 `fork_turns=all` 从最新闭合历史取安全分支，父历史只作为模型背景，委派消息指定当前子任务；`none` 使用新上下文。分支与来源边界见 [safe-session-fork.ts](../packages/pi-runtime/src/safe-session-fork.ts) 和 [agent-conversation.ts](../packages/pi-runtime/src/agent-conversation.ts)。
 
 ```mermaid
-%%{init: {"theme": "dark"}}%%
 sequenceDiagram
   participant Parent as 父 Worker
   participant Host as Host 协调器
@@ -151,7 +149,7 @@ sequenceDiagram
 
 每轮根任务更新 `rootTaskId/epoch`，事件还携带 runId 和执行代次。普通来源消息也在安全边界写入 JSONL 后按 messageId 确认；进入投递队列不等于落盘或已读。每个父子 Worker 分别持有外部插件租约。主任务停止和 Host 退出取消后代及未启动任务；插件切换等待相关执行与租约，不为切换取消任务。
 
-协作身份、邮箱和计划元数据保存到 `collaboration.json`，子会话继续保存在 `sessions/` 下。Host 重启恢复身份与历史，将原未完成任务记为中断，不自行续跑。
+协作身份、邮箱和计划元数据按根分片保存到 `state/collaboration/`（旧版本为 `collaboration.json`），子会话继续保存在 `data/sessions/` 下。Host 重启恢复身份与历史，将原未完成任务记为中断，不自行续跑。
 
 ## 子代理的界面与交互
 
@@ -168,7 +166,6 @@ sequenceDiagram
 规划模式允许内置 `read`、`grep`、`find`、`ls`、协作工具（含 `finish_agent`）、`request_user_input`、`save_plan`，以及已选择并获准的 SDK 3 受限只读插件工具。[plan-mode.ts](../packages/pi-runtime/src/extensions/plan-mode.ts) 同时过滤可用工具并检查实际调用；bash、edit、write、codemode、MCP、可信外部入口与嵌套越权仍被拒绝。插件放行依据是宿主维护的真实来源、代次、runtime 和 effect/capabilities，不按名称或插件自报 safe 放行。受限 JS 在独立进程与 OS 沙箱中执行，Plan 实际拒绝业务文件写入，也不能跳转到可信 Server。授权和平台边界见 [插件执行与授权](configuration.md#插件执行与授权)。子代理继承父级模式与权限上限，不能向仍在默认模式运行的子任务派发消息来绕过限制。
 
 ```mermaid
-%%{init: {"theme": "dark"}}%%
 flowchart TD
   Input["规划模式输入"] --> Read["只读分析与同模式子任务"]
   Read --> Wait["子任务结束并读取结果邮箱"]
@@ -180,7 +177,7 @@ flowchart TD
   Draft --> Confirm["用户检查访问权限并手动发送"]
 ```
 
-只有规划模式根 Agent 可保存计划，子任务或其队列未结束、结果未读时拒绝保存。同一轮再次保存更新同一计划的修订。正文在 `plans/<sessionId>/<id>.md`，目录中的 sessionId 来自 Pi 原生会话；元数据在 `collaboration.json`。失败恢复上一版正文和元数据，成功后发出 `plan_saved`。
+只有规划模式根 Agent 可保存计划，子任务或其队列未结束、结果未读时拒绝保存。同一轮再次保存更新同一计划的修订。正文在 `data/plans/<sessionId>/<id>.md`，目录中的 sessionId 来自 Pi 原生会话；元数据在 `state/collaboration/plans.json`。失败恢复上一版正文和元数据，成功后发出 `plan_saved`。
 
 [计划面板](../packages/app-ui/src/panels/plan-panel.tsx) 展示完整只读 Markdown，可切换文档、复制和导出。保存计划不会自动执行，也不会自动关闭规划标记。“按此计划继续”把当前文档的标题、修订和完整正文追加到已有草稿，切回普通任务模式，不修改访问权限、不自动发送；运行、切换或编辑消息期间禁用该按钮。实现与验证见 [coordinator.ts](../packages/subagents/src/server/coordinator.ts)、[plan-mode.integration.test.ts](../packages/pi-runtime/tests/plan-mode.integration.test.ts) 和 [agent-plans.integration.test.ts](../packages/subagents/tests/agent-plans.integration.test.ts)。
 
@@ -202,9 +199,8 @@ Goal 绑定正式 `SessionRef`，每个会话只有一个当前目标；未完�
 详情显示状态、累计 Token、累计执行时间、最近进展和停止原因。编辑目标保留已用 Token 与执行时间。进入 Plan、停止会话或编辑历史前暂停目标；退出 Plan 和新分支均不自动启动目标。Host 重启核对原生会话中的用量后保留暂停状态，需要手动恢复。
 
 ```mermaid
-%%{init: {"theme": "dark"}}%%
 flowchart TD
-  Input["用户提交目标"] --> Host["Host 保存 goals.json"]
+  Input["用户提交目标"] --> Host["Host 保存 state/goals.json"]
   Host --> Worker["Worker 执行普通任务"]
   Worker --> Settle["agent_settled 与用量核对"]
   Settle --> Gate{"目标活跃且执行空闲"}
@@ -217,6 +213,6 @@ flowchart TD
 
 根 Agent 通过 `get_goal` 读取状态，通过 `update_goal` 记录进展或提交完成证据。完成前需要逐项核对原目标，Host 同时检查子任务、未读结果、交互、工具和用户队列。子代理不能修改根目标。
 
-目标元数据保存在数据目录的 `goals.json`，图片与执行正文由 Pi JSONL 保存；首轮输入尚未成功写入原生会话时，目标存储暂存输入，恢复后重试首轮，确认原生记录后移除暂存。用量沿用 Pi 的 `totalTokens`，包括缓存、目标所属子代理、上下文压缩和有用量的失败调用；按原生记录去重。服务商未提供有效用量时，标记统计不完整；已知用量继续累计。
+目标元数据保存在数据目录的 `state/goals.json`，图片与执行正文由 Pi JSONL 保存；首轮输入尚未成功写入原生会话时，目标存储暂存输入，恢复后重试首轮，确认原生记录后移除暂存。用量沿用 Pi 的 `totalTokens`，包括缓存、目标所属子代理、上下文压缩和有用量的失败调用；按原生记录去重。服务商未提供有效用量时，标记统计不完整；已知用量继续累计。
 
 实现入口是 [目标服务](../packages/goals/src/server/service.ts)、[目标工具](../packages/goals/src/agent/entry.ts) 和 [目标详情](../packages/goals/src/ui/goal-control.tsx)。

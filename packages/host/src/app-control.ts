@@ -11,6 +11,7 @@ import {
 } from '@pi-meme/contracts/goal'
 import { skillMessageText } from '@pi-meme/contracts/skills'
 import { randomUUID, createHash } from 'node:crypto'
+import path from 'node:path'
 import { projectUiMessage } from '@pi-meme/contracts/plugin-ui-message'
 import type {
   AppProject,
@@ -33,13 +34,14 @@ import type { SessionService } from '@pi-meme/workspace/server/session-service'
 import { readSessionHistory } from '@pi-meme/pi-runtime/session-history'
 import { getGitDiff, getGitEnvironment, getGitSnapshot } from '@pi-meme/git/server/git-service'
 import type { CollaborationBridge } from '@pi-meme/contracts/collaboration'
-import { ControlStore, ControlError } from './control-store'
+import { ControlStore, ControlError, createControlStorePaths, type ControlStorePaths } from './control-store'
 
 type Options = {
   goals: GoalService
   activities?: Pick<ActivityService, 'list' | 'logs' | 'stop'>
   hostId: string
   root: string
+  controlPaths?: ControlStorePaths
   pi: PiSessionPool
   projects: ProjectStore
   sessions: SessionService
@@ -62,7 +64,8 @@ type Pending = { input: SubmissionInput; receipt: SubmissionReceipt; goal?: Goal
 type Active = { receipts: SubmissionReceipt[]; error?: string; cancelled?: boolean; runId?: string }
 export async function createAppControl(options: Options) {
   const { hostId, pi, projects, sessions, collaboration, goals } = options
-  const store = new ControlStore(options.root, hostId)
+  const paths = options.controlPaths ?? createControlStorePaths(path.join(options.root, 'state/control'))
+  const store = new ControlStore(paths, hostId)
   await store.init()
   const runtime = new Map<string, ClientView>()
   const rootAgents = new Map<string, string>()
@@ -126,23 +129,33 @@ export async function createAppControl(options: Options) {
         name: registered.name,
         unavailable: registered.unavailable,
       }
-      store.state.projects.push(project)
-      await store.save()
+      await store.saveProject(project)
     }
     return project
   }
   const sync = async (session: AppSession, view: ClientView, persist = true) => {
     const context = pi.readSessionBinding(view.sessionKey!)
-    session.sessionFile = context.sessionFile ?? session.sessionFile
-    session.configuration = {
+    const nextFile = context.sessionFile ?? session.sessionFile
+    const nextConfig = {
       ...session.configuration,
       model: context.state.model,
       thinkingLevel: context.state.thinkingLevel,
       accessMode: context.accessMode,
       mode: context.state.mode,
     }
-    session.name = context.state.sessionName ?? session.name
-    if (persist) await store.save()
+    const nextName = context.state.sessionName ?? session.name
+    const changed =
+      session.sessionFile !== nextFile ||
+      session.name !== nextName ||
+      session.configuration.model?.provider !== nextConfig.model?.provider ||
+      session.configuration.model?.id !== nextConfig.model?.id ||
+      session.configuration.thinkingLevel !== nextConfig.thinkingLevel ||
+      session.configuration.accessMode !== nextConfig.accessMode ||
+      session.configuration.mode !== nextConfig.mode
+    session.sessionFile = nextFile
+    session.configuration = nextConfig
+    session.name = nextName
+    if (persist && changed) await store.saveSession(session)
   }
   const busy = (key: string) => Boolean(pi.getRuntimeSessions().find((item) => item.id === key)?.running)
   const configure = async (session: AppSession, view: ClientView, config: SessionConfiguration, restore = false) => {
@@ -249,7 +262,10 @@ export async function createAppControl(options: Options) {
     ]
     for (const registered of await projects.list(summaries.map((item) => item.cwd))) {
       const project = await projectFor(registered.cwd)
-      if (project) Object.assign(project, { name: registered.name, unavailable: registered.unavailable })
+      if (project && (project.name !== registered.name || project.unavailable !== registered.unavailable)) {
+        Object.assign(project, { name: registered.name, unavailable: registered.unavailable })
+        await store.saveProject(project)
+      }
     }
     for (const summary of summaries) {
       let session = store.state.sessions.find(
@@ -273,10 +289,13 @@ export async function createAppControl(options: Options) {
             status: summary.running ? 'running' : 'idle',
           }
           if (!summary.path.startsWith('runtime:')) session.sessionFile = summary.path
-          store.state.sessions.push(session)
+          await store.saveSession(session)
         }
       }
-      if (!summary.path.startsWith('runtime:')) session.sessionFile = summary.path
+      if (!summary.path.startsWith('runtime:') && session.sessionFile !== summary.path) {
+        session.sessionFile = summary.path
+        await store.saveSession(session)
+      }
       if (!runtime.has(session.sessionId)) {
         try {
           pi.getSessionContext(summary.id)
@@ -288,29 +307,38 @@ export async function createAppControl(options: Options) {
           /* 历史会话按首次请求恢复。 */
         }
       }
-      if (summary.running) session.status = 'running'
+      if (summary.running && session.status !== 'running') {
+        session.status = 'running'
+        await store.saveSession(session)
+      }
     }
     for (const session of store.state.sessions) {
       const view = runtime.get(session.sessionId)
       if (!view) continue
       try {
-        await sync(session, view, false)
+        await sync(session, view, true)
       } catch {
         runtime.delete(session.sessionId)
         continue
       }
+      const prevStatus = session.status
       if (busy(view.sessionKey!)) session.status = 'running'
       else if (session.status === 'running' && !active.has(session.sessionId)) session.status = 'idle'
+      if (session.status !== prevStatus) {
+        await store.saveSession(session)
+      }
     }
-    await store.save()
   }
   function publishReceipt(session: AppSession, receipt: SubmissionReceipt) {
-    return store.publish({
-      type: 'submission',
-      sessionId: session.sessionId,
-      projectId: session.project?.projectId,
-      value: receipt,
-    })
+    return store.publish(
+      {
+        type: 'submission',
+        sessionId: session.sessionId,
+        projectId: session.project?.projectId,
+        value: receipt,
+      },
+      session,
+    )
   }
   const publishSession = (session: AppSession) =>
     store.publish({
@@ -561,8 +589,10 @@ export async function createAppControl(options: Options) {
           const registered = await projects.register(input.cwd)
           if (input.name) await projects.renameProject(registered.cwd, input.name)
           const project = (await projectFor(registered.cwd))!
-          if (input.name) project.name = input.name
-          await store.save()
+          if (input.name && project.name !== input.name) {
+            project.name = input.name
+            await store.saveProject(project)
+          }
           return project
         }),
     },
@@ -583,8 +613,7 @@ export async function createAppControl(options: Options) {
             },
             status: 'idle',
           }
-          store.state.sessions.push(session)
-          await store.save()
+          await store.saveSession(session)
           await resolveSession(session, false)
           await publishSession(session)
           return session
@@ -776,7 +805,7 @@ export async function createAppControl(options: Options) {
             if (receipt.status !== 'queued') throw new Error('只能撤销排队提交；已投递的任务请停止会话')
             queues.set(
               receipt.session.sessionId,
-              (queues.get(receipt.session.sessionId) ?? []).filter((item) => item.receipt !== receipt),
+              (queues.get(receipt.session.sessionId) ?? []).filter((item) => item.receipt.operationId !== id),
             )
             receipt.status = 'cancelled'
             await publishReceipt(getSession(receipt.session), receipt)
@@ -1210,7 +1239,7 @@ export async function createAppControl(options: Options) {
             configuration: { agentPlugins: await options.defaultAgentPlugins.getDefaultAgentPlugins() },
             status: busy(key) ? 'running' : 'idle',
           }
-          store.state.sessions.push(session)
+          await store.saveSession(session)
         }
         const view = pi.createClientView()
         view.clientId = `control:${session.sessionId}`
@@ -1233,6 +1262,69 @@ export async function createAppControl(options: Options) {
     publishLive: store.publishLive.bind(store),
     subscribe: store.subscribe.bind(store),
     store,
+    async lookupSessionIds(paths: string[], keys: string[]): Promise<Record<string, string>> {
+      const result: Record<string, string> = {}
+      for (const session of store.state.sessions) {
+        if (session.sessionFile && paths.includes(session.sessionFile)) {
+          result[session.sessionFile] = session.sessionId
+        }
+        const runtimeView = runtime.get(session.sessionId)
+        if (runtimeView?.sessionKey && keys.includes(runtimeView.sessionKey)) {
+          result[runtimeView.sessionKey] = session.sessionId
+        }
+      }
+      return result
+    },
+    async deleteSessions(result: {
+      deletedPaths: string[]
+      deletedKeys: string[]
+      deletedSessionIds?: string[]
+    }): Promise<{ deletedSessionIds: string[] }> {
+      const deletedPaths = new Set(result.deletedPaths)
+      const deletedKeys = new Set(result.deletedKeys)
+      const deletedSessionIdsInput = new Set(result.deletedSessionIds ?? [])
+      const targetSessions = store.state.sessions.filter(
+        (item) =>
+          deletedSessionIdsInput.has(item.sessionId) ||
+          (item.sessionFile && deletedPaths.has(item.sessionFile)) ||
+          (runtime.has(item.sessionId) && deletedKeys.has(runtime.get(item.sessionId)!.sessionKey!)),
+      )
+
+      const deletedSessionIds: string[] = []
+      for (const session of targetSessions) {
+        deletedSessionIds.push(session.sessionId)
+        // 1. 终结排队提交，发布 cancelled 回执
+        const queue = queues.get(session.sessionId)
+        if (queue) {
+          for (const pending of queue) {
+            pending.receipt.status = 'cancelled'
+            await publishReceipt(session, pending.receipt)
+          }
+          queues.delete(session.sessionId)
+        }
+        // 2. 终结活跃提交
+        const run = active.get(session.sessionId)
+        if (run) {
+          run.cancelled = true
+          for (const receipt of run.receipts) {
+            if (['accepted', 'queued', 'running'].includes(receipt.status)) {
+              receipt.status = 'cancelled'
+              await publishReceipt(session, receipt)
+            }
+          }
+        }
+        // 3. 从 store 逻辑删除 session，追加 session_delete 日志并移出 sessions
+        await store.deleteSession(session.sessionId)
+        // 4. 释放 runtime view
+        const view = runtime.get(session.sessionId)
+        if (view) {
+          runtime.delete(session.sessionId)
+          pi.releaseClientView(view)
+        }
+      }
+
+      return { deletedSessionIds }
+    },
     prepareMaintenance() {
       store.assertIdle()
       if (active.size || locks.size || jobs.size || restores.size || [...queues.values()].some((queue) => queue.length))

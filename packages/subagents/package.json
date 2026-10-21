@@ -8,7 +8,8 @@
     "./server/entry": "./src/server/entry.ts",
     "./agent/entry": "./src/agent/entry.ts",
     "./ui/subagents-settings": "./src/ui/subagents-settings.tsx",
-    "./server/coordinator": "./src/server/coordinator.ts"
+    "./server/coordinator": "./src/server/coordinator.ts",
+    "./server/collaboration-store": "./src/server/collaboration-store.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit"

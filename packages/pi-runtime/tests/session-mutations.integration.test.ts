@@ -145,3 +145,45 @@ test('项目删除期间锁定目标目录，其他项目继续运行，部分�
     await delay(100)
   }
 })
+
+test('AgentAccessStore 支持删除前捕获 canonical key并在删除后幂等清理，部分删除保留未影响项', async () => {
+  const storeFile = path.join(root, 'access-cleanup-test.json')
+  const store = new AgentAccessStore(storeFile)
+  const dir = path.join(root, 'temp-sessions')
+  await mkdir(dir, { recursive: true })
+  const file1 = path.join(dir, 'session1.jsonl')
+  const file2 = path.join(dir, 'session2.jsonl')
+  const { writeFile } = await import('node:fs/promises')
+  await writeFile(file1, '{"type":"session"}\n')
+  await writeFile(file2, '{"type":"session"}\n')
+
+  await store.set(file1, 'full-access')
+  await store.set(file2, 'read-only')
+  assert.equal(await store.get(file1), 'full-access')
+  assert.equal(await store.get(file2), 'read-only')
+
+  // 1. 删除前捕获 canonicalKey
+  const canonical1 = await store.canonicalKey(file1)
+  const _canonical2 = await store.canonicalKey(file2)
+  assert.ok(canonical1.endsWith('session1.jsonl'))
+
+  // 2. 模拟文件与目录已被物理删除
+  await rm(file1, { force: true })
+
+  // 3. 即使物理文件已不存在，使用捕获的 canonical key 也能准确清理
+  const deleted = await store.remove([canonical1])
+  assert.deepEqual(deleted, [canonical1])
+
+  // 验证 session1 回退默认，session2 权限仍完整保留
+  assert.equal(await store.get(file1), 'workspace-write')
+  assert.equal(await store.get(file2), 'read-only')
+
+  // 重复清理幂等
+  const secondDeleted = await store.remove([canonical1])
+  assert.deepEqual(secondDeleted, [])
+
+  // 重新加载验证持久化文件内容正确
+  const reloaded = new AgentAccessStore(storeFile)
+  assert.equal(await reloaded.get(file1), 'workspace-write')
+  assert.equal(await reloaded.get(file2), 'read-only')
+})

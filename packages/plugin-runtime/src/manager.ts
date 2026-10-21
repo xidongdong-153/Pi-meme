@@ -51,6 +51,7 @@ export type PluginLease = {
 export type PluginManagerOptions = {
   directory: string
   dataDirectory: string
+  stateFile: string
   hostApi?: HostApi
   hostApiForPlugin?: (id: string) => HostApi
   disposePluginHost?: (id: string) => Promise<void>
@@ -668,12 +669,12 @@ export class PluginManager {
     if (this.stateFailure) throw this.stateFailure
     if (this.stateLoaded && !force) return
     try {
-      const state = await readInstalledState(this.options.directory)
+      const state = await readInstalledState(this.options.stateFile)
       this.generation = Math.max(this.generation, state.generationHighWaterMark)
       this.records = new Map(state.records.map((item) => [item.id, item]))
       this.stateLoaded = true
     } catch (cause) {
-      this.stateFailure = new Error(`插件清单读取失败；保留 installed.json，本次不加载外部插件：${String(cause)}`)
+      this.stateFailure = new Error(`插件清单读取失败；保留清单文件，本次不加载外部插件：${String(cause)}`)
       this.restoreDiagnostics.push({ message: this.stateFailure.message })
       throw this.stateFailure
     }
@@ -690,7 +691,7 @@ export class PluginManager {
     const first = this.generation + 1
     this.generation += count
     try {
-      await writeInstalledState(this.options.directory, installedState(this.generation, [...this.records.values()]))
+      await writeInstalledState(this.options.stateFile, installedState(this.generation, [...this.records.values()]))
     } catch (cause) {
       if (this.restoring) {
         this.stateFailure = new Error(`插件代次预留失败；本次不加载外部插件，后续变更未接纳：${String(cause)}`)
@@ -715,7 +716,7 @@ export class PluginManager {
         policyHash: item.policyHash,
         grant: item.grant,
       })
-    await writeInstalledState(this.options.directory, installedState(this.generation, [...records.values()]))
+    await writeInstalledState(this.options.stateFile, installedState(this.generation, [...records.values()]))
     this.records = records
   }
 
@@ -1237,7 +1238,7 @@ export class PluginManager {
     try {
       await this.publish(async () => {
         if (this.stateFailure) throw this.stateFailure
-        await writeInstalledState(this.options.directory, installedState(this.generation, [...this.records.values()]))
+        await writeInstalledState(this.options.stateFile, installedState(this.generation, [...this.records.values()]))
       })
     } catch (cause) {
       if (!this.stateFailure) {

@@ -9,8 +9,17 @@ import type { CollaborationRequest, AgentSummary } from '@pi-meme/contracts/coll
 import type { TaskMode } from '@pi-meme/contracts/plan'
 import { thinkingLevels, type PiModel } from '@pi-meme/contracts/pi'
 import type { SdkSession } from '@pi-meme/pi-runtime/sdk/session'
+import { loadCollaborationPartitions, type PersistedAgentRecord } from '../src/server/collaboration-store'
 
 type Notify = ConstructorParameters<typeof SdkSession>[1]
+
+export async function readSavedRecords(directory: string): Promise<PersistedAgentRecord[]> {
+  const { roots } = await loadCollaborationPartitions(
+    path.join(directory, 'state', 'collaboration', 'roots'),
+    path.join(directory, 'state', 'collaboration', 'plans.json'),
+  )
+  return [...roots.values()].flatMap((partition) => partition.records)
+}
 
 function fakeSession(
   cwd: string,
@@ -216,6 +225,10 @@ async function setup(assertCheckoutAvailable?: (cwd: string) => void) {
   }
   return {
     directory,
+    plansDataDir: path.join(directory, 'data', 'plans'),
+    plansIndexFile: path.join(directory, 'state', 'collaboration', 'plans.json'),
+    rootsDir: path.join(directory, 'state', 'collaboration', 'roots'),
+    savedRecords: () => readSavedRecords(directory),
     bridge,
     children,
     events,

@@ -33,7 +33,7 @@ test('计划运行中关闭下一轮模式不提升child权限；计划落盘ACK
       new AbortController().signal,
     )
     assert.equal(
-      await readFile(path.join(context.directory, 'plans', document.sessionId, `${document.id}.md`), 'utf8'),
+      await readFile(path.join(context.plansDataDir, document.sessionId, `${document.id}.md`), 'utf8'),
       document.markdown,
     )
     const next = await context.bridge.savePlan(
@@ -105,7 +105,7 @@ test('根会话重绑定和 Host 重启时保留计划身份，不把同目录�
       otherSession.session.getActiveSession().sessionId,
     )
     assert.equal(
-      await readFile(path.join(context.directory, 'plans', document.sessionId, `${document.id}.md`), 'utf8'),
+      await readFile(path.join(context.plansDataDir, document.sessionId, `${document.id}.md`), 'utf8'),
       document.markdown,
     )
   } finally {
@@ -118,8 +118,8 @@ test('文档目录无法写入时反馈失败，不发saved，不产生虚假sna
   const context = await setup()
   try {
     await context.begin('plan')
-    await mkdir(context.directory, { recursive: true })
-    await writeFile(path.join(context.directory, 'plans'), '占用目录')
+    await mkdir(path.dirname(context.plansDataDir), { recursive: true })
+    await writeFile(context.plansDataDir, '占用目录')
     await assert.rejects(
       context.bridge.savePlan(
         context.root.session,
@@ -144,22 +144,23 @@ test('计划metadata保存失败恢复原文档revision，删除未确认新文�
       { title: '第一版', markdown: '# 第一版' },
       new AbortController().signal,
     )
-    const plansDirectory = path.join(context.directory, 'plans', first.sessionId)
-    await rm(path.join(context.directory, 'collaboration.json'))
-    await mkdir(path.join(context.directory, 'collaboration.json'))
+    const plansDirectory = path.join(context.plansDataDir, first.sessionId)
+    await mkdir(path.dirname(context.plansIndexFile), { recursive: true })
+    await rm(context.plansIndexFile, { force: true })
+    await mkdir(context.plansIndexFile)
     await assert.rejects(
       context.bridge.savePlan(
         context.root.session,
         { title: '第二版', markdown: '# 第二版' },
         new AbortController().signal,
       ),
-      /EISDIR|ENOTEMPTY/,
+      /EISDIR|ENOTEMPTY|EEXIST/,
     )
     assert.equal(await readFile(path.join(plansDirectory, `${first.id}.md`), 'utf8'), '# 第一版')
     const { readdir } = await import('node:fs/promises')
     assert.deepEqual(await readdir(plansDirectory), [`${first.id}.md`])
     assert.equal((await context.bridge.snapshot('root-key')).planDocuments[0]!.revision, 1)
-    await rm(path.join(context.directory, 'collaboration.json'), { recursive: true })
+    await rm(context.plansIndexFile, { recursive: true, force: true })
     await context.begin('plan')
   } finally {
     await context.cleanup()
@@ -177,7 +178,8 @@ test('计划写盘期间取消清理tmp，不改变已确认revision', async () 
     )
     const controller = new AbortController()
     const { watch } = await import('node:fs')
-    const plansDirectory = path.join(context.directory, 'plans', first.sessionId)
+    const plansDirectory = path.join(context.plansDataDir, first.sessionId)
+    await mkdir(plansDirectory, { recursive: true })
     const watcher = watch(plansDirectory, (_event, filename) => {
       if (filename?.endsWith('.tmp')) controller.abort()
     })
@@ -246,7 +248,7 @@ test('Host停止等待计划写入和回滚完成，停止ACK后不再产生文�
   try {
     await context.begin('plan')
     const sessionId = context.root.session.getActiveSession().sessionId!
-    const directory = path.join(context.directory, 'plans', sessionId)
+    const directory = path.join(context.plansDataDir, sessionId)
     await mkdir(directory, { recursive: true })
     const { watch } = await import('node:fs')
     let stopped!: Promise<void>

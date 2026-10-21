@@ -13,11 +13,11 @@ import { requestText } from '../../../tests/fixtures/fake-provider.mjs'
 
 async function fixture() {
   const root = await mkdtemp(path.join(tmpdir(), 'pi-instructions-'))
-  const agentDir = path.join(root, 'data', 'pi')
+  const agentDir = path.join(root, 'config', 'agent')
   const project = path.join(root, 'project')
   await mkdir(agentDir, { recursive: true })
   await mkdir(path.join(project, '.pi'), { recursive: true })
-  return { root, agentDir, project, store: new InstructionsStore(agentDir) }
+  return { root, agentDir, project, store: new InstructionsStore(root) }
 }
 
 test('指令快照与原生 AGENTS override、项目系统指令覆盖一致，不扫描祖先目录', async () => {
@@ -188,10 +188,10 @@ test('真实 Pi 会话保存指令后使用新正文，保留身份、历史、�
     agent.runtimePaths,
     agent.credentials,
   )
-  const store = new InstructionsStore(agent.agentDir)
+  const store = new InstructionsStore(agent.dataRoot)
   const handlers = createSettingsHandlers({
     pi: pool,
-    settings: new SettingsStore(path.dirname(agent.agentDir)),
+    settings: new SettingsStore(agent.dataRoot),
     instructions: store,
   })
   try {
@@ -257,5 +257,19 @@ test('真实 Pi 会话保存指令后使用新正文，保留身份、历史、�
     await pool.stopAndWait()
     await agent.dispose()
     await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('Host 配置目录 config 为符号链接时拒绝执行，防止绕过 Host 边界', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'pi-instructions-symlink-'))
+  const outside = await mkdtemp(path.join(tmpdir(), 'pi-instructions-outside-'))
+  try {
+    const configLink = path.join(root, 'config')
+    await symlink(outside, configLink, 'dir')
+    const store = new InstructionsStore(root)
+    await assert.rejects(store.snapshot(root), /Host 配置目录不能是符号链接/)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+    await rm(outside, { recursive: true, force: true })
   }
 })

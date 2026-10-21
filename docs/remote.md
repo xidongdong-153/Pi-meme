@@ -74,7 +74,7 @@ PI_MEME_TOKEN=replace-with-your-access-token \
 | `PI_MEME_DATA_ROOT`                    | Host                          | 数据根目录，构建 App、构建后的 Server 和独立包默认 `~/.pi-meme`；Desktop 与 Server 开发入口默认 `~/.pi-meme-dev`                      |
 | `PI_MEME_HOST`                         | 独立 Server                   | 监听地址，默认 `127.0.0.1`                                                                                                            |
 | `PI_MEME_PORT`                         | Desktop、Server、Web 开发代理 | 构建 App、构建后的 Server 和独立包默认 `31415`；Desktop、Server 开发入口及 Web 开发代理默认 `31416`；`0` 用于隔离测试，不参与自动复用 |
-| `PI_MEME_TOKEN`                        | 独立 Server                   | 登录令牌；未设置时读取 `auth.json`，首次生成                                                                                          |
+| `PI_MEME_TOKEN`                        | 独立 Server                   | 登录令牌；未设置时读取 `credentials/auth.json`，首次生成（数据布局详见 [数据目录与存储](storage.md)）                                 |
 | `PI_MEME_WEB_ROOT`                     | 独立 Server                   | 页面目录，默认应用相邻的 `apps/web/dist`                                                                                              |
 | `PI_MEME_TLS_CERT` / `PI_MEME_TLS_KEY` | 独立 Server                   | HTTPS 证书与私钥文件路径，必须同时提供                                                                                                |
 | `PI_MEME_HOST_URL`                     | 独立 Web 开发服务器           | `/api` 代理目标，优先于 `PI_MEME_PORT`；Forge Renderer 不使用此覆盖                                                                   |
@@ -89,7 +89,6 @@ Server 参数来自 [main.ts](../apps/server/src/main.ts)，开发默认值来�
 本机 Node Host 保存远程地址、Host 身份与令牌，分别维护各上游的内存 Cookie。Renderer 不保存远程令牌或 Cookie；HTTP、事件 WebSocket、控制接口和插件资源经已登记服务代理，页面保留本机 origin。代理不接受任意临时上游 URL、不跟随重定向、不修改远程 CORS。
 
 ```mermaid
-%%{init: {"theme": "dark"}}%%
 sequenceDiagram
   participant UI as 本机界面
   participant Local as 本机 Host
@@ -107,7 +106,7 @@ sequenceDiagram
   Local-->>UI: 更新所属服务快照
 ```
 
-服务断线后保留 `remote-services.json` 中的项目与会话摘要，可在远程页重试。移除服务只删除本机登记、凭据和摘要，不删除远程数据。Remote 目录选择查询远程 Host；上传读取当前电脑文件，插件目录安装则填写远程 Host 路径。实现见 [remote-services.ts](../packages/host/src/remote-services.ts)。
+服务断线后保留 `cache/remote-services.json` 中的项目与会话摘要，可在远程页重试。移除服务只删除本机登记、凭据和摘要，不删除远程数据。Remote 目录选择查询远程 Host；上传读取当前电脑文件，插件目录安装则填写远程 Host 路径。实现见 [remote-services.ts](../packages/host/src/remote-services.ts)。
 
 ## 认证与连接恢复
 

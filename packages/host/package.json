@@ -14,6 +14,9 @@
     "./storage/files": "./src/storage/files.ts",
     "./storage/cache": "./src/storage/cache.ts",
     "./storage/migrate": "./src/storage/migrate.ts",
+    "./storage/paths": "./src/storage/paths.ts",
+    "./storage/upgrade": "./src/storage/upgrade.ts",
+    "./storage/cleanup-temporary-files": "./src/storage/cleanup-temporary-files.ts",
     "./runtime-extensions": "./src/runtime-extensions.ts"
   },
   "scripts": {

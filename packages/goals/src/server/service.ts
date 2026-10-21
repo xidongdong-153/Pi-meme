@@ -17,12 +17,13 @@ type Report = Pick<GoalUpdate, 'progress' | 'blockerKey'>
 type Cycle = { id: string; report?: Report; activity: boolean; settled: boolean }
 type StoredGoal = { goal: Goal; accounted: string[]; cycle?: Cycle; emptyTurns: number; pendingInput?: GoalInput }
 type State = { version: 1; goals: Record<string, StoredGoal> }
-type Options = {
-  root: string
+export type GoalServiceOptions = {
+  file: string
   sessionsDirectory: string
   now?: () => number
   write?: (file: string, data: string) => Promise<void>
 }
+type Options = GoalServiceOptions
 
 async function atomicWrite(file: string, data: string) {
   await mkdir(path.dirname(file), { recursive: true })
@@ -49,6 +50,62 @@ async function atomicWrite(file: string, data: string) {
   }
 }
 
+export function isValidGoalState(value: unknown): value is State {
+  if (!value || typeof value !== 'object') return false
+  const state = value as State
+  return (
+    state.version === 1 &&
+    !!state.goals &&
+    typeof state.goals === 'object' &&
+    !Array.isArray(state.goals) &&
+    Object.entries(state.goals).every(([id, item]) => {
+      if (!item?.goal || !Array.isArray(item.accounted) || item.accounted.some((key) => typeof key !== 'string'))
+        return false
+      const goal = item.goal
+      try {
+        validateGoalInput(goal)
+        if (item.pendingInput) validateGoalInput(item.pendingInput)
+      } catch {
+        return false
+      }
+      return (
+        goal.session?.sessionId === id &&
+        typeof goal.session.hostId === 'string' &&
+        typeof goal.goalId === 'string' &&
+        Number.isSafeInteger(goal.revision) &&
+        goal.revision > 0 &&
+        Number.isSafeInteger(goal.tokensUsed) &&
+        goal.tokensUsed >= 0 &&
+        Number.isSafeInteger(goal.elapsedMs) &&
+        goal.elapsedMs >= 0 &&
+        Number.isSafeInteger(goal.turns) &&
+        goal.turns >= 0 &&
+        typeof goal.usageIncomplete === 'boolean' &&
+        Array.isArray(goal.evidence) &&
+        goal.evidence.every((s) => typeof s === 'string') &&
+        ['active', 'paused', 'blocked', 'usage_limited', 'complete'].includes(goal.status) &&
+        typeof goal.createdAt === 'string' &&
+        typeof goal.updatedAt === 'string' &&
+        Number.isFinite(Date.parse(goal.createdAt)) &&
+        Number.isFinite(Date.parse(goal.updatedAt)) &&
+        (goal.reason === undefined || typeof goal.reason === 'string') &&
+        (goal.progress === undefined || typeof goal.progress === 'string') &&
+        (goal.inputEntryId === undefined || typeof goal.inputEntryId === 'string') &&
+        (!goal.blocker ||
+          (typeof goal.blocker.key === 'string' &&
+            Number.isSafeInteger(goal.blocker.count) &&
+            goal.blocker.count >= 0)) &&
+        Number.isSafeInteger(item.emptyTurns) &&
+        item.emptyTurns >= 0 &&
+        (!item.cycle ||
+          (typeof item.cycle.id === 'string' &&
+            typeof item.cycle.settled === 'boolean' &&
+            typeof item.cycle.activity === 'boolean'))
+      )
+    })
+  )
+}
+
 export class GoalService {
   private state: State = { version: 1, goals: {} }
   private pending: Promise<unknown> = Promise.resolve()
@@ -58,11 +115,13 @@ export class GoalService {
   private storageError?: Error
   private readonly now: () => number
   constructor(private readonly options: Options) {
+    if (!options.file) throw new Error('缺少 goals 存储文件路径')
     this.now = options.now ?? Date.now
   }
   async init() {
     try {
-      const data: unknown = JSON.parse(await readFile(path.join(this.options.root, 'goals.json'), 'utf8'))
+      const contents = await readFile(this.options.file, 'utf8')
+      const data: unknown = JSON.parse(contents)
       this.removeLegacyBudget(data)
       if (!this.validState(data)) throw new Error('目标存储格式损坏或版本不受支持')
       this.state = data
@@ -95,59 +154,7 @@ export class GoalService {
     }
   }
   private validState(value: unknown): value is State {
-    if (!value || typeof value !== 'object') return false
-    const state = value as State
-    return (
-      state.version === 1 &&
-      !!state.goals &&
-      typeof state.goals === 'object' &&
-      !Array.isArray(state.goals) &&
-      Object.entries(state.goals).every(([id, item]) => {
-        if (!item?.goal || !Array.isArray(item.accounted) || item.accounted.some((key) => typeof key !== 'string'))
-          return false
-        const goal = item.goal
-        try {
-          validateGoalInput(goal)
-          if (item.pendingInput) validateGoalInput(item.pendingInput)
-        } catch {
-          return false
-        }
-        return (
-          goal.session?.sessionId === id &&
-          typeof goal.session.hostId === 'string' &&
-          typeof goal.goalId === 'string' &&
-          Number.isSafeInteger(goal.revision) &&
-          goal.revision > 0 &&
-          Number.isSafeInteger(goal.tokensUsed) &&
-          goal.tokensUsed >= 0 &&
-          Number.isSafeInteger(goal.elapsedMs) &&
-          goal.elapsedMs >= 0 &&
-          Number.isSafeInteger(goal.turns) &&
-          goal.turns >= 0 &&
-          typeof goal.usageIncomplete === 'boolean' &&
-          Array.isArray(goal.evidence) &&
-          goal.evidence.every((s) => typeof s === 'string') &&
-          ['active', 'paused', 'blocked', 'usage_limited', 'complete'].includes(goal.status) &&
-          typeof goal.createdAt === 'string' &&
-          typeof goal.updatedAt === 'string' &&
-          Number.isFinite(Date.parse(goal.createdAt)) &&
-          Number.isFinite(Date.parse(goal.updatedAt)) &&
-          (goal.reason === undefined || typeof goal.reason === 'string') &&
-          (goal.progress === undefined || typeof goal.progress === 'string') &&
-          (goal.inputEntryId === undefined || typeof goal.inputEntryId === 'string') &&
-          (!goal.blocker ||
-            (typeof goal.blocker.key === 'string' &&
-              Number.isSafeInteger(goal.blocker.count) &&
-              goal.blocker.count >= 0)) &&
-          Number.isSafeInteger(item.emptyTurns) &&
-          item.emptyTurns >= 0 &&
-          (!item.cycle ||
-            (typeof item.cycle.id === 'string' &&
-              typeof item.cycle.settled === 'boolean' &&
-              typeof item.cycle.activity === 'boolean'))
-        )
-      })
-    )
+    return isValidGoalState(value)
   }
   subscribe(listener: (session: SessionRef, goal: Goal | undefined, goalId: string) => void) {
     this.listeners.add(listener)
@@ -173,10 +180,7 @@ export class GoalService {
         const state = structuredClone(this.state)
         const result = action(state)
         try {
-          await (this.options.write ?? atomicWrite)(
-            path.join(this.options.root, 'goals.json'),
-            `${JSON.stringify(state)}\n`,
-          )
+          await (this.options.write ?? atomicWrite)(this.options.file, `${JSON.stringify(state)}\n`)
         } catch (cause) {
           this.storageError = new Error(`目标保存失败，已停止自动续跑：${String(cause)}`)
           throw this.storageError
@@ -309,6 +313,21 @@ export class GoalService {
       const item = this.item(state, session, expected)
       this.clocks.delete(item.goal.goalId)
       delete state.goals[session.sessionId]
+    })
+  }
+  deleteSessions(sessionIds: string[]): Promise<string[]> {
+    if (!sessionIds.length) return Promise.resolve([])
+    return this.mutate((state) => {
+      const deleted: string[] = []
+      for (const sessionId of sessionIds) {
+        const item = state.goals[sessionId]
+        if (item) {
+          this.clocks.delete(item.goal.goalId)
+          delete state.goals[sessionId]
+          deleted.push(sessionId)
+        }
+      }
+      return deleted
     })
   }
   assertActive(run: GoalRun) {

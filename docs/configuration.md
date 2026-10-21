@@ -34,31 +34,34 @@ paths:
 
 构建 App、构建后的 Server 和 Host 独立包默认使用 `~/.pi-meme` 和端口 `31415`；Desktop 开发版和 `pnpm start:server` 默认使用 `~/.pi-meme-dev` 和 `31416`。Desktop 按 `PI_MEME_DATA_ROOT`、已保存的自定义目录、默认目录依次选择；独立 Server 只读取环境变量或默认目录。[data-root.ts](../packages/host/src/data-root.ts) 将路径解析为绝对路径，用带心跳的 `host.lock` 保证一个 Host 写入。登记远程服务不会关闭本机 Host。Desktop 与 Server 的端口和真实数据目录一致时复用同一个 Host；只有创建方持有写锁和停机权限。运行多套独立 Host 必须同时区分目录和端口。
 
-主要文件如下；子目录按功能使用时创建：
+数据目录自版本 2 起采用规范化分类层级结构（`config/`、`credentials/`、`state/`、`data/`、`resources/`、`plugins/`、`workspaces/`、`cache/`、`logs/`），完整结构、各文件所有者与回收规则见 [数据目录与存储](storage.md)。主要文件简述如下：
 
 ```text
 ~/.pi-meme/
+├── storage.json                    # 布局清单（version: 2）
 ├── host-id                         # 持久 Host 身份
 ├── host.lock                       # 唯一写入锁
-├── auth.json                       # 模型、MCP、Host 与远程连接凭据
-├── settings.json                   # 应用偏好与新会话默认值
-├── projects.json                   # 项目与工作位置登记
-├── remote-services.json            # 本机保存的远程登记与摘要
-├── themes/                         # 用户主题 JSON
-├── skills/                         # Host 用户技能
-├── builtin-resources/skills/        # 随应用安装的内置技能
-├── pi/                             # SDK 设置、模型、MCP、指令与提示词
-├── resources/                      # 资源导入记录、策略与内容快照
-├── sessions/<cwd-hash>/             # Pi 原生 JSONL
-├── workspaces/<cwd-hash>/           # 工作区覆盖配置
-├── standalone-workspaces/<id>/      # 无项目会话的工作目录
-├── worktrees/<id>/                  # 应用创建的 Git Worktree
-├── plugins/                        # 外部插件代码快照与安装记录
-├── plugin-data/                    # 内置模块与插件数据
-├── requests/                       # 内部 RPC 请求记录
-├── control.json                    # 正式目标、幂等操作、回执与关键事件
-├── collaboration.json              # 协作身份、邮箱与计划元数据
-└── plans/<sessionId>/<id>.md        # 计划正文
+├── config/app.json                 # 应用偏好与新会话默认值
+├── config/profile/                 # 用户个人资料与头像
+├── config/agent/                   # SDK 设置、模型、MCP、指令与子代理
+├── config/workspaces/<cwd-hash>/   # 工作区覆盖配置
+├── credentials/auth.json           # 模型、MCP、Host 与远程连接凭据（0600）
+├── state/projects.json             # 项目与工作位置登记
+├── state/goals.json                # 目标状态
+├── state/agent-permissions.json    # 会话权限映射
+├── state/resources.json            # 资源导入记录与策略
+├── state/plugins.json              # 插件清单（版本化 envelope）
+├── state/requests.jsonl            # 内部 RPC 请求追加日志（永久防重放）
+├── state/control/                  # 正式目标、幂等操作、回执与关键事件快照及日志
+├── state/collaboration/            # 协作身份与计划索引（按根分片）
+├── data/sessions/<cwd-hash>/       # Pi 原生 JSONL 会话分支
+├── data/plans/<sessionId>/         # 计划正文
+├── data/attachments/               # 聊天上传附件
+├── resources/                      # 技能、主题、内置资源与历史快照
+├── plugins/                        # 外部插件代码快照与私有数据
+├── workspaces/                     # 真实工作目录（standalone 与 worktree）
+├── cache/                          # 可重建会话索引与远程连接摘要
+└── logs/mcp.log                    # MCP 服务运行日志
 ```
 
 工作区分组使用规范化真实路径的 SHA-256，见 [runtime-paths.ts](../packages/pi-runtime/src/runtime-paths.ts)。项目登记见 [project-store.ts](../packages/workspace/src/server/project-store.ts)，远程摘要见 [remote-services.ts](../packages/host/src/remote-services.ts)。Linux 拒绝把 Host 数据放在识别到的 Windows 驱动器挂载中。
@@ -72,7 +75,6 @@ Electron 固定 `userData` 下的 `storage-location.json` 保存目录定位、�
 Desktop 开发版在申请单实例锁和读取定位文件前，将 `userData` 切换为 `appData/pi-meme-dev`。macOS 路径是 `~/Library/Application Support/pi-meme-dev`；开发版与构建 App 不共享 Electron 缓存、单实例锁或存储定位文件。测试凭据模式继续使用临时数据目录下的 `desktop-cache`。
 
 ```mermaid
-%%{init: {"theme": "dark"}}%%
 flowchart TD
   A["选择空目录并确认"] --> B["检查草稿、文件、本机任务和终端"]
   B --> C["正常关闭 Host 后保存任务并重启"]
@@ -97,22 +99,22 @@ flowchart TD
 
 从“设置 → 常规 → 缓存”刷新占用，再点击“清理缓存”，确认后重启执行。统计失败显示未知占用和错误，不显示为 `0 B`。统计与删除使用相同白名单：
 
-- Host：`sessions-cache.json`、`sessions-cache.json.tmp`、`remote-services.json`、`remote-services.json.tmp`。
+- Host：`cache/sessions.json`、`cache/sessions.json.tmp`、`cache/remote-services.json`、`cache/remote-services.json.tmp`。
 - Electron 固定 `userData`：存在的 `Cache`、`Code Cache`、`GPUCache`、`DawnCache`、`ShaderCache`、`GrShaderCache`、`GraphiteDawnCache`。
 
 缓存包含链接或特殊文件时停止清理并显示路径，不沿链接删除外部文件。会话索引和远程摘要可重新生成；远程连接凭据保留，摘要在重连后重建。缓存可能在重启后立即重新产生。
 
-不会删除会话、计划、工作目录、`auth.json`、技能、插件、整个 Electron profile 或系统临时目录。`resources/snapshots/` 被历史技能使用记录引用，`requests/` 与 `control.json` 承担请求去重及回执语义，均不属于清理白名单。
+不会删除会话、计划、工作目录、`credentials/auth.json`、技能、插件、整个 Electron profile 或系统临时目录。`resources/snapshots/` 被历史技能使用记录引用，`state/requests.jsonl` 与 `state/control/` 承担请求去重及回执语义，均不属于清理白名单。
 
 ## 应用设置与模型
 
-[settings.json](../packages/settings/src/server/store.ts) 保存应用外观、主题、侧栏、新会话默认权限和 `defaultAgentPlugins` 等设置；字段见 [DesktopSettings](../packages/contracts/src/settings.ts)。`pi/settings.json` 是 SDK 设置文件，与应用设置分开。项目 `.pi/settings.json` 可读，SDK 存储适配器不向项目写回，见 [sdk/settings.ts](../packages/pi-runtime/src/sdk/settings.ts)。
+[config/app.json](../packages/settings/src/server/store.ts)（原 `settings.json`）保存应用外观、主题、侧栏、新会话默认权限和 `defaultAgentPlugins` 等设置；字段见 [DesktopSettings](../packages/contracts/src/settings.ts)。`config/agent/settings.json`（原 `pi/settings.json`）是 SDK 设置文件，与应用设置分开。项目 `.pi/settings.json` 可读，SDK 存储适配器不向项目写回，见 [sdk/settings.ts](../packages/pi-runtime/src/sdk/settings.ts)。
 
-“设置 → Agent → 模型”管理 Host 的 `pi/models.json`。非敏感服务商和模型声明保存在此文件，API Key、OAuth 与敏感请求头由凭据存储管理；界面只返回是否已保存密钥等状态。协议与可编辑字段见 [model-config.ts](../packages/contracts/src/model-config.ts)，校验和保存见 [config-store.ts](../packages/models/src/server/config-store.ts)。
+“设置 → Agent → 模型”管理 Host 的 `config/agent/models.json`（原 `pi/models.json`）。非敏感服务商和模型声明保存在此文件，API Key、OAuth 与敏感请求头由凭据存储管理；界面只返回是否已保存密钥等状态。协议与可编辑字段见 [model-config.ts](../packages/contracts/src/model-config.ts)，校验和保存见 [config-store.ts](../packages/models/src/server/config-store.ts)。
 
-同一页可以登录 Pi 自带目录里的服务商，不把这些服务商写进 `models.json`。API Key 和订阅账号都调用 `ModelRuntime.login`，退出调用 `logout`，凭据进入上面的凭据存储。登录或退出后重连 Pi，模型选择器才会出现新的可用模型。会话正在运行时凭据仍会保存，重连失败时页面会提示稍后再点“重新连接”。OpenAI 等登录用的设备标识写在 `pi/device-id`。这里不读取本机环境变量，也不执行 `!command`。实现见 [builtin-auth.ts](../packages/models/src/server/builtin-auth.ts)。
+同一页可以登录 Pi 自带目录里的服务商，不把这些服务商写进 `models.json`。API Key 和订阅账号都调用 `ModelRuntime.login`，退出调用 `logout`，凭据进入上面的凭据存储。登录或退出后重连 Pi，模型选择器才会出现新的可用模型。会话正在运行时凭据仍会保存，重连失败时页面会提示稍后再点“重新连接”。OpenAI 等登录用的设备标识写在 `config/agent/device-id`（原 `pi/device-id`）。这里不读取本机环境变量，也不执行 `!command`。实现见 [builtin-auth.ts](../packages/models/src/server/builtin-auth.ts)。
 
-默认模型和思考强度默认值写入 `pi/settings.json` 的 `defaultProvider`、`defaultModel`、`defaultThinkingLevel`。思考强度为 `off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max` 之一；未设置时 Pi 使用 `medium`。同一文件里的 `modelThinkingLevels` 可按 `provider/modelId` 覆盖该模型的启动强度。二者都不改变已经打开的会话。
+默认模型和思考强度默认值写入 `config/agent/settings.json` 的 `defaultProvider`、`defaultModel`、`defaultThinkingLevel`。思考强度为 `off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max` 之一；未设置时 Pi 使用 `medium`。同一文件里的 `modelThinkingLevels` 可按 `provider/modelId` 覆盖该模型的启动强度。二者都不改变已经打开的会话。
 
 模型配置的主要限制：
 
@@ -123,7 +125,7 @@ flowchart TD
 
 ## MCP 配置与授权
 
-MCP 合并 Host `pi/mcp.json`、项目只读 `.pi/mcp.json` 和 Host 侧 `workspaces/<cwd-hash>/mcp-overrides.json`。界面从“设置 → Agent → MCP”管理服务；项目覆盖不写回项目文件。
+MCP 合并 Host `config/agent/mcp.json`（原 `pi/mcp.json`）、项目只读 `.pi/mcp.json` 和 Host 侧 `config/workspaces/<cwd-hash>/mcp-overrides.json`。界面从“设置 → Agent → MCP”管理服务；项目覆盖不写回项目文件。
 
 逐服务启停与明确授权分开校验，授权绑定配置摘要；外部修改配置后旧授权不能继续使用。旧 `mcpEnabled: false` 保留不连接未重新授权服务的选择，升级不会自动连接。MCP 只在完全权限的普通任务中装配，规划模式不运行 MCP。
 
@@ -131,19 +133,19 @@ MCP 合并 Host `pi/mcp.json`、项目只读 `.pi/mcp.json` 和 Host 侧 `worksp
 
 ## 指令、资源与主题
 
-Host 指令在 `pi/AGENTS.md`、`pi/SYSTEM.md`、`pi/APPEND_SYSTEM.md`；当前项目分别读取根目录 AGENTS 文件和 `.pi/SYSTEM.md`、`.pi/APPEND_SYSTEM.md`。同目录存在 `AGENTS.override.md` 时优先于 `AGENTS.md`，不会向祖先目录扫描或读取其他命名。
+Host 指令在 `config/agent/AGENTS.md`、`config/agent/SYSTEM.md`、`config/agent/APPEND_SYSTEM.md`（原 `pi/` 目录）；当前项目分别读取根目录 AGENTS 文件和 `.pi/SYSTEM.md`、`.pi/APPEND_SYSTEM.md`。同目录存在 `AGENTS.override.md` 时优先于 `AGENTS.md`，不会向祖先目录扫描或读取其他命名。
 
 界面从“设置 → Agent → 指令”编辑。用户分组对应 AGENTS，系统分组对应 `SYSTEM.md` 与 `APPEND_SYSTEM.md`。Host 和项目 AGENTS 可组合，项目 SYSTEM/APPEND_SYSTEM 存在时使用项目项。管理页只保存 Host 指令，携带读取修订；项目指令只读。具体优先级与写入边界见 [context-files.ts](../packages/pi-runtime/src/sdk/context-files.ts) 和 [instructions.ts](../packages/settings/src/server/instructions.ts)。
 
-技能来源包括内置技能、Host `skills/`、项目 `.agents/skills/` 和 App 附带技能。项目资源只读，导入、修订、优先级和策略见 [技能与资源](skills-and-extensions.md)。不装配裸 Pi 扩展或原生 Pi 包，不读取本机 Pi CLI、Codex、Claude、Gemini 的全局资源配置。
+技能来源包括内置技能（`resources/builtin/skills/`）、Host 用户技能（`resources/skills/`）、项目 `.agents/skills/` 和 App 附带技能。项目资源只读，导入、修订、优先级和策略见 [技能与资源](skills-and-extensions.md)。不装配裸 Pi 扩展或原生 Pi 包，不读取本机 Pi CLI、Codex、Claude、Gemini 的全局资源配置。
 
-用户主题保存在 `themes/`，App 主题由插件的 `resources.themes/assets` 分发。主题保持 JSON，背景图来自包内素材，不执行 JavaScript 或任意 CSS；字段和范围见 [结构化主题](plugins.md#结构化主题)。
+用户主题保存在 `resources/themes/`，App 主题由插件的 `resources.themes/assets` 分发。主题保持 JSON，背景图来自包内素材，不执行 JavaScript 或任意 CSS；字段和范围见 [结构化主题](plugins.md#结构化主题)。
 
 进入外观页后，三个字体选择器共用后台读取的 Host 字体列表，不等待展开菜单才读取。macOS 通过系统自带的 `osascript` 调用 AppKit，读取中文字体族名、可用样式和等宽属性，不下载或传输字体文件；代码字体优先显示等宽字体。列表由 Host 进程内存缓存，读取失败可重试；安装或移除字体后需重启 Host 更新列表。其他系统保持默认字体选项；枚举结果不包含已保存的字体时，不会改写配置。实现见 [fonts.ts](../packages/settings/src/server/fonts.ts) 与 [theme-settings.tsx](../packages/settings/src/ui/theme-settings.tsx)。
 
 ## 凭据
 
-[FileCredentialStore](../packages/pi-adapter/src/file-credentials.ts) 保存根目录 `auth.json`，格式为应用自己的字符串键值对象，权限为 `0600`。Host 串行写入并原子替换；Worker 同步内存副本，Host 落盘后才确认成功。读取、解析或写入失败会明确报错，不覆盖损坏文件。
+[FileCredentialStore](../packages/pi-adapter/src/file-credentials.ts) 保存凭据于 `credentials/auth.json`（原根目录 `auth.json`，详见 [数据目录与存储](storage.md)），格式为应用自己的字符串键值对象，权限为 `0600`。Host 串行写入并原子替换；Worker 同步内存副本，Host 落盘后才确认成功。读取、解析或写入失败会明确报错，不覆盖损坏文件。
 
 启动不读系统钥匙串。旧 macOS 凭据只通过主动导入操作读取，保留已有文件凭据和旧钥匙串条目；实现见 [credentials.ts](../packages/host/src/credentials.ts) 与 [HostSettings](../packages/app-ui/src/settings/host-settings.tsx)。Linux 不提供该导入操作。
 
@@ -206,7 +208,7 @@ SDK 3 将 `agent/server` 分为 `trusted` 与 `restricted`。可信 Server 是 H
 
 有效能力取 manifest 申请、用户 grant、项目可用策略、任务 mode/access 与实际运行边界的交集。安装、启用和会话选择不自动授予能力。工具 `effect/capabilities` 是分派检查，不替代 OS 拒写；同一个可写进程内的 read 标签也不提供逐工具 OS 隔离。
 
-[installed.json 管理](../packages/plugin-runtime/src/manager.ts) 保存 policyHash、grant revision 与可信入口、UI 能力、受限访问、网络、命名共享数据、发送前处理器的授权。代码或申请变化后旧授权不匹配；SDK 2 记录保留为不兼容，不执行旧入口、不删除私有数据。读取损坏文件时保留原文件并报告，不默认扩大授权。
+[state/plugins.json（原 installed.json）管理](../packages/plugin-runtime/src/manager.ts) 保存 policyHash、grant revision 与可信入口、UI 能力、受限访问、网络、命名共享数据、发送前处理器的授权。代码或申请变化后旧授权不匹配；SDK 2 记录保留为不兼容，不执行旧入口、不删除私有数据。读取损坏文件时保留原文件并报告，不默认扩大授权。
 
 受限启动器见 [plugin-sandbox.ts](../packages/host/src/plugin-sandbox.ts)，协议与生命周期见 [restricted-runner.ts](../packages/plugin-runtime/src/restricted-runner.ts)。Linux 使用 bubblewrap 的 user/pid/ipc/net namespace 与 seccomp；工作区按权限只读或可写，环境使用白名单，不继承模型 key、代理、SSH socket 或 Node 注入变量。macOS 使用单独的 deny-by-default profile；Windows 原生不支持，WSL Windows 盘工作区拒绝受限插件。不能把 Host 数据根或其私有目录直接授权为插件工作区，Host 管理的 standalone 精确工作目录除外；路径别名先解析 realpath。平台缺少必要能力时拒绝执行，不降级为无沙箱。macOS 签名后 Node/JIT 与沙箱行为需在真实目标产物单独验收，Linux 检查不能代表 macOS 已通过。
 

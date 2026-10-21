@@ -8,6 +8,7 @@ import { runGit } from '@pi-meme/git/server/git-service'
 import type { Connection, GitEnvironment, GitWorktreeResult, SessionSelectionResult } from '@pi-meme/contracts/desktop'
 import type { PiSessionsSnapshot } from '@pi-meme/contracts/sessions'
 import { HostCollaborationBridge } from '@pi-meme/subagents/server/coordinator'
+import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 import { createHost } from '../src/service'
 
 async function fixture() {
@@ -84,6 +85,7 @@ test('Worktree 使用已选提交，不带未提交更改，保存真实 cwd 并
     const environment = await rpc<GitEnvironment>('git:environment', [key], key)
     await writeFile(path.join(repo, 'file.txt'), 'uncommitted\n')
     const result = await rpc<GitWorktreeResult>('git:create-worktree', [key, 'HEAD'], key)
+    assert.ok(result.checkoutRoot.startsWith(path.join(dataRoot, storageLayoutRelativePaths.worktreesDirectory)))
     assert.equal(result.headSha, environment.headSha)
     assert.equal(result.sourceProjectCwd, repo)
     assert.equal(await readFile(path.join(result.cwd, 'file.txt'), 'utf8'), 'initial\n')
@@ -128,7 +130,7 @@ test('Worktree 使用已选提交，不带未提交更改，保存真实 cwd 并
     assert.equal(summary?.sourceProjectCwd, repo)
     const preview = await rpc<{ paths: string[] }>('project:delete-preview', [repo])
     assert.ok(preview.paths.includes(sessionFile))
-    const saved = JSON.parse(await readFile(path.join(dataRoot, 'projects.json'), 'utf8'))
+    const saved = JSON.parse(await readFile(path.join(dataRoot, storageLayoutRelativePaths.projectsFile), 'utf8'))
     assert.equal(saved.version, 1)
     assert.equal(saved.worktrees[0].checkoutRoot, result.checkoutRoot)
     const second = await rpc<GitWorktreeResult>('git:create-worktree', [next, 'refs/heads/main'], next)
@@ -142,7 +144,8 @@ test('Worktree 使用已选提交，不带未提交更改，保存真实 cwd 并
 test('Worktree 来源保存失败不会创建 checkout，创建后选择失败仍返回路径与记录', async () => {
   const { directory, repo, dataRoot, host, rpc, key } = await fixture()
   try {
-    const file = path.join(dataRoot, 'projects.json.tmp')
+    const file = path.join(dataRoot, `${storageLayoutRelativePaths.projectsFile}.tmp`)
+    await mkdir(path.dirname(file), { recursive: true })
     await mkdir(file)
     await assert.rejects(rpc('git:create-worktree', [key, 'refs/heads/main'], key), /EISDIR/)
     assert.equal((await runGit(repo, ['worktree', 'list', '--porcelain'])).stdout.split('worktree ').length, 2)
@@ -154,7 +157,7 @@ test('Worktree 来源保存失败不会创建 checkout，创建后选择失败�
     assert.equal(result.selection.cancelled, true)
     assert.match(result.selectionError!, /已创建.*选择失败/)
     assert.equal(await readFile(path.join(result.cwd, 'file.txt'), 'utf8'), 'initial\n')
-    const saved = JSON.parse(await readFile(path.join(dataRoot, 'projects.json'), 'utf8'))
+    const saved = JSON.parse(await readFile(path.join(dataRoot, storageLayoutRelativePaths.projectsFile), 'utf8'))
     assert.equal(saved.worktrees.length, 1)
     assert.equal((await rpc<Connection>('pi:connection')).sessionKey, key)
   } finally {
@@ -174,7 +177,8 @@ test('Worktree checkout 已创建但 post-checkout 失败时保留目录与来�
     assert.match(result.selectionError!, /目录与来源记录已保留/)
     assert.equal(await readFile(path.join(result.checkoutRoot, 'file.txt'), 'utf8'), 'initial\n')
     assert.equal(
-      JSON.parse(await readFile(path.join(dataRoot, 'projects.json'), 'utf8')).worktrees[0].checkoutRoot,
+      JSON.parse(await readFile(path.join(dataRoot, storageLayoutRelativePaths.projectsFile), 'utf8')).worktrees[0]
+        .checkoutRoot,
       result.checkoutRoot,
     )
     assert.equal((await rpc<Connection>('pi:connection')).sessionKey, key)
@@ -207,7 +211,8 @@ describe('Worktree 创建后补充快照或凭据写入失败仍返回路径，�
         assert.match(result.selectionError!, /目录与来源记录已保留/)
         assert.equal(await readFile(path.join(result.cwd, 'file.txt'), 'utf8'), 'initial\n')
         assert.equal(
-          JSON.parse(await readFile(path.join(dataRoot, 'projects.json'), 'utf8')).worktrees[0].checkoutRoot,
+          JSON.parse(await readFile(path.join(dataRoot, storageLayoutRelativePaths.projectsFile), 'utf8')).worktrees[0]
+            .checkoutRoot,
           result.checkoutRoot,
         )
         storage.flush = flush

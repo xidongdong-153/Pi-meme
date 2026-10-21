@@ -1,9 +1,10 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
 import { createHash } from 'node:crypto'
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, rm, writeFile, mkdir } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 import { RemoteServices } from '../src/remote-services'
 import { ConnectionCredentialStore } from '../src/connection-credentials'
 
@@ -67,7 +68,7 @@ test('同主机不同端口隔离凭据和资源地址，401只重试一次且�
     assert.equal(requests.length, 2)
     assert.equal(requests[0].init.body, requests[1].init.body)
     await services.request(two.id, '/api/rpc', 'POST', body)
-    const cached = await readFile(path.join(root, 'remote-services.json'), 'utf8')
+    const cached = await readFile(path.join(root, storageLayoutRelativePaths.remoteServicesCacheFile), 'utf8')
     assert.ok(!cached.includes('cookie-') && !cached.includes('"token"'))
     await assert.rejects(services.request('unknown', '/api/rpc', 'POST', body), /未登记/)
     await assert.rejects(services.request(one.id, 'https://other.example/api/rpc', 'POST', body), /无效/)
@@ -159,12 +160,14 @@ test('损坏摘要缓存保留原文件并保留已登记服务', async () => {
   const { root, credentials } = await setup()
   try {
     await credentials.save({ url: 'https://remote.example', token: 'token', hostId: 'host' })
-    await writeFile(path.join(root, 'remote-services.json'), 'broken')
+    const cacheFile = path.join(root, storageLayoutRelativePaths.remoteServicesCacheFile)
+    await mkdir(path.dirname(cacheFile), { recursive: true })
+    await writeFile(cacheFile, 'broken')
     const services = new RemoteServices(credentials, root)
     await services.initialize()
     assert.equal(services.list().length, 1)
     assert.match(services.list()[0].error!, /缓存无法读取/)
-    assert.equal(await readFile(path.join(root, 'remote-services.json'), 'utf8'), 'broken')
+    assert.equal(await readFile(cacheFile, 'utf8'), 'broken')
   } finally {
     await rm(root, { recursive: true, force: true })
   }

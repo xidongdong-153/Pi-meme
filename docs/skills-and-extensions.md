@@ -27,16 +27,16 @@ Desktop 和 Web 都通过 Host RPC 管理资源。连接远程 Host 时，所有
 
 ## 目录与类型
 
-Host 数据根默认为 `~/.pi-meme`，可用 `PI_MEME_DATA_ROOT` 修改：
+Host 数据根默认为 `~/.pi-meme`，可用 `PI_MEME_DATA_ROOT` 修改（完整目录布局见 [数据目录与存储](storage.md)）：
 
 ```text
 ~/.pi-meme/
-├── skills/                      # 可编辑的用户技能
-├── builtin-resources/skills/    # 应用内置技能
 ├── resources/
-│   ├── state.json               # 导入记录与 Host 默认策略
+│   ├── skills/                  # 可编辑的用户技能
+│   ├── builtin/skills/          # 应用内置技能
 │   └── snapshots/               # 按内容哈希保存的完整资源修订
-├── workspaces/<cwd-hash>/
+├── state/resources.json         # 导入记录与 Host 默认策略
+├── config/workspaces/<cwd-hash>/
 │   └── resources.json           # 项目覆盖策略
 └── plugins/                     # App 插件代码快照与安装清单
 ```
@@ -52,7 +52,7 @@ Host 数据根默认为 `~/.pi-meme`，可用 `PI_MEME_DATA_ROOT` 修改：
 
 模型配置与 MCP 通过各自设置页管理，文件与授权规则见 [配置与安全](configuration.md)。App Server 由 Host 全局管理，不为每个项目另建实例。
 
-资源扫描、冲突与快照由 [ResourceStore](../packages/resources/src/server/resource-store.ts) 管理。系统技能源码在 [pi/skills](../pi/skills/)，目前包括 [skill-creator](../pi/skills/skill-creator/) 和 [plugin-creator](../pi/skills/plugin-creator/)。Desktop 与 Server 构建携带这些目录，Host 启动复制到 `builtin-resources/skills/`，不改用户技能目录；见 [install-builtin-skills.ts](../packages/resources/src/server/install-builtin-skills.ts)。缺少 Skill Creator 时 Host 拒绝启动。
+资源扫描、冲突与快照由 [ResourceStore](../packages/resources/src/server/resource-store.ts) 管理。系统技能源码在 [pi/skills](../pi/skills/)，目前包括 [skill-creator](../pi/skills/skill-creator/) 和 [plugin-creator](../pi/skills/plugin-creator/)。Desktop 与 Server 构建携带这些目录，Host 启动复制到 `resources/builtin/skills/`，不改用户技能目录；见 [install-builtin-skills.ts](../packages/resources/src/server/install-builtin-skills.ts)。缺少 Skill Creator 时 Host 拒绝启动。
 
 ## 导入与编辑
 
@@ -84,7 +84,7 @@ description: 检查代码修改，列出可复现的问题和对应位置。
 
 ## 默认策略与项目覆盖
 
-Host 默认策略控制资源启停；当前项目可以覆盖启用状态和技能调用方式。项目设置写入 `workspaces/<cwd-hash>/resources.json`，不写项目 `.agents`。App 的项目策略控制当前项目的资源和 UI 可用性；实际 Agent 选择保存在会话 `configuration.agentPlugins`。新会话默认列表在 Host 的 `settings.json.defaultAgentPlugins`，初始为空；修改默认只影响后续会话。运行中拒绝修改会话选择，Host Server 生命周期仍由 App 插件全局启停控制。
+Host 默认策略控制资源启停；当前项目可以覆盖启用状态和技能调用方式。项目设置写入 `config/workspaces/<cwd-hash>/resources.json`，不写项目 `.agents`。App 的项目策略控制当前项目的资源和 UI 可用性；实际 Agent 选择保存在会话 `configuration.agentPlugins`。新会话默认列表在 Host 的 `config/app.json`（原 `settings.json`）的 `defaultAgentPlugins`，初始为空；修改默认只影响后续会话。运行中拒绝修改会话选择，Host Server 生命周期仍由 App 插件全局启停控制。
 
 技能默认允许自动调用；“仅手动调用”保留显式选择入口，但不把技能加入模型自动选择列表。`disable-model-invocation: true` frontmatter 也可设置手动默认值。技能目录中的 `agents/openai.yaml` 支持 `interface.display_name`、`interface.short_description` 和 `policy.allow_implicit_invocation`；后者为 `false` 时默认仅手动，为 `true` 时不会覆盖 frontmatter 的手动限制，Host/项目显式策略优先。无效 YAML 或调用策略会显示诊断并默认仅手动；禁用的技能不进入有效快照。
 
@@ -101,7 +101,6 @@ Pi 使用逐步加载：先把可自动调用技能的名称、描述和路径�
 显式展开见 [skill-prompt.ts](../packages/pi-runtime/src/skill-prompt.ts)，Pi 资源适配见 [resource-loader.ts](../packages/pi-runtime/src/sdk/resource-loader.ts)。正文、描述发现和运行时加载使用 Pi，不读取其他 Agent 配置，也不授予新的权限。
 
 ```mermaid
-%%{init: {"theme": "dark"}}%%
 flowchart TD
   Catalog["有效技能清单"] --> Automatic["自动调用：名称、描述与路径"]
   Automatic --> Read["模型按任务读取 SKILL.md"]

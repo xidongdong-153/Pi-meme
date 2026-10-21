@@ -28,9 +28,9 @@ export function finishAgentReply(body, report, options = {}) {
 
 /** @param {string} userData */
 function createRuntimePaths(userData) {
-  const agentDir = path.join(userData, 'pi')
-  const sessionsDirectory = path.join(userData, 'sessions')
-  const workspaceDataRoot = path.join(userData, 'workspaces')
+  const agentDir = path.join(userData, 'config/agent')
+  const sessionsDirectory = path.join(userData, 'data/sessions')
+  const workspaceDataRoot = path.join(userData, 'config/workspaces')
   /** @param {string} cwd */
   const workspaceKey = (cwd) => {
     let normalized
@@ -44,11 +44,10 @@ function createRuntimePaths(userData) {
   return {
     dataRoot: userData,
     agentDir,
-    skillsDirectory: path.join(userData, 'skills'),
-    builtinSkillsDirectory: path.join(userData, 'builtin-resources', 'skills'),
+    skillsDirectory: path.join(userData, 'resources/skills'),
+    builtinSkillsDirectory: path.join(userData, 'resources/builtin/skills'),
     sessionsDirectory,
     workspaceDataRoot,
-    secureCredentialsFile: path.join(userData, 'secure', 'credentials.bin'),
     workspaceKey,
     /** @param {string} cwd */
     sessionDirectory: (cwd) => path.join(sessionsDirectory, workspaceKey(cwd)),
@@ -77,12 +76,27 @@ function createCredentials() {
  *
  * @param {string} directory 测试用临时根目录
  * @param {{ models?: { id: string; name?: string; reasoning?: boolean; input?: ('text' | 'image')[] }[]; providers?: Record<string, unknown>; reply?: FakeProviderOptions['reply'] }} [options]
- * @returns {Promise<{ agentDir: string; modelsFile: string; runtimePaths: ReturnType<typeof createRuntimePaths>; credentials: ReturnType<typeof createCredentials>; provider: Awaited<ReturnType<typeof startFakeProvider>>; dispose: () => Promise<void> }>}
+ * @returns {Promise<{ agentDir: string; dataRoot: string; modelsFile: string; runtimePaths: ReturnType<typeof createRuntimePaths>; credentials: ReturnType<typeof createCredentials>; provider: Awaited<ReturnType<typeof startFakeProvider>>; dispose: () => Promise<void> }>}
  *   agentDir 供断言使用，dispose 关闭假模型端点。
  */
 export async function useFakeAgent(directory, options = {}) {
   const provider = await startFakeProvider({ reply: options.reply })
-  const runtimePaths = createRuntimePaths(path.join(directory, 'userData'))
+  const userData = path.join(directory, 'userData')
+  await mkdir(userData, { recursive: true, mode: 0o700 })
+  await writeFile(
+    path.join(userData, 'storage.json'),
+    JSON.stringify(
+      {
+        format: 'pi-meme-data',
+        version: 2,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+      },
+      null,
+      2,
+    ),
+  )
+  const runtimePaths = createRuntimePaths(userData)
   const agentDir = runtimePaths.agentDir
   await mkdir(agentDir, { recursive: true })
   const modelsFile = path.join(agentDir, 'models.json')
@@ -113,6 +127,7 @@ export async function useFakeAgent(directory, options = {}) {
   await writeFile(modelsFile, JSON.stringify({ providers }))
   return {
     agentDir,
+    dataRoot: userData,
     modelsFile,
     runtimePaths,
     credentials,

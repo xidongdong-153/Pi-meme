@@ -26,7 +26,7 @@ paths:
 
 ## 稳定目标与接口组
 
-`apiVersion` 固定为 2。`ProjectRef = { hostId, projectId }`，`SessionRef = { hostId, sessionId }`，`WorkspaceRef` 接受二者之一。Host 身份在 `host-id`，项目、会话与操作记录在 `control.json`。
+`apiVersion` 固定为 2。`ProjectRef = { hostId, projectId }`，`SessionRef = { hostId, sessionId }`，`WorkspaceRef` 接受二者之一。Host 身份在 `host-id`，项目、会话与操作记录持久化于 `state/control/`（快照与追加日志；旧版本为单个 `control.json`，详见 [数据目录与存储](storage.md)）。
 
 操作指定目标，不读取或改变客户端的界面选择。会话创建立即持久化身份，首次生成 Pi JSONL 后补充文件绑定；内部 `sessionKey` 不作为公开持久 ID。
 
@@ -97,11 +97,10 @@ SDK 3 的消息数据仍使用 HostApi v2，不增加 HostApi v3。公共类型�
 [ControlStore](../packages/host/src/control-store.ts) 保存请求摘要、操作结果、回执与关键事件，不把终端输入正文存入控制日志。客户端遇到网络不确定时用相同键查询或重试，不为同一外部事件生成新键。该保证不等于工具副作用恰好执行一次。
 
 ```mermaid
-%%{init: {"theme": "dark"}}%%
 sequenceDiagram
   participant C as App 客户端
   participant H as Host
-  participant L as control.json
+  participant L as state/control/
   participant P as Pi Worker
   C->>H: submit：SessionRef、输入、幂等键
   H->>L: 保存操作与提交回执

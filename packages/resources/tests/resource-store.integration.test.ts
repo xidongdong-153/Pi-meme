@@ -15,7 +15,9 @@ async function fixture(t: { onTestFinished: (action: () => Promise<void>) => voi
   await mkdir(cwd, { recursive: true })
   const store = new ResourceStore(root)
   await store.init()
-  return { directory, root, cwd, store }
+  const skillsDirectory = store.skillsDirectory
+  const builtinSkillsDirectory = store.builtinSkillsDirectory
+  return { directory, root, cwd, store, skillsDirectory, builtinSkillsDirectory }
 }
 async function writeSkill(directory: string, name: string, body?: string) {
   await mkdir(directory, { recursive: true })
@@ -23,14 +25,14 @@ async function writeSkill(directory: string, name: string, body?: string) {
 }
 
 test('导入完整技能、发布可维护来源、快照固定正文并复制辅助文件', async (t) => {
-  const { directory, root, cwd, store } = await fixture(t)
+  const { directory, cwd, store, skillsDirectory } = await fixture(t)
   const source = path.join(directory, 'source')
   await writeSkill(source, 'writer')
   await mkdir(path.join(source, 'references'))
   await writeFile(path.join(source, 'references/context.md'), '参考资料')
   const catalog = await store.import({ kind: 'skill', path: source }, cwd)
   const item = catalog.items[0]
-  assert.equal(await readFile(path.join(root, 'skills/writer/references/context.md'), 'utf8'), '参考资料')
+  assert.equal(await readFile(path.join(skillsDirectory, 'writer/references/context.md'), 'utf8'), '参考资料')
   const old = await store.snapshot(cwd)
   const release = store.acquire(old)
   await store.saveSkill({ id: item.id, revision: item.revision, content: skill('writer', '新正文') }, cwd)
@@ -46,10 +48,10 @@ test('导入完整技能、发布可维护来源、快照固定正文并复制�
 })
 
 test('内置保护、项目覆盖、只读项目及项目策略保存在Host工作区', async (t) => {
-  const { root, cwd, store } = await fixture(t)
-  await writeSkill(path.join(root, 'skills/shared'), 'shared')
+  const { cwd, store, skillsDirectory, builtinSkillsDirectory } = await fixture(t)
+  await writeSkill(path.join(skillsDirectory, 'shared'), 'shared')
   await writeSkill(path.join(cwd, '.agents/skills/shared'), 'shared', '项目正文')
-  await writeSkill(path.join(root, 'builtin-resources/skills/creator'), 'creator')
+  await writeSkill(path.join(builtinSkillsDirectory, 'creator'), 'creator')
   await writeSkill(path.join(cwd, '.agents/skills/creator'), 'creator', '项目尝试覆盖')
   const catalog = await store.catalog(cwd)
   const shared = catalog.items.find((entry) => entry.name === 'shared' && entry.scope === 'project')!
@@ -71,9 +73,11 @@ test('内置保护、项目覆盖、只读项目及项目策略保存在Host工�
   await store.setPolicy({ id: shared.id, scope: 'project', cwd, enabled: false })
   assert.equal((await store.snapshot(cwd)).skills.find((entry) => entry.name === 'shared')?.scope, 'host')
   assert.deepEqual(await readdir(path.join(cwd, '.agents')), ['skills'])
-  const workspace = (await readdir(path.join(root, 'workspaces')))[0]
+  const workspace = (await readdir(store.workspacesConfigDirectory))[0]
   assert.match(workspace, /^[a-f\d]{64}$/)
-  const policy = JSON.parse(await readFile(path.join(root, 'workspaces', workspace, 'resources.json'), 'utf8'))
+  const policy = JSON.parse(
+    await readFile(path.join(store.workspacesConfigDirectory, workspace, 'resources.json'), 'utf8'),
+  )
   assert.equal(policy[shared.id].enabled, false)
 })
 
@@ -89,7 +93,7 @@ test('项目无关refresh不会改变有效snapshot身份，manual技能仍可�
 })
 
 test('同来源更新保留身份、同级重复拒绝、删除来源保留旧快照', async (t) => {
-  const { directory, root, cwd, store } = await fixture(t)
+  const { directory, cwd, store, skillsDirectory } = await fixture(t)
   const source = path.join(directory, 'source')
   await writeSkill(source, 'writer')
   const first = (await store.import({ path: source }, cwd)).items[0]
@@ -100,7 +104,7 @@ test('同来源更新保留身份、同级重复拒绝、删除来源保留旧�
   const snapshot = await store.snapshot(cwd)
   await store.remove(second.id)
   assert.equal((await store.catalog()).items.length, 0)
-  assert.deepEqual(await readdir(path.join(root, 'skills')), [])
+  assert.deepEqual(await readdir(skillsDirectory), [])
   assert.equal(await readFile(snapshot.skills[0].path, 'utf8'), skill('writer', '更新'))
 })
 
@@ -161,26 +165,26 @@ test('App资源继承项目策略与代次，项目停用不改变其他项目',
 })
 
 test('Host目录技能编辑和删除，旧快照不受影响', async (t) => {
-  const { root, cwd, store } = await fixture(t)
-  await writeSkill(path.join(root, 'skills/loose'), 'loose')
+  const { cwd, store, skillsDirectory } = await fixture(t)
+  await writeSkill(path.join(skillsDirectory, 'loose'), 'loose')
   const item = (await store.catalog(cwd)).items[0]
   const snapshot = await store.snapshot(cwd)
   await store.saveSkill({ id: item.id, revision: item.revision, content: skill('loose', '编辑正文') }, cwd)
   assert.equal((await store.catalog(cwd)).items[0].id, item.id)
-  assert.equal(await readFile(path.join(root, 'skills/loose/SKILL.md'), 'utf8'), skill('loose', '编辑正文'))
+  assert.equal(await readFile(path.join(skillsDirectory, 'loose/SKILL.md'), 'utf8'), skill('loose', '编辑正文'))
   await store.remove(item.id)
   assert.equal((await store.catalog(cwd)).items.length, 0)
   assert.equal(await readFile(snapshot.skills[0].path, 'utf8'), skill('loose'))
 })
 
 test('单文件导入和无效技能诊断可见，损坏ZIP拒绝', async (t) => {
-  const { directory, root, cwd, store } = await fixture(t)
+  const { directory, cwd, store, skillsDirectory } = await fixture(t)
   const source = path.join(directory, 'single.md')
   await writeFile(source, skill('single'))
   const item = (await store.import({ path: source }, cwd)).items[0]
   assert.equal((await store.readSkill(item.id, cwd)).content, skill('single'))
-  await mkdir(path.join(root, 'skills/invalid'))
-  await writeFile(path.join(root, 'skills/invalid/SKILL.md'), '---\nname: invalid\n---\n缺少说明')
+  await mkdir(path.join(skillsDirectory, 'invalid'))
+  await writeFile(path.join(skillsDirectory, 'invalid/SKILL.md'), '---\nname: invalid\n---\n缺少说明')
   const catalog = await store.catalog(cwd)
   assert.ok(catalog.diagnostics.length > 0)
   await assert.rejects(store.import({ archiveBase64: Buffer.from('不是ZIP').toString('base64') }), /ZIP/)
@@ -200,8 +204,8 @@ test('ZIP上传展开单层目录、校验CRC并保留辅助资源', async (t) =
 })
 
 test('技能嵌套metadata展示字段在目录和readSkill保持一致', async (t) => {
-  const { root, cwd, store } = await fixture(t)
-  const directory = path.join(root, 'builtin-resources/skills/creator')
+  const { cwd, store, builtinSkillsDirectory } = await fixture(t)
+  const directory = path.join(builtinSkillsDirectory, 'creator')
   await mkdir(directory, { recursive: true })
   await writeFile(
     path.join(directory, 'SKILL.md'),
@@ -238,7 +242,7 @@ test('目录分别返回Host与项目策略，reset只清除指定作用域覆�
 })
 
 test('完整本地技能保留脚本执行权限，权限变更产生新修订', async (t) => {
-  const { directory, root, cwd, store } = await fixture(t)
+  const { directory, cwd, store, skillsDirectory } = await fixture(t)
   const source = path.join(directory, 'executable')
   await writeSkill(source, 'executable')
   await mkdir(path.join(source, 'scripts'))
@@ -247,7 +251,7 @@ test('完整本地技能保留脚本执行权限，权限变更产生新修订',
   await chmod(script, 0o751)
   const first = (await store.import({ kind: 'skill', path: source }, cwd)).items[0]
   assert.equal((await stat(path.join(first.baseDir, 'scripts/run.sh'))).mode & 0o777, 0o751)
-  assert.equal((await stat(path.join(root, 'skills/executable/scripts/run.sh'))).mode & 0o777, 0o751)
+  assert.equal((await stat(path.join(skillsDirectory, 'executable/scripts/run.sh'))).mode & 0o777, 0o751)
   await chmod(script, 0o644)
   const second = (await store.import({ kind: 'skill', path: source }, cwd)).items[0]
   assert.notEqual(second.revision, first.revision)
@@ -277,9 +281,9 @@ test('项目路径别名共享资源身份、snapshot与项目策略', async (t)
 })
 
 test('内置技能允许Host和项目启停与manual策略，停用仍保留名称保护', async (t) => {
-  const { root, cwd, store } = await fixture(t)
-  await writeSkill(path.join(root, 'builtin-resources/skills/creator'), 'creator')
-  await writeSkill(path.join(root, 'skills/creator'), 'creator', '外部正文')
+  const { root, cwd, store, skillsDirectory, builtinSkillsDirectory } = await fixture(t)
+  await writeSkill(path.join(builtinSkillsDirectory, 'creator'), 'creator')
+  await writeSkill(path.join(skillsDirectory, 'creator'), 'creator', '外部正文')
   const builtin = (await store.catalog(cwd)).items.find((item) => item.scope === 'builtin')!
   await store.setPolicy({ id: builtin.id, scope: 'host', invocation: 'manual' })
   assert.equal((await store.snapshot(cwd)).skills[0].invocation, 'manual')
@@ -314,8 +318,8 @@ test('内置技能允许Host和项目启停与manual策略，停用仍保留名�
 })
 
 test('不同Host中的同路径技能身份不同但内容修订相同', async (t) => {
-  const { root, cwd } = await fixture(t)
-  await writeSkill(path.join(root, 'skills/shared'), 'shared')
+  const { root, cwd, skillsDirectory } = await fixture(t)
+  await writeSkill(path.join(skillsDirectory, 'shared'), 'shared')
   const first = new ResourceStore(root, { hostId: 'host-first' })
   const second = new ResourceStore(root, { hostId: 'host-second' })
   const left = await first.catalog(cwd)
@@ -355,7 +359,7 @@ test('无附带资源的App项目开关改变snapshot身份并保留禁用项', 
 })
 
 test('Web技能上传显式更新完整辅助文件，身份不变且过期修订拒绝', async (t) => {
-  const { root, cwd, store } = await fixture(t)
+  const { cwd, store, skillsDirectory } = await fixture(t)
   const files = [
     { path: 'SKILL.md', content: skill('web-writer', '首版') },
     { path: 'references/context.md', content: '首版资料' },
@@ -376,9 +380,9 @@ test('Web技能上传显式更新完整辅助文件，身份不变且过期修�
   assert.equal(current.id, first.id)
   assert.equal(current.owner.id, first.owner.id)
   assert.notEqual(current.revision, first.revision)
-  assert.equal(await readFile(path.join(root, 'skills/web-writer/references/context.md'), 'utf8'), '更新资料')
+  assert.equal(await readFile(path.join(skillsDirectory, 'web-writer/references/context.md'), 'utf8'), '更新资料')
   assert.equal(await readFile(path.join(current.baseDir, 'scripts/check.ts'), 'utf8'), 'console.log(1)')
-  await assert.rejects(stat(path.join(root, 'skills/web-writer/references/obsolete.md')), { code: 'ENOENT' })
+  await assert.rejects(stat(path.join(skillsDirectory, 'web-writer/references/obsolete.md')), { code: 'ENOENT' })
   assert.equal(await readFile(path.join(first.baseDir, 'references/obsolete.md'), 'utf8'), '待删除资料')
   await assert.rejects(
     store.import({ kind: 'skill', files, replace: { id: first.id, revision: first.revision } }, cwd),
@@ -389,7 +393,7 @@ test('Web技能上传显式更新完整辅助文件，身份不变且过期修�
 })
 
 test('显式更新拒绝技能改名、类型变化、内置、项目和App资源', async (t) => {
-  const { root, cwd, store } = await fixture(t)
+  const { root, cwd, store, builtinSkillsDirectory } = await fixture(t)
   const first = (await store.import({ content: skill('replace-guard') }, cwd)).items[0]
   await assert.rejects(
     store.import({ content: skill('another-skill'), replace: { id: first.id, revision: first.revision } }, cwd),
@@ -406,7 +410,7 @@ test('显式更新拒绝技能改名、类型变化、内置、项目和App资�
     ),
     /类型无效/,
   )
-  await writeSkill(path.join(root, 'builtin-resources/skills/builtin'), 'builtin')
+  await writeSkill(path.join(builtinSkillsDirectory, 'builtin'), 'builtin')
   await writeSkill(path.join(cwd, '.agents/skills/project'), 'project')
   const catalog = await store.catalog(cwd)
   for (const item of catalog.items.filter((entry) => entry.scope !== 'host'))
@@ -438,8 +442,8 @@ test('ZIP显式更新使用原管理目录并保留完整辅助文件', async (t
 })
 
 test('openai.yaml提供显示与manual默认，显式策略优先且辅助文件改变修订', async (t) => {
-  const { root, cwd, store } = await fixture(t)
-  const directory = path.join(root, 'skills/yaml-skill')
+  const { cwd, store, skillsDirectory } = await fixture(t)
+  const directory = path.join(skillsDirectory, 'yaml-skill')
   await writeSkill(directory, 'yaml-skill')
   await mkdir(path.join(directory, 'agents'))
   const yaml = path.join(directory, 'agents/openai.yaml')
@@ -475,8 +479,8 @@ test('openai.yaml提供显示与manual默认，显式策略优先且辅助文件
 })
 
 test('openai.yaml无效语法与字段给出具体诊断，保留技能并采用manual默认', async (t) => {
-  const { root, cwd, store } = await fixture(t)
-  const directory = path.join(root, 'skills/yaml-invalid')
+  const { cwd, store, skillsDirectory } = await fixture(t)
+  const directory = path.join(skillsDirectory, 'yaml-invalid')
   await writeSkill(directory, 'yaml-invalid')
   await mkdir(path.join(directory, 'agents'))
   const yaml = path.join(directory, 'agents/openai.yaml')
@@ -504,9 +508,9 @@ test('openai.yaml无效语法与字段给出具体诊断，保留技能并采用
 })
 
 test('同一作用域重复技能全部诊断并退出快照，停用重复项后恢复且跨作用域仍覆盖', async (t) => {
-  const { root, cwd, store } = await fixture(t)
-  await writeSkill(path.join(root, 'skills/first'), 'duplicate')
-  await writeSkill(path.join(root, 'skills/second'), 'duplicate')
+  const { cwd, store, skillsDirectory } = await fixture(t)
+  await writeSkill(path.join(skillsDirectory, 'first'), 'duplicate')
+  await writeSkill(path.join(skillsDirectory, 'second'), 'duplicate')
   const catalog = await store.catalog(cwd)
   assert.equal(catalog.items.length, 2)
   assert.ok(

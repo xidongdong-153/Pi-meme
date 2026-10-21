@@ -5,6 +5,7 @@ import path from 'node:path'
 import { linuxSandboxLaunch } from './linux-sandbox'
 import { serviceProcessEnvironment, spawnManagedProcess, type ManagedProcess } from './managed-process'
 import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
+import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 
 export type AccessSandboxOptions = {
   mode: Exclude<AgentAccessMode, 'full-access'>
@@ -227,7 +228,7 @@ class SandboxProcess implements AccessSandboxOperations {
     if (
       this.protectedRoot &&
       pathWithin(this.protectedRoot, current) &&
-      !pathWithin(path.join(this.protectedRoot, 'standalone-workspaces'), this.cwd)
+      !pathWithin(path.join(this.protectedRoot, storageLayoutRelativePaths.standaloneWorkspacesDirectory), this.cwd)
     )
       throw new Error(`当前权限不允许写入 Host 数据路径：${target}`)
     if (!inside(this.cwd) && !inside(this.temporary)) throw new Error(`当前权限不允许写入项目外路径：${target}`)
@@ -272,7 +273,7 @@ export const AccessSandbox = {
     if (
       protectedRoot &&
       pathWithin(protectedRoot, cwd) &&
-      !pathWithin(path.join(protectedRoot, 'standalone-workspaces'), cwd)
+      !pathWithin(path.join(protectedRoot, storageLayoutRelativePaths.standaloneWorkspacesDirectory), cwd)
     )
       throw new Error('请先选择具体项目目录，不能将 Host 数据目录授权为工作区')
     if (protectedRoot && pathWithin(protectedRoot, temporary)) throw new Error('会话临时目录不能位于 Host 数据目录内')

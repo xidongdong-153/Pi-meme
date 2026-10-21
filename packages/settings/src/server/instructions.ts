@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { lstat, mkdir, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
+import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 import { readDesktopAgentContextFile } from '@pi-meme/pi-runtime/sdk/context-files'
 import type {
   InstructionFile,
@@ -75,18 +76,35 @@ export function parseSaveInstruction(value: unknown): SaveInstruction {
 }
 
 export class InstructionsStore {
-  constructor(private readonly agentDir: string) {}
+  private readonly root: string
+  private readonly agentDir: string
+
+  constructor(dataRoot: string) {
+    if (!dataRoot || typeof dataRoot !== 'string') {
+      throw new Error('InstructionsStore 必须提供有效的数据目录 (dataRoot)')
+    }
+    this.root = path.resolve(dataRoot)
+    this.agentDir = path.join(this.root, storageLayoutRelativePaths.agentDirectory)
+  }
 
   private async hostFile(kind: InstructionKind) {
-    const root = path.dirname(this.agentDir)
-    const resolvedRoot = await realpath(root)
+    const resolvedRoot = await realpath(this.root)
+    const configDir = path.join(this.root, 'config')
+    const configStat = await lstat(configDir).catch(() => undefined)
+    if (configStat?.isSymbolicLink()) {
+      throw new Error('Host 配置目录不能是符号链接')
+    }
+    const agentStat = await lstat(this.agentDir).catch(() => undefined)
+    if (agentStat?.isSymbolicLink()) {
+      throw new Error('Host 指令目录不能指向数据目录之外')
+    }
     const agentRoot = await realpath(this.agentDir).catch((cause: NodeJS.ErrnoException) => {
       if (cause.code !== 'ENOENT') throw cause
-      return path.join(resolvedRoot, path.basename(this.agentDir))
+      return this.agentDir
     })
     if (!within(resolvedRoot, agentRoot)) throw new Error('Host 指令目录不能指向数据目录之外')
     const selected = kind === 'agents' ? readDesktopAgentContextFile(this.agentDir) : undefined
-    const file = await readInstruction(root, selected?.path ?? path.join(this.agentDir, filenames[kind]))
+    const file = await readInstruction(this.root, selected?.path ?? path.join(this.agentDir, filenames[kind]))
     if (!within(agentRoot, file.path)) throw new Error(`指令文件超出 Host 指令目录：${file.path}`)
     return file
   }

@@ -123,7 +123,7 @@ tar -xzf pi-meme-host-0.1.0-beta.4-macos-arm64.tar.gz
 
 ### 升级
 
-先退出旧 Host 的管理方，备份数据目录，再替换 Desktop 的 `.app` 或解压新版 Host。数据默认在 `~/.pi-meme`，与安装目录分离；独立 Host 继续使用原来的 `PI_MEME_DATA_ROOT`。不要覆盖或上传备份中的凭据。不承诺数据格式变化后可直接降级。Desktop 与独立 Host 使用相同目录和端口时可能复用旧实例，见[共享 Host](#desktop-与-server-共享-host)。
+先退出旧 Host 的管理方，备份数据目录，再替换 Desktop 的 `.app` 或解压新版 Host。数据默认在 `~/.pi-meme`，与安装目录分离；独立 Host 继续使用原来的 `PI_MEME_DATA_ROOT`。新版 Host 启动时若检测到旧版数据根，会在独占锁下自动就地升级布局并建立备份，规则与异常恢复见 [数据目录与存储](storage.md)。不要覆盖或上传备份中的凭据。不承诺数据格式变化后可直接降级。Desktop 与独立 Host 使用相同目录和端口时可能复用旧实例，见[共享 Host](#desktop-与-server-共享-host)。
 
 ## 源码开发
 

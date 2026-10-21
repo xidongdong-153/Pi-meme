@@ -9,6 +9,7 @@ import type { HostRpcResponse } from '@pi-meme/contracts/host'
 import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
 import type { SessionSelectionResult, Snapshot, WorkspaceDeletionResult } from '@pi-meme/contracts/desktop'
 import type { PiSessionsSnapshot } from '@pi-meme/contracts/sessions'
+import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 import { trustPluginFixture, writeAgentFixture } from './plugin-fixture'
 
 async function setup(fake = false, clientGraceMs?: number) {
@@ -88,7 +89,7 @@ for (const method of ['session:delete', 'project:remove']) {
     const fixture = await setup()
     try {
       const cwd = path.join(fixture.root, 'delete-project')
-      const directory = path.join(fixture.root, 'sessions', 'delete-test')
+      const directory = path.join(fixture.root, storageLayoutRelativePaths.sessionsDataDirectory, 'delete-test')
       const file = path.join(directory, 'saved.jsonl')
       await mkdir(cwd)
       await mkdir(directory, { recursive: true })

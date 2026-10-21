@@ -132,10 +132,9 @@ test('后续任务固定入队时的显式配置，省略时重新继承调用�
     assert.deepEqual(worker.state.model, inherited)
     assert.equal(worker.state.thinkingLevel, 'high')
     context.root.state.thinkingLevel = 'max'
-    const saved = JSON.parse(await readFile(path.join(context.directory, 'collaboration.json'), 'utf8'))
-    const queuedPolicy = saved.records.find(
-      (record: { summary: AgentSummary }) => record.summary.agentId === child.agentId,
-    ).queued[0].policy
+    const records = await context.savedRecords()
+    const targetRecord = records.find((record: { summary: AgentSummary }) => record.summary.agentId === child.agentId)
+    const queuedPolicy = targetRecord!.queued[0]!.policy
     assert.deepEqual(queuedPolicy.model, selected)
     assert.equal(queuedPolicy.thinkingLevel, 'low')
     await worker.finish('首项完成')
@@ -479,8 +478,8 @@ test('等待已返回但工具结果尚未确认时，其他反馈不会把同�
     })
     await context.bridge.resumeRoot('root-key')
     assert.deepEqual(context.root.delivered, [second.messageId])
-    const saved = JSON.parse(await readFile(path.join(context.directory, 'collaboration.json'), 'utf8'))
-    assert.ok(saved.records.every((record: { waitingMessages?: string[] }) => record.waitingMessages === undefined))
+    const records = await context.savedRecords()
+    assert.ok(records.every((record) => (record as Record<string, unknown>).waitingMessages === undefined))
   } finally {
     await context.cleanup()
   }
@@ -817,10 +816,8 @@ test('子结果落盘后立即通知界面，父任务尚未读取时也保留�
     assert.equal(message.runId, child.runId)
     assert.equal(message.status, 'completed')
     assert.equal(context.root.delivered.length, 0)
-    const saved = JSON.parse(await readFile(path.join(context.directory, 'collaboration.json'), 'utf8')) as {
-      records: Array<{ summary: AgentSummary; mailbox: Array<{ id: string; startedAt?: string }> }>
-    }
-    const root = saved.records.find((entry) => entry.summary.depth === 0)!
+    const records = await context.savedRecords()
+    const root = records.find((entry) => entry.summary.depth === 0)!
     assert.equal(root.mailbox.find((entry) => entry.id === message.id)?.startedAt, child.runStartedAt)
     release()
     await context.until(async () => context.root.delivered.length === 1)
@@ -1008,16 +1005,11 @@ test('自动汇总准入失败转failed并保留未读取结果，释放容量�
     await context.bridge.rootSettled('root-key')
     await context.children.get(child.sessionKey)!.finish('结果正文')
     await context.until(async () => {
-      const saved = JSON.parse(await readFile(path.join(context.directory, 'collaboration.json'), 'utf8'))
-      return (
-        saved.records.find((record: { summary: AgentSummary }) => record.summary.depth === 0)?.summary.status ===
-        'failed'
-      )
+      const records = await context.savedRecords()
+      return records.find((record) => record.summary.depth === 0)?.summary.status === 'failed'
     })
-    const persisted = JSON.parse(await readFile(path.join(context.directory, 'collaboration.json'), 'utf8')) as {
-      records: Array<{ summary: AgentSummary; consumed: string[]; mailbox: Array<{ id: string }> }>
-    }
-    const root = persisted.records.find((record) => record.summary.depth === 0)!
+    const persisted = await context.savedRecords()
+    const root = persisted.find((record) => record.summary.depth === 0)!
     assert.ok(!root.consumed.includes(root.mailbox[0]!.id))
     assert.equal(root.summary.status, 'failed')
     context.root.faults.continuation = false
@@ -1078,8 +1070,8 @@ test('新用户任务撤销整树多条旧followup，旧run继续但结果不唤
     )
     assert.deepEqual(fake.prompts, ['子任务'])
     assert.equal(context.root.continuations.length, 0)
-    const stored = JSON.parse(await readFile(path.join(context.directory, 'collaboration.json'), 'utf8'))
-    assert.ok(stored.records.every((record: { queued: unknown[] }) => record.queued.length === 0))
+    const stored = await context.savedRecords()
+    assert.ok(stored.every((record: { queued: unknown[] }) => record.queued.length === 0))
     assert.ok((await context.bridge.snapshot('root-key')).agentMessages.some((message) => message.text === '旧结果'))
     await context.bridge.rootSettled('root-key')
     await context.bridge.waitForIdle()
@@ -1392,13 +1384,13 @@ test('forkall保留模型父上下文但child详情只显示自身任务，follo
       2,
     )
     assert.equal(disconnectedRequests, 0)
-    const file = path.join(directory, 'collaboration.json')
-    const saved = JSON.parse(await readFile(file, 'utf8'))
-    const savedChild = saved.records.find(
+    const partitionFile = path.join(directory, 'state', 'collaboration', 'roots', `${child.rootAgentId}.json`)
+    const partition = JSON.parse(await readFile(partitionFile, 'utf8'))
+    const savedChild = partition.records.find(
       (record: { summary: AgentSummary }) => record.summary.agentId === child.agentId,
     )
     delete savedChild.summary.conversationOrigin
-    await writeFile(file, JSON.stringify(saved))
+    await writeFile(partitionFile, JSON.stringify(partition, null, 2))
     const before = await readFile(child.sessionFile!, 'utf8')
     restored = createHostCollaborationBridge({
       dataRoot: directory,
@@ -1838,9 +1830,9 @@ test('停止暂停树释放门闸并取消待启动任务，暂停状态不持�
     assert.equal(context.children.get(child.sessionKey)!.state.isPaused, false)
     await context.bridge.resumeRoot('root-key')
     assert.equal(context.children.has(queued.sessionKey), false)
-    const saved = JSON.parse(await readFile(path.join(context.directory, 'collaboration.json'), 'utf8'))
+    const records = await context.savedRecords()
     assert.ok(
-      saved.records.every(
+      records.every(
         (record: { summary: AgentSummary; pauseRequested?: boolean }) =>
           !record.summary.isPaused && !record.pauseRequested,
       ),
