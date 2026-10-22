@@ -127,6 +127,10 @@ export type TurnChunk =
       errorMessage?: string
       durationMs?: number
       startedAt?: number
+      /** 最终回复落定的本地时间。优先用完成时间，没有则用消息时间。 */
+      repliedAt?: number
+      /** 子代理详情把协作工具当成黑盒，只保留协作状态。 */
+      hideAgentOperations?: boolean
       isLive: boolean
       key: string
     }

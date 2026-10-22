@@ -5,7 +5,10 @@ import userEvent from '@testing-library/user-event'
 import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 import { ActivityGroup } from '../src/ui/conversation/activity-group'
 import { AssistantTurnView } from '../src/ui/conversation/assistant-turn'
+import { ChatMessage } from '../src/ui/conversation/chat-message'
+import { ThinkingActivityRow } from '../src/ui/conversation/thinking-activity-row'
 import { ToolActivityRow } from '../src/ui/conversation/tool-activity-row'
+import { formatMessageTime, formatMessageTimeTitle } from '../src/ui/model/message-time'
 import type { ActivityItem, ChatState } from '../src/ui/model/types'
 import { groupConversationTurns } from '../src/ui/model/conversation-turns'
 import { Conversation } from '../src/ui/conversation/conversation'
@@ -20,7 +23,14 @@ afterEach(cleanup)
 
 const items: ActivityItem[] = [
   { id: 'thinking', type: 'thinking', thinking: '检查文件', status: 'success' },
-  { id: 'write', type: 'tool', name: 'write', args: { path: 'a.ts' }, result: '文件结果', status: 'success' },
+  {
+    id: 'search',
+    type: 'tool',
+    name: 'grep',
+    args: { pattern: 'TODO', path: 'a.ts' },
+    result: '文件结果',
+    status: 'success',
+  },
 ]
 
 test('子代理多轮状态位于工具段之间，全部过程折叠后仍可见且最终回复复制不混入状态', async () => {
@@ -60,6 +70,7 @@ test('子代理多轮状态位于工具段之间，全部过程折叠后仍可�
           finalText: '最终任务报告',
           images: [],
           durationMs: 2000,
+          hideAgentOperations: true,
           isLive: false,
         }}
       />
@@ -79,11 +90,20 @@ test('子代理多轮状态位于工具段之间，全部过程折叠后仍可�
   await user.click(process)
   const disclosures = screen.getAllByRole('button', { name: /^活动详情：/ })
   expect(disclosures).toHaveLength(2)
+  expect(screen.queryByRole('button', { name: '工具详情：send_message' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '工具详情：wait_agent' })).not.toBeInTheDocument()
+  expect(screen.queryByText(/已执行 send_message|已执行 wait_agent/)).not.toBeInTheDocument()
   const siblings = [...rows[0].parentElement!.children]
   expect(siblings.indexOf(disclosures[0].closest('[id]')!)).toBeLessThan(siblings.indexOf(rows[0]))
   expect(siblings.indexOf(rows[0])).toBeLessThan(siblings.indexOf(disclosures[1].closest('[id]')!))
   await user.click(disclosures[0])
+  expect(screen.queryByRole('button', { name: '工具详情：send_message' })).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '工具详情：grep' })).toBeInTheDocument()
+  await user.click(disclosures[1])
+  expect(screen.queryByRole('button', { name: '工具详情：wait_agent' })).not.toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '工具详情：bash' })).toBeInTheDocument()
   await user.click(disclosures[0])
+  await user.click(disclosures[1])
   assertRowsVisible()
   await user.click(process)
   assertRowsVisible()
@@ -151,7 +171,8 @@ test('等待行在反馈、暂停和中断时原位更新，完成后停止动�
   expect(screen.getByRole('status', { name: '协作状态' })).toBe(row)
   expect(row).toHaveTextContent('已收到 UI impl 的反馈')
   expect(row.querySelector('.motion-reduce\\:animate-none')).toBeNull()
-  expect(screen.getByRole('button', { name: '工作过程' })).toHaveAttribute('aria-expanded', 'false')
+  expect(screen.queryByRole('button', { name: '工作过程' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '工具详情：wait_agent' })).not.toBeInTheDocument()
   expect(row).toBeVisible()
   rerender(view({ ...chat, running: false }, { ...agent, status: 'interrupted' }))
   expect(row).toHaveTextContent('等待 UI impl 的反馈已中断')
@@ -221,10 +242,61 @@ test('协作状态仅出现在子代理详情，主聊天继续隐藏内部工�
   expect(screen.queryByRole('button', { name: '工具详情：send_message' })).not.toBeInTheDocument()
   rerender(view(true))
   expect(screen.getByRole('status', { name: '协作状态' })).toHaveTextContent('正在向主代理反馈…')
+  expect(screen.queryByRole('button', { name: '工具详情：send_message' })).not.toBeInTheDocument()
+  expect(screen.queryByText(/已执行 send_message|正在执行 send_message/)).not.toBeInTheDocument()
+  expect(screen.queryByText('内部协作正文')).not.toBeInTheDocument()
+})
+
+test('用户消息和助手回复都显示真实时间', () => {
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  )
+  const stamp = new Date(2020, 5, 15, 9, 43).getTime()
+  render(
+    <TooltipProvider>
+      <ChatMessage message={userMessage('你好', stamp)} tools={{}} />
+      <AssistantTurnView
+        turn={{
+          type: 'assistant_turn',
+          key: 'reply',
+          activities: [],
+          finalText: '回复',
+          images: [],
+          repliedAt: stamp,
+          isLive: false,
+        }}
+      />
+    </TooltipProvider>,
+  )
+  const times = screen.getAllByLabelText(formatMessageTimeTitle(stamp))
+  expect(times).toHaveLength(2)
+  for (const time of times) {
+    expect(time).toHaveTextContent(formatMessageTime(stamp))
+    expect(time).toHaveAttribute('dateTime', new Date(stamp).toISOString())
+  }
+})
+
+test('思考行与相邻工具行使用同一字号', () => {
+  const { container } = render(
+    <ThinkingActivityRow
+      item={{ id: 'thinking', type: 'thinking', thinking: '对齐字号', status: 'success' }}
+      open
+      onToggle={() => {}}
+    />,
+  )
+  const row = container.firstElementChild
+  expect(row).toHaveClass('text-xs')
+  expect(row).not.toHaveClass('text-sm')
+  expect(container.querySelector('pre')).toHaveClass('text-xs')
+  expect(container.querySelector('pre')).not.toHaveClass('text-sm')
 })
 
 test.each(
-  (['read', 'edit', 'apply_patch', 'replace'] as const).flatMap((name) =>
+  (['read', 'edit', 'apply_patch', 'replace', 'write', 'create'] as const).flatMap((name) =>
     (['success', 'running', 'error'] as const).map((status) => ({ name, status })),
   ),
 )('读取和编辑文件只显示静态摘要，不展开详情：$name / $status', async ({ name, status }) => {
@@ -348,7 +420,7 @@ test('计时总开关保留运行中的手动选择，完成时收起全部过�
   expect(disclosure).toHaveAttribute('aria-expanded', 'false')
   await user.click(disclosure)
   expect(disclosure).toHaveAttribute('aria-expanded', 'true')
-  const tool = screen.getByRole('button', { name: '工具详情：write' })
+  const tool = screen.getByRole('button', { name: '工具详情：grep' })
   await user.click(tool)
   rerender(view(true, [...items, { id: 'more', name: 'bash', args: { command: 'git diff' }, status: 'running' }]))
   expect(disclosure).toHaveAttribute('aria-expanded', 'true')
@@ -397,7 +469,7 @@ test('连续思考和工具只占一个活动组，分组和思考均可用键�
   expect(group).toHaveAttribute('aria-expanded', 'false')
   group.focus()
   await user.keyboard('{Enter}')
-  const tool = screen.getByRole('button', { name: '工具详情：write' })
+  const tool = screen.getByRole('button', { name: '工具详情：grep' })
   await user.click(tool)
   expect(tool).toHaveAttribute('aria-expanded', 'true')
   expect(screen.getByText('文件结果').closest('[aria-hidden]')).toHaveAttribute('aria-hidden', 'false')
@@ -415,7 +487,7 @@ test('连续思考和工具只占一个活动组，分组和思考均可用键�
   expect(tool.isConnected).toBe(true)
   expect(tool.closest('[aria-hidden="true"]')).not.toBeNull()
   await user.keyboard('{Enter}')
-  expect(screen.getByRole('button', { name: '工具详情：write' })).toBe(tool)
+  expect(screen.getByRole('button', { name: '工具详情：grep' })).toBe(tool)
   expect(tool).toHaveAttribute('aria-expanded', 'false')
   expect(thinking).toHaveAttribute('aria-expanded', 'false')
 })
@@ -623,7 +695,7 @@ test('折叠工具或活动组时递归收起嵌套工具，再次展开保留�
               id: 'middle',
               name: 'bash',
               status: 'success',
-              children: [{ id: 'inner', name: 'write', status: 'success', result: '嵌套文件结果' }],
+              children: [{ id: 'inner', name: 'grep', status: 'success', result: '嵌套文件结果' }],
             },
           ],
         },
@@ -636,7 +708,7 @@ test('折叠工具或活动组时递归收起嵌套工具，再次展开保留�
   await user.click(outer)
   const middle = screen.getByRole('button', { name: '工具详情：bash' })
   await user.click(middle)
-  const inner = screen.getByRole('button', { name: '工具详情：write' })
+  const inner = screen.getByRole('button', { name: '工具详情：grep' })
   await user.click(inner)
   expect(screen.getByText('嵌套文件结果')).toBeVisible()
   await user.click(outer)
@@ -644,7 +716,7 @@ test('折叠工具或活动组时递归收起嵌套工具，再次展开保留�
   expect(inner).toHaveAttribute('aria-expanded', 'false')
   await user.click(outer)
   await user.click(middle)
-  expect(screen.getByRole('button', { name: '工具详情：write' })).toBe(inner)
+  expect(screen.getByRole('button', { name: '工具详情：grep' })).toBe(inner)
   expect(inner).toHaveAttribute('aria-expanded', 'false')
   await user.click(inner)
   await user.click(group)

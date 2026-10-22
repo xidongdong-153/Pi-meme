@@ -65,7 +65,7 @@ test('后续成功回复清除同轮旧错误，原始消息和上一轮最终�
 test('工具失败保留可读摘要与折叠输出，摘要、图标和详情容器均使用普通颜色', () => {
   const html = renderToStaticMarkup(
     createElement(ToolActivityRow, {
-      item: { id: 'write', name: 'write', args: { path: 'missing.ts' }, result: 'ENOENT', status: 'error' },
+      item: { id: 'bash', name: 'bash', command: 'false', result: 'ENOENT', status: 'error' },
       open: false,
       onToggle: noop,
       isLive: false,

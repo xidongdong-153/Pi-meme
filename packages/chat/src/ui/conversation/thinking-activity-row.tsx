@@ -47,7 +47,7 @@ export function ThinkingActivityRow({
   }, [elapsed])
 
   return (
-    <div className="text-sm select-none">
+    <div className="text-xs select-none">
       <div
         role="button"
         aria-label="思考过程"
@@ -129,7 +129,7 @@ export function ThinkingActivityRow({
         <div className="min-h-0 max-h-[min(20rem,50vh)] overflow-auto overscroll-contain">
           <div className={cn('mt-1 pb-1 select-text', isNested ? 'pl-8' : 'pl-6')}>
             <div className="border-l-2 border-primary/20 hover:border-primary/40 pl-3 py-0.5 transition-colors">
-              <pre className="pi-content whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground/75">
+              <pre className="pi-content whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground/75">
                 {item.thinking.trimEnd() || '正在梳理思路…'}
               </pre>
             </div>

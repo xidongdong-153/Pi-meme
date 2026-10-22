@@ -9,6 +9,57 @@ type ToolResult = Extract<PiMessage, { role: 'toolResult' }>
 type ToolActivity = Exclude<ActivityItem, { type: 'thinking' | 'narration' }>
 type CollaborationSegment = { type: 'collaboration'; item: AgentCollaborationStatus }
 type AgentName = Pick<AgentSummary, 'agentId' | 'taskPath' | 'name'>
+type ToolRun = NonNullable<ToolActivity['children']>[number]
+
+/** 子代理用来互相调度的工具。详情里不渲染调用行，只保留协作状态。 */
+const agentOperationTools = new Set([
+  'spawn_agent',
+  'send_message',
+  'followup_task',
+  'interrupt_agent',
+  'list_agents',
+  'list_agent_models',
+  'wait_agent',
+  'finish_agent',
+])
+
+function isAgentOperation(item: ActivityItem): boolean {
+  return item.type !== 'thinking' && item.type !== 'narration' && agentOperationTools.has(item.name ?? '')
+}
+
+function withoutAgentOperations(tools: ToolRun[] | undefined): ToolRun[] | undefined {
+  if (!tools?.length) return tools
+  let changed = false
+  const next: ToolRun[] = []
+  for (const tool of tools) {
+    if (agentOperationTools.has(tool.name)) {
+      changed = true
+      continue
+    }
+    const children = withoutAgentOperations(tool.children)
+    if (children !== tool.children) {
+      changed = true
+      next.push(children?.length ? { ...tool, children } : withoutChildren(tool))
+      continue
+    }
+    next.push(tool)
+  }
+  return changed ? next : tools
+}
+
+function withoutChildren<T extends { children?: ToolRun[] }>(value: T): T {
+  const copy = { ...value }
+  delete copy.children
+  return copy
+}
+
+function presentActivity(item: ActivityItem): ActivityItem {
+  if (item.type === 'thinking' || item.type === 'narration' || !item.children?.length) return item
+  const children = withoutAgentOperations(item.children)
+  if (children === item.children) return item
+  if (!children?.length) return withoutChildren(item)
+  return { ...item, children }
+}
 
 function object(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : {}
@@ -228,34 +279,52 @@ export function projectAgentConversation(chat: ChatState, agent: AgentSummary): 
       projected[index] = { ...reportTurn, collaboration: [...(reportTurn.collaboration ?? []), feedback] }
     }
   }
-  return projected
+  return projected.map((turn) => (turn.type === 'assistant_turn' ? { ...turn, hideAgentOperations: true } : turn))
 }
 
 export function groupAgentActivities(
   items: ActivityItem[],
   finalText: string,
   collaboration: AgentCollaborationStatus[] = [],
+  hideAgentOperations = false,
 ): Array<RenderSegment | CollaborationSegment> {
-  if (!collaboration.length) return groupAdjacentActivities(items, finalText)
+  const shown = (item: ActivityItem): ActivityItem | undefined => {
+    if (!hideAgentOperations) return item
+    if (isAgentOperation(item)) return undefined
+    return presentActivity(item)
+  }
+  if (!collaboration.length) {
+    if (!hideAgentOperations) return groupAdjacentActivities(items, finalText)
+    return groupAdjacentActivities(
+      items.flatMap((item) => {
+        const next = shown(item)
+        return next ? [next] : []
+      }),
+      finalText,
+    )
+  }
   const groups: Array<RenderSegment | CollaborationSegment> = []
   const anchors = new Map(
     collaboration.filter((item) => item.afterActivityId).map((item) => [item.afterActivityId, item]),
   )
   let pending: ActivityItem[] = []
+  const flush = (text = '') => {
+    if (pending.length || text) groups.push(...groupAdjacentActivities(pending, text))
+    pending = []
+  }
   for (const item of items) {
-    pending.push(item)
+    const next = shown(item)
+    if (next) pending.push(next)
     const status = anchors.get(item.id)
     if (!status) continue
-    groups.push(...groupAdjacentActivities(pending), { type: 'collaboration', item: status })
-    pending = []
+    flush()
+    groups.push({ type: 'collaboration', item: status })
   }
   const reports = collaboration.filter((item) => !item.afterActivityId)
   if (reports.length) {
-    groups.push(
-      ...groupAdjacentActivities(pending),
-      ...reports.map((item) => ({ type: 'collaboration' as const, item })),
-    )
-    groups.push(...groupAdjacentActivities([], finalText))
-  } else groups.push(...groupAdjacentActivities(pending, finalText))
+    flush()
+    groups.push(...reports.map((item) => ({ type: 'collaboration' as const, item })))
+    flush(finalText)
+  } else flush(finalText)
   return groups
 }

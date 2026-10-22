@@ -11,6 +11,7 @@ import { AttachmentPreview } from '../content/attachment-preview'
 import { ActivityGroup } from './activity-group'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { MessageActions } from './message-actions'
+import { MessageTime } from './message-time'
 import { messageText } from '../model/message-text'
 import { PluginMessageActions } from '@pi-meme/ui/components/plugin-message-actions'
 
@@ -139,11 +140,6 @@ export function ChatMessage({
         )}
         {isUser && (
           <div className="mt-1 flex h-7 items-center gap-1 text-sm text-muted-foreground/70 opacity-0 transition-opacity focus-within:opacity-100 group-hover/message:opacity-100">
-            {typeof message.timestamp === 'number' && (
-              <time className="mr-1 tabular-nums" dateTime={new Date(message.timestamp).toISOString()}>
-                {new Date(message.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-              </time>
-            )}
             <MessageActions
               onCopy={() => navigator.clipboard.writeText(messageText(message))}
               onCopyError={onCopyError}
@@ -160,6 +156,7 @@ export function ChatMessage({
               state={live ? 'streaming' : 'complete'}
               source={message.source}
             />
+            <MessageTime timestamp={message.timestamp} />
           </div>
         )}
       </div>

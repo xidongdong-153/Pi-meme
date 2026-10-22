@@ -225,14 +225,95 @@ test('子详情按工具位置保留多轮协作，内部通知不切分计时�
     turns[0].collaboration?.map((item) => item.text),
     ['已向 UI impl 反馈', '已收到 UI impl 的反馈', '已向主代理反馈', '已向主代理反馈'],
   )
-  const segments = groupAgentActivities(turns[0].activities, turns[0].finalText, turns[0].collaboration)
+  assert.equal(turns[0].hideAgentOperations, true)
+  const segments = groupAgentActivities(
+    turns[0].activities,
+    turns[0].finalText,
+    turns[0].collaboration,
+    turns[0].hideAgentOperations,
+  )
   assert.deepEqual(
     segments.map((segment) => segment.type),
-    ['activity', 'collaboration', 'activity', 'collaboration', 'activity', 'collaboration', 'collaboration', 'text'],
+    ['activity', 'collaboration', 'activity', 'collaboration', 'collaboration', 'collaboration', 'text'],
   )
+  assert.deepEqual(
+    segments.flatMap((segment) =>
+      segment.type === 'activity'
+        ? segment.items.flatMap((item) => (item.type === 'thinking' || item.type === 'narration' ? [] : [item.name]))
+        : [],
+    ),
+    ['read', 'bash'],
+  )
+  assert.equal(JSON.stringify(segments).includes('send_message'), false)
+  assert.equal(JSON.stringify(segments).includes('wait_agent'), false)
   assert.equal(turns[0].finalText, '任务报告')
+  assert.equal(
+    turns[0].activities.some(
+      (item) => item.type !== 'thinking' && item.type !== 'narration' && item.name === 'send_message',
+    ),
+    true,
+  )
   assert.deepEqual(chat, original)
   assert.doesNotMatch(JSON.stringify(turns[0].collaboration), /私有反馈正文|结果正文|sent-private|\/root\//)
+})
+
+test('子代理黑盒去掉嵌套协作工具，普通工具和协作状态留在原来的位置', () => {
+  const secret = '不能出现在详情里的反馈正文'
+  const segments = groupAgentActivities(
+    [
+      { id: 'read', name: 'read', args: { path: 'a.ts' }, status: 'success' },
+      {
+        id: 'code',
+        name: 'codemode',
+        status: 'success',
+        args: { code: 'await tools.send_message()' },
+        children: [
+          { id: 'nested-send', name: 'send_message', status: 'success', args: { target: 'root', message: secret } },
+          {
+            id: 'nested-code',
+            name: 'bash',
+            status: 'success',
+            children: [{ id: 'nested-wait', name: 'wait_agent', status: 'success', args: { targets: ['root'] } }],
+          },
+        ],
+      },
+      { id: 'list', name: 'list_agents', status: 'success', result: secret },
+      { id: 'models', name: 'list_agent_models', status: 'success' },
+      { id: 'finish', name: 'finish_agent', status: 'success', args: { report: secret } },
+    ],
+    '结论',
+    [
+      { id: 'sent', afterActivityId: 'code', kind: 'feedback', status: 'success', text: '已向主代理反馈' },
+      { id: 'done', afterActivityId: 'finish', kind: 'feedback', status: 'success', text: '已向主代理反馈' },
+    ],
+    true,
+  )
+  assert.deepEqual(
+    segments.map((segment) => segment.type),
+    ['activity', 'collaboration', 'collaboration', 'text'],
+  )
+  const code = segments[0]?.type === 'activity' ? segments[0].items[1] : undefined
+  assert.equal(code?.type === 'thinking' || code?.type === 'narration' ? '' : code?.name, 'codemode')
+  assert.deepEqual(
+    code && code.type !== 'thinking' && code.type !== 'narration'
+      ? code.children?.map((child) => child.name)
+      : undefined,
+    ['bash'],
+  )
+  assert.equal(
+    code && code.type !== 'thinking' && code.type !== 'narration' ? code.children?.[0]?.children : undefined,
+    undefined,
+  )
+  assert.equal(JSON.stringify(segments).includes(secret), false)
+  assert.equal(JSON.stringify(segments).includes('list_agents'), false)
+  assert.equal(JSON.stringify(segments).includes('finish_agent'), false)
+  const untouched = groupAgentActivities(
+    [{ id: 'send', name: 'send_message', status: 'success', args: { message: secret } }],
+    '',
+    [],
+    false,
+  )
+  assert.equal(JSON.stringify(untouched).includes(secret), true)
 })
 
 test('等待收到部分反馈只显示实际发送方，超时和对方结束不误报收到反馈', () => {

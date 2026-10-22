@@ -138,6 +138,8 @@ export function groupConversationTurns(
         turnStartTimestamp !== undefined && finishedAt !== undefined
           ? Math.max(0, finishedAt - turnStartTimestamp)
           : undefined
+      const replyMessage = finalReplyMessages.at(-1)
+      const repliedAt = replyMessage?.completedAt ?? replyMessage?.timestamp ?? turnEndTimestamp
 
       chunks.push({
         type: 'assistant_turn',
@@ -149,6 +151,7 @@ export function groupConversationTurns(
         errorMessage: turnErrorMessage,
         durationMs,
         startedAt: turnStartTimestamp,
+        ...(repliedAt !== undefined ? { repliedAt } : {}),
         isLive,
         key: turnKey || `turn-assistant-${chunks.length}`,
       })

@@ -74,6 +74,7 @@ export function ToolActivityRow({
   const hasDetail =
     meta.kind !== 'read' &&
     meta.kind !== 'edit' &&
+    meta.kind !== 'write' &&
     Boolean(script || diff || images.length > 0 || rawText || item.children?.length || item.source)
 
   const handleCopy = React.useCallback(

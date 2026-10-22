@@ -10,6 +10,7 @@ import { groupAgentActivities } from '../model/agent-collaboration'
 import { AgentCollaborationRow } from './agent-collaboration-row'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { MessageActions } from './message-actions'
+import { MessageTime } from './message-time'
 import { PluginMessageActions } from '@pi-meme/ui/components/plugin-message-actions'
 
 export function AssistantTurnView({
@@ -37,8 +38,8 @@ export function AssistantTurnView({
 }) {
   const hasReplyContent = isFinalReply && !turn.isLive && (Boolean(turn.finalText.trim()) || turn.images.length > 0)
   const segments = React.useMemo(
-    () => groupAgentActivities(turn.activities, turn.finalText, turn.collaboration),
-    [turn.activities, turn.finalText, turn.collaboration],
+    () => groupAgentActivities(turn.activities, turn.finalText, turn.collaboration, turn.hideAgentOperations),
+    [turn.activities, turn.finalText, turn.collaboration, turn.hideAgentOperations],
   )
   const hasTrailingText = segments.at(-1)?.type === 'text'
   const replyIndex = !turn.isLive && turn.finalText.trim() ? segments.length - 1 : -1
@@ -161,6 +162,7 @@ export function AssistantTurnView({
               displayedText={turn.finalText}
               state={turn.errorMessage ? 'error' : 'complete'}
             />
+            <MessageTime timestamp={turn.repliedAt} />
           </div>
         )}
       </div>
