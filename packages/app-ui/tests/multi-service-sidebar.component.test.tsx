@@ -279,3 +279,57 @@ test.each([false, true])('多服务侧边栏置顶=%s 在偏好读取完成前�
   expect(dataTransfer.setData).not.toHaveBeenCalled()
   expect(props.onPreferencesChange).not.toHaveBeenCalled()
 })
+
+test('点击侧栏新建项目触发活动控制器的打开弹框回调', () => {
+  const openProjectDialog = vi.fn()
+  const controllers = new Map([
+    [
+      'local',
+      {
+        openProjectDialog,
+        chooseDirectory: vi.fn(),
+      } as unknown as import('../src/shell/service-ui').ServiceController,
+    ],
+  ])
+  const services: HostService[] = [
+    {
+      id: 'local',
+      hostId: 'local',
+      local: true,
+      address: 'http://local.example.test:3000',
+      status: 'connected',
+      projects: [],
+      sessions: { projects: [], recents: [], pinnedPaths: [] },
+    },
+  ]
+  const preferences: SidebarPreferences = {
+    groupMode: 'projects',
+    sortMode: 'recent',
+    collapsed: { pinned: false, projects: false, recents: false },
+    orders: {},
+  }
+  const model = buildSidebarModel(
+    services.map((service) => ({ serviceId: service.id, snapshot: service.sessions! })),
+    preferences,
+  )
+  render(
+    <TooltipProvider>
+      <MultiServiceSidebar
+        services={services}
+        registry={{ get: () => ({ bridge: {} as never, nativePlatformAvailable: false }) } as never}
+        controllers={controllers}
+        activeId="local"
+        model={model}
+        preferences={preferences}
+        preferencesLoaded
+        preferenceError=""
+        onPreferencesChange={vi.fn()}
+        onSearch={vi.fn()}
+        onActivate={vi.fn()}
+        onSettings={vi.fn()}
+      />
+    </TooltipProvider>,
+  )
+  fireEvent.click(screen.getByRole('button', { name: '新建项目' }))
+  expect(openProjectDialog).toHaveBeenCalledOnce()
+})

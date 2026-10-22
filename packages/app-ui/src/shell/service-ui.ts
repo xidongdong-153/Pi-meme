@@ -9,6 +9,7 @@ import type { useAppSession } from '../session/use-app-session'
 export type ServiceController = ReturnType<typeof useAppSession> & {
   openSettings: () => void
   assertRestartAllowed: () => void
+  openProjectDialog?: () => void
   beforeDeactivate?: () => Promise<boolean>
 }
 export type ServiceUI = {

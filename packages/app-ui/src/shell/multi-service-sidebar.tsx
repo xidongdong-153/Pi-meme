@@ -287,7 +287,9 @@ export function MultiServiceSidebar({
                   type="button"
                   aria-label="新建项目"
                   title="新建项目"
-                  onClick={() => void active?.chooseDirectory()}
+                  onClick={() =>
+                    void (active?.openProjectDialog ? active.openProjectDialog() : active?.chooseDirectory())
+                  }
                   className="rounded p-1 hover:bg-secondary"
                 >
                   <Plus className="size-3.5" />

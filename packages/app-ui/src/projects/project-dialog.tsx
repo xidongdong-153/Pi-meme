@@ -17,7 +17,7 @@ export function ProjectDialog({
   onDismiss,
 }: {
   pickDirectory: () => Promise<string | null>
-  onCreate: (input: { cwd: string; name: string }) => Promise<void>
+  onCreate: (input: { cwd: string; name?: string }) => Promise<void>
   onDismiss: () => void
 }) {
   const [name, setName] = useState('')
@@ -51,13 +51,13 @@ export function ProjectDialog({
   }
 
   async function submit() {
+    if (lock.current || !cwd) return
     const nextName = name.trim()
-    if (lock.current || !nextName || !cwd) return
     lock.current = true
     setSaving(true)
     setError('')
     try {
-      await onCreate({ cwd, name: nextName })
+      await onCreate({ cwd, ...(nextName ? { name: nextName } : {}) })
       closed.current = true
       onDismiss()
     } catch (cause) {
@@ -73,7 +73,7 @@ export function ProjectDialog({
       <DialogContent className="w-[calc(100%-2rem)] max-w-lg gap-5 rounded-2xl p-6 sm:p-7">
         <DialogHeader>
           <DialogTitle className="text-xl">创建项目</DialogTitle>
-          <DialogDescription className="sr-only">填写项目名称，并选择项目的源文件夹。</DialogDescription>
+          <DialogDescription className="sr-only">填写项目名称（可选），并选择项目的源文件夹。</DialogDescription>
         </DialogHeader>
         <form
           id="create-project"
@@ -148,7 +148,7 @@ export function ProjectDialog({
           <Button
             type="submit"
             form="create-project"
-            disabled={saving || choosing || !name.trim() || !cwd}
+            disabled={saving || choosing || !cwd}
             className="rounded-full px-5"
           >
             {saving && <Loader2 className="size-4 animate-spin" />}

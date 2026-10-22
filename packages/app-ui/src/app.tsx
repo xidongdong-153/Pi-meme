@@ -12,6 +12,7 @@ import { AgentAccessSelector } from '@pi-meme/permissions/ui/agent-access-select
 import { AppHeader } from './layout/app-header'
 import { AppRail } from './layout/app-rail'
 import { ProjectsPage } from './projects/projects-page'
+import { ProjectDialog } from './projects/project-dialog'
 import { ForkNotice } from './layout/fork-notice'
 import { WorkspaceContent } from './layout/workspace-content'
 import { ErrorNotice, SystemErrorStack, SystemErrorToast } from './layout/error-notice'
@@ -575,6 +576,7 @@ export function App({
   const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false)
   const [sidebarOpen, setSidebarOpen] = useState(true)
   const [sidebarWidth, setSidebarWidth] = useState(256)
+  const [creatingProject, setCreatingProject] = useState(false)
   const creatingSkillSession = useRef(false)
   const searchActive = Boolean(serviceUI?.active) && chatVisible
   const openSearch = serviceUI?.onSearch
@@ -604,6 +606,7 @@ export function App({
       ...chat,
       openSettings: () => openSettings('general'),
       assertRestartAllowed,
+      openProjectDialog: () => setCreatingProject(true),
       beforeDeactivate: async () => {
         if (instructionsSaving) return false
         if (!dirtyPage && !instructionsDirty) return true
@@ -1011,7 +1014,7 @@ export function App({
         activeSessionId: chat.sessions?.activeSessionId,
         activeSessionPath: chat.sessions?.activeSessionPath,
         switchingToPath: chat.switchingToPath,
-        onDirectory: () => void chat.chooseDirectory(),
+        onDirectory: () => setCreatingProject(true),
         onNewSession: () => void chat.newSession(),
         onNewSessionInProject: (targetCwd) => void chat.newSessionInProject(targetCwd),
         onSwitchSession: (sessionPath) => void chat.switchSession(sessionPath),
@@ -1752,6 +1755,20 @@ export function App({
                 request: interaction,
                 sourceName: interactionSourceName,
                 onRespond: chat.answerExtensionDialog,
+              }}
+            />
+          )}
+
+          {creatingProject && (
+            <ProjectDialog
+              pickDirectory={bridge.pickProjectDirectory}
+              onDismiss={() => setCreatingProject(false)}
+              onCreate={async (input) => {
+                const registered = await host.projects.register(input, { idempotencyKey: window.crypto.randomUUID() })
+                void chat.refreshMenu().catch(() => {})
+                void chat.selectWorkspace({ kind: 'project', cwd: registered.cwd }).catch((cause) => {
+                  chat.setError(`项目已创建，切换失败：${String(cause)}`)
+                })
               }}
             />
           )}

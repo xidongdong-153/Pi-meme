@@ -54,7 +54,7 @@ function renderPage(overrides: Partial<Omit<ComponentProps<typeof ProjectsPage>,
     canOpenProject: false,
     rail: null,
     onDismiss: vi.fn(),
-    onCreate: vi.fn(async (_input: { cwd: string; name: string }) => {}),
+    onCreate: vi.fn(async (_input: { cwd: string; name?: string }) => {}),
     onChanged: vi.fn(async () => {}),
     onDeleted: vi.fn(async () => {}),
     onNewSession: vi.fn(async () => {}),
@@ -108,6 +108,21 @@ test('提交自定义名称与目录，保存期间阻止重复提交，成功�
   await act(async () => finish())
   await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
   expect(props.onChanged).toHaveBeenCalledOnce()
+})
+
+test('不输入名称只选择目录即可直接创建项目，空白名称作为未输入处理', async () => {
+  const onCreate = vi.fn(async () => {})
+  renderPage({ onCreate })
+  fireEvent.click(screen.getByRole('button', { name: '创建' }))
+  expect(screen.getByRole('button', { name: '创建项目' })).toBeDisabled()
+  fireEvent.change(screen.getByRole('textbox', { name: '项目名称' }), { target: { value: '   ' } })
+  expect(screen.getByRole('button', { name: '创建项目' })).toBeDisabled()
+  fireEvent.click(screen.getByRole('button', { name: '添加文件夹' }))
+  await screen.findByText('/work/new-project')
+  await waitFor(() => expect(screen.getByRole('button', { name: '创建项目' })).toBeEnabled())
+  fireEvent.click(screen.getByRole('button', { name: '创建项目' }))
+  await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  expect(onCreate).toHaveBeenCalledExactlyOnceWith({ cwd: '/work/new-project' })
 })
 
 test('创建失败保留名称和目录，可直接重试', async () => {

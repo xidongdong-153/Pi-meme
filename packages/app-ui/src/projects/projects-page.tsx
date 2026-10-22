@@ -59,7 +59,7 @@ export function ProjectsPage({
   rail: ReactNode
   notice?: ReactNode
   onDismiss: () => void
-  onCreate: (input: { cwd: string; name: string }) => Promise<void>
+  onCreate: (input: { cwd: string; name?: string }) => Promise<void>
   onChanged: () => Promise<void>
   onDeleted: (result: WorkspaceDeletionResult) => Promise<void>
   onNewSession: (cwd: string) => Promise<void>
