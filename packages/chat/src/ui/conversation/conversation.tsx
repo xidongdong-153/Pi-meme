@@ -71,8 +71,15 @@ export const Conversation = React.memo(
       stream?.getSnapshot ?? (() => initialChat),
       stream?.getSnapshot ?? (() => initialChat),
     )
-    const { containerRef, bottomRef, showScrollBottom, handleScroll, scrollToBottom, scrollToMessage } =
-      useConversationScroll(chat, sessionKey)
+    const {
+      containerRef,
+      bottomRef,
+      showScrollBottom,
+      handleScroll,
+      scrollToBottom,
+      scrollToMessage,
+      handleActivityToggle,
+    } = useConversationScroll(chat, sessionKey)
 
     // 按对话轮次（Turn）聚合消息流：将同一交互轮次内的思考、多次工具调用、Bash 与最终正文聚合成单一轮次卡片
     const { turns, finalReplyKeys } = React.useMemo(() => {
@@ -169,11 +176,10 @@ export const Conversation = React.memo(
 
     const handleSelectTurn = React.useCallback(
       (entry: ConversationOutlineEntry) => {
-        scrollToMessage()
         setPinnedStartKey(turns[Math.min(hiddenCount, entry.turnIndex)]?.key)
         setPendingKey(entry.key)
       },
-      [scrollToMessage, turns, hiddenCount],
+      [turns, hiddenCount],
     )
 
     React.useLayoutEffect(() => {
@@ -327,7 +333,7 @@ export const Conversation = React.memo(
                     canFork={canEditMessages}
                     onFork={readOnly ? undefined : onForkReply}
                     onCopyError={onCopyError}
-                    onActivityToggle={scrollToMessage}
+                    onActivityToggle={handleActivityToggle}
                   />
                 )
               })}

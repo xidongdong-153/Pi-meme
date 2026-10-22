@@ -160,6 +160,7 @@ const files: Array<[string, Feature[]]> = [
   ['packages/chat/tests/conversation-errors.unit.test.ts', ['chat']],
   ['packages/chat/tests/conversation-outline.unit.test.ts', ['chat']],
   ['packages/chat/tests/conversation-projection.unit.test.ts', ['subagents', 'chat']],
+  ['packages/chat/tests/conversation-scroll.component.test.tsx', ['chat']],
   ['packages/chat/tests/handlers.unit.test.ts', ['chat']],
   ['packages/chat/tests/highlighter.unit.test.ts', ['chat']],
   ['packages/chat/tests/markdown-images.component.test.tsx', ['chat']],
