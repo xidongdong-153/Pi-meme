@@ -326,6 +326,138 @@ export class HostCollaborationBridge {
     await this.persist(record)
     return { ...record.summary }
   }
+  private forkSelection(sessionKey: string, agentIds: readonly string[]) {
+    const source = this.roots.get(sessionKey)
+    if (!source || !agentIds.length) return []
+    const selected = new Set<Record>()
+    for (const id of agentIds) {
+      const record = this.records.get(id)
+      if (!record || record.summary.rootAgentId !== source.summary.rootAgentId || record.summary.depth === 0) continue
+      selected.add(record)
+      for (const entry of this.tree(source)) if (this.descendant(record, entry)) selected.add(entry)
+    }
+    return [...selected]
+  }
+  async prepareFork(sessionKey: string, agentIds: readonly string[]) {
+    await this.ready
+    if (
+      this.forkSelection(sessionKey, agentIds).some(
+        (entry) => activeStatuses.has(entry.summary.status) || entry.queued.length > 0,
+      )
+    )
+      throw new Error('子代理仍在运行，结束后才能新建会话')
+  }
+  private async copyAgentSession(file: string, cwd: string) {
+    const sdk = await loadPiSdk()
+    const manager = sdk.SessionManager.forkFrom(file, cwd, path.dirname(file))
+    const sessionFile = manager.getSessionFile()
+    if (!sessionFile) throw new Error('子代理会话没有复制到新文件')
+    return { sessionFile, sessionId: manager.getSessionId() }
+  }
+  async adoptFork(sourceSessionKey: string, binding: RootBinding, agentIds: readonly string[]) {
+    await this.ready
+    const source = this.roots.get(sourceSessionKey)
+    if (!source || !binding.sessionFile) return
+    if ([...this.roots.values()].some((entry) => entry.summary.sessionFile === binding.sessionFile)) return
+    const selected = this.forkSelection(sourceSessionKey, agentIds)
+    if (!selected.length) return
+    if (selected.some((entry) => activeStatuses.has(entry.summary.status) || entry.queued.length > 0))
+      throw new Error('子代理仍在运行，结束后才能新建会话')
+    const copied: string[] = []
+    const created: string[] = []
+    const files = new Map<string, { sessionFile: string; sessionId: string }>()
+    const rollback = async () => {
+      for (const id of created) {
+        const record = this.records.get(id)
+        if (record?.session) this.callers.delete(record.session)
+        this.records.delete(id)
+      }
+      this.roots.delete(binding.sessionKey)
+      await Promise.all(copied.map((file) => rm(file, { force: true })))
+    }
+    try {
+      for (const entry of selected) {
+        if (!entry.summary.sessionFile) continue
+        const copy = await this.copyAgentSession(entry.summary.sessionFile, entry.summary.cwd)
+        copied.push(copy.sessionFile)
+        files.set(entry.summary.agentId, copy)
+      }
+      const ids = new Map<string, string>([[source.summary.agentId, randomUUID()]])
+      for (const entry of selected) ids.set(entry.summary.agentId, randomUUID())
+      const rootId = ids.get(source.summary.agentId)!
+      const root: Record = {
+        summary: {
+          ...structuredClone(source.summary),
+          agentId: rootId,
+          rootAgentId: rootId,
+          parentAgentId: undefined,
+          name: 'root',
+          taskPath: '/root',
+          depth: 0,
+          rootSessionKey: binding.sessionKey,
+          sessionKey: binding.sessionKey,
+          rootTaskId: randomUUID(),
+          executionGeneration: binding.session.connection().generation,
+          status: 'idle',
+          cwd: binding.cwd,
+          accessMode: binding.accessMode,
+          mode: binding.state.mode,
+          sessionId: binding.sessionId,
+          sessionFile: binding.sessionFile,
+          isPaused: undefined,
+          report: undefined,
+          error: undefined,
+          runId: undefined,
+          runStartedAt: undefined,
+          runCompletedAt: undefined,
+          task: undefined,
+          updatedAt: new Date().toISOString(),
+        },
+        session: binding.session,
+        mailbox: [],
+        consumed: [],
+        queued: [],
+        interactions: [],
+        sequence: 0,
+      }
+      this.records.set(rootId, root)
+      created.push(rootId)
+      for (const entry of selected) {
+        const agentId = ids.get(entry.summary.agentId)!
+        const file = files.get(entry.summary.agentId)
+        const parentAgentId = ids.get(entry.summary.parentAgentId ?? '') ?? rootId
+        const summary: AgentSummary = {
+          ...structuredClone(entry.summary),
+          agentId,
+          rootAgentId: rootId,
+          parentAgentId,
+          rootSessionKey: binding.sessionKey,
+          sessionKey: `agent:${agentId}`,
+          rootTaskId: root.summary.rootTaskId,
+          executionGeneration: 0,
+          isPaused: undefined,
+          sessionFile: file?.sessionFile,
+          sessionId: file?.sessionId,
+          ...(entry.summary.conversationOrigin
+            ? {
+                conversationOrigin: { ...entry.summary.conversationOrigin, parentAgentId },
+              }
+            : {}),
+          ...(entry.summary.runId ? { importedRunId: entry.summary.runId } : {}),
+          updatedAt: new Date().toISOString(),
+        }
+        this.records.set(agentId, { summary, mailbox: [], consumed: [], queued: [], interactions: [], sequence: 0 })
+        created.push(agentId)
+      }
+      this.roots.set(binding.sessionKey, root)
+      this.callers.set(binding.session, root)
+      await this.persist(root)
+      this.changed(root)
+    } catch (cause) {
+      await rollback()
+      throw cause
+    }
+  }
   async setSessionMode(sessionKey: string, mode: TaskMode) {
     await this.ready
     const root = this.root(sessionKey)

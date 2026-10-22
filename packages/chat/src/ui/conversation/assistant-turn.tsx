@@ -150,8 +150,8 @@ export function AssistantTurnView({
               onCopyError={onCopyError}
               canCopy={Boolean(turn.finalText.trim())}
               canEdit={false}
-              onFork={onFork && typeof turn.startedAt === 'number' ? () => onFork(turn.startedAt!) : undefined}
-              canFork={Boolean(canFork && !turn.isLive && typeof turn.startedAt === 'number')}
+              onFork={onFork && typeof turn.userTimestamp === 'number' ? () => onFork(turn.userTimestamp!) : undefined}
+              canFork={Boolean(canFork && !turn.isLive && typeof turn.userTimestamp === 'number')}
             />
             <PluginMessageActions
               role="assistant"

@@ -89,6 +89,8 @@ export type AgentSummary = AgentExecution & {
   updatedAt: string
   runStartedAt?: string
   runCompletedAt?: string
+  /** 分叉带入的那次运行。主对话里已有原记录，不再为它合成第二条状态。 */
+  importedRunId?: string
 }
 export type AgentMailboxMessage = {
   id: string

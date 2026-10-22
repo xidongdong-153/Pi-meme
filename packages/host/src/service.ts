@@ -653,6 +653,10 @@ export async function createHost(options: HostOptions = {}) {
       beforePrompt: async (key) => {
         await bindRoot(key)
       },
+      beforeFork: (key, agentIds) => collaboration.prepareFork(key, agentIds),
+      forked: async (source, key, agentIds) => {
+        await collaboration.adoptFork(source, pi.readSessionBinding(key), agentIds)
+      },
       settled: async (key, event) => {
         await bindRoot(key)
         await collaboration.rootSettled(key, event)

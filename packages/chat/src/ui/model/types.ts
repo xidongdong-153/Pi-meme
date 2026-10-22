@@ -126,7 +126,10 @@ export type TurnChunk =
       images: Array<PiImage & { id?: string }>
       errorMessage?: string
       durationMs?: number
+      /** 展示段起点，用于计算这一段的用时，不是分叉位置。 */
       startedAt?: number
+      /** 打开这轮的用户消息时间。子代理状态、压缩和可见自定义消息只切展示段，分叉仍用它定位整轮。 */
+      userTimestamp?: number
       /** 最终回复落定的本地时间。优先用完成时间，没有则用消息时间。 */
       repliedAt?: number
       /** 子代理详情把协作工具当成黑盒，只保留协作状态。 */

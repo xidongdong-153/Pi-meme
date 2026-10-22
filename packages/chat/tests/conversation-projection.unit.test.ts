@@ -79,6 +79,60 @@ test('各run分别保留真实终态，运行中和普通消息不会被标为�
   )
 })
 
+test('分叉带入的已结束子代理不在主对话再合成一条状态', () => {
+  const historical: PiMessage = {
+    role: 'custom',
+    customType: 'pi-meme-collaboration',
+    content: '完成',
+    display: false,
+    timestamp: 1800,
+    details: {
+      fromAgentId: 'old-writer',
+      kind: 'result',
+      messageId: 'result:old',
+      name: 'writer',
+      status: 'completed',
+      startedAt: new Date(1200).toISOString(),
+      completedAt: new Date(1700).toISOString(),
+      runId: 'run-1',
+    },
+  }
+  const imported: AgentSummary = {
+    agentId: 'new-writer',
+    rootAgentId: 'root',
+    parentAgentId: 'root',
+    name: 'writer',
+    taskPath: '/root/writer',
+    depth: 1,
+    rootSessionKey: 'fork',
+    sessionKey: 'agent:new-writer',
+    rootTaskId: 'task',
+    epoch: 1,
+    executionGeneration: 1,
+    runId: 'run-1',
+    importedRunId: 'run-1',
+    status: 'completed',
+    cwd: '/tmp',
+    accessMode: 'workspace-write',
+    mode: 'default',
+    updatedAt: new Date(1700).toISOString(),
+    runStartedAt: new Date(1200).toISOString(),
+    runCompletedAt: new Date(1700).toISOString(),
+  }
+  const view = projectMainConversation({
+    ...emptyChat,
+    messages: [userMessage('写文章', 1000), historical],
+    agents: [imported],
+  })
+  assert.deepEqual(
+    view.agentStatuses.map((entry) => [entry.phase, entry.agents.map((agent) => agent.agentId)]),
+    [
+      ['started', ['old-writer']],
+      ['finished', ['old-writer']],
+    ],
+  )
+})
+
 test('隐藏主协作工具参数与结果，保留普通工具和用户引用文本', () => {
   const quoted = userMessage('子 Agent 返回结果，请检查并继续当前任务：用户自己引用这段文字', 1000)
   const spawn = assistantMessage(

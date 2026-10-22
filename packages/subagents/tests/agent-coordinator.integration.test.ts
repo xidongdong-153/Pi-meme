@@ -28,6 +28,79 @@ function enableCollaboration(bridge: ReturnType<typeof createHostCollaborationBr
   )
 }
 
+test('分叉复制已结束子代理，运行中的子代理阻止新建，未包含的身份留在原会话', async () => {
+  const context = await setup()
+  try {
+    await context.begin()
+    const writer = await context.spawn('writer')
+    const reviewer = await context.spawn('reviewer')
+    await assert.rejects(context.bridge.prepareFork('root-key', [writer.agentId, reviewer.agentId]), /子代理仍在运行/)
+    const writerFile = path.join(context.directory, 'writer.jsonl')
+    await writeFile(
+      writerFile,
+      `${JSON.stringify({
+        type: 'session',
+        version: 3,
+        id: 'writer-session',
+        timestamp: new Date().toISOString(),
+        cwd: context.directory,
+      })}
+${JSON.stringify({
+  type: 'message',
+  id: 'writer-message',
+  parentId: null,
+  timestamp: new Date().toISOString(),
+  message: { role: 'user', content: '写文章', timestamp: 1 },
+})}
+`,
+    )
+    const worker = context.children.get(writer.sessionKey)!
+    worker.session.getActiveSession = () => ({ sessionId: 'writer-session', sessionFile: writerFile })
+    await worker.finish('写完了')
+    await context.until(
+      async () => (await context.bridge.getAgentSnapshot(writer.agentId)).agent?.status === 'completed',
+    )
+    const saved = await context.bridge.getAgentSnapshot(writer.agentId)
+    assert.equal(saved.agent?.sessionFile, writerFile)
+    const fork = fakeSession(context.directory, { connection: () => {}, event: () => {}, error: () => {} })
+    const forkFile = path.join(context.directory, 'fork.jsonl')
+    await context.bridge.prepareFork('root-key', [writer.agentId])
+    await context.bridge.adoptFork(
+      'root-key',
+      {
+        sessionKey: 'fork-key',
+        cwd: context.directory,
+        sessionFile: forkFile,
+        sessionId: 'fork-session',
+        state: fork.state,
+        accessMode: 'workspace-write',
+        session: fork.session,
+      },
+      [writer.agentId],
+    )
+    const forked = (await context.bridge.getAgents('fork-key')).filter((agent) => agent.depth > 0)
+    assert.equal(forked.length, 1)
+    assert.equal(forked[0]?.name, 'writer')
+    assert.equal(forked[0]?.taskPath, '/root/writer')
+    assert.notEqual(forked[0]?.agentId, writer.agentId)
+    assert.equal(forked[0]?.importedRunId, writer.runId)
+    assert.notEqual(forked[0]?.sessionFile, writerFile)
+    const header = JSON.parse((await readFile(forked[0]!.sessionFile!, 'utf8')).split(/\r?\n/, 1)[0]!) as {
+      parentSession?: string
+    }
+    assert.equal(header.parentSession, path.resolve(writerFile))
+    const original = await context.bridge.getAgents('root-key')
+    assert.equal(original.find((agent) => agent.agentId === writer.agentId)?.sessionFile, writerFile)
+    assert.ok(original.some((agent) => agent.agentId === reviewer.agentId))
+    assert.equal(
+      forked.some((agent) => agent.name === 'reviewer'),
+      false,
+    )
+  } finally {
+    await context.cleanup()
+  }
+})
+
 test('查询可用模型和思考强度，子任务默认继承调用方当前配置且逐项覆盖', async () => {
   const context = await setup()
   try {

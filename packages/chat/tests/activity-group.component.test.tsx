@@ -637,7 +637,7 @@ test('子代理状态切开的中间回复不显示消息操作，整轮结束�
   await user.click(final.getByRole('button', { name: '复制消息' }))
   expect(writeText).toHaveBeenCalledExactlyOnceWith('最终结果已汇总。')
   await user.click(final.getByRole('button', { name: '从这段回复新建会话' }))
-  expect(onFork).toHaveBeenCalledExactlyOnceWith(1700)
+  expect(onFork).toHaveBeenCalledExactlyOnceWith(1000)
   rerender(
     view({
       ...completed,

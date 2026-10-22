@@ -78,7 +78,8 @@ export function projectMainConversation(chat: ChatState) {
     if (!agent.parentAgentId || !agent.runId || agent.status === 'idle' || agent.status === 'starting') return
     started(agent.agentId, agent.name, agent.runStartedAt, agent.avatar)
   }
-  for (const agent of agents.values()) agentStarted(agent)
+  for (const agent of agents.values())
+    if (!(agent.importedRunId && agent.runId === agent.importedRunId)) agentStarted(agent)
   for (const message of chat.messages) {
     if (message.role !== 'toolResult' || message.isError || !message.details || typeof message.details !== 'object')
       continue
@@ -97,7 +98,7 @@ export function projectMainConversation(chat: ChatState) {
       : []
   })
   const currentResults = [...agents.values()].flatMap((agent) =>
-    agent.parentAgentId && agent.runId && agent.status in terminalLabels
+    agent.parentAgentId && agent.runId && agent.runId !== agent.importedRunId && agent.status in terminalLabels
       ? [
           {
             id: agent.runId,

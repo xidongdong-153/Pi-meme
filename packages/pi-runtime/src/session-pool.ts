@@ -60,6 +60,32 @@ function messageEntry(entry: PiSessionEntry): entry is Extract<PiSessionEntry, {
   return entry.type === 'message'
 }
 
+function forkAgentIds(entries: readonly PiSessionEntry[]) {
+  const ids = new Set<string>()
+  const add = (value: unknown) => {
+    if (typeof value === 'string' && value) ids.add(value)
+  }
+  const read = (value: unknown) => {
+    if (!value || typeof value !== 'object') return
+    const details = value as {
+      agentId?: unknown
+      fromAgentId?: unknown
+      agent?: { agentId?: unknown }
+      agents?: Array<{ agentId?: unknown }>
+    }
+    add(details.agentId)
+    add(details.fromAgentId)
+    add(details.agent?.agentId)
+    for (const agent of details.agents ?? []) add(agent?.agentId)
+  }
+  for (const entry of entries) {
+    if ((entry.type === 'custom_message' || entry.type === 'custom') && entry.customType === 'pi-meme-collaboration')
+      read(entry.type === 'custom_message' ? entry.details : entry.data)
+    if (entry.type === 'message' && entry.message.role === 'toolResult') read(entry.message.details)
+  }
+  return [...ids]
+}
+
 function pathWithin(root: string, value: string) {
   const relative = path.relative(path.resolve(root), path.resolve(value))
   return relative === '' || (!relative.startsWith(`..${path.sep}`) && relative !== '..' && !path.isAbsolute(relative))
@@ -132,6 +158,8 @@ export type CollaborationLifecycle = {
   modeChanged?: (sessionKey: string, mode: TaskMode) => Promise<void>
   decorateEvent?: (sessionKey: string, event: DesktopEvent) => DesktopEvent
   beforePrompt: (sessionKey: string, input: { mode: TaskMode; message: string }) => Promise<void>
+  beforeFork?: (sessionKey: string, agentIds: readonly string[]) => Promise<void>
+  forked?: (sourceSessionKey: string, forkedSessionKey: string, agentIds: readonly string[]) => Promise<void>
   settled: (sessionKey: string, event: { aborted?: boolean; runId?: string }) => void | Promise<void>
   failed: (sessionKey: string, cause: unknown, runId?: string) => void | Promise<void>
   stop: (sessionKey: string) => void | Promise<void>
@@ -1475,6 +1503,7 @@ export class PiSessionPool implements PiRuntime {
       if (!sourcePath) throw new Error('会话尚未保存，等它完成一轮对话后再新建会话')
       const data = await source.session.getEntries()
       const path = activePath(data.entries, data.leafId)
+      // 只匹配活动路径上的用户消息。调用方要传打开这轮的用户消息时间，不能传展示段起点。
       const userIndex = path.findIndex(
         (entry) => messageEntry(entry) && entry.message.role === 'user' && entry.message.timestamp === userTimestamp,
       )
@@ -1492,6 +1521,8 @@ export class PiSessionPool implements PiRuntime {
         if (entry.message.role === 'toolResult') pendingCalls.delete(entry.message.toolCallId)
       }
       if (pendingCalls.size) throw new Error('这段回复的工具结果尚未保存，暂时无法新建会话')
+      const agentIds = forkAgentIds(throughPoint)
+      await this.collaboration?.beforeFork?.(sessionKey, agentIds)
 
       temporary.configureInlineExtensions(this.inlineExtensions)
       temporary.configureCapabilities(this.capabilities)
@@ -1506,7 +1537,8 @@ export class PiSessionPool implements PiRuntime {
       const history = await readSessionHistory(forkedPath)
       const selection = ++this.selection
       await this.accessStore.set(forkedPath, source.accessMode)
-      this.create(history.cwd, forkedPath, history, source.accessMode)
+      const created = this.create(history.cwd, forkedPath, history, source.accessMode)
+      await this.collaboration?.forked?.(sessionKey, created.key, agentIds)
       return await this.selectionResult(selection)
     } finally {
       temporary.stop()

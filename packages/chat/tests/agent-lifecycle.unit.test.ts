@@ -180,6 +180,28 @@ test('实时状态、邮箱与原生记录重复到达时，每轮开始和完�
   assert.doesNotMatch(JSON.stringify(view.agentStatuses), /完整子报告/)
 })
 
+test('子代理状态切开回复后，分叉仍指向打开这轮的用户消息', () => {
+  const grouped = turns(
+    [
+      userMessage('启动子代理', 1000),
+      assistantMessage('我先安排。', 1100),
+      assistantMessage('最终结果已汇总。', 2000),
+      userMessage('继续', 3000),
+      assistantMessage('第二轮开始。', 3100),
+      assistantMessage('第二轮结果。', 4000),
+    ],
+    [result({ startedAt: time(1200), completedAt: time(1500), createdAt: time(1500) })],
+  )
+  const replies = grouped.filter((turn) => turn.type === 'assistant_turn')
+  assert.equal(replies.length, 3)
+  assert.equal(replies[0]?.startedAt, 1000)
+  assert.equal(replies[0]?.userTimestamp, 1000)
+  assert.equal(replies[1]?.startedAt, 2000)
+  assert.equal(replies[1]?.userTimestamp, 1000)
+  assert.equal(replies[2]?.startedAt, 3000)
+  assert.equal(replies[2]?.userTimestamp, 3000)
+})
+
 test('续跑保留每轮提示，内部自动继续沿用开始时间且不重复播报开始', () => {
   const view = projectMainConversation({
     ...emptyChat,
