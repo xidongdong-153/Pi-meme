@@ -6,6 +6,25 @@ import { Input } from '@pi-meme/ui/components/ui/input'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { THINKING_LEVEL_LABELS } from './thinking-config'
 
+const KNOWN_PROVIDER_LABELS: Record<string, string> = {
+  openai: 'OpenAI',
+  anthropic: 'Anthropic',
+  google: 'Google',
+  deepseek: 'DeepSeek',
+  ollama: 'Ollama',
+  openrouter: 'OpenRouter',
+  'github-copilot': 'GitHub Copilot',
+}
+
+function formatProviderName(provider?: string): string {
+  if (!provider) return '默认'
+  const normalized = provider.toLowerCase()
+  if (KNOWN_PROVIDER_LABELS[normalized]) {
+    return KNOWN_PROVIDER_LABELS[normalized]
+  }
+  return provider.charAt(0).toUpperCase() + provider.slice(1)
+}
+
 export type ModelPickerPopoverProps = {
   models: PiModel[]
   currentModel?: PiModel
@@ -74,6 +93,23 @@ export function ModelPickerPopover({
   const filteredChoices = choices.filter((model) =>
     [model.name, model.id, model.provider].some((value) => value?.toLocaleLowerCase().includes(search)),
   )
+  const groups = React.useMemo(() => {
+    const map = new Map<string, PiModel[]>()
+    for (const model of filteredChoices) {
+      const provider = model.provider || 'default'
+      const list = map.get(provider)
+      if (list) {
+        list.push(model)
+      } else {
+        map.set(provider, [model])
+      }
+    }
+    return Array.from(map.entries()).map(([provider, items]) => ({
+      provider,
+      name: formatProviderName(provider),
+      models: items,
+    }))
+  }, [filteredChoices])
 
   const displayName = currentModel?.name || currentModel?.id || '选择模型'
 
@@ -345,12 +381,10 @@ export function ModelPickerPopover({
                 </button>
                 <div className="flex flex-col min-w-0">
                   <span className="text-[0.6875rem] text-muted-foreground leading-tight">选择模型</span>
-                  <span className="text-xs font-semibold text-foreground truncate leading-tight mt-0.5">
-                    {currentModel?.provider
-                      ? currentModel.provider.charAt(0).toUpperCase() + currentModel.provider.slice(1)
-                      : '默认'}
+                  <span className="text-xs font-semibold text-foreground truncate leading-tight mt-0.5">可用模型</span>
+                  <span className="text-[0.625rem] text-muted-foreground/70 leading-tight truncate">
+                    {currentModel ? `当前：${formatProviderName(currentModel.provider)}` : '按供应商分组'}
                   </span>
-                  <span className="text-[0.625rem] text-muted-foreground/70 leading-tight">推荐模型集</span>
                 </div>
               </div>
               {choices.length > 6 && (
@@ -393,36 +427,48 @@ export function ModelPickerPopover({
               </div>
             )}
 
-            {/* 单行模型列表：紧凑清晰，选中的带 Check 勾选 */}
+            {/* 单行模型列表：按供应商分组，选中的带 Check 勾选 */}
             <div
               role="region"
               aria-label="可用模型"
               tabIndex={0}
               className="min-h-0 max-h-60 overflow-y-auto overscroll-contain space-y-0.5 px-0.5 outline-none rounded-lg"
             >
-              {filteredChoices.map((model) => {
-                const isSelected = currentModel && modelKey(model) === modelKey(currentModel)
-                return (
-                  <button
-                    key={modelKey(model)}
-                    type="button"
-                    disabled={disabled || busy}
-                    onClick={() => {
-                      setOpen(false)
-                      onSelectModel(model)
-                    }}
+              {groups.map((group, groupIndex) => (
+                <React.Fragment key={group.provider}>
+                  <div
                     className={cn(
-                      'w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer text-left',
-                      isSelected
-                        ? 'bg-secondary/70 text-foreground font-medium'
-                        : 'text-foreground/90 hover:bg-secondary/40 hover:text-foreground',
+                      'px-2.5 pb-1 text-xs font-medium text-muted-foreground select-none',
+                      groupIndex === 0 ? 'pt-1' : 'pt-2.5',
                     )}
                   >
-                    <span className="truncate pr-2">{model.name ?? model.id}</span>
-                    {isSelected && <Check className="size-3.5 text-foreground shrink-0" />}
-                  </button>
-                )
-              })}
+                    {group.name}
+                  </div>
+                  {group.models.map((model) => {
+                    const isSelected = currentModel && modelKey(model) === modelKey(currentModel)
+                    return (
+                      <button
+                        key={modelKey(model)}
+                        type="button"
+                        disabled={disabled || busy}
+                        onClick={() => {
+                          setOpen(false)
+                          onSelectModel(model)
+                        }}
+                        className={cn(
+                          'w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer text-left',
+                          isSelected
+                            ? 'bg-secondary/70 text-foreground font-medium'
+                            : 'text-foreground/90 hover:bg-secondary/40 hover:text-foreground',
+                        )}
+                      >
+                        <span className="truncate pr-2 pl-2">{model.name ?? model.id}</span>
+                        {isSelected && <Check className="size-3.5 text-foreground shrink-0" />}
+                      </button>
+                    )
+                  })}
+                </React.Fragment>
+              ))}
               {!filteredChoices.length && (
                 <p role="status" className="px-3 py-6 text-center text-xs text-muted-foreground">
                   {search ? '没有匹配的模型' : '暂无可用模型'}

@@ -59,6 +59,34 @@ test('选择模型后直接收起弹框，不再跳回思考面板', () => {
   expect(screen.queryByRole('slider')).toBeNull()
 })
 
+test('模型列表按供应商分组展示，支持区分同名模型并正确触发选择', () => {
+  const models = [
+    { provider: 'fake', id: 'common-id', name: '同名模型' },
+    { provider: 'custom', id: 'common-id', name: '同名模型' },
+  ]
+  const onSelectModel = vi.fn()
+  render(
+    <ModelPickerPopover
+      models={models}
+      currentModel={models[0]}
+      disabled={false}
+      onSelectModel={onSelectModel}
+      onSelectThinkingLevel={vi.fn()}
+    />,
+  )
+  fireEvent.click(screen.getByRole('button', { name: '选择模型与思考强度' }))
+  fireEvent.click(screen.getByRole('button', { name: '切换模型' }))
+
+  expect(screen.getByText('Fake')).toBeDefined()
+  expect(screen.getByText('Custom')).toBeDefined()
+
+  const sameNameButtons = screen.getAllByRole('button', { name: '同名模型' })
+  expect(sameNameButtons).toHaveLength(2)
+
+  fireEvent.click(sameNameButtons[1])
+  expect(onSelectModel).toHaveBeenCalledWith(models[1])
+})
+
 function deferred<T>() {
   let resolve!: (value: T) => void
   let reject!: (cause: Error) => void
