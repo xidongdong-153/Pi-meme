@@ -1,6 +1,6 @@
 import { SidebarMenus, type SidebarMenuBridge } from './sidebar-menus'
 import type { SettingsBridge, WorkspaceBridge, WorkspaceDeletionResult } from '@pi-meme/contracts/desktop'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Bell, ChevronDown, Search, SquarePen } from 'lucide-react'
 import type { PiSessionsSnapshot } from '@pi-meme/contracts/sessions'
 import { Button } from '@pi-meme/ui/components/ui/button'
@@ -16,6 +16,10 @@ export type SidebarProps = {
   canOpenProject: boolean
   serviceId?: string
   searchEnabled?: boolean
+  searchOpen?: boolean
+  onSearchOpenChange?: (open: boolean) => void
+  searchShortcutLabel?: string
+  newChatShortcutLabel?: string
   searchHistory?: WorkspaceBridge['searchSessions']
   sidebarSettingsBridge?: Pick<SettingsBridge, 'getSettings' | 'saveSidebarPreferences'>
   onSelectProject: (cwd: string) => void
@@ -48,6 +52,10 @@ export function Sidebar({
   canOpenProject,
   serviceId = 'local',
   searchEnabled = true,
+  searchOpen: controlledSearchOpen,
+  onSearchOpenChange,
+  searchShortcutLabel,
+  newChatShortcutLabel,
   searchHistory: loadSessionMatches,
   sidebarSettingsBridge,
   menuBridge,
@@ -73,7 +81,9 @@ export function Sidebar({
 }: SidebarProps) {
   // 切换中使用乐观路径，否则使用实际路径
   const effectiveActivePath = switchingToPath ?? activeSessionPath
-  const [searchOpen, setSearchOpen] = useState(false)
+  const [localSearchOpen, setLocalSearchOpen] = useState(false)
+  const searchOpen = controlledSearchOpen ?? localSearchOpen
+  const setSearchOpen = onSearchOpenChange ?? setLocalSearchOpen
   const searchHistory = useMemo(
     () =>
       loadSessionMatches
@@ -90,22 +100,6 @@ export function Sidebar({
     [sessionsSnapshot, serviceId, preferences],
   )
   useSidebarManualOrders(model, preferences, loaded, save)
-  useEffect(() => {
-    if (!searchEnabled) return
-    const handleKey = (event: KeyboardEvent) => {
-      if (
-        (event.metaKey || event.ctrlKey) &&
-        !event.isComposing &&
-        event.key.toLowerCase() === 'k' &&
-        !document.querySelector('[role="dialog"]')
-      ) {
-        event.preventDefault()
-        setSearchOpen(true)
-      }
-    }
-    document.addEventListener('keydown', handleKey)
-    return () => document.removeEventListener('keydown', handleKey)
-  }, [searchEnabled])
   const [showAllProjects, setShowAllProjects] = useState(false)
   const [recentsLimit, setRecentsLimit] = useState(8)
   const [expandedProjects, setExpandedProjects] = useState<Set<string>>(() => new Set([cwd]))
@@ -206,7 +200,8 @@ export function Sidebar({
               variant="ghost"
               size="icon-sm"
               aria-label="搜索聊天"
-              title="搜索聊天（⌘K / Ctrl+K）"
+              title={searchShortcutLabel ? `搜索聊天（${searchShortcutLabel}）` : '搜索聊天'}
+              disabled={!searchEnabled}
               onClick={() => setSearchOpen(true)}
               className="size-7 text-muted-foreground hover:text-foreground cursor-pointer"
             >
@@ -220,6 +215,7 @@ export function Sidebar({
           <button
             type="button"
             onClick={onNewSession}
+            title={newChatShortcutLabel ? `新聊天（${newChatShortcutLabel}）` : '新聊天'}
             className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-xs font-medium text-foreground transition-colors duration-200 ease-out hover:bg-secondary/70 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer text-left group"
           >
             <SquarePen className="size-4 text-foreground/80 shrink-0 group-hover:text-primary transition-colors" />
@@ -325,7 +321,7 @@ export function Sidebar({
                       <button
                         type="button"
                         aria-label="新聊天"
-                        title="新聊天"
+                        title={newChatShortcutLabel ? `新聊天（${newChatShortcutLabel}）` : '新聊天'}
                         onClick={onNewSession}
                         className="rounded p-1 transition-colors duration-200 ease-out hover:bg-secondary"
                       >

@@ -3,6 +3,7 @@ import {
   BookOpen,
   ChartNoAxesCombined,
   Info,
+  Keyboard,
   Network,
   Palette,
   Puzzle,
@@ -30,6 +31,12 @@ const groups = [
         label: '常规',
         icon: Settings,
         description: '设置输入预测、上下文用量显示、默认访问权限、应用存储目录和缓存清理。',
+      },
+      {
+        id: 'shortcuts',
+        label: '快捷键',
+        icon: Keyboard,
+        description: '查看和修改当前客户端的键盘快捷键。',
       },
       {
         id: 'account',

@@ -12,6 +12,8 @@ export type ModelPickerPopoverProps = {
   thinkingLevel?: ThinkingLevel
   disabled: boolean
   busy?: boolean
+  openModelsVersion?: number
+  shortcutLabel?: string
   onSelectModel: (model: PiModel) => void
   onSelectThinkingLevel: (level: ThinkingLevel) => void
 }
@@ -31,6 +33,8 @@ export function ModelPickerPopover({
   thinkingLevel = 'medium',
   disabled,
   busy = false,
+  openModelsVersion,
+  shortcutLabel,
   onSelectModel,
   onSelectThinkingLevel,
 }: ModelPickerPopoverProps) {
@@ -165,6 +169,15 @@ export function ModelPickerPopover({
     onSelectThinkingLevel('medium')
   }
 
+  React.useEffect(() => {
+    if (openModelsVersion && openModelsVersion > 0 && !disabled && !busy) {
+      setView('models')
+      setQuery('')
+      setShowSearch(false)
+      setOpen(true)
+    }
+  }, [openModelsVersion, disabled, busy])
+
   return (
     <Popover
       open={open}
@@ -185,7 +198,7 @@ export function ModelPickerPopover({
           disabled={disabled}
           aria-busy={busy || undefined}
           aria-label="选择模型与思考强度"
-          title={`${displayName} · ${currentLevelLabel}`}
+          title={`${displayName} · ${currentLevelLabel}${shortcutLabel ? `（${shortcutLabel}）` : ''}`}
           className={cn(
             'inline-flex min-w-0 max-w-full whitespace-nowrap items-center justify-center select-none cursor-pointer transition-colors rounded-full',
             'bg-secondary/60 hover:bg-secondary text-foreground/90 hover:text-foreground',

@@ -5,6 +5,7 @@ import type { HostConnection, HostConnectionError, SavedHostConnection } from '@
 import { isTrustedPlatformSource } from './platform-source'
 import type { DesktopStorageAdapter } from '@pi-meme/contracts/storage'
 import { getProjectApps, openProjectInApp } from '../project-apps'
+import { readShortcutPreferences, writeShortcutPreferences } from '../shortcut-preferences'
 
 export function registerPlatformIpc(
   getWindow: () => BrowserWindow | null,
@@ -18,6 +19,7 @@ export function registerPlatformIpc(
     error: () => HostConnectionError | null
   },
   storage?: DesktopStorageAdapter,
+  userDataDir?: string,
 ) {
   const handle = (channel: string, action: (...args: unknown[]) => unknown) =>
     ipcMain.handle(channel, (event, ...args: unknown[]) => {
@@ -76,6 +78,12 @@ export function registerPlatformIpc(
   handle('platform:connection', getConnection)
   handle('platform:saved-connections', savedConnections.list)
   handle('platform:connection-error', savedConnections.error)
+  handle('platform:shortcuts-read', async () => {
+    return readShortcutPreferences(userDataDir ?? app.getPath('userData'))
+  })
+  handle('platform:shortcuts-save', async (value) => {
+    return writeShortcutPreferences(userDataDir ?? app.getPath('userData'), value)
+  })
   handle('platform:remove-connection', async (url) => {
     if (typeof url !== 'string') throw new Error('Host 地址无效')
     await savedConnections.remove(url)
@@ -144,6 +152,8 @@ export function registerPlatformIpc(
       'open-project',
       'import-theme',
       'export-theme',
+      'shortcuts-read',
+      'shortcuts-save',
       'storage-info',
       'storage-choose',
       'storage-migrate',

@@ -13,6 +13,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/
 import { cn } from '@pi-meme/ui/lib/utils'
 import type { UserProfile } from '../settings/user-profile'
 import type { RegisteredNavigation } from '@pi-meme/plugin-sdk/navigation'
+import { useShortcuts } from '../shortcuts/shortcut-provider'
 
 export function AppRail({
   profile,
@@ -29,6 +30,7 @@ export function AppRail({
   pluginNavigation = [],
   activePluginId,
   onPlugin,
+  onShortcutHelp,
   className,
 }: {
   profile: UserProfile
@@ -45,9 +47,11 @@ export function AppRail({
   pluginNavigation?: readonly RegisteredNavigation[]
   activePluginId?: string
   onPlugin?: (entry: RegisteredNavigation) => void
+  onShortcutHelp?: () => void
   className?: string
 }) {
-  const isMac = typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent)
+  const shortcuts = useShortcuts()
+  const settingsShortcut = shortcuts.getShortcutLabel('openSettings')
 
   return (
     <nav
@@ -219,9 +223,11 @@ export function AppRail({
                 <Settings className="size-4 text-muted-foreground" />
                 <span>设置</span>
               </div>
-              <span className="text-[10px] text-muted-foreground/80 font-mono tracking-tighter">
-                {isMac ? '⌘,' : 'Ctrl+,'}
-              </span>
+              {settingsShortcut && (
+                <span className="text-[10px] text-muted-foreground/80 font-mono tracking-tighter">
+                  {settingsShortcut}
+                </span>
+              )}
             </DropdownMenuItem>
 
             <DropdownMenuSeparator />
@@ -237,9 +243,13 @@ export function AppRail({
                   <Gift className="size-4 text-muted-foreground" />
                   <span>新功能</span>
                 </DropdownMenuItem>
-                <DropdownMenuItem disabled className="gap-2.5 py-1.5">
+                <DropdownMenuItem
+                  disabled={!onShortcutHelp}
+                  onClick={onShortcutHelp}
+                  className="gap-2.5 py-1.5 cursor-pointer"
+                >
                   <Keyboard className="size-4 text-muted-foreground" />
-                  <span>快捷键设置</span>
+                  <span>键盘快捷键</span>
                 </DropdownMenuItem>
                 <DropdownMenuItem disabled className="gap-2.5 py-1.5">
                   <BookOpen className="size-4 text-muted-foreground" />

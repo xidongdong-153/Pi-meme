@@ -68,12 +68,20 @@ test('AppRail 用户菜单「设置」项点击触发对应回调', async () => 
   expect(onSettings).toHaveBeenCalledTimes(1)
 })
 
-test('AppRail 帮助菜单项包含二级菜单触发项', async () => {
-  renderRail()
+test('AppRail 帮助菜单项包含二级菜单触发项，点击键盘快捷键触发回调', async () => {
+  const onShortcutHelp = vi.fn()
+  renderRail({ onShortcutHelp })
 
   const avatarBtn = screen.getByRole('button', { name: '用户菜单与设置' })
   openUserMenu(avatarBtn)
 
   const helpItem = await screen.findByText('帮助')
-  expect(helpItem).toBeInTheDocument()
+  const helpTrigger = helpItem.closest('[role="menuitem"]') ?? helpItem
+  expect(helpTrigger).toBeInTheDocument()
+  fireEvent.keyDown(helpTrigger, { key: 'ArrowRight' })
+
+  const shortcutItem = await screen.findByRole('menuitem', { name: /键盘快捷键/ })
+  expect(shortcutItem).toBeInTheDocument()
+  fireEvent.click(shortcutItem)
+  expect(onShortcutHelp).toHaveBeenCalledTimes(1)
 })

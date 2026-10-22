@@ -16,6 +16,7 @@ import {
 } from '@pi-meme/ui/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
 import { PageHeaderNavigation } from './page-header'
+import { useShortcuts } from '../shortcuts/shortcut-provider'
 
 function SidebarTools({
   nativeWindow,
@@ -26,6 +27,9 @@ function SidebarTools({
   sidebarOpen: boolean
   onToggleSidebar: () => void
 }) {
+  const shortcuts = useShortcuts()
+  const sidebarShortcut = shortcuts.getShortcutLabel('toggleSidebar')
+
   return (
     <>
       <PageHeaderNavigation nativeWindow={nativeWindow} />
@@ -42,7 +46,10 @@ function SidebarTools({
             <PanelLeft className="size-4" />
           </Button>
         </TooltipTrigger>
-        <TooltipContent side="bottom">{sidebarOpen ? '收起侧边栏' : '展开侧边栏'}</TooltipContent>
+        <TooltipContent side="bottom">
+          {sidebarOpen ? '收起侧边栏' : '展开侧边栏'}
+          {sidebarShortcut ? ` · ${sidebarShortcut}` : ''}
+        </TooltipContent>
       </Tooltip>
     </>
   )

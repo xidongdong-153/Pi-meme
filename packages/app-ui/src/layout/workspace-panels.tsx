@@ -19,6 +19,7 @@ import type { RegisteredNavigation } from '@pi-meme/plugin-sdk/navigation'
 import { AppRail } from './app-rail'
 import { PageHeader } from './page-header'
 import type { UserProfile } from '../settings/user-profile'
+import { useShortcutHandlers, useShortcuts } from '../shortcuts/shortcut-provider'
 import {
   closePanel,
   defaultPanelLayout,
@@ -58,6 +59,8 @@ export function WorkspacePanels({
   onProjects,
   pluginNavigation,
   onPlugin,
+  shortcutEnabled = true,
+  onShortcutHelp,
   children,
 }: {
   panels: UiPanel[]
@@ -85,6 +88,8 @@ export function WorkspacePanels({
   onProjects?: () => void
   pluginNavigation?: readonly RegisteredNavigation[]
   onPlugin?: (entry: RegisteredNavigation) => void
+  shortcutEnabled?: boolean
+  onShortcutHelp?: () => void
   children: ReactNode
 }) {
   const storageKey = panelStorageKey(props.target.hostId, session)
@@ -218,6 +223,16 @@ export function WorkspacePanels({
     rightPane.jump()
   }, [containerWidth, rightPane.jump])
   const toggleRight = () => setLayout((value) => ({ ...value, open: !value.open }))
+  const shortcuts = useShortcuts()
+  const toolsShortcut = shortcuts.getShortcutLabel('toggleTools')
+
+  useShortcutHandlers(
+    {
+      toggleSidebar,
+      toggleTools: toggleRight,
+    },
+    shortcutEnabled,
+  )
   const filtered = available.filter(
     (panel) =>
       (panel.id !== activityId || !activity || activity.count > 0) &&
@@ -358,7 +373,11 @@ export function WorkspacePanels({
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom">
-              {activity?.count ? `本会话有 ${activity.count} 个活动服务` : layout.open ? '收起右侧栏' : '展开右侧栏'}
+              {activity?.count
+                ? `本会话有 ${activity.count} 个活动服务${toolsShortcut ? ` · ${toolsShortcut}` : ''}`
+                : layout.open
+                  ? `收起右侧栏${toolsShortcut ? ` · ${toolsShortcut}` : ''}`
+                  : `展开右侧栏${toolsShortcut ? ` · ${toolsShortcut}` : ''}`}
             </TooltipContent>
           </Tooltip>
         </div>
@@ -379,6 +398,7 @@ export function WorkspacePanels({
           onSettings={onSettings}
           onUsage={onUsage}
           onAccount={onAccount}
+          onShortcutHelp={onShortcutHelp}
         />
 
         {/* 内容部分：被有圆角框体圈起来的 3 部分容器（四角全圆角，右侧与底部留外框边距，复刻 Codex 设计） */}

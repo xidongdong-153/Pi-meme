@@ -20,6 +20,7 @@ import type {
   SidebarSessionEntry,
 } from '@pi-meme/workspace/ui/sidebar/sidebar-model'
 import { serviceAddress, type ServiceController, type ServiceRegistry } from './service-ui'
+import { useShortcuts } from '../shortcuts/shortcut-provider'
 
 export function MultiServiceSidebar({
   services,
@@ -48,6 +49,9 @@ export function MultiServiceSidebar({
   onActivate: (id: string, work: (controller: ServiceController) => Promise<boolean>) => void
   onSettings: () => void
 }) {
+  const shortcuts = useShortcuts()
+  const searchShortcut = shortcuts.getShortcutLabel('searchSessions')
+  const newChatShortcut = shortcuts.getShortcutLabel('newChat')
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
   const [recentsLimit, setRecentsLimit] = useState(8)
   const [all, setAll] = useState<Set<string>>(() => new Set())
@@ -241,14 +245,13 @@ export function MultiServiceSidebar({
               <Search className="size-4" />
             </button>
           </TooltipTrigger>
-          <TooltipContent>
-            搜索聊天 · {typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent) ? '⌘K' : 'Ctrl+K'}
-          </TooltipContent>
+          <TooltipContent>搜索聊天{searchShortcut ? ` · ${searchShortcut}` : ''}</TooltipContent>
         </Tooltip>
       </div>
       <button
         type="button"
         onClick={() => void active?.newSession()}
+        title={newChatShortcut ? `新聊天（${newChatShortcut}）` : '新聊天'}
         className="mx-3 my-1.5 flex items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs hover:bg-secondary"
       >
         <SquarePen className="size-4" />
@@ -325,7 +328,7 @@ export function MultiServiceSidebar({
                 <button
                   type="button"
                   aria-label="新聊天"
-                  title="新聊天"
+                  title={newChatShortcut ? `新聊天（${newChatShortcut}）` : '新聊天'}
                   onClick={() => void active?.newSession()}
                   className="rounded p-1 hover:bg-secondary"
                 >

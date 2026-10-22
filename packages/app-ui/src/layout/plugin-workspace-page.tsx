@@ -89,6 +89,7 @@ export function PluginWorkspacePage({
   return (
     <section
       aria-label={`插件页面：${navigation.title}`}
+      data-plugin-workspace
       className="workspace-panes flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-secondary"
     >
       <PageHeader>

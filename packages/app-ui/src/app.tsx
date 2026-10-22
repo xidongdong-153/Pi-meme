@@ -69,7 +69,7 @@ import { Button } from '@pi-meme/ui/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
 import { PluginSlot } from './plugins/plugin-slot'
 import { WorkspacePanels } from './layout/workspace-panels'
-import { sessionUiTarget } from './layout/panel-layout'
+import { sessionUiTarget, panelAvailable } from './layout/panel-layout'
 import { useAgentPluginSelection } from './plugins/use-agent-plugin-selection'
 import { Activity, FileDiff, Folder, TerminalSquare, Network, ListTree, NotebookPen, GitFork } from 'lucide-react'
 import type { HostApi, AppSession } from '@pi-meme/contracts/app-host'
@@ -80,6 +80,9 @@ import { SkillPage } from './settings/skill-page'
 import { useUserProfile } from './settings/user-profile'
 import { loadPluginUI } from './plugins/load-plugin-ui'
 import type { DesktopBridge, ProjectApp } from '@pi-meme/contracts/desktop'
+import { useShortcutHandlers, useShortcuts } from './shortcuts/shortcut-provider'
+import { ShortcutHelpDialog } from './shortcuts/shortcut-help-dialog'
+import { ShortcutSettings } from './shortcuts/shortcut-settings'
 
 const HostSettings = lazy(() => import('./settings/host-settings').then((module) => ({ default: module.HostSettings })))
 const ModelConfigSettings = lazy(() =>
@@ -131,6 +134,11 @@ export function App({
   onBootComplete?: () => void
 }) {
   const userProfile = useUserProfile(bridge)
+  const shortcuts = useShortcuts()
+  const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false)
+  const [sessionSearchOpen, setSessionSearchOpen] = useState(false)
+  const [openModelsVersion, setOpenModelsVersion] = useState(0)
+  const openShortcutHelp = () => setShortcutHelpOpen(true)
   const resources = useMemo(() => createResourceClient(call, plugins.onChange), [call, plugins])
   const [registry] = useState(() => new UiPluginRegistry(host, loadPluginUI, plugins))
   const [pluginConsent] = useState(() => new PluginUiConsent())
@@ -516,6 +524,7 @@ export function App({
     else chat.setError('插件页面需要对应项目或会话，请先在聊天中选择目标。')
   }
   const pluginRailProps = {
+    onShortcutHelp: openShortcutHelp,
     pluginNavigation,
     activePluginId: route.kind === 'plugin' ? route.pluginId : undefined,
     onPlugin: openPlugin,
@@ -578,24 +587,6 @@ export function App({
   const [sidebarWidth, setSidebarWidth] = useState(256)
   const [creatingProject, setCreatingProject] = useState(false)
   const creatingSkillSession = useRef(false)
-  const searchActive = Boolean(serviceUI?.active) && chatVisible
-  const openSearch = serviceUI?.onSearch
-  useEffect(() => {
-    if (!searchActive || !openSearch) return
-    const handleKey = (event: KeyboardEvent) => {
-      if (
-        !event.isComposing &&
-        (event.metaKey || event.ctrlKey) &&
-        event.key.toLowerCase() === 'k' &&
-        !document.querySelector('[role="dialog"]')
-      ) {
-        event.preventDefault()
-        openSearch()
-      }
-    }
-    document.addEventListener('keydown', handleKey)
-    return () => document.removeEventListener('keydown', handleKey)
-  }, [searchActive, openSearch])
   const assertRestartAllowed = () => {
     if (fileStore.hasDirty() || instructionsDirty || instructionsSaving || dirtyPage)
       throw new Error('仍有未保存的文件或指令，请先保存后再维护存储')
@@ -896,6 +887,8 @@ export function App({
           thinkingLevel: chat.state?.thinkingLevel,
           disabled: chat.modelPickerDisabled,
           busy: chat.modelSaving,
+          openModelsVersion,
+          shortcutLabel: shortcuts.getShortcutLabel('openModelPicker'),
           onSelectModel: (model) => void chat.selectModel(model),
           onSelectThinkingLevel: (level) => void chat.selectThinkingLevel(level),
         }}
@@ -1000,7 +993,11 @@ export function App({
         canOpenProject: localPlatform,
         sidebarSettingsBridge: bridge,
         serviceId: hostId ?? 'local',
-        searchEnabled: !settingsOpen && !projectsOpen && !serviceUI,
+        searchEnabled: chatVisible && !serviceUI,
+        searchOpen: sessionSearchOpen,
+        onSearchOpenChange: setSessionSearchOpen,
+        searchShortcutLabel: shortcuts.getShortcutLabel('searchSessions'),
+        newChatShortcutLabel: shortcuts.getShortcutLabel('newChat'),
         searchHistory: bridge.searchSessions,
         onSelectProject: (cwd) => void chat.selectLocation({ kind: 'project', cwd }),
         onMenuChanged: chat.refreshMenu,
@@ -1294,6 +1291,59 @@ export function App({
       creatingSkillSession.current = false
     }
   }
+  const chatShortcutsAvailable = active && chatVisible && !interaction
+  const openTool = (id: string) => {
+    setSystemRequest({ id, revision: Date.now(), target: pluginProps.target })
+  }
+  useShortcutHandlers(
+    {
+      openSettings: () => openSettings('general'),
+      openShortcutHelp,
+      newChat:
+        chatShortcutsAvailable && !chat.workspaceDisabledReason && !chat.editingQueue && !fileStore.hasDirty()
+          ? async () => {
+              await chat.newSession()
+            }
+          : undefined,
+      searchSessions: chatShortcutsAvailable ? (serviceUI?.onSearch ?? (() => setSessionSearchOpen(true))) : undefined,
+      focusComposer:
+        chatShortcutsAvailable && !chat.inputDisabled && !chat.editing
+          ? () => chat.composerStore.editor?.focus()
+          : undefined,
+      pauseTask:
+        chatShortcutsAvailable &&
+        chat.chat.running &&
+        !chat.chat.paused &&
+        !chat.chat.queuePaused &&
+        !chat.navigationBusy
+          ? () => chat.stop()
+          : undefined,
+      togglePlanMode:
+        chatShortcutsAvailable &&
+        !chat.busy &&
+        !chat.editing &&
+        !chat.editingQueue &&
+        !chat.savingQueue &&
+        chat.goal?.status !== 'active'
+          ? () => chat.changeMode(chat.mode === 'plan' ? 'default' : 'plan')
+          : undefined,
+      openModelPicker:
+        chatShortcutsAvailable && !chat.modelPickerDisabled && !chat.modelSaving && !chat.editing
+          ? () => setOpenModelsVersion((version) => version + 1)
+          : undefined,
+      openFiles:
+        chatShortcutsAvailable &&
+        panels.some((panel) => panel.id === 'builtin:files' && panelAvailable(panel, pluginProps.target))
+          ? () => openTool('builtin:files')
+          : undefined,
+      openTerminal:
+        chatShortcutsAvailable &&
+        panels.some((panel) => panel.id === 'builtin:terminal' && panelAvailable(panel, pluginProps.target))
+          ? () => openTool('builtin:terminal')
+          : undefined,
+    },
+    active,
+  )
   if (!active) return null
 
   return (
@@ -1305,6 +1355,8 @@ export function App({
         >
           <div className={!chatVisible ? 'hidden' : 'flex flex-1 min-h-0 flex-col'} inert={!chatVisible}>
             <WorkspacePanels
+              shortcutEnabled={chatShortcutsAvailable}
+              onShortcutHelp={openShortcutHelp}
               profile={userProfile.profile}
               profileLoading={userProfile.showPlaceholder}
               panels={panels}
@@ -1569,6 +1621,7 @@ export function App({
                 />
               )}
               renderContent={(section) => {
+                if (section === 'shortcuts') return <ShortcutSettings />
                 const contentProps: Omit<ComponentProps<typeof SettingsContent>, 'section'> = {
                   bridge,
                   cwd: chat.connection.cwd,
@@ -1728,6 +1781,11 @@ export function App({
             />
           )}
 
+          <ShortcutHelpDialog
+            open={shortcutHelpOpen}
+            onOpenChange={setShortcutHelpOpen}
+            onEdit={() => openSettings('shortcuts')}
+          />
           <PluginConsentDialog consent={pluginConsent} />
           <Dialog
             open={navigation.confirmation}

@@ -22,5 +22,9 @@ const platform: PlatformAdapter = {
   importTheme: () => ipcRenderer.invoke('platform:import-theme'),
   exportTheme: (theme) => ipcRenderer.invoke('platform:export-theme', theme),
   openPath: (path) => ipcRenderer.invoke('platform:open-path', path),
+  shortcuts: {
+    read: () => ipcRenderer.invoke('platform:shortcuts-read'),
+    save: (value) => ipcRenderer.invoke('platform:shortcuts-save', value),
+  },
 }
 contextBridge.exposeInMainWorld('piPlatform', platform)

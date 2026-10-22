@@ -13,7 +13,11 @@
     "./plugin-registry": "./src/plugins/plugin-registry.ts",
     "./services-app": "./src/shell/services-app.tsx",
     "./startup-splash": "./src/shell/startup-splash.tsx",
-    "./service-ui": "./src/shell/service-ui.ts"
+    "./service-ui": "./src/shell/service-ui.ts",
+    "./shortcuts": "./src/shortcuts/index.ts",
+    "./shortcuts/shortcut-provider": "./src/shortcuts/shortcut-provider.tsx",
+    "./shortcuts/shortcut-help-dialog": "./src/shortcuts/shortcut-help-dialog.tsx",
+    "./shortcuts/shortcut-settings": "./src/shortcuts/shortcut-settings.tsx"
   },
   "scripts": {
     "type-check": "tsc --noEmit"

@@ -31,7 +31,8 @@
     "./builtin-module": "./src/builtin-module.ts",
     "./plugin-call": "./src/plugin-call.ts",
     "./goal": "./src/goal.ts",
-    "./service-activity": "./src/service-activity.ts"
+    "./service-activity": "./src/service-activity.ts",
+    "./keyboard-shortcuts": "./src/keyboard-shortcuts.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit"

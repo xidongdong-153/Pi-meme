@@ -217,3 +217,14 @@ SDK 3 将 `agent/server` 分为 `trusted` 与 `restricted`。可信 Server 是 H
 原始网络与本机 Host 通道不属于受限接口。HTTPS 走 Host broker，精确校验 origin、method、DNS 地址与重定向；默认不联网、不继承 Cookie、代理或模型认证。插件凭据使用自身 credentialRef，由 Host 注入，不把明文交给 runner。命名共享数据仅包含可信 Server 显式发布并获准读取的 JSON，不自动共享 plugin-data 目录。GET/HEAD 不能保证远端服务没有副作用。
 
 撤销或收窄受限授权需要取消旧调用并重建进程，不能只更新 JS policy。可信代码已发生的外部副作用不能靠撤权回滚；怀疑恶意代码时停用并重启 Host。工作区内用户主动放入的秘密或硬链接、强 CPU/RSS 配额、OS 内核漏洞防护不属于此沙箱保证。更多 API 见 [App 插件](plugins.md)。
+
+## 键盘快捷键
+
+客户端键盘快捷键属于客户端本地偏好，不保存在 Host 数据目录中，也不随远程服务或会话切换。
+
+- **Desktop**：保存在 Electron 用户配置目录下的 `keyboard-shortcuts.json`，由客户端平台接口独立读取与写入。
+- **Web**：保存在当前浏览器来源的 `localStorage`（键名 `pi-meme:shortcuts:v1`），同一来源的标签页之间通过 storage 事件同步。
+- **配置与手册**：
+  - 左下角用户菜单「帮助 → 键盘快捷键」可打开只读快捷键手册并支持搜索。
+  - 「设置 → 个人 → 快捷键」支持自定义按键、冲突拦截、取消绑定和恢复默认。
+  - 应用级快捷键仅在当前活动聊天界面生效；弹窗、文件编辑器、终端、插件页面输入区域和输入法组字期间不抢占输入。

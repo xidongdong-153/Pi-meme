@@ -13,6 +13,7 @@ import { Input } from '@pi-meme/ui/components/ui/input'
 import type { DesktopBridge } from '@pi-meme/contracts/desktop'
 import type { PluginClient } from '@pi-meme/client/plugin-client'
 import { BrandMark } from '@pi-meme/ui/components/brand-mark'
+import { ShortcutProvider } from '@pi-meme/app-ui/shortcuts/shortcut-provider'
 
 type DirectoryRequest = {
   load: (path?: string) => Promise<HostDirectory>
@@ -83,6 +84,14 @@ function ServiceFixture() {
 }
 
 export function WebApp() {
+  return (
+    <ShortcutProvider platform={window.piPlatform}>
+      <WebAppContent />
+    </ShortcutProvider>
+  )
+}
+
+function WebAppContent() {
   if (
     new URLSearchParams(window.location.search).get('test-fixture') === 'multi-service' &&
     window.piMemeMultiServiceBridges

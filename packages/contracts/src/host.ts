@@ -2,6 +2,7 @@ import type { Connection, DesktopError, DesktopEvent, ProjectApp } from './deskt
 import type { Theme } from './settings'
 import type { DesktopStorageAdapter } from './storage'
 import type { DesktopProject, PiSessionsSnapshot } from './sessions'
+import type { ShortcutPreferences } from './keyboard-shortcuts'
 
 export type ServiceRef = { id: string; hostId: string; local: boolean; address: string }
 export type ProjectRef = { serviceId: string; cwd: string }
@@ -58,4 +59,8 @@ export interface PlatformAdapter {
   importTheme: () => Promise<unknown | null>
   exportTheme: (theme: Theme) => Promise<void>
   openPath: (path: string) => Promise<void>
+  shortcuts?: {
+    read: () => Promise<ShortcutPreferences>
+    save: (value: ShortcutPreferences) => Promise<void>
+  }
 }
