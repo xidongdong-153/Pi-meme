@@ -824,7 +824,7 @@ export function App({
     recoveredInputs: chat.recoveredInputs,
     onRestoreQueuedInput: chat.restoreQueuedInput,
     sessionKey: chat.connection.sessionKey,
-    attachmentContextKey: JSON.stringify([chat.editingTimestamp, chat.editingQueue]),
+    attachmentContextKey: JSON.stringify([chat.editingEntryId, chat.editingQueue]),
     composerStore: chat.composerStore,
     files: chat.composerFiles,
     uploadAttachment: bridge.uploadAttachment,
@@ -857,6 +857,7 @@ export function App({
     activeMode: chat.chat.activeMode,
     editingQueue: chat.editingQueue !== null,
     onResume: () => void chat.resume(),
+    resumeLabel: chat.configurationChanged ? '按新配置重试' : undefined,
     recovery: chat.chat.goal && chat.chat.goal.status !== 'complete' ? undefined : chat.chat.recovery,
     recovering: chat.recovering,
     onRecover: () => void chat.recover(),
@@ -925,8 +926,8 @@ export function App({
       <ModelPickerPopover
         {...{
           models: chat.models,
-          currentModel: chat.state?.model,
-          thinkingLevel: chat.state?.thinkingLevel,
+          currentModel: chat.selectedConfiguration.model,
+          thinkingLevel: chat.selectedConfiguration.thinkingLevel,
           disabled: chat.modelPickerDisabled,
           busy: chat.modelSaving,
           openModelsVersion,
@@ -1001,9 +1002,12 @@ export function App({
   )
 
   const editor =
-    chat.editing && chat.editingTimestamp !== null
+    chat.editing && chat.editingEntryId !== null
       ? {
-          timestamp: chat.editingTimestamp,
+          entryId: chat.editingEntryId,
+          model: composerProps.model,
+          submitting: chat.editSubmitting,
+          submissionLabel: chat.connection.editPhase === 'sending' ? '正在重新发送' : '正在停止原任务',
           composerStore: chat.composerStore,
           files: chat.composerFiles,
           sessionKey: chat.connection.sessionKey,
@@ -1022,7 +1026,7 @@ export function App({
           commands: chat.commands,
           agentPlugins: agentPluginSelection,
           focusVersion: chat.draftFocusVersion,
-          disabled: !ready,
+          disabled: !ready || chat.inputDisabled,
           onSubmit: () => void chat.send(),
           onCancel: chat.cancelEdit,
         }
@@ -1115,7 +1119,8 @@ export function App({
           {...{
             chat: chat.chat,
             stream: chat.chatStream,
-            canEditMessages: !chat.busy && !chat.navigationBusy && !chat.editing,
+            canEditMessages: !chat.inputDisabled && !chat.navigationBusy && !chat.editing,
+            canForkReplies: !chat.busy && !chat.navigationBusy && !chat.editing,
             onEditMessage: chat.editMessage,
             onSetGoal: chat.goalsSupported ? chat.setMessageGoal : undefined,
             canSetGoal:
@@ -1128,7 +1133,7 @@ export function App({
           }}
         />
       }
-      canEditMessages={!chat.busy && !chat.navigationBusy && !chat.editing}
+      canEditMessages={!chat.inputDisabled && !chat.navigationBusy && !chat.editing}
       onEditMessage={chat.editMessage}
       onForkReply={(timestamp) => void chat.forkReply(timestamp)}
       onCopyError={chat.setError}

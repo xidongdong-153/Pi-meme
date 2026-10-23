@@ -18,7 +18,7 @@ test('发送与编辑操作传递末尾mode，HTTP消息模式无效时拒绝', 
   const handlers = createChatHandlers({ pi, getCwd: () => '/workspace' })
   await handlers['pi:prompt']('session', '任务', undefined, undefined, { mode: 'plan' })
   assert.deepEqual(calls[0]?.at(-1), { mode: 'plan' })
-  await handlers['pi:edit-and-prompt']('session', 123, '新任务', undefined, undefined, { mode: 'default' })
+  await handlers['pi:edit-and-prompt']('session', 'entry-user', '新任务', undefined, undefined, { mode: 'default' })
   assert.deepEqual(calls[1]?.at(-1), { mode: 'default' })
   assert.throws(() => handlers['pi:prompt']('session', '任务', undefined, undefined, { mode: 'unknown' }), /消息模式/)
   assert.throws(

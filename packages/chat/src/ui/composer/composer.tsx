@@ -68,6 +68,7 @@ export type ComposerProps = {
   paused?: boolean
   activeMode?: TaskMode
   editingQueue?: boolean
+  resumeLabel?: string
   onResume?: () => void
   recovery?: PiState['recovery']
   recovering?: boolean
@@ -138,6 +139,7 @@ export function Composer({
   activeMode,
   editingQueue,
   onResume,
+  resumeLabel,
   recovery,
   recovering,
   onRecover,
@@ -204,7 +206,17 @@ export function Composer({
   return (
     <>
       <ComposerQueues
-        {...{ queues, paused, activeMode, disabled, onResume, onSteerQueueInput, onDeleteQueueInput, onEditQueueInput }}
+        {...{
+          queues,
+          paused,
+          activeMode,
+          disabled,
+          onResume,
+          resumeLabel,
+          onSteerQueueInput,
+          onDeleteQueueInput,
+          onEditQueueInput,
+        }}
       />
       {goalBanner}
       <form
@@ -335,6 +347,7 @@ export function Composer({
             onMode={onMode}
             running={running}
             paused={paused}
+            resumeLabel={resumeLabel}
             editingQueue={editingQueue}
             onResume={onResume}
             recovery={recovery}

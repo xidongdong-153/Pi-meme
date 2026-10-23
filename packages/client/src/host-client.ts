@@ -1020,10 +1020,10 @@ export class HostClient {
       getProjectFiles: (cwd, query) => rpc('chat:project-files', [cwd, query]),
       getCommands: () => rpc('pi:commands'),
       abort: (key) => rpc('pi:abort', [key], key),
-      editAndPrompt: (key, timestamp, message, images, skills, options) =>
+      editAndPrompt: (key, entryId, message, images, skills, options) =>
         rpc(
           'pi:edit-and-prompt',
-          [key, timestamp, message, images ?? [], skills ?? [], ...(options === undefined ? [] : [options])],
+          [key, entryId, message, images ?? [], skills ?? [], ...(options === undefined ? [] : [options])],
           key,
         ),
       forkReply: (key, timestamp) => this.selection('pi:fork-reply', [key, timestamp], key),

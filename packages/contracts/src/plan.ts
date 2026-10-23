@@ -1,4 +1,4 @@
-import type { PiImage } from './pi'
+import type { PiImage, PiModel, ThinkingLevel } from './pi'
 import type { SkillReference } from './skills'
 
 export type TaskMode = 'default' | 'plan'
@@ -12,6 +12,10 @@ export type ClientProcessingAudit = {
   userConfirmedAt?: string
 }
 export type MessageOptions = { mode?: TaskMode; clientProcessingAudit?: readonly ClientProcessingAudit[] }
+export type MessageConfiguration = { model?: PiModel; thinkingLevel?: ThinkingLevel }
+export type EditMessageOptions = MessageOptions & MessageConfiguration
+/** 覆盖失败时仍返回已取出的队列，供发起编辑的窗口恢复。 */
+export type EditMessageResult = { recoveredInputs: QueuedInput[]; error?: string }
 export type QueuedInput = {
   id: string
   editing?: boolean

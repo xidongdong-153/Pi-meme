@@ -151,7 +151,7 @@ test.each(['string', 'parts'] as const)(
     ]
     const original = messageWithAttachments('你好啊', attachments)
     const legacyImage = { type: 'image' as const, mimeType: 'image/png', data: 'cG5n' }
-    const editAndPrompt = vi.fn<ChatBridge['editAndPrompt']>().mockResolvedValue(undefined)
+    const editAndPrompt = vi.fn<ChatBridge['editAndPrompt']>().mockResolvedValue({ recoveredInputs: [] })
     const uploadAttachment = vi.fn<ChatBridge['uploadAttachment']>()
     const hook = renderHook(() =>
       useChatSession({
@@ -169,6 +169,7 @@ test.each(['string', 'parts'] as const)(
       hook.result.current.editMessage({
         role: 'user',
         timestamp: 100,
+        sourceEntry: { id: 'entry-user', type: 'message', revision: '1' },
         content: contentType === 'string' ? original.message : [{ type: 'text', text: original.message }, legacyImage],
       })
     })
@@ -186,7 +187,7 @@ test.each(['string', 'parts'] as const)(
     await act(async () => hook.result.current.send())
     assert.deepEqual(editAndPrompt.mock.calls[0], [
       'session-a',
-      100,
+      'entry-user',
       messageWithAttachments('改一下正文', attachments).message,
       contentType === 'parts' ? [legacyImage] : [],
       [],
@@ -220,6 +221,7 @@ test('编辑时可移除 Host 附件，发送失败保留修改，取消后恢�
     hook.result.current.editMessage({
       role: 'user',
       timestamp: 100,
+      sourceEntry: { id: 'entry-user', type: 'message', revision: '1' },
       content: messageWithAttachments('原消息', [file]).message,
     }),
   )
@@ -563,4 +565,40 @@ test('StrictMode卸载撤销全部图片URL，解码失败回退文件图标而�
   assert.ok(view.getByRole('button', { name: '移除文件：broken.png' }))
   view.unmount()
   assert.equal(urls.create.mock.calls.length, urls.revoke.mock.calls.length)
+})
+
+test('运行中编辑已保存消息不会停止任务，取消后恢复原草稿', async () => {
+  const pause = vi.fn()
+  const abort = vi.fn()
+  const hook = renderHook(() =>
+    useChatSession({
+      bridge: { pause, abort } as unknown as ChatBridge,
+      commands: [],
+      canSend: () => true,
+      isSwitching: () => false,
+      awaitPendingSwitch: async () => {},
+      currentGeneration: () => 1,
+      currentSessionKey: () => 'session-a',
+      onError: () => {},
+    }),
+  )
+  act(() => {
+    hook.result.current.setDraft('尚未发送的草稿')
+    hook.result.current.applyEvent({ type: 'agent_start' })
+  })
+  act(() =>
+    hook.result.current.editMessage({
+      role: 'user',
+      timestamp: 100,
+      content: '原消息',
+      sourceEntry: { id: 'entry-user', type: 'message', revision: '1' },
+    }),
+  )
+  assert.equal(hook.result.current.editing, true)
+  assert.equal(hook.result.current.draft, '原消息')
+  assert.equal(hook.result.current.chat.running, true)
+  await act(async () => hook.result.current.cancelEdit())
+  assert.equal(hook.result.current.draft, '尚未发送的草稿')
+  assert.equal(pause.mock.calls.length, 0)
+  assert.equal(abort.mock.calls.length, 0)
 })

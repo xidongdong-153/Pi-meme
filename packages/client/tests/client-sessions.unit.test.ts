@@ -185,7 +185,7 @@ test('省略聊天图片和技能时传空数组，显式 null 参数仍保留',
   await client.bridge.prompt('A', '发送')
   await client.bridge.steer('A', '引导')
   await client.bridge.followUp('A', '排队')
-  await client.bridge.editAndPrompt('A', 123, '编辑')
+  await client.bridge.editAndPrompt('A', 'user-entry', '编辑')
   await client.rpc('plugin:nullable', [null])
   assert.deepEqual(
     requests.map((request) => [request.method, request.args]),
@@ -193,7 +193,7 @@ test('省略聊天图片和技能时传空数组，显式 null 参数仍保留',
       ['pi:prompt', ['A', '发送', [], []]],
       ['pi:steer', ['A', '引导', [], []]],
       ['pi:follow-up', ['A', '排队', [], []]],
-      ['pi:edit-and-prompt', ['A', 123, '编辑', [], []]],
+      ['pi:edit-and-prompt', ['A', 'user-entry', '编辑', [], []]],
       ['plugin:nullable', [null]],
     ],
   )

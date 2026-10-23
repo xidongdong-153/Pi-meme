@@ -23,7 +23,9 @@ function fixture(
   awaitPendingSwitch: () => Promise<void> = async () => {},
 ) {
   const prompt = vi.fn().mockResolvedValue(undefined)
+  const editAndPrompt = vi.fn<ChatBridge['editAndPrompt']>().mockResolvedValue({ recoveredInputs: [] })
   const bridge = {
+    editAndPrompt,
     prompt,
     followUp: vi.fn().mockResolvedValue(undefined),
     uploadAttachment: vi.fn(),
@@ -78,6 +80,7 @@ function fixture(
   return {
     ...hook,
     prompt,
+    editAndPrompt,
     rerender: (patch: Partial<typeof props>) => {
       props = { ...props, ...patch }
       hook.rerender(props)
@@ -610,4 +613,100 @@ test('公开 ComposerView 深冻结副本，不冻结或共享原会话目标', 
     project.projectId = 'still-editable'
   }).not.toThrow()
   expect(view.ref.target.project?.projectId).toBe('original-project')
+})
+
+test('运行中编辑经过 edit-message 处理器，阻止时不调用覆盖接口', async () => {
+  const process = vi.fn<RegisteredBeforeSendHook['process']>(() => ({
+    kind: 'block' as const,
+    reason: '请先检查编辑内容',
+  }))
+  const { result, editAndPrompt } = fixture(
+    [{ id: 'edit', title: '编辑检查', pluginId: 'plugin', generation: 1, intents: ['edit-message'], process }],
+    { hostId: 'host', sessionId: 'session' } as PluginComposerOptions['session'],
+  )
+  const message = {
+    role: 'user' as const,
+    timestamp: 1,
+    content: '旧消息',
+    sourceEntry: { id: 'user-entry', type: 'message' as const, revision: '1' },
+  }
+  act(() => {
+    result.current.chat.applyEvent({ type: 'message_end', message })
+    result.current.chat.applyEvent({ type: 'agent_start' })
+  })
+  act(() => result.current.chat.editMessage(message))
+  await act(async () => result.current.chat.send())
+  expect(process).toHaveBeenCalledTimes(1)
+  expect(process.mock.calls[0]?.[0]).toMatchObject({
+    ref: { context: { kind: 'edit-message', message: { entryId: 'user-entry' } } },
+  })
+  expect(editAndPrompt).not.toHaveBeenCalled()
+  expect(result.current.chat.chat.running).toBe(true)
+  expect(result.current.chat.draft).toBe('旧消息')
+})
+
+test('按新配置重试沿用同一发送前处理器和原生消息目标', async () => {
+  const process = vi.fn(() => ({ kind: 'pass' as const }))
+  const { result, editAndPrompt } = fixture(
+    [{ id: 'edit', title: '编辑检查', pluginId: 'plugin', generation: 1, intents: ['edit-message'], process }],
+    { hostId: 'host', sessionId: 'session' } as PluginComposerOptions['session'],
+  )
+  act(() => {
+    result.current.chat.applyEvent({
+      type: 'message_end',
+      message: {
+        role: 'user',
+        timestamp: 1,
+        content: '旧消息',
+        sourceEntry: { id: 'user-entry', type: 'message', revision: '1' },
+      },
+    })
+    result.current.chat.setDraft('保留草稿')
+    result.current.chat.updateConfiguration({ thinkingLevel: 'high' })
+  })
+  await act(async () => result.current.chat.resume())
+  expect(editAndPrompt).toHaveBeenCalledTimes(1)
+  expect(process).toHaveBeenCalledTimes(1)
+  expect(result.current.chat.draft).toBe('保留草稿')
+})
+
+test('覆盖事件先于提交返回时插件快照保持稳定，完成后恢复主草稿且仅发送一次', async () => {
+  const { result, editAndPrompt } = fixture([], {
+    hostId: 'host',
+    sessionId: 'session',
+  } as PluginComposerOptions['session'])
+  const pending = Promise.withResolvers<Awaited<ReturnType<ChatBridge['editAndPrompt']>>>()
+  editAndPrompt.mockReturnValue(pending.promise)
+  const message = {
+    role: 'user' as const,
+    timestamp: 1,
+    content: '原消息',
+    sourceEntry: { id: 'old-entry', type: 'message' as const, revision: '1' },
+  }
+  act(() => {
+    result.current.chat.applyEvent({ type: 'message_end', message })
+    result.current.chat.setDraft('保留主草稿')
+  })
+  act(() => result.current.chat.editMessage(message))
+  let sending!: Promise<void>
+  await act(async () => {
+    sending = result.current.chat.send()
+  })
+  await act(async () => result.current.chat.send())
+  act(() =>
+    result.current.chat.restoreChat({
+      ...result.current.chat.chat,
+      messages: [{ ...message, sourceEntry: { ...message.sourceEntry, id: 'new-entry' } }],
+    }),
+  )
+  expect(result.current.composer.adapter.current()).toBeNull()
+  expect(result.current.chat.editSubmitting).toBe(true)
+  await act(async () => {
+    pending.resolve({ recoveredInputs: [] })
+    await sending
+  })
+  expect(editAndPrompt).toHaveBeenCalledTimes(1)
+  expect(result.current.chat.draft).toBe('保留主草稿')
+  expect(result.current.chat.editing).toBe(false)
+  expect(result.current.composer.adapter.current()).toBe(result.current.composer.view)
 })

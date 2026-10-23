@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react'
-import type { ClipboardEvent, DragEvent } from 'react'
+import type { ClipboardEvent, DragEvent, ReactNode } from 'react'
 import { Plus } from 'lucide-react'
 import type { PiSlashCommand } from '@pi-meme/contracts/pi'
 import type { ComposerProps } from '../composer/composer'
@@ -21,7 +21,10 @@ export type MessageEditorState = Pick<
   | 'files'
   | 'agentPlugins'
 > & {
-  timestamp: number
+  entryId: string
+  model?: ReactNode
+  submitting?: boolean
+  submissionLabel?: string
   draft: string
   onDraft: (value: string) => void
   selectedSkills: PiSlashCommand[]
@@ -43,7 +46,7 @@ export function InlineMessageEditor({ editor }: { editor: MessageEditorState }) 
   const containerRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const ownedFiles = useComposerFiles({
-    contextKey: String(editor.timestamp),
+    contextKey: editor.entryId,
     sessionKey: editor.sessionKey,
     disabled: editor.disabled || Boolean(editor.files),
     uploadAttachment: editor.uploadAttachment,
@@ -59,6 +62,7 @@ export function InlineMessageEditor({ editor }: { editor: MessageEditorState }) 
   }, [])
 
   function cancelEdit() {
+    if (editor.submitting) return
     files.cancel()
     editor.onCancel()
   }
@@ -86,7 +90,7 @@ export function InlineMessageEditor({ editor }: { editor: MessageEditorState }) 
       className="w-full py-1 text-sm"
     >
       <form
-        className="flex w-full flex-col rounded-2xl border border-border/80 bg-card/95 p-3 shadow-sm transition-all focus-within:border-border"
+        className="@container flex w-full flex-col rounded-2xl border border-border/80 bg-card/95 p-3 shadow-sm transition-all focus-within:border-border"
         onSubmit={(event) => {
           event.preventDefault()
           if (canSubmit && !files.isUploading()) editor.onSubmit()
@@ -142,7 +146,10 @@ export function InlineMessageEditor({ editor }: { editor: MessageEditorState }) 
           editing={true}
         />
 
-        <div className="mt-2 flex items-center justify-end gap-2">
+        <p className="mt-2 text-xs text-muted-foreground" role={editor.submitting ? 'status' : undefined}>
+          {editor.submitting ? editor.submissionLabel : '发送后将覆盖此消息及后续对话'}
+        </p>
+        <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
           <button
             type="button"
             disabled={editor.disabled}
@@ -152,8 +159,10 @@ export function InlineMessageEditor({ editor }: { editor: MessageEditorState }) 
           >
             <Plus className="size-4" />
           </button>
+          <div className="min-w-0 max-w-[220px]">{editor.model}</div>
           <button
             type="button"
+            disabled={editor.submitting}
             data-testid="inline-edit-cancel"
             onClick={cancelEdit}
             aria-label="取消编辑用户消息"

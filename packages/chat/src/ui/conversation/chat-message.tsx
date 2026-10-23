@@ -145,7 +145,7 @@ export function ChatMessage({
               onCopyError={onCopyError}
               canCopy={Boolean(messageText(message).trim())}
               onEdit={onEdit ? () => onEdit(message) : undefined}
-              canEdit={Boolean(canEdit && typeof message.timestamp === 'number')}
+              canEdit={Boolean(canEdit && message.sourceEntry)}
               onSetGoal={onSetGoal ? () => onSetGoal(message) : undefined}
               canSetGoal={Boolean(canSetGoal && typeof message.timestamp === 'number' && messageText(message).trim())}
             />

@@ -1,6 +1,6 @@
-import { isTaskMode, type MessageOptions } from './plan'
+import { isTaskMode, type MessageOptions, type EditMessageOptions } from './plan'
 import type { SkillReference } from './skills'
-import type { PiImage } from './pi'
+import { thinkingLevels, type PiImage } from './pi'
 
 export function text(value: unknown): asserts value is string {
   if (typeof value !== 'string' || !value.trim()) throw new Error('参数必须是非空文本')
@@ -78,4 +78,22 @@ export function messageOptions(value: unknown): MessageOptions | undefined {
   )
     throw new Error('客户端处理来源记录无效')
   return { mode, ...(clientProcessingAudit === undefined ? {} : { clientProcessingAudit }) }
+}
+
+export function editMessageOptions(value: unknown): EditMessageOptions | undefined {
+  if (value === undefined) return undefined
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('编辑配置无效')
+  const { model, thinkingLevel, ...rest } = value as EditMessageOptions
+  const parsed = messageOptions(rest)
+  if (model !== undefined) {
+    if (!model || typeof model !== 'object' || Array.isArray(model)) throw new Error('模型参数无效')
+    text(model.provider)
+    text(model.id)
+  }
+  if (thinkingLevel !== undefined && !thinkingLevels.includes(thinkingLevel)) throw new Error('思考强度无效')
+  return {
+    ...parsed,
+    ...(model ? { model: { provider: model.provider, id: model.id } } : {}),
+    ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
+  }
 }

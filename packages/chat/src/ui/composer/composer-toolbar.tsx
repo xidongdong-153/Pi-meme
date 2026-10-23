@@ -12,6 +12,7 @@ export type ComposerToolbarProps = {
   onMode?: (mode: TaskMode) => void
   paused?: boolean
   editingQueue?: boolean
+  resumeLabel?: string
   onResume?: () => void
   recovery?: PiState['recovery']
   recovering?: boolean
@@ -44,6 +45,7 @@ export function ComposerToolbar({
   paused,
   editingQueue,
   onResume,
+  resumeLabel,
   recovery,
   recovering,
   onRecover,
@@ -120,6 +122,18 @@ export function ComposerToolbar({
         <div className="composer-model flex min-w-0 max-w-[220px] items-center">{model}</div>
         {compact && access}
         {compact && plan}
+        {paused && hasInput && !editing && !editingQueue && onResume && (
+          <button
+            type="button"
+            disabled={disabled || sendDisabled || recovering}
+            onClick={onResume}
+            aria-label={resumeLabel ?? '继续当前任务'}
+            className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full px-2 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-40"
+          >
+            <Play className="size-3 fill-current" />
+            {resumeLabel ?? '继续'}
+          </button>
+        )}
         <button
           type={canSend || editingQueue ? 'submit' : 'button'}
           disabled={buttonDisabled}
@@ -146,7 +160,7 @@ export function ComposerToolbar({
                       ? '发送排队任务'
                       : '发送消息'
                   : paused
-                    ? '继续当前任务'
+                    ? (resumeLabel ?? '继续当前任务')
                     : running
                       ? '暂停当前任务'
                       : '发送消息'
@@ -159,7 +173,7 @@ export function ComposerToolbar({
                 : canSend
                   ? '发送 (Enter)'
                   : paused
-                    ? '继续当前任务'
+                    ? (resumeLabel ?? '继续当前任务')
                     : running
                       ? '暂停当前任务'
                       : '发送 (Enter)'

@@ -3,6 +3,8 @@ import { afterEach, expect, test, vi } from 'vitest'
 import type { DesktopBridge, DesktopEvent, SessionSelectionResult, Snapshot } from '@pi-meme/contracts/desktop'
 import { thinkingLevels, type PiModel, type PiSlashCommand, type ThinkingLevel } from '@pi-meme/contracts/pi'
 import { skillMarker } from '@pi-meme/contracts/skills'
+import { ComposerToolbar } from '@pi-meme/chat/ui/composer/composer-toolbar'
+import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 import { ModelPickerPopover } from '@pi-meme/models/ui/model-picker-popover'
 import { useAppSession } from '../src/session/use-app-session'
 import { invokeSkillInNewSession } from '../src/settings/invoke-skill'
@@ -534,6 +536,7 @@ test('正在编辑历史消息时新建会话，默认取消编辑并恢复原�
     result.current.editMessage({
       role: 'user',
       timestamp: 12345,
+      sourceEntry: { id: 'user-12345', type: 'message', revision: '1' },
       content: '正在编辑的历史消息',
     })
   })
@@ -577,6 +580,7 @@ test('正在编辑历史消息时在指定项目中新建会话，默认取消�
     result.current.editMessage({
       role: 'user',
       timestamp: 999,
+      sourceEntry: { id: 'user-999', type: 'message', revision: '1' },
       content: '待取消的编辑',
     })
   })
@@ -589,4 +593,125 @@ test('正在编辑历史消息时在指定项目中新建会话，默认取消�
   expect(result.current.editing).toBe(false)
   expect(selectWorkspace).toHaveBeenCalledWith({ kind: 'project', cwd: '/work/other' })
   expect(result.current.connection.sessionKey).toBe('project-key')
+})
+
+test('暂停换配置后编辑继承选择，取消编辑不改变运行配置，再发送使用最终选择', async () => {
+  const setModel = vi.fn()
+  const setThinkingLevel = vi.fn()
+  const editAndPrompt = vi.fn<DesktopBridge['editAndPrompt']>().mockResolvedValue({ recoveredInputs: [] })
+  const { result, snapshot } = setup({ setModel, setThinkingLevel, editAndPrompt })
+  snapshot.state.isStreaming = true
+  snapshot.state.isPaused = true
+  snapshot.messages = [
+    {
+      role: 'user',
+      content: '原消息',
+      timestamp: 100,
+      sourceEntry: { id: 'user-entry', type: 'message', revision: '1' },
+    },
+  ]
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  expect(result.current.modelPickerDisabled).toBe(false)
+  const model = { provider: 'fake', id: 'second' }
+  act(() => {
+    result.current.setDraft('保留主输入草稿')
+    void result.current.selectModel(model)
+    result.current.selectThinkingLevel('high')
+  })
+  act(() => result.current.editMessage(snapshot.messages[0]))
+  expect(result.current.selectedConfiguration).toEqual({ model, thinkingLevel: 'high' })
+  act(() => result.current.selectThinkingLevel('low'))
+  await act(async () => result.current.cancelEdit())
+  expect(result.current.selectedConfiguration).toEqual({ model, thinkingLevel: 'high' })
+  expect(result.current.draft).toBe('保留主输入草稿')
+  expect(setModel).not.toHaveBeenCalled()
+  expect(setThinkingLevel).not.toHaveBeenCalled()
+  act(() => result.current.editMessage(snapshot.messages[0]))
+  act(() => result.current.selectThinkingLevel('max'))
+  await act(async () => result.current.send())
+  expect(editAndPrompt).toHaveBeenCalledWith('main', 'user-entry', '原消息', [], [], {
+    mode: 'default',
+    model,
+    thinkingLevel: 'max',
+  })
+  expect(result.current.draft).toBe('保留主输入草稿')
+})
+
+test('思考强度保存完成前不发送普通消息', async () => {
+  const saved = deferred<void>()
+  const prompt = vi.fn().mockResolvedValue(undefined)
+  const { result } = setup({ setThinkingLevel: () => saved.promise, prompt })
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  act(() => {
+    result.current.selectThinkingLevel('high')
+    result.current.setDraft('等待新强度')
+  })
+  let sending!: Promise<void>
+  await act(async () => {
+    sending = result.current.send()
+  })
+  expect(prompt).not.toHaveBeenCalled()
+  await act(async () => {
+    saved.resolve()
+    await sending
+  })
+  expect(prompt).toHaveBeenCalledTimes(1)
+})
+
+test('暂停后按新配置重试保留主草稿和图片，不恢复旧执行', async () => {
+  const editAndPrompt = vi.fn<DesktopBridge['editAndPrompt']>().mockResolvedValue({ recoveredInputs: [] })
+  const resume = vi.fn()
+  const { result, snapshot } = setup({ editAndPrompt, resume })
+  const image = { type: 'image' as const, mimeType: 'image/png', data: 'cG5n' }
+  snapshot.messages = [
+    {
+      role: 'user',
+      content: [{ type: 'text', text: '含图片的原消息' }, image],
+      timestamp: 100,
+      sourceEntry: { id: 'user-entry', type: 'message', revision: '1' },
+    },
+  ]
+  snapshot.state.isPaused = true
+  snapshot.state.isStreaming = true
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  act(() => {
+    result.current.setDraft('新的主草稿')
+    result.current.selectThinkingLevel('high')
+  })
+  expect(result.current.configurationChanged).toBe(true)
+  await act(async () => result.current.resume())
+  await waitFor(() => expect(editAndPrompt).toHaveBeenCalledTimes(1))
+  await waitFor(() => expect(result.current.editing).toBe(false))
+  expect(editAndPrompt.mock.calls[0].slice(0, 5)).toEqual(['main', 'user-entry', '含图片的原消息', [image], []])
+  expect(result.current.draft).toBe('新的主草稿')
+  expect(resume).not.toHaveBeenCalled()
+})
+
+test('暂停时已有主草稿仍可按新配置重试，同时保留排队发送入口', () => {
+  const onResume = vi.fn()
+  render(
+    <TooltipProvider>
+      <ComposerToolbar
+        paused
+        running
+        disabled={false}
+        draft="保留的主草稿"
+        hasAttachments={false}
+        queueMode="followUp"
+        onQueueMode={() => {}}
+        onSteeringMode={() => {}}
+        onFollowUpMode={() => {}}
+        onStop={() => {}}
+        model={null}
+        access={null}
+        contextUsage={null}
+        editing={false}
+        resumeLabel="按新配置重试"
+        onResume={onResume}
+      />
+    </TooltipProvider>,
+  )
+  fireEvent.click(screen.getByRole('button', { name: '按新配置重试' }))
+  expect(onResume).toHaveBeenCalledTimes(1)
+  expect(screen.getByRole('button', { name: '发送排队任务' }).getAttribute('type')).toBe('submit')
 })

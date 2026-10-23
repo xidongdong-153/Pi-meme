@@ -127,7 +127,7 @@ test('跨服务转移清空草稿后，同一会话继续输入仍可持久化',
 test('历史消息编辑不覆盖普通草稿，清空文字后不恢复技能标记', () => {
   const { open } = fixture()
   const drafts = open()
-  drafts.set('session', { ...composer, draft: '历史消息修改', editing: { timestamp: 1000, restore: composer } })
+  drafts.set('session', { ...composer, draft: '历史消息修改', editing: { entryId: 'entry-1000', restore: composer } })
   assert.equal(open().get('session')?.draft, composer.draft)
   drafts.set('session', { ...composer, draft: '' })
   assert.equal(open().get('session'), undefined)
@@ -143,7 +143,7 @@ test('存储维护检查所有会话的已保存草稿、技能与发送中的�
   drafts.delete('other-session')
   drafts.set('session', { ...empty, selectedSkills: [skill] })
   assert.equal(drafts.hasInput(), true)
-  drafts.set('session', { ...empty, editing: { timestamp: 1, restore: empty } })
+  drafts.set('session', { ...empty, editing: { entryId: 'entry-1', restore: empty } })
   assert.equal(drafts.hasInput(), true)
   drafts.set('session', empty)
   const finish = drafts.startSend('session', composer)

@@ -1,4 +1,10 @@
-import type { MessageOptions, QueuedInput, TaskMode } from '@pi-meme/contracts/plan'
+import type {
+  MessageOptions,
+  QueuedInput,
+  TaskMode,
+  EditMessageOptions,
+  EditMessageResult,
+} from '@pi-meme/contracts/plan'
 import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
 import type { InlineExtension } from '@earendil-works/pi-coding-agent'
 import type { Connection, SessionSelectionResult, Snapshot } from '@pi-meme/contracts/desktop'
@@ -21,12 +27,12 @@ export interface PiRuntime {
   switchSession: (path: string) => Promise<SessionSelectionResult>
   editAndPrompt: (
     sessionKey: string,
-    timestamp: number,
+    entryId: string,
     message: string,
     images?: PiImage[],
     skills?: SkillReference[],
-    options?: MessageOptions,
-  ) => Promise<void>
+    options?: EditMessageOptions,
+  ) => Promise<EditMessageResult>
   forkReply: (sessionKey: string, userTimestamp: number) => Promise<SessionSelectionResult>
   idle: <T>(action: () => Promise<T>, allowDisconnected?: boolean) => Promise<T>
   prompt: (

@@ -10,7 +10,15 @@ import type {
   CollaborationEvent,
   PendingInteraction,
 } from './collaboration'
-import type { MessageOptions, QueuedInput, PlanDocument, PlanEvent, TaskMode } from './plan'
+import type {
+  MessageOptions,
+  QueuedInput,
+  PlanDocument,
+  PlanEvent,
+  TaskMode,
+  EditMessageOptions,
+  EditMessageResult,
+} from './plan'
 import type { UsageStatsSnapshot } from './usage'
 import type { AgentAccessEvent, AgentAccessMode } from './agent-access'
 import type {
@@ -73,6 +81,7 @@ export type Connection = {
   error?: string
   accessMode?: AgentAccessMode
   accessChanging?: boolean
+  editPhase?: 'stopping' | 'sending'
   restrictedAccessSupported?: boolean
   restrictedAccessReason?: string
   restrictedPluginRuntimeSupported?: boolean
@@ -283,12 +292,12 @@ export interface ChatBridge {
   abort: (sessionKey: string) => Promise<void>
   editAndPrompt: (
     sessionKey: string,
-    timestamp: number,
+    entryId: string,
     message: string,
     images?: PiImage[],
     skills?: SkillReference[],
-    options?: MessageOptions,
-  ) => Promise<void>
+    options?: EditMessageOptions,
+  ) => Promise<EditMessageResult>
   forkReply: (sessionKey: string, userTimestamp: number) => Promise<SessionSelectionResult>
 }
 

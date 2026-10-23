@@ -1,6 +1,13 @@
 import type { GoalControl } from '@pi-meme/contracts/goal'
 import { validateExtensionDialogResponse } from '@pi-meme/contracts/user-input'
-import { normalizePlanMessage, type TaskMode, type MessageOptions } from '@pi-meme/contracts/plan'
+import {
+  normalizePlanMessage,
+  type TaskMode,
+  type MessageOptions,
+  type EditMessageOptions,
+  type EditMessageResult,
+  type QueuedInput,
+} from '@pi-meme/contracts/plan'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import type { ToolExecutionSettings } from '@pi-meme/contracts/settings'
 import type { InlineExtension } from '@earendil-works/pi-coding-agent'
@@ -165,6 +172,7 @@ export type CollaborationLifecycle = {
   stop: (sessionKey: string) => void | Promise<void>
 }
 export class PiSessionPool implements PiRuntime {
+  private edits = new Map<string, 'stopping' | 'sending'>()
   private aborts = new Map<string, Promise<void>>()
   private goalSessions = new Set<string>()
   goalStopStamp(key: string) {
@@ -669,6 +677,7 @@ export class PiSessionPool implements PiRuntime {
       workspaceKind: this.workspaceOptions?.kind(this.cwd) ?? 'project',
       sessionKey: this.active?.key,
       accessMode: this.active?.accessMode ?? this.defaultMode,
+      editPhase: this.edits.get(this.active?.key),
       accessChanging: this.active?.accessChanging || this.active?.stopping,
       restrictedAccessSupported: this.restrictedAccess?.supported ?? false,
       restrictedAccessReason: this.restrictedAccess?.reason,
@@ -1460,29 +1469,55 @@ export class PiSessionPool implements PiRuntime {
   }
   async editAndPrompt(
     sessionKey: string,
-    timestamp: number,
+    entryId: string,
     message: string,
     images?: PiImage[],
     skills: SkillReference[] = [],
-    options?: MessageOptions,
-  ) {
+    options?: EditMessageOptions,
+  ): Promise<EditMessageResult> {
+    this.assertNotEditing(sessionKey)
     const record = this.target(sessionKey)
-    await this.prompt(sessionKey, message, images, skills, options, undefined, timestamp)
-    const { entries } = await record.session.getEntries()
-    const first = entries.find((entry) => messageEntry(entry) && entry.message.role === 'user')
-    if (first && messageEntry(first) && first.message.role === 'user') {
-      const content = first.message.content
-      record.firstMessage =
-        typeof content === 'string'
-          ? content
-          : content
-              .filter((part) => part.type === 'text')
-              .map((part) => part.text)
-              .join('\n')
-      this.notify.sessionsChanged()
+    this.edits.set(sessionKey, 'stopping')
+    this.notify.connection(this.withSession(sessionKey, () => this.connection()))
+    const recoveredInputs: QueuedInput[] = []
+    try {
+      if (this.changing) throw new Error('会话正在切换，请稍后编辑')
+      await this.ensureRuntime(record)
+      await record.session.validateMessageEdit(entryId, message, options)
+      await this.pause(sessionKey)
+      const queued = await record.session.clearQueue()
+      recoveredInputs.push(...queued.steering, ...queued.followUp)
+      await this.abort(sessionKey)
+      this.target(sessionKey)
+      this.edits.set(sessionKey, 'sending')
+      this.notify.connection(this.withSession(sessionKey, () => this.connection()))
+      await this.prompt(sessionKey, message, images, skills, options, undefined, entryId)
+      const { entries } = await record.session.getEntries()
+      const first = entries.find((entry) => messageEntry(entry) && entry.message.role === 'user')
+      if (first && messageEntry(first) && first.message.role === 'user') {
+        const content = first.message.content
+        record.firstMessage =
+          typeof content === 'string'
+            ? content
+            : content
+                .filter((part) => part.type === 'text')
+                .map((part) => part.text)
+                .join('\n')
+        this.notify.sessionsChanged()
+      }
+      return { recoveredInputs }
+    } catch (cause) {
+      return { recoveredInputs, error: cause instanceof Error ? cause.message : String(cause) }
+    } finally {
+      this.edits.delete(sessionKey)
+      if (this.sessions.has(sessionKey)) this.notify.connection(this.withSession(sessionKey, () => this.connection()))
     }
   }
+  private assertNotEditing(sessionKey: string) {
+    if (this.edits.has(sessionKey)) throw new Error('正在覆盖此会话，请等待完成后重试')
+  }
   async forkReply(sessionKey: string, userTimestamp: number): Promise<SessionSelectionResult> {
+    this.assertNotEditing(sessionKey)
     const source = this.target(sessionKey)
     if (source.running || this.changing) throw new Error('会话正在运行，请等待完成后新建会话')
     this.changing = true
@@ -1550,13 +1585,14 @@ export class PiSessionPool implements PiRuntime {
     message: string,
     images?: PiImage[],
     skills: SkillReference[] = [],
-    options?: MessageOptions,
+    options?: EditMessageOptions,
     goalControl?: GoalControl,
-    editTimestamp?: number,
+    editEntryId?: string,
     recoveryEntryId?: string,
   ) {
+    if (!editEntryId) this.assertNotEditing(sessionKey)
     const normalized = normalizePlanMessage(message, options?.mode ?? this.target(sessionKey).state.mode)
-    if (editTimestamp !== undefined && (normalized.commandOnly || builtinCommand(normalized.text)))
+    if (editEntryId !== undefined && (normalized.commandOnly || builtinCommand(normalized.text)))
       throw new Error('编辑消息需要重新发送正文，不能执行内置命令')
     if (normalized.commandOnly) {
       await this.setSessionMode(sessionKey, normalized.mode)
@@ -1595,11 +1631,11 @@ export class PiSessionPool implements PiRuntime {
               message,
               images,
               skills,
-              { mode: normalized.mode, clientProcessingAudit: options?.clientProcessingAudit },
+              { ...options, mode: normalized.mode },
               false,
               true,
               undefined,
-              editTimestamp,
+              editEntryId,
             )
       await record.session.setSessionMode(record.state.mode)
       return result
@@ -1671,6 +1707,7 @@ export class PiSessionPool implements PiRuntime {
     skills?: SkillReference[],
     options?: MessageOptions,
   ) {
+    this.assertNotEditing(sessionKey)
     const record = this.target(sessionKey)
     if (record.session.connection().status !== 'ready') {
       await this.ensureRuntime(record, options?.mode)
@@ -1685,6 +1722,7 @@ export class PiSessionPool implements PiRuntime {
     skills?: SkillReference[],
     options?: MessageOptions,
   ) {
+    this.assertNotEditing(sessionKey)
     const record = this.target(sessionKey)
     if (record.session.connection().status !== 'ready') {
       await this.ensureRuntime(record, options?.mode)
@@ -1775,14 +1813,17 @@ export class PiSessionPool implements PiRuntime {
     return this.collaboration?.pause ? this.collaboration.pause(sessionKey) : this.target(sessionKey).session.pause()
   }
   resume(sessionKey: string) {
+    this.assertNotEditing(sessionKey)
     return this.collaboration?.resume ? this.collaboration.resume(sessionKey) : this.target(sessionKey).session.resume()
   }
   async steerQueueInput(sessionKey: string, id: string) {
+    this.assertNotEditing(sessionKey)
     const record = this.target(sessionKey)
     await record.session.steerQueueInput(id)
     if (record.state.isPaused || record.state.queuePaused) await this.resume(sessionKey)
   }
   deleteQueueInput(sessionKey: string, id: string) {
+    this.assertNotEditing(sessionKey)
     return this.target(sessionKey).session.deleteQueueInput(id)
   }
   private queueOwner() {
@@ -1791,6 +1832,7 @@ export class PiSessionPool implements PiRuntime {
     return clientId
   }
   beginQueueEdit(sessionKey: string, id: string) {
+    this.assertNotEditing(sessionKey)
     return this.target(sessionKey).session.beginQueueEdit(id, this.queueOwner())
   }
   updateQueueInput(
@@ -1801,6 +1843,7 @@ export class PiSessionPool implements PiRuntime {
     skills?: SkillReference[],
     options?: MessageOptions,
   ) {
+    this.assertNotEditing(sessionKey)
     return this.target(sessionKey).session.updateQueueInput(id, message, images, skills, options, this.queueOwner())
   }
   cancelQueueEdit(sessionKey: string, id: string) {
@@ -1819,6 +1862,7 @@ export class PiSessionPool implements PiRuntime {
   }
 
   clearQueue(sessionKey: string) {
+    this.assertNotEditing(sessionKey)
     return this.target(sessionKey).session.clearQueue()
   }
   async setSteeringMode(sessionKey: string, mode: 'all' | 'one-at-a-time') {
@@ -1844,6 +1888,7 @@ export class PiSessionPool implements PiRuntime {
     return [...builtinCommands, ...commands]
   }
   async setModel(sessionKey: string, model: PiModel) {
+    this.assertNotEditing(sessionKey)
     const record = this.target(sessionKey)
     if (record.dormant) {
       const models =
@@ -1858,6 +1903,7 @@ export class PiSessionPool implements PiRuntime {
     return selected
   }
   async setThinkingLevel(sessionKey: string, level: ThinkingLevel) {
+    this.assertNotEditing(sessionKey)
     const record = this.target(sessionKey)
     if (record.dormant) {
       record.state = { ...record.state, thinkingLevel: level }

@@ -15,6 +15,7 @@ export function ComposerQueues({
   activeMode,
   disabled,
   onResume,
+  resumeLabel,
   onSteerQueueInput,
   onDeleteQueueInput,
   onEditQueueInput,
@@ -25,6 +26,7 @@ export function ComposerQueues({
   | 'activeMode'
   | 'disabled'
   | 'onResume'
+  | 'resumeLabel'
   | 'onSteerQueueInput'
   | 'onDeleteQueueInput'
   | 'onEditQueueInput'
@@ -44,9 +46,15 @@ export function ComposerQueues({
         <div className="flex min-h-9 min-w-0 items-center gap-2 border-b border-border/70 px-3 text-muted-foreground">
           <Pause className="size-3 shrink-0" />
           <span className="min-w-0 flex-1">由于你中断了当前响应，队列已暂停</span>
-          <button type="button" aria-label="继续队列" className={actionClass} disabled={disabled} onClick={onResume}>
+          <button
+            type="button"
+            aria-label={resumeLabel ?? '继续队列'}
+            className={actionClass}
+            disabled={disabled}
+            onClick={onResume}
+          >
             <Play className="size-3 fill-current" />
-            继续
+            {resumeLabel ?? '继续'}
           </button>
         </div>
       )}

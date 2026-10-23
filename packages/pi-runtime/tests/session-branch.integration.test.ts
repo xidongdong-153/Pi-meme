@@ -44,11 +44,12 @@ async function waitForSettled(pool: PiSessionPool) {
 }
 
 async function withPool(
-  run: (pool: PiSessionPool, key: string) => Promise<void>,
+  run: (pool: PiSessionPool, key: string, agent: Awaited<ReturnType<typeof useFakeAgent>>) => Promise<void>,
   directory: string,
   extensions: InlineExtension[] = [],
+  fakeOptions: Parameters<typeof useFakeAgent>[1] = {},
 ) {
-  const agent = await useFakeAgent(directory)
+  const agent = await useFakeAgent(directory, fakeOptions)
   const pool = new PiSessionPool(
     directory,
     {
@@ -77,12 +78,27 @@ async function withPool(
     ])
     pool.start(directory)
     await pool.snapshot()
-    await run(pool, pool.connection().sessionKey!)
+    await run(pool, pool.connection().sessionKey!, agent)
   } finally {
     pool.stop()
     await delay(100)
     await agent.dispose()
   }
+}
+
+async function editAndPrompt(
+  pool: PiSessionPool,
+  key: string,
+  timestamp: number,
+  ...args: Parameters<PiSessionPool['editAndPrompt']> extends [string, string, ...infer Rest] ? Rest : never
+) {
+  const snapshot = await pool.snapshot()
+  const message = snapshot.messages.find((message) => message.role === 'user' && message.timestamp === timestamp)
+  const entryId = message?.sourceEntry?.id
+  assert.ok(entryId)
+  const result = await pool.editAndPrompt(key, entryId, ...args)
+  if (result.error) throw new Error(result.error)
+  return result
 }
 
 test('编辑第一轮覆盖原消息及后续，不保留旧版本', async () => {
@@ -97,7 +113,7 @@ test('编辑第一轮覆盖原消息及后续，不保留旧版本', async () =>
       assert.deepEqual(users(original.messages), ['第一轮', '第二轮'])
 
       const firstTimestamp = dialogue(original.messages).find((message) => message.role === 'user')!.timestamp
-      await pool.editAndPrompt(key, firstTimestamp, '第一轮编辑版')
+      await editAndPrompt(pool, key, firstTimestamp, '第一轮编辑版')
       await waitForSettled(pool)
       const edited = await pool.snapshot()
       assert.deepEqual(users(edited.messages), ['第一轮编辑版'])
@@ -140,7 +156,7 @@ test('中间轮次可反复覆盖，保留前文和名称，图片及旧后续�
         mimeType: 'image/png',
         data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=',
       }
-      await pool.editAndPrompt(key, timestamp, '带图片的新输入', [image])
+      await editAndPrompt(pool, key, timestamp, '带图片的新输入', [image])
       await waitForSettled(pool)
       const edited = await pool.snapshot()
       assert.deepEqual(dialogue(edited.messages).slice(0, 2), prior)
@@ -151,7 +167,7 @@ test('中间轮次可反复覆盖，保留前文和名称，图片及旧后续�
       assert.equal(pool.getActiveSession().sessionId, originalId)
       assert.match(await readFile(sessionFile, 'utf8'), new RegExp(image.data.replace(/\+/g, '\\+')))
       const nextTimestamp = dialogue(edited.messages).filter((message) => message.role === 'user')[1].timestamp
-      await pool.editAndPrompt(key, nextTimestamp, '第二次修改')
+      await editAndPrompt(pool, key, nextTimestamp, '第二次修改')
       await waitForSettled(pool)
       const stored = await readFile(sessionFile, 'utf8')
       assert.doesNotMatch(stored, /要修改的第二轮|要删除的第三轮|带图片的新输入|iVBOR/)
@@ -185,18 +201,18 @@ test('编辑预检、原子替换和 manager 重载失败均保留原对话并�
         assert.equal(await readFile(sessionFile, 'utf8'), original)
         assert.deepEqual(dialogue((await pool.snapshot()).messages), dialogue(before.messages))
       }
-      await assert.rejects(pool.editAndPrompt(key, timestamp, '编辑被接管'), /已保留原对话/)
+      await assert.rejects(editAndPrompt(pool, key, timestamp, '编辑被接管'), /已保留原对话/)
       await unchanged()
-      await assert.rejects(pool.editAndPrompt(key, timestamp, '/name 不应改名'), /不能执行内置命令/)
+      await assert.rejects(editAndPrompt(pool, key, timestamp, '/name 不应改名'), /不能执行内置命令/)
       await unchanged()
-      await assert.rejects(pool.editAndPrompt(key, timestamp, '/edit-test-command'), /不能执行扩展命令/)
+      await assert.rejects(editAndPrompt(pool, key, timestamp, '/edit-test-command'), /不能执行扩展命令/)
       await unchanged()
       const rename = vi.spyOn(fs, 'renameSync').mockImplementationOnce(() => {
         throw new Error('模拟原子替换失败')
       })
       syncBuiltinESMExports()
       try {
-        await assert.rejects(pool.editAndPrompt(key, timestamp, '写入失败的新输入'), /模拟原子替换失败/)
+        await assert.rejects(editAndPrompt(pool, key, timestamp, '写入失败的新输入'), /模拟原子替换失败/)
       } finally {
         rename.mockRestore()
         syncBuiltinESMExports()
@@ -207,7 +223,7 @@ test('编辑预检、原子替换和 manager 重载失败均保留原对话并�
         throw new Error('模拟 manager 重载失败')
       })
       try {
-        await assert.rejects(pool.editAndPrompt(key, timestamp, '重载失败的新输入'), /模拟 manager 重载失败/)
+        await assert.rejects(editAndPrompt(pool, key, timestamp, '重载失败的新输入'), /模拟 manager 重载失败/)
       } finally {
         reload.mockRestore()
       }
@@ -216,7 +232,7 @@ test('编辑预检、原子替换和 manager 重载失败均保留原对话并�
         (await readdir(path.dirname(sessionFile))).some((file) => file.endsWith('.tmp')),
         false,
       )
-      await pool.editAndPrompt(key, timestamp, '重试成功的新输入')
+      await editAndPrompt(pool, key, timestamp, '重试成功的新输入')
       await waitForSettled(pool)
       assert.deepEqual(users((await pool.snapshot()).messages), ['重试成功的新输入'])
     }, directory)
@@ -242,13 +258,13 @@ test('编辑等待新用户消息持久化才删除旧记录，并清除被编�
         const original = await readFile(sessionFile, 'utf8')
         editing = true
         let returned = false
-        const sending = pool.editAndPrompt(key, timestamp, '去掉技能的新输入').then(() => {
+        const sending = editAndPrompt(pool, key, timestamp, '去掉技能的新输入').then(() => {
           returned = true
         })
         await blocked.promise
         await delay(10)
         assert.equal(returned, false)
-        assert.equal(await readFile(sessionFile, 'utf8'), original)
+        assert.ok((await readFile(sessionFile, 'utf8')).startsWith(original))
         release.resolve()
         await sending
         const accepted = await readFile(sessionFile, 'utf8')
@@ -312,6 +328,106 @@ test('从历史回复 Fork 只复制截至该回复的上下文，原会话保�
       assert.equal(original.cancelled, false)
       if (original.cancelled) return
       assert.deepEqual(users(original.snapshot.messages), ['第一轮', '第二轮'])
+    }, directory)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('暂停运行中的消息按新模型和强度覆盖，旧队列可恢复且配置持久化', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pi-edit-running-'))
+  const barrier = Promise.withResolvers<void>()
+  try {
+    await withPool(
+      async (pool, key, agent) => {
+        await pool.prompt(key, '正在运行的原消息')
+        const deadline = Date.now() + 5000
+        while (!agent.provider.requests.length) {
+          if (Date.now() > deadline) throw new Error('模型未收到原请求')
+          await delay(10)
+        }
+        await pool.pause(key)
+        await pool.followUp(key, '保留的队列')
+        const before = await pool.snapshot()
+        const target = before.messages.find((message) => message.role === 'user')!.sourceEntry!.id
+        const result = await pool.editAndPrompt(key, target, '编辑后的新消息', [], [], {
+          model: { provider: 'fake', id: 'second' },
+          thinkingLevel: 'high',
+        })
+        assert.equal(result.error, undefined)
+        assert.deepEqual(
+          result.recoveredInputs.map((input) => input.text),
+          ['保留的队列'],
+        )
+        await waitForSettled(pool)
+        assert.equal(agent.provider.requests.at(-1)?.model, 'second')
+        assert.equal(agent.provider.requests.at(-1)?.reasoning_effort, 'high')
+        const edited = await pool.snapshot()
+        assert.deepEqual(users(edited.messages), ['编辑后的新消息'])
+        assert.equal(edited.state.model?.id, 'second')
+        assert.equal(edited.state.thinkingLevel, 'high')
+        assert.equal(edited.state.isPaused, false)
+        assert.equal(edited.state.queuePaused, false)
+        const file = pool.getActiveSession().sessionFile!
+        pool.start(directory, file)
+        const reopened = await pool.snapshot()
+        assert.equal(reopened.state.model?.id, 'second')
+        assert.equal(reopened.state.thinkingLevel, 'high')
+        assert.deepEqual(users(reopened.messages), ['编辑后的新消息'])
+        barrier.resolve()
+        await delay(20)
+        assert.deepEqual(users((await pool.snapshot()).messages), ['编辑后的新消息'])
+      },
+      directory,
+      [],
+      {
+        models: [
+          { id: 'first', reasoning: true },
+          { id: 'second', reasoning: true },
+        ],
+        reply: (_body, index) => (index === 1 ? { text: '旧任务回复', finishBarrier: barrier.promise } : '新任务回复'),
+      },
+    )
+  } finally {
+    barrier.resolve()
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('覆盖校验和停止失败保留历史，同一会话拒绝并发覆盖', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pi-edit-errors-'))
+  try {
+    await withPool(async (pool, key) => {
+      await pool.prompt(key, '原消息')
+      await waitForSettled(pool)
+      const before = await pool.snapshot()
+      const target = before.messages.find((message) => message.role === 'user')!.sourceEntry!.id
+      const file = pool.getActiveSession().sessionFile!
+      const original = await readFile(file, 'utf8')
+      const unavailable = await pool.editAndPrompt(key, target, '不应覆盖', [], [], {
+        model: { provider: 'fake', id: 'missing' },
+      })
+      assert.match(unavailable.error!, /模型已不可用/)
+      assert.equal(await readFile(file, 'utf8'), original)
+      const stopping = Promise.withResolvers<void>()
+      const abort = vi.spyOn(pool, 'abort').mockImplementation(() => stopping.promise)
+      try {
+        const first = pool.editAndPrompt(key, target, '第一个编辑')
+        const deadline = Date.now() + 5000
+        while (!abort.mock.calls.length) {
+          if (Date.now() > deadline) throw new Error('覆盖未进入停止阶段')
+          await delay(10)
+        }
+        await assert.rejects(pool.editAndPrompt(key, target, '并发编辑'), /正在覆盖/)
+        assert.throws(() => pool.clearQueue(key), /正在覆盖/)
+        assert.throws(() => pool.updateQueueInput(key, 'old-input', '并发队列更新'), /正在覆盖/)
+        await assert.rejects(pool.forkReply(key, 0), /正在覆盖/)
+        stopping.reject(new Error('停止失败'))
+        assert.match((await first).error!, /停止失败/)
+        assert.equal(await readFile(file, 'utf8'), original)
+      } finally {
+        abort.mockRestore()
+      }
     }, directory)
   } finally {
     await rm(directory, { recursive: true, force: true })

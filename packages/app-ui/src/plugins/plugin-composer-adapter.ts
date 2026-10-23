@@ -89,7 +89,7 @@ export class PluginComposerController implements ComposerAdapter {
       options.chat.connection.sessionKey,
       options.session?.sessionId,
       options.visible,
-      options.chat.editingTimestamp,
+      options.chat.editingEntryId,
       options.chat.editingQueue,
       options.chat.connection.cwd,
     ])
@@ -150,7 +150,7 @@ export class PluginComposerController implements ComposerAdapter {
   private ref(): ComposerRef {
     const { chat, session, hostId } = this.options
     const edited = chat.chat.messages.find(
-      (message) => message.role === 'user' && message.timestamp === chat.editingTimestamp,
+      (message) => message.role === 'user' && message.sourceEntry?.id === chat.editingEntryId,
     )
     return {
       id: this.id,
@@ -161,7 +161,7 @@ export class PluginComposerController implements ComposerAdapter {
           : { kind: 'standalone-draft', draftKey: this.draftKey, hostId },
       ...(session ? { session: { hostId: session.hostId, sessionId: session.sessionId } } : {}),
       context:
-        chat.editingTimestamp !== null && session && edited?.sourceEntry
+        chat.editingEntryId !== null && session && edited?.sourceEntry
           ? {
               kind: 'edit-message',
               message: {
@@ -201,7 +201,7 @@ export class PluginComposerController implements ComposerAdapter {
   }
   current = (): ComposerView | null => {
     if (!this.options || !this.options.visible) return null
-    if (this.options.chat.editingTimestamp !== null && this.ref().context.kind !== 'edit-message') return null
+    if (this.options.chat.editingEntryId !== null && this.ref().context.kind !== 'edit-message') return null
     const source = this.options.chat.composerStore.getSnapshot()
     const processing = this.pipeline.getSnapshot()
     if (

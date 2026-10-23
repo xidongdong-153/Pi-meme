@@ -71,6 +71,8 @@ export function useAppSession(
   const actionLock = useRef(false)
   const modelSelection = useRef<Promise<boolean> | null>(null)
   const modelSaveError = useRef<unknown>(undefined)
+  const thinkingSelection = useRef<Promise<void> | null>(null)
+  const thinkingSaveError = useRef<unknown>(undefined)
   const thinkingRequest = useRef(0)
   const selection = useRef(new SessionSelection())
   const synchronization = useRef(new SnapshotSync())
@@ -86,6 +88,11 @@ export function useAppSession(
     (snapshot: Snapshot, events: DesktopEvent[] | null, pluginRevision: number, modeRevision?: number) => {
       const previousKey = displayed.current.sessionKey
       const previousGeneration = displayed.current.generation
+      if (previousKey !== snapshot.connection.sessionKey) {
+        modelSelection.current = null
+        thinkingSelection.current = null
+        thinkingSaveError.current = undefined
+      }
       currentRootAgentId.current = snapshot.agent?.rootAgentId ?? snapshot.agent?.agentId
       currentAgentTree.current = snapshot.agents ?? []
       setPlanDocuments(snapshot.planDocuments ?? [])
@@ -236,6 +243,8 @@ export function useAppSession(
       return async (...args: Args) => {
         const pending = modelSelection.current
         if (pending && !(await pending)) throw modelSaveError.current ?? new Error('模型切换失败，消息尚未发送')
+        await thinkingSelection.current
+        if (thinkingSaveError.current) throw thinkingSaveError.current
         return send.apply(bridge, args)
       }
     }
@@ -243,11 +252,15 @@ export function useAppSession(
       ...bridge,
       prompt: afterModelSelection(bridge.prompt),
       followUp: afterModelSelection(bridge.followUp),
-      editAndPrompt: afterModelSelection(bridge.editAndPrompt),
+      editAndPrompt: async (...args: Parameters<DesktopBridge['editAndPrompt']>) => {
+        await Promise.allSettled([modelSelection.current, thinkingSelection.current])
+        return bridge.editAndPrompt(...args)
+      },
     }
   }, [bridge])
   const chat = useChatSession({
     bridge: chatBridge,
+    configuration: () => ({ model: state?.model, thinkingLevel: state?.thinkingLevel }),
     refresh,
     commands,
     canSend: () =>
@@ -256,7 +269,8 @@ export function useAppSession(
       !switching &&
       !current.current.accessChanging &&
       (current.current.status === 'ready' || current.current.status === 'idle') &&
-      !state?.modelSelectionRequired,
+      (!state?.modelSelectionRequired ||
+        Boolean(chatRef.current?.pendingConfiguration?.model || chatRef.current?.editConfiguration?.model)),
     isSwitching: () => selection.current.current !== null,
     awaitPendingSwitch: async () => {
       await selection.current.pending
@@ -264,6 +278,13 @@ export function useAppSession(
     currentGeneration: () => current.current.generation,
     currentSessionKey: () => current.current.sessionKey,
     onError: setError,
+    onBackgroundEdit: (key, composer) => {
+      drafts.set(key, composer)
+      if (key === current.current.sessionKey && !selection.current.current) {
+        chatRef.current?.restoreComposer(composer)
+        void refresh()
+      }
+    },
     onSendStarted: (key, composer) => drafts.startSend(key, composer),
     onSendFailed: (key, composer) => {
       if (!key || key === current.current.sessionKey) void refresh()
@@ -295,7 +316,10 @@ export function useAppSession(
     chat.pluginAnchors,
     chat.attachments,
     chat.queueMode,
-    chat.editingTimestamp,
+    chat.editingEntryId,
+    chat.pendingConfiguration,
+    chat.editConfiguration,
+    chat.recoveredInputs,
     chat.editingQueue,
   ])
   const extensions = useExtensionUI(bridge, chat.setDraft, () => current.current.sessionKey)
@@ -665,17 +689,19 @@ export function useAppSession(
   }
   // 统计、思考档位和扩展状态不再因切换清空；输入仍按原规则在切换期间只读，避免写入旧会话。
   const inputDisabled =
+    chat.editSubmitting ||
     loading ||
     acting ||
     switching ||
     (connection.status !== 'ready' && connection.status !== 'idle') ||
     Boolean(connection.accessChanging) ||
-    Boolean(state?.modelSelectionRequired)
+    (Boolean(state?.modelSelectionRequired) && !chat.pendingConfiguration?.model && !chat.editConfiguration?.model)
   const modelPickerDisabled =
+    chat.editSubmitting ||
     loading ||
     acting ||
     switching ||
-    chat.chat.running ||
+    (chat.chat.running && !chat.chat.paused && !chat.chat.queuePaused && !chat.editing) ||
     (connection.status !== 'ready' && connection.status !== 'idle') ||
     Boolean(connection.accessChanging)
   const supportedCommands = useMemo(
@@ -867,7 +893,10 @@ export function useAppSession(
     setAttachments: chat.setAttachments,
     setQueueMode: chat.setQueueMode,
     editing: chat.editing,
-    editingTimestamp: chat.editingTimestamp,
+    editingEntryId: chat.editingEntryId,
+    editSubmitting: chat.editSubmitting,
+    selectedConfiguration: chat.selectedConfiguration,
+    configurationChanged: chat.configurationChanged,
     editMessage: (message: Parameters<typeof chat.editMessage>[0]) => {
       chat.editMessage(message)
       extensions.focusDraft()
@@ -942,6 +971,11 @@ export function useAppSession(
         if (owns()) setState(next)
       }),
     selectModel: (model: PiModel) => {
+      if (chat.editSubmitting) return Promise.resolve(false)
+      if (chat.editing || chat.chat.paused || chat.chat.queuePaused) {
+        chat.updateConfiguration({ model })
+        return Promise.resolve(true)
+      }
       if (!current.current.sessionKey || actionLock.current || selection.current.current) return Promise.resolve(false)
       if (state?.model?.provider === model.provider && state.model.id === model.id && !state.modelSelectionRequired)
         return Promise.resolve(true)
@@ -973,6 +1007,11 @@ export function useAppSession(
       return pending
     },
     selectThinkingLevel: (level: ThinkingLevel) => {
+      if (chat.editSubmitting) return
+      if (chat.editing || chat.chat.paused || chat.chat.queuePaused) {
+        chat.updateConfiguration({ thinkingLevel: level })
+        return
+      }
       const key = current.current.sessionKey
       const generation = current.current.generation
       const owns = () =>
@@ -983,8 +1022,18 @@ export function useAppSession(
       synchronization.current.cancel()
       setError('')
       setState((value) => value && { ...value, thinkingLevel: level })
-      void bridge.setThinkingLevel(key, level).catch(async (cause) => {
+      thinkingSaveError.current = undefined
+      const modelPending = modelSelection.current
+      const pending = Promise.resolve(thinkingSelection.current)
+        .catch(() => {})
+        .then(async () => {
+          if (modelPending && !(await modelPending)) throw modelSaveError.current ?? new Error('模型切换失败')
+          await bridge.setThinkingLevel(key, level)
+        })
+      thinkingSelection.current = pending
+      void pending.catch(async (cause) => {
         if (owns() && request === thinkingRequest.current) {
+          thinkingSaveError.current = cause
           setError(String(cause))
           const savedLevel = await bridge
             .getSnapshot()

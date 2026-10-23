@@ -1,7 +1,7 @@
 import { isTaskMode } from '@pi-meme/contracts/plan'
 import { ProjectFileSearch } from './project-file-search'
 import type { PiRuntime } from '@pi-meme/pi-runtime/runtime'
-import { message, text, messageOptions } from '@pi-meme/contracts/ipc'
+import { message, text, messageOptions, editMessageOptions } from '@pi-meme/contracts/ipc'
 
 export type ChatHandlerContext = { pi: PiRuntime; getCwd: () => string }
 
@@ -96,22 +96,22 @@ export function createChatHandlers({ pi, getCwd }: ChatHandlerContext) {
     },
     'pi:edit-and-prompt': (
       sessionKey: unknown,
-      valueTimestamp: unknown,
+      entryId: unknown,
       value: unknown,
       images: unknown,
       skills: unknown,
       options: unknown,
     ) => {
       text(sessionKey)
-      if (typeof valueTimestamp !== 'number' || !Number.isFinite(valueTimestamp)) throw new Error('用户消息时间无效')
+      text(entryId)
       const parsed = message(value, images, skills)
       return pi.editAndPrompt(
         sessionKey,
-        valueTimestamp,
+        entryId,
         parsed.text,
         parsed.images,
         parsed.skills,
-        messageOptions(options),
+        editMessageOptions(options),
       )
     },
     'pi:fork-reply': (sessionKey: unknown, valueTimestamp: unknown) => {

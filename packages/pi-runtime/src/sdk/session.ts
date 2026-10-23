@@ -23,7 +23,13 @@ import type {
 } from '@earendil-works/pi-coding-agent'
 import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
 import { builtinCommand, freshSessionCommandError, thinkingLevels } from '@pi-meme/contracts/pi'
-import { normalizePlanMessage, type MessageOptions, type QueuedInput, type TaskMode } from '@pi-meme/contracts/plan'
+import {
+  normalizePlanMessage,
+  type MessageOptions,
+  type QueuedInput,
+  type TaskMode,
+  type EditMessageOptions,
+} from '@pi-meme/contracts/plan'
 import { randomUUID } from 'node:crypto'
 import { createPlanGuard } from '../extensions/plan-mode'
 import type { ToolExecutionSettings } from '@pi-meme/contracts/settings'
@@ -1195,17 +1201,17 @@ export class SdkSession {
     message: string,
     images?: PiImage[],
     skills: SkillReference[] = [],
-    options?: MessageOptions,
+    options?: EditMessageOptions,
     continuation: boolean | 'goal' | 'recovery' = false,
     preserveMode = false,
     expectedGoal?: GoalControl,
-    editTimestamp?: number,
+    editEntryId?: string,
     failureEntryId?: string,
   ) {
     const normalized = normalizePlanMessage(message, options?.mode ?? this.mode)
     if (!normalized.commandOnly && (this.changing || this.running))
       throw new Error('Pi 正在运行或切换，请等待完成后重试')
-    if (editTimestamp !== undefined && (normalized.commandOnly || builtinCommand(normalized.text)))
+    if (editEntryId !== undefined && (normalized.commandOnly || builtinCommand(normalized.text)))
       throw new Error('编辑消息需要重新发送正文，不能执行内置命令')
     if (normalized.commandOnly) {
       await this.setSessionMode(normalized.mode)
@@ -1216,7 +1222,7 @@ export class SdkSession {
     const command = builtinCommand(message)
     const extensionCommand = message.match(/^\/(\S+)/)?.[1]
     if (
-      editTimestamp !== undefined &&
+      editEntryId !== undefined &&
       extensionCommand &&
       this.session.extensionRunner.getRegisteredCommands().some((entry) => entry.invocationName === extensionCommand)
     )
@@ -1224,7 +1230,8 @@ export class SdkSession {
     if (command && (images?.length || skills.length)) throw new Error('内置命令不能附带图片或技能，请移除后重试')
     if (command && this.session.messages.length === 0) throw new Error(freshSessionCommandError(command.name))
     if (command?.name === 'name' && !command.args) throw new Error('请输入会话名称：/name <会话名称>')
-    if (this.modelSelectionRequired && command?.name !== 'name') throw new Error('当前模型已不可用，请先重新选择模型')
+    if (this.modelSelectionRequired && !options?.model && command?.name !== 'name')
+      throw new Error('当前模型已不可用，请先重新选择模型')
     if (this.changing || this.running) throw new Error('Pi 正在运行或切换，请等待完成后重试')
     this.assertPluginAvailability(normalized.mode)
     this.changing = true
@@ -1267,7 +1274,26 @@ export class SdkSession {
           expectedGoal,
         )
         if (generation !== this.generation || this.queueCancelled) throw new Error('消息发送已取消')
-        if (editTimestamp !== undefined) edit = this.prepareUserMessageEdit(editTimestamp)
+        if (editEntryId !== undefined) {
+          await this.validateMessageEdit(editEntryId, message, options)
+          const model = options?.model ?? toModel(this.getState().model)
+          const thinking = options?.thinkingLevel ?? this.getState().thinkingLevel
+          edit = this.prepareUserMessageEdit(editEntryId)
+          if (model) {
+            const selected = this.session.modelRuntime
+              .getAvailableSnapshot()
+              .find((entry) => entry.provider === model.provider && entry.id === model.id)
+            if (!selected) throw new Error('模型已不可用，请重新选择模型')
+            await this.session.setModel(selected)
+            this.modelSelectionRequired = false
+          }
+          this.session.setThinkingLevel(thinking)
+          // 回退历史后即使运行配置没有变化，也必须在新分支记录实际思考强度。
+          this.session.sessionManager.appendThinkingLevelChange(thinking)
+          // 旧队列已保存为待恢复输入，新执行不继承队列暂停状态。
+          this.queuePaused = false
+          this.emitPause()
+        }
         if (failureEntryId !== undefined) recovery = this.prepareRecovery(failureEntryId)
         this.goalRun = run || undefined
         this.goalInputEntryId = undefined
@@ -2073,17 +2099,49 @@ export class SdkSession {
     return this.call(() => this.session.getSessionStats())
   }
 
+  async validateMessageEdit(entryId: string, message: string, options?: EditMessageOptions) {
+    await this.call(async () => {
+      const normalized = normalizePlanMessage(message, options?.mode ?? this.mode)
+      if (normalized.commandOnly || builtinCommand(normalized.text))
+        throw new Error('编辑消息需要重新发送正文，不能执行内置命令')
+      const command = normalized.text.match(/^\/(\S+)/)?.[1]
+      if (
+        command &&
+        this.session.extensionRunner.getRegisteredCommands().some((entry) => entry.invocationName === command)
+      )
+        throw new Error('编辑消息需要重新发送正文，不能执行扩展命令')
+      if (
+        !this.session.sessionManager
+          .getBranch()
+          .some((entry) => entry.id === entryId && entry.type === 'message' && entry.message.role === 'user')
+      )
+        throw new Error('找不到这条用户消息，请刷新会话后重试')
+      if (options?.model) {
+        const model = this.session.modelRuntime
+          .getAvailableSnapshot()
+          .find((entry) => entry.provider === options.model!.provider && entry.id === options.model!.id)
+        if (!model) throw new Error('模型已不可用，请重新选择模型')
+        if (!(await this.session.modelRuntime.checkAuth(model.provider))) throw new Error('模型凭据不可用，请重新登录')
+      }
+    })
+  }
+
   /** 编辑只保留目标之前的当前上下文；原记录仅在内存中用于发送预检失败时恢复。 */
-  private prepareUserMessageEdit(timestamp: number): { commit: () => void; restore: () => void } {
+  private prepareUserMessageEdit(entryId: string): { commit: () => void; restore: () => void } {
     const session = this.session
     const manager = session.sessionManager
     const sessionFile = manager.getSessionFile()
     const branch = manager.getBranch()
     let index = branch.findIndex(
-      (entry) => entry.type === 'message' && entry.message.role === 'user' && entry.message.timestamp === timestamp,
+      (entry) => entry.type === 'message' && entry.message.role === 'user' && entry.id === entryId,
     )
     if (index === -1) throw new Error('找不到这条用户消息，请刷新会话后重试')
     if (!sessionFile) throw new Error('会话尚未保存，无法编辑消息')
+    const target = branch[index]
+    const timestamp = target.type === 'message' ? target.message.timestamp : undefined
+    const previousModel = session.agent.state.model
+    const previousThinking = session.thinkingLevel
+    const previousRequired = this.modelSelectionRequired
     const original = readFileSync(sessionFile, 'utf8')
     const previousLeaf = manager.getLeafId()
     // 显式技能引用在用户 message_end 落盘前写入，编辑时一并移除该消息自己的引用。
@@ -2132,7 +2190,12 @@ export class SdkSession {
           retained.push({ ...info, parentId: retained.at(-1)?.id ?? null })
         replace(`${[manager.getHeader(), ...retained].map((entry) => JSON.stringify(entry)).join('\n')}\n`)
       },
-      restore: () => replace(original, previousLeaf),
+      restore: () => {
+        session.agent.state.model = previousModel
+        session.agent.state.thinkingLevel = previousThinking
+        this.modelSelectionRequired = previousRequired
+        replace(original, previousLeaf)
+      },
     }
   }
 

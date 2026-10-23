@@ -37,6 +37,7 @@ export const Conversation = React.memo(
     chat: initialChat,
     stream,
     canEditMessages,
+    canForkReplies = canEditMessages,
     onEditMessage,
     onSetGoal,
     canSetGoal,
@@ -52,12 +53,13 @@ export const Conversation = React.memo(
     chat: ChatState
     stream?: ChatStream
     canEditMessages: boolean
+    canForkReplies?: boolean
     onEditMessage: (message: Extract<TurnChunk, { type: 'user' }>['message']) => void
     onSetGoal?: (message: Extract<TurnChunk, { type: 'user' }>['message']) => void
     canSetGoal?: boolean
     onForkReply: (timestamp: number) => void
     onCopyError: (message: string) => void
-    /** 正在原位置编辑的用户消息，命中该时间戳时用编辑器替换消息气泡。 */
+    /** 正在原位置编辑的用户消息，命中该原生 entry ID时用编辑器替换消息气泡。 */
     editor?: MessageEditorState
     /** 当前会话标识，用于按会话恢复滚动位置。 */
     sessionKey?: string
@@ -306,7 +308,7 @@ export const Conversation = React.memo(
                         else userMessageRefs.current.delete(turn.key)
                       }}
                     >
-                      {!readOnly && editor && turn.message.timestamp === editor.timestamp ? (
+                      {!readOnly && editor && turn.message.sourceEntry?.id === editor.entryId ? (
                         <InlineMessageEditor editor={editor} />
                       ) : (
                         <ChatMessage
@@ -330,13 +332,19 @@ export const Conversation = React.memo(
                     retry={turn.isLive && chat.retry?.kind === 'model' ? chat.retry : undefined}
                     isPaused={Boolean(chat.paused && turn.isLive)}
                     pauseIntervals={chat.pauseIntervals}
-                    canFork={canEditMessages}
+                    canFork={canForkReplies}
                     onFork={readOnly ? undefined : onForkReply}
                     onCopyError={onCopyError}
                     onActivityToggle={handleActivityToggle}
                   />
                 )
               })}
+
+              {!readOnly &&
+                editor &&
+                !turns.some((turn) => turn.type === 'user' && turn.message.sourceEntry?.id === editor.entryId) && (
+                  <InlineMessageEditor editor={editor} />
+                )}
 
               {chat.retry?.kind === 'summary' ? (
                 <ErrorLine

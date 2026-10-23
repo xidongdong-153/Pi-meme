@@ -205,7 +205,7 @@ function conversationFixture(): ChatState {
   return {
     ...emptyChat,
     messages: [
-      userMessage('子任务正文', 100),
+      { ...userMessage('子任务正文', 100), sourceEntry: { id: 'user', type: 'message', revision: '1' } },
       assistantMessage([{ type: 'toolCall', id: 'read', name: 'read', arguments: { path: 'src/main.ts' } }], 120),
       toolResult('read', '文件正文', 130),
       assistantMessage('任务结果', 140),
@@ -275,9 +275,9 @@ test('只读子代理对话保留正文、复制和工作过程，隐藏编辑�
   assert.doesNotMatch(markup, /编辑消息|从这段回复新建会话|用户消息版本|查看上一个版本|查看下一个版本/)
 })
 
-test('只读子代理对话不渲染传入的内联编辑器', () => {
+test.each([true, false])('编辑目标已消失时，仅可写会话保留草稿与取消入口（只读=%s）', (readOnly) => {
   const editor: MessageEditorState = {
-    timestamp: 100,
+    entryId: 'entry-user',
     draft: '编辑草稿',
     onDraft: () => {},
     selectedSkills: [],
@@ -293,9 +293,13 @@ test('只读子代理对话不渲染传入的内联编辑器', () => {
     onSubmit: () => {},
     onCancel: () => {},
   }
-  const markup = renderConversation(true, true, editor)
+  const markup = renderConversation(readOnly, true, editor)
   assert.match(markup, /子任务正文/)
-  assert.doesNotMatch(markup, /inline-message-editor|编辑历史消息|发送编辑后的消息|编辑草稿/)
+  if (readOnly) assert.doesNotMatch(markup, /inline-message-editor|编辑历史消息|发送编辑后的消息|编辑草稿/)
+  else {
+    assert.match(markup, /inline-message-editor/)
+    assert.match(markup, /取消编辑用户消息/)
+  }
 })
 
 test('子代理展示只过滤派发消息，保留原始分轮、计时和自身操作', () => {
