@@ -216,6 +216,7 @@ const files: Array<[string, Feature[]]> = [
   ['packages/host/tests/remote-services.integration.test.ts', ['connection']],
   ['packages/host/tests/ssh-config.unit.test.ts', ['connection']],
   ['packages/host/tests/ssh-host-bootstrap.unit.test.ts', ['connection']],
+  ['packages/host/tests/ssh-host-probe.integration.test.ts', ['connection']],
   ['packages/host/tests/ssh-tunnels.unit.test.ts', ['connection']],
   ['packages/host/tests/ssh-connections.integration.test.ts', ['connection']],
   ['packages/host/tests/ssh-transport.integration.test.ts', ['connection']],

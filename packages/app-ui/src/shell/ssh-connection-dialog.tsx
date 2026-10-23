@@ -94,8 +94,8 @@ export function SshConnectionDialog({
           <DialogTitle>{connection ? '编辑 SSH 连接' : '添加 SSH 连接'}</DialogTitle>
           <DialogDescription>
             {step === 'discover'
-              ? '从入口 Host 的 ~/.ssh/config 选择连接。添加后自动检查远端环境、准备 Host 并连接。'
-              : '使用入口 Host 的 SSH 配置连接远端。添加后自动准备 Host；编辑不会改变连接开关。'}
+              ? '从入口 Host 的 ~/.ssh/config 选择连接。添加后优先连接已有 Host，未发现时才自动安装并启动。'
+              : '使用入口 Host 的 SSH 配置，优先连接已有 Host，未发现时才自动安装；编辑不会改变连接开关。'}
           </DialogDescription>
         </div>
         {step === 'discover' ? (

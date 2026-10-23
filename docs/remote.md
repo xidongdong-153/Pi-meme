@@ -20,6 +20,7 @@ paths:
   - 'packages/host/src/ssh-config.ts'
   - 'packages/host/src/ssh-connections.ts'
   - 'packages/host/src/ssh-host-bootstrap.ts'
+  - 'packages/host/src/ssh-host-probe.ts'
   - 'apps/server/src/ssh-bootstrap.ts'
   - 'packages/host/src/ssh-tunnels.ts'
   - 'packages/contracts/src/ssh-connections.ts'
@@ -79,27 +80,37 @@ PI_MEME_TOKEN=replace-with-your-access-token \
 
 ## 通过 SSH 自动连接
 
-SSH 由入口 Node Host 发起，读取该用户的 SSH 配置、agent 和 `known_hosts`，不是浏览器所在电脑的文件。先确认系统 `ssh <目标>` 已能非交互登录。应用负责传输匹配版本的 Host 包、后台启动、分配业务端口和建立认证，不需要预装 Node、填写 Host 令牌或执行远端启动命令。
+SSH 由入口 Node Host 发起，读取该用户的 SSH 配置、agent 和 `known_hosts`，不是浏览器所在电脑的文件。先确认系统 `ssh <目标>` 已能非交互登录，远端可运行 Python 3。应用优先只读探测并连接已有 Host；只有明确未发现时才安装并启动当前发行版本的 Host 包。不需要填写 Host 业务端口或令牌，也不需要手工执行远端启动命令。
 
 ### 设置步骤
 
 1. 进入已认证的入口 Host 本机页面，打开“设置 → 系统 → 远程”。默认显示 SSH；普通远程网络页面只能查看已登记服务。
 2. 点击“添加”，从入口用户的 `~/.ssh/config` 勾选具体别名，再点击“添加（数量）”。发现列表只读取配置，不执行连接或安装。
 3. 没有候选时点击“手动添加”。填写主机、IP、`user@host` 或 SSH 别名，名称可留空；SSH 端口留空时沿用系统配置。身份方式默认使用配置和 agent，也可指定入口 Host 上的身份文件路径，不复制私钥。
-4. 添加后自动保持连接，列表显示检查、准备环境、启动和验证状态。准备失败保留记录，可在该行重试；无需再次保存或配置 Host。
+4. 添加后自动保持连接，先检查 SSH 配置并探测已有 Host；未发现时才显示准备环境和启动状态。连接失败保留记录，可在该行重试；无需再次保存或配置 Host。
 5. “已连接”后，从输入框工作位置选择远程机器和项目。目录查询在目标 Host 执行。新环境没有模型时，进入该远程环境的模型设置，不自动复制本机凭据。
 
 启用时只能改显示名称。修改主机、SSH 端口或身份文件前先暂停；修改资料不清除已确认 Host 身份。连接另一台 Host 时移除旧登记后重新添加。
 
+### 已有 Host 探测
+
+SSH 配置预检通过后，入口经 SSH 标准输入发送固定 Python 3 脚本，脚本不写远端文件。先检查 `~/.local/state/pi-meme/ssh-host` 中运行描述记录的端口，再检查默认 `127.0.0.1:31415`，不扫描其他端口、进程、NVM 或 systemd。自定义端口的 Host 没有运行描述时不能自动发现。
+
+探测通过 `/api/status` 校验产品、运行协议、Host/实例身份，以及是否使用远端 `~/.pi-meme` 的真实数据目录；匹配后从该目录的 `credentials/auth.json` 读取 `host:token`。随后建立既有 SSH 隧道并认证，要求 Host 使用 `token-required` 且提供 `sshTunnelAuthV1` 能力，并核对已保存的 Host 身份。令牌只经受保护的 SSH 通道和入口凭据存储传递，不返回界面。
+
+复用不要求两端发行版本同号，不区分 Host 由 systemd、源码入口还是独立包启动；不下载发行包，不调用 `ssh-bootstrap`，不检查 Node、Git、bash、tar 或 bubblewrap 等安装依赖，也不停止或重启已有服务。源码开发入口没有发行版本时仍可连接符合上述条件的已有 Host。
+
+Python 3 缺失、运行描述损坏、目录或凭据权限错误、协议或身份不匹配、隧道认证失败都会明确失败，不转入安装。未找到端点但 `~/.pi-meme/host.lock` 目录的 mtime 距当前不超过 30 秒时，同样保守报错，避免在 Host 启动期间创建第二个实例；探测不会删除锁。只有明确未发现运行中的 Host 才进入下面的安装流程。
+
 ### 安装与生命周期
 
-入口下载当前发行版本的 Host 包和 `SHA256SUMS`，校验并检查归档路径、软链接和平台后，经 SSH 传输。远端不需要访问下载站点。没有匹配发行包时明确失败，不改用其他版本；未注入发行版本的源码开发 Host 不能自动下载安装。
+未发现已有 Host 时，入口下载当前发行版本的 Host 包和 `SHA256SUMS`，校验并检查归档路径、软链接和平台后，经 SSH 传输。远端不需要访问下载站点。没有匹配发行包时明确失败，不改用其他版本；未注入发行版本的源码开发 Host 不能自动下载安装。
 
-应用安装位于远端 `~/.local/share/pi-meme/host/<版本>/<平台>`，数据固定在 `~/.pi-meme`，运行描述位于 `~/.local/state/pi-meme/ssh-host`。业务端口只监听 loopback，自动分配并强制令牌认证；令牌仅在受保护的 SSH 通道与入口凭据存储间传递，不返回界面。
+应用安装位于远端 `~/.local/share/pi-meme/host/<版本>/<平台>`，数据固定在 `~/.pi-meme`，运行描述位于 `~/.local/state/pi-meme/ssh-host`。新建 Host 的业务端口只监听 loopback，自动分配并强制令牌认证。
 
-远端需有 Git、bash、tar；Linux 还需实际可用的 bubblewrap。当前包基线为 macOS 15 arm64、Ubuntu 24.04 x64。应用不使用 sudo 安装系统依赖，不修改系统权限，不注册 systemd/launchd，不同步项目目录。自动准备只复用本流程同版本的 Host，手工实例、版本或数据锁冲突要求先处理原实例，不自动接管或停止已有任务。
+安装路径要求远端有 Git、bash、tar；Linux 还需实际可用的 bubblewrap，不需要预装 Node。当前包基线为 macOS 15 arm64、Ubuntu 24.04 x64。应用不使用 sudo 安装系统依赖，不修改系统权限，不注册 systemd/launchd，不同步项目目录；发现冲突时明确失败，不接管或停止已有任务。
 
-Host 作为独立后台进程运行。暂停、断线、入口退出或移除连接只清理入口连接，不停止远端 Host 或任务。机器重启后，下次连接重新启动；不承诺开机即在线。睡眠、关闭 WSL 或系统回收用户进程仍会中断运行。
+应用新建的 Host 作为独立后台进程运行。暂停、断线、入口退出或移除连接只清理入口连接，不停止远端 Host 或任务。已有 systemd 服务继续由原 systemd 管理。机器重启后，应用新建的 Host 在下次连接时重新启动，不承诺开机即在线；复用的服务仍遵循原管理方的启动规则。睡眠、关闭 WSL 或系统回收用户进程仍会中断运行。
 
 ### SSH 配置和非交互限制
 
@@ -113,15 +124,18 @@ Host 作为独立后台进程运行。暂停、断线、入口退出或移除连
 实现见 [配置发现](../packages/host/src/ssh-config.ts)、[隧道进程](../packages/host/src/ssh-tunnels.ts)、[连接状态](../packages/host/src/ssh-connections.ts) 与 [SSH 契约](../packages/contracts/src/ssh-connections.ts)。
 
 ```mermaid
-%%{init: {"theme": "dark"}}%%
 flowchart TD
   UI[入口界面] --> Entry[入口 Node Host]
-  Entry --> Config[SSH 配置与系统 agent]
-  Entry --> Prepare[校验并传输 Host 包]
+  Entry --> Config[SSH 配置预检]
+  Config --> Probe[Python 3 只读探测]
+  Probe --> Found{发现已有 Host}
+  Found -->|是| Tunnel[受管 OpenSSH 隧道]
+  Found -->|明确未发现| Prepare[校验并传输当前版本 Host 包]
   Prepare --> Bootstrap[远端后台启动]
-  Bootstrap --> Tunnel[受管 OpenSSH 隧道]
+  Bootstrap --> Tunnel
+  Probe -->|探测错误| Error[报错并保留原服务]
   Tunnel --> Remote[远端 loopback Host]
-  Remote --> Auth[令牌 模式与 Host 身份校验]
+  Remote --> Auth[令牌 模式 能力与 Host 身份校验]
   Auth --> Session[远端项目与会话 Worker]
 ```
 
@@ -221,10 +235,12 @@ Desktop 使用内存浏览器会话；正式界面由随包资源提供，不依
 | 页面能打开，WebSocket 失败                | 查看升级 HTTP 状态、Origin、Cookie、clientId 及代理是否支持 WebSocket                              |
 | 远程身份变化                              | 核对所连 Host 数据目录与持久 host-id，重新确认连接目标                                             |
 | 受限任务无法启动                          | 查看 `restrictedAccessReason`；安装平台依赖后重启 Host，不切换权限绕过                             |
-| SSH 提示 Host 冲突或版本错误              | 停止原手工 Host 或不同版本的 SSH Host 后重试，不自动接管                                           |
+| SSH 提示 Host 身份、协议或认证错误        | 核对远端 `~/.pi-meme`、Host 身份、`token-required` 与 `sshTunnelAuthV1`；不会停止原服务或转入安装  |
 | SSH 指纹或身份验证失败                    | 在入口 Host 的终端核实 `known_hosts`、密钥与 agent；应用不会弹出口令输入或自动接受指纹             |
 | SSH 预检报告额外转发                      | 为该连接使用不含 `LocalForward`、`RemoteForward`、`DynamicForward` 的 SSH 别名                     |
-| SSH 准备失败或 Host 不可用                | 检查发行资产、远端平台、系统依赖、安装目录权限和已有 Host 冲突                                     |
+| SSH 已有 Host 探测失败                    | 检查远端 Python 3、运行描述与凭据权限；新鲜 `host.lock` 无端点时等待原 Host 就绪后重试，不删除锁   |
+| SSH 找不到自定义端口的 Host               | 自动发现只检查运行描述端口与 `31415`；没有描述的自定义端口不在发现范围内                           |
+| SSH 安装失败或新建 Host 不可用            | 检查当前发行资产、远端平台、安装依赖、目录权限和已有 Host 冲突                                     |
 | SSH 管理按钮不可用                        | 确认访问的是已认证的入口 Host 本机来源，并确认该 Host 的 PATH 能找到系统 OpenSSH                   |
 
 `pnpm test --all --layer artifact --target server` 从实际构建产物启动临时 Host，使用内存凭据和假模型验证静态 Worker、JSONL、外部 Agent、MCP、codemode、持续子代理、计划与默认受限权限。平台运行与测试入口见 [开发与验证](development.md) 和 [Linux 与 WSL](linux-wsl.md)。这些是验证命令说明，不表示本次文档整理运行过应用验收。

@@ -146,7 +146,7 @@ function SshSettings({
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">
-        添加后自动检查远端环境、安装并启动 Host。SSH 配置、agent 和身份文件来自入口 Host，不是浏览器所在电脑。
+        添加后优先连接远端已有 Host，未发现时才自动安装并启动。SSH 配置、agent 和身份文件来自入口 Host。
       </p>
       {!capabilities && !loadError && (
         <p role="status" className="text-sm text-muted-foreground">

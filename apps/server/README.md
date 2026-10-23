@@ -47,16 +47,22 @@ PI_MEME_TOKEN=replace-with-your-access-token \
 
 1. 点击“添加”，从 `~/.ssh/config` 勾选具体别名；也可手动填写主机、可选名称和 SSH 端口。
 2. 默认沿用 SSH 配置和 agent；需要时指定入口 Host 上的身份文件路径，不上传私钥。
-3. 添加后自动准备并保持连接。应用下载匹配发行版本的完整 Host 包，校验后经 SSH 传输，后台启动并建立认证；不填写业务端口或 Host 令牌。
+3. 添加后先通过 Python 3 只读探测已有 Host，找到后直接建立隧道并认证。只有明确未发现时，才下载匹配发行版本的完整 Host 包，校验后经 SSH 传输并后台启动；不填写业务端口或 Host 令牌。
 4. 已连接后选择远程项目。新环境的模型设置在远端完成，不自动复制本机凭据。
 
-远端需要 Git、bash、tar；Linux 还需要实际可用的 bubblewrap。应用不使用 sudo 安装系统依赖。安装位于 `~/.local/share/pi-meme/host/<版本>/<平台>`，数据固定在 `~/.pi-meme`；运行信息位于 `~/.local/state/pi-meme/ssh-host`。已有手工 Host 或版本冲突需先停止原实例，不自动接管。
+远端需可运行 Python 3，探测脚本从 SSH 标准输入执行，不写远端文件。先检查 `~/.local/state/pi-meme/ssh-host` 的运行描述端口，再检查默认 `127.0.0.1:31415`；不扫描其他端口、进程、NVM 或 systemd。自定义端口没有运行描述时不能自动发现。
 
-远端业务端口自动分配、只监听 loopback，强制令牌认证，不需要 TLS 证书。令牌不返回界面。准备只使用当前版本发行包，没有匹配资源时明确失败，不回退其他版本。
+已有 Host 的运行协议、身份和真实数据目录必须匹配远端 `~/.pi-meme`。入口从该目录 `credentials/auth.json` 的 `host:token` 读取令牌，建立隧道后校验 `token-required`、`sshTunnelAuthV1` 与 Host 身份。复用不要求发行版本同号，不区分 systemd、源码或独立包启动；不检查 Node、Git、bash、tar 或 bubblewrap，不下载包，不调用 `ssh-bootstrap`，也不停止或重启服务。
+
+Python 3 缺失、运行描述损坏、权限或身份错误、认证失败均明确报错，不转安装。未找到端点但 `~/.pi-meme/host.lock` 目录 mtime 距当前不超过 30 秒时，也会报错保护正在启动的 Host，不删除锁。
+
+只有明确未发现已有 Host 才走自动安装：远端需要 Git、bash、tar，Linux 还需要实际可用的 bubblewrap，不需要预装 Node。应用不使用 sudo 安装系统依赖。安装位于 `~/.local/share/pi-meme/host/<版本>/<平台>`，数据固定在 `~/.pi-meme`；运行信息位于 `~/.local/state/pi-meme/ssh-host`。
+
+新建 Host 的业务端口自动分配、只监听 loopback，强制令牌认证，不需要 TLS 证书。令牌不返回界面。安装只使用当前版本发行包，没有匹配资源时明确失败，不回退其他版本；没有发行版本的源码入口仍可连接符合条件的已有 Host。
 
 发现列表只读取 SSH 候选；添加后才预检并连接。配置中的额外端口转发会被拒绝。`Match exec`、`ProxyCommand` 等属于用户信任的 SSH 命令，不能使用不可信配置。不在应用内收集 SSH 密码、密钥口令或 MFA，不自动接受未知指纹。普通远程网络页面不能管理 SSH。
 
-暂停、断线、入口退出或移除连接不停止远端 Host 和任务。机器重启后，下次连接自动启动；不注册系统服务或保证开机在线，不同步项目目录。上述说明对应源码，不表示已完成真实 SSH、WSL 或发行包联通验收。
+暂停、断线、入口退出或移除连接不停止远端 Host 和任务。已有 systemd 服务继续由原 systemd 管理。应用新建的 Host 在机器重启后的下次连接时自动启动，不注册系统服务或保证开机在线；复用的服务遵循原管理方的启动规则。不自动同步项目目录。上述说明对应源码，不表示已完成真实 SSH、WSL 或发行包联通验收。
 
 ## 数据与升级
 

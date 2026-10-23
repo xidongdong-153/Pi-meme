@@ -9,6 +9,7 @@ import { pipeline } from 'node:stream/promises'
 import { create as createTar, extract as extractTar } from 'tar'
 import type { SshConnectionInput } from '@pi-meme/contracts/ssh-connections'
 import { SshError, sshFailure, stopChild, validateSshConnection } from './ssh-tunnels'
+import { parseSshHostProbe, sshHostProbeScript } from './ssh-host-probe'
 
 declare const __PI_MEME_VERSION__: string
 
@@ -98,7 +99,7 @@ const runCommand: Command = async (ssh, target, script, input, signal) => {
       else if (timedOut) reject(new SshError('host-timeout', '远端准备超时，请重试', true))
       else if (code !== 0) {
         const messages: Record<string, string> = {
-          'host-conflict': '远端已有冲突 Host，请停止原 Host 后重试',
+          'host-conflict': '远端已有运行中的 Host，请重试连接；不会停止已有实例',
           'host-dependencies': '远端缺少运行依赖，请检查 Git、bash、tar 和 Linux bubblewrap',
           'host-start': '远端 Host 启动失败，请检查目录权限和运行环境',
         }
@@ -170,7 +171,7 @@ export async function validateHostArchive(file: string, directory: string, versi
         name.includes('\\') ||
         path.posix.isAbsolute(name) ||
         (normalized !== 'pi-meme-host' && !normalized.startsWith('pi-meme-host/')) ||
-        !['File', 'Directory', 'SymbolicLink'].includes(entry.type)
+        !['File', 'Directory', 'SymbolicLink', 'Link'].includes(entry.type)
       ) {
         invalid = new SshError('host-archive', 'Host 包含无效路径或文件类型')
         return false
@@ -180,12 +181,14 @@ export async function validateHostArchive(file: string, directory: string, versi
         invalid = new SshError('host-archive', 'Host 解压大小超过限制')
         return false
       }
-      if (entry.type === 'SymbolicLink') {
+      if (entry.type === 'SymbolicLink' || entry.type === 'Link') {
         if (typeof entry.linkpath !== 'string') {
           invalid = new SshError('host-archive', 'Host 链接缺少目标')
           return false
         }
-        const linked = path.posix.normalize(path.posix.join(path.posix.dirname(normalized), entry.linkpath))
+        const linked = path.posix.normalize(
+          entry.type === 'Link' ? entry.linkpath : path.posix.join(path.posix.dirname(normalized), entry.linkpath),
+        )
         if (path.posix.isAbsolute(entry.linkpath) || !linked.startsWith('pi-meme-host/')) {
           invalid = new SshError('host-archive', 'Host 包含越界链接')
           return false
@@ -211,7 +214,11 @@ export async function validateHostArchive(file: string, directory: string, versi
   )
     throw new SshError('host-archive', 'Host 包版本或平台不匹配')
   for (const name of ['runtime/bin/node', 'apps/server/dist/ssh-bootstrap.js']) {
-    if (!(await lstat(path.join(root, name))).isFile()) throw new SshError('host-archive', 'Host 包缺少运行文件')
+    const info = await lstat(path.join(root, name)).catch((cause: NodeJS.ErrnoException) => {
+      if (cause.code !== 'ENOENT') throw cause
+      return undefined
+    })
+    if (!info?.isFile()) throw new SshError('host-archive', 'Host 发行包缺少运行文件，请更新到包含 SSH 启动入口的版本')
   }
 }
 
@@ -268,9 +275,20 @@ async function downloadPackage(
 export function createSshHostPreparer(options: Options = {}): SshHostPreparer {
   return async (connection, signal, onStep) => {
     onStep('checking')
-    const version = releaseVersion(options.version)
     const ssh = await (options.validate ?? validateSshConnection)(connection, signal)
     const command = options.command ?? runCommand
+    const existing = parseSshHostProbe(
+      await command(
+        ssh,
+        connection.target,
+        `if command -v python3 >/dev/null 2>&1; then exec python3 -I -; else cat >/dev/null; printf '%s\\n' '{"status":"error","code":"host-probe-python"}'; fi`,
+        { text: sshHostProbeScript },
+        signal,
+      ),
+    )
+    signal.throwIfAborted()
+    if (existing) return existing
+    const version = releaseVersion(options.version)
     const probe = await command(
       ssh,
       connection.target,
@@ -307,7 +325,7 @@ export function createSshHostPreparer(options: Options = {}): SshHostPreparer {
       try {
         await validateHostArchive(archive, staging, version, target)
         signal.throwIfAborted()
-        // 从已验证的目录重新打包，远端仅解压规范路径和内部软链接。
+        // 从已验证的目录重新打包，远端仅解压规范路径和内部链接。
         const sanitized = path.join(staging, 'host.tar.gz')
         await createTar({ file: sanitized, cwd: staging, gzip: true, portable: true }, ['pi-meme-host'])
         const publish =

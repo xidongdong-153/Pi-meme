@@ -119,7 +119,7 @@ tar -xzf pi-meme-host-0.1.0-beta.4-macos-arm64.tar.gz
 
 若 macOS 阻止包内可执行文件，只在确认来源与校验值后，对这个解压目录执行 `xattr -dr com.apple.quarantine ./pi-meme-host`，不要扩大到其他目录。
 
-浏览器打开 `http://127.0.0.1:31415`，本机自动登录。Ctrl+C 或 SIGTERM 停止 Host。默认只监听 loopback；远程部署见 [Remote](remote.md)。Linux 的 bubblewrap 必须通过实际探测，不能通过切换完全权限来代替安装或系统策略排查。外部 MCP、Python 等仍需要各自的运行依赖。Host 包内不附 npm、pnpm，也不自动注册系统服务。已有 SSH 可登录的远程机器可以从“设置 → 系统 → 远程”直接添加，由应用自动安装并启动 Host，无需先手工部署；具体环境前提见 [SSH 自动连接](remote.md#通过-ssh-自动连接)。
+浏览器打开 `http://127.0.0.1:31415`，本机自动登录。Ctrl+C 或 SIGTERM 停止 Host。默认只监听 loopback；远程部署见 [Remote](remote.md)。Linux 的 bubblewrap 必须通过实际探测，不能通过切换完全权限来代替安装或系统策略排查。外部 MCP、Python 等仍需要各自的运行依赖。Host 包内不附 npm、pnpm，也不自动注册系统服务。已有 SSH 可登录且可运行 Python 3 的远程机器可以从“设置 → 系统 → 远程”直接添加。应用优先连接使用 `~/.pi-meme` 且兼容的已有 Host，只有明确未发现时才自动安装并启动，无需先手工部署；探测范围与安装前提见 [SSH 自动连接](remote.md#通过-ssh-自动连接)。
 
 ### 升级
 

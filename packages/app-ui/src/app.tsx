@@ -610,7 +610,7 @@ export function App({
       openSettings: () => openSettings('general'),
       assertRestartAllowed,
       assertRemoveAllowed: () => {
-        if (instructionsSaving || chat.navigationBusy || chat.modelSaving || chat.sendingAttachments)
+        if (instructionsSaving || chat.navigationBusy || chat.modelSaving || chat.sendingAttachments.length)
           throw new Error('正在保存、提交或切换，请完成后再移除连接')
         if (fileStore.hasDirty() || instructionsDirty || dirtyPage)
           throw new Error('仍有未保存的文件、指令或插件页面，请先保存或放弃修改后再移除连接')
