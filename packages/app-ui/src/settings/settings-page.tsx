@@ -61,7 +61,7 @@ const groups = [
   {
     label: '系统',
     sections: [
-      { id: 'host', label: '远程', icon: Server, description: '添加、重试或移除远程服务。' },
+      { id: 'host', label: '远程', icon: Server, description: '管理 HTTPS 和 SSH 远程连接，查看状态或暂停 SSH 通道。' },
       { id: 'about', label: '关于', icon: Info, description: '查看当前执行服务的 Pi 运行时。' },
     ],
   },

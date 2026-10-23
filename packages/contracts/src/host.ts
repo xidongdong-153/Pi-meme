@@ -3,6 +3,7 @@ import type { Theme } from './settings'
 import type { DesktopStorageAdapter } from './storage'
 import type { DesktopProject, PiSessionsSnapshot } from './sessions'
 import type { ShortcutPreferences } from './keyboard-shortcuts'
+import type { SshConnectionPhase } from './ssh-connections'
 
 export type ServiceRef = { id: string; hostId: string; local: boolean; address: string }
 export type ProjectRef = { serviceId: string; cwd: string }
@@ -10,6 +11,12 @@ export type SessionRef = { serviceId: string; sessionPath: string; sessionId: st
 export type HostService = ServiceRef & {
   status: 'connected' | 'disconnected' | 'connecting'
   error?: string
+  transport?: 'https' | 'ssh'
+  name?: string
+  enabled?: boolean
+  phase?: SshConnectionPhase
+  errorCode?: string
+  nextRetryAt?: string
   projects: DesktopProject[]
   sessions?: PiSessionsSnapshot
 }
@@ -38,6 +45,7 @@ export type HostEvent = { hostId: string } & (
   | { type: 'connection'; value: Connection }
   | { type: 'error'; value: DesktopError }
   | { type: 'sessions-changed'; value?: undefined }
+  | { type: 'services-changed'; value?: undefined }
   | { type: 'plugins-changed'; value?: undefined }
   | { type: 'resources-changed'; value: { generation: number; cwd?: string } }
 )

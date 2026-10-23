@@ -6,7 +6,7 @@ import { useSidebarManualOrders, useSidebarPreferences } from '@pi-meme/workspac
 import { App } from '../app'
 import { MultiServiceSidebar } from './multi-service-sidebar'
 import { RemoteSettings } from './remote-settings'
-import { serviceAddress, type ServiceController, type ServiceRegistry } from './service-ui'
+import { serviceLabel, servicePaused, type ServiceController, type ServiceRegistry } from './service-ui'
 
 export function ServicesApp({
   registry,
@@ -29,7 +29,12 @@ export function ServicesApp({
   } = useSidebarPreferences(registry.local.bridge)
   const openSearch = useCallback(() => setSearchOpen(true), [])
   const searchHistory = useCallback(
-    (serviceId: string, query: string, paths: string[]) => registry.get(serviceId).bridge.searchSessions(query, paths),
+    (serviceId: string, query: string, paths: string[]) => {
+      const service = registry.list().find((entry) => entry.id === serviceId)
+      if (service && !service.local && service.status !== 'connected')
+        return Promise.reject(new Error('远程未连接，仅能搜索已有标题摘要，正文搜索需恢复连接'))
+      return registry.get(serviceId).bridge.searchSessions(query, paths)
+    },
     [registry],
   )
   const controllers = useRef(new Map<string, ServiceController>())
@@ -50,6 +55,11 @@ export function ServicesApp({
   }, [registry])
   const activate = (id: string, work: (controller: ServiceController) => Promise<boolean>) => {
     const source = controllers.current.get(activeRef.current)
+    const service = registry.list().find((entry) => entry.id === id)
+    if (service && servicePaused(service)) {
+      source?.setError('连接已暂停，请先在远程设置中恢复连接')
+      return
+    }
     if (source?.editing) {
       void source.cancelEdit()
       source.setError('')
@@ -77,6 +87,11 @@ export function ServicesApp({
     const source = controllers.current.get(sourceId)
     const target = controllers.current.get(id)
     if (!source || !target || source.workspaceDisabledReason) return false
+    const service = registry.list().find((entry) => entry.id === id)
+    if (service && servicePaused(service)) {
+      source.setError('连接已暂停，请先恢复连接')
+      return false
+    }
     const transaction = ++navigation.current
     if (!(await (source.beforeDeactivate?.() ?? true)) || transaction !== navigation.current) return false
     const sourceKey = source.connection.sessionKey
@@ -106,8 +121,11 @@ export function ServicesApp({
     return true
   }
   async function remove(id: string) {
+    const service = registry.list().find((entry) => entry.id === id)
+    if (service?.transport === 'ssh') controllers.current.get(id)?.assertRemoveAllowed?.()
     navigation.current++
-    await registry.remove(id)
+    if (service?.transport === 'ssh') await registry.ssh.remove(id)
+    else await registry.remove(id)
     controllers.current.delete(id)
     if (activeRef.current === id) setActiveId(registry.localServiceId)
   }
@@ -191,7 +209,12 @@ export function ServicesApp({
         onOpenChange={setSearchOpen}
         entries={model.sessions}
         serviceLabels={Object.fromEntries(
-          services.filter((service) => !service.local).map((service) => [service.id, serviceAddress(service.address)]),
+          services
+            .filter((service) => !service.local)
+            .map((service) => [
+              service.id,
+              `远程 · ${serviceLabel(service)} · ${service.transport === 'ssh' ? 'SSH' : 'HTTPS'}`,
+            ]),
         )}
         onSelect={(entry) => activate(entry.serviceId, (controller) => controller.switchSession(entry.session.path))}
       />

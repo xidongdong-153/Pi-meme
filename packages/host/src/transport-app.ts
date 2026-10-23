@@ -8,6 +8,8 @@ import { WebSocket } from 'ws'
 import type { HostControlRequest, EventSubscription } from '@pi-meme/contracts/app-host'
 import { MAX_CHAT_ATTACHMENT_BYTES } from '@pi-meme/contracts/chat-attachments'
 import type { HostRpcRequest } from '@pi-meme/contracts/host'
+import type { SshConnectionInput } from '@pi-meme/contracts/ssh-connections'
+import { discoverSshCandidates } from './ssh-config'
 import { hostRuntimeProtocolVersion, type LocalHostStatus } from '@pi-meme/contracts/host-runtime'
 import type { createHost } from './service'
 import type { RemoteServices } from './remote-services'
@@ -116,6 +118,50 @@ function registerRpc(app: Hono<TransportEnv>, { host, remotes, auth }: Transport
     )
       throw new Error('请求参数无效')
     if (value.hostId && value.hostId !== host.hostId) throw new Error('请求 Host 身份不匹配')
+    if (value.method.startsWith('host:ssh:')) {
+      const canManage = auth.localRequest(c.env.incoming)
+      let result: unknown
+      if (value.method === 'host:ssh:capabilities') {
+        const available = canManage && (await remotes.ssh.available())
+        result = {
+          canManage,
+          available,
+          reason: !canManage
+            ? 'SSH 连接只能从入口 Host 的本机来源管理'
+            : !available
+              ? '入口 Host 未找到系统 OpenSSH'
+              : undefined,
+        }
+      } else {
+        if (!canManage) return reply(403, { error: 'SSH 连接只能从入口 Host 的本机来源管理' })
+        switch (value.method) {
+          case 'host:ssh:list':
+            result = remotes.ssh.list()
+            break
+          case 'host:ssh:discover':
+            result = await discoverSshCandidates()
+            break
+          case 'host:ssh:save':
+            result = await remotes.ssh.save(value.args[0] as SshConnectionInput)
+            break
+          case 'host:ssh:enabled':
+            if (typeof value.args[0] !== 'string' || typeof value.args[1] !== 'boolean')
+              throw new Error('SSH 启停参数无效')
+            result = await remotes.ssh.setEnabled(value.args[0], value.args[1])
+            break
+          case 'host:ssh:retry':
+          case 'host:ssh:remove':
+            if (typeof value.args[0] !== 'string') throw new Error('SSH 连接标识无效')
+            result = value.method.endsWith(':retry')
+              ? await remotes.ssh.retry(value.args[0])
+              : await remotes.ssh.remove(value.args[0])
+            break
+          default:
+            throw new Error('SSH 管理接口不存在')
+        }
+      }
+      return reply(200, { requestId: value.requestId, hostId: host.hostId, result })
+    }
     if (value.method === 'host:connections:list' || value.method === 'host:connections:remove') {
       if (!auth.localRequest(c.env.incoming)) return reply(403, { error: '本机连接记录只能在本机管理' })
       let result: unknown
@@ -179,6 +225,7 @@ function registerEvents(app: Hono<TransportEnv>, { host, remotes }: TransportSer
     const url = c.get('url')
     const clientId = url.searchParams.get('clientId')!
     let dispose: (() => void) | undefined
+    let disposeChanges: (() => void) | undefined
     return upgradeWebSocket(c, {
       onOpen(_event, ws) {
         if (url.pathname === '/api/control/events') {
@@ -212,6 +259,10 @@ function registerEvents(app: Hono<TransportEnv>, { host, remotes }: TransportSer
             .catch(() => ws.close(1011, '远程服务订阅失败'))
           return
         }
+        disposeChanges = remotes.onChanged(() => {
+          if (ws.readyState === WebSocket.OPEN)
+            ws.send(JSON.stringify({ hostId: host.hostId, type: 'services-changed' }))
+        })
         void host
           .subscribe(clientId, (event) => {
             if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(event))
@@ -223,6 +274,7 @@ function registerEvents(app: Hono<TransportEnv>, { host, remotes }: TransportSer
           .catch(() => ws.close(1011, 'Host 订阅失败'))
       },
       onClose() {
+        disposeChanges?.()
         dispose?.()
       },
     })
@@ -327,7 +379,13 @@ export function createTransportApp(services: TransportServices) {
     const result = auth.login(c.env.incoming, (await jsonBody(c.req.raw)) as { token?: unknown })
     return reply(
       result.status,
-      result.error ? { error: result.error } : { hostId: host.hostId },
+      result.error
+        ? { error: result.error }
+        : {
+            hostId: host.hostId,
+            authMode: auth.authMode,
+            capabilities: { sshTunnelAuthV1: true },
+          },
       result.cookie ? { 'Set-Cookie': result.cookie } : undefined,
     )
   })

@@ -1,12 +1,348 @@
-import { useState } from 'react'
+import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { Globe, Loader2, MoreHorizontal, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import type { HostService } from '@pi-meme/contracts/host'
+import type { SshCapabilities, SshConnection, SshConnectionPhase } from '@pi-meme/contracts/ssh-connections'
 import type { ServiceRegistry } from './service-ui'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
 import { Button } from '@pi-meme/ui/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@pi-meme/ui/components/ui/dropdown-menu'
 import { Input } from '@pi-meme/ui/components/ui/input'
+import { Switch } from '@pi-meme/ui/components/ui/switch'
+import { cn } from '@pi-meme/ui/lib/utils'
 import { serviceAddress } from './service-ui'
+import { SshConnectionDialog } from './ssh-connection-dialog'
 
 export function RemoteSettings({
+  services,
+  registry,
+  onRemove,
+}: {
+  services: HostService[]
+  registry: ServiceRegistry
+  onRemove: (id: string) => Promise<void>
+}) {
+  const [tab, setTab] = useState<'https' | 'ssh'>('https')
+  const tabsId = useId()
+  return (
+    <div className="space-y-5">
+      <p className="text-sm text-muted-foreground">连接由入口 Host 管理。项目、对话和执行设置保存在各自服务。</p>
+      <div role="tablist" aria-label="远程连接方式" className="inline-flex gap-1 rounded-lg bg-secondary/50 p-1">
+        {(['https', 'ssh'] as const).map((value) => (
+          <button
+            key={value}
+            id={`${tabsId}-${value}`}
+            type="button"
+            role="tab"
+            aria-selected={tab === value}
+            aria-controls={`${tabsId}-panel`}
+            tabIndex={tab === value ? 0 : -1}
+            data-tab={value}
+            className={cn(
+              'rounded-md px-4 py-1.5 text-sm text-muted-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              tab === value && 'bg-secondary text-foreground',
+            )}
+            onClick={() => setTab(value)}
+            onKeyDown={(event) => {
+              if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+              event.preventDefault()
+              const next =
+                event.key === 'Home' ? 'https' : event.key === 'End' ? 'ssh' : tab === 'https' ? 'ssh' : 'https'
+              setTab(next)
+              event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(`[data-tab="${next}"]`)?.focus()
+            }}
+          >
+            {value.toUpperCase()}
+          </button>
+        ))}
+      </div>
+      <div id={`${tabsId}-panel`} role="tabpanel" aria-labelledby={`${tabsId}-${tab}`}>
+        {tab === 'https' ? (
+          <HttpsSettings services={services} registry={registry} onRemove={onRemove} />
+        ) : (
+          <SshSettings services={services} registry={registry} onRemove={onRemove} />
+        )}
+      </div>
+    </div>
+  )
+}
+
+const phaseLabels: Record<SshConnectionPhase, string> = {
+  unconfigured: '待配置 Host',
+  paused: '已暂停',
+  connecting: '正在连接',
+  connected: '已连接',
+  retrying: '正在重新连接',
+  'action-required': '需要处理',
+}
+
+function errorMessage(cause: unknown) {
+  return cause instanceof Error ? cause.message : String(cause)
+}
+
+function SshSettings({
+  services,
+  registry,
+  onRemove,
+}: {
+  services: HostService[]
+  registry: ServiceRegistry
+  onRemove: (id: string) => Promise<void>
+}) {
+  const [capabilities, setCapabilities] = useState<SshCapabilities>()
+  const [profiles, setProfiles] = useState<SshConnection[]>([])
+  const [loadError, setLoadError] = useState('')
+  const [errors, setErrors] = useState<Record<string, string>>({})
+  const [pending, setPending] = useState<Set<string>>(() => new Set())
+  const pendingRef = useRef(new Set<string>())
+  const revision = useRef(0)
+  const [dialog, setDialog] = useState<{ connection?: SshConnection; configureHost?: boolean }>()
+  const [removing, setRemoving] = useState<SshConnection>()
+
+  const refresh = useCallback(async () => {
+    const current = ++revision.current
+    try {
+      const next = await registry.ssh.capabilities()
+      if (current !== revision.current) return
+      setCapabilities(next)
+      if (!next.canManage) {
+        setProfiles([])
+        setLoadError('')
+        return
+      }
+      const list = await registry.ssh.list()
+      if (current !== revision.current) return
+      setProfiles([...list])
+      setLoadError('')
+    } catch (cause) {
+      if (current === revision.current) setLoadError(errorMessage(cause))
+    }
+  }, [registry])
+
+  useEffect(() => {
+    void refresh()
+    const unsubscribe = registry.subscribe(() => void refresh())
+    return () => {
+      revision.current++
+      unsubscribe()
+    }
+  }, [registry, refresh])
+
+  async function perform(id: string, work: () => Promise<unknown>) {
+    if (pendingRef.current.has(id)) return false
+    pendingRef.current.add(id)
+    setPending(new Set(pendingRef.current))
+    setErrors((previous) => ({ ...previous, [id]: '' }))
+    try {
+      await work()
+      await refresh()
+      return true
+    } catch (cause) {
+      setErrors((previous) => ({ ...previous, [id]: errorMessage(cause) }))
+      return false
+    } finally {
+      pendingRef.current.delete(id)
+      setPending(new Set(pendingRef.current))
+    }
+  }
+
+  const sshServices = services.filter((service) => service.transport === 'ssh')
+  return (
+    <div className="space-y-4">
+      <p className="text-sm text-muted-foreground">
+        通过 SSH 连接已安装并运行的 pi-meme Host。SSH 配置、agent 和身份文件来自入口 Host，不是浏览器所在电脑。
+      </p>
+      {!capabilities && !loadError && (
+        <p role="status" className="text-sm text-muted-foreground">
+          正在读取连接权限…
+        </p>
+      )}
+      {capabilities && !capabilities.canManage && (
+        <p className="rounded-xl border border-border p-4 text-sm text-muted-foreground">
+          {capabilities.reason || 'SSH 连接只能从入口 Host 的已认证本机页面管理。已登记的远程服务仍可使用。'}
+        </p>
+      )}
+      {capabilities?.canManage && (
+        <>
+          <div className="flex items-center justify-between gap-3">
+            <h3 className="text-sm font-medium">SSH 连接</h3>
+            <Button size="sm" disabled={!capabilities.available} onClick={() => setDialog({})}>
+              <Plus aria-hidden="true" className="mr-1 size-3.5" />
+              添加
+            </Button>
+          </div>
+          {!capabilities.available && (
+            <p className="text-sm text-muted-foreground">{capabilities.reason || '入口 Host 暂时无法启动系统 SSH。'}</p>
+          )}
+          {!profiles.length && !loadError && (
+            <p className="rounded-xl border border-dashed border-border p-5 text-sm text-muted-foreground">
+              还没有 SSH 连接。从 SSH 配置选择主机，或手动填写连接资料。
+            </p>
+          )}
+          {profiles.map((profile) => {
+            const busy = pending.has(profile.id)
+            const transitioning = profile.phase === 'connecting' || profile.phase === 'retrying'
+            return (
+              <section
+                key={profile.id}
+                aria-label={`SSH 连接 ${profile.name}`}
+                className="space-y-2 rounded-xl border border-border bg-card/40 p-4"
+              >
+                <div className="flex items-center gap-3">
+                  <Switch
+                    label={`保持连接 ${profile.name}`}
+                    checked={profile.enabled}
+                    disabled={busy || (!capabilities.available && !profile.enabled)}
+                    onChange={(enabled) => {
+                      if (enabled && !profile.hasToken) {
+                        setDialog({ connection: profile, configureHost: true })
+                        return
+                      }
+                      void perform(profile.id, () => registry.ssh.setEnabled(profile.id, enabled))
+                    }}
+                  />
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <div className="flex items-center gap-2 text-sm font-medium">
+                      <Globe aria-hidden="true" className="size-4 shrink-0 text-primary" />
+                      <span className="truncate" title={profile.name}>
+                        {profile.name}
+                      </span>
+                    </div>
+                    <p className="truncate text-xs text-muted-foreground" title={profile.target}>
+                      {profile.target}
+                      {profile.port ? ` · SSH 端口 ${profile.port}` : ''}
+                    </p>
+                    <p className="flex items-center gap-1.5 text-xs text-muted-foreground" role="status">
+                      {transitioning && <Loader2 aria-hidden="true" className="size-3 animate-spin" />}
+                      {phaseLabels[profile.phase]}
+                      {profile.phase === 'retrying' && profile.nextRetryAt && (
+                        <span>· 下次尝试 {new Date(profile.nextRetryAt).toLocaleTimeString()}</span>
+                      )}
+                    </p>
+                  </div>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button size="icon" variant="ghost" aria-label={`管理 ${profile.name}`} disabled={busy}>
+                        <MoreHorizontal aria-hidden="true" className="size-4" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent side="bottom" align="end">
+                      <DropdownMenuItem onSelect={() => setDialog({ connection: profile })}>
+                        <Pencil />
+                        编辑
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        disabled={!capabilities.available || !profile.enabled || profile.phase === 'connecting'}
+                        onSelect={() => void perform(profile.id, () => registry.ssh.retry(profile.id))}
+                      >
+                        <RefreshCw />
+                        立即重试
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem className="text-destructive" onSelect={() => setRemoving(profile)}>
+                        <Trash2 />
+                        移除
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+                {profile.error && <p className="break-words text-xs text-destructive">{profile.error}</p>}
+                {profile.phase === 'unconfigured' && (
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setDialog({ connection: profile, configureHost: true })}
+                  >
+                    配置 Host
+                  </Button>
+                )}
+                {errors[profile.id] && (
+                  <p role="alert" className="break-words text-xs text-destructive">
+                    {errors[profile.id]}
+                  </p>
+                )}
+              </section>
+            )
+          })}
+        </>
+      )}
+      {capabilities &&
+        !capabilities.canManage &&
+        sshServices.map((service) => (
+          <section key={service.id} className="flex items-center gap-2 rounded-xl border border-border p-4 text-sm">
+            <Globe aria-hidden="true" className="size-4 text-primary" />
+            <span className="min-w-0 flex-1 truncate">{service.name || 'SSH 远程服务'}</span>
+            <span className="text-xs text-muted-foreground">
+              {service.phase ? phaseLabels[service.phase] : service.status === 'connected' ? '已连接' : '未连接'}
+            </span>
+          </section>
+        ))}
+      {loadError && (
+        <div className="space-y-2">
+          <p role="alert" className="break-words text-sm text-destructive">
+            {loadError}
+          </p>
+          <Button size="sm" variant="secondary" onClick={() => void refresh()}>
+            重新读取
+          </Button>
+        </div>
+      )}
+      {dialog && capabilities?.canManage && (
+        <SshConnectionDialog
+          key={dialog.connection?.id ?? 'new'}
+          ssh={registry.ssh}
+          profiles={profiles}
+          connection={dialog.connection}
+          configureHost={dialog.configureHost}
+          onSaved={refresh}
+          onClose={() => setDialog(undefined)}
+        />
+      )}
+      <Dialog
+        open={Boolean(removing) && Boolean(capabilities?.canManage)}
+        onOpenChange={(open) => !open && !pending.has(removing?.id ?? '') && setRemoving(undefined)}
+      >
+        <DialogContent>
+          <DialogTitle>移除 SSH 连接？</DialogTitle>
+          <DialogDescription>
+            删除入口 Host 保存的“{removing?.name}”连接、令牌和摘要。不会删除远端项目或会话，也不会停止远端任务。
+          </DialogDescription>
+          {removing && errors[removing.id] && (
+            <p role="alert" className="text-sm text-destructive">
+              {errors[removing.id]}
+            </p>
+          )}
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" disabled={pending.has(removing?.id ?? '')} onClick={() => setRemoving(undefined)}>
+              取消
+            </Button>
+            <Button
+              disabled={pending.has(removing?.id ?? '')}
+              onClick={() => {
+                if (!removing) return
+                const profile = removing
+                void perform(profile.id, () =>
+                  profile.hostId ? onRemove(profile.id) : registry.ssh.remove(profile.id),
+                ).then((removed) => {
+                  if (removed) setRemoving(undefined)
+                })
+              }}
+            >
+              {pending.has(removing?.id ?? '') ? '移除中…' : '移除'}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+    </div>
+  )
+}
+
+function HttpsSettings({
   services,
   registry,
   onRemove,
@@ -33,9 +369,8 @@ export function RemoteSettings({
   }
   return (
     <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">远程连接由此计算机管理。项目、对话和执行设置保存在各自服务。</p>
       {services
-        .filter((service) => !service.local)
+        .filter((service) => !service.local && service.transport !== 'ssh')
         .map((service) => (
           <section key={service.id} className="space-y-2 rounded-xl border border-border p-4">
             <div className="flex flex-wrap items-center gap-2">

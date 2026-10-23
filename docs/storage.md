@@ -5,6 +5,9 @@ paths:
   - 'packages/contracts/src/storage-paths.ts'
   - 'packages/host/src/storage/**'
   - 'packages/host/src/data-root.ts'
+  - 'packages/host/src/ssh-connections.ts'
+  - 'packages/host/src/connection-credentials.ts'
+  - 'packages/host/src/remote-services.ts'
 ---
 
 # 数据目录与存储维护
@@ -24,6 +27,7 @@ Host 的应用配置、持久状态、执行数据与内部管理的工作区文
 ├── host.lock                            # 唯一写入锁
 ├── config/
 │   ├── app.json                         # 应用偏好与新会话默认值（原 settings.json）
+│   ├── ssh-connections.json             # SSH 连接资料与已确认 Host 身份，不含令牌
 │   ├── profile/                         # 用户资料与头像图片
 │   ├── agent/                           # Pi SDK 设置、模型、MCP、指令与子代理
 │   │   ├── settings.json
@@ -75,36 +79,56 @@ Host 的应用配置、持久状态、执行数据与内部管理的工作区文
 
 ### 目录与文件职责清单
 
-| 相对路径                       | 用途                               | 读写者                                                    | 可否重建           | 回收规则                                                |
-| ------------------------------ | ---------------------------------- | --------------------------------------------------------- | ------------------ | ------------------------------------------------------- |
-| `storage.json`                 | 布局版本元数据                     | Host 启动引导                                             | 否（关键标记）     | 永久保留                                                |
-| `host-id`                      | Host 唯一持久 UUID                 | Host 启动引导                                             | 否（决定身份）     | 永久保留                                                |
-| `host.lock`                    | 数据根互斥锁                       | `lockDataRoot`                                            | 是（运行时持有）   | 退出释放                                                |
-| `config/app.json`              | 应用偏好设置                       | `SettingsStore`                                           | 否                 | 永久保留                                                |
-| `config/profile/`              | 用户个人资料与头像                 | `SettingsStore`                                           | 否                 | 永久保留                                                |
-| `config/agent/`                | Pi SDK 运行时配置与指令            | `ModelConfigStore`, `McpConfigStore`, `InstructionsStore` | 否                 | 永久保留                                                |
-| `config/workspaces/`           | 针对特定 cwd 哈希的 MCP 与资源覆盖 | `McpConfigStore`, `ResourceStore`                         | 否                 | 永久保留（与工作区 cwd 哈希绑定，项目移除时不清理覆盖） |
-| `credentials/auth.json`        | 连接与服务凭据（0600）             | `FileCredentialStore`                                     | 否（敏感凭据）     | 永久保留                                                |
-| `state/projects.json`          | 登记项目与活动 Worktree            | `ProjectStore`                                            | 否                 | 显式移除项目时更新                                      |
-| `state/goals.json`             | 目标执行与续跑状态                 | `GoalService`                                             | 否                 | 目标清除或会话成功删除时清理                            |
-| `state/agent-permissions.json` | 会话文件权限映射                   | `AgentAccessStore`                                        | 否                 | 会话成功删除时级联清理                                  |
-| `state/resources.json`         | 技能策略与导入记录                 | `ResourceStore`                                           | 否                 | 永久保留                                                |
-| `state/plugins.json`           | 插件安装记录与代次高水位           | `PluginManager`                                           | 否                 | 卸载插件时更新                                          |
-| `state/requests.jsonl`         | 请求去重日志                       | `RequestRegistry`                                         | 否（防重放）       | 永久追加，不加 TTL                                      |
-| `state/control/`               | 快照与操作、事件日志               | `ControlStore`                                            | 否                 | 事件保留 4096 条窗口，快照增量压缩                      |
-| `state/collaboration/`         | 子代理根分片与计划索引             | `Coordinator`                                             | 否                 | 依 rootAgentId 分片保存，不自动删除历史                 |
-| `state/modules/`               | 内置服务模块持久数据               | 内置模块（如 activities 等）                              | 否（服务数据）     | 依各内置模块业务规则管理                                |
-| `data/sessions/`               | Pi 原生 JSONL 会话历史             | Pi Worker, `SessionPool`                                  | 否（用户历史）     | 用户显式删除会话时物理删除                              |
-| `data/plans/`                  | 计划正文 Markdown                  | `Coordinator`                                             | 否（用户成果）     | 永久保留                                                |
-| `data/attachments/`            | 消息上传文件                       | `chat-attachments`                                        | 否（用户文件）     | 永久保留，失败上传自动删除                              |
-| `resources/`                   | 技能、主题与历史快照               | `ResourceStore`                                           | 否                 | 具有历史内容引用语义，不自动批量删除                    |
-| `plugins/packages/`            | 外部插件解压代码                   | `PluginManager`                                           | 是（可重新安装）   | 插件卸载且无活动租约后修剪                              |
-| `plugins/data/`                | 外部插件持久私有数据               | 已安装外部 App 插件                                       | 否（插件私有资产） | 插件卸载默认保留，不自动删除                            |
-| `workspaces/standalone/`       | 独立会话的工作目录                 | Host 进程与会话 Worker                                    | 否（用户代码）     | 仅在无任何会话引用的空目录可安全回收                    |
-| `workspaces/worktrees/`        | Git Worktree 检出目录              | `GitService`                                              | 否（工作树）       | 显式关闭/删除 Worktree 时清理                           |
-| `cache/`                       | 会话索引与远程连接摘要             | `SessionService`, `RemoteServices`                        | 是                 | 缓存清理时安全清空                                      |
-| `logs/mcp.log`                 | MCP 服务运行日志                   | `McpConfigStore`                                          | 是                 | 正常日志输出                                            |
-| `backups/`                     | 升级历史与旧内容归档               | `upgradeStorageLayout`                                    | 否（恢复备份）     | 用户手动管理，不自动删除                                |
+| 相对路径                       | 用途                                     | 读写者                                                    | 可否重建           | 回收规则                                                |
+| ------------------------------ | ---------------------------------------- | --------------------------------------------------------- | ------------------ | ------------------------------------------------------- |
+| `storage.json`                 | 布局版本元数据                           | Host 启动引导                                             | 否（关键标记）     | 永久保留                                                |
+| `host-id`                      | Host 唯一持久 UUID                       | Host 启动引导                                             | 否（决定身份）     | 永久保留                                                |
+| `host.lock`                    | 数据根互斥锁                             | `lockDataRoot`                                            | 是（运行时持有）   | 退出释放                                                |
+| `config/app.json`              | 应用偏好设置                             | `SettingsStore`                                           | 否                 | 永久保留                                                |
+| `config/ssh-connections.json`  | SSH 连接资料、启用状态与已确认 Host 身份 | `SshConnections`                                          | 否                 | 仅在保存、启停或移除连接时更新，不属于缓存              |
+| `config/profile/`              | 用户个人资料与头像                       | `SettingsStore`                                           | 否                 | 永久保留                                                |
+| `config/agent/`                | Pi SDK 运行时配置与指令                  | `ModelConfigStore`, `McpConfigStore`, `InstructionsStore` | 否                 | 永久保留                                                |
+| `config/workspaces/`           | 针对特定 cwd 哈希的 MCP 与资源覆盖       | `McpConfigStore`, `ResourceStore`                         | 否                 | 永久保留（与工作区 cwd 哈希绑定，项目移除时不清理覆盖） |
+| `credentials/auth.json`        | 连接与服务凭据（0600）                   | `FileCredentialStore`                                     | 否（敏感凭据）     | 永久保留                                                |
+| `state/projects.json`          | 登记项目与活动 Worktree                  | `ProjectStore`                                            | 否                 | 显式移除项目时更新                                      |
+| `state/goals.json`             | 目标执行与续跑状态                       | `GoalService`                                             | 否                 | 目标清除或会话成功删除时清理                            |
+| `state/agent-permissions.json` | 会话文件权限映射                         | `AgentAccessStore`                                        | 否                 | 会话成功删除时级联清理                                  |
+| `state/resources.json`         | 技能策略与导入记录                       | `ResourceStore`                                           | 否                 | 永久保留                                                |
+| `state/plugins.json`           | 插件安装记录与代次高水位                 | `PluginManager`                                           | 否                 | 卸载插件时更新                                          |
+| `state/requests.jsonl`         | 请求去重日志                             | `RequestRegistry`                                         | 否（防重放）       | 永久追加，不加 TTL                                      |
+| `state/control/`               | 快照与操作、事件日志                     | `ControlStore`                                            | 否                 | 事件保留 4096 条窗口，快照增量压缩                      |
+| `state/collaboration/`         | 子代理根分片与计划索引                   | `Coordinator`                                             | 否                 | 依 rootAgentId 分片保存，不自动删除历史                 |
+| `state/modules/`               | 内置服务模块持久数据                     | 内置模块（如 activities 等）                              | 否（服务数据）     | 依各内置模块业务规则管理                                |
+| `data/sessions/`               | Pi 原生 JSONL 会话历史                   | Pi Worker, `SessionPool`                                  | 否（用户历史）     | 用户显式删除会话时物理删除                              |
+| `data/plans/`                  | 计划正文 Markdown                        | `Coordinator`                                             | 否（用户成果）     | 永久保留                                                |
+| `data/attachments/`            | 消息上传文件                             | `chat-attachments`                                        | 否（用户文件）     | 永久保留，失败上传自动删除                              |
+| `resources/`                   | 技能、主题与历史快照                     | `ResourceStore`                                           | 否                 | 具有历史内容引用语义，不自动批量删除                    |
+| `plugins/packages/`            | 外部插件解压代码                         | `PluginManager`                                           | 是（可重新安装）   | 插件卸载且无活动租约后修剪                              |
+| `plugins/data/`                | 外部插件持久私有数据                     | 已安装外部 App 插件                                       | 否（插件私有资产） | 插件卸载默认保留，不自动删除                            |
+| `workspaces/standalone/`       | 独立会话的工作目录                       | Host 进程与会话 Worker                                    | 否（用户代码）     | 仅在无任何会话引用的空目录可安全回收                    |
+| `workspaces/worktrees/`        | Git Worktree 检出目录                    | `GitService`                                              | 否（工作树）       | 显式关闭/删除 Worktree 时清理                           |
+| `cache/`                       | 会话索引与远程连接摘要                   | `SessionService`, `RemoteServices`                        | 是                 | 缓存清理时安全清空                                      |
+| `logs/mcp.log`                 | MCP 服务运行日志                         | `McpConfigStore`                                          | 是                 | 正常日志输出                                            |
+| `backups/`                     | 升级历史与旧内容归档                     | `upgradeStorageLayout`                                    | 否（恢复备份）     | 用户手动管理，不自动删除                                |
+
+## SSH 连接资料与摘要
+
+SSH 资料属于发起连接的入口 Host，不属于远端 Host，也不存放在浏览器本地配置中。路径通过 [storage-paths.ts](../packages/contracts/src/storage-paths.ts) 定义，实现见 [ssh-connections.ts](../packages/host/src/ssh-connections.ts)。
+
+| 保存位置                                          | 内容与用途                                                                                                                          | 不包含                                         |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------- |
+| `config/ssh-connections.json`                     | JSON 数组；稳定 24 位十六进制连接 ID、名称、目标、可选 SSH 端口与身份文件路径、远端 Host 端口、`enabled`、首次验证后保存的 `hostId` | Host 令牌、私钥内容、临时转发端口、PID、Cookie |
+| `credentials/auth.json` 的 `ssh-host:<连接ID>` 键 | 该连接的 Host 访问令牌；通过现有凭据存储写入                                                                                        | SSH 私钥副本或 SSH 密码                        |
+| `cache/remote-services.json`                      | 已验证远程服务的项目和会话摘要，用于断线时显示列表                                                                                  | 会话 JSONL 正文离线副本或唯一连接配置          |
+| 入口 Host 内存                                    | 当前受管进程、临时 loopback 地址、Cookie、重试计时与运行阶段                                                                        | 可跨重启复用的隧道进程                         |
+
+连接 ID 不随临时本地端口变化。首次尚未验证的资料只在 SSH 设置页显示，不创建假 Host 身份；验证成功后，持久 `hostId` 用于防止旧项目/会话摘要指向另一 Host。
+
+配置文件通过临时文件加原子替换保存；读取或结构校验失败会保留原文件并报错，不自动改成空列表。令牌保存在权限为 `0600` 的凭据文件中，文件权限不等于加密；备份必须按敏感数据处理。SSH 配置与私钥仍由系统管理，身份文件字段只引用入口机器的绝对路径或 `~/` 路径。迁移数据根不会移动或复制外部身份文件，也不把其中的路径自动改成远端路径。
+
+暂停保留配置、令牌和摘要，将 `enabled` 设为关闭并停止入口隧道；远端任务与数据不变。入口 Host 重启只尝试恢复已启用连接，暂停连接不会被读取列表或业务请求隐式唤醒。移除删除入口连接资料、对应令牌和摘要，不删除远端会话或项目；界面移除当前 SSH 服务前会检查未保存内容。使用步骤与会话行为见 [Remote](remote.md#会话来源暂停与移除)。
+
+清理 `cache/remote-services.json` 不会删除 `config/ssh-connections.json` 或 `ssh-host:<连接ID>` 凭据。清理后列表摘要需在成功连接后重新读取；尚未连接时不能从缓存恢复正文。
 
 ## 启动引导与就地升级
 
@@ -183,7 +207,7 @@ flowchart TD
      - `cache/remote-services.json` 及 `.tmp`
    - Electron 固定 `userData`：存在的 `Cache`、`Code Cache`、`GPUCache`、`DawnCache`、`ShaderCache`、`GrShaderCache`、`GraphiteDawnCache`。
 2. **清理时的资产保护范围**：
-   - 执行缓存清理时，绝不误伤用户资产：会话历史（`data/sessions/`）、计划正文（`data/plans/`）、用户附件（`data/attachments/`）、凭据（`credentials/auth.json`）、技能、外部插件私有数据（`plugins/data/`）、去重与控制日志（`state/requests.jsonl`、`state/control/`）以及仍被引用的工作目录。
+   - 执行缓存清理时，绝不误伤用户资产：会话历史（`data/sessions/`）、计划正文（`data/plans/`）、用户附件（`data/attachments/`）、凭据（`credentials/auth.json`）、SSH 连接资料（`config/ssh-connections.json`）、技能、外部插件私有数据（`plugins/data/`）、去重与控制日志（`state/requests.jsonl`、`state/control/`）以及仍被引用的工作目录。
 3. **符号链接保护**：检查到缓存中包含符号链接或特殊文件时立即中止清理，绝不沿链接删除外部文件。
 
 ### 会话删除生命周期

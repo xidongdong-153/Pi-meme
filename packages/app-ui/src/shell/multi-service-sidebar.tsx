@@ -19,7 +19,8 @@ import type {
   SidebarProjectEntry,
   SidebarSessionEntry,
 } from '@pi-meme/workspace/ui/sidebar/sidebar-model'
-import { serviceAddress, type ServiceController, type ServiceRegistry } from './service-ui'
+import { serviceLabel, servicePaused, serviceStatus, type ServiceController, type ServiceRegistry } from './service-ui'
+import { RemoteProjectDetails } from './remote-project-details'
 import { useShortcuts } from '../shortcuts/shortcut-provider'
 
 export function MultiServiceSidebar({
@@ -59,6 +60,22 @@ export function MultiServiceSidebar({
   const active = controllers.get(activeId)
   const servicesById = new Map(services.map((service) => [service.id, service]))
   const manual = preferences.sortMode === 'manual'
+  const activeService = servicesById.get(activeId)
+  const activePaused = activeService ? servicePaused(activeService) : false
+  const sourceFor = (service: HostService, path: string) =>
+    service.local
+      ? undefined
+      : {
+          label: serviceLabel(service),
+          description: `${serviceLabel(service)} · ${service.transport === 'ssh' ? 'SSH' : 'HTTPS'} · ${serviceStatus(service)}\n${path}`,
+          connected: service.status === 'connected',
+          disabledReason:
+            service.status !== 'connected'
+              ? servicePaused(service)
+                ? '连接已暂停，请先恢复连接'
+                : '远程未连接，请连接后操作'
+              : undefined,
+        }
   const toggle = (key: string, setter: typeof setExpanded) =>
     setter((previous) => {
       const next = new Set(previous)
@@ -74,11 +91,13 @@ export function MultiServiceSidebar({
     const controller = controllers.get(serviceId)
     const snapshot = controller?.sessions ?? service.sessions
     const activePath = controller?.switchingToPath ?? snapshot?.activeSessionPath
+    const source = sourceFor(service, session.sourceProjectCwd ?? session.cwd)
     return (
       <SidebarMenus
         canOpenProject={service.local && registry.get(serviceId).nativePlatformAvailable}
         bridge={registry.get(serviceId).bridge}
         pinnedPaths={snapshot?.pinnedPaths ?? []}
+        disabledReason={source?.disabledReason}
         onNewSession={(cwd) => onActivate(serviceId, (chat) => chat.newSessionInProject(cwd))}
         onTogglePin={(path) => void controller?.togglePin(path)}
         onChanged={async () => {
@@ -89,13 +108,8 @@ export function MultiServiceSidebar({
         }}
       >
         <div data-service-id={serviceId}>
-          {!service.local && (
-            <p className="truncate px-2 text-[0.625rem] text-muted-foreground" title={service.address}>
-              {serviceAddress(service.address)}
-              {service.status !== 'connected' && ' · 未连接'}
-            </p>
-          )}
           <SessionItem
+            source={source}
             dragProps={dragProps}
             session={session}
             projectName={entry.projectName}
@@ -124,6 +138,7 @@ export function MultiServiceSidebar({
     const controller = controllers.get(serviceId)
     const snapshot = controller?.sessions ?? service.sessions
     const selected = activeId === serviceId
+    const source = sourceFor(service, project.cwd)
     const openNewSession = (cwd: string) => {
       setExpanded((previous) => new Set(previous).add(key))
       onActivate(serviceId, (chat) => chat.newSessionInProject(cwd))
@@ -133,6 +148,7 @@ export function MultiServiceSidebar({
         canOpenProject={service.local && registry.get(serviceId).nativePlatformAvailable}
         bridge={registry.get(serviceId).bridge}
         pinnedPaths={snapshot?.pinnedPaths ?? []}
+        disabledReason={source?.disabledReason}
         onNewSession={openNewSession}
         onTogglePin={(path) => void controller?.togglePin(path)}
         onChanged={async () => {
@@ -145,13 +161,20 @@ export function MultiServiceSidebar({
         }}
       >
         <div className="min-w-0" data-service-id={serviceId}>
-          {!service.local && (
-            <p className="truncate px-2.5 pt-1 text-[0.625rem] text-muted-foreground" title={service.address}>
-              {serviceAddress(service.address)}
-              {service.status !== 'connected' && ' · 未连接'}
-            </p>
-          )}
           <ProjectItem
+            serviceId={serviceId}
+            source={source}
+            details={
+              !service.local ? (
+                <RemoteProjectDetails
+                  service={service}
+                  project={project}
+                  pinned={pinned}
+                  registry={registry}
+                  onTogglePin={() => void controller?.togglePin(project.cwd)}
+                />
+              ) : undefined
+            }
             dragProps={dragProps}
             project={project}
             cwd={selected ? (controller?.connection.sourceProjectCwd ?? controller?.connection.cwd ?? '') : ''}
@@ -251,7 +274,8 @@ export function MultiServiceSidebar({
       <button
         type="button"
         onClick={() => void active?.newSession()}
-        title={newChatShortcut ? `新聊天（${newChatShortcut}）` : '新聊天'}
+        disabled={activePaused}
+        title={activePaused ? '连接已暂停，请先恢复连接' : newChatShortcut ? `新聊天（${newChatShortcut}）` : '新聊天'}
         className="mx-3 my-1.5 flex items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs hover:bg-secondary"
       >
         <SquarePen className="size-4" />
@@ -289,7 +313,8 @@ export function MultiServiceSidebar({
                 <button
                   type="button"
                   aria-label="新建项目"
-                  title="新建项目"
+                  disabled={activePaused}
+                  title={activePaused ? '连接已暂停，请先恢复连接' : '新建项目'}
                   onClick={() =>
                     void (active?.openProjectDialog ? active.openProjectDialog() : active?.chooseDirectory())
                   }

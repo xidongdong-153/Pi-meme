@@ -4,6 +4,7 @@ import { cn } from '@pi-meme/ui/lib/utils'
 import type { PiSessionSummary } from '@pi-meme/contracts/sessions'
 import { formatSessionTitle } from './session-title'
 import type { SidebarDragProps } from './sidebar-controls'
+import { SidebarSourceBadge, type SidebarSource } from './sidebar-source'
 
 /** 分叉会话的来源标识：头部 parentSession 来自 SDK 会话元数据。同时显示创建时间，区分同名分支。 */
 function ForkBadge({ session }: { session: PiSessionSummary }) {
@@ -38,6 +39,7 @@ export function SessionItem({
   isActive,
   isPinned = false,
   dragProps,
+  source,
   onSwitchSession,
   onTogglePin,
   onPrefetchSession,
@@ -48,6 +50,7 @@ export function SessionItem({
   isActive: boolean
   isPinned?: boolean
   dragProps?: SidebarDragProps
+  source?: SidebarSource
   onSwitchSession: (path: string) => void
   onTogglePin?: (path: string) => void
   onPrefetchSession?: (path: string) => void
@@ -55,7 +58,7 @@ export function SessionItem({
   const handleMouseEnter = () => {
     if (!isActive) onPrefetchSession?.(session.path)
   }
-  const isRunning = session.running && !session.isPaused
+  const isRunning = session.running && !session.isPaused && (!source || source.connected)
   const runningIndicator = isRunning ? (
     <span className="inline-flex shrink-0 animate-spin text-muted-foreground group-hover:hidden group-has-[:focus-visible]:hidden group-has-[[data-state=open]]:hidden">
       <Loader2 aria-label="会话运行中" className="size-3.5" />
@@ -97,6 +100,7 @@ export function SessionItem({
             <button
               type="button"
               aria-label={`取消置顶：${formatSessionTitle(session)}`}
+              disabled={Boolean(source?.disabledReason)}
               onClick={(e) => {
                 e.stopPropagation()
                 onTogglePin?.(session.path)
@@ -105,6 +109,7 @@ export function SessionItem({
             >
               <PinOff className="size-3" />
             </button>
+            {source && <SidebarSourceBadge source={source} />}
             <SidebarMoreMenu target={{ kind: 'session', session }} />
             {runningIndicator}
           </div>
@@ -139,7 +144,8 @@ export function SessionItem({
           <div className={cn('flex items-center gap-1 shrink-0', isRunning && '[&_button]:transition-none')}>
             <button
               type="button"
-              title={isPinned ? '取消置顶会话' : '置顶会话'}
+              disabled={Boolean(source?.disabledReason)}
+              title={source?.disabledReason || (isPinned ? '取消置顶会话' : '置顶会话')}
               aria-label={`${isPinned ? '取消置顶会话' : '置顶会话'}：${formatSessionTitle(session)}`}
               onClick={(e) => {
                 e.stopPropagation()
@@ -152,6 +158,7 @@ export function SessionItem({
             >
               <Pin className="size-3" />
             </button>
+            {source && <SidebarSourceBadge source={source} />}
             <SidebarMoreMenu target={{ kind: 'session', session }} />
             {runningIndicator}
           </div>
@@ -186,6 +193,7 @@ export function SessionItem({
           <button
             type="button"
             aria-label={`${isPinned ? '取消置顶会话' : '置顶会话'}：${formatSessionTitle(session)}`}
+            disabled={Boolean(source?.disabledReason)}
             onClick={(e) => {
               e.stopPropagation()
               onTogglePin?.(session.path)
@@ -197,6 +205,7 @@ export function SessionItem({
           >
             <Pin className="size-3" />
           </button>
+          {source && <SidebarSourceBadge source={source} />}
           <SidebarMoreMenu target={{ kind: 'session', session }} />
           {runningIndicator}
         </div>

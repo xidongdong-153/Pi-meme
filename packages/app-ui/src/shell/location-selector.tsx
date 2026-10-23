@@ -1,12 +1,12 @@
 import { useRef, useState } from 'react'
-import { ArrowLeft, Monitor, Server } from 'lucide-react'
+import { ArrowLeft, Globe, Monitor } from 'lucide-react'
 import type { HostService } from '@pi-meme/contracts/host'
 import type { SelectWorkspace } from '@pi-meme/contracts/sessions'
 import { Popover, PopoverContent, PopoverTrigger } from '@pi-meme/ui/components/ui/popover'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Input } from '@pi-meme/ui/components/ui/input'
-import { serviceAddress } from './service-ui'
+import { serviceLabel, serviceStatus } from './service-ui'
 
 export function LocationSelector({
   services,
@@ -29,7 +29,11 @@ export function LocationSelector({
   const [pending, setPending] = useState<{ service: HostService; input: SelectWorkspace; name: string }>()
   const [busy, setBusy] = useState(false)
   const current = services.find((service) => service.id === serviceId)
-  const label = current?.local ? '此计算机' : `远程 · ${serviceAddress(current?.address ?? '')}`
+  const label = current?.local
+    ? '此计算机'
+    : current
+      ? `远程 · ${serviceLabel(current)}${current.transport === 'ssh' ? ' · SSH' : ''}`
+      : '选择工作位置'
   return (
     <>
       <Popover
@@ -50,7 +54,11 @@ export function LocationSelector({
             disabled={Boolean(disabledReason)}
             className="flex h-7 min-w-0 max-w-[180px] shrink items-center gap-1.5 rounded-lg px-2 text-xs text-muted-foreground transition-colors enabled:hover:bg-secondary/60 enabled:hover:text-foreground data-[state=open]:bg-secondary/60 data-[state=open]:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset enabled:cursor-pointer disabled:opacity-50"
           >
-            {current?.local ? <Monitor className="size-3.5 shrink-0" /> : <Server className="size-3.5 shrink-0" />}
+            {current?.local ? (
+              <Monitor className="size-3.5 shrink-0" />
+            ) : (
+              <Globe className="size-3.5 shrink-0 text-primary" />
+            )}
             <span className="truncate">{label}</span>
           </button>
         </PopoverTrigger>
@@ -72,9 +80,7 @@ export function LocationSelector({
               className="flex max-w-full items-center gap-1.5 rounded-lg px-2 py-1 text-xs text-muted-foreground hover:bg-secondary"
             >
               <ArrowLeft className="size-3.5 shrink-0" />
-              <span className="truncate">
-                {targetService.local ? '此计算机' : serviceAddress(targetService.address)}
-              </span>
+              <span className="truncate">{serviceLabel(targetService)}</span>
             </button>
           )}
           <Input
@@ -118,11 +124,7 @@ export function LocationSelector({
                     </button>
                   ))
               : services
-                  .filter((service) =>
-                    (service.local ? '此计算机' : serviceAddress(service.address))
-                      .toLocaleLowerCase()
-                      .includes(query.toLocaleLowerCase()),
-                  )
+                  .filter((service) => serviceLabel(service).toLocaleLowerCase().includes(query.toLocaleLowerCase()))
                   .map((service) => (
                     <button
                       key={service.id}
@@ -137,15 +139,11 @@ export function LocationSelector({
                       {service.local ? (
                         <Monitor className="size-3.5 shrink-0" />
                       ) : (
-                        <Server className="size-3.5 shrink-0" />
+                        <Globe className="size-3.5 shrink-0 text-primary" />
                       )}
-                      <span className="min-w-0 flex-1 truncate">
-                        {service.local ? '此计算机' : serviceAddress(service.address)}
-                      </span>
+                      <span className="min-w-0 flex-1 truncate">{serviceLabel(service)}</span>
                       {service.status !== 'connected' && (
-                        <span className="shrink-0 text-muted-foreground">
-                          {service.status === 'connecting' ? '连接中' : '未连接'}
-                        </span>
+                        <span className="shrink-0 text-muted-foreground">{serviceStatus(service)}</span>
                       )}
                     </button>
                   ))}
@@ -161,7 +159,7 @@ export function LocationSelector({
         <DialogContent>
           <DialogTitle>切换工作位置</DialogTitle>
           <DialogDescription>
-            在{pending?.service.local ? '此计算机' : `远程 ${serviceAddress(pending?.service.address ?? '')}`}的“
+            在{pending?.service.local ? '此计算机' : `远程 ${pending ? serviceLabel(pending.service) : ''}`}的“
             {pending?.name}”中创建新对话，带上文字、图片和输入模式。旧对话继续保留。
           </DialogDescription>
           <div className="flex justify-end gap-2">

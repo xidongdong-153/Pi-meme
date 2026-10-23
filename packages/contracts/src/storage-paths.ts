@@ -17,6 +17,7 @@ export const storageLayoutRelativePaths = {
   // config
   configDirectory: 'config',
   appConfigFile: 'config/app.json',
+  sshConnectionsFile: 'config/ssh-connections.json',
   profileDirectory: 'config/profile',
   profileConfigFile: 'config/profile/profile.json',
   agentDirectory: 'config/agent',

@@ -31,6 +31,7 @@ export type SidebarMenuBridge = Pick<
 
 type MenuState = {
   pinnedPaths: string[]
+  disabledReason?: string
   apps: ProjectApp[]
   canOpenProject: boolean
   appsLoading: boolean
@@ -62,8 +63,10 @@ export function SidebarMenus({
   onChanged,
   onDeleted,
   canOpenProject,
+  disabledReason,
 }: {
   canOpenProject: boolean
+  disabledReason?: string
   children: ReactNode
   bridge: SidebarMenuBridge
   pinnedPaths: string[]
@@ -88,6 +91,10 @@ export function SidebarMenus({
   const dialogOpening = useRef(false)
   const dialogTrigger = useRef<HTMLElement | null>(null)
   const prepare = (kind: 'rename' | 'delete', target: MenuTarget) => {
+    if (disabledReason) {
+      setNotice(disabledReason)
+      return
+    }
     dialogOpening.current = true
     setError('')
     setPreview(null)
@@ -112,6 +119,10 @@ export function SidebarMenus({
   }
   const submit = async () => {
     if (!action || lock.current) return
+    if (disabledReason) {
+      setError(disabledReason)
+      return
+    }
     lock.current = true
     setBusy(true)
     setError('')
@@ -151,6 +162,7 @@ export function SidebarMenus({
   }
   const value: MenuState = {
     pinnedPaths,
+    disabledReason,
     dialogOpening,
     dialogTrigger,
     apps,
@@ -302,25 +314,28 @@ function MenuItems({ target, kind }: { target: MenuTarget; kind: 'context' | 'dr
   const pinned = menus.pinnedPaths.includes(path)
   return (
     <>
+      {menus.disabledReason && (
+        <p className="max-w-64 px-2 py-1 text-xs text-muted-foreground">{menus.disabledReason}</p>
+      )}
       {target.kind === 'project' && (
-        <Item onSelect={() => menus.onNewSession(target.project.cwd)}>
+        <Item disabled={Boolean(menus.disabledReason)} onSelect={() => menus.onNewSession(target.project.cwd)}>
           <SquarePen />
           新建会话
         </Item>
       )}
       {target.kind === 'session' && (
-        <Item onSelect={() => menus.rename(target)}>
+        <Item disabled={Boolean(menus.disabledReason)} onSelect={() => menus.rename(target)}>
           <Pencil />
           重命名
         </Item>
       )}
-      <Item onSelect={() => menus.onTogglePin(path)}>
+      <Item disabled={Boolean(menus.disabledReason)} onSelect={() => menus.onTogglePin(path)}>
         {pinned ? <PinOff /> : <Pin />}
         {pinned ? '取消置顶' : '置顶'}
       </Item>
       {target.kind === 'project' && (
         <>
-          <Item onSelect={() => menus.rename(target)}>
+          <Item disabled={Boolean(menus.disabledReason)} onSelect={() => menus.rename(target)}>
             <Pencil />
             编辑名称
           </Item>
@@ -352,7 +367,7 @@ function MenuItems({ target, kind }: { target: MenuTarget; kind: 'context' | 'dr
         </>
       )}
       <Separator />
-      <Item className="text-destructive" onSelect={() => menus.remove(target)}>
+      <Item disabled={Boolean(menus.disabledReason)} className="text-destructive" onSelect={() => menus.remove(target)}>
         <Trash2 />
         {target.kind === 'project' ? '移除项目并删除全部会话' : '永久删除'}
       </Item>

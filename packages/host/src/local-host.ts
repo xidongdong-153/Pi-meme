@@ -32,7 +32,7 @@ export async function acquireLocalHost<T extends { url: string; dispose: () => P
   const attach = async (status: LocalHostStatus): Promise<LocalHostLease<T>> => {
     await verifyDataRoot(status, options.dataRoot)
     if (options.allowReuse === false)
-      throw new Error('已有 Host；新的令牌、TLS 或 Web 根目录参数不能应用到运行中的 Host，请先停止管理方')
+      throw new Error('已有 Host；新的令牌、认证模式、TLS 或 Web 根目录参数不能应用到运行中的 Host，请先停止管理方')
     return { ownership: 'attached', url, status }
   }
   if (!ephemeral) {

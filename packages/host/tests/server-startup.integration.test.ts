@@ -35,7 +35,8 @@ test('Server 入口复用兼容 Host 后成功退出，不接管；目录或创�
       PI_MEME_TEST_CREDENTIALS: 'memory',
       PI_MEME_HOST: '127.0.0.1',
     }
-    for (const key of ['PI_MEME_TOKEN', 'PI_MEME_TLS_CERT', 'PI_MEME_TLS_KEY', 'PI_MEME_WEB_ROOT']) delete env[key]
+    for (const key of ['PI_MEME_TOKEN', 'PI_MEME_TLS_CERT', 'PI_MEME_TLS_KEY', 'PI_MEME_WEB_ROOT', 'PI_MEME_AUTH_MODE'])
+      delete env[key]
     const child = spawn(process.execPath, ['--import', 'tsx', 'apps/server/src/main.ts'], {
       env: { ...env, ...extra },
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -62,6 +63,13 @@ test('Server 入口复用兼容 Host 后成功退出，不接管；目录或创�
     assert.equal(await stopped(explicit.child), 1)
     assert.match(explicit.output(), /新的令牌/)
     assert.ok(!explicit.output().includes('test-explicit-token'))
+    const authMode = launch({ PI_MEME_AUTH_MODE: 'token-required' })
+    assert.equal(await stopped(authMode.child), 1)
+    assert.match(authMode.output(), /认证模式/)
+    const invalidMode = launch({ PI_MEME_AUTH_MODE: 'invalid-mode' })
+    assert.equal(await stopped(invalidMode.child), 1)
+    assert.match(invalidMode.output(), /PI_MEME_AUTH_MODE 只支持 token-required/)
+    assert.equal((await readLocalHostStatus(host.url))?.instanceId, host.host.instanceId)
   } finally {
     for (const child of children)
       if (child.exitCode === null) {
@@ -82,9 +90,10 @@ test('Server 入口创建 Host，退出信号关闭监听并释放数据锁', { 
     PI_MEME_TEST_CREDENTIALS: 'memory',
     PI_MEME_HOST: '127.0.0.1',
   }
-  for (const key of ['PI_MEME_TOKEN', 'PI_MEME_TLS_CERT', 'PI_MEME_TLS_KEY', 'PI_MEME_WEB_ROOT']) delete env[key]
+  for (const key of ['PI_MEME_TOKEN', 'PI_MEME_TLS_CERT', 'PI_MEME_TLS_KEY', 'PI_MEME_WEB_ROOT', 'PI_MEME_AUTH_MODE'])
+    delete env[key]
   const child = spawn(process.execPath, ['--import', 'tsx', 'apps/server/src/main.ts'], {
-    env,
+    env: { ...env, PI_MEME_AUTH_MODE: 'token-required', PI_MEME_TOKEN: 'test-ssh-host-token' },
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   let output = ''
@@ -103,6 +112,18 @@ test('Server 入口创建 Host，退出信号关闭监听并释放数据锁', { 
       url = output.match(/Host 已启动：(http:\/\/127\.0\.0\.1:\d+)/)?.[1]
     }
     assert.equal((await readLocalHostStatus(url))?.owner, 'server')
+    const login = (token: string) =>
+      fetch(`${url}/api/auth`, {
+        method: 'POST',
+        headers: { Origin: url!, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      })
+    assert.equal((await login('')).status, 401)
+    const authenticated = await login('test-ssh-host-token')
+    assert.equal(authenticated.status, 200)
+    const identity = (await authenticated.json()) as { authMode: string; capabilities: { sshTunnelAuthV1: boolean } }
+    assert.equal(identity.authMode, 'token-required')
+    assert.equal(identity.capabilities.sshTunnelAuthV1, true)
     child.kill('SIGTERM')
     assert.equal(await stopped(child), 0)
     assert.equal(await readLocalHostStatus(url), undefined)

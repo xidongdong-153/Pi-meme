@@ -11,6 +11,11 @@ paths:
   - 'packages/contracts/src/storage.ts'
   - 'packages/host/src/service.ts'
   - 'packages/host/src/credentials.ts'
+  - 'packages/host/src/ssh-connections.ts'
+  - 'packages/host/src/ssh-config.ts'
+  - 'packages/host/src/ssh-tunnels.ts'
+  - 'packages/host/src/connection-credentials.ts'
+  - 'packages/contracts/src/ssh-connections.ts'
   - 'packages/pi-adapter/src/file-credentials.ts'
   - 'packages/pi-runtime/src/runtime-paths.ts'
   - 'packages/pi-runtime/src/sdk/model-runtime.ts'
@@ -28,7 +33,7 @@ paths:
 
 # 配置与安全
 
-所有配置和执行数据属于所连接的 Host。连接远程服务后，模型、MCP、技能、插件和会话操作都发生在远程机器；浏览器平台不决定 Agent 沙箱。连接参数与 HTTPS 见 [Remote](remote.md)。
+所有配置和执行数据属于所连接的 Host。连接远程服务后，模型、MCP、技能、插件和会话操作都发生在远程机器；浏览器平台不决定 Agent 沙箱。HTTPS、SSH 参数与具体连接步骤见 [Remote](remote.md)。
 
 ## 数据目录
 
@@ -42,6 +47,7 @@ paths:
 ├── host-id                         # 持久 Host 身份
 ├── host.lock                       # 唯一写入锁
 ├── config/app.json                 # 应用偏好与新会话默认值
+├── config/ssh-connections.json     # 入口 Host 保存的 SSH 连接资料（不含令牌）
 ├── config/profile/                 # 用户个人资料与头像
 ├── config/agent/                   # SDK 设置、模型、MCP、指令与子代理
 ├── config/workspaces/<cwd-hash>/   # 工作区覆盖配置
@@ -102,7 +108,7 @@ flowchart TD
 - Host：`cache/sessions.json`、`cache/sessions.json.tmp`、`cache/remote-services.json`、`cache/remote-services.json.tmp`。
 - Electron 固定 `userData`：存在的 `Cache`、`Code Cache`、`GPUCache`、`DawnCache`、`ShaderCache`、`GrShaderCache`、`GraphiteDawnCache`。
 
-缓存包含链接或特殊文件时停止清理并显示路径，不沿链接删除外部文件。会话索引和远程摘要可重新生成；远程连接凭据保留，摘要在重连后重建。缓存可能在重启后立即重新产生。
+缓存包含链接或特殊文件时停止清理并显示路径，不沿链接删除外部文件。会话索引和远程摘要可重新生成；远程连接凭据与 `config/ssh-connections.json` 保留，摘要在重连后重建。缓存可能在重启后立即重新产生。
 
 不会删除会话、计划、工作目录、`credentials/auth.json`、技能、插件、整个 Electron profile 或系统临时目录。`resources/snapshots/` 被历史技能使用记录引用，`state/requests.jsonl` 与 `state/control/` 承担请求去重及回执语义，均不属于清理白名单。
 
@@ -145,13 +151,23 @@ Host 指令在 `config/agent/AGENTS.md`、`config/agent/SYSTEM.md`、`config/age
 
 ## 凭据
 
-[FileCredentialStore](../packages/pi-adapter/src/file-credentials.ts) 保存凭据于 `credentials/auth.json`（原根目录 `auth.json`，详见 [数据目录与存储](storage.md)），格式为应用自己的字符串键值对象，权限为 `0600`。Host 串行写入并原子替换；Worker 同步内存副本，Host 落盘后才确认成功。读取、解析或写入失败会明确报错，不覆盖损坏文件。
+[FileCredentialStore](../packages/pi-adapter/src/file-credentials.ts) 保存凭据于 `credentials/auth.json`（原根目录 `auth.json`，详见 [数据目录与存储](storage.md)），格式为应用自己的字符串键值对象，权限为 `0600`。这是文件权限保护，不是系统钥匙串或加密存储；备份仍包含敏感凭据。Host 串行写入并原子替换；Worker 同步内存副本，Host 落盘后才确认成功。读取、解析或写入失败会明确报错，不覆盖损坏文件。
 
 启动不读系统钥匙串。旧 macOS 凭据只通过主动导入操作读取，保留已有文件凭据和旧钥匙串条目；实现见 [credentials.ts](../packages/host/src/credentials.ts) 与 [HostSettings](../packages/app-ui/src/settings/host-settings.tsx)。Linux 不提供该导入操作。
 
-Desktop 使用内存 Electron Session，认证 Cookie 不写磁盘；本机 Host 的自动登录同时校验真实连接来源、Host 和 Origin，不向 Renderer 传递长期令牌。远程令牌留在本地 Host 凭据存储，不返回 Renderer。认证与远程代理规则见 [Remote](remote.md)。
+Desktop 使用内存 Electron Session，认证 Cookie 不写磁盘；本机 Host 的自动登录同时校验真实连接来源、Host 和 Origin，不向 Renderer 传递长期令牌。HTTPS 和 SSH 的远程令牌留在入口 Host 凭据存储，不返回 Renderer。SSH 令牌使用 `ssh-host:<稳定连接ID>` 键，与 `config/ssh-connections.json` 中的目标、名称、身份文件路径、启用状态和已确认 `hostId` 分开；身份文件只保存路径引用，不复制私钥。认证与远程代理规则见 [Remote](remote.md)。
 
 Pi 1.1 的 `ModelRuntime.create` 没有公开的认证环境注入参数。[model-runtime.ts](../packages/pi-runtime/src/sdk/model-runtime.ts) 是唯一依赖 SDK private shape 的认证隔离层：检查 `runtime.models.authContext` 后注入空环境和不可用文件检查，阻止隐式读取本机模型认证。守卫失败报错；升级 SDK 时需重新核对该守卫，并验证 [model-config.integration.test.ts](../packages/models/tests/model-config.integration.test.ts) 与 [sdk-settings-isolation.integration.test.ts](../packages/pi-runtime/tests/sdk-settings-isolation.integration.test.ts)。会话、JSONL 与扩展仍使用公开 SDK。
+
+## SSH 连接配置与信任边界
+
+入口 Host 管理系统 OpenSSH 进程，不由 Renderer 或 Electron main 执行远程业务。SSH 读取、保存、启停、重试和移除要求已认证且满足入口 Host 的本机来源条件；普通远程网络页面只能使用已登记服务，不获取身份文件路径或配置候选。应用自己的远程代理拒绝转发 SSH 管理请求。
+
+本机来源由 loopback 对端和 Host 地址判断。外部 SSH 转发把请求送到 loopback 后，携带有效认证的用户仍可被视为本机管理者；这不是物理本机证明，也不是多租户隔离。`PI_MEME_AUTH_MODE=token-required` 关闭免登录，不改变该来源分类。远端 SSH 目标必须启用此认证模式，只有 `PI_MEME_TOKEN` 不足以关闭默认本机免登录。
+
+SSH 配置来自入口 Host 用户的 `~/.ssh/config`，`Include` 只生成语法候选，不求值 `Host`/`Match` 条件。发现阶段不运行命令；启用某条连接时系统 OpenSSH 执行有效配置预检，拒绝额外端口转发。配置中的 `Match exec`、`ProxyCommand` 等仍属于用户信任的命令，不能把读取或使用该配置称为执行沙箱。具体限制见 [SSH 配置和非交互限制](remote.md#ssh-配置和非交互限制)。
+
+主机指纹沿用系统 `known_hosts`，密钥与解锁沿用系统 agent；应用不保存 SSH 密码，不提供交互式 MFA 或口令弹窗，不关闭指纹检查。远端 Host 令牌与 SSH 身份验证是两件事。SSH 指纹或 `hostId` 变化时停止自动恢复，先核实目标再重新登记。
 
 ## macOS Desktop 命令环境
 

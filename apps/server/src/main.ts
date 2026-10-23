@@ -5,6 +5,9 @@ import { startHostServer, type ServerOptions } from '@pi-meme/host/server'
 import { acquireLocalHost } from '@pi-meme/host/local-host'
 import { hostPort } from '@pi-meme/contracts/host-runtime'
 
+const authMode = process.env.PI_MEME_AUTH_MODE
+if (authMode !== undefined && authMode !== 'token-required')
+  throw new Error('PI_MEME_AUTH_MODE 只支持 token-required；未设置时沿用默认认证方式')
 const certificate = process.env.PI_MEME_TLS_CERT
 const key = process.env.PI_MEME_TLS_KEY
 if (Boolean(certificate) !== Boolean(key)) throw new Error('HTTPS 证书与私钥必须同时配置')
@@ -22,7 +25,7 @@ const options: ServerOptions = {
   port,
   owner: 'server',
   token: process.env.PI_MEME_TOKEN,
-  localAutoLogin: true,
+  localAutoLogin: authMode !== 'token-required',
   staticDirectory: process.env.PI_MEME_WEB_ROOT ?? path.resolve(directory, '../../web/dist'),
   tls: certificate && key ? { cert: await readFile(certificate), key: await readFile(key) } : undefined,
   workerPath:
@@ -35,7 +38,7 @@ if (['127.0.0.1', 'localhost', '::1'].includes(hostname) && !options.tls) {
   const lease = await acquireLocalHost({
     url: `${options.tls ? 'https' : 'http'}://${hostname.includes(':') ? `[${hostname}]` : hostname}:${port}`,
     dataRoot: options.dataRoot,
-    allowReuse: ![process.env.PI_MEME_TOKEN, certificate, process.env.PI_MEME_WEB_ROOT].some(
+    allowReuse: ![process.env.PI_MEME_TOKEN, certificate, process.env.PI_MEME_WEB_ROOT, authMode].some(
       (value) => value !== undefined,
     ),
     create: () => startHostServer(options),

@@ -16,6 +16,7 @@ function renderSidebar(
   preferencesLoaded = true,
   withSessions = false,
   nativePlatformAvailable = false,
+  remote: Partial<HostService> = {},
 ) {
   const services: HostService[] = ['local', 'remote'].map((id) => ({
     id,
@@ -43,6 +44,7 @@ function renderSidebar(
       pinnedPaths: pinned ? ['/work/project', ...(withSessions ? [`/work/${id}-session.jsonl`] : [])] : [],
     },
   }))
+  Object.assign(services[1], remote)
   const preferences: SidebarPreferences = {
     groupMode: 'projects',
     sortMode: 'recent',
@@ -69,6 +71,12 @@ function renderSidebar(
   const props = {
     services,
     registry: {
+      ssh: {
+        capabilities: vi.fn().mockResolvedValue({ canManage: true, available: true }),
+        retry: vi.fn().mockResolvedValue(undefined),
+        setEnabled: vi.fn().mockResolvedValue(undefined),
+      },
+      retry: vi.fn().mockResolvedValue(undefined),
       get: (id: string) => ({ bridge: bridges.get(id), nativePlatformAvailable }),
     } as unknown as ComponentProps<typeof MultiServiceSidebar>['registry'],
     controllers: new Map(),
@@ -91,6 +99,48 @@ function renderSidebar(
   const sessionRows = [...container.querySelectorAll<HTMLElement>('[data-session-path]')]
   return { props, rows, sessionRows, bridges }
 }
+
+test.each(['https', 'ssh'] as const)('%s 远程项目与会话显示来源，详情重试只操作所属连接', async (transport) => {
+  const { props, rows, sessionRows } = renderSidebar(false, true, true, true, {
+    transport,
+    name: 'WSL Tailscale',
+    status: 'disconnected',
+    enabled: true,
+    error: '连接被远端关闭',
+    phase: 'action-required',
+    sessions: {
+      projects: [{ cwd: '/work/project', name: 'remote 项目', sessions: [], sessionCount: 7, lastModified: '' }],
+      recents: [
+        {
+          id: 'remote-session',
+          name: 'remote 会话',
+          path: '/work/remote-session.jsonl',
+          cwd: '/work/project',
+          created: '2026-01-01',
+          modified: '2026-01-01',
+          messageCount: 0,
+        },
+      ],
+      pinnedPaths: [],
+    },
+  })
+  expect(rows[0].querySelector('[aria-label^="远程："]')).toBeNull()
+  expect(rows[1].querySelector('[aria-label="远程：WSL Tailscale"]')).not.toBeNull()
+  expect(sessionRows[1].querySelector('[aria-label="远程：WSL Tailscale"]')).not.toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: '远程项目详情：remote 项目' }))
+  expect(
+    await screen.findByText(`WSL Tailscale · ${transport === 'ssh' ? 'SSH' : 'HTTPS'} · 7 次聊天`),
+  ).toBeInTheDocument()
+  expect(screen.getByText('连接被远端关闭')).toBeInTheDocument()
+  expect(screen.getByText('/work/project')).toBeInTheDocument()
+  fireEvent.click(await screen.findByRole('button', { name: '重试连接：WSL Tailscale' }))
+  await waitFor(() =>
+    expect(transport === 'ssh' ? props.registry.ssh.retry : props.registry.retry).toHaveBeenCalledExactlyOnceWith(
+      'remote',
+    ),
+  )
+  expect(props.onActivate).not.toHaveBeenCalled()
+})
 
 test.each([
   { native: false, service: 'local', kind: '更多菜单', canOpen: false },

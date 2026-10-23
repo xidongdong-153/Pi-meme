@@ -20,6 +20,7 @@
     "./mcp": "./src/mcp.ts",
     "./secure-storage": "./src/secure-storage.ts",
     "./host": "./src/host.ts",
+    "./ssh-connections": "./src/ssh-connections.ts",
     "./host-runtime": "./src/host-runtime.ts",
     "./plan": "./src/plan.ts",
     "./collaboration": "./src/collaboration.ts",

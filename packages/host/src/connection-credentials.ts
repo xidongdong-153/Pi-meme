@@ -50,6 +50,37 @@ export class ConnectionCredentialStore {
     this.credentials.set(`${prefix}${url}`, JSON.stringify({ token: value.token, hostId: value.hostId }))
     await this.flush()
   }
+  private sshKey(id: string) {
+    if (!/^[a-f0-9]{24}$/.test(id)) throw new Error('SSH 连接标识无效')
+    return `ssh-host:${id}`
+  }
+  readSsh(id: string) {
+    return this.credentials.get(this.sshKey(id))
+  }
+  async saveSsh(id: string, token: string) {
+    if (!token || token.length > 4096) throw new Error('Host 访问令牌无效')
+    const key = this.sshKey(id)
+    const previous = this.credentials.get(key)
+    this.credentials.set(key, token)
+    try {
+      await this.flush()
+    } catch (cause) {
+      if (previous === undefined) this.credentials.delete(key)
+      else this.credentials.set(key, previous)
+      throw cause
+    }
+  }
+  async removeSsh(id: string) {
+    const key = this.sshKey(id)
+    const previous = this.credentials.get(key)
+    this.credentials.delete(key)
+    try {
+      await this.flush()
+    } catch (cause) {
+      if (previous !== undefined) this.credentials.set(key, previous)
+      throw cause
+    }
+  }
   async remove(url: string) {
     this.credentials.delete(`${prefix}${origin(url)}`)
     await this.flush()

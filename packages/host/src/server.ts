@@ -7,12 +7,14 @@ import { createHost, type HostOptions } from './service'
 import { RemoteServices } from './remote-services'
 import { createTransportAuth } from './transport-auth'
 import { createTransportApp } from './transport-app'
+import type { SshConnectionOptions } from './ssh-connections'
 
 export type ServerOptions = HostOptions & {
   hostname?: string
   port?: number
   token?: string
   localAutoLogin?: boolean
+  ssh?: SshConnectionOptions
   owner?: 'desktop' | 'server'
   staticDirectory?: string
   frontendUrl?: string
@@ -24,10 +26,12 @@ export async function startHostServer(options: ServerOptions = {}) {
   const local = ['127.0.0.1', 'localhost', '::1'].includes(hostname)
   if (!local && !options.tls) throw new Error('远程 Host 必须配置 HTTPS 证书和私钥')
   const host = await createHost(options)
-  const remotes = new RemoteServices(host.connections, host.root)
+  const remotes = new RemoteServices(host.connections, host.root, options.ssh)
   try {
     await remotes.initialize()
   } catch (cause) {
+    remotes.dispose()
+    await remotes.flush().catch(() => {})
     await host.dispose()
     throw cause
   }
@@ -37,6 +41,8 @@ export async function startHostServer(options: ServerOptions = {}) {
       host.credentials.set('host:token', token)
       await host.flushCredentials()
     } catch (cause) {
+      remotes.dispose()
+      await remotes.flush().catch(() => {})
       await host.dispose()
       throw cause
     }
@@ -65,6 +71,7 @@ export async function startHostServer(options: ServerOptions = {}) {
     })
   } catch (cause) {
     remotes.dispose()
+    await remotes.flush().catch(() => {})
     sockets.close()
     auth.dispose()
     await host.dispose()

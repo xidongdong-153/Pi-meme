@@ -42,6 +42,7 @@ export function createTransportAuth(options: {
     return Boolean(expires && expires > Date.now())
   }
   return {
+    authMode: localAutoLogin ? ('local-auto-login' as const) : ('token-required' as const),
     localRequest,
     authenticated,
     allowedSource(request: IncomingMessage) {
@@ -58,7 +59,7 @@ export function createTransportAuth(options: {
         if (
           !ticket &&
           !(
-            value.token.length === options.token.length &&
+            Buffer.byteLength(value.token) === Buffer.byteLength(options.token) &&
             timingSafeEqual(Buffer.from(value.token), Buffer.from(options.token))
           )
         )

@@ -65,7 +65,11 @@ function clientIdentity(options: ClientOptions, endpoint: URL) {
 export class HostClient {
   readonly clientId: string
   readonly host: HostApi
-  private readonly controlClosers = new Set<() => void>()
+  private readonly controlSubscriptions = new Set<{
+    suspend: () => void
+    resume: () => Promise<void>
+    close: () => void
+  }>()
   readonly bridge: DesktopBridge
   readonly plugins: PluginClient
   readonly resources: ResourceClient
@@ -75,11 +79,15 @@ export class HostClient {
   private readonly connectionListeners = new Set<(value: Connection) => void>()
   private readonly errorListeners = new Set<(value: DesktopError) => void>()
   private readonly sessionsListeners = new Set<() => void>()
+  private readonly servicesListeners = new Set<() => void>()
   private readonly pluginListeners = new Set<() => void>()
   private socket?: WebSocket
   private reconnectTimer?: ReturnType<typeof setTimeout>
   private reconnectAttempts = 0
   private closed = false
+  private suspended = false
+  private networkEpoch = 0
+  private lifetime = new AbortController()
   private authenticated?: Promise<void>
   private renewing?: Promise<void>
   private selected?: Connection
@@ -163,9 +171,55 @@ export class HostClient {
     return Boolean(this.options.connection.local && this.options.platform)
   }
 
-  async connect() {
+  private assertAvailable(epoch = this.networkEpoch) {
     if (this.closed) throw new Error('Host 客户端已关闭')
+    if (this.suspended) throw new Error('Host 连接已暂停，请恢复连接后继续')
+    if (epoch !== this.networkEpoch) throw new Error('Host 连接已变化，旧操作结果已忽略')
+  }
+
+  onServicesChanged(callback: () => void) {
+    this.servicesListeners.add(callback)
+    return () => {
+      this.servicesListeners.delete(callback)
+    }
+  }
+
+  suspend(reason = 'Host 连接已暂停，请恢复连接后继续') {
+    if (this.closed || this.suspended) return
+    this.suspended = true
+    this.networkEpoch++
+    this.selectionEpoch++
+    this.lifetime.abort(new Error(reason))
+    this.authenticated = undefined
+    this.renewing = undefined
+    this.resynchronizing = undefined
+    clearTimeout(this.reconnectTimer)
+    this.reconnectTimer = undefined
+    const socket = this.socket
+    this.socket = undefined
+    socket?.close()
+    for (const subscription of this.controlSubscriptions) subscription.suspend()
+    this.buffered = []
+    if (this.selected) this.publishConnection({ ...this.selected, status: 'disconnected', error: reason })
+  }
+
+  async resume() {
+    if (this.closed) throw new Error('Host 客户端已关闭')
+    const wasSuspended = this.suspended
+    if (wasSuspended) {
+      this.suspended = false
+      this.lifetime = new AbortController()
+      this.reconnectAttempts = 0
+    }
+    await this.connect()
+    if (wasSuspended) await Promise.all([...this.controlSubscriptions].map((subscription) => subscription.resume()))
+  }
+
+  async connect() {
+    const epoch = this.networkEpoch
+    this.assertAvailable(epoch)
     await this.authenticate()
+    this.assertAvailable(epoch)
     this.openSocket()
   }
 
@@ -180,14 +234,18 @@ export class HostClient {
   }
 
   private authenticate() {
+    this.assertAvailable()
     if (this.options.endpoint?.authenticate === false) return Promise.resolve()
-    this.authenticated ??= (async () => {
+    if (this.authenticated) return this.authenticated
+    const epoch = this.networkEpoch
+    const pending = (async () => {
       let response: Response
       try {
         response = await this.fetch(this.endpoint('/api/auth'), {
           method: 'POST',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
+          signal: this.lifetime.signal,
           body: JSON.stringify({ token: this.options.connection.token }),
         })
       } catch (cause) {
@@ -200,16 +258,19 @@ export class HostClient {
           typeof message === 'string' ? message : 'Host 未启动或尚未就绪，请启动 Desktop 或 pnpm start:server',
         )
       }
+      this.assertAvailable(epoch)
       if (!response.ok) throw new Error('Host 认证失败，请检查访问令牌')
       const identity = (await response.json()) as { hostId?: unknown }
+      this.assertAvailable(epoch)
       if (typeof identity.hostId !== 'string' || !identity.hostId) throw new Error('Host 没有返回有效身份')
       this.acceptHost(identity.hostId)
       this.options.connection.token = ''
     })().catch((error: unknown) => {
-      this.authenticated = undefined
+      if (this.authenticated === pending) this.authenticated = undefined
       throw error
     })
-    return this.authenticated
+    this.authenticated = pending
+    return pending
   }
 
   reauthenticate() {
@@ -217,11 +278,15 @@ export class HostClient {
   }
 
   private renewAuthentication() {
-    this.renewing ??= (async () => {
+    this.assertAvailable()
+    if (this.renewing) return this.renewing
+    const epoch = this.networkEpoch
+    const pending = (async () => {
       this.authenticated = undefined
       if (this.options.endpoint?.renewAuthentication) await this.options.endpoint.renewAuthentication()
       else if (this.options.platform) {
         const connection = await this.options.platform.getHostConnection()
+        this.assertAvailable(epoch)
         if (
           new URL(connection.url).origin !== this.url.origin ||
           (this.hostId && connection.hostId && this.hostId !== connection.hostId)
@@ -229,11 +294,14 @@ export class HostClient {
           throw new Error('Host 连接已变化，请重新连接')
         this.options.connection.token = connection.token
       }
+      this.assertAvailable(epoch)
       await this.authenticate()
+      this.assertAvailable(epoch)
     })().finally(() => {
-      this.renewing = undefined
+      if (this.renewing === pending) this.renewing = undefined
     })
-    return this.renewing
+    this.renewing = pending
+    return pending
   }
 
   async rpc<T>(
@@ -242,16 +310,20 @@ export class HostClient {
     sessionId: string | null | undefined = this.selected?.sessionKey,
     signal?: AbortSignal,
   ): Promise<T> {
-    if (this.closed) throw new Error('Host 客户端已关闭')
+    const epoch = this.networkEpoch
+    this.assertAvailable(epoch)
+    const requestSignal = signal ? AbortSignal.any([signal, this.lifetime.signal]) : this.lifetime.signal
     await this.authenticate()
+    this.assertAvailable(epoch)
     const requestId = crypto.randomUUID()
     const send = async () => {
+      this.assertAvailable(epoch)
       try {
         return await this.fetch(this.endpoint('/api/rpc'), {
           method: 'POST',
           credentials: 'include',
           headers: { 'Content-Type': 'application/json' },
-          signal,
+          signal: requestSignal,
           body: JSON.stringify({
             requestId,
             clientId: this.clientId,
@@ -262,17 +334,21 @@ export class HostClient {
           }),
         })
       } catch (cause) {
+        this.assertAvailable(epoch)
         throw new Error(`无法连接 Host，操作没有自动重发：${String(cause)}`)
       }
     }
     let response = await send()
+    this.assertAvailable(epoch)
     if (response.status === 401) {
       await this.renewAuthentication()
-      if (this.closed) throw new Error('Host 客户端已关闭')
+      this.assertAvailable(epoch)
       response = await send()
     }
+    this.assertAvailable(epoch)
     if (response.status === 401) throw new Error('Host 登录已失效，请重新连接')
     const value: unknown = await response.json()
+    this.assertAvailable(epoch)
     if (!value || typeof value !== 'object' || !('requestId' in value)) {
       const error = value && typeof value === 'object' && 'error' in value ? value.error : undefined
       throw new Error(typeof error === 'string' ? error : `Host 请求失败：HTTP ${response.status}`)
@@ -291,14 +367,17 @@ export class HostClient {
     signal?: AbortSignal,
     onProgress?: (percent: number) => void,
   ): Promise<ChatUploadedFile> {
-    if (this.closed) throw new Error('Host 客户端已关闭')
-    signal?.throwIfAborted()
+    const epoch = this.networkEpoch
+    this.assertAvailable(epoch)
+    signal = signal ? AbortSignal.any([signal, this.lifetime.signal]) : this.lifetime.signal
+    signal.throwIfAborted()
     if (this.nativePlatformAvailable && typeof File !== 'undefined' && input.data instanceof File) {
       const path = this.options.platform?.getPathForFile?.(input.data)
       if (path) return { name: input.name, path }
     }
     if (input.data.size > MAX_CHAT_ATTACHMENT_BYTES) throw new Error('单个上传文件不能超过 50 MB')
     await this.authenticate()
+    this.assertAvailable(epoch)
     const url = this.endpoint('/api/chat/attachments')
     url.search = new URLSearchParams({
       sessionKey,
@@ -307,8 +386,8 @@ export class HostClient {
       name: input.name,
     }).toString()
     const send = () => {
+      this.assertAvailable(epoch)
       signal?.throwIfAborted()
-      if (this.closed) throw new Error('Host 客户端已关闭')
       if (typeof XMLHttpRequest === 'undefined') {
         return this.fetch(url, {
           method: 'POST',
@@ -353,12 +432,15 @@ export class HostClient {
       })
     }
     let response = await send()
+    this.assertAvailable(epoch)
     if (response.status === 401) {
       signal?.throwIfAborted()
       await this.renewAuthentication()
+      this.assertAvailable(epoch)
       response = await send()
     }
     const value = (await response.json()) as { hostId?: string; result?: ChatUploadedFile; error?: string }
+    this.assertAvailable(epoch)
     if (!response.ok) throw new Error(value.error ?? `附件上传失败：HTTP ${response.status}`)
     this.acceptHost(value.hostId ?? '')
     if (!value.result || typeof value.result.path !== 'string' || typeof value.result.name !== 'string')
@@ -367,8 +449,10 @@ export class HostClient {
   }
 
   private async controlCall<T>(method: string, args: unknown[], idempotencyKey?: string): Promise<T> {
-    if (this.closed) throw new Error('Host 客户端已关闭')
+    const epoch = this.networkEpoch
+    this.assertAvailable(epoch)
     await this.authenticate()
+    this.assertAvailable(epoch)
     const body = JSON.stringify({
       apiVersion: 2,
       hostId: this.connectedHostId,
@@ -377,32 +461,42 @@ export class HostClient {
       args,
       idempotencyKey,
     })
-    const send = () =>
-      this.fetch(this.endpoint('/api/control'), {
+    const send = () => {
+      this.assertAvailable(epoch)
+      return this.fetch(this.endpoint('/api/control'), {
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body,
+        signal: this.lifetime.signal,
       })
+    }
     let response = await send()
+    this.assertAvailable(epoch)
     if (response.status === 401) {
       await this.renewAuthentication()
+      this.assertAvailable(epoch)
       response = await send()
     }
+    this.assertAvailable(epoch)
     if (!response.ok) throw new Error(`Host 请求失败：HTTP ${response.status}`)
     const value = (await response.json()) as HostControlResponse
+    this.assertAvailable(epoch)
     this.acceptHost(value.hostId)
     if (value.error) throw Object.assign(new Error(value.error.message), { code: value.error.code })
     return value.result as T
   }
 
   private async subscribeControl(input: EventSubscription, listener: (event: HostControlEvent) => void) {
+    if (this.closed) throw new Error('Host 客户端已关闭')
     let stopped = false
     let after: EventCursor | undefined = input.after
     let socket: WebSocket | undefined
     let timer: ReturnType<typeof setTimeout> | undefined
+    let connecting: Promise<void> | undefined
+    const active = () => !stopped && !this.closed && !this.suspended
     const connection = (reason: 'connected' | 'disconnected') => {
-      if (stopped || this.closed) return
+      if (!active()) return
       listener({
         stream: 'live',
         type: 'resync',
@@ -415,54 +509,100 @@ export class HostClient {
         value: { reason },
       })
     }
-    const schedule = () => {
-      if (!stopped && !this.closed)
-        timer = setTimeout(() => {
-          void connect(this).catch(() => {
-            connection('disconnected')
-            schedule()
-          })
-        }, this.options.reconnectDelay ?? 1000)
-    }
-    async function connect(client: HostClient) {
-      if (stopped || client.closed) return
-      await client.authenticate()
-      if (stopped || client.closed) return
-      const url = client.endpoint('/api/control/events')
-      url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
-      url.searchParams.set('clientId', client.clientId)
-      url.searchParams.set('subscription', JSON.stringify({ ...input, after }))
-      socket = (client.options.createSocket ?? ((address) => new WebSocket(address)))(url.href)
-      socket.addEventListener('open', () => connection('connected'))
-      socket.addEventListener('message', (message) => {
-        const event = JSON.parse(String(message.data)) as HostControlEvent
-        client.acceptHost(event.hostId)
-        if (
-          event.stream !== 'live' &&
-          event.type !== 'resync' &&
-          after?.journalEpoch === event.journalEpoch &&
-          event.seq <= after.seq
-        )
-          return
-        if (event.stream !== 'live') after = { journalEpoch: event.journalEpoch, seq: event.seq }
-        listener(event)
-      })
-      socket.addEventListener('close', () => {
-        if (!stopped && !client.closed) {
+    const schedule = (start: () => Promise<void>) => {
+      if (!active() || timer) return
+      timer = setTimeout(() => {
+        timer = undefined
+        void start().catch(() => {
           connection('disconnected')
-          void client.renewAuthentication().then(schedule, schedule)
-        }
+          schedule(start)
+        })
+      }, this.options.reconnectDelay ?? 1000)
+    }
+    const connect = () => {
+      if (!active() || socket) return Promise.resolve()
+      if (connecting) return connecting
+      const epoch = this.networkEpoch
+      const pending = (async () => {
+        await this.authenticate()
+        if (!active() || epoch !== this.networkEpoch) return
+        const url = this.endpoint('/api/control/events')
+        url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+        url.searchParams.set('clientId', this.clientId)
+        url.searchParams.set('subscription', JSON.stringify({ ...input, after }))
+        const current = (this.options.createSocket ?? ((address) => new WebSocket(address)))(url.href)
+        socket = current
+        const isCurrent = () => active() && socket === current && epoch === this.networkEpoch
+        current.addEventListener('open', () => {
+          if (isCurrent()) connection('connected')
+        })
+        current.addEventListener('message', (message) => {
+          if (!isCurrent()) return
+          try {
+            const event = JSON.parse(String(message.data)) as HostControlEvent
+            this.acceptHost(event.hostId)
+            if (
+              event.stream !== 'live' &&
+              event.type !== 'resync' &&
+              after?.journalEpoch === event.journalEpoch &&
+              event.seq <= after.seq
+            )
+              return
+            if (event.stream !== 'live') after = { journalEpoch: event.journalEpoch, seq: event.seq }
+            listener(event)
+          } catch (cause) {
+            this.reportError(`无法读取 Host 控制事件：${String(cause)}`)
+          }
+        })
+        current.addEventListener('close', () => {
+          if (!isCurrent()) return
+          socket = undefined
+          connection('disconnected')
+          const renewed = () => {
+            if (epoch === this.networkEpoch) schedule(connect)
+          }
+          void this.renewAuthentication().then(renewed, renewed)
+        })
+      })().finally(() => {
+        if (connecting === pending) connecting = undefined
       })
+      connecting = pending
+      return pending
     }
-    await connect(this)
-    const close = () => {
-      stopped = true
-      if (timer) clearTimeout(timer)
-      socket?.close()
-      this.controlClosers.delete(close)
+    const subscription = {
+      suspend: () => {
+        clearTimeout(timer)
+        timer = undefined
+        connecting = undefined
+        const current = socket
+        socket = undefined
+        current?.close()
+      },
+      resume: async () => {
+        try {
+          await connect()
+        } catch {
+          connection('disconnected')
+          schedule(connect)
+        }
+      },
+      close: () => {
+        stopped = true
+        subscription.suspend()
+        this.controlSubscriptions.delete(subscription)
+      },
     }
-    this.controlClosers.add(close)
-    return close
+    this.controlSubscriptions.add(subscription)
+    const epoch = this.networkEpoch
+    try {
+      await connect()
+    } catch (cause) {
+      if (!this.suspended && epoch === this.networkEpoch) {
+        subscription.close()
+        throw cause
+      }
+    }
+    return subscription.close
   }
 
   private acceptHost(hostId: string) {
@@ -472,8 +612,11 @@ export class HostClient {
 
   private async snapshot(sessionId = this.selected?.sessionKey, updateSelection = true) {
     const epoch = this.selectionEpoch
+    const networkEpoch = this.networkEpoch
     let snapshot = await this.rpc<Snapshot>('pi:snapshot', [], sessionId)
+    this.assertAvailable(networkEpoch)
     if (await this.recoverQueueEdits(snapshot)) snapshot = await this.rpc<Snapshot>('pi:snapshot', [], sessionId)
+    this.assertAvailable(networkEpoch)
     this.registerAgents(snapshot.agents ?? [])
     if (updateSelection && epoch === this.selectionEpoch && sessionId === this.selected?.sessionKey)
       this.selected = snapshot.connection
@@ -532,8 +675,10 @@ export class HostClient {
   private agentSnapshot(agentId: string) {
     const pending = this.childReads.get(agentId)
     if (pending) return pending
+    const networkEpoch = this.networkEpoch
     const read = this.rpc<Snapshot>('pi:agent-snapshot', [agentId], null)
       .then((snapshot) => {
+        this.assertAvailable(networkEpoch)
         const key = snapshot.connection.sessionKey
         if (
           key &&
@@ -586,16 +731,19 @@ export class HostClient {
   }
 
   private openSocket() {
-    if (this.closed || this.socket) return
+    if (this.closed || this.suspended || this.socket) return
+    const epoch = this.networkEpoch
     const url = this.endpoint('/api/events')
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
     url.searchParams.set('clientId', this.clientId)
     const socket = (this.options.createSocket ?? ((address) => new WebSocket(address)))(url.href)
     this.socket = socket
+    const isCurrent = () => !this.closed && !this.suspended && this.socket === socket && epoch === this.networkEpoch
     socket.addEventListener('open', () => {
-      void this.resynchronize()
+      if (isCurrent()) void this.resynchronize()
     })
     socket.addEventListener('message', (message) => {
+      if (!isCurrent()) return
       try {
         const envelope = JSON.parse(String(message.data)) as HostEvent
         this.acceptHost(envelope.hostId)
@@ -608,21 +756,25 @@ export class HostClient {
     socket.addEventListener('close', () => {
       if (this.socket !== socket) return
       this.socket = undefined
-      if (this.closed) return
+      if (this.closed || this.suspended || epoch !== this.networkEpoch) return
       if (this.selected)
         this.publishConnection({ ...this.selected, status: 'disconnected', error: 'Host 连接已断开，正在重连' })
       const delay = Math.min((this.options.reconnectDelay ?? 1000) * 2 ** this.reconnectAttempts++, 15000)
       this.reconnectTimer = setTimeout(() => void this.reconnectSocket(), delay)
     })
-    socket.addEventListener('error', () => this.reportError('WebSocket 连接失败，请检查 Host 地址和网络'))
+    socket.addEventListener('error', () => {
+      if (isCurrent()) this.reportError('WebSocket 连接失败，请检查 Host 地址和网络')
+    })
   }
 
   private async reconnectSocket() {
+    if (this.closed || this.suspended) return
+    const epoch = this.networkEpoch
     try {
       await this.renewAuthentication()
-      if (!this.closed) this.openSocket()
+      if (!this.closed && !this.suspended && epoch === this.networkEpoch) this.openSocket()
     } catch (cause) {
-      if (this.closed) return
+      if (this.closed || this.suspended || epoch !== this.networkEpoch) return
       this.reportError(`Host 重新认证失败：${String(cause)}`)
       const delay = Math.min((this.options.reconnectDelay ?? 1000) * 2 ** this.reconnectAttempts++, 15000)
       this.reconnectTimer = setTimeout(() => void this.reconnectSocket(), delay)
@@ -631,29 +783,37 @@ export class HostClient {
 
   private resynchronize(sessionId = this.selected?.sessionKey) {
     if (this.resynchronizing) return this.resynchronizing
-    this.resynchronizing = (async () => {
-      let recovered = false
+    const networkEpoch = this.networkEpoch
+    let recovered = false
+    const pending = (async () => {
       try {
         const epoch = this.selectionEpoch
         const snapshot = await this.snapshot(sessionId, sessionId === this.selected?.sessionKey)
+        this.assertAvailable(networkEpoch)
         if (epoch === this.selectionEpoch && snapshot.connection.sessionKey === this.selected?.sessionKey)
           this.publishConnection(snapshot.connection)
         await Promise.allSettled([...new Set(this.childAgents.values())].map((id) => this.agentSnapshot(id)))
+        this.assertAvailable(networkEpoch)
         for (const callback of this.sessionsListeners) callback()
         for (const callback of this.pluginListeners) callback()
         this.reconnectAttempts = 0
         recovered = true
       } catch (cause) {
-        this.reportError(`无法恢复 Host 快照：${String(cause)}`)
-        this.socket?.close()
-      } finally {
-        this.resynchronizing = undefined
-        const pending = this.buffered
-        this.buffered = []
-        if (recovered) for (const envelope of pending) this.receive(envelope)
+        if (!this.closed && !this.suspended && networkEpoch === this.networkEpoch) {
+          this.reportError(`无法恢复 Host 快照：${String(cause)}`)
+          this.socket?.close()
+        }
       }
-    })()
-    return this.resynchronizing
+    })().finally(() => {
+      if (this.resynchronizing === pending) this.resynchronizing = undefined
+      if (networkEpoch === this.networkEpoch) {
+        const buffered = this.buffered
+        this.buffered = []
+        if (recovered) for (const envelope of buffered) this.receive(envelope)
+      }
+    })
+    this.resynchronizing = pending
+    return pending
   }
 
   private publishConnection(connection: Connection) {
@@ -719,6 +879,9 @@ export class HostClient {
       case 'sessions-changed':
         for (const callback of this.sessionsListeners) callback()
         break
+      case 'services-changed':
+        for (const callback of this.servicesListeners) callback()
+        break
       case 'resources-changed':
       case 'plugins-changed':
         for (const callback of this.pluginListeners) callback()
@@ -732,8 +895,9 @@ export class HostClient {
   }
 
   close() {
+    this.suspend()
     this.closed = true
-    for (const close of [...this.controlClosers]) close()
+    for (const subscription of [...this.controlSubscriptions]) subscription.close()
     clearTimeout(this.reconnectTimer)
     this.socket?.close()
     this.socket = undefined
@@ -742,6 +906,7 @@ export class HostClient {
     this.connectionListeners.clear()
     this.errorListeners.clear()
     this.sessionsListeners.clear()
+    this.servicesListeners.clear()
     this.pluginListeners.clear()
   }
 

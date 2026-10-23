@@ -7,6 +7,7 @@ import type { ServiceController, ServiceRegistry, ServiceUI } from '../src/shell
 import { ServicesApp } from '../src/shell/services-app'
 
 const controllers = new Map<string, ServiceController>()
+const removalErrors: unknown[] = []
 
 vi.mock('../src/app', () => ({
   App: ({ serviceUI }: { serviceUI: ServiceUI }) => {
@@ -17,19 +18,27 @@ vi.mock('../src/app', () => ({
     return serviceUI.active ? (
       <div data-testid="active-service" data-service={serviceId}>
         {serviceUI.sidebar}
+        {serviceUI.remoteSettings}
       </div>
     ) : null
   },
 }))
 
-vi.mock('../src/shell/remote-settings', () => ({ RemoteSettings: () => null }))
+vi.mock('../src/shell/remote-settings', () => ({
+  RemoteSettings: ({ onRemove }: { onRemove: (id: string) => Promise<void> }) => (
+    <button type="button" onClick={() => void onRemove('remote').catch((cause) => removalErrors.push(cause))}>
+      移除测试连接
+    </button>
+  ),
+}))
 
 afterEach(() => {
   cleanup()
   controllers.clear()
+  removalErrors.length = 0
 })
 
-async function setup(target: string, status: HostService['status']) {
+async function setup(target: string, status: HostService['status'], remote: Partial<HostService> = {}) {
   const services: HostService[] = ['local', 'remote'].map((id) => ({
     id,
     hostId: id,
@@ -51,6 +60,7 @@ async function setup(target: string, status: HostService['status']) {
       })),
     },
   }))
+  Object.assign(services[1], remote)
   for (const service of services) {
     controllers.set(service.id, {
       sessions: service.sessions,
@@ -71,7 +81,9 @@ async function setup(target: string, status: HostService['status']) {
     prefetchSession: vi.fn().mockResolvedValue(undefined),
   }
   const client = { bridge }
+  const removeSsh = vi.fn().mockResolvedValue(undefined)
   const registry = {
+    ssh: { remove: removeSsh },
     localServiceId: 'local',
     local: client,
     list: () => services,
@@ -86,7 +98,7 @@ async function setup(target: string, status: HostService['status']) {
   )
   await waitFor(() => expect(screen.getByText(`${target} 会话 A`)).toBeTruthy())
   await act(async () => {})
-  return { controller: controllers.get(target)!, source: controllers.get('local')! }
+  return { controller: controllers.get(target)!, source: controllers.get('local')!, removeSsh }
 }
 
 test.each([
@@ -132,10 +144,42 @@ test('旧会话切换迟到的错误不覆盖后来成功切换的界面', async
       }),
   )
   fireEvent.click(screen.getByText('local 会话 A'))
+  await waitFor(() => expect(controller.switchSession).toHaveBeenCalledTimes(1))
   fireEvent.click(screen.getByText('local 会话 B'))
   await waitFor(() => expect(controller.switchSession).toHaveBeenCalledTimes(2))
   await act(async () => reject(new Error('旧会话失败')))
   expect(source.setError).not.toHaveBeenCalled()
+})
+
+test('显式暂停的 SSH 会话保留摘要，但点击不会隐式恢复或切换', async () => {
+  const { controller, source } = await setup('remote', 'disconnected', {
+    transport: 'ssh',
+    enabled: false,
+    phase: 'paused',
+  })
+  fireEvent.click(screen.getByText('remote 会话 A'))
+  await act(async () => {})
+  expect(controller.switchSession).not.toHaveBeenCalled()
+  expect(source.setError).toHaveBeenCalledWith('连接已暂停，请先在远程设置中恢复连接')
+  expect(screen.getByTestId('active-service').getAttribute('data-service')).toBe('local')
+})
+
+test('移除 SSH 连接先检查目标未保存状态，不卸载或删除有草稿的连接', async () => {
+  const { controller, removeSsh } = await setup('remote', 'connected', {
+    transport: 'ssh',
+    enabled: true,
+    phase: 'connected',
+  })
+  controller.assertRemoveAllowed = vi.fn(() => {
+    throw new Error('仍有未发送的草稿')
+  })
+  fireEvent.click(screen.getByRole('button', { name: '移除测试连接' }))
+  await waitFor(() => expect(removalErrors).toHaveLength(1))
+  expect(removeSsh).not.toHaveBeenCalled()
+  expect(screen.getByText('remote 会话 A')).toBeTruthy()
+  controller.assertRemoveAllowed = vi.fn()
+  fireEvent.click(screen.getByRole('button', { name: '移除测试连接' }))
+  await waitFor(() => expect(removeSsh).toHaveBeenCalledExactlyOnceWith('remote'))
 })
 
 test('正在编辑时激活切换其他服务或会话，自动取消编辑且不设置错误提示', async () => {

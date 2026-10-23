@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
-import type { HostRpcRequest } from '@pi-meme/contracts/host'
+import type { HostRpcRequest, HostService } from '@pi-meme/contracts/host'
+import type { SshConnection } from '@pi-meme/contracts/ssh-connections'
 import { HostClient } from '../src/host-client'
 import { HostServiceRegistry } from '../src/service-registry'
 
@@ -13,6 +14,85 @@ function deferred<T>() {
   })
   return { promise, resolve, reject }
 }
+
+class RegistrySocket extends EventTarget {
+  close() {
+    this.dispatchEvent(new Event('close'))
+  }
+  servicesChanged() {
+    this.dispatchEvent(
+      new MessageEvent('message', { data: JSON.stringify({ hostId: 'local-host', type: 'services-changed' }) }),
+    )
+  }
+}
+
+function sshRegistry() {
+  const service: HostService = {
+    id: '0123456789abcdef01234567',
+    hostId: 'ssh-host',
+    address: 'http://ssh-0123456789abcdef01234567.invalid',
+    local: false,
+    name: '远端开发',
+    transport: 'ssh',
+    enabled: false,
+    phase: 'paused',
+    status: 'disconnected',
+    projects: [{ cwd: '/cached', name: '缓存项目', lastSelectedAt: '2026-01-01' }],
+  }
+  const profile: SshConnection = {
+    id: service.id,
+    name: '远端开发',
+    target: 'development',
+    hostPort: 31415,
+    hasToken: true,
+    enabled: false,
+    phase: 'paused',
+  }
+  const source = {
+    services: [service],
+    readServices: async (): Promise<HostService[]> => structuredClone(source.services),
+    projects: async (): Promise<unknown[]> => [{ cwd: '/live', name: '实时项目', lastSelectedAt: '2026-01-02' }],
+  }
+  const socket = new RegistrySocket()
+  const localRequests: HostRpcRequest[] = []
+  const remoteRequests: URL[] = []
+  const local = new HostClient({
+    connection: { url: 'http://127.0.0.1:31415', hostId: 'local-host', token: '', local: true },
+    selectDirectory: async () => null,
+    createSocket: () => socket as unknown as WebSocket,
+    fetch: async (input, init) => {
+      if (new URL(String(input)).pathname === '/api/auth') return Response.json({ hostId: 'local-host' })
+      const request = JSON.parse(String(init?.body)) as HostRpcRequest
+      localRequests.push(request)
+      let result: unknown = []
+      if (request.method === 'host:services:list') result = await source.readServices()
+      else if (request.method === 'host:ssh:list') result = [profile]
+      else if (request.method === 'host:ssh:save') result = profile
+      else if (request.method === 'host:ssh:enabled') result = { ...profile, enabled: request.args[1] }
+      else if (request.method === 'pi:sessions') result = { projects: [], recents: [], pinnedPaths: [] }
+      return Response.json({ requestId: request.requestId, hostId: 'local-host', result })
+    },
+  })
+  const registry = new HostServiceRegistry(local, {
+    baseUrl: 'http://127.0.0.1:31415',
+    selectDirectory: async () => null,
+    createSocket: () => new RegistrySocket() as unknown as WebSocket,
+    fetch: async (input, init) => {
+      const url = new URL(String(input))
+      remoteRequests.push(url)
+      if (url.pathname.endsWith('/api/auth')) return Response.json({ hostId: 'ssh-host' })
+      const request = JSON.parse(String(init?.body)) as HostRpcRequest
+      const result =
+        request.method === 'workspace:projects'
+          ? await source.projects()
+          : { projects: [], recents: [], pinnedPaths: [] }
+      return Response.json({ requestId: request.requestId, hostId: 'ssh-host', result })
+    },
+  })
+  return { registry, local, socket, source, service, profile, localRequests, remoteRequests }
+}
+
+const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 10))
 
 function createRegistry() {
   const source = {
@@ -43,6 +123,144 @@ function createRegistry() {
   })
   return { registry, source }
 }
+
+test('未验证SSH配置只经入口RPC读取和保存，不创建HostService或远端客户端', async () => {
+  const { registry, source, remoteRequests, profile, localRequests } = sshRegistry()
+  source.services = []
+  try {
+    await registry.initialize()
+    assert.deepEqual(await registry.ssh.list(), [profile])
+    const input = { name: '远端开发', target: 'development', hostPort: 31415 }
+    await registry.ssh.save(input)
+    assert.equal(registry.list().length, 1)
+    assert.equal(remoteRequests.length, 0)
+    assert.throws(() => registry.get(profile.id), /不存在/)
+    const saved = localRequests.find((request) => request.method === 'host:ssh:save')!
+    assert.deepEqual(saved.args, [input])
+  } finally {
+    registry.close()
+  }
+})
+
+for (const phase of ['paused', 'action-required', 'retrying'] as const) {
+  test(`SSH ${phase} 初始化和刷新不尝试认证，服务摘要与Host阶段保留`, async () => {
+    const { registry, source, service, remoteRequests } = sshRegistry()
+    source.services = [{ ...service, enabled: phase !== 'paused', phase, error: '需要处理连接' }]
+    try {
+      await registry.initialize()
+      await registry.refresh(service.id)
+      assert.equal(remoteRequests.length, 0)
+      assert.equal(registry.list()[1].phase, phase)
+      assert.equal(registry.list()[1].projects[0].cwd, '/cached')
+      assert.equal(registry.list()[1].error, '需要处理连接')
+      await assert.rejects(registry.get(service.id).bridge.prompt('A', '不能偷偷连接'), /已暂停/)
+      assert.equal(remoteRequests.length, 0)
+    } finally {
+      registry.close()
+    }
+  })
+}
+
+test('SSH服务变更只恢复新就绪服务，不每次刷新所有服务或覆盖Host状态', async () => {
+  const { registry, local, socket, source, service, remoteRequests } = sshRegistry()
+  try {
+    await local.connect()
+    await registry.initialize()
+    source.services = [{ ...service, enabled: true, phase: 'connected', status: 'connected' }]
+    socket.servicesChanged()
+    await settle()
+    assert.equal(registry.list()[1].status, 'connected')
+    assert.equal(registry.list()[1].projects[0].cwd, '/live')
+    const count = remoteRequests.length
+    socket.servicesChanged()
+    await settle()
+    assert.equal(remoteRequests.length, count, '重复服务事件不重读全部服务摘要')
+    source.services = [{ ...service, enabled: true, phase: 'action-required', error: 'Host 令牌已失效' }]
+    socket.servicesChanged()
+    await settle()
+    await assert.rejects(registry.get(service.id).bridge.getProjects(), /已暂停/)
+    assert.equal(registry.list()[1].phase, 'action-required')
+    assert.equal(registry.list()[1].error, 'Host 令牌已失效')
+  } finally {
+    registry.close()
+  }
+})
+
+test('摘要刷新尚未完成也能接收暂停事件，旧成功结果不覆盖暂停或需要处理状态', async () => {
+  const { registry, local, socket, source, service } = sshRegistry()
+  const projects = deferred<unknown[]>()
+  const started = deferred<void>()
+  try {
+    await local.connect()
+    await registry.initialize()
+    source.projects = () => {
+      started.resolve()
+      return projects.promise
+    }
+    source.services = [{ ...service, enabled: true, phase: 'connected', status: 'connected' }]
+    socket.servicesChanged()
+    await started.promise
+    source.services = [{ ...service, enabled: false, phase: 'paused', error: '用户已暂停' }]
+    socket.servicesChanged()
+    await settle()
+    assert.equal(registry.list()[1].phase, 'paused')
+    projects.resolve([{ cwd: '/stale', name: '过期项目', lastSelectedAt: '2026-01-03' }])
+    await settle()
+    assert.equal(registry.list()[1].phase, 'paused')
+    assert.equal(registry.list()[1].status, 'disconnected')
+    assert.equal(registry.list()[1].error, '用户已暂停')
+    assert.equal(registry.list()[1].projects[0].cwd, '/cached')
+  } finally {
+    projects.resolve([])
+    registry.close()
+  }
+})
+
+test('服务清单事件合并单次在途读取，并在变更期间再读一次最新状态', async () => {
+  const { registry, local, socket, source, service, localRequests } = sshRegistry()
+  const earlier = deferred<HostService[]>()
+  const started = deferred<void>()
+  try {
+    await local.connect()
+    await registry.initialize()
+    const count = localRequests.filter((request) => request.method === 'host:services:list').length
+    let reads = 0
+    source.readServices = async () => {
+      if (++reads === 1) {
+        started.resolve()
+        return earlier.promise
+      }
+      return [{ ...service, phase: 'action-required', enabled: true, error: '身份已变化' }]
+    }
+    socket.servicesChanged()
+    await started.promise
+    for (let i = 0; i < 5; i++) socket.servicesChanged()
+    assert.equal(reads, 1)
+    earlier.resolve([{ ...service, phase: 'paused' }])
+    await settle()
+    assert.equal(reads, 2)
+    assert.equal(localRequests.filter((request) => request.method === 'host:services:list').length, count + 2)
+    assert.equal(registry.list()[1].phase, 'action-required')
+  } finally {
+    earlier.resolve([])
+    registry.close()
+  }
+})
+
+test('SSH移除走SSH管理RPC并清理客户端，HTTPS不会因此改变通用接口', async () => {
+  const { registry, source, service, localRequests } = sshRegistry()
+  try {
+    await registry.initialize()
+    source.services = []
+    await registry.remove(service.id)
+    assert.equal(registry.list().length, 1)
+    assert.throws(() => registry.get(service.id), /不存在/)
+    assert.ok(localRequests.some((request) => request.method === 'host:ssh:remove'))
+    assert.ok(localRequests.every((request) => request.method !== 'host:services:remove'))
+  } finally {
+    registry.close()
+  }
+})
 
 test('已连接服务刷新摘要期间保留可用状态和已有列表', async () => {
   const { registry, source } = createRegistry()

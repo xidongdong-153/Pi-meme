@@ -3,7 +3,7 @@ import { useActivities } from '@pi-meme/activities/ui/activity-store'
 import { GoalControl } from '@pi-meme/goals/ui/goal-control'
 import { GitMenu } from '@pi-meme/git/ui/git-menu'
 import { LocationSelector } from './shell/location-selector'
-import type { ServiceUI } from './shell/service-ui'
+import { serviceLabel, serviceStatus, type ServiceUI } from './shell/service-ui'
 import { SubagentsPanel } from './panels/subagents-panel'
 import { createResourceClient } from '@pi-meme/client/resource-client'
 import { appendSkillInvocation, invokeSkillInNewSession } from './settings/invoke-skill'
@@ -71,7 +71,17 @@ import { PluginSlot } from './plugins/plugin-slot'
 import { WorkspacePanels } from './layout/workspace-panels'
 import { sessionUiTarget, panelAvailable } from './layout/panel-layout'
 import { useAgentPluginSelection } from './plugins/use-agent-plugin-selection'
-import { Activity, FileDiff, Folder, TerminalSquare, Network, ListTree, NotebookPen, GitFork } from 'lucide-react'
+import {
+  Activity,
+  FileDiff,
+  Folder,
+  Globe,
+  TerminalSquare,
+  Network,
+  ListTree,
+  NotebookPen,
+  GitFork,
+} from 'lucide-react'
 import type { HostApi, AppSession } from '@pi-meme/contracts/app-host'
 import { CustomizationPage } from './plugins/customization-page'
 import { PluginPage } from './settings/plugin-page'
@@ -215,6 +225,8 @@ export function App({
     return () => window.removeEventListener('beforeunload', unload)
   }, [fileStore, chat.hasUnstoredDraft])
   const active = serviceUI?.active ?? true
+  const currentService = serviceUI?.services.find((service) => service.id === serviceUI.serviceId)
+  const remoteOffline = Boolean(currentService && !currentService.local && currentService.status !== 'connected')
   const cwd = chat.connection.cwd
   const availableRightTabs: RightSidebarTab[] = []
   if (chat.chat.sessionEntries?.entries.length) availableRightTabs.push('session-tree')
@@ -597,6 +609,14 @@ export function App({
       ...chat,
       openSettings: () => openSettings('general'),
       assertRestartAllowed,
+      assertRemoveAllowed: () => {
+        if (instructionsSaving || chat.navigationBusy || chat.modelSaving || chat.sendingAttachments)
+          throw new Error('正在保存、提交或切换，请完成后再移除连接')
+        if (fileStore.hasDirty() || instructionsDirty || dirtyPage)
+          throw new Error('仍有未保存的文件、指令或插件页面，请先保存或放弃修改后再移除连接')
+        if (chat.hasDraftInput() || chat.editing)
+          throw new Error('仍有未发送的草稿、附件或消息编辑，请先处理后再移除连接')
+      },
       openProjectDialog: () => setCreatingProject(true),
       beforeDeactivate: async () => {
         if (instructionsSaving) return false
@@ -627,13 +647,16 @@ export function App({
         ? (chat.connection.sourceProjectCwd ?? chat.connection.cwd).split(/[\\/]/).filter(Boolean).at(-1) || '选择项目'
         : 'Pi meme'
   const first = chat.chat.messages.find((message) => message.role === 'user')
-  const status = chat.chat.running
-    ? '正在运行'
-    : ready
-      ? '已连接'
-      : chat.connection.status === 'connecting'
-        ? '连接中'
-        : '未连接'
+  const status =
+    remoteOffline && currentService
+      ? serviceStatus(currentService)
+      : chat.chat.running
+        ? '正在运行'
+        : ready
+          ? '已连接'
+          : chat.connection.status === 'connecting'
+            ? '连接中'
+            : '未连接'
   const title =
     ready || Boolean(chat.connection.sessionKey)
       ? chat.state?.sessionName || (first ? messageText(first).split('\n')[0].slice(0, 32) : '') || '新会话'
@@ -856,6 +879,25 @@ export function App({
     commands: chat.commands,
     widgetsAbove: (
       <>
+        {currentService && !currentService.local && (
+          <div role="status" className="flex min-w-0 items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground">
+            <Globe aria-hidden="true" className="size-3 shrink-0 text-primary" />
+            <span className="min-w-0 flex-1 truncate" title={currentService.error}>
+              远程 · {serviceLabel(currentService)} · {currentService.transport === 'ssh' ? 'SSH' : 'HTTPS'} ·{' '}
+              {serviceStatus(currentService)}
+            </span>
+            {remoteOffline && (
+              <Button size="sm" variant="ghost" onClick={() => openSettings('host')}>
+                管理连接
+              </Button>
+            )}
+          </div>
+        )}
+        {remoteOffline && (
+          <p className="px-2 pb-1 text-xs text-muted-foreground">
+            当前内容为已加载快照，草稿保留。连接恢复前无法发送；远端任务可能仍在运行。
+          </p>
+        )}
         <ExtensionWidgets {...{ widgets: chat.extensionWidgets, placement: 'aboveEditor' }} />
         {pluginComposerStatus}
         {extra('composer')}
@@ -1400,6 +1442,7 @@ export function App({
                   onChanged={chat.refreshMenu}
                   onDeleted={chat.applyMenuDeletion}
                   canOpenProject={localPlatform}
+                  disabledReason={remoteOffline ? '远程未连接，请先恢复连接' : undefined}
                 >
                   <AppHeader
                     nativeWindow={nativeWindow}

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
 import { test, vi } from 'vitest'
+import type { HostControlEvent } from '@pi-meme/contracts/app-host'
 import type { HostRpcRequest, PlatformAdapter } from '@pi-meme/contracts/host'
 import { HostClient, type ClientOptions } from '../src/host-client'
 import { snapshot, FakeSocket, create, tick, withBrowserStorage } from './host-client-fixture'
@@ -257,6 +258,141 @@ test('浏览器上传响应 AbortSignal，失败不自动重试且结束后清�
       name: 'AbortError',
     })
     assert.equal(AttachmentRequest.requests.length, 2)
+  } finally {
+    client.close()
+  }
+})
+
+test('暂停阻止RPC、控制接口和上传，恢复后保留会话与事件监听且不重发消息', async () => {
+  const { client, requests, sockets } = create((request) => (request.method === 'pi:snapshot' ? snapshot('A') : []))
+  const connections: string[] = []
+  let changes = 0
+  client.bridge.onConnection((connection) => connections.push(connection.sessionKey!))
+  client.onServicesChanged(() => changes++)
+  try {
+    await client.bridge.getConnection()
+    await client.connect()
+    await client.bridge.prompt('A', '只发送一次')
+    client.suspend()
+    const count = requests.length
+    await assert.rejects(client.connect(), /已暂停/)
+    await assert.rejects(client.bridge.prompt('A', '暂停后不发送'), /已暂停/)
+    await assert.rejects(client.host.projects.list(), /已暂停/)
+    await assert.rejects(client.bridge.uploadAttachment('A', { name: 'file.txt', data: new Blob([]) }), /已暂停/)
+    await tick()
+    assert.equal(sockets.length, 1)
+    assert.equal(requests.length, count)
+    sockets[0].message({ hostId: 'host-1', type: 'services-changed' })
+    assert.equal(changes, 0)
+    await client.resume()
+    sockets[1].open()
+    await tick()
+    sockets[1].message({ hostId: 'host-1', type: 'services-changed' })
+    assert.equal(changes, 1)
+    assert.equal(connections.at(-1), 'A')
+    assert.equal(requests.filter((request) => request.method === 'pi:prompt').length, 1)
+    client.close()
+    await assert.rejects(client.resume(), /已关闭/)
+  } finally {
+    client.close()
+  }
+})
+
+test('控制订阅暂停后不自动重连，恢复复用原监听和最后事件游标', async () => {
+  const { client, sockets, socketUrls } = create(() => [])
+  const events: HostControlEvent[] = []
+  try {
+    await client.connect()
+    const stop = await client.host.events.subscribe({ sessionId: 'A' }, (event) => events.push(event))
+    const event: HostControlEvent = {
+      type: 'runtime',
+      hostId: 'host-1',
+      sessionId: 'A',
+      eventId: 'event-1',
+      journalEpoch: 'journal-1',
+      seq: 7,
+      timestamp: new Date().toISOString(),
+      value: { reason: '测试事件' },
+    }
+    sockets[1].message(event)
+    assert.equal(events.length, 1)
+    client.suspend()
+    sockets[1].message({ ...event, seq: 99 })
+    await tick()
+    assert.equal(sockets.length, 2)
+    assert.equal(events.length, 1)
+    await client.resume()
+    assert.equal(sockets.length, 4)
+    const subscription = JSON.parse(new URL(socketUrls[3]).searchParams.get('subscription')!)
+    assert.deepEqual(subscription, { sessionId: 'A', after: { journalEpoch: 'journal-1', seq: 7 } })
+    sockets[3].message({ ...event, eventId: 'event-2', seq: 8 })
+    assert.equal(events.length, 2)
+    stop()
+    client.suspend()
+    await client.resume()
+    assert.equal(sockets.length, 5, '已取消的控制订阅不在恢复时重建')
+  } finally {
+    client.close()
+  }
+})
+
+test('暂停发生在认证期间时旧认证不能继续发送业务，恢复使用新认证', async () => {
+  let finish!: (value: Response) => void
+  let auth = 0
+  let business = 0
+  const client = new HostClient({
+    connection: { url: 'http://127.0.0.1:3141', hostId: 'host-1', token: '', local: false },
+    selectDirectory: async () => null,
+    createSocket: () => new FakeSocket() as unknown as WebSocket,
+    fetch: async (input, init) => {
+      if (new URL(String(input)).pathname === '/api/auth') {
+        if (++auth === 1)
+          return new Promise<Response>((resolve) => {
+            finish = resolve
+          })
+        return Response.json({ hostId: 'host-1' })
+      }
+      business++
+      const request = JSON.parse(String(init?.body)) as HostRpcRequest
+      return Response.json({ requestId: request.requestId, hostId: 'host-1', result: [] })
+    },
+  })
+  try {
+    const earlier = assert.rejects(client.bridge.prompt('A', '不可迟发'), /已变化|已暂停/)
+    await tick()
+    client.suspend()
+    await client.resume()
+    finish(Response.json({ hostId: 'host-1' }))
+    await earlier
+    assert.equal(auth, 2)
+    assert.equal(business, 0)
+    await client.bridge.prompt('A', '恢复后新消息')
+    assert.equal(business, 1)
+    assert.equal(auth, 2)
+  } finally {
+    client.close()
+  }
+})
+
+test('暂停会取消进行中的浏览器上传且不会在恢复后重放', async (t) => {
+  AttachmentRequest.requests = []
+  AttachmentRequest.send = () => {}
+  vi.stubGlobal('XMLHttpRequest', AttachmentRequest)
+  t.onTestFinished(() => {
+    vi.unstubAllGlobals()
+  })
+  const { client } = attachmentClient({ createSocket: () => new FakeSocket() as unknown as WebSocket })
+  try {
+    const rejected = assert.rejects(
+      client.bridge.uploadAttachment('A', { name: 'file.txt', data: new Blob(['test']) }),
+      /暂停/,
+    )
+    await tick()
+    client.suspend()
+    await rejected
+    assert.equal(AttachmentRequest.requests[0].aborted, true)
+    await client.resume()
+    assert.equal(AttachmentRequest.requests.length, 1)
   } finally {
     client.close()
   }
