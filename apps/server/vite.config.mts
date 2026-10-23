@@ -1,11 +1,15 @@
 import { defineConfig } from 'vite'
 import { builtinModules } from 'node:module'
+import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { copyFile, mkdir } from 'node:fs/promises'
 import path from 'node:path'
 import { copyBuiltinSkillsPlugin } from '../../scripts/copy-builtin-skills.mjs'
 
+const { version } = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string }
+
 export default defineConfig({
+  define: { __PI_MEME_VERSION__: JSON.stringify(version) },
   plugins: [
     copyBuiltinSkillsPlugin(),
     {
@@ -28,6 +32,7 @@ export default defineConfig({
     rollupOptions: {
       input: {
         main: fileURLToPath(new URL('./src/main.ts', import.meta.url)),
+        'ssh-bootstrap': fileURLToPath(new URL('./src/ssh-bootstrap.ts', import.meta.url)),
         'session-worker': fileURLToPath(new URL('../../packages/host/src/session-worker.ts', import.meta.url)),
       },
       external: [

@@ -1,46 +1,21 @@
-import { readFile } from 'node:fs/promises'
-import path from 'node:path'
-import { fileURLToPath } from 'node:url'
-import { startHostServer, type ServerOptions } from '@pi-meme/host/server'
+import { startHostServer } from '@pi-meme/host/server'
 import { acquireLocalHost } from '@pi-meme/host/local-host'
-import { hostPort } from '@pi-meme/contracts/host-runtime'
+import { serverOptions } from './server-options'
 
-const authMode = process.env.PI_MEME_AUTH_MODE
-if (authMode !== undefined && authMode !== 'token-required')
-  throw new Error('PI_MEME_AUTH_MODE 只支持 token-required；未设置时沿用默认认证方式')
-const certificate = process.env.PI_MEME_TLS_CERT
-const key = process.env.PI_MEME_TLS_KEY
-if (Boolean(certificate) !== Boolean(key)) throw new Error('HTTPS 证书与私钥必须同时配置')
-const directory = path.dirname(fileURLToPath(import.meta.url))
-const hostname = process.env.PI_MEME_HOST ?? '127.0.0.1'
-const port = hostPort(process.env.PI_MEME_PORT)
-const options: ServerOptions = {
-  dataRoot: process.env.PI_MEME_DATA_ROOT,
-  restrictedNode: process.env.PI_MEME_PLUGIN_NODE || process.execPath,
-  restrictedEntry:
-    process.env.PI_MEME_PLUGIN_ENTRY ||
-    (import.meta.url.endsWith('.js') ? path.join(directory, 'restricted-entry.mjs') : undefined),
-  testCredentials: process.env.PI_MEME_TEST_CREDENTIALS === 'memory',
-  hostname,
-  port,
-  owner: 'server',
-  token: process.env.PI_MEME_TOKEN,
-  localAutoLogin: authMode !== 'token-required',
-  staticDirectory: process.env.PI_MEME_WEB_ROOT ?? path.resolve(directory, '../../web/dist'),
-  tls: certificate && key ? { cert: await readFile(certificate), key: await readFile(key) } : undefined,
-  workerPath:
-    process.env.PI_MEME_WORKER_PATH ??
-    (import.meta.url.endsWith('.js') ? path.join(directory, 'session-worker.js') : undefined),
-  builtinSkillsSource: import.meta.url.endsWith('.js') ? path.join(directory, 'skills') : undefined,
-}
+const options = await serverOptions(import.meta.url)
+const hostname = options.hostname!
+const port = options.port!
 let server: Awaited<ReturnType<typeof startHostServer>> | undefined
 if (['127.0.0.1', 'localhost', '::1'].includes(hostname) && !options.tls) {
   const lease = await acquireLocalHost({
     url: `${options.tls ? 'https' : 'http'}://${hostname.includes(':') ? `[${hostname}]` : hostname}:${port}`,
     dataRoot: options.dataRoot,
-    allowReuse: ![process.env.PI_MEME_TOKEN, certificate, process.env.PI_MEME_WEB_ROOT, authMode].some(
-      (value) => value !== undefined,
-    ),
+    allowReuse: ![
+      process.env.PI_MEME_TOKEN,
+      process.env.PI_MEME_TLS_CERT,
+      process.env.PI_MEME_WEB_ROOT,
+      process.env.PI_MEME_AUTH_MODE,
+    ].some((value) => value !== undefined),
     create: () => startHostServer(options),
   })
   if (lease.ownership === 'attached')

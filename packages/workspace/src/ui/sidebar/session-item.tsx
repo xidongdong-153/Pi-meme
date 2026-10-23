@@ -109,9 +109,11 @@ export function SessionItem({
             >
               <PinOff className="size-3" />
             </button>
+            <span className="grid size-5 shrink-0 place-items-center [&>*]:[grid-area:1/1]">
+              <SidebarMoreMenu target={{ kind: 'session', session }} />
+              {runningIndicator}
+            </span>
             {source && <SidebarSourceBadge source={source} />}
-            <SidebarMoreMenu target={{ kind: 'session', session }} />
-            {runningIndicator}
           </div>
         </div>
       </SidebarRowMenu>
@@ -158,9 +160,11 @@ export function SessionItem({
             >
               <Pin className="size-3" />
             </button>
+            <span className="grid size-5 shrink-0 place-items-center [&>*]:[grid-area:1/1]">
+              <SidebarMoreMenu target={{ kind: 'session', session }} />
+              {runningIndicator}
+            </span>
             {source && <SidebarSourceBadge source={source} />}
-            <SidebarMoreMenu target={{ kind: 'session', session }} />
-            {runningIndicator}
           </div>
         </div>
       </SidebarRowMenu>
@@ -205,9 +209,11 @@ export function SessionItem({
           >
             <Pin className="size-3" />
           </button>
+          <span className="grid size-5 shrink-0 place-items-center [&>*]:[grid-area:1/1]">
+            <SidebarMoreMenu target={{ kind: 'session', session }} />
+            {runningIndicator}
+          </span>
           {source && <SidebarSourceBadge source={source} />}
-          <SidebarMoreMenu target={{ kind: 'session', session }} />
-          {runningIndicator}
         </div>
       </div>
     </SidebarRowMenu>

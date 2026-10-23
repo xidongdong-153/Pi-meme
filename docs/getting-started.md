@@ -119,7 +119,7 @@ tar -xzf pi-meme-host-0.1.0-beta.4-macos-arm64.tar.gz
 
 若 macOS 阻止包内可执行文件，只在确认来源与校验值后，对这个解压目录执行 `xattr -dr com.apple.quarantine ./pi-meme-host`，不要扩大到其他目录。
 
-浏览器打开 `http://127.0.0.1:31415`，本机自动登录。Ctrl+C 或 SIGTERM 停止 Host。默认只监听 loopback；远程部署见 [Remote](remote.md)。Linux 的 bubblewrap 必须通过实际探测，不能通过切换完全权限来代替安装或系统策略排查。外部 MCP、Python 等仍需要各自的运行依赖。Host 包内不附 npm、pnpm，也不自动注册系统服务。
+浏览器打开 `http://127.0.0.1:31415`，本机自动登录。Ctrl+C 或 SIGTERM 停止 Host。默认只监听 loopback；远程部署见 [Remote](remote.md)。Linux 的 bubblewrap 必须通过实际探测，不能通过切换完全权限来代替安装或系统策略排查。外部 MCP、Python 等仍需要各自的运行依赖。Host 包内不附 npm、pnpm，也不自动注册系统服务。已有 SSH 可登录的远程机器可以从“设置 → 系统 → 远程”直接添加，由应用自动安装并启动 Host，无需先手工部署；具体环境前提见 [SSH 自动连接](remote.md#通过-ssh-自动连接)。
 
 ### 升级
 
@@ -204,7 +204,7 @@ node apps/server/dist/main.js
 
 打开 [本机 Host](http://127.0.0.1:31415)。构建入口默认使用 `31415` 和 `~/.pi-meme`，不使用开发入口的默认值；显式设置 `PI_MEME_PORT` 或 `PI_MEME_DATA_ROOT` 时仍以环境变量为准。
 
-Server 构建包含 `main.js`、静态会话 Worker 和内置技能；仍依赖本机安装的 `node_modules`，不是独立单文件。构建定义见 [vite.config.mts](../apps/server/vite.config.mts)。它不同于 `pnpm package:host` 生成的独立目录包，打包与验收见[版本发布](releasing.md)。远程监听和 HTTPS 参数见 [Remote](remote.md)。
+Server 构建包含 `main.js`、供 SSH 自动准备使用的 `ssh-bootstrap.js`、静态会话 Worker 和内置技能；仍依赖本机安装的 `node_modules`，不是独立单文件。构建定义见 [vite.config.mts](../apps/server/vite.config.mts)。它不同于 `pnpm package:host` 生成的独立目录包，打包与验收见[版本发布](releasing.md)。远程监听和 HTTPS 参数见 [Remote](remote.md)。
 
 ## 聊天操作
 

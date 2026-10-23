@@ -15,7 +15,16 @@ async function fixture() {
     testCredentials: true,
     token: 'test-token',
     localAutoLogin: false,
-    ssh: { available: async () => true },
+    ssh: {
+      available: async () => true,
+      prepare: async (_connection, signal, onStep) => {
+        onStep('checking')
+        signal.throwIfAborted()
+        return new Promise((_resolve, reject) => {
+          signal.addEventListener('abort', () => reject(signal.reason), { once: true })
+        })
+      },
+    },
   })
   const login = await fetch(`${server.url}/api/auth`, { method: 'POST', body: '{"token":"test-token"}' })
   const cookie = login.headers.get('set-cookie')!.split(';')[0]
@@ -98,11 +107,14 @@ test('SSH管理要求认证与本机来源，通用接口不能绕过，状态�
     for (const method of ['list', 'discover', 'save', 'enabled', 'retry', 'remove'])
       assert.equal((await rpc(`host:ssh:${method}`, [], true)).status, 403)
     await opened
-    const saved = await rpc('host:ssh:save', [{ name: 'fixture', target: 'fixture', hostPort: 31415 }])
+    const saved = await rpc('host:ssh:save', [{ target: 'fixture' }])
     assert.equal(saved.status, 200)
-    const profile = saved.body.result as { id: string; phase: string; hasToken: boolean }
-    assert.equal(profile.phase, 'unconfigured')
-    assert.equal(profile.hasToken, false)
+    const profile = saved.body.result as { id: string; name: string; phase: string; enabled: boolean; step: string }
+    assert.equal(profile.phase, 'connecting')
+    assert.equal(profile.enabled, true)
+    assert.equal(profile.step, 'checking')
+    assert.equal(profile.name, 'fixture')
+    for (const field of ['hostPort', 'token', 'hasToken']) assert.ok(!(field in profile))
     assert.deepEqual((await rpc('host:services:list', [], true)).body.result, [])
     await vi.waitFor(() => assert.ok(events.includes('services-changed')))
     for (const method of ['host:services:retry', 'host:services:remove']) {

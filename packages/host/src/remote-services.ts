@@ -97,6 +97,7 @@ export class RemoteServices {
         name: connection.name,
         enabled: connection.enabled,
         phase: connection.phase,
+        step: connection.step,
         errorCode: connection.errorCode,
         nextRetryAt: connection.nextRetryAt,
         error: connection.error,
@@ -164,7 +165,7 @@ export class RemoteServices {
       {
         login: (connection, endpoint, signal) => {
           const token = connections.readSsh(connection.id)
-          if (!token) throw new SshError('host-token', '请先配置 Host 访问令牌')
+          if (!token) throw new SshError('host-token', '远端 Host 自动准备未返回访问令牌，请重试连接')
           return this.login(endpoint, token, connection.hostId, true, signal)
         },
         changed: (connection, endpoint, cookie) => this.sshChanged(connection, endpoint, cookie),

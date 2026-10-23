@@ -3,6 +3,7 @@ import type { HostClient } from '@pi-meme/client/host-client'
 import type { ReactNode } from 'react'
 import type { DesktopBridge } from '@pi-meme/contracts/desktop'
 import type { HostService } from '@pi-meme/contracts/host'
+import type { SshConnectionPhase, SshConnectionStep } from '@pi-meme/contracts/ssh-connections'
 import type { SelectWorkspace } from '@pi-meme/contracts/sessions'
 import type { useAppSession } from '../session/use-app-session'
 
@@ -38,11 +39,32 @@ export function serviceLabel(service: Pick<HostService, 'name' | 'local' | 'addr
   return service.local ? '此计算机' : service.name || serviceAddress(service.address)
 }
 
+const sshPhaseLabels: Record<SshConnectionPhase, string> = {
+  paused: '已暂停',
+  connecting: '正在连接',
+  connected: '已连接',
+  retrying: '正在重连',
+  'action-required': '需要处理',
+}
+
+const sshStepLabels: Record<SshConnectionStep, string> = {
+  checking: '正在检查远端环境',
+  installing: '正在安装远端 Host',
+  starting: '正在启动远端 Host',
+  authenticating: '正在验证远端连接',
+}
+
+export function sshConnectionStatus(connection: { phase: SshConnectionPhase; step?: SshConnectionStep }) {
+  const phase = sshPhaseLabels[connection.phase]
+  return connection.step && (connection.phase === 'connecting' || connection.phase === 'retrying')
+    ? `${phase} · ${sshStepLabels[connection.step]}`
+    : phase
+}
+
 export function serviceStatus(service: HostService) {
   if (service.transport === 'ssh') {
     if (service.enabled === false) return '已暂停'
-    if (service.phase === 'action-required') return '需要处理'
-    if (service.phase === 'retrying') return '正在重连'
+    if (service.phase) return sshConnectionStatus({ phase: service.phase, step: service.step })
   }
   return service.status === 'connected' ? '已连接' : service.status === 'connecting' ? '连接中' : '未连接'
 }

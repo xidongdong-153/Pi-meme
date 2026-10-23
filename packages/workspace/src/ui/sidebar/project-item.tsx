@@ -127,76 +127,99 @@ export function ProjectItem({
             title={details ? undefined : project.cwd}
             data-project-cwd={project.cwd}
           >
-            <button
-              type="button"
-              onClick={() => (onSelectProject ? onSelectProject(project.cwd) : onToggle())}
-              aria-expanded={onSelectProject ? undefined : isExpanded}
-              onFocus={showDetails}
-              className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden pl-2 py-2 text-left rounded cursor-[inherit] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <span className="relative size-3.5 shrink-0">
-                <Folder data-project-folder-icon aria-hidden="true" className="size-3.5 text-muted-foreground" />
-                {source && (
-                  <span
-                    role="img"
-                    aria-label={`远程：${source.label}`}
-                    title={source.description}
-                    className="absolute -bottom-0.5 -right-1 rounded-full bg-card text-primary"
-                  >
-                    <Globe aria-hidden="true" className="size-2" />
-                  </span>
-                )}
-              </span>
-              <span className="truncate font-medium">{project.name}</span>
-            </button>
-            <div data-sidebar-drag-ignore draggable={false} className="flex items-center gap-1 shrink-0 ml-1">
+            <div className="relative flex min-w-0 flex-1 items-center">
               <button
                 type="button"
-                title={source?.disabledReason || '在项目中新建会话'}
-                disabled={Boolean(source?.disabledReason)}
-                aria-label={`在项目中新建会话：${project.name}`}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onNewSessionInProject(project.cwd)
-                }}
-                className="p-1 hover:text-foreground text-muted-foreground cursor-pointer rounded transition-opacity opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={() => (onSelectProject ? onSelectProject(project.cwd) : onToggle())}
+                aria-expanded={onSelectProject ? undefined : isExpanded}
+                onFocus={showDetails}
+                className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden pl-2 py-2 text-left rounded cursor-[inherit] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                <SquarePen className="size-3.5" />
+                <span className={cn('relative shrink-0', source ? 'size-4' : 'size-3.5')}>
+                  <Folder
+                    data-project-folder-icon
+                    aria-hidden="true"
+                    className={cn('text-muted-foreground', source ? 'size-4' : 'size-3.5')}
+                  />
+                  {source && (
+                    <span
+                      role="img"
+                      aria-label={`远程：${source.label}`}
+                      title={source.description}
+                      className="absolute -bottom-0.5 -right-1 rounded-full bg-card text-primary"
+                    >
+                      <Globe aria-hidden="true" className="size-2.5" />
+                    </span>
+                  )}
+                </span>
+                <span className="truncate font-medium">{project.name}</span>
               </button>
-
-              <button
-                type="button"
-                title={source?.disabledReason || (isPinned ? '取消置顶项目' : '置顶项目')}
-                disabled={Boolean(source?.disabledReason)}
-                aria-label={`${isPinned ? '取消置顶项目' : '置顶项目'}：${project.name}`}
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onTogglePin(project.cwd)
-                }}
+              <div
+                data-sidebar-drag-ignore
+                draggable={false}
                 className={cn(
-                  'transition-opacity p-1 hover:text-foreground cursor-pointer rounded opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                  isPinned ? 'text-primary' : 'text-muted-foreground',
+                  'flex items-center gap-1 shrink-0 ml-1',
+                  source &&
+                    'absolute right-0 top-1/2 -translate-y-1/2 rounded bg-card opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto',
                 )}
               >
-                {isPinned ? <PinOff className="size-3" /> : <Pin className="size-3" />}
-              </button>
-
-              {details && (
                 <button
                   type="button"
-                  aria-label={`远程项目详情：${project.name}`}
-                  onClick={(event) => {
-                    event.stopPropagation()
-                    keepDetails()
-                    setDetailsOpen((value) => !value)
+                  title={source?.disabledReason || '在项目中新建会话'}
+                  disabled={Boolean(source?.disabledReason)}
+                  aria-label={`在项目中新建会话：${project.name}`}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onNewSessionInProject(project.cwd)
                   }}
-                  className="rounded p-1 text-muted-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="p-1 hover:text-foreground text-muted-foreground cursor-pointer rounded transition-opacity opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 >
-                  <Info className="size-3" />
+                  <SquarePen className="size-3.5" />
                 </button>
-              )}
-              <SidebarMoreMenu target={{ kind: 'project', project }} />
+
+                <button
+                  type="button"
+                  title={source?.disabledReason || (isPinned ? '取消置顶项目' : '置顶项目')}
+                  disabled={Boolean(source?.disabledReason)}
+                  aria-label={`${isPinned ? '取消置顶项目' : '置顶项目'}：${project.name}`}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onTogglePin(project.cwd)
+                  }}
+                  className={cn(
+                    'transition-opacity p-1 hover:text-foreground cursor-pointer rounded opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                    isPinned ? 'text-primary' : 'text-muted-foreground',
+                  )}
+                >
+                  {isPinned ? <PinOff className="size-3" /> : <Pin className="size-3" />}
+                </button>
+
+                {details && (
+                  <button
+                    type="button"
+                    aria-label={`远程项目详情：${project.name}`}
+                    onClick={(event) => {
+                      event.stopPropagation()
+                      keepDetails()
+                      setDetailsOpen((value) => !value)
+                    }}
+                    className="rounded p-1 text-muted-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <Info className="size-3" />
+                  </button>
+                )}
+                <SidebarMoreMenu target={{ kind: 'project', project }} />
+              </div>
             </div>
+            {source && (
+              <span
+                data-project-source-label
+                title={source.description}
+                className="ml-1 max-w-[33%] shrink-0 truncate text-[0.625rem] font-normal text-muted-foreground"
+              >
+                {source.label}
+              </span>
+            )}
           </div>
         </SidebarRowMenu>
         {details && (

@@ -1,9 +1,10 @@
 import { randomBytes } from 'node:crypto'
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import type { SshConnection, SshConnectionInput } from '@pi-meme/contracts/ssh-connections'
+import type { SshConnection, SshConnectionInput, SshConnectionStep } from '@pi-meme/contracts/ssh-connections'
 import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 import type { ConnectionCredentialStore } from './connection-credentials'
+import { createSshHostPreparer, type SshHostPreparer } from './ssh-host-bootstrap'
 import {
   createSshTunnelStarter,
   findSshExecutable,
@@ -12,10 +13,11 @@ import {
   type SshTunnelStarter,
 } from './ssh-tunnels'
 
-type Saved = Omit<SshConnection, 'hasToken' | 'phase' | 'error' | 'errorCode' | 'nextRetryAt'>
+type Saved = Omit<SshConnection, 'phase' | 'step' | 'error' | 'errorCode' | 'nextRetryAt'>
 type Runtime = {
   saved: Saved
   phase: SshConnection['phase']
+  step?: SshConnectionStep
   error?: string
   errorCode?: string
   nextRetryAt?: string
@@ -28,6 +30,7 @@ type Runtime = {
   stopping?: Promise<void>
 }
 export type SshConnectionOptions = {
+  prepare?: SshHostPreparer
   startTunnel?: SshTunnelStarter
   available?: () => Promise<boolean>
   retryDelay?: (attempt: number) => number
@@ -47,8 +50,8 @@ function port(value: unknown) {
 }
 function input(value: SshConnectionInput) {
   if (!value || typeof value !== 'object') throw new Error('SSH 连接参数无效')
-  if (typeof value.name !== 'string' || !value.name.trim() || value.name.length > 200)
-    throw new Error('请输入 1 到 200 字符的显示名称')
+  if (value.name !== undefined && (typeof value.name !== 'string' || value.name.length > 255))
+    throw new Error('显示名称不能超过 255 字符')
   if (
     typeof value.target !== 'string' ||
     value.target.length > 255 ||
@@ -57,7 +60,6 @@ function input(value: SshConnectionInput) {
   )
     throw new Error('SSH 目标须为主机、user@host 或配置别名，不能包含命令参数')
   if (value.port !== undefined && !port(value.port)) throw new Error('SSH 端口必须是 1 到 65535 的整数')
-  if (!port(value.hostPort)) throw new Error('Host 端口必须是 1 到 65535 的整数')
   if (
     value.identityFile !== undefined &&
     (typeof value.identityFile !== 'string' ||
@@ -66,14 +68,11 @@ function input(value: SshConnectionInput) {
       (!path.isAbsolute(value.identityFile) && !value.identityFile.startsWith('~/')))
   )
     throw new Error('身份文件必须是入口 Host 上的绝对路径或 ~/ 路径')
-  if (value.token !== undefined && (typeof value.token !== 'string' || value.token.length > 4096))
-    throw new Error('Host 访问令牌无效')
   return {
-    name: value.name.trim(),
+    name: value.name?.trim() || value.target,
     target: value.target,
     port: value.port,
     identityFile: value.identityFile,
-    hostPort: value.hostPort,
   }
 }
 
@@ -92,6 +91,7 @@ export class SshConnections {
   private writing = Promise.resolve()
   private closing = false
   private readonly startTunnel: SshTunnelStarter
+  private readonly prepare: SshHostPreparer
   constructor(
     private readonly root: string,
     private readonly credentials: ConnectionCredentialStore,
@@ -99,6 +99,8 @@ export class SshConnections {
     private readonly options: SshConnectionOptions = {},
   ) {
     this.startTunnel = options.startTunnel ?? createSshTunnelStarter()
+    this.prepare =
+      options.prepare ?? createSshHostPreparer({ cacheDirectory: path.join(root, 'cache/ssh-host-packages') })
   }
   async available() {
     return this.options.available ? this.options.available() : Boolean(await findSshExecutable())
@@ -106,8 +108,8 @@ export class SshConnections {
   private public(state: Runtime): SshConnection {
     return {
       ...state.saved,
-      hasToken: Boolean(this.credentials.readSsh(state.saved.id)),
       phase: state.phase,
+      step: state.step,
       error: state.error,
       errorCode: state.errorCode,
       nextRetryAt: state.nextRetryAt,
@@ -164,8 +166,7 @@ export class SshConnections {
       )
         throw new Error('SSH 连接配置格式无效，已保留原文件')
       const saved: Saved = { ...fields, id: item.id, enabled: item.enabled, hostId: item.hostId }
-      const hasToken = Boolean(this.credentials.readSsh(saved.id))
-      const state: Runtime = { saved, phase: hasToken ? 'paused' : 'unconfigured', generation: 0, attempt: 0 }
+      const state: Runtime = { saved, phase: 'paused', generation: 0, attempt: 0 }
       this.states.set(saved.id, state)
       this.emit(state)
     }
@@ -201,7 +202,6 @@ export class SshConnections {
           (state) =>
             state.saved.target === fields.target &&
             state.saved.port === fields.port &&
-            state.saved.hostPort === fields.hostPort &&
             state.saved.identityFile === fields.identityFile,
         )
       )
@@ -210,19 +210,15 @@ export class SshConnections {
         old?.saved.enabled &&
         (old.saved.target !== fields.target ||
           old.saved.port !== fields.port ||
-          old.saved.hostPort !== fields.hostPort ||
-          old.saved.identityFile !== fields.identityFile ||
-          value.token)
+          old.saved.identityFile !== fields.identityFile)
       )
         throw new Error('请先暂停 SSH 连接，再修改连接参数')
       const saved: Saved = {
         ...fields,
         id: old?.saved.id ?? randomBytes(12).toString('hex'),
-        enabled: old?.saved.enabled ?? false,
+        enabled: old?.saved.enabled ?? true,
         hostId: old?.saved.hostId,
       }
-      const previousToken = this.credentials.readSsh(saved.id)
-      if (value.token) await this.credentials.saveSsh(saved.id, value.token)
       const state: Runtime = old ?? { saved, phase: 'paused', generation: 0, attempt: 0 }
       const previous = state.saved
       state.saved = saved
@@ -232,21 +228,17 @@ export class SshConnections {
       } catch (cause) {
         state.saved = previous
         if (!old) this.states.delete(saved.id)
-        if (value.token) {
-          if (previousToken) await this.credentials.saveSsh(saved.id, previousToken)
-          else await this.credentials.removeSsh(saved.id)
-        }
         throw cause
       }
-      if (!saved.enabled) state.phase = this.credentials.readSsh(saved.id) ? 'paused' : 'unconfigured'
-      this.emit(state)
+      if (!saved.enabled) state.phase = 'paused'
+      if (!old) this.launch(state)
+      else this.emit(state)
       return this.public(state)
     })
   }
   setEnabled(id: string, enabled: boolean) {
     return this.serialize(async () => {
       const state = this.get(id)
-      if (enabled && !this.credentials.readSsh(id)) throw new Error('请先配置 Host 访问令牌')
       if (state.saved.enabled === enabled) return this.public(state)
       const previous = state.saved
       state.saved = { ...previous, enabled }
@@ -307,6 +299,7 @@ export class SshConnections {
     clearTimeout(state.timer)
     state.timer = undefined
     delete state.nextRetryAt
+    delete state.step
     state.controller?.abort()
     state.controller = undefined
     const tunnel = state.tunnel
@@ -319,17 +312,12 @@ export class SshConnections {
   }
   private launch(state: Runtime) {
     if (this.closing || !state.saved.enabled || this.states.get(state.saved.id) !== state) return
-    const token = this.credentials.readSsh(state.saved.id)
-    if (!token) {
-      state.phase = 'unconfigured'
-      this.emit(state)
-      return
-    }
     clearTimeout(state.timer)
     delete state.nextRetryAt
     delete state.error
     delete state.errorCode
     state.phase = 'connecting'
+    state.step = 'checking'
     const generation = ++state.generation
     const controller = new AbortController()
     state.controller = controller
@@ -345,7 +333,21 @@ export class SshConnections {
       try {
         await state.stopping
         if (!current()) return
-        tunnel = await this.startTunnel(this.public(state), controller.signal)
+        const prepared = await this.prepare(state.saved, controller.signal, (step) => {
+          if (!current()) return
+          state.step = step
+          this.emit(state)
+        })
+        if (!current()) return
+        if (state.saved.hostId && prepared.hostId !== state.saved.hostId)
+          throw new SshError('host-identity', '远程服务身份已变化，请移除连接后重新添加')
+        try {
+          await this.credentials.saveSsh(state.saved.id, prepared.token)
+        } catch {
+          throw new SshError('storage', '无法保存 SSH 连接凭据，请检查入口 Host 存储')
+        }
+        if (!current()) return
+        tunnel = await this.startTunnel(state.saved, prepared.port, controller.signal)
         if (!current()) {
           await this.stopTunnel(tunnel)
           return
@@ -356,7 +358,13 @@ export class SshConnections {
           ended = true
           if (current()) this.failed(state, cause)
         })
-        const result = await this.hooks.login(this.public(state), tunnel.endpoint, controller.signal)
+        state.step = 'authenticating'
+        this.emit(state)
+        const result = await this.hooks.login(
+          { ...this.public(state), hostId: prepared.hostId },
+          tunnel.endpoint,
+          controller.signal,
+        )
         if (!current() || ended) return
         try {
           await this.persist({ state, hostId: result.hostId, current })
@@ -365,6 +373,7 @@ export class SshConnections {
         }
         if (!current() || ended) return
         state.phase = 'connected'
+        delete state.step
         state.attempt = 0
         this.emit(state, result.cookie)
       } catch (cause) {
@@ -387,6 +396,7 @@ export class SshConnections {
   }
   private failed(state: Runtime, cause: unknown) {
     state.generation++
+    delete state.step
     state.controller?.abort()
     state.controller = undefined
     const tunnel = state.tunnel
@@ -395,7 +405,7 @@ export class SshConnections {
     const failure =
       cause instanceof SshError
         ? cause
-        : new SshError('host-unavailable', 'SSH 通道已建立，但远端 Host 无法访问，请检查远端服务和端口', true)
+        : new SshError('host-unavailable', 'SSH 连接准备或远端 Host 访问失败，请检查网络后重试', true)
     state.errorCode = failure.code
     state.error = failure.message
     if (failure.retryable && state.saved.enabled && !this.closing) {

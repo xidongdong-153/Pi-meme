@@ -86,6 +86,7 @@ const files: Array<[string, Feature[]]> = [
   ['apps/desktop/tests/tools.e2e.spec.ts', ['files', 'git', 'terminal', 'plugins']],
   ['apps/desktop/tests/user-login-path.integration.test.ts', ['desktop']],
   ['apps/server/tests/dev-startup.unit.test.ts', ['connection', 'desktop']],
+  ['apps/server/tests/ssh-bootstrap.integration.test.ts', ['connection']],
   [
     'apps/server/tests/dist-smoke.artifact.test.ts',
     ['desktop', 'connection', 'plugins', 'mcp', 'subagents', 'codemode', 'permissions', 'terminal'],
@@ -214,6 +215,7 @@ const files: Array<[string, Feature[]]> = [
   ['packages/host/tests/plugin-theme.integration.test.ts', ['plugins', 'settings']],
   ['packages/host/tests/remote-services.integration.test.ts', ['connection']],
   ['packages/host/tests/ssh-config.unit.test.ts', ['connection']],
+  ['packages/host/tests/ssh-host-bootstrap.unit.test.ts', ['connection']],
   ['packages/host/tests/ssh-tunnels.unit.test.ts', ['connection']],
   ['packages/host/tests/ssh-connections.integration.test.ts', ['connection']],
   ['packages/host/tests/ssh-transport.integration.test.ts', ['connection']],

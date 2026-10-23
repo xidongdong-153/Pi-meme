@@ -41,32 +41,22 @@ PI_MEME_TOKEN=replace-with-your-access-token \
 
 使用普通用户启动。浏览器访问证书对应的 HTTPS 地址，或在“设置 → 系统 → 远程 → HTTPS”登记地址与令牌。不自动注册 systemd 或 launchd，也不放宽认证供反向代理使用。
 
-### SSH 隧道连接
+### SSH 自动连接
 
-SSH 目标必须预装并运行支持 SSH 通道认证的 Host，同时允许 SSH 登录。应用只管理入口 Host 的系统 OpenSSH 隧道，不自动安装、启动、升级或停止远端 Host，不同步项目文件。以下命令在远端解压后的 `pi-meme-host` 目录执行：
+先在入口 Host 的终端确认 `ssh <别名或user@host>` 已能非交互登录，核实 `known_hosts` 并解锁 agent 密钥。进入入口 Host 的已认证本机界面“设置 → 系统 → 远程”，默认显示 SSH：
 
-```bash
-PI_MEME_HOST=127.0.0.1 \
-PI_MEME_PORT=31415 \
-PI_MEME_DATA_ROOT=/absolute/path/pi-meme-data \
-PI_MEME_AUTH_MODE=token-required \
-PI_MEME_TOKEN=replace-with-your-access-token \
-./bin/pi-meme-host
-```
+1. 点击“添加”，从 `~/.ssh/config` 勾选具体别名；也可手动填写主机、可选名称和 SSH 端口。
+2. 默认沿用 SSH 配置和 agent；需要时指定入口 Host 上的身份文件路径，不上传私钥。
+3. 添加后自动准备并保持连接。应用下载匹配发行版本的完整 Host 包，校验后经 SSH 传输，后台启动并建立认证；不填写业务端口或 Host 令牌。
+4. 已连接后选择远程项目。新环境的模型设置在远端完成，不自动复制本机凭据。
 
-远端只开放 SSH，业务 HTTP 端口留在 loopback，不需要为此配置 TLS。`PI_MEME_AUTH_MODE` 仅接受 `token-required`；未设置时保留默认本机免登录。单独设置 `PI_MEME_TOKEN` 不会关闭免登录，SSH 连接会检查实际认证模式并拒绝不兼容实例。已有 Host 需先由其管理方停止，不能向运行中实例补加新模式。
+远端需要 Git、bash、tar；Linux 还需要实际可用的 bubblewrap。应用不使用 sudo 安装系统依赖。安装位于 `~/.local/share/pi-meme/host/<版本>/<平台>`，数据固定在 `~/.pi-meme`；运行信息位于 `~/.local/state/pi-meme/ssh-host`。已有手工 Host 或版本冲突需先停止原实例，不自动接管。
 
-在入口 Host 的终端先确认 `ssh <别名或user@host>` 可用，核实 `known_hosts` 并解锁所需 agent 密钥。再从入口 Host 的已认证本机界面进入“设置 → 系统 → 远程 → SSH”：
+远端业务端口自动分配、只监听 loopback，强制令牌认证，不需要 TLS 证书。令牌不返回界面。准备只使用当前版本发行包，没有匹配资源时明确失败，不回退其他版本。
 
-1. 点击“添加”，从 `~/.ssh/config` 勾选具体别名，或点“手动添加”填写名称、主机、可选 SSH 端口。
-2. 使用 SSH 配置/agent，或指定入口 Host 上的身份文件绝对路径或 `~/` 路径；不上传私钥。
-3. 在“远端 Host”填写业务端口和上面的 Host 令牌。保存不会连接，打开开关后才建立通道。
+发现列表只读取 SSH 候选；添加后才预检并连接。配置中的额外端口转发会被拒绝。`Match exec`、`ProxyCommand` 等属于用户信任的 SSH 命令，不能使用不可信配置。不在应用内收集 SSH 密码、密钥口令或 MFA，不自动接受未知指纹。普通远程网络页面不能管理 SSH。
 
-配置发现只读取 `Host`/`Include` 候选，不求值 `Match`；启用时系统 OpenSSH 才预检目标配置，额外端口转发会被拒绝。SSH 配置中的 `Match exec`、`ProxyCommand` 等属于用户信任的命令，不能使用不可信配置。首期非交互，不在应用内收集 SSH 密码、密钥口令或 MFA，不自动接受未知指纹。
-
-管理 SSH 要求入口 Host 的已认证本机来源；普通远程网络页面不能管理。外部 SSH 转发到入口 loopback 后仍可能被视为本机，这不是物理在场或多用户隔离。完整限制与排错见项目 Remote 文档。
-
-关闭开关只暂停入口隧道和自动重连，不停止远端任务；移除只删除入口登记、令牌和摘要，不删除远端项目或会话。以上 SSH 说明对应当前源码，不表示已完成真实主机或发布包联通验收。
+暂停、断线、入口退出或移除连接不停止远端 Host 和任务。机器重启后，下次连接自动启动；不注册系统服务或保证开机在线，不同步项目目录。上述说明对应源码，不表示已完成真实 SSH、WSL 或发行包联通验收。
 
 ## 数据与升级
 

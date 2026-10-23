@@ -1,6 +1,9 @@
 export const STORAGE_LAYOUT_VERSION = 2
 export const STORAGE_LAYOUT_FORMAT = 'pi-meme-data' as const
 
+// SSH 运行信息不属于持久数据根，机器重启后可由下一次连接重建。
+export const sshHostRuntimeHomeRelativeDirectory = '.local/state/pi-meme/ssh-host'
+
 export type StorageLayoutManifest = {
   format: typeof STORAGE_LAYOUT_FORMAT
   version: typeof STORAGE_LAYOUT_VERSION

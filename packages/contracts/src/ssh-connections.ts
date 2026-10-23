@@ -1,21 +1,21 @@
-export type SshConnectionPhase = 'unconfigured' | 'paused' | 'connecting' | 'connected' | 'retrying' | 'action-required'
+export type SshConnectionPhase = 'paused' | 'connecting' | 'connected' | 'retrying' | 'action-required'
+export type SshConnectionStep = 'checking' | 'installing' | 'starting' | 'authenticating'
 
 export type SshConnectionInput = {
   id?: string
-  name: string
+  name?: string
   target: string
   port?: number
   identityFile?: string
-  hostPort: number
-  token?: string
 }
 
-export type SshConnection = Omit<SshConnectionInput, 'token' | 'id'> & {
+export type SshConnection = Omit<SshConnectionInput, 'id' | 'name'> & {
   id: string
+  name: string
   hostId?: string
-  hasToken: boolean
   enabled: boolean
   phase: SshConnectionPhase
+  step?: SshConnectionStep
   error?: string
   errorCode?: string
   nextRetryAt?: string

@@ -69,7 +69,13 @@ async function main() {
     )
     await prepareNodePty(path.join(server, 'node_modules/node-pty'))
     await cp(path.join(repoRoot, 'apps/web/dist'), path.join(bundle, 'apps/web/dist'), { recursive: true })
-    for (const file of ['main.js', 'session-worker.js', 'restricted-entry.mjs', 'skills/skill-creator/SKILL.md'])
+    for (const file of [
+      'main.js',
+      'ssh-bootstrap.js',
+      'session-worker.js',
+      'restricted-entry.mjs',
+      'skills/skill-creator/SKILL.md',
+    ])
       await readFile(path.join(server, 'dist', file))
 
     const runtime = path.join(bundle, 'runtime')

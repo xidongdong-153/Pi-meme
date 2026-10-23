@@ -43,8 +43,6 @@ function sshRegistry() {
     id: service.id,
     name: '远端开发',
     target: 'development',
-    hostPort: 31415,
-    hasToken: true,
     enabled: false,
     phase: 'paused',
   }
@@ -130,7 +128,7 @@ test('未验证SSH配置只经入口RPC读取和保存，不创建HostService或
   try {
     await registry.initialize()
     assert.deepEqual(await registry.ssh.list(), [profile])
-    const input = { name: '远端开发', target: 'development', hostPort: 31415 }
+    const input = { name: '远端开发', target: 'development' }
     await registry.ssh.save(input)
     assert.equal(registry.list().length, 1)
     assert.equal(remoteRequests.length, 0)
@@ -142,15 +140,24 @@ test('未验证SSH配置只经入口RPC读取和保存，不创建HostService或
   }
 })
 
-for (const phase of ['paused', 'action-required', 'retrying'] as const) {
+for (const phase of ['paused', 'connecting', 'action-required', 'retrying'] as const) {
   test(`SSH ${phase} 初始化和刷新不尝试认证，服务摘要与Host阶段保留`, async () => {
     const { registry, source, service, remoteRequests } = sshRegistry()
-    source.services = [{ ...service, enabled: phase !== 'paused', phase, error: '需要处理连接' }]
+    source.services = [
+      {
+        ...service,
+        enabled: phase !== 'paused',
+        phase,
+        step: phase === 'connecting' ? 'installing' : undefined,
+        error: '需要处理连接',
+      },
+    ]
     try {
       await registry.initialize()
       await registry.refresh(service.id)
       assert.equal(remoteRequests.length, 0)
       assert.equal(registry.list()[1].phase, phase)
+      assert.equal(registry.list()[1].step, phase === 'connecting' ? 'installing' : undefined)
       assert.equal(registry.list()[1].projects[0].cwd, '/cached')
       assert.equal(registry.list()[1].error, '需要处理连接')
       await assert.rejects(registry.get(service.id).bridge.prompt('A', '不能偷偷连接'), /已暂停/)

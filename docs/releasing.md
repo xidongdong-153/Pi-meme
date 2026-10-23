@@ -100,7 +100,7 @@ pi-meme-host/
 └── THIRD_PARTY_LICENSES.txt
 ```
 
-启动脚本按自身位置定位目录，不依赖调用者工作目录；将包内 Node 加入子进程 PATH，再用 `exec` 启动 Server，保留 SIGINT/SIGTERM。默认数据目录与安装目录分离，远程部署继续使用现有环境变量与 TLS 规则。打包脚本见 [package-host.mts](../scripts/package-host.mts)，包内使用说明见 [Host README](../apps/server/README.md)。
+启动脚本按自身位置定位目录，不依赖调用者工作目录；将包内 Node 加入子进程 PATH，再用 `exec` 启动 Server，保留 SIGINT/SIGTERM。默认数据目录与安装目录分离。普通 Server 远程监听继续使用环境变量与 TLS；SSH 自动部署使用包内 `ssh-bootstrap.js`，固定数据根、随机 loopback 端口和令牌认证，不需要用户手工启动。打包脚本见 [package-host.mts](../scripts/package-host.mts)，包内使用说明见 [Host README](../apps/server/README.md)。
 
 ## 本机产物验收
 

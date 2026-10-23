@@ -13,10 +13,8 @@ function profile(overrides: Partial<SshConnection> = {}): SshConnection {
     id: 'a'.repeat(24),
     name: 'WSL Tailscale',
     target: 'wsl',
-    hostPort: 31415,
-    hasToken: false,
     enabled: false,
-    phase: 'unconfigured',
+    phase: 'paused',
     ...overrides,
   }
 }
@@ -31,7 +29,7 @@ function setup(profiles: SshConnection[] = [], capabilities: SshCapabilities = {
       { target: 'vps', source: '~/.ssh/config.d/work' },
     ]),
     save: vi.fn().mockImplementation(async (input: SshConnectionInput) => profile(input)),
-    setEnabled: vi.fn().mockResolvedValue(profile({ enabled: true, hasToken: true, phase: 'connecting' })),
+    setEnabled: vi.fn().mockResolvedValue(profile({ enabled: true, phase: 'connecting' })),
     retry: vi.fn().mockResolvedValue(profile()),
     remove: vi.fn().mockResolvedValue(undefined),
   }
@@ -52,7 +50,7 @@ function openSsh() {
   fireEvent.click(screen.getByRole('tab', { name: 'SSH' }))
 }
 
-test('默认保留 HTTPS 登记，SSH 服务不会混入 HTTPS 列表', async () => {
+test('默认展示 SSH，HTTPS 登记独立保留且不混入 SSH 服务', async () => {
   const { registry, ssh } = setup()
   const services: HostService[] = [
     {
@@ -75,9 +73,11 @@ test('默认保留 HTTPS 登记，SSH 服务不会混入 HTTPS 列表', async ()
     },
   ]
   render(<RemoteSettings services={services} registry={registry} onRemove={async () => {}} />)
+  expect(screen.getByRole('tab', { name: 'SSH' }).getAttribute('aria-selected')).toBe('true')
+  await waitFor(() => expect(ssh.capabilities).toHaveBeenCalledOnce())
+  fireEvent.click(screen.getByRole('tab', { name: 'HTTPS' }))
   expect(screen.getByText('remote.example.test')).toBeTruthy()
   expect(screen.queryByText('ssh-hidden.invalid')).toBeNull()
-  expect(ssh.capabilities).not.toHaveBeenCalled()
   fireEvent.click(screen.getByRole('button', { name: '配置远程服务' }))
   fireEvent.change(screen.getByRole('textbox', { name: '远程服务地址' }), {
     target: { value: 'https://new.example.test' },
@@ -115,7 +115,7 @@ test('没有本机管理资格时不读取 SSH 私有资料，只展示已登记
   expect(screen.queryByText('ssh-private.invalid')).toBeNull()
 })
 
-test('批量添加只保存资料，不启用；已添加别名禁选，刷新保留选择', async () => {
+test('批量添加调用自动准备的保存入口；已添加别名禁选，刷新保留选择', async () => {
   const { ssh } = setup()
   const onSaved = vi.fn().mockResolvedValue(undefined)
   const onClose = vi.fn()
@@ -127,13 +127,13 @@ test('批量添加只保存资料，不启用；已添加别名禁选，刷新�
   await waitFor(() => expect(ssh.discover).toHaveBeenCalledTimes(2))
   expect((screen.getByRole('checkbox', { name: '选择 vps' }) as HTMLInputElement).checked).toBe(true)
   fireEvent.click(screen.getByRole('button', { name: '添加（1）' }))
-  await waitFor(() => expect(ssh.save).toHaveBeenCalledWith({ name: 'vps', target: 'vps', hostPort: 31415 }))
+  await waitFor(() => expect(ssh.save).toHaveBeenCalledWith({ name: 'vps', target: 'vps' }))
   expect(ssh.setEnabled).not.toHaveBeenCalled()
   expect(onSaved).toHaveBeenCalledOnce()
   expect(onClose).toHaveBeenCalledOnce()
 })
 
-test('批量保存部分失败保留成功项和失败原因，不自动连接', async () => {
+test('批量保存部分失败保留成功项和失败原因，不重复调用启用', async () => {
   const { ssh } = setup()
   ssh.save.mockImplementation(async (input: SshConnectionInput) => {
     if (input.target === 'vps') throw new Error('配置写入失败')
@@ -152,55 +152,58 @@ test('批量保存部分失败保留成功项和失败原因，不自动连接',
   expect(ssh.setEnabled).not.toHaveBeenCalled()
 })
 
-test('手动添加校验端口与身份文件路径，缺 Host token 仍可保存而不连接', async () => {
+test('手动添加校验端口，名称留空默认 target，没有 Host 二次配置', async () => {
   const { ssh } = setup()
   render(<SshConnectionDialog ssh={ssh} profiles={[]} onSaved={async () => {}} onClose={() => {}} />)
   fireEvent.click(screen.getByRole('button', { name: '手动添加' }))
-  fireEvent.change(screen.getByRole('textbox', { name: 'SSH 显示名称' }), { target: { value: 'Linux' } })
   fireEvent.change(screen.getByRole('textbox', { name: 'SSH 主机名' }), { target: { value: 'dev@linux' } })
   fireEvent.change(screen.getByRole('textbox', { name: 'SSH 端口' }), { target: { value: '70000' } })
-  fireEvent.click(screen.getByRole('radio', { name: '指定身份文件' }))
-  fireEvent.click(screen.getByRole('button', { name: '保存' }))
+  expect(screen.queryByLabelText('远端 Host 端口')).toBeNull()
+  expect(screen.queryByLabelText('SSH Host 访问令牌')).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: '添加' }))
   expect(screen.getByText('SSH 端口必须是 1 到 65535 的整数，或留空使用 SSH 配置')).toBeTruthy()
-  expect(screen.getByText('请填写入口 Host 上的身份文件路径')).toBeTruthy()
   expect(ssh.save).not.toHaveBeenCalled()
   fireEvent.change(screen.getByRole('textbox', { name: 'SSH 端口' }), { target: { value: '2222' } })
   fireEvent.change(screen.getByRole('textbox', { name: 'SSH 身份文件路径' }), { target: { value: '~/.ssh/work' } })
-  fireEvent.click(screen.getByRole('button', { name: '保存' }))
+  fireEvent.click(screen.getByRole('button', { name: '添加' }))
   await waitFor(() =>
     expect(ssh.save).toHaveBeenCalledWith({
       id: undefined,
-      name: 'Linux',
+      name: 'dev@linux',
       target: 'dev@linux',
       port: 2222,
       identityFile: '~/.ssh/work',
-      hostPort: 31415,
     }),
   )
   expect(ssh.setEnabled).not.toHaveBeenCalled()
 })
 
-test('缺令牌的开关引导配置 Host；后台服务变更会刷新 profile', async () => {
+test('开关直接启用；后台服务变更刷新准备步骤', async () => {
   const connection = profile()
   const { registry, ssh, publish } = setup([connection])
   render(<RemoteSettings services={[]} registry={registry} onRemove={async () => {}} />)
-  openSsh()
   await waitFor(() => expect(screen.getByRole('switch', { name: '保持连接 WSL Tailscale' })).toBeTruthy())
   fireEvent.click(screen.getByRole('switch', { name: '保持连接 WSL Tailscale' }))
-  expect(ssh.setEnabled).not.toHaveBeenCalled()
-  await waitFor(() => expect(screen.getByLabelText('SSH Host 访问令牌')).toBeTruthy())
-  expect(screen.getByLabelText('SSH Host 访问令牌').closest('details')?.open).toBe(true)
-  fireEvent.click(screen.getByRole('button', { name: '取消' }))
-  connection.phase = 'paused'
-  connection.hasToken = true
-  await act(async () => publish())
-  await waitFor(() => expect(screen.getByText('已暂停')).toBeTruthy())
+  await waitFor(() => expect(ssh.setEnabled).toHaveBeenCalledWith(connection.id, true))
+  expect(screen.queryByRole('dialog')).toBeNull()
+  connection.enabled = true
+  connection.phase = 'connecting'
+  for (const [step, label] of [
+    ['checking', '正在检查远端环境'],
+    ['installing', '正在安装远端 Host'],
+    ['starting', '正在启动远端 Host'],
+    ['authenticating', '正在验证远端连接'],
+  ] as const) {
+    connection.step = step
+    await act(async () => publish())
+    await waitFor(() => expect(screen.getByText(`正在连接 · ${label}`)).toBeTruthy())
+  }
   expect(ssh.list.mock.calls.length).toBeGreaterThan(1)
 })
 
-test('启用时仅允许改名，保存保留原参数且不泄露或覆盖令牌', async () => {
+test('启用时仅允许改名，保存保留原参数且不调用启停', async () => {
   const { ssh } = setup()
-  const connection = profile({ enabled: true, hasToken: true, phase: 'connected' })
+  const connection = profile({ enabled: true, phase: 'connected' })
   render(
     <SshConnectionDialog
       ssh={ssh}
@@ -223,15 +226,14 @@ test('启用时仅允许改名，保存保留原参数且不泄露或覆盖令�
       target: 'wsl',
       port: undefined,
       identityFile: undefined,
-      hostPort: 31415,
     }),
   )
   expect(ssh.setEnabled).not.toHaveBeenCalled()
 })
 
 test('启停只禁用触发卡片，不阻塞其他连接', async () => {
-  const first = profile({ hasToken: true, phase: 'paused' })
-  const second = profile({ id: 'b'.repeat(24), name: 'VPS', target: 'vps', hasToken: true, phase: 'paused' })
+  const first = profile({ phase: 'paused' })
+  const second = profile({ id: 'b'.repeat(24), name: 'VPS', target: 'vps', phase: 'paused' })
   const { registry, ssh } = setup([first, second])
   let finish!: (connection: SshConnection) => void
   ssh.setEnabled.mockImplementationOnce(
@@ -246,7 +248,7 @@ test('启停只禁用触发卡片，不阻塞其他连接', async () => {
   fireEvent.click(screen.getByRole('switch', { name: '保持连接 WSL Tailscale' }))
   expect((screen.getByRole('switch', { name: '保持连接 WSL Tailscale' }) as HTMLButtonElement).disabled).toBe(true)
   expect((screen.getByRole('switch', { name: '保持连接 VPS' }) as HTMLButtonElement).disabled).toBe(false)
-  await act(async () => finish(profile({ enabled: true, hasToken: true, phase: 'connecting' })))
+  await act(async () => finish(profile({ enabled: true, phase: 'connecting' })))
 })
 
 test.each([false, true])('移除已验证=%s 的 SSH 连接使用正确的守卫入口', async (verified) => {

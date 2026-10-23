@@ -19,6 +19,8 @@ paths:
   - 'packages/host/src/connection-credentials.ts'
   - 'packages/host/src/ssh-config.ts'
   - 'packages/host/src/ssh-connections.ts'
+  - 'packages/host/src/ssh-host-bootstrap.ts'
+  - 'apps/server/src/ssh-bootstrap.ts'
   - 'packages/host/src/ssh-tunnels.ts'
   - 'packages/contracts/src/ssh-connections.ts'
   - 'packages/client/src/host-client.ts'
@@ -75,38 +77,29 @@ PI_MEME_TOKEN=replace-with-your-access-token \
 
 监听检查见 [server.ts](../packages/host/src/server.ts)，证书读取与环境变量见 [Server main](../apps/server/src/main.ts)。macOS 受限执行使用 `sandbox-exec`，Linux/WSL2 使用 bubblewrap；平台隔离由 Host 决定，见 [权限与沙箱](configuration.md#权限与沙箱)。
 
-## 通过 SSH 连接预装 Host
+## 通过 SSH 自动连接
 
-SSH 连接由入口 Node Host 发起，读取该 Host 运行用户的 SSH 配置、agent 和 `known_hosts`，不是浏览器所在电脑的文件。远端必须先安装并运行兼容的 pi-meme Host，同时允许 SSH 访问；应用不安装、升级、启动或停止远端 Host，不注册 systemd/launchd，不同步项目目录。
-
-### 远端启动
-
-使用包含 SSH 通道认证能力的 Host 版本。远端普通用户在 `pi-meme-host` 的父目录执行，替换数据路径和令牌：
-
-```bash
-PI_MEME_HOST=127.0.0.1 \
-PI_MEME_PORT=31415 \
-PI_MEME_DATA_ROOT=/absolute/path/pi-meme-data \
-PI_MEME_AUTH_MODE=token-required \
-PI_MEME_TOKEN=replace-with-your-access-token \
-./pi-meme-host/bin/pi-meme-host
-```
-
-远端业务端口只监听 loopback，由 SSH 隧道访问，不需要为这个 loopback HTTP 入口配置 TLS。不要为此改成 `0.0.0.0`；非 loopback 仍要求 HTTPS。源码正式部署先执行上文的两个构建命令，再把最后一行替换为 `node apps/server/dist/main.js`。`pnpm start:server` 是开发入口，不替代正式启动。
-
-`PI_MEME_AUTH_MODE=token-required` 关闭本机自动登录。只设置 `PI_MEME_TOKEN` 不会关闭默认的 loopback 免登录；SSH 转发到 loopback 后也会满足其本机条件。连接时同时验证访问令牌、当前认证模式、SSH 通道能力和持久 `hostId`；旧 Host 或未启用该模式的实例会被拒绝，不降级为免登录。已有 Host 必须先由其管理方停止，不能向运行中的实例补加环境变量。
+SSH 由入口 Node Host 发起，读取该用户的 SSH 配置、agent 和 `known_hosts`，不是浏览器所在电脑的文件。先确认系统 `ssh <目标>` 已能非交互登录。应用负责传输匹配版本的 Host 包、后台启动、分配业务端口和建立认证，不需要预装 Node、填写 Host 令牌或执行远端启动命令。
 
 ### 设置步骤
 
-1. 在入口 Host 的终端确认系统 OpenSSH 可以连接目标，例如 `ssh wsl`。核实主机指纹并写入系统 `known_hosts`，需要密钥解锁时先处理 SSH agent。
-2. 打开已认证的入口 Host 本机页面，进入“设置 → 系统 → 远程 → SSH”。Desktop 的本地入口也可管理；普通远程网络页面只显示已登记服务，不能管理 SSH 配置。
-3. 点击“添加”。列表来自入口 Host 用户的 `~/.ssh/config`；勾选具体别名后点击“添加（数量）”。刷新只重读配置，已添加别名不可重复选择。批量添加仅保存资料，不连接。
-4. 没有候选时点“手动添加”。填写显示名称、主机或 `user@host`，SSH 端口可留空使用系统配置；不要填写完整 `ssh` 命令。认证方式选“使用 SSH 配置”或“指定身份文件”。后者填写入口 Host 上的绝对路径或 `~/` 路径，不上传、复制私钥。
-5. 展开“远端 Host”，填写业务端口（默认 `31415`）和上面配置的 Host 访问令牌。它不同于 SSH 端口。可以先不填令牌保存，但连接前必须补全；已有令牌不回显，留空保留原值。
-6. 保存后打开“保持连接”开关。SSH 建通、Host 认证及身份校验都成功后才显示“已连接”；首次成功前不会出现在可执行的工作位置列表。
-7. 在输入框的工作位置选择器中选择远程连接和项目。远程目录选择查询目标 Host，不调用当前电脑的目录选择器。
+1. 进入已认证的入口 Host 本机页面，打开“设置 → 系统 → 远程”。默认显示 SSH；普通远程网络页面只能查看已登记服务。
+2. 点击“添加”，从入口用户的 `~/.ssh/config` 勾选具体别名，再点击“添加（数量）”。发现列表只读取配置，不执行连接或安装。
+3. 没有候选时点击“手动添加”。填写主机、IP、`user@host` 或 SSH 别名，名称可留空；SSH 端口留空时沿用系统配置。身份方式默认使用配置和 agent，也可指定入口 Host 上的身份文件路径，不复制私钥。
+4. 添加后自动保持连接，列表显示检查、准备环境、启动和验证状态。准备失败保留记录，可在该行重试；无需再次保存或配置 Host。
+5. “已连接”后，从输入框工作位置选择远程机器和项目。目录查询在目标 Host 执行。新环境没有模型时，进入该远程环境的模型设置，不自动复制本机凭据。
 
-连接启用期间只能改显示名称；更改目标、端口、身份文件或令牌前先关闭连接开关。修改资料不会自动清除已确认的 Host 身份；确实换成另一 Host 时需重新登记，不能把旧会话摘要绑定到新机器。
+启用时只能改显示名称。修改主机、SSH 端口或身份文件前先暂停；修改资料不清除已确认 Host 身份。连接另一台 Host 时移除旧登记后重新添加。
+
+### 安装与生命周期
+
+入口下载当前发行版本的 Host 包和 `SHA256SUMS`，校验并检查归档路径、软链接和平台后，经 SSH 传输。远端不需要访问下载站点。没有匹配发行包时明确失败，不改用其他版本；未注入发行版本的源码开发 Host 不能自动下载安装。
+
+应用安装位于远端 `~/.local/share/pi-meme/host/<版本>/<平台>`，数据固定在 `~/.pi-meme`，运行描述位于 `~/.local/state/pi-meme/ssh-host`。业务端口只监听 loopback，自动分配并强制令牌认证；令牌仅在受保护的 SSH 通道与入口凭据存储间传递，不返回界面。
+
+远端需有 Git、bash、tar；Linux 还需实际可用的 bubblewrap。当前包基线为 macOS 15 arm64、Ubuntu 24.04 x64。应用不使用 sudo 安装系统依赖，不修改系统权限，不注册 systemd/launchd，不同步项目目录。自动准备只复用本流程同版本的 Host，手工实例、版本或数据锁冲突要求先处理原实例，不自动接管或停止已有任务。
+
+Host 作为独立后台进程运行。暂停、断线、入口退出或移除连接只清理入口连接，不停止远端 Host 或任务。机器重启后，下次连接重新启动；不承诺开机即在线。睡眠、关闭 WSL 或系统回收用户进程仍会中断运行。
 
 ### SSH 配置和非交互限制
 
@@ -124,7 +117,9 @@ PI_MEME_TOKEN=replace-with-your-access-token \
 flowchart TD
   UI[入口界面] --> Entry[入口 Node Host]
   Entry --> Config[SSH 配置与系统 agent]
-  Entry --> Tunnel[受管 OpenSSH 隧道]
+  Entry --> Prepare[校验并传输 Host 包]
+  Prepare --> Bootstrap[远端后台启动]
+  Bootstrap --> Tunnel[受管 OpenSSH 隧道]
   Tunnel --> Remote[远端 loopback Host]
   Remote --> Auth[令牌 模式与 Host 身份校验]
   Auth --> Session[远端项目与会话 Worker]
@@ -144,7 +139,7 @@ SSH 配置读取、保存、启停、重试和移除要求已认证且通过入�
 | `PI_MEME_HOST`                         | 独立 Server                   | 监听地址，默认 `127.0.0.1`                                                                                                            |
 | `PI_MEME_PORT`                         | Desktop、Server、Web 开发代理 | 构建 App、构建后的 Server 和独立包默认 `31415`；Desktop、Server 开发入口及 Web 开发代理默认 `31416`；`0` 用于隔离测试，不参与自动复用 |
 | `PI_MEME_TOKEN`                        | 独立 Server                   | 登录令牌；未设置时读取 `credentials/auth.json`，首次生成（数据布局详见 [数据目录与存储](storage.md)）                                 |
-| `PI_MEME_AUTH_MODE`                    | 独立 Server                   | 仅接受 `token-required`，关闭本机自动登录；未设置时沿用默认方式，SSH 目标必须显式启用此模式                                           |
+| `PI_MEME_AUTH_MODE`                    | 独立 Server                   | 仅接受 `token-required`，关闭本机自动登录；SSH 认证模式由自动启动入口强制设置；手工独立 Server 的环境变量不用于配置 SSH               |
 | `PI_MEME_WEB_ROOT`                     | 独立 Server                   | 页面目录，默认应用相邻的 `apps/web/dist`                                                                                              |
 | `PI_MEME_TLS_CERT` / `PI_MEME_TLS_KEY` | 独立 Server                   | HTTPS 证书与私钥文件路径，必须同时提供                                                                                                |
 | `PI_MEME_HOST_URL`                     | 独立 Web 开发服务器           | `/api` 代理目标，优先于 `PI_MEME_PORT`；Forge Renderer 不使用此覆盖                                                                   |
@@ -181,7 +176,7 @@ sequenceDiagram
 
 ## 会话来源、暂停与移除
 
-本地和远程继续共用“置顶 / 项目 / 最近”列表，不按 SSH 单独分组。HTTPS 和 SSH 远程项目使用文件夹地球角标，远程会话行使用地球标记；工作位置和搜索结果显示所属连接，避免同名项目混淆。远程项目详情显示连接名称、HTTPS/SSH、聊天数、状态和路径；可复制路径，不能直接在本机 Finder 打开远程目录。
+本地和远程继续共用“置顶 / 项目 / 最近”列表，不按 SSH 单独分组。HTTPS 和 SSH 远程项目使用清晰的文件夹地球角标并常驻显示连接名称，远程会话行使用固定地球标记；工作位置和搜索结果显示所属连接，避免同名项目混淆。远程项目详情显示连接名称、HTTPS/SSH、聊天数、状态和路径；可复制路径，不能直接在本机 Finder 打开远程目录。
 
 连接断开后仍可显示项目/会话摘要以及当前页面已加载的内存内容，但没有任意会话 JSONL 正文的离线副本。断线后的计数和运行状态只是上次同步快照，不能据此确认任务当前是否仍在运行。
 
@@ -226,10 +221,10 @@ Desktop 使用内存浏览器会话；正式界面由随包资源提供，不依
 | 页面能打开，WebSocket 失败                | 查看升级 HTTP 状态、Origin、Cookie、clientId 及代理是否支持 WebSocket                              |
 | 远程身份变化                              | 核对所连 Host 数据目录与持久 host-id，重新确认连接目标                                             |
 | 受限任务无法启动                          | 查看 `restrictedAccessReason`；安装平台依赖后重启 Host，不切换权限绕过                             |
-| SSH 提示旧 Host 或认证模式错误            | 升级远端 Host，由其管理方停止后以 `PI_MEME_AUTH_MODE=token-required` 重启                          |
+| SSH 提示 Host 冲突或版本错误              | 停止原手工 Host 或不同版本的 SSH Host 后重试，不自动接管                                           |
 | SSH 指纹或身份验证失败                    | 在入口 Host 的终端核实 `known_hosts`、密钥与 agent；应用不会弹出口令输入或自动接受指纹             |
 | SSH 预检报告额外转发                      | 为该连接使用不含 `LocalForward`、`RemoteForward`、`DynamicForward` 的 SSH 别名                     |
-| SSH 已建通但 Host 不可用                  | 核对 SSH 登录环境、远端 loopback 业务端口与 Host 进程；不是把 SSH 端口填进 Host 端口               |
+| SSH 准备失败或 Host 不可用                | 检查发行资产、远端平台、系统依赖、安装目录权限和已有 Host 冲突                                     |
 | SSH 管理按钮不可用                        | 确认访问的是已认证的入口 Host 本机来源，并确认该 Host 的 PATH 能找到系统 OpenSSH                   |
 
 `pnpm test --all --layer artifact --target server` 从实际构建产物启动临时 Host，使用内存凭据和假模型验证静态 Worker、JSONL、外部 Agent、MCP、codemode、持续子代理、计划与默认受限权限。平台运行与测试入口见 [开发与验证](development.md) 和 [Linux 与 WSL](linux-wsl.md)。这些是验证命令说明，不表示本次文档整理运行过应用验收。

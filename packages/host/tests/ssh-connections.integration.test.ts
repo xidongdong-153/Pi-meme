@@ -8,9 +8,11 @@ import { WebSocket, WebSocketServer } from 'ws'
 import type { SshTunnel } from '../src/ssh-tunnels'
 import { SshError } from '../src/ssh-tunnels'
 import { RemoteServices } from '../src/remote-services'
+import { SshConnections } from '../src/ssh-connections'
 import { ConnectionCredentialStore } from '../src/connection-credentials'
+import type { SshHostPreparer } from '../src/ssh-host-bootstrap'
 
-async function fixture() {
+async function fixture(prepare?: SshHostPreparer) {
   const root = await mkdtemp(path.join(tmpdir(), 'pi-ssh-services-'))
   const values = new Map<string, string>()
   let failFlush = false
@@ -33,7 +35,17 @@ async function fixture() {
   let endpoint = 'http://127.0.0.1:45321'
   const remotes = new RemoteServices(credentials, root, {
     available: async () => true,
-    startTunnel: async (_connection, signal) => {
+    prepare:
+      prepare ??
+      (async (_connection, signal, onStep) => {
+        signal.throwIfAborted()
+        onStep('checking')
+        onStep('installing')
+        onStep('starting')
+        return { port: 31415, hostId: 'ssh-host', token: 'private-token' }
+      }),
+    startTunnel: async (_connection, remotePort, signal) => {
+      assert.equal(remotePort, 31415)
       starts++
       let finish!: (cause: SshError) => void
       const closed = new Promise<SshError>((resolve) => {
@@ -93,7 +105,7 @@ function auth(hostId = 'ssh-host') {
   })
 }
 
-test('SSH 资料与凭据分离，首次认证后才发布服务，暂停与换端口保留稳定身份', async () => {
+test('SSH 添加后自动准备并隔离凭据，首次认证后才发布服务，暂停与换端口保留稳定身份', async () => {
   const f = await fixture()
   const original = globalThis.fetch
   const requests: string[] = []
@@ -111,18 +123,17 @@ test('SSH 资料与凭据分离，首次认证后才发布服务，暂停与换�
     const connection = await f.remotes.ssh.save({
       name: '工作站',
       target: 'work',
-      hostPort: 31415,
-      token: 'private-token',
     })
     assert.match(connection.id, /^[a-f0-9]{24}$/)
-    assert.equal(connection.enabled, false)
-    assert.equal(connection.phase, 'paused')
+    assert.equal(connection.enabled, true)
+    assert.equal(connection.phase, 'connecting')
+    assert.equal(connection.step, 'checking')
+    assert.ok(!('hostPort' in connection) && !('token' in connection) && !('hasToken' in connection))
     assert.deepEqual(f.remotes.list(), [])
-    assert.equal(f.values.get(`ssh-host:${connection.id}`), 'private-token')
     const config = await readFile(path.join(f.root, 'config/ssh-connections.json'), 'utf8')
     assert.ok(!config.includes('private-token'))
-    await f.remotes.ssh.setEnabled(connection.id, true)
     await vi.waitFor(() => assert.equal(f.remotes.ssh.list()[0].phase, 'connected'))
+    assert.equal(f.values.get(`ssh-host:${connection.id}`), 'private-token')
     const first = f.remotes.list()[0]
     assert.equal(first.hostId, 'ssh-host')
     assert.equal(first.local, false)
@@ -174,8 +185,7 @@ for (const kind of ['old-host', 'auto-login', 'host-identity'] as const) {
       return auth(change ? 'changed-host' : 'ssh-host')
     }) as typeof fetch
     try {
-      const profile = await f.remotes.ssh.save({ name: '测试', target: 'work', hostPort: 31415, token: 'secret' })
-      await f.remotes.ssh.setEnabled(profile.id, true)
+      const profile = await f.remotes.ssh.save({ name: '测试', target: 'work' })
       if (kind === 'host-identity') {
         await vi.waitFor(() => assert.equal(f.remotes.ssh.list()[0].phase, 'connected'))
         await f.remotes.ssh.setEnabled(profile.id, false)
@@ -214,8 +224,7 @@ test('认证期间暂停取消旧代次，不发布过期服务身份', async ()
     return auth()
   }) as typeof fetch
   try {
-    const profile = await f.remotes.ssh.save({ name: '测试', target: 'work', hostPort: 31415, token: 'secret' })
-    await f.remotes.ssh.setEnabled(profile.id, true)
+    const profile = await f.remotes.ssh.save({ name: '测试', target: 'work' })
     await started
     const paused = f.remotes.ssh.setEnabled(profile.id, false)
     await vi.waitFor(() => assert.equal(f.remotes.ssh.list()[0].enabled, false))
@@ -256,8 +265,7 @@ test('SSH 事件使用内部 WS endpoint，保留 Host 身份与 Origin 校验',
     socket.send(JSON.stringify({ hostId: 'ssh-host', type: 'sessions-changed' }))
   })
   try {
-    const profile = await f.remotes.ssh.save({ name: '测试', target: 'work', hostPort: 31415, token: 'secret' })
-    await f.remotes.ssh.setEnabled(profile.id, true)
+    const profile = await f.remotes.ssh.save({ name: '测试', target: 'work' })
     await vi.waitFor(() => assert.equal(f.remotes.ssh.list()[0].phase, 'connected'))
     await f.remotes.events(profile.id, 'client', downstream)
     await vi.waitFor(() => assert.equal(messages.length, 1))
@@ -293,12 +301,15 @@ test('SSH 事件使用内部 WS endpoint，保留 Host 身份与 Origin 校验',
 
 test('SSH 删除凭据失败时保留配对资料，可再次删除', async () => {
   const f = await fixture()
+  const original = globalThis.fetch
+  globalThis.fetch = (async () => auth()) as typeof fetch
   try {
-    const profile = await f.remotes.ssh.save({ name: '测试', target: 'work', hostPort: 31415, token: 'secret' })
+    const profile = await f.remotes.ssh.save({ name: '测试', target: 'work' })
+    await vi.waitFor(() => assert.equal(f.remotes.ssh.list()[0].phase, 'connected'))
     f.failCredentialFlush = true
     await assert.rejects(f.remotes.ssh.remove(profile.id), /凭据写入失败/)
     assert.equal(f.remotes.ssh.list()[0].id, profile.id)
-    assert.equal(f.credentials.readSsh(profile.id), 'secret')
+    assert.equal(f.credentials.readSsh(profile.id), 'private-token')
     const saved = JSON.parse(await readFile(path.join(f.root, 'config/ssh-connections.json'), 'utf8'))
     assert.equal(saved[0].id, profile.id)
     f.failCredentialFlush = false
@@ -306,6 +317,7 @@ test('SSH 删除凭据失败时保留配对资料，可再次删除', async () =
     assert.equal(f.credentials.readSsh(profile.id), undefined)
     assert.deepEqual(f.remotes.ssh.list(), [])
   } finally {
+    globalThis.fetch = original
     await f.dispose()
   }
 })
@@ -328,12 +340,12 @@ test('SSH 在线仅改名称不废弃在途业务请求，也不创建新隧道'
     return new Response(JSON.stringify({ hostId: 'ssh-host', result: [] }))
   }) as typeof fetch
   try {
-    const profile = await f.remotes.ssh.save({ name: '旧名称', target: 'work', hostPort: 31415, token: 'secret' })
+    const profile = await f.remotes.ssh.save({ name: '旧名称', target: 'work' })
     await f.remotes.ssh.setEnabled(profile.id, true)
     await vi.waitFor(() => assert.equal(f.remotes.ssh.list()[0].phase, 'connected'))
     const pending = f.remotes.request(profile.id, '/api/rpc', 'POST', JSON.stringify({ method: 'workspace:projects' }))
     await started
-    await f.remotes.ssh.save({ id: profile.id, name: '新名称', target: 'work', hostPort: 31415 })
+    await f.remotes.ssh.save({ id: profile.id, name: '新名称', target: 'work' })
     release()
     assert.equal((await pending).status, 200)
     assert.equal(f.remotes.list()[0].name, '新名称')
@@ -352,8 +364,7 @@ for (const attachment of [false, true]) {
     globalThis.fetch = (async (url) =>
       String(url).endsWith('/api/auth') ? auth() : new Response('{"hostId":"other-host"}')) as typeof fetch
     try {
-      const profile = await f.remotes.ssh.save({ name: '测试', target: 'work', hostPort: 31415, token: 'secret' })
-      await f.remotes.ssh.setEnabled(profile.id, true)
+      const profile = await f.remotes.ssh.save({ name: '测试', target: 'work' })
       await vi.waitFor(() => assert.equal(f.remotes.ssh.list()[0].phase, 'connected'))
       const operation = attachment
         ? f.remotes.uploadAttachment(profile.id, new URLSearchParams({ hostId: 'ssh-host' }), null)
@@ -380,8 +391,7 @@ test('延迟停止旧隧道时，新代次和 flush 都等待进程退出', asyn
     throw new Error('网络中断')
   }) as typeof fetch
   try {
-    const profile = await f.remotes.ssh.save({ name: '测试', target: 'work', hostPort: 31415, token: 'secret' })
-    await f.remotes.ssh.setEnabled(profile.id, true)
+    const profile = await f.remotes.ssh.save({ name: '测试', target: 'work' })
     await vi.waitFor(() => assert.equal(f.remotes.ssh.list()[0].phase, 'connected'))
     f.stopGate = new Promise<void>((resolve) => {
       release = resolve
@@ -412,6 +422,211 @@ test('延迟停止旧隧道时，新代次和 flush 都等待进程退出', asyn
   } finally {
     release?.()
     secondRelease?.()
+    globalThis.fetch = original
+    await f.dispose()
+  }
+})
+
+for (const operation of ['pause', 'remove', 'dispose'] as const) {
+  test(`准备期间${operation}取消旧代次，不创建隧道或发布凭据`, async () => {
+    let release!: () => void
+    let entered!: () => void
+    const started = new Promise<void>((resolve) => {
+      entered = resolve
+    })
+    const waiting = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let signal!: AbortSignal
+    const f = await fixture(async (_connection, currentSignal, onStep) => {
+      signal = currentSignal
+      onStep('installing')
+      entered()
+      await waiting
+      onStep('starting')
+      return { port: 31415, hostId: 'ssh-host', token: 'late-token' }
+    })
+    try {
+      const profile = await f.remotes.ssh.save({ target: 'work', name: '' })
+      await started
+      assert.equal(profile.enabled, true)
+      assert.equal(profile.name, 'work')
+      assert.equal(f.remotes.ssh.list()[0].step, 'installing')
+      const pending =
+        operation === 'pause'
+          ? f.remotes.ssh.setEnabled(profile.id, false)
+          : operation === 'remove'
+            ? f.remotes.ssh.remove(profile.id)
+            : (f.remotes.dispose(), f.remotes.flush())
+      await vi.waitFor(() => assert.ok(signal.aborted))
+      release()
+      await pending
+      assert.equal(f.starts, 0)
+      assert.equal(f.credentials.readSsh(profile.id), undefined)
+      assert.deepEqual(f.remotes.list(), [])
+      if (operation === 'remove') assert.deepEqual(f.remotes.ssh.list(), [])
+      else {
+        assert.equal(f.remotes.ssh.list()[0].phase, 'paused')
+        assert.equal(f.remotes.ssh.list()[0].step, undefined)
+      }
+    } finally {
+      release?.()
+      await f.dispose()
+    }
+  })
+}
+
+test('准备失败保留可重试连接，阶段变化通过服务事件发布', async () => {
+  let attempts = 0
+  const f = await fixture(async (_connection, signal, onStep) => {
+    signal.throwIfAborted()
+    onStep('installing')
+    if (++attempts === 1) throw new SshError('package-download', 'Host 安装包下载失败')
+    onStep('starting')
+    return { port: 31415, hostId: 'ssh-host', token: 'private-token' }
+  })
+  const original = globalThis.fetch
+  globalThis.fetch = (async () => auth()) as typeof fetch
+  const steps: (string | undefined)[] = []
+  const unsubscribe = f.remotes.onChanged(() => {
+    steps.push(f.remotes.ssh.list()[0]?.step)
+  })
+  try {
+    const profile = await f.remotes.ssh.save({ target: 'work' })
+    await vi.waitFor(() => assert.equal(f.remotes.ssh.list()[0].phase, 'action-required'))
+    assert.equal(f.remotes.ssh.list()[0].errorCode, 'package-download')
+    assert.equal(f.remotes.ssh.list()[0].enabled, true)
+    assert.equal(f.starts, 0)
+    assert.equal(f.credentials.readSsh(profile.id), undefined)
+    await f.remotes.ssh.retry(profile.id)
+    await vi.waitFor(() => assert.equal(f.remotes.ssh.list()[0].phase, 'connected'))
+    assert.equal(attempts, 2)
+    assert.equal(f.starts, 1)
+    for (const step of ['checking', 'installing', 'starting', 'authenticating']) assert.ok(steps.includes(step))
+  } finally {
+    unsubscribe()
+    globalThis.fetch = original
+    await f.dispose()
+  }
+})
+
+test('重启入口后启用记录即使没有旧凭据也重新准备，连接身份保持稳定', async () => {
+  const f = await fixture(async () => {
+    throw new SshError('package-download', 'Host 安装包下载失败')
+  })
+  let restarted: SshConnections | undefined
+  try {
+    const profile = await f.remotes.ssh.save({ target: 'work' })
+    await vi.waitFor(() => assert.equal(f.remotes.ssh.list()[0].phase, 'action-required'))
+    assert.equal(f.credentials.readSsh(profile.id), undefined)
+    f.remotes.dispose()
+    await f.remotes.flush()
+    let preparations = 0
+    restarted = new SshConnections(
+      f.root,
+      f.credentials,
+      {
+        login: async (connection) => {
+          assert.equal(connection.hostId, 'ssh-host')
+          assert.equal(f.credentials.readSsh(profile.id), 'private-token')
+          return { hostId: 'ssh-host', cookie: 'private-cookie' }
+        },
+        changed: () => {},
+        removed: () => {},
+      },
+      {
+        prepare: async () => {
+          preparations++
+          return { port: 31415, hostId: 'ssh-host', token: 'private-token' }
+        },
+        startTunnel: async (_connection, remotePort) => {
+          assert.equal(remotePort, 31415)
+          let end!: (cause: SshError) => void
+          const closed = new Promise<SshError>((resolve) => {
+            end = resolve
+          })
+          return {
+            endpoint: 'http://127.0.0.1:45321',
+            closed,
+            stop: async () => {
+              end(new SshError('stopped', '已停止'))
+            },
+          }
+        },
+      },
+    )
+    await restarted.initialize()
+    await vi.waitFor(() => assert.equal(restarted!.list()[0].phase, 'connected'))
+    assert.equal(preparations, 1)
+    assert.equal(restarted.list()[0].id, profile.id)
+    assert.equal(restarted.list()[0].enabled, true)
+    assert.equal(restarted.list()[0].hostId, 'ssh-host')
+  } finally {
+    restarted?.dispose()
+    await restarted?.flush()
+    await f.dispose()
+  }
+})
+
+test('准备结果身份变化时不覆盖已有凭据，也不建立新隧道', async () => {
+  let preparations = 0
+  const f = await fixture(async () =>
+    ++preparations === 1
+      ? { port: 31415, hostId: 'ssh-host', token: 'private-token' }
+      : { port: 31415, hostId: 'other-host', token: 'other-token' },
+  )
+  const original = globalThis.fetch
+  globalThis.fetch = (async () => auth()) as typeof fetch
+  try {
+    const profile = await f.remotes.ssh.save({ target: 'work' })
+    await vi.waitFor(() => assert.equal(f.remotes.ssh.list()[0].phase, 'connected'))
+    await f.remotes.ssh.setEnabled(profile.id, false)
+    await f.remotes.ssh.setEnabled(profile.id, true)
+    await vi.waitFor(() => assert.equal(f.remotes.ssh.list()[0].phase, 'action-required'))
+    assert.equal(f.remotes.ssh.list()[0].hostId, 'ssh-host')
+    assert.equal(f.remotes.ssh.list()[0].errorCode, 'host-identity')
+    assert.equal(f.credentials.readSsh(profile.id), 'private-token')
+    assert.equal(f.starts, 1)
+  } finally {
+    globalThis.fetch = original
+    await f.dispose()
+  }
+})
+
+test('自动准备的凭据写入失败时不创建隧道，不泄漏令牌', async () => {
+  const f = await fixture()
+  f.failCredentialFlush = true
+  try {
+    const profile = await f.remotes.ssh.save({ target: 'work' })
+    await vi.waitFor(() => assert.equal(f.remotes.ssh.list()[0].phase, 'action-required'))
+    assert.equal(f.remotes.ssh.list()[0].errorCode, 'storage')
+    assert.equal(f.credentials.readSsh(profile.id), undefined)
+    assert.equal(f.starts, 0)
+    assert.ok(!JSON.stringify(f.remotes.ssh.list()).includes('private-token'))
+  } finally {
+    f.failCredentialFlush = false
+    await f.dispose()
+  }
+})
+
+test('启用时只允许改名，暂停编辑保留启用状态与已认证身份', async () => {
+  const f = await fixture()
+  const original = globalThis.fetch
+  globalThis.fetch = (async () => auth()) as typeof fetch
+  try {
+    const profile = await f.remotes.ssh.save({ target: 'work' })
+    await vi.waitFor(() => assert.equal(f.remotes.ssh.list()[0].phase, 'connected'))
+    for (const change of [{ target: 'other' }, { port: 2222 }, { identityFile: '~/.ssh/other' }])
+      await assert.rejects(f.remotes.ssh.save({ id: profile.id, target: 'work', ...change }), /请先暂停/)
+    await assert.rejects(f.remotes.ssh.save({ target: 'work' }), /已经添加/)
+    assert.equal(f.starts, 1)
+    await f.remotes.ssh.setEnabled(profile.id, false)
+    const edited = await f.remotes.ssh.save({ id: profile.id, target: 'other' })
+    assert.equal(edited.enabled, false)
+    assert.equal(edited.phase, 'paused')
+    assert.equal(edited.hostId, 'ssh-host')
+    assert.equal(f.starts, 1)
+  } finally {
     globalThis.fetch = original
     await f.dispose()
   }

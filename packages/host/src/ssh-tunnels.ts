@@ -5,7 +5,9 @@ import { createConnection, createServer } from 'node:net'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
-import type { SshConnection } from '@pi-meme/contracts/ssh-connections'
+import type { SshConnectionInput } from '@pi-meme/contracts/ssh-connections'
+
+type SshTarget = Pick<SshConnectionInput, 'target' | 'port' | 'identityFile'>
 
 export class SshError extends Error {
   constructor(
@@ -17,7 +19,7 @@ export class SshError extends Error {
   }
 }
 export type SshTunnel = { endpoint: string; closed: Promise<SshError>; stop: () => Promise<void> }
-export type SshTunnelStarter = (connection: SshConnection, signal: AbortSignal) => Promise<SshTunnel>
+export type SshTunnelStarter = (connection: SshTarget, remotePort: number, signal: AbortSignal) => Promise<SshTunnel>
 
 export async function findSshExecutable(): Promise<string | undefined> {
   if (process.platform === 'win32') return undefined
@@ -33,7 +35,7 @@ export async function findSshExecutable(): Promise<string | undefined> {
   }
 }
 
-function sshFailure(stderr: string) {
+export function sshFailure(stderr: string) {
   if (/REMOTE HOST IDENTIFICATION HAS CHANGED|Host key verification failed|No .*host key is known/i.test(stderr))
     return new SshError('host-key', 'SSH 主机指纹未受信任或已变化，请先在入口 Host 的终端核实')
   if (/Permission denied|no supported authentication|sign_and_send_pubkey|agent refused/i.test(stderr))
@@ -78,7 +80,7 @@ function signalGroup(pid: number, signal: NodeJS.Signals | 0) {
     throw new SshError('ssh-cleanup', '无法清理 SSH 进程组，请检查入口 Host 的进程权限')
   }
 }
-async function stopChild(child: ChildProcess, send: SignalGroup) {
+export async function stopChild(child: ChildProcess, send: SignalGroup = signalGroup) {
   if (child.pid === undefined) return
   // ssh 与它创建的代理命令均属于本应用独立进程组，不使用用户共享 Master。
   if (!send(child.pid, 'SIGTERM')) return
@@ -98,7 +100,7 @@ function identityFilePath(value: string) {
   return value.startsWith('~/') ? path.join(homedir(), value.slice(2)) : value
 }
 
-export function sshArguments(connection: SshConnection) {
+export function sshArguments(connection: SshTarget) {
   const args = [
     '-T',
     '-o',
@@ -135,80 +137,94 @@ export function sshArguments(connection: SshConnection) {
   return args
 }
 
+type SshValidationOptions = {
+  spawn?: typeof spawn
+  executable?: () => Promise<string | undefined>
+  signalGroup?: SignalGroup
+  preflightTimeoutMs?: number
+}
+
+export async function validateSshConnection(
+  connection: SshTarget,
+  signal: AbortSignal,
+  options: SshValidationOptions = {},
+) {
+  const run = options.spawn ?? spawn
+  const send = options.signalGroup ?? signalGroup
+  signal.throwIfAborted()
+  const executable = await (options.executable ?? findSshExecutable)()
+  if (!executable) throw new SshError('ssh-unavailable', '入口 Host 未找到可执行的 OpenSSH')
+  signal.throwIfAborted()
+  if (connection.identityFile) {
+    const file = identityFilePath(connection.identityFile)
+    try {
+      if (!(await stat(file)).isFile()) throw new Error('不是文件')
+      await access(file, constants.R_OK)
+    } catch {
+      throw new SshError('identity-file', '指定的身份文件不存在或不可读，请检查入口 Host 上的路径')
+    }
+    signal.throwIfAborted()
+  }
+  const base = sshArguments(connection)
+  const config = run(executable, ['-G', ...base, '--', connection.target], {
+    shell: false,
+    detached: true,
+    stdio: ['ignore', 'pipe', 'pipe'],
+  })
+  let configStopping: Promise<void> | undefined
+  const stopConfig = () => (configStopping ??= stopChild(config, send))
+  const abortConfig = () => {
+    void stopConfig().catch(() => {})
+  }
+  let preflightTimeout: ReturnType<typeof setTimeout> | undefined
+  signal.addEventListener('abort', abortConfig, { once: true })
+  let output = ''
+  let stderr = ''
+  config.stdout?.on('data', (chunk: Buffer) => {
+    if (output.length < 256 * 1024) output += chunk.toString()
+    else void stopConfig().catch(() => {})
+  })
+  config.stderr?.on('data', (chunk: Buffer) => {
+    if (stderr.length < 8192) stderr += chunk.toString()
+  })
+  try {
+    await new Promise<void>((resolve, reject) => {
+      preflightTimeout = setTimeout(() => {
+        reject(new SshError('ssh-config-timeout', 'SSH 配置检查超时，请检查 Match 或代理命令'))
+        void stopConfig().catch(() => {})
+      }, options.preflightTimeoutMs ?? 10000)
+      config.once('error', () => reject(new SshError('ssh-unavailable', '无法启动系统 OpenSSH')))
+      config.once('close', (code) => (code === 0 ? resolve() : reject(sshFailure(stderr))))
+    })
+    signal.throwIfAborted()
+    if (/^(?:localforward|remoteforward|dynamicforward)\s+(?!none(?:\s|$))/im.test(output))
+      throw new SshError('forwarding-conflict', '此 SSH 配置含额外端口转发，请使用不含转发配置的主机别名')
+  } finally {
+    clearTimeout(preflightTimeout)
+    signal.removeEventListener('abort', abortConfig)
+    await stopConfig()
+  }
+  return { executable, args: base }
+}
+
 /** 只有用户启用连接时执行；发现配置阶段不调用此函数。 */
 export function createSshTunnelStarter(
-  options: {
-    spawn?: typeof spawn
-    executable?: () => Promise<string | undefined>
+  options: SshValidationOptions & {
     allocatePort?: () => Promise<number>
     ready?: (port: number) => Promise<boolean>
-    signalGroup?: SignalGroup
-    preflightTimeoutMs?: number
   } = {},
 ): SshTunnelStarter {
   const run = options.spawn ?? spawn
   const send = options.signalGroup ?? signalGroup
-  return async (connection, signal) => {
-    signal.throwIfAborted()
-    const executable = await (options.executable ?? findSshExecutable)()
-    if (!executable) throw new SshError('ssh-unavailable', '入口 Host 未找到可执行的 OpenSSH')
-    signal.throwIfAborted()
-    if (connection.identityFile) {
-      const file = identityFilePath(connection.identityFile)
-      try {
-        if (!(await stat(file)).isFile()) throw new Error('不是文件')
-        await access(file, constants.R_OK)
-      } catch {
-        throw new SshError('identity-file', '指定的身份文件不存在或不可读，请检查入口 Host 上的路径')
-      }
-      signal.throwIfAborted()
-    }
-    const base = sshArguments(connection)
-    const config = run(executable, ['-G', ...base, '--', connection.target], {
-      shell: false,
-      detached: true,
-      stdio: ['ignore', 'pipe', 'pipe'],
-    })
-    let configStopping: Promise<void> | undefined
-    const stopConfig = () => (configStopping ??= stopChild(config, send))
-    const abortConfig = () => {
-      void stopConfig().catch(() => {})
-    }
-    let preflightTimeout: ReturnType<typeof setTimeout> | undefined
-    signal.addEventListener('abort', abortConfig, { once: true })
-    let output = ''
-    let stderr = ''
-    config.stdout?.on('data', (chunk: Buffer) => {
-      if (output.length < 256 * 1024) output += chunk.toString()
-      else void stopConfig().catch(() => {})
-    })
-    config.stderr?.on('data', (chunk: Buffer) => {
-      if (stderr.length < 8192) stderr += chunk.toString()
-    })
-    try {
-      await new Promise<void>((resolve, reject) => {
-        preflightTimeout = setTimeout(() => {
-          reject(new SshError('ssh-config-timeout', 'SSH 配置检查超时，请检查 Match 或代理命令'))
-          void stopConfig().catch(() => {})
-        }, options.preflightTimeoutMs ?? 10000)
-        config.once('error', () => reject(new SshError('ssh-unavailable', '无法启动系统 OpenSSH')))
-        config.once('close', (code) => (code === 0 ? resolve() : reject(sshFailure(stderr))))
-      })
-      signal.throwIfAborted()
-      if (/^(?:localforward|remoteforward|dynamicforward)\s+(?!none(?:\s|$))/im.test(output))
-        throw new SshError('forwarding-conflict', '此 SSH 配置含额外端口转发，请使用不含转发配置的主机别名')
-    } finally {
-      clearTimeout(preflightTimeout)
-      signal.removeEventListener('abort', abortConfig)
-      await stopConfig()
-    }
+  return async (connection, remotePort, signal) => {
+    const { executable, args: base } = await validateSshConnection(connection, signal, options)
     for (let attempt = 0; attempt < 3; attempt++) {
       signal.throwIfAborted()
       const port = await (options.allocatePort ?? unusedPort)()
       signal.throwIfAborted()
       const child = run(
         executable,
-        ['-N', ...base, '-L', `127.0.0.1:${port}:127.0.0.1:${connection.hostPort}`, '--', connection.target],
+        ['-N', ...base, '-L', `127.0.0.1:${port}:127.0.0.1:${remotePort}`, '--', connection.target],
         { shell: false, detached: true, stdio: ['ignore', 'pipe', 'pipe'] },
       )
       let failure: SshError | undefined

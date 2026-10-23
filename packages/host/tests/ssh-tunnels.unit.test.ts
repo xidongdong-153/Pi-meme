@@ -5,17 +5,15 @@ import type { ChildProcess, spawn } from 'node:child_process'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { afterAll, beforeAll, test } from 'vitest'
+import { afterAll, beforeAll, test, vi } from 'vitest'
 import type { SshConnection } from '@pi-meme/contracts/ssh-connections'
-import { createSshTunnelStarter } from '../src/ssh-tunnels'
+import { createSshTunnelStarter, validateSshConnection } from '../src/ssh-tunnels'
 
 const connection: SshConnection = {
   id: 'a'.repeat(24),
   name: '测试',
   target: 'work',
-  hostPort: 31415,
   enabled: true,
-  hasToken: true,
   phase: 'connecting',
 }
 let root: string
@@ -75,7 +73,7 @@ test('SSH 隧道仅使用参数数组、受管前台进程与 loopback，取消�
     ready: async () => true,
   })
   const controller = new AbortController()
-  const tunnel = await start(connection, controller.signal)
+  const tunnel = await start(connection, 31415, controller.signal)
   assert.equal(tunnel.endpoint, 'http://127.0.0.1:45231')
   assert.equal(fake.calls.length, 2)
   const args = fake.calls[1]
@@ -98,7 +96,7 @@ test('指定身份文件不存在时明确失败，不回退到其他身份或�
     signalGroup: fake.signalGroup,
   })
   await assert.rejects(
-    start({ ...connection, identityFile: path.join(root, 'missing') }, new AbortController().signal),
+    start({ ...connection, identityFile: path.join(root, 'missing') }, 31415, new AbortController().signal),
     /身份文件不存在或不可读/,
   )
   assert.equal(fake.calls.length, 0)
@@ -111,7 +109,7 @@ test('SSH 生效配置含额外转发时不启动受管隧道', async () => {
     signalGroup: fake.signalGroup,
     executable: async () => '/usr/bin/ssh',
   })
-  await assert.rejects(start(connection, new AbortController().signal), /额外端口转发/)
+  await assert.rejects(start(connection, 31415, new AbortController().signal), /额外端口转发/)
   assert.equal(fake.calls.length, 1)
 })
 
@@ -123,8 +121,24 @@ test('SSH 配置预检有界超时，不遗留进程或启动隧道', async () =
     executable: async () => '/usr/bin/ssh',
     preflightTimeoutMs: 5,
   })
-  await assert.rejects(start(connection, new AbortController().signal), /配置检查超时/)
+  await assert.rejects(start(connection, 31415, new AbortController().signal), /配置检查超时/)
   assert.equal(fake.calls.length, 1)
+  assert.equal(fake.children[0].exitCode, 0)
+})
+
+test('自动准备共用 SSH 预检可取消，退出配置检查进程后不执行远端命令', async () => {
+  const fake = fakeProcesses('', true)
+  const controller = new AbortController()
+  const checking = validateSshConnection(connection, controller.signal, {
+    spawn: fake.run,
+    signalGroup: fake.signalGroup,
+    executable: async () => '/usr/bin/ssh',
+  })
+  await vi.waitFor(() => assert.equal(fake.calls.length, 1))
+  controller.abort()
+  await assert.rejects(checking, { name: 'AbortError' })
+  assert.equal(fake.calls.length, 1)
+  assert.ok(fake.calls[0].includes('-G'))
   assert.equal(fake.children[0].exitCode, 0)
 })
 
@@ -151,7 +165,7 @@ test('SSH 父进程已退出仍清理组内代理子进程，TERM无效时等待
       return descendant
     },
   })
-  const tunnel = await start(connection, new AbortController().signal)
+  const tunnel = await start(connection, 31415, new AbortController().signal)
   await tunnel.stop()
   assert.equal(descendant, false)
   assert.ok(signals.includes('SIGTERM') && signals.includes('SIGKILL'))

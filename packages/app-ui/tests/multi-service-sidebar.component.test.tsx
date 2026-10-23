@@ -126,6 +126,7 @@ test.each(['https', 'ssh'] as const)('%s 远程项目与会话显示来源，详
   })
   expect(rows[0].querySelector('[aria-label^="远程："]')).toBeNull()
   expect(rows[1].querySelector('[aria-label="远程：WSL Tailscale"]')).not.toBeNull()
+  expect(rows[1].querySelector('[data-project-source-label]')).toHaveTextContent('WSL Tailscale')
   expect(sessionRows[1].querySelector('[aria-label="远程：WSL Tailscale"]')).not.toBeNull()
   fireEvent.click(screen.getByRole('button', { name: '远程项目详情：remote 项目' }))
   expect(

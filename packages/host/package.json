@@ -53,6 +53,7 @@
     "ipaddr.js": "2.2.0",
     "node-pty": "^1.1.0",
     "proper-lockfile": "4.1.2",
+    "tar": "7.5.22",
     "ws": "^8.18.3"
   },
   "devDependencies": {

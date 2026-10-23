@@ -13,7 +13,7 @@ export function SidebarSourceBadge({ source }: { source: SidebarSource }) {
       role="img"
       aria-label={`远程：${source.label}`}
       title={source.description}
-      className="inline-flex shrink-0 items-center text-primary"
+      className="inline-flex size-4 shrink-0 items-center justify-center text-primary"
     >
       <Globe aria-hidden="true" className="size-3" />
     </span>

@@ -13,9 +13,11 @@
   },
   "dependencies": {
     "@pi-meme/contracts": "workspace:*",
-    "@pi-meme/host": "workspace:*"
+    "@pi-meme/host": "workspace:*",
+    "proper-lockfile": "4.1.2"
   },
   "devDependencies": {
+    "@types/proper-lockfile": "4.1.4",
     "vite": "^8.3.1",
     "vitest": "5.0.5"
   }

@@ -3,7 +3,7 @@ import type { Theme } from './settings'
 import type { DesktopStorageAdapter } from './storage'
 import type { DesktopProject, PiSessionsSnapshot } from './sessions'
 import type { ShortcutPreferences } from './keyboard-shortcuts'
-import type { SshConnectionPhase } from './ssh-connections'
+import type { SshConnectionPhase, SshConnectionStep } from './ssh-connections'
 
 export type ServiceRef = { id: string; hostId: string; local: boolean; address: string }
 export type ProjectRef = { serviceId: string; cwd: string }
@@ -15,6 +15,7 @@ export type HostService = ServiceRef & {
   name?: string
   enabled?: boolean
   phase?: SshConnectionPhase
+  step?: SshConnectionStep
   errorCode?: string
   nextRetryAt?: string
   projects: DesktopProject[]
