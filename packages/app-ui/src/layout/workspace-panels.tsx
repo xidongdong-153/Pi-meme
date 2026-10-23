@@ -18,6 +18,7 @@ import type { UiContributionProps, UiPanel, UiTarget } from '@pi-meme/plugin-sdk
 import type { RegisteredNavigation } from '@pi-meme/plugin-sdk/navigation'
 import { AppRail } from './app-rail'
 import { PageHeader } from './page-header'
+import { useSidebarFlyout } from './sidebar-flyout'
 import type { UserProfile } from '../settings/user-profile'
 import { useShortcutHandlers, useShortcuts } from '../shortcuts/shortcut-provider'
 import {
@@ -210,6 +211,10 @@ export function WorkspacePanels({
   const reducedMotion = useReducedMotion()
   const leftPane = usePaneMotion(sidebarOpen, sidebarWidth, reducedMotion)
   const rightPane = usePaneMotion(layout.open, rightWidth, reducedMotion)
+
+  // 折叠态首页悬停浮层：固定侧栏完全收起后才挂载，避免同时渲染两份会话列表。
+  const flyout = useSidebarFlyout({ enabled: !sidebarOpen && !leftPane.mounted, reduceMotion: reducedMotion })
+  const flyoutWidth = Math.min(sidebarWidth, Math.max(160, containerWidth - 16))
   const [motionReady, setMotionReady] = useState(false)
   const containerRef = useRef(containerWidth)
   useEffect(() => {
@@ -392,7 +397,12 @@ export function WorkspacePanels({
           pluginNavigation={pluginNavigation}
           onPlugin={onPlugin}
           homeActive
-          onHome={onNewSession}
+          onHome={() => {
+            // 首页入口开新会话，浮层里旧的会话列表不必继续悬在正文上。
+            flyout.close()
+            onNewSession?.()
+          }}
+          homeFlyout={flyout.control}
           onProjects={onProjects}
           onPlugins={onPlugins}
           onSettings={onSettings}
@@ -402,7 +412,7 @@ export function WorkspacePanels({
         />
 
         {/* 内容部分：被有圆角框体圈起来的 3 部分容器（四角全圆角，右侧与底部留外框边距，复刻 Codex 设计） */}
-        <div ref={container} className="content-frame bg-background">
+        <div ref={container} className="content-frame relative bg-background">
           {leftPane.mounted && (
             <div
               className="sidebar-pane relative flex min-w-0 shrink-0 overflow-hidden"
@@ -569,6 +579,21 @@ export function WorkspacePanels({
                   )}
                 </div>
               </aside>
+            </div>
+          )}
+
+          {/* 折叠态首页悬停浮层：贴在聊天框体内侧，四边等距留白，不挤压正文。 */}
+          {flyout.mounted && (
+            <div
+              ref={flyout.panelRef}
+              id="workspace-sidebar-flyout"
+              data-state={flyout.visible ? 'open' : 'closed'}
+              aria-hidden={!flyout.visible}
+              className="absolute inset-2 z-30 flex min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-md data-[state=closed]:pointer-events-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=closed]:fill-mode-forwards duration-150 motion-reduce:animate-none"
+              style={{ width: flyoutWidth }}
+              {...flyout.panelProps}
+            >
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{sidebar}</div>
             </div>
           )}
         </div>

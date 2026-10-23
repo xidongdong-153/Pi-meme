@@ -15,6 +15,14 @@ import type { UserProfile } from '../settings/user-profile'
 import type { RegisteredNavigation } from '@pi-meme/plugin-sdk/navigation'
 import { useShortcuts } from '../shortcuts/shortcut-provider'
 
+/** 折叠态首页的悬停会话浮层。只在聊天工作区传入，其他页面没有这套入口。 */
+export type HomeFlyoutControl = {
+  open: boolean
+  onPointerEnter: () => void
+  onPointerLeave: () => void
+  onKeyboardOpen: () => void
+}
+
 export function AppRail({
   profile,
   profileLoading,
@@ -23,6 +31,7 @@ export function AppRail({
   onAccount,
   onHome,
   homeActive = false,
+  homeFlyout,
   onProjects,
   projectsActive = false,
   onPlugins,
@@ -40,6 +49,7 @@ export function AppRail({
   onAccount?: () => void
   onHome?: () => void
   homeActive?: boolean
+  homeFlyout?: HomeFlyoutControl
   onProjects?: () => void
   projectsActive?: boolean
   onPlugins?: () => void
@@ -63,13 +73,28 @@ export function AppRail({
     >
       {/* 顶部应用入口 */}
       <div className="flex min-h-0 w-full flex-col items-center gap-1.5 pt-2">
-        <Tooltip>
+        {/* 会话工作区里首页改用悬停浮层，不再叠一个提示气泡。 */}
+        <Tooltip open={homeFlyout ? false : undefined}>
           <TooltipTrigger asChild>
             <button
               type="button"
               aria-label="首页"
               aria-current={homeActive ? 'page' : undefined}
+              aria-expanded={homeFlyout?.open}
+              aria-controls={homeFlyout?.open ? 'workspace-sidebar-flyout' : undefined}
+              data-home-trigger={homeFlyout ? '' : undefined}
               onClick={onHome}
+              onPointerEnter={homeFlyout?.onPointerEnter}
+              onPointerLeave={homeFlyout?.onPointerLeave}
+              onKeyDown={
+                homeFlyout
+                  ? (event) => {
+                      if (event.key !== 'ArrowRight' || event.defaultPrevented) return
+                      event.preventDefault()
+                      homeFlyout.onKeyboardOpen()
+                    }
+                  : undefined
+              }
               className={cn(
                 'flex size-8 items-center justify-center rounded-lg transition-colors hover:bg-background cursor-pointer',
                 homeActive

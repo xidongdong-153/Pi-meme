@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom/vitest'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 import type { HostApi } from '@pi-meme/contracts/app-host'
@@ -222,4 +222,113 @@ test('切换会话与刷新不会恢复空活动标签，读取未知时不误�
   view.unmount()
   render(<Panes panels={activityPanels} activity={{ count: 0, known: true }} />)
   expect(screen.queryByRole('tab', { name: '活动' })).not.toBeInTheDocument()
+})
+
+test('折叠后悬停首页展开圆角会话浮层，移出后关闭', async () => {
+  vi.useFakeTimers()
+  try {
+    render(<Panes />)
+    fireEvent.click(screen.getByRole('button', { name: '切换侧栏' }))
+    act(() => vi.advanceTimersByTime(400))
+    const home = screen.getByRole('button', { name: '首页' })
+    expect(document.getElementById('workspace-sidebar-flyout')).toBeNull()
+
+    fireEvent.pointerEnter(home)
+    act(() => vi.advanceTimersByTime(200))
+    const flyout = document.getElementById('workspace-sidebar-flyout')
+    expect(flyout).not.toBeNull()
+    expect(flyout).toHaveTextContent('会话列表')
+    // 四边同距贴在聊天框体内侧，顶边和底边留白一致。
+    expect(flyout?.className).toContain('inset-2')
+    expect(flyout?.className).toContain('rounded-xl')
+    expect(flyout?.parentElement?.className).toContain('content-frame')
+    expect(home).toHaveAttribute('aria-expanded', 'true')
+
+    // 从首页移入浮层继续可用，移出后才收起。
+    fireEvent.pointerMove(flyout!)
+    act(() => vi.advanceTimersByTime(400))
+    expect(document.getElementById('workspace-sidebar-flyout')).not.toBeNull()
+
+    fireEvent.pointerMove(document.body)
+    act(() => vi.advanceTimersByTime(250))
+    // 关闭时先播退场动画，元素还在，但已经不可交互。
+    const closing = document.getElementById('workspace-sidebar-flyout')
+    expect(closing).not.toBeNull()
+    expect(closing).toHaveAttribute('data-state', 'closed')
+    expect(closing?.className).toContain('data-[state=closed]:animate-out')
+    expect(home).toHaveAttribute('aria-expanded', 'false')
+
+    act(() => vi.advanceTimersByTime(200))
+    expect(document.getElementById('workspace-sidebar-flyout')).toBeNull()
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test('侧栏展开时不出现悬停浮层，Escape 关闭浮层并交还首页焦点', async () => {
+  vi.useFakeTimers()
+  try {
+    render(<Panes />)
+    const home = screen.getByRole('button', { name: '首页' })
+    fireEvent.pointerEnter(home)
+    act(() => vi.advanceTimersByTime(200))
+    expect(document.getElementById('workspace-sidebar-flyout')).toBeNull()
+
+    fireEvent.click(screen.getByRole('button', { name: '切换侧栏' }))
+    act(() => vi.advanceTimersByTime(400))
+    fireEvent.pointerEnter(home)
+    act(() => vi.advanceTimersByTime(200))
+    expect(document.getElementById('workspace-sidebar-flyout')).not.toBeNull()
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(document.getElementById('workspace-sidebar-flyout')).toHaveAttribute('data-state', 'closed')
+    expect(home).toHaveFocus()
+    act(() => vi.advanceTimersByTime(200))
+    expect(document.getElementById('workspace-sidebar-flyout')).toBeNull()
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+test('浮层内按 Escape 关闭并交还首页焦点，输入框内不抢 Escape', () => {
+  vi.useFakeTimers()
+  try {
+    render(
+      <TooltipProvider>
+        <WorkspacePanels
+          profile={DEFAULT_PROFILE}
+          profileLoading={false}
+          panels={[]}
+          props={{ host: {} as HostApi, target: { hostId: 'host' }, snapshot: null }}
+          session="chat"
+          sidebar={<button type="button">会话列表</button>}
+          sidebarOpen={false}
+          sidebarWidth={256}
+          onSidebar={() => {}}
+          header={() => null}
+        >
+          <input aria-label="输入框" />
+        </WorkspacePanels>
+      </TooltipProvider>,
+    )
+    const home = screen.getByRole('button', { name: '首页' })
+    fireEvent.keyDown(home, { key: 'ArrowRight' })
+    const flyout = document.getElementById('workspace-sidebar-flyout')
+    expect(flyout).not.toBeNull()
+    expect(screen.getByRole('button', { name: '会话列表' })).toHaveFocus()
+
+    fireEvent.keyDown(document, { key: 'Escape' })
+    expect(document.getElementById('workspace-sidebar-flyout')).toHaveAttribute('data-state', 'closed')
+    expect(home).toHaveFocus()
+    act(() => vi.advanceTimersByTime(200))
+    expect(document.getElementById('workspace-sidebar-flyout')).toBeNull()
+
+    fireEvent.keyDown(home, { key: 'ArrowRight' })
+    expect(document.getElementById('workspace-sidebar-flyout')).not.toBeNull()
+    screen.getByRole('textbox', { name: '输入框' }).focus()
+    fireEvent.keyDown(screen.getByRole('textbox', { name: '输入框' }), { key: 'Escape' })
+    expect(document.getElementById('workspace-sidebar-flyout')).not.toBeNull()
+  } finally {
+    vi.useRealTimers()
+  }
 })
