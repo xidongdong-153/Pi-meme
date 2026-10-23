@@ -3,6 +3,7 @@ import path from 'node:path'
 import { Readable } from 'node:stream'
 import { randomBytes } from 'node:crypto'
 import { Hono, type Context } from 'hono'
+import { compress } from 'hono/compress'
 import { upgradeWebSocket, type HttpBindings } from '@hono/node-server'
 import { WebSocket } from 'ws'
 import type { HostControlRequest, EventSubscription } from '@pi-meme/contracts/app-host'
@@ -80,6 +81,8 @@ function serviceRegistrationError(cause: unknown) {
 }
 
 function registerRpc(app: Hono<TransportEnv>, { host, remotes, auth }: TransportServices) {
+  app.use('/api/rpc', compress())
+  app.use('/api/control', compress())
   app.post('/api/chat/attachments', async (c) => {
     if (Number(c.req.header('Content-Length')) > MAX_CHAT_ATTACHMENT_BYTES) throw new ChatAttachmentTooLargeError()
     const query = c.get('url').searchParams

@@ -327,7 +327,11 @@ export function useAppSession(
       setConnection(next)
       setActiveSession(next.sessionFile ?? next.sessionKey, next.sessionKey)
       if (next.error) setError(next.error)
-      else if (next.status === 'ready' && previous.status !== 'ready') setError('')
+      else if (
+        (next.status === 'ready' && previous.status !== 'ready') ||
+        (next.status === 'idle' && (previous.status === 'disconnected' || previous.status === 'connecting'))
+      )
+        setError('')
       if (selection.current.current) return
       if (next.generation !== previous.generation || next.sessionKey !== previous.sessionKey) {
         synchronization.current.cancel()

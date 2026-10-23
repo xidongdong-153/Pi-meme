@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
 import { request } from 'node:http'
+import { gunzipSync } from 'node:zlib'
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -73,6 +74,53 @@ test('HTTP 路径、方法、JSON 错误与响应头保持现有协议', async (
     const snapshot = await fetch(`${f.server.url}/api/snapshot?clientId=test`, { headers: { Cookie: f.cookie } })
     assert.equal(snapshot.status, 200)
     assert.equal((await snapshot.json()).hostId, f.server.host.hostId)
+  } finally {
+    await f.dispose()
+  }
+})
+
+test('RPC 按客户端协商压缩大响应，保留完整 JSON 与不压缩客户端', async () => {
+  const f = await fixture()
+  const result = '远程会话历史。'.repeat(20000)
+  f.server.host.rpc = async (value) => ({
+    requestId: value.requestId,
+    hostId: f.server.host.hostId,
+    result,
+  })
+  try {
+    for (const encoding of ['gzip', 'identity']) {
+      const response = await new Promise<{ encoding?: string; data: Buffer }>((resolve, reject) => {
+        const req = request(
+          `${f.server.url}/api/rpc`,
+          { method: 'POST', headers: { Cookie: f.cookie, 'Accept-Encoding': encoding } },
+          (response) => {
+            const chunks: Buffer[] = []
+            response.on('data', (chunk: Buffer) => chunks.push(chunk))
+            response.on('error', reject)
+            response.on('end', () =>
+              resolve({ encoding: response.headers['content-encoding'], data: Buffer.concat(chunks) }),
+            )
+          },
+        )
+        req.on('error', reject)
+        req.end(
+          JSON.stringify({
+            requestId: 'compression-test',
+            clientId: 'compression-test',
+            method: 'pi:snapshot',
+            args: [],
+          }),
+        )
+      })
+      assert.equal(response.encoding, encoding === 'gzip' ? 'gzip' : undefined)
+      if (encoding === 'gzip') assert.ok(response.data.length < Buffer.byteLength(result) / 10)
+      const data = encoding === 'gzip' ? gunzipSync(response.data) : response.data
+      assert.deepEqual(JSON.parse(data.toString()), {
+        requestId: 'compression-test',
+        hostId: f.server.host.hostId,
+        result,
+      })
+    }
   } finally {
     await f.dispose()
   }

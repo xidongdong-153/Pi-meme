@@ -239,6 +239,7 @@ export function useSettings(
     try {
       await appearanceSaver.flush()
       accept(await bridgeRef.current.getSettings())
+      setError('')
     } catch (cause) {
       setError(`刷新外观失败：${String(cause)}`)
     }

@@ -127,6 +127,22 @@ function setup(overrides: Partial<DesktopBridge> = {}) {
   return { ...hook, snapshot }
 }
 
+test('SSH 恢复到空闲连接时清除暂停错误', async () => {
+  let emit!: Parameters<DesktopBridge['onConnection']>[0]
+  const { result, snapshot } = setup({
+    onConnection: (callback) => {
+      emit = callback
+      return () => {}
+    },
+  })
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  act(() => emit({ ...snapshot.connection, status: 'disconnected', error: '连接已暂停' }))
+  expect(result.current.error).toBe('连接已暂停')
+  await act(async () => emit(snapshot.connection))
+  expect(result.current.connection.status).toBe('idle')
+  expect(result.current.error).toBe('')
+})
+
 function contextStats(tokens: number): NonNullable<Snapshot['stats']> {
   return {
     sessionFile: undefined,

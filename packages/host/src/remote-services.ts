@@ -597,9 +597,10 @@ export class RemoteServices {
       upstream.on('message', (data) => {
         try {
           this.assertCurrent(state)
-          const event = JSON.parse(data.toString()) as { hostId?: string }
+          const text = data.toString()
+          const event = JSON.parse(text) as { hostId?: string }
           if (event.hostId !== state.hostId) throw new SshError('host-identity', '远程服务身份已变化')
-          if (downstream.readyState === WebSocket.OPEN) downstream.send(data)
+          if (downstream.readyState === WebSocket.OPEN) downstream.send(text)
         } catch (cause) {
           if (this.states.get(id) === state) {
             this.failed(id, cause, state)

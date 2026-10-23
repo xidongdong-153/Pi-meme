@@ -178,6 +178,18 @@ test('同时保存运行时设置不覆盖编辑器选择，运行时请求不�
   expect(hint).not.toBeChecked()
 })
 
+test('连接恢复后成功刷新设置，清除之前的连接错误并应用新快照', async () => {
+  const f = setup()
+  await switches()
+  f.bridge.getSettings.mockRejectedValueOnce(new Error('Host 连接已暂停，请恢复连接后继续'))
+  await act(async () => f.settings().refresh())
+  expect(f.settings().error).toContain('Host 连接已暂停')
+  f.bridge.getSettings.mockResolvedValueOnce(snapshot({ showComposerHint: false }))
+  await act(async () => f.settings().refresh())
+  expect(f.settings().snapshot?.settings.showComposerHint).toBe(false)
+  expect(f.settings().error).toBe('')
+})
+
 test('权限设置保存时不在说明中插入正在保存提示', () => {
   render(<AccessSettings supported busy={false} saving onSave={vi.fn()} />)
   expect(screen.queryByText(/正在保存/)).not.toBeInTheDocument()

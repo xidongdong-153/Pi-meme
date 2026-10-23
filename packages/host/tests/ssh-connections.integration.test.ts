@@ -241,63 +241,71 @@ test('认证期间暂停取消旧代次，不发布过期服务身份', async ()
   }
 })
 
-test('SSH 事件使用内部 WS endpoint，保留 Host 身份与 Origin 校验', async () => {
-  const f = await fixture()
-  const original = globalThis.fetch
-  const server = new WebSocketServer({ port: 0, host: '127.0.0.1' })
-  await once(server, 'listening')
-  const address = server.address()
-  assert.ok(address && typeof address !== 'string')
-  f.endpoint = `http://127.0.0.1:${address.port}`
-  globalThis.fetch = (async () => auth()) as typeof fetch
-  const messages: string[] = []
-  const downstream = Object.assign(new EventEmitter(), {
-    readyState: WebSocket.OPEN,
-    send: (data: string) => messages.push(data),
-    close() {
-      downstream.emit('close')
-    },
-  }) as unknown as WebSocket
-  server.on('connection', (socket, request) => {
-    assert.equal(request.headers.origin, `http://127.0.0.1:${address.port}`)
-    assert.equal(request.headers.cookie, 'pi_meme_session=private-cookie')
-    assert.match(request.url!, /^\/api\/events\?clientId=client/)
-    socket.send(JSON.stringify({ hostId: 'ssh-host', type: 'sessions-changed' }))
-  })
-  try {
-    const profile = await f.remotes.ssh.save({ name: '测试', target: 'work' })
-    await vi.waitFor(() => assert.equal(f.remotes.ssh.list()[0].phase, 'connected'))
-    await f.remotes.events(profile.id, 'client', downstream)
-    await vi.waitFor(() => assert.equal(messages.length, 1))
-    assert.equal(JSON.parse(messages[0]).hostId, 'ssh-host')
-    const internal = f.remotes as unknown as { sockets: Map<string, Set<WebSocket>>; cookies: Map<string, string> }
-    const old = [...internal.sockets.get(profile.id)!][0]
-    await f.remotes.ssh.setEnabled(profile.id, false)
-    await f.remotes.ssh.setEnabled(profile.id, true)
-    await vi.waitFor(() => assert.equal(f.remotes.ssh.list()[0].phase, 'connected'))
-    const nextEvents = new EventEmitter()
-    const nextDownstream = Object.assign(nextEvents, {
+test.each(['events', 'control'] as const)(
+  'SSH %s 事件使用内部 WS endpoint，保留文本帧、Host 身份与 Origin 校验',
+  async (kind) => {
+    const subscription = kind === 'control' ? 'fixture-subscription' : undefined
+    const f = await fixture()
+    const original = globalThis.fetch
+    const server = new WebSocketServer({ port: 0, host: '127.0.0.1' })
+    await once(server, 'listening')
+    const address = server.address()
+    assert.ok(address && typeof address !== 'string')
+    f.endpoint = `http://127.0.0.1:${address.port}`
+    globalThis.fetch = (async () => auth()) as typeof fetch
+    const messages: string[] = []
+    const downstream = Object.assign(new EventEmitter(), {
       readyState: WebSocket.OPEN,
       send: (data: string) => messages.push(data),
       close() {
-        nextEvents.emit('close')
+        downstream.emit('close')
       },
     }) as unknown as WebSocket
-    await f.remotes.events(profile.id, 'client', nextDownstream)
-    await vi.waitFor(() => assert.equal(messages.length, 2))
-    const current = [...internal.sockets.get(profile.id)!][0]
-    const cookie = internal.cookies.get(profile.id)
-    old.emit('unexpected-response', undefined, { resume() {}, statusCode: 401 })
-    old.emit('message', Buffer.from(JSON.stringify({ hostId: 'ssh-host', type: 'sessions-changed' })))
-    assert.equal(internal.cookies.get(profile.id), cookie)
-    assert.equal(current.readyState, WebSocket.OPEN)
-  } finally {
-    globalThis.fetch = original
-    await f.dispose()
-    for (const socket of server.clients) socket.terminate()
-    await new Promise<void>((resolve) => server.close(() => resolve()))
-  }
-})
+    server.on('connection', (socket, request) => {
+      assert.equal(request.headers.origin, `http://127.0.0.1:${address.port}`)
+      assert.equal(request.headers.cookie, 'pi_meme_session=private-cookie')
+      const url = new URL(request.url!, f.endpoint)
+      assert.equal(url.pathname, kind === 'control' ? '/api/control/events' : '/api/events')
+      assert.equal(url.searchParams.get('clientId'), 'client')
+      assert.equal(url.searchParams.get('subscription'), subscription ?? null)
+      socket.send(JSON.stringify({ hostId: 'ssh-host', type: 'sessions-changed' }))
+    })
+    try {
+      const profile = await f.remotes.ssh.save({ name: '测试', target: 'work' })
+      await vi.waitFor(() => assert.equal(f.remotes.ssh.list()[0].phase, 'connected'))
+      await f.remotes.events(profile.id, 'client', downstream, subscription)
+      await vi.waitFor(() => assert.equal(messages.length, 1))
+      assert.equal(typeof messages[0], 'string', '远程 JSON 事件必须保持文本帧，浏览器不能收到 Blob')
+      assert.equal(JSON.parse(messages[0]).hostId, 'ssh-host')
+      const internal = f.remotes as unknown as { sockets: Map<string, Set<WebSocket>>; cookies: Map<string, string> }
+      const old = [...internal.sockets.get(profile.id)!][0]
+      await f.remotes.ssh.setEnabled(profile.id, false)
+      await f.remotes.ssh.setEnabled(profile.id, true)
+      await vi.waitFor(() => assert.equal(f.remotes.ssh.list()[0].phase, 'connected'))
+      const nextEvents = new EventEmitter()
+      const nextDownstream = Object.assign(nextEvents, {
+        readyState: WebSocket.OPEN,
+        send: (data: string) => messages.push(data),
+        close() {
+          nextEvents.emit('close')
+        },
+      }) as unknown as WebSocket
+      await f.remotes.events(profile.id, 'client', nextDownstream, subscription)
+      await vi.waitFor(() => assert.equal(messages.length, 2))
+      const current = [...internal.sockets.get(profile.id)!][0]
+      const cookie = internal.cookies.get(profile.id)
+      old.emit('unexpected-response', undefined, { resume() {}, statusCode: 401 })
+      old.emit('message', Buffer.from(JSON.stringify({ hostId: 'ssh-host', type: 'sessions-changed' })))
+      assert.equal(internal.cookies.get(profile.id), cookie)
+      assert.equal(current.readyState, WebSocket.OPEN)
+    } finally {
+      globalThis.fetch = original
+      await f.dispose()
+      for (const socket of server.clients) socket.terminate()
+      await new Promise<void>((resolve) => server.close(() => resolve()))
+    }
+  },
+)
 
 test('SSH 删除凭据失败时保留配对资料，可再次删除', async () => {
   const f = await fixture()
