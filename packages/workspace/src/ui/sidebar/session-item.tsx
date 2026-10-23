@@ -1,4 +1,4 @@
-import { SidebarMoreMenu, SidebarRowMenu } from './sidebar-menus'
+import { SidebarRowMenu } from './sidebar-menus'
 import { GitFork, Loader2, MessageSquare, Pin, PinOff } from 'lucide-react'
 import { cn } from '@pi-meme/ui/lib/utils'
 import type { PiSessionSummary } from '@pi-meme/contracts/sessions'
@@ -72,8 +72,10 @@ export function SessionItem({
           {...dragProps}
           onMouseEnter={handleMouseEnter}
           className={cn(
-            'group relative flex w-full min-w-0 items-center justify-between rounded-lg pr-2.5 text-xs transition-colors duration-200 ease-out cursor-pointer',
-            isActive ? 'bg-secondary/70 font-medium text-foreground' : 'text-foreground/90 hover:text-foreground',
+            'group relative flex w-full min-w-0 items-center justify-between rounded-lg px-2 py-1 text-xs transition-colors duration-150 ease-out cursor-pointer',
+            isActive
+              ? 'bg-secondary/50 font-medium text-foreground'
+              : 'text-foreground/90 hover:bg-secondary/30 hover:text-foreground',
             dragProps?.draggable && 'cursor-grab active:cursor-grabbing',
           )}
           data-session-path={session.path}
@@ -86,16 +88,38 @@ export function SessionItem({
               if (!isActive) onSwitchSession(session.path)
             }}
             onFocus={handleMouseEnter}
-            className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden pl-2 py-2 text-left rounded cursor-[inherit] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden py-0.5 pr-1 text-left rounded cursor-[inherit] transition-[padding] duration-150 ease-out group-hover:pr-7 group-has-[:focus-visible]:pr-7 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           >
             <MessageSquare aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
-            <span className="truncate min-w-0">{formatSessionTitle(session)}</span>
+            <span
+              className={cn(
+                'min-w-0 truncate transition-[mask-image] duration-150',
+                'group-hover:[mask-image:linear-gradient(to_right,black_calc(100%-1.25rem),transparent_100%)] group-hover:[-webkit-mask-image:linear-gradient(to_right,black_calc(100%-1.25rem),transparent_100%)]',
+                'group-has-[:focus-visible]:[mask-image:linear-gradient(to_right,black_calc(100%-1.25rem),transparent_100%)] group-has-[:focus-visible]:[-webkit-mask-image:linear-gradient(to_right,black_calc(100%-1.25rem),transparent_100%)]',
+              )}
+            >
+              {formatSessionTitle(session)}
+            </span>
             <ForkBadge session={session} />
           </button>
+          <div className="flex items-center gap-1 shrink-0 ml-1">
+            {source && (
+              <span className="transition-opacity group-hover:opacity-0 group-has-[:focus-visible]:opacity-0">
+                <SidebarSourceBadge source={source} />
+              </span>
+            )}
+            {runningIndicator}
+          </div>
           <div
             data-sidebar-drag-ignore
             draggable={false}
-            className={cn('flex items-center gap-1 shrink-0 ml-1', isRunning && '[&_button]:transition-none')}
+            className={cn(
+              'absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 rounded',
+              'opacity-0 group-hover:opacity-100 group-has-[:focus-visible]:opacity-100 group-has-[[data-state=open]]:opacity-100',
+              'pointer-events-none group-hover:pointer-events-auto group-has-[:focus-visible]:pointer-events-auto group-has-[[data-state=open]]:pointer-events-auto',
+              'transition-opacity duration-150 ease-out',
+              isRunning && '[&_button]:transition-none',
+            )}
           >
             <button
               type="button"
@@ -105,15 +129,10 @@ export function SessionItem({
                 e.stopPropagation()
                 onTogglePin?.(session.path)
               }}
-              className="opacity-0 group-hover:opacity-100 group-has-[:focus-visible]:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring text-muted-foreground hover:text-foreground transition-opacity p-1 shrink-0"
+              className="p-1 hover:text-foreground text-muted-foreground cursor-pointer rounded transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring shrink-0"
             >
               <PinOff className="size-3" />
             </button>
-            <span className="grid size-5 shrink-0 place-items-center [&>*]:[grid-area:1/1]">
-              <SidebarMoreMenu target={{ kind: 'session', session }} />
-              {runningIndicator}
-            </span>
-            {source && <SidebarSourceBadge source={source} />}
           </div>
         </div>
       </SidebarRowMenu>
@@ -125,8 +144,10 @@ export function SessionItem({
         <div
           onMouseEnter={handleMouseEnter}
           className={cn(
-            'group relative flex w-full min-w-0 items-center justify-between rounded-lg pr-2 text-xs transition-colors duration-200 ease-out cursor-pointer',
-            isActive ? 'font-medium text-foreground' : 'text-muted-foreground hover:text-foreground',
+            'group relative flex w-full min-w-0 items-center justify-between rounded-lg px-2 py-1 text-xs transition-colors duration-150 ease-out cursor-pointer',
+            isActive
+              ? 'bg-secondary/50 font-medium text-foreground'
+              : 'text-muted-foreground hover:bg-secondary/30 hover:text-foreground',
           )}
           data-session-path={session.path}
           title={formatSessionTitle(session)}
@@ -138,12 +159,31 @@ export function SessionItem({
               if (!isActive) onSwitchSession(session.path)
             }}
             onFocus={handleMouseEnter}
-            className="flex min-w-0 flex-1 items-center gap-1 pl-2.5 pr-1.5 py-1.5 text-left rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden py-0.5 pr-1 text-left rounded transition-[padding] duration-150 ease-out group-hover:pr-7 group-has-[:focus-visible]:pr-7 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
           >
-            <span className="truncate min-w-0">{formatSessionTitle(session)}</span>
+            <span
+              className={cn(
+                'min-w-0 truncate transition-[mask-image] duration-150',
+                'group-hover:[mask-image:linear-gradient(to_right,black_calc(100%-1.25rem),transparent_100%)] group-hover:[-webkit-mask-image:linear-gradient(to_right,black_calc(100%-1.25rem),transparent_100%)]',
+                'group-has-[:focus-visible]:[mask-image:linear-gradient(to_right,black_calc(100%-1.25rem),transparent_100%)] group-has-[:focus-visible]:[-webkit-mask-image:linear-gradient(to_right,black_calc(100%-1.25rem),transparent_100%)]',
+              )}
+            >
+              {formatSessionTitle(session)}
+            </span>
             <ForkBadge session={session} />
           </button>
-          <div className={cn('flex items-center gap-1 shrink-0', isRunning && '[&_button]:transition-none')}>
+          {runningIndicator}
+          <div
+            data-sidebar-drag-ignore
+            draggable={false}
+            className={cn(
+              'absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 rounded',
+              'opacity-0 group-hover:opacity-100 group-has-[:focus-visible]:opacity-100 group-has-[[data-state=open]]:opacity-100',
+              'pointer-events-none group-hover:pointer-events-auto group-has-[:focus-visible]:pointer-events-auto group-has-[[data-state=open]]:pointer-events-auto',
+              'transition-opacity duration-150 ease-out',
+              isRunning && '[&_button]:transition-none',
+            )}
+          >
             <button
               type="button"
               disabled={Boolean(source?.disabledReason)}
@@ -154,17 +194,12 @@ export function SessionItem({
                 onTogglePin?.(session.path)
               }}
               className={cn(
-                'transition-opacity p-0.5 hover:text-foreground cursor-pointer rounded opacity-0 group-hover:opacity-100 group-has-[:focus-visible]:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                'p-1 hover:text-foreground cursor-pointer rounded transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
                 isPinned ? 'text-primary' : 'text-muted-foreground',
               )}
             >
               <Pin className="size-3" />
             </button>
-            <span className="grid size-5 shrink-0 place-items-center [&>*]:[grid-area:1/1]">
-              <SidebarMoreMenu target={{ kind: 'session', session }} />
-              {runningIndicator}
-            </span>
-            {source && <SidebarSourceBadge source={source} />}
           </div>
         </div>
       </SidebarRowMenu>
@@ -175,8 +210,10 @@ export function SessionItem({
       <div
         onMouseEnter={handleMouseEnter}
         className={cn(
-          'group relative flex w-full min-w-0 items-center justify-between rounded-lg pr-2.5 text-xs transition-colors duration-200 ease-out cursor-pointer',
-          isActive ? 'font-medium text-foreground' : 'text-foreground/85 hover:text-foreground',
+          'group relative flex w-full min-w-0 items-center justify-between rounded-lg px-2 py-1 text-xs transition-colors duration-150 ease-out cursor-pointer',
+          isActive
+            ? 'bg-secondary/50 font-medium text-foreground'
+            : 'text-foreground/85 hover:bg-secondary/30 hover:text-foreground',
         )}
         data-session-path={session.path}
         title={formatSessionTitle(session)}
@@ -188,12 +225,38 @@ export function SessionItem({
             if (!isActive) onSwitchSession(session.path)
           }}
           onFocus={handleMouseEnter}
-          className="flex min-w-0 flex-1 items-center gap-1 pl-2.5 pr-1.5 py-1.5 text-left rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden py-0.5 pr-1 text-left rounded transition-[padding] duration-150 ease-out group-hover:pr-7 group-has-[:focus-visible]:pr-7 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
         >
-          <span className="truncate min-w-0">{formatSessionTitle(session)}</span>
+          <span
+            className={cn(
+              'min-w-0 truncate transition-[mask-image] duration-150',
+              'group-hover:[mask-image:linear-gradient(to_right,black_calc(100%-1.25rem),transparent_100%)] group-hover:[-webkit-mask-image:linear-gradient(to_right,black_calc(100%-1.25rem),transparent_100%)]',
+              'group-has-[:focus-visible]:[mask-image:linear-gradient(to_right,black_calc(100%-1.25rem),transparent_100%)] group-has-[:focus-visible]:[-webkit-mask-image:linear-gradient(to_right,black_calc(100%-1.25rem),transparent_100%)]',
+            )}
+          >
+            {formatSessionTitle(session)}
+          </span>
           <ForkBadge session={session} />
         </button>
-        <div className={cn('flex items-center gap-1 shrink-0', isRunning && '[&_button]:transition-none')}>
+        <div className="flex items-center gap-1 shrink-0 ml-1">
+          {source && (
+            <span className="transition-opacity group-hover:opacity-0 group-has-[:focus-visible]:opacity-0">
+              <SidebarSourceBadge source={source} />
+            </span>
+          )}
+          {runningIndicator}
+        </div>
+        <div
+          data-sidebar-drag-ignore
+          draggable={false}
+          className={cn(
+            'absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 rounded',
+            'opacity-0 group-hover:opacity-100 group-has-[:focus-visible]:opacity-100 group-has-[[data-state=open]]:opacity-100',
+            'pointer-events-none group-hover:pointer-events-auto group-has-[:focus-visible]:pointer-events-auto group-has-[[data-state=open]]:pointer-events-auto',
+            'transition-opacity duration-150 ease-out',
+            isRunning && '[&_button]:transition-none',
+          )}
+        >
           <button
             type="button"
             aria-label={`${isPinned ? '取消置顶会话' : '置顶会话'}：${formatSessionTitle(session)}`}
@@ -203,17 +266,12 @@ export function SessionItem({
               onTogglePin?.(session.path)
             }}
             className={cn(
-              'transition-opacity p-0.5 hover:text-foreground cursor-pointer rounded opacity-0 group-hover:opacity-100 group-has-[:focus-visible]:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              'p-1 hover:text-foreground cursor-pointer rounded transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
               isPinned ? 'text-primary' : 'text-muted-foreground',
             )}
           >
             <Pin className="size-3" />
           </button>
-          <span className="grid size-5 shrink-0 place-items-center [&>*]:[grid-area:1/1]">
-            <SidebarMoreMenu target={{ kind: 'session', session }} />
-            {runningIndicator}
-          </span>
-          {source && <SidebarSourceBadge source={source} />}
         </div>
       </div>
     </SidebarRowMenu>

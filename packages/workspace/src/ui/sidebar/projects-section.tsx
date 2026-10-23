@@ -1,5 +1,6 @@
-import { Plus } from 'lucide-react'
+import { ChevronDown, Plus } from 'lucide-react'
 import type { ReactNode } from 'react'
+import { cn } from '@pi-meme/ui/lib/utils'
 import type { SidebarProjectEntry } from './sidebar-model'
 import { SidebarSection, SidebarSortable } from './sidebar-controls'
 import { ProjectItem, type ProjectItemProps } from './project-item'
@@ -123,9 +124,10 @@ export function ProjectsSection({
           <button
             type="button"
             onClick={onToggleAllProjects}
-            className="px-2 py-1 text-xs text-muted-foreground hover:text-foreground cursor-pointer transition-colors block text-left"
+            className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground cursor-pointer transition-colors w-full text-left"
           >
-            {showAllProjects ? '收起' : '展开显示'}
+            <ChevronDown className={cn('size-3 transition-transform duration-200', showAllProjects && 'rotate-180')} />
+            <span>{showAllProjects ? '收起' : '展开显示'}</span>
           </button>
         )}
       </div>

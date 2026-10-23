@@ -1,3 +1,5 @@
+import { ChevronDown } from 'lucide-react'
+import { cn } from '@pi-meme/ui/lib/utils'
 import type { SidebarSessionEntry } from './sidebar-model'
 import { SidebarSection, SidebarSortable } from './sidebar-controls'
 import { SessionItem } from './session-item'
@@ -77,9 +79,12 @@ export function RecentsSection({
             onClick={() =>
               onChangeLimit(recentsLimit >= entries.length ? 8 : Math.min(recentsLimit + 8, entries.length))
             }
-            className="px-2 py-1 text-xs text-muted-foreground hover:text-foreground cursor-pointer transition-colors block text-left"
+            className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground cursor-pointer transition-colors w-full text-left"
           >
-            {recentsLimit >= entries.length ? '收起' : '加载更多'}
+            <ChevronDown
+              className={cn('size-3 transition-transform duration-200', recentsLimit >= entries.length && 'rotate-180')}
+            />
+            <span>{recentsLimit >= entries.length ? '收起' : '加载更多'}</span>
           </button>
         )}
         {entries.length === 0 && !sessionsLoading && (

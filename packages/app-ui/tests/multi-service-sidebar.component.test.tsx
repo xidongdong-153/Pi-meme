@@ -144,36 +144,29 @@ test.each(['https', 'ssh'] as const)('%s 远程项目与会话显示来源，详
 })
 
 test.each([
-  { native: false, service: 'local', kind: '更多菜单', canOpen: false },
-  { native: false, service: 'local', kind: '右键菜单', canOpen: false },
-  { native: true, service: 'local', kind: '更多菜单', canOpen: true },
-  { native: true, service: 'local', kind: '右键菜单', canOpen: true },
-  { native: true, service: 'remote', kind: '更多菜单', canOpen: false },
-  { native: true, service: 'remote', kind: '右键菜单', canOpen: false },
-])(
-  'native=$native 的 $service 项目$kind按本机能力显示入口，保留复制路径',
-  async ({ native, service, kind, canOpen }) => {
-    const { rows, bridges } = renderSidebar(false, true, false, native)
-    const bridge = bridges.get(service)!
-    if (kind === '右键菜单') fireEvent.contextMenu(rows[service === 'local' ? 0 : 1])
-    else fireEvent.keyDown(screen.getByRole('button', { name: `更多操作：${service} 项目` }), { key: 'ArrowDown' })
-    expect(screen.getByRole('menuitem', { name: '复制项目路径' })).toBeInTheDocument()
-    expect(screen.getAllByRole('separator')).toHaveLength(1)
-    if (canOpen) {
-      fireEvent.click(screen.getByRole('menuitem', { name: '在…打开' }))
-      fireEvent.click(await screen.findByRole('menuitem', { name: 'Cursor' }))
-      expect(bridge.getProjectApps).toHaveBeenCalledOnce()
-      expect(bridge.openProject).toHaveBeenCalledWith('cursor', '/work/project')
-    } else {
-      expect(screen.queryByRole('menuitem', { name: /在….*打开/ })).not.toBeInTheDocument()
-      expect(bridge.getProjectApps).not.toHaveBeenCalled()
-      expect(bridge.openProject).not.toHaveBeenCalled()
-    }
-  },
-)
+  { native: false, service: 'local', canOpen: false },
+  { native: true, service: 'local', canOpen: true },
+  { native: true, service: 'remote', canOpen: false },
+])('native=$native 的 $service 项目右键菜单按本机能力显示入口，保留复制路径', async ({ native, service, canOpen }) => {
+  const { rows, bridges } = renderSidebar(false, true, false, native)
+  const bridge = bridges.get(service)!
+  fireEvent.contextMenu(rows[service === 'local' ? 0 : 1])
+  expect(screen.getByRole('menuitem', { name: '复制项目路径' })).toBeInTheDocument()
+  expect(screen.getAllByRole('separator')).toHaveLength(1)
+  if (canOpen) {
+    fireEvent.click(screen.getByRole('menuitem', { name: '在…打开' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Cursor' }))
+    expect(bridge.getProjectApps).toHaveBeenCalledOnce()
+    expect(bridge.openProject).toHaveBeenCalledWith('cursor', '/work/project')
+  } else {
+    expect(screen.queryByRole('menuitem', { name: /在….*打开/ })).not.toBeInTheDocument()
+    expect(bridge.getProjectApps).not.toHaveBeenCalled()
+    expect(bridge.openProject).not.toHaveBeenCalled()
+  }
+})
 
 test('侧栏初次识别不可点击且合并查询，成功和失败后均可刷新并保留已有列表', async () => {
-  const { bridges } = renderSidebar(false, true, false, true)
+  const { rows, bridges } = renderSidebar(false, true, false, true)
   const bridge = bridges.get('local')!
   let finish!: (apps: ProjectApp[]) => void
   let fail!: (cause: Error) => void
@@ -183,20 +176,20 @@ test('侧栏初次识别不可点击且合并查询，成功和失败后均可�
         finish = resolve
       }),
   )
-  const more = screen.getByRole('button', { name: '更多操作：local 项目' })
-  fireEvent.keyDown(more, { key: 'ArrowDown' })
+  const row = rows[0]
+  fireEvent.contextMenu(row)
   fireEvent.click(screen.getByRole('menuitem', { name: '在…打开' }))
   expect(screen.getByRole('menuitem', { name: '正在识别应用…' })).toHaveAttribute('aria-disabled', 'true')
   expect(screen.queryByRole('menuitem', { name: /Finder|系统文件管理器/ })).not.toBeInTheDocument()
   fireEvent.click(screen.getByRole('menuitem', { name: '新建会话' }))
-  await waitFor(() => expect(more).toHaveFocus())
-  fireEvent.keyDown(more, { key: 'ArrowDown' })
+  await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
+  fireEvent.contextMenu(row)
   fireEvent.click(screen.getByRole('menuitem', { name: '在…打开' }))
   expect(bridge.getProjectApps).toHaveBeenCalledOnce()
   await act(async () => finish([{ id: 'cursor', name: 'Cursor' }]))
   expect(await screen.findByRole('menuitem', { name: 'Cursor' })).toBeInTheDocument()
   fireEvent.click(screen.getByRole('menuitem', { name: '新建会话' }))
-  await waitFor(() => expect(more).toHaveFocus())
+  await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
 
   bridge.getProjectApps.mockImplementationOnce(
     () =>
@@ -204,7 +197,7 @@ test('侧栏初次识别不可点击且合并查询，成功和失败后均可�
         fail = reject
       }),
   )
-  fireEvent.keyDown(more, { key: 'ArrowDown' })
+  fireEvent.contextMenu(row)
   fireEvent.click(screen.getByRole('menuitem', { name: '在…打开' }))
   expect(screen.getByRole('menuitem', { name: 'Cursor' })).toBeInTheDocument()
   expect(bridge.getProjectApps).toHaveBeenCalledTimes(2)
@@ -213,9 +206,9 @@ test('侧栏初次识别不可点击且合并查询，成功和失败后均可�
   expect(screen.getByRole('menuitem', { name: 'Cursor' })).toBeInTheDocument()
   fireEvent.click(screen.getByRole('menuitem', { name: '系统文件管理器' }))
   expect(bridge.openProject).toHaveBeenCalledWith('finder', '/work/project')
-  await waitFor(() => expect(more).toHaveFocus())
+  await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
 
-  fireEvent.keyDown(more, { key: 'ArrowDown' })
+  fireEvent.contextMenu(row)
   fireEvent.click(screen.getByRole('menuitem', { name: '在…打开' }))
   await waitFor(() => expect(bridge.getProjectApps).toHaveBeenCalledTimes(3))
   await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument())
@@ -279,8 +272,7 @@ test('置顶会话从行内拖拽并支持方向键排序，操作按钮不触�
   expect(props.onPreferencesChange).toHaveBeenCalledOnce()
   props.onPreferencesChange.mockClear()
   const unpin = screen.getByRole('button', { name: '取消置顶：local 会话' })
-  const more = screen.getByRole('button', { name: '更多操作：local 会话' })
-  for (const button of [unpin, more]) {
+  for (const button of [unpin]) {
     const blockedTransfer = createTransfer()
     fireEvent.pointerDown(button)
     expect(fireEvent.dragStart(source, { dataTransfer: blockedTransfer })).toBe(false)
@@ -289,7 +281,6 @@ test('置顶会话从行内拖拽并支持方向键排序，操作按钮不触�
   }
   expect(props.onPreferencesChange).not.toHaveBeenCalled()
   expect(props.onActivate).not.toHaveBeenCalled()
-  fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' })
   fireEvent.click(screen.getByRole('button', { name: 'local 会话' }))
   expect(props.onActivate).toHaveBeenCalledExactlyOnceWith('local', expect.any(Function))
 })
@@ -308,8 +299,7 @@ test('多服务项目操作按钮不触发拖拽，点击新建仍使用所属�
   const { props, rows } = renderSidebar(false)
   const create = screen.getByRole('button', { name: '在项目中新建会话：remote 项目' })
   const pin = screen.getByRole('button', { name: '置顶项目：remote 项目' })
-  const more = rows[1].querySelector('[data-sidebar-drag-ignore] button:last-child')!
-  for (const button of [create, pin, more]) {
+  for (const button of [create, pin]) {
     const dataTransfer = createTransfer()
     fireEvent.pointerDown(button.querySelector('svg') ?? button)
     expect(fireEvent.dragStart(rows[1], { dataTransfer })).toBe(false)

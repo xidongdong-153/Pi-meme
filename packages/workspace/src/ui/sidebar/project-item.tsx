@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { SidebarMoreMenu, SidebarRowMenu } from './sidebar-menus'
-import { Folder, Globe, Info, Pin, PinOff, SquarePen } from 'lucide-react'
+import { SidebarRowMenu } from './sidebar-menus'
+import { ChevronDown, ChevronRight, Folder, Globe, Pin, PinOff, SquarePen } from 'lucide-react'
 import { Popover, PopoverAnchor, PopoverContent } from '@pi-meme/ui/components/ui/popover'
 import type { SidebarSource } from './sidebar-source'
 import { cn } from '@pi-meme/ui/lib/utils'
@@ -120,106 +120,127 @@ export function ProjectItem({
               if (!event.currentTarget.contains(event.relatedTarget)) hideDetails()
             }}
             className={cn(
-              'group relative flex w-full min-w-0 items-center justify-between rounded-lg pr-2.5 text-xs transition-colors duration-200 ease-out cursor-pointer',
-              isCurrentCwd ? 'font-medium text-foreground' : 'text-foreground/85 hover:text-foreground',
+              'group relative flex w-full min-w-0 items-center justify-between rounded-lg pr-1.5 text-xs transition-colors duration-150 ease-out cursor-pointer',
+              isCurrentCwd
+                ? 'bg-secondary/50 font-medium text-foreground'
+                : 'text-foreground/85 hover:bg-secondary/30 hover:text-foreground',
               dragProps?.draggable && 'cursor-grab active:cursor-grabbing',
             )}
             title={details ? undefined : project.cwd}
             data-project-cwd={project.cwd}
           >
-            <div className="relative flex min-w-0 flex-1 items-center">
+            <button
+              type="button"
+              onClick={() => (onSelectProject ? onSelectProject(project.cwd) : onToggle())}
+              aria-expanded={onSelectProject ? undefined : isExpanded}
+              onFocus={showDetails}
+              className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden py-1.5 pl-1.5 pr-1 text-left rounded cursor-[inherit] transition-[padding] duration-150 ease-out group-hover:pr-14 group-focus-within:pr-14 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {!onSelectProject && (
+                <ChevronRight
+                  aria-hidden="true"
+                  className={cn(
+                    'size-3 shrink-0 text-muted-foreground/50 transition-transform duration-200',
+                    isExpanded && 'rotate-90 text-foreground/75',
+                  )}
+                />
+              )}
+              <span className={cn('relative shrink-0', source ? 'size-4' : 'size-3.5')}>
+                <Folder
+                  data-project-folder-icon
+                  aria-hidden="true"
+                  className={cn('text-muted-foreground', source ? 'size-4' : 'size-3.5')}
+                />
+                {source && (
+                  <span
+                    role="img"
+                    aria-label={`远程：${source.label}`}
+                    title={source.description}
+                    className="absolute -bottom-0.5 -right-1 rounded-full text-primary"
+                  >
+                    <Globe aria-hidden="true" className="size-2.5" />
+                  </span>
+                )}
+              </span>
+              <span
+                className={cn(
+                  'min-w-0 truncate font-medium transition-[mask-image] duration-150',
+                  'group-hover:[mask-image:linear-gradient(to_right,black_calc(100%-1.25rem),transparent_100%)] group-hover:[-webkit-mask-image:linear-gradient(to_right,black_calc(100%-1.25rem),transparent_100%)]',
+                  'group-focus-within:[mask-image:linear-gradient(to_right,black_calc(100%-1.25rem),transparent_100%)] group-focus-within:[-webkit-mask-image:linear-gradient(to_right,black_calc(100%-1.25rem),transparent_100%)]',
+                )}
+              >
+                {project.name}
+              </span>
+            </button>
+
+            {/* 远程来源标签：平时展示，有详情时支持点击打开详情，hover/focus 时淡出，腾出右侧空间给浮动操作按钮 */}
+            {source &&
+              (details ? (
+                <button
+                  type="button"
+                  data-project-source-label
+                  title={source.description}
+                  aria-label={`远程项目详情：${project.name}`}
+                  onClick={(event) => {
+                    event.stopPropagation()
+                    keepDetails()
+                    setDetailsOpen((value) => !value)
+                  }}
+                  className="ml-1 max-w-[76px] shrink-0 truncate text-[0.625rem] font-normal text-muted-foreground transition-opacity duration-150 hover:text-foreground cursor-pointer group-hover:opacity-0 group-focus-within:opacity-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                >
+                  {source.label}
+                </button>
+              ) : (
+                <span
+                  data-project-source-label
+                  title={source.description}
+                  className="ml-1 max-w-[76px] shrink-0 truncate text-[0.625rem] font-normal text-muted-foreground transition-opacity duration-150 group-hover:opacity-0 group-focus-within:opacity-0"
+                >
+                  {source.label}
+                </span>
+              ))}
+
+            {/* 悬浮操作按钮组：采用绝对定位浮在右侧，hover/focus 时浮现，遮盖在最右侧，不挤压项目名称 */}
+            <div
+              data-sidebar-drag-ignore
+              draggable={false}
+              className={cn(
+                'absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-0.5 rounded',
+                'opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto',
+                'transition-opacity duration-150 ease-out',
+              )}
+            >
               <button
                 type="button"
-                onClick={() => (onSelectProject ? onSelectProject(project.cwd) : onToggle())}
-                aria-expanded={onSelectProject ? undefined : isExpanded}
-                onFocus={showDetails}
-                className="flex items-center gap-1.5 min-w-0 flex-1 overflow-hidden pl-2 py-2 text-left rounded cursor-[inherit] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                title={source?.disabledReason || '在项目中新建会话'}
+                disabled={Boolean(source?.disabledReason)}
+                aria-label={`在项目中新建会话：${project.name}`}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onNewSessionInProject(project.cwd)
+                }}
+                className="p-1 hover:text-foreground text-muted-foreground cursor-pointer rounded transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               >
-                <span className={cn('relative shrink-0', source ? 'size-4' : 'size-3.5')}>
-                  <Folder
-                    data-project-folder-icon
-                    aria-hidden="true"
-                    className={cn('text-muted-foreground', source ? 'size-4' : 'size-3.5')}
-                  />
-                  {source && (
-                    <span
-                      role="img"
-                      aria-label={`远程：${source.label}`}
-                      title={source.description}
-                      className="absolute -bottom-0.5 -right-1 rounded-full bg-card text-primary"
-                    >
-                      <Globe aria-hidden="true" className="size-2.5" />
-                    </span>
-                  )}
-                </span>
-                <span className="truncate font-medium">{project.name}</span>
+                <SquarePen className="size-3.5" />
               </button>
-              <div
-                data-sidebar-drag-ignore
-                draggable={false}
+
+              <button
+                type="button"
+                title={source?.disabledReason || (isPinned ? '取消置顶项目' : '置顶项目')}
+                disabled={Boolean(source?.disabledReason)}
+                aria-label={`${isPinned ? '取消置顶项目' : '置顶项目'}：${project.name}`}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  onTogglePin(project.cwd)
+                }}
                 className={cn(
-                  'flex items-center gap-1 shrink-0 ml-1',
-                  source &&
-                    'absolute right-0 top-1/2 -translate-y-1/2 rounded bg-card opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 pointer-events-none group-hover:pointer-events-auto group-focus-within:pointer-events-auto',
+                  'p-1 hover:text-foreground cursor-pointer rounded transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                  isPinned ? 'text-primary' : 'text-muted-foreground',
                 )}
               >
-                <button
-                  type="button"
-                  title={source?.disabledReason || '在项目中新建会话'}
-                  disabled={Boolean(source?.disabledReason)}
-                  aria-label={`在项目中新建会话：${project.name}`}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onNewSessionInProject(project.cwd)
-                  }}
-                  className="p-1 hover:text-foreground text-muted-foreground cursor-pointer rounded transition-opacity opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <SquarePen className="size-3.5" />
-                </button>
-
-                <button
-                  type="button"
-                  title={source?.disabledReason || (isPinned ? '取消置顶项目' : '置顶项目')}
-                  disabled={Boolean(source?.disabledReason)}
-                  aria-label={`${isPinned ? '取消置顶项目' : '置顶项目'}：${project.name}`}
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onTogglePin(project.cwd)
-                  }}
-                  className={cn(
-                    'transition-opacity p-1 hover:text-foreground cursor-pointer rounded opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                    isPinned ? 'text-primary' : 'text-muted-foreground',
-                  )}
-                >
-                  {isPinned ? <PinOff className="size-3" /> : <Pin className="size-3" />}
-                </button>
-
-                {details && (
-                  <button
-                    type="button"
-                    aria-label={`远程项目详情：${project.name}`}
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      keepDetails()
-                      setDetailsOpen((value) => !value)
-                    }}
-                    className="rounded p-1 text-muted-foreground opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    <Info className="size-3" />
-                  </button>
-                )}
-                <SidebarMoreMenu target={{ kind: 'project', project }} />
-              </div>
+                {isPinned ? <PinOff className="size-3" /> : <Pin className="size-3" />}
+              </button>
             </div>
-            {source && (
-              <span
-                data-project-source-label
-                title={source.description}
-                className="ml-1 max-w-[33%] shrink-0 truncate text-[0.625rem] font-normal text-muted-foreground"
-              >
-                {source.label}
-              </span>
-            )}
           </div>
         </SidebarRowMenu>
         {details && (
@@ -252,7 +273,7 @@ export function ProjectItem({
           )}
         >
           <div className="min-h-0 overflow-hidden">
-            <div className="ml-3 border-l border-border/40 pl-2 space-y-0.5 py-0.5">
+            <div className="ml-3.5 border-l border-border/30 pl-2 space-y-0.5 py-0.5">
               {visibleSessions.map((session) => (
                 <SidebarSortable
                   key={session.path}
@@ -280,9 +301,12 @@ export function ProjectItem({
                 <button
                   type="button"
                   onClick={() => onToggleItems()}
-                  className="px-2 py-1 text-xs text-muted-foreground hover:text-foreground cursor-pointer transition-colors block text-left"
+                  className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground cursor-pointer transition-colors w-full text-left"
                 >
-                  {isItemsExpandedAll ? '收起' : '展开显示'}
+                  <ChevronDown
+                    className={cn('size-3 transition-transform duration-200', isItemsExpandedAll && 'rotate-180')}
+                  />
+                  <span>{isItemsExpandedAll ? '收起' : '展开显示'}</span>
                 </button>
               )}
             </div>
