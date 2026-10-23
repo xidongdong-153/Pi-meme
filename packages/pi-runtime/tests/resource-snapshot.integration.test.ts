@@ -8,6 +8,7 @@ import type { SessionEntry } from '@earendil-works/pi-coding-agent'
 import type { ResourceItem, ResourceSnapshot } from '@pi-meme/contracts/resources'
 import type { PiEvent } from '@pi-meme/contracts/pi'
 import { skillMarker } from '@pi-meme/contracts/skills'
+import { emptyPluginGrant } from '@pi-meme/plugin-sdk/permissions'
 import { SdkSession } from '../src/sdk/session'
 import { createAppAgent } from '../src/sdk/app-agent'
 import { branchSkillUsages, skillUsageEntry } from '../src/extensions/skill-usage'
@@ -227,13 +228,17 @@ test('工具与注册的 custom renderer 来源写入 JSONL，历史不改原生
     skills: [],
   }
   const events: PiEvent[] = []
+  const grant = {
+    ...emptyPluginGrant('fixture:test-package'),
+    trusted: { ui: false, server: false, agent: true },
+  }
   const session = new SdkSession(
     root,
     { connection: () => {}, error: () => {}, event: ({ event }) => events.push(event as PiEvent) },
     fake.runtimePaths,
     fake.credentials,
     undefined,
-    { resourceSnapshot: snapshot, agentSources: [{ pluginId: 'test-package', generation: 7, path: entry }] },
+    { resourceSnapshot: snapshot, agentSources: [{ pluginId: 'test-package', generation: 7, path: entry, grant }] },
   )
   session.configureInlineExtensions([
     {
@@ -260,13 +265,23 @@ test('工具与注册的 custom renderer 来源写入 JSONL，历史不改原生
     await session.prompt('验证来源')
     await settled(session)
     const tool = events.find((event) => event.type === 'tool_execution_end')
-    assert.equal(tool && 'source' in tool ? tool.source?.ownerId : undefined, 'test-package')
+    assert.deepEqual(tool && 'source' in tool ? tool.source : undefined, {
+      ownerId: 'test-package',
+      generation: 7,
+      policyHash: grant.policyHash,
+      toolName: 'owned-tool',
+    })
     const messages = (await session.snapshot()).messages
     const result = messages.find((message) => message.role === 'toolResult')
     assert.equal(result?.source?.generation, 7)
     assert.deepEqual(result?.role === 'toolResult' ? result.details : undefined, { original: true })
     const custom = messages.find((message) => message.role === 'custom' && message.customType === 'owned-message')
-    assert.equal(custom?.source?.ownerId, 'test-package')
+    assert.deepEqual(custom?.source, {
+      ownerId: 'test-package',
+      generation: 7,
+      policyHash: grant.policyHash,
+      customType: 'owned-message',
+    })
     const history = await readSessionHistory(session.getActiveSession().sessionFile!)
     const reply = messages.find((message) => message.role === 'assistant')
     assert.ok(reply?.completedAt !== undefined && reply.completedAt >= reply.timestamp)
@@ -285,7 +300,7 @@ test('工具与注册的 custom renderer 来源写入 JSONL，历史不改原生
     const historyCustom = history.messages.find(
       (message) => message.role === 'custom' && message.customType === 'owned-message',
     )
-    assert.equal(historyCustom?.source?.ownerId, 'test-package')
+    assert.deepEqual(historyCustom?.source, custom?.source)
   } finally {
     await session.stopAndWait()
     await fake.dispose()

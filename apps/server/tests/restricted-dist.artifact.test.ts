@@ -9,6 +9,7 @@ import { test } from 'node:test'
 import type { Snapshot, SessionSelectionResult } from '@pi-meme/contracts/desktop'
 import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
 import { serverArtifact } from '../../../tests/fixtures/server-artifact'
+import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 
 test(
   'Server 产物默认工作区权限执行 bash/write/edit，拒绝越界；仅可查看和恢复保留权限',
@@ -36,8 +37,9 @@ test(
       },
     })
     const data = fake.runtimePaths.dataRoot
+    await mkdir(path.join(data, storageLayoutRelativePaths.credentialsDirectory), { recursive: true })
     await writeFile(
-      path.join(data, 'test-credentials.json'),
+      path.join(data, storageLayoutRelativePaths.credentialsDirectory, 'test-credentials.json'),
       JSON.stringify(Object.fromEntries(fake.credentials.entries())),
     )
     // 不写 defaultAccessMode，也不调用完全权限切换。

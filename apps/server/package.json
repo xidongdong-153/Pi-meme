@@ -17,6 +17,7 @@
     "proper-lockfile": "4.1.2"
   },
   "devDependencies": {
+    "@pi-meme/plugin-sdk": "workspace:*",
     "@types/proper-lockfile": "4.1.4",
     "vite": "^8.3.1",
     "vitest": "5.0.5"

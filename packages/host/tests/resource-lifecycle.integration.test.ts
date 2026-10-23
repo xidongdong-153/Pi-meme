@@ -8,6 +8,7 @@ import type { AgentSummary } from '@pi-meme/contracts/collaboration'
 import type { SessionSelectionResult, Snapshot } from '@pi-meme/contracts/desktop'
 import type { ResourceCatalog, ResourceItem } from '@pi-meme/contracts/resources'
 import { skillMarker } from '@pi-meme/contracts/skills'
+import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 import { finishAgentReply, useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
 import { createHost } from '../src/service'
 import { trustPluginFixture } from './plugin-fixture'
@@ -71,7 +72,7 @@ async function setup(reply: NonNullable<Parameters<typeof useFakeAgent>[1]>['rep
   const item = catalog.items.find((entry) => entry.name === 'lifecycle')!
   assert.ok(item)
   const update = async () => {
-    const source = path.join(root, 'skills/lifecycle')
+    const source = path.join(root, storageLayoutRelativePaths.skillsDirectory, 'lifecycle')
     await writeFile(path.join(source, 'scripts/check.txt'), '新版脚本')
     await writeFile(path.join(source, 'references/context.md'), '新版参考资料')
     const refreshed = await call<ResourceCatalog>('resources:catalog', [cwd])

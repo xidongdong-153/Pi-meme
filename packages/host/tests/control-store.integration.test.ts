@@ -50,6 +50,39 @@ test('同一客户端幂等键合并并发操作，冲突拒绝，不同客户�
   assert.equal(calls, 2)
 })
 
+for (const completed of [false, true]) {
+  test(`目标提交幂等回放保留目标和最新回执，重启${completed ? '保留完成状态' : '中断未完成执行'}`, async (t) => {
+    const { paths, store } = await fixture(t)
+    const goal = { goalId: 'goal-test', objective: '保留目标提交结果' }
+    let calls = 0
+    const action = async (operationId: string) => {
+      calls++
+      const receipt: SubmissionReceipt = {
+        operationId,
+        submissionId: 'submission-test',
+        session: { hostId: 'host-test', sessionId: 'session-test' },
+        delivery: 'start',
+        status: 'accepted',
+      }
+      await store.publish({ type: 'submission', sessionId: receipt.session.sessionId, value: receipt })
+      return { goal, receipt }
+    }
+    const first = await store.mutate('client', 'goal', 'goals.start', [], action)
+    const latest = { ...first.receipt, status: completed ? ('completed' as const) : ('running' as const) }
+    await store.publish({ type: 'submission', sessionId: latest.session.sessionId, value: latest })
+    assert.deepEqual(await store.mutate('client', 'goal', 'goals.start', [], action), { goal, receipt: latest })
+    await store.flush()
+    const restarted = new ControlStore(paths, 'host-test')
+    await restarted.init()
+    const replay = await restarted.mutate('client', 'goal', 'goals.start', [], action)
+    assert.deepEqual(replay.goal, goal)
+    assert.equal(replay.receipt.operationId, first.receipt.operationId)
+    assert.equal(replay.receipt.status, completed ? 'completed' : 'interrupted')
+    assert.deepEqual(replay.receipt, restarted.state.receipts[0])
+    assert.equal(calls, 1)
+  })
+}
+
 test('失败操作持久化失败状态，重试同一幂等键不会重复执行', async (t) => {
   const { paths, store } = await fixture(t)
   let calls = 0

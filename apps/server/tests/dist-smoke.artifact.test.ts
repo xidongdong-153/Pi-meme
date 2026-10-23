@@ -15,6 +15,8 @@ import type { PlanDocument } from '@pi-meme/contracts/plan'
 import type { InstructionsSnapshot, SaveInstructionResult } from '@pi-meme/contracts/settings'
 import type { PiSlashCommand } from '@pi-meme/contracts/pi'
 import { requestText } from '../../../tests/fixtures/fake-provider.mjs'
+import { storageLayoutRelativePaths as storagePaths } from '@pi-meme/contracts/storage-paths'
+import type { UiPluginDescriptor } from '@pi-meme/plugin-sdk/ui'
 
 type Snapshot = {
   connection: { sessionKey?: string; sessionFile?: string }
@@ -139,8 +141,9 @@ test(
             markdown: '# Server 产物计划\n\n1. 读取临时项目。\n2. 运行验证命令。\n',
           })
         }
-        const wanted =
-          mode === 'external'
+        const wanted = mode.startsWith('devkit')
+          ? 'dist_devkit_app_time'
+          : mode === 'external'
             ? 'dist_probe'
             : mode === 'mcp'
               ? tools.find((name) => name.includes('echo'))
@@ -149,7 +152,12 @@ test(
                 : undefined
         if (wanted && tools.includes(wanted) && !issued.has(mode)) {
           issued.add(mode)
-          const args = mode === 'external' ? {} : mode === 'mcp' ? { text: 'DIST-MCP' } : { code: 'text(40 + 2)' }
+          const args =
+            mode === 'external' || mode.startsWith('devkit')
+              ? {}
+              : mode === 'mcp'
+                ? { text: 'DIST-MCP' }
+                : { code: 'text(40 + 2)' }
           return { tool: { name: wanted, arguments: JSON.stringify(args) } }
         }
         return { text: `DIST-${mode}-OK` }
@@ -162,12 +170,13 @@ test(
       const artifact = await serverArtifact(repo, root, data)
       const mcpServer = path.join(root, 'mcp-server.mjs')
       await copyFile(path.join(repo, 'tests/fixtures/mcp-server.mjs'), mcpServer)
+      await mkdir(path.join(data, storagePaths.credentialsDirectory), { recursive: true })
       await writeFile(
-        path.join(data, 'test-credentials.json'),
+        path.join(data, storagePaths.credentialsDirectory, 'test-credentials.json'),
         JSON.stringify(Object.fromEntries(agent.credentials.entries())),
       )
       await writeFile(
-        path.join(data, 'settings.json'),
+        path.join(data, storagePaths.appConfigFile),
         JSON.stringify({
           themeId: 'dark',
           defaultAccessMode: 'full-access',
@@ -177,7 +186,7 @@ test(
         }),
       )
       await writeFile(
-        path.join(data, 'pi/mcp.json'),
+        path.join(data, storagePaths.agentMcpFile),
         JSON.stringify({
           mcpServers: {
             fixture: {
@@ -246,7 +255,7 @@ test(
         })
         const body = (await response.json()) as { hostId: string; result: T; error?: { message: string } }
         hostId = body.hostId
-        assert.equal(body.error, undefined, `${method}：${JSON.stringify(body.error)}`)
+        assert.equal(body.error, undefined, `${method}（${mode}）：${JSON.stringify(body.error)}`)
         return body.result
       }
       assert.deepEqual(
@@ -254,7 +263,7 @@ test(
         [],
       )
       const skillSource = path.join(repo, 'pi/skills/skill-creator')
-      const skillInstalled = path.join(data, 'builtin-resources/skills/skill-creator')
+      const skillInstalled = path.join(data, storagePaths.builtinSkillsDirectory, 'skill-creator')
       for (const entry of await readdir(skillSource, { recursive: true, withFileTypes: true })) {
         if (!entry.isFile()) continue
         const relative = path.relative(skillSource, path.join(entry.parentPath, entry.name))
@@ -274,14 +283,12 @@ test(
       assert.ok(creator, 'Server Worker 加载内置 Skill Creator')
       assert.equal(creator.builtin, true)
       assert.equal(creator.displayName, 'Skill Creator')
-      assert.ok(creator.sourceInfo.path.startsWith(path.join(data, 'resources/snapshots')))
+      assert.ok(creator.sourceInfo.path.startsWith(path.join(data, storagePaths.snapshotsDirectory)))
       assert.ok(creator.resourceId && creator.resourceRevision)
       const appPackage = await createDevkitAppPackage(root, 'dist-devkit-app')
-      const installedApp = await rpc<{ id: string; status: string }>('plugins:install-package', [appPackage])
+      const installedApp = await rpc<UiPluginDescriptor>('plugins:install-package', [appPackage])
       assert.equal(installedApp.status, 'active')
-      assert.match(await rpc<string>('dist-devkit-app:time'), /^\d{4}-\d{2}-\d{2}T/)
-      await rpc('plugins:reload', [installedApp.id])
-      assert.match(await rpc<string>('dist-devkit-app:time'), /^\d{4}-\d{2}-\d{2}T/)
+      assert.deepEqual(installedApp.grant?.trusted, { ui: false, server: false, agent: false })
       const plugin = path.join(root, 'plugin')
       await mkdir(path.join(plugin, 'dist/agent'), { recursive: true })
       await writeFile(
@@ -289,7 +296,11 @@ test(
         JSON.stringify({
           name: 'dist-agent-probe',
           version: '1.0.0',
-          piMeme: { sdkVersion: 2, agent: 'dist/agent/entry.js' },
+          piMeme: {
+            sdkVersion: 3,
+            agent: { trusted: 'dist/agent/entry.js', restricted: 'dist/agent/restricted.js' },
+            permissions: { restricted: { maxAccess: 'read-only', capabilities: [] } },
+          },
         }),
       )
       await writeFile(
@@ -301,7 +312,20 @@ test(
       })
     }`,
       )
-      await rpc('plugins:install-directory', [plugin])
+      await writeFile(path.join(plugin, 'dist/agent/restricted.js'), 'export function activate() {}')
+      const installedProbe = await rpc<UiPluginDescriptor>('plugins:install-directory', [plugin])
+      assert.equal(installedProbe.grant?.trusted.agent, false, '安装不能自动信任 Agent')
+      assert.ok(installedProbe.grant && installedProbe.policyHash)
+      await rpc('plugins:set-grant', [
+        installedProbe.id,
+        {
+          ...installedProbe.grant,
+          expectedRevision: installedProbe.grant.revision,
+          policyHash: installedProbe.policyHash,
+          trusted: { ui: false, server: false, agent: true },
+        },
+      ])
+      await rpc('pi:set-model', [key, { provider: 'fake', id: 'first' }], key)
       const ref = await rpc('host:session-ref', [key], key)
       const configured = await fetch(`${url}/api/control`, {
         method: 'POST',
@@ -310,7 +334,7 @@ test(
           apiVersion: 2,
           clientId: 'dist',
           method: 'sessions.configure',
-          args: [ref, { agentPlugins: ['dist-agent-probe'] }],
+          args: [ref, { agentPlugins: [installedApp.id, installedProbe.id] }],
           idempotencyKey: crypto.randomUUID(),
         }),
       })
@@ -352,8 +376,24 @@ test(
         await control('terminal.close', [terminal])
       }
 
-      for (const step of ['base', 'external', 'mcp', 'subagent', 'codemode', 'codemode-only', 'plan']) {
+      for (const step of [
+        'base',
+        'devkit',
+        'devkit-reloaded',
+        'external',
+        'mcp',
+        'subagent',
+        'codemode',
+        'codemode-only',
+        'plan',
+      ]) {
         mode = step
+        if (step === 'devkit-reloaded') {
+          const reloaded = await rpc<UiPluginDescriptor>('plugins:reload', [installedApp.id])
+          assert.equal(reloaded.status, 'active')
+          assert.ok(reloaded.generation > installedApp.generation)
+          assert.deepEqual(reloaded.grant?.trusted, { ui: false, server: false, agent: false })
+        }
         if (step === 'codemode-only') {
           const current = await rpc<Settings>('settings:get')
           await rpc('settings:save', [{ ...current.settings, mcpEnabled: false, codemodeEnabled: false }])
@@ -385,6 +425,13 @@ test(
               (message) => message.role === 'toolResult' && JSON.stringify(message).includes(expected),
             ),
           )
+        if (step.startsWith('devkit')) {
+          const time = snapshot!.messages.findLast(
+            (message) => message.role === 'toolResult' && message.toolName === 'dist_devkit_app_time',
+          )
+          assert.ok(time && time.isError === false, JSON.stringify(time))
+          assert.match(JSON.stringify(time.content), /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)
+        }
         if (step === 'subagent') {
           assert.ok(spawned?.agentId && spawned.sessionFile)
           assert.equal(continued?.agentId, spawned.agentId)
@@ -405,7 +452,10 @@ test(
           const document = snapshot!.planDocuments?.find((entry) => entry.title === 'Server 产物计划')
           assert.ok(document)
           assert.equal(
-            await readFile(path.join(data, 'plans', document.sessionId, `${document.id}.md`), 'utf8'),
+            await readFile(
+              path.join(data, storagePaths.plansDataDirectory, document.sessionId, `${document.id}.md`),
+              'utf8',
+            ),
             document.markdown,
           )
           assert.ok(

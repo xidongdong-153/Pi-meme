@@ -6,6 +6,7 @@ import { test } from 'vitest'
 import type { SessionSelectionResult } from '@pi-meme/contracts/desktop'
 import type { PiSlashCommand } from '@pi-meme/contracts/pi'
 import type { ResourceCatalog, ResourceItem } from '@pi-meme/contracts/resources'
+import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 import { MemoryCredentialStorage } from '@pi-meme/pi-runtime/secure-store'
 import { createHost } from '../src/service'
 
@@ -79,7 +80,8 @@ test('refresh响应Host技能增改删，忽略旧.pi并让目录与命令共享
     { kind: 'project', cwd: fixture.cwd },
   ])
   assert.equal(selected.cancelled, false)
-  await writeSkill(path.join(fixture.root, 'skills/host-writer'), 'host-writer', '首版')
+  const hostSkill = path.join(fixture.root, storageLayoutRelativePaths.skillsDirectory, 'host-writer')
+  await writeSkill(hostSkill, 'host-writer', '首版')
   await writeSkill(path.join(fixture.root, 'pi/skills/legacy-host'), 'legacy-host')
   await writeSkill(path.join(fixture.cwd, '.pi/skills/legacy-project'), 'legacy-project')
   const first = await fixture.call<ResourceCatalog>('resources:refresh', [fixture.cwd])
@@ -94,12 +96,12 @@ test('refresh响应Host技能增改删，忽略旧.pi并让目录与命令共享
   assert.equal(command.resourceId, item.id)
   assert.equal(command.resourceRevision, item.revision)
   const oldPath = item.path
-  await writeSkill(path.join(fixture.root, 'skills/host-writer'), 'host-writer', '第二版')
+  await writeSkill(hostSkill, 'host-writer', '第二版')
   const updated = findSkill(await fixture.call<ResourceCatalog>('resources:refresh', [fixture.cwd]), 'host-writer')
   assert.equal(updated.id, item.id)
   assert.notEqual(updated.revision, item.revision)
   assert.equal(await readFile(oldPath, 'utf8'), content('host-writer', '首版'))
-  await rm(path.join(fixture.root, 'skills/host-writer'), { recursive: true })
+  await rm(hostSkill, { recursive: true })
   const removed = await fixture.call<ResourceCatalog>('resources:refresh', [fixture.cwd])
   assert.equal(
     removed.items.some((entry) => entry.name === 'host-writer'),
@@ -154,7 +156,7 @@ test('上传、read和save走真实handler，旧修订冲突不会覆盖已保�
 test('项目技能覆盖Host，策略写入Host工作区并保留项目源码', async (t) => {
   const fixture = await setup(t, true)
   await fixture.call<SessionSelectionResult>('workspace:select', [{ kind: 'project', cwd: fixture.cwd }])
-  await writeSkill(path.join(fixture.root, 'skills/shared'), 'shared', 'Host正文')
+  await writeSkill(path.join(fixture.root, storageLayoutRelativePaths.skillsDirectory, 'shared'), 'shared', 'Host正文')
   const source = path.join(fixture.cwd, '.agents/skills/shared')
   await writeSkill(source, 'shared', '项目正文')
   const first = await fixture.call<ResourceCatalog>('resources:refresh', [fixture.cwd])
@@ -171,11 +173,12 @@ test('项目技能覆盖Host，策略写入Host工作区并保留项目源码', 
   assert.equal(fallback.resourceId, findSkill(after, 'shared', 'host').id)
   assert.equal(await readFile(path.join(source, 'SKILL.md'), 'utf8'), content('shared', '项目正文'))
   assert.deepEqual(await readdir(path.join(fixture.cwd, '.agents')), ['skills'])
-  const workspaces = await readdir(path.join(fixture.root, 'workspaces'))
+  const workspacesRoot = path.join(fixture.root, storageLayoutRelativePaths.workspacesConfigDirectory)
+  const workspaces = await readdir(workspacesRoot)
   assert.ok(workspaces.length > 0)
   const policies = await Promise.all(
     workspaces.map((directory) =>
-      readFile(path.join(fixture.root, 'workspaces', directory, 'resources.json'), 'utf8').catch(() => ''),
+      readFile(path.join(workspacesRoot, directory, 'resources.json'), 'utf8').catch(() => ''),
     ),
   )
   assert.ok(policies.some((policy) => policy.includes(project.id)))

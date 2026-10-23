@@ -7,6 +7,7 @@ import { promisify } from 'node:util'
 import { build } from 'esbuild'
 import { test } from 'vitest'
 import { copyPiRuntime } from '../scripts/copy-pi-runtime.mjs'
+import { createPiRuntimePaths } from '../packages/pi-runtime/src/runtime-paths'
 import { userMessage } from './fixtures/messages.mjs'
 
 test('隔离的桌面运行时重启后仍可新建、切换历史会话、改名和展开技能', async () => {
@@ -14,7 +15,7 @@ test('隔离的桌面运行时重启后仍可新建、切换历史会话、改�
   const repo = path.resolve(import.meta.dirname, '..')
   try {
     await copyPiRuntime(path.join(root, 'node_modules'))
-    const sessions = path.join(root, 'data/sessions')
+    const sessions = createPiRuntimePaths(path.join(root, 'data')).sessionDirectory(root)
     await mkdir(sessions, { recursive: true })
     const timestamp = '2026-10-19T00:00:00Z'
     for (const name of ['first', 'second'])
@@ -40,14 +41,16 @@ import { expandSkills } from ${JSON.stringify(path.join(repo, 'packages/pi-runti
 
 async function main() {
   const root = process.argv[2]
+  const runtimePaths = createPiRuntimePaths(path.join(root, 'data'))
+  const sessions = runtimePaths.sessionDirectory(root)
   const pool = new PiSessionPool(root, {
     connection: () => {}, event: () => {}, error: () => {}, sessionsChanged: () => {},
-  }, undefined, createPiRuntimePaths(path.join(root, 'data')))
+  }, undefined, runtimePaths)
   try {
     pool.prepare(root)
     for (const name of ['first', 'second', 'first']) {
       await pool.newSession()
-      const file = path.join(root, 'data/sessions', name + '.jsonl')
+      const file = path.join(sessions, name + '.jsonl')
       const before = await readFile(file, 'utf8')
       const result = await pool.switchSession(file)
       assert.equal(result.cancelled, false)
@@ -55,7 +58,7 @@ async function main() {
       assert.ok(result.snapshot.messages.some(message => message.role === 'user' && message.content === name))
       assert.equal(await readFile(file, 'utf8'), before, '浏览历史不能改写会话文件')
     }
-    const first = path.join(root, 'data/sessions/first.jsonl')
+    const first = path.join(sessions, 'first.jsonl')
     await pool.renameSession(first, '恢复后的会话')
     await pool.newSession()
     const renamed = await pool.switchSession(first)

@@ -7,6 +7,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { createHost } from '../src/service'
 import { finishAgentReply, useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
 import { requestText } from '../../../tests/fixtures/fake-provider.mjs'
+import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 
 type Reply = NonNullable<Parameters<typeof useFakeAgent>[1]>['reply']
 const key = (idempotencyKey: string) => ({ idempotencyKey })
@@ -222,7 +223,11 @@ test('Host 重启只恢复目标状态与用量，不自动调用模型', { time
     assert.equal(goal?.objective, '重启恢复目标')
     await delay(80)
     assert.equal(f.fake.provider.requests.length, count)
-    assert.ok((await readFile(path.join(f.fake.runtimePaths.dataRoot, 'goals.json'), 'utf8')).includes('重启恢复目标'))
+    assert.ok(
+      (await readFile(path.join(f.fake.runtimePaths.dataRoot, storageLayoutRelativePaths.goalsFile), 'utf8')).includes(
+        '重启恢复目标',
+      ),
+    )
   } finally {
     await restored?.dispose()
     await f.dispose()

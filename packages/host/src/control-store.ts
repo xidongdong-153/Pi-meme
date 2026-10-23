@@ -70,6 +70,10 @@ export function createControlStorePaths(controlDirectory: string): ControlStoreP
   }
 }
 
+function resultWithReceipt(result: unknown, receipt: SubmissionReceipt) {
+  return result && typeof result === 'object' && 'receipt' in result ? { ...result, receipt } : receipt
+}
+
 /** 循环写入 Buffer 直到全部消费完毕，随后调用 handle.sync() 刷盘，杜绝短写 */
 async function writeFull(handle: FileHandle, data: string | Buffer): Promise<void> {
   const buffer = typeof data === 'string' ? Buffer.from(data, 'utf8') : data
@@ -505,7 +509,7 @@ export class ControlStore {
         const operation = Object.values(this.state.operations).find((item) => item.operationId === receipt.operationId)
         if (operation) {
           operation.status = 'interrupted'
-          operation.result = receipt
+          operation.result = resultWithReceipt(operation.result, receipt)
           operation.error = receipt.error
           const opId = Object.entries(this.state.operations).find(
             ([, op]) => op.operationId === receipt.operationId,
@@ -824,11 +828,13 @@ export class ControlStore {
       if (this.running.has(id)) return this.running.get(id) as Promise<T>
       if (previous.status === 'completed') {
         const receipt = this.committedReceipts.get(previous.operationId)
-        if (receipt) return structuredClone(receipt) as T
+        if (receipt) return structuredClone(resultWithReceipt(previous.result, receipt)) as T
         return structuredClone(previous.result) as T
       }
       if (previous.status === 'interrupted' && this.committedReceipts.has(previous.operationId))
-        return structuredClone(this.committedReceipts.get(previous.operationId)) as T
+        return structuredClone(
+          resultWithReceipt(previous.result, this.committedReceipts.get(previous.operationId)!),
+        ) as T
       throw new ControlError(previous.status, previous.error ?? '操作已经中断，不会重新执行')
     }
 

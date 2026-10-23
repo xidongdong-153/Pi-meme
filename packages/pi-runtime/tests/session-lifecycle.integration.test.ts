@@ -273,7 +273,10 @@ test('连续选择只返回最后一次的目标快照，空白页释放后拒�
     if (!selected.cancelled) {
       assert.equal(selected.snapshot.connection.sessionFile, second)
       assert.equal(selected.snapshot.connection.status, 'idle')
-      assert.deepEqual(dialogue(selected.snapshot.messages)[0], userMessage('second', 1))
+      assert.deepEqual(dialogue(selected.snapshot.messages)[0], {
+        ...userMessage('second', 1),
+        sourceEntry: { id: 'user', revision: 'user', type: 'message' },
+      })
     }
     await assert.rejects(pool.abort(blank), /目标会话已关闭/)
     await assert.rejects(pool.prompt(blank, '不应发送'), /目标会话已关闭/)

@@ -217,7 +217,7 @@ runSessionWorker({ interaction: (context) => { context.registerInteractionPolicy
     },
     fake.runtimePaths,
     () => ({
-      dataRoot: path.dirname(fake.agentDir),
+      dataRoot: fake.dataRoot,
       credentials: fake.credentials,
       settings: { themeId: 'dark' },
       agentEntries: [trustedEntry('generation-test', 1, entry)],
@@ -287,7 +287,7 @@ test('Worker 传递失败节点恢复，在同一会话继续且不新增用户�
     { connection: () => {}, event: (event) => events.push(event), error: () => {} },
     fake.runtimePaths,
     () => ({
-      dataRoot: path.dirname(fake.agentDir),
+      dataRoot: fake.dataRoot,
       credentials: fake.credentials,
       settings: { themeId: 'dark' },
       agentEntries: [],

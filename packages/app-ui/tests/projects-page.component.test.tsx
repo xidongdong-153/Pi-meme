@@ -215,7 +215,8 @@ test.each([false, true])('单服务回退侧栏也遵循本机打开能力=%s', 
       <Sidebar {...props} />
     </TooltipProvider>,
   )
-  fireEvent.keyDown(screen.getByRole('button', { name: '更多操作：Alpha 项目' }), { key: 'ArrowDown' })
+  fireEvent.contextMenu(screen.getByRole('button', { name: 'Alpha 项目' }))
+  if (canOpenProject) fireEvent.click(screen.getByRole('menuitem', { name: '在…打开' }))
   expect(screen.getByRole('menuitem', { name: '复制项目路径' })).toBeInTheDocument()
   expect(Boolean(screen.queryByRole('menuitem', { name: '在…打开' }))).toBe(canOpenProject)
   expect(props.menuBridge.getProjectApps).toHaveBeenCalledTimes(canOpenProject ? 1 : 0)

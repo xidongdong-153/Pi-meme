@@ -3,6 +3,7 @@ import { test } from 'vitest'
 import { mkdtemp, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 import { FileCredentialStore } from '../src/file-credentials'
 
 test('文件凭据初始化、并发更新、删除和重启恢复，权限为 0600', async () => {
@@ -31,11 +32,13 @@ test('文件凭据初始化、并发更新、删除和重启恢复，权限为 0
 
 test('损坏的凭据文件不会被初始化覆盖', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'pi-meme-auth-invalid-'))
+  const filePath = path.join(root, storageLayoutRelativePaths.authFile)
   try {
+    await mkdir(path.dirname(filePath), { recursive: true })
     for (const source of ['{', 'null', '[]', '{"provider":42}']) {
-      await writeFile(path.join(root, 'auth.json'), source)
+      await writeFile(filePath, source)
       await assert.rejects(FileCredentialStore.create(root), /格式无效/)
-      assert.equal(await readFile(path.join(root, 'auth.json'), 'utf8'), source)
+      assert.equal(await readFile(filePath, 'utf8'), source)
     }
   } finally {
     await rm(root, { recursive: true, force: true })
@@ -73,7 +76,10 @@ test('写入失败恢复已保存内存值，并保留原文件内容', async ()
     await assert.rejects(store.importMissing([['new', 'unsaved']]), /凭据未保存/)
     assert.equal(store.get('new'), undefined)
     assert.equal(store.get('existing'), 'saved')
-    assert.deepEqual(JSON.parse(await readFile(path.join(`${root}-saved`, 'auth.json'), 'utf8')), { existing: 'saved' })
+    assert.deepEqual(
+      JSON.parse(await readFile(path.join(`${root}-saved`, storageLayoutRelativePaths.authFile), 'utf8')),
+      { existing: 'saved' },
+    )
     assert.throws(() => store.set('another', 'value'), /凭据未保存/)
   } finally {
     await rm(root, { recursive: true, force: true })
@@ -84,7 +90,7 @@ test('写入失败恢复已保存内存值，并保留原文件内容', async ()
 test('凭据路径无法读取时拒绝初始化', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'pi-meme-auth-read-'))
   try {
-    await mkdir(path.join(root, 'auth.json'))
+    await mkdir(path.join(root, storageLayoutRelativePaths.authFile), { recursive: true })
     await assert.rejects(FileCredentialStore.create(root), /无法读取/)
   } finally {
     await rm(root, { recursive: true, force: true })

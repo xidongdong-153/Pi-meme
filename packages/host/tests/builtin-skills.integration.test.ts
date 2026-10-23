@@ -5,13 +5,16 @@ import path from 'node:path'
 import { test } from 'vitest'
 import type { PiSlashCommand } from '@pi-meme/contracts/pi'
 import { skillMarker } from '@pi-meme/contracts/skills'
+import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 import { MemoryCredentialStorage } from '@pi-meme/pi-runtime/secure-store'
 import { expandSkills } from '@pi-meme/pi-runtime/skill-prompt'
 import { createHost } from '../src/service'
+import { initEmptyStorageLayout } from '../src/storage/upgrade'
 
 test('无模型凭据首次启动自带 Skill Creator，用户同名技能不覆盖内置技能', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'pi-meme-builtin-skills-'))
-  const userFile = path.join(root, 'skills', 'skill-creator', 'SKILL.md')
+  await initEmptyStorageLayout(root)
+  const userFile = path.join(root, storageLayoutRelativePaths.skillsDirectory, 'skill-creator', 'SKILL.md')
   const userContent = '---\nname: skill-creator\ndescription: 用户同名技能\n---\n\n用户正文。\n'
   await mkdir(path.dirname(userFile), { recursive: true })
   await writeFile(userFile, userContent)
@@ -56,7 +59,8 @@ test('再次启动更新内置技能，保留用户技能文件', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'pi-meme-builtin-skill-update-'))
   const source = path.join(root, 'application-skills')
   const sourceFile = path.join(source, 'skill-creator', 'SKILL.md')
-  const userFile = path.join(root, 'data', 'skills', 'custom', 'SKILL.md')
+  await initEmptyStorageLayout(path.join(root, 'data'))
+  const userFile = path.join(root, 'data', storageLayoutRelativePaths.skillsDirectory, 'custom', 'SKILL.md')
   await mkdir(path.dirname(sourceFile), { recursive: true })
   await mkdir(path.dirname(userFile), { recursive: true })
   await writeFile(userFile, '用户技能')
@@ -71,7 +75,10 @@ test('再次启动更新内置技能，保留用户技能文件', async () => {
       await writeFile(sourceFile, `---\nname: skill-creator\ndescription: ${revision}\n---\n\n${revision}\n`)
       host = await createHost(options)
       assert.match(
-        await readFile(path.join(options.dataRoot, 'builtin-resources', 'skills', 'skill-creator', 'SKILL.md'), 'utf8'),
+        await readFile(
+          path.join(options.dataRoot, storageLayoutRelativePaths.builtinSkillsDirectory, 'skill-creator', 'SKILL.md'),
+          'utf8',
+        ),
         new RegExp(revision),
       )
       await host.dispose()

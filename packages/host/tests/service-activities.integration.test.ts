@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict'
-import { test } from 'vitest'
+import { test, vi } from 'vitest'
+import { ActivityService } from '@pi-meme/activities/server/service'
 import { mkdir, mkdtemp, realpath, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -36,6 +37,7 @@ test(
             }
           : '服务已启动',
     })
+    const stopping = vi.spyOn(ActivityService.prototype, 'stop')
     const host = await createHost({ dataRoot: fake.runtimePaths.dataRoot, credentials: fake.credentials })
     try {
       const cwd = path.join(root, 'project')
@@ -125,14 +127,27 @@ test(
       const deleted = response.result as { errors: string[]; deletedPaths: string[] }
       assert.deepEqual(deleted.errors, [])
       assert.ok(deleted.deletedPaths.includes(target.sessionFile!))
-      const ended = (await host.app.activities.list(ref)).activities.find(
-        (activity) => activity.serviceId === live.serviceId,
-      )!
+      await assert.rejects(host.app.activities.list(ref), /会话不存在/)
+      const stopIndex = stopping.mock.calls.findLastIndex(
+        ([, serviceId, reason]) => serviceId === live.serviceId && reason === '删除会话',
+      )
+      assert.notEqual(stopIndex, -1)
+      const ended = await stopping.mock.results[stopIndex]!.value
       assert.equal(ended.status, 'stopped')
       assert.equal(ended.stopReason, '删除会话')
+      const deletionEvents = await host.app.events.read({ sessionId: ref.sessionId, after: running.cursor })
+      assert.ok(
+        deletionEvents.events.some(
+          (event) =>
+            event.type === 'activity' &&
+            (event.value as { serviceId?: string }).serviceId === live.serviceId &&
+            (event.value as { revision?: number }).revision === ended.revision,
+        ),
+      )
       assert.equal(fake.provider.requests.length, beforeDeletion)
     } finally {
       await host.dispose()
+      stopping.mockRestore()
       await fake.dispose()
       await rm(root, { recursive: true, force: true })
     }

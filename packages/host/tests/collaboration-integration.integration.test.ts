@@ -7,7 +7,8 @@ import { setTimeout as delay } from 'node:timers/promises'
 import type { AgentSummary } from '@pi-meme/contracts/collaboration'
 import type { PiSessionsSnapshot } from '@pi-meme/contracts/sessions'
 import type { DesktopEvent, Snapshot } from '@pi-meme/contracts/desktop'
-import type { PlanDocument } from '@pi-meme/contracts/plan'
+import type { CollaborationPlansIndex, CollaborationRootPartition } from '@pi-meme/subagents/server/collaboration-store'
+import { createHostStoragePaths } from '../src/storage/paths'
 import { finishAgentReply, useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
 import { createHost } from '../src/service'
 import { HostCollaborationBridge } from '@pi-meme/subagents/server/coordinator'
@@ -473,11 +474,10 @@ test('Host 重启后从原生历史恢复被抹空的计划身份，保留全部
     assert.equal(other.planDocuments!.length, 1)
     const otherJsonl = await readFile(otherFile, 'utf8')
     await host.dispose()
-    const metadataFile = path.join(dataRoot, 'collaboration.json')
-    const metadata = JSON.parse(await readFile(metadataFile, 'utf8')) as {
-      records: Array<{ summary: AgentSummary }>
-      plans: PlanDocument[]
-    }
+    const storage = createHostStoragePaths(dataRoot)
+    const metadataFile = storage.collaborationRootFile(saved.agent!.rootAgentId)
+    const metadata = JSON.parse(await readFile(metadataFile, 'utf8')) as CollaborationRootPartition
+    const plansIndex = JSON.parse(await readFile(storage.collaborationPlansFile, 'utf8')) as CollaborationPlansIndex
     delete metadata.records.find((record) => record.summary.agentId === originalAgentId)!.summary.sessionId
     await writeFile(metadataFile, JSON.stringify(metadata))
     const requests = fake.provider.requests.length
@@ -498,9 +498,14 @@ test('Host 重启后从原生历史恢复被抹空的计划身份，保留全部
     assert.equal(await readFile(sessionFile, 'utf8'), originalJsonl)
     assert.equal(await readFile(otherFile, 'utf8'), otherJsonl)
     const recovered = JSON.parse(await readFile(metadataFile, 'utf8')) as typeof metadata
-    assert.deepEqual(recovered.plans, metadata.plans)
-    for (const plan of metadata.plans)
-      assert.equal(await readFile(path.join(dataRoot, 'plans', plan.sessionId, `${plan.id}.md`), 'utf8'), plan.markdown)
+    assert.equal(
+      recovered.records.find((record) => record.summary.agentId === originalAgentId)!.summary.sessionId,
+      plans[0]!.sessionId,
+    )
+    const recoveredPlans = JSON.parse(await readFile(storage.collaborationPlansFile, 'utf8')) as CollaborationPlansIndex
+    assert.deepEqual(recoveredPlans, plansIndex)
+    for (const plan of plansIndex.plans)
+      assert.equal(await readFile(storage.planFile(plan.sessionId, plan.id), 'utf8'), plan.markdown)
   } finally {
     await host.dispose()
     await fake.dispose()

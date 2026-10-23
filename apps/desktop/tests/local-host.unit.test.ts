@@ -37,7 +37,9 @@ vi.mock('../src/main/user-login-path', () => ({ prepareDesktopHostEnv: mocks.pre
 vi.mock('@pi-meme/host/local-host', () => ({ acquireLocalHost: mocks.acquire }))
 vi.mock('../src/main/storage/controller', () => ({ createStorageController: mocks.storage }))
 vi.mock('../src/main/storage/preferences', () => ({ pendingStorageJob: mocks.pendingStorageJob }))
+const resourcesPathDescriptor = Object.getOwnPropertyDescriptor(process, 'resourcesPath')
 beforeEach(() => {
+  Object.defineProperty(process, 'resourcesPath', { configurable: true, value: '/fixture/resources' })
   mocks.app.isPackaged = false
   mocks.prepareEnv.mockImplementation(async (env: NodeJS.ProcessEnv) => ({ ...env }))
   mocks.acquire.mockImplementation(async ({ create }: { create: () => Promise<{ url: string }> }) => {
@@ -46,6 +48,8 @@ beforeEach(() => {
   })
 })
 afterEach(() => {
+  if (resourcesPathDescriptor) Object.defineProperty(process, 'resourcesPath', resourcesPathDescriptor)
+  else Reflect.deleteProperty(process, 'resourcesPath')
   vi.useRealTimers()
   vi.unstubAllEnvs()
   vi.resetAllMocks()
@@ -81,7 +85,10 @@ test.each([
   const f = await fixture({ PI_MEME_PORT: override })
   try {
     assert.equal(mocks.acquire.mock.calls[0][0].url, `http://127.0.0.1:${port}`)
-    assert.equal(mocks.fork.mock.calls[0][2].env.PI_MEME_PORT, port)
+    const env = mocks.fork.mock.calls[0][2].env
+    assert.equal(env.PI_MEME_PORT, port)
+    assert.equal(env.PI_MEME_PLUGIN_NODE, packaged ? '/fixture/resources/runtime/bin/node' : '')
+    assert.equal(env.PI_MEME_PLUGIN_ENTRY, packaged ? '/fixture/resources/runtime/restricted-entry.mjs' : '')
   } finally {
     await f.process.dispose()
   }
@@ -154,6 +161,8 @@ test('启动 Host 前恢复 PATH，并保留 Host 参数与其他环境变量', 
       ...env,
       PATH: '/fixture/user-bin:/usr/bin:/bin',
       PI_MEME_DATA_ROOT: '/fixture/data',
+      PI_MEME_PLUGIN_NODE: '',
+      PI_MEME_PLUGIN_ENTRY: '',
     })
     assert.equal(env.PATH, '/usr/bin:/bin')
   } finally {

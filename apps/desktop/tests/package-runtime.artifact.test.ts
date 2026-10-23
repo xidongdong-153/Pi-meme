@@ -3,6 +3,8 @@ import { spawn, execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { get } from 'node:https'
 import { startHostServer } from '@pi-meme/host/server'
+import { initEmptyStorageLayout } from '@pi-meme/host/storage/upgrade'
+import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 import { once } from 'node:events'
 import { constants } from 'node:fs'
 import { access, mkdtemp, mkdir, readFile, readdir, realpath, rm, stat, writeFile } from 'node:fs/promises'
@@ -16,6 +18,8 @@ import type { AppHostCapabilities, AppProject, AppSession, TerminalSnapshot } fr
 import type { PiSlashCommand } from '@pi-meme/contracts/pi'
 import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
 import { createDevkitAppPackage } from '../../../tests/fixtures/devkit-app'
+import { requestText } from '../../../tests/fixtures/fake-provider.mjs'
+import type { UiPluginDescriptor } from '@pi-meme/plugin-sdk/ui'
 
 async function waitFor<T>(read: () => Promise<T | undefined>, label: string) {
   const deadline = Date.now() + 60000
@@ -54,17 +58,33 @@ async function runPackagedSmoke(mode: 'local' | 'recovery' | 'remote' | 'fresh',
   assert.ok((await stat(spawnHelper)).isFile(), '打包应用必须包含 node-pty spawn-helper')
   await access(spawnHelper, constants.X_OK)
   const root = existingRoot ?? (await mkdtemp(path.join(tmpdir(), 'pi-meme-package-test-')))
-  const fixture = await useFakeAgent(root, { reply: () => ({ text: '打包应用回复', delayMs: 100 }) })
+  const pluginCalls = new Set<string>()
+  const fixture = await useFakeAgent(root, {
+    reply: (body) => {
+      const prompt = requestText(body)
+      const phase = prompt.includes('打包消息')
+        ? undefined
+        : prompt.includes('验证插件重载')
+          ? '验证插件重载'
+          : prompt.includes('验证插件安装')
+            ? '验证插件安装'
+            : undefined
+      if (mode === 'local' && phase && !pluginCalls.has(phase)) {
+        pluginCalls.add(phase)
+        return { tool: { name: 'packaged_devkit_app_time', arguments: '{}' } }
+      }
+      return { text: phase ? `${phase}完成` : '打包应用回复', delayMs: 100 }
+    },
+  })
   const dataRoot = path.join(root, 'userData')
   await mkdir(dataRoot, { recursive: true })
-  if (mode !== 'fresh')
-    await writeFile(
-      path.join(dataRoot, 'auth.json'),
-      JSON.stringify(Object.fromEntries(fixture.credentials.entries())),
-      {
-        mode: 0o600,
-      },
-    )
+  const authFile = path.join(dataRoot, storageLayoutRelativePaths.authFile)
+  if (mode !== 'fresh') {
+    await mkdir(path.dirname(authFile), { recursive: true })
+    await writeFile(authFile, JSON.stringify(Object.fromEntries(fixture.credentials.entries())), {
+      mode: 0o600,
+    })
+  }
   let remoteHost: Awaited<ReturnType<typeof startHostServer>> | undefined
   let certificate: Buffer | undefined
   let certificateFile: string | undefined
@@ -91,10 +111,15 @@ async function runPackagedSmoke(mode: 'local' | 'recovery' | 'remote' | 'fresh',
     certificate = await readFile(certFile)
     certificateFile = certFile
     const remoteDataRoot = path.join(root, 'remote-data')
-    await mkdir(path.join(remoteDataRoot, 'pi'), { recursive: true })
-    await writeFile(path.join(remoteDataRoot, 'pi', 'models.json'), await readFile(fixture.modelsFile))
+    await initEmptyStorageLayout(remoteDataRoot)
+    await mkdir(path.join(remoteDataRoot, storageLayoutRelativePaths.agentDirectory), { recursive: true })
+    await mkdir(path.join(remoteDataRoot, storageLayoutRelativePaths.credentialsDirectory), { recursive: true })
     await writeFile(
-      path.join(remoteDataRoot, 'auth.json'),
+      path.join(remoteDataRoot, storageLayoutRelativePaths.agentModelsFile),
+      await readFile(fixture.modelsFile),
+    )
+    await writeFile(
+      path.join(remoteDataRoot, storageLayoutRelativePaths.authFile),
       JSON.stringify(Object.fromEntries(fixture.credentials.entries())),
       { mode: 0o600 },
     )
@@ -195,27 +220,57 @@ async function runPackagedSmoke(mode: 'local' | 'recovery' | 'remote' | 'fresh',
       false,
       '认证 Cookie 不写入磁盘',
     )
-    assert.equal(typeof JSON.parse(await readFile(path.join(dataRoot, 'auth.json'), 'utf8'))['host:token'], 'string')
+    assert.equal(typeof JSON.parse(await readFile(authFile, 'utf8'))['host:token'], 'string')
     if (mode === 'local') {
       const appPackage = await createDevkitAppPackage(root, 'packaged-devkit-app')
       const app = (await evaluate(`(async () => {
-        const call = async (method, args = []) => {
+        const call = async (method, args = [], sessionId) => {
           const response = await fetch('/api/rpc', {method:'POST', headers:{'Content-Type':'application/json'},
-            body:JSON.stringify({requestId:crypto.randomUUID(), clientId:'package-app-test', method, args})})
+            body:JSON.stringify({requestId:crypto.randomUUID(), clientId:'package-app-test', method, args, sessionId})})
           const value = await response.json()
           if (!response.ok || value.error) throw new Error(JSON.stringify(value.error))
           return value.result
         }
         const installed = await call('plugins:install-package', [${JSON.stringify(appPackage)}])
-        const time = await call('packaged-devkit-app:time')
-        await call('plugins:reload', [installed.id])
-        const reloadedTime = await call('packaged-devkit-app:time')
-        return {installed, time, reloadedTime}
-      })()`)) as { installed: { id: string; status: string }; time: string; reloadedTime: string }
+        const key = (await call('pi:snapshot')).connection.sessionKey
+        const ref = await call('host:session-ref', [key], key)
+        const configured = await fetch('/api/control', {method:'POST', headers:{'Content-Type':'application/json'},
+          body:JSON.stringify({apiVersion:2, clientId:'package-app-test', method:'sessions.configure',
+            args:[ref, {agentPlugins:[installed.id]}], idempotencyKey:crypto.randomUUID()})})
+        const configuration = await configured.json()
+        if (!configured.ok || configuration.error) throw new Error(JSON.stringify(configuration.error))
+        await call('pi:set-model', [key, {provider:'fake', id:'first'}], key)
+        const readTime = async prompt => {
+          const before = (await call('pi:snapshot')).messages.filter(message => message.role === 'toolResult').length
+          await call('pi:prompt', [key, prompt], key)
+          const deadline = Date.now() + 10000
+          while (Date.now() < deadline) {
+            const snapshot = await call('pi:snapshot')
+            const results = snapshot.messages.filter(message => message.role === 'toolResult')
+            const result = results.at(-1)
+            if (!snapshot.state.isStreaming && results.length > before) {
+              if (result.toolName !== 'packaged_devkit_app_time' || result.isError !== false)
+                throw new Error(JSON.stringify(result))
+              return JSON.stringify(result.content)
+            }
+            await new Promise(resolve => setTimeout(resolve, 50))
+          }
+          throw new Error('打包插件未完成受限时间工具调用：' + prompt)
+        }
+        const time = await readTime('验证插件安装')
+        const reloaded = await call('plugins:reload', [installed.id])
+        const reloadedTime = await readTime('验证插件重载')
+        return {installed, reloaded, time, reloadedTime}
+      })()`)) as { installed: UiPluginDescriptor; reloaded: UiPluginDescriptor; time: string; reloadedTime: string }
       assert.equal(app.installed.id, 'packaged-devkit-app')
       assert.equal(app.installed.status, 'active')
-      assert.match(app.time, /^\d{4}-\d{2}-\d{2}T/)
-      assert.match(app.reloadedTime, /^\d{4}-\d{2}-\d{2}T/)
+      assert.deepEqual(app.installed.grant?.trusted, { ui: false, server: false, agent: false })
+      assert.equal(app.reloaded.status, 'active')
+      assert.ok(app.reloaded.generation > app.installed.generation)
+      assert.deepEqual(app.reloaded.grant?.trusted, { ui: false, server: false, agent: false })
+      assert.deepEqual([...pluginCalls], ['验证插件安装', '验证插件重载'])
+      assert.match(app.time, /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)
+      assert.match(app.reloadedTime, /\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/)
       const legacy = (await evaluate(`(async () => {
         const call = async input => {
           const response = await fetch('/api/rpc', {method:'POST', headers:{'Content-Type':'application/json'},
@@ -354,10 +409,10 @@ async function runPackagedSmoke(mode: 'local' | 'recovery' | 'remote' | 'fresh',
     }
     assert.equal(await evaluate('typeof window.piDesktop'), 'undefined', '打包页面不提供业务 IPC Bridge')
     if (mode === 'fresh') {
-      const auth = JSON.parse(await readFile(path.join(dataRoot, 'auth.json'), 'utf8'))
+      const auth = JSON.parse(await readFile(authFile, 'utf8'))
       assert.deepEqual(Object.keys(auth), ['host:token'])
       const source = fileURLToPath(new URL('../../../pi/skills/skill-creator', import.meta.url))
-      const installed = path.join(dataRoot, 'builtin-resources/skills/skill-creator')
+      const installed = path.join(dataRoot, storageLayoutRelativePaths.builtinSkillsDirectory, 'skill-creator')
       for (const entry of await readdir(source, { recursive: true, withFileTypes: true })) {
         if (!entry.isFile()) continue
         const relative = path.relative(source, path.join(entry.parentPath, entry.name))
@@ -475,7 +530,7 @@ test(
     const root = await mkdtemp(path.join(tmpdir(), 'pi-meme-package-fresh-'))
     try {
       await runPackagedSmoke('fresh', root)
-      const file = path.join(root, 'userData', 'auth.json')
+      const file = path.join(root, 'userData', storageLayoutRelativePaths.authFile)
       const before = await readFile(file, 'utf8')
       await runPackagedSmoke('fresh', root)
       assert.equal(await readFile(file, 'utf8'), before)

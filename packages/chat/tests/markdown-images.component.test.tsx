@@ -1,5 +1,5 @@
 import '@testing-library/jest-dom/vitest'
-import { afterEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { FilePreview } from '@pi-meme/contracts/app-host'
@@ -17,6 +17,15 @@ const dataUrl = 'data:image/png;base64,YWJj'
 function preview(data = dataUrl): FilePreview {
   return { kind: 'image', relativePath: 'out/sidebar.png', dataUrl: data, size: 3 }
 }
+beforeEach(() => {
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  )
+})
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
@@ -259,13 +268,6 @@ test('文件接口返回文本时不作为图片展示', async () => {
 })
 
 test('Conversation 注入自己的读取器，未绑定的只读会话不继承外层主会话的文件作用域', async () => {
-  vi.stubGlobal(
-    'ResizeObserver',
-    class {
-      observe() {}
-      disconnect() {}
-    },
-  )
   const loadImage = vi.fn(async () => preview())
   const conversation = (bound: boolean) => (
     <TooltipProvider>
