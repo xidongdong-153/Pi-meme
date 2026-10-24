@@ -6,6 +6,8 @@ import type {
   DesktopSettings,
   SettingsSnapshot,
   SubagentCatalogSnapshot,
+  SubagentDefaults,
+  SubagentDefaultsPatch,
   Theme,
 } from '@pi-meme/contracts/settings'
 import { AppearanceSaver } from './appearance-save'
@@ -32,6 +34,7 @@ export function useSettings(
     | 'openThemesDirectory'
     | 'saveSettings'
     | 'saveEditorSettings'
+    | 'saveSubagentDefaults'
     | 'saveAppearance'
     | 'getInstalledFonts'
     | 'importTheme'
@@ -45,6 +48,11 @@ export function useSettings(
   const [subagents, setSubagents] = useState<SubagentCatalogSnapshot | null>(null)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  const [subagentPending, setSubagentPending] = useState<SubagentDefaultsPatch>({})
+  const [subagentStatus, setSubagentStatus] = useState<Partial<Record<keyof SubagentDefaults, string>>>({})
+  const [subagentFailed, setSubagentFailed] = useState<SubagentDefaultsPatch>({})
+  const subagentWrites = useRef(Promise.resolve())
+  const subagentLocks = useRef(new Set<keyof SubagentDefaults>())
   const appearanceRevision = useRef(0)
   const confirmed = useRef<SettingsSnapshot | null>(null)
   const [editorSettings, setEditorSettings] = useState<EditorSettings | null>(null)
@@ -58,6 +66,46 @@ export function useSettings(
   const lock = useRef(false)
   const bridgeRef = useRef(bridge)
   bridgeRef.current = bridge
+  function saveSubagentDefaults(patch: SubagentDefaultsPatch) {
+    if (!enabled || !snapshot) return
+    const field = Object.keys(patch)[0] as keyof SubagentDefaults
+    if (!field || subagentLocks.current.has(field)) return
+    subagentLocks.current.add(field)
+    const targetBridge = bridgeRef.current
+    setSubagentPending((previous) => ({ ...previous, ...patch }))
+    setSubagentStatus((previous) => ({ ...previous, [field]: '正在保存…' }))
+    subagentWrites.current = subagentWrites.current.then(async () => {
+      try {
+        const defaults = await targetBridge.saveSubagentDefaults(patch)
+        if (targetBridge !== bridgeRef.current) return
+        if (confirmed.current)
+          confirmed.current = {
+            ...confirmed.current,
+            settings: { ...confirmed.current.settings, subagentDefaults: defaults },
+          }
+        setSnapshot((previous) =>
+          previous ? { ...previous, settings: { ...previous.settings, subagentDefaults: defaults } } : previous,
+        )
+        setSubagentStatus((previous) => ({ ...previous, [field]: '已保存' }))
+        setSubagentFailed((previous) => {
+          const next = { ...previous }
+          delete next[field]
+          return next
+        })
+      } catch (cause) {
+        if (targetBridge !== bridgeRef.current) return
+        setSubagentStatus((previous) => ({ ...previous, [field]: `保存失败：${String(cause)}` }))
+        setSubagentFailed((previous) => ({ ...previous, ...patch }))
+      } finally {
+        subagentLocks.current.delete(field)
+        setSubagentPending((previous) => {
+          const next = { ...previous }
+          delete next[field]
+          return next
+        })
+      }
+    })
+  }
   const accept = useCallback(
     (next: SettingsSnapshot) => {
       confirmed.current = next
@@ -266,6 +314,16 @@ export function useSettings(
         themeId: snapshot?.settings.themeId ?? 'dark',
         ...value,
       }),
+    subagentDefaults: {
+      model: null,
+      thinkingLevel: null,
+      ...snapshot?.settings.subagentDefaults,
+      ...subagentPending,
+    } as SubagentDefaults,
+    subagentPending,
+    subagentStatus,
+    subagentFailed,
+    saveSubagentDefaults,
     saveSubagents: async (subagentsEnabled: boolean, enabledSubagents: string[]) => {
       const next = await saveRuntime({
         ...snapshot?.settings,

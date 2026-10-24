@@ -5,6 +5,7 @@ import type { ReactNode } from 'react'
 import { BentoSkeletonCard } from '@pi-meme/ui/components/bento-skeleton'
 import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 import { SettingsSkeleton } from '../src/settings/settings-skeleton'
+import { SubagentDefaultsSettings } from '@pi-meme/subagents/ui/subagent-defaults-settings'
 import { SettingsPage } from '../src/settings/settings-page'
 
 afterEach(cleanup)
@@ -153,4 +154,53 @@ test('保存指令期间禁用共用顶栏返回和分类导航', () => {
   fireEvent.click(models)
   expect(onDismiss).not.toHaveBeenCalled()
   expect(screen.getByText('general正文')).toBeInTheDocument()
+})
+
+test('Agent 设置导航可进入子代理页面', () => {
+  render(
+    <SettingsPage
+      renderContent={(section) => <p>{section}正文</p>}
+      dirty={false}
+      saving={false}
+      onDiscard={vi.fn()}
+      onDismiss={vi.fn()}
+    />,
+  )
+  fireEvent.click(screen.getByRole('button', { name: '子代理' }))
+  expect(screen.getByText('subagents正文')).toBeInTheDocument()
+  expect(screen.getByRole('button', { name: '子代理' })).toHaveAttribute('aria-current', 'page')
+})
+
+test('子代理模型选择提交标识，恢复继承提交 null，保存仅禁用对应字段', () => {
+  const onSave = vi.fn()
+  const props = {
+    models: [{ provider: 'test', id: 'selected', name: '测试模型', reasoning: true }],
+    value: { model: null, thinkingLevel: null },
+    loading: false,
+    connected: true,
+    pending: {},
+    status: {},
+    failed: {},
+    onSave,
+    onModels: vi.fn(),
+  }
+  const view = render(<SubagentDefaultsSettings {...props} />)
+  fireEvent.keyDown(screen.getByRole('combobox', { name: '默认模型' }), { key: 'ArrowDown' })
+  fireEvent.click(screen.getByRole('option', { name: 'test / 测试模型' }))
+  expect(onSave).toHaveBeenLastCalledWith({ model: { provider: 'test', id: 'selected' } })
+  view.rerender(
+    <TooltipProvider>
+      <SubagentDefaultsSettings {...props} value={{ model: props.models[0], thinkingLevel: null }} />
+    </TooltipProvider>,
+  )
+  fireEvent.keyDown(screen.getByRole('combobox', { name: '默认模型' }), { key: 'ArrowDown' })
+  fireEvent.click(screen.getByRole('option', { name: '继承主会话' }))
+  expect(onSave).toHaveBeenLastCalledWith({ model: null })
+  view.rerender(
+    <TooltipProvider>
+      <SubagentDefaultsSettings {...props} pending={{ thinkingLevel: 'low' }} />
+    </TooltipProvider>,
+  )
+  expect(screen.getByRole('combobox', { name: '默认思考强度' })).toBeDisabled()
+  expect(screen.getByRole('combobox', { name: '默认模型' })).toBeEnabled()
 })

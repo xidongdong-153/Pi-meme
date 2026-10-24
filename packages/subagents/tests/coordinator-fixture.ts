@@ -28,6 +28,7 @@ function fakeSession(
 ) {
   const sessionId = randomUUID()
   const state: Snapshot['state'] = {
+    model: { provider: 'fake', id: 'fixture' },
     mode: 'default',
     isStreaming: false,
     isCompacting: false,
@@ -146,13 +147,17 @@ function fakeSession(
   return { session, finish, reply, prompts, delivered, continuations, state, models, faults, notify, pauses }
 }
 
-async function setup(assertCheckoutAvailable?: (cwd: string) => void) {
+async function setup(
+  assertCheckoutAvailable?: (cwd: string) => void,
+  defaults?: () => import('@pi-meme/contracts/settings').SubagentDefaults | undefined,
+) {
   const directory = await mkdtemp(path.join(tmpdir(), 'pi-collaboration-'))
   const children = new Map<string, ReturnType<typeof fakeSession>>()
   const events: DesktopEvent[] = []
   const creationFaults: { snapshotGate?: Promise<void> } = {}
   const bridge = createHostCollaborationBridge({
     assertCheckoutAvailable,
+    getSubagentDefaults: defaults,
     dataRoot: directory,
     createSession: (cwd, notify, key) => {
       const fake = fakeSession(cwd, notify, (session, report) =>
@@ -217,6 +222,31 @@ async function setup(assertCheckoutAvailable?: (cwd: string) => void) {
   }
   const spawn = async (name: string, session = root.session) =>
     (await call(session, 'spawn_agent', { task_name: name, message: '子任务', fork_turns: 'none' })) as AgentSummary
+  // 构造旧版本已存在的多层运行记录，仅用于历史兼容验证；新建入口始终执行单层检查。
+  const spawnLegacy = async (name: string, parentSession: RuntimeSdkSession) => {
+    const parent = [...(await bridge.getAgents('root-key'))].find(
+      (entry) => children.get(entry.sessionKey)?.session === parentSession,
+    )!
+    const child = await spawn(`legacy_${name}`)
+    const records = (
+      bridge as unknown as {
+        records: Map<
+          string,
+          { summary: AgentSummary; delegation?: import('@pi-meme/contracts/collaboration').AgentRunRef[] }
+        >
+      }
+    ).records
+    const record = records.get(child.agentId)!
+    record.summary.name = name
+    record.summary.parentAgentId = parent.agentId
+    record.summary.depth = parent.depth + 1
+    record.summary.taskPath = `${parent.taskPath}/${name}`
+    record.delegation = [
+      { agentId: parent.agentId, rootTaskId: parent.rootTaskId, epoch: parent.epoch, runId: parent.runId! },
+      ...(record.delegation ?? []),
+    ]
+    return { ...record.summary }
+  }
   const until = async (predicate: () => Promise<boolean>) => {
     const deadline = Date.now() + 2000
     while (Date.now() < deadline) {
@@ -239,6 +269,7 @@ async function setup(assertCheckoutAvailable?: (cwd: string) => void) {
     begin,
     call,
     spawn,
+    spawnLegacy,
     until,
     cleanup: async () => {
       await bridge.stopAndWait()

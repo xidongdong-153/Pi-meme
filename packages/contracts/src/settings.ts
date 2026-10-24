@@ -1,3 +1,4 @@
+import type { PiModel, ThinkingLevel } from './pi'
 import type { AgentAccessMode } from './agent-access'
 import type { ProjectApp } from './desktop'
 
@@ -82,7 +83,14 @@ export type SidebarPreferencesPatch = {
   orders?: SidebarPreferences['orders']
 }
 
+export type SubagentDefaults = {
+  model: Pick<PiModel, 'provider' | 'id'> | null
+  thinkingLevel: ThinkingLevel | null
+}
+export type SubagentDefaultsPatch = Partial<SubagentDefaults>
+
 export type DesktopSettings = {
+  subagentDefaults?: SubagentDefaults
   defaultAgentPlugins?: string[]
   sidebar?: SidebarPreferences
   codemodeEnabled?: boolean

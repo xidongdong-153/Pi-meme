@@ -122,7 +122,7 @@ Desktop 和 Web 将文字草稿、已选技能引用和队列模式保存到当�
 | `wait_agent`      | 等待并读取消息与结果；结果写入 Pi JSONL 后确认已读                   |
 | `finish_agent`    | 子代理确认整个委派任务完成后提交最终报告；回复结束后向委派方交付结果 |
 
-工具参数见 [Agent 入口](../packages/subagents/src/agent/entry.ts) 和 [协作契约](../packages/contracts/src/collaboration.ts)。当前上限为 4 个活动子 Agent、两层后代、16 个子身份；等待子任务仍占活动容量。旧角色定义与启用字段保留兼容，不是使用协作工具的前提。
+工具参数见 [Agent 入口](../packages/subagents/src/agent/entry.ts) 和 [协作契约](../packages/contracts/src/collaboration.ts)。当前上限为 4 个活动子 Agent、仅一层子代理、16 个子身份；等待子任务仍占活动容量。旧角色定义与启用字段保留兼容，不是使用协作工具的前提。
 
 同一任务内使用 `send_message` 反馈、`wait_agent` 等待，收到消息后继续执行；多轮协作保留原 task、runId 和原生会话。普通回复只结束本次模型输出，子任务继续等待反馈；未主动向委派方发送的阶段正文会自动反馈一次。只有调用 `finish_agent` 且本次回复结束，才标记任务完成并提交最终结果。需要验收的任务先等待确认；仍有未读反馈或活动下级任务时拒绝完成。`followup_task` 用于派发下一项任务。
 
@@ -130,7 +130,9 @@ Desktop 和 Web 将文字草稿、已选技能引用和队列模式保存到当�
 
 同一条反馈只通过等待结果或普通消息投递接收一次。已经开始普通投递的反馈不再复制到 `wait_agent.messages`，等待结果的 `notifiedBy` 记录发送方；正文随普通消息写入原会话。历史中的等待结果也参与消息去重。
 
-子任务继承父模型、思考等级、访问权限、任务模式、外部 Agent 选择和资源快照。默认 `fork_turns=all` 从最新闭合历史取安全分支，父历史只作为模型背景，委派消息指定当前子任务；`none` 使用新上下文。分支与来源边界见 [safe-session-fork.ts](../packages/pi-runtime/src/safe-session-fork.ts) 和 [agent-conversation.ts](../packages/pi-runtime/src/agent-conversation.ts)。
+在“设置 → Agent → 子代理”配置默认模型和默认思考强度，选择后自动保存到当前 Host。两项独立设置，未配置时继承主会话派发任务时的值；用户明确指定的单次配置优先于默认值。设置仅影响之后新建或续派的任务，运行中及已排队任务保留原配置；发送反馈不会切换模型。指定模型不可用时拒绝派发，不自动回退。只有主会话可以创建和续派一级子代理；旧多层记录保留读取、中断和清理能力，不能续派二级任务。
+
+子任务继承主会话的访问权限、任务模式、外部 Agent 选择和资源快照。默认 `fork_turns=all` 从最新闭合历史取安全分支，父历史只作为模型背景，委派消息指定当前子任务；`none` 使用新上下文。分支与来源边界见 [safe-session-fork.ts](../packages/pi-runtime/src/safe-session-fork.ts) 和 [agent-conversation.ts](../packages/pi-runtime/src/agent-conversation.ts)。
 
 ```mermaid
 sequenceDiagram

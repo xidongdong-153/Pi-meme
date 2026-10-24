@@ -114,3 +114,16 @@ test('存储只读信息不携带界面会话；远程客户端不暴露本机�
     }
   }
 })
+
+test('子代理默认配置使用 Host 级独立补丁接口', async () => {
+  const defaults = { model: null, thinkingLevel: 'low' }
+  const { client, requests } = create(() => defaults)
+  try {
+    assert.deepEqual(await client.bridge.saveSubagentDefaults({ thinkingLevel: 'low' }), defaults)
+    assert.equal(requests[0].method, 'settings:subagent-defaults')
+    assert.deepEqual(requests[0].args, [{ thinkingLevel: 'low' }])
+    assert.equal(requests[0].sessionId, undefined)
+  } finally {
+    client.close()
+  }
+})

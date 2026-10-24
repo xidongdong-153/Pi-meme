@@ -7,6 +7,7 @@
     "./server/catalog": "./src/server/catalog.ts",
     "./server/entry": "./src/server/entry.ts",
     "./agent/entry": "./src/agent/entry.ts",
+    "./ui/subagent-defaults-settings": "./src/ui/subagent-defaults-settings.tsx",
     "./ui/subagents-settings": "./src/ui/subagents-settings.tsx",
     "./server/coordinator": "./src/server/coordinator.ts",
     "./server/collaboration-store": "./src/server/collaboration-store.ts"

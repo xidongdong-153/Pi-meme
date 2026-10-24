@@ -1082,6 +1082,7 @@ export class HostClient {
       getSubagents: () => rpc('settings:subagents'),
       reloadSubagents: () => rpc('settings:reload-subagents'),
       saveSettings: (settings) => settingsRpc('settings:save', [settings]),
+      saveSubagentDefaults: (patch) => rpc('settings:subagent-defaults', [patch], null),
       saveEditorSettings: (settings) => rpc('settings:editor', [settings], null),
       saveSidebarPreferences: (patch) => rpc('settings:sidebar', [patch]),
       saveAppearance: (appearance) => settingsRpc('settings:appearance', [appearance]),

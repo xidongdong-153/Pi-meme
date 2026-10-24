@@ -52,6 +52,7 @@ export function createSettingsHandlers({
       return settings.togglePin(value)
     },
     'settings:appearance': (value: unknown) => settings.saveAppearance(value),
+    'settings:subagent-defaults': (value: unknown) => settings.saveSubagentDefaults(value),
     'settings:editor': (value: unknown) => settings.saveEditorSettings(value),
     'settings:sidebar': (value: unknown) => settings.saveSidebarPreferences(value),
     'settings:fonts': () => getInstalledFonts(),

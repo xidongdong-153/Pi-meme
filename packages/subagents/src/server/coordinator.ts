@@ -1,3 +1,4 @@
+import type { SubagentDefaults } from '@pi-meme/contracts/settings'
 import { validateExtensionDialogResponse } from '@pi-meme/contracts/user-input'
 import { randomUUID } from 'node:crypto'
 import { mkdir, rename, writeFile, rm } from 'node:fs/promises'
@@ -77,6 +78,7 @@ type Record = {
   cleaning?: boolean
 }
 export type HostCollaborationOptions = {
+  getSubagentDefaults?: () => SubagentDefaults | undefined
   dataRoot: string
   collaborationRootsDirectory?: string
   collaborationPlansFile?: string
@@ -886,7 +888,7 @@ export class HostCollaborationBridge {
       const { task_name: name, message, avatar, fork_turns: fork = 'all' } = request.params
       if (!/^[a-z][a-z0-9_]{0,63}$/.test(name) || !message.trim()) throw new Error('子 Agent 名称或任务无效')
       if (avatar !== undefined && !agentAvatarScenes.includes(avatar)) throw new Error('子 Agent 头像场景无效')
-      if (caller.summary.depth >= collaborationLimits.depth) throw new Error('子 Agent 最多嵌套两层')
+      if (caller.summary.depth >= collaborationLimits.depth) throw new Error('仅主会话可以创建子代理，不支持嵌套子代理')
       const policy = await this.policy(caller, request.params)
       assertCurrent()
       this.capacity(caller)
@@ -974,6 +976,7 @@ export class HostCollaborationBridge {
       return { agent: { ...target.summary }, previousStatus }
     }
     if (request.method === 'followup_task') {
+      if (caller.summary.depth !== 0 || target.summary.depth !== 1) throw new Error('仅主会话可以向一级子代理续派任务')
       this.options.assertCheckoutAvailable?.(caller.summary.cwd)
       if (!request.params.message.trim()) throw new Error('任务不能为空')
       const policy = await this.policy(caller, request.params)
@@ -1016,16 +1019,19 @@ export class HostCollaborationBridge {
   }
   private async policy(record: Record, selection: AgentModelSelection): Promise<RunPolicy> {
     const snapshot = await record.session!.snapshot()
-    const level = selection.thinking_level ?? snapshot.state.thinkingLevel
+    const defaults = this.options.getSubagentDefaults?.()
+    const selectedModel = selection.model ?? defaults?.model
+    const level = selection.thinking_level ?? defaults?.thinkingLevel ?? snapshot.state.thinkingLevel
     if (level !== undefined && !(snapshot.thinkingLevels ?? thinkingLevels).includes(level))
       throw new Error(`思考强度不可用：${level}`)
-    const model = selection.model
-      ? snapshot.models.find(
-          (entry) => entry.provider === selection.model!.provider && entry.id === selection.model!.id,
-        )
+    const model = selectedModel
+      ? snapshot.models.find((entry) => entry.provider === selectedModel.provider && entry.id === selectedModel.id)
       : snapshot.state.model
-    if (selection.model && !model)
-      throw new Error(`模型不可用：${selection.model.provider}/${selection.model.id}，请用 list_agent_models 查询`)
+    if (selectedModel && !model)
+      throw new Error(
+        `子代理模型不可用：${selectedModel.provider}/${selectedModel.id}，请前往子代理设置重新选择或恢复继承`,
+      )
+    if (!model) throw new Error('主会话没有可继承的模型，请先选择模型')
     return {
       mode: record.summary.mode,
       accessMode: record.summary.accessMode,

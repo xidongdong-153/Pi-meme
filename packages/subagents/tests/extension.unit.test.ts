@@ -96,7 +96,7 @@ test('协作工具和明确完成工具常驻注册，不依赖旧目录定义�
   assert.equal(schema.required.includes('avatar'), false)
   const taskName = schema.properties.task_name
   assert.match(taskName.description, /snake_case.*responsibility/)
-  assert.match(spawn.description, /4 active or queued.*2 child levels.*16 child identities/)
+  assert.match(spawn.description, /4 active or queued.*1 child level.*16 child identities/)
   assert.doesNotMatch(spawn.description, /target/)
   assert.match(schema.properties.avatar.description, /appearance only/)
   assert.match(schema.properties.fork_turns.description, /all \(default\).*safe, complete history boundary/)
@@ -162,4 +162,25 @@ test('协作工具和明确完成工具常驻注册，不依赖旧目录定义�
   assert.match(finish.description, /New feedback.*cancels completion/)
   await finish.execute('tool-finish', { report: '任务已完成并通过验收' }, undefined, undefined, {} as never)
   assert.deepEqual(requests.at(-1), { method: 'finish_agent', params: { report: '任务已完成并通过验收' } })
+})
+
+test('子代理工具说明声明单层限制和设置页默认值优先级', async () => {
+  const tools: ToolDefinition[] = []
+  const [extension] = create({
+    requestCollaboration: async () => ({ agents: [] }),
+    savePlan: async () => {
+      throw new Error('本测试不保存计划')
+    },
+  })
+  if (!extension || typeof extension === 'function') throw new Error('协作扩展必须包含命名工厂')
+  await extension.factory({
+    on: () => {},
+    registerTool: (tool: ToolDefinition) => tools.push(tool),
+  } as unknown as ExtensionAPI)
+  const spawn = tools.find((tool) => tool.name === 'spawn_agent')!
+  assert.match(spawn.description, /only the root may spawn children/)
+  assert.match(spawn.description, /configured subagent defaults/)
+  const followup = tools.find((tool) => tool.name === 'followup_task')!
+  assert.match(followup.description, /Root only.*first-level child/)
+  assert.match(followup.description, /configured subagent defaults/)
 })

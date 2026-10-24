@@ -181,7 +181,7 @@ test('中间 Agent 失败取消自己的孙代理并保留其他分支', async (
     const parent = await context.spawn('parent')
     const sibling = await context.spawn('sibling')
     const worker = context.children.get(parent.sessionKey)!
-    const grandchild = await context.spawn('grandchild', worker.session)
+    const grandchild = await context.spawnLegacy('grandchild', worker.session)
     worker.notify.event({
       generation: 1,
       event: {
@@ -374,9 +374,7 @@ test('查询可用模型和思考强度，子任务默认继承调用方当前�
     const worker = context.children.get(modelOnly.sessionKey)!
     assert.deepEqual(worker.state.model, selected)
     assert.equal(worker.state.thinkingLevel, 'high')
-    const nested = await context.spawn('nested', worker.session)
-    assert.deepEqual(nested.model, selected)
-    assert.equal(nested.thinkingLevel, 'high')
+    await assert.rejects(context.spawn('nested', worker.session), /不支持嵌套/)
     assert.deepEqual(context.root.state.model, inherited)
     assert.equal(context.root.state.thinkingLevel, 'high')
   } finally {
@@ -766,8 +764,12 @@ test('嵌套同级短名优先当前层，下级同名优先下级，跨层必�
     const outerWorker = await context.spawn('worker')
     const owner = await context.spawn('owner')
     const ownerSession = context.children.get(owner.sessionKey)!.session
-    const worker = await context.spawn('worker', ownerSession)
-    const peer = await context.spawn('peer', ownerSession)
+    const worker = await context.spawnLegacy('worker', ownerSession)
+    const peer = await context.spawnLegacy('peer', ownerSession)
+    await assert.rejects(
+      context.call(context.root.session, 'followup_task', { target: worker.agentId, message: '拒绝旧二级任务续派' }),
+      /一级子代理续派/,
+    )
     const peerSession = context.children.get(peer.sessionKey)!.session
     await context.call(peerSession, 'send_message', { target: 'worker', message: '同级请求' })
     assert.equal(context.children.get(worker.sessionKey)!.delivered.length, 1)
@@ -954,8 +956,7 @@ test('场景头像保存在身份与结果中，续跑保留，后代不继承�
       message: '继续检查',
     })) as CollaborationResults['followup_task']
     assert.equal(followup.agent.avatar, 'security')
-    const nested = await context.spawn('code', childSession.session)
-    assert.equal(nested.avatar, undefined)
+    await assert.rejects(context.spawn('code', childSession.session), /不支持嵌套/)
   } finally {
     await context.cleanup()
   }
@@ -996,7 +997,7 @@ describe('用户插话唤醒父子 Agent 等待，排队输入不唤醒，消费
           await context.begin()
           const parent = childCaller ? await context.spawn('parent') : undefined
           const caller = parent ? context.children.get(parent.sessionKey)! : context.root
-          const target = await context.spawn('worker', caller.session)
+          const target = await context.spawn('worker')
           const callerKey = parent?.sessionKey ?? 'root-key'
           const queue = (submitted: boolean) =>
             caller.notify.event({
@@ -1183,8 +1184,8 @@ test('child先结束轮次，grandchild延迟结果触发同epoch汇总后再交
     await context.begin()
     const child = await context.spawn('parent')
     const childSession = context.children.get(child.sessionKey)!
-    const grandchild = await context.spawn('leaf', childSession.session)
-    await assert.rejects(context.spawn('deep', context.children.get(grandchild.sessionKey)!.session), /嵌套两层/)
+    const grandchild = await context.spawnLegacy('leaf', childSession.session)
+    await assert.rejects(context.spawn('deep', context.children.get(grandchild.sessionKey)!.session), /不支持嵌套/)
     childSession.reply('等待调查')
     await context.until(
       async () =>
@@ -2289,6 +2290,44 @@ test('快速暂停恢复在待启动记录保存期间交错，drainer 不漏掉
     releaseSnapshot?.()
     releasePersist()
     control.persist = persist
+    await context.cleanup()
+  }
+})
+
+test('子代理设置默认值、单次覆盖、排队快照与单层准入', async () => {
+  let defaults: import('@pi-meme/contracts/settings').SubagentDefaults = {
+    model: { provider: 'test', id: 'default' },
+    thinkingLevel: 'low',
+  }
+  const context = await setup(undefined, () => defaults)
+  try {
+    const configured = { provider: 'test', id: 'default', name: '配置模型' }
+    const explicit = { provider: 'test', id: 'explicit', name: '单次模型' }
+    context.root.models.push(configured, explicit)
+    context.root.state.thinkingLevel = 'high'
+    await context.begin()
+    const child = await context.spawn('worker')
+    assert.deepEqual(child.model, configured)
+    assert.equal(child.thinkingLevel, 'low')
+    const worker = context.children.get(child.sessionKey)!
+    await assert.rejects(context.spawn('nested', worker.session), /不支持嵌套/)
+    assert.equal((await context.bridge.getAgents('root-key')).length, 2)
+    const queued = (await context.call(context.root.session, 'followup_task', {
+      target: child.agentId,
+      message: '下一项',
+      model: explicit,
+      thinking_level: 'off',
+    })) as CollaborationResults['followup_task']
+    assert.equal(queued.queued, true)
+    defaults = { model: null, thinkingLevel: null }
+    assert.deepEqual(worker.state.model, configured)
+    await worker.finish('完成当前任务')
+    await context.until(async () => worker.state.model?.id === explicit.id)
+    assert.equal(worker.state.thinkingLevel, 'off')
+    defaults = { model: { provider: 'missing', id: 'missing' }, thinkingLevel: null }
+    await assert.rejects(context.spawn('invalid'), /子代理模型不可用/)
+    assert.equal((await context.bridge.getAgents('root-key')).length, 2)
+  } finally {
     await context.cleanup()
   }
 })

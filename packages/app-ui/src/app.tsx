@@ -100,6 +100,11 @@ const ModelConfigSettings = lazy(() =>
     default: module.ModelConfigSettings,
   })),
 )
+const SubagentDefaultsSettings = lazy(() =>
+  import('@pi-meme/subagents/ui/subagent-defaults-settings').then((module) => ({
+    default: module.SubagentDefaultsSettings,
+  })),
+)
 const McpSettings = lazy(() =>
   import('@pi-meme/mcp/ui/mcp-settings').then((module) => ({ default: module.McpSettings })),
 )
@@ -1670,7 +1675,7 @@ export function App({
                   onAccount={() => navigate('account')}
                 />
               )}
-              renderContent={(section) => {
+              renderContent={(section, navigate) => {
                 if (section === 'shortcuts') return <ShortcutSettings />
                 const contentProps: Omit<ComponentProps<typeof SettingsContent>, 'section'> = {
                   bridge,
@@ -1796,6 +1801,20 @@ export function App({
                             onOpenDirectory: () => void appearance.openDirectory(),
                           }
                         : {})}
+                    />
+                  )
+                if (section === 'subagents')
+                  return (
+                    <SubagentDefaultsSettings
+                      models={chat.models}
+                      value={settings.subagentDefaults}
+                      loading={!settings.snapshot}
+                      connected={!remoteOffline}
+                      pending={settings.subagentPending}
+                      status={settings.subagentStatus}
+                      failed={settings.subagentFailed}
+                      onSave={settings.saveSubagentDefaults}
+                      onModels={() => navigate('models')}
                     />
                   )
                 if (section === 'models')

@@ -3,7 +3,7 @@ import type { Snapshot } from './desktop'
 import type { PiExtensionDialogRequest, PiModel, ThinkingLevel } from './pi'
 import type { TaskMode } from './plan'
 
-export const collaborationLimits = { activeChildren: 4, depth: 2, identities: 16 } as const
+export const collaborationLimits = { activeChildren: 4, depth: 1, identities: 16 } as const
 /** 顺序对应子代理头像资源；已有场景保留位置，新场景只追加。 */
 export const agentAvatarScenes = [
   'general',

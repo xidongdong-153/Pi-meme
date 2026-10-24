@@ -617,6 +617,7 @@ export async function createHost(options: HostOptions = {}) {
     )
     pi.configureCheckoutGate(assertCheckoutAvailable)
     collaboration = createHostCollaborationBridge({
+      getSubagentDefaults: () => settings.snapshot().settings.subagentDefaults,
       dataRoot: root,
       collaborationRootsDirectory: storagePaths.collaborationRootsDirectory,
       collaborationPlansFile: storagePaths.collaborationPlansFile,

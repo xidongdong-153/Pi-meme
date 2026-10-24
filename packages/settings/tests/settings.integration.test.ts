@@ -372,3 +372,42 @@ test('全新设置常驻内置能力，旧MCP关闭选择在加载和保存后�
     await rm(directory, { recursive: true, force: true })
   }
 })
+
+test('子代理默认配置持久化、逐项清除且其他设置写入不覆盖新值', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pi-subagent-defaults-'))
+  try {
+    const store = new SettingsStore(directory)
+    await store.load()
+    assert.equal(store.settings.subagentDefaults, undefined)
+    const stale = store.snapshot().settings
+    await Promise.all([
+      store.saveSubagentDefaults({ model: { provider: 'test', id: 'model' } }),
+      store.saveSubagentDefaults({ thinkingLevel: 'off' }),
+    ])
+    await store.save(stale)
+    const restarted = new SettingsStore(directory)
+    assert.deepEqual((await restarted.load()).settings.subagentDefaults, {
+      model: { provider: 'test', id: 'model' },
+      thinkingLevel: 'off',
+    })
+    await restarted.saveSubagentDefaults({ model: null })
+    assert.deepEqual(restarted.settings.subagentDefaults, { model: null, thinkingLevel: 'off' })
+    for (const invalid of [{ model: { provider: '', id: 'x' } }, { thinkingLevel: 'invalid' }, { extra: true }])
+      await assert.rejects(restarted.saveSubagentDefaults(invalid))
+    assert.deepEqual(await restarted.saveSubagentDefaults({ thinkingLevel: null }), {
+      model: null,
+      thinkingLevel: null,
+    })
+    const handlers = createSettingsHandlers({
+      settings: restarted,
+      pi: {
+        idle: () => {
+          throw new Error('不能等待运行时空闲')
+        },
+      } as never,
+    })
+    assert.equal((await handlers['settings:subagent-defaults']({ thinkingLevel: 'high' })).thinkingLevel, 'high')
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})

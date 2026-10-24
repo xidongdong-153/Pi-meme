@@ -326,6 +326,17 @@ export function SettingsSkeleton({ section }: { section: SettingsSection }) {
       return <ProfileSkeleton />
     case 'models':
       return <ModelsSkeleton />
+    case 'subagents':
+      return (
+        <div className="space-y-4">
+          {[0, 1].map((key) => (
+            <BentoSkeletonCard key={key} delay={key * 80}>
+              <BentoSkeletonBar className="w-28" />
+              <BentoSkeletonBar className="mt-3 w-60" />
+            </BentoSkeletonCard>
+          ))}
+        </div>
+      )
     case 'instructions':
       return <InstructionsSkeleton />
     case 'skills':

@@ -13,6 +13,7 @@ import {
   Settings,
   Sparkles,
   User,
+  Users,
 } from 'lucide-react'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Input } from '@pi-meme/ui/components/ui/input'
@@ -52,6 +53,7 @@ const groups = [
     label: 'Agent',
     sections: [
       { id: 'models', label: '模型', icon: Sparkles, description: '连接服务商并选择默认模型。' },
+      { id: 'subagents', label: '子代理', icon: Users, description: '设置子代理默认使用的模型和思考强度。' },
       { id: 'instructions', label: '指令', icon: ScrollText, description: '编辑用户指令和系统提示词。' },
       { id: 'skills', label: '技能', icon: BookOpen, description: '导入、创建和编辑技能，设置设备或项目的调用方式。' },
       { id: 'plugins', label: '插件', icon: Puzzle, description: '安装和更新 App 插件，查看能力并启停或卸载。' },

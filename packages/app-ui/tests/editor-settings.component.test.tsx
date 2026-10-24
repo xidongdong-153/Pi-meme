@@ -49,9 +49,15 @@ function setup(busy = false) {
     saveInstruction: vi.fn(async () => ({ snapshot: { cwd: '/test/project', entries: [] } })),
     reconnectModels: vi.fn(async () => {}),
   }
+  const saveSubagentDefaults = vi.fn(async (patch: import('@pi-meme/contracts/settings').SubagentDefaultsPatch) => {
+    const defaults = { model: null, thinkingLevel: null, ...stored.settings.subagentDefaults, ...patch }
+    stored = snapshot({ ...stored.settings, subagentDefaults: defaults })
+    return defaults
+  })
+  const settingsBridge = { ...bridge, saveSubagentDefaults }
   let current!: ReturnType<typeof useSettings>
   function Harness() {
-    const settings = useSettings(bridge, true, false, false)
+    const settings = useSettings(settingsBridge, true, false, false)
     current = settings
     return (
       <SettingsPage
@@ -78,7 +84,7 @@ function setup(busy = false) {
     )
   }
   render(<Harness />)
-  return { bridge, settings: () => current }
+  return { bridge: settingsBridge, settings: () => current }
 }
 
 async function switches() {
@@ -193,4 +199,23 @@ test('连接恢复后成功刷新设置，清除之前的连接错误并应用�
 test('权限设置保存时不在说明中插入正在保存提示', () => {
   render(<AccessSettings supported busy={false} saving onSave={vi.fn()} />)
   expect(screen.queryByText(/正在保存/)).not.toBeInTheDocument()
+})
+
+test('子代理默认配置逐项保存、失败回退并可重试，运行中也可修改', async () => {
+  const context = setup(true)
+  await switches()
+  context.bridge.saveSubagentDefaults.mockRejectedValueOnce(new Error('写入失败'))
+  act(() => context.settings().saveSubagentDefaults({ thinkingLevel: 'low' }))
+  await waitFor(() => expect(context.settings().subagentStatus.thinkingLevel).toContain('写入失败'))
+  expect(context.settings().subagentDefaults.thinkingLevel).toBeNull()
+  act(() => {
+    context.settings().saveSubagentDefaults({ thinkingLevel: 'low' })
+    context.settings().saveSubagentDefaults({ model: { provider: 'test', id: 'selected' } })
+  })
+  await waitFor(() => expect(context.settings().subagentPending).toEqual({}))
+  expect(context.settings().subagentDefaults).toEqual({
+    model: { provider: 'test', id: 'selected' },
+    thinkingLevel: 'low',
+  })
+  expect(context.bridge.saveSettings).not.toHaveBeenCalled()
 })

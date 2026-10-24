@@ -1,8 +1,15 @@
+import { thinkingLevels } from '@pi-meme/contracts/pi'
 import { mkdir, readFile, readdir, writeFile, rename } from 'node:fs/promises'
 import path from 'node:path'
 import { isAgentAccessMode } from '@pi-meme/contracts/agent-access'
 import { projectAppIds } from '@pi-meme/contracts/desktop'
-import type { AppearanceSettings, DesktopSettings, SettingsSnapshot, Theme } from '@pi-meme/contracts/settings'
+import type {
+  AppearanceSettings,
+  DesktopSettings,
+  SettingsSnapshot,
+  SubagentDefaults,
+  Theme,
+} from '@pi-meme/contracts/settings'
 import { defaultAppearance, migrateAppearance, selectAppearanceTheme, validateAppearance } from '../shared/appearance'
 import { builtinThemes, parseTheme } from '../shared/themes'
 import { defaultSidebarPreferences, parseSidebarPreferencesPatch, validateSidebarPreferences } from '../shared/sidebar'
@@ -17,6 +24,37 @@ function normalizeEnabledSubagents(value: unknown): string[] {
   )
     throw new Error('子 Agent 启用列表无效')
   return [...new Set(value as string[])].sort()
+}
+
+function parseSubagentDefaults(value: unknown, partial = false): Partial<SubagentDefaults> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('子代理默认设置无效')
+  const input = value as Record<string, unknown>
+  if (Object.keys(input).some((key) => key !== 'model' && key !== 'thinkingLevel'))
+    throw new Error('子代理默认设置包含未知字段')
+  const result: Partial<SubagentDefaults> = {}
+  if ('model' in input) {
+    const model = input.model as Record<string, unknown> | null
+    if (
+      model !== null &&
+      (!model ||
+        typeof model !== 'object' ||
+        Array.isArray(model) ||
+        Object.keys(model).some((key) => key !== 'provider' && key !== 'id') ||
+        typeof model.provider !== 'string' ||
+        !model.provider.trim() ||
+        typeof model.id !== 'string' ||
+        !model.id.trim())
+    )
+      throw new Error('子代理默认模型无效')
+    result.model =
+      model === null ? null : { provider: (model.provider as string).trim(), id: (model.id as string).trim() }
+  } else if (!partial) result.model = null
+  if ('thinkingLevel' in input) {
+    if (input.thinkingLevel !== null && !thinkingLevels.includes(input.thinkingLevel as never))
+      throw new Error('子代理默认思考强度无效')
+    result.thinkingLevel = input.thinkingLevel as SubagentDefaults['thinkingLevel']
+  } else if (!partial) result.thinkingLevel = null
+  return result
 }
 
 export class SettingsStore {
@@ -176,6 +214,7 @@ export class SettingsStore {
       if (settings[key] !== undefined && typeof settings[key] !== 'boolean')
         throw new Error('编辑器显示开关必须是布尔值')
     }
+    if (settings.subagentDefaults !== undefined) parseSubagentDefaults(settings.subagentDefaults)
     if (settings.enabledSubagents !== undefined) normalizeEnabledSubagents(settings.enabledSubagents)
     if (settings.appearance !== undefined) validateAppearance(settings.appearance)
     if (settings.sidebar !== undefined) validateSidebarPreferences(settings.sidebar)
@@ -191,6 +230,20 @@ export class SettingsStore {
 
   save(value: unknown) {
     return this.enqueue(() => this.saveNow(value))
+  }
+
+  saveSubagentDefaults(value: unknown) {
+    return this.enqueue(async () => {
+      const patch = parseSubagentDefaults(value, true)
+      const defaults: SubagentDefaults = {
+        model: null,
+        thinkingLevel: null,
+        ...this.settings.subagentDefaults,
+        ...patch,
+      }
+      await this.saveNow({ ...this.settings, subagentDefaults: defaults }, false, false, true)
+      return structuredClone(defaults)
+    })
   }
 
   saveEditorSettings(value: unknown) {
@@ -261,7 +314,7 @@ export class SettingsStore {
     await writeFile(filename, `${JSON.stringify(theme, null, 2)}\n`, 'utf8')
   }
 
-  private async saveNow(value: unknown, appearanceOnly = false, sidebarOnly = false) {
+  private async saveNow(value: unknown, appearanceOnly = false, sidebarOnly = false, subagentsOnly = false) {
     this.validateSettings(value)
     if (!this.themes.some((theme) => theme.id === value.themeId)) throw new Error('主题不存在，请重新加载主题列表')
     let appearance = appearanceOnly ? value.appearance : this.settings.appearance
@@ -273,6 +326,7 @@ export class SettingsStore {
       }
     }
     const next: DesktopSettings = {
+      subagentDefaults: subagentsOnly ? value.subagentDefaults : this.settings.subagentDefaults,
       defaultAgentPlugins: [...new Set(value.defaultAgentPlugins ?? this.settings.defaultAgentPlugins ?? [])],
       sidebar: sidebarOnly ? value.sidebar : (this.settings.sidebar ?? defaultSidebarPreferences()),
       appearance,

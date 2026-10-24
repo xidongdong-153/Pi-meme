@@ -68,6 +68,8 @@ import type {
   SidebarPreferences,
   SidebarPreferencesPatch,
   SubagentCatalogSnapshot,
+  SubagentDefaults,
+  SubagentDefaultsPatch,
   Theme,
 } from './settings'
 
@@ -353,6 +355,7 @@ export interface SettingsBridge {
   getSubagents: () => Promise<SubagentCatalogSnapshot>
   reloadSubagents: () => Promise<SubagentCatalogSnapshot>
   saveSettings: (settings: DesktopSettings) => Promise<SettingsSnapshot>
+  saveSubagentDefaults: (patch: SubagentDefaultsPatch) => Promise<SubagentDefaults>
   saveEditorSettings: (
     settings: Pick<DesktopSettings, 'showComposerHint' | 'showContextUsage'>,
   ) => Promise<SettingsSnapshot>
