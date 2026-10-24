@@ -120,7 +120,7 @@ Agent 项目服务由 [activities](../packages/activities/src/server/service.ts)
 
 [设置导航](../packages/app-ui/src/settings/settings-page.tsx) 分三组：个人包含常规、外观、用量；Agent 包含模型、指令、技能、插件、MCP；系统包含远程、关于。常规只设置新会话默认权限。指令页编辑 Host 的用户指令与系统提示词。技能与插件是独立页面，没有共享资源页。[技能页](../packages/app-ui/src/settings/skill-page.tsx)和[插件页](../packages/app-ui/src/settings/plugin-page.tsx)各自在“个人 / 系统”间切换。创建技能或插件会把对应系统技能插入当前对话。
 
-首页聊天保留置顶、项目、最近列表。插件可新增自己的活动栏入口、分组菜单与中央业务页；返回首页恢复原聊天，切页不终止任务、PTY 或项目服务。页面路由捕获同 Host 目标，不修改后台聊天选择；仅当前插件页挂载。工具面板位置仍只允许 `right`，在当前聊天右侧栏打开可关闭标签页；标签和宽度按 Host、会话保存。活动工具仅在当前会话存在受管服务时出现在工具目录；停止最后一个服务后，已经打开的标签保留结果，关闭、切换或刷新后不恢复空标签。关闭标签不会停止服务。六类 render 槽为 `composer`、`composer-actions`、`tool-card`、`message`、`status`、`settings`；四类消息统一动作使用 `messageActions.register`。输入框 API 复用唯一草稿与提交守卫，发送前处理逐项授权；响应式投影直接订阅 ChatStream，元数据与正文分开订阅。
+首页聊天保留置顶、项目、最近列表。插件可新增自己的活动栏入口、分组菜单与中央业务页；返回首页恢复原聊天，切页不终止任务、PTY 或项目服务。页面路由捕获同 Host 目标，不修改后台聊天选择；仅当前插件页挂载。工具面板位置仍只允许 `right`，分栏模式在当前聊天右侧打开可关闭标签页；完整视图由应用将当前会话与工具合并为顶栏标签，工具独占内容区，聊天保持挂载；标签和宽度按 Host、会话保存。活动工具仅在当前会话存在受管服务时出现在工具目录；停止最后一个服务后，已经打开的标签保留结果，关闭、切换或刷新后不恢复空标签。关闭标签不会停止服务。六类 render 槽为 `composer`、`composer-actions`、`tool-card`、`message`、`status`、`settings`；四类消息统一动作使用 `messageActions.register`。输入框 API 复用唯一草稿与提交守卫，发送前处理逐项授权；响应式投影直接订阅 ChatStream，元数据与正文分开订阅。
 
 源码见 [workspace-panels.tsx](../packages/app-ui/src/layout/workspace-panels.tsx)、[plugin-workspace-page.tsx](../packages/app-ui/src/layout/plugin-workspace-page.tsx)、[use-app-navigation.ts](../packages/app-ui/src/layout/use-app-navigation.ts)、[UI 契约](../packages/plugin-sdk/src/ui.ts)。插件不能替换内置导航、管理页面或聊天实现。
 

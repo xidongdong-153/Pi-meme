@@ -1360,10 +1360,6 @@ export function App({
             }
           : undefined,
       searchSessions: chatShortcutsAvailable ? (serviceUI?.onSearch ?? (() => setSessionSearchOpen(true))) : undefined,
-      focusComposer:
-        chatShortcutsAvailable && !chat.inputDisabled && !chat.editing
-          ? () => chat.composerStore.editor?.focus()
-          : undefined,
       pauseTask:
         chatShortcutsAvailable &&
         chat.chat.running &&
@@ -1409,6 +1405,10 @@ export function App({
         >
           <div className={!chatVisible ? 'hidden' : 'flex flex-1 min-h-0 flex-col'} inert={!chatVisible}>
             <WorkspacePanels
+              sessionTitle={title}
+              onFocusComposer={
+                !chat.inputDisabled && !chat.editing ? () => chat.composerStore.editor?.focus() : undefined
+              }
               shortcutEnabled={chatShortcutsAvailable}
               onShortcutHelp={openShortcutHelp}
               profile={userProfile.profile}
@@ -1445,7 +1445,7 @@ export function App({
               onPlugins={() => navigation.open({ kind: 'customization' })}
               pluginNavigation={pluginNavigation}
               onPlugin={openPlugin}
-              header={(toggleSidebar) => (
+              header={(toggleSidebar, workspaceTabs) => (
                 <SidebarMenus
                   bridge={bridge}
                   pinnedPaths={chat.sessions?.pinnedPaths ?? []}
@@ -1457,6 +1457,7 @@ export function App({
                   disabledReason={remoteOffline ? '远程未连接，请先恢复连接' : undefined}
                 >
                   <AppHeader
+                    workspaceTabs={workspaceTabs}
                     nativeWindow={nativeWindow}
                     canOpenProject={localPlatform}
                     loadProjectApps={bridge.getProjectApps}

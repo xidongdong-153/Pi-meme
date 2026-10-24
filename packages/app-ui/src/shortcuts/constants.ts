@@ -44,9 +44,10 @@ export const SHORTCUT_META_MAP: Record<ShortcutId, ShortcutMeta> = {
     scope: '仅聊天页',
     group: 'workspace',
   },
+  toggleFullView: { id: 'toggleFullView', title: '进入／退出完整视图', scope: '仅聊天页', group: 'workspace' },
   toggleTools: {
     id: 'toggleTools',
-    title: '展开／收起右侧栏',
+    title: '切换工具显示',
     scope: '仅聊天页',
     group: 'workspace',
   },

@@ -2,11 +2,12 @@ import '@testing-library/jest-dom/vitest'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import type { HostApi } from '@pi-meme/contracts/app-host'
 import type { UiPanel } from '@pi-meme/plugin-sdk/ui'
 import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 import { WorkspacePanels } from '../src/layout/workspace-panels'
+import { detectPlatform, ShortcutProvider } from '../src/shortcuts/shortcut-provider'
 import { DEFAULT_PROFILE } from '../src/settings/user-profile'
 
 afterEach(cleanup)
@@ -30,7 +31,11 @@ function Panes({
   onPlugins,
   activity,
   session = 'chat',
+  children = '聊天正文',
+  onFocusComposer,
 }: {
+  onFocusComposer?: () => void
+  children?: ReactNode
   activity?: { count: number; known: boolean }
   session?: string
   onSidebar?: (open: boolean, width: number) => void
@@ -43,6 +48,7 @@ function Panes({
   return (
     <TooltipProvider>
       <WorkspacePanels
+        onFocusComposer={onFocusComposer}
         profile={DEFAULT_PROFILE}
         profileLoading={false}
         panels={panels}
@@ -59,13 +65,16 @@ function Panes({
           setOpen(next)
           setWidth(size)
         }}
-        header={(toggleSidebar) => (
-          <button type="button" onClick={toggleSidebar}>
-            切换侧栏
-          </button>
+        header={(toggleSidebar, tabs) => (
+          <>
+            <button type="button" onClick={toggleSidebar}>
+              切换侧栏
+            </button>
+            {tabs?.()}
+          </>
         )}
       >
-        聊天正文
+        {children}
       </WorkspacePanels>
     </TooltipProvider>
   )
@@ -330,5 +339,146 @@ test('浮层内按 Escape 关闭并交还首页焦点，输入框内不抢 Escap
     expect(document.getElementById('workspace-sidebar-flyout')).not.toBeNull()
   } finally {
     vi.useRealTimers()
+  }
+})
+
+test('完整视图保留聊天草稿、滚动位置和当前工具实例，退出恢复分栏宽度', () => {
+  const mounted = vi.fn()
+  const unmounted = vi.fn()
+  function Tool() {
+    useEffect(() => {
+      mounted()
+      return unmounted
+    }, [])
+    return <textarea aria-label="工具草稿" defaultValue="工具内容" />
+  }
+  const panels: UiPanel[] = [
+    { id: 'example:file', title: '文件', location: 'right', scope: 'app', icon: null, render: () => <Tool /> },
+  ]
+  render(
+    <Panes panels={panels}>
+      <textarea aria-label="聊天草稿" defaultValue="未发送的文字" />
+    </Panes>,
+  )
+  const chat = screen.getByRole('textbox', { name: '聊天草稿' })
+  const chatPane = document.getElementById('chat-workspace')!
+  chatPane.scrollTop = 120
+  fireEvent.click(screen.getByRole('button', { name: '展开右侧栏' }))
+  fireEvent.click(screen.getByRole('button', { name: '文件' }))
+  const tool = screen.getByRole('textbox', { name: '工具草稿' })
+  fireEvent.change(tool, { target: { value: '未保存修改' } })
+  const width = shell().style.getPropertyValue('--workspace-right-width')
+  fireEvent.click(screen.getByRole('button', { name: '进入完整视图' }))
+  expect(screen.getByRole('tab', { name: '聊天' })).toHaveAttribute('aria-selected', 'true')
+  expect(chat).toBeVisible()
+  expect(tool).not.toBeVisible()
+  fireEvent.click(screen.getByRole('tab', { name: '文件' }))
+  expect(chat).not.toBeVisible()
+  expect(tool).toBeVisible()
+  expect(tool).toHaveValue('未保存修改')
+  expect(mounted).toHaveBeenCalledOnce()
+  expect(unmounted).not.toHaveBeenCalled()
+  fireEvent.click(screen.getByRole('button', { name: '退出完整视图' }))
+  expect(shell()).toHaveAttribute('data-view', 'split')
+  expect(shell().style.getPropertyValue('--workspace-right-width')).toBe(width)
+  expect(chat).toHaveValue('未发送的文字')
+  expect(chatPane.scrollTop).toBe(120)
+  expect(mounted).toHaveBeenCalledOnce()
+  expect(unmounted).not.toHaveBeenCalled()
+})
+
+test('完整视图支持工具去重、键盘切换、关闭最后工具回聊天与刷新恢复模式', () => {
+  const panels: UiPanel[] = [
+    { id: 'example:file', title: '文件', location: 'right', scope: 'app', icon: null, render: () => '文件正文' },
+  ]
+  const view = render(<Panes panels={panels} />)
+  fireEvent.click(screen.getByRole('button', { name: '进入完整视图' }))
+  fireEvent.click(screen.getByRole('button', { name: '新建工具标签页' }))
+  fireEvent.click(screen.getByRole('button', { name: '文件' }))
+  fireEvent.click(screen.getByRole('button', { name: '新建工具标签页' }))
+  fireEvent.click(screen.getByRole('button', { name: '文件' }))
+  expect(screen.getAllByRole('tab', { name: '文件' })).toHaveLength(1)
+  fireEvent.keyDown(screen.getByRole('tab', { name: '文件' }), { key: 'Home' })
+  expect(screen.getByRole('tab', { name: '聊天' })).toHaveFocus()
+  fireEvent.keyDown(screen.getByRole('tab', { name: '聊天' }), { key: 'End' })
+  expect(screen.getByRole('tab', { name: '工具' })).toHaveFocus()
+  fireEvent.click(screen.getByRole('button', { name: '关闭标签页：工具' }))
+  fireEvent.click(screen.getByRole('button', { name: '关闭标签页：文件' }))
+  expect(screen.getByRole('tab', { name: '聊天' })).toHaveAttribute('aria-selected', 'true')
+  expect(screen.getByText('聊天正文')).toBeVisible()
+  expect(window.localStorage.getItem('pi-meme:workspace-view:v1')).toBe('unified')
+  view.unmount()
+  render(<Panes panels={panels} />)
+  expect(shell()).toHaveAttribute('data-view', 'unified')
+  expect(screen.getByRole('tab', { name: '聊天' })).toHaveAttribute('aria-selected', 'true')
+})
+
+test('完整视图在窄窗口独立展开左栏，切换会话回到聊天，工具失效安全回退', () => {
+  vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(660)
+  const panels: UiPanel[] = [
+    { id: 'example:file', title: '文件', location: 'right', scope: 'app', icon: null, render: () => '文件正文' },
+  ]
+  const view = render(<Panes panels={panels} />)
+  fireEvent.click(screen.getByRole('button', { name: '进入完整视图' }))
+  fireEvent.click(screen.getByRole('button', { name: '新建工具标签页' }))
+  fireEvent.click(screen.getByRole('button', { name: '文件' }))
+  expect(shell()).toHaveAttribute('data-pane-sidebar', 'open')
+  view.rerender(<Panes panels={panels} session="other" />)
+  expect(screen.getByRole('tab', { name: '聊天' })).toHaveAttribute('aria-selected', 'true')
+  fireEvent.click(screen.getByRole('tab', { name: '文件' }))
+  view.rerender(<Panes panels={[]} session="other" />)
+  expect(screen.getByRole('tab', { name: '聊天' })).toHaveAttribute('aria-selected', 'true')
+  expect(screen.getByText('聊天正文')).toBeVisible()
+})
+
+test('从聊天退出完整视图恢复原关闭状态，分栏按钮显式展开工具', () => {
+  render(<Panes />)
+  fireEvent.click(screen.getByRole('button', { name: '进入完整视图' }))
+  fireEvent.click(screen.getByRole('button', { name: '退出完整视图' }))
+  expect(shell()).toHaveAttribute('data-pane-right', 'closed')
+  fireEvent.click(screen.getByRole('button', { name: '进入完整视图' }))
+  fireEvent.click(screen.getByRole('button', { name: '分栏显示工具' }))
+  expect(shell()).toHaveAttribute('data-view', 'split')
+  expect(shell()).toHaveAttribute('data-pane-right', 'open')
+})
+
+test('完整视图快捷键切换模式，聚焦输入框快捷键先恢复聊天', async () => {
+  const focus = vi.fn()
+  render(
+    <ShortcutProvider>
+      <Panes onFocusComposer={focus} />
+    </ShortcutProvider>,
+  )
+  const mod = { metaKey: detectPlatform() === 'darwin', ctrlKey: detectPlatform() !== 'darwin' }
+  fireEvent.keyDown(document.body, { key: 'F', code: 'KeyF', shiftKey: true, ...mod })
+  expect(shell()).toHaveAttribute('data-view', 'unified')
+  fireEvent.click(screen.getByRole('button', { name: '新建工具标签页' }))
+  expect(screen.getByRole('tab', { name: '工具' })).toHaveAttribute('aria-selected', 'true')
+  fireEvent.keyDown(document.body, { key: 'L', code: 'KeyL', shiftKey: true, ...mod })
+  expect(screen.getByRole('tab', { name: '聊天' })).toHaveAttribute('aria-selected', 'true')
+  await act(async () => {
+    await new Promise(requestAnimationFrame)
+  })
+  expect(focus).toHaveBeenCalledOnce()
+})
+
+test('布局存储损坏或被禁用时仍可切换模式', () => {
+  window.localStorage.setItem('pi-meme:workspace-view:v1', 'broken')
+  const view = render(<Panes />)
+  expect(shell()).toHaveAttribute('data-view', 'split')
+  view.unmount()
+  const get = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+    throw new Error('存储被禁用')
+  })
+  const set = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+    throw new Error('存储被禁用')
+  })
+  try {
+    render(<Panes />)
+    fireEvent.click(screen.getByRole('button', { name: '进入完整视图' }))
+    expect(shell()).toHaveAttribute('data-view', 'unified')
+  } finally {
+    get.mockRestore()
+    set.mockRestore()
   }
 })

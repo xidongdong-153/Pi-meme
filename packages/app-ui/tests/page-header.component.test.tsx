@@ -1,16 +1,21 @@
 import '@testing-library/jest-dom/vitest'
-import type { ComponentProps } from 'react'
+import { useState, type ComponentProps } from 'react'
 import { afterEach, expect, test, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ProjectApp } from '@pi-meme/contracts/desktop'
 import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
+import { ProjectSelector } from '@pi-meme/workspace/ui/project-selector'
 import { SidebarMenus } from '@pi-meme/workspace/ui/sidebar/sidebar-menus'
 import { AppHeader } from '../src/layout/app-header'
 import { PageHeader } from '../src/layout/page-header'
 
 afterEach(cleanup)
 
-function renderWorkspaceHeader(overrides: Partial<ComponentProps<typeof AppHeader>> = {}, pinnedPaths: string[] = []) {
+function renderWorkspaceHeader(
+  overrides: Partial<ComponentProps<typeof AppHeader>> = {},
+  pinnedPaths: string[] = [],
+  withProjectSelector = false,
+) {
   const props = {
     nativeWindow: false,
     canOpenProject: true,
@@ -55,16 +60,50 @@ function renderWorkspaceHeader(overrides: Partial<ComponentProps<typeof AppHeade
     onDeleted: vi.fn(),
   } satisfies Omit<ComponentProps<typeof SidebarMenus>, 'children'>
 
+  const selectProject = vi.fn(async () => true)
+  function Header() {
+    const [pickerOpen, setPickerOpen] = useState(false)
+    const [returnFocus, setReturnFocus] = useState<HTMLButtonElement>()
+    return (
+      <>
+        <PageHeader>
+          <AppHeader
+            {...props}
+            onDirectory={
+              withProjectSelector
+                ? (trigger) => {
+                    setReturnFocus(trigger)
+                    setPickerOpen(true)
+                  }
+                : props.onDirectory
+            }
+          />
+        </PageHeader>
+        {withProjectSelector && (
+          <ProjectSelector
+            cwd="/tmp/project"
+            open={pickerOpen}
+            onOpenChange={setPickerOpen}
+            returnFocus={returnFocus}
+            loadProjects={async () => [
+              { cwd: '/tmp/other', name: '另一个项目', lastSelectedAt: '2026-10-24T00:00:00.000Z' },
+            ]}
+            onSelect={selectProject}
+            onAdd={async () => false}
+            onError={vi.fn()}
+          />
+        )}
+      </>
+    )
+  }
   render(
     <TooltipProvider>
       <SidebarMenus {...menuProps}>
-        <PageHeader>
-          <AppHeader {...props} />
-        </PageHeader>
+        <Header />
       </SidebarMenus>
     </TooltipProvider>,
   )
-  return { ...props, ...menuProps }
+  return { ...props, ...menuProps, selectProject }
 }
 
 function openSessionMenu() {
@@ -257,4 +296,32 @@ test('共用顶栏保留返回分叉来源会话的操作', () => {
 
   fireEvent.click(screen.getByRole('button', { name: '返回来源会话：来源会话' }))
   expect(onOpenForkSource).toHaveBeenCalledWith('/tmp/source.jsonl')
+})
+
+test('完整视图从会话菜单打开项目选择后保持弹窗与搜索焦点，可点击项目', async () => {
+  const props = renderWorkspaceHeader({ workspaceTabs: (menu) => <div>{menu}</div> }, [], true)
+  const trigger = openSessionMenu()
+  fireEvent.click(screen.getByRole('menuitem', { name: '选择项目：测试项目' }))
+  const search = await screen.findByRole('textbox', { name: '搜索项目' })
+  await waitFor(() => expect(search).toHaveFocus())
+  expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+  fireEvent.click(await screen.findByRole('option', { name: /另一个项目/ }))
+  await waitFor(() => expect(props.selectProject).toHaveBeenCalledWith({ kind: 'project', cwd: '/tmp/other' }))
+  expect(trigger).toBeInTheDocument()
+})
+
+test('项目选择取消后焦点回到菜单按钮，再次打开菜单的普通操作正常恢复焦点', async () => {
+  renderWorkspaceHeader({ workspaceTabs: (menu) => <div>{menu}</div> }, [], true)
+  const trigger = openSessionMenu()
+  const item = screen.getByRole('menuitem', { name: '选择项目：测试项目' })
+  item.focus()
+  fireEvent.keyDown(item, { key: 'Enter' })
+  const search = await screen.findByRole('textbox', { name: '搜索项目' })
+  await waitFor(() => expect(search).toHaveFocus())
+  fireEvent.keyDown(search, { key: 'Escape' })
+  await waitFor(() => expect(trigger).toHaveFocus())
+  expect(screen.queryByRole('dialog', { name: '项目选择' })).not.toBeInTheDocument()
+  openSessionMenu()
+  fireEvent.click(screen.getByRole('menuitem', { name: '置顶' }))
+  await waitFor(() => expect(trigger).toHaveFocus())
 })

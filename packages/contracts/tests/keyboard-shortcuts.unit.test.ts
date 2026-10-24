@@ -14,18 +14,18 @@ import {
   SHORTCUT_IDS,
 } from '../src/keyboard-shortcuts'
 
-test('包含全部 12 个快捷键定义且无重复动作 ID', () => {
-  assert.equal(SHORTCUT_DEFINITIONS.length, 12)
+test('包含全部 13 个快捷键定义且无重复动作 ID', () => {
+  assert.equal(SHORTCUT_DEFINITIONS.length, 13)
   const ids = SHORTCUT_DEFINITIONS.map((def) => def.id)
   assert.deepEqual(ids.sort(), [...SHORTCUT_IDS].sort())
-  assert.equal(new Set(ids).size, 12)
+  assert.equal(new Set(ids).size, 13)
 })
 
 test('Desktop 与 Web 默认键位正确解析且无内部冲突', () => {
   for (const env of ['desktop', 'web'] as const) {
     const bindings = SHORTCUT_DEFINITIONS.map((def) => defaultKeybinding(def, env))
-    assert.equal(bindings.length, 12)
-    assert.equal(new Set(bindings).size, 12, `${env} 默认键位存在冲突`)
+    assert.equal(bindings.length, 13)
+    assert.equal(new Set(bindings).size, 13, `${env} 默认键位存在冲突`)
   }
 
   const newChat = SHORTCUT_DEFINITIONS.find((d) => d.id === 'newChat')!

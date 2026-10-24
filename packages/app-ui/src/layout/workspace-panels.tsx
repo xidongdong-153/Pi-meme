@@ -3,6 +3,9 @@ import {
   Globe,
   Grid2X2,
   Layers,
+  MessageCircle,
+  Scan,
+  Shrink,
   Maximize2,
   Minimize2,
   PanelRightClose,
@@ -39,6 +42,8 @@ export function WorkspacePanels({
   activity,
   props,
   session,
+  sessionTitle = '聊天',
+  onFocusComposer,
   requestPanel,
   onPanelRequestHandled,
   errors = {},
@@ -68,6 +73,8 @@ export function WorkspacePanels({
   activity?: { count: number; known: boolean }
   props: UiContributionProps
   session: string
+  sessionTitle?: string
+  onFocusComposer?: () => void
   errors?: Record<string, string>
   requestPanel?: { id: string; revision: number; target: UiTarget } | null
   onPanelRequestHandled?: (revision: number) => void
@@ -78,7 +85,7 @@ export function WorkspacePanels({
   sidebarOpen: boolean
   sidebarWidth: number
   onSidebar: (open: boolean, width: number) => void
-  header: (toggleSidebar: () => void) => ReactNode
+  header: (toggleSidebar: () => void, workspaceTabs?: (menu?: ReactNode) => ReactNode) => ReactNode
   profile: UserProfile
   profileLoading: boolean
   onSettings?: () => void
@@ -115,12 +122,21 @@ export function WorkspacePanels({
       layout: saved ?? defaultPanelLayout(),
     }
   })
+  const [unified, setUnified] = useState(() => {
+    try {
+      return window.localStorage.getItem('pi-meme:workspace-view:v1') === 'unified'
+    } catch {
+      return false
+    }
+  })
+  const [toolActive, setToolActive] = useState(false)
   const [search, setSearch] = useState('')
   if (state.storageKey !== storageKey) {
     // 新会话没有存档时沿用当前布局，切换会话不收起右栏或重置宽度。
     const saved = readLayout()
     updateState({ storageKey, retainActivity: false, inherited: saved === undefined, layout: saved ?? state.layout })
     setSearch('')
+    setToolActive(false)
   }
   const layout = state.layout
   const setLayout = useCallback((update: (value: PanelLayoutState) => PanelLayoutState) => {
@@ -154,23 +170,27 @@ export function WorkspacePanels({
   const available = panels.filter(
     (panel) => panelAvailable(panel, props.target) && (panel.id !== activityId || activityTabVisible),
   )
-  const open = useCallback((id: string) => {
-    setSearch('')
-    updateState((value) => ({
-      ...value,
-      inherited: false,
-      retainActivity: value.retainActivity || id === 'builtin:activities',
-      layout: openPanel(value.layout, id),
-    }))
-  }, [])
+  const open = useCallback(
+    (id: string) => {
+      setSearch('')
+      setToolActive(true)
+      updateState((value) => ({
+        ...value,
+        inherited: false,
+        retainActivity: value.retainActivity || id === 'builtin:activities',
+        layout: { ...openPanel(value.layout, id), open: unified ? value.layout.open : true },
+      }))
+    },
+    [unified],
+  )
   useEffect(() => {
     if (!activity || state.storageKey !== storageKey) return
-    if (activity.count > 0 && layout.open && layout.tabs.includes(activityId) && !state.retainActivity) {
+    if (activity.count > 0 && (layout.open || unified) && layout.tabs.includes(activityId) && !state.retainActivity) {
       updateState((value) => ({ ...value, retainActivity: true }))
     } else if (activity.known && activity.count === 0 && !state.retainActivity && layout.tabs.includes(activityId)) {
       setLayout((value) => closePanel(value, activityId))
     }
-  }, [activity?.count, activity?.known, layout, state.retainActivity, state.storageKey, storageKey, setLayout])
+  }, [activity?.count, activity?.known, layout, state.retainActivity, state.storageKey, storageKey, setLayout, unified])
   useEffect(() => {
     if (requestRight && panels.some((panel) => panel.id === requestRight && panelAvailable(panel, props.target))) {
       open(requestRight)
@@ -191,11 +211,43 @@ export function WorkspacePanels({
   }, [requestPanel, open, panels, props.target, onPanelRequestHandled])
   useEffect(() => {
     tabList.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-  }, [layout.active, layout.open])
+  }, [layout.active, layout.open, unified, toolActive])
   const visibleTabs = layout.tabs.filter((id) => id === toolsTabId || available.some((panel) => panel.id === id))
   const tabs = visibleTabs.length ? visibleTabs : [toolsTabId]
   const active = tabs.includes(layout.active) ? layout.active : tabs[0]
   const selected = available.find((panel) => panel.id === active)
+  const showTool = unified && toolActive && tabs.includes(layout.active)
+  const selectTab = (id: string) => {
+    setToolActive(id !== 'chat')
+    if (id !== 'chat') setLayout((value) => ({ ...value, active: id }))
+  }
+  const closeTab = (id: string) => {
+    const restoreFocus = tabList.current?.contains(document.activeElement)
+    if (tabs.length === 1) setToolActive(false)
+    updateState((value) => ({
+      ...value,
+      inherited: false,
+      retainActivity: id === activityId ? false : value.retainActivity,
+      layout: {
+        ...closePanel({ ...value.layout, tabs, active }, id),
+        open: unified ? value.layout.open : tabs.length > 1,
+      },
+    }))
+    if (restoreFocus)
+      requestAnimationFrame(() => {
+        tabList.current?.querySelector<HTMLButtonElement>('[role="tab"][aria-selected="true"]')?.focus()
+      })
+  }
+  const changeView = (next: boolean, forceTool = false) => {
+    if (!next && (showTool || forceTool)) setLayout((value) => ({ ...value, open: true }))
+    setUnified(next)
+    setToolActive(false)
+    try {
+      window.localStorage.setItem('pi-meme:workspace-view:v1', next ? 'unified' : 'split')
+    } catch {
+      // 本地存储不可用时仍允许切换布局。
+    }
+  }
   const workspaceWidth = Math.max(0, containerWidth - (sidebarOpen ? sidebarWidth : 0))
   const maxWidth = Math.max(0, workspaceWidth - Math.min(480, containerWidth * 0.6))
   const rightWidth = Math.min(layout.expanded ? maxWidth : layout.width, maxWidth)
@@ -204,16 +256,16 @@ export function WorkspacePanels({
     if (sidebarOpen && containerWidth - sidebarWidth < 320) onSidebar(false, sidebarWidth)
   }, [containerWidth, sidebarOpen, sidebarWidth, onSidebar])
   useEffect(() => {
-    if (layout.open && sidebarOpen && !bothPanesFit) onSidebar(false, sidebarWidth)
-  }, [layout.open, sidebarOpen, bothPanesFit, sidebarWidth, onSidebar])
+    if (!unified && layout.open && sidebarOpen && !bothPanesFit) onSidebar(false, sidebarWidth)
+  }, [layout.open, sidebarOpen, bothPanesFit, sidebarWidth, onSidebar, unified])
   const changeSidebar = (open: boolean, width: number) => {
-    if (open && containerWidth - width < 480 + 280) setLayout((value) => ({ ...value, open: false }))
+    if (!unified && open && containerWidth - width < 480 + 280) setLayout((value) => ({ ...value, open: false }))
     onSidebar(open, width)
   }
   const toggleSidebar = () => changeSidebar(!sidebarOpen, sidebarWidth)
   const reducedMotion = useReducedMotion()
   const leftPane = usePaneMotion(sidebarOpen, sidebarWidth, reducedMotion)
-  const rightPane = usePaneMotion(layout.open, rightWidth, reducedMotion)
+  const rightPane = usePaneMotion(layout.open || unified, rightWidth, reducedMotion)
 
   // 折叠态首页悬停浮层：固定侧栏完全收起后才挂载，避免同时渲染两份会话列表。
   const flyout = useSidebarFlyout({ enabled: !sidebarOpen && !leftPane.mounted, reduceMotion: reducedMotion })
@@ -230,14 +282,28 @@ export function WorkspacePanels({
     containerRef.current = containerWidth
     rightPane.jump()
   }, [containerWidth, rightPane.jump])
-  const toggleRight = () => setLayout((value) => ({ ...value, open: !value.open }))
+  const toggleRight = () => {
+    if (unified) changeView(false, true)
+    else setLayout((value) => ({ ...value, open: !value.open }))
+  }
   const shortcuts = useShortcuts()
   const toolsShortcut = shortcuts.getShortcutLabel('toggleTools')
+  const fullViewShortcut = shortcuts.getShortcutLabel('toggleFullView')
 
   useShortcutHandlers(
     {
       toggleSidebar,
-      toggleTools: toggleRight,
+      toggleFullView: () => changeView(!unified),
+      toggleTools: () => {
+        if (unified) setToolActive(!showTool)
+        else toggleRight()
+      },
+      focusComposer: onFocusComposer
+        ? () => {
+            setToolActive(false)
+            requestAnimationFrame(onFocusComposer)
+          }
+        : undefined,
     },
     shortcutEnabled,
   )
@@ -254,11 +320,108 @@ export function WorkspacePanels({
     '--workspace-right-width': `${rightPane.presented}px`,
   } as CSSProperties
 
+  const renderTabs = (menu?: ReactNode) => (
+    <div className={unified ? 'flex min-w-0 flex-1 items-center gap-1' : 'contents'}>
+      <div
+        ref={tabList}
+        role="tablist"
+        aria-label={unified ? '工作区标签' : '右侧栏标签'}
+        className="flex min-w-0 items-center gap-1 overflow-x-auto no-drag"
+        style={{ scrollbarWidth: 'none' }}
+        onKeyDown={(event) => {
+          if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+          const navigationTabs = unified ? ['chat', ...tabs] : tabs
+          const index = navigationTabs.indexOf(unified && !showTool ? 'chat' : active)
+          const next =
+            event.key === 'Home'
+              ? 0
+              : event.key === 'End'
+                ? navigationTabs.length - 1
+                : (index + (event.key === 'ArrowRight' ? 1 : -1) + navigationTabs.length) % navigationTabs.length
+          event.preventDefault()
+          selectTab(navigationTabs[next])
+          tabList.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus()
+        }}
+      >
+        {unified && (
+          <div
+            className={`group flex shrink-0 items-center rounded-lg ${!showTool ? 'bg-background/80 text-foreground shadow-xs' : 'text-muted-foreground hover:bg-background/40'}`}
+          >
+            <button
+              type="button"
+              role="tab"
+              id="workspace-chat-tab"
+              aria-selected={!showTool}
+              aria-controls="chat-workspace"
+              tabIndex={!showTool ? 0 : -1}
+              onClick={() => selectTab('chat')}
+              title={sessionTitle}
+              className="flex h-7 w-40 max-w-60 items-center gap-1.5 pl-2.5 pr-1 text-xs"
+            >
+              <MessageCircle className="size-3.5 shrink-0" />
+              <span className="truncate">{sessionTitle}</span>
+            </button>
+            {menu}
+          </div>
+        )}
+        {tabs.map((id) => {
+          const panel = available.find((entry) => entry.id === id)
+          const title = panel?.title ?? '工具'
+          return (
+            <div
+              key={id}
+              className={`group flex min-w-0 shrink-0 items-center rounded-md ${active === id && (!unified || showTool) ? 'bg-background/80 text-foreground shadow-xs' : 'text-muted-foreground hover:bg-background/40'}`}
+            >
+              <button
+                type="button"
+                role="tab"
+                aria-selected={active === id && (!unified || showTool)}
+                id={`workspace-tool-tab-${id}`}
+                aria-controls="right-tool-content"
+                tabIndex={active === id && (!unified || showTool) ? 0 : -1}
+                onClick={() => selectTab(id)}
+                className={`flex h-7 min-w-0 items-center gap-1.5 pl-2.5 pr-1 text-xs ${unified ? 'min-w-20 max-w-36' : ''}`}
+                title={title}
+              >
+                <span className="flex size-3.5 shrink-0 items-center justify-center [&>svg]:size-3.5">
+                  {panel?.icon ?? <Grid2X2 />}
+                </span>
+                <span className="max-w-28 truncate">{title}</span>
+              </button>
+              <button
+                type="button"
+                aria-label={`关闭标签页：${title}`}
+                className="mr-1 inline-flex items-center rounded p-1 text-muted-foreground opacity-0 pointer-events-none transition-opacity duration-200 ease-out hover:bg-background/60 hover:text-foreground group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={() => closeTab(id)}
+              >
+                <X className="size-3" />
+              </button>
+            </div>
+          )
+        })}
+      </div>
+      <div className="flex items-center gap-1 shrink-0 no-drag">
+        <HeaderButton label="新建工具标签页" onClick={() => open(toolsTabId)}>
+          <Plus />
+        </HeaderButton>
+        {!unified && (
+          <HeaderButton
+            label={layout.expanded ? '还原右侧栏宽度' : '加宽右侧栏'}
+            onClick={() => setLayout((value) => ({ ...value, expanded: !value.expanded }))}
+          >
+            {layout.expanded ? <Minimize2 /> : <Maximize2 />}
+          </HeaderButton>
+        )}
+      </div>
+    </div>
+  )
+
   return (
     <div
+      data-view={unified ? 'unified' : 'split'}
       data-motion={directMotion ? 'direct' : 'slide'}
       data-pane-sidebar={sidebarOpen ? 'open' : 'closed'}
-      data-pane-right={layout.open ? 'open' : 'closed'}
+      data-pane-right={unified || layout.open ? 'open' : 'closed'}
       data-overscroll={overscroll}
       style={shellStyle}
       className="workspace-panes flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-secondary"
@@ -266,9 +429,9 @@ export function WorkspacePanels({
       {/* 顶部栏：位于最外层外框中，与最左侧 ICON 栏同底色 */}
       <PageHeader>
         <div className="workspace-main-header flex h-full min-w-0 overflow-hidden bg-transparent window-drag">
-          {header(toggleSidebar)}
+          {header(toggleSidebar, unified ? renderTabs : undefined)}
         </div>
-        {rightPane.mounted && (
+        {!unified && rightPane.mounted && (
           <div
             className="right-pane relative flex h-full shrink-0 overflow-hidden bg-transparent window-drag"
             style={{ width: 'var(--workspace-right-width)' }}
@@ -281,90 +444,26 @@ export function WorkspacePanels({
               className="pane-clip flex h-full w-full items-center justify-between pl-3 pr-2"
               style={{ width: rightPane.dragging ? '100%' : rightWidth }}
             >
-              <div
-                ref={tabList}
-                role="tablist"
-                aria-label="右侧栏标签"
-                className="flex min-w-0 items-center gap-1 overflow-x-auto no-drag"
-                style={{ scrollbarWidth: 'none' }}
-                onKeyDown={(event) => {
-                  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
-                  const index = tabs.indexOf(active)
-                  const next =
-                    event.key === 'Home'
-                      ? 0
-                      : event.key === 'End'
-                        ? tabs.length - 1
-                        : (index + (event.key === 'ArrowRight' ? 1 : -1) + tabs.length) % tabs.length
-                  event.preventDefault()
-                  setLayout((value) => ({ ...value, active: tabs[next] }))
-                  tabList.current?.querySelectorAll<HTMLButtonElement>('[role="tab"]')[next]?.focus()
-                }}
-              >
-                {tabs.map((id) => {
-                  const panel = available.find((entry) => entry.id === id)
-                  const title = panel?.title ?? '工具'
-                  return (
-                    <div
-                      key={id}
-                      className={`group flex min-w-0 shrink-0 items-center rounded-md ${active === id ? 'bg-background/80 text-foreground shadow-xs' : 'text-muted-foreground hover:bg-background/40'}`}
-                    >
-                      <button
-                        type="button"
-                        role="tab"
-                        aria-selected={active === id}
-                        aria-controls="right-tool-content"
-                        tabIndex={active === id ? 0 : -1}
-                        onClick={() => setLayout((value) => ({ ...value, active: id }))}
-                        className="flex h-7 min-w-0 items-center gap-1.5 pl-2.5 pr-1 text-xs"
-                        title={title}
-                      >
-                        <span className="flex size-3.5 shrink-0 items-center justify-center [&>svg]:size-3.5">
-                          {panel?.icon ?? <Grid2X2 />}
-                        </span>
-                        <span className="max-w-28 truncate">{title}</span>
-                      </button>
-                      <button
-                        type="button"
-                        aria-label={`关闭标签页：${title}`}
-                        className="mr-1 inline-flex items-center rounded p-1 text-muted-foreground opacity-0 pointer-events-none transition-opacity duration-200 ease-out hover:bg-background/60 hover:text-foreground group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                        onClick={() =>
-                          updateState((value) => ({
-                            ...value,
-                            inherited: false,
-                            retainActivity: id === activityId ? false : value.retainActivity,
-                            layout: closePanel({ ...value.layout, tabs, active }, id),
-                          }))
-                        }
-                      >
-                        <X className="size-3" />
-                      </button>
-                    </div>
-                  )
-                })}
-              </div>
-              <div className="flex items-center gap-1 shrink-0 no-drag ml-auto">
-                <HeaderButton label="新建工具标签页" onClick={() => open(toolsTabId)}>
-                  <Plus />
-                </HeaderButton>
-                <HeaderButton
-                  label={layout.expanded ? '还原右侧栏宽度' : '加宽右侧栏'}
-                  onClick={() => setLayout((value) => ({ ...value, expanded: !value.expanded }))}
-                >
-                  {layout.expanded ? <Minimize2 /> : <Maximize2 />}
-                </HeaderButton>
-              </div>
+              {renderTabs()}
             </div>
           </div>
         )}
         <div className="absolute inset-y-0 right-3 z-10 flex items-center no-drag">
+          <HeaderButton
+            label={`${unified ? '退出完整视图' : '进入完整视图'}${fullViewShortcut ? ` · ${fullViewShortcut}` : ''}`}
+            ariaLabel={unified ? '退出完整视图' : '进入完整视图'}
+            pressed={unified}
+            onClick={() => changeView(!unified)}
+          >
+            {unified ? <Shrink /> : <Scan />}
+          </HeaderButton>
           <Tooltip>
             <TooltipTrigger asChild>
               <Button
                 variant="ghost"
                 size="icon-sm"
                 onClick={toggleRight}
-                aria-label={layout.open ? '收起右侧栏' : '展开右侧栏'}
+                aria-label={unified ? '分栏显示工具' : layout.open ? '收起右侧栏' : '展开右侧栏'}
                 aria-expanded={layout.open}
                 aria-controls="workspace-right-sidebar"
                 className="relative size-7 text-muted-foreground hover:text-foreground cursor-pointer"
@@ -381,11 +480,13 @@ export function WorkspacePanels({
               </Button>
             </TooltipTrigger>
             <TooltipContent side="bottom">
-              {activity?.count
-                ? `本会话有 ${activity.count} 个活动服务${toolsShortcut ? ` · ${toolsShortcut}` : ''}`
-                : layout.open
-                  ? `收起右侧栏${toolsShortcut ? ` · ${toolsShortcut}` : ''}`
-                  : `展开右侧栏${toolsShortcut ? ` · ${toolsShortcut}` : ''}`}
+              {unified
+                ? '分栏显示工具'
+                : activity?.count
+                  ? `本会话有 ${activity.count} 个活动服务${toolsShortcut ? ` · ${toolsShortcut}` : ''}`
+                  : layout.open
+                    ? `收起右侧栏${toolsShortcut ? ` · ${toolsShortcut}` : ''}`
+                    : `展开右侧栏${toolsShortcut ? ` · ${toolsShortcut}` : ''}`}
             </TooltipContent>
           </Tooltip>
         </div>
@@ -454,15 +555,28 @@ export function WorkspacePanels({
               )}
             </div>
           )}
-          <div id="chat-workspace" className="theme-workspace flex min-h-0 min-w-0 flex-1 flex-col bg-background">
+          <div
+            id="chat-workspace"
+            role={unified ? 'tabpanel' : undefined}
+            aria-labelledby={unified ? 'workspace-chat-tab' : undefined}
+            aria-hidden={showTool}
+            inert={showTool}
+            style={{ display: showTool ? 'none' : undefined }}
+            className="theme-workspace flex min-h-0 min-w-0 flex-1 flex-col bg-background"
+          >
             {children}
           </div>
           {rightPane.mounted && (
             <div
-              className="right-pane relative flex shrink-0 border-l border-white/10"
-              style={{ width: 'var(--workspace-right-width)' }}
+              className="right-pane relative flex min-w-0 shrink-0 border-l border-white/10"
+              style={{
+                width: unified ? undefined : 'var(--workspace-right-width)',
+                flex: unified ? 1 : undefined,
+                display: unified && !showTool ? 'none' : undefined,
+                borderLeft: unified ? 'none' : undefined,
+              }}
             >
-              {layout.open && (
+              {!unified && layout.open && (
                 <ResizeHandle
                   side="right"
                   width={rightPane.presented}
@@ -483,8 +597,8 @@ export function WorkspacePanels({
               <aside
                 id="workspace-right-sidebar"
                 aria-label="右侧栏"
-                aria-hidden={!layout.open}
-                inert={!layout.open}
+                aria-hidden={unified ? !showTool : !layout.open}
+                inert={unified ? !showTool : !layout.open}
                 className="flex min-h-0 w-full flex-col overflow-hidden bg-card/40"
                 onKeyDown={(event) => {
                   if (
@@ -494,15 +608,19 @@ export function WorkspacePanels({
                   )
                     return
                   event.stopPropagation()
-                  setLayout((value) => ({ ...value, open: false }))
+                  if (unified) {
+                    setToolActive(false)
+                    tabList.current?.querySelector<HTMLButtonElement>('[role="tab"]')?.focus()
+                  } else setLayout((value) => ({ ...value, open: false }))
                 }}
               >
                 <div
                   id="right-tool-content"
                   role="tabpanel"
-                  aria-label={selected?.title ?? '工具'}
+                  aria-label={unified ? undefined : (selected?.title ?? '工具')}
                   className="pane-clip flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden @container"
-                  style={{ width: rightPane.dragging ? '100%' : rightWidth }}
+                  style={{ width: unified || rightPane.dragging ? '100%' : rightWidth }}
+                  aria-labelledby={unified ? `workspace-tool-tab-${active}` : undefined}
                 >
                   {selected ? (
                     <ErrorBoundary
@@ -605,15 +723,28 @@ export function WorkspacePanels({
   )
 }
 
-function HeaderButton({ label, onClick, children }: { label: string; onClick: () => void; children: ReactNode }) {
+function HeaderButton({
+  label,
+  ariaLabel,
+  pressed,
+  onClick,
+  children,
+}: {
+  label: string
+  ariaLabel?: string
+  pressed?: boolean
+  onClick: () => void
+  children: ReactNode
+}) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <button
           type="button"
-          aria-label={label}
+          aria-label={ariaLabel ?? label}
+          aria-pressed={pressed}
           onClick={onClick}
-          className="flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground no-drag [&>svg]:size-4"
+          className="flex size-7 shrink-0 items-center justify-center rounded-lg aria-pressed:bg-background/80 aria-pressed:text-foreground text-muted-foreground hover:bg-secondary hover:text-foreground no-drag [&>svg]:size-4"
         >
           {children}
         </button>
