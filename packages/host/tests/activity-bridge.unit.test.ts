@@ -13,6 +13,7 @@ function fixture() {
     agentId: 'child',
     rootAgentId: 'root',
     rootSessionKey: 'runtime-root',
+    rootTaskId: 'root-task',
     sessionKey: 'runtime-child',
     name: 'backend',
     cwd: '/project',
@@ -98,6 +99,7 @@ test('服务启动归属、工作目录、权限取可信调用者，plan 与取
     agentDir: '/host/pi',
     accessMode: 'workspace-write',
     sourceAgentId: 'child',
+    sourceRun: { agentId: 'child', rootTaskId: 'root-task', epoch: 1, runId: 'run' },
     sourceName: 'backend',
   })
   f.setActor({ mode: 'plan' })

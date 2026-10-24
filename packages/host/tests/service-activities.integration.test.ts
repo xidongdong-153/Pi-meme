@@ -115,6 +115,12 @@ test(
         (value) => value.activities.some((activity) => activity.status === 'running'),
       )
       const live = running.activities.find((activity) => activity.status === 'running')!
+      await host.app.sessions.stopTask(ref, { idempotencyKey: 'stop-task-with-service' })
+      assert.equal(
+        (await host.app.activities.list(ref)).activities.find((activity) => activity.serviceId === live.serviceId)
+          ?.status,
+        'running',
+      )
       const target = await host.app.sessions.get(ref)
       const beforeDeletion = fake.provider.requests.length
       const response = await host.rpc({

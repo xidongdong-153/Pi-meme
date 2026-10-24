@@ -1963,7 +1963,7 @@ export class HostCollaborationBridge {
           await Promise.race([
             Promise.all([
               child.summary.depth > 0 ? child.session?.stopAndWait() : child.session?.abort(),
-              childRun && this.options.stopServicesForRun?.(childRun),
+              child.summary.depth > 0 && childRun && this.options.stopServicesForRun?.(childRun),
             ]),
             new Promise<never>((_, reject) => {
               timer = setTimeout(() => reject(new Error('运行清理超过 10 秒')), 10000)

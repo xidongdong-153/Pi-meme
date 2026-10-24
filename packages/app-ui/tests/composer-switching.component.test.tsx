@@ -702,10 +702,11 @@ test('思考强度保存完成前不发送普通消息', async () => {
   expect(prompt).toHaveBeenCalledTimes(1)
 })
 
-test('暂停后按新配置重试保留主草稿和图片，不恢复旧执行', async () => {
+test('停止后按所选配置继续任务，保留主草稿和原消息图片，不覆盖历史', async () => {
   const editAndPrompt = vi.fn<DesktopBridge['editAndPrompt']>().mockResolvedValue({ recoveredInputs: [] })
+  const continueStopped = vi.fn<DesktopBridge['continueStopped']>().mockResolvedValue(undefined)
   const resume = vi.fn()
-  const { result, snapshot } = setup({ editAndPrompt, resume })
+  const { result, snapshot } = setup({ editAndPrompt, continueStopped, resume })
   const image = { type: 'image' as const, mimeType: 'image/png', data: 'cG5n' }
   snapshot.messages = [
     {
@@ -715,8 +716,8 @@ test('暂停后按新配置重试保留主草稿和图片，不恢复旧执行',
       sourceEntry: { id: 'user-entry', type: 'message', revision: '1' },
     },
   ]
-  snapshot.state.isPaused = true
-  snapshot.state.isStreaming = true
+  snapshot.state.stopped = true
+  snapshot.state.queuePaused = true
   await waitFor(() => expect(result.current.loading).toBe(false))
   act(() => {
     result.current.setDraft('新的主草稿')
@@ -724,22 +725,25 @@ test('暂停后按新配置重试保留主草稿和图片，不恢复旧执行',
   })
   expect(result.current.configurationChanged).toBe(true)
   await act(async () => result.current.resume())
-  await waitFor(() => expect(editAndPrompt).toHaveBeenCalledTimes(1))
-  await waitFor(() => expect(result.current.editing).toBe(false))
-  expect(editAndPrompt.mock.calls[0].slice(0, 5)).toEqual(['main', 'user-entry', '含图片的原消息', [image], []])
+  expect(continueStopped).toHaveBeenCalledTimes(1)
+  expect(continueStopped).toHaveBeenCalledWith('main', { model: snapshot.state.model, thinkingLevel: 'high' })
+  expect(result.current.editing).toBe(false)
+  expect(result.current.chat.messages).toEqual(snapshot.messages)
   expect(result.current.draft).toBe('新的主草稿')
+  expect(editAndPrompt).not.toHaveBeenCalled()
   expect(resume).not.toHaveBeenCalled()
 })
 
-test('暂停时已有主草稿仍可按新配置重试，同时保留排队发送入口', () => {
+test('停止后有主草稿时发送新消息，清空草稿后可继续当前任务', () => {
   const onResume = vi.fn()
-  render(
+  const toolbar = (draft: string) => (
     <TooltipProvider>
       <ComposerToolbar
         paused
-        running
+        stopped
+        running={false}
         disabled={false}
-        draft="保留的主草稿"
+        draft={draft}
         hasAttachments={false}
         queueMode="followUp"
         onQueueMode={() => {}}
@@ -750,12 +754,16 @@ test('暂停时已有主草稿仍可按新配置重试，同时保留排队发�
         access={null}
         contextUsage={null}
         editing={false}
-        resumeLabel="按新配置重试"
         onResume={onResume}
       />
-    </TooltipProvider>,
+    </TooltipProvider>
   )
-  fireEvent.click(screen.getByRole('button', { name: '按新配置重试' }))
+  const view = render(toolbar('保留的主草稿'))
+  expect(screen.getByRole('button', { name: '发送消息' }).getAttribute('type')).toBe('submit')
+  expect(screen.queryByRole('button', { name: '继续当前任务' })).toBeNull()
+  expect(onResume).not.toHaveBeenCalled()
+  view.rerender(toolbar(''))
+  fireEvent.click(screen.getByRole('button', { name: '继续当前任务' }))
   expect(onResume).toHaveBeenCalledTimes(1)
-  expect(screen.getByRole('button', { name: '发送排队任务' }).getAttribute('type')).toBe('submit')
+  expect(screen.getByRole('button', { name: '继续当前任务' }).getAttribute('type')).toBe('button')
 })

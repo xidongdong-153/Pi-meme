@@ -125,7 +125,7 @@ const descriptions = {
   list_agent_models:
     "List currently configured and available models (provider, id, name), thinking levels, and the caller's current model and thinking level. Does not return credentials. Query before applying user-requested overrides; do not guess model identifiers.",
   send_message:
-    '向同一 Agent 树发送进度、问题、修正或验收反馈。等待反馈的任务可在原运行和会话中继续。接收方属于其他任务轮次或已经结束时，消息只存入历史，deliveryState 为 history_only，不进入当前模型上下文。消息已保存不代表已读、接受或答复。Plan 模式不能向正在 default 模式运行的 Agent 发消息。',
+    'Send progress, questions, corrections, or review feedback within the same agent tree. A task waiting for feedback can continue in its original run and session. If the recipient belongs to another root task or has already ended, store the message in history only: deliveryState is history_only and the message does not enter the current model context. Saved does not mean read, accepted, or answered. Plan mode cannot message an agent currently running in default mode.',
   followup_task:
     "Root only: assign a new task to an existing first-level child. Reuse its identity and conversation file, preserving the root access mode and task mode. If active, queue the task until its current run ends. Use send_message for feedback or revisions within the current task. Override model / thinking_level only when explicitly requested by the user; omitted fields use the configured subagent defaults, then inherit the root session values, not the child's previous overrides. Queued tasks retain settings captured at submission.",
   interrupt_agent:
@@ -133,7 +133,7 @@ const descriptions = {
   list_agents:
     'Inspect identities, execution states, and available reports in the current agent tree. Optionally filter full task paths by a literal prefix. This snapshot query does not consume or acknowledge mailbox messages.',
   wait_agent:
-    '等待同一 Agent 树中指定目标的反馈；可指定父 Agent 或根 Agent，不能等待自己。当前任务的失败、中断或清理事件即使来自 targets 之外也会唤醒等待；继续前检查 wakeReason 和 messages。祖先只通过消息唤醒。省略 targets 时等待其他活动 Agent 和未读消息的发送者。timeout_ms 默认 30000，设为 0 可立即检查。工具结果写入会话后才确认消息。notifiedBy 表示消息正在单独投递的发送者，不要重复请求。超时不会完成任务或释放活动名额；仍需反馈时继续等待。',
+    'Wait for feedback from selected targets in the same agent tree, including the parent or root; do not wait for yourself. Failure, interruption, or cleanup events for the current task also wake the wait even when outside targets; inspect wakeReason and messages before continuing. Ancestors wake the wait only through messages. Omit targets to watch other active agents and senders with unread messages. timeout_ms defaults to 30000; 0 checks immediately. Messages are acknowledged only after the tool result is saved to the session. notifiedBy identifies senders whose messages are being delivered separately; do not request duplicates. A timeout does not complete the task or release an active slot; wait again when feedback is still needed.',
   finish_agent:
     'Child agents only. Submit the final report when the entire delegated task is complete and any required review is accepted. Resolve unread feedback and finish all descendant work, including queued tasks, first. Use send_message and wait_agent for interim work. Acceptance records completion intent: end your turn so the Host can publish the final result to your parent. New feedback before the run settles cancels completion; address it and call finish_agent again.',
 }

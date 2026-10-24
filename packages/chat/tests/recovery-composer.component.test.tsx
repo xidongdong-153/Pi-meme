@@ -175,7 +175,7 @@ test('草稿和附件仍正常发送，历史和队列编辑态不提供恢复',
   assert.equal(onRecover.mock.calls.length, 0)
 })
 
-test('恢复等待显示 spinner 并禁止重复点击，新草稿不会误发送，运行后恢复暂停按钮', () => {
+test('恢复等待显示 spinner 并禁止重复点击，新草稿不会误发送，运行后恢复停止按钮', () => {
   const onRecover = vi.fn()
   const onSend = vi.fn()
   const view = render(composer(props({ recovering: true, onRecover })))
@@ -190,7 +190,7 @@ test('恢复等待显示 spinner 并禁止重复点击，新草稿不会误发�
   assert.equal(onSend.mock.calls.length, 0)
   view.rerender(composer(props({ running: true, recovery: undefined })))
   assert.equal(view.queryByRole('button', { name: '恢复当前任务' }), null)
-  assert.equal((view.getByRole('button', { name: '暂停当前任务' }) as HTMLButtonElement).disabled, false)
+  assert.equal((view.getByRole('button', { name: '停止当前任务' }) as HTMLButtonElement).disabled, false)
 })
 
 test('恢复请求同步防重，成功刷新快照且保留等待期间输入的草稿和附件', async () => {

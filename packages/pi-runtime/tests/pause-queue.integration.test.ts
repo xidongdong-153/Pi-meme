@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { test, describe } from 'vitest'
+import { test, describe, vi } from 'vitest'
 import { mkdtemp, rm, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -84,6 +84,34 @@ test('停止当前任务后保留排队输入，继续任务不释放队列', as
       f.queue().map((input) => input.text),
       ['稍后执行'],
     )
+  } finally {
+    await f.dispose()
+  }
+})
+
+test('队列变化保存独立检查点，重复控制不改写已停止会话', async () => {
+  const f = await fixture(() => ({ text: '执行结果', delayMs: 200 }))
+  try {
+    await f.session.prompt('原任务')
+    await until(() => f.fake.provider.requests.length === 1)
+    await f.session.pause()
+    await f.session.followUp('第一条队列')
+    await f.session.followUp('第二条队列')
+    const checkpoints = (await f.session.getEntries()).entries.filter(
+      (entry) => entry.type === 'custom' && entry.customType === 'pi-meme-task-control',
+    )
+    assert.deepEqual(
+      checkpoints.map(
+        (entry) => entry.type === 'custom' && (entry.data as { followUp: QueuedInput[] }).followUp.length,
+      ),
+      [1, 2],
+    )
+    await f.session.stopTask()
+    const file = f.session.getActiveSession().sessionFile!
+    const stopped = await readFile(file, 'utf8')
+    await f.session.stopTask()
+    await f.session.stopAndWait()
+    assert.equal(await readFile(file, 'utf8'), stopped)
   } finally {
     await f.dispose()
   }
@@ -219,17 +247,23 @@ test('暂停区间在重复控制、恢复、停止和快照中保持准确', as
 })
 
 test('恢复后的同一运行保留起点，完成快照带真实终点并排除全部暂停时间', async () => {
-  const f = await fixture(() => ({ text: '完成', delayMs: 150 }))
+  const finished = Promise.withResolvers<void>()
+  const f = await fixture(() => ({ text: '完成', finishBarrier: finished.promise }))
+  let clock: ReturnType<typeof vi.spyOn> | undefined
   try {
     await f.session.prompt('计时完成任务')
     await until(() => f.fake.provider.requests.length === 1)
     const running = (await f.session.snapshot()).state.runIntervals!
     assert.equal(running.length, 1)
+    let now = Date.now()
+    clock = vi.spyOn(Date, 'now').mockImplementation(() => now)
     for (let revision = 1; revision <= 3; revision += 2) {
       await f.session.setPaused(true, revision)
-      await delay(30)
+      now += 30
       await f.session.setPaused(false, revision + 1)
     }
+    now += 20
+    finished.resolve()
     await until(async () => !(await f.session.snapshot()).state.isStreaming)
     const completed = (await f.session.snapshot()).state
     assert.equal(completed.runIntervals?.length, 1)
@@ -241,7 +275,8 @@ test('恢复后的同一运行保留起点，完成快照带真实终点并排�
         total + Math.max(0, Math.min(run.endedAt!, interval.endedAt!) - Math.max(run.startedAt, interval.startedAt)),
       0,
     )
-    assert.ok(pausedMs >= 60)
+    assert.equal(completed.pauseIntervals?.length, 2)
+    assert.equal(pausedMs, 60)
     assert.ok(run.endedAt! - run.startedAt - pausedMs >= 0)
     assert.equal(f.fake.provider.requests.length, 1)
     const settled = f.events.findLast((event) => event.type === 'agent_settled')
@@ -252,6 +287,8 @@ test('恢复后的同一运行保留起点，完成快照带真实终点并排�
     assert.deepEqual(restored.runIntervals, completed.runIntervals)
     assert.deepEqual(restored.pauseIntervals, completed.pauseIntervals)
   } finally {
+    finished.resolve()
+    clock?.mockRestore()
     await f.dispose()
   }
 })

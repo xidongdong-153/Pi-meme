@@ -24,8 +24,10 @@ function fixture(
 ) {
   const prompt = vi.fn().mockResolvedValue(undefined)
   const editAndPrompt = vi.fn<ChatBridge['editAndPrompt']>().mockResolvedValue({ recoveredInputs: [] })
+  const continueStopped = vi.fn<ChatBridge['continueStopped']>().mockResolvedValue(undefined)
   const bridge = {
     editAndPrompt,
+    continueStopped,
     prompt,
     followUp: vi.fn().mockResolvedValue(undefined),
     uploadAttachment: vi.fn(),
@@ -81,6 +83,7 @@ function fixture(
     ...hook,
     prompt,
     editAndPrompt,
+    continueStopped,
     rerender: (patch: Partial<typeof props>) => {
       props = { ...props, ...patch }
       hook.rerender(props)
@@ -645,9 +648,9 @@ test('运行中编辑经过 edit-message 处理器，阻止时不调用覆盖接
   expect(result.current.chat.draft).toBe('旧消息')
 })
 
-test('按新配置重试沿用同一发送前处理器和原生消息目标', async () => {
+test('继续停止任务使用所选配置，保留草稿且不调用历史编辑处理器', async () => {
   const process = vi.fn(() => ({ kind: 'pass' as const }))
-  const { result, editAndPrompt } = fixture(
+  const { result, editAndPrompt, continueStopped } = fixture(
     [{ id: 'edit', title: '编辑检查', pluginId: 'plugin', generation: 1, intents: ['edit-message'], process }],
     { hostId: 'host', sessionId: 'session' } as PluginComposerOptions['session'],
   )
@@ -661,12 +664,15 @@ test('按新配置重试沿用同一发送前处理器和原生消息目标', as
         sourceEntry: { id: 'user-entry', type: 'message', revision: '1' },
       },
     })
+    result.current.chat.applyEvent({ type: 'stop_update', stopped: true })
     result.current.chat.setDraft('保留草稿')
     result.current.chat.updateConfiguration({ thinkingLevel: 'high' })
   })
   await act(async () => result.current.chat.resume())
-  expect(editAndPrompt).toHaveBeenCalledTimes(1)
-  expect(process).toHaveBeenCalledTimes(1)
+  expect(continueStopped).toHaveBeenCalledTimes(1)
+  expect(continueStopped).toHaveBeenCalledWith('runtime', { thinkingLevel: 'high' })
+  expect(editAndPrompt).not.toHaveBeenCalled()
+  expect(process).not.toHaveBeenCalled()
   expect(result.current.chat.draft).toBe('保留草稿')
 })
 

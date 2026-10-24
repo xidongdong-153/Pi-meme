@@ -2253,12 +2253,18 @@ export class SdkSession {
 
   private persistTaskControl() {
     if (this.status !== 'ready' || !this.runtime) return
-    this.session.sessionManager.appendCustomEntry(SdkSession.controlEntry, {
+    const data = {
       stopped: this.stopped,
       steering: this.ownQueue.steering,
       followUp: this.ownQueue.followUp,
       delivering: this.delivering,
-    })
+    }
+    const checkpoint = this.session.sessionManager
+      .getBranch()
+      .findLast((entry) => entry.type === 'custom' && entry.customType === SdkSession.controlEntry)
+    const previous = checkpoint?.type === 'custom' ? checkpoint.data : { stopped: false, steering: [], followUp: [] }
+    if (JSON.stringify(data) === JSON.stringify(previous)) return
+    this.session.sessionManager.appendCustomEntry(SdkSession.controlEntry, structuredClone(data))
   }
 
   continueStopped(options?: import('@pi-meme/contracts/plan').MessageConfiguration) {
