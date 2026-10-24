@@ -121,7 +121,7 @@ const descriptions = {
   list_agent_models:
     "List currently configured and available models (provider, id, name), thinking levels, and the caller's current model and thinking level. Does not return credentials. Query before applying user-requested overrides; do not guess model identifiers.",
   send_message:
-    'Send progress, questions, corrections, or acceptance feedback within the same agent tree. A task waiting for feedback may resume in its existing run and session; a terminal task only stores the message and is not restarted. Delivery does not mean read, accepted, or answered. In Plan mode, you cannot message an active agent running in default mode.',
+    '向同一 Agent 树发送进度、问题、修正或验收反馈。等待反馈的任务可在原运行和会话中继续。接收方属于其他任务轮次或已经结束时，消息只存入历史，deliveryState 为 history_only，不进入当前模型上下文。消息已保存不代表已读、接受或答复。Plan 模式不能向正在 default 模式运行的 Agent 发消息。',
   followup_task:
     "Assign a new task to an existing descendant of the calling agent. Reuse its identity and conversation file, but start a new run with the caller's current model, reasoning level, access mode, and task mode. If active, queue the task until its current run ends. Use send_message for feedback or revisions within the current task. Override model / thinking_level only when explicitly requested by the user; omitted fields inherit the caller's current values, not the child's previous overrides. Queued tasks retain settings captured at submission.",
   interrupt_agent:
@@ -129,7 +129,7 @@ const descriptions = {
   list_agents:
     'Inspect identities, execution states, and available reports in the current agent tree. Optionally filter full task paths by a literal prefix. This snapshot query does not consume or acknowledge mailbox messages.',
   wait_agent:
-    'Wait for feedback from selected agents in the same tree, including your parent or the root; never target yourself. Ancestors wake the wait only through messages; other targets may also wake it when the watched run ends. Omit targets to watch other active agents and senders with unread messages. timeout_ms defaults to 30000; 0 checks immediately. Returned messages are acknowledged after the tool result is recorded in the session. notifiedBy identifies senders whose messages are being delivered separately; do not request duplicate delivery. A timeout does not finish the task or release its active slot; wait again when more feedback is required.',
+    '等待同一 Agent 树中指定目标的反馈；可指定父 Agent 或根 Agent，不能等待自己。当前任务的失败、中断或清理事件即使来自 targets 之外也会唤醒等待；继续前检查 wakeReason 和 messages。祖先只通过消息唤醒。省略 targets 时等待其他活动 Agent 和未读消息的发送者。timeout_ms 默认 30000，设为 0 可立即检查。工具结果写入会话后才确认消息。notifiedBy 表示消息正在单独投递的发送者，不要重复请求。超时不会完成任务或释放活动名额；仍需反馈时继续等待。',
   finish_agent:
     'Child agents only. Submit the final report when the entire delegated task is complete and any required review is accepted. Resolve unread feedback and finish all descendant work, including queued tasks, first. Use send_message and wait_agent for interim work. Acceptance records completion intent: end your turn so the Host can publish the final result to your parent. New feedback before the run settles cancels completion; address it and call finish_agent again.',
 }
@@ -144,6 +144,7 @@ export function create(context: CollaborationExtensionContext): InlineExtension[
             'Use send_message for progress, review requests, corrections, and acceptance within the same task. Use wait_agent to receive feedback and continue. Use followup_task only for a new task on an existing descendant.',
             'A normal reply does not complete a child task. Satisfy the delegated criteria, obtain acceptance only when review is required, resolve unread feedback, and finish descendant work before calling finish_agent and ending the turn.',
             'Review interim feedback and terminal results; request corrections when needed. Distinguish success from failure or interruption. A returned result is not automatic acceptance. The root must account for delegated work before presenting the final outcome.',
+            '子 Agent 失败时检查报告和清理状态。清理运行中或受阻时不要重启受影响的任务。旧任务轮次的消息属于历史，不能作为当前任务的指令。',
           ].join('\n')
         })
         for (const name of Object.keys(schemas) as Array<keyof typeof schemas>) {

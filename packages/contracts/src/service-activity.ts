@@ -1,5 +1,6 @@
 import type { AgentAccessMode } from './agent-access'
 import type { EventCursor, SessionRef } from './app-host'
+import type { AgentRunRef } from './collaboration'
 
 export type ServiceActivityStatus = 'starting' | 'running' | 'stopping' | 'stopped' | 'exited' | 'failed'
 export type ServiceActivity = SessionRef & {
@@ -8,6 +9,7 @@ export type ServiceActivity = SessionRef & {
   command: string
   cwd: string
   sourceAgentId?: string
+  sourceRun?: AgentRunRef
   sourceName: string
   accessMode: AgentAccessMode
   status: ServiceActivityStatus

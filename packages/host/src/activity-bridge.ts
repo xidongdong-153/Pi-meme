@@ -72,6 +72,14 @@ export function createActivityBridge(options: Options) {
               agentDir: options.agentDir,
               accessMode: current.accessMode,
               sourceAgentId: current.depth === 0 ? undefined : current.agentId,
+              sourceRun: current.runId
+                ? {
+                    agentId: current.agentId,
+                    rootTaskId: current.rootTaskId,
+                    epoch: current.epoch,
+                    runId: current.runId,
+                  }
+                : undefined,
               sourceName: current.depth === 0 ? '主 Agent' : current.name,
             },
             request,

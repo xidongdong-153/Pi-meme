@@ -67,6 +67,13 @@ export type AgentExecution = AgentIdentity & {
   epoch: number
   executionGeneration: number
 }
+export type AgentRunRef = { agentId: string; rootTaskId: string; epoch: number; runId: string }
+export type AgentCleanup = {
+  state: 'running' | 'completed' | 'blocked'
+  causeId: string
+  revision: number
+  error?: string
+}
 export type AgentConversationOrigin = {
   parentAgentId: string
   inheritedLeafId: string | null
@@ -86,6 +93,7 @@ export type AgentSummary = AgentExecution & {
   task?: string
   report?: string
   error?: string
+  cleanup?: AgentCleanup
   updatedAt: string
   runStartedAt?: string
   runCompletedAt?: string
@@ -99,7 +107,10 @@ export type AgentMailboxMessage = {
   rootTaskId: string
   epoch: number
   runId?: string
-  kind: 'message' | 'result'
+  toRunId?: string
+  historyOnly?: boolean
+  causeId?: string
+  kind: 'message' | 'result' | 'cleanup'
   name?: string
   avatar?: AgentAvatarScene
   status?: AgentStatus
@@ -129,7 +140,7 @@ export type CollaborationRequests = {
 }
 export type CollaborationResults = {
   spawn_agent: AgentSummary
-  send_message: { messageId: string; delivered: boolean }
+  send_message: { messageId: string; delivered: boolean; deliveryState?: 'pending' | 'persisted' | 'history_only' }
   followup_task: { agent: AgentSummary; queued: boolean }
   interrupt_agent: { agent: AgentSummary; previousStatus: AgentStatus }
   list_agents: { agents: AgentSummary[] }
@@ -138,7 +149,13 @@ export type CollaborationResults = {
     thinkingLevels: ThinkingLevel[]
     current: { model?: PiModel; thinkingLevel?: ThinkingLevel }
   }
-  wait_agent: { agents: AgentSummary[]; messages: AgentMailboxMessage[]; notifiedBy?: string[]; timedOut: boolean }
+  wait_agent: {
+    agents: AgentSummary[]
+    messages: AgentMailboxMessage[]
+    notifiedBy?: string[]
+    timedOut: boolean
+    wakeReason?: 'critical' | 'cleanup' | 'result' | 'message' | 'user_steering' | 'timeout'
+  }
   finish_agent: { accepted: true }
 }
 export type CollaborationMethod = keyof CollaborationRequests

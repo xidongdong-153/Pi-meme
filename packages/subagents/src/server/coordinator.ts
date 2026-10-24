@@ -10,6 +10,7 @@ import {
   type AgentSummary,
   type AgentModelSelection,
   type AgentMailboxMessage,
+  type AgentRunRef,
   type CollaborationRequest,
   type CollaborationResults,
   type PendingInteraction,
@@ -42,12 +43,21 @@ type RootBinding = {
   session: RuntimeSdkSession
 }
 type RunPolicy = Pick<AgentSummary, 'mode' | 'accessMode' | 'model' | 'thinkingLevel'>
+type QueuedTask = {
+  message: string
+  rootTaskId: string
+  epoch: number
+  policy: RunPolicy
+  runId: string
+  delegation?: AgentRunRef[]
+}
 type Record = {
   summary: AgentSummary
+  delegation?: AgentRunRef[]
   session?: RuntimeSdkSession
   mailbox: AgentMailboxMessage[]
   consumed: string[]
-  queued: Array<{ message: string; rootTaskId: string; epoch: number; policy: RunPolicy; runId: string }>
+  queued: QueuedTask[]
   interactions: PendingInteraction[]
   sequence: number
   events?: DesktopEvent[]
@@ -59,10 +69,12 @@ type Record = {
   pauseRequested?: boolean
   pauseRevision?: number
   pauseApplied?: boolean
-  pendingStart?: { message: string; rootTaskId: string; epoch: number; policy: RunPolicy; runId: string }
+  pendingStart?: QueuedTask
   draining?: boolean
   nextMode?: TaskMode
   replies?: Array<{ id: string; result: CollaborationResults[keyof CollaborationResults] }>
+  lastAssistant?: { text: string; error?: string }
+  cleaning?: boolean
 }
 export type HostCollaborationOptions = {
   dataRoot: string
@@ -70,6 +82,7 @@ export type HostCollaborationOptions = {
   collaborationPlansFile?: string
   plansDataDirectory?: string
   assertCheckoutAvailable?: (cwd: string) => void
+  stopServicesForRun?: (run: AgentRunRef) => Promise<void>
   createSession: (
     cwd: string,
     notify: ConstructorParameters<typeof import('@pi-meme/pi-runtime/sdk/session').SdkSession>[1],
@@ -84,12 +97,36 @@ export function createHostCollaborationBridge(options: Options) {
   return new HostCollaborationBridge(options)
 }
 export class HostCollaborationBridge {
+  private runRef(record: Record): AgentRunRef | undefined {
+    const { agentId, rootTaskId, epoch, runId } = record.summary
+    return runId ? { agentId, rootTaskId, epoch, runId } : undefined
+  }
+  private sameRun(record: Record, ref: AgentRunRef | undefined) {
+    return Boolean(
+      ref &&
+      record.summary.agentId === ref.agentId &&
+      record.summary.rootTaskId === ref.rootTaskId &&
+      record.summary.epoch === ref.epoch &&
+      record.summary.runId === ref.runId,
+    )
+  }
+  private delegationFrom(caller: Record): AgentRunRef[] {
+    const owner = this.runRef(caller)
+    if (!owner) throw new Error('委派方没有活动运行')
+    return [owner, ...(caller.delegation ?? [])]
+  }
+  private busy(record: Record) {
+    return (
+      activeStatuses.has(record.summary.status) ||
+      record.cleaning === true ||
+      (record.summary.cleanup !== undefined && record.summary.cleanup.state !== 'completed')
+    )
+  }
   assertCheckoutIdle(matches: (cwd: string) => boolean) {
     if (
       [...this.records.values()].some(
         (record) =>
-          matches(record.summary.cwd) &&
-          (activeStatuses.has(record.summary.status) || record.queued.length || record.interactions.length),
+          matches(record.summary.cwd) && (this.busy(record) || record.queued.length || record.interactions.length),
       )
     )
       throw new Error('此工作目录仍有运行中的子任务或待答交互，请先结束任务')
@@ -135,6 +172,8 @@ export class HostCollaborationBridge {
       const { roots, plans } = await loadCollaborationPartitions(this.rootsDirectory, this.plansFile)
       this.plans = plans
       const interruptedRoots = new Set<string>()
+      const interruptedRecords: Record[] = []
+      const blockedCleanups: Record[] = []
       for (const partition of roots.values()) {
         for (const record of partition.records ?? []) {
           const loadedRecord: Record = {
@@ -149,8 +188,21 @@ export class HostCollaborationBridge {
           if (activeStatuses.has(loadedRecord.summary.status)) {
             loadedRecord.summary.status = 'interrupted'
             loadedRecord.summary.error = 'Host 已重启，任务未自动恢复'
+            loadedRecord.summary.report ??= loadedRecord.completion?.report
             loadedRecord.summary.runCompletedAt = new Date().toISOString()
+            loadedRecord.queued = []
+            interruptedRecords.push(loadedRecord)
             interruptedRoots.add(partition.rootAgentId)
+          }
+          if (loadedRecord.summary.cleanup?.state === 'running') {
+            loadedRecord.summary.cleanup = {
+              ...loadedRecord.summary.cleanup,
+              state: 'blocked',
+              error: 'Host 重启，清理结果无法确认',
+              revision: loadedRecord.summary.cleanup.revision + 1,
+            }
+            interruptedRoots.add(partition.rootAgentId)
+            blockedCleanups.push(loadedRecord)
           }
           loadedRecord.summary.isPaused = false
           this.records.set(loadedRecord.summary.agentId, loadedRecord)
@@ -159,6 +211,8 @@ export class HostCollaborationBridge {
       }
       if (interruptedRoots.size > 0) {
         await this.persist([...interruptedRoots])
+        for (const record of interruptedRecords) await this.publishResult(record)
+        for (const record of blockedCleanups) await this.publishCleanup(record)
       }
     } catch (cause) {
       if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw cause
@@ -184,7 +238,7 @@ export class HostCollaborationBridge {
       const root = treeRecords.find((r) => r.summary.depth === 0)
       // 同步序列化冻结当前状态快照，防止后续异步执行期间内存对象被修改
       const partition: CollaborationRootPartition = {
-        version: 1,
+        version: 2,
         rootAgentId,
         rootSessionKey: root?.summary.rootSessionKey ?? treeRecords[0]?.summary.rootSessionKey ?? '',
         records: treeRecords.map(
@@ -197,6 +251,7 @@ export class HostCollaborationBridge {
             draining: _draining,
             waitingMessages: _waitingMessages,
             delivering: _delivering,
+            cleaning: _cleaning,
             events: _events,
             ...record
           }) => structuredClone({ ...record, summary: { ...record.summary, isPaused: undefined } }),
@@ -548,7 +603,15 @@ export class HostCollaborationBridge {
           this.changed(record)
           return
         }
-        await this.start(record, pending.message, pending.rootTaskId, pending.epoch, pending.policy, pending.runId)
+        await this.start(
+          record,
+          pending.message,
+          pending.rootTaskId,
+          pending.epoch,
+          pending.policy,
+          pending.runId,
+          pending.delegation,
+        )
       } else if (!activeStatuses.has(record.summary.status)) await this.startQueued(record)
       if (this.paused(record)) return
       await this.deliver(record)
@@ -565,6 +628,8 @@ export class HostCollaborationBridge {
     await this.ready
     const root = this.root(sessionKey)
     if (this.stopping) throw new Error('Host 正在停止')
+    if (root.cleaning || (root.summary.cleanup && root.summary.cleanup.state !== 'completed'))
+      throw new Error('子树清理尚未完成，不能开始新任务')
     this.userSteering.delete(root)
     root.waitingMessages = undefined
     root.delivering = undefined
@@ -581,6 +646,7 @@ export class HostCollaborationBridge {
       runCompletedAt: undefined,
       report: undefined,
       error: undefined,
+      cleanup: undefined,
     })
     await this.persist(root)
     this.changed(root)
@@ -607,6 +673,8 @@ export class HostCollaborationBridge {
     if (!root || root.session !== actualSession || root.summary.depth !== 0 || signal?.aborted)
       throw new Error('恢复请求必须来自已绑定的根会话')
     if (this.stopping || this.paused(root)) throw new Error('当前任务已暂停或正在结束')
+    if (root.cleaning || (root.summary.cleanup && root.summary.cleanup.state !== 'completed'))
+      throw new Error('子树清理尚未完成，不能恢复根任务')
     const restarted = root.summary.status === 'interrupted' && root.summary.error === 'Host 已重启，任务未自动恢复'
     if (!restarted && !['idle', 'completed', 'failed', 'waiting_children', 'stopped'].includes(root.summary.status))
       throw new Error('当前任务不能恢复，请重新读取会话状态')
@@ -625,11 +693,27 @@ export class HostCollaborationBridge {
   async rootFailed(sessionKey: string, cause: unknown, runId?: string) {
     const root = this.root(sessionKey)
     if ((runId && root.summary.runId !== runId) || ['stopped', 'interrupted'].includes(root.summary.status)) return
+    if (root.summary.status === 'failed') return
     root.summary.status = 'failed'
     root.summary.error = String(cause)
     root.summary.runCompletedAt = new Date().toISOString()
+    root.summary.cleanup = {
+      state: 'running',
+      causeId: `result:${root.summary.agentId}:${root.summary.runId}`,
+      revision: 0,
+    }
     await this.persist(root)
     this.changed(root)
+    const failedRun = this.runRef(root)
+    void this.cleanupFailed(root).catch((error: unknown) => {
+      const cleanup = root.summary.cleanup
+      if (!this.sameRun(root, failedRun) || !cleanup) return
+      root.summary.cleanup = { ...cleanup, state: 'blocked', error: String(error), revision: cleanup.revision + 1 }
+      this.changed(root)
+      void this.persist(root)
+        .then(() => this.publishCleanup(root))
+        .catch(() => {})
+    })
   }
   async rootSettled(sessionKey: string, event?: { aborted?: boolean; runId?: string }) {
     const root = this.root(sessionKey)
@@ -674,14 +758,19 @@ export class HostCollaborationBridge {
     if (!completion && (!root.settled || root.summary.status !== 'completed')) return false
     return (
       !this.paused(root) &&
+      !root.cleaning &&
+      (!root.summary.cleanup || root.summary.cleanup.state === 'completed') &&
       !this.tree(root).some(
         (record) =>
           record.interactions.length ||
           record.queued.length ||
           record.pendingStart ||
           record.draining ||
-          (record !== root && activeStatuses.has(record.summary.status)) ||
-          this.pending(record).some((message) => message.kind === 'result'),
+          (record !== root &&
+            this.busy(record) &&
+            record.summary.rootTaskId === root.summary.rootTaskId &&
+            record.summary.epoch === root.summary.epoch) ||
+          this.pending(record).some((message) => message.kind === 'result' || message.kind === 'cleanup'),
       )
     )
   }
@@ -708,10 +797,7 @@ export class HostCollaborationBridge {
   private capacity(caller: Record, reserved?: Record) {
     if (
       this.tree(caller).filter(
-        (entry) =>
-          entry !== reserved &&
-          entry.summary.depth > 0 &&
-          (activeStatuses.has(entry.summary.status) || entry.queued.length > 0),
+        (entry) => entry !== reserved && entry.summary.depth > 0 && (this.busy(entry) || entry.queued.length > 0),
       ).length >= collaborationLimits.activeChildren
     )
       throw new Error('已有 4 个活动子 Agent，请等待任务完成后再启动')
@@ -784,7 +870,9 @@ export class HostCollaborationBridge {
       if (
         this.tree(caller).some(
           (entry) =>
-            this.descendant(caller, entry) && (activeStatuses.has(entry.summary.status) || entry.queued.length),
+            this.descendant(caller, entry) &&
+            entry.delegation?.some((ref) => this.sameRun(caller, ref)) &&
+            (this.busy(entry) || entry.queued.length),
         ) ||
         this.pending(caller).length
       )
@@ -855,7 +943,15 @@ export class HostCollaborationBridge {
           }
         }
         assertCurrent()
-        await this.start(child, message, admitted.rootTaskId, admitted.epoch, policy)
+        await this.start(
+          child,
+          message,
+          admitted.rootTaskId,
+          admitted.epoch,
+          policy,
+          undefined,
+          this.delegationFrom(caller),
+        )
         return { ...child.summary }
       } catch (cause) {
         this.records.delete(agentId)
@@ -882,13 +978,15 @@ export class HostCollaborationBridge {
       if (!request.params.message.trim()) throw new Error('任务不能为空')
       const policy = await this.policy(caller, request.params)
       assertCurrent()
-      if (activeStatuses.has(target.summary.status)) {
+      if (this.busy(target)) {
+        if (!activeStatuses.has(target.summary.status)) throw new Error('目标 Agent 尚未完成清理')
         target.queued.push({
           message: request.params.message,
           rootTaskId: caller.summary.rootTaskId,
           epoch: caller.summary.epoch,
           policy,
           runId: randomUUID(),
+          delegation: this.delegationFrom(caller),
         })
         await this.persist([caller.summary.rootAgentId, target.summary.rootAgentId])
         return { agent: { ...target.summary }, queued: true }
@@ -896,7 +994,15 @@ export class HostCollaborationBridge {
       this.capacity(caller)
       const previous = { ...target.summary }
       try {
-        await this.start(target, request.params.message, caller.summary.rootTaskId, caller.summary.epoch, policy)
+        await this.start(
+          target,
+          request.params.message,
+          caller.summary.rootTaskId,
+          caller.summary.epoch,
+          policy,
+          undefined,
+          this.delegationFrom(caller),
+        )
       } catch (cause) {
         const generation = target.summary.executionGeneration
         if (activeStatuses.has(target.summary.status)) target.summary = { ...previous, executionGeneration: generation }
@@ -934,8 +1040,12 @@ export class HostCollaborationBridge {
     epoch: number,
     policy: RunPolicy,
     scheduledRunId?: string,
+    delegation?: AgentRunRef[],
+    allowCleaning = false,
   ) {
     if (this.stopping) throw new Error('Host 正在停止')
+    if ((record.cleaning && !allowCleaning) || (record.summary.cleanup && record.summary.cleanup.state !== 'completed'))
+      throw new Error('目标 Agent 尚未完成清理')
     this.options.assertCheckoutAvailable?.(record.summary.cwd)
     const replaceWorker =
       record.session && (record.summary.mode !== policy.mode || record.summary.accessMode !== policy.accessMode)
@@ -944,12 +1054,14 @@ export class HostCollaborationBridge {
       if (this.stopping || record.summary.runId !== runId || !['starting', 'running'].includes(record.summary.status))
         throw new Error('子 Agent 启动已取消或轮次更换')
     }
-    const task = { message, rootTaskId, epoch, policy, runId }
+    const task = { message, rootTaskId, epoch, policy, runId, delegation }
     this.userSteering.delete(record)
     record.completion = undefined
     record.feedbackSent = false
     record.waitingMessages = undefined
     record.delivering = undefined
+    record.lastAssistant = undefined
+    record.delegation = delegation
     Object.assign(record.summary, {
       rootTaskId,
       epoch,
@@ -958,6 +1070,7 @@ export class HostCollaborationBridge {
       task: message,
       report: undefined,
       error: undefined,
+      cleanup: undefined,
       runStartedAt: new Date().toISOString(),
       runCompletedAt: undefined,
     })
@@ -1099,6 +1212,12 @@ export class HostCollaborationBridge {
   private event(record: Record, event: DesktopEvent) {
     const current = event.event
     const previousStatus = record.summary.status
+    if (current.type === 'message_end' && current.message.role === 'assistant') {
+      record.lastAssistant = {
+        text: current.message.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('\n'),
+        error: current.message.stopReason === 'error' ? current.message.errorMessage || '模型请求失败' : undefined,
+      }
+    }
     this.acknowledge(record, current)
     this.observeSteering(record, current)
     if (
@@ -1176,17 +1295,22 @@ export class HostCollaborationBridge {
     if (record.settled) return
     record.settled = true
     record.waitingMessages = undefined
-    const snapshot = await record.session!.snapshot().catch((cause: unknown) => {
-      record.summary.error = String(cause)
-      return { messages: [] }
-    })
+    const snapshot =
+      record.lastAssistant || record.completion || record.session?.connection().status === 'disconnected'
+        ? { messages: [] as Snapshot['messages'] }
+        : await record.session!.snapshot().catch((cause: unknown) => {
+            record.summary.error = String(cause)
+            return { messages: [] as Snapshot['messages'] }
+          })
     if (runId !== record.summary.runId || !activeStatuses.has(record.summary.status)) return
     record.settled = true
     record.summary.sessionFile = record.session!.getActiveSession().sessionFile
     record.summary.sessionId = record.session!.getActiveSession().sessionId
     const last = snapshot.messages.filter((message) => message.role === 'assistant').at(-1)
+    if (!aborted && record.lastAssistant?.error) record.summary.error = record.lastAssistant.error
     const report =
       record.completion?.report ??
+      record.lastAssistant?.text ??
       (last?.role === 'assistant'
         ? last.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])).join('\n')
         : '')
@@ -1196,7 +1320,9 @@ export class HostCollaborationBridge {
       (!record.completion ||
         this.tree(record).some(
           (entry) =>
-            this.descendant(record, entry) && (activeStatuses.has(entry.summary.status) || entry.queued.length > 0),
+            this.descendant(record, entry) &&
+            entry.delegation?.some((ref) => this.sameRun(record, ref)) &&
+            (this.busy(entry) || entry.queued.length > 0),
         ) ||
         this.pending(record).length > 0)
     ) {
@@ -1213,45 +1339,248 @@ export class HostCollaborationBridge {
       report,
       runCompletedAt: new Date().toISOString(),
     })
-    const parent = this.records.get(record.summary.parentAgentId ?? '')
-    let result: AgentMailboxMessage | undefined
-    if (parent) {
-      const id = `result:${record.summary.agentId}:${runId}`
-      if (!parent.mailbox.some((message) => message.id === id) && !parent.consumed.includes(id)) {
-        result = {
-          id,
-          fromAgentId: record.summary.agentId,
-          toAgentId: parent.summary.agentId,
-          rootTaskId: record.summary.rootTaskId,
-          epoch: record.summary.epoch,
-          runId,
-          kind: 'result',
-          name: record.summary.name,
-          avatar: record.summary.avatar,
-          status: record.summary.status,
-          startedAt: record.summary.runStartedAt,
-          completedAt: record.summary.runCompletedAt,
-          text: [record.summary.error, report].filter(Boolean).join('\n\n') || '子 Agent 已结束，未返回正文',
-          createdAt: new Date().toISOString(),
-        }
-        parent.mailbox.push(result)
-      }
+    if (record.summary.status === 'failed')
+      record.summary.cleanup = { state: 'running', causeId: `result:${record.summary.agentId}:${runId}`, revision: 0 }
+    await this.publishResult(record)
+    if (record.summary.status === 'completed') await this.startQueued(record)
+    else {
+      if (record.summary.status === 'failed') {
+        const failedRun = this.runRef(record)
+        void this.cleanupFailed(record).catch((cause: unknown) => {
+          const cleanup = record.summary.cleanup
+          if (!this.sameRun(record, failedRun) || !cleanup) return
+          record.summary.cleanup = {
+            ...cleanup,
+            state: 'blocked',
+            error: String(cause),
+            revision: cleanup.revision + 1,
+          }
+          this.changed(record)
+          void this.persist(record)
+            .then(() => this.publishCleanup(record))
+            .catch(() => {})
+        })
+      } else record.queued = []
     }
-    await this.persist(parent ? [record.summary.rootAgentId, parent.summary.rootAgentId] : record)
-    if (parent && result) this.emit(parent, { type: 'agent_mailbox', message: result })
-    this.changed(record)
-    if (parent) {
-      try {
-        await this.deliver(parent)
-        await this.summarize(parent)
-      } catch (cause) {
-        parent.summary.error = String(cause)
-        this.changed(parent)
-      }
-    }
-    await this.startQueued(record)
   }
-  private async startQueued(record: Record) {
+  private async cleanupFailed(record: Record) {
+    record.cleaning = true
+    try {
+      await this.performFailedCleanup(record)
+    } finally {
+      record.cleaning = false
+    }
+  }
+  private async performFailedCleanup(record: Record) {
+    const failedRun = this.runRef(record)
+    if (!failedRun) return
+    const affected = this.tree(record).filter(
+      (entry) =>
+        this.sameRun(entry, failedRun) ||
+        entry.delegation?.some(
+          (ref) =>
+            ref.agentId === failedRun.agentId &&
+            ref.runId === failedRun.runId &&
+            ref.rootTaskId === failedRun.rootTaskId &&
+            ref.epoch === failedRun.epoch,
+        ),
+    )
+    const cancelled: Record[] = []
+    const queueNotifications: Array<{ target: Record; message: AgentMailboxMessage }> = []
+    for (const entry of affected.reverse()) {
+      const cancelledTasks = entry.queued.filter(
+        (task) =>
+          task.delegation?.some(
+            (ref) =>
+              ref.agentId === failedRun.agentId &&
+              ref.runId === failedRun.runId &&
+              ref.rootTaskId === failedRun.rootTaskId &&
+              ref.epoch === failedRun.epoch,
+          ) ||
+          (task.rootTaskId === failedRun.rootTaskId && task.epoch === failedRun.epoch),
+      )
+      for (const task of cancelledTasks) {
+        for (const route of [task.delegation?.[0], task.delegation?.at(-1)]) {
+          if (
+            !route ||
+            queueNotifications.some(
+              ({ target, message }) => target.summary.agentId === route.agentId && message.runId === task.runId,
+            )
+          )
+            continue
+          const target = this.records.get(route.agentId)
+          if (!target) continue
+          const id = `result:${entry.summary.agentId}:${task.runId}`
+          if (target.mailbox.some((message) => message.id === id) || target.consumed.includes(id)) continue
+          const message: AgentMailboxMessage = {
+            id,
+            fromAgentId: entry.summary.agentId,
+            toAgentId: target.summary.agentId,
+            rootTaskId: task.rootTaskId,
+            epoch: task.epoch,
+            runId: task.runId,
+            toRunId: route.runId,
+            historyOnly: !this.sameRun(target, route),
+            causeId: record.summary.cleanup!.causeId,
+            kind: 'result',
+            status: 'interrupted',
+            text: '前置运行失败，排队任务已取消',
+            createdAt: new Date().toISOString(),
+          }
+          target.mailbox.push(message)
+          queueNotifications.push({ target, message })
+        }
+      }
+      entry.queued = entry.queued.filter((task) => !cancelledTasks.includes(task))
+      entry.pendingStart = undefined
+      entry.waitingMessages = undefined
+      entry.delivering = undefined
+      entry.interactions = []
+      if (entry !== record && activeStatuses.has(entry.summary.status)) {
+        entry.summary.status = 'interrupted'
+        entry.summary.error = '上级任务失败，当前运行已取消'
+        entry.summary.runCompletedAt = new Date().toISOString()
+        cancelled.push(entry)
+      }
+    }
+    await this.persist(record)
+    this.changed(record)
+    for (const { target, message } of queueNotifications) {
+      this.emit(target, { type: 'agent_mailbox', message })
+      if (!message.historyOnly) {
+        await this.deliver(target)
+        await this.summarize(target)
+      }
+    }
+    for (const entry of cancelled) await this.publishResult(entry)
+    const stop = affected.map(async (entry) => {
+      const run = this.runRef(entry)
+      await Promise.all([
+        entry.summary.depth > 0 ? entry.session?.stopAndWait() : undefined,
+        run && this.options.stopServicesForRun?.(run),
+      ])
+      if (entry.summary.depth > 0 && this.sameRun(entry, run) && entry.session) {
+        this.callers.delete(entry.session)
+        entry.session = undefined
+      }
+    })
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error('子树清理超过 10 秒')), 10000)
+    })
+    try {
+      await Promise.race([Promise.all(stop), timeout])
+      if (!this.sameRun(record, failedRun)) return
+      record.summary.cleanup = {
+        ...record.summary.cleanup!,
+        state: 'completed',
+        revision: record.summary.cleanup!.revision + 1,
+      }
+    } catch (cause) {
+      record.summary.cleanup = {
+        ...record.summary.cleanup!,
+        state: 'blocked',
+        error: String(cause),
+        revision: record.summary.cleanup!.revision + 1,
+      }
+    } finally {
+      clearTimeout(timer)
+    }
+    await this.persist(record)
+    this.changed(record)
+    await this.publishCleanup(record)
+    if (record.summary.cleanup?.state === 'completed')
+      for (const entry of affected) if (entry.queued.length) await this.startQueued(entry, true)
+  }
+  private async publishCleanup(record: Record) {
+    const cleanup = record.summary.cleanup
+    if (!cleanup || !record.summary.runId) return
+    const notifications: Array<{ target: Record; message: AgentMailboxMessage }> = []
+    for (const route of [record.delegation?.[0], record.delegation?.at(-1)]) {
+      if (!route || notifications.some(({ target }) => target.summary.agentId === route.agentId)) continue
+      const target = this.records.get(route.agentId)
+      if (!target) continue
+      const message: AgentMailboxMessage = {
+        id: `cleanup:${record.summary.agentId}:${record.summary.runId}:${cleanup.revision}`,
+        fromAgentId: record.summary.agentId,
+        toAgentId: target.summary.agentId,
+        rootTaskId: record.summary.rootTaskId,
+        epoch: record.summary.epoch,
+        runId: record.summary.runId,
+        toRunId: route.runId,
+        historyOnly: !this.sameRun(target, route),
+        causeId: cleanup.causeId,
+        kind: 'cleanup',
+        status: cleanup.state === 'blocked' ? 'failed' : 'completed',
+        text: cleanup.state === 'blocked' ? `子树清理受阻：${cleanup.error ?? '资源状态无法确认'}` : '子树清理完成',
+        createdAt: new Date().toISOString(),
+      }
+      if (target.mailbox.some((item) => item.id === message.id)) continue
+      target.mailbox.push(message)
+      notifications.push({ target, message })
+    }
+    await this.persist(record)
+    for (const { target, message } of notifications) {
+      this.emit(target, { type: 'agent_mailbox', message })
+      if (message.historyOnly) continue
+      await this.deliver(target)
+      await this.summarize(target)
+    }
+  }
+  private async publishResult(record: Record) {
+    const runId = record.summary.runId
+    if (!runId) return
+    const critical = record.summary.status === 'failed' || record.summary.status === 'interrupted'
+    const routes = critical ? [record.delegation?.[0], record.delegation?.at(-1)] : [record.delegation?.[0]]
+    const notifications: Array<{ target: Record; message: AgentMailboxMessage }> = []
+    for (const route of routes) {
+      if (
+        !route ||
+        route.agentId === record.summary.agentId ||
+        notifications.some(({ target }) => target.summary.agentId === route.agentId)
+      )
+        continue
+      const target = this.records.get(route.agentId)
+      if (!target) continue
+      const id = `result:${record.summary.agentId}:${runId}`
+      if (target.mailbox.some((message) => message.id === id) || target.consumed.includes(id)) continue
+      const message: AgentMailboxMessage = {
+        id,
+        fromAgentId: record.summary.agentId,
+        toAgentId: target.summary.agentId,
+        rootTaskId: record.summary.rootTaskId,
+        epoch: record.summary.epoch,
+        runId,
+        toRunId: route.runId,
+        historyOnly: !this.sameRun(target, route),
+        kind: 'result',
+        name: record.summary.name,
+        avatar: record.summary.avatar,
+        status: record.summary.status,
+        startedAt: record.summary.runStartedAt,
+        completedAt: record.summary.runCompletedAt,
+        text:
+          [record.summary.error, record.summary.report].filter(Boolean).join('\n\n') || '子 Agent 已结束，未返回正文',
+        createdAt: new Date().toISOString(),
+      }
+      target.mailbox.push(message)
+      notifications.push({ target, message })
+    }
+    await this.persist(record)
+    this.changed(record)
+    for (const { target, message } of notifications) {
+      this.emit(target, { type: 'agent_mailbox', message })
+      if (message.historyOnly) continue
+      try {
+        await this.deliver(target)
+        await this.summarize(target)
+      } catch (cause) {
+        target.summary.error = String(cause)
+        this.changed(target)
+      }
+    }
+  }
+  private async startQueued(record: Record, allowCleaning = false) {
     if (this.paused(record) || this.stopping) return
     let next = record.queued.shift()
     let discarded = false
@@ -1263,7 +1592,16 @@ export class HostCollaborationBridge {
         !['stopped', 'interrupted'].includes(root.summary.status)
       ) {
         this.capacity(root, record)
-        await this.start(record, next.message, next.rootTaskId, next.epoch, next.policy, next.runId)
+        await this.start(
+          record,
+          next.message,
+          next.rootTaskId,
+          next.epoch,
+          next.policy,
+          next.runId,
+          next.delegation,
+          allowCleaning,
+        )
         return
       }
       discarded = true
@@ -1277,6 +1615,9 @@ export class HostCollaborationBridge {
 
   private async send(caller: Record, target: Record, text: string) {
     if (!text.trim()) throw new Error('消息不能为空')
+    const sameTask =
+      target.summary.rootTaskId === caller.summary.rootTaskId && target.summary.epoch === caller.summary.epoch
+    const historyOnly = !sameTask || !activeStatuses.has(target.summary.status) || !target.summary.runId
     const message: AgentMailboxMessage = {
       id: randomUUID(),
       fromAgentId: caller.summary.agentId,
@@ -1284,26 +1625,37 @@ export class HostCollaborationBridge {
       rootTaskId: caller.summary.rootTaskId,
       epoch: caller.summary.epoch,
       runId: caller.summary.runId,
+      toRunId: target.summary.runId,
+      historyOnly,
       kind: 'message',
       text,
       createdAt: new Date().toISOString(),
     }
     target.mailbox.push(message)
-    if (target.summary.rootTaskId === caller.summary.rootTaskId && target.summary.epoch === caller.summary.epoch)
-      target.completion = undefined
+    if (!historyOnly) target.completion = undefined
     if (target.summary.agentId === caller.summary.parentAgentId) caller.feedbackSent = true
     await this.persist([caller.summary.rootAgentId, target.summary.rootAgentId])
-    const delivered = await this.deliver(target)
+    const delivered = historyOnly ? false : await this.deliver(target)
     this.emit(target, { type: 'agent_mailbox', message })
     this.changed(target)
-    await this.summarize(target)
-    return { messageId: message.id, delivered }
+    if (!historyOnly) await this.summarize(target)
+    return {
+      messageId: message.id,
+      delivered,
+      deliveryState: historyOnly
+        ? ('history_only' as const)
+        : delivered
+          ? ('persisted' as const)
+          : ('pending' as const),
+    }
   }
   private pending(record: Record) {
     return record.mailbox.filter(
       (message) =>
-        (message.kind === 'message' ||
-          (message.rootTaskId === record.summary.rootTaskId && message.epoch === record.summary.epoch)) &&
+        !message.historyOnly &&
+        message.toRunId === record.summary.runId &&
+        message.rootTaskId === record.summary.rootTaskId &&
+        message.epoch === record.summary.epoch &&
         !record.consumed.includes(message.id),
     )
   }
@@ -1443,13 +1795,19 @@ export class HostCollaborationBridge {
     const runs = new Map(
       watched.map((target) => [target.summary.agentId, target.queued.at(-1)?.runId ?? target.summary.runId]),
     )
+    const critical = (message: AgentMailboxMessage) =>
+      (message.kind === 'result' && ['failed', 'interrupted'].includes(message.status ?? '')) ||
+      (message.kind === 'cleanup' && message.status === 'failed')
     const matches = () =>
-      this.pending(record).filter((message) =>
-        watched.some(
-          (target) =>
-            target.summary.agentId === message.fromAgentId &&
-            (message.kind === 'message' || message.runId === runs.get(target.summary.agentId)),
-        ),
+      this.pending(record).filter(
+        (message) =>
+          critical(message) ||
+          message.kind === 'cleanup' ||
+          watched.some(
+            (target) =>
+              target.summary.agentId === message.fromAgentId &&
+              (message.kind === 'message' || message.runId === runs.get(target.summary.agentId)),
+          ),
       )
     const available = () =>
       !current() ||
@@ -1509,10 +1867,33 @@ export class HostCollaborationBridge {
         ...new Set([...(record.waitingMessages ?? []), ...messages.map((message) => message.id)]),
       ]
       await this.persist(record)
+      const endedTarget = watched.some(
+        (target) =>
+          target.summary.runId === runs.get(target.summary.agentId) && !activeStatuses.has(target.summary.status),
+      )
+      const wakeReason = this.userSteering.has(record)
+        ? ('user_steering' as const)
+        : matched.some(critical)
+          ? ('critical' as const)
+          : matched.some((message) => message.kind === 'cleanup')
+            ? ('cleanup' as const)
+            : matched.some((message) => message.kind === 'result') || endedTarget
+              ? ('result' as const)
+              : matched.length
+                ? ('message' as const)
+                : ('timeout' as const)
       return {
-        agents: (selected ?? this.tree(record)).map((entry) => ({ ...entry.summary })),
+        agents: [
+          ...new Set([
+            ...(selected ?? this.tree(record)),
+            ...matched
+              .map((message) => this.records.get(message.fromAgentId))
+              .filter((entry): entry is Record => Boolean(entry)),
+          ]),
+        ].map((entry) => ({ ...entry.summary })),
         messages,
-        timedOut,
+        timedOut: timedOut && !matched.length,
+        wakeReason,
         ...(notifiedBy.length ? { notifiedBy } : {}),
       }
     } finally {
@@ -1520,10 +1901,29 @@ export class HostCollaborationBridge {
       this.changed(record)
     }
   }
-  private async interrupt(record: Record) {
+  private async interrupt(record: Record, wholeTree = false) {
+    if (!wholeTree && record.summary.status === 'failed' && record.summary.cleanup?.state === 'blocked') {
+      record.summary.cleanup = { ...record.summary.cleanup, state: 'running', error: undefined }
+      await this.persist(record)
+      await this.cleanupFailed(record)
+      return
+    }
+    const run = this.runRef(record)
     const descendants = this.tree(record)
-      .filter((entry) => this.descendant(record, entry))
+      .filter(
+        (entry) =>
+          this.descendant(record, entry) &&
+          (wholeTree ||
+            entry.delegation?.some(
+              (ref) =>
+                ref.agentId === run?.agentId &&
+                ref.runId === run?.runId &&
+                ref.rootTaskId === run?.rootTaskId &&
+                ref.epoch === run?.epoch,
+            )),
+      )
       .reverse()
+    const terminated: Record[] = []
     for (const child of [...descendants, record]) {
       this.userSteering.delete(child)
       child.queued = []
@@ -1533,24 +1933,65 @@ export class HostCollaborationBridge {
       child.summary.isPaused = false
       const wasPaused = child.pauseApplied
       child.pauseApplied = false
-      if (!activeStatuses.has(child.summary.status)) {
+      if (!activeStatuses.has(child.summary.status) && !(wholeTree && child === record)) {
         if (wasPaused) await child.session?.abort().catch(() => {})
         continue
       }
-      child.summary.status = 'interrupted'
+      child.summary.status = wholeTree && child === record ? 'stopped' : 'interrupted'
       child.summary.runCompletedAt = new Date().toISOString()
-      await child.session?.abort().catch(() => {})
+      child.summary.cleanup = {
+        state: 'running',
+        causeId: `result:${child.summary.agentId}:${child.summary.runId}`,
+        revision: 0,
+      }
       child.interactions = []
-      this.changed(child)
+      terminated.push(child)
     }
     await this.persist(record)
+    for (const child of terminated) await this.publishResult(child)
+    const results = await Promise.allSettled(
+      terminated.map(async (child) => {
+        const childRun = this.runRef(child)
+        let timer: ReturnType<typeof setTimeout> | undefined
+        try {
+          await Promise.race([
+            Promise.all([
+              child.summary.depth > 0 ? child.session?.stopAndWait() : child.session?.abort(),
+              childRun && this.options.stopServicesForRun?.(childRun),
+            ]),
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(() => reject(new Error('运行清理超过 10 秒')), 10000)
+            }),
+          ])
+        } finally {
+          clearTimeout(timer)
+        }
+        if (child.summary.depth > 0 && this.sameRun(child, childRun) && child.session) {
+          this.callers.delete(child.session)
+          child.session = undefined
+        }
+      }),
+    )
+    for (let index = 0; index < terminated.length; index++) {
+      const child = terminated[index]!
+      const result = results[index]!
+      child.summary.cleanup = {
+        ...child.summary.cleanup!,
+        state: result.status === 'fulfilled' ? 'completed' : 'blocked',
+        revision: child.summary.cleanup!.revision + 1,
+        ...(result.status === 'rejected' ? { error: String(result.reason) } : {}),
+      }
+    }
+    await this.persist(record)
+    this.changed(record)
+    for (const child of terminated) await this.publishCleanup(child)
   }
   async stopRoot(sessionKey: string) {
     await this.ready
     const root = this.root(sessionKey)
     root.pauseRequested = true
     root.pauseRevision = (root.pauseRevision ?? 0) + 1
-    await this.interrupt(root)
+    await this.interrupt(root, true)
     root.pauseRequested = false
     root.summary.status = 'stopped'
     await this.persist(root)

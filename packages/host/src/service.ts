@@ -622,6 +622,7 @@ export async function createHost(options: HostOptions = {}) {
       collaborationPlansFile: storagePaths.collaborationPlansFile,
       plansDataDirectory: storagePaths.plansDataDirectory,
       assertCheckoutAvailable,
+      stopServicesForRun: (run) => activities.stopRun(run),
       createSession: (cwd, notify, key, parentKey) => createSession(cwd, notify, key, paths, parentKey),
       emit: (value) => {
         if (value.agentId && value.agentId === value.rootAgentId && value.sessionKey)

@@ -162,6 +162,8 @@ export class SdkSession {
   private stopped = false
   private admission?: AbortController
   private pendingDeliveries = new Set<string>()
+  private collaborationRevision = 0
+  private visibleCollaborationMessages = new Set<string>()
   private preparedQueueText = new Map<string, string>()
   private runtime: AgentSessionRuntime | null = null
   private sdk: PiSdk | null = null
@@ -421,6 +423,35 @@ export class SdkSession {
       const extensionFactories = [
         (pi: ExtensionAPI) => {
           const gate = () => this.waitForResume()
+          pi.on('context', (event) => ({
+            messages: event.messages
+              .map((message) => {
+                if (message.role === 'toolResult' && message.toolName === 'wait_agent') {
+                  const original = (message.details as { messages?: AgentMailboxMessage[] } | undefined)?.messages ?? []
+                  const visible = original.filter((item) => this.visibleCollaborationMessages.has(item.id))
+                  if (visible.length !== original.length)
+                    return {
+                      ...message,
+                      content: [
+                        {
+                          type: 'text' as const,
+                          text: visible.length ? JSON.stringify({ messages: visible }) : '旧任务协作结果已隔离',
+                        },
+                      ],
+                      details: { ...((message.details as object) ?? {}), messages: visible },
+                    }
+                }
+                return message
+              })
+              .filter(
+                (message) =>
+                  message.role !== 'custom' ||
+                  message.customType !== 'pi-meme-collaboration' ||
+                  this.visibleCollaborationMessages.has(
+                    (message.details as { messageId?: string } | undefined)?.messageId ?? '',
+                  ),
+              ),
+          }))
           pi.on('message_start', gate)
           pi.on('message_update', gate)
           pi.on('message_end', gate)
@@ -917,6 +948,14 @@ export class SdkSession {
       const id = (event.message.details as { messageId?: string } | undefined)?.messageId
       if (id) this.pendingDeliveries.delete(id)
     }
+    if (
+      event.type === 'message_end' &&
+      event.message.role === 'toolResult' &&
+      event.message.toolName === 'wait_agent'
+    ) {
+      const messages = (event.message.details as { messages?: AgentMailboxMessage[] } | undefined)?.messages ?? []
+      for (const message of messages) this.visibleCollaborationMessages.add(message.id)
+    }
     this.generationMetrics.handle(event)
     this.notify.event({
       generation: this.generation,
@@ -934,11 +973,13 @@ export class SdkSession {
     this.bridge = null
     const runtime = this.runtime
     this.runtime = null
-    this.sandbox?.stopAll()
+    const sandbox = this.sandbox
     this.sandbox = null
     void this.discardAccessTemporary()
-    if (runtime) {
-      this.stopping = Promise.all([this.stopping, runtime.dispose().catch(() => {})]).then(() => {})
+    if (runtime || sandbox) {
+      this.stopping = Promise.all([this.stopping, runtime?.dispose().catch(() => {}), sandbox?.stopAll()]).then(
+        () => {},
+      )
     }
   }
 
@@ -1279,6 +1320,10 @@ export class SdkSession {
     if (this.changing || this.running) throw new Error('Pi 正在运行或切换，请等待完成后重试')
     this.assertPluginAvailability(normalized.mode)
     this.changing = true
+    if (!continuation) {
+      this.collaborationRevision += 1
+      this.visibleCollaborationMessages.clear()
+    }
     this.preparationMode = normalized.mode
     if (!preserveMode && !continuation) this.mode = normalized.mode
     this.admission = new AbortController()
@@ -2057,7 +2102,9 @@ export class SdkSession {
   }
 
   deliverCollaborationMessage(message: AgentMailboxMessage) {
+    const revision = this.collaborationRevision
     return this.call(async () => {
+      if (revision !== this.collaborationRevision) return { persisted: false }
       const persisted = () =>
         this.session.sessionManager
           .getEntries()
@@ -2074,9 +2121,13 @@ export class SdkSession {
                   (saved) => saved.id === message.id,
                 )),
           )
-      if (persisted()) return { persisted: true }
+      if (persisted()) {
+        this.visibleCollaborationMessages.add(message.id)
+        return { persisted: true }
+      }
       if (this.pendingDeliveries.has(message.id)) return { persisted: false }
       this.pendingDeliveries.add(message.id)
+      this.visibleCollaborationMessages.add(message.id)
       try {
         await this.session.sendCustomMessage(
           {
@@ -2092,6 +2143,7 @@ export class SdkSession {
               messageId: message.id,
               fromAgentId: message.fromAgentId,
               runId: message.runId,
+              toRunId: message.toRunId,
               rootTaskId: message.rootTaskId,
               epoch: message.epoch,
               kind: message.kind,

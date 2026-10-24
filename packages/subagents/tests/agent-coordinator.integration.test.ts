@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { test, describe, vi } from 'vitest'
+import { test, describe } from 'vitest'
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -9,8 +9,9 @@ import type { RuntimeSdkSession } from '@pi-meme/pi-runtime/session-pool'
 import type { CollaborationRequest, CollaborationResults, AgentSummary } from '@pi-meme/contracts/collaboration'
 import { SdkSession } from '@pi-meme/pi-runtime/sdk/session'
 import { finishAgentReply, useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
+import { assistantMessage } from '../../../tests/fixtures/messages.mjs'
 import { create as collaborationExtension } from '../src/agent/entry'
-import { fakeSession, setup } from './coordinator-fixture'
+import { fakeSession, readSavedRecords, setup } from './coordinator-fixture'
 
 function enableCollaboration(bridge: ReturnType<typeof createHostCollaborationBridge>, session: SdkSession) {
   session.configureInlineExtensions(
@@ -27,6 +28,242 @@ function enableCollaboration(bridge: ReturnType<typeof createHostCollaborationBr
     }),
   )
 }
+
+test('最终模型错误通知主会话；完成意向的报告仍保留', async () => {
+  const context = await setup()
+  try {
+    await context.begin()
+    const child = await context.spawn('worker')
+    const worker = context.children.get(child.sessionKey)!
+    await context.call(worker.session, 'finish_agent', { report: '已完成部分工作' })
+    worker.notify.event({
+      generation: 1,
+      event: {
+        type: 'message_end',
+        message: assistantMessage([], Date.now(), { stopReason: 'error', errorMessage: '模型返回 503' }),
+      },
+    })
+    worker.notify.event({ generation: 1, event: { type: 'agent_settled' } })
+    await context.until(async () => {
+      const agents = await context.bridge.getAgents('root-key')
+      return agents.find((agent) => agent.agentId === child.agentId)?.cleanup?.state === 'completed'
+    })
+    const summary = (await context.bridge.getAgents('root-key')).find((agent) => agent.agentId === child.agentId)!
+    assert.equal(summary.status, 'failed')
+    assert.equal(summary.error, '模型返回 503')
+    assert.equal(summary.report, '已完成部分工作')
+    const saved = await context.savedRecords()
+    const rootRecord = saved.find((entry) => entry.summary.depth === 0)
+    const resultMessages = rootRecord?.mailbox.filter(
+      (item) => item.fromAgentId === child.agentId && item.kind === 'result',
+    )
+    assert.equal(resultMessages?.length, 1)
+  } finally {
+    await context.cleanup()
+  }
+})
+
+test('Host 重启中断已提交完成意向的子任务时保留报告', async () => {
+  const context = await setup()
+  try {
+    await context.begin()
+    const child = await context.spawn('worker')
+    await context.call(context.children.get(child.sessionKey)!.session, 'finish_agent', { report: '重启前的工作报告' })
+    const restored = createHostCollaborationBridge({
+      dataRoot: context.directory,
+      emit: () => {},
+      createSession: () => {
+        throw new Error('恢复阶段不创建 Worker')
+      },
+    })
+    const summary = (await restored.getAgents('root-key')).find((agent) => agent.agentId === child.agentId)
+    assert.equal(summary?.status, 'interrupted')
+    assert.equal(summary?.report, '重启前的工作报告')
+  } finally {
+    await context.cleanup()
+  }
+})
+
+test('真实 Pi 子任务 finish_agent 后收到模型 503，失败结果持久通知主会话', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pi-child-model-error-'))
+  const fake = await useFakeAgent(directory, {
+    reply: (body, index) =>
+      index === 1 ? finishAgentReply(body, '已完成部分工作') : { status: 503, text: '模型端 503' },
+  })
+  const root = fakeSession(directory, { connection: () => {}, event: () => {}, error: () => {} })
+  root.state.model = { provider: 'fake', id: 'first' }
+  const bridge = createHostCollaborationBridge({
+    dataRoot: directory,
+    emit: () => {},
+    createSession: (cwd, notify) => {
+      const session = new SdkSession(cwd, notify, fake.runtimePaths, fake.credentials)
+      enableCollaboration(bridge, session)
+      return session
+    },
+  })
+  try {
+    await bridge.bindRoot({
+      sessionKey: 'root',
+      cwd: directory,
+      state: root.state,
+      accessMode: 'full-access',
+      session: root.session,
+    })
+    await bridge.beginRootRun('root', { mode: 'default', message: '主任务' })
+    const child = (await bridge.dispatch(
+      root.session,
+      {
+        id: randomUUID(),
+        method: 'spawn_agent',
+        params: { task_name: 'worker', message: '执行任务', fork_turns: 'none' },
+      },
+      new AbortController().signal,
+    )) as AgentSummary
+    const deadline = Date.now() + 25000
+    let summary: AgentSummary | undefined
+    do {
+      summary = (await bridge.getAgents('root')).find((agent) => agent.agentId === child.agentId)
+      if (summary?.status === 'failed' && summary.cleanup?.state === 'completed') break
+      if (Date.now() > deadline) throw new Error('真实 Pi 模型失败未完成清理')
+      await new Promise<void>((resolve) => setTimeout(resolve, 20))
+    } while (true)
+    assert.match(summary.error ?? '', /503/)
+    assert.equal(summary.report, '已完成部分工作')
+    const saved = await readSavedRecords(directory)
+    const rootRecord = saved.find((entry) => entry.summary.depth === 0)
+    const resultMessages = rootRecord?.mailbox.filter(
+      (message) => message.kind === 'result' && message.fromAgentId === child.agentId,
+    )
+    assert.equal(resultMessages?.length, 1)
+  } finally {
+    await bridge.stopAndWait()
+    await fake.dispose()
+    await rm(directory, { recursive: true, force: true })
+  }
+}, 30000)
+
+test('只等待 A 时 B 最终失败也会唤醒主会话', async () => {
+  const context = await setup()
+  try {
+    await context.begin()
+    await context.spawn('a')
+    const b = await context.spawn('b')
+    const waiting = context.call(context.root.session, 'wait_agent', { targets: ['a'], timeout_ms: 1000 })
+    context.children.get(b.sessionKey)!.notify.event({
+      generation: 1,
+      event: {
+        type: 'message_end',
+        message: assistantMessage([], Date.now(), { stopReason: 'error', errorMessage: '模型失败' }),
+      },
+    })
+    context.children.get(b.sessionKey)!.notify.event({ generation: 1, event: { type: 'agent_settled' } })
+    const result = waiting as Promise<CollaborationResults['wait_agent']>
+    const settled = await result
+    assert.equal(settled.wakeReason, 'critical')
+    assert.equal(settled.timedOut, false)
+    assert.equal(
+      settled.messages.some((message) => message.fromAgentId === b.agentId && message.status === 'failed'),
+      true,
+    )
+    assert.equal(
+      (await context.bridge.getAgents('root-key')).find((agent) => agent.taskPath === '/root/a')?.status,
+      'running',
+    )
+  } finally {
+    await context.cleanup()
+  }
+})
+
+test('中间 Agent 失败取消自己的孙代理并保留其他分支', async () => {
+  const context = await setup()
+  try {
+    await context.begin()
+    const parent = await context.spawn('parent')
+    const sibling = await context.spawn('sibling')
+    const worker = context.children.get(parent.sessionKey)!
+    const grandchild = await context.spawn('grandchild', worker.session)
+    worker.notify.event({
+      generation: 1,
+      event: {
+        type: 'message_end',
+        message: assistantMessage([], Date.now(), { stopReason: 'error', errorMessage: '上级模型失败' }),
+      },
+    })
+    worker.notify.event({ generation: 1, event: { type: 'agent_settled' } })
+    await context.until(async () => {
+      const agents = await context.bridge.getAgents('root-key')
+      return agents.find((agent) => agent.agentId === parent.agentId)?.cleanup?.state === 'completed'
+    })
+    const agents = await context.bridge.getAgents('root-key')
+    assert.equal(agents.find((agent) => agent.agentId === grandchild.agentId)?.status, 'interrupted')
+    assert.equal(agents.find((agent) => agent.agentId === sibling.agentId)?.status, 'running')
+  } finally {
+    await context.cleanup()
+  }
+})
+
+test('旧子任务继续执行时发来的消息只进历史，不影响新根任务', async () => {
+  const context = await setup()
+  try {
+    await context.begin()
+    const child = await context.spawn('old_worker')
+    await context.begin()
+    const response = (await context.call(context.children.get(child.sessionKey)!.session, 'send_message', {
+      target: '/root',
+      message: '旧任务反馈',
+    })) as CollaborationResults['send_message']
+    assert.equal(response.deliveryState, 'history_only')
+    assert.equal(response.delivered, false)
+    const waiting = (await context.call(context.root.session, 'wait_agent', {
+      targets: ['old_worker'],
+      timeout_ms: 0,
+    })) as CollaborationResults['wait_agent']
+    assert.equal(waiting.messages.length, 0)
+    assert.equal(waiting.timedOut, true)
+    assert.equal(context.root.delivered.includes(response.messageId), false)
+    const saved = await context.savedRecords()
+    const rootRecord = saved.find((entry) => entry.summary.depth === 0)
+    assert.equal(
+      rootRecord?.mailbox.some((message) => message.id === response.messageId && message.historyOnly),
+      true,
+    )
+  } finally {
+    await context.cleanup()
+  }
+})
+
+test('旧运行失败只取消自身排队任务，新根任务排队的后续任务继续执行', async () => {
+  const context = await setup()
+  try {
+    await context.begin()
+    const child = await context.spawn('worker')
+    await context.begin()
+    const queued = (await context.call(context.root.session, 'followup_task', {
+      target: 'worker',
+      message: '新任务委派',
+    })) as CollaborationResults['followup_task']
+    assert.equal(queued.queued, true)
+    const old = context.children.get(child.sessionKey)!
+    old.notify.event({
+      generation: 1,
+      event: {
+        type: 'message_end',
+        message: assistantMessage([], Date.now(), { stopReason: 'error', errorMessage: '旧运行失败' }),
+      },
+    })
+    old.notify.event({ generation: 1, event: { type: 'agent_settled' } })
+    await context.until(async () => {
+      const current = (await context.bridge.getAgents('root-key')).find((agent) => agent.agentId === child.agentId)
+      return current?.runId !== child.runId && current?.status === 'running'
+    })
+    const current = (await context.bridge.getAgents('root-key')).find((agent) => agent.agentId === child.agentId)!
+    assert.equal(current.status, 'running')
+    assert.equal(current.task, '新任务委派')
+    assert.equal(context.root.continuations.length, 0)
+  } finally {
+    await context.cleanup()
+  }
+})
 
 test('分叉复制已结束子代理，运行中的子代理阻止新建，未包含的身份留在原会话', async () => {
   const context = await setup()
@@ -230,34 +467,74 @@ test('后续任务固定入队时的显式配置，省略时重新继承调用�
   }
 })
 
-test('失败恢复只重激活原根任务，保留子树、排队任务和未来选择的模式', async () => {
+test('根任务失败先取消子树和排队任务，清理完成后才可显式恢复', async () => {
   const context = await setup()
   try {
     await context.begin('plan')
     const child = await context.spawn('worker')
     const worker = context.children.get(child.sessionKey)!
-    const configureTask = vi.spyOn(worker.session, 'configureAgentTask')
     await context.call(context.root.session, 'followup_task', { target: 'worker', message: '下一项子任务' })
     const before = (await context.bridge.getAgents('root-key'))[0]!
     await context.bridge.rootFailed('root-key', new Error('network error'), before.runId)
+    await context.until(async () => (await context.bridge.getAgents('root-key'))[0]?.cleanup?.state === 'completed')
     await context.bridge.setSessionMode('root-key', 'default')
-    await context.bridge.admitRecovery(context.root.session, 'plan')
+    await context.until(async () => {
+      try {
+        await context.bridge.admitRecovery(context.root.session, 'plan')
+        return true
+      } catch (cause) {
+        if (String(cause).includes('子树清理尚未完成')) return false
+        throw cause
+      }
+    })
     const recovered = await context.bridge.getAgents('root-key')
     for (const field of ['agentId', 'rootTaskId', 'epoch', 'runId', 'task', 'runStartedAt', 'mode'] as const)
       assert.equal(recovered[0]![field], before[field], field)
     assert.equal(recovered[0]!.status, 'running')
     assert.equal(recovered[0]!.error, undefined)
     assert.equal(recovered[0]!.runCompletedAt, undefined)
-    assert.deepEqual(recovered[1], child)
+    assert.equal(recovered[1]?.status, 'interrupted')
+    assert.equal(recovered[1]?.error, '上级任务失败，当前运行已取消')
     assert.equal(await context.bridge.getSessionMode('root-key'), 'default')
     assert.equal(worker.prompts.length, 1)
-    await worker.finish('首项子任务完成')
-    await context.until(async () => worker.prompts.length === 2)
-    assert.equal(worker.prompts[1], '下一项子任务')
-    assert.match(configureTask.mock.calls.at(-1)![0], /^下一项子任务\nCurrent agent: \/root\/worker\./)
-    assert.match(configureTask.mock.calls.at(-1)![0], /Delegating agent: \/root\. Root agent: \/root\./)
-    assert.match(configureTask.mock.calls.at(-1)![0], /full paths, direct-child short names, or sibling short names/)
+    assert.equal(worker.prompts.length, 1)
   } finally {
+    await context.cleanup()
+  }
+})
+
+test('失败子树清理未完成时拒绝新根任务，清理完成后允许开始', async () => {
+  const context = await setup()
+  let release = () => {}
+  try {
+    await context.begin()
+    const child = await context.spawn('worker')
+    const worker = context.children.get(child.sessionKey)!
+    const originalStop = worker.session.stopAndWait.bind(worker.session)
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    worker.session.stopAndWait = async () => {
+      await gate
+      await originalStop()
+    }
+    const rootRun = (await context.bridge.getAgents('root-key'))[0]!
+    await context.bridge.rootFailed('root-key', new Error('主任务失败'), rootRun.runId)
+    await assert.rejects(context.begin(), /子树清理尚未完成/)
+    release()
+    await context.until(async () => (await context.bridge.getAgents('root-key'))[0]?.cleanup?.state === 'completed')
+    await context.until(async () => {
+      try {
+        await context.begin()
+        return true
+      } catch (cause) {
+        if (String(cause).includes('子树清理尚未完成')) return false
+        throw cause
+      }
+    })
+    assert.equal((await context.bridge.getAgents('root-key'))[0]?.cleanup, undefined)
+  } finally {
+    release()
     await context.cleanup()
   }
 })
@@ -475,7 +752,7 @@ test('子代理可以等待主代理反馈；超时、暂停和中断不提交�
     assert.equal(
       context.events.filter((event) => event.event.type === 'agent_mailbox' && event.event.message.kind === 'result')
         .length,
-      0,
+      1,
     )
   } finally {
     await context.cleanup()
@@ -1209,7 +1486,7 @@ test('Worker退役后followup递增持久代次，丢弃旧Worker事件；问答
   }
 })
 
-test('idle来源消息在后续新task followup中写真实Pi JSONL，保留旧来源且不重复交付', async () => {
+test('idle来源消息只留历史，后续新task不注入真实Pi JSONL', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pi-collaboration-native-'))
   const fake = await useFakeAgent(directory, { reply: (body) => finishAgentReply(body, '任务完成') })
   const sessions = new Map<string, SdkSession>()
@@ -1274,17 +1551,20 @@ test('idle来源消息在后续新task followup中写真实Pi JSONL，保留旧�
     const sources = entries.filter(
       (entry) => entry.type === 'custom_message' && entry.details?.messageId === sent.messageId,
     )
-    assert.equal(sources.length, 1)
-    assert.equal(sources[0].content, `[From ${child.parentAgentId}] 来自旧任务的补充信息`)
-    assert.equal(sources[0].details.fromAgentId, child.parentAgentId)
-    assert.equal(sources[0].details.rootTaskId, child.rootTaskId)
+    assert.equal(sources.length, 0)
     await call('followup_task', { target: child.agentId, message: '再继续一次' })
     await completed(child.agentId)
     const finalEntries = (await readFile(active.sessionFile!, 'utf8'))
       .trim()
       .split('\n')
       .map((line) => JSON.parse(line))
-    assert.equal(finalEntries.filter((entry) => entry.details?.messageId === sent.messageId).length, 1)
+    assert.equal(finalEntries.filter((entry) => entry.details?.messageId === sent.messageId).length, 0)
+    const saved = await readSavedRecords(directory)
+    const childRecord = saved.find((entry) => entry.summary.agentId === child.agentId)
+    assert.equal(
+      childRecord?.mailbox.some((message) => message.id === sent.messageId && message.historyOnly),
+      true,
+    )
   } finally {
     await bridge.stopAndWait()
     await fake.dispose()

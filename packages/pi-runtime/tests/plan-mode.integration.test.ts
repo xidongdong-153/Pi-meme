@@ -10,6 +10,54 @@ import { assertPlanTool } from '../src/extensions/plan-mode'
 import type { PiSessionEntry } from '@pi-meme/contracts/pi'
 import type { TaskMode } from '@pi-meme/contracts/plan'
 import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
+import { requestText } from '../../../tests/fixtures/fake-provider.mjs'
+
+test('新用户任务的模型上下文排除上一轮已持久化的协作消息', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pi-collaboration-epoch-context-'))
+  const fake = await useFakeAgent(directory, { reply: '已处理' })
+  const session = new SdkSession(
+    directory,
+    { connection: () => {}, error: () => {}, event: () => {} },
+    fake.runtimePaths,
+    fake.credentials,
+  )
+  const settled = async () => {
+    const deadline = Date.now() + 5000
+    while ((await session.snapshot()).state.isStreaming) {
+      if (Date.now() > deadline) throw new Error('模型回复未结束')
+      await delay(10)
+    }
+  }
+  try {
+    session.start(directory)
+    await session.snapshot()
+    await session.setModel({ provider: 'fake', id: 'first' })
+    await session.prompt('第一轮任务')
+    await settled()
+    assert.deepEqual(
+      await session.deliverCollaborationMessage({
+        id: 'old-collaboration-message',
+        fromAgentId: 'child',
+        toAgentId: 'root',
+        rootTaskId: 'old-task',
+        epoch: 1,
+        kind: 'message',
+        text: '只属于旧任务的秘密标记',
+        createdAt: new Date().toISOString(),
+      }),
+      { persisted: true },
+    )
+    await session.prompt('第二轮任务')
+    await settled()
+    assert.equal(fake.provider.requests.length, 2)
+    assert.doesNotMatch(requestText(fake.provider.requests[1]), /只属于旧任务的秘密标记/)
+    assert.match(requestText(fake.provider.requests[1]), /第二轮任务/)
+  } finally {
+    await session.stopAndWait()
+    await fake.dispose()
+    await rm(directory, { recursive: true, force: true })
+  }
+})
 
 function entry(id: string, parentId: string | null, message: unknown): PiSessionEntry {
   return { id, parentId, timestamp: '2026-10-10', type: 'message', message } as PiSessionEntry

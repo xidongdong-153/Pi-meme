@@ -3,6 +3,7 @@ import { mkdir, open, readFile, readdir, rename, rm } from 'node:fs/promises'
 import path from 'node:path'
 import type {
   AgentMailboxMessage,
+  AgentRunRef,
   AgentSummary,
   CollaborationResults,
   PendingInteraction,
@@ -11,6 +12,7 @@ import type { PlanDocument, TaskMode } from '@pi-meme/contracts/plan'
 
 export type PersistedAgentRecord = {
   summary: AgentSummary
+  delegation?: AgentRunRef[]
   mailbox: AgentMailboxMessage[]
   consumed: string[]
   queued: Array<{
@@ -19,6 +21,7 @@ export type PersistedAgentRecord = {
     epoch: number
     policy: Pick<AgentSummary, 'mode' | 'accessMode' | 'model' | 'thinkingLevel'>
     runId: string
+    delegation?: AgentRunRef[]
   }>
   interactions: PendingInteraction[]
   sequence: number
@@ -30,7 +33,7 @@ export type PersistedAgentRecord = {
 }
 
 export type CollaborationRootPartition = {
-  version: 1
+  version: 1 | 2
   rootAgentId: string
   rootSessionKey: string
   records: PersistedAgentRecord[]
@@ -139,7 +142,9 @@ export function migrateLegacyCollaborationJson(legacy: { records?: unknown[]; pl
         rootAgentId,
         isPaused: undefined,
       },
-      mailbox: Array.isArray(recordObj.mailbox) ? (recordObj.mailbox as AgentMailboxMessage[]) : [],
+      mailbox: Array.isArray(recordObj.mailbox)
+        ? (recordObj.mailbox as AgentMailboxMessage[]).map((message) => ({ ...message, historyOnly: true }))
+        : [],
       consumed: Array.isArray(recordObj.consumed) ? (recordObj.consumed as string[]) : [],
       queued: Array.isArray(recordObj.queued) ? (recordObj.queued as PersistedAgentRecord['queued']) : [],
       interactions: [],
@@ -154,7 +159,7 @@ export function migrateLegacyCollaborationJson(legacy: { records?: unknown[]; pl
     let partition = roots.get(rootAgentId)
     if (!partition) {
       partition = {
-        version: 1,
+        version: 2,
         rootAgentId,
         rootSessionKey,
         records: [],
@@ -186,7 +191,11 @@ export function validateCollaborationRootPartition(
 ): asserts data is CollaborationRootPartition {
   if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('协作根分片必须是对象')
   const partition = data as Partial<CollaborationRootPartition>
-  if (partition.version !== 1 || typeof partition.rootAgentId !== 'string' || !Array.isArray(partition.records)) {
+  if (
+    ![1, 2].includes(partition.version ?? 0) ||
+    typeof partition.rootAgentId !== 'string' ||
+    !Array.isArray(partition.records)
+  ) {
     throw new Error('协作根分片损坏或版本不支持')
   }
   if (expectedRootId !== undefined && partition.rootAgentId !== expectedRootId) {
@@ -223,7 +232,21 @@ export async function loadCollaborationPartitions(
       const content = await readFile(filePath, 'utf8')
       const partition = JSON.parse(content) as unknown
       validateCollaborationRootPartition(partition, baseName)
-      roots.set(partition.rootAgentId, partition)
+      roots.set(
+        partition.rootAgentId,
+        partition.version === 1
+          ? {
+              ...partition,
+              version: 2,
+              records: partition.records.map((record) => ({
+                ...record,
+                mailbox: record.mailbox.map((message) =>
+                  message.toRunId ? message : { ...message, historyOnly: true },
+                ),
+              })),
+            }
+          : partition,
+      )
     }
   } catch (cause) {
     if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw cause

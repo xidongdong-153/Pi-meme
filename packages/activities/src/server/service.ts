@@ -5,6 +5,7 @@ import path from 'node:path'
 import { stripVTControlCharacters } from 'node:util'
 import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
 import type { SessionRef } from '@pi-meme/contracts/app-host'
+import type { AgentRunRef } from '@pi-meme/contracts/collaboration'
 import {
   isLiveServiceActivity,
   type ServiceActivity,
@@ -25,6 +26,7 @@ export type ActivityCaller = {
   agentDir: string
   accessMode: AgentAccessMode
   sourceAgentId?: string
+  sourceRun?: AgentRunRef
   sourceName: string
 }
 type StartInput = { name: string; command: string; cwd?: string; requestId: string }
@@ -97,7 +99,12 @@ export class ActivityService {
     text(input.command, '服务命令', 16 * 1024)
     text(input.requestId, '启动请求标识', 256)
     if (input.cwd !== undefined) text(input.cwd, '服务目录', 4096)
-    const identity = JSON.stringify([caller.session.sessionId, caller.sourceAgentId, input.requestId])
+    const identity = JSON.stringify([
+      caller.session.sessionId,
+      caller.sourceAgentId,
+      caller.sourceRun?.runId,
+      input.requestId,
+    ])
     const serialized = JSON.stringify([input.name, input.command, input.cwd])
     const previous = this.requests.get(identity)
     if (previous) {
@@ -117,6 +124,7 @@ export class ActivityService {
       command: input.command,
       cwd: path.resolve(caller.cwd, input.cwd ?? '.'),
       sourceAgentId: caller.sourceAgentId,
+      sourceRun: caller.sourceRun,
       sourceName: caller.sourceName,
       accessMode: caller.accessMode,
       status: 'starting',
@@ -293,6 +301,22 @@ export class ActivityService {
       }
     }
     return structuredClone(record.activity)
+  }
+
+  async stopRun(run: AgentRunRef) {
+    const owned = [...this.records.values()].filter(
+      ({ activity }) =>
+        isLiveServiceActivity(activity) &&
+        activity.sourceRun?.agentId === run.agentId &&
+        activity.sourceRun.runId === run.runId &&
+        activity.sourceRun.rootTaskId === run.rootTaskId &&
+        activity.sourceRun.epoch === run.epoch,
+    )
+    const results = await Promise.allSettled(
+      owned.map(({ activity }) => this.stop(activity, activity.serviceId, '子 Agent 运行失败')),
+    )
+    const failed = results.find((result) => result.status === 'rejected')
+    if (failed?.status === 'rejected') throw failed.reason
   }
 
   assertIdle(cwd?: string) {

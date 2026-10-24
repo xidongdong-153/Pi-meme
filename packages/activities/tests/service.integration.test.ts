@@ -45,6 +45,24 @@ async function fixture() {
 }
 
 const command = (source: string) => `${JSON.stringify(process.execPath)} -e '${source.replaceAll("'", "'\\''")}'`
+
+test('失败运行仅停止自己创建的服务，同身份的新运行保持运行', { skip: !supported }, async () => {
+  const f = await fixture()
+  try {
+    const firstRun = { agentId: 'agent', rootTaskId: 'task-old', epoch: 1, runId: 'run-old' }
+    const nextRun = { agentId: 'agent', rootTaskId: 'task-new', epoch: 2, runId: 'run-new' }
+    const input = { name: '测试服务', requestId: 'same-request', command: command('setInterval(()=>{},1000)') }
+    const oldService = await f.service.start({ ...f.caller, sourceAgentId: 'agent', sourceRun: firstRun }, input)
+    const nextService = await f.service.start({ ...f.caller, sourceAgentId: 'agent', sourceRun: nextRun }, input)
+    assert.notEqual(oldService.serviceId, nextService.serviceId)
+    await f.service.stopRun(firstRun)
+    const activities = f.service.list(ref).activities
+    assert.equal(activities.find((activity) => activity.serviceId === oldService.serviceId)?.status, 'stopped')
+    assert.equal(activities.find((activity) => activity.serviceId === nextService.serviceId)?.status, 'running')
+  } finally {
+    await f.dispose()
+  }
+})
 async function until(read: () => boolean) {
   for (let index = 0; index < 120; index++) {
     if (read()) return

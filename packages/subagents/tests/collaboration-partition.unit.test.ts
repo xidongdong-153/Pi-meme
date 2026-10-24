@@ -59,7 +59,7 @@ test('migrateLegacyCollaborationJson 严格按 rootAgentId 分组并校验格式
   const { roots, plans } = migrateLegacyCollaborationJson(legacy)
   assert.equal(roots.size, 1)
   const partition = roots.get(rootId)!
-  assert.equal(partition.version, 1)
+  assert.equal(partition.version, 2)
   assert.equal(partition.rootAgentId, rootId)
   assert.equal(partition.rootSessionKey, 'root-key')
   assert.equal(partition.records.length, 2)

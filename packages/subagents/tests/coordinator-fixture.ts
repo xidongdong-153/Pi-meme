@@ -126,6 +126,8 @@ function fakeSession(
     },
     stopAndWait: async () => {
       status = 'disconnected'
+      state.isPaused = false
+      state.isStreaming = false
     },
   } as unknown as RuntimeSdkSession
   const reply = (text: string) => {

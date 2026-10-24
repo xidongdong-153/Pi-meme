@@ -258,6 +258,19 @@ export function createWorkerSession(
         })
     })
   let stopping: Promise<void> | undefined
+  const within = async <T>(operation: Promise<T>, milliseconds: number, label: string): Promise<T> => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      return await Promise.race([
+        operation,
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error(`${label}超过 ${milliseconds} 毫秒`)), milliseconds)
+        }),
+      ])
+    } finally {
+      clearTimeout(timer)
+    }
+  }
   const call = async (method: string, args: unknown[]) => {
     await stopping
     await releasing
@@ -268,31 +281,52 @@ export function createWorkerSession(
     if (stopping) return stopping
     stopping = (async () => {
       initializationEpoch += 1
-      await initializing?.catch(() => {})
+      let initializationError: unknown
+      if (initializing) {
+        try {
+          await within(
+            initializing.catch(() => undefined),
+            5000,
+            'Worker 初始化取消',
+          )
+        } catch (cause) {
+          initializationError = cause
+        }
+      }
       const current = worker
       if (!current) {
-        await releasing
+        await within(releasing, 5000, 'Worker 释放')
+        if (initializationError) throw initializationError
+        if (connection.error) throw new Error(`Worker 异常退出，无法确认执行资源：${connection.error}`)
         return
       }
+      let gracefulError: unknown = initializationError
       try {
         for (const controller of hostRequests.values()) controller.abort()
         hostRequests.clear()
-        await callRaw('stopAndWait', [])
-      } finally {
-        worker = undefined
-        await current.terminate()
-        for (const request of pending.values()) request.reject(new Error('会话运行时已停止'))
-        pending.clear()
-        connection = { ...connection, generation: connection.generation + 1, status: 'disconnected' }
-        const cleanup = release
-        release = undefined
-        try {
-          // SDK 的 start/reconnect 也会调用 stop；这里只在 Worker 真正退出后发布断开。
-          notify.connection(connection)
-        } finally {
-          await cleanup?.()
-        }
+        await within(callRaw('stopAndWait', []), 5000, 'Worker 正常停止')
+      } catch (cause) {
+        gracefulError = gracefulError ? `${String(gracefulError)}；${String(cause)}` : cause
       }
+      worker = undefined
+      try {
+        await within(current.terminate(), 5000, 'Worker 强制退出')
+      } catch (cause) {
+        worker = current
+        throw cause
+      }
+      for (const request of pending.values()) request.reject(new Error('会话运行时已停止'))
+      pending.clear()
+      connection = { ...connection, generation: connection.generation + 1, status: 'disconnected' }
+      const cleanup = release
+      release = undefined
+      try {
+        // SDK 的 start/reconnect 也会调用 stop；这里只在 Worker 真正退出后发布断开。
+        notify.connection(connection)
+      } finally {
+        await cleanup?.()
+      }
+      if (gracefulError) throw new Error(`Worker 已退出，但正常清理未确认：${String(gracefulError)}`)
     })().finally(() => {
       stopping = undefined
     })

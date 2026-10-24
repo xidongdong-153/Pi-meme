@@ -35,7 +35,7 @@ export interface AccessSandboxOperations {
     args: string[],
     options: Pick<SandboxRunOptions, 'cwd' | 'env' | 'onData'>,
   ) => Promise<ManagedProcess>
-  stopAll: () => void
+  stopAll: () => Promise<void>
   assertWritable: (target: string) => Promise<void>
   mkdir: (target: string, signal?: AbortSignal) => Promise<void>
   writeFile: (target: string, content: string, signal?: AbortSignal) => Promise<void>
@@ -89,6 +89,8 @@ async function accessProfile(
 /** 通用路径校验、文件工具与子进程清理；平台后端只生成启动参数。 */
 class SandboxProcess implements AccessSandboxOperations {
   private readonly running = new Set<() => void>()
+  private readonly executions = new Set<Promise<unknown>>()
+  private readonly managed = new Set<Promise<unknown>>()
 
   constructor(
     private readonly mode: AccessSandboxOptions['mode'],
@@ -131,13 +133,15 @@ class SandboxProcess implements AccessSandboxOperations {
     })
     this.running.add(child.kill)
     void child.completion.finally(() => this.running.delete(child.kill)).catch(() => {})
+    this.managed.add(child.completion)
+    void child.completion.finally(() => this.managed.delete(child.completion)).catch(() => {})
     return child
   }
 
   /** 在沙箱里运行进程；取消、超时和进程退出都会终止整个进程组。 */
   async run(executable: string, args: string[], options: SandboxRunOptions): Promise<{ exitCode: number }> {
     const cwd = await realpath(options.cwd)
-    return new Promise((resolve, reject) => {
+    const execution = new Promise<{ exitCode: number }>((resolve, reject) => {
       if (options.signal?.aborted) return reject(new Error('aborted'))
       const env = this.environment(options.env)
       const launchArgs = [...this.launch.args]
@@ -198,10 +202,14 @@ class SandboxProcess implements AccessSandboxOperations {
         else resolve({ exitCode: exitCode ?? 1 })
       })
     })
+    this.executions.add(execution)
+    void execution.finally(() => this.executions.delete(execution)).catch(() => {})
+    return execution
   }
 
-  stopAll() {
+  async stopAll() {
     for (const kill of this.running) kill()
+    await Promise.allSettled([...this.executions, ...this.managed])
   }
 
   /** 写入白名单：会话工作区与临时目录；只读模式全部拒绝。 */
@@ -363,7 +371,7 @@ export async function probeAccessSandbox(): Promise<SandboxCapability> {
       reason: `受限权限不可用：${String(cause)}；请检查沙箱依赖和系统 namespace 策略后重启 Host`,
     }
   } finally {
-    sandbox?.stopAll()
+    await sandbox?.stopAll()
     if (directory) await rm(directory, { recursive: true, force: true }).catch(() => {})
     if (outside) await rm(outside, { recursive: true, force: true }).catch(() => {})
   }
