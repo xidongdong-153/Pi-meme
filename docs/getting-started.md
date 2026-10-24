@@ -119,7 +119,7 @@ tar -xzf pi-meme-host-0.1.0-beta.4-macos-arm64.tar.gz
 
 若 macOS 阻止包内可执行文件，只在确认来源与校验值后，对这个解压目录执行 `xattr -dr com.apple.quarantine ./pi-meme-host`，不要扩大到其他目录。
 
-浏览器打开 `http://127.0.0.1:31415`，本机自动登录。Ctrl+C 或 SIGTERM 停止 Host。默认只监听 loopback；远程部署见 [Remote](remote.md)。Linux 的 bubblewrap 必须通过实际探测，不能通过切换完全权限来代替安装或系统策略排查。外部 MCP、Python 等仍需要各自的运行依赖。Host 包内不附 npm、pnpm，也不自动注册系统服务。已有 SSH 可登录且可运行 Python 3 的远程机器可以从“设置 → 系统 → 远程”直接添加。应用优先连接使用 `~/.pi-meme` 且兼容的已有 Host，只有明确未发现时才自动安装并启动，无需先手工部署；探测范围与安装前提见 [SSH 自动连接](remote.md#通过-ssh-自动连接)。
+浏览器打开 `http://127.0.0.1:3185`，本机自动登录。Ctrl+C 或 SIGTERM 停止 Host。默认只监听 loopback；远程部署见 [Remote](remote.md)。Linux 的 bubblewrap 必须通过实际探测，不能通过切换完全权限来代替安装或系统策略排查。外部 MCP、Python 等仍需要各自的运行依赖。Host 包内不附 npm、pnpm，也不自动注册系统服务。已有 SSH 可登录且可运行 Python 3 的远程机器可以从“设置 → 系统 → 远程”直接添加。应用优先连接使用 `~/.pi-meme` 且兼容的已有 Host，只有明确未发现时才自动安装并启动，无需先手工部署；探测范围与安装前提见 [SSH 自动连接](remote.md#通过-ssh-自动连接)。
 
 ### 升级
 
@@ -143,7 +143,7 @@ Linux/WSL2 的系统依赖和文件系统要求先看 [Linux 与 WSL](linux-wsl.
 pnpm start
 ```
 
-命令启动 Electron Forge、Vite 和 Desktop。浏览器可同时打开 [开发界面](http://127.0.0.1:5173)，与 Desktop 共用默认 `127.0.0.1:31416` 的 Host，不需要再执行 `pnpm start:web` 或 `pnpm start:server`。已有兼容 Host 时直接复用，没有才启动本机子进程；两端均通过本机同源检查自动登录。开发版默认数据目录是 `~/.pi-meme-dev`，Electron 缓存和单实例锁使用 `appData/pi-meme-dev`（macOS 为 `~/Library/Application Support/pi-meme-dev`）。构建 App 继续使用 `31415` 和 `~/.pi-meme`，两者可同时运行。开发版需单独配置模型，不自动复制正式数据。显式设置 `PI_MEME_PORT` 或 `PI_MEME_DATA_ROOT` 时仍以环境变量为准；需要并行运行时，不要将两者覆盖成同一端口或目录。启动接线见 [main.ts](../apps/desktop/src/main/main.ts)、[local-host.ts](../apps/desktop/src/main/local-host.ts) 与 [host-process.ts](../apps/desktop/src/main/host-process.ts)。
+命令启动 Electron Forge、Vite 和 Desktop。浏览器可同时打开 [开发界面](http://127.0.0.1:3181)，与 Desktop 共用默认 `127.0.0.1:3180` 的 Host，不需要再执行 `pnpm start:web` 或 `pnpm start:server`。已有兼容 Host 时直接复用，没有才启动本机子进程；两端均通过本机同源检查自动登录。开发版默认数据目录是 `~/.pi-meme-dev`，Electron 缓存和单实例锁使用 `appData/pi-meme-dev`（macOS 为 `~/Library/Application Support/pi-meme-dev`）。构建 App 继续使用 `3185` 和 `~/.pi-meme`，两者可同时运行。开发版需单独配置模型，不自动复制正式数据。显式设置 `PI_MEME_PORT` 或 `PI_MEME_DATA_ROOT` 时仍以环境变量为准；需要并行运行时，不要将两者覆盖成同一端口或目录。启动接线见 [main.ts](../apps/desktop/src/main/main.ts)、[local-host.ts](../apps/desktop/src/main/local-host.ts) 与 [host-process.ts](../apps/desktop/src/main/host-process.ts)。
 
 打开“设置 → Agent → 模型”，连接服务商并选择默认模型和思考强度，再新建项目或会话。未配置模型时仍可查看设置、资源和历史。应用不读取本机 Pi CLI 的模型凭据，配置位置见 [配置与安全](configuration.md)。
 
@@ -161,9 +161,9 @@ pnpm start:server
 pnpm start:web
 ```
 
-打开 [Web 开发界面](http://127.0.0.1:5173)。Vite 默认将 `/api` 的 HTTP 和 WebSocket 请求代理给 `127.0.0.1:31416`；Web 代码支持热更新，Host 源码修改后需重启终端一。5173 被占用时直接报错，不自动换端口。代理目标可用 `PI_MEME_HOST_URL` 修改，见 [Vite 配置](../apps/web/vite.config.ts)。
+打开 [Web 开发界面](http://127.0.0.1:3181)。Vite 默认将 `/api` 的 HTTP 和 WebSocket 请求代理给 `127.0.0.1:3180`；Web 代码支持热更新，Host 源码修改后需重启终端一。3181 被占用时直接报错，不自动换端口。代理目标可用 `PI_MEME_HOST_URL` 修改，见 [Vite 配置](../apps/web/vite.config.ts)。
 
-`pnpm start:server` 从 [dev.ts](../apps/server/src/dev.ts) 启动，默认监听 `127.0.0.1:31416`，数据目录为 `~/.pi-meme-dev`，与正式环境的 `31415` 和 `~/.pi-meme` 分开。该入口和 Vite 开发服务器都会使用 `NODE_ENV=development`，即使终端继承了 `NODE_ENV=production`。开发环境需单独配置模型凭据，不自动复制正式数据。
+`pnpm start:server` 从 [dev.ts](../apps/server/src/dev.ts) 启动，默认监听 `127.0.0.1:3180`，数据目录为 `~/.pi-meme-dev`，与正式环境的 `3185` 和 `~/.pi-meme` 分开。该入口和 Vite 开发服务器都会使用 `NODE_ENV=development`，即使终端继承了 `NODE_ENV=production`。开发环境需单独配置模型凭据，不自动复制正式数据。
 
 显式设置 `PI_MEME_PORT`、`PI_MEME_DATA_ROOT` 或 `PI_MEME_HOST_URL` 时仍以环境变量为准；不要把开发端口、目录或代理地址覆盖成正式环境。登录 Cookie 按 Host 身份区分，避免同一 `127.0.0.1` 下不同端口的登录互相覆盖。这里隔离的是应用数据和登录状态，不隔离项目源码和用户共享技能目录；两套环境修改同一个文件时仍会相互影响。
 
@@ -174,7 +174,7 @@ pnpm build:web
 pnpm start:server
 ```
 
-打开 [开发 Host](http://127.0.0.1:31416)，从 `apps/web/dist` 提供页面，本机来源自动登录。这里仍启动开发 Host；正式源码部署使用下文的[源码构建的 Server](#源码构建的-server)。
+打开 [开发 Host](http://127.0.0.1:3180)，从 `apps/web/dist` 提供页面，本机来源自动登录。这里仍启动开发 Host；正式源码部署使用下文的[源码构建的 Server](#源码构建的-server)。
 
 ## Desktop 与 Server 共享 Host
 
@@ -182,7 +182,7 @@ Desktop 和 Server 使用相同端口、相同真实数据目录时，只创建�
 
 Desktop 自定义目录保存在本机定位文件，Server 不读取它。先在 Desktop 查看数据目录，再以相同 `PI_MEME_DATA_ROOT` 启动 Server。目录不同、协议不兼容或端口被其他程序占用时明确报错，不会悄悄换端口。设置新的令牌、TLS 或 Web 根目录属于创建配置，不能应用到已运行的 Host。
 
-`pnpm start:server` 默认与 Desktop 开发版共用 `31416` 和 `~/.pi-meme-dev`，独立 Web 的代理也默认连接 `31416`，无需额外设置。构建后的 `node apps/server/dist/main.js` 和 Host 独立包默认使用 `31415` 和 `~/.pi-meme`，与构建 App 一致。
+`pnpm start:server` 默认与 Desktop 开发版共用 `3180` 和 `~/.pi-meme-dev`，独立 Web 的代理也默认连接 `3180`，无需额外设置。构建后的 `node apps/server/dist/main.js` 和 Host 独立包默认使用 `3185` 和 `~/.pi-meme`，与构建 App 一致。
 
 运行另一套独立 Host，目录和端口都要区分：
 
@@ -190,7 +190,7 @@ Desktop 自定义目录保存在本机定位文件，Server 不读取它。先�
 PI_MEME_DATA_ROOT=/absolute/path/pi-meme-other-data PI_MEME_PORT=31417 pnpm start:server
 ```
 
-独立 Web 的 `PI_MEME_HOST_URL` 优先于 `PI_MEME_PORT`；未设置地址时使用本机端口。Forge Renderer 始终跟随 Desktop 的本机端口。已由 `pnpm start` 占用 5173 时，直接打开该页面，不再启动第二个 Vite。
+独立 Web 的 `PI_MEME_HOST_URL` 优先于 `PI_MEME_PORT`；未设置地址时使用本机端口。Forge Renderer 始终跟随 Desktop 的本机端口。已由 `pnpm start` 占用 3181 时，直接打开该页面，不再启动第二个 Vite。
 
 管理方退出后其他客户端断线，不会自动创建替代 Host；可重新启动管理方或在 Desktop 显式重试。旧版本随机端口 Host 需要先退出再使用新入口。数据锁、权限与路径规则见 [配置与安全](configuration.md)。
 
@@ -202,7 +202,7 @@ pnpm build:server
 node apps/server/dist/main.js
 ```
 
-打开 [本机 Host](http://127.0.0.1:31415)。构建入口默认使用 `31415` 和 `~/.pi-meme`，不使用开发入口的默认值；显式设置 `PI_MEME_PORT` 或 `PI_MEME_DATA_ROOT` 时仍以环境变量为准。
+打开 [本机 Host](http://127.0.0.1:3185)。构建入口默认使用 `3185` 和 `~/.pi-meme`，不使用开发入口的默认值；显式设置 `PI_MEME_PORT` 或 `PI_MEME_DATA_ROOT` 时仍以环境变量为准。
 
 Server 构建包含 `main.js`、供 SSH 自动准备使用的 `ssh-bootstrap.js`、静态会话 Worker 和内置技能；仍依赖本机安装的 `node_modules`，不是独立单文件。构建定义见 [vite.config.mts](../apps/server/vite.config.mts)。它不同于 `pnpm package:host` 生成的独立目录包，打包与验收见[版本发布](releasing.md)。远程监听和 HTTPS 参数见 [Remote](remote.md)。
 

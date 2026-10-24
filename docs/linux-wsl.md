@@ -39,7 +39,7 @@ pnpm --version
 pnpm install --frozen-lockfile
 ```
 
-以下项目命令在仓库根目录执行。终端一运行 `pnpm start:server`，终端二运行 `pnpm start:web`。开发 Host 默认使用 `31416` 和 `~/.pi-meme-dev`，与正式环境分开。Windows 或 Linux 浏览器打开 `http://127.0.0.1:5173`。Vite 固定 loopback 地址与端口，同源代理保留 Cookie、Host、Origin 和 WebSocket。Web 源码修改支持热更新，Host 源码修改后重启终端一。
+以下项目命令在仓库根目录执行。终端一运行 `pnpm start:server`，终端二运行 `pnpm start:web`。开发 Host 默认使用 `3180` 和 `~/.pi-meme-dev`，与正式环境分开。Windows 或 Linux 浏览器打开 `http://127.0.0.1:3181`。Vite 固定 loopback 地址与端口，同源代理保留 Cookie、Host、Origin 和 WebSocket。Web 源码修改支持热更新，Host 源码修改后重启终端一。
 
 构建后由一个 Host 提供 Web：
 
@@ -49,14 +49,14 @@ pnpm build:server
 node apps/server/dist/main.js
 ```
 
-打开 `http://127.0.0.1:31415`，本机自动登录。这组源码构建的 Server 和 Worker 依赖当前 Linux 的 `node_modules`，不是独立单文件；下载包则由 `pnpm package:host` 另行收集完整运行目录。`PI_MEME_DATA_ROOT` 和 `PI_MEME_WEB_ROOT` 继续支持覆盖；Host 数据必须位于 Linux 文件系统，Windows 驱动器挂载会被拒绝。
+打开 `http://127.0.0.1:3185`，本机自动登录。这组源码构建的 Server 和 Worker 依赖当前 Linux 的 `node_modules`，不是独立单文件；下载包则由 `pnpm package:host` 另行收集完整运行目录。`PI_MEME_DATA_ROOT` 和 `PI_MEME_WEB_ROOT` 继续支持覆盖；Host 数据必须位于 Linux 文件系统，Windows 驱动器挂载会被拒绝。
 
 ```mermaid
 %%{init: {"theme": "dark"}}%%
 flowchart TD
-  Browser["Windows 或 Linux 浏览器"] -->|开发：5173| Vite["Vite：同源 HTTP/WebSocket 代理"]
-  Vite --> Host["Linux Node Host：开发 31416 / 构建后 31415"]
-  Browser -->|构建后：31415| Host
+  Browser["Windows 或 Linux 浏览器"] -->|开发：3181| Vite["Vite：同源 HTTP/WebSocket 代理"]
+  Vite --> Host["Linux Node Host：开发 3180 / 构建后 3185"]
+  Browser -->|构建后：3185| Host
   Host --> Worker["静态 Worker 与 Pi SDK"]
   Worker --> Sandbox["bubblewrap：受限文件工具"]
   Sandbox --> Project["Linux 工作区与会话临时目录"]

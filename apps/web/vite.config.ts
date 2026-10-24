@@ -2,7 +2,12 @@ import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { fileURLToPath } from 'node:url'
-import { defaultDevelopmentHostPort, hostPort, localHostUrl } from '@pi-meme/contracts/host-runtime'
+import {
+  defaultDevelopmentFrontendPort,
+  defaultDevelopmentHostPort,
+  hostPort,
+  localHostUrl,
+} from '@pi-meme/contracts/host-runtime'
 import { waitForLocalHost } from '@pi-meme/host/host-status'
 
 const sharedModules = {
@@ -76,7 +81,7 @@ export function createWebConfig(
     resolve: { preserveSymlinks: false, dedupe: ['react', 'react-dom'] },
     server: {
       host: '127.0.0.1',
-      port: 5173,
+      port: defaultDevelopmentFrontendPort,
       strictPort: true,
       proxy: {
         '/api': { target: hostUrl, ws: true, changeOrigin: false },

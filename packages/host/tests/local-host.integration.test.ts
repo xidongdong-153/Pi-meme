@@ -47,8 +47,8 @@ async function fixture() {
 }
 
 test('本机入口默认端口统一，非法端口被拒绝，0 仅用于显式临时监听', () => {
-  assert.equal(hostPort(), 31415)
-  assert.equal(localHostUrl(), 'http://127.0.0.1:31415')
+  assert.equal(hostPort(), 3185)
+  assert.equal(localHostUrl(), 'http://127.0.0.1:3185')
   assert.equal(hostPort('0'), 0)
   for (const value of ['', '-1', '65536', '1.2', 'abc']) assert.throws(() => hostPort(value), /PI_MEME_PORT/)
 })

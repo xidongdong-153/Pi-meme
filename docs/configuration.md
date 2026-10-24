@@ -37,7 +37,7 @@ paths:
 
 ## 数据目录
 
-构建 App、构建后的 Server 和 Host 独立包默认使用 `~/.pi-meme` 和端口 `31415`；Desktop 开发版和 `pnpm start:server` 默认使用 `~/.pi-meme-dev` 和 `31416`。Desktop 按 `PI_MEME_DATA_ROOT`、已保存的自定义目录、默认目录依次选择；独立 Server 只读取环境变量或默认目录。[data-root.ts](../packages/host/src/data-root.ts) 将路径解析为绝对路径，用带心跳的 `host.lock` 保证一个 Host 写入。登记远程服务不会关闭本机 Host。Desktop 与 Server 的端口和真实数据目录一致时复用同一个 Host；只有创建方持有写锁和停机权限。运行多套独立 Host 必须同时区分目录和端口。
+构建 App、构建后的 Server 和 Host 独立包默认使用 `~/.pi-meme` 和端口 `3185`；Desktop 开发版和 `pnpm start:server` 默认使用 `~/.pi-meme-dev` 和 `3180`。Desktop 按 `PI_MEME_DATA_ROOT`、已保存的自定义目录、默认目录依次选择；独立 Server 只读取环境变量或默认目录。[data-root.ts](../packages/host/src/data-root.ts) 将路径解析为绝对路径，用带心跳的 `host.lock` 保证一个 Host 写入。登记远程服务不会关闭本机 Host。Desktop 与 Server 的端口和真实数据目录一致时复用同一个 Host；只有创建方持有写锁和停机权限。运行多套独立 Host 必须同时区分目录和端口。
 
 数据目录自版本 2 起采用规范化分类层级结构（`config/`、`credentials/`、`state/`、`data/`、`resources/`、`plugins/`、`workspaces/`、`cache/`、`logs/`），完整结构、各文件所有者与回收规则见 [数据目录与存储](storage.md)。主要文件简述如下：
 

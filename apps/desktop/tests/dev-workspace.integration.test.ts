@@ -60,7 +60,7 @@ assert.match(fs.readFileSync(${JSON.stringify(path.join(directory, 'restricted-e
   }
 })
 
-test('Desktop 开发代理默认使用 31416，与构建 App 的 31415 隔离', async () => {
+test('Desktop 开发代理默认使用 3180，与构建 App 的 3185 隔离', async () => {
   vi.stubEnv('PI_MEME_PORT', undefined)
   const root = fileURLToPath(new URL('..', import.meta.url))
   try {
@@ -77,14 +77,16 @@ test('Desktop 开发代理默认使用 31416，与构建 App 的 31415 隔离', 
     assert.ok(loaded)
     const proxy = loaded.config.server?.proxy?.['/api']
     assert.ok(typeof proxy === 'object')
-    assert.equal(proxy.target, 'http://127.0.0.1:31416')
+    assert.equal(proxy.target, 'http://127.0.0.1:3180')
+    assert.equal(loaded.config.server?.port, 3181)
+    assert.equal(loaded.config.server?.strictPort, true)
   } finally {
     vi.unstubAllEnvs()
   }
 })
 
 test.each([
-  { port: undefined, url: undefined, target: 'http://127.0.0.1:31416' },
+  { port: undefined, url: undefined, target: 'http://127.0.0.1:3180' },
   { port: '31417', url: undefined, target: 'http://127.0.0.1:31417' },
   { port: '31417', url: 'http://127.0.0.1:31418', target: 'http://127.0.0.1:31418' },
 ])('Web 开发代理使用 $target，不继承正式 NODE_ENV', async ({ port, url, target }) => {
@@ -97,6 +99,8 @@ test.each([
     const proxy = config.server.proxy?.['/api']
     assert.ok(typeof proxy === 'object')
     assert.equal(proxy.target, target)
+    assert.equal(config.server.port, 3181)
+    assert.equal(config.server.strictPort, true)
     assert.equal(config.isProduction, false)
     assert.equal(process.env.NODE_ENV, 'development')
   } finally {

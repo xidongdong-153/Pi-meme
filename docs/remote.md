@@ -52,9 +52,9 @@ pnpm build:server
 node apps/server/dist/main.js
 ```
 
-打开 [本机 Host](http://127.0.0.1:31415)，本机来源自动登录。源码开发则在两个终端分别执行 `pnpm start:server` 和 `pnpm start:web`，无需额外环境变量，访问 [开发界面](http://127.0.0.1:5173)，默认代理到 `31416`。完整安装、双终端与构建产物用法见 [快速开始](getting-started.md)。
+打开 [本机 Host](http://127.0.0.1:3185)，本机来源自动登录。源码开发则在两个终端分别执行 `pnpm start:server` 和 `pnpm start:web`，无需额外环境变量，访问 [开发界面](http://127.0.0.1:3181)，默认代理到 `3180`。完整安装、双终端与构建产物用法见 [快速开始](getting-started.md)。
 
-构建 App、构建后的 Server 和 Host 独立包默认使用 `~/.pi-meme` 和端口 `31415`；`pnpm start` 的 Desktop 开发版和 `pnpm start:server` 默认使用 `~/.pi-meme-dev` 和端口 `31416`。同一目录只允许一个 Host 写入。Desktop 和 Server 的目录、端口一致时复用同一个运行实例；创建方负责停机。先运行 `pnpm start` 时可直接打开 5173，不再运行第二个 Vite 或 Server。不同目录不能复用同一端口；多套独立 Host 必须同时区分目录和端口，显式覆盖时不要将开发环境指向正式环境。
+构建 App、构建后的 Server 和 Host 独立包默认使用 `~/.pi-meme` 和端口 `3185`；`pnpm start` 的 Desktop 开发版和 `pnpm start:server` 默认使用 `~/.pi-meme-dev` 和端口 `3180`。同一目录只允许一个 Host 写入。Desktop 和 Server 的目录、端口一致时复用同一个运行实例；创建方负责停机。先运行 `pnpm start` 时可直接打开 3181，不再运行第二个 Vite 或 Server。不同目录不能复用同一端口；多套独立 Host 必须同时区分目录和端口，显式覆盖时不要将开发环境指向正式环境。
 
 本机共享入口通过 `GET /api/status` 校验产品、运行协议、Host 身份和真实目录。状态仅允许本机来源读取，不返回令牌、Cookie 或远程密钥。Server 入口发现兼容 Host 后打印复用结果并成功退出；显式设置令牌、TLS、Web 根目录或认证模式时不能静默应用到已有 Host，需先停止管理方。实现见 [local-host.ts](../packages/host/src/local-host.ts) 与 [运行契约](../packages/contracts/src/host-runtime.ts)。
 
@@ -64,7 +64,7 @@ node apps/server/dist/main.js
 
 ```bash
 PI_MEME_HOST=0.0.0.0 \
-PI_MEME_PORT=31415 \
+PI_MEME_PORT=3185 \
 PI_MEME_DATA_ROOT=/absolute/path/pi-meme-data \
 PI_MEME_TLS_CERT=/absolute/path/fullchain.pem \
 PI_MEME_TLS_KEY=/absolute/path/private-key.pem \
@@ -94,7 +94,7 @@ SSH 由入口 Node Host 发起，读取该用户的 SSH 配置、agent 和 `know
 
 ### 已有 Host 探测
 
-SSH 配置预检通过后，入口经 SSH 标准输入发送固定 Python 3 脚本，脚本不写远端文件。先检查 `~/.local/state/pi-meme/ssh-host` 中运行描述记录的端口，再检查默认 `127.0.0.1:31415`，不扫描其他端口、进程、NVM 或 systemd。自定义端口的 Host 没有运行描述时不能自动发现。
+SSH 配置预检通过后，入口经 SSH 标准输入发送固定 Python 3 脚本，脚本不写远端文件。先检查 `~/.local/state/pi-meme/ssh-host` 中运行描述记录的端口，再检查默认 `127.0.0.1:3185`，不扫描其他端口、进程、NVM 或 systemd。自定义端口的 Host 没有运行描述时不能自动发现。
 
 探测通过 `/api/status` 校验产品、运行协议、Host/实例身份，以及是否使用远端 `~/.pi-meme` 的真实数据目录；匹配后从该目录的 `credentials/auth.json` 读取 `host:token`。随后建立既有 SSH 隧道并认证，要求 Host 使用 `token-required` 且提供 `sshTunnelAuthV1` 能力，并核对已保存的 Host 身份。令牌只经受保护的 SSH 通道和入口凭据存储传递，不返回界面。
 
@@ -147,17 +147,17 @@ SSH 配置读取、保存、启停、重试和移除要求已认证且通过入�
 
 ## 运行参数
 
-| 环境变量                               | 作用范围                      | 用途与默认值                                                                                                                          |
-| -------------------------------------- | ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
-| `PI_MEME_DATA_ROOT`                    | Host                          | 数据根目录，构建 App、构建后的 Server 和独立包默认 `~/.pi-meme`；Desktop 与 Server 开发入口默认 `~/.pi-meme-dev`                      |
-| `PI_MEME_HOST`                         | 独立 Server                   | 监听地址，默认 `127.0.0.1`                                                                                                            |
-| `PI_MEME_PORT`                         | Desktop、Server、Web 开发代理 | 构建 App、构建后的 Server 和独立包默认 `31415`；Desktop、Server 开发入口及 Web 开发代理默认 `31416`；`0` 用于隔离测试，不参与自动复用 |
-| `PI_MEME_TOKEN`                        | 独立 Server                   | 登录令牌；未设置时读取 `credentials/auth.json`，首次生成（数据布局详见 [数据目录与存储](storage.md)）                                 |
-| `PI_MEME_AUTH_MODE`                    | 独立 Server                   | 仅接受 `token-required`，关闭本机自动登录；SSH 认证模式由自动启动入口强制设置；手工独立 Server 的环境变量不用于配置 SSH               |
-| `PI_MEME_WEB_ROOT`                     | 独立 Server                   | 页面目录，默认应用相邻的 `apps/web/dist`                                                                                              |
-| `PI_MEME_TLS_CERT` / `PI_MEME_TLS_KEY` | 独立 Server                   | HTTPS 证书与私钥文件路径，必须同时提供                                                                                                |
-| `PI_MEME_HOST_URL`                     | 独立 Web 开发服务器           | `/api` 代理目标，优先于 `PI_MEME_PORT`；Forge Renderer 不使用此覆盖                                                                   |
-| `PI_MEME_REMOTE_HOST`                  | Desktop                       | 启动时登记指定远程服务；登录令牌来自 `PI_MEME_TOKEN` 或已保存记录                                                                     |
+| 环境变量                               | 作用范围                      | 用途与默认值                                                                                                                        |
+| -------------------------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| `PI_MEME_DATA_ROOT`                    | Host                          | 数据根目录，构建 App、构建后的 Server 和独立包默认 `~/.pi-meme`；Desktop 与 Server 开发入口默认 `~/.pi-meme-dev`                    |
+| `PI_MEME_HOST`                         | 独立 Server                   | 监听地址，默认 `127.0.0.1`                                                                                                          |
+| `PI_MEME_PORT`                         | Desktop、Server、Web 开发代理 | 构建 App、构建后的 Server 和独立包默认 `3185`；Desktop、Server 开发入口及 Web 开发代理默认 `3180`；`0` 用于隔离测试，不参与自动复用 |
+| `PI_MEME_TOKEN`                        | 独立 Server                   | 登录令牌；未设置时读取 `credentials/auth.json`，首次生成（数据布局详见 [数据目录与存储](storage.md)）                               |
+| `PI_MEME_AUTH_MODE`                    | 独立 Server                   | 仅接受 `token-required`，关闭本机自动登录；SSH 认证模式由自动启动入口强制设置；手工独立 Server 的环境变量不用于配置 SSH             |
+| `PI_MEME_WEB_ROOT`                     | 独立 Server                   | 页面目录，默认应用相邻的 `apps/web/dist`                                                                                            |
+| `PI_MEME_TLS_CERT` / `PI_MEME_TLS_KEY` | 独立 Server                   | HTTPS 证书与私钥文件路径，必须同时提供                                                                                              |
+| `PI_MEME_HOST_URL`                     | 独立 Web 开发服务器           | `/api` 代理目标，优先于 `PI_MEME_PORT`；Forge Renderer 不使用此覆盖                                                                 |
+| `PI_MEME_REMOTE_HOST`                  | Desktop                       | 启动时登记指定远程服务；登录令牌来自 `PI_MEME_TOKEN` 或已保存记录                                                                   |
 
 Server 参数来自 [main.ts](../apps/server/src/main.ts)，开发默认值来自 [dev.ts](../apps/server/src/dev.ts)，开发代理来自 [Vite 配置](../apps/web/vite.config.ts)，Desktop 登记来自 [main.ts](../apps/desktop/src/main/main.ts)。测试凭据与 Worker 路径覆盖属于开发接线，不是日常部署所需参数。
 
@@ -230,7 +230,7 @@ Desktop 使用内存浏览器会话；正式界面由随包资源提供，不依
 | 启动提示已有 Host、目录不一致或协议不兼容 | 核对两个入口的目录和端口；停止旧版本 Host，或为独立实例指定另一目录和端口                          |
 | `/api/auth` 返回 503 或代理连接被拒绝     | 确认管理方仍在运行、`PI_MEME_PORT` 与代理目标一致；首次启动等待最多 30 秒                          |
 | 非本机监听被拒绝                          | 同时设置 TLS 证书与私钥，核对文件路径和读取权限                                                    |
-| 5173 被占用                               | 停止占用进程后重启；Vite 的 `strictPort` 不会换端口                                                |
+| 3181 被占用                               | 停止占用进程后重启；Vite 的 `strictPort` 不会换端口                                                |
 | WSL 内可访问、Windows 浏览器失败          | 先确认 WSL 服务，再检查 localhost 转发、端口和防火墙，不放宽认证                                   |
 | 页面能打开，WebSocket 失败                | 查看升级 HTTP 状态、Origin、Cookie、clientId 及代理是否支持 WebSocket                              |
 | 远程身份变化                              | 核对所连 Host 数据目录与持久 host-id，重新确认连接目标                                             |
@@ -239,7 +239,7 @@ Desktop 使用内存浏览器会话；正式界面由随包资源提供，不依
 | SSH 指纹或身份验证失败                    | 在入口 Host 的终端核实 `known_hosts`、密钥与 agent；应用不会弹出口令输入或自动接受指纹             |
 | SSH 预检报告额外转发                      | 为该连接使用不含 `LocalForward`、`RemoteForward`、`DynamicForward` 的 SSH 别名                     |
 | SSH 已有 Host 探测失败                    | 检查远端 Python 3、运行描述与凭据权限；新鲜 `host.lock` 无端点时等待原 Host 就绪后重试，不删除锁   |
-| SSH 找不到自定义端口的 Host               | 自动发现只检查运行描述端口与 `31415`；没有描述的自定义端口不在发现范围内                           |
+| SSH 找不到自定义端口的 Host               | 自动发现只检查运行描述端口与 `3185`；没有描述的自定义端口不在发现范围内                            |
 | SSH 安装失败或新建 Host 不可用            | 检查当前发行资产、远端平台、安装依赖、目录权限和已有 Host 冲突                                     |
 | SSH 管理按钮不可用                        | 确认访问的是已认证的入口 Host 本机来源，并确认该 Host 的 PATH 能找到系统 OpenSSH                   |
 

@@ -1,5 +1,7 @@
-export const defaultHostPort = 31415
-export const defaultDevelopmentHostPort = 31416
+export const defaultHostPort = 3185
+export const defaultFrontendPort = 2159
+export const defaultDevelopmentHostPort = 3180
+export const defaultDevelopmentFrontendPort = 3181
 export const hostRuntimeProtocolVersion = 1
 
 export type LocalHostStatus = {

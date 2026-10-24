@@ -186,7 +186,7 @@ async function writeReleaseNotes() {
 
 Desktop 解压后将 Pi meme.app 放入 /Applications。macOS 使用 ad-hoc 签名，未做 Developer ID 签名与公证，首次打开可能被 Gatekeeper 阻止。仅在确认来源并校验文件后允许打开具体应用，不要关闭系统 Gatekeeper。
 
-Host 解压后运行 \`./pi-meme-host/bin/pi-meme-host\`，访问 http://127.0.0.1:31415。需要 Git 和 bash；Linux 还需要可用的 bubblewrap。远程监听必须配置 HTTPS 证书、私钥和令牌。
+Host 解压后运行 \`./pi-meme-host/bin/pi-meme-host\`，访问 http://127.0.0.1:3185。需要 Git 和 bash；Linux 还需要可用的 bubblewrap。远程监听必须配置 HTTPS 证书、私钥和令牌。
 
 数据默认位于 ~/.pi-meme。升级前退出旧 Host 的管理方并备份数据目录；不提供自动更新或自动注册系统服务，不承诺数据格式变化后的降级兼容。
 

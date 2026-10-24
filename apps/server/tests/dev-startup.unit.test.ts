@@ -21,7 +21,7 @@ test.each([
     assert.equal(start.mock.calls.length, 1)
     const env = start.mock.results[0].value
     assert.equal(env.NODE_ENV, 'development')
-    assert.equal(env.PI_MEME_PORT, port ?? '31416')
+    assert.equal(env.PI_MEME_PORT, port ?? '3180')
     assert.equal(env.PI_MEME_DATA_ROOT, dataRoot ?? path.join(homedir(), '.pi-meme-dev'))
   } finally {
     vi.doUnmock('../src/main')

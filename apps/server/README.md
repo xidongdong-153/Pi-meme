@@ -17,7 +17,7 @@ sudo apt-get install -y git bash bubblewrap
 ./bin/pi-meme-host
 ```
 
-浏览器访问 `http://127.0.0.1:31415`，本机自动登录。在设置中配置模型后开始使用。Ctrl+C 或 SIGTERM 正常停止 Host。
+浏览器访问 `http://127.0.0.1:3185`，本机自动登录。在设置中配置模型后开始使用。Ctrl+C 或 SIGTERM 正常停止 Host。
 
 下载包的验收基线是 macOS 15 arm64、Ubuntu 24.04 x64。其他版本或发行版未作为首发验收平台；不支持 Intel Mac、Linux arm64、Alpine/musl 或 Windows 原生运行。Linux 受限权限依赖实际可用的 bubblewrap；系统策略禁止 user namespace 时会报告不可用，不会静默切换完全权限。
 
@@ -31,7 +31,7 @@ macOS 下载包未做 Apple 公证。仅在确认来自项目 Release 且 SHA256
 
 ```bash
 PI_MEME_HOST=0.0.0.0 \
-PI_MEME_PORT=31415 \
+PI_MEME_PORT=3185 \
 PI_MEME_DATA_ROOT=/absolute/path/pi-meme-data \
 PI_MEME_TLS_CERT=/absolute/path/fullchain.pem \
 PI_MEME_TLS_KEY=/absolute/path/private-key.pem \
@@ -50,7 +50,7 @@ PI_MEME_TOKEN=replace-with-your-access-token \
 3. 添加后先通过 Python 3 只读探测已有 Host，找到后直接建立隧道并认证。只有明确未发现时，才下载匹配发行版本的完整 Host 包，校验后经 SSH 传输并后台启动；不填写业务端口或 Host 令牌。
 4. 已连接后选择远程项目。新环境的模型设置在远端完成，不自动复制本机凭据。
 
-远端需可运行 Python 3，探测脚本从 SSH 标准输入执行，不写远端文件。先检查 `~/.local/state/pi-meme/ssh-host` 的运行描述端口，再检查默认 `127.0.0.1:31415`；不扫描其他端口、进程、NVM 或 systemd。自定义端口没有运行描述时不能自动发现。
+远端需可运行 Python 3，探测脚本从 SSH 标准输入执行，不写远端文件。先检查 `~/.local/state/pi-meme/ssh-host` 的运行描述端口，再检查默认 `127.0.0.1:3185`；不扫描其他端口、进程、NVM 或 systemd。自定义端口没有运行描述时不能自动发现。
 
 已有 Host 的运行协议、身份和真实数据目录必须匹配远端 `~/.pi-meme`。入口从该目录 `credentials/auth.json` 的 `host:token` 读取令牌，建立隧道后校验 `token-required`、`sshTunnelAuthV1` 与 Host 身份。复用不要求发行版本同号，不区分 systemd、源码或独立包启动；不检查 Node、Git、bash、tar 或 bubblewrap，不下载包，不调用 `ssh-bootstrap`，也不停止或重启服务。
 

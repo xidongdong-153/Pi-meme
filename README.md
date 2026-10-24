@@ -27,7 +27,7 @@ macOS Desktop 安装步骤：
 
 应用打开后，在设置中配置模型服务商和模型，再选择项目开始聊天。已有 `~/.pi-meme` 配置会继续使用。beta.4 会为 Desktop 新建的本机 Host 恢复用户登录 Shell 的 PATH，已安装工具的检查方法见[检查项目命令](docs/getting-started.md#检查项目命令)。
 
-Host 包含 Web，解压后运行 `./pi-meme-host/bin/pi-meme-host`，浏览器打开 `http://127.0.0.1:31415`。远程监听继续要求 HTTPS，见 [Remote](docs/remote.md)。
+Host 包含 Web，解压后运行 `./pi-meme-host/bin/pi-meme-host`，浏览器打开 `http://127.0.0.1:3185`。远程监听继续要求 HTTPS，见 [Remote](docs/remote.md)。
 
 ## 源码开发
 
@@ -40,9 +40,9 @@ pnpm install --frozen-lockfile
 pnpm start
 ```
 
-启动 Desktop 后，也可在浏览器打开 [Web 开发界面](http://127.0.0.1:5173)，两端使用同一个 Host，不需要再启动 Server 或第二个 Vite。
+启动 Desktop 后，也可在浏览器打开 [Web 开发界面](http://127.0.0.1:3181)，两端使用同一个 Host，不需要再启动 Server 或第二个 Vite。
 
-`pnpm start` 使用 Host 端口 `31416`、数据目录 `~/.pi-meme-dev` 和独立的 Electron 缓存目录。构建 App 使用 `31415` 和 `~/.pi-meme`，两者可同时运行；开发版需单独配置模型。
+`pnpm start` 使用 Host 端口 `3180`、数据目录 `~/.pi-meme-dev` 和独立的 Electron 缓存目录。构建 App 使用 `3185` 和 `~/.pi-meme`，两者可同时运行；开发版需单独配置模型。
 
 不启动 Desktop、只运行 Web：
 
@@ -52,9 +52,16 @@ pnpm build:web
 pnpm start:server
 ```
 
-浏览器打开 [开发 Host](http://127.0.0.1:31416)，本机访问自动登录。在“设置 → 个人 → 模型”中配置模型后发送任务。需要前端热更新时，省略 `pnpm build:web`，另开终端运行 `pnpm start:web`，打开 `http://127.0.0.1:5173`。Linux/WSL2 还需安装 bubblewrap，见 [Linux 与 WSL](docs/linux-wsl.md)。
+浏览器打开 [开发 Host](http://127.0.0.1:3180)，本机访问自动登录。在“设置 → 个人 → 模型”中配置模型后发送任务。需要前端热更新时，省略 `pnpm build:web`，另开终端运行 `pnpm start:web`，打开 `http://127.0.0.1:3181`。Linux/WSL2 还需安装 bubblewrap，见 [Linux 与 WSL](docs/linux-wsl.md)。
 
-构建后的 Server、Host 独立包和构建 App 默认使用 `~/.pi-meme` 和端口 `31415`。Desktop 开发版和 `pnpm start:server` 默认使用 `~/.pi-meme-dev` 和 `31416`，Web 开发代理也默认连接 `31416`。可用 `PI_MEME_DATA_ROOT`、`PI_MEME_PORT` 覆盖；目录和端口一致时复用同一个 Host，创建它的入口退出时 Host 停止。运行多套独立 Host 必须同时使用不同目录和端口。凭据由 Host 保存到 `auth.json`，不读取本机 Pi CLI 配置。
+构建后的 Server、Host 独立包和构建 App 默认使用 `~/.pi-meme` 和端口 `3185`。Desktop 开发版和 `pnpm start:server` 默认使用 `~/.pi-meme-dev` 和 `3180`，Web 开发代理也默认连接 `3180`。可用 `PI_MEME_DATA_ROOT`、`PI_MEME_PORT` 覆盖；目录和端口一致时复用同一个 Host，创建它的入口退出时 Host 停止。运行多套独立 Host 必须同时使用不同目录和端口。凭据由 Host 保存到 `auth.json`，不读取本机 Pi CLI 配置。
+
+| 环境               | Host 端口 | 界面端口 |
+| ------------------ | --------- | -------- |
+| 正式 Desktop       | `3185`    | `2159`   |
+| 开发 Desktop / Web | `3180`    | `3181`   |
+
+正式 Desktop 的界面端口提供随包页面和同源 API 代理；独立 Server 直接在 Host 端口 `3185` 提供页面。
 
 ## 文档
 

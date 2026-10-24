@@ -3,6 +3,7 @@ import path from 'node:path'
 import { mkdirSync } from 'node:fs'
 import { homedir } from 'node:os'
 import type { HostConnection, HostConnectionError, SavedHostConnection } from '@pi-meme/contracts/host'
+import { defaultDevelopmentFrontendPort, defaultFrontendPort } from '@pi-meme/contracts/host-runtime'
 import { createNodeHostClient, type NodeHostClient } from '@pi-meme/client/node-host-client'
 import { readLocalHostStatus } from '@pi-meme/host/host-status'
 import { startFrontendServer } from '@pi-meme/host/frontend-server'
@@ -132,6 +133,7 @@ async function initializeHost() {
         upstreamUrl: lease.url,
         hostId: lease.status.hostId,
         staticDirectory: path.join(__dirname, '../renderer/main_window'),
+        port: app.isPackaged ? defaultFrontendPort : defaultDevelopmentFrontendPort,
       })
       uiUrl = frontend.url
     }

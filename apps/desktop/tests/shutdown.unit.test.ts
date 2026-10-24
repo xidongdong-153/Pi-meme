@@ -101,6 +101,7 @@ async function fixture(ownership: 'owned' | 'attached' = 'owned') {
 test('退出时先关闭窗口，再释放客户端、界面代理和自有 Host，等待期间不重开窗口', async () => {
   const f = await fixture()
   try {
+    assert.equal(mocks.frontend.mock.calls[0][0].port, 2159)
     const preventDefault = vi.fn()
     f.events.emit('before-quit', { preventDefault })
     assert.equal(preventDefault.mock.calls.length, 1)

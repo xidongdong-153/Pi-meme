@@ -74,8 +74,8 @@ async function fixture(env: NodeJS.ProcessEnv = {}) {
 }
 
 test.each([
-  { packaged: false, override: undefined, port: '31416' },
-  { packaged: true, override: undefined, port: '31415' },
+  { packaged: false, override: undefined, port: '3180' },
+  { packaged: true, override: undefined, port: '3185' },
   { packaged: false, override: '31417', port: '31417' },
   { packaged: true, override: '31417', port: '31417' },
   { packaged: false, override: '0', port: '0' },
@@ -149,7 +149,7 @@ test.each([
 )
 
 test('启动 Host 前恢复 PATH，并保留 Host 参数与其他环境变量', async () => {
-  const env = { PATH: '/usr/bin:/bin', ESBUILD_BINARY_PATH: '/fixture/esbuild', PI_MEME_PORT: '31416' }
+  const env = { PATH: '/usr/bin:/bin', ESBUILD_BINARY_PATH: '/fixture/esbuild', PI_MEME_PORT: '3180' }
   mocks.prepareEnv.mockImplementation(async (value: NodeJS.ProcessEnv) => {
     assert.equal(mocks.fork.mock.calls.length, 0)
     return { ...value, PATH: '/fixture/user-bin:/usr/bin:/bin' }
@@ -171,7 +171,7 @@ test('启动 Host 前恢复 PATH，并保留 Host 参数与其他环境变量', 
 })
 
 test('连接已有 Host 不探测 Shell，也不创建进程', async () => {
-  mocks.acquire.mockResolvedValue({ ownership: 'attached', url: 'http://127.0.0.1:31415' })
+  mocks.acquire.mockResolvedValue({ ownership: 'attached', url: 'http://127.0.0.1:3185' })
   const lease = await acquireDesktopHost({ entry: '/fixture/host-process.js', env: {}, dataRoot: '/fixture/data' })
   assert.equal(lease.ownership, 'attached')
   assert.equal(mocks.prepareEnv.mock.calls.length, 0)
