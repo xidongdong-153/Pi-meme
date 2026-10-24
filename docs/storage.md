@@ -4,6 +4,9 @@ status: implemented
 paths:
   - 'packages/contracts/src/storage-paths.ts'
   - 'packages/host/src/storage/**'
+  - 'apps/desktop/src/main/storage/**'
+  - 'apps/desktop/src/main/storage-process.ts'
+  - 'packages/contracts/src/storage.ts'
   - 'packages/host/src/data-root.ts'
   - 'packages/host/src/ssh-connections.ts'
   - 'packages/host/src/connection-credentials.ts'
@@ -12,9 +15,11 @@ paths:
 
 # 数据目录与存储维护
 
-Host 的应用配置、持久状态、执行数据与内部管理的工作区文件保存在其数据根目录（默认 `~/.pi-meme`，开发版默认 `~/.pi-meme-dev`）。数据根由 Host 独占写入，使用 `storage.json` 标识规范化布局版本。
+Host 的应用配置、持久状态、执行数据与内部管理的工作区文件保存在其数据根目录（默认 `~/.pi-meme`，开发版默认 `~/.pi-meme-dev`）。Desktop 按 `PI_MEME_DATA_ROOT`、已保存的自定义目录、默认目录依次选择；独立 Server 只读取环境变量或默认目录。数据根由 Host 独占写入，使用 `storage.json` 标识布局版本；同目录与端口的入口可[复用 Host](getting-started.md#desktop-与-server-共享-host)。
 
 外部项目的工作区文件保留在用户本机的项目目录中，数据根仅保存外部项目的配置覆盖（`config/workspaces/<cwd-hash>/`）与原生会话记录（`data/sessions/<cwd-hash>/`）；只有无外部项目的独立会话目录（`workspaces/standalone/<id>`）与应用创建的 Git Worktree 检出目录（`workspaces/worktrees/<id>`）才位于数据根内部。
+
+工作区分组使用规范化真实路径的 SHA-256，见 [runtime-paths.ts](../packages/pi-runtime/src/runtime-paths.ts)。Linux 拒绝将 Host 数据放在识别到的 Windows 驱动器挂载中。路径定义见 [storage-paths.ts](../packages/contracts/src/storage-paths.ts)。
 
 ## 布局概览与版本
 
@@ -122,19 +127,11 @@ SSH 资料属于发起连接的入口 Host，不属于远端 Host，也不存放
 | `cache/remote-services.json`                      | 已验证远程服务的项目和会话摘要，用于断线时显示列表                                                                  | 会话 JSONL 正文离线副本或唯一连接配置          |
 | 入口 Host 内存                                    | 当前受管进程、临时 loopback 地址、Cookie、重试计时与运行阶段                                                        | 可跨重启复用的隧道进程                         |
 
-新添加的连接默认启用，优先探测已有 Host；隧道认证和身份校验通过后才发布可执行目标，明确未发现时才自动安装与启动。连接 ID 不随业务端口或临时本地端口变化。首次尚未验证的资料只在 SSH 设置页显示，不创建假 Host 身份；验证成功后，持久 `hostId` 用于防止旧项目/会话摘要指向另一 Host。
+配置通过临时文件加原子替换保存；读取或校验失败保留原文件并报错。`hostId` 用于阻止连接到身份已变化的 Host。身份文件只引用入口机器上的路径；迁移数据根不会复制 SSH 私钥或重写外部身份文件路径。
 
-配置文件通过临时文件加原子替换保存；读取或结构校验失败会保留原文件并报错，不自动改成空列表。令牌保存在权限为 `0600` 的凭据文件中，文件权限不等于加密；备份必须按敏感数据处理。SSH 配置与私钥仍由系统管理，身份文件字段只引用入口机器的绝对路径或 `~/` 路径。迁移数据根不会移动或复制外部身份文件，也不把其中的路径自动改成远端路径。
+清缓存只删除摘要，不移除连接配置或凭据。自动部署的包缓存位于入口 `cache/ssh-host-packages/`；远端应用包、运行描述、探测与暂停/移除行为统一见 [SSH 自动连接](remote.md#通过-ssh-自动连接)。
 
-暂停保留配置、令牌和摘要，将 `enabled` 设为关闭并停止入口隧道；远端任务与数据不变。入口 Host 重启只尝试恢复已启用连接，暂停连接不会被读取列表或业务请求隐式唤醒。移除删除入口连接资料、对应令牌和摘要，不删除远端会话或项目；界面移除当前 SSH 服务前会检查未保存内容。使用步骤与会话行为见 [Remote](remote.md#会话来源暂停与移除)。
-
-清理 `cache/remote-services.json` 不会删除 `config/ssh-connections.json` 或 `ssh-host:<连接ID>` 凭据。清理后列表摘要需在成功连接后重新读取；尚未连接时不能从缓存恢复正文。
-
-自动部署的包缓存位于入口 `cache/ssh-host-packages/`，按固定版本和平台存放校验后的归档。远端应用包位于 `~/.local/share/pi-meme/host/<版本>/<平台>`，数据使用远端 `~/.pi-meme`。远端运行描述单独位于 `~/.local/state/pi-meme/ssh-host`，目录 `0700`，文件 `0600`；只保存 PID、端口、Host/实例身份与版本，不保存令牌。
-
-每次连接先通过标准输入执行 Python 3 只读脚本，依次探测运行描述端口与默认 `3185`。确认运行协议、持久身份和真实数据目录匹配远端 `~/.pi-meme` 后，从该目录现有 `credentials/auth.json` 读取 `host:token`，经 SSH 私有输出返回入口。复用不新增远端凭据副本或运行描述，不要求发行版本同号；systemd 或源码启动的 Host 也沿用原存储和管理方。
-
-探测不写远端文件、不扫描其他端口或进程、不删除锁。自定义端口没有运行描述时不能自动发现；未找到端点但 `host.lock` 目录 mtime 距当前不超过 30 秒时保守报错。Python 3 缺失、坏描述、权限或身份错误同样报错，只有明确未发现时才安装。暂停或移除连接只清理入口隧道与相应入口资料，不更改远端凭据、数据锁或 systemd 服务。
+远端运行描述在 `~/.local/state/pi-meme/ssh-host`，目录权限为 `0700`、文件为 `0600`；记录 PID、端口、Host/实例身份与版本，不保存令牌。实现见 [ssh-bootstrap.ts](../apps/server/src/ssh-bootstrap.ts)。
 
 ## 启动引导与就地升级
 
@@ -192,6 +189,36 @@ flowchart TD
   - 账本状态标记为 `committed` 并归档至 `state/maintenance/layout-upgrade-<jobId>.json`；
   - 清理临时 Staging 目录与根下临时账本文件。
 
+## Desktop 自定义目录
+
+从“设置 → 常规 → 存储 → 更改目录”选择空文件夹。所选文件夹直接成为数据根目录。确认框显示来源、目标、复制大小和目标可用空间；点击“迁移并重启”后，应用正常停止本机 Host，再离线复制、校验和修复路径关联，成功后才切换目录。
+
+Electron 固定 `userData` 下的 `storage-location.json` 保存目录定位、备份路径、待执行任务与错误；它不放在 Host 的 `config/app.json` 中，也不随数据根目录迁移。显式设置 `PI_MEME_DATA_ROOT` 时，界面只读并禁用维护。Desktop 复用其他入口创建的 Host 时也禁止迁移和缓存清理；界面显示原因，主进程再次检查所有权，但仍可查看信息和打开本机目录。Web 和远程页面只展示所连接 Host 的目录，不调用本机文件选择器，不提供远程迁移或清理接口。
+
+Desktop 开发版在申请单实例锁和读取定位文件前，将 `userData` 切换为 `appData/pi-meme-dev`。macOS 路径是 `~/Library/Application Support/pi-meme-dev`；开发版与构建 App 不共享 Electron 缓存、单实例锁或存储定位文件。测试凭据模式继续使用临时数据目录下的 `desktop-cache`。
+
+```mermaid
+%%{init: {"theme": "dark"}}%%
+flowchart TD
+  A["选择空目录并确认"] --> B["检查草稿、文件、本机任务和终端"]
+  B --> C["正常关闭 Host 后保存任务并重启"]
+  C --> D["离线进程取得源与目标目录写锁"]
+  D --> E["复制、校验、修复路径与 Worktree 登记"]
+  E --> F["原子发布目录定位并保留原目录"]
+  F --> G["再次启动普通 Host 与桌面页面"]
+  E -->|失败| H["不切换目录，保留数据并显示原因"]
+```
+
+维护前必须处理所有桌面服务页面中未发送的草稿、附件、未保存文件和指令，以及本机 Host 的运行、暂停、排队任务、待答交互、插件或资源操作和活动终端。停机超时或非零退出会取消本次维护，不会强行停止后继续复制。维护窗口使用独立的内存 Session 和临时 `sessionData`，普通 Host 在维护完成后的下一轮启动中创建。
+
+迁移会保留 Host、会话和业务 ID，更新已知会话路径、cwd 哈希分组、权限、置顶与侧栏排序、技能身份与策略、插件安装路径及应用创建的 Worktree 登记。`auth.json`、历史正文、提示词和未知插件私有数据不作字符串替换。外部项目目录不移动。第三方插件自行保存的绝对路径需要插件自行适配。
+
+源目录保留为备份，其中仍有会话和凭据；常规页面只提供打开备份，不自动删除。`.pi-meme-relocated.json` 标记已迁移或正在维护的源目录，普通 Host 拒绝将其重新作为活动目录。旧 Worktree 副本仅作文件备份，不再作为活动 Worktree 使用。目标 `.pi-meme-storage-job.json` 记录任务和复制校验信息，未提交的目标副本同样不能启动普通 Host。
+
+中断后只允许同一任务继续处理所属副本；来源已变化、目标出现无关文件、校验失败或路径冲突时停止，不清空目标。进程异常退出后写锁最多需要约 30 秒失效，再从恢复页面重试。若 Worktree 登记尚未恢复，任务保留并阻止正常启动。自定义磁盘不可用或定位文件损坏时，不会自动退回默认目录创建空数据。
+
+独立 Server 不读取 Desktop 定位文件。迁移后若改用 Server，应将 `PI_MEME_DATA_ROOT` 设置为新目录；旧目录已被标记为备份，不能继续启动。Desktop 和 Server 可以复用同一个运行中的 Host，但不能各自创建 Host 同时写同一目录。
+
 ## 换根迁移维护
 
 从桌面“设置 → 常规 → 存储 → 更改目录”迁移整个数据目录至新路径时，执行器位于 `packages/host/src/storage/migrate.ts` 与 `relocate.ts`：
@@ -205,7 +232,7 @@ flowchart TD
 
 ### 缓存清理白名单与保护边界
 
-从“设置 → 常规 → 缓存”执行清理时，由 `packages/host/src/storage/cache.ts` 执行：
+从“设置 → 常规 → 缓存”刷新占用，点击“清理缓存”并确认后重启执行。统计失败显示未知占用与错误，不显示为 `0 B`。统计和删除使用相同白名单，实现见 [cache.ts](../packages/host/src/storage/cache.ts)。缓存可在重启后重新产生，远程摘要在重连后重建。
 
 1. **清理白名单**：
    - Host 数据目录：

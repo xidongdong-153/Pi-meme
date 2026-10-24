@@ -1,5 +1,5 @@
 ---
-description: '首发平台包、Host 独立分发、产物验收和 GitHub Draft Release 的维护步骤'
+description: '平台包构建、Host 独立分发、产物验收和 GitHub 草稿发布步骤'
 status: implemented
 paths:
   - '.github/workflows/release.yml'
@@ -27,18 +27,18 @@ paths:
 
 ## 平台与附件
 
-首版应用版本为 `0.1.0-beta.1`，Tag 为 `v0.1.0-beta.1`，在 GitHub 标记 Pre-release。一个版本包含以下四个附件：
+版本取 Desktop 与 Server 的 `package.json`，Tag 为 `v<版本>`；预览版本在 GitHub 标记 Pre-release。一个版本包含以下四个附件：
 
-| 附件                                           | 用途与验收基线                        |
-| ---------------------------------------------- | ------------------------------------- |
-| `pi-meme-desktop-0.1.0-beta.1-macos-arm64.zip` | macOS 15 arm64 Desktop，包含本机 Host |
-| `pi-meme-host-0.1.0-beta.1-macos-arm64.tar.gz` | macOS 15 arm64 独立 Host 与 Web       |
-| `pi-meme-host-0.1.0-beta.1-linux-x64.tar.gz`   | Ubuntu 24.04 x64 独立 Host 与 Web     |
-| `SHA256SUMS`                                   | 三个安装包的 SHA256                   |
+| 附件                                     | 用途与验收基线                        |
+| ---------------------------------------- | ------------------------------------- |
+| `pi-meme-desktop-<版本>-macos-arm64.zip` | macOS 15 arm64 Desktop，包含本机 Host |
+| `pi-meme-host-<版本>-macos-arm64.tar.gz` | macOS 15 arm64 独立 Host 与 Web       |
+| `pi-meme-host-<版本>-linux-x64.tar.gz`   | Ubuntu 24.04 x64 独立 Host 与 Web     |
+| `SHA256SUMS`                             | 三个安装包的 SHA256                   |
 
-Web 随 Host 提供，不单独发布。首发不提供 Intel Mac、Linux arm64、Alpine/musl、Windows、DMG、Docker、Homebrew 或 npm 分发，不自动注册 systemd/launchd，也没有自动更新。其他 macOS 版本与 Linux 发行版未作为首发验收平台。
+Web 随 Host 提供，不单独发布。当前不提供 Intel Mac、Linux arm64、Alpine/musl、Windows、DMG、Docker、Homebrew 或 npm 分发，不自动注册 systemd/launchd，也没有自动更新。其他 macOS 版本与 Linux 发行版未作为产物验收基线。
 
-Desktop 使用 ad-hoc 签名，没有 Developer ID 公证。`codesign --verify` 检查签名完整性，不代表 Gatekeeper 会接受网络下载的应用。不要把 `spctl` 拒绝未公证应用当作已实现公证，也不要让用户关闭系统 Gatekeeper。
+Desktop 默认使用 ad-hoc 签名，可通过 `PI_DESKTOP_SIGNING_IDENTITY` 指定证书，见 [Forge 配置](../apps/desktop/forge.config.ts)；当前未配置公证。`codesign --verify` 检查签名完整性，不代表 Gatekeeper 会接受网络下载的应用。不要把 `spctl` 拒绝未公证应用当作已实现公证，也不要让用户关闭系统 Gatekeeper。
 
 ## 版本与产物来源
 
@@ -113,7 +113,8 @@ pi-meme-host/
 ```bash
 pnpm package:host
 bundle_dir=$(mktemp -d "${TMPDIR:-/tmp}/pi-meme Host.XXXXXX")
-tar -xzf out/release/pi-meme-host-0.1.0-beta.1-macos-arm64.tar.gz -C "$bundle_dir"
+release_version=$(node -p "require('./apps/server/package.json').version")
+tar -xzf "out/release/pi-meme-host-${release_version}-macos-arm64.tar.gz" -C "$bundle_dir"
 PI_MEME_HOST_BUNDLE_ROOT="$bundle_dir/pi-meme-host" pnpm test \
   --file apps/server/tests/dist-smoke.artifact.test.ts \
   --file apps/server/tests/restricted-dist.artifact.test.ts
@@ -139,7 +140,7 @@ node --import tsx scripts/release.mts desktop
 
 Forge 在 `packageAfterExtract` 从本次解压的 Electron 发行包取原始 `LICENSE`，另存为 `Contents/Resources/ELECTRON_LICENSE`，并携带完整的 `LICENSES.chromium.html`，不依赖本机已经存在 `node_modules/electron/dist`。这样只压缩 `.app` 时也不会遗漏发行根目录中的许可。[签名产物测试](../apps/desktop/tests/package-signing.artifact.test.ts)逐字节哈希对照本次 Packager 产物目录中的原始 Electron 发行文件。
 
-构建成功仍需检查真实 `.app` 和 ZIP，不能只看 Forge 退出码。不要通过重新打包、重签名或修改 Fuse 来修补待上传的已验收应用。应用 bundle ID 固定为 `io.github.xidongdong153.pi-meme`。
+构建成功仍需检查真实 `.app` 和 ZIP，不能只看 Forge 退出码。正式应用关闭 RunAsNode 和 Node 调试 Fuse，产物测试直接启动应用可执行文件。不要通过重新打包、重签名或修改 Fuse 来修补待上传的已验收应用。应用 bundle ID 固定为 `io.github.xidongdong153.pi-meme`。
 
 ### 汇总
 
@@ -173,7 +174,7 @@ flowchart TD
   Draft --> Manual["下载抽查后人工公开预览版"]
 ```
 
-Linux job 复用[沙箱准备 action](../.github/actions/setup-linux-sandbox/action.yml)，在临时 runner 上为 `/usr/bin/bwrap` 加载定向 AppArmor user namespace 许可并实际探测，并将测试临时文件放到 `RUNNER_TEMP`，避免公共 `/tmp` 的隔离挂载影响普通文件边界夹具。不关闭 AppArmor、不更改全局 sysctl，不把测试切换成完全权限，也不改变产品沙箱的挂载或 `TMPDIR` 规则。该 action 不属于用户 Host 安装步骤。
+Linux job 复用[测试环境](testing.md#环境报告与完整验收)中的沙箱准备 action，保留相同的 AppArmor、临时目录与隔离验证条件。
 
 只有发布 job 有 `contents: write`，使用 GitHub 自带 `GITHUB_TOKEN`，不需要个人 PAT 或 Apple 凭据。其他 job 只读；发布 job 不执行依赖安装或构建脚本。平台 job 不缓存原生构建结果。Linux 的版本检查 job 执行全仓静态检查和源码测试，平台 job 运行直接对应的产物验收；不会用本机结果代替另一平台。
 
@@ -181,22 +182,23 @@ Linux job 复用[沙箱准备 action](../.github/actions/setup-linux-sandbox/act
 
 草稿正文中的 `pi-meme-release-commit` 标记绑定本次 commit。重跑若发现草稿没有匹配标记、Release 已公开、Tag 被移动或附件列表异常，流程失败，不删除或覆盖已公开内容。上传中断可能留下不完整草稿，不能手动公开它；先排除失败原因并重新运行。已有草稿多出的附件需要维护者核对后手动处理。
 
-## 第一次发布
+## 发布步骤
 
-1. 审核并提交、推送本方案涉及的代码与文档。workflow 文件进入 GitHub 后才能使用 Actions；Agent 不自动执行提交、推送或 Tag。
+1. 将 Desktop 与 Server 的 `version` 更新为本次版本，运行 `node --import tsx scripts/release.mts check`。完成代码审核与明确授权后再提交、推送。
 2. 在 Actions 的“构建发布包”中手动运行目标分支，确认三个平台 job 与汇总成功，下载 `release-complete` 做抽查。
-3. 核对 Desktop、Server 版本均为 `0.1.0-beta.1`，确认准备发布的 commit。由维护者执行：
+3. 确认版本与待发布 commit 后，由维护者执行：
 
    ```bash
-   git tag v0.1.0-beta.1
-   git push origin v0.1.0-beta.1
+   release_version=$(node -p "require('./apps/desktop/package.json').version")
+   git tag "v${release_version}"
+   git push origin "v${release_version}"
    ```
 
-4. 等待 Tag workflow 创建 Draft Release。失败时停在失败步骤，修复后使用新版本和新 Tag，不移动已公开 Tag。
-5. 从草稿重新下载附件并校验 SHA256。在非构建环境确认 macOS 首次打开，抽查 Host 部署与重启。
-6. 将实际环境、结果和已知问题补入 Release Notes，完成其中的人工清单，再点击 Publish release，保留 Pre-release 标记。
+4. 等待 Tag workflow 创建 Draft Release。失败时停在失败步骤；修复后使用新版本和新 Tag，不移动已公开 Tag。
+5. 从草稿重新下载附件并校验 SHA256，在非构建环境确认 macOS 首次打开，抽查 Host 部署与重启。
+6. 将实际环境、结果和已知问题补入 Release Notes，完成其中的人工清单，再点击 Publish release；预览版本保留 Pre-release 标记。
 
-预览版下载入口用 [Releases 页面](https://github.com/xidongdong-153/Pi-meme/releases) 或明确的 Tag 地址，不依赖 `/releases/latest`。下一版本重复同一流程，不通过 `pnpm publish` 发布 npm 包。
+下载入口用 [Releases 页面](https://github.com/xidongdong-153/Pi-meme/releases) 或明确的 Tag 地址，不依赖 `/releases/latest`。不通过 `pnpm publish` 发布 npm 包。
 
 ## 许可与升级
 

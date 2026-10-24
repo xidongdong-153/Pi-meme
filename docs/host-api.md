@@ -1,6 +1,6 @@
 ---
 description: 'HostApi v2 的稳定目标、HTTP 控制、幂等提交、回执、事件补读和 Node 客户端'
-status: mixed
+status: implemented
 paths:
   - 'packages/contracts/src/app-host.ts'
   - 'packages/contracts/src/goal.ts'
@@ -22,7 +22,7 @@ paths:
 
 # HostApi v2
 
-本文先描述已实现的正式接口，末节单独保留待确认规划。公共类型在 [app-host.ts](../packages/contracts/src/app-host.ts)，实现位于 [app-control.ts](../packages/host/src/app-control.ts)。Server/UI 插件通过 `context.host` 调用，不取得内部 Store、SessionPool 或 Worker。
+本文描述已实现的正式接口。公共类型在 [app-host.ts](../packages/contracts/src/app-host.ts)，实现位于 [app-control.ts](../packages/host/src/app-control.ts)。Server/UI 插件通过 `context.host` 调用，不取得内部 Store、SessionPool 或 Worker。
 
 ## 稳定目标与接口组
 
@@ -141,7 +141,7 @@ Host 退出或重启将未完成提交记为 `interrupted`，不重放任务。`
 
 文件操作使用显式目标的工作目录内相对路径；只有 `preview` 额外接受当前 Host 附件目录内的图片绝对路径，用于显示用户消息中的上传图片。[workspace-files.ts](../packages/host/src/workspace-files.ts) 校验目标、路径与真实符号链接目标，拒绝越界：
 
-- `preview` 分类返回文本、图片或不支持原因；附件预览只读取数据目录 `attachments/` 内的图片，拒绝符号链接根目录与越界链接，不允许读取附件文本或修改附件。`search` 按文件名搜索并返回分页游标。
+- `preview` 分类返回文本、图片或不支持原因；附件预览只读取数据目录 `data/attachments/` 内的图片，拒绝符号链接根目录与越界链接，不允许读取附件文本或修改附件。`search` 按文件名搜索并返回分页游标。
 - `write` 只保存现有 UTF-8 文本文件，携带读取时的 `revision` 和幂等键，外部修改后拒绝覆盖。
 - 文本读取/保存上限为 1 MiB，图片上限 8 MiB；保存保留 BOM、LF/CRLF 与文件权限。
 - `capabilities().fileOperations` 用于协商 `preview/search/write`，旧 Host 未提供该字段时文件面板保持只读。
@@ -201,9 +201,3 @@ try {
 客户端处理 Cookie 登录、401 续期、事件重连和序号去重，拒绝 Host 身份变化。远程地址要求无账号信息的 HTTPS，本机回环允许 HTTP。示例只查询当前回执，不等待执行完成；同一业务操作重试时保留幂等键。
 
 验证入口：[app-control.integration.test.ts](../packages/host/tests/app-control.integration.test.ts)、[control-store.integration.test.ts](../packages/host/tests/control-store.integration.test.ts)、[node-client.integration.test.ts](../packages/host/tests/node-client.integration.test.ts)、[workspace-files.integration.test.ts](../packages/host/tests/workspace-files.integration.test.ts) 和 [terminal-service.unit.test.ts](../packages/host/tests/terminal-service.unit.test.ts)。
-
-## 待确认规划：Bot 接入
-
-旧文档提出由独立 `apps/pi-durable` 关联平台消息与 Host 提交。当前仓库没有该入口、Pi Durable 依赖或平台 SDK，也没有自动审批实现。
-
-该方向保留为待确认事项，不是已经交付的能力或本次新增需求。是否启动、接入哪个平台、成员白名单和凭据配置方式仍需单独确认。

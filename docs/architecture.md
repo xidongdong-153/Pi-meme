@@ -27,7 +27,7 @@ paths:
 
 # 架构
 
-Electron 是平台壳，Node Host 负责应用数据和执行调度。Desktop 与 Web 共用 React `app-ui`，通过相同 HTTP/WebSocket 协议连接 Host；Pi 1.1 负责原生会话与扩展执行，Chord 1.1 负责外部插件的服务作用域。
+Electron 是平台壳，Node Host 负责应用数据和执行调度。Desktop 与 Web 共用 React `app-ui`，通过相同 HTTP/WebSocket 协议连接 Host；Pi SDK 负责原生会话与扩展执行，Chord 负责外部插件的服务作用域；依赖版本分别见 [pi-runtime](../packages/pi-runtime/package.json) 和 [plugin-runtime](../packages/plugin-runtime/package.json)。
 
 ## 进程与调用
 
@@ -63,7 +63,7 @@ Desktop 的连接状态分 `owned` 与 `attached`。[本机进程管理](../apps
 
 开发态 Desktop 直接加载端口 `3181` 的 Vite，代理到端口 `3180` 的 Host；正式版加载随包界面，由 [frontend-server.ts](../packages/host/src/frontend-server.ts) 在端口 `2159` 提供同源 HTTP/WebSocket 代理，连接端口 `3185` 的 Host。该入口不持有数据锁、不装配业务服务、不创建会话 Worker，因此不是第二个 Host。已有 Server 没有 Web 静态资源时，也不影响 Desktop 加载自己的界面。Host 自身仍可为普通浏览器提供 Web 页面；静态资源逻辑共用 [frontend.ts](../packages/host/src/frontend.ts)。
 
-主进程保留真实后端地址，Renderer 的 `HostConnection.url` 指向自己的同源界面入口。平台 IPC 只信任该 origin；远程登记与已保存连接管理通过已认证 HTTP 完成，停机和维护准备只走拥有方的私有进程通道。存储维护按所有权再次校验，见 [配置与安全](configuration.md#desktop-自定义目录)。
+主进程保留真实后端地址，Renderer 的 `HostConnection.url` 指向自己的同源界面入口。平台 IPC 只信任该 origin；远程登记与已保存连接管理通过已认证 HTTP 完成，停机和维护准备只走拥有方的私有进程通道。存储维护按所有权再次校验，见 [存储维护](storage.md#desktop-自定义目录)。
 
 ## 包职责与依赖方向
 
@@ -87,14 +87,15 @@ Desktop 的连接状态分 `owned` 与 `attached`。[本机进程管理](../apps
 
 Host 与 app-ui 是组合根。基础包和契约不得反向依赖业务实现；业务包和插件不互导私有实现，通过契约、显式 Props 或声明的服务协作。UI 不导入 Server、Agent、Node 或 Electron；Electron main 不实现聊天、配置、会话或插件生命周期。
 
-[check-package-boundaries.mjs](../scripts/check-package-boundaries.mjs) 检查静态导入、动态 `import()`、re-export、包依赖声明和 UI 边界。修改方式与命令见 [开发与验证](development.md)。
+[check-package-boundaries.mjs](../scripts/check-package-boundaries.mjs) 检查静态导入、动态 `import()`、re-export、包依赖声明和 UI 边界。修改方式与命令见 [开发指南](development.md)。
 
 ## 内置能力与系统工具
 
-[builtin-modules.ts](../packages/host/src/builtin-modules.ts) 每次静态装配 14 个服务模块；两个平台沙箱包按当前平台选一个。内置 UI 由 app-ui 直接组合，不读取外部插件启用记录。
+[builtin-modules.ts](../packages/host/src/builtin-modules.ts) 静态装配内置服务模块；两个平台沙箱包按当前平台选一个。内置 UI 由 app-ui 直接组合，不读取外部插件启用记录。
 
 | 模块                              | 职责与源码                                                                                                         |
 | --------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `goals`                           | [持久目标、用量核对与续跑调度](../packages/goals/src/)                                                             |
 | `chat`                            | [消息、输入、队列与聊天操作](../packages/chat/src/)                                                                |
 | `workspace`                       | [项目、会话摘要索引与侧栏](../packages/workspace/src/)                                                             |
 | `history`                         | [Pi JSONL 查询、导出和分支树](../packages/history/src/)                                                            |
@@ -118,7 +119,7 @@ Agent 项目服务由 [activities](../packages/activities/src/server/service.ts)
 
 ## 界面组合
 
-[设置导航](../packages/app-ui/src/settings/settings-page.tsx) 分三组：个人包含常规、外观、用量；Agent 包含模型、指令、技能、插件、MCP；系统包含远程、关于。常规只设置新会话默认权限。指令页编辑 Host 的用户指令与系统提示词。技能与插件是独立页面，没有共享资源页。[技能页](../packages/app-ui/src/settings/skill-page.tsx)和[插件页](../packages/app-ui/src/settings/plugin-page.tsx)各自在“个人 / 系统”间切换。创建技能或插件会把对应系统技能插入当前对话。
+[设置导航](../packages/app-ui/src/settings/settings-page.tsx) 由 app-ui 组合，按个人、Agent、系统分组；具体配置含义见[配置与安全](configuration.md)。技能与插件是独立页面，创建操作将对应系统技能插入当前草稿。
 
 首页聊天保留置顶、项目、最近列表。插件可新增自己的活动栏入口、分组菜单与中央业务页；返回首页恢复原聊天，切页不终止任务、PTY 或项目服务。页面路由捕获同 Host 目标，不修改后台聊天选择；仅当前插件页挂载。工具面板位置仍只允许 `right`，分栏模式在当前聊天右侧打开可关闭标签页；完整视图由应用将当前会话与工具合并为顶栏标签，工具独占内容区，聊天保持挂载；标签和宽度按 Host、会话保存。活动工具仅在当前会话存在受管服务时出现在工具目录；停止最后一个服务后，已经打开的标签保留结果，关闭、切换或刷新后不恢复空标签。关闭标签不会停止服务。六类 render 槽为 `composer`、`composer-actions`、`tool-card`、`message`、`status`、`settings`；四类消息统一动作使用 `messageActions.register`。输入框 API 复用唯一草稿与提交守卫，发送前处理逐项授权；响应式投影直接订阅 ChatStream，元数据与正文分开订阅。
 

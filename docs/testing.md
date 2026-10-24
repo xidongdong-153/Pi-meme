@@ -7,6 +7,8 @@ paths:
   - 'vitest.config.mts'
   - 'playwright.config.mts'
   - '.github/workflows/**'
+  - '.github/actions/setup-linux-sandbox/**'
+  - 'packages/pi-runtime/tests/linux-sandbox.integration.test.ts'
 ---
 
 # 测试
@@ -47,13 +49,24 @@ pnpm test --all --list
 
 代码任务收尾按顺序执行一轮全仓 `pnpm type-check`、变更文件的 `pnpm exec eslint <路径...>`、`pnpm exec prettier --check <路径...>`，再运行必要的相关用例。前一项通过后再执行下一项，失败修复后重跑受影响的检查。Lint 和 Format 只传本任务修改且仍存在的适用文件，包含新增和暂存文件，排除已有无关改动和已删除路径；Markdown 不传给 ESLint。仅修改文档时检查格式、链接和来源路径，不运行类型检查或应用构建。
 
+例如修改 `packages/contracts/tests/plan-message.unit.test.ts` 时，依次运行；有多个变更文件时把所有适用路径传给 Lint 和 Format：
+
+```bash
+pnpm type-check
+pnpm exec eslint packages/contracts/tests/plan-message.unit.test.ts
+pnpm exec prettier --check packages/contracts/tests/plan-message.unit.test.ts
+pnpm test --file packages/contracts/tests/plan-message.unit.test.ts
+```
+
+`pnpm lint` 和 `pnpm format` 检查全仓，供 CI 或明确的全仓检查使用。测试归所属包，共享假模型和环境在 [tests/fixtures](../tests/fixtures/)，不读取真实凭据或调用真实模型。
+
 普通新功能不强制新增测试，不要求补齐多个层次或满足覆盖率。新增测试用于保护已发生 bug、容易写错且影响用户结果的稳定行为，或数据、凭据与权限边界。文案、CSS、导航排列、内部调用顺序不单独增加测试。同一行为优先在能可靠验证的最便宜层次覆盖，不为层次齐全而重复测试。
 
 修 bug 先用已有用例做最窄复现，必要时补最小回归。会话持久化、存储迁移、凭据、认证和权限改动必须运行对应风险的针对性验证，缺少覆盖时补必要用例，不自动扩大到全仓。没有相关用例的普通功能可以做针对性手工检查，并报告未自动验证的部分。
 
 未经用户明确要求相应验收，Agent 不自动运行全量测试、E2E、打包或产物验收；窗口、preload、IPC、打包接线和测试基础设施改动也不例外。单项验收只选择相应文件或平台，不扩大到整套完整测试。发布前通过明确的验收任务或手动完整 workflow 验证目标平台。
 
-普通任务不运行或等待完整验收。报告分别列出已通过、未运行的检查和剩余风险，不把本地任务完成写成发布验收通过。
+报告分别列出已通过、未运行的检查和剩余风险，不把本地任务完成写成发布验收通过。
 
 ## 层次与运行器
 
@@ -136,4 +149,8 @@ pnpm test --feature chat --layer unit,component --coverage
 
 日常 push 和 PR 的 [Linux 检查](../.github/workflows/linux.yml) 运行全仓 `pnpm type-check`、`pnpm lint`、`pnpm format`、`pnpm check-boundaries` 与全部源码测试，不运行 Web E2E。[完整测试](../.github/workflows/full-tests.yml) 仍由手动触发 Linux、macOS 两个平台，包含 Web E2E 和对应平台产物；发布前汇总目标平台结果。WSL 专项只能在真实 WSL 上运行并单独记录；平台跳过不算完成该平台验收。配置存在不表示本次已运行远程 CI。
 
-旧用例的处理位置和展示断言清理见 [测试审查](testing-audit.md)。本地涉及包依赖声明、导入方向或 UI/进程边界时补跑 `pnpm check-boundaries`，不因此触发完整测试。
+Linux CI 使用 Ubuntu 24.04，通过[沙箱准备 action](../.github/actions/setup-linux-sandbox/action.yml)安装 bubblewrap，并为 `/usr/bin/bwrap` 加载定向 AppArmor user namespace 许可、实际探测 namespace。该配置仅用于临时 runner，不是用户安装步骤；不关闭 AppArmor、不修改全局 sysctl。action 将 `TMPDIR` 设置为 `RUNNER_TEMP`，避免测试夹具落在沙箱隐藏的公共 `/tmp`。
+
+Linux 受限回归在探测失败时应失败，不能用 skip 或完全权限代替隔离验证。WSL 互操作只能在真实 WSL2 验收，原生 Linux 跳过不算通过；Linux 不运行 macOS Desktop 验收。相关文件是 [linux-sandbox.integration.test.ts](../packages/pi-runtime/tests/linux-sandbox.integration.test.ts) 和 [restricted-dist.artifact.test.ts](../apps/server/tests/restricted-dist.artifact.test.ts)。
+
+本地涉及包依赖声明、导入方向或 UI/进程边界时补跑 `pnpm check-boundaries`，不因此触发完整测试。

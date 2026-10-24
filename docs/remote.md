@@ -38,25 +38,9 @@ paths:
 
 ## 本机启动
 
-优先下载与机器匹配的 Host 独立包，按[快速开始](getting-started.md#安装独立-host)完成校验与解压。在解压目录的父目录运行：
+下载包、源码开发、构建后的 Server 与[Linux/WSL2 环境](getting-started.md#linux-与-wsl-环境)统一见[快速开始](getting-started.md)。同目录、同端口的 Desktop/Server 会[复用 Host](getting-started.md#desktop-与-server-共享-host)；创建方负责停机，修改创建参数前先停止管理方。
 
-```bash
-./pi-meme-host/bin/pi-meme-host
-```
-
-独立包已包含 Web 和 Node.js，不需要 pnpm。首发目标为 macOS 15 arm64、Ubuntu 24.04 x64，不自动安装系统服务；包内说明见 [Host README](../apps/server/README.md)。正式源码部署在仓库根目录执行：
-
-```bash
-pnpm build:web
-pnpm build:server
-node apps/server/dist/main.js
-```
-
-打开 [本机 Host](http://127.0.0.1:3185)，本机来源自动登录。源码开发则在两个终端分别执行 `pnpm start:server` 和 `pnpm start:web`，无需额外环境变量，访问 [开发界面](http://127.0.0.1:3181)，默认代理到 `3180`。完整安装、双终端与构建产物用法见 [快速开始](getting-started.md)。
-
-构建 App、构建后的 Server 和 Host 独立包默认使用 `~/.pi-meme` 和端口 `3185`；`pnpm start` 的 Desktop 开发版和 `pnpm start:server` 默认使用 `~/.pi-meme-dev` 和端口 `3180`。同一目录只允许一个 Host 写入。Desktop 和 Server 的目录、端口一致时复用同一个运行实例；创建方负责停机。先运行 `pnpm start` 时可直接打开 3181，不再运行第二个 Vite 或 Server。不同目录不能复用同一端口；多套独立 Host 必须同时区分目录和端口，显式覆盖时不要将开发环境指向正式环境。
-
-本机共享入口通过 `GET /api/status` 校验产品、运行协议、Host 身份和真实目录。状态仅允许本机来源读取，不返回令牌、Cookie 或远程密钥。Server 入口发现兼容 Host 后打印复用结果并成功退出；显式设置令牌、TLS、Web 根目录或认证模式时不能静默应用到已有 Host，需先停止管理方。实现见 [local-host.ts](../packages/host/src/local-host.ts) 与 [运行契约](../packages/contracts/src/host-runtime.ts)。
+本机共享入口通过 `GET /api/status` 校验产品、运行协议、Host 身份和真实目录。状态仅允许本机来源读取，不返回凭据。实现见 [local-host.ts](../packages/host/src/local-host.ts) 与[运行契约](../packages/contracts/src/host-runtime.ts)。
 
 ## 部署 HTTPS 远程 Host
 
@@ -243,4 +227,6 @@ Desktop 使用内存浏览器会话；正式界面由随包资源提供，不依
 | SSH 安装失败或新建 Host 不可用            | 检查当前发行资产、远端平台、安装依赖、目录权限和已有 Host 冲突                                     |
 | SSH 管理按钮不可用                        | 确认访问的是已认证的入口 Host 本机来源，并确认该 Host 的 PATH 能找到系统 OpenSSH                   |
 
-`pnpm test --all --layer artifact --target server` 从实际构建产物启动临时 Host，使用内存凭据和假模型验证静态 Worker、JSONL、外部 Agent、MCP、codemode、持续子代理、计划与默认受限权限。平台运行与测试入口见 [开发与验证](development.md) 和 [Linux 与 WSL](linux-wsl.md)。这些是验证命令说明，不表示本次文档整理运行过应用验收。
+Windows 浏览器访问 WSL 时，先检查 WSL 内服务，再检查 localhost 转发、端口和防火墙，不放宽认证。平台验收需分别确认本机登录、Cookie、RPC、事件 WebSocket、插件资源与 Vite 热更新；参考[WSL 网络说明](https://learn.microsoft.com/en-us/windows/wsl/networking#accessing-linux-networking-apps-from-windows-localhost)。
+
+源码选测与平台条件见[测试](testing.md)，从独立包启动的验证步骤见[Host 产物验收](releasing.md#host)。

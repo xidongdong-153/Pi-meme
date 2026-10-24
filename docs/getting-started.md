@@ -23,33 +23,33 @@ paths:
 
 ## 下载使用
 
-从 [v0.1.0-beta.4 发布页](https://github.com/xidongdong-153/Pi-meme/releases/tag/v0.1.0-beta.4) 下载对应附件与 `SHA256SUMS`。GitHub 自动生成的 Source code 是源码归档，不是安装包。
+从 [GitHub Releases](https://github.com/xidongdong-153/Pi-meme/releases) 选择版本，下载对应附件与同一版本的 `SHA256SUMS`。下文 `<版本>` 替换为下载文件中的版本号，不含 Tag 的 `v` 前缀。GitHub 自动生成的 Source code 是源码归档，不是安装包。
 
-下载包的产物验收基线为 macOS 15 arm64、Ubuntu 24.04 x64。Desktop 支持 Apple Silicon Mac，不提供 Intel Mac 或 Windows 原生安装包。Desktop 已包含本机 Host，使用桌面应用只需下载 `pi-meme-desktop-0.1.0-beta.4-macos-arm64.zip`。独立 Host 已包含 Web、Node.js 24.14.0、Worker、技能和生产依赖；启动下载版无需另外安装 Node.js、pnpm 或 Pi CLI。
+下载包的产物验收基线为 macOS 15 arm64、Ubuntu 24.04 x64。Desktop 支持 Apple Silicon Mac，不提供 Intel Mac 或 Windows 原生安装包。Desktop 已包含本机 Host，使用桌面应用只需下载 `pi-meme-desktop-<版本>-macos-arm64.zip`。独立 Host 已包含 Web、Node.js 24.14.0、Worker、技能和生产依赖；启动下载版无需另外安装 Node.js、pnpm 或 Pi CLI。
 
 ### 安装 macOS Desktop
 
-1. 从同一个 beta.4 发布页下载 Desktop ZIP 和 `SHA256SUMS`。
+1. 从同一个版本的发布页下载 Desktop ZIP 和 `SHA256SUMS`。
 2. 在下载目录打开终端，执行下方命令，将输出的 SHA256 与 `SHA256SUMS` 中同名文件的值逐字比较。
 
    ```bash
-   shasum -a 256 pi-meme-desktop-0.1.0-beta.4-macos-arm64.zip
+   shasum -a 256 "pi-meme-desktop-<版本>-macos-arm64.zip"
    ```
 
 3. 校验一致后解压 ZIP。升级时先退出旧 Desktop；若独立 Host 正在使用同一数据目录，也先停止它，避免新版复用旧 Host。数据备份见[升级](#升级)。
-4. 在 Finder 中将 `pi-meme.app` 拖到“应用程序”（`/Applications`），再从该目录双击打开。
+4. 在 Finder 中将 `Pi meme.app` 拖到“应用程序”（`/Applications`），再从该目录双击打开。
 5. 如遇系统启动提示，先完成下节的首次打开确认。看到主界面后，在设置中配置模型服务商和模型，选择项目开始聊天。已有 `~/.pi-meme` 配置会继续使用。
 
 ### macOS 首次打开
 
-beta.4 使用 ad-hoc 签名，尚未做 Developer ID 签名和 Apple 公证，macOS 的 Gatekeeper 可能阻止首次启动。这个阶段应用还未进入聊天界面，调整模型或 Agent 的“完全权限”不能解决启动拦截。
+默认发布配置使用 ad-hoc 签名，尚未做 Developer ID 签名和 Apple 公证，macOS 的 Gatekeeper 可能阻止首次启动。这个阶段应用还未进入聊天界面，调整模型或 Agent 的“完全权限”不能解决启动拦截。
 
 | 看到的提示或现象                               | 处理方式                                                                                                                                                             |
 | ---------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | “从互联网下载，是否打开”                       | 确认应用来自上述发布页且 SHA256 一致后，选择“打开”。这是首次运行下载应用的系统确认。                                                                                 |
 | 无法验证开发者、Apple 无法检查是否包含恶意软件 | 先尝试从 `/Applications` 打开一次，再进入“系统设置 → 隐私与安全性”，在“安全性”区域找到 pi-meme 的阻止信息，选择“仍要打开”，按系统提示确认；可能需要密码或 Touch ID。 |
 | Dock 图标跳动，但没有主窗口                    | 可能有首次打开确认等待处理。先查看系统弹窗及“隐私与安全性”中的 pi-meme 提示，完成确认后等待主界面；不要反复启动多个实例。                                            |
-| 没有“仍要打开”入口                             | 核对刚尝试打开的是否为 `/Applications/pi-meme.app`。受管理的 Mac 可能限制该入口，需要联系设备管理员。仍无法打开时按下方格式反馈。                                    |
+| 没有“仍要打开”入口                             | 核对刚尝试打开的是否为 `/Applications/Pi meme.app`。受管理的 Mac 可能限制该入口，需要联系设备管理员。仍无法打开时按下方格式反馈。                                    |
 | SHA256 不一致，或提示应用已损坏                | 停止打开，重新从同一发布页下载并校验；再次校验一致后仍异常时，保留原始提示并反馈。                                                                                   |
 | 提示检测到恶意软件或应用会损坏电脑             | 停止打开，保留系统提示并反馈。不要按普通首次打开确认处理。                                                                                                           |
 
@@ -72,48 +72,44 @@ Gatekeeper 确认只处理应用启动，不授予项目目录访问权限。正
 
 ### 检查项目命令
 
-beta.4 会在 Desktop 新建本机 Host 前恢复用户登录 Shell 的 PATH；会话命令、MCP 和项目终端继承该环境。它帮助定位已安装的工具，不会自动安装 pnpm、ego-browser、Python 等项目依赖。需要使用这些工具时，可以让 Agent 在项目目录执行：
+Desktop 新建本机 Host 前会恢复用户登录 Shell 的 PATH；会话命令、MCP 和项目终端继承该环境。它帮助定位已安装的工具，不会自动安装 pnpm、Python 等项目依赖。以 pnpm 为例，可以让 Agent 在项目目录执行：
 
 ```bash
 command -v pnpm
 pnpm --version
-command -v ego-browser
-ego-browser skill
 ```
 
 只检查当前任务需要的工具，不用先手动 `export PATH`。命令不存在时，先核对安装情况、`command -v` 和明确的安装位置，不要通过 `find /` 或遍历整个用户目录寻找工具。
 
-如果工具在系统终端可用、App 内却找不到，先完全退出 Desktop 并停止同数据目录的旧独立 Host，再从 Finder 启动 beta.4。连接已运行 Host 时不会改写它的环境，独立 Server 和远程 Host 也使用各自的启动环境。详细规则见[macOS Desktop 命令环境](configuration.md#macos-desktop-命令环境)。
+如果工具在系统终端可用、App 内却找不到，先完全退出 Desktop 并停止同数据目录的旧独立 Host，再从 Finder 启动应用。连接已运行 Host 时不会改写它的环境，独立 Server 和远程 Host 也使用各自的启动环境。详细规则见[macOS Desktop 命令环境](configuration.md#macos-desktop-命令环境)。
 
 仍无法安装或执行时，在 [GitHub Issues](https://github.com/xidongdong-153/Pi-meme/issues) 提供：应用版本、macOS 版本与芯片、下载附件名、SHA256 校验结果、失败步骤、完整提示，以及任务涉及的目录类型。路径中的个人信息可隐藏，不上传 `~/.pi-meme` 整个目录、`auth.json`、令牌或模型凭据。
 
 ### 安装独立 Host
 
-Linux x64 在下载目录执行：
+Linux x64 先完成[环境准备](#linux-与-wsl-环境)，再在下载目录执行：
 
 ```bash
-sudo apt-get update
-sudo apt-get install -y git bash bubblewrap
-sha256sum pi-meme-host-0.1.0-beta.4-linux-x64.tar.gz
+sha256sum "pi-meme-host-<版本>-linux-x64.tar.gz"
 ```
 
 与 `SHA256SUMS` 中对应值一致后：
 
 ```bash
-tar -xzf pi-meme-host-0.1.0-beta.4-linux-x64.tar.gz
+tar -xzf "pi-meme-host-<版本>-linux-x64.tar.gz"
 ./pi-meme-host/bin/pi-meme-host
 ```
 
 macOS arm64 需要 Git 和 bash，改用 macOS 包：
 
 ```bash
-shasum -a 256 pi-meme-host-0.1.0-beta.4-macos-arm64.tar.gz
+shasum -a 256 "pi-meme-host-<版本>-macos-arm64.tar.gz"
 ```
 
 校验一致后：
 
 ```bash
-tar -xzf pi-meme-host-0.1.0-beta.4-macos-arm64.tar.gz
+tar -xzf "pi-meme-host-<版本>-macos-arm64.tar.gz"
 ./pi-meme-host/bin/pi-meme-host
 ```
 
@@ -135,7 +131,22 @@ pnpm --version
 pnpm install --frozen-lockfile
 ```
 
-Linux/WSL2 的系统依赖和文件系统要求先看 [Linux 与 WSL](linux-wsl.md)。Desktop 的打包与验收面向 macOS。
+Linux/WSL2 先完成下节环境准备，再按[本机 Web 开发](#本机-web-开发)启动；Desktop 的打包与验收面向 macOS。
+
+### Linux 与 WSL 环境
+
+Linux/WSL2 运行 Host/Web，不运行 Electron。下载包基线为 Ubuntu 24.04 x64；不提供 Linux arm64、Alpine/musl、WSL1 或 Windows 原生包。仓库、解压目录、数据和项目放在 Linux 文件系统，例如 `~/Code/pi-meme`；不复用 Windows/macOS 的 Node 或 `node_modules`。Windows 编辑器通过 WSL 连接编辑，参见[微软文件系统说明](https://learn.microsoft.com/en-us/windows/wsl/filesystems)。
+
+Ubuntu 安装依赖：
+
+```bash
+sudo apt-get update
+sudo apt-get install -y git bash bubblewrap
+```
+
+源码开发另需 Linux 的 Node.js 与 pnpm，版本见本节开头；独立下载包已包含 Node。安装依赖后重启 Host，使其重新探测沙箱。Ubuntu 的 AppArmor 或内核策略仍可能阻止 namespace，具体边界与排错见[Linux 与 WSL 隔离](configuration.md#linux-与-wsl-隔离)。
+
+Windows 浏览器经 localhost 访问 WSL 的开发界面 `http://127.0.0.1:3181` 或正式 Host `http://127.0.0.1:3185`。平台差异仅影响 Host：模型、Git、MCP 与会话留在 Linux；字体列表不枚举 Windows 字体。连接失败见 [Remote 排错](remote.md#排错与验证)。
 
 ### macOS Desktop 开发
 
@@ -165,7 +176,7 @@ pnpm start:web
 
 `pnpm start:server` 从 [dev.ts](../apps/server/src/dev.ts) 启动，默认监听 `127.0.0.1:3180`，数据目录为 `~/.pi-meme-dev`，与正式环境的 `3185` 和 `~/.pi-meme` 分开。该入口和 Vite 开发服务器都会使用 `NODE_ENV=development`，即使终端继承了 `NODE_ENV=production`。开发环境需单独配置模型凭据，不自动复制正式数据。
 
-显式设置 `PI_MEME_PORT`、`PI_MEME_DATA_ROOT` 或 `PI_MEME_HOST_URL` 时仍以环境变量为准；不要把开发端口、目录或代理地址覆盖成正式环境。登录 Cookie 按 Host 身份区分，避免同一 `127.0.0.1` 下不同端口的登录互相覆盖。这里隔离的是应用数据和登录状态，不隔离项目源码和用户共享技能目录；两套环境修改同一个文件时仍会相互影响。
+显式设置 `PI_MEME_PORT`、`PI_MEME_DATA_ROOT` 或 `PI_MEME_HOST_URL` 时仍以环境变量为准；不要把开发端口、目录或代理地址覆盖成正式环境。登录 Cookie 按 Host 身份区分，避免同一 `127.0.0.1` 下不同端口的登录互相覆盖。这里隔离的是应用数据和登录状态，不隔离项目源码及项目 `.agents/skills/`；两套环境修改同一个文件时仍会相互影响。
 
 需要查看构建后的页面时执行：
 

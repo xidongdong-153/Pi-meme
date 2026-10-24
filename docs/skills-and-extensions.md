@@ -27,19 +27,7 @@ Desktop 和 Web 都通过 Host RPC 管理资源。连接远程 Host 时，所有
 
 ## 目录与类型
 
-Host 数据根默认为 `~/.pi-meme`，可用 `PI_MEME_DATA_ROOT` 修改（完整目录布局见 [数据目录与存储](storage.md)）：
-
-```text
-~/.pi-meme/
-├── resources/
-│   ├── skills/                  # 可编辑的用户技能
-│   ├── builtin/skills/          # 应用内置技能
-│   └── snapshots/               # 按内容哈希保存的完整资源修订
-├── state/resources.json         # 导入记录与 Host 默认策略
-├── config/workspaces/<cwd-hash>/
-│   └── resources.json           # 项目覆盖策略
-└── plugins/                     # App 插件代码快照与安装清单
-```
+Host 用户技能在 `resources/skills/`，内置技能在 `resources/builtin/skills/`，历史修订在 `resources/snapshots/`。导入记录与默认策略在 `state/resources.json`，项目覆盖在 `config/workspaces/<cwd-hash>/resources.json`；完整路径与默认数据根见[数据目录与存储](storage.md)。
 
 项目资源只读取当前工作目录的 `.agents/skills/`。这些文件不由管理页直接修改；项目策略保存到所属 Host。裸 Pi 扩展、原生 Pi 包、Host `extensions/` 和项目 `.agents/extensions/` 不再装配；旧文件不自动转换成 App 插件。应用不读取本机 Pi CLI、Codex、Claude 或 Gemini 的全局技能目录。
 
@@ -136,12 +124,8 @@ Worker 创建时固定资源快照，子代理继承父快照。安装、编辑�
 
 新建技能传 `name`、`content`；修改现有技能传 `id`、读取时的 `revision`、`content`。策略传 `id`、`scope: 'host' | 'project'` 与可选 `enabled`、`invocation: 'automatic' | 'manual'`，项目策略需要 `cwd`。内置资源身份和文件受保护；内置技能允许 Host/项目启停和自动/手动调用策略。项目策略传 `reset: true` 清除覆盖，恢复 Host 默认。
 
-## App 主题与图形能力
+## App 资源与权限
 
-App SDK 3 的 `resources` 只接受 `skills`、`themes` 和 `assets`。主题用 JSON 描述颜色、字体和可选背景；背景图片必须位于插件包内，并在 `assets` 中声明。Host 为启用插件加载主题，图片通过认证资源 URL 提供。停用或卸载撤销主题并恢复可用的内置主题；不执行主题 JavaScript 或任意 CSS。
-
-App UI 面板仍只允许 `right`；六类 render 贡献槽、正文来源代次校验、输入框 API、统一消息动作与插件业务页见 [App 插件](plugins.md#ui-面板与贡献)。页面可新增自己的活动栏入口与中央业务内容，但不能替换内置导航或聊天。AppAgent 通过 `context.interaction.request` 提问，不直接使用 Pi UI 或 TUI 组件。
-
-`read-only`、`workspace-write`、`full-access` 三档权限保持不变。技能在原任务权限内读取和执行。MCP 仍只在完全权限普通任务中装配；SDK 3 外部 AppAgent 则按所选入口和授权决定：Plan 与受限权限仅加载获准的受限入口，可信入口仅在完全权限普通任务中加载。未选择或不可用的插件不会隐式启用。可信 Server 仍是 Host 代码，不因 Agent 权限而受限；受限 Server 使用独立进程内的窄接口，不能回退可信 Server。执行矩阵与实际平台边界见 [插件执行与授权](configuration.md#插件执行与授权)。
+App 附带技能、主题和素材随插件整体分发；主题格式见[结构化主题](plugins.md#结构化主题)，UI 入口见[插件开发](plugins.md#ui-面板与贡献)。技能在原任务权限内读取和执行，不单独授予文件、网络或插件能力；插件入口的执行矩阵见[插件执行与授权](configuration.md#插件执行与授权)。
 
 验证入口：[resources.integration.test.ts](../packages/host/tests/resources.integration.test.ts)、[resource-lifecycle.integration.test.ts](../packages/host/tests/resource-lifecycle.integration.test.ts)、[resource-snapshot.integration.test.ts](../packages/pi-runtime/tests/resource-snapshot.integration.test.ts)。

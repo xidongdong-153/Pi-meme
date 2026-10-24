@@ -1,14 +1,10 @@
 ---
-description: 'Host 数据目录、模型与 MCP 配置、指令、凭据和三档权限的实际边界'
+description: '模型与 MCP 配置、指令、凭据、快捷键和内置工具与插件的权限边界'
 status: implemented
 paths:
   - 'packages/host/src/data-root.ts'
-  - 'packages/host/src/storage/**'
-  - 'apps/desktop/src/main/storage/**'
-  - 'apps/desktop/src/main/storage-process.ts'
   - 'apps/desktop/src/main/user-login-path.ts'
   - 'apps/desktop/src/main/local-host.ts'
-  - 'packages/contracts/src/storage.ts'
   - 'packages/host/src/service.ts'
   - 'packages/host/src/credentials.ts'
   - 'packages/host/src/ssh-connections.ts'
@@ -22,6 +18,7 @@ paths:
   - 'packages/pi-runtime/src/sdk/context-files.ts'
   - 'packages/pi-runtime/src/sdk/settings.ts'
   - 'packages/pi-runtime/src/sdk/access-sandbox.ts'
+  - 'packages/pi-runtime/src/sdk/linux-sandbox.ts'
   - 'packages/settings/**'
   - 'packages/models/**'
   - 'packages/mcp/**'
@@ -37,80 +34,9 @@ paths:
 
 ## 数据目录
 
-构建 App、构建后的 Server 和 Host 独立包默认使用 `~/.pi-meme` 和端口 `3185`；Desktop 开发版和 `pnpm start:server` 默认使用 `~/.pi-meme-dev` 和 `3180`。Desktop 按 `PI_MEME_DATA_ROOT`、已保存的自定义目录、默认目录依次选择；独立 Server 只读取环境变量或默认目录。[data-root.ts](../packages/host/src/data-root.ts) 将路径解析为绝对路径，用带心跳的 `host.lock` 保证一个 Host 写入。登记远程服务不会关闭本机 Host。Desktop 与 Server 的端口和真实数据目录一致时复用同一个 Host；只有创建方持有写锁和停机权限。运行多套独立 Host 必须同时区分目录和端口。
+配置写入当前 Host 的数据根。构建 App、构建后的 Server 和独立包默认使用 `~/.pi-meme`；Desktop 与 Server 开发入口使用 `~/.pi-meme-dev`。`PI_MEME_DATA_ROOT` 可覆盖目录，Desktop 还支持本机保存的自定义目录。
 
-数据目录自版本 2 起采用规范化分类层级结构（`config/`、`credentials/`、`state/`、`data/`、`resources/`、`plugins/`、`workspaces/`、`cache/`、`logs/`），完整结构、各文件所有者与回收规则见 [数据目录与存储](storage.md)。主要文件简述如下：
-
-```text
-~/.pi-meme/
-├── storage.json                    # 布局清单（version: 2）
-├── host-id                         # 持久 Host 身份
-├── host.lock                       # 唯一写入锁
-├── config/app.json                 # 应用偏好与新会话默认值
-├── config/ssh-connections.json     # 入口 Host 保存的 SSH 连接资料（不含令牌）
-├── config/profile/                 # 用户个人资料与头像
-├── config/agent/                   # SDK 设置、模型、MCP、指令与子代理
-├── config/workspaces/<cwd-hash>/   # 工作区覆盖配置
-├── credentials/auth.json           # 模型、MCP、Host 与远程连接凭据（0600）
-├── state/projects.json             # 项目与工作位置登记
-├── state/goals.json                # 目标状态
-├── state/agent-permissions.json    # 会话权限映射
-├── state/resources.json            # 资源导入记录与策略
-├── state/plugins.json              # 插件清单（版本化 envelope）
-├── state/requests.jsonl            # 内部 RPC 请求追加日志（永久防重放）
-├── state/control/                  # 正式目标、幂等操作、回执与关键事件快照及日志
-├── state/collaboration/            # 协作身份与计划索引（按根分片）
-├── data/sessions/<cwd-hash>/       # Pi 原生 JSONL 会话分支
-├── data/plans/<sessionId>/         # 计划正文
-├── data/attachments/               # 聊天上传附件
-├── resources/                      # 技能、主题、内置资源与历史快照
-├── plugins/                        # 外部插件代码快照与私有数据
-├── workspaces/                     # 真实工作目录（standalone 与 worktree）
-├── cache/                          # 可重建会话索引与远程连接摘要
-└── logs/mcp.log                    # MCP 服务运行日志
-```
-
-工作区分组使用规范化真实路径的 SHA-256，见 [runtime-paths.ts](../packages/pi-runtime/src/runtime-paths.ts)。项目登记见 [project-store.ts](../packages/workspace/src/server/project-store.ts)，远程摘要见 [remote-services.ts](../packages/host/src/remote-services.ts)。Linux 拒绝把 Host 数据放在识别到的 Windows 驱动器挂载中。
-
-### Desktop 自定义目录
-
-从“设置 → 常规 → 存储 → 更改目录”选择空文件夹。所选文件夹直接成为数据根目录。确认框显示来源、目标、复制大小和目标可用空间；点击“迁移并重启”后，应用正常停止本机 Host，再离线复制、校验和修复路径关联，成功后才切换目录。
-
-Electron 固定 `userData` 下的 `storage-location.json` 保存目录定位、备份路径、待执行任务与错误；它不放在 Host 的 `settings.json` 中，也不随数据根目录迁移。显式设置 `PI_MEME_DATA_ROOT` 时，界面只读并禁用维护。Desktop 复用其他入口创建的 Host 时也禁止迁移和缓存清理；界面显示原因，主进程再次检查所有权，但仍可查看信息和打开本机目录。Web 和远程页面只展示所连接 Host 的目录，不调用本机文件选择器，不提供远程迁移或清理接口。
-
-Desktop 开发版在申请单实例锁和读取定位文件前，将 `userData` 切换为 `appData/pi-meme-dev`。macOS 路径是 `~/Library/Application Support/pi-meme-dev`；开发版与构建 App 不共享 Electron 缓存、单实例锁或存储定位文件。测试凭据模式继续使用临时数据目录下的 `desktop-cache`。
-
-```mermaid
-flowchart TD
-  A["选择空目录并确认"] --> B["检查草稿、文件、本机任务和终端"]
-  B --> C["正常关闭 Host 后保存任务并重启"]
-  C --> D["离线进程取得源与目标目录写锁"]
-  D --> E["复制、校验、修复路径与 Worktree 登记"]
-  E --> F["原子发布目录定位并保留原目录"]
-  F --> G["再次启动普通 Host 与桌面页面"]
-  E -->|失败| H["不切换目录，保留数据并显示原因"]
-```
-
-维护前必须处理所有桌面服务页面中未发送的草稿、附件、未保存文件和指令，以及本机 Host 的运行、暂停、排队任务、待答交互、插件或资源操作和活动终端。停机超时或非零退出会取消本次维护，不会强行停止后继续复制。维护窗口使用独立的内存 Session 和临时 `sessionData`，普通 Host 在维护完成后的下一轮启动中创建。
-
-迁移会保留 Host、会话和业务 ID，更新已知会话路径、cwd 哈希分组、权限、置顶与侧栏排序、技能身份与策略、插件安装路径及应用创建的 Worktree 登记。`auth.json`、历史正文、提示词和未知插件私有数据不作字符串替换。外部项目目录不移动。第三方插件自行保存的绝对路径需要插件自行适配。
-
-源目录保留为备份，其中仍有会话和凭据；常规页面只提供打开备份，不自动删除。`.pi-meme-relocated.json` 标记已迁移或正在维护的源目录，普通 Host 拒绝将其重新作为活动目录。旧 Worktree 副本仅作文件备份，不再作为活动 Worktree 使用。目标 `.pi-meme-storage-job.json` 记录任务和复制校验信息，未提交的目标副本同样不能启动普通 Host。
-
-中断后只允许同一任务继续处理所属副本；来源已变化、目标出现无关文件、校验失败或路径冲突时停止，不清空目标。进程异常退出后写锁最多需要约 30 秒失效，再从恢复页面重试。若 Worktree 登记尚未恢复，任务保留并阻止正常启动。自定义磁盘不可用或定位文件损坏时，不会自动退回默认目录创建空数据。
-
-独立 Server 不读取 Desktop 定位文件。迁移后若改用 Server，应将 `PI_MEME_DATA_ROOT` 设置为新目录；旧目录已被标记为备份，不能继续启动。Desktop 和 Server 可以复用同一个运行中的 Host，但不能各自创建 Host 同时写同一目录。
-
-### 缓存清理
-
-从“设置 → 常规 → 缓存”刷新占用，再点击“清理缓存”，确认后重启执行。统计失败显示未知占用和错误，不显示为 `0 B`。统计与删除使用相同白名单：
-
-- Host：`cache/sessions.json`、`cache/sessions.json.tmp`、`cache/remote-services.json`、`cache/remote-services.json.tmp`。
-- Electron 固定 `userData`：存在的 `Cache`、`Code Cache`、`GPUCache`、`DawnCache`、`ShaderCache`、`GrShaderCache`、`GraphiteDawnCache`。
-
-缓存包含链接或特殊文件时停止清理并显示路径，不沿链接删除外部文件。会话索引和远程摘要可重新生成；远程连接凭据与 `config/ssh-connections.json` 保留，摘要在重连后重建。缓存可能在重启后立即重新产生。
-
-不会删除会话、计划、工作目录、`credentials/auth.json`、技能、插件、整个 Electron profile 或系统临时目录。`resources/snapshots/` 被历史技能使用记录引用，`state/requests.jsonl` 与 `state/control/` 承担请求去重及回执语义，均不属于清理白名单。
+完整文件布局、唯一写入锁、[Desktop 更改目录](storage.md#desktop-自定义目录)与[缓存清理](storage.md#缓存清理白名单与保护边界)统一见[数据目录与存储](storage.md)。Web 和远程页面不提供本机迁移或清理操作。
 
 ## 应用设置与模型
 
@@ -157,17 +83,11 @@ Host 指令在 `config/agent/AGENTS.md`、`config/agent/SYSTEM.md`、`config/age
 
 Desktop 使用内存 Electron Session，认证 Cookie 不写磁盘；本机 Host 的自动登录同时校验真实连接来源、Host 和 Origin，不向 Renderer 传递长期令牌。HTTPS 和 SSH 的远程令牌留在入口 Host 凭据存储，不返回 Renderer。SSH 令牌使用 `ssh-host:<稳定连接ID>` 键，与 `config/ssh-connections.json` 中的目标、名称、身份文件路径、启用状态和已确认 `hostId` 分开；身份文件只保存路径引用，不复制私钥。认证与远程代理规则见 [Remote](remote.md)。
 
-Pi 1.1 的 `ModelRuntime.create` 没有公开的认证环境注入参数。[model-runtime.ts](../packages/pi-runtime/src/sdk/model-runtime.ts) 是唯一依赖 SDK private shape 的认证隔离层：检查 `runtime.models.authContext` 后注入空环境和不可用文件检查，阻止隐式读取本机模型认证。守卫失败报错；升级 SDK 时需重新核对该守卫，并验证 [model-config.integration.test.ts](../packages/models/tests/model-config.integration.test.ts) 与 [sdk-settings-isolation.integration.test.ts](../packages/pi-runtime/tests/sdk-settings-isolation.integration.test.ts)。会话、JSONL 与扩展仍使用公开 SDK。
+当前 Pi SDK 的 `ModelRuntime.create` 没有公开的认证环境注入参数。[model-runtime.ts](../packages/pi-runtime/src/sdk/model-runtime.ts) 是唯一依赖 SDK private shape 的认证隔离层：检查 `runtime.models.authContext` 后注入空环境和不可用文件检查，阻止隐式读取本机模型认证。守卫失败报错；升级 SDK 时需重新核对该守卫，并验证 [model-config.integration.test.ts](../packages/models/tests/model-config.integration.test.ts) 与 [sdk-settings-isolation.integration.test.ts](../packages/pi-runtime/tests/sdk-settings-isolation.integration.test.ts)。会话、JSONL 与扩展仍使用公开 SDK。
 
 ## SSH 连接配置与信任边界
 
-入口 Host 管理系统 OpenSSH 进程，不由 Renderer 或 Electron main 执行远程业务。SSH 读取、保存、启停、重试和移除要求已认证且满足入口 Host 的本机来源条件；普通远程网络页面只能使用已登记服务，不获取身份文件路径或配置候选。应用自己的远程代理拒绝转发 SSH 管理请求。
-
-本机来源由 loopback 对端和 Host 地址判断。外部 SSH 转发把请求送到 loopback 后，携带有效认证的用户仍可被视为本机管理者；这不是物理本机证明，也不是多租户隔离。`PI_MEME_AUTH_MODE=token-required` 关闭免登录，不改变该来源分类。远端 SSH 目标必须启用此认证模式，只有 `PI_MEME_TOKEN` 不足以关闭默认本机免登录。
-
-SSH 配置来自入口 Host 用户的 `~/.ssh/config`，`Include` 只生成语法候选，不求值 `Host`/`Match` 条件。发现阶段不运行命令；启用某条连接时系统 OpenSSH 执行有效配置预检，拒绝额外端口转发。配置中的 `Match exec`、`ProxyCommand` 等仍属于用户信任的命令，不能把读取或使用该配置称为执行沙箱。具体限制见 [SSH 配置和非交互限制](remote.md#ssh-配置和非交互限制)。
-
-主机指纹沿用系统 `known_hosts`，密钥与解锁沿用系统 agent；应用不保存 SSH 密码，不提供交互式 MFA 或口令弹窗，不关闭指纹检查。远端 Host 令牌与 SSH 身份验证是两件事。SSH 指纹或 `hostId` 变化时停止自动恢复，先核实目标再重新登记。
+入口 Host 使用该用户的 OpenSSH、配置、agent 和 `known_hosts`，不保存 SSH 密码或复制私钥。发现候选与实际连接有不同的执行边界，完整限制见 [SSH 配置和非交互限制](remote.md#ssh-配置和非交互限制)。管理请求要求认证及[本机来源](remote.md#本机管理资格)，不是物理在场证明或多租户隔离。
 
 ## macOS Desktop 命令环境
 
@@ -189,9 +109,7 @@ Bash、会话 Worker、MCP 和项目终端继承本机 Host 的 PATH；MCP 显�
 | `workspace-write` | 允许修改当前工作区和会话临时目录，项目外写入被拒绝；读取和联网不受限 |
 | `full-access`     | 允许项目外写入，普通任务可加载已选择且获准的可信 AppAgent 和 MCP     |
 
-三档权限只控制 Agent 的执行范围，文件访问仍受运行所在 Host 的操作系统授权限制。macOS 的“系统设置 → 隐私与安全性 → 文件与文件夹”控制桌面、文稿、下载目录等位置的访问，首次访问这些位置可能出现系统授权提示。“完全磁盘访问权限”是另一项系统授权，需要用户在系统设置中添加应用；选择 Agent 的“完全权限”不会自动授予它。普通项目操作不要求预先开启完全磁盘访问权限。参见 [Apple 文件访问说明](https://support.apple.com/zh-cn/guide/security/secddd1d86a6/web)。
-
-开发态从终端启动时，系统可能把权限责任归到终端应用；Finder 或 Dock 启动的安装版使用 pi-meme 自身的身份，不能用开发态未弹窗证明安装版已经获得系统授权。需要访问受保护目录时按具体目录授权，目录拒绝访问也不能直接归因于 Agent 权限模式。
+三档权限只控制 Agent 的执行范围，仍受 Host 操作系统的文件授权限制。App 内的“完全权限”不会授予 macOS 的“完全磁盘访问权限”；开发态终端与 Finder 启动的应用也可能具有不同授权。系统提示与处理方法见[首次打开与目录授权的区别](getting-started.md#首次打开与目录授权的区别)。
 
 ```mermaid
 %%{init: {"theme": "dark"}}%%
@@ -207,9 +125,19 @@ flowchart TD
 
 macOS 使用 `sandbox-exec`，Linux/WSL2 使用 bubblewrap。Host 启动探测实际隔离能力，通过 `restrictedAccessSupported/restrictedAccessReason` 返回结果；受限 Worker 创建时还验证实际命令。内置权限、工厂或沙箱失效时拒绝受限执行，不自动授予完全权限。设置与历史仍可用。
 
-路径校验与工具执行见 [access-sandbox.ts](../packages/pi-runtime/src/sdk/access-sandbox.ts)，平台选择见 [sandbox-platform.ts](../packages/host/src/sandbox-platform.ts)。Linux namespace、socket 与 WSL 互操作边界见 [Linux 与 WSL](linux-wsl.md)。
+路径校验与工具执行见 [access-sandbox.ts](../packages/pi-runtime/src/sdk/access-sandbox.ts)，平台选择见 [sandbox-platform.ts](../packages/host/src/sandbox-platform.ts)。Linux namespace、socket 与 WSL 互操作边界见下节。
 
 上表描述内置 Agent 工具的边界，不是 SDK 3 受限插件的读取和联网授权。规划模式独立拒绝业务写入、codemode、MCP 和可信外部入口，但可使用获准的受限只读插件；子任务继承父级上限，并按自身真实目录、模式和权限构建执行环境。
+
+### Linux 与 WSL 隔离
+
+内置受限工具通过 `/usr/bin/bwrap` 执行，文件写入另有路径校验。根文件系统只读，`workspace-write` 只开放真实工作区和会话临时目录；Host 数据位于项目内时再次挂为只读。无项目会话的工作区为 `workspaces/standalone/<id>`。根目录、用户主目录、Pi 配置与系统临时目录不能整体授权，符号链接不能扩大写入范围。
+
+Linux 隔离 user、mount、PID 和 IPC namespace，保留 TCP/UDP 网络与 DNS；seccomp 拒绝 Unix socket，包括 abstract socket。x64 同时处理 i386 ABI，拒绝 x32 与 io_uring 绕过；arm64 拒绝未知兼容 ABI。未知 CPU 架构不能启用受限权限。公共 `/tmp`、`/var/tmp` 和 `/run` 不提供额外可写空间，`TMPDIR` 指向会话临时目录；调用 `setsid` 的后代仍受 PID namespace 清理约束。这不提供秘密文件读取隔离或网络访问控制。
+
+WSL 按实际 mountinfo 识别 Windows 驱动器，拒绝用作受限工作区，不把所有 `/mnt` 路径视为 Windows 盘。沙箱隐藏驱动器、`/init`、`/run/WSL` 和 WSLg，清除互操作变量和 Windows PATH，不继承额外文件描述符；复制 exe 到 Linux 工作区也不能通过 Windows 互操作执行。完全权限沿用普通执行方式。
+
+Ubuntu 的 AppArmor 或内核策略可能限制 user namespace。应用不关闭 AppArmor、不修改 sysctl；依赖或探测失败时查看 `restrictedAccessReason`，修复后重启 Host，不自动退回完全权限。安装要求见[Linux 与 WSL 环境](getting-started.md#linux-与-wsl-环境)，源码与专项回归见 [linux-sandbox.ts](../packages/pi-runtime/src/sdk/linux-sandbox.ts) 和 [linux-sandbox.integration.test.ts](../packages/pi-runtime/tests/linux-sandbox.integration.test.ts)。
 
 ### 插件执行与授权
 
