@@ -1126,9 +1126,6 @@ export function App({
             canEditMessages: !chat.inputDisabled && !chat.navigationBusy && !chat.editing,
             canForkReplies: !chat.busy && !chat.navigationBusy && !chat.editing,
             onEditMessage: chat.editMessage,
-            onSetGoal: chat.goalsSupported ? chat.setMessageGoal : undefined,
-            canSetGoal:
-              !chat.busy && !chat.navigationBusy && !chat.editing && (!chat.goal || chat.goal.status === 'complete'),
             onForkReply: (timestamp) => void chat.forkReply(timestamp),
             onCopyError: chat.setError,
             editor,

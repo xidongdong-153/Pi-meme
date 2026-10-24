@@ -60,7 +60,10 @@ test('网络失败暂停的 Goal 不能通过普通恢复绕过目标状态', { 
     const before = await eventually(
       () => f.host.app.sessions.snapshot(f.session),
       (snapshot) =>
-        !snapshot.state.isStreaming && Boolean(snapshot.state.recovery) && snapshot.agent?.status === 'stopped',
+        !snapshot.state.isStreaming &&
+        Boolean(snapshot.state.recovery) &&
+        snapshot.agent?.status === 'stopped' &&
+        snapshot.agents?.every((agent) => agent.cleanup?.state === 'completed') === true,
     )
     const sessionId = before.connection.sessionKey!
     const count = f.fake.provider.requests.length
@@ -77,7 +80,54 @@ test('网络失败暂停的 Goal 不能通过普通恢复绕过目标状态', { 
     const after = await f.host.app.sessions.snapshot(f.session)
     assert.deepEqual(after.state.recovery, before.state.recovery)
     assert.deepEqual(after.messages, before.messages)
-    assert.deepEqual(after.agents, before.agents)
+    const withoutUpdatedAt = (agents: typeof before.agents) =>
+      agents?.map(({ updatedAt: _updatedAt, ...agent }) => agent)
+    assert.deepEqual(withoutUpdatedAt(after.agents), withoutUpdatedAt(before.agents))
+  } finally {
+    await f.dispose()
+  }
+})
+
+test('普通会话和清除目标后的模型请求不暴露目标工具或旧提示', { timeout: 25000 }, async () => {
+  const f = await fixture((_body, index) =>
+    index === 2
+      ? {
+          tool: {
+            name: 'update_goal',
+            arguments: JSON.stringify({ status: 'complete', summary: '已核对', evidence: ['测试目标已完成'] }),
+          },
+        }
+      : '已收到',
+  )
+  try {
+    const submit = async (text: string, id: string) => {
+      const receipt = await f.host.app.sessions.submit(f.session, { delivery: 'start', text }, key(id))
+      await eventually(
+        () => f.host.app.sessions.receipt(receipt.operationId),
+        (value) => value.status === 'completed',
+      )
+    }
+    const goalTools = (request: (typeof f.fake.provider.requests)[number]) =>
+      request.tools
+        .map((tool: { function: { name: string } }) => tool.function.name)
+        .filter((name: string) => ['get_goal', 'update_goal'].includes(name))
+    await submit('普通对话', 'ordinary')
+    assert.deepEqual(goalTools(f.fake.provider.requests[0]), [])
+    await f.host.app.goals.start(f.session, { objective: '完成测试目标' }, key('goal'))
+    const goal = await eventually(
+      () => f.host.app.goals.get(f.session),
+      (value) => value?.status === 'complete',
+    )
+    await eventually(
+      () => f.host.app.sessions.snapshot(f.session),
+      (value) => !value.state.isStreaming,
+    )
+    assert.deepEqual(goalTools(f.fake.provider.requests[1]), ['get_goal', 'update_goal'])
+    await f.host.app.goals.clear(f.session, goal!, key('clear'))
+    const next = f.fake.provider.requests.length
+    await submit('新的普通对话', 'ordinary-after-clear')
+    assert.deepEqual(goalTools(f.fake.provider.requests[next]), [])
+    assert.doesNotMatch(requestText(f.fake.provider.requests[next]), /This session has an active persistent goal/)
   } finally {
     await f.dispose()
   }
@@ -126,7 +176,7 @@ test('Goal 多轮自动续跑至完成，首轮提交幂等，隐藏内部续跑
     assert.match(initialText, /directly and alone as the last tool action, never inside codemode or a parallel batch/)
     assert.match(initialText, /give the final answer without further tools/)
     const descriptions = JSON.stringify(initialRequest.tools)
-    assert.match(descriptions, /Returns null when no goal is available, including in child agents/)
+    assert.match(descriptions, /Do not call as a routine first step/)
     assert.match(descriptions, /Required and non-empty for complete/)
     assert.match(descriptions, /which original requirements each item verifies/)
     assert.match(requestText(f.fake.provider.requests[1]), /Continue the active persistent goal/)
@@ -318,19 +368,10 @@ test('子代理用量归属根目标，子代理不能修改根目标，协作�
     if (child) {
       assert.match(requestText(body), /child agent/)
       assert.doesNotMatch(requestText(body), /This session has an active persistent goal/)
-      if (!calls.includes('get_goal')) return { tool: { name: 'get_goal', arguments: '{}' } }
-      return calls.includes('update_goal')
-        ? finishAgentReply(body, '子任务已核对，不能替父任务结束目标。')
-        : {
-            tool: {
-              name: 'update_goal',
-              arguments: JSON.stringify({
-                status: 'complete',
-                summary: '子任务尝试修改根目标',
-                evidence: ['不应允许'],
-              }),
-            },
-          }
+      const tools = body.tools.map((tool: { function: { name: string } }) => tool.function.name)
+      assert.ok(!tools.includes('get_goal'))
+      assert.ok(!tools.includes('update_goal'))
+      return finishAgentReply(body, '子任务已核对。')
     }
     if (!calls.includes('get_goal')) return { tool: { name: 'get_goal', arguments: '{}' } }
     if (!calls.includes('spawn_agent'))
@@ -368,20 +409,6 @@ test('子代理用量归属根目标，子代理不能修改根目标，协作�
     const agents = await f.host.app.agents.list(f.session)
     const child = agents.find((agent) => agent.depth === 1)!
     assert.ok(child)
-    const snapshot = await f.host.app.agents.get(child.agentId)
-    assert.ok(
-      snapshot.messages.some(
-        (message) => message.role === 'toolResult' && message.isError && JSON.stringify(message).includes('子代理不能'),
-      ),
-    )
-    assert.ok(
-      snapshot.messages.some(
-        (message) =>
-          message.role === 'toolResult' &&
-          message.toolName === 'get_goal' &&
-          message.content.some((part) => part.type === 'text' && part.text === 'null'),
-      ),
-    )
     const root = await f.host.app.sessions.snapshot(f.session)
     assert.ok(
       root.messages.some(

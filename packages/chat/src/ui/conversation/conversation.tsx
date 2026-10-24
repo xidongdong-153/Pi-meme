@@ -42,8 +42,6 @@ export const Conversation = React.memo(
     canEditMessages,
     canForkReplies = canEditMessages,
     onEditMessage,
-    onSetGoal,
-    canSetGoal,
     onForkReply,
     onCopyError,
     editor,
@@ -59,8 +57,6 @@ export const Conversation = React.memo(
     canEditMessages: boolean
     canForkReplies?: boolean
     onEditMessage: (message: Extract<TurnChunk, { type: 'user' }>['message']) => void
-    onSetGoal?: (message: Extract<TurnChunk, { type: 'user' }>['message']) => void
-    canSetGoal?: boolean
     onForkReply: (timestamp: number) => void
     onCopyError: (message: string) => void
     /** 正在原位置编辑的用户消息，命中该原生 entry ID时用编辑器替换消息气泡。 */
@@ -324,8 +320,6 @@ export const Conversation = React.memo(
                           tools={chat.tools}
                           onEdit={readOnly ? undefined : onEditMessage}
                           canEdit={canEditMessages}
-                          onSetGoal={readOnly ? undefined : onSetGoal}
-                          canSetGoal={canSetGoal}
                           onCopyError={onCopyError}
                         />
                       )}

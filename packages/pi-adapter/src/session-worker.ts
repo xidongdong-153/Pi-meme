@@ -32,6 +32,7 @@ export type SessionWorkerContext = {
     signal?: AbortSignal,
   ) => Promise<CollaborationResults[keyof CollaborationResults]>
   requestGoal: (request: GoalRequest, signal?: AbortSignal) => Promise<Goal | undefined>
+  currentGoalRun: () => GoalRun | undefined
   requestActivity: (request: ServiceActivityRequest, signal?: AbortSignal) => Promise<ServiceActivityResult>
   savePlan: (input: SavePlanInput, signal?: AbortSignal) => Promise<PlanDocument>
   requestUserInput: (
@@ -165,6 +166,7 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
             hostRequest('activity', { activityRequest }, signal) as Promise<ServiceActivityResult>,
           requestGoal: (goalRequest, signal) =>
             hostRequest('goal', { goalRequest, goalRun: session.getGoalRun() }, signal) as Promise<Goal | undefined>,
+          currentGoalRun: () => session.getGoalRun(),
           savePlan: (input, signal) => hostRequest('savePlan', { input }, signal) as Promise<PlanDocument>,
           requestUserInput: (questions, signal) => session.requestUserInput(questions, signal),
           registerInteractionPolicy: (enabled) => {

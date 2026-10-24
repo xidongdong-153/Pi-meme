@@ -21,8 +21,6 @@ export function ChatMessage({
   live = false,
   className,
   onEdit,
-  onSetGoal,
-  canSetGoal,
   canEdit,
   onCopyError,
 }: {
@@ -31,8 +29,6 @@ export function ChatMessage({
   live?: boolean
   className?: string
   onEdit?: (message: PiMessage) => void
-  onSetGoal?: (message: PiMessage) => void
-  canSetGoal?: boolean
   canEdit?: boolean
   onCopyError?: (message: string) => void
 }) {
@@ -146,8 +142,6 @@ export function ChatMessage({
               canCopy={Boolean(messageText(message).trim())}
               onEdit={onEdit ? () => onEdit(message) : undefined}
               canEdit={Boolean(canEdit && message.sourceEntry)}
-              onSetGoal={onSetGoal ? () => onSetGoal(message) : undefined}
-              canSetGoal={Boolean(canSetGoal && typeof message.timestamp === 'number' && messageText(message).trim())}
             />
             <PluginMessageActions
               role="user"

@@ -2,7 +2,6 @@ import { parseGoalCommand, validateGoalInput, type GoalEdit } from '@pi-meme/con
 import { visibleComposerHint } from './composer/composer-hint'
 import { queuedDraft } from './composer/restore-queued-input'
 import { ChatStream } from './model/chat-stream'
-import { messageText } from './model/message-text'
 import { messageAttachmentParts } from './model/message-attachments'
 import type { ChatState } from './model/types'
 import { prepareComposerMessage } from './composer/plan-input'
@@ -19,13 +18,7 @@ import { ComposerDraftStore, type ComposerDraftState } from './composer/composer
 import { useComposerFiles } from './composer/use-composer-files'
 import type { ComposerIntent, ComposerProcessingRecord } from '@pi-meme/plugin-sdk/composer'
 import type { ChatBridge, DesktopEvent, Snapshot } from '@pi-meme/contracts/desktop'
-import {
-  builtinCommand,
-  freshSessionCommandError,
-  type PiEvent,
-  type PiMessage,
-  type PiSlashCommand,
-} from '@pi-meme/contracts/pi'
+import { builtinCommand, freshSessionCommandError, type PiEvent, type PiSlashCommand } from '@pi-meme/contracts/pi'
 import { applyEvent as reduceEvent, emptyChat, restoreSnapshot } from './model/state'
 import { messageWithAttachments, type ComposerAttachment as Attachment } from './composer/image-attachment'
 
@@ -338,33 +331,6 @@ export function useChatSession(options: ChatSessionOptions) {
       }
     },
     [setChat],
-  )
-
-  const setMessageGoal = useCallback(
-    async (message: PiMessage) => {
-      const { bridge, currentSessionKey, currentGeneration, canSend, onError } = optionsRef.current
-      const key = currentSessionKey()
-      const generation = currentGeneration()
-      if (!key || !canSend() || message.role !== 'user' || typeof message.timestamp !== 'number') return
-      try {
-        if (!bridge.startGoal) throw new Error('当前 Host 不支持目标')
-        const objective = messageText(message)
-        validateGoalInput({ objective })
-        changeMode('default')
-        await modeWrites.current
-        const result = await bridge.startGoal(key, { objective, sourceMessageTimestamp: message.timestamp })
-        if (key === currentSessionKey() && generation === currentGeneration()) {
-          setGoalDraft(undefined)
-          setGoalEditing(false)
-          setGoalOpen(false)
-          setChat((state) => (state.goal?.goalId === result.goal.goalId ? state : { ...state, goal: result.goal }))
-          await optionsRef.current.refresh?.()
-        }
-      } catch (cause) {
-        if (key === currentSessionKey() && generation === currentGeneration()) onError(String(cause))
-      }
-    },
-    [changeMode, setChat],
   )
 
   const activateGoal = useCallback(
@@ -1164,7 +1130,6 @@ export function useChatSession(options: ChatSessionOptions) {
     goalEditing,
     goalAction,
     saveGoal,
-    setMessageGoal,
     recoveredInputs,
     restoreQueuedInput,
     restoreChat: setChat,

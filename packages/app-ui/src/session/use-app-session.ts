@@ -831,7 +831,6 @@ export function useAppSession(
     goalEditing: chat.goalEditing,
     goalAction: chat.goalAction,
     saveGoal: chat.saveGoal,
-    setMessageGoal: chat.setMessageGoal,
     recoveredInputs: chat.recoveredInputs,
     restoreQueuedInput: chat.restoreQueuedInput,
     draft: chat.draft,

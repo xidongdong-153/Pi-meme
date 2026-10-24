@@ -118,20 +118,6 @@ test('目标已清除后队列恢复失败，仍移除目标控制条', async ()
   assert.equal(result.current.goalOpen, false)
 })
 
-test('已有用户消息设为目标保留未发送草稿，提交来源引用', async () => {
-  const { result, startGoal } = fixture()
-  act(() => result.current.setDraft('尚未发送的补充内容'))
-  await act(async () =>
-    result.current.setMessageGoal({
-      role: 'user',
-      content: [{ type: 'text', text: '持续完成这个任务' }],
-      timestamp: 10,
-    }),
-  )
-  assert.equal(result.current.draft, '尚未发送的补充内容')
-  assert.deepEqual(startGoal.mock.calls[0]?.[1], { objective: '持续完成这个任务', sourceMessageTimestamp: 10 })
-})
-
 test('从菜单打开目标设置保留当前正文和图片', () => {
   const { result, startGoal } = fixture()
   const image = { id: 'image', type: 'image' as const, data: 'aW1hZ2U=', mimeType: 'image/png' }

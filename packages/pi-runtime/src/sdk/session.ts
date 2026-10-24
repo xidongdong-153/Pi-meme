@@ -423,35 +423,54 @@ export class SdkSession {
       const extensionFactories = [
         (pi: ExtensionAPI) => {
           const gate = () => this.waitForResume()
-          pi.on('context', (event) => ({
-            messages: event.messages
-              .map((message) => {
-                if (message.role === 'toolResult' && message.toolName === 'wait_agent') {
-                  const original = (message.details as { messages?: AgentMailboxMessage[] } | undefined)?.messages ?? []
-                  const visible = original.filter((item) => this.visibleCollaborationMessages.has(item.id))
-                  if (visible.length !== original.length)
-                    return {
-                      ...message,
-                      content: [
-                        {
-                          type: 'text' as const,
-                          text: visible.length ? JSON.stringify({ messages: visible }) : '旧任务协作结果已隔离',
-                        },
-                      ],
-                      details: { ...((message.details as object) ?? {}), messages: visible },
-                    }
-                }
-                return message
-              })
-              .filter(
-                (message) =>
-                  message.role !== 'custom' ||
-                  message.customType !== 'pi-meme-collaboration' ||
-                  this.visibleCollaborationMessages.has(
-                    (message.details as { messageId?: string } | undefined)?.messageId ?? '',
-                  ),
-              ),
-          }))
+          pi.on('context', (event) => {
+            const run = this.goalRun
+            const currentGoalContext = run
+              ? event.messages.findLastIndex(
+                  (message) =>
+                    message.role === 'custom' &&
+                    message.customType === 'pi-meme-goal-context' &&
+                    (message.details as { goalId?: string; cycleId?: string } | undefined)?.goalId === run.goalId &&
+                    (message.details as { cycleId?: string } | undefined)?.cycleId === run.cycleId,
+                )
+              : -1
+            return {
+              messages: event.messages
+                .map((message) => {
+                  if (message.role === 'toolResult' && message.toolName === 'wait_agent') {
+                    const original =
+                      (message.details as { messages?: AgentMailboxMessage[] } | undefined)?.messages ?? []
+                    const visible = original.filter((item) => this.visibleCollaborationMessages.has(item.id))
+                    if (visible.length !== original.length)
+                      return {
+                        ...message,
+                        content: [
+                          {
+                            type: 'text' as const,
+                            text: visible.length ? JSON.stringify({ messages: visible }) : '旧任务协作结果已隔离',
+                          },
+                        ],
+                        details: { ...((message.details as object) ?? {}), messages: visible },
+                      }
+                  }
+                  return message
+                })
+                .filter((message, index) => {
+                  if (message.role !== 'custom') return true
+                  if (message.customType === 'pi-meme-goal-context') return index === currentGoalContext
+                  if (message.customType === 'pi-meme-goal-control') {
+                    const details = message.details as { goalId?: string; cycleId?: string } | undefined
+                    return details?.goalId === run?.goalId && details?.cycleId === run?.cycleId
+                  }
+                  return (
+                    message.customType !== 'pi-meme-collaboration' ||
+                    this.visibleCollaborationMessages.has(
+                      (message.details as { messageId?: string } | undefined)?.messageId ?? '',
+                    )
+                  )
+                }),
+            }
+          })
           pi.on('message_start', gate)
           pi.on('message_update', gate)
           pi.on('message_end', gate)
