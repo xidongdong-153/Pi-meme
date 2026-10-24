@@ -1,8 +1,23 @@
 import type { ComposerSnapshot } from '@pi-meme/chat/ui/use-chat-session'
-import type { PiSlashCommand } from '@pi-meme/contracts/pi'
+import { thinkingLevels, type PiSlashCommand } from '@pi-meme/contracts/pi'
+import type { MessageConfiguration } from '@pi-meme/contracts/plan'
 
 export const composerDraftPrefix = 'pi-meme:composer:v1:'
 type DraftStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
+
+function windowDraftId() {
+  if (typeof window === 'undefined') return 'local'
+  const key = 'pi-meme:composer-window-id'
+  try {
+    const existing = window.sessionStorage.getItem(key)
+    if (existing) return existing
+    const id = crypto.randomUUID()
+    window.sessionStorage.setItem(key, id)
+    return id
+  } catch {
+    return 'local'
+  }
+}
 
 function isSkill(value: unknown): value is PiSlashCommand {
   if (!value || typeof value !== 'object') return false
@@ -16,6 +31,20 @@ function isSkill(value: unknown): value is PiSlashCommand {
   )
 }
 
+function isMessageConfiguration(value: unknown): value is MessageConfiguration {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const configuration = value as Record<string, unknown>
+  const model = configuration.model
+  return (
+    (model === undefined ||
+      (!!model &&
+        typeof model === 'object' &&
+        typeof (model as Record<string, unknown>).provider === 'string' &&
+        typeof (model as Record<string, unknown>).id === 'string')) &&
+    (configuration.thinkingLevel === undefined || thinkingLevels.includes(configuration.thinkingLevel as never))
+  )
+}
+
 export class ComposerDrafts {
   private readonly values = new Map<string, ComposerSnapshot>()
   private readonly pending = new Map<string, Set<ComposerSnapshot>>()
@@ -25,11 +54,12 @@ export class ComposerDrafts {
   constructor(
     private readonly hostId: string,
     private readonly storage: () => DraftStorage = () => window.localStorage,
+    private readonly windowId: string = windowDraftId(),
   ) {}
 
   private key(sessionKey: string) {
     const sessionId = this.identities.get(sessionKey)
-    return sessionId ? composerDraftPrefix + JSON.stringify([this.hostId, sessionId]) : undefined
+    return sessionId ? composerDraftPrefix + JSON.stringify([this.hostId, sessionId, this.windowId]) : undefined
   }
 
   bind(sessionKey: string, sessionId: string): ComposerSnapshot | undefined {
@@ -61,7 +91,8 @@ export class ComposerDrafts {
     const key = this.key(sessionKey)
     if (!key) return
     try {
-      const saved: unknown = JSON.parse(this.storage().getItem(key) ?? 'null')
+      const legacyKey = composerDraftPrefix + JSON.stringify([this.hostId, this.identities.get(sessionKey)])
+      const saved: unknown = JSON.parse(this.storage().getItem(key) ?? this.storage().getItem(legacyKey) ?? 'null')
       if (!saved || typeof saved !== 'object') return
       const value = saved as Partial<ComposerSnapshot>
       if (
@@ -94,6 +125,9 @@ export class ComposerDrafts {
           : {}),
         attachments: [],
         queueMode: value.queueMode,
+        ...(isMessageConfiguration(value.pendingConfiguration)
+          ? { pendingConfiguration: value.pendingConfiguration }
+          : {}),
       }
       this.values.set(sessionKey, composer)
       return composer
@@ -159,7 +193,10 @@ export class ComposerDrafts {
     if (!composer?.draft && !composer?.pluginMentions?.length)
       composer = this.pending.get(sessionKey)?.values().next().value ?? composer
     try {
-      if (composer && (composer.draft || composer.goalDraft || composer.pluginMentions?.length))
+      if (
+        composer &&
+        (composer.draft || composer.goalDraft || composer.pluginMentions?.length || composer.pendingConfiguration)
+      )
         this.storage().setItem(
           key,
           JSON.stringify({
@@ -173,6 +210,7 @@ export class ComposerDrafts {
                 }
               : {}),
             queueMode: composer.queueMode,
+            ...(composer.pendingConfiguration ? { pendingConfiguration: composer.pendingConfiguration } : {}),
           }),
         )
       else this.storage().removeItem(key)

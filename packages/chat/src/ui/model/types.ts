@@ -45,6 +45,7 @@ export type ChatState = {
   tools: Record<string, ToolRun>
   paused?: boolean
   queuePaused?: boolean
+  stopped?: boolean
   pauseRevision?: number
   pauseIntervals?: PiPauseInterval[]
   runIntervals?: PiRunInterval[]

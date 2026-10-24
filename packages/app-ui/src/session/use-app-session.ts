@@ -701,7 +701,6 @@ export function useAppSession(
     loading ||
     acting ||
     switching ||
-    (chat.chat.running && !chat.chat.paused && !chat.chat.queuePaused && !chat.editing) ||
     (connection.status !== 'ready' && connection.status !== 'idle') ||
     Boolean(connection.accessChanging)
   const supportedCommands = useMemo(
@@ -949,6 +948,7 @@ export function useAppSession(
     submitComposer: chat.submitComposer,
     stop: chat.stop,
     resume: chat.resume,
+    resumeQueue: chat.resumeQueue,
     recover: chat.recover,
     recovering: chat.recovering,
     steerQueueInput: chat.steerQueueInput,
@@ -972,7 +972,7 @@ export function useAppSession(
       }),
     selectModel: (model: PiModel) => {
       if (chat.editSubmitting) return Promise.resolve(false)
-      if (chat.editing || chat.chat.paused || chat.chat.queuePaused) {
+      if (chat.editing || chat.chat.running || chat.chat.paused || chat.chat.queuePaused) {
         chat.updateConfiguration({ model })
         return Promise.resolve(true)
       }
@@ -1008,7 +1008,7 @@ export function useAppSession(
     },
     selectThinkingLevel: (level: ThinkingLevel) => {
       if (chat.editSubmitting) return
-      if (chat.editing || chat.chat.paused || chat.chat.queuePaused) {
+      if (chat.editing || chat.chat.running || chat.chat.paused || chat.chat.queuePaused) {
         chat.updateConfiguration({ thinkingLevel: level })
         return
       }

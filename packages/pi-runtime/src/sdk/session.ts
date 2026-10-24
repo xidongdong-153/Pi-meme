@@ -129,6 +129,7 @@ export type RuntimePolicy = {
   createAccessExtension?: typeof createAgentAccessExtension
 }
 export class SdkSession {
+  private static readonly controlEntry = 'pi-meme-task-control'
   private paused = false
   private queuePaused = false
   private pauseRevision = 0
@@ -155,8 +156,10 @@ export class SdkSession {
   private activeMode?: TaskMode
   private runtimeMode: TaskMode = 'default'
   private ownQueue: { steering: QueuedInput[]; followUp: QueuedInput[] } = { steering: [], followUp: [] }
+  private delivering?: { kind: 'steering' | 'followUp'; input: QueuedInput }
   private nativeQueue: { steering: QueuedInput[]; followUp: QueuedInput[] } = { steering: [], followUp: [] }
   private queueCancelled = false
+  private stopped = false
   private admission?: AbortController
   private pendingDeliveries = new Set<string>()
   private preparedQueueText = new Map<string, string>()
@@ -278,6 +281,11 @@ export class SdkSession {
     this.stop(preservePause)
     if (!preservePause) this.pauseControlApplied = false
     if (!pause && (!sessionFile || cwd !== this.cwd || sessionFile !== this.sessionFile)) {
+      this.ownQueue = { steering: [], followUp: [] }
+      this.delivering = undefined
+      this.nativeQueue = { steering: [], followUp: [] }
+      this.stopped = false
+      this.queuePaused = false
       this.pauseIntervals = []
       this.runIntervals = []
       this.generationMetrics.reset()
@@ -295,8 +303,8 @@ export class SdkSession {
     }
     if (preparing) {
       this.admission = admission
-      this.queueCancelled = false
     }
+    this.queueCancelled = false
     this.cwd = cwd
     this.cachedModels = null
     this.cachedCommands = null
@@ -317,6 +325,9 @@ export class SdkSession {
       this.sessionFile = this.runtime?.session.sessionFile ?? sessionFile
       this.sessionId = this.runtime?.session.sessionId
       this.notify.connection(this.connection())
+      if (this.ownQueue.steering.length || this.ownQueue.followUp.length) this.emitQueue()
+      if (this.stopped)
+        this.notify.event({ generation: this.generation, event: { type: 'stop_update', stopped: true } })
     })().catch((cause: unknown) => {
       if (generation === this.generation) {
         this.report(`无法启动 Pi：${String(cause)}`)
@@ -561,6 +572,37 @@ export class SdkSession {
     if (seq !== this.startSeq || generation !== this.generation) {
       void runtime.dispose().catch(() => {})
       return
+    }
+    if (
+      !this.paused &&
+      !this.queuePaused &&
+      !this.stopped &&
+      !this.delivering &&
+      !this.ownQueue.steering.length &&
+      !this.ownQueue.followUp.length
+    ) {
+      const checkpoint = runtime.session.sessionManager
+        .getBranch()
+        .findLast((entry) => entry.type === 'custom' && entry.customType === SdkSession.controlEntry)
+      const data =
+        checkpoint?.type === 'custom'
+          ? (checkpoint.data as {
+              stopped?: unknown
+              steering?: QueuedInput[]
+              followUp?: QueuedInput[]
+              delivering?: { kind: 'steering' | 'followUp'; input: QueuedInput }
+            })
+          : undefined
+      if (data && Array.isArray(data.steering) && Array.isArray(data.followUp)) {
+        this.ownQueue = {
+          steering: data.steering.map((input) => ({ ...input, editing: undefined, submitted: undefined })),
+          followUp: data.followUp.map((input) => ({ ...input, editing: undefined, submitted: undefined })),
+        }
+        if (data.delivering && ['steering', 'followUp'].includes(data.delivering.kind) && data.delivering.input?.id)
+          this.ownQueue[data.delivering.kind].unshift({ ...data.delivering.input, deliveryUncertain: true })
+        this.stopped = data.stopped === true
+        this.queuePaused = this.stopped || this.ownQueue.steering.length > 0 || this.ownQueue.followUp.length > 0
+      }
     }
     this.runtime = runtime
     let boundSessionId = runtime.session.sessionId
@@ -1070,6 +1112,7 @@ export class SdkSession {
       pendingMessageCount: state.pendingMessageCount + this.ownQueue.steering.length + this.ownQueue.followUp.length,
       isPaused: this.paused,
       queuePaused: this.queuePaused,
+      stopped: this.stopped,
       pauseRevision: this.pauseRevision,
       pauseIntervals: structuredClone(this.pauseIntervals),
       runIntervals: structuredClone(this.runIntervals),
@@ -1202,12 +1245,13 @@ export class SdkSession {
     images?: PiImage[],
     skills: SkillReference[] = [],
     options?: EditMessageOptions,
-    continuation: boolean | 'goal' | 'recovery' = false,
+    continuation: boolean | 'goal' | 'recovery' | 'stopped' = false,
     preserveMode = false,
     expectedGoal?: GoalControl,
     editEntryId?: string,
     failureEntryId?: string,
   ) {
+    const stoppedBeforePrompt = this.stopped
     const normalized = normalizePlanMessage(message, options?.mode ?? this.mode)
     if (!normalized.commandOnly && (this.changing || this.running))
       throw new Error('Pi 正在运行或切换，请等待完成后重试')
@@ -1257,23 +1301,40 @@ export class SdkSession {
       if (options?.clientProcessingAudit?.length) this.persistClientProcessingAudit(options.clientProcessingAudit)
       this.running = true
       this.pendingSend = true
+      this.stopped = false
+      if (stoppedBeforePrompt)
+        this.notify.event({ generation: this.generation, event: { type: 'stop_update', stopped: false } })
       this.activeMode = normalized.mode
       if (!command) {
         const run = await this.policy.onAdmission?.(
           message,
           normalized.mode,
-          Boolean(continuation),
+          Boolean(continuation) && continuation !== 'stopped',
           this.admission.signal,
           continuation === 'goal'
             ? 'goal'
             : continuation === 'recovery'
               ? 'recovery'
-              : continuation
-                ? 'collaboration'
-                : 'user',
+              : continuation === 'stopped'
+                ? 'user'
+                : continuation
+                  ? 'collaboration'
+                  : 'user',
           expectedGoal,
         )
         if (generation !== this.generation || this.queueCancelled) throw new Error('消息发送已取消')
+        if (options?.model || options?.thinkingLevel !== undefined) {
+          const model = options.model
+          if (model) {
+            const selected = this.session.modelRuntime
+              .getAvailableSnapshot()
+              .find((entry) => entry.provider === model.provider && entry.id === model.id)
+            if (!selected) throw new Error('模型已不可用，请重新选择模型')
+            await this.session.setModel(selected)
+            this.modelSelectionRequired = false
+          }
+          if (options.thinkingLevel !== undefined) this.session.setThinkingLevel(options.thinkingLevel)
+        }
         if (editEntryId !== undefined) {
           await this.validateMessageEdit(editEntryId, message, options)
           const model = options?.model ?? toModel(this.getState().model)
@@ -1316,6 +1377,10 @@ export class SdkSession {
       } finally {
         this.running = false
         this.pendingSend = false
+        if (stoppedBeforePrompt) {
+          this.stopped = true
+          this.notify.event({ generation: this.generation, event: { type: 'stop_update', stopped: true } })
+        }
         this.activeMode = undefined
         this.activityRevision += 1
       }
@@ -1370,8 +1435,12 @@ export class SdkSession {
   }
 
   /** 预检完成即返回，整轮运行通过事件推送，与 RPC 模式一致。 */
-  continueGoalTask(message: string, expected: GoalControl) {
-    return this.prompt(message, undefined, [], { mode: 'default' }, 'goal', true, expected)
+  continueGoalTask(
+    message: string,
+    expected: GoalControl,
+    configuration?: import('@pi-meme/contracts/plan').MessageConfiguration,
+  ) {
+    return this.prompt(message, undefined, [], { mode: 'default', ...configuration }, 'goal', true, expected)
   }
 
   continueCollaborationTask(message: string, mode: TaskMode) {
@@ -1381,7 +1450,7 @@ export class SdkSession {
   private async sendPrompt(
     message: string,
     images?: PiImage[],
-    continuation: boolean | 'goal' | 'recovery' = false,
+    continuation: boolean | 'goal' | 'recovery' | 'stopped' = false,
     waitForUserEntry = false,
     onStarted?: () => void,
   ) {
@@ -1409,7 +1478,9 @@ export class SdkSession {
                   ? 'pi-meme-goal-control'
                   : continuation === 'recovery'
                     ? 'pi-meme-recovery-control'
-                    : 'pi-meme-collaboration-control',
+                    : continuation === 'stopped'
+                      ? 'pi-meme-stopped-control'
+                      : 'pi-meme-collaboration-control',
               content: message,
               display: false,
               details: {
@@ -1475,6 +1546,7 @@ export class SdkSession {
   }
 
   private emitQueue() {
+    this.persistTaskControl()
     this.notify.event({
       generation: this.generation,
       event: {
@@ -1524,6 +1596,10 @@ export class SdkSession {
       id: randomUUID(),
       text: normalized.text,
       mode: normalized.mode,
+      configuration:
+        options?.model || options?.thinkingLevel !== undefined
+          ? { model: options.model, thinkingLevel: options.thinkingLevel }
+          : undefined,
       images,
       skills,
       clientProcessingAudit: options?.clientProcessingAudit,
@@ -1562,6 +1638,7 @@ export class SdkSession {
   }
 
   private emitPause() {
+    this.persistTaskControl()
     this.notify.event({
       generation: this.generation,
       event: {
@@ -1662,10 +1739,15 @@ export class SdkSession {
       Object.assign(input, {
         text: normalized.text,
         mode: normalized.mode,
+        configuration:
+          options?.model || options?.thinkingLevel !== undefined
+            ? { model: options.model, thinkingLevel: options.thinkingLevel }
+            : input.configuration,
         images,
         skills,
         clientProcessingAudit: options?.clientProcessingAudit,
         editing: undefined,
+        deliveryUncertain: undefined,
       })
       this.queueEdits.delete(id)
       this.emitQueue()
@@ -1712,6 +1794,16 @@ export class SdkSession {
       if (selected.input.editing) throw new Error('排队输入正在编辑')
       if (this.running && selected.input.mode !== (this.activeMode ?? this.runtimeMode))
         throw new Error('不能引导不同模式的排队输入，请等待当前任务结束')
+      const configuration = selected.input.configuration
+      const currentModel = this.getState().model
+      if (
+        this.running &&
+        configuration &&
+        ((configuration.model &&
+          (configuration.model.provider !== currentModel?.provider || configuration.model.id !== currentModel?.id)) ||
+          (configuration.thinkingLevel !== undefined && configuration.thinkingLevel !== this.getState().thinkingLevel))
+      )
+        throw new Error('模型或思考强度与当前任务不同，请保留排队')
       this.ownQueue[selected.kind].splice(selected.index, 1)
       if (!this.running) {
         this.ownQueue.steering.unshift(selected.input)
@@ -1881,7 +1973,8 @@ export class SdkSession {
         if (this.running || this.changing || this.queueCancelled || this.paused || this.queuePaused) return
         const kind = this.ownQueue.steering.length ? 'steering' : 'followUp'
         const input = this.ownQueue[kind][0]
-        if (!input || input.editing) return
+        if (!input || input.editing || input.deliveryUncertain) return
+        this.delivering = { kind, input }
         this.ownQueue[kind].shift()
         this.emitQueue()
         return { kind, input }
@@ -1891,13 +1984,20 @@ export class SdkSession {
         selected.input.text,
         selected.input.images,
         selected.input.skills,
-        { mode: selected.input.mode, clientProcessingAudit: selected.input.clientProcessingAudit },
+        {
+          mode: selected.input.mode,
+          ...selected.input.configuration,
+          clientProcessingAudit: selected.input.clientProcessingAudit,
+        },
         false,
         true,
       )
+      this.delivering = undefined
+      this.emitQueue()
     } catch (cause) {
       if (selected)
         await this.withQueueLock(() => {
+          this.delivering = undefined
           this.ownQueue[selected!.kind].unshift(selected!.input)
           this.queuePaused = true
           this.emitQueue()
@@ -1912,7 +2012,8 @@ export class SdkSession {
         !this.paused &&
         !this.queueCancelled &&
         (this.ownQueue.steering[0] ?? this.ownQueue.followUp[0]) &&
-        !(this.ownQueue.steering[0] ?? this.ownQueue.followUp[0])?.editing
+        !(this.ownQueue.steering[0] ?? this.ownQueue.followUp[0])?.editing &&
+        !(this.ownQueue.steering[0] ?? this.ownQueue.followUp[0])?.deliveryUncertain
       )
         this.scheduleQueue()
     }
@@ -2062,6 +2163,44 @@ export class SdkSession {
     return this.call(() => this.session.abort())
   }
 
+  async stopTask() {
+    if (this.stopped) return
+    await this.withQueueLock(async () => {
+      this.queuePaused = true
+      this.ownQueue.steering.unshift(...this.nativeQueue.steering)
+      this.ownQueue.followUp.unshift(...this.nativeQueue.followUp)
+      this.nativeQueue = { steering: [], followUp: [] }
+      await this.call(() => this.session.clearQueue())
+      this.emitQueue()
+      this.emitPause()
+    })
+    await this.abort()
+    this.stopped = true
+    this.persistTaskControl()
+    this.notify.event({ generation: this.generation, event: { type: 'stop_update', stopped: true } })
+  }
+
+  private persistTaskControl() {
+    if (this.status !== 'ready' || !this.runtime) return
+    this.session.sessionManager.appendCustomEntry(SdkSession.controlEntry, {
+      stopped: this.stopped,
+      steering: this.ownQueue.steering,
+      followUp: this.ownQueue.followUp,
+      delivering: this.delivering,
+    })
+  }
+
+  continueStopped(options?: import('@pi-meme/contracts/plan').MessageConfiguration) {
+    if (!this.stopped) throw new Error('当前没有可恢复的停止任务')
+    return this.prompt(
+      '继续未完成的任务。核对已有结果，避免重复执行已完成的操作。',
+      undefined,
+      [],
+      { mode: this.mode, ...options },
+      'stopped',
+    )
+  }
+
   setModel(model: PiModel): Promise<PiModel> {
     return this.idle(async () => {
       const selected = await this.call(() => {
@@ -2078,13 +2217,11 @@ export class SdkSession {
   }
 
   setSessionName(name: string) {
-    return this.idle(() =>
-      this.call(() => {
-        const trimmed = name.trim()
-        if (!trimmed) throw new Error('会话名称不能为空')
-        this.session.setSessionName(trimmed)
-      }),
-    )
+    return this.call(() => {
+      const trimmed = name.trim()
+      if (!trimmed) throw new Error('会话名称不能为空')
+      this.session.setSessionName(trimmed)
+    })
   }
 
   setThinkingLevel(level: ThinkingLevel) {

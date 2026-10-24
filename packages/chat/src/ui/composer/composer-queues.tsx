@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { CornerDownRight, Ellipsis, ListEnd, Pause, Pencil, Play, Trash2 } from 'lucide-react'
+import { CornerDownRight, Ellipsis, ListEnd, Pencil, Play, Trash2 } from 'lucide-react'
 import type { ComposerProps } from './composer'
+import type { MessageConfiguration } from '@pi-meme/contracts/plan'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
 import {
   DropdownMenu,
@@ -13,9 +14,9 @@ export function ComposerQueues({
   queues,
   paused,
   activeMode,
+  activeConfiguration,
   disabled,
   onResume,
-  resumeLabel,
   onSteerQueueInput,
   onDeleteQueueInput,
   onEditQueueInput,
@@ -26,11 +27,10 @@ export function ComposerQueues({
   | 'activeMode'
   | 'disabled'
   | 'onResume'
-  | 'resumeLabel'
   | 'onSteerQueueInput'
   | 'onDeleteQueueInput'
   | 'onEditQueueInput'
->) {
+> & { activeConfiguration?: MessageConfiguration }) {
   const [menuId, setMenuId] = useState<string | null>(null)
   const inputs = [...queues.steering, ...queues.followUp]
   if (!inputs.length) return null
@@ -43,24 +43,26 @@ export function ComposerQueues({
       className="relative mx-3 -mb-2 rounded-t-2xl border border-b-0 border-border/80 pb-2 text-xs"
     >
       {paused && (
-        <div className="flex min-h-9 min-w-0 items-center gap-2 border-b border-border/70 px-3 text-muted-foreground">
-          <Pause className="size-3 shrink-0" />
-          <span className="min-w-0 flex-1">由于你中断了当前响应，队列已暂停</span>
-          <button
-            type="button"
-            aria-label={resumeLabel ?? '继续队列'}
-            className={actionClass}
-            disabled={disabled}
-            onClick={onResume}
-          >
+        <div className="flex min-h-9 min-w-0 items-center justify-end border-b border-border/70 px-3 text-muted-foreground">
+          <button type="button" aria-label="继续队列" className={actionClass} disabled={disabled} onClick={onResume}>
             <Play className="size-3 fill-current" />
-            {resumeLabel ?? '继续'}
+            继续队列
           </button>
         </div>
       )}
       {inputs.map((input) => {
         const differentMode = activeMode !== undefined && input.mode !== activeMode
-        const guideDisabled = disabled || input.editing || differentMode
+        const differentConfiguration = Boolean(
+          input.configuration &&
+          activeConfiguration &&
+          ((input.configuration.model &&
+            (input.configuration.model.provider !== activeConfiguration.model?.provider ||
+              input.configuration.model.id !== activeConfiguration.model?.id)) ||
+            (input.configuration.thinkingLevel !== undefined &&
+              input.configuration.thinkingLevel !== activeConfiguration.thinkingLevel)),
+        )
+        const guideDisabled =
+          disabled || input.editing || input.deliveryUncertain || differentMode || differentConfiguration
         return (
           <div key={input.id} data-queue-id={input.id} className="flex h-9 min-w-0 items-center gap-2 px-3">
             <ListEnd className="size-3.5 shrink-0 text-muted-foreground" />
@@ -98,9 +100,11 @@ export function ComposerQueues({
                       </button>
                     </span>
                   </TooltipTrigger>
-                  <TooltipContent side="top">
-                    {differentMode ? '消息模式与当前任务不同，暂时无法引导' : '提交，但不中断模型运行'}
-                  </TooltipContent>
+                  {!input.deliveryUncertain && !differentConfiguration && (
+                    <TooltipContent side="top">
+                      {differentMode ? '消息模式与当前任务不同，暂时无法引导' : '提交，但不中断模型运行'}
+                    </TooltipContent>
+                  )}
                 </Tooltip>
                 <button
                   type="button"

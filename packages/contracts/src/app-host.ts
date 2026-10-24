@@ -1,5 +1,5 @@
 import type { ServiceActivity, ServiceActivityList, ServiceActivityLogs } from './service-activity'
-import type { Goal, GoalControl, GoalEdit, GoalInput, GoalStartResult } from './goal'
+import type { Goal, GoalControl, GoalEdit, GoalInput, GoalResumeControl, GoalStartResult } from './goal'
 import type { AgentAccessMode } from './agent-access'
 import type { AgentSummary } from './collaboration'
 import type { GitEnvironment, GitSnapshot, GitFileChange, Snapshot } from './desktop'
@@ -142,6 +142,12 @@ export type HostApi = {
     configure: (ref: SessionRef, configuration: SessionConfiguration, options: MutationOptions) => Promise<AppSession>
     submit: (ref: SessionRef, input: SubmissionInput, options: MutationOptions) => Promise<SubmissionReceipt>
     stop: (ref: SessionRef, options: MutationOptions) => Promise<void>
+    stopTask: (ref: SessionRef, options: MutationOptions) => Promise<void>
+    continueTask: (
+      ref: SessionRef,
+      configuration: import('./plan').MessageConfiguration | undefined,
+      options: MutationOptions,
+    ) => Promise<void>
     pause: (ref: SessionRef, options: MutationOptions) => Promise<void>
     resume: (ref: SessionRef, options: MutationOptions) => Promise<void>
     receipt: (operationId: string) => Promise<SubmissionReceipt>
@@ -195,7 +201,7 @@ export type HostApi = {
     start: (ref: SessionRef, input: GoalInput, options: MutationOptions) => Promise<GoalStartResult>
     edit: (ref: SessionRef, input: GoalEdit, options: MutationOptions) => Promise<Goal>
     pause: (ref: SessionRef, input: GoalControl, options: MutationOptions) => Promise<Goal>
-    resume: (ref: SessionRef, input: GoalControl, options: MutationOptions) => Promise<Goal>
+    resume: (ref: SessionRef, input: GoalResumeControl, options: MutationOptions) => Promise<Goal>
     clear: (ref: SessionRef, input: GoalControl, options: MutationOptions) => Promise<void>
   }
   activities: {

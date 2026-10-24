@@ -37,6 +37,7 @@ export function fromSnapshot(snapshot: Snapshot): ChatState {
     running: snapshot.state.isStreaming || isCompacting || Boolean(snapshot.state.retry),
     paused: snapshot.state.isPaused ?? false,
     queuePaused: snapshot.state.queuePaused ?? false,
+    stopped: snapshot.state.stopped ?? false,
     pauseRevision: snapshot.state.pauseRevision ?? 0,
     pauseIntervals: snapshot.state.pauseIntervals ?? [],
     runIntervals: snapshot.state.runIntervals ?? [],
@@ -288,6 +289,8 @@ export function applyEvent(
       return { ...state, skillUsages: event.usages }
     case 'queue_update':
       return { ...state, steering: event.steering, followUp: event.followUp }
+    case 'stop_update':
+      return { ...state, stopped: event.stopped }
     case 'message_start':
       if (event.message.role !== 'assistant' || state.messages.some((message) => sameMessage(message, event.message)))
         return state

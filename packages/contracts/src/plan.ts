@@ -11,7 +11,10 @@ export type ClientProcessingAudit = {
   reason?: string
   userConfirmedAt?: string
 }
-export type MessageOptions = { mode?: TaskMode; clientProcessingAudit?: readonly ClientProcessingAudit[] }
+export type MessageOptions = MessageConfiguration & {
+  mode?: TaskMode
+  clientProcessingAudit?: readonly ClientProcessingAudit[]
+}
 export type MessageConfiguration = { model?: PiModel; thinkingLevel?: ThinkingLevel }
 export type EditMessageOptions = MessageOptions & MessageConfiguration
 /** 覆盖失败时仍返回已取出的队列，供发起编辑的窗口恢复。 */
@@ -20,8 +23,10 @@ export type QueuedInput = {
   id: string
   editing?: boolean
   submitted?: boolean
+  deliveryUncertain?: boolean
   text: string
   mode: TaskMode
+  configuration?: MessageConfiguration
   clientProcessingAudit?: readonly ClientProcessingAudit[]
   images?: PiImage[]
   skills?: SkillReference[]

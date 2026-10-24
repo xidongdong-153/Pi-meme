@@ -31,14 +31,15 @@ function markup(element: ReturnType<typeof createElement>) {
   return renderToStaticMarkup(createElement(TooltipProvider, null, element))
 }
 
-test('主按钮在发送、排队、暂停、继续和保存之间切换，始终只有一个蓝色操作按钮', () => {
+test('主按钮在发送、排队、停止、继续和保存之间切换，始终只有一个蓝色操作按钮', () => {
   const cases = [
     [{ draft: '正文' }, '发送消息', 'lucide-arrow-up'],
-    [{ running: true, draft: '正文' }, '发送排队任务', 'lucide-corner-down-left'],
-    [{ running: true }, '暂停当前任务', 'lucide-square'],
+    [{ running: true, draft: '正文' }, '加入队列', 'lucide-corner-down-left'],
+    [{ running: true }, '停止当前任务', 'lucide-square'],
     [{ running: true, paused: true }, '继续当前任务', 'lucide-play'],
     [{ paused: true }, '继续当前任务', 'lucide-play'],
-    [{ paused: true, hasAttachments: true }, '发送排队任务', 'lucide-corner-down-left'],
+    [{ paused: true, stopped: true, draft: '新要求' }, '发送消息', 'lucide-arrow-up'],
+    [{ paused: true, hasAttachments: true }, '加入队列', 'lucide-corner-down-left'],
     [{ running: true, draft: '修改', editingQueue: true }, '保存排队消息', 'lucide-arrow-up'],
   ] as const
   for (const [props, label, icon] of cases) {
@@ -46,8 +47,11 @@ test('主按钮在发送、排队、暂停、继续和保存之间切换，始�
     assert.equal((html.match(/bg-\[#2f6bca\]/g) ?? []).length, 1)
     assert.match(html, new RegExp(`aria-label="${label}"`))
     assert.match(html, new RegExp(icon))
-    assert.doesNotMatch(html, /运行模式|bg-destructive|停止当前任务/)
+    assert.doesNotMatch(html, /运行模式|bg-destructive/)
   }
+  const runningDraft = markup(createElement(ComposerToolbar, { ...toolbar, running: true, draft: '修改要求' }))
+  assert.match(runningDraft, /aria-label="停止当前任务"/)
+  assert.match(runningDraft, /aria-label="加入队列"/)
 })
 
 test('有排队消息时顶栏包含逐条操作和紧凑图片，暂停时提供继续', () => {
@@ -60,7 +64,7 @@ test('有排队消息时顶栏包含逐条操作和紧凑图片，暂停时提�
     }),
   )
   assert.match(html, /mx-3 -mb-2/)
-  assert.match(html, /由于你中断了当前响应，队列已暂停/)
+  assert.doesNotMatch(html, /由于你中断了当前响应|队列已暂停/)
   assert.match(html, /aria-label="继续队列"/)
   assert.match(html, /aria-label="引导"/)
   assert.match(html, /aria-label="删除排队消息"/)

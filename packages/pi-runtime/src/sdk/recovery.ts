@@ -26,6 +26,7 @@ export function findSessionRecovery(entries: readonly SessionEntry[], leafId: st
   const failures: FailureEntry[] = []
   let latest: FailureEntry | undefined
   for (const entry of branch) {
+    if (entry.type === 'custom' && entry.customType === 'pi-meme-task-control') continue
     if (entry.type === 'custom_message' || entry.type === 'compaction' || entry.type === 'branch_summary') {
       if (!edits.get(entry.id)) break
       continue

@@ -15,8 +15,8 @@ function fixture() {
   return {
     values,
     storage,
-    open: (hostId = 'host-a') => {
-      const drafts = new ComposerDrafts(hostId, storage)
+    open: (hostId = 'host-a', windowId = 'window-a') => {
+      const drafts = new ComposerDrafts(hostId, storage, windowId)
       drafts.bind('session', 'session')
       return drafts
     },
@@ -50,6 +50,31 @@ test('刷新恢复文字与技能引用，Host和会话分别隔离，图片不�
   assert.doesNotMatch([...values.values()].join(''), /不应保存的图片数据|attachments/)
 })
 
+test('同一会话的未发送模型选择按窗口隔离，空草稿也能恢复选择', () => {
+  const { open } = fixture()
+  const first = open('host-a', 'window-a')
+  first.set('session', {
+    ...empty,
+    pendingConfiguration: { model: { provider: 'fake', id: 'next' }, thinkingLevel: 'high' },
+  })
+  assert.equal(open('host-a', 'window-a').get('session')?.pendingConfiguration?.model?.id, 'next')
+  assert.equal(open('host-a', 'window-b').get('session'), undefined)
+})
+
+test('读取旧草稿时丢弃无效的模型和思考配置', () => {
+  const { open, values } = fixture()
+  const key = composerDraftPrefix + JSON.stringify(['host-a', 'session', 'window-a'])
+  values.set(
+    key,
+    JSON.stringify({
+      ...empty,
+      draft: '保留正文',
+      pendingConfiguration: { model: { id: 42 }, thinkingLevel: 'invalid' },
+    }),
+  )
+  assert.deepEqual(open().get('session'), { ...empty, draft: '保留正文' })
+})
+
 test('目标草稿只保存创建标记，旧预算设置读取后移除', () => {
   const { open, values } = fixture()
   const key = composerDraftPrefix + JSON.stringify(['host-a', 'session'])
@@ -59,8 +84,9 @@ test('目标草稿只保存创建标记，旧预算设置读取后移除', () =>
   assert.equal(restored.goalDraft, true)
   assert.equal(restored.draft, '已有目标草稿')
   drafts.set('session', restored)
-  assert.equal(JSON.parse(values.get(key)!).goalDraft, true)
-  assert.doesNotMatch(values.get(key)!, /budget|1214/)
+  const migrated = composerDraftPrefix + JSON.stringify(['host-a', 'session', 'window-a'])
+  assert.equal(JSON.parse(values.get(migrated)!).goalDraft, true)
+  assert.doesNotMatch(values.get(migrated)!, /budget|1214/)
 })
 
 test('Host重启改变运行时key后，仍按稳定会话ID恢复；迟到身份不覆盖新输入', () => {

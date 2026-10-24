@@ -132,6 +132,7 @@ export type PiState = Pick<
 > & {
   isPaused?: boolean
   queuePaused?: boolean
+  stopped?: boolean
   pauseRevision?: number
   pauseIntervals?: PiPauseInterval[]
   runIntervals?: PiRunInterval[]
@@ -185,6 +186,7 @@ type PiCoreEvent =
       pauseIntervals?: PiPauseInterval[]
     }
   | { type: 'queue_update'; steering: QueuedInput[]; followUp: QueuedInput[] }
+  | { type: 'stop_update'; stopped: boolean }
   | { type: 'skill_usage_update'; usages: BranchSkillUsage[] }
   | { type: 'composer_hint'; text?: string }
 export type PiEvent = PiCoreEvent & { generationMetrics?: PiGenerationMetrics }

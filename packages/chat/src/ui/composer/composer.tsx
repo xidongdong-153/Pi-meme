@@ -66,10 +66,14 @@ export type ComposerProps = {
   onAddImages: (images: ComposerAttachment[]) => void
   onRemoveImage: (id: string) => void
   paused?: boolean
+  stopped?: boolean
+  queuePaused?: boolean
+  activeConfiguration?: import('@pi-meme/contracts/plan').MessageConfiguration
   activeMode?: TaskMode
   editingQueue?: boolean
   resumeLabel?: string
   onResume?: () => void
+  onResumeQueue?: () => void
   recovery?: PiState['recovery']
   recovering?: boolean
   onRecover?: () => void
@@ -86,7 +90,7 @@ export type ComposerProps = {
   onFollowUpMode: (mode: PiState['followUpMode']) => void
   queues: Pick<ChatState, 'steering' | 'followUp'>
   onSend: () => void
-  onStop: () => void
+  onStop: () => void | Promise<void>
   onClearQueue: () => void
   commands: PiSlashCommand[]
   /** 扩展挂件、状态与占用展示由 desktop 组合后作为节点传入 */
@@ -136,9 +140,13 @@ export function Composer({
   onRemoveImage,
   running,
   paused,
+  stopped,
+  queuePaused,
+  activeConfiguration,
   activeMode,
   editingQueue,
   onResume,
+  onResumeQueue,
   resumeLabel,
   recovery,
   recovering,
@@ -170,6 +178,22 @@ export function Composer({
   onCancelEdit,
 }: ComposerProps) {
   const [dragging, setDragging] = React.useState(false)
+  const [stoppingSession, setStoppingSession] = React.useState<string | null>(null)
+  const stoppingRequest = React.useRef<string | null>(null)
+  const stopping = Boolean(sessionKey && stoppingSession === sessionKey)
+  const stopNow = () => {
+    if (!sessionKey || stoppingRequest.current === sessionKey) return
+    const key = sessionKey
+    stoppingRequest.current = key
+    setStoppingSession(key)
+    void Promise.resolve()
+      .then(onStop)
+      .catch((cause) => onError(String(cause)))
+      .finally(() => {
+        if (stoppingRequest.current === key) stoppingRequest.current = null
+        setStoppingSession((current) => (current === key ? null : current))
+      })
+  }
   const ownedFiles = useComposerFiles({
     contextKey: JSON.stringify([attachmentContextKey, editing, editingQueue]),
     sessionKey,
@@ -208,11 +232,11 @@ export function Composer({
       <ComposerQueues
         {...{
           queues,
-          paused,
+          paused: queuePaused,
           activeMode,
+          activeConfiguration,
           disabled,
-          onResume,
-          resumeLabel,
+          onResume: onResumeQueue,
           onSteerQueueInput,
           onDeleteQueueInput,
           onEditQueueInput,
@@ -232,6 +256,7 @@ export function Composer({
           if (
             !disabled &&
             !recovering &&
+            !stopping &&
             !files.isUploading() &&
             !agentPlugins?.saving &&
             (draft.trim() || selectedSkills.length || attachments.length)
@@ -347,6 +372,8 @@ export function Composer({
             onMode={onMode}
             running={running}
             paused={paused}
+            stopped={stopped}
+            stopping={stopping}
             resumeLabel={resumeLabel}
             editingQueue={editingQueue}
             onResume={onResume}
@@ -363,7 +390,7 @@ export function Composer({
             followUpMode={followUpMode}
             onSteeringMode={onSteeringMode}
             onFollowUpMode={onFollowUpMode}
-            onStop={onStop}
+            onStop={stopNow}
             onAddFiles={() => fileInputRef.current?.click()}
             model={model}
             access={access}

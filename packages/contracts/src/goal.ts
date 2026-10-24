@@ -1,9 +1,11 @@
 import type { SessionRef, SubmissionReceipt } from './app-host'
 import type { PiImage } from './pi'
+import type { MessageConfiguration } from './plan'
 import { skillMarker, type SkillReference } from './skills'
 
 export type GoalStatus = 'active' | 'paused' | 'blocked' | 'usage_limited' | 'complete'
 export type GoalControl = { goalId: string; revision: number }
+export type GoalResumeControl = GoalControl & { configuration?: MessageConfiguration }
 export type Goal = GoalControl & {
   session: SessionRef
   objective: string

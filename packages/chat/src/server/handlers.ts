@@ -31,6 +31,14 @@ export function createChatHandlers({ pi, getCwd }: ChatHandlerContext) {
       text(key)
       return pi.resume(key)
     },
+    'pi:stop-task': (key: unknown) => {
+      text(key)
+      return pi.stopTask(key)
+    },
+    'pi:continue-stopped': (key: unknown, configuration: unknown) => {
+      text(key)
+      return pi.continueStopped(key, editMessageOptions(configuration))
+    },
     'pi:recover': (key: unknown, failureEntryId: unknown) => {
       text(key)
       text(failureEntryId)

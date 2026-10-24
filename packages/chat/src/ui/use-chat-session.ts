@@ -14,7 +14,7 @@ import {
   type MessageConfiguration,
 } from '@pi-meme/contracts/plan'
 import { skillMarker, skillMessageParts } from '@pi-meme/contracts/skills'
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useRef, useState, useSyncExternalStore } from 'react'
 import { ComposerDraftStore, type ComposerDraftState } from './composer/composer-state'
 import { useComposerFiles } from './composer/use-composer-files'
 import type { ComposerIntent, ComposerProcessingRecord } from '@pi-meme/plugin-sdk/composer'
@@ -119,7 +119,6 @@ export function useChatSession(options: ChatSessionOptions) {
   const configurationRef = useRef<MessageConfiguration | undefined>(undefined)
   const editPending = useRef<{ key: string; generation: number } | null>(null)
   const [editRequest, setEditRequest] = useState<{ key: string; generation: number } | null>(null)
-  const [retryRequested, setRetryRequested] = useState(false)
   const editRestore = useRef<ComposerSnapshot | null>(null)
   const [editingQueue, setEditingQueue] = useState<string | null>(null)
   const queueEdit = useRef<{ id: string; key: string; restore: ComposerSnapshot; mode: TaskMode } | null>(null)
@@ -132,6 +131,7 @@ export function useChatSession(options: ChatSessionOptions) {
     selectedSkills,
     attachments,
     queueMode,
+    pendingConfiguration,
     ...(pluginMentions.length ? { pluginMentions, pluginAnchors } : {}),
   }
   const promptPending = useRef(false)
@@ -143,7 +143,7 @@ export function useChatSession(options: ChatSessionOptions) {
   const selectedConfiguration = editConfiguration ?? pendingConfiguration ?? options.configuration?.() ?? {}
   configurationRef.current = selectedConfiguration
   const updateConfiguration = (update: MessageConfiguration) => {
-    if (editPending.current || preparingSubmission.current) return
+    if (editPending.current) return
     const next = { ...configurationRef.current, ...update }
     configurationRef.current = next
     if (editingEntryId !== null) setEditConfiguration(next)
@@ -238,7 +238,6 @@ export function useChatSession(options: ChatSessionOptions) {
     setEditingEntryId(null)
     setEditConfiguration(undefined)
     setPendingConfiguration(undefined)
-    setRetryRequested(false)
     editRestore.current = null
   }, [releaseQueueEdit])
 
@@ -254,7 +253,6 @@ export function useChatSession(options: ChatSessionOptions) {
     setEditingEntryId(null)
     setEditConfiguration(undefined)
     setPendingConfiguration(undefined)
-    setRetryRequested(false)
     editRestore.current = null
   }, [releaseQueueEdit])
 
@@ -306,14 +304,17 @@ export function useChatSession(options: ChatSessionOptions) {
       const method = action === 'edit' ? 'pauseGoal' : (`${action}Goal` as 'pauseGoal' | 'resumeGoal' | 'clearGoal')
       const operation = bridge[method]
       if (!operation) throw new Error('当前 Host 不支持目标')
-      const next = await operation(key, goal)
+      const next = await operation(
+        key,
+        action === 'resume' ? { ...goal, configuration: configurationRef.current } : goal,
+      )
       if (action === 'clear' && !owns()) return
       if (owns()) {
         setChat((state) => ({ ...state, goal: next || undefined }))
         setGoalEditing(action === 'edit')
         setGoalOpen(action !== 'clear')
       }
-      if (action !== 'resume' && bridge.clearQueue) {
+      if (action !== 'resume' && action !== 'pause' && bridge.clearQueue) {
         const cleared = await bridge.clearQueue(key)
         if (owns()) setRecoveredInputs((current) => [...current, ...cleared.steering, ...cleared.followUp])
       }
@@ -459,7 +460,11 @@ export function useChatSession(options: ChatSessionOptions) {
   ])
 
   const dispatchComposer = useCallback(
-    async (prepared?: ComposerDraftState, records: readonly ComposerProcessingRecord[] = []) => {
+    async (
+      prepared?: ComposerDraftState,
+      records: readonly ComposerProcessingRecord[] = [],
+      submittedConfiguration: MessageConfiguration = { ...configurationRef.current },
+    ) => {
       const sourceRevision = composerStore.getSnapshot().revision
       const { draft, selectedSkills, pluginMentions, attachments, queueMode } = prepared ?? composerStore.getSnapshot()
       const { bridge, canSend, isSwitching, awaitPendingSwitch, currentGeneration, onError, onSendFailed } =
@@ -574,6 +579,7 @@ export function useChatSession(options: ChatSessionOptions) {
           await bridge.updateQueueInput(sessionKey, queuedEdit.id, message, images, skills, {
             mode: messageMode,
             ...audit,
+            ...submittedConfiguration,
           })
           if (
             queueEdit.current === queuedEdit &&
@@ -586,6 +592,7 @@ export function useChatSession(options: ChatSessionOptions) {
             setSelectedSkills(queuedEdit.restore.selectedSkills)
             setPluginMentions(queuedEdit.restore.pluginMentions ?? [])
             setAttachments(queuedEdit.restore.attachments)
+            setPendingConfiguration(queuedEdit.restore.pendingConfiguration)
             changeMode(queuedEdit.mode)
           }
           return true
@@ -668,7 +675,7 @@ export function useChatSession(options: ChatSessionOptions) {
         }
       }
 
-      const running = chat.running || chat.paused || chat.queuePaused || promptPending.current
+      const running = !chat.stopped && (chat.running || chat.paused || chat.queuePaused || promptPending.current)
       const sendMode = running ? 'followUp' : 'prompt'
       const generation = currentGeneration()
       const finishSend = optionsRef.current.onSendStarted?.(sessionKey, {
@@ -701,10 +708,18 @@ export function useChatSession(options: ChatSessionOptions) {
             setChat((state) => (state.goal?.goalId === result.goal.goalId ? state : { ...state, goal: result.goal }))
           }
         } else if (sendMode === 'followUp')
-          await bridge.followUp(sessionKey, message, images, skills, { mode: messageMode, ...audit })
+          await bridge.followUp(sessionKey, message, images, skills, {
+            mode: messageMode,
+            ...audit,
+            ...submittedConfiguration,
+          })
         else {
           activeMode.current = messageMode
-          await bridge.prompt(sessionKey, message, images, skills, { mode: messageMode, ...audit })
+          await bridge.prompt(sessionKey, message, images, skills, {
+            mode: messageMode,
+            ...audit,
+            ...submittedConfiguration,
+          })
         }
         return true
       } catch (cause) {
@@ -763,6 +778,7 @@ export function useChatSession(options: ChatSessionOptions) {
   const requestSubmit = useCallback(async () => {
     if (preparingSubmission.current || editPending.current) return false
     const source = composerStore.getSnapshot()
+    const submittedConfiguration = { ...configurationRef.current }
     const integration = submissionIntegration.current
     if (source.composing || composerFiles.isUploading() || integration?.blocked()) return false
     const controller = new AbortController()
@@ -792,7 +808,7 @@ export function useChatSession(options: ChatSessionOptions) {
       unsubscribe()
       preparingSubmission.current = false
       ownsPreparation = false
-      return await dispatchComposer(prepared.composer, prepared.records)
+      return await dispatchComposer(prepared.composer, prepared.records, submittedConfiguration)
     } finally {
       unsubscribe()
       if (ownsPreparation) preparingSubmission.current = false
@@ -866,7 +882,6 @@ export function useChatSession(options: ChatSessionOptions) {
 
   const cancelEdit = useCallback(async () => {
     if (editPending.current) return
-    setRetryRequested(false)
     setEditConfiguration(undefined)
     const queued = queueEdit.current
     if (queued) {
@@ -886,6 +901,7 @@ export function useChatSession(options: ChatSessionOptions) {
         setSelectedSkills(queued.restore.selectedSkills)
         setPluginMentions(queued.restore.pluginMentions ?? [])
         setAttachments(queued.restore.attachments)
+        setPendingConfiguration(queued.restore.pendingConfiguration)
         changeMode(queued.mode)
       } catch (cause) {
         if (queueEdit.current === queued && queued.key === currentSessionKey() && generation === currentGeneration()) {
@@ -913,26 +929,30 @@ export function useChatSession(options: ChatSessionOptions) {
     setQueueMode(restore.queueMode)
   }, [changeMode])
 
-  useEffect(() => {
-    if (!retryRequested || editingEntryId === null) return
-    setRetryRequested(false)
-    const key = optionsRef.current.currentSessionKey()
-    queueMicrotask(() => {
-      if (key === optionsRef.current.currentSessionKey()) void requestSubmit()
-    })
-  }, [retryRequested, editingEntryId, requestSubmit])
-
   const stop = useCallback(async () => {
     const { bridge, onError } = optionsRef.current
     onError('')
+    const key = optionsRef.current.currentSessionKey()
+    const generation = optionsRef.current.currentGeneration()
     try {
-      const key = optionsRef.current.currentSessionKey()
       if (key) {
         if (chatStream.getSnapshot().goal?.status === 'active' && bridge.pauseGoal) await goalAction('pause')
-        else await bridge.pause(key)
+        else await bridge.stopTask(key)
       }
     } catch (cause) {
       onError(String(cause))
+    } finally {
+      if (
+        key &&
+        key === optionsRef.current.currentSessionKey() &&
+        generation === optionsRef.current.currentGeneration()
+      ) {
+        try {
+          await optionsRef.current.refresh?.()
+        } catch (cause) {
+          onError(`无法同步停止后的会话：${String(cause)}`)
+        }
+      }
     }
   }, [chatStream, goalAction])
 
@@ -1034,6 +1054,7 @@ export function useChatSession(options: ChatSessionOptions) {
         setSelectedSkills(restored.selectedSkills)
         setPluginMentions([])
         setAttachments(restored.attachments)
+        setPendingConfiguration(input.configuration)
         changeMode(restored.mode)
       } catch (cause) {
         if (key === currentSessionKey() && generation === currentGeneration()) {
@@ -1075,22 +1096,21 @@ export function useChatSession(options: ChatSessionOptions) {
   }
 
   const resume = async () => {
-    if (!configurationChanged) return queueAction('resume')
-    if (
-      editingEntryId !== null ||
-      queueEdit.current ||
-      editPending.current ||
-      composerFiles.isUploading() ||
-      composerStore.getSnapshot().composing
-    )
-      return
-    const message = chatStream.getSnapshot().messages.findLast((entry) => entry.role === 'user' && entry.sourceEntry)
-    if (!message) {
-      optionsRef.current.onError('找不到当前轮用户消息，无法按新配置重试')
+    if (chatStream.getSnapshot().goal?.status === 'paused') {
+      await goalAction('resume')
       return
     }
-    editMessage(message)
-    setRetryRequested(true)
+    if (chatStream.getSnapshot().stopped) {
+      const key = optionsRef.current.currentSessionKey()
+      if (!key) return
+      try {
+        await optionsRef.current.bridge.continueStopped(key, configurationRef.current)
+      } catch (cause) {
+        optionsRef.current.onError(String(cause))
+      }
+      return
+    }
+    await queueAction('resume')
   }
 
   return {
@@ -1218,6 +1238,7 @@ export function useChatSession(options: ChatSessionOptions) {
     submitComposer: requestSubmit,
     stop,
     resume,
+    resumeQueue: () => queueAction('resume'),
     selectedConfiguration,
     pendingConfiguration,
     editConfiguration,

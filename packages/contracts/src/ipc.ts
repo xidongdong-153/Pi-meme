@@ -50,11 +50,17 @@ export function messageOptions(value: unknown): MessageOptions | undefined {
     !value ||
     typeof value !== 'object' ||
     Array.isArray(value) ||
-    Object.keys(value).some((key) => key !== 'mode' && key !== 'clientProcessingAudit')
+    Object.keys(value).some((key) => !['mode', 'clientProcessingAudit', 'model', 'thinkingLevel'].includes(key))
   )
     throw new Error('消息模式参数无效')
-  const { mode, clientProcessingAudit } = value as MessageOptions
+  const { mode, clientProcessingAudit, model, thinkingLevel } = value as MessageOptions
   if (mode !== undefined && !isTaskMode(mode)) throw new Error('消息模式无效')
+  if (model !== undefined) {
+    if (!model || typeof model !== 'object' || Array.isArray(model)) throw new Error('模型参数无效')
+    text(model.provider)
+    text(model.id)
+  }
+  if (thinkingLevel !== undefined && !thinkingLevels.includes(thinkingLevel)) throw new Error('思考强度无效')
   if (
     clientProcessingAudit !== undefined &&
     (!Array.isArray(clientProcessingAudit) ||
@@ -77,7 +83,12 @@ export function messageOptions(value: unknown): MessageOptions | undefined {
       ))
   )
     throw new Error('客户端处理来源记录无效')
-  return { mode, ...(clientProcessingAudit === undefined ? {} : { clientProcessingAudit }) }
+  return {
+    mode,
+    ...(clientProcessingAudit === undefined ? {} : { clientProcessingAudit }),
+    ...(model ? { model: { provider: model.provider, id: model.id } } : {}),
+    ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),
+  }
 }
 
 export function editMessageOptions(value: unknown): EditMessageOptions | undefined {

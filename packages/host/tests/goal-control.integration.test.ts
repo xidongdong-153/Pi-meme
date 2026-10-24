@@ -584,3 +584,78 @@ test('暂停后的旧停止通知不会中断新普通消息，普通消息也�
     await f.dispose()
   }
 })
+
+test('停止后恢复 Goal 会执行下一轮，旧队列保持暂停', { timeout: 25000 }, async () => {
+  const f = await fixture((_body, index) => ({ text: `完成第 ${index} 次请求`, holdMs: index === 1 ? 250 : 50 }))
+  try {
+    await f.host.app.goals.start(f.session, { objective: '等待恢复的目标' }, key('start'))
+    await eventually(
+      () => Promise.resolve(f.fake.provider.requests.length),
+      (count) => count === 1,
+    )
+    const activeGoal = (await f.host.app.goals.get(f.session))!
+    await f.host.app.goals.pause(f.session, activeGoal, key('pause'))
+    const pausedSnapshot = await f.host.app.sessions.snapshot(f.session)
+    assert.equal(pausedSnapshot.state.queuePaused, true)
+    const pausedGoal = (await f.host.app.goals.get(f.session))!
+    await f.host.app.goals.resume(f.session, { ...pausedGoal, configuration: { thinkingLevel: 'high' } }, key('resume'))
+    await eventually(
+      () => Promise.resolve(f.fake.provider.requests.length),
+      (count) => count >= 2,
+    )
+    const resumedSnapshot = await f.host.app.sessions.snapshot(f.session)
+    assert.equal(resumedSnapshot.state.queuePaused, true)
+    assert.equal(resumedSnapshot.state.thinkingLevel, 'high')
+  } finally {
+    await f.dispose()
+  }
+})
+
+test('正式会话停止保留排队回执，新输入独立执行', { timeout: 25000 }, async () => {
+  const f = await fixture((_body, index) => ({ text: `完成第 ${index} 次请求`, holdMs: index === 1 ? 250 : 50 }))
+  try {
+    await f.host.app.sessions.submit(f.session, { delivery: 'start', text: '先执行' }, key('first'))
+    await eventually(
+      () => Promise.resolve(f.fake.provider.requests.length),
+      (count) => count === 1,
+    )
+    const queued = await f.host.app.sessions.submit(
+      f.session,
+      { delivery: 'queue', text: '等待手动继续' },
+      key('queued'),
+    )
+    await f.host.app.sessions.stopTask(f.session, key('stop-task'))
+    assert.equal((await f.host.app.sessions.receipt(queued.operationId)).status, 'queued')
+    const sent = await f.host.app.sessions.submit(f.session, { delivery: 'start', text: '新问题' }, key('new'))
+    await eventually(
+      () => f.host.app.sessions.receipt(sent.operationId),
+      (receipt) => receipt.status === 'completed',
+    )
+    assert.equal((await f.host.app.sessions.receipt(queued.operationId)).status, 'queued')
+    assert.equal(f.fake.provider.requests.length, 2)
+  } finally {
+    await f.dispose()
+  }
+})
+
+test('正式会话恢复任务不会自动释放旧队列', { timeout: 25000 }, async () => {
+  const f = await fixture((_body, index) => ({ text: `完成第 ${index} 次请求`, holdMs: index === 1 ? 250 : 50 }))
+  try {
+    await f.host.app.sessions.submit(f.session, { delivery: 'start', text: '先执行' }, key('first'))
+    await eventually(
+      () => Promise.resolve(f.fake.provider.requests.length),
+      (count) => count === 1,
+    )
+    const queued = await f.host.app.sessions.submit(f.session, { delivery: 'queue', text: '保持排队' }, key('queued'))
+    await f.host.app.sessions.stopTask(f.session, key('stop-task'))
+    await f.host.app.sessions.continueTask(f.session, { thinkingLevel: 'high' }, key('continue-task'))
+    await eventually(
+      () => Promise.resolve(f.fake.provider.requests.length),
+      (count) => count === 2,
+    )
+    assert.equal((await f.host.app.sessions.receipt(queued.operationId)).status, 'queued')
+    assert.equal((await f.host.app.sessions.snapshot(f.session)).state.thinkingLevel, 'high')
+  } finally {
+    await f.dispose()
+  }
+})

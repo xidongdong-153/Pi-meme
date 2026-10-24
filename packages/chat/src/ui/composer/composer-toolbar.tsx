@@ -11,6 +11,8 @@ export type ComposerToolbarProps = {
   mode?: TaskMode
   onMode?: (mode: TaskMode) => void
   paused?: boolean
+  stopped?: boolean
+  stopping?: boolean
   editingQueue?: boolean
   resumeLabel?: string
   onResume?: () => void
@@ -43,6 +45,8 @@ export function ComposerToolbar({
   onMode,
   running,
   paused,
+  stopped,
+  stopping,
   editingQueue,
   onResume,
   resumeLabel,
@@ -65,7 +69,11 @@ export function ComposerToolbar({
   const canRecover = !hasInput && !editing && !editingQueue && !running && !paused && Boolean(recovery && onRecover)
   const showRecovering = recovering && !hasInput && !editing && !editingQueue
   const buttonDisabled =
-    disabled || sendDisabled || recovering || (editingQueue ? !canSend : !canSend && !running && !paused && !canRecover)
+    disabled ||
+    sendDisabled ||
+    recovering ||
+    stopping ||
+    (editingQueue ? !canSend : !canSend && !running && !paused && !canRecover)
   const plan =
     mode === 'plan' && onMode ? (
       <Tooltip delayDuration={300}>
@@ -122,16 +130,15 @@ export function ComposerToolbar({
         <div className="composer-model flex min-w-0 max-w-[220px] items-center">{model}</div>
         {compact && access}
         {compact && plan}
-        {paused && hasInput && !editing && !editingQueue && onResume && (
+        {running && hasInput && !editingQueue && (
           <button
             type="button"
-            disabled={disabled || sendDisabled || recovering}
-            onClick={onResume}
-            aria-label={resumeLabel ?? '继续当前任务'}
-            className="inline-flex h-7 shrink-0 items-center gap-1 rounded-full px-2 text-xs text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-40"
+            disabled={disabled || stopping}
+            onClick={onStop}
+            aria-label={stopping ? '正在停止当前任务' : '停止当前任务'}
+            className="inline-flex size-8 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-40"
           >
-            <Play className="size-3 fill-current" />
-            {resumeLabel ?? '继续'}
+            {stopping ? <LoaderCircle className="size-4 animate-spin" /> : <Square className="size-3.5 fill-current" />}
           </button>
         )}
         <button
@@ -149,34 +156,38 @@ export function ComposerToolbar({
                 : undefined
           }
           aria-label={
-            canRecover || showRecovering
-              ? '恢复当前任务'
-              : editingQueue
-                ? '保存排队消息'
-                : canSend
-                  ? editing
-                    ? '重新发送消息'
-                    : running || paused
-                      ? '发送排队任务'
-                      : '发送消息'
-                  : paused
-                    ? (resumeLabel ?? '继续当前任务')
-                    : running
-                      ? '暂停当前任务'
-                      : '发送消息'
+            stopping
+              ? '正在停止当前任务'
+              : canRecover || showRecovering
+                ? '恢复当前任务'
+                : editingQueue
+                  ? '保存排队消息'
+                  : canSend
+                    ? editing
+                      ? '重新发送消息'
+                      : running || (paused && !stopped)
+                        ? '加入队列'
+                        : '发送消息'
+                    : paused
+                      ? (resumeLabel ?? '继续当前任务')
+                      : running
+                        ? '停止当前任务'
+                        : '发送消息'
           }
           title={
-            canRecover || showRecovering
-              ? '恢复当前任务'
-              : editingQueue
-                ? '保存排队消息'
-                : canSend
-                  ? '发送 (Enter)'
-                  : paused
-                    ? (resumeLabel ?? '继续当前任务')
-                    : running
-                      ? '暂停当前任务'
-                      : '发送 (Enter)'
+            stopping
+              ? undefined
+              : canRecover || showRecovering
+                ? '恢复当前任务'
+                : editingQueue
+                  ? '保存排队消息'
+                  : canSend
+                    ? '发送 (Enter)'
+                    : paused
+                      ? (resumeLabel ?? '继续当前任务')
+                      : running
+                        ? '停止当前任务'
+                        : '发送 (Enter)'
           }
           className={cn(
             'inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-[#2f6bca] text-white transition-all shadow-xs cursor-pointer hover:bg-[#3675d8] active:scale-95',
@@ -184,7 +195,9 @@ export function ComposerToolbar({
             buttonDisabled && 'opacity-40 cursor-not-allowed hover:bg-[#2f6bca] active:scale-100',
           )}
         >
-          {showRecovering ? (
+          {stopping ? (
+            <LoaderCircle className="size-4 animate-spin" />
+          ) : showRecovering ? (
             <LoaderCircle className="size-4 animate-spin" />
           ) : canRecover ? (
             <RotateCcw className="size-4" />
@@ -192,7 +205,7 @@ export function ComposerToolbar({
             <Play className="size-3.5 fill-current" />
           ) : !canSend && running && !editingQueue ? (
             <Square className="size-3.5 fill-current" />
-          ) : (running || paused) && !editingQueue ? (
+          ) : (running || (paused && !stopped)) && !editingQueue ? (
             <CornerDownLeft className="size-4" />
           ) : (
             <ArrowUp className="size-4 stroke-[2.5]" />

@@ -77,7 +77,8 @@ test.each([false, true])('删除运行或暂停中的会话会先停止运行，
     await pool.prompt(key, '运行中的任务 slow')
     const runtime = pool.getRuntimeSession(key)
     const file = pool.getActiveSession().sessionFile!
-    await assert.rejects(pool.renameSession(file, '新名称'), /请先停止任务/)
+    await pool.renameSession(file, '新名称')
+    assert.equal((await pool.snapshot()).state.sessionName, '新名称')
     if (paused) {
       await pool.pause(key)
       assert.equal((await pool.snapshot()).state.isPaused, true)

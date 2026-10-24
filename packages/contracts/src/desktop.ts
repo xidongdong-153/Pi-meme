@@ -1,4 +1,4 @@
-import type { Goal, GoalControl, GoalEdit, GoalEvent, GoalInput, GoalStartResult } from './goal'
+import type { Goal, GoalControl, GoalEdit, GoalEvent, GoalInput, GoalResumeControl, GoalStartResult } from './goal'
 import type { AppSession } from './app-host'
 import type { ChatBranchAttachment, ChatFileUpload, ChatUploadedFile } from './chat-attachments'
 import type { DesktopStorageAdapter, HostStorageInfo } from './storage'
@@ -12,6 +12,7 @@ import type {
 } from './collaboration'
 import type {
   MessageOptions,
+  MessageConfiguration,
   QueuedInput,
   PlanDocument,
   PlanEvent,
@@ -244,7 +245,7 @@ export interface ChatBridge {
   startGoal?: (key: string, input: GoalInput) => Promise<GoalStartResult>
   editGoal?: (key: string, input: GoalEdit) => Promise<Goal>
   pauseGoal?: (key: string, input: GoalControl) => Promise<Goal>
-  resumeGoal?: (key: string, input: GoalControl) => Promise<Goal>
+  resumeGoal?: (key: string, input: GoalResumeControl) => Promise<Goal>
   clearGoal?: (key: string, input: GoalControl) => Promise<void>
   prompt: (
     sessionKey: string,
@@ -270,6 +271,8 @@ export interface ChatBridge {
   setSessionMode: (sessionKey: string, mode: TaskMode) => Promise<void>
   pause: (sessionKey: string) => Promise<void>
   resume: (sessionKey: string) => Promise<void>
+  stopTask: (sessionKey: string) => Promise<void>
+  continueStopped: (sessionKey: string, configuration?: MessageConfiguration) => Promise<void>
   recover: (sessionKey: string, failureEntryId: string) => Promise<void>
   steerQueueInput: (sessionKey: string, id: string) => Promise<void>
   deleteQueueInput: (sessionKey: string, id: string) => Promise<void>

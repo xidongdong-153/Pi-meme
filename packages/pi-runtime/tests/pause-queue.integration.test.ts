@@ -8,6 +8,7 @@ import type { QueuedInput } from '@pi-meme/contracts/plan'
 import type { PiEvent } from '@pi-meme/contracts/pi'
 import { SdkSession, type RuntimePolicy } from '../src/sdk/session'
 import { PiSessionPool } from '../src/session-pool'
+import { readSessionHistory } from '../src/session-history'
 import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
 
 async function fixture(
@@ -62,6 +63,102 @@ async function until(check: () => boolean | Promise<boolean>) {
     await delay(10)
   }
 }
+
+test('停止当前任务后保留排队输入，继续任务不释放队列', async () => {
+  const f = await fixture(() => ({ text: '执行结果', delayMs: 200 }))
+  try {
+    await f.session.prompt('原任务')
+    await until(() => f.fake.provider.requests.length === 1)
+    await f.session.followUp('稍后执行')
+    await f.session.stopTask()
+    const stopped = await f.session.snapshot()
+    assert.equal(stopped.state.stopped, true)
+    assert.equal(stopped.state.queuePaused, true)
+    assert.deepEqual(
+      f.queue().map((input) => input.text),
+      ['稍后执行'],
+    )
+    await f.session.continueStopped()
+    await until(async () => !(await f.session.snapshot()).state.isStreaming)
+    assert.deepEqual(
+      f.queue().map((input) => input.text),
+      ['稍后执行'],
+    )
+  } finally {
+    await f.dispose()
+  }
+})
+
+test('重新打开停止的会话后仍保留恢复入口和未执行队列', async () => {
+  const f = await fixture(() => ({ text: '执行结果', delayMs: 200 }))
+  let restored: SdkSession | undefined
+  try {
+    await f.session.prompt('原任务')
+    await until(() => f.fake.provider.requests.length === 1)
+    await f.session.followUp('等待确认的任务')
+    await f.session.stopTask()
+    const file = f.session.getActiveSession().sessionFile!
+    await f.session.stopAndWait()
+    restored = new SdkSession(
+      f.fake.runtimePaths.dataRoot,
+      { connection: () => {}, error: () => {}, event: () => {} },
+      f.fake.runtimePaths,
+      f.fake.credentials,
+    )
+    restored.start(f.fake.runtimePaths.dataRoot, file)
+    const snapshot = await restored.snapshot()
+    assert.equal(snapshot.state.stopped, true)
+    assert.equal(snapshot.state.queuePaused, true)
+    assert.equal(snapshot.state.pendingMessageCount, 1)
+    await restored.continueStopped()
+    await until(async () => !(await restored!.snapshot()).state.isStreaming)
+    const continued = await restored.snapshot()
+    assert.equal(continued.state.stopped, false)
+    assert.equal(continued.state.queuePaused, true)
+    assert.equal(continued.state.pendingMessageCount, 1)
+  } finally {
+    await restored?.stopAndWait()
+    await f.dispose()
+  }
+})
+
+test('冷会话显示停止与排队状态，继续队列会启动运行时并执行消息', async () => {
+  const f = await fixture(() => ({ text: '队列已执行', delayMs: 200 }))
+  let pool: PiSessionPool | undefined
+  try {
+    await f.session.prompt('原任务')
+    await until(() => f.fake.provider.requests.length === 1)
+    await f.session.followUp('排队消息')
+    await f.session.stopTask()
+    const file = f.session.getActiveSession().sessionFile!
+    await f.session.stopAndWait()
+    assert.equal((await readSessionHistory(file)).taskControl?.stopped, true)
+
+    pool = new PiSessionPool(
+      f.fake.runtimePaths.dataRoot,
+      { connection: () => {}, event: () => {}, error: () => {}, sessionsChanged: () => {} },
+      undefined,
+      f.fake.runtimePaths,
+      f.fake.credentials,
+    )
+    pool.prepare(f.fake.runtimePaths.dataRoot)
+    await pool.switchSession(file)
+    const snapshot = await pool.snapshot()
+    assert.equal(snapshot.state.stopped, true)
+    assert.equal(snapshot.state.queuePaused, true)
+    assert.equal(snapshot.state.pendingMessageCount, 1)
+    const queue = snapshot.events?.find((value) => value.event.type === 'queue_update')?.event
+    assert.equal(queue?.type === 'queue_update' && queue.followUp[0]?.text, '排队消息')
+
+    await pool.resume(pool.connection().sessionKey!)
+    await until(() => f.fake.provider.requests.length === 2)
+    await until(() => !pool!.getRuntimeSessions().some((record) => record.running))
+    assert.equal((await pool.snapshot()).state.pendingMessageCount, 0)
+  } finally {
+    await pool?.stopAndWait()
+    await f.dispose()
+  }
+})
 
 test('暂停冻结流式视图，恢复保持同一请求；旧修订不能重新暂停，停止释放门控', async () => {
   const f = await fixture(() => ({ text: '恢复前已发出的正文', delayMs: 100 }))

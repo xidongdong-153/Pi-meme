@@ -34,6 +34,9 @@ export function createAppHostClient(transport: AppHostTransport): HostApi {
       configure: (ref, config, options) => call('sessions.configure', [ref, config], options.idempotencyKey),
       submit: (ref, input, options) => call('sessions.submit', [ref, input], options.idempotencyKey),
       stop: (ref, options) => call('sessions.stop', [ref], options.idempotencyKey),
+      stopTask: (ref, options) => call('sessions.stopTask', [ref], options.idempotencyKey),
+      continueTask: (ref, configuration, options) =>
+        call('sessions.continueTask', [ref, configuration ?? null], options.idempotencyKey),
       pause: (ref, options) => call('sessions.pause', [ref], options.idempotencyKey),
       resume: (ref, options) => call('sessions.resume', [ref], options.idempotencyKey),
       receipt: (id) => call('sessions.receipt', [id]),

@@ -58,6 +58,11 @@ export interface PiRuntime {
   ) => Promise<void>
   setSessionMode: (sessionKey: string, mode: TaskMode) => Promise<void>
   abort: (sessionKey: string) => Promise<void>
+  stopTask: (sessionKey: string) => Promise<void>
+  continueStopped: (
+    sessionKey: string,
+    configuration?: import('@pi-meme/contracts/plan').MessageConfiguration,
+  ) => Promise<void>
   pause: (sessionKey: string) => Promise<void>
   resume: (sessionKey: string) => Promise<void>
   recover: (sessionKey: string, failureEntryId: string) => Promise<void>

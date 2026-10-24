@@ -1,6 +1,7 @@
 import { readFile, stat } from 'node:fs/promises'
 import type { SessionEntry } from '@earendil-works/pi-coding-agent'
 import type { PiSessionStats, ThinkingLevel } from '@pi-meme/contracts/pi'
+import type { QueuedInput } from '@pi-meme/contracts/plan'
 
 import type { SessionHistoryData } from '@pi-meme/contracts/sessions'
 
@@ -178,12 +179,30 @@ export async function readSessionHistory(filePath: string): Promise<SessionHisto
       branch.push(branchEntry)
       branchEntry = branchEntry.parentId ? byId.get(branchEntry.parentId) : undefined
     }
+    branch.reverse()
+    const control = branch.findLast((entry) => entry.type === 'custom' && entry.customType === 'pi-meme-task-control')
+    const controlData = control?.type === 'custom' ? (control.data as Record<string, unknown>) : undefined
+    const taskControl: SessionHistoryData['taskControl'] =
+      controlData &&
+      typeof controlData === 'object' &&
+      Array.isArray(controlData.steering) &&
+      Array.isArray(controlData.followUp)
+        ? {
+            stopped: controlData.stopped === true,
+            steering: [...controlData.steering],
+            followUp: [...controlData.followUp],
+          }
+        : undefined
+    const delivering = controlData?.delivering as { kind?: 'steering' | 'followUp'; input?: QueuedInput } | undefined
+    if (taskControl && delivering?.input?.id && (delivering.kind === 'steering' || delivering.kind === 'followUp'))
+      taskControl[delivering.kind].unshift({ ...delivering.input, deliveryUncertain: true })
     const recovery = findSessionRecovery(history, history.at(-1)?.id ?? null)
     const data: SessionHistoryData = {
       cwd: header.cwd,
       created: header.timestamp,
-      skillUsages: branchSkillUsages(branch.reverse()),
+      skillUsages: branchSkillUsages(branch),
       recovery: recovery ? { entryId: recovery.entryId, mode: recovery.mode } : undefined,
+      taskControl,
       messages: projectStableMessageMetadata(history, context),
       sessionEntries: {
         entries: projectBranchEntries(history),

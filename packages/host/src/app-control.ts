@@ -76,6 +76,7 @@ export async function createAppControl(options: Options) {
   const paused = new Set<string>()
   const jobs = new Set<Promise<unknown>>()
   const goalTimers = new Map<string, ReturnType<typeof setTimeout>>()
+  const goalNextConfiguration = new Map<string, import('@pi-meme/contracts/plan').MessageConfiguration>()
   const goalErrors = new Map<string, { source?: string; reason: string }>()
   let closing = false
   function track(job: Promise<unknown>) {
@@ -438,6 +439,15 @@ export async function createAppControl(options: Options) {
       run.receipts.push(receipt)
       receipt.runId = run.runId
       await dispatchInput(session, view, { input, receipt }, run)
+    } else if (
+      input.delivery === 'start' &&
+      !running &&
+      (pi.getSessionContext(key).state.stopped || goals.get(session)?.status === 'paused')
+    ) {
+      // 停止后的新输入独立执行；旧队列继续等待用户明确恢复。
+      const run: Active = { receipts: [receipt] }
+      active.set(session.sessionId, run)
+      await dispatchInput(session, view, { input, receipt, goal }, run)
     } else {
       const queue = queues.get(session.sessionId) ?? []
       queue.push({ input, receipt, goal })
@@ -770,6 +780,38 @@ export async function createAppControl(options: Options) {
           )
         }),
       stop: (ref, opts) => mutate(clientId, 'sessions.stop', [ref], opts, () => stop(ref)),
+      stopTask: (ref, opts) =>
+        mutate(clientId, 'sessions.stopTask', [ref], opts, () =>
+          target(ref, (key, session, view) =>
+            serial(session.sessionId, async () => {
+              const run = active.get(session.sessionId)
+              if (run) run.cancelled = true
+              const goal = goals.get(session)
+              if (goal?.status === 'active') await goals.stop(session, 'paused', '用户停止了目标执行')
+              paused.add(session.sessionId)
+              await pi.stopTask(key)
+              if (run) await finish(session, view, run, true)
+              else {
+                session.status = 'interrupted'
+                await publishSession(session)
+              }
+            }),
+          ),
+        ),
+      continueTask: (ref, configuration, opts) =>
+        mutate(clientId, 'sessions.continueTask', [ref, configuration], opts, () =>
+          target(ref, (key, session, view) =>
+            serial(session.sessionId, async () => {
+              if (goals.get(session)?.status === 'paused') throw new Error('目标已暂停，请使用目标恢复操作')
+              if (!pi.isSessionIdle(key, true) || pi.getSessionContext(key).state.isPaused)
+                throw new Error('当前任务仍在执行或暂停中')
+              await pi.continueStopped(key, configuration ?? undefined)
+              session.status = 'running'
+              await publishSession(session)
+              await sync(session, view)
+            }),
+          ),
+        ),
       pause: (ref, opts) =>
         mutate(clientId, 'sessions.pause', [ref], opts, () =>
           target(ref, async (key, session) => {
@@ -906,20 +948,26 @@ export async function createAppControl(options: Options) {
           getSession(ref)
           validateGoalControl(input)
           await goals.stop(ref, 'paused', '用户暂停了目标', input)
-          await stop(ref)
+          await target(ref, (key) => pi.stopTask(key))
           return goals.get(ref)!
         }),
       resume: (ref, input, opts) =>
         mutate(clientId, 'goals.resume', [ref, input], opts, () =>
           target(ref, (key, session) =>
             serial(session.sessionId, async () => {
-              if (!pi.isSessionIdle(key) || active.has(session.sessionId) || queues.get(session.sessionId)?.length)
+              if (
+                !pi.isSessionIdle(key, true) ||
+                pi.getSessionContext(key).state.isPaused ||
+                active.has(session.sessionId)
+              )
                 throw new Error('请先结束当前执行和排队输入')
               const state = pi.getSessionContext(key).state
-              if (!state.model || state.modelSelectionRequired) throw new Error('请先选择可用模型')
+              if ((!state.model || state.modelSelectionRequired) && !input.configuration?.model)
+                throw new Error('请先选择可用模型')
               await pi.setSessionMode(key, 'default')
               paused.delete(session.sessionId)
               const goal = await goals.resume(session, input)
+              if (input.configuration) goalNextConfiguration.set(session.sessionId, input.configuration)
               goalErrors.delete(session.sessionId)
               scheduleGoal(session)
               return goal
@@ -948,6 +996,8 @@ export async function createAppControl(options: Options) {
     'sessions.configure',
     'sessions.submit',
     'sessions.stop',
+    'sessions.stopTask',
+    'sessions.continueTask',
     'sessions.pause',
     'sessions.resume',
     'sessions.cancelSubmission',
@@ -1009,10 +1059,9 @@ export async function createAppControl(options: Options) {
           serial(current.sessionId, async () => {
             if (
               closing ||
-              paused.has(current.sessionId) ||
+              pi.getSessionContext(key).state.isPaused ||
               active.has(current.sessionId) ||
-              queues.get(current.sessionId)?.length ||
-              !pi.isSessionIdle(key)
+              !pi.isSessionIdle(key, true)
             )
               return
             const goal = goals.get(current)
@@ -1022,17 +1071,24 @@ export async function createAppControl(options: Options) {
             if (previousRun && !(await collaboration.goalReady(key))) return
             if (previousRun) await goals.settled(previousRun)
             const latest = goals.get(current)
-            if (latest?.status !== 'active' || closing || !pi.isSessionIdle(key)) return
+            if (latest?.status !== 'active' || closing || !pi.isSessionIdle(key, true)) return
             try {
               const initial = goals.pendingInput(current)
-              if (initial) await pi.prompt(key, initial.objective, initial.images, initial.skills, { mode: 'default' })
+              const configuration = goalNextConfiguration.get(current.sessionId)
+              if (initial)
+                await pi.prompt(key, initial.objective, initial.images, initial.skills, {
+                  mode: 'default',
+                  ...configuration,
+                })
               else {
                 await pi.continueGoalTask(
                   key,
                   'Continue the active persistent goal. Recheck current facts and latest progress, then take the next concrete step. Before completing the goal, provide evidence for every original requirement.',
                   latest,
+                  configuration,
                 )
               }
+              goalNextConfiguration.delete(current.sessionId)
               current.status = 'running'
               await sync(current, view)
               await publishSession(current)

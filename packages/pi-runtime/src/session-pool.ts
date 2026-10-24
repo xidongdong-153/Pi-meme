@@ -4,6 +4,7 @@ import {
   normalizePlanMessage,
   type TaskMode,
   type MessageOptions,
+  type MessageConfiguration,
   type EditMessageOptions,
   type EditMessageResult,
   type QueuedInput,
@@ -455,7 +456,7 @@ export class PiSessionPool implements PiRuntime {
       this.assertWorkspaceAvailable(record.cwd)
       this.assertPathAvailable(record.key)
     }
-    this.assertMutable(record ? [record] : [])
+    if (record?.stopping || record?.accessChanging) throw new Error('目标会话正在停止或修改权限，请稍后重命名')
     this.mutatingPaths.add(sessionPath)
     if (record) this.mutatingPaths.add(record.key)
     try {
@@ -760,6 +761,7 @@ export class PiSessionPool implements PiRuntime {
       answers: new Set(),
       buffers: new Set(),
     }
+    if (history) this.restoreTaskControl(record, history)
     record.session = this.sessionFactory(
       cwd,
       {
@@ -888,6 +890,7 @@ export class PiSessionPool implements PiRuntime {
         pauseRevision: event.revision,
         pauseIntervals: event.pauseIntervals ?? record.state.pauseIntervals,
       }
+    if (event.type === 'stop_update') record.state = { ...record.state, stopped: event.stopped }
     if (event.type === 'compaction_start') record.state = { ...record.state, isCompacting: true }
     if (event.type === 'compaction_end') record.state = { ...record.state, isCompacting: false }
     if (event.type === 'skill_usage_update') record.state = { ...record.state, skillUsages: event.usages }
@@ -1128,6 +1131,7 @@ export class PiSessionPool implements PiRuntime {
             skillUsages: history.skillUsages,
             recovery: history.recovery,
           }
+          this.restoreTaskControl(existing, history)
           existing.stats = history.stats
         }
         this.assertPathAvailable(existing.key)
@@ -1153,6 +1157,21 @@ export class PiSessionPool implements PiRuntime {
       this.create(history.cwd, sessionPath, history)
     }
     return this.selectionResult(selection)
+  }
+  private restoreTaskControl(record: RuntimeSession, history: SessionHistoryData) {
+    const control = history.taskControl
+    const steering = control?.steering ?? []
+    const followUp = control?.followUp ?? []
+    record.state = {
+      ...record.state,
+      stopped: control?.stopped ?? false,
+      queuePaused: Boolean(control?.stopped || steering.length || followUp.length),
+      pendingMessageCount: steering.length + followUp.length,
+    }
+    record.queue =
+      steering.length || followUp.length
+        ? { generation: this.generation, sessionKey: record.key, event: { type: 'queue_update', steering, followUp } }
+        : undefined
   }
   getActiveSession() {
     const active = this.active.session.getActiveSession()
@@ -1600,10 +1619,10 @@ export class PiSessionPool implements PiRuntime {
     }
     message = normalized.text
     const record = this.target(sessionKey)
-    if (this.changing || record.running) throw new Error('当前会话正在运行或修改配置，请稍后发送')
+    if (this.changing || record.running || record.stopping) throw new Error('当前会话正在运行或修改配置，请稍后发送')
     await record.retiring
     this.target(sessionKey)
-    if (this.changing || record.running) throw new Error('当前会话正在运行或修改配置，请稍后发送')
+    if (this.changing || record.running || record.stopping) throw new Error('当前会话正在运行或修改配置，请稍后发送')
     if (recoveryEntryId && (!this.isSessionIdle(sessionKey) || record.state.recovery?.entryId !== recoveryEntryId))
       throw new Error('当前失败已失效或会话正在运行，请重新读取状态')
     const run = ++record.run
@@ -1626,7 +1645,7 @@ export class PiSessionPool implements PiRuntime {
       const result = recoveryEntryId
         ? await record.session.recover(recoveryEntryId)
         : goalControl
-          ? await record.session.continueGoalTask(message, goalControl)
+          ? await record.session.continueGoalTask(message, goalControl, options)
           : await record.session.prompt(
               message,
               images,
@@ -1697,8 +1716,8 @@ export class PiSessionPool implements PiRuntime {
       failureEntryId,
     )
   }
-  continueGoalTask(key: string, message: string, control: GoalControl) {
-    return this.prompt(key, message, undefined, [], { mode: 'default' }, control)
+  continueGoalTask(key: string, message: string, control: GoalControl, configuration?: MessageConfiguration) {
+    return this.prompt(key, message, undefined, [], { mode: 'default', ...configuration }, control)
   }
   async steer(
     sessionKey: string,
@@ -1812,9 +1831,45 @@ export class PiSessionPool implements PiRuntime {
   pause(sessionKey: string) {
     return this.collaboration?.pause ? this.collaboration.pause(sessionKey) : this.target(sessionKey).session.pause()
   }
-  resume(sessionKey: string) {
+  async stopTask(sessionKey: string) {
+    const record = this.target(sessionKey)
+    record.stopping = true
+    this.notify.connection(this.withSession(record.key, () => this.connection()))
+    try {
+      await record.session.stopTask()
+      await this.collaboration?.stop(sessionKey)
+    } finally {
+      record.stopping = false
+      this.signalSettled()
+      this.notify.connection(this.withSession(record.key, () => this.connection()))
+    }
+  }
+  async continueStopped(sessionKey: string, configuration?: import('@pi-meme/contracts/plan').MessageConfiguration) {
     this.assertNotEditing(sessionKey)
-    return this.collaboration?.resume ? this.collaboration.resume(sessionKey) : this.target(sessionKey).session.resume()
+    const record = this.target(sessionKey)
+    if (record.running || record.pendingPrompt || record.stopping) throw new Error('当前会话正在执行，请稍后重试')
+    record.pendingPrompt = true
+    record.running = true
+    record.settled = false
+    record.run += 1
+    this.notify.sessionsChanged()
+    try {
+      await this.ensureRuntime(record, record.state.mode)
+      await record.session.continueStopped(configuration)
+    } catch (cause) {
+      record.running = false
+      throw cause
+    } finally {
+      record.pendingPrompt = false
+      this.notify.sessionsChanged()
+      this.signalSettled()
+    }
+  }
+  async resume(sessionKey: string) {
+    this.assertNotEditing(sessionKey)
+    const record = this.target(sessionKey)
+    if (record.dormant) await this.ensureRuntime(record, record.state.mode)
+    return this.collaboration?.resume ? this.collaboration.resume(sessionKey) : record.session.resume()
   }
   async steerQueueInput(sessionKey: string, id: string) {
     this.assertNotEditing(sessionKey)

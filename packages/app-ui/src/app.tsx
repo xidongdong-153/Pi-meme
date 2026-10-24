@@ -853,11 +853,15 @@ export function App({
     onAddImages: (images) => chat.setAttachments((value) => [...value, ...images]),
     onRemoveImage: (id) => chat.setAttachments((value) => value.filter((image) => image.id !== id)),
     running: chat.chat.running,
-    paused: chat.chat.paused || chat.chat.queuePaused,
+    paused: chat.chat.paused || chat.chat.stopped,
+    stopped: chat.chat.stopped,
+    queuePaused: chat.chat.queuePaused,
     activeMode: chat.chat.activeMode,
+    activeConfiguration: { model: chat.state?.model, thinkingLevel: chat.state?.thinkingLevel },
     editingQueue: chat.editingQueue !== null,
     onResume: () => void chat.resume(),
-    resumeLabel: chat.configurationChanged ? '按新配置重试' : undefined,
+    onResumeQueue: () => void chat.resumeQueue(),
+    resumeLabel: chat.goal?.status === 'paused' ? '继续目标' : undefined,
     recovery: chat.chat.goal && chat.chat.goal.status !== 'complete' ? undefined : chat.chat.recovery,
     recovering: chat.recovering,
     onRecover: () => void chat.recover(),
@@ -873,7 +877,7 @@ export function App({
     onFollowUpMode: chat.setFollowUpMode,
     queues: { steering: chat.chat.steering, followUp: chat.chat.followUp },
     onSend: () => void chat.send(),
-    onStop: () => void chat.stop(),
+    onStop: chat.stop,
     onClearQueue: () => void chat.clearQueue(),
     editing: chat.editing,
     onCancelEdit: chat.cancelEdit,
@@ -1466,7 +1470,7 @@ export function App({
                     title={title}
                     sessionName={chat.state?.sessionName}
                     session={activeSummary}
-                    canRenameSession={ready && !chat.workspaceDisabledReason && !chat.chat.running}
+                    canRenameSession={ready && !chat.workspaceDisabledReason}
                     onOpenProject={(app) => void bridge.openProject(app).catch((cause) => chat.setError(String(cause)))}
                     preferredApp={preferredApp}
                     onPreferredApp={(app) => {
