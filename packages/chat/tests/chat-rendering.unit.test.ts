@@ -3,9 +3,11 @@ import { test } from 'vitest'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { ActivityGroup } from '../src/ui/conversation/activity-group'
-import type { PiContent, PiMessage } from '@pi-meme/contracts/pi'
+import type { PiContent, PiMessage, PiSessionEntries } from '@pi-meme/contracts/pi'
 import { groupMessageParts } from '../src/ui/model/message-parts'
 import { groupConversationTurns } from '../src/ui/model/conversation-turns'
+import { modelChangesForConversation } from '../src/ui/model/model-changes'
+import { ModelChangeRow } from '../src/ui/conversation/model-change-row'
 import { extractDiff, extractImages, formatDetailValue, parseToolMeta } from '../src/ui/model/tool-details'
 import { groupAdjacentActivities, summarizeActivities } from '../src/ui/model/activity-summary'
 import { Conversation } from '../src/ui/conversation/conversation'
@@ -24,6 +26,183 @@ import {
   type MessageActionAnchor,
 } from '@pi-meme/ui/components/plugin-message-actions'
 import { assistantMessage, bashMessage, toolResult, userMessage } from '../../../tests/fixtures/messages.mjs'
+
+test('模型切换提示只取当前分支，跳过初始选择、重复记录和可见消息之前的记录', () => {
+  const start = Date.parse('2026-10-24T10:00:00.000Z')
+  const timestamp = (offset: number) => new Date(start + offset).toISOString()
+  const sessionEntries: PiSessionEntries = {
+    leafId: 'repeat',
+    entries: [
+      {
+        id: 'initial',
+        parentId: null,
+        type: 'model_change',
+        timestamp: timestamp(0),
+        model: { provider: 'fake', id: 'first' },
+      },
+      { id: 'user-1', parentId: 'initial', type: 'message', role: 'user', timestamp: timestamp(1000) },
+      { id: 'reply-1', parentId: 'user-1', type: 'message', role: 'assistant', timestamp: timestamp(2000) },
+      {
+        id: 'other-branch',
+        parentId: 'reply-1',
+        type: 'model_change',
+        timestamp: timestamp(2500),
+        model: { provider: 'fake', id: 'other' },
+      },
+      {
+        id: 'change',
+        parentId: 'reply-1',
+        type: 'model_change',
+        timestamp: timestamp(3000),
+        model: { provider: 'fake', id: 'second' },
+      },
+      { id: 'user-2', parentId: 'change', type: 'message', role: 'user', timestamp: timestamp(4000) },
+      { id: 'reply-2', parentId: 'user-2', type: 'message', role: 'assistant', timestamp: timestamp(5000) },
+      {
+        id: 'repeat',
+        parentId: 'reply-2',
+        type: 'model_change',
+        timestamp: timestamp(6000),
+        model: { provider: 'fake', id: 'second' },
+      },
+    ],
+  }
+  const messages: PiMessage[] = [
+    { ...userMessage('第一次提问', start + 1000), sourceEntry: { id: 'user-1', type: 'message', revision: '1' } },
+    { ...assistantMessage('第一次回复', start + 2000), sourceEntry: { id: 'reply-1', type: 'message', revision: '2' } },
+    { ...userMessage('第二次提问', start + 4000), sourceEntry: { id: 'user-2', type: 'message', revision: '3' } },
+    { ...assistantMessage('第二次回复', start + 5000), sourceEntry: { id: 'reply-2', type: 'message', revision: '4' } },
+  ]
+  const changes = modelChangesForConversation(sessionEntries, messages)
+  assert.deepEqual(
+    changes.map(({ from, to, key }) => ({ from, to, key })),
+    [{ from: { provider: 'fake', id: 'first' }, to: { provider: 'fake', id: 'second' }, key: 'model-change-change' }],
+  )
+  assert.deepEqual(
+    groupConversationTurns(messages, null, {}, false, {}, [], [], changes).map((turn) => turn.type),
+    ['user', 'assistant_turn', 'model_change', 'user', 'assistant_turn'],
+  )
+  assert.deepEqual(modelChangesForConversation(sessionEntries, messages.slice(2)), [])
+})
+
+test('连续切换模型只显示最后一次，下一条消息后重新显示', () => {
+  const start = Date.parse('2026-10-24T10:00:00.000Z')
+  const timestamp = (offset: number) => new Date(start + offset).toISOString()
+  const entries: PiSessionEntries = {
+    leafId: 'last',
+    entries: [
+      {
+        id: 'initial',
+        parentId: null,
+        type: 'model_change',
+        timestamp: timestamp(0),
+        model: { provider: 'fake', id: 'a' },
+      },
+      { id: 'user', parentId: 'initial', type: 'message', role: 'user', timestamp: timestamp(1000) },
+      {
+        id: 'first',
+        parentId: 'user',
+        type: 'model_change',
+        timestamp: timestamp(2000),
+        model: { provider: 'fake', id: 'b' },
+      },
+      {
+        id: 'second',
+        parentId: 'first',
+        type: 'model_change',
+        timestamp: timestamp(3000),
+        model: { provider: 'fake', id: 'c' },
+      },
+      { id: 'reply', parentId: 'second', type: 'message', role: 'assistant', timestamp: timestamp(4000) },
+      {
+        id: 'last',
+        parentId: 'reply',
+        type: 'model_change',
+        timestamp: timestamp(5000),
+        model: { provider: 'fake', id: 'a' },
+      },
+    ],
+  }
+  const messages: PiMessage[] = [
+    { ...userMessage('提问', start + 1000), sourceEntry: { id: 'user', type: 'message', revision: 'user' } },
+    { ...assistantMessage('回复', start + 4000), sourceEntry: { id: 'reply', type: 'message', revision: 'reply' } },
+  ]
+  assert.deepEqual(
+    modelChangesForConversation(entries, messages).map(({ from, to, key }) => ({ from, to, key })),
+    [
+      { from: { provider: 'fake', id: 'b' }, to: { provider: 'fake', id: 'c' }, key: 'model-change-second' },
+      { from: { provider: 'fake', id: 'c' }, to: { provider: 'fake', id: 'a' }, key: 'model-change-last' },
+    ],
+  )
+})
+
+test('模型提示在原模型未知时只显示目标，长名称完整保留且同名模型显示可区分的 ID', () => {
+  const longName = '名称很长的自定义模型'.repeat(15)
+  const markup = renderToStaticMarkup(
+    createElement(ModelChangeRow, {
+      to: { provider: 'fake', id: 'second' },
+      models: [{ provider: 'fake', id: 'second', name: longName }],
+    }),
+  )
+  assert.ok(markup.includes(`模型已更改为 ${longName}。`))
+  assert.match(markup, /overflow-wrap:anywhere/)
+
+  const sameName = renderToStaticMarkup(
+    createElement(ModelChangeRow, {
+      from: { provider: 'one', id: 'same' },
+      to: { provider: 'two', id: 'same' },
+      models: [
+        { provider: 'one', id: 'same', name: '同名模型' },
+        { provider: 'two', id: 'same', name: '同名模型' },
+      ],
+    }),
+  )
+  assert.match(sameName, /one\/same 更改为 two\/same/)
+})
+
+test('缺少初始模型记录时，从此前回复恢复原模型；没有回复时使用单模型提示', () => {
+  const timestamp = '2026-10-24T10:00:00.000Z'
+  const entries: PiSessionEntries = {
+    leafId: 'change',
+    entries: [
+      { id: 'user', parentId: null, type: 'message', role: 'user', timestamp },
+      {
+        id: 'reply',
+        parentId: 'user',
+        type: 'message',
+        role: 'assistant',
+        timestamp,
+        model: { provider: 'fake', id: 'first' },
+      },
+      {
+        id: 'later',
+        parentId: 'reply',
+        type: 'message',
+        role: 'assistant',
+        timestamp,
+        model: { provider: 'fake', id: 'third' },
+      },
+      { id: 'change', parentId: 'later', type: 'model_change', timestamp, model: { provider: 'fake', id: 'second' } },
+    ],
+  }
+  const messages: PiMessage[] = [
+    { ...userMessage('提问', 1), sourceEntry: { id: 'user', type: 'message', revision: 'user' } },
+    { ...assistantMessage('回复', 2), sourceEntry: { id: 'reply', type: 'message', revision: 'reply' } },
+    {
+      ...assistantMessage('后续回复', 3, { model: 'third' }),
+      sourceEntry: { id: 'later', type: 'message', revision: 'later' },
+    },
+  ]
+  assert.deepEqual(modelChangesForConversation(entries, messages)[0]?.from, { provider: 'fake', id: 'third' })
+  const withoutReply: PiSessionEntries = {
+    leafId: 'change',
+    entries: [
+      entries.entries[0],
+      { id: 'change', parentId: 'user', type: 'model_change', timestamp, model: { provider: 'fake', id: 'second' } },
+    ],
+  }
+  assert.equal(modelChangesForConversation(withoutReply, messages.slice(0, 1))[0]?.from, undefined)
+})
 
 test('子Agent只读会话不借用根Provider引用，仍保留正文和原生复制', () => {
   const source = { ownerId: 'example', generation: 1 }

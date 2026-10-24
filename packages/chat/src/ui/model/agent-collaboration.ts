@@ -3,6 +3,7 @@ import type { PiMessage } from '@pi-meme/contracts/pi'
 import { formatAgentName } from '@pi-meme/ui/lib/agent-name'
 import { groupAdjacentActivities } from './activity-summary'
 import { groupConversationTurns } from './conversation-turns'
+import { modelChangesForConversation } from './model-changes'
 import type { ActivityItem, AgentCollaborationStatus, ChatState, RenderSegment, TurnChunk } from './types'
 
 type ToolResult = Extract<PiMessage, { role: 'toolResult' }>
@@ -77,6 +78,7 @@ export function projectAgentConversation(chat: ChatState, agent: AgentSummary): 
     chat.stream.completed,
     [],
     chat.runIntervals,
+    modelChangesForConversation(chat.sessionEntries, messages),
   )
   const results = new Map<string, ToolResult>()
   const calledAt = new Map<string, number>()

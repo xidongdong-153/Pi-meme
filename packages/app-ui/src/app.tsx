@@ -1133,6 +1133,7 @@ export function App({
             onCopyError: chat.setError,
             editor,
             sessionKey: chat.connection.sessionKey,
+            models: chat.models,
             loadImage: loadConversationImage,
           }}
         />

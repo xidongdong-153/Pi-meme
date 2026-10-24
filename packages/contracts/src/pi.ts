@@ -40,6 +40,7 @@ type WithMessageMetadata<Event> = Event extends { message: PiMessage }
 export type PiSessionEntry = SessionEntry
 export type PiBranchEntry = Pick<PiSessionEntry, 'id' | 'parentId' | 'timestamp' | 'type'> & {
   role?: PiMessage['role']
+  model?: Pick<PiModel, 'provider' | 'id'>
   messageTimestamp?: number
   customType?: string
   display?: boolean

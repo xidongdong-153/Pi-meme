@@ -12,7 +12,10 @@ const MIN_SCROLLABLE_OVERFLOW = 100
 const positions = new Map<string, ScrollPosition>()
 
 export function useConversationScroll(
-  chat: Pick<ChatState, 'messages' | 'live' | 'tools' | 'agents' | 'agentMessages' | 'retry' | 'compactionError'>,
+  chat: Pick<
+    ChatState,
+    'messages' | 'sessionEntries' | 'live' | 'tools' | 'agents' | 'agentMessages' | 'retry' | 'compactionError'
+  >,
   sessionKey?: string,
 ) {
   const containerRef = React.useRef<HTMLDivElement>(null)
@@ -81,6 +84,7 @@ export function useConversationScroll(
     }
   }, [
     chat.messages,
+    chat.sessionEntries,
     chat.live,
     chat.tools,
     chat.agents,

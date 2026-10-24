@@ -151,6 +151,12 @@ export function projectBranchEntries(
     timestamp: entry.timestamp,
     type: entry.type,
     role: entry.type === 'message' ? entry.message.role : undefined,
+    model:
+      entry.type === 'model_change'
+        ? { provider: entry.provider, id: entry.modelId }
+        : entry.type === 'message' && entry.message.role === 'assistant'
+          ? { provider: entry.message.provider, id: entry.message.model }
+          : undefined,
     messageTimestamp: entry.type === 'message' ? entry.message.timestamp : undefined,
     customType: entry.type === 'custom_message' ? entry.customType : undefined,
     display:

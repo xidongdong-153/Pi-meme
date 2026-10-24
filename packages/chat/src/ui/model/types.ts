@@ -7,6 +7,7 @@ import type {
   PiImage,
   PiGenerationMetrics,
   PiMessage,
+  PiModel,
   PiPauseInterval,
   PiRunInterval,
   PiRetryState,
@@ -104,6 +105,13 @@ export type AgentCollaborationStatus = {
 
 export type TurnChunk =
   | { type: 'custom'; message: Extract<PiMessage, { role: 'custom' }>; key: string }
+  | {
+      type: 'model_change'
+      from?: Pick<PiModel, 'provider' | 'id'>
+      to: Pick<PiModel, 'provider' | 'id'>
+      timestamp: number
+      key: string
+    }
   | {
       type: 'agent_status'
       phase: 'started' | 'finished'

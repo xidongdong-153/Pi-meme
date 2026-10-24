@@ -2,6 +2,7 @@ import type { ChatStream } from '../model/chat-stream'
 import * as React from 'react'
 import { ArrowDown } from 'lucide-react'
 import type { ChatState, ConversationOutlineEntry, TurnChunk } from '../model/types'
+import type { PiModel } from '@pi-meme/contracts/pi'
 import { ChatMessage } from './chat-message'
 import { AssistantTurnView } from './assistant-turn'
 import { InlineMessageEditor, type MessageEditorState } from './inline-message-editor'
@@ -21,6 +22,8 @@ import { AgentStatusRow } from './agent-status-row'
 import { ErrorLine } from '@pi-meme/ui/components/error-line'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { MessageImageLoaderContext, type MessageImageLoader } from '../content/message-image'
+import { modelChangesForConversation } from '../model/model-changes'
+import { ModelChangeRow } from './model-change-row'
 
 function noSubscription() {
   return () => {}
@@ -49,6 +52,7 @@ export const Conversation = React.memo(
     readOnly = false,
     agentOnly = false,
     agent,
+    models = [],
   }: {
     chat: ChatState
     stream?: ChatStream
@@ -67,6 +71,7 @@ export const Conversation = React.memo(
     readOnly?: boolean
     agentOnly?: boolean
     agent?: AgentSummary
+    models?: PiModel[]
   }) => {
     const chat = React.useSyncExternalStore(
       stream?.subscribe ?? noSubscription,
@@ -97,6 +102,7 @@ export const Conversation = React.memo(
               chat.stream.completed,
               'agentStatuses' in view ? view.agentStatuses : [],
               chat.runIntervals,
+              modelChangesForConversation(chat.sessionEntries, view.messages),
             )
       const finalReplyKeys = new Set<string>()
       let canBeFinal = !chat.running && !chat.live
@@ -265,6 +271,8 @@ export const Conversation = React.memo(
               )}
 
               {visibleTurns.map((turn) => {
+                if (turn.type === 'model_change')
+                  return <ModelChangeRow key={turn.key} from={turn.from} to={turn.to} models={models} />
                 if (turn.type === 'agent_status')
                   return <AgentStatusRow key={turn.key} agents={turn.agents} status={turn.status} />
                 if (turn.type === 'compaction') {

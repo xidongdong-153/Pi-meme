@@ -105,3 +105,25 @@ test('中止的助手消息给出可读占位摘要', () => {
 
   assert.equal(projectBranchEntries(entries)[0].preview, '(已中止)')
 })
+
+test('会话树保留模型切换和回复使用的模型标识', () => {
+  const entries = [
+    {
+      type: 'model_change',
+      id: 'model',
+      parentId: null,
+      timestamp: '2026-10-24T10:00:00Z',
+      provider: 'fake',
+      modelId: 'first',
+    },
+    assistant('reply', 'model', assistantMessage('回复', 1, { provider: 'fake', model: 'first' })),
+  ] as SessionEntry[]
+
+  assert.deepEqual(
+    projectBranchEntries(entries).map((entry) => entry.model),
+    [
+      { provider: 'fake', id: 'first' },
+      { provider: 'fake', id: 'first' },
+    ],
+  )
+})

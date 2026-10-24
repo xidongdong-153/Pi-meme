@@ -13,6 +13,7 @@ export function groupConversationTurns(
   completed: Record<number, boolean> = {},
   agentStatuses: Array<Extract<TurnChunk, { type: 'agent_status' }>> = [],
   runIntervals: readonly PiRunInterval[] = [],
+  modelChanges: Array<Extract<TurnChunk, { type: 'model_change' }>> = [],
 ): TurnChunk[] {
   // Pi 的 get_messages 会把 compactionSummary 与 branchSummary 强制放在数组首位作为模型上下文。
   // 但其真实 timestamp 记录了压缩发生的真实时刻。按 timestamp 稳定排序，
@@ -176,12 +177,18 @@ export function groupConversationTurns(
       return { type: 'message' as const, message, timestamp: timelineKey }
     }),
     ...agentStatuses.map((status) => ({ type: 'status' as const, status, timestamp: status.timestamp })),
+    ...modelChanges.map((change) => ({ type: 'model_change' as const, change, timestamp: change.timestamp })),
   ].sort((a, b) => a.timestamp - b.timestamp)
   for (let i = 0; i < timeline.length; i++) {
     const item = timeline[i]!
     if (item.type === 'status') {
       flushTurn(false, item.timestamp)
       chunks.push(item.status)
+      continue
+    }
+    if (item.type === 'model_change') {
+      flushTurn(false, item.timestamp)
+      chunks.push(item.change)
       continue
     }
     const msg = item.message

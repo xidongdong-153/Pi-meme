@@ -49,6 +49,7 @@ import { recoveryMessage } from './sdk/recovery'
 import { getPiVersion, loadPiSdk } from './sdk/load'
 import type { ModelRestore, PiRuntime } from './runtime'
 import { invalidateSessionHistory, readSessionHistory, type SessionHistoryData } from './session-history'
+import { projectBranchEntries } from './session-tree-entries'
 import { readLocalModels, readLocalPreferences, readLocalSkills } from './session-metadata'
 import { createPiRuntimePaths, type PiRuntimePaths } from './runtime-paths'
 import { MemoryCredentialStorage } from './secure-store'
@@ -1950,8 +1951,25 @@ export class PiSessionPool implements PiRuntime {
         this.localAvailableModels ??
         (await (this.localModels ??= readLocalModels(this.runtimePaths.agentDir, this.credentialStorage)))
       const selected = models.find((entry) => entry.id === model.id && entry.provider === model.provider) ?? model
-      record.state = { ...record.state, model: selected, modelSelectionRequired: false }
-      return selected
+      const sdk = record.sessionFile ? await loadPiSdk() : undefined
+      if (record.dormant) {
+        if (record.pendingPrompt || record.starting) throw new Error('会话正在启动，请稍后切换模型')
+        if (record.sessionFile && sdk) {
+          const manager = sdk.SessionManager.open(
+            record.sessionFile,
+            this.runtimePaths.sessionDirectory(record.cwd),
+            record.cwd,
+          )
+          manager.appendModelChange(selected.provider, selected.id)
+          record.sessionEntries = {
+            entries: projectBranchEntries(manager.getEntries(), manager.getLeafId()),
+            leafId: manager.getLeafId(),
+          }
+          invalidateSessionHistory([record.sessionFile])
+        }
+        record.state = { ...record.state, model: selected, modelSelectionRequired: false }
+        return selected
+      }
     }
     const selected = await record.session.setModel(model)
     record.state.model = selected

@@ -988,9 +988,10 @@ export function useAppSession(
         try {
           const selected = await bridge.setModel(key, model)
           if (!owns()) return
+          setState((value) => value && { ...value, model: selected, modelSelectionRequired: false })
+          await refresh()
           const levels = await bridge.getAvailableThinkingLevels().catch(() => [])
           if (!owns()) return
-          setState((value) => value && { ...value, model: selected, modelSelectionRequired: false })
           setThinkingLevels(levels)
         } catch (cause) {
           modelSaveError.current = cause

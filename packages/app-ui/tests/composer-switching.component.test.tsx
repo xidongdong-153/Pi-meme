@@ -326,6 +326,50 @@ test('切模型立即更新名称且不禁用输入，发送等待模型和思�
   expect(result.current.thinkingLevels).toEqual(['off', 'medium', 'high'])
 })
 
+test('冷会话切模型后立即读取原生记录', async () => {
+  const selected = { provider: 'fake', id: 'second', name: '模型 Beta' }
+  let savedSnapshot!: Snapshot
+  const { result, snapshot } = setup({
+    setModel: async () => {
+      savedSnapshot.state.model = selected
+      savedSnapshot.sessionEntries!.entries.push({
+        id: 'change',
+        parentId: 'reply',
+        type: 'model_change',
+        timestamp: '2026-10-24T10:00:02.000Z',
+        model: { provider: 'fake', id: 'second' },
+      })
+      savedSnapshot.sessionEntries!.leafId = 'change'
+      return selected
+    },
+    getAvailableThinkingLevels: async () => ['off', 'medium'],
+  })
+  savedSnapshot = snapshot
+  const startedAt = Date.parse('2026-10-24T10:00:00.000Z')
+  snapshot.messages = [
+    { ...userMessage('提问', startedAt), sourceEntry: { id: 'user', type: 'message', revision: 'user' } },
+    { ...assistantMessage('回复', startedAt + 1000), sourceEntry: { id: 'reply', type: 'message', revision: 'reply' } },
+  ]
+  snapshot.sessionEntries = {
+    leafId: 'reply',
+    entries: [
+      {
+        id: 'initial',
+        parentId: null,
+        type: 'model_change',
+        timestamp: '2026-10-24T09:59:59.000Z',
+        model: { provider: 'fake', id: 'first' },
+      },
+      { id: 'user', parentId: 'initial', type: 'message', role: 'user', timestamp: '2026-10-24T10:00:00.000Z' },
+      { id: 'reply', parentId: 'user', type: 'message', role: 'assistant', timestamp: '2026-10-24T10:00:01.000Z' },
+    ],
+  }
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  await act(async () => result.current.refreshSnapshot())
+  await act(async () => result.current.selectModel(selected))
+  expect(result.current.chat.sessionEntries?.entries.at(-1)?.model).toEqual({ provider: 'fake', id: 'second' })
+})
+
 test('切模型失败恢复原模型并保留草稿，不使用旧模型发送等待中的消息', async () => {
   const model = deferred<PiModel>()
   const prompt = vi.fn().mockResolvedValue(undefined)

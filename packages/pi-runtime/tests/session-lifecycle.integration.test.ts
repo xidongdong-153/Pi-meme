@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { PiSessionPool } from '../src/session-pool'
+import { readSessionHistory } from '../src/session-history'
 import type { DesktopEvent } from '@pi-meme/contracts/desktop'
 import { assistantMessage, userMessage } from '../../../tests/fixtures/messages.mjs'
 import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
@@ -239,6 +240,59 @@ test('新建和读取冷会话不启动运行时，发送期间切换仍发送�
   } finally {
     pool.stop()
     await delay(100)
+    await agent.dispose()
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('冷会话切换模型写入当前分支，重新读取历史仍保留切换', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pi-cold-model-change-'))
+  const agent = await useFakeAgent(directory, {
+    models: [
+      { id: 'first', name: '模型 first', reasoning: true },
+      { id: 'second', name: '模型 second', reasoning: true },
+    ],
+  })
+  const sessionFile = await appSessionFile(agent, directory, 'saved.jsonl')
+  const timestamp = '2026-10-24T10:00:00.000Z'
+  await writeFile(
+    sessionFile,
+    [
+      { type: 'session', id: 'saved', version: 3, cwd: directory, timestamp },
+      { type: 'model_change', id: 'initial', parentId: null, timestamp, provider: 'fake', modelId: 'first' },
+      { type: 'message', id: 'user', parentId: 'initial', timestamp, message: userMessage('提问', 1) },
+      { type: 'message', id: 'reply', parentId: 'user', timestamp, message: assistantMessage('回复', 2) },
+    ]
+      .map((entry) => JSON.stringify(entry))
+      .join('\n'),
+  )
+  const pool = new PiSessionPool(
+    directory,
+    { connection: () => {}, event: () => {}, error: () => {}, sessionsChanged: () => {} },
+    undefined,
+    agent.runtimePaths,
+    agent.credentials,
+    createTestSession,
+  )
+  try {
+    pool.prepare(directory)
+    await pool.newSession()
+    await pool.switchSession(sessionFile)
+    assert.equal(pool.connection().status, 'idle')
+    await pool.setModel(pool.connection().sessionKey!, { provider: 'fake', id: 'second' })
+    assert.equal(pool.connection().status, 'idle')
+    const snapshot = await pool.snapshot()
+    assert.deepEqual(snapshot.sessionEntries?.entries.at(-1)?.model, { provider: 'fake', id: 'second' })
+    assert.equal(snapshot.sessionEntries?.entries.at(-1)?.parentId, 'reply')
+    assert.deepEqual((await readSessionHistory(sessionFile)).model, { provider: 'fake', id: 'second' })
+    const records = (await readFile(sessionFile, 'utf8'))
+      .trim()
+      .split('\n')
+      .map((line) => JSON.parse(line))
+    assert.equal(records.at(-1)?.type, 'model_change')
+    assert.equal(records.at(-1)?.modelId, 'second')
+  } finally {
+    pool.stop()
     await agent.dispose()
     await rm(directory, { recursive: true, force: true })
   }
