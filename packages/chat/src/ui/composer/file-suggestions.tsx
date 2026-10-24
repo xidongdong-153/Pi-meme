@@ -28,12 +28,12 @@ export function FileSuggestions({
     <div
       ref={ref}
       className={cn(
-        'absolute left-0 right-0 rounded-xl border border-border bg-popover p-1.5 shadow-xl z-30',
+        'absolute left-0 right-0 z-30 rounded-2xl border border-border/80 bg-popover p-1.5 shadow-xl',
         placement === 'bottom' ? 'top-full mt-2' : 'bottom-full mb-2',
       )}
       style={maxHeight ? { maxHeight } : undefined}
     >
-      <div className="flex flex-wrap items-center gap-1 px-2.5 py-1 text-xs text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-1 px-3 pb-1 pt-2 text-xs text-muted-foreground">
         <span className="shrink-0">文件与文件夹</span>
         {directory && (
           <nav aria-label="文件目录" className="flex min-w-0 max-w-full flex-wrap items-center gap-1">
@@ -66,7 +66,7 @@ export function FileSuggestions({
           const name = file.path.slice(file.path.lastIndexOf('/') + 1)
           const parent = file.path.slice(0, file.path.lastIndexOf('/') + 1)
           return (
-            <div key={file.path} className={cn('flex rounded-md', index === suggestionIndex && 'bg-secondary')}>
+            <div key={file.path} className={cn('flex rounded-xl', index === suggestionIndex && 'bg-secondary')}>
               <button
                 id={`composer-option-${index}`}
                 type="button"
@@ -75,13 +75,17 @@ export function FileSuggestions({
                 aria-selected={index === suggestionIndex}
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => onComplete(file)}
-                className="flex flex-1 min-w-0 items-center gap-2 rounded-md px-2.5 py-1.5 text-xs text-left hover:bg-secondary/60"
+                className="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-3 py-2 text-left text-sm hover:bg-secondary/60"
                 title={file.path}
               >
                 {folder ? (
-                  <Folder className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="flex size-6 shrink-0 items-center justify-center">
+                    <Folder className="size-4 text-muted-foreground" />
+                  </span>
                 ) : (
-                  <File className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="flex size-6 shrink-0 items-center justify-center">
+                    <File className="size-4 text-muted-foreground" />
+                  </span>
                 )}
                 <span className="truncate">
                   {name}
@@ -96,7 +100,7 @@ export function FileSuggestions({
                   aria-label={`进入目录 ${file.path}`}
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => onComplete(file, true)}
-                  className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-md px-2 text-xs text-muted-foreground hover:bg-secondary/60"
+                  className="flex shrink-0 items-center gap-1 whitespace-nowrap rounded-xl px-2 text-xs text-muted-foreground hover:bg-secondary/60"
                 >
                   {index === suggestionIndex && <span>进入目录 Tab</span>}
                   <ChevronRight className="size-3.5" />
@@ -106,7 +110,7 @@ export function FileSuggestions({
           )
         })}
         {!matches.length && (
-          <div role="status" className="px-2.5 py-2 text-xs text-muted-foreground">
+          <div role="status" className="px-3 py-2 text-xs text-muted-foreground">
             {loading ? '正在查找文件…' : error || '没有匹配的文件'}
           </div>
         )}

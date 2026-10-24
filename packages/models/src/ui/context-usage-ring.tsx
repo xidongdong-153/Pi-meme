@@ -136,7 +136,7 @@ export function ContextUsageRing({
         onPointerLeave={scheduleClose}
         onOpenAutoFocus={(event) => event.preventDefault()}
         onCloseAutoFocus={(event) => event.preventDefault()}
-        className="w-72 max-w-[calc(100vw-2rem)] p-3 bg-popover/95 backdrop-blur-md shadow-2xl border border-border/80 rounded-xl space-y-2 select-none"
+        className="w-72 max-w-[calc(100vw-2rem)] space-y-2 rounded-2xl border border-border/80 bg-popover p-3 shadow-xl select-none"
       >
         {/* 顶部标题与整体指标 */}
         <div className="flex items-center justify-between text-xs font-normal">

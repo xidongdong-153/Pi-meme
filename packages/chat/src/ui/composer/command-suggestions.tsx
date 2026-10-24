@@ -41,6 +41,14 @@ export function CommandSuggestions({
       plugin?.name ?? (resource ? (command!.displayName ?? command!.name.replace(/^skill:/, '')) : commandTitle)
     const description =
       plugin?.description ?? (resource ? (command?.shortDescription ?? command?.description) : command?.description)
+    const sourceLabel =
+      item.kind === 'skill' && command
+        ? command.builtin
+          ? '内置'
+          : { user: '本地文件', project: '项目', temporary: '临时' }[command.sourceInfo.scope]
+        : item.kind === 'command' && command
+          ? { builtin: '内置', extension: '扩展', prompt: '提示词', skill: '技能' }[command.source]
+          : undefined
     const disabled = Boolean(plugin && agentPlugins?.disabledReason)
     const button = (
       <button
@@ -57,42 +65,34 @@ export function CommandSuggestions({
           if (!disabled) onComplete(item)
         }}
         className={cn(
-          'flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2 text-sm text-foreground transition-colors cursor-pointer select-none text-left',
+          'flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2 text-left text-sm text-foreground transition-colors cursor-pointer select-none',
           index === suggestionIndex ? 'bg-secondary font-medium' : 'hover:bg-secondary/60',
           disabled && 'opacity-50 cursor-not-allowed hover:bg-transparent',
         )}
       >
         <div className="flex flex-1 items-center gap-2 min-w-0">
-          {commandIcon ? (
-            <img
-              src={commandIcon}
-              alt=""
-              width={24}
-              height={24}
-              draggable={false}
-              className="size-6 shrink-0 object-contain"
-            />
-          ) : (
-            resource &&
-            (plugin?.iconUrl ? (
-              <img src={plugin.iconUrl} alt="" className="size-4 shrink-0 object-contain" />
-            ) : (
-              <Box className="size-4 shrink-0 text-muted-foreground" />
-            ))
-          )}
+          <span className="flex size-6 shrink-0 items-center justify-center">
+            {commandIcon ? (
+              <img
+                src={commandIcon}
+                alt=""
+                width={24}
+                height={24}
+                draggable={false}
+                className="size-6 object-contain"
+              />
+            ) : plugin?.iconUrl ? (
+              <img src={plugin.iconUrl} alt="" className="size-4 object-contain" />
+            ) : resource ? (
+              <Box className="size-4 text-muted-foreground" />
+            ) : null}
+          </span>
           <span className={cn('min-w-0 truncate font-medium', resource && 'max-w-[45%] shrink-0')}>{title}</span>
           <span className="min-w-0 flex-1 truncate text-muted-foreground">{description}</span>
         </div>
-        {item.kind === 'skill' && command && (
-          <span className="shrink-0 text-muted-foreground">
-            {command.builtin
-              ? '内置'
-              : { user: '本地文件', project: '项目', temporary: '临时' }[command.sourceInfo.scope]}
-          </span>
-        )}
-        {item.kind === 'command' && command && (
-          <Badge variant="outline" className="text-[0.625rem] py-0 px-1.5 shrink-0">
-            {{ builtin: '内置', extension: '扩展', prompt: '提示词', skill: '技能' }[command.source]}
+        {sourceLabel && (
+          <Badge variant="outline" className="shrink-0 px-1.5 py-0 text-[0.625rem] font-medium text-muted-foreground">
+            {sourceLabel}
           </Badge>
         )}
       </button>
@@ -119,7 +119,7 @@ export function CommandSuggestions({
     <div
       ref={ref}
       className={cn(
-        'absolute left-0 right-0 overflow-y-auto overscroll-contain rounded-2xl border border-border bg-popover p-1.5 shadow-xl z-30',
+        'absolute left-0 right-0 z-30 overflow-y-auto overscroll-contain rounded-2xl border border-border/80 bg-popover p-1.5 shadow-xl',
         placement === 'bottom' ? 'top-full mt-2' : 'bottom-full mb-2',
       )}
       id="composer-suggestions"
@@ -137,7 +137,12 @@ export function CommandSuggestions({
         )
       ) : (
         <>
-          {commands}
+          {commands.length > 0 && (
+            <div role="group" aria-label="命令">
+              <div className="px-3 pb-1 pt-2 text-xs text-muted-foreground">命令</div>
+              {commands}
+            </div>
+          )}
           <div role="group" aria-label="技能">
             <div className="px-3 pt-2 pb-1 text-xs text-muted-foreground">技能</div>
             {skills.length ? (

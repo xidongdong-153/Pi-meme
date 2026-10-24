@@ -44,7 +44,7 @@ export function SessionNamePanel({
     <div
       role="dialog"
       aria-label="重命名会话"
-      className="absolute left-0 right-0 bottom-full z-30 mb-2 rounded-2xl border border-border bg-popover p-3 shadow-xl"
+      className="absolute left-0 right-0 bottom-full z-30 mb-2 rounded-2xl border border-border/80 bg-popover p-3 shadow-xl"
       onKeyDown={(event) => {
         if (event.key !== 'Escape') return
         event.preventDefault()

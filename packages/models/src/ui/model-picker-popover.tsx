@@ -265,7 +265,7 @@ export function ModelPickerPopover({
         sideOffset={8}
         collisionPadding={12}
         avoidCollisions={true}
-        className="flex max-h-[min(24rem,calc(100vh-100px))] max-w-[calc(100vw-24px)] flex-col rounded-2xl p-3 bg-popover/95 backdrop-blur-md shadow-2xl border-border/80 w-64 select-none"
+        className="flex max-h-[min(24rem,calc(100vh-100px))] w-64 max-w-[calc(100vw-24px)] flex-col rounded-2xl border-border/80 bg-popover p-3 shadow-xl select-none"
       >
         {view === 'thinking' ? (
           /* 图 1：思考强度配置面板 */
@@ -438,7 +438,7 @@ export function ModelPickerPopover({
                 <React.Fragment key={group.provider}>
                   <div
                     className={cn(
-                      'px-2.5 pb-1 text-xs font-medium text-muted-foreground select-none',
+                      'px-2.5 pb-1 text-xs font-normal text-muted-foreground select-none',
                       groupIndex === 0 ? 'pt-1' : 'pt-2.5',
                     )}
                   >
@@ -456,10 +456,10 @@ export function ModelPickerPopover({
                           onSelectModel(model)
                         }}
                         className={cn(
-                          'w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer text-left',
+                          'flex w-full items-center justify-between rounded-xl px-2.5 py-2 text-left text-sm transition-colors cursor-pointer',
                           isSelected
-                            ? 'bg-secondary/70 text-foreground font-medium'
-                            : 'text-foreground/90 hover:bg-secondary/40 hover:text-foreground',
+                            ? 'bg-secondary text-foreground font-medium'
+                            : 'text-foreground/90 hover:bg-secondary/60 hover:text-foreground',
                         )}
                       >
                         <span className="truncate pr-2 pl-2">{model.name ?? model.id}</span>

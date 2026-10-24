@@ -64,16 +64,16 @@ export function AgentAccessSelector({
         </TooltipTrigger>
         <TooltipContent>{busy ? '任务结束后可切换权限' : selected.description}</TooltipContent>
       </Tooltip>
-      <SelectContent side="top" align="start" className="w-[360px]">
+      <SelectContent side="top" align="start" className="w-[360px] rounded-2xl border-border/80 shadow-xl">
         <SelectGroup>
-          <SelectLabel>Agent 访问权限</SelectLabel>
+          <SelectLabel className="px-3 font-normal">Agent 访问权限</SelectLabel>
           {choices.map((choice) => (
             <SelectItem
               key={choice.mode}
               value={choice.mode}
               textValue={choice.label}
               disabled={!supported && choice.mode !== 'full-access'}
-              className="py-2.5"
+              className="rounded-xl py-2.5"
             >
               <span className="flex gap-2">
                 <choice.icon className="mt-0.5 size-4 shrink-0" />
