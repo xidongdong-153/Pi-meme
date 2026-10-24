@@ -201,6 +201,20 @@ test('Markdown 保留有序列表起始序号和任务列表语义', () => {
   assert.match(markup, /class="[^"]*task-list-item/)
 })
 
+test('Markdown 为大序号留出空间，保留表格对齐并识别警告块', () => {
+  const markup = renderToStaticMarkup(
+    createElement(MarkdownContent, {
+      children:
+        '## 列表\n\n999. 第一项\n1000. 第二项\n\n| 名称 | 状态 | 金额 |\n| :--- | :---: | ---: |\n| 项目 | 完成 | 8 |\n\n> [!WARNING]\n> 注意风险',
+    }),
+  )
+  assert.match(markup, /<ol[^>]*start="999"[^>]*padding-left:5\.5ch/)
+  assert.match(markup, /text-align:center/)
+  assert.match(markup, /text-align:right/)
+  assert.match(markup, /pi-alert-warning/)
+  assert.doesNotMatch(markup, /\[!WARNING\]/)
+})
+
 function conversationFixture(): ChatState {
   return {
     ...emptyChat,

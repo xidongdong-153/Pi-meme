@@ -212,6 +212,21 @@ test('本地文件读取失败不退回 Web 地址，没有会话读取器时也
   expect(screen.queryByRole('img')).not.toBeInTheDocument()
 })
 
+test('本地图片读取失败后可重试并恢复预览', async () => {
+  const loadImage = vi.fn().mockRejectedValueOnce(new Error('ENOENT')).mockResolvedValue(preview())
+  render(
+    <MessageImageLoaderContext value={loadImage}>
+      <MarkdownContent>![截图](out/retry.png)</MarkdownContent>
+    </MessageImageLoaderContext>,
+  )
+  expect(
+    await screen.findByRole('status', { name: '图片不存在或无法读取，请确认路径相对于当前会话工作目录。' }),
+  ).toBeVisible()
+  await userEvent.click(screen.getByRole('button', { name: '预览失败点击重试' }))
+  expect(await screen.findByRole('img', { name: '截图' })).toHaveAttribute('src', dataUrl)
+  expect(loadImage).toHaveBeenCalledTimes(2)
+})
+
 test('会话切换后清空旧图片，丢弃之前的异步结果，不串用同名文件', async () => {
   let finish!: (value: FilePreview) => void
   const first = vi.fn(

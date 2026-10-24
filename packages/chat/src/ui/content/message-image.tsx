@@ -30,6 +30,7 @@ export function MessageImage({ src, alt, className }: { src: string; alt?: strin
     url?: string
     error?: string
   }>()
+  const [retry, setRetry] = React.useState(0)
   const current = result?.src === src && result.loader === loadImage ? result : undefined
 
   React.useEffect(() => {
@@ -63,7 +64,7 @@ export function MessageImage({ src, alt, className }: { src: string; alt?: strin
     return () => {
       active = false
     }
-  }, [src, remote, loadImage])
+  }, [src, remote, loadImage, retry])
 
   const url = remote ? src : current?.url
   return (
@@ -75,6 +76,10 @@ export function MessageImage({ src, alt, className }: { src: string; alt?: strin
       error={current?.error}
       remote={remote}
       className={className}
+      onRetry={() => {
+        setResult(undefined)
+        setRetry((value) => value + 1)
+      }}
     />
   )
 }
@@ -86,6 +91,7 @@ export function ImageThumbnail({
   error,
   remote,
   className,
+  onRetry,
 }: {
   src?: string
   label: string
@@ -93,6 +99,7 @@ export function ImageThumbnail({
   error?: string
   remote: boolean
   className?: string
+  onRetry?: () => void
 }) {
   const [failed, setFailed] = React.useState(false)
   const [loaded, setLoaded] = React.useState(false)
@@ -121,7 +128,23 @@ export function ImageThumbnail({
   return (
     <span className={cn('my-2 mr-2 inline-flex size-24 max-w-full align-top', className)}>
       {failure ? (
-        <span role="status" aria-label={failure} className="size-full rounded-xl bg-secondary/30" />
+        <span role="status" aria-label={failure} className="size-full">
+          <button
+            type="button"
+            title={failure}
+            onClick={() => {
+              setFailed(false)
+              onRetry?.()
+            }}
+            className="flex size-full cursor-pointer items-center justify-center rounded-xl bg-secondary/30 px-2 text-center text-xs text-muted-foreground hover:bg-secondary/50"
+          >
+            <span>
+              预览失败
+              <br />
+              点击重试
+            </span>
+          </button>
+        </span>
       ) : (
         <button
           ref={triggerRef}

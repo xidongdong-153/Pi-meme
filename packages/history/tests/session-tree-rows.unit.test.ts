@@ -1,7 +1,24 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import type { PiBranchEntry, PiSessionEntries } from '@pi-meme/contracts/pi'
 import { buildSessionTreeRows } from '../src/ui/model/session-tree-rows'
+import { HistoryMarkdown } from '../src/ui/history-markdown'
+
+test('历史预览保留列表编号、表格对齐和警告块', () => {
+  const markup = renderToStaticMarkup(
+    createElement(HistoryMarkdown, {
+      children:
+        '999. 第一项\n1000. 第二项\n\n- [x] 完成\n\n| 名称 | 金额 |\n| :--- | ---: |\n| 项目 | 8 |\n\n> [!WARNING]\n> 注意风险',
+    }),
+  )
+  assert.match(markup, /<ol[^>]*start="999"[^>]*padding-left:5\.5ch/)
+  assert.match(markup, /task-list-item/)
+  assert.match(markup, /text-align:right/)
+  assert.match(markup, /pi-alert-warning/)
+  assert.doesNotMatch(markup, /\[!WARNING\]/)
+})
 
 type Node = PiBranchEntry
 

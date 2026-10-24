@@ -4,7 +4,6 @@
 .pi-markdown {
   min-width: 0;
   max-width: 100%;
-  --code-size: var(--text-ui);
   font-family: var(--font-content);
   font-weight: var(--font-content-weight);
   font-style: var(--font-content-style);
@@ -70,15 +69,34 @@
   line-height: 1.4;
 }
 
+.pi-h5,
+.pi-h6 {
+  font-size: 1em;
+  font-weight: 550;
+  margin: 0.9em 0 0.3em;
+  line-height: 1.4;
+}
+
+.pi-h6 {
+  color: var(--color-muted);
+}
+
 /* 容器第一个标题不要顶部间距 */
 .pi-markdown > .pi-h1:first-child,
 .pi-markdown > .pi-h2:first-child,
 .pi-markdown > .pi-h3:first-child,
 .pi-markdown > .pi-h4:first-child,
+.pi-markdown > .pi-h5:first-child,
+.pi-markdown > .pi-h6:first-child,
 .pi-markdown > div:first-child > .pi-h1:first-child,
 .pi-markdown > div:first-child > .pi-h2:first-child,
 .pi-markdown > div:first-child > .pi-h3:first-child,
 .pi-markdown > div:first-child > .pi-h4:first-child {
+  margin-top: 0;
+}
+
+.pi-markdown > div:first-child > .pi-h5:first-child,
+.pi-markdown > div:first-child > .pi-h6:first-child {
   margin-top: 0;
 }
 
@@ -243,7 +261,6 @@
 
 /* ---- 代码块 ---- */
 .pi-code-block {
-  --code-size: calc(var(--text-ui) - 1px);
   background: var(--color-surface);
   border: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
@@ -318,6 +335,11 @@
   font-size: inherit;
 }
 
+.pi-th,
+.pi-td {
+  min-width: 9em;
+}
+
 .pi-thead {
   background: color-mix(in srgb, var(--color-surface) 70%, transparent);
   border-bottom: 1.5px solid var(--color-border);
@@ -326,7 +348,6 @@
 .pi-th {
   padding: 0.6em 0.9em;
   font-weight: 600;
-  text-align: left;
   font-size: inherit;
   letter-spacing: 0.02em;
   color: var(--color-muted);

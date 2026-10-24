@@ -27,8 +27,9 @@ function MarkdownPre({ children }: React.ComponentPropsWithoutRef<'pre'>) {
 function parseAlert(children: React.ReactNode): { type: string; content: React.ReactNode } | null {
   const kids = React.Children.toArray(children)
   if (kids.length === 0) return null
-  const first = kids[0]
-  if (!React.isValidElement(first) || first.type !== 'p') return null
+  const firstIndex = kids.findIndex(React.isValidElement)
+  const first = kids[firstIndex]
+  if (!React.isValidElement(first)) return null
 
   const pChildren = React.Children.toArray((first.props as { children?: React.ReactNode }).children)
   if (pChildren.length === 0) return null
@@ -44,7 +45,7 @@ function parseAlert(children: React.ReactNode): { type: string; content: React.R
 
   // 重构第一个 <p> 的内容，去掉 alert 标记
   const newPChildren = remainingText ? [remainingText, ...pChildren.slice(1)] : pChildren.slice(1)
-  const restKids = kids.slice(1)
+  const restKids = kids.slice(firstIndex + 1)
 
   const content = (
     <>
@@ -86,11 +87,19 @@ export function useMarkdownComponents() {
       thead({ children }: React.ComponentPropsWithoutRef<'thead'>) {
         return <thead className="pi-thead">{children}</thead>
       },
-      th({ children }: React.ComponentPropsWithoutRef<'th'>) {
-        return <th className="pi-th">{children}</th>
+      th({ children, style }: React.ComponentPropsWithoutRef<'th'>) {
+        return (
+          <th className="pi-th" style={style}>
+            {children}
+          </th>
+        )
       },
-      td({ children }: React.ComponentPropsWithoutRef<'td'>) {
-        return <td className="pi-td">{children}</td>
+      td({ children, style }: React.ComponentPropsWithoutRef<'td'>) {
+        return (
+          <td className="pi-td" style={style}>
+            {children}
+          </td>
+        )
       },
       tr({ children }: React.ComponentPropsWithoutRef<'tr'>) {
         return <tr className="pi-tr">{children}</tr>
@@ -130,8 +139,9 @@ export function useMarkdownComponents() {
         return <ul className={cn('pi-ul', className)}>{children}</ul>
       },
       ol({ children, start, className }: React.ComponentPropsWithoutRef<'ol'>) {
+        const digits = String(Math.max(1, Number(start ?? 1) + React.Children.count(children) - 1)).length
         return (
-          <ol start={start} className={cn('pi-ol', className)}>
+          <ol start={start} className={cn('pi-ol', className)} style={{ paddingLeft: `${digits + 1.5}ch` }}>
             {children}
           </ol>
         )
@@ -155,6 +165,12 @@ export function useMarkdownComponents() {
       },
       h4({ children }: React.ComponentPropsWithoutRef<'h4'>) {
         return <h4 className="pi-h4">{children}</h4>
+      },
+      h5({ children }: React.ComponentPropsWithoutRef<'h5'>) {
+        return <h5 className="pi-h5">{children}</h5>
+      },
+      h6({ children }: React.ComponentPropsWithoutRef<'h6'>) {
+        return <h6 className="pi-h6">{children}</h6>
       },
 
       hr() {

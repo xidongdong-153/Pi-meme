@@ -201,6 +201,9 @@ export function WorkspacePanels({
   const rightWidth = Math.min(layout.expanded ? maxWidth : layout.width, maxWidth)
   const bothPanesFit = containerWidth - sidebarWidth >= 480 + 280
   useEffect(() => {
+    if (sidebarOpen && containerWidth - sidebarWidth < 320) onSidebar(false, sidebarWidth)
+  }, [containerWidth, sidebarOpen, sidebarWidth, onSidebar])
+  useEffect(() => {
     if (layout.open && sidebarOpen && !bothPanesFit) onSidebar(false, sidebarWidth)
   }, [layout.open, sidebarOpen, bothPanesFit, sidebarWidth, onSidebar])
   const changeSidebar = (open: boolean, width: number) => {

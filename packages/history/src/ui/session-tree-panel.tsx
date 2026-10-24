@@ -335,7 +335,7 @@ export function SessionTreePanel({ sessionEntries }: { sessionEntries: PiSession
                   {selectedEntry.preview.trim()}
                 </div>
               ) : (
-                <div className="session-tree-content text-[0.6875rem] leading-relaxed text-foreground break-words select-text [&_.pi-markdown]:!text-[0.6875rem] [&_.pi-markdown]:!leading-relaxed [&_.pi-h1]:!text-xs [&_.pi-h1]:!font-semibold [&_.pi-h1]:!my-1.5 [&_.pi-h1]:!pb-0.5 [&_.pi-h2]:!text-[0.6875rem] [&_.pi-h2]:!font-semibold [&_.pi-h2]:!my-1 [&_.pi-h2]:!pb-0.5 [&_.pi-h3]:!text-[0.6875rem] [&_.pi-h3]:!font-medium [&_.pi-h3]:!my-0.5 [&_.pi-p]:!mb-1.5 [&_.pi-p]:!leading-relaxed [&_.pi-ul]:!mb-1.5 [&_.pi-ul]:!pl-3.5 [&_.pi-ol]:!mb-1.5 [&_.pi-ol]:!pl-3.5 [&_.pi-li]:!mb-0.5 [&_.pi-li]:!leading-relaxed [&_.pi-code-block]:!my-1.5 [&_.pi-code-block]:!text-[0.625rem] [&_.pi-inline-code]:!text-[0.625rem]">
+                <div className="session-tree-content text-[0.6875rem] leading-relaxed text-foreground break-words select-text [&_.pi-markdown]:!text-[0.6875rem] [&_.pi-markdown]:!leading-relaxed [&_.pi-h1]:!text-xs [&_.pi-h1]:!font-semibold [&_.pi-h1]:!my-1.5 [&_.pi-h1]:!pb-0.5 [&_.pi-h2]:!text-[0.6875rem] [&_.pi-h2]:!font-semibold [&_.pi-h2]:!my-1 [&_.pi-h2]:!pb-0.5 [&_.pi-h3]:!text-[0.6875rem] [&_.pi-h3]:!font-medium [&_.pi-h3]:!my-0.5 [&_.pi-p]:!mb-1.5 [&_.pi-p]:!leading-relaxed [&_.pi-ul]:!mb-1.5 [&_.pi-ul]:!pl-3.5 [&_.pi-ol]:!mb-1.5 [&_.pi-li]:!mb-0.5 [&_.pi-li]:!leading-relaxed [&_.pi-code-block]:!my-1.5 [&_.pi-code-block]:!text-[0.625rem] [&_.pi-inline-code]:!text-[0.625rem]">
                   <HistoryMarkdown>{selectedEntry.preview.trim()}</HistoryMarkdown>
                 </div>
               )
