@@ -146,9 +146,11 @@ export function InlineMessageEditor({ editor }: { editor: MessageEditorState }) 
           editing={true}
         />
 
-        <p className="mt-2 text-xs text-muted-foreground" role={editor.submitting ? 'status' : undefined}>
-          {editor.submitting ? editor.submissionLabel : '发送后将覆盖此消息及后续对话'}
-        </p>
+        {editor.submitting && (
+          <p className="mt-2 text-xs text-muted-foreground" role="status">
+            {editor.submissionLabel}
+          </p>
+        )}
         <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
           <button
             type="button"
