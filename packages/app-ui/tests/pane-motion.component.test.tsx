@@ -7,6 +7,7 @@ import type { HostApi } from '@pi-meme/contracts/app-host'
 import type { UiPanel } from '@pi-meme/plugin-sdk/ui'
 import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 import { WorkspacePanels } from '../src/layout/workspace-panels'
+import { defaultPanelLayout, panelStorageKey } from '../src/layout/panel-layout'
 import { detectPlatform, ShortcutProvider } from '../src/shortcuts/shortcut-provider'
 import { DEFAULT_PROFILE } from '../src/settings/user-profile'
 
@@ -130,13 +131,17 @@ test('窄窗口展开一侧时收起另一侧，并保留原栏宽', () => {
   expect(onSidebar).toHaveBeenLastCalledWith(true, 256)
 })
 
-test.each([1280, 1024, 800])('容器宽 %d 时加宽右侧栏仍为聊天保留至少 480px', (width) => {
+test.each([1280, 1024, 800])('容器宽 %d 时旧版加宽状态按保存宽度恢复，并为聊天保留至少 480px', (width) => {
   vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(width)
+  window.localStorage.setItem(
+    panelStorageKey('host', 'chat'),
+    JSON.stringify({ ...defaultPanelLayout(), width: 360, expanded: true }),
+  )
   render(<Panes />)
   fireEvent.click(screen.getByRole('button', { name: '展开右侧栏' }))
-  fireEvent.click(screen.getByRole('button', { name: '加宽右侧栏' }))
   const leftWidth = Number.parseFloat(shell().style.getPropertyValue('--workspace-sidebar-width'))
   const rightWidth = Number.parseFloat(shell().style.getPropertyValue('--workspace-right-width'))
+  expect(rightWidth).toBe(Math.min(360, width - leftWidth - 480))
   expect(width - leftWidth - rightWidth).toBeGreaterThanOrEqual(480)
 })
 

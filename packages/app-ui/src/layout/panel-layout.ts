@@ -17,11 +17,10 @@ export type PanelLayoutState = {
   active: string
   open: boolean
   width: number
-  expanded: boolean
 }
 
 export function defaultPanelLayout(): PanelLayoutState {
-  return { version: 2, tabs: [], active: '', open: false, width: 480, expanded: false }
+  return { version: 2, tabs: [], active: '', open: false, width: 480 }
 }
 
 export function panelAvailable(panel: UiPanel, target: UiTarget) {
@@ -68,7 +67,6 @@ export function readPanelLayout(raw: string | null): PanelLayoutState {
         ? migratePanelId(value.active)
         : (initial.tabs[0] ?? '')
     if (typeof value.open === 'boolean') initial.open = value.open
-    if (typeof value.expanded === 'boolean') initial.expanded = value.expanded
     if (typeof value.width === 'number' && Number.isFinite(value.width))
       initial.width = Math.max(280, Math.min(1200, value.width))
     return initial

@@ -1,17 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import {
-  Globe,
-  Grid2X2,
-  Layers,
-  MessageCircle,
-  Maximize2,
-  Minimize2,
-  PanelRightClose,
-  PanelRightOpen,
-  Plus,
-  Search,
-  X,
-} from 'lucide-react'
+import { Globe, Grid2X2, Layers, MessageCircle, PanelRightClose, PanelRightOpen, Plus, Search, X } from 'lucide-react'
 import { ErrorBoundary } from '@pi-meme/ui/components/error-boundary'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
@@ -252,7 +240,7 @@ export function WorkspacePanels({
   }
   const workspaceWidth = Math.max(0, containerWidth - (sidebarOpen ? sidebarWidth : 0))
   const maxWidth = Math.max(0, workspaceWidth - Math.min(480, containerWidth * 0.6))
-  const rightWidth = Math.min(layout.expanded ? maxWidth : layout.width, maxWidth)
+  const rightWidth = Math.min(layout.width, maxWidth)
   const bothPanesFit = containerWidth - sidebarWidth >= 480 + 280
   useEffect(() => {
     if (sidebarOpen && containerWidth - sidebarWidth < 320) onSidebar(false, sidebarWidth)
@@ -408,14 +396,6 @@ export function WorkspacePanels({
         <HeaderButton label="新标签页" onClick={() => open(toolsTabId)}>
           <Plus />
         </HeaderButton>
-        {!unified && (
-          <HeaderButton
-            label={layout.expanded ? '还原右侧栏宽度' : '加宽右侧栏'}
-            onClick={() => setLayout((value) => ({ ...value, expanded: !value.expanded }))}
-          >
-            {layout.expanded ? <Minimize2 /> : <Maximize2 />}
-          </HeaderButton>
-        )}
       </div>
     </div>
   )
@@ -604,9 +584,7 @@ export function WorkspacePanels({
                   onDragEnd={(result) => {
                     rightPane.endDrag(result)
                     setLayout((value) =>
-                      result.collapse
-                        ? { ...value, open: false }
-                        : { ...value, open: true, width: result.width, expanded: false },
+                      result.collapse ? { ...value, open: false } : { ...value, open: true, width: result.width },
                     )
                   }}
                 />

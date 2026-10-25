@@ -17,8 +17,9 @@ import {
 test('右侧标签按 Host 与会话隔离，保存顺序、选中项和宽度', () => {
   assert.notEqual(panelStorageKey('local', 'chat'), panelStorageKey('remote', 'chat'))
   assert.notEqual(panelStorageKey('local', 'one'), panelStorageKey('local', 'two'))
-  const layout = { ...openPanel(defaultPanelLayout(), 'example:files'), width: 580, expanded: true }
+  const layout = { ...openPanel(defaultPanelLayout(), 'example:files'), width: 580 }
   assert.deepEqual(readPanelLayout(JSON.stringify(layout)), layout)
+  assert.deepEqual(readPanelLayout(JSON.stringify({ ...layout, expanded: true })), layout)
 })
 
 test('工具选择页打开面板，重复打开只选中原标签，关闭选中相邻标签', () => {
