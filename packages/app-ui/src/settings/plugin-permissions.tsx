@@ -50,10 +50,14 @@ export function PluginPermissions({
   plugin,
   client,
   onChanged,
+  onSaved,
+  onEdit,
 }: {
   plugin: UiPluginDescriptor
   client: PluginClient
   onChanged: () => Promise<void>
+  onSaved?: (plugin: UiPluginDescriptor) => void
+  onEdit?: () => void
 }) {
   const policyHash = plugin.policyHash ?? ''
   const [grant, setGrant] = useState<PluginGrant>(() =>
@@ -92,6 +96,7 @@ export function PluginPermissions({
 
   function change(update: (value: PluginGrant) => PluginGrant) {
     setSaved(false)
+    onEdit?.()
     setGrant(update)
   }
   function uiCapability(capability: PluginUiCapability, checked: boolean) {
@@ -105,8 +110,13 @@ export function PluginPermissions({
     setSaving(true)
     setError('')
     try {
-      await client.setGrant(plugin.id, { ...grant, policyHash, expectedRevision: plugin.grant?.revision ?? 0 })
+      const updated = await client.setGrant(plugin.id, {
+        ...grant,
+        policyHash,
+        expectedRevision: plugin.grant?.revision ?? 0,
+      })
       setSaved(true)
+      onSaved?.(updated)
       await onChanged()
     } catch (cause) {
       setError(String(cause))
@@ -284,7 +294,7 @@ export function PluginPermissions({
           {error}
         </p>
       )}
-      {saved && (
+      {saved && !onSaved && (
         <p role="status" className="text-xs text-muted-foreground">
           权限已保存。
         </p>

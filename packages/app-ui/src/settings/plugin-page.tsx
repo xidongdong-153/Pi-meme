@@ -54,6 +54,8 @@ export function PluginPage({
   const [error, setError] = useState('')
   const [removing, setRemoving] = useState<UiPluginDescriptor>()
   const [installResult, setInstallResult] = useState('')
+  const [savedGrant, setSavedGrant] = useState<{ id: string; policyHash?: string; revision: number }>()
+  const editedGrant = useRef<typeof savedGrant>(undefined)
   const uploadRef = useRef<HTMLInputElement>(null)
   const installed = plugins.filter((plugin) => !plugin.builtin && !isReservedPluginId(plugin.id))
   const catalog = [...installed, ...systemPlugins]
@@ -215,8 +217,38 @@ export function PluginPage({
                   plugin={detail}
                   client={client}
                   onChanged={onChanged}
+                  onSaved={(updated) => {
+                    const grant = updated.grant
+                    const edited = editedGrant.current
+                    // 列表可能先于保存响应更新；该修订已有新编辑时，不恢复旧成功提示。
+                    if (
+                      grant &&
+                      edited?.id === updated.id &&
+                      edited.policyHash === updated.policyHash &&
+                      edited.revision >= grant.revision
+                    )
+                      return
+                    setSavedGrant(
+                      grant ? { id: updated.id, policyHash: updated.policyHash, revision: grant.revision } : undefined,
+                    )
+                  }}
+                  onEdit={() => {
+                    editedGrant.current = {
+                      id: detail.id,
+                      policyHash: detail.policyHash,
+                      revision: detail.grant?.revision ?? 0,
+                    }
+                    setSavedGrant(undefined)
+                  }}
                 />
               )}
+              {savedGrant?.id === detail.id &&
+                savedGrant.policyHash === detail.policyHash &&
+                savedGrant.revision === detail.grant?.revision && (
+                  <p role="status" className="text-xs text-muted-foreground">
+                    权限已保存。
+                  </p>
+                )}
               <div className="flex flex-wrap gap-2">
                 <Button
                   variant="outline"
