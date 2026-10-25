@@ -1,4 +1,17 @@
-import { Clock, BookOpen, Folder, Gauge, Gift, Home, Keyboard, LifeBuoy, Puzzle, Settings } from 'lucide-react'
+import {
+  Circle,
+  Clock,
+  BookOpen,
+  Folder,
+  Gauge,
+  Gift,
+  Home,
+  Keyboard,
+  LifeBuoy,
+  Plug,
+  Puzzle,
+  Settings,
+} from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -172,7 +185,10 @@ export function AppRail({
                   : 'text-muted-foreground hover:text-foreground',
               )}
             >
-              <Puzzle className="size-4" />
+              <span className="relative size-4" aria-hidden="true">
+                <Circle className="size-4" />
+                <Plug className="absolute inset-[3px] size-2.5 -rotate-45" />
+              </span>
             </button>
           </TooltipTrigger>
           <TooltipContent side="right" sideOffset={8}>
