@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import {
   ArrowLeft,
   ArrowUpRight,
@@ -6,7 +6,6 @@ import {
   Check,
   CheckCheck,
   ChevronDown,
-  ChevronRight,
   CircleAlert,
   Clock,
   FileText,
@@ -124,6 +123,7 @@ export function SchedulesPage({
   const { tasks, connected, supported, loading } = state
   const [query, setQuery] = useState('')
   const [filter, setFilter] = useState('all')
+  const disclosureId = useId()
   const [collapsed, setCollapsed] = useState(new Set<string>())
   const [dialog, setDialog] = useState<{ task?: ScheduledTask; template?: (typeof templates)[number] }>()
   const [deleting, setDeleting] = useState<ScheduledTask>()
@@ -304,6 +304,7 @@ export function SchedulesPage({
                     <button
                       type="button"
                       aria-expanded={!closed}
+                      aria-controls={`${disclosureId}-${status}`}
                       onClick={() =>
                         setCollapsed((values) => {
                           const next = new Set(values)
@@ -315,58 +316,75 @@ export function SchedulesPage({
                       className="flex h-8 items-center gap-1.5 px-3 text-xs font-medium text-muted-foreground"
                     >
                       {status === 'active' ? '活跃' : status === 'paused' ? '已暂停' : '已结束'}
-                      {closed ? <ChevronRight className="size-3" /> : <ChevronDown className="size-3" />}
+                      <ChevronDown
+                        aria-hidden="true"
+                        className={cn(
+                          'size-3 transition-transform duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
+                          closed && '-rotate-90',
+                        )}
+                      />
                       <span className="ml-1 text-muted-foreground/50">{items.length}</span>
                     </button>
-                    {!closed &&
-                      items.map((task) => (
-                        <button
-                          type="button"
-                          key={task.taskId}
-                          onClick={() => onSelect(task.taskId)}
-                          aria-current={selectedId === task.taskId ? 'page' : undefined}
-                          className={cn(
-                            'group mb-1 flex w-full items-start gap-2 rounded-xl px-3 py-3 text-left transition-colors hover:bg-secondary/70',
-                            selectedId === task.taskId && 'bg-secondary',
-                          )}
-                        >
-                          <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
-                              <span className="truncate text-sm font-medium">{task.name}</span>
-                              {task.unreadCount > 0 && (
-                                <span
-                                  aria-label={`${task.unreadCount} 条未读运行记录`}
-                                  className="size-1.5 shrink-0 rounded-full bg-blue-500"
-                                />
+                    <div
+                      id={`${disclosureId}-${status}`}
+                      aria-hidden={closed}
+                      inert={closed}
+                      className={cn(
+                        'grid transition-[grid-template-rows,opacity] duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
+                        closed ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100',
+                      )}
+                    >
+                      <div className="min-h-0 overflow-hidden">
+                        {items.map((task) => (
+                          <button
+                            type="button"
+                            key={task.taskId}
+                            onClick={() => onSelect(task.taskId)}
+                            aria-current={selectedId === task.taskId ? 'page' : undefined}
+                            className={cn(
+                              'group mb-1 flex w-full items-start gap-2 rounded-xl px-3 py-3 text-left transition-colors hover:bg-secondary/70',
+                              selectedId === task.taskId && 'bg-secondary',
+                            )}
+                          >
+                            <div className="min-w-0 flex-1">
+                              <div className="flex items-center gap-2">
+                                <span className="truncate text-sm font-medium">{task.name}</span>
+                                {task.unreadCount > 0 && (
+                                  <span
+                                    aria-label={`${task.unreadCount} 条未读运行记录`}
+                                    className="size-1.5 shrink-0 rounded-full bg-blue-500"
+                                  />
+                                )}
+                              </div>
+                              <p className="mt-1 truncate text-xs text-muted-foreground">
+                                {running(task.activeRun)
+                                  ? '正在运行'
+                                  : task.status === 'paused'
+                                    ? '已暂停'
+                                    : task.nextRunAt
+                                      ? `${formatScheduleTime(task.nextRunAt, task.rule.timeZone)} · ${describeRule(task.rule)}`
+                                      : describeRule(task.rule)}
+                              </p>
+                              {task.lastRun && !running(task.activeRun) && (
+                                <p
+                                  className={cn(
+                                    'mt-1 truncate text-[11px] text-muted-foreground/65',
+                                    task.lastRun.status === 'failed' && 'text-destructive/80',
+                                  )}
+                                >
+                                  最近{statusLabels[task.lastRun.status]}
+                                </p>
                               )}
                             </div>
-                            <p className="mt-1 truncate text-xs text-muted-foreground">
-                              {running(task.activeRun)
-                                ? '正在运行'
-                                : task.status === 'paused'
-                                  ? '已暂停'
-                                  : task.nextRunAt
-                                    ? `${formatScheduleTime(task.nextRunAt, task.rule.timeZone)} · ${describeRule(task.rule)}`
-                                    : describeRule(task.rule)}
-                            </p>
-                            {task.lastRun && !running(task.activeRun) && (
-                              <p
-                                className={cn(
-                                  'mt-1 truncate text-[11px] text-muted-foreground/65',
-                                  task.lastRun.status === 'failed' && 'text-destructive/80',
-                                )}
-                              >
-                                最近{statusLabels[task.lastRun.status]}
-                              </p>
-                            )}
-                          </div>
-                          {running(task.activeRun) ? (
-                            <Loader2 className="mt-1 size-3.5 shrink-0 animate-spin text-muted-foreground" />
-                          ) : task.lastRun?.status === 'failed' ? (
-                            <CircleAlert className="mt-1 size-3.5 shrink-0 text-destructive" />
-                          ) : null}
-                        </button>
-                      ))}
+                            {running(task.activeRun) ? (
+                              <Loader2 className="mt-1 size-3.5 shrink-0 animate-spin text-muted-foreground" />
+                            ) : task.lastRun?.status === 'failed' ? (
+                              <CircleAlert className="mt-1 size-3.5 shrink-0 text-destructive" />
+                            ) : null}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                   </div>
                 )
               })}
@@ -577,6 +595,7 @@ export function SchedulesPage({
                           <button
                             type="button"
                             aria-expanded={expanded.has(run.runId)}
+                            aria-controls={`${disclosureId}-${run.runId}`}
                             onClick={() => {
                               setExpanded((values) => {
                                 const next = new Set(values)
@@ -611,50 +630,61 @@ export function SchedulesPage({
                               {run.needsInput ? '需要处理' : statusLabels[run.status]}
                             </span>
                             <ChevronDown
+                              aria-hidden="true"
                               className={cn(
-                                'size-3.5 shrink-0 text-muted-foreground transition-transform',
+                                'size-3.5 shrink-0 text-muted-foreground transition-transform duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
                                 expanded.has(run.runId) && 'rotate-180',
                               )}
                             />
                           </button>
-                          {expanded.has(run.runId) && (
-                            <div className="border-t border-border/50 bg-secondary/10 px-5 py-4">
-                              {run.error && (
-                                <p
-                                  className={cn(
-                                    'mb-3 whitespace-pre-wrap break-words text-sm leading-6 select-text',
-                                    run.status === 'failed' ? 'text-destructive' : 'text-muted-foreground',
-                                  )}
-                                >
-                                  {run.error}
+                          <div
+                            id={`${disclosureId}-${run.runId}`}
+                            aria-hidden={!expanded.has(run.runId)}
+                            inert={!expanded.has(run.runId)}
+                            className={cn(
+                              'grid transition-[grid-template-rows,opacity] duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
+                              expanded.has(run.runId) ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0',
+                            )}
+                          >
+                            <div className="min-h-0 overflow-hidden">
+                              <div className="border-t border-border/50 bg-secondary/10 px-5 py-4">
+                                {run.error && (
+                                  <p
+                                    className={cn(
+                                      'mb-3 whitespace-pre-wrap break-words text-sm leading-6 select-text',
+                                      run.status === 'failed' ? 'text-destructive' : 'text-muted-foreground',
+                                    )}
+                                  >
+                                    {run.error}
+                                  </p>
+                                )}
+                                <p className="text-xs leading-6 text-muted-foreground">
+                                  {run.configuration.model.name ?? run.configuration.model.id} ·{' '}
+                                  {thinkingLevelLabels[run.configuration.thinkingLevel]}
                                 </p>
-                              )}
-                              <p className="text-xs leading-6 text-muted-foreground">
-                                {run.configuration.model.name ?? run.configuration.model.id} ·{' '}
-                                {thinkingLevelLabels[run.configuration.thinkingLevel]}
-                              </p>
-                              <p className="mt-2 whitespace-pre-wrap break-words text-xs leading-6 text-muted-foreground select-text">
-                                {run.prompt}
-                              </p>
-                              {run.session && (
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  disabled={disabled || pending.has(run.runId)}
-                                  className="mt-4 rounded-full"
-                                  onClick={() =>
-                                    void action(run.runId, async () => {
-                                      await read(selected, run)
-                                      await onOpenSession(run.session!)
-                                    })
-                                  }
-                                >
-                                  {run.needsInput ? '打开聊天处理请求' : '打开聊天'}
-                                  <ArrowUpRight className="size-3.5" />
-                                </Button>
-                              )}
+                                <p className="mt-2 whitespace-pre-wrap break-words text-xs leading-6 text-muted-foreground select-text">
+                                  {run.prompt}
+                                </p>
+                                {run.session && (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    disabled={disabled || pending.has(run.runId)}
+                                    className="mt-4 rounded-full"
+                                    onClick={() =>
+                                      void action(run.runId, async () => {
+                                        await read(selected, run)
+                                        await onOpenSession(run.session!)
+                                      })
+                                    }
+                                  >
+                                    {run.needsInput ? '打开聊天处理请求' : '打开聊天'}
+                                    <ArrowUpRight className="size-3.5" />
+                                  </Button>
+                                )}
+                              </div>
                             </div>
-                          )}
+                          </div>
                         </div>
                       ))}
                     </div>

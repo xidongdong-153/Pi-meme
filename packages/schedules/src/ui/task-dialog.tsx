@@ -1,5 +1,5 @@
-import { useState, type ReactNode } from 'react'
-import { Check, ChevronDown, ChevronUp, Clock, Loader2 } from 'lucide-react'
+import { useId, useState, type ReactNode } from 'react'
+import { Check, ChevronDown, Clock, Loader2 } from 'lucide-react'
 import type { AppProject } from '@pi-meme/contracts/app-host'
 import type {
   ScheduleConfiguration,
@@ -121,6 +121,7 @@ export function TaskDialog({
   const [unit, setUnit] = useState<'minutes' | 'hours'>(initialRule?.kind === 'interval' ? initialRule.unit : 'hours')
   const anchor = initialRule?.kind === 'interval' ? initialRule.anchor : undefined
   const [projectId, setProjectId] = useState(task?.project?.projectId ?? 'none')
+  const advancedId = useId()
   const [advanced, setAdvanced] = useState(false)
   const [newSessionEachRun, setNewSessionEachRun] = useState(task?.newSessionEachRun ?? true)
   const [configuration, setConfiguration] = useState(task?.configuration ?? defaults)
@@ -315,137 +316,154 @@ export function TaskDialog({
             <button
               type="button"
               aria-expanded={advanced}
+              aria-controls={advancedId}
               onClick={() => setAdvanced((value) => !value)}
               className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:text-foreground"
             >
-              高级{advanced ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+              高级
+              <ChevronDown
+                aria-hidden="true"
+                className={cn(
+                  'size-3.5 transition-transform duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
+                  advanced && 'rotate-180',
+                )}
+              />
             </button>
-            {advanced && (
-              <div className="space-y-3">
-                {' '}
-                <div className="overflow-hidden rounded-[20px] border border-border/70">
-                  <Row label="执行位置">
-                    <span className="truncate px-2 text-sm text-muted-foreground" title={locationLabel}>
-                      {locationLabel}
-                    </span>
-                  </Row>
-                  <div className="mx-4 border-t border-border/60" />
-                  <Row label="项目">
-                    {task ? (
-                      <span className="truncate px-2 text-sm text-muted-foreground">
-                        {projects.find((item) => item.projectId === task.project?.projectId)?.name ??
-                          (task.project ? '项目不可用' : '独立工作目录')}
+            <div
+              id={advancedId}
+              aria-hidden={!advanced}
+              inert={!advanced}
+              className={cn(
+                '!my-0 grid transition-[grid-template-rows,opacity] duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
+                advanced ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0',
+              )}
+            >
+              <div className="min-h-0 overflow-hidden">
+                <div className="space-y-3 pb-4">
+                  <div className="overflow-hidden rounded-[20px] border border-border/70">
+                    <Row label="执行位置">
+                      <span className="truncate px-2 text-sm text-muted-foreground" title={locationLabel}>
+                        {locationLabel}
                       </span>
-                    ) : (
+                    </Row>
+                    <div className="mx-4 border-t border-border/60" />
+                    <Row label="项目">
+                      {task ? (
+                        <span className="truncate px-2 text-sm text-muted-foreground">
+                          {projects.find((item) => item.projectId === task.project?.projectId)?.name ??
+                            (task.project ? '项目不可用' : '独立工作目录')}
+                        </span>
+                      ) : (
+                        <Choice
+                          label="执行项目"
+                          value={projectId}
+                          onChange={setProjectId}
+                          choices={[
+                            { value: 'none', label: '独立工作目录' },
+                            ...projects
+                              .filter((project) => !project.unavailable)
+                              .map((project) => ({ value: project.projectId, label: project.name })),
+                          ]}
+                        />
+                      )}
+                    </Row>
+                  </div>
+                  <div className="rounded-[20px] border border-border/70">
+                    <Row label="时区">
+                      <input
+                        aria-label="时区"
+                        list="schedule-time-zones"
+                        value={timeZone}
+                        onChange={(event) => setTimeZone(event.target.value)}
+                        className="h-9 w-44 rounded-md border-0 bg-transparent px-2 text-right text-sm text-muted-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                      />
+                      <datalist id="schedule-time-zones">
+                        {[
+                          'Asia/Shanghai',
+                          'Asia/Tokyo',
+                          'Asia/Singapore',
+                          'Europe/London',
+                          'Europe/Berlin',
+                          'America/New_York',
+                          'America/Los_Angeles',
+                          'UTC',
+                        ].map((zone) => (
+                          <option key={zone} value={zone} />
+                        ))}
+                      </datalist>
+                    </Row>
+                  </div>
+                  <div className="rounded-[20px] border border-border/70">
+                    <Row label="每次运行时都开启新聊天">
+                      <Switch
+                        label="每次运行时都开启新聊天"
+                        checked={newSessionEachRun}
+                        onChange={setNewSessionEachRun}
+                      />
+                    </Row>
+                  </div>
+                  <div className="rounded-[20px] border border-border/70">
+                    <Row label="通知">
                       <Choice
-                        label="执行项目"
-                        value={projectId}
-                        onChange={setProjectId}
+                        label="通知方式"
+                        value={notification}
+                        onChange={(value) => setNotification(value as typeof notification)}
                         choices={[
-                          { value: 'none', label: '独立工作目录' },
-                          ...projects
-                            .filter((project) => !project.unavailable)
-                            .map((project) => ({ value: project.projectId, label: project.name })),
+                          { value: 'all', label: '每次完成' },
+                          { value: 'failures', label: '仅失败' },
+                          { value: 'off', label: '关闭' },
                         ]}
                       />
-                    )}
-                  </Row>
-                </div>
-                <div className="rounded-[20px] border border-border/70">
-                  <Row label="时区">
-                    <input
-                      aria-label="时区"
-                      list="schedule-time-zones"
-                      value={timeZone}
-                      onChange={(event) => setTimeZone(event.target.value)}
-                      className="h-9 w-44 rounded-md border-0 bg-transparent px-2 text-right text-sm text-muted-foreground outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                    />
-                    <datalist id="schedule-time-zones">
-                      {[
-                        'Asia/Shanghai',
-                        'Asia/Tokyo',
-                        'Asia/Singapore',
-                        'Europe/London',
-                        'Europe/Berlin',
-                        'America/New_York',
-                        'America/Los_Angeles',
-                        'UTC',
-                      ].map((zone) => (
-                        <option key={zone} value={zone} />
-                      ))}
-                    </datalist>
-                  </Row>
-                </div>
-                <div className="rounded-[20px] border border-border/70">
-                  <Row label="每次运行时都开启新聊天">
-                    <Switch
-                      label="每次运行时都开启新聊天"
-                      checked={newSessionEachRun}
-                      onChange={setNewSessionEachRun}
-                    />
-                  </Row>
-                </div>
-                <div className="rounded-[20px] border border-border/70">
-                  <Row label="通知">
-                    <Choice
-                      label="通知方式"
-                      value={notification}
-                      onChange={(value) => setNotification(value as typeof notification)}
-                      choices={[
-                        { value: 'all', label: '每次完成' },
-                        { value: 'failures', label: '仅失败' },
-                        { value: 'off', label: '关闭' },
-                      ]}
-                    />
-                  </Row>
-                </div>
-                <div className="rounded-[20px] border border-border/70">
-                  <Row label="模型与强度">
-                    <span className="max-w-36 truncate text-xs text-muted-foreground @min-[500px]:hidden">
-                      {configuration.model.name ?? configuration.model.id}
-                    </span>
-                    {renderModelPicker(configuration, setConfiguration)}
-                  </Row>
-                </div>
-                <div className="rounded-[20px] border border-border/70">
-                  <Row label="访问权限">
-                    <span className="text-xs text-muted-foreground @min-[500px]:hidden">
-                      {agentAccessChoices.find((choice) => choice.mode === configuration.accessMode)?.label}
-                    </span>
-                    {renderAccessSelector(configuration, setConfiguration)}
-                  </Row>
-                </div>
-                <div className="rounded-[20px] border border-border/70 px-5 py-4">
-                  <span className="text-sm font-medium">Agent 插件</span>
-                  <div className="mt-3 space-y-3">
-                    {plugins.length ? (
-                      plugins.map((plugin) => (
-                        <label
-                          key={plugin.id}
-                          className="flex items-center justify-between gap-3 text-sm text-muted-foreground"
-                        >
-                          <span className="truncate">{plugin.name}</span>
-                          <Switch
-                            label={`启用插件：${plugin.name}`}
-                            checked={configuration.agentPlugins.includes(plugin.id)}
-                            onChange={(checked) =>
-                              setConfiguration({
-                                ...configuration,
-                                agentPlugins: checked
-                                  ? [...configuration.agentPlugins, plugin.id]
-                                  : configuration.agentPlugins.filter((id) => id !== plugin.id),
-                              })
-                            }
-                          />
-                        </label>
-                      ))
-                    ) : (
-                      <p className="text-xs text-muted-foreground">没有可用的 Agent 插件</p>
-                    )}
+                    </Row>
+                  </div>
+                  <div className="rounded-[20px] border border-border/70">
+                    <Row label="模型与强度">
+                      <span className="max-w-36 truncate text-xs text-muted-foreground @min-[500px]:hidden">
+                        {configuration.model.name ?? configuration.model.id}
+                      </span>
+                      {renderModelPicker(configuration, setConfiguration)}
+                    </Row>
+                  </div>
+                  <div className="rounded-[20px] border border-border/70">
+                    <Row label="访问权限">
+                      <span className="text-xs text-muted-foreground @min-[500px]:hidden">
+                        {agentAccessChoices.find((choice) => choice.mode === configuration.accessMode)?.label}
+                      </span>
+                      {renderAccessSelector(configuration, setConfiguration)}
+                    </Row>
+                  </div>
+                  <div className="rounded-[20px] border border-border/70 px-5 py-4">
+                    <span className="text-sm font-medium">Agent 插件</span>
+                    <div className="mt-3 space-y-3">
+                      {plugins.length ? (
+                        plugins.map((plugin) => (
+                          <label
+                            key={plugin.id}
+                            className="flex items-center justify-between gap-3 text-sm text-muted-foreground"
+                          >
+                            <span className="truncate">{plugin.name}</span>
+                            <Switch
+                              label={`启用插件：${plugin.name}`}
+                              checked={configuration.agentPlugins.includes(plugin.id)}
+                              onChange={(checked) =>
+                                setConfiguration({
+                                  ...configuration,
+                                  agentPlugins: checked
+                                    ? [...configuration.agentPlugins, plugin.id]
+                                    : configuration.agentPlugins.filter((id) => id !== plugin.id),
+                                })
+                              }
+                            />
+                          </label>
+                        ))
+                      ) : (
+                        <p className="text-xs text-muted-foreground">没有可用的 Agent 插件</p>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>
-            )}
+            </div>
             <p className="flex items-start gap-2 px-1 text-xs leading-5 text-muted-foreground">
               <Clock className="mt-0.5 size-3.5 shrink-0" />
               <span>
