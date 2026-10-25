@@ -9,6 +9,7 @@ import type { useAppSession } from '../session/use-app-session'
 
 export type ServiceController = ReturnType<typeof useAppSession> & {
   openSettings: () => void
+  openSchedules: () => void
   assertRestartAllowed: () => void
   assertRemoveAllowed?: () => void
   openProjectDialog?: () => void
@@ -24,6 +25,7 @@ export type ServiceUI = {
   onController: (id: string, controller: ServiceController) => void
   onLocation: (serviceId: string, input: SelectWorkspace) => Promise<boolean>
   onSearch: () => void
+  onSchedules: (serviceId: string) => void
   beforeRestart: () => void
 }
 

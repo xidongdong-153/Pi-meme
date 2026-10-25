@@ -676,6 +676,10 @@ export async function createHost(options: HostOptions = {}) {
       await Promise.all(temporary.map((session) => session?.stopAndWait()))
     }
     cleanup = async () => {
+      await (
+        builtins?.services['host.schedules.runtime'] as
+          import('@pi-meme/schedules/server/service').ScheduleService | undefined
+      )?.beginShutdown()
       await collaboration?.stopAndWait()
       await pi.stopAndWait()
       await activities.dispose()
@@ -967,6 +971,10 @@ export async function createHost(options: HostOptions = {}) {
           })
         },
       },
+      'host.schedules': {
+        hostId,
+        onError: (cause: unknown) => emit('error', { generation: 0, message: `定时任务处理失败：${String(cause)}` }),
+      },
       'host.resources': { store: resources, getCwd: () => pi.cwd, hostId },
       'host.models': { pi, models, agentDir: paths.agentDir },
       'host.settings': {
@@ -1216,7 +1224,11 @@ export async function createHost(options: HostOptions = {}) {
       )
         throw new Error('Agent 插件选择无效')
     }
+    const schedules = builtins.services[
+      'host.schedules.runtime'
+    ] as import('@pi-meme/schedules/server/service').ScheduleService
     appControl = await createAppControl({
+      schedules,
       hostId,
       root,
       controlPaths: storagePaths,
@@ -1360,6 +1372,9 @@ export async function createHost(options: HostOptions = {}) {
     })
     await plugins.restore()
     pluginsRestored = true
+    await schedules.start(appControl.apiFor('host-schedules'), (taskId) =>
+      appControl!.publish({ type: 'schedule', value: { taskId } }),
+    )
     await refreshPluginThemes()
     const registry = new RequestRegistry(hostId, storagePaths.requestsFile)
     const client = async (clientId: string) => {
@@ -1423,6 +1438,7 @@ export async function createHost(options: HostOptions = {}) {
         activityBridge.assertIdle()
         plugins.assertIdle()
         appControl!.prepareMaintenance()
+        schedules.prepareMaintenance()
         closing = true
       },
       app: appControl.api,
@@ -1676,6 +1692,7 @@ export async function createHost(options: HostOptions = {}) {
         disposal = (async () => {
           for (const timer of clientTimers.values()) clearTimeout(timer)
           clientTimers.clear()
+          await schedules.beginShutdown()
           await appControl!.beginShutdown()
           await collaboration.stopAndWait()
           await pi.stopAndWait()

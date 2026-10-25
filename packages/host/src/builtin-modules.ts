@@ -1,3 +1,4 @@
+import * as schedules from '@pi-meme/schedules/server/entry'
 import * as goals from '@pi-meme/goals/server/entry'
 import path from 'node:path'
 import { mkdir } from 'node:fs/promises'
@@ -25,6 +26,7 @@ import { PluginScope } from '@pi-meme/plugin-sdk/scope'
 import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 
 const modules = [
+  schedules,
   goals,
   chat,
   workspace,

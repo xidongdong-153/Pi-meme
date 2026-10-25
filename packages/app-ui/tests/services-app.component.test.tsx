@@ -17,6 +17,9 @@ vi.mock('../src/app', () => ({
     }, [serviceId, onController])
     return serviceUI.active ? (
       <div data-testid="active-service" data-service={serviceId}>
+        <button type="button" onClick={() => serviceUI.onSchedules('remote')}>
+          切换远程定时任务
+        </button>
         {serviceUI.sidebar}
         {serviceUI.remoteSettings}
       </div>
@@ -66,6 +69,9 @@ async function setup(target: string, status: HostService['status'], remote: Part
       sessions: service.sessions,
       connection: { status: 'idle', cwd: '/project' },
       switchSession: vi.fn().mockResolvedValue(true),
+      openSchedules: vi.fn(),
+      captureDraft: vi.fn(),
+      clearDraft: vi.fn(),
       setError: vi.fn(),
     } as unknown as ServiceController)
   }
@@ -194,4 +200,14 @@ test('正在编辑时激活切换其他服务或会话，自动取消编辑且�
   await waitFor(() => expect(source.cancelEdit).toHaveBeenCalled())
   await waitFor(() => expect(controller.switchSession).toHaveBeenCalledExactlyOnceWith('/remote-A.jsonl'))
   expect(source.setError).not.toHaveBeenCalledWith('请先完成或取消历史消息编辑')
+})
+
+test('切换任务执行位置只打开目标任务页，不切换聊天或清空草稿', async () => {
+  const { controller, source } = await setup('remote', 'connected')
+  fireEvent.click(screen.getByRole('button', { name: '切换远程定时任务' }))
+  await waitFor(() => expect(controller.openSchedules).toHaveBeenCalledOnce())
+  expect(screen.getByTestId('active-service').getAttribute('data-service')).toBe('remote')
+  expect(controller.switchSession).not.toHaveBeenCalled()
+  expect(source.clearDraft).not.toHaveBeenCalled()
+  expect(source.captureDraft).not.toHaveBeenCalled()
 })

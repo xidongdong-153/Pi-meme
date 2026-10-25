@@ -116,6 +116,8 @@ Host 的应用配置、持久状态、执行数据与内部管理的工作区文
 | `logs/mcp.log`                 | MCP 服务运行日志                         | `McpConfigStore`                                          | 是                 | 正常日志输出                                            |
 | `backups/`                     | 升级历史与旧内容归档                     | `upgradeStorageLayout`                                    | 否（恢复备份）     | 用户手动管理，不自动删除                                |
 
+定时任务由 `ScheduleService` 保存到 `state/modules/%40pi-meme%2Fschedules/schedules.json`，包含任务配置、运行状态和未读记录。删除任务时移除调度记录，已生成的聊天保留。使用与恢复规则见 [定时任务](schedules.md)。
+
 ## SSH 连接资料与摘要
 
 SSH 资料属于发起连接的入口 Host，不属于远端 Host，也不存放在浏览器本地配置中。路径通过 [storage-paths.ts](../packages/contracts/src/storage-paths.ts) 定义，实现见 [ssh-connections.ts](../packages/host/src/ssh-connections.ts)。

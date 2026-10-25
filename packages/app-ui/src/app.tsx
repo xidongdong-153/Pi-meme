@@ -1,3 +1,6 @@
+import { useSchedules } from '@pi-meme/schedules/ui/use-schedules'
+import { ScheduleLocationSelector } from './shell/schedule-location-selector'
+import { PageHeader, PageHeaderNavigation } from './layout/page-header'
 import { ActivityPanel } from '@pi-meme/activities/ui/activity-panel'
 import { useActivities } from '@pi-meme/activities/ui/activity-store'
 import { GoalControl } from '@pi-meme/goals/ui/goal-control'
@@ -18,6 +21,7 @@ import { WorkspaceContent } from './layout/workspace-content'
 import { ErrorNotice, SystemErrorStack, SystemErrorToast } from './layout/error-notice'
 import {
   lazy,
+  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -94,6 +98,9 @@ import { useShortcutHandlers, useShortcuts } from './shortcuts/shortcut-provider
 import { ShortcutHelpDialog } from './shortcuts/shortcut-help-dialog'
 import { ShortcutSettings } from './shortcuts/shortcut-settings'
 
+const SchedulesPage = lazy(() =>
+  import('@pi-meme/schedules/ui/schedules-page').then((module) => ({ default: module.SchedulesPage })),
+)
 const HostSettings = lazy(() => import('./settings/host-settings').then((module) => ({ default: module.HostSettings })))
 const ModelConfigSettings = lazy(() =>
   import('@pi-meme/models/ui/model-config/model-config-settings').then((module) => ({
@@ -232,6 +239,12 @@ export function App({
   const active = serviceUI?.active ?? true
   const currentService = serviceUI?.services.find((service) => service.id === serviceUI.serviceId)
   const remoteOffline = Boolean(currentService && !currentService.local && currentService.status !== 'connected')
+  const scheduleState = useSchedules(
+    host,
+    currentService
+      ? currentService.status === 'connected'
+      : chat.connection.status !== 'disconnected' && chat.connection.status !== 'connecting',
+  )
   const cwd = chat.connection.cwd
   const availableRightTabs: RightSidebarTab[] = []
   if (chat.chat.sessionEntries?.entries.length) availableRightTabs.push('session-tree')
@@ -541,6 +554,9 @@ export function App({
     else chat.setError('插件页面需要对应项目或会话，请先在聊天中选择目标。')
   }
   const pluginRailProps = {
+    onSchedules: () => navigation.open({ kind: 'schedules' }),
+    schedulesActive: route.kind === 'schedules',
+    schedulesUnread: scheduleState.tasks.some((task) => task.unreadCount > 0),
     onShortcutHelp: openShortcutHelp,
     pluginNavigation,
     activePluginId: route.kind === 'plugin' ? route.pluginId : undefined,
@@ -613,6 +629,7 @@ export function App({
     serviceUI?.onController(serviceUI.serviceId, {
       ...chat,
       openSettings: () => openSettings('general'),
+      openSchedules: () => navigation.open({ kind: 'schedules' }),
       assertRestartAllowed,
       assertRemoveAllowed: () => {
         if (instructionsSaving || chat.navigationBusy || chat.modelSaving || chat.sendingAttachments.length)
@@ -1441,6 +1458,8 @@ export function App({
               onUsage={() => openSettings('profile')}
               onAccount={() => openSettings('account')}
               onProjects={() => navigation.open({ kind: 'projects' })}
+              onSchedules={() => navigation.open({ kind: 'schedules' })}
+              schedulesUnread={scheduleState.tasks.some((task) => task.unreadCount > 0)}
               onNewSession={() => void chat.newSession()}
               onPlugins={() => navigation.open({ kind: 'customization' })}
               pluginNavigation={pluginNavigation}
@@ -1490,6 +1509,119 @@ export function App({
               {conversation}
             </WorkspacePanels>
           </div>
+
+          {route.kind === 'schedules' && (
+            <Suspense
+              fallback={
+                <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+                  正在打开定时任务…
+                </div>
+              }
+            >
+              <SchedulesPage
+                host={host}
+                state={scheduleState}
+                selectedId={route.taskId}
+                onSelect={(taskId) => navigation.replace({ kind: 'schedules', taskId })}
+                header={
+                  <PageHeader>
+                    <PageHeaderNavigation
+                      nativeWindow={nativeWindow}
+                      back={{ label: '返回上一页', onClick: navigation.back, disabled: !navigation.canBack }}
+                      forward={{ label: '前进', onClick: navigation.forward, disabled: !navigation.canForward }}
+                    />
+                  </PageHeader>
+                }
+                rail={
+                  <AppRail
+                    profile={userProfile.profile}
+                    profileLoading={userProfile.showPlaceholder}
+                    {...pluginRailProps}
+                    onHome={navigation.home}
+                    onProjects={() => navigation.open({ kind: 'projects' })}
+                    onPlugins={() => navigation.open({ kind: 'customization' })}
+                    onSettings={() => openSettings('general')}
+                    onUsage={() => openSettings('profile')}
+                    onAccount={() => openSettings('account')}
+                  />
+                }
+                locationLabel={
+                  currentService ? serviceLabel(currentService) : hostLocal ? '此计算机' : (hostAddress ?? '当前 Host')
+                }
+                location={
+                  <ScheduleLocationSelector
+                    services={serviceUI?.services ?? []}
+                    serviceId={serviceUI?.serviceId}
+                    label={currentService ? serviceLabel(currentService) : hostLocal ? '此计算机' : '当前 Host'}
+                    onSelect={(id) => serviceUI?.onSchedules(id)}
+                  />
+                }
+                defaults={{
+                  model: chat.state?.model ?? chat.models[0] ?? { provider: '', id: '' },
+                  thinkingLevel: chat.state?.thinkingLevel ?? 'medium',
+                  accessMode: settings.snapshot?.settings.defaultAccessMode ?? 'workspace-write',
+                  agentPlugins: [...agentPlugins],
+                  mode: 'default',
+                }}
+                plugins={pluginDescriptors
+                  .filter((plugin) => plugin.enabled && plugin.capabilities?.agent)
+                  .map((plugin) => ({ id: plugin.id, name: plugin.display?.name ?? plugin.id }))}
+                renderAccessSelector={(configuration, onChange) => (
+                  <AgentAccessSelector
+                    mode={configuration.accessMode}
+                    busy={false}
+                    supported={Boolean(chat.connection.restrictedAccessSupported)}
+                    onChange={(accessMode) => onChange({ ...configuration, accessMode })}
+                  />
+                )}
+                renderModelPicker={(configuration, onChange) => (
+                  <ModelPickerPopover
+                    models={chat.models}
+                    currentModel={
+                      chat.models.find(
+                        (model) =>
+                          model.provider === configuration.model.provider && model.id === configuration.model.id,
+                      ) ?? configuration.model
+                    }
+                    thinkingLevel={configuration.thinkingLevel}
+                    disabled={false}
+                    onSelectModel={(model) => onChange({ ...configuration, model })}
+                    onSelectThinkingLevel={(thinkingLevel) => onChange({ ...configuration, thinkingLevel })}
+                  />
+                )}
+                onOpenSession={async (ref) => {
+                  const session = await host.sessions.get(ref)
+                  if (!session.sessionFile) throw new Error('聊天尚未保存，请等待本次运行开始后重试')
+                  if (await chat.switchSession(session.sessionFile)) navigation.home()
+                }}
+              />
+            </Suspense>
+          )}
+          {scheduleState.notice && (
+            <div
+              role="status"
+              className="fixed bottom-5 right-5 z-50 flex max-w-sm items-center gap-3 rounded-2xl border border-border bg-card px-4 py-3 text-sm shadow-xl"
+            >
+              <button
+                type="button"
+                className="min-w-0 truncate text-left"
+                onClick={() => {
+                  navigation.open({ kind: 'schedules', taskId: scheduleState.notice!.taskId })
+                  scheduleState.dismissNotice()
+                }}
+              >
+                {scheduleState.notice.text}
+              </button>
+              <button
+                type="button"
+                aria-label="关闭任务提醒"
+                className="text-muted-foreground hover:text-foreground"
+                onClick={scheduleState.dismissNotice}
+              >
+                关闭
+              </button>
+            </div>
+          )}
 
           {projectsOpen && !settingsOpen && !customizationOpen && (
             <ProjectsPage

@@ -196,6 +196,11 @@ export function ServicesApp({
               onController: captureController,
               onLocation: changeLocation,
               onSearch: openSearch,
+              onSchedules: (id) =>
+                activate(id, async (controller) => {
+                  controller.openSchedules()
+                  return true
+                }),
               beforeRestart: () => {
                 for (const controller of controllers.current.values()) controller.assertRestartAllowed()
               },

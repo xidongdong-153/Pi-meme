@@ -3,6 +3,7 @@ export const features = {
   sessions: '会话、历史、分支与恢复',
   plan: '计划模式与计划文档',
   goals: '持久目标、自动续跑与用量',
+  schedules: '定时任务、调度与运行记录',
   subagents: '子代理与协作',
   models: '模型配置与凭据',
   plugins: 'App 插件与开发工具',
@@ -33,6 +34,10 @@ export interface TestSuite {
 }
 
 const files: Array<[string, Feature[]]> = [
+  ['packages/schedules/tests/rules.unit.test.ts', ['schedules']],
+  ['packages/schedules/tests/service.integration.test.ts', ['schedules']],
+  ['packages/host/tests/schedules-control.integration.test.ts', ['schedules']],
+  ['packages/schedules/tests/task-dialog.component.test.tsx', ['schedules']],
   ['packages/activities/tests/service.integration.test.ts', ['activities', 'permissions']],
   ['packages/host/tests/activity-bridge.unit.test.ts', ['activities', 'permissions', 'subagents']],
   ['packages/host/tests/service-activities.integration.test.ts', ['activities', 'permissions']],

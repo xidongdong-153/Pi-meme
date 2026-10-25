@@ -296,6 +296,9 @@ importers:
       '@pi-meme/resources':
         specifier: workspace:*
         version: link:../resources
+      '@pi-meme/schedules':
+        specifier: workspace:*
+        version: link:../schedules
       '@pi-meme/settings':
         specifier: workspace:*
         version: link:../settings
@@ -692,6 +695,9 @@ importers:
       '@pi-meme/sandbox-macos':
         specifier: workspace:*
         version: link:../sandbox-macos
+      '@pi-meme/schedules':
+        specifier: workspace:*
+        version: link:../schedules
       '@pi-meme/settings':
         specifier: workspace:*
         version: link:../settings
@@ -1046,6 +1052,31 @@ importers:
       react:
         specifier: ^19.3.0
         version: 19.3.0
+
+  packages/schedules:
+    dependencies:
+      '@pi-meme/contracts':
+        specifier: workspace:*
+        version: link:../contracts
+      '@pi-meme/ui':
+        specifier: workspace:*
+        version: link:../ui
+      lucide-react:
+        specifier: ^1.48.0
+        version: 1.48.0(react@19.3.0)
+    devDependencies:
+      '@testing-library/react':
+        specifier: 16.3.3
+        version: 16.3.3(@testing-library/dom@10.4.2)(@types/react-dom@19.3.0(@types/react@19.3.0))(@types/react@19.3.0)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)
+      '@testing-library/user-event':
+        specifier: 14.6.8
+        version: 14.6.8(@testing-library/dom@10.4.2)
+      react:
+        specifier: ^19.3.0
+        version: 19.3.0
+      vitest:
+        specifier: 5.0.5
+        version: 5.0.5(@types/node@26.6.3)(@vitest/coverage-v8@5.0.5)(jsdom@29.1.1)(vite@8.3.1(@types/node@26.6.3)(esbuild@0.28.2)(jiti@2.7.0)(terser@5.51.2)(tsx@4.23.15)(yaml@2.9.1))
 
   packages/settings:
     dependencies:

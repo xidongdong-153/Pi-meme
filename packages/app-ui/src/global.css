@@ -35,6 +35,7 @@
 @source '../../file-directory/src';
 @source '../../terminal/src';
 @source '../../activities/src/ui';
+@source '../../schedules/src/ui';
 
 @theme {
   --color-background: var(--background);

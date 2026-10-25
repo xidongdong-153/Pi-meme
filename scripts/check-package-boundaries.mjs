@@ -11,6 +11,7 @@ const areas = ['apps', 'packages', 'plugins'].filter((area) => fs.existsSync(pat
 const businessPackages = new Set(
   [
     'activities',
+    'schedules',
     'chat',
     'workspace',
     'history',

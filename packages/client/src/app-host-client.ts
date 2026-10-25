@@ -13,6 +13,20 @@ export function createAppHostClient(transport: AppHostTransport): HostApi {
   }
   return {
     apiVersion: 2,
+    schedules: {
+      list: () => call('schedules.list', []),
+      get: (ref) => call('schedules.get', [ref]),
+      create: (input, options) => call('schedules.create', [input], options.idempotencyKey),
+      update: (ref, input, options) => call('schedules.update', [ref, input], options.idempotencyKey),
+      pause: (ref, options) => call('schedules.pause', [ref], options.idempotencyKey),
+      resume: (ref, options) => call('schedules.resume', [ref], options.idempotencyKey),
+      delete: (ref, options) => call('schedules.delete', [ref], options.idempotencyKey),
+      runNow: (ref, options) => call('schedules.runNow', [ref], options.idempotencyKey),
+      stopRun: (ref, options) => call('schedules.stopRun', [ref], options.idempotencyKey),
+      runs: (ref, input) => call('schedules.runs', [ref, input]),
+      markRead: (ref, runId, options) => call('schedules.markRead', [ref, runId], options.idempotencyKey),
+      resetSession: (ref, options) => call('schedules.resetSession', [ref], options.idempotencyKey),
+    },
     capabilities: () => call('capabilities', []),
     plugins: {
       getDefaultAgentPlugins: () => call('plugins.getDefaultAgentPlugins', []),

@@ -63,6 +63,8 @@ export function WorkspacePanels({
   onNewSession,
   onPlugins,
   onProjects,
+  onSchedules,
+  schedulesUnread,
   pluginNavigation,
   onPlugin,
   shortcutEnabled = true,
@@ -94,6 +96,8 @@ export function WorkspacePanels({
   onNewSession?: () => void
   onPlugins?: () => void
   onProjects?: () => void
+  onSchedules?: () => void
+  schedulesUnread?: boolean
   pluginNavigation?: readonly RegisteredNavigation[]
   onPlugin?: (entry: RegisteredNavigation) => void
   shortcutEnabled?: boolean
@@ -508,6 +512,8 @@ export function WorkspacePanels({
           }}
           homeFlyout={flyout.control}
           onProjects={onProjects}
+          onSchedules={onSchedules}
+          schedulesUnread={schedulesUnread}
           onPlugins={onPlugins}
           onSettings={onSettings}
           onUsage={onUsage}

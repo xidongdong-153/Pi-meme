@@ -1,3 +1,4 @@
+import type { SchedulesApi } from './schedules'
 import type { ServiceActivity, ServiceActivityList, ServiceActivityLogs } from './service-activity'
 import type { Goal, GoalControl, GoalEdit, GoalInput, GoalResumeControl, GoalStartResult } from './goal'
 import type { AgentAccessMode } from './agent-access'
@@ -89,6 +90,7 @@ export type AppHostCapabilities = {
     | 'plans'
     | 'goals'
     | 'activities'
+    | 'schedules'
   >
   fileOperations?: Array<'preview' | 'search' | 'write'>
 }
@@ -100,7 +102,7 @@ export type HostControlEvent = EventCursor & {
   timestamp: string
   projectId?: string
   sessionId?: string
-  type: 'session' | 'submission' | 'runtime' | 'terminal' | 'activity' | 'resync'
+  type: 'session' | 'submission' | 'runtime' | 'terminal' | 'activity' | 'schedule' | 'resync'
   value:
     | AppSession
     | SubmissionReceipt
@@ -115,6 +117,7 @@ export type EventPage = { events: HostControlEvent[]; cursor: EventCursor; resyn
 export type EventSubscription = EventFilter & { after?: EventCursor }
 export type HostApi = {
   readonly apiVersion: 2
+  schedules: SchedulesApi
   capabilities: () => Promise<AppHostCapabilities>
   plugins: {
     getDefaultAgentPlugins: () => Promise<string[]>

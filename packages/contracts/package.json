@@ -33,7 +33,8 @@
     "./plugin-call": "./src/plugin-call.ts",
     "./goal": "./src/goal.ts",
     "./service-activity": "./src/service-activity.ts",
-    "./keyboard-shortcuts": "./src/keyboard-shortcuts.ts"
+    "./keyboard-shortcuts": "./src/keyboard-shortcuts.ts",
+    "./schedules": "./src/schedules.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit"

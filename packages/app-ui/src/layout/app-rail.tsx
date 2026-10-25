@@ -1,4 +1,4 @@
-import { BookOpen, Folder, Gauge, Gift, Home, Keyboard, LifeBuoy, Puzzle, Settings } from 'lucide-react'
+import { Clock, BookOpen, Folder, Gauge, Gift, Home, Keyboard, LifeBuoy, Puzzle, Settings } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -34,6 +34,9 @@ export function AppRail({
   homeFlyout,
   onProjects,
   projectsActive = false,
+  onSchedules,
+  schedulesActive = false,
+  schedulesUnread = false,
   onPlugins,
   pluginsActive = false,
   pluginNavigation = [],
@@ -52,6 +55,9 @@ export function AppRail({
   homeFlyout?: HomeFlyoutControl
   onProjects?: () => void
   projectsActive?: boolean
+  onSchedules?: () => void
+  schedulesActive?: boolean
+  schedulesUnread?: boolean
   onPlugins?: () => void
   pluginsActive?: boolean
   pluginNavigation?: readonly RegisteredNavigation[]
@@ -128,6 +134,28 @@ export function AppRail({
           </TooltipTrigger>
           <TooltipContent side="right" sideOffset={8}>
             项目
+          </TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              aria-label={schedulesUnread ? '定时任务，有未读结果' : '定时任务'}
+              aria-current={schedulesActive ? 'page' : undefined}
+              onClick={onSchedules}
+              className={cn(
+                'relative flex size-8 items-center justify-center rounded-lg transition-colors hover:bg-background cursor-pointer',
+                schedulesActive
+                  ? 'bg-background/80 text-foreground shadow-xs'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <Clock className="size-4" />
+              {schedulesUnread && <span className="absolute right-1 top-1 size-1.5 rounded-full bg-blue-500" />}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right" sideOffset={8}>
+            定时任务
           </TooltipContent>
         </Tooltip>
         <Tooltip>

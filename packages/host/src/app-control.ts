@@ -37,6 +37,7 @@ import type { CollaborationBridge } from '@pi-meme/contracts/collaboration'
 import { ControlStore, ControlError, createControlStorePaths, type ControlStorePaths } from './control-store'
 
 type Options = {
+  schedules?: import('@pi-meme/schedules/server/service').ScheduleService
   goals: GoalService
   activities?: Pick<ActivityService, 'list' | 'logs' | 'stop'>
   hostId: string
@@ -558,6 +559,10 @@ export async function createAppControl(options: Options) {
     if (closing) return Promise.reject<T>(new Error('Host 正在退出，操作未接纳'))
     return store.mutate(clientId, opts?.idempotencyKey, method, args, action)
   }
+  const requireSchedules = () => {
+    if (!options.schedules) throw new Error('当前 Host 不支持定时任务')
+    return options.schedules
+  }
   const apiFor = (clientId: string): HostApi => ({
     apiVersion: 2,
     capabilities: async () => ({
@@ -565,6 +570,7 @@ export async function createAppControl(options: Options) {
       hostId,
       fileOperations: ['preview', 'search', 'write'],
       features: [
+        ...(options.schedules ? ['schedules' as const] : []),
         'projects',
         'sessions',
         'messages',
@@ -578,6 +584,24 @@ export async function createAppControl(options: Options) {
         ...(options.workspace.terminalSupported ? ['terminal' as const] : []),
       ],
     }),
+    schedules: {
+      list: () => requireSchedules().list(),
+      get: (ref) => requireSchedules().get(ref),
+      create: (input, opts) =>
+        mutate(clientId, 'schedules.create', [input], opts, () => requireSchedules().create(input)),
+      update: (ref, input, opts) =>
+        mutate(clientId, 'schedules.update', [ref, input], opts, () => requireSchedules().update(ref, input)),
+      pause: (ref, opts) => mutate(clientId, 'schedules.pause', [ref], opts, () => requireSchedules().pause(ref)),
+      resume: (ref, opts) => mutate(clientId, 'schedules.resume', [ref], opts, () => requireSchedules().resume(ref)),
+      delete: (ref, opts) => mutate(clientId, 'schedules.delete', [ref], opts, () => requireSchedules().delete(ref)),
+      runNow: (ref, opts) => mutate(clientId, 'schedules.runNow', [ref], opts, () => requireSchedules().runNow(ref)),
+      stopRun: (ref, opts) => mutate(clientId, 'schedules.stopRun', [ref], opts, () => requireSchedules().stopRun(ref)),
+      runs: (ref, input) => requireSchedules().runs(ref, input),
+      markRead: (ref, runId, opts) =>
+        mutate(clientId, 'schedules.markRead', [ref, runId], opts, () => requireSchedules().markRead(ref, runId)),
+      resetSession: (ref, opts) =>
+        mutate(clientId, 'schedules.resetSession', [ref], opts, () => requireSchedules().resetSession(ref)),
+    },
     plugins: {
       getDefaultAgentPlugins: () => options.defaultAgentPlugins.getDefaultAgentPlugins(),
       setDefaultAgentPlugins: (ids, opts) =>
@@ -989,6 +1013,15 @@ export async function createAppControl(options: Options) {
   })
   const api = apiFor('host-internal')
   const writes = new Set([
+    'schedules.create',
+    'schedules.update',
+    'schedules.pause',
+    'schedules.resume',
+    'schedules.delete',
+    'schedules.runNow',
+    'schedules.stopRun',
+    'schedules.markRead',
+    'schedules.resetSession',
     'files.write',
     'plugins.setDefaultAgentPlugins',
     'projects.register',

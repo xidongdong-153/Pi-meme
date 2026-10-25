@@ -42,6 +42,7 @@ paths:
 | `interaction`    | `respond`，按根会话或子任务来源回答                                                                                                                                   |
 | `agents`         | `list`、`get`、`stop`                                                                                                                                                 |
 | `goals`          | `get`、`start`、`edit`、`pause`、`resume`、`clear`                                                                                                                    |
+| `schedules`      | `list`、`get`、`create`、`update`、`pause`、`resume`、`delete`、`runNow`、`stopRun`、`runs`、`markRead`、`resetSession`                                               |
 | `activities`     | `list`、`logs`、`stop`，查看和停止 Agent 启动的项目服务                                                                                                               |
 | `plans`          | `list`，读取已保存计划                                                                                                                                                |
 | `events`         | `read`、`subscribe`                                                                                                                                                   |
@@ -201,3 +202,5 @@ try {
 客户端处理 Cookie 登录、401 续期、事件重连和序号去重，拒绝 Host 身份变化。远程地址要求无账号信息的 HTTPS，本机回环允许 HTTP。示例只查询当前回执，不等待执行完成；同一业务操作重试时保留幂等键。
 
 验证入口：[app-control.integration.test.ts](../packages/host/tests/app-control.integration.test.ts)、[control-store.integration.test.ts](../packages/host/tests/control-store.integration.test.ts)、[node-client.integration.test.ts](../packages/host/tests/node-client.integration.test.ts)、[workspace-files.integration.test.ts](../packages/host/tests/workspace-files.integration.test.ts) 和 [terminal-service.unit.test.ts](../packages/host/tests/terminal-service.unit.test.ts)。
+
+定时任务通过 `capabilities().features` 中的 `schedules` 协商能力，使用 `{ hostId, taskId }` 定位。写操作沿用幂等键，变化通过 `schedule` 控制事件推送；运行执行复用显式会话接口。规则、恢复和接口参数见 [定时任务](schedules.md)。

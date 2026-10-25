@@ -20,10 +20,12 @@ export const reservedPluginIds = [
   '@pi-meme/subagents',
   '@pi-meme/goals',
   '@pi-meme/activities',
+  '@pi-meme/schedules',
 ] as const
 
 export const reservedServiceNames = [
   'host.goals',
+  'host.schedules',
   'host.usage',
   'host.chat',
   'host.workspace',
