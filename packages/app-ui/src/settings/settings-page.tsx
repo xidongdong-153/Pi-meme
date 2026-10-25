@@ -2,11 +2,12 @@ import { Suspense, useState, type ReactNode } from 'react'
 import {
   BookOpen,
   ChartNoAxesCombined,
+  Circle,
   Info,
   Keyboard,
   Network,
   Palette,
-  Puzzle,
+  Plug,
   ScrollText,
   Search,
   Server,
@@ -22,6 +23,15 @@ import { FadeContent } from '@pi-meme/ui/components/fade-content'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { PageHeader, PageHeaderNavigation } from '../layout/page-header'
 import { SettingsSkeleton } from './settings-skeleton'
+
+function PluginSettingsIcon({ className, strokeWidth }: { className?: string; strokeWidth?: number }) {
+  return (
+    <span className={cn('relative', className)} aria-hidden="true">
+      <Circle className="size-full" strokeWidth={strokeWidth} />
+      <Plug className="absolute inset-[18.75%] size-[62.5%] -rotate-45" strokeWidth={strokeWidth} />
+    </span>
+  )
+}
 
 const groups = [
   {
@@ -56,7 +66,12 @@ const groups = [
       { id: 'subagents', label: '子代理', icon: Users, description: '设置子代理默认使用的模型和思考强度。' },
       { id: 'instructions', label: '指令', icon: ScrollText, description: '编辑用户指令和系统提示词。' },
       { id: 'skills', label: '技能', icon: BookOpen, description: '导入、创建和编辑技能，设置设备或项目的调用方式。' },
-      { id: 'plugins', label: '插件', icon: Puzzle, description: '安装和更新 App 插件，查看能力并启停或卸载。' },
+      {
+        id: 'plugins',
+        label: '插件',
+        icon: PluginSettingsIcon,
+        description: '安装和更新 App 插件，查看能力并启停或卸载。',
+      },
       { id: 'mcp', label: 'MCP', icon: Network, description: '管理 MCP 服务和授权。' },
     ],
   },

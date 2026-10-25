@@ -1,5 +1,16 @@
 import { useId, useRef, useState, type ReactNode } from 'react'
-import { ArrowLeft, Check, Puzzle, RefreshCw, Settings, Upload, PanelRight, ChevronDown, Plus } from 'lucide-react'
+import {
+  ArrowLeft,
+  Check,
+  Circle,
+  Plug,
+  RefreshCw,
+  Settings,
+  Upload,
+  PanelRight,
+  ChevronDown,
+  Plus,
+} from 'lucide-react'
 import { systemPluginIcons } from '@pi-meme/assets/builtin'
 import type { PluginClient } from '@pi-meme/client/plugin-client'
 import type { UiPluginDescriptor } from '@pi-meme/plugin-sdk/ui'
@@ -480,7 +491,10 @@ export function PluginIcon({
       {plugin.iconUrl ? (
         <img src={plugin.iconUrl} alt="" className="size-full object-contain" />
       ) : (
-        <Puzzle className={compact ? 'size-4' : 'size-6'} strokeWidth={1.6} />
+        <span className={cn('relative', compact ? 'size-4' : 'size-6')} aria-hidden="true">
+          <Circle className="size-full" strokeWidth={1.6} />
+          <Plug className="absolute inset-[18.75%] size-[62.5%] -rotate-45" strokeWidth={1.6} />
+        </span>
       )}
     </span>
   )
