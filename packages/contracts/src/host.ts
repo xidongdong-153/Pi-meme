@@ -1,3 +1,4 @@
+import type { BrowserPlatform } from './browser'
 import type { Connection, DesktopError, DesktopEvent, ProjectApp } from './desktop'
 import type { Theme } from './settings'
 import type { DesktopStorageAdapter } from './storage'
@@ -54,6 +55,7 @@ export type HostDirectory = { path: string; parent: string | null; entries: Arra
 
 /** Electron 仅提供本机窗口与文件操作；业务通信由 client 使用 HTTP/WebSocket。 */
 export interface PlatformAdapter {
+  browser?: BrowserPlatform
   storage?: DesktopStorageAdapter
   listSavedHostConnections?: () => Promise<SavedHostConnection[]>
   removeSavedHostConnection?: (url: string) => Promise<void>

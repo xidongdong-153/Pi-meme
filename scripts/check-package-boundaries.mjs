@@ -10,6 +10,7 @@ const manifests = new Map()
 const areas = ['apps', 'packages', 'plugins'].filter((area) => fs.existsSync(path.join(root, area)))
 const businessPackages = new Set(
   [
+    'browser',
     'activities',
     'schedules',
     'chat',

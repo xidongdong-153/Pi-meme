@@ -1,3 +1,4 @@
+import { browserAnnotationSummary } from '@pi-meme/contracts/browser-annotations'
 import { homedir } from 'node:os'
 import type { SessionEntry } from '@earendil-works/pi-coding-agent'
 import type { PiBranchEntry } from '@pi-meme/contracts/pi'
@@ -87,7 +88,7 @@ function entryPreview(entry: SessionEntry, toolCalls: Map<string, ToolCallInfo>)
       const message = entry.message
       switch (message.role) {
         case 'user':
-          return clip(skillMessageText(textFromContent(message.content)).trim())
+          return clip(skillMessageText(browserAnnotationSummary(textFromContent(message.content))).trim())
         case 'assistant': {
           const text = textFromContent(message.content).trim()
           if (text) return clip(text)

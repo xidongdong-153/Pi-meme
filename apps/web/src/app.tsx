@@ -214,7 +214,12 @@ function ConnectedWebApp() {
   return (
     <>
       {client && registry ? (
-        <ServicesApp registry={registry} nativeWindow={Boolean(platform)} onBootComplete={markBootComplete} />
+        <ServicesApp
+          registry={registry}
+          browser={platform?.browser}
+          nativeWindow={Boolean(platform)}
+          onBootComplete={markBootComplete}
+        />
       ) : !client && !connecting ? (
         <main className="flex min-h-screen items-center justify-center bg-background px-6 text-foreground">
           <form

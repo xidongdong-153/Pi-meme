@@ -78,7 +78,7 @@ export default antfu(
   { files: ['apps/desktop/src/preload/**/*.ts'], languageOptions: { globals: { Electron: 'readonly' } } },
   {
     files: [
-      'packages/{chat,workspace,history,models,settings,resources,interaction,subagents,mcp,codemode,permissions,sandbox-macos,sandbox-linux,usage,git,file-directory,terminal}/src/**/*.{ts,tsx}',
+      'packages/{browser,chat,workspace,history,models,settings,resources,interaction,subagents,mcp,codemode,permissions,sandbox-macos,sandbox-linux,usage,git,file-directory,terminal}/src/**/*.{ts,tsx}',
     ],
     rules: {
       'no-restricted-imports': [
@@ -87,8 +87,8 @@ export default antfu(
           patterns: [
             {
               group: [
-                '@pi-meme/{chat,workspace,history,models,settings,resources,pi-extensions,subagents,mcp,codemode,permissions,sandbox-macos,sandbox-linux,usage,git,file-directory,terminal}',
-                '@pi-meme/{chat,workspace,history,models,settings,resources,pi-extensions,subagents,mcp,codemode,permissions,sandbox-macos,sandbox-linux,usage,git,file-directory,terminal}/**',
+                '@pi-meme/{browser,chat,workspace,history,models,settings,resources,pi-extensions,subagents,mcp,codemode,permissions,sandbox-macos,sandbox-linux,usage,git,file-directory,terminal}',
+                '@pi-meme/{browser,chat,workspace,history,models,settings,resources,pi-extensions,subagents,mcp,codemode,permissions,sandbox-macos,sandbox-linux,usage,git,file-directory,terminal}/**',
               ],
               message: '业务包之间通过契约、Props 或服务通信，由 Host 和 app-ui 装配。',
             },

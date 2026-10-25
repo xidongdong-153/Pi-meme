@@ -1,6 +1,7 @@
 import type { PluginManifest } from './manifest'
 
 export const reservedPluginIds = [
+  '@pi-meme/browser',
   '@pi-meme/chat',
   '@pi-meme/workspace',
   '@pi-meme/git',

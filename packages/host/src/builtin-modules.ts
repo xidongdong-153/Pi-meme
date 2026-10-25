@@ -1,3 +1,4 @@
+import * as browser from '@pi-meme/browser/server/entry'
 import * as schedules from '@pi-meme/schedules/server/entry'
 import * as goals from '@pi-meme/goals/server/entry'
 import path from 'node:path'
@@ -26,6 +27,7 @@ import { PluginScope } from '@pi-meme/plugin-sdk/scope'
 import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 
 const modules = [
+  browser,
   schedules,
   goals,
   chat,

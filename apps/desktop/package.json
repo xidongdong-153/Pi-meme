@@ -43,6 +43,7 @@
     "@pi-meme/contracts": "workspace:*",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
-    "@pi-meme/host": "workspace:*"
+    "@pi-meme/host": "workspace:*",
+    "@pi-meme/browser": "workspace:*"
   }
 }

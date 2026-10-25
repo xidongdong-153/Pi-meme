@@ -1,3 +1,4 @@
+import type { BrowserPlatform } from '@pi-meme/contracts/browser'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { SelectWorkspace } from '@pi-meme/contracts/sessions'
 import { buildSidebarModel, sidebarManualOrders } from '@pi-meme/workspace/ui/sidebar/sidebar-model'
@@ -10,9 +11,11 @@ import { serviceLabel, servicePaused, type ServiceController, type ServiceRegist
 
 export function ServicesApp({
   registry,
+  browser,
   nativeWindow,
   onBootComplete,
 }: {
+  browser?: BrowserPlatform
   registry: ServiceRegistry
   nativeWindow: boolean
   onBootComplete?: () => void
@@ -182,6 +185,7 @@ export function ServicesApp({
             hostId={service.hostId}
             hostAddress={service.address}
             hostLocal={service.local}
+            browser={browser}
             nativeWindow={nativeWindow}
             localPlatform={service.local && client.nativePlatformAvailable}
             onHostConnection={() => {}}

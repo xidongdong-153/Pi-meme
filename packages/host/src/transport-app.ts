@@ -104,7 +104,8 @@ function registerRpc(app: Hono<TransportEnv>, { host, remotes, auth }: Transport
   app.post('/api/rpc', async (c) => {
     const value = (await jsonBody(c.req.raw, true)) as HostRpcRequest
     if (
-      ['host:import-keychain', 'host:credential-import-status'].includes(value.method) &&
+      (['host:import-keychain', 'host:credential-import-status'].includes(value.method) ||
+        value.method.startsWith('browser:')) &&
       !auth.localRequest(c.env.incoming)
     )
       return reply(403, { error: '旧凭据只能在本机 Host 导入' })

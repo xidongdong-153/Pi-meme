@@ -21,6 +21,7 @@ pi-meme 的 Desktop 和 Web 共用 Node Host。应用入口在 `apps/`，基础�
 | 开发与发布 | [版本发布](releasing.md)                    | 平台包构建、产物验收与 GitHub 草稿发布         |
 | 实现与接口 | [架构](architecture.md)                     | 进程、Host 复用、组合根与包边界                |
 | 实现与接口 | [会话与协作](sessions.md)                   | Worker、消息、队列、子代理、Plan 与 Goal       |
+| 使用与部署 | [内置浏览器](browser.md)                    | 网页标签、元素批注、浏览数据、下载与网站权限   |
 | 使用与部署 | [定时任务](schedules.md)                    | 时间安排、执行位置、会话模式与运行记录         |
 | 实现与接口 | [HostApi v2](host-api.md)                   | 稳定目标、幂等提交、回执、事件与 Node 客户端   |
 | 实现与接口 | [App 插件开发](plugins.md)                  | SDK 3 入口、输入框、消息动作、业务页与生命周期 |

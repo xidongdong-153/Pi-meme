@@ -75,6 +75,17 @@ export function collectSources({
 
   // 3. Sending attachments
   for (const att of sending) {
+    if (att.browserAnnotation) {
+      if (att.browserAnnotation.image)
+        items.push({
+          id: att.id,
+          name: att.name || '网页批注',
+          image: att.browserAnnotation.image,
+          status: 'draft',
+          statusText: '网页批注',
+        })
+      continue
+    }
     if (att.type === 'file') {
       items.push({
         id: att.id,
@@ -97,6 +108,17 @@ export function collectSources({
 
   // 4. Draft & failed drafts
   for (const att of [...draft, ...failed]) {
+    if (att.browserAnnotation) {
+      if (att.browserAnnotation.image)
+        items.push({
+          id: att.id,
+          name: att.name || '网页批注',
+          image: att.browserAnnotation.image,
+          status: 'draft',
+          statusText: '网页批注',
+        })
+      continue
+    }
     if (att.type === 'file') {
       items.push({
         id: att.id,

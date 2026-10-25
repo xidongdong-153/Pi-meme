@@ -24,6 +24,7 @@
 
 /* 显式扫描 UI 与功能包源码，Tailwind 默认只扫描 Vite 根目录 */
 @source '../../ui/src';
+@source '../../browser/src/ui';
 @source '../../chat/src';
 @source '../../workspace/src';
 @source '../../git/src';

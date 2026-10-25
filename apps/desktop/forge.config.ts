@@ -25,6 +25,10 @@ const config: ForgeConfig = {
           identityValidation: false,
           optionsForFile: () => ({ hardenedRuntime: false, timestamp: false }),
         },
+    extendInfo: {
+      NSCameraUsageDescription: '允许你在内置浏览器中使用摄像头。',
+      NSMicrophoneUsageDescription: '允许你在内置浏览器中使用麦克风。',
+    },
     // Vite 插件只把 .vite 打进 asar。目录名 dock 会变成 Resources/dock。
     extraResource: [
       path.join(__dirname, '../../packages/assets/files/desktop/dock'),
@@ -65,6 +69,8 @@ const config: ForgeConfig = {
         { entry: 'src/main/host-process.ts', config: 'vite.main.config.mts', target: 'main' },
         { entry: 'src/main/storage-process.ts', config: 'vite.main.config.mts', target: 'main' },
         { entry: '../../packages/host/src/session-worker.ts', config: 'vite.main.config.mts', target: 'main' },
+        { entry: 'src/preload/browser-guest.ts', config: 'vite.preload.config.mts', target: 'preload' },
+        { entry: 'src/preload/browser-overlay.ts', config: 'vite.preload.config.mts', target: 'preload' },
         {
           entry: 'src/preload/preload.ts',
           config: 'vite.preload.config.mts',

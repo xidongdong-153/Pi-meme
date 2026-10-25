@@ -14,7 +14,8 @@
     "@pi-meme/contracts": "workspace:*",
     "@pi-meme/ui": "workspace:*",
     "react": "^19.3.0",
-    "react-dom": "^19.3.0"
+    "react-dom": "^19.3.0",
+    "@pi-meme/browser": "workspace:*"
   },
   "devDependencies": {
     "@pi-meme/host": "workspace:*",

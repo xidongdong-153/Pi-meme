@@ -34,6 +34,11 @@ export interface TestSuite {
 }
 
 const files: Array<[string, Feature[]]> = [
+  ['packages/app-ui/tests/browser-workspace.component.test.tsx', ['desktop', 'chat']],
+  ['apps/desktop/tests/browser-runtime.unit.test.ts', ['desktop', 'permissions']],
+  ['packages/browser/tests/store.integration.test.ts', ['desktop', 'settings', 'permissions']],
+  ['packages/browser/tests/navigation.unit.test.ts', ['desktop']],
+  ['packages/chat/tests/browser-annotations.unit.test.ts', ['chat', 'sessions']],
   ['packages/schedules/tests/rules.unit.test.ts', ['schedules']],
   ['packages/schedules/tests/service.integration.test.ts', ['schedules']],
   ['packages/host/tests/schedules-control.integration.test.ts', ['schedules']],

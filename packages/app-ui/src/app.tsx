@@ -1,3 +1,9 @@
+import type { BrowserPlatform } from '@pi-meme/contracts/browser'
+import { BrowserPanel } from '@pi-meme/browser/ui/browser-panel'
+import { BrowserSettings } from '@pi-meme/browser/ui/browser-settings'
+import { useBrowser } from '@pi-meme/browser/ui/use-browser'
+import { annotationAttachment } from '@pi-meme/chat/ui/composer/image-attachment'
+import { parseAnnotations } from '@pi-meme/contracts/browser-annotations'
 import { useSchedules } from '@pi-meme/schedules/ui/use-schedules'
 import { ScheduleLocationSelector } from './shell/schedule-location-selector'
 import { PageHeader, PageHeaderNavigation } from './layout/page-header'
@@ -130,6 +136,7 @@ export function App({
   host,
   plugins,
   call,
+  browser: browserPlatform,
   nativeWindow = false,
   localPlatform = false,
   hostId,
@@ -145,6 +152,7 @@ export function App({
   host: HostApi
   plugins: PluginClient
   call: <T>(method: string, args?: unknown[]) => Promise<T>
+  browser?: BrowserPlatform
   nativeWindow?: boolean
   localPlatform?: boolean
   hostId?: string
@@ -155,6 +163,7 @@ export function App({
   /** 当前服务的聊天主界面已经可以显示，或连接失败需要把界面交还用户。 */
   onBootComplete?: () => void
 }) {
+  const browserUnstored = useRef<() => boolean>(() => false)
   const userProfile = useUserProfile(bridge)
   const shortcuts = useShortcuts()
   const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false)
@@ -231,7 +240,7 @@ export function App({
   )
   useEffect(() => {
     const unload = (event: BeforeUnloadEvent) => {
-      if (fileStore.hasDirty() || chat.hasUnstoredDraft()) event.preventDefault()
+      if (fileStore.hasDirty() || chat.hasUnstoredDraft() || browserUnstored.current()) event.preventDefault()
     }
     window.addEventListener('beforeunload', unload)
     return () => window.removeEventListener('beforeunload', unload)
@@ -623,6 +632,7 @@ export function App({
   const assertRestartAllowed = () => {
     if (fileStore.hasDirty() || instructionsDirty || instructionsSaving || dirtyPage)
       throw new Error('仍有未保存的文件或指令，请先保存后再维护存储')
+    if (browserUnstored.current()) throw new Error('浏览器草稿尚未保存，请先重试保存后再维护存储')
     if (chat.hasDraftInput()) throw new Error('仍有未发送的草稿或附件，请先处理后再维护存储')
   }
   useEffect(() => {
@@ -642,6 +652,10 @@ export function App({
       openProjectDialog: () => setCreatingProject(true),
       beforeDeactivate: async () => {
         if (instructionsSaving) return false
+        if (browserUnstored.current()) {
+          chat.setError('浏览器草稿尚未保存，请先重试保存')
+          return false
+        }
         if (!dirtyPage && !instructionsDirty) return true
         const accepted = await pluginConsent.request({
           pluginId: dirtyPage?.pluginId ?? '应用指令',
@@ -1214,7 +1228,118 @@ export function App({
       chat.failedDrafts,
     ],
   )
+  const openTool = (id: string) => {
+    setSystemRequest({ id, revision: Date.now(), target: pluginProps.target })
+  }
+  const [browserFocus, setBrowserFocus] = useState(0)
+  const browserOwner = JSON.stringify([
+    hostId ?? hostAddress ?? '',
+    appSession?.sessionId ?? `draft:${runtimeSessionKey ?? chat.connection.cwd}`,
+  ])
+  const browserCurrentOwner = useRef(browserOwner)
+  browserCurrentOwner.current = browserOwner
+  const browserPrevious = useRef<{ owner: string; runtime?: string; draft: boolean } | undefined>(undefined)
+  const browserRebind =
+    browserPrevious.current &&
+    browserPrevious.current.owner !== browserOwner &&
+    (browserPrevious.current.runtime === runtimeSessionKey || browserPrevious.current.draft)
+      ? browserPrevious.current.owner
+      : undefined
+  useEffect(() => {
+    if (!runtimeSessionKey || appSession)
+      browserPrevious.current = { owner: browserOwner, runtime: runtimeSessionKey, draft: !appSession }
+  }, [browserOwner, runtimeSessionKey, appSession])
+  const browser = useBrowser({
+    platform: runtimeSessionKey && !appSession ? undefined : browserPlatform,
+    owner: browserOwner,
+    rebindFrom: browserRebind,
+    active: active && chatVisible,
+    onDiscard: () => chat.composerStore.setAttachments((items) => items.filter((item) => !item.browserAnnotation)),
+    onAnnotation: (annotation, added) => {
+      const sent = chat.chat.messages.some((message) => {
+        if (message.role !== 'user') return false
+        const text =
+          typeof message.content === 'string'
+            ? message.content
+            : message.content
+                .filter((part) => part.type === 'text')
+                .map((part) => part.text)
+                .join('')
+        return parseAnnotations(text, []).annotations.some((item) => item.id === annotation.id)
+      })
+      if (sent) return
+      chat.composerStore.setAttachments((items) =>
+        items.some((item) => item.id === annotation.id) ? items : [...items, annotationAttachment(annotation)],
+      )
+      if (added) setBrowserFocus((value) => value + 1)
+    },
+    onSubmit: () => {
+      setBrowserFocus((value) => value + 1)
+      requestAnimationFrame(() => {
+        if (browserCurrentOwner.current === browserOwner) void chat.send()
+      })
+    },
+    onSettings: () => openSettings('browser'),
+    onOpen: (id) => {
+      navigation.home()
+      openTool(id)
+    },
+  })
+  browserUnstored.current = browser.hasUnstored
+  useEffect(() => {
+    if (!browser.ready) return
+    const attachments = [
+      ...chat.attachments,
+      ...chat.sendingAttachments,
+      ...chat.failedDrafts.flatMap((item) => item.attachments),
+    ]
+    const annotations = attachments
+      .flatMap((item) => (item.browserAnnotation ? [item.browserAnnotation] : []))
+      .filter((item, index, all) => all.findIndex((other) => other.id === item.id) === index)
+    browser.syncAnnotations(annotations)
+  }, [browser.ready, browser.syncAnnotations, chat.attachments, chat.sendingAttachments, chat.failedDrafts])
+  useEffect(() => {
+    if (!browserPlatform || !active || !chatVisible) return
+    const follow = (event: MouseEvent) => {
+      if (
+        event.defaultPrevented ||
+        event.button !== 0 ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey
+      )
+        return
+      const link = event.target instanceof Element ? event.target.closest('a[href]') : null
+      if (!(link instanceof HTMLAnchorElement) || link.hasAttribute('download') || !/^https?:/.test(link.href)) return
+      if (link.origin === window.location.origin && link.pathname.startsWith('/api/')) return
+      event.preventDefault()
+      event.stopPropagation()
+      void browserPlatform.openLink(link.href, browserOwner).catch((cause) => chat.setError(String(cause)))
+    }
+    document.addEventListener('click', follow, true)
+    return () => document.removeEventListener('click', follow, true)
+  }, [browserPlatform, browserOwner, active, chatVisible, chat.setError])
   const panels: UiPanel[] = [
+    ...browser.tabs.map((tab) => ({
+      id: `builtin:browser:${tab.id}`,
+      title: tab.title || '新网页',
+      icon: <Globe />,
+      location: 'right' as const,
+      scope: 'app' as const,
+      render: () =>
+        browserPlatform ? (
+          <BrowserPanel
+            platform={browserPlatform}
+            saveError={browser.error}
+            onRetrySave={browser.retrySave}
+            tab={tab}
+            annotations={browser.workspace?.annotations ?? []}
+            editor={browser.workspace?.editor}
+            onSettings={() => openSettings('browser')}
+          />
+        ) : null,
+    })),
     {
       id: 'builtin:activities',
       title: activities.count ? `活动 · ${activities.count}` : '活动',
@@ -1363,9 +1488,7 @@ export function App({
     }
   }
   const chatShortcutsAvailable = active && chatVisible && !interaction
-  const openTool = (id: string) => {
-    setSystemRequest({ id, revision: Date.now(), target: pluginProps.target })
-  }
+
   useShortcutHandlers(
     {
       openSettings: () => openSettings('general'),
@@ -1423,6 +1546,12 @@ export function App({
           <div className={!chatVisible ? 'hidden' : 'flex flex-1 min-h-0 flex-col'} inert={!chatVisible}>
             <WorkspacePanels
               sessionTitle={title}
+              onNewWebPage={browserPlatform && browser.ready ? () => void browser.create() : undefined}
+              browserPanelIds={browser.tabs.map((tab) => `builtin:browser:${tab.id}`)}
+              onClosePanel={(id) => {
+                if (id.startsWith('builtin:browser:')) void browser.close(id.slice(16))
+              }}
+              focusComposerRequest={browserFocus}
               onFocusComposer={
                 !chat.inputDisabled && !chat.editing ? () => chat.composerStore.editor?.focus() : undefined
               }
@@ -1439,7 +1568,7 @@ export function App({
                   !activities.state.loading &&
                   !activities.state.error,
               }}
-              errors={registry.errors()}
+              errors={{ ...registry.errors(), ...(browser.error ? { browser: browser.error } : {}) }}
               props={pluginProps}
               session={appSession?.sessionId ?? runtimeSessionKey ?? ''}
               sidebar={sidebar}
@@ -1810,6 +1939,8 @@ export function App({
               )}
               renderContent={(section, navigate) => {
                 if (section === 'shortcuts') return <ShortcutSettings />
+                if (section === 'browser')
+                  return <BrowserSettings platform={browserPlatform} onOpen={(url) => void browser.create(url)} />
                 const contentProps: Omit<ComponentProps<typeof SettingsContent>, 'section'> = {
                   bridge,
                   cwd: chat.connection.cwd,

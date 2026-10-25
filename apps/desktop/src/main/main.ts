@@ -1,3 +1,4 @@
+import { registerBrowserRuntime } from './browser/browser-runtime'
 import { app, type BrowserWindow } from 'electron'
 import path from 'node:path'
 import { mkdirSync } from 'node:fs'
@@ -198,6 +199,7 @@ app
       lastConnectionError = { local: true, message: cause instanceof Error ? cause.message : String(cause) }
       console.error(`Host 初始化失败：${String(cause)}`)
     }
+    registerBrowserRuntime({ getWindow: () => window, origin: trustedOrigin, rpc })
     registerPlatformIpc(
       () => window,
       connection,

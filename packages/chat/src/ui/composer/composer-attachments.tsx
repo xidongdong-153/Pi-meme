@@ -1,3 +1,4 @@
+import { AnnotationCard } from './annotation-card'
 import * as React from 'react'
 import { X } from 'lucide-react'
 import { FileIcon } from '@pi-meme/ui/components/file-icon'
@@ -57,10 +58,12 @@ export function ComposerAttachments({
   disabled,
   uploads = [],
   onCancelUpload,
+  onAnnotationChange,
 }: Pick<ComposerProps, 'attachments' | 'onRemoveImage'> & {
   disabled?: boolean
   uploads?: ComposerPendingAttachment[]
   onCancelUpload?: (id: string) => void
+  onAnnotationChange?: (id: string, comment: string) => void
 }) {
   const items = [...attachments, ...uploads]
   const [activeId, setActiveId] = React.useState<string | null>(null)
@@ -77,6 +80,19 @@ export function ComposerAttachments({
       {items.length > 0 && (
         <div className="mb-2 flex min-w-0 gap-2 overflow-x-auto pb-1" aria-label="已附加文件">
           {items.map((attachment) => {
+            if ('browserAnnotation' in attachment && attachment.browserAnnotation)
+              return (
+                <AnnotationCard
+                  key={attachment.id}
+                  annotation={attachment.browserAnnotation}
+                  onRemove={disabled ? undefined : () => onRemoveImage(attachment.id)}
+                  onChange={
+                    disabled || !onAnnotationChange
+                      ? undefined
+                      : (comment) => onAnnotationChange(attachment.id, comment)
+                  }
+                />
+              )
             const progress = 'progress' in attachment ? attachment.progress : undefined
             const imageIndex = images.findIndex((image) => image.id === attachment.id)
             const image = images[imageIndex]

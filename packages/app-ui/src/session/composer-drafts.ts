@@ -161,14 +161,14 @@ export class ComposerDrafts {
   hasUnstoredInput = () => {
     for (const [key, composer] of this.values) {
       if (
-        composer.attachments.length ||
+        composer.attachments.some((attachment) => !attachment.browserAnnotation) ||
         ((composer.draft || composer.goalDraft || composer.pluginMentions?.length) &&
           (!this.key(key) || this.failed.has(key)))
       )
         return true
     }
     return [...this.pending.values()].some((pending) =>
-      [...pending].some((composer) => composer.attachments.length > 0),
+      [...pending].some((composer) => composer.attachments.some((attachment) => !attachment.browserAnnotation)),
     )
   }
 

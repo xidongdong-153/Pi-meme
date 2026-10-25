@@ -1,3 +1,5 @@
+import { parseAnnotations } from '@pi-meme/contracts/browser-annotations'
+import { AnnotationCard } from '../composer/annotation-card'
 import { UserMessageContent } from './user-message-content'
 import { UserMessageAttachments } from './user-message-attachments'
 import { messageAttachmentParts } from '../model/message-attachments'
@@ -86,6 +88,8 @@ export function ChatMessage({
     }
   }
 
+  const browserContent = userContent ? parseAnnotations(userContent.text, images) : undefined
+
   return (
     <article
       data-message-role={message.role}
@@ -96,8 +100,20 @@ export function ChatMessage({
       )}
     >
       <div className={cn('flex flex-col min-w-0', isUser ? 'max-w-[85%] items-end' : 'w-full items-start')}>
-        {userContent && <UserMessageAttachments attachments={userContent.attachments} images={images} />}
-        {(!userContent || userContent.text) && (
+        {userContent && (
+          <UserMessageAttachments
+            attachments={userContent.attachments}
+            images={images.filter((_image, index) => !browserContent?.imageIndexes.has(index))}
+          />
+        )}
+        {browserContent?.annotations.length ? (
+          <div className="mb-2 flex max-w-full flex-wrap justify-end gap-2">
+            {browserContent.annotations.map((annotation) => (
+              <AnnotationCard key={annotation.id} annotation={annotation} />
+            ))}
+          </div>
+        ) : null}
+        {(!userContent || (browserContent?.text ?? userContent.text)) && (
           <div
             data-message-body=""
             className={cn(
@@ -110,7 +126,7 @@ export function ChatMessage({
             {!isUser && images.length > 0 && <AttachmentPreview images={images} />}
 
             {userContent ? (
-              <UserMessageContent text={userContent.text} />
+              <UserMessageContent text={browserContent?.text ?? userContent.text} />
             ) : typeof content === 'string' ? (
               <MarkdownContent isStreaming={live}>{content}</MarkdownContent>
             ) : segments ? (

@@ -1,0 +1,30 @@
+{
+  "name": "@pi-meme/browser",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./server/entry": "./src/server/entry.ts",
+    "./shared/annotations": "./src/shared/annotations.ts",
+    "./shared/navigation": "./src/shared/navigation.ts",
+    "./ui/browser-panel": "./src/ui/browser-panel.tsx",
+    "./ui/browser-settings": "./src/ui/browser-settings.tsx",
+    "./ui/browser-overlay": "./src/ui/browser-overlay.tsx",
+    "./ui/use-browser": "./src/ui/use-browser.ts"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@pi-meme/contracts": "workspace:*",
+    "@pi-meme/ui": "workspace:*",
+    "lucide-react": "^1.48.0"
+  },
+  "peerDependencies": {
+    "react": "^19.3.0"
+  },
+  "devDependencies": {
+    "react": "^19.3.0",
+    "vitest": "5.0.5"
+  }
+}

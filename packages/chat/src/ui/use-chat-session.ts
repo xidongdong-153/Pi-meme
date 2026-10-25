@@ -1,3 +1,4 @@
+import { restoreAnnotationAttachments } from './composer/image-attachment'
 import { parseGoalCommand, validateGoalInput, type GoalEdit } from '@pi-meme/contracts/goal'
 import { visibleComposerHint } from './composer/composer-hint'
 import { queuedDraft } from './composer/restore-queued-input'
@@ -813,8 +814,14 @@ export function useChatSession(options: ChatSessionOptions) {
                 .join('')
             : ''
       const parts = messageAttachmentParts(text)
+      const restoredAnnotations = restoreAnnotationAttachments(
+        parts.text,
+        images.filter(
+          (item): item is import('./composer/image-attachment').ComposerImageAttachment => item.type === 'image',
+        ),
+      )
       const restoredSkills: PiSlashCommand[] = []
-      const restoredDraft = skillMessageParts(parts.text)
+      const restoredDraft = skillMessageParts(restoredAnnotations.text)
         .map((part) => {
           if (part.type === 'text') return part.text
           const skill = optionsRef.current.commands.find(
@@ -839,7 +846,7 @@ export function useChatSession(options: ChatSessionOptions) {
       setSelectedSkills(restoredSkills)
       setPluginMentions([])
       setAttachments([
-        ...images,
+        ...restoredAnnotations.attachments,
         ...parts.attachments.map((file) => ({ ...file, id: crypto.randomUUID(), type: 'file' as const })),
       ])
     },

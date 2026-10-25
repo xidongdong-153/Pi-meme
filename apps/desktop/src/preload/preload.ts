@@ -1,7 +1,34 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import type { BrowserPlatform } from '@pi-meme/contracts/browser'
 import type { PlatformAdapter } from '@pi-meme/contracts/host'
 
+function browserCall<T>(method: string, ...args: unknown[]): Promise<T> {
+  return ipcRenderer.invoke('browser:call', method, args)
+}
+const browser: BrowserPlatform = {
+  snapshot: () => browserCall('snapshot'),
+  settings: (value) => browserCall('settings', value),
+  permission: (value) => browserCall('permission', value),
+  workspace: (owner) => browserCall('workspace', owner),
+  saveWorkspace: (owner, value) => browserCall('saveWorkspace', owner, value),
+  rebind: (from, to) => browserCall('rebind', from, to),
+  create: (owner, id, url) => browserCall('create', owner, id, url),
+  close: (id) => browserCall('close', id),
+  present: (id, bounds, theme) => browserCall('present', id, bounds, theme),
+  command: (id, command) => browserCall('command', id, command),
+  history: (id) => browserCall('history', id),
+  download: (id, action) => browserCall('download', id, action),
+  chooseDownloadDirectory: () => browserCall('chooseDownloadDirectory'),
+  clear: (parts) => browserCall('clear', parts),
+  openLink: (url, owner) => browserCall('openLink', url, owner),
+  onEvent: (listener) => {
+    const callback = (_event: Electron.IpcRendererEvent, value: Parameters<typeof listener>[0]) => listener(value)
+    ipcRenderer.on('browser:event', callback)
+    return () => ipcRenderer.removeListener('browser:event', callback)
+  },
+}
 const platform: PlatformAdapter = {
+  browser,
   storage: {
     getInfo: (hostId) => ipcRenderer.invoke('platform:storage-info', hostId),
     chooseTarget: (hostId) => ipcRenderer.invoke('platform:storage-choose', hostId),

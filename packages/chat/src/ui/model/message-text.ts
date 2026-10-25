@@ -1,3 +1,4 @@
+import { browserAnnotationSummary } from '@pi-meme/contracts/browser-annotations'
 import { skillMessageText } from '@pi-meme/contracts/skills'
 import type { PiMessage } from '@pi-meme/contracts/pi'
 
@@ -12,7 +13,7 @@ export function messageText(message?: PiMessage | null): string {
           .filter((part) => part.type === 'text')
           .map((part) => part.text)
           .join('')
-  return message.role === 'user' ? skillMessageText(text) : text
+  return message.role === 'user' ? skillMessageText(browserAnnotationSummary(text)) : text
 }
 
 export { sameMessage } from '@pi-meme/contracts/pi'

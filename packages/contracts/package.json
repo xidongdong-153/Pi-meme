@@ -34,7 +34,9 @@
     "./goal": "./src/goal.ts",
     "./service-activity": "./src/service-activity.ts",
     "./keyboard-shortcuts": "./src/keyboard-shortcuts.ts",
-    "./schedules": "./src/schedules.ts"
+    "./schedules": "./src/schedules.ts",
+    "./browser": "./src/browser.ts",
+    "./browser-annotations": "./src/browser-annotations.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit"

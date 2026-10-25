@@ -23,8 +23,14 @@ import {
 import { usePaneMotion, useReducedMotion } from './pane-motion'
 import { ResizeHandle } from './resize-handle'
 
+const emptyBrowserPanels: string[] = []
+
 export function WorkspacePanels({
   panels,
+  onNewWebPage,
+  onClosePanel,
+  browserPanelIds = emptyBrowserPanels,
+  focusComposerRequest,
   activity,
   props,
   session,
@@ -57,6 +63,10 @@ export function WorkspacePanels({
   onShortcutHelp,
   children,
 }: {
+  onNewWebPage?: () => void
+  onClosePanel?: (id: string) => void
+  browserPanelIds?: string[]
+  focusComposerRequest?: number
   panels: UiPanel[]
   activity?: { count: number; known: boolean }
   props: UiContributionProps
@@ -124,7 +134,16 @@ export function WorkspacePanels({
   if (state.storageKey !== storageKey) {
     // 新会话没有存档时沿用当前布局，切换会话不收起右栏或重置宽度。
     const saved = readLayout()
-    updateState({ storageKey, retainActivity: false, inherited: saved === undefined, layout: saved ?? state.layout })
+    updateState({
+      storageKey,
+      retainActivity: false,
+      inherited: saved === undefined,
+      layout: saved ?? {
+        ...state.layout,
+        tabs: state.layout.tabs.filter((id) => !id.startsWith('builtin:browser:')),
+        active: state.layout.active.startsWith('builtin:browser:') ? '' : state.layout.active,
+      },
+    })
     setSearch('')
     setToolActive(false)
   }
@@ -212,6 +231,7 @@ export function WorkspacePanels({
     if (id !== 'chat') setLayout((value) => ({ ...value, active: id }))
   }
   const closeTab = (id: string) => {
+    onClosePanel?.(id)
     const restoreFocus = tabList.current?.contains(document.activeElement)
     if (tabs.length === 1) setToolActive(false)
     updateState((value) => ({
@@ -248,6 +268,21 @@ export function WorkspacePanels({
   useEffect(() => {
     if (!unified && layout.open && sidebarOpen && !bothPanesFit) onSidebar(false, sidebarWidth)
   }, [layout.open, sidebarOpen, bothPanesFit, sidebarWidth, onSidebar, unified])
+  const browserIdsKey = browserPanelIds.join(',')
+  useEffect(() => {
+    if (!browserPanelIds.length) return
+    setLayout((value) => {
+      const missing = browserPanelIds.filter((id) => !value.tabs.includes(id))
+      return missing.length
+        ? { ...value, tabs: [...value.tabs, ...missing], active: value.active || missing[0] }
+        : value
+    })
+  }, [browserIdsKey, storageKey, setLayout])
+  useEffect(() => {
+    if (!focusComposerRequest) return
+    changeView(false, true)
+    onFocusComposer?.()
+  }, [focusComposerRequest])
   const changeSidebar = (open: boolean, width: number) => {
     if (!unified && open && containerWidth - width < 480 + 280) setLayout((value) => ({ ...value, open: false }))
     onSidebar(open, width)
@@ -302,6 +337,7 @@ export function WorkspacePanels({
   const filtered = available.filter(
     (panel) =>
       (panel.id !== activityId || !activity || activity.count > 0) &&
+      !panel.id.startsWith('builtin:browser:') &&
       panel.title.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()),
   )
   const directMotion =
@@ -641,6 +677,16 @@ export function WorkspacePanels({
                       <div className="p-4 @container">
                         <h2 className="mb-4 text-sm font-medium text-foreground">新标签页</h2>
                         <div className="grid grid-cols-1 gap-2 @min-[32rem]:grid-cols-2 @min-[32rem]:gap-x-3">
+                          {onNewWebPage ? (
+                            <button
+                              type="button"
+                              onClick={onNewWebPage}
+                              className="group flex min-h-10 items-center gap-3 rounded-lg bg-secondary/40 px-3 py-2 text-left text-sm hover:bg-secondary/60"
+                            >
+                              <Globe className="size-4 text-muted-foreground" />
+                              新建网页
+                            </button>
+                          ) : null}
                           {filtered.map((panel) => (
                             <button
                               key={panel.id}

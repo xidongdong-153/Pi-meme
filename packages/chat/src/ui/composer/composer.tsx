@@ -323,6 +323,15 @@ export function Composer({
         <ComposerAttachments
           attachments={attachments}
           onRemoveImage={onRemoveImage}
+          onAnnotationChange={(id, comment) =>
+            composerStore?.setAttachments((items) =>
+              items.map((item) =>
+                item.id === id && item.browserAnnotation
+                  ? { ...item, browserAnnotation: { ...item.browserAnnotation, comment } }
+                  : item,
+              ),
+            )
+          }
           disabled={disabled}
           uploads={files.uploads}
           onCancelUpload={files.cancelUpload}
