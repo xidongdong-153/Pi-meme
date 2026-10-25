@@ -144,6 +144,8 @@ Host 在取得 `host.lock` 独占写入锁后，在业务模块加载前调用 `
 5. **外来未知目录**：目录包含非空未知文件且无任何 pi-meme 特征时，明确报错拒绝启动，防止误改无关文件。
 6. **更高版本**：检测到 `version > 2` 时明确报错阻止启动，要求升级客户端。
 
+业务模块初始化前统一去除 `host-id` 文件首尾空白，并校验控制快照、事件信封、项目与会话引用、提交回执和操作结果中的 Host 身份。文件缺失且历史引用只有一个身份时恢复原身份；多个身份冲突时中止启动并保留原文件，不生成新的随机身份覆盖历史引用。运行事件的业务正文不参与身份校验。
+
 ## 就地升级流程与可重入账本
 
 升级执行器位于 `packages/host/src/storage/upgrade.ts`。升级全程在持有 `host.lock` 下进行，采用基于只读备份与隔离 Staging 的状态机发布架构，账本记录于 `.storage-layout-upgrade-<jobId>.json`：
@@ -188,6 +190,8 @@ flowchart TD
   - 原子写入根清单 `storage.json`（`version: 2`）；
   - 账本状态标记为 `committed` 并归档至 `state/maintenance/layout-upgrade-<jobId>.json`；
   - 清理临时 Staging 目录与根下临时账本文件。
+
+就地升级将 `host-id` 纳入备份，并在 Staging 发布前及提交清单前校验身份一致性。换根迁移在复制前校验来源身份，切换目录前再次校验目标身份；发现冲突时不提交新目录。
 
 ## Desktop 自定义目录
 

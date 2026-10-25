@@ -135,7 +135,7 @@ async function reuse(descriptor: RuntimeDescriptor): Promise<BootstrapResult> {
     status.instanceId !== descriptor.instanceId ||
     status.owner !== 'server' ||
     status.dataRoot !== (await realpath(root)) ||
-    (await readFile(path.join(root, storageLayoutRelativePaths.hostIdFile), 'utf8')) !== descriptor.hostId
+    (await readFile(path.join(root, storageLayoutRelativePaths.hostIdFile), 'utf8')).trim() !== descriptor.hostId
   )
     throw conflict('SSH Host 与固定数据目录身份不匹配，拒绝复用')
   const authFile = path.join(root, storageLayoutRelativePaths.authFile)

@@ -19,7 +19,7 @@ import { systemPlugins } from '@pi-meme/plugin-sdk/system-plugins'
 import { TerminalService } from './terminal-service'
 import { createBuiltinModules } from './builtin-modules'
 import { assertExternalPluginId } from '@pi-meme/plugin-sdk/reserved'
-import { mkdir, readdir, realpath, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, realpath, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -56,6 +56,7 @@ import { ConnectionCredentialStore } from './connection-credentials'
 import { assertActiveDataRoot, hostDataRoot, lockDataRoot } from './data-root'
 import { createHostStoragePaths } from './storage/paths'
 import { assertStorageLayout } from './storage/upgrade'
+import { ensureHostIdentity } from './storage/host-identity'
 import { cleanupTemporaryFiles } from './storage/cleanup-temporary-files'
 import { SessionCleanupService } from './session-cleanup'
 import { installBuiltinSkills } from '@pi-meme/resources/server/install-builtin-skills'
@@ -168,19 +169,8 @@ export async function createHost(options: HostOptions = {}) {
   try {
     await assertActiveDataRoot(root)
     await assertStorageLayout(root)
+    const hostId = await ensureHostIdentity(root)
     const cleanupReport = await cleanupTemporaryFiles(storagePaths)
-    const hostIdFile = storagePaths.hostIdFile
-    const { readFile } = await import('node:fs/promises')
-    let hostId: string | undefined
-    try {
-      hostId = await readFile(hostIdFile, 'utf8')
-    } catch (cause) {
-      if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw cause
-    }
-    if (!hostId) {
-      hostId = randomUUID()
-      await writeFile(hostIdFile, hostId, { mode: 0o600 })
-    }
     const paths = createPiRuntimePaths(root)
     const goals = new GoalService({ file: storagePaths.goalsFile, sessionsDirectory: paths.sessionsDirectory })
     await goals.init()

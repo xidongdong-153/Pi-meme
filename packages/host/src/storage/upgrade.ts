@@ -21,6 +21,7 @@ import { relocatedMarker, storageOwnerFile } from '../data-root'
 import { contains, digest, listFiles, optionalStat, physicalPath, readJson, writeJson, writeText } from './files'
 import { relocateAttachmentBlock, type WorktreeRelocation } from './relocate'
 import { resourceIdentity } from '@pi-meme/resources/server/resource-identity'
+import { assertControlHostIdentity, assertStorageHostIdentity, ensureHostIdentity } from './host-identity'
 
 export type PublishItem = {
   relative: string
@@ -215,18 +216,7 @@ export async function upgradeStorageLayout(
   const paths = createHostStoragePaths(resolved)
 
   // 1. 读取或创建 hostId
-  let hostId: string
-  try {
-    hostId = (await readFile(paths.hostIdFile, 'utf8')).trim()
-    if (!hostId) throw new Error('host-id 文件内容为空')
-  } catch (cause) {
-    if ((cause as NodeJS.ErrnoException).code === 'ENOENT') {
-      hostId = randomUUID()
-      await writeText(paths.hostIdFile, `${hostId}\n`)
-    } else {
-      throw new Error(`无法读取持久 host-id：${String(cause)}`, { cause })
-    }
-  }
+  const hostId = await ensureHostIdentity(resolved)
 
   // 2. 空间与目录准备
   const backupDir = paths.layoutBackupDirectory(jobId)
@@ -380,6 +370,7 @@ export async function resumeStorageLayoutUpgrade(
   await physicalPath(resolved, path.relative(resolved, ledger.backupDir))
   await physicalPath(resolved, path.relative(resolved, ledger.legacyDir))
 
+  await assertStorageHostIdentity(resolved, ledger.hostId)
   const filesToBackup = await inventoryAllSourceFiles(resolved)
   await runUpgradeStages(resolved, paths, ledger, ledgerFile, filesToBackup, options?.progress)
 }
@@ -390,6 +381,7 @@ async function inventoryAllSourceFiles(root: string): Promise<Array<{ relative: 
   const seen = new Set<string>()
 
   const singleFiles = [
+    'host-id',
     'settings.json',
     'auth.json',
     'projects.json',
@@ -480,6 +472,7 @@ async function runUpgradeStages(
   if (ledger.stage === 'staged') {
     notify('transforming')
     await buildStagedV2Layout(root, paths, ledger)
+    await assertControlHostIdentity(ledger.stagingDir, ledger.hostId)
     ledger.stage = 'publishing'
     ledger.updatedAt = new Date().toISOString()
     await writeJson(ledgerFile, ledger)
@@ -489,7 +482,7 @@ async function runUpgradeStages(
   if (ledger.stage === 'publishing') {
     notify('publishing')
     await executePublishStage(root, paths, ledger)
-    await verifyUpgradedLayout(paths)
+    await verifyUpgradedLayout(paths, ledger.hostId)
     ledger.stage = 'verified'
     ledger.updatedAt = new Date().toISOString()
     await writeJson(ledgerFile, ledger)
@@ -498,6 +491,7 @@ async function runUpgradeStages(
   // 阶段 4：提交与清理
   if (ledger.stage === 'verified') {
     notify('committing')
+    await assertStorageHostIdentity(root, ledger.hostId)
     const now = new Date().toISOString()
     const manifest: StorageLayoutManifest = {
       format: STORAGE_LAYOUT_FORMAT,
@@ -1647,10 +1641,11 @@ async function executePublishStage(
 }
 
 /** 阶段 4 校验：验证核心元数据与权限 */
-async function verifyUpgradedLayout(paths: ReturnType<typeof createHostStoragePaths>) {
+async function verifyUpgradedLayout(paths: ReturnType<typeof createHostStoragePaths>, hostId: string) {
   if (!(await optionalStat(paths.hostIdFile))) {
     throw new Error(`升级校验失败：缺失 ${paths.hostIdFile}`)
   }
+  await assertStorageHostIdentity(paths.root, hostId)
   if (await optionalStat(paths.appConfigFile)) {
     await readJson(paths.appConfigFile)
   }

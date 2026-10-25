@@ -1,19 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { createReadStream, createWriteStream } from 'node:fs'
-import {
-  chmod,
-  link,
-  mkdir,
-  open,
-  readFile,
-  readdir,
-  readlink,
-  realpath,
-  rename,
-  rm,
-  statfs,
-  symlink,
-} from 'node:fs/promises'
+import { chmod, link, mkdir, open, readdir, readlink, realpath, rename, rm, statfs, symlink } from 'node:fs/promises'
 import path from 'node:path'
 import { pipeline } from 'node:stream/promises'
 import type { StorageProgress } from '@pi-meme/contracts/storage'
@@ -21,6 +8,7 @@ import { runGit } from '@pi-meme/git/server/git-service'
 import { lockDataRoot, relocatedMarker, storageOwnerFile } from '../data-root'
 import { contains, digest, optionalStat, readJson, writeJson } from './files'
 import { relocateStorage, type WorktreeRelocation } from './relocate'
+import { assertStorageHostIdentity } from './host-identity'
 
 type Entry = {
   relative: string
@@ -144,6 +132,7 @@ export async function migrateStorage(input: {
   const marker = path.join(source, relocatedMarker)
   const journalFile = path.join(target, storageOwnerFile)
   try {
+    await assertStorageHostIdentity(source, hostId)
     const previous = await readJson<{ id: string; target: string }>(marker)
     if (previous && (previous.id !== id || previous.target !== target)) throw new Error('来源目录已有其他维护任务')
     const saved = await readJson<Journal>(journalFile)
@@ -185,7 +174,6 @@ export async function migrateStorage(input: {
       journal = { version: 1, id, hostId, source, target, stage: 'copying', entries: await inventory(source) }
       await writeJson(journalFile, journal)
     }
-    if ((await readFile(path.join(source, 'host-id'), 'utf8')) !== hostId) throw new Error('来源 Host 身份不匹配')
     releaseTarget = await lockDataRoot(target)
     await writeJson(marker, { version: 1, id, hostId, target, status: 'maintaining' })
     markerOwned = true
@@ -300,6 +288,7 @@ export async function migrateStorage(input: {
       if (info && !info.isSymbolicLink()) await chmod(destination, entry.mode)
     }
     await chmod(target, (await optionalStat(source))!.mode & 0o777)
+    await assertStorageHostIdentity(target, hostId)
     await writeJson(marker, { version: 1, id, hostId, target, status: 'moved' })
     await commit()
     committed = true

@@ -40,6 +40,8 @@ paths:
 4. 在 Finder 中将 `Pi meme.app` 拖到“应用程序”（`/Applications`），再从该目录双击打开。
 5. 如遇系统启动提示，先完成下节的首次打开确认。看到主界面后，在设置中配置模型服务商和模型，选择项目开始聊天。已有 `~/.pi-meme` 配置会继续使用。
 
+安装版 Desktop 优先使用本机 `3185` 端口；默认端口被其他程序、不兼容 Host 或其他数据目录的 Host 占用时，自动让系统分配空闲端口，界面跟随实际地址连接，无需设置环境变量。已有同目录的兼容 Host 时仍直接复用。显式设置 `PI_MEME_PORT` 时按指定端口连接，冲突时报告错误。
+
 ### macOS 首次打开
 
 默认发布配置使用 ad-hoc 签名，尚未做 Developer ID 签名和 Apple 公证，macOS 的 Gatekeeper 可能阻止首次启动。这个阶段应用还未进入聊天界面，调整模型或 Agent 的“完全权限”不能解决启动拦截。
@@ -191,7 +193,7 @@ pnpm start:server
 
 Desktop 和 Server 使用相同端口、相同真实数据目录时，只创建一个 Host。创建方负责停机；Desktop 仅复用 Server 的 Host 时，退出 Desktop 不会停止 Server，也不能在 Desktop 中迁移目录或清缓存。Server 入口发现已有 Host 后打印复用结果并成功退出，不接管生命周期。
 
-Desktop 自定义目录保存在本机定位文件，Server 不读取它。先在 Desktop 查看数据目录，再以相同 `PI_MEME_DATA_ROOT` 启动 Server。目录不同、协议不兼容或端口被其他程序占用时明确报错，不会悄悄换端口。设置新的令牌、TLS 或 Web 根目录属于创建配置，不能应用到已运行的 Host。
+Desktop 自定义目录保存在本机定位文件，Server 不读取它。先在 Desktop 查看数据目录，再以相同 `PI_MEME_DATA_ROOT` 启动 Server。安装版 Desktop 的默认端口冲突时自动分配空闲端口；开发入口、Server 和显式指定端口的 Desktop 仍报告冲突。设置新的令牌、TLS 或 Web 根目录属于创建配置，不能应用到已运行的 Host。
 
 `pnpm start:server` 默认与 Desktop 开发版共用 `3180` 和 `~/.pi-meme-dev`，独立 Web 的代理也默认连接 `3180`，无需额外设置。构建后的 `node apps/server/dist/main.js` 和 Host 独立包默认使用 `3185` 和 `~/.pi-meme`，与构建 App 一致。
 
@@ -203,7 +205,7 @@ PI_MEME_DATA_ROOT=/absolute/path/pi-meme-other-data PI_MEME_PORT=31417 pnpm star
 
 独立 Web 的 `PI_MEME_HOST_URL` 优先于 `PI_MEME_PORT`；未设置地址时使用本机端口。Forge Renderer 始终跟随 Desktop 的本机端口。已由 `pnpm start` 占用 3181 时，直接打开该页面，不再启动第二个 Vite。
 
-管理方退出后其他客户端断线，不会自动创建替代 Host；可重新启动管理方或在 Desktop 显式重试。旧版本随机端口 Host 需要先退出再使用新入口。数据锁、权限与路径规则见 [配置与安全](configuration.md)。
+管理方退出后其他客户端断线，不会自动创建替代 Host；可重新启动管理方或在 Desktop 显式重试。同一数据目录的 Host 已在其他端口运行时，需先退出原管理方再启动新入口；自动换端口不会绕过数据目录锁。数据锁、权限与路径规则见 [配置与安全](configuration.md)。
 
 ## 源码构建的 Server
 

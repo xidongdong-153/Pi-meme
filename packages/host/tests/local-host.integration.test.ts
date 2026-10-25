@@ -23,10 +23,10 @@ async function fixture() {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), 'pi-shared-host-')))
   const port = await freePort()
   const servers: Array<Awaited<ReturnType<typeof startHostServer>>> = []
-  const create = async () => {
+  const create = async (listenPort = port) => {
     const server = await startHostServer({
       dataRoot: root,
-      port,
+      port: listenPort,
       testCredentials: true,
       localAutoLogin: true,
       owner: 'desktop',
@@ -213,6 +213,137 @@ test('其他程序或不兼容协议占用端口时，不创建第二个 Host', 
     assert.equal(created, 0)
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()))
+    await f.dispose()
+  }
+})
+
+test.each(['proxy', 'protocol', 'disconnect', 'timeout'])(
+  '允许自动换端口时，避开返回 %s 的占用服务并使用实际 Host 地址',
+  async (responseMode) => {
+    const f = await fixture()
+    const occupied = createHttpServer((request, response) => {
+      if (responseMode === 'disconnect') request.socket.destroy()
+      else if (responseMode === 'proxy') response.writeHead(400).end()
+      else if (responseMode !== 'timeout')
+        response.end(JSON.stringify({ product: 'pi-meme', runtimeProtocolVersion: 99 }))
+    })
+    let preferredStarts = 0
+    let fallbackStarts = 0
+    try {
+      await new Promise<void>((resolve) => occupied.listen(f.port, '127.0.0.1', resolve))
+      const lease = await acquireLocalHost({
+        url: localHostUrl(f.port),
+        dataRoot: f.root,
+        create: () => {
+          preferredStarts++
+          return f.create()
+        },
+        createOnFreePort: () => {
+          fallbackStarts++
+          return f.create(0)
+        },
+      })
+      assert.equal(lease.ownership, 'owned')
+      assert.notEqual(lease.url, localHostUrl(f.port))
+      assert.notEqual(new URL(lease.url).port, '0')
+      assert.equal((await readLocalHostStatus(lease.url))?.dataRoot, f.root)
+      assert.equal(preferredStarts, 0)
+      assert.equal(fallbackStarts, 1)
+      assert.equal(occupied.listening, true)
+      if (responseMode === 'proxy') {
+        await assert.rejects(
+          acquireLocalHost({
+            url: localHostUrl(f.port),
+            dataRoot: f.root,
+            create: f.create,
+            createOnFreePort: () => f.create(0),
+          }),
+          { code: 'ELOCKED' },
+        )
+        assert.equal((await readLocalHostStatus(lease.url))?.instanceId, lease.status.instanceId)
+      }
+    } finally {
+      occupied.closeAllConnections()
+      await new Promise<void>((resolve) => occupied.close(() => resolve()))
+      await f.dispose()
+    }
+  },
+)
+
+test('自动换端口仍优先复用同目录 Host，其他目录的 Host 保持运行', async () => {
+  const current = await fixture()
+  const other = await fixture()
+  let fallbackStarts = 0
+  try {
+    const host = await current.create()
+    const options = {
+      url: host.url,
+      dataRoot: current.root,
+      create: current.create,
+      createOnFreePort: () => {
+        fallbackStarts++
+        return other.create(0)
+      },
+    }
+    assert.equal((await acquireLocalHost(options)).ownership, 'attached')
+    assert.equal(fallbackStarts, 0)
+    const lease = await acquireLocalHost({ ...options, dataRoot: other.root })
+    assert.equal(lease.ownership, 'owned')
+    assert.equal(lease.status.dataRoot, other.root)
+    assert.notEqual(lease.url, host.url)
+    assert.equal(fallbackStarts, 1)
+    assert.equal((await readLocalHostStatus(host.url))?.instanceId, host.host.instanceId)
+  } finally {
+    await other.dispose()
+    await current.dispose()
+  }
+})
+
+test('探测后端口被抢占时自动换端口，启动失败释放的数据锁可重新获取', async () => {
+  const f = await fixture()
+  const occupied = createHttpServer((_request, response) => response.writeHead(400).end())
+  try {
+    const lease = await acquireLocalHost({
+      url: localHostUrl(f.port),
+      dataRoot: f.root,
+      create: async () => {
+        await new Promise<void>((resolve) => occupied.listen(f.port, '127.0.0.1', resolve))
+        return f.create()
+      },
+      createOnFreePort: () => f.create(0),
+    })
+    assert.equal(lease.ownership, 'owned')
+    assert.notEqual(lease.url, localHostUrl(f.port))
+    assert.equal((await readLocalHostStatus(lease.url))?.instanceId, lease.status.instanceId)
+    assert.equal(occupied.listening, true)
+  } finally {
+    occupied.closeAllConnections()
+    await new Promise<void>((resolve) => occupied.close(() => resolve()))
+    await f.dispose()
+  }
+})
+
+test('Host 自身启动失败时保留原始错误，不尝试换端口', async () => {
+  const f = await fixture()
+  const failure = new Error('内置服务初始化失败')
+  let fallbackStarts = 0
+  try {
+    await assert.rejects(
+      acquireLocalHost({
+        url: localHostUrl(f.port),
+        dataRoot: f.root,
+        create: async () => {
+          throw failure
+        },
+        createOnFreePort: () => {
+          fallbackStarts++
+          return f.create(0)
+        },
+      }),
+      (cause) => cause === failure,
+    )
+    assert.equal(fallbackStarts, 0)
+  } finally {
     await f.dispose()
   }
 })

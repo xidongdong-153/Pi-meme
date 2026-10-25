@@ -135,13 +135,15 @@ SSH 配置读取、保存、启停、重试和移除要求已认证且通过入�
 | -------------------------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
 | `PI_MEME_DATA_ROOT`                    | Host                          | 数据根目录，构建 App、构建后的 Server 和独立包默认 `~/.pi-meme`；Desktop 与 Server 开发入口默认 `~/.pi-meme-dev`                    |
 | `PI_MEME_HOST`                         | 独立 Server                   | 监听地址，默认 `127.0.0.1`                                                                                                          |
-| `PI_MEME_PORT`                         | Desktop、Server、Web 开发代理 | 构建 App、构建后的 Server 和独立包默认 `3185`；Desktop、Server 开发入口及 Web 开发代理默认 `3180`；`0` 用于隔离测试，不参与自动复用 |
+| `PI_MEME_PORT`                         | Desktop、Server、Web 开发代理 | 构建 App、构建后的 Server 和独立包默认 `3185`；Desktop、Server 开发入口及 Web 开发代理默认 `3180`；`0` 自动分配端口，不参与自动复用 |
 | `PI_MEME_TOKEN`                        | 独立 Server                   | 登录令牌；未设置时读取 `credentials/auth.json`，首次生成（数据布局详见 [数据目录与存储](storage.md)）                               |
 | `PI_MEME_AUTH_MODE`                    | 独立 Server                   | 仅接受 `token-required`，关闭本机自动登录；SSH 认证模式由自动启动入口强制设置；手工独立 Server 的环境变量不用于配置 SSH             |
 | `PI_MEME_WEB_ROOT`                     | 独立 Server                   | 页面目录，默认应用相邻的 `apps/web/dist`                                                                                            |
 | `PI_MEME_TLS_CERT` / `PI_MEME_TLS_KEY` | 独立 Server                   | HTTPS 证书与私钥文件路径，必须同时提供                                                                                              |
 | `PI_MEME_HOST_URL`                     | 独立 Web 开发服务器           | `/api` 代理目标，优先于 `PI_MEME_PORT`；Forge Renderer 不使用此覆盖                                                                 |
 | `PI_MEME_REMOTE_HOST`                  | Desktop                       | 启动时登记指定远程服务；登录令牌来自 `PI_MEME_TOKEN` 或已保存记录                                                                   |
+
+构建 App 未显式设置 `PI_MEME_PORT` 时，默认端口冲突会自动改用系统分配的空闲端口，界面使用实际 Host 地址。Server、开发入口和显式指定端口的 Desktop 保留固定端口。
 
 Server 参数来自 [main.ts](../apps/server/src/main.ts)，开发默认值来自 [dev.ts](../apps/server/src/dev.ts)，开发代理来自 [Vite 配置](../apps/web/vite.config.ts)，Desktop 登记来自 [main.ts](../apps/desktop/src/main/main.ts)。测试凭据与 Worker 路径覆盖属于开发接线，不是日常部署所需参数。
 

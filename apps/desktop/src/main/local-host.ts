@@ -116,20 +116,22 @@ function launchHost(entry: string, env: NodeJS.ProcessEnv): Promise<DesktopHostP
 
 export function acquireDesktopHost(options: { entry: string; env: NodeJS.ProcessEnv; dataRoot: string }) {
   const port = hostPort(options.env.PI_MEME_PORT, app.isPackaged ? defaultHostPort : defaultDevelopmentHostPort)
+  const create = async (listenPort: number) =>
+    launchHost(options.entry, {
+      ...(await prepareDesktopHostEnv(options.env)),
+      PI_MEME_PORT: String(listenPort),
+      PI_MEME_DATA_ROOT: options.dataRoot,
+      PI_MEME_PLUGIN_NODE: app.isPackaged
+        ? path.join(process.resourcesPath, 'runtime/bin/node')
+        : (options.env.PI_MEME_PLUGIN_NODE ?? ''),
+      PI_MEME_PLUGIN_ENTRY: app.isPackaged
+        ? path.join(process.resourcesPath, 'runtime/restricted-entry.mjs')
+        : (options.env.PI_MEME_PLUGIN_ENTRY ?? ''),
+    })
   return acquireLocalHost({
     url: localHostUrl(port),
     dataRoot: options.dataRoot,
-    create: async () =>
-      launchHost(options.entry, {
-        ...(await prepareDesktopHostEnv(options.env)),
-        PI_MEME_PORT: String(port),
-        PI_MEME_DATA_ROOT: options.dataRoot,
-        PI_MEME_PLUGIN_NODE: app.isPackaged
-          ? path.join(process.resourcesPath, 'runtime/bin/node')
-          : (options.env.PI_MEME_PLUGIN_NODE ?? ''),
-        PI_MEME_PLUGIN_ENTRY: app.isPackaged
-          ? path.join(process.resourcesPath, 'runtime/restricted-entry.mjs')
-          : (options.env.PI_MEME_PLUGIN_ENTRY ?? ''),
-      }),
+    create: () => create(port),
+    createOnFreePort: app.isPackaged && options.env.PI_MEME_PORT === undefined ? () => create(0) : undefined,
   })
 }

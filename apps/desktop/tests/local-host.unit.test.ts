@@ -85,10 +85,32 @@ test.each([
   const f = await fixture({ PI_MEME_PORT: override })
   try {
     assert.equal(mocks.acquire.mock.calls[0][0].url, `http://127.0.0.1:${port}`)
+    assert.equal(Boolean(mocks.acquire.mock.calls[0][0].createOnFreePort), packaged && override === undefined)
     const env = mocks.fork.mock.calls[0][2].env
     assert.equal(env.PI_MEME_PORT, port)
     assert.equal(env.PI_MEME_PLUGIN_NODE, packaged ? '/fixture/resources/runtime/bin/node' : '')
     assert.equal(env.PI_MEME_PLUGIN_ENTRY, packaged ? '/fixture/resources/runtime/restricted-entry.mjs' : '')
+  } finally {
+    await f.process.dispose()
+  }
+})
+
+test('构建 App 默认端口冲突时，由系统分配 Host 端口并保留数据目录', async () => {
+  mocks.app.isPackaged = true
+  mocks.acquire.mockImplementation(
+    async ({ createOnFreePort }: { createOnFreePort: () => Promise<{ url: string }> }) => {
+      const resource = await createOnFreePort()
+      return { ownership: 'owned', url: resource.url, resource }
+    },
+  )
+  const env = { PATH: '/usr/bin:/bin' }
+  const f = await fixture(env)
+  try {
+    assert.equal(mocks.fork.mock.calls.length, 1)
+    assert.equal(mocks.fork.mock.calls[0][2].env.PI_MEME_PORT, '0')
+    assert.equal(mocks.fork.mock.calls[0][2].env.PI_MEME_DATA_ROOT, '/fixture/data')
+    assert.equal(mocks.fork.mock.calls[0][2].env.PI_MEME_PLUGIN_NODE, '/fixture/resources/runtime/bin/node')
+    assert.deepEqual(env, { PATH: '/usr/bin:/bin' })
   } finally {
     await f.process.dispose()
   }

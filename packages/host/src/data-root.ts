@@ -26,7 +26,7 @@ export async function assertActiveDataRoot(root: string) {
       job.version !== 1 ||
       job.stage !== 'committed' ||
       job.target !== (await realpath(root)) ||
-      job.hostId !== (await readFile(path.join(root, storageLayoutRelativePaths.hostIdFile), 'utf8'))
+      job.hostId !== (await readFile(path.join(root, storageLayoutRelativePaths.hostIdFile), 'utf8')).trim()
     )
       throw new Error('此目录是尚未提交或身份不符的迁移副本，请通过 Desktop 完成维护后使用')
     return

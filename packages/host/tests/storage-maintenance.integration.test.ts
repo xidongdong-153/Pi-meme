@@ -14,7 +14,13 @@ import { readJson, writeJson, optionalStat } from '../src/storage/files'
 import { workspaceKey } from '@pi-meme/pi-runtime/runtime-paths'
 import { ResourceStore } from '@pi-meme/resources/server/resource-store'
 import { runGit } from '@pi-meme/git/server/git-service'
-import { assertStorageLayout, checkStorageLayout, upgradeStorageLayout } from '../src/storage/upgrade'
+import {
+  assertStorageLayout,
+  checkStorageLayout,
+  initEmptyStorageLayout,
+  upgradeStorageLayout,
+} from '../src/storage/upgrade'
+import { ensureHostIdentity, assertStorageHostIdentity } from '../src/storage/host-identity'
 import { attachmentReferencesHeading } from '@pi-meme/contracts/chat-attachments'
 import { STORAGE_LAYOUT_VERSION, STORAGE_LAYOUT_FORMAT } from '@pi-meme/contracts/storage-paths'
 
@@ -1750,6 +1756,191 @@ test('backupManifest 包含越界相对路径（如 pi/../../outside.txt）或�
     }
     await writeJson(path.join(ledger.backupDir, 'backup-manifest.json'), badHashManifest)
     await assert.rejects(resumeStorageLayoutUpgrade(root, jobId), /非法哈希值/)
+  } finally {
+    await f.dispose()
+  }
+})
+
+function identitySnapshot(hostId: string, cwd: string) {
+  return {
+    version: 2,
+    journalEpoch: 'identity-epoch',
+    appliedCommitSeq: 0,
+    seq: 0,
+    projects: [{ hostId, projectId: 'preserved-project', cwd, name: '保留项目' }],
+    sessions: [
+      {
+        hostId,
+        sessionId: 'preserved-session',
+        project: { hostId, projectId: 'preserved-project' },
+        cwd,
+        createdAt: '2026-10-24T00:00:00.000Z',
+        configuration: {},
+        status: 'idle',
+      },
+    ],
+    receipts: [],
+  }
+}
+
+test.each(['snapshot', 'events', 'operations'])(
+  '启动在加载 %s 身份冲突时中止，保留控制状态和会话原文',
+  async (kind) => {
+    const f = await fixture()
+    try {
+      await initEmptyStorageLayout(f.source)
+      const directory = path.join(f.source, 'state/control')
+      await mkdir(directory, { recursive: true })
+      const snapshot = identitySnapshot(kind === 'snapshot' ? 'other-host' : 'storage-fixture', f.source)
+      await writeJson(path.join(directory, 'snapshot.json'), snapshot)
+      if (kind === 'events')
+        await writeFile(
+          path.join(directory, 'events.jsonl'),
+          `${JSON.stringify({
+            commitSeq: 1,
+            journalEpoch: snapshot.journalEpoch,
+            timestamp: '2026-10-24T00:00:00.000Z',
+            event: { hostId: 'other-host', type: 'runtime', journalEpoch: snapshot.journalEpoch, seq: 1, value: {} },
+          })}\n`,
+        )
+      if (kind === 'operations')
+        await writeFile(
+          path.join(directory, 'operations.jsonl'),
+          `${JSON.stringify({
+            id: '["client","key"]',
+            operationId: 'preserved-operation',
+            input: 'input-hash',
+            status: 'completed',
+            result: { receipt: { session: { hostId: 'other-host', sessionId: 'preserved-session' } } },
+          })}\n`,
+        )
+      const sessionFile = path.join(f.source, 'data/sessions/retained.jsonl')
+      await mkdir(path.dirname(sessionFile), { recursive: true })
+      const message = '{"type":"message","message":{"role":"user","content":"保留完整会话"}}\n'
+      await writeFile(sessionFile, message)
+      const before = await Promise.all(
+        (await readdir(directory)).map(async (name) => [name, await readFile(path.join(directory, name), 'utf8')]),
+      )
+      await assert.rejects(createHost({ dataRoot: f.source, testCredentials: true }), /Host 身份不一致/)
+      for (const [name, content] of before) assert.equal(await readFile(path.join(directory, name), 'utf8'), content)
+      assert.equal(await readFile(sessionFile, 'utf8'), message)
+      assert.equal(await optionalStat(path.join(f.source, 'host.lock')), null)
+    } finally {
+      await f.dispose()
+    }
+  },
+)
+
+test('Host 启动读取带换行的 host-id 时使用规范身份，保留原有项目与会话引用', async () => {
+  const f = await fixture()
+  try {
+    await initEmptyStorageLayout(f.source)
+    await writeFile(path.join(f.source, 'host-id'), 'storage-fixture\n')
+    await mkdir(path.join(f.source, 'state/control'), { recursive: true })
+    await writeJson(path.join(f.source, 'state/control/snapshot.json'), identitySnapshot('storage-fixture', f.source))
+    const host = await createHost({ dataRoot: f.source, testCredentials: true })
+    try {
+      assert.equal(host.hostId, 'storage-fixture')
+      assert.equal((await host.app.sessions.list())[0]?.sessionId, 'preserved-session')
+      assert.equal((await host.app.projects.list())[0]?.projectId, 'preserved-project')
+      await assertStorageHostIdentity(f.source, host.hostId)
+    } finally {
+      await host.dispose()
+    }
+  } finally {
+    await f.dispose()
+  }
+})
+
+test('布局升级缺少 host-id 时恢复唯一历史身份，备份身份文件并保留稳定引用', async () => {
+  const f = await fixture()
+  try {
+    await rm(path.join(f.source, 'host-id'))
+    const legacy = { ...identitySnapshot('historical-host', f.source), operations: {}, events: [] }
+    await writeJson(path.join(f.source, 'control.json'), legacy)
+    await upgradeStorageLayout(f.source)
+    assert.equal(await readFile(path.join(f.source, 'host-id'), 'utf8'), 'historical-host')
+    await assertStorageHostIdentity(f.source, 'historical-host')
+    const snapshot = await readJson<typeof legacy>(path.join(f.source, 'state/control/snapshot.json'))
+    assert.equal(snapshot?.projects[0].hostId, 'historical-host')
+    assert.equal(snapshot?.sessions[0].sessionId, 'preserved-session')
+    const jobs = await readdir(path.join(f.source, 'backups/layout'))
+    assert.equal(await readFile(path.join(f.source, 'backups/layout', jobs[0], 'host-id'), 'utf8'), 'historical-host')
+  } finally {
+    await f.dispose()
+  }
+})
+
+test('缺少 host-id 且历史引用混合时拒绝生成新身份，布局升级不覆盖原状态', async () => {
+  const f = await fixture()
+  try {
+    await rm(path.join(f.source, 'host-id'))
+    const legacy = { ...identitySnapshot('historical-host', f.source), operations: {}, events: [] }
+    legacy.sessions[0].hostId = 'another-host'
+    const file = path.join(f.source, 'control.json')
+    await writeJson(file, legacy)
+    const before = await readFile(file, 'utf8')
+    await assert.rejects(upgradeStorageLayout(f.source), /多个 Host 身份/)
+    assert.equal(await optionalStat(path.join(f.source, 'host-id')), null)
+    assert.equal(await optionalStat(path.join(f.source, 'storage.json')), null)
+    assert.equal(await readFile(file, 'utf8'), before)
+  } finally {
+    await f.dispose()
+  }
+})
+
+test('布局升级发现持久身份与控制状态冲突时，在备份发布前中止', async () => {
+  const f = await fixture()
+  try {
+    await writeJson(path.join(f.source, 'control.json'), identitySnapshot('other-host', f.source))
+    await assert.rejects(upgradeStorageLayout(f.source), /Host 身份不一致/)
+    assert.equal(await readFile(path.join(f.source, 'host-id'), 'utf8'), 'storage-fixture')
+    assert.equal(await optionalStat(path.join(f.source, 'storage.json')), null)
+    assert.equal(await optionalStat(path.join(f.source, 'backups')), null)
+  } finally {
+    await f.dispose()
+  }
+})
+
+test('换根迁移在来源身份冲突时保留空目标，目标身份被修改时拒绝切换目录', async () => {
+  const f = await fixture()
+  try {
+    const snapshotFile = path.join(f.source, 'state/control/snapshot.json')
+    await mkdir(path.dirname(snapshotFile), { recursive: true })
+    await writeJson(snapshotFile, identitySnapshot('other-host', f.source))
+    await assert.rejects(migration(f), /Host 身份不一致/)
+    assert.deepEqual(await readdir(f.target), [])
+    await writeJson(snapshotFile, identitySnapshot('storage-fixture', f.source))
+    let committed = false
+    await assert.rejects(
+      migrateStorage({
+        ...f,
+        id: 'identity-target-tamper',
+        hostId: 'storage-fixture',
+        commit: async () => {
+          committed = true
+        },
+        progress: (value) => {
+          if (value.stage === 'relocating') writeFileSync(path.join(f.target, 'host-id'), 'other-host')
+        },
+      }),
+      /持久 Host 身份不匹配/,
+    )
+    assert.equal(committed, false)
+    assert.equal(await readFile(path.join(f.source, 'host-id'), 'utf8'), 'storage-fixture')
+    assert.equal(await optionalStat(path.join(f.source, '.pi-meme-relocated.json')), null)
+  } finally {
+    await f.dispose()
+  }
+})
+
+test('身份校验只检查事件信封与稳定引用，保留运行事件中的业务数据', async () => {
+  const f = await fixture()
+  try {
+    await mkdir(path.join(f.source, 'state/control'), { recursive: true })
+    const event = { hostId: 'storage-fixture', type: 'runtime', value: { hostId: 'business-data' } }
+    await writeFile(path.join(f.source, 'state/control/events.jsonl'), `${JSON.stringify({ event })}\n`)
+    assert.equal(await ensureHostIdentity(f.source), 'storage-fixture')
   } finally {
     await f.dispose()
   }

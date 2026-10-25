@@ -35,7 +35,9 @@ export async function readLocalHostStatus(url: string): Promise<LocalHostStatus 
     })
   } catch (cause) {
     if (errorCode(cause) === 'ECONNREFUSED') return undefined
-    throw new Error('本机端口没有返回有效的 Host 状态，请检查端口占用和监听地址', { cause })
+    throw Object.assign(new Error('本机端口没有返回有效的 Host 状态，请检查端口占用和监听地址', { cause }), {
+      code: 'EHOSTPORT',
+    })
   }
   const value: unknown = await response.json().catch(() => undefined)
   if (
@@ -58,7 +60,9 @@ export async function readLocalHostStatus(url: string): Promise<LocalHostStatus 
     !('owner' in value) ||
     (value.owner !== 'desktop' && value.owner !== 'server')
   )
-    throw new Error('此端口不是兼容的 pi-meme Host，请停止占用程序或指定其他 PI_MEME_PORT')
+    throw Object.assign(new Error('此端口不是兼容的 pi-meme Host，请停止占用程序或指定其他 PI_MEME_PORT'), {
+      code: 'EHOSTPORT',
+    })
   return value as LocalHostStatus
 }
 
