@@ -4,8 +4,6 @@ import {
   Grid2X2,
   Layers,
   MessageCircle,
-  Scan,
-  Shrink,
   Maximize2,
   Minimize2,
   PanelRightClose,
@@ -217,7 +215,7 @@ export function WorkspacePanels({
     tabList.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   }, [layout.active, layout.open, unified, toolActive])
   const visibleTabs = layout.tabs.filter((id) => id === toolsTabId || available.some((panel) => panel.id === id))
-  const tabs = visibleTabs.length ? visibleTabs : [toolsTabId]
+  const tabs = unified || visibleTabs.length ? visibleTabs : [toolsTabId]
   const active = tabs.includes(layout.active) ? layout.active : tabs[0]
   const selected = available.find((panel) => panel.id === active)
   const showTool = unified && toolActive && tabs.includes(layout.active)
@@ -299,8 +297,10 @@ export function WorkspacePanels({
       toggleSidebar,
       toggleFullView: () => changeView(!unified),
       toggleTools: () => {
-        if (unified) setToolActive(!showTool)
-        else toggleRight()
+        if (unified) {
+          if (!showTool && !tabs.length) open(toolsTabId)
+          else setToolActive(!showTool)
+        } else toggleRight()
       },
       focusComposer: onFocusComposer
         ? () => {
@@ -370,7 +370,7 @@ export function WorkspacePanels({
         )}
         {tabs.map((id) => {
           const panel = available.find((entry) => entry.id === id)
-          const title = panel?.title ?? '工具'
+          const title = panel?.title ?? '新标签页'
           return (
             <div
               key={id}
@@ -405,7 +405,7 @@ export function WorkspacePanels({
         })}
       </div>
       <div className="flex items-center gap-1 shrink-0 no-drag">
-        <HeaderButton label="新建工具标签页" onClick={() => open(toolsTabId)}>
+        <HeaderButton label="新标签页" onClick={() => open(toolsTabId)}>
           <Plus />
         </HeaderButton>
         {!unified && (
@@ -459,7 +459,18 @@ export function WorkspacePanels({
             pressed={unified}
             onClick={() => changeView(!unified)}
           >
-            {unified ? <Shrink /> : <Scan />}
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={1.5}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+              style={{ width: 14, height: 14 }}
+            >
+              <path d={unified ? 'M14 3v7h7M3 14h7v7' : 'M14 3h7v7M3 14v7h7'} />
+            </svg>
           </HeaderButton>
           <Tooltip>
             <TooltipTrigger asChild>
@@ -623,7 +634,7 @@ export function WorkspacePanels({
                 <div
                   id="right-tool-content"
                   role="tabpanel"
-                  aria-label={unified ? undefined : (selected?.title ?? '工具')}
+                  aria-label={unified ? undefined : (selected?.title ?? '新标签页')}
                   className="pane-clip flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden @container"
                   style={{ width: unified || rightPane.dragging ? '100%' : rightWidth }}
                   aria-labelledby={unified ? `workspace-tool-tab-${active}` : undefined}
@@ -650,7 +661,7 @@ export function WorkspacePanels({
                         </label>
                       </div>
                       <div className="p-4 @container">
-                        <h2 className="mb-4 text-sm font-medium text-foreground">工具</h2>
+                        <h2 className="mb-4 text-sm font-medium text-foreground">新标签页</h2>
                         <div className="grid grid-cols-1 gap-2 @min-[32rem]:grid-cols-2 @min-[32rem]:gap-x-3">
                           {filtered.map((panel) => (
                             <button

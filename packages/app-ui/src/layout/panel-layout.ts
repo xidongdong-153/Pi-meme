@@ -21,7 +21,7 @@ export type PanelLayoutState = {
 }
 
 export function defaultPanelLayout(): PanelLayoutState {
-  return { version: 2, tabs: [toolsTabId], active: toolsTabId, open: false, width: 480, expanded: false }
+  return { version: 2, tabs: [], active: '', open: false, width: 480, expanded: false }
 }
 
 export function panelAvailable(panel: UiPanel, target: UiTarget) {
@@ -38,7 +38,7 @@ export function panelStorageKey(hostId: string, session: string) {
 export function openPanel(layout: PanelLayoutState, id: string): PanelLayoutState {
   const tabs = layout.tabs.includes(id)
     ? layout.tabs
-    : layout.active === toolsTabId && id !== toolsTabId
+    : layout.tabs.includes(toolsTabId) && layout.active === toolsTabId && id !== toolsTabId
       ? layout.tabs.map((tab) => (tab === toolsTabId ? id : tab))
       : [...layout.tabs, id]
   return { ...layout, tabs, active: id, open: true }
@@ -47,7 +47,7 @@ export function openPanel(layout: PanelLayoutState, id: string): PanelLayoutStat
 export function closePanel(layout: PanelLayoutState, id: string): PanelLayoutState {
   const index = layout.tabs.indexOf(id)
   const tabs = layout.tabs.filter((tab) => tab !== id)
-  if (!tabs.length) return { ...layout, tabs: [toolsTabId], active: toolsTabId, open: false }
+  if (!tabs.length) return { ...layout, tabs: [], active: '', open: false }
   return { ...layout, tabs, active: layout.active === id ? tabs[Math.min(index, tabs.length - 1)] : layout.active }
 }
 
@@ -61,12 +61,12 @@ export function readPanelLayout(raw: string | null): PanelLayoutState {
       const tabs = [
         ...new Set(value.tabs.filter((id) => typeof id === 'string' && id.length > 0).map(migratePanelId)),
       ].slice(0, 32)
-      if (tabs.length) initial.tabs = tabs
+      initial.tabs = tabs
     }
     initial.active =
       typeof value.active === 'string' && initial.tabs.includes(migratePanelId(value.active))
         ? migratePanelId(value.active)
-        : initial.tabs[0]
+        : (initial.tabs[0] ?? '')
     if (typeof value.open === 'boolean') initial.open = value.open
     if (typeof value.expanded === 'boolean') initial.expanded = value.expanded
     if (typeof value.width === 'number' && Number.isFinite(value.width))

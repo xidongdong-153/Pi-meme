@@ -239,6 +239,10 @@ body {
   --right-toggle-slot: 72px;
 }
 
+.workspace-panes[data-view='split'] .workspace-topbar {
+  --right-toggle-slot: 60px;
+}
+
 .workspace-topbar > .workspace-main-header {
   width: calc(100% - var(--workspace-right-width));
   padding-right: max(0px, calc(var(--right-toggle-slot) - var(--workspace-right-width)));

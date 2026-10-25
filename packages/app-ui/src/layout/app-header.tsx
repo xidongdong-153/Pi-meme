@@ -15,6 +15,7 @@ import {
   DropdownMenuTrigger,
 } from '@pi-meme/ui/components/ui/dropdown-menu'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
+import { cn } from '@pi-meme/ui/lib/utils'
 import { PageHeaderNavigation } from './page-header'
 import { useShortcuts } from '../shortcuts/shortcut-provider'
 
@@ -253,7 +254,12 @@ export function AppHeader({
       </div>
 
       {/* 分区 2：中间顶栏（flex-1，与下方主会话画布精确对齐） */}
-      <div className="flex h-full items-center justify-between min-w-0 flex-1 px-4 bg-transparent">
+      <div
+        className={cn(
+          'flex h-full items-center justify-between min-w-0 flex-1 pl-4 bg-transparent',
+          workspaceTabs && 'pr-4',
+        )}
+      >
         {workspaceTabs ? (
           workspaceTabs(sessionMenu)
         ) : (

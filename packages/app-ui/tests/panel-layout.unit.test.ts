@@ -35,7 +35,10 @@ test('工具选择页打开面板，重复打开只选中原标签，关闭选�
   assert.equal(layout.active, 'example:terminal')
   layout = closePanel(layout, 'example:terminal')
   assert.equal(layout.open, false)
-  assert.deepEqual(layout.tabs, [toolsTabId])
+  assert.deepEqual(layout.tabs, [])
+  assert.equal(layout.active, '')
+  assert.deepEqual(readPanelLayout(JSON.stringify(layout)), layout)
+  assert.deepEqual(openPanel(layout, toolsTabId).tabs, [toolsTabId])
 })
 
 test('无效与旧布局回到右栏工具页，恢复时过滤重复标签并限制宽度', () => {
