@@ -40,7 +40,7 @@ Host 用户技能在 `resources/skills/`，内置技能在 `resources/builtin/sk
 
 模型配置与 MCP 通过各自设置页管理，文件与授权规则见 [配置与安全](configuration.md)。App Server 由 Host 全局管理，不为每个项目另建实例。
 
-资源扫描、冲突与快照由 [ResourceStore](../packages/resources/src/server/resource-store.ts) 管理。系统技能源码在 [pi/skills](../pi/skills/)，目前包括 [skill-creator](../pi/skills/skill-creator/) 和 [plugin-creator](../pi/skills/plugin-creator/)。Desktop 与 Server 构建携带这些目录，Host 启动复制到 `resources/builtin/skills/`，不改用户技能目录；见 [install-builtin-skills.ts](../packages/resources/src/server/install-builtin-skills.ts)。缺少 Skill Creator 时 Host 拒绝启动。
+资源扫描、冲突与快照由 [ResourceStore](../packages/resources/src/server/resource-store.ts) 管理。系统技能源码在 [pi/skills](../pi/skills/)，目前包括 [skill-creator](../pi/skills/skill-creator/) 和 [plugin-creator](../pi/skills/plugin-creator/)。Desktop 与 Server 构建携带这些目录，Host 启动复制到 `resources/builtin/skills/`，不改用户技能目录；见 [install-builtin-skills.ts](../packages/resources/src/server/install-builtin-skills.ts)。缺少 Skill Creator 时 Host 拒绝启动。Plugin Creator 还携带初始化模板、SDK 类型和对应平台的构建工具，默认在用户项目中完成源码检查、构建、校验和 `.pim` 打包；内置技能复制与资源快照保留编译器的执行权限。
 
 ## 导入与编辑
 

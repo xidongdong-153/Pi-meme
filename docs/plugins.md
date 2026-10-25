@@ -78,13 +78,19 @@ paths:
 
 ```sh
 pnpm exec tsx packages/plugin-devkit/src/cli.ts create /tmp/my-plugin my-plugin
-pnpm --dir /tmp/my-plugin install --ignore-scripts
+pnpm exec tsx packages/plugin-devkit/src/cli.ts check /tmp/my-plugin
 pnpm exec tsx packages/plugin-devkit/src/cli.ts build /tmp/my-plugin
 pnpm exec tsx packages/plugin-devkit/src/cli.ts validate /tmp/my-plugin
 pnpm exec tsx packages/plugin-devkit/src/cli.ts pack /tmp/my-plugin /tmp/my-plugin.pim
 ```
 
-命令定义见 [cli.ts](../packages/plugin-devkit/src/cli.ts)。`create` 要求目标目录尚不存在，模板的 SDK 开发依赖链接到当前仓库；移动目录后需修正 link 路径。DevKit 不安装依赖、不执行安装脚本。
+命令定义见 [cli.ts](../packages/plugin-devkit/src/cli.ts)。`create` 要求目标目录尚不存在，生成工程内的 `.pi-meme-devkit/`、SDK、TypeScript 配置和 npm scripts；移动工程时一起保留工具目录。DevKit 不安装依赖、不执行安装脚本。
+
+初始化可指定 `--agent none|restricted|trusted|both`、`--server none|restricted|trusted|both`、`--ui none|panel|page`、`--resources skills,themes,assets` 和 `--display-name <名称>`。提供任一能力选项后，未选能力不生成；不传能力选项保留时钟示例。纯页面使用 `--ui page`，纯主题使用 `--resources themes`。`doctor` 检查当前 Node、平台与随附编译器；`check` 检查源码类型、导出、资源和包内技能格式，`validate` 检查真实构建产物。
+
+应用内 Plugin Creator 使用随技能分发的 `scripts/plugin.mjs`，不要求用户持有本仓库。Node.js 最低版本为 22.19.0。工程生成后，在工程目录运行 `npm run type-check`、`npm run build`、`npm run validate`、`npm run pack`，默认在上级目录输出 `.pim`；额外业务依赖需要由开发者明确提供。
+
+构建时会准备对应平台的工具包和 SDK 类型；Server 开发启动也会准备技能工具。直接运行源码 Host 前，可在仓库执行 `pnpm exec tsx scripts/prepare-plugin-tools.mts`。工具包不进入插件 `.pim`。工程的工具产物位于 `.pi-meme-devkit/dist/`，重新检出或工具缺失时运行系统技能的 `scripts/plugin.mjs prepare <插件目录>` 恢复；该命令不重建业务源码和配置。SDK 与 React 声明为宿主提供的可选 peer，基础模板无需从 npm 安装私有 SDK。
 
 DevKit 分别构建 Node 与浏览器产物。UI 使用宿主 React；CSS 导入得到字符串，需要由插件插入并在释放时移除。主题 JSON 本身不执行 CSS 或 JavaScript。
 

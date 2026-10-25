@@ -1,0 +1,17 @@
+import type { UiPluginContext } from '@pi-meme/plugin-sdk/ui'
+
+export function activate(context: UiPluginContext) {
+  return context.panels.register({
+    id: context.pluginId + ':overview',
+    title: {{displayName}},
+    icon: 'P',
+    location: 'right',
+    scope: 'app',
+    render: () => (
+      <section>
+        <h2>{{displayNameExpression}}</h2>
+        <p>插件面板已加载。</p>
+      </section>
+    ),
+  })
+}

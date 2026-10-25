@@ -1,0 +1,13 @@
+import type { {{contextType}} } from '@pi-meme/plugin-sdk/{{contextModule}}'
+
+export function activate(context: {{contextType}}) {
+  context.tools.register({
+    name: '{{toolName}}_time',
+    title: '读取当前时间',
+    description: '返回当前 UTC 时间。',
+    parameters: { type: 'object', properties: {}, additionalProperties: false },
+    effect: 'read',
+    capabilities: [],
+    execute: async () => ({ text: {{timeExpression}} }),
+  })
+}

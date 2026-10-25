@@ -1,4 +1,4 @@
-import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
 async function copySkillDirectory(source: string, target: string) {
@@ -7,7 +7,11 @@ async function copySkillDirectory(source: string, target: string) {
     const input = path.join(source, entry.name)
     const output = path.join(target, entry.name)
     if (entry.isDirectory()) await copySkillDirectory(input, output)
-    else if (entry.isFile()) await writeFile(output, await readFile(input))
+    else if (entry.isFile()) {
+      const mode = (await stat(input)).mode & 0o777
+      await writeFile(output, await readFile(input), { mode })
+      await chmod(output, mode)
+    }
   }
 }
 

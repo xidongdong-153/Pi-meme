@@ -1,0 +1,15 @@
+import type { {{contextType}} } from '@pi-meme/plugin-sdk/{{contextModule}}'
+
+export function create(context: {{contextType}}) {
+  context.registerOperations([
+    {
+      name: 'time',
+      inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+      outputSchema: { type: 'string' },
+      audience: {{audience}},
+      effect: 'read',
+      capabilities: [],
+      execute: () => new Date().toISOString(),
+    },
+  ])
+}

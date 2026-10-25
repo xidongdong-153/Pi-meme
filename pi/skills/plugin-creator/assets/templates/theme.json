@@ -1,0 +1,21 @@
+{
+  "id": "custom",
+  "name": "自定义主题",
+  "appearance": "dark",
+  "colors": {
+    "background": "#18181a",
+    "surface": "#1e1e21",
+    "elevated": "#29292e",
+    "text": "#e9e9eb",
+    "muted": "#a0a0aa",
+    "border": "#3a3a42",
+    "accent": "#b6a4ed",
+    "accentText": "#211c2e",
+    "success": "#7bb795",
+    "error": "#f5a49b"
+  },
+  "fonts": {
+    "ui": "-apple-system, sans-serif",
+    "code": "ui-monospace, monospace"
+  }
+}

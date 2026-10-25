@@ -68,6 +68,13 @@ export async function readPluginManifest(directory: string): Promise<PluginManif
       validateBrowserModule(code)
     }
   }
+  await validatePluginResources(directory, manifest)
+  return manifest
+}
+
+/** 源码检查与安装共用资源路径检查，不要求代码入口已经构建。 */
+export async function validatePluginResources(directory: string, manifest: PluginManifest) {
+  const root = await realpath(directory)
   if (manifest.piMeme.display?.icon) {
     const icon = await packagePath(root, manifest.piMeme.display.icon)
     if (!(await lstat(icon)).isFile()) throw new Error('插件图标必须是包内文件')
@@ -85,7 +92,6 @@ export async function readPluginManifest(directory: string): Promise<PluginManif
       throw new Error(`插件主题必须是 JSON 对象：${theme}`)
   }
   for (const asset of manifest.piMeme.resources?.assets ?? []) await packagePath(root, asset)
-  return manifest
 }
 
 export async function packPlugin(directory: string): Promise<Buffer> {

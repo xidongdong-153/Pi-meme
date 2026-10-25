@@ -1,0 +1,8 @@
+import { runDevkit } from './dist/cli.mjs'
+
+try {
+  console.log(JSON.stringify(await runDevkit(process.argv.slice(2)), null, 2))
+} catch (cause) {
+  console.error(`插件 ${process.argv[2] ?? '命令'} 失败：${cause instanceof Error ? cause.message : String(cause)}`)
+  process.exitCode = 1
+}

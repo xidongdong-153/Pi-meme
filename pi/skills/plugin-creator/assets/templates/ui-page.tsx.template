@@ -1,0 +1,20 @@
+import type { UiPluginContext } from '@pi-meme/plugin-sdk/ui'
+
+export function activate(context: UiPluginContext) {
+  const pageId = context.pluginId + ':overview'
+  const releasePage = context.pages.register({
+    id: pageId,
+    title: {{displayName}},
+    scope: 'app',
+    render: () => <section><h2>{{displayNameExpression}}</h2><p>插件页面已加载。</p></section>,
+  })
+  const releaseNavigation = context.navigation.register({
+    title: {{displayName}},
+    defaultPageId: pageId,
+    groups: [{ id: 'main', items: [{ id: 'overview', pageId }] }],
+  })
+  return () => {
+    releaseNavigation()
+    releasePage()
+  }
+}

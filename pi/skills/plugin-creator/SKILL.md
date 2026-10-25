@@ -1,100 +1,94 @@
 ---
 name: plugin-creator
-description: 创建或更新 pi-meme App 插件。用于在当前项目编写 package.json、Agent、界面或后台入口，以及打包安装到应用的个人插件列表。
+description: 创建或更新 pi-meme App 插件，按需生成 Agent、Server、UI、主题和包内技能，检查源码与构建产物并打包可安装的 .pim。
 metadata:
   display-name: Plugin Creator
-  short-description: 创建或更新 App 插件
+  short-description: 创建、检查并打包 App 插件
 ---
 
 # Plugin Creator
 
-在当前工作区创建或更新 pi-meme App 插件源码，使用户安装后能在应用里使用。
+在当前工作区创建或更新个人 App 插件，默认交付源码与可导入的 `.pim`。工具随技能分发，不依赖 pi-meme 源码仓库或公开 npm SDK 包。
 
-从设置「插件 → 添加 → 创建插件」调用时，输入通常是「帮我创建一个插件」。这时先确认插件要做什么，以及需要受限 Agent、可信服务、输入框处理、消息动作、业务页面、右侧面板、主题、包内技能中的哪些能力。用户已经说明目标时直接写文件，不为了补齐模板而追问。
+## 1. 确认目标与能力
 
-## 个人和系统
+从设置「插件 → 添加 → 创建插件」进入时，用户通常只说“帮我创建一个插件”。先问插件要完成什么，以及用户如何使用它。已有明确目标时直接推进，只追问会影响实现的信息。
 
-- 本技能创建的是个人插件。安装后出现在设置「插件 → 个人」，可以启用、停用、更新和卸载。
-- 系统插件是应用自带的变更、文件和终端。它们始终启用，不能停用、卸载、覆盖或用新插件替换。
-- 插件可注册自己的活动栏入口、次级菜单和中央业务页，不能替换内置首页、项目、插件管理、设置或聊天。工具面板的 `location` 仍只能是 `right`。
-- 不要把插件写成 Host 内置模块，也不要修改应用仓库里的内置装配。
+根据目标选择受限或可信 Agent、Server、UI 面板或业务页、主题、包内技能。只声明实际需要的入口和权限，不默认生成全部示例。最小权限能完成任务时使用受限入口；UI 和可信入口需要独立授权。
 
-## 输出位置
+- 默认源码位置是当前工作区 `plugins/<不含 scope 的包名>/`；用户指定目录时保留指定位置。新目录必须不存在，包名保留完整 scope。新版本默认 `0.1.0`。
+- 更新时读取现有 manifest、入口、构建命令和工具版本，不重新初始化，不覆盖用户文件；保留包名。SDK 2 按 SDK 3 契约重建，不能只修改版本字段。
+- 插件不能替换系统插件、内置导航或聊天，也不能改成 Host 内置模块。只读或规划模式只给出文件方案，不运行创建、构建或打包命令，不切换权限。
 
-- 用户指定目录时使用该目录。未指定时，在当前工作区创建 `plugins/<package-name>/`。目标目录必须尚不存在。
-- 包名是合法 npm 名：可选 `@scope/`，其余以小写字母或数字开头，只含小写字母、数字、`.`、`_`、`-`。版本使用语义版本号，新建用 `0.1.0`。
-- 写到工作区只是源码，不会自动出现在插件列表。交付时说明还需要构建并安装。
-- 当前工作区存在 `packages/plugin-devkit/src/cli.ts` 时，用该 DevKit 创建、构建、校验和打包。否则按下面的结构直接写源码。两种情况都不执行 `pnpm install` 或安装脚本。
-- 会话处于规划模式、只读权限或路径不允许写入时，只给出文件方案，不切换权限、不写入、不绕过 Host 限制。
+按需读取资料：
 
-DevKit 在 pi-meme 仓库根目录执行：
+| 当前任务                        | 读取资料                                                 |
+| ------------------------------- | -------------------------------------------------------- |
+| 创建或调整 manifest、入口、权限 | [references/manifest.md](references/manifest.md)         |
+| Agent 工具或 Server 操作        | [references/agent-server.md](references/agent-server.md) |
+| 面板、页面、输入框、消息或导航  | [references/ui.md](references/ui.md)                     |
+| 主题、图片或包内技能            | [references/resources.md](references/resources.md)       |
+
+具体接口读取本技能 `dist/toolchain/node_modules/@pi-meme/plugin-sdk/src/` 下对应的 `.d.ts`，它们与随附构建工具版本一致。不要猜接口。`agents/openai.yaml` 不参与 Pi 的权限或调用配置。
+
+## 2. 检查环境并初始化
+
+以下命令中的 `<技能目录>` 替换为本 `SKILL.md` 所在目录的绝对路径。脚本使用 Node.js >=22.19.0。先检查 `command -v node`；缺失时检查 Host 已提供的 Node 路径，不自行下载或安装。仍不可用时报告缺少的运行条件并停止。
 
 ```bash
-pnpm exec tsx packages/plugin-devkit/src/cli.ts create <新目录绝对路径> <package-name>
-pnpm exec tsx packages/plugin-devkit/src/cli.ts build <插件目录>
-pnpm exec tsx packages/plugin-devkit/src/cli.ts validate <插件目录>
-pnpm exec tsx packages/plugin-devkit/src/cli.ts pack <插件目录> <插件目录>.pim
+node <技能目录>/scripts/plugin.mjs doctor
+node <技能目录>/scripts/plugin.mjs create <新目录绝对路径> <package-name> --agent restricted --server restricted --display-name 插件名称
 ```
 
-`create` 生成的是带示例时钟工具的骨架。用户要的不是示例时，改掉示例入口，只保留本次需要的文件。移动目录后，DevKit 写进 `package.json` 的 SDK `link:` 会失效，需要改路径，不要假设依赖已经装好。
+`doctor` 检查 SDK、平台、依赖文件和 esbuild 可执行性。失败时报告当前步骤和原因，不改用手写构建器或无沙箱运行。
 
-## 包格式
+`create` 支持以下能力选项：
 
-`package.json` 使用 `"type": "module"`，并声明 `piMeme.sdkVersion: 3`。不生成 SDK 2 代码，也不保留旧 `context.call`、`registerHandlers` 或 `message-actions` render 槽。只声明实际使用的入口：
+- `--agent none|restricted|trusted|both`
+- `--server none|restricted|trusted|both`
+- `--ui none|panel|page`
+- `--resources skills,themes,assets`，按需选择逗号分隔的资源类型。
+- `--display-name <显示名称>`
 
-| 能力                 | 源码                                               | manifest 入口                                              |
-| -------------------- | -------------------------------------------------- | ---------------------------------------------------------- |
-| 受限 Agent           | `src/agent/restricted.ts` 导出 `activate(context)` | `agent.restricted: dist/agent/restricted.js`               |
-| 可信 Agent           | `src/agent/entry.ts` 导出 `activate(context)`      | `agent.trusted: dist/agent/entry.js`                       |
-| 受限 Server          | `src/server/restricted.ts` 导出 `create(context)`  | `server.restricted: dist/server/restricted.js`             |
-| 可信 Server          | `src/server/entry.ts` 导出 `create(context)`       | `server.trusted: dist/server/chord-facets.json`            |
-| UI 页面、面板和贡献  | `src/ui/entry.tsx` 导出 `activate(context)`        | `ui: dist/ui/entry.js`                                     |
-| 主题、包内技能、图片 | 包内相对路径                                       | `resources.skills`、`resources.themes`、`resources.assets` |
+提供任一能力选项后，未选能力默认不生成。完全不传能力选项时保留 DevKit 的示例时钟兼容模板；实际任务应显式传所需能力。例如纯页面使用 `--ui page`，纯主题使用 `--resources themes`。不创建空插件。
 
-至少要有一个代码入口，或一项非空 `resources`。路径必须在包内，不能是 `..`、绝对路径或通配符。
+初始化生成入口、manifest、TypeScript 配置、命令和 `.pi-meme-devkit/` 本地工具。工具与 SDK 使用工程内路径，移动工程时一起保留；不执行依赖安装或安装脚本。模板里的时间工具、面板和说明技能只是可运行起点，按真实需求替换后再交付。
 
-```json
-{
-  "name": "my-plugin",
-  "version": "0.1.0",
-  "type": "module",
-  "description": "插件做什么。",
-  "piMeme": {
-    "sdkVersion": 3,
-    "display": { "name": "插件显示名" },
-    "agent": { "restricted": "dist/agent/restricted.js" },
-    "permissions": {
-      "restricted": {
-        "maxAccess": "read-only",
-        "capabilities": ["workspace.read"]
-      }
-    }
-  }
-}
+已有插件不运行 `create`。使用它现有的构建流程。由本技能生成的工程把开发工具产物放在 `.pi-meme-devkit/dist/`，不作为业务源码提交；重新检出或工具缺失时，运行 `node <技能目录>/scripts/plugin.mjs prepare <插件目录>` 恢复工具，保留已有源码、配置和命令入口。其他工程可使用本技能命令 `check/build/validate/pack <插件目录>`，配置中的 SDK 类型路径指向本技能对应目录。若缺失依赖或构建约定不兼容，停在失败点说明原因，不擅自重写工程配置或安装依赖。
+
+## 3. 实现并检查源码
+
+先实现真实功能，再运行工程内的检查命令；命令均在插件目录执行：
+
+```bash
+node .pi-meme-devkit/cli.mjs check .
 ```
 
-- Agent 工具返回 `{ text, data? }`，`data` 必须可序列化为 JSON。安装、项目启停、会话选择和能力授权分别校验，不因安装提升权限。
-- 优先生成真正需要的受限入口。Plan 仅加载获准的受限只读入口；可信 Agent 只在完全权限普通任务中、明确授权后加载。restricted-only 插件在完全权限任务中仍受原上限约束。
-- 受限 JS/TS 产物在独立进程和 OS 沙箱执行，不能改成 Host 导入、VM 或 Worker 线程。平台不可用时报告 `sandbox-unavailable` 并停止，不退回无沙箱运行。不要把可执行文件或 Node 运行时打进插件。
-- 受限工具和命令显式声明 effect 与 capabilities，不靠工具名前缀或 safe 标记放行。`permissions.restricted` 明确列出 maxAccess、capabilities、network 与 sharedData；缺省不授予能力。联网只走 `http.request` 和精确授权的 HTTPS origin/method，Plan 限 GET/HEAD。凭据只传插件专属 credentialRef，不复制 Host、模型或 MCP 的密钥。
-- Server 用 `registerOperations` 登记局部 name、inputSchema、outputSchema、audience、effect、capabilities 和 execute；UI/Agent 统一通过 `context.server.call` 调用同插件同代次操作。受限入口不能回退可信 Server。
-- UI 使用宿主 React，不把 Node 产物打进浏览器；可信 UI 在加载前单独授权，不把同源 React 宣传为恶意代码沙箱。面板 `location` 为 `right`。CSS 只作用自己的根并在释放时移除。
-- 包内技能目录包含 `SKILL.md`，并列入 `resources.skills`。安装后它们出现在技能页，标记为来自插件，属于个人技能，不是系统技能。
-- 纯主题插件可以只有 `package.json`、主题 JSON 和图片。主题不执行 JavaScript 或任意 CSS。
+`check` 检查 manifest、内置身份冲突、资源路径、包内技能格式、源入口和必要导出，运行 TypeScript 检查，并检查 UI 是否可作为浏览器代码构建。纯资源插件检查资源，不要求创建 TS 源码。
 
-更新已有插件时先读取现有 manifest 和入口，只改当前任务需要的部分，保留包名。SDK 2 必须按新契约重建，不能只改 sdkVersion 后继续使用旧 API。不要为了统一样式重写整个插件。
+- 使用当前 SDK 类型，工具返回 `{ text, data? }`，只传 JSON 可序列化数据。
+- 调用 Server 明确 audience、effect 和 capabilities。Plan 只使用获准的受限只读入口，不回退可信入口。
+- 不把凭据写入源码、manifest、页面参数、日志或包内技能。
+- 用户请求涉及外部服务、文件写入或界面交互时，用临时数据和可释放的 fixture 验证关键行为；不要以模板能构建代替功能验证。
 
-## UI 能力选择
+只修本次产生的问题。遇到无法修复的依赖、权限或接口缺失时，保留源码，说明具体阻塞和已完成结果，不继续宣称创建成功。
 
-- 使用输入框：申请对应 `composer.read/write/attachments/submit/before-send`。先用 `composer.current()` 取得 view，再使用它的 ref/revision；离开聊天或目标改变后重新取得。不要维护第二份可写草稿、操作隐藏输入框、绕过 CAS/IME/上传/配置保存检查，或用 DOM 模拟发送。
-- 发送前处理：局部 hook ID 列入 `permissions.beforeSend`，默认不执行，交给用户逐项开启。只能 pass、replace 或 block 候选输入；附件仅使用已有 ready 引用，不在 hook 内上传。异常与超时必须阻止发送，不吞错放行。
-- 读取消息：申请 `reactive.read/messages.read`，使用 metadata/select/body 或 messages.page/getMessage。MessageRef 用 Pi 原生 entryId，不根据时间戳或数组下标构造；不能导出隐藏 thinking、展开技能全文、base64 或凭据。
-- 消息动作：使用 `messageActions.register`，申请 `messages.actions` 与 `messages.read`，声明 roles 和 source。宿主控制菜单、busy 与确认，不注册旧 `message-actions` contribution。自定义正文 renderer 仍只能匹配本插件 ownerId/generation。
-- 中央业务页：使用 `pages.register` 和每插件一个 `navigation.register`，申请 `navigation.pages`。scope 为 app/project/session，菜单和默认页只引用本插件页面。页面使用捕获 target、signal、page.params/setParams/setUnsavedChanges；不改变后台聊天选择，不跨 Host 导航，不把秘密写入 params。
-- 未保存表单用 `setUnsavedChanges(true)`，保存后设 false。租约过期后保留可见内容但停止保存，不向新代 Server 重放旧表单。
+## 4. 构建、校验与打包
 
-仓库内开发时，先读本次实际使用的 SDK 文件：`packages/plugin-sdk/src/{manifest,permissions,restricted,rpc,composer,message-actions,reactive,navigation,ui}.ts`，示例与边界见 `docs/plugins.md`。仓库外无法取得相应契约时，不编造接口；说明缺少哪个文件或版本并停止该能力的实现。
+源码检查通过后依次执行：
 
-## 交付
+```bash
+node .pi-meme-devkit/cli.mjs build .
+node .pi-meme-devkit/cli.mjs validate .
+node .pi-meme-devkit/cli.mjs pack . ../my-plugin.pim
+```
 
-说明源码目录、声明了哪些入口，以及验证结果。没有构建时说明尚未生成 `dist`。没有打包或安装时说明插件还不会出现在「插件 → 个人」；用户需要在设置里上传 `.pim`，或由已连接的 Host 加载构建目录。正在使用的旧版本会保留到任务结束。
+把输出名替换为本插件包名。`build` 生成 `dist`，可信 Server 使用 Chord 产物。`validate` 共用应用安装器的入口、资源、浏览器模块和 Chord 完整性检查。`pack` 再次校验后生成 `.pim`，仅包含安装器允许的产物和显式资源，不包含源码、开发工具或 `node_modules`。
+
+每步失败都停止后续步骤，报告步骤、文件和原因。修复后重跑受影响步骤；修改源码后必须重新构建，不能直接打包旧 `dist`。校验不会证明业务行为正确，也不代表已经安装或启用。
+
+## 5. 交付
+
+说明源码目录、`.pim` 路径、实际声明的入口和权限、通过的检查，以及尚未运行的功能验证。默认由用户在设置「插件 → 添加」上传 `.pim`；写入工作区和打包不会自动进入个人插件列表。
+
+安装、项目启停、会话选择、受限能力和可信 UI/Agent/Server 授权是不同步骤，按实际能力说明需要用户完成哪些操作。不自行安装插件，不替用户信任代码；旧版本任务继续持有原代次直到结束。
