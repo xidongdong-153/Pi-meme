@@ -33,7 +33,7 @@ import type {
   WorkspaceDeletionResult,
   Snapshot,
 } from '@pi-meme/contracts/desktop'
-import type { SelectWorkspace, PiSessionsSnapshot } from '@pi-meme/contracts/sessions'
+import type { SelectWorkspace, PiSessionsSnapshot, PiSessionSummary } from '@pi-meme/contracts/sessions'
 import { PiSessionPool, type ClientView, type RuntimeSdkSession } from '@pi-meme/pi-runtime/session-pool'
 import { AgentAccessStore } from '@pi-meme/pi-runtime/access-store'
 import { createPiRuntimePaths } from '@pi-meme/pi-runtime/runtime-paths'
@@ -877,6 +877,20 @@ export async function createHost(options: HostOptions = {}) {
         removePins: (value: string[]) => settings.removePins(value),
         getPinnedPaths: () => settings.settings.pinnedPaths ?? [],
         getRuntimeSessions: () => pi.getRuntimeSessions(),
+        getSessionTasks: async () => {
+          const tasks = await (
+            builtins!.services['host.schedules.runtime'] as import('@pi-meme/schedules/server/service').ScheduleService
+          ).sessionTasks()
+          const sources = new Map<string, NonNullable<PiSessionSummary['scheduledTask']>>()
+          if (!tasks.size) return sources
+          for (const session of await appControl!.api.sessions.list()) {
+            const task = tasks.get(session.sessionId)
+            if (!task) continue
+            const key = session.sessionFile ?? appControl!.goalRuntimeKey(session)
+            if (key) sources.set(key, task)
+          }
+          return sources
+        },
         getRuntimeHistory: (value: string) => pi.getRuntimeHistory(value),
         handlers: workspaceHandlers,
       },

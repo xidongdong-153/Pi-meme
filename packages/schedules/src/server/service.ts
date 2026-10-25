@@ -3,6 +3,7 @@ import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { HostApi, HostControlEvent, SubmissionReceipt } from '@pi-meme/contracts/app-host'
 import type { ScheduledTask, ScheduledTaskInput, ScheduledTaskRef, ScheduleRun } from '@pi-meme/contracts/schedules'
+import type { PiSessionSummary } from '@pi-meme/contracts/sessions'
 import { isAgentAccessMode } from '@pi-meme/contracts/agent-access'
 import { thinkingLevels } from '@pi-meme/contracts/pi'
 import { missedOccurrences, nextOccurrence, validateRule } from '../shared/rules'
@@ -157,6 +158,31 @@ export class ScheduleService {
   }
   list() {
     return this.serial(async () => this.state.tasks.map((task) => this.view(task)))
+  }
+  sessionTasks() {
+    return this.serial(async () => {
+      const tasks = new Map(
+        this.state.tasks.map((task) => [
+          task.taskId,
+          {
+            taskId: task.taskId,
+            name: task.name,
+            status: task.status,
+            nextRunAt: task.nextRunAt,
+            timeZone: task.rule.timeZone,
+          },
+        ]),
+      )
+      const sessions = new Map<string, NonNullable<PiSessionSummary['scheduledTask']>>()
+      for (const task of this.state.tasks) {
+        if (task.session) sessions.set(task.session.sessionId, tasks.get(task.taskId)!)
+      }
+      for (const run of this.state.runs) {
+        const task = tasks.get(run.taskId)
+        if (run.session && task) sessions.set(run.session.sessionId, task)
+      }
+      return sessions
+    })
   }
   get(ref: ScheduledTaskRef) {
     return this.serial(async () => this.view(this.task(ref)))

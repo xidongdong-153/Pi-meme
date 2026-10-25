@@ -25,6 +25,7 @@ export type WorkspaceHandlerContext = {
   sessions: SessionService
   getPinnedPaths: () => string[]
   getRuntimeSessions?: () => PiSessionSummary[]
+  getSessionTasks?: () => Promise<Map<string, NonNullable<PiSessionSummary['scheduledTask']>>>
   getRuntimeHistory?: (path: string) => SessionHistoryData | null
 }
 
@@ -39,6 +40,7 @@ export function createWorkspaceHandlers({
   sessions,
   getPinnedPaths,
   getRuntimeSessions,
+  getSessionTasks,
 }: WorkspaceHandlerContext) {
   const getProjects = async () => {
     if (!projects) return []
@@ -271,6 +273,16 @@ export function createWorkspaceHandlers({
         }
         merged.projects = [...grouped.values()]
         merged.recents = merged.recents.map(decorate)
+      }
+      if (getSessionTasks) {
+        const tasks = await getSessionTasks()
+        const decorate = (session: PiSessionSummary): PiSessionSummary => ({
+          ...session,
+          scheduledTask: tasks.get(session.path),
+        })
+        merged.recents = merged.recents.map(decorate)
+        merged.standaloneSessions = merged.standaloneSessions?.map(decorate)
+        merged.projects = merged.projects.map((group) => ({ ...group, sessions: group.sessions.map(decorate) }))
       }
       return merged
     },

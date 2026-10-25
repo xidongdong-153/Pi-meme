@@ -3,6 +3,7 @@ import type { ChatBranchAttachment } from './chat-attachments'
 import type { BranchSkillUsage } from './skills'
 import type { QueuedInput } from './plan'
 import type { SessionInfo } from '@earendil-works/pi-coding-agent'
+import type { ScheduledTask } from './schedules'
 
 export type WorkspaceKind = 'project' | 'standalone'
 
@@ -25,6 +26,7 @@ export type PiSessionSummary = Pick<SessionInfo, 'id' | 'path' | 'cwd' | 'name' 
     running?: boolean
     isPaused?: boolean
     error?: string
+    scheduledTask?: Pick<ScheduledTask, 'taskId' | 'name' | 'status' | 'nextRunAt'> & { timeZone: string }
   }
 
 export type PiProjectGroup = {

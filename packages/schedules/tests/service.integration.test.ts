@@ -130,6 +130,19 @@ test('创建不执行，到期运行，重复触发只提交一次，手动运�
   await f.settled(task)
   expect((await f.service.get(task)).nextRunAt).toBe(next)
   expect(f.create).toHaveBeenCalledTimes(2)
+  const source = {
+    taskId: task.taskId,
+    name: task.name,
+    status: 'active',
+    nextRunAt: next,
+    timeZone: f.input.rule.timeZone,
+  }
+  expect(await f.service.sessionTasks()).toEqual(
+    new Map([
+      ['session-0', source],
+      ['session-1', source],
+    ]),
+  )
 })
 test('持续会话复用聊天，聊天占用跳过，删除聊天后暂停并允许重建', async () => {
   const f = await fixture()

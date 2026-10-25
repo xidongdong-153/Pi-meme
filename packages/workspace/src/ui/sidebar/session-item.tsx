@@ -1,10 +1,10 @@
-import { SidebarRowMenu } from './sidebar-menus'
-import { GitFork, Loader2, MessageSquare, Pin, PinOff } from 'lucide-react'
+import { Clock, GitFork, Loader2, MessageSquare, Pin, PinOff } from 'lucide-react'
 import { cn } from '@pi-meme/ui/lib/utils'
 import type { PiSessionSummary } from '@pi-meme/contracts/sessions'
 import { formatSessionTitle } from './session-title'
 import type { SidebarDragProps } from './sidebar-controls'
 import { SidebarSourceBadge, type SidebarSource } from './sidebar-source'
+import { SessionDetailsTooltip } from './session-details-tooltip'
 
 /** 分叉会话的来源标识：头部 parentSession 来自 SDK 会话元数据。同时显示创建时间，区分同名分支。 */
 function ForkBadge({ session }: { session: PiSessionSummary }) {
@@ -59,6 +59,15 @@ export function SessionItem({
     if (!isActive) onPrefetchSession?.(session.path)
   }
   const isRunning = session.running && !session.isPaused && (!source || source.connected)
+  const scheduleIndicator = session.scheduledTask ? (
+    <span
+      role="img"
+      aria-label={`定时任务：${session.scheduledTask.name}`}
+      className="inline-flex size-5 shrink-0 items-center justify-center text-muted-foreground transition-opacity group-hover:opacity-0 group-has-[:focus-visible]:opacity-0 group-has-[[data-state=open]]:opacity-0"
+    >
+      <Clock aria-hidden="true" className="size-3" />
+    </span>
+  ) : null
   const runningIndicator = isRunning ? (
     <span className="inline-flex shrink-0 animate-spin text-muted-foreground group-hover:hidden group-has-[:focus-visible]:hidden group-has-[[data-state=open]]:hidden">
       <Loader2 aria-label="会话运行中" className="size-3.5" />
@@ -67,7 +76,7 @@ export function SessionItem({
 
   if (variant === 'pinned') {
     return (
-      <SidebarRowMenu target={{ kind: 'session', session }}>
+      <SessionDetailsTooltip session={session} source={source} projectName={projectName}>
         <div
           {...dragProps}
           onMouseEnter={handleMouseEnter}
@@ -79,7 +88,6 @@ export function SessionItem({
             dragProps?.draggable && 'cursor-grab active:cursor-grabbing',
           )}
           data-session-path={session.path}
-          title={`${formatSessionTitle(session)}\n所属项目：${projectName ?? '无项目'}`}
         >
           <button
             type="button"
@@ -88,7 +96,10 @@ export function SessionItem({
               if (!isActive) onSwitchSession(session.path)
             }}
             onFocus={handleMouseEnter}
-            className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden py-0.5 pr-1 text-left rounded cursor-[inherit] transition-[padding] duration-150 ease-out group-hover:pr-7 group-has-[:focus-visible]:pr-7 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            className={cn(
+              'flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden py-0.5 pr-1 text-left rounded cursor-[inherit] transition-[padding] duration-150 ease-out focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+              !session.scheduledTask && 'group-hover:pr-7 group-has-[:focus-visible]:pr-7',
+            )}
           >
             <MessageSquare aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
             <span
@@ -102,13 +113,14 @@ export function SessionItem({
             </span>
             <ForkBadge session={session} />
           </button>
-          <div className="flex items-center gap-1 shrink-0 ml-1">
+          <div className={cn('flex items-center gap-1 shrink-0 ml-1', session.scheduledTask && '-mr-1')}>
             {source && (
-              <span className="transition-opacity group-hover:opacity-0 group-has-[:focus-visible]:opacity-0">
+              <span className="pointer-events-none transition-opacity group-hover:opacity-0 group-has-[:focus-visible]:opacity-0">
                 <SidebarSourceBadge source={source} />
               </span>
             )}
             {runningIndicator}
+            {scheduleIndicator}
           </div>
           <div
             data-sidebar-drag-ignore
@@ -135,12 +147,12 @@ export function SessionItem({
             </button>
           </div>
         </div>
-      </SidebarRowMenu>
+      </SessionDetailsTooltip>
     )
   }
   if (variant === 'project') {
     return (
-      <SidebarRowMenu target={{ kind: 'session', session }}>
+      <SessionDetailsTooltip session={session} source={source} projectName={projectName}>
         <div
           onMouseEnter={handleMouseEnter}
           className={cn(
@@ -150,7 +162,6 @@ export function SessionItem({
               : 'text-muted-foreground hover:bg-secondary/30 hover:text-foreground',
           )}
           data-session-path={session.path}
-          title={formatSessionTitle(session)}
         >
           <button
             type="button"
@@ -159,7 +170,10 @@ export function SessionItem({
               if (!isActive) onSwitchSession(session.path)
             }}
             onFocus={handleMouseEnter}
-            className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden py-0.5 pr-1 text-left rounded transition-[padding] duration-150 ease-out group-hover:pr-7 group-has-[:focus-visible]:pr-7 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            className={cn(
+              'flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden py-0.5 pr-1 text-left rounded transition-[padding] duration-150 ease-out focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+              !session.scheduledTask && 'group-hover:pr-7 group-has-[:focus-visible]:pr-7',
+            )}
           >
             <span
               className={cn(
@@ -172,7 +186,10 @@ export function SessionItem({
             </span>
             <ForkBadge session={session} />
           </button>
-          {runningIndicator}
+          <div className={cn('flex items-center gap-1 shrink-0', session.scheduledTask && 'ml-1 -mr-1')}>
+            {runningIndicator}
+            {scheduleIndicator}
+          </div>
           <div
             data-sidebar-drag-ignore
             draggable={false}
@@ -202,11 +219,11 @@ export function SessionItem({
             </button>
           </div>
         </div>
-      </SidebarRowMenu>
+      </SessionDetailsTooltip>
     )
   }
   return (
-    <SidebarRowMenu target={{ kind: 'session', session }}>
+    <SessionDetailsTooltip session={session} source={source} projectName={projectName}>
       <div
         onMouseEnter={handleMouseEnter}
         className={cn(
@@ -216,7 +233,6 @@ export function SessionItem({
             : 'text-foreground/85 hover:bg-secondary/30 hover:text-foreground',
         )}
         data-session-path={session.path}
-        title={formatSessionTitle(session)}
       >
         <button
           type="button"
@@ -225,7 +241,10 @@ export function SessionItem({
             if (!isActive) onSwitchSession(session.path)
           }}
           onFocus={handleMouseEnter}
-          className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden py-0.5 pr-1 text-left rounded transition-[padding] duration-150 ease-out group-hover:pr-7 group-has-[:focus-visible]:pr-7 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+          className={cn(
+            'flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden py-0.5 pr-1 text-left rounded transition-[padding] duration-150 ease-out focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+            !session.scheduledTask && 'group-hover:pr-7 group-has-[:focus-visible]:pr-7',
+          )}
         >
           <span
             className={cn(
@@ -238,13 +257,14 @@ export function SessionItem({
           </span>
           <ForkBadge session={session} />
         </button>
-        <div className="flex items-center gap-1 shrink-0 ml-1">
+        <div className={cn('flex items-center gap-1 shrink-0 ml-1', session.scheduledTask && '-mr-1')}>
           {source && (
-            <span className="transition-opacity group-hover:opacity-0 group-has-[:focus-visible]:opacity-0">
+            <span className="pointer-events-none transition-opacity group-hover:opacity-0 group-has-[:focus-visible]:opacity-0">
               <SidebarSourceBadge source={source} />
             </span>
           )}
           {runningIndicator}
+          {scheduleIndicator}
         </div>
         <div
           data-sidebar-drag-ignore
@@ -274,6 +294,6 @@ export function SessionItem({
           </button>
         </div>
       </div>
-    </SidebarRowMenu>
+    </SessionDetailsTooltip>
   )
 }
