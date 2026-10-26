@@ -8,9 +8,53 @@ import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 import { ModelPickerPopover } from '@pi-meme/models/ui/model-picker-popover'
 import { useAppSession } from '../src/session/use-app-session'
 import { invokeSkillInNewSession } from '../src/settings/invoke-skill'
+import { WorkspaceContent } from '../src/layout/workspace-content'
+import { emptyChat } from '@pi-meme/chat/ui/model/state'
 import { assistantMessage, toolResult, userMessage } from '../../../tests/fixtures/messages.mjs'
 
 afterEach(cleanup)
+
+test('切换等待立即隔离旧内容，完成或失败后恢复交互且不重建输入框', () => {
+  const workspace = (sessionKey: string, switching: boolean) => (
+    <WorkspaceContent
+      chat={{ ...emptyChat, messages: [userMessage(sessionKey, 1)] }}
+      connection={{ generation: 1, sessionKey, cwd: '/project', status: 'idle' }}
+      ready
+      hasConnected
+      switching={switching}
+      composer={<textarea aria-label="会话草稿" defaultValue="未发送的内容" />}
+      conversation={<button type="button">{sessionKey} 正文操作</button>}
+      canEditMessages={false}
+      onEditMessage={() => {}}
+      onForkReply={() => {}}
+      onCopyError={() => {}}
+      onSettings={() => {}}
+      notice={null}
+    >
+      {null}
+    </WorkspaceContent>
+  )
+  const view = render(workspace('旧会话', false))
+  const composer = screen.getByRole('textbox', { name: '会话草稿' })
+  const oldContent = screen.getByRole('button', { name: '旧会话 正文操作' })
+  view.rerender(workspace('旧会话', true))
+  expect(screen.getByRole('status').textContent).toContain('正在打开会话')
+  expect(oldContent.isConnected).toBe(true)
+  expect(oldContent.closest('[inert]')).not.toBeNull()
+  expect(screen.queryByRole('button', { name: '旧会话 正文操作' })).toBeNull()
+  expect(screen.getByRole('textbox', { name: '会话草稿' })).toBe(composer)
+
+  view.rerender(workspace('新会话', false))
+  expect(screen.queryByRole('status')).toBeNull()
+  expect(screen.getByRole('button', { name: '新会话 正文操作' }).closest('[inert]')).toBeNull()
+  expect(screen.getByRole('textbox', { name: '会话草稿' })).toBe(composer)
+
+  view.rerender(workspace('新会话', true))
+  view.rerender(workspace('新会话', false))
+  expect(screen.queryByRole('status')).toBeNull()
+  expect(screen.getByRole('button', { name: '新会话 正文操作' }).closest('[inert]')).toBeNull()
+  expect((composer as HTMLTextAreaElement).value).toBe('未发送的内容')
+})
 
 test.each([true, false])('模型 reasoning=%s 时均可选择关闭到最大的全部思考档位', (reasoning) => {
   const model = { provider: 'custom', id: 'custom-model', name: '自定义模型', reasoning }

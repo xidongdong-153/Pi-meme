@@ -1182,6 +1182,8 @@ export function App({
       connection={chat.connection}
       ready={ready}
       hasConnected={chat.hasConnected || Boolean(chat.connection.sessionKey)}
+      switching={chat.switching}
+      active={serviceUI?.active ?? true}
       composer={composer}
       conversation={
         <Conversation

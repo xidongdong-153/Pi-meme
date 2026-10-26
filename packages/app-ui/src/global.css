@@ -16,6 +16,27 @@
   container-type: inline-size;
 }
 
+.session-content {
+  transition: opacity 120ms ease-out;
+}
+
+.session-content[data-switching] {
+  opacity: 0;
+}
+
+.session-loading {
+  animation: session-loading-in 160ms ease-out 120ms both;
+}
+
+@keyframes session-loading-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 .chat-content-column {
   width: min(48rem, calc(100cqw - 6rem));
   max-width: 100%;
