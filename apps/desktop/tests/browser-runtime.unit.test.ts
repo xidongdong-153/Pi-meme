@@ -23,6 +23,7 @@ const mocks = vi.hoisted(() => ({
   }>,
   check: undefined as undefined | ((web: unknown, permission: string, origin: string) => boolean),
   fetch: vi.fn(),
+  loadURL: vi.fn<(url: string) => Promise<void>>(),
 }))
 vi.mock('electron', () => ({
   app: { getPath: () => '/tmp/browser-downloads' },
@@ -64,6 +65,7 @@ vi.mock('electron', () => ({
       setWindowOpenHandler: vi.fn(),
       loadURL: async (url: string) => {
         this.webContents.mainFrame.url = url
+        await mocks.loadURL(url)
       },
       send: vi.fn(),
       navigationHistory: { canGoBack: () => false, canGoForward: () => false },
@@ -95,6 +97,7 @@ beforeEach(() => {
   mocks.views.length = 0
   mocks.check = undefined
   mocks.fetch.mockReset()
+  mocks.loadURL.mockReset().mockResolvedValue(undefined)
 })
 function setup() {
   const frame = { url: 'http://127.0.0.1:3181/' }
@@ -230,6 +233,71 @@ describe('浏览器原生权限边界', () => {
     const event = { sender: toolbar.webContents, senderFrame: toolbar.webContents.mainFrame }
     await mocks.handlers.get('browser:overlay-action')!(event, { type: 'ready' })
     expect(toolbar.setVisible).toHaveBeenLastCalledWith(true)
+  })
+  it('编辑浮层加载期间取消选取不会使调用失败或恢复已取消的浮层', async () => {
+    const f = setup()
+    const tab = (await f.call('create', 'chat', 'tab', 'https://example.com/')) as { documentId: number }
+    await f.call('present', 'tab', { x: 0, y: 0, width: 400, height: 300 })
+    await f.call('command', 'tab', { type: 'annotate', enabled: true })
+    const loading = Promise.withResolvers<void>()
+    mocks.loadURL.mockReturnValueOnce(loading.promise)
+    const restoring = f.call('command', 'tab', {
+      type: 'restore-editor',
+      annotation: annotation('tab', tab.documentId),
+    })
+    const result = expect(restoring).resolves.toBeUndefined()
+    await vi.waitFor(() => expect(mocks.views).toHaveLength(3))
+    const guest = { sender: mocks.views[0].webContents, senderFrame: mocks.views[0].webContents.mainFrame }
+    mocks.listeners.get('browser:selection-cancel')!(guest)
+    loading.reject(new Error("ERR_FAILED (-2) loading 'http://127.0.0.1:3181/?browser-overlay=editor'"))
+    await result
+    expect(mocks.views[2].webContents.close).toHaveBeenCalledOnce()
+    expect(mocks.views).toHaveLength(3)
+  })
+  it('工具条加载期间退出批注不会重新打开编辑浮层', async () => {
+    const f = setup()
+    const tab = (await f.call('create', 'chat', 'tab', 'https://example.com/')) as { documentId: number }
+    await f.call('present', 'tab', { x: 0, y: 0, width: 400, height: 300 })
+    const loading = Promise.withResolvers<void>()
+    mocks.loadURL.mockReturnValueOnce(loading.promise)
+    const restoring = f.call('command', 'tab', {
+      type: 'restore-editor',
+      annotation: annotation('tab', tab.documentId),
+    })
+    const result = expect(restoring).resolves.toBeUndefined()
+    await f.call('command', 'tab', { type: 'annotate', enabled: false })
+    loading.reject(new Error('ERR_FAILED (-2)'))
+    await result
+    expect(mocks.views).toHaveLength(2)
+  })
+  it('浮层实际加载失败仍报错并允许再次打开', async () => {
+    const f = setup()
+    await f.call('create', 'chat', 'tab', 'https://example.com/')
+    await f.call('present', 'tab', { x: 0, y: 0, width: 400, height: 300 })
+    mocks.loadURL.mockRejectedValueOnce(new Error('ERR_CONNECTION_REFUSED'))
+    await expect(f.call('command', 'tab', { type: 'annotate', enabled: true })).rejects.toThrow(
+      'ERR_CONNECTION_REFUSED',
+    )
+    expect(mocks.views[1].webContents.close).toHaveBeenCalledOnce()
+    await f.call('command', 'tab', { type: 'annotate', enabled: true })
+    expect(mocks.views).toHaveLength(3)
+  })
+  it('取消选取后截图失败不会恢复已取消的草稿', async () => {
+    const f = setup()
+    const tab = (await f.call('create', 'chat', 'tab', 'https://example.com/')) as { documentId: number }
+    await f.call('present', 'tab', { x: 0, y: 0, width: 400, height: 300 })
+    await f.call('command', 'tab', { type: 'annotate', enabled: true })
+    const web = mocks.views[0].webContents
+    const capture = Promise.withResolvers<never>()
+    web.capturePage.mockReturnValueOnce(capture.promise)
+    const guest = { sender: web, senderFrame: web.mainFrame }
+    mocks.listeners.get('browser:selected')!(guest, annotation('tab', tab.documentId))
+    await vi.waitFor(() => expect(web.capturePage).toHaveBeenCalledOnce())
+    mocks.listeners.get('browser:selection-cancel')!(guest)
+    capture.reject(new Error('截图失败'))
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(mocks.views).toHaveLength(2)
+    expect(f.web.send).toHaveBeenLastCalledWith('browser:event', { type: 'editor', owner: 'chat' })
   })
   it('菜单预览在视图隐藏后仍反映最新缩放', async () => {
     const f = setup()

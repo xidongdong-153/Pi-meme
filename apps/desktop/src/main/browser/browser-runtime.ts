@@ -92,10 +92,10 @@ export function registerBrowserRuntime(options: {
   const closeOverlays = (kind?: Overlay['kind']) => {
     for (const item of overlays)
       if (!kind || item.kind === kind) {
+        overlays.delete(item)
         if (item.kind === 'toolbar') item.tab.toolbarMenuOpen = false
         if (attachedWindow && !attachedWindow.isDestroyed()) attachedWindow.contentView.removeChildView(item.view)
         if (!item.view.webContents.isDestroyed()) item.view.webContents.close()
-        overlays.delete(item)
       }
   }
   const picker = (tab: Tab, value: object) => {
@@ -170,7 +170,7 @@ export function registerBrowserRuntime(options: {
   }
   const showOverlay = async (tab: Tab, kind: Overlay['kind']) => {
     const window = options.getWindow()
-    if (!window || visible !== tab || !tab.bounds) return
+    if (!window || visible !== tab || !tab.bounds || !tab.enabled || (kind === 'editor' && !tab.editorVisible)) return
     const found = [...overlays].find((item) => item.kind === kind && item.tab === tab)
     if (found) {
       positionOverlays(tab)
@@ -194,7 +194,14 @@ export function registerBrowserRuntime(options: {
     view.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
     view.webContents.on('will-navigate', (event) => event.preventDefault())
     positionOverlays(tab)
-    await view.webContents.loadURL(`${options.origin()}/?browser-overlay=${kind}`)
+    try {
+      await view.webContents.loadURL(`${options.origin()}/?browser-overlay=${kind}`)
+    } catch (cause) {
+      // 加载中的浮层被主动关闭时，Electron 也会以 ERR_FAILED 拒绝 loadURL。
+      if (!overlays.has(item)) return
+      closeOverlays(kind)
+      throw cause
+    }
   }
   const capture = async (tab: Tab, mode: Tab['screenshot'], annotation: BrowserAnnotation) => {
     if (mode === 'none') return { ...annotation, image: undefined }
@@ -614,6 +621,7 @@ export function registerBrowserRuntime(options: {
         return showOverlay(tab, 'editor')
       })
       .catch((cause) => {
+        if (tab.editor?.id !== annotation.id || tab.state.documentId !== annotation.documentId) return
         tab.editor = annotation
         emit({ type: 'editor', owner: tab.state.owner, annotation })
         void showOverlay(tab, 'editor').catch(console.error)
