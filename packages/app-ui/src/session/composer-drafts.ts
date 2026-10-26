@@ -68,7 +68,8 @@ export class ComposerDrafts {
     const current = this.values.get(sessionKey)
     if (
       current &&
-      (current.draft ||
+      (current.planDraft ||
+        current.draft ||
         current.goalDraft ||
         current.attachments.length ||
         current.selectedSkills.length ||
@@ -107,6 +108,7 @@ export class ComposerDrafts {
         return
       const composer: ComposerSnapshot = {
         draft: value.draft,
+        ...(typeof value.planDraft === 'string' ? { planDraft: value.planDraft } : {}),
         selectedSkills: value.selectedSkills,
         ...(value.goalDraft ? { goalDraft: true as const } : {}),
         ...(value.pluginMentions?.length ? { pluginMentions: value.pluginMentions } : {}),
@@ -150,6 +152,7 @@ export class ComposerDrafts {
   hasInput = () =>
     [...this.values.values()].some(
       (composer) =>
+        composer.planDraft ||
         composer.draft ||
         composer.goalDraft ||
         composer.attachments.length ||
@@ -162,7 +165,7 @@ export class ComposerDrafts {
     for (const [key, composer] of this.values) {
       if (
         composer.attachments.some((attachment) => !attachment.browserAnnotation) ||
-        ((composer.draft || composer.goalDraft || composer.pluginMentions?.length) &&
+        ((composer.draft || composer.planDraft || composer.goalDraft || composer.pluginMentions?.length) &&
           (!this.key(key) || this.failed.has(key)))
       )
         return true
@@ -190,17 +193,23 @@ export class ComposerDrafts {
     const current = this.values.get(sessionKey)
     // 历史消息和队列编辑不替换普通草稿；图片只在当前窗口内保留。
     let composer = current?.editing?.restore ?? current
+    const planDraft = current?.planDraft ?? composer?.planDraft
     if (!composer?.draft && !composer?.pluginMentions?.length)
       composer = this.pending.get(sessionKey)?.values().next().value ?? composer
     try {
       if (
         composer &&
-        (composer.draft || composer.goalDraft || composer.pluginMentions?.length || composer.pendingConfiguration)
+        (composer.draft ||
+          planDraft ||
+          composer.goalDraft ||
+          composer.pluginMentions?.length ||
+          composer.pendingConfiguration)
       )
         this.storage().setItem(
           key,
           JSON.stringify({
             draft: composer.draft,
+            ...(planDraft ? { planDraft } : {}),
             ...(composer.goalDraft ? { goalDraft: composer.goalDraft } : {}),
             selectedSkills: composer.selectedSkills,
             ...(composer.pluginMentions?.length

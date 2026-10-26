@@ -97,3 +97,84 @@ test('只有当前会话的新修订保存事件打开计划栏，快照、重�
     await selecting
   })
 })
+
+test('历史编辑预览恢复编辑点之前的方案，取消后恢复当前方案，清空拒绝迟到事件', async () => {
+  const document: PlanDocument = {
+    id: 'plan',
+    sessionId: 'main',
+    runId: 'run',
+    revision: 2,
+    title: '当前方案',
+    markdown: '# 当前',
+    updatedAt: '2026-10-26T00:00:00Z',
+  }
+  const original = { ...document, revision: 1, title: '原方案', markdown: '# 原方案' }
+  const user = (id: string, timestamp: number) => ({
+    role: 'user' as const,
+    content: [{ type: 'text' as const, text: '调整' }],
+    timestamp,
+    sourceEntry: { id, type: 'message' as const, revision: id },
+  })
+  const first = user('first-user', 1000)
+  const adjustment = user('adjustment', 2000)
+  const snapshot: Snapshot = {
+    connection: { generation: 1, sessionKey: 'main', cwd: '/tmp/project', status: 'ready' },
+    state: {
+      mode: 'plan',
+      isStreaming: false,
+      isCompacting: false,
+      steeringMode: 'all',
+      followUpMode: 'all',
+      pendingMessageCount: 0,
+    },
+    messages: [first, adjustment],
+    models: [],
+    planDocuments: [document],
+    planState: { sessionId: 'main', revision: 2, document, sourceEntryId: 'second-save' },
+    planCheckpoints: [
+      { document: original, sourceEntryId: 'first-save' },
+      { document, sourceEntryId: 'second-save' },
+    ],
+    sessionEntries: {
+      leafId: 'second-save',
+      entries: [
+        { id: 'first-user', parentId: null, type: 'message', timestamp: '2026-10-26T00:00:00Z' },
+        { id: 'first-save', parentId: 'first-user', type: 'message', timestamp: '2026-10-26T00:00:01Z' },
+        { id: 'adjustment', parentId: 'first-save', type: 'message', timestamp: '2026-10-26T00:00:02Z' },
+        { id: 'second-save', parentId: 'adjustment', type: 'message', timestamp: '2026-10-26T00:00:03Z' },
+      ],
+    },
+  }
+  let emit!: (record: DesktopEvent) => void
+  const bridge = {
+    getConnection: async () => snapshot.connection,
+    getSnapshot: async () => snapshot,
+    onConnection: () => () => {},
+    onError: () => () => {},
+    onEvent: (callback: typeof emit) => {
+      emit = callback
+      return () => {}
+    },
+  } as unknown as DesktopBridge
+  const { result } = renderHook(() => useAppSession(bridge, { chatEnabled: false, workspaceEnabled: false }))
+  await waitFor(() => expect(result.current.planDocuments[0]?.title).toBe('当前方案'))
+  act(() => result.current.editMessage(adjustment))
+  expect(result.current.planDocuments[0]?.markdown).toBe('# 原方案')
+  await act(() => result.current.cancelEdit())
+  expect(result.current.planDocuments[0]?.markdown).toBe('# 当前')
+  act(() => result.current.editMessage(first))
+  expect(result.current.planDocuments).toEqual([])
+  await act(() => result.current.cancelEdit())
+  const state = { sessionId: 'main', revision: 3 }
+  act(() =>
+    emit({ generation: 1, sessionKey: 'main', event: { type: 'plan_state_changed', state, reason: 'restored' } }),
+  )
+  act(() =>
+    emit({
+      generation: 1,
+      sessionKey: 'main',
+      event: { type: 'plan_state_changed', state: snapshot.planState!, reason: 'saved' },
+    }),
+  )
+  expect(result.current.planDocuments).toEqual([])
+})

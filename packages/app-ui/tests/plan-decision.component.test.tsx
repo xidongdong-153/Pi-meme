@@ -89,6 +89,16 @@ test('只读权限不能直接实施，模型与权限入口可用', () => {
   expect(screen.getByRole('button', { name: '访问权限' })).toBeEnabled()
   expect(screen.getByRole('button', { name: '模型与思考强度' })).toBeEnabled()
 })
+
+test('临时隐藏实施面板后恢复时保留未发送调整文字', async () => {
+  const user = userEvent.setup()
+  const view = fixture()
+  await user.type(screen.getByRole('textbox', { name: '计划调整要求' }), '调整布局')
+  view.rerender(<PlanDecision {...view.props} visible={false} />)
+  expect(screen.queryByRole('region', { name: '实施此计划' })).not.toBeInTheDocument()
+  view.rerender(<PlanDecision {...view.props} visible />)
+  expect(screen.getByRole('textbox', { name: '计划调整要求' })).toHaveValue('调整布局')
+})
 test('计划卡片复制完整正文并打开侧栏，不在卡片内展开', async () => {
   const user = userEvent.setup()
   const copy = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue()

@@ -26,6 +26,9 @@ import { builtinCommand, freshSessionCommandError, thinkingLevels } from '@pi-me
 import {
   normalizePlanMessage,
   planContextMessage,
+  projectBranchPlans,
+  type PlanCheckpoint,
+  type PlanState,
   type PlanDocument,
   type PlanRef,
   type PlanToolSource,
@@ -113,6 +116,7 @@ function toModel(model: SessionModel | undefined): PiModel | undefined {
 export type RuntimePolicy = {
   planTools?: Map<string, PlanToolSource>
   resolvePlan?: (reference: PlanRef, signal: AbortSignal) => Promise<PlanDocument>
+  syncPlan?: (force?: boolean) => Promise<PlanState>
   initialGeneration?: number
   onAdmission?: (
     message: string,
@@ -161,6 +165,7 @@ export class SdkSession {
   private mode: TaskMode = 'default'
   private activeMode?: TaskMode
   private runtimeMode: TaskMode = 'default'
+  private editingPlanCheckpoints?: PlanCheckpoint[]
   private planReference?: PlanRef
   getPlanReference() {
     return this.planReference
@@ -761,6 +766,8 @@ export class SdkSession {
       ).find((item) => item.sourceEntry?.id === entryId)
       if (!message) return
       publishedEntries.add(entryId)
+      if (message.role === 'toolResult' && message.toolName === 'save_plan' && !message.isError)
+        void this.syncPlan()?.catch((cause: unknown) => this.report(`无法同步已保存计划：${String(cause)}`))
       const committed: PiEvent = { type: 'message_end', message }
       const source = eventUiSource(committed, session, this.policy.agentSources)
       this.handleEvent(
@@ -1091,6 +1098,17 @@ export class SdkSession {
     })
   }
 
+  getPlanCheckpoints(): Promise<PlanCheckpoint[]> {
+    return this.call(() => {
+      const manager = this.session.sessionManager
+      return this.editingPlanCheckpoints ?? projectBranchPlans(manager.getEntries(), manager.getLeafId())
+    })
+  }
+
+  private syncPlan(force = false) {
+    return this.policy.syncPlan?.(force)
+  }
+
   getActiveSession() {
     return { sessionFile: this.runtime?.session.sessionFile ?? this.sessionFile, sessionId: this.sessionId }
   }
@@ -1147,6 +1165,7 @@ export class SdkSession {
         leafId: entries.leafId,
       },
       branchAttachments: projectBranchAttachments(entries.entries, entries.leafId),
+      planCheckpoints: this.editingPlanCheckpoints ?? projectBranchPlans(entries.entries, entries.leafId),
     }
   }
 
@@ -1381,7 +1400,7 @@ export class SdkSession {
         if (intent === 'execute' && this.accessMode === 'read-only') throw new Error('请先选择允许实施的访问权限')
         const document = await this.policy.resolvePlan(reference, this.admission.signal)
         planDocument = document
-        message = `${intent === 'execute' ? '请实施此计划。' : '请根据以下要求调整计划并保存新修订。'}\n\n${message.trim()}\n\n引用计划「${document.title}」（第 ${document.revision} 版）`
+        message = `${intent === 'execute' ? '请实施此计划。' : '请根据以下要求调整当前计划并保存。'}\n\n${message.trim()}\n\n引用计划「${document.title}」`
         if (intent === 'revise') this.planReference = reference
       }
       if (this.runtime && this.runtimeMode !== normalized.mode) {
@@ -1438,6 +1457,7 @@ export class SdkSession {
           await this.validateMessageEdit(editEntryId, message, options)
           const model = options?.model ?? toModel(this.getState().model)
           const thinking = options?.thinkingLevel ?? this.getState().thinkingLevel
+          this.editingPlanCheckpoints = await this.getPlanCheckpoints()
           edit = this.prepareUserMessageEdit(editEntryId)
           if (model) {
             const selected = this.session.modelRuntime
@@ -1468,6 +1488,16 @@ export class SdkSession {
         if (this.goalRun) this.clearComposerHint()
       }
       if (generation !== this.generation || this.queueCancelled) throw new Error('消息发送已取消')
+      if (normalized.mode === 'plan' && !options?.plan) {
+        const manager = this.session.sessionManager
+        const checkpoint = projectBranchPlans(manager.getEntries(), manager.getLeafId()).at(-1)
+        if (checkpoint) {
+          planDocument = checkpoint.document
+          // 编辑预备分支只读取其自身的方案；提交后再同步 Host 的有效状态。
+          if (!edit && this.policy.syncPlan) planDocument = (await this.syncPlan())?.document
+          if (planDocument && !edit) this.planReference = { id: planDocument.id, revision: planDocument.revision }
+        }
+      }
       if (planDocument) {
         this.session.sessionManager.appendCustomMessageEntry(
           'pi-meme-plan-context',
@@ -1481,6 +1511,7 @@ export class SdkSession {
     } catch (cause) {
       try {
         edit?.restore()
+        this.editingPlanCheckpoints = undefined
         recovery?.restore()
       } finally {
         this.running = false
@@ -1516,7 +1547,10 @@ export class SdkSession {
       recovery = undefined
       if (handled && edit) throw new Error('Pi 扩展未发送编辑后的消息，已保留原对话')
       edit?.commit()
+      const edited = Boolean(edit)
       edit = undefined
+      this.editingPlanCheckpoints = undefined
+      if (edited) await this.syncPlan(true)
       const state = this.getState()
       if (!state.isStreaming && !state.isCompacting && (this.running || command || handled))
         this.handleEvent({ type: 'agent_settled' }, Boolean(command || handled))
@@ -1526,6 +1560,7 @@ export class SdkSession {
         if (edit) {
           if (!this.session.isIdle) await this.session.abort()
           edit.restore()
+          this.editingPlanCheckpoints = undefined
         }
         recovery?.restore()
       } finally {
@@ -2406,6 +2441,10 @@ export class SdkSession {
     // 显式技能引用在用户 message_end 落盘前写入，编辑时一并移除该消息自己的引用。
     while (index > 0) {
       const entry = branch[index - 1]
+      if (entry.type === 'custom_message' && entry.customType === 'pi-meme-plan-context') {
+        index -= 1
+        continue
+      }
       if (entry.type !== 'custom' || entry.customType !== skillUsageEntry) break
       const usage = entry.data as Partial<SkillUsage> | undefined
       if (usage?.source !== 'explicit' || usage.messageTimestamp !== timestamp) break

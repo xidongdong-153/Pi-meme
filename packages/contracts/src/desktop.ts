@@ -15,6 +15,8 @@ import type {
   MessageConfiguration,
   QueuedInput,
   PlanDocument,
+  PlanState,
+  PlanCheckpoint,
   PlanEvent,
   TaskMode,
   EditMessageOptions,
@@ -170,6 +172,8 @@ export type Snapshot = {
   goal?: Goal
   goalsSupported?: boolean
   planDocuments?: PlanDocument[]
+  planState?: PlanState
+  planCheckpoints?: PlanCheckpoint[]
   pendingInteractions?: PendingInteraction[]
   agentMessages?: AgentMailboxMessage[]
   uiPlugins?: SessionPluginDescriptor[]

@@ -30,6 +30,7 @@ const emptySkills: PiSlashCommand[] = []
 export type QueueMode = 'steering' | 'followUp'
 
 export type ComposerSnapshot = {
+  planDraft?: string
   goalDraft?: true
   draft: string
   selectedSkills: PiSlashCommand[]
@@ -99,6 +100,7 @@ export function useChatSession(options: ChatSessionOptions) {
   const planSubmissions = useRef(new Map<string, { fingerprint: string; id: string; options: MessageOptions }>())
   const [sendingAttachments, setSendingAttachments] = useState<Attachment[]>([])
   const [failedDrafts, setFailedDrafts] = useState<Array<{ sessionKey: string; composer: ComposerSnapshot }>>([])
+  const [planDraft, setPlanDraft] = useState('')
   const [goalDraft, setGoalDraft] = useState<ComposerSnapshot['goalDraft']>()
   const [goalOpen, setGoalOpen] = useState(false)
   const [goalEditing, setGoalEditing] = useState(false)
@@ -125,6 +127,7 @@ export function useChatSession(options: ChatSessionOptions) {
   const latestComposer = useRef<ComposerSnapshot>({ draft, selectedSkills, attachments, queueMode })
   latestComposer.current = {
     draft,
+    planDraft,
     goalDraft,
     selectedSkills,
     attachments,
@@ -226,6 +229,7 @@ export function useChatSession(options: ChatSessionOptions) {
   const clearComposer = useCallback(() => {
     releaseQueueEdit()
     setGoalDraft(undefined)
+    setPlanDraft('')
     setGoalOpen(false)
     setGoalEditing(false)
     setDraft('')
@@ -601,6 +605,7 @@ export function useChatSession(options: ChatSessionOptions) {
         const request = { key: sessionKey, generation: selectedGeneration }
         const configuration = { ...configurationRef.current }
         const savedEditor: ComposerSnapshot = {
+          planDraft,
           draft,
           selectedSkills,
           pluginMentions,
@@ -773,6 +778,7 @@ export function useChatSession(options: ChatSessionOptions) {
       chat.paused,
       chat.queuePaused,
       draft,
+      planDraft,
       selectedSkills,
       pluginMentions,
       attachments,
@@ -894,6 +900,7 @@ export function useChatSession(options: ChatSessionOptions) {
         })
         .join('')
       editRestore.current = {
+        planDraft,
         draft,
         selectedSkills,
         attachments,
@@ -910,7 +917,7 @@ export function useChatSession(options: ChatSessionOptions) {
         ...parts.attachments.map((file) => ({ ...file, id: crypto.randomUUID(), type: 'file' as const })),
       ])
     },
-    [editingEntryId, draft, selectedSkills, pluginMentions, attachments, queueMode],
+    [editingEntryId, draft, planDraft, selectedSkills, pluginMentions, attachments, queueMode],
   )
 
   const cancelEdit = useCallback(async () => {
@@ -1231,10 +1238,13 @@ export function useChatSession(options: ChatSessionOptions) {
     applyEvent,
     clearPromptPending,
     clearComposer,
+    planDraft,
+    setPlanDraft,
     captureComposer: () =>
       queueEdit.current?.restore ?? {
         draft,
         goalDraft,
+        planDraft,
         selectedSkills,
         ...(pluginMentions.length ? { pluginMentions, pluginAnchors } : {}),
         attachments,
@@ -1249,6 +1259,7 @@ export function useChatSession(options: ChatSessionOptions) {
     restoreComposer: (value: ComposerSnapshot) => {
       releaseQueueEdit()
       setGoalDraft(value.goalDraft)
+      setPlanDraft(value.planDraft ?? '')
       setGoalOpen(false)
       setGoalEditing(false)
       composerStore.patch({

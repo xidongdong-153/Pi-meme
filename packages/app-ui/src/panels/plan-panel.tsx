@@ -3,7 +3,6 @@ import { downloadPlan } from './plan-card'
 import type { PlanDocument } from '@pi-meme/contracts/plan'
 import { MarkdownContent } from '@pi-meme/chat/ui/content/markdown-content'
 import { Button } from '@pi-meme/ui/components/ui/button'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@pi-meme/ui/components/ui/select'
 
 function SavedPlanDocument({ document }: { document: PlanDocument }) {
   const [error, setError] = useState('')
@@ -15,7 +14,7 @@ function SavedPlanDocument({ document }: { document: PlanDocument }) {
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="text-sm font-medium">{document.title}</h3>
-        <span className="text-xs text-muted-foreground">已保存 · 第 {document.revision} 版</span>
+        <span className="text-xs text-muted-foreground">已保存</span>
       </div>
       <MarkdownContent>{document.markdown}</MarkdownContent>
       <div className="flex flex-wrap gap-2">
@@ -44,39 +43,14 @@ function SavedPlanDocument({ document }: { document: PlanDocument }) {
   )
 }
 
-export function PlanPanel({
-  documents,
-  selectedId,
-  onSelect,
-}: {
-  documents: PlanDocument[]
-  selectedId?: string
-  onSelect: (id: string) => void
-}) {
-  const ordered = [...documents].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
-  const document = ordered.find((item) => item.id === selectedId) ?? ordered[0]
+export function PlanPanel({ documents }: { documents: PlanDocument[] }) {
+  const document = documents.at(-1)
   return (
     <div aria-label="计划文档" className="min-h-0 flex-1 overflow-y-auto p-3 [overflow-wrap:anywhere]">
       {!document ? (
         <p className="text-sm text-muted-foreground">当前会话还没有保存的计划。</p>
       ) : (
-        <>
-          {ordered.length > 1 && (
-            <Select value={document.id} onValueChange={onSelect}>
-              <SelectTrigger aria-label="选择计划文档" className="mb-3 h-8 bg-background text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent className="w-[var(--radix-select-trigger-width)]">
-                {ordered.map((item) => (
-                  <SelectItem key={item.id} value={item.id}>
-                    {item.title} · 第 {item.revision} 版
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          )}
-          <SavedPlanDocument key={`${document.id}:${document.revision}`} document={document} />
-        </>
+        <SavedPlanDocument key={`${document.id}:${document.revision}`} document={document} />
       )}
     </div>
   )

@@ -29,6 +29,8 @@ export function fromSnapshot(snapshot: Snapshot): ChatState {
     goal: snapshot.goal,
     goalsSupported: snapshot.goalsSupported,
     planDocuments: snapshot.planDocuments ?? [],
+    planState: snapshot.planState,
+    planCheckpoints: snapshot.planCheckpoints ?? [],
     agents: snapshot.agents ?? [],
     agentMessages: snapshot.agentMessages ?? [],
     sessionEntries: snapshot.sessionEntries,
@@ -175,15 +177,28 @@ export function applyEvent(
       return { ...state, goal: event.goal, composerHint: undefined }
     case 'goal_cleared':
       return state.goal?.goalId === event.goalId ? { ...state, goal: undefined } : state
+    case 'plan_state_changed': {
+      if (state.planState && state.planState.revision >= event.state.revision) return state
+      return {
+        ...state,
+        planState: event.state,
+        planDocuments: event.state.document ? [event.state.document] : [],
+        planCheckpoints:
+          event.state.document && event.state.sourceEntryId
+            ? [
+                ...(state.planCheckpoints ?? []).filter((item) => item.sourceEntryId !== event.state.sourceEntryId),
+                { document: event.state.document, sourceEntryId: event.state.sourceEntryId },
+              ]
+            : state.planCheckpoints,
+      }
+    }
     case 'plan_saved': {
+      if (state.planState) return state
       const current = state.planDocuments?.find((document) => document.id === event.document.id)
       if (current && current.revision >= event.document.revision) return state
       return {
         ...state,
-        planDocuments: [
-          ...(state.planDocuments ?? []).filter((document) => document.id !== event.document.id),
-          event.document,
-        ],
+        planDocuments: [event.document],
       }
     }
     case 'recovery_start': {

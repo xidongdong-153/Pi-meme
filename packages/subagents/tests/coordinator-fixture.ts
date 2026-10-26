@@ -6,7 +6,7 @@ import { createHostCollaborationBridge } from '../src/server/coordinator'
 import type { RuntimeSdkSession } from '@pi-meme/pi-runtime/session-pool'
 import type { DesktopEvent, Snapshot } from '@pi-meme/contracts/desktop'
 import type { CollaborationRequest, AgentSummary } from '@pi-meme/contracts/collaboration'
-import type { TaskMode } from '@pi-meme/contracts/plan'
+import { projectBranchPlans, type TaskMode, type PlanDocument } from '@pi-meme/contracts/plan'
 import { thinkingLevels, type PiModel } from '@pi-meme/contracts/pi'
 import type { SdkSession } from '@pi-meme/pi-runtime/sdk/session'
 import { loadCollaborationPartitions, type PersistedAgentRecord } from '../src/server/collaboration-store'
@@ -38,6 +38,7 @@ function fakeSession(
   }
   const models: PiModel[] = []
   const messages: Snapshot['messages'] = []
+  const entries: Awaited<ReturnType<RuntimeSdkSession['getEntries']>>['entries'] = []
   const prompts: string[] = []
   const delivered: string[] = []
   const continuations: string[] = []
@@ -120,7 +121,8 @@ function fakeSession(
         thinkingLevels: [...thinkingLevels],
       }
     },
-    getEntries: async () => ({ entries: [], leafId: null }),
+    getPlanCheckpoints: async () => projectBranchPlans(entries, entries.at(-1)?.id ?? null),
+    getEntries: async () => ({ entries: entries.slice(), leafId: entries.at(-1)?.id ?? null }),
     abort: async () => {
       state.isPaused = false
       state.isStreaming = false
@@ -144,7 +146,40 @@ function fakeSession(
     if (complete) await complete(session, text)
     reply(text)
   }
-  return { session, finish, reply, prompts, delivered, continuations, state, models, faults, notify, pauses }
+  const appendPlan = (document: PlanDocument) => {
+    const id = randomUUID()
+    entries.push({
+      id,
+      parentId: entries.at(-1)?.id ?? null,
+      timestamp: new Date().toISOString(),
+      type: 'message',
+      message: {
+        role: 'toolResult',
+        toolCallId: id,
+        toolName: 'save_plan',
+        content: [{ type: 'text', text: '已保存' }],
+        details: document,
+        isError: false,
+        timestamp: Date.now(),
+      },
+    })
+    return id
+  }
+  return {
+    session,
+    entries,
+    appendPlan,
+    finish,
+    reply,
+    prompts,
+    delivered,
+    continuations,
+    state,
+    models,
+    faults,
+    notify,
+    pauses,
+  }
 }
 
 async function setup(
@@ -180,6 +215,7 @@ async function setup(
     },
     error: () => {},
   })
+  root.session.start(directory)
   await bridge.bindRoot({
     sessionKey: 'root-key',
     cwd: directory,
@@ -257,6 +293,12 @@ async function setup(
   }
   return {
     directory,
+    savePlan: async (...args: Parameters<typeof bridge.savePlan>) => {
+      const document = await bridge.savePlan(...args)
+      root.appendPlan(document)
+      await bridge.syncPlan(root.session)
+      return document
+    },
     plansDataDir: path.join(directory, 'data', 'plans'),
     plansIndexFile: path.join(directory, 'state', 'collaboration', 'plans.json'),
     rootsDir: path.join(directory, 'state', 'collaboration', 'roots'),

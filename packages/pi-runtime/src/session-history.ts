@@ -1,7 +1,7 @@
 import { readFile, stat } from 'node:fs/promises'
 import type { SessionEntry } from '@earendil-works/pi-coding-agent'
 import type { PiSessionStats, ThinkingLevel } from '@pi-meme/contracts/pi'
-import type { QueuedInput } from '@pi-meme/contracts/plan'
+import { projectBranchPlans, type QueuedInput } from '@pi-meme/contracts/plan'
 
 import type { SessionHistoryData } from '@pi-meme/contracts/sessions'
 
@@ -204,6 +204,7 @@ export async function readSessionHistory(filePath: string): Promise<SessionHisto
       recovery: recovery ? { entryId: recovery.entryId, mode: recovery.mode } : undefined,
       taskControl,
       messages: projectStableMessageMetadata(history, context),
+      planCheckpoints: projectBranchPlans(history, history.at(-1)?.id ?? null),
       sessionEntries: {
         entries: projectBranchEntries(history),
         leafId: history.at(-1)?.id ?? null,

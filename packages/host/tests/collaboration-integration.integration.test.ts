@@ -22,6 +22,110 @@ async function eventually(check: () => boolean | Promise<boolean>) {
   throw new Error('等待 Host 状态超时')
 }
 
+test('真实 Host 编辑规划消息后恢复或清空方案，旧引用失效，重启不复活', { timeout: 20000 }, async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'host-plan-edit-'))
+  let nextPlan: string | undefined
+  let failNext = false
+  const fake = await useFakeAgent(root, {
+    reply: () => {
+      if (failNext) {
+        failNext = false
+        return { status: 400, text: '模拟模型失败' }
+      }
+      if (!nextPlan) return { text: '收到' }
+      const title = nextPlan
+      nextPlan = undefined
+      return { tool: { name: 'save_plan', arguments: JSON.stringify({ title, markdown: `# ${title}` }) } }
+    },
+  })
+  const options = { dataRoot: fake.runtimePaths.dataRoot, credentials: fake.credentials }
+  let host = await createHost(options)
+  const rpc = async <T>(method: string, args: unknown[] = [], sessionId?: string): Promise<T> => {
+    const result = await host.rpc({ requestId: crypto.randomUUID(), clientId: 'plan-edit', method, args, sessionId })
+    assert.equal(result.error, undefined, JSON.stringify(result.error))
+    return result.result as T
+  }
+  const snapshot = () => rpc<Snapshot>('pi:snapshot')
+  const idle = () => eventually(async () => !(await snapshot()).state.isStreaming)
+  try {
+    let key = (await snapshot()).connection.sessionKey!
+    await rpc('pi:access-mode', [key, 'full-access'], key)
+    nextPlan = '原方案'
+    await rpc('pi:prompt', [key, '设计方案', [], [], { mode: 'plan' }], key)
+    await idle()
+    const first = await snapshot()
+    nextPlan = '调整方案'
+    await rpc('pi:prompt', [key, '继续调整', [], [], { mode: 'plan' }], key)
+    await idle()
+    const second = await snapshot()
+    assert.equal(second.planDocuments?.length, 1)
+    assert.equal(second.planDocuments![0]!.id, first.planDocuments![0]!.id)
+    const users = second.messages.filter((message) => message.role === 'user')
+    const rejectedEdit = await rpc<{ error?: string }>(
+      'pi:edit-and-prompt',
+      [
+        key,
+        users[1]!.sourceEntry!.id,
+        '不应覆盖',
+        [],
+        [],
+        { mode: 'plan', model: { provider: 'fake', id: 'missing' } },
+      ],
+      key,
+    )
+    assert.ok(rejectedEdit.error)
+    assert.deepEqual((await snapshot()).planDocuments, second.planDocuments)
+    const adjusted = await rpc<{ error?: string }>(
+      'pi:edit-and-prompt',
+      [key, users[1]!.sourceEntry!.id, '重新考虑调整', [], [], { mode: 'plan' }],
+      key,
+    )
+    assert.equal(adjusted.error, undefined)
+    await idle()
+    const restored = await snapshot()
+    assert.equal(restored.planDocuments![0]!.markdown, '# 原方案')
+    assert.ok(restored.planDocuments![0]!.revision > second.planDocuments![0]!.revision)
+    failNext = true
+    const edited = await rpc<{ error?: string }>(
+      'pi:edit-and-prompt',
+      [key, users[0]!.sourceEntry!.id, '重新设计', [], [], { mode: 'plan' }],
+      key,
+    )
+    assert.equal(edited.error, undefined)
+    await idle()
+    const cleared = await snapshot()
+    assert.deepEqual(cleared.planDocuments, [])
+    const rejected = await host.rpc({
+      requestId: crypto.randomUUID(),
+      clientId: 'plan-edit',
+      method: 'pi:prompt',
+      sessionId: key,
+      args: [
+        key,
+        '实施旧方案',
+        [],
+        [],
+        { mode: 'default', plan: { intent: 'execute', reference: first.planDocuments![0]! } },
+      ],
+    })
+    assert.ok(rejected.error)
+    const file = cleared.connection.sessionFile!
+    await host.dispose()
+    host = await createHost(options)
+    await rpc('pi:switch-session', [file])
+    assert.deepEqual((await snapshot()).planDocuments, [])
+    key = (await snapshot()).connection.sessionKey!
+    nextPlan = '重新生成'
+    await rpc('pi:prompt', [key, '生成方案', [], [], { mode: 'plan' }], key)
+    await idle()
+    assert.equal((await snapshot()).planDocuments?.length, 1)
+  } finally {
+    await host.dispose()
+    await fake.dispose()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
 for (const restart of [false, true]) {
   test(`真实 Host ${restart ? '退出重开后' : ''}恢复失败模型请求时保留原协作任务身份`, { timeout: 15000 }, async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'host-recovery-identity-'))
@@ -462,7 +566,7 @@ test('Host 重启后从原生历史恢复被抹空的计划身份，保留全部
     const saved = await save(key, '第二份已有计划')
     const sessionFile = saved.connection.sessionFile!
     const plans = saved.planDocuments!
-    assert.equal(plans.length, 2)
+    assert.equal(plans.length, 1)
     const originalAgentId = saved.agent!.agentId
     const originalJsonl = await readFile(sessionFile, 'utf8')
     assert.equal(JSON.parse(originalJsonl.split('\n')[0]!).id, plans[0]!.sessionId)

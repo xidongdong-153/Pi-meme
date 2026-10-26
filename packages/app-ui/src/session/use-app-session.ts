@@ -1,4 +1,5 @@
-import type { PlanDocument } from '@pi-meme/contracts/plan'
+import type { PlanDocument, PlanState } from '@pi-meme/contracts/plan'
+import { activePathIds } from '@pi-meme/contracts/session-tree'
 import type { SelectWorkspace } from '@pi-meme/contracts/sessions'
 import { transferDraft } from '@pi-meme/chat/ui/composer/transfer-draft'
 import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
@@ -66,6 +67,7 @@ export function useAppSession(
   const [refreshToken, setRefreshToken] = useState(0)
   const currentRootAgentId = useRef<string | undefined>(undefined)
   const currentAgentTree = useRef<import('@pi-meme/contracts/collaboration').AgentSummary[]>([])
+  const [planState, setPlanState] = useState<PlanState>()
   const [planDocuments, setPlanDocuments] = useState<PlanDocument[]>([])
   const current = useRef(connection)
   const displayed = useRef(connection)
@@ -97,7 +99,10 @@ export function useAppSession(
       }
       currentRootAgentId.current = snapshot.agent?.rootAgentId ?? snapshot.agent?.agentId
       currentAgentTree.current = snapshot.agents ?? []
-      setPlanDocuments(snapshot.planDocuments ?? [])
+      setPlanDocuments(
+        snapshot.planState?.document ? [snapshot.planState.document] : (snapshot.planDocuments ?? []).slice(-1),
+      )
+      setPlanState(snapshot.planState)
       displayed.current = snapshot.connection
       current.current = snapshot.connection
       setConnection(snapshot.connection)
@@ -111,6 +116,10 @@ export function useAppSession(
       )
         setExtensionError(diagnostic)
       const next = chatRef.current?.loadSnapshot(snapshot, events, modeRevision)
+      if (next?.planState) {
+        setPlanState(next.planState)
+        setPlanDocuments(next.planState.document ? [next.planState.document] : [])
+      }
       // 权威快照空闲时清除发送挂起标记，避免下一条消息被当成插话/排队。
       if (!snapshot.state.isStreaming && !snapshot.state.isCompacting) chatRef.current?.clearPromptPending()
       const key = snapshot.connection.sessionKey
@@ -329,6 +338,7 @@ export function useAppSession(
     switching,
     chat.draft,
     chat.goalDraft,
+    chat.planDraft,
     chat.selectedSkills,
     chat.pluginMentions,
     chat.pluginAnchors,
@@ -382,6 +392,7 @@ export function useAppSession(
           currentRootAgentId.current = undefined
           currentAgentTree.current = []
           setPlanDocuments([])
+          setPlanState(undefined)
           setForkNotice(null)
           const cached = next.sessionKey && views.current.get(next.sessionKey)
           if (cached) chatRef.current?.restoreChat(cached.chat)
@@ -473,6 +484,22 @@ export function useAppSession(
           chatRef.current?.applyEvent(event)
         return
       }
+      if (event.type === 'plan_state_changed') {
+        if (
+          selection.current.current ||
+          record.generation !== current.current.generation ||
+          record.sessionKey !== current.current.sessionKey
+        )
+          return
+        const known = chatRef.current?.captureChat().planState
+        if (known && known.revision >= event.state.revision) return
+        setPlanState(event.state)
+        setPlanDocuments(event.state.document ? [event.state.document] : [])
+        chatRef.current?.applyEvent(event)
+        if (event.reason === 'saved' && event.state.document)
+          onPlanSavedRef.current?.(event.state.document, record.sessionKey)
+        return
+      }
       if (event.type === 'plan_saved') {
         if (
           selection.current.current ||
@@ -480,9 +507,10 @@ export function useAppSession(
           record.sessionKey !== current.current.sessionKey
         )
           return
+        if (chatRef.current?.captureChat().planState) return
         const known = chatRef.current?.captureChat().planDocuments?.find((doc) => doc.id === event.document.id)
         if (known && known.revision >= event.document.revision) return
-        setPlanDocuments((value) => [...value.filter((doc) => doc.id !== event.document.id), event.document])
+        setPlanDocuments([event.document])
         chatRef.current?.applyEvent(event)
         onPlanSavedRef.current?.(event.document, record.sessionKey)
         return
@@ -727,6 +755,25 @@ export function useAppSession(
     [commands, chat.chat.goalsSupported],
   )
 
+  let visiblePlanState = planState
+  if (chat.editingEntryId) {
+    const entries = chat.chat.sessionEntries?.entries ?? []
+    const target = entries.find((entry) => entry.id === chat.editingEntryId)
+    const retained = activePathIds(entries, target?.parentId ?? null)
+    const checkpoints = new Map(chat.chat.planCheckpoints?.map((item) => [item.sourceEntryId, item]))
+    const checkpoint = [...retained].map((id) => checkpoints.get(id)).find((item) => item !== undefined)
+    visiblePlanState = planState
+      ? {
+          ...planState,
+          document: checkpoint
+            ? { ...checkpoint.document, id: planState.document?.id ?? checkpoint.document.id }
+            : undefined,
+          sourceEntryId: checkpoint?.sourceEntryId,
+        }
+      : undefined
+  }
+  const visiblePlanDocuments =
+    chat.editingEntryId || planState ? (visiblePlanState?.document ? [visiblePlanState.document] : []) : planDocuments
   return {
     bindDraftSession,
     hasUnstoredDraft: drafts.hasUnstoredInput,
@@ -782,7 +829,16 @@ export function useAppSession(
         undefined,
         true,
       ),
-    planDocuments,
+    planDocuments: visiblePlanDocuments,
+    planState: visiblePlanState,
+    planDraft: chat.planDraft,
+    setPlanDraft: (text: string) => {
+      if (connection.sessionKey === current.current.sessionKey) chat.setPlanDraft(text)
+      else if (connection.sessionKey) {
+        const saved = drafts.get(connection.sessionKey)
+        if (saved) drafts.set(connection.sessionKey, { ...saved, planDraft: text })
+      }
+    },
     chat: chat.chat,
     chatStream: chat.chatStream,
     connection,

@@ -3,7 +3,7 @@ import * as React from 'react'
 import { ArrowDown } from 'lucide-react'
 import type { ChatState, ConversationOutlineEntry, TurnChunk } from '../model/types'
 import type { PiModel } from '@pi-meme/contracts/pi'
-import type { PlanDocument } from '@pi-meme/contracts/plan'
+import type { PlanDocument, PlanState } from '@pi-meme/contracts/plan'
 import { ChatMessage } from './chat-message'
 import { AssistantTurnView } from './assistant-turn'
 import { InlineMessageEditor, type MessageEditorState } from './inline-message-editor'
@@ -53,6 +53,7 @@ export const Conversation = React.memo(
     agent,
     models = [],
     renderPlan,
+    planState,
   }: {
     chat: ChatState
     stream?: ChatStream
@@ -71,6 +72,7 @@ export const Conversation = React.memo(
     agent?: AgentSummary
     models?: PiModel[]
     renderPlan?: (document: PlanDocument) => React.ReactNode
+    planState?: PlanState | null
   }) => {
     const chat = React.useSyncExternalStore(
       stream?.subscribe ?? noSubscription,
@@ -141,10 +143,28 @@ export const Conversation = React.memo(
       }
       return plans
     }, [chat.messages])
+    const effectivePlanState = planState === undefined ? chat.planState : planState
+    const currentPlan =
+      effectivePlanState?.document ??
+      (!effectivePlanState && planState !== null ? chat.planDocuments?.at(-1) : undefined)
+    const sourceMessage = effectivePlanState?.sourceEntryId
+      ? chat.messages.find(
+          (message) => message.sourceEntry?.id === effectivePlanState.sourceEntryId && message.role === 'toolResult',
+        )
+      : undefined
+    const sourceToolId =
+      sourceMessage?.role === 'toolResult'
+        ? sourceMessage.toolCallId
+        : !effectivePlanState
+          ? [...plansByTool].findLast(
+              ([, document]) =>
+                currentPlan && document.id === currentPlan.id && document.revision === currentPlan.revision,
+            )?.[0]
+          : undefined
     function planReply(items: readonly { id: string; children?: readonly { id: string }[] }[]): React.ReactNode {
       for (const item of [...items].reverse()) {
-        const plan = plansByTool.get(item.id)
-        if (plan) return renderPlan?.(plan)
+        if (plansByTool.has(item.id))
+          return item.id === sourceToolId && currentPlan ? renderPlan?.(currentPlan) : <React.Fragment />
         if (item.children) {
           const nested = planReply(item.children)
           if (nested) return nested
@@ -374,9 +394,10 @@ export const Conversation = React.memo(
               {!agentOnly &&
                 !chat.running &&
                 renderPlan &&
-                chat.planDocuments
-                  ?.filter((document) => ![...plansByTool.values()].some((saved) => saved.id === document.id))
-                  .map((document) => <React.Fragment key={document.id}>{renderPlan(document)}</React.Fragment>)}
+                currentPlan &&
+                effectivePlanState?.sourceEntryId &&
+                !sourceToolId &&
+                renderPlan(currentPlan)}
 
               {!readOnly &&
                 editor &&

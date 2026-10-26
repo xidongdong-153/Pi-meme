@@ -8,7 +8,7 @@ import type { AgentPluginEntry } from '@pi-meme/plugin-sdk/agent'
 import { parentPort, workerData } from 'node:worker_threads'
 import { randomUUID } from 'node:crypto'
 import type { CollaborationRequest, CollaborationResults } from '@pi-meme/contracts/collaboration'
-import type { PlanDocument, SavePlanInput } from '@pi-meme/contracts/plan'
+import type { PlanDocument, PlanState, SavePlanInput } from '@pi-meme/contracts/plan'
 import type { InlineExtension, ExtensionAPI, ToolDefinition } from '@earendil-works/pi-coding-agent'
 import type { DesktopSettings } from '@pi-meme/contracts/settings'
 import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
@@ -94,6 +94,7 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
   const policy: RuntimePolicy = {
     planTools: new Map(),
     resolvePlan: (reference, signal) => hostRequest('resolvePlan', { reference }, signal) as Promise<PlanDocument>,
+    syncPlan: (force) => hostRequest('syncPlan', { force }) as Promise<PlanState>,
     initialGeneration: data.initialGeneration,
     requireRestrictedPolicy: true,
     resourceSnapshot: data.resourceSnapshot,
@@ -126,7 +127,16 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
     { resolve: (value: unknown) => void; reject: (cause: Error) => void; cleanup: () => void }
   >()
   function hostRequest(
-    kind: 'collaboration' | 'savePlan' | 'resolvePlan' | 'admission' | 'goal' | 'goalUsage' | 'activity' | 'plugin',
+    kind:
+      | 'collaboration'
+      | 'savePlan'
+      | 'resolvePlan'
+      | 'syncPlan'
+      | 'admission'
+      | 'goal'
+      | 'goalUsage'
+      | 'activity'
+      | 'plugin',
     request: object,
     signal?: AbortSignal,
   ): Promise<unknown> {

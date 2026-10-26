@@ -1,7 +1,7 @@
 import type { PiMessage, PiModel, PiRecoveryState, PiSessionEntries, PiSessionStats, ThinkingLevel } from './pi'
 import type { ChatBranchAttachment } from './chat-attachments'
 import type { BranchSkillUsage } from './skills'
-import type { QueuedInput } from './plan'
+import type { QueuedInput, PlanCheckpoint } from './plan'
 import type { SessionInfo } from '@earendil-works/pi-coding-agent'
 import type { ScheduledTask } from './schedules'
 
@@ -52,6 +52,7 @@ export type SessionHistoryData = {
   cwd: string
   created: string
   messages: PiMessage[]
+  planCheckpoints?: PlanCheckpoint[]
   sessionEntries?: PiSessionEntries
   skillUsages?: BranchSkillUsage[]
   recovery?: PiRecoveryState

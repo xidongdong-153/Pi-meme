@@ -191,11 +191,25 @@ flowchart TD
   Decision -->|跳过| Draft["保留草稿和模式，恢复普通输入框"]
 ```
 
-只有规划模式根 Agent 可保存计划，子任务或其队列未结束、结果未读时拒绝保存。同一轮再次保存更新同一计划的修订。正文在 `data/plans/<sessionId>/<id>.md`，元数据在 `state/collaboration/plans.json`。失败恢复上一版正文和元数据，成功后发出 `plan_saved`。
+只有规划模式根 Agent 可保存计划，子任务或其队列未结束、结果未读时拒绝保存。每个会话只维护一份当前方案，普通输入和“调整要求”都更新该方案。需要独立方案时新建会话。界面不显示版本号，内部修订用于拒绝过期引用。
 
-保存后不自动打开侧栏。对话卡片只显示节选，提供保存 Markdown、复制全文和侧栏打开。底部“实施此计划？”复用模型与思考强度选项；实施直接提交选定版本，调整通过聊天提交并更新同一文档。Host 校验计划归属和修订，读取实际保存的正文，不信任客户端提交的计划正文。
+正文在 `data/plans/<sessionId>/<id>.md`，当前状态和候选元数据在 `state/collaboration/plans.json`。成功的 `save_plan` 原生工具结果包含完整方案检查点。候选写入后，必须等原生结果落盘才发布 `plan_state_changed`；未确认的候选不能实施。刷新和重启沿当前原生分支恢复最后一次成功保存的方案，压缩后的模型消息不是恢复依据。旧索引中的孤立文件继续保留，但不展示、不实施。分叉继承分叉点之前的方案内容，并使用新会话自己的文档身份。
 
-实施保留已有草稿，不自动附带未发送内容；沿用执行权限，只读权限需要先选择允许修改的权限。跳过或关闭仅恢复普通输入框，不发送消息、不切换模式，同一修订不重复询问。正在调研、切换、编辑或等待交互时不提供实施操作。实现见 [plan-decision.tsx](../packages/app-ui/src/panels/plan-decision.tsx)，定向验证见 [plan-mode.integration.test.ts](../packages/pi-runtime/tests/plan-mode.integration.test.ts) 和 [agent-plans.integration.test.ts](../packages/subagents/tests/agent-plans.integration.test.ts)。
+```mermaid
+%%{init: {"theme": "dark"}}%%
+flowchart LR
+  A[候选正文及元数据] --> B[原生工具结果落盘]
+  B --> C[当前分支计划状态]
+  D[历史编辑提交] --> E[投影保留分支]
+  E --> C
+  C --> F[唯一卡片、侧栏和实施入口]
+```
+
+保存后不自动打开侧栏。唯一卡片位于最新保存方案的回复处，只显示节选，提供保存 Markdown、复制全文和侧栏打开。卡片、侧栏和实施读取同一份当前正文。底部“实施此计划？”复用模型与思考强度选项；Host 校验计划归属和内部修订，读取实际保存的正文，不信任客户端提交的计划正文。
+
+进入历史消息编辑时，临时隐藏编辑点之后的方案并隐藏实施入口；取消编辑恢复原展示。新用户消息落盘且历史替换提交后，恢复编辑点之前最后一份有效方案；此前没有方案则清空。提交前失败恢复原历史和方案，提交后模型失败不恢复已被撤销的内容。编辑时同时移除该消息自己的隐藏计划上下文。所有窗口接收完整替换状态，清空后的迟到事件不能重新添加旧方案。
+
+实施保留已有草稿，不自动附带未发送内容；沿用执行权限，只读权限需要先选择允许修改的权限。跳过或关闭仅恢复普通输入框，不发送消息、不切换模式，同一内部修订不重复询问；方案更新或回退后可重新确认。调整文字随会话草稿保存，临时隐藏、刷新及提交失败不会丢失。正在调研、切换、编辑或等待交互时不提供实施操作。实现见 [plan-decision.tsx](../packages/app-ui/src/panels/plan-decision.tsx)，定向验证见 [plan-mode.integration.test.ts](../packages/pi-runtime/tests/plan-mode.integration.test.ts) 和 [agent-plans.integration.test.ts](../packages/subagents/tests/agent-plans.integration.test.ts)。
 
 ## 持久目标 Goal
 

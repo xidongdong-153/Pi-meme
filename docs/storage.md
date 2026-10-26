@@ -116,6 +116,8 @@ Host 的应用配置、持久状态、执行数据与内部管理的工作区文
 | `logs/mcp.log`                 | MCP 服务运行日志                         | `McpConfigStore`                                          | 是                 | 正常日志输出                                            |
 | `backups/`                     | 升级历史与旧内容归档                     | `upgradeStorageLayout`                                    | 否（恢复备份）     | 用户手动管理，不自动删除                                |
 
+计划索引 `state/collaboration/plans.json` 使用格式 2，保存当前状态、单调递增的内部修订和候选文档，兼容读取格式 1。每个会话只公开零或一份当前方案。原生 JSONL 中当前分支的成功 `save_plan` 工具结果是正文恢复依据；索引或 Markdown 与分支不一致时重新同步，同步失败时禁止实施。历史编辑可恢复旧正文或清空当前方案，旧 Markdown 文件不因此删除。
+
 定时任务由 `ScheduleService` 保存到 `state/modules/%40pi-meme%2Fschedules/schedules.json`，包含任务配置、运行状态和未读记录。删除任务时移除调度记录，已生成的聊天保留。使用与恢复规则见 [定时任务](schedules.md)。
 
 ## SSH 连接资料与摘要

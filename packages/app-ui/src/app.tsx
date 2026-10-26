@@ -224,13 +224,9 @@ export function App({
     }
   }, [host])
   const [planRequest, setPlanRequest] = useState<{ sessionKey?: string; id: string; revision: number }>()
-  const [selectedPlanId, setSelectedPlanId] = useState<string>()
   const chat = useAppSession(bridge, {
     host,
     hostId: hostId ?? hostAddress,
-    onPlanSaved: (document) => {
-      setSelectedPlanId(document.id)
-    },
   })
   const generationMetrics = useMemo(
     () => ({
@@ -260,7 +256,7 @@ export function App({
   if (chat.chat.sessionEntries?.entries.length) availableRightTabs.push('session-tree')
   if (chat.chat.agents?.some((agent) => agent.parentAgentId && agent.rootSessionKey === chat.connection.sessionKey))
     availableRightTabs.push('subagents')
-  if (chat.planDocuments.length) availableRightTabs.push('plan')
+  if (chat.planDocuments.length || (chat.editing && chat.chat.planState?.document)) availableRightTabs.push('plan')
   const settings = useSettings(bridge, true, false, !serviceUI)
   const appearance = useSettings(serviceUI?.appearanceBridge ?? bridge, Boolean(serviceUI) && active, false)
   useEffect(
@@ -758,10 +754,13 @@ export function App({
     />
   )
   const interaction = chat.extensionDialogs[0]
-  const currentPlan = chat.planDocuments.reduce<(typeof chat.planDocuments)[number] | undefined>(
-    (latest, document) => (!latest || document.updatedAt > latest.updatedAt ? document : latest),
-    undefined,
+  const currentPlan = chat.planDocuments[0]
+  if (
+    !chat.editing &&
+    planRequest &&
+    (!currentPlan || planRequest.id !== currentPlan.id || planRequest.sessionKey !== chat.connection.sessionKey)
   )
+    setPlanRequest(undefined)
   const interactionSourceName =
     interaction?.source?.agentId && interaction.source.rootSessionKey !== interaction.sessionKey
       ? interaction.source.name
@@ -1040,7 +1039,9 @@ export function App({
               key={`${hostId ?? hostAddress}:${currentPlan.id}:${currentPlan.revision}`}
               document={currentPlan}
               hostId={hostId ?? hostAddress ?? 'local'}
-              visible={!chat.busy && !chat.navigationBusy && !chat.editingQueue && !interaction}
+              visible={!chat.busy && !chat.navigationBusy && !chat.editing && !interaction}
+              draft={chat.planDraft}
+              onDraftChange={chat.setPlanDraft}
               readOnly={chat.connection.accessMode === 'read-only'}
               model={composerProps.model}
               access={composerProps.access}
@@ -1192,11 +1193,11 @@ export function App({
             sessionKey: chat.connection.sessionKey,
             models: chat.models,
             loadImage: loadConversationImage,
+            planState: chat.planState ?? (chat.editing ? null : undefined),
             renderPlan: (document) => (
               <PlanCard
                 document={document}
                 onOpen={() => {
-                  setSelectedPlanId(document.id)
                   setPlanRequest({
                     id: document.id,
                     revision: document.revision,
@@ -1471,9 +1472,7 @@ export function App({
             icon: <NotebookPen />,
             location: 'right' as const,
             scope: 'session' as const,
-            render: () => (
-              <PlanPanel documents={chat.planDocuments} selectedId={selectedPlanId} onSelect={setSelectedPlanId} />
-            ),
+            render: () => <PlanPanel documents={chat.planDocuments} />,
           },
         ]
       : []),

@@ -38,6 +38,14 @@ const composer: ComposerSnapshot = {
   attachments: [{ id: 'image', type: 'image', mimeType: 'image/png', data: '不应保存的图片数据' }],
 }
 
+test('计划调整文字随同会话草稿保存，刷新恢复且会话之间隔离', () => {
+  const { open } = fixture()
+  const drafts = open()
+  drafts.set('session', { ...empty, planDraft: '先调整布局' })
+  assert.equal(open().get('session')?.planDraft, '先调整布局')
+  assert.equal(open().get('other')?.planDraft, undefined)
+})
+
 test('刷新恢复文字与技能引用，Host和会话分别隔离，图片不写入存储', () => {
   const { open, values } = fixture()
   const drafts = open()

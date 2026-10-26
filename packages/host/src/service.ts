@@ -566,6 +566,7 @@ export async function createHost(options: HostOptions = {}) {
           activity: (request, signal) => activityBridge.dispatch(session, request, signal),
           collaboration: (request, signal) => collaboration.dispatch(session, request, signal),
           savePlan: (input, signal) => collaboration.savePlan(session, input, signal),
+          syncPlan: (force) => collaboration.syncPlan(session, force),
           resolvePlan: (reference, signal) => collaboration.resolvePlan(session, reference, signal),
           release: async () => {
             try {

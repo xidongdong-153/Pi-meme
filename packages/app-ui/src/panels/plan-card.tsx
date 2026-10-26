@@ -38,7 +38,7 @@ export function PlanCard({ document, onOpen }: { document: PlanDocument; onOpen:
       <header className="flex items-center justify-between gap-2 px-4 pt-2 text-xs text-muted-foreground">
         <span className="flex items-center gap-1.5">
           <Lightbulb className="size-4" />
-          计划 · 第 {document.revision} 版
+          计划
         </span>
         <div className="flex gap-0.5">
           {actions.map(({ label, icon: Icon, run }) => (

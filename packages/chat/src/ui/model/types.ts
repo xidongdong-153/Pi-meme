@@ -1,7 +1,7 @@
 import type { Goal } from '@pi-meme/contracts/goal'
 import type { AgentMailboxMessage, AgentSummary } from '@pi-meme/contracts/collaboration'
 import type { BranchSkillUsage } from '@pi-meme/contracts/skills'
-import type { QueuedInput, PlanDocument } from '@pi-meme/contracts/plan'
+import type { QueuedInput, PlanDocument, PlanState, PlanCheckpoint } from '@pi-meme/contracts/plan'
 import type { ChatBranchAttachment } from '@pi-meme/contracts/chat-attachments'
 import type {
   PiImage,
@@ -37,6 +37,8 @@ export type ChatState = {
   agents?: AgentSummary[]
   agentMessages?: AgentMailboxMessage[]
   planDocuments?: PlanDocument[]
+  planState?: PlanState
+  planCheckpoints?: PlanCheckpoint[]
   skillUsages?: BranchSkillUsage[]
   messages: PiMessage[]
   sessionEntries?: PiSessionEntries

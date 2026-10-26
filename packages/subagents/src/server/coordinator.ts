@@ -16,7 +16,7 @@ import {
   type CollaborationResults,
   type PendingInteraction,
 } from '@pi-meme/contracts/collaboration'
-import type { PlanDocument, PlanRef, SavePlanInput, TaskMode } from '@pi-meme/contracts/plan'
+import type { PlanCheckpoint, PlanDocument, PlanState, PlanRef, SavePlanInput, TaskMode } from '@pi-meme/contracts/plan'
 import { thinkingLevels, type PiState } from '@pi-meme/contracts/pi'
 import type { RuntimeSdkSession } from '@pi-meme/pi-runtime/session-pool'
 import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
@@ -145,6 +145,10 @@ export class HostCollaborationBridge {
   private roots = new Map<string, Record>()
   private answers = new Set<string>()
   private plans: PlanDocument[] = []
+  private planStates = new Map<string, PlanState>()
+  private pendingPlans = new Map<string, PlanDocument>()
+  private planSaves = new WeakMap<RuntimeSdkSession, Promise<void>>()
+  private planCommits = new Map<string, { promise: Promise<void>; resolve: () => void }>()
   private listeners = new Set<() => void>()
   private userSteering = new WeakSet<Record>()
   private rootWrites = new Map<string, Promise<void>>()
@@ -171,8 +175,9 @@ export class HostCollaborationBridge {
   }
   private async load() {
     try {
-      const { roots, plans } = await loadCollaborationPartitions(this.rootsDirectory, this.plansFile)
+      const { roots, plans, states } = await loadCollaborationPartitions(this.rootsDirectory, this.plansFile)
       this.plans = plans
+      this.planStates = new Map(states.map((state) => [state.sessionId, state]))
       const interruptedRoots = new Set<string>()
       const interruptedRecords: Record[] = []
       const blockedCleanups: Record[] = []
@@ -696,6 +701,7 @@ export class HostCollaborationBridge {
     const root = this.root(sessionKey)
     if ((runId && root.summary.runId !== runId) || ['stopped', 'interrupted'].includes(root.summary.status)) return
     if (root.summary.status === 'failed') return
+    await this.settlePlan(root)
     root.summary.status = 'failed'
     root.summary.error = String(cause)
     root.summary.runCompletedAt = new Date().toISOString()
@@ -720,6 +726,7 @@ export class HostCollaborationBridge {
   async rootSettled(sessionKey: string, event?: { aborted?: boolean; runId?: string }) {
     const root = this.root(sessionKey)
     if (event?.runId && root.summary.runId !== event.runId) return
+    await this.settlePlan(root)
     if (!activeStatuses.has(root.summary.status)) return
     if (event?.aborted) {
       await this.stopRoot(sessionKey)
@@ -2000,6 +2007,7 @@ export class HostCollaborationBridge {
     await this.interrupt(root, true)
     root.pauseRequested = false
     root.summary.status = 'stopped'
+    await this.settlePlan(root)
     await this.persist(root)
     this.changed(root)
   }
@@ -2013,10 +2021,14 @@ export class HostCollaborationBridge {
     await this.ready
     const root = this.root(sessionKey)
     const tree = this.tree(root)
+    const planCheckpoints = await this.readPlanCheckpoints(root)
+    const planState = root.session ? await this.syncPlan(root.session) : undefined
     return {
+      planState,
+      planCheckpoints,
       agent: { ...root.summary },
       agents: tree.map((entry) => ({ ...entry.summary })),
-      planDocuments: this.plans.filter((plan) => plan.sessionId === root.summary.sessionId),
+      planDocuments: planState?.document ? [planState.document] : [],
       pendingInteractions: tree.flatMap((entry) => entry.interactions),
       agentMessages: tree.flatMap((entry) => entry.mailbox),
     }
@@ -2078,7 +2090,7 @@ export class HostCollaborationBridge {
         agent: { ...record.summary },
         agents: this.tree(record).map((entry) => ({ ...entry.summary })),
         pendingInteractions: [],
-        planDocuments: this.plans.filter((plan) => plan.sessionId === record.summary.sessionId),
+        planDocuments: [],
       }
     }
     const sequence = record.sequence
@@ -2095,7 +2107,7 @@ export class HostCollaborationBridge {
       agent: { ...record.summary },
       agents: this.tree(record).map((entry) => ({ ...entry.summary })),
       pendingInteractions: record.interactions,
-      planDocuments: this.plans.filter((plan) => plan.sessionId === record.summary.sessionId),
+      planDocuments: [],
     }
   }
   async respondExtensionUI(
@@ -2127,11 +2139,135 @@ export class HostCollaborationBridge {
     const record = this.callers.get(actualSession)
     if (!record || record.session !== actualSession || record.summary.depth !== 0 || this.stopping || signal.aborted)
       throw new Error('计划操作已取消或不是根会话')
-    const sessionId = actualSession.getActiveSession().sessionId ?? record.summary.sessionId
-    const document = this.plans.find((item) => item.id === reference.id && item.sessionId === sessionId)
+    const state = await this.syncPlan(actualSession)
+    const document = state.document?.id === reference.id ? state.document : undefined
     if (!document) throw new Error('当前会话不存在此计划')
     if (document.revision !== reference.revision) throw new Error('计划已有新修订，请刷新后重试')
     return { ...document }
+  }
+
+  private async settlePlan(record: Record) {
+    const sessionId = record.session?.getActiveSession().sessionId ?? record.summary.sessionId
+    if (
+      record.session &&
+      sessionId &&
+      (this.pendingPlans.has(sessionId) ||
+        this.planStates.has(sessionId) ||
+        this.plans.some((plan) => plan.sessionId === sessionId))
+    )
+      await this.syncPlan(record.session, true)
+  }
+
+  private persistPlans() {
+    const write = this.planIndexWrites.then(() =>
+      saveCollaborationPlans(this.plansFile, this.plans, [...this.planStates.values()]),
+    )
+    this.planIndexWrites = write.catch(() => {})
+    return write
+  }
+
+  private async readPlanCheckpoints(record: Record): Promise<PlanCheckpoint[]> {
+    if (record.session?.connection().status === 'ready') {
+      return record.session.getPlanCheckpoints()
+    }
+    if (!record.summary.sessionFile) return []
+    try {
+      return (await readSessionHistory(record.summary.sessionFile)).planCheckpoints ?? []
+    } catch (cause) {
+      if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return []
+      throw cause
+    }
+  }
+
+  async syncPlan(actualSession: RuntimeSdkSession, force = false): Promise<PlanState> {
+    const pending = this.planWrites.then(async () => {
+      await this.ready
+      const record = this.callers.get(actualSession)
+      if (!record || record.session !== actualSession || record.summary.depth !== 0)
+        throw new Error('计划状态只能由当前根会话同步')
+      return this.syncPlanOnce(record, await this.readPlanCheckpoints(record), force)
+    })
+    this.planWrites = pending.then(
+      () => {},
+      () => {},
+    )
+    return pending
+  }
+
+  private async syncPlanOnce(record: Record, checkpoints: PlanCheckpoint[], force = false): Promise<PlanState> {
+    const sessionId = record.session?.getActiveSession().sessionId ?? record.summary.sessionId
+    if (!sessionId) return { sessionId: '', revision: 0 }
+    const previous = this.planStates.get(sessionId)
+    const checkpoint = checkpoints.at(-1)
+    const candidate = this.pendingPlans.get(sessionId)
+    const committed =
+      candidate &&
+      checkpoints.some((item) => item.document.id === candidate.id && item.document.revision === candidate.revision)
+    // 工具结果落盘前，候选文件不能覆盖对外的有效方案。
+    if (candidate && !committed && !force) return previous ?? { sessionId, revision: 0 }
+    const indexed = this.plans.filter((plan) => plan.sessionId === sessionId)
+    const indexMatches = previous?.document
+      ? indexed.length === 1 &&
+        indexed[0]?.id === previous.document.id &&
+        indexed[0]?.revision === previous.document.revision &&
+        indexed[0]?.markdown === previous.document.markdown
+      : indexed.length === 0
+    if (
+      !candidate &&
+      indexMatches &&
+      previous?.sourceEntryId === checkpoint?.sourceEntryId &&
+      previous?.document?.markdown === checkpoint?.document.markdown &&
+      previous?.document?.title === checkpoint?.document.title &&
+      previous
+    ) {
+      return previous
+    }
+    const existing = this.plans.filter((plan) => plan.sessionId === sessionId)
+    if (!previous && !checkpoint && !existing.length) return { sessionId, revision: 0 }
+    const revision = Math.max(
+      (previous?.revision ?? 0) + 1,
+      ...existing.map((plan) => plan.revision + (committed ? 0 : 1)),
+      checkpoint?.document.revision ?? 0,
+    )
+    const document = checkpoint
+      ? {
+          ...checkpoint.document,
+          id:
+            previous?.document?.id ??
+            (checkpoint.document.sessionId === sessionId ? checkpoint.document.id : randomUUID()),
+          sessionId,
+          revision:
+            committed && candidate && checkpoint.document.revision === candidate.revision
+              ? candidate.revision
+              : revision,
+        }
+      : undefined
+    const state: PlanState = { sessionId, revision, document, sourceEntryId: checkpoint?.sourceEntryId }
+    const priorPlans = this.plans
+    const file = document && path.join(this.plansDirectory, sessionId, `${document.id}.md`)
+    const temporary = file && `${file}.${randomUUID()}.tmp`
+    try {
+      if (document && file && temporary) {
+        await mkdir(path.dirname(file), { recursive: true })
+        await writeFile(temporary, document.markdown, { mode: 0o600 })
+        await rename(temporary, file)
+      }
+      this.plans = [...this.plans.filter((plan) => plan.sessionId !== sessionId), ...(document ? [document] : [])]
+      this.planStates.set(sessionId, state)
+      await this.persistPlans()
+    } catch (cause) {
+      this.plans = priorPlans
+      if (previous) this.planStates.set(sessionId, previous)
+      else this.planStates.delete(sessionId)
+      throw cause
+    } finally {
+      if (temporary) await rm(temporary, { force: true })
+    }
+    this.pendingPlans.delete(sessionId)
+    this.planCommits.get(sessionId)?.resolve()
+    this.planCommits.delete(sessionId)
+    this.emit(record, { type: 'plan_state_changed', state, reason: committed ? 'saved' : 'restored' })
+    return state
   }
   async resolveSessionPlan(sessionKey: string, reference: PlanRef): Promise<PlanDocument> {
     await this.ready
@@ -2141,10 +2277,22 @@ export class HostCollaborationBridge {
   }
 
   async savePlan(actualSession: RuntimeSdkSession, input: SavePlanInput, signal: AbortSignal): Promise<PlanDocument> {
-    const pending = this.planWrites.then(() => this.savePlanOnce(actualSession, input, signal))
-    this.planWrites = pending.then(
-      () => {},
-      () => {},
+    const pending = (this.planSaves.get(actualSession) ?? Promise.resolve()).then(() => {
+      const write = this.planWrites.then(() => this.savePlanOnce(actualSession, input, signal))
+      this.planWrites = write.then(
+        () => {},
+        () => {},
+      )
+      return write
+    })
+    this.planSaves.set(
+      actualSession,
+      pending
+        .then((document) => this.planCommits.get(document.sessionId)?.promise)
+        .then(
+          () => {},
+          () => {},
+        ),
     )
     return pending
   }
@@ -2168,11 +2316,9 @@ export class HostCollaborationBridge {
     const sessionId = actualSession.getActiveSession().sessionId
     if (!sessionId || !/^[\w-]+$/.test(sessionId)) throw new Error('Pi 会话身份尚未保存')
     if (!input.title.trim() || !input.markdown.trim()) throw new Error('计划标题和正文不能为空')
-    const existing = this.plans.find(
-      (plan) =>
-        plan.sessionId === sessionId &&
-        (input.reference ? plan.id === input.reference.id : plan.runId === record.summary.runId),
-    )
+    await this.syncPlanOnce(record, await this.readPlanCheckpoints(record))
+    if (this.pendingPlans.has(sessionId)) throw new Error('上一份计划尚未写入会话，请等待保存完成')
+    const existing = this.planStates.get(sessionId)?.document
     if (
       input.reference &&
       (!existing || (existing.runId !== record.summary.runId && existing.revision !== input.reference.revision))
@@ -2182,7 +2328,7 @@ export class HostCollaborationBridge {
       id: existing?.id ?? randomUUID(),
       sessionId,
       runId: record.summary.runId,
-      revision: (existing?.revision ?? 0) + 1,
+      revision: Math.max(existing?.revision ?? 0, this.planStates.get(sessionId)?.revision ?? 0) + 1,
       title: input.title.trim(),
       markdown: input.markdown,
       updatedAt: new Date().toISOString(),
@@ -2211,7 +2357,7 @@ export class HostCollaborationBridge {
       metadataChanged = true
       record.summary.sessionId = sessionId
       const saveIndex = this.planIndexWrites.then(async () => {
-        await saveCollaborationPlans(this.plansFile, this.plans)
+        await saveCollaborationPlans(this.plansFile, this.plans, [...this.planStates.values()])
       })
       this.planIndexWrites = saveIndex.catch(() => {})
       await saveIndex
@@ -2222,7 +2368,7 @@ export class HostCollaborationBridge {
         if (existing) this.plans[this.plans.indexOf(document)] = existing
         else this.plans = this.plans.filter((plan) => plan !== document)
         const saveIndex = this.planIndexWrites.then(async () => {
-          await saveCollaborationPlans(this.plansFile, this.plans)
+          await saveCollaborationPlans(this.plansFile, this.plans, [...this.planStates.values()])
         })
         this.planIndexWrites = saveIndex.catch(() => {})
         await saveIndex.catch(() => {})
@@ -2240,7 +2386,12 @@ export class HostCollaborationBridge {
     } finally {
       await rm(temporary, { force: true })
     }
-    this.emit(record, { type: 'plan_saved', document })
+    this.pendingPlans.set(sessionId, document)
+    let resolve!: () => void
+    const promise = new Promise<void>((done) => {
+      resolve = done
+    })
+    this.planCommits.set(sessionId, { promise, resolve })
     return document
   }
   async retireSessions(sessionKeys: string[]) {

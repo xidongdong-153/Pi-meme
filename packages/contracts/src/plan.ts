@@ -42,13 +42,67 @@ export type PlanDocument = {
   updatedAt: string
 }
 export type PlanRef = { id: string; revision: number }
+export type PlanCheckpoint = { document: PlanDocument; sourceEntryId: string }
+export type PlanState = {
+  sessionId: string
+  revision: number
+  document?: PlanDocument
+  sourceEntryId?: string
+}
 export type PlanAction = { intent: 'execute' | 'revise'; reference: PlanRef }
 export type PlanToolSource = { readOnly?: boolean }
-export type PlanEvent = { type: 'plan_saved'; document: PlanDocument }
+export type PlanEvent =
+  | { type: 'plan_saved'; document: PlanDocument }
+  | { type: 'plan_state_changed'; state: PlanState; reason: 'saved' | 'restored' }
 export type SavePlanInput = { title: string; markdown: string; reference?: PlanRef }
 
 export function planContextMessage(document: PlanDocument) {
-  return `已保存计划「${document.title}」（第 ${document.revision} 版）\n\n${document.markdown}`
+  return `当前计划「${document.title}」\n\n${document.markdown}`
+}
+
+export function isPlanDocument(value: unknown): value is PlanDocument {
+  if (!value || typeof value !== 'object') return false
+  const document = value as Partial<PlanDocument>
+  return (
+    typeof document.id === 'string' &&
+    /^[\w-]+$/.test(document.id) &&
+    typeof document.sessionId === 'string' &&
+    /^[\w-]+$/.test(document.sessionId) &&
+    typeof document.runId === 'string' &&
+    Number.isSafeInteger(document.revision) &&
+    document.revision! > 0 &&
+    typeof document.title === 'string' &&
+    Boolean(document.title.trim()) &&
+    typeof document.markdown === 'string' &&
+    Boolean(document.markdown.trim()) &&
+    typeof document.updatedAt === 'string'
+  )
+}
+
+/** 从原始条目恢复方案；模型上下文压缩不影响这些保存检查点。 */
+export function projectBranchPlans(
+  entries: readonly { id: string; parentId: string | null; type: string; message?: unknown }[],
+  leafId: string | null,
+): PlanCheckpoint[] {
+  const byId = new Map(entries.map((entry) => [entry.id, entry]))
+  const seen = new Set<string>()
+  const checkpoints: PlanCheckpoint[] = []
+  let entry = leafId ? byId.get(leafId) : undefined
+  while (entry && !seen.has(entry.id)) {
+    seen.add(entry.id)
+    const message = entry.message as
+      { role?: string; toolName?: string; isError?: boolean; details?: unknown } | undefined
+    if (
+      entry.type === 'message' &&
+      message?.role === 'toolResult' &&
+      message.toolName === 'save_plan' &&
+      !message.isError &&
+      isPlanDocument(message.details)
+    )
+      checkpoints.push({ document: message.details, sourceEntryId: entry.id })
+    entry = entry.parentId ? byId.get(entry.parentId) : undefined
+  }
+  return checkpoints.reverse()
 }
 
 export function isTaskMode(value: unknown): value is TaskMode {

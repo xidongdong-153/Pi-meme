@@ -222,3 +222,72 @@ test('保存计划在所属轮次渲染卡片，替换完整最终正文', () =>
   expect(screen.getAllByRole('region', { name: '计划卡片' })).toHaveLength(1)
   expect(screen.queryByText('不应再次展开的完整计划正文')).not.toBeInTheDocument()
 })
+
+test('调整后仅最新回复展示方案卡片，旧回复不重新展开计划正文', () => {
+  const first = {
+    id: 'plan',
+    sessionId: 'session',
+    runId: 'first',
+    revision: 1,
+    title: '旧方案',
+    markdown: '# 旧方案',
+    updatedAt: '2026-10-26T00:00:00Z',
+  }
+  const latest = { ...first, runId: 'second', revision: 2, title: '当前方案', markdown: '# 当前方案' }
+  const messages = [first, latest].flatMap((document, index) => [
+    userMessage(index ? '调整' : '设计', index * 1000 + 100),
+    {
+      ...assistantMessage('', index * 1000 + 200),
+      content: [{ type: 'toolCall' as const, id: `save-${index}`, name: 'save_plan', arguments: {} }],
+    },
+    {
+      role: 'toolResult' as const,
+      toolName: 'save_plan',
+      toolCallId: `save-${index}`,
+      sourceEntry: { id: `saved-${index}`, type: 'message' as const, revision: `saved-${index}` },
+      content: [{ type: 'text' as const, text: '已保存' }],
+      details: document,
+      isError: false,
+      timestamp: index * 1000 + 300,
+    },
+    assistantMessage(`不应展开的方案正文${index}`, index * 1000 + 400),
+  ])
+  const chat = createChatState(messages)
+  chat.planState = { sessionId: 'session', revision: 2, document: latest, sourceEntryId: 'saved-1' }
+  chat.planDocuments = [latest]
+  render(
+    <TooltipProvider>
+      <Conversation
+        chat={chat}
+        canEditMessages={false}
+        onEditMessage={() => {}}
+        onForkReply={() => {}}
+        onCopyError={() => {}}
+        renderPlan={(document) => <section aria-label="计划卡片">{document.title}</section>}
+      />
+    </TooltipProvider>,
+  )
+  expect(screen.getAllByRole('region', { name: '计划卡片' })).toHaveLength(1)
+  expect(screen.getByRole('region', { name: '计划卡片' })).toHaveTextContent('当前方案')
+  expect(screen.queryByText('不应展开的方案正文0')).not.toBeInTheDocument()
+  expect(screen.queryByText('不应展开的方案正文1')).not.toBeInTheDocument()
+})
+
+test('清空计划状态后不补显残留工具结果或孤立索引文档', () => {
+  const chat = createChatState([userMessage('重新设计', 1000)])
+  chat.planState = { sessionId: 'session', revision: 3 }
+  chat.planDocuments = []
+  render(
+    <TooltipProvider>
+      <Conversation
+        chat={chat}
+        canEditMessages={false}
+        onEditMessage={() => {}}
+        onForkReply={() => {}}
+        onCopyError={() => {}}
+        renderPlan={() => <section aria-label="计划卡片" />}
+      />
+    </TooltipProvider>,
+  )
+  expect(screen.queryByRole('region', { name: '计划卡片' })).not.toBeInTheDocument()
+})

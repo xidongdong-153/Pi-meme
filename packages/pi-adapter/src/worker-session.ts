@@ -1,7 +1,7 @@
 import type { Goal, GoalControl, GoalRequest, GoalRun, PromptOrigin } from '@pi-meme/contracts/goal'
 import type { ServiceActivityRequest, ServiceActivityResult } from '@pi-meme/contracts/service-activity'
 import type { CollaborationRequest, CollaborationResults } from '@pi-meme/contracts/collaboration'
-import type { PlanDocument, PlanRef, SavePlanInput, TaskMode } from '@pi-meme/contracts/plan'
+import type { PlanDocument, PlanRef, PlanState, SavePlanInput, TaskMode } from '@pi-meme/contracts/plan'
 import { Worker } from 'node:worker_threads'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -29,6 +29,7 @@ export type WorkerOptions = {
     signal: AbortSignal,
   ) => Promise<CollaborationResults[keyof CollaborationResults]>
   savePlan?: (input: SavePlanInput, signal: AbortSignal) => Promise<PlanDocument>
+  syncPlan?: (force: boolean) => Promise<PlanState>
   resolvePlan?: (reference: PlanRef, signal: AbortSignal) => Promise<PlanDocument>
   goal?: (request: GoalRequest, run: GoalRun | undefined, signal: AbortSignal) => Promise<Goal | undefined>
   goalUsage?: (run: GoalRun, entryId: string, usage: unknown, inputEntryId?: string) => Promise<void>
@@ -120,7 +121,15 @@ export function createWorkerSession(
           hostCancel?: string
           hostRequest?: {
             kind:
-              'collaboration' | 'savePlan' | 'resolvePlan' | 'admission' | 'goal' | 'goalUsage' | 'activity' | 'plugin'
+              | 'collaboration'
+              | 'savePlan'
+              | 'resolvePlan'
+              | 'syncPlan'
+              | 'admission'
+              | 'goal'
+              | 'goalUsage'
+              | 'activity'
+              | 'plugin'
             reference?: PlanRef
             pluginRequest?: PluginRuntimeRequest
             activityRequest?: ServiceActivityRequest
@@ -135,6 +144,7 @@ export function createWorkerSession(
             usage?: unknown
             inputEntryId?: string
             id: string
+            force?: boolean
             input?: SavePlanInput
           } & CollaborationRequest
           credential?: { id: number; key: string; value?: string }
@@ -178,6 +188,10 @@ export function createWorkerSession(
               if (request.kind === 'activity') {
                 if (!options.activity || !request.activityRequest) throw new Error('活动服务桥未配置')
                 return options.activity(request.activityRequest, controller.signal)
+              }
+              if (request.kind === 'syncPlan') {
+                if (!options.syncPlan) throw new Error('计划同步桥未配置')
+                return options.syncPlan(request.force === true)
               }
               if (request.kind === 'savePlan') {
                 if (!options.savePlan || !request.input) throw new Error('计划保存桥未配置')

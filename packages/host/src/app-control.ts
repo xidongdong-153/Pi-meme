@@ -1279,6 +1279,7 @@ export async function createAppControl(options: Options) {
           'extension_ui_closed',
           'extension_ui_timeout',
           'plan_saved',
+          'plan_state_changed',
           'goal_updated',
           'goal_cleared',
           'composer_hint',

@@ -15,6 +15,8 @@ export function PlanDecision({
   children,
   onSubmit,
   onSkip,
+  draft,
+  onDraftChange,
 }: {
   document: PlanDocument
   hostId: string
@@ -25,6 +27,8 @@ export function PlanDecision({
   children: ReactNode
   onSubmit: (action: PlanAction, text?: string) => Promise<boolean>
   onSkip: (text: string) => void
+  draft?: string
+  onDraftChange?: (text: string) => void
 }) {
   const storageKey = `pi-meme:plan-decision:${hostId}:${document.sessionId}:${document.id}`
   const [dismissed, setDismissed] = useState(() => {
@@ -34,7 +38,9 @@ export function PlanDecision({
       return false
     }
   })
-  const [text, setText] = useState('')
+  const [localText, setLocalText] = useState('')
+  const text = draft ?? localText
+  const setText = onDraftChange ?? setLocalText
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
   const pending = useRef(false)
@@ -50,6 +56,7 @@ export function PlanDecision({
     if (pending.current) return
     dismiss()
     onSkip(text)
+    setText('')
   }
   async function submit(intent: PlanAction['intent']) {
     if (pending.current || (intent === 'execute' && readOnly)) return
@@ -62,8 +69,10 @@ export function PlanDecision({
           { intent, reference: { id: document.id, revision: document.revision } },
           intent === 'revise' ? text : undefined,
         )
-      )
+      ) {
         dismiss()
+        if (intent === 'revise') setText('')
+      }
     } catch (cause) {
       setError(String(cause))
     } finally {

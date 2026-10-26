@@ -8,7 +8,7 @@ import type {
   CollaborationResults,
   PendingInteraction,
 } from '@pi-meme/contracts/collaboration'
-import type { PlanDocument, TaskMode } from '@pi-meme/contracts/plan'
+import { isPlanDocument, type PlanDocument, type PlanState, type TaskMode } from '@pi-meme/contracts/plan'
 
 export type PersistedAgentRecord = {
   summary: AgentSummary
@@ -41,8 +41,9 @@ export type CollaborationRootPartition = {
 }
 
 export type CollaborationPlansIndex = {
-  version: 1
+  version: 1 | 2
   plans: PlanDocument[]
+  states?: PlanState[]
 }
 
 const safeIdPattern = /^[\w-]+$/
@@ -180,7 +181,11 @@ export function migrateLegacyCollaborationJson(legacy: { records?: unknown[]; pl
 export function validateCollaborationPlansIndex(data: unknown): asserts data is CollaborationPlansIndex {
   if (!data || typeof data !== 'object' || Array.isArray(data)) throw new Error('协作计划索引必须是对象')
   const index = data as Partial<CollaborationPlansIndex>
-  if (index.version !== 1 || !Array.isArray(index.plans)) {
+  if (
+    ![1, 2].includes(index.version ?? 0) ||
+    !Array.isArray(index.plans) ||
+    (index.version === 2 && !Array.isArray(index.states))
+  ) {
     throw new Error('协作计划索引损坏或版本不受支持')
   }
 }
@@ -206,16 +211,27 @@ export function validateCollaborationRootPartition(
 export async function loadCollaborationPartitions(
   rootsDirectory: string,
   plansFile: string,
-): Promise<{ roots: Map<string, CollaborationRootPartition>; plans: PlanDocument[] }> {
+): Promise<{ roots: Map<string, CollaborationRootPartition>; plans: PlanDocument[]; states: PlanState[] }> {
   const roots = new Map<string, CollaborationRootPartition>()
   let plans: PlanDocument[] = []
+  let states: PlanState[] = []
 
   // 1. 读取 plans.json
   try {
     const plansContent = await readFile(plansFile, 'utf8')
     const parsed = JSON.parse(plansContent) as unknown
     validateCollaborationPlansIndex(parsed)
-    plans = parsed.plans
+    plans = parsed.plans.filter(isPlanDocument)
+    states = (parsed.states ?? []).filter(
+      (state) =>
+        state &&
+        typeof state.sessionId === 'string' &&
+        /^[\w-]+$/.test(state.sessionId) &&
+        Number.isSafeInteger(state.revision) &&
+        state.revision >= 0 &&
+        (!state.document || (isPlanDocument(state.document) && state.document.sessionId === state.sessionId)) &&
+        (!state.sourceEntryId || typeof state.sourceEntryId === 'string'),
+    )
   } catch (cause) {
     if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw cause
   }
@@ -252,7 +268,7 @@ export async function loadCollaborationPartitions(
     if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw cause
   }
 
-  return { roots, plans }
+  return { roots, plans, states }
 }
 
 /** 单个根分片原子持久化（支持传入已冻结的 payload 字符串） */
@@ -276,10 +292,15 @@ export async function deleteCollaborationRoot(rootsDirectory: string, rootAgentI
 }
 
 /** 计划索引原子持久化 */
-export async function saveCollaborationPlans(plansFile: string, plans: PlanDocument[]): Promise<void> {
+export async function saveCollaborationPlans(
+  plansFile: string,
+  plans: PlanDocument[],
+  states: PlanState[] = [],
+): Promise<void> {
   const payload: CollaborationPlansIndex = {
-    version: 1,
+    version: 2,
     plans,
+    states,
   }
   await atomicWrite(plansFile, `${JSON.stringify(payload, null, 2)}\n`)
 }

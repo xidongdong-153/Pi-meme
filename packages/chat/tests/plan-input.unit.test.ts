@@ -52,7 +52,7 @@ test('模式写入期间保留选择，迟到快照和失败不能覆盖随后�
   assert.equal(state.snapshot('B', 'default', state.revision), 'default')
   assert.equal(state.snapshot('A', 'plan', state.revision), 'plan')
 })
-test('只有保存ACK生成计划卡片，同文档更新版次、旧ACK不覆盖，新文档保留', () => {
+test('保存ACK更新唯一方案，旧ACK不覆盖当前正文', () => {
   const document: PlanDocument = {
     id: 'doc',
     sessionId: 'A',
@@ -69,8 +69,34 @@ test('只有保存ACK生成计划卡片，同文档更新版次、旧ACK不覆�
   const withSecond = applyEvent(next, { type: 'plan_saved', document: { ...document, id: 'next' } })
   assert.deepEqual(
     withSecond.planDocuments?.map((entry) => entry.markdown),
-    ['第二版', '第一版'],
+    ['第一版'],
   )
+})
+
+test('计划状态整体替换，清空后的迟到事件和旧保存ACK不能复活方案', () => {
+  const document: PlanDocument = {
+    id: 'plan',
+    sessionId: 'session',
+    runId: 'run',
+    revision: 1,
+    title: '方案',
+    markdown: '# 方案',
+    updatedAt: '2026-10-26T00:00:00Z',
+  }
+  const saved = {
+    type: 'plan_state_changed' as const,
+    reason: 'saved' as const,
+    state: { sessionId: 'session', revision: 1, document, sourceEntryId: 'saved' },
+  }
+  const first = applyEvent(emptyChat, saved)
+  const cleared = applyEvent(first, {
+    type: 'plan_state_changed',
+    reason: 'restored',
+    state: { sessionId: 'session', revision: 2 },
+  })
+  assert.deepEqual(cleared.planDocuments, [])
+  assert.equal(applyEvent(cleared, saved), cleared)
+  assert.equal(applyEvent(cleared, { type: 'plan_saved', document }), cleared)
 })
 
 test('撤回队列逐条恢复模式、图片和技能，不合并不同模式消息', async () => {

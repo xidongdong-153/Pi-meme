@@ -170,7 +170,7 @@ export function create(context: CollaborationExtensionContext): InlineExtension[
           name: 'save_plan',
           label: '保存计划',
           description:
-            'Plan-mode root agent only. Save a Markdown plan without executing it. Rejected while any child work is active or queued, or the root has unread child results. Review results and account for failures, interruptions, and unresolved limitations first. Repeated calls in the same root run update the same Host-managed document, not a workspace file. Claim it is saved only after success.',
+            'Plan-mode root agent only. Save a Markdown plan without executing it. Rejected while any child work is active or queued, or the root has unread child results. Review results and account for failures, interruptions, and unresolved limitations first. All planning turns update the current session’s single Host-managed document. Continue adjusting its existing content. Claim it is saved only after success.',
           parameters: Type.Object(
             {
               title: text('Nonblank plan title.'),
@@ -183,7 +183,7 @@ export function create(context: CollaborationExtensionContext): InlineExtension[
           execute: async (_id, input, signal) => {
             const document = await context.savePlan(input, signal)
             return {
-              content: [{ type: 'text', text: `计划已保存：${document.title}（第 ${document.revision} 版）` }],
+              content: [{ type: 'text', text: `计划已保存：${document.title}` }],
               details: document,
             }
           },
