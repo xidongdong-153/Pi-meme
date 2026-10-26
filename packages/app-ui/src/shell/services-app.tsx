@@ -47,7 +47,11 @@ export function ServicesApp({
   const captureController = useCallback((id: string, controller: ServiceController) => {
     const previous = controllers.current.get(id)
     controllers.current.set(id, controller)
-    if (previous?.sessions !== controller.sessions || previous?.connection !== controller.connection)
+    if (
+      previous?.sessions !== controller.sessions ||
+      previous?.connection !== controller.connection ||
+      previous?.switchingToPath !== controller.switchingToPath
+    )
       setRevision((value) => value + 1)
   }, [])
   useEffect(() => registry.subscribe(() => setServices(registry.list())), [registry])
@@ -56,33 +60,44 @@ export function ServicesApp({
       .initialize()
       .catch((cause: unknown) => controllers.current.get(registry.localServiceId)?.setError(String(cause)))
   }, [registry])
-  const activate = (id: string, work: (controller: ServiceController) => Promise<boolean>) => {
+  const activate = (id: string, work: (controller: ServiceController) => Promise<boolean>): Promise<boolean> => {
     const source = controllers.current.get(activeRef.current)
     const service = registry.list().find((entry) => entry.id === id)
     if (service && servicePaused(service)) {
       source?.setError('连接已暂停，请先在远程设置中恢复连接')
-      return
-    }
-    if (source?.editing) {
-      void source.cancelEdit()
-      source.setError('')
-    } else if (source?.workspaceDisabledReason) {
-      source.setError(source.workspaceDisabledReason)
-      return
+      return Promise.resolve(false)
     }
     const controller = controllers.current.get(id)
     if (!controller) {
       source?.setError('会话界面尚未就绪，请稍后重试')
-      return
+      return Promise.resolve(false)
+    }
+    const disabledReason = source?.navigationDisabledReason ?? controller.navigationDisabledReason
+    if (disabledReason) {
+      source?.setError(disabledReason)
+      return Promise.resolve(false)
     }
     const transaction = ++navigation.current
-    void Promise.resolve(source?.beforeDeactivate?.() ?? true)
-      .then((allowed) => (allowed && transaction === navigation.current ? work(controller) : false))
+    return (async () => {
+      if (source?.editing) {
+        await source.cancelEdit()
+        source.setError('')
+      }
+      if (transaction !== navigation.current) return false
+      return source?.beforeDeactivate?.() ?? true
+    })()
+      .then((allowed) => {
+        const target = controllers.current.get(id)
+        return allowed && transaction === navigation.current && target ? work(target) : false
+      })
       .then((changed) => {
-        if (changed && transaction === navigation.current) setActiveId(id)
+        if (!changed || transaction !== navigation.current) return false
+        setActiveId(id)
+        return true
       })
       .catch((cause: unknown) => {
         if (transaction === navigation.current) source?.setError(String(cause))
+        return false
       })
   }
   async function changeLocation(id: string, input: SelectWorkspace) {
@@ -199,6 +214,7 @@ export function ServicesApp({
               remoteSettings,
               onController: captureController,
               onLocation: changeLocation,
+              onNavigate: (work) => activate(service.id, work),
               onSearch: openSearch,
               onSchedules: (id) =>
                 activate(id, async (controller) => {

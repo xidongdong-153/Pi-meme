@@ -120,6 +120,7 @@ export function MultiServiceSidebar({
               (activePath ? activePath === session.path : snapshot?.activeSessionId === session.id)
             }
             isPinned={pinned}
+            isSwitching={controller?.switchingToPath === session.path}
             onSwitchSession={(path) => onActivate(serviceId, (chat) => chat.switchSession(path))}
             onTogglePin={(path) => void controller?.togglePin(path)}
             onPrefetchSession={(path) => {
@@ -185,6 +186,7 @@ export function MultiServiceSidebar({
             pinnedSet={new Set(snapshot?.pinnedPaths ?? [])}
             activeSessionId={selected ? snapshot?.activeSessionId : undefined}
             activeSessionPath={selected ? (controller?.switchingToPath ?? snapshot?.activeSessionPath) : undefined}
+            switchingToPath={controller?.switchingToPath}
             onToggle={() => toggle(key, setExpanded)}
             onToggleItems={() => toggle(key, setAll)}
             onNewSessionInProject={openNewSession}
@@ -274,7 +276,7 @@ export function MultiServiceSidebar({
       </div>
       <button
         type="button"
-        onClick={() => void active?.newSession()}
+        onClick={() => onActivate(activeId, (chat) => chat.newSession())}
         disabled={activePaused}
         title={activePaused ? '连接已暂停，请先恢复连接' : newChatShortcut ? `新聊天（${newChatShortcut}）` : '新聊天'}
         className="mx-3 my-1.5 flex items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs hover:bg-secondary"
@@ -358,7 +360,7 @@ export function MultiServiceSidebar({
                   type="button"
                   aria-label="新聊天"
                   title={newChatShortcut ? `新聊天（${newChatShortcut}）` : '新聊天'}
-                  onClick={() => void active?.newSession()}
+                  onClick={() => onActivate(activeId, (chat) => chat.newSession())}
                   className="rounded p-1 hover:bg-secondary"
                 >
                   <SquarePen className="size-3.5" />

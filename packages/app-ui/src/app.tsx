@@ -228,6 +228,10 @@ export function App({
     host,
     hostId: hostId ?? hostAddress,
   })
+  const navigateSession = (work: () => Promise<boolean>) => (serviceUI ? serviceUI.onNavigate(work) : work())
+  const newSession = (cwd?: string) =>
+    navigateSession(() => (cwd === undefined ? chat.newSession() : chat.newSessionInProject(cwd)))
+  const switchSession = (sessionPath: string) => navigateSession(() => chat.switchSession(sessionPath))
   const generationMetrics = useMemo(
     () => ({
       subscribe: chat.chatStream.subscribe,
@@ -1123,9 +1127,9 @@ export function App({
         activeSessionPath: chat.sessions?.activeSessionPath,
         switchingToPath: chat.switchingToPath,
         onDirectory: () => setCreatingProject(true),
-        onNewSession: () => void chat.newSession(),
-        onNewSessionInProject: (targetCwd) => void chat.newSessionInProject(targetCwd),
-        onSwitchSession: (sessionPath) => void chat.switchSession(sessionPath),
+        onNewSession: () => void newSession(),
+        onNewSessionInProject: (targetCwd) => void newSession(targetCwd),
+        onSwitchSession: (sessionPath) => void switchSession(sessionPath),
         onTogglePin: (targetPath) => void chat.togglePin(targetPath),
         onPrefetchSession: (sessionPath) => void bridge.prefetchSession(sessionPath).catch(() => {}),
         onSettings: () => openSettings('general'),
@@ -1515,7 +1519,7 @@ export function App({
     if (creatingSkillSession.current) return false
     creatingSkillSession.current = true
     try {
-      if (!(await invokeSkillInNewSession(chat, bridge.getCommands, name, prompt))) return false
+      if (!(await navigateSession(() => invokeSkillInNewSession(chat, bridge.getCommands, name, prompt)))) return false
       navigation.home()
       return true
     } finally {
@@ -1529,9 +1533,9 @@ export function App({
       openSettings: () => openSettings('general'),
       openShortcutHelp,
       newChat:
-        chatShortcutsAvailable && !chat.workspaceDisabledReason && !chat.editingQueue && !fileStore.hasDirty()
+        chatShortcutsAvailable && !chat.navigationDisabledReason && !chat.editingQueue && !fileStore.hasDirty()
           ? async () => {
-              await chat.newSession()
+              await newSession()
             }
           : undefined,
       searchSessions: chatShortcutsAvailable ? (serviceUI?.onSearch ?? (() => setSessionSearchOpen(true))) : undefined,
@@ -1624,7 +1628,7 @@ export function App({
               onProjects={() => navigation.open({ kind: 'projects' })}
               onSchedules={() => navigation.open({ kind: 'schedules' })}
               schedulesUnread={scheduleState.tasks.some((task) => task.unreadCount > 0)}
-              onNewSession={() => void chat.newSession()}
+              onNewSession={() => void newSession()}
               onPlugins={() => navigation.open({ kind: 'customization' })}
               pluginNavigation={pluginNavigation}
               onPlugin={openPlugin}
@@ -1632,7 +1636,7 @@ export function App({
                 <SidebarMenus
                   bridge={bridge}
                   pinnedPaths={chat.sessions?.pinnedPaths ?? []}
-                  onNewSession={(cwd) => void chat.newSessionInProject(cwd)}
+                  onNewSession={(cwd) => void newSession(cwd)}
                   onTogglePin={(path) => void chat.togglePin(path)}
                   onChanged={chat.refreshMenu}
                   onDeleted={chat.applyMenuDeletion}
@@ -1756,7 +1760,7 @@ export function App({
                 onOpenSession={async (ref) => {
                   const session = await host.sessions.get(ref)
                   if (!session.sessionFile) throw new Error('聊天尚未保存，请等待本次运行开始后重试')
-                  if (await chat.switchSession(session.sessionFile)) navigation.home()
+                  if (await switchSession(session.sessionFile)) navigation.home()
                 }}
               />
             </Suspense>
@@ -1800,10 +1804,10 @@ export function App({
               onChanged={chat.refreshMenu}
               onDeleted={chat.applyMenuDeletion}
               onNewSession={async (cwd) => {
-                if (await chat.newSessionInProject(cwd)) navigation.home()
+                if (await newSession(cwd)) navigation.home()
               }}
               onSwitchSession={async (path) => {
-                if (await chat.switchSession(path)) navigation.home()
+                if (await switchSession(path)) navigation.home()
               }}
               onTogglePin={async (cwd) => {
                 await chat.togglePin(cwd)

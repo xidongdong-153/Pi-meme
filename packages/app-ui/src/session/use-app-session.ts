@@ -79,6 +79,8 @@ export function useAppSession(
   const thinkingSaveError = useRef<unknown>(undefined)
   const thinkingRequest = useRef(0)
   const selection = useRef(new SessionSelection())
+  const pendingSwitch = useRef<{ target: string; promise: Promise<boolean> } | null>(null)
+  const pendingCreations = useRef(new Map<string, Promise<boolean>>())
   const synchronization = useRef(new SnapshotSync())
   const pluginSynchronization = useRef(new PluginSnapshotSync())
   const views = useRef(new Map<string, { snapshot: Snapshot; chat: ChatState; sequence: number }>())
@@ -597,19 +599,27 @@ export function useAppSession(
     target?: string,
     carryDraft = false,
     refreshCommands = true,
+    replaceable = false,
   ) => {
-    if (actionLock.current) return false
+    if (
+      actionLock.current ||
+      current.current.accessChanging ||
+      chatRef.current?.editSubmitting ||
+      selection.current.current?.replaceable === false
+    )
+      return false
     let succeeded = false
     const replacing = selection.current.current !== null
-    const transaction = selection.current.begin(target)
+    const transaction = selection.current.begin(target, replaceable)
     const pluginRevision = pluginSynchronization.current.begin()
     const modeRevision = chatRef.current?.captureModeRevision()
     const owns = () => mounted.current && selection.current.owns(transaction)
-    const previousMode = chatRef.current?.mode
+    let previousMode = chatRef.current?.mode
     const previous = displayed.current
     const previousPath = previous.sessionFile ?? previous.sessionKey
-    const previousComposer =
-      replacing && previous.sessionKey ? drafts.get(previous.sessionKey) : chatRef.current?.captureComposer()
+    const savedComposer = previous.sessionKey && drafts.get(previous.sessionKey)
+    let previousComposer =
+      replacing && savedComposer && !savedComposer.editing ? savedComposer : chatRef.current?.captureComposer()
     const previousView = previous.sessionKey && views.current.get(previous.sessionKey)
     if (previous.sessionKey && previousComposer) drafts.set(previous.sessionKey, previousComposer)
     if (!replacing && previousView && chatRef.current) previousView.chat = chatRef.current.captureChat()
@@ -622,6 +632,13 @@ export function useAppSession(
     chatRef.current?.clearPromptPending()
     const pending = (async () => {
       try {
+        if (replaceable && chatRef.current?.editing) {
+          await chatRef.current.cancelEdit()
+          if (!owns()) return
+          previousComposer = chatRef.current?.captureComposer()
+          previousMode = chatRef.current?.mode
+          if (previous.sessionKey && previousComposer) drafts.set(previous.sessionKey, previousComposer)
+        }
         const result = await work()
         if (!owns()) return
         if (result.cancelled) {
@@ -665,7 +682,12 @@ export function useAppSession(
           void bridge
             .getCommands()
             .then((nextCommands) => {
-              if (mounted.current && !selection.current.current && generation === current.current.generation)
+              if (
+                mounted.current &&
+                !selection.current.current &&
+                generation === current.current.generation &&
+                result.snapshot.connection.sessionKey === current.current.sessionKey
+              )
                 setCommands(nextCommands)
             })
             .catch(() => {})
@@ -713,14 +735,53 @@ export function useAppSession(
     return succeeded
   }
 
+  const createSession = (input: SelectWorkspace, carryDraft = false, refreshCommands = true) => {
+    const identity = JSON.stringify([input, carryDraft, refreshCommands])
+    const existing = pendingCreations.current.get(identity)
+    if (existing) return existing
+    const pending = select(
+      () =>
+        (input.kind === 'project' && input.cwd === current.current.cwd) ||
+        (input.kind === 'standalone' && current.current.workspaceKind === 'standalone')
+          ? bridge.newSession()
+          : bridge.selectWorkspace(input),
+      undefined,
+      carryDraft,
+      refreshCommands,
+      true,
+    )
+    pendingCreations.current.set(identity, pending)
+    const release = () => {
+      if (pendingCreations.current.get(identity) === pending) pendingCreations.current.delete(identity)
+    }
+    void pending.then(release, release)
+    return pending
+  }
+  const switchSession = (sessionPath: string) => {
+    if (selection.current.current?.target === sessionPath && pendingSwitch.current?.target === sessionPath)
+      return pendingSwitch.current.promise
+    if (
+      !selection.current.current &&
+      (sessionPath === current.current.sessionKey || sessionPath === current.current.sessionFile)
+    )
+      return Promise.resolve(true)
+    const promise = select(() => bridge.switchSession(sessionPath), sessionPath, false, true, true)
+    pendingSwitch.current = { target: sessionPath, promise }
+    const release = () => {
+      if (pendingSwitch.current?.promise === promise) pendingSwitch.current = null
+    }
+    void promise.then(release, release)
+    return promise
+  }
   const selectWorkspace = (input: SelectWorkspace) => {
     if (chat.editing || actionLock.current || current.current.accessChanging) return Promise.resolve(false)
     if (
-      (input.kind === 'standalone' && current.current.workspaceKind === 'standalone') ||
-      (input.kind === 'project' && input.cwd === current.current.cwd)
+      !selection.current.current &&
+      ((input.kind === 'standalone' && current.current.workspaceKind === 'standalone') ||
+        (input.kind === 'project' && input.cwd === current.current.cwd))
     )
       return Promise.resolve(true)
-    return select(() => bridge.selectWorkspace(input), undefined, true)
+    return select(() => bridge.selectWorkspace(input), undefined, true, true, true)
   }
   const chooseDirectory = async () => {
     if (chat.editing || actionLock.current || selection.current.current || current.current.accessChanging) return false
@@ -787,17 +848,7 @@ export function useAppSession(
       input: SelectWorkspace,
       incoming?: { composer: ComposerSnapshot; mode: import('@pi-meme/contracts/plan').TaskMode },
     ) => {
-      const changed = await select(
-        () =>
-          input.kind === 'project' && input.cwd === current.current.cwd
-            ? bridge.newSession()
-            : input.kind === 'standalone' && current.current.workspaceKind === 'standalone'
-              ? bridge.newSession()
-              : bridge.selectWorkspace(input),
-        undefined,
-        !incoming,
-        !incoming,
-      )
+      const changed = await createSession(input, !incoming, !incoming)
       if (changed && incoming) {
         const expected = { ...current.current }
         const commands = await bridge.getCommands().catch(() => [] as PiSlashCommand[])
@@ -886,6 +937,12 @@ export function useAppSession(
     error,
     workspaceNotice,
     selectWorkspace,
+    navigationDisabledReason:
+      chat.editSubmitting || acting || modelSaving || connection.accessChanging || loading
+        ? '正在保存会话或更新配置，请完成后再切换'
+        : switching && !selection.current.current?.replaceable
+          ? '正在创建分支或切换 Git，请完成后再切换会话'
+          : undefined,
     workspaceDisabledReason: chat.editing
       ? '请先完成或取消历史消息编辑'
       : acting || switching || connection.accessChanging || loading
@@ -976,17 +1033,14 @@ export function useAppSession(
     },
     cancelEdit: chat.cancelEdit,
     chooseDirectory,
-    newSession: async () => {
-      if (chat.editing) await chat.cancelEdit()
-      return select(() => bridge.newSession())
-    },
-    newSessionInProject: async (cwd: string) => {
-      if (chat.editing) await chat.cancelEdit()
-      return cwd === current.current.cwd
-        ? select(() => bridge.newSession())
-        : select(() => bridge.selectWorkspace({ kind: 'project', cwd }))
-    },
-    switchSession: (sessionPath: string) => select(() => bridge.switchSession(sessionPath), sessionPath),
+    newSession: () =>
+      createSession(
+        current.current.workspaceKind === 'standalone'
+          ? { kind: 'standalone' }
+          : { kind: 'project', cwd: current.current.cwd },
+      ),
+    newSessionInProject: (cwd: string) => createSession({ kind: 'project', cwd }),
+    switchSession,
     forkReply: (timestamp: number) => {
       const key = current.current.sessionKey
       const sourcePath = displayed.current.sessionFile ?? current.current.sessionFile
@@ -1010,7 +1064,7 @@ export function useAppSession(
     dismissForkNotice: () => setForkNotice(null),
     openForkSource: (sourcePath: string) => {
       setForkNotice(null)
-      return select(() => bridge.switchSession(sourcePath), sourcePath)
+      return switchSession(sourcePath)
     },
     togglePin: (path: string) =>
       action(async () => {

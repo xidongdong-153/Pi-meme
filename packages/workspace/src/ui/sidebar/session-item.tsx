@@ -37,6 +37,7 @@ export function SessionItem({
   projectName,
   variant,
   isActive,
+  isSwitching = false,
   isPinned = false,
   dragProps,
   source,
@@ -48,6 +49,7 @@ export function SessionItem({
   projectName?: string
   variant: 'pinned' | 'project' | 'recent'
   isActive: boolean
+  isSwitching?: boolean
   isPinned?: boolean
   dragProps?: SidebarDragProps
   source?: SidebarSource
@@ -68,11 +70,17 @@ export function SessionItem({
       <Clock aria-hidden="true" className="size-3" />
     </span>
   ) : null
-  const runningIndicator = isRunning ? (
-    <span className="inline-flex shrink-0 animate-spin text-muted-foreground group-hover:hidden group-has-[:focus-visible]:hidden group-has-[[data-state=open]]:hidden">
-      <Loader2 aria-label="会话运行中" className="size-3.5" />
-    </span>
-  ) : null
+  const runningIndicator =
+    isSwitching || isRunning ? (
+      <span
+        className={cn(
+          'inline-flex shrink-0 animate-spin text-muted-foreground',
+          !isSwitching && 'group-hover:hidden group-has-[:focus-visible]:hidden group-has-[[data-state=open]]:hidden',
+        )}
+      >
+        <Loader2 aria-label={isSwitching ? '正在切换会话' : '会话运行中'} className="size-3.5" />
+      </span>
+    ) : null
 
   if (variant === 'pinned') {
     return (
@@ -98,7 +106,7 @@ export function SessionItem({
             onFocus={handleMouseEnter}
             className={cn(
               'flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden py-0.5 pr-1 text-left rounded cursor-[inherit] transition-[padding] duration-150 ease-out focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
-              !session.scheduledTask && 'group-hover:pr-7 group-has-[:focus-visible]:pr-7',
+              !session.scheduledTask && !isSwitching && 'group-hover:pr-7 group-has-[:focus-visible]:pr-7',
             )}
           >
             <MessageSquare aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
@@ -113,7 +121,13 @@ export function SessionItem({
             </span>
             <ForkBadge session={session} />
           </button>
-          <div className={cn('flex items-center gap-1 shrink-0 ml-1', session.scheduledTask && '-mr-1')}>
+          <div
+            className={cn(
+              'flex items-center gap-1 shrink-0 ml-1',
+              session.scheduledTask && '-mr-1',
+              isSwitching && !session.scheduledTask && 'pr-5',
+            )}
+          >
             {source && (
               <span className="pointer-events-none transition-opacity group-hover:opacity-0 group-has-[:focus-visible]:opacity-0">
                 <SidebarSourceBadge source={source} />
@@ -172,7 +186,7 @@ export function SessionItem({
             onFocus={handleMouseEnter}
             className={cn(
               'flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden py-0.5 pr-1 text-left rounded transition-[padding] duration-150 ease-out focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
-              !session.scheduledTask && 'group-hover:pr-7 group-has-[:focus-visible]:pr-7',
+              !session.scheduledTask && !isSwitching && 'group-hover:pr-7 group-has-[:focus-visible]:pr-7',
             )}
           >
             <span
@@ -186,7 +200,13 @@ export function SessionItem({
             </span>
             <ForkBadge session={session} />
           </button>
-          <div className={cn('flex items-center gap-1 shrink-0', session.scheduledTask && 'ml-1 -mr-1')}>
+          <div
+            className={cn(
+              'flex items-center gap-1 shrink-0',
+              session.scheduledTask && 'ml-1 -mr-1',
+              isSwitching && !session.scheduledTask && 'pr-5',
+            )}
+          >
             {runningIndicator}
             {scheduleIndicator}
           </div>
@@ -243,7 +263,7 @@ export function SessionItem({
           onFocus={handleMouseEnter}
           className={cn(
             'flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden py-0.5 pr-1 text-left rounded transition-[padding] duration-150 ease-out focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
-            !session.scheduledTask && 'group-hover:pr-7 group-has-[:focus-visible]:pr-7',
+            !session.scheduledTask && !isSwitching && 'group-hover:pr-7 group-has-[:focus-visible]:pr-7',
           )}
         >
           <span
@@ -257,7 +277,13 @@ export function SessionItem({
           </span>
           <ForkBadge session={session} />
         </button>
-        <div className={cn('flex items-center gap-1 shrink-0 ml-1', session.scheduledTask && '-mr-1')}>
+        <div
+          className={cn(
+            'flex items-center gap-1 shrink-0 ml-1',
+            session.scheduledTask && '-mr-1',
+            isSwitching && !session.scheduledTask && 'pr-5',
+          )}
+        >
           {source && (
             <span className="pointer-events-none transition-opacity group-hover:opacity-0 group-has-[:focus-visible]:opacity-0">
               <SidebarSourceBadge source={source} />

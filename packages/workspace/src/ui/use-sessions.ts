@@ -7,28 +7,47 @@ export function useSessions(bridge: Pick<WorkspaceBridge, 'getSessions' | 'onSes
   const [sessions, setSessions] = useState<PiSessionsSnapshot | null>(null)
   const [sessionsLoading, setSessionsLoading] = useState(false)
   const mounted = useRef(false)
-  const requestId = useRef(0)
+  const generation = useRef(0)
+  const activePromise = useRef<Promise<void> | null>(null)
+  const subsequentGen = useRef<number | null>(null)
   const activity = useRef(new SessionActivity())
   const bridgeRef = useRef(bridge)
   bridgeRef.current = bridge
+
   useEffect(() => {
     mounted.current = true
     return () => {
       mounted.current = false
     }
   }, [])
+
   const refreshSessions = useCallback(async () => {
-    if (!enabled) return
-    const id = ++requestId.current
-    try {
-      setSessionsLoading(true)
-      const data = await bridgeRef.current.getSessions()
-      if (mounted.current && id === requestId.current) setSessions(activity.current.apply(data))
-    } catch {
-      // 容错处理
-    } finally {
-      if (mounted.current && id === requestId.current) setSessionsLoading(false)
+    if (!enabled || !mounted.current) return
+    if (activePromise.current) {
+      subsequentGen.current = generation.current
+      return activePromise.current
     }
+    const currentGen = generation.current
+    setSessionsLoading(true)
+    const runner = async () => {
+      do {
+        subsequentGen.current = null
+        try {
+          const data = await bridgeRef.current.getSessions()
+          if (mounted.current && generation.current === currentGen) setSessions(activity.current.apply(data))
+        } catch {
+          // 读取失败时保留已有列表，后续事件或轮询可以重试。
+        }
+      } while (mounted.current && generation.current === currentGen && subsequentGen.current === currentGen)
+    }
+    const task = runner().finally(() => {
+      if (generation.current !== currentGen) return
+      activePromise.current = null
+      subsequentGen.current = null
+      if (mounted.current) setSessionsLoading(false)
+    })
+    activePromise.current = task
+    return task
   }, [enabled])
 
   useEffect(() => {
@@ -39,11 +58,16 @@ export function useSessions(bridge: Pick<WorkspaceBridge, 'getSessions' | 'onSes
     }
     void refreshSessions()
     const off = bridge.onSessionsChanged?.(() => void refreshSessions())
-    const timer = setInterval(() => void refreshSessions(), 2000)
+    const timer = setInterval(() => {
+      // 慢请求不因轮询不断追加读取；只有显式刷新和变更事件要求后续刷新。
+      if (!activePromise.current) void refreshSessions()
+    }, 2000)
     return () => {
       off?.()
       clearInterval(timer)
-      requestId.current += 1
+      generation.current += 1
+      activePromise.current = null
+      subsequentGen.current = null
     }
   }, [bridge, refreshSessions, enabled])
 

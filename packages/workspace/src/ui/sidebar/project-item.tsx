@@ -21,6 +21,7 @@ export type ProjectItemProps = {
   pinnedSet?: Set<string>
   activeSessionId?: string
   activeSessionPath?: string
+  switchingToPath?: string
   onSelectProject?: (cwd: string) => void
   dragProps?: SidebarDragProps
   sortable?: { serviceId: string; enabled: boolean; onReorder: (keys: string[]) => void }
@@ -44,6 +45,7 @@ export function ProjectItem({
   pinnedSet,
   activeSessionId,
   activeSessionPath,
+  switchingToPath,
   onToggle,
   onSelectProject,
   dragProps,
@@ -286,6 +288,7 @@ export function ProjectItem({
                   <SessionItem
                     session={session}
                     variant="project"
+                    isSwitching={switchingToPath === session.path}
                     source={source}
                     isActive={activeSessionId === session.id || activeSessionPath === session.path}
                     isPinned={pinnedSet?.has(session.path) ?? false}

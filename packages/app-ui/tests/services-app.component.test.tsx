@@ -2,12 +2,31 @@ import { useEffect } from 'react'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import type { HostService } from '@pi-meme/contracts/host'
+import type { DesktopBridge, SessionSelectionResult, Snapshot } from '@pi-meme/contracts/desktop'
+import { useAppSession } from '../src/session/use-app-session'
 import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 import type { ServiceController, ServiceRegistry, ServiceUI } from '../src/shell/service-ui'
 import { ServicesApp } from '../src/shell/services-app'
 
 const controllers = new Map<string, ServiceController>()
 const removalErrors: unknown[] = []
+const liveBridges = new Map<string, DesktopBridge>()
+
+function LiveApp({ serviceUI, bridge }: { serviceUI: ServiceUI; bridge: DesktopBridge }) {
+  const chat = useAppSession(bridge, { chatEnabled: false, workspaceEnabled: false })
+  const { serviceId, onController } = serviceUI
+  useEffect(() => {
+    const controller = { ...controllers.get(serviceId)!, ...chat, sessions: controllers.get(serviceId)!.sessions }
+    controllers.set(serviceId, controller)
+    onController(serviceId, controller)
+  })
+  return serviceUI.active ? (
+    <div data-testid="active-service" data-service={serviceId}>
+      <output data-testid="navigation-error">{chat.error}</output>
+      {serviceUI.sidebar}
+    </div>
+  ) : null
+}
 
 vi.mock('../src/app', () => ({
   App: ({ serviceUI }: { serviceUI: ServiceUI }) => {
@@ -15,10 +34,15 @@ vi.mock('../src/app', () => ({
     useEffect(() => {
       onController(serviceId, controllers.get(serviceId)!)
     }, [serviceId, onController])
+    const liveBridge = liveBridges.get(serviceId)
+    if (liveBridge) return <LiveApp serviceUI={serviceUI} bridge={liveBridge} />
     return serviceUI.active ? (
       <div data-testid="active-service" data-service={serviceId}>
         <button type="button" onClick={() => serviceUI.onSchedules('remote')}>
           切换远程定时任务
+        </button>
+        <button type="button" onClick={() => void serviceUI.onNavigate(() => controllers.get(serviceId)!.newSession())}>
+          应用内新聊天
         </button>
         {serviceUI.sidebar}
         {serviceUI.remoteSettings}
@@ -38,10 +62,16 @@ vi.mock('../src/shell/remote-settings', () => ({
 afterEach(() => {
   cleanup()
   controllers.clear()
+  liveBridges.clear()
   removalErrors.length = 0
 })
 
-async function setup(target: string, status: HostService['status'], remote: Partial<HostService> = {}) {
+async function setup(
+  target: string,
+  status: HostService['status'],
+  remote: Partial<HostService> = {},
+  live?: DesktopBridge,
+) {
   const services: HostService[] = ['local', 'remote'].map((id) => ({
     id,
     hostId: id,
@@ -69,6 +99,7 @@ async function setup(target: string, status: HostService['status'], remote: Part
       sessions: service.sessions,
       connection: { status: 'idle', cwd: '/project' },
       switchSession: vi.fn().mockResolvedValue(true),
+      newSession: vi.fn().mockResolvedValue(true),
       openSchedules: vi.fn(),
       captureDraft: vi.fn(),
       clearDraft: vi.fn(),
@@ -97,6 +128,7 @@ async function setup(target: string, status: HostService['status'], remote: Part
     subscribe: () => () => {},
     initialize: async () => {},
   } as unknown as ServiceRegistry
+  if (live) liveBridges.set('local', live)
   render(
     <TooltipProvider>
       <ServicesApp registry={registry} nativeWindow={false} />
@@ -200,6 +232,116 @@ test('正在编辑时激活切换其他服务或会话，自动取消编辑且�
   await waitFor(() => expect(source.cancelEdit).toHaveBeenCalled())
   await waitFor(() => expect(controller.switchSession).toHaveBeenCalledExactlyOnceWith('/remote-A.jsonl'))
   expect(source.setError).not.toHaveBeenCalledWith('请先完成或取消历史消息编辑')
+})
+
+test.each(['source', 'target'] as const)('%s 正在保存或更新权限时仍阻止导航', async (blocked) => {
+  const { controller, source } = await setup('remote', 'connected')
+  const reason = '正在保存会话或更新配置，请完成后再切换'
+  const blockedController = blocked === 'source' ? source : controller
+  blockedController.navigationDisabledReason = reason
+  fireEvent.click(screen.getByText('remote 会话 A'))
+  await act(async () => {})
+  expect(controller.switchSession).not.toHaveBeenCalled()
+  expect(source.setError).toHaveBeenCalledWith(reason)
+})
+
+test('未保存内容拒绝离开时不切换，取消消息编辑完成后才执行导航', async () => {
+  const { controller, source } = await setup('remote', 'connected')
+  source.beforeDeactivate = vi.fn().mockResolvedValue(false)
+  fireEvent.click(screen.getByText('remote 会话 A'))
+  await waitFor(() => expect(source.beforeDeactivate).toHaveBeenCalledOnce())
+  expect(controller.switchSession).not.toHaveBeenCalled()
+  let finish!: () => void
+  source.editing = true
+  source.cancelEdit = vi.fn(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve
+      }),
+  )
+  vi.mocked(source.beforeDeactivate).mockResolvedValue(true)
+  fireEvent.click(screen.getByText('remote 会话 B'))
+  await waitFor(() => expect(source.cancelEdit).toHaveBeenCalledOnce())
+  expect(controller.switchSession).not.toHaveBeenCalled()
+  await act(async () => finish())
+  await waitFor(() => expect(controller.switchSession).toHaveBeenCalledWith('/remote-B.jsonl'))
+})
+
+test.each(['新聊天', '应用内新聊天'])('等待远程切换时通过%s新建本地会话，远程迟到结果不会抢回界面', async (button) => {
+  const { controller, source } = await setup('remote', 'connected')
+  let finish!: (changed: boolean) => void
+  vi.mocked(controller.switchSession).mockImplementationOnce(
+    () =>
+      new Promise<boolean>((resolve) => {
+        finish = resolve
+      }),
+  )
+  fireEvent.click(screen.getByText('remote 会话 A'))
+  await waitFor(() => expect(controller.switchSession).toHaveBeenCalledOnce())
+  fireEvent.click(screen.getByRole('button', { name: button }))
+  await waitFor(() => expect(source.newSession).toHaveBeenCalledOnce())
+  await act(async () => finish(true))
+  expect(screen.getByTestId('active-service').getAttribute('data-service')).toBe('local')
+})
+
+test.each(['local', 'remote'])('真实切换未结束时再次选择 %s 会话，不报忙碌错误', async (destination) => {
+  let finish!: (value: SessionSelectionResult) => void
+  const snapshot: Snapshot = {
+    connection: { generation: 1, sessionKey: 'initial', cwd: '/project', status: 'idle' },
+    state: {
+      mode: 'default',
+      isStreaming: false,
+      isCompacting: false,
+      steeringMode: 'one-at-a-time',
+      followUpMode: 'all',
+      pendingMessageCount: 0,
+    },
+    messages: [],
+    models: [],
+  }
+  const switchSession = vi
+    .fn<DesktopBridge['switchSession']>()
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve
+        }),
+    )
+    .mockResolvedValue({
+      cancelled: false,
+      snapshot: { ...snapshot, connection: { ...snapshot.connection, sessionKey: 'local-B', generation: 2 } },
+    })
+  const bridge = {
+    getConnection: async () => snapshot.connection,
+    getSnapshot: async () => snapshot,
+    getCommands: async () => [],
+    onConnection: () => () => {},
+    onError: () => () => {},
+    onEvent: () => () => {},
+    switchSession,
+  } as unknown as DesktopBridge
+  await setup('local', 'connected', {}, bridge)
+  await waitFor(() => expect(controllers.get('local')!.loading).toBe(false))
+  fireEvent.click(screen.getByText('local 会话 A'))
+  await waitFor(() => expect(controllers.get('local')!.switching).toBe(true))
+  expect(screen.getAllByLabelText('正在切换会话')).toHaveLength(1)
+  fireEvent.click(screen.getByText(`${destination} 会话 B`))
+  if (destination === 'local') {
+    await waitFor(() => expect(switchSession).toHaveBeenCalledTimes(2))
+    expect(controllers.get('local')!.connection.sessionKey).toBe('local-B')
+  } else {
+    await waitFor(() => expect(controllers.get('remote')!.switchSession).toHaveBeenCalledWith('/remote-B.jsonl'))
+    await waitFor(() => expect(screen.getByTestId('active-service').getAttribute('data-service')).toBe('remote'))
+  }
+  expect(controllers.get('local')!.error).toBe('')
+  await act(async () =>
+    finish({
+      cancelled: false,
+      snapshot: { ...snapshot, connection: { ...snapshot.connection, sessionKey: 'local-A', generation: 2 } },
+    }),
+  )
+  expect(screen.getByTestId('active-service').getAttribute('data-service')).toBe(destination)
+  if (destination === 'local') expect(controllers.get('local')!.connection.sessionKey).toBe('local-B')
 })
 
 test('切换任务执行位置只打开目标任务页，不切换聊天或清空草稿', async () => {

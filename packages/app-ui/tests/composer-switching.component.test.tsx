@@ -502,6 +502,247 @@ test('切换会话时不提前清空统计与思考档位，也不再读取历�
   expect(result.current.inputDisabled).toBe(false)
 })
 
+test('同目标会话的重复选择只读取一次，切换中返回原会话不会被当成无操作', async () => {
+  const pending = deferred<SessionSelectionResult>()
+  const switchSession = vi.fn<DesktopBridge['switchSession']>().mockReturnValueOnce(pending.promise)
+  const { result, snapshot } = setup({ switchSession })
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  switchSession.mockResolvedValue({ cancelled: false, snapshot })
+  act(() => result.current.setDraft('原会话草稿'))
+  let first!: Promise<boolean>
+  let duplicate!: Promise<boolean>
+  act(() => {
+    first = result.current.switchSession('/second.jsonl')
+    duplicate = result.current.switchSession('/second.jsonl')
+  })
+  expect(switchSession).toHaveBeenCalledTimes(1)
+  await act(async () => {
+    await result.current.switchSession('main')
+  })
+  expect(switchSession).toHaveBeenCalledTimes(2)
+  expect(result.current.connection.sessionKey).toBe('main')
+  expect(result.current.draft).toBe('原会话草稿')
+  await act(async () => {
+    pending.resolve({
+      cancelled: false,
+      snapshot: { ...snapshot, connection: { ...snapshot.connection, sessionKey: 'second', generation: 2 } },
+    })
+    expect(await first).toBe(false)
+    expect(await duplicate).toBe(false)
+  })
+  expect(result.current.connection.sessionKey).toBe('main')
+  expect(result.current.draft).toBe('原会话草稿')
+  await act(async () => {
+    expect(await result.current.switchSession('main')).toBe(true)
+  })
+  expect(switchSession).toHaveBeenCalledTimes(2)
+})
+
+test.each([false, true])('重复新建只创建一次，旧创建结果不覆盖后来选择（指定项目=%s）', async (inProject) => {
+  const pending = deferred<SessionSelectionResult>()
+  const newSession = vi.fn<DesktopBridge['newSession']>().mockReturnValue(pending.promise)
+  const selectWorkspace = vi.fn<DesktopBridge['selectWorkspace']>().mockReturnValue(pending.promise)
+  const { result, snapshot } = setup({
+    newSession,
+    selectWorkspace,
+    switchSession: async () => ({
+      cancelled: false,
+      snapshot: { ...snapshot, connection: { ...snapshot.connection, sessionKey: 'chosen', generation: 3 } },
+    }),
+  })
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  act(() => result.current.setDraft('不转移到空会话的草稿'))
+  let first!: Promise<boolean>
+  let duplicate!: Promise<boolean>
+  act(() => {
+    first = inProject ? result.current.newSessionInProject('/tmp/second') : result.current.newSession()
+    duplicate = inProject ? result.current.newSessionInProject('/tmp/second') : result.current.newSession()
+  })
+  expect(inProject ? selectWorkspace : newSession).toHaveBeenCalledTimes(1)
+  await act(async () => {
+    await result.current.switchSession('chosen')
+  })
+  await act(async () => {
+    pending.resolve({
+      cancelled: false,
+      snapshot: { ...snapshot, connection: { ...snapshot.connection, sessionKey: 'created', generation: 2 } },
+    })
+    expect(await first).toBe(false)
+    expect(await duplicate).toBe(false)
+  })
+  expect(result.current.connection.sessionKey).toBe('chosen')
+  expect(result.current.draft).toBe('')
+  expect(result.current.error).toBe('')
+})
+
+test('旧导航失败不覆盖新选择，不恢复或发送旧草稿', async () => {
+  const old = deferred<SessionSelectionResult>()
+  const switchSession = vi.fn<DesktopBridge['switchSession']>().mockReturnValueOnce(old.promise)
+  const { result, snapshot } = setup({ switchSession })
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  switchSession.mockResolvedValue({
+    cancelled: false,
+    snapshot: { ...snapshot, connection: { ...snapshot.connection, sessionKey: 'chosen', generation: 2 } },
+  })
+  const attachment = { id: 'draft-image', type: 'image' as const, mimeType: 'image/png', data: 'cG5n' }
+  act(() => {
+    result.current.setDraft('原会话草稿')
+    result.current.setAttachments([attachment])
+  })
+  let selecting!: Promise<boolean>
+  act(() => {
+    selecting = result.current.switchSession('old')
+  })
+  await act(async () => {
+    await result.current.switchSession('chosen')
+  })
+  await act(async () => {
+    old.reject(new Error('旧会话读取失败'))
+    expect(await selecting).toBe(false)
+  })
+  expect(result.current.connection.sessionKey).toBe('chosen')
+  expect(result.current.draft).toBe('')
+  expect(result.current.error).toBe('')
+  expect(result.current.attachments).toEqual([])
+  expect(switchSession).toHaveBeenCalledTimes(2)
+  switchSession.mockResolvedValue({ cancelled: false, snapshot })
+  await act(async () => {
+    await result.current.switchSession('main')
+  })
+  expect(result.current.draft).toBe('原会话草稿')
+  expect(result.current.attachments).toEqual([attachment])
+})
+
+test('取消编辑期间再选其他会话，以后一次为准并恢复编辑前草稿', async () => {
+  const newSession = vi.fn()
+  const switchSession = vi.fn<DesktopBridge['switchSession']>()
+  const { result, snapshot } = setup({ newSession, switchSession })
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  switchSession.mockResolvedValue({ cancelled: false, snapshot })
+  act(() => result.current.setDraft('编辑前草稿'))
+  act(() =>
+    result.current.editMessage({
+      role: 'user',
+      content: '正在编辑',
+      timestamp: 1,
+      sourceEntry: { id: 'original', type: 'message', revision: '1' },
+    }),
+  )
+  let creating!: Promise<boolean>
+  let selecting!: Promise<boolean>
+  await act(async () => {
+    creating = result.current.newSession()
+    selecting = result.current.switchSession('main')
+    expect(await creating).toBe(false)
+    expect(await selecting).toBe(true)
+  })
+  expect(newSession).not.toHaveBeenCalled()
+  expect(switchSession).toHaveBeenCalledOnce()
+  expect(result.current.editing).toBe(false)
+  expect(result.current.draft).toBe('编辑前草稿')
+})
+
+test('直接选择历史会话会取消编辑，返回后恢复编辑前草稿而不是历史编辑内容', async () => {
+  const switchSession = vi.fn<DesktopBridge['switchSession']>()
+  const { result, snapshot } = setup({ switchSession })
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  switchSession
+    .mockResolvedValueOnce({
+      cancelled: false,
+      snapshot: { ...snapshot, connection: { ...snapshot.connection, sessionKey: 'second', generation: 2 } },
+    })
+    .mockResolvedValueOnce({ cancelled: false, snapshot })
+  act(() => result.current.setDraft('编辑前草稿'))
+  act(() =>
+    result.current.editMessage({
+      role: 'user',
+      content: '正在编辑',
+      timestamp: 1,
+      sourceEntry: { id: 'original', type: 'message', revision: '1' },
+    }),
+  )
+  await act(async () => {
+    await result.current.switchSession('second')
+  })
+  expect(result.current.editing).toBe(false)
+  expect(result.current.draft).toBe('')
+  await act(async () => {
+    await result.current.switchSession('main')
+  })
+  expect(result.current.editing).toBe(false)
+  expect(result.current.draft).toBe('编辑前草稿')
+})
+
+test('权限更新与分叉进行中不能用导航替换写操作', async () => {
+  let emit!: (connection: Snapshot['connection']) => void
+  const forked = deferred<SessionSelectionResult>()
+  const switchSession = vi.fn()
+  const newSession = vi.fn()
+  const { result, snapshot } = setup({
+    onConnection: (callback) => {
+      emit = callback
+      return () => {}
+    },
+    forkReply: () => forked.promise,
+    switchSession,
+    newSession,
+  })
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  act(() => emit({ ...snapshot.connection, accessChanging: true }))
+  expect(result.current.navigationDisabledReason).toBeTruthy()
+  await act(async () => {
+    expect(await result.current.switchSession('second')).toBe(false)
+    expect(await result.current.newSession()).toBe(false)
+  })
+  act(() => emit(snapshot.connection))
+  let forking!: Promise<void>
+  act(() => {
+    forking = result.current.forkReply(1)
+  })
+  expect(result.current.navigationDisabledReason).toContain('分支')
+  await act(async () => {
+    expect(await result.current.switchSession('second')).toBe(false)
+    expect(await result.current.newSession()).toBe(false)
+  })
+  expect(switchSession).not.toHaveBeenCalled()
+  expect(newSession).not.toHaveBeenCalled()
+  await act(async () => {
+    forked.resolve({ cancelled: false, snapshot })
+    await forking
+  })
+  expect(result.current.navigationDisabledReason).toBeUndefined()
+})
+
+test('历史消息替换正在提交时，导航和新建不能取消编辑或更换目标', async () => {
+  const edited = deferred<Awaited<ReturnType<DesktopBridge['editAndPrompt']>>>()
+  const switchSession = vi.fn()
+  const newSession = vi.fn()
+  const { result, snapshot } = setup({ editAndPrompt: () => edited.promise, switchSession, newSession })
+  snapshot.messages = [
+    { role: 'user', content: '原消息', timestamp: 1, sourceEntry: { id: 'original', type: 'message', revision: '1' } },
+  ]
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  act(() => result.current.editMessage(snapshot.messages[0]))
+  let sending!: Promise<void>
+  await act(async () => {
+    sending = result.current.send()
+  })
+  expect(result.current.editSubmitting).toBe(true)
+  expect(result.current.navigationDisabledReason).toBeTruthy()
+  await act(async () => {
+    expect(await result.current.switchSession('second')).toBe(false)
+    expect(await result.current.newSession()).toBe(false)
+  })
+  expect(result.current.editing).toBe(true)
+  expect(switchSession).not.toHaveBeenCalled()
+  expect(newSession).not.toHaveBeenCalled()
+  await act(async () => {
+    edited.resolve({ recoveredInputs: [] })
+    await sending
+  })
+  expect(result.current.connection.sessionKey).toBe('main')
+})
+
 test('项目切换期间保留多行草稿，完成后将草稿转移到新项目', async () => {
   const selection = deferred<SessionSelectionResult>()
   const { result, snapshot } = setup({ selectWorkspace: () => selection.promise })

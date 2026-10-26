@@ -74,6 +74,14 @@ function skillName(value: unknown) {
     throw new Error('技能名称必须是 1 至 64 位小写字母、数字或连字符')
   return value
 }
+function isAppPackageEnabled(
+  app: ResourceAppPackage,
+  state: StoreState,
+  projectPolicies: Record<string, Policy>,
+): boolean {
+  const appPolicy = projectPolicies[`app:${app.id}`]
+  return app.enabled && (appPolicy?.enabled ?? state.policies[`host:app:${app.id}`]?.enabled ?? true)
+}
 export class ResourceStore {
   readonly dataRoot: string
   readonly stateFile: string
@@ -414,7 +422,7 @@ export class ResourceStore {
     }
     for (const app of (await this.options.getAppPackages?.()) ?? []) {
       const appPolicy = projectPolicies[`app:${app.id}`]
-      const appEnabled = app.enabled && (appPolicy?.enabled ?? state.policies[`host:app:${app.id}`]?.enabled ?? true)
+      const appEnabled = isAppPackageEnabled(app, state, projectPolicies)
       const owner: ResourceOwner = {
         id: app.id,
         type: 'app-package',
@@ -481,6 +489,20 @@ export class ResourceStore {
   }
   catalog(cwd?: string) {
     return this.serialize(() => this.scan(cwd))
+  }
+  disabledAppPluginIds(cwd?: string): Promise<Set<string>> {
+    return this.serialize(async () => {
+      if (cwd) cwd = await canonicalCwd(cwd)
+      const state = await this.initialize()
+      const projectPolicies = await this.projectPolicies(cwd)
+      const disabled = new Set<string>()
+      for (const app of (await this.options.getAppPackages?.()) ?? []) {
+        if (!isAppPackageEnabled(app, state, projectPolicies)) {
+          disabled.add(app.id)
+        }
+      }
+      return disabled
+    })
   }
   snapshot(cwd: string): Promise<ResourceSnapshot> {
     return this.serialize(async () => {

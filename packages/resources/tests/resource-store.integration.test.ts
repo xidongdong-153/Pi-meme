@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { chmod, mkdtemp, mkdir, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import os from 'node:os'
 import path from 'node:path'
-import { test } from 'vitest'
+import { test, vi } from 'vitest'
 import { ResourceStore } from '../src/server/resource-store'
 import type { ResourceAppPackage } from '@pi-meme/contracts/resources'
 
@@ -552,4 +552,73 @@ test('资源中心忽略旧裸扩展与 Pi 包记录，保留原文件并拒绝�
   assert.equal(await readFile(project, 'utf8'), 'throw new Error("不能执行旧扩展")')
   for (const kind of ['extension', 'pi-package'])
     await assert.rejects(store.import({ kind: kind as never, content: 'export default () => {}' }), /类型无效/)
+})
+
+test('disabledAppPluginIds轻量读取App禁用策略且不扫描技能资源', async (t) => {
+  const { directory, root, cwd } = await fixture(t)
+  const appA: ResourceAppPackage = {
+    id: 'app-a',
+    version: '1',
+    generation: 1,
+    directory: path.join(directory, 'app-a'),
+    enabled: true,
+  }
+  const appB: ResourceAppPackage = {
+    id: 'app-b',
+    version: '1',
+    generation: 1,
+    directory: path.join(directory, 'app-b'),
+    enabled: false,
+  }
+  const appC: ResourceAppPackage = {
+    id: 'app-c',
+    version: '1',
+    generation: 1,
+    directory: path.join(directory, 'app-c'),
+    enabled: true,
+  }
+  const appD: ResourceAppPackage = {
+    id: 'app-d',
+    version: '1',
+    generation: 1,
+    directory: path.join(directory, 'app-d'),
+    enabled: true,
+  }
+  const store = new ResourceStore(root, { getAppPackages: () => [appA, appB, appC, appD] })
+
+  const scanSpy = vi.spyOn(store as unknown as { scan: (...args: unknown[]) => unknown }, 'scan')
+
+  await store.setPolicy({ id: 'app:app-c', scope: 'host', enabled: false })
+  await store.setPolicy({ id: 'app:app-d', scope: 'project', cwd, enabled: false })
+  await store.setPolicy({ id: 'app:app-c', scope: 'project', cwd, enabled: true })
+
+  // 项目策略不能启用已全局停用的 App。
+  await store.setPolicy({ id: 'app:app-b', scope: 'project', cwd, enabled: true })
+
+  scanSpy.mockClear()
+
+  const disabled = await store.disabledAppPluginIds(cwd)
+  assert.ok(disabled instanceof Set)
+  assert.equal(scanSpy.mock.calls.length, 0)
+  assert.deepEqual(Array.from(disabled).sort(), ['app-b', 'app-d'])
+
+  // 完整扫描与轻量读取必须采用同一套项目覆盖策略。
+  const catalog = await store.catalog(cwd)
+  assert.equal(scanSpy.mock.calls.length, 1)
+  const catalogDisabled = new Set(
+    catalog.items.filter((item) => item.kind === 'app-plugin' && !item.enabled).map((item) => item.owner.id),
+  )
+  assert.deepEqual(disabled, catalogDisabled)
+  scanSpy.mockRestore()
+
+  const alias = path.join(directory, 'alias-project')
+  await symlink(cwd, alias)
+  const aliasDisabled = await store.disabledAppPluginIds(alias)
+  assert.deepEqual(aliasDisabled, disabled)
+
+  // 不 await 写操作，校验轻量读取仍按资源队列顺序看到新策略。
+  const setPromise = store.setPolicy({ id: 'app:app-a', scope: 'project', cwd, enabled: false })
+  const readPromise = store.disabledAppPluginIds(cwd)
+  const [, concurrentDisabled] = await Promise.all([setPromise, readPromise])
+  assert.ok(concurrentDisabled.has('app-a'))
 })

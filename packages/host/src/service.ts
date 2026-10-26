@@ -714,10 +714,7 @@ export async function createHost(options: HostOptions = {}) {
       }))
     const sessionDescriptors = async (sessionId?: string) => {
       const cwd = (sessionId && workerSnapshots.get(sessionId)?.cwd) || pi.cwd
-      const catalog = await resources.catalog(cwd)
-      const disabled = new Set(
-        catalog.items.filter((item) => item.kind === 'app-plugin' && !item.enabled).map((item) => item.owner.id),
-      )
+      const disabled = await resources.disabledAppPluginIds(cwd)
       const current = new Map(plugins.list().map((entry) => [entry.id, entry]))
       if (sessionId && workerPlugins.has(sessionId)) {
         const retained = workerPlugins.get(sessionId)!
