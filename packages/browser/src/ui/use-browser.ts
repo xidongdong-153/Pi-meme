@@ -7,6 +7,7 @@ export function useBrowser({
   active,
   rebindFrom,
   onAnnotation,
+  onAnnotationRemove,
   onDiscard,
   onSubmit,
   onSettings,
@@ -17,6 +18,7 @@ export function useBrowser({
   owner: string
   active: boolean
   onAnnotation: (annotation: BrowserAnnotation, added: boolean) => void
+  onAnnotationRemove: (id: string) => void
   onDiscard: () => void
   onSubmit: () => void
   onSettings: () => void
@@ -28,8 +30,8 @@ export function useBrowser({
     ready: false,
   })
   const [error, setError] = useState('')
-  const current = useRef({ owner, active, onAnnotation, onDiscard, onSubmit, onSettings, onOpen })
-  current.current = { owner, active, onAnnotation, onDiscard, onSubmit, onSettings, onOpen }
+  const current = useRef({ owner, active, onAnnotation, onAnnotationRemove, onDiscard, onSubmit, onSettings, onOpen })
+  current.current = { owner, active, onAnnotation, onAnnotationRemove, onDiscard, onSubmit, onSettings, onOpen }
   const workspace = useRef<BrowserWorkspace>({ tabs: [], annotations: [] })
   const loaded = useRef('')
   const restorePending = useRef(new Set<string>())
@@ -101,6 +103,13 @@ export function useBrowser({
         return
       }
       if (event.type === 'changed') return
+      if (event.type === 'annotation-remove') {
+        if (event.owner === target.owner && loaded.current === target.owner) {
+          update((value) => ({ ...value, annotations: value.annotations.filter((item) => item.id !== event.id) }))
+          target.onAnnotationRemove(event.id)
+        }
+        return
+      }
       if (event.type === 'discard') {
         if (event.owner === target.owner) {
           update((value) => ({ ...value, annotations: [], editor: undefined }))
@@ -127,7 +136,9 @@ export function useBrowser({
           const annotation = event.annotation
           update((value) => ({
             ...value,
-            annotations: [...value.annotations.filter((item) => item.id !== annotation.id), annotation],
+            annotations: value.annotations.some((item) => item.id === annotation.id)
+              ? value.annotations.map((item) => (item.id === annotation.id ? annotation : item))
+              : [...value.annotations, annotation],
             editor: undefined,
           }))
           target.onAnnotation(annotation, true)

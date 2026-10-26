@@ -1,15 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { BrowserSnapshot } from '@pi-meme/contracts/browser'
+import type { BrowserAnnotation, BrowserSnapshot, BrowserWorkspace } from '@pi-meme/contracts/browser'
 import { registerBrowserRuntime } from '../src/main/browser/browser-runtime'
 
 const mocks = vi.hoisted(() => ({
   handlers: new Map<string, (event: unknown, ...args: unknown[]) => unknown>(),
   listeners: new Map<string, (event: unknown, ...args: unknown[]) => unknown>(),
   views: [] as Array<{
-    webContents: { mainFrame: { url: string }; close: ReturnType<typeof vi.fn> }
+    webContents: {
+      mainFrame: { url: string }
+      close: ReturnType<typeof vi.fn>
+      on: ReturnType<typeof vi.fn>
+      send: ReturnType<typeof vi.fn>
+    }
     setVisible: ReturnType<typeof vi.fn>
+    setBounds: ReturnType<typeof vi.fn>
   }>,
   check: undefined as undefined | ((web: unknown, permission: string, origin: string) => boolean),
+  fetch: vi.fn(),
 }))
 vi.mock('electron', () => ({
   app: { getPath: () => '/tmp/browser-downloads' },
@@ -28,6 +35,7 @@ vi.mock('electron', () => ({
       on: () => {},
       clearCache: vi.fn(),
       clearStorageData: vi.fn(),
+      fetch: mocks.fetch,
     }),
   },
   BrowserWindow: class {
@@ -43,6 +51,7 @@ vi.mock('electron', () => ({
       isLoading: () => false,
       isDestroyed: () => false,
       close: vi.fn(),
+      focus: vi.fn(),
       on: vi.fn(),
       setWindowOpenHandler: vi.fn(),
       loadURL: async (url: string) => {
@@ -69,6 +78,7 @@ beforeEach(() => {
   mocks.listeners.clear()
   mocks.views.length = 0
   mocks.check = undefined
+  mocks.fetch.mockReset()
 })
 function setup() {
   const frame = { url: 'http://127.0.0.1:3181/' }
@@ -94,20 +104,66 @@ function setup() {
     downloads: [],
     permissions: [],
   }
+  let workspace: BrowserWorkspace = { tabs: [], annotations: [] }
   registerBrowserRuntime({
     getWindow: () => window as never,
     origin: () => 'http://127.0.0.1:3181',
     rpc: async <T>(method: string, args?: unknown[]) => {
       if (method === 'browser:permission') snapshot.permissions = [args![0] as BrowserSnapshot['permissions'][number]]
+      if (method === 'browser:workspace') return structuredClone(workspace) as T
+      if (method === 'browser:save-workspace') {
+        workspace = structuredClone(args![1] as BrowserWorkspace)
+        return undefined as T
+      }
       return structuredClone(snapshot) as T
     },
   })
   const event = { sender: web, senderFrame: frame }
   const call = (method: string, ...args: unknown[]) =>
     Promise.resolve(mocks.handlers.get('browser:call')!(event, method, args))
-  return { event, call, web, frame, snapshot }
+  return {
+    event,
+    call,
+    web,
+    frame,
+    snapshot,
+    workspace: () => workspace,
+    setWorkspace: (value: BrowserWorkspace) => (workspace = value),
+  }
+}
+function annotation(tabId: string, documentId: number): BrowserAnnotation {
+  return {
+    id: 'annotation-1',
+    tabId,
+    documentId,
+    url: 'https://example.com/',
+    title: '测试网页',
+    capturedAt: new Date().toISOString(),
+    kind: 'element',
+    text: '内容',
+    rect: { x: 20, y: 20, width: 80, height: 30 },
+    viewport: { width: 400, height: 300, scale: 1, scrollX: 0, scrollY: 0 },
+    comment: '原评论',
+  }
 }
 describe('浏览器原生权限边界', () => {
+  it('站点图标通过浏览器会话读取并转为可在应用中显示的图片', async () => {
+    const f = setup()
+    mocks.fetch.mockResolvedValue(new Response(new Blob([Uint8Array.from([137, 80, 78, 71])], { type: 'image/png' })))
+    await f.call('create', 'chat', 'tab', 'https://example.com/')
+    const favicon = mocks.views[0].webContents.on.mock.calls.find(([name]) => name === 'page-favicon-updated')?.[1] as
+      ((event: unknown, urls: string[]) => void) | undefined
+    favicon?.({}, ['https://example.com/favicon.ico'])
+    await vi.waitFor(() =>
+      expect(f.web.send).toHaveBeenCalledWith(
+        'browser:event',
+        expect.objectContaining({
+          type: 'tab',
+          tab: expect.objectContaining({ favicon: 'data:image/png;base64,iVBORw==' }),
+        }),
+      ),
+    )
+  })
   it('拒绝外部页面、子框架和不匹配的窗口调用', async () => {
     const f = setup()
     const dispatch = mocks.handlers.get('browser:call')!
@@ -146,5 +202,109 @@ describe('浏览器原生权限边界', () => {
     await expect(Promise.resolve().then(() => mocks.handlers.get('browser:overlay-state')!(f.event))).rejects.toThrow(
       '失效',
     )
+  })
+  it('点击当前文档标记后原位更新批注，拒绝过期标记', async () => {
+    const f = setup()
+    f.snapshot.settings.screenshots = 'none'
+    const tab = (await f.call('create', 'chat', 'tab', 'https://example.com/')) as { documentId: number }
+    await f.call('present', 'tab', { x: 0, y: 0, width: 400, height: 300 })
+    await f.call('command', 'tab', { type: 'annotate', enabled: true })
+    const saved = annotation('tab', tab.documentId)
+    f.setWorkspace({ tabs: [], annotations: [saved] })
+    await f.call('command', 'tab', { type: 'markers', annotations: [saved] })
+    const guest = { sender: mocks.views[0].webContents, senderFrame: mocks.views[0].webContents.mainFrame }
+    mocks.listeners.get('browser:marker-click')!(guest, 'unknown')
+    expect(mocks.views).toHaveLength(2)
+    mocks.listeners.get('browser:marker-click')!(guest, saved.id)
+    expect(mocks.views).toHaveLength(3)
+    const overlay = mocks.views[2].webContents
+    const overlayEvent = { sender: overlay, senderFrame: overlay.mainFrame }
+    await mocks.handlers.get('browser:overlay-action')!(overlayEvent, { type: 'comment', text: '修改后' })
+    await mocks.handlers.get('browser:overlay-action')!(overlayEvent, { type: 'add' })
+    expect(f.workspace().annotations).toEqual([{ ...saved, comment: '修改后', image: undefined }])
+    expect(f.web.send).toHaveBeenCalledWith(
+      'browser:event',
+      expect.objectContaining({ type: 'annotation', owner: 'chat' }),
+    )
+    mocks.listeners.get('browser:marker-click')!(guest, 'missing')
+    expect(mocks.views).toHaveLength(3)
+  })
+  it('页面左键取消未提交选取后关闭输入框并清除草稿', async () => {
+    const f = setup()
+    f.snapshot.settings.screenshots = 'none'
+    const tab = (await f.call('create', 'chat', 'tab', 'https://example.com/')) as { documentId: number }
+    await f.call('present', 'tab', { x: 0, y: 0, width: 400, height: 300 })
+    await f.call('command', 'tab', { type: 'annotate', enabled: true })
+    const guest = { sender: mocks.views[0].webContents, senderFrame: mocks.views[0].webContents.mainFrame }
+    mocks.listeners.get('browser:selected')!(guest, annotation('tab', tab.documentId))
+    await vi.waitFor(() => expect(mocks.views).toHaveLength(3))
+    expect(mocks.views[0].webContents.send).toHaveBeenCalledWith(
+      'browser:picker',
+      expect.objectContaining({ editing: true }),
+    )
+    mocks.listeners.get('browser:selection-cancel')!(guest)
+    expect(mocks.views[2].webContents.close).toHaveBeenCalledOnce()
+    expect(mocks.views[0].webContents.send).toHaveBeenLastCalledWith('browser:picker', { reset: true })
+    expect(f.web.send).toHaveBeenLastCalledWith('browser:event', { type: 'editor', owner: 'chat' })
+  })
+  it('评论换行时调整原生输入浮层高度并限制在网页视口内', async () => {
+    const f = setup()
+    const tab = (await f.call('create', 'chat', 'tab', 'https://example.com/')) as { documentId: number }
+    await f.call('present', 'tab', { x: 10, y: 20, width: 400, height: 300 })
+    await f.call('command', 'tab', { type: 'restore-editor', annotation: annotation('tab', tab.documentId) })
+    const editor = mocks.views[2]
+    const overlayEvent = { sender: editor.webContents, senderFrame: editor.webContents.mainFrame }
+    await mocks.handlers.get('browser:overlay-action')!(overlayEvent, { type: 'resize-editor', height: 180 })
+    expect(editor.setBounds).toHaveBeenLastCalledWith(expect.objectContaining({ height: 180 }))
+    await mocks.handlers.get('browser:overlay-action')!(overlayEvent, { type: 'resize-editor', height: 500 })
+    const bounds = editor.setBounds.mock.lastCall![0] as { y: number; height: number }
+    expect(bounds.height).toBe(300)
+    expect(bounds.y).toBeGreaterThanOrEqual(20)
+    expect(bounds.y + bounds.height).toBeLessThanOrEqual(320)
+  })
+  it('底栏发送先保存未完成批注，再通知聊天发送', async () => {
+    const f = setup()
+    f.snapshot.settings.screenshots = 'none'
+    const tab = (await f.call('create', 'chat', 'tab', 'https://example.com/')) as { documentId: number }
+    await f.call('present', 'tab', { x: 0, y: 0, width: 400, height: 300 })
+    const draft = annotation('tab', tab.documentId)
+    await f.call('command', 'tab', { type: 'restore-editor', annotation: draft })
+    const toolbar = mocks.views[1].webContents
+    const toolbarEvent = { sender: toolbar, senderFrame: toolbar.mainFrame }
+    await Promise.all([
+      mocks.handlers.get('browser:overlay-action')!(toolbarEvent, { type: 'submit' }),
+      mocks.handlers.get('browser:overlay-action')!(toolbarEvent, { type: 'submit' }),
+    ])
+    expect(f.workspace().annotations).toHaveLength(1)
+    const events = f.web.send.mock.calls.flatMap(([channel, event]) =>
+      channel === 'browser:event' ? [event.type] : [],
+    )
+    expect(events.indexOf('annotation')).toBeLessThan(events.indexOf('submit'))
+    expect(events.filter((value) => value === 'submit')).toHaveLength(1)
+  })
+  it('工具条拖动限制在网页内，窄屏菜单展开时预留浮层高度', async () => {
+    const f = setup()
+    await f.call('create', 'chat', 'tab', 'https://example.com/')
+    await f.call('present', 'tab', { x: 10, y: 20, width: 280, height: 300 })
+    await f.call('command', 'tab', { type: 'annotate', enabled: true })
+    expect(f.web.send).toHaveBeenCalledWith('browser:event', {
+      type: 'annotation-mode',
+      tabId: 'tab',
+      enabled: true,
+    })
+    const toolbar = mocks.views[1]
+    const event = { sender: toolbar.webContents, senderFrame: toolbar.webContents.mainFrame }
+    await mocks.handlers.get('browser:overlay-action')!(event, { type: 'toolbar-menu', open: true })
+    expect(toolbar.setBounds).toHaveBeenLastCalledWith({ x: 10, y: 102, width: 280, height: 210 })
+    await mocks.handlers.get('browser:overlay-action')!(event, { type: 'move-toolbar', x: 9999, y: -9999 })
+    const bounds = toolbar.setBounds.mock.lastCall![0] as { x: number; y: number; width: number; height: number }
+    expect(bounds.x).toBe(10)
+    expect(bounds.y).toBe(20)
+    await f.call('command', 'tab', { type: 'annotate', enabled: false })
+    expect(f.web.send).toHaveBeenCalledWith('browser:event', {
+      type: 'annotation-mode',
+      tabId: 'tab',
+      enabled: false,
+    })
   })
 })

@@ -4,6 +4,9 @@ import {
   ArrowRight,
   Camera,
   ExternalLink,
+  Globe,
+  MessageCircle,
+  MoreHorizontal,
   MousePointer2,
   Pencil,
   RefreshCw,
@@ -14,6 +17,13 @@ import {
   ZoomOut,
 } from 'lucide-react'
 import { Button } from '@pi-meme/ui/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@pi-meme/ui/components/ui/dropdown-menu'
 import type {
   BrowserAnnotation,
   BrowserCommand,
@@ -21,6 +31,29 @@ import type {
   BrowserTab,
   BrowserHistory,
 } from '@pi-meme/contracts/browser'
+import type { ThemeColors } from '@pi-meme/contracts/settings'
+
+const overlayColorKeys = [
+  'background',
+  'surface',
+  'elevated',
+  'text',
+  'muted',
+  'border',
+  'accent',
+  'accentText',
+  'success',
+  'error',
+] as const
+
+export function BrowserFavicon({ src }: { src?: string }) {
+  const [failed, setFailed] = useState(false)
+  return src && !failed ? (
+    <img src={src} alt="" className="size-4 rounded-sm object-contain" onError={() => setFailed(true)} />
+  ) : (
+    <Globe className="size-4" />
+  )
+}
 
 export function BrowserPanel({
   platform,
@@ -28,6 +61,7 @@ export function BrowserPanel({
   annotations,
   editor,
   onSettings,
+  onFocusChat,
   saveError,
   onRetrySave,
 }: {
@@ -35,13 +69,16 @@ export function BrowserPanel({
   tab: BrowserTab
   annotations: BrowserAnnotation[]
   editor?: BrowserAnnotation
-  onSettings: () => void
+  onSettings: (section?: 'general' | 'history' | 'downloads' | 'clear') => void
+  onFocusChat: () => void
   saveError?: string
   onRetrySave?: () => void
 }) {
   const viewport = useRef<HTMLDivElement>(null)
   const currentTab = useRef(tab)
   currentTab.current = tab
+  const currentAnnotations = useRef(annotations)
+  currentAnnotations.current = annotations
   const [recent, setRecent] = useState<BrowserHistory[]>([])
   const [fullUrl, setFullUrl] = useState(false)
   const [focused, setFocused] = useState(false)
@@ -49,7 +86,8 @@ export function BrowserPanel({
   const [error, setError] = useState('')
   const [preview, setPreview] = useState<string | null>(null)
   const [finding, setFinding] = useState(false)
-  const [zoom, setZoom] = useState(1)
+  const [narrow, setNarrow] = useState(false)
+  const zoom = tab.zoom ?? 1
   const [annotating, setAnnotating] = useState(false)
   useEffect(() => {
     void platform
@@ -60,8 +98,20 @@ export function BrowserPanel({
       })
       .catch(() => {})
   }, [platform])
-  useEffect(() => setZoom(tab.zoom ?? 1), [tab.zoom])
   useEffect(() => setAddress(tab.url === 'about:blank' ? '' : tab.url), [tab.url])
+  useEffect(() => {
+    const element = viewport.current
+    if (!element) return
+    const observer = new ResizeObserver(([entry]) => setNarrow(entry.contentRect.width < 380))
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
+  useEffect(() => {
+    const release = platform.onEvent((event) => {
+      if (event.type === 'annotation-mode' && event.tabId === tab.id) setAnnotating(event.enabled)
+    })
+    return release
+  }, [platform, tab.id])
   const command = async (value: BrowserCommand) => {
     try {
       setError('')
@@ -69,6 +119,9 @@ export function BrowserPanel({
     } catch (cause) {
       setError(String(cause))
     }
+  }
+  const menuCommand = (value: BrowserCommand) => {
+    window.setTimeout(() => void command(value), 200)
   }
   useEffect(() => {
     let cancelled = false
@@ -84,12 +137,21 @@ export function BrowserPanel({
       )
       const visible = box.width > 0 && box.height > 0 && !element.closest('[inert]') && !document.hidden && !blocked
       const bounds = visible ? { x: box.x, y: box.y, width: box.width, height: box.height } : null
-      const theme = document.documentElement.classList.contains('dark') ? 'dark' : 'light'
-      const next = JSON.stringify([bounds, theme, currentTab.current.error, currentTab.current.url])
+      const root = document.documentElement
+      const theme = root.dataset.appearance === 'light' ? 'light' : 'dark'
+      let computed: CSSStyleDeclaration | undefined
+      const colors = Object.fromEntries(
+        overlayColorKeys.map((key) => [
+          key,
+          root.style.getPropertyValue(`--color-${key}`) ||
+            (computed ??= getComputedStyle(root)).getPropertyValue(`--color-${key}`),
+        ]),
+      ) as ThemeColors
+      const next = JSON.stringify([bounds, theme, colors, currentTab.current.error, currentTab.current.url])
       if (last !== next) {
         last = next
         void platform
-          .present(tab.id, bounds, theme)
+          .present(tab.id, bounds, theme, colors)
           .then((image) => {
             if (!cancelled && image) setPreview(image)
           })
@@ -103,6 +165,8 @@ export function BrowserPanel({
       .then(() => {
         if (cancelled) return
         frame = requestAnimationFrame(measure)
+        void platform.command(tab.id, { type: 'annotation-state' }).catch(() => {})
+        void platform.command(tab.id, { type: 'markers', annotations: currentAnnotations.current }).catch(() => {})
         if (editor) void platform.command(tab.id, { type: 'annotate', enabled: true })
       })
       .catch((cause) => {
@@ -117,168 +181,177 @@ export function BrowserPanel({
   useEffect(() => {
     void platform.command(tab.id, { type: 'markers', annotations }).catch(() => {})
   }, [platform, tab.id, annotations])
-  const actions = [
-    { title: '后退', icon: ArrowLeft, disabled: !tab.canGoBack, run: () => command({ type: 'back' }) },
-    { title: '前进', icon: ArrowRight, disabled: !tab.canGoForward, run: () => command({ type: 'forward' }) },
-    {
-      title: tab.loading ? '停止加载' : '刷新',
-      icon: tab.loading ? Square : RefreshCw,
-      run: () => command({ type: tab.loading ? 'stop' : 'reload' }),
-    },
-  ]
+  const changeZoom = (value: number) => void command({ type: 'zoom', value: Math.max(0.25, Math.min(3, value)) })
   return (
     <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex h-11 shrink-0 items-center gap-1 border-b border-border px-2 no-drag">
-        {actions.map(({ title, icon: Icon, disabled, run }) => (
+      <div className="flex h-12 shrink-0 items-center gap-1.5 border-b border-border bg-background px-2 no-drag">
+        <div className="flex h-8 shrink-0 items-center rounded-full bg-secondary/80 px-0.5">
           <Button
-            key={title}
             size="icon-sm"
             variant="ghost"
-            title={title}
-            aria-label={title}
-            disabled={disabled}
-            onClick={() => void run()}
+            title="后退"
+            aria-label="后退"
+            disabled={!tab.canGoBack}
+            onClick={() => void command({ type: 'back' })}
           >
-            <Icon className="size-3.5" />
+            <ArrowLeft className="size-4" />
           </Button>
-        ))}
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            title="前进"
+            aria-label="前进"
+            className={narrow ? 'hidden' : undefined}
+            disabled={!tab.canGoForward}
+            onClick={() => void command({ type: 'forward' })}
+          >
+            <ArrowRight className="size-4" />
+          </Button>
+          <span className="mx-0.5 h-4 w-px bg-border" />
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            title={tab.loading ? '停止加载' : '刷新'}
+            aria-label={tab.loading ? '停止加载' : '刷新'}
+            onClick={() => void command({ type: tab.loading ? 'stop' : 'reload' })}
+          >
+            {tab.loading ? <Square className="size-3.5" /> : <RefreshCw className="size-3.5" />}
+          </Button>
+        </div>
+        <Button
+          size="sm"
+          variant="ghost"
+          className={`h-8 shrink-0 rounded-full ${narrow ? 'px-2' : 'px-3'} ${annotating ? 'bg-primary/15 text-primary' : 'bg-secondary/80'}`}
+          aria-label="选择元素批注"
+          aria-pressed={annotating}
+          disabled={tab.url === 'about:blank' || !!tab.error}
+          onClick={() => void command({ type: 'annotate', enabled: !annotating })}
+        >
+          <MousePointer2 className="size-4" />
+          {narrow ? null : '批注'}
+        </Button>
         <form
           className="min-w-0 flex-1"
           onSubmit={(event) => {
             event.preventDefault()
-            void command({ type: 'navigate', url: address })
+            if (!finding) void command({ type: 'navigate', url: address })
           }}
         >
-          <input
-            aria-label="搜索或输入网址"
-            placeholder="搜索或输入网址"
-            value={
-              focused || fullUrl || tab.url === 'about:blank'
-                ? address
-                : (() => {
-                    try {
-                      return new URL(tab.url).host
-                    } catch {
-                      return address
-                    }
-                  })()
-            }
-            onFocus={(event) => {
-              setFocused(true)
-              setAddress(tab.url === 'about:blank' ? '' : tab.url)
-              event.currentTarget.select()
-            }}
-            onBlur={() => setFocused(false)}
-            onChange={(event) => setAddress(event.target.value)}
-            className="h-8 w-full rounded-full bg-secondary px-3 text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
-          />
+          {finding ? (
+            <input
+              autoFocus
+              aria-label="在页面中查找"
+              placeholder="在页面中查找 · Esc 关闭"
+              className="h-8 w-full rounded-full bg-secondary/80 px-3 text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              onChange={(event) => void command({ type: 'find', text: event.target.value })}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape') {
+                  setFinding(false)
+                  void command({ type: 'find', text: '' })
+                }
+              }}
+            />
+          ) : (
+            <input
+              aria-label="搜索或输入网址"
+              placeholder="搜索或输入网址"
+              value={
+                focused || fullUrl || tab.url === 'about:blank'
+                  ? address
+                  : (() => {
+                      try {
+                        return new URL(tab.url).host
+                      } catch {
+                        return address
+                      }
+                    })()
+              }
+              onFocus={(event) => {
+                setFocused(true)
+                setAddress(tab.url === 'about:blank' ? '' : tab.url)
+                event.currentTarget.select()
+              }}
+              onBlur={() => setFocused(false)}
+              onChange={(event) => setAddress(event.target.value)}
+              className={`h-8 w-full rounded-full bg-secondary/80 px-3 text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring ${focused || tab.url === 'about:blank' ? 'text-left' : 'text-center'}`}
+            />
+          )}
         </form>
         <Button
           size="icon-sm"
-          variant={annotating ? 'secondary' : 'ghost'}
-          title="选择元素批注"
-          aria-label="选择元素批注"
-          disabled={tab.url === 'about:blank' || !!tab.error}
-          onClick={() => {
-            setAnnotating(!annotating)
-            void command({ type: 'annotate', enabled: !annotating })
-          }}
-        >
-          <MousePointer2 className="size-4" />
-        </Button>
-        <Button size="icon-sm" variant="ghost" title="浏览器设置" aria-label="浏览器设置" onClick={onSettings}>
-          <Settings className="size-4" />
-        </Button>
-      </div>
-      <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-border px-2 py-1 no-drag">
-        <Button
-          size="icon-sm"
           variant="ghost"
-          title="继续未加入的批注"
-          aria-label="继续未加入的批注"
-          disabled={!editor || editor.tabId !== tab.id}
-          onClick={() => {
-            if (editor) void command({ type: 'restore-editor', annotation: editor })
-          }}
+          className="shrink-0 rounded-full bg-secondary/80"
+          title="返回聊天"
+          aria-label="返回聊天"
+          onClick={onFocusChat}
         >
-          <Pencil className="size-3.5" />
+          <MessageCircle className="size-4" />
         </Button>
-        <Button size="sm" variant="ghost" onClick={() => setFinding(!finding)}>
-          <Search className="size-3" />
-          查找
-        </Button>
-        <Button size="sm" variant="ghost" onClick={() => void command({ type: 'screenshot' })}>
-          <Camera className="size-3" />
-          截图
-        </Button>
-        <Button
-          size="sm"
-          variant="ghost"
-          onClick={() => {
-            setAnnotating(true)
-            void command({ type: 'annotate', enabled: true, region: true })
-          }}
-        >
-          区域批注
-        </Button>
-        <Button
-          size="icon-sm"
-          variant="ghost"
-          aria-label="缩小"
-          onClick={() => {
-            const value = Math.max(0.25, zoom - 0.1)
-            setZoom(value)
-            void command({ type: 'zoom', value })
-          }}
-        >
-          <ZoomOut className="size-3" />
-        </Button>
-        <button
-          className="text-xs tabular-nums"
-          title="重置缩放"
-          onClick={() => {
-            setZoom(1)
-            void command({ type: 'zoom', value: 1 })
-          }}
-        >
-          {Math.round(zoom * 100)}%
-        </button>
-        <Button
-          size="icon-sm"
-          variant="ghost"
-          aria-label="放大"
-          onClick={() => {
-            const value = Math.min(3, zoom + 0.1)
-            setZoom(value)
-            void command({ type: 'zoom', value })
-          }}
-        >
-          <ZoomIn className="size-3" />
-        </Button>
-        <Button
-          size="icon-sm"
-          variant="ghost"
-          title="在系统浏览器打开"
-          aria-label="在系统浏览器打开"
-          onClick={() => void command({ type: 'external' })}
-        >
-          <ExternalLink className="size-3" />
-        </Button>
-        {finding ? (
-          <input
-            autoFocus
-            aria-label="在页面中查找"
-            className="h-7 w-40 rounded bg-secondary px-2 text-xs"
-            placeholder="在页面中查找"
-            onChange={(event) => void command({ type: 'find', text: event.target.value })}
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') {
-                setFinding(false)
-                void command({ type: 'find', text: '' })
-              }
-            }}
-          />
-        ) : null}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              className="shrink-0 rounded-full bg-secondary/80"
+              title="更多浏览器操作"
+              aria-label="更多浏览器操作"
+            >
+              <MoreHorizontal className="size-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-64">
+            <DropdownMenuItem onSelect={() => setFinding(true)}>
+              <Search />
+              在页面中查找
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <div className="flex items-center justify-between gap-1 px-2.5 py-1.5 text-xs">
+              <span>缩放</span>
+              <div className="flex items-center rounded-lg border border-border">
+                <Button size="icon-sm" variant="ghost" aria-label="缩小" onClick={() => changeZoom(zoom - 0.1)}>
+                  <ZoomOut className="size-3" />
+                </Button>
+                <button className="min-w-10 text-center tabular-nums" title="重置缩放" onClick={() => changeZoom(1)}>
+                  {Math.round(zoom * 100)}%
+                </button>
+                <Button size="icon-sm" variant="ghost" aria-label="放大" onClick={() => changeZoom(zoom + 0.1)}>
+                  <ZoomIn className="size-3" />
+                </Button>
+              </div>
+            </div>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => menuCommand({ type: 'screenshot' })}>
+              <Camera />
+              截取屏幕截图
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => menuCommand({ type: 'annotate', enabled: true, region: true })}>
+              <MousePointer2 />
+              区域批注
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={!editor || editor.tabId !== tab.id}
+              onSelect={() => {
+                if (editor) menuCommand({ type: 'restore-editor', annotation: editor })
+              }}
+            >
+              <Pencil />
+              继续未完成批注
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => void command({ type: 'external' })}>
+              <ExternalLink />
+              在系统浏览器打开
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => onSettings('downloads')}>下载记录</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => onSettings('history')}>历史记录</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => onSettings('clear')}>清理浏览数据</DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => onSettings('general')}>
+              <Settings />
+              浏览器设置
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
       {saveError ? (
         <div role="alert" className="flex items-center justify-between gap-2 px-3 py-2 text-xs text-destructive">

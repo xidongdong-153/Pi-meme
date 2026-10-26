@@ -1,5 +1,5 @@
 import type { BrowserPlatform } from '@pi-meme/contracts/browser'
-import { BrowserPanel } from '@pi-meme/browser/ui/browser-panel'
+import { BrowserFavicon, BrowserPanel } from '@pi-meme/browser/ui/browser-panel'
 import { BrowserSettings } from '@pi-meme/browser/ui/browser-settings'
 import { useBrowser } from '@pi-meme/browser/ui/use-browser'
 import { annotationAttachment } from '@pi-meme/chat/ui/composer/image-attachment'
@@ -1232,6 +1232,9 @@ export function App({
     setSystemRequest({ id, revision: Date.now(), target: pluginProps.target })
   }
   const [browserFocus, setBrowserFocus] = useState(0)
+  const [browserSettingsTarget, setBrowserSettingsTarget] = useState<'general' | 'history' | 'downloads' | 'clear'>(
+    'general',
+  )
   const browserOwner = JSON.stringify([
     hostId ?? hostAddress ?? '',
     appSession?.sessionId ?? `draft:${runtimeSessionKey ?? chat.connection.cwd}`,
@@ -1255,6 +1258,8 @@ export function App({
     rebindFrom: browserRebind,
     active: active && chatVisible,
     onDiscard: () => chat.composerStore.setAttachments((items) => items.filter((item) => !item.browserAnnotation)),
+    onAnnotationRemove: (id) =>
+      chat.composerStore.setAttachments((items) => items.filter((item) => item.browserAnnotation?.id !== id)),
     onAnnotation: (annotation, added) => {
       const sent = chat.chat.messages.some((message) => {
         if (message.role !== 'user') return false
@@ -1269,7 +1274,9 @@ export function App({
       })
       if (sent) return
       chat.composerStore.setAttachments((items) =>
-        items.some((item) => item.id === annotation.id) ? items : [...items, annotationAttachment(annotation)],
+        items.some((item) => item.id === annotation.id)
+          ? items.map((item) => (item.id === annotation.id ? annotationAttachment(annotation) : item))
+          : [...items, annotationAttachment(annotation)],
       )
       if (added) setBrowserFocus((value) => value + 1)
     },
@@ -1324,7 +1331,7 @@ export function App({
     ...browser.tabs.map((tab) => ({
       id: `builtin:browser:${tab.id}`,
       title: tab.title || '新网页',
-      icon: <Globe />,
+      icon: <BrowserFavicon key={tab.favicon} src={tab.favicon} />,
       location: 'right' as const,
       scope: 'app' as const,
       render: () =>
@@ -1336,7 +1343,11 @@ export function App({
             tab={tab}
             annotations={browser.workspace?.annotations ?? []}
             editor={browser.workspace?.editor}
-            onSettings={() => openSettings('browser')}
+            onSettings={(section = 'general') => {
+              setBrowserSettingsTarget(section)
+              openSettings('browser')
+            }}
+            onFocusChat={() => setBrowserFocus((value) => value + 1)}
           />
         ) : null,
     })),
@@ -1940,7 +1951,14 @@ export function App({
               renderContent={(section, navigate) => {
                 if (section === 'shortcuts') return <ShortcutSettings />
                 if (section === 'browser')
-                  return <BrowserSettings platform={browserPlatform} onOpen={(url) => void browser.create(url)} />
+                  return (
+                    <BrowserSettings
+                      platform={browserPlatform}
+                      onOpen={(url) => void browser.create(url)}
+                      initialSection={browserSettingsTarget === 'clear' ? 'general' : browserSettingsTarget}
+                      openClear={browserSettingsTarget === 'clear'}
+                    />
+                  )
                 const contentProps: Omit<ComponentProps<typeof SettingsContent>, 'section'> = {
                   bridge,
                   cwd: chat.connection.cwd,

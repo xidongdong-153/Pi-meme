@@ -1,4 +1,4 @@
-import { AnnotationCard } from './annotation-card'
+import { ComposerAnnotationSummary } from './composer-annotation-summary'
 import * as React from 'react'
 import { X } from 'lucide-react'
 import { FileIcon } from '@pi-meme/ui/components/file-icon'
@@ -66,6 +66,10 @@ export function ComposerAttachments({
   onAnnotationChange?: (id: string, comment: string) => void
 }) {
   const items = [...attachments, ...uploads]
+  const annotations = attachments.flatMap((attachment) =>
+    attachment.browserAnnotation ? [{ id: attachment.id, value: attachment.browserAnnotation }] : [],
+  )
+  const otherItems = items.filter((attachment) => !('browserAnnotation' in attachment && attachment.browserAnnotation))
   const [activeId, setActiveId] = React.useState<string | null>(null)
   const triggerRef = React.useRef<HTMLButtonElement>(null)
   const previews = useAttachmentImages(items)
@@ -77,22 +81,15 @@ export function ComposerAttachments({
 
   return (
     <>
-      {items.length > 0 && (
+      <ComposerAnnotationSummary
+        annotations={annotations}
+        disabled={disabled}
+        onRemove={onRemoveImage}
+        onChange={onAnnotationChange}
+      />
+      {otherItems.length > 0 && (
         <div className="mb-2 flex min-w-0 gap-2 overflow-x-auto pb-1" aria-label="已附加文件">
-          {items.map((attachment) => {
-            if ('browserAnnotation' in attachment && attachment.browserAnnotation)
-              return (
-                <AnnotationCard
-                  key={attachment.id}
-                  annotation={attachment.browserAnnotation}
-                  onRemove={disabled ? undefined : () => onRemoveImage(attachment.id)}
-                  onChange={
-                    disabled || !onAnnotationChange
-                      ? undefined
-                      : (comment) => onAnnotationChange(attachment.id, comment)
-                  }
-                />
-              )
+          {otherItems.map((attachment) => {
             const progress = 'progress' in attachment ? attachment.progress : undefined
             const imageIndex = images.findIndex((image) => image.id === attachment.id)
             const image = images[imageIndex]

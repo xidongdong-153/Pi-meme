@@ -29,13 +29,23 @@ const permissionNames: Record<string, string> = {
 }
 const permissionValues: Record<BrowserPermission['value'], string> = { ask: '询问', allow: '允许', deny: '禁止' }
 
-export function BrowserSettings({ platform, onOpen }: { platform?: BrowserPlatform; onOpen: (url: string) => void }) {
+export function BrowserSettings({
+  platform,
+  onOpen,
+  initialSection = 'general',
+  openClear = false,
+}: {
+  platform?: BrowserPlatform
+  onOpen: (url: string) => void
+  initialSection?: 'general' | 'history' | 'downloads'
+  openClear?: boolean
+}) {
   const [snapshot, setSnapshot] = useState<BrowserSnapshot>()
-  const [section, setSection] = useState<'general' | 'history' | 'downloads' | 'permissions'>('general')
+  const [section, setSection] = useState<'general' | 'history' | 'downloads' | 'permissions'>(initialSection)
   const [query, setQuery] = useState('')
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
-  const [clearing, setClearing] = useState(false)
+  const [clearing, setClearing] = useState(openClear)
   const [parts, setParts] = useState<Array<'history' | 'storage' | 'cache' | 'downloads'>>(['cache'])
   const [origin, setOrigin] = useState('')
   const [permission, setPermission] = useState('media')

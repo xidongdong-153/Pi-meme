@@ -395,10 +395,11 @@ export function WorkspacePanels({
         {tabs.map((id) => {
           const panel = available.find((entry) => entry.id === id)
           const title = panel?.title ?? '新标签页'
+          const browserTab = id.startsWith('builtin:browser:')
           return (
             <div
               key={id}
-              className={`group flex min-w-0 shrink-0 items-center rounded-md ${active === id && (!unified || showTool) ? 'bg-background/80 text-foreground shadow-xs' : 'text-muted-foreground hover:bg-background/40'}`}
+              className={`group flex min-w-0 shrink-0 items-center ${browserTab ? 'rounded-xl border border-transparent' : 'rounded-md'} ${active === id && (!unified || showTool) ? (browserTab ? 'border-border/60 bg-secondary/80 text-foreground shadow-xs' : 'bg-background/80 text-foreground shadow-xs') : 'text-muted-foreground hover:bg-background/40'}`}
             >
               <button
                 type="button"
@@ -408,10 +409,12 @@ export function WorkspacePanels({
                 aria-controls="right-tool-content"
                 tabIndex={active === id && (!unified || showTool) ? 0 : -1}
                 onClick={() => selectTab(id)}
-                className={`flex h-7 min-w-0 items-center gap-1.5 pl-2.5 pr-1 text-xs ${unified ? 'min-w-20 max-w-36' : ''}`}
+                className={`flex h-7 min-w-0 items-center gap-1.5 pl-2.5 pr-1 text-xs ${browserTab ? 'min-w-28 max-w-56' : unified ? 'min-w-20 max-w-36' : ''}`}
                 title={title}
               >
-                <span className="flex size-3.5 shrink-0 items-center justify-center [&>svg]:size-3.5">
+                <span
+                  className={`flex shrink-0 items-center justify-center ${browserTab ? 'size-5 [&>img]:size-5 [&>svg]:size-5' : 'size-3.5 [&>svg]:size-3.5'}`}
+                >
                   {panel?.icon ?? <Grid2X2 />}
                 </span>
                 <span className="max-w-28 truncate">{title}</span>
@@ -419,7 +422,7 @@ export function WorkspacePanels({
               <button
                 type="button"
                 aria-label={`关闭标签页：${title}`}
-                className="mr-1 inline-flex items-center rounded p-1 text-muted-foreground opacity-0 pointer-events-none transition-opacity duration-200 ease-out hover:bg-background/60 hover:text-foreground group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className={`mr-1 inline-flex items-center rounded p-1 text-muted-foreground transition-opacity duration-200 ease-out hover:bg-background/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${browserTab ? 'opacity-70 hover:opacity-100' : 'opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto'}`}
                 onClick={() => closeTab(id)}
               >
                 <X className="size-3" />

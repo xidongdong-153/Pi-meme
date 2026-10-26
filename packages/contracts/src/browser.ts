@@ -1,3 +1,5 @@
+import type { ThemeColors } from './settings'
+
 export type BrowserRect = { x: number; y: number; width: number; height: number }
 export type BrowserImage = { type: 'image'; data: string; mimeType: string }
 export type BrowserAnnotation = {
@@ -27,6 +29,7 @@ export type BrowserTab = {
   url: string
   title: string
   documentId: number
+  favicon?: string
   zoom?: number
   loading: boolean
   canGoBack: boolean
@@ -68,7 +71,9 @@ export type BrowserSnapshot = {
 }
 export type BrowserEvent =
   | { type: 'tab'; tab: BrowserTab }
+  | { type: 'annotation-mode'; tabId: string; enabled: boolean }
   | { type: 'annotation'; owner: string; annotation: BrowserAnnotation }
+  | { type: 'annotation-remove'; owner: string; id: string }
   | { type: 'editor'; owner: string; annotation?: BrowserAnnotation }
   | { type: 'open'; tab: BrowserTab }
   | { type: 'submit'; owner: string }
@@ -83,6 +88,7 @@ export type BrowserCommand =
   | { type: 'annotate'; enabled: boolean; region?: boolean }
   | { type: 'markers'; annotations: BrowserAnnotation[] }
   | { type: 'restore-editor'; annotation: BrowserAnnotation }
+  | { type: 'annotation-state' }
   | { type: 'screenshot' }
 export interface BrowserPlatform {
   snapshot: () => Promise<BrowserSnapshot>
@@ -93,7 +99,12 @@ export interface BrowserPlatform {
   rebind: (from: string, to: string) => Promise<void>
   create: (owner: string, id: string, url?: string) => Promise<BrowserTab>
   close: (id: string) => Promise<void>
-  present: (id: string, bounds: BrowserRect | null, theme?: 'dark' | 'light') => Promise<string | null>
+  present: (
+    id: string,
+    bounds: BrowserRect | null,
+    theme?: 'dark' | 'light',
+    colors?: ThemeColors,
+  ) => Promise<string | null>
   command: (id: string, command: BrowserCommand) => Promise<void>
   history: (id?: string) => Promise<BrowserSnapshot>
   download: (id: string, action: 'cancel' | 'open' | 'reveal' | 'remove') => Promise<void>
@@ -109,7 +120,13 @@ export type BrowserOverlayState = {
   annotation?: BrowserAnnotation
   screenshot: BrowserSettings['screenshots']
   count: number
+  enabled: boolean
+  hidden: boolean
+  editing: boolean
+  expanded: boolean
+  toolbarOffset: { x: number; y: number }
   theme: 'dark' | 'light'
+  colors?: ThemeColors
   error?: string
 }
 export type BrowserOverlayAction =
@@ -117,6 +134,11 @@ export type BrowserOverlayAction =
   | { type: 'comment'; text: string }
   | { type: 'include'; screenshot: BrowserSettings['screenshots'] }
   | { type: 'add' }
+  | { type: 'expand'; expanded: boolean }
+  | { type: 'resize-editor'; height: number }
+  | { type: 'remove' }
+  | { type: 'move-toolbar'; x: number; y: number }
+  | { type: 'toolbar-menu'; open: boolean }
   | { type: 'hide'; hidden: boolean }
   | { type: 'original'; pressed: boolean }
 export interface BrowserOverlayPlatform {

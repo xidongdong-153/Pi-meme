@@ -4,7 +4,12 @@ import { createElement, StrictMode } from 'react'
 import { act, cleanup, fireEvent, render, renderHook, waitFor } from '@testing-library/react'
 import type { ChatFileUpload, ChatUploadedFile } from '@pi-meme/contracts/chat-attachments'
 import type { ChatBridge } from '@pi-meme/contracts/desktop'
-import { fileToAttachment, messageWithAttachments, type ComposerAttachment } from '../src/ui/composer/image-attachment'
+import {
+  annotationAttachment,
+  fileToAttachment,
+  messageWithAttachments,
+  type ComposerAttachment,
+} from '../src/ui/composer/image-attachment'
 import { useComposerFiles } from '../src/ui/composer/use-composer-files'
 import { ComposerAttachments } from '../src/ui/composer/composer-attachments'
 import { useChatSession } from '../src/ui/use-chat-session'
@@ -13,6 +18,43 @@ import { queuedDraft } from '../src/ui/composer/restore-queued-input'
 afterEach(() => {
   cleanup()
   vi.unstubAllGlobals()
+})
+
+test('输入框收起网页批注，展开后可编辑，移除全部不触及普通文件', async () => {
+  const annotation = annotationAttachment({
+    id: 'note-1',
+    tabId: 'tab',
+    documentId: 1,
+    url: 'https://example.com/',
+    title: '网页',
+    capturedAt: new Date().toISOString(),
+    kind: 'element',
+    text: '内容',
+    tag: 'div',
+    rect: { x: 0, y: 0, width: 10, height: 10 },
+    viewport: { width: 100, height: 100, scale: 1, scrollX: 0, scrollY: 0 },
+    comment: '原评论',
+  })
+  const file: ComposerAttachment = { id: 'file', type: 'file', name: 'report.pdf', path: '/host/report.pdf' }
+  const remove = vi.fn()
+  const change = vi.fn()
+  const view = render(
+    createElement(ComposerAttachments, {
+      attachments: [annotation, file],
+      onRemoveImage: remove,
+      onAnnotationChange: change,
+    }),
+  )
+  assert.ok(view.getByRole('button', { name: '查看 1 条批注' }))
+  assert.ok(view.getByRole('button', { name: '移除文件：report.pdf' }))
+  fireEvent.click(view.getByRole('button', { name: '查看 1 条批注' }))
+  assert.ok(view.getByText('原评论'))
+  fireEvent.click(view.getByRole('button', { name: '编辑第 1 条批注' }))
+  fireEvent.change(view.getByRole('textbox', { name: '编辑批注评论' }), { target: { value: '新评论' } })
+  fireEvent.click(view.getByRole('button', { name: '保存' }))
+  assert.deepEqual(change.mock.calls[0], ['note-1', '新评论'])
+  fireEvent.click(view.getByRole('button', { name: '移除全部浏览器批注' }))
+  assert.deepEqual(remove.mock.calls, [['note-1']])
 })
 
 function deferred<T>() {

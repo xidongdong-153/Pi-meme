@@ -9,8 +9,9 @@ window.addEventListener('DOMContentLoaded', () => {
   highlight.style.cssText =
     'position:fixed;border:2px solid #3997ff;background:#3997ff18;box-sizing:border-box;pointer-events:none;display:none'
   const markers = document.createElement('div')
+  markers.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:2'
   const selection = document.createElement('div')
-  selection.style.cssText = 'position:fixed;inset:0;cursor:crosshair;pointer-events:none'
+  selection.style.cssText = 'position:fixed;inset:0;cursor:crosshair;pointer-events:none;z-index:1'
   shadow.append(highlight, markers, selection)
   document.documentElement.append(root)
   let documentId = -1
@@ -18,11 +19,16 @@ window.addEventListener('DOMContentLoaded', () => {
   let region = false
   let hidden = false
   let original = false
-  let annotations: BrowserAnnotation[] = []
+  let annotations: Array<BrowserAnnotation & { markerNumber?: number }> = []
   let dragging: { x: number; y: number } | undefined
   let selected: Element | undefined
+  let selectedRegion: { box: BrowserRect; scrollX: number; scrollY: number } | undefined
+  let editing = false
+  let highlightedId: string | undefined
+  let highlightedBox: BrowserRect | undefined
+  let highlightedRadius: string | undefined
   const rect = (box: DOMRect): BrowserRect => ({ x: box.x, y: box.y, width: box.width, height: box.height })
-  const draw = (box?: BrowserRect) => {
+  const draw = (box?: BrowserRect, radius?: string) => {
     highlight.style.display = box && !hidden && !original ? 'block' : 'none'
     if (box)
       Object.assign(highlight.style, {
@@ -30,6 +36,7 @@ window.addEventListener('DOMContentLoaded', () => {
         top: `${box.y}px`,
         width: `${box.width}px`,
         height: `${box.height}px`,
+        borderRadius: radius || '0',
       })
   }
   const elementAt = (x: number, y: number) => {
@@ -126,12 +133,17 @@ window.addEventListener('DOMContentLoaded', () => {
               'display',
               'position',
               'font-size',
+              'font-family',
+              'font-weight',
               'color',
               'background-color',
+              'opacity',
               'padding',
               'margin',
               'gap',
               'border-radius',
+              'border-color',
+              'border-width',
             ].map((key) => [key, style.getPropertyValue(key)]),
           )
         : undefined,
@@ -142,11 +154,30 @@ window.addEventListener('DOMContentLoaded', () => {
   const update = () => {
     if (selected) {
       const box = topRect(selected)
+      draw(box, getComputedStyle(selected).borderRadius)
+      ipcRenderer.send('browser:selection-position', box)
+    } else if (selectedRegion) {
+      const box = {
+        ...selectedRegion.box,
+        x: selectedRegion.box.x + selectedRegion.scrollX - scrollX,
+        y: selectedRegion.box.y + selectedRegion.scrollY - scrollY,
+      }
       draw(box)
       ipcRenderer.send('browser:selection-position', box)
     }
+    highlightedBox = undefined
+    highlightedRadius = undefined
     markers.replaceChildren()
-    if (hidden || original) return
+    if (!enabled || hidden || original) return
+    if (selected) {
+      const box = topRect(selected)
+      const marker = document.createElement('div')
+      marker.style.cssText = `position:fixed;left:${Math.max(0, box.x)}px;top:${Math.max(0, box.y - 34)}px;width:28px;height:28px;background:#3997ff;border:1px solid white;border-radius:50% 50% 50% 3px;box-shadow:0 1px 3px #0006;pointer-events:none`
+      const stem = document.createElement('div')
+      stem.style.cssText = 'position:absolute;left:0;bottom:-8px;width:2px;height:6px;background:#3997ff'
+      marker.append(stem)
+      markers.append(marker)
+    }
     annotations.forEach((item, index) => {
       let box = item.rect
       if (item.selector) {
@@ -164,11 +195,35 @@ window.addEventListener('DOMContentLoaded', () => {
           return
         }
       } else box = { ...box, x: box.x + item.viewport.scrollX - scrollX, y: box.y + item.viewport.scrollY - scrollY }
-      const marker = document.createElement('span')
-      marker.textContent = String(index + 1)
-      marker.style.cssText = `position:fixed;left:${Math.max(0, box.x)}px;top:${Math.max(0, box.y)}px;background:#278bff;color:white;font:600 12px system-ui;border:1px solid white;border-radius:10px 10px 10px 2px;padding:4px 7px;pointer-events:none`
+      if (item.id === highlightedId) {
+        highlightedBox = box
+        highlightedRadius = item.styles?.['border-radius']
+        draw(box, highlightedRadius)
+        ipcRenderer.send('browser:selection-position', box)
+      }
+      const marker = document.createElement('button')
+      marker.type = 'button'
+      marker.textContent = String(item.markerNumber ?? index + 1)
+      marker.setAttribute('aria-label', `编辑第 ${item.markerNumber ?? index + 1} 条批注`)
+      marker.style.cssText = `position:fixed;left:${Math.max(0, box.x)}px;top:${Math.max(0, box.y)}px;background:#278bff;color:white;font:600 12px system-ui;border:1px solid white;border-radius:14px 14px 14px 3px;min-width:28px;height:28px;cursor:pointer;pointer-events:${enabled ? 'auto' : 'none'}`
+      marker.addEventListener('click', () => ipcRenderer.send('browser:marker-click', item.id))
+      marker.addEventListener('pointerenter', () => {
+        if (!editing) draw(box, item.styles?.['border-radius'])
+      })
+      marker.addEventListener('pointerleave', () => {
+        if (!editing) draw(highlightedBox, highlightedRadius)
+      })
       markers.append(marker)
     })
+  }
+  const cancelSelection = () => {
+    selected = undefined
+    selectedRegion = undefined
+    highlightedId = undefined
+    editing = false
+    draw()
+    ipcRenderer.send('browser:selection-cancel')
+    update()
   }
   selection.addEventListener('pointermove', (event) => {
     if (!enabled || original) return
@@ -179,9 +234,9 @@ window.addEventListener('DOMContentLoaded', () => {
         width: Math.abs(event.clientX - dragging.x),
         height: Math.abs(event.clientY - dragging.y),
       })
-    } else if (!region) {
+    } else if (!editing && !region) {
       const element = elementAt(event.clientX, event.clientY)
-      draw(element ? topRect(element) : undefined)
+      draw(element ? topRect(element) : undefined, element ? getComputedStyle(element).borderRadius : undefined)
     }
   })
   selection.addEventListener('pointerdown', (event) => {
@@ -192,10 +247,20 @@ window.addEventListener('DOMContentLoaded', () => {
       selection.setPointerCapture(event.pointerId)
     } else {
       const element = elementAt(event.clientX, event.clientY)
+      if (
+        editing &&
+        (!element || element === selected || element === document.body || element === document.documentElement)
+      ) {
+        cancelSelection()
+        return
+      }
       if (!element) return
       selected = element
+      selectedRegion = undefined
+      editing = true
       const kind = ['IFRAME', 'CANVAS', 'EMBED', 'OBJECT'].includes(element.tagName) ? 'region' : 'element'
       ipcRenderer.send('browser:selected', describe(element, topRect(element), kind))
+      update()
     }
   })
   selection.addEventListener('pointerup', (event) => {
@@ -208,7 +273,12 @@ window.addEventListener('DOMContentLoaded', () => {
     }
     dragging = undefined
     selected = undefined
-    if (box.width >= 4 && box.height >= 4) ipcRenderer.send('browser:selected', describe(undefined, box, 'region'))
+    if (box.width >= 4 && box.height >= 4) {
+      selectedRegion = { box, scrollX, scrollY }
+      editing = true
+      ipcRenderer.send('browser:selected', describe(undefined, box, 'region'))
+      update()
+    } else if (editing) cancelSelection()
   })
   selection.addEventListener(
     'wheel',
@@ -232,21 +302,34 @@ window.addEventListener('DOMContentLoaded', () => {
       state: {
         enabled?: boolean
         region?: boolean
-        annotations?: BrowserAnnotation[]
+        annotations?: Array<BrowserAnnotation & { markerNumber?: number }>
         hidden?: boolean
         original?: boolean
         reset?: boolean
         documentId?: number
+        highlightId?: string | null
+        editing?: boolean
       },
     ) => {
       if (state.documentId !== undefined) documentId = state.documentId
       if (state.enabled !== undefined) enabled = state.enabled
       if (state.region !== undefined) region = state.region
       if (state.annotations) annotations = state.annotations
+      if (state.highlightId !== undefined) {
+        highlightedId = state.highlightId ?? undefined
+        if (highlightedId) {
+          selected = undefined
+          selectedRegion = undefined
+        }
+      }
+      if (state.editing !== undefined) editing = state.editing
       if (state.hidden !== undefined) hidden = state.hidden
       if (state.original !== undefined) original = state.original
       if (state.reset) {
         selected = undefined
+        selectedRegion = undefined
+        highlightedId = undefined
+        editing = false
         draw()
       }
       selection.style.pointerEvents = enabled && !original ? 'auto' : 'none'
