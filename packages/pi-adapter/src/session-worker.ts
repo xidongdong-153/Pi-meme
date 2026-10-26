@@ -43,6 +43,8 @@ export type SessionWorkerContext = {
   registerResourcePolicy: (value: RuntimePolicy['resourcePaths']) => void
   registerSandbox: (factory: RuntimePolicy['createSandbox']) => void
   registerAccessExtension: (factory: RuntimePolicy['createAccessExtension']) => void
+  planSandbox: () => import('@pi-meme/pi-runtime/sdk/access-sandbox').AccessSandboxOperations
+  registerPlanTool: (name: string, source: import('@pi-meme/contracts/plan').PlanToolSource) => void
 }
 export type SessionWorkerFactory = (context: SessionWorkerContext) => InlineExtension[] | Promise<InlineExtension[]>
 export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> = {}) {
@@ -90,6 +92,8 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
     return port.postMessage({ ...value, connection: session.connection(), active: session.getActiveSession() })
   }
   const policy: RuntimePolicy = {
+    planTools: new Map(),
+    resolvePlan: (reference, signal) => hostRequest('resolvePlan', { reference }, signal) as Promise<PlanDocument>,
     initialGeneration: data.initialGeneration,
     requireRestrictedPolicy: true,
     resourceSnapshot: data.resourceSnapshot,
@@ -122,7 +126,7 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
     { resolve: (value: unknown) => void; reject: (cause: Error) => void; cleanup: () => void }
   >()
   function hostRequest(
-    kind: 'collaboration' | 'savePlan' | 'admission' | 'goal' | 'goalUsage' | 'activity' | 'plugin',
+    kind: 'collaboration' | 'savePlan' | 'resolvePlan' | 'admission' | 'goal' | 'goalUsage' | 'activity' | 'plugin',
     request: object,
     signal?: AbortSignal,
   ): Promise<unknown> {
@@ -148,8 +152,7 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
     const sdk = await loadPiSdk()
     const agentCore = await loadPiAgentCore()
     const extensions: InlineExtension[] = []
-    for (const [pluginId, create] of Object.entries(builtins)) {
-      if (pluginId === '@pi-meme/mcp' && data.access !== 'full-access') continue
+    for (const create of Object.values(builtins)) {
       extensions.push(
         ...(await create({
           sdk,
@@ -160,6 +163,8 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
           cwd: data.cwd,
           resourceSnapshot: data.resourceSnapshot,
           taskMode: () => session.getTaskMode(),
+          planSandbox: () => session.getPlanSandbox(),
+          registerPlanTool: (name, source) => policy.planTools!.set(name, source),
           requestCollaboration: (request, signal) =>
             hostRequest('collaboration', request, signal) as Promise<CollaborationResults[keyof CollaborationResults]>,
           requestActivity: (activityRequest, signal) =>
@@ -167,7 +172,12 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
           requestGoal: (goalRequest, signal) =>
             hostRequest('goal', { goalRequest, goalRun: session.getGoalRun() }, signal) as Promise<Goal | undefined>,
           currentGoalRun: () => session.getGoalRun(),
-          savePlan: (input, signal) => hostRequest('savePlan', { input }, signal) as Promise<PlanDocument>,
+          savePlan: (input, signal) =>
+            hostRequest(
+              'savePlan',
+              { input: { ...input, reference: session.getPlanReference() } },
+              signal,
+            ) as Promise<PlanDocument>,
           requestUserInput: (questions, signal) => session.requestUserInput(questions, signal),
           registerInteractionPolicy: (enabled) => {
             policy.uiEnabled = enabled

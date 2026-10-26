@@ -5,7 +5,7 @@ import type { AgentAccessMode } from './agent-access'
 import type { AgentSummary } from './collaboration'
 import type { GitEnvironment, GitSnapshot, GitFileChange, Snapshot } from './desktop'
 import type { ThinkingLevel } from './pi'
-import type { PlanDocument, TaskMode } from './plan'
+import type { MessageOptions, PlanDocument, TaskMode } from './plan'
 import type { SessionHistoryData } from './sessions'
 import type { SkillReference } from './skills'
 import type { UiMessage, UiMessagePage, UiMessagePageInput } from './plugin-ui-data'
@@ -39,12 +39,11 @@ export type AppSession = SessionRef & {
   status: 'idle' | 'running' | 'interrupted'
 }
 export type MutationOptions = { idempotencyKey: string }
-export type SubmissionInput = {
+export type SubmissionInput = MessageOptions & {
   delivery: 'start' | 'queue' | 'steer'
   text: string
   images?: AppImage[]
   skills?: SkillReference[]
-  mode?: TaskMode
 }
 export type SubmissionReceipt = {
   operationId: string

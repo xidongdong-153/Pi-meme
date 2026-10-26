@@ -291,3 +291,33 @@ test('Host停止等待计划写入和回滚完成，停止ACK后不再产生文�
     await context.cleanup()
   }
 })
+
+test('计划引用隔离会话、拒绝旧修订，跨轮调整沿用同一文档', async () => {
+  const context = await setup()
+  const signal = new AbortController().signal
+  try {
+    await context.begin('plan')
+    const first = await context.bridge.savePlan(context.root.session, { title: '初稿', markdown: '# 初稿' }, signal)
+    const reference = { id: first.id, revision: first.revision }
+    assert.equal((await context.bridge.resolvePlan(context.root.session, reference, signal)).markdown, '# 初稿')
+    await assert.rejects(
+      context.bridge.resolvePlan(context.root.session, { ...reference, revision: 3 }, signal),
+      /新修订/,
+    )
+    await assert.rejects(
+      context.bridge.resolvePlan(context.root.session, { id: 'other-session-plan', revision: 1 }, signal),
+      /不存在/,
+    )
+    await context.begin('plan')
+    const revised = await context.bridge.savePlan(
+      context.root.session,
+      { title: '调整稿', markdown: '# 调整稿', reference },
+      signal,
+    )
+    assert.equal(revised.id, first.id)
+    assert.equal(revised.revision, 2)
+    await assert.rejects(context.bridge.resolvePlan(context.root.session, reference, signal), /新修订/)
+  } finally {
+    await context.cleanup()
+  }
+})

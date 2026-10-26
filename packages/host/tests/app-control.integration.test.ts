@@ -737,3 +737,77 @@ test('删除崩溃恢复：无 sessionFile 的空会话在 deleted intent 状态
     await f.dispose()
   }
 })
+
+test('计划引用提交校验归属与版本，重复请求只实施一次并保留指定配置', { timeout: 25000 }, async () => {
+  const f = await fixture((_body, index) =>
+    index === 1
+      ? {
+          tool: {
+            name: 'save_plan',
+            arguments: JSON.stringify({ title: '确认计划', markdown: '# 确认正文\n按这份方案实施' }),
+          },
+        }
+      : '完成',
+  )
+  try {
+    const api = f.host.app
+    const cwd = path.join(f.root, 'plan-project')
+    await mkdir(cwd)
+    const project = await api.projects.register({ cwd }, key('plan-project'))
+    const ref = await session(api, project, 'plan-main')
+    const first = await api.sessions.submit(
+      ref,
+      { delivery: 'start', mode: 'plan', text: '请设计方案并保存计划' },
+      key('plan-first'),
+    )
+    const planned = await eventually(() => api.sessions.receipt(first.operationId), finished)
+    assert.equal(planned.status, 'completed', planned.error)
+    const documents = await api.plans.list(ref)
+    assert.equal(documents.length, 1)
+    const document = documents[0]!
+    const input = {
+      delivery: 'start' as const,
+      text: '仅实施确认计划',
+      mode: 'default' as const,
+      plan: { intent: 'execute' as const, reference: { id: document.id, revision: document.revision } },
+      model: { provider: 'fake', id: 'first' },
+      thinkingLevel: 'high' as const,
+    }
+    const other = await session(api, project, 'plan-other')
+    await assert.rejects(api.sessions.submit(other, input, key('plan-other-submit')), /不存在/)
+    await assert.rejects(
+      api.sessions.submit(
+        ref,
+        { ...input, plan: { ...input.plan, reference: { id: document.id, revision: document.revision + 1 } } },
+        key('plan-stale'),
+      ),
+      /新修订/,
+    )
+    const count = f.fake.provider.requests.length
+    const [left, right] = await Promise.all([
+      api.sessions.submit(ref, input, key('plan-execute')),
+      api.sessions.submit(ref, input, key('plan-execute')),
+    ])
+    assert.equal(left.operationId, right.operationId)
+    const executed = await eventually(() => api.sessions.receipt(left.operationId), finished)
+    assert.equal(executed.status, 'completed', executed.error)
+    assert.equal(f.fake.provider.requests.length, count + 1)
+    assert.match(requestText(f.fake.provider.requests.at(-1)), /确认正文/)
+    assert.equal((await api.sessions.snapshot(ref)).state.thinkingLevel, 'high')
+    for (const text of ['/goal pause', '/goal 调整计划中的命令示例']) {
+      const before = f.fake.provider.requests.length
+      const revised = await api.sessions.submit(
+        ref,
+        { ...input, text, mode: 'plan', plan: { ...input.plan, intent: 'revise' } },
+        key(`plan-revise-${before}`),
+      )
+      const result = await eventually(() => api.sessions.receipt(revised.operationId), finished)
+      assert.equal(result.status, 'completed', result.error)
+      assert.equal(f.fake.provider.requests.length, before + 1)
+      assert.ok(requestText(f.fake.provider.requests.at(-1)).includes(text))
+      assert.equal(await api.goals.get(ref), undefined)
+    }
+  } finally {
+    await f.dispose()
+  }
+})

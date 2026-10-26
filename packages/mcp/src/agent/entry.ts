@@ -10,6 +10,9 @@ export function create(context: {
   credentials: SecureCredentialStorage
   settings: DesktopSettings
   cwd: string
+  taskMode?: () => import('@pi-meme/contracts/plan').TaskMode
+  planSandbox?: () => import('@pi-meme/pi-runtime/sdk/access-sandbox').AccessSandboxOperations
+  registerPlanTool?: (name: string, source: import('@pi-meme/contracts/plan').PlanToolSource) => void
 }): InlineExtension[] {
   return [
     createDesktopMcpExtension(
@@ -18,7 +21,14 @@ export function create(context: {
       context.credentials,
       context.cwd,
       context.settings.mcpEnabled === false,
+      context.planSandbox && context.registerPlanTool
+        ? {
+            active: () => context.taskMode?.() === 'plan',
+            sandbox: context.planSandbox,
+            register: context.registerPlanTool,
+          }
+        : undefined,
     ),
-    context.sdk.createToolSearchExtension(),
+    { name: 'pi-meme-tool-search', factory: context.sdk.createToolSearchExtension() },
   ]
 }

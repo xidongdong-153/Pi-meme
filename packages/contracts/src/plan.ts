@@ -13,6 +13,7 @@ export type ClientProcessingAudit = {
 }
 export type MessageOptions = MessageConfiguration & {
   mode?: TaskMode
+  plan?: PlanAction
   clientProcessingAudit?: readonly ClientProcessingAudit[]
 }
 export type MessageConfiguration = { model?: PiModel; thinkingLevel?: ThinkingLevel }
@@ -40,8 +41,15 @@ export type PlanDocument = {
   markdown: string
   updatedAt: string
 }
+export type PlanRef = { id: string; revision: number }
+export type PlanAction = { intent: 'execute' | 'revise'; reference: PlanRef }
+export type PlanToolSource = { readOnly?: boolean }
 export type PlanEvent = { type: 'plan_saved'; document: PlanDocument }
-export type SavePlanInput = { title: string; markdown: string }
+export type SavePlanInput = { title: string; markdown: string; reference?: PlanRef }
+
+export function planContextMessage(document: PlanDocument) {
+  return `已保存计划「${document.title}」（第 ${document.revision} 版）\n\n${document.markdown}`
+}
 
 export function isTaskMode(value: unknown): value is TaskMode {
   return value === 'default' || value === 'plan'

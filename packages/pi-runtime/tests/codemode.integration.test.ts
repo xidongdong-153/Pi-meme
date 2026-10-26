@@ -129,7 +129,7 @@ test('已由静态内置工厂提供codemode时，通用SDK不重复注册或覆
   }
 })
 
-test('Plan不装配codemode，即使模型强行调用也不能执行嵌套写入', async () => {
+test('Plan允许codemode编排，但嵌套写入仍被拒绝', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pi-codemode-plan-'))
   const target = path.join(directory, 'forbidden.txt')
   const fake = await useFakeAgent(directory, {
@@ -149,7 +149,7 @@ test('Plan不装配codemode，即使模型强行调用也不能执行嵌套写�
     fake.runtimePaths,
     fake.credentials,
   )
-  session.configureCapabilities({ codemodeEnabled: true, mcpEnabled: true })
+  session.configureCapabilities({ codemodeEnabled: true, mcpEnabled: false })
   try {
     await session.setSessionMode('plan')
     session.start(directory)
@@ -158,7 +158,8 @@ test('Plan不装配codemode，即使模型强行调用也不能执行嵌套写�
     await session.prompt('分析执行步骤')
     await waitIdle(session)
     const names = fake.provider.requests[0].tools.map((tool: { function: { name: string } }) => tool.function.name)
-    for (const name of ['codemode', 'bash', 'write', 'edit', 'mcp__read']) assert.ok(!names.includes(name))
+    assert.ok(names.includes('codemode'))
+    for (const name of ['write', 'edit', 'mcp__read']) assert.ok(!names.includes(name))
     const result = (await session.snapshot()).messages.find(
       (message) => message.role === 'toolResult' && message.toolName === 'codemode',
     )
@@ -171,9 +172,9 @@ test('Plan不装配codemode，即使模型强行调用也不能执行嵌套写�
   }
 })
 
-test('Plan实际执行链同样阻断协作工具中的嵌套codemode、MCP、shell、写入和第三方工具', async () => {
+test('Plan实际执行链阻断协作工具中的未授权MCP、写入和第三方工具', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pi-codemode-plan-nested-'))
-  const forbidden = ['codemode', 'mcp__read', 'bash', 'write', 'external']
+  const forbidden = ['mcp__read', 'write', 'edit', 'external']
   const fake = await useFakeAgent(directory, {
     reply: (_body, index) => (index === 1 ? { tool: { name: 'wait_agent', arguments: '{}' } } : '只读检查完成'),
   })
@@ -229,8 +230,14 @@ test('Plan实际执行链同样阻断协作工具中的嵌套codemode、MCP、sh
       (message) => message.role === 'toolResult' && message.toolName === 'wait_agent',
     )
     assert.ok(result?.role === 'toolResult')
-    for (const name of forbidden)
-      assert.match(JSON.stringify(result.content), new RegExp(`规划模式不能执行工具：${name}`))
+    const text = result.content.find((part) => part.type === 'text')
+    assert.ok(text?.type === 'text')
+    const outcomes = JSON.parse(text.text) as Array<{ toolCall: { name: string }; isError: boolean }>
+    assert.deepEqual(
+      outcomes.map((outcome) => outcome.toolCall.name),
+      forbidden,
+    )
+    assert.ok(outcomes.every((outcome) => outcome.isError))
     assert.equal(executed, 0)
   } finally {
     await session.stopAndWait()

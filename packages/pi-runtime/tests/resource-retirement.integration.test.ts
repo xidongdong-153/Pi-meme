@@ -684,7 +684,7 @@ test('迟到模式hook和Plan首次装配不覆盖用户关闭；准备期间第
     assert.equal(persistedMode, 'default')
     assert.equal((await pool.snapshot()).state.mode, 'default')
     const tools = agent.provider.requests[0].tools.map((tool: { function: { name: string } }) => tool.function.name)
-    assert.ok(!tools.includes('bash') && !tools.includes('write') && !tools.includes('edit'))
+    assert.ok(tools.includes('codemode') && !tools.includes('write') && !tools.includes('edit'))
     await pool.prompt(key, '后续普通需求')
     await waitFor(() => pool.getRuntimeSessions().every((record) => !record.running))
     assert.equal(await readFile(marker, 'utf8'), '执行第三方')

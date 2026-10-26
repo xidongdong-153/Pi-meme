@@ -61,7 +61,8 @@ import { useSettings } from '@pi-meme/settings/ui/use-settings'
 import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 import { SessionTreePanel } from '@pi-meme/history/ui/session-tree-panel'
 import { PlanPanel } from './panels/plan-panel'
-import { planExecutionDraft } from './panels/plan-execution-draft'
+import { PlanCard } from './panels/plan-card'
+import { PlanDecision } from './panels/plan-decision'
 import { SourcesPanel } from './panels/sources-panel'
 import { collectSources } from './panels/sources-data'
 import type { RightSidebarTab } from './layout/right-sidebar'
@@ -225,10 +226,10 @@ export function App({
   const [planRequest, setPlanRequest] = useState<{ sessionKey?: string; id: string; revision: number }>()
   const [selectedPlanId, setSelectedPlanId] = useState<string>()
   const chat = useAppSession(bridge, {
+    host,
     hostId: hostId ?? hostAddress,
-    onPlanSaved: (document, sessionKey) => {
+    onPlanSaved: (document) => {
       setSelectedPlanId(document.id)
-      setPlanRequest({ id: document.id, revision: document.revision, sessionKey })
     },
   })
   const generationMetrics = useMemo(
@@ -757,6 +758,10 @@ export function App({
     />
   )
   const interaction = chat.extensionDialogs[0]
+  const currentPlan = chat.planDocuments.reduce<(typeof chat.planDocuments)[number] | undefined>(
+    (latest, document) => (!latest || document.updatedAt > latest.updatedAt ? document : latest),
+    undefined,
+  )
   const interactionSourceName =
     interaction?.source?.agentId && interaction.source.rootSessionKey !== interaction.sessionKey
       ? interaction.source.name
@@ -1030,7 +1035,26 @@ export function App({
           />
         )}
         <MessageImageLoaderContext value={loadConversationImage}>
-          <Composer {...composerProps} />
+          {currentPlan && chat.mode === 'plan' ? (
+            <PlanDecision
+              key={`${hostId ?? hostAddress}:${currentPlan.id}:${currentPlan.revision}`}
+              document={currentPlan}
+              hostId={hostId ?? hostAddress ?? 'local'}
+              visible={!chat.busy && !chat.navigationBusy && !chat.editingQueue && !interaction}
+              readOnly={chat.connection.accessMode === 'read-only'}
+              model={composerProps.model}
+              access={composerProps.access}
+              onSubmit={chat.submitPlan}
+              onSkip={(text) => {
+                if (text.trim()) chat.setDraft((draft) => [draft.trimEnd(), text].filter(Boolean).join('\n\n'))
+                chat.focusDraft()
+              }}
+            >
+              <Composer {...composerProps} />
+            </PlanDecision>
+          ) : (
+            <Composer {...composerProps} />
+          )}
         </MessageImageLoaderContext>
       </div>
       {chat.workspaceNotice && (
@@ -1168,6 +1192,19 @@ export function App({
             sessionKey: chat.connection.sessionKey,
             models: chat.models,
             loadImage: loadConversationImage,
+            renderPlan: (document) => (
+              <PlanCard
+                document={document}
+                onOpen={() => {
+                  setSelectedPlanId(document.id)
+                  setPlanRequest({
+                    id: document.id,
+                    revision: document.revision,
+                    sessionKey: chat.connection.sessionKey,
+                  })
+                }}
+              />
+            ),
           }}
         />
       }
@@ -1435,18 +1472,7 @@ export function App({
             location: 'right' as const,
             scope: 'session' as const,
             render: () => (
-              <PlanPanel
-                documents={chat.planDocuments}
-                selectedId={selectedPlanId}
-                onSelect={setSelectedPlanId}
-                continueDisabled={chat.busy || chat.editing || Boolean(chat.editingQueue)}
-                onContinue={(document) => {
-                  if (chat.busy || chat.editing || chat.editingQueue) return
-                  chat.setDraft(planExecutionDraft(chat.draft, document))
-                  chat.changeMode('default')
-                  chat.focusDraft()
-                }}
-              />
+              <PlanPanel documents={chat.planDocuments} selectedId={selectedPlanId} onSelect={setSelectedPlanId} />
             ),
           },
         ]

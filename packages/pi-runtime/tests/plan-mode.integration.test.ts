@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os'
 import { setTimeout as delay } from 'node:timers/promises'
 import { SdkSession } from '../src/sdk/session'
 import { safeBranchLeaf } from '../src/safe-session-fork'
-import { assertPlanTool } from '../src/extensions/plan-mode'
+import { assertPlanTool, createPlanGuard, planCommandDecision } from '../src/extensions/plan-mode'
 import type { PiSessionEntry } from '@pi-meme/contracts/pi'
 import type { TaskMode } from '@pi-meme/contracts/plan'
 import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
@@ -94,14 +94,12 @@ test('安全分支排除整个未闭合工具批次，保留闭合prefix和compa
   assert.equal(safeBranchLeaf([...entries, entry('other', 'u', { role: 'user', content: '其他分支' })], 'r1'), 'c')
 })
 
-test('Plan执行链拒绝写入、bash、MCP、codemode和第三方工具，同时允许协作及完成工具', () => {
+test('Plan执行链提供调研入口，拒绝写入、未知来源和服务操作', () => {
   for (const name of [
-    'bash',
     'user_bash',
     'write',
     'edit',
     'mcp__read',
-    'codemode',
     'external',
     'get_goal',
     'update_goal',
@@ -123,6 +121,9 @@ test('Plan执行链拒绝写入、bash、MCP、codemode和第三方工具，同�
     'finish_agent',
     'request_user_input',
     'save_plan',
+    'bash',
+    'codemode',
+    'tool_search',
   ])
     assert.doesNotThrow(() => assertPlanTool('plan', name))
 })
@@ -162,22 +163,21 @@ test('跨模式输入保留各自mode，计划队列逐条admission且关闭模�
     assert.deepEqual(admissions, ['default', 'plan', 'plan'])
     assert.equal((await session.snapshot()).state.mode, 'default')
     assert.equal(fake.provider.requests.length, 3)
-    assert.doesNotMatch(JSON.stringify(fake.provider.requests[0]!.messages), /Plan mode is active/)
+    assert.doesNotMatch(JSON.stringify(fake.provider.requests[0]!.messages), /当前为规划模式/)
     for (const request of fake.provider.requests.slice(1)) {
       const text = JSON.stringify(request.messages)
-      assert.match(text, /Plan mode is active/)
-      assert.match(
-        text,
-        /read, grep, find, ls, collaboration, request_user_input, save_plan, and explicitly authorized read-only restricted plugin tools within their role restrictions/,
-      )
-      assert.match(text, /Do not execute shell commands/)
-      assert.match(text, /commands or progress files/)
-      assert.match(text, /Child agents return findings with finish_agent; they must not save the plan/)
-      assert.match(text, /no delegated work is active or queued and unread child results have been received/)
-      assert.match(text, /root must review the results and call save_plan/)
-      assert.match(text, /Saving does not authorize execution/)
+      assert.match(text, /当前为规划模式/)
+      assert.match(text, /调用可用的 MCP 查询工具，以及用 codemode/)
+      assert.match(text, /只读沙箱/)
+      assert.match(text, /禁止实施变更/)
+      assert.match(text, /子代理通过 finish_agent 返回发现，不得保存计划/)
+      assert.match(text, /所有委派任务结束或取消、未读结果均已接收后/)
+      assert.match(text, /根代理必须审阅结果，再调用 save_plan/)
+      assert.match(text, /保存计划不代表获准实施/)
       const tools = request.tools?.map((tool: { function: { name: string } }) => tool.function.name) ?? []
-      assert.ok(!tools.includes('bash') && !tools.includes('write') && !tools.includes('edit'))
+      assert.ok(
+        tools.includes('bash') && tools.includes('codemode') && !tools.includes('write') && !tools.includes('edit'),
+      )
     }
   } finally {
     await session.stopAndWait()
@@ -549,12 +549,191 @@ test('Plan准备期间关闭模式只改变未来模式，不执行第三方star
     )
     for (const request of fake.provider.requests) {
       const tools = request.tools?.map((tool: { function: { name: string } }) => tool.function.name) ?? []
-      assert.ok(!tools.includes('bash') && !tools.includes('write') && !tools.includes('edit'))
+      assert.ok(
+        tools.includes('bash') && tools.includes('codemode') && !tools.includes('write') && !tools.includes('edit'),
+      )
     }
     await session.prompt('后续普通任务')
     while ((await session.snapshot()).state.isStreaming) await delay(5)
     assert.equal(await readFile(marker, 'utf8'), '第三方已运行')
     assert.equal(admissions.at(-1), 'default')
+  } finally {
+    await session.stopAndWait()
+    await fake.dispose()
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('Plan 调研命令默认执行且只读沙箱拒绝业务写入', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pi-plan-auto-query-'))
+  const fake = await useFakeAgent(directory, {
+    reply: (_body, index) =>
+      index <= 2
+        ? {
+            tool: {
+              name: 'bash',
+              arguments: JSON.stringify({
+                command: index === 1 ? "printf '自动查询结果'" : "printf '不应写入' > business.txt",
+              }),
+            },
+          }
+        : '调研完成',
+  })
+  const interactions: string[] = []
+  const session = new SdkSession(
+    directory,
+    {
+      connection: () => {},
+      error: () => {},
+      event: ({ event }) => {
+        if (event.type === 'extension_ui_request') interactions.push(event.method)
+      },
+    },
+    fake.runtimePaths,
+    fake.credentials,
+  )
+  try {
+    session.start(directory)
+    await session.snapshot()
+    await session.setModel({ provider: 'fake', id: 'first' })
+    await session.prompt('查询资料并验证只读限制', undefined, [], { mode: 'plan' })
+    const deadline = Date.now() + 5000
+    while ((await session.snapshot()).state.isStreaming) {
+      if (Date.now() > deadline) throw new Error('默认调研命令未完成')
+      await delay(10)
+    }
+    const snapshot = await session.snapshot()
+    const toolResults = snapshot.messages.filter((message) => message.role === 'toolResult')
+    const results = toolResults.filter((message) => message.toolName === 'bash')
+    assert.equal(results.length, 2)
+    assert.match(JSON.stringify(results[0]), /自动查询结果/)
+    assert.ok(!results[0]!.isError)
+    assert.equal(results[1]!.isError, true)
+    await assert.rejects(readFile(path.join(directory, 'business.txt')), /ENOENT/)
+    assert.deepEqual(interactions, [])
+  } finally {
+    await session.stopAndWait()
+    await fake.dispose()
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('Plan 调研命令和 MCP 查询默认执行，不需要确认入口', async () => {
+  type Handler = (
+    event: { toolName: string; input: Record<string, unknown> },
+    context: { cwd: string; signal: AbortSignal },
+  ) => unknown
+  const handlers = new Map<string, Handler>()
+  const tools = new Map([
+    ['query', { readOnly: true }],
+    ['script', { readOnly: true }],
+    ['navigate', { readOnly: undefined }],
+  ])
+  const extension = createPlanGuard(
+    () => 'plan',
+    (name) => tools.has(name),
+    tools,
+  )
+  const api = { on: (name: string, handler: Handler) => handlers.set(name, handler) }
+  await (typeof extension === 'function' ? extension(api as never) : extension.factory(api as never))
+  const context = { cwd: '/project', signal: new AbortController().signal }
+  for (const command of ['pnpm run type-check', 'gh issue view 1', 'gh issue view 2'])
+    await handlers.get('tool_call')!({ toolName: 'bash', input: { command } }, context)
+  await Promise.all([
+    handlers.get('tool_call')!({ toolName: 'query', input: { query: '资料' } }, context),
+    handlers.get('tool_call')!({ toolName: 'script', input: { code: 'read()' } }, context),
+    handlers.get('tool_call')!({ toolName: 'navigate', input: { url: 'https://example.invalid' } }, context),
+  ])
+})
+
+test('Plan 默认执行仍拒绝已知写入、破坏性 MCP 与已取消调用，并固定调研参数', async () => {
+  assert.equal(planCommandDecision('git status --short'), 'allow')
+  assert.equal(planCommandDecision('pnpm run type-check'), 'allow')
+  assert.equal(planCommandDecision('git push origin main'), 'deny')
+  assert.equal(planCommandDecision('pnpm install'), 'deny')
+  type Handler = (
+    event: { toolName: string; input: Record<string, unknown> },
+    context: { cwd: string; signal: AbortSignal },
+  ) => unknown
+  const handlers = new Map<string, Handler>()
+  const tools = new Map([['delete_record', { readOnly: false }]])
+  const extension = createPlanGuard(
+    () => 'plan',
+    (name) => tools.has(name),
+    tools,
+  )
+  const api = { on: (name: string, handler: Handler) => handlers.set(name, handler) }
+  await (typeof extension === 'function' ? extension(api as never) : extension.factory(api as never))
+  const controller = new AbortController()
+  const context = { cwd: '/project', signal: controller.signal }
+  const call = async (toolName: string, input: Record<string, unknown>) =>
+    handlers.get('tool_call')!({ toolName, input }, context)
+  await assert.rejects(call('bash', { command: 'git push' }), /写入操作/)
+  await assert.rejects(call('write', { path: '/project/file' }), /规划模式不能执行/)
+  await assert.rejects(call('delete_record', {}), /写入操作/)
+  const input = { command: 'git status --short' }
+  await call('bash', input)
+  assert.match(input.command, /--no-pager -c core.fsmonitor=false -c core.hooksPath=\/dev\/null/)
+  assert.throws(() => {
+    input.command = '已替换'
+  }, TypeError)
+  controller.abort()
+  await assert.rejects(call('bash', { command: 'pnpm run type-check' }), /已取消/)
+})
+
+test('计划实施从 Host 固定正文，调整保留引用，完整权限的 Plan 仍强制只读沙箱', async () => {
+  const { AccessSandbox } = await import('../src/sdk/access-sandbox')
+  const directory = await mkdtemp(path.join(tmpdir(), 'pi-plan-reference-'))
+  const fake = await useFakeAgent(directory, { reply: '已处理' })
+  const document = {
+    id: 'plan',
+    revision: 2,
+    sessionId: 'session',
+    runId: 'run',
+    title: '已确认方案',
+    markdown: '# Host 保存的正文\n只执行这个版本',
+    updatedAt: '2026-10-26T00:00:00Z',
+  }
+  const accesses: string[] = []
+  const session = new SdkSession(
+    directory,
+    { connection: () => {}, error: () => {}, event: () => {} },
+    fake.runtimePaths,
+    fake.credentials,
+    undefined,
+    {
+      resolvePlan: async (reference) => {
+        assert.deepEqual(reference, { id: 'plan', revision: 2 })
+        return document
+      },
+      createSandbox: async (options) => {
+        accesses.push(options.mode)
+        return AccessSandbox.create(options)
+      },
+    },
+  )
+  try {
+    session.start(directory)
+    await session.snapshot()
+    await session.setModel({ provider: 'fake', id: 'first' })
+    await session.prompt('请实施', [], [], {
+      mode: 'default',
+      plan: { intent: 'execute', reference: { id: 'plan', revision: 2 } },
+    })
+    while ((await session.snapshot()).state.isStreaming) await delay(5)
+    assert.match(requestText(fake.provider.requests[0]), /Host 保存的正文/)
+    assert.ok(
+      (await session.snapshot()).messages
+        .filter((message) => message.role === 'user')
+        .every((message) => !JSON.stringify(message).includes('Host 保存的正文')),
+    )
+    await session.prompt('调整顺序', [], [], {
+      mode: 'plan',
+      plan: { intent: 'revise', reference: { id: 'plan', revision: 2 } },
+    })
+    while ((await session.snapshot()).state.isStreaming) await delay(5)
+    assert.deepEqual(session.getPlanReference(), { id: 'plan', revision: 2 })
+    assert.deepEqual(accesses, ['read-only'])
   } finally {
     await session.stopAndWait()
     await fake.dispose()

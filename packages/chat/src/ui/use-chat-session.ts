@@ -12,6 +12,8 @@ import {
   type TaskMode,
   type QueuedInput,
   type MessageConfiguration,
+  type PlanAction,
+  type MessageOptions,
 } from '@pi-meme/contracts/plan'
 import { skillMarker, skillMessageParts } from '@pi-meme/contracts/skills'
 import { useCallback, useRef, useState, useSyncExternalStore } from 'react'
@@ -41,6 +43,7 @@ export type ComposerSnapshot = {
 }
 
 export type ChatSessionOptions = {
+  submitPlan?: (sessionKey: string, text: string, options: MessageOptions, idempotencyKey: string) => Promise<void>
   bridge: ChatBridge
   configuration?: () => MessageConfiguration
   commands: PiSlashCommand[]
@@ -93,6 +96,7 @@ export function useChatSession(options: ChatSessionOptions) {
     ) => Promise<{ composer: ComposerDraftState; records: readonly ComposerProcessingRecord[] } | null>
   } | null>(null)
   const preparingSubmission = useRef(false)
+  const planSubmissions = useRef(new Map<string, { fingerprint: string; id: string; options: MessageOptions }>())
   const [sendingAttachments, setSendingAttachments] = useState<Attachment[]>([])
   const [failedDrafts, setFailedDrafts] = useState<Array<{ sessionKey: string; composer: ComposerSnapshot }>>([])
   const [goalDraft, setGoalDraft] = useState<ComposerSnapshot['goalDraft']>()
@@ -433,6 +437,7 @@ export function useChatSession(options: ChatSessionOptions) {
       submittedConfiguration: MessageConfiguration = { ...configurationRef.current },
     ) => {
       const sourceRevision = composerStore.getSnapshot().revision
+      const planAction = prepared?.plan
       const { draft, selectedSkills, pluginMentions, attachments, queueMode } = prepared ?? composerStore.getSnapshot()
       const { bridge, canSend, isSwitching, awaitPendingSwitch, currentGeneration, onError, onSendFailed } =
         optionsRef.current
@@ -440,7 +445,7 @@ export function useChatSession(options: ChatSessionOptions) {
       const selectedMode = modeRef.current
       await modeWrites.current
       await awaitPendingSwitch()
-      const goalCommand = chatStream.getSnapshot().goalsSupported ? parseGoalCommand(draft) : undefined
+      const goalCommand = !planAction && chatStream.getSnapshot().goalsSupported ? parseGoalCommand(draft) : undefined
       const controlOnly = goalCommand && goalCommand.action !== 'start'
       if (
         isSwitching() ||
@@ -468,18 +473,24 @@ export function useChatSession(options: ChatSessionOptions) {
         }
         return false
       }
-      const startingGoal = !!goalDraft || goalCommand?.action === 'start'
-      const normalized = prepareComposerMessage(
-        goalCommand?.action === 'start' ? goalCommand.objective : draft,
-        startingGoal ? 'default' : modeRef.current,
-      )
+      const startingGoal = !planAction && (!!goalDraft || goalCommand?.action === 'start')
+      const normalized = planAction
+        ? {
+            text: draft,
+            mode: planAction.intent === 'execute' ? ('default' as const) : ('plan' as const),
+            commandOnly: false,
+          }
+        : prepareComposerMessage(
+            goalCommand?.action === 'start' ? goalCommand.objective : draft,
+            startingGoal ? 'default' : modeRef.current,
+          )
       const messageMode = normalized.mode
-      if (messageMode !== modeRef.current) changeMode(messageMode)
+      if (!planAction && messageMode !== modeRef.current) changeMode(messageMode)
       if (normalized.commandOnly) {
         setDraft(normalized.text)
         return false
       }
-      const slashCommand = builtinCommand(normalized.text)
+      const slashCommand = planAction ? undefined : builtinCommand(normalized.text)
       if (slashCommand) {
         const currentChat = chatStream.getSnapshot()
         if (!currentChat.messages.length && !currentChat.live) {
@@ -498,7 +509,10 @@ export function useChatSession(options: ChatSessionOptions) {
           return false
         }
       }
-      const audit = records.length ? { clientProcessingAudit: records } : {}
+      const audit = {
+        ...(records.length ? { clientProcessingAudit: records } : {}),
+        ...(planAction ? { plan: planAction } : {}),
+      }
       const { message, images } = messageWithAttachments(normalized.text.trim(), attachments)
       const skills = draft.includes(skillMarker)
         ? selectedSkills.map(({ name, resourceId, resourceRevision }) => ({
@@ -643,26 +657,49 @@ export function useChatSession(options: ChatSessionOptions) {
       }
 
       const running = !chat.stopped && (chat.running || chat.paused || chat.queuePaused || promptPending.current)
+      if (planAction && (running || editingEntryId !== null || queueEdit.current)) return false
       const sendMode = running ? 'followUp' : 'prompt'
       const generation = currentGeneration()
-      const finishSend = optionsRef.current.onSendStarted?.(sessionKey, {
-        draft,
-        selectedSkills,
-        attachments,
-        queueMode,
-        ...(pluginMentions.length ? { pluginMentions } : {}),
-      })
+      const finishSend = !planAction
+        ? optionsRef.current.onSendStarted?.(sessionKey, {
+            draft,
+            selectedSkills,
+            attachments,
+            queueMode,
+            ...(pluginMentions.length ? { pluginMentions } : {}),
+          })
+        : undefined
       if (attachments.length > 0) setSendingAttachments((current) => [...current, ...attachments])
       onError('')
       dismissComposerHint()
-      composerStore.patch({ draft: '', selectedSkills: [], pluginMentions: [], attachments: [] })
+      if (!planAction) composerStore.patch({ draft: '', selectedSkills: [], pluginMentions: [], attachments: [] })
       const clearedRevision = composerStore.getSnapshot().revision
       if (!running) {
         promptPending.current = true
         setChat((value) => ({ ...value, running: true, activeMode: messageMode }))
       }
       try {
-        if (startingGoal) {
+        if (planAction && optionsRef.current.submitPlan) {
+          const key = `${sessionKey}:${planAction.reference.id}:${planAction.intent}`
+          const fingerprint = JSON.stringify([
+            message,
+            planAction,
+            submittedConfiguration.model?.provider,
+            submittedConfiguration.model?.id,
+            submittedConfiguration.thinkingLevel,
+          ])
+          let attempt = planSubmissions.current.get(key)
+          if (attempt?.fingerprint !== fingerprint) {
+            attempt = {
+              fingerprint,
+              id: crypto.randomUUID(),
+              options: { mode: messageMode, ...audit, ...submittedConfiguration },
+            }
+            planSubmissions.current.set(key, attempt)
+          }
+          await optionsRef.current.submitPlan(sessionKey, message, attempt.options, attempt.id)
+          planSubmissions.current.delete(key)
+        } else if (startingGoal) {
           if (!bridge.startGoal) throw new Error('当前 Host 不支持目标')
           const result = await bridge.startGoal(sessionKey, {
             objective: message,
@@ -688,28 +725,35 @@ export function useChatSession(options: ChatSessionOptions) {
             ...submittedConfiguration,
           })
         }
+        if (planAction && sessionKey === optionsRef.current.currentSessionKey() && generation === currentGeneration())
+          changeMode(messageMode)
         return true
       } catch (cause) {
         const sameSession = sessionKey
           ? sessionKey === optionsRef.current.currentSessionKey()
           : generation === currentGeneration()
-        onSendFailed?.(sessionKey, {
-          draft,
-          selectedSkills,
-          attachments,
-          queueMode,
-          ...(pluginMentions.length ? { pluginMentions } : {}),
-        })
+        if (!planAction)
+          onSendFailed?.(sessionKey, {
+            draft,
+            selectedSkills,
+            attachments,
+            queueMode,
+            ...(pluginMentions.length ? { pluginMentions } : {}),
+          })
         if (sameSession) {
-          if (composerStore.getSnapshot().revision === clearedRevision)
+          if (!planAction && composerStore.getSnapshot().revision === clearedRevision)
             composerStore.patch({ draft, selectedSkills, pluginMentions, attachments, queueMode })
-          else
+          else if (!planAction)
             setFailedDrafts((values) => [
               ...values,
               { sessionKey, composer: { draft, selectedSkills, pluginMentions, attachments, queueMode } },
             ])
           if (!running) {
             promptPending.current = false
+            if (planAction) {
+              if (optionsRef.current.refresh) await optionsRef.current.refresh().catch(() => {})
+              else setChat((value) => ({ ...value, running: false, activeMode: undefined }))
+            }
           }
           onError(String(cause))
         }
@@ -742,45 +786,61 @@ export function useChatSession(options: ChatSessionOptions) {
     ],
   )
 
-  const requestSubmit = useCallback(async () => {
-    if (preparingSubmission.current || editPending.current) return false
-    const source = composerStore.getSnapshot()
-    const submittedConfiguration = { ...configurationRef.current }
-    const integration = submissionIntegration.current
-    if (source.composing || composerFiles.isUploading() || integration?.blocked()) return false
-    const controller = new AbortController()
-    const unsubscribe = composerStore.subscribe(() => {
-      if (composerStore.getSnapshot().revision !== source.revision || composerStore.getSnapshot().composing)
-        controller.abort(new Error('草稿已变化，尚未发送'))
-    })
-    preparingSubmission.current = true
-    let ownsPreparation = true
-    try {
-      const goalCommand = chatStream.getSnapshot().goalsSupported ? parseGoalCommand(source.draft) : undefined
-      const controlOnly = goalCommand && goalCommand.action !== 'start'
-      const intent: ComposerIntent =
-        editingEntryId !== null
-          ? 'edit-message'
-          : queueEdit.current
-            ? 'edit-queue'
-            : goalDraft || goalCommand?.action === 'start'
-              ? 'start-goal'
-              : 'message'
-      const prepared =
-        integration && !controlOnly
-          ? await integration.prepare(source, intent, controller.signal)
-          : { composer: source, records: [] }
-      if (!prepared || controller.signal.aborted || source.revision !== composerStore.getSnapshot().revision)
-        return false
-      unsubscribe()
-      preparingSubmission.current = false
-      ownsPreparation = false
-      return await dispatchComposer(prepared.composer, prepared.records, submittedConfiguration)
-    } finally {
-      unsubscribe()
-      if (ownsPreparation) preparingSubmission.current = false
-    }
-  }, [composerStore, chatStream, editingEntryId, goalDraft, dispatchComposer])
+  const requestSubmit = useCallback(
+    async (plan?: PlanAction, text?: string) => {
+      if (preparingSubmission.current || editPending.current || (plan && promptPending.current)) return false
+      const original = composerStore.getSnapshot()
+      const source: ComposerDraftState = plan
+        ? {
+            ...original,
+            plan,
+            draft: text ?? '请实施此计划。',
+            selectedSkills: [],
+            pluginMentions: [],
+            pluginAnchors: {},
+            attachments: [],
+          }
+        : original
+      if (plan && (chatStream.getSnapshot().running || editingEntryId !== null || queueEdit.current)) return false
+      const submittedConfiguration = { ...configurationRef.current }
+      const integration = submissionIntegration.current
+      if (source.composing || composerFiles.isUploading() || integration?.blocked()) return false
+      const controller = new AbortController()
+      const unsubscribe = composerStore.subscribe(() => {
+        if (composerStore.getSnapshot().revision !== source.revision || composerStore.getSnapshot().composing)
+          controller.abort(new Error('草稿已变化，尚未发送'))
+      })
+      preparingSubmission.current = true
+      let ownsPreparation = true
+      try {
+        const goalCommand =
+          !plan && chatStream.getSnapshot().goalsSupported ? parseGoalCommand(source.draft) : undefined
+        const controlOnly = goalCommand && goalCommand.action !== 'start'
+        const intent: ComposerIntent =
+          editingEntryId !== null
+            ? 'edit-message'
+            : queueEdit.current
+              ? 'edit-queue'
+              : !plan && (goalDraft || goalCommand?.action === 'start')
+                ? 'start-goal'
+                : 'message'
+        const prepared =
+          integration && !controlOnly
+            ? await integration.prepare(source, intent, controller.signal)
+            : { composer: source, records: [] }
+        if (!prepared || controller.signal.aborted || source.revision !== composerStore.getSnapshot().revision)
+          return false
+        unsubscribe()
+        preparingSubmission.current = false
+        ownsPreparation = false
+        return await dispatchComposer(prepared.composer, prepared.records, submittedConfiguration)
+      } finally {
+        unsubscribe()
+        if (ownsPreparation) preparingSubmission.current = false
+      }
+    },
+    [composerStore, chatStream, editingEntryId, goalDraft, dispatchComposer],
+  )
 
   const send = useCallback(async () => {
     await requestSubmit()
@@ -1208,6 +1268,7 @@ export function useChatSession(options: ChatSessionOptions) {
     reset,
     send,
     submitComposer: requestSubmit,
+    submitPlan: (plan: PlanAction, text?: string) => requestSubmit(plan, text),
     stop,
     resume,
     resumeQueue: () => queueAction('resume'),

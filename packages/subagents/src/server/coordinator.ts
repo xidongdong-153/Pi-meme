@@ -16,7 +16,7 @@ import {
   type CollaborationResults,
   type PendingInteraction,
 } from '@pi-meme/contracts/collaboration'
-import type { PlanDocument, SavePlanInput, TaskMode } from '@pi-meme/contracts/plan'
+import type { PlanDocument, PlanRef, SavePlanInput, TaskMode } from '@pi-meme/contracts/plan'
 import { thinkingLevels, type PiState } from '@pi-meme/contracts/pi'
 import type { RuntimeSdkSession } from '@pi-meme/pi-runtime/session-pool'
 import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
@@ -2122,6 +2122,24 @@ export class HostCollaborationBridge {
     }
   }
 
+  async resolvePlan(actualSession: RuntimeSdkSession, reference: PlanRef, signal: AbortSignal): Promise<PlanDocument> {
+    await this.ready
+    const record = this.callers.get(actualSession)
+    if (!record || record.session !== actualSession || record.summary.depth !== 0 || this.stopping || signal.aborted)
+      throw new Error('计划操作已取消或不是根会话')
+    const sessionId = actualSession.getActiveSession().sessionId ?? record.summary.sessionId
+    const document = this.plans.find((item) => item.id === reference.id && item.sessionId === sessionId)
+    if (!document) throw new Error('当前会话不存在此计划')
+    if (document.revision !== reference.revision) throw new Error('计划已有新修订，请刷新后重试')
+    return { ...document }
+  }
+  async resolveSessionPlan(sessionKey: string, reference: PlanRef): Promise<PlanDocument> {
+    await this.ready
+    const session = this.root(sessionKey).session
+    if (!session) throw new Error('计划会话尚未绑定')
+    return this.resolvePlan(session, reference, new AbortController().signal)
+  }
+
   async savePlan(actualSession: RuntimeSdkSession, input: SavePlanInput, signal: AbortSignal): Promise<PlanDocument> {
     const pending = this.planWrites.then(() => this.savePlanOnce(actualSession, input, signal))
     this.planWrites = pending.then(
@@ -2150,7 +2168,16 @@ export class HostCollaborationBridge {
     const sessionId = actualSession.getActiveSession().sessionId
     if (!sessionId || !/^[\w-]+$/.test(sessionId)) throw new Error('Pi 会话身份尚未保存')
     if (!input.title.trim() || !input.markdown.trim()) throw new Error('计划标题和正文不能为空')
-    const existing = this.plans.find((plan) => plan.runId === record.summary.runId && plan.sessionId === sessionId)
+    const existing = this.plans.find(
+      (plan) =>
+        plan.sessionId === sessionId &&
+        (input.reference ? plan.id === input.reference.id : plan.runId === record.summary.runId),
+    )
+    if (
+      input.reference &&
+      (!existing || (existing.runId !== record.summary.runId && existing.revision !== input.reference.revision))
+    )
+      throw new Error('计划已有新修订，请刷新后重新调整')
     const document: PlanDocument = {
       id: existing?.id ?? randomUUID(),
       sessionId,

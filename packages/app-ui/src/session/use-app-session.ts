@@ -30,11 +30,13 @@ export function useAppSession(
     chatEnabled = true,
     workspaceEnabled = true,
     hostId = '',
+    host,
     onPlanSaved,
   }: {
     chatEnabled?: boolean
     workspaceEnabled?: boolean
     hostId?: string
+    host?: import('@pi-meme/contracts/app-host').HostApi
     onPlanSaved?: (document: PlanDocument, sessionKey: string | undefined) => void
   } = {},
 ) {
@@ -259,6 +261,22 @@ export function useAppSession(
     }
   }, [bridge])
   const chat = useChatSession({
+    submitPlan: host
+      ? async (sessionKey, text, options, idempotencyKey) => {
+          const pending = modelSelection.current
+          if (pending && !(await pending)) throw modelSaveError.current ?? new Error('模型切换失败，计划尚未发送')
+          await thinkingSelection.current
+          if (thinkingSaveError.current) throw thinkingSaveError.current
+          const session = await bridge.resolveAppSession(sessionKey)
+          const receipt = await host.sessions.submit(
+            { hostId: session.hostId, sessionId: session.sessionId },
+            { delivery: 'start', text, ...options },
+            { idempotencyKey },
+          )
+          if (receipt.status === 'failed' || receipt.status === 'cancelled')
+            throw new Error(receipt.error ?? '计划提交失败')
+        }
+      : undefined,
     bridge: chatBridge,
     configuration: () => ({ model: state?.model, thinkingLevel: state?.thinkingLevel }),
     refresh,
@@ -880,6 +898,7 @@ export function useAppSession(
     canSubmitComposer: chat.canSubmitComposer,
     setSubmissionIntegration: chat.setSubmissionIntegration,
     dispatchPreparedComposer: chat.dispatchPreparedComposer,
+    submitPlan: chat.submitPlan,
     failedDrafts: chat.failedDrafts,
     restoreFailedDraft: chat.restoreFailedDraft,
     setError,

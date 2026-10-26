@@ -127,7 +127,7 @@ macOS 使用 `sandbox-exec`，Linux/WSL2 使用 bubblewrap。Host 启动探测�
 
 路径校验与工具执行见 [access-sandbox.ts](../packages/pi-runtime/src/sdk/access-sandbox.ts)，平台选择见 [sandbox-platform.ts](../packages/host/src/sandbox-platform.ts)。Linux namespace、socket 与 WSL 互操作边界见下节。
 
-上表描述内置 Agent 工具的边界，不是 SDK 3 受限插件的读取和联网授权。规划模式独立拒绝业务写入、codemode、MCP 和可信外部入口，但可使用获准的受限只读插件；子任务继承父级上限，并按自身真实目录、模式和权限构建执行环境。
+上表描述内置 Agent 工具的边界，不是 SDK 3 受限插件的读取和联网授权。规划模式拒绝业务写入和可信外部入口，但可使用获准的受限只读插件、只读沙箱命令和默认执行的 MCP 查询；codemode 的每个嵌套调用单独检查。子任务继承父级上限，并按自身真实目录、模式和权限构建执行环境。
 
 ### Linux 与 WSL 隔离
 

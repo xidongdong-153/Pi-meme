@@ -3,6 +3,7 @@ import * as React from 'react'
 import { ArrowDown } from 'lucide-react'
 import type { ChatState, ConversationOutlineEntry, TurnChunk } from '../model/types'
 import type { PiModel } from '@pi-meme/contracts/pi'
+import type { PlanDocument } from '@pi-meme/contracts/plan'
 import { ChatMessage } from './chat-message'
 import { AssistantTurnView } from './assistant-turn'
 import { InlineMessageEditor, type MessageEditorState } from './inline-message-editor'
@@ -51,6 +52,7 @@ export const Conversation = React.memo(
     agentOnly = false,
     agent,
     models = [],
+    renderPlan,
   }: {
     chat: ChatState
     stream?: ChatStream
@@ -68,6 +70,7 @@ export const Conversation = React.memo(
     agentOnly?: boolean
     agent?: AgentSummary
     models?: PiModel[]
+    renderPlan?: (document: PlanDocument) => React.ReactNode
   }) => {
     const chat = React.useSyncExternalStore(
       stream?.subscribe ?? noSubscription,
@@ -123,6 +126,32 @@ export const Conversation = React.memo(
       }
     }, [chat, readOnly, agentOnly, agent])
     const outline = React.useMemo(() => (agentOnly ? [] : conversationOutline(turns)), [turns, agentOnly])
+    const plansByTool = React.useMemo(() => {
+      const plans = new Map<string, PlanDocument>()
+      for (const message of chat.messages) {
+        if (message.role !== 'toolResult' || message.toolName !== 'save_plan' || message.isError) continue
+        const value = message.details as PlanDocument | undefined
+        if (
+          value &&
+          typeof value.id === 'string' &&
+          typeof value.markdown === 'string' &&
+          typeof value.title === 'string'
+        )
+          plans.set(message.toolCallId, value)
+      }
+      return plans
+    }, [chat.messages])
+    function planReply(items: readonly { id: string; children?: readonly { id: string }[] }[]): React.ReactNode {
+      for (const item of [...items].reverse()) {
+        const plan = plansByTool.get(item.id)
+        if (plan) return renderPlan?.(plan)
+        if (item.children) {
+          const nested = planReply(item.children)
+          if (nested) return nested
+        }
+      }
+      return undefined
+    }
 
     const [visible, setVisible] = React.useState({ key: sessionKey, count: INITIAL_VISIBLE_TURNS })
     if (visible.key !== sessionKey)
@@ -338,9 +367,16 @@ export const Conversation = React.memo(
                     onFork={readOnly ? undefined : onForkReply}
                     onCopyError={onCopyError}
                     onActivityToggle={handleActivityToggle}
+                    reply={!agentOnly && !turn.isLive && renderPlan ? planReply(turn.activities) : undefined}
                   />
                 )
               })}
+              {!agentOnly &&
+                !chat.running &&
+                renderPlan &&
+                chat.planDocuments
+                  ?.filter((document) => ![...plansByTool.values()].some((saved) => saved.id === document.id))
+                  .map((document) => <React.Fragment key={document.id}>{renderPlan(document)}</React.Fragment>)}
 
               {!readOnly &&
                 editor &&

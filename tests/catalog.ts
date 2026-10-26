@@ -126,7 +126,7 @@ const files: Array<[string, Feature[]]> = [
   ['packages/app-ui/tests/panel-layout.unit.test.ts', ['plugins', 'files', 'terminal']],
   ['packages/app-ui/tests/pause-sidebar.unit.test.ts', ['chat', 'sessions']],
   ['packages/app-ui/tests/plan-events.component.test.tsx', ['plan']],
-  ['packages/app-ui/tests/plan-execution-draft.unit.test.ts', ['plan']],
+  ['packages/app-ui/tests/plan-decision.component.test.tsx', ['plan']],
   ['packages/app-ui/tests/plan-panel.component.test.tsx', ['plan']],
   ['packages/app-ui/tests/sources-data.unit.test.ts', ['chat']],
   ['packages/app-ui/tests/sources-panel.component.test.tsx', ['chat']],

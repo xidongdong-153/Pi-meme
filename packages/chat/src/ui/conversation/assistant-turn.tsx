@@ -24,6 +24,7 @@ export function AssistantTurnView({
   onCopyError,
   retry,
   onActivityToggle,
+  reply,
 }: {
   turn: Extract<TurnChunk, { type: 'assistant_turn' }>
   isFinalReply?: boolean
@@ -35,8 +36,10 @@ export function AssistantTurnView({
   onCopyError?: (message: string) => void
   retry?: PiRetryState
   onActivityToggle?: () => void
+  reply?: React.ReactNode
 }) {
-  const hasReplyContent = isFinalReply && !turn.isLive && (Boolean(turn.finalText.trim()) || turn.images.length > 0)
+  const hasReplyContent =
+    !reply && isFinalReply && !turn.isLive && (Boolean(turn.finalText.trim()) || turn.images.length > 0)
   const segments = React.useMemo(
     () => groupAgentActivities(turn.activities, turn.finalText, turn.collaboration, turn.hideAgentOperations),
     [turn.activities, turn.finalText, turn.collaboration, turn.hideAgentOperations],
@@ -116,7 +119,9 @@ export function AssistantTurnView({
                   {index === segments.length - 1 && hasTrailingText && turn.images.length > 0 && (
                     <AttachmentPreview images={turn.images} />
                   )}
-                  {segment.type === 'text' ? (
+                  {segment.type === 'text' && index === replyIndex && reply ? (
+                    reply
+                  ) : segment.type === 'text' ? (
                     <MarkdownContent isStreaming={turn.isLive && index === segments.length - 1}>
                       {segment.text}
                     </MarkdownContent>
@@ -134,6 +139,7 @@ export function AssistantTurnView({
               </div>
             ),
           )}
+          {!hasTrailingText && reply}
           {!hasTrailingText && turn.images.length > 0 && <AttachmentPreview images={turn.images} />}
           {(retry?.errorMessage || turn.errorMessage) && (
             <ErrorLine

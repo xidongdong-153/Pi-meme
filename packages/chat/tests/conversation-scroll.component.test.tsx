@@ -176,3 +176,49 @@ test('工作过程折叠/展开不会误将吸底状态破坏导致弹出箭头'
 
   expect(screen.queryByRole('button', { name: '滚动到底部' })).not.toBeInTheDocument()
 })
+
+test('保存计划在所属轮次渲染卡片，替换完整最终正文', () => {
+  const document = {
+    id: 'plan',
+    sessionId: 'session',
+    runId: 'run',
+    revision: 1,
+    title: '计划',
+    markdown: '# 计划正文',
+    updatedAt: '2026-10-26T00:00:00Z',
+  }
+  const chat = createChatState([
+    userMessage('设计方案', 1000),
+    {
+      ...assistantMessage('', 2000),
+      content: [
+        { type: 'toolCall', id: 'save', name: 'save_plan', arguments: { title: '计划', markdown: '# 计划正文' } },
+      ],
+    },
+    {
+      role: 'toolResult',
+      toolCallId: 'save',
+      toolName: 'save_plan',
+      content: [{ type: 'text', text: '已保存' }],
+      details: document,
+      isError: false,
+      timestamp: 2100,
+    },
+    assistantMessage('不应再次展开的完整计划正文', 2200),
+  ])
+  chat.planDocuments = [document]
+  render(
+    <TooltipProvider>
+      <Conversation
+        chat={chat}
+        canEditMessages={false}
+        onEditMessage={() => {}}
+        onForkReply={() => {}}
+        onCopyError={() => {}}
+        renderPlan={(value) => <section aria-label="计划卡片">{value.title}</section>}
+      />
+    </TooltipProvider>,
+  )
+  expect(screen.getAllByRole('region', { name: '计划卡片' })).toHaveLength(1)
+  expect(screen.queryByText('不应再次展开的完整计划正文')).not.toBeInTheDocument()
+})

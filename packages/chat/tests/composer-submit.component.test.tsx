@@ -1,7 +1,7 @@
 import { act, cleanup, renderHook } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import type { ChatBridge } from '@pi-meme/contracts/desktop'
-import { useChatSession } from '../src/ui/use-chat-session'
+import { useChatSession, type ChatSessionOptions } from '../src/ui/use-chat-session'
 import type { ComposerDraftState } from '../src/ui/composer/composer-state'
 
 afterEach(cleanup)
@@ -14,7 +14,7 @@ function deferred<T>() {
   })
   return { promise, resolve, reject }
 }
-function fixture(overrides: Partial<ChatBridge> = {}) {
+function fixture(overrides: Partial<ChatBridge> = {}, options: Partial<ChatSessionOptions> = {}) {
   const bridge = {
     prompt: vi.fn().mockResolvedValue(undefined),
     followUp: vi.fn().mockResolvedValue(undefined),
@@ -31,6 +31,7 @@ function fixture(overrides: Partial<ChatBridge> = {}) {
       currentGeneration: () => 1,
       currentSessionKey: () => 'session',
       onError: () => {},
+      ...options,
     }),
   )
   return { ...hook, bridge }
@@ -84,6 +85,40 @@ test('原生发送使用候选文本但保留运行中 followUp 语义', async (
   expect(result.current.draft).toBe('')
 })
 
+test('计划实施复用发送前处理，保留草稿与附件，阻止重复提交并传递选定模型', async () => {
+  const pending = deferred<void>()
+  const { result, bridge } = fixture({ prompt: vi.fn(() => pending.promise) })
+  act(() => {
+    result.current.setDraft('未发送草稿')
+    result.current.updateConfiguration({ model: { provider: 'fake', id: 'selected' }, thinkingLevel: 'high' })
+    result.current.setSubmissionIntegration({
+      blocked: () => undefined,
+      prepare: async (source) => ({ composer: { ...source, draft: '已处理的实施要求' }, records: [] }),
+    })
+  })
+  const plan = { intent: 'execute' as const, reference: { id: 'plan', revision: 2 } }
+  let sending!: Promise<boolean>
+  await act(async () => {
+    sending = result.current.submitPlan(plan)
+    await Promise.resolve()
+  })
+  await act(async () => {
+    expect(await result.current.submitPlan(plan)).toBe(false)
+  })
+  expect(bridge.prompt).toHaveBeenCalledExactlyOnceWith('session', '已处理的实施要求', [], [], {
+    mode: 'default',
+    plan,
+    model: { provider: 'fake', id: 'selected' },
+    thinkingLevel: 'high',
+  })
+  expect(result.current.draft).toBe('未发送草稿')
+  await act(async () => {
+    pending.resolve()
+    expect(await sending).toBe(true)
+  })
+  expect(result.current.draft).toBe('未发送草稿')
+})
+
 test('网络失败不把旧技能附件或正文合并进等待期间的新稿', async () => {
   const pending = deferred<void>()
   const { result } = fixture({ prompt: () => pending.promise })
@@ -120,4 +155,21 @@ test('SDK 与原生共享上传队列，同 tick 上传即阻止直接调用发�
     await uploading
   })
   expect(result.current.attachments).toHaveLength(1)
+})
+
+test('计划网络重试沿用原提交标识，失败不覆盖草稿', async () => {
+  const submitPlan = vi.fn().mockRejectedValueOnce(new Error('网络断开')).mockResolvedValue(undefined)
+  const { result, bridge } = fixture({}, { submitPlan })
+  const plan = { intent: 'execute' as const, reference: { id: 'plan', revision: 1 } }
+  act(() => result.current.setDraft('仍未发送的草稿'))
+  await act(async () => {
+    expect(await result.current.submitPlan(plan)).toBe(false)
+  })
+  expect(result.current.draft).toBe('仍未发送的草稿')
+  await act(async () => {
+    expect(await result.current.submitPlan(plan)).toBe(true)
+  })
+  expect(submitPlan).toHaveBeenCalledTimes(2)
+  expect(submitPlan.mock.calls[0]).toEqual(submitPlan.mock.calls[1])
+  expect(bridge.prompt).not.toHaveBeenCalled()
 })

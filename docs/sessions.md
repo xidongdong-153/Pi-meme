@@ -18,6 +18,8 @@ paths:
   - 'packages/chat/src/ui/composer/**'
   - 'packages/app-ui/src/panels/subagents-panel.tsx'
   - 'packages/app-ui/src/panels/plan-panel.tsx'
+  - 'packages/app-ui/src/panels/plan-card.tsx'
+  - 'packages/app-ui/src/panels/plan-decision.tsx'
   - 'packages/app-ui/src/session/composer-drafts.ts'
   - 'packages/workspace/**'
   - 'packages/history/**'
@@ -167,25 +169,33 @@ sequenceDiagram
 
 ## 规划模式与计划文件
 
-输入 `/plan`、`/计划` 或 `/计划模式` 激活输入区的规划标记。纯命令只切换模式，带正文时发送计划任务；关闭标记返回 default。解析规则见 [normalizePlanMessage](../packages/contracts/src/plan.ts)。
+输入 `/plan`、`/计划` 或 `/计划模式` 激活输入区的计划标记。纯命令只切换后续输入的模式，带正文时发送计划任务；关闭标记返回执行模式。切换不改变正在运行的轮次。解析规则见 [normalizePlanMessage](../packages/contracts/src/plan.ts)。
 
-规划模式允许内置 `read`、`grep`、`find`、`ls`、协作工具（含 `finish_agent`）、`request_user_input`、`save_plan`，以及已选择并获准的 SDK 3 受限只读插件工具。[plan-mode.ts](../packages/pi-runtime/src/extensions/plan-mode.ts) 同时过滤可用工具并检查实际调用；bash、edit、write、codemode、MCP、可信外部入口与嵌套越权仍被拒绝。插件放行依据是宿主维护的真实来源、代次、runtime 和 effect/capabilities，不按名称或插件自报 safe 放行。受限 JS 在独立进程与 OS 沙箱中执行，Plan 实际拒绝业务文件写入，也不能跳转到可信 Server。授权和平台边界见 [插件执行与授权](configuration.md#插件执行与授权)。子代理继承父级模式与权限上限，不能向仍在默认模式运行的子任务派发消息来绕过限制。
+规划模式保留读取、搜索、协作、提问与保存计划，命令和可用的 MCP 调研工具默认执行，无需逐次确认。已知写入命令被拒绝。codemode 可编排可用工具，每个嵌套调用仍经过实际准入检查，不能直接使用模型调用入口。实现见 [plan-mode.ts](../packages/pi-runtime/src/extensions/plan-mode.ts)。
+
+MCP 查询和通用脚本工具不再要求单次或本轮调研授权。明确声明破坏性写入、且未声明只读的工具在 Plan 中隐藏并拒绝执行。工具是否可用仍由 Host 注册信息决定；SDK 3 受限插件继续检查已有的安装、选择和能力授权。
+
+Plan 始终使用只读沙箱，即使会话选择完全权限。命令与本地 MCP 进程不能修改业务文件；临时输出使用沙箱临时目录。MCP 的 HTTP 查询仍依赖用户信任的外部接口语义，本地沙箱不保证远端只读。可信 App 插件仍不导入，SDK 3 受限只读插件继续按已有授权执行。子代理继承父级上限，不能向普通模式子任务派发消息绕过限制。权限边界见 [插件执行与授权](configuration.md#插件执行与授权)。
 
 ```mermaid
+%%{init: {"theme": "dark"}}%%
 flowchart TD
-  Input["规划模式输入"] --> Read["只读分析与同模式子任务"]
-  Read --> Wait["子任务结束并读取结果邮箱"]
-  Wait --> Save["根 Agent 调用 save_plan"]
-  Save --> File["原子写入 Markdown 与计划元数据"]
-  File --> Panel["右侧计划全文、复制与导出"]
-  Panel --> Next["等待下一步输入"]
-  Panel -->|用户点击按此计划继续| Draft["追加到普通任务草稿，权限不变"]
-  Draft --> Confirm["用户检查访问权限并手动发送"]
+  Input["规划输入"] --> Research["默认执行只读调研"]
+  Research --> Wait["子任务结束并读取结果"]
+  Wait --> Save["根 Agent 保存计划"]
+  Save --> Card["对话内计划节选"]
+  Card --> Full["按需在侧栏打开全文"]
+  Card --> Decision["底部实施、调整或跳过"]
+  Decision -->|实施| Run["校验计划修订和权限后发送"]
+  Decision -->|调整| Research
+  Decision -->|跳过| Draft["保留草稿和模式，恢复普通输入框"]
 ```
 
-只有规划模式根 Agent 可保存计划，子任务或其队列未结束、结果未读时拒绝保存。同一轮再次保存更新同一计划的修订。正文在 `data/plans/<sessionId>/<id>.md`，目录中的 sessionId 来自 Pi 原生会话；元数据在 `state/collaboration/plans.json`。失败恢复上一版正文和元数据，成功后发出 `plan_saved`。
+只有规划模式根 Agent 可保存计划，子任务或其队列未结束、结果未读时拒绝保存。同一轮再次保存更新同一计划的修订。正文在 `data/plans/<sessionId>/<id>.md`，元数据在 `state/collaboration/plans.json`。失败恢复上一版正文和元数据，成功后发出 `plan_saved`。
 
-[计划面板](../packages/app-ui/src/panels/plan-panel.tsx) 展示完整只读 Markdown，可切换文档、复制和导出。保存计划不会自动执行，也不会自动关闭规划标记。“按此计划继续”把当前文档的标题、修订和完整正文追加到已有草稿，切回普通任务模式，不修改访问权限、不自动发送；运行、切换或编辑消息期间禁用该按钮。实现与验证见 [coordinator.ts](../packages/subagents/src/server/coordinator.ts)、[plan-mode.integration.test.ts](../packages/pi-runtime/tests/plan-mode.integration.test.ts) 和 [agent-plans.integration.test.ts](../packages/subagents/tests/agent-plans.integration.test.ts)。
+保存后不自动打开侧栏。对话卡片只显示节选，提供保存 Markdown、复制全文和侧栏打开。底部“实施此计划？”复用模型与思考强度选项；实施直接提交选定版本，调整通过聊天提交并更新同一文档。Host 校验计划归属和修订，读取实际保存的正文，不信任客户端提交的计划正文。
+
+实施保留已有草稿，不自动附带未发送内容；沿用执行权限，只读权限需要先选择允许修改的权限。跳过或关闭仅恢复普通输入框，不发送消息、不切换模式，同一修订不重复询问。正在调研、切换、编辑或等待交互时不提供实施操作。实现见 [plan-decision.tsx](../packages/app-ui/src/panels/plan-decision.tsx)，定向验证见 [plan-mode.integration.test.ts](../packages/pi-runtime/tests/plan-mode.integration.test.ts) 和 [agent-plans.integration.test.ts](../packages/subagents/tests/agent-plans.integration.test.ts)。
 
 ## 持久目标 Goal
 

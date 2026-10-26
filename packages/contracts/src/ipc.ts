@@ -50,11 +50,30 @@ export function messageOptions(value: unknown): MessageOptions | undefined {
     !value ||
     typeof value !== 'object' ||
     Array.isArray(value) ||
-    Object.keys(value).some((key) => !['mode', 'clientProcessingAudit', 'model', 'thinkingLevel'].includes(key))
+    Object.keys(value).some((key) => !['mode', 'plan', 'clientProcessingAudit', 'model', 'thinkingLevel'].includes(key))
   )
     throw new Error('消息模式参数无效')
-  const { mode, clientProcessingAudit, model, thinkingLevel } = value as MessageOptions
+  const { mode, plan, clientProcessingAudit, model, thinkingLevel } = value as MessageOptions
   if (mode !== undefined && !isTaskMode(mode)) throw new Error('消息模式无效')
+  if (plan !== undefined) {
+    if (
+      !plan ||
+      typeof plan !== 'object' ||
+      Array.isArray(plan) ||
+      Object.keys(plan).some((key) => !['intent', 'reference'].includes(key)) ||
+      !['execute', 'revise'].includes(plan.intent) ||
+      !plan.reference ||
+      typeof plan.reference !== 'object' ||
+      Array.isArray(plan.reference) ||
+      Object.keys(plan.reference).some((key) => !['id', 'revision'].includes(key)) ||
+      typeof plan.reference.id !== 'string' ||
+      !plan.reference.id.trim() ||
+      !Number.isSafeInteger(plan.reference.revision) ||
+      plan.reference.revision < 1 ||
+      mode !== (plan.intent === 'execute' ? 'default' : 'plan')
+    )
+      throw new Error('计划引用或任务模式无效')
+  }
   if (model !== undefined) {
     if (!model || typeof model !== 'object' || Array.isArray(model)) throw new Error('模型参数无效')
     text(model.provider)
@@ -85,6 +104,7 @@ export function messageOptions(value: unknown): MessageOptions | undefined {
     throw new Error('客户端处理来源记录无效')
   return {
     mode,
+    ...(plan ? { plan } : {}),
     ...(clientProcessingAudit === undefined ? {} : { clientProcessingAudit }),
     ...(model ? { model: { provider: model.provider, id: model.id } } : {}),
     ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),

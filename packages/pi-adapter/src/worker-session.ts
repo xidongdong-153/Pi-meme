@@ -1,7 +1,7 @@
 import type { Goal, GoalControl, GoalRequest, GoalRun, PromptOrigin } from '@pi-meme/contracts/goal'
 import type { ServiceActivityRequest, ServiceActivityResult } from '@pi-meme/contracts/service-activity'
 import type { CollaborationRequest, CollaborationResults } from '@pi-meme/contracts/collaboration'
-import type { PlanDocument, SavePlanInput, TaskMode } from '@pi-meme/contracts/plan'
+import type { PlanDocument, PlanRef, SavePlanInput, TaskMode } from '@pi-meme/contracts/plan'
 import { Worker } from 'node:worker_threads'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -29,6 +29,7 @@ export type WorkerOptions = {
     signal: AbortSignal,
   ) => Promise<CollaborationResults[keyof CollaborationResults]>
   savePlan?: (input: SavePlanInput, signal: AbortSignal) => Promise<PlanDocument>
+  resolvePlan?: (reference: PlanRef, signal: AbortSignal) => Promise<PlanDocument>
   goal?: (request: GoalRequest, run: GoalRun | undefined, signal: AbortSignal) => Promise<Goal | undefined>
   goalUsage?: (run: GoalRun, entryId: string, usage: unknown, inputEntryId?: string) => Promise<void>
   activity?: (request: ServiceActivityRequest, signal: AbortSignal) => Promise<ServiceActivityResult>
@@ -118,7 +119,9 @@ export function createWorkerSession(
         reply: WorkerReply & {
           hostCancel?: string
           hostRequest?: {
-            kind: 'collaboration' | 'savePlan' | 'admission' | 'goal' | 'goalUsage' | 'activity' | 'plugin'
+            kind:
+              'collaboration' | 'savePlan' | 'resolvePlan' | 'admission' | 'goal' | 'goalUsage' | 'activity' | 'plugin'
+            reference?: PlanRef
             pluginRequest?: PluginRuntimeRequest
             activityRequest?: ServiceActivityRequest
             message?: string
@@ -179,6 +182,10 @@ export function createWorkerSession(
               if (request.kind === 'savePlan') {
                 if (!options.savePlan || !request.input) throw new Error('计划保存桥未配置')
                 return options.savePlan(request.input, controller.signal)
+              }
+              if (request.kind === 'resolvePlan') {
+                if (!options.resolvePlan || !request.reference) throw new Error('计划引用桥未配置')
+                return options.resolvePlan(request.reference, controller.signal)
               }
               if (!options.collaboration) throw new Error('协作桥未配置')
               return options.collaboration(request, controller.signal)

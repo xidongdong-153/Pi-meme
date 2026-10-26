@@ -10,6 +10,7 @@ import {
   type GoalStartResult,
 } from '@pi-meme/contracts/goal'
 import { skillMessageText } from '@pi-meme/contracts/skills'
+import { messageOptions } from '@pi-meme/contracts/ipc'
 import { randomUUID, createHash } from 'node:crypto'
 import path from 'node:path'
 import { projectUiMessage } from '@pi-meme/contracts/plugin-ui-message'
@@ -47,6 +48,10 @@ type Options = {
   projects: ProjectStore
   sessions: SessionService
   collaboration: CollaborationBridge & {
+    resolveSessionPlan?: (
+      key: string,
+      reference: import('@pi-meme/contracts/plan').PlanRef,
+    ) => Promise<import('@pi-meme/contracts/plan').PlanDocument>
     goalReady: (key: string, completion?: boolean) => Promise<boolean>
     respondExtensionUI: (
       key: string,
@@ -364,7 +369,20 @@ export async function createAppControl(options: Options) {
           if (pending.goal) await pi.continueGoalTask(key, input.text, pending.goal)
           else if (input.delivery === 'steer')
             await pi.steer(key, input.text, input.images, input.skills, { mode: input.mode })
-          else await pi.prompt(key, input.text, input.images, input.skills, { mode: input.mode })
+          else
+            await pi.prompt(
+              key,
+              input.text,
+              input.images,
+              input.skills,
+              messageOptions({
+                mode: input.mode,
+                plan: input.plan,
+                model: input.model,
+                thinkingLevel: input.thinkingLevel,
+                clientProcessingAudit: input.clientProcessingAudit,
+              }),
+            )
           await sync(session, view)
           // /plan 等只修改模式的命令不会产生 agent_settled。
           if (input.delivery !== 'steer' && !busy(key))
@@ -419,6 +437,21 @@ export async function createAppControl(options: Options) {
     if (typeof input?.text !== 'string' || !input.text.trim() || !['start', 'queue', 'steer'].includes(input.delivery))
       throw new Error('提交正文或投递方式无效')
     if (input.mode !== undefined && input.mode !== 'default' && input.mode !== 'plan') throw new Error('会话模式无效')
+    if (input.plan) {
+      messageOptions({
+        mode: input.mode,
+        plan: input.plan,
+        model: input.model,
+        thinkingLevel: input.thinkingLevel,
+        clientProcessingAudit: input.clientProcessingAudit,
+      })
+      if (input.delivery !== 'start') throw new Error('计划操作只能在空闲会话直接开始')
+      await options.bindRoot(key)
+      if (!collaboration.resolveSessionPlan) throw new Error('当前 Host 不支持计划引用提交')
+      await collaboration.resolveSessionPlan(key, input.plan.reference)
+      if (input.plan.intent === 'execute' && pi.getSessionContext(key).accessMode === 'read-only')
+        throw new Error('请先选择允许实施的访问权限')
+    }
     const running = active.has(session.sessionId) || busy(key)
     if (input.delivery === 'start' && running) throw new Error('会话正在运行，请使用 queue 或 steer')
     if (input.delivery === 'steer' && !running) throw new Error('会话未运行，不能 steer')
@@ -760,7 +793,7 @@ export async function createAppControl(options: Options) {
         ),
       submit: (ref, input, opts) =>
         mutate(clientId, 'sessions.submit', [ref, input], opts, async (operationId) => {
-          const command = typeof input?.text === 'string' ? parseGoalCommand(input.text) : undefined
+          const command = !input?.plan && typeof input?.text === 'string' ? parseGoalCommand(input.text) : undefined
           if (command && command.action !== 'start') {
             const session = getSession(ref)
             if (command.action !== 'open') {
@@ -782,7 +815,7 @@ export async function createAppControl(options: Options) {
           }
           return target(ref, (key, session, view) =>
             serial(session.sessionId, async () => {
-              const command = parseGoalCommand(input.text)
+              const command = input.plan ? undefined : parseGoalCommand(input.text)
               if (command) {
                 if (command.action !== 'start') throw new Error('纯目标命令请使用目标控制接口')
                 return (

@@ -8,10 +8,21 @@ import type {
   McpExposure,
   McpServerConfig,
   McpServerEntry,
+  ExtensionAPI,
+  ToolDefinition,
 } from '@earendil-works/pi-coding-agent'
 import type { McpOAuthState } from '@earendil-works/pi-mcp/oauth'
 import type { SecureCredentialStorage } from '@pi-meme/contracts/secure-storage'
 import type { PiRuntimePaths } from '@pi-meme/pi-runtime/runtime-paths'
+import type { AccessSandboxOperations } from '@pi-meme/pi-runtime/sdk/access-sandbox'
+import type { PlanToolSource } from '@pi-meme/contracts/plan'
+import { createPlanTransport } from './plan-transport'
+
+type PlanMcpOptions = {
+  active: () => boolean
+  sandbox: () => AccessSandboxOperations
+  register: (name: string, source: PlanToolSource) => void
+}
 
 type ConfigFile = { data?: Record<string, unknown>; error?: string }
 type McpConfigPatch = { enabled?: boolean; exposure?: McpExposure }
@@ -219,6 +230,7 @@ export function createDesktopMcpExtension(
   credentials: SecureCredentialStorage,
   cwd: string,
   legacyDisabled = false,
+  plan?: PlanMcpOptions,
 ): InlineExtension {
   const options: NonNullable<Parameters<typeof sdk.createMcpExtension>[0]> = {
     loadConfig: (context) => loadDesktopMcpConfig(paths, context.cwd, credentials, legacyDisabled),
@@ -230,5 +242,38 @@ export function createDesktopMcpExtension(
       writeDesktopMcpWorkspaceOverride(paths, cwd, entry.name, patch, mcpAuthorization({ ...entry.config, ...patch }))
     },
   }
-  return sdk.createMcpExtension(options)
+  return {
+    name: 'pi-meme-mcp',
+    factory: (pi) => {
+      const planning = plan?.active() === true
+      const extension = sdk.createMcpExtension({
+        ...options,
+        ...(planning ? { createTransport: createPlanTransport(plan!.sandbox) } : {}),
+      })
+      return extension(
+        new Proxy(pi, {
+          get(target, key, receiver) {
+            if (key === 'registerTool')
+              return (tool: ToolDefinition) => {
+                if (planning)
+                  plan!.register(tool.name, {
+                    readOnly:
+                      tool.annotations?.readOnlyHint === true
+                        ? true
+                        : tool.annotations?.destructiveHint === true
+                          ? false
+                          : undefined,
+                  })
+                target.registerTool(
+                  planning && tool.annotations?.readOnlyHint !== true && tool.annotations?.destructiveHint === true
+                    ? { ...tool, exposure: 'hidden' }
+                    : tool,
+                )
+              }
+            return Reflect.get(target, key, receiver)
+          },
+        }) as ExtensionAPI,
+      )
+    },
+  }
 }

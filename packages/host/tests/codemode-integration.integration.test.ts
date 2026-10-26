@@ -151,7 +151,7 @@ test('规划根任务与后代拒绝伪造codemode调用，保持继承权限且
     assert.ok(snapshot.agents?.every((agent) => agent.mode === 'plan' && agent.accessMode === 'workspace-write'))
     for (const request of fake.provider.requests) {
       const tools = request.tools?.map((tool: { function: { name: string } }) => tool.function.name) ?? []
-      assert.ok(!tools.includes('codemode') && !tools.includes('write') && !tools.includes('bash'))
+      assert.ok(tools.includes('codemode') && !tools.includes('write') && !tools.includes('edit'))
     }
     const rootResult = snapshot.messages.find(
       (message) => message.role === 'toolResult' && message.toolName === 'codemode',

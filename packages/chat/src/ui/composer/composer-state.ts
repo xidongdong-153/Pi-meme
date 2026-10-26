@@ -13,6 +13,7 @@ export type ComposerDraftData = {
   queueMode: 'steering' | 'followUp'
 }
 export type ComposerDraftState = ComposerDraftData & {
+  plan?: import('@pi-meme/contracts/plan').PlanAction
   revision: number
   selection: ComposerSelection | null
   selectionRevision: number

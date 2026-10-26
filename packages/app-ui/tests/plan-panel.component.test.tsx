@@ -65,18 +65,9 @@ test('会话切换后失效的选择回到新会话最新文档', () => {
   expect(screen.queryByRole('combobox')).not.toBeInTheDocument()
 })
 
-test('继续操作只交付当前计划，运行中禁用按钮', async () => {
-  const user = userEvent.setup()
-  const onContinue = vi.fn()
-  const { rerender } = render(
-    <PlanPanel documents={[older, latest]} selectedId={older.id} onSelect={() => {}} onContinue={onContinue} />,
-  )
-  await user.click(screen.getByRole('button', { name: '按此计划继续' }))
-  expect(onContinue).toHaveBeenCalledExactlyOnceWith(older)
-  expect(screen.getByText(/不会自动发送/)).toBeVisible()
-  rerender(<PlanPanel documents={[older]} onSelect={() => {}} onContinue={onContinue} continueDisabled />)
-  await user.click(screen.getByRole('button', { name: '按此计划继续' }))
-  expect(onContinue).toHaveBeenCalledTimes(1)
+test('侧栏只负责阅读与文档操作，不提供另一条实施入口', () => {
+  render(<PlanPanel documents={[latest]} onSelect={() => {}} />)
+  expect(screen.queryByRole('button', { name: /实施|继续/ })).not.toBeInTheDocument()
 })
 
 test('复制完整正文后反馈成功', async () => {

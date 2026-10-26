@@ -260,32 +260,34 @@ module.exports = async (window, waitFor, directory, screenshots, options = {}) =
   )
   const documentSession = await evaluate('window.piMemeClient.getConnection().then(value => value.sessionKey)')
   await evaluate('document.querySelector("button[aria-label=发送消息]").click()')
+  const preview = 'section[aria-label="计划节选：桌面验收计划"]'
   const card = '#workspace-right-sidebar section[aria-label="已保存计划：桌面验收计划"]'
-  await waitFor(() => evaluate(`Boolean(document.querySelector(${JSON.stringify(card)}))`), '计划文档卡片')
+  await waitFor(() => evaluate(`Boolean(document.querySelector(${JSON.stringify(preview)}))`), '对话内计划节选')
   await waitFor(() => evaluate('window.piMemeClient.getSnapshot().then(value => !value.state.isStreaming)'), '计划完成')
-  await waitFor(
-    () =>
-      evaluate(
-        'document.querySelector("[aria-label=右侧栏标签] [role=tab][aria-selected=true]")?.textContent.trim() === "计划"',
-      ),
-    '实时保存计划自动打开计划标签',
-  )
+  await waitFor(() => evaluate('Boolean(document.querySelector("section[aria-label=实施此计划]"))'), '底部计划选择区')
   assert.equal(
     await evaluate(
-      `document.querySelector('section[aria-label="工作区"] section[aria-label="已保存计划：桌面验收计划"]') === null`,
-    ),
-    true,
-    '主对话不显示计划卡片',
-  )
-  assert.equal(
-    await evaluate(
-      'document.querySelector("section[aria-label=工作区] [aria-label=对话消息流]").textContent.includes("确认改动范围。")',
+      'document.querySelector("[aria-label=右侧栏标签] [role=tab][aria-selected=true]")?.textContent.trim() === "计划"',
     ),
     false,
-    '计划正文仅在右侧栏显示',
+    '保存计划不自动切换侧栏',
+  )
+  await capture('plan-in-conversation')
+  const beforeSkip = await countUsers()
+  await clickText('跳过', 'section[aria-label=实施此计划]')
+  await editable()
+  assert.equal(await countUsers(), beforeSkip, '跳过不发送消息')
+  assert.equal(
+    await evaluate('window.piMemeClient.getSnapshot().then(value => value.state.mode)'),
+    'plan',
+    '跳过不切换模式',
   )
   const preservedDraft = '计划侧栏保留的草稿'
   await draft(preservedDraft)
+  await evaluate(
+    `document.querySelector(${JSON.stringify(preview)}).querySelector('button[aria-label="在侧栏打开完整计划"]').click()`,
+  )
+  await waitFor(() => evaluate(`Boolean(document.querySelector(${JSON.stringify(card)}))`), '侧栏计划全文')
   const assertRootTarget = async () => {
     assert.equal(
       await evaluate('window.piMemeClient.getConnection().then(value => value.sessionKey)'),

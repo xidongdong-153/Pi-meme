@@ -25,6 +25,10 @@ import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
 import { builtinCommand, freshSessionCommandError, thinkingLevels } from '@pi-meme/contracts/pi'
 import {
   normalizePlanMessage,
+  planContextMessage,
+  type PlanDocument,
+  type PlanRef,
+  type PlanToolSource,
   type MessageOptions,
   type QueuedInput,
   type TaskMode,
@@ -107,6 +111,8 @@ function toModel(model: SessionModel | undefined): PiModel | undefined {
  * 替换后通过 `setRebindSession` 重新订阅事件并绑定扩展。
  */
 export type RuntimePolicy = {
+  planTools?: Map<string, PlanToolSource>
+  resolvePlan?: (reference: PlanRef, signal: AbortSignal) => Promise<PlanDocument>
   initialGeneration?: number
   onAdmission?: (
     message: string,
@@ -155,6 +161,14 @@ export class SdkSession {
   private mode: TaskMode = 'default'
   private activeMode?: TaskMode
   private runtimeMode: TaskMode = 'default'
+  private planReference?: PlanRef
+  getPlanReference() {
+    return this.planReference
+  }
+  getPlanSandbox() {
+    if (this.runtimeMode !== 'plan' || !this.sandbox) throw new Error('规划模式只读沙箱不可用')
+    return this.sandbox
+  }
   private ownQueue: { steering: QueuedInput[]; followUp: QueuedInput[] } = { steering: [], followUp: [] }
   private delivering?: { kind: 'steering' | 'followUp'; input: QueuedInput }
   private nativeQueue: { steering: QueuedInput[]; followUp: QueuedInput[] } = { steering: [], followUp: [] }
@@ -241,7 +255,7 @@ export class SdkSession {
   }
 
   getTaskMode(): TaskMode {
-    return this.activeMode ?? this.mode
+    return this.activeMode ?? this.preparationMode ?? this.mode
   }
 
   configureAccess(mode: AgentAccessMode) {
@@ -392,16 +406,18 @@ export class SdkSession {
     const generation = this.generation
     const runtimeMode = this.preparationMode ?? this.mode
     const plan = runtimeMode === 'plan'
+    const executionAccess = plan ? 'read-only' : this.accessMode
+    this.policy.planTools?.clear()
     this.runtimeMode = runtimeMode
     const sdk = (this.sdk ??= await loadPiSdk())
     this.piVersion = sdk.VERSION
-    if (this.accessMode !== 'full-access') {
+    if (executionAccess !== 'full-access') {
       if (this.policy.requireRestrictedPolicy && (!this.policy.createSandbox || !this.policy.createAccessExtension))
         throw new Error('受限权限插件或沙箱不可用，执行已拒绝')
       this.accessTemporary = await mkdtemp(path.join(tmpdir(), 'pi-desktop-access-'))
       try {
         this.sandbox = await (this.policy.createSandbox ?? AccessSandbox.create)({
-          mode: this.accessMode,
+          mode: executionAccess,
           cwd: this.cwd,
           temporary: this.accessTemporary,
           agentDir: this.paths.agentDir,
@@ -417,7 +433,7 @@ export class SdkSession {
       ? sdk.SessionManager.open(sessionFile, sessionDirectory, this.cwd)
       : sdk.SessionManager.create(this.cwd, sessionDirectory)
     const agentDir = this.paths.agentDir
-    const restricted = this.accessMode !== 'full-access'
+    const restricted = executionAccess !== 'full-access'
     let extensionErrors: Array<{ path: string; error: string }> = []
     const createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager }) => {
       const extensionFactories = [
@@ -501,20 +517,22 @@ export class SdkSession {
                 sdk,
                 sandbox: this.sandbox!,
                 cwd,
-                mode: this.accessMode,
-                externalToolAllowed: (name) => this.policy.externalTools?.has(name) ?? false,
+                mode: executionAccess,
+                externalToolAllowed: (name) =>
+                  (this.policy.externalTools?.has(name) ?? false) ||
+                  (plan && (this.policy.planTools?.has(name) ?? false)) ||
+                  (plan && name === 'tool_search'),
               }),
             ]
           : []),
-        ...(!plan && !this.inlineExtensions.some((extension) => extension.name === 'pi-meme-codemode')
-          ? [sdk.createCodemodeExtension()]
+        ...(!this.inlineExtensions.some((extension) => extension.name === 'pi-meme-codemode')
+          ? [sdk.createCodemodeExtension({ models: !plan })]
           : []),
-        ...(!plan && this.capabilities.mcpEnabled
-          ? [this.desktopMcpExtension(sdk, cwd), sdk.createToolSearchExtension()]
-          : []),
+        ...(this.capabilities.mcpEnabled ? [this.desktopMcpExtension(sdk, cwd), sdk.createToolSearchExtension()] : []),
         ...this.inlineExtensions.filter(
           (extension) =>
             (!restricted || !extension.name.startsWith('app-agent:')) &&
+            (plan || !restricted || !['pi-meme-mcp', 'pi-meme-tool-search'].includes(extension.name)) &&
             (!extension.name.startsWith('restricted-agent:') ||
               plan ||
               restricted ||
@@ -527,12 +545,15 @@ export class SdkSession {
             (!plan ||
               extension.name.startsWith('restricted-agent:') ||
               extension.name === 'pi-meme-collaboration' ||
-              extension.name === 'pi-meme-user-input'),
+              extension.name === 'pi-meme-user-input' ||
+              ['pi-meme-codemode', 'pi-meme-mcp', 'pi-meme-tool-search'].includes(extension.name)),
         ),
         ...(this.policy.resourceSnapshot ? [createSkillUsageExtension(this.policy.resourceSnapshot)] : []),
         createPlanGuard(
           () => this.activeMode ?? this.preparationMode ?? this.mode,
-          (name) => this.policy.externalTools?.get(name)?.effect === 'read',
+          (name) =>
+            this.policy.externalTools?.get(name)?.effect === 'read' || (this.policy.planTools?.has(name) ?? false),
+          this.policy.planTools,
         ),
         (pi: ExtensionAPI) => {
           pi.on('before_agent_start', (event) => {
@@ -549,7 +570,7 @@ export class SdkSession {
               'Use $...$ for inline math and $$ on separate lines for display math. Use KaTeX-compatible syntax; escape literal dollar signs when needed.',
               'Use a fenced `mermaid` block for diagrams. Keep diagrams small and self-contained; avoid HTML labels, embedded images, click actions, and theme/layout overrides. The app controls the theme and renders diagrams after streaming ends. Invalid diagrams remain as source code.',
               'Show each local image once with standard Markdown image syntax, for example ![Brief description](out/screenshots/example.png), outside code. Verify that the file exists and use a path relative to the current session working directory. Local previews support PNG, JPEG, GIF, WebP, AVIF, SVG, BMP, and ICO files up to 8 MiB. URL-encode special filename characters. Prefer out/screenshots/ for new screenshots; reuse existing in-workspace files.',
-              'Copy an out-of-workspace image into the working directory only when writes are allowed. In Plan/read-only mode, do not copy, generate, or resize files for display; report the limitation instead. Do not bypass access denials. Do not use file://, absolute paths, temporary localhost URLs, or a new server to display local images. Do not try multiple markup variants unless the user requests a rendering test.',
+              '仅在允许写入时将工作区外的图片复制到工作目录。在规划或只读模式下，必要的展示产物放入会话临时目录。不得绕过访问拒绝。不要使用 file://、绝对路径、临时 localhost URL 或新建服务器展示本地图片。除非用户要求渲染测试，不要尝试多种标记变体。',
               'Keep valid remote HTTP(S) image URLs unchanged and use standard Markdown image syntax. Remote images are fetched by the user’s browser and may fail to load. Do not expose credentials in URLs. Do not assume that an image returned by a tool has been saved to a file.',
               'Tool and collaboration cards are created by actual tool events, not reply markup. Summarize the outcome in the final reply; do not duplicate raw tool payloads or rely on collapsed activity details to convey essential results.',
             ].join('\n')
@@ -723,7 +744,7 @@ export class SdkSession {
     })
     // 绑定期间会话被替换时放弃后续步骤，避免订阅挂到旧运行时。
     if (this.runtime !== runtime || generation !== this.generation) return
-    if (this.runtimeMode !== 'plan' && !session.getActiveToolNames().includes('codemode')) {
+    if (!session.getActiveToolNames().includes('codemode')) {
       if (!session.getAllTools().some((tool) => tool.name === 'codemode')) throw new Error('codemode 内置扩展未加载')
       session.setActiveToolsByName([...new Set([...session.getActiveToolNames(), 'codemode'])])
     }
@@ -1312,7 +1333,9 @@ export class SdkSession {
     failureEntryId?: string,
   ) {
     const stoppedBeforePrompt = this.stopped
-    const normalized = normalizePlanMessage(message, options?.mode ?? this.mode)
+    const normalized = options?.plan
+      ? { text: message, mode: options.mode ?? this.mode, commandOnly: false }
+      : normalizePlanMessage(message, options?.mode ?? this.mode)
     if (!normalized.commandOnly && (this.changing || this.running))
       throw new Error('Pi 正在运行或切换，请等待完成后重试')
     if (editEntryId !== undefined && (normalized.commandOnly || builtinCommand(normalized.text)))
@@ -1323,7 +1346,7 @@ export class SdkSession {
     }
     message = normalized.text
     this.queueCancelled = false
-    const command = builtinCommand(message)
+    const command = options?.plan ? undefined : builtinCommand(message)
     const extensionCommand = message.match(/^\/(\S+)/)?.[1]
     if (
       editEntryId !== undefined &&
@@ -1348,7 +1371,19 @@ export class SdkSession {
     this.admission = new AbortController()
     let edit: { commit: () => void; restore: () => void } | undefined
     let recovery: ReturnType<SdkSession['prepareRecovery']> | undefined
+    let planDocument: PlanDocument | undefined
     try {
+      if (!continuation) this.planReference = undefined
+      if (options?.plan) {
+        if (continuation || editEntryId || !this.policy.resolvePlan) throw new Error('当前入口不支持计划操作')
+        const { intent, reference } = options.plan
+        if (normalized.mode !== (intent === 'execute' ? 'default' : 'plan')) throw new Error('计划操作模式不匹配')
+        if (intent === 'execute' && this.accessMode === 'read-only') throw new Error('请先选择允许实施的访问权限')
+        const document = await this.policy.resolvePlan(reference, this.admission.signal)
+        planDocument = document
+        message = `${intent === 'execute' ? '请实施此计划。' : '请根据以下要求调整计划并保存新修订。'}\n\n${message.trim()}\n\n引用计划「${document.title}」（第 ${document.revision} 版）`
+        if (intent === 'revise') this.planReference = reference
+      }
       if (this.runtime && this.runtimeMode !== normalized.mode) {
         const restore = await this.captureRestoreState()
         if (this.queueCancelled) throw new Error('消息发送已取消')
@@ -1433,6 +1468,15 @@ export class SdkSession {
         if (this.goalRun) this.clearComposerHint()
       }
       if (generation !== this.generation || this.queueCancelled) throw new Error('消息发送已取消')
+      if (planDocument) {
+        this.session.sessionManager.appendCustomMessageEntry(
+          'pi-meme-plan-context',
+          planContextMessage(planDocument),
+          false,
+          { id: planDocument.id, revision: planDocument.revision },
+        )
+        this.session.refreshContext()
+      }
       this.activityRevision += 1
     } catch (cause) {
       try {
@@ -1652,6 +1696,7 @@ export class SdkSession {
     skills: SkillReference[] = [],
     options?: MessageOptions,
   ) {
+    if (options?.plan) throw new Error('计划操作不能插话或排队，请等待当前任务完成')
     const normalized = normalizePlanMessage(message, options?.mode ?? this.mode)
     this.mode = normalized.mode
     if (normalized.commandOnly) return

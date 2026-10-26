@@ -1611,7 +1611,9 @@ export class PiSessionPool implements PiRuntime {
     recoveryEntryId?: string,
   ) {
     if (!editEntryId) this.assertNotEditing(sessionKey)
-    const normalized = normalizePlanMessage(message, options?.mode ?? this.target(sessionKey).state.mode)
+    const normalized = options?.plan
+      ? { text: message, mode: options.mode ?? this.target(sessionKey).state.mode, commandOnly: false }
+      : normalizePlanMessage(message, options?.mode ?? this.target(sessionKey).state.mode)
     if (editEntryId !== undefined && (normalized.commandOnly || builtinCommand(normalized.text)))
       throw new Error('编辑消息需要重新发送正文，不能执行内置命令')
     if (normalized.commandOnly) {

@@ -895,7 +895,13 @@ test('根任务普通与规划模式均加载内置提问，快照恢复多题�
     assert.ok(
       tools
         .slice(2, 4)
-        .every((names: string[]) => names.includes('save_plan') && !names.includes('write') && !names.includes('bash')),
+        .every(
+          (names: string[]) =>
+            names.includes('save_plan') &&
+            names.includes('codemode') &&
+            !names.includes('write') &&
+            !names.includes('edit'),
+        ),
       JSON.stringify(tools),
     )
     assert.ok(
