@@ -1347,7 +1347,6 @@ export function App({
               setBrowserSettingsTarget(section)
               openSettings('browser')
             }}
-            onFocusChat={() => setBrowserFocus((value) => value + 1)}
           />
         ) : null,
     })),

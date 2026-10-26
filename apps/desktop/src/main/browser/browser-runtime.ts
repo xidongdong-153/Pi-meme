@@ -50,6 +50,7 @@ type Tab = {
   toolbarOffset: { x: number; y: number }
   toolbarMenuOpen: boolean
   screenshot: BrowserSnapshot['settings']['screenshots']
+  find?: { requestId: number; text: string }
 }
 type Overlay = { view: WebContentsView; kind: 'editor' | 'toolbar'; tab: Tab }
 
@@ -81,6 +82,13 @@ export function registerBrowserRuntime(options: {
   const tabFor = (sender: WebContents) => [...tabs.values()].find((tab) => tab.view.webContents === sender)
   const overlayFor = (sender: WebContents) => [...overlays].find((item) => item.view.webContents === sender)
   const publish = (tab: Tab) => emit({ type: 'tab', tab: { ...tab.state } })
+  const preview = (tab: Tab) =>
+    tab.state.error || tab.state.url === 'about:blank'
+      ? Promise.resolve(null)
+      : tab.view.webContents
+          .capturePage()
+          .then((image) => image.resize({ width: Math.min(1200, image.getSize().width) }).toDataURL())
+          .catch(() => null)
   const closeOverlays = (kind?: Overlay['kind']) => {
     for (const item of overlays)
       if (!kind || item.kind === kind) {
@@ -179,6 +187,7 @@ export function registerBrowserRuntime(options: {
       },
     })
     view.setBackgroundColor('#00000000')
+    view.setVisible(false)
     const item: Overlay = { view, kind, tab }
     overlays.add(item)
     window.contentView.addChildView(view)
@@ -186,7 +195,6 @@ export function registerBrowserRuntime(options: {
     view.webContents.on('will-navigate', (event) => event.preventDefault())
     positionOverlays(tab)
     await view.webContents.loadURL(`${options.origin()}/?browser-overlay=${kind}`)
-    if (!view.webContents.isDestroyed() && visible === tab && kind === 'editor') view.webContents.focus()
   }
   const capture = async (tab: Tab, mode: Tab['screenshot'], annotation: BrowserAnnotation) => {
     if (mode === 'none') return { ...annotation, image: undefined }
@@ -252,6 +260,9 @@ export function registerBrowserRuntime(options: {
       case 'stop':
         web.stop()
         break
+      case 'focus':
+        if (visible === tab) web.focus()
+        break
       case 'external':
         if (/^https?:/.test(tab.state.url)) await shell.openExternal(tab.state.url)
         break
@@ -264,8 +275,18 @@ export function registerBrowserRuntime(options: {
         break
       case 'find':
         if (typeof value.text !== 'string' || value.text.length > 1000) throw new Error('查找文字无效')
-        if (value.text) web.findInPage(value.text)
-        else web.stopFindInPage('clearSelection')
+        if (value.text) {
+          const next = value.next === true && tab.find?.text === value.text
+          if (!next) web.stopFindInPage('clearSelection')
+          tab.find = {
+            // Electron 的 findNext 对应 Chromium 的 new_session；新查找传 true，继续查找传 false。
+            requestId: web.findInPage(value.text, { forward: value.forward !== false, findNext: !next }),
+            text: value.text,
+          }
+        } else {
+          tab.find = undefined
+          web.stopFindInPage('clearSelection')
+        }
         break
       case 'annotate':
         await setEnabled(tab, value.enabled, Boolean(value.region))
@@ -380,6 +401,33 @@ export function registerBrowserRuntime(options: {
     window.contentView.addChildView(view)
     view.setVisible(false)
     const web = view.webContents
+    web.on('found-in-page', (_event, result) => {
+      if (!tab.find || result.requestId !== tab.find.requestId || !result.finalUpdate) return
+      emit({
+        type: 'find-result',
+        tabId: id,
+        text: tab.find.text,
+        active: result.activeMatchOrdinal,
+        matches: result.matches,
+      })
+    })
+    web.on('before-input-event', (event, input) => {
+      if (visible !== tab || input.type !== 'keyDown' || input.isComposing || input.alt) return
+      const key = input.key.toLowerCase()
+      const modifier = process.platform === 'darwin' ? input.meta : input.control
+      const action =
+        modifier && !input.shift && key === 'f'
+          ? 'find'
+          : modifier && !input.shift && key === 'l'
+            ? 'address'
+            : key === 'escape' && tab.find
+              ? 'close-find'
+              : undefined
+      if (!action) return
+      event.preventDefault()
+      window.webContents.focus()
+      emit({ type: 'browser-shortcut', tabId: id, action })
+    })
     const sync = () => {
       if (web.isDestroyed()) return
       tab.state = {
@@ -395,6 +443,7 @@ export function registerBrowserRuntime(options: {
     }
     web.on('did-start-navigation', (_event, _url, inPlace, isMainFrame) => {
       if (isMainFrame && !inPlace) {
+        tab.find = undefined
         tab.state.documentId++
         tab.state.error = undefined
         tab.state.favicon = undefined
@@ -673,6 +722,13 @@ export function registerBrowserRuntime(options: {
     if (!item || event.senderFrame !== event.sender.mainFrame || visible !== item.tab) throw new Error('批注目标已切换')
     const tab = item.tab
     if (!action || typeof action.type !== 'string') throw new Error('批注操作无效')
+    if (action.type === 'ready') {
+      if (item.kind === 'toolbar' ? !tab.enabled : !tab.editorVisible) return
+      positionOverlays(tab)
+      item.view.setVisible(true)
+      if (item.kind === 'editor') item.view.webContents.focus()
+      return
+    }
     if (action.type === 'comment') {
       if (item.kind !== 'editor' || !tab.editor || typeof action.text !== 'string' || action.text.length > 16000)
         throw new Error('批注评论无效')
@@ -969,20 +1025,15 @@ export function registerBrowserRuntime(options: {
         if (!tab) return null
         const bounds = args[1] as BrowserRect | null
         if (!bounds) {
-          const preview =
-            visible === tab && !tab.state.error && tab.state.url !== 'about:blank'
-              ? await tab.view.webContents
-                  .capturePage()
-                  .then((image) => image.resize({ width: Math.min(1200, image.getSize().width) }).toDataURL())
-                  .catch(() => null)
-              : null
+          const image = visible === tab && args[4] !== false ? await preview(tab) : null
+          tab.view.webContents.setBackgroundThrottling(args[4] !== false)
           tab.view.setVisible(false)
           tab.bounds = undefined
           if (visible === tab) {
             closeOverlays()
             visible = undefined
           }
-          return preview
+          return image
         }
         if (
           ![bounds.x, bounds.y, bounds.width, bounds.height].every(Number.isFinite) ||
@@ -1026,6 +1077,7 @@ export function registerBrowserRuntime(options: {
           tab.colors = colors
         }
         tab.view.setBounds(tab.bounds)
+        tab.view.webContents.setBackgroundThrottling(true)
         tab.view.setVisible(!tab.state.error && tab.state.url !== 'about:blank')
         if (tab.enabled) {
           await showOverlay(tab, 'toolbar')
@@ -1033,6 +1085,18 @@ export function registerBrowserRuntime(options: {
         }
         positionOverlays(tab)
         return null
+      }
+      case 'preview': {
+        const tab = tabs.get(String(args[0]))
+        if (!tab) return null
+        if (visible !== tab)
+          await Promise.race([
+            tab.view.webContents
+              .executeJavaScript('new Promise((resolve) => requestAnimationFrame(resolve))')
+              .catch(() => {}),
+            new Promise((resolve) => setTimeout(resolve, 200)),
+          ])
+        return preview(tab)
       }
       case 'command': {
         const tab = tabs.get(String(args[0]))

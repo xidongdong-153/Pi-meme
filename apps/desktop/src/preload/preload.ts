@@ -14,7 +14,9 @@ const browser: BrowserPlatform = {
   rebind: (from, to) => browserCall('rebind', from, to),
   create: (owner, id, url) => browserCall('create', owner, id, url),
   close: (id) => browserCall('close', id),
-  present: (id, bounds, theme, colors) => browserCall('present', id, bounds, theme, colors),
+  present: (id, bounds, theme, colors, capturePreview) =>
+    browserCall('present', id, bounds, theme, colors, capturePreview),
+  preview: (id) => browserCall('preview', id),
   command: (id, command) => browserCall('command', id, command),
   history: (id) => browserCall('history', id),
   download: (id, action) => browserCall('download', id, action),

@@ -11,6 +11,12 @@ const mocks = vi.hoisted(() => ({
       close: ReturnType<typeof vi.fn>
       on: ReturnType<typeof vi.fn>
       send: ReturnType<typeof vi.fn>
+      capturePage: ReturnType<typeof vi.fn>
+      executeJavaScript: ReturnType<typeof vi.fn>
+      setBackgroundThrottling: ReturnType<typeof vi.fn>
+      findInPage: ReturnType<typeof vi.fn>
+      stopFindInPage: ReturnType<typeof vi.fn>
+      focus: ReturnType<typeof vi.fn>
     }
     setVisible: ReturnType<typeof vi.fn>
     setBounds: ReturnType<typeof vi.fn>
@@ -44,6 +50,8 @@ vi.mock('electron', () => ({
     }
   },
   WebContentsView: class {
+    zoomFactor = 1
+    findRequest = 0
     webContents = {
       mainFrame: { url: '' },
       getURL: () => this.webContents.mainFrame.url,
@@ -59,8 +67,16 @@ vi.mock('electron', () => ({
       },
       send: vi.fn(),
       navigationHistory: { canGoBack: () => false, canGoForward: () => false },
-      getZoomFactor: () => 1,
-      setZoomFactor: vi.fn(),
+      getZoomFactor: () => this.zoomFactor,
+      setZoomFactor: vi.fn((value: number) => (this.zoomFactor = value)),
+      findInPage: vi.fn(() => ++this.findRequest),
+      stopFindInPage: vi.fn(),
+      setBackgroundThrottling: vi.fn(),
+      executeJavaScript: vi.fn(async () => {}),
+      capturePage: vi.fn(async () => ({
+        getSize: () => ({ width: 800 }),
+        resize: () => ({ toDataURL: () => `data:image/png;base64,${Math.round(this.zoomFactor * 100)}` }),
+      })),
     }
     setBackgroundColor = vi.fn()
     setVisible = vi.fn()
@@ -82,7 +98,7 @@ beforeEach(() => {
 })
 function setup() {
   const frame = { url: 'http://127.0.0.1:3181/' }
-  const web = { mainFrame: frame, send: vi.fn() }
+  const web = { mainFrame: frame, send: vi.fn(), focus: vi.fn() }
   const window = {
     webContents: web,
     isDestroyed: () => false,
@@ -202,6 +218,83 @@ describe('浏览器原生权限边界', () => {
     await expect(Promise.resolve().then(() => mocks.handlers.get('browser:overlay-state')!(f.event))).rejects.toThrow(
       '失效',
     )
+  })
+  it('批注工具条在界面就绪后才显示', async () => {
+    const f = setup()
+    await f.call('create', 'chat', 'tab', 'https://example.com/')
+    await f.call('present', 'tab', { x: 0, y: 0, width: 400, height: 300 })
+    await f.call('command', 'tab', { type: 'annotate', enabled: true })
+    const toolbar = mocks.views[1]
+    expect(toolbar.setVisible).toHaveBeenCalledWith(false)
+    expect(toolbar.setVisible).not.toHaveBeenCalledWith(true)
+    const event = { sender: toolbar.webContents, senderFrame: toolbar.webContents.mainFrame }
+    await mocks.handlers.get('browser:overlay-action')!(event, { type: 'ready' })
+    expect(toolbar.setVisible).toHaveBeenLastCalledWith(true)
+  })
+  it('菜单预览在视图隐藏后仍反映最新缩放', async () => {
+    const f = setup()
+    await f.call('create', 'chat', 'tab', 'https://example.com/')
+    await f.call('present', 'tab', { x: 0, y: 0, width: 400, height: 300 })
+    const web = mocks.views[0].webContents
+    expect(await f.call('preview', 'tab')).toBe('data:image/png;base64,100')
+    await f.call('present', 'tab', null, undefined, undefined, false)
+    expect(web.capturePage).toHaveBeenCalledTimes(1)
+    expect(web.setBackgroundThrottling).toHaveBeenLastCalledWith(false)
+    await f.call('command', 'tab', { type: 'zoom', value: 1.4 })
+    expect(await f.call('preview', 'tab')).toBe('data:image/png;base64,140')
+    expect(web.executeJavaScript).toHaveBeenCalledOnce()
+  })
+  it('查找转发结果和方向，忽略旧请求及关闭后的结果', async () => {
+    const f = setup()
+    await f.call('create', 'chat', 'tab', 'https://example.com/')
+    const web = mocks.views[0].webContents
+    const found = web.on.mock.calls.find(([name]) => name === 'found-in-page')![1]
+    await f.call('command', 'tab', { type: 'find', text: '苹果' })
+    expect(web.findInPage).toHaveBeenLastCalledWith('苹果', { forward: true, findNext: true })
+    found({}, { requestId: 1, activeMatchOrdinal: 1, matches: 3, finalUpdate: true })
+    expect(f.web.send).toHaveBeenLastCalledWith('browser:event', {
+      type: 'find-result',
+      tabId: 'tab',
+      text: '苹果',
+      active: 1,
+      matches: 3,
+    })
+    await f.call('command', 'tab', { type: 'find', text: '苹果', next: true, forward: false })
+    expect(web.findInPage).toHaveBeenLastCalledWith('苹果', { forward: false, findNext: false })
+    expect(web.stopFindInPage).toHaveBeenCalledTimes(1)
+    f.web.send.mockClear()
+    found({}, { requestId: 1, activeMatchOrdinal: 1, matches: 3, finalUpdate: true })
+    expect(f.web.send).not.toHaveBeenCalled()
+    await f.call('command', 'tab', { type: 'find', text: '' })
+    found({}, { requestId: 2, activeMatchOrdinal: 3, matches: 3, finalUpdate: true })
+    expect(f.web.send).not.toHaveBeenCalled()
+    expect(web.stopFindInPage).toHaveBeenLastCalledWith('clearSelection')
+  })
+  it('网页内查找快捷键将焦点交给应用，并只处理当前可见网页', async () => {
+    const f = setup()
+    await f.call('create', 'chat', 'tab', 'https://example.com/')
+    const web = mocks.views[0].webContents
+    const input = web.on.mock.calls.find(([name]) => name === 'before-input-event')![1]
+    const event = { preventDefault: vi.fn() }
+    const key = {
+      type: 'keyDown',
+      key: 'f',
+      meta: process.platform === 'darwin',
+      control: process.platform !== 'darwin',
+    }
+    input(event, key)
+    expect(event.preventDefault).not.toHaveBeenCalled()
+    await f.call('present', 'tab', { x: 0, y: 0, width: 400, height: 300 })
+    input(event, key)
+    expect(event.preventDefault).toHaveBeenCalledOnce()
+    expect(f.web.focus).toHaveBeenCalledOnce()
+    expect(f.web.send).toHaveBeenLastCalledWith('browser:event', {
+      type: 'browser-shortcut',
+      tabId: 'tab',
+      action: 'find',
+    })
+    input(event, { ...key, isComposing: true })
+    expect(event.preventDefault).toHaveBeenCalledOnce()
   })
   it('点击当前文档标记后原位更新批注，拒绝过期标记', async () => {
     const f = setup()

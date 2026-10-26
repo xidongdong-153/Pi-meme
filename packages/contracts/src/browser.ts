@@ -71,6 +71,8 @@ export type BrowserSnapshot = {
 }
 export type BrowserEvent =
   | { type: 'tab'; tab: BrowserTab }
+  | { type: 'find-result'; tabId: string; text: string; active: number; matches: number }
+  | { type: 'browser-shortcut'; tabId: string; action: 'find' | 'address' | 'close-find' }
   | { type: 'annotation-mode'; tabId: string; enabled: boolean }
   | { type: 'annotation'; owner: string; annotation: BrowserAnnotation }
   | { type: 'annotation-remove'; owner: string; id: string }
@@ -82,9 +84,9 @@ export type BrowserEvent =
   | { type: 'changed' }
 export type BrowserCommand =
   | { type: 'navigate'; url: string }
-  | { type: 'back' | 'forward' | 'reload' | 'stop' | 'external' }
+  | { type: 'back' | 'forward' | 'reload' | 'stop' | 'external' | 'focus' }
   | { type: 'zoom'; value: number }
-  | { type: 'find'; text: string }
+  | { type: 'find'; text: string; forward?: boolean; next?: boolean }
   | { type: 'annotate'; enabled: boolean; region?: boolean }
   | { type: 'markers'; annotations: BrowserAnnotation[] }
   | { type: 'restore-editor'; annotation: BrowserAnnotation }
@@ -104,7 +106,9 @@ export interface BrowserPlatform {
     bounds: BrowserRect | null,
     theme?: 'dark' | 'light',
     colors?: ThemeColors,
+    capturePreview?: boolean,
   ) => Promise<string | null>
+  preview: (id: string) => Promise<string | null>
   command: (id: string, command: BrowserCommand) => Promise<void>
   history: (id?: string) => Promise<BrowserSnapshot>
   download: (id: string, action: 'cancel' | 'open' | 'reveal' | 'remove') => Promise<void>

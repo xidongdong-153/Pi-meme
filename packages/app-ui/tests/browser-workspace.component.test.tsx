@@ -1,7 +1,9 @@
-import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
+import '@testing-library/jest-dom/vitest'
+import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type {
   BrowserAnnotation,
+  BrowserCommand,
   BrowserEvent,
   BrowserPlatform,
   BrowserSnapshot,
@@ -9,6 +11,7 @@ import type {
   BrowserWorkspace,
 } from '@pi-meme/contracts/browser'
 import { useBrowser } from '@pi-meme/browser/ui/use-browser'
+import { BrowserPanel } from '@pi-meme/browser/ui/browser-panel'
 
 afterEach(cleanup)
 const snapshot: BrowserSnapshot = {
@@ -145,5 +148,185 @@ describe('浏览器工作区异步隔离', () => {
     act(() => f.emit({ type: 'annotation-remove', owner: 'a', id: 'one' }))
     expect(result.current.workspace?.annotations.map((item) => item.id)).toEqual(['two'])
     expect(f.callbacks.onAnnotationRemove).toHaveBeenCalledWith('one')
+  })
+})
+
+function renderBrowserPanel() {
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  )
+  const listeners = new Set<(event: BrowserEvent) => void>()
+  const tab: BrowserTab = {
+    id: 'tab',
+    owner: 'chat',
+    url: 'https://example.com/',
+    title: '网页',
+    documentId: 1,
+    loading: false,
+    canGoBack: false,
+    canGoForward: false,
+    zoom: 1,
+  }
+  const platform = {
+    snapshot: async () => snapshot,
+    create: vi.fn(async () => tab),
+    present: vi.fn(async () => null),
+    preview: vi.fn<BrowserPlatform['preview']>(async () => null),
+    command: vi.fn<BrowserPlatform['command']>(async () => {}),
+    onEvent: (listener: (event: BrowserEvent) => void) => {
+      listeners.add(listener)
+      return () => listeners.delete(listener)
+    },
+  }
+  render(
+    <BrowserPanel platform={platform as unknown as BrowserPlatform} tab={tab} annotations={[]} onSettings={vi.fn()} />,
+  )
+  return { platform, emit: (event: BrowserEvent) => act(() => listeners.forEach((listener) => listener(event))) }
+}
+
+async function openBrowserMenu() {
+  fireEvent.pointerDown(screen.getByRole('button', { name: '更多浏览器操作' }), { button: 0, ctrlKey: false })
+  return screen.findByRole('menuitem', { name: '在页面中查找' })
+}
+
+describe('浏览器菜单交互', () => {
+  it('地址栏聚焦后选中完整网址，粘贴时不会留下旧网址前缀', async () => {
+    renderBrowserPanel()
+    const input = screen.getByRole('textbox', { name: '搜索或输入网址' }) as HTMLInputElement
+    act(() => input.focus())
+    expect(input.value).toBe('https://example.com/')
+    expect(input.selectionStart).toBe(0)
+    expect(input.selectionEnd).toBe(input.value.length)
+  })
+
+  it('从菜单打开查找后输入框为空并获得焦点，保留地址栏', async () => {
+    renderBrowserPanel()
+    fireEvent.click(await openBrowserMenu())
+    const input = await screen.findByRole('textbox', { name: '在页面中查找' })
+    await waitFor(() => expect(input).toHaveFocus())
+    expect(input).toHaveValue('')
+    expect(screen.getByRole('textbox', { name: '搜索或输入网址' })).toBeInTheDocument()
+  })
+
+  it('连续缩放立即显示累计值，不等待原生状态回传', async () => {
+    const { platform } = renderBrowserPanel()
+    await openBrowserMenu()
+    fireEvent.click(screen.getByRole('button', { name: '放大' }))
+    fireEvent.click(screen.getByRole('button', { name: '放大' }))
+    fireEvent.click(screen.getByRole('button', { name: '放大' }))
+    expect(screen.getByRole('button', { name: '130%' })).toBeInTheDocument()
+    expect(platform.command.mock.calls.filter(([, command]) => command.type === 'zoom')).toEqual([
+      ['tab', { type: 'zoom', value: 1.1 }],
+      ['tab', { type: 'zoom', value: 1.2 }],
+      ['tab', { type: 'zoom', value: 1.3 }],
+    ])
+  })
+
+  it('菜单隐藏原生视图时不会丢弃第一次缩放的新预览', async () => {
+    let frames: FrameRequestCallback[] = []
+    vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => frames.push(callback))
+    vi.stubGlobal('cancelAnimationFrame', vi.fn())
+    const nextFrame = () =>
+      act(async () => {
+        const pending = frames
+        frames = []
+        pending.forEach((callback) => callback(0))
+      })
+    vi.stubGlobal(
+      'Image',
+      class {
+        src = ''
+        async decode() {}
+      },
+    )
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      x: 0,
+      y: 0,
+      width: 400,
+      height: 300,
+      top: 0,
+      left: 0,
+      right: 400,
+      bottom: 300,
+      toJSON: () => ({}),
+    })
+    const { platform } = renderBrowserPanel()
+    platform.preview.mockResolvedValue('data:image/png;base64,before')
+    await act(async () => {
+      fireEvent.pointerDown(screen.getByRole('button', { name: '更多浏览器操作' }), { button: 0, ctrlKey: false })
+    })
+    await nextFrame()
+    let resolve!: () => void
+    platform.command.mockImplementationOnce(
+      () =>
+        new Promise<void>((done) => {
+          resolve = done
+        }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: '放大' }))
+    await nextFrame()
+    expect(platform.present).toHaveBeenCalledWith('tab', null, 'dark', expect.any(Object), false)
+    platform.preview.mockResolvedValue('data:image/png;base64,after')
+    await act(async () => {
+      resolve()
+    })
+    await waitFor(() =>
+      expect(screen.getByRole('img', { name: '网页预览', hidden: true })).toHaveAttribute(
+        'src',
+        'data:image/png;base64,after',
+      ),
+    )
+  })
+
+  it('查找显示当前词的结果，Enter 和 Shift+Enter 跳转，Esc 清除高亮并返回网页', async () => {
+    const { platform, emit } = renderBrowserPanel()
+    fireEvent.click(await openBrowserMenu())
+    const input = await screen.findByRole('textbox', { name: '在页面中查找' })
+    fireEvent.change(input, { target: { value: '苹果' } })
+    emit({ type: 'find-result', tabId: 'other', text: '苹果', active: 1, matches: 99 })
+    emit({ type: 'find-result', tabId: 'tab', text: '旧词', active: 1, matches: 99 })
+    expect(screen.getByRole('status')).toHaveTextContent('查找中')
+    emit({ type: 'find-result', tabId: 'tab', text: '苹果', active: 1, matches: 3 })
+    expect(screen.getByRole('status')).toHaveTextContent('1/3')
+    fireEvent.keyDown(input, { key: 'Enter' })
+    expect(platform.command).toHaveBeenLastCalledWith('tab', { type: 'find', text: '苹果', next: true, forward: true })
+    fireEvent.keyDown(input, { key: 'Enter', shiftKey: true })
+    expect(platform.command).toHaveBeenLastCalledWith('tab', { type: 'find', text: '苹果', next: true, forward: false })
+    const calls = platform.command.mock.calls.length
+    fireEvent.keyDown(input, { key: 'Enter', isComposing: true })
+    expect(platform.command).toHaveBeenCalledTimes(calls)
+    fireEvent.change(input, { target: { value: '不存在' } })
+    emit({ type: 'find-result', tabId: 'tab', text: '不存在', active: 0, matches: 0 })
+    expect(screen.getByRole('status')).toHaveTextContent('无匹配')
+    expect(screen.getByRole('button', { name: '下一个匹配' })).toBeDisabled()
+    fireEvent.keyDown(input, { key: 'Escape' })
+    expect(screen.queryByRole('textbox', { name: '在页面中查找' })).not.toBeInTheDocument()
+    expect(platform.command).toHaveBeenCalledWith('tab', { type: 'find', text: '' })
+    expect(platform.command).toHaveBeenLastCalledWith('tab', { type: 'focus' })
+  })
+
+  it('较早缩放请求失败不回退后来点击的值', async () => {
+    const { platform } = renderBrowserPanel()
+    await openBrowserMenu()
+    let reject!: (cause: Error) => void
+    platform.command.mockImplementationOnce(
+      () =>
+        new Promise<void>((_resolve, fail) => {
+          reject = fail
+        }),
+    )
+    fireEvent.click(screen.getByRole('button', { name: '放大' }))
+    fireEvent.click(screen.getByRole('button', { name: '放大' }))
+    await act(async () => {
+      reject(new Error('旧请求失败'))
+    })
+    expect(screen.getByRole('button', { name: '120%' })).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '放大' }))
+    expect(platform.command).toHaveBeenLastCalledWith('tab', { type: 'zoom', value: 1.3 } satisfies BrowserCommand)
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 })

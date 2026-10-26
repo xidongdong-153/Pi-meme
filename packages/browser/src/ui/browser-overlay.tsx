@@ -82,6 +82,9 @@ export function BrowserOverlay({ platform }: { platform: BrowserOverlayPlatform 
     return () => window.removeEventListener('blur', restore)
   }, [platform, state?.kind])
   useLayoutEffect(() => {
+    if (state) void platform.action({ type: 'ready' }).catch((cause) => setError(String(cause)))
+  }, [platform, state?.kind])
+  useLayoutEffect(() => {
     requestedEditorHeight.current = 0
     setComment(state?.annotation?.comment ?? '')
   }, [state?.annotation?.id])
@@ -351,7 +354,7 @@ export function BrowserOverlay({ platform }: { platform: BrowserOverlayPlatform 
         <Button
           size="icon-sm"
           variant="ghost"
-          className="size-7 shrink-0 rounded-full bg-secondary/70"
+          className="mt-1 size-7 shrink-0 rounded-full bg-secondary/70"
           title="查看元素属性"
           aria-label="查看元素属性"
           aria-expanded={state.expanded}

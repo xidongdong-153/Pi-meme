@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   ArrowLeft,
   ArrowRight,
   Camera,
+  ChevronDown,
+  ChevronUp,
   ExternalLink,
   Globe,
-  MessageCircle,
   MoreHorizontal,
   MousePointer2,
   Pencil,
@@ -13,6 +14,7 @@ import {
   Search,
   Settings,
   Square,
+  X,
   ZoomIn,
   ZoomOut,
 } from 'lucide-react'
@@ -61,7 +63,6 @@ export function BrowserPanel({
   annotations,
   editor,
   onSettings,
-  onFocusChat,
   saveError,
   onRetrySave,
 }: {
@@ -70,11 +71,14 @@ export function BrowserPanel({
   annotations: BrowserAnnotation[]
   editor?: BrowserAnnotation
   onSettings: (section?: 'general' | 'history' | 'downloads' | 'clear') => void
-  onFocusChat: () => void
   saveError?: string
   onRetrySave?: () => void
 }) {
   const viewport = useRef<HTMLDivElement>(null)
+  const addressInput = useRef<HTMLInputElement>(null)
+  const findInput = useRef<HTMLInputElement>(null)
+  const findText = useRef('')
+  const focusFindAfterMenu = useRef(false)
   const currentTab = useRef(tab)
   currentTab.current = tab
   const currentAnnotations = useRef(annotations)
@@ -86,9 +90,24 @@ export function BrowserPanel({
   const [error, setError] = useState('')
   const [preview, setPreview] = useState<string | null>(null)
   const [finding, setFinding] = useState(false)
+  const [query, setQuery] = useState('')
+  const [findResult, setFindResult] = useState<{ active: number; matches: number } | null>(null)
+  const [menuOpen, setMenuOpen] = useState(false)
   const [narrow, setNarrow] = useState(false)
   const zoom = tab.zoom ?? 1
+  const [menuZoom, setMenuZoom] = useState(zoom)
+  const currentZoom = useRef(zoom)
+  const zoomRequest = useRef(0)
+  const previewRequest = useRef(0)
+  const menuRequest = useRef(0)
+  const menuPreviewReady = useRef(false)
   const [annotating, setAnnotating] = useState(false)
+  useEffect(() => {
+    if (!menuOpen) {
+      currentZoom.current = zoom
+      setMenuZoom(zoom)
+    }
+  }, [menuOpen, zoom])
   useEffect(() => {
     void platform
       .snapshot()
@@ -99,6 +118,22 @@ export function BrowserPanel({
       .catch(() => {})
   }, [platform])
   useEffect(() => setAddress(tab.url === 'about:blank' ? '' : tab.url), [tab.url])
+  useLayoutEffect(() => {
+    if (focused) addressInput.current?.select()
+  }, [focused])
+  useEffect(() => {
+    findText.current = ''
+    setQuery('')
+    setFindResult(null)
+    setFinding(false)
+    void platform.command(tab.id, { type: 'find', text: '' }).catch(() => {})
+  }, [platform, tab.id, tab.documentId])
+  useEffect(() => {
+    if (finding && !menuOpen) {
+      findInput.current?.focus()
+      findInput.current?.select()
+    }
+  }, [finding, menuOpen])
   useEffect(() => {
     const element = viewport.current
     if (!element) return
@@ -109,6 +144,25 @@ export function BrowserPanel({
   useEffect(() => {
     const release = platform.onEvent((event) => {
       if (event.type === 'annotation-mode' && event.tabId === tab.id) setAnnotating(event.enabled)
+      if (event.type === 'find-result' && event.tabId === tab.id && event.text === findText.current)
+        setFindResult({ active: event.active, matches: event.matches })
+      if (event.type === 'browser-shortcut' && event.tabId === tab.id) {
+        if (event.action === 'find') {
+          setFinding(true)
+          findInput.current?.focus()
+          findInput.current?.select()
+        } else if (event.action === 'address') {
+          addressInput.current?.focus()
+          addressInput.current?.select()
+        } else {
+          setFinding(false)
+          findText.current = ''
+          setQuery('')
+          setFindResult(null)
+          void platform.command(tab.id, { type: 'find', text: '' }).catch(() => {})
+          void platform.command(tab.id, { type: 'focus' }).catch(() => {})
+        }
+      }
     })
     return release
   }, [platform, tab.id])
@@ -122,6 +176,43 @@ export function BrowserPanel({
   }
   const menuCommand = (value: BrowserCommand) => {
     window.setTimeout(() => void command(value), 200)
+  }
+  const updatePreview = async (image: string | null, request: number) => {
+    if (!image) return false
+    const loaded = new Image()
+    loaded.src = image
+    try {
+      await loaded.decode()
+    } catch {
+      return false
+    }
+    if (previewRequest.current !== request) return false
+    setPreview(image)
+    return true
+  }
+  const changeMenuOpen = (open: boolean) => {
+    const request = ++menuRequest.current
+    if (!open) {
+      menuPreviewReady.current = false
+      setMenuOpen(false)
+      return
+    }
+    const imageRequest = ++previewRequest.current
+    void platform
+      .preview(tab.id)
+      .then((image) => updatePreview(image, imageRequest))
+      .then((ready) => {
+        if (menuRequest.current !== request) return
+        menuPreviewReady.current = ready
+        requestAnimationFrame(() => {
+          if (menuRequest.current === request) setMenuOpen(true)
+        })
+      })
+      .catch((cause) => {
+        if (menuRequest.current !== request) return
+        setError(String(cause))
+        setMenuOpen(true)
+      })
   }
   useEffect(() => {
     let cancelled = false
@@ -150,10 +241,12 @@ export function BrowserPanel({
       const next = JSON.stringify([bounds, theme, colors, currentTab.current.error, currentTab.current.url])
       if (last !== next) {
         last = next
+        // 不截图的显隐更新不能使正在生成的缩放预览失效。
+        const request = !bounds && !menuPreviewReady.current ? ++previewRequest.current : previewRequest.current
         void platform
-          .present(tab.id, bounds, theme, colors)
+          .present(tab.id, bounds, theme, colors, !menuPreviewReady.current)
           .then((image) => {
-            if (!cancelled && image) setPreview(image)
+            if (!cancelled && image) void updatePreview(image, request)
           })
           .catch((cause) => {
             if (!cancelled) setError(String(cause))
@@ -181,9 +274,57 @@ export function BrowserPanel({
   useEffect(() => {
     void platform.command(tab.id, { type: 'markers', annotations }).catch(() => {})
   }, [platform, tab.id, annotations])
-  const changeZoom = (value: number) => void command({ type: 'zoom', value: Math.max(0.25, Math.min(3, value)) })
+  const changeZoom = async (value: number) => {
+    const next = Math.round(Math.max(0.25, Math.min(3, value)) * 100) / 100
+    const request = ++zoomRequest.current
+    const imageRequest = ++previewRequest.current
+    currentZoom.current = next
+    setMenuZoom(next)
+    try {
+      setError('')
+      await platform.command(tab.id, { type: 'zoom', value: next })
+      if (zoomRequest.current !== request) return
+      await updatePreview(await platform.preview(tab.id), imageRequest)
+    } catch (cause) {
+      if (zoomRequest.current !== request) return
+      currentZoom.current = currentTab.current.zoom ?? 1
+      setMenuZoom(currentZoom.current)
+      setError(String(cause))
+    }
+  }
+  const closeFind = () => {
+    setFinding(false)
+    findText.current = ''
+    setQuery('')
+    setFindResult(null)
+    void command({ type: 'find', text: '' })
+    void command({ type: 'focus' })
+  }
+  const find = (text: string, next = false, forward = true) => {
+    findText.current = text
+    setQuery(text)
+    if (!next) setFindResult(null)
+    void command({ type: 'find', text, next, forward })
+  }
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div
+      className="flex min-h-0 flex-1 flex-col"
+      onKeyDown={(event) => {
+        if (event.nativeEvent.isComposing || event.altKey) return
+        if ((event.metaKey || event.ctrlKey) && !event.shiftKey) {
+          if (event.key.toLowerCase() === 'f') {
+            event.preventDefault()
+            setFinding(true)
+            findInput.current?.focus()
+            findInput.current?.select()
+          } else if (event.key.toLowerCase() === 'l') {
+            event.preventDefault()
+            addressInput.current?.focus()
+            addressInput.current?.select()
+          }
+        }
+      }}
+    >
       <div className="flex h-12 shrink-0 items-center gap-1.5 border-b border-border bg-background px-2 no-drag">
         <div className="flex h-8 shrink-0 items-center rounded-full bg-secondary/80 px-0.5">
           <Button
@@ -201,7 +342,7 @@ export function BrowserPanel({
             variant="ghost"
             title="前进"
             aria-label="前进"
-            className={narrow ? 'hidden' : undefined}
+            className={narrow && !tab.canGoForward ? 'hidden' : undefined}
             disabled={!tab.canGoForward}
             onClick={() => void command({ type: 'forward' })}
           >
@@ -234,60 +375,46 @@ export function BrowserPanel({
           className="min-w-0 flex-1"
           onSubmit={(event) => {
             event.preventDefault()
-            if (!finding) void command({ type: 'navigate', url: address })
+            if (address.trim()) void command({ type: 'navigate', url: address })
           }}
         >
-          {finding ? (
-            <input
-              autoFocus
-              aria-label="在页面中查找"
-              placeholder="在页面中查找 · Esc 关闭"
-              className="h-8 w-full rounded-full bg-secondary/80 px-3 text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              onChange={(event) => void command({ type: 'find', text: event.target.value })}
-              onKeyDown={(event) => {
-                if (event.key === 'Escape') {
-                  setFinding(false)
-                  void command({ type: 'find', text: '' })
-                }
-              }}
-            />
-          ) : (
-            <input
-              aria-label="搜索或输入网址"
-              placeholder="搜索或输入网址"
-              value={
-                focused || fullUrl || tab.url === 'about:blank'
-                  ? address
-                  : (() => {
-                      try {
-                        return new URL(tab.url).host
-                      } catch {
-                        return address
-                      }
-                    })()
+          <input
+            ref={addressInput}
+            aria-label="搜索或输入网址"
+            placeholder="搜索或输入网址"
+            value={
+              focused || fullUrl || tab.url === 'about:blank'
+                ? address
+                : (() => {
+                    try {
+                      return new URL(tab.url).host
+                    } catch {
+                      return address
+                    }
+                  })()
+            }
+            onFocus={(event) => {
+              setFocused(true)
+              setAddress(tab.url === 'about:blank' ? '' : tab.url)
+              event.currentTarget.select()
+            }}
+            onBlur={() => setFocused(false)}
+            onChange={(event) => setAddress(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.nativeEvent.isComposing) {
+                if (event.key === 'Enter') event.preventDefault()
+                return
               }
-              onFocus={(event) => {
-                setFocused(true)
+              if (event.key === 'Escape') {
                 setAddress(tab.url === 'about:blank' ? '' : tab.url)
-                event.currentTarget.select()
-              }}
-              onBlur={() => setFocused(false)}
-              onChange={(event) => setAddress(event.target.value)}
-              className={`h-8 w-full rounded-full bg-secondary/80 px-3 text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring ${focused || tab.url === 'about:blank' ? 'text-left' : 'text-center'}`}
-            />
-          )}
+                event.currentTarget.blur()
+                void command({ type: 'focus' })
+              }
+            }}
+            className={`h-8 w-full rounded-full bg-secondary/80 px-3 text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring ${focused || tab.url === 'about:blank' ? 'text-left' : 'text-center'}`}
+          />
         </form>
-        <Button
-          size="icon-sm"
-          variant="ghost"
-          className="shrink-0 rounded-full bg-secondary/80"
-          title="返回聊天"
-          aria-label="返回聊天"
-          onClick={onFocusChat}
-        >
-          <MessageCircle className="size-4" />
-        </Button>
-        <DropdownMenu>
+        <DropdownMenu open={menuOpen} onOpenChange={changeMenuOpen}>
           <DropdownMenuTrigger asChild>
             <Button
               size="icon-sm"
@@ -299,8 +426,26 @@ export function BrowserPanel({
               <MoreHorizontal className="size-4" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-64">
-            <DropdownMenuItem onSelect={() => setFinding(true)}>
+          <DropdownMenuContent
+            align="end"
+            side="bottom"
+            className="w-64"
+            onCloseAutoFocus={(event) => {
+              if (!focusFindAfterMenu.current) return
+              event.preventDefault()
+              focusFindAfterMenu.current = false
+              if (document.activeElement !== findInput.current) {
+                findInput.current?.focus()
+                findInput.current?.select()
+              }
+            }}
+          >
+            <DropdownMenuItem
+              onSelect={() => {
+                focusFindAfterMenu.current = true
+                setFinding(true)
+              }}
+            >
               <Search />
               在页面中查找
             </DropdownMenuItem>
@@ -308,13 +453,30 @@ export function BrowserPanel({
             <div className="flex items-center justify-between gap-1 px-2.5 py-1.5 text-xs">
               <span>缩放</span>
               <div className="flex items-center rounded-lg border border-border">
-                <Button size="icon-sm" variant="ghost" aria-label="缩小" onClick={() => changeZoom(zoom - 0.1)}>
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label="缩小"
+                  disabled={menuZoom <= 0.25}
+                  onClick={() => void changeZoom(currentZoom.current - 0.1)}
+                >
                   <ZoomOut className="size-3" />
                 </Button>
-                <button className="min-w-10 text-center tabular-nums" title="重置缩放" onClick={() => changeZoom(1)}>
-                  {Math.round(zoom * 100)}%
+                <button
+                  className="min-w-10 text-center tabular-nums"
+                  title="重置缩放"
+                  type="button"
+                  onClick={() => void changeZoom(1)}
+                >
+                  {Math.round(menuZoom * 100)}%
                 </button>
-                <Button size="icon-sm" variant="ghost" aria-label="放大" onClick={() => changeZoom(zoom + 0.1)}>
+                <Button
+                  size="icon-sm"
+                  variant="ghost"
+                  aria-label="放大"
+                  disabled={menuZoom >= 3}
+                  onClick={() => void changeZoom(currentZoom.current + 0.1)}
+                >
                   <ZoomIn className="size-3" />
                 </Button>
               </div>
@@ -353,6 +515,72 @@ export function BrowserPanel({
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+      {finding ? (
+        <div
+          role="search"
+          aria-label="页内查找"
+          className="flex h-11 shrink-0 items-center gap-1 border-b border-border bg-background px-2 no-drag"
+          onKeyDown={(event) => {
+            if (event.key === 'Escape' && !event.nativeEvent.isComposing) {
+              event.preventDefault()
+              event.stopPropagation()
+              closeFind()
+            }
+          }}
+        >
+          <Search className="size-3.5 shrink-0 text-muted-foreground" />
+          <input
+            ref={findInput}
+            aria-label="在页面中查找"
+            placeholder="在页面中查找"
+            value={query}
+            maxLength={1000}
+            className="h-8 min-w-0 flex-1 rounded-md bg-secondary/80 px-2 text-xs outline-none focus-visible:ring-1 focus-visible:ring-ring"
+            onChange={(event) => find(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
+                event.preventDefault()
+                if (query) find(query, true, !event.shiftKey)
+              }
+            }}
+          />
+          <span
+            role="status"
+            className={`shrink-0 text-xs tabular-nums ${query && findResult?.matches === 0 ? 'text-destructive' : 'text-muted-foreground'}`}
+          >
+            {!query
+              ? ''
+              : !findResult
+                ? '查找中…'
+                : findResult.matches
+                  ? `${findResult.active}/${findResult.matches}`
+                  : '无匹配'}
+          </span>
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label="上一个匹配"
+            title="上一个匹配（Shift+Enter）"
+            disabled={!query || !findResult?.matches}
+            onClick={() => find(query, true, false)}
+          >
+            <ChevronUp className="size-3.5" />
+          </Button>
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            aria-label="下一个匹配"
+            title="下一个匹配（Enter）"
+            disabled={!query || !findResult?.matches}
+            onClick={() => find(query, true)}
+          >
+            <ChevronDown className="size-3.5" />
+          </Button>
+          <Button size="icon-sm" variant="ghost" aria-label="关闭查找" title="关闭查找（Esc）" onClick={closeFind}>
+            <X className="size-3.5" />
+          </Button>
+        </div>
+      ) : null}
       {saveError ? (
         <div role="alert" className="flex items-center justify-between gap-2 px-3 py-2 text-xs text-destructive">
           <span>{saveError}</span>
