@@ -20,6 +20,7 @@ import { AccessSettings } from '@pi-meme/permissions/ui/access-settings'
 import { AgentAccessSelector } from '@pi-meme/permissions/ui/agent-access-selector'
 import { AppHeader } from './layout/app-header'
 import { AppRail } from './layout/app-rail'
+import { SchedulesWorkspace } from './layout/schedules-workspace'
 import { ProjectsPage } from './projects/projects-page'
 import { ProjectDialog } from './projects/project-dialog'
 import { ForkNotice } from './layout/fork-notice'
@@ -27,7 +28,6 @@ import { WorkspaceContent } from './layout/workspace-content'
 import { ErrorNotice, SystemErrorStack, SystemErrorToast } from './layout/error-notice'
 import {
   lazy,
-  Suspense,
   useCallback,
   useEffect,
   useMemo,
@@ -1683,11 +1683,28 @@ export function App({
           </div>
 
           {route.kind === 'schedules' && (
-            <Suspense
-              fallback={
-                <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-                  正在打开定时任务…
-                </div>
+            <SchedulesWorkspace
+              header={
+                <PageHeader>
+                  <PageHeaderNavigation
+                    nativeWindow={nativeWindow}
+                    back={{ label: '返回上一页', onClick: navigation.back, disabled: !navigation.canBack }}
+                    forward={{ label: '前进', onClick: navigation.forward, disabled: !navigation.canForward }}
+                  />
+                </PageHeader>
+              }
+              rail={
+                <AppRail
+                  profile={userProfile.profile}
+                  profileLoading={userProfile.showPlaceholder}
+                  {...pluginRailProps}
+                  onHome={navigation.home}
+                  onProjects={() => navigation.open({ kind: 'projects' })}
+                  onPlugins={() => navigation.open({ kind: 'customization' })}
+                  onSettings={() => openSettings('general')}
+                  onUsage={() => openSettings('profile')}
+                  onAccount={() => openSettings('account')}
+                />
               }
             >
               <SchedulesPage
@@ -1695,28 +1712,6 @@ export function App({
                 state={scheduleState}
                 selectedId={route.taskId}
                 onSelect={(taskId) => navigation.replace({ kind: 'schedules', taskId })}
-                header={
-                  <PageHeader>
-                    <PageHeaderNavigation
-                      nativeWindow={nativeWindow}
-                      back={{ label: '返回上一页', onClick: navigation.back, disabled: !navigation.canBack }}
-                      forward={{ label: '前进', onClick: navigation.forward, disabled: !navigation.canForward }}
-                    />
-                  </PageHeader>
-                }
-                rail={
-                  <AppRail
-                    profile={userProfile.profile}
-                    profileLoading={userProfile.showPlaceholder}
-                    {...pluginRailProps}
-                    onHome={navigation.home}
-                    onProjects={() => navigation.open({ kind: 'projects' })}
-                    onPlugins={() => navigation.open({ kind: 'customization' })}
-                    onSettings={() => openSettings('general')}
-                    onUsage={() => openSettings('profile')}
-                    onAccount={() => openSettings('account')}
-                  />
-                }
                 locationLabel={
                   currentService ? serviceLabel(currentService) : hostLocal ? '此计算机' : (hostAddress ?? '当前 Host')
                 }
@@ -1767,7 +1762,7 @@ export function App({
                   if (await switchSession(session.sessionFile)) navigation.home()
                 }}
               />
-            </Suspense>
+            </SchedulesWorkspace>
           )}
           {scheduleState.notice && (
             <div

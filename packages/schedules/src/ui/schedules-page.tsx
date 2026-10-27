@@ -96,8 +96,6 @@ export function SchedulesPage({
   state,
   selectedId,
   onSelect,
-  header,
-  rail,
   location,
   locationLabel,
   defaults,
@@ -110,8 +108,6 @@ export function SchedulesPage({
   state: ReturnType<typeof useSchedules>
   selectedId?: string
   onSelect: (taskId?: string) => void
-  header: ReactNode
-  rail: ReactNode
   location: ReactNode
   locationLabel: string
   defaults: ScheduleConfiguration
@@ -216,13 +212,8 @@ export function SchedulesPage({
       (!search || `${task.name}\n${task.prompt}`.toLocaleLowerCase().includes(search)),
   )
   return (
-    <section
-      aria-label="定时任务页面"
-      className="workspace-panes flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-secondary"
-    >
-      {header}
+    <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-        {rail}
         <div className="content-frame bg-background">
           <aside
             aria-label="定时任务列表"
@@ -811,7 +802,7 @@ export function SchedulesPage({
           </DialogContent>
         </Dialog>
       )}
-    </section>
+    </div>
   )
 }
 
