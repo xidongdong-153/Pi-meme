@@ -94,6 +94,13 @@ export function SideChatSession({
   const reportFocus = useRef(onFocusState)
   leaveComposer.current = onLeaveComposer
   reportFocus.current = onFocusState
+  useEffect(
+    () => () => {
+      reportFocus.current(false)
+      leaveComposer.current()
+    },
+    [],
+  )
   useEffect(() => {
     if (!target) {
       setFocused(false)

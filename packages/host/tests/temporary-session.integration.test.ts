@@ -7,6 +7,7 @@ import { setTimeout as delay } from 'node:timers/promises'
 import { setup } from './host-server-fixture'
 import type { Snapshot } from '@pi-meme/contracts/desktop'
 import type { PiSessionsSnapshot } from '@pi-meme/contracts/sessions'
+import { GoalService } from '@pi-meme/goals/server/service'
 
 async function filesContaining(targetDir: string, text: string): Promise<string[]> {
   const matches: string[] = []
@@ -191,7 +192,9 @@ test('appControl.deleteSessions 故障注入后保持 closing 状态，二次重
   try {
     const client = 'test-retry-client'
     const openRes = await fixture.rpc(client, 'temporary-session:open', [])
-    const tempKey = (openRes.result as Snapshot).connection.sessionKey!
+    const opened = openRes.result as Snapshot
+    const tempKey = opened.connection.sessionKey!
+    const ref = opened.appSession!
     assert.ok(tempKey)
 
     // 注入故障：第一次调用 deleteSessions 时抛出异常
@@ -216,6 +219,42 @@ test('appControl.deleteSessions 故障注入后保持 closing 状态，二次重
         ? promptAttempt.error
         : ((promptAttempt.error as { message?: string })?.message ?? '')
     assert.match(promptError, /临时会话正在关闭/)
+
+    for (const [method, args] of [
+      ['sessions.get', [ref]],
+      ['sessions.snapshot', [ref]],
+      ['sessions.history', [ref]],
+      ['sessions.configure', [ref, { thinkingLevel: 'off' }]],
+      ['sessions.submit', [ref, { delivery: 'start', text: '不得发送' }]],
+      ['goals.get', [ref]],
+      ['goals.start', [ref, { objective: '不得启动' }]],
+      ['files.list', [ref]],
+      ['files.read', [ref, 'test.txt']],
+      ['files.preview', [ref, 'test.png']],
+      ['files.search', [ref, { query: 'test' }]],
+      ['files.write', [ref, { relativePath: 'test.txt', content: '不得写入', revision: 'old' }]],
+      ['terminal.open', [ref, {}]],
+    ] as Array<[string, unknown[]]>) {
+      const response = await fixture.server.host.control.dispatch({
+        apiVersion: 2,
+        hostId: fixture.server.host.hostId,
+        clientId: client,
+        method,
+        args,
+        idempotencyKey: crypto.randomUUID(),
+      })
+      assert.match(response.error?.message ?? '', /临时会话正在关闭/, method)
+    }
+
+    for (const [method, args] of [
+      ['temporary-session:get', [tempKey]],
+      ['temporary-session:open', []],
+    ] as Array<[string, unknown[]]>) {
+      const response = await fixture.rpc(client, method, args)
+      const message =
+        typeof response.error === 'string' ? response.error : ((response.error as { message?: string })?.message ?? '')
+      assert.match(message, /临时会话正在关闭/, method)
+    }
 
     // 第二次调用 close：重试成功，且因支持分步可重入，顺利清空
     const secondClose = await fixture.rpc(client, 'temporary-session:close', [tempKey])
@@ -245,6 +284,91 @@ test('有打开的临时会话时 prepareMaintenance 拒绝维护，提示先关
     await fixture.dispose()
   }
 })
+
+for (const operation of ['目标创建', '文件写入']) {
+  test(`临时会话关闭等待在途${operation}结束，随后清除全部临时状态`, async () => {
+    const fixture = await setup(operation === '目标创建')
+    const entered = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    const waiting = Promise.withResolvers<void>()
+    try {
+      const client = 'temporary-operation-owner'
+      const opened = (await fixture.rpc(client, 'temporary-session:open', [{ cwd: fixture.root }])).result as Snapshot
+      const tempKey = opened.connection.sessionKey!
+      const ref = opened.appSession!
+      const file = path.join(fixture.root, 'concurrent.txt')
+      await writeFile(file, '原始内容')
+      const api = fixture.server.host.control.apiFor(client)
+      const preview = await api.files.preview(ref, 'concurrent.txt')
+      assert.equal(preview.kind, 'text')
+      if (preview.kind !== 'text') throw new Error('测试文件必须能读取为文本')
+
+      if (operation === '目标创建') {
+        const start = GoalService.prototype.start
+        vi.spyOn(GoalService.prototype, 'start').mockImplementation(async function (this: GoalService, ...args) {
+          if (args[0].sessionId === ref.sessionId) {
+            entered.resolve()
+            await release.promise
+          }
+          return start.apply(this, args)
+        })
+      } else {
+        const resolveRoot = fixture.server.host.control.resolveRoot
+        vi.spyOn(fixture.server.host.control, 'resolveRoot').mockImplementation(async (...args) => {
+          entered.resolve()
+          await release.promise
+          return resolveRoot(...args)
+        })
+      }
+      const waitForOperations = fixture.server.host.control.waitForSessionOperations
+      vi.spyOn(fixture.server.host.control, 'waitForSessionOperations').mockImplementation(async (id) => {
+        if (id === ref.sessionId) waiting.resolve()
+        await waitForOperations(id)
+      })
+
+      const pending = fixture.server.host.control.dispatch({
+        apiVersion: 2,
+        hostId: fixture.server.host.hostId,
+        clientId: client,
+        method: operation === '目标创建' ? 'goals.start' : 'files.write',
+        args: [
+          ref,
+          operation === '目标创建'
+            ? { objective: '临时并发目标内容' }
+            : { relativePath: 'concurrent.txt', content: '不得在关闭后写入', revision: preview.revision },
+        ],
+        idempotencyKey: crypto.randomUUID(),
+      })
+      await entered.promise
+      let closed = false
+      const close = fixture.rpc(client, 'temporary-session:close', [tempKey]).then((response) => {
+        closed = true
+        return response
+      })
+      await waiting.promise
+      assert.equal(closed, false, '在途操作结束前不能报告关闭成功')
+      release.resolve()
+      const result = await pending
+      assert.ok(result.error, '关闭应阻止尚未完成的目标启动或文件写入')
+      assert.deepEqual((await close).result, { closed: true })
+      assert.equal(await readFile(file, 'utf8'), '原始内容')
+      assert.deepEqual(await readdir(path.join(fixture.server.host.root, 'data', 'temporary-sessions')), [])
+      assert.ok(
+        !fixture.server.host.control.store.state.sessions.some((session) => session.sessionId === ref.sessionId),
+      )
+      assert.ok(
+        !fixture.server.host.control.store.state.receipts.some(
+          (receipt) => receipt.session.sessionId === ref.sessionId,
+        ),
+      )
+      assert.ok(!JSON.stringify(fixture.server.host.control.store.state.operations).includes(ref.sessionId))
+      assert.deepEqual(await filesContaining(fixture.server.host.root, '临时并发目标内容'), [])
+    } finally {
+      release.resolve()
+      await fixture.dispose()
+    }
+  })
+}
 
 test('慢速附件上传流与关闭并发，close 完成后目录绝不重现', async () => {
   const fixture = await setup(false)

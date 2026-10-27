@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
-import { test, describe } from 'vitest'
+import { test, describe, vi } from 'vitest'
 import { mkdir, mkdtemp, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { randomUUID } from 'node:crypto'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
-import type { HostApi, HostControlEvent, SubmissionReceipt } from '@pi-meme/contracts/app-host'
+import type { AppSession, HostApi, HostControlEvent, SubmissionReceipt } from '@pi-meme/contracts/app-host'
+import { createAppControl } from '../src/app-control'
 import { createHost } from '../src/service'
 import { finishAgentReply, useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
 import { requestText } from '../../../tests/fixtures/fake-provider.mjs'
@@ -57,6 +58,97 @@ async function session(api: HostApi, project: import('@pi-meme/contracts/app-hos
     key(`create-${name}`),
   )
 }
+
+async function temporaryControlFixture(t: import('vitest').TestContext) {
+  const root = await mkdtemp(path.join(tmpdir(), 'pi-temporary-control-'))
+  const state = { closing: false }
+  const snapshot = vi.fn(async () => ({}) as any)
+  const closeTerminal = vi.fn(async () => {})
+  const control = await createAppControl({
+    hostId: 'host-test',
+    root,
+    goals: { list: () => [], get: () => undefined, flush: async () => {} } as any,
+    pi: {
+      getRuntimeSessions: () => [],
+      getSessionContext: () => ({}),
+      readSessionBinding: () => ({ cwd: root, state: {} }),
+      createClientView: () => ({}),
+      withClientView: async (_view: any, action: () => unknown) => action(),
+      releaseClientView: () => {},
+    } as any,
+    projects: { list: async () => [], kind: () => 'standalone' } as any,
+    sessions: { getSnapshot: async () => ({ projects: [], recents: [] }) } as any,
+    collaboration: {} as any,
+    bindRoot: async () => {},
+    configureAgentPlugins: async () => {},
+    defaultAgentPlugins: { getDefaultAgentPlugins: async () => [] } as any,
+    snapshot,
+    workspace: {
+      files: {} as any,
+      terminal: {
+        open: async () => ({ hostId: 'host-test', terminalId: 'temporary-terminal' }),
+        attach: async () => ({}),
+        close: closeTerminal,
+      } as any,
+      terminalSupported: true,
+    },
+    isSessionClosing: () => state.closing,
+    onError: () => {},
+  })
+  t.onTestFinished(async () => {
+    await control.dispose()
+    await rm(root, { recursive: true, force: true })
+  })
+  const ref: AppSession = {
+    hostId: 'host-test',
+    sessionId: 'temporary-session',
+    cwd: root,
+    createdAt: new Date().toISOString(),
+    configuration: {},
+    status: 'idle',
+    temporary: true,
+    ownerClientId: 'owner',
+  }
+  await control.registerTemporarySession(ref, 'temporary:runtime')
+  return { control, ref, state, snapshot, closeTerminal, owner: control.apiFor('owner') }
+}
+
+test('临时会话解析运行时期间开始关闭，HostApi 不再执行后续目标操作', async (t) => {
+  const f = await temporaryControlFixture(t)
+  const pending = f.owner.plans.list(f.ref)
+  f.state.closing = true
+  await assert.rejects(pending, /临时会话正在关闭/)
+  assert.equal(f.snapshot.mock.calls.length, 0)
+})
+
+test('临时会话终端关闭失败后保留所有权校验，删除会话时仍会重试关闭', async (t) => {
+  const f = await temporaryControlFixture(t)
+  const terminal = await f.owner.terminal.open(f.ref, {}, key('open-terminal'))
+  f.closeTerminal.mockRejectedValueOnce(new Error('模拟终端关闭失败'))
+  await assert.rejects(f.owner.terminal.close(terminal, key('close-terminal')), /模拟终端关闭失败/)
+  assert.throws(() => f.control.apiFor('another-client').terminal.attach(terminal), /无权访问其他窗口的临时会话/)
+  await f.control.deleteSessions({ deletedPaths: [], deletedKeys: [], deletedSessionIds: [f.ref.sessionId] })
+  assert.equal(f.closeTerminal.mock.calls.length, 2)
+})
+
+test('临时会话回执仅所属窗口可读，关闭开始后停止读取', async (t) => {
+  const f = await temporaryControlFixture(t)
+  const receipt: SubmissionReceipt = {
+    operationId: 'temporary-operation',
+    submissionId: 'temporary-submission',
+    session: f.ref,
+    delivery: 'start',
+    status: 'completed',
+  }
+  await f.control.store.publish({ type: 'submission', sessionId: f.ref.sessionId, value: receipt })
+  assert.deepEqual(await f.owner.sessions.receipt(receipt.operationId), receipt)
+  await assert.rejects(
+    f.control.apiFor('another-client').sessions.receipt(receipt.operationId),
+    /无权访问其他窗口的临时会话/,
+  )
+  f.state.closing = true
+  await assert.rejects(f.owner.sessions.receipt(receipt.operationId), /临时会话正在关闭/)
+})
 
 test('登记自定义项目名称后重启保留，不创建会话或切换当前目录', async () => {
   const f = await fixture()

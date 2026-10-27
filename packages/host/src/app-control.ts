@@ -269,6 +269,7 @@ export async function createAppControl(options: Options) {
   ): Promise<T> => {
     const session = getSession(ref, callerClientId)
     const view = await resolveSession(session)
+    getSession(ref, callerClientId)
     return pi.withClientView(view, () => action(view.sessionKey!, session, view))
   }
   const resolveRoot = async (ref: WorkspaceRef, callerClientId?: string) => {
@@ -1000,6 +1001,7 @@ export async function createAppControl(options: Options) {
       receipt: async (id) => {
         const receipt = store.state.receipts.find((item) => item.operationId === id)
         if (!receipt) throw new Error('提交回执不存在')
+        getSession(receipt.session, clientId)
         return structuredClone(receipt)
       },
       submissions: async (ref) => {
@@ -1115,11 +1117,9 @@ export async function createAppControl(options: Options) {
       close: (ref, opts) => {
         assertTerminalAccess(ref, clientId)
         return mutate(clientId, 'terminal.close', [ref], opts, async () => {
-          try {
-            return await options.workspace.terminal.close(ref, opts)
-          } finally {
-            terminalRoots.delete(ref.terminalId)
-          }
+          const result = await options.workspace.terminal.close(ref, opts)
+          terminalRoots.delete(ref.terminalId)
+          return result
         })
       },
     },
@@ -1781,7 +1781,7 @@ export async function createAppControl(options: Options) {
           receipt.status = 'interrupted'
           receipt.outcomeUncertain = Boolean(receipt.dispatchStartedAt)
           receipt.error = 'Host 已关闭，任务中断；不会重新执行'
-          const session = getSession(receipt.session)
+          const session = getSession(receipt.session, 'host-internal')
           session.status = 'interrupted'
           await publishReceipt(session, receipt)
         }

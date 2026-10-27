@@ -11,10 +11,54 @@ import type { SaveModelProvider } from '@pi-meme/contracts/model-config'
 import { useAppSession } from '../src/session/use-app-session'
 import { invokeSkillInNewSession } from '../src/settings/invoke-skill'
 import { WorkspaceContent } from '../src/layout/workspace-content'
+import { SideChatSession } from '../src/session/side-chat-session'
+import type { ComponentProps } from 'react'
 import { emptyChat } from '@pi-meme/chat/ui/model/state'
 import { assistantMessage, toolResult, userMessage } from '../../../tests/fixtures/messages.mjs'
 
 afterEach(cleanup)
+
+test('关闭侧边会话卸载控制器时释放焦点和插件输入框，并调用最新回调', () => {
+  const bridge = {
+    getConnection: () => new Promise(() => {}),
+    onConnection: () => () => {},
+    onError: () => () => {},
+    onEvent: () => () => {},
+  } as unknown as DesktopBridge
+  const previousFocus = vi.fn()
+  const previousLeave = vi.fn()
+  const props = {
+    bridge,
+    host: {},
+    hostId: 'test-host',
+    target: null,
+    resources: {},
+    registry: {},
+    consent: {},
+    plugins: [],
+    hooks: [],
+    authorizationRevision: '',
+    initialDraft: '',
+    showComposerHint: false,
+    showContextUsage: false,
+    closing: false,
+    closeError: '',
+    onRetryClose: () => {},
+    onLeaveComposer: previousLeave,
+    onFocusState: previousFocus,
+  } as unknown as ComponentProps<typeof SideChatSession>
+  const view = render(<SideChatSession {...props} />)
+  const onLeaveComposer = vi.fn()
+  const onFocusState = vi.fn()
+  view.rerender(<SideChatSession {...props} onLeaveComposer={onLeaveComposer} onFocusState={onFocusState} />)
+  previousLeave.mockClear()
+  previousFocus.mockClear()
+  view.unmount()
+  expect(onLeaveComposer).toHaveBeenCalledOnce()
+  expect(onFocusState).toHaveBeenCalledExactlyOnceWith(false)
+  expect(previousLeave).not.toHaveBeenCalled()
+  expect(previousFocus).not.toHaveBeenCalled()
+})
 
 test('切换等待立即隔离旧内容，完成或失败后恢复交互且不重建输入框', () => {
   const workspace = (sessionKey: string, switching: boolean) => (

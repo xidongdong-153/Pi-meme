@@ -465,6 +465,18 @@ test('后续任务固定入队时的显式配置，省略时重新继承调用�
   }
 })
 
+test('根任务启动前失败后可以开始新任务', async () => {
+  const context = await setup()
+  try {
+    await context.bridge.rootFailed('root-key', new Error('启动失败'))
+    assert.equal((await context.bridge.getAgents('root-key'))[0]?.cleanup, undefined)
+    await context.bridge.beginRootRun('root-key', { mode: 'default', message: '重试' })
+    assert.equal((await context.bridge.getAgents('root-key'))[0]?.status, 'running')
+  } finally {
+    await context.cleanup()
+  }
+})
+
 test('根任务失败先取消子树和排队任务，清理完成后才可显式恢复', async () => {
   const context = await setup()
   try {
@@ -2376,6 +2388,123 @@ test('临时会话子代理零落盘：flushAll 不向 roots/ 写分片，delete
 
     // 验证内存中已被完全清除，再次查询抛出未绑定
     await assert.rejects(context.bridge.getAgents('temp-session-key'), /协作根会话尚未绑定/)
+  } finally {
+    await context.cleanup()
+  }
+})
+
+test('关闭临时会话保留其他窗口的计划修订', async () => {
+  const context = await setup()
+  try {
+    const sessions = await Promise.all(
+      ['first', 'second'].map(async (key) => {
+        const fake = fakeSession(context.directory, { connection: () => {}, event: () => {}, error: () => {} })
+        fake.session.start(context.directory)
+        const sessionId = fake.session.getActiveSession().sessionId!
+        await context.bridge.bindRoot({
+          sessionKey: key,
+          sessionId,
+          cwd: context.directory,
+          state: fake.state,
+          accessMode: 'full-access',
+          session: fake.session,
+          temporary: true,
+        })
+        return { key, sessionId, fake }
+      }),
+    )
+    const [first, second] = sessions
+    const document = {
+      id: randomUUID(),
+      sessionId: second.sessionId,
+      runId: randomUUID(),
+      revision: 1,
+      title: '保留的计划',
+      markdown: '执行当前计划',
+      updatedAt: new Date().toISOString(),
+    }
+    second.fake.appendPlan(document)
+    await context.bridge.syncPlan(second.fake.session)
+    second.fake.entries.length = 0
+    await context.bridge.syncPlan(second.fake.session)
+    second.fake.appendPlan(document)
+    const before = await context.bridge.syncPlan(second.fake.session)
+    assert.equal(before.document?.revision, 3)
+
+    await context.bridge.deleteTemporarySessions({ sessionIds: [first.sessionId], sessionKeys: [first.key] })
+
+    const after = await context.bridge.syncPlan(second.fake.session)
+    assert.deepEqual(after, before)
+    assert.deepEqual(await context.bridge.resolveSessionPlan(second.key, before.document!), before.document)
+  } finally {
+    await context.cleanup()
+  }
+})
+
+test('临时会话停止失败后重试仍清理根 Worker', async () => {
+  const context = await setup()
+  try {
+    const fake = fakeSession(context.directory, { connection: () => {}, event: () => {}, error: () => {} })
+    const sessionId = fake.session.getActiveSession().sessionId!
+    const root = await context.bridge.bindRoot({
+      sessionKey: 'temporary-root',
+      sessionId,
+      cwd: context.directory,
+      state: fake.state,
+      accessMode: 'full-access',
+      session: fake.session,
+      temporary: true,
+    })
+    const stop = fake.session.stopAndWait.bind(fake.session)
+    let attempts = 0
+    fake.session.stopAndWait = async () => {
+      attempts++
+      if (attempts === 1) throw new Error('停止 Worker 失败')
+      await stop()
+    }
+    const targets = { sessionIds: [sessionId], sessionKeys: ['temporary-root'] }
+
+    await assert.rejects(context.bridge.deleteTemporarySessions(targets), /停止 Worker 失败/)
+    assert.equal((await context.bridge.getAgents('temporary-root'))[0]?.agentId, root.agentId)
+
+    await context.bridge.deleteTemporarySessions(targets)
+    assert.equal(attempts, 2)
+    await assert.rejects(context.bridge.getAgents('temporary-root'), /协作根会话尚未绑定/)
+  } finally {
+    await context.cleanup()
+  }
+})
+
+test('批量清理遇到停止失败时保留所有目标供重试', async () => {
+  const context = await setup()
+  try {
+    const sessions = await Promise.all(
+      ['first', 'second'].map(async (key) => {
+        const fake = fakeSession(context.directory, { connection: () => {}, event: () => {}, error: () => {} })
+        const sessionId = fake.session.getActiveSession().sessionId!
+        await context.bridge.bindRoot({
+          sessionKey: key,
+          sessionId,
+          cwd: context.directory,
+          state: fake.state,
+          accessMode: 'full-access',
+          session: fake.session,
+          temporary: true,
+        })
+        return { key, sessionId, fake }
+      }),
+    )
+    const stop = sessions[1].fake.session.stopAndWait.bind(sessions[1].fake.session)
+    let attempts = 0
+    sessions[1].fake.session.stopAndWait = async () => {
+      if (++attempts === 1) throw new Error('停止 Worker 失败')
+      await stop()
+    }
+    const targets = { sessionIds: sessions.map((item) => item.sessionId) }
+    await assert.rejects(context.bridge.deleteTemporarySessions(targets), /停止 Worker 失败/)
+    for (const item of sessions) assert.equal((await context.bridge.getAgents(item.key)).length, 1)
+    await context.bridge.deleteTemporarySessions(targets)
+    for (const item of sessions) await assert.rejects(context.bridge.getAgents(item.key), /协作根会话尚未绑定/)
   } finally {
     await context.cleanup()
   }

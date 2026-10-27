@@ -892,6 +892,7 @@ export async function createHost(options: HostOptions = {}) {
         temporaryViews.delete(clientId)
         pi.releaseClientView(info.view)
         temporaryClosing.delete(info.sessionKey)
+        if (ref) temporaryClosing.delete(ref.sessionId)
       }
 
       const closePromise = performClose().finally(() => {
@@ -1366,6 +1367,7 @@ export async function createHost(options: HostOptions = {}) {
         const clientId = pluginClient.getStore()!
         const existing = temporarySessions.get(clientId)
         if (existing) {
+          checkSessionAuthorization(existing.sessionKey, clientId)
           return enrichSnapshot(await pi.withClientView(existing.view, () => pi.snapshot()))
         }
         const pending = openingClients.get(clientId)
@@ -1476,7 +1478,7 @@ export async function createHost(options: HostOptions = {}) {
             temporarySessionOwners.set(tempRecord.key, clientId)
             temporaryPathsBySessionKey.set(tempRecord.key, tempPaths)
 
-            collaboration.markTemporarySession(tempRecord.key, tempId)
+            collaboration.markTemporarySession(tempRecord.key)
 
             emit(
               'connection',
@@ -1510,6 +1512,7 @@ export async function createHost(options: HostOptions = {}) {
         const existing = temporarySessions.get(clientId)
         if (!existing) return null
         if (sessionKey && existing.sessionKey !== sessionKey) return null
+        checkSessionAuthorization(existing.sessionKey, clientId)
         return enrichSnapshot(await pi.withClientView(existing.view, () => pi.snapshot()))
       },
       'temporary-session:close': async (sessionKey) => {

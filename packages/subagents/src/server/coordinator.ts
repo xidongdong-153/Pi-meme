@@ -735,13 +735,12 @@ export class HostCollaborationBridge {
     root.summary.status = 'failed'
     root.summary.error = String(cause)
     root.summary.runCompletedAt = new Date().toISOString()
-    root.summary.cleanup = {
-      state: 'running',
-      causeId: `result:${root.summary.agentId}:${root.summary.runId}`,
-      revision: 0,
-    }
+    root.summary.cleanup = root.summary.runId
+      ? { state: 'running', causeId: `result:${root.summary.agentId}:${root.summary.runId}`, revision: 0 }
+      : undefined
     await this.persist(root)
     this.changed(root)
+    if (!root.summary.runId) return
     const failedRun = this.runRef(root)
     void this.cleanupFailed(root).catch((error: unknown) => {
       const cleanup = root.summary.cleanup
@@ -2551,6 +2550,7 @@ export class HostCollaborationBridge {
     const targetRootAgentIds = new Set((targets.rootAgentIds ?? []).filter(Boolean))
     const deletedRootAgentIds: string[] = []
 
+    const matchedRoots: Array<{ key: string; root: Record; tree: Record[] }> = []
     for (const [key, root] of [...this.roots.entries()]) {
       const rootSessionId = root.summary.sessionId
       const rootSessionFile = root.summary.sessionFile
@@ -2567,12 +2567,22 @@ export class HostCollaborationBridge {
         continue
       }
 
-      const tree = this.tree(root)
+      matchedRoots.push({ key, root, tree: this.tree(root) })
+    }
+
+    for (const { root, tree } of matchedRoots) {
       await this.stopRoot(root.summary.rootSessionKey)
+      for (const entry of tree) {
+        if (entry.session) await entry.session.stopAndWait()
+      }
+    }
+
+    for (const { key, root, tree } of matchedRoots) {
+      const rootSessionId = root.summary.sessionId
+      const rootAgentId = root.summary.rootAgentId
       for (const entry of tree) {
         this.records.delete(entry.summary.agentId)
         if (entry.session) {
-          await entry.session.stopAndWait()
           this.callers.delete(entry.session)
         }
       }
@@ -2588,6 +2598,8 @@ export class HostCollaborationBridge {
         if (nativeSessionId) sessionIdsToPurge.add(nativeSessionId)
       } catch {}
       for (const entry of tree) {
+        this.temporarySessions.delete(entry.summary.sessionKey)
+        this.temporarySessions.delete(entry.summary.rootSessionKey)
         if (entry.summary.sessionId) sessionIdsToPurge.add(entry.summary.sessionId)
         try {
           const entryNative = entry.session ? (entry.session as any).getActiveSession?.()?.sessionId : undefined
@@ -2595,21 +2607,19 @@ export class HostCollaborationBridge {
         } catch {}
       }
       for (const sid of sessionIdsToPurge) {
-        this.temporarySessions.delete(sid)
-        this.plans = this.plans.filter((p) => p.sessionId !== sid)
-        this.planStates.delete(sid)
-        await rm(path.join(this.plansDirectory, sid), { recursive: true, force: true }).catch(() => {})
+        targetSessionIds.add(sid)
       }
       await deleteCollaborationRoot(this.rootsDirectory, rootAgentId).catch(() => {})
       deletedRootAgentIds.push(rootAgentId)
     }
 
-    for (const sid of [...targetSessionIds, ...this.temporarySessions]) {
+    for (const sid of targetSessionIds) {
       this.plans = this.plans.filter((p) => p.sessionId !== sid)
       this.planStates.delete(sid)
+      this.pendingPlans.delete(sid)
+      this.planCommits.get(sid)?.resolve()
+      this.planCommits.delete(sid)
       await rm(path.join(this.plansDirectory, sid), { recursive: true, force: true }).catch(() => {})
-    }
-    for (const sid of targetSessionIds) {
       this.temporarySessions.delete(sid)
     }
 
