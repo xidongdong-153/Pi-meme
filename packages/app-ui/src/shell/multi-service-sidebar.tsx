@@ -120,7 +120,6 @@ export function MultiServiceSidebar({
               (activePath ? activePath === session.path : snapshot?.activeSessionId === session.id)
             }
             isPinned={pinned}
-            isSwitching={controller?.switchingToPath === session.path}
             onSwitchSession={(path) => onActivate(serviceId, (chat) => chat.switchSession(path))}
             onTogglePin={(path) => void controller?.togglePin(path)}
             onPrefetchSession={(path) => {
@@ -186,7 +185,6 @@ export function MultiServiceSidebar({
             pinnedSet={new Set(snapshot?.pinnedPaths ?? [])}
             activeSessionId={selected ? snapshot?.activeSessionId : undefined}
             activeSessionPath={selected ? (controller?.switchingToPath ?? snapshot?.activeSessionPath) : undefined}
-            switchingToPath={controller?.switchingToPath}
             onToggle={() => toggle(key, setExpanded)}
             onToggleItems={() => toggle(key, setAll)}
             onNewSessionInProject={openNewSession}
