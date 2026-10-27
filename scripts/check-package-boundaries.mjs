@@ -49,7 +49,7 @@ for (const area of areas) {
 const byName = new Map([...manifests].map(([directory, manifest]) => [manifest.name, directory]))
 function walk(directory, files = []) {
   for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-    if (['node_modules', 'out', '.vite', '.git', 'dist'].includes(entry.name)) continue
+    if (['node_modules', 'out', '.vite', '.vitest', '.git', 'dist'].includes(entry.name)) continue
     const full = path.join(directory, entry.name)
     if (entry.isDirectory()) walk(full, files)
     else if (/\.(?:ts|tsx|mts|mjs)$/.test(entry.name)) files.push(full)

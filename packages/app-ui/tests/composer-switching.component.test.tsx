@@ -1487,6 +1487,7 @@ test('自定义模型默认勾选全部档位，独立保存勾选和已有参�
       onClose={vi.fn()}
     />,
   )
+  for (const button of screen.getAllByRole('button', { name: '高级模型参数' })) fireEvent.click(button)
   for (const label of ['关闭', '极小', '低', '中', '高', '极高', '最大']) {
     expect((screen.getByRole('checkbox', { name: `first ${label}` }) as HTMLInputElement).checked).toBe(true)
   }

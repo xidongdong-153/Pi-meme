@@ -328,6 +328,7 @@ const files: Array<[string, Feature[]]> = [
   ['tests/plugin-creator.integration.test.ts', ['plugins', 'skills']],
   ['tests/pi-runtime-bundle.integration.test.ts', ['desktop', 'sessions', 'skills']],
   ['tests/release.unit.test.ts', ['desktop', 'testing']],
+  ['tests/package-boundaries.unit.test.ts', ['testing']],
   ['tests/selection.unit.test.ts', ['testing']],
 ]
 
