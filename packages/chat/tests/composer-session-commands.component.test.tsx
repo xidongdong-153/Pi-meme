@@ -98,7 +98,12 @@ test('点选压缩不改草稿，运行中或模型不可用时不发送', async
   assert.equal(unavailable.errors.at(-1), '当前模型已不可用，请先重新选择模型')
 })
 
-function composerFixture(options?: { sessionStarted?: boolean; running?: boolean }) {
+function composerFixture(options?: {
+  sessionStarted?: boolean
+  running?: boolean
+  disabled?: boolean
+  editorDisabled?: boolean
+}) {
   const compacted = vi.fn()
   const renamed = vi.fn(async () => {})
   const sent = vi.fn()
@@ -124,7 +129,8 @@ function composerFixture(options?: { sessionStarted?: boolean; running?: boolean
       onAddImages: () => {},
       onRemoveImage: () => {},
       running: options?.running ?? false,
-      disabled: false,
+      disabled: options?.disabled ?? false,
+      editorDisabled: options?.editorDisabled,
       queueMode: 'followUp',
       onQueueMode: () => {},
       onSteeringMode: () => {},
@@ -238,6 +244,17 @@ test('斜杠菜单里压缩立即执行，命名打开预填面板且不改草�
   page.input('/')
   assert.equal(screen.queryByRole('dialog', { name: '重命名会话' }), null)
   assert.ok(screen.getByRole('listbox'))
+})
+
+test('Host确认前可编辑新草稿，但Enter和发送按钮均不提交', () => {
+  const page = composerFixture({ sessionStarted: false, disabled: true, editorDisabled: false })
+  assert.equal(page.editor.getAttribute('contenteditable'), 'true')
+  page.input('创建期间输入的文字')
+  fireEvent.keyDown(page.editor, { key: 'Enter' })
+  fireEvent.submit(screen.getByRole('form', { name: '消息输入' }))
+  assert.equal(page.sent.mock.calls.length, 0)
+  assert.equal(page.draft(), '创建期间输入的文字')
+  assert.equal((screen.getByRole('button', { name: '发送消息' }) as HTMLButtonElement).disabled, true)
 })
 
 test('新会话不提供压缩和命名，手打命令也不会发送', async () => {

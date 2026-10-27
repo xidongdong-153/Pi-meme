@@ -61,6 +61,7 @@ import { cleanupTemporaryFiles } from './storage/cleanup-temporary-files'
 import { SessionCleanupService } from './session-cleanup'
 import { installBuiltinSkills } from '@pi-meme/resources/server/install-builtin-skills'
 import { ResourceStore } from '@pi-meme/resources/server/resource-store'
+import { projectSessionWindow } from '@pi-meme/contracts/session-window'
 import type { ResourceImportInput, ResourceSnapshot } from '@pi-meme/contracts/resources'
 
 export type HostOptions = {
@@ -349,8 +350,10 @@ export async function createHost(options: HostOptions = {}) {
       },
     })
     let resourceGeneration = 0
+    let commandRevision = 0
     const publishResourcesChanged = (generation = resourceGeneration) => {
       resourceGeneration = Math.max(resourceGeneration, generation)
+      commandRevision++
       if (closing) return
       for (const subscribers of listeners.values())
         for (const subscriber of subscribers)
@@ -737,16 +740,24 @@ export async function createHost(options: HostOptions = {}) {
     const enrichSnapshot = async (value: Snapshot) => {
       const key = value.connection.sessionKey
       const binding = key ? pi.readSessionBinding(key) : undefined
-      if (binding) await collaboration.bindRoot(binding)
+      const [uiPlugins] = await Promise.all([
+        sessionDescriptors(key),
+        binding ? collaboration.bindRoot(binding) : undefined,
+      ])
       const savedMode = key ? await collaboration.getSessionMode(key) : undefined
       const mode =
         key && binding && savedMode
           ? pi.restoreSessionMode(key, savedMode, { mode: binding.state.mode, revision: binding.modeRevision })
           : binding?.state.mode
+      const [appSession, coordinated] = await Promise.all([
+        key ? appControl?.sessionForRuntime(key) : undefined,
+        key ? collaboration.snapshot(key) : {},
+      ])
       return {
         ...value,
+        appSession,
         goalsSupported: true,
-        goal: key ? await appControl?.goalForRuntime(key) : undefined,
+        goal: appSession ? goals.get(appSession) : undefined,
         connection: {
           ...value.connection,
           sourceProjectCwd: projects.sourceProjectCwd(value.connection.cwd),
@@ -758,8 +769,8 @@ export async function createHost(options: HostOptions = {}) {
           ...(mode ? { mode } : {}),
           resourceSnapshot: key ? workerSnapshots.get(key) : undefined,
         },
-        ...(key ? await collaboration.snapshot(key) : {}),
-        uiPlugins: await sessionDescriptors(key),
+        ...coordinated,
+        uiPlugins,
       }
     }
     const snapshot = async () => enrichSnapshot(await pi.snapshot())
@@ -1014,7 +1025,10 @@ export async function createHost(options: HostOptions = {}) {
         }
       ).capability(),
     )
-    pi.configureResources((cwd) => resources.snapshot(cwd))
+    pi.configureResources(
+      (cwd) => resources.snapshot(cwd),
+      () => commandRevision,
+    )
     pi.configureResourceDiscovery(true)
     const parseId = (value: unknown) => {
       if (typeof value !== 'string') throw new Error('插件 ID 参数无效')
@@ -1068,7 +1082,7 @@ export async function createHost(options: HostOptions = {}) {
       },
       'host:storage-info': () => ({ hostId, dataRoot: root }),
       'pi:connection': () => pi.connection(),
-      'pi:snapshot': snapshot,
+      'pi:snapshot': async (window) => projectSessionWindow(await snapshot(), window),
       'pi:agents': async (key) => {
         if (typeof key !== 'string') throw new Error('会话 ID 参数无效')
         await bindRoot(key)
@@ -1630,7 +1644,10 @@ export async function createHost(options: HostOptions = {}) {
                   )
                     result = {
                       ...result,
-                      snapshot: await enrichSnapshot(result.snapshot as Snapshot),
+                      snapshot: projectSessionWindow(
+                        await enrichSnapshot(result.snapshot as Snapshot),
+                        request.method === 'pi:switch-session' ? request.args[1] : undefined,
+                      ),
                     }
                   if (request.method === 'git:create-worktree') {
                     const outcome = result as { selection: import('@pi-meme/contracts/desktop').SessionSelectionResult }

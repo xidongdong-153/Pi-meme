@@ -622,3 +622,29 @@ test('disabledAppPluginIds轻量读取App禁用策略且不扫描技能资源', 
   const [, concurrentDisabled] = await Promise.all([setPromise, readPromise])
   assert.ok(concurrentDisabled.has('app-a'))
 })
+
+test('插件策略读取不等待正在执行的技能扫描', async (t) => {
+  const { store, cwd } = await fixture(t)
+  const scanStarted = Promise.withResolvers<void>()
+  const scanGate = Promise.withResolvers<void>()
+  const scan = vi.spyOn(store as unknown as { scan: () => Promise<unknown> }, 'scan')
+  scan.mockImplementationOnce(async () => {
+    scanStarted.resolve()
+    await scanGate.promise
+    return { generation: 0, cwd, items: [], diagnostics: [] }
+  })
+  const snapshot = store.snapshot(cwd)
+  try {
+    await scanStarted.promise
+    let disabled: Set<string> | undefined
+    const read = store.disabledAppPluginIds(cwd).then((value) => {
+      disabled = value
+    })
+    await vi.waitFor(() => assert.deepEqual(disabled, new Set()))
+    await read
+  } finally {
+    scanGate.resolve()
+    await snapshot
+    scan.mockRestore()
+  }
+})

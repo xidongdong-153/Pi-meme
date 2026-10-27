@@ -578,7 +578,8 @@ export class PiSessionPool implements PiRuntime {
   }
   private thinkingLevels: ThinkingLevel[] = [...thinkingLevels]
   private epoch = 0
-  private commands = new Map<string, PiSlashCommand[]>()
+  private commands = new Map<string, { revision?: number; value: PiSlashCommand[] }>()
+  private commandReads = new Map<string, { revision: number; promise: Promise<PiSlashCommand[]> }>()
   private defaultSelection = 0
   private get selection() {
     return this.viewContext.getStore()?.selection ?? this.defaultSelection
@@ -592,13 +593,17 @@ export class PiSessionPool implements PiRuntime {
   private localAvailableModels: PiModel[] | null = null
   private resourceDiscovery = true
   private getResources?: (cwd: string) => Promise<ResourceSnapshot>
-  configureResources(getResources: (cwd: string) => Promise<ResourceSnapshot>) {
+  private getResourceRevision?: () => number
+  configureResources(getResources: (cwd: string) => Promise<ResourceSnapshot>, getRevision?: () => number) {
     this.getResources = getResources
+    this.getResourceRevision = getRevision
     this.commands.clear()
+    this.commandReads.clear()
   }
   configureResourceDiscovery(enabled: boolean) {
     this.resourceDiscovery = enabled
     this.commands.clear()
+    this.commandReads.clear()
   }
   private capabilities: ToolExecutionSettings = { codemodeEnabled: false, mcpEnabled: false }
   configureCapabilities(value: ToolExecutionSettings) {
@@ -1072,8 +1077,6 @@ export class PiSessionPool implements PiRuntime {
       if (cwd !== this.cwd || forceNew) target = this.create(cwd, undefined, undefined, undefined, true)
       const result = await this.selectionResult(selection)
       if (result.cancelled) return result
-      const commands = await this.getCommands()
-      if (selection !== this.selection) return { cancelled: true }
       for (const record of this.sessions.values()) {
         if (
           record !== this.active &&
@@ -1085,7 +1088,7 @@ export class PiSessionPool implements PiRuntime {
           this.stopRecord(record)
         }
       }
-      return { ...result, commands }
+      return result
     } catch (cause) {
       if (selection === this.selection && target && previous) this.activate(previous)
       throw cause
@@ -1395,7 +1398,7 @@ export class PiSessionPool implements PiRuntime {
       this.rememberSnapshot(record, snapshot)
       if (record.sessionFile) await this.accessStore.set(record.sessionFile, record.accessMode)
       if (!this.sessions.has(record.key)) return
-      this.commands.set(`${record.cwd}:${record.accessMode}`, await record.session.getCommands())
+      this.commands.set(`${record.cwd}:${record.accessMode}`, { value: await record.session.getCommands() })
       this.notify.sessionsChanged()
     })()
     record.starting = starting
@@ -1935,14 +1938,33 @@ export class PiSessionPool implements PiRuntime {
   }
   async getCommands() {
     const record = this.active
+    const key = `${record.cwd}:${record.accessMode}`
     if (record.dormant || record.starting) {
-      const snapshot = this.resourceDiscovery ? await this.getResources?.(record.cwd) : undefined
-      const commands = snapshot ? readLocalSkills(snapshot) : []
-      this.commands.set(`${record.cwd}:${record.accessMode}`, commands)
-      return [...builtinCommands, ...commands]
+      const revision = this.getResourceRevision?.()
+      const cached = this.commands.get(key)
+      if (revision !== undefined && cached?.revision === revision) return [...builtinCommands, ...cached.value]
+      const existing = this.commandReads.get(key)
+      if (revision !== undefined && existing?.revision === revision)
+        return [...builtinCommands, ...(await existing.promise)]
+      const read = {
+        revision: revision ?? -1,
+        promise: (async () => {
+          const snapshot = this.resourceDiscovery ? await this.getResources?.(record.cwd) : undefined
+          return snapshot ? readLocalSkills(snapshot) : []
+        })(),
+      }
+      this.commandReads.set(key, read)
+      try {
+        const value = await read.promise
+        if (this.commandReads.get(key) === read && revision === this.getResourceRevision?.())
+          this.commands.set(key, { revision, value })
+        return [...builtinCommands, ...value]
+      } finally {
+        if (this.commandReads.get(key) === read) this.commandReads.delete(key)
+      }
     }
     const commands = (await record.session.getCommands()).filter((command) => !command.name.startsWith('pi-desktop-'))
-    this.commands.set(`${record.cwd}:${record.accessMode}`, commands)
+    this.commands.set(key, { value: commands })
     return [...builtinCommands, ...commands]
   }
   async setModel(sessionKey: string, model: PiModel) {

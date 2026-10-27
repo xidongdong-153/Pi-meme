@@ -152,6 +152,7 @@ export class HostCollaborationBridge {
   private listeners = new Set<() => void>()
   private userSteering = new WeakSet<Record>()
   private rootWrites = new Map<string, Promise<void>>()
+  private rootBindings = new Map<string, string>()
   private planIndexWrites: Promise<void> = Promise.resolve()
   private inFlight = new Map<string, Promise<CollaborationResults[keyof CollaborationResults]>>()
   private planWrites: Promise<void> = Promise.resolve()
@@ -385,7 +386,20 @@ export class HostCollaborationBridge {
     record.session = binding.session
     this.roots.set(binding.sessionKey, record)
     this.callers.set(binding.session, record)
-    await this.persist(record)
+    const signature = JSON.stringify([
+      binding.sessionKey,
+      binding.cwd,
+      record.summary.executionGeneration,
+      record.summary.sessionId,
+      binding.sessionFile,
+      binding.accessMode,
+      binding.state.model,
+      binding.state.thinkingLevel,
+    ])
+    if (this.rootBindings.get(record.summary.agentId) !== signature) {
+      await this.persist(record)
+      this.rootBindings.set(record.summary.agentId, signature)
+    }
     return { ...record.summary }
   }
   private forkSelection(sessionKey: string, agentIds: readonly string[]) {
@@ -2021,8 +2035,9 @@ export class HostCollaborationBridge {
     await this.ready
     const root = this.root(sessionKey)
     const tree = this.tree(root)
-    const planCheckpoints = await this.readPlanCheckpoints(root)
-    const planState = root.session ? await this.syncPlan(root.session) : undefined
+    const { planCheckpoints, planState } = root.session
+      ? await this.readPlanSnapshot(root.session)
+      : { planCheckpoints: await this.readPlanCheckpoints(root), planState: undefined }
     return {
       planState,
       planCheckpoints,
@@ -2180,12 +2195,17 @@ export class HostCollaborationBridge {
   }
 
   async syncPlan(actualSession: RuntimeSdkSession, force = false): Promise<PlanState> {
+    return (await this.readPlanSnapshot(actualSession, force)).planState
+  }
+
+  private readPlanSnapshot(actualSession: RuntimeSdkSession, force = false) {
     const pending = this.planWrites.then(async () => {
       await this.ready
       const record = this.callers.get(actualSession)
       if (!record || record.session !== actualSession || record.summary.depth !== 0)
         throw new Error('计划状态只能由当前根会话同步')
-      return this.syncPlanOnce(record, await this.readPlanCheckpoints(record), force)
+      const planCheckpoints = await this.readPlanCheckpoints(record)
+      return { planCheckpoints, planState: await this.syncPlanOnce(record, planCheckpoints, force) }
     })
     this.planWrites = pending.then(
       () => {},

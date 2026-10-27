@@ -82,6 +82,7 @@ export type ComposerProps = {
   onEditQueueInput?: (id: string) => void
   running: boolean
   disabled: boolean
+  editorDisabled?: boolean
   queueMode: 'steering' | 'followUp'
   onQueueMode: (mode: 'steering' | 'followUp') => void
   steeringMode?: PiState['steeringMode']
@@ -155,6 +156,7 @@ export function Composer({
   onDeleteQueueInput,
   onEditQueueInput,
   disabled,
+  editorDisabled = disabled,
   queueMode,
   onQueueMode,
   steeringMode,
@@ -344,7 +346,7 @@ export function Composer({
         <div className="composer-layout">
           <ComposerEditor
             composerStore={composerStore}
-            disabled={disabled}
+            disabled={editorDisabled}
             sessionKey={sessionKey}
             agentPlugins={agentPlugins}
             onPlanCommand={onPlanCommand}

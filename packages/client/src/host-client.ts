@@ -610,12 +610,17 @@ export class HostClient {
     this.connectedHostId = hostId
   }
 
-  private async snapshot(sessionId = this.selected?.sessionKey, updateSelection = true) {
+  private async snapshot(
+    sessionId = this.selected?.sessionKey,
+    updateSelection = true,
+    window?: import('@pi-meme/contracts/sessions').SessionWindow,
+  ) {
     const epoch = this.selectionEpoch
     const networkEpoch = this.networkEpoch
-    let snapshot = await this.rpc<Snapshot>('pi:snapshot', [], sessionId)
+    const args = window ? [window] : []
+    let snapshot = await this.rpc<Snapshot>('pi:snapshot', args, sessionId)
     this.assertAvailable(networkEpoch)
-    if (await this.recoverQueueEdits(snapshot)) snapshot = await this.rpc<Snapshot>('pi:snapshot', [], sessionId)
+    if (await this.recoverQueueEdits(snapshot)) snapshot = await this.rpc<Snapshot>('pi:snapshot', args, sessionId)
     this.assertAvailable(networkEpoch)
     this.registerAgents(snapshot.agents ?? [])
     if (updateSelection && epoch === this.selectionEpoch && sessionId === this.selected?.sessionKey)
@@ -946,14 +951,14 @@ export class HostClient {
       }
     }
     return {
-      getConnection: async () => (await this.snapshot()).connection,
+      getConnection: async () => (await this.snapshot(undefined, true, { limit: 60 })).connection,
       startGoal: (key, input) => rpc('goal:start', [key, input], key),
       editGoal: (key, input) => rpc('goal:edit', [key, input], key),
       pauseGoal: (key, input) => rpc('goal:pause', [key, input], key),
       resumeGoal: (key, input) => rpc('goal:resume', [key, input], key),
       clearGoal: (key, input) => rpc('goal:clear', [key, input], key),
       resolveAppSession: (sessionKey) => rpc('host:session-ref', [sessionKey], sessionKey),
-      getSnapshot: () => this.snapshot(),
+      getSnapshot: (window) => this.snapshot(undefined, true, window),
       onConnection: (callback) => subscribe(this.connectionListeners, callback),
       onEvent: (callback) => subscribe(this.eventListeners, callback),
       onError: (callback) => subscribe(this.errorListeners, callback),
@@ -984,8 +989,8 @@ export class HostClient {
       selectWorkspace: (input) => this.selection('workspace:select', [input]),
       getSessions: () => rpc('pi:sessions'),
       newSession: () => this.selection('pi:new-session'),
-      switchSession: (path) => this.selection('pi:switch-session', [path]),
-      readSessionHistory: (path) => rpc('session:history', [path]),
+      switchSession: (path, window) => this.selection('pi:switch-session', window ? [path, window] : [path]),
+      readSessionHistory: (path, window) => rpc('session:history', window ? [path, window] : [path]),
       searchSessions: (query, paths) => rpc('session:search', [query, paths], null),
       prefetchSession: (path) => rpc('session:prefetch', [path]),
       togglePin: (path) => rpc('settings:toggle-pin', [path]),

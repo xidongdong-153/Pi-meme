@@ -7,6 +7,34 @@ import { readSessionHistory } from '../src/session-history'
 import { assistantMessage, userMessage } from '../../../tests/fixtures/messages.mjs'
 import { projectMessageSources } from '../src/sdk/ui-source'
 import type { SessionEntry } from '@earendil-works/pi-coding-agent'
+import { projectSessionWindow } from '@pi-meme/contracts/session-window'
+
+test('历史分页使用原生ID并保留完整轮次，已加载范围刷新后不缩短', () => {
+  const messages = Array.from({ length: 12 }, (_, index) => ({
+    ...(index % 2 ? assistantMessage(`回复${index}`, index) : userMessage(`问题${index}`, index)),
+    sourceEntry: { id: `entry-${index}`, type: 'message' as const, revision: `entry-${index}` },
+  }))
+  const original = { messages }
+  const recent = projectSessionWindow(original, { limit: 3 })
+  assert.deepEqual(
+    recent.messages.map((message) => message.sourceEntry?.id),
+    ['entry-8', 'entry-9', 'entry-10', 'entry-11'],
+  )
+  assert.deepEqual(recent.messagePage, { before: 'entry-8' })
+  const older = projectSessionWindow(original, { limit: 3, before: recent.messagePage?.before })
+  assert.deepEqual(
+    older.messages.map((message) => message.sourceEntry?.id),
+    ['entry-4', 'entry-5', 'entry-6', 'entry-7'],
+  )
+  const refreshed = projectSessionWindow(original, { limit: 3, from: 'entry-4' })
+  assert.equal(refreshed.messages.length, 8)
+  assert.deepEqual(refreshed.messagePage, { before: 'entry-4' })
+  assert.equal(projectSessionWindow(original).messages, messages)
+  assert.equal(original.messages.length, 12)
+  assert.throws(() => projectSessionWindow(original, { limit: 3, before: 'removed-entry' }), /历史已更新/)
+  assert.throws(() => projectSessionWindow(original, { limit: 0 }), /分页参数无效/)
+  assert.equal(projectSessionWindow(original, { limit: 3, from: 'removed-entry' }).messages.length, 4)
+})
 
 test('历史回复保留开始时间，以当前分支消息落盘时间投影完成时间且不改写JSONL', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pi-history-duration-'))

@@ -190,6 +190,24 @@ export class ProjectStore {
     await save
   }
 
+  async get(original: string): Promise<DesktopProject> {
+    if (this.loadError) throw this.loadError
+    let cwd = this.sourceProjectCwd(original) ?? original
+    let unavailable = false
+    try {
+      cwd = await this.validateDirectory(cwd)
+    } catch {
+      unavailable = true
+    }
+    const saved = this.projects.find((item) => item.cwd === cwd)
+    return {
+      cwd,
+      name: saved?.name ?? (path.basename(cwd) || cwd),
+      lastSelectedAt: saved?.lastSelectedAt ?? '',
+      unavailable,
+    }
+  }
+
   async list(cwds: string[] = []) {
     if (this.loadError) throw this.loadError
     const projects = new Map<string, DesktopProject>()
@@ -203,9 +221,10 @@ export class ProjectStore {
       }
       if (this.kind(cwd) === 'project' && !projects.has(cwd)) projects.set(cwd, { ...item, cwd, unavailable })
     }
-    for (const original of cwds) {
+    for (const original of new Set(cwds.map((cwd) => this.sourceProjectCwd(cwd) ?? cwd))) {
       if (!original || !path.isAbsolute(original)) continue
       let cwd = this.sourceProjectCwd(original) ?? original
+      if (projects.has(cwd)) continue
       let unavailable = false
       try {
         cwd = await this.validateDirectory(cwd)

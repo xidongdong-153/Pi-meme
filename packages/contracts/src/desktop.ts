@@ -58,6 +58,8 @@ import type {
   PiSessionsSnapshot,
   SessionHistoryData,
   SessionSearchMatch,
+  SessionWindow,
+  SessionMessagePage,
 } from './sessions'
 import type {
   AppearanceSettings,
@@ -167,6 +169,7 @@ export type SessionPluginDescriptor = {
   error?: string
 }
 export type Snapshot = {
+  appSession?: AppSession
   agent?: AgentSummary
   agents?: AgentSummary[]
   goal?: Goal
@@ -181,6 +184,7 @@ export type Snapshot = {
   connection: Connection
   state: PiState
   messages: PiMessage[]
+  messagePage?: SessionMessagePage
   models: PiModel[]
   thinkingLevels?: ThinkingLevel[]
   stats?: PiSessionStats
@@ -205,7 +209,7 @@ export type WorkspaceDeletionResult = {
 export interface ConnectionBridge {
   resolveAppSession: (sessionKey: string) => Promise<AppSession>
   getConnection: () => Promise<Connection>
-  getSnapshot: () => Promise<Snapshot>
+  getSnapshot: (window?: SessionWindow) => Promise<Snapshot>
   onEvent: (callback: (event: DesktopEvent) => void) => () => void
   onConnection: (callback: (connection: Connection) => void) => () => void
   onError: (callback: (error: DesktopError) => void) => () => void
@@ -233,8 +237,8 @@ export interface WorkspaceBridge {
   getSessions: () => Promise<PiSessionsSnapshot>
   onSessionsChanged: (callback: () => void) => () => void
   newSession: () => Promise<SessionSelectionResult>
-  switchSession: (sessionPath: string) => Promise<SessionSelectionResult>
-  readSessionHistory: (sessionPath: string) => Promise<SessionHistoryData>
+  switchSession: (sessionPath: string, window?: SessionWindow) => Promise<SessionSelectionResult>
+  readSessionHistory: (sessionPath: string, window?: SessionWindow) => Promise<SessionHistoryData>
   searchSessions: (query: string, paths: string[]) => Promise<SessionSearchMatch[]>
   prefetchSession: (sessionPath: string) => Promise<void>
   togglePin: (targetPath: string) => Promise<string[]>

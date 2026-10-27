@@ -138,6 +138,18 @@ test('分片持久化只更新受影响的根，不全库序列化；跨根操�
     const stat1Before = await stat(root1File)
     const stat2Before = await stat(root2File)
 
+    await bridge.bindRoot({
+      sessionKey: 'root1-key',
+      sessionId: 's1',
+      sessionFile: path.join(dataRoot, 's1.jsonl'),
+      cwd: dataRoot,
+      state: session1.state,
+      accessMode: 'workspace-write',
+      session: session1.session,
+    })
+    assert.equal((await stat(root1File)).ino, stat1Before.ino)
+    assert.equal((await stat(root1File)).mtimeMs, stat1Before.mtimeMs)
+
     // 等待微小时间片使 mtime 有可测差异
     await new Promise((r) => setTimeout(r, 50))
 

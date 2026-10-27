@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { test } from 'vitest'
+import { test, vi } from 'vitest'
 import { mkdir, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { createPiRuntimePaths } from '@pi-meme/pi-runtime/runtime-paths'
@@ -7,6 +7,99 @@ import { setTimeout as delay } from 'node:timers/promises'
 import type { InstructionsSnapshot } from '@pi-meme/contracts/settings'
 import type { SessionSelectionResult, Snapshot } from '@pi-meme/contracts/desktop'
 import { setup } from './host-server-fixture'
+import { SessionService } from '@pi-meme/workspace/server/session-service'
+import { ProjectStore } from '@pi-meme/workspace/server/project-store'
+import { assistantMessage, userMessage } from '../../../tests/fixtures/messages.mjs'
+
+test('读取与新建当前会话不扫描其他历史且返回稳定身份', async () => {
+  const fixture = await setup()
+  let sessions: ReturnType<typeof vi.spyOn> | undefined
+  let projects: ReturnType<typeof vi.spyOn> | undefined
+  try {
+    const first = (await fixture.rpc('fast-selection', 'pi:snapshot')).result as Snapshot
+    assert.ok(first.appSession?.sessionId)
+    sessions = vi.spyOn(SessionService.prototype, 'getSnapshot').mockRejectedValue(new Error('无关历史不可读取'))
+    projects = vi.spyOn(ProjectStore.prototype, 'list').mockRejectedValue(new Error('无关项目不可读取'))
+    const snapshot = await fixture.rpc('fast-selection', 'pi:snapshot')
+    assert.equal(snapshot.error, undefined)
+    assert.equal((snapshot.result as Snapshot).appSession?.sessionId, first.appSession.sessionId)
+    const created = await fixture.rpc('fast-selection', 'pi:new-session')
+    assert.equal(created.error, undefined)
+    const selection = created.result as SessionSelectionResult
+    if (selection.cancelled) throw new Error('新建会话不应取消')
+    assert.ok(selection.snapshot.appSession?.sessionId)
+    assert.notEqual(selection.snapshot.appSession.sessionId, first.appSession.sessionId)
+    const key = selection.snapshot.connection.sessionKey!
+    const [left, right] = await Promise.all([
+      fixture.server.host.control.sessionForRuntime(key),
+      fixture.server.host.control.sessionForRuntime(key),
+    ])
+    assert.equal(left.sessionId, right.sessionId)
+    assert.equal(left.sessionId, selection.snapshot.appSession.sessionId)
+    assert.equal(sessions.mock.calls.length, 0)
+    assert.equal(projects.mock.calls.length, 0)
+  } finally {
+    sessions?.mockRestore()
+    projects?.mockRestore()
+    await fixture.dispose()
+  }
+})
+
+test('会话首屏分页与更早记录使用稳定游标，完整快照仍可读取', async () => {
+  const fixture = await setup()
+  try {
+    const folder = path.join(createPiRuntimePaths(fixture.root).sessionsDirectory, 'paged-fixture')
+    await mkdir(folder, { recursive: true })
+    const file = path.join(folder, 'saved.jsonl')
+    const timestamp = '2026-10-10T00:00:00Z'
+    await writeFile(
+      file,
+      [
+        { type: 'session', version: 3, id: 'paged', cwd: fixture.root, timestamp },
+        ...Array.from({ length: 160 }, (_, index) => ({
+          type: 'message',
+          id: `entry-${index}`,
+          parentId: index ? `entry-${index - 1}` : null,
+          timestamp,
+          message: index % 2 ? assistantMessage(`回复${index}`, index) : userMessage(`问题${index}`, index),
+        })),
+      ]
+        .map((entry) => JSON.stringify(entry))
+        .join('\n'),
+    )
+    const response = await fetch(`${fixture.server.url}/api/rpc`, {
+      method: 'POST',
+      headers: { Cookie: fixture.cookie, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        requestId: crypto.randomUUID(),
+        clientId: 'paged-selection',
+        method: 'pi:switch-session',
+        args: [file, { limit: 60 }],
+      }),
+    })
+    assert.match(response.headers.get('server-timing') ?? '', /host;dur=[\d.]+, serialize;dur=[\d.]+/)
+    const envelope = (await response.json()) as { result: SessionSelectionResult; error?: unknown }
+    assert.equal(envelope.error, undefined)
+    const selection = envelope.result
+    if (selection.cancelled) throw new Error('会话选择不应取消')
+    assert.equal(selection.snapshot.messages.length, 60)
+    assert.deepEqual(selection.snapshot.messagePage, { before: 'entry-100' })
+    const older = await fixture.rpc('paged-selection', 'session:history', [
+      selection.snapshot.connection.sessionKey,
+      { limit: 60, before: 'entry-100' },
+    ])
+    assert.equal(older.error, undefined)
+    const history = older.result as import('@pi-meme/contracts/sessions').SessionHistoryData
+    assert.equal(history.messages.length, 60)
+    assert.equal(history.messages[0].sourceEntry?.id, 'entry-40')
+    assert.deepEqual(history.messagePage, { before: 'entry-40' })
+    const full = (await fixture.rpc('paged-selection', 'pi:snapshot')).result as Snapshot
+    assert.equal(full.messages.length, 160)
+    assert.equal(full.messagePage, undefined)
+  } finally {
+    await fixture.dispose()
+  }
+})
 
 test('历史正文搜索经真实HTTP路由返回摘要，不改变客户端当前会话', async () => {
   const fixture = await setup()

@@ -26,6 +26,7 @@ export function fromSnapshot(snapshot: Snapshot): ChatState {
   const state: ChatState = {
     ...emptyChat,
     messages: snapshot.messages,
+    messagePage: snapshot.messagePage,
     goal: snapshot.goal,
     goalsSupported: snapshot.goalsSupported,
     planDocuments: snapshot.planDocuments ?? [],

@@ -314,8 +314,7 @@ export function App({
   useEffect(() => {
     let current = true
     if (!runtimeSessionKey) return
-    void bridge
-      .resolveAppSession(runtimeSessionKey)
+    void (chat.appSession ? Promise.resolve(chat.appSession) : bridge.resolveAppSession(runtimeSessionKey))
       .then((value) => {
         if (!current) return
         chat.bindDraftSession(runtimeSessionKey, value.sessionId)
@@ -340,7 +339,7 @@ export function App({
     return () => {
       current = false
     }
-  }, [bridge, runtimeSessionKey, chat.bindDraftSession, chat.setError])
+  }, [bridge, runtimeSessionKey, chat.appSession, chat.bindDraftSession, chat.setError])
   const appSession = runtimeSessionKey ? resolvedSessions[runtimeSessionKey] : undefined
   const activities = useActivities(host, appSession)
   const loadConversationImage = useMemo(() => {
@@ -839,9 +838,9 @@ export function App({
     compact: interaction?.method === 'questions',
     mode: chat.mode,
     onMode: chat.changeMode,
-    onPlanCommand: chat.activatePlan,
-    onGoalCommand: chat.goalsSupported ? chat.activateGoal : undefined,
-    onCompact: () => void chat.compactNow(),
+    onPlanCommand: chat.inputDisabled ? undefined : chat.activatePlan,
+    onGoalCommand: chat.goalsSupported && !chat.inputDisabled ? chat.activateGoal : undefined,
+    onCompact: chat.inputDisabled ? undefined : () => void chat.compactNow(),
     sessionStarted: chat.chat.messages.length > 0 || chat.chat.live !== null,
     sessionName: chat.state?.sessionName,
     onRenameSession: async (name) => {
@@ -873,7 +872,7 @@ export function App({
     files: chat.composerFiles,
     uploadAttachment: bridge.uploadAttachment,
     projectPath: chat.connection.cwd,
-    loadProjectFiles: bridge.getProjectFiles,
+    loadProjectFiles: chat.inputDisabled ? undefined : bridge.getProjectFiles,
     access: (
       <AgentAccessSelector
         {...{
@@ -913,6 +912,7 @@ export function App({
     onDeleteQueueInput: (id) => void chat.deleteQueueInput(id),
     onEditQueueInput: (id) => void chat.editQueueInput(id),
     disabled: !ready || chat.inputDisabled || chat.savingQueue,
+    editorDisabled: !chat.draftEditable || chat.savingQueue,
     queueMode: chat.queueMode,
     onQueueMode: chat.setQueueMode,
     steeringMode: chat.state?.steeringMode,
@@ -1182,7 +1182,7 @@ export function App({
       connection={chat.connection}
       ready={ready}
       hasConnected={chat.hasConnected || Boolean(chat.connection.sessionKey)}
-      switching={chat.switching}
+      switching={chat.contentLoading}
       active={serviceUI?.active ?? true}
       composer={composer}
       conversation={
@@ -1190,6 +1190,8 @@ export function App({
           {...{
             chat: chat.chat,
             stream: chat.chatStream,
+            onLoadOlder: chat.loadOlderMessages,
+            historyLoading: chat.historyLoading,
             canEditMessages: !chat.inputDisabled && !chat.navigationBusy && !chat.editing,
             canForkReplies: !chat.busy && !chat.navigationBusy && !chat.editing,
             onEditMessage: chat.editMessage,

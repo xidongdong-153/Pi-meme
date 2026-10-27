@@ -74,6 +74,7 @@ export async function createAppControl(options: Options) {
   const store = new ControlStore(paths, hostId)
   await store.init()
   const runtime = new Map<string, ClientView>()
+  const runtimeBindings = new Map<string, Promise<AppSession>>()
   const rootAgents = new Map<string, string>()
   const restores = new Map<string, Promise<ClientView>>()
   const queues = new Map<string, Pending[]>()
@@ -126,7 +127,7 @@ export async function createAppControl(options: Options) {
     if (projects.kind(source) !== 'project') return
     let project = store.state.projects.find((item) => item.cwd === source)
     if (!project) {
-      const registered = (await projects.list([source])).find((item) => item.cwd === source)!
+      const registered = await projects.get(source)
       project = store.state.projects.find((item) => item.cwd === source)
       if (project) return project
       project = {
@@ -262,10 +263,14 @@ export async function createAppControl(options: Options) {
   const refresh = async () => {
     const saved = await sessions.getSnapshot()
     const summaries = [
-      ...saved.projects.flatMap((group) => group.sessions),
-      ...(saved.standaloneSessions ?? []),
-      ...saved.recents,
-      ...pi.getRuntimeSessions(),
+      ...new Map(
+        [
+          ...saved.projects.flatMap((group) => group.sessions),
+          ...(saved.standaloneSessions ?? []),
+          ...saved.recents,
+          ...pi.getRuntimeSessions(),
+        ].map((summary) => [summary.path, summary]),
+      ).values(),
     ]
     for (const registered of await projects.list(summaries.map((item) => item.cwd))) {
       const project = await projectFor(registered.cwd)
@@ -1343,34 +1348,63 @@ export async function createAppControl(options: Options) {
     observe,
     resolveRoot,
     async sessionForRuntime(key: string) {
-      await refresh()
-      let session = store.state.sessions.find((item) => runtime.get(item.sessionId)?.sessionKey === key)
-      if (!session) {
+      const existing = runtimeBindings.get(key)
+      if (existing) return structuredClone(await existing)
+      const pending = (async () => {
         const context = pi.readSessionBinding(key)
-        session = context.sessionFile
-          ? store.state.sessions.find((item) => item.sessionFile === context.sessionFile)
-          : undefined
+        let session = store.state.sessions.find(
+          (item) =>
+            runtime.get(item.sessionId)?.sessionKey === key ||
+            (context.sessionFile && item.sessionFile === context.sessionFile),
+        )
         if (!session) {
           const project = await projectFor(context.cwd)
-          session = {
-            hostId,
-            sessionId: randomUUID(),
-            project: project && { hostId, projectId: project.projectId },
-            cwd: context.cwd,
-            createdAt: new Date().toISOString(),
-            sessionFile: context.sessionFile,
-            configuration: { agentPlugins: await options.defaultAgentPlugins.getDefaultAgentPlugins() },
-            status: busy(key) ? 'running' : 'idle',
+          const agentPlugins = await options.defaultAgentPlugins.getDefaultAgentPlugins()
+          session = store.state.sessions.find(
+            (item) =>
+              runtime.get(item.sessionId)?.sessionKey === key ||
+              (context.sessionFile && item.sessionFile === context.sessionFile),
+          )
+          if (!session) {
+            session = {
+              hostId,
+              sessionId: randomUUID(),
+              project: project && { hostId, projectId: project.projectId },
+              cwd: context.cwd,
+              createdAt: pi.getRuntimeHistory(key)?.created ?? new Date().toISOString(),
+              sessionFile: context.sessionFile,
+              configuration: { agentPlugins },
+              status: busy(key) ? 'running' : 'idle',
+            }
+            await store.saveSession(session)
           }
+        }
+        let view = runtime.get(session.sessionId)
+        if (!view || view.sessionKey !== key) {
+          if (view) pi.releaseClientView(view)
+          view = pi.createClientView()
+          view.clientId = `control:${session.sessionId}`
+          view.sessionKey = key
+          runtime.set(session.sessionId, view)
+        }
+        await sync(session, view)
+        const status = busy(key)
+          ? 'running'
+          : session.status === 'running' && !active.has(session.sessionId)
+            ? 'idle'
+            : session.status
+        if (session.status !== status) {
+          session.status = status
           await store.saveSession(session)
         }
-        const view = pi.createClientView()
-        view.clientId = `control:${session.sessionId}`
-        view.sessionKey = key
-        runtime.set(session.sessionId, view)
-        await sync(session, view)
+        return session
+      })()
+      runtimeBindings.set(key, pending)
+      try {
+        return structuredClone(await pending)
+      } finally {
+        if (runtimeBindings.get(key) === pending) runtimeBindings.delete(key)
       }
-      return structuredClone(session)
     },
     selectedAgentPlugins(key: string) {
       let session = store.state.sessions.find((item) => runtime.get(item.sessionId)?.sessionKey === key)

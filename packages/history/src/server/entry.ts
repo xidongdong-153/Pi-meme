@@ -12,6 +12,7 @@ import {
 import type { PiSessionsSnapshot, SessionSearchMatch } from '@pi-meme/contracts/sessions'
 import { searchSessionFile, sessionSearchExcerpt } from './session-search'
 import { text } from '@pi-meme/contracts/ipc'
+import { projectSessionWindow } from '@pi-meme/contracts/session-window'
 
 type HistoryContext = {
   sessions: {
@@ -52,7 +53,7 @@ export function create(context: ServerPluginContext) {
     return validated.history ?? readSessionHistory(validated.path)
   }
   context.registerHandlers({
-    'session:history': read,
+    'session:history': async (value, window) => projectSessionWindow(await read(value), window),
     'session:search': async (query, values): Promise<SessionSearchMatch[]> => {
       if (typeof query !== 'string' || !query.trim() || query.length > 1024)
         throw new Error('历史搜索词必须是 1 到 1024 字符的文本')

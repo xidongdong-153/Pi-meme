@@ -3,6 +3,7 @@ import type { AgentMailboxMessage, AgentSummary } from '@pi-meme/contracts/colla
 import type { BranchSkillUsage } from '@pi-meme/contracts/skills'
 import type { QueuedInput, PlanDocument, PlanState, PlanCheckpoint } from '@pi-meme/contracts/plan'
 import type { ChatBranchAttachment } from '@pi-meme/contracts/chat-attachments'
+import type { SessionMessagePage } from '@pi-meme/contracts/sessions'
 import type {
   PiImage,
   PiGenerationMetrics,
@@ -41,6 +42,7 @@ export type ChatState = {
   planCheckpoints?: PlanCheckpoint[]
   skillUsages?: BranchSkillUsage[]
   messages: PiMessage[]
+  messagePage?: SessionMessagePage
   sessionEntries?: PiSessionEntries
   branchAttachments?: ChatBranchAttachment[]
   live: Extract<PiMessage, { role: 'assistant' }> | null

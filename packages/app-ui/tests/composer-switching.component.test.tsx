@@ -143,7 +143,7 @@ function deferred<T>() {
   return { promise, resolve, reject }
 }
 
-function setup(overrides: Partial<DesktopBridge> = {}) {
+function setup(overrides: Partial<DesktopBridge> = {}, chatEnabled = false) {
   const snapshot: Snapshot = {
     connection: { generation: 1, sessionKey: 'main', cwd: '/tmp/first', workspaceKind: 'project', status: 'idle' },
     state: {
@@ -169,7 +169,7 @@ function setup(overrides: Partial<DesktopBridge> = {}) {
     onEvent: () => () => {},
     ...overrides,
   } as unknown as DesktopBridge
-  const hook = renderHook(() => useAppSession(bridge, { chatEnabled: false, workspaceEnabled: false }))
+  const hook = renderHook(() => useAppSession(bridge, { chatEnabled, workspaceEnabled: false }))
   return { ...hook, snapshot }
 }
 
@@ -617,6 +617,260 @@ test.each([false, true])('重复新建只创建一次，旧创建结果不覆盖
   expect(result.current.connection.sessionKey).toBe('chosen')
   expect(result.current.draft).toBe('')
   expect(result.current.error).toBe('')
+})
+
+test('切回看过的会话立即展示缓存，Host确认前保持发送禁用', async () => {
+  const opening = deferred<SessionSelectionResult>()
+  const switchSession = vi.fn<DesktopBridge['switchSession']>()
+  const { result, snapshot } = setup({ switchSession })
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  const second: Snapshot = {
+    ...snapshot,
+    connection: { ...snapshot.connection, generation: 2, sessionKey: 'second', sessionFile: '/tmp/second.jsonl' },
+    messages: [userMessage('第二个会话', 2)],
+  }
+  switchSession.mockResolvedValueOnce({ cancelled: false, snapshot: second })
+  await act(async () => {
+    await result.current.switchSession('/tmp/second.jsonl')
+  })
+  act(() => result.current.setDraft('第二个会话草稿'))
+  switchSession.mockResolvedValueOnce({ cancelled: false, snapshot })
+  await act(async () => {
+    await result.current.switchSession('main')
+  })
+  switchSession.mockReturnValueOnce(opening.promise)
+  let pending!: Promise<boolean>
+  act(() => {
+    pending = result.current.switchSession('/tmp/second.jsonl')
+  })
+  expect(result.current.connection.sessionKey).toBe('second')
+  expect(result.current.chat.messages).toEqual(second.messages)
+  expect(result.current.draft).toBe('第二个会话草稿')
+  expect(result.current.contentLoading).toBe(false)
+  expect(result.current.inputDisabled).toBe(true)
+  expect(result.current.canSubmitComposer()).toBe(false)
+  await act(async () => {
+    opening.resolve({ cancelled: false, snapshot: second })
+    expect(await pending).toBe(true)
+  })
+  expect(result.current.inputDisabled).toBe(false)
+})
+
+test('新建立即显示空白草稿，创建期间输入在确认后保留且原草稿独立', async () => {
+  const opening = deferred<SessionSelectionResult>()
+  const { result, snapshot } = setup({
+    newSession: () => opening.promise,
+    switchSession: async () => ({ cancelled: false, snapshot }),
+  })
+  snapshot.messages = [userMessage('原会话正文', 1)]
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  act(() => result.current.setDraft('原会话草稿'))
+  let pending!: Promise<boolean>
+  act(() => {
+    pending = result.current.newSession()
+  })
+  expect(result.current.connection.sessionKey).toBeUndefined()
+  expect(result.current.chat.messages).toEqual([])
+  expect(result.current.draft).toBe('')
+  expect(result.current.contentLoading).toBe(false)
+  expect(result.current.draftEditable).toBe(true)
+  expect(result.current.canSubmitComposer()).toBe(false)
+  act(() => result.current.setDraft('创建过程中输入'))
+  await act(async () => {
+    opening.resolve({
+      cancelled: false,
+      snapshot: { ...snapshot, messages: [], connection: { ...snapshot.connection, generation: 2, sessionKey: 'new' } },
+    })
+    expect(await pending).toBe(true)
+  })
+  expect(result.current.draft).toBe('创建过程中输入')
+  await act(async () => {
+    await result.current.switchSession('main')
+  })
+  expect(result.current.draft).toBe('原会话草稿')
+})
+
+test('新建失败保留可编辑草稿，禁止向原会话发送并支持重试', async () => {
+  const opening = deferred<SessionSelectionResult>()
+  const newSession = vi.fn<DesktopBridge['newSession']>().mockReturnValueOnce(opening.promise)
+  const prompt = vi.fn()
+  const { result, snapshot } = setup({ newSession, prompt })
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  let pending!: Promise<boolean>
+  act(() => {
+    pending = result.current.newSession()
+  })
+  act(() => result.current.setDraft('失败也保留这段文字'))
+  await act(async () => {
+    opening.reject(new Error('Host 暂时不可用'))
+    expect(await pending).toBe(false)
+  })
+  expect(result.current.draft).toBe('失败也保留这段文字')
+  expect(result.current.draftEditable).toBe(true)
+  expect(result.current.inputDisabled).toBe(true)
+  expect(result.current.error).toContain('Host 暂时不可用')
+  await act(async () => {
+    await result.current.send()
+  })
+  expect(prompt).not.toHaveBeenCalled()
+  newSession.mockResolvedValueOnce({
+    cancelled: false,
+    snapshot: { ...snapshot, connection: { ...snapshot.connection, generation: 2, sessionKey: 'retry' } },
+  })
+  await act(async () => {
+    expect(await result.current.newSession()).toBe(true)
+  })
+  expect(result.current.connection.sessionKey).toBe('retry')
+  expect(result.current.draft).toBe('失败也保留这段文字')
+})
+
+test('离开待创建会话后再次新建使用独立请求和草稿，旧确认不影响新输入', async () => {
+  const first = deferred<SessionSelectionResult>()
+  const second = deferred<SessionSelectionResult>()
+  const newSession = vi
+    .fn<DesktopBridge['newSession']>()
+    .mockReturnValueOnce(first.promise)
+    .mockReturnValueOnce(second.promise)
+  const switchSession = vi.fn<DesktopBridge['switchSession']>()
+  const { result, snapshot } = setup({ newSession, switchSession })
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  let earlier!: Promise<boolean>
+  act(() => {
+    earlier = result.current.newSession()
+  })
+  act(() => result.current.setDraft('第一次新建输入'))
+  switchSession.mockResolvedValueOnce({
+    cancelled: false,
+    snapshot: { ...snapshot, connection: { ...snapshot.connection, sessionKey: 'chosen', generation: 3 } },
+  })
+  await act(async () => {
+    await result.current.switchSession('chosen')
+  })
+  let latest!: Promise<boolean>
+  act(() => {
+    latest = result.current.newSession()
+  })
+  expect(newSession).toHaveBeenCalledTimes(2)
+  expect(result.current.draft).toBe('')
+  act(() => result.current.setDraft('第二次新建输入'))
+  await act(async () => {
+    first.resolve({
+      cancelled: false,
+      snapshot: { ...snapshot, connection: { ...snapshot.connection, sessionKey: 'earlier', generation: 2 } },
+    })
+    expect(await earlier).toBe(false)
+  })
+  expect(result.current.draft).toBe('第二次新建输入')
+  await act(async () => {
+    second.resolve({
+      cancelled: false,
+      snapshot: { ...snapshot, connection: { ...snapshot.connection, sessionKey: 'latest', generation: 4 } },
+    })
+    expect(await latest).toBe(true)
+  })
+  expect(result.current.connection.sessionKey).toBe('latest')
+  expect(result.current.draft).toBe('第二次新建输入')
+})
+
+test('失败的新草稿切换项目只转移当前输入，原会话草稿保留', async () => {
+  const opening = deferred<SessionSelectionResult>()
+  const selectWorkspace = vi.fn<DesktopBridge['selectWorkspace']>()
+  const switchSession = vi.fn<DesktopBridge['switchSession']>()
+  const { result, snapshot } = setup({
+    newSession: () => opening.promise,
+    selectWorkspace,
+    switchSession,
+    setSessionMode: async () => {},
+  })
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  act(() => result.current.setDraft('原会话草稿'))
+  let pending!: Promise<boolean>
+  act(() => {
+    pending = result.current.newSession()
+  })
+  act(() => result.current.setDraft('失败的新草稿'))
+  await act(async () => {
+    opening.reject(new Error('创建失败'))
+    await pending
+  })
+  selectWorkspace.mockResolvedValueOnce({
+    cancelled: false,
+    snapshot: {
+      ...snapshot,
+      connection: { ...snapshot.connection, cwd: '/another-project', sessionKey: 'another', generation: 2 },
+    },
+  })
+  await act(async () => {
+    expect(await result.current.selectWorkspace({ kind: 'project', cwd: '/another-project' })).toBe(true)
+  })
+  expect(result.current.draft).toBe('失败的新草稿')
+  switchSession.mockResolvedValueOnce({ cancelled: false, snapshot })
+  await act(async () => {
+    await result.current.switchSession('main')
+  })
+  expect(result.current.draft).toBe('原会话草稿')
+})
+
+test('正文快照先于慢命令读取完成，命令返回后再更新', async () => {
+  const commands = deferred<PiSlashCommand[]>()
+  const { result } = setup({ getCommands: () => commands.promise }, true)
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  expect(result.current.connection.sessionKey).toBe('main')
+  expect(result.current.commands).toEqual([])
+  await act(async () => commands.resolve([{ name: 'test', source: 'builtin' } as PiSlashCommand]))
+  expect(result.current.commands[0]?.name).toBe('test')
+})
+
+test('加载更早记录按ID合并，刷新保留展开范围，切换后丢弃迟到分页', async () => {
+  const older = deferred<Awaited<ReturnType<DesktopBridge['readSessionHistory']>>>()
+  const readSessionHistory = vi.fn<DesktopBridge['readSessionHistory']>().mockReturnValueOnce(older.promise)
+  const getSnapshot = vi.fn<DesktopBridge['getSnapshot']>()
+  const switchSession = vi.fn<DesktopBridge['switchSession']>()
+  const { result, snapshot } = setup({ readSessionHistory, getSnapshot, switchSession })
+  const message = (id: string) => ({
+    ...userMessage(id, 1),
+    sourceEntry: { id, type: 'message' as const, revision: id },
+  })
+  snapshot.messages = [message('recent')]
+  snapshot.messagePage = { before: 'recent' }
+  getSnapshot.mockResolvedValue(snapshot)
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  let pending!: Promise<boolean>
+  act(() => {
+    pending = result.current.loadOlderMessages()
+  })
+  expect(readSessionHistory).toHaveBeenCalledWith('main', { limit: 60, before: 'recent' })
+  await act(async () => {
+    older.resolve({ cwd: snapshot.connection.cwd, created: '', messages: [message('older')] })
+    expect(await pending).toBe(true)
+  })
+  expect(result.current.chat.messages.map((value) => value.sourceEntry?.id)).toEqual(['older', 'recent'])
+  snapshot.messages = result.current.chat.messages
+  snapshot.messagePage = { before: 'older' }
+  await act(async () => {
+    await result.current.refreshSnapshot()
+  })
+  expect(getSnapshot).toHaveBeenLastCalledWith({ limit: 60, from: 'older' })
+  const late = deferred<Awaited<ReturnType<DesktopBridge['readSessionHistory']>>>()
+  readSessionHistory.mockReturnValueOnce(late.promise)
+  act(() => {
+    pending = result.current.loadOlderMessages()
+  })
+  const next = {
+    ...snapshot,
+    connection: { ...snapshot.connection, sessionKey: 'second', generation: 2 },
+    messages: [],
+  }
+  switchSession.mockResolvedValueOnce({ cancelled: false, snapshot: next })
+  await act(async () => {
+    await result.current.switchSession('second')
+  })
+  await act(async () => {
+    late.resolve({ cwd: snapshot.connection.cwd, created: '', messages: [message('earliest')] })
+    expect(await pending).toBe(false)
+  })
+  expect(result.current.connection.sessionKey).toBe('second')
+  expect(result.current.chat.messages).toEqual([])
 })
 
 test('旧导航失败不覆盖新选择，不恢复或发送旧草稿', async () => {

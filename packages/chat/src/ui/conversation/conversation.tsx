@@ -54,6 +54,8 @@ export const Conversation = React.memo(
     models = [],
     renderPlan,
     planState,
+    onLoadOlder,
+    historyLoading = false,
   }: {
     chat: ChatState
     stream?: ChatStream
@@ -73,6 +75,8 @@ export const Conversation = React.memo(
     models?: PiModel[]
     renderPlan?: (document: PlanDocument) => React.ReactNode
     planState?: PlanState | null
+    onLoadOlder?: () => Promise<boolean>
+    historyLoading?: boolean
   }) => {
     const chat = React.useSyncExternalStore(
       stream?.subscribe ?? noSubscription,
@@ -222,10 +226,15 @@ export const Conversation = React.memo(
     const hiddenCount = outline.findLast((entry) => entry.turnIndex <= windowStart)?.turnIndex ?? windowStart
     const hasHiddenTurns = hiddenCount > 0
     const visibleTurns = hasHiddenTurns ? turns.slice(hiddenCount) : turns
+    const currentSession = React.useRef(sessionKey)
+    currentSession.current = sessionKey
 
-    const handleLoadMore = React.useCallback(() => {
+    const handleLoadMore = React.useCallback(async () => {
+      if (!hasHiddenTurns && chat.messagePage && onLoadOlder) {
+        if (!(await onLoadOlder()) || currentSession.current !== sessionKey) return
+      }
       setVisibleCount((prev) => Math.max(prev, turns.length - hiddenCount) + TURN_INCREMENT)
-    }, [turns.length, hiddenCount])
+    }, [turns.length, hiddenCount, hasHiddenTurns, chat.messagePage, onLoadOlder, sessionKey])
 
     const handleSelectTurn = React.useCallback(
       (entry: ConversationOutlineEntry) => {
@@ -301,16 +310,21 @@ export const Conversation = React.memo(
                 agentOnly ? 'max-w-3xl mx-auto' : 'chat-content-column',
               )}
             >
-              {hasHiddenTurns && (
+              {(hasHiddenTurns || (chat.messagePage && onLoadOlder)) && (
                 <div className="flex items-center justify-center py-2">
                   <Button
                     type="button"
                     variant="outline"
                     size="sm"
                     onClick={handleLoadMore}
+                    disabled={historyLoading}
                     className="text-sm text-muted-foreground hover:text-foreground h-7 px-3 rounded-full border-border/80 bg-secondary/40 hover:bg-secondary cursor-pointer"
                   >
-                    加载更早记录（剩余 {hiddenCount} 轮）
+                    {historyLoading
+                      ? '正在加载更早记录…'
+                      : hasHiddenTurns
+                        ? `加载更早记录（剩余 ${hiddenCount} 轮）`
+                        : '加载更早记录'}
                   </Button>
                 </div>
               )}

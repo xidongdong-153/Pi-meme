@@ -2,13 +2,14 @@ import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { test } from 'vitest'
+import { test, vi } from 'vitest'
 import type { SessionSelectionResult } from '@pi-meme/contracts/desktop'
 import type { PiSlashCommand } from '@pi-meme/contracts/pi'
 import type { ResourceCatalog, ResourceItem } from '@pi-meme/contracts/resources'
 import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 import { MemoryCredentialStorage } from '@pi-meme/pi-runtime/secure-store'
 import { createHost } from '../src/service'
+import { ResourceStore } from '@pi-meme/resources/server/resource-store'
 
 const content = (name: string, body = '技能正文') => `---\nname: ${name}\ndescription: ${name} 的说明\n---\n${body}\n`
 async function setup(t: { onTestFinished: (action: () => Promise<void>) => void }, forbidWorker = false) {
@@ -54,6 +55,32 @@ function findSkill(catalog: ResourceCatalog, name: string, scope?: ResourceItem[
   assert.ok(item, `资源目录应包含技能 ${name}`)
   return item
 }
+
+test('会话命令合并并发读取并复用资源修订，刷新资源后失效', async (t) => {
+  const fixture = await setup(t, true)
+  await fixture.call('workspace:select', [{ kind: 'project', cwd: fixture.cwd }])
+  const snapshot = vi.spyOn(ResourceStore.prototype, 'snapshot')
+  try {
+    const [first, second] = await Promise.all([
+      fixture.call<PiSlashCommand[]>('pi:commands'),
+      fixture.call<PiSlashCommand[]>('pi:commands'),
+    ])
+    assert.deepEqual(first, second)
+    await fixture.call('pi:commands')
+    assert.equal(snapshot.mock.calls.length, 1)
+    await writeSkill(
+      path.join(fixture.root, storageLayoutRelativePaths.skillsDirectory, 'cached-skill'),
+      'cached-skill',
+    )
+    await fixture.call('resources:refresh', [fixture.cwd])
+    const updated = await fixture.call<PiSlashCommand[]>('pi:commands')
+    assert.ok(updated.some((command) => command.name === 'skill:cached-skill'))
+    assert.equal(snapshot.mock.calls.length, 2)
+    await absent(fixture.workerMarker)
+  } finally {
+    snapshot.mockRestore()
+  }
+})
 
 test('无凭据与Worker的Host目录和UI命令都提供内置Skill Creator且身份同源', async (t) => {
   const fixture = await setup(t, true)

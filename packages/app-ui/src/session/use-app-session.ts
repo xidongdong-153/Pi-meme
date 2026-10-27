@@ -14,12 +14,12 @@ import type {
   DesktopError,
 } from '@pi-meme/contracts/desktop'
 import type { PiModel, PiSessionStats, PiSlashCommand, PiState, ThinkingLevel } from '@pi-meme/contracts/pi'
-import { applyEvent as reduceEvent } from '@pi-meme/chat/ui/model/state'
+import { applyEvent as reduceEvent, emptyChat, fromSnapshot } from '@pi-meme/chat/ui/model/state'
 import type { ChatState } from '@pi-meme/chat/ui/model/types'
 import { useChatSession, type ComposerSnapshot } from '@pi-meme/chat/ui/use-chat-session'
 import { useExtensionUI } from '@pi-meme/interaction/ui/use-extension-ui'
 import { useSessions } from '@pi-meme/workspace/ui/use-sessions'
-import { SessionSelection } from './session-selection'
+import { SessionSelection, type SelectionTransaction } from './session-selection'
 import { SnapshotSync } from './snapshot-sync'
 import { PluginSnapshotSync } from './plugin-snapshot-sync'
 import { ComposerDrafts } from './composer-drafts'
@@ -60,6 +60,11 @@ export function useAppSession(
   const [acting, setActing] = useState(false)
   const [modelSaving, setModelSaving] = useState(false)
   const [switching, setSwitching] = useState(false)
+  const [previewing, setPreviewing] = useState(false)
+  const [appSession, setAppSession] = useState<Snapshot['appSession']>()
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const historyRequest = useRef(0)
+  const commandRequest = useRef(0)
   const [switchingToPath, setSwitchingToPath] = useState<string>()
   const [forking, setForking] = useState(false)
   const [forkNotice, setForkNotice] = useState<{ sourcePath: string } | null>(null)
@@ -79,8 +84,12 @@ export function useAppSession(
   const thinkingSaveError = useRef<unknown>(undefined)
   const thinkingRequest = useRef(0)
   const selection = useRef(new SessionSelection())
+  const preview = useRef<{ transaction: SelectionTransaction; draftKey: string; input?: SelectWorkspace } | null>(null)
   const pendingSwitch = useRef<{ target: string; promise: Promise<boolean> } | null>(null)
-  const pendingCreations = useRef(new Map<string, Promise<boolean>>())
+  const pendingCreations = useRef(
+    new Map<string, { promise: Promise<boolean>; transaction: SelectionTransaction | null }>(),
+  )
+  const failedCreationDrafts = useRef(new Map<string, string>())
   const synchronization = useRef(new SnapshotSync())
   const pluginSynchronization = useRef(new PluginSnapshotSync())
   const views = useRef(new Map<string, { snapshot: Snapshot; chat: ChatState; sequence: number }>())
@@ -89,6 +98,10 @@ export function useAppSession(
   const chatRef = useRef<ReturnType<typeof useChatSession> | null>(null)
   const extensionsRef = useRef<ReturnType<typeof useExtensionUI> | null>(null)
   const { sessions, sessionsLoading, refreshSessions, setActiveSession } = useSessions(bridge, workspaceEnabled)
+  const snapshotWindow = useCallback((key?: string) => {
+    const messages = key ? views.current.get(key)?.chat.messages : undefined
+    return { limit: 60, from: messages?.[0]?.sourceEntry?.id }
+  }, [])
 
   const commitSnapshot = useCallback(
     (snapshot: Snapshot, events: DesktopEvent[] | null, pluginRevision: number, modeRevision?: number) => {
@@ -108,6 +121,7 @@ export function useAppSession(
       displayed.current = snapshot.connection
       current.current = snapshot.connection
       setConnection(snapshot.connection)
+      setAppSession(snapshot.appSession)
       const diagnostic = snapshot.extensionError
       const dismissed = dismissedExtensionError.current
       if (
@@ -125,7 +139,8 @@ export function useAppSession(
       // 权威快照空闲时清除发送挂起标记，避免下一条消息被当成插话/排队。
       if (!snapshot.state.isStreaming && !snapshot.state.isCompacting) chatRef.current?.clearPromptPending()
       const key = snapshot.connection.sessionKey
-      if (key && next)
+      if (key && next) {
+        views.current.delete(key)
         views.current.set(key, {
           snapshot,
           chat: next,
@@ -134,6 +149,8 @@ export function useAppSession(
             ...(events ?? []).filter((record) => record.sessionKey === key).map((record) => record.sequence ?? 0),
           ),
         })
+        if (views.current.size > 20) views.current.delete(views.current.keys().next().value!)
+      }
       if (previousKey !== key || previousGeneration !== snapshot.connection.generation) extensionsRef.current?.reset()
       extensionsRef.current?.restoreInteractions(snapshot.pendingInteractions ?? [])
       synced.current = {
@@ -187,21 +204,29 @@ export function useAppSession(
   )
 
   const refresh = useCallback(async () => {
-    if (selection.current.current) return
+    if (selection.current.current || preview.current) return
     const modeRevision = chatRef.current?.captureModeRevision()
     const read = synchronization.current.begin(current.current)
     const pluginRevision = pluginSynchronization.current.begin()
+    const request = ++commandRequest.current
+    const ownsCommands = () =>
+      mounted.current &&
+      !selection.current.current &&
+      !preview.current &&
+      request === commandRequest.current &&
+      read.connection.sessionKey === current.current.sessionKey &&
+      read.connection.generation === current.current.generation
+    if (chatEnabled)
+      void bridge.getCommands().then(
+        (next) => {
+          if (ownsCommands()) setCommands(next)
+        },
+        (cause) => {
+          if (ownsCommands()) setError(`无法读取会话命令：${String(cause)}`)
+        },
+      )
     try {
-      const [snapshot, nextCommands] = await Promise.all([
-        bridge.getSnapshot(),
-        chatEnabled
-          ? bridge.getCommands().catch((cause) => {
-              if (mounted.current && synchronization.current.owns(read, current.current))
-                setError(`无法读取会话命令：${String(cause)}`)
-              return [] as PiSlashCommand[]
-            })
-          : Promise.resolve([] as PiSlashCommand[]),
-      ])
+      const snapshot = await bridge.getSnapshot(snapshotWindow(read.connection.sessionKey))
       if (
         !mounted.current ||
         !synchronization.current.owns(read, current.current) ||
@@ -210,7 +235,6 @@ export function useAppSession(
       )
         return
       commitSnapshot(snapshot, read.events, pluginRevision, modeRevision)
-      setCommands(nextCommands)
     } catch (cause) {
       // 读取失败时清掉已提交标记，下一次 ready/idle 连接事件可以重试。
       synced.current = undefined
@@ -221,14 +245,14 @@ export function useAppSession(
     } finally {
       synchronization.current.finish(read)
     }
-  }, [bridge, chatEnabled, commitSnapshot])
+  }, [bridge, chatEnabled, commitSnapshot, snapshotWindow])
 
   const refreshUiPlugins = useCallback(async () => {
     const connection = current.current
     const pluginRevision = pluginSynchronization.current.begin()
     let snapshot: Snapshot
     try {
-      snapshot = await bridge.getSnapshot()
+      snapshot = await bridge.getSnapshot(snapshotWindow(connection.sessionKey))
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : String(cause)
       // 删除当前会话时，插件变更会按旧会话再读一次快照。这次作废，不能冒泡成「无法读取插件列表」。
@@ -249,7 +273,46 @@ export function useAppSession(
       pluginSynchronization.current.commit(pluginRevision, snapshot, current.current.sessionKey)
     )
       setUiPlugins(snapshot.uiPlugins)
-  }, [bridge])
+  }, [bridge, snapshotWindow])
+
+  const loadOlderMessages = async () => {
+    const expected = current.current
+    const before = chatRef.current?.captureChat().messagePage?.before
+    if (!expected.sessionKey || !before || historyLoading || selection.current.current || preview.current) return false
+    const request = ++historyRequest.current
+    setHistoryLoading(true)
+    const owns = () =>
+      mounted.current &&
+      request === historyRequest.current &&
+      expected.sessionKey === current.current.sessionKey &&
+      expected.generation === current.current.generation &&
+      !selection.current.current &&
+      !preview.current
+    try {
+      const history = await bridge.readSessionHistory(expected.sessionKey, { limit: 60, before })
+      const cached = views.current.get(expected.sessionKey)
+      const latest = chatRef.current?.captureChat()
+      if (!owns() || !cached || !latest || latest.messagePage?.before !== before) return false
+      const messages = [...history.messages, ...latest.messages]
+      const snapshot = { ...cached.snapshot, messages, messagePage: history.messagePage }
+      const restored = fromSnapshot(snapshot)
+      const next = {
+        ...latest,
+        messages,
+        messagePage: history.messagePage,
+        tools: { ...restored.tools, ...latest.tools },
+      }
+      cached.snapshot = snapshot
+      cached.chat = next
+      chatRef.current?.restoreChat(next)
+      return true
+    } catch (cause) {
+      if (owns()) setError(`无法加载更早记录：${String(cause)}`)
+      return false
+    } finally {
+      if (mounted.current && request === historyRequest.current) setHistoryLoading(false)
+    }
+  }
 
   const chatBridge = useMemo(() => {
     function afterModelSelection<Args extends unknown[], Result>(send: (...args: Args) => Promise<Result>) {
@@ -296,6 +359,7 @@ export function useAppSession(
       !loading &&
       !acting &&
       !switching &&
+      !preview.current &&
       !current.current.accessChanging &&
       (current.current.status === 'ready' || current.current.status === 'idle') &&
       (!state?.modelSelectionRequired ||
@@ -305,7 +369,7 @@ export function useAppSession(
       await selection.current.pending
     },
     currentGeneration: () => current.current.generation,
-    currentSessionKey: () => current.current.sessionKey,
+    currentSessionKey: () => (selection.current.current || preview.current ? undefined : current.current.sessionKey),
     onError: setError,
     onBackgroundEdit: (key, composer) => {
       drafts.set(key, composer)
@@ -333,7 +397,8 @@ export function useAppSession(
     [drafts],
   )
   useEffect(() => {
-    if (connection.sessionKey && !switching) drafts.set(connection.sessionKey, chat.captureComposer())
+    const key = preview.current?.draftKey ?? connection.sessionKey
+    if (key && (!switching || preview.current)) drafts.set(key, chat.captureComposer())
   }, [
     drafts,
     connection.sessionKey,
@@ -377,7 +442,7 @@ export function useAppSession(
       if (!mounted.current || next.generation < current.current.generation) return
       const previous = current.current
       current.current = next
-      if (selection.current.current) return
+      if (selection.current.current || preview.current) return
       setConnection(next)
       setActiveSession(next.sessionFile ?? next.sessionKey, next.sessionKey)
       if (next.error) setError(next.error)
@@ -438,6 +503,17 @@ export function useAppSession(
       selection.current.current?.events.push(record)
       synchronization.current.receive(record)
       const event = record.event
+      const extension =
+        event.type === 'extension_ui_request' ||
+        event.type === 'extension_ui_timeout' ||
+        event.type === 'extension_ui_closed'
+      const cached = record.sessionKey && views.current.get(record.sessionKey)
+      if (cached && record.sequence !== undefined && record.sequence <= cached.sequence) return
+      if (cached && !extension) {
+        cached.chat = reduceEvent(cached.chat, event)
+        cached.sequence = record.sequence ?? cached.sequence
+      }
+      if (selection.current.current || preview.current) return
       if (event.type === 'access_mode_changed') {
         if (record.sessionKey === current.current.sessionKey && record.generation === current.current.generation) {
           current.current = { ...current.current, accessMode: event.mode }
@@ -445,10 +521,6 @@ export function useAppSession(
         }
         return
       }
-      const extension =
-        event.type === 'extension_ui_request' ||
-        event.type === 'extension_ui_timeout' ||
-        event.type === 'extension_ui_closed'
       if (extension) {
         const source = record.agentId && currentAgentTree.current.find((agent) => agent.agentId === record.agentId)
         const dialogEvent =
@@ -517,12 +589,6 @@ export function useAppSession(
         onPlanSavedRef.current?.(event.document, record.sessionKey)
         return
       }
-      const cached = record.sessionKey && views.current.get(record.sessionKey)
-      if (cached && record.sequence !== undefined && record.sequence <= cached.sequence) return
-      if (cached && !extension) {
-        cached.chat = reduceEvent(cached.chat, event)
-        cached.sequence = record.sequence ?? cached.sequence
-      }
       if (
         selection.current.current ||
         record.generation !== current.current.generation ||
@@ -577,9 +643,12 @@ export function useAppSession(
     const generation = current.current.generation
     const owns = () =>
       mounted.current && key === current.current.sessionKey && generation === current.current.generation
-    if (!key || actionLock.current || selection.current.current) return false
+    if (!key || actionLock.current || selection.current.current || preview.current) return false
     actionLock.current = true
     synchronization.current.cancel()
+    historyRequest.current++
+    setHistoryLoading(false)
+    commandRequest.current++
     if (blocking) setActing(true)
     setError('')
     try {
@@ -600,6 +669,7 @@ export function useAppSession(
     carryDraft = false,
     refreshCommands = true,
     replaceable = false,
+    previewInput?: SelectWorkspace,
   ) => {
     if (
       actionLock.current ||
@@ -618,18 +688,105 @@ export function useAppSession(
     const previous = displayed.current
     const previousPath = previous.sessionFile ?? previous.sessionKey
     const savedComposer = previous.sessionKey && drafts.get(previous.sessionKey)
+    const sourcePreview = preview.current
+    if (preview.current && chatRef.current) drafts.set(preview.current.draftKey, chatRef.current.captureComposer())
     let previousComposer =
-      replacing && savedComposer && !savedComposer.editing ? savedComposer : chatRef.current?.captureComposer()
+      (replacing || preview.current) && savedComposer && !savedComposer.editing
+        ? savedComposer
+        : chatRef.current?.captureComposer()
     const previousView = previous.sessionKey && views.current.get(previous.sessionKey)
     if (previous.sessionKey && previousComposer) drafts.set(previous.sessionKey, previousComposer)
-    if (!replacing && previousView && chatRef.current) previousView.chat = chatRef.current.captureChat()
+    if (!replacing && !preview.current && previousView && chatRef.current)
+      previousView.chat = chatRef.current.captureChat()
+    preview.current = null
+    setPreviewing(false)
     synchronization.current.cancel()
+    historyRequest.current++
+    setHistoryLoading(false)
+    commandRequest.current++
     setSwitching(true)
     setSwitchingToPath(target)
     setLoading(false)
     setError('')
     if (target) setActiveSession(target)
     chatRef.current?.clearPromptPending()
+    let previewDraftKey: string | undefined
+    const showPreview = () => {
+      const cached = target
+        ? [...views.current.values()].find(
+            (view) => view.snapshot.connection.sessionKey === target || view.snapshot.connection.sessionFile === target,
+          )
+        : undefined
+      if (!cached && !previewInput) {
+        const summary = [
+          ...(sessions?.projects.flatMap((project) => project.sessions) ?? []),
+          ...(sessions?.standaloneSessions ?? []),
+          ...(sessions?.recents ?? []),
+        ].find((session) => session.path === target || session.id === target)
+        if (summary) {
+          setConnection({
+            ...previous,
+            sessionKey: undefined,
+            sessionFile: summary.path,
+            cwd: summary.cwd,
+            workspaceKind: summary.workspaceKind,
+            sourceProjectCwd: summary.sourceProjectCwd,
+          })
+          setState((value) => value && { ...value, sessionName: summary.name })
+          setAppSession(undefined)
+        }
+        return
+      }
+      const draftKey = cached?.snapshot.connection.sessionKey ?? `draft:${transaction.id}`
+      previewDraftKey = draftKey
+      preview.current = { transaction, draftKey, input: previewInput }
+      const nextState: PiState = cached?.snapshot.state ?? {
+        mode: 'default',
+        model: state?.model,
+        isStreaming: false,
+        isCompacting: false,
+        steeringMode: 'one-at-a-time',
+        followUpMode: 'all',
+        pendingMessageCount: 0,
+      }
+      const next: Snapshot = cached?.snapshot ?? {
+        connection: {
+          ...previous,
+          sessionKey: undefined,
+          sessionFile: undefined,
+          sourceProjectCwd: undefined,
+          cwd: previewInput?.kind === 'project' ? previewInput.cwd : '',
+          workspaceKind: previewInput?.kind,
+          status: 'idle',
+          error: undefined,
+        },
+        state: nextState,
+        messages: [],
+        models,
+        thinkingLevels,
+      }
+      setConnection(next.connection)
+      setAppSession(next.appSession)
+      setState(nextState)
+      setSessionStats(next.stats ?? null)
+      setPlanState(cached?.chat.planState)
+      setPlanDocuments(cached?.chat.planDocuments ?? [])
+      setUiPlugins(next.uiPlugins)
+      setCommands([])
+      extensionsRef.current?.reset()
+      chatRef.current?.loadSnapshot(next, null)
+      chatRef.current?.restoreChat(cached?.chat ?? { ...emptyChat, goalsSupported: chat.chat.goalsSupported })
+      const failedKey = previewInput && failedCreationDrafts.current.get(JSON.stringify(previewInput))
+      const draft = carryDraft
+        ? sourcePreview
+          ? drafts.get(sourcePreview.draftKey)
+          : previousComposer
+        : drafts.get(failedKey || draftKey)
+      if (draft) chatRef.current?.restoreComposer(draft)
+      else chatRef.current?.clearComposer()
+      setPreviewing(true)
+      extensionsRef.current?.focusDraft()
+    }
     const pending = (async () => {
       try {
         if (replaceable && chatRef.current?.editing) {
@@ -639,11 +796,30 @@ export function useAppSession(
           previousMode = chatRef.current?.mode
           if (previous.sessionKey && previousComposer) drafts.set(previous.sessionKey, previousComposer)
         }
+        showPreview()
         const result = await work()
-        if (!owns()) return
+        if (!owns()) {
+          if (previewInput && previewDraftKey && !result.cancelled && result.snapshot.connection.sessionKey) {
+            const draft = drafts.get(previewDraftKey)
+            if (draft) drafts.set(result.snapshot.connection.sessionKey, draft)
+            if (result.snapshot.appSession)
+              drafts.bind(result.snapshot.connection.sessionKey, result.snapshot.appSession.sessionId)
+            drafts.delete(previewDraftKey)
+          }
+          return
+        }
         if (result.cancelled) {
-          const snapshot = await bridge.getSnapshot()
+          if (previewInput) {
+            if (previewDraftKey) {
+              if (chatRef.current) drafts.set(previewDraftKey, chatRef.current.captureComposer())
+              failedCreationDrafts.current.set(JSON.stringify(previewInput), previewDraftKey)
+            }
+            setError('会话创建已取消，草稿已保留，请重试')
+            return
+          }
+          const snapshot = await bridge.getSnapshot(snapshotWindow(current.current.sessionKey))
           if (!owns()) return
+          preview.current = null
           commitSnapshot(snapshot, transaction.events, pluginRevision, modeRevision)
           if (previousComposer) chatRef.current?.restoreComposer(previousComposer)
           setActiveSession(previousPath, previous.sessionKey)
@@ -653,18 +829,35 @@ export function useAppSession(
         if (carryDraft && previousComposer) {
           const nextCommands = result.commands ?? (await bridge.getCommands())
           if (!owns()) return
-          transferred = transferDraft(previousComposer, nextCommands)
+          transferred = transferDraft(
+            previewInput ? (chatRef.current?.captureComposer() ?? previousComposer) : previousComposer,
+            nextCommands,
+          )
           setCommands(nextCommands)
         }
         const draft =
           transferred?.composer ??
+          (previewInput && preview.current?.transaction === transaction
+            ? chatRef.current?.captureComposer()
+            : undefined) ??
           (result.snapshot.connection.sessionKey && drafts.get(result.snapshot.connection.sessionKey))
+        preview.current = null
         commitSnapshot(result.snapshot, transaction.events, pluginRevision, modeRevision)
         if (draft) chatRef.current?.restoreComposer(draft)
         else chatRef.current?.clearComposer()
+        if (previewInput && previewDraftKey) {
+          drafts.delete(previewDraftKey)
+          const identity = JSON.stringify(previewInput)
+          const failedKey = failedCreationDrafts.current.get(identity)
+          if (failedKey) drafts.delete(failedKey)
+          failedCreationDrafts.current.delete(identity)
+        }
         if (transferred) {
           if (previousMode) chatRef.current?.changeMode(previousMode)
-          if (previous.sessionKey) drafts.delete(previous.sessionKey)
+          if (sourcePreview) {
+            drafts.delete(sourcePreview.draftKey)
+            if (sourcePreview.input) failedCreationDrafts.current.delete(JSON.stringify(sourcePreview.input))
+          } else if (previous.sessionKey) drafts.delete(previous.sessionKey)
           setWorkspaceNotice(
             [
               transferred.removedSkills ? '部分技能在当前项目不可用，已转为文字' : '',
@@ -693,13 +886,20 @@ export function useAppSession(
             .catch(() => {})
       } catch (cause) {
         if (!owns()) return
+        if (previewInput && preview.current?.transaction === transaction) {
+          if (chatRef.current) drafts.set(preview.current.draftKey, chatRef.current.captureComposer())
+          failedCreationDrafts.current.set(JSON.stringify(previewInput), preview.current.draftKey)
+          setError(String(cause))
+          return
+        }
+        preview.current = null
         try {
           if (current.current.sessionKey !== previous.sessionKey && previousPath) {
             const restored = await bridge.switchSession(previousPath)
             if (!owns()) return
             if (!restored.cancelled) commitSnapshot(restored.snapshot, transaction.events, pluginRevision, modeRevision)
           } else {
-            const snapshot = await bridge.getSnapshot()
+            const snapshot = await bridge.getSnapshot(snapshotWindow(current.current.sessionKey))
             if (!owns()) return
             commitSnapshot(snapshot, transaction.events, pluginRevision, modeRevision)
           }
@@ -710,7 +910,7 @@ export function useAppSession(
           try {
             if (previousView && !previousView.chat.messages.length && !previousView.chat.running)
               await bridge.chooseDirectory(previous.cwd)
-            const snapshot = await bridge.getSnapshot()
+            const snapshot = await bridge.getSnapshot(snapshotWindow(current.current.sessionKey))
             if (!owns()) return
             if (previousComposer && previousView && !previousView.chat.messages.length)
               chatRef.current?.restoreComposer(previousComposer)
@@ -725,6 +925,7 @@ export function useAppSession(
         if (owns()) {
           selection.current.finish(transaction)
           setSwitching(false)
+          setPreviewing(Boolean(preview.current))
           setSwitchingToPath(undefined)
           void refreshSessions()
         }
@@ -738,7 +939,7 @@ export function useAppSession(
   const createSession = (input: SelectWorkspace, carryDraft = false, refreshCommands = true) => {
     const identity = JSON.stringify([input, carryDraft, refreshCommands])
     const existing = pendingCreations.current.get(identity)
-    if (existing) return existing
+    if (existing && selection.current.current === existing.transaction) return existing.promise
     const pending = select(
       () =>
         (input.kind === 'project' && input.cwd === current.current.cwd) ||
@@ -749,10 +950,12 @@ export function useAppSession(
       carryDraft,
       refreshCommands,
       true,
+      input,
     )
-    pendingCreations.current.set(identity, pending)
+    const creation = { promise: pending, transaction: selection.current.current }
+    pendingCreations.current.set(identity, creation)
     const release = () => {
-      if (pendingCreations.current.get(identity) === pending) pendingCreations.current.delete(identity)
+      if (pendingCreations.current.get(identity) === creation) pendingCreations.current.delete(identity)
     }
     void pending.then(release, release)
     return pending
@@ -765,7 +968,17 @@ export function useAppSession(
       (sessionPath === current.current.sessionKey || sessionPath === current.current.sessionFile)
     )
       return Promise.resolve(true)
-    const promise = select(() => bridge.switchSession(sessionPath), sessionPath, false, true, true)
+    const cached = [...views.current.values()].find(
+      (view) =>
+        view.snapshot.connection.sessionKey === sessionPath || view.snapshot.connection.sessionFile === sessionPath,
+    )
+    const promise = select(
+      () => bridge.switchSession(sessionPath, snapshotWindow(cached?.snapshot.connection.sessionKey)),
+      sessionPath,
+      false,
+      true,
+      true,
+    )
     pendingSwitch.current = { target: sessionPath, promise }
     const release = () => {
       if (pendingSwitch.current?.promise === promise) pendingSwitch.current = null
@@ -781,7 +994,7 @@ export function useAppSession(
         (input.kind === 'project' && input.cwd === current.current.cwd))
     )
       return Promise.resolve(true)
-    return select(() => bridge.selectWorkspace(input), undefined, true, true, true)
+    return select(() => bridge.selectWorkspace(input), undefined, true, true, true, input)
   }
   const chooseDirectory = async () => {
     if (chat.editing || actionLock.current || selection.current.current || current.current.accessChanging) return false
@@ -794,12 +1007,12 @@ export function useAppSession(
       return false
     }
   }
-  // 统计、思考档位和扩展状态不再因切换清空；输入仍按原规则在切换期间只读，避免写入旧会话。
   const inputDisabled =
     chat.editSubmitting ||
     loading ||
     acting ||
     switching ||
+    previewing ||
     (connection.status !== 'ready' && connection.status !== 'idle') ||
     Boolean(connection.accessChanging) ||
     (Boolean(state?.modelSelectionRequired) && !chat.pendingConfiguration?.model && !chat.editConfiguration?.model)
@@ -808,6 +1021,7 @@ export function useAppSession(
     loading ||
     acting ||
     switching ||
+    previewing ||
     (connection.status !== 'ready' && connection.status !== 'idle') ||
     Boolean(connection.accessChanging)
   const supportedCommands = useMemo(
@@ -891,7 +1105,10 @@ export function useAppSession(
       }
     },
     chat: chat.chat,
+    appSession,
     chatStream: chat.chatStream,
+    loadOlderMessages,
+    historyLoading,
     connection,
     hasConnected,
     state,
@@ -985,6 +1202,7 @@ export function useAppSession(
       loading ||
       acting ||
       switching ||
+      previewing ||
       chat.chat.running ||
       connection.status === 'connecting' ||
       Boolean(connection.accessChanging),
@@ -1001,6 +1219,8 @@ export function useAppSession(
     modelSaving,
     navigationBusy: acting || switching,
     inputDisabled,
+    draftEditable: Boolean(preview.current?.input) || !inputDisabled,
+    contentLoading: switching && !previewing,
     loading,
     switching,
     switchingToPath,
@@ -1035,9 +1255,10 @@ export function useAppSession(
     chooseDirectory,
     newSession: () =>
       createSession(
-        current.current.workspaceKind === 'standalone'
-          ? { kind: 'standalone' }
-          : { kind: 'project', cwd: current.current.cwd },
+        preview.current?.input ??
+          (current.current.workspaceKind === 'standalone'
+            ? { kind: 'standalone' }
+            : { kind: 'project', cwd: current.current.cwd }),
       ),
     newSessionInProject: (cwd: string) => createSession({ kind: 'project', cwd }),
     switchSession,
@@ -1145,7 +1366,7 @@ export function useAppSession(
       const generation = current.current.generation
       const owns = () =>
         mounted.current && key === current.current.sessionKey && generation === current.current.generation
-      if (!key || actionLock.current || selection.current.current) return
+      if (!key || actionLock.current || selection.current.current || preview.current) return
       const request = ++thinkingRequest.current
       const previousLevel = state?.thinkingLevel
       synchronization.current.cancel()

@@ -91,6 +91,9 @@ export class ResourceStore {
   readonly workspacesConfigDirectory: string
   private state?: StoreState
   private pending: Promise<unknown> = Promise.resolve()
+  private writes: Promise<unknown> = Promise.resolve()
+  private policyReads = new Set<Promise<unknown>>()
+  private projectPolicyCache = new Map<string, Promise<Record<string, Policy>>>()
   private pendingCount = 0
   assertIdle() {
     if (this.pendingCount) throw new Error('资源仍有操作正在执行，请稍后再维护存储')
@@ -110,10 +113,10 @@ export class ResourceStore {
   init(): Promise<void> {
     return this.serialize(async () => {
       await this.initialize()
-    })
+    }, true)
   }
   async waitForIdle(): Promise<void> {
-    await this.pending
+    await Promise.all([this.pending, ...this.policyReads])
   }
   acquire(snapshot: ResourceSnapshot) {
     this.leases.set(snapshot.id, (this.leases.get(snapshot.id) ?? 0) + 1)
@@ -126,12 +129,13 @@ export class ResourceStore {
       else this.leases.delete(snapshot.id)
     }
   }
-  private serialize<T>(action: () => Promise<T>): Promise<T> {
+  private serialize<T>(action: () => Promise<T>, mutation = false): Promise<T> {
     this.pendingCount++
     const result = this.pending.then(action).finally(() => {
       this.pendingCount--
     })
     this.pending = result.catch(() => {})
+    if (mutation) this.writes = this.pending
     return result
   }
   private async initialize() {
@@ -186,10 +190,20 @@ export class ResourceStore {
   private async projectPolicies(cwd?: string): Promise<Record<string, Policy>> {
     if (!cwd) return {}
     cwd = await canonicalCwd(cwd)
+    const cached = this.projectPolicyCache.get(cwd)
+    if (cached) return cached
+    const pending = readFile(this.projectPolicyPath(cwd), 'utf8').then(
+      (content) => JSON.parse(content) as Record<string, Policy>,
+      (cause: NodeJS.ErrnoException) => {
+        if (cause.code === 'ENOENT') return {}
+        throw cause
+      },
+    )
+    this.projectPolicyCache.set(cwd, pending)
     try {
-      return JSON.parse(await readFile(this.projectPolicyPath(cwd), 'utf8')) as Record<string, Policy>
+      return await pending
     } catch (cause) {
-      if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return {}
+      if (this.projectPolicyCache.get(cwd) === pending) this.projectPolicyCache.delete(cwd)
       throw cause
     }
   }
@@ -491,18 +505,24 @@ export class ResourceStore {
     return this.serialize(() => this.scan(cwd))
   }
   disabledAppPluginIds(cwd?: string): Promise<Set<string>> {
-    return this.serialize(async () => {
+    this.pendingCount++
+    const read = (async () => {
       if (cwd) cwd = await canonicalCwd(cwd)
-      const state = await this.initialize()
-      const projectPolicies = await this.projectPolicies(cwd)
-      const disabled = new Set<string>()
-      for (const app of (await this.options.getAppPackages?.()) ?? []) {
-        if (!isAppPackageEnabled(app, state, projectPolicies)) {
-          disabled.add(app.id)
-        }
+      for (;;) {
+        const writes = this.writes
+        await writes
+        const state = await this.initialize()
+        const projectPolicies = await this.projectPolicies(cwd)
+        const apps = (await this.options.getAppPackages?.()) ?? []
+        if (writes !== this.writes) continue
+        return new Set(apps.filter((app) => !isAppPackageEnabled(app, state, projectPolicies)).map((app) => app.id))
       }
-      return disabled
+    })().finally(() => {
+      this.pendingCount--
+      this.policyReads.delete(read)
     })
+    this.policyReads.add(read)
+    return read
   }
   snapshot(cwd: string): Promise<ResourceSnapshot> {
     return this.serialize(async () => {
@@ -527,11 +547,13 @@ export class ResourceStore {
   }
   refresh(cwd?: string) {
     return this.serialize(async () => {
+      if (cwd) this.projectPolicyCache.delete(await canonicalCwd(cwd))
+      else this.projectPolicyCache.clear()
       const state = await this.initialize()
       const catalog = await this.scan(cwd)
       await this.commit({ ...state, generation: state.generation + 1 })
       return { ...catalog, generation: state.generation + 1 }
-    })
+    }, true)
   }
   async readSkill(id: string, cwd?: string) {
     return this.serialize(async () => {
@@ -669,7 +691,7 @@ export class ResourceStore {
       const imports = [...state.imports.filter((entry) => entry.directory !== target), record]
       await this.publish(target, files, { ...state, imports, generation: state.generation + 1 })
       return this.scan(cwd)
-    })
+    }, true)
   }
   private async looseSource(item: ResourceItem) {
     const root = this.skillsDirectory
@@ -706,7 +728,7 @@ export class ResourceStore {
       }
       await rm(backup, { recursive: true, force: true })
       return this.scan()
-    })
+    }, true)
   }
   saveSkill(input: ResourceSkillSaveInput, cwd?: string) {
     return this.serialize(async () => {
@@ -743,7 +765,7 @@ export class ResourceStore {
       const imports = [...state.imports.filter((entry) => entry.id !== nextRecord.id), nextRecord]
       await this.publish(target, nextFiles, { ...state, imports, generation: state.generation + 1 })
       return this.scan(cwd)
-    })
+    }, true)
   }
   setPolicy(input: ResourcePolicyInput) {
     return this.serialize(async () => {
@@ -778,6 +800,7 @@ export class ResourceStore {
           await rename(temporary, target)
           try {
             await this.commit({ ...state, generation: state.generation + 1 })
+            this.projectPolicyCache.set(input.cwd!, Promise.resolve(nextPolicies))
           } catch (cause) {
             if (previous) {
               await writeFile(temporary, previous)
@@ -795,6 +818,6 @@ export class ResourceStore {
           generation: state.generation + 1,
         })
       return this.scan(input.cwd)
-    })
+    }, true)
   }
 }

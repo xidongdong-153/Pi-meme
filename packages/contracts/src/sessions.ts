@@ -48,10 +48,14 @@ export type PiSessionsSnapshot = {
 
 export type SessionSearchMatch = { path: string; excerpt: string }
 
+export type SessionWindow = { limit: number; before?: string; from?: string }
+export type SessionMessagePage = { before: string }
+
 export type SessionHistoryData = {
   cwd: string
   created: string
   messages: PiMessage[]
+  messagePage?: SessionMessagePage
   planCheckpoints?: PlanCheckpoint[]
   sessionEntries?: PiSessionEntries
   skillUsages?: BranchSkillUsage[]

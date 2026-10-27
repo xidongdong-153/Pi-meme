@@ -32,9 +32,17 @@ type TransportServices = {
 }
 
 function reply(status: number, value: unknown, headers?: Record<string, string>) {
-  return new Response(JSON.stringify(value), {
+  const start = performance.now()
+  const body = JSON.stringify(value)
+  const timing = headers?.['Server-Timing']
+  return new Response(body, {
     status,
-    headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...headers },
+    headers: {
+      'Content-Type': 'application/json',
+      'Cache-Control': 'no-store',
+      ...headers,
+      ...(timing ? { 'Server-Timing': `${timing}, serialize;dur=${(performance.now() - start).toFixed(1)}` } : {}),
+    },
   })
 }
 
@@ -204,7 +212,9 @@ function registerRpc(app: Hono<TransportEnv>, { host, remotes, auth }: Transport
       }
       return reply(200, { requestId: value.requestId, hostId: host.hostId, result })
     }
-    return reply(200, await host.rpc(value))
+    const start = performance.now()
+    const result = await host.rpc(value)
+    return reply(200, result, { 'Server-Timing': `host;dur=${(performance.now() - start).toFixed(1)}` })
   })
   app.get('/api/snapshot', async (c) => {
     if (c.req.method !== 'GET') return c.notFound()
