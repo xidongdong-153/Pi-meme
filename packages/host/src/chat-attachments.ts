@@ -15,8 +15,13 @@ export class ChatAttachmentTooLargeError extends Error {
 /** 保留展示名，磁盘名称去掉目录、控制字符与平台保留字符。 */
 function attachmentFilename(name: string) {
   const basename = path.posix.basename(name.replaceAll('\\', '/'))
-  const safe = Array.from(basename)
-    .slice(0, 60)
+  const characters = Array.from(basename)
+  const extension = Array.from(path.posix.extname(basename))
+  const shortened =
+    characters.length > 60 && extension.length > 0 && extension.length < 60
+      ? [...characters.slice(0, 60 - extension.length), ...extension]
+      : characters.slice(0, 60)
+  const safe = shortened
     .map((character) => (character.charCodeAt(0) < 32 || '<>:"/\\|?*'.includes(character) ? '_' : character))
     .join('')
     .replace(/[. ]+$/, '')

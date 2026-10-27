@@ -9,6 +9,7 @@ import {
   fileToAttachment,
   messageWithAttachments,
   type ComposerAttachment,
+  type ComposerPendingAttachment,
 } from '../src/ui/composer/image-attachment'
 import { useComposerFiles } from '../src/ui/composer/use-composer-files'
 import { ComposerAttachments } from '../src/ui/composer/composer-attachments'
@@ -559,15 +560,93 @@ function mockObjectUrls() {
   return { create, revoke }
 }
 
-function previewFile(id: string): ComposerAttachment {
+function previewFile(id: string, size?: number): ComposerAttachment {
+  const file = new File(['png'], `${id}.png`, { type: 'image/png' })
+  if (size !== undefined) {
+    Object.defineProperty(file, 'size', { value: size })
+  }
   return {
     id,
     type: 'file',
     name: `${id}.png`,
     path: `/host/${id}.png`,
-    preview: new File(['png'], `${id}.png`, { type: 'image/png' }),
+    preview: file,
   }
 }
+
+test('8 MiB 以上图片在发送前显示无法预览提示与卡片标记，不阻塞发送且普通图片与非图片无提示', () => {
+  mockObjectUrls()
+  const normal = previewFile('normal', 2 * 1024 * 1024)
+  const large = previewFile('large', 10 * 1024 * 1024)
+  const embeddedImage: ComposerAttachment = {
+    id: 'embedded',
+    type: 'image',
+    data: 'a'.repeat(12 * 1024 * 1024),
+    mimeType: 'image/png',
+  }
+  const pdf: ComposerAttachment = {
+    id: 'doc',
+    type: 'file',
+    name: 'document.pdf',
+    path: '/host/document.pdf',
+  }
+  const view = render(
+    createElement(ComposerAttachments, {
+      attachments: [normal, embeddedImage, pdf],
+      onRemoveImage: () => {},
+    }),
+  )
+  assert.equal(view.queryByText('图片超过 8 MiB，发送后无法在会话中预览。'), null)
+  assert.equal(view.queryByText('超过 8 MiB 无法预览'), null)
+
+  view.rerender(
+    createElement(ComposerAttachments, {
+      attachments: [normal, large, pdf],
+      onRemoveImage: () => {},
+    }),
+  )
+  assert.ok(view.getByText('图片超过 8 MiB，发送后无法在会话中预览。'))
+  assert.ok(view.getByText('超过 8 MiB 无法预览'))
+  const status = view.getByRole('status', { name: 'large.png：图片超过 8 MiB，发送后无法在会话中预览' })
+  assert.ok(status)
+})
+
+test('超大图片移除后提示自动消失，处于上传中时同样展示超大提示', () => {
+  mockObjectUrls()
+  const largeUpload: ComposerPendingAttachment = {
+    id: 'uploading-large',
+    type: 'file',
+    name: 'uploading.png',
+    preview: (() => {
+      const f = new File(['png'], 'uploading.png', { type: 'image/png' })
+      Object.defineProperty(f, 'size', { value: 12 * 1024 * 1024 })
+      return f
+    })(),
+    progress: 50,
+  }
+  const onRemoveImage = vi.fn()
+  const onCancelUpload = vi.fn()
+  const view = render(
+    createElement(ComposerAttachments, {
+      attachments: [],
+      uploads: [largeUpload],
+      onRemoveImage,
+      onCancelUpload,
+    }),
+  )
+  assert.ok(view.getByText('图片超过 8 MiB，发送后无法在会话中预览。'))
+  assert.ok(view.getByText('超过 8 MiB 无法预览'))
+
+  view.rerender(
+    createElement(ComposerAttachments, {
+      attachments: [],
+      uploads: [],
+      onRemoveImage,
+      onCancelUpload,
+    }),
+  )
+  assert.equal(view.queryByText('图片超过 8 MiB，发送后无法在会话中预览。'), null)
+})
 
 test('图片预览只使用本地blob URL，增删附件保留其他URL，回到草稿重新创建', () => {
   const urls = mockObjectUrls()

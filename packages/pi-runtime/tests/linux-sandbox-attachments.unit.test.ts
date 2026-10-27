@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict'
+import path from 'node:path'
 import { beforeEach, test, vi } from 'vitest'
 import { access, readFile, realpath } from 'node:fs/promises'
+import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 import { linuxSandboxLaunch } from '../src/sdk/linux-sandbox'
 
 vi.mock('node:fs/promises', () => ({ access: vi.fn(), readFile: vi.fn(), realpath: vi.fn() }))
@@ -21,28 +23,29 @@ const options = {
 }
 
 test('Linux 临时数据目录仅恢复附件只读挂载，不开放凭据和其他会话', async () => {
+  const expectedAttachments = path.join(options.dataRoot, storageLayoutRelativePaths.attachmentsDirectory)
   const launch = await linuxSandboxLaunch(options)
   const bindings = launch.args.flatMap((arg, index) =>
     arg === '--ro-bind' || arg === '--bind' ? [launch.args.slice(index, index + 3)] : [],
   )
   assert.ok(
     bindings.some(
-      (entry) =>
-        JSON.stringify(entry) === JSON.stringify(['--ro-bind', '/tmp/host/attachments', '/tmp/host/attachments']),
+      (entry) => JSON.stringify(entry) === JSON.stringify(['--ro-bind', expectedAttachments, expectedAttachments]),
     ),
   )
   assert.ok(!bindings.some((entry) => entry[1] === '/tmp/host'))
-  assert.ok(!bindings.some((entry) => entry[0] === '--bind' && entry[1] === '/tmp/host/attachments'))
+  assert.ok(!bindings.some((entry) => entry[0] === '--bind' && entry[1] === expectedAttachments))
 })
 
 test('Linux 附件目录不存在时保持原沙箱，不挂载符号链接目标', async () => {
+  const expectedAttachments = path.join(options.dataRoot, storageLayoutRelativePaths.attachmentsDirectory)
   vi.mocked(realpath).mockImplementation(async (value) => {
-    if (value === '/tmp/host/attachments') throw Object.assign(new Error('不存在'), { code: 'ENOENT' })
+    if (value === expectedAttachments) throw Object.assign(new Error('不存在'), { code: 'ENOENT' })
     return String(value)
   })
-  assert.ok(!(await linuxSandboxLaunch(options)).args.includes('/tmp/host/attachments'))
+  assert.ok(!(await linuxSandboxLaunch(options)).args.includes(expectedAttachments))
   vi.mocked(realpath).mockImplementation(async (value) =>
-    value === '/tmp/host/attachments' ? '/tmp/secret' : String(value),
+    value === expectedAttachments ? '/tmp/secret' : String(value),
   )
   await assert.rejects(linuxSandboxLaunch(options), /符号链接/)
 })

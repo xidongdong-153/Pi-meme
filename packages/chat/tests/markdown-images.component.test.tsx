@@ -160,9 +160,7 @@ test('编辑 Host 图片读取失败仍保留文件卡片和路径引用，允�
       <ComposerAttachments attachments={[attachment]} onRemoveImage={onRemoveImage} />
     </MessageImageLoaderContext>,
   )
-  expect(
-    await screen.findByRole('status', { name: '图片不存在或无法读取，请确认路径相对于当前会话工作目录。' }),
-  ).toBeInTheDocument()
+  expect(await screen.findByRole('status', { name: '图片不存在或无法读取。' })).toBeInTheDocument()
   expect(screen.getByText('missing.png')).toBeInTheDocument()
   expect(screen.queryByRole('img')).not.toBeInTheDocument()
   const sent = messageWithAttachments('继续发送', [attachment])
@@ -317,7 +315,46 @@ test('URL 编码的本地文件名在读取前解码，超大图片显示明确�
     </MessageImageLoaderContext>,
   )
   expect(await screen.findByRole('status', { name: '图片超过 8 MiB，无法预览。' })).toBeInTheDocument()
+  expect(await screen.findByText('图片超过 8 MiB')).toBeVisible()
   expect(loadImage).toHaveBeenCalledExactlyOnceWith('out/截图 1.png')
+})
+
+test('绝对路径图片越出附件目录时提示不在 Host 附件目录，卡片显示简短原因且不误导为相对路径', async () => {
+  const loadImage = vi.fn().mockRejectedValue(new Error('图片路径越出附件目录'))
+  render(
+    <MessageImageLoaderContext value={loadImage}>
+      <MarkdownContent>
+        ![备忘录图片](/Users/example/Library/Group%20Containers/notes/Pasted%20Graphic%207.png)
+      </MarkdownContent>
+    </MessageImageLoaderContext>,
+  )
+  expect(await screen.findByRole('status', { name: '图片不在当前 Host 附件目录中，无法读取。' })).toBeInTheDocument()
+  expect(await screen.findByText('图片不在附件目录')).toBeVisible()
+  expect(screen.queryByText(/相对于当前会话工作目录/)).not.toBeInTheDocument()
+})
+
+test('相对路径越出工作目录时卡片显示简短原因与明确说明', async () => {
+  const loadImage = vi.fn().mockRejectedValue(new Error('文件路径越出工作目录'))
+  render(
+    <MessageImageLoaderContext value={loadImage}>
+      <MarkdownContent>![越界图片](../outside.png)</MarkdownContent>
+    </MessageImageLoaderContext>,
+  )
+  expect(await screen.findByRole('status', { name: '图片路径越出当前会话工作目录。' })).toBeInTheDocument()
+  expect(await screen.findByText('路径越出工作目录')).toBeVisible()
+})
+
+test('包含非法 URI 编码的路径安全捕获错误，不发生二次解码崩溃', async () => {
+  const loadImage = vi.fn().mockRejectedValue(new Error('ENOENT'))
+  render(
+    <MessageImageLoaderContext value={loadImage}>
+      <MarkdownContent>![异常图片](bad%image.png)</MarkdownContent>
+    </MessageImageLoaderContext>,
+  )
+  expect(
+    await screen.findByRole('status', { name: '图片不存在或无法读取，请确认路径相对于当前会话工作目录。' }),
+  ).toBeInTheDocument()
+  expect(await screen.findByText('图片无法读取')).toBeVisible()
 })
 
 test('文件接口返回文本时不作为图片展示', async () => {

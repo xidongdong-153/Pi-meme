@@ -1,13 +1,14 @@
 import assert from 'node:assert/strict'
-import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink } from 'node:fs/promises'
+import { mkdir, mkdtemp, readFile, readdir, realpath, rm, stat, symlink, writeFile } from 'node:fs/promises'
 import { request } from 'node:http'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { Readable } from 'node:stream'
 import { setTimeout as delay } from 'node:timers/promises'
 import { test, vi } from 'vitest'
-import { HostClient } from '@pi-meme/client/host-client'
+import { HostClient, type ClientOptions } from '@pi-meme/client/host-client'
 import { storeChatAttachment } from '../src/chat-attachments'
+import { createWorkspaceFiles } from '../src/workspace-files'
 import { setup } from './host-server-fixture'
 import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 
@@ -15,7 +16,11 @@ async function temporaryRoot() {
   return realpath(await mkdtemp(path.join(tmpdir(), 'chat-attachments-')))
 }
 
-function clientFor(fixture: Awaited<ReturnType<typeof setup>>, endpoint?: { apiPrefix: string; hostId: string }) {
+function clientFor(
+  fixture: Awaited<ReturnType<typeof setup>>,
+  endpoint?: { apiPrefix: string; hostId: string },
+  platform?: ClientOptions['platform'],
+) {
   return new HostClient({
     connection: {
       url: fixture.server.url,
@@ -25,6 +30,7 @@ function clientFor(fixture: Awaited<ReturnType<typeof setup>>, endpoint?: { apiP
     },
     endpoint: endpoint ? { baseUrl: fixture.server.url, apiPrefix: endpoint.apiPrefix } : undefined,
     clientId: 'attachment-client',
+    platform,
     selectDirectory: async () => null,
     fetch: (input, init) => {
       const headers = new Headers(init?.headers)
@@ -70,6 +76,18 @@ test('附件保留展示名，路径穿越和同名文件不能逃逸或覆盖',
     assert.equal(await readFile(second.path, 'utf8'), 'second')
     assert.equal((await stat(first.path)).mode & 0o777, 0o600)
   }
+})
+
+test('上传的长文件名图片保留扩展名并可预览', async (t) => {
+  const root = await temporaryRoot()
+  t.onTestFinished(() => rm(root, { recursive: true, force: true }))
+  const image = Buffer.from('image bytes')
+  const uploaded = await storeChatAttachment(root, `${'a'.repeat(70)}.png`, Readable.from([image]))
+  const attachments = path.join(root, storageLayoutRelativePaths.attachmentsDirectory)
+  const files = createWorkspaceFiles(async () => root, attachments)
+  const preview = await files.preview({ hostId: 'test', sessionId: 'test' }, uploaded.path)
+  assert.equal(preview.kind, 'image')
+  if (preview.kind === 'image') assert.equal(preview.dataUrl, `data:image/png;base64,${image.toString('base64')}`)
 })
 
 test('新附件允许超过 20 MiB 的原始文件和零字节，不缓存整个输入流', async (t) => {
@@ -170,6 +188,44 @@ test('附件目录不能通过符号链接写入 Host 数据目录之外', async
   await assert.rejects(storeChatAttachment(root, 'file.txt', Readable.from([])), /符号链接/)
   assert.deepEqual(await readdir(outside), [])
 })
+
+test.each([
+  ['Pasted Graphic 7.png', 'Pasted Graphic 7.png'],
+  ['clipboard', 'clipboard.png'],
+])(
+  '带本地路径的图片 %s 上传后使用受管副本预览，即使原文件消失也保留',
+  async (name, expectedName) => {
+    const fixture = await setup()
+    const image = Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/C84AAAAASUVORK5CYII=',
+      'base64',
+    )
+    const platform = { getPathForFile: (file: File) => path.join(fixture.root, file.name) } as ClientOptions['platform']
+    const client = clientFor(fixture, undefined, platform)
+    try {
+      const key = (await client.bridge.getSnapshot()).connection.sessionKey!
+      const session = await fixture.server.host.control.sessionForRuntime(key)
+      const source = path.join(fixture.root, name)
+      await writeFile(source, image)
+      const file = new File([new Uint8Array(image)], name, { type: 'image/png' })
+      const uploaded = await client.bridge.uploadAttachment(key, { name, data: file })
+      assert.equal(uploaded.name, expectedName)
+      assert.notEqual(uploaded.path, source)
+      assert.ok(
+        uploaded.path.startsWith(path.join(fixture.root, storageLayoutRelativePaths.attachmentsDirectory) + path.sep),
+      )
+      assert.deepEqual(await readFile(uploaded.path), image)
+      await rm(source)
+      const preview = await client.host.files.preview(session, uploaded.path)
+      assert.equal(preview.kind, 'image')
+      if (preview.kind === 'image') assert.equal(preview.dataUrl, `data:image/png;base64,${image.toString('base64')}`)
+    } finally {
+      client.close()
+      await fixture.dispose()
+    }
+  },
+  30_000,
+)
 
 test('直连客户端二进制上传超过 32 MiB，图片及空文件均不检查类型，保留认证和显式会话校验', async () => {
   const fixture = await setup()

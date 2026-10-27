@@ -2,6 +2,7 @@ import { constants } from 'node:fs'
 import { open, readdir, realpath, rename, rm, stat } from 'node:fs/promises'
 import { createHash, randomUUID } from 'node:crypto'
 import path from 'node:path'
+import { maxImagePreviewBytes } from '@pi-meme/contracts/app-host'
 import type {
   FileContent,
   FileEntry,
@@ -12,7 +13,6 @@ import type {
 } from '@pi-meme/contracts/app-host'
 
 export const maxFilePreviewBytes = 1024 * 1024
-export const maxImagePreviewBytes = 8 * 1024 * 1024
 export type ResolveWorkspaceRoot = (ref: WorkspaceRef) => Promise<string>
 const imageTypes: Record<string, string> = {
   '.png': 'image/png',

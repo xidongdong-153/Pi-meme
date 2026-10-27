@@ -140,32 +140,125 @@ test('上传文件限制为单个 50 MiB，超限在认证和请求前拒绝，�
   }
 })
 
-test('仅本机 Desktop 原生文件直接返回路径且不限制大小，剪贴板与远程连接仍上传', async () => {
+test('仅本机 Desktop 原生非图片文件直接返回路径，可预览图片无论有无路径均走上传并校验限制', async () => {
   const native = new File([], 'native.bin')
   Object.defineProperty(native, 'size', { value: 50 * 1024 * 1024 + 1 })
-  const lookup = vi.fn((file: File) => (file === native ? '/local/native.bin' : ''))
+  const nativeHeic = new File([], 'photo.heic', { type: 'image/heic' })
+  Object.defineProperty(nativeHeic, 'size', { value: 50 * 1024 * 1024 + 1 })
+  const nativeImage = new File(['png-data'], 'screenshot.png', { type: 'image/png' })
+  const noMimeImage = new File(['png-data'], 'Pasted Graphic 7.png', { type: '' })
+  const noMimeHashImage = new File(['png-data'], '截图 #1.png', { type: '' })
+  const clipboardImage = new File(['png-data'], 'clipboard', { type: 'image/png' })
+  const noExtImage = new File(['png-data'], 'image', { type: 'image/png' })
+  const emptyNameImage = new File(['png-data'], '', { type: 'image/png' })
+  const nonImageExtImage = new File(['png-data'], 'photo.dat', { type: 'image/png' })
+  const oversizedImage = new File(['large-data'], 'oversized.jpg', { type: 'image/jpeg' })
+  Object.defineProperty(oversizedImage, 'size', { value: 50 * 1024 * 1024 + 1 })
+
+  const lookup = vi.fn((file: File) => {
+    if (file === native) return '/local/native.bin'
+    if (file === nativeHeic) return '/local/photo.heic'
+    if (file === nativeImage) return '/notes/screenshot.png'
+    if (file === noMimeImage) return '/notes/Pasted Graphic 7.png'
+    if (file === noMimeHashImage) return '/local/截图 #1.png'
+    if (file === noExtImage) return '/notes/image'
+    if (file === oversizedImage) return '/local/oversized.jpg'
+    return ''
+  })
   const platform = attachmentPlatform(lookup)
   const local = attachmentClient({ platform })
   const remote = attachmentClient({
     platform,
     connection: { url: 'https://remote.example', token: '', hostId: 'host-1', local: false },
   })
+  const failing = attachmentClient({
+    platform,
+    fetch: async (input) => {
+      const url = new URL(String(input))
+      if (url.pathname === '/api/chat/attachments') {
+        return new Response(JSON.stringify({ error: '上传失败：存储空间不足' }), { status: 500 })
+      }
+      return Response.json({ hostId: 'host-1' })
+    },
+  })
   try {
     assert.deepEqual(await local.client.bridge.uploadAttachment('A', { name: native.name, data: native }), {
       name: 'native.bin',
       path: '/local/native.bin',
     })
+    assert.deepEqual(await local.client.bridge.uploadAttachment('A', { name: nativeHeic.name, data: nativeHeic }), {
+      name: 'photo.heic',
+      path: '/local/photo.heic',
+    })
     assert.equal(local.requests.length, 0)
-    await local.client.bridge.uploadAttachment('A', { name: 'clipboard.png', data: new File([], 'clipboard.png') })
-    assert.equal(local.requests.filter((url) => url.pathname === '/api/chat/attachments').length, 1)
+    assert.deepEqual(await local.client.bridge.uploadAttachment('A', { name: nativeImage.name, data: nativeImage }), {
+      name: 'screenshot.png',
+      path: '/uploaded/file',
+    })
+    assert.equal(local.requests.filter((url) => url.searchParams.get('name') === 'screenshot.png').length, 1)
+    assert.deepEqual(await local.client.bridge.uploadAttachment('A', { name: noMimeImage.name, data: noMimeImage }), {
+      name: 'Pasted Graphic 7.png',
+      path: '/uploaded/file',
+    })
+    assert.equal(local.requests.filter((url) => url.searchParams.get('name') === 'Pasted Graphic 7.png').length, 1)
+    assert.deepEqual(
+      await local.client.bridge.uploadAttachment('A', { name: noMimeHashImage.name, data: noMimeHashImage }),
+      {
+        name: '截图 #1.png',
+        path: '/uploaded/file',
+      },
+    )
+    assert.equal(local.requests.filter((url) => url.searchParams.get('name') === '截图 #1.png').length, 1)
+    assert.deepEqual(
+      await local.client.bridge.uploadAttachment('A', { name: clipboardImage.name, data: clipboardImage }),
+      {
+        name: 'clipboard.png',
+        path: '/uploaded/file',
+      },
+    )
+    assert.equal(local.requests.filter((url) => url.searchParams.get('name') === 'clipboard.png').length, 1)
+    assert.deepEqual(await local.client.bridge.uploadAttachment('A', { name: noExtImage.name, data: noExtImage }), {
+      name: 'image.png',
+      path: '/uploaded/file',
+    })
+    assert.equal(local.requests.filter((url) => url.searchParams.get('name') === 'image.png').length, 1)
+    assert.deepEqual(
+      await local.client.bridge.uploadAttachment('A', { name: emptyNameImage.name, data: emptyNameImage }),
+      {
+        name: 'image.png',
+        path: '/uploaded/file',
+      },
+    )
+    assert.deepEqual(
+      await local.client.bridge.uploadAttachment('A', { name: nonImageExtImage.name, data: nonImageExtImage }),
+      {
+        name: 'photo.dat.png',
+        path: '/uploaded/file',
+      },
+    )
+    assert.equal(local.requests.filter((url) => url.searchParams.get('name') === 'photo.dat.png').length, 1)
+    await assert.rejects(
+      local.client.bridge.uploadAttachment('A', { name: oversizedImage.name, data: oversizedImage }),
+      /50.*MB/,
+    )
+    assert.equal(local.requests.filter((url) => url.searchParams.get('name') === 'oversized.jpg').length, 0)
     lookup.mockClear()
     await assert.rejects(remote.client.bridge.uploadAttachment('A', { name: native.name, data: native }), /50.*MB/)
     await remote.client.bridge.uploadAttachment('A', { name: 'remote.txt', data: new File([], 'remote.txt') })
+    await remote.client.bridge.uploadAttachment('A', {
+      name: 'remote.png',
+      data: new File([], 'remote.png', { type: 'image/png' }),
+    })
     assert.equal(lookup.mock.calls.length, 0)
-    assert.equal(remote.requests.filter((url) => url.pathname === '/api/chat/attachments').length, 1)
+    assert.equal(remote.requests.filter((url) => url.pathname === '/api/chat/attachments').length, 2)
+    await assert.rejects(
+      failing.client.bridge.uploadAttachment('A', { name: nativeImage.name, data: nativeImage }),
+      /存储空间不足|HTTP 500/,
+    )
   } finally {
     local.client.close()
     remote.client.close()
+    failing.client.close()
   }
 })
 

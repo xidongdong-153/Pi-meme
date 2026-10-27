@@ -58,6 +58,7 @@ export type SubmissionReceipt = {
 }
 export type FileEntry = { name: string; relativePath: string; kind: 'file' | 'directory'; size: number }
 export type FileContent = { relativePath: string; content: string }
+export const maxImagePreviewBytes = 8 * 1024 * 1024
 export type FilePreview =
   | (FileContent & { kind: 'text'; revision: string })
   | { kind: 'image'; relativePath: string; dataUrl: string; size: number }

@@ -1,5 +1,6 @@
 import { access, readFile, realpath } from 'node:fs/promises'
 import path from 'node:path'
+import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 import type { AccessSandboxOptions, SandboxLaunch } from './access-sandbox'
 import { pathWithin } from './access-sandbox'
 
@@ -110,7 +111,7 @@ export async function linuxSandboxLaunch(options: AccessSandboxOptions): Promise
   if (options.dataRoot && pathWithin(options.cwd, options.dataRoot))
     args.push('--ro-bind', options.dataRoot, options.dataRoot)
   if (options.dataRoot) {
-    const attachments = path.join(await realpath(options.dataRoot), 'attachments')
+    const attachments = path.join(await realpath(options.dataRoot), storageLayoutRelativePaths.attachmentsDirectory)
     try {
       const resolved = await realpath(attachments)
       if (resolved !== attachments) throw new Error('附件目录不能是符号链接')

@@ -3,7 +3,8 @@ import { test } from 'vitest'
 import { mkdtemp, mkdir, writeFile, symlink, rm, readdir, realpath } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { createWorkspaceFiles, maxFilePreviewBytes, maxImagePreviewBytes } from '../src/workspace-files'
+import { maxImagePreviewBytes } from '@pi-meme/contracts/app-host'
+import { createWorkspaceFiles, maxFilePreviewBytes } from '../src/workspace-files'
 
 test('文件预览限定目标目录，拒绝越界链接、二进制和过大文件', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'app-files-'))

@@ -1,11 +1,19 @@
 import { ComposerAnnotationSummary } from './composer-annotation-summary'
 import * as React from 'react'
 import { X } from 'lucide-react'
+import { maxImagePreviewBytes } from '@pi-meme/contracts/app-host'
 import { FileIcon } from '@pi-meme/ui/components/file-icon'
 import type { ComposerProps } from './composer'
 import type { ComposerAttachment, ComposerImageAttachment, ComposerPendingAttachment } from './image-attachment'
 import { ImageViewer, imageSource } from '../content/image-viewer'
 import { isImageLink, MessageImage } from '../content/message-image'
+
+function isOversizedImageAttachment(attachment: ComposerAttachment | ComposerPendingAttachment): boolean {
+  if (attachment.type === 'file' && attachment.preview) {
+    return attachment.preview.size > maxImagePreviewBytes
+  }
+  return false
+}
 
 function useAttachmentImages(
   attachments: (ComposerAttachment | ComposerPendingAttachment)[],
@@ -79,6 +87,8 @@ export function ComposerAttachments({
 
   if (activeId !== null && activeIndex === -1) setActiveId(null)
 
+  const hasOversized = otherItems.some(isOversizedImageAttachment)
+
   return (
     <>
       <ComposerAnnotationSummary
@@ -102,6 +112,7 @@ export function ComposerAttachments({
                 : undefined
             const name = attachment.name || `图片 ${previews.findIndex((preview) => preview.id === attachment.id) + 1}`
             const iconPath = attachment.name || 'image.png'
+            const oversized = isOversizedImageAttachment(attachment)
             const content = (
               <>
                 <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-background/70">
@@ -144,6 +155,16 @@ export function ComposerAttachments({
                   </button>
                 ) : (
                   <div className="flex size-full flex-col">{content}</div>
+                )}
+                {oversized && (
+                  <div
+                    role="status"
+                    aria-label={`${name}：图片超过 8 MiB，发送后无法在会话中预览`}
+                    title="图片超过 8 MiB，发送后无法在会话中预览"
+                    className="pointer-events-none absolute inset-x-0 bottom-7 bg-amber-500/90 px-1 py-0.5 text-center text-[10px] font-medium text-white shadow-xs dark:bg-amber-600/90"
+                  >
+                    超过 8 MiB 无法预览
+                  </div>
                 )}
                 {progress !== undefined && (
                   <div className="pointer-events-none absolute inset-x-0 top-0 flex h-[calc(100%-1.75rem)] items-center justify-center bg-black/40">
@@ -202,6 +223,11 @@ export function ComposerAttachments({
             )
           })}
         </div>
+      )}
+      {hasOversized && (
+        <p role="status" className="mb-2 text-xs text-amber-600 dark:text-amber-500">
+          图片超过 8 MiB，发送后无法在会话中预览。
+        </p>
       )}
       <ImageViewer
         images={images}

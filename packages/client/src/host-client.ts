@@ -62,6 +62,39 @@ function clientIdentity(options: ClientOptions, endpoint: URL) {
   }
 }
 
+const previewableImageExtensions = /\.(?:png|jpe?g|gif|webp|avif|bmp|ico|svg)$/i
+const imageMimeExtensions: Record<string, string> = {
+  'image/png': '.png',
+  'image/jpeg': '.jpg',
+  'image/jpg': '.jpg',
+  'image/gif': '.gif',
+  'image/webp': '.webp',
+  'image/avif': '.avif',
+  'image/bmp': '.bmp',
+  'image/x-icon': '.ico',
+  'image/vnd.microsoft.icon': '.ico',
+  'image/svg+xml': '.svg',
+  'image/svg': '.svg',
+}
+
+function normalizeAttachmentInput(input: ChatFileUpload): ChatFileUpload {
+  const mime = input.data.type?.toLowerCase()
+  const standardExt = mime ? imageMimeExtensions[mime] : undefined
+  if (!standardExt) return input
+  const name = input.name.trim()
+  if (previewableImageExtensions.test(name)) return name === input.name ? input : { ...input, name }
+  const base = name || 'image'
+  const normalizedName = base.endsWith('.') ? `${base.slice(0, -1)}${standardExt}` : `${base}${standardExt}`
+  return { ...input, name: normalizedName }
+}
+
+function isPreviewableImage(input: ChatFileUpload) {
+  const name = input.name || (typeof File !== 'undefined' && input.data instanceof File ? input.data.name : '')
+  if (previewableImageExtensions.test(name)) return true
+  const mime = input.data.type?.toLowerCase()
+  return Boolean(mime && mime in imageMimeExtensions)
+}
+
 export class HostClient {
   readonly clientId: string
   readonly host: HostApi
@@ -363,15 +396,21 @@ export class HostClient {
 
   private async uploadAttachment(
     sessionKey: string,
-    input: ChatFileUpload,
+    rawInput: ChatFileUpload,
     signal?: AbortSignal,
     onProgress?: (percent: number) => void,
   ): Promise<ChatUploadedFile> {
+    const input = normalizeAttachmentInput(rawInput)
     const epoch = this.networkEpoch
     this.assertAvailable(epoch)
     signal = signal ? AbortSignal.any([signal, this.lifetime.signal]) : this.lifetime.signal
     signal.throwIfAborted()
-    if (this.nativePlatformAvailable && typeof File !== 'undefined' && input.data instanceof File) {
+    if (
+      this.nativePlatformAvailable &&
+      typeof File !== 'undefined' &&
+      input.data instanceof File &&
+      !isPreviewableImage(input)
+    ) {
       const path = this.options.platform?.getPathForFile?.(input.data)
       if (path) return { name: input.name, path }
     }
