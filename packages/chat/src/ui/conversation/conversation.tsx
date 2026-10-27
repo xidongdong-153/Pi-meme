@@ -7,8 +7,8 @@ import type { PlanDocument, PlanState } from '@pi-meme/contracts/plan'
 import { ChatMessage } from './chat-message'
 import { AssistantTurnView } from './assistant-turn'
 import { InlineMessageEditor, type MessageEditorState } from './inline-message-editor'
-import { groupConversationTurns } from '../model/conversation-turns'
-import { projectMainConversation } from '../model/conversation-projection'
+import { createConversationTurnProjector } from '../model/conversation-turns'
+import { mainMessage, projectMainConversation } from '../model/conversation-projection'
 import { projectAgentConversation } from '../model/agent-collaboration'
 import type { AgentSummary } from '@pi-meme/contracts/collaboration'
 import { useConversationScroll } from './use-conversation-scroll'
@@ -94,13 +94,34 @@ export const Conversation = React.memo(
       handleActivityToggle,
     } = useConversationScroll(chat, sessionKey)
 
+    const stableView = React.useMemo(
+      () =>
+        readOnly
+          ? { messages: chat.messages, tools: chat.tools, agentStatuses: [] }
+          : projectMainConversation({
+              messages: chat.messages,
+              live: null,
+              tools: chat.tools,
+              agents: chat.agents,
+              agentMessages: chat.agentMessages,
+            }),
+      [chat.messages, chat.tools, chat.agents, chat.agentMessages, readOnly],
+    )
+    const modelChanges = React.useMemo(
+      () => modelChangesForConversation(chat.sessionEntries, stableView.messages),
+      [chat.sessionEntries, stableView.messages],
+    )
+    const groupTurns = React.useMemo(() => createConversationTurnProjector(), [])
     // 按对话轮次（Turn）聚合消息流：将同一交互轮次内的思考、多次工具调用、Bash 与最终正文聚合成单一轮次卡片
     const { turns, finalReplyKeys } = React.useMemo(() => {
-      const view = readOnly ? chat : projectMainConversation(chat)
+      const view = {
+        ...stableView,
+        live: readOnly ? chat.live : chat.live ? (mainMessage(chat.live) as ChatState['live']) : null,
+      }
       const grouped =
         agentOnly && agent
           ? projectAgentConversation(chat, agent)
-          : groupConversationTurns(
+          : groupTurns(
               view.messages,
               view.live,
               view.tools,
@@ -108,7 +129,7 @@ export const Conversation = React.memo(
               chat.stream.completed,
               'agentStatuses' in view ? view.agentStatuses : [],
               chat.runIntervals,
-              modelChangesForConversation(chat.sessionEntries, view.messages),
+              modelChanges,
             )
       const finalReplyKeys = new Set<string>()
       let canBeFinal = !chat.running && !chat.live
@@ -131,7 +152,7 @@ export const Conversation = React.memo(
           : grouped,
         finalReplyKeys,
       }
-    }, [chat, readOnly, agentOnly, agent])
+    }, [chat, readOnly, agentOnly, agent, stableView, modelChanges, groupTurns])
     const outline = React.useMemo(() => (agentOnly ? [] : conversationOutline(turns)), [turns, agentOnly])
     const plansByTool = React.useMemo(() => {
       const plans = new Map<string, PlanDocument>()

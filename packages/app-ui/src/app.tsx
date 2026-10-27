@@ -1,3 +1,5 @@
+import { RetainedConversations } from './session/retained-conversations'
+import { HistoryDetails } from './session/history-details'
 import { resolveThinkingLevel } from '@pi-meme/contracts/pi'
 import type { BrowserPlatform } from '@pi-meme/contracts/browser'
 import { BrowserFavicon, BrowserPanel } from '@pi-meme/browser/ui/browser-panel'
@@ -41,7 +43,6 @@ import {
 } from 'react'
 import { Composer } from '@pi-meme/chat/ui/composer/composer'
 import { MessageImageLoaderContext } from '@pi-meme/chat/ui/content/message-image'
-import { Conversation } from '@pi-meme/chat/ui/conversation/conversation'
 import { Sidebar } from '@pi-meme/workspace/ui/sidebar/sidebar'
 import { SidebarMenus } from '@pi-meme/workspace/ui/sidebar/sidebar-menus'
 import { ModelPickerPopover } from '@pi-meme/models/ui/model-picker-popover'
@@ -230,6 +231,7 @@ export function App({
   const chat = useAppSession(bridge, {
     host,
     hostId: hostId ?? hostAddress,
+    foreground: serviceUI?.active ?? true,
   })
   const [sideChat, setSideChat] = useState<{
     open: boolean
@@ -354,7 +356,7 @@ export function App({
   )
   const cwd = chat.connection.cwd
   const availableRightTabs: RightSidebarTab[] = []
-  if (chat.chat.sessionEntries?.entries.length) availableRightTabs.push('session-tree')
+  if (chat.historyDetailsDeferred || chat.chat.sessionEntries?.entries.length) availableRightTabs.push('session-tree')
   if (chat.chat.agents?.some((agent) => agent.parentAgentId && agent.rootSessionKey === chat.connection.sessionKey))
     availableRightTabs.push('subagents')
   if (chat.planDocuments.length || (chat.editing && chat.chat.planState?.document)) availableRightTabs.push('plan')
@@ -1280,10 +1282,15 @@ export function App({
       ready={ready}
       hasConnected={chat.hasConnected || Boolean(chat.connection.sessionKey)}
       switching={chat.contentLoading}
+      synchronizing={chat.synchronizing}
+      retrySwitch={chat.retrySwitch}
       active={serviceUI?.active ?? true}
       composer={composer}
       conversation={
-        <Conversation
+        <RetainedConversations
+          hostId={hostId ?? hostAddress ?? 'local'}
+          active={active && (chat.chat.messages.length > 0 || chat.chat.live !== null || chat.chat.running)}
+          getCachedChat={chat.cachedChat}
           {...{
             chat: chat.chat,
             stream: chat.chatStream,
@@ -1589,11 +1596,15 @@ export function App({
             icon: <ListTree />,
             location: 'right' as const,
             scope: 'session' as const,
-            render: () => <SessionTreePanel sessionEntries={chat.chat.sessionEntries} />,
+            render: () => (
+              <HistoryDetails load={chat.loadHistoryDetails}>
+                <SessionTreePanel sessionEntries={chat.chat.sessionEntries} />
+              </HistoryDetails>
+            ),
           },
         ]
       : []),
-    ...(sources.length > 0
+    ...(sources.length > 0 || chat.historyDetailsDeferred
       ? [
           {
             id: 'builtin:sources',
@@ -1604,7 +1615,9 @@ export function App({
             render: (props: UiContributionProps) =>
               props.target.session ? (
                 <MessageImageLoaderContext value={loadConversationImage}>
-                  <SourcesPanel sources={sources} />
+                  <HistoryDetails load={chat.loadHistoryDetails}>
+                    <SourcesPanel sources={sources} />
+                  </HistoryDetails>
                 </MessageImageLoaderContext>
               ) : null,
           },

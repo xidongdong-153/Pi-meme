@@ -149,6 +149,12 @@ pnpm test --feature chat --layer unit,component --coverage
 
 日常 push 和 PR 的 [Linux 检查](../.github/workflows/linux.yml) 运行全仓 `pnpm type-check`、`pnpm lint`、`pnpm format`、`pnpm check-boundaries` 与全部源码测试，不运行 Web E2E。[完整测试](../.github/workflows/full-tests.yml) 仍由手动触发 Linux、macOS 两个平台，包含 Web E2E 和对应平台产物；发布前汇总目标平台结果。WSL 专项只能在真实 WSL 上运行并单独记录；平台跳过不算完成该平台验收。配置存在不表示本次已运行远程 CI。
 
+会话历史性能可单独执行 `node --import tsx scripts/bench-sessions.mts baseline`，生成 1 万条、约 100MB 的临时历史并测量完整读取；随后执行 `node --import tsx scripts/bench-sessions.mts indexed-build` 和 `node --import tsx scripts/bench-sessions.mts indexed-reopen`，比较首次建索引与新进程复用索引。数据和 JSON 报告在 `out/session-performance/`，不读取个人会话。报告包含历史读取及序列化耗时、CPU 时间、响应大小和内存；不代表完整界面切换或发布验收结果。
+
+`node --import tsx scripts/bench-session-runtime.mts current` 使用临时 Host、假模型和 Chromium 测量 1、4、8 个并行会话的事件数、Host 与页面 CPU 时间，再点击侧栏 30 次测量缓存切换的 P95。报告和桌面、窄窗口截图同样写入 `out/session-performance/`。为排除个人资源差异，两个版本都只安装仓库自带的 Skill Creator；Worker 启动耗时单独记录，不算入流式输出 CPU 区间。可传入第二个参数指定已有依赖的基线源码目录，使用非 `current` 开头的报告名跳过仅新版本支持的面板统计。浏览器错误会写入报告，失败样本不能用作正常负载下的 CPU 验收。
+
+设置 `PI_BENCH_BACKGROUND=1` 时，输出期间停留在空白会话，单独测量后台并行成本；默认保留一个可见输出会话。`PI_BENCH_TEXT_REPEATS` 控制正文长度，默认 1200；`PI_BENCH_CODE=1` 将正文放入代码块。这些参数应在两个版本中保持一致。
+
 Linux CI 使用 Ubuntu 24.04，通过[沙箱准备 action](../.github/actions/setup-linux-sandbox/action.yml)安装 bubblewrap，并为 `/usr/bin/bwrap` 加载定向 AppArmor user namespace 许可、实际探测 namespace。该配置仅用于临时 runner，不是用户安装步骤；不关闭 AppArmor、不修改全局 sysctl。action 将 `TMPDIR` 设置为 `RUNNER_TEMP`，避免测试夹具落在沙箱隐藏的公共 `/tmp`。
 
 Linux 受限回归在探测失败时应失败，不能用 skip 或完全权限代替隔离验证。WSL 互操作只能在真实 WSL2 验收，原生 Linux 跳过不算通过；Linux 不运行 macOS Desktop 验收。相关文件是 [linux-sandbox.integration.test.ts](../packages/pi-runtime/tests/linux-sandbox.integration.test.ts) 和 [restricted-dist.artifact.test.ts](../apps/server/tests/restricted-dist.artifact.test.ts)。

@@ -21,6 +21,7 @@ import { useChatSession, type ComposerSnapshot } from '@pi-meme/chat/ui/use-chat
 import { useExtensionUI } from '@pi-meme/interaction/ui/use-extension-ui'
 import { useSessions } from '@pi-meme/workspace/ui/use-sessions'
 import { SessionSelection, type SelectionTransaction } from './session-selection'
+import { SessionStreamEvents } from './stream-events'
 import { SnapshotSync } from './snapshot-sync'
 import { PluginSnapshotSync } from './plugin-snapshot-sync'
 import { ComposerDrafts } from './composer-drafts'
@@ -39,6 +40,7 @@ export function useAppSession(
     host,
     onPlanSaved,
     persistDrafts = true,
+    foreground = true,
   }: {
     chatEnabled?: boolean
     workspaceEnabled?: boolean
@@ -46,8 +48,11 @@ export function useAppSession(
     host?: import('@pi-meme/contracts/app-host').HostApi
     onPlanSaved?: (document: PlanDocument, sessionKey: string | undefined) => void
     persistDrafts?: boolean
+    foreground?: boolean
   } = {},
 ) {
+  const foregroundRef = useRef(foreground)
+  foregroundRef.current = foreground
   const onPlanSavedRef = useRef(onPlanSaved)
   onPlanSavedRef.current = onPlanSaved
   const [connection, setConnection] = useState<Connection>({ generation: 0, cwd: '', status: 'connecting' })
@@ -70,8 +75,11 @@ export function useAppSession(
   const [previewing, setPreviewing] = useState(false)
   const [appSession, setAppSession] = useState<Snapshot['appSession']>()
   const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyRevision, setHistoryRevision] = useState<string>()
   const historyRequest = useRef(0)
   const commandRequest = useRef(0)
+  const [failedSwitchPath, setFailedSwitchPath] = useState<string>()
+  const detailsReads = useRef(new Map<string, Promise<void>>())
   const [switchingToPath, setSwitchingToPath] = useState<string>()
   const [forking, setForking] = useState(false)
   const [forkNotice, setForkNotice] = useState<{ sourcePath: string } | null>(null)
@@ -99,6 +107,7 @@ export function useAppSession(
   const failedCreationDrafts = useRef(new Map<string, string>())
   const synchronization = useRef(new SnapshotSync())
   const pluginSynchronization = useRef(new PluginSnapshotSync())
+  const streamEvents = useRef<SessionStreamEvents | null>(null)
   const views = useRef(new Map<string, { snapshot: Snapshot; chat: ChatState; sequence: number }>())
   const synced = useRef<{ generation: number; sessionKey?: string; status?: string } | undefined>(undefined)
   const drafts = useMemo(() => {
@@ -114,11 +123,28 @@ export function useAppSession(
   const { sessions, sessionsLoading, refreshSessions, setActiveSession } = useSessions(bridge, workspaceEnabled)
   const snapshotWindow = useCallback((key?: string) => {
     const messages = key ? views.current.get(key)?.chat.messages : undefined
-    return { limit: 60, from: messages?.[0]?.sourceEntry?.id }
+    return { limit: 60, from: messages?.[0]?.sourceEntry?.id, details: 'deferred' as const }
   }, [])
 
   const commitSnapshot = useCallback(
     (snapshot: Snapshot, events: DesktopEvent[] | null, pluginRevision: number, modeRevision?: number) => {
+      streamEvents.current?.flush()
+      const retained = snapshot.connection.sessionKey && views.current.get(snapshot.connection.sessionKey)
+      if (
+        retained &&
+        snapshot.historyDetails === 'deferred' &&
+        retained.snapshot.historyDetails === 'complete' &&
+        snapshot.historyRevision &&
+        snapshot.historyRevision === retained.snapshot.historyRevision
+      ) {
+        snapshot = {
+          ...snapshot,
+          historyDetails: 'complete',
+          sessionEntries: retained.snapshot.sessionEntries,
+          branchAttachments: retained.snapshot.branchAttachments,
+        }
+      }
+      setHistoryRevision(snapshot.historyRevision)
       const previousKey = displayed.current.sessionKey
       const previousGeneration = displayed.current.generation
       if (previousKey !== snapshot.connection.sessionKey) {
@@ -303,7 +329,7 @@ export function useAppSession(
       !selection.current.current &&
       !preview.current
     try {
-      const history = await bridge.readSessionHistory(expected.sessionKey, { limit: 60, before })
+      const history = await bridge.readSessionHistory(expected.sessionKey, { limit: 60, before, details: 'deferred' })
       const cached = views.current.get(expected.sessionKey)
       const latest = chatRef.current?.captureChat()
       if (!owns() || !cached || !latest || latest.messagePage?.before !== before) return false
@@ -519,10 +545,8 @@ export function useAppSession(
         else setError(value.message)
       }
     })
-    const offEvent = bridge.onEvent((record) => {
+    const receiveEvent = (record: DesktopEvent) => {
       if (!mounted.current) return
-      selection.current.current?.events.push(record)
-      synchronization.current.receive(record)
       const event = record.event
       const extension =
         event.type === 'extension_ui_request' ||
@@ -530,10 +554,19 @@ export function useAppSession(
         event.type === 'extension_ui_closed'
       const cached = record.sessionKey && views.current.get(record.sessionKey)
       if (cached && record.sequence !== undefined && record.sequence <= cached.sequence) return
-      if (cached && !extension) {
-        cached.chat = reduceEvent(cached.chat, event)
-        cached.sequence = record.sequence ?? cached.sequence
+      const visible =
+        record.sessionKey === current.current.sessionKey &&
+        record.generation === current.current.generation &&
+        !selection.current.current &&
+        !preview.current
+      const applyCurrent = (event: Parameters<typeof reduceEvent>[1]) => {
+        chatRef.current?.applyEvent(event)
+        if (cached && chatRef.current) cached.chat = chatRef.current.captureChat()
       }
+      if (cached && !extension && !visible) {
+        cached.chat = reduceEvent(cached.chat, event)
+      }
+      if (cached) cached.sequence = record.sequence ?? cached.sequence
       if (selection.current.current || preview.current) return
       if (event.type === 'access_mode_changed') {
         if (record.sessionKey === current.current.sessionKey && record.generation === current.current.generation) {
@@ -567,7 +600,7 @@ export function useAppSession(
           record.sessionKey === current.current.sessionKey
         ) {
           currentAgentTree.current = event.agents.filter((agent) => agent.rootSessionKey === current.current.sessionKey)
-          chatRef.current?.applyEvent({ ...event, agents: currentAgentTree.current })
+          applyCurrent({ ...event, agents: currentAgentTree.current })
         }
         return
       }
@@ -576,7 +609,7 @@ export function useAppSession(
           record.sessionKey === current.current.sessionKey ||
           currentAgentTree.current.some((agent) => agent.rootTaskId === event.message.rootTaskId)
         )
-          chatRef.current?.applyEvent(event)
+          applyCurrent(event)
         return
       }
       if (event.type === 'plan_state_changed') {
@@ -590,7 +623,7 @@ export function useAppSession(
         if (known && known.revision >= event.state.revision) return
         setPlanState(event.state)
         setPlanDocuments(event.state.document ? [event.state.document] : [])
-        chatRef.current?.applyEvent(event)
+        applyCurrent(event)
         if (event.reason === 'saved' && event.state.document)
           onPlanSavedRef.current?.(event.state.document, record.sessionKey)
         return
@@ -606,7 +639,7 @@ export function useAppSession(
         const known = chatRef.current?.captureChat().planDocuments?.find((doc) => doc.id === event.document.id)
         if (known && known.revision >= event.document.revision) return
         setPlanDocuments([event.document])
-        chatRef.current?.applyEvent(event)
+        applyCurrent(event)
         onPlanSavedRef.current?.(event.document, record.sessionKey)
         return
       }
@@ -617,12 +650,23 @@ export function useAppSession(
       )
         return
       if (event.type === 'agent_settled') chatRef.current?.clearPromptPending()
-      chatRef.current?.applyEvent(event)
+      applyCurrent(event)
       if (event.type === 'message_end' && event.message.role === 'assistant') void refreshStats()
       if (event.type === 'agent_settled' || event.type === 'compaction_end') {
         setRefreshToken((value) => value + 1)
         void refresh()
       }
+    }
+    const queue = new SessionStreamEvents(
+      receiveEvent,
+      (key) => foregroundRef.current && key === current.current.sessionKey,
+      (key) => Boolean((key && views.current.has(key)) || selection.current.current),
+    )
+    streamEvents.current = queue
+    const offEvent = bridge.onEvent((record) => {
+      selection.current.current?.events.push(record)
+      synchronization.current.receive(record)
+      queue.push(record)
     })
     void bridge
       .getConnection()
@@ -641,6 +685,8 @@ export function useAppSession(
       offConnection()
       offError()
       offEvent()
+      queue.dispose()
+      if (streamEvents.current === queue) streamEvents.current = null
     }
   }, [bridge, drafts, refresh, setActiveSession])
 
@@ -715,6 +761,7 @@ export function useAppSession(
       (replacing || preview.current) && savedComposer && !savedComposer.editing
         ? savedComposer
         : chatRef.current?.captureComposer()
+    streamEvents.current?.flush()
     const previousView = previous.sessionKey && views.current.get(previous.sessionKey)
     if (previous.sessionKey && previousComposer) drafts.set(previous.sessionKey, previousComposer)
     if (!replacing && !preview.current && previousView && chatRef.current)
@@ -726,6 +773,7 @@ export function useAppSession(
     setHistoryLoading(false)
     commandRequest.current++
     setSwitching(true)
+    setFailedSwitchPath(undefined)
     setSwitchingToPath(target)
     setLoading(false)
     setError('')
@@ -913,6 +961,18 @@ export function useAppSession(
           setError(String(cause))
           return
         }
+        const missing = /ENOENT|会话不存在|运行中的会话不存在|只能打开应用内保存的会话/.test(String(cause))
+        if (missing && target) {
+          for (const [key, value] of views.current) {
+            if (value.snapshot.connection.sessionKey === target || value.snapshot.connection.sessionFile === target)
+              views.current.delete(key)
+          }
+        }
+        if (!missing && !previewInput && preview.current?.transaction === transaction && target) {
+          setFailedSwitchPath(target)
+          setError(`会话同步失败：${String(cause)}`)
+          return
+        }
         preview.current = null
         try {
           if (current.current.sessionKey !== previous.sessionKey && previousPath) {
@@ -1028,6 +1088,49 @@ export function useAppSession(
       return false
     }
   }
+  const loadHistoryDetails = useCallback(async () => {
+    if (selection.current.current || preview.current) return
+    const key = current.current.sessionKey
+    const cached = key && views.current.get(key)
+    if (!key || !cached || cached.snapshot.historyDetails !== 'deferred') return
+    const generation = current.current.generation
+    const revision = cached.snapshot.historyRevision
+    const requestId = `${key}:${generation}:${revision ?? ''}`
+    const previous = detailsReads.current.get(requestId)
+    if (previous) return previous
+    const read = (async () => {
+      try {
+        const history = await bridge.getSnapshot()
+        if (
+          current.current.sessionKey !== key ||
+          current.current.generation !== generation ||
+          views.current.get(key) !== cached ||
+          cached.snapshot.historyRevision !== revision ||
+          (history.historyRevision && revision && history.historyRevision !== revision)
+        )
+          return
+        cached.snapshot = {
+          ...cached.snapshot,
+          historyDetails: 'complete',
+          sessionEntries: history.sessionEntries,
+          branchAttachments: history.branchAttachments,
+        }
+        const next = {
+          ...chatRef.current!.captureChat(),
+          sessionEntries: history.sessionEntries,
+          branchAttachments: history.branchAttachments ?? [],
+        }
+        cached.chat = next
+        chatRef.current?.restoreChat(next)
+      } catch (cause) {
+        if (current.current.sessionKey === key && current.current.generation === generation) setError(String(cause))
+      }
+    })().finally(() => {
+      if (detailsReads.current.get(requestId) === read) detailsReads.current.delete(requestId)
+    })
+    detailsReads.current.set(requestId, read)
+    return read
+  }, [bridge, connection.sessionKey, connection.generation, switching, previewing, historyRevision])
   const inputDisabled =
     chat.editSubmitting ||
     loading ||
@@ -1238,6 +1341,13 @@ export function useAppSession(
     busy: inputDisabled || chat.chat.running,
     modelPickerDisabled,
     modelSaving,
+    loadHistoryDetails,
+    historyDetailsDeferred: Boolean(
+      connection.sessionKey && views.current.get(connection.sessionKey)?.snapshot.historyDetails === 'deferred',
+    ),
+    retrySwitch: failedSwitchPath ? () => switchSession(failedSwitchPath) : undefined,
+    cachedChat: (key: string) => views.current.get(key)?.chat,
+    synchronizing: switching && previewing,
     navigationBusy: acting || switching,
     inputDisabled,
     draftEditable: Boolean(preview.current?.input) || !inputDisabled,

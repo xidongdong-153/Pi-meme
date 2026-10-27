@@ -5,6 +5,7 @@ import { formatSessionTitle } from './session-title'
 import type { SidebarDragProps } from './sidebar-controls'
 import { SidebarSourceBadge, type SidebarSource } from './sidebar-source'
 import { SessionDetailsTooltip } from './session-details-tooltip'
+import { useEffect, useRef } from 'react'
 
 /** 分叉会话的来源标识：头部 parentSession 来自 SDK 会话元数据。同时显示创建时间，区分同名分支。 */
 function ForkBadge({ session }: { session: PiSessionSummary }) {
@@ -55,8 +56,15 @@ export function SessionItem({
   onTogglePin?: (path: string) => void
   onPrefetchSession?: (path: string) => void
 }) {
+  const prefetchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const cancelPrefetch = () => {
+    if (prefetchTimer.current !== undefined) clearTimeout(prefetchTimer.current)
+    prefetchTimer.current = undefined
+  }
+  useEffect(() => cancelPrefetch, [session.path, isActive])
   const handleMouseEnter = () => {
-    if (!isActive) onPrefetchSession?.(session.path)
+    cancelPrefetch()
+    if (!isActive) prefetchTimer.current = setTimeout(() => onPrefetchSession?.(session.path), 120)
   }
   const isRunning = session.running && !session.isPaused && (!source || source.connected)
   const scheduleIndicator = session.scheduledTask ? (
@@ -80,6 +88,7 @@ export function SessionItem({
         <div
           {...dragProps}
           onMouseEnter={handleMouseEnter}
+          onMouseLeave={cancelPrefetch}
           className={cn(
             'group relative flex w-full min-w-0 items-center justify-between rounded-lg px-2 py-1 text-xs transition-colors duration-150 ease-out cursor-pointer',
             isActive
@@ -96,6 +105,7 @@ export function SessionItem({
               if (!isActive) onSwitchSession(session.path)
             }}
             onFocus={handleMouseEnter}
+            onBlur={cancelPrefetch}
             className={cn(
               'flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden py-0.5 pr-1 text-left rounded cursor-[inherit] transition-[padding] duration-150 ease-out focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
               !session.scheduledTask && 'group-hover:pr-7 group-has-[:focus-visible]:pr-7',
@@ -155,6 +165,7 @@ export function SessionItem({
       <SessionDetailsTooltip session={session} source={source} projectName={projectName}>
         <div
           onMouseEnter={handleMouseEnter}
+          onMouseLeave={cancelPrefetch}
           className={cn(
             'group relative flex w-full min-w-0 items-center justify-between rounded-lg px-2 py-1 text-xs transition-colors duration-150 ease-out cursor-pointer',
             isActive
@@ -170,6 +181,7 @@ export function SessionItem({
               if (!isActive) onSwitchSession(session.path)
             }}
             onFocus={handleMouseEnter}
+            onBlur={cancelPrefetch}
             className={cn(
               'flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden py-0.5 pr-1 text-left rounded transition-[padding] duration-150 ease-out focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
               !session.scheduledTask && 'group-hover:pr-7 group-has-[:focus-visible]:pr-7',
@@ -226,6 +238,7 @@ export function SessionItem({
     <SessionDetailsTooltip session={session} source={source} projectName={projectName}>
       <div
         onMouseEnter={handleMouseEnter}
+        onMouseLeave={cancelPrefetch}
         className={cn(
           'group relative flex w-full min-w-0 items-center justify-between rounded-lg px-2 py-1 text-xs transition-colors duration-150 ease-out cursor-pointer',
           isActive
@@ -241,6 +254,7 @@ export function SessionItem({
             if (!isActive) onSwitchSession(session.path)
           }}
           onFocus={handleMouseEnter}
+          onBlur={cancelPrefetch}
           className={cn(
             'flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden py-0.5 pr-1 text-left rounded transition-[padding] duration-150 ease-out focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
             !session.scheduledTask && 'group-hover:pr-7 group-has-[:focus-visible]:pr-7',

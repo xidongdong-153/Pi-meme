@@ -1,3 +1,4 @@
+import type { SessionWindow } from '@pi-meme/contracts/sessions'
 import type {
   MessageOptions,
   QueuedInput,
@@ -21,10 +22,10 @@ export interface PiRuntime {
   configureDefaultAccessMode: (mode: AgentAccessMode) => Promise<void>
   cwd: string
   connection: () => Connection
-  snapshot: () => Promise<Snapshot>
+  snapshot: (window?: SessionWindow) => Promise<Snapshot>
   getActiveSession: () => { sessionFile?: string; sessionId?: string }
   newSession: () => Promise<SessionSelectionResult>
-  switchSession: (path: string) => Promise<SessionSelectionResult>
+  switchSession: (path: string, window?: SessionWindow) => Promise<SessionSelectionResult>
   editAndPrompt: (
     sessionKey: string,
     entryId: string,

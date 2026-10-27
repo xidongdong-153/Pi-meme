@@ -17,6 +17,7 @@ import { SdkSession, type RuntimePolicy } from '@pi-meme/pi-runtime/sdk/session'
 import { createPiRuntimePaths, createTemporaryRuntimePaths } from '@pi-meme/pi-runtime/runtime-paths'
 import { MemoryCredentialStorage } from '@pi-meme/pi-runtime/secure-store'
 import { loadPiSdk, loadPiAgentCore } from '@pi-meme/pi-runtime/sdk/load'
+import { createStreamCoalescer } from './stream-coalescer'
 
 export type SessionWorkerContext = {
   sdk: typeof import('@earendil-works/pi-coding-agent')
@@ -93,6 +94,7 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
   function send(value: object): void {
     return port.postMessage({ ...value, connection: session.connection(), active: session.getActiveSession() })
   }
+  const stream = createStreamCoalescer((value) => send({ notify: 'event', value }))
   const policy: RuntimePolicy = {
     planTools: new Map(),
     resolvePlan: (reference, signal) => hostRequest('resolvePlan', { reference }, signal) as Promise<PlanDocument>,
@@ -114,10 +116,19 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
   session = new SdkSession(
     data.cwd,
     {
-      connection: (value) => send({ notify: 'connection', value }),
-      event: (value) => send({ notify: 'event', value }),
-      error: (value) => send({ notify: 'error', value }),
-      title: (value) => send({ notify: 'title', value }),
+      connection: (value) => {
+        stream.flush()
+        send({ notify: 'connection', value })
+      },
+      event: (value) => stream.push(value),
+      error: (value) => {
+        stream.flush()
+        send({ notify: 'error', value })
+      },
+      title: (value) => {
+        stream.flush()
+        send({ notify: 'title', value })
+      },
     },
     paths,
     credentials,
@@ -343,13 +354,16 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
           }
           const method = Reflect.get(session, request.method) as unknown
           if (typeof method !== 'function' || request.method.startsWith('_')) throw new Error('Worker 操作无效')
+          stream.flush()
           const result: unknown = await Reflect.apply(method, session, request.args)
+          stream.flush()
           await credentialWrites
           send({ id: request.id, result })
         })
-        .catch((cause: unknown) =>
-          send({ id: request.id, error: cause instanceof Error ? cause.message : String(cause) }),
-        )
+        .catch((cause: unknown) => {
+          stream.flush()
+          send({ id: request.id, error: cause instanceof Error ? cause.message : String(cause) })
+        })
     },
   )
 }

@@ -89,6 +89,7 @@ export const storageLayoutRelativePaths = {
   // cache
   cacheDirectory: 'cache',
   sessionsCacheFile: 'cache/sessions.json',
+  sessionHistoryCacheDirectory: 'cache/session-history',
   remoteServicesCacheFile: 'cache/remote-services.json',
 
   // logs

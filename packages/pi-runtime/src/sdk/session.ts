@@ -1,3 +1,5 @@
+import type { SessionWindow } from '@pi-meme/contracts/sessions'
+import { projectSessionWindow, projectSessionDetails } from '@pi-meme/contracts/session-window'
 import {
   goalEntryUsage,
   isGoalUsageEntry,
@@ -150,6 +152,15 @@ export class SdkSession {
   private readonly generationMetrics = new GenerationMetricsTracker()
   private pauseGate?: Promise<void>
   private releasePause?: () => void
+  private viewProjection?: {
+    first?: SessionEntry
+    last?: SessionEntry
+    length: number
+    leafId: string | null
+    generation: number
+    origin?: AgentConversationOrigin
+    value: Pick<Snapshot, 'messages' | 'sessionEntries' | 'branchAttachments' | 'planCheckpoints' | 'stats'>
+  }
   private frozenView?: { messages: Snapshot['messages']; entries: SessionEntry[]; leafId: string | null }
   private queueEdits = new Map<string, string>()
   private queueLock: Promise<void> = Promise.resolve()
@@ -1020,6 +1031,7 @@ export class SdkSession {
   }
 
   private teardownRuntime() {
+    this.viewProjection = undefined
     this.retry = undefined
     this.compactionError = undefined
     this.pendingDeliveries.clear()
@@ -1122,10 +1134,10 @@ export class SdkSession {
     return { sessionFile: this.runtime?.session.sessionFile ?? this.sessionFile, sessionId: this.sessionId }
   }
 
-  async snapshot(): Promise<Snapshot> {
+  async snapshot(window?: SessionWindow): Promise<Snapshot> {
     const revision = this.activityRevision
     const generation = this.generation
-    const [state, entries, models, thinkingLevels, stats] = await this.call(() =>
+    const [state, entries, models, thinkingLevels] = await this.call(() =>
       Promise.all([
         Promise.resolve(this.getState()),
         Promise.resolve({
@@ -1139,7 +1151,6 @@ export class SdkSession {
               return models
             }),
         Promise.resolve(this.session.getAvailableThinkingLevels()).catch(() => undefined),
-        Promise.resolve(this.session.getSessionStats()).catch(() => undefined),
       ]),
     )
     if (generation !== this.generation) throw new Error('Pi 连接已更换')
@@ -1147,10 +1158,41 @@ export class SdkSession {
     this.sessionId = state.sessionId
     if (revision === this.activityRevision)
       this.running = this.pendingSend || state.isStreaming || Boolean(state.isCompacting) || Boolean(this.retry)
-    const own = this.conversationOrigin
-      ? projectAgentConversation(entries.entries, entries.leafId, this.conversationOrigin)
-      : undefined
-    const projected = own?.messages ?? (await projectStableMessages(entries.entries, entries.leafId))
+    let cached = this.viewProjection
+    if (
+      !cached ||
+      cached.first !== entries.entries[0] ||
+      cached.last !== entries.entries.at(-1) ||
+      cached.length !== entries.entries.length ||
+      cached.leafId !== entries.leafId ||
+      cached.generation !== generation ||
+      cached.origin !== this.conversationOrigin
+    ) {
+      const own = this.conversationOrigin
+        ? projectAgentConversation(entries.entries, entries.leafId, this.conversationOrigin)
+        : undefined
+      const messages = own?.messages ?? (await projectStableMessages(entries.entries, entries.leafId))
+      cached = {
+        first: entries.entries[0],
+        last: entries.entries.at(-1),
+        length: entries.entries.length,
+        leafId: entries.leafId,
+        generation,
+        origin: this.conversationOrigin,
+        value: {
+          messages,
+          sessionEntries: own?.sessionEntries ?? {
+            entries: projectBranchEntries(entries.entries, entries.leafId),
+            leafId: entries.leafId,
+          },
+          branchAttachments: projectBranchAttachments(entries.entries, entries.leafId),
+          planCheckpoints: projectBranchPlans(entries.entries, entries.leafId),
+          stats: this.session.getSessionStats(),
+        },
+      }
+      this.viewProjection = cached
+    }
+    const projected = cached.value.messages
     if (generation !== this.generation) throw new Error('Pi 连接已更换')
     const streaming = this.frozenView ? undefined : this.session.state.streamingMessage
     const uncommitted =
@@ -1158,24 +1200,28 @@ export class SdkSession {
       !entries.entries.some((entry) => entry.type === 'message' && entry.message === streaming)
         ? streaming
         : undefined
-    return {
-      connection: this.connection(),
-      state: this.toState(
-        revision === this.activityRevision
-          ? state
-          : { ...state, isStreaming: this.running, isCompacting: this.running && state.isCompacting },
+    return projectSessionDetails(
+      projectSessionWindow(
+        {
+          connection: this.connection(),
+          state: this.toState(
+            revision === this.activityRevision
+              ? state
+              : { ...state, isStreaming: this.running, isCompacting: this.running && state.isCompacting },
+          ),
+          totalMessages: projected.length + (uncommitted ? 1 : 0),
+          historyRevision: `${generation}:${entries.entries.length}:${entries.leafId ?? ''}`,
+          historyDetails: 'complete',
+          models,
+          thinkingLevels,
+          ...cached.value,
+          messages: uncommitted ? [...projected, uncommitted] : projected,
+          planCheckpoints: this.editingPlanCheckpoints ?? cached.value.planCheckpoints,
+        },
+        window,
       ),
-      messages: uncommitted ? [...projected, uncommitted] : projected,
-      models,
-      thinkingLevels,
-      stats,
-      sessionEntries: own?.sessionEntries ?? {
-        entries: projectBranchEntries(entries.entries, entries.leafId),
-        leafId: entries.leafId,
-      },
-      branchAttachments: projectBranchAttachments(entries.entries, entries.leafId),
-      planCheckpoints: this.editingPlanCheckpoints ?? projectBranchPlans(entries.entries, entries.leafId),
-    }
+      window,
+    )
   }
 
   private toState(state: RpcSessionState): PiState {

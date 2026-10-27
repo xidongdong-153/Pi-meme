@@ -7,6 +7,7 @@ import { createServer } from 'node:http'
  * @property {string} [text] 回复正文
  * @property {string} [thinking] 思考内容，作为 `reasoning_content` 增量发送
  * @property {number} [delayMs] 开始流式输出前等待的毫秒数
+ * @property {Promise<void>} [startBarrier] 所有并行会话就绪后统一开始输出，供性能对比使用
  * @property {Promise<void>} [deltaBarrier] 等待测试解除屏障后才发送结束增量
  * @property {Promise<void>} [finishBarrier] 等待测试解除屏障后才结束请求
  * @property {number} [chunkDelayMs] 正文分片间隔毫秒数
@@ -92,6 +93,7 @@ async function writeCompletion(res, spec) {
   if (spec.delayMs) await new Promise((resolve) => setTimeout(resolve, spec.delayMs))
   if (res.destroyed) return
   res.write(chunk({ role: 'assistant', content: '' }))
+  if (spec.startBarrier) await spec.startBarrier
   if (res.destroyed) return
   for (const piece of String(spec.thinking ?? '').match(/[\s\S]{1,24}/g) ?? []) {
     res.write(chunk({ reasoning_content: piece }))

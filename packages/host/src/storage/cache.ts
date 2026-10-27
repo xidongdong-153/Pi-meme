@@ -4,6 +4,7 @@ import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 import { optionalStat, physicalPath } from './files'
 
 const hostCaches = [
+  storageLayoutRelativePaths.sessionHistoryCacheDirectory,
   storageLayoutRelativePaths.sessionsCacheFile,
   `${storageLayoutRelativePaths.sessionsCacheFile}.tmp`,
   storageLayoutRelativePaths.remoteServicesCacheFile,

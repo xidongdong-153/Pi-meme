@@ -169,6 +169,9 @@ export type SessionPluginDescriptor = {
   error?: string
 }
 export type Snapshot = {
+  totalMessages?: number
+  historyRevision?: string
+  historyDetails?: 'complete' | 'deferred'
   appSession?: AppSession
   agent?: AgentSummary
   agents?: AgentSummary[]

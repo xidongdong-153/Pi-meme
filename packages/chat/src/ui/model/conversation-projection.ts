@@ -19,7 +19,7 @@ const terminalLabels = {
 } as const
 type AgentStatusTurn = Extract<TurnChunk, { type: 'agent_status' }>
 
-function mainMessage(message: PiMessage): PiMessage | undefined {
+export function mainMessage(message: PiMessage): PiMessage | undefined {
   if (
     message.role === 'custom' &&
     (message.customType === 'pi-meme-collaboration' ||
@@ -41,7 +41,9 @@ function mainMessage(message: PiMessage): PiMessage | undefined {
 }
 
 /** 只改变主对话的显示内容，原消息、草稿和发送目标继续由会话状态保存。 */
-export function projectMainConversation(chat: ChatState) {
+export function projectMainConversation(
+  chat: Pick<ChatState, 'messages' | 'live' | 'tools' | 'agents' | 'agentMessages'>,
+) {
   const messages = chat.messages.flatMap((message) => {
     const projected = mainMessage(message)
     return projected ? [projected] : []

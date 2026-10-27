@@ -75,6 +75,7 @@ Host 的应用配置、持久状态、执行数据与内部管理的工作区文
 │   └── worktrees/<id>/                  # 应用创建的 Git Worktree 检出目录
 ├── cache/
 │   ├── sessions.json                    # 会话索引缓存（可重建）
+│   ├── session-history/                 # 原生历史条目偏移与消息分页索引（可重建）
 │   └── remote-services.json             # 远程服务摘要缓存（可重建）
 ├── logs/
 │   └── mcp.log                          # MCP 运行日志
@@ -247,6 +248,7 @@ flowchart TD
 1. **清理白名单**：
    - Host 数据目录：
      - `cache/sessions.json` 及 `.tmp`
+     - `cache/session-history/`：删除后按需重建，不影响原生 JSONL
      - `cache/remote-services.json` 及 `.tmp`
    - Electron 固定 `userData`：存在的 `Cache`、`Code Cache`、`GPUCache`、`DawnCache`、`ShaderCache`、`GrShaderCache`、`GraphiteDawnCache`。
 2. **清理时的资产保护范围**：

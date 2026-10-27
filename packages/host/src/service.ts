@@ -67,7 +67,6 @@ import { cleanupTemporaryFiles } from './storage/cleanup-temporary-files'
 import { SessionCleanupService } from './session-cleanup'
 import { installBuiltinSkills } from '@pi-meme/resources/server/install-builtin-skills'
 import { ResourceStore } from '@pi-meme/resources/server/resource-store'
-import { projectSessionWindow } from '@pi-meme/contracts/session-window'
 import type { ResourceImportInput, ResourceSnapshot } from '@pi-meme/contracts/resources'
 
 export type HostOptions = {
@@ -1007,7 +1006,8 @@ export async function createHost(options: HostOptions = {}) {
         uiPlugins,
       }
     }
-    const snapshot = async () => enrichSnapshot(await pi.snapshot())
+    const snapshot = async (window?: import('@pi-meme/contracts/sessions').SessionWindow) =>
+      enrichSnapshot(await pi.snapshot(window))
     const readSessionsSnapshot = sessions.getSnapshot.bind(sessions)
     sessions.getSnapshot = async (...args): Promise<PiSessionsSnapshot> => {
       const [value, children] = await Promise.all([readSessionsSnapshot(...args), collaboration.getChildSessions()])
@@ -1136,6 +1136,8 @@ export async function createHost(options: HostOptions = {}) {
           return sources
         },
         getRuntimeHistory: (value: string) => pi.getRuntimeHistory(value),
+        readRuntimeHistory: (value: string, window?: import('@pi-meme/contracts/sessions').SessionWindow) =>
+          pi.readHistory(value, window),
         handlers: workspaceHandlers,
       },
       'host.git': {
@@ -1316,7 +1318,8 @@ export async function createHost(options: HostOptions = {}) {
       },
       'host:storage-info': () => ({ hostId, dataRoot: root }),
       'pi:connection': () => pi.connection(),
-      'pi:snapshot': async (window) => projectSessionWindow(await snapshot(), window),
+      'pi:snapshot': async (window) =>
+        snapshot(window as import('@pi-meme/contracts/sessions').SessionWindow | undefined),
       'pi:agents': async (key) => {
         if (typeof key !== 'string') throw new Error('会话 ID 参数无效')
         await bindRoot(key)
@@ -2136,10 +2139,7 @@ export async function createHost(options: HostOptions = {}) {
                   )
                     result = {
                       ...result,
-                      snapshot: projectSessionWindow(
-                        await enrichSnapshot(result.snapshot as Snapshot),
-                        request.method === 'pi:switch-session' ? request.args[1] : undefined,
-                      ),
+                      snapshot: await enrichSnapshot(result.snapshot as Snapshot),
                     }
                   if (request.method === 'git:create-worktree') {
                     const outcome = result as { selection: import('@pi-meme/contracts/desktop').SessionSelectionResult }

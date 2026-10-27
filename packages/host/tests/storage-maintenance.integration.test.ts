@@ -53,11 +53,14 @@ test('只清理固定缓存，保留凭据、会话、快照、请求去重和�
       await writeFile(path.join(f.source, file), file)
     }
     await mkdir(path.join(f.anchor, 'GPUCache'))
+    await mkdir(path.join(f.source, 'cache/session-history'), { recursive: true })
+    await writeFile(path.join(f.source, 'cache/session-history/derived.json'), '可重建索引')
     await writeFile(path.join(f.anchor, 'GPUCache/data'), 'cache')
     await writeFile(path.join(f.anchor, 'storage-location.json'), 'keep')
     assert.ok((await cacheSize(f.source, f.anchor)) > 0)
     await clearCaches(f.source, f.anchor)
     assert.equal(await cacheSize(f.source, f.anchor), 0)
+    assert.equal(await optionalStat(path.join(f.source, 'cache/session-history')), null)
     await clearCaches(f.source, f.anchor)
     for (const file of [
       'auth.json',

@@ -14,7 +14,7 @@ import { WorkspaceContent } from '../src/layout/workspace-content'
 import { SideChatSession } from '../src/session/side-chat-session'
 import type { ComponentProps } from 'react'
 import { emptyChat } from '@pi-meme/chat/ui/model/state'
-import { assistantMessage, toolResult, userMessage } from '../../../tests/fixtures/messages.mjs'
+import { assistantMessage, streamUpdate, toolResult, userMessage } from '../../../tests/fixtures/messages.mjs'
 
 afterEach(cleanup)
 
@@ -276,6 +276,57 @@ const assistantEnd: DesktopEvent = {
   sessionKey: 'main',
   event: { type: 'message_end', message: assistantMessage('继续执行工具', 1, { stopReason: 'toolUse' }) },
 }
+
+test('快照边界两侧的增量合并后，重放仍按原始序号过滤，正文不重复', async () => {
+  let emit!: (event: DesktopEvent) => void
+  const getSnapshot = vi.fn<DesktopBridge['getSnapshot']>()
+  const { result, snapshot } = setup({
+    getSnapshot,
+    onEvent: (callback) => {
+      emit = callback
+      return () => {}
+    },
+  })
+  getSnapshot.mockResolvedValue(snapshot)
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  const pending = deferred<Snapshot>()
+  getSnapshot.mockReturnValueOnce(pending.promise)
+  const delta = (sequence: number, text: string): DesktopEvent => ({
+    generation: 1,
+    sessionKey: 'main',
+    sequence,
+    event: streamUpdate({ type: 'text_delta', contentIndex: 0, delta: text }),
+  })
+  let refresh!: Promise<void>
+  act(() => {
+    refresh = result.current.refreshSnapshot()
+  })
+  await act(async () => {
+    emit(delta(10, '甲'))
+    emit(delta(11, '乙'))
+    pending.resolve({
+      ...snapshot,
+      eventSequence: 10,
+      events: [
+        {
+          generation: 1,
+          sessionKey: 'main',
+          sequence: 8,
+          event: { type: 'message_start', message: assistantMessage('', 1) },
+        },
+        {
+          generation: 1,
+          sessionKey: 'main',
+          sequence: 9,
+          event: streamUpdate({ type: 'text_start', contentIndex: 0 }),
+        },
+        delta(10, '甲'),
+      ],
+    })
+    await refresh
+  })
+  expect(result.current.chat.live?.content).toEqual([{ type: 'text', text: '甲乙' }])
+})
 
 test('上下文统计在模型回复结束后单独刷新，不等待工具或整次运行结束', async () => {
   let emit!: (event: DesktopEvent) => void
@@ -723,6 +774,70 @@ test('切回看过的会话立即展示缓存，Host确认前保持发送禁用'
   expect(result.current.inputDisabled).toBe(false)
 })
 
+test('缓存会话同步失败后保留可读内容，重试成功才恢复发送', async () => {
+  const switchSession = vi.fn<DesktopBridge['switchSession']>()
+  const { result, snapshot } = setup({ switchSession })
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  const second: Snapshot = {
+    ...snapshot,
+    connection: { ...snapshot.connection, generation: 2, sessionKey: 'cached', sessionFile: '/tmp/cached.jsonl' },
+    messages: [userMessage('缓存正文', 2)],
+  }
+  switchSession.mockResolvedValueOnce({ cancelled: false, snapshot: second })
+  await act(async () => {
+    await result.current.switchSession('/tmp/cached.jsonl')
+  })
+  switchSession.mockResolvedValueOnce({ cancelled: false, snapshot })
+  await act(async () => {
+    await result.current.switchSession('main')
+  })
+  switchSession.mockRejectedValueOnce(new Error('连接中断'))
+  await act(async () => {
+    expect(await result.current.switchSession('/tmp/cached.jsonl')).toBe(false)
+  })
+  expect(result.current.chat.messages).toEqual(second.messages)
+  expect(result.current.inputDisabled).toBe(true)
+  expect(result.current.retrySwitch).toBeTypeOf('function')
+  switchSession.mockResolvedValueOnce({ cancelled: false, snapshot: second })
+  await act(async () => {
+    expect(await result.current.retrySwitch!()).toBe(true)
+  })
+  expect(result.current.retrySwitch).toBeUndefined()
+  expect(result.current.inputDisabled).toBe(false)
+})
+
+test('完整历史详情只在主动读取时请求，迟到结果不会覆盖其他会话', async () => {
+  const details = deferred<Snapshot>()
+  const getSnapshot = vi.fn<DesktopBridge['getSnapshot']>()
+  const switchSession = vi.fn<DesktopBridge['switchSession']>()
+  const { result, snapshot } = setup({ getSnapshot, switchSession })
+  snapshot.historyRevision = 'revision-one'
+  snapshot.historyDetails = 'deferred'
+  getSnapshot.mockResolvedValue(snapshot)
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  expect(getSnapshot).toHaveBeenCalledTimes(1)
+  getSnapshot.mockReturnValueOnce(details.promise)
+  let pending!: Promise<void>
+  act(() => {
+    pending = result.current.loadHistoryDetails()
+  })
+  const second = {
+    ...snapshot,
+    historyRevision: 'revision-two',
+    connection: { ...snapshot.connection, generation: 2, sessionKey: 'second' },
+  }
+  switchSession.mockResolvedValueOnce({ cancelled: false, snapshot: second })
+  await act(async () => {
+    await result.current.switchSession('second')
+  })
+  await act(async () => {
+    details.resolve({ ...snapshot, branchAttachments: [{ id: 'old', entryId: 'old', name: '旧附件' }] })
+    await pending
+  })
+  expect(result.current.connection.sessionKey).toBe('second')
+  expect(result.current.chat.branchAttachments).toEqual([])
+})
+
 test('历史草稿中的模型已移除时使用会话回退配置并保留草稿', async () => {
   const switchSession = vi.fn<DesktopBridge['switchSession']>()
   const prompt = vi.fn().mockResolvedValue(undefined)
@@ -989,7 +1104,7 @@ test('加载更早记录按ID合并，刷新保留展开范围，切换后丢弃
   act(() => {
     pending = result.current.loadOlderMessages()
   })
-  expect(readSessionHistory).toHaveBeenCalledWith('main', { limit: 60, before: 'recent' })
+  expect(readSessionHistory).toHaveBeenCalledWith('main', { limit: 60, before: 'recent', details: 'deferred' })
   await act(async () => {
     older.resolve({ cwd: snapshot.connection.cwd, created: '', messages: [message('older')] })
     expect(await pending).toBe(true)
@@ -1000,7 +1115,7 @@ test('加载更早记录按ID合并，刷新保留展开范围，切换后丢弃
   await act(async () => {
     await result.current.refreshSnapshot()
   })
-  expect(getSnapshot).toHaveBeenLastCalledWith({ limit: 60, from: 'older' })
+  expect(getSnapshot).toHaveBeenLastCalledWith({ limit: 60, from: 'older', details: 'deferred' })
   const late = deferred<Awaited<ReturnType<DesktopBridge['readSessionHistory']>>>()
   readSessionHistory.mockReturnValueOnce(late.promise)
   act(() => {

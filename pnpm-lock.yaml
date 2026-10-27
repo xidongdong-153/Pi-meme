@@ -22,6 +22,9 @@ importers:
       '@pi-meme/host':
         specifier: workspace:*
         version: link:packages/host
+      '@pi-meme/pi-runtime':
+        specifier: workspace:*
+        version: link:packages/pi-runtime
       '@pi-meme/plugin-devkit':
         specifier: workspace:*
         version: link:packages/plugin-devkit

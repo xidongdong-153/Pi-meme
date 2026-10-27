@@ -289,9 +289,9 @@ export function createWorkspaceHandlers({
       return merged
     },
     'pi:new-session': () => pi.newSession(),
-    'pi:switch-session': (value: unknown) => {
+    'pi:switch-session': (value: unknown, window?: unknown) => {
       text(value)
-      return pi.switchSession(value)
+      return pi.switchSession(value, window as import('@pi-meme/contracts/sessions').SessionWindow | undefined)
     },
   }
 }

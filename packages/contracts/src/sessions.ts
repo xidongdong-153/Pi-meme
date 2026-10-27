@@ -49,10 +49,13 @@ export type PiSessionsSnapshot = {
 
 export type SessionSearchMatch = { path: string; excerpt: string }
 
-export type SessionWindow = { limit: number; before?: string; from?: string }
+export type SessionWindow = { limit: number; before?: string; from?: string; details?: 'deferred' }
 export type SessionMessagePage = { before: string }
 
 export type SessionHistoryData = {
+  historyRevision?: string
+  historyDetails?: 'complete' | 'deferred'
+  totalMessages?: number
   cwd: string
   created: string
   messages: PiMessage[]

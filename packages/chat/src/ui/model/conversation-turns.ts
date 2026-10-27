@@ -14,6 +14,7 @@ export function groupConversationTurns(
   agentStatuses: Array<Extract<TurnChunk, { type: 'agent_status' }>> = [],
   runIntervals: readonly PiRunInterval[] = [],
   modelChanges: Array<Extract<TurnChunk, { type: 'model_change' }>> = [],
+  messageOffset = 0,
 ): TurnChunk[] {
   // Pi 的 get_messages 会把 compactionSummary 与 branchSummary 强制放在数组首位作为模型上下文。
   // 但其真实 timestamp 记录了压缩发生的真实时刻。按 timestamp 稳定排序，
@@ -200,9 +201,9 @@ export function groupConversationTurns(
       chunks.push({
         type: 'user',
         message: msg,
-        key: `user-${msg.timestamp ?? i}-${i}`,
+        key: `user-${msg.timestamp ?? i}-${i + messageOffset}`,
       })
-      turnKey = `turn-${msg.timestamp ?? i}-${i}`
+      turnKey = `turn-${msg.timestamp ?? i}-${i + messageOffset}`
       turnStartTimestamp = msg.timestamp
       userMessageTimestamp = typeof msg.timestamp === 'number' ? msg.timestamp : undefined
       continue
@@ -328,4 +329,68 @@ export function groupConversationTurns(
     } else grouped.push(chunk)
   }
   return grouped
+}
+
+/** 纯文本历史只重算最后一轮；存在工具、状态插入或非顺序时间戳时沿用完整分组。 */
+export function createConversationTurnProjector() {
+  let previous:
+    | {
+        messages: PiMessage[]
+        tools: ChatState['tools']
+        running: boolean
+        intervals: readonly PiRunInterval[]
+        prefix: TurnChunk[]
+        tail: PiMessage[]
+        offset: number
+      }
+    | undefined
+  return (...args: Parameters<typeof groupConversationTurns>): TurnChunk[] => {
+    const [messages, live, tools, running, completed, statuses = [], intervals = [], changes = []] = args
+    if (!live || statuses.length || changes.length || Object.keys(tools).length) return groupConversationTurns(...args)
+    if (
+      !previous ||
+      previous.messages !== messages ||
+      previous.tools !== tools ||
+      previous.running !== running ||
+      previous.intervals !== intervals
+    ) {
+      let timestamp = -Infinity
+      const compatible = messages.every((message) => {
+        if (
+          !['user', 'assistant'].includes(message.role) ||
+          typeof message.timestamp !== 'number' ||
+          !Number.isFinite(message.timestamp) ||
+          message.timestamp < timestamp
+        )
+          return false
+        timestamp = message.timestamp
+        return true
+      })
+      const offset = messages.findLastIndex((message) => message.role === 'user')
+      if (!compatible || offset < 1) return groupConversationTurns(...args)
+      const grouped = groupConversationTurns(messages, null, tools, running, {}, [], intervals)
+      const key = `user-${messages[offset].timestamp}-${offset}`
+      const boundary = grouped.findIndex((turn) => turn.key === key)
+      if (boundary < 0) return groupConversationTurns(...args)
+      previous = {
+        messages,
+        tools,
+        running,
+        intervals,
+        prefix: grouped.slice(0, boundary),
+        tail: messages.slice(offset),
+        offset,
+      }
+    }
+    if (
+      typeof live.timestamp !== 'number' ||
+      !Number.isFinite(live.timestamp) ||
+      live.timestamp < (messages.at(-1)?.timestamp ?? -Infinity)
+    )
+      return groupConversationTurns(...args)
+    return [
+      ...previous.prefix,
+      ...groupConversationTurns(previous.tail, live, tools, running, completed, [], intervals, [], previous.offset),
+    ]
+  }
 }

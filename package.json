@@ -25,6 +25,7 @@
   },
   "devDependencies": {
     "@antfu/eslint-config": "^9.5.1",
+    "@pi-meme/pi-runtime": "workspace:*",
     "@pi-meme/plugin-devkit": "workspace:*",
     "@playwright/test": "1.64.1",
     "@types/node": "^24.19.0",

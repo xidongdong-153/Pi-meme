@@ -21,6 +21,10 @@ type HistoryContext = {
   }
   pi: { getActiveSession: () => unknown }
   getPinnedPaths: () => string[]
+  readRuntimeHistory?: (
+    path: string,
+    window?: import('@pi-meme/contracts/sessions').SessionWindow,
+  ) => Promise<SessionHistoryData>
   getRuntimeHistory?: (path: string) => SessionHistoryData | null
 }
 export const manifest: PluginManifest = {
@@ -50,10 +54,20 @@ export function create(context: ServerPluginContext) {
   }
   const read = async (value: unknown) => {
     const validated = await validate(value)
-    return validated.history ?? readSessionHistory(validated.path)
+    return validated.history && host.readRuntimeHistory
+      ? host.readRuntimeHistory(validated.path)
+      : (validated.history ?? readSessionHistory(validated.path))
   }
   context.registerHandlers({
-    'session:history': async (value, window) => projectSessionWindow(await read(value), window),
+    'session:history': async (value, window) => {
+      const validated = await validate(value)
+      const options = window as import('@pi-meme/contracts/sessions').SessionWindow | undefined
+      if (validated.history)
+        return host.readRuntimeHistory
+          ? host.readRuntimeHistory(validated.path, options)
+          : projectSessionWindow(validated.history, options)
+      return readSessionHistory(validated.path, options)
+    },
     'session:search': async (query, values): Promise<SessionSearchMatch[]> => {
       if (typeof query !== 'string' || !query.trim() || query.length > 1024)
         throw new Error('历史搜索词必须是 1 到 1024 字符的文本')

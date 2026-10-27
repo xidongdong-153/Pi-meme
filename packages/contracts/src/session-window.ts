@@ -1,5 +1,37 @@
-import type { PiMessage } from './pi'
+import type { PiMessage, PiSessionEntries } from './pi'
 import type { SessionMessagePage, SessionWindow } from './sessions'
+import type { ChatBranchAttachment } from './chat-attachments'
+
+export function projectSessionDetails<
+  T extends {
+    messages: PiMessage[]
+    sessionEntries?: PiSessionEntries
+    branchAttachments?: ChatBranchAttachment[]
+    historyDetails?: 'complete' | 'deferred'
+  },
+>(value: T, window?: SessionWindow): T {
+  if (window?.details !== 'deferred') return value
+  const selected = new Set(value.messages.flatMap((message) => (message.sourceEntry ? [message.sourceEntry.id] : [])))
+  const source = value.sessionEntries
+  const byId = new Map(source?.entries.map((entry) => [entry.id, entry]))
+  const branch: NonNullable<typeof source>['entries'] = []
+  const seen = new Set<string>()
+  let entry = source?.leafId ? byId.get(source.leafId) : undefined
+  while (entry && !seen.has(entry.id)) {
+    seen.add(entry.id)
+    if (selected.has(entry.id) || entry.type === 'model_change' || entry.id === source?.leafId) branch.push(entry)
+    entry = entry.parentId ? byId.get(entry.parentId) : undefined
+  }
+  const entries = branch
+    .reverse()
+    .map((entry, index, values) => ({ ...entry, parentId: index ? values[index - 1].id : null }))
+  return {
+    ...value,
+    historyDetails: 'deferred',
+    sessionEntries: source ? { entries, leafId: entries.at(-1)?.id ?? null } : undefined,
+    branchAttachments: undefined,
+  }
+}
 
 /** 按原生 entry ID 分页；页首保留完整用户轮次，不截断助手与工具结果。 */
 export function projectSessionWindow<T extends { messages: PiMessage[]; messagePage?: SessionMessagePage }>(

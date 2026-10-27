@@ -37,7 +37,7 @@ import type {
 } from '@pi-meme/contracts/desktop'
 import type { SkillReference } from '@pi-meme/contracts/skills'
 import type { ResourceSnapshot } from '@pi-meme/contracts/resources'
-import type { PiSessionSummary, WorkspaceKind } from '@pi-meme/contracts/sessions'
+import type { SessionWindow, PiSessionSummary, WorkspaceKind } from '@pi-meme/contracts/sessions'
 import type {
   PiExtensionEvent,
   PiExtensionUIResponse,
@@ -55,6 +55,8 @@ import { recoveryMessage } from './sdk/recovery'
 import { getPiVersion, loadPiSdk } from './sdk/load'
 import type { ModelRestore, PiRuntime } from './runtime'
 import { invalidateSessionHistory, readSessionHistory, type SessionHistoryData } from './session-history'
+import { markHistoryAppend, removeHistoryIndexes } from './session-history-index'
+import { projectSessionWindow, projectSessionDetails } from '@pi-meme/contracts/session-window'
 import { projectBranchEntries } from './session-tree-entries'
 import { defaultModelConfiguration, readLocalModels, readLocalPreferences, readLocalSkills } from './session-metadata'
 import { createPiRuntimePaths, createTemporaryRuntimePaths, type PiRuntimePaths } from './runtime-paths'
@@ -135,6 +137,7 @@ type RuntimeSession = {
   completedAt?: string | null
   firstMessage?: string
   messages: PiMessage[]
+  totalMessages?: number
   sessionEntries?: Snapshot['sessionEntries']
   branchAttachments?: Snapshot['branchAttachments']
   sequence: number
@@ -555,6 +558,7 @@ export class PiSessionPool implements PiRuntime {
       const previous = this.active
       for (const record of removed) this.sessions.delete(record.key)
       invalidateSessionHistory(result.deletedPaths)
+      await removeHistoryIndexes(result.deletedPaths)
       let selected: SessionSelectionResult | undefined
       if (activeRemoved) {
         const nextCwd = replacementCwd ?? previous.cwd
@@ -810,7 +814,8 @@ export class PiSessionPool implements PiRuntime {
       created: history?.created ?? new Date().toISOString(),
       completedAt: sessionFile ? undefined : null,
       name: history?.sessionName,
-      messages: history?.messages.slice() ?? [],
+      messages: history?.messagePage ? [] : (history?.messages.slice() ?? []),
+      totalMessages: history?.totalMessages,
       sessionEntries: history?.sessionEntries,
       branchAttachments: history?.branchAttachments?.slice(),
       stats: history?.stats,
@@ -1030,6 +1035,7 @@ export class PiSessionPool implements PiRuntime {
       }
   }
   private rememberMessage(record: RuntimeSession, message: PiMessage) {
+    if (record.sessionFile) markHistoryAppend(record.sessionFile)
     const index = record.messages.findIndex((saved) => sameMessage(saved, message))
     if (index === -1) record.messages.push(message)
     else record.messages[index] = message
@@ -1105,10 +1111,10 @@ export class PiSessionPool implements PiRuntime {
     for (const record of this.sessions.values()) this.stopRecord(record)
     this.sessions.clear()
   }
-  private async selectionResult(selection: number): Promise<SessionSelectionResult> {
+  private async selectionResult(selection: number, window?: SessionWindow): Promise<SessionSelectionResult> {
     if (selection !== this.selection) return { cancelled: true }
     try {
-      const snapshot = await this.snapshot()
+      const snapshot = await this.snapshot(window)
       return selection === this.selection ? { cancelled: false, snapshot } : { cancelled: true }
     } catch (cause) {
       if (selection !== this.selection) return { cancelled: true }
@@ -1162,7 +1168,7 @@ export class PiSessionPool implements PiRuntime {
     if (cwd !== this.cwd || this.hasContent(this.active)) this.create(cwd)
     return cwd
   }
-  async switchSession(sessionPath: string): Promise<SessionSelectionResult> {
+  async switchSession(sessionPath: string, window?: SessionWindow): Promise<SessionSelectionResult> {
     this.assertPathAvailable(sessionPath)
     if (this.changing) throw new Error('正在修改运行时配置，请稍后切换会话')
     const selection = ++this.selection
@@ -1184,9 +1190,10 @@ export class PiSessionPool implements PiRuntime {
       }
       if (existing !== this.active) {
         if (existing.dormant && existing.sessionFile) {
-          const history = await readSessionHistory(existing.sessionFile)
+          const history = await readSessionHistory(existing.sessionFile, window)
           if (selection !== this.selection) return { cancelled: true }
-          existing.messages = history.messages.slice()
+          if (!history.messagePage) existing.messages = history.messages.slice()
+          existing.totalMessages = history.totalMessages
           existing.sessionEntries = history.sessionEntries
           existing.branchAttachments = history.branchAttachments?.slice()
           existing.name = history.sessionName
@@ -1208,7 +1215,7 @@ export class PiSessionPool implements PiRuntime {
       const sessionTarget = await realpath(sessionPath).catch(() => '')
       if (!sessionRoot || !sessionTarget || !pathWithin(sessionRoot, sessionTarget))
         throw new Error('Desktop 只能打开应用内保存的会话')
-      const history = await readSessionHistory(sessionPath)
+      const history = await readSessionHistory(sessionPath, window)
       if (selection !== this.selection) return { cancelled: true }
       if (this.workspaceOptions?.kind(history.cwd) === 'standalone') {
         try {
@@ -1221,7 +1228,7 @@ export class PiSessionPool implements PiRuntime {
       this.assertPathAvailable(sessionPath)
       this.create(history.cwd, sessionPath, history)
     }
-    return this.selectionResult(selection)
+    return this.selectionResult(selection, window)
   }
   private restoreTaskControl(record: RuntimeSession, history: SessionHistoryData) {
     const control = history.taskControl
@@ -1244,6 +1251,11 @@ export class PiSessionPool implements PiRuntime {
   }
   hasSession(sessionKey: string): boolean {
     return this.sessions.has(sessionKey)
+  }
+  async readHistory(sessionPath: string, window?: SessionWindow): Promise<SessionHistoryData> {
+    const record = this.target(sessionPath)
+    if (record.sessionFile) return readSessionHistory(record.sessionFile, window)
+    return projectSessionWindow(this.getRuntimeHistory(sessionPath)!, window)
   }
   getRuntimeHistory(sessionPath: string) {
     const record = this.sessions.get(sessionPath)
@@ -1275,7 +1287,7 @@ export class PiSessionPool implements PiRuntime {
           created: record.created,
           modified: record.completedAt ?? record.created,
           completedAt: record.completedAt,
-          messageCount: record.messages.length,
+          messageCount: record.totalMessages ?? record.messages.length,
           running: record.running,
           isPaused: Boolean(record.state.isPaused),
           error: record.error ?? record.session.connection().error,
@@ -1283,7 +1295,7 @@ export class PiSessionPool implements PiRuntime {
         }
       })
   }
-  async snapshot(): Promise<Snapshot> {
+  async snapshot(window?: SessionWindow): Promise<Snapshot> {
     const record = this.active
     // 当前会话被删掉后，视图可能仍指向旧 key，这里不能再读 accessReady。
     if (!record) throw new Error('当前查看的会话已更换')
@@ -1297,6 +1309,7 @@ export class PiSessionPool implements PiRuntime {
       ...record.extensions.values(),
     ]
     const projection = async (): Promise<Snapshot> => {
+      const history = record.sessionFile ? await readSessionHistory(record.sessionFile, window) : undefined
       await this.warmMetadata(record)
       const models = this.localAvailableModels ?? []
       if (this.localAvailableModels && record.state.model) {
@@ -1304,30 +1317,40 @@ export class PiSessionPool implements PiRuntime {
           (model) => model.provider === record.state.model?.provider && model.id === record.state.model?.id,
         )
       }
-      return {
-        connection: this.connection(),
-        extensionError: record.extensionError ? { ...record.extensionError, generation } : undefined,
-        state: { ...record.state, isStreaming: record.running },
-        messages: record.messages,
-        sessionEntries: record.sessionEntries,
-        branchAttachments: record.branchAttachments,
-        models,
-        thinkingLevels: [...modelThinkingLevels(record.state.model)],
-        stats: record.stats,
-        events: [
-          ...record.liveEvents,
-          ...record.tools.values(),
-          ...(record.queue ? [record.queue] : []),
-          ...record.extensions.values(),
-        ].map((event) => ({ ...event, generation })),
-        eventSequence: record.sequence,
-      }
+      return projectSessionDetails(
+        projectSessionWindow(
+          {
+            connection: this.connection(),
+            extensionError: record.extensionError ? { ...record.extensionError, generation } : undefined,
+            state: { ...record.state, isStreaming: record.running },
+            messages: history?.messages ?? record.messages,
+            messagePage: history?.messagePage,
+            historyRevision: history?.historyRevision,
+            historyDetails: history?.historyDetails,
+            totalMessages: history?.totalMessages,
+            sessionEntries: history?.sessionEntries ?? record.sessionEntries,
+            branchAttachments: history?.branchAttachments ?? record.branchAttachments,
+            models,
+            thinkingLevels: [...modelThinkingLevels(record.state.model)],
+            stats: record.stats,
+            events: [
+              ...record.liveEvents,
+              ...record.tools.values(),
+              ...(record.queue ? [record.queue] : []),
+              ...record.extensions.values(),
+            ].map((event) => ({ ...event, generation })),
+            eventSequence: record.sequence,
+          },
+          history ? undefined : window,
+        ),
+        window,
+      )
     }
     if (record.dormant || record.starting) return projection()
     const buffer: DesktopEvent[] = []
     record.buffers.add(buffer)
     try {
-      const snapshot = await record.session.snapshot()
+      const snapshot = await record.session.snapshot(window)
       if (record !== this.active || generation !== this.generation) throw new Error('当前查看的会话已更换')
       this.rememberSnapshot(record, snapshot)
       if (record.sessionFile && !record.accessChanging && !record.temporary)
@@ -1444,9 +1467,13 @@ export class PiSessionPool implements PiRuntime {
           : snapshot.state.runIntervals,
       mode: record.state.mode,
     }
-    record.messages = snapshot.messages.slice()
-    record.sessionEntries = snapshot.sessionEntries
-    record.branchAttachments = snapshot.branchAttachments?.slice()
+    if (!snapshot.messagePage) record.messages = snapshot.messages.slice()
+    record.totalMessages =
+      snapshot.totalMessages ?? (snapshot.messagePage ? record.totalMessages : snapshot.messages.length)
+    if (snapshot.historyDetails !== 'deferred') {
+      record.sessionEntries = snapshot.sessionEntries
+      record.branchAttachments = snapshot.branchAttachments?.slice()
+    }
     record.sessionFile = record.session.getActiveSession().sessionFile ?? record.sessionFile
     if (record !== this.active) return
     this.defaults = {

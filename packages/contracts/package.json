@@ -11,6 +11,7 @@
     "./pi": "./src/pi.ts",
     "./session-tree": "./src/session-tree.ts",
     "./session-window": "./src/session-window.ts",
+    "./stream-updates": "./src/stream-updates.ts",
     "./sessions": "./src/sessions.ts",
     "./settings": "./src/settings.ts",
     "./storage": "./src/storage.ts",

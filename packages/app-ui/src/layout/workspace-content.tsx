@@ -13,6 +13,8 @@ export function WorkspaceContent({
   ready,
   hasConnected,
   switching = false,
+  synchronizing = false,
+  retrySwitch,
   active = true,
   composer,
   conversation,
@@ -27,6 +29,8 @@ export function WorkspaceContent({
   ready: boolean
   hasConnected: boolean
   switching?: boolean
+  synchronizing?: boolean
+  retrySwitch?: () => Promise<boolean>
   active?: boolean
   composer: ReactNode
   conversation: ReactNode
@@ -100,7 +104,18 @@ export function WorkspaceContent({
   return (
     <section className="relative flex flex-1 min-h-0 min-w-0 flex-col bg-background" aria-label="工作区">
       {notice}
-      <div className="relative flex flex-1 min-h-0 min-w-0 flex-col" aria-busy={switching}>
+      <div className="relative flex flex-1 min-h-0 min-w-0 flex-col" aria-busy={switching || synchronizing}>
+        {(synchronizing || retrySwitch) && (
+          <div className="absolute right-3 top-2 z-10 text-xs text-muted-foreground" role="status">
+            {retrySwitch ? (
+              <Button size="sm" variant="ghost" onClick={() => void retrySwitch()}>
+                重试同步
+              </Button>
+            ) : (
+              '正在同步会话…'
+            )}
+          </div>
+        )}
         <div
           ref={contentRef}
           className="session-content flex flex-1 min-h-0 min-w-0 flex-col"
@@ -108,81 +123,86 @@ export function WorkspaceContent({
           inert={switching}
           aria-hidden={switching || undefined}
         >
-          {hasConversation ? (
+          <div
+            className={hasConversation ? 'flex flex-1 min-h-0 min-w-0 flex-col' : 'hidden'}
+            aria-hidden={!hasConversation || undefined}
+          >
             <ErrorBoundary inline fallbackTitle="当前会话内容渲染失败">
               {conversation}
             </ErrorBoundary>
-          ) : !ready && (!hasConnected || connection.status === 'disconnected') ? (
-            <div className="flex flex-1 flex-col items-center justify-center p-6 min-h-0">
-              {connection.status === 'connecting' ? (
-                <div className="w-full max-w-sm text-center space-y-5 animate-in fade-in duration-300">
-                  <BrandMark size={56} className="animate-pulse" />
-                  <div className="space-y-1.5">
-                    <h1 className="text-lg font-bold tracking-tight text-foreground">正在连接 Host</h1>
-                    <p className="text-xs text-muted-foreground leading-relaxed">正在读取 Host 的会话快照。</p>
+          </div>
+          {!hasConversation &&
+            (!ready && (!hasConnected || connection.status === 'disconnected') ? (
+              <div className="flex flex-1 flex-col items-center justify-center p-6 min-h-0">
+                {connection.status === 'connecting' ? (
+                  <div className="w-full max-w-sm text-center space-y-5 animate-in fade-in duration-300">
+                    <BrandMark size={56} className="animate-pulse" />
+                    <div className="space-y-1.5">
+                      <h1 className="text-lg font-bold tracking-tight text-foreground">正在连接 Host</h1>
+                      <p className="text-xs text-muted-foreground leading-relaxed">正在读取 Host 的会话快照。</p>
+                    </div>
+                    <div className="w-32 h-1 bg-secondary rounded-full mx-auto overflow-hidden">
+                      <div className="h-full bg-primary/70 rounded-full animate-pulse w-full" />
+                    </div>
                   </div>
-                  <div className="w-32 h-1 bg-secondary rounded-full mx-auto overflow-hidden">
-                    <div className="h-full bg-primary/70 rounded-full animate-pulse w-full" />
+                ) : (
+                  <div className="w-full max-w-sm text-center space-y-4">
+                    <BrandMark size={56} />
+                    <div className="space-y-1.5">
+                      <h1 className="text-lg font-bold tracking-tight text-foreground">Host 未连接</h1>
+                      <p className="text-xs text-muted-foreground leading-relaxed">
+                        检查 Host 是否正在运行，以及当前网络是否可访问 Host 地址。
+                      </p>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={onSettings}
+                      className="text-xs border-border cursor-pointer"
+                    >
+                      打开设置
+                    </Button>
                   </div>
-                </div>
-              ) : (
-                <div className="w-full max-w-sm text-center space-y-4">
-                  <BrandMark size={56} />
-                  <div className="space-y-1.5">
-                    <h1 className="text-lg font-bold tracking-tight text-foreground">Host 未连接</h1>
-                    <p className="text-xs text-muted-foreground leading-relaxed">
-                      检查 Host 是否正在运行，以及当前网络是否可访问 Host 地址。
-                    </p>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={onSettings}
-                    className="text-xs border-border cursor-pointer"
-                  >
-                    打开设置
-                  </Button>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="flex flex-1 flex-col items-center justify-center p-6 min-h-0 overflow-y-auto">
-              <div ref={welcomeRef} className="w-full max-w-2xl text-center space-y-6">
-                <BrandMark size={56} className="mx-auto" />
-                <div className="space-y-2">
-                  <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-                    {isStandalone ? (
-                      '我们要构建什么？'
-                    ) : (
-                      <>
-                        你想让我们在{' '}
-                        {onSelectProject ? (
-                          <button
-                            type="button"
-                            onClick={(event) => onSelectProject(event.currentTarget)}
-                            data-state={projectSelectorOpen ? 'open' : 'closed'}
-                            className="inline-flex items-center rounded-md px-1.5 py-0.5 -my-0.5 underline decoration-dotted underline-offset-8 decoration-muted-foreground/60 transition-colors hover:bg-secondary/70 hover:decoration-foreground/80 data-[state=open]:bg-secondary/70 data-[state=open]:decoration-foreground/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 cursor-pointer"
-                            title="切换项目"
-                            aria-label={`切换项目：当前为 ${projectName}`}
-                            aria-expanded={projectSelectorOpen}
-                          >
-                            {projectName}
-                          </button>
-                        ) : (
-                          <span className="underline decoration-dotted underline-offset-8 decoration-muted-foreground/60">
-                            {projectName}
-                          </span>
-                        )}{' '}
-                        中构建什么？
-                      </>
-                    )}
-                  </h1>
-                </div>
-
-                <div className="pt-2 text-left">{composer}</div>
+                )}
               </div>
-            </div>
-          )}
+            ) : (
+              <div className="flex flex-1 flex-col items-center justify-center p-6 min-h-0 overflow-y-auto">
+                <div ref={welcomeRef} className="w-full max-w-2xl text-center space-y-6">
+                  <BrandMark size={56} className="mx-auto" />
+                  <div className="space-y-2">
+                    <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                      {isStandalone ? (
+                        '我们要构建什么？'
+                      ) : (
+                        <>
+                          你想让我们在{' '}
+                          {onSelectProject ? (
+                            <button
+                              type="button"
+                              onClick={(event) => onSelectProject(event.currentTarget)}
+                              data-state={projectSelectorOpen ? 'open' : 'closed'}
+                              className="inline-flex items-center rounded-md px-1.5 py-0.5 -my-0.5 underline decoration-dotted underline-offset-8 decoration-muted-foreground/60 transition-colors hover:bg-secondary/70 hover:decoration-foreground/80 data-[state=open]:bg-secondary/70 data-[state=open]:decoration-foreground/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 cursor-pointer"
+                              title="切换项目"
+                              aria-label={`切换项目：当前为 ${projectName}`}
+                              aria-expanded={projectSelectorOpen}
+                            >
+                              {projectName}
+                            </button>
+                          ) : (
+                            <span className="underline decoration-dotted underline-offset-8 decoration-muted-foreground/60">
+                              {projectName}
+                            </span>
+                          )}{' '}
+                          中构建什么？
+                        </>
+                      )}
+                    </h1>
+                  </div>
+
+                  <div className="pt-2 text-left">{composer}</div>
+                </div>
+              </div>
+            ))}
         </div>
         {switching && (
           <div
