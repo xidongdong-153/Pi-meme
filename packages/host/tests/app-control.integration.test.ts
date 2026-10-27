@@ -811,3 +811,21 @@ test('计划引用提交校验归属与版本，重复请求只实施一次并�
     await f.dispose()
   }
 })
+
+test('HostApi 接受 max 并返回当前模型实际支持的强度', async () => {
+  const f = await fixture()
+  try {
+    const api = f.host.app
+    const project = await api.projects.register({ cwd: f.root }, key('thinking-project'))
+    const ref = await session(api, project, 'thinking')
+    const configured = await api.sessions.configure(ref, { thinkingLevel: 'max' }, key('thinking-max'))
+    assert.equal(configured.configuration.thinkingLevel, 'high')
+    assert.equal((await api.sessions.snapshot(ref)).state.thinkingLevel, 'high')
+    await assert.rejects(
+      api.sessions.configure(ref, { thinkingLevel: 'ultra' as 'max' }, key('thinking-invalid')),
+      /思考强度无效/,
+    )
+  } finally {
+    await f.dispose()
+  }
+})

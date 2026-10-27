@@ -17,7 +17,13 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { defaultAccessMode, isAgentAccessMode, type AgentAccessMode } from '@pi-meme/contracts/agent-access'
 import { AgentAccessStore } from './access-store'
-import { builtinCommand, builtinCommands, sameMessage, thinkingLevels } from '@pi-meme/contracts/pi'
+import {
+  builtinCommand,
+  builtinCommands,
+  sameMessage,
+  modelThinkingLevels,
+  resolveThinkingLevel,
+} from '@pi-meme/contracts/pi'
 import { randomUUID } from 'node:crypto'
 import type { SecureCredentialStorage } from '@pi-meme/contracts/secure-storage'
 import type { PiSdk } from './sdk/load'
@@ -576,7 +582,6 @@ export class PiSessionPool implements PiRuntime {
     if (view) view.defaults = value
     else this.defaultPreferences = value
   }
-  private thinkingLevels: ThinkingLevel[] = [...thinkingLevels]
   private epoch = 0
   private commands = new Map<string, { revision?: number; value: PiSlashCommand[] }>()
   private commandReads = new Map<string, { revision: number; promise: Promise<PiSlashCommand[]> }>()
@@ -1246,7 +1251,7 @@ export class PiSessionPool implements PiRuntime {
         sessionEntries: record.sessionEntries,
         branchAttachments: record.branchAttachments,
         models,
-        thinkingLevels: this.thinkingLevels,
+        thinkingLevels: [...modelThinkingLevels(record.state.model)],
         stats: record.stats,
         events: [
           ...record.liveEvents,
@@ -1307,7 +1312,9 @@ export class PiSessionPool implements PiRuntime {
   private async warmMetadata(record: RuntimeSession) {
     const epoch = this.epoch
     try {
-      const models = await (this.localModels ??= readLocalModels(this.runtimePaths.agentDir, this.credentialStorage))
+      const models =
+        this.localAvailableModels ??
+        (await (this.localModels ??= readLocalModels(this.runtimePaths.agentDir, this.credentialStorage)))
       if (epoch !== this.epoch) return
       this.localAvailableModels ??= models
       const target = this.sessions.has(record.key) ? record : this.active
@@ -1324,6 +1331,13 @@ export class PiSessionPool implements PiRuntime {
         const perModel = model ? preferences.modelThinkingLevels[`${model.provider}/${model.id}`] : undefined
         const level = perModel ?? preferences.thinkingLevel
         if (level) target.state.thinkingLevel = level
+      }
+      const model = models.find(
+        (entry) => entry.id === target.state.model?.id && entry.provider === target.state.model?.provider,
+      )
+      if (model) {
+        target.state.model = model
+        target.state.thinkingLevel = resolveThinkingLevel(model, target.state.thinkingLevel ?? 'medium')
       }
     } catch (cause) {
       if (record === this.active && this.sessions.has(record.key))
@@ -1373,7 +1387,6 @@ export class PiSessionPool implements PiRuntime {
       followUpMode: snapshot.state.followUpMode,
     }
     this.localAvailableModels = snapshot.models
-    this.thinkingLevels = snapshot.thinkingLevels ?? []
   }
   private async ensureRuntime(record: RuntimeSession, executionMode?: TaskMode): Promise<void> {
     // 已预约的消息先运行；随后登记的退役会等待它结束，不能反过来等待退役。
@@ -1975,6 +1988,14 @@ export class PiSessionPool implements PiRuntime {
         this.localAvailableModels ??
         (await (this.localModels ??= readLocalModels(this.runtimePaths.agentDir, this.credentialStorage)))
       const selected = models.find((entry) => entry.id === model.id && entry.provider === model.provider) ?? model
+      const preferences = await readLocalPreferences(record.cwd, this.runtimePaths.agentDir)
+      const thinkingLevel = resolveThinkingLevel(
+        selected,
+        preferences.modelThinkingLevels[`${selected.provider}/${selected.id}`] ??
+          preferences.thinkingLevel ??
+          record.state.thinkingLevel ??
+          'medium',
+      )
       const sdk = record.sessionFile ? await loadPiSdk() : undefined
       if (record.dormant) {
         if (record.pendingPrompt || record.starting) throw new Error('会话正在启动，请稍后切换模型')
@@ -1985,32 +2006,47 @@ export class PiSessionPool implements PiRuntime {
             record.cwd,
           )
           manager.appendModelChange(selected.provider, selected.id)
+          if (thinkingLevel !== record.state.thinkingLevel) manager.appendThinkingLevelChange(thinkingLevel)
           record.sessionEntries = {
             entries: projectBranchEntries(manager.getEntries(), manager.getLeafId()),
             leafId: manager.getLeafId(),
           }
           invalidateSessionHistory([record.sessionFile])
         }
-        record.state = { ...record.state, model: selected, modelSelectionRequired: false }
+        record.state = {
+          ...record.state,
+          model: selected,
+          modelSelectionRequired: false,
+          thinkingLevel,
+        }
         return selected
       }
     }
     const selected = await record.session.setModel(model)
     record.state.model = selected
+    record.state.thinkingLevel = (await record.session.snapshot()).state.thinkingLevel
     return selected
   }
   async setThinkingLevel(sessionKey: string, level: ThinkingLevel) {
     this.assertNotEditing(sessionKey)
     const record = this.target(sessionKey)
     if (record.dormant) {
-      record.state = { ...record.state, thinkingLevel: level }
-      return
+      await this.warmMetadata(record)
+      if (record.dormant) {
+        record.state = { ...record.state, thinkingLevel: resolveThinkingLevel(record.state.model, level) }
+        return
+      }
     }
     await record.session.setThinkingLevel(level)
-    record.state.thinkingLevel = level
+    record.state.thinkingLevel = (await record.session.snapshot()).state.thinkingLevel
   }
-  getAvailableThinkingLevels() {
-    return this.active.dormant ? Promise.resolve(this.thinkingLevels) : this.active.session.getAvailableThinkingLevels()
+  async getAvailableThinkingLevels() {
+    const record = this.active
+    if (record.dormant) {
+      await this.warmMetadata(record)
+      if (record.dormant) return [...modelThinkingLevels(record.state.model)]
+    }
+    return record.session.getAvailableThinkingLevels()
   }
   getSessionStats() {
     if (this.active.dormant) {
@@ -2042,7 +2078,6 @@ export class PiSessionPool implements PiRuntime {
     )
     this.localModels = null
     this.localAvailableModels = null
-    this.thinkingLevels = [...thinkingLevels]
     this.commands.clear()
     for (const entry of retained) {
       this.stopRecord(entry)

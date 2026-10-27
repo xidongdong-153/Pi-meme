@@ -14,6 +14,7 @@ import type {
   DesktopError,
 } from '@pi-meme/contracts/desktop'
 import type { PiModel, PiSessionStats, PiSlashCommand, PiState, ThinkingLevel } from '@pi-meme/contracts/pi'
+import { resolveThinkingLevel } from '@pi-meme/contracts/pi'
 import { applyEvent as reduceEvent, emptyChat, fromSnapshot } from '@pi-meme/chat/ui/model/state'
 import type { ChatState } from '@pi-meme/chat/ui/model/types'
 import { useChatSession, type ComposerSnapshot } from '@pi-meme/chat/ui/use-chat-session'
@@ -1322,7 +1323,10 @@ export function useAppSession(
     selectModel: (model: PiModel) => {
       if (chat.editSubmitting) return Promise.resolve(false)
       if (chat.editing || chat.chat.running || chat.chat.paused || chat.chat.queuePaused) {
-        chat.updateConfiguration({ model })
+        chat.updateConfiguration({
+          model,
+          thinkingLevel: resolveThinkingLevel(model, chat.selectedConfiguration.thinkingLevel ?? 'medium'),
+        })
         return Promise.resolve(true)
       }
       if (!current.current.sessionKey || actionLock.current || selection.current.current) return Promise.resolve(false)
@@ -1379,6 +1383,11 @@ export function useAppSession(
         .then(async () => {
           if (modelPending && !(await modelPending)) throw modelSaveError.current ?? new Error('模型切换失败')
           await bridge.setThinkingLevel(key, level)
+          const snapshot = await bridge.getSnapshot()
+          if (owns() && request === thinkingRequest.current) {
+            setState((value) => value && { ...value, thinkingLevel: snapshot.state.thinkingLevel })
+            setThinkingLevels(snapshot.thinkingLevels ?? [])
+          }
         })
       thinkingSelection.current = pending
       void pending.catch(async (cause) => {

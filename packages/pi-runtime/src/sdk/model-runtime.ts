@@ -1,8 +1,20 @@
-import type { Credential, CredentialStore } from '@earendil-works/pi-ai'
+import type { Api, Credential, CredentialStore, Model } from '@earendil-works/pi-ai'
+import { getSupportedThinkingLevels } from '@earendil-works/pi-ai/models'
+import type { PiModel } from '@pi-meme/contracts/pi'
 import type { SecureCredentialStorage } from '@pi-meme/contracts/secure-storage'
 import type { PiSdk } from './load'
 
 type StoredModelCredentials = { credential?: Credential; env?: Record<string, string> }
+
+export function projectModel(model: Model<Api>): PiModel {
+  return {
+    provider: model.provider,
+    id: model.id,
+    name: model.name,
+    reasoning: model.reasoning,
+    thinkingLevels: getSupportedThinkingLevels(model),
+  }
+}
 
 function modelCredentialKey(providerId: string) {
   return `model-provider:${providerId}`

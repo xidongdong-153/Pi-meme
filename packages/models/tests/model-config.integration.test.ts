@@ -357,3 +357,23 @@ test('敏感请求头留空保留，换行凭据拒绝发送；列表分页最�
     )
     assert.equal(pages, 20)
   }))
+
+test('思考档位映射保存后由 Pi 读取，发现模型保留显式能力', async () =>
+  temporary(async (store, _directory, credentials) => {
+    const thinkingLevelMap = { off: null, minimal: null, low: null, medium: null, high: null, xhigh: null, max: 'max' }
+    const discovered = await discoverModels(discoveryInput('openai-responses'), store, async () =>
+      Response.json({ data: [{ id: 'test-model', reasoning: true, thinkingLevelMap }] }),
+    )
+    assert.deepEqual(discovered, [{ id: 'test-model', reasoning: true, thinkingLevelMap }])
+    const input = provider((await store.snapshot()).revision)
+    input.provider.models = discovered
+    await store.save(input)
+    const runtime = await createDesktopModelRuntime(await loadPiSdk(), store.agentDir, credentials)
+    const model = runtime.getModel('local-test', 'test-model')!
+    assert.deepEqual(model.thinkingLevelMap, thinkingLevelMap)
+    input.revision = (await store.snapshot()).revision
+    input.provider.models[0].thinkingLevelMap = { ...thinkingLevelMap, max: null }
+    await assert.rejects(store.save(input), /至少保留一个/)
+    input.provider.models[0].thinkingLevelMap = { max: '' }
+    await assert.rejects(store.save(input), /非空字符串/)
+  }))

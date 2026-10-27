@@ -8,6 +8,8 @@ import type {
   SaveModelProvider,
 } from '@pi-meme/contracts/model-config'
 import { modelApis } from '@pi-meme/contracts/model-config'
+import { thinkingLevels, type ThinkingLevel } from '@pi-meme/contracts/pi'
+import { THINKING_LEVEL_LABELS } from '../thinking-config'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { BrandMark } from '@pi-meme/ui/components/brand-mark'
 import { Input } from '@pi-meme/ui/components/ui/input'
@@ -41,13 +43,20 @@ function jsonObject(text: string, label: string) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error(`${label}必须是 JSON 对象`)
   return value as Record<string, unknown>
 }
-type ModelDraft = ConfiguredModel & { headersText: string; compatText: string; thinkingText: string }
-function draftModel(model: ConfiguredModel): ModelDraft {
+type ModelDraft = ConfiguredModel & { headersText: string; compatText: string }
+function defaultThinkingMapping(api: ModelApi, level: ThinkingLevel) {
+  if (level !== 'xhigh' && level !== 'max') return undefined
+  return api === 'google-generative-ai' ? 'high' : level
+}
+function draftModel(model: ConfiguredModel, api: ModelApi): ModelDraft {
   return {
     ...model,
+    reasoning: model.reasoning ?? true,
     headersText: jsonText(model.headers),
     compatText: jsonText(model.compat),
-    thinkingText: jsonText(model.thinkingLevelMap),
+    thinkingLevelMap: model.thinkingLevelMap
+      ? { xhigh: null, max: null, ...model.thinkingLevelMap }
+      : { xhigh: defaultThinkingMapping(api, 'xhigh')!, max: defaultThinkingMapping(api, 'max')! },
   }
 }
 export function ModelConfigForm({
@@ -72,7 +81,9 @@ export function ModelConfigForm({
   const [apiKey, setApiKey] = useState('')
   const [showKey, setShowKey] = useState(false)
   const [clearKey, setClearKey] = useState(false)
-  const [models, setModels] = useState<ModelDraft[]>(() => (provider?.models ?? []).map(draftModel))
+  const [models, setModels] = useState<ModelDraft[]>(() =>
+    (provider?.models ?? []).map((model) => draftModel(model, api)),
+  )
   const [catalog, setCatalog] = useState<ConfiguredModel[]>(provider?.models ?? [])
   const [search, setSearch] = useState('')
   const [customId, setCustomId] = useState('')
@@ -97,7 +108,7 @@ export function ModelConfigForm({
   }
   function add(model: ConfiguredModel) {
     if (models.some((entry) => entry.id === model.id)) return
-    setModels((current) => [...current, draftModel(model)])
+    setModels((current) => [...current, draftModel(model, api)])
   }
   async function discover() {
     setFetching(true)
@@ -123,12 +134,10 @@ export function ModelConfigForm({
     setError('')
     setSaving(true)
     try {
-      const cleanModels = models.map(({ headersText, compatText, thinkingText, ...model }) => ({
+      const cleanModels = models.map(({ headersText, compatText, ...model }) => ({
         ...model,
         headers: jsonObject(headersText, `${model.id} 请求头`) as Record<string, string> | undefined,
         compat: jsonObject(compatText, `${model.id} compat`),
-        thinkingLevelMap: jsonObject(thinkingText, `${model.id} 思考等级映射`) as
-          Record<string, string | null> | undefined,
       }))
       if (!models.length) throw new Error('请至少选择或手动添加一个模型')
       const ok = await onSave({
@@ -408,7 +417,7 @@ export function ModelConfigForm({
                   className="rounded-xl border border-border bg-background p-3 space-y-3"
                 >
                   <h3 className="text-sm font-medium">已选模型 · {models.length}</h3>
-                  <p className="text-xs text-muted-foreground">接口未返回的参数使用 Pi 默认值，可按服务文档修改。</p>
+                  <p className="text-xs text-muted-foreground">未配置思考档位时默认全选，可按接口支持情况调整。</p>
                   {!models.length && <p className="py-8 text-center text-sm text-muted-foreground">先选择一个模型。</p>}
                   {models.map((model) => (
                     <div key={model.id} className="rounded-lg bg-secondary/40 p-3 space-y-3">
@@ -434,6 +443,41 @@ export function ModelConfigForm({
                           onChange={(event) => updateModel(model.id, { name: event.target.value || undefined })}
                         />
                       </label>
+                      <fieldset className="space-y-2">
+                        <legend className="text-xs">思考强度</legend>
+                        <label className="flex items-center gap-2 text-xs">
+                          <input
+                            type="checkbox"
+                            className="accent-primary"
+                            checked={model.reasoning ?? false}
+                            onChange={(event) => updateModel(model.id, { reasoning: event.target.checked })}
+                          />
+                          支持思考
+                        </label>
+                        <div className="flex flex-wrap gap-x-3 gap-y-2 text-xs">
+                          {thinkingLevels.map((level) => (
+                            <label key={level} className="flex items-center gap-1.5">
+                              <input
+                                type="checkbox"
+                                className="accent-primary"
+                                aria-label={`${model.id} ${THINKING_LEVEL_LABELS[level]}`}
+                                disabled={!model.reasoning}
+                                checked={model.thinkingLevelMap?.[level] !== null}
+                                onChange={(event) => {
+                                  const map = { ...model.thinkingLevelMap }
+                                  if (event.target.checked) {
+                                    const value = defaultThinkingMapping(api, level)
+                                    if (value === undefined) delete map[level]
+                                    else map[level] = value
+                                  } else map[level] = null
+                                  updateModel(model.id, { thinkingLevelMap: map })
+                                }}
+                              />
+                              {THINKING_LEVEL_LABELS[level]}
+                            </label>
+                          ))}
+                        </div>
+                      </fieldset>
                       <CollapsibleSection title="高级模型参数" variant="inline">
                         <div className="space-y-3">
                           <div className="grid grid-cols-2 gap-3">
@@ -460,14 +504,6 @@ export function ModelConfigForm({
                             <label className="flex items-center gap-2">
                               <input
                                 type="checkbox"
-                                checked={model.reasoning ?? false}
-                                onChange={(event) => updateModel(model.id, { reasoning: event.target.checked })}
-                              />
-                              支持思考
-                            </label>
-                            <label className="flex items-center gap-2">
-                              <input
-                                type="checkbox"
                                 checked={model.input?.includes('image') ?? false}
                                 onChange={(event) =>
                                   updateModel(model.id, { input: event.target.checked ? ['text', 'image'] : ['text'] })
@@ -481,7 +517,6 @@ export function ModelConfigForm({
                             [
                               { field: 'headersText', label: '请求头' },
                               { field: 'compatText', label: 'compat' },
-                              { field: 'thinkingText', label: '思考等级映射' },
                             ] as const
                           ).map(({ field, label }) => (
                             <label key={field} className="block space-y-1 text-xs">
@@ -494,6 +529,35 @@ export function ModelConfigForm({
                               />
                             </label>
                           ))}
+                          {model.reasoning && (
+                            <div className="space-y-2">
+                              <p className="text-xs">思考等级映射</p>
+                              <p className="text-xs text-muted-foreground">
+                                填写接口接受的参数值；留空使用 Pi 协议默认值。极高和最大需显式映射。
+                              </p>
+                              <div className="grid grid-cols-2 gap-3">
+                                {thinkingLevels
+                                  .filter((level) => model.thinkingLevelMap?.[level] !== null)
+                                  .map((level) => (
+                                    <label key={level} className="space-y-1 text-xs">
+                                      {THINKING_LEVEL_LABELS[level]}（{level}）
+                                      <Input
+                                        aria-label={`${model.id} ${level} 映射`}
+                                        value={model.thinkingLevelMap?.[level] ?? ''}
+                                        placeholder={defaultThinkingMapping(api, level) ?? 'Pi 协议默认值'}
+                                        onChange={(event) => {
+                                          const map = { ...model.thinkingLevelMap }
+                                          const value = event.target.value || defaultThinkingMapping(api, level)
+                                          if (value === undefined) delete map[level]
+                                          else map[level] = value
+                                          updateModel(model.id, { thinkingLevelMap: map })
+                                        }}
+                                      />
+                                    </label>
+                                  ))}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </CollapsibleSection>
                     </div>

@@ -48,6 +48,10 @@ paths:
 
 默认模型和思考强度默认值写入 `config/agent/settings.json` 的 `defaultProvider`、`defaultModel`、`defaultThinkingLevel`。思考强度为 `off`、`minimal`、`low`、`medium`、`high`、`xhigh`、`max` 之一；未设置时 Pi 使用 `medium`。同一文件里的 `modelThinkingLevels` 可按 `provider/modelId` 覆盖该模型的启动强度。二者都不改变已经打开的会话。
 
+自定义模型可以逐项勾选思考强度。未提供档位映射时，配置表单默认全选；保存后使用 Pi 的 `thinkingLevelMap` 声明能力，取消勾选的档位写为 `null`。关闭“支持思考”后，会话只提供 `off`。已有映射保留；高级模型参数可填写每档对应的接口参数值。OpenAI 兼容协议的 `xhigh`、`max` 默认同名映射；Google 协议默认映射到 `high`，可按服务文档调整。接口返回 `reasoning` 和 `thinkingLevelMap` 时，模型发现会保留这些字段；仅返回模型 ID 时不推断上游能力。
+
+会话和模型选择器使用 Pi SDK 返回的模型可用档位，切换模型、恢复会话或设置不支持的强度时，显示 SDK 调整后的有效档位。未经配置表单保存的旧模型仍遵循 SDK 默认能力：`reasoning: true` 且没有映射时最高为 `high`。全局默认强度保留用户偏好，各会话按所选模型调整。
+
 模型配置的主要限制：
 
 - Base URL 必须是完整 HTTP(S) 地址，不包含账号、查询参数或片段。

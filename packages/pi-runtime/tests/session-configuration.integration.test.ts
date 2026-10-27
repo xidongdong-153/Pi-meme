@@ -6,19 +6,21 @@ import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { PiSessionPool } from '../src/session-pool'
 import { SdkSession } from '../src/sdk/session'
+import { createDesktopModelRuntime, projectModel } from '../src/sdk/model-runtime'
+import { loadPiSdk } from '../src/sdk/load'
 import type { DesktopEvent } from '@pi-meme/contracts/desktop'
 import { thinkingLevels, type PiExtensionDialogRequest } from '@pi-meme/contracts/pi'
 import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
 import { createTestSession, installProjectExtension, waitFor, savedSession } from './session-pool-fixture'
 
-test('自定义模型无需映射即可保留全部思考档位，发送和恢复后仍保留最大档位', async () => {
+test('会话档位与模型能力一致，映射后的 max 在发送和恢复时保持一致', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pi-thinking-levels-'))
-  const agent = await useFakeAgent(directory, {
-    models: [
-      { id: 'first', reasoning: true },
-      { id: 'second', reasoning: false },
-    ],
-  })
+  const models = [
+    { id: 'first', reasoning: true },
+    { id: 'second', reasoning: false },
+    { id: 'mapped', reasoning: true, thinkingLevelMap: { xhigh: 'xhigh', max: 'max', low: null } },
+  ]
+  const agent = await useFakeAgent(directory, { models })
   const createSession = () =>
     new SdkSession(
       directory,
@@ -30,15 +32,18 @@ test('自定义模型无需映射即可保留全部思考档位，发送和恢�
   try {
     session.start(directory)
     await session.snapshot()
-    for (const id of ['first', 'second']) {
+    for (const [id, levels, effective] of [
+      ['first', ['off', 'minimal', 'low', 'medium', 'high'], 'high'],
+      ['second', ['off'], 'off'],
+      ['mapped', thinkingLevels.filter((level) => level !== 'low'), 'max'],
+    ] as const) {
       await session.setModel({ provider: 'fake', id })
-      assert.deepEqual(await session.getAvailableThinkingLevels(), thinkingLevels)
-      for (const level of thinkingLevels) {
-        await session.setThinkingLevel(level)
-        assert.equal((await session.snapshot()).state.thinkingLevel, level)
-      }
+      assert.deepEqual(await session.getAvailableThinkingLevels(), levels)
+      await session.setThinkingLevel('max')
+      assert.equal((await session.snapshot()).state.thinkingLevel, effective)
     }
-    await session.setModel({ provider: 'fake', id: 'first' })
+    await session.setThinkingLevel('low')
+    assert.equal((await session.snapshot()).state.thinkingLevel, 'medium')
     await session.setThinkingLevel('max')
     await session.prompt('检查最大思考档位')
     const deadline = Date.now() + 5000
@@ -47,7 +52,7 @@ test('自定义模型无需映射即可保留全部思考档位，发送和恢�
       await delay(10)
     }
     assert.equal((await session.snapshot()).state.thinkingLevel, 'max')
-    assert.equal(agent.provider.requests.at(-1)?.reasoning_effort, 'high')
+    assert.equal(agent.provider.requests.at(-1)?.reasoning_effort, 'max')
     const file = session.getActiveSession().sessionFile!
     assert.ok(file)
     await session.stopAndWait()
@@ -55,10 +60,68 @@ test('自定义模型无需映射即可保留全部思考档位，发送和恢�
     session.start(directory, file)
     const restored = await session.snapshot()
     assert.equal(restored.state.thinkingLevel, 'max')
-    assert.deepEqual(restored.thinkingLevels, thinkingLevels)
+    assert.deepEqual(
+      restored.thinkingLevels,
+      thinkingLevels.filter((level) => level !== 'low'),
+    )
     assert.equal(restored.messages.at(-1)?.role, 'assistant')
+    await session.stopAndWait()
+    const config = JSON.parse(await readFile(agent.modelsFile, 'utf8'))
+    delete config.providers.fake.models[2].thinkingLevelMap
+    await writeFile(agent.modelsFile, JSON.stringify(config))
+    session = createSession()
+    session.start(directory, file)
+    assert.equal((await session.snapshot()).state.thinkingLevel, 'high')
   } finally {
     await session.stopAndWait()
+    await agent.dispose()
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('冷会话按各自模型提供档位，切换和启动后保留实际强度', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pi-cold-thinking-'))
+  const agent = await useFakeAgent(directory, {
+    models: [
+      { id: 'first', reasoning: true },
+      { id: 'second', reasoning: false },
+    ],
+  })
+  const pool = new PiSessionPool(
+    directory,
+    {
+      connection: () => {},
+      event: () => {},
+      error: () => {},
+      sessionsChanged: () => {},
+    },
+    undefined,
+    agent.runtimePaths,
+    agent.credentials,
+    createTestSession,
+  )
+  try {
+    pool.prepare(directory)
+    const key = pool.connection().sessionKey!
+    await pool.setModel(key, { provider: 'fake', id: 'first' })
+    await pool.setThinkingLevel(key, 'max')
+    assert.equal((await pool.snapshot()).state.thinkingLevel, 'high')
+    assert.deepEqual(await pool.getAvailableThinkingLevels(), ['off', 'minimal', 'low', 'medium', 'high'])
+    await pool.setModel(key, { provider: 'fake', id: 'second' })
+    assert.equal((await pool.snapshot()).state.thinkingLevel, 'off')
+    assert.deepEqual(await pool.getAvailableThinkingLevels(), ['off'])
+    await pool.setModel(key, { provider: 'fake', id: 'first' })
+    await pool.setThinkingLevel(key, 'max')
+    await pool.prompt(key, '检查冷会话强度')
+    await waitFor(() => pool.getRuntimeSessions().every((session) => !session.running))
+    assert.equal((await pool.snapshot()).state.thinkingLevel, 'high')
+    assert.equal(agent.provider.requests.at(-1)?.reasoning_effort, 'high')
+    await pool.setThinkingLevel(key, 'max')
+    assert.equal(pool.readSessionBinding(key).state.thinkingLevel, 'high')
+    await pool.setModel(key, { provider: 'fake', id: 'second' })
+    assert.equal(pool.readSessionBinding(key).state.thinkingLevel, 'off')
+  } finally {
+    await pool.stopAndWait()
     await agent.dispose()
     await rm(directory, { recursive: true, force: true })
   }
@@ -117,9 +180,11 @@ test('英文 App 区块与用户 SYSTEM.md、普通和 Plan 主子会话共存�
         assert.match(text, /relative to the current session working directory/)
         assert.match(text, /Verify that the file exists/)
         assert.match(text, /up to 8 MiB/)
-        assert.match(text, /In Plan\/read-only mode, do not copy, generate, or resize files for display/)
-        assert.match(text, /Do not use file:\/\/, absolute paths, temporary localhost URLs, or a new server/)
-        assert.match(text, /Do not try multiple markup variants/)
+        assert.match(text, /仅在允许写入时将工作区外的图片复制到工作目录/)
+        assert.match(text, /在规划或只读模式下，必要的展示产物放入会话临时目录/)
+        assert.match(text, /不得绕过访问拒绝/)
+        assert.match(text, /不要使用 file:\/\/、绝对路径、临时 localhost URL 或新建服务器展示本地图片/)
+        assert.match(text, /除非用户要求渲染测试，不要尝试多种标记变体/)
         assert.match(text, /Keep valid remote HTTP\(S\) image URLs unchanged/)
         assert.match(text, /cards are created by actual tool events, not reply markup/)
         assert.equal(text.includes('<app_delegation>'), delegated)
@@ -129,10 +194,13 @@ test('英文 App 区块与用户 SYSTEM.md、普通和 Plan 主子会话共存�
           assert.match(text, /Inherited parent conversation is background context/)
         }
         if (mode === 'plan') {
-          assert.ok(JSON.stringify(request.messages).includes('Plan mode is active'))
+          const planText = JSON.stringify(request.messages)
+          assert.match(planText, /当前为规划模式，只进行检查和分析/)
+          assert.match(planText, /命令行在只读沙箱内运行/)
+          assert.match(planText, /禁止实施变更、修改业务文件/)
           const tools = request.tools.map((tool: { function: { name: string } }) => tool.function.name)
-          for (const name of ['bash', 'edit', 'write', 'codemode', 'get_goal', 'update_goal'])
-            assert.ok(!tools.includes(name), name)
+          for (const name of ['bash', 'codemode']) assert.ok(tools.includes(name), name)
+          for (const name of ['edit', 'write', 'get_goal', 'update_goal']) assert.ok(!tools.includes(name), name)
         }
       } finally {
         await session.stopAndWait()
@@ -260,6 +328,50 @@ test('恢复时模型不可用保留原选择，重新选择前禁止发送', as
   } finally {
     pool.stop()
     await delay(100)
+    await agent.dispose()
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('Responses 请求按显式映射发送 max，未声明时回落 high', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pi-responses-thinking-'))
+  const agent = await useFakeAgent(directory, {
+    providers: {
+      fake: {
+        api: 'openai-responses',
+        baseUrl: 'http://127.0.0.1:1/v1',
+        apiKey: 'test',
+        models: [
+          { id: 'plain', reasoning: true },
+          { id: 'mapped', reasoning: true, thinkingLevelMap: { xhigh: 'xhigh', max: 'max' } },
+        ],
+      },
+    },
+  })
+  try {
+    const runtime = await createDesktopModelRuntime(await loadPiSdk(), agent.agentDir, agent.credentials)
+    for (const [id, effort] of [
+      ['plain', 'high'],
+      ['mapped', 'max'],
+    ]) {
+      const model = runtime.getModel('fake', id)!
+      assert.equal(projectModel(model).thinkingLevels?.includes('max'), id === 'mapped')
+      let payload: unknown
+      const reply = await runtime.completeSimple(
+        model,
+        { messages: [] },
+        {
+          reasoning: 'max',
+          onPayload: (value) => {
+            payload = value
+            throw new Error('测试已捕获请求体，停止发送')
+          },
+        },
+      )
+      assert.match(reply.errorMessage ?? '', /测试已捕获请求体/)
+      assert.equal((payload as { reasoning: { effort: string } }).reasoning.effort, effort)
+    }
+  } finally {
     await agent.dispose()
     await rm(directory, { recursive: true, force: true })
   }

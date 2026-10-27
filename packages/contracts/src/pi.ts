@@ -101,7 +101,35 @@ export function builtinCommand(message: string) {
 export function freshSessionCommandError(name: 'compact' | 'name') {
   return name === 'compact' ? '当前还是新会话，开始对话后才能压缩' : '当前还是新会话，开始对话后才能重命名'
 }
-export type PiModel = { provider: string; id: string; name?: string; reasoning?: boolean }
+export type PiModel = {
+  provider: string
+  id: string
+  name?: string
+  reasoning?: boolean
+  thinkingLevels?: ThinkingLevel[]
+}
+
+/** 模型目录中的档位由 Pi SDK 计算；缺少能力数据时不开放扩展档位。 */
+export function modelThinkingLevels(model?: PiModel): readonly ThinkingLevel[] {
+  if (!model) return thinkingLevels
+  if (model.thinkingLevels) return model.thinkingLevels.length ? model.thinkingLevels : ['off']
+  return model.reasoning ? thinkingLevels.filter((level) => level !== 'xhigh' && level !== 'max') : ['off']
+}
+
+/** 与 Pi 的 clampThinkingLevel 一致：先向上找可用档位，再向下找。 */
+export function resolveThinkingLevel(model: PiModel | undefined, level: ThinkingLevel): ThinkingLevel {
+  const available = modelThinkingLevels(model)
+  if (available.includes(level)) return level
+  const index = thinkingLevels.indexOf(level)
+  return (
+    thinkingLevels.slice(index).find((candidate) => available.includes(candidate)) ??
+    thinkingLevels
+      .slice(0, index)
+      .reverse()
+      .find((candidate) => available.includes(candidate)) ??
+    'off'
+  )
+}
 export type PiSessionStats = SessionStats
 /** 当前一次 Agent 运行的生成指标；不写入会话 JSONL。 */
 export type PiGenerationMetrics = {

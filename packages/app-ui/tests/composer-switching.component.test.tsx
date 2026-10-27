@@ -1,11 +1,13 @@
 import { act, cleanup, fireEvent, render, renderHook, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import type { DesktopBridge, DesktopEvent, SessionSelectionResult, Snapshot } from '@pi-meme/contracts/desktop'
-import { thinkingLevels, type PiModel, type PiSlashCommand, type ThinkingLevel } from '@pi-meme/contracts/pi'
+import type { PiModel, PiSlashCommand, ThinkingLevel } from '@pi-meme/contracts/pi'
 import { skillMarker } from '@pi-meme/contracts/skills'
 import { ComposerToolbar } from '@pi-meme/chat/ui/composer/composer-toolbar'
 import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 import { ModelPickerPopover } from '@pi-meme/models/ui/model-picker-popover'
+import { ModelConfigForm } from '@pi-meme/models/ui/model-config/model-config-form'
+import type { SaveModelProvider } from '@pi-meme/contracts/model-config'
 import { useAppSession } from '../src/session/use-app-session'
 import { invokeSkillInNewSession } from '../src/settings/invoke-skill'
 import { WorkspaceContent } from '../src/layout/workspace-content'
@@ -56,27 +58,33 @@ test('切换等待立即隔离旧内容，完成或失败后恢复交互且不�
   expect((composer as HTMLTextAreaElement).value).toBe('未发送的内容')
 })
 
-test.each([true, false])('模型 reasoning=%s 时均可选择关闭到最大的全部思考档位', (reasoning) => {
-  const model = { provider: 'custom', id: 'custom-model', name: '自定义模型', reasoning }
+test.each([
+  { reasoning: true, levels: ['off', 'minimal', 'low', 'medium', 'high'] as ThinkingLevel[] },
+  { reasoning: false, levels: ['off'] as ThinkingLevel[] },
+  { reasoning: true, levels: ['low', 'high', 'max'] as ThinkingLevel[] },
+])('模型选择器只提供 SDK 返回的档位 $levels', ({ reasoning, levels }) => {
+  const model = { provider: 'custom', id: 'custom-model', name: '自定义模型', reasoning, thinkingLevels: levels }
   const onSelectThinkingLevel = vi.fn()
   const props = {
     models: [model],
-    currentModel: model,
+    currentModel: { provider: model.provider, id: model.id },
     disabled: false,
     onSelectModel: vi.fn(),
     onSelectThinkingLevel,
   }
-  const { rerender } = render(<ModelPickerPopover {...props} thinkingLevel="off" />)
+  const { rerender } = render(<ModelPickerPopover {...props} thinkingLevel={levels[0]} />)
   fireEvent.click(screen.getByRole('button', { name: '选择模型与思考强度' }))
   const slider = screen.getByRole('slider', { name: '思考强度滑块' })
-  expect(slider.getAttribute('aria-valuemax')).toBe(String(thinkingLevels.length - 1))
-  for (let index = 1; index < thinkingLevels.length; index++) {
+  expect(slider.getAttribute('aria-valuemax')).toBe(String(levels.length - 1))
+  for (let index = 1; index < levels.length; index++) {
     fireEvent.keyDown(slider, { key: 'ArrowRight' })
-    expect(onSelectThinkingLevel).toHaveBeenLastCalledWith(thinkingLevels[index])
-    rerender(<ModelPickerPopover {...props} thinkingLevel={thinkingLevels[index]} />)
+    expect(onSelectThinkingLevel).toHaveBeenLastCalledWith(levels[index])
+    rerender(<ModelPickerPopover {...props} thinkingLevel={levels[index]} />)
   }
-  fireEvent.keyDown(screen.getByRole('slider'), { key: 'Home' })
-  expect(onSelectThinkingLevel).toHaveBeenLastCalledWith('off')
+  fireEvent.click(screen.getByRole('button', { name: '重置思考强度' }))
+  expect(onSelectThinkingLevel).toHaveBeenLastCalledWith(
+    levels.includes('medium') ? 'medium' : reasoning ? 'high' : 'off',
+  )
 })
 
 test('选择模型后直接收起弹框，不再跳回思考面板', () => {
@@ -1305,4 +1313,61 @@ test('停止后有主草稿时发送新消息，清空草稿后可继续当前�
   fireEvent.click(screen.getByRole('button', { name: '继续当前任务' }))
   expect(onResume).toHaveBeenCalledTimes(1)
   expect(screen.getByRole('button', { name: '继续当前任务' }).getAttribute('type')).toBe('button')
+})
+
+test('自定义模型默认勾选全部档位，独立保存勾选和已有参数映射', async ({ onTestFinished }) => {
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  )
+  onTestFinished(() => {
+    vi.unstubAllGlobals()
+  })
+  const onSave = vi.fn<(input: SaveModelProvider) => Promise<boolean>>().mockResolvedValue(true)
+  render(
+    <ModelConfigForm
+      provider={{
+        id: 'custom',
+        name: '自定义',
+        baseUrl: 'https://example.com/v1',
+        api: 'openai-responses',
+        hasApiKey: false,
+        models: [{ id: 'first' }, { id: 'second', reasoning: true, thinkingLevelMap: { low: null, max: 'ultra' } }],
+      }}
+      snapshot={{ path: '/test/models.json', revision: 'revision', providers: [] }}
+      busy={false}
+      bridge={{ discoverModels: vi.fn() }}
+      onSave={onSave}
+      onClose={vi.fn()}
+    />,
+  )
+  for (const label of ['关闭', '极小', '低', '中', '高', '极高', '最大']) {
+    expect((screen.getByRole('checkbox', { name: `first ${label}` }) as HTMLInputElement).checked).toBe(true)
+  }
+  expect((screen.getByRole('checkbox', { name: 'second 低' }) as HTMLInputElement).checked).toBe(false)
+  expect((screen.getByRole('checkbox', { name: 'second 极高' }) as HTMLInputElement).checked).toBe(false)
+  fireEvent.click(screen.getByRole('checkbox', { name: 'first 高' }))
+  fireEvent.click(screen.getByRole('button', { name: '保存服务商' }))
+  await waitFor(() => expect(onSave).toHaveBeenCalledOnce())
+  const models = onSave.mock.calls[0][0].provider.models
+  expect(models[0].reasoning).toBe(true)
+  expect(models[0].thinkingLevelMap).toEqual({ high: null, xhigh: 'xhigh', max: 'max' })
+  expect(models[1].thinkingLevelMap).toEqual({ low: null, xhigh: null, max: 'ultra' })
+})
+
+test('思考强度保存后显示服务端实际生效值', async () => {
+  const { result, snapshot } = setup({
+    setThinkingLevel: async () => {
+      snapshot.state.thinkingLevel = 'high'
+      snapshot.thinkingLevels = ['off', 'medium', 'high']
+    },
+  })
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  act(() => result.current.selectThinkingLevel('max'))
+  await waitFor(() => expect(result.current.state?.thinkingLevel).toBe('high'))
+  expect(result.current.thinkingLevels).toEqual(['off', 'medium', 'high'])
 })

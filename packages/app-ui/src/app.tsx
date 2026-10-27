@@ -1,3 +1,4 @@
+import { resolveThinkingLevel } from '@pi-meme/contracts/pi'
 import type { BrowserPlatform } from '@pi-meme/contracts/browser'
 import { BrowserFavicon, BrowserPanel } from '@pi-meme/browser/ui/browser-panel'
 import { BrowserSettings } from '@pi-meme/browser/ui/browser-settings'
@@ -1752,7 +1753,13 @@ export function App({
                     }
                     thinkingLevel={configuration.thinkingLevel}
                     disabled={false}
-                    onSelectModel={(model) => onChange({ ...configuration, model })}
+                    onSelectModel={(model) =>
+                      onChange({
+                        ...configuration,
+                        model,
+                        thinkingLevel: resolveThinkingLevel(model, configuration.thinkingLevel),
+                      })
+                    }
                     onSelectThinkingLevel={(thinkingLevel) => onChange({ ...configuration, thinkingLevel })}
                   />
                 )}

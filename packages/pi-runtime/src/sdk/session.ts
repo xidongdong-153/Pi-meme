@@ -75,7 +75,7 @@ import { toDesktopEvent } from './events'
 import { GenerationMetricsTracker } from './generation-metrics'
 import { findSessionRecovery, recoveryEntryType, recoveryMessage } from './recovery'
 import { loadPiSdk, type PiSdk } from './load'
-import { createDesktopModelRuntime } from './model-runtime'
+import { createDesktopModelRuntime, projectModel } from './model-runtime'
 import { createDesktopSettingsManager } from './settings'
 import { readDesktopAgentContextFiles } from './context-files'
 import { ExtensionUiBridge } from './ui-bridge'
@@ -104,7 +104,7 @@ async function assertDesktopSessionPath(sessionsDirectory: string, sessionPath: 
 }
 
 function toModel(model: SessionModel | undefined): PiModel | undefined {
-  return model ? { provider: model.provider, id: model.id, name: model.name, reasoning: model.reasoning } : undefined
+  return model ? projectModel(model) : undefined
 }
 
 /**
@@ -631,8 +631,6 @@ export class SdkSession {
           '+ls',
         ],
       })
-      // 会话保留用户选择的完整档位；具体模型的参数适配由 Pi provider 在发送时处理。
-      created.session.getAvailableThinkingLevels = () => [...thinkingLevels]
       const model = created.session.model
       created.session.setThinkingLevel(
         thinkingLevels.find((level) => level === savedThinking?.thinkingLevel) ??
@@ -1304,14 +1302,7 @@ export class SdkSession {
   }
 
   private async getAvailableModels(): Promise<PiModel[]> {
-    return this.call(() =>
-      this.session.modelRuntime.getAvailableSnapshot().map((model) => ({
-        provider: model.provider,
-        id: model.id,
-        name: model.name,
-        reasoning: model.reasoning,
-      })),
-    )
+    return this.call(() => this.session.modelRuntime.getAvailableSnapshot().map(projectModel))
   }
 
   async assertResourceIdle() {
@@ -2369,7 +2360,7 @@ export class SdkSession {
       })
       await this.call(() => this.session.setModel(selected))
       this.modelSelectionRequired = false
-      return { provider: selected.provider, id: selected.id, name: selected.name, reasoning: selected.reasoning }
+      return projectModel(selected)
     })
   }
 

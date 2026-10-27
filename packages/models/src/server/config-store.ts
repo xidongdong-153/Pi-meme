@@ -3,6 +3,7 @@ import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { parse, printParseErrorCode, type ParseError } from 'jsonc-parser'
 import type { SecureCredentialStorage } from '@pi-meme/contracts/secure-storage'
+import { thinkingLevels } from '@pi-meme/contracts/pi'
 import {
   modelApis,
   type ConfiguredModel,
@@ -128,6 +129,17 @@ function secureHeaders(
   }
   return Object.keys(result).length ? result : undefined
 }
+export function validateThinkingLevelMap(value: unknown): Record<string, string | null> {
+  const map = object(value, '思考等级映射')
+  for (const [key, val] of Object.entries(map)) {
+    if (
+      !(thinkingLevels as readonly string[]).includes(key) ||
+      (val !== null && (typeof val !== 'string' || !val.trim()))
+    )
+      throw new Error('思考等级映射的键必须是 Pi 思考等级，值必须是非空字符串或 null')
+  }
+  return map as Record<string, string | null>
+}
 function validateModel(value: unknown): ConfiguredModel {
   const model = object(value, '模型')
   if (typeof model.id !== 'string' || !model.id.trim()) throw new Error('模型 ID 不能为空')
@@ -148,13 +160,14 @@ function validateModel(value: unknown): ConfiguredModel {
   stringHeaders(model.headers)
   validateCompat(model.compat)
   if (model.thinkingLevelMap !== undefined) {
-    for (const [key, val] of Object.entries(object(model.thinkingLevelMap, '思考等级映射'))) {
-      if (
-        !['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'].includes(key) ||
-        (val !== null && typeof val !== 'string')
+    const map = validateThinkingLevelMap(model.thinkingLevelMap)
+    if (
+      model.reasoning &&
+      !thinkingLevels.some(
+        (level) => map[level] !== null && ((level !== 'xhigh' && level !== 'max') || map[level] !== undefined),
       )
-        throw new Error('思考等级映射的键必须是 Pi 思考等级，值必须是字符串或 null')
-    }
+    )
+      throw new Error('支持思考的模型必须至少保留一个思考档位')
   }
   return model as ConfiguredModel
 }

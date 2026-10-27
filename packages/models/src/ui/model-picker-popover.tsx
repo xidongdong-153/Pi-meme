@@ -1,6 +1,6 @@
 import * as React from 'react'
 import { Brain, Check, ChevronDown, ChevronLeft, ChevronRight, RotateCcw, Search, X } from 'lucide-react'
-import { thinkingLevels as activeLevels, type PiModel, type ThinkingLevel } from '@pi-meme/contracts/pi'
+import { modelThinkingLevels, resolveThinkingLevel, type PiModel, type ThinkingLevel } from '@pi-meme/contracts/pi'
 import { Popover, PopoverContent, PopoverTrigger } from '@pi-meme/ui/components/ui/popover'
 import { Input } from '@pi-meme/ui/components/ui/input'
 import { cn } from '@pi-meme/ui/lib/utils'
@@ -65,7 +65,10 @@ export function ModelPickerPopover({
   const [dragRatio, setDragRatio] = React.useState<number | null>(null)
   const isDragging = dragRatio !== null
 
-  const currentIndex = activeLevels.indexOf(thinkingLevel)
+  const selectedModel =
+    models.find((model) => model.provider === currentModel?.provider && model.id === currentModel.id) ?? currentModel
+  const activeLevels = modelThinkingLevels(selectedModel)
+  const currentIndex = activeLevels.indexOf(resolveThinkingLevel(selectedModel, thinkingLevel))
 
   // 离散步进比例
   const stepRatio = activeLevels.length > 1 ? currentIndex / (activeLevels.length - 1) : 0.5
@@ -202,7 +205,7 @@ export function ModelPickerPopover({
 
   // 默认级别重置
   const handleResetLevel = () => {
-    onSelectThinkingLevel('medium')
+    onSelectThinkingLevel(resolveThinkingLevel(selectedModel, 'medium'))
   }
 
   React.useEffect(() => {

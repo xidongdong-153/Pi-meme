@@ -1,5 +1,12 @@
 import type { ConfiguredModel, DiscoverModels } from '@pi-meme/contracts/model-config'
-import { endpoint, object, stringHeaders, validateApi, type ModelConfigStore } from './config-store'
+import {
+  endpoint,
+  object,
+  stringHeaders,
+  validateApi,
+  validateThinkingLevelMap,
+  type ModelConfigStore,
+} from './config-store'
 
 export function resolveCredential(value: string): string {
   if (value.startsWith('!')) throw new Error('此配置使用 !command 凭据，桌面不会执行命令，请填写实际值')
@@ -88,6 +95,8 @@ export async function discoverModels(
       if (Number.isSafeInteger(context) && Number(context) > 0) model.contextWindow = Number(context)
       if (Number.isSafeInteger(output) && Number(output) > 0) model.maxTokens = Number(output)
       if (typeof raw.thinking === 'boolean') model.reasoning = raw.thinking
+      if (typeof raw.reasoning === 'boolean') model.reasoning = raw.reasoning
+      if (raw.thinkingLevelMap !== undefined) model.thinkingLevelMap = validateThinkingLevelMap(raw.thinkingLevelMap)
       if (raw.capabilities && typeof raw.capabilities === 'object') {
         const capabilities = raw.capabilities as Record<string, { supported?: boolean }>
         if (typeof capabilities.thinking?.supported === 'boolean') model.reasoning = capabilities.thinking.supported
