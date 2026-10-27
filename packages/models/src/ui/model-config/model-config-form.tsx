@@ -165,6 +165,9 @@ export function ModelConfigForm({
   const choices = [...new Map([...catalog, ...models].map((model) => [model.id, model])).values()].filter((model) =>
     `${model.id} ${model.name ?? ''}`.toLowerCase().includes(search.toLowerCase()),
   )
+  const selectedIds = new Set(models.map((model) => model.id))
+  const selectedChoiceCount = choices.filter((model) => selectedIds.has(model.id)).length
+  const allChoicesSelected = choices.length > 0 && selectedChoiceCount === choices.length
   return (
     <Dialog
       open
@@ -338,7 +341,7 @@ export function ModelConfigForm({
               <div className="grid min-h-0 gap-4 lg:grid-cols-2">
                 <section
                   aria-label="接口模型列表"
-                  className="rounded-xl border border-border bg-background p-3 space-y-3"
+                  className="flex h-[28rem] min-w-0 flex-col gap-3 rounded-xl border border-border bg-background p-3"
                 >
                   <div className="flex items-center justify-between gap-2">
                     <h3 className="text-sm font-medium">接口模型列表</h3>
@@ -357,33 +360,67 @@ export function ModelConfigForm({
                       {listError}
                     </p>
                   )}
-                  <div className="max-h-80 overflow-y-auto space-y-1">
-                    {choices.length ? (
-                      choices.map((model) => (
-                        <label
-                          key={model.id}
-                          className="flex cursor-pointer items-start gap-2 rounded-md p-2 hover:bg-secondary"
-                        >
-                          <input
-                            type="checkbox"
-                            aria-label={`选择模型 ${model.id}`}
-                            checked={models.some((entry) => entry.id === model.id)}
-                            onChange={(event) => {
-                              if (event.target.checked) add(model)
-                              else setModels((current) => current.filter((entry) => entry.id !== model.id))
-                            }}
-                            className="mt-1 accent-primary"
-                          />
-                          <span className="min-w-0 text-sm break-all">
-                            <span className="font-mono">{model.id}</span>
-                            {model.name && <span className="block text-xs text-muted-foreground">{model.name}</span>}
-                          </span>
-                        </label>
-                      ))
-                    ) : (
-                      <p className="py-8 text-center text-sm text-muted-foreground">获取模型列表，或在下方手动添加。</p>
-                    )}
-                  </div>
+                  <label className="flex items-center gap-2 text-xs">
+                    <input
+                      type="checkbox"
+                      aria-label="全选当前列表模型"
+                      ref={(input) => {
+                        if (input) input.indeterminate = selectedChoiceCount > 0 && !allChoicesSelected
+                      }}
+                      checked={allChoicesSelected}
+                      disabled={!choices.length}
+                      onChange={(event) => {
+                        const checked = event.target.checked
+                        setModels((current) => {
+                          const choiceIds = new Set(choices.map((model) => model.id))
+                          if (!checked) return current.filter((model) => !choiceIds.has(model.id))
+                          const currentIds = new Set(current.map((model) => model.id))
+                          return [
+                            ...current,
+                            ...choices
+                              .filter((model) => !currentIds.has(model.id))
+                              .map((model) => draftModel(model, api)),
+                          ]
+                        })
+                      }}
+                      className="accent-primary"
+                    />
+                    全选当前列表
+                    <span className="text-muted-foreground">
+                      {selectedChoiceCount} / {choices.length}
+                    </span>
+                  </label>
+                  <ScrollArea type="always" aria-label="接口模型滚动列表" className="min-h-0 flex-1">
+                    <div className="space-y-1 pr-2">
+                      {choices.length ? (
+                        choices.map((model) => (
+                          <label
+                            key={model.id}
+                            className="flex cursor-pointer items-start gap-2 rounded-md p-2 hover:bg-secondary"
+                          >
+                            <input
+                              type="checkbox"
+                              aria-label={`选择模型 ${model.id}`}
+                              checked={selectedIds.has(model.id)}
+                              onChange={(event) => {
+                                if (event.target.checked) add(model)
+                                else setModels((current) => current.filter((entry) => entry.id !== model.id))
+                              }}
+                              className="mt-1 accent-primary"
+                            />
+                            <span className="min-w-0 text-sm break-all">
+                              <span className="font-mono">{model.id}</span>
+                              {model.name && <span className="block text-xs text-muted-foreground">{model.name}</span>}
+                            </span>
+                          </label>
+                        ))
+                      ) : (
+                        <p className="py-8 text-center text-sm text-muted-foreground">
+                          获取模型列表，或在下方手动添加。
+                        </p>
+                      )}
+                    </div>
+                  </ScrollArea>
                   <div className="flex gap-2">
                     <Input
                       aria-label="自定义模型 ID"
@@ -414,154 +451,164 @@ export function ModelConfigForm({
                 </section>
                 <section
                   aria-label="已选模型设置"
-                  className="rounded-xl border border-border bg-background p-3 space-y-3"
+                  className="flex h-[28rem] min-w-0 flex-col gap-3 rounded-xl border border-border bg-background p-3"
                 >
                   <h3 className="text-sm font-medium">已选模型 · {models.length}</h3>
-                  <p className="text-xs text-muted-foreground">未配置思考档位时默认全选，可按接口支持情况调整。</p>
-                  {!models.length && <p className="py-8 text-center text-sm text-muted-foreground">先选择一个模型。</p>}
-                  {models.map((model) => (
-                    <div key={model.id} className="rounded-lg bg-secondary/40 p-3 space-y-3">
-                      <div className="flex items-center justify-between gap-2">
-                        <h4 className="font-mono text-sm break-all">{model.id}</h4>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          aria-label={`移除模型 ${model.id}`}
-                          onClick={() => {
-                            setModels((current) => current.filter((entry) => entry.id !== model.id))
-                          }}
-                        >
-                          移除
-                        </Button>
-                      </div>
-                      <label className="block space-y-1 text-xs">
-                        显示名称
-                        <Input
-                          aria-label={`${model.id} 显示名称`}
-                          value={model.name ?? ''}
-                          placeholder={model.id}
-                          onChange={(event) => updateModel(model.id, { name: event.target.value || undefined })}
-                        />
-                      </label>
-                      <fieldset className="space-y-2">
-                        <legend className="text-xs">思考强度</legend>
-                        <label className="flex items-center gap-2 text-xs">
-                          <input
-                            type="checkbox"
-                            className="accent-primary"
-                            checked={model.reasoning ?? false}
-                            onChange={(event) => updateModel(model.id, { reasoning: event.target.checked })}
-                          />
-                          支持思考
-                        </label>
-                        <div className="flex flex-wrap gap-x-3 gap-y-2 text-xs">
-                          {thinkingLevels.map((level) => (
-                            <label key={level} className="flex items-center gap-1.5">
-                              <input
-                                type="checkbox"
-                                className="accent-primary"
-                                aria-label={`${model.id} ${THINKING_LEVEL_LABELS[level]}`}
-                                disabled={!model.reasoning}
-                                checked={model.thinkingLevelMap?.[level] !== null}
-                                onChange={(event) => {
-                                  const map = { ...model.thinkingLevelMap }
-                                  if (event.target.checked) {
-                                    const value = defaultThinkingMapping(api, level)
-                                    if (value === undefined) delete map[level]
-                                    else map[level] = value
-                                  } else map[level] = null
-                                  updateModel(model.id, { thinkingLevelMap: map })
-                                }}
-                              />
-                              {THINKING_LEVEL_LABELS[level]}
-                            </label>
-                          ))}
-                        </div>
-                      </fieldset>
-                      <CollapsibleSection title="高级模型参数" variant="inline">
-                        <div className="space-y-3">
-                          <div className="grid grid-cols-2 gap-3">
-                            {(['contextWindow', 'maxTokens'] as const).map((field) => (
-                              <label key={field} className="space-y-1 text-xs">
-                                {field === 'contextWindow' ? '上下文窗口' : '最大输出'}
-                                <Input
-                                  aria-label={`${model.id} ${field}`}
-                                  type="number"
-                                  min="1"
-                                  step="1"
-                                  value={model[field] ?? ''}
-                                  placeholder={field === 'contextWindow' ? '128000（Pi 默认）' : '16384（Pi 默认）'}
-                                  onChange={(event) =>
-                                    updateModel(model.id, {
-                                      [field]: event.target.value ? Number(event.target.value) : undefined,
-                                    })
-                                  }
-                                />
-                              </label>
-                            ))}
+                  <ScrollArea type="always" aria-label="已选模型滚动列表" className="min-h-0 flex-1">
+                    <div className="space-y-3 pr-2">
+                      {!models.length && (
+                        <p className="py-8 text-center text-sm text-muted-foreground">先选择一个模型。</p>
+                      )}
+                      {models.map((model) => (
+                        <div key={model.id} className="rounded-lg bg-secondary/40 p-3 space-y-3">
+                          <div className="flex items-center justify-between gap-2">
+                            <h4 className="font-mono text-sm break-all">{model.id}</h4>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              aria-label={`移除模型 ${model.id}`}
+                              onClick={() => {
+                                setModels((current) => current.filter((entry) => entry.id !== model.id))
+                              }}
+                            >
+                              移除
+                            </Button>
                           </div>
-                          <div className="flex flex-wrap gap-4 text-xs">
-                            <label className="flex items-center gap-2">
-                              <input
-                                type="checkbox"
-                                checked={model.input?.includes('image') ?? false}
-                                onChange={(event) =>
-                                  updateModel(model.id, { input: event.target.checked ? ['text', 'image'] : ['text'] })
-                                }
-                              />
-                              支持图片
-                            </label>
-                          </div>
-
-                          {(
-                            [
-                              { field: 'headersText', label: '请求头' },
-                              { field: 'compatText', label: 'compat' },
-                            ] as const
-                          ).map(({ field, label }) => (
-                            <label key={field} className="block space-y-1 text-xs">
-                              {label} JSON
-                              <Textarea
-                                aria-label={`${model.id} ${label} JSON`}
-                                value={model[field]}
-                                onChange={(event) => updateModel(model.id, { [field]: event.target.value })}
-                                className="font-mono"
-                              />
-                            </label>
-                          ))}
-                          {model.reasoning && (
-                            <div className="space-y-2">
-                              <p className="text-xs">思考等级映射</p>
-                              <p className="text-xs text-muted-foreground">
-                                填写接口接受的参数值；留空使用 Pi 协议默认值。极高和最大需显式映射。
-                              </p>
-                              <div className="grid grid-cols-2 gap-3">
-                                {thinkingLevels
-                                  .filter((level) => model.thinkingLevelMap?.[level] !== null)
-                                  .map((level) => (
-                                    <label key={level} className="space-y-1 text-xs">
-                                      {THINKING_LEVEL_LABELS[level]}（{level}）
-                                      <Input
-                                        aria-label={`${model.id} ${level} 映射`}
-                                        value={model.thinkingLevelMap?.[level] ?? ''}
-                                        placeholder={defaultThinkingMapping(api, level) ?? 'Pi 协议默认值'}
+                          <label className="block space-y-1 text-xs">
+                            显示名称
+                            <Input
+                              aria-label={`${model.id} 显示名称`}
+                              value={model.name ?? ''}
+                              placeholder={model.id}
+                              onChange={(event) => updateModel(model.id, { name: event.target.value || undefined })}
+                            />
+                          </label>
+                          <CollapsibleSection title="高级模型参数" variant="inline">
+                            <div className="space-y-3">
+                              <fieldset className="space-y-2">
+                                <legend className="text-xs">思考强度</legend>
+                                <p className="text-xs text-muted-foreground">
+                                  未配置思考档位时默认全选，可按接口支持情况调整。
+                                </p>
+                                <label className="flex items-center gap-2 text-xs">
+                                  <input
+                                    type="checkbox"
+                                    className="accent-primary"
+                                    checked={model.reasoning ?? false}
+                                    onChange={(event) => updateModel(model.id, { reasoning: event.target.checked })}
+                                  />
+                                  支持思考
+                                </label>
+                                <div className="flex flex-wrap gap-x-3 gap-y-2 text-xs">
+                                  {thinkingLevels.map((level) => (
+                                    <label key={level} className="flex items-center gap-1.5">
+                                      <input
+                                        type="checkbox"
+                                        className="accent-primary"
+                                        aria-label={`${model.id} ${THINKING_LEVEL_LABELS[level]}`}
+                                        disabled={!model.reasoning}
+                                        checked={model.thinkingLevelMap?.[level] !== null}
                                         onChange={(event) => {
                                           const map = { ...model.thinkingLevelMap }
-                                          const value = event.target.value || defaultThinkingMapping(api, level)
-                                          if (value === undefined) delete map[level]
-                                          else map[level] = value
+                                          if (event.target.checked) {
+                                            const value = defaultThinkingMapping(api, level)
+                                            if (value === undefined) delete map[level]
+                                            else map[level] = value
+                                          } else map[level] = null
                                           updateModel(model.id, { thinkingLevelMap: map })
                                         }}
                                       />
+                                      {THINKING_LEVEL_LABELS[level]}
                                     </label>
                                   ))}
+                                </div>
+                              </fieldset>
+                              <div className="grid grid-cols-2 gap-3">
+                                {(['contextWindow', 'maxTokens'] as const).map((field) => (
+                                  <label key={field} className="space-y-1 text-xs">
+                                    {field === 'contextWindow' ? '上下文窗口' : '最大输出'}
+                                    <Input
+                                      aria-label={`${model.id} ${field}`}
+                                      type="number"
+                                      min="1"
+                                      step="1"
+                                      value={model[field] ?? ''}
+                                      placeholder={field === 'contextWindow' ? '128000（Pi 默认）' : '16384（Pi 默认）'}
+                                      onChange={(event) =>
+                                        updateModel(model.id, {
+                                          [field]: event.target.value ? Number(event.target.value) : undefined,
+                                        })
+                                      }
+                                    />
+                                  </label>
+                                ))}
                               </div>
+                              <div className="flex flex-wrap gap-4 text-xs">
+                                <label className="flex items-center gap-2">
+                                  <input
+                                    type="checkbox"
+                                    checked={model.input?.includes('image') ?? false}
+                                    onChange={(event) =>
+                                      updateModel(model.id, {
+                                        input: event.target.checked ? ['text', 'image'] : ['text'],
+                                      })
+                                    }
+                                  />
+                                  支持图片
+                                </label>
+                              </div>
+
+                              {(
+                                [
+                                  { field: 'headersText', label: '请求头' },
+                                  { field: 'compatText', label: 'compat' },
+                                ] as const
+                              ).map(({ field, label }) => (
+                                <label key={field} className="block space-y-1 text-xs">
+                                  {label} JSON
+                                  <Textarea
+                                    aria-label={`${model.id} ${label} JSON`}
+                                    value={model[field]}
+                                    onChange={(event) => updateModel(model.id, { [field]: event.target.value })}
+                                    className="font-mono"
+                                  />
+                                </label>
+                              ))}
+                              {model.reasoning && (
+                                <div className="space-y-2">
+                                  <p className="text-xs">思考等级映射</p>
+                                  <p className="text-xs text-muted-foreground">
+                                    填写接口接受的参数值；留空使用 Pi 协议默认值。极高和最大需显式映射。
+                                  </p>
+                                  <div className="grid grid-cols-2 gap-3">
+                                    {thinkingLevels
+                                      .filter((level) => model.thinkingLevelMap?.[level] !== null)
+                                      .map((level) => (
+                                        <label key={level} className="space-y-1 text-xs">
+                                          {THINKING_LEVEL_LABELS[level]}（{level}）
+                                          <Input
+                                            aria-label={`${model.id} ${level} 映射`}
+                                            value={model.thinkingLevelMap?.[level] ?? ''}
+                                            placeholder={defaultThinkingMapping(api, level) ?? 'Pi 协议默认值'}
+                                            onChange={(event) => {
+                                              const map = { ...model.thinkingLevelMap }
+                                              const value = event.target.value || defaultThinkingMapping(api, level)
+                                              if (value === undefined) delete map[level]
+                                              else map[level] = value
+                                              updateModel(model.id, { thinkingLevelMap: map })
+                                            }}
+                                          />
+                                        </label>
+                                      ))}
+                                  </div>
+                                </div>
+                              )}
                             </div>
-                          )}
+                          </CollapsibleSection>
                         </div>
-                      </CollapsibleSection>
+                      ))}
                     </div>
-                  ))}
+                  </ScrollArea>
                 </section>
               </div>
               {busy && (

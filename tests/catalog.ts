@@ -118,6 +118,7 @@ const files: Array<[string, Feature[]]> = [
   ['packages/app-ui/tests/editor-settings.component.test.tsx', ['settings']],
   ['packages/app-ui/tests/generation-metrics.component.test.tsx', ['models', 'usage']],
   ['packages/app-ui/tests/keyboard-shortcuts.component.test.tsx', ['settings', 'chat', 'workspace']],
+  ['packages/app-ui/tests/model-config.component.test.tsx', ['models', 'settings']],
   ['packages/app-ui/tests/multi-service-sidebar.component.test.tsx', ['workspace', 'connection']],
   ['packages/app-ui/tests/multi-service-sidebar.unit.test.ts', ['workspace', 'connection']],
   ['packages/app-ui/tests/page-header.component.test.tsx', ['workspace', 'settings']],

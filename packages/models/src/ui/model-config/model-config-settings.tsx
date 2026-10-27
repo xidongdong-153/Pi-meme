@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useId, useRef, useState } from 'react'
 import type {
   ConfiguredProvider,
   ModelApi,
@@ -41,6 +41,8 @@ export function ModelConfigSettings({
   const [thinkingSaving, setThinkingSaving] = useState(false)
   const [editing, setEditing] = useState<ConfiguredProvider | 'new' | null>(null)
   const [deleting, setDeleting] = useState<ConfiguredProvider | null>(null)
+  const [providerTab, setProviderTab] = useState<'builtin' | 'custom'>('builtin')
+  const tabsId = useId()
   const active = useRef(true)
   const lock = useRef(false)
   const defaultLock = useRef(false)
@@ -201,88 +203,143 @@ export function ModelConfigSettings({
           </SelectContent>
         </Select>
       </div>
-      <BuiltinProviders bridge={bridge} disabled={busy || saving || loading} />
-      <div className="flex flex-wrap justify-between gap-3">
-        <p className="text-sm text-muted-foreground">管理自定义接口和 API Key，保存后自动重新连接 Pi。</p>
-        <div className="flex gap-2">
-          <Button variant="outline" disabled={loading || saving} onClick={() => void load()}>
-            <RefreshCw className={cn('mr-1.5 size-3.5', loading && 'animate-spin')} />
-            刷新配置
-          </Button>
-          <Button disabled={!snapshot || loading || saving} onClick={() => setEditing('new')}>
-            添加服务商
-          </Button>
-        </div>
+      <div role="tablist" aria-label="模型服务商类型" className="inline-flex gap-1 rounded-lg bg-secondary/50 p-1">
+        {(
+          [
+            { id: 'builtin', label: '内置提供商' },
+            { id: 'custom', label: '自定义提供商' },
+          ] as const
+        ).map(({ id, label }) => (
+          <button
+            key={id}
+            id={`${tabsId}-${id}`}
+            type="button"
+            role="tab"
+            aria-selected={providerTab === id}
+            aria-controls={`${tabsId}-${id}-panel`}
+            tabIndex={providerTab === id ? 0 : -1}
+            data-tab={id}
+            className={cn(
+              'rounded-md px-4 py-1.5 text-sm text-muted-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              providerTab === id && 'bg-secondary text-foreground',
+            )}
+            onClick={() => setProviderTab(id)}
+            onKeyDown={(event) => {
+              if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+              event.preventDefault()
+              const next =
+                event.key === 'Home'
+                  ? 'builtin'
+                  : event.key === 'End'
+                    ? 'custom'
+                    : providerTab === 'builtin'
+                      ? 'custom'
+                      : 'builtin'
+              setProviderTab(next)
+              event.currentTarget.parentElement?.querySelector<HTMLButtonElement>(`[data-tab="${next}"]`)?.focus()
+            }}
+          >
+            {label}
+          </button>
+        ))}
       </div>
-      {!snapshot && loading && (
-        <div className="space-y-3" data-testid="models-skeleton-providers">
-          <BentoSkeletonCard delay={0}>
-            <div className="flex items-center justify-between">
-              <div className="space-y-1.5">
-                <BentoSkeletonBar className="w-32" size="sm" />
-                <BentoSkeletonBar className="w-48" size="xs" />
-              </div>
-              <BentoSkeletonBar className="h-8 w-24 rounded-lg" />
-            </div>
-          </BentoSkeletonCard>
-          <BentoSkeletonCard delay={80}>
-            <div className="flex items-center justify-between">
-              <div className="space-y-1.5">
-                <BentoSkeletonBar className="w-28" size="sm" />
-                <BentoSkeletonBar className="w-40" size="xs" />
-              </div>
-              <BentoSkeletonBar className="h-8 w-24 rounded-lg" />
-            </div>
-          </BentoSkeletonCard>
+      <div
+        id={`${tabsId}-builtin-panel`}
+        role="tabpanel"
+        aria-labelledby={`${tabsId}-builtin`}
+        hidden={providerTab !== 'builtin'}
+      >
+        <BuiltinProviders bridge={bridge} disabled={busy || saving || loading} />
+      </div>
+      <div
+        id={`${tabsId}-custom-panel`}
+        role="tabpanel"
+        aria-labelledby={`${tabsId}-custom`}
+        hidden={providerTab !== 'custom'}
+        className="space-y-4"
+      >
+        <div className="flex flex-wrap justify-between gap-3">
+          <p className="text-sm text-muted-foreground">管理自定义接口和 API Key，保存后自动重新连接 Pi。</p>
+          <div className="flex gap-2">
+            <Button variant="outline" disabled={loading || saving} onClick={() => void load()}>
+              <RefreshCw className={cn('mr-1.5 size-3.5', loading && 'animate-spin')} />
+              刷新配置
+            </Button>
+            <Button disabled={!snapshot || loading || saving} onClick={() => setEditing('new')}>
+              添加服务商
+            </Button>
+          </div>
         </div>
-      )}
-      {snapshot && (
-        <>
-          {!snapshot.providers.length && (
-            <div className="rounded-xl border border-dashed border-border py-12 text-center space-y-2">
-              <p className="font-medium">尚未配置自定义服务商</p>
-              <p className="text-sm text-muted-foreground">添加接口、填写 API Key，再选择或添加模型。</p>
-            </div>
-          )}
-          {snapshot.providers.map((provider) => (
-            <div
-              key={provider.id}
-              className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-card p-5"
-            >
-              <div className="min-w-0 space-y-1">
-                <h3 className="font-medium">
-                  {provider.name}
-                  <span className="ml-2 font-mono text-xs text-muted-foreground">{provider.id}</span>
-                </h3>
-                <p className="text-sm text-muted-foreground">
-                  {apiLabels[provider.api as ModelApi] ?? (provider.api || '继承 SDK 协议')} · {provider.models.length}{' '}
-                  个模型 · {provider.hasApiKey ? '已配置 Key' : '未配置 Key'}
-                </p>
-                <p className="select-text break-all text-xs text-muted-foreground">
-                  {provider.baseUrl || '使用服务默认地址'}
-                </p>
+        {!snapshot && loading && (
+          <div className="space-y-3" data-testid="models-skeleton-providers">
+            <BentoSkeletonCard delay={0}>
+              <div className="flex items-center justify-between">
+                <div className="space-y-1.5">
+                  <BentoSkeletonBar className="w-32" size="sm" />
+                  <BentoSkeletonBar className="w-48" size="xs" />
+                </div>
+                <BentoSkeletonBar className="h-8 w-24 rounded-lg" />
               </div>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  disabled={saving || !modelApis.includes(provider.api as ModelApi)}
-                  onClick={() => setEditing(provider)}
-                >
-                  编辑
-                </Button>
-                <Button variant="ghost" disabled={busy || saving} onClick={() => setDeleting(provider)}>
-                  删除
-                </Button>
+            </BentoSkeletonCard>
+            <BentoSkeletonCard delay={80}>
+              <div className="flex items-center justify-between">
+                <div className="space-y-1.5">
+                  <BentoSkeletonBar className="w-28" size="sm" />
+                  <BentoSkeletonBar className="w-40" size="xs" />
+                </div>
+                <BentoSkeletonBar className="h-8 w-24 rounded-lg" />
               </div>
-              {!modelApis.includes(provider.api as ModelApi) && (
-                <p className="w-full text-xs text-muted-foreground">
-                  此配置使用继承协议或其他协议，请在配置文件中编辑。
-                </p>
-              )}
-            </div>
-          ))}
-        </>
-      )}
+            </BentoSkeletonCard>
+          </div>
+        )}
+        {snapshot && (
+          <>
+            {!snapshot.providers.length && (
+              <div className="rounded-xl border border-dashed border-border py-12 text-center space-y-2">
+                <p className="font-medium">尚未配置自定义服务商</p>
+                <p className="text-sm text-muted-foreground">添加接口、填写 API Key，再选择或添加模型。</p>
+              </div>
+            )}
+            {snapshot.providers.map((provider) => (
+              <div
+                key={provider.id}
+                className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-card p-5"
+              >
+                <div className="min-w-0 space-y-1">
+                  <h3 className="font-medium">
+                    {provider.name}
+                    <span className="ml-2 font-mono text-xs text-muted-foreground">{provider.id}</span>
+                  </h3>
+                  <p className="text-sm text-muted-foreground">
+                    {apiLabels[provider.api as ModelApi] ?? (provider.api || '继承 SDK 协议')} ·{' '}
+                    {provider.models.length} 个模型 · {provider.hasApiKey ? '已配置 Key' : '未配置 Key'}
+                  </p>
+                  <p className="select-text break-all text-xs text-muted-foreground">
+                    {provider.baseUrl || '使用服务默认地址'}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    disabled={saving || !modelApis.includes(provider.api as ModelApi)}
+                    onClick={() => setEditing(provider)}
+                  >
+                    编辑
+                  </Button>
+                  <Button variant="ghost" disabled={busy || saving} onClick={() => setDeleting(provider)}>
+                    删除
+                  </Button>
+                </div>
+                {!modelApis.includes(provider.api as ModelApi) && (
+                  <p className="w-full text-xs text-muted-foreground">
+                    此配置使用继承协议或其他协议，请在配置文件中编辑。
+                  </p>
+                )}
+              </div>
+            ))}
+          </>
+        )}
+      </div>
       {error && (
         <p role="alert" className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
           {error}

@@ -42,6 +42,7 @@ module.exports = async (window, waitFor, outputDirectory) => {
   try {
     await evaluate('document.querySelector("button[aria-label=设置]").click()')
     await clickText('模型')
+    await clickText('自定义提供商')
     const initiallyEmpty = await evaluate(
       'window.piMemeClient.getModelConfig().then(config => config.providers.length === 0)',
     )
@@ -129,11 +130,14 @@ module.exports = async (window, waitFor, outputDirectory) => {
     )
     assert.equal(
       await evaluate(`(() => {
-      const container = document.querySelector('[aria-label="模型配置内容"] [data-radix-scroll-area-viewport]');
-      container.scrollTop = container.scrollHeight;
-      const bounds = container.getBoundingClientRect();
-      const bottom = document.querySelector('[aria-label="manual-model-5 思考等级映射 JSON"]').getBoundingClientRect();
-      return container.scrollTop > 0 && bottom.top >= bounds.top && bottom.bottom <= bounds.bottom;
+      const outer = document.querySelector('[aria-label="模型配置内容"] [data-radix-scroll-area-viewport]');
+      const inner = document.querySelector('[aria-label="已选模型滚动列表"] [data-radix-scroll-area-viewport]');
+      outer.scrollTop = outer.scrollHeight;
+      inner.scrollTop = inner.scrollHeight;
+      const outerBounds = outer.getBoundingClientRect();
+      const innerBounds = inner.getBoundingClientRect();
+      const bottom = document.querySelector('[aria-label="manual-model-5 max 映射"]').getBoundingClientRect();
+      return outer.scrollTop > 0 && inner.scrollTop > 0 && bottom.top >= Math.max(outerBounds.top, innerBounds.top) && bottom.bottom <= Math.min(outerBounds.bottom, innerBounds.bottom);
     })()`),
       true,
       '弹窗必须实际滚到最后一个模型参数',
@@ -195,6 +199,7 @@ module.exports = async (window, waitFor, outputDirectory) => {
     await waitFor(() => evaluate('!document.querySelector("[role=slider]")'), '关闭聊天模型选择器')
     await evaluate('document.querySelector("button[aria-label=设置]").click()')
     await clickText('模型')
+    await clickText('自定义提供商')
     await waitFor(() => evaluate('document.body.innerText.includes("桌面验收接口")'), '返回模型设置')
     await evaluate(`(() => {
       const card = [...document.querySelectorAll('div')].reverse().find(node => node.textContent.includes('桌面验收接口') && node.querySelector('button'));
