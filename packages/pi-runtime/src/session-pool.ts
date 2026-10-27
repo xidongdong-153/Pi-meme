@@ -56,7 +56,7 @@ import { getPiVersion, loadPiSdk } from './sdk/load'
 import type { ModelRestore, PiRuntime } from './runtime'
 import { invalidateSessionHistory, readSessionHistory, type SessionHistoryData } from './session-history'
 import { projectBranchEntries } from './session-tree-entries'
-import { readLocalModels, readLocalPreferences, readLocalSkills } from './session-metadata'
+import { defaultModelConfiguration, readLocalModels, readLocalPreferences, readLocalSkills } from './session-metadata'
 import { createPiRuntimePaths, type PiRuntimePaths } from './runtime-paths'
 import { MemoryCredentialStorage } from './secure-store'
 
@@ -1321,10 +1321,18 @@ export class PiSessionPool implements PiRuntime {
       if (!target || !this.sessions.has(target.key)) return
       const preferences = await readLocalPreferences(target.cwd, this.runtimePaths.agentDir)
       if (epoch !== this.epoch || !this.sessions.has(target.key)) return
-      if (!target.state.model && !target.sessionFile) {
-        target.state.model =
-          models.find((model) => model.id === preferences.modelId && model.provider === preferences.provider) ??
-          models[0]
+      const missingModel =
+        target.state.model &&
+        !models.some((model) => model.id === target.state.model?.id && model.provider === target.state.model?.provider)
+      if ((!target.state.model && !target.sessionFile) || missingModel) {
+        const fallback = defaultModelConfiguration(models, preferences)
+        if (fallback) {
+          target.state.model = fallback.model
+          if (missingModel) {
+            target.state.thinkingLevel = fallback.thinkingLevel
+            target.state.modelSelectionRequired = false
+          }
+        }
       }
       if (!target.sessionFile && target.state.thinkingLevel == null) {
         const model = target.state.model

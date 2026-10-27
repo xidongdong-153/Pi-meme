@@ -82,6 +82,7 @@ import { ExtensionUiBridge } from './ui-bridge'
 import { freezeResourceLoader, snapshotSkills } from './resource-loader'
 import { eventUiSource, persistMessageSource } from './ui-source'
 import { projectStableMessageMetadata, projectStableMessages } from './message-projection'
+import { defaultModelConfiguration, readLocalPreferences } from '../session-metadata'
 
 type Notify = {
   connection: (value: Connection) => void
@@ -373,16 +374,24 @@ export class SdkSession {
       await this.ready
       const models = await this.getAvailableModels()
       const selected = restore?.model
-      this.modelSelectionRequired = Boolean(selected)
-      if (selected && models.some((model) => model.provider === selected.provider && model.id === selected.id)) {
+      const available =
+        selected && models.some((model) => model.provider === selected.provider && model.id === selected.id)
+      const fallback =
+        selected && !available
+          ? defaultModelConfiguration(models, await readLocalPreferences(this.cwd, this.paths.agentDir))
+          : undefined
+      const model = available ? selected : fallback?.model
+      const thinkingLevel = available ? restore?.thinkingLevel : fallback?.thinkingLevel
+      this.modelSelectionRequired = Boolean(selected && !model)
+      if (model) {
         if (this.preparationMode !== undefined) {
           const restored = this.session.modelRuntime
             .getAvailableSnapshot()
-            .find((model) => model.provider === selected.provider && model.id === selected.id)
+            .find((entry) => entry.provider === model.provider && entry.id === model.id)
           if (restored) await this.session.setModel(restored)
-        } else await this.setModel(selected)
+        } else await this.setModel(model)
         this.modelSelectionRequired = false
-        if (restore?.thinkingLevel) this.session.setThinkingLevel(restore.thinkingLevel)
+        if (thinkingLevel) this.session.setThinkingLevel(thinkingLevel)
       } else if (selected) {
         this.report('当前模型已不可用，请在聊天中重新选择模型')
       }
@@ -633,7 +642,9 @@ export class SdkSession {
       })
       const model = created.session.model
       created.session.setThinkingLevel(
-        thinkingLevels.find((level) => level === savedThinking?.thinkingLevel) ??
+        (created.modelFallbackMessage
+          ? undefined
+          : thinkingLevels.find((level) => level === savedThinking?.thinkingLevel)) ??
           (model && settingsManager.getModelThinkingLevel(model.provider, model.id)) ??
           settingsManager.getDefaultThinkingLevel() ??
           'medium',

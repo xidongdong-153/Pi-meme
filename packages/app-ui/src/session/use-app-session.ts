@@ -25,6 +25,10 @@ import { SnapshotSync } from './snapshot-sync'
 import { PluginSnapshotSync } from './plugin-snapshot-sync'
 import { ComposerDrafts } from './composer-drafts'
 
+function modelIsAvailable(models: PiModel[], model?: PiModel) {
+  return Boolean(model && models.some((entry) => entry.provider === model.provider && entry.id === model.id))
+}
+
 /** 主对话事件订阅；选择事务和快照读取分别隔离过期结果，子代理对话独立订阅。 */
 export function useAppSession(
   bridge: DesktopBridge,
@@ -364,7 +368,7 @@ export function useAppSession(
       !current.current.accessChanging &&
       (current.current.status === 'ready' || current.current.status === 'idle') &&
       (!state?.modelSelectionRequired ||
-        Boolean(chatRef.current?.pendingConfiguration?.model || chatRef.current?.editConfiguration?.model)),
+        modelIsAvailable(models, (chatRef.current?.editConfiguration ?? chatRef.current?.pendingConfiguration)?.model)),
     isSwitching: () => selection.current.current !== null,
     awaitPendingSwitch: async () => {
       await selection.current.pending
@@ -389,6 +393,13 @@ export function useAppSession(
     },
   })
   chatRef.current = chat
+  const draftModel = (chat.editConfiguration ?? chat.pendingConfiguration)?.model
+  useEffect(() => {
+    const model = state?.model
+    if (loading || switching || previewing || !model || !draftModel) return
+    if (modelIsAvailable(models, model) && !modelIsAvailable(models, draftModel))
+      chatRef.current?.updateConfiguration({ model, thinkingLevel: state?.thinkingLevel })
+  }, [loading, switching, previewing, state?.model, state?.thinkingLevel, models, draftModel, chat.editSubmitting])
   const bindDraftSession = useCallback(
     (key: string, sessionId: string) => {
       const saved = drafts.bind(key, sessionId)
@@ -1016,7 +1027,7 @@ export function useAppSession(
     previewing ||
     (connection.status !== 'ready' && connection.status !== 'idle') ||
     Boolean(connection.accessChanging) ||
-    (Boolean(state?.modelSelectionRequired) && !chat.pendingConfiguration?.model && !chat.editConfiguration?.model)
+    (Boolean(state?.modelSelectionRequired) && !modelIsAvailable(models, draftModel))
   const modelPickerDisabled =
     chat.editSubmitting ||
     loading ||

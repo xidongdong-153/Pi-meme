@@ -56,7 +56,7 @@ stateDiagram-v2
 
 Worker 创建时固定技能资源快照与外部插件代次。资源变更发布新修订后，相关任务和未答交互结束才退役旧 Worker；新一轮读取新修订。纯 Agent 插件版本可共存，共享 Server 组切换需等待所属调用和租约释放，详见 [插件生命周期](plugins.md#释放与更新)。
 
-模型配置修改保留空闲检查、恢复状态捕获、写文件、重连和恢复顺序。失败保留会话身份、正文和已保存配置；原模型已不存在时要求重新选择，模型与命令缓存随重连失效。回归入口见 [session-mutations.integration.test.ts](../packages/pi-runtime/tests/session-mutations.integration.test.ts) 与 [model-reconnect.integration.test.ts](../apps/desktop/tests/model-reconnect.integration.test.ts)。
+模型配置修改保留空闲检查、恢复状态捕获、写文件、重连和恢复顺序。失败保留会话身份、正文和已保存配置。打开历史会话或重连时，原模型不可用则使用默认模型；默认模型也不可用时选择其他可用模型。思考强度使用该模型的设置或全局默认值，并按模型支持的档位调整。没有可用模型时需要先配置模型。模型与命令缓存随重连失效。回归入口见 [session-configuration.integration.test.ts](../packages/pi-runtime/tests/session-configuration.integration.test.ts) 与 [model-reconnect.integration.test.ts](../apps/desktop/tests/model-reconnect.integration.test.ts)。
 
 ## 当前活动：项目服务
 

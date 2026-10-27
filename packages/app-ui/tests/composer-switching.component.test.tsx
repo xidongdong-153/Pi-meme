@@ -664,6 +664,89 @@ test('切回看过的会话立即展示缓存，Host确认前保持发送禁用'
   expect(result.current.inputDisabled).toBe(false)
 })
 
+test('历史草稿中的模型已移除时使用会话回退配置并保留草稿', async () => {
+  const switchSession = vi.fn<DesktopBridge['switchSession']>()
+  const prompt = vi.fn().mockResolvedValue(undefined)
+  const { result, snapshot } = setup({ switchSession, prompt })
+  const fallback = { provider: 'fake', id: 'first', name: '模型 Alpha', reasoning: true }
+  const removed = { provider: 'removed', id: 'old', name: '旧模型', reasoning: true }
+  snapshot.state = { ...snapshot.state, model: fallback, thinkingLevel: 'low', isStreaming: true }
+  snapshot.models = [fallback, removed]
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  act(() => {
+    result.current.setDraft('保留的历史草稿')
+    void result.current.selectModel(removed)
+    result.current.selectThinkingLevel('high')
+  })
+  expect(result.current.selectedConfiguration).toEqual({ model: removed, thinkingLevel: 'high' })
+
+  switchSession.mockResolvedValueOnce({
+    cancelled: false,
+    snapshot: {
+      ...snapshot,
+      connection: { ...snapshot.connection, generation: 2, sessionKey: 'second' },
+      state: { ...snapshot.state, isStreaming: false },
+      models: [fallback],
+    },
+  })
+  await act(async () => result.current.switchSession('second'))
+  switchSession.mockResolvedValueOnce({
+    cancelled: false,
+    snapshot: {
+      ...snapshot,
+      connection: { ...snapshot.connection, generation: 3 },
+      state: { ...snapshot.state, isStreaming: false },
+      models: [fallback],
+    },
+  })
+  await act(async () => result.current.switchSession('main'))
+  expect(result.current.draft).toBe('保留的历史草稿')
+  expect(result.current.selectedConfiguration).toEqual({ model: fallback, thinkingLevel: 'low' })
+  await act(async () => result.current.send())
+  expect(prompt).toHaveBeenCalledWith('main', '保留的历史草稿', [], [], {
+    mode: 'default',
+    model: fallback,
+    thinkingLevel: 'low',
+  })
+})
+
+test('没有可用模型时保留历史草稿并禁止发送', async () => {
+  const switchSession = vi.fn<DesktopBridge['switchSession']>()
+  const prompt = vi.fn().mockResolvedValue(undefined)
+  const { result, snapshot } = setup({ switchSession, prompt })
+  const removed = { provider: 'removed', id: 'old', reasoning: true }
+  snapshot.state = { ...snapshot.state, model: removed, isStreaming: true }
+  snapshot.models = [removed]
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  act(() => {
+    result.current.setDraft('等待配置模型')
+    void result.current.selectModel(removed)
+  })
+  switchSession.mockResolvedValueOnce({
+    cancelled: false,
+    snapshot: {
+      ...snapshot,
+      connection: { ...snapshot.connection, generation: 2, sessionKey: 'second' },
+      state: { ...snapshot.state, isStreaming: false },
+    },
+  })
+  await act(async () => result.current.switchSession('second'))
+  switchSession.mockResolvedValueOnce({
+    cancelled: false,
+    snapshot: {
+      ...snapshot,
+      connection: { ...snapshot.connection, generation: 3 },
+      state: { ...snapshot.state, isStreaming: false, modelSelectionRequired: true },
+      models: [],
+    },
+  })
+  await act(async () => result.current.switchSession('main'))
+  expect(result.current.draft).toBe('等待配置模型')
+  expect(result.current.inputDisabled).toBe(true)
+  expect(result.current.canSubmitComposer()).toBe(false)
+  expect(prompt).not.toHaveBeenCalled()
+})
+
 test('新建立即显示空白草稿，创建期间输入在确认后保留且原草稿独立', async () => {
   const opening = deferred<SessionSelectionResult>()
   const { result, snapshot } = setup({

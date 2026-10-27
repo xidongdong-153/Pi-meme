@@ -1,4 +1,10 @@
-import { thinkingLevels, type PiModel, type PiSlashCommand, type ThinkingLevel } from '@pi-meme/contracts/pi'
+import {
+  resolveThinkingLevel,
+  thinkingLevels,
+  type PiModel,
+  type PiSlashCommand,
+  type ThinkingLevel,
+} from '@pi-meme/contracts/pi'
 import type { SecureCredentialStorage } from '@pi-meme/contracts/secure-storage'
 import { loadPiSdk } from './sdk/load'
 import { createDesktopModelRuntime, projectModel } from './sdk/model-runtime'
@@ -31,6 +37,22 @@ export async function readLocalPreferences(cwd: string, agentDir: string) {
     modelId: settings.getDefaultModel(),
     thinkingLevel: asThinkingLevel(settings.getDefaultThinkingLevel()),
     modelThinkingLevels,
+  }
+}
+
+export function defaultModelConfiguration(
+  models: PiModel[],
+  preferences: Awaited<ReturnType<typeof readLocalPreferences>>,
+) {
+  const model =
+    models.find((entry) => entry.provider === preferences.provider && entry.id === preferences.modelId) ?? models[0]
+  if (!model) return undefined
+  return {
+    model,
+    thinkingLevel: resolveThinkingLevel(
+      model,
+      preferences.modelThinkingLevels[`${model.provider}/${model.id}`] ?? preferences.thinkingLevel ?? 'medium',
+    ),
   }
 }
 

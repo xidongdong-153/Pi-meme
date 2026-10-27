@@ -65,6 +65,10 @@ test('模型配置重连恢复会话状态；扩展加载错误不丢失会话�
     }),
   )
   await writeFile(path.join(agentDir, 'models.json'), JSON.stringify({ providers }))
+  await writeFile(
+    path.join(agentDir, 'settings.json'),
+    JSON.stringify({ defaultProvider: 'fake', defaultModel: 'second', defaultThinkingLevel: 'low' }),
+  )
   const store = new ModelConfigStore(path.join(agentDir, 'models.json'), credentials, agentDir)
   const errors: string[] = []
   let nativeAgentEntries: string[] = []
@@ -159,18 +163,18 @@ test('模型配置重连恢复会话状态；扩展加载错误不丢失会话�
     )
     assert.equal(pool.getActiveSession().sessionFile, beforePath)
 
-    // 删除服务商后重连：进入重新选择模型状态并拦截提示
+    // 删除服务商后重连：使用可用默认模型与默认思考强度
     await pool.idle(async () => {
       const restore = await pool.captureRestoreState()
       const value = await store.snapshot()
       await store.delete('test-service', value.revision)
       await pool.reconnectModels(restore)
     })
-    assert.equal((await pool.snapshot()).state.modelSelectionRequired, true)
-    await assert.rejects(pool.prompt(key, '不应发送'), /先重新选择模型/)
-    assert.ok(errors.some((message) => message.includes('重新选择模型')))
-    await pool.setModel(key, { provider: 'fake', id: 'second' })
-    assert.equal((await pool.snapshot()).state.modelSelectionRequired, false)
+    const fallback = await pool.snapshot()
+    assert.equal(fallback.state.modelSelectionRequired, false)
+    assert.equal(fallback.state.model?.id, 'second')
+    assert.equal(fallback.state.thinkingLevel, 'low')
+    assert.ok(!errors.some((message) => message.includes('重新选择模型')))
 
     // 扩展加载错误只报告诊断，修复后重连会清除诊断
     await pool.setAccessMode(key, 'full-access')

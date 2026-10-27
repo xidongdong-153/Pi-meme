@@ -6,12 +6,19 @@ import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { PiSessionPool } from '../src/session-pool'
 import { SdkSession } from '../src/sdk/session'
+import { readSessionHistory } from '../src/session-history'
 import { createDesktopModelRuntime, projectModel } from '../src/sdk/model-runtime'
 import { loadPiSdk } from '../src/sdk/load'
 import type { DesktopEvent } from '@pi-meme/contracts/desktop'
 import { thinkingLevels, type PiExtensionDialogRequest } from '@pi-meme/contracts/pi'
 import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
-import { createTestSession, installProjectExtension, waitFor, savedSession } from './session-pool-fixture'
+import {
+  appSessionFile,
+  createTestSession,
+  installProjectExtension,
+  waitFor,
+  savedSession,
+} from './session-pool-fixture'
 
 test('会话档位与模型能力一致，映射后的 max 在发送和恢复时保持一致', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pi-thinking-levels-'))
@@ -289,20 +296,29 @@ test('权限切换保留实际执行代次，确认请求通过过期过滤且�
   }
 })
 
-test('恢复时模型不可用保留原选择，重新选择前禁止发送', async () => {
+test('历史模型不可用时使用默认模型和思考强度，发送后保留实际选择', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pi-pool-model-'))
-  const agent = await useFakeAgent(directory, {
-    models: [
-      { id: 'first', name: '模型 first', reasoning: true },
-      { id: 'second', name: '模型 second', reasoning: true },
-    ],
-  })
+  const models = [
+    { id: 'first', name: '模型 first', reasoning: true },
+    { id: 'second', name: '模型 second', reasoning: true, thinkingLevelMap: { low: null } },
+  ]
+  const agent = await useFakeAgent(directory, { models })
+  await writeFile(
+    path.join(agent.agentDir, 'settings.json'),
+    JSON.stringify({
+      defaultProvider: 'fake',
+      defaultModel: 'second',
+      defaultThinkingLevel: 'high',
+      modelThinkingLevels: { 'fake/second': 'low' },
+    }),
+  )
+  const errors: string[] = []
   const pool = new PiSessionPool(
     directory,
     {
       connection: () => {},
       event: () => {},
-      error: () => {},
+      error: (value) => errors.push(value.message),
       sessionsChanged: () => {},
     },
     undefined,
@@ -312,22 +328,150 @@ test('恢复时模型不可用保留原选择，重新选择前禁止发送', as
   )
   try {
     const file = await savedSession(agent, directory, 'saved')
+    const entries = (await readFile(file, 'utf8')).split('\n').map((line) => JSON.parse(line))
+    entries[1].provider = 'removed-provider'
+    entries[1].modelId = 'removed-model'
+    entries[2].parentId = 'thinking'
+    entries.splice(2, 0, {
+      type: 'thinking_level_change',
+      id: 'thinking',
+      parentId: 'model',
+      timestamp: '2026-09-29T00:00:00Z',
+      thinkingLevel: 'high',
+    })
+    const original = entries.map((entry) => JSON.stringify(entry)).join('\n')
+    await writeFile(file, original)
+    const directFile = await appSessionFile(agent, directory, 'direct.jsonl')
+    await writeFile(directFile, original)
+    const direct = new SdkSession(
+      directory,
+      { connection: () => {}, event: () => {}, error: (value) => errors.push(value.message) },
+      agent.runtimePaths,
+      agent.credentials,
+    )
+    try {
+      direct.start(directory, directFile)
+      const restored = await direct.snapshot()
+      assert.equal(restored.state.model?.id, 'second')
+      assert.equal(restored.state.thinkingLevel, 'medium')
+    } finally {
+      await direct.stopAndWait()
+    }
     pool.prepare(directory)
-    await pool.switchSession(file)
+    const selection = await pool.switchSession(file)
+    assert.equal(selection.cancelled, false)
     const key = pool.connection().sessionKey!
-    await pool.setModel(key, { provider: 'fake', id: 'removed' })
-    await pool.idle(() => pool.reconnectModels(), true)
     const snapshot = await pool.snapshot()
-    assert.equal(snapshot.state.modelSelectionRequired, true)
-    assert.equal(snapshot.state.model?.id, 'removed')
-    await assert.rejects(pool.prompt(key, '不应发送'), /先重新选择模型/)
-    await pool.setModel(key, { provider: 'fake', id: 'second' })
+    assert.equal(snapshot.state.modelSelectionRequired, false)
+    assert.equal(snapshot.state.model?.id, 'second')
+    assert.equal(snapshot.state.thinkingLevel, 'medium')
+    assert.equal(await readFile(file, 'utf8'), original)
     await pool.prompt(key, 'long-conversation')
     await waitFor(() => pool.getRuntimeSessions().every((session) => !session.running))
     assert.equal((await pool.snapshot()).state.model?.id, 'second')
+    assert.equal((await pool.snapshot()).state.thinkingLevel, 'medium')
+    assert.equal(agent.provider.requests.at(-1)?.model, 'second')
+    assert.equal(agent.provider.requests.at(-1)?.reasoning_effort, 'medium')
+    const history = await readSessionHistory(file)
+    assert.deepEqual(history.model, { provider: 'fake', id: 'second' })
+    assert.equal(history.thinkingLevel, 'medium')
+    assert.deepEqual(errors, [])
   } finally {
     pool.stop()
     await delay(100)
+    await agent.dispose()
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('历史模型仍可用时保留原模型和思考强度', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pi-pool-model-available-'))
+  const agent = await useFakeAgent(directory, {
+    models: [
+      { id: 'first', reasoning: true },
+      { id: 'second', reasoning: true },
+    ],
+  })
+  await writeFile(
+    path.join(agent.agentDir, 'settings.json'),
+    JSON.stringify({ defaultProvider: 'fake', defaultModel: 'second', defaultThinkingLevel: 'low' }),
+  )
+  const file = await savedSession(agent, directory, 'saved')
+  const entries = (await readFile(file, 'utf8')).split('\n').map((line) => JSON.parse(line))
+  entries[2].parentId = 'thinking'
+  entries.splice(2, 0, {
+    type: 'thinking_level_change',
+    id: 'thinking',
+    parentId: 'model',
+    timestamp: '2026-09-29T00:00:00Z',
+    thinkingLevel: 'high',
+  })
+  await writeFile(file, entries.map((entry) => JSON.stringify(entry)).join('\n'))
+  const pool = new PiSessionPool(
+    directory,
+    { connection: () => {}, event: () => {}, error: () => {}, sessionsChanged: () => {} },
+    undefined,
+    agent.runtimePaths,
+    agent.credentials,
+    createTestSession,
+  )
+  try {
+    pool.prepare(directory)
+    await pool.switchSession(file)
+    const snapshot = await pool.snapshot()
+    assert.equal(snapshot.state.model?.id, 'first')
+    assert.equal(snapshot.state.thinkingLevel, 'high')
+    await pool.prompt(pool.connection().sessionKey!, '继续旧会话')
+    await waitFor(() => pool.getRuntimeSessions().every((session) => !session.running))
+    assert.equal(agent.provider.requests.at(-1)?.model, 'first')
+    assert.equal(agent.provider.requests.at(-1)?.reasoning_effort, 'high')
+  } finally {
+    await pool.stopAndWait()
+    await agent.dispose()
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('历史模型和默认模型均不可用时选择其他可用模型；没有可用模型时保留待选择状态', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pi-pool-model-fallback-'))
+  const agent = await useFakeAgent(directory, { models: [{ id: 'first', reasoning: false }] })
+  await writeFile(
+    path.join(agent.agentDir, 'settings.json'),
+    JSON.stringify({ defaultProvider: 'removed', defaultModel: 'removed', defaultThinkingLevel: 'high' }),
+  )
+  const file = await savedSession(agent, directory, 'saved')
+  const entries = (await readFile(file, 'utf8')).split('\n').map((line) => JSON.parse(line))
+  entries[1].provider = 'removed'
+  await writeFile(file, entries.map((entry) => JSON.stringify(entry)).join('\n'))
+  const createPool = () =>
+    new PiSessionPool(
+      directory,
+      { connection: () => {}, event: () => {}, error: () => {}, sessionsChanged: () => {} },
+      undefined,
+      agent.runtimePaths,
+      agent.credentials,
+      createTestSession,
+    )
+  let pool = createPool()
+  try {
+    pool.prepare(directory)
+    await pool.switchSession(file)
+    let snapshot = await pool.snapshot()
+    assert.equal(snapshot.state.model?.id, 'first')
+    assert.equal(snapshot.state.thinkingLevel, 'off')
+    assert.equal(snapshot.state.modelSelectionRequired, false)
+    await pool.stopAndWait()
+
+    agent.credentials.delete('model-provider:fake')
+    pool = createPool()
+    pool.prepare(directory)
+    await pool.switchSession(file)
+    snapshot = await pool.snapshot()
+    assert.equal(snapshot.state.model?.provider, 'removed')
+    assert.equal(snapshot.state.modelSelectionRequired, true)
+    assert.deepEqual(snapshot.models, [])
+  } finally {
+    await pool.stopAndWait()
     await agent.dispose()
     await rm(directory, { recursive: true, force: true })
   }
