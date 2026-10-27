@@ -620,3 +620,352 @@ test('app-control 无变化查询读操作零写入，会话删除 API 闭环清
     await rm(root, { recursive: true, force: true })
   }
 })
+
+test('临时会话在 ControlStore 中全程零落盘：无 session_upsert、无 operations、无 snapshot 记录，关闭后彻底清除', async (t) => {
+  const { paths, store } = await fixture(t)
+  const tempSession: any = {
+    hostId: 'host-test',
+    sessionId: 'temp-session-id',
+    cwd: '/tmp/temp-cwd',
+    createdAt: new Date().toISOString(),
+    configuration: {},
+    status: 'idle',
+    temporary: true,
+  }
+
+  // 1. saveSession 不向 events.jsonl 写 session_upsert
+  await store.saveSession(tempSession)
+  assert.equal(store.state.sessions.find((s) => s.sessionId === 'temp-session-id')?.temporary, true)
+  let eventsContent = await readFile(paths.controlEventsFile, 'utf8').catch(() => '')
+  assert.ok(!eventsContent.includes('temp-session-id'), 'events.jsonl 不包含临时会话 session_upsert')
+
+  // 2. mutate 对临时会话操作不向 operations.jsonl 写明文
+  let actionCalled = false
+  const mutateResult = await store.mutate(
+    'client-1',
+    'idemp-1',
+    'sessions.submit',
+    [{ sessionId: 'temp-session-id', text: '机密临时提问' }],
+    async (opId) => {
+      actionCalled = true
+      return { operationId: opId, ok: true }
+    },
+    { ephemeral: true },
+  )
+  assert.ok(actionCalled)
+  assert.equal(mutateResult.ok, true)
+  const opsContent = await readFile(paths.controlOperationsFile, 'utf8').catch(() => '')
+  assert.ok(!opsContent.includes('temp-session-id'), 'operations.jsonl 不包含临时会话操作')
+  assert.ok(!opsContent.includes('机密临时提问'), 'operations.jsonl 不包含临时会话输入')
+
+  // 3. publish 对临时会话事件只做内存广播，不追加 events.jsonl
+  let broadcastReceived: HostControlEvent | undefined
+  const unsubscribe = store.subscribe({}, (event) => {
+    broadcastReceived = event
+  })
+  const receipt: SubmissionReceipt = {
+    operationId: 'op-1',
+    submissionId: 'sub-1',
+    session: { hostId: 'host-test', sessionId: 'temp-session-id' },
+    delivery: 'start',
+    status: 'accepted',
+  }
+  await store.publish({ type: 'submission', sessionId: 'temp-session-id', value: receipt }, tempSession)
+  assert.ok(broadcastReceived)
+  assert.equal(broadcastReceived?.sessionId, 'temp-session-id')
+  eventsContent = await readFile(paths.controlEventsFile, 'utf8').catch(() => '')
+  assert.ok(!eventsContent.includes('temp-session-id'), 'events.jsonl 不包含临时提交回执')
+  unsubscribe()
+
+  // 4. checkpoint 快照排查临时会话与临时回执
+  await store.checkpoint()
+  const snapContent = JSON.parse(await readFile(paths.controlSnapshotFile, 'utf8'))
+  assert.ok(!snapContent.sessions.some((s: any) => s.sessionId === 'temp-session-id'), '快照不含临时会话')
+  assert.ok(!snapContent.receipts.some((r: any) => r.session.sessionId === 'temp-session-id'), '快照不含临时回执')
+
+  // 5. deleteSession 清除内存且不向 events.jsonl 写 session_delete
+  await store.deleteSession('temp-session-id')
+  assert.equal(
+    store.state.sessions.find((s) => s.sessionId === 'temp-session-id'),
+    undefined,
+  )
+  eventsContent = await readFile(paths.controlEventsFile, 'utf8').catch(() => '')
+  assert.ok(!eventsContent.includes('temp-session-id'), 'events.jsonl 不含 session_delete')
+})
+
+test('幂等冲突回归：临时操作复用普通操作 key 发生冲突时不误将普通操作标记为 ephemeral，checkpoint 保留普通操作', async (t) => {
+  const { paths, store } = await fixture(t)
+
+  // 1. 执行普通持久操作
+  await store.mutate('client-fixed', 'key-dup', 'normal.op', [{ val: 'persistent-input' }], async () => {
+    return { status: 'ok', data: 'persistent-val' }
+  })
+  let ops = await readFile(paths.controlOperationsFile, 'utf8')
+  assert.ok(ops.includes('persistent-val'), '初始 operations.jsonl 包含普通操作')
+
+  // 2. 模拟以相同 key 发起临时操作，但参数不同触发 idempotency-conflict
+  await assert.rejects(
+    store.mutate(
+      'client-fixed',
+      'key-dup',
+      'temp.op',
+      [{ val: 'different-temp-input' }],
+      async () => ({ status: 'temp-val' }),
+      { ephemeral: true },
+    ),
+    (e: any) => e instanceof ControlError && e.code === 'idempotency-conflict',
+  )
+
+  // 3. 执行 checkpoint，验证原普通操作绝未被当做 ephemeral 漏写
+  await store.checkpoint()
+  ops = await readFile(paths.controlOperationsFile, 'utf8')
+  assert.ok(ops.includes('persistent-val'), 'checkpoint 后普通操作依然完整保留在 operations.jsonl')
+})
+
+test('跨窗口隔离回归：临时会话事件仅广播给其 ownerClientId 订阅者，其他窗口零泄漏', async (t) => {
+  const { store } = await fixture(t)
+  const tempSession: any = {
+    hostId: 'host-test',
+    sessionId: 'session-isolated',
+    cwd: '/tmp/isolated',
+    createdAt: new Date().toISOString(),
+    configuration: {},
+    status: 'idle',
+    temporary: true,
+    ownerClientId: 'window-owner-123',
+  }
+  await store.saveSession(tempSession)
+
+  const ownerEvents: HostControlEvent[] = []
+  const otherEvents: HostControlEvent[] = []
+
+  const unOwner = store.subscribe({}, (e) => ownerEvents.push(e), 'window-owner-123')
+  const unOther = store.subscribe({}, (e) => otherEvents.push(e), 'window-stranger-456')
+
+  const receipt: SubmissionReceipt = {
+    operationId: 'op-iso',
+    submissionId: 'sub-iso',
+    session: { hostId: 'host-test', sessionId: 'session-isolated' },
+    delivery: 'start',
+    status: 'accepted',
+  }
+  await store.publish({ type: 'submission', sessionId: 'session-isolated', value: receipt }, tempSession)
+
+  assert.equal(ownerEvents.length, 1, 'Owner 窗口正常收到事件')
+  assert.equal(ownerEvents[0]?.sessionId, 'session-isolated')
+  assert.equal(otherEvents.length, 0, '陌生窗口零泄漏，收不到任何临时会话事件')
+
+  unOwner()
+  unOther()
+})
+
+test('防伪造订阅身份回归：subscribe 忽略 input 中的伪造 clientId，只信任服务端透传的 clientId', async (t) => {
+  const { store } = await fixture(t)
+  const tempSession: any = {
+    hostId: 'host-test',
+    sessionId: 'session-spoof-guard',
+    cwd: '/tmp/spoof',
+    createdAt: new Date().toISOString(),
+    configuration: {},
+    status: 'idle',
+    temporary: true,
+    ownerClientId: 'window-owner-123',
+  }
+  await store.saveSession(tempSession)
+
+  const attackerEvents: HostControlEvent[] = []
+  // 攻击者试图在 EventSubscription input 中附加伪造的 clientId: 'window-owner-123'
+  const unAttacker = store.subscribe(
+    { clientId: 'window-owner-123' } as any,
+    (e) => attackerEvents.push(e),
+    'attacker-client-789',
+  )
+
+  const receipt: SubmissionReceipt = {
+    operationId: 'op-spoof',
+    submissionId: 'sub-spoof',
+    session: { hostId: 'host-test', sessionId: 'session-spoof-guard' },
+    delivery: 'start',
+    status: 'accepted',
+  }
+  await store.publish({ type: 'submission', sessionId: 'session-spoof-guard', value: receipt }, tempSession)
+
+  assert.equal(attackerEvents.length, 0, '攻击者通过 input 冒充 ownerClientId 被完全拦截，收不到任何临时事件')
+  unAttacker()
+})
+
+test('临时操作内存清理：无 session 结果的操作（如配置/目标/终端）随 deleteSession 彻底从 operations 移除，且支持幂等二次清理', async (t) => {
+  const { paths, store } = await fixture(t)
+  const tempSession: any = {
+    hostId: 'host-test',
+    sessionId: 'session-no-res-prop',
+    cwd: '/tmp/no-res',
+    createdAt: new Date().toISOString(),
+    configuration: {},
+    status: 'idle',
+    temporary: true,
+  }
+  await store.saveSession(tempSession)
+
+  // 1. 发起关联该临时会话的操作，但结果中完全不包含 session 或 sessionId 属性
+  const opResult = await store.mutate(
+    'client-1',
+    'key-config-no-session-prop',
+    'sessions.configure',
+    [{ hostId: 'host-test', sessionId: 'session-no-res-prop' }, { model: { id: 'test' } }],
+    async () => ({ ok: true, revision: 'rev-test-123' }), // 模拟返回纯配置/修改结果
+    { sessionId: 'session-no-res-prop' },
+  )
+  assert.equal(opResult.ok, true)
+
+  const opId = JSON.stringify(['client-1', 'key-config-no-session-prop'])
+  assert.ok(store.state.operations[opId], '操作在执行后暂存在 state.operations 中')
+
+  // 确认 operations.jsonl 未落盘
+  const opsContent = await readFile(paths.controlOperationsFile, 'utf8').catch(() => '')
+  assert.ok(!opsContent.includes('key-config-no-session-prop'), '临时操作不落盘')
+
+  // 2. 删除临时会话
+  await store.deleteSession('session-no-res-prop')
+
+  // 3. 断言 operations 内存已被彻底清除，即使结果中没有 session 属性
+  assert.equal(store.state.operations[opId], undefined, '无 session 结果的操作在 deleteSession 后被彻底移除')
+
+  // 4. 幂等性测试：重复调用 deleteSession 不抛错，且绝不向 events.jsonl 追加 session_delete
+  await store.deleteSession('session-no-res-prop')
+  const eventsContent = await readFile(paths.controlEventsFile, 'utf8').catch(() => '')
+  assert.ok(!eventsContent.includes('session-no-res-prop'), '二次 deleteSession 绝不向 events.jsonl 写 session_delete')
+})
+
+test('防伪造 temporary 字段回归：入参自报 temporary: true 不被当做 ephemeral，操作依然写入 operations.jsonl', async (t) => {
+  const { paths, store } = await fixture(t)
+
+  // 客户端在尚未注册的创建入参中恶意附加 temporary: true
+  await store.mutate(
+    'client-attacker',
+    'key-spoof-temporary',
+    'sessions.create',
+    [{ name: 'persisted-session', temporary: true }],
+    async () => ({ sessionId: 'persisted-123', name: 'persisted-session' }),
+  )
+
+  const opsContent = await readFile(paths.controlOperationsFile, 'utf8')
+  assert.ok(opsContent.includes('key-spoof-temporary'), '自报 temporary 无法绕过持久化审计，正常写入 operations.jsonl')
+})
+
+test('app-control deleteSessions 终端清理故障与重试：终端关闭失败必须传播错误且保留 tracking，重试成功后清理并幂等', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'pi-app-control-terminal-fail-'))
+  try {
+    const controlPaths = createControlStorePaths(path.join(root, 'state/control'))
+    const mockSessionKey = 'temp-term-session-key'
+    let shouldFailClose = true
+    let closeCallCount = 0
+
+    const { createAppControl } = await import('../src/app-control')
+    const control = await createAppControl({
+      hostId: 'host-test',
+      root,
+      controlPaths,
+      goals: { list: () => [], get: () => undefined, currentRun: () => undefined, subscribe: () => () => {} } as any,
+      pi: {
+        getRuntimeSessions: () => [],
+        readSessionBinding: () => ({ cwd: root, sessionFile: undefined, state: {} }),
+        createClientView: () => ({ sessionKey: mockSessionKey }),
+        withClientView: async (_view: any, fn: any) => fn(),
+        releaseClientView: () => {},
+        initializeClient: () => {},
+      } as any,
+      projects: {
+        list: async () => [{ cwd: root, name: 'RootProj' }],
+        kind: () => 'project',
+        sourceProjectCwd: (cwd: string) => cwd,
+      } as any,
+      sessions: {
+        getSnapshot: async () => ({
+          projects: [],
+          recents: [],
+        }),
+      } as any,
+      collaboration: { goalReady: async () => true, respondExtensionUI: async () => {} } as any,
+      bindRoot: async () => {},
+      configureAgentPlugins: async () => {},
+      defaultAgentPlugins: { getDefaultAgentPlugins: async () => [] } as any,
+      snapshot: async () => ({}) as any,
+      workspace: {
+        files: {} as any,
+        terminal: {
+          open: async () => ({
+            hostId: 'host-test',
+            terminalId: 'term-mock-1',
+            cwd: root,
+            cols: 80,
+            rows: 24,
+            output: '',
+            outputSequence: 0,
+            exited: false,
+          }),
+          close: async () => {
+            closeCallCount++
+            if (shouldFailClose) throw new Error('底层终端关闭失败（模拟进程卡死）')
+          },
+        } as any,
+        terminalSupported: true,
+      },
+      onError: () => {},
+    })
+
+    const tempSession: any = {
+      hostId: 'host-test',
+      sessionId: 'temp-session-term-test',
+      cwd: root,
+      createdAt: new Date().toISOString(),
+      configuration: {},
+      status: 'idle',
+      temporary: true,
+      ownerClientId: 'owner-term-client',
+    }
+    await control.registerTemporarySession(tempSession, mockSessionKey)
+
+    // 打开一个终端，绑定到临时会话
+    const client = control.apiFor('owner-term-client')
+    await client.terminal.open(
+      { hostId: 'host-test', sessionId: 'temp-session-term-test' },
+      {},
+      { idempotencyKey: 'open-term-1' },
+    )
+
+    // 第一次尝试 deleteSessions：终端 close 失败，必须抛出错误且保留终端 tracking
+    shouldFailClose = true
+    await assert.rejects(
+      control.deleteSessions({
+        deletedPaths: [],
+        deletedKeys: [],
+        deletedSessionIds: ['temp-session-term-test'],
+      }),
+      /底层终端关闭失败/,
+      '终端关闭失败必须向外传播错误，不能静默吞掉',
+    )
+    assert.equal(closeCallCount, 1)
+
+    // 恢复正常并重试 deleteSessions
+    shouldFailClose = false
+    const deleteResult = await control.deleteSessions({
+      deletedPaths: [],
+      deletedKeys: [],
+      deletedSessionIds: ['temp-session-term-test'],
+    })
+    assert.deepEqual(deleteResult.deletedSessionIds, ['temp-session-term-test'])
+    assert.equal(closeCallCount, 2, '重试时成功再次调用终端关闭')
+
+    // 第三次幂等调用 deleteSessions：不应再次调用终端 close，不抛错
+    const idempotentResult = await control.deleteSessions({
+      deletedPaths: [],
+      deletedKeys: [],
+      deletedSessionIds: ['temp-session-term-test'],
+    })
+    assert.deepEqual(idempotentResult.deletedSessionIds, ['temp-session-term-test'])
+    assert.equal(closeCallCount, 2, '已清理的终端不会重复执行关闭')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})

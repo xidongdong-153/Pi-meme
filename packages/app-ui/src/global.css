@@ -43,6 +43,10 @@
   margin-inline: auto;
 }
 
+.side-chat-panel .chat-content-column {
+  width: calc(100% - 1.5rem);
+}
+
 .scroll-fade {
   --activity-fade-top: 0px;
   --activity-fade-bottom: 0px;

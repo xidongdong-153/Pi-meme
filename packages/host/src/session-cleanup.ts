@@ -198,7 +198,12 @@ export class SessionCleanupService {
    * 在物理删除成功返回结果后调用。
    * 仅依据成功的 deletedPaths 和 deletedKeys 收窄清理范围。
    */
-  async afterDelete(result: WorkspaceDeletionResult, prepared: PreparedDeletionContext, cwd?: string): Promise<void> {
+  async afterDelete(
+    result: WorkspaceDeletionResult,
+    prepared: PreparedDeletionContext,
+    cwd?: string,
+    options?: { destroyTemporary?: boolean },
+  ): Promise<void> {
     const file = path.join(this.options.maintenanceDirectory, `pending-cleanup-${prepared.id}.json`)
 
     if (!result.deletedPaths.length && !result.deletedKeys.length) {
@@ -238,6 +243,7 @@ export class SessionCleanupService {
       confirmedCanonicalKeys,
       [...confirmedSessionIdsSet],
       record.cwd,
+      options?.destroyTemporary,
     )
     await rm(file, { force: true })
   }
@@ -329,6 +335,7 @@ export class SessionCleanupService {
     canonicalKeys: string[],
     candidateSessionIds: string[],
     cwd?: string,
+    destroyTemporary?: boolean,
   ): Promise<void> {
     const sessionIdsToClean = new Set(candidateSessionIds)
 
@@ -359,6 +366,7 @@ export class SessionCleanupService {
     await this.options.collaboration.deleteSessions({
       sessionIds: targetSessionIds,
       sessionFiles: deletedPaths,
+      ...(destroyTemporary ? { destroyTemporary: true } : {}),
     })
 
     // 5. 保守清理真实受管且空的 standalone 目录

@@ -213,6 +213,11 @@ export interface ConnectionBridge {
   onEvent: (callback: (event: DesktopEvent) => void) => () => void
   onConnection: (callback: (connection: Connection) => void) => () => void
   onError: (callback: (error: DesktopError) => void) => () => void
+  /** 为独立会话绑定读取目标，不改变当前界面的会话选择。 */
+  scopeSession?: (sessionKey: string) => DesktopBridge
+  openTemporarySession?: (sourceSessionKey: string) => Promise<Snapshot>
+  getTemporarySession?: () => Promise<Snapshot | null>
+  closeTemporarySession?: (sessionKey: string) => Promise<{ closed: boolean }>
 }
 
 /** 平台操作：目录选择、Finder 与编辑器启动。 */

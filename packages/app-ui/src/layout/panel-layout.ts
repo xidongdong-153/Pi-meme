@@ -10,6 +10,17 @@ export function sessionUiTarget(hostId: string, session?: AppSession): UiTarget 
 }
 
 export const toolsTabId = 'builtin:tools'
+export const sideChatTabId = 'builtin:side-chat'
+
+export function isPersistentPanelTab(id: string) {
+  return id !== sideChatTabId
+}
+
+export function sanitizePanelLayout(layout: PanelLayoutState): PanelLayoutState {
+  const tabs = layout.tabs.filter(isPersistentPanelTab)
+  const active = tabs.includes(layout.active) ? layout.active : (tabs[0] ?? '')
+  return { ...layout, tabs, active }
+}
 
 export type PanelLayoutState = {
   version: 2
@@ -58,7 +69,11 @@ export function readPanelLayout(raw: string | null): PanelLayoutState {
     if (value.version !== 2) return initial
     if (Array.isArray(value.tabs)) {
       const tabs = [
-        ...new Set(value.tabs.filter((id) => typeof id === 'string' && id.length > 0).map(migratePanelId)),
+        ...new Set(
+          value.tabs
+            .filter((id) => typeof id === 'string' && id.length > 0 && isPersistentPanelTab(id))
+            .map(migratePanelId),
+        ),
       ].slice(0, 32)
       initial.tabs = tabs
     }

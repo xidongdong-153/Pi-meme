@@ -23,6 +23,7 @@ import type {
   HostControlResponse,
   SessionConfiguration,
   SessionRef,
+  TerminalRef,
   ProjectRef,
   WorkspaceRef,
   SubmissionInput,
@@ -65,6 +66,7 @@ type Options = {
   defaultAgentPlugins: HostApi['plugins']
   snapshot: () => Promise<import('@pi-meme/contracts/desktop').Snapshot>
   workspace: { files: HostApi['files']; terminal: HostApi['terminal']; terminalSupported: boolean }
+  isSessionClosing?: (session: AppSession) => boolean
   onError: (cause: unknown) => void
 }
 type Pending = { input: SubmissionInput; receipt: SubmissionReceipt; goal?: GoalControl }
@@ -110,10 +112,22 @@ export async function createAppControl(options: Options) {
     if (!project) throw new Error('项目不存在')
     return project
   }
-  const getSession = (ref: SessionRef) => {
+  const getSession = (ref: SessionRef, callerClientId?: string) => {
     assertHost(ref)
     const session = store.state.sessions.find((item) => item.sessionId === ref.sessionId)
     if (!session) throw new Error('会话不存在')
+    if (
+      session.temporary &&
+      session.ownerClientId &&
+      callerClientId &&
+      callerClientId !== 'host-internal' &&
+      session.ownerClientId !== callerClientId
+    ) {
+      throw new Error('无权访问其他窗口的临时会话')
+    }
+    if (callerClientId !== 'host-internal' && options.isSessionClosing?.(session)) {
+      throw new Error('临时会话正在关闭，操作未执行')
+    }
     return session
   }
   const assertActivityAccess = (ref: SessionRef, mode: unknown) => {
@@ -128,7 +142,8 @@ export async function createAppControl(options: Options) {
     if (projects.kind(source) !== 'project') return
     let project = store.state.projects.find((item) => item.cwd === source)
     if (!project) {
-      const registered = await projects.get(source)
+      const registered = (await projects.get?.(source)) ?? (await projects.list([source]))[0]
+      if (!registered) return
       project = store.state.projects.find((item) => item.cwd === source)
       if (project) return project
       project = {
@@ -250,13 +265,25 @@ export async function createAppControl(options: Options) {
   const target = async <T>(
     ref: SessionRef,
     action: (key: string, session: AppSession, view: ClientView) => Promise<T>,
+    callerClientId?: string,
   ): Promise<T> => {
-    const view = await resolveSession(ref)
-    return pi.withClientView(view, () => action(view.sessionKey!, getSession(ref), view))
+    const session = getSession(ref, callerClientId)
+    const view = await resolveSession(session)
+    return pi.withClientView(view, () => action(view.sessionKey!, session, view))
   }
-  const resolveRoot = async (ref: WorkspaceRef) => {
+  const resolveRoot = async (ref: WorkspaceRef, callerClientId?: string) => {
     assertHost(ref)
-    return 'projectId' in ref ? getProject(ref).cwd : getSession(ref).cwd
+    return 'projectId' in ref ? getProject(ref).cwd : getSession(ref, callerClientId).cwd
+  }
+  const assertSessionAccess = (ref: WorkspaceRef, callerClientId?: string) => {
+    if (ref && typeof ref === 'object' && 'sessionId' in ref) {
+      getSession(ref as SessionRef, callerClientId)
+    }
+  }
+  const terminalRoots = new Map<string, WorkspaceRef>()
+  const assertTerminalAccess = (ref: TerminalRef, callerClientId?: string) => {
+    const root = terminalRoots.get(ref.terminalId)
+    if (root) assertSessionAccess(root, callerClientId)
   }
   const refresh = async () => {
     const saved = await sessions.getSnapshot()
@@ -266,10 +293,10 @@ export async function createAppControl(options: Options) {
           ...saved.projects.flatMap((group) => group.sessions),
           ...(saved.standaloneSessions ?? []),
           ...saved.recents,
-          ...pi.getRuntimeSessions(),
+          ...pi.getRuntimeSessions().filter((item) => !(item as { temporary?: boolean }).temporary),
         ].map((summary) => [summary.path, summary]),
       ).values(),
-    ]
+    ].filter((summary) => !(summary as { temporary?: boolean }).temporary)
     for (const registered of await projects.list(summaries.map((item) => item.cwd))) {
       const project = await projectFor(registered.cwd)
       if (project && (project.name !== registered.name || project.unavailable !== registered.unavailable)) {
@@ -565,35 +592,78 @@ export async function createAppControl(options: Options) {
       throw cause
     }
   }
-  const stop = (ref: SessionRef) =>
-    target(ref, (key, session, view) =>
-      serial(session.sessionId, async () => {
-        const run = active.get(session.sessionId)
-        if (run) run.cancelled = true
-        for (const pending of queues.get(session.sessionId) ?? []) {
-          pending.receipt.status = 'cancelled'
-          await publishReceipt(session, pending.receipt)
-        }
-        queues.delete(session.sessionId)
-        const goal = goals.get(session)
-        if (goal?.status === 'active') await goals.stop(session, 'paused', '用户停止了目标执行')
-        await pi.abort(key)
-        if (run) await finish(session, view, run, true)
-        else {
-          session.status = 'interrupted'
-          await publishSession(session)
-        }
-      }),
+  const stop = (ref: SessionRef, callerClientId?: string) =>
+    target(
+      ref,
+      (key, session, view) =>
+        serial(session.sessionId, async () => {
+          const run = active.get(session.sessionId)
+          if (run) run.cancelled = true
+          for (const pending of queues.get(session.sessionId) ?? []) {
+            pending.receipt.status = 'cancelled'
+            await publishReceipt(session, pending.receipt)
+          }
+          queues.delete(session.sessionId)
+          const goal = goals.get(session)
+          if (goal?.status === 'active') await goals.stop(session, 'paused', '用户停止了目标执行')
+          await pi.abort(key)
+          if (run) await finish(session, view, run, true)
+          else {
+            session.status = 'interrupted'
+            await publishSession(session)
+          }
+        }),
+      callerClientId,
     )
+  const sessionTargetMethods = new Set([
+    'sessions.configure',
+    'sessions.submit',
+    'sessions.stop',
+    'sessions.stopTask',
+    'sessions.continueTask',
+    'sessions.pause',
+    'sessions.resume',
+    'goals.start',
+    'goals.edit',
+    'goals.pause',
+    'goals.resume',
+    'goals.clear',
+    'activities.stop',
+    'interaction.respond',
+    'files.write',
+    'terminal.open',
+  ])
+
   const mutate = <T>(
     clientId: string,
     method: string,
     args: unknown[],
     opts: MutationOptions,
     action: (operationId: string) => Promise<T>,
+    options?: { ephemeral?: boolean; sessionId?: string },
   ) => {
     if (closing) return Promise.reject<T>(new Error('Host 正在退出，操作未接纳'))
-    return store.mutate(clientId, opts?.idempotencyKey, method, args, action)
+    let targetSessionId = options?.sessionId
+    if (!targetSessionId) {
+      if (sessionTargetMethods.has(method)) {
+        const ref = args[0]
+        if (ref && typeof ref === 'object' && 'sessionId' in ref && typeof (ref as any).sessionId === 'string') {
+          targetSessionId = (ref as SessionRef).sessionId
+        }
+      } else if (method === 'sessions.cancelSubmission' && typeof args[0] === 'string') {
+        targetSessionId = store.state.receipts.find((r) => r.operationId === args[0])?.session.sessionId
+      } else if (method.startsWith('terminal.') && args[0] && typeof args[0] === 'object' && 'terminalId' in args[0]) {
+        const root = terminalRoots.get((args[0] as any).terminalId)
+        if (root && 'sessionId' in root) targetSessionId = root.sessionId
+      }
+    }
+
+    const session = targetSessionId ? store.state.sessions.find((s) => s.sessionId === targetSessionId) : undefined
+    const isEphemeral = Boolean(options?.ephemeral || session?.temporary)
+    return store.mutate(clientId, opts?.idempotencyKey, method, args, action, {
+      ephemeral: isEphemeral,
+      sessionId: targetSessionId,
+    })
   }
   const requireSchedules = () => {
     if (!options.schedules) throw new Error('当前 Host 不支持定时任务')
@@ -692,113 +762,135 @@ export async function createAppControl(options: Options) {
         if (input?.project) getProject(input.project)
         await refresh()
         return structuredClone(
-          store.state.sessions.filter((item) => !input?.project || item.project?.projectId === input.project.projectId),
+          store.state.sessions.filter(
+            (item) => !item.temporary && (!input?.project || item.project?.projectId === input.project.projectId),
+          ),
         )
       },
       get: async (ref) => {
         await refresh()
-        return structuredClone(getSession(ref))
+        return structuredClone(getSession(ref, clientId))
       },
       snapshot: (ref) =>
-        target(ref, async (_key, session, view) => {
-          const controlCursor = store.read().cursor
-          const result = await options.snapshot()
-          await sync(session, view)
-          return { ...result, goal: goals.get(session), goalsSupported: true, controlCursor }
-        }),
+        target(
+          ref,
+          async (_key, session, view) => {
+            const controlCursor = store.read().cursor
+            const result = await options.snapshot()
+            await sync(session, view)
+            return { ...result, goal: goals.get(session), goalsSupported: true, controlCursor }
+          },
+          clientId,
+        ),
       history: (ref, input) =>
-        target(ref, async (key, session) => {
-          const offset = input?.offset ?? 0
-          const limit = input?.limit ?? 100
-          if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 500)
-            throw new Error('历史分页参数无效')
-          const history = session.sessionFile
-            ? await readSessionHistory(session.sessionFile)
-            : pi.getRuntimeHistory(key)!
-          const totalMessages = history.messages.length
-          return {
-            ...history,
-            messages: history.messages.slice(offset, offset + limit),
-            totalMessages,
-            nextOffset: offset + limit < totalMessages ? offset + limit : undefined,
-          }
-        }),
-      messages: (ref, input = {}) =>
-        target(ref, async (key, session) => {
-          const limit = input.limit ?? 100
-          let offset = input.offset ?? 0
-          if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500 || !Number.isSafeInteger(offset) || offset < 0)
-            throw new ControlError('invalid-input', '消息分页参数无效')
-          const history = session.sessionFile
-            ? await readSessionHistory(session.sessionFile)
-            : pi.getRuntimeHistory(key)!
-          const leafId = 'sessionEntries' in history ? (history.sessionEntries?.leafId ?? null) : null
-          const branchRevision = createHash('sha256')
-            .update(
-              JSON.stringify([
-                ref.sessionId,
-                leafId,
-                'sessionEntries' in history
-                  ? history.sessionEntries?.entries.map((entry) => [entry.id, entry.parentId, entry.type])
-                  : [],
-                history.messages.map((m) => m.sourceEntry),
-              ]),
-            )
-            .digest('hex')
-          if (input.cursor) {
-            let cursor: { sessionId?: string; revision?: string; offset?: number }
-            try {
-              cursor = JSON.parse(Buffer.from(input.cursor, 'base64url').toString())
-            } catch {
-              throw new ControlError('stale-cursor', '消息游标无效')
+        target(
+          ref,
+          async (key, session) => {
+            const offset = input?.offset ?? 0
+            const limit = input?.limit ?? 100
+            if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit < 1 || limit > 500)
+              throw new Error('历史分页参数无效')
+            const history = session.sessionFile
+              ? await readSessionHistory(session.sessionFile)
+              : pi.getRuntimeHistory(key)!
+            const totalMessages = history.messages.length
+            return {
+              ...history,
+              messages: history.messages.slice(offset, offset + limit),
+              totalMessages,
+              nextOffset: offset + limit < totalMessages ? offset + limit : undefined,
             }
-            if (
-              cursor.sessionId !== ref.sessionId ||
-              cursor.revision !== branchRevision ||
-              !Number.isSafeInteger(cursor.offset) ||
-              cursor.offset! < 0
-            )
-              throw new ControlError('stale-cursor', '消息分支已变化，请重新读取')
-            offset = cursor.offset!
-          }
-          const messages = history.messages.flatMap((m) => {
-            const projected = projectUiMessage(m, ref)
-            return projected?.ref ? [projected] : []
-          })
-          const nextOffset = offset + limit < messages.length ? offset + limit : undefined
-          return {
-            messages: messages.slice(offset, offset + limit),
-            totalMessages: messages.length,
-            nextOffset,
-            nextCursor:
-              nextOffset === undefined
-                ? undefined
-                : Buffer.from(
-                    JSON.stringify({ sessionId: ref.sessionId, revision: branchRevision, offset: nextOffset }),
-                  ).toString('base64url'),
-            branchRevision,
-            leafId,
-          }
-        }),
+          },
+          clientId,
+        ),
+      messages: (ref, input = {}) =>
+        target(
+          ref,
+          async (key, session) => {
+            const limit = input.limit ?? 100
+            let offset = input.offset ?? 0
+            if (!Number.isSafeInteger(limit) || limit < 1 || limit > 500 || !Number.isSafeInteger(offset) || offset < 0)
+              throw new ControlError('invalid-input', '消息分页参数无效')
+            const history = session.sessionFile
+              ? await readSessionHistory(session.sessionFile)
+              : pi.getRuntimeHistory(key)!
+            const leafId = 'sessionEntries' in history ? (history.sessionEntries?.leafId ?? null) : null
+            const branchRevision = createHash('sha256')
+              .update(
+                JSON.stringify([
+                  ref.sessionId,
+                  leafId,
+                  'sessionEntries' in history
+                    ? history.sessionEntries?.entries.map((entry) => [entry.id, entry.parentId, entry.type])
+                    : [],
+                  history.messages.map((m) => m.sourceEntry),
+                ]),
+              )
+              .digest('hex')
+            if (input.cursor) {
+              let cursor: { sessionId?: string; revision?: string; offset?: number }
+              try {
+                cursor = JSON.parse(Buffer.from(input.cursor, 'base64url').toString())
+              } catch {
+                throw new ControlError('stale-cursor', '消息游标无效')
+              }
+              if (
+                cursor.sessionId !== ref.sessionId ||
+                cursor.revision !== branchRevision ||
+                !Number.isSafeInteger(cursor.offset) ||
+                cursor.offset! < 0
+              )
+                throw new ControlError('stale-cursor', '消息分支已变化，请重新读取')
+              offset = cursor.offset!
+            }
+            const messages = history.messages.flatMap((m) => {
+              const projected = projectUiMessage(m, ref)
+              return projected?.ref ? [projected] : []
+            })
+            const nextOffset = offset + limit < messages.length ? offset + limit : undefined
+            return {
+              messages: messages.slice(offset, offset + limit),
+              totalMessages: messages.length,
+              nextOffset,
+              nextCursor:
+                nextOffset === undefined
+                  ? undefined
+                  : Buffer.from(
+                      JSON.stringify({ sessionId: ref.sessionId, revision: branchRevision, offset: nextOffset }),
+                    ).toString('base64url'),
+              branchRevision,
+              leafId,
+            }
+          },
+          clientId,
+        ),
       message: (ref, input) =>
-        target(ref, async (key, session) => {
-          const history = session.sessionFile
-            ? await readSessionHistory(session.sessionFile)
-            : pi.getRuntimeHistory(key)!
-          const message = history.messages.find((m) => m.sourceEntry?.id === input.entryId)
-          const projected = message && projectUiMessage(message, ref)
-          if (!projected?.ref) throw new ControlError('message-not-found', '消息不存在于当前分支')
-          return projected
-        }),
+        target(
+          ref,
+          async (key, session) => {
+            const history = session.sessionFile
+              ? await readSessionHistory(session.sessionFile)
+              : pi.getRuntimeHistory(key)!
+            const message = history.messages.find((m) => m.sourceEntry?.id === input.entryId)
+            const projected = message && projectUiMessage(message, ref)
+            if (!projected?.ref) throw new ControlError('message-not-found', '消息不存在于当前分支')
+            return projected
+          },
+          clientId,
+        ),
       configure: (ref, config, opts) =>
         mutate(clientId, 'sessions.configure', [ref, config], opts, () =>
-          target(ref, (_key, session, view) => serial(session.sessionId, () => configure(session, view, config))),
+          target(
+            ref,
+            (_key, session, view) => serial(session.sessionId, () => configure(session, view, config)),
+            clientId,
+          ),
         ),
       submit: (ref, input, opts) =>
         mutate(clientId, 'sessions.submit', [ref, input], opts, async (operationId) => {
           const command = !input?.plan && typeof input?.text === 'string' ? parseGoalCommand(input.text) : undefined
           if (command && command.action !== 'start') {
-            const session = getSession(ref)
+            const session = getSession(ref, clientId)
             if (command.action !== 'open') {
               const goal = goals.get(session)
               if (!goal) throw new Error('当前会话没有目标')
@@ -816,77 +908,93 @@ export async function createAppControl(options: Options) {
             await publishReceipt(session, receipt)
             return receipt
           }
-          return target(ref, (key, session, view) =>
-            serial(session.sessionId, async () => {
-              const command = input.plan ? undefined : parseGoalCommand(input.text)
-              if (command) {
-                if (command.action !== 'start') throw new Error('纯目标命令请使用目标控制接口')
-                return (
-                  await createGoalSubmission(
-                    key,
-                    session,
-                    view,
-                    {
-                      objective: command.objective,
-                      images: input.images,
-                      skills: input.skills,
-                    },
-                    operationId,
-                  )
-                ).receipt
-              }
-              return submitInput(session, view, input, operationId)
-            }),
+          return target(
+            ref,
+            (key, session, view) =>
+              serial(session.sessionId, async () => {
+                const command = input.plan ? undefined : parseGoalCommand(input.text)
+                if (command) {
+                  if (command.action !== 'start') throw new Error('纯目标命令请使用目标控制接口')
+                  return (
+                    await createGoalSubmission(
+                      key,
+                      session,
+                      view,
+                      {
+                        objective: command.objective,
+                        images: input.images,
+                        skills: input.skills,
+                      },
+                      operationId,
+                    )
+                  ).receipt
+                }
+                return submitInput(session, view, input, operationId)
+              }),
+            clientId,
           )
         }),
-      stop: (ref, opts) => mutate(clientId, 'sessions.stop', [ref], opts, () => stop(ref)),
+      stop: (ref, opts) => mutate(clientId, 'sessions.stop', [ref], opts, () => stop(ref, clientId)),
       stopTask: (ref, opts) =>
         mutate(clientId, 'sessions.stopTask', [ref], opts, () =>
-          target(ref, (key, session, view) =>
-            serial(session.sessionId, async () => {
-              const run = active.get(session.sessionId)
-              if (run) run.cancelled = true
-              const goal = goals.get(session)
-              if (goal?.status === 'active') await goals.stop(session, 'paused', '用户停止了目标执行')
-              paused.add(session.sessionId)
-              await pi.stopTask(key)
-              if (run) await finish(session, view, run, true)
-              else {
-                session.status = 'interrupted'
-                await publishSession(session)
-              }
-            }),
+          target(
+            ref,
+            (key, session, view) =>
+              serial(session.sessionId, async () => {
+                const run = active.get(session.sessionId)
+                if (run) run.cancelled = true
+                const goal = goals.get(session)
+                if (goal?.status === 'active') await goals.stop(session, 'paused', '用户停止了目标执行')
+                paused.add(session.sessionId)
+                await pi.stopTask(key)
+                if (run) await finish(session, view, run, true)
+                else {
+                  session.status = 'interrupted'
+                  await publishSession(session)
+                }
+              }),
+            clientId,
           ),
         ),
       continueTask: (ref, configuration, opts) =>
         mutate(clientId, 'sessions.continueTask', [ref, configuration], opts, () =>
-          target(ref, (key, session, view) =>
-            serial(session.sessionId, async () => {
-              if (goals.get(session)?.status === 'paused') throw new Error('目标已暂停，请使用目标恢复操作')
-              if (!pi.isSessionIdle(key, true) || pi.getSessionContext(key).state.isPaused)
-                throw new Error('当前任务仍在执行或暂停中')
-              await pi.continueStopped(key, configuration ?? undefined)
-              session.status = 'running'
-              await publishSession(session)
-              await sync(session, view)
-            }),
+          target(
+            ref,
+            (key, session, view) =>
+              serial(session.sessionId, async () => {
+                if (goals.get(session)?.status === 'paused') throw new Error('目标已暂停，请使用目标恢复操作')
+                if (!pi.isSessionIdle(key, true) || pi.getSessionContext(key).state.isPaused)
+                  throw new Error('当前任务仍在执行或暂停中')
+                await pi.continueStopped(key, configuration ?? undefined)
+                session.status = 'running'
+                await publishSession(session)
+                await sync(session, view)
+              }),
+            clientId,
           ),
         ),
       pause: (ref, opts) =>
         mutate(clientId, 'sessions.pause', [ref], opts, () =>
-          target(ref, async (key, session) => {
-            paused.add(session.sessionId)
-            await pi.pause(key)
-          }),
+          target(
+            ref,
+            async (key, session) => {
+              paused.add(session.sessionId)
+              await pi.pause(key)
+            },
+            clientId,
+          ),
         ),
       resume: (ref, opts) =>
         mutate(clientId, 'sessions.resume', [ref], opts, () =>
-          target(ref, (key, session, view) =>
-            serial(session.sessionId, async () => {
-              await pi.resume(key)
-              paused.delete(session.sessionId)
-              await startNext(session, view)
-            }),
+          target(
+            ref,
+            (key, session, view) =>
+              serial(session.sessionId, async () => {
+                await pi.resume(key)
+                paused.delete(session.sessionId)
+                await startNext(session, view)
+              }),
+            clientId,
           ),
         ),
       receipt: async (id) => {
@@ -895,157 +1003,279 @@ export async function createAppControl(options: Options) {
         return structuredClone(receipt)
       },
       submissions: async (ref) => {
-        getSession(ref)
+        getSession(ref, clientId)
         return structuredClone(store.state.receipts.filter((item) => item.session.sessionId === ref.sessionId))
       },
-      cancelSubmission: (id, opts) =>
-        mutate(clientId, 'sessions.cancelSubmission', [id], opts, async () => {
-          const receipt = store.state.receipts.find((item) => item.operationId === id)
-          if (!receipt) throw new Error('提交回执不存在')
-          await serial(receipt.session.sessionId, async () => {
-            if (receipt.status === 'cancelled') return
-            if (receipt.status !== 'queued') throw new Error('只能撤销排队提交；已投递的任务请停止会话')
-            queues.set(
-              receipt.session.sessionId,
-              (queues.get(receipt.session.sessionId) ?? []).filter((item) => item.receipt.operationId !== id),
-            )
-            receipt.status = 'cancelled'
-            await publishReceipt(getSession(receipt.session), receipt)
-          })
-        }),
+      cancelSubmission: (id, opts) => {
+        const receipt = store.state.receipts.find((item) => item.operationId === id)
+        if (!receipt) throw new Error('提交回执不存在')
+        const session = getSession(receipt.session, clientId)
+        return mutate(
+          clientId,
+          'sessions.cancelSubmission',
+          [id],
+          opts,
+          async () => {
+            await serial(receipt.session.sessionId, async () => {
+              if (receipt.status === 'cancelled') return
+              if (receipt.status !== 'queued') throw new Error('只能撤销排队提交；已投递的任务请停止会话')
+              queues.set(
+                receipt.session.sessionId,
+                (queues.get(receipt.session.sessionId) ?? []).filter((item) => item.receipt.operationId !== id),
+              )
+              receipt.status = 'cancelled'
+              await publishReceipt(session, receipt)
+            })
+          },
+          session.temporary ? { ephemeral: true } : undefined,
+        )
+      },
     },
     events: {
-      read: async (input = {}) => store.read(input ?? {}),
-      subscribe: async (input, callback) => store.subscribe(input, callback),
+      read: async (input = {}) => {
+        const page = store.read(input ?? {})
+        return {
+          ...page,
+          events: page.events.filter((event) => {
+            const sessionId = event.sessionId
+            if (!sessionId) return true
+            const session = store.state.sessions.find((s) => s.sessionId === sessionId)
+            if (session?.temporary && session.ownerClientId) {
+              return clientId === 'host-internal' || session.ownerClientId === clientId
+            }
+            return true
+          }),
+        }
+      },
+      subscribe: async (input, callback) => {
+        if (input.sessionId) {
+          const session = store.state.sessions.find((s) => s.sessionId === input.sessionId)
+          if (
+            session?.temporary &&
+            session.ownerClientId &&
+            clientId !== 'host-internal' &&
+            session.ownerClientId !== clientId
+          ) {
+            throw new Error('无权订阅其他窗口的临时会话')
+          }
+        }
+        return store.subscribe(input, callback, clientId)
+      },
     },
     files: {
       ...options.workspace.files,
-      write: (ref, input, opts) =>
-        mutate(clientId, 'files.write', [ref, input], opts, () => options.workspace.files.write(ref, input, opts)),
+      list: (ref, rel) => {
+        assertSessionAccess(ref, clientId)
+        return options.workspace.files.list(ref, rel)
+      },
+      read: (ref, rel) => {
+        assertSessionAccess(ref, clientId)
+        return options.workspace.files.read(ref, rel)
+      },
+      preview: (ref, rel) => {
+        assertSessionAccess(ref, clientId)
+        return options.workspace.files.preview(ref, rel)
+      },
+      search: (ref, input) => {
+        assertSessionAccess(ref, clientId)
+        return options.workspace.files.search(ref, input)
+      },
+      write: (ref, input, opts) => {
+        assertSessionAccess(ref, clientId)
+        return mutate(clientId, 'files.write', [ref, input], opts, () =>
+          options.workspace.files.write(ref, input, opts),
+        )
+      },
     },
     terminal: {
-      open: (ref, input, opts) =>
-        mutate(clientId, 'terminal.open', [ref, input], opts, () => options.workspace.terminal.open(ref, input, opts)),
-      attach: (ref) => options.workspace.terminal.attach(ref),
-      input: (ref, data, opts) =>
-        mutate(clientId, 'terminal.input', [ref, data], opts, () => options.workspace.terminal.input(ref, data, opts)),
-      resize: (ref, size, opts) =>
-        mutate(clientId, 'terminal.resize', [ref, size], opts, () =>
+      open: (ref, input, opts) => {
+        assertSessionAccess(ref, clientId)
+        return mutate(clientId, 'terminal.open', [ref, input], opts, async () => {
+          const snapshot = await options.workspace.terminal.open(ref, input, opts)
+          terminalRoots.set(snapshot.terminalId, ref)
+          return snapshot
+        })
+      },
+      attach: (ref) => {
+        assertTerminalAccess(ref, clientId)
+        return options.workspace.terminal.attach(ref)
+      },
+      input: (ref, data, opts) => {
+        assertTerminalAccess(ref, clientId)
+        return mutate(clientId, 'terminal.input', [ref, data], opts, () =>
+          options.workspace.terminal.input(ref, data, opts),
+        )
+      },
+      resize: (ref, size, opts) => {
+        assertTerminalAccess(ref, clientId)
+        return mutate(clientId, 'terminal.resize', [ref, size], opts, () =>
           options.workspace.terminal.resize(ref, size, opts),
-        ),
-      close: (ref, opts) =>
-        mutate(clientId, 'terminal.close', [ref], opts, () => options.workspace.terminal.close(ref, opts)),
+        )
+      },
+      close: (ref, opts) => {
+        assertTerminalAccess(ref, clientId)
+        return mutate(clientId, 'terminal.close', [ref], opts, async () => {
+          try {
+            return await options.workspace.terminal.close(ref, opts)
+          } finally {
+            terminalRoots.delete(ref.terminalId)
+          }
+        })
+      },
     },
     git: {
-      environment: async (ref) => getGitEnvironment(await resolveRoot(ref)),
-      snapshot: async (ref) => getGitSnapshot(await resolveRoot(ref)),
+      environment: async (ref) => getGitEnvironment(await resolveRoot(ref, clientId)),
+      snapshot: async (ref) => getGitSnapshot(await resolveRoot(ref, clientId)),
       diff: async (ref, input) =>
-        getGitDiff(await resolveRoot(ref), input.path, input.kind ?? (input.staged ? 'staged' : 'unstaged')),
+        getGitDiff(await resolveRoot(ref, clientId), input.path, input.kind ?? (input.staged ? 'staged' : 'unstaged')),
     },
     interaction: {
       respond: (ref, input, opts) =>
         mutate(clientId, 'interaction.respond', [ref, input], opts, () =>
-          target(ref, async (key) => {
-            if (input.agentId) {
-              const agents = await collaboration.getAgents(key)
-              const agent = agents.find((item) => item.agentId === input.agentId)
-              if (!agent) throw new Error('Agent 不属于目标会话')
-              await collaboration.respondExtensionUI(agent.sessionKey, input.requestId, input.response)
-            } else await pi.respondExtensionUI(key, input.requestId, input.response)
-          }),
+          target(
+            ref,
+            async (key) => {
+              if (input.agentId) {
+                const agents = await collaboration.getAgents(key)
+                const agent = agents.find((item) => item.agentId === input.agentId)
+                if (!agent) throw new Error('Agent 不属于目标会话')
+                await collaboration.respondExtensionUI(agent.sessionKey, input.requestId, input.response)
+              } else await pi.respondExtensionUI(key, input.requestId, input.response)
+            },
+            clientId,
+          ),
         ),
     },
     agents: {
       list: (ref) =>
-        target(ref, async (key) => {
-          await options.bindRoot(key)
-          return collaboration.getAgents(key)
-        }),
-      get: (id) => collaboration.getAgentSnapshot(id),
-      stop: (id, opts) => mutate(clientId, 'agents.stop', [id], opts, () => collaboration.interruptAgent(id)),
+        target(
+          ref,
+          async (key) => {
+            await options.bindRoot(key)
+            return collaboration.getAgents(key)
+          },
+          clientId,
+        ),
+      get: async (id) => {
+        const rootKey = collaboration.rootSessionKey?.(id)
+        if (rootKey) {
+          const rootSession = store.state.sessions.find((s) => runtime.get(s.sessionId)?.sessionKey === rootKey)
+          if (rootSession) {
+            getSession(rootSession, clientId)
+          } else if (collaboration.isTemporarySession?.(rootKey)) {
+            throw new Error('会话不存在或已关闭')
+          }
+        }
+        return collaboration.getAgentSnapshot(id)
+      },
+      stop: async (id, opts) => {
+        const rootKey = collaboration.rootSessionKey?.(id)
+        let rootSession: AppSession | undefined
+        if (rootKey) {
+          rootSession = store.state.sessions.find((s) => runtime.get(s.sessionId)?.sessionKey === rootKey)
+          if (rootSession) {
+            getSession(rootSession, clientId)
+          } else if (collaboration.isTemporarySession?.(rootKey)) {
+            throw new Error('会话不存在或已关闭')
+          }
+        }
+        return mutate(clientId, 'agents.stop', [id], opts, () => collaboration.interruptAgent(id), {
+          ephemeral: rootSession?.temporary,
+          sessionId: rootSession?.sessionId,
+        })
+      },
     },
     activities: {
       list: async (ref) => {
-        getSession(ref)
+        getSession(ref, clientId)
         if (!options.activities) throw new Error('当前 Host 不支持活动服务')
         const cursor = store.read().cursor
         return { ...options.activities.list(ref), cursor }
       },
       logs: async (ref, id) => {
-        getSession(ref)
+        getSession(ref, clientId)
         if (!options.activities) throw new Error('当前 Host 不支持活动服务')
         return options.activities.logs(ref, id)
       },
       stop: (ref, id, opts) =>
         mutate(clientId, 'activities.stop', [ref, id], opts, async () => {
-          getSession(ref)
+          getSession(ref, clientId)
           if (!options.activities) throw new Error('当前 Host 不支持活动服务')
           return options.activities.stop(ref, id, '用户停止')
         }),
     },
     goals: {
       get: async (ref) => {
-        getSession(ref)
+        getSession(ref, clientId)
         return goals.get(ref)
       },
       start: (ref, input, opts) =>
         mutate(clientId, 'goals.start', [ref, input], opts, (operationId) =>
-          target(ref, (key, session, view) =>
-            serial(session.sessionId, () => createGoalSubmission(key, session, view, input, operationId)),
+          target(
+            ref,
+            (key, session, view) =>
+              serial(session.sessionId, () => createGoalSubmission(key, session, view, input, operationId)),
+            clientId,
           ),
         ),
       edit: (ref, input, opts) =>
         mutate(clientId, 'goals.edit', [ref, input], opts, () =>
-          target(ref, (key, session) =>
-            serial(session.sessionId, async () => {
-              if (!pi.isSessionIdle(key, true)) throw new Error('请等待目标完全停止后再编辑')
-              return goals.edit(session, input)
-            }),
+          target(
+            ref,
+            (key, session) =>
+              serial(session.sessionId, async () => {
+                if (!pi.isSessionIdle(key, true)) throw new Error('请等待目标完全停止后再编辑')
+                return goals.edit(session, input)
+              }),
+            clientId,
           ),
         ),
       pause: (ref, input, opts) =>
         mutate(clientId, 'goals.pause', [ref, input], opts, async () => {
-          getSession(ref)
+          getSession(ref, clientId)
           validateGoalControl(input)
           await goals.stop(ref, 'paused', '用户暂停了目标', input)
-          await target(ref, (key) => pi.stopTask(key))
+          await target(ref, (key) => pi.stopTask(key), clientId)
           return goals.get(ref)!
         }),
       resume: (ref, input, opts) =>
         mutate(clientId, 'goals.resume', [ref, input], opts, () =>
-          target(ref, (key, session) =>
-            serial(session.sessionId, async () => {
-              if (
-                !pi.isSessionIdle(key, true) ||
-                pi.getSessionContext(key).state.isPaused ||
-                active.has(session.sessionId)
-              )
-                throw new Error('请先结束当前执行和排队输入')
-              const state = pi.getSessionContext(key).state
-              if ((!state.model || state.modelSelectionRequired) && !input.configuration?.model)
-                throw new Error('请先选择可用模型')
-              await pi.setSessionMode(key, 'default')
-              paused.delete(session.sessionId)
-              const goal = await goals.resume(session, input)
-              if (input.configuration) goalNextConfiguration.set(session.sessionId, input.configuration)
-              goalErrors.delete(session.sessionId)
-              scheduleGoal(session)
-              return goal
-            }),
+          target(
+            ref,
+            (key, session) =>
+              serial(session.sessionId, async () => {
+                if (
+                  !pi.isSessionIdle(key, true) ||
+                  pi.getSessionContext(key).state.isPaused ||
+                  active.has(session.sessionId)
+                )
+                  throw new Error('请先结束当前执行和排队输入')
+                const state = pi.getSessionContext(key).state
+                if ((!state.model || state.modelSelectionRequired) && !input.configuration?.model)
+                  throw new Error('请先选择可用模型')
+                await pi.setSessionMode(key, 'default')
+                paused.delete(session.sessionId)
+                const goal = await goals.resume(session, input)
+                if (input.configuration) goalNextConfiguration.set(session.sessionId, input.configuration)
+                goalErrors.delete(session.sessionId)
+                scheduleGoal(session)
+                return goal
+              }),
+            clientId,
           ),
         ),
       clear: (ref, input, opts) =>
         mutate(clientId, 'goals.clear', [ref, input], opts, async () => {
-          getSession(ref)
+          getSession(ref, clientId)
           const goal = goals.get(ref)
           if (!goal || goal.goalId !== input?.goalId || goal.revision !== input?.revision)
             throw new Error('目标已更新，请刷新后重试')
           if (goal.status === 'active') await goals.stop(ref, 'paused', '正在清除目标', input)
-          await stop(ref)
+          await stop(ref, clientId)
           await goals.clear(ref, goals.get(ref)!)
         }),
     },
-    plans: { list: (ref) => target(ref, async () => (await options.snapshot()).planDocuments ?? []) },
+    plans: { list: (ref) => target(ref, async () => (await options.snapshot()).planDocuments ?? [], clientId) },
   })
   const api = apiFor('host-internal')
   const writes = new Set([
@@ -1316,6 +1546,7 @@ export async function createAppControl(options: Options) {
     api,
     apiFor,
     assertActivityAccess,
+    waitForSessionOperations: (sessionId: string) => store.waitForSessionOperations(sessionId),
     goalRuntimeKey: (ref: SessionRef) => runtime.get(ref.sessionId)?.sessionKey,
     async admitGoal(key: string, origin: import('@pi-meme/contracts/goal').PromptOrigin, expected?: GoalControl) {
       const session = await this.sessionForRuntime(key)
@@ -1356,6 +1587,11 @@ export async function createAppControl(options: Options) {
             (context.sessionFile && item.sessionFile === context.sessionFile),
         )
         if (!session) {
+          const isTemporary = Boolean(
+            (context as { temporary?: boolean }).temporary ||
+            pi.getRuntimeHistory(key)?.temporary ||
+            key.startsWith('temporary:'),
+          )
           const project = await projectFor(context.cwd)
           const agentPlugins = await options.defaultAgentPlugins.getDefaultAgentPlugins()
           session = store.state.sessions.find(
@@ -1373,6 +1609,7 @@ export async function createAppControl(options: Options) {
               sessionFile: context.sessionFile,
               configuration: { agentPlugins },
               status: busy(key) ? 'running' : 'idle',
+              temporary: isTemporary || undefined,
             }
             await store.saveSession(session)
           }
@@ -1445,6 +1682,21 @@ export async function createAppControl(options: Options) {
           (runtime.has(item.sessionId) && deletedKeys.has(runtime.get(item.sessionId)!.sessionKey!)),
       )
 
+      const allSessionIds = new Set([...deletedSessionIdsInput, ...targetSessions.map((s) => s.sessionId)])
+
+      for (const sid of allSessionIds) {
+        await store.waitForSessionOperations(sid)
+      }
+
+      for (const sid of allSessionIds) {
+        for (const [terminalId, root] of [...terminalRoots.entries()]) {
+          if ('sessionId' in root && root.sessionId === sid) {
+            await options.workspace.terminal.close({ hostId, terminalId }, { idempotencyKey: randomUUID() })
+            terminalRoots.delete(terminalId)
+          }
+        }
+      }
+
       const deletedSessionIds: string[] = []
       for (const session of targetSessions) {
         deletedSessionIds.push(session.sessionId)
@@ -1467,6 +1719,7 @@ export async function createAppControl(options: Options) {
               await publishReceipt(session, receipt)
             }
           }
+          active.delete(session.sessionId)
         }
         // 3. 从 store 逻辑删除 session，追加 session_delete 日志并移出 sessions
         await store.deleteSession(session.sessionId)
@@ -1478,7 +1731,37 @@ export async function createAppControl(options: Options) {
         }
       }
 
+      for (const sid of deletedSessionIdsInput) {
+        if (!deletedSessionIds.includes(sid)) {
+          queues.delete(sid)
+          active.delete(sid)
+          await store.deleteSession(sid)
+          const view = runtime.get(sid)
+          if (view) {
+            runtime.delete(sid)
+            pi.releaseClientView(view)
+          }
+          deletedSessionIds.push(sid)
+        }
+      }
+
       return { deletedSessionIds }
+    },
+    registerTemporarySession: async (session: AppSession, runtimeKey?: string) => {
+      session.temporary = true
+      if (runtimeKey) {
+        let view = runtime.get(session.sessionId)
+        if (!view || view.sessionKey !== runtimeKey) {
+          if (view) pi.releaseClientView(view)
+          view = pi.createClientView()
+          view.clientId = `control:${session.sessionId}`
+          view.sessionKey = runtimeKey
+          runtime.set(session.sessionId, view)
+        }
+      }
+      await store.saveSession(session)
+      await publishSession(session)
+      return session
     },
     prepareMaintenance() {
       store.assertIdle()

@@ -67,6 +67,7 @@ export const storageLayoutRelativePaths = {
   sessionsDataDirectory: 'data/sessions',
   plansDataDirectory: 'data/plans',
   attachmentsDirectory: 'data/attachments',
+  temporarySessionsDirectory: 'data/temporary-sessions',
 
   // resources
   resourcesDirectory: 'resources',

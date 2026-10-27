@@ -42,6 +42,7 @@ type RootBinding = {
   state: PiState
   accessMode: AgentAccessMode
   session: RuntimeSdkSession
+  temporary?: boolean
 }
 type RunPolicy = Pick<AgentSummary, 'mode' | 'accessMode' | 'model' | 'thinkingLevel'>
 type QueuedTask = {
@@ -143,6 +144,8 @@ export class HostCollaborationBridge {
   private records = new Map<string, Record>()
   private callers = new WeakMap<RuntimeSdkSession, Record>()
   private roots = new Map<string, Record>()
+  private temporaryRoots = new Set<string>()
+  private temporarySessions = new Set<string>()
   private answers = new Set<string>()
   private plans: PlanDocument[] = []
   private planStates = new Map<string, PlanState>()
@@ -239,7 +242,10 @@ export class HostCollaborationBridge {
 
     if (!rootAgentIds.length) return Promise.resolve()
 
-    const promises = rootAgentIds.map((rootAgentId) => {
+    const persistentRootAgentIds = rootAgentIds.filter((id) => !this.temporaryRoots.has(id))
+    if (!persistentRootAgentIds.length) return Promise.resolve()
+
+    const promises = persistentRootAgentIds.map((rootAgentId) => {
       const treeRecords = this.recordsForRoot(rootAgentId)
       if (!treeRecords.length) return Promise.resolve()
 
@@ -384,6 +390,16 @@ export class HostCollaborationBridge {
       thinkingLevel: binding.state.thinkingLevel,
     })
     record.session = binding.session
+    if (
+      binding.temporary ||
+      (binding.session as { temporary?: boolean }).temporary ||
+      this.temporarySessions.has(binding.sessionKey) ||
+      (binding.sessionId && this.temporarySessions.has(binding.sessionId))
+    ) {
+      this.temporaryRoots.add(record.summary.rootAgentId)
+      if (binding.sessionId) this.temporarySessions.add(binding.sessionId)
+      this.temporarySessions.add(binding.sessionKey)
+    }
     this.roots.set(binding.sessionKey, record)
     this.callers.set(binding.session, record)
     const signature = JSON.stringify([
@@ -1161,7 +1177,7 @@ export class HostCollaborationBridge {
           },
         },
         record.summary.sessionKey,
-        this.records.get(record.summary.parentAgentId ?? '')?.summary.sessionKey,
+        this.records.get(record.summary.parentAgentId ?? '')?.summary.sessionKey ?? record.summary.rootSessionKey,
       )
       record.session = boundSession
       this.callers.set(record.session, record)
@@ -2060,6 +2076,23 @@ export class HostCollaborationBridge {
   async getAgents(sessionKey: string) {
     return (await this.snapshot(sessionKey)).agents
   }
+  rootSessionKey(agentIdOrSessionKey: string): string | undefined {
+    const agentId = agentIdOrSessionKey.startsWith('agent:') ? agentIdOrSessionKey.slice(6) : agentIdOrSessionKey
+    const direct = this.records.get(agentId)
+    if (direct?.summary.rootSessionKey) return direct.summary.rootSessionKey
+    for (const record of this.records.values()) {
+      if (record.summary.sessionKey === agentIdOrSessionKey || record.summary.agentId === agentId) {
+        return record.summary.rootSessionKey
+      }
+    }
+    for (const root of this.roots.values()) {
+      if (root.summary.sessionKey === agentIdOrSessionKey || root.summary.agentId === agentId) {
+        return root.summary.rootSessionKey
+      }
+    }
+    return undefined
+  }
+
   async getAgentSnapshot(agentId: string): Promise<Snapshot> {
     await this.ready
     const record = this.records.get(agentId)
@@ -2173,9 +2206,46 @@ export class HostCollaborationBridge {
       await this.syncPlan(record.session, true)
   }
 
+  markTemporarySession(sessionIdOrKey: string, rootAgentId?: string) {
+    this.temporarySessions.add(sessionIdOrKey)
+    if (rootAgentId) this.temporaryRoots.add(rootAgentId)
+  }
+
+  isTemporarySession(sessionId?: string): boolean {
+    if (!sessionId) return false
+    if (this.temporarySessions.has(sessionId)) return true
+    for (const root of this.roots.values()) {
+      if (this.temporaryRoots.has(root.summary.rootAgentId)) {
+        if (
+          root.summary.sessionId === sessionId ||
+          root.summary.rootSessionKey === sessionId ||
+          root.summary.sessionKey === sessionId
+        ) {
+          this.temporarySessions.add(sessionId)
+          return true
+        }
+      }
+    }
+    for (const record of this.records.values()) {
+      if (this.temporaryRoots.has(record.summary.rootAgentId)) {
+        if (record.summary.sessionId === sessionId || record.summary.sessionKey === sessionId) {
+          this.temporarySessions.add(sessionId)
+          return true
+        }
+      }
+    }
+    return false
+  }
+
   private persistPlans() {
+    const persistentPlans = this.plans.filter(
+      (p) => !this.isTemporarySession(p.sessionId) && !this.temporarySessions.has(p.sessionId),
+    )
+    const persistentStates = [...this.planStates.values()].filter(
+      (s) => !this.isTemporarySession(s.sessionId) && !this.temporarySessions.has(s.sessionId),
+    )
     const write = this.planIndexWrites.then(() =>
-      saveCollaborationPlans(this.plansFile, this.plans, [...this.planStates.values()]),
+      saveCollaborationPlans(this.plansFile, persistentPlans, persistentStates),
     )
     this.planIndexWrites = write.catch(() => {})
     return write
@@ -2263,8 +2333,9 @@ export class HostCollaborationBridge {
         }
       : undefined
     const state: PlanState = { sessionId, revision, document, sourceEntryId: checkpoint?.sourceEntryId }
+    const isTemp = this.isTemporarySession(sessionId)
     const priorPlans = this.plans
-    const file = document && path.join(this.plansDirectory, sessionId, `${document.id}.md`)
+    const file = !isTemp && document ? path.join(this.plansDirectory, sessionId, `${document.id}.md`) : undefined
     const temporary = file && `${file}.${randomUUID()}.tmp`
     try {
       if (document && file && temporary) {
@@ -2358,6 +2429,14 @@ export class HostCollaborationBridge {
       if (signal.aborted || runId !== record.summary.runId || !activeStatuses.has(record.summary.status))
         throw new Error('计划保存轮次已取消或更换')
     }
+    const isTemp =
+      this.temporaryRoots.has(record.summary.rootAgentId) ||
+      this.isTemporarySession(sessionId) ||
+      this.isTemporarySession(record.summary.rootSessionKey)
+    if (isTemp) {
+      this.temporarySessions.add(sessionId)
+      this.temporaryRoots.add(record.summary.rootAgentId)
+    }
     const directory = path.join(this.plansDirectory, sessionId)
     const file = path.join(directory, `${document.id}.md`)
     const temporary = `${file}.${randomUUID()}.tmp`
@@ -2365,19 +2444,23 @@ export class HostCollaborationBridge {
     let metadataChanged = false
     const isNewDocument = !existing
     try {
-      await mkdir(directory, { recursive: true })
-      assertCurrent()
-      await writeFile(temporary, document.markdown, { mode: 0o600 })
-      assertCurrent()
-      await rename(temporary, file)
-      replaced = true
+      if (!isTemp) {
+        await mkdir(directory, { recursive: true })
+        assertCurrent()
+        await writeFile(temporary, document.markdown, { mode: 0o600 })
+        assertCurrent()
+        await rename(temporary, file)
+        replaced = true
+      }
       assertCurrent()
       if (existing) this.plans[this.plans.indexOf(existing)] = document
       else this.plans.push(document)
       metadataChanged = true
       record.summary.sessionId = sessionId
       const saveIndex = this.planIndexWrites.then(async () => {
-        await saveCollaborationPlans(this.plansFile, this.plans, [...this.planStates.values()])
+        const persistentPlans = this.plans.filter((p) => !this.isTemporarySession(p.sessionId))
+        const persistentStates = [...this.planStates.values()].filter((s) => !this.isTemporarySession(s.sessionId))
+        await saveCollaborationPlans(this.plansFile, persistentPlans, persistentStates)
       })
       this.planIndexWrites = saveIndex.catch(() => {})
       await saveIndex
@@ -2388,7 +2471,9 @@ export class HostCollaborationBridge {
         if (existing) this.plans[this.plans.indexOf(document)] = existing
         else this.plans = this.plans.filter((plan) => plan !== document)
         const saveIndex = this.planIndexWrites.then(async () => {
-          await saveCollaborationPlans(this.plansFile, this.plans, [...this.planStates.values()])
+          const persistentPlans = this.plans.filter((p) => !this.isTemporarySession(p.sessionId))
+          const persistentStates = [...this.planStates.values()].filter((s) => !this.isTemporarySession(s.sessionId))
+          await saveCollaborationPlans(this.plansFile, persistentPlans, persistentStates)
         })
         this.planIndexWrites = saveIndex.catch(() => {})
         await saveIndex.catch(() => {})
@@ -2404,7 +2489,7 @@ export class HostCollaborationBridge {
       if (metadataChanged) await this.persist(record.summary.rootAgentId)
       throw cause
     } finally {
-      await rm(temporary, { force: true })
+      if (!isTemp) await rm(temporary, { force: true }).catch(() => {})
     }
     this.pendingPlans.set(sessionId, document)
     let resolve!: () => void
@@ -2453,10 +2538,93 @@ export class HostCollaborationBridge {
         this.listeners.add(wake)
       })
   }
+  async deleteTemporarySessions(targets: {
+    sessionIds?: string[]
+    sessionFiles?: string[]
+    sessionKeys?: string[]
+    rootAgentIds?: string[]
+  }): Promise<{ deletedRootAgentIds: string[] }> {
+    await this.ready
+    const targetSessionIds = new Set((targets.sessionIds ?? []).filter(Boolean))
+    const targetSessionFiles = new Set((targets.sessionFiles ?? []).filter(Boolean))
+    const targetSessionKeys = new Set((targets.sessionKeys ?? []).filter(Boolean))
+    const targetRootAgentIds = new Set((targets.rootAgentIds ?? []).filter(Boolean))
+    const deletedRootAgentIds: string[] = []
+
+    for (const [key, root] of [...this.roots.entries()]) {
+      const rootSessionId = root.summary.sessionId
+      const rootSessionFile = root.summary.sessionFile
+      const rootAgentId = root.summary.rootAgentId
+      const matchesSessionId = Boolean(rootSessionId && targetSessionIds.has(rootSessionId))
+      const matchesSessionFile = Boolean(rootSessionFile && targetSessionFiles.has(rootSessionFile))
+      const matchesSessionKey =
+        targetSessionKeys.has(root.summary.sessionKey) ||
+        (rootSessionId && targetSessionKeys.has(rootSessionId)) ||
+        targetSessionIds.has(root.summary.sessionKey)
+      const matchesRootAgentId = targetRootAgentIds.has(rootAgentId)
+
+      if (!matchesSessionId && !matchesSessionFile && !matchesSessionKey && !matchesRootAgentId) {
+        continue
+      }
+
+      const tree = this.tree(root)
+      await this.stopRoot(root.summary.rootSessionKey)
+      for (const entry of tree) {
+        this.records.delete(entry.summary.agentId)
+        if (entry.session) {
+          await entry.session.stopAndWait()
+          this.callers.delete(entry.session)
+        }
+      }
+      this.roots.delete(key)
+      if (root.summary.rootSessionKey) {
+        this.roots.delete(root.summary.rootSessionKey)
+      }
+      this.temporaryRoots.delete(rootAgentId)
+      const sessionIdsToPurge = new Set<string>()
+      if (rootSessionId) sessionIdsToPurge.add(rootSessionId)
+      try {
+        const nativeSessionId = root.session ? (root.session as any).getActiveSession?.()?.sessionId : undefined
+        if (nativeSessionId) sessionIdsToPurge.add(nativeSessionId)
+      } catch {}
+      for (const entry of tree) {
+        if (entry.summary.sessionId) sessionIdsToPurge.add(entry.summary.sessionId)
+        try {
+          const entryNative = entry.session ? (entry.session as any).getActiveSession?.()?.sessionId : undefined
+          if (entryNative) sessionIdsToPurge.add(entryNative)
+        } catch {}
+      }
+      for (const sid of sessionIdsToPurge) {
+        this.temporarySessions.delete(sid)
+        this.plans = this.plans.filter((p) => p.sessionId !== sid)
+        this.planStates.delete(sid)
+        await rm(path.join(this.plansDirectory, sid), { recursive: true, force: true }).catch(() => {})
+      }
+      await deleteCollaborationRoot(this.rootsDirectory, rootAgentId).catch(() => {})
+      deletedRootAgentIds.push(rootAgentId)
+    }
+
+    for (const sid of [...targetSessionIds, ...this.temporarySessions]) {
+      this.plans = this.plans.filter((p) => p.sessionId !== sid)
+      this.planStates.delete(sid)
+      await rm(path.join(this.plansDirectory, sid), { recursive: true, force: true }).catch(() => {})
+    }
+    for (const sid of targetSessionIds) {
+      this.temporarySessions.delete(sid)
+    }
+
+    await this.persistPlans()
+    return { deletedRootAgentIds }
+  }
+
   async deleteSessions(targets: {
     sessionIds: string[]
     sessionFiles: string[]
+    destroyTemporary?: boolean
   }): Promise<{ deletedRootAgentIds: string[] }> {
+    if (targets.destroyTemporary) {
+      return this.deleteTemporarySessions(targets)
+    }
     await this.ready
     const targetSessionIds = new Set(targets.sessionIds.filter(Boolean))
     const targetSessionFiles = new Set(targets.sessionFiles.filter(Boolean))

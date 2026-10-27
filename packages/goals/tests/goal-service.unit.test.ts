@@ -323,3 +323,28 @@ test('deleteSessions 支持批量清理已删除会话的目标并停止计时�
   assert.equal(restarted.get(s1), undefined)
   assert.ok(restarted.get(s2))
 })
+
+test('临时会话目标在内存正常运行，但绝不落盘持久化 goals.json，关闭后彻底清除', async () => {
+  const { service, file } = await fixture()
+  const persistentRef = { hostId: 'host', sessionId: 'persistent-session' }
+  const temporaryRef = { hostId: 'host', sessionId: 'temporary-session', temporary: true }
+
+  await service.start(persistentRef, { objective: '持久目标' })
+  await service.start(temporaryRef, { objective: '临时机密目标' })
+
+  // 内存中两者均正常可用
+  assert.ok(service.get(persistentRef))
+  assert.ok(service.get(temporaryRef))
+  assert.equal(service.get(temporaryRef)?.objective, '临时机密目标')
+
+  // 验证磁盘上的 goals.json 绝不包含临时目标明文
+  const fileContent = JSON.parse(await readFile(file, 'utf8')) as { goals: Record<string, unknown> }
+  assert.ok(fileContent.goals['persistent-session'])
+  assert.equal(fileContent.goals['temporary-session'], undefined)
+
+  // 清理临时会话
+  const deleted = await service.deleteSessions(['temporary-session'])
+  assert.deepEqual(deleted, ['temporary-session'])
+  assert.equal(service.get(temporaryRef), undefined)
+  assert.ok(service.get(persistentRef))
+})

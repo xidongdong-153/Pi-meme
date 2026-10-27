@@ -9,6 +9,8 @@ export type PiRuntimePaths = {
   skillsDirectory: string
   builtinSkillsDirectory: string
   sessionsDirectory: string
+  temporarySessionsDirectory?: string
+  temporaryRoot?: string
   workspaceDataRoot: string
   workspaceKey: (cwd: string) => string
   sessionDirectory: (cwd: string) => string
@@ -39,9 +41,20 @@ export function createPiRuntimePaths(dataRoot: string): PiRuntimePaths {
     skillsDirectory: path.join(dataRoot, rel.skillsDirectory),
     builtinSkillsDirectory: path.join(dataRoot, rel.builtinSkillsDirectory),
     sessionsDirectory,
+    temporarySessionsDirectory: path.join(dataRoot, rel.temporarySessionsDirectory),
     workspaceDataRoot,
     workspaceKey: keyFor,
     sessionDirectory: (cwd) => path.join(sessionsDirectory, keyFor(cwd)),
     workspaceDirectory: (cwd) => path.join(workspaceDataRoot, keyFor(cwd)),
+  }
+}
+
+export function createTemporaryRuntimePaths(base: PiRuntimePaths, temporaryRoot: string): PiRuntimePaths {
+  const sessionsDirectory = path.join(temporaryRoot, 'sessions')
+  return {
+    ...base,
+    sessionsDirectory,
+    temporaryRoot,
+    sessionDirectory: (cwd) => path.join(sessionsDirectory, base.workspaceKey(cwd)),
   }
 }

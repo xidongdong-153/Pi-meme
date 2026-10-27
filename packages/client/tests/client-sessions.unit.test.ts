@@ -45,6 +45,64 @@ test('选择项目源目录不登记项目，也不切换当前会话', async ()
   }
 })
 
+test('独立聊天读取与配置不改变主聊天目标，切换主聊天后仍绑定原会话', async () => {
+  const { client, requests } = create((request) => {
+    if (request.method === 'pi:snapshot') return snapshot(request.sessionId ?? 'main')
+    if (request.method === 'pi:switch-session') return { cancelled: false, snapshot: snapshot('next') }
+    return []
+  })
+  try {
+    await client.bridge.getConnection()
+    const side = client.bridge.scopeSession!('side')
+    assert.equal((await side.getConnection()).sessionKey, 'side')
+    await side.getCommands()
+    await side.getAvailableThinkingLevels()
+    await side.getSessionStats()
+    assert.ok(requests.slice(-3).every((request) => request.sessionId === 'side'))
+    await client.bridge.switchSession('next')
+    await side.getSnapshot()
+    await side.getCommands()
+    assert.equal(requests.at(-1)?.sessionId, 'side')
+    await client.bridge.getCommands()
+    assert.equal(requests.at(-1)?.sessionId, 'next')
+  } finally {
+    client.close()
+  }
+})
+
+test('侧边会话连接事件单独发布，不改变主聊天连接', async () => {
+  const { client, requests, sockets } = create((request) => {
+    if (request.method === 'pi:snapshot') return snapshot(request.sessionId ?? 'main')
+    return []
+  })
+  try {
+    await client.bridge.getConnection()
+    const side = client.bridge.scopeSession!('side')
+    await side.getConnection()
+    const primary: string[] = []
+    const secondary: string[] = []
+    const releasePrimary = client.bridge.onConnection((value) => primary.push(value.sessionKey!))
+    const releaseSide = side.onConnection((value) => secondary.push(`${value.sessionKey}:${value.generation}`))
+    await client.connect()
+    sockets[0].open()
+    await tick()
+    primary.length = 0
+    sockets[0].message({
+      hostId: 'host-1',
+      type: 'connection',
+      value: { sessionKey: 'side', generation: 7, cwd: '/project', status: 'ready' },
+    })
+    assert.deepEqual(secondary, ['side:7'])
+    assert.deepEqual(primary, [])
+    await client.bridge.getCommands()
+    assert.equal(requests.at(-1)?.sessionId, 'main')
+    releaseSide()
+    releasePrimary()
+  } finally {
+    client.close()
+  }
+})
+
 test('历史正文搜索发送显式路径，不绑定当前选择，也不发布会话切换', async () => {
   const matches = [{ path: '/saved.jsonl', excerpt: '正文命中' }]
   const { client, requests } = create(() => matches)
@@ -502,6 +560,54 @@ test('首次快照只释放本客户端遗留编辑，其他客户端占位不�
   } finally {
     f.client.close()
     otherEditing = false
+  }
+})
+
+test('恢复侧边会话时单独释放其遗留队列编辑，不影响主会话的新编辑', async () => {
+  const editing = new Map([
+    ['main', true],
+    ['side', true],
+  ])
+  const f = create((request) => {
+    if (request.method === 'pi:cancel-queue-edit') {
+      editing.set(String(request.args[0]), false)
+      return undefined
+    }
+    if (request.method === 'pi:snapshot') {
+      const key = request.sessionId ?? 'main'
+      return {
+        ...snapshot(key),
+        events: [
+          {
+            generation: 1,
+            event: {
+              type: 'queue_update',
+              steering: [],
+              followUp: [{ id: `${key}-input`, text: '保留原输入', mode: 'default', editing: editing.get(key) }],
+            },
+          },
+        ],
+      }
+    }
+    return []
+  })
+  try {
+    await f.client.bridge.getConnection()
+    assert.equal(editing.get('main'), false)
+    editing.set('main', true)
+    const side = f.client.bridge.scopeSession!('side')
+    await side.getConnection()
+    assert.equal(editing.get('side'), false)
+    assert.equal(editing.get('main'), true)
+    editing.set('side', true)
+    await side.getSnapshot()
+    assert.equal(editing.get('side'), true)
+    assert.deepEqual(
+      f.requests.filter((request) => request.method === 'pi:cancel-queue-edit').map((request) => request.args[0]),
+      ['main', 'side'],
+    )
+  } finally {
+    f.client.close()
   }
 })
 

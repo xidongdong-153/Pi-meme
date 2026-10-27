@@ -88,6 +88,7 @@ export function mergeRuntimeSessions(
     ]),
   )
   for (const session of runtimeSessions) {
+    if (session.temporary) continue
     const saved = summaries.get(session.path)
     summaries.set(session.path, {
       ...saved,

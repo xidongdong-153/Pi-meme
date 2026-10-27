@@ -19,7 +19,7 @@ import { systemPlugins } from '@pi-meme/plugin-sdk/system-plugins'
 import { TerminalService } from './terminal-service'
 import { createBuiltinModules } from './builtin-modules'
 import { assertExternalPluginId } from '@pi-meme/plugin-sdk/reserved'
-import { mkdir, readdir, readFile, realpath, stat, writeFile } from 'node:fs/promises'
+import { mkdir, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { randomUUID } from 'node:crypto'
@@ -33,10 +33,16 @@ import type {
   WorkspaceDeletionResult,
   Snapshot,
 } from '@pi-meme/contracts/desktop'
+import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
+import type { PiModel, ThinkingLevel } from '@pi-meme/contracts/pi'
 import type { SelectWorkspace, PiSessionsSnapshot, PiSessionSummary } from '@pi-meme/contracts/sessions'
 import { PiSessionPool, type ClientView, type RuntimeSdkSession } from '@pi-meme/pi-runtime/session-pool'
 import { AgentAccessStore } from '@pi-meme/pi-runtime/access-store'
-import { createPiRuntimePaths } from '@pi-meme/pi-runtime/runtime-paths'
+import {
+  createPiRuntimePaths,
+  createTemporaryRuntimePaths,
+  type PiRuntimePaths,
+} from '@pi-meme/pi-runtime/runtime-paths'
 import { createWorkerSession } from '@pi-meme/pi-adapter/worker-session'
 import type { SecureCredentialStorage } from '@pi-meme/contracts/secure-storage'
 import { MemoryCredentialStorage } from '@pi-meme/pi-runtime/secure-store'
@@ -108,6 +114,7 @@ const reads = new Set([
   'pi:connection',
   'host:session-ref',
   'pi:snapshot',
+  'temporary-session:get',
   'pi:agents',
   'pi:agent-snapshot',
   'pi:sessions',
@@ -182,6 +189,21 @@ export async function createHost(options: HostOptions = {}) {
     await mkdir(paths.sessionsDirectory, { recursive: true })
     await mkdir(storagePaths.attachmentsDirectory, { recursive: true, mode: 0o700 })
     await mkdir(storagePaths.logsDirectory, { recursive: true })
+    const temporarySessionsRoot = storagePaths.temporarySessionsDirectory
+    await mkdir(temporarySessionsRoot, { recursive: true, mode: 0o700 })
+    const orphanEntries = await readdir(temporarySessionsRoot, { withFileTypes: true }).catch((cause: unknown) => {
+      if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return []
+      throw new Error(`无法读取临时会话目录进行启动清扫：${String(cause)}`)
+    })
+    for (const entry of orphanEntries) {
+      if (entry.isDirectory()) {
+        try {
+          await rm(path.join(temporarySessionsRoot, entry.name), { recursive: true, force: true })
+        } catch (cause) {
+          throw new Error(`无法清理上次运行残留的临时会话目录 ${entry.name}：${String(cause)}`)
+        }
+      }
+    }
     const settings = new SettingsStore(root)
     const projects = new ProjectStore(root)
     await settings.load()
@@ -266,12 +288,103 @@ export async function createHost(options: HostOptions = {}) {
     let pi: PiSessionPool
     let appControl: Awaited<ReturnType<typeof createAppControl>> | undefined
     const agentSelections = new Map<string, string[]>()
+    const temporaryViews = new Map<string, ClientView>()
+    const temporarySessions = new Map<
+      string,
+      {
+        clientId: string
+        sessionKey: string
+        view: ClientView
+        temporaryRoot: string
+        runtimePaths: PiRuntimePaths
+        ref?: import('@pi-meme/contracts/app-host').AppSession
+      }
+    >()
+    const temporarySessionOwners = new Map<string, string>()
+    const temporaryPathsBySessionKey = new Map<string, PiRuntimePaths>()
+    const temporaryClosing = new Set<string>()
+    const inFlightClosing = new Map<string, Promise<void>>()
+    const openingClients = new Map<string, Promise<Snapshot>>()
+    const temporaryUploads = new Map<string, Set<Promise<unknown>>>()
+    const temporaryUploadControllers = new Map<string, Set<AbortController>>()
+    let closeAndDestroyTemporarySession: (
+      clientId: string,
+      info: {
+        sessionKey: string
+        view: ClientView
+        temporaryRoot: string
+        ref?: import('@pi-meme/contracts/app-host').AppSession
+      },
+    ) => Promise<void> = async () => {}
+    let collaboration!: ReturnType<typeof createHostCollaborationBridge>
+
+    const getAgentRootSessionKey = (agentIdOrKey: string): string | undefined => {
+      return collaboration?.rootSessionKey?.(agentIdOrKey)
+    }
+
+    const checkSessionAuthorization = (
+      sessionKeyOrAgentId: string | undefined,
+      clientId: string,
+      isClosingAllowed = false,
+    ) => {
+      if (!sessionKeyOrAgentId) return
+      const rootKey = getAgentRootSessionKey(sessionKeyOrAgentId) ?? sessionKeyOrAgentId
+      const owner = temporarySessionOwners.get(rootKey) ?? temporarySessionOwners.get(sessionKeyOrAgentId)
+      if (owner && owner !== clientId) {
+        throw new Error('无权访问其他窗口的临时会话')
+      }
+      if (!isClosingAllowed && (temporaryClosing.has(rootKey) || temporaryClosing.has(sessionKeyOrAgentId))) {
+        throw new Error('临时会话正在关闭，操作未执行')
+      }
+    }
+
     const emit = (type: HostEvent['type'], value?: DesktopEvent | Connection | DesktopError) => {
       appControl?.observe({ hostId, type, value } as HostEvent)
       for (const [clientId, subscribers] of listeners) {
         const view = views.get(clientId)
+        const tempView = temporaryViews.get(clientId)
+
+        if (type === 'connection') {
+          const conn = value as Connection
+          if (view && conn?.sessionKey === view.sessionKey) {
+            const adjusted = { ...conn, generation: view.generation }
+            for (const subscriber of subscribers) subscriber({ hostId, type, value: adjusted } as HostEvent)
+          } else if (tempView && conn?.sessionKey === tempView.sessionKey) {
+            const adjusted = { ...conn, generation: tempView.generation }
+            for (const subscriber of subscribers) subscriber({ hostId, type, value: adjusted } as HostEvent)
+          }
+          continue
+        }
+
+        const targetSessionKey =
+          type === 'event'
+            ? (value as DesktopEvent)?.sessionKey
+            : type === 'error'
+              ? (value as DesktopError)?.sessionKey
+              : undefined
+
+        let tempOwner = targetSessionKey ? temporarySessionOwners.get(targetSessionKey) : undefined
+        if (!tempOwner && type === 'event' && value) {
+          const ev = value as DesktopEvent
+          const agentId = ev.agentId ?? ev.rootAgentId
+          if (agentId) {
+            const rootKey = getAgentRootSessionKey(agentId)
+            if (rootKey) tempOwner = temporarySessionOwners.get(rootKey)
+          }
+          if (!tempOwner && ev.sessionKey) {
+            const rootKey = getAgentRootSessionKey(ev.sessionKey)
+            if (rootKey) tempOwner = temporarySessionOwners.get(rootKey)
+          }
+        }
+        if (tempOwner !== undefined) {
+          if (clientId === tempOwner && tempView) {
+            const adjusted = value ? { ...value, generation: tempView.generation } : undefined
+            for (const subscriber of subscribers) subscriber({ hostId, type, value: adjusted } as HostEvent)
+          }
+          continue
+        }
+
         if (!view) continue
-        if (type === 'connection' && (value as Connection)?.sessionKey !== view.sessionKey) continue
         const adjusted = value ? { ...value, generation: view.generation } : undefined
         for (const subscriber of subscribers) subscriber({ hostId, type, value: adjusted } as HostEvent)
       }
@@ -302,6 +415,16 @@ export async function createHost(options: HostOptions = {}) {
       if (listeners.get(clientId)?.size || clientRequests.get(clientId)) return
       const timer = setTimeout(() => {
         clientTimers.delete(clientId)
+        const tempInfo = temporarySessions.get(clientId)
+        if (tempInfo) {
+          void closeAndDestroyTemporarySession(clientId, tempInfo).catch((cause: unknown) => {
+            emit('error', {
+              generation: 0,
+              sessionKey: tempInfo.sessionKey,
+              message: `清理临时会话失败：${String(cause)}`,
+            })
+          })
+        }
         const view = views.get(clientId)
         if (view) {
           void pi
@@ -324,7 +447,6 @@ export async function createHost(options: HostOptions = {}) {
       timer.unref()
       clientTimers.set(clientId, timer)
     }
-    let collaboration: ReturnType<typeof createHostCollaborationBridge>
     let plugins: PluginManager
     let sessionCleanup: SessionCleanupService
     let closing = false
@@ -413,7 +535,19 @@ export async function createHost(options: HostOptions = {}) {
       runtimePaths = paths,
       parentSessionKey?: string,
     ) => {
-      const session = createWorkerSession(cwd, notify, runtimePaths, async () => {
+      if (parentSessionKey && temporarySessionOwners.has(parentSessionKey)) {
+        temporarySessionOwners.set(sessionKey, temporarySessionOwners.get(parentSessionKey)!)
+      }
+      if (parentSessionKey && temporaryPathsBySessionKey.has(parentSessionKey)) {
+        temporaryPathsBySessionKey.set(sessionKey, temporaryPathsBySessionKey.get(parentSessionKey)!)
+      }
+      const effectivePaths =
+        runtimePaths !== paths
+          ? runtimePaths
+          : (parentSessionKey && temporaryPathsBySessionKey.get(parentSessionKey)) ||
+            (sessionKey && temporaryPathsBySessionKey.get(sessionKey)) ||
+            paths
+      const session = createWorkerSession(cwd, notify, effectivePaths, async () => {
         let snapshot = (parentSessionKey && workerSnapshots.get(parentSessionKey)) || (await resources.snapshot(cwd))
         let lease: ReturnType<PluginManager['acquire']> | undefined
         if (parentSessionKey && workerPlugins.has(parentSessionKey)) {
@@ -669,6 +803,105 @@ export async function createHost(options: HostOptions = {}) {
         await collaboration.stopRoot(key)
       },
     })
+    closeAndDestroyTemporarySession = async (
+      clientId: string,
+      info: {
+        sessionKey: string
+        view: ClientView
+        temporaryRoot: string
+        ref?: import('@pi-meme/contracts/app-host').AppSession
+      },
+    ) => {
+      const inFlight = inFlightClosing.get(info.sessionKey)
+      if (inFlight) return inFlight
+
+      temporaryClosing.add(info.sessionKey)
+
+      const performClose = async () => {
+        const ref = info.ref ?? (await appControl?.sessionForRuntime(info.sessionKey))
+        if (ref) {
+          info.ref = ref
+          temporaryClosing.add(ref.sessionId)
+        }
+        const targetSessionIds = [info.sessionKey, ...(ref ? [ref.sessionId] : [])]
+
+        if (pi.hasSession(info.sessionKey)) {
+          await bindRoot(info.sessionKey)
+          await collaboration.stopRoot(info.sessionKey)
+          await activityBridge.waitForStarts(info.sessionKey)
+          if (ref) {
+            for (const activity of activities.list(ref).activities) {
+              if (isLiveServiceActivity(activity)) {
+                await activities.stop(ref, activity.serviceId, '关闭临时会话')
+              }
+            }
+          }
+          await pi.closeTemporarySession(info.sessionKey)
+        }
+
+        if (ref) {
+          await appControl?.waitForSessionOperations(ref.sessionId)
+        }
+
+        await collaboration.deleteTemporarySessions({
+          sessionIds: targetSessionIds,
+          sessionFiles: [],
+        })
+
+        if (ref) {
+          await goals.deleteSessions([ref.sessionId])
+        }
+
+        if (ref?.sessionFile) {
+          await accessStore.remove([ref.sessionFile])
+        }
+
+        await appControl!.deleteSessions({
+          deletedPaths: ref?.sessionFile ? [ref.sessionFile] : [],
+          deletedKeys: [info.sessionKey],
+          deletedSessionIds: ref ? [ref.sessionId] : [],
+        })
+
+        const controllers = temporaryUploadControllers.get(info.sessionKey)
+        if (controllers) {
+          for (const c of controllers) c.abort()
+        }
+        const uploads = temporaryUploads.get(info.sessionKey)
+        if (uploads && uploads.size > 0) {
+          await Promise.allSettled(uploads)
+        }
+
+        await rm(info.temporaryRoot, { recursive: true, force: true })
+
+        for (const [key, owner] of [...temporarySessionOwners.entries()]) {
+          if (
+            owner === clientId &&
+            (key === info.sessionKey || key.startsWith('worker:') || key.startsWith('agent:'))
+          ) {
+            temporarySessionOwners.delete(key)
+            temporaryPathsBySessionKey.delete(key)
+            agentSelections.delete(key)
+            workerPlugins.delete(key)
+            workerPluginIds.delete(key)
+            workerSnapshots.delete(key)
+          }
+        }
+        temporaryUploads.delete(info.sessionKey)
+        temporaryUploadControllers.delete(info.sessionKey)
+        temporarySessions.delete(clientId)
+        temporaryViews.delete(clientId)
+        pi.releaseClientView(info.view)
+        temporaryClosing.delete(info.sessionKey)
+      }
+
+      const closePromise = performClose().finally(() => {
+        if (inFlightClosing.get(info.sessionKey) === closePromise) {
+          inFlightClosing.delete(info.sessionKey)
+        }
+      })
+      inFlightClosing.set(info.sessionKey, closePromise)
+      return closePromise
+    }
     retireWorkers = async (keys: string[]) => {
       const temporary = keys.filter((key) => key.startsWith('worker:')).map((key) => workers.get(key))
       const coordinated = await pi.retireSessions(
@@ -1129,6 +1362,168 @@ export async function createHost(options: HostOptions = {}) {
         }
         await pi.setSessionMode(key, mode)
       },
+      'temporary-session:open': async (input) => {
+        const clientId = pluginClient.getStore()!
+        const existing = temporarySessions.get(clientId)
+        if (existing) {
+          return enrichSnapshot(await pi.withClientView(existing.view, () => pi.snapshot()))
+        }
+        const pending = openingClients.get(clientId)
+        if (pending) return pending
+
+        const performOpen = async () => {
+          const options = (input && typeof input === 'object' ? input : {}) as {
+            sourceSessionKey?: string
+            cwd?: string
+            accessMode?: AgentAccessMode
+          }
+          let targetCwd = options.cwd
+          let targetAccess = options.accessMode
+          let targetModel: PiModel | undefined
+          let targetThinking: ThinkingLevel | undefined
+          let targetPlugins: string[] | undefined
+
+          if (options.sourceSessionKey) {
+            checkSessionAuthorization(options.sourceSessionKey, clientId)
+            const sourceContext = pi.readSessionBinding(options.sourceSessionKey)
+            targetCwd = sourceContext.cwd
+            targetAccess = sourceContext.accessMode
+            targetModel = sourceContext.state.model
+            targetThinking = sourceContext.state.thinkingLevel
+            targetPlugins =
+              agentSelections.get(options.sourceSessionKey) ??
+              appControl?.selectedAgentPlugins(options.sourceSessionKey) ??
+              settings.settings.defaultAgentPlugins ??
+              []
+          } else {
+            const mainView = views.get(clientId)
+            if (mainView?.sessionKey) {
+              try {
+                const mainContext = pi.readSessionBinding(mainView.sessionKey)
+                if (!targetCwd) targetCwd = mainContext.cwd
+                if (!targetAccess) targetAccess = mainContext.accessMode
+                if (!targetModel) targetModel = mainContext.state.model
+                if (!targetThinking) targetThinking = mainContext.state.thinkingLevel
+                if (!targetPlugins)
+                  targetPlugins =
+                    agentSelections.get(mainView.sessionKey) ??
+                    appControl?.selectedAgentPlugins(mainView.sessionKey) ??
+                    settings.settings.defaultAgentPlugins ??
+                    []
+              } catch {
+                /* ignore */
+              }
+            }
+          }
+          if (!targetCwd) {
+            targetCwd = await projects.createStandaloneDirectory()
+          }
+          if (!targetPlugins) {
+            targetPlugins = settings.settings.defaultAgentPlugins ?? []
+          }
+
+          const tempId = randomUUID()
+          const temporaryRoot = path.join(temporarySessionsRoot, tempId)
+          await mkdir(path.join(temporaryRoot, 'sessions'), { recursive: true, mode: 0o700 })
+          await mkdir(path.join(temporaryRoot, 'attachments'), { recursive: true, mode: 0o700 })
+          const tempPaths = createTemporaryRuntimePaths(paths, temporaryRoot)
+
+          let tempRecord: ReturnType<typeof pi.createTemporarySession> | undefined
+          let tempView: ClientView | undefined
+
+          try {
+            tempRecord = pi.createTemporarySession(targetCwd, {
+              temporaryRoot,
+              accessMode: targetAccess,
+              model: targetModel,
+              thinkingLevel: targetThinking,
+            })
+            if (targetPlugins) {
+              agentSelections.set(tempRecord.key, targetPlugins)
+            }
+            tempView = pi.createClientView()
+            tempView.clientId = clientId
+            tempView.sessionKey = tempRecord.key
+            tempView.generation = 1
+
+            const tempAppSession: import('@pi-meme/contracts/app-host').AppSession = {
+              hostId,
+              sessionId: tempId,
+              cwd: targetCwd,
+              createdAt: new Date().toISOString(),
+              ownerClientId: clientId,
+              configuration: {
+                agentPlugins: targetPlugins,
+                model: targetModel,
+                thinkingLevel: targetThinking,
+                accessMode: targetAccess,
+                mode: 'default',
+              },
+              status: 'idle',
+              temporary: true,
+            }
+            await appControl!.registerTemporarySession(tempAppSession, tempRecord.key)
+
+            temporaryViews.set(clientId, tempView)
+            temporarySessions.set(clientId, {
+              clientId,
+              sessionKey: tempRecord.key,
+              view: tempView,
+              temporaryRoot,
+              runtimePaths: tempPaths,
+              ref: tempAppSession,
+            })
+            temporarySessionOwners.set(tempRecord.key, clientId)
+            temporaryPathsBySessionKey.set(tempRecord.key, tempPaths)
+
+            collaboration.markTemporarySession(tempRecord.key, tempId)
+
+            emit(
+              'connection',
+              pi.withSession(tempRecord.key, () => pi.connection()),
+            )
+            return enrichSnapshot(await pi.withClientView(tempView, () => pi.snapshot()))
+          } catch (cause) {
+            if (tempRecord) {
+              temporarySessions.delete(clientId)
+              temporaryViews.delete(clientId)
+              temporarySessionOwners.delete(tempRecord.key)
+              temporaryPathsBySessionKey.delete(tempRecord.key)
+              await pi.closeTemporarySession(tempRecord.key).catch(() => {})
+            }
+            if (tempView) {
+              pi.releaseClientView(tempView)
+            }
+            await rm(temporaryRoot, { recursive: true, force: true }).catch(() => {})
+            throw cause
+          }
+        }
+
+        const openPromise = performOpen().finally(() => {
+          if (openingClients.get(clientId) === openPromise) openingClients.delete(clientId)
+        })
+        openingClients.set(clientId, openPromise)
+        return openPromise
+      },
+      'temporary-session:get': async (sessionKey) => {
+        const clientId = pluginClient.getStore()!
+        const existing = temporarySessions.get(clientId)
+        if (!existing) return null
+        if (sessionKey && existing.sessionKey !== sessionKey) return null
+        return enrichSnapshot(await pi.withClientView(existing.view, () => pi.snapshot()))
+      },
+      'temporary-session:close': async (sessionKey) => {
+        if (typeof sessionKey !== 'string') throw new Error('会话 ID 参数无效')
+        const clientId = pluginClient.getStore()!
+        const owner = temporarySessionOwners.get(sessionKey)
+        if (owner && owner !== clientId) throw new Error('无权访问其他窗口的临时会话')
+        const existing = temporarySessions.get(clientId)
+        if (!existing || existing.sessionKey !== sessionKey) {
+          return { closed: true }
+        }
+        await closeAndDestroyTemporarySession(clientId, existing)
+        return { closed: true }
+      },
       'host:directories': async (input?: unknown) => {
         if (input !== undefined && typeof input !== 'string') throw new Error('目录参数无效')
         const directory = await realpath(typeof input === 'string' ? input : homedir())
@@ -1268,6 +1663,10 @@ export async function createHost(options: HostOptions = {}) {
       bindRoot,
       snapshot,
       onError: (cause) => emit('error', { generation: 0, message: `Host 控制事件处理失败：${String(cause)}` }),
+      isSessionClosing: (session) => {
+        const key = appControl?.goalRuntimeKey(session)
+        return Boolean(temporaryClosing.has(session.sessionId) || (key && temporaryClosing.has(key)) || closing)
+      },
       defaultAgentPlugins: {
         getDefaultAgentPlugins: async () =>
           (settings.settings.defaultAgentPlugins ?? []).filter((id) =>
@@ -1286,7 +1685,20 @@ export async function createHost(options: HostOptions = {}) {
         agentSelections.set(key, ids)
       },
       workspace: {
-        files: createWorkspaceFiles((ref) => appControl!.resolveRoot(ref), storagePaths.attachmentsDirectory),
+        files: createWorkspaceFiles(
+          (ref) => appControl!.resolveRoot(ref),
+          (ref) => {
+            const roots = [storagePaths.attachmentsDirectory]
+            if (ref && 'sessionId' in ref) {
+              for (const item of temporarySessions.values()) {
+                if (item.ref?.sessionId === ref.sessionId) {
+                  roots.push(path.join(item.temporaryRoot, 'attachments'))
+                }
+              }
+            }
+            return roots
+          },
+        ),
         terminal,
         terminalSupported: terminal.supported,
       },
@@ -1457,7 +1869,8 @@ export async function createHost(options: HostOptions = {}) {
       root,
       cleanupReport,
       prepareMaintenance() {
-        if (closing || inflight.size || checkoutGates.size) throw new Error('Host 仍有操作正在执行，请稍后再维护存储')
+        if (closing || inflight.size || checkoutGates.size || temporarySessions.size)
+          throw new Error('Host 仍有操作正在执行或有打开的临时会话，请先关闭临时会话后再维护存储')
         pi.assertMaintenanceIdle()
         resources.assertIdle()
         collaboration.assertCheckoutIdle(() => true)
@@ -1488,19 +1901,58 @@ export async function createHost(options: HostOptions = {}) {
         if (!metadata.clientId || metadata.clientId.length > 128) throw new Error('客户端标识无效')
         if (metadata.hostId !== hostId) throw new Error('Host 身份不匹配')
         if (!metadata.sessionKey) throw new Error('会话 ID 参数无效')
+        if (metadata.sessionKey) {
+          checkSessionAuthorization(metadata.sessionKey, metadata.clientId)
+        }
+        const tempInfo = temporarySessions.get(metadata.clientId)
+        const tempPaths =
+          temporaryPathsBySessionKey.get(metadata.sessionKey) ||
+          (tempInfo && tempInfo.sessionKey === metadata.sessionKey ? tempInfo.runtimePaths : undefined)
+        const isTemporary = Boolean(tempPaths || (tempInfo && tempInfo.sessionKey === metadata.sessionKey))
+        const destination = tempPaths
+          ? path.join(tempPaths.temporaryRoot ?? path.dirname(tempPaths.sessionsDirectory), 'attachments')
+          : isTemporary
+            ? path.join(tempInfo!.temporaryRoot, 'attachments')
+            : undefined
         const clientId = metadata.clientId
         clientRequests.set(clientId, (clientRequests.get(clientId) ?? 0) + 1)
+        const abortController = new AbortController()
+        const activeSignal = signal ? AbortSignal.any([signal, abortController.signal]) : abortController.signal
+        let uploadSet: Set<Promise<unknown>> | undefined
+        let controllerSet: Set<AbortController> | undefined
+        if (isTemporary) {
+          uploadSet = temporaryUploads.get(metadata.sessionKey)
+          if (!uploadSet) {
+            uploadSet = new Set()
+            temporaryUploads.set(metadata.sessionKey, uploadSet)
+          }
+          controllerSet = temporaryUploadControllers.get(metadata.sessionKey)
+          if (!controllerSet) {
+            controllerSet = new Set()
+            temporaryUploadControllers.set(metadata.sessionKey, controllerSet)
+          }
+          controllerSet.add(abortController)
+        }
         const pending = (async () => {
           await client(clientId)
           if (closing) throw new Error('Host 正在退出，操作未执行')
           pi.getSessionContext(metadata.sessionKey)
-          return storeChatAttachment(root, metadata.name, body, signal)
+          return storeChatAttachment(
+            root,
+            metadata.name,
+            body,
+            activeSignal,
+            destination ? { destinationDirectory: destination } : undefined,
+          )
         })()
+        if (uploadSet) uploadSet.add(pending)
         inflight.add(pending)
         try {
           return await pending
         } finally {
           inflight.delete(pending)
+          if (uploadSet) uploadSet.delete(pending)
+          if (controllerSet) controllerSet.delete(abortController)
           const count = (clientRequests.get(clientId) ?? 1) - 1
           if (count) clientRequests.set(clientId, count)
           else clientRequests.delete(clientId)
@@ -1532,8 +1984,19 @@ export async function createHost(options: HostOptions = {}) {
               const [key, id, response] = request.args
               if (key !== request.sessionId || typeof id !== 'string' || !response || typeof response !== 'object')
                 throw new Error('子 Agent 交互响应参数无效')
+              checkSessionAuthorization(request.sessionId, request.clientId)
               validateExtensionUIResponse(response)
               return collaboration.respondExtensionUI(key as string, id, response)
+            }
+            if (request.method === 'pi:agent-snapshot' || request.method === 'pi:interrupt-agent') {
+              if (typeof request.args[0] === 'string') {
+                checkSessionAuthorization(request.args[0], request.clientId)
+              }
+            }
+            if (request.method === 'pi:agents') {
+              if (typeof request.args[0] === 'string') {
+                checkSessionAuthorization(request.args[0], request.clientId)
+              }
             }
             const view = await client(request.clientId)
             if (closing) throw new Error('Host 正在退出，操作未执行')
@@ -1546,7 +2009,15 @@ export async function createHost(options: HostOptions = {}) {
               if (request.method === 'git:create-worktree') throw new Error('工作环境选择已变化，Worktree 未创建')
               return { cancelled: true }
             }
-            const selected = { ...view, sessionKey: request.sessionId ?? view.sessionKey }
+            if (request.sessionId) {
+              const isClosingAllowed = request.method === 'temporary-session:close'
+              checkSessionAuthorization(request.sessionId, request.clientId, isClosingAllowed)
+            }
+            const tempInfo = temporarySessions.get(request.clientId)
+            const isTempTarget = Boolean(tempInfo && request.sessionId === tempInfo.sessionKey)
+            const selected = isTempTarget
+              ? tempInfo!.view
+              : { ...view, sessionKey: request.sessionId ?? view.sessionKey }
             const previousKey = selected.sessionKey
             const run = () =>
               pi.withClientView(selected, async () => {
@@ -1570,7 +2041,7 @@ export async function createHost(options: HostOptions = {}) {
                 } else if (command && key) {
                   const ref = await appControl!.sessionForRuntime(key)
                   if (command.action === 'start')
-                    result = await appControl!.api.goals.start(
+                    result = await appControl!.apiFor(request.clientId).goals.start(
                       ref,
                       {
                         objective: command.objective,
@@ -1583,7 +2054,9 @@ export async function createHost(options: HostOptions = {}) {
                     const goal = goals.get(ref)
                     if (!goal) throw new Error('当前会话没有目标')
                     const method = command.action === 'edit' ? 'pause' : command.action
-                    result = await appControl!.api.goals[method](ref, goal, { idempotencyKey: request.requestId })
+                    result = await appControl!
+                      .apiFor(request.clientId)
+                      .goals[method](ref, goal, { idempotencyKey: request.requestId })
                   }
                 } else {
                   if (
@@ -1598,8 +2071,10 @@ export async function createHost(options: HostOptions = {}) {
                   ) {
                     const ref = await appControl!.sessionForRuntime(key)
                     const goal = goals.get(ref)
-                    if (goal?.status === 'active')
-                      await appControl!.api.goals.pause(ref, goal, { idempotencyKey: randomUUID() })
+                    if (goal?.status === 'active') {
+                      const clientApi = appControl!.apiFor(request.clientId)
+                      await clientApi.goals.pause(ref, goal, { idempotencyKey: randomUUID() })
+                    }
                   }
                   if (request.method === 'pi:access-mode' && key) {
                     const ref = await appControl!.sessionForRuntime(key)
@@ -1630,10 +2105,24 @@ export async function createHost(options: HostOptions = {}) {
                   request.method === 'git:create-worktree'
                 if (epoch !== undefined && !gitSelection) {
                   if (selectionEpochs.get(request.clientId) !== epoch) return { cancelled: true }
-                  Object.assign(view, selected)
-                  emit('connection', pi.connection())
+                  if (!isTempTarget) {
+                    Object.assign(view, selected)
+                    emit('connection', pi.connection())
+                  }
                 }
                 if (selected.sessionKey === view.sessionKey) view.defaults = selected.defaults
+                else if (isTempTarget) tempInfo!.view.defaults = selected.defaults
+                if (
+                  isTempTarget &&
+                  (request.method === 'pi:set-model' ||
+                    request.method === 'pi:set-thinking-level' ||
+                    request.method === 'pi:session-mode')
+                ) {
+                  emit(
+                    'connection',
+                    pi.withSession(tempInfo!.sessionKey, () => pi.connection()),
+                  )
+                }
                 try {
                   if (
                     result &&
@@ -1722,6 +2211,9 @@ export async function createHost(options: HostOptions = {}) {
         disposal = (async () => {
           for (const timer of clientTimers.values()) clearTimeout(timer)
           clientTimers.clear()
+          for (const [cid, info] of [...temporarySessions.entries()]) {
+            await closeAndDestroyTemporarySession(cid, info)
+          }
           await schedules.beginShutdown()
           await appControl!.beginShutdown()
           await collaboration.stopAndWait()

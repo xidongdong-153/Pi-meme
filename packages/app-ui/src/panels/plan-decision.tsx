@@ -17,6 +17,9 @@ export function PlanDecision({
   onSkip,
   draft,
   onDraftChange,
+  persistDismissal = true,
+  initiallyDismissed = false,
+  onDismiss,
 }: {
   document: PlanDocument
   hostId: string
@@ -29,9 +32,14 @@ export function PlanDecision({
   onSkip: (text: string) => void
   draft?: string
   onDraftChange?: (text: string) => void
+  persistDismissal?: boolean
+  initiallyDismissed?: boolean
+  onDismiss?: () => void
 }) {
   const storageKey = `pi-meme:plan-decision:${hostId}:${document.sessionId}:${document.id}`
   const [dismissed, setDismissed] = useState(() => {
+    if (initiallyDismissed) return true
+    if (!persistDismissal) return false
     try {
       return localStorage.getItem(storageKey) === String(document.revision)
     } catch {
@@ -45,12 +53,15 @@ export function PlanDecision({
   const [error, setError] = useState('')
   const pending = useRef(false)
   function dismiss() {
-    try {
-      localStorage.setItem(storageKey, String(document.revision))
-    } catch {
-      /* 存储不可用时保留当前窗口状态。 */
+    if (persistDismissal) {
+      try {
+        localStorage.setItem(storageKey, String(document.revision))
+      } catch {
+        /* 存储不可用时保留当前窗口状态。 */
+      }
     }
     setDismissed(true)
+    onDismiss?.()
   }
   function skip() {
     if (pending.current) return

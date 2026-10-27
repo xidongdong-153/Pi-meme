@@ -15,7 +15,14 @@ import type { SessionRef } from '@pi-meme/contracts/app-host'
 
 type Report = Pick<GoalUpdate, 'progress' | 'blockerKey'>
 type Cycle = { id: string; report?: Report; activity: boolean; settled: boolean }
-type StoredGoal = { goal: Goal; accounted: string[]; cycle?: Cycle; emptyTurns: number; pendingInput?: GoalInput }
+type StoredGoal = {
+  goal: Goal
+  accounted: string[]
+  cycle?: Cycle
+  emptyTurns: number
+  pendingInput?: GoalInput
+  temporary?: boolean
+}
 type State = { version: 1; goals: Record<string, StoredGoal> }
 export type GoalServiceOptions = {
   file: string
@@ -179,8 +186,12 @@ export class GoalService {
       .then(async () => {
         const state = structuredClone(this.state)
         const result = action(state)
+        const persistentState: State = {
+          version: state.version,
+          goals: Object.fromEntries(Object.entries(state.goals).filter(([_, item]) => !item.temporary)),
+        }
         try {
-          await (this.options.write ?? atomicWrite)(this.options.file, `${JSON.stringify(state)}\n`)
+          await (this.options.write ?? atomicWrite)(this.options.file, `${JSON.stringify(persistentState)}\n`)
         } catch (cause) {
           this.storageError = new Error(`目标保存失败，已停止自动续跑：${String(cause)}`)
           throw this.storageError
@@ -219,8 +230,14 @@ export class GoalService {
     goal.updatedAt = new Date(this.now()).toISOString()
     goal.revision++
   }
-  start(session: SessionRef, input: GoalInput, inputEntryId?: string) {
+  start(
+    session: SessionRef & { temporary?: boolean },
+    input: GoalInput,
+    inputEntryId?: string,
+    options?: { temporary?: boolean },
+  ) {
     validateGoalInput(input)
+    const isTemporary = Boolean(options?.temporary || session.temporary || (input as { temporary?: boolean }).temporary)
     input = {
       objective: input.objective,
       images: input.images,
@@ -256,6 +273,7 @@ export class GoalService {
         accounted: [],
         emptyTurns: 0,
         pendingInput: inputEntryId ? undefined : structuredClone(input),
+        temporary: isTemporary || undefined,
       }
       return goal
     })
@@ -322,6 +340,7 @@ export class GoalService {
       for (const sessionId of sessionIds) {
         const item = state.goals[sessionId]
         if (item) {
+          if (item.cycle) this.activities.delete(item.cycle.id)
           this.clocks.delete(item.goal.goalId)
           delete state.goals[sessionId]
           deleted.push(sessionId)

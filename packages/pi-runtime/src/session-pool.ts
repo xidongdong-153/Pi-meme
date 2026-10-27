@@ -57,7 +57,7 @@ import type { ModelRestore, PiRuntime } from './runtime'
 import { invalidateSessionHistory, readSessionHistory, type SessionHistoryData } from './session-history'
 import { projectBranchEntries } from './session-tree-entries'
 import { defaultModelConfiguration, readLocalModels, readLocalPreferences, readLocalSkills } from './session-metadata'
-import { createPiRuntimePaths, type PiRuntimePaths } from './runtime-paths'
+import { createPiRuntimePaths, createTemporaryRuntimePaths, type PiRuntimePaths } from './runtime-paths'
 import { MemoryCredentialStorage } from './secure-store'
 
 function activePath<T extends { id: string; parentId: string | null }>(entries: T[], leafId: string | null) {
@@ -108,6 +108,8 @@ function pathWithin(root: string, value: string) {
 
 type RuntimeSession = {
   key: string
+  temporary?: boolean
+  temporaryRoot?: string
   accessMode: AgentAccessMode
   accessReady: Promise<void>
   accessChanging: boolean
@@ -716,18 +718,65 @@ export class PiSessionPool implements PiRuntime {
     })
     void record.accessReady.catch(() => {})
   }
+  createTemporarySession(
+    cwd: string,
+    options?: {
+      temporaryRoot?: string
+      accessMode?: AgentAccessMode
+      model?: PiModel
+      thinkingLevel?: ThinkingLevel
+    },
+  ): RuntimeSession {
+    const record = this.create(cwd, undefined, undefined, options?.accessMode, true, {
+      temporary: true,
+      temporaryRoot: options?.temporaryRoot,
+      model: options?.model,
+      thinkingLevel: options?.thinkingLevel,
+      setActive: false,
+    })
+    void this.warmMetadata(record)
+    return record
+  }
+  async closeTemporarySession(sessionKey: string): Promise<void> {
+    const record = this.sessions.get(sessionKey)
+    if (!record || !record.temporary) return
+    record.stopping = true
+    try {
+      await record.session.abort()
+    } catch {
+      /* ignore */
+    }
+    const pending = record.session.stopAndWait()
+    this.retired.add(pending)
+    try {
+      await pending
+      this.sessions.delete(sessionKey)
+    } finally {
+      this.retired.delete(pending)
+    }
+  }
   private create(
     cwd: string,
     sessionFile?: string,
     history?: SessionHistoryData,
     inheritedMode?: AgentAccessMode,
     preservePrevious = false,
+    options?: {
+      key?: string
+      temporary?: boolean
+      temporaryRoot?: string
+      model?: PiModel
+      thinkingLevel?: ThinkingLevel
+      setActive?: boolean
+    },
   ) {
     this.assertWorkspaceAvailable(cwd)
     if (!preservePrevious) this.discardEmpty()
-    const key = `runtime:${randomUUID()}`
+    const key = options?.key ?? `runtime:${randomUUID()}`
     const record: RuntimeSession = {
       key,
+      temporary: options?.temporary,
+      temporaryRoot: options?.temporaryRoot,
       accessMode: inheritedMode ?? this.defaultMode,
       accessReady: Promise.resolve(),
       accessChanging: false,
@@ -740,9 +789,10 @@ export class PiSessionPool implements PiRuntime {
       cancelledPrompt: false,
       state: {
         mode: 'default',
-        model: history?.model ?? this.defaults?.model,
+        model: options?.model ?? history?.model ?? this.defaults?.model,
         // 已有会话沿用记录；新建会话留给 Pi 默认思考强度，不复制上一次的选择。
-        thinkingLevel: history?.thinkingLevel ?? (sessionFile ? this.defaults?.thinkingLevel : undefined),
+        thinkingLevel:
+          options?.thinkingLevel ?? history?.thinkingLevel ?? (sessionFile ? this.defaults?.thinkingLevel : undefined),
         sessionName: history?.sessionName,
         skillUsages: history?.skillUsages,
         recovery: history?.recovery,
@@ -773,6 +823,9 @@ export class PiSessionPool implements PiRuntime {
       buffers: new Set(),
     }
     if (history) this.restoreTaskControl(record, history)
+    const effectivePaths = options?.temporaryRoot
+      ? createTemporaryRuntimePaths(this.runtimePaths, options.temporaryRoot)
+      : this.runtimePaths
     record.session = this.sessionFactory(
       cwd,
       {
@@ -820,23 +873,25 @@ export class PiSessionPool implements PiRuntime {
           if (record === this.active) this.notify.title?.(value)
         },
       },
-      this.runtimePaths,
+      effectivePaths,
       this.credentialStorage,
       this.mcpExtensionFactory,
       key,
     )
-    if (sessionFile && !inheritedMode) {
+    if (sessionFile && !inheritedMode && !record.temporary) {
       record.accessReady = this.accessStore.get(sessionFile).then((mode) => {
         record.accessMode = mode
       })
       void record.accessReady.catch(() => {})
     }
     this.sessions.set(key, record)
-    this.active = record
-    this.generation += 1
-    this.notify.connection(this.connection())
-    this.prune()
-    this.notify.sessionsChanged()
+    if (options?.setActive !== false) {
+      this.active = record
+      this.generation += 1
+      this.notify.connection(this.connection())
+      this.prune()
+      this.notify.sessionsChanged()
+    }
     return record
   }
   private activate(record: RuntimeSession) {
@@ -1024,6 +1079,7 @@ export class PiSessionPool implements PiRuntime {
       .filter(
         (record) =>
           record !== this.active &&
+          !record.temporary &&
           !this.goalSessions.has(record.key) &&
           !record.running &&
           !record.state.isPaused &&
@@ -1186,6 +1242,9 @@ export class PiSessionPool implements PiRuntime {
     const active = this.active.session.getActiveSession()
     return { sessionFile: active.sessionFile ?? this.active.sessionFile ?? this.active.key, sessionId: this.active.key }
   }
+  hasSession(sessionKey: string): boolean {
+    return this.sessions.has(sessionKey)
+  }
   getRuntimeHistory(sessionPath: string) {
     const record = this.sessions.get(sessionPath)
     return record
@@ -1196,6 +1255,7 @@ export class PiSessionPool implements PiRuntime {
           sessionName: record.name,
           model: record.state.model,
           thinkingLevel: record.state.thinkingLevel,
+          temporary: record.temporary ? true : undefined,
         }
       : null
   }
@@ -1219,6 +1279,7 @@ export class PiSessionPool implements PiRuntime {
           running: record.running,
           isPaused: Boolean(record.state.isPaused),
           error: record.error ?? record.session.connection().error,
+          temporary: record.temporary ? true : undefined,
         }
       })
   }
@@ -1269,7 +1330,7 @@ export class PiSessionPool implements PiRuntime {
       const snapshot = await record.session.snapshot()
       if (record !== this.active || generation !== this.generation) throw new Error('当前查看的会话已更换')
       this.rememberSnapshot(record, snapshot)
-      if (record.sessionFile && !record.accessChanging)
+      if (record.sessionFile && !record.accessChanging && !record.temporary)
         await this.accessStore.set(record.sessionFile, record.accessMode)
       for (const value of buffer) {
         if (value.event.type === 'message_end') this.rememberMessage(record, value.event.message)
@@ -1417,7 +1478,7 @@ export class PiSessionPool implements PiRuntime {
       if (record.state.followUpMode) await record.session.setFollowUpMode(record.state.followUpMode)
       const snapshot = await record.session.snapshot()
       this.rememberSnapshot(record, snapshot)
-      if (record.sessionFile) await this.accessStore.set(record.sessionFile, record.accessMode)
+      if (record.sessionFile && !record.temporary) await this.accessStore.set(record.sessionFile, record.accessMode)
       if (!this.sessions.has(record.key)) return
       this.commands.set(`${record.cwd}:${record.accessMode}`, { value: await record.session.getCommands() })
       this.notify.sessionsChanged()
@@ -1495,7 +1556,7 @@ export class PiSessionPool implements PiRuntime {
         record.dormant = true
         record.extensions.clear()
         record.extensionError = undefined
-        if (record.sessionFile) await this.accessStore.set(record.sessionFile, mode)
+        if (record.sessionFile && !record.temporary) await this.accessStore.set(record.sessionFile, mode)
         if (!this.sessions.has(record.key)) throw new Error('目标会话已关闭')
         record.accessMode = mode
         this.commands.delete(`${record.cwd}:${record.accessMode}`)
@@ -1802,6 +1863,7 @@ export class PiSessionPool implements PiRuntime {
       sessionId: record.session.getActiveSession().sessionId ?? record.stats?.sessionId,
       session: record.session,
       modeRevision: record.modeRevision ?? 0,
+      temporary: record.temporary ? true : undefined,
     }
   }
   restoreSessionMode(sessionKey: string, mode: TaskMode, expected: { mode: TaskMode; revision: number }) {

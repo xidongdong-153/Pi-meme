@@ -151,7 +151,7 @@ function deferred<T>() {
   return { promise, resolve, reject }
 }
 
-function setup(overrides: Partial<DesktopBridge> = {}, chatEnabled = false) {
+function setup(overrides: Partial<DesktopBridge> = {}, chatEnabled = false, persistDrafts = true) {
   const snapshot: Snapshot = {
     connection: { generation: 1, sessionKey: 'main', cwd: '/tmp/first', workspaceKind: 'project', status: 'idle' },
     state: {
@@ -177,9 +177,24 @@ function setup(overrides: Partial<DesktopBridge> = {}, chatEnabled = false) {
     onEvent: () => () => {},
     ...overrides,
   } as unknown as DesktopBridge
-  const hook = renderHook(() => useAppSession(bridge, { chatEnabled, workspaceEnabled: false }))
+  const hook = renderHook(() => useAppSession(bridge, { chatEnabled, workspaceEnabled: false, persistDrafts }))
   return { ...hook, snapshot }
 }
+
+test('临时会话保留窗口内草稿但不写入浏览器存储', async () => {
+  const writes = vi.spyOn(Storage.prototype, 'setItem')
+  try {
+    const { result, unmount } = setup({}, false, false)
+    await waitFor(() => expect(result.current.loading).toBe(false))
+    act(() => result.current.bindDraftSession('main', 'temporary-session'))
+    act(() => result.current.setDraft('临时草稿内容'))
+    await waitFor(() => expect(result.current.draft).toBe('临时草稿内容'))
+    expect(writes.mock.calls.some(([key]) => key.startsWith('pi-meme:composer:'))).toBe(false)
+    unmount()
+  } finally {
+    writes.mockRestore()
+  }
+})
 
 test('SSH 恢复到空闲连接时清除暂停错误', async () => {
   let emit!: Parameters<DesktopBridge['onConnection']>[0]

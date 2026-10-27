@@ -2331,3 +2331,52 @@ test('子代理设置默认值、单次覆盖、排队快照与单层准入', as
     await context.cleanup()
   }
 })
+
+test('临时会话子代理零落盘：flushAll 不向 roots/ 写分片，deleteTemporarySessions 彻底清除内存', async () => {
+  const context = await setup()
+  try {
+    const tempSession = (await import('./coordinator-fixture')).fakeSession(context.directory, {
+      connection: () => {},
+      event: () => {},
+      error: () => {},
+    })
+    const tempBinding = {
+      sessionKey: 'temp-session-key',
+      sessionId: 'temp-session-id',
+      sessionFile: path.join(context.directory, 'temporary', 'temp-session-id', 'session.jsonl'),
+      cwd: context.directory,
+      state: tempSession.state,
+      accessMode: 'full-access' as const,
+      session: tempSession.session,
+      temporary: true,
+    }
+    const rootSummary = await context.bridge.bindRoot(tempBinding)
+    assert.equal(rootSummary.name, 'root')
+
+    // 内存中可以读取到该临时根 agent
+    const agents = await context.bridge.getAgents('temp-session-key')
+    assert.equal(agents.length, 1)
+    assert.equal(agents[0]?.sessionKey, 'temp-session-key')
+
+    // 触发 flushAll
+    await context.bridge.flushAll()
+
+    // 验证磁盘上 roots 目录绝对没有写入该临时根分片文件
+    const rootsDir = path.join(context.directory, 'state', 'collaboration', 'roots')
+    const { readdir } = await import('node:fs/promises')
+    const rootFiles = await readdir(rootsDir).catch(() => [])
+    assert.ok(!rootFiles.some((f) => f.includes(rootSummary.rootAgentId)), 'roots/ 目录下绝无临时根分片')
+
+    // 调用 deleteTemporarySessions 彻底清除
+    const result = await context.bridge.deleteTemporarySessions({
+      sessionIds: ['temp-session-id'],
+      sessionKeys: ['temp-session-key'],
+    })
+    assert.deepEqual(result.deletedRootAgentIds, [rootSummary.rootAgentId])
+
+    // 验证内存中已被完全清除，再次查询抛出未绑定
+    await assert.rejects(context.bridge.getAgents('temp-session-key'), /协作根会话尚未绑定/)
+  } finally {
+    await context.cleanup()
+  }
+})

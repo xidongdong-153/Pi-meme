@@ -37,6 +37,8 @@ export type AppSession = SessionRef & {
   sessionFile?: string
   configuration: SessionConfiguration
   status: 'idle' | 'running' | 'interrupted'
+  temporary?: boolean
+  ownerClientId?: string
 }
 export type MutationOptions = { idempotencyKey: string }
 export type SubmissionInput = MessageOptions & {

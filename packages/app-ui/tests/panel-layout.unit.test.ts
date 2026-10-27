@@ -10,7 +10,9 @@ import {
   panelAvailable,
   panelStorageKey,
   readPanelLayout,
+  sanitizePanelLayout,
   sessionUiTarget,
+  sideChatTabId,
   toolsTabId,
 } from '../src/layout/panel-layout'
 
@@ -219,4 +221,115 @@ test('旧文件目录、预览和终端标签迁移为系统工具并保留当�
   assert.deepEqual(layout.tabs, ['builtin:files', 'builtin:terminal'])
   assert.equal(layout.active, 'builtin:files')
   assert.equal(layout.open, true)
+})
+
+test('侧边聊天标签不得持久化，sanitizePanelLayout 与 readPanelLayout 均过滤 sideChatTabId', () => {
+  const layout = { ...openPanel(defaultPanelLayout(), sideChatTabId), width: 500 }
+  assert.deepEqual(layout.tabs, [sideChatTabId])
+  assert.equal(layout.active, sideChatTabId)
+
+  const sanitized = sanitizePanelLayout(layout)
+  assert.deepEqual(sanitized.tabs, [])
+  assert.equal(sanitized.active, '')
+  assert.equal(sanitized.width, 500)
+
+  // 即使已有持久化文件和侧边聊天并存
+  const mixed = { ...layout, tabs: ['builtin:files', sideChatTabId], active: sideChatTabId }
+  const sanitizedMixed = sanitizePanelLayout(mixed)
+  assert.deepEqual(sanitizedMixed.tabs, ['builtin:files'])
+  assert.equal(sanitizedMixed.active, 'builtin:files')
+
+  // readPanelLayout 遇到残留的 sideChatTabId 予以忽略
+  const read = readPanelLayout(JSON.stringify(mixed))
+  assert.deepEqual(read.tabs, ['builtin:files'])
+  assert.equal(read.active, 'builtin:files')
+})
+
+test('WorkspacePanels 支持侧边聊天常驻入口与 sideChat 呈现插槽', async () => {
+  const { createElement } = await import('react')
+  const { renderToStaticMarkup } = await import('react-dom/server')
+  const { TooltipProvider } = await import('@pi-meme/ui/components/ui/tooltip')
+  const { WorkspacePanels } = await import('../src/layout/workspace-panels')
+  const host = {} as import('@pi-meme/contracts/app-host').HostApi
+  const markup = renderToStaticMarkup(
+    createElement(TooltipProvider, {
+      children: createElement(WorkspacePanels, {
+        profile: DEFAULT_PROFILE,
+        profileLoading: false,
+        props: { host, target: { hostId: 'host' }, snapshot: null },
+        session: 'chat',
+        sidebar: '置顶、项目、最近',
+        sidebarOpen: true,
+        sidebarWidth: 256,
+        children: '聊天正文',
+        onSidebar: () => {},
+        header: () => null,
+        panels: [],
+        sideChatActive: true,
+        sideChat: createElement('div', { id: 'side-chat-content' }, '侧边聊天独立正文'),
+      }),
+    }),
+  )
+  assert.match(markup, /侧边聊天/)
+  assert.match(markup, /side-chat-content/)
+  assert.match(markup, /侧边聊天独立正文/)
+})
+
+test('SideChatPanel 呈现空态和关闭错误重试', async () => {
+  const { createElement } = await import('react')
+  const { renderToStaticMarkup } = await import('react-dom/server')
+  const { SideChatPanel } = await import('../src/panels/side-chat-panel')
+
+  // 1. 空态测试
+  const emptyMarkup = renderToStaticMarkup(
+    createElement(SideChatPanel, {
+      hasConversation: false,
+      composer: createElement('div', { id: 'test-composer' }, '输入区'),
+    }),
+  )
+  assert.match(emptyMarkup, /侧边聊天是临时聊天，关闭标签后会删除，不记录历史。/)
+  assert.match(emptyMarkup, /test-composer/)
+
+  // 2. 有对话且存在关闭错误测试
+  const activeMarkup = renderToStaticMarkup(
+    createElement(SideChatPanel, {
+      hasConversation: true,
+      conversation: createElement('div', { id: 'test-conversation' }, '已有消息流'),
+      composer: createElement('div', { id: 'test-composer' }, '输入区'),
+      closeError: 'Worker 清理超时',
+      onRetryClose: () => {},
+    }),
+  )
+  assert.match(activeMarkup, /已有消息流/)
+  assert.match(activeMarkup, /关闭失败：Worker 清理超时/)
+  assert.match(activeMarkup, /重试/)
+})
+
+test('WorkspacePanels 在 sideChat 挂载时渲染 portal 宿主容器', async () => {
+  const { createElement } = await import('react')
+  const { renderToStaticMarkup } = await import('react-dom/server')
+  const { TooltipProvider } = await import('@pi-meme/ui/components/ui/tooltip')
+  const { WorkspacePanels } = await import('../src/layout/workspace-panels')
+  const host = {} as import('@pi-meme/contracts/app-host').HostApi
+  const markup = renderToStaticMarkup(
+    createElement(TooltipProvider, {
+      children: createElement(WorkspacePanels, {
+        profile: DEFAULT_PROFILE,
+        profileLoading: false,
+        props: { host, target: { hostId: 'host' }, snapshot: null },
+        session: 'chat',
+        sidebar: '侧栏',
+        sidebarOpen: true,
+        sidebarWidth: 256,
+        children: '聊天正文',
+        onSidebar: () => {},
+        header: () => null,
+        panels: [],
+        sideChatActive: true,
+        sideChat: createElement('div', { id: 'portal-host' }, 'Portal宿主'),
+      }),
+    }),
+  )
+  assert.match(markup, /portal-host/)
+  assert.match(markup, /Portal宿主/)
 })

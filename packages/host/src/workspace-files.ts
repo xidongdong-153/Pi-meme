@@ -53,7 +53,10 @@ async function readBytes(filename: string, maximum: number) {
   }
 }
 
-export function createWorkspaceFiles(resolveRoot: ResolveWorkspaceRoot, attachmentsRoot?: string) {
+export function createWorkspaceFiles(
+  resolveRoot: ResolveWorkspaceRoot,
+  attachmentsRoot?: string | ((ref: WorkspaceRef) => string | string[] | Promise<string | string[]>),
+) {
   const writes = new Map<string, Promise<unknown>>()
   const searches = new Map<
     string,
@@ -74,11 +77,24 @@ export function createWorkspaceFiles(resolveRoot: ResolveWorkspaceRoot, attachme
   }
   async function attachmentTarget(ref: WorkspaceRef, absolute: string) {
     await resolveRoot(ref)
-    const root = path.resolve(attachmentsRoot!)
-    if ((await realpath(root)) !== root) throw new Error('附件目录不能是符号链接')
-    if (!path.resolve(absolute).startsWith(`${root}${path.sep}`)) throw new Error('图片路径越出附件目录')
+    const configuredRoots =
+      typeof attachmentsRoot === 'function' ? await attachmentsRoot(ref) : attachmentsRoot ? [attachmentsRoot] : []
+    const rootList = Array.isArray(configuredRoots) ? configuredRoots : [configuredRoots]
+    const absoluteResolved = path.resolve(absolute)
+    let matchedRoot: string | undefined
+    for (const r of rootList) {
+      if (!r) continue
+      const resolvedR = path.resolve(r)
+      const realR = await realpath(resolvedR).catch(() => '')
+      if (realR && realR !== resolvedR) throw new Error('附件目录不能是符号链接')
+      if (absoluteResolved.startsWith(`${resolvedR}${path.sep}`)) {
+        matchedRoot = resolvedR
+        break
+      }
+    }
+    if (!matchedRoot) throw new Error('图片路径越出附件目录')
     const filename = await realpath(absolute)
-    if (!filename.startsWith(`${root}${path.sep}`)) throw new Error('图片路径越出附件目录')
+    if (!filename.startsWith(`${matchedRoot}${path.sep}`)) throw new Error('图片路径越出附件目录')
     if (!imageTypes[path.extname(filename).toLowerCase()]) throw new Error('附件预览只支持图片')
     return { filename }
   }

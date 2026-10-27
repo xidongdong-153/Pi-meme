@@ -77,7 +77,9 @@ export function createWorkspaceHandlers({
     const scanned = await Promise.all(directories.map((directory) => scanProjectSessions(root, directory)))
     const disk = { paths: scanned.flatMap((item) => item.paths), warnings: scanned.flatMap((item) => item.warnings) }
     const runtime = await Promise.all(
-      (getRuntimeSessions?.() ?? []).map(async (session) => ({ ...session, cwd: await normalizeCwd(session.cwd) })),
+      (getRuntimeSessions?.() ?? [])
+        .filter((session) => !session.temporary)
+        .map(async (session) => ({ ...session, cwd: await normalizeCwd(session.cwd) })),
     )
     return {
       ...disk,

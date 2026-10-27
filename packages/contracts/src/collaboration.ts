@@ -177,4 +177,6 @@ export interface CollaborationBridge {
   getAgents: (sessionKey: string) => Promise<AgentSummary[]>
   getAgentSnapshot: (agentId: string) => Promise<Snapshot>
   interruptAgent: (agentId: string) => Promise<void>
+  rootSessionKey?: (agentIdOrSessionKey: string) => string | undefined
+  isTemporarySession?: (sessionId?: string) => boolean
 }

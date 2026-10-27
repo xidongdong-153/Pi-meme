@@ -28,17 +28,25 @@ function attachmentFilename(name: string) {
   return `file-${safe || 'attachment'}`
 }
 
+export type StoreChatAttachmentOptions = {
+  destinationDirectory?: string
+}
+
 export async function storeChatAttachment(
   dataRoot: string,
   name: unknown,
   body: Readable,
   signal?: AbortSignal,
+  options?: StoreChatAttachmentOptions,
 ): Promise<ChatUploadedFile> {
   if (typeof name !== 'string' || !name.trim()) throw new Error('附件文件名无效')
   signal?.throwIfAborted()
-  const root = path.join(await realpath(dataRoot), storageLayoutRelativePaths.attachmentsDirectory)
-  await mkdir(root, { recursive: true, mode: 0o700 })
-  if ((await realpath(root)) !== root) throw new Error('附件目录不能是符号链接')
+  const baseDirectory = options?.destinationDirectory
+    ? path.resolve(options.destinationDirectory)
+    : path.join(await realpath(dataRoot), storageLayoutRelativePaths.attachmentsDirectory)
+  await mkdir(baseDirectory, { recursive: true, mode: 0o700 })
+  const root = await realpath(baseDirectory)
+  if (root !== baseDirectory) throw new Error('附件目录不能是符号链接')
   const directory = await mkdtemp(path.join(root, 'upload-'))
   const file = path.join(directory, attachmentFilename(name))
   try {

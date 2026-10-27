@@ -110,6 +110,7 @@ export class HostClient {
   private readonly fetch: typeof fetch
   private readonly eventListeners = new Set<(value: DesktopEvent) => void>()
   private readonly connectionListeners = new Set<(value: Connection) => void>()
+  private readonly scopedConnectionListeners = new Map<string, Set<(value: Connection) => void>>()
   private readonly errorListeners = new Set<(value: DesktopError) => void>()
   private readonly sessionsListeners = new Set<() => void>()
   private readonly servicesListeners = new Set<() => void>()
@@ -133,8 +134,8 @@ export class HostClient {
   private readonly sequences = new Map<string, number>()
   private resynchronizing?: Promise<void>
   private buffered: HostEvent[] = []
-  private queueRecoveryComplete = false
-  private initialQueueRecovery?: Promise<boolean>
+  private readonly queueRecoveryComplete = new Set<string>()
+  private readonly initialQueueRecovery = new Map<string, Promise<boolean>>()
 
   constructor(private readonly options: ClientOptions) {
     this.url = new URL(options.endpoint?.baseUrl ?? options.connection.url)
@@ -653,13 +654,15 @@ export class HostClient {
     sessionId = this.selected?.sessionKey,
     updateSelection = true,
     window?: import('@pi-meme/contracts/sessions').SessionWindow,
+    scopedRecovery = false,
   ) {
     const epoch = this.selectionEpoch
     const networkEpoch = this.networkEpoch
     const args = window ? [window] : []
     let snapshot = await this.rpc<Snapshot>('pi:snapshot', args, sessionId)
     this.assertAvailable(networkEpoch)
-    if (await this.recoverQueueEdits(snapshot)) snapshot = await this.rpc<Snapshot>('pi:snapshot', args, sessionId)
+    if (await this.recoverQueueEdits(snapshot, scopedRecovery))
+      snapshot = await this.rpc<Snapshot>('pi:snapshot', args, sessionId)
     this.assertAvailable(networkEpoch)
     this.registerAgents(snapshot.agents ?? [])
     if (updateSelection && epoch === this.selectionEpoch && sessionId === this.selected?.sessionKey)
@@ -680,12 +683,15 @@ export class HostClient {
     return snapshot
   }
 
-  private recoverQueueEdits(snapshot: Snapshot) {
-    if (this.queueRecoveryComplete) return Promise.resolve(false)
-    this.initialQueueRecovery ??= (async () => {
-      const key = snapshot.connection.sessionKey
+  private recoverQueueEdits(snapshot: Snapshot, scoped: boolean) {
+    const key = snapshot.connection.sessionKey
+    const scope = scoped && key ? `session:${key}` : 'selected'
+    if (this.queueRecoveryComplete.has(scope)) return Promise.resolve(false)
+    const existing = this.initialQueueRecovery.get(scope)
+    if (existing) return existing
+    const pending = (async () => {
       if (!key) {
-        this.queueRecoveryComplete = true
+        this.queueRecoveryComplete.add(scope)
         return false
       }
       const ids = new Set(
@@ -702,13 +708,13 @@ export class HostClient {
         if (!message.includes('此客户端未持有排队输入编辑权') && !message.includes('排队输入不存在或已发送'))
           throw result.reason
       }
-      this.queueRecoveryComplete = true
+      this.queueRecoveryComplete.add(scope)
       return results.some((result) => result.status === 'fulfilled')
-    })().catch((cause: unknown) => {
-      this.initialQueueRecovery = undefined
-      throw cause
+    })().finally(() => {
+      this.initialQueueRecovery.delete(scope)
     })
-    return this.initialQueueRecovery
+    this.initialQueueRecovery.set(scope, pending)
+    return pending
   }
 
   private registerAgents(agents: AgentSummary[]) {
@@ -832,10 +838,18 @@ export class HostClient {
     const pending = (async () => {
       try {
         const epoch = this.selectionEpoch
-        const snapshot = await this.snapshot(sessionId, sessionId === this.selected?.sessionKey)
+        const scoped = Boolean(sessionId && this.scopedConnectionListeners.has(sessionId))
+        const snapshot = await this.snapshot(sessionId, sessionId === this.selected?.sessionKey, undefined, scoped)
         this.assertAvailable(networkEpoch)
         if (epoch === this.selectionEpoch && snapshot.connection.sessionKey === this.selected?.sessionKey)
           this.publishConnection(snapshot.connection)
+        else if (snapshot.connection.sessionKey) {
+          const listeners = this.scopedConnectionListeners.get(snapshot.connection.sessionKey)
+          for (const callback of listeners ?? []) {
+            callback({ ...snapshot.connection, status: 'connecting' })
+            callback(snapshot.connection)
+          }
+        }
         await Promise.allSettled([...new Set(this.childAgents.values())].map((id) => this.agentSnapshot(id)))
         this.assertAvailable(networkEpoch)
         for (const callback of this.sessionsListeners) callback()
@@ -913,10 +927,14 @@ export class HostClient {
         for (const callback of this.eventListeners) callback(record)
         break
       }
-      case 'connection':
-        if (!this.pendingSelections && (!this.selected || envelope.value.sessionKey === this.selected.sessionKey))
-          this.publishConnection(envelope.value)
+      case 'connection': {
+        const connection = envelope.value
+        if (connection.sessionKey)
+          for (const callback of this.scopedConnectionListeners.get(connection.sessionKey) ?? []) callback(connection)
+        if (!this.pendingSelections && (!this.selected || connection.sessionKey === this.selected.sessionKey))
+          this.publishConnection(connection)
         break
+      }
       case 'error':
         for (const callback of this.errorListeners) callback(envelope.value)
         break
@@ -948,6 +966,7 @@ export class HostClient {
     this.buffered = []
     this.eventListeners.clear()
     this.connectionListeners.clear()
+    this.scopedConnectionListeners.clear()
     this.errorListeners.clear()
     this.sessionsListeners.clear()
     this.servicesListeners.clear()
@@ -959,11 +978,18 @@ export class HostClient {
     return this.options.selectDirectory((path) => this.rpc<HostDirectory>('host:directories', path ? [path] : []))
   }
 
-  private createBridge(): DesktopBridge {
+  private createBridge(sessionKey?: string): DesktopBridge {
+    let scopedConnection: Connection | undefined
+    const readSnapshot = async (window?: import('@pi-meme/contracts/sessions').SessionWindow) => {
+      const snapshot = await this.snapshot(sessionKey, !sessionKey, window, Boolean(sessionKey))
+      if (!sessionKey) return snapshot
+      scopedConnection = snapshot.connection
+      return snapshot
+    }
     const rpc = <T>(
       method: string,
       args: unknown[] = [],
-      sessionId: string | null | undefined = this.selected?.sessionKey,
+      sessionId: string | null | undefined = sessionKey ?? this.selected?.sessionKey,
     ) => this.rpc<T>(method, args, sessionId)
     const subscribe = <T>(listeners: Set<(value: T) => void>, callback: (value: T) => void) => {
       listeners.add(callback)
@@ -990,15 +1016,58 @@ export class HostClient {
       }
     }
     return {
-      getConnection: async () => (await this.snapshot(undefined, true, { limit: 60 })).connection,
+      scopeSession: (key) => this.createBridge(key),
+      openTemporarySession: (key) => rpc('temporary-session:open', [{ sourceSessionKey: key }], key),
+      getTemporarySession: () => rpc('temporary-session:get', [], null),
+      closeTemporarySession: async (key) => {
+        const result = await rpc<{ closed: boolean }>('temporary-session:close', [key], key)
+        if (result.closed) this.queueRecoveryComplete.delete(`session:${key}`)
+        return result
+      },
+      getConnection: async () => (await readSnapshot({ limit: 60 })).connection,
       startGoal: (key, input) => rpc('goal:start', [key, input], key),
       editGoal: (key, input) => rpc('goal:edit', [key, input], key),
       pauseGoal: (key, input) => rpc('goal:pause', [key, input], key),
       resumeGoal: (key, input) => rpc('goal:resume', [key, input], key),
       clearGoal: (key, input) => rpc('goal:clear', [key, input], key),
       resolveAppSession: (sessionKey) => rpc('host:session-ref', [sessionKey], sessionKey),
-      getSnapshot: (window) => this.snapshot(undefined, true, window),
-      onConnection: (callback) => subscribe(this.connectionListeners, callback),
+      getSnapshot: readSnapshot,
+      onConnection: (callback) => {
+        if (!sessionKey) return subscribe(this.connectionListeners, callback)
+        let active = true
+        let disconnected = false
+        const scopedListeners = this.scopedConnectionListeners.get(sessionKey) ?? new Set<(value: Connection) => void>()
+        this.scopedConnectionListeners.set(sessionKey, scopedListeners)
+        const offScoped = subscribe(scopedListeners, (connection) => {
+          scopedConnection = connection
+          callback(connection)
+        })
+        const off = subscribe(this.connectionListeners, (connection) => {
+          if (!active || !scopedConnection) return
+          if (connection.status === 'disconnected') {
+            disconnected = true
+            scopedConnection = { ...scopedConnection, status: 'disconnected', error: connection.error }
+            callback(scopedConnection)
+          } else if (disconnected && (connection.status === 'idle' || connection.status === 'ready')) {
+            disconnected = false
+            void readSnapshot({ limit: 60 }).then(
+              (snapshot) => {
+                if (active) callback(snapshot.connection)
+              },
+              (cause: unknown) => {
+                if (active && scopedConnection)
+                  callback({ ...scopedConnection, status: 'disconnected', error: String(cause) })
+              },
+            )
+          }
+        })
+        return () => {
+          active = false
+          off()
+          offScoped()
+          if (!scopedListeners.size) this.scopedConnectionListeners.delete(sessionKey)
+        }
+      },
       onEvent: (callback) => subscribe(this.eventListeners, callback),
       onError: (callback) => subscribe(this.errorListeners, callback),
       onSessionsChanged: (callback) => subscribe(this.sessionsListeners, callback),

@@ -99,6 +99,7 @@ export function createWorkerSession(
           cwd,
           initialGeneration: connection.generation,
           root: options.dataRoot,
+          temporaryRoot: paths.temporaryRoot,
           settings: options.settings,
           agentEntries: options.agentEntries,
           resourceSnapshot: options.resourceSnapshot,

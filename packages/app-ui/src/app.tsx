@@ -26,6 +26,8 @@ import { ProjectsPage } from './projects/projects-page'
 import { ProjectDialog } from './projects/project-dialog'
 import { ForkNotice } from './layout/fork-notice'
 import { WorkspaceContent } from './layout/workspace-content'
+import { SideChatPanel } from './panels/side-chat-panel'
+import { SideChatSession } from './session/side-chat-session'
 import { ErrorNotice, SystemErrorStack, SystemErrorToast } from './layout/error-notice'
 import {
   lazy,
@@ -81,7 +83,7 @@ import { Button } from '@pi-meme/ui/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
 import { PluginSlot } from './plugins/plugin-slot'
 import { WorkspacePanels } from './layout/workspace-panels'
-import { sessionUiTarget, panelAvailable } from './layout/panel-layout'
+import { sessionUiTarget, panelAvailable, sideChatTabId } from './layout/panel-layout'
 import { useAgentPluginSelection } from './plugins/use-agent-plugin-selection'
 import {
   Activity,
@@ -229,6 +231,100 @@ export function App({
     host,
     hostId: hostId ?? hostAddress,
   })
+  const [sideChat, setSideChat] = useState<{
+    open: boolean
+    sessionKey?: string
+    sourceSessionKey?: string
+    draft: string
+    creationError: string
+    closing: boolean
+    closeError: string
+  }>({ open: false, draft: '', creationError: '', closing: false, closeError: '' })
+  const sideChatCurrent = useRef(sideChat)
+  sideChatCurrent.current = sideChat
+  const sideChatOpening = useRef<Promise<import('@pi-meme/contracts/desktop').Snapshot> | null>(null)
+  const sideChatClosing = useRef(false)
+  const sideChatRevision = useRef(0)
+  const [sideChatTarget, setSideChatTarget] = useState<HTMLDivElement | null>(null)
+  const [sideChatVisible, setSideChatVisible] = useState(false)
+  const [sideChatFocused, setSideChatFocused] = useState(false)
+  const sideChatBridge = useMemo(
+    () => (sideChat.sessionKey ? bridge.scopeSession?.(sideChat.sessionKey) : undefined),
+    [bridge, sideChat.sessionKey],
+  )
+  useEffect(() => {
+    if (!bridge.getTemporarySession) return
+    let current = true
+    const revision = sideChatRevision.current
+    void bridge.getTemporarySession().then(
+      (snapshot) => {
+        if (!current || revision !== sideChatRevision.current || !snapshot?.connection.sessionKey) return
+        setSideChat((value) =>
+          value.open
+            ? value
+            : {
+                ...value,
+                open: true,
+                sessionKey: snapshot.connection.sessionKey,
+              },
+        )
+      },
+      () => {},
+    )
+    return () => {
+      current = false
+    }
+  }, [bridge])
+  const openSideChat = () => {
+    sideChatRevision.current += 1
+    const existing = sideChatCurrent.current
+    if (existing.sessionKey || sideChatOpening.current || existing.closing) return
+    const source = existing.sourceSessionKey ?? chat.connection.sessionKey
+    setSideChat((value) => ({ ...value, open: true, sourceSessionKey: source, creationError: '' }))
+    if (!source || !bridge.openTemporarySession || !bridge.scopeSession) {
+      setSideChat((value) => ({ ...value, creationError: '当前 Host 尚未准备好临时聊天，请稍后重试。' }))
+      return
+    }
+    const pending = bridge.openTemporarySession(source)
+    sideChatOpening.current = pending
+    void pending
+      .then(
+        (snapshot) => {
+          if (!snapshot.connection.sessionKey) throw new Error('Host 未返回临时会话标识')
+          setSideChat((value) =>
+            value.open ? { ...value, sessionKey: snapshot.connection.sessionKey, creationError: '' } : value,
+          )
+        },
+        (cause: unknown) => setSideChat((value) => ({ ...value, creationError: `无法创建临时聊天：${String(cause)}` })),
+      )
+      .catch((cause: unknown) => setSideChat((value) => ({ ...value, creationError: String(cause) })))
+      .finally(() => {
+        if (sideChatOpening.current === pending) sideChatOpening.current = null
+      })
+  }
+  const closeSideChat = async () => {
+    if (sideChatClosing.current) return false
+    sideChatRevision.current += 1
+    sideChatClosing.current = true
+    setSideChat((value) => ({ ...value, closing: true, closeError: '' }))
+    try {
+      let key = sideChatCurrent.current.sessionKey
+      const opening = sideChatOpening.current
+      if (opening) key = (await opening.catch(() => null))?.connection.sessionKey ?? key
+      if (!key && bridge.getTemporarySession) key = (await bridge.getTemporarySession())?.connection.sessionKey
+      if (key) {
+        if (!bridge.closeTemporarySession) throw new Error('当前 Host 不支持关闭临时聊天')
+        await bridge.closeTemporarySession(key)
+      }
+      setSideChat({ open: false, draft: '', creationError: '', closing: false, closeError: '' })
+      return true
+    } catch (cause) {
+      setSideChat((value) => ({ ...value, closing: false, closeError: String(cause) }))
+      return false
+    } finally {
+      sideChatClosing.current = false
+    }
+  }
   const navigateSession = (work: () => Promise<boolean>) => (serviceUI ? serviceUI.onNavigate(work) : work())
   const newSession = (cwd?: string) =>
     navigateSession(() => (cwd === undefined ? chat.newSession() : chat.newSessionInProject(cwd)))
@@ -1546,6 +1642,7 @@ export function App({
       searchSessions: chatShortcutsAvailable ? (serviceUI?.onSearch ?? (() => setSessionSearchOpen(true))) : undefined,
       pauseTask:
         chatShortcutsAvailable &&
+        !sideChatFocused &&
         chat.chat.running &&
         !chat.chat.paused &&
         !chat.chat.queuePaused &&
@@ -1554,6 +1651,7 @@ export function App({
           : undefined,
       togglePlanMode:
         chatShortcutsAvailable &&
+        !sideChatFocused &&
         !chat.busy &&
         !chat.editing &&
         !chat.editingQueue &&
@@ -1562,16 +1660,18 @@ export function App({
           ? () => chat.changeMode(chat.mode === 'plan' ? 'default' : 'plan')
           : undefined,
       openModelPicker:
-        chatShortcutsAvailable && !chat.modelPickerDisabled && !chat.modelSaving && !chat.editing
+        chatShortcutsAvailable && !sideChatFocused && !chat.modelPickerDisabled && !chat.modelSaving && !chat.editing
           ? () => setOpenModelsVersion((version) => version + 1)
           : undefined,
       openFiles:
         chatShortcutsAvailable &&
+        !sideChatFocused &&
         panels.some((panel) => panel.id === 'builtin:files' && panelAvailable(panel, pluginProps.target))
           ? () => openTool('builtin:files')
           : undefined,
       openTerminal:
         chatShortcutsAvailable &&
+        !sideChatFocused &&
         panels.some((panel) => panel.id === 'builtin:terminal' && panelAvailable(panel, pluginProps.target))
           ? () => openTool('builtin:terminal')
           : undefined,
@@ -1588,16 +1688,79 @@ export function App({
           className="theme-app flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground select-none"
         >
           <div className={!chatVisible ? 'hidden' : 'flex flex-1 min-h-0 flex-col'} inert={!chatVisible}>
+            {sideChatBridge && (
+              <SideChatSession
+                key={sideChat.sessionKey}
+                bridge={sideChatBridge}
+                host={host}
+                hostId={hostId ?? hostAddress ?? 'local'}
+                target={active && chatVisible && sideChatVisible ? sideChatTarget : null}
+                resources={resources}
+                registry={registry}
+                consent={pluginConsent}
+                plugins={pluginDescriptors}
+                hooks={beforeSendHooks}
+                authorizationRevision={authorizationRevision}
+                initialDraft={sideChat.draft}
+                showComposerHint={settings.snapshot?.settings.showComposerHint !== false}
+                showContextUsage={settings.snapshot?.settings.showContextUsage !== false}
+                closing={sideChat.closing}
+                closeError={sideChat.closeError}
+                onRetryClose={() => void closeSideChat()}
+                onLeaveComposer={() => registry.setComposerController(pluginComposer.adapter)}
+                onFocusState={setSideChatFocused}
+              />
+            )}
             <WorkspacePanels
               sessionTitle={title}
               onNewWebPage={browserPlatform && browser.ready ? () => void browser.create() : undefined}
               browserPanelIds={browser.tabs.map((tab) => `builtin:browser:${tab.id}`)}
               onClosePanel={(id) => {
+                if (id === sideChatTabId) return closeSideChat()
                 if (id.startsWith('builtin:browser:')) void browser.close(id.slice(16))
               }}
+              sideChatActive={sideChat.open}
+              sideChat={
+                sideChatBridge ? (
+                  <></>
+                ) : (
+                  <SideChatPanel
+                    closing={sideChat.closing}
+                    closeError={sideChat.closeError}
+                    onRetryClose={() => void closeSideChat()}
+                    notice={
+                      sideChat.creationError ? (
+                        <div role="alert" className="flex items-center gap-2 px-3 py-2 text-xs text-destructive">
+                          <span className="min-w-0 flex-1">{sideChat.creationError}</span>
+                          <Button size="sm" variant="ghost" onClick={openSideChat}>
+                            重试
+                          </Button>
+                        </div>
+                      ) : undefined
+                    }
+                    composer={
+                      <textarea
+                        aria-label="侧边聊天草稿"
+                        autoFocus
+                        placeholder="输入消息…"
+                        value={sideChat.draft}
+                        disabled={sideChat.closing || Boolean(sideChat.closeError)}
+                        onChange={(event) => setSideChat((value) => ({ ...value, draft: event.target.value }))}
+                        className="min-h-20 w-full resize-none rounded-xl border border-border bg-card p-3 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      />
+                    }
+                  />
+                )
+              }
+              onOpenSideChat={openSideChat}
+              onSideChatContainer={setSideChatTarget}
+              onSideChatVisibilityChange={setSideChatVisible}
+              closingPanelIds={sideChat.closing ? [sideChatTabId] : undefined}
               focusComposerRequest={browserFocus}
               onFocusComposer={
-                !chat.inputDisabled && !chat.editing ? () => chat.composerStore.editor?.focus() : undefined
+                !sideChatFocused && !chat.inputDisabled && !chat.editing
+                  ? () => chat.composerStore.editor?.focus()
+                  : undefined
               }
               shortcutEnabled={chatShortcutsAvailable}
               onShortcutHelp={openShortcutHelp}
@@ -1679,7 +1842,15 @@ export function App({
                 </SidebarMenus>
               )}
             >
-              {conversation}
+              <div
+                className="contents"
+                onFocusCapture={() => {
+                  setSideChatFocused(false)
+                  registry.setComposerController(pluginComposer.adapter)
+                }}
+              >
+                {conversation}
+              </div>
             </WorkspacePanels>
           </div>
 

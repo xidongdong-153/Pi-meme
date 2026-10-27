@@ -27,6 +27,7 @@ export type PiSessionSummary = Pick<SessionInfo, 'id' | 'path' | 'cwd' | 'name' 
     isPaused?: boolean
     error?: string
     scheduledTask?: Pick<ScheduledTask, 'taskId' | 'name' | 'status' | 'nextRunAt'> & { timeZone: string }
+    temporary?: boolean
   }
 
 export type PiProjectGroup = {

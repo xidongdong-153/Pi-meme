@@ -38,12 +38,14 @@ export function useAppSession(
     hostId = '',
     host,
     onPlanSaved,
+    persistDrafts = true,
   }: {
     chatEnabled?: boolean
     workspaceEnabled?: boolean
     hostId?: string
     host?: import('@pi-meme/contracts/app-host').HostApi
     onPlanSaved?: (document: PlanDocument, sessionKey: string | undefined) => void
+    persistDrafts?: boolean
   } = {},
 ) {
   const onPlanSavedRef = useRef(onPlanSaved)
@@ -99,7 +101,14 @@ export function useAppSession(
   const pluginSynchronization = useRef(new PluginSnapshotSync())
   const views = useRef(new Map<string, { snapshot: Snapshot; chat: ChatState; sequence: number }>())
   const synced = useRef<{ generation: number; sessionKey?: string; status?: string } | undefined>(undefined)
-  const drafts = useMemo(() => new ComposerDrafts(hostId), [hostId])
+  const drafts = useMemo(() => {
+    if (persistDrafts) return new ComposerDrafts(hostId)
+    return new ComposerDrafts(
+      hostId,
+      () => ({ getItem: () => null, setItem: () => {}, removeItem: () => {} }),
+      'temporary',
+    )
+  }, [hostId, persistDrafts])
   const chatRef = useRef<ReturnType<typeof useChatSession> | null>(null)
   const extensionsRef = useRef<ReturnType<typeof useExtensionUI> | null>(null)
   const { sessions, sessionsLoading, refreshSessions, setActiveSession } = useSessions(bridge, workspaceEnabled)

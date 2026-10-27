@@ -59,6 +59,7 @@ Host 的应用配置、持久状态、执行数据与内部管理的工作区文
 │   └── maintenance/                     # 维护账本与升级历史报告
 ├── data/
 │   ├── sessions/<cwd-hash>/*.jsonl      # Pi 原生执行会话分支
+│   ├── temporary-sessions/<id>/         # 侧边临时会话运行期文件（退出或关闭清理）
 │   ├── plans/<sessionId>/<planId>.md    # 计划 Markdown 正文
 │   └── attachments/upload-*/            # 聊天上传附件
 ├── resources/
@@ -105,6 +106,7 @@ Host 的应用配置、持久状态、执行数据与内部管理的工作区文
 | `state/collaboration/`         | 子代理根分片与计划索引                   | `Coordinator`                                             | 否                 | 依 rootAgentId 分片保存，不自动删除历史                 |
 | `state/modules/`               | 内置服务模块持久数据                     | 内置模块（如 activities 等）                              | 否（服务数据）     | 依各内置模块业务规则管理                                |
 | `data/sessions/`               | Pi 原生 JSONL 会话历史                   | Pi Worker, `SessionPool`                                  | 否（用户历史）     | 用户显式删除会话时物理删除                              |
+| `data/temporary-sessions/`     | 侧边临时会话文件                         | Pi Worker, `SessionPool`                                  | 是                 | 会话关闭或断线超时删除，Host 启动清理                   |
 | `data/plans/`                  | 计划正文 Markdown                        | `Coordinator`                                             | 否（用户成果）     | 永久保留                                                |
 | `data/attachments/`            | 消息上传文件                             | `chat-attachments`                                        | 否（用户文件）     | 永久保留，失败上传自动删除                              |
 | `resources/`                   | 技能、主题与历史快照                     | `ResourceStore`                                           | 否                 | 具有历史内容引用语义，不自动批量删除                    |
@@ -260,6 +262,12 @@ flowchart TD
 - **成功删除驱动**：物理删除完成后记录 `deleted` 阶段，仅依据实际成功的路径与 Key，幂等级联清理 `state/agent-permissions.json`、`state/goals.json` 以及协作分片；
 - **断点自愈**：启动恢复时通过 `stat` 严格核实物理已确认删除（ENOENT）的文件，未确认物理删除项不予清理，损坏账本 fail-closed 保留并报警；
 - **独立目录保守清理**：独立会话工作目录（`workspaces/standalone/<id>`）在无任何会话与项目引用且物理为空时才通过非递归 `rmdir` 安全回收；缺失引用检查器时严格保守跳过。
+
+### 侧边临时会话目录与草稿隔离
+
+侧边临时聊天运行期间，Pi JSONL 和上传附件保存在 `data/temporary-sessions/<id>/`，目录权限为 0700。关闭标签或断线超时后，Host 停止所属任务并删除该目录；Host 启动时清理遗留目录。临时会话不进入历史索引和持久控制快照。
+
+侧边聊天的草稿只保存在窗口内存中，不写入 `localStorage`；右侧面板布局也不保存侧边聊天标签。
 
 ### 启动临时文件扫尾
 

@@ -8,6 +8,7 @@ import type {
   EventPage,
   EventSubscription,
   HostControlEvent,
+  SessionRef,
   SubmissionReceipt,
 } from '@pi-meme/contracts/app-host'
 
@@ -265,6 +266,8 @@ export class ControlStore {
   private readonly committedProjects = new Map<string, AppProject>()
   private readonly committedSessions = new Map<string, AppSession>()
   private readonly committedReceipts = new Map<string, SubmissionReceipt>()
+  private readonly ephemeralOperations = new Set<string>()
+  private readonly ephemeralOperationSessions = new Map<string, string>()
 
   readonly state: {
     version: 2
@@ -292,7 +295,11 @@ export class ControlStore {
 
   private queue: Promise<void> = Promise.resolve()
   private readonly running = new Map<string, Promise<unknown>>()
-  private readonly listeners = new Set<{ input: EventSubscription; callback: (event: HostControlEvent) => void }>()
+  private readonly listeners = new Set<{
+    input: EventSubscription
+    callback: (event: HostControlEvent) => void
+    clientId?: string
+  }>()
   private poisoned = false
   private poisonError?: Error
 
@@ -678,15 +685,20 @@ export class ControlStore {
   }
 
   private async internalCheckpoint(): Promise<void> {
-    // 关键保证：快照只从已提交私有视图捕获，绝不读取外部未经 save 污染的对象
+    // 关键保证：快照只从已提交私有视图捕获，绝不读取外部未经 save 污染的对象；临时会话与临时回执不落盘
+    const persistentSessions = [...this.committedSessions.values()].filter((s) => !s.temporary)
+    const persistentSessionIds = new Set(persistentSessions.map((s) => s.sessionId))
+    const persistentReceipts = [...this.committedReceipts.values()].filter((r) =>
+      persistentSessionIds.has(r.session.sessionId),
+    )
     const snapshot: ControlSnapshot = {
       version: 2,
       journalEpoch: this.state.journalEpoch,
       appliedCommitSeq: this.state.commitSeq,
       seq: this.state.seq,
       projects: [...this.committedProjects.values()].map((p) => structuredClone(p)),
-      sessions: [...this.committedSessions.values()].map((s) => structuredClone(s)),
-      receipts: [...this.committedReceipts.values()].map((r) => structuredClone(r)),
+      sessions: persistentSessions.map((s) => structuredClone(s)),
+      receipts: persistentReceipts.map((r) => structuredClone(r)),
     }
 
     await mkdir(this.paths.controlDirectory, { recursive: true })
@@ -703,9 +715,10 @@ export class ControlStore {
     await syncDirectory(this.paths.controlDirectory)
     this.state.appliedCommitSeq = snapshot.appliedCommitSeq
 
-    // 2. 压缩 / 同步 operations.jsonl 并 sync 目录
+    // 2. 压缩 / 同步 operations.jsonl 并 sync 目录，排除临时操作
     const opLines: string[] = []
     for (const [id, op] of Object.entries(this.state.operations)) {
+      if (this.ephemeralOperations.has(id)) continue
       const entry: OperationEntry = {
         id,
         operationId: op.operationId,
@@ -795,12 +808,54 @@ export class ControlStore {
   }
 
   async saveSession(session: AppSession): Promise<void> {
+    if (session.temporary) {
+      this.committedSessions.set(session.sessionId, structuredClone(session))
+      const index = this.state.sessions.findIndex((s) => s.sessionId === session.sessionId)
+      if (index >= 0) this.state.sessions[index] = structuredClone(session)
+      else this.state.sessions.push(structuredClone(session))
+      return
+    }
     await this.commitJournal({
       mutation: { kind: 'session_upsert', session: structuredClone(session) },
     })
   }
 
+  async waitForSessionOperations(sessionId: string): Promise<void> {
+    const pending: Promise<unknown>[] = []
+    for (const [id, promise] of this.running.entries()) {
+      if (this.ephemeralOperationSessions.get(id) === sessionId) {
+        pending.push(promise)
+      }
+    }
+    if (pending.length > 0) {
+      await Promise.allSettled(pending)
+    }
+  }
+
   async deleteSession(sessionId: string): Promise<void> {
+    const session = this.committedSessions.get(sessionId) ?? this.state.sessions.find((s) => s.sessionId === sessionId)
+    if (!session || session.temporary) {
+      if (session?.temporary) {
+        this.committedSessions.delete(sessionId)
+        this.state.sessions = this.state.sessions.filter((s) => s.sessionId !== sessionId)
+      }
+      for (const [id, r] of [...this.committedReceipts.entries()]) {
+        if (r.session.sessionId === sessionId) this.committedReceipts.delete(id)
+      }
+      this.state.receipts = this.state.receipts.filter((r) => r.session.sessionId !== sessionId)
+      for (const [id, op] of Object.entries(this.state.operations)) {
+        if (this.ephemeralOperations.has(id)) {
+          const associatedSessionId = this.ephemeralOperationSessions.get(id)
+          const res = op.result as { session?: SessionRef } | undefined
+          if (associatedSessionId === sessionId || res?.session?.sessionId === sessionId) {
+            delete this.state.operations[id]
+            this.ephemeralOperations.delete(id)
+            this.ephemeralOperationSessions.delete(id)
+          }
+        }
+      }
+      return
+    }
     await this.commitJournal({
       mutation: { kind: 'session_delete', sessionId },
     })
@@ -812,12 +867,20 @@ export class ControlStore {
     method: string,
     args: unknown[],
     action: (operationId: string) => Promise<T>,
+    options?: { ephemeral?: boolean; sessionId?: string },
   ): Promise<T> {
     if (typeof key !== 'string' || !key || key.length > 128)
       throw new ControlError('invalid-key', '写操作必须传入 1 到 128 字符的幂等键')
     if (this.poisoned) {
       throw new ControlError('store-poisoned', this.poisonError?.message ?? '存储已锁定，拒绝执行操作')
     }
+    const targetSessionId = options?.sessionId
+    const isEphemeral = Boolean(
+      options?.ephemeral ||
+      (targetSessionId &&
+        (this.committedSessions.get(targetSessionId)?.temporary ??
+          this.state.sessions.find((s) => s.sessionId === targetSessionId)?.temporary)),
+    )
     const id = JSON.stringify([clientId, key])
     const input = createHash('sha256')
       .update(JSON.stringify([method, args]))
@@ -840,39 +903,58 @@ export class ControlStore {
 
     const operation: Operation = { operationId: randomUUID(), input, status: 'pending' }
     this.state.operations[id] = operation
+    if (isEphemeral) {
+      this.ephemeralOperations.add(id)
+      if (targetSessionId) this.ephemeralOperationSessions.set(id, targetSessionId)
+    }
 
     const pending = (async () => {
       try {
-        await this.appendOperation({
-          id,
-          operationId: operation.operationId,
-          input,
-          status: 'pending',
-          timestamp: new Date().toISOString(),
-        })
+        if (!isEphemeral) {
+          await this.appendOperation({
+            id,
+            operationId: operation.operationId,
+            input,
+            status: 'pending',
+            timestamp: new Date().toISOString(),
+          })
+        }
         const result = await action(operation.operationId)
         operation.result = result
         operation.status = 'completed'
-        await this.appendOperation({
-          id,
-          operationId: operation.operationId,
-          input,
-          status: 'completed',
-          result,
-          timestamp: new Date().toISOString(),
-        })
+        if (isEphemeral && !this.ephemeralOperationSessions.has(id)) {
+          if (result && typeof result === 'object') {
+            if ('session' in result && (result as any).session?.sessionId) {
+              this.ephemeralOperationSessions.set(id, (result as any).session.sessionId)
+            } else if ('sessionId' in result && typeof (result as any).sessionId === 'string') {
+              this.ephemeralOperationSessions.set(id, (result as any).sessionId)
+            }
+          }
+        }
+        if (!isEphemeral) {
+          await this.appendOperation({
+            id,
+            operationId: operation.operationId,
+            input,
+            status: 'completed',
+            result,
+            timestamp: new Date().toISOString(),
+          })
+        }
         return structuredClone(result)
       } catch (cause) {
         operation.status = 'failed'
         operation.error = cause instanceof Error ? cause.message : String(cause)
-        await this.appendOperation({
-          id,
-          operationId: operation.operationId,
-          input,
-          status: 'failed',
-          error: operation.error,
-          timestamp: new Date().toISOString(),
-        }).catch(() => {})
+        if (!isEphemeral) {
+          await this.appendOperation({
+            id,
+            operationId: operation.operationId,
+            input,
+            status: 'failed',
+            error: operation.error,
+            timestamp: new Date().toISOString(),
+          }).catch(() => {})
+        }
         throw cause
       }
     })()
@@ -894,6 +976,72 @@ export class ControlStore {
     }
     const eventId = randomUUID()
     const timestamp = new Date().toISOString()
+
+    const isTemporary = Boolean(
+      companionSession?.temporary ||
+      (input.sessionId && this.committedSessions.get(input.sessionId)?.temporary) ||
+      (input.value &&
+        typeof input.value === 'object' &&
+        'temporary' in input.value &&
+        (input.value as { temporary?: boolean }).temporary) ||
+      (input.value &&
+        typeof input.value === 'object' &&
+        'session' in input.value &&
+        (input.value as { session?: SessionRef }).session?.sessionId &&
+        this.committedSessions.get((input.value as { session: SessionRef }).session.sessionId)?.temporary),
+    )
+
+    if (isTemporary) {
+      const sessionId =
+        input.sessionId ??
+        (input.value && typeof input.value === 'object' && 'session' in input.value
+          ? (input.value as { session?: SessionRef }).session?.sessionId
+          : undefined)
+      const session =
+        companionSession ??
+        (sessionId
+          ? (this.committedSessions.get(sessionId) ?? this.state.sessions.find((s) => s.sessionId === sessionId))
+          : undefined)
+      const ownerClientId = session?.ownerClientId
+      const createdEvent: HostControlEvent = {
+        type: input.type,
+        value: structuredClone(input.value),
+        sessionId: input.sessionId,
+        projectId: input.projectId,
+        eventId,
+        timestamp,
+        hostId: this.hostId,
+        journalEpoch: this.state.journalEpoch,
+        seq: this.state.seq,
+      }
+      if (input.type === 'submission') {
+        const receipt = structuredClone(input.value as SubmissionReceipt)
+        this.committedReceipts.set(receipt.operationId, receipt)
+        const idx = this.state.receipts.findIndex((r) => r.operationId === receipt.operationId)
+        if (idx >= 0) this.state.receipts[idx] = receipt
+        else this.state.receipts.push(receipt)
+      } else if (input.type === 'session') {
+        const session = structuredClone(input.value as AppSession)
+        this.committedSessions.set(session.sessionId, session)
+        const idx = this.state.sessions.findIndex((s) => s.sessionId === session.sessionId)
+        if (idx >= 0) this.state.sessions[idx] = session
+        else this.state.sessions.push(session)
+      }
+      for (const listener of this.listeners) {
+        if (!matchesControlEvent(createdEvent, listener.input)) continue
+        if (ownerClientId) {
+          if (!listener.clientId || (listener.clientId !== ownerClientId && listener.clientId !== 'host-internal')) {
+            continue
+          }
+        }
+        try {
+          listener.callback(createdEvent)
+        } catch {
+          /* 单个订阅者不能中断已保存的事件。 */
+        }
+      }
+      return createdEvent
+    }
 
     let mutation: ControlJournalMutation | undefined
     if (input.type === 'session') {
@@ -939,6 +1087,16 @@ export class ControlStore {
   publishLive(
     input: Pick<HostControlEvent, 'type' | 'value'> & Partial<Pick<HostControlEvent, 'sessionId' | 'projectId'>>,
   ) {
+    const sessionId = input.sessionId
+    const session = sessionId
+      ? (this.committedSessions.get(sessionId) ?? this.state.sessions.find((s) => s.sessionId === sessionId))
+      : undefined
+    const isTemporary = Boolean(
+      session?.temporary ||
+      (input.value && typeof input.value === 'object' && (input.value as { temporary?: boolean }).temporary),
+    )
+    const ownerClientId = session?.ownerClientId
+
     const event: HostControlEvent = {
       ...input,
       stream: 'live',
@@ -949,7 +1107,12 @@ export class ControlStore {
       eventId: randomUUID(),
       timestamp: new Date().toISOString(),
     }
-    for (const listener of this.listeners)
+    for (const listener of this.listeners) {
+      if (isTemporary && ownerClientId) {
+        if (!listener.clientId || (listener.clientId !== ownerClientId && listener.clientId !== 'host-internal')) {
+          continue
+        }
+      }
       if (matchesControlEvent(event, listener.input)) {
         try {
           listener.callback(event)
@@ -957,6 +1120,7 @@ export class ControlStore {
           /* 单个订阅者不能中断已保存的事件。 */
         }
       }
+    }
   }
 
   read(input: EventSubscription = {}): EventPage {
@@ -987,9 +1151,10 @@ export class ControlStore {
     }
   }
 
-  subscribe(input: EventSubscription, callback: (event: HostControlEvent) => void) {
+  subscribe(input: EventSubscription, callback: (event: HostControlEvent) => void, clientId?: string) {
     const page = this.read(input)
-    const listener = { input, callback }
+    const subscriberClientId = clientId
+    const listener = { input, callback, clientId: subscriberClientId }
     this.listeners.add(listener)
     if (page.resyncRequired) {
       callback({

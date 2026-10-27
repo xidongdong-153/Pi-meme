@@ -506,3 +506,58 @@ test('standalone 目录完整引用检查：被 idle 新会话或工作区引用
     await rm(root, { recursive: true, force: true })
   }
 })
+
+test('临时会话清理通过 destroyTemporary 参数触发级联整树销毁，不残留任何协作记录', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'pi-temp-cleanup-'))
+  const maintenanceDir = path.join(root, 'state', 'maintenance')
+  const permissionsFile = path.join(root, 'state', 'agent-permissions.json')
+  const goalsFile = path.join(root, 'state', 'goals.json')
+  const sessionsDir = path.join(root, 'temporary', 'temp-session', 'sessions')
+
+  await mkdir(maintenanceDir, { recursive: true })
+  await mkdir(sessionsDir, { recursive: true })
+
+  try {
+    const accessStore = new AgentAccessStore(permissionsFile)
+    const goals = new GoalService({ file: goalsFile, sessionsDirectory: sessionsDir })
+    await goals.init()
+
+    let deleteOptionsPassed: any
+    const fakeCollaboration = {
+      deleteSessions: async (opts: any) => {
+        deleteOptionsPassed = opts
+        return { deletedRootAgentIds: ['root-1'] }
+      },
+    }
+
+    const tempFile = path.join(sessionsDir, 'temp.jsonl')
+    await writeFile(tempFile, '{"type":"session"}\n')
+    await accessStore.set(tempFile, 'full-access')
+
+    const tempRef = { hostId: 'h', sessionId: 'temp-session' }
+    await goals.start(tempRef, { objective: '临时目标' }, undefined, { temporary: true })
+
+    const cleanup = new SessionCleanupService({
+      maintenanceDirectory: maintenanceDir,
+      accessStore,
+      goals,
+      collaboration: fakeCollaboration as any,
+      control: {
+        lookupSessionIds: async () => ({ [tempFile]: 'temp-session' }),
+        deleteSessions: async () => ({ deletedSessionIds: ['temp-session'] }),
+      },
+    })
+
+    const prepared = await cleanup.prepare([tempFile])
+    await rm(tempFile, { force: true })
+    await cleanup.afterDelete({ deletedPaths: [tempFile], deletedKeys: [], errors: [] }, prepared, undefined, {
+      destroyTemporary: true,
+    })
+
+    assert.equal(deleteOptionsPassed?.destroyTemporary, true, '向 collaboration 传递了 destroyTemporary: true')
+    assert.equal(await accessStore.get(tempFile), 'workspace-write', '权限已重置')
+    assert.equal(goals.get(tempRef), undefined, '临时目标已被移除')
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})

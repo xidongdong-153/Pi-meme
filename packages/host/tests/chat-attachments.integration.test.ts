@@ -408,3 +408,30 @@ test('已登记远程服务流式转发超过 32 MiB，401 续期但不重放已
     await remote.dispose()
   }
 })
+
+test('storeChatAttachment 支持 destinationDirectory 隔离写入临时目录，避免污染持久附件根', async () => {
+  const root = await temporaryRoot()
+  const customTempDir = path.join(root, 'temporary', 'temp-session-123', 'attachments')
+  try {
+    const uploaded = await storeChatAttachment(
+      root,
+      'sensitive-temp.pdf',
+      Readable.from([Buffer.from('机密临时附件内容')]),
+      undefined,
+      { destinationDirectory: customTempDir },
+    )
+    assert.ok(uploaded.path.startsWith(customTempDir), '文件位于自定义临时目录下')
+    assert.equal(await readFile(uploaded.path, 'utf8'), '机密临时附件内容')
+
+    // 验证永久 attachmentsDirectory 下没有任何文件
+    const persistentAttachmentsDir = path.join(root, storageLayoutRelativePaths.attachmentsDirectory)
+    const persistentEntries = await readdir(persistentAttachmentsDir).catch(() => [])
+    assert.equal(persistentEntries.length, 0, '持久附件目录下零文件')
+
+    // 模拟关闭临时会话一键清理
+    await rm(path.join(root, 'temporary', 'temp-session-123'), { recursive: true, force: true })
+    await assert.rejects(stat(uploaded.path), /ENOENT/)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})

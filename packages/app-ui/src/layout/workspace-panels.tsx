@@ -1,5 +1,17 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from 'react'
-import { Globe, Grid2X2, Layers, MessageCircle, PanelRightClose, PanelRightOpen, Plus, Search, X } from 'lucide-react'
+import {
+  Globe,
+  Grid2X2,
+  Layers,
+  LoaderCircle,
+  MessageCircle,
+  MessageSquarePlus,
+  PanelRightClose,
+  PanelRightOpen,
+  Plus,
+  Search,
+  X,
+} from 'lucide-react'
 import { ErrorBoundary } from '@pi-meme/ui/components/error-boundary'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
@@ -17,9 +29,12 @@ import {
   panelAvailable,
   panelStorageKey,
   readPanelLayout,
+  sanitizePanelLayout,
+  sideChatTabId,
   toolsTabId,
   type PanelLayoutState,
 } from './panel-layout'
+
 import { usePaneMotion, useReducedMotion } from './pane-motion'
 import { ResizeHandle } from './resize-handle'
 
@@ -61,10 +76,16 @@ export function WorkspacePanels({
   onPlugin,
   shortcutEnabled = true,
   onShortcutHelp,
+  sideChat,
+  sideChatActive,
+  closingPanelIds,
+  onOpenSideChat,
+  onSideChatContainer,
+  onSideChatVisibilityChange,
   children,
 }: {
   onNewWebPage?: () => void
-  onClosePanel?: (id: string) => void
+  onClosePanel?: (id: string) => void | boolean | Promise<void | boolean>
   browserPanelIds?: string[]
   focusComposerRequest?: number
   panels: UiPanel[]
@@ -98,6 +119,12 @@ export function WorkspacePanels({
   onPlugin?: (entry: RegisteredNavigation) => void
   shortcutEnabled?: boolean
   onShortcutHelp?: () => void
+  sideChat?: ReactNode
+  sideChatActive?: boolean
+  closingPanelIds?: string[]
+  onOpenSideChat?: () => void | boolean | Promise<void | boolean>
+  onSideChatContainer?: (element: HTMLDivElement | null) => void
+  onSideChatVisibilityChange?: (visible: boolean) => void
   children: ReactNode
 }) {
   const storageKey = panelStorageKey(props.target.hostId, session)
@@ -114,12 +141,18 @@ export function WorkspacePanels({
   }
   const [state, updateState] = useState(() => {
     const saved = readLayout()
+    const initial = saved ?? defaultPanelLayout()
+    const tabs =
+      sideChatActive && !initial.tabs.includes(sideChatTabId) ? [...initial.tabs, sideChatTabId] : initial.tabs
+    const active = sideChatActive ? sideChatTabId : initial.active
+    const open = sideChatActive ? true : initial.open
     return {
       storageKey,
       retainActivity: false,
       // inherited 表示当前布局沿用自其他会话，尚未写入本会话存档。
       inherited: saved === undefined,
-      layout: saved ?? defaultPanelLayout(),
+      layout: { ...initial, tabs, active, open },
+      toolActive: false,
     }
   })
   const [unified, setUnified] = useState(() => {
@@ -129,23 +162,43 @@ export function WorkspacePanels({
       return false
     }
   })
-  const [toolActive, setToolActive] = useState(false)
+  const toolActive = state.toolActive
+  const setToolActive = useCallback((action: boolean | ((prev: boolean) => boolean)) => {
+    updateState((value) => ({
+      ...value,
+      toolActive: typeof action === 'function' ? action(value.toolActive) : action,
+    }))
+  }, [])
   const [search, setSearch] = useState('')
+  const [internalClosingTabs, setInternalClosingTabs] = useState<string[]>([])
+  const isClosingTab = useCallback(
+    (id: string) => internalClosingTabs.includes(id) || Boolean(closingPanelIds?.includes(id)),
+    [internalClosingTabs, closingPanelIds],
+  )
   if (state.storageKey !== storageKey) {
     // 新会话没有存档时沿用当前布局，切换会话不收起右栏或重置宽度。
     const saved = readLayout()
+    const sideChatRetained = state.layout.tabs.includes(sideChatTabId) || Boolean(sideChatActive)
+    let nextLayout: PanelLayoutState
+    if (saved) {
+      const tabs = sideChatRetained && !saved.tabs.includes(sideChatTabId) ? [...saved.tabs, sideChatTabId] : saved.tabs
+      const active = state.layout.active === sideChatTabId ? sideChatTabId : saved.active
+      nextLayout = { ...saved, tabs, active }
+    } else {
+      nextLayout = {
+        ...state.layout,
+        tabs: state.layout.tabs.filter((id) => !id.startsWith('builtin:browser:')),
+        active: state.layout.active.startsWith('builtin:browser:') ? '' : state.layout.active,
+      }
+    }
     updateState({
       storageKey,
       retainActivity: false,
       inherited: saved === undefined,
-      layout: saved ?? {
-        ...state.layout,
-        tabs: state.layout.tabs.filter((id) => !id.startsWith('builtin:browser:')),
-        active: state.layout.active.startsWith('builtin:browser:') ? '' : state.layout.active,
-      },
+      layout: nextLayout,
+      toolActive: false,
     })
     setSearch('')
-    setToolActive(false)
   }
   const layout = state.layout
   const setLayout = useCallback((update: (value: PanelLayoutState) => PanelLayoutState) => {
@@ -169,7 +222,7 @@ export function WorkspacePanels({
     // 沿用的布局不写入新会话，避免把上一会话的标签和宽度固化成新会话初始值。
     if (state.inherited) return
     try {
-      window.localStorage.setItem(storageKey, JSON.stringify(layout))
+      window.localStorage.setItem(storageKey, JSON.stringify(sanitizePanelLayout(layout)))
     } catch {
       /* 浏览器禁用存储时仍可使用标签页。 */
     }
@@ -218,35 +271,111 @@ export function WorkspacePanels({
       onPanelRequestHandled?.(requestPanel.revision)
     }
   }, [requestPanel, open, panels, props.target, onPanelRequestHandled])
+  const previousSideChatActive = useRef(sideChatActive)
+  useEffect(() => {
+    const previous = previousSideChatActive.current
+    previousSideChatActive.current = sideChatActive
+    if (previous && !sideChatActive) {
+      setInternalClosingTabs((prev) => prev.filter((item) => item !== sideChatTabId))
+      setLayout((value) => {
+        if (!value.tabs.includes(sideChatTabId)) return value
+        return closePanel(value, sideChatTabId)
+      })
+    } else if (!previous && sideChatActive) {
+      setLayout((value) => {
+        if (value.tabs.includes(sideChatTabId)) return { ...value, active: sideChatTabId, open: true }
+        return {
+          ...value,
+          tabs: [...value.tabs, sideChatTabId],
+          active: sideChatTabId,
+          open: true,
+        }
+      })
+    }
+  }, [sideChatActive, setLayout])
   useEffect(() => {
     tabList.current?.querySelector('[aria-selected="true"]')?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
   }, [layout.active, layout.open, unified, toolActive])
-  const visibleTabs = layout.tabs.filter((id) => id === toolsTabId || available.some((panel) => panel.id === id))
+  const visibleTabs = layout.tabs.filter(
+    (id) => id === toolsTabId || id === sideChatTabId || available.some((panel) => panel.id === id),
+  )
   const tabs = unified || visibleTabs.length ? visibleTabs : [toolsTabId]
   const active = tabs.includes(layout.active) ? layout.active : tabs[0]
   const selected = available.find((panel) => panel.id === active)
   const showTool = unified && toolActive && tabs.includes(layout.active)
+  const sideChatVisible = active === sideChatTabId && (unified ? showTool : layout.open)
+  useEffect(() => {
+    onSideChatVisibilityChange?.(sideChatVisible)
+  }, [sideChatVisible, onSideChatVisibilityChange])
   const selectTab = (id: string) => {
     setToolActive(id !== 'chat')
     if (id !== 'chat') setLayout((value) => ({ ...value, active: id }))
   }
   const closeTab = (id: string) => {
-    onClosePanel?.(id)
+    if (isClosingTab(id)) return
     const restoreFocus = tabList.current?.contains(document.activeElement)
-    if (tabs.length === 1) setToolActive(false)
-    updateState((value) => ({
-      ...value,
-      inherited: false,
-      retainActivity: id === activityId ? false : value.retainActivity,
-      layout: {
-        ...closePanel({ ...value.layout, tabs, active }, id),
-        open: unified ? value.layout.open : tabs.length > 1,
-      },
-    }))
-    if (restoreFocus)
-      requestAnimationFrame(() => {
-        tabList.current?.querySelector<HTMLButtonElement>('[role="tab"][aria-selected="true"]')?.focus()
+
+    const finalize = () => {
+      setInternalClosingTabs((prev) => prev.filter((item) => item !== id))
+      updateState((value) => {
+        if (!value.layout.tabs.includes(id)) {
+          return {
+            ...value,
+            retainActivity: id === activityId ? false : value.retainActivity,
+          }
+        }
+        const nextLayout = closePanel(value.layout, id)
+        const nextVisibleTabs = nextLayout.tabs.filter(
+          (tabId) => tabId === toolsTabId || tabId === sideChatTabId || available.some((panel) => panel.id === tabId),
+        )
+        const nextTabs = unified || nextVisibleTabs.length ? nextVisibleTabs : [toolsTabId]
+        const nextToolActive = nextTabs.length === 1 && nextTabs[0] === toolsTabId ? false : value.toolActive
+        return {
+          ...value,
+          inherited: false,
+          retainActivity: id === activityId ? false : value.retainActivity,
+          layout: {
+            ...nextLayout,
+            open: unified ? value.layout.open : nextLayout.tabs.length > 0,
+          },
+          toolActive: nextToolActive,
+        }
       })
+      if (restoreFocus) {
+        requestAnimationFrame(() => {
+          tabList.current?.querySelector<HTMLButtonElement>('[role="tab"][aria-selected="true"]')?.focus()
+        })
+      }
+    }
+
+    if (!onClosePanel) {
+      finalize()
+      return
+    }
+
+    setInternalClosingTabs((prev) => (prev.includes(id) ? prev : [...prev, id]))
+    try {
+      const outcome = onClosePanel(id)
+      if (outcome && typeof (outcome as Promise<unknown>).then === 'function') {
+        ;(outcome as Promise<void | boolean>)
+          .then((success) => {
+            if (success === false) {
+              setInternalClosingTabs((prev) => prev.filter((item) => item !== id))
+            } else {
+              finalize()
+            }
+          })
+          .catch(() => {
+            setInternalClosingTabs((prev) => prev.filter((item) => item !== id))
+          })
+      } else if (outcome === false) {
+        setInternalClosingTabs((prev) => prev.filter((item) => item !== id))
+      } else {
+        finalize()
+      }
+    } catch {
+      setInternalClosingTabs((prev) => prev.filter((item) => item !== id))
+    }
   }
   const changeView = (next: boolean, forceTool = false) => {
     if (!next && (showTool || forceTool)) setLayout((value) => ({ ...value, open: true }))
@@ -334,8 +463,16 @@ export function WorkspacePanels({
     },
     shortcutEnabled,
   )
+  const handleOpenSideChat = () => {
+    onOpenSideChat?.()
+    open(sideChatTabId)
+  }
+
+  const sideChatSearchMatch = !search.trim() || '侧边聊天'.includes(search.trim().toLocaleLowerCase())
+
   const filtered = available.filter(
     (panel) =>
+      panel.id !== sideChatTabId &&
       (panel.id !== activityId || !activity || activity.count > 0) &&
       !panel.id.startsWith('builtin:browser:') &&
       panel.title.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()),
@@ -394,8 +531,15 @@ export function WorkspacePanels({
         )}
         {tabs.map((id) => {
           const panel = available.find((entry) => entry.id === id)
-          const title = panel?.title ?? '新标签页'
+          const isSideChat = id === sideChatTabId
+          const title = isSideChat ? (panel?.title ?? '侧边聊天') : (panel?.title ?? '新标签页')
           const browserTab = id.startsWith('builtin:browser:')
+          const closing = isClosingTab(id)
+          const icon = browserTab
+            ? (panel?.icon ?? <Grid2X2 />)
+            : isSideChat
+              ? (panel?.icon ?? <MessageSquarePlus className="size-3.5" />)
+              : (panel?.icon ?? <Grid2X2 />)
           return (
             <div
               key={id}
@@ -415,17 +559,22 @@ export function WorkspacePanels({
                 <span
                   className={`flex shrink-0 items-center justify-center ${browserTab ? 'size-5 [&>img]:size-5 [&>svg]:size-5' : 'size-3.5 [&>svg]:size-3.5'}`}
                 >
-                  {panel?.icon ?? <Grid2X2 />}
+                  {icon}
                 </span>
                 <span className="max-w-28 truncate">{title}</span>
               </button>
               <button
                 type="button"
-                aria-label={`关闭标签页：${title}`}
-                className={`mr-1 inline-flex items-center rounded p-1 text-muted-foreground transition-opacity duration-200 ease-out hover:bg-background/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${browserTab ? 'opacity-70 hover:opacity-100' : 'opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto'}`}
-                onClick={() => closeTab(id)}
+                aria-label={closing ? `正在关闭标签页：${title}` : `关闭标签页：${title}`}
+                disabled={closing}
+                aria-busy={closing || undefined}
+                className={`mr-1 inline-flex items-center rounded p-1 text-muted-foreground transition-opacity duration-200 ease-out hover:bg-background/60 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed ${closing ? 'opacity-100 pointer-events-auto text-muted-foreground/60' : browserTab ? 'opacity-70 hover:opacity-100' : 'opacity-0 pointer-events-none group-hover:opacity-100 group-hover:pointer-events-auto group-focus-within:opacity-100 group-focus-within:pointer-events-auto focus-visible:opacity-100 focus-visible:pointer-events-auto'}`}
+                onClick={(event) => {
+                  event.stopPropagation()
+                  closeTab(id)
+                }}
               >
-                <X className="size-3" />
+                {closing ? <LoaderCircle className="size-3 animate-spin" /> : <X className="size-3" />}
               </button>
             </div>
           )
@@ -651,12 +800,36 @@ export function WorkspacePanels({
                 <div
                   id="right-tool-content"
                   role="tabpanel"
-                  aria-label={unified ? undefined : (selected?.title ?? '新标签页')}
+                  aria-label={
+                    unified ? undefined : active === sideChatTabId ? '侧边聊天' : (selected?.title ?? '新标签页')
+                  }
                   className="pane-clip flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden @container"
                   style={{ width: unified || rightPane.dragging ? '100%' : rightWidth }}
                   aria-labelledby={unified ? `workspace-tool-tab-${active}` : undefined}
                 >
-                  {selected ? (
+                  {tabs.includes(sideChatTabId) && sideChat ? (
+                    <div
+                      ref={onSideChatContainer}
+                      hidden={active !== sideChatTabId}
+                      className={
+                        active === sideChatTabId ? 'flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden' : 'hidden'
+                      }
+                    >
+                      {sideChat}
+                    </div>
+                  ) : null}
+                  {active === sideChatTabId ? (
+                    !sideChat && selected ? (
+                      <ErrorBoundary
+                        key={`${storageKey}:${selected.id}:${selected.generation ?? 0}`}
+                        fallbackTitle={`面板渲染失败：${selected.title}`}
+                      >
+                        <div ref={onSideChatContainer} className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+                          <PanelContent panel={selected} props={props} />
+                        </div>
+                      </ErrorBoundary>
+                    ) : null
+                  ) : selected ? (
                     <ErrorBoundary
                       key={`${storageKey}:${selected.id}:${selected.generation ?? 0}`}
                       fallbackTitle={`面板渲染失败：${selected.title}`}
@@ -690,6 +863,20 @@ export function WorkspacePanels({
                               新建网页
                             </button>
                           ) : null}
+                          {sideChatSearchMatch && (
+                            <button
+                              type="button"
+                              onClick={handleOpenSideChat}
+                              className="group flex min-h-10 min-w-0 items-center rounded-lg bg-secondary/40 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
+                            >
+                              <div className="flex min-w-0 items-center gap-3">
+                                <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground group-hover:text-foreground [&>svg]:size-4">
+                                  <MessageSquarePlus className="size-4" />
+                                </span>
+                                <span className="truncate">侧边聊天</span>
+                              </div>
+                            </button>
+                          )}
                           {filtered.map((panel) => (
                             <button
                               key={panel.id}
@@ -706,7 +893,7 @@ export function WorkspacePanels({
                             </button>
                           ))}
                         </div>
-                        {!filtered.length && (
+                        {!filtered.length && !sideChatSearchMatch && (
                           <p className="py-4 text-xs text-muted-foreground">
                             {search ? '没有匹配的工具。' : '当前聊天暂无可用工具。可在插件页面安装工具插件。'}
                           </p>

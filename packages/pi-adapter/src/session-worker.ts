@@ -14,7 +14,7 @@ import type { DesktopSettings } from '@pi-meme/contracts/settings'
 import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
 import type { ResourceSnapshot } from '@pi-meme/contracts/resources'
 import { SdkSession, type RuntimePolicy } from '@pi-meme/pi-runtime/sdk/session'
-import { createPiRuntimePaths } from '@pi-meme/pi-runtime/runtime-paths'
+import { createPiRuntimePaths, createTemporaryRuntimePaths } from '@pi-meme/pi-runtime/runtime-paths'
 import { MemoryCredentialStorage } from '@pi-meme/pi-runtime/secure-store'
 import { loadPiSdk, loadPiAgentCore } from '@pi-meme/pi-runtime/sdk/load'
 
@@ -51,6 +51,7 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
   const data = workerData as {
     cwd: string
     root: string
+    temporaryRoot?: string
     settings: DesktopSettings
     agentEntries: AgentPluginEntry[]
     credentials: Array<[string, string]>
@@ -61,7 +62,8 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
   }
   if (!parentPort) throw new Error('会话入口只能由 Worker 启动')
   const port = parentPort
-  const paths = createPiRuntimePaths(data.root)
+  const basePaths = createPiRuntimePaths(data.root)
+  const paths = data.temporaryRoot ? createTemporaryRuntimePaths(basePaths, data.temporaryRoot) : basePaths
   const credentials = new MemoryCredentialStorage()
   for (const [key, value] of data.credentials) credentials.set(key, value)
   const pendingCredentials = new Map<number, { resolve: () => void; reject: (cause: Error) => void }>()

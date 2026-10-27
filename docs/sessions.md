@@ -20,6 +20,7 @@ paths:
   - 'packages/app-ui/src/panels/plan-panel.tsx'
   - 'packages/app-ui/src/panels/plan-card.tsx'
   - 'packages/app-ui/src/panels/plan-decision.tsx'
+  - 'packages/app-ui/src/panels/side-chat-panel.tsx'
   - 'packages/app-ui/src/session/composer-drafts.ts'
   - 'packages/workspace/**'
   - 'packages/history/**'
@@ -115,6 +116,14 @@ Desktop 和 Web 将文字草稿、已选技能引用和队列模式保存到当�
 侧栏搜索可按服务和项目筛选。标题即时匹配，正文输入停顿 250ms 后在所属 Host 检索，只返回命中摘要，不把完整历史传到界面。每次请求最多 100 个会话，每个请求最多并行读取 4 个文件；界面分批请求，结果每次展开 100 条。
 
 正文搜索包含会话文件中保存的用户与助手消息及分支正文，不搜索思考、工具输出和图片。打开结果进入该会话，不自动切换到命中的旧分支。单个 Host 搜索失败时保留其他 Host 的结果并显示错误；关闭搜索或更改查询后不再采用旧响应。入口见 [历史检索](../packages/history/src/server/session-search.ts) 和 [搜索窗口](../packages/workspace/src/ui/sidebar/session-search-dialog.tsx)。
+
+## 侧边临时聊天
+
+右侧工具列表提供“侧边聊天”入口。首次打开时，临时聊天绑定当前会话的项目或 Worktree，并继承模型、思考强度、Agent 插件选择和访问权限。它使用独立消息上下文，之后切换主会话不会改变已绑定的目标；侧边聊天不进入历史、最近会话或搜索。
+
+收起右侧栏、切换工具或切换主会话不会删除侧边聊天，也不会中断后台执行。关闭侧边聊天标签时，Host 停止所属任务并清理临时数据；关闭失败时标签保留，界面允许重试。
+
+客户端在断线宽限期内重连可以恢复临时会话；超过宽限期后 Host 清理该会话。Host 启动时清理上次运行遗留的临时会话目录。
 
 ## 持续子代理
 
