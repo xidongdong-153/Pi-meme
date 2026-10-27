@@ -7,7 +7,6 @@ import {
   Check,
   EyeOff,
   GripVertical,
-  Mic,
   MoreHorizontal,
   Scan,
   SlidersHorizontal,
@@ -324,7 +323,7 @@ export function BrowserOverlay({ platform }: { platform: BrowserOverlayPlatform 
         <Button
           size="icon-sm"
           variant="ghost"
-          className={`absolute left-2 size-8 rounded-full transition-opacity focus-visible:opacity-100 ${multiline ? 'top-2 opacity-100' : 'top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100'}`}
+          className={`absolute left-2 size-8 rounded-full ${multiline ? 'top-2' : 'top-1/2 -translate-y-1/2'}`}
           title="查看元素属性"
           aria-label="查看元素属性"
           aria-expanded={false}
@@ -335,10 +334,7 @@ export function BrowserOverlay({ platform }: { platform: BrowserOverlayPlatform 
         {commentInput(
           'min-h-10 w-full min-w-0 resize-none overflow-hidden bg-transparent py-2.5 pl-9 text-sm leading-6 outline-none placeholder:text-muted-foreground',
         )}
-        <div
-          className={`absolute right-3 flex items-center gap-3 ${multiline ? 'bottom-3' : 'top-1/2 -translate-y-1/2'}`}
-        >
-          <Mic className="size-4 shrink-0" aria-hidden="true" />
+        <div className={`absolute right-3 flex items-center ${multiline ? 'bottom-3' : 'top-1/2 -translate-y-1/2'}`}>
           {saveButton()}
         </div>
         {error ? (
@@ -426,10 +422,7 @@ export function BrowserOverlay({ platform }: { platform: BrowserOverlayPlatform 
         >
           取消
         </Button>
-        <div className="flex items-center gap-3">
-          <Mic className="size-4" aria-hidden="true" />
-          {saveButton(true)}
-        </div>
+        <div className="flex items-center">{saveButton(true)}</div>
       </div>
       {error ? (
         <p role="alert" className="px-3 pb-2 text-xs text-destructive">

@@ -1,10 +1,12 @@
+import type { BrowserAnnotation } from '@pi-meme/contracts/browser'
 import { parseAnnotations } from '@pi-meme/contracts/browser-annotations'
-import { AnnotationCard } from '../composer/annotation-card'
 import { UserMessageContent } from './user-message-content'
 import { UserMessageAttachments } from './user-message-attachments'
 import { messageAttachmentParts } from '../model/message-attachments'
 import * as React from 'react'
 import { ErrorLine } from '@pi-meme/ui/components/error-line'
+import { Popover, PopoverContent, PopoverTrigger } from '@pi-meme/ui/components/ui/popover'
+import { MessageSquare } from 'lucide-react'
 import type { PiImage, PiMessage } from '@pi-meme/contracts/pi'
 import type { ChatState } from '../model/types'
 import { groupMessageParts } from '../model/message-parts'
@@ -100,18 +102,9 @@ export function ChatMessage({
       )}
     >
       <div className={cn('flex flex-col min-w-0', isUser ? 'max-w-[85%] items-end' : 'w-full items-start')}>
-        {userContent && (
-          <UserMessageAttachments
-            attachments={userContent.attachments}
-            images={images.filter((_image, index) => !browserContent?.imageIndexes.has(index))}
-          />
-        )}
+        {userContent && <UserMessageAttachments attachments={userContent.attachments} images={images} />}
         {browserContent?.annotations.length ? (
-          <div className="mb-2 flex max-w-full flex-wrap justify-end gap-2">
-            {browserContent.annotations.map((annotation) => (
-              <AnnotationCard key={annotation.id} annotation={annotation} />
-            ))}
-          </div>
+          <MessageAnnotationSummary annotations={browserContent.annotations} />
         ) : null}
         {(!userContent || (browserContent?.text ?? userContent.text)) && (
           <div
@@ -171,5 +164,83 @@ export function ChatMessage({
         )}
       </div>
     </article>
+  )
+}
+
+function MessageAnnotationSummary({ annotations }: { annotations: BrowserAnnotation[] }) {
+  const [open, setOpen] = React.useState(false)
+  const hoverTimer = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const hoverOpened = React.useRef(false)
+  const contentRef = React.useRef<HTMLDivElement>(null)
+  const clearHoverTimer = () => clearTimeout(hoverTimer.current)
+  React.useEffect(() => () => clearTimeout(hoverTimer.current), [])
+  const scheduleClose = () => {
+    clearHoverTimer()
+    hoverTimer.current = setTimeout(() => {
+      if (!contentRef.current?.contains(document.activeElement)) setOpen(false)
+    }, 250)
+  }
+
+  return (
+    <Popover
+      open={open}
+      onOpenChange={(value) => {
+        clearHoverTimer()
+        if (value) hoverOpened.current = false
+        setOpen(value)
+      }}
+    >
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          aria-label={`查看 ${annotations.length} 条批注`}
+          className="mb-2 inline-flex h-8 max-w-full items-center gap-1.5 rounded-xl border border-border bg-secondary/50 px-2.5 text-xs text-foreground hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onPointerEnter={(event) => {
+            if (event.pointerType !== 'mouse') return
+            clearHoverTimer()
+            if (open) return
+            hoverTimer.current = setTimeout(() => {
+              hoverOpened.current = true
+              setOpen(true)
+            }, 150)
+          }}
+          onPointerLeave={(event) => {
+            if (event.pointerType === 'mouse') scheduleClose()
+          }}
+        >
+          <MessageSquare className="size-3.5 shrink-0 text-muted-foreground" />
+          <span className="whitespace-nowrap">{annotations.length} 条注释</span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent
+        ref={contentRef}
+        aria-label="批注详情"
+        side="top"
+        align="end"
+        className="max-h-[min(20rem,var(--radix-popover-content-available-height))] w-[min(350px,calc(100vw-32px))] overflow-y-auto p-1.5"
+        onPointerEnter={clearHoverTimer}
+        onPointerLeave={(event) => {
+          if (event.pointerType === 'mouse') scheduleClose()
+        }}
+        onOpenAutoFocus={(event) => {
+          if (hoverOpened.current) event.preventDefault()
+        }}
+        onCloseAutoFocus={(event) => {
+          if (hoverOpened.current) event.preventDefault()
+          hoverOpened.current = false
+        }}
+      >
+        <div className="divide-y divide-border/70">
+          {annotations.map((annotation) => (
+            <div key={annotation.id} className="px-2.5 py-3">
+              <span className="rounded-md border border-border px-1.5 py-0.5 font-mono text-xs text-muted-foreground">
+                {annotation.tag || '区域'}
+              </span>
+              <p className="mt-2 whitespace-pre-wrap break-words text-sm">{annotation.comment || '分析选中的元素'}</p>
+            </div>
+          ))}
+        </div>
+      </PopoverContent>
+    </Popover>
   )
 }

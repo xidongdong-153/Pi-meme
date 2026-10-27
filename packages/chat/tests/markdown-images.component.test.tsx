@@ -10,7 +10,11 @@ import { emptyChat } from '../src/ui/model/state'
 import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 import { assistantMessage, userMessage } from '../../../tests/fixtures/messages.mjs'
 import { ChatMessage } from '../src/ui/conversation/chat-message'
-import { messageWithAttachments, type ComposerAttachment } from '../src/ui/composer/image-attachment'
+import {
+  annotationAttachment,
+  messageWithAttachments,
+  type ComposerAttachment,
+} from '../src/ui/composer/image-attachment'
 import { ComposerAttachments } from '../src/ui/composer/composer-attachments'
 
 const dataUrl = 'data:image/png;base64,YWJj'
@@ -62,6 +66,56 @@ test.each(['string', 'blocks'])('用户附件从正文分离，图片使用 Host
   expect(file.closest('button, a, [role="button"]')).toBeNull()
   fireEvent.click(file)
   expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+})
+
+test('用户消息显示批注截图和数量，悬浮可查看评论并保留图片预览', async () => {
+  const annotation = {
+    id: 'first',
+    tabId: 'tab',
+    documentId: 1,
+    url: 'https://example.com/',
+    title: '示例网页',
+    capturedAt: '2026-10-25T00:00:00Z',
+    kind: 'element' as const,
+    text: '内容',
+    tag: 'img',
+    rect: { x: 0, y: 0, width: 10, height: 10 },
+    viewport: { width: 100, height: 100, scale: 1, scrollX: 0, scrollY: 0 },
+    comment: '看看这个',
+    image: { type: 'image' as const, mimeType: 'image/png', data: 'YWJj' },
+  }
+  const { message, images } = messageWithAttachments('帮我看看', [
+    { type: 'image', id: 'ordinary', mimeType: 'image/png', data: 'b3RoZXI=' },
+    annotationAttachment(annotation),
+    annotationAttachment({ ...annotation, id: 'second', tag: 'div', comment: '再看看这个', image: undefined }),
+  ])
+  const user = userEvent.setup()
+  const { container } = render(
+    <TooltipProvider>
+      <ChatMessage message={userMessage([{ type: 'text', text: message }, ...images])} tools={{}} />
+    </TooltipProvider>,
+  )
+
+  expect(container.querySelector('[data-message-body]')).toHaveTextContent('帮我看看')
+  expect(container).not.toHaveTextContent('pi-meme.browser-annotations')
+  expect(screen.getAllByRole('img', { name: '用户附件图片' })).toHaveLength(2)
+  expect(screen.queryByText('看看这个')).not.toBeInTheDocument()
+  const summary = screen.getByRole('button', { name: '查看 2 条批注' })
+  await user.hover(summary)
+  expect(await screen.findByText('看看这个')).toBeVisible()
+  expect(screen.getByText('再看看这个')).toBeVisible()
+  expect(screen.getByText('img')).toBeVisible()
+  expect(screen.getByText('div')).toBeVisible()
+  await user.unhover(summary)
+  await waitFor(() => expect(screen.queryByRole('dialog', { name: '批注详情' })).not.toBeInTheDocument())
+  act(() => summary.focus())
+  await user.keyboard('{Enter}')
+  expect(screen.getByRole('dialog', { name: '批注详情' })).toBeVisible()
+  await user.keyboard('{Escape}')
+  await waitFor(() => expect(screen.queryByRole('dialog', { name: '批注详情' })).not.toBeInTheDocument())
+  expect(summary).toHaveFocus()
+  await user.click(screen.getByRole('button', { name: '预览第 2 张图片' }))
+  expect(screen.getByRole('img', { name: '图片大图预览，第 2 张' })).toHaveAttribute('src', dataUrl)
 })
 
 test('编辑已上传 Host 图片恢复缩略图和点击预览，附件仍仅保存路径并可移除', async () => {
