@@ -43,6 +43,29 @@
   margin-inline: auto;
 }
 
+.scroll-fade {
+  --activity-fade-top: 0px;
+  --activity-fade-bottom: 0px;
+}
+
+.scroll-fade[data-overflow-top='true'] {
+  --activity-fade-top: 2rem;
+}
+
+.scroll-fade[data-overflow-bottom='true'] {
+  --activity-fade-bottom: 2rem;
+}
+
+.scroll-fade:is([data-overflow-top='true'], [data-overflow-bottom='true']) {
+  mask-image: linear-gradient(
+    to bottom,
+    transparent,
+    #000 var(--activity-fade-top),
+    #000 calc(100% - var(--activity-fade-bottom)),
+    transparent
+  );
+}
+
 /* 显式扫描 UI 与功能包源码，Tailwind 默认只扫描 Vite 根目录 */
 @source '../../ui/src';
 @source '../../browser/src/ui';

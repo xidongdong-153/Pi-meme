@@ -26,7 +26,8 @@ test.each(['typescript', 'unknown-language'])('代码块可折叠，%s 更新保
   expect(screen.getByRole('button', { name: '展开代码块' })).toHaveAttribute('aria-expanded', 'false')
   rerender(<CodeBlock code={updated} language={language} />)
   expect(screen.getByRole('button', { name: '展开代码块' })).toHaveAttribute('aria-expanded', 'false')
-  expect(document.getElementById(contentId)).not.toBeVisible()
+  expect(document.getElementById(contentId)).toHaveAttribute('aria-hidden', 'true')
+  expect(document.getElementById(contentId)).toHaveAttribute('inert')
 
   await user.click(screen.getByRole('button', { name: '复制代码' }))
   expect(writeText).toHaveBeenCalledExactlyOnceWith(updated)
@@ -36,6 +37,8 @@ test.each(['typescript', 'unknown-language'])('代码块可折叠，%s 更新保
   collapsed.focus()
   await user.keyboard(' ')
   expect(screen.getByRole('button', { name: '折叠代码块' })).toHaveAttribute('aria-expanded', 'true')
+  expect(document.getElementById(contentId)).toHaveAttribute('aria-hidden', 'false')
+  expect(document.getElementById(contentId)).not.toHaveAttribute('inert')
   expect(document.getElementById(contentId)).toBeVisible()
   expect(document.getElementById(contentId)?.textContent).toContain(updated)
 })

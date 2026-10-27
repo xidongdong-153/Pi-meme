@@ -103,7 +103,32 @@ function ActivityDisclosure({
   const [open, setOpen] = React.useState(false)
   const [hasOpened, setHasOpened] = React.useState(false)
   const [childOpenMap, setChildOpenMap] = React.useState<Record<string, boolean>>({})
+  const [hasOverflowAbove, setHasOverflowAbove] = React.useState(false)
+  const [hasOverflowBelow, setHasOverflowBelow] = React.useState(false)
+  const detailsRef = React.useRef<HTMLDivElement>(null)
+  const detailsContentRef = React.useRef<HTMLDivElement>(null)
   const detailsId = React.useId()
+
+  React.useLayoutEffect(() => {
+    const element = detailsRef.current
+    const content = detailsContentRef.current
+    if (!element || !content) return
+
+    const measure = () => {
+      setHasOverflowAbove(element.scrollTop > 1)
+      setHasOverflowBelow(element.scrollHeight - element.clientHeight - element.scrollTop > 1)
+    }
+    measure()
+    element.addEventListener('scroll', measure, { passive: true })
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
+    observer?.observe(element)
+    observer?.observe(content)
+    return () => {
+      element.removeEventListener('scroll', measure)
+      observer?.disconnect()
+    }
+  }, [hasOpened])
+
   if (collapsed && open) {
     setOpen(false)
     setChildOpenMap({})
@@ -193,33 +218,38 @@ function ActivityDisclosure({
         <div className="min-h-0 overflow-hidden">
           {hasOpened && (
             <div
+              ref={detailsRef}
               aria-label="活动详情列表"
-              className="mt-1 ml-2 max-h-[min(16rem,40dvh)] overflow-y-auto overscroll-y-contain border-l border-border/50 pl-3 pr-2 py-1 space-y-1 [&_pre]:max-h-none [&_pre]:overflow-visible [&_pre]:whitespace-pre-wrap [&_pre]:[overflow-wrap:anywhere]"
+              data-overflow-top={hasOverflowAbove}
+              data-overflow-bottom={hasOverflowBelow}
+              className="scroll-fade mt-1 ml-2 max-h-[min(16rem,40dvh)] overflow-y-auto overscroll-y-contain border-l border-border/50 pl-3 pr-2 py-1 [&_pre]:max-h-none [&_pre]:overflow-visible [&_pre]:whitespace-pre-wrap [&_pre]:[overflow-wrap:anywhere]"
             >
-              {items.map((item) =>
-                item.type === 'thinking' ? (
-                  <ThinkingActivityRow
-                    key={item.id}
-                    item={item}
-                    open={Boolean(childOpenMap[item.id])}
-                    onToggle={() => toggleChild(item.id)}
-                    isPaused={isPaused}
-                    isNested={false}
-                    isLive={isLive}
-                  />
-                ) : item.type !== 'narration' ? (
-                  <ToolActivityRow
-                    key={item.id}
-                    item={item}
-                    open={Boolean(childOpenMap[item.id])}
-                    onToggle={() => toggleChild(item.id)}
-                    isLive={isLive}
-                    isPaused={isPaused}
-                    isNested={false}
-                    actions={null}
-                  />
-                ) : null,
-              )}
+              <div ref={detailsContentRef} className="space-y-1">
+                {items.map((item) =>
+                  item.type === 'thinking' ? (
+                    <ThinkingActivityRow
+                      key={item.id}
+                      item={item}
+                      open={Boolean(childOpenMap[item.id])}
+                      onToggle={() => toggleChild(item.id)}
+                      isPaused={isPaused}
+                      isNested={false}
+                      isLive={isLive}
+                    />
+                  ) : item.type !== 'narration' ? (
+                    <ToolActivityRow
+                      key={item.id}
+                      item={item}
+                      open={Boolean(childOpenMap[item.id])}
+                      onToggle={() => toggleChild(item.id)}
+                      isLive={isLive}
+                      isPaused={isPaused}
+                      isNested={false}
+                      actions={null}
+                    />
+                  ) : null,
+                )}
+              </div>
             </div>
           )}
         </div>

@@ -261,14 +261,10 @@
 
 /* ---- 代码块 ---- */
 .pi-code-block {
-  background: var(--color-surface);
-  border: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+  border-left: 1px solid color-mix(in srgb, var(--color-muted) 40%, transparent);
 }
 
 .pi-code-block-header {
-  background: color-mix(in srgb, var(--color-elevated) 70%, transparent);
-  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 40%, transparent);
   color: var(--color-muted);
 }
 
@@ -325,8 +321,12 @@
   max-width: 100%;
   overflow-x: auto;
   margin: 0 0 0.9em;
-  border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--color-border) 60%, transparent);
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+
+.pi-table-wrapper:hover {
+  scrollbar-color: color-mix(in srgb, var(--color-muted) 45%, transparent) transparent;
 }
 
 .pi-table {
@@ -337,33 +337,39 @@
 
 .pi-th,
 .pi-td {
-  min-width: 9em;
+  padding: 0.85em 1.25em;
+  text-align: left;
+  vertical-align: top;
+  white-space: nowrap;
+}
+
+.pi-th:first-child,
+.pi-td:first-child {
+  padding-left: 0;
+}
+
+.pi-th:last-child,
+.pi-td:last-child {
+  padding-right: 0;
 }
 
 .pi-thead {
-  background: color-mix(in srgb, var(--color-surface) 70%, transparent);
-  border-bottom: 1.5px solid var(--color-border);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-muted) 30%, transparent);
 }
 
 .pi-th {
-  padding: 0.6em 0.9em;
   font-weight: 600;
   font-size: inherit;
-  letter-spacing: 0.02em;
   color: var(--color-muted);
 }
 
 .pi-td {
-  padding: 0.5em 0.9em;
-  border-bottom: 1px solid color-mix(in srgb, var(--color-border) 40%, transparent);
+  min-width: 4ch;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-muted) 18%, transparent);
 }
 
 .pi-tr:last-child .pi-td {
   border-bottom: none;
-}
-
-.pi-tr:hover .pi-td {
-  background: color-mix(in srgb, var(--color-surface) 50%, transparent);
 }
 
 /* ---- 分隔线 ---- */

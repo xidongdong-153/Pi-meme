@@ -1,20 +1,10 @@
 import * as React from 'react'
 import { PluginToolCard } from '@pi-meme/ui/components/plugin-tool-card'
 import { PluginMessageActions } from '@pi-meme/ui/components/plugin-message-actions'
+import { Button } from '@pi-meme/ui/components/ui/button'
 import type { ActivityItem } from '../model/types'
 import { cn } from '@pi-meme/ui/lib/utils'
-import {
-  BookOpen,
-  Check,
-  ChevronDown,
-  Copy,
-  Images,
-  Pencil,
-  Search,
-  Sparkles,
-  SquareTerminal,
-  Wrench,
-} from 'lucide-react'
+import { BookOpen, ChevronDown, Images, Pencil, Search, Sparkles, SquareTerminal, Wrench } from 'lucide-react'
 import { extractDiff, extractImages, formatDetailValue, parseToolMeta } from '../model/tool-details'
 import { runningActivityLabel } from '../model/activity-summary'
 import { ToolDiff } from './tool-diff'
@@ -178,48 +168,45 @@ export function ToolActivityRow({
             open ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0',
           )}
         >
-          <div className="min-h-0 max-h-[min(20rem,50vh)] overflow-auto overscroll-contain">
-            <div className="relative my-1 max-w-full rounded border border-border/40 bg-secondary/20 p-2 font-mono text-xs leading-relaxed text-muted-foreground select-text">
-              <div className="flex items-center justify-between mb-1 pb-1 border-b border-border/30 font-sans text-muted-foreground/80">
-                <span>{diff ? '变更内容 (Diff)' : isError ? '错误详情' : '输出内容'}</span>
-                <button
-                  type="button"
-                  onClick={handleCopy}
-                  className="inline-flex items-center gap-1 px-1 py-0.5 rounded hover:text-foreground cursor-pointer"
-                  title="复制输出"
-                >
-                  {copied ? (
-                    <>
-                      <Check className="size-2.5 text-emerald-500" />
-                      <span className="text-emerald-500">已复制</span>
-                    </>
-                  ) : (
-                    <>
-                      <Copy className="size-2.5" />
-                      <span>复制</span>
-                    </>
-                  )}
-                </button>
+          <div className="min-h-0 overflow-hidden">
+            <div className="relative my-2 max-w-full rounded-xl border border-border/50 p-4 pt-10 font-mono text-xs leading-relaxed text-muted-foreground select-text">
+              <Button
+                variant="ghost"
+                size="xs"
+                onClick={handleCopy}
+                className="absolute right-3 top-2 h-7 border-0 bg-transparent px-1 font-sans text-xs font-normal text-muted-foreground shadow-none hover:bg-transparent hover:text-foreground"
+                title="复制输出"
+                aria-label={copied ? '已复制' : '复制输出'}
+              >
+                {copied ? '已复制' : '复制'}
+              </Button>
+
+              <div className="max-h-[min(20rem,50vh)] overflow-auto overscroll-contain">
+                {script && (
+                  <>
+                    <p className="mb-1">执行脚本</p>
+                    <pre aria-label="codemode 执行脚本" className="mb-3 whitespace-pre-wrap">
+                      {script}
+                    </pre>
+                  </>
+                )}
+                {diff ? (
+                  <ToolDiff diff={diff} />
+                ) : rawText ? (
+                  <pre className="whitespace-pre-wrap">{rawText}</pre>
+                ) : null}
+
+                {item.children?.map((child) => (
+                  <NestedToolActivity
+                    key={child.id}
+                    tool={child}
+                    isLive={isLive}
+                    isPaused={isPaused}
+                    parentOpen={open}
+                  />
+                ))}
+                {!isError && <PluginToolCard tool={item} {...item.source} />}
               </div>
-
-              {script && (
-                <>
-                  <p className="mb-1">执行脚本</p>
-                  <pre aria-label="codemode 执行脚本" className="mb-3 max-h-56 overflow-auto whitespace-pre-wrap">
-                    {script}
-                  </pre>
-                </>
-              )}
-              {diff ? (
-                <ToolDiff diff={diff} />
-              ) : rawText ? (
-                <pre className="max-h-56 overflow-auto whitespace-pre-wrap">{rawText}</pre>
-              ) : null}
-
-              {item.children?.map((child) => (
-                <NestedToolActivity key={child.id} tool={child} isLive={isLive} isPaused={isPaused} parentOpen={open} />
-              ))}
-              {!isError && <PluginToolCard tool={item} {...item.source} />}
             </div>
             {imagePreviews}
           </div>

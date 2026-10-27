@@ -22,6 +22,7 @@ export function useConversationScroll(
   const bottomRef = React.useRef<HTMLDivElement>(null)
   const isAtBottomRef = React.useRef(true)
   const activeSession = React.useRef<string | undefined>(undefined)
+  const [showScrollTop, setShowScrollTop] = React.useState(false)
   const [showScrollBottom, setShowScrollBottom] = React.useState(false)
 
   // 统一评估当前容器的滚动状态与回到底部箭头的可见性
@@ -34,6 +35,7 @@ export function useConversationScroll(
     const atBottom = !canScroll || distanceToBottom <= BOTTOM_THRESHOLD
 
     isAtBottomRef.current = atBottom
+    setShowScrollTop(el.scrollTop > 1)
     if (activeSession.current) {
       positions.delete(activeSession.current)
       positions.set(activeSession.current, { top: el.scrollTop, atBottom })
@@ -60,6 +62,7 @@ export function useConversationScroll(
     if (!saved || saved.atBottom || !canScroll) {
       isAtBottomRef.current = true
       el.scrollTop = el.scrollHeight
+      setShowScrollTop(el.scrollTop > 1)
       setShowScrollBottom(false)
       return
     }
@@ -67,6 +70,7 @@ export function useConversationScroll(
     setShowScrollBottom(true)
     // 可见轮次和滚动位置都在同一次渲染中恢复，下一帧再校准一次，避免布局未完成时被 clamp。
     el.scrollTop = saved.top
+    setShowScrollTop(el.scrollTop > 1)
     const frame = requestAnimationFrame(() => {
       const target = containerRef.current
       if (!target) return
@@ -160,6 +164,7 @@ export function useConversationScroll(
   return {
     containerRef,
     bottomRef,
+    showScrollTop,
     showScrollBottom,
     handleScroll,
     scrollToBottom,

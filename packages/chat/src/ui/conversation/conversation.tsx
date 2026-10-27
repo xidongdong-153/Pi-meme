@@ -86,6 +86,7 @@ export const Conversation = React.memo(
     const {
       containerRef,
       bottomRef,
+      showScrollTop,
       showScrollBottom,
       handleScroll,
       scrollToBottom,
@@ -298,8 +299,9 @@ export const Conversation = React.memo(
           <div
             ref={containerRef}
             onScroll={handleScroll}
+            data-overflow-top={showScrollTop}
             className={cn(
-              'flex-1 min-h-0 min-w-0 overflow-x-hidden overflow-y-auto py-6 text-sm select-text [scrollbar-gutter:stable_both-edges]',
+              'scroll-fade flex-1 min-h-0 min-w-0 overflow-x-hidden overflow-y-auto py-6 text-sm select-text [scrollbar-gutter:stable_both-edges]',
               agentOnly && 'px-4',
             )}
             aria-label="对话消息流"

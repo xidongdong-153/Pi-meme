@@ -391,7 +391,7 @@ test('图文混合工具保留脚本和文字，图片单独以缩略图显示�
       onToggle={vi.fn()}
     />,
   )
-  expect(screen.getByText('错误详情')).toBeVisible()
+  expect(screen.getByRole('button', { name: '工具详情：read' })).toHaveTextContent('失败')
   expect(screen.getByText('执行结果')).toBeVisible()
 })
 
