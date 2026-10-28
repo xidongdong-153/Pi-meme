@@ -69,9 +69,10 @@ describe('根与独立分支child在默认和Plan三档权限均能真实执行r
             if (parentTools) assert.deepEqual(names, parentTools)
             else parentTools = names
             for (const name of ['read', 'ls', 'grep', 'find']) assert.ok(names.includes(name), `${role}缺少${name}`)
-            if (mode === 'plan')
-              for (const name of ['bash', 'write', 'edit', 'codemode', 'mcp__read', 'external'])
-                assert.ok(!names.includes(name))
+            if (mode === 'plan') {
+              for (const name of ['bash', 'codemode']) assert.ok(names.includes(name), `${role}缺少${name}`)
+              for (const name of ['write', 'edit', 'mcp__read', 'external']) assert.ok(!names.includes(name))
+            }
             const messages = (await session.snapshot()).messages
             const results = messages.filter((message) => message.role === 'toolResult').slice(-4)
             assert.equal(results.length, 4)

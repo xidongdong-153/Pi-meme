@@ -1309,7 +1309,11 @@ export class PiSessionPool implements PiRuntime {
       ...record.extensions.values(),
     ]
     const projection = async (): Promise<Snapshot> => {
-      const history = record.sessionFile ? await readSessionHistory(record.sessionFile, window) : undefined
+      // 新会话启动时只有预分配路径，首条消息尚未落盘；恢复会话仍校验原生文件。
+      const history =
+        record.sessionFile && (!record.starting || record.restored)
+          ? await readSessionHistory(record.sessionFile, window)
+          : undefined
       await this.warmMetadata(record)
       const models = this.localAvailableModels ?? []
       if (this.localAvailableModels && record.state.model) {
@@ -1361,10 +1365,7 @@ export class PiSessionPool implements PiRuntime {
       }
       if (!buffer.some((value) => value.event.type === 'agent_start' || value.event.type === 'agent_settled'))
         record.running =
-          (!record.settled && record.pendingPrompt) ||
-          snapshot.state.isStreaming ||
-          snapshot.state.isCompacting ||
-          Boolean(record.state.retry)
+          !record.settled || snapshot.state.isStreaming || snapshot.state.isCompacting || Boolean(record.state.retry)
       return {
         ...snapshot,
         extensionError: record.extensionError ? { ...record.extensionError, generation } : undefined,

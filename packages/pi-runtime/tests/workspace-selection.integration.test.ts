@@ -23,7 +23,7 @@ async function waitForDialogue(pool: PiSessionPool, length: number) {
   }
 }
 
-test('选择项目不启动运行时，快照和技能读取失败保留原空白会话身份', async () => {
+test('选择项目不启动运行时或读取技能，快照失败保留原空白会话身份', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pi-workspace-selection-'))
   const target = path.join(directory, 'target')
   await mkdir(target)
@@ -36,16 +36,13 @@ test('选择项目不启动运行时，快照和技能读取失败保留原空�
     pool.getCommands = async () => {
       throw new Error('技能读取失败')
     }
-    await assert.rejects(pool.selectWorkspaceDirectory(target), /技能读取失败/)
-    assert.equal(pool.connection().sessionKey, original.connection.sessionKey)
-    assert.equal(pool.cwd, directory)
-    pool.getCommands = getCommands
     const snapshot = pool.snapshot.bind(pool)
     pool.snapshot = async () => {
       throw new Error('快照读取失败')
     }
     await assert.rejects(pool.selectWorkspaceDirectory(target), /快照读取失败/)
     assert.equal(pool.connection().sessionKey, original.connection.sessionKey)
+    assert.equal(pool.cwd, directory)
     pool.snapshot = snapshot
     const selected = await pool.selectWorkspaceDirectory(target)
     assert.equal(selected.cancelled, false)
@@ -54,7 +51,8 @@ test('选择项目不启动运行时，快照和技能读取失败保留原空�
     assert.equal(selected.snapshot.connection.workspaceKind, 'project')
     assert.equal(selected.snapshot.connection.status, 'idle')
     assert.deepEqual(selected.snapshot.messages, [])
-    assert.ok(selected.commands)
+    assert.equal(selected.commands, undefined)
+    pool.getCommands = getCommands
     // 发送时才创建运行时
     await pool.prompt(pool.connection().sessionKey!, '首次发送')
     await waitForDialogue(pool, 2)

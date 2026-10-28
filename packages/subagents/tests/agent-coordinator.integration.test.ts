@@ -13,6 +13,29 @@ import { assistantMessage } from '../../../tests/fixtures/messages.mjs'
 import { create as collaborationExtension } from '../src/agent/entry'
 import { fakeSession, readSavedRecords, setup } from './coordinator-fixture'
 
+test('RPC 会话代理的未知属性不应把正式根会话标成临时会话', async () => {
+  const context = await setup()
+  try {
+    const session = new Proxy(context.root.session, {
+      get: (target, property, receiver) =>
+        Reflect.has(target, property) ? Reflect.get(target, property, receiver) : () => Promise.resolve(),
+    })
+    const root = await context.bridge.bindRoot({
+      sessionKey: 'proxy-root',
+      cwd: context.directory,
+      state: context.root.state,
+      accessMode: 'workspace-write',
+      session,
+    })
+    await context.bridge.setSessionMode('proxy-root', 'plan')
+    const saved = (await context.savedRecords()).find((record) => record.summary.agentId === root.agentId)
+    assert.equal(saved?.nextMode, 'plan')
+    assert.equal(context.bridge.isTemporarySession('proxy-root'), false)
+  } finally {
+    await context.cleanup()
+  }
+})
+
 function enableCollaboration(bridge: ReturnType<typeof createHostCollaborationBridge>, session: SdkSession) {
   session.configureInlineExtensions(
     collaborationExtension({

@@ -48,8 +48,8 @@ test('系统插件常驻且不可通过外部接口修改，文件写入按目�
     if (image.kind === 'image')
       assert.equal(image.dataUrl, `data:image/png;base64,${Buffer.from(content).toString('base64')}`)
   }
-  await assert.rejects(host.app.files.preview({ ...session, hostId: 'wrong-host' }, 'same.png'))
-  await assert.rejects(host.app.files.preview({ ...session, sessionId: 'missing-session' }, 'same.png'))
+  await assert.rejects(async () => host.app.files.preview({ ...session, hostId: 'wrong-host' }, 'same.png'))
+  await assert.rejects(async () => host.app.files.preview({ ...session, sessionId: 'missing-session' }, 'same.png'))
   const preview = await host.app.files.preview(session, 'file.txt')
   if (preview.kind !== 'text') throw new Error('必须是文本')
   const request = {

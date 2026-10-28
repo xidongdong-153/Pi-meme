@@ -324,7 +324,7 @@ test.each(['local', 'remote'])('真实切换未结束时再次选择 %s 会话�
   await waitFor(() => expect(controllers.get('local')!.loading).toBe(false))
   fireEvent.click(screen.getByText('local 会话 A'))
   await waitFor(() => expect(controllers.get('local')!.switching).toBe(true))
-  expect(screen.getAllByLabelText('正在切换会话')).toHaveLength(1)
+  expect(controllers.get('local')!.switchingToPath).toBe('/local-A.jsonl')
   fireEvent.click(screen.getByText(`${destination} 会话 B`))
   if (destination === 'local') {
     await waitFor(() => expect(switchSession).toHaveBeenCalledTimes(2))

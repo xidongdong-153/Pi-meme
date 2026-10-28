@@ -91,11 +91,13 @@ test('只有当前会话的新修订保存事件打开计划栏，快照、重�
     [3],
     '切换事务期间不抢标签',
   )
-  assert.equal(result.current.chatStream.getSnapshot().planDocuments?.[0].revision, 3)
+  assert.equal(result.current.chatStream.getSnapshot().planDocuments?.length ?? 0, 0)
   await act(async () => {
     finishSelection({ cancelled: true })
     await selecting
   })
+  assert.equal(result.current.chatStream.getSnapshot().planDocuments?.length ?? 0, 0)
+  assert.match(result.current.error, /会话创建已取消/)
 })
 
 test('历史编辑预览恢复编辑点之前的方案，取消后恢复当前方案，清空拒绝迟到事件', async () => {

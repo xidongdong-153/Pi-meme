@@ -392,7 +392,7 @@ export class HostCollaborationBridge {
     record.session = binding.session
     if (
       binding.temporary ||
-      (binding.session as { temporary?: boolean }).temporary ||
+      (binding.session as { temporary?: boolean }).temporary === true ||
       this.temporarySessions.has(binding.sessionKey) ||
       (binding.sessionId && this.temporarySessions.has(binding.sessionId))
     ) {

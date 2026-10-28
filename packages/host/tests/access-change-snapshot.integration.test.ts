@@ -198,7 +198,9 @@ test(
       const request = fake.provider.requests.at(-1)
       const tools = request?.tools?.map((tool: { function: { name: string } }) => tool.function.name)
       assert.ok(tools?.includes('save_plan'))
-      assert.ok(!tools?.some((name: string) => ['write', 'edit', 'bash', 'codemode'].includes(name)))
+      assert.ok(tools?.includes('bash'))
+      assert.ok(tools?.includes('codemode'))
+      assert.ok(!tools?.some((name: string) => ['write', 'edit'].includes(name)))
       await host.dispose()
       host = await createHost(options)
       HostCollaborationBridge.prototype.getSessionMode = async function (sessionKey) {

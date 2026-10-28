@@ -23,7 +23,7 @@ async function eventually<T>(read: () => Promise<T>, check: (value: T) => boolea
 }
 async function fixture(reply: Reply) {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), 'pi-goal-host-')))
-  const fake = await useFakeAgent(root, { reply, models: [{ id: 'first', input: ['text', 'image'] }] })
+  const fake = await useFakeAgent(root, { reply, models: [{ id: 'first', reasoning: true, input: ['text', 'image'] }] })
   const host = await createHost({ dataRoot: fake.runtimePaths.dataRoot, credentials: fake.credentials })
   const cwd = path.join(root, 'project')
   await mkdir(cwd)

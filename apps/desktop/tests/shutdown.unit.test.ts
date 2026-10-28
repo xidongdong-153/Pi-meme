@@ -30,6 +30,7 @@ vi.mock('../src/main/local-host', () => ({ acquireDesktopHost: mocks.acquire }))
 vi.mock('../src/main/window/create-window', () => ({ createWindow: mocks.window }))
 vi.mock('../src/main/dock-icon', () => ({ syncDockIcon: vi.fn() }))
 vi.mock('../src/main/ipc/register', () => ({ registerPlatformIpc: vi.fn() }))
+vi.mock('../src/main/browser/browser-runtime', () => ({ registerBrowserRuntime: vi.fn() }))
 vi.mock('../src/main/storage/controller', () => ({ createStorageController: mocks.storage }))
 vi.mock('../src/main/storage/preferences', () => ({ pendingStorageJob: () => false }))
 

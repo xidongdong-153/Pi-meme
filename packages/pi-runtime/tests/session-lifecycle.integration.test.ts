@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
-import { PiSessionPool } from '../src/session-pool'
+import { PiSessionPool, type SessionFactory } from '../src/session-pool'
+import { SdkSession } from '../src/sdk/session'
 import { readSessionHistory } from '../src/session-history'
 import type { DesktopEvent } from '@pi-meme/contracts/desktop'
 import { assistantMessage, userMessage } from '../../../tests/fixtures/messages.mjs'
@@ -18,6 +19,115 @@ import {
   messageText,
   savedSession,
 } from './session-pool-fixture'
+
+test('首次写入前可读取启动中的会话快照，已恢复的历史缺失仍报错', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pi-starting-snapshot-'))
+  const fake = await useFakeAgent(directory)
+  let entered!: () => void
+  const waiting = new Promise<void>((resolve) => {
+    entered = resolve
+  })
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const factory: SessionFactory = (...args) => {
+    const session = createTestSession(...args)
+    const commands = session.getCommands.bind(session)
+    session.getCommands = async () => {
+      entered()
+      await gate
+      return commands()
+    }
+    return session
+  }
+  const notify = { connection: () => {}, event: () => {}, error: () => {}, sessionsChanged: () => {} }
+  const pool = new PiSessionPool(directory, notify, undefined, fake.runtimePaths, fake.credentials, factory)
+  let pending: Promise<unknown> | undefined
+  let restored: PiSessionPool | undefined
+  try {
+    pool.prepare(directory)
+    const key = pool.connection().sessionKey!
+    pending = pool.prompt(key, '首次保存')
+    await waiting
+    const file = pool.getActiveSession().sessionFile!
+    await assert.rejects(stat(file), { code: 'ENOENT' })
+    const preview = await pool.snapshot({ limit: 60, details: 'deferred' })
+    assert.equal(preview.connection.sessionKey, key)
+    assert.equal(preview.state.isStreaming, true)
+    assert.deepEqual(preview.messages, [])
+    release()
+    await pending
+    await waitFor(() => !pool.getRuntimeSessions().some((session) => session.running))
+    assert.equal(
+      (await pool.snapshot()).messages.filter((message) => message.role === 'user' || message.role === 'assistant')
+        .length,
+      2,
+    )
+    await pool.stopAndWait()
+    restored = new PiSessionPool(directory, notify, undefined, fake.runtimePaths, fake.credentials)
+    restored.prepare(directory)
+    await restored.switchSession(file)
+    await rm(file)
+    await assert.rejects(restored.snapshot(), { code: 'ENOENT' })
+  } finally {
+    release()
+    await pending?.catch(() => {})
+    await restored?.stopAndWait()
+    await pool.stopAndWait()
+    await fake.dispose()
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('底层流结束但用量回执未完成时，快照仍保持运行状态', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pi-accounting-snapshot-'))
+  const fake = await useFakeAgent(directory)
+  let entered!: () => void
+  const waiting = new Promise<void>((resolve) => {
+    entered = resolve
+  })
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const factory: SessionFactory = (cwd, notify, paths, credentials, mcp) =>
+    new SdkSession(cwd, notify, paths, credentials, mcp, {
+      onAdmission: async () => ({
+        goalId: 'goal',
+        cycleId: 'cycle',
+        session: { hostId: 'host', projectId: 'project', sessionId: 'session' },
+      }),
+      onGoalUsage: async () => {
+        entered()
+        await gate
+      },
+    })
+  const pool = new PiSessionPool(
+    directory,
+    { connection: () => {}, event: () => {}, error: () => {}, sessionsChanged: () => {} },
+    undefined,
+    fake.runtimePaths,
+    fake.credentials,
+    factory,
+  )
+  try {
+    pool.prepare(directory)
+    const key = pool.connection().sessionKey!
+    await pool.prompt(key, '等待用量保存')
+    await waiting
+    assert.equal((await pool.snapshot()).state.isStreaming, true)
+    assert.equal(pool.isSessionIdle(key), false)
+    release()
+    await waitFor(() => !pool.getRuntimeSessions().some((session) => session.running))
+    assert.equal((await pool.snapshot()).state.isStreaming, false)
+  } finally {
+    release()
+    await pool.stopAndWait()
+    await fake.dispose()
+    await rm(directory, { recursive: true, force: true })
+  }
+})
 
 test('两个项目的 Agent 并行运行，切回后台会话和停止当前会话不影响另一任务', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pi-session-pool-'))

@@ -1156,8 +1156,10 @@ export class SdkSession {
     if (generation !== this.generation) throw new Error('Pi 连接已更换')
     this.sessionFile = state.sessionFile
     this.sessionId = state.sessionId
+    // agent_settled 还需等待用量回执，不能用底层流的瞬时空闲清掉运行状态。
     if (revision === this.activityRevision)
-      this.running = this.pendingSend || state.isStreaming || Boolean(state.isCompacting) || Boolean(this.retry)
+      this.running =
+        this.running || this.pendingSend || state.isStreaming || Boolean(state.isCompacting) || Boolean(this.retry)
     let cached = this.viewProjection
     if (
       !cached ||
@@ -1204,11 +1206,11 @@ export class SdkSession {
       projectSessionWindow(
         {
           connection: this.connection(),
-          state: this.toState(
-            revision === this.activityRevision
-              ? state
-              : { ...state, isStreaming: this.running, isCompacting: this.running && state.isCompacting },
-          ),
+          state: this.toState({
+            ...state,
+            isStreaming: this.running && !this.pendingSend,
+            isCompacting: this.running && state.isCompacting,
+          }),
           totalMessages: projected.length + (uncommitted ? 1 : 0),
           historyRevision: `${generation}:${entries.entries.length}:${entries.leafId ?? ''}`,
           historyDetails: 'complete',

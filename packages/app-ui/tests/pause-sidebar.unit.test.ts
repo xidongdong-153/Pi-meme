@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { test } from 'vitest'
 import { createElement, type ReactNode } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
+import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 import type { PiProjectGroup, PiSessionSummary } from '@pi-meme/contracts/sessions'
 import { SessionItem } from '@pi-meme/workspace/ui/sidebar/session-item'
 import { ProjectItem } from '@pi-meme/workspace/ui/sidebar/project-item'
@@ -24,16 +25,20 @@ function project(sessions: PiSessionSummary[]): PiProjectGroup {
 }
 function render(children: ReactNode) {
   return renderToStaticMarkup(
-    createElement(SidebarMenus, {
-      canOpenProject: false,
-      bridge: {} as SidebarMenuBridge,
-      pinnedPaths: [],
-      onNewSession: noop,
-      onTogglePin: noop,
-      onChanged: async () => {},
-      onDeleted: async () => {},
-      children,
-    }),
+    createElement(
+      TooltipProvider,
+      null,
+      createElement(SidebarMenus, {
+        canOpenProject: false,
+        bridge: {} as SidebarMenuBridge,
+        pinnedPaths: [],
+        onNewSession: noop,
+        onTogglePin: noop,
+        onChanged: async () => {},
+        onDeleted: async () => {},
+        children,
+      }),
+    ),
   )
 }
 
