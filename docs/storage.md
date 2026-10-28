@@ -36,6 +36,7 @@ Host 的应用配置、持久状态、执行数据与内部管理的工作区文
 │   ├── profile/                         # 用户资料与头像图片
 │   ├── agent/                           # Pi SDK 设置、模型、MCP、指令与子代理
 │   │   ├── settings.json
+│   │   ├── image-generation.json        # 图片模型配置（不含 API Key）
 │   │   ├── models.json
 │   │   ├── mcp.json
 │   │   ├── device-id
@@ -61,7 +62,7 @@ Host 的应用配置、持久状态、执行数据与内部管理的工作区文
 │   ├── sessions/<cwd-hash>/*.jsonl      # Pi 原生执行会话分支
 │   ├── temporary-sessions/<id>/         # 侧边临时会话运行期文件（退出或关闭清理）
 │   ├── plans/<sessionId>/<planId>.md    # 计划 Markdown 正文
-│   └── attachments/upload-*/            # 聊天上传附件
+│   └── attachments/upload-*/            # 聊天附件与生成图片
 ├── resources/
 │   ├── skills/                          # 用户技能
 │   ├── themes/                          # 用户主题

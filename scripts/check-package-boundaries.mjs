@@ -17,6 +17,7 @@ const businessPackages = new Set(
     'workspace',
     'history',
     'models',
+    'image-generation',
     'settings',
     'resources',
     'interaction',

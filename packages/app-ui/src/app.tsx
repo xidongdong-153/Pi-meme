@@ -1,3 +1,4 @@
+import { ImageGenerationSettings } from '@pi-meme/image-generation/ui/image-generation-settings'
 import { RetainedConversations } from './session/retained-conversations'
 import { HistoryDetails } from './session/history-details'
 import { resolveThinkingLevel } from '@pi-meme/contracts/pi'
@@ -2315,6 +2316,19 @@ export function App({
                       failed={settings.subagentFailed}
                       onSave={settings.saveSubagentDefaults}
                       onModels={() => navigate('models')}
+                    />
+                  )
+                if (section === 'image-generation')
+                  return (
+                    <ImageGenerationSettings
+                      api={host.imageGeneration}
+                      hostLabel={
+                        currentService
+                          ? serviceLabel(currentService)
+                          : hostLocal
+                            ? '此计算机'
+                            : (hostAddress ?? '当前 Host')
+                      }
                     />
                   )
                 if (section === 'models')

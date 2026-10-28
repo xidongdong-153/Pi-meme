@@ -25,6 +25,7 @@ export const storageLayoutRelativePaths = {
   profileConfigFile: 'config/profile/profile.json',
   agentDirectory: 'config/agent',
   agentSettingsFile: 'config/agent/settings.json',
+  agentImageGenerationFile: 'config/agent/image-generation.json',
   agentModelsFile: 'config/agent/models.json',
   agentMcpFile: 'config/agent/mcp.json',
   agentDeviceIdFile: 'config/agent/device-id',

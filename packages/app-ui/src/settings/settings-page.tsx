@@ -5,6 +5,7 @@ import {
   ChartNoAxesCombined,
   Circle,
   Info,
+  Image,
   Keyboard,
   Network,
   Palette,
@@ -64,6 +65,7 @@ const groups = [
     label: 'Agent',
     sections: [
       { id: 'models', label: '模型', icon: Sparkles, description: '连接服务商并选择默认模型。' },
+      { id: 'image-generation', label: '图片生成', icon: Image, description: '配置生成和编辑图片使用的服务与模型。' },
       { id: 'subagents', label: '子代理', icon: Users, description: '设置子代理默认使用的模型和思考强度。' },
       { id: 'instructions', label: '指令', icon: ScrollText, description: '编辑用户指令和系统提示词。' },
       { id: 'skills', label: '技能', icon: BookOpen, description: '导入、创建和编辑技能，设置设备或项目的调用方式。' },

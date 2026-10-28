@@ -43,6 +43,7 @@ export function ToolActivityRow({
     write: Pencil,
     edit: Pencil,
     image: Images,
+    'image-generation': Images,
     search: Search,
     generic: Wrench,
     thinking: Sparkles,

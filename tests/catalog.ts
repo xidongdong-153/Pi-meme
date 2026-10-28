@@ -6,6 +6,7 @@ export const features = {
   schedules: '定时任务、调度与运行记录',
   subagents: '子代理与协作',
   models: '模型配置与凭据',
+  images: '图片生成、编辑与模型配置',
   plugins: 'App 插件与开发工具',
   skills: '技能与资源快照',
   mcp: 'MCP 配置与运行',
@@ -34,6 +35,11 @@ export interface TestSuite {
 }
 
 const files: Array<[string, Feature[]]> = [
+  ['packages/image-generation/tests/config-store.integration.test.ts', ['images', 'models']],
+  ['packages/image-generation/tests/service.integration.test.ts', ['images']],
+  ['packages/image-generation/tests/agent-entry.unit.test.ts', ['images', 'permissions']],
+  ['packages/image-generation/tests/settings.component.test.tsx', ['images', 'settings']],
+  ['packages/host/tests/image-generation-control.integration.test.ts', ['images', 'connection']],
   ['packages/app-ui/tests/browser-workspace.component.test.tsx', ['desktop', 'chat']],
   ['apps/desktop/tests/browser-runtime.unit.test.ts', ['desktop', 'permissions']],
   ['packages/browser/tests/store.integration.test.ts', ['desktop', 'settings', 'permissions']],

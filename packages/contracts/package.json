@@ -38,7 +38,8 @@
     "./keyboard-shortcuts": "./src/keyboard-shortcuts.ts",
     "./schedules": "./src/schedules.ts",
     "./browser": "./src/browser.ts",
-    "./browser-annotations": "./src/browser-annotations.ts"
+    "./browser-annotations": "./src/browser-annotations.ts",
+    "./image-generation": "./src/image-generation.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit"

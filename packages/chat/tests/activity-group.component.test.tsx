@@ -17,9 +17,39 @@ import { applyEvent, emptyChat } from '../src/ui/model/state'
 import type { PiEvent } from '@pi-meme/contracts/pi'
 import type { AgentSummary } from '@pi-meme/contracts/collaboration'
 import { projectAgentConversation } from '../src/ui/model/agent-collaboration'
+import { parseToolMeta } from '../src/ui/model/tool-details'
+import { runningActivityLabel, summarizeActivities } from '../src/ui/model/activity-summary'
 import { assistantMessage, streamUpdate, toolResult, userMessage } from '../../../tests/fixtures/messages.mjs'
 
 afterEach(cleanup)
+
+test('图片生成与编辑不记为查看图像，失败操作不计入成功产物', () => {
+  const generated: ActivityItem = {
+    id: 'generate',
+    name: 'image_gen',
+    args: { prompt: '生成' },
+    status: 'success',
+    result: { details: { artifact: { path: '/host/generated.png' } } },
+  }
+  const edited: ActivityItem = {
+    id: 'edit',
+    name: 'image_gen',
+    args: { prompt: '编辑', num_last_images_to_include: 1 },
+    status: 'success',
+  }
+  const failed = { ...generated, id: 'failed', status: 'error' as const }
+  expect(parseToolMeta(generated)).toMatchObject({
+    kind: 'image-generation',
+    summary: '已生成图片',
+    fullPath: '/host/generated.png',
+  })
+  expect(parseToolMeta(edited).summary).toBe('已编辑图片')
+  expect(summarizeActivities([generated, edited, failed]).summary).toBe(
+    '生成了 1 张图片 · 编辑了 1 张图片 · 图片处理失败 1 次',
+  )
+  expect(runningActivityLabel([{ ...generated, status: 'running' }])).toBe('正在生成图片…')
+  expect(runningActivityLabel([{ ...edited, status: 'running' }])).toBe('正在编辑图片…')
+})
 
 const items: ActivityItem[] = [
   { id: 'thinking', type: 'thinking', thinking: '检查文件', status: 'success' },

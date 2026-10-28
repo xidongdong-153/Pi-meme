@@ -18,6 +18,7 @@ const allowedTools = new Set([
   'request_user_input',
   'save_plan',
   'manage_service',
+  'image_gen',
 ])
 
 /**

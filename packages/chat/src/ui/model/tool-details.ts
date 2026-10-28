@@ -1,6 +1,6 @@
 import type { ActivityItem } from './types'
 
-export type ToolKind = 'command' | 'read' | 'write' | 'edit' | 'search' | 'image' | 'generic'
+export type ToolKind = 'command' | 'read' | 'write' | 'edit' | 'search' | 'image' | 'image-generation' | 'generic'
 
 function isImagePath(pathStr: string): boolean {
   if (!pathStr) return false
@@ -103,6 +103,18 @@ export function parseToolMeta(item: ActivityItem): {
   const args = item.args as Record<string, unknown> | undefined
 
   if (name === 'request_user_input') return { kind: 'generic', summary: '已向用户提问' }
+  if (name === 'image_gen') {
+    const editing = Boolean(
+      (Array.isArray(args?.referenced_image_paths) && args.referenced_image_paths.length) ||
+      args?.num_last_images_to_include,
+    )
+    const result = item.result as { details?: { artifact?: { path?: string } } } | undefined
+    return {
+      kind: 'image-generation',
+      summary: editing ? '已编辑图片' : '已生成图片',
+      fullPath: result?.details?.artifact?.path,
+    }
+  }
 
   // 1. 命令类
   if (

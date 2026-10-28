@@ -55,6 +55,9 @@ export function summarizeActivities(items: ActivityItem[]): {
   let commandCount = 0
   let searchCount = 0
   let imageCount = 0
+  let generatedCount = 0
+  let editedImageCount = 0
+  let imageFailureCount = 0
   let otherCount = 0
 
   for (const item of items) {
@@ -70,6 +73,12 @@ export function summarizeActivities(items: ActivityItem[]): {
       commandCount++
     } else if (meta.kind === 'search') {
       searchCount++
+    } else if (meta.kind === 'image-generation') {
+      if (item.status === 'error') imageFailureCount++
+      else if (item.status === 'success') {
+        if (meta.summary === '已编辑图片') editedImageCount++
+        else generatedCount++
+      }
     } else if (meta.kind === 'image') {
       imageCount++
     } else if (meta.kind === 'read') {
@@ -95,12 +104,16 @@ export function summarizeActivities(items: ActivityItem[]): {
   if (createFileTotal > 0) parts.push(`创建了 ${createFileTotal} 个文件`)
   if (editFileTotal > 0) parts.push(`编辑了 ${editFileTotal} 个文件`)
   if (imageCount > 0) parts.push(`查看了 ${imageCount} 张图像`)
+  if (generatedCount > 0) parts.push(`生成了 ${generatedCount} 张图片`)
+  if (editedImageCount > 0) parts.push(`编辑了 ${editedImageCount} 张图片`)
+  if (imageFailureCount > 0) parts.push(`图片处理失败 ${imageFailureCount} 次`)
   if (searchCount > 0) parts.push(`在代码中搜索了 ${searchCount} 次`)
   if (commandCount > 0) parts.push(`执行了 ${commandCount} 条命令`)
   if (otherCount > 0) parts.push(`调用了 ${otherCount} 项工具`)
 
   let kind: ToolKind | 'thinking' = 'generic'
   if (hasThought && items.length === 1) kind = 'thinking'
+  else if (generatedCount + editedImageCount + imageFailureCount > 0) kind = 'image-generation'
   else if (commandCount > 0 && readFileTotal === 0 && editFileTotal === 0 && createFileTotal === 0 && imageCount === 0)
     kind = 'command'
   else if (readFileTotal > 0 && editFileTotal === 0 && createFileTotal === 0 && imageCount === 0) kind = 'read'
@@ -123,6 +136,7 @@ export function runningActivityLabel(items: ActivityItem[]): string {
       if (item.type === 'thinking') return getThinkingLabel(item.id)
       if (item.name === 'request_user_input') return '等待你的回答…'
       const meta = parseToolMeta(item)
+      if (meta.kind === 'image-generation') return meta.summary === '已编辑图片' ? '正在编辑图片…' : '正在生成图片…'
       if (meta.kind === 'command')
         return meta.summary.startsWith('已运行 ') ? `${meta.summary.replace(/^已运行/u, '正在运行')}…` : '正在运行命令…'
       if (meta.kind === 'image') return '正在查看图像…'

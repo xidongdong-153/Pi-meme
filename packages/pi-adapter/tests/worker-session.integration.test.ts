@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
-import { mkdtemp, rm, mkdir, writeFile } from 'node:fs/promises'
+import { mkdtemp, rm, mkdir, writeFile, readFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -12,6 +12,47 @@ import type { Connection, DesktopEvent } from '@pi-meme/contracts/desktop'
 import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
 import { emptyPluginGrant } from '@pi-meme/plugin-sdk/permissions'
 import type { AgentPluginEntry } from '@pi-meme/plugin-sdk/agent'
+
+test('图片服务凭据不进入 Worker 快照', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'pi-worker-image-credentials-'))
+  const entry = path.join(root, 'worker.mjs')
+  await writeFile(
+    entry,
+    `
+    import { parentPort, workerData } from 'node:worker_threads'
+    import { writeFileSync } from 'node:fs'
+    writeFileSync(new URL('./captured.json', import.meta.url), JSON.stringify(workerData.credentials))
+    parentPort.on('message', (request) => parentPort.postMessage({
+      id: request.id, result: null, connection: { cwd: workerData.cwd, generation: 0, status: 'ready' }, active: {},
+    }))
+  `,
+  )
+  const credentials = new MemoryCredentialStorage()
+  credentials.set('model-provider:fake', 'chat-secret')
+  credentials.set('image-generation:private', 'image-secret')
+  const session = createWorkerSession(
+    root,
+    { connection: () => {}, event: () => {}, error: () => {} },
+    createPiRuntimePaths(root),
+    () => ({
+      dataRoot: root,
+      credentials,
+      settings: { themeId: 'dark' },
+      agentEntries: [],
+      workerPath: entry,
+    }),
+  )
+  try {
+    await session.reconnectModels()
+    const captured = await readFile(path.join(root, 'captured.json'), 'utf8')
+    assert.ok(captured.includes('chat-secret'))
+    assert.ok(!captured.includes('image-secret'))
+    assert.ok(!captured.includes('image-generation:'))
+  } finally {
+    await session.stopAndWait()
+    await rm(root, { recursive: true, force: true })
+  }
+})
 
 function trustedEntry(pluginId: string, generation: number, trusted: string): AgentPluginEntry {
   return {

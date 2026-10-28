@@ -6,6 +6,7 @@ import { mkdir } from 'node:fs/promises'
 import * as chat from '@pi-meme/chat/server/entry'
 import * as workspace from '@pi-meme/workspace/server/entry'
 import * as git from '@pi-meme/git/server/entry'
+import * as imageGeneration from '@pi-meme/image-generation/server/entry'
 import * as models from '@pi-meme/models/server/entry'
 import * as settings from '@pi-meme/settings/server/entry'
 import * as interaction from '@pi-meme/interaction/server/entry'
@@ -34,6 +35,7 @@ const modules = [
   workspace,
   git,
   models,
+  imageGeneration,
   settings,
   interaction,
   mcp,

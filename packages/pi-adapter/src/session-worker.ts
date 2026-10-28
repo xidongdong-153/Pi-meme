@@ -1,4 +1,5 @@
 import type { Goal, GoalRequest, GoalRun } from '@pi-meme/contracts/goal'
+import type { ImageGenerationRequest, ImageGenerationReply } from '@pi-meme/contracts/image-generation'
 import type { ServiceActivityRequest, ServiceActivityResult } from '@pi-meme/contracts/service-activity'
 import { createAppAgent } from '@pi-meme/pi-runtime/sdk/app-agent'
 import { createRestrictedAgent } from '@pi-meme/pi-runtime/sdk/restricted-agent'
@@ -27,6 +28,8 @@ export type SessionWorkerContext = {
   settings: DesktopSettings
   cwd: string
   resourceSnapshot?: ResourceSnapshot
+  accessMode: () => AgentAccessMode
+  requestImageGeneration: (request: ImageGenerationRequest, signal?: AbortSignal) => Promise<ImageGenerationReply>
   taskMode: () => import('@pi-meme/contracts/plan').TaskMode
   requestCollaboration: (
     request: Omit<CollaborationRequest, 'id'>,
@@ -148,6 +151,7 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
       | 'admission'
       | 'goal'
       | 'goalUsage'
+      | 'image-generation'
       | 'activity'
       | 'plugin',
     request: object,
@@ -186,6 +190,9 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
           cwd: data.cwd,
           resourceSnapshot: data.resourceSnapshot,
           taskMode: () => session.getTaskMode(),
+          accessMode: () => session.getAccessMode(),
+          requestImageGeneration: (imageRequest, signal) =>
+            hostRequest('image-generation', { imageRequest }, signal) as Promise<ImageGenerationReply>,
           planSandbox: () => session.getPlanSandbox(),
           registerPlanTool: (name, source) => policy.planTools!.set(name, source),
           requestCollaboration: (request, signal) =>

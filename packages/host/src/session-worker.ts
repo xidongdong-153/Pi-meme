@@ -8,6 +8,7 @@ import { sandboxPluginId } from './sandbox-platform'
 import { create as createResources } from '@pi-meme/resources/agent/entry'
 import { create as createInteraction } from '@pi-meme/interaction/agent/entry'
 import { create as createCodemode } from '@pi-meme/codemode/agent/entry'
+import { create as createImageGeneration } from '@pi-meme/image-generation/agent/entry'
 import { create as createMcp } from '@pi-meme/mcp/agent/entry'
 import { create as createSubagents } from '@pi-meme/subagents/agent/entry'
 
@@ -20,5 +21,6 @@ runSessionWorker({
   '@pi-meme/interaction': createInteraction,
   '@pi-meme/codemode': createCodemode,
   '@pi-meme/mcp': createMcp,
+  '@pi-meme/image-generation': createImageGeneration,
   '@pi-meme/subagents': createSubagents,
 })

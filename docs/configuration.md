@@ -21,6 +21,7 @@ paths:
   - 'packages/pi-runtime/src/sdk/linux-sandbox.ts'
   - 'packages/settings/**'
   - 'packages/models/**'
+  - 'packages/image-generation/**'
   - 'packages/mcp/**'
   - 'packages/permissions/**'
   - 'packages/sandbox-macos/**'
@@ -58,6 +59,29 @@ paths:
 - 模型 ID 非空，`contextWindow` 和 `maxTokens` 为正整数；输入类型包含 `text`，可包含 `image`。
 - 凭据和请求头不能引用本机环境变量或 `!command`；请求头不能含换行。
 - 保存携带文件修订，配置已被其他操作修改时要求重新读取，不覆盖新内容。
+
+## 图片生成与编辑
+
+“设置 → Agent → 图片生成”管理当前 Host 的图片模型。每条配置填写名称、Base URL、API Key、模型 ID、默认尺寸和默认质量。服务需支持 OpenAI Images 的 `/images/generations` 和 `/images/edits`；仅支持聊天接口的服务不可用。
+
+第一条带凭据的配置自动设为默认，生图与编辑共用默认模型。修改配置后下一次调用生效；删除默认模型后需重新选择。保存不发起生成请求。“生成测试图片”会明确提示可能产生费用，只验证生图能力。
+
+配置在 `config/agent/image-generation.json`，API Key 使用 Host 凭据存储，不写入配置文件或会话 Worker 的凭据快照。配置损坏时保留原文件，其他聊天功能仍可使用。
+
+配置完成后，普通任务在“工作区内修改”或“完全权限”下自动获得内置 `image_gen` 工具；规划与只读模式不可使用。参数如下：
+
+| 参数                         | 用途                                                                  |
+| ---------------------------- | --------------------------------------------------------------------- |
+| `prompt`                     | 必填，生成目标或修改要求                                              |
+| `referenced_image_paths`     | 1～5 个执行 Host 的图片路径，相对路径按会话工作目录解析               |
+| `num_last_images_to_include` | 当前会话分支最近的 1～5 张图片，与路径参数互斥                        |
+| `transparent_background`     | `true` 要求透明背景，`false` 要求不透明背景；编辑省略时尽量保留原背景 |
+
+不提供图片输入时生图，提供图片时编辑；原图不覆盖。输入支持 PNG、JPEG、WebP，合计不超过 50 MiB，输出 PNG 不超过 8 MiB。产物保存为 Host 附件，临时会话沿用临时附件生命周期。聊天中可预览、下载，并继续引用生成结果。
+
+可选参数允许 `null`，按省略处理；两种图片引用不能同时提供有效值。生成结果的 Host 附件绝对路径可直接用于 Markdown 图片展示，无需复制到项目目录。
+
+请求最多等待五分钟。失败不自动重试或切换模型，取消只停止本地等待，外部服务可能继续处理或计费。兼容服务须支持配置的参数，不支持时返回错误，不会自动删除参数后重试。
 
 ## MCP 配置与授权
 

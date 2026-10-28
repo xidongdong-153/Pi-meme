@@ -56,7 +56,8 @@
     "tar": "7.5.22",
     "ws": "^8.18.3",
     "@pi-meme/schedules": "workspace:*",
-    "@pi-meme/browser": "workspace:*"
+    "@pi-meme/browser": "workspace:*",
+    "@pi-meme/image-generation": "workspace:*"
   },
   "devDependencies": {
     "@earendil-works/chord": "1.1.0",

@@ -1,4 +1,9 @@
 import type { Goal, GoalControl, GoalRequest, GoalRun, PromptOrigin } from '@pi-meme/contracts/goal'
+import {
+  imageGenerationCredentialPrefix,
+  type ImageGenerationRequest,
+  type ImageGenerationReply,
+} from '@pi-meme/contracts/image-generation'
 import type { ServiceActivityRequest, ServiceActivityResult } from '@pi-meme/contracts/service-activity'
 import type { CollaborationRequest, CollaborationResults } from '@pi-meme/contracts/collaboration'
 import type { PlanDocument, PlanRef, PlanState, SavePlanInput, TaskMode } from '@pi-meme/contracts/plan'
@@ -33,6 +38,7 @@ export type WorkerOptions = {
   resolvePlan?: (reference: PlanRef, signal: AbortSignal) => Promise<PlanDocument>
   goal?: (request: GoalRequest, run: GoalRun | undefined, signal: AbortSignal) => Promise<Goal | undefined>
   goalUsage?: (run: GoalRun, entryId: string, usage: unknown, inputEntryId?: string) => Promise<void>
+  imageGeneration?: (request: ImageGenerationRequest, signal: AbortSignal) => Promise<ImageGenerationReply>
   activity?: (request: ServiceActivityRequest, signal: AbortSignal) => Promise<ServiceActivityResult>
   credentials: SecureCredentialStorage & { flush?: () => Promise<void> }
   dataRoot: string
@@ -103,7 +109,9 @@ export function createWorkerSession(
           settings: options.settings,
           agentEntries: options.agentEntries,
           resourceSnapshot: options.resourceSnapshot,
-          credentials: options.credentials.entries().filter(([key]) => !key.startsWith('plugin:')),
+          credentials: options.credentials
+            .entries()
+            .filter(([key]) => !key.startsWith('plugin:') && !key.startsWith(imageGenerationCredentialPrefix)),
           capabilities,
           access,
         },
@@ -129,10 +137,12 @@ export function createWorkerSession(
               | 'admission'
               | 'goal'
               | 'goalUsage'
+              | 'image-generation'
               | 'activity'
               | 'plugin'
             reference?: PlanRef
             pluginRequest?: PluginRuntimeRequest
+            imageRequest?: ImageGenerationRequest
             activityRequest?: ServiceActivityRequest
             message?: string
             mode?: TaskMode
@@ -186,6 +196,10 @@ export function createWorkerSession(
                 if (!options.goalUsage || !request.goalRun || !request.entryId) throw new Error('目标用量桥未配置')
                 return options.goalUsage(request.goalRun, request.entryId, request.usage, request.inputEntryId)
               }
+              if (request.kind === 'image-generation') {
+                if (!options.imageGeneration || !request.imageRequest) throw new Error('图片生成服务桥未配置')
+                return options.imageGeneration(request.imageRequest, controller.signal)
+              }
               if (request.kind === 'activity') {
                 if (!options.activity || !request.activityRequest) throw new Error('活动服务桥未配置')
                 return options.activity(request.activityRequest, controller.signal)
@@ -220,6 +234,8 @@ export function createWorkerSession(
           const mutation = reply.credential
           void Promise.resolve()
             .then(async () => {
+              if (mutation.key.startsWith(imageGenerationCredentialPrefix))
+                throw new Error('Worker 不能修改图片服务凭据')
               if (mutation.value === undefined) options.credentials.delete(mutation.key)
               else options.credentials.set(mutation.key, mutation.value)
               await options.credentials.flush?.()

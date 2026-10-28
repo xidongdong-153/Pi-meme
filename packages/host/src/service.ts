@@ -1,3 +1,6 @@
+import { ImageConfigStore } from '@pi-meme/image-generation/server/config-store'
+import { ImageGenerationService } from '@pi-meme/image-generation/server/service'
+import { Readable } from 'node:stream'
 import { GoalService } from '@pi-meme/goals/server/service'
 import { ActivityService } from '@pi-meme/activities/server/service'
 import { createActivityBridge } from './activity-bridge'
@@ -480,6 +483,11 @@ export async function createHost(options: HostOptions = {}) {
         for (const subscriber of subscribers)
           subscriber({ hostId, type: 'resources-changed', value: { generation: resourceGeneration } })
     }
+    const imageGeneration = new ImageGenerationService(
+      new ImageConfigStore(storagePaths.agentImageGenerationFile, credentials),
+      (name, bytes, signal, destinationDirectory) =>
+        storeChatAttachment(root, name, Readable.from([bytes]), signal, { destinationDirectory }),
+    )
     let builtins: Awaited<ReturnType<typeof createBuiltinModules>> | undefined
     let retireWorkers: (keys: string[]) => Promise<void>
     const workerSnapshots = new Map<string, ResourceSnapshot>()
@@ -699,6 +707,32 @@ export async function createHost(options: HostOptions = {}) {
             await goals.usage(run, entryId, usage, inputEntryId)
           },
           plugin: (request, signal) => pluginBridge.dispatch(request, signal),
+          imageGeneration: async (request, signal) => {
+            const actor = collaboration.goalCaller(session)
+            const permitted = actor.mode !== 'plan' && actor.accessMode !== 'read-only'
+            if (request.action === 'ready') return { ready: permitted && (await imageGeneration.ready()) }
+            if (!permitted) throw new Error('当前任务模式或访问权限不允许生成图片')
+            if (request.action !== 'generate') throw new Error('图片生成请求无效')
+            return imageGeneration.generate(request.input, request.sources, {
+              cwd: actor.cwd,
+              signal,
+              destinationDirectory: effectivePaths.temporaryRoot
+                ? path.join(effectivePaths.temporaryRoot, 'attachments')
+                : undefined,
+              assertActive: () => {
+                const current = collaboration.goalCaller(session)
+                if (
+                  current.mode === 'plan' ||
+                  current.accessMode === 'read-only' ||
+                  current.runId !== actor.runId ||
+                  current.epoch !== actor.epoch ||
+                  current.executionGeneration !== actor.executionGeneration ||
+                  !['running', 'waiting_children', 'waiting_input'].includes(current.status)
+                )
+                  throw new Error('图片请求来自已结束或过期执行')
+              },
+            })
+          },
           activity: (request, signal) => activityBridge.dispatch(session, request, signal),
           collaboration: (request, signal) => collaboration.dispatch(session, request, signal),
           savePlan: (input, signal) => collaboration.savePlan(session, input, signal),
@@ -1236,6 +1270,7 @@ export async function createHost(options: HostOptions = {}) {
         onError: (cause: unknown) => emit('error', { generation: 0, message: `定时任务处理失败：${String(cause)}` }),
       },
       'host.resources': { store: resources, getCwd: () => pi.cwd, hostId },
+      'host.image-generation': imageGeneration,
       'host.models': { pi, models, agentDir: paths.agentDir },
       'host.settings': {
         pi,
@@ -1656,6 +1691,21 @@ export async function createHost(options: HostOptions = {}) {
       'host.schedules.runtime'
     ] as import('@pi-meme/schedules/server/service').ScheduleService
     appControl = await createAppControl({
+      imageGeneration: {
+        getConfig: () => imageGeneration.config.snapshot(),
+        saveModel: (input) => imageGeneration.config.save(input),
+        deleteModel: (id, revision) => imageGeneration.config.delete(id, revision),
+        setDefault: (id, revision) => imageGeneration.config.setDefault(id, revision),
+        test: (id) => {
+          if (typeof id !== 'string' || !id) throw new Error('测试图片必须选择模型配置')
+          return imageGeneration.generate(
+            { prompt: '生成一张简洁的蓝色圆形测试图片，白色背景，不包含文字。' },
+            [],
+            { cwd: root, signal: new AbortController().signal },
+            id,
+          )
+        },
+      },
       schedules,
       hostId,
       root,

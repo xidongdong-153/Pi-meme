@@ -324,6 +324,7 @@ export function SettingsSkeleton({ section }: { section: SettingsSection }) {
       return <AppearanceSkeleton />
     case 'profile':
       return <ProfileSkeleton />
+    case 'image-generation':
     case 'models':
       return <ModelsSkeleton />
     case 'subagents':
