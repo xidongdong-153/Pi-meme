@@ -187,16 +187,26 @@ export const Conversation = React.memo(
                 currentPlan && document.id === currentPlan.id && document.revision === currentPlan.revision,
             )?.[0]
           : undefined
-    function planReply(items: readonly { id: string; children?: readonly { id: string }[] }[]): React.ReactNode {
-      for (const item of [...items].reverse()) {
-        if (plansByTool.has(item.id))
-          return item.id === sourceToolId && currentPlan ? renderPlan?.(currentPlan) : <React.Fragment />
-        if (item.children) {
-          const nested = planReply(item.children)
-          if (nested) return nested
+    function planReply(turn: Extract<TurnChunk, { type: 'assistant_turn' }>): React.ReactNode {
+      const callIds = new Set(
+        turn.sourceMessages?.flatMap((message) =>
+          message.role === 'assistant'
+            ? message.content.flatMap((part) => (part.type === 'toolCall' ? [part.id] : []))
+            : [],
+        ),
+      )
+      function findPlan(items: readonly { id: string; children?: readonly { id: string }[] }[]): React.ReactNode {
+        for (const item of [...items].reverse()) {
+          if (plansByTool.has(item.id))
+            return item.id === sourceToolId && currentPlan ? renderPlan?.(currentPlan) : <React.Fragment />
+          if (item.children) {
+            const nested = findPlan(item.children)
+            if (nested) return nested
+          }
         }
+        return undefined
       }
-      return undefined
+      return findPlan(turn.activities.filter((item) => callIds.has(item.id)))
     }
 
     const [visible, setVisible] = React.useState({ key: sessionKey, count: INITIAL_VISIBLE_TURNS })
@@ -424,17 +434,10 @@ export const Conversation = React.memo(
                     onFork={readOnly ? undefined : onForkReply}
                     onCopyError={onCopyError}
                     onActivityToggle={handleActivityToggle}
-                    reply={!agentOnly && !turn.isLive && renderPlan ? planReply(turn.activities) : undefined}
+                    reply={!agentOnly && !turn.isLive && renderPlan ? planReply(turn) : undefined}
                   />
                 )
               })}
-              {!agentOnly &&
-                !chat.running &&
-                renderPlan &&
-                currentPlan &&
-                effectivePlanState?.sourceEntryId &&
-                !sourceToolId &&
-                renderPlan(currentPlan)}
 
               {!readOnly &&
                 editor &&
