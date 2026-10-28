@@ -356,7 +356,7 @@ for (const count of [1, 2]) {
 
 test('Markdown 代码块保留完整语言标记，且不在 pre 中嵌套块级容器', () => {
   const markup = renderToStaticMarkup(createElement(MarkdownContent, { children: '```c++\nint main() {}\n```' }))
-  assert.match(markup, />c\+\+<\/span>/)
+  assert.match(markup, />C\+\+<\/span>/)
   assert.doesNotMatch(markup, /<pre><div/)
 })
 
