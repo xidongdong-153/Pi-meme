@@ -458,17 +458,19 @@ test(
             ),
             document.markdown,
           )
-          assert.ok(
-            seen
-              .filter((request) => request.mode === step)
-              .every(
-                (request) =>
-                  !request.tools.some(
-                    (name) =>
-                      ['bash', 'write', 'edit', 'codemode', 'dist_probe'].includes(name) || name.startsWith('mcp__'),
-                  ),
-              ),
-          )
+          const planRequests = seen.filter((request) => request.mode === step)
+          assert.ok(planRequests.length > 0, '规划模式必须发送模型请求')
+          for (const request of planRequests) {
+            const tools = request.tools
+            assert.ok(
+              tools.includes('bash') && tools.includes('codemode'),
+              `规划调研工具缺失：${JSON.stringify(tools)}`,
+            )
+            assert.ok(
+              !tools.some((name) => ['write', 'edit', 'dist_probe'].includes(name) || name.startsWith('mcp__')),
+              `规划模式包含不可用工具：${JSON.stringify(tools)}`,
+            )
+          }
         }
         if (step === 'codemode-only')
           assert.ok(
