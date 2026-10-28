@@ -60,6 +60,43 @@ paths:
 - 凭据和请求头不能引用本机环境变量或 `!command`；请求头不能含换行。
 - 保存携带文件修订，配置已被其他操作修改时要求重新读取，不覆盖新内容。
 
+## 第三方注入自定义提供商
+
+网关、CLI 或 IDE 通过已认证的 Host 连接复用现有模型 RPC：`models:get` 读取配置和修订，`models:save` 保存一个普通自定义提供商，`models:delete` 删除指定提供商。外部注入和界面手动添加使用同一份 `config/agent/models.json` 与凭据存储，统一显示在“自定义提供商”中。模型 ID 原样发送，不增加前缀或来源标识。
+
+接入方可使用现有 [Node 客户端](host-api.md#node-客户端) 的 `rpc()`，登录、Cookie 和 Host 身份检查由客户端处理。普通配置注入只需读取修订后保存一个提供商：
+
+```ts
+import type { ModelConfigResult, ModelConfigSnapshot, SaveModelProvider } from '@pi-meme/contracts/model-config'
+
+const snapshot = await client.rpc<ModelConfigSnapshot>('models:get')
+const input: SaveModelProvider = {
+  revision: snapshot.revision,
+  apiKey: gatewayApiKey,
+  provider: {
+    id: 'example-gateway',
+    name: '模型网关',
+    api: 'openai-completions',
+    baseUrl: 'https://gateway.example/v1',
+    models: [
+      { id: 'upstream/chat-model' },
+      { id: 'upstream/messages-model', api: 'anthropic-messages', baseUrl: 'https://gateway.example' },
+    ],
+  },
+}
+const result = await client.rpc<ModelConfigResult>('models:save', [input])
+```
+
+HTTP 接入使用 `POST /api/auth` 登录后返回的 Cookie，向 `POST /api/rpc` 提交 `{ hostId, clientId, requestId, method, args }`；`hostId` 使用登录返回的身份，`requestId` 标识单次操作。认证规则见 [HostApi](host-api.md#http-与认证)。
+
+更新已有提供商时在保存参数中传入 `originalId`，值必须与 `provider.id` 相同；不传该字段时，ID 已存在会拒绝新增。删除参数为 `[providerId, revision]`。`models:get` 参数为空数组。接入方需检查 RPC 的 `error`，修订冲突时重新读取后处理，不能直接覆盖并发变更。`clientId` 用于标识和去重，不是独立授权身份。
+
+模型只要求 `id`。模型级 `api` 与 `baseUrl` 可以覆盖服务商默认值，地址须同 origin；跨 origin 使用不同提供商。`contextWindow`、`maxTokens`、`input`、`reasoning`、`thinkingLevelMap`、`headers`、`compat` 均可省略，不猜测上游能力。可用协议见 [model-config.ts](../packages/contracts/src/model-config.ts)。
+
+保存时 API Key 和敏感请求头进入已有凭据存储，不回显明文，不要求用户准备声明文件。操作使用现有空闲守卫：运行中拒绝写入，空闲时自动重连并保留已选模型；移除当前模型时沿用原有回退行为。重连失败返回 `reconnectError`，配置已保存，接入方可在空闲后调用 `models:reconnect`。设置页随模型目录更新自动读取配置，仍在原有自定义提供商列表中编辑和删除。
+
+查询可用模型使用 [HostApi.models.list](host-api.md#模型目录)，配置写入复用内置 RPC，不向可信插件的 `context.host` 增加全局模型写方法。
+
 ## 图片生成与编辑
 
 “设置 → Agent → 图片生成”管理当前 Host 的图片模型。每条配置填写名称、Base URL、API Key、模型 ID、默认尺寸和默认质量。服务需支持 OpenAI Images 的 `/images/generations` 和 `/images/edits`；仅支持聊天接口的服务不可用。

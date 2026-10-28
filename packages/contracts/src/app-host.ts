@@ -1,4 +1,5 @@
 import type { ImageGenerationApi } from './image-generation'
+import type { ModelsReadonlyApi } from './model-config'
 import type { SchedulesApi } from './schedules'
 import type { ServiceActivity, ServiceActivityList, ServiceActivityLogs } from './service-activity'
 import type { Goal, GoalControl, GoalEdit, GoalInput, GoalResumeControl, GoalStartResult } from './goal'
@@ -95,6 +96,7 @@ export type AppHostCapabilities = {
     | 'activities'
     | 'schedules'
     | 'image-generation'
+    | 'models'
   >
   fileOperations?: Array<'preview' | 'search' | 'write'>
 }
@@ -122,6 +124,7 @@ export type EventSubscription = EventFilter & { after?: EventCursor }
 export type HostApi = {
   readonly apiVersion: 2
   imageGeneration?: ImageGenerationApi
+  models?: ModelsReadonlyApi
   schedules: SchedulesApi
   capabilities: () => Promise<AppHostCapabilities>
   plugins: {

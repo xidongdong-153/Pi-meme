@@ -3,6 +3,8 @@ description: 'HostApi v2 的稳定目标、HTTP 控制、幂等提交、回执�
 status: implemented
 paths:
   - 'packages/contracts/src/app-host.ts'
+  - 'packages/contracts/src/model-config.ts'
+  - 'packages/models/src/server/model-service.ts'
   - 'packages/contracts/src/image-generation.ts'
   - 'packages/contracts/src/goal.ts'
   - 'packages/contracts/src/plugin-ui-data.ts'
@@ -34,6 +36,7 @@ paths:
 | 接口组            | 已实现操作                                                                                                                                                            |
 | ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `capabilities()`  | Host 身份、API 版本、功能及可选文件操作能力                                                                                                                           |
+| `models`          | `list`，查询当前 Host 可用模型，仅读取                                                                                                                                |
 | `imageGeneration` | `getConfig`、`saveModel`、`deleteModel`、`setDefault`、`test`，图片模型配置与显式生图测试                                                                             |
 | `plugins`         | `getDefaultAgentPlugins`、`setDefaultAgentPlugins`                                                                                                                    |
 | `projects`        | `list`、`register`、`get`                                                                                                                                             |
@@ -54,6 +57,21 @@ paths:
 `capabilities().features` 包含 `goals` 时，可以按 `SessionRef` 调用目标接口。`goals.start(ref, { objective, images?, skills?, sourceMessageTimestamp? }, options)` 返回 `{ goal, receipt }`；指定来源时间戳时由 Host 核对当前分支并引用原消息，正文与图片以原生记录为准。已有目标的编辑、暂停、恢复、清除需要 `goalId` 和 `revision`，旧修订会被拒绝。`edit` 只接受新正文且要求执行已停止，保留累计用量和耗时；创建和恢复均以普通模式执行，进入 Plan 会先暂停活跃目标。
 
 目标类型见 [goal.ts](../packages/contracts/src/goal.ts)。`sessions.snapshot` 返回 `goal` 和 `goalsSupported`；`goal_updated`、`goal_cleared` 沿现有事件补读通道发送。提交回执只表示对应提交是否结束，目标是否结束以 `goal.status` 为准。目标持久化、重启恢复和 UI 操作见 [会话与协作](sessions.md#持久目标-goal)。
+
+## 模型目录
+
+`capabilities().features` 包含 `models` 时，`models.list()` 返回当前 Host 可用模型的白名单投影，不依赖当前界面选择或执行会话。每项包含 `provider/id/name`，以及可选的 API 协议、思考能力和档位、上下文、输出上限、输入类型；不返回 Base URL、请求头、API Key、凭据或文件路径。类型见 [model-config.ts](../packages/contracts/src/model-config.ts)。
+
+第三方注入的模型归入普通自定义提供商，沿用提交的提供商 ID 和上游模型 ID。配置读写复用已有的认证 RPC，具体参数见[第三方注入自定义提供商](configuration.md#第三方注入自定义提供商)。`HostApi.models` 只提供查询，接入已有 Host 时先查询 capabilities，缺少 `models` 能力时不要调用该组。
+
+```ts
+const capabilities = await client.capabilities()
+if (capabilities.features.includes('models') && client.models) {
+  const models = await client.models.list()
+  // 用返回的 provider 与原始 id 配置显式目标会话。
+  console.log(models.map(({ provider, id }) => ({ provider, id })))
+}
+```
 
 ## 图片模型配置
 

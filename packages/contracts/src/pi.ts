@@ -107,6 +107,10 @@ export type PiModel = {
   name?: string
   reasoning?: boolean
   thinkingLevels?: ThinkingLevel[]
+  api?: string
+  contextWindow?: number
+  maxTokens?: number
+  input?: ('text' | 'image')[]
 }
 
 /** 模型目录中的档位由 Pi SDK 计算；缺少能力数据时不开放扩展档位。 */

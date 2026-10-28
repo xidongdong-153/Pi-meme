@@ -1,3 +1,7 @@
+import type { PiModel } from './pi'
+
+export type ModelsReadonlyApi = { list: () => Promise<PiModel[]> }
+
 export const modelApis = [
   'openai-completions',
   'openai-responses',
@@ -8,6 +12,8 @@ export type ModelApi = (typeof modelApis)[number]
 export type ConfiguredModel = {
   id: string
   name?: string
+  api?: ModelApi
+  baseUrl?: string
   contextWindow?: number
   maxTokens?: number
   reasoning?: boolean

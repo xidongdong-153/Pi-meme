@@ -98,12 +98,15 @@ test('全选仅处理当前搜索结果，保留其他模型和已编辑参数',
   expect(onClose).toHaveBeenCalledOnce()
 })
 
-test('思考强度在高级模型参数中设置并保存', async () => {
+test('思考强度按模型级协议保存，并保留模型级地址', async () => {
   const user = userEvent.setup()
   const onSave = vi.fn(async () => true)
   render(
     <ModelConfigForm
-      provider={provider}
+      provider={{
+        ...provider,
+        models: [{ ...provider.models[0], api: 'google-generative-ai', baseUrl: 'https://example.com' }],
+      }}
       snapshot={snapshot}
       busy={false}
       bridge={{ discoverModels: vi.fn(async () => []) }}
@@ -124,8 +127,44 @@ test('思考强度在高级模型参数中设置并保存', async () => {
   expect(onSave).toHaveBeenCalledWith(
     expect.objectContaining({
       provider: expect.objectContaining({
-        models: [expect.objectContaining({ thinkingLevelMap: expect.objectContaining({ high: null }) })],
+        models: [
+          expect.objectContaining({
+            api: 'google-generative-ai',
+            baseUrl: 'https://example.com',
+            thinkingLevelMap: expect.objectContaining({ high: null, xhigh: 'high', max: 'high' }),
+          }),
+        ],
       }),
     }),
   )
+})
+
+test('外部注入自动出现在自定义提供商列表，编辑期间保留原修订', async () => {
+  const user = userEvent.setup()
+  const getModelConfig = vi.fn(async () => snapshot)
+  const saveModelProvider = vi.fn(async () => ({ snapshot }))
+  const bridge = {
+    getModelConfig,
+    saveModelProvider,
+    getDefaultModel: vi.fn(async () => null),
+    getDefaultThinkingLevel: vi.fn(async () => null),
+    listBuiltinProviders: vi.fn(async () => []),
+  } as unknown as ModelsBridge
+  const view = render(<ModelConfigSettings bridge={bridge} busy={false} models={[]} />)
+  await user.click(screen.getByRole('tab', { name: '自定义提供商' }))
+  expect(await screen.findByText('测试服务商')).toBeVisible()
+  getModelConfig.mockResolvedValue({
+    ...snapshot,
+    revision: '2',
+    providers: [...snapshot.providers, { ...provider, id: 'magpie', name: 'Magpie', hasApiKey: true }],
+  })
+  view.rerender(<ModelConfigSettings bridge={bridge} busy={false} models={[{ provider: 'magpie', id: 'outside' }]} />)
+  expect(await screen.findByText('Magpie')).toBeVisible()
+  expect(screen.getAllByRole('tab')).toHaveLength(2)
+  expect(screen.queryByRole('button', { name: '添加来源' })).not.toBeInTheDocument()
+  await user.click(screen.getAllByRole('button', { name: '编辑' })[0])
+  getModelConfig.mockResolvedValue({ ...snapshot, revision: '3' })
+  view.rerender(<ModelConfigSettings bridge={bridge} busy={false} models={[{ provider: 'magpie', id: 'second' }]} />)
+  await user.click(screen.getByRole('button', { name: '保存服务商' }))
+  expect(saveModelProvider).toHaveBeenCalledWith(expect.objectContaining({ revision: '2', originalId: 'test' }))
 })

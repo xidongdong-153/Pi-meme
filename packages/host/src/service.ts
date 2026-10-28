@@ -51,6 +51,7 @@ import type { SecureCredentialStorage } from '@pi-meme/contracts/secure-storage'
 import { MemoryCredentialStorage } from '@pi-meme/pi-runtime/secure-store'
 import { FileCredentialStore } from '@pi-meme/pi-adapter/file-credentials'
 import { ModelConfigStore } from '@pi-meme/models/server/config-store'
+import { ModelService } from '@pi-meme/models/server/model-service'
 import { SettingsStore } from '@pi-meme/settings/server/store'
 import { InstructionsStore } from '@pi-meme/settings/server/instructions'
 import { parseTheme } from '@pi-meme/settings/shared/themes'
@@ -971,6 +972,7 @@ export async function createHost(options: HostOptions = {}) {
     })
     if (settings.settings.defaultAccessMode) await pi.configureDefaultAccessMode(settings.settings.defaultAccessMode)
     const models = new ModelConfigStore(path.join(paths.agentDir, 'models.json'), credentials, paths.agentDir)
+    const modelService = new ModelService(pi, models)
     const mcp = new McpConfigStore(path.join(paths.agentDir, 'mcp.json'), credentials)
     const uiDescriptors = (descriptors: PluginDescriptor[]) =>
       descriptors.map((descriptor) => ({
@@ -1271,7 +1273,7 @@ export async function createHost(options: HostOptions = {}) {
       },
       'host.resources': { store: resources, getCwd: () => pi.cwd, hostId },
       'host.image-generation': imageGeneration,
-      'host.models': { pi, models, agentDir: paths.agentDir },
+      'host.models': { pi, models, agentDir: paths.agentDir, service: modelService },
       'host.settings': {
         pi,
         instructions: new InstructionsStore(root),
@@ -1691,6 +1693,7 @@ export async function createHost(options: HostOptions = {}) {
       'host.schedules.runtime'
     ] as import('@pi-meme/schedules/server/service').ScheduleService
     appControl = await createAppControl({
+      models: { list: () => modelService.list() },
       imageGeneration: {
         getConfig: () => imageGeneration.config.snapshot(),
         saveModel: (input) => imageGeneration.config.save(input),

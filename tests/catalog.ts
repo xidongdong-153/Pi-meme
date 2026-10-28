@@ -264,6 +264,7 @@ const files: Array<[string, Feature[]]> = [
   ['packages/models/tests/default-model.integration.test.ts', ['models']],
   ['packages/models/tests/default-thinking.integration.test.ts', ['models']],
   ['packages/models/tests/model-config.integration.test.ts', ['models']],
+  ['packages/models/tests/model-service.integration.test.ts', ['models']],
   ['packages/pi-adapter/tests/credentials.unit.test.ts', ['models', 'connection']],
   ['packages/pi-adapter/tests/file-credentials.integration.test.ts', ['models', 'connection']],
   ['packages/pi-adapter/tests/worker-session.integration.test.ts', ['sessions']],

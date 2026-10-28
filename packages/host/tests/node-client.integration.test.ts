@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { WebSocket } from 'ws'
+import type { ModelConfigResult, ModelConfigSnapshot } from '@pi-meme/contracts/model-config'
 import type { EventCursor, HostControlEvent } from '@pi-meme/contracts/app-host'
 import { createNodeHostClient } from '@pi-meme/client/node-host-client'
 import { MemoryCredentialStorage } from '@pi-meme/pi-runtime/secure-store'
@@ -75,6 +76,69 @@ async function fixture(reply?: NonNullable<Parameters<typeof useFakeAgent>[1]>['
   }
 }
 const key = (idempotencyKey: string) => ({ idempotencyKey })
+
+test('第三方直接注入普通自定义提供商，Node 客户端可查询并按原始模型 ID 执行', { timeout: 25000 }, async () => {
+  const f = await fixture('外部网关的假模型回复')
+  try {
+    const client = await f.connect()
+    const initial = await client.rpc<ModelConfigSnapshot>('models:get')
+    const saved = await client.rpc<ModelConfigResult>('models:save', [
+      {
+        revision: initial.revision,
+        apiKey: 'gateway-private-key',
+        provider: {
+          id: 'gateway',
+          name: '外部模型网关',
+          api: 'openai-completions',
+          baseUrl: f.fake!.provider.baseUrl,
+          models: [{ id: 'upstream/model.with.dots', contextWindow: 32000 }],
+          headers: { Authorization: 'Bearer gateway-private-key' },
+        },
+      },
+    ])
+    assert.equal(saved.reconnectError, undefined)
+    assert.ok(
+      saved.snapshot.providers.some(
+        (provider) => provider.id === 'gateway' && provider.name === '外部模型网关' && provider.hasApiKey,
+      ),
+    )
+    assert.ok(!JSON.stringify(saved.snapshot).includes('gateway-private-key'))
+    assert.ok((await client.capabilities()).features.includes('models'))
+    const catalog = await client.models!.list()
+    const model = catalog.find((entry) => entry.provider === 'gateway')!
+    assert.ok(model)
+    assert.equal(model.id, 'upstream/model.with.dots')
+    assert.equal(model.contextWindow, 32000)
+    assert.ok(!JSON.stringify(catalog).includes('gateway-private-key'))
+    assert.ok(!JSON.stringify(catalog).includes('baseUrl'))
+    assert.ok(!JSON.stringify(catalog).includes('Authorization'))
+    const cwd = path.join(f.root, 'external-project')
+    await mkdir(cwd)
+    const project = await client.projects.register({ cwd }, key('gateway-project'))
+    const session = await client.sessions.create(
+      { project, configuration: { model: { provider: model.provider, id: model.id }, accessMode: 'full-access' } },
+      key('gateway-session'),
+    )
+    const ref = { hostId: session.hostId, sessionId: session.sessionId }
+    const accepted = await client.sessions.submit(
+      ref,
+      { delivery: 'start', text: '使用外部网关' },
+      key('gateway-input'),
+    )
+    const deadline = Date.now() + 10000
+    let receipt = await client.sessions.receipt(accepted.operationId)
+    while (!['completed', 'failed', 'interrupted'].includes(receipt.status)) {
+      if (Date.now() > deadline) throw new Error('外部模型回执等待超时')
+      await delay(10)
+      receipt = await client.sessions.receipt(accepted.operationId)
+    }
+    assert.equal(receipt.status, 'completed')
+    assert.equal(f.fake!.provider.requests[0].model, 'upstream/model.with.dots')
+    assert.match(JSON.stringify((await client.sessions.history(ref)).messages), /外部网关的假模型回复/)
+  } finally {
+    await f.dispose()
+  }
+})
 
 test('Node客户端真实鉴权与正式域调用，稳定refs和写操作幂等键经过HTTP校验', { timeout: 25000 }, async () => {
   const f = await fixture()

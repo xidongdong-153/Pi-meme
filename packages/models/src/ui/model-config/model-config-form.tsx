@@ -56,7 +56,10 @@ function draftModel(model: ConfiguredModel, api: ModelApi): ModelDraft {
     compatText: jsonText(model.compat),
     thinkingLevelMap: model.thinkingLevelMap
       ? { xhigh: null, max: null, ...model.thinkingLevelMap }
-      : { xhigh: defaultThinkingMapping(api, 'xhigh')!, max: defaultThinkingMapping(api, 'max')! },
+      : {
+          xhigh: defaultThinkingMapping(model.api ?? api, 'xhigh')!,
+          max: defaultThinkingMapping(model.api ?? api, 'max')!,
+        },
   }
 }
 export function ModelConfigForm({

@@ -145,6 +145,8 @@ function validateModel(value: unknown): ConfiguredModel {
   if (typeof model.id !== 'string' || !model.id.trim()) throw new Error('模型 ID 不能为空')
   if (model.name !== undefined && (typeof model.name !== 'string' || !model.name.trim()))
     throw new Error('模型名称不能为空')
+  if (model.api !== undefined) validateApi(model.api)
+  if (model.baseUrl !== undefined) endpoint(model.baseUrl)
   for (const field of ['contextWindow', 'maxTokens']) {
     if (model[field] !== undefined && (!Number.isSafeInteger(model[field]) || Number(model[field]) <= 0))
       throw new Error(`模型 ${model.id} 的 ${field} 必须是正整数`)
@@ -174,6 +176,8 @@ function validateModel(value: unknown): ConfiguredModel {
 const editableFields = [
   'id',
   'name',
+  'api',
+  'baseUrl',
   'contextWindow',
   'maxTokens',
   'reasoning',
@@ -300,6 +304,8 @@ export class ModelConfigStore {
       throw new Error('清除 API Key 参数无效')
     if (!Array.isArray(provider.models) || !provider.models.length) throw new Error('请至少添加一个模型')
     const models = provider.models.map(validateModel)
+    if (models.some((model) => model.baseUrl && endpoint(model.baseUrl).origin !== endpoint(provider.baseUrl).origin))
+      throw new Error('模型级 Base URL 必须与服务商同源；不同地址请分别声明服务商')
     if (new Set(models.map((m) => m.id)).size !== models.length) throw new Error('模型 ID 不能重复')
     let nextSecrets: ModelSecrets | undefined
     let previousSecrets: string | undefined

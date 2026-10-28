@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     "./server/config-store": "./src/server/config-store.ts",
+    "./server/model-service": "./src/server/model-service.ts",
     "./server/discovery": "./src/server/discovery.ts",
     "./server/handlers": "./src/server/handlers.ts",
     "./ui/context-usage-ring": "./src/ui/context-usage-ring.tsx",

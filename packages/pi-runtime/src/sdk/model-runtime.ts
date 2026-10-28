@@ -13,6 +13,10 @@ export function projectModel(model: Model<Api>): PiModel {
     name: model.name,
     reasoning: model.reasoning,
     thinkingLevels: getSupportedThinkingLevels(model),
+    api: model.api,
+    contextWindow: model.contextWindow,
+    maxTokens: model.maxTokens,
+    input: [...model.input],
   }
 }
 

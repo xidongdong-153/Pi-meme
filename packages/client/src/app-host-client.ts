@@ -13,6 +13,7 @@ export function createAppHostClient(transport: AppHostTransport): HostApi {
   }
   return {
     apiVersion: 2,
+    models: { list: () => call('models.list', []) },
     imageGeneration: {
       getConfig: () => call('imageGeneration.getConfig', []),
       saveModel: (input) => call('imageGeneration.saveModel', [input]),

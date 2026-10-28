@@ -113,13 +113,33 @@ export function ModelConfigSettings({
   }
   useEffect(() => {
     active.current = true
-    void load()
     void loadDefault()
     void loadThinking()
     return () => {
       active.current = false
     }
   }, [])
+  useEffect(() => {
+    if (editing || deleting || saving) return
+    let current = true
+    void bridge.getModelConfig().then(
+      (value) => {
+        if (current) {
+          setSnapshot(value)
+          setLoading(false)
+        }
+      },
+      (cause: unknown) => {
+        if (current) {
+          setError(String(cause))
+          setLoading(false)
+        }
+      },
+    )
+    return () => {
+      current = false
+    }
+  }, [bridge, models, editing, deleting, saving])
   async function change(work: () => Promise<ModelConfigResult>) {
     if (lock.current) return false
     lock.current = true

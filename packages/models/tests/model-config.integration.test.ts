@@ -38,6 +38,21 @@ function provider(revision: string): SaveModelProvider {
     },
   }
 }
+test('模型级协议和端点覆盖生效，并拒绝跨 origin 共享服务商凭据', async () =>
+  temporary(async (store, directory, credentials) => {
+    const revision = (await store.snapshot()).revision
+    const input = provider(revision)
+    input.provider.models = [{ id: 'messages', api: 'anthropic-messages', baseUrl: 'https://another.example' }]
+    await assert.rejects(store.save(input), /同源/)
+    assert.equal((await store.snapshot()).revision, revision)
+    input.provider.models[0].baseUrl = 'http://localhost:11434'
+    await store.save(input)
+    const runtime = await createDesktopModelRuntime(await loadPiSdk(), directory, credentials)
+    const model = runtime.getModel('local-test', 'messages')!
+    assert.equal(model.api, 'anthropic-messages')
+    assert.equal(model.baseUrl, 'http://localhost:11434')
+  }))
+
 test('保存模型配置后 Desktop Pi SDK 能读取模型，配置文件不保存明文 Key', async () =>
   temporary(async (store, _directory, credentials) => {
     const initial = await store.snapshot()

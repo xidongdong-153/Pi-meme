@@ -40,6 +40,7 @@ import type { CollaborationBridge } from '@pi-meme/contracts/collaboration'
 import { ControlStore, ControlError, createControlStorePaths, type ControlStorePaths } from './control-store'
 
 type Options = {
+  models?: import('@pi-meme/contracts/model-config').ModelsReadonlyApi
   imageGeneration?: import('@pi-meme/contracts/image-generation').ImageGenerationApi
   schedules?: import('@pi-meme/schedules/server/service').ScheduleService
   goals: GoalService
@@ -674,12 +675,14 @@ export async function createAppControl(options: Options) {
   const apiFor = (clientId: string): HostApi => ({
     apiVersion: 2,
     imageGeneration: options.imageGeneration,
+    models: options.models,
     capabilities: async () => ({
       apiVersion: 2,
       hostId,
       fileOperations: ['preview', 'search', 'write'],
       features: [
         ...(options.imageGeneration ? ['image-generation' as const] : []),
+        ...(options.models ? ['models' as const] : []),
         ...(options.schedules ? ['schedules' as const] : []),
         'projects',
         'sessions',

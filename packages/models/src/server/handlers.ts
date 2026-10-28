@@ -1,8 +1,8 @@
 import type { PiRuntime } from '@pi-meme/pi-runtime/runtime'
 import type { PiModel } from '@pi-meme/contracts/pi'
-import type { ModelConfigSnapshot } from '@pi-meme/contracts/model-config'
 import { text } from '@pi-meme/contracts/ipc'
 import type { ModelConfigStore } from './config-store'
+import type { ModelService } from './model-service'
 import { createBuiltinAuth } from './builtin-auth'
 import { discoverModels } from './discovery'
 import { readDefaultModel, saveDefaultModel } from './default-model'
@@ -12,15 +12,13 @@ export type ModelHandlerContext = {
   pi: PiRuntime
   models: ModelConfigStore
   agentDir: string
+  service: ModelService
 }
 
-export function createModelHandlers({ pi, models, agentDir }: ModelHandlerContext) {
+export function createModelHandlers({ pi, models, agentDir, service }: ModelHandlerContext) {
   const reconnect = async () => {
     try {
-      await pi.idle(async () => {
-        if (pi.connection().status === 'connecting') throw new Error('Pi 正在连接，请等待完成后重试')
-        await pi.reconnectModels(await pi.captureRestoreState())
-      }, true)
+      await service.reconnect()
     } catch (cause) {
       return `凭据已更新，但 Pi 重连失败：${cause instanceof Error ? cause.message : String(cause)}。请在会话空闲后点击重新连接。`
     }
@@ -31,18 +29,6 @@ export function createModelHandlers({ pi, models, agentDir }: ModelHandlerContex
     credentials: models.credentialStorage,
     reconnect,
   })
-  const changeModels = (write: () => Promise<ModelConfigSnapshot>) =>
-    pi.idle(async () => {
-      if (pi.connection().status === 'connecting') throw new Error('Pi 正在连接，请等待完成后重试')
-      const restore = await pi.captureRestoreState()
-      const snapshot = await write()
-      try {
-        await pi.reconnectModels(restore)
-        return { snapshot }
-      } catch (cause) {
-        return { snapshot, reconnectError: `模型配置已保存，但 Pi 重连失败：${String(cause)}。请点击重新连接。` }
-      }
-    }, true)
   return {
     'pi:set-model': (sessionKey: unknown, value: unknown) => {
       text(sessionKey)
@@ -73,10 +59,10 @@ export function createModelHandlers({ pi, models, agentDir }: ModelHandlerContex
       return saveDefaultThinkingLevel(agentDir, value)
     },
     'models:get': () => models.snapshot(),
-    'models:save': (input: unknown) => changeModels(() => models.save(input)),
-    'models:delete': (id: unknown, revision: unknown) => changeModels(() => models.delete(id, revision)),
+    'models:save': (input: unknown) => service.changeModels(() => models.save(input)),
+    'models:delete': (id: unknown, revision: unknown) => service.changeModels(() => models.delete(id, revision)),
     'models:discover': (input: unknown) => discoverModels(input, models),
-    'models:reconnect': () => pi.idle(() => pi.reconnectModels(), true),
+    'models:reconnect': () => service.reconnect(),
     'models:builtins': () => builtin.providers(),
     'models:builtin-login': (input: unknown) => builtin.start(input),
     'models:builtin-login-state': () => builtin.state(),
