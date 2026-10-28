@@ -414,9 +414,9 @@ test('存储信息是只读 RPC；本机维护拒绝活动终端，关闭后阻�
     const result = await host.rpc({ clientId: 'storage', requestId: 'info', method: 'host:storage-info', args: [] })
     assert.deepEqual(result.result, { hostId: 'storage-fixture', dataRoot: f.source })
     const project = await host.app.projects.register({ cwd: f.directory }, { idempotencyKey: 'project' })
-    await new Promise((resolve) => setTimeout(resolve, 50))
     const terminal = await host.app.terminal.open(project, { command: '/bin/sh' }, { idempotencyKey: 'terminal' })
-    assert.throws(() => host.prepareMaintenance(), /终端/)
+    // 启动时的资源扫描结束后，维护检查才会报告活动终端。
+    await vi.waitFor(() => assert.throws(() => host.prepareMaintenance(), /终端/), { timeout: 10000 })
     await host.app.terminal.close(terminal, { idempotencyKey: 'close' })
     host.prepareMaintenance()
     await assert.rejects(
