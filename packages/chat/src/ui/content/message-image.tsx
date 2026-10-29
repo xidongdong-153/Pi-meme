@@ -186,9 +186,9 @@ export function ImageThumbnail({
             <span className="flex flex-col items-center justify-center leading-tight">
               <span className="font-medium text-foreground/80">预览失败</span>
               {displayReason ? (
-                <span className="my-0.5 line-clamp-2 text-[10px] text-muted-foreground">{displayReason}</span>
+                <span className="my-0.5 line-clamp-2 text-xs text-muted-foreground">{displayReason}</span>
               ) : null}
-              <span className="text-[10px] text-muted-foreground/70">点击重试</span>
+              <span className="text-xs text-muted-foreground/70">点击重试</span>
             </span>
           </button>
         </span>

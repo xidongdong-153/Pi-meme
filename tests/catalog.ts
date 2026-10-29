@@ -346,6 +346,7 @@ const files: Array<[string, Feature[]]> = [
   ['packages/workspace/tests/sidebar-model.unit.test.ts', ['workspace', 'sessions']],
   ['packages/workspace/tests/sidebar-operations.integration.test.ts', ['workspace', 'sessions']],
   ['packages/workspace/tests/sidebar-preferences.unit.test.ts', ['workspace', 'settings']],
+  ['packages/workspace/tests/sidebar-title.component.test.tsx', ['workspace', 'sessions']],
   ['packages/workspace/tests/use-sessions.component.test.tsx', ['workspace', 'sessions']],
   ['tests/plugin-creator.integration.test.ts', ['plugins', 'skills']],
   ['tests/pi-runtime-bundle.integration.test.ts', ['desktop', 'sessions', 'skills']],

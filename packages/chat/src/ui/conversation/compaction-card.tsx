@@ -118,7 +118,7 @@ export const CompactionCard = React.memo(({ kind, summary, tokensBefore, timesta
         )}
       >
         <div className="min-h-0 overflow-hidden">
-          <div className="mt-2 mb-2 ml-1.5 pl-3.5 pr-2 border-l border-border/40 max-h-72 overflow-y-auto overscroll-contain space-y-3 select-text">
+          <div className="mt-2 mb-2 pr-2 max-h-72 overflow-y-auto overscroll-contain space-y-3 select-text">
             {/* 状态指标条与复制（吸顶可见） */}
             <div className="sticky top-0 z-10 flex items-center justify-between gap-2 bg-background/95 py-0.5 backdrop-blur-xs text-muted-foreground/80">
               <div className="flex items-center gap-2.5 flex-wrap font-mono text-sm">
@@ -146,7 +146,7 @@ export const CompactionCard = React.memo(({ kind, summary, tokensBefore, timesta
                       <Target className="size-3 text-primary/80" />
                       <span>核心目标</span>
                     </div>
-                    <div className="text-muted-foreground leading-relaxed pl-4">
+                    <div className="text-muted-foreground leading-relaxed">
                       <MarkdownContent>{parsed.goal}</MarkdownContent>
                     </div>
                   </div>
@@ -158,7 +158,7 @@ export const CompactionCard = React.memo(({ kind, summary, tokensBefore, timesta
                       <CheckCircle2 className="size-3 text-emerald-500/80" />
                       <span>最新进展</span>
                     </div>
-                    <div className="text-muted-foreground leading-relaxed pl-4">
+                    <div className="text-muted-foreground leading-relaxed">
                       <MarkdownContent>{parsed.progress}</MarkdownContent>
                     </div>
                   </div>
@@ -173,7 +173,7 @@ export const CompactionCard = React.memo(({ kind, summary, tokensBefore, timesta
                           <FileEdit className="size-3 text-amber-500/80" />
                           <span>修改的文件（{parsed.modifiedFiles.length}）</span>
                         </div>
-                        <div className="flex flex-col gap-0.5 pl-4">
+                        <div className="flex flex-col gap-0.5">
                           {parsed.modifiedFiles.map((file) => (
                             <button
                               key={file}
@@ -198,7 +198,7 @@ export const CompactionCard = React.memo(({ kind, summary, tokensBefore, timesta
                           <FileText className="size-3 text-blue-500/80" />
                           <span>读取的文件（{parsed.readFiles.length}）</span>
                         </div>
-                        <div className="flex flex-col gap-0.5 pl-4">
+                        <div className="flex flex-col gap-0.5">
                           {parsed.readFiles.map((file) => (
                             <button
                               key={file}
@@ -220,13 +220,13 @@ export const CompactionCard = React.memo(({ kind, summary, tokensBefore, timesta
                 )}
 
                 {parsed.detailsMarkdown && (
-                  <div className="pt-0.5 text-muted-foreground leading-relaxed pl-4">
+                  <div className="pt-0.5 text-muted-foreground leading-relaxed">
                     <MarkdownContent>{parsed.detailsMarkdown}</MarkdownContent>
                   </div>
                 )}
               </>
             ) : (
-              <div className="text-muted-foreground leading-relaxed pl-4">
+              <div className="text-muted-foreground leading-relaxed">
                 <MarkdownContent>{summary}</MarkdownContent>
               </div>
             )}

@@ -223,7 +223,7 @@ function ActivityDisclosure({
               aria-label="活动详情列表"
               data-overflow-top={hasOverflowAbove}
               data-overflow-bottom={hasOverflowBelow}
-              className="scroll-fade mt-1 ml-2 max-h-[min(16rem,40dvh)] overflow-y-auto overscroll-y-contain border-l border-border/50 pl-3 pr-2 py-1 [&_pre]:max-h-none [&_pre]:overflow-visible [&_pre]:whitespace-pre-wrap [&_pre]:[overflow-wrap:anywhere]"
+              className="scroll-fade mt-1 max-h-[min(16rem,40dvh)] overflow-y-auto overscroll-y-contain pr-2 py-1 [&_pre]:max-h-none [&_pre]:overflow-visible [&_pre]:whitespace-pre-wrap [&_pre]:[overflow-wrap:anywhere]"
             >
               <div ref={detailsContentRef} className="space-y-1">
                 {items.map((item) =>
@@ -234,7 +234,6 @@ function ActivityDisclosure({
                       open={Boolean(childOpenMap[item.id])}
                       onToggle={() => toggleChild(item.id)}
                       isPaused={isPaused}
-                      isNested={false}
                       isLive={isLive}
                     />
                   ) : item.type !== 'narration' ? (
@@ -245,7 +244,6 @@ function ActivityDisclosure({
                       onToggle={() => toggleChild(item.id)}
                       isLive={isLive}
                       isPaused={isPaused}
-                      isNested={false}
                       actions={null}
                     />
                   ) : null,

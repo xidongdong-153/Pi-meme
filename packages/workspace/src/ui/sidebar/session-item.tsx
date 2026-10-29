@@ -2,6 +2,7 @@ import { Clock, GitFork, Loader2, MessageSquare, Pin, PinOff } from 'lucide-reac
 import { cn } from '@pi-meme/ui/lib/utils'
 import type { PiSessionSummary } from '@pi-meme/contracts/sessions'
 import { formatSessionTitle } from './session-title'
+import { SidebarTitle } from './sidebar-title'
 import type { SidebarDragProps } from './sidebar-controls'
 import { SidebarSourceBadge, type SidebarSource } from './sidebar-source'
 import { SessionDetailsTooltip } from './session-details-tooltip'
@@ -111,16 +112,8 @@ export function SessionItem({
               !session.scheduledTask && 'group-hover:pr-7 group-has-[:focus-visible]:pr-7',
             )}
           >
+            <SidebarTitle>{formatSessionTitle(session)}</SidebarTitle>
             <MessageSquare aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
-            <span
-              className={cn(
-                'min-w-0 truncate transition-[mask-image] duration-150',
-                'group-hover:[mask-image:linear-gradient(to_right,black_calc(100%-1.25rem),transparent_100%)] group-hover:[-webkit-mask-image:linear-gradient(to_right,black_calc(100%-1.25rem),transparent_100%)]',
-                'group-has-[:focus-visible]:[mask-image:linear-gradient(to_right,black_calc(100%-1.25rem),transparent_100%)] group-has-[:focus-visible]:[-webkit-mask-image:linear-gradient(to_right,black_calc(100%-1.25rem),transparent_100%)]',
-              )}
-            >
-              {formatSessionTitle(session)}
-            </span>
             <ForkBadge session={session} />
           </button>
           <div className={cn('flex items-center gap-1 shrink-0 ml-1', session.scheduledTask && '-mr-1')}>
@@ -187,15 +180,7 @@ export function SessionItem({
               !session.scheduledTask && 'group-hover:pr-7 group-has-[:focus-visible]:pr-7',
             )}
           >
-            <span
-              className={cn(
-                'min-w-0 truncate transition-[mask-image] duration-150',
-                'group-hover:[mask-image:linear-gradient(to_right,black_calc(100%-1.25rem),transparent_100%)] group-hover:[-webkit-mask-image:linear-gradient(to_right,black_calc(100%-1.25rem),transparent_100%)]',
-                'group-has-[:focus-visible]:[mask-image:linear-gradient(to_right,black_calc(100%-1.25rem),transparent_100%)] group-has-[:focus-visible]:[-webkit-mask-image:linear-gradient(to_right,black_calc(100%-1.25rem),transparent_100%)]',
-              )}
-            >
-              {formatSessionTitle(session)}
-            </span>
+            <SidebarTitle>{formatSessionTitle(session)}</SidebarTitle>
             <ForkBadge session={session} />
           </button>
           <div className={cn('flex items-center gap-1 shrink-0', session.scheduledTask && 'ml-1 -mr-1')}>
@@ -260,15 +245,7 @@ export function SessionItem({
             !session.scheduledTask && 'group-hover:pr-7 group-has-[:focus-visible]:pr-7',
           )}
         >
-          <span
-            className={cn(
-              'min-w-0 truncate transition-[mask-image] duration-150',
-              'group-hover:[mask-image:linear-gradient(to_right,black_calc(100%-1.25rem),transparent_100%)] group-hover:[-webkit-mask-image:linear-gradient(to_right,black_calc(100%-1.25rem),transparent_100%)]',
-              'group-has-[:focus-visible]:[mask-image:linear-gradient(to_right,black_calc(100%-1.25rem),transparent_100%)] group-has-[:focus-visible]:[-webkit-mask-image:linear-gradient(to_right,black_calc(100%-1.25rem),transparent_100%)]',
-            )}
-          >
-            {formatSessionTitle(session)}
-          </span>
+          <SidebarTitle>{formatSessionTitle(session)}</SidebarTitle>
           <ForkBadge session={session} />
         </button>
         <div className={cn('flex items-center gap-1 shrink-0 ml-1', session.scheduledTask && '-mr-1')}>

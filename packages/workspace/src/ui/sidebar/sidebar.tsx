@@ -216,7 +216,7 @@ export function Sidebar({
             type="button"
             onClick={onNewSession}
             title={newChatShortcutLabel ? `新聊天（${newChatShortcutLabel}）` : '新聊天'}
-            className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-xs font-medium text-foreground transition-colors duration-200 ease-out hover:bg-secondary/70 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer text-left group"
+            className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-xs font-medium text-foreground transition-colors duration-200 ease-out hover:bg-secondary/70 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer text-left group"
           >
             <SquarePen className="size-4 text-foreground/80 shrink-0 group-hover:text-primary transition-colors" />
             <span>新聊天</span>

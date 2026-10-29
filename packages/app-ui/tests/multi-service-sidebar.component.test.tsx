@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom/vitest'
 import type { ComponentProps } from 'react'
-import { afterEach, expect, test, vi } from 'vitest'
+import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import type { ProjectApp } from '@pi-meme/contracts/desktop'
 import type { HostService } from '@pi-meme/contracts/host'
@@ -8,6 +8,16 @@ import type { SidebarPreferences } from '@pi-meme/contracts/settings'
 import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 import { buildSidebarModel } from '@pi-meme/workspace/ui/sidebar/sidebar-model'
 import { MultiServiceSidebar } from '../src/shell/multi-service-sidebar'
+
+beforeEach(() => {
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe() {}
+      disconnect() {}
+    },
+  )
+})
 
 afterEach(cleanup)
 

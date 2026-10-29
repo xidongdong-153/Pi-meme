@@ -1,0 +1,83 @@
+.sidebar-title {
+  display: block;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.sidebar-title > span {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+:is([data-session-path], [data-project-cwd]):is(:hover, :has(:focus-visible)) .sidebar-title[data-overflow='true'] {
+  mask-image: linear-gradient(
+    to right,
+    transparent,
+    black var(--sidebar-title-fade),
+    black calc(100% - var(--sidebar-title-fade)),
+    transparent
+  );
+  mask-repeat: no-repeat;
+  animation: sidebar-title-mask var(--sidebar-title-duration) linear 650ms both;
+}
+
+:is([data-session-path], [data-project-cwd]):is(:hover, :has(:focus-visible))
+  .sidebar-title[data-overflow='true']
+  > span {
+  width: max-content;
+  overflow: visible;
+  text-overflow: clip;
+  animation: sidebar-title-slide var(--sidebar-title-duration) linear 650ms both;
+}
+
+@keyframes sidebar-title-slide {
+  from {
+    transform: translateX(0);
+  }
+  to {
+    transform: translateX(var(--sidebar-title-offset));
+  }
+}
+
+@keyframes sidebar-title-mask {
+  0% {
+    mask-size: calc(100% + var(--sidebar-title-fade)) 100%;
+    mask-position: right;
+  }
+  10%,
+  90% {
+    mask-size: 100% 100%;
+    mask-position: center;
+  }
+  100% {
+    mask-size: calc(100% + var(--sidebar-title-fade)) 100%;
+    mask-position: left;
+  }
+}
+
+:root[data-reduced-motion='true'] .sidebar-title {
+  mask-image: none !important;
+  animation: none !important;
+}
+
+:root[data-reduced-motion='true'] .sidebar-title > span {
+  width: auto !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+  animation: none !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-title {
+    mask-image: none !important;
+    animation: none !important;
+  }
+
+  .sidebar-title > span {
+    width: auto !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+    animation: none !important;
+  }
+}

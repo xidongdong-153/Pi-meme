@@ -99,7 +99,7 @@ export function FileToolDiff({ patch, path }: { patch: string; path?: string }) 
         className="max-h-64 overflow-auto overscroll-contain focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
       >
         {lines.length ? (
-          <pre className="pi-code-text m-0 w-max min-w-full py-1 font-mono text-xs leading-6 [--code-size:0.75rem]">
+          <pre className="pi-code-text m-0 w-max min-w-full py-1 font-mono text-xs leading-6">
             {lines.map((line, index) => (
               <div
                 key={index}

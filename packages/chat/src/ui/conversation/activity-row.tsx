@@ -4,15 +4,7 @@ import { ThinkingActivityRow } from './thinking-activity-row'
 import { ToolActivityRow } from './tool-activity-row'
 import { NarrationActivityRow } from './narration-activity-row'
 
-export function ActionItemRow({
-  item,
-  isNested = false,
-  className,
-}: {
-  item: ActionItemData
-  isNested?: boolean
-  className?: string
-}) {
+export function ActionItemRow({ item, className }: { item: ActionItemData; className?: string }) {
   const [open, setOpen] = React.useState(item.status === 'running')
   React.useEffect(() => {
     if (item.status === 'running') setOpen(true)
@@ -21,13 +13,7 @@ export function ActionItemRow({
 
   if (item.type === 'thinking') {
     return (
-      <ThinkingActivityRow
-        item={item}
-        open={open}
-        onToggle={() => setOpen(!open)}
-        isNested={isNested}
-        isLive={item.status === 'running'}
-      />
+      <ThinkingActivityRow item={item} open={open} onToggle={() => setOpen(!open)} isLive={item.status === 'running'} />
     )
   }
 
@@ -35,13 +21,5 @@ export function ActionItemRow({
     return <NarrationActivityRow item={item} />
   }
 
-  return (
-    <ToolActivityRow
-      item={item}
-      open={open}
-      onToggle={() => setOpen(!open)}
-      isNested={isNested}
-      className={className}
-    />
-  )
+  return <ToolActivityRow item={item} open={open} onToggle={() => setOpen(!open)} className={className} />
 }

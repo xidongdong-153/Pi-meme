@@ -4,7 +4,7 @@ import { cn } from '@pi-meme/ui/lib/utils'
 export function ToolDiff({ diff }: { diff: string }) {
   const lines = React.useMemo(() => diff.split('\n'), [diff])
   return (
-    <pre className="pi-code-text [--code-size:0.75rem] font-mono text-xs leading-relaxed select-text">
+    <pre className="pi-code-text font-mono text-xs leading-relaxed select-text">
       {lines.map((line, idx) => {
         let lineClass = 'text-muted-foreground'
         let marker = ' '

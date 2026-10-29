@@ -13,7 +13,15 @@
 @import '@xterm/xterm/css/xterm.css';
 
 .chat-surface {
+  /* 普通文字跟随界面字号，代码保留独立字号设置。 */
+  --text-xs: var(--text-ui);
+  --text-sm: var(--text-ui);
+  font-size: var(--text-ui);
   container-type: inline-size;
+}
+
+.chat-surface .pi-link-location {
+  font-size: inherit;
 }
 
 .session-content {

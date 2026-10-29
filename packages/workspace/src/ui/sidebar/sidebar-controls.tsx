@@ -23,7 +23,7 @@ export function SidebarSection({
   const contentId = useId()
   return (
     <section data-sidebar-section={id} className="min-w-0">
-      <div className="group/section-header flex items-center gap-1 px-2.5 py-1.5">
+      <div className="group/section-header flex items-center gap-1 px-2 py-1.5">
         <button
           type="button"
           onClick={onToggle}
@@ -34,11 +34,11 @@ export function SidebarSection({
           <span className="truncate">{title}</span>
           <span
             className={cn(
-              'inline-flex transition-transform duration-200 ease-out motion-reduce:transition-none',
+              'inline-flex size-3 shrink-0 items-center justify-center opacity-0 transition-[opacity,rotate] duration-200 ease-out motion-reduce:transition-none group-hover/section-header:opacity-100 group-has-[:focus-visible]/section-header:opacity-100',
               !collapsed && 'rotate-90',
             )}
           >
-            <ChevronRight className="size-3" />
+            <ChevronRight aria-hidden="true" className="block size-3" />
           </span>
         </button>
         {actions && (
@@ -193,7 +193,7 @@ export function SidebarSortable({
   }
   return (
     <div
-      className={cn('group/sortable relative min-w-0', enabled && !rowDrag && 'pl-3')}
+      className={cn('group/sortable relative min-w-0', enabled && !rowDrag && 'pr-3')}
       data-sidebar-item-key={itemKey}
       onDragOver={(event) => {
         if (enabled && event.dataTransfer.types.includes(dragType)) {
@@ -228,7 +228,7 @@ export function SidebarSortable({
           type="button"
           aria-label="拖动排序，方向键上下移动"
           title="拖动排序，方向键上下移动"
-          className="absolute left-0 top-1.5 z-10 rounded text-muted-foreground opacity-0 group-hover/sortable:opacity-100 group-focus-within/sortable:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-grab active:cursor-grabbing"
+          className="absolute right-0 top-1.5 z-10 rounded text-muted-foreground opacity-0 group-hover/sortable:opacity-100 group-focus-within/sortable:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-grab active:cursor-grabbing"
           onClick={(event) => event.stopPropagation()}
         >
           <GripVertical className="size-3" />

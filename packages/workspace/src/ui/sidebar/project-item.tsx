@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { SidebarRowMenu } from './sidebar-menus'
-import { ChevronDown, ChevronRight, Folder, Globe, Pin, PinOff, SquarePen } from 'lucide-react'
+import { Folder, Globe, Pin, PinOff, SquarePen } from 'lucide-react'
 import { Popover, PopoverAnchor, PopoverContent } from '@pi-meme/ui/components/ui/popover'
 import type { SidebarSource } from './sidebar-source'
 import { cn } from '@pi-meme/ui/lib/utils'
 import type { PiProjectGroup } from '@pi-meme/contracts/sessions'
 import { SessionItem } from './session-item'
+import { SidebarTitle } from './sidebar-title'
 import { SidebarSortable, type SidebarDragProps } from './sidebar-controls'
 import { sidebarItemKey } from './sidebar-model'
 
@@ -134,17 +135,8 @@ export function ProjectItem({
               onClick={() => (onSelectProject ? onSelectProject(project.cwd) : onToggle())}
               aria-expanded={onSelectProject ? undefined : isExpanded}
               onFocus={showDetails}
-              className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden py-1.5 pl-1.5 pr-1 text-left rounded cursor-[inherit] transition-[padding] duration-150 ease-out group-hover:pr-14 group-focus-within:pr-14 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden py-1.5 pl-2 pr-1 text-left rounded cursor-[inherit] transition-[padding] duration-150 ease-out group-hover:pr-14 group-focus-within:pr-14 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             >
-              {!onSelectProject && (
-                <ChevronRight
-                  aria-hidden="true"
-                  className={cn(
-                    'size-3 shrink-0 text-muted-foreground/50 transition-transform duration-200',
-                    isExpanded && 'rotate-90 text-foreground/75',
-                  )}
-                />
-              )}
               <span className={cn('relative shrink-0', source ? 'size-4' : 'size-3.5')}>
                 <Folder
                   data-project-folder-icon
@@ -162,15 +154,7 @@ export function ProjectItem({
                   </span>
                 )}
               </span>
-              <span
-                className={cn(
-                  'min-w-0 truncate font-medium transition-[mask-image] duration-150',
-                  'group-hover:[mask-image:linear-gradient(to_right,black_calc(100%-1.25rem),transparent_100%)] group-hover:[-webkit-mask-image:linear-gradient(to_right,black_calc(100%-1.25rem),transparent_100%)]',
-                  'group-focus-within:[mask-image:linear-gradient(to_right,black_calc(100%-1.25rem),transparent_100%)] group-focus-within:[-webkit-mask-image:linear-gradient(to_right,black_calc(100%-1.25rem),transparent_100%)]',
-                )}
-              >
-                {project.name}
-              </span>
+              <SidebarTitle className="font-medium">{project.name}</SidebarTitle>
             </button>
 
             {/* 远程来源标签：平时展示，有详情时支持点击打开详情，hover/focus 时淡出，腾出右侧空间给浮动操作按钮 */}
@@ -273,7 +257,7 @@ export function ProjectItem({
           )}
         >
           <div className="min-h-0 overflow-hidden">
-            <div className="ml-3.5 border-l border-border/30 pl-2 space-y-0.5 py-0.5">
+            <div className="space-y-0.5 py-0.5">
               {visibleSessions.map((session) => (
                 <SidebarSortable
                   key={session.path}
@@ -303,9 +287,6 @@ export function ProjectItem({
                   onClick={() => onToggleItems()}
                   className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground cursor-pointer transition-colors w-full text-left"
                 >
-                  <ChevronDown
-                    className={cn('size-3 transition-transform duration-200', isItemsExpandedAll && 'rotate-180')}
-                  />
                   <span>{isItemsExpandedAll ? '收起' : '展开显示'}</span>
                 </button>
               )}

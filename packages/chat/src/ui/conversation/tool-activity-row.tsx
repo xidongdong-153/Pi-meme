@@ -26,7 +26,6 @@ export function ToolActivityRow({
   onToggle,
   isLive = true,
   isPaused = false,
-  isNested = true,
   className,
   actions,
 }: {
@@ -35,7 +34,6 @@ export function ToolActivityRow({
   onToggle: () => void
   isLive?: boolean
   isPaused?: boolean
-  isNested?: boolean
   className?: string
   actions?: React.ReactNode
 }) {
@@ -98,7 +96,7 @@ export function ToolActivityRow({
   )
 
   const imagePreviews = images.length > 0 && (
-    <div className={cn('flex flex-wrap', isNested && 'pl-2')}>
+    <div className="flex flex-wrap">
       {images.map((image, index) => (
         <ImageThumbnail
           key={index}
@@ -145,7 +143,6 @@ export function ToolActivityRow({
           className={cn(
             'group/tool-toggle flex min-h-6 w-fit max-w-full items-center gap-2 py-0.5 pr-1 rounded leading-5 cursor-pointer transition-colors',
             'text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-            isNested && 'pl-2',
             !hasDetail && 'cursor-default',
           )}
         >
@@ -205,12 +202,12 @@ export function ToolActivityRow({
             {filePatch ? (
               hasOpened && <FileToolDiff patch={filePatch} path={meta.fullPath} />
             ) : (
-              <div className="relative my-2 max-w-full rounded-xl border border-border/50 p-4 pt-10 font-mono text-xs leading-relaxed text-muted-foreground select-text">
+              <div className="relative my-2 max-w-full pr-2 pb-2 pt-10 font-mono text-xs leading-relaxed text-muted-foreground select-text">
                 <Button
                   variant="ghost"
                   size="xs"
                   onClick={handleCopy}
-                  className="absolute right-3 top-2 h-7 border-0 bg-transparent px-1 font-sans text-xs font-normal text-muted-foreground shadow-none hover:bg-transparent hover:text-foreground"
+                  className="absolute right-0 top-2 h-7 border-0 bg-transparent px-1 font-sans text-xs font-normal text-muted-foreground shadow-none hover:bg-transparent hover:text-foreground"
                   title="复制输出"
                   aria-label={copied ? '已复制' : '复制输出'}
                 >
@@ -267,15 +264,8 @@ function NestedToolActivity({
   const [open, setOpen] = React.useState(false)
   if (!parentOpen && open) setOpen(false)
   return (
-    <div className="mt-1 border-l border-border/40 pl-2" data-parent-tool={tool.parentToolCallId}>
-      <ToolActivityRow
-        item={tool}
-        open={open}
-        onToggle={() => setOpen(!open)}
-        isLive={isLive}
-        isPaused={isPaused}
-        isNested
-      />
+    <div className="mt-1" data-parent-tool={tool.parentToolCallId}>
+      <ToolActivityRow item={tool} open={open} onToggle={() => setOpen(!open)} isLive={isLive} isPaused={isPaused} />
     </div>
   )
 }

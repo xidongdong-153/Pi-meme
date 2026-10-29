@@ -9,14 +9,12 @@ export function ThinkingActivityRow({
   open,
   onToggle,
   isPaused = false,
-  isNested = true,
   isLive = false,
 }: {
   item: Extract<ActivityItem, { type: 'thinking' }>
   open: boolean
   onToggle: () => void
   isPaused?: boolean
-  isNested?: boolean
   isLive?: boolean
 }) {
   const label = React.useMemo(() => getThinkingLabel(item.id || item.thinking), [item.id, item.thinking])
@@ -63,7 +61,6 @@ export function ThinkingActivityRow({
         className={cn(
           'group/thinking-toggle flex min-h-6 w-fit max-w-full items-center gap-2 py-0.5 pr-1 rounded leading-5 cursor-pointer transition-colors',
           'text-muted-foreground hover:text-foreground',
-          isNested && 'pl-2',
         )}
       >
         {!isPaused && (
@@ -127,8 +124,8 @@ export function ThinkingActivityRow({
         )}
       >
         <div className="min-h-0 max-h-[min(20rem,50vh)] overflow-auto overscroll-contain">
-          <div className={cn('mt-1 pb-1 select-text', isNested ? 'pl-8' : 'pl-6')}>
-            <div className="border-l-2 border-primary/20 hover:border-primary/40 pl-3 py-0.5 transition-colors">
+          <div className="mt-1 pb-1 select-text">
+            <div className="py-0.5">
               <pre className="pi-content whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground/75">
                 {item.thinking.trimEnd() || '正在梳理思路…'}
               </pre>

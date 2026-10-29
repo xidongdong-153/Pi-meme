@@ -1,8 +1,7 @@
 import { useState } from 'react'
-import { ChevronDown, Plus, Search, SquarePen } from 'lucide-react'
+import { Plus, Search, SquarePen } from 'lucide-react'
 import type { HostService } from '@pi-meme/contracts/host'
 import type { SidebarPreferences, SidebarPreferencesPatch } from '@pi-meme/contracts/settings'
-import { cn } from '@pi-meme/ui/lib/utils'
 import { BrandMark } from '@pi-meme/ui/components/brand-mark'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
 import { ProjectItem } from '@pi-meme/workspace/ui/sidebar/project-item'
@@ -277,7 +276,7 @@ export function MultiServiceSidebar({
         onClick={() => onActivate(activeId, (chat) => chat.newSession())}
         disabled={activePaused}
         title={activePaused ? '连接已暂停，请先恢复连接' : newChatShortcut ? `新聊天（${newChatShortcut}）` : '新聊天'}
-        className="mx-3 my-1.5 flex items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs hover:bg-secondary"
+        className="mx-3 my-1.5 flex items-center gap-2 rounded-lg px-2 py-2 text-left text-xs hover:bg-secondary"
       >
         <SquarePen className="size-4" />
         新聊天
@@ -333,9 +332,6 @@ export function MultiServiceSidebar({
                 onClick={() => setShowAllProjects((value) => !value)}
                 className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground cursor-pointer rounded transition-colors w-full text-left"
               >
-                <ChevronDown
-                  className={cn('size-3 transition-transform duration-200', showAllProjects && 'rotate-180')}
-                />
                 <span>{showAllProjects ? '收起' : '展开显示'}</span>
               </button>
             )}
