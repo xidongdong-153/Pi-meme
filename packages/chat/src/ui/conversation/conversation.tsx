@@ -25,6 +25,8 @@ import { cn } from '@pi-meme/ui/lib/utils'
 import { MessageImageLoaderContext, type MessageImageLoader } from '../content/message-image'
 import { modelChangesForConversation } from '../model/model-changes'
 import { ModelChangeRow } from './model-change-row'
+import type { TurnChanges } from '@pi-meme/contracts/turn-changes'
+import { TurnChangesCard } from './turn-changes'
 
 function noSubscription() {
   return () => {}
@@ -56,6 +58,10 @@ export const Conversation = React.memo(
     planState,
     onLoadOlder,
     historyLoading = false,
+    turnChanges,
+    onViewChanges,
+    onUndoChanges,
+    changesDisabled,
   }: {
     chat: ChatState
     stream?: ChatStream
@@ -77,6 +83,10 @@ export const Conversation = React.memo(
     planState?: PlanState | null
     onLoadOlder?: () => Promise<boolean>
     historyLoading?: boolean
+    turnChanges?: readonly TurnChanges[]
+    onViewChanges?: (entryId: string, path?: string) => void
+    onUndoChanges?: (entryId: string) => Promise<void>
+    changesDisabled?: boolean
   }) => {
     const chat = React.useSyncExternalStore(
       stream?.subscribe ?? noSubscription,
@@ -435,6 +445,18 @@ export const Conversation = React.memo(
                     onCopyError={onCopyError}
                     onActivityToggle={handleActivityToggle}
                     reply={!agentOnly && !turn.isLive && renderPlan ? planReply(turn) : undefined}
+                    changes={(() => {
+                      if (!finalReplyKeys.has(turn.key) || !onViewChanges || !onUndoChanges) return
+                      const changes = turnChanges?.find((item) => item.entryId === turn.userEntryId)
+                      return changes ? (
+                        <TurnChangesCard
+                          changes={changes}
+                          onView={onViewChanges}
+                          onUndo={onUndoChanges}
+                          disabled={changesDisabled}
+                        />
+                      ) : undefined
+                    })()}
                   />
                 )
               })}

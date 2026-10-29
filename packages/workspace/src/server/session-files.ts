@@ -1,4 +1,4 @@
-import { lstat, readdir, realpath, unlink } from 'node:fs/promises'
+import { lstat, readdir, realpath, rm, unlink } from 'node:fs/promises'
 import path from 'node:path'
 import { readSessionCwd } from './session-reader'
 
@@ -52,7 +52,8 @@ export async function deleteSessionFiles(root: string, paths: string[]) {
       continue
     }
     try {
-      await validateSessionFile(root, target)
+      const resolved = await validateSessionFile(root, target)
+      await rm(`${resolved}.changes`, { recursive: true, force: true })
       await unlink(target)
       deletedPaths.push(target)
     } catch (cause) {

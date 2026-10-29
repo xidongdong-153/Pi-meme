@@ -60,7 +60,8 @@ import { ProjectSelector } from '@pi-meme/workspace/ui/project-selector'
 import { formatSessionTitle } from '@pi-meme/workspace/ui/sidebar/session-title'
 import { useAppSession } from './session/use-app-session'
 import { messageText } from '@pi-meme/chat/ui/model/message-text'
-import { collectTurnChanges } from '@pi-meme/chat/ui/model/turn-changes'
+import { LiveTurnChanges } from '@pi-meme/chat/ui/conversation/turn-changes'
+import { useTurnChanges } from './session/use-turn-changes'
 import { ContextUsageRing } from '@pi-meme/models/ui/context-usage-ring'
 import { useSettings } from '@pi-meme/settings/ui/use-settings'
 import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
@@ -442,6 +443,24 @@ export function App({
   }, [bridge, runtimeSessionKey, chat.appSession, chat.bindDraftSession, chat.setError])
   const appSession = runtimeSessionKey ? resolvedSessions[runtimeSessionKey] : undefined
   const activities = useActivities(host, appSession)
+  const turnChanges = useTurnChanges(host, appSession, chat.chat, active && !remoteOffline)
+  const [changeSelection, setChangeSelection] = useState<{
+    sessionId: string
+    entryId: string
+    path?: string
+    revision: number
+  }>()
+  const latestUserEntry = chat.chat.messages.findLast((message) => message.role === 'user')?.sourceEntry?.id
+  const liveChanges = turnChanges.turns.find((turn) => turn.entryId === latestUserEntry)
+  const viewChanges = (entryId: string, path?: string) => {
+    if (!appSession) return
+    setChangeSelection({ sessionId: appSession.sessionId, entryId, path, revision: Date.now() })
+    setSystemRequest({
+      id: 'builtin:git',
+      revision: Date.now(),
+      target: sessionUiTarget(appSession.hostId, appSession),
+    })
+  }
   const loadConversationImage = useMemo(() => {
     if (!appSession) return undefined
     const ref = { hostId: appSession.hostId, sessionId: appSession.sessionId }
@@ -1094,6 +1113,12 @@ export function App({
     </div>
   ) : (
     <div data-testid="composer-area">
+      {chat.chat.running && liveChanges && <LiveTurnChanges changes={liveChanges} onView={viewChanges} />}
+      {turnChanges.error && (
+        <p role="status" className="px-3 pb-2 text-xs text-destructive">
+          {turnChanges.error}
+        </p>
+      )}
       <div
         data-testid="workspace-card"
         className={
@@ -1306,6 +1331,11 @@ export function App({
             sessionKey: chat.connection.sessionKey,
             models: chat.models,
             loadImage: loadConversationImage,
+            turnChanges: turnChanges.turns,
+            onViewChanges: viewChanges,
+            onUndoChanges: turnChanges.undo,
+            changesDisabled:
+              chat.busy || chat.navigationBusy || remoteOffline || chat.connection.accessMode === 'read-only',
             planState: chat.planState ?? (chat.editing ? null : undefined),
             renderPlan: (document) => (
               <PlanCard
@@ -1535,7 +1565,17 @@ export function App({
                 host.git.diff(props.target.session!, { path, staged: kind === 'staged', kind }),
             }}
             refreshToken={chat.refreshToken}
-            turnChanges={collectTurnChanges(chat.chat.messages, chat.chat.tools)}
+            turnChanges={turnChanges.turns.find(
+              (turn) =>
+                turn.entryId ===
+                (changeSelection?.sessionId === props.target.session!.sessionId
+                  ? changeSelection.entryId
+                  : latestUserEntry),
+            )}
+            selectedPath={
+              changeSelection?.sessionId === props.target.session.sessionId ? changeSelection.path : undefined
+            }
+            selectionRevision={changeSelection?.revision ?? 0}
           />
         ) : null,
     },

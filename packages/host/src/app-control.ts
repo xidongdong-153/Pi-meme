@@ -35,6 +35,7 @@ import type { PiSessionPool, ClientView } from '@pi-meme/pi-runtime/session-pool
 import type { ProjectStore } from '@pi-meme/workspace/server/project-store'
 import type { SessionService } from '@pi-meme/workspace/server/session-service'
 import { readSessionHistory } from '@pi-meme/pi-runtime/session-history'
+import { readTurnChanges, undoTurnChanges } from '@pi-meme/pi-runtime/turn-change-store'
 import { getGitDiff, getGitEnvironment, getGitSnapshot } from '@pi-meme/git/server/git-service'
 import type { CollaborationBridge } from '@pi-meme/contracts/collaboration'
 import { ControlStore, ControlError, createControlStorePaths, type ControlStorePaths } from './control-store'
@@ -68,6 +69,7 @@ type Options = {
   defaultAgentPlugins: HostApi['plugins']
   snapshot: () => Promise<import('@pi-meme/contracts/desktop').Snapshot>
   workspace: { files: HostApi['files']; terminal: HostApi['terminal']; terminalSupported: boolean }
+  withFileUndo?: (cwd: string, operation: () => Promise<void>) => Promise<void>
   isSessionClosing?: (session: AppSession) => boolean
   onError: (cause: unknown) => void
 }
@@ -1130,6 +1132,39 @@ export async function createAppControl(options: Options) {
       },
     },
     git: {
+      turnChanges: (ref, entryIds) =>
+        target(
+          ref,
+          async (key) => {
+            if (!Array.isArray(entryIds) || entryIds.length > 200 || entryIds.some((id) => typeof id !== 'string'))
+              throw new Error('变更轮次参数无效')
+            const file = pi.getSessionContext(key).sessionFile
+            return file ? readTurnChanges(file, entryIds) : []
+          },
+          clientId,
+        ),
+      undoTurn: (ref, entryId, opts) =>
+        mutate(clientId, 'git.undoTurn', [ref, entryId], opts, () =>
+          target(
+            ref,
+            (key, session) =>
+              serial(session.sessionId, async () => {
+                const context = pi.getSessionContext(key)
+                if (context.accessMode === 'read-only') throw new Error('只读权限不允许撤销文件变更')
+                if (!context.sessionFile) throw new Error('会话尚未保存变更记录')
+                if (!options.withFileUndo) throw new Error('当前 Host 不支持撤销文件变更')
+                await options.withFileUndo(context.cwd, async () => {
+                  await undoTurnChanges(
+                    context.sessionFile!,
+                    entryId,
+                    context.cwd,
+                    context.accessMode === 'full-access',
+                  )
+                })
+              }),
+            clientId,
+          ),
+        ),
       environment: async (ref) => getGitEnvironment(await resolveRoot(ref, clientId)),
       snapshot: async (ref) => getGitSnapshot(await resolveRoot(ref, clientId)),
       diff: async (ref, input) =>
@@ -1318,6 +1353,7 @@ export async function createAppControl(options: Options) {
     'goals.pause',
     'goals.resume',
     'goals.clear',
+    'git.undoTurn',
   ])
   const dispatch = async (request: HostControlRequest): Promise<HostControlResponse> => {
     try {

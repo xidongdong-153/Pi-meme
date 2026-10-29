@@ -61,6 +61,7 @@ import { projectAgentConversation } from '../agent-conversation'
 import { projectBranchEntries } from '../session-tree-entries'
 import { projectBranchAttachments } from '../session-attachments'
 import { createAgentAccessExtension } from '../extensions/agent-access'
+import { createTurnChangesExtension } from '../extensions/turn-changes'
 import { expandSkills } from '../skill-prompt'
 import { toResourceSkillCommand } from '../skill-command'
 import { branchSkillUsages, createSkillUsageExtension, skillUsageEntry } from '../extensions/skill-usage'
@@ -577,6 +578,7 @@ export class SdkSession {
               extension.name === 'pi-meme-user-input' ||
               ['pi-meme-codemode', 'pi-meme-mcp', 'pi-meme-tool-search'].includes(extension.name)),
         ),
+        ...(!restricted ? [createTurnChangesExtension(sdk, cwd)] : []),
         ...(this.policy.resourceSnapshot ? [createSkillUsageExtension(this.policy.resourceSnapshot)] : []),
         createPlanGuard(
           () => this.activeMode ?? this.preparationMode ?? this.mode,

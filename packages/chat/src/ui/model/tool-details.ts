@@ -14,6 +14,33 @@ function getBasename(pathStr: string): string {
   return parts[parts.length - 1] || pathStr
 }
 
+export function fileChangeStats(
+  result: unknown,
+): { insertions: number; deletions: number; created?: boolean } | undefined {
+  if (!result || typeof result !== 'object') return
+  const value = result as Record<string, unknown>
+  const details =
+    value.details && typeof value.details === 'object' ? (value.details as Record<string, unknown>) : value
+  if (typeof details.patch !== 'string') return
+  let insertions = 0
+  let deletions = 0
+  for (const line of details.patch.split('\n')) {
+    if (line.startsWith('+') && !line.startsWith('+++')) insertions++
+    if (line.startsWith('-') && !line.startsWith('---')) deletions++
+  }
+  return { insertions, deletions, created: typeof details.created === 'boolean' ? details.created : undefined }
+}
+
+export function extractFilePatch(result: unknown): string | null {
+  if (result && typeof result === 'object') {
+    const value = result as Record<string, unknown>
+    const details =
+      value.details && typeof value.details === 'object' ? (value.details as Record<string, unknown>) : value
+    if (typeof details.patch === 'string' && details.patch.trim()) return details.patch
+  }
+  return extractDiff(result)
+}
+
 export function extractDiff(result: unknown): string | null {
   if (!result) return null
   if (typeof result === 'string') {
@@ -234,9 +261,10 @@ export function parseToolMeta(item: ActivityItem): {
               ? args.TargetFile
               : ''
     const filename = getBasename(pathVal)
+    const overwritten = fileChangeStats(item.result)?.created === false
     return {
-      kind: 'write',
-      summary: filename ? `已创建 ${filename}` : '已写入文件',
+      kind: overwritten ? 'edit' : 'write',
+      summary: filename ? `${overwritten ? '已编辑' : '已创建'} ${filename}` : '已写入文件',
       fullPath: pathVal,
     }
   }

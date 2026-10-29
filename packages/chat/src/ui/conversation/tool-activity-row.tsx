@@ -5,7 +5,15 @@ import { Button } from '@pi-meme/ui/components/ui/button'
 import type { ActivityItem } from '../model/types'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { BookOpen, ChevronDown, Images, Pencil, Search, Sparkles, SquareTerminal, Wrench } from 'lucide-react'
-import { extractDiff, extractImages, formatDetailValue, parseToolMeta } from '../model/tool-details'
+import {
+  extractDiff,
+  extractFilePatch,
+  extractImages,
+  fileChangeStats,
+  formatDetailValue,
+  parseToolMeta,
+} from '../model/tool-details'
+import { FileToolDiff } from './file-tool-diff'
 import { runningActivityLabel } from '../model/activity-summary'
 import { ToolDiff } from './tool-diff'
 import { ImageThumbnail } from '../content/message-image'
@@ -36,6 +44,8 @@ export function ToolActivityRow({
   const isError = item.status === 'error'
 
   const meta = parseToolMeta(item)
+  const fileChange =
+    !isRunning && !isError && (meta.kind === 'edit' || meta.kind === 'write') ? fileChangeStats(item.result) : undefined
   const summary = isRunning && !isPaused ? runningActivityLabel([item]).replace(/…$/, '') : meta.summary
   const IconComponent = {
     command: SquareTerminal,
@@ -49,6 +59,10 @@ export function ToolActivityRow({
     thinking: Sparkles,
   }[meta.kind]
 
+  const isFileMutation = meta.kind === 'edit' || meta.kind === 'write'
+  const filePatch = isFileMutation && !isError && !isRunning ? extractFilePatch(item.result) : null
+  const [hasOpened, setHasOpened] = React.useState(open)
+  if (open && !hasOpened) setHasOpened(true)
   const diff = extractDiff(item.result)
   const images = extractImages(item.result)
   const script =
@@ -62,11 +76,10 @@ export function ToolActivityRow({
   const rawText =
     item.output || (script && item.result === undefined ? '' : formatDetailValue(item.result ?? item.args))
   const actionAnchor = toolMessageActionAnchor(item, rawText)
-  const hasDetail =
-    meta.kind !== 'read' &&
-    meta.kind !== 'edit' &&
-    meta.kind !== 'write' &&
-    Boolean(script || diff || images.length > 0 || rawText || item.children?.length || item.source)
+  const hasDetail = isFileMutation
+    ? Boolean(filePatch)
+    : meta.kind !== 'read' &&
+      Boolean(script || diff || images.length > 0 || rawText || item.children?.length || item.source)
 
   const handleCopy = React.useCallback(
     async (e: React.MouseEvent) => {
@@ -131,7 +144,7 @@ export function ToolActivityRow({
           title={meta.fullPath}
           className={cn(
             'group/tool-toggle flex min-h-6 w-fit max-w-full items-center gap-2 py-0.5 pr-1 rounded leading-5 cursor-pointer transition-colors',
-            'text-muted-foreground hover:text-foreground',
+            'text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
             isNested && 'pl-2',
             !hasDetail && 'cursor-default',
           )}
@@ -145,12 +158,31 @@ export function ToolActivityRow({
             {isError ? ' · 失败' : ''}
           </span>
 
+          {fileChange && (
+            <span className="inline-flex shrink-0 gap-1 font-mono tabular-nums">
+              <span className="group-hover/tool-toggle:text-emerald-600 group-focus-visible/tool-toggle:text-emerald-600 dark:group-hover/tool-toggle:text-emerald-400 dark:group-focus-visible/tool-toggle:text-emerald-400">
+                +{fileChange.insertions}
+              </span>
+              <span className="group-hover/tool-toggle:text-rose-600 group-focus-visible/tool-toggle:text-rose-600 dark:group-hover/tool-toggle:text-rose-400 dark:group-focus-visible/tool-toggle:text-rose-400">
+                −{fileChange.deletions}
+              </span>
+            </span>
+          )}
+          {fileChange?.created && (
+            <span
+              className="size-1.5 shrink-0 rounded-full bg-blue-500"
+              role="img"
+              aria-label="新建文件"
+              title="新建文件"
+            />
+          )}
+
           {hasDetail && (
             <span
               aria-hidden="true"
               className={cn(
                 'inline-flex size-3.5 shrink-0 text-muted-foreground/70 opacity-0 transition-[opacity,transform] duration-200 ease-out ml-0.5 group-hover/tool-toggle:opacity-100 group-focus-visible/tool-toggle:opacity-100',
-                open ? 'rotate-0' : '-rotate-90',
+                open ? 'rotate-0 opacity-100' : '-rotate-90',
               )}
             >
               <ChevronDown className="size-3.5" />
@@ -170,45 +202,49 @@ export function ToolActivityRow({
           )}
         >
           <div className="min-h-0 overflow-hidden">
-            <div className="relative my-2 max-w-full rounded-xl border border-border/50 p-4 pt-10 font-mono text-xs leading-relaxed text-muted-foreground select-text">
-              <Button
-                variant="ghost"
-                size="xs"
-                onClick={handleCopy}
-                className="absolute right-3 top-2 h-7 border-0 bg-transparent px-1 font-sans text-xs font-normal text-muted-foreground shadow-none hover:bg-transparent hover:text-foreground"
-                title="复制输出"
-                aria-label={copied ? '已复制' : '复制输出'}
-              >
-                {copied ? '已复制' : '复制'}
-              </Button>
+            {filePatch ? (
+              hasOpened && <FileToolDiff patch={filePatch} path={meta.fullPath} />
+            ) : (
+              <div className="relative my-2 max-w-full rounded-xl border border-border/50 p-4 pt-10 font-mono text-xs leading-relaxed text-muted-foreground select-text">
+                <Button
+                  variant="ghost"
+                  size="xs"
+                  onClick={handleCopy}
+                  className="absolute right-3 top-2 h-7 border-0 bg-transparent px-1 font-sans text-xs font-normal text-muted-foreground shadow-none hover:bg-transparent hover:text-foreground"
+                  title="复制输出"
+                  aria-label={copied ? '已复制' : '复制输出'}
+                >
+                  {copied ? '已复制' : '复制'}
+                </Button>
 
-              <div className="max-h-[min(20rem,50vh)] overflow-auto overscroll-contain">
-                {script && (
-                  <>
-                    <p className="mb-1">执行脚本</p>
-                    <pre aria-label="codemode 执行脚本" className="mb-3 whitespace-pre-wrap">
-                      {script}
-                    </pre>
-                  </>
-                )}
-                {diff ? (
-                  <ToolDiff diff={diff} />
-                ) : rawText ? (
-                  <pre className="whitespace-pre-wrap">{rawText}</pre>
-                ) : null}
+                <div className="max-h-[min(20rem,50vh)] overflow-auto overscroll-contain">
+                  {script && (
+                    <>
+                      <p className="mb-1">执行脚本</p>
+                      <pre aria-label="codemode 执行脚本" className="mb-3 whitespace-pre-wrap">
+                        {script}
+                      </pre>
+                    </>
+                  )}
+                  {diff ? (
+                    <ToolDiff diff={diff} />
+                  ) : rawText ? (
+                    <pre className="whitespace-pre-wrap">{rawText}</pre>
+                  ) : null}
 
-                {item.children?.map((child) => (
-                  <NestedToolActivity
-                    key={child.id}
-                    tool={child}
-                    isLive={isLive}
-                    isPaused={isPaused}
-                    parentOpen={open}
-                  />
-                ))}
-                {!isError && <PluginToolCard tool={item} {...item.source} />}
+                  {item.children?.map((child) => (
+                    <NestedToolActivity
+                      key={child.id}
+                      tool={child}
+                      isLive={isLive}
+                      isPaused={isPaused}
+                      parentOpen={open}
+                    />
+                  ))}
+                  {!isError && <PluginToolCard tool={item} {...item.source} />}
+                </div>
               </div>
-            </div>
+            )}
             {imagePreviews}
           </div>
         </div>

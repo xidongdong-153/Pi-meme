@@ -25,6 +25,7 @@ export function AssistantTurnView({
   retry,
   onActivityToggle,
   reply,
+  changes,
 }: {
   turn: Extract<TurnChunk, { type: 'assistant_turn' }>
   isFinalReply?: boolean
@@ -37,6 +38,7 @@ export function AssistantTurnView({
   retry?: PiRetryState
   onActivityToggle?: () => void
   reply?: React.ReactNode
+  changes?: React.ReactNode
 }) {
   const hasReplyContent =
     !reply && isFinalReply && !turn.isLive && (Boolean(turn.finalText.trim()) || turn.images.length > 0)
@@ -149,6 +151,7 @@ export function AssistantTurnView({
             />
           )}
         </div>
+        {changes}
         {hasReplyContent && (
           <div className="mt-1 flex h-7 items-center opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
             <MessageActions

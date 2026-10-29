@@ -276,7 +276,7 @@ export async function createHost(options: HostOptions = {}) {
     }
     const assertCheckoutAvailable = (cwd: string) => {
       if ([...checkoutGates].some((checkoutRoot) => withinCheckout(cwd, checkoutRoot)))
-        throw new Error('此工作目录正在切换 Git 分支，请稍后操作')
+        throw new Error('此工作目录正在切换 Git 分支或撤销文件变更，请稍后操作')
     }
     const gitWrites = new Map<string, Promise<unknown>>()
     const serializeGit = async <T>(commonDirectory: string, operation: () => Promise<T>) => {
@@ -1710,6 +1710,21 @@ export async function createHost(options: HostOptions = {}) {
         },
       },
       schedules,
+      withFileUndo: async (cwd, operation) => {
+        const directory = await realpath(cwd)
+        await serializeGit(directory, async () => {
+          assertCheckoutAvailable(directory)
+          checkoutGates.add(directory)
+          try {
+            pi.assertCheckoutIdle(() => true)
+            collaboration.assertCheckoutIdle(() => true)
+            activityBridge.assertIdle(directory)
+            await operation()
+          } finally {
+            checkoutGates.delete(directory)
+          }
+        })
+      },
       hostId,
       root,
       controlPaths: storagePaths,

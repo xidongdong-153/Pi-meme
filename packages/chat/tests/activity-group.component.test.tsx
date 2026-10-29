@@ -8,20 +8,136 @@ import { AssistantTurnView } from '../src/ui/conversation/assistant-turn'
 import { ChatMessage } from '../src/ui/conversation/chat-message'
 import { ThinkingActivityRow } from '../src/ui/conversation/thinking-activity-row'
 import { ToolActivityRow } from '../src/ui/conversation/tool-activity-row'
+import { TurnChangesCard } from '../src/ui/conversation/turn-changes'
 import { formatMessageTime, formatMessageTimeTitle } from '../src/ui/model/message-time'
 import type { ActivityItem, ChatState } from '../src/ui/model/types'
 import { groupConversationTurns } from '../src/ui/model/conversation-turns'
 import { Conversation } from '../src/ui/conversation/conversation'
 import { ChatStream } from '../src/ui/model/chat-stream'
-import { applyEvent, emptyChat } from '../src/ui/model/state'
+import { applyEvent, emptyChat, fromSnapshot } from '../src/ui/model/state'
 import type { PiEvent } from '@pi-meme/contracts/pi'
 import type { AgentSummary } from '@pi-meme/contracts/collaboration'
 import { projectAgentConversation } from '../src/ui/model/agent-collaboration'
 import { parseToolMeta } from '../src/ui/model/tool-details'
 import { runningActivityLabel, summarizeActivities } from '../src/ui/model/activity-summary'
-import { assistantMessage, streamUpdate, toolResult, userMessage } from '../../../tests/fixtures/messages.mjs'
+import {
+  assistantMessage,
+  sessionState,
+  streamUpdate,
+  toolResult,
+  userMessage,
+} from '../../../tests/fixtures/messages.mjs'
 
 afterEach(cleanup)
+
+test.each(['edit', 'write'])('正式消息和历史恢复后 $name 仍显示统计并可展开 Diff', async (name) => {
+  const user = userEvent.setup()
+  const patch = '@@ -0,0 +1,1 @@\n+const value = 1\n'
+  const assistant = assistantMessage([{ type: 'toolCall', id: 'file-change', name, arguments: { path: 'example.ts' } }])
+  const message = {
+    ...toolResult('file-change', '文件已保存', 2),
+    toolName: name,
+    details: { patch, created: name === 'write' },
+  }
+  let state = applyEvent(emptyChat, { type: 'message_end', message: assistant })
+  state = applyEvent(state, {
+    type: 'tool_execution_end',
+    toolCallId: 'file-change',
+    toolName: name,
+    result: { content: message.content, details: message.details },
+    isError: false,
+  })
+  state = applyEvent(state, { type: 'message_end', message })
+  const restored = fromSnapshot({
+    connection: { generation: 1, cwd: '/tmp', status: 'ready' },
+    state: { ...sessionState(), mode: 'default' },
+    messages: state.messages,
+    models: [],
+  })
+  for (const current of [state, restored]) {
+    const turns = groupConversationTurns(current.messages, null, current.tools, false)
+    const turn = turns.find((entry) => entry.type === 'assistant_turn')
+    if (turn?.type !== 'assistant_turn') throw new Error('缺少工具活动')
+    const item = turn.activities[0]
+    if (item.type !== 'tool') throw new Error('预期文件工具活动')
+    const onToggle = vi.fn()
+    const view = render(<ToolActivityRow item={item} open={false} onToggle={onToggle} />)
+    expect(screen.getByText('+1')).toBeInTheDocument()
+    expect(screen.getByText('−0')).toBeInTheDocument()
+    if (name === 'write') expect(screen.getByLabelText('新建文件')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: `工具详情：${name}` }))
+    expect(onToggle).toHaveBeenCalledOnce()
+    view.rerender(<ToolActivityRow item={item} open onToggle={onToggle} />)
+    expect(screen.getByRole('region', { name: 'Diff 代码' })).toHaveTextContent('const value = 1')
+    view.unmount()
+  }
+})
+
+test('本轮卡片携带消息与文件目标打开详情，撤销失败保留错误且可重试', async () => {
+  const user = userEvent.setup()
+  const view = vi.fn()
+  const undo = vi.fn().mockRejectedValueOnce(new Error('文件已有后续修改')).mockResolvedValue(undefined)
+  render(
+    <TurnChangesCard
+      changes={{
+        entryId: 'native-user',
+        undone: false,
+        insertions: 1,
+        deletions: 0,
+        files: [{ path: 'src/app.ts', insertions: 1, deletions: 0, patch: '+line' }],
+      }}
+      onView={view}
+      onUndo={undo}
+    />,
+  )
+  await user.click(screen.getByRole('button', { name: /src\/app.ts/ }))
+  expect(view).toHaveBeenLastCalledWith('native-user', 'src/app.ts')
+  await user.click(screen.getByRole('button', { name: '查看变更' }))
+  expect(view).toHaveBeenLastCalledWith('native-user')
+  await user.click(screen.getByRole('button', { name: '撤销' }))
+  expect(await screen.findByRole('alert')).toHaveTextContent('文件已有后续修改')
+  await user.click(screen.getByRole('button', { name: '撤销' }))
+  expect(undo).toHaveBeenCalledTimes(2)
+  expect(undo).toHaveBeenLastCalledWith('native-user')
+})
+
+test('文件活动显示行数与创建标记，覆盖写入显示编辑', () => {
+  const view = render(
+    <ToolActivityRow
+      item={{
+        id: 'new',
+        name: 'write',
+        status: 'success',
+        args: { path: 'new.ts' },
+        result: { details: { created: true, patch: '@@ -0,0 +1 @@\n+new\n' } },
+      }}
+      open={false}
+      onToggle={() => {}}
+    />,
+  )
+  expect(screen.getByText('+1')).toBeInTheDocument()
+  expect(screen.getByText('−0')).toBeInTheDocument()
+  expect(screen.getByRole('img', { name: '新建文件' })).toBeInTheDocument()
+  view.unmount()
+  const toggle = vi.fn()
+  render(
+    <ToolActivityRow
+      item={{
+        id: 'write',
+        name: 'write',
+        status: 'success',
+        args: { path: 'existing.ts' },
+        result: { details: { created: false, patch: '@@ -1 +1 @@\n-old\n+new\n' } },
+      }}
+      open={false}
+      onToggle={toggle}
+    />,
+  )
+  expect(screen.getByText('已编辑 existing.ts')).toBeInTheDocument()
+  expect(screen.queryByRole('img', { name: '新建文件' })).not.toBeInTheDocument()
+  expect(screen.getByText('−1')).toBeInTheDocument()
+  expect(toggle).not.toHaveBeenCalled()
+})
 
 test('图片生成与编辑不记为查看图像，失败操作不计入成功产物', () => {
   const generated: ActivityItem = {
@@ -327,9 +443,11 @@ test('思考行与相邻工具行使用同一字号', () => {
 
 test.each(
   (['read', 'edit', 'apply_patch', 'replace', 'write', 'create'] as const).flatMap((name) =>
-    (['success', 'running', 'error'] as const).map((status) => ({ name, status })),
+    (['success', 'running', 'error'] as const)
+      .filter((status) => name === 'read' || status !== 'success')
+      .map((status) => ({ name, status })),
   ),
-)('读取和编辑文件只显示静态摘要，不展开详情：$name / $status', async ({ name, status }) => {
+)('读取或未成功的文件操作不展开差异：$name / $status', async ({ name, status }) => {
   const user = userEvent.setup()
   const onToggle = vi.fn()
   render(
@@ -359,6 +477,41 @@ test.each(
   if (status === 'error') expect(summary).toHaveTextContent('失败')
   await user.click(summary)
   expect(onToggle).not.toHaveBeenCalled()
+})
+
+test.each(['edit', 'write'])('成功的 $name 可展开带行号的 Diff、复制并通过键盘收起', async (name) => {
+  const user = userEvent.setup()
+  const patch =
+    name === 'write'
+      ? '@@ -0,0 +1,2 @@\n+const first = 1\n+const second = 2\n'
+      : '@@ -1693,2 +1693,2 @@\n const first = 1\n-const oldValue = 2\n+const newValue = 3\n'
+  const item = {
+    id: name,
+    name,
+    status: 'success' as const,
+    args: { path: 'src/example.ts' },
+    result: { details: { patch, diff: '显示摘要', created: name === 'write' } },
+  }
+  const onToggle = vi.fn()
+  const view = render(<ToolActivityRow item={item} open={false} onToggle={onToggle} />)
+  const trigger = screen.getByRole('button', { name: `工具详情：${name}` })
+  expect(screen.queryByRole('region', { name: 'Diff 代码' })).not.toBeInTheDocument()
+  await user.click(trigger)
+  expect(onToggle).toHaveBeenCalledOnce()
+  view.rerender(<ToolActivityRow item={item} open onToggle={onToggle} />)
+  expect(trigger).toHaveAttribute('aria-expanded', 'true')
+  const diff = screen.getByRole('region', { name: 'Diff 代码' })
+  expect(diff).toHaveTextContent('const first = 1')
+  expect(diff).toHaveTextContent(name === 'write' ? 'const second = 2' : 'const newValue = 3')
+  expect(diff).toHaveTextContent(name === 'write' ? '1' : '1693')
+  expect(diff).not.toHaveTextContent('显示摘要')
+  await user.click(screen.getByRole('button', { name: '复制 Diff' }))
+  expect(await navigator.clipboard.readText()).toBe(patch)
+  trigger.focus()
+  await user.keyboard('{Enter}')
+  expect(onToggle).toHaveBeenCalledTimes(2)
+  view.rerender(<ToolActivityRow item={item} open={false} onToggle={onToggle} />)
+  expect(screen.queryByRole('region', { name: 'Diff 代码' })).not.toBeInTheDocument()
 })
 
 test('成功查看图片直接显示可预览的小图，不再显示工具输出框和占位文字', async () => {

@@ -70,7 +70,7 @@ export function fromSnapshot(snapshot: Snapshot): ChatState {
         name: message.toolName,
         source: message.source,
         sourceEntry: message.sourceEntry,
-        result: message.content,
+        result: { content: message.content, details: message.details },
         status: message.isError ? 'error' : 'success',
       }
     }
@@ -342,7 +342,7 @@ export function applyEvent(
             name: message.toolName,
             source: message.source,
             sourceEntry: message.sourceEntry,
-            result: message.content,
+            result: { content: message.content, details: message.details },
             status: message.isError ? 'error' : 'success',
           },
         }

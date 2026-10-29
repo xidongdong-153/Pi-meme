@@ -1,9 +1,9 @@
-import { readFile } from 'node:fs/promises'
 import type { BashOperations, ExtensionAPI, InlineExtension } from '@earendil-works/pi-coding-agent'
 import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
 import type { AccessSandboxOperations as AccessSandbox } from '../sdk/access-sandbox'
 import type { PiSdk } from '../sdk/load'
 import { collaborationToolNames } from './plan-mode'
+import { createTurnChangesExtension } from './turn-changes'
 
 const allowedTools = new Set([
   'read',
@@ -42,33 +42,8 @@ export function createAgentAccessExtension(options: {
         exec: (command, directory, runOptions) =>
           sandbox.run('/bin/bash', ['-c', command], { ...runOptions, cwd: directory }),
       }
-      // 每次调用绑定自己的 AbortSignal，不能共享并行工具的取消状态。
-      const writeTool = (signal?: AbortSignal) =>
-        sdk.createWriteToolDefinition(cwd, {
-          operations: {
-            mkdir: (target) => sandbox.mkdir(target, signal),
-            writeFile: (target, content) => sandbox.writeFile(target, content, signal),
-          },
-        })
-      const editTool = (signal?: AbortSignal) =>
-        sdk.createEditToolDefinition(cwd, {
-          operations: {
-            readFile: (target) => readFile(target),
-            access: (target) => sandbox.assertWritable(target),
-            writeFile: (target, content) => sandbox.writeFile(target, content, signal),
-          },
-        })
       pi.registerTool(sdk.createBashToolDefinition(cwd, { operations: bashOperations }))
-      const writeDefinition = sdk.createWriteToolDefinition(cwd)
-      pi.registerTool({
-        ...writeDefinition,
-        execute: (id, params, signal, onUpdate, ctx) => writeTool(signal).execute(id, params, signal, onUpdate, ctx),
-      })
-      const editDefinition = sdk.createEditToolDefinition(cwd)
-      pi.registerTool({
-        ...editDefinition,
-        execute: (id, params, signal, onUpdate, ctx) => editTool(signal).execute(id, params, signal, onUpdate, ctx),
-      })
+      createTurnChangesExtension(sdk, cwd, sandbox).factory(pi)
       const isAllowed = (name: string) => allowedTools.has(name) || options.externalToolAllowed?.(name) === true
       pi.on('session_start', () => {
         pi.setActiveTools(pi.getActiveTools().filter(isAllowed))

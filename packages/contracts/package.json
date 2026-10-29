@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     "./desktop": "./src/desktop.ts",
+    "./turn-changes": "./src/turn-changes.ts",
     "./chat-attachments": "./src/chat-attachments.ts",
     "./ipc": "./src/ipc.ts",
     "./model-config": "./src/model-config.ts",

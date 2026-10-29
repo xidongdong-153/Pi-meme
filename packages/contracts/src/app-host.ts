@@ -188,6 +188,8 @@ export type HostApi = {
     close: (ref: TerminalRef, options: MutationOptions) => Promise<void>
   }
   git: {
+    turnChanges: (ref: SessionRef, entryIds: string[]) => Promise<import('./turn-changes').TurnChanges[]>
+    undoTurn: (ref: SessionRef, entryId: string, options: MutationOptions) => Promise<void>
     environment: (root: WorkspaceRef) => Promise<GitEnvironment>
     snapshot: (root: WorkspaceRef) => Promise<GitSnapshot>
     diff: (

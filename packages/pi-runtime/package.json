@@ -10,6 +10,7 @@
     "./session-attachments": "./src/session-attachments.ts",
     "./session-pool": "./src/session-pool.ts",
     "./runtime": "./src/runtime.ts",
+    "./turn-change-store": "./src/turn-change-store.ts",
     "./sdk/load": "./src/sdk/load.ts",
     "./sdk/context-files": "./src/sdk/context-files.ts",
     "./skill-prompt": "./src/skill-prompt.ts",

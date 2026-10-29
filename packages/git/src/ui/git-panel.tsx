@@ -3,6 +3,7 @@ import { ChevronDown, ChevronRight, FileDiff, RefreshCw } from 'lucide-react'
 import type { GitBridge, GitFileChange, GitSnapshot } from '@pi-meme/contracts/desktop'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { GitDiffViewer } from './git-diff-viewer'
+import type { TurnChanges } from '@pi-meme/contracts/turn-changes'
 
 const sections: Array<{ kind: GitFileChange['kind']; title: string }> = [
   { kind: 'staged', title: '已暂存' },
@@ -10,30 +11,23 @@ const sections: Array<{ kind: GitFileChange['kind']; title: string }> = [
   { kind: 'untracked', title: '未跟踪' },
 ]
 
-const turnNote = '只统计这次发送之后、本会话里成功的 edit 和 write。命令、子代理和其他工具改过的文件不在这里。'
-const writeNote = '覆盖写入，没有修改前内容'
-const missingPatchNote = '有变更记录，但没有可用的 patch'
-
-export type GitTurnEntry = { toolCallId: string; kind: 'edit'; patch?: string } | { toolCallId: string; kind: 'write' }
-
-export type GitTurnFile = {
-  path: string
-  entries: readonly GitTurnEntry[]
-}
-
 export function GitPanel({
   cwd,
   bridge,
   refreshToken,
   turnChanges,
+  selectedPath,
+  selectionRevision = 0,
 }: {
   cwd: string
   bridge: Pick<GitBridge, 'getGitSnapshot' | 'getGitDiff'>
-  /** desktop 在会话状态变化时递增，用于替代全局事件触发刷新 */
   refreshToken: number
-  turnChanges: readonly GitTurnFile[]
+  turnChanges?: TurnChanges
+  selectedPath?: string
+  selectionRevision?: number
 }) {
-  const [mode, setMode] = useState<'turn' | 'workspace'>('turn')
+  const [selection, setSelection] = useState({ revision: selectionRevision, mode: 'turn' as 'turn' | 'workspace' })
+  if (selection.revision !== selectionRevision) setSelection({ revision: selectionRevision, mode: 'turn' })
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-center gap-1 border-b border-border/60 px-3 py-2">
@@ -47,17 +41,17 @@ export function GitPanel({
             <button
               key={value}
               type="button"
-              aria-pressed={mode === value}
-              onClick={() => setMode(value)}
-              className={`rounded px-2 py-0.5 text-[0.6875rem] ${mode === value ? 'bg-background font-medium text-foreground' : 'text-muted-foreground'}`}
+              aria-pressed={selection.mode === value}
+              onClick={() => setSelection({ revision: selectionRevision, mode: value })}
+              className={`rounded px-2 py-0.5 text-[0.6875rem] ${selection.mode === value ? 'bg-background font-medium text-foreground' : 'text-muted-foreground'}`}
             >
               {label}
             </button>
           ))}
         </div>
       </div>
-      {mode === 'turn' ? (
-        <TurnReview changes={turnChanges} />
+      {selection.mode === 'turn' ? (
+        <TurnReview key={selectionRevision} changes={turnChanges} selectedPath={selectedPath} />
       ) : (
         <WorkspaceChanges cwd={cwd} bridge={bridge} refreshToken={refreshToken} />
       )}
@@ -65,77 +59,59 @@ export function GitPanel({
   )
 }
 
-function TurnReview({ changes }: { changes: readonly GitTurnFile[] }) {
-  const [openPath, setOpenPath] = useState<string | null>(null)
+function TurnReview({ changes, selectedPath }: { changes?: TurnChanges; selectedPath?: string }) {
+  const [openPath, setOpenPath] = useState<string | null>(selectedPath ?? null)
   return (
     <>
-      <div className="flex shrink-0 items-center px-3 py-1.5 text-[0.6875rem] text-muted-foreground">
-        <span>{changes.length} 个文件</span>
+      <div className="flex shrink-0 items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
+        <span>
+          {changes?.files.length ?? 0} 个文件{changes?.undone ? ' · 已撤销' : ''}
+        </span>
+        {changes && (
+          <>
+            <span className="font-mono text-emerald-600 dark:text-emerald-400">+{changes.insertions}</span>
+            <span className="font-mono text-rose-600 dark:text-rose-400">−{changes.deletions}</span>
+          </>
+        )}
       </div>
       <div className="min-h-0 flex-1 overflow-auto">
-        {changes.length === 0 ? (
-          <div className="px-3 py-5 text-center text-xs text-muted-foreground">这一轮还没有 edit 或 write。</div>
+        {!changes?.files.length ? (
+          <p className="px-3 py-5 text-center text-xs text-muted-foreground">
+            本轮没有可用的文件变更记录。旧会话未保存的修改前内容无法恢复。
+          </p>
         ) : (
-          <div className="divide-y divide-border/20">
-            {changes.map((file) => {
-              const editable = file.entries.some((entry) => entry.kind === 'edit')
-              const open = openPath === file.path
-              return (
-                <div key={file.path} className="flex flex-col">
-                  {editable ? (
-                    <button
-                      type="button"
-                      aria-expanded={open}
-                      aria-label={file.path}
-                      onClick={() => setOpenPath(open ? null : file.path)}
-                      className={`flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-[0.6875rem] transition-colors hover:bg-secondary/70 ${open ? 'bg-secondary/80 font-medium' : ''}`}
-                    >
-                      {open ? (
-                        <ChevronDown className="size-3 shrink-0" />
-                      ) : (
-                        <ChevronRight className="size-3 shrink-0 text-muted-foreground" />
-                      )}
-                      <FileDiff className="size-3 shrink-0 text-muted-foreground" />
-                      <span className="min-w-0 flex-1 truncate" title={file.path}>
-                        {file.path}
-                      </span>
-                    </button>
-                  ) : (
-                    <div className="flex items-center gap-1.5 px-3 py-1.5 text-[0.6875rem]">
-                      <FileDiff className="size-3 shrink-0 text-muted-foreground" />
-                      <span className="min-w-0 flex-1 truncate" title={file.path}>
-                        {file.path}
-                      </span>
-                      <span className="shrink-0 text-[0.625rem] text-muted-foreground">写入</span>
-                    </div>
-                  )}
-                  {!editable && <p className="px-3 pb-2 text-[0.625rem] text-muted-foreground">{writeNote}</p>}
-                  {open && (
-                    <div className="border-t border-border/40 bg-muted/15 pb-2 pt-1">
-                      {file.entries.map((entry, index) => (
-                        <div key={entry.toolCallId} className="px-2 py-1">
-                          {file.entries.length > 1 && (
-                            <p className="px-2 pb-1 text-[0.625rem] text-muted-foreground">第 {index + 1} 次</p>
-                          )}
-                          {entry.kind === 'write' ? (
-                            <p className="px-2 text-[0.625rem] text-muted-foreground">{writeNote}</p>
-                          ) : entry.patch ? (
-                            <GitDiffViewer diff={entry.patch} />
-                          ) : (
-                            <p className="px-2 text-[0.625rem] text-muted-foreground">{missingPatchNote}</p>
-                          )}
-                        </div>
-                      ))}
-                    </div>
-                  )}
+          changes.files.map((file) => (
+            <div key={file.path} className="border-b border-border/30">
+              <button
+                type="button"
+                aria-label={file.path}
+                aria-expanded={openPath === file.path}
+                onClick={() => setOpenPath(openPath === file.path ? null : file.path)}
+                className="flex w-full items-center gap-1.5 px-3 py-2 text-left text-xs hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+              >
+                {openPath === file.path ? (
+                  <ChevronDown className="size-3 shrink-0" />
+                ) : (
+                  <ChevronRight className="size-3 shrink-0" />
+                )}
+                <FileDiff className="size-3 shrink-0 text-muted-foreground" />
+                <span className="min-w-0 flex-1 truncate" title={file.path}>
+                  {file.path}
+                </span>
+                <span className="font-mono text-emerald-600 dark:text-emerald-400">+{file.insertions}</span>
+                <span className="font-mono text-rose-600 dark:text-rose-400">−{file.deletions}</span>
+              </button>
+              {openPath === file.path && (
+                <div className="border-t border-border/40 px-2 py-1">
+                  <GitDiffViewer diff={file.patch} />
                 </div>
-              )
-            })}
-          </div>
+              )}
+            </div>
+          ))
         )}
       </div>
       <p className="shrink-0 border-t border-border/60 px-3 py-2 text-[0.625rem] leading-relaxed text-muted-foreground">
-        {turnNote}
+        只记录本会话本轮 edit / write 的修改，包括 codemode 内的调用。
       </p>
     </>
   )

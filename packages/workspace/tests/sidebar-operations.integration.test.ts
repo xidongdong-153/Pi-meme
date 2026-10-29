@@ -171,7 +171,11 @@ test('项目扫描覆盖全部和空白会话，使用真实 cwd，隔离子项�
     assert.equal(scan.paths.length, 35)
     assert.ok(!scan.paths.includes(other))
     assert.equal(scan.warnings.length, 1)
+    const changes = `${targets[0]}.changes`
+    await mkdir(changes)
+    await writeFile(path.join(changes, 'turn.json'), '{}')
     const result = await deleteSessionFiles(context.sessionsRoot, targets)
+    await assert.rejects(readFile(path.join(changes, 'turn.json')), { code: 'ENOENT' })
     assert.equal(result.deletedPaths.length, 35)
     assert.equal(result.errors.length, 0)
     await readFile(other)

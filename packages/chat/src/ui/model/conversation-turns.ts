@@ -65,6 +65,7 @@ export function groupConversationTurns(
   let turnKey = ''
   // 展示段会被子代理状态、压缩和可见自定义消息切开；分叉要保留打开这轮的用户消息，不能随段重置。
   let userMessageTimestamp: number | undefined
+  let userEntryId: string | undefined
 
   const flushTurn = (isLastTurn: boolean, boundary?: number) => {
     if (isLastTurn && unassignedTools.length > 0) {
@@ -156,6 +157,7 @@ export function groupConversationTurns(
         durationMs,
         startedAt: turnStartTimestamp,
         ...(typeof userMessageTimestamp === 'number' ? { userTimestamp: userMessageTimestamp } : {}),
+        ...(userEntryId ? { userEntryId } : {}),
         ...(repliedAt !== undefined ? { repliedAt } : {}),
         isLive,
         key: turnKey || `turn-assistant-${chunks.length}`,
@@ -206,6 +208,7 @@ export function groupConversationTurns(
       turnKey = `turn-${msg.timestamp ?? i}-${i + messageOffset}`
       turnStartTimestamp = msg.timestamp
       userMessageTimestamp = typeof msg.timestamp === 'number' ? msg.timestamp : undefined
+      userEntryId = msg.sourceEntry?.id
       continue
     }
 

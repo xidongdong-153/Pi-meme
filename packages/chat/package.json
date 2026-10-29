@@ -34,6 +34,7 @@
     "./ui/conversation/chat-message": "./src/ui/conversation/chat-message.tsx",
     "./ui/conversation/message-actions": "./src/ui/conversation/message-actions.tsx",
     "./ui/conversation/conversation": "./src/ui/conversation/conversation.tsx",
+    "./ui/conversation/turn-changes": "./src/ui/conversation/turn-changes.tsx",
     "./ui/conversation/inline-message-editor": "./src/ui/conversation/inline-message-editor.tsx",
     "./ui/conversation/narration-activity-row": "./src/ui/conversation/narration-activity-row.tsx",
     "./ui/conversation/thinking-activity-row": "./src/ui/conversation/thinking-activity-row.tsx",

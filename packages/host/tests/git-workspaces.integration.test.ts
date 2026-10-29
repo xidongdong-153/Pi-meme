@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { chmod, mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { test, describe } from 'vitest'
+import { test, describe, vi } from 'vitest'
 import { createPiRuntimePaths } from '@pi-meme/pi-runtime/runtime-paths'
 import { runGit } from '@pi-meme/git/server/git-service'
 import type { Connection, GitEnvironment, GitWorktreeResult, SessionSelectionResult } from '@pi-meme/contracts/desktop'
@@ -10,6 +10,57 @@ import type { PiSessionsSnapshot } from '@pi-meme/contracts/sessions'
 import { HostCollaborationBridge } from '@pi-meme/subagents/server/coordinator'
 import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 import { createHost } from '../src/service'
+import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
+import { recordFileChange } from '@pi-meme/pi-runtime/turn-change-store'
+
+test('Host 按会话读取与撤销文件，拒绝只读权限，撤销期间阻止新任务', async () => {
+  const directory = await realpath(await mkdtemp(path.join(tmpdir(), 'host-turn-')))
+  const fake = await useFakeAgent(directory)
+  const host = await createHost({ dataRoot: fake.dataRoot, testCredentials: true, credentials: fake.credentials })
+  try {
+    const selected = await host.rpc({
+      requestId: crypto.randomUUID(),
+      clientId: 'turn-client',
+      method: 'workspace:select',
+      args: [{ kind: 'project', cwd: directory }],
+    })
+    const selection = selected.result as SessionSelectionResult
+    assert.equal(selection.cancelled, false)
+    if (selection.cancelled) return
+    const key = selection.snapshot.connection.sessionKey!
+    await host.pi.prompt(key, '准备本轮')
+    await vi.waitFor(() => assert.equal(host.pi.isSessionIdle(key, true), true), { timeout: 10000 })
+    const session = await host.control.sessionForRuntime(key)
+    const file = host.pi.getSessionContext(key).sessionFile!
+    assert.ok(file)
+    const target = path.join(directory, 'changed.txt')
+    await writeFile(target, 'after\n')
+    await recordFileChange(file, 'entry-one', directory, target, Buffer.from('before\n'), Buffer.from('after\n'))
+    const api = host.control.api
+    assert.equal((await api.git.turnChanges(session, ['entry-one']))[0].files[0].path, 'changed.txt')
+    await host.pi.setAccessMode(key, 'read-only')
+    await assert.rejects(api.git.undoTurn(session, 'entry-one', { idempotencyKey: crypto.randomUUID() }), /只读/)
+    await host.pi.setAccessMode(key, 'full-access')
+    const assertIdle = host.pi.assertCheckoutIdle.bind(host.pi)
+    let blocked: Promise<unknown> | undefined
+    host.pi.assertCheckoutIdle = (matches) => {
+      assertIdle(matches)
+      blocked ??= assert.rejects(host.pi.prompt(key, '撤销期间不能发送'), /正在切换 Git 分支或撤销文件变更/)
+    }
+    try {
+      await api.git.undoTurn(session, 'entry-one', { idempotencyKey: crypto.randomUUID() })
+      await blocked
+    } finally {
+      host.pi.assertCheckoutIdle = assertIdle
+    }
+    assert.equal(await readFile(target, 'utf8'), 'before\n')
+    assert.equal((await api.git.turnChanges(session, ['entry-one']))[0].undone, true)
+  } finally {
+    await host.dispose()
+    await fake.dispose()
+    await rm(directory, { recursive: true, force: true })
+  }
+})
 
 async function fixture() {
   const directory = await realpath(await mkdtemp(path.join(tmpdir(), 'host-git-workspaces-')))
