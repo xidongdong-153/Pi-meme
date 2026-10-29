@@ -1,5 +1,5 @@
 import { useRef, useState } from 'react'
-import { Check, ChevronDown, Folder, Plus, Search, X } from 'lucide-react'
+import { Check, Folder, Plus, Search, X } from 'lucide-react'
 import type { DesktopProject, SelectWorkspace, WorkspaceKind } from '@pi-meme/contracts/sessions'
 import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@pi-meme/ui/components/ui/popover'
 import { Input } from '@pi-meme/ui/components/ui/input'
@@ -136,7 +136,6 @@ export function ProjectSelector({
           >
             <Folder className="size-4 shrink-0" />
             <span className="truncate">{name}</span>
-            <ChevronDown className="size-3 shrink-0" />
           </button>
         </PopoverTrigger>
         <PopoverContent

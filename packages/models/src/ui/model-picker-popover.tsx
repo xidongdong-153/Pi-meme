@@ -1,10 +1,28 @@
 import * as React from 'react'
-import { Brain, Check, ChevronDown, ChevronLeft, ChevronRight, RotateCcw, Search, X } from 'lucide-react'
+import { Brain, Check, ChevronDown, ChevronLeft, ChevronRight, RotateCcw, Search, X, Zap } from 'lucide-react'
 import { modelThinkingLevels, resolveThinkingLevel, type PiModel, type ThinkingLevel } from '@pi-meme/contracts/pi'
 import { Popover, PopoverContent, PopoverTrigger } from '@pi-meme/ui/components/ui/popover'
 import { Input } from '@pi-meme/ui/components/ui/input'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { THINKING_LEVEL_LABELS } from './thinking-config'
+import './model-picker-popover.css'
+
+const MAX_PARTICLES = [
+  [7, 30, 2, 3, -2, 1.9],
+  [13, 68, 1.5, -2, 3, 2.3],
+  [20, 42, 3, 2, -3, 2.7],
+  [28, 76, 2, -3, -2, 1.7],
+  [34, 22, 1.5, 3, 2, 2.5],
+  [41, 56, 2.5, -2, -3, 2.1],
+  [49, 34, 3.5, 2, 3, 2.8],
+  [54, 78, 1.5, -3, -2, 1.8],
+  [60, 48, 2, 3, -3, 2.4],
+  [66, 20, 2.5, -2, 2, 2],
+  [72, 70, 1.5, 2, -3, 2.6],
+  [79, 38, 3, -3, 2, 2.2],
+  [87, 64, 2, 2, 3, 1.9],
+  [94, 28, 1.5, -2, -2, 2.5],
+] as const
 
 const KNOWN_PROVIDER_LABELS: Record<string, string> = {
   openai: 'OpenAI',
@@ -85,6 +103,7 @@ export function ModelPickerPopover({
 
   const activeLevel = activeLevels[activeIndex] || thinkingLevel
   const currentLevelLabel = THINKING_LEVEL_LABELS[activeLevel] || '中'
+  const isMax = activeLevel === 'max'
 
   const modelKey = (m: PiModel) => `${m.provider}:${m.id}`
   const choices = React.useMemo(() => {
@@ -312,12 +331,20 @@ export function ModelPickerPopover({
       >
         {view === 'thinking' ? (
           /* 图 1：思考强度配置面板 */
-          <div className="flex flex-col gap-3 select-none">
+          <div className="model-thinking-panel flex flex-col gap-3 select-none" data-max={isMax || undefined}>
             {/* 顶栏：中间高亮强度文字与模型入口，右侧重置按钮 */}
             <div className="flex items-center justify-between px-1">
-              <div className="size-6" />
+              <div className="flex size-6 items-center justify-center">
+                {isMax && <Zap aria-hidden="true" className="model-thinking-max-accent size-3.5" />}
+              </div>
               <div className="flex flex-col items-center">
-                <span className="text-sm font-semibold text-blue-500 tracking-wide leading-tight">
+                <span
+                  className={cn(
+                    'text-sm font-semibold tracking-wide leading-tight',
+                    isMax ? 'model-thinking-max-accent' : 'text-blue-500',
+                  )}
+                  title={isMax ? 'Max · 超级模式' : undefined}
+                >
                   {currentLevelLabel}
                 </span>
                 <button
@@ -381,6 +408,28 @@ export function ModelPickerPopover({
                       width: `calc(12px + ${activeRatio} * (100% - 24px))`,
                     }}
                   >
+                    {isMax && (
+                      <span aria-hidden="true" className="model-thinking-max-fill">
+                        {MAX_PARTICLES.map(([left, top, size, x, y, duration], index) => (
+                          <span
+                            key={index}
+                            className="model-thinking-max-particle"
+                            style={
+                              {
+                                left: `${left}%`,
+                                top: `${top}%`,
+                                width: size,
+                                height: size,
+                                '--particle-x': `${x}px`,
+                                '--particle-y': `${y}px`,
+                                animationDuration: `${duration}s`,
+                                animationDelay: `${-index * 0.37}s`,
+                              } as React.CSSProperties
+                            }
+                          />
+                        ))}
+                      </span>
+                    )}
                     <div
                       ref={thumbRef}
                       className="absolute -right-3 top-0 z-20 size-6 rounded-full bg-white shadow-[0_2px_5px_rgba(0,0,0,0.35),0_1px_2px_rgba(0,0,0,0.2)] pointer-events-none"
@@ -399,7 +448,7 @@ export function ModelPickerPopover({
                         }}
                         className={cn(
                           'absolute top-1/2 -translate-x-1/2 -translate-y-1/2 z-10 size-1 rounded-full pointer-events-none transition-colors duration-150',
-                          isPassed ? 'bg-white/80' : 'bg-white/25',
+                          isMax ? 'opacity-0' : isPassed ? 'bg-white/80' : 'bg-white/25',
                         )}
                       />
                     )

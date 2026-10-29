@@ -155,9 +155,12 @@ export function AppHeader({
           size="icon-sm"
           ref={trigger}
           aria-label="会话菜单"
-          className="size-7 shrink-0 text-muted-foreground hover:text-foreground data-[state=open]:bg-background/60 data-[state=open]:text-foreground"
+          className={cn(
+            'shrink-0 text-muted-foreground hover:text-foreground data-[state=open]:bg-background/60 data-[state=open]:text-foreground',
+            workspaceTabs ? 'mr-1 size-6 [&_svg]:size-3.5' : 'size-7',
+          )}
         >
-          <Ellipsis className="size-4" />
+          <Ellipsis className={workspaceTabs ? 'size-3.5' : 'size-4'} />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent

@@ -587,7 +587,9 @@ export function WorkspacePanels({
           )
         })}
       </div>
-      <div className="flex items-center gap-1 shrink-0 no-drag">
+      <div
+        className={`flex items-center gap-1 shrink-0 no-drag ${unified ? '[&>button]:size-6 [&>button>svg]:size-3.5' : ''}`}
+      >
         <HeaderButton label="新标签页" onClick={() => open(toolsTabId)}>
           <Plus />
         </HeaderButton>
