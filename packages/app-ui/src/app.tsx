@@ -35,7 +35,7 @@ import { SchedulesWorkspace } from './layout/schedules-workspace'
 import { ProjectsPage } from './projects/projects-page'
 import { ProjectDialog } from './projects/project-dialog'
 import { ForkNotice } from './layout/fork-notice'
-import { WorkspaceContent } from './layout/workspace-content'
+import { isWorkspaceSlotVisible, WorkspaceContent } from './layout/workspace-content'
 import { SideChatPanel } from './panels/side-chat-panel'
 import { SideChatSession } from './session/side-chat-session'
 import { ErrorNotice, SystemErrorStack, SystemErrorToast } from './layout/error-notice'
@@ -867,12 +867,7 @@ export function App({
       ]
     : []
   const activeSummary = sessionList.find((session) => session.path === chat.sessions?.activeSessionPath)
-  const showWorkspaceSlot =
-    Boolean(chat.state) &&
-    !chat.connection.sessionFile &&
-    !activeSummary &&
-    !chat.chat.messages.length &&
-    !chat.chat.running
+  const showWorkspaceSlot = isWorkspaceSlotVisible(chat, activeSummary)
   const sourcePath = activeSummary?.parentSessionPath
   const sourceSummary = sourcePath ? sessionList.find((session) => session.path === sourcePath) : undefined
   const forkedFrom =

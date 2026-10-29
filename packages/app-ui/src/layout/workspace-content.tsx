@@ -5,7 +5,20 @@ import type { MessageEditorState } from '@pi-meme/chat/ui/conversation/inline-me
 import { ErrorBoundary } from '@pi-meme/ui/components/error-boundary'
 import { BrandMark } from '@pi-meme/ui/components/brand-mark'
 import { Button } from '@pi-meme/ui/components/ui/button'
-import type { PiMessage } from '@pi-meme/contracts/pi'
+import type { PiMessage, PiState } from '@pi-meme/contracts/pi'
+
+export function isWorkspaceSlotVisible(
+  session: { state: PiState | null; chat: ChatState },
+  summary?: { messageCount: number },
+) {
+  return (
+    Boolean(session.state) &&
+    !summary?.messageCount &&
+    !session.chat.messages.length &&
+    session.chat.live === null &&
+    !session.chat.running
+  )
+}
 
 export function WorkspaceContent({
   chat,

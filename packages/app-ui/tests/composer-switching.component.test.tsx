@@ -10,7 +10,7 @@ import { ModelConfigForm } from '@pi-meme/models/ui/model-config/model-config-fo
 import type { SaveModelProvider } from '@pi-meme/contracts/model-config'
 import { useAppSession } from '../src/session/use-app-session'
 import { invokeSkillInNewSession } from '../src/settings/invoke-skill'
-import { WorkspaceContent } from '../src/layout/workspace-content'
+import { isWorkspaceSlotVisible, WorkspaceContent } from '../src/layout/workspace-content'
 import { SideChatSession } from '../src/session/side-chat-session'
 import type { ComponentProps } from 'react'
 import { emptyChat } from '@pi-meme/chat/ui/model/state'
@@ -310,6 +310,39 @@ function setup(overrides: Partial<DesktopBridge> = {}, chatEnabled = false, pers
   const hook = renderHook(() => useAppSession(bridge, { chatEnabled, workspaceEnabled: false, persistDrafts }))
   return { ...hook, snapshot }
 }
+
+test('空白会话重连分配文件路径后仍显示项目栏，同项目新建复用会话也不隐藏', async () => {
+  let emit!: Parameters<DesktopBridge['onConnection']>[0]
+  const newSession = vi.fn<DesktopBridge['newSession']>()
+  const { result, snapshot } = setup({
+    newSession,
+    onConnection: (callback) => {
+      emit = callback
+      return () => {}
+    },
+  })
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  expect(isWorkspaceSlotVisible(result.current)).toBe(true)
+
+  snapshot.connection = { ...snapshot.connection, status: 'ready', sessionFile: '/test/new-session.jsonl' }
+  await act(async () => emit(snapshot.connection))
+  expect(result.current.connection.sessionFile).toBe('/test/new-session.jsonl')
+  expect(isWorkspaceSlotVisible(result.current)).toBe(true)
+
+  newSession.mockResolvedValue({ cancelled: false, snapshot })
+  await act(async () => expect(await result.current.newSession()).toBe(true))
+  expect(isWorkspaceSlotVisible(result.current)).toBe(true)
+  expect(isWorkspaceSlotVisible(result.current, { messageCount: 0 })).toBe(true)
+  expect(isWorkspaceSlotVisible(result.current, { messageCount: 2 })).toBe(false)
+  expect(isWorkspaceSlotVisible({ ...result.current, state: null })).toBe(false)
+  for (const chat of [
+    { ...result.current.chat, messages: [userMessage('开始任务', 1)] },
+    { ...result.current.chat, running: true },
+    { ...result.current.chat, live: assistantMessage('正在回复', 2) },
+  ]) {
+    expect(isWorkspaceSlotVisible({ ...result.current, chat })).toBe(false)
+  }
+})
 
 test('临时会话保留窗口内草稿但不写入浏览器存储', async () => {
   const writes = vi.spyOn(Storage.prototype, 'setItem')
