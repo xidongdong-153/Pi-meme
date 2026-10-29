@@ -1,3 +1,4 @@
+import { validateVisualizationState } from '@pi-meme/contracts/visualize'
 import type { GoalService } from '@pi-meme/goals/server/service'
 import type { ActivityService } from '@pi-meme/activities/server/service'
 import { isLiveServiceActivity } from '@pi-meme/contracts/service-activity'
@@ -42,6 +43,7 @@ import type { CollaborationBridge } from '@pi-meme/contracts/collaboration'
 import { ControlStore, ControlError, createControlStorePaths, type ControlStorePaths } from './control-store'
 
 type Options = {
+  visualizations?: (sessionKey: string) => import('@pi-meme/visualize/server/store').VisualizationStore
   models?: import('@pi-meme/contracts/model-config').ModelsReadonlyApi
   imageGeneration?: import('@pi-meme/contracts/image-generation').ImageGenerationApi
   schedules?: import('@pi-meme/schedules/server/service').ScheduleService
@@ -404,7 +406,10 @@ export async function createAppControl(options: Options) {
           if (run.cancelled) return
           if (pending.goal) await pi.continueGoalTask(key, input.text, pending.goal)
           else if (input.delivery === 'steer')
-            await pi.steer(key, input.text, input.images, input.skills, { mode: input.mode })
+            await pi.steer(key, input.text, input.images, input.skills, {
+              mode: input.mode,
+              visualization: input.visualization,
+            })
           else
             await pi.prompt(
               key,
@@ -414,6 +419,7 @@ export async function createAppControl(options: Options) {
               messageOptions({
                 mode: input.mode,
                 plan: input.plan,
+                visualization: input.visualization,
                 model: input.model,
                 thinkingLevel: input.thinkingLevel,
                 clientProcessingAudit: input.clientProcessingAudit,
@@ -487,6 +493,14 @@ export async function createAppControl(options: Options) {
       await collaboration.resolveSessionPlan(key, input.plan.reference)
       if (input.plan.intent === 'execute' && pi.getSessionContext(key).accessMode === 'read-only')
         throw new Error('请先选择允许实施的访问权限')
+    }
+    if (input.visualization) {
+      if (!options.visualizations) throw new Error('当前 Host 不支持草图')
+      const file = session.sessionFile ?? pi.getSessionContext(key).sessionFile
+      const references = file ? ((await readSessionHistory(file)).visualizationReferences ?? []) : []
+      const document = await options.visualizations(key).read(input.visualization.reference, references)
+      validateVisualizationState(input.visualization.state, document)
+      input = { ...input, visualization: structuredClone(input.visualization) }
     }
     const running = active.has(session.sessionId) || busy(key)
     if (input.delivery === 'start' && running) throw new Error('会话正在运行，请使用 queue 或 steer')
@@ -684,6 +698,7 @@ export async function createAppControl(options: Options) {
       hostId,
       fileOperations: ['preview', 'search', 'write'],
       features: [
+        ...(options.visualizations ? ['visualize' as const] : []),
         ...(options.imageGeneration ? ['image-generation' as const] : []),
         ...(options.models ? ['models' as const] : []),
         ...(options.schedules ? ['schedules' as const] : []),
@@ -1330,6 +1345,37 @@ export async function createAppControl(options: Options) {
           await goals.clear(ref, goals.get(ref)!)
         }),
     },
+    visualizations: options.visualizations
+      ? {
+          list: (ref) =>
+            target(
+              ref,
+              async (key, session) => {
+                const history = session.sessionFile ?? pi.getSessionContext(key).sessionFile
+                const refs = history ? ((await readSessionHistory(history)).visualizationReferences ?? []) : []
+                return Promise.all(
+                  refs.map(async (reference) => {
+                    const { html: _html, ...summary } = await options.visualizations!(key).read(reference, refs)
+                    return summary
+                  }),
+                )
+              },
+              clientId,
+            ),
+          get: (ref, reference) =>
+            target(
+              ref,
+              async (key, session) => {
+                const file = session.sessionFile ?? pi.getSessionContext(key).sessionFile
+                return options.visualizations!(key).read(
+                  reference,
+                  file ? ((await readSessionHistory(file)).visualizationReferences ?? []) : [],
+                )
+              },
+              clientId,
+            ),
+        }
+      : undefined,
     plans: { list: (ref) => target(ref, async () => (await options.snapshot()).planDocuments ?? [], clientId) },
   })
   const api = apiFor('host-internal')

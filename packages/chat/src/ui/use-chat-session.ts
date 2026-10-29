@@ -1,3 +1,4 @@
+import type { VisualizationMessageContext } from '@pi-meme/contracts/visualize'
 import { restoreAnnotationAttachments } from './composer/image-attachment'
 import { parseGoalCommand, validateGoalInput, type GoalEdit } from '@pi-meme/contracts/goal'
 import { visibleComposerHint } from './composer/composer-hint'
@@ -439,6 +440,8 @@ export function useChatSession(options: ChatSessionOptions) {
       prepared?: ComposerDraftState,
       records: readonly ComposerProcessingRecord[] = [],
       submittedConfiguration: MessageConfiguration = { ...configurationRef.current },
+      feedback = false,
+      visualization?: VisualizationMessageContext,
     ) => {
       const sourceRevision = composerStore.getSnapshot().revision
       const planAction = prepared?.plan
@@ -477,7 +480,7 @@ export function useChatSession(options: ChatSessionOptions) {
         }
         return false
       }
-      const startingGoal = !planAction && (!!goalDraft || goalCommand?.action === 'start')
+      const startingGoal = !feedback && !planAction && (!!goalDraft || goalCommand?.action === 'start')
       const normalized = planAction
         ? {
             text: draft,
@@ -565,6 +568,7 @@ export function useChatSession(options: ChatSessionOptions) {
             mode: messageMode,
             ...audit,
             ...submittedConfiguration,
+            ...(visualization ? { visualization } : {}),
           })
           if (
             queueEdit.current === queuedEdit &&
@@ -665,19 +669,21 @@ export function useChatSession(options: ChatSessionOptions) {
       if (planAction && (running || editingEntryId !== null || queueEdit.current)) return false
       const sendMode = running ? 'followUp' : 'prompt'
       const generation = currentGeneration()
-      const finishSend = !planAction
-        ? optionsRef.current.onSendStarted?.(sessionKey, {
-            draft,
-            selectedSkills,
-            attachments,
-            queueMode,
-            ...(pluginMentions.length ? { pluginMentions } : {}),
-          })
-        : undefined
+      const finishSend =
+        !feedback && !planAction
+          ? optionsRef.current.onSendStarted?.(sessionKey, {
+              draft,
+              selectedSkills,
+              attachments,
+              queueMode,
+              ...(pluginMentions.length ? { pluginMentions } : {}),
+            })
+          : undefined
       if (attachments.length > 0) setSendingAttachments((current) => [...current, ...attachments])
       onError('')
       dismissComposerHint()
-      if (!planAction) composerStore.patch({ draft: '', selectedSkills: [], pluginMentions: [], attachments: [] })
+      if (!feedback && !planAction)
+        composerStore.patch({ draft: '', selectedSkills: [], pluginMentions: [], attachments: [] })
       const clearedRevision = composerStore.getSnapshot().revision
       if (!running) {
         promptPending.current = true
@@ -721,6 +727,7 @@ export function useChatSession(options: ChatSessionOptions) {
             mode: messageMode,
             ...audit,
             ...submittedConfiguration,
+            ...(visualization ? { visualization } : {}),
           })
         else {
           activeMode.current = messageMode
@@ -728,6 +735,7 @@ export function useChatSession(options: ChatSessionOptions) {
             mode: messageMode,
             ...audit,
             ...submittedConfiguration,
+            ...(visualization ? { visualization } : {}),
           })
         }
         if (planAction && sessionKey === optionsRef.current.currentSessionKey() && generation === currentGeneration())
@@ -737,7 +745,7 @@ export function useChatSession(options: ChatSessionOptions) {
         const sameSession = sessionKey
           ? sessionKey === optionsRef.current.currentSessionKey()
           : generation === currentGeneration()
-        if (!planAction)
+        if (!feedback && !planAction)
           onSendFailed?.(sessionKey, {
             draft,
             selectedSkills,
@@ -746,9 +754,9 @@ export function useChatSession(options: ChatSessionOptions) {
             ...(pluginMentions.length ? { pluginMentions } : {}),
           })
         if (sameSession) {
-          if (!planAction && composerStore.getSnapshot().revision === clearedRevision)
+          if (!feedback && !planAction && composerStore.getSnapshot().revision === clearedRevision)
             composerStore.patch({ draft, selectedSkills, pluginMentions, attachments, queueMode })
-          else if (!planAction)
+          else if (!feedback && !planAction)
             setFailedDrafts((values) => [
               ...values,
               { sessionKey, composer: { draft, selectedSkills, pluginMentions, attachments, queueMode } },
@@ -793,20 +801,22 @@ export function useChatSession(options: ChatSessionOptions) {
   )
 
   const requestSubmit = useCallback(
-    async (plan?: PlanAction, text?: string) => {
+    async (plan?: PlanAction, text?: string, feedback = false, visualization?: VisualizationMessageContext) => {
+      if (feedback && (editingEntryId !== null || queueEdit.current)) return false
       if (preparingSubmission.current || editPending.current || (plan && promptPending.current)) return false
       const original = composerStore.getSnapshot()
-      const source: ComposerDraftState = plan
-        ? {
-            ...original,
-            plan,
-            draft: text ?? '请实施此计划。',
-            selectedSkills: [],
-            pluginMentions: [],
-            pluginAnchors: {},
-            attachments: [],
-          }
-        : original
+      const source: ComposerDraftState =
+        plan || feedback
+          ? {
+              ...original,
+              plan,
+              draft: text ?? '请实施此计划。',
+              selectedSkills: [],
+              pluginMentions: [],
+              pluginAnchors: {},
+              attachments: [],
+            }
+          : original
       if (plan && (chatStream.getSnapshot().running || editingEntryId !== null || queueEdit.current)) return false
       const submittedConfiguration = { ...configurationRef.current }
       const integration = submissionIntegration.current
@@ -820,14 +830,14 @@ export function useChatSession(options: ChatSessionOptions) {
       let ownsPreparation = true
       try {
         const goalCommand =
-          !plan && chatStream.getSnapshot().goalsSupported ? parseGoalCommand(source.draft) : undefined
+          !plan && !feedback && chatStream.getSnapshot().goalsSupported ? parseGoalCommand(source.draft) : undefined
         const controlOnly = goalCommand && goalCommand.action !== 'start'
         const intent: ComposerIntent =
           editingEntryId !== null
             ? 'edit-message'
             : queueEdit.current
               ? 'edit-queue'
-              : !plan && (goalDraft || goalCommand?.action === 'start')
+              : !plan && !feedback && (goalDraft || goalCommand?.action === 'start')
                 ? 'start-goal'
                 : 'message'
         const prepared =
@@ -839,7 +849,13 @@ export function useChatSession(options: ChatSessionOptions) {
         unsubscribe()
         preparingSubmission.current = false
         ownsPreparation = false
-        return await dispatchComposer(prepared.composer, prepared.records, submittedConfiguration)
+        return await dispatchComposer(
+          prepared.composer,
+          prepared.records,
+          submittedConfiguration,
+          feedback,
+          visualization,
+        )
       } finally {
         unsubscribe()
         if (ownsPreparation) preparingSubmission.current = false
@@ -1279,6 +1295,8 @@ export function useChatSession(options: ChatSessionOptions) {
     reset,
     send,
     submitComposer: requestSubmit,
+    submitVisualization: (text: string, context: VisualizationMessageContext) =>
+      requestSubmit(undefined, text, true, structuredClone(context)),
     submitPlan: (plan: PlanAction, text?: string) => requestSubmit(plan, text),
     stop,
     resume,

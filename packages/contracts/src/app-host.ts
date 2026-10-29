@@ -96,6 +96,7 @@ export type AppHostCapabilities = {
     | 'goals'
     | 'activities'
     | 'schedules'
+    | 'visualize'
     | 'image-generation'
     | 'models'
   >
@@ -124,6 +125,13 @@ export type EventPage = { events: HostControlEvent[]; cursor: EventCursor; resyn
 export type EventSubscription = EventFilter & { after?: EventCursor }
 export type HostApi = {
   readonly apiVersion: 2
+  visualizations?: {
+    list: (session: SessionRef) => Promise<Omit<import('./visualize').VisualizationDocument, 'html'>[]>
+    get: (
+      session: SessionRef,
+      reference: import('./visualize').VisualizationRef,
+    ) => Promise<import('./visualize').VisualizationDocument>
+  }
   imageGeneration?: ImageGenerationApi
   models?: ModelsReadonlyApi
   schedules: SchedulesApi

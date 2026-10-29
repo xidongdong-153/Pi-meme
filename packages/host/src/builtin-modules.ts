@@ -1,3 +1,4 @@
+import * as visualize from '@pi-meme/visualize/server/entry'
 import * as browser from '@pi-meme/browser/server/entry'
 import * as schedules from '@pi-meme/schedules/server/entry'
 import * as goals from '@pi-meme/goals/server/entry'
@@ -28,6 +29,7 @@ import { PluginScope } from '@pi-meme/plugin-sdk/scope'
 import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 
 const modules = [
+  visualize,
   browser,
   schedules,
   goals,

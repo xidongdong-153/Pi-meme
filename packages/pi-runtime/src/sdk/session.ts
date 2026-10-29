@@ -1,3 +1,9 @@
+import {
+  validateVisualizationState,
+  validateVisualizationContext,
+  type VisualizationDocument,
+  type VisualizationRef,
+} from '@pi-meme/contracts/visualize'
 import type { SessionWindow } from '@pi-meme/contracts/sessions'
 import { projectSessionWindow, projectSessionDetails } from '@pi-meme/contracts/session-window'
 import {
@@ -118,6 +124,7 @@ function toModel(model: SessionModel | undefined): PiModel | undefined {
  * 替换后通过 `setRebindSession` 重新订阅事件并绑定扩展。
  */
 export type RuntimePolicy = {
+  readVisualization?: (reference: VisualizationRef) => Promise<VisualizationDocument>
   planTools?: Map<string, PlanToolSource>
   resolvePlan?: (reference: PlanRef, signal: AbortSignal) => Promise<PlanDocument>
   syncPlan?: (force?: boolean) => Promise<PlanState>
@@ -577,7 +584,7 @@ export class SdkSession {
               extension.name.startsWith('restricted-agent:') ||
               extension.name === 'pi-meme-collaboration' ||
               extension.name === 'pi-meme-user-input' ||
-              ['pi-meme-codemode', 'pi-meme-mcp', 'pi-meme-tool-search'].includes(extension.name)),
+              ['pi-meme-visualize', 'pi-meme-codemode', 'pi-meme-mcp', 'pi-meme-tool-search'].includes(extension.name)),
         ),
         ...(!restricted ? [createTurnChangesExtension(sdk, cwd)] : []),
         ...(this.policy.resourceSnapshot ? [createSkillUsageExtension(this.policy.resourceSnapshot)] : []),
@@ -1408,6 +1415,12 @@ export class SdkSession {
     editEntryId?: string,
     failureEntryId?: string,
   ) {
+    if (options?.visualization) {
+      validateVisualizationContext(options.visualization)
+      if (!this.policy.readVisualization) throw new Error('当前运行时不支持草图上下文')
+      const document = await this.policy.readVisualization(options.visualization.reference)
+      validateVisualizationState(options.visualization.state, document)
+    }
     const stoppedBeforePrompt = this.stopped
     const normalized = options?.plan
       ? { text: message, mode: options.mode ?? this.mode, commandOnly: false }
@@ -1554,6 +1567,14 @@ export class SdkSession {
           if (!edit && this.policy.syncPlan) planDocument = (await this.syncPlan())?.document
           if (planDocument && !edit) this.planReference = { id: planDocument.id, revision: planDocument.revision }
         }
+      }
+      if (options?.visualization) {
+        this.session.sessionManager.appendCustomMessageEntry(
+          'pi-meme-visualization-context',
+          `当前草图引用与预览状态：${JSON.stringify(options.visualization)}。使用 read_visualization 读取此版本后调整。`,
+          false,
+          structuredClone(options.visualization),
+        )
       }
       if (planDocument) {
         this.session.sessionManager.appendCustomMessageEntry(
@@ -1791,6 +1812,14 @@ export class SdkSession {
     skills: SkillReference[] = [],
     options?: MessageOptions,
   ) {
+    if (options?.visualization) {
+      validateVisualizationContext(options.visualization)
+      if (!this.policy.readVisualization) throw new Error('当前运行时不支持草图上下文')
+      validateVisualizationState(
+        options.visualization.state,
+        await this.policy.readVisualization(options.visualization.reference),
+      )
+    }
     if (options?.plan) throw new Error('计划操作不能插话或排队，请等待当前任务完成')
     const normalized = normalizePlanMessage(message, options?.mode ?? this.mode)
     this.mode = normalized.mode
@@ -1807,8 +1836,15 @@ export class SdkSession {
       images,
       skills,
       clientProcessingAudit: options?.clientProcessingAudit,
+      visualization: options?.visualization ? structuredClone(options.visualization) : undefined,
     }
-    if (kind === 'followUp' || normalized.mode === 'plan' || normalized.mode !== this.activeMode || !this.running) {
+    if (
+      options?.visualization ||
+      kind === 'followUp' ||
+      normalized.mode === 'plan' ||
+      normalized.mode !== this.activeMode ||
+      !this.running
+    ) {
       await this.withQueueLock(() => {
         this.ownQueue[kind].push(input)
         this.emitQueue()
@@ -1950,6 +1986,7 @@ export class SdkSession {
         images,
         skills,
         clientProcessingAudit: options?.clientProcessingAudit,
+        visualization: options?.visualization ? structuredClone(options.visualization) : undefined,
         editing: undefined,
         deliveryUncertain: undefined,
       })
@@ -2192,6 +2229,7 @@ export class SdkSession {
           mode: selected.input.mode,
           ...selected.input.configuration,
           clientProcessingAudit: selected.input.clientProcessingAudit,
+          visualization: selected.input.visualization,
         },
         false,
         true,

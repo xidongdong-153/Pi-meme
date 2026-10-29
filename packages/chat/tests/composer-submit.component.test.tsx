@@ -173,3 +173,43 @@ test('计划网络重试沿用原提交标识，失败不覆盖草稿', async ()
   expect(submitPlan.mock.calls[0]).toEqual(submitPlan.mock.calls[1])
   expect(bridge.prompt).not.toHaveBeenCalled()
 })
+
+test('草图反馈复用发送守卫并保留主草稿，提交状态为独立快照', async () => {
+  const { result, bridge } = fixture()
+  const context = { reference: { id: '12345678-1234-1234-1234-123456789012', revision: 1 }, state: { stage: 'ready' } }
+  const prepare = vi.fn(async (source: ComposerDraftState) => ({ composer: source, records: [] }))
+  act(() => {
+    result.current.setDraft('主输入框的未发送文字')
+    result.current.setSubmissionIntegration({ blocked: () => undefined, prepare })
+  })
+  await act(async () => {
+    expect(await result.current.submitVisualization('请调整当前草图', context)).toBe(true)
+  })
+  context.state.stage = 'changed'
+  expect(prepare).toHaveBeenCalledOnce()
+  expect(bridge.prompt).toHaveBeenCalledWith('session', '请调整当前草图', [], [], {
+    mode: 'default',
+    visualization: { reference: context.reference, state: { stage: 'ready' } },
+  })
+  expect(result.current.draft).toBe('主输入框的未发送文字')
+})
+
+test('运行中草图反馈排队，失败不覆盖主输入框', async () => {
+  const { result, bridge } = fixture({ followUp: vi.fn().mockRejectedValue(new Error('发送失败')) })
+  act(() => {
+    result.current.applyEvent({ type: 'agent_start' })
+    result.current.setDraft('保留主稿')
+  })
+  await act(async () => {
+    expect(
+      await result.current.submitVisualization('继续调整草图', {
+        reference: { id: '12345678-1234-1234-1234-123456789012', revision: 1 },
+        state: {},
+      }),
+    ).toBe(false)
+  })
+  expect(bridge.followUp).toHaveBeenCalledOnce()
+  expect(bridge.prompt).not.toHaveBeenCalled()
+  expect(result.current.draft).toBe('保留主稿')
+  expect(result.current.failedDrafts).toEqual([])
+})

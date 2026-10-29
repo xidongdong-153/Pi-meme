@@ -30,6 +30,8 @@ const reservedTools = new Set([
   'list_agents',
   'list_agent_models',
   'interrupt_agent',
+  'save_visualization',
+  'read_visualization',
   'save_plan',
   'get_goal',
   'update_goal',

@@ -1,3 +1,4 @@
+import { VisualizationRenderer } from '@pi-meme/ui/components/visualization-renderer'
 import * as React from 'react'
 import { PluginToolCard } from '@pi-meme/ui/components/plugin-tool-card'
 import { PluginMessageActions } from '@pi-meme/ui/components/plugin-message-actions'
@@ -128,6 +129,14 @@ export function ToolActivityRow({
 
   return (
     <div className={cn('text-xs select-none', className)}>
+      {item.name === 'save_visualization' &&
+        !isRunning &&
+        !isError &&
+        (item.result as { details?: { visualization?: unknown } } | undefined)?.details?.visualization != null && (
+          <VisualizationRenderer
+            reference={(item.result as { details: { visualization: unknown } }).details.visualization}
+          />
+        )}
       <div className="flex min-w-0 items-center gap-1">
         <div
           role={hasDetail ? 'button' : undefined}

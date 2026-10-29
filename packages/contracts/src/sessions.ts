@@ -53,6 +53,7 @@ export type SessionWindow = { limit: number; before?: string; from?: string; det
 export type SessionMessagePage = { before: string }
 
 export type SessionHistoryData = {
+  visualizationReferences?: import('./visualize').VisualizationRef[]
   historyRevision?: string
   historyDetails?: 'complete' | 'deferred'
   totalMessages?: number

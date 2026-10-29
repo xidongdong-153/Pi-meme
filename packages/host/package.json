@@ -57,7 +57,8 @@
     "ws": "^8.18.3",
     "@pi-meme/schedules": "workspace:*",
     "@pi-meme/browser": "workspace:*",
-    "@pi-meme/image-generation": "workspace:*"
+    "@pi-meme/image-generation": "workspace:*",
+    "@pi-meme/visualize": "workspace:*"
   },
   "devDependencies": {
     "@earendil-works/chord": "1.1.0",

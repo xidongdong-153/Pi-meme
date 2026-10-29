@@ -1,6 +1,11 @@
 import type { UiPluginDescriptor } from './ui'
 
 export const systemPlugins: UiPluginDescriptor[] = [
+  {
+    id: '@pi-meme/visualize',
+    display: { name: '草图' },
+    description: '生成交互草图，预览状态并通过当前会话调整设计。',
+  },
   { id: '@pi-meme/git', display: { name: '变更' }, description: '查看当前会话目录的 Git 变更与文件差异。' },
   {
     id: '@pi-meme/file-directory',

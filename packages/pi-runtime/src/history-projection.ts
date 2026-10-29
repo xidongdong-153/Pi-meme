@@ -1,3 +1,4 @@
+import { projectBranchVisualizations } from '@pi-meme/contracts/visualize'
 import type { SessionEntry, SessionHeader } from '@earendil-works/pi-coding-agent'
 import type { PiSessionStats, ThinkingLevel } from '@pi-meme/contracts/pi'
 import { projectBranchPlans, type QueuedInput } from '@pi-meme/contracts/plan'
@@ -179,6 +180,7 @@ export async function projectSessionHistory(
     recovery: recovery ? { entryId: recovery.entryId, mode: recovery.mode } : undefined,
     taskControl,
     messages: projectStableMessageMetadata(history, context),
+    visualizationReferences: projectBranchVisualizations(history, history.at(-1)?.id ?? null),
     planCheckpoints: projectBranchPlans(history, history.at(-1)?.id ?? null),
     sessionEntries: {
       entries: projectBranchEntries(history),

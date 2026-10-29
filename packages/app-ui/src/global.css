@@ -85,6 +85,7 @@
 @source '../../terminal/src';
 @source '../../activities/src/ui';
 @source '../../schedules/src/ui';
+@source '../../visualize/src/ui';
 
 @theme {
   --color-background: var(--background);

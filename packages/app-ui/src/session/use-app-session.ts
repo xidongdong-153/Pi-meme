@@ -1363,6 +1363,7 @@ export function useAppSession(
     setSubmissionIntegration: chat.setSubmissionIntegration,
     dispatchPreparedComposer: chat.dispatchPreparedComposer,
     submitPlan: chat.submitPlan,
+    submitVisualization: chat.submitVisualization,
     failedDrafts: chat.failedDrafts,
     restoreFailedDraft: chat.restoreFailedDraft,
     setError,

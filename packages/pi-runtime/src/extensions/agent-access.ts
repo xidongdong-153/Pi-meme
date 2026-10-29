@@ -16,6 +16,8 @@ const allowedTools = new Set([
   'codemode',
   ...collaborationToolNames,
   'request_user_input',
+  'save_visualization',
+  'read_visualization',
   'save_plan',
   'manage_service',
   'image_gen',

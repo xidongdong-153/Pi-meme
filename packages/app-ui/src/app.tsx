@@ -1,3 +1,5 @@
+import { useVisualizations } from '@pi-meme/visualize/ui/use-visualizations'
+import { VisualizationRendererContext } from '@pi-meme/ui/components/visualization-renderer'
 import { LinkedFilePanel, type LinkedFileTab } from './panels/linked-file-panel'
 import { FileIcon } from '@pi-meme/ui/components/file-icon'
 import { MarkdownLinkContext } from '@pi-meme/chat/ui/content/markdown-link'
@@ -1446,6 +1448,13 @@ export function App({
   const openTool = (id: string) => {
     setSystemRequest({ id, revision: Date.now(), target: pluginProps.target })
   }
+  const visualize = useVisualizations({
+    host,
+    session: appSession,
+    revision: `${chat.chat.messages.length}:${chat.chat.sessionEntries?.leafId ?? ''}`,
+    openPanel: () => openTool('builtin:visualize'),
+    onSubmit: (text, context) => chat.submitVisualization(text, context),
+  })
   const [browserFocus, setBrowserFocus] = useState(0)
   const [browserSettingsTarget, setBrowserSettingsTarget] = useState<'general' | 'history' | 'downloads' | 'clear'>(
     'general',
@@ -1543,6 +1552,18 @@ export function App({
     return () => document.removeEventListener('click', follow, true)
   }, [browserPlatform, browserOwner, active, chatVisible, chat.setError])
   const panels: UiPanel[] = [
+    ...(visualize.available
+      ? [
+          {
+            id: 'builtin:visualize',
+            title: '草图',
+            icon: <NotebookPen />,
+            location: 'right' as const,
+            scope: 'session' as const,
+            render: () => visualize.panel,
+          },
+        ]
+      : []),
     ...fileTabs.map((tab): UiPanel => ({
       id: tab.id,
       title: tab.path.split(/[\\/]/).at(-1) || tab.path,
@@ -2528,5 +2549,9 @@ export function App({
       </TooltipProvider>
     </PluginRenderers>
   )
-  return <MarkdownLinkContext value={markdownLinks}>{content}</MarkdownLinkContext>
+  return (
+    <VisualizationRendererContext.Provider value={visualize.render}>
+      <MarkdownLinkContext value={markdownLinks}>{content}</MarkdownLinkContext>
+    </VisualizationRendererContext.Provider>
+  )
 }

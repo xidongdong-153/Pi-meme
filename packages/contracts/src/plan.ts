@@ -12,6 +12,7 @@ export type ClientProcessingAudit = {
   userConfirmedAt?: string
 }
 export type MessageOptions = MessageConfiguration & {
+  visualization?: import('./visualize').VisualizationMessageContext
   mode?: TaskMode
   plan?: PlanAction
   clientProcessingAudit?: readonly ClientProcessingAudit[]
@@ -21,6 +22,7 @@ export type EditMessageOptions = MessageOptions & MessageConfiguration
 /** 覆盖失败时仍返回已取出的队列，供发起编辑的窗口恢复。 */
 export type EditMessageResult = { recoveredInputs: QueuedInput[]; error?: string }
 export type QueuedInput = {
+  visualization?: import('./visualize').VisualizationMessageContext
   id: string
   editing?: boolean
   submitted?: boolean

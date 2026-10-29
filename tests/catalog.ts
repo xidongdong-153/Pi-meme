@@ -35,6 +35,8 @@ export interface TestSuite {
 }
 
 const files: Array<[string, Feature[]]> = [
+  ['packages/host/tests/visualize.integration.test.ts', ['chat', 'plan', 'permissions']],
+  ['packages/visualize/tests/store.integration.test.ts', ['chat', 'plan']],
   ['packages/app-ui/tests/linked-file-panel.component.test.tsx', ['chat', 'files']],
   ['packages/chat/tests/markdown-links.component.test.tsx', ['chat', 'files']],
   ['packages/host/tests/link-preview.unit.test.ts', ['chat', 'connection']],

@@ -42,7 +42,8 @@
     "./schedules": "./src/schedules.ts",
     "./browser": "./src/browser.ts",
     "./browser-annotations": "./src/browser-annotations.ts",
-    "./image-generation": "./src/image-generation.ts"
+    "./image-generation": "./src/image-generation.ts",
+    "./visualize": "./src/visualize.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit"

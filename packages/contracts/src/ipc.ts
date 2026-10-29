@@ -1,3 +1,4 @@
+import { validateVisualizationContext } from './visualize'
 import { isTaskMode, type MessageOptions, type EditMessageOptions } from './plan'
 import type { SkillReference } from './skills'
 import { thinkingLevels, type PiImage } from './pi'
@@ -50,10 +51,13 @@ export function messageOptions(value: unknown): MessageOptions | undefined {
     !value ||
     typeof value !== 'object' ||
     Array.isArray(value) ||
-    Object.keys(value).some((key) => !['mode', 'plan', 'clientProcessingAudit', 'model', 'thinkingLevel'].includes(key))
+    Object.keys(value).some(
+      (key) => !['mode', 'plan', 'visualization', 'clientProcessingAudit', 'model', 'thinkingLevel'].includes(key),
+    )
   )
     throw new Error('消息模式参数无效')
-  const { mode, plan, clientProcessingAudit, model, thinkingLevel } = value as MessageOptions
+  const { mode, plan, visualization, clientProcessingAudit, model, thinkingLevel } = value as MessageOptions
+  if (visualization !== undefined) validateVisualizationContext(visualization)
   if (mode !== undefined && !isTaskMode(mode)) throw new Error('消息模式无效')
   if (plan !== undefined) {
     if (
@@ -105,6 +109,7 @@ export function messageOptions(value: unknown): MessageOptions | undefined {
   return {
     mode,
     ...(plan ? { plan } : {}),
+    ...(visualization ? { visualization: structuredClone(visualization) } : {}),
     ...(clientProcessingAudit === undefined ? {} : { clientProcessingAudit }),
     ...(model ? { model: { provider: model.provider, id: model.id } } : {}),
     ...(thinkingLevel !== undefined ? { thinkingLevel } : {}),

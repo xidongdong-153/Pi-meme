@@ -72,6 +72,8 @@ export function createRestrictedAgent(options: {
         'codemode',
         'tool_search',
         'request_user_input',
+        'save_visualization',
+        'read_visualization',
         'save_plan',
         'spawn_agent',
         'send_message',

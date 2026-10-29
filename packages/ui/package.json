@@ -37,7 +37,8 @@
     "./components/ui/dropdown-menu": "./src/components/ui/dropdown-menu.tsx",
     "./components/plugin-tool-card": "./src/components/plugin-tool-card.tsx",
     "./components/plugin-message": "./src/components/plugin-message.tsx",
-    "./components/plugin-message-actions": "./src/components/plugin-message-actions.tsx"
+    "./components/plugin-message-actions": "./src/components/plugin-message-actions.tsx",
+    "./components/visualization-renderer": "./src/components/visualization-renderer.tsx"
   },
   "scripts": {
     "type-check": "tsc --noEmit"

@@ -1,3 +1,4 @@
+import { VisualizationRenderer } from '@pi-meme/ui/components/visualization-renderer'
 import * as React from 'react'
 import type { ExtraProps } from 'react-markdown'
 import { cn } from '@pi-meme/ui/lib/utils'
@@ -14,6 +15,13 @@ function MarkdownPre({ children }: React.ComponentPropsWithoutRef<'pre'>) {
   if (!React.isValidElement<React.ComponentPropsWithoutRef<'code'>>(child)) return <pre>{children}</pre>
   const language = /(?:^|\s)language-(\S+)/.exec(child.props.className ?? '')?.[1]
   const code = String(child.props.children ?? '').replace(/\n$/, '')
+  if (language === 'visualize' && !isStreaming) {
+    try {
+      return <VisualizationRenderer reference={JSON.parse(code)} />
+    } catch {
+      return <p>草图引用无效。</p>
+    }
+  }
   return language?.toLowerCase() === 'mermaid' ? (
     <MermaidBlock code={code} isStreaming={isStreaming} />
   ) : (

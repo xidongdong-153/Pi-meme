@@ -1,3 +1,4 @@
+import { create as createVisualize } from '@pi-meme/visualize/agent/entry'
 import { create as createGoals } from '@pi-meme/goals/agent/entry'
 import { create as createActivities } from '@pi-meme/activities/agent/entry'
 import { runSessionWorker } from '@pi-meme/pi-adapter/session-worker'
@@ -13,6 +14,7 @@ import { create as createMcp } from '@pi-meme/mcp/agent/entry'
 import { create as createSubagents } from '@pi-meme/subagents/agent/entry'
 
 runSessionWorker({
+  '@pi-meme/visualize': createVisualize,
   '@pi-meme/goals': createGoals,
   '@pi-meme/activities': createActivities,
   '@pi-meme/permissions': createPermissions,

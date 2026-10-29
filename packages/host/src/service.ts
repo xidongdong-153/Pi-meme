@@ -1,3 +1,5 @@
+import { projectBranchVisualizations } from '@pi-meme/contracts/visualize'
+import { VisualizationStore } from '@pi-meme/visualize/server/store'
 import { ImageConfigStore } from '@pi-meme/image-generation/server/config-store'
 import { ImageGenerationService } from '@pi-meme/image-generation/server/service'
 import { Readable } from 'node:stream'
@@ -484,6 +486,17 @@ export async function createHost(options: HostOptions = {}) {
         for (const subscriber of subscribers)
           subscriber({ hostId, type: 'resources-changed', value: { generation: resourceGeneration } })
     }
+    const visualizations = new VisualizationStore(path.join(root, 'state/modules/%40pi-meme%2Fvisualize/artifacts'))
+    const temporaryVisualizations = new Map<string, VisualizationStore>()
+    const visualizationStore = (temporaryRoot?: string) => {
+      if (!temporaryRoot) return visualizations
+      let store = temporaryVisualizations.get(temporaryRoot)
+      if (!store) {
+        store = new VisualizationStore(path.join(temporaryRoot, 'visualize'))
+        temporaryVisualizations.set(temporaryRoot, store)
+      }
+      return store
+    }
     const imageGeneration = new ImageGenerationService(
       new ImageConfigStore(storagePaths.agentImageGenerationFile, credentials),
       (name, bytes, signal, destinationDirectory) =>
@@ -708,6 +721,28 @@ export async function createHost(options: HostOptions = {}) {
             await goals.usage(run, entryId, usage, inputEntryId)
           },
           plugin: (request, signal) => pluginBridge.dispatch(request, signal),
+          visualize: async (request, signal) => {
+            signal.throwIfAborted()
+            const { entries, leafId } = await session.getEntries()
+            const references = projectBranchVisualizations(entries, leafId)
+            const store = visualizationStore(effectivePaths.temporaryRoot)
+            if (request.action === 'read') return store.read(request.reference, references)
+            const actor = collaboration.goalCaller(session)
+            const assertActive = () => {
+              signal.throwIfAborted()
+              const current = collaboration.goalCaller(session)
+              if (
+                current.runId !== actor.runId ||
+                current.epoch !== actor.epoch ||
+                current.executionGeneration !== actor.executionGeneration ||
+                !['running', 'waiting_children', 'waiting_input'].includes(current.status)
+              )
+                throw new Error('草图请求来自已结束或过期执行')
+            }
+            assertActive()
+            if (request.action !== 'save') throw new Error('草图请求无效')
+            return store.save(request.input, `${sessionKey}:${actor.runId}:${request.callId}`, references, assertActive)
+          },
           imageGeneration: async (request, signal) => {
             const actor = collaboration.goalCaller(session)
             const permitted = actor.mode !== 'plan' && actor.accessMode !== 'read-only'
@@ -908,6 +943,7 @@ export async function createHost(options: HostOptions = {}) {
         }
 
         await rm(info.temporaryRoot, { recursive: true, force: true })
+        temporaryVisualizations.delete(info.temporaryRoot)
 
         for (const [key, owner] of [...temporarySessionOwners.entries()]) {
           if (
@@ -1275,6 +1311,7 @@ export async function createHost(options: HostOptions = {}) {
       },
       'host.resources': { store: resources, getCwd: () => pi.cwd, hostId },
       'host.image-generation': imageGeneration,
+      'host.visualize': visualizations,
       'host.models': { pi, models, agentDir: paths.agentDir, service: modelService },
       'host.settings': {
         pi,
@@ -1695,6 +1732,7 @@ export async function createHost(options: HostOptions = {}) {
       'host.schedules.runtime'
     ] as import('@pi-meme/schedules/server/service').ScheduleService
     appControl = await createAppControl({
+      visualizations: (key) => visualizationStore(temporaryPathsBySessionKey.get(key)?.temporaryRoot),
       models: { list: () => modelService.list() },
       imageGeneration: {
         getConfig: () => imageGeneration.config.snapshot(),

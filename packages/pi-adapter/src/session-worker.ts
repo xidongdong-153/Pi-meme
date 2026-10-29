@@ -1,3 +1,5 @@
+import { projectBranchVisualizations } from '@pi-meme/contracts/visualize'
+import type { VisualizationRequest, VisualizationDocument } from '@pi-meme/contracts/visualize'
 import type { Goal, GoalRequest, GoalRun } from '@pi-meme/contracts/goal'
 import type { ImageGenerationRequest, ImageGenerationReply } from '@pi-meme/contracts/image-generation'
 import type { ServiceActivityRequest, ServiceActivityResult } from '@pi-meme/contracts/service-activity'
@@ -21,6 +23,7 @@ import { loadPiSdk, loadPiAgentCore } from '@pi-meme/pi-runtime/sdk/load'
 import { createStreamCoalescer } from './stream-coalescer'
 
 export type SessionWorkerContext = {
+  requestVisualization: (request: VisualizationRequest, signal?: AbortSignal) => Promise<VisualizationDocument>
   sdk: typeof import('@earendil-works/pi-coding-agent')
   agentCore: typeof import('@earendil-works/pi-agent-core')
   paths: ReturnType<typeof createPiRuntimePaths>
@@ -99,6 +102,12 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
   }
   const stream = createStreamCoalescer((value) => send({ notify: 'event', value }))
   const policy: RuntimePolicy = {
+    readVisualization: async (reference) => {
+      const { entries, leafId } = await session.getEntries()
+      return hostRequest('visualize', {
+        visualizationRequest: { action: 'read', reference, references: projectBranchVisualizations(entries, leafId) },
+      }) as Promise<VisualizationDocument>
+    },
     planTools: new Map(),
     resolvePlan: (reference, signal) => hostRequest('resolvePlan', { reference }, signal) as Promise<PlanDocument>,
     syncPlan: (force) => hostRequest('syncPlan', { force }) as Promise<PlanState>,
@@ -153,6 +162,7 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
       | 'admission'
       | 'goal'
       | 'goalUsage'
+      | 'visualize'
       | 'image-generation'
       | 'activity'
       | 'plugin',
@@ -193,6 +203,8 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
           resourceSnapshot: data.resourceSnapshot,
           taskMode: () => session.getTaskMode(),
           accessMode: () => session.getAccessMode(),
+          requestVisualization: (visualizationRequest: VisualizationRequest, signal?: AbortSignal) =>
+            hostRequest('visualize', { visualizationRequest }, signal) as Promise<VisualizationDocument>,
           requestImageGeneration: (imageRequest, signal) =>
             hostRequest('image-generation', { imageRequest }, signal) as Promise<ImageGenerationReply>,
           planSandbox: () => session.getPlanSandbox(),

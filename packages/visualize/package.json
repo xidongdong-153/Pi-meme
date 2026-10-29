@@ -1,0 +1,29 @@
+{
+  "name": "@pi-meme/visualize",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./agent/entry": "./src/agent/entry.ts",
+    "./server/store": "./src/server/store.ts",
+    "./ui/use-visualizations": "./src/ui/use-visualizations.tsx",
+    "./server/entry": "./src/server/entry.ts"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@pi-meme/contracts": "workspace:*",
+    "@earendil-works/pi-coding-agent": "1.3.0",
+    "typebox": "1.3.27",
+    "@pi-meme/ui": "workspace:*",
+    "lucide-react": "^1.48.0"
+  },
+  "peerDependencies": {
+    "react": "^19.3.0"
+  },
+  "devDependencies": {
+    "react": "^19.3.0",
+    "vitest": "5.0.5"
+  }
+}

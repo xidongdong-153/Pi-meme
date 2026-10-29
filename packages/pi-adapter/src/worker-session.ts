@@ -1,3 +1,4 @@
+import type { VisualizationRequest, VisualizationDocument } from '@pi-meme/contracts/visualize'
 import type { Goal, GoalControl, GoalRequest, GoalRun, PromptOrigin } from '@pi-meme/contracts/goal'
 import {
   imageGenerationCredentialPrefix,
@@ -39,6 +40,7 @@ export type WorkerOptions = {
   resolvePlan?: (reference: PlanRef, signal: AbortSignal) => Promise<PlanDocument>
   goal?: (request: GoalRequest, run: GoalRun | undefined, signal: AbortSignal) => Promise<Goal | undefined>
   goalUsage?: (run: GoalRun, entryId: string, usage: unknown, inputEntryId?: string) => Promise<void>
+  visualize?: (request: VisualizationRequest, signal: AbortSignal) => Promise<VisualizationDocument>
   imageGeneration?: (request: ImageGenerationRequest, signal: AbortSignal) => Promise<ImageGenerationReply>
   activity?: (request: ServiceActivityRequest, signal: AbortSignal) => Promise<ServiceActivityResult>
   credentials: SecureCredentialStorage & { flush?: () => Promise<void> }
@@ -139,11 +141,13 @@ export function createWorkerSession(
               | 'admission'
               | 'goal'
               | 'goalUsage'
+              | 'visualize'
               | 'image-generation'
               | 'activity'
               | 'plugin'
             reference?: PlanRef
             pluginRequest?: PluginRuntimeRequest
+            visualizationRequest?: VisualizationRequest
             imageRequest?: ImageGenerationRequest
             activityRequest?: ServiceActivityRequest
             message?: string
@@ -197,6 +201,10 @@ export function createWorkerSession(
               if (request.kind === 'goalUsage') {
                 if (!options.goalUsage || !request.goalRun || !request.entryId) throw new Error('目标用量桥未配置')
                 return options.goalUsage(request.goalRun, request.entryId, request.usage, request.inputEntryId)
+              }
+              if (request.kind === 'visualize') {
+                if (!options.visualize || !request.visualizationRequest) throw new Error('草图服务未配置')
+                return options.visualize(request.visualizationRequest, controller.signal)
               }
               if (request.kind === 'image-generation') {
                 if (!options.imageGeneration || !request.imageRequest) throw new Error('图片生成服务桥未配置')
