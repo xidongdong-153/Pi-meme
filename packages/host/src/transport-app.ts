@@ -18,6 +18,8 @@ import type { createTransportAuth } from './transport-auth'
 import type { ServerOptions } from './server'
 import { frontendMime, serveFrontend } from './frontend'
 import { ChatAttachmentTooLargeError } from './chat-attachments'
+import { createLinkPreviewLoader } from './link-preview'
+import { previewLinkedFile } from './workspace-files'
 
 type TransportEnv = {
   Bindings: Pick<HttpBindings, 'incoming'> & Partial<Pick<HttpBindings, 'outgoing'>>
@@ -89,6 +91,7 @@ function serviceRegistrationError(cause: unknown) {
 }
 
 function registerRpc(app: Hono<TransportEnv>, { host, remotes, auth }: TransportServices) {
+  const loadLinkPreview = createLinkPreviewLoader()
   app.use('/api/rpc', compress())
   app.use('/api/control', compress())
   app.post('/api/chat/attachments', async (c) => {
@@ -130,6 +133,22 @@ function registerRpc(app: Hono<TransportEnv>, { host, remotes, auth }: Transport
     )
       throw new Error('请求参数无效')
     if (value.hostId && value.hostId !== host.hostId) throw new Error('请求 Host 身份不匹配')
+    if (value.method === 'chat:file-preview') {
+      const ref = value.args[0] as { hostId: string; sessionId: string }
+      const session = await host.control.apiFor(value.clientId).sessions.get(ref)
+      return reply(200, {
+        requestId: value.requestId,
+        hostId: host.hostId,
+        result: await previewLinkedFile(session.cwd, value.args[1] as string),
+      })
+    }
+    if (value.method === 'chat:link-preview') {
+      return reply(200, {
+        requestId: value.requestId,
+        hostId: host.hostId,
+        result: await loadLinkPreview(value.args[0]),
+      })
+    }
     if (value.method.startsWith('host:ssh:')) {
       const canManage = auth.localRequest(c.env.incoming)
       let result: unknown

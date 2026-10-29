@@ -353,6 +353,8 @@ export function SideChatSession({
       sessionKey={chat.connection.sessionKey}
       models={chat.models}
       loadImage={loadImage}
+      cwd={session?.cwd ?? chat.connection.cwd}
+      fileSession={session}
       planState={chat.planState ?? (chat.editing ? null : undefined)}
       renderPlan={(document) => <PlanCard document={document} onOpen={() => setView('plan')} />}
     />

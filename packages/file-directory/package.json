@@ -35,6 +35,7 @@
   },
   "exports": {
     "./ui/files-panel": "./src/ui/files-panel.tsx",
+    "./ui/file-editor": "./src/ui/file-editor.tsx",
     "./ui/file-store": "./src/ui/file-store.ts",
     "./ui/files.css": "./src/ui/files.css"
   }

@@ -4,7 +4,22 @@ import { mkdtemp, mkdir, writeFile, symlink, rm, readdir, realpath } from 'node:
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { maxImagePreviewBytes } from '@pi-meme/contracts/app-host'
-import { createWorkspaceFiles, maxFilePreviewBytes } from '../src/workspace-files'
+import { createWorkspaceFiles, maxFilePreviewBytes, previewLinkedFile } from '../src/workspace-files'
+
+test('显式文件标签可读取工作区外文本，仍限制文件类型和大小', async (t) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'linked-file-'))
+  t.onTestFinished(() => rm(root, { recursive: true, force: true }))
+  await mkdir(path.join(root, 'project'))
+  const filename = path.join(root, 'SKILL.md')
+  await writeFile(filename, '# 技能')
+  const preview = await previewLinkedFile(path.join(root, 'project'), filename)
+  assert.equal(preview.kind, 'text')
+  if (preview.kind === 'text') assert.equal(preview.content, '# 技能')
+  await writeFile(path.join(root, 'large'), Buffer.alloc(maxFilePreviewBytes + 1))
+  assert.equal((await previewLinkedFile(root, 'large')).kind, 'unsupported')
+  await assert.rejects(previewLinkedFile(root, 'project'), /普通文件/)
+  await assert.rejects(previewLinkedFile(root, '\0'), /无效/)
+})
 
 test('文件预览限定目标目录，拒绝越界链接、二进制和过大文件', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'app-files-'))

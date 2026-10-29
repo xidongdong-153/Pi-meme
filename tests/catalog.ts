@@ -35,6 +35,9 @@ export interface TestSuite {
 }
 
 const files: Array<[string, Feature[]]> = [
+  ['packages/app-ui/tests/linked-file-panel.component.test.tsx', ['chat', 'files']],
+  ['packages/chat/tests/markdown-links.component.test.tsx', ['chat', 'files']],
+  ['packages/host/tests/link-preview.unit.test.ts', ['chat', 'connection']],
   ['packages/pi-runtime/tests/turn-changes.integration.test.ts', ['chat', 'git']],
   ['packages/image-generation/tests/config-store.integration.test.ts', ['images', 'models']],
   ['packages/image-generation/tests/service.integration.test.ts', ['images']],

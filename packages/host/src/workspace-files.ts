@@ -53,6 +53,31 @@ async function readBytes(filename: string, maximum: number) {
   }
 }
 
+export async function previewLinkedFile(cwd: string, input: string): Promise<FilePreview> {
+  if (typeof input !== 'string' || !input || input.includes('\0')) throw new Error('文件路径无效')
+  const filename = await realpath(path.resolve(cwd, input))
+  return readPreview(filename, input)
+}
+
+async function readPreview(filename: string, relativePath: string): Promise<FilePreview> {
+  const mime = imageTypes[path.extname(filename).toLowerCase()]
+  const { bytes } = await readBytes(filename, mime ? maxImagePreviewBytes : maxFilePreviewBytes)
+  if (!bytes) return { kind: 'unsupported', relativePath, reason: 'too-large' }
+  if (mime)
+    return {
+      kind: 'image',
+      relativePath,
+      dataUrl: `data:${mime};base64,${bytes.toString('base64')}`,
+      size: bytes.length,
+    }
+  if (bytes.includes(0)) return { kind: 'unsupported', relativePath, reason: 'binary' }
+  try {
+    return { kind: 'text', relativePath, content: text(bytes), revision: revision(bytes) }
+  } catch {
+    return { kind: 'unsupported', relativePath, reason: 'encoding' }
+  }
+}
+
 export function createWorkspaceFiles(
   resolveRoot: ResolveWorkspaceRoot,
   attachmentsRoot?: string | ((ref: WorkspaceRef) => string | string[] | Promise<string | string[]>),
@@ -131,22 +156,7 @@ export function createWorkspaceFiles(
         attachmentsRoot && typeof relative === 'string' && path.isAbsolute(relative)
           ? await attachmentTarget(ref, relative)
           : await target(ref, relative)
-      const mime = imageTypes[path.extname(filename).toLowerCase()]
-      const { bytes } = await readBytes(filename, mime ? maxImagePreviewBytes : maxFilePreviewBytes)
-      if (!bytes) return { kind: 'unsupported', relativePath: relative, reason: 'too-large' }
-      if (mime)
-        return {
-          kind: 'image',
-          relativePath: relative,
-          dataUrl: `data:${mime};base64,${bytes.toString('base64')}`,
-          size: bytes.length,
-        }
-      if (bytes.includes(0)) return { kind: 'unsupported', relativePath: relative, reason: 'binary' }
-      try {
-        return { kind: 'text', relativePath: relative, content: text(bytes), revision: revision(bytes) }
-      } catch {
-        return { kind: 'unsupported', relativePath: relative, reason: 'encoding' }
-      }
+      return readPreview(filename, relative)
     },
     async write(ref: WorkspaceRef, input: FileWriteInput) {
       if (!input || typeof input.content !== 'string' || typeof input.revision !== 'string')

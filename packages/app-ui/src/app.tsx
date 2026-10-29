@@ -1,3 +1,7 @@
+import { LinkedFilePanel, type LinkedFileTab } from './panels/linked-file-panel'
+import { FileIcon } from '@pi-meme/ui/components/file-icon'
+import { MarkdownLinkContext } from '@pi-meme/chat/ui/content/markdown-link'
+import type { LinkPreview } from '@pi-meme/contracts/link-preview'
 import { ImageGenerationSettings } from '@pi-meme/image-generation/ui/image-generation-settings'
 import { RetainedConversations } from './session/retained-conversations'
 import { HistoryDetails } from './session/history-details'
@@ -99,7 +103,7 @@ import {
   NotebookPen,
   GitFork,
 } from 'lucide-react'
-import type { HostApi, AppSession } from '@pi-meme/contracts/app-host'
+import type { HostApi, AppSession, FilePreview, SessionRef } from '@pi-meme/contracts/app-host'
 import { CustomizationPage } from './plugins/customization-page'
 import { PluginPage } from './settings/plugin-page'
 import { SettingsPage, type SettingsSection } from './settings/settings-page'
@@ -187,6 +191,11 @@ export function App({
   }, [registry, pluginConsent])
   const [pluginDescriptors, setPluginDescriptors] = useState<UiPluginDescriptor[]>([])
   const fileStore = useMemo(() => new FileStore(host), [host])
+  const [fileTabs, setFileTabs] = useState<LinkedFileTab[]>([])
+  const loadLinkedFile = useCallback(
+    (session: SessionRef, path: string) => call<FilePreview>('chat:file-preview', [session, path]),
+    [call],
+  )
   const [terminalPanel, setTerminalPanel] = useState<UiPanel>()
   const [systemRequest, setSystemRequest] = useState<{ id: string; revision: number; target: UiTarget }>()
   useEffect(() => () => fileStore.dispose(), [fileStore])
@@ -790,6 +799,28 @@ export function App({
     })
   })
   const [preferredApp, setPreferredApp] = useState<ProjectApp['id']>('finder')
+  const markdownLinks = useMemo(
+    () => ({
+      loadPreview: (url: string) => call<LinkPreview>('chat:link-preview', [url]),
+      openFile: async (path: string, location?: { line?: string; column?: string; session?: SessionRef }) => {
+        const session = location?.session ?? appSession
+        if (!session) throw new Error('当前内容没有可用的会话文件读取器')
+        const id = `builtin:file:${JSON.stringify([session.hostId, session.sessionId, path])}`
+        const tab: LinkedFileTab = {
+          id,
+          path,
+          session,
+          line: location?.line ? Number(location.line) : undefined,
+          column: location?.column ? Number(location.column) : undefined,
+        }
+        setFileTabs((tabs) =>
+          tabs.some((item) => item.id === id) ? tabs.map((item) => (item.id === id ? tab : item)) : [...tabs, tab],
+        )
+        setSystemRequest({ id, revision: Date.now(), target: pluginProps.target })
+      },
+    }),
+    [call, appSession, pluginProps.target],
+  )
   const ready = chat.connection.status === 'ready' || chat.connection.status === 'idle'
   const bootComplete = !chat.loading && (ready || chat.connection.status === 'disconnected' || Boolean(chat.error))
   useEffect(() => {
@@ -1331,6 +1362,8 @@ export function App({
             sessionKey: chat.connection.sessionKey,
             models: chat.models,
             loadImage: loadConversationImage,
+            cwd: appSession?.cwd ?? cwd,
+            fileSession: appSession,
             turnChanges: turnChanges.turns,
             onViewChanges: viewChanges,
             onUndoChanges: turnChanges.undo,
@@ -1509,6 +1542,16 @@ export function App({
     return () => document.removeEventListener('click', follow, true)
   }, [browserPlatform, browserOwner, active, chatVisible, chat.setError])
   const panels: UiPanel[] = [
+    ...fileTabs.map((tab): UiPanel => ({
+      id: tab.id,
+      title: tab.path.split(/[\\/]/).at(-1) || tab.path,
+      icon: <FileIcon path={tab.path} />,
+      location: 'right',
+      scope: 'app',
+      render: () => (
+        <LinkedFilePanel tab={tab} load={loadLinkedFile} bridge={bridge} local={Boolean(hostLocal && localPlatform)} />
+      ),
+    })),
     ...browser.tabs.map((tab) => ({
       id: `builtin:browser:${tab.id}`,
       title: tab.title || '新网页',
@@ -1760,7 +1803,7 @@ export function App({
   )
   if (!active) return null
 
-  return (
+  const content = (
     <PluginRenderers registry={registry} props={pluginProps}>
       <TooltipProvider delayDuration={200}>
         <main
@@ -1796,6 +1839,7 @@ export function App({
               onNewWebPage={browserPlatform && browser.ready ? () => void browser.create() : undefined}
               browserPanelIds={browser.tabs.map((tab) => `builtin:browser:${tab.id}`)}
               onClosePanel={(id) => {
+                if (id.startsWith('builtin:file:')) setFileTabs((tabs) => tabs.filter((tab) => tab.id !== id))
                 if (id === sideChatTabId) return closeSideChat()
                 if (id.startsWith('builtin:browser:')) void browser.close(id.slice(16))
               }}
@@ -2483,4 +2527,5 @@ export function App({
       </TooltipProvider>
     </PluginRenderers>
   )
+  return <MarkdownLinkContext value={markdownLinks}>{content}</MarkdownLinkContext>
 }

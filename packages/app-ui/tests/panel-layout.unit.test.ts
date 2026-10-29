@@ -16,6 +16,12 @@ import {
   toolsTabId,
 } from '../src/layout/panel-layout'
 
+test('文件预览标签不写入持久布局，避免恢复没有读取目标的空标签', () => {
+  const layout = openPanel(openPanel(defaultPanelLayout(), 'builtin:files'), 'builtin:file:example')
+  assert.deepEqual(sanitizePanelLayout(layout).tabs, ['builtin:files'])
+  assert.deepEqual(readPanelLayout(JSON.stringify(layout)).tabs, ['builtin:files'])
+})
+
 test('右侧标签按 Host 与会话隔离，保存顺序、选中项和宽度', () => {
   assert.notEqual(panelStorageKey('local', 'chat'), panelStorageKey('remote', 'chat'))
   assert.notEqual(panelStorageKey('local', 'one'), panelStorageKey('local', 'two'))

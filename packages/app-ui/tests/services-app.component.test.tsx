@@ -11,6 +11,7 @@ import { ServicesApp } from '../src/shell/services-app'
 const controllers = new Map<string, ServiceController>()
 const removalErrors: unknown[] = []
 const liveBridges = new Map<string, DesktopBridge>()
+const rpcCallbacks: unknown[] = []
 
 function LiveApp({ serviceUI, bridge }: { serviceUI: ServiceUI; bridge: DesktopBridge }) {
   const chat = useAppSession(bridge, { chatEnabled: false, workspaceEnabled: false })
@@ -29,7 +30,8 @@ function LiveApp({ serviceUI, bridge }: { serviceUI: ServiceUI; bridge: DesktopB
 }
 
 vi.mock('../src/app', () => ({
-  App: ({ serviceUI }: { serviceUI: ServiceUI }) => {
+  App: ({ serviceUI, call }: { serviceUI: ServiceUI; call: unknown }) => {
+    if (serviceUI.serviceId === 'local') rpcCallbacks.push(call)
     const { serviceId, onController } = serviceUI
     useEffect(() => {
       onController(serviceId, controllers.get(serviceId)!)
@@ -64,6 +66,7 @@ afterEach(() => {
   controllers.clear()
   liveBridges.clear()
   removalErrors.length = 0
+  rpcCallbacks.length = 0
 })
 
 async function setup(
@@ -117,7 +120,7 @@ async function setup(
     saveSidebarPreferences: vi.fn().mockResolvedValue(preferences),
     prefetchSession: vi.fn().mockResolvedValue(undefined),
   }
-  const client = { bridge }
+  const client = { bridge, rpc: vi.fn() }
   const removeSsh = vi.fn().mockResolvedValue(undefined)
   const registry = {
     ssh: { remove: removeSsh },
@@ -138,6 +141,15 @@ async function setup(
   await act(async () => {})
   return { controller: controllers.get(target)!, source: controllers.get('local')!, removeSsh }
 }
+
+test('服务状态刷新不重建 App 的 RPC 回调，避免文件标签重复读取', async () => {
+  await setup('local', 'connected')
+  const original = rpcCallbacks.at(-1)
+  const count = rpcCallbacks.length
+  fireEvent.click(screen.getByRole('button', { name: '切换远程定时任务' }))
+  await waitFor(() => expect(rpcCallbacks.length).toBeGreaterThan(count))
+  expect(rpcCallbacks.at(-1)).toBe(original)
+})
 
 test.each([
   ['local', 'connecting'],

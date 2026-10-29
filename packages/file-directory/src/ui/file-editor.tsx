@@ -61,13 +61,18 @@ export function FileEditor({
   content,
   editable,
   onChange,
+  line,
+  column,
 }: {
   path: string
   content: string
   editable: boolean
   onChange: (value: string) => void
+  line?: number
+  column?: number
 }) {
   const parent = useRef<HTMLDivElement>(null)
+  const editor = useRef<EditorView | null>(null)
   const change = useRef(onChange)
   change.current = onChange
   const initial = useRef(content)
@@ -90,7 +95,18 @@ export function FileEditor({
         }),
       ],
     })
-    return () => view.destroy()
+    editor.current = view
+    return () => {
+      editor.current = null
+      view.destroy()
+    }
   }, [path, editable])
+  useEffect(() => {
+    const view = editor.current
+    if (!view || !line || !Number.isFinite(line)) return
+    const target = view.state.doc.line(Math.max(1, Math.min(Math.trunc(line), view.state.doc.lines)))
+    const offset = target.from + Math.max(0, Math.min((column ?? 1) - 1, target.length))
+    view.dispatch({ selection: { anchor: offset }, effects: EditorView.scrollIntoView(offset, { y: 'center' }) })
+  }, [line, column, path, editable])
   return <div ref={parent} className="file-editor min-h-0 flex-1 overflow-hidden" />
 }

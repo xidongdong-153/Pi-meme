@@ -13,7 +13,7 @@ export const toolsTabId = 'builtin:tools'
 export const sideChatTabId = 'builtin:side-chat'
 
 export function isPersistentPanelTab(id: string) {
-  return id !== sideChatTabId
+  return id !== sideChatTabId && !id.startsWith('builtin:file:')
 }
 
 export function sanitizePanelLayout(layout: PanelLayoutState): PanelLayoutState {

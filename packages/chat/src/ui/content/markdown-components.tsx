@@ -4,6 +4,7 @@ import { cn } from '@pi-meme/ui/lib/utils'
 import { CodeBlock } from './code-block'
 import { MermaidBlock } from './mermaid-block'
 import { isImageLink, MessageImage } from './message-image'
+import { MarkdownLink } from './markdown-link'
 
 export const MarkdownStreamingContext = React.createContext(false)
 
@@ -105,7 +106,7 @@ export function useMarkdownComponents() {
         return <tr className="pi-tr">{children}</tr>
       },
 
-      a({ href, children, node }: React.ComponentPropsWithoutRef<'a'> & ExtraProps) {
+      a({ href, children, node, title }: React.ComponentPropsWithoutRef<'a'> & ExtraProps) {
         if (node?.children.some((child) => child.type === 'element' && child.tagName === 'img')) {
           return <>{children}</>
         }
@@ -116,9 +117,9 @@ export function useMarkdownComponents() {
           return <MessageImage key={href} src={href} alt={label === href ? undefined : label} />
         }
         return (
-          <a href={href} target="_blank" rel="noopener noreferrer" className="pi-link">
+          <MarkdownLink href={href} title={title}>
             {children}
-          </a>
+          </MarkdownLink>
         )
       },
 

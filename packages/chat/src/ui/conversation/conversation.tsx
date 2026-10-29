@@ -27,6 +27,8 @@ import { modelChangesForConversation } from '../model/model-changes'
 import { ModelChangeRow } from './model-change-row'
 import type { TurnChanges } from '@pi-meme/contracts/turn-changes'
 import { TurnChangesCard } from './turn-changes'
+import { MarkdownFileSessionContext, MarkdownWorkingDirectoryContext } from '../content/markdown-link'
+import type { SessionRef } from '@pi-meme/contracts/app-host'
 
 function noSubscription() {
   return () => {}
@@ -50,6 +52,8 @@ export const Conversation = React.memo(
     editor,
     sessionKey,
     loadImage,
+    cwd,
+    fileSession,
     readOnly = false,
     agentOnly = false,
     agent,
@@ -75,6 +79,8 @@ export const Conversation = React.memo(
     /** 当前会话标识，用于按会话恢复滚动位置。 */
     sessionKey?: string
     loadImage?: MessageImageLoader
+    cwd?: string
+    fileSession?: SessionRef
     readOnly?: boolean
     agentOnly?: boolean
     agent?: AgentSummary
@@ -329,7 +335,7 @@ export const Conversation = React.memo(
       }
     }, [containerRef, updateActiveTurn, firstTurnKey, agentOnly])
 
-    return React.createElement(
+    const content = React.createElement(
       PluginConversationScope,
       { publicSession: !agentOnly },
       React.createElement(
@@ -498,6 +504,11 @@ export const Conversation = React.memo(
           )}
         </div>,
       ),
+    )
+    return (
+      <MarkdownFileSessionContext value={fileSession}>
+        <MarkdownWorkingDirectoryContext value={agent?.cwd ?? cwd}>{content}</MarkdownWorkingDirectoryContext>
+      </MarkdownFileSessionContext>
     )
   },
 )

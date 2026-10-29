@@ -267,6 +267,7 @@ export function WorkspacePanels({
       requestPanel.target.project?.projectId === props.target.project?.projectId &&
       panels.some((panel) => panel.id === requestPanel.id && panelAvailable(panel, props.target))
     ) {
+      if (requestPanel.id.startsWith('builtin:file:')) setUnified(true)
       open(requestPanel.id)
       onPanelRequestHandled?.(requestPanel.revision)
     }
@@ -475,6 +476,7 @@ export function WorkspacePanels({
       panel.id !== sideChatTabId &&
       (panel.id !== activityId || !activity || activity.count > 0) &&
       !panel.id.startsWith('builtin:browser:') &&
+      !panel.id.startsWith('builtin:file:') &&
       panel.title.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()),
   )
   const directMotion =

@@ -60,6 +60,38 @@ const mockTerminalPanel: UiPanel = {
 }
 
 describe('WorkspacePanels 异步关闭与侧边聊天交互', () => {
+  it('文件引用只打开独立标签，不出现在新标签页的工具列表', () => {
+    const filePanel: UiPanel = {
+      ...mockFilesPanel,
+      id: 'builtin:file:entry',
+      title: 'entry.ts',
+      render: () => <div>代码预览</div>,
+    }
+    render(
+      <TooltipProvider>
+        <WorkspacePanels
+          profile={DEFAULT_PROFILE}
+          profileLoading={false}
+          props={defaultProps}
+          session="session-a"
+          sidebar="侧栏"
+          sidebarOpen={false}
+          sidebarWidth={256}
+          onSidebar={() => {}}
+          header={(_toggle, tabs) => tabs?.()}
+          panels={[mockFilesPanel, filePanel]}
+          requestPanel={{ id: filePanel.id, revision: 1, target: defaultProps.target }}
+        >
+          <div>主聊天正文</div>
+        </WorkspacePanels>
+      </TooltipProvider>,
+    )
+    expect(screen.getByRole('tab', { name: 'entry.ts' })).toBeInTheDocument()
+    expect(screen.getByText('代码预览')).toBeVisible()
+    fireEvent.click(screen.getByRole('button', { name: '新标签页' }))
+    expect(screen.queryByRole('button', { name: 'entry.ts' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: '文件' })).toBeInTheDocument()
+  })
   it('收起右侧栏或切换到其他工具不会关闭侧边聊天', async () => {
     const onClose = vi.fn()
     function TestWrapper() {

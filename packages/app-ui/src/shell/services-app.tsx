@@ -1,5 +1,5 @@
 import type { BrowserPlatform } from '@pi-meme/contracts/browser'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ComponentProps } from 'react'
 import type { SelectWorkspace } from '@pi-meme/contracts/sessions'
 import { buildSidebarModel, sidebarManualOrders } from '@pi-meme/workspace/ui/sidebar/sidebar-model'
 import { SessionSearchDialog } from '@pi-meme/workspace/ui/sidebar/session-search-dialog'
@@ -8,6 +8,16 @@ import { App } from '../app'
 import { MultiServiceSidebar } from './multi-service-sidebar'
 import { RemoteSettings } from './remote-settings'
 import { serviceLabel, servicePaused, type ServiceController, type ServiceRegistry } from './service-ui'
+
+function ServiceApp({
+  client,
+  ...props
+}: Omit<ComponentProps<typeof App>, 'call'> & {
+  client: ReturnType<ServiceRegistry['get']>
+}) {
+  const call = useCallback(<T,>(method: string, args?: unknown[]) => client.rpc<T>(method, args), [client])
+  return <App {...props} call={call} />
+}
 
 export function ServicesApp({
   registry,
@@ -191,12 +201,12 @@ export function ServicesApp({
       {services.map((service) => {
         const client = registry.get(service.id)
         return (
-          <App
+          <ServiceApp
             key={service.id}
+            client={client}
             bridge={client.bridge}
             host={client.host}
             plugins={client.plugins}
-            call={(method, args) => client.rpc(method, args)}
             hostId={service.hostId}
             hostAddress={service.address}
             hostLocal={service.local}
