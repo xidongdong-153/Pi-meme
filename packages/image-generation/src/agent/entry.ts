@@ -88,7 +88,13 @@ export function create(context: Context): InlineExtension[] {
               signal,
             )) as ImageGenerationResult
             return {
-              content: [{ type: 'text' as const, text: `图片已保存：${result.artifact.path}` }, result.image],
+              content: [
+                {
+                  type: 'text' as const,
+                  text: `图片已保存：${result.artifact.path}${result.retentionWarning ? `\n${result.retentionWarning}` : ''}`,
+                },
+                result.image,
+              ],
               details: { artifact: result.artifact },
             }
           },

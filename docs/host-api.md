@@ -6,6 +6,7 @@ paths:
   - 'packages/contracts/src/model-config.ts'
   - 'packages/models/src/server/model-service.ts'
   - 'packages/contracts/src/image-generation.ts'
+  - 'packages/contracts/src/image-library.ts'
   - 'packages/contracts/src/goal.ts'
   - 'packages/contracts/src/plugin-ui-data.ts'
   - 'packages/contracts/src/plugin-ui-message.ts'
@@ -230,3 +231,14 @@ try {
 验证入口：[app-control.integration.test.ts](../packages/host/tests/app-control.integration.test.ts)、[control-store.integration.test.ts](../packages/host/tests/control-store.integration.test.ts)、[node-client.integration.test.ts](../packages/host/tests/node-client.integration.test.ts)、[workspace-files.integration.test.ts](../packages/host/tests/workspace-files.integration.test.ts) 和 [terminal-service.unit.test.ts](../packages/host/tests/terminal-service.unit.test.ts)。
 
 定时任务通过 `capabilities().features` 中的 `schedules` 协商能力，使用 `{ hostId, taskId }` 定位。写操作沿用幂等键，变化通过 `schedule` 控制事件推送；运行执行复用显式会话接口。规则、恢复和接口参数见 [定时任务](schedules.md)。
+
+## 图像库
+
+`capabilities().features` 包含 `image-library` 时提供 `imageLibrary`，类型见 [image-library.ts](../packages/contracts/src/image-library.ts)。
+
+- `list({ projectId?, query?, cursor?, limit? })` 返回作品元数据、项目筛选项和历史补录状态。默认每页 40 项，最多 100 项；`projectId: 'standalone'` 筛选独立聊天，省略则查询全部项目。`query` 匹配名称和提示词，游标只用于相同筛选条件。
+- `read(id)` 按作品 ID 返回 PNG 的 `dataUrl` 和字节数，不依赖来源会话。Host 校验原图位于附件目录且不经过符号链接，最大 8 MiB。
+- `rename(id, name, options)` 修改展示名，名称为 1～120 个字符。
+- `remove(id, options)` 持久保存移除标记，不删除附件。修改操作使用现有 `MutationOptions` 幂等键。
+
+作品收录、重命名、移除和历史补录结束发送 `image-library` 实时事件。客户端收到事件后重新读取列表，连接恢复时同样重读；事件不包含图片数据。旧版本 Host 不具备此 capability，客户端不应调用该接口组。

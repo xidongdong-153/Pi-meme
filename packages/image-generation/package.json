@@ -8,7 +8,8 @@
     "./server/config-store": "./src/server/config-store.ts",
     "./server/service": "./src/server/service.ts",
     "./agent/entry": "./src/agent/entry.ts",
-    "./ui/image-generation-settings": "./src/ui/image-generation-settings.tsx"
+    "./ui/image-generation-settings": "./src/ui/image-generation-settings.tsx",
+    "./server/library-store": "./src/server/library-store.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit"

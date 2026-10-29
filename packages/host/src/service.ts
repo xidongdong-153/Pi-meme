@@ -1,3 +1,5 @@
+import { ImageLibraryStore } from '@pi-meme/image-generation/server/library-store'
+import { imageLibraryHistory } from './image-library-history'
 import { projectBranchVisualizations } from '@pi-meme/contracts/visualize'
 import { VisualizationStore } from '@pi-meme/visualize/server/store'
 import { ImageConfigStore } from '@pi-meme/image-generation/server/config-store'
@@ -497,6 +499,15 @@ export async function createHost(options: HostOptions = {}) {
       }
       return store
     }
+    const imageLibrary = new ImageLibraryStore({
+      hostId,
+      file: path.join(root, 'state/modules/%40pi-meme%2Fimage-generation/library.json'),
+      attachments: storagePaths.attachmentsDirectory,
+      history: () => imageLibraryHistory(appControl!.apiFor('image-library'), paths.sessionsDirectory),
+      onChange: () => {
+        if (!closing) appControl?.publishLive({ type: 'image-library', value: { reason: 'changed' } })
+      },
+    })
     const imageGeneration = new ImageGenerationService(
       new ImageConfigStore(storagePaths.agentImageGenerationFile, credentials),
       (name, bytes, signal, destinationDirectory) =>
@@ -749,7 +760,7 @@ export async function createHost(options: HostOptions = {}) {
             if (request.action === 'ready') return { ready: permitted && (await imageGeneration.ready()) }
             if (!permitted) throw new Error('当前任务模式或访问权限不允许生成图片')
             if (request.action !== 'generate') throw new Error('图片生成请求无效')
-            return imageGeneration.generate(request.input, request.sources, {
+            const result = await imageGeneration.generate(request.input, request.sources, {
               cwd: actor.cwd,
               signal,
               destinationDirectory: effectivePaths.temporaryRoot
@@ -768,6 +779,27 @@ export async function createHost(options: HostOptions = {}) {
                   throw new Error('图片请求来自已结束或过期执行')
               },
             })
+            if (!effectivePaths.temporaryRoot) {
+              try {
+                const source = await appControl!.sessionForRuntime(actor.rootSessionKey)
+                if (!source.temporary) {
+                  const project = source.project
+                    ? await appControl!.apiFor('image-library').projects.get(source.project)
+                    : undefined
+                  await imageLibrary.add({
+                    artifact: result.artifact,
+                    prompt: request.input.prompt,
+                    createdAt: new Date().toISOString(),
+                    session: { hostId, sessionId: source.sessionId },
+                    project: source.project,
+                    projectName: project?.name,
+                  })
+                }
+              } catch {
+                result.retentionWarning = '图片已生成，但未能收录到图像库；稍后打开图像页可重新补录。'
+              }
+            }
+            return result
           },
           activity: (request, signal) => activityBridge.dispatch(session, request, signal),
           collaboration: (request, signal) => collaboration.dispatch(session, request, signal),
@@ -1734,6 +1766,12 @@ export async function createHost(options: HostOptions = {}) {
     appControl = await createAppControl({
       visualizations: (key) => visualizationStore(temporaryPathsBySessionKey.get(key)?.temporaryRoot),
       models: { list: () => modelService.list() },
+      imageLibrary: {
+        list: (input) => imageLibrary.list(input),
+        read: (id) => imageLibrary.read(id),
+        rename: (id, name) => imageLibrary.rename(id, name),
+        remove: (id) => imageLibrary.remove(id),
+      },
       imageGeneration: {
         getConfig: () => imageGeneration.config.snapshot(),
         saveModel: (input) => imageGeneration.config.save(input),
@@ -2331,6 +2369,7 @@ export async function createHost(options: HostOptions = {}) {
           await pi.stopAndWait()
           await Promise.allSettled(inflight)
           await activities.dispose()
+          await imageLibrary.dispose()
           await appControl!.dispose()
           unsubscribeGoals()
           await terminal.dispose()

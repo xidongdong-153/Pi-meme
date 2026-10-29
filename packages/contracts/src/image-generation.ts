@@ -44,7 +44,7 @@ export type ImageArtifact = {
   model: string
   sources: Array<Omit<ImageSource, 'image'>>
 }
-export type ImageGenerationResult = { artifact: ImageArtifact; image: PiImage }
+export type ImageGenerationResult = { artifact: ImageArtifact; image: PiImage; retentionWarning?: string }
 export type ImageGenerationRequest =
   { action: 'ready' } | { action: 'generate'; input: ImageGenInput; sources: ImageSource[] }
 export type ImageGenerationReply = { ready: boolean } | ImageGenerationResult

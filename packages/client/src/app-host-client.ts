@@ -18,6 +18,12 @@ export function createAppHostClient(transport: AppHostTransport): HostApi {
       list: (ref) => call('visualizations.list', [ref]),
       get: (ref, reference) => call('visualizations.get', [ref, reference]),
     },
+    imageLibrary: {
+      list: (input) => call('imageLibrary.list', [input]),
+      read: (id) => call('imageLibrary.read', [id]),
+      rename: (id, name, options) => call('imageLibrary.rename', [id, name], options.idempotencyKey),
+      remove: (id, options) => call('imageLibrary.remove', [id], options.idempotencyKey),
+    },
     imageGeneration: {
       getConfig: () => call('imageGeneration.getConfig', []),
       saveModel: (input) => call('imageGeneration.saveModel', [input]),

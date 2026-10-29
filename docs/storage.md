@@ -292,3 +292,9 @@ flowchart TD
 3. **符号链接防护与维护互斥**：
    - 采用 `physicalPath` 逐段核验物理路径，严防符号链接逃逸与跨目录穿越；检测到符号链接项标记为 `symlink_detected` 并安全跳过，绝不沿链接删除；
    - 启动前权威检测维护状态：若存在源根重定向标记（`.pi-meme-relocated.json`）、未提交的维护账本（`.pi-meme-storage-job.json` 且阶段非 `committed`）或升级中标记（`.storage-layout-upgrade-*.json`），完整跳过启动临时文件清理。
+
+## 图像库索引
+
+图像库索引位于 `state/modules/%40pi-meme%2Fimage-generation/library.json`，记录作品元数据、附件路径、来源会话和项目、移除标记及历史扫描进度。Host 串行写入临时文件后原子替换；索引损坏时保留原文件并报告错误。
+
+原图继续保存在 `data/attachments/`，图像库不复制第二份。删除来源会话不清理已收录原图；图像库移除操作也不删除附件。临时会话沿用 `data/temporary-sessions/` 的生命周期，不写入长期索引。索引只保存历史记录中可验证的生成结果，不通过扫描附件目录猜测图片来源。

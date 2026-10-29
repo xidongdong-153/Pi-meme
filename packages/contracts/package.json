@@ -43,7 +43,8 @@
     "./browser": "./src/browser.ts",
     "./browser-annotations": "./src/browser-annotations.ts",
     "./image-generation": "./src/image-generation.ts",
-    "./visualize": "./src/visualize.ts"
+    "./visualize": "./src/visualize.ts",
+    "./image-library": "./src/image-library.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit"

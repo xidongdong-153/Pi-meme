@@ -7,6 +7,7 @@ import {
   Gauge,
   Gift,
   Home,
+  Images,
   Keyboard,
   LifeBuoy,
   Plug,
@@ -46,6 +47,8 @@ export function AppRail({
   onHome,
   homeActive = false,
   homeFlyout,
+  onImages,
+  imagesActive = false,
   onProjects,
   projectsActive = false,
   onSchedules,
@@ -67,6 +70,8 @@ export function AppRail({
   onHome?: () => void
   homeActive?: boolean
   homeFlyout?: HomeFlyoutControl
+  onImages?: () => void
+  imagesActive?: boolean
   onProjects?: () => void
   projectsActive?: boolean
   onSchedules?: () => void
@@ -200,6 +205,28 @@ export function AppRail({
           </TooltipTrigger>
           <TooltipContent side="right" sideOffset={8}>
             插件与技能
+          </TooltipContent>
+        </Tooltip>
+        <div className="my-1 h-px w-6 bg-border" />
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              aria-label="图像"
+              aria-current={imagesActive ? 'page' : undefined}
+              onClick={onImages}
+              className={cn(
+                'flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-background cursor-pointer',
+                imagesActive
+                  ? 'bg-background/80 text-foreground shadow-xs'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              <Images className="size-4" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="right" sideOffset={8}>
+            图像
           </TooltipContent>
         </Tooltip>
         <div

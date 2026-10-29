@@ -1,3 +1,4 @@
+import type { ImageLibraryApi } from './image-library'
 import type { ImageGenerationApi } from './image-generation'
 import type { ModelsReadonlyApi } from './model-config'
 import type { SchedulesApi } from './schedules'
@@ -98,6 +99,7 @@ export type AppHostCapabilities = {
     | 'schedules'
     | 'visualize'
     | 'image-generation'
+    | 'image-library'
     | 'models'
   >
   fileOperations?: Array<'preview' | 'search' | 'write'>
@@ -110,7 +112,7 @@ export type HostControlEvent = EventCursor & {
   timestamp: string
   projectId?: string
   sessionId?: string
-  type: 'session' | 'submission' | 'runtime' | 'terminal' | 'activity' | 'schedule' | 'resync'
+  type: 'session' | 'submission' | 'runtime' | 'terminal' | 'activity' | 'schedule' | 'image-library' | 'resync'
   value:
     | AppSession
     | SubmissionReceipt
@@ -133,6 +135,7 @@ export type HostApi = {
     ) => Promise<import('./visualize').VisualizationDocument>
   }
   imageGeneration?: ImageGenerationApi
+  imageLibrary?: ImageLibraryApi
   models?: ModelsReadonlyApi
   schedules: SchedulesApi
   capabilities: () => Promise<AppHostCapabilities>

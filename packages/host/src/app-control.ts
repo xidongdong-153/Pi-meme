@@ -45,6 +45,10 @@ import { ControlStore, ControlError, createControlStorePaths, type ControlStoreP
 type Options = {
   visualizations?: (sessionKey: string) => import('@pi-meme/visualize/server/store').VisualizationStore
   models?: import('@pi-meme/contracts/model-config').ModelsReadonlyApi
+  imageLibrary?: Omit<import('@pi-meme/contracts/image-library').ImageLibraryApi, 'rename' | 'remove'> & {
+    rename: (id: string, name: string) => Promise<void>
+    remove: (id: string) => Promise<void>
+  }
   imageGeneration?: import('@pi-meme/contracts/image-generation').ImageGenerationApi
   schedules?: import('@pi-meme/schedules/server/service').ScheduleService
   goals: GoalService
@@ -692,6 +696,16 @@ export async function createAppControl(options: Options) {
   const apiFor = (clientId: string): HostApi => ({
     apiVersion: 2,
     imageGeneration: options.imageGeneration,
+    imageLibrary: options.imageLibrary
+      ? {
+          list: (input) => options.imageLibrary!.list(input),
+          read: (id) => options.imageLibrary!.read(id),
+          rename: (id, name, opts) =>
+            mutate(clientId, 'imageLibrary.rename', [id, name], opts, () => options.imageLibrary!.rename(id, name)),
+          remove: (id, opts) =>
+            mutate(clientId, 'imageLibrary.remove', [id], opts, () => options.imageLibrary!.remove(id)),
+        }
+      : undefined,
     models: options.models,
     capabilities: async () => ({
       apiVersion: 2,
@@ -699,6 +713,7 @@ export async function createAppControl(options: Options) {
       fileOperations: ['preview', 'search', 'write'],
       features: [
         ...(options.visualizations ? ['visualize' as const] : []),
+        ...(options.imageLibrary ? ['image-library' as const] : []),
         ...(options.imageGeneration ? ['image-generation' as const] : []),
         ...(options.models ? ['models' as const] : []),
         ...(options.schedules ? ['schedules' as const] : []),
@@ -1380,6 +1395,8 @@ export async function createAppControl(options: Options) {
   })
   const api = apiFor('host-internal')
   const writes = new Set([
+    'imageLibrary.rename',
+    'imageLibrary.remove',
     'schedules.create',
     'schedules.update',
     'schedules.pause',

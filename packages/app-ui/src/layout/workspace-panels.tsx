@@ -70,6 +70,7 @@ export function WorkspacePanels({
   onNewSession,
   onPlugins,
   onProjects,
+  onImages,
   onSchedules,
   schedulesUnread,
   pluginNavigation,
@@ -112,6 +113,7 @@ export function WorkspacePanels({
   onAccount?: () => void
   onNewSession?: () => void
   onPlugins?: () => void
+  onImages?: () => void
   onProjects?: () => void
   onSchedules?: () => void
   schedulesUnread?: boolean
@@ -693,6 +695,7 @@ export function WorkspacePanels({
           }}
           homeFlyout={flyout.control}
           onProjects={onProjects}
+          onImages={onImages}
           onSchedules={onSchedules}
           schedulesUnread={schedulesUnread}
           onPlugins={onPlugins}

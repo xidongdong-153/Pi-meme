@@ -1,3 +1,4 @@
+import { ImagesPage } from './images/images-page'
 import { useVisualizations } from '@pi-meme/visualize/ui/use-visualizations'
 import { VisualizationRendererContext } from '@pi-meme/ui/components/visualization-renderer'
 import { LinkedFilePanel, type LinkedFileTab } from './panels/linked-file-panel'
@@ -512,6 +513,7 @@ export function App({
       discardPluginPage()
     },
   })
+  const [imagesVisited, setImagesVisited] = useState(false)
   const route = navigation.route
   useEffect(() => pluginConsent.cancel(), [pluginConsent, route])
   useEffect(() => {
@@ -693,6 +695,11 @@ export function App({
     else chat.setError('插件页面需要对应项目或会话，请先在聊天中选择目标。')
   }
   const pluginRailProps = {
+    onImages: () => {
+      setImagesVisited(true)
+      navigation.open({ kind: 'images' })
+    },
+    imagesActive: route.kind === 'images',
     onSchedules: () => navigation.open({ kind: 'schedules' }),
     schedulesActive: route.kind === 'schedules',
     schedulesUnread: scheduleState.tasks.some((task) => task.unreadCount > 0),
@@ -770,6 +777,7 @@ export function App({
       ...chat,
       openSettings: () => openSettings('general'),
       openSchedules: () => navigation.open({ kind: 'schedules' }),
+      openChat: navigation.home,
       assertRestartAllowed,
       assertRemoveAllowed: () => {
         if (instructionsSaving || chat.navigationBusy || chat.modelSaving || chat.sendingAttachments.length)
@@ -886,8 +894,16 @@ export function App({
   }, [settings.snapshot?.settings.preferredProjectApp])
 
   useEffect(() => {
-    if (active) document.title = customizationOpen ? '插件与技能' : projectsOpen ? '项目' : chat.extensionTitle || title
-  }, [chat.extensionTitle, title, active, projectsOpen, customizationOpen])
+    if (active)
+      document.title =
+        route.kind === 'images'
+          ? '图像'
+          : customizationOpen
+            ? '插件与技能'
+            : projectsOpen
+              ? '项目'
+              : chat.extensionTitle || title
+  }, [chat.extensionTitle, title, active, projectsOpen, customizationOpen, route.kind])
 
   const projectSelector = (
     <ProjectSelector
@@ -1940,6 +1956,7 @@ export function App({
               onUsage={() => openSettings('profile')}
               onAccount={() => openSettings('account')}
               onProjects={() => navigation.open({ kind: 'projects' })}
+              onImages={pluginRailProps.onImages}
               onSchedules={() => navigation.open({ kind: 'schedules' })}
               schedulesUnread={scheduleState.tasks.some((task) => task.unreadCount > 0)}
               onNewSession={() => void newSession()}
@@ -2000,6 +2017,57 @@ export function App({
             </WorkspacePanels>
           </div>
 
+          {imagesVisited && (
+            <section
+              aria-label="图像页面"
+              className={
+                route.kind === 'images'
+                  ? 'workspace-panes flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-secondary'
+                  : 'hidden'
+              }
+              inert={route.kind !== 'images'}
+            >
+              <PageHeader>
+                <PageHeaderNavigation
+                  nativeWindow={nativeWindow}
+                  back={{ label: '返回上一页', onClick: navigation.back, disabled: !navigation.canBack }}
+                  forward={{ label: '前进', onClick: navigation.forward, disabled: !navigation.canForward }}
+                />
+              </PageHeader>
+              <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+                <AppRail
+                  profile={userProfile.profile}
+                  profileLoading={userProfile.showPlaceholder}
+                  {...pluginRailProps}
+                  onHome={navigation.home}
+                  onProjects={() => navigation.open({ kind: 'projects' })}
+                  onPlugins={() => navigation.open({ kind: 'customization' })}
+                  onSettings={() => openSettings('general')}
+                  onUsage={() => openSettings('profile')}
+                  onAccount={() => openSettings('account')}
+                />
+                <ImagesPage
+                  visible={route.kind === 'images'}
+                  sources={
+                    serviceUI?.imageSources ?? [
+                      {
+                        id: hostId ?? 'current',
+                        label: hostLocal ? '此计算机' : (hostAddress ?? '当前 Host'),
+                        connected: chat.connection.status === 'ready',
+                        host,
+                      },
+                    ]
+                  }
+                  onOpenSession={async (id, ref) => {
+                    if (serviceUI?.onImageSession) return serviceUI.onImageSession(id, ref)
+                    const session = await host.sessions.get(ref)
+                    if (!session.sessionFile) throw new Error('来源会话已不可用')
+                    if (await switchSession(session.sessionFile)) navigation.home()
+                  }}
+                />
+              </div>
+            </section>
+          )}
           {route.kind === 'schedules' && (
             <SchedulesWorkspace
               header={

@@ -1,3 +1,5 @@
+import type { ImageLibrarySource } from '../images/image-library-data'
+import type { SessionRef } from '@pi-meme/contracts/app-host'
 import type { HostServiceRegistry } from '@pi-meme/client/service-registry'
 import type { HostClient } from '@pi-meme/client/host-client'
 import type { ReactNode } from 'react'
@@ -10,6 +12,7 @@ import type { useAppSession } from '../session/use-app-session'
 export type ServiceController = ReturnType<typeof useAppSession> & {
   openSettings: () => void
   openSchedules: () => void
+  openChat?: () => void
   assertRestartAllowed: () => void
   assertRemoveAllowed?: () => void
   openProjectDialog?: () => void
@@ -20,6 +23,8 @@ export type ServiceUI = {
   active: boolean
   appearanceBridge: DesktopBridge
   services: HostService[]
+  imageSources?: ImageLibrarySource[]
+  onImageSession?: (serviceId: string, session: SessionRef) => Promise<void>
   sidebar: ReactNode
   remoteSettings: ReactNode
   onController: (id: string, controller: ServiceController) => void

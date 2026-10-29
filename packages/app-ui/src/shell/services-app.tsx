@@ -1,5 +1,5 @@
 import type { BrowserPlatform } from '@pi-meme/contracts/browser'
-import { useCallback, useEffect, useRef, useState, type ComponentProps } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from 'react'
 import type { SelectWorkspace } from '@pi-meme/contracts/sessions'
 import { buildSidebarModel, sidebarManualOrders } from '@pi-meme/workspace/ui/sidebar/sidebar-model'
 import { SessionSearchDialog } from '@pi-meme/workspace/ui/sidebar/session-search-dialog'
@@ -195,6 +195,16 @@ export function ServicesApp({
       onSettings={() => controllers.current.get(activeId)?.openSettings()}
     />
   )
+  const imageSources = useMemo(
+    () =>
+      services.map((service) => ({
+        id: service.id,
+        label: serviceLabel(service),
+        connected: service.status === 'connected' && !servicePaused(service),
+        host: registry.get(service.id).host,
+      })),
+    [services, registry],
+  )
   const remoteSettings = <RemoteSettings services={services} registry={registry} onRemove={remove} />
   return (
     <>
@@ -220,6 +230,17 @@ export function ServicesApp({
               active: service.id === activeId,
               appearanceBridge: registry.local.bridge,
               services,
+              imageSources,
+              onImageSession: async (id, ref) => {
+                const session = await registry.get(id).host.sessions.get(ref)
+                if (!session.sessionFile) throw new Error('来源会话已不可用')
+                const changed = await activate(id, async (controller) => {
+                  if (!(await controller.switchSession(session.sessionFile!))) return false
+                  controller.openChat?.()
+                  return true
+                })
+                if (!changed) throw new Error('未能打开来源会话，请检查连接或未保存的更改')
+              },
               sidebar,
               remoteSettings,
               onController: captureController,
