@@ -1,7 +1,6 @@
 import * as React from 'react'
 import { PluginToolCard } from '@pi-meme/ui/components/plugin-tool-card'
 import { PluginMessageActions } from '@pi-meme/ui/components/plugin-message-actions'
-import { Button } from '@pi-meme/ui/components/ui/button'
 import type { ActivityItem } from '../model/types'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { BookOpen, ChevronDown, Images, Pencil, Search, Sparkles, SquareTerminal, Wrench } from 'lucide-react'
@@ -19,6 +18,7 @@ import { ToolDiff } from './tool-diff'
 import { ImageThumbnail } from '../content/message-image'
 import { imageSource } from '../content/image-viewer'
 import { toolMessageActionAnchor } from '../model/tool-message-action-anchor'
+import { ToolExecutionDetails } from './tool-execution-details'
 
 export function ToolActivityRow({
   item,
@@ -37,7 +37,6 @@ export function ToolActivityRow({
   className?: string
   actions?: React.ReactNode
 }) {
-  const [copied, setCopied] = React.useState(false)
   const isRunning = isLive && item.status === 'running'
   const isError = item.status === 'error'
 
@@ -71,29 +70,24 @@ export function ToolActivityRow({
     typeof item.args.code === 'string'
       ? item.args.code
       : undefined
+  const args = item.args as Record<string, unknown> | undefined
+  const command =
+    item.command ||
+    (typeof args?.command === 'string'
+      ? args.command
+      : typeof args?.CommandLine === 'string'
+        ? args.CommandLine
+        : typeof args?.cmd === 'string'
+          ? args.cmd
+          : '')
+  const isExecution = meta.kind === 'command' || script !== undefined
   const rawText =
-    item.output || (script && item.result === undefined ? '' : formatDetailValue(item.result ?? item.args))
+    item.output ?? (isExecution ? formatDetailValue(item.result) : formatDetailValue(item.result ?? item.args))
   const actionAnchor = toolMessageActionAnchor(item, rawText)
   const hasDetail = isFileMutation
     ? Boolean(filePatch)
     : meta.kind !== 'read' &&
-      Boolean(script || diff || images.length > 0 || rawText || item.children?.length || item.source)
-
-  const handleCopy = React.useCallback(
-    async (e: React.MouseEvent) => {
-      e.stopPropagation()
-      const textToCopy = diff || rawText
-      if (!textToCopy) return
-      try {
-        await navigator.clipboard.writeText(textToCopy)
-        setCopied(true)
-        setTimeout(setCopied, 2000, false)
-      } catch {
-        // 忽略复制失败
-      }
-    },
-    [diff, rawText],
-  )
+      Boolean(isExecution || diff || images.length > 0 || rawText || item.children?.length || item.source)
 
   const imagePreviews = images.length > 0 && (
     <div className="flex flex-wrap">
@@ -112,7 +106,7 @@ export function ToolActivityRow({
     images.length > 0 &&
     (meta.kind === 'image' || !rawText) &&
     !isError &&
-    !script &&
+    !isExecution &&
     !diff &&
     !item.children?.length &&
     !item.source
@@ -202,45 +196,27 @@ export function ToolActivityRow({
             {filePatch ? (
               hasOpened && <FileToolDiff patch={filePatch} path={meta.fullPath} />
             ) : (
-              <div className="relative my-2 max-w-full pr-2 pb-2 pt-10 font-mono text-xs leading-relaxed text-muted-foreground select-text">
-                <Button
-                  variant="ghost"
-                  size="xs"
-                  onClick={handleCopy}
-                  className="absolute right-0 top-2 h-7 border-0 bg-transparent px-1 font-sans text-xs font-normal text-muted-foreground shadow-none hover:bg-transparent hover:text-foreground"
-                  title="复制输出"
-                  aria-label={copied ? '已复制' : '复制输出'}
+              <>
+                <ToolExecutionDetails
+                  code={isExecution ? (script ?? command) : undefined}
+                  output={isExecution ? rawText : diff || rawText}
+                  isScript={script !== undefined}
+                  isRunning={isRunning}
+                  isPaused={isPaused}
                 >
-                  {copied ? '已复制' : '复制'}
-                </Button>
-
-                <div className="max-h-[min(20rem,50vh)] overflow-auto overscroll-contain">
-                  {script && (
-                    <>
-                      <p className="mb-1">执行脚本</p>
-                      <pre aria-label="codemode 执行脚本" className="mb-3 whitespace-pre-wrap">
-                        {script}
-                      </pre>
-                    </>
-                  )}
-                  {diff ? (
-                    <ToolDiff diff={diff} />
-                  ) : rawText ? (
-                    <pre className="whitespace-pre-wrap">{rawText}</pre>
-                  ) : null}
-
-                  {item.children?.map((child) => (
-                    <NestedToolActivity
-                      key={child.id}
-                      tool={child}
-                      isLive={isLive}
-                      isPaused={isPaused}
-                      parentOpen={open}
-                    />
-                  ))}
-                  {!isError && <PluginToolCard tool={item} {...item.source} />}
-                </div>
-              </div>
+                  {!isExecution && diff ? <ToolDiff diff={diff} /> : undefined}
+                </ToolExecutionDetails>
+                {item.children?.map((child) => (
+                  <NestedToolActivity
+                    key={child.id}
+                    tool={child}
+                    isLive={isLive}
+                    isPaused={isPaused}
+                    parentOpen={open}
+                  />
+                ))}
+                {!isError && <PluginToolCard tool={item} {...item.source} />}
+              </>
             )}
             {imagePreviews}
           </div>

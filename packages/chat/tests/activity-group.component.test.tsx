@@ -32,6 +32,61 @@ import {
 
 afterEach(cleanup)
 
+test.each([
+  { name: 'bash', args: { command: 'printf "第一行\\n第二行"' }, label: '复制命令', code: 'printf "第一行\\n第二行"' },
+  { name: 'exec_command', args: { cmd: 'pnpm type-check' }, label: '复制命令', code: 'pnpm type-check' },
+  { name: 'terminal', args: { CommandLine: 'git status' }, label: '复制命令', code: 'git status' },
+  {
+    name: 'codemode',
+    args: { code: 'console.log(1)\nconsole.log(2)' },
+    label: '复制脚本',
+    code: 'console.log(1)\nconsole.log(2)',
+  },
+])('$name 的脚本和输出分别复制完整原文', async ({ name, args, label, code }) => {
+  const user = userEvent.setup()
+  const writeText = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue()
+  const output = Array.from({ length: 80 }, (_, index) => `输出 ${index + 1}`).join('\n')
+  render(
+    <ToolActivityRow
+      item={{ id: 'execution', name, args, result: { content: [{ type: 'text', text: output }] }, status: 'success' }}
+      open
+      onToggle={() => {}}
+    />,
+  )
+  await user.click(screen.getByRole('button', { name: label }))
+  expect(writeText).toHaveBeenLastCalledWith(code)
+  await user.click(screen.getByRole('button', { name: '复制输出' }))
+  expect(writeText).toHaveBeenLastCalledWith(output)
+})
+
+test.each(['ls', 'grep'])('$name 的通用详情可以复制完整输出', async (name) => {
+  const user = userEvent.setup()
+  const writeText = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue()
+  const output = '.codex/\n.editorconfig\npackages/\npackage.json'
+  render(<ToolActivityRow item={{ id: 'generic', name, result: output, status: 'success' }} open onToggle={() => {}} />)
+  expect(screen.getByRole('region', { name: '执行输出' }).textContent).toBe(output)
+  await user.click(screen.getByRole('button', { name: '复制输出' }))
+  expect(writeText).toHaveBeenLastCalledWith(output)
+  expect(screen.queryByRole('button', { name: '复制命令' })).toBeNull()
+})
+
+test('命令等待输出时不把参数当输出，流式更新后复制最新内容，空输出仍保留命令', async () => {
+  const user = userEvent.setup()
+  const writeText = vi.spyOn(navigator.clipboard, 'writeText').mockResolvedValue()
+  const item = { id: 'execution', name: 'bash', command: 'pnpm lint', args: { command: '旧命令' } }
+  const { rerender } = render(<ToolActivityRow item={{ ...item, status: 'running' }} open onToggle={() => {}} />)
+  expect(screen.getByRole('region', { name: '执行输出' })).toHaveTextContent('等待输出…')
+  expect(screen.queryByRole('button', { name: '复制输出' })).toBeNull()
+  await user.click(screen.getByRole('button', { name: '复制命令' }))
+  expect(writeText).toHaveBeenLastCalledWith('pnpm lint')
+  rerender(<ToolActivityRow item={{ ...item, status: 'running', output: '第一行\n第二行' }} open onToggle={() => {}} />)
+  await user.click(screen.getByRole('button', { name: '复制输出' }))
+  expect(writeText).toHaveBeenLastCalledWith('第一行\n第二行')
+  rerender(<ToolActivityRow item={{ ...item, status: 'success', output: '' }} open onToggle={() => {}} />)
+  expect(screen.getByRole('region', { name: '执行输出' })).toHaveTextContent('无输出')
+  expect(screen.getByRole('region', { name: '执行命令' })).toHaveTextContent('pnpm lint')
+})
+
 test.each(['edit', 'write'])('正式消息和历史恢复后 $name 仍显示统计并可展开 Diff', async (name) => {
   const user = userEvent.setup()
   const patch = '@@ -0,0 +1,1 @@\n+const value = 1\n'

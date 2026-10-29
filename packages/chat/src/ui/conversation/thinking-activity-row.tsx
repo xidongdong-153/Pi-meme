@@ -123,12 +123,14 @@ export function ThinkingActivityRow({
           open ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0',
         )}
       >
-        <div className="min-h-0 max-h-[min(20rem,50vh)] overflow-auto overscroll-contain">
-          <div className="mt-1 pb-1 select-text">
-            <div className="py-0.5">
-              <pre className="pi-content whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground/75">
-                {item.thinking.trimEnd() || '正在梳理思路…'}
-              </pre>
+        <div className="min-h-0 overflow-hidden">
+          <div className="max-h-[min(20rem,50vh)] overflow-auto overscroll-contain">
+            <div className="mt-1 pb-1 select-text">
+              <div className="py-0.5">
+                <pre className="pi-content whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground/75">
+                  {item.thinking.trimEnd() || '正在梳理思路…'}
+                </pre>
+              </div>
             </div>
           </div>
         </div>
