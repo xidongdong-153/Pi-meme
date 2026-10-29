@@ -102,15 +102,22 @@ test.each([null, 123, {}, 'relative/project'])('项目打开拒绝非绝对目�
   assert.equal(mocks.openProjectInApp.mock.calls.length, 0)
 })
 
-test('项目目录必须存在且确实是目录，检查通过前不启动应用', async () => {
+test('打开路径必须存在且是普通文件或目录，检查通过前不启动应用', async () => {
   const f = setup()
   const invoke = mocks.handlers.get('platform:open-project')!
   mocks.realpath.mockRejectedValueOnce(Object.assign(new Error('项目不存在'), { code: 'ENOENT' }))
   await assert.rejects(async () => invoke(f.event, 'vscode', '/work/missing'), /项目不存在/)
-  mocks.stat.mockResolvedValueOnce({ isDirectory: () => false })
-  await assert.rejects(async () => invoke(f.event, 'vscode', '/work/file'), /所选路径不是文件夹/)
+  mocks.stat.mockResolvedValueOnce({ isDirectory: () => false, isFile: () => false })
+  await assert.rejects(async () => invoke(f.event, 'vscode', '/work/socket'), /所选路径不是普通文件或文件夹/)
   assert.equal(mocks.openProjectInApp.mock.calls.length, 0)
   assert.equal(mocks.openPath.mock.calls.length, 0)
+})
+
+test('变更文件可以通过编辑器打开', async () => {
+  const f = setup()
+  mocks.stat.mockResolvedValueOnce({ isDirectory: () => false, isFile: () => true })
+  await mocks.handlers.get('platform:open-project')!(f.event, 'vscode', '/work/source.ts')
+  assert.deepEqual(mocks.openProjectInApp.mock.calls, [['vscode', '/work/source.ts']])
 })
 
 test('编辑器只接收校验后的项目真实路径，应用选择错误不会退回文件管理器', async () => {

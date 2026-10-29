@@ -4,7 +4,8 @@ import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { test } from 'vitest'
-import { getGitDiff, getGitSnapshot } from '../src/server/git-service'
+import { getGitDiff, getGitSnapshot, runGit } from '../src/server/git-service'
+import { getGitReview, getGitReviewFile, getGitReviewOptions } from '../src/server/git-review'
 
 function git(cwd: string, ...args: string[]) {
   return new Promise<void>((resolve, reject) => {
@@ -65,6 +66,64 @@ test('Git 快照识别暂存、未暂存、未跟踪、二进制和中文空格�
   }
 })
 
+test('审阅范围区分暂存、工作区、提交和共同祖先，并读取真实上下文', async () => {
+  const repo = await mkdtemp(path.join(tmpdir(), 'pi-review-'))
+  try {
+    await git(repo, 'init', '-q', '-b', 'main')
+    await git(repo, 'config', 'user.email', 'test@example.com')
+    await git(repo, 'config', 'user.name', 'Test')
+    await writeFile(path.join(repo, '文件 with space.ts'), 'base\n')
+    await git(repo, 'add', '.')
+    const unborn = await getGitReview(repo, { scope: 'staged' })
+    assert.equal(unborn.insertions, 1)
+    await git(repo, 'commit', '-qm', 'initial')
+    const first = (await runGit(repo, ['rev-parse', 'HEAD'])).stdout.trim()
+    assert.equal((await getGitReview(repo, { scope: 'commit', ref: first })).insertions, 1)
+    await writeFile(path.join(repo, '文件 with space.ts'), 'base\nstaged\n')
+    await git(repo, 'add', '.')
+    await writeFile(path.join(repo, '文件 with space.ts'), 'base\nworking\n')
+    await writeFile(path.join(repo, 'new.md'), 'new\n')
+    await writeFile(path.join(repo, 'image.bin'), Buffer.from([0, 1, 2]))
+    const staged = await getGitReview(repo, { scope: 'staged' })
+    assert.deepEqual([staged.insertions, staged.deletions, staged.files.length], [1, 0, 1])
+    const unstaged = await getGitReview(repo, { scope: 'unstaged' })
+    assert.deepEqual([unstaged.insertions, unstaged.deletions], [2, 1])
+    const all = await getGitReview(repo, { scope: 'uncommitted' })
+    assert.deepEqual([all.insertions, all.deletions], [2, 0])
+    const content = await getGitReviewFile(repo, { query: { scope: 'unstaged' }, path: '文件 with space.ts' })
+    assert.equal(content.before, 'base\nstaged\n')
+    assert.equal(content.after, 'base\nworking\n')
+    assert.match(
+      (await getGitReviewFile(repo, { query: { scope: 'uncommitted' }, path: 'image.bin' })).notice!,
+      /二进制/,
+    )
+    await assert.rejects(getGitReviewFile(repo, { query: { scope: 'uncommitted' }, path: '../outside' }), /变更列表/)
+    await git(repo, 'add', '.')
+    await git(repo, 'commit', '-qm', 'working change')
+    await git(repo, 'switch', '-qc', 'feature')
+    await git(repo, 'mv', '文件 with space.ts', 'renamed.ts')
+    await git(repo, 'commit', '-qm', 'rename')
+    const renameSha = (await runGit(repo, ['rev-parse', 'HEAD'])).stdout.trim()
+    await git(repo, 'switch', 'main')
+    await writeFile(path.join(repo, 'main-only.txt'), 'main only\n')
+    await git(repo, 'add', '.')
+    await git(repo, 'commit', '-qm', 'main only')
+    await git(repo, 'switch', 'feature')
+    await writeFile(path.join(repo, 'renamed.ts'), 'uncommitted\n')
+    const branch = await getGitReview(repo, { scope: 'branch', ref: 'refs/heads/main' })
+    assert.equal(branch.files.length, 1)
+    assert.equal(branch.files[0]?.oldPath, '文件 with space.ts')
+    const history = await getGitReviewFile(repo, { query: { scope: 'commit', ref: renameSha }, path: 'renamed.ts' })
+    assert.equal(history.before, 'base\nworking\n')
+    assert.equal(history.after, 'base\nworking\n')
+    const options = await getGitReviewOptions(repo, { search: 'rename' })
+    assert.equal(options.commits[0]?.sha, renameSha)
+    assert.ok(options.branches.some((item) => item.ref === 'refs/heads/main'))
+  } finally {
+    await rm(repo, { recursive: true, force: true })
+  }
+})
+
 test('Git 首次提交前可统计暂存文件，支持 worktree 和非仓库错误状态', async () => {
   const base = await mkdtemp(path.join(tmpdir(), 'pi-desktop-git-empty-'))
   const repo = path.join(base, 'repo')
@@ -86,6 +145,7 @@ test('Git 首次提交前可统计暂存文件，支持 worktree 和非仓库错
     assert.equal(fromWorktree.root, await realpath(worktree))
     await mkdir(outside)
     assert.equal((await getGitSnapshot(outside)).error, 'not-repository')
+    assert.equal((await getGitReview(outside, { scope: 'uncommitted' })).error, 'not-repository')
   } finally {
     await rm(base, { recursive: true, force: true })
   }

@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import { Check, Copy } from 'lucide-react'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { cn } from '@pi-meme/ui/lib/utils'
-import { useHighlighter } from '../content/use-highlighter'
+import { useHighlighter } from '@pi-meme/ui/lib/use-highlighter'
 import { ToolDiff } from './tool-diff'
 
 type Line = { kind: 'add' | 'del' | 'context' | 'hunk'; text: string; number?: number }

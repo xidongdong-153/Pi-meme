@@ -4,7 +4,7 @@ import { Button } from '@pi-meme/ui/components/ui/button'
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@pi-meme/ui/components/ui/collapsible'
 import { FileIcon } from '@pi-meme/ui/components/file-icon'
 import { cn } from '@pi-meme/ui/lib/utils'
-import { normalizeCodeLanguage, useHighlighter } from './use-highlighter'
+import { normalizeCodeLanguage, useHighlighter } from '@pi-meme/ui/lib/use-highlighter'
 
 const codeLanguages: Record<string, [label: string, extension: string]> = {
   text: ['TEXT', ''],

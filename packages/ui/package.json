@@ -30,6 +30,7 @@
     "./components/ui/textarea": "./src/components/ui/textarea.tsx",
     "./components/ui/tooltip": "./src/components/ui/tooltip.tsx",
     "./lib/utils": "./src/lib/utils.ts",
+    "./lib/use-highlighter": "./src/lib/use-highlighter.ts",
     "./lib/agent-name": "./src/lib/agent-name.ts",
     "./tokens.css": "./src/tokens.css",
     "./components/ui/context-menu": "./src/components/ui/context-menu.tsx",
@@ -56,6 +57,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "gsap": "^3.15.0",
+    "shiki": "^4.4.3",
     "lucide-react": "^1.48.0",
     "tailwind-merge": "^3.7.0"
   },

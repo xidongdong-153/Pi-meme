@@ -35,8 +35,9 @@ import type { PiSessionPool, ClientView } from '@pi-meme/pi-runtime/session-pool
 import type { ProjectStore } from '@pi-meme/workspace/server/project-store'
 import type { SessionService } from '@pi-meme/workspace/server/session-service'
 import { readSessionHistory } from '@pi-meme/pi-runtime/session-history'
-import { readTurnChanges, undoTurnChanges } from '@pi-meme/pi-runtime/turn-change-store'
+import { readTurnChanges, readTurnChangeFile, undoTurnChanges } from '@pi-meme/pi-runtime/turn-change-store'
 import { getGitDiff, getGitEnvironment, getGitSnapshot } from '@pi-meme/git/server/git-service'
+import { getGitReview, getGitReviewFile, getGitReviewOptions } from '@pi-meme/git/server/git-review'
 import type { CollaborationBridge } from '@pi-meme/contracts/collaboration'
 import { ControlStore, ControlError, createControlStorePaths, type ControlStorePaths } from './control-store'
 
@@ -1143,6 +1144,16 @@ export async function createAppControl(options: Options) {
           },
           clientId,
         ),
+      turnFile: (ref, entryId, filePath) =>
+        target(
+          ref,
+          async (key) => {
+            const file = pi.getSessionContext(key).sessionFile
+            if (!file) throw new Error('本轮未保存历史内容')
+            return readTurnChangeFile(file, entryId, filePath)
+          },
+          clientId,
+        ),
       undoTurn: (ref, entryId, opts) =>
         mutate(clientId, 'git.undoTurn', [ref, entryId], opts, () =>
           target(
@@ -1166,6 +1177,9 @@ export async function createAppControl(options: Options) {
           ),
         ),
       environment: async (ref) => getGitEnvironment(await resolveRoot(ref, clientId)),
+      review: async (ref, query) => getGitReview(await resolveRoot(ref, clientId), query),
+      reviewFile: async (ref, input) => getGitReviewFile(await resolveRoot(ref, clientId), input),
+      reviewOptions: async (ref, input) => getGitReviewOptions(await resolveRoot(ref, clientId), input),
       snapshot: async (ref) => getGitSnapshot(await resolveRoot(ref, clientId)),
       diff: async (ref, input) =>
         getGitDiff(await resolveRoot(ref, clientId), input.path, input.kind ?? (input.staged ? 'staged' : 'unstaged')),

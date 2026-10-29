@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     "./server/git-service": "./src/server/git-service.ts",
+    "./server/git-review": "./src/server/git-review.ts",
     "./server/handlers": "./src/server/handlers.ts",
     "./ui/git-panel": "./src/ui/git-panel.tsx",
     "./server/entry": "./src/server/entry.ts",

@@ -2,6 +2,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import { lstat, mkdir, readFile, realpath, rename, unlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { TurnChanges } from '@pi-meme/contracts/turn-changes'
+import type { GitReviewFileContent } from '@pi-meme/contracts/git-review'
 import { loadPiSdk } from './sdk/load'
 
 type SavedFile = { path: string; target: string; before: string | null; after: string }
@@ -72,6 +73,21 @@ export async function recordFileChange(
 export async function readTurnChanges(sessionFile: string, entryIds: string[]): Promise<TurnChanges[]> {
   const sdk = await loadPiSdk()
   const turns = await Promise.all(entryIds.map((id) => readTurn(sessionFile, id)))
+  const availability = new Map(
+    await Promise.all(
+      turns
+        .flatMap((turn) => turn?.files ?? [])
+        .map(
+          async (file) =>
+            [
+              file.target,
+              await lstat(file.target)
+                .then((info) => info.isFile())
+                .catch(() => false),
+            ] as const,
+        ),
+    ),
+  )
   return turns.flatMap((turn) => {
     if (!turn) return []
     const files = turn.files
@@ -89,7 +105,15 @@ export async function readTurnChanges(sessionFile: string, entryIds: string[]): 
           if (line.startsWith('+') && !line.startsWith('+++')) insertions++
           if (line.startsWith('-') && !line.startsWith('---')) deletions++
         }
-        return { path: file.path, patch, insertions, deletions }
+        return {
+          path: file.path,
+          patch,
+          insertions,
+          deletions,
+          status: file.before === null ? 'A' : 'M',
+          absolutePath: file.target,
+          canOpen: availability.get(file.target) ?? false,
+        }
       })
     return [
       {
@@ -102,6 +126,28 @@ export async function readTurnChanges(sessionFile: string, entryIds: string[]): 
       },
     ]
   })
+}
+
+export async function readTurnChangeFile(
+  sessionFile: string,
+  entryId: string,
+  filePath: string,
+): Promise<GitReviewFileContent> {
+  if (typeof filePath !== 'string') throw new Error('文件路径无效')
+  const turn = await readTurn(sessionFile, entryId)
+  const file = turn?.files.find((item) => item.path === filePath)
+  if (!file) throw new Error('本轮未保存此文件的历史内容')
+  const before = Buffer.from(file.before ?? '', 'base64')
+  const after = Buffer.from(file.after, 'base64')
+  if (before.includes(0) || after.includes(0)) return { patch: '', notice: '二进制文件，不提供文本预览。' }
+  if (before.length > 200 * 1024 || after.length > 200 * 1024)
+    return { patch: '', notice: '文件超过 200 KiB，未在面板中预览。' }
+  const sdk = await loadPiSdk()
+  return {
+    patch: sdk.generateUnifiedPatch(file.path, before.toString('utf8'), after.toString('utf8')),
+    before: before.toString('utf8'),
+    after: after.toString('utf8'),
+  }
 }
 
 /** 先校验整轮，再恢复文件；出现写入失败时恢复已经处理的文件。 */

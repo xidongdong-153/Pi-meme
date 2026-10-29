@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
-import { getHighlighter, normalizeCodeLanguage } from '../src/ui/content/use-highlighter'
+import { getHighlighter, normalizeCodeLanguage } from '@pi-meme/ui/lib/use-highlighter'
 
 test('按需构建的高亮器保留原有语言、别名和主题，并共享同一实例', async () => {
   const [first, second] = await Promise.all([getHighlighter(), getHighlighter()])

@@ -6,6 +6,7 @@
   "exports": {
     "./desktop": "./src/desktop.ts",
     "./turn-changes": "./src/turn-changes.ts",
+    "./git-review": "./src/git-review.ts",
     "./chat-attachments": "./src/chat-attachments.ts",
     "./ipc": "./src/ipc.ts",
     "./model-config": "./src/model-config.ts",

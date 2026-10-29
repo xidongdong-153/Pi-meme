@@ -6,6 +6,7 @@ import type { Goal, GoalControl, GoalEdit, GoalInput, GoalResumeControl, GoalSta
 import type { AgentAccessMode } from './agent-access'
 import type { AgentSummary } from './collaboration'
 import type { GitEnvironment, GitSnapshot, GitFileChange, Snapshot } from './desktop'
+import type { GitReviewQuery, GitReviewSnapshot, GitReviewFileContent, GitReviewOptions } from './git-review'
 import type { ThinkingLevel } from './pi'
 import type { MessageOptions, PlanDocument, TaskMode } from './plan'
 import type { SessionHistoryData } from './sessions'
@@ -189,8 +190,12 @@ export type HostApi = {
   }
   git: {
     turnChanges: (ref: SessionRef, entryIds: string[]) => Promise<import('./turn-changes').TurnChanges[]>
+    turnFile: (ref: SessionRef, entryId: string, path: string) => Promise<GitReviewFileContent>
     undoTurn: (ref: SessionRef, entryId: string, options: MutationOptions) => Promise<void>
     environment: (root: WorkspaceRef) => Promise<GitEnvironment>
+    review: (root: WorkspaceRef, query: GitReviewQuery) => Promise<GitReviewSnapshot>
+    reviewFile: (root: WorkspaceRef, input: { query: GitReviewQuery; path: string }) => Promise<GitReviewFileContent>
+    reviewOptions: (root: WorkspaceRef, input: { search?: string; offset?: number }) => Promise<GitReviewOptions>
     snapshot: (root: WorkspaceRef) => Promise<GitSnapshot>
     diff: (
       root: WorkspaceRef,

@@ -3,7 +3,7 @@ import { afterEach, beforeAll, expect, test, vi } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { CodeBlock } from '../src/ui/content/code-block'
-import { getHighlighter } from '../src/ui/content/use-highlighter'
+import { getHighlighter } from '@pi-meme/ui/lib/use-highlighter'
 
 beforeAll(async () => {
   await getHighlighter()

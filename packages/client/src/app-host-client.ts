@@ -85,8 +85,12 @@ export function createAppHostClient(transport: AppHostTransport): HostApi {
     },
     git: {
       turnChanges: (ref, entryIds) => call('git.turnChanges', [ref, entryIds]),
+      turnFile: (ref, entryId, path) => call('git.turnFile', [ref, entryId, path]),
       undoTurn: (ref, entryId, options) => call('git.undoTurn', [ref, entryId], options.idempotencyKey),
       environment: (ref) => call('git.environment', [ref]),
+      review: (ref, query) => call('git.review', [ref, query]),
+      reviewFile: (ref, input) => call('git.reviewFile', [ref, input]),
+      reviewOptions: (ref, input) => call('git.reviewOptions', [ref, input]),
       snapshot: (ref) => call('git.snapshot', [ref]),
       diff: (ref, input) => call('git.diff', [ref, input]),
     },

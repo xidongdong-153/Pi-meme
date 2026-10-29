@@ -1559,11 +1559,25 @@ export function App({
           <GitPanel
             key={JSON.stringify(props.target.session)}
             cwd={appSession?.cwd ?? cwd}
+            projectKey={`${props.target.session.hostId}:${appSession?.cwd ?? cwd}`}
             bridge={{
-              getGitSnapshot: () => host.git.snapshot(props.target.session!),
-              getGitDiff: (path, kind) =>
-                host.git.diff(props.target.session!, { path, staged: kind === 'staged', kind }),
+              review: (query) => host.git.review(props.target.session!, query),
+              file: (input) => host.git.reviewFile(props.target.session!, input),
+              options: (input) => host.git.reviewOptions(props.target.session!, input),
+              turnFile: (entryId, path) => host.git.turnFile(props.target.session!, entryId, path),
             }}
+            onOpenFile={
+              hostLocal
+                ? async (path) => {
+                    const apps = await bridge.getProjectApps()
+                    const editor =
+                      apps.find((app) => app.id === preferredApp && app.id !== 'finder') ??
+                      apps.find((app) => app.id !== 'finder')
+                    if (!editor) throw new Error('未找到已安装的编辑器，请先安装编辑器。')
+                    await bridge.openProject(editor.id, path)
+                  }
+                : undefined
+            }
             refreshToken={chat.refreshToken}
             turnChanges={turnChanges.turns.find(
               (turn) =>
@@ -1572,10 +1586,22 @@ export function App({
                   ? changeSelection.entryId
                   : latestUserEntry),
             )}
+            previousTurnChanges={turnChanges.turns.find((turn) => {
+              const entries = chat.chat.messages.flatMap((message) =>
+                message.role === 'user' && message.sourceEntry ? [message.sourceEntry.id] : [],
+              )
+              const current =
+                changeSelection?.sessionId === props.target.session!.sessionId
+                  ? changeSelection.entryId
+                  : latestUserEntry
+              return turn.entryId === entries[entries.indexOf(current ?? '') - 1]
+            })}
             selectedPath={
               changeSelection?.sessionId === props.target.session.sessionId ? changeSelection.path : undefined
             }
-            selectionRevision={changeSelection?.revision ?? 0}
+            selectionRevision={
+              changeSelection?.sessionId === props.target.session.sessionId ? changeSelection.revision : 0
+            }
           />
         ) : null,
     },

@@ -1,299 +1,512 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { ChevronDown, ChevronRight, FileDiff, RefreshCw } from 'lucide-react'
-import type { GitBridge, GitFileChange, GitSnapshot } from '@pi-meme/contracts/desktop'
-import { Button } from '@pi-meme/ui/components/ui/button'
-import { GitDiffViewer } from './git-diff-viewer'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { ChevronDown, ChevronRight, Copy, ExternalLink, MoreHorizontal, RefreshCw } from 'lucide-react'
+import type {
+  GitReviewFile,
+  GitReviewFileContent,
+  GitReviewOptions,
+  GitReviewQuery,
+  GitReviewSnapshot,
+} from '@pi-meme/contracts/git-review'
 import type { TurnChanges } from '@pi-meme/contracts/turn-changes'
+import { FileIcon } from '@pi-meme/ui/components/file-icon'
+import { Button } from '@pi-meme/ui/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@pi-meme/ui/components/ui/dropdown-menu'
+import { cn } from '@pi-meme/ui/lib/utils'
+import { GitDiffViewer } from './git-diff-viewer'
+import { GitReviewToolbar, ReviewTargetPicker } from './git-review-toolbar'
+import {
+  projectReviewKey,
+  readProjectReview,
+  readReadingPreferences,
+  saveReadingPreferences,
+  saveReviewPreferences,
+  type ProjectReviewPreferences,
+} from './git-review-preferences'
 
-const sections: Array<{ kind: GitFileChange['kind']; title: string }> = [
-  { kind: 'staged', title: '已暂存' },
-  { kind: 'unstaged', title: '未暂存' },
-  { kind: 'untracked', title: '未跟踪' },
-]
+export type GitReviewBridge = {
+  review: (query: GitReviewQuery) => Promise<GitReviewSnapshot>
+  file: (input: { query: GitReviewQuery; path: string }) => Promise<GitReviewFileContent>
+  options: (input: { search?: string; offset?: number }) => Promise<GitReviewOptions>
+  turnFile: (entryId: string, path: string) => Promise<GitReviewFileContent>
+}
 
 export function GitPanel({
   cwd,
+  projectKey = cwd,
   bridge,
   refreshToken,
   turnChanges,
+  previousTurnChanges,
   selectedPath,
   selectionRevision = 0,
+  onOpenFile,
 }: {
   cwd: string
-  bridge: Pick<GitBridge, 'getGitSnapshot' | 'getGitDiff'>
+  projectKey?: string
+  bridge: GitReviewBridge
   refreshToken: number
   turnChanges?: TurnChanges
+  previousTurnChanges?: TurnChanges
   selectedPath?: string
   selectionRevision?: number
+  onOpenFile?: (absolutePath: string) => Promise<void>
 }) {
-  const [selection, setSelection] = useState({ revision: selectionRevision, mode: 'turn' as 'turn' | 'workspace' })
-  if (selection.revision !== selectionRevision) setSelection({ revision: selectionRevision, mode: 'turn' })
+  const storageKey = projectReviewKey(projectKey)
+  const [preferences, setPreferences] = useState(() => ({
+    ...readProjectReview(storageKey),
+    ...(selectionRevision ? { scope: 'turn' as const } : {}),
+  }))
+  const [revision, setRevision] = useState(selectionRevision)
+  const [reading, setReading] = useState(readReadingPreferences)
+  const [snapshot, setSnapshot] = useState<GitReviewSnapshot>()
+  const [openPaths, setOpenPaths] = useState<Set<string>>(() => new Set(selectedPath ? [selectedPath] : []))
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [feedback, setFeedback] = useState('')
+  const [generation, setGeneration] = useState(0)
+  const [width, setWidth] = useState(0)
+  const panel = useRef<HTMLDivElement>(null)
+  const request = useRef(0)
+  const bridgeRef = useRef(bridge)
+  bridgeRef.current = bridge
+  const scope = preferences.scope
+  const agentScope = scope === 'turn' || scope === 'previous-turn'
+  const changes = scope === 'previous-turn' ? previousTurnChanges : turnChanges
+  const ref = scope === 'branch' ? preferences.branch : scope === 'commit' ? preferences.commit : undefined
+  const query = useMemo<GitReviewQuery | undefined>(
+    () => (scope === 'turn' || scope === 'previous-turn' ? undefined : { scope, ...(ref ? { ref } : {}) }),
+    [scope, ref],
+  )
+  const queryKey = `${scope}:${ref ?? ''}`
+  const [snapshotKey, setSnapshotKey] = useState('')
+  const currentSnapshot = snapshotKey === queryKey ? snapshot : undefined
+  if (revision !== selectionRevision) {
+    setRevision(selectionRevision)
+    setPreferences((value) => ({ ...value, scope: 'turn' }))
+    setOpenPaths(new Set(selectedPath ? [selectedPath] : []))
+  }
+  function select(value: ProjectReviewPreferences) {
+    setPreferences(value)
+    saveReviewPreferences(storageKey, value)
+    setOpenPaths(new Set())
+    setError('')
+  }
+  useEffect(() => {
+    const element = panel.current
+    if (!element || typeof ResizeObserver === 'undefined') return
+    const observer = new ResizeObserver((entries) => setWidth(entries[0]?.contentRect.width ?? 0))
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [])
+  useEffect(() => {
+    if (scope !== 'branch' && scope !== 'commit') return
+    if (ref) return
+    let cancelled = false
+    void bridgeRef.current
+      .options({})
+      .then((options) => {
+        if (cancelled) return
+        if (options.error) {
+          setSnapshot({ cwd, root: cwd, files: [], insertions: 0, deletions: 0, error: options.error })
+          setSnapshotKey(queryKey)
+          return
+        }
+        const value = scope === 'branch' ? options.upstream : options.commits[0]?.sha
+        if (!value) return
+        setPreferences((current) => {
+          const next = { ...current, [scope]: value }
+          saveReviewPreferences(storageKey, next)
+          return next
+        })
+      })
+      .catch((cause) => {
+        if (!cancelled) setError(String(cause))
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [scope, ref, storageKey, cwd, queryKey])
+  const refresh = useCallback(async () => {
+    const id = ++request.current
+    if (!query || ((query.scope === 'branch' || query.scope === 'commit') && !query.ref)) {
+      setLoading(false)
+      setGeneration((value) => value + 1)
+      return
+    }
+    setLoading(true)
+    try {
+      const result = await bridgeRef.current.review(query)
+      if (id !== request.current) return
+      setSnapshot(result)
+      setSnapshotKey(queryKey)
+      setError('')
+      setGeneration((value) => value + 1)
+    } catch (cause) {
+      if (id === request.current) setError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      if (id === request.current) setLoading(false)
+    }
+  }, [query, queryKey])
+  useEffect(() => {
+    void refresh()
+    const focus = () => void refresh()
+    const timer = window.setInterval(focus, 10000)
+    window.addEventListener('focus', focus)
+    return () => {
+      request.current++
+      window.clearInterval(timer)
+      window.removeEventListener('focus', focus)
+    }
+  }, [refresh, refreshToken])
+  useEffect(() => {
+    if (!selectedPath || scope !== 'turn') return
+    const row = Array.from(panel.current?.querySelectorAll<HTMLElement>('[data-review-path]') ?? []).find(
+      (element) => element.dataset.reviewPath === selectedPath,
+    )
+    row?.scrollIntoView?.({ block: 'nearest' })
+  }, [selectionRevision, selectedPath, scope])
+  const files: GitReviewFile[] = agentScope
+    ? (changes?.files ?? []).map((file) => ({
+        path: file.path,
+        status: file.status ?? 'M',
+        insertions: file.insertions,
+        deletions: file.deletions,
+        canOpen: file.canOpen !== false,
+      }))
+    : (currentSnapshot?.files ?? [])
+  const allExpanded = files.length > 0 && files.every((file) => openPaths.has(file.path))
+  const split = reading.layout === 'split' || (reading.layout === 'auto' && width >= 760)
+  const total = agentScope ? changes : currentSnapshot
+  const toggle = (path: string) =>
+    setOpenPaths((current) => {
+      const next = new Set(current)
+      if (next.has(path)) next.delete(path)
+      else next.add(path)
+      return next
+    })
+  const root = currentSnapshot?.root ?? cwd
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <div className="flex shrink-0 items-center gap-1 border-b border-border/60 px-3 py-2">
-        <div className="flex rounded-md bg-secondary/60 p-0.5">
-          {(
-            [
-              ['turn', '本轮'],
-              ['workspace', '工作区'],
-            ] as const
-          ).map(([value, label]) => (
-            <button
-              key={value}
-              type="button"
-              aria-pressed={selection.mode === value}
-              onClick={() => setSelection({ revision: selectionRevision, mode: value })}
-              className={`rounded px-2 py-0.5 text-[0.6875rem] ${selection.mode === value ? 'bg-background font-medium text-foreground' : 'text-muted-foreground'}`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+    <div ref={panel} className="@container flex h-full min-h-0 min-w-0 flex-col">
+      <GitReviewToolbar
+        scope={scope}
+        onScope={(scope) => select({ ...preferences, scope })}
+        insertions={total?.insertions ?? 0}
+        deletions={total?.deletions ?? 0}
+        loading={loading}
+        onRefresh={() => void refresh()}
+        allExpanded={allExpanded}
+        onExpand={() => setOpenPaths(allExpanded ? new Set() : new Set(files.map((file) => file.path)))}
+        reading={reading}
+        onReading={(value) => {
+          setReading(value)
+          saveReadingPreferences(value)
+        }}
+      >
+        {(scope === 'branch' || scope === 'commit') && (
+          <ReviewTargetPicker
+            kind={scope}
+            value={ref}
+            branch={currentSnapshot?.branch}
+            load={(input) => bridgeRef.current.options(input)}
+            onSelect={(value) => select({ ...preferences, [scope]: value })}
+          />
+        )}
+      </GitReviewToolbar>
+      <div className="flex shrink-0 items-center justify-between gap-2 px-3 py-2 text-[11px] text-muted-foreground">
+        <span>
+          {files.length} 个文件{agentScope && changes?.undone ? ' · 已撤销' : ''}
+        </span>
+        <span className="truncate">
+          {scope === 'branch'
+            ? '从共同祖先到当前分支'
+            : scope === 'commit'
+              ? '本次提交引入的修改'
+              : agentScope
+                ? 'Agent 文件修改'
+                : currentSnapshot?.branch}
+        </span>
       </div>
-      {selection.mode === 'turn' ? (
-        <TurnReview key={selectionRevision} changes={turnChanges} selectedPath={selectedPath} />
-      ) : (
-        <WorkspaceChanges cwd={cwd} bridge={bridge} refreshToken={refreshToken} />
+      {error && (
+        <div role="alert" className="flex items-start gap-2 border-y border-border px-3 py-2 text-xs text-destructive">
+          <span className="min-w-0 flex-1 break-words">{error}</span>
+          <button type="button" onClick={() => void refresh()} className="shrink-0 underline">
+            重试
+          </button>
+        </div>
       )}
+      {feedback && (
+        <p role="status" className="px-3 pb-2 text-xs text-muted-foreground">
+          {feedback}
+        </p>
+      )}
+      <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden" aria-busy={loading}>
+        {files.map((file) => (
+          <ReviewFile
+            key={`${queryKey}:${agentScope ? changes?.entryId : ''}:${file.path}`}
+            file={file}
+            open={openPaths.has(file.path)}
+            onToggle={() => toggle(file.path)}
+            split={split}
+            wrap={reading.wrap}
+            generation={generation}
+            absolutePath={
+              agentScope
+                ? (changes?.files.find((item) => item.path === file.path)?.absolutePath ?? joinPath(cwd, file.path))
+                : joinPath(root, file.path)
+            }
+            onOpenFile={onOpenFile}
+            feedback={setFeedback}
+            load={() =>
+              agentScope
+                ? bridgeRef.current.turnFile(changes!.entryId, file.path)
+                : bridgeRef.current.file({ query: query!, path: file.path })
+            }
+            initial={agentScope ? changes?.files.find((item) => item.path === file.path)?.patch : undefined}
+          />
+        ))}
+        {currentSnapshot?.error && (
+          <div className="px-5 py-8 text-center text-xs leading-6 text-muted-foreground">
+            <p>{currentSnapshot.error === 'not-repository' ? '当前项目未使用 Git。' : '当前环境未安装 Git。'}</p>
+            <p>Agent 的本轮和上一轮修改仍可查看。</p>
+            <Button
+              variant="secondary"
+              size="sm"
+              className="mt-3"
+              onClick={() => select({ ...preferences, scope: 'turn' })}
+            >
+              查看 Agent 本轮修改
+            </Button>
+          </div>
+        )}
+        {!files.length && !error && !currentSnapshot?.error && (
+          <p className="px-5 py-10 text-center text-xs leading-6 text-muted-foreground">
+            {loading
+              ? '正在读取变更…'
+              : (scope === 'branch' || scope === 'commit') && !ref
+                ? `请选择${scope === 'branch' ? '比较分支' : '提交'}`
+                : agentScope
+                  ? `${scope === 'turn' ? '本轮' : '上一轮'}没有 Agent 文件修改记录。`
+                  : scope === 'uncommitted'
+                    ? '工作区干净'
+                    : '此范围没有文件变更'}
+          </p>
+        )}
+      </div>
     </div>
   )
 }
 
-function TurnReview({ changes, selectedPath }: { changes?: TurnChanges; selectedPath?: string }) {
-  const [openPath, setOpenPath] = useState<string | null>(selectedPath ?? null)
-  return (
-    <>
-      <div className="flex shrink-0 items-center gap-2 px-3 py-2 text-xs text-muted-foreground">
-        <span>
-          {changes?.files.length ?? 0} 个文件{changes?.undone ? ' · 已撤销' : ''}
-        </span>
-        {changes && (
-          <>
-            <span className="font-mono text-emerald-600 dark:text-emerald-400">+{changes.insertions}</span>
-            <span className="font-mono text-rose-600 dark:text-rose-400">−{changes.deletions}</span>
-          </>
-        )}
-      </div>
-      <div className="min-h-0 flex-1 overflow-auto">
-        {!changes?.files.length ? (
-          <p className="px-3 py-5 text-center text-xs text-muted-foreground">
-            本轮没有可用的文件变更记录。旧会话未保存的修改前内容无法恢复。
-          </p>
-        ) : (
-          changes.files.map((file) => (
-            <div key={file.path} className="border-b border-border/30">
-              <button
-                type="button"
-                aria-label={file.path}
-                aria-expanded={openPath === file.path}
-                onClick={() => setOpenPath(openPath === file.path ? null : file.path)}
-                className="flex w-full items-center gap-1.5 px-3 py-2 text-left text-xs hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-              >
-                {openPath === file.path ? (
-                  <ChevronDown className="size-3 shrink-0" />
-                ) : (
-                  <ChevronRight className="size-3 shrink-0" />
-                )}
-                <FileDiff className="size-3 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 flex-1 truncate" title={file.path}>
-                  {file.path}
-                </span>
-                <span className="font-mono text-emerald-600 dark:text-emerald-400">+{file.insertions}</span>
-                <span className="font-mono text-rose-600 dark:text-rose-400">−{file.deletions}</span>
-              </button>
-              {openPath === file.path && (
-                <div className="border-t border-border/40 px-2 py-1">
-                  <GitDiffViewer diff={file.patch} />
-                </div>
-              )}
-            </div>
-          ))
-        )}
-      </div>
-      <p className="shrink-0 border-t border-border/60 px-3 py-2 text-[0.625rem] leading-relaxed text-muted-foreground">
-        只记录本会话本轮 edit / write 的修改，包括 codemode 内的调用。
-      </p>
-    </>
-  )
+function joinPath(root: string, file: string) {
+  return `${root.replace(/[\\/]$/, '')}/${file}`
+}
+const statuses: Record<string, string> = {
+  A: '新增',
+  D: '删除',
+  R: '重命名',
+  C: '复制',
+  M: '修改',
+  '?': '未跟踪',
+  T: '类型变化',
+  U: '冲突',
 }
 
-function WorkspaceChanges({
-  cwd,
-  bridge,
-  refreshToken,
+function ReviewFile({
+  file,
+  open,
+  onToggle,
+  split,
+  wrap,
+  generation,
+  absolutePath,
+  onOpenFile,
+  feedback,
+  load,
+  initial,
 }: {
-  cwd: string
-  bridge: Pick<GitBridge, 'getGitSnapshot' | 'getGitDiff'>
-  refreshToken: number
+  file: GitReviewFile
+  open: boolean
+  onToggle: () => void
+  split: boolean
+  wrap: boolean
+  generation: number
+  absolutePath: string
+  onOpenFile?: (path: string) => Promise<void>
+  feedback: (message: string) => void
+  load: () => Promise<GitReviewFileContent>
+  initial?: string
 }) {
-  const [snapshot, setSnapshot] = useState<GitSnapshot | null>(null)
-  const [selected, setSelected] = useState<GitFileChange | null>(null)
-  const [diff, setDiff] = useState('')
+  const [content, setContent] = useState<GitReviewFileContent | undefined>(() =>
+    initial === undefined ? undefined : { patch: initial },
+  )
   const [loading, setLoading] = useState(false)
-  const [diffLoading, setDiffLoading] = useState(false)
-  const requestId = useRef(0)
-  const diffId = useRef(0)
-  const inFlight = useRef(false)
-  const bridgeRef = useRef(bridge)
-  bridgeRef.current = bridge
-  const lastToken = useRef(refreshToken)
-
-  const refresh = useCallback(async () => {
-    if (inFlight.current) return
-    inFlight.current = true
-    const id = ++requestId.current
+  const [error, setError] = useState('')
+  const [retry, setRetry] = useState(0)
+  const loadRef = useRef(load)
+  loadRef.current = load
+  useEffect(() => {
+    if (!open) return
+    let current = true
     setLoading(true)
-    try {
-      const next = await bridgeRef.current.getGitSnapshot()
-      if (id !== requestId.current || next.cwd !== cwd) return
-      setSnapshot(next)
-      setSelected((current) =>
-        current && next.files.some((file) => file.path === current.path && file.kind === current.kind) ? current : null,
-      )
-    } catch {
-      if (id === requestId.current) setSnapshot({ cwd, files: [], insertions: 0, deletions: 0, error: 'failed' })
-    } finally {
-      if (id === requestId.current) setLoading(false)
-      inFlight.current = false
-    }
-  }, [cwd])
-
-  useEffect(() => {
-    setSnapshot(null)
-    setSelected(null)
-    setDiff('')
-    void refresh()
-    const timer = window.setInterval(() => void refresh(), 5000)
-    const focus = () => void refresh()
-    window.addEventListener('focus', focus)
-    return () => {
-      requestId.current += 1
-      window.clearInterval(timer)
-      window.removeEventListener('focus', focus)
-    }
-  }, [refresh])
-
-  useEffect(() => {
-    if (lastToken.current === refreshToken) return
-    lastToken.current = refreshToken
-    void refresh()
-  }, [refreshToken, refresh])
-
-  useEffect(() => {
-    if (!selected) {
-      setDiff('')
-      return
-    }
-    const id = ++diffId.current
-    setDiff('')
-    setDiffLoading(true)
-    void bridgeRef.current
-      .getGitDiff(selected.path, selected.kind)
-      .then((value) => {
-        if (id === diffId.current) setDiff(value)
+    void loadRef
+      .current()
+      .then((result) => {
+        if (current) {
+          setContent(result)
+          setError('')
+        }
       })
-      .catch((cause: unknown) => {
-        if (id === diffId.current) setDiff(`读取变更失败：${String(cause)}`)
+      .catch((cause) => {
+        if (current) setError(cause instanceof Error ? cause.message : String(cause))
       })
       .finally(() => {
-        if (id === diffId.current) setDiffLoading(false)
+        if (current) setLoading(false)
       })
     return () => {
-      diffId.current += 1
+      current = false
     }
-  }, [selected, cwd])
-
-  const message =
-    snapshot?.error === 'unavailable'
-      ? '未找到 Git，请先安装 Git。'
-      : snapshot?.error === 'not-repository'
-        ? '当前项目不在 Git 仓库中。'
-        : snapshot?.error === 'failed'
-          ? '读取 Git 状态失败。'
-          : null
-
-  const fileCount = new Set(snapshot?.files.map((file) => file.path) ?? []).size
-
+  }, [open, generation, retry, initial])
+  const slash = Math.max(file.path.lastIndexOf('/'), file.path.lastIndexOf('\\'))
+  const directory = file.path.slice(0, slash + 1)
+  const name = file.path.slice(slash + 1)
+  async function copy(value: string, label: string) {
+    try {
+      await navigator.clipboard.writeText(value)
+      feedback(`已复制${label}`)
+    } catch {
+      feedback('复制失败，请检查剪贴板权限后重试。')
+    }
+  }
+  async function copyDiff() {
+    try {
+      const value = content ?? (await loadRef.current())
+      if (value.notice) {
+        feedback(value.notice)
+        return
+      }
+      await copy(value.patch, ' Diff')
+    } catch (cause) {
+      feedback(`读取 Diff 失败：${String(cause)}`)
+    }
+  }
+  const openFile = () => {
+    if (onOpenFile) void onOpenFile(absolutePath).catch((cause) => feedback(`打开文件失败：${String(cause)}`))
+  }
   return (
-    <>
-      <div className="flex shrink-0 items-center gap-2 border-b border-border/60 px-3 py-2 text-[0.6875rem]">
-        <span className="min-w-0 flex-1 truncate text-muted-foreground" title={snapshot?.root ?? cwd}>
-          {snapshot?.branch ?? snapshot?.root ?? cwd}
-        </span>
-        <span className="shrink-0 text-muted-foreground">{fileCount} 个变更</span>
-        <span className="shrink-0 font-mono text-emerald-500">+{snapshot?.insertions ?? 0}</span>
-        <span className="shrink-0 font-mono text-rose-500">−{snapshot?.deletions ?? 0}</span>
-        <Button
-          size="icon-sm"
-          variant="ghost"
-          onClick={() => void refresh()}
-          aria-label="刷新 Git 变更"
-          title="刷新"
-          className="shrink-0"
+    <section data-review-path={file.path} className="border-b border-border/60">
+      <div
+        className={cn('group flex min-w-0 items-center gap-1 px-2 hover:bg-secondary/40', open && 'bg-secondary/25')}
+      >
+        <button
+          type="button"
+          aria-label={file.path}
+          aria-expanded={open}
+          onClick={onToggle}
+          title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
+          className="flex min-w-0 flex-1 items-center gap-2 rounded py-3 text-left text-xs focus-visible:outline-2 focus-visible:outline-ring"
         >
-          <RefreshCw className={`size-3.5 ${loading ? 'animate-spin' : ''}`} />
-        </Button>
-      </div>
-      {message ? (
-        <div className="px-3 py-4 text-xs text-muted-foreground">{message}</div>
-      ) : (
-        <div className="min-h-0 flex-1 overflow-auto">
-          {sections.map(({ kind, title }) => {
-            const files = snapshot?.files.filter((file) => file.kind === kind) ?? []
-            if (!files.length) return null
-            return (
-              <section key={kind} className="py-2">
-                <h3 className="px-3 pb-1 text-[0.625rem] font-medium uppercase tracking-wide text-muted-foreground">
-                  {title} · {files.length}
-                </h3>
-                <div className="divide-y divide-border/20">
-                  {files.map((file) => {
-                    const active = selected?.path === file.path && selected.kind === file.kind
-                    return (
-                      <div key={`${kind}:${file.path}`} className="flex flex-col">
-                        <button
-                          type="button"
-                          onClick={() => setSelected(active ? null : file)}
-                          aria-expanded={active}
-                          className={`flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-[0.6875rem] transition-colors hover:bg-secondary/70 ${active ? 'bg-secondary/80 font-medium' : ''}`}
-                        >
-                          {active ? (
-                            <ChevronDown className="size-3 shrink-0" />
-                          ) : (
-                            <ChevronRight className="size-3 shrink-0 text-muted-foreground" />
-                          )}
-                          <FileDiff className="size-3 shrink-0 text-muted-foreground" />
-                          <span className="min-w-0 flex-1 truncate" title={file.path}>
-                            {file.path}
-                          </span>
-                          <span className="shrink-0 font-mono text-[0.625rem] text-muted-foreground">
-                            {file.status}
-                          </span>
-                        </button>
-                        {active && (
-                          <div className="border-t border-border/40 bg-muted/15 pb-2 pt-1">
-                            {diffLoading ? (
-                              <div className="flex items-center gap-2 px-4 py-3 text-[0.6875rem] text-muted-foreground">
-                                <RefreshCw className="size-3 shrink-0 animate-spin" />
-                                <span>正在读取 Diff…</span>
-                              </div>
-                            ) : (
-                              <GitDiffViewer diff={diff} isUntracked={file.kind === 'untracked'} />
-                            )}
-                          </div>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              </section>
-            )
-          })}
-          {!message && snapshot?.files.length === 0 && (
-            <div className="px-3 py-5 text-center text-xs text-muted-foreground">工作区干净</div>
+          {open ? (
+            <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
+          ) : (
+            <ChevronRight className="size-3 shrink-0 text-muted-foreground" />
           )}
-        </div>
+          <FileIcon path={file.path} />
+          <span className="flex min-w-0 flex-1 items-baseline overflow-hidden">
+            <span className="min-w-0 truncate text-muted-foreground">{directory}</span>
+            <span className="max-w-full shrink-0 truncate font-medium">{name}</span>
+          </span>
+          {file.status !== 'M' && (
+            <span className="shrink-0 text-[10px] text-muted-foreground" title={statuses[file.status] ?? file.status}>
+              {file.status === '?' ? '新' : file.status}
+            </span>
+          )}
+          <span className="ml-auto flex shrink-0 items-center gap-1.5 font-mono text-[11px] tabular-nums">
+            <span className="text-emerald-600 dark:text-emerald-400">
+              {file.insertions === null ? '—' : `+${file.insertions}`}
+            </span>
+            <span className="text-rose-600 dark:text-rose-400">
+              {file.deletions === null ? '—' : `−${file.deletions}`}
+            </span>
+          </span>
+        </button>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          className="hidden size-7 shrink-0 text-muted-foreground @min-[600px]:inline-flex"
+          title={file.canOpen ? '在编辑器中打开' : '当前工作区中无法打开此文件'}
+          aria-label={`在编辑器中打开 ${file.path}`}
+          disabled={!onOpenFile || !file.canOpen}
+          onClick={openFile}
+        >
+          <ExternalLink className="size-3.5" />
+        </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="size-7 shrink-0 text-muted-foreground"
+              aria-label={`${file.path} 的更多操作`}
+            >
+              <MoreHorizontal className="size-3.5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" side="bottom">
+            <DropdownMenuItem onSelect={() => void copy(file.path, '相对路径')}>
+              <Copy />
+              复制相对路径
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => void copy(absolutePath, '绝对路径')}>复制绝对路径</DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={!onOpenFile || !file.canOpen}
+              title={
+                !file.canOpen ? '当前工作区中无法打开此文件' : !onOpenFile ? '当前连接不支持本机编辑器' : undefined
+              }
+              onSelect={openFile}
+            >
+              <ExternalLink />
+              在编辑器中打开
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={onToggle}>{open ? '收起差异' : '展开差异'}</DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => void copyDiff()}>复制 Diff</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
+      {open && (
+        <>
+          {loading && !content && (
+            <p role="status" className="flex items-center gap-2 px-4 py-4 text-xs text-muted-foreground">
+              <RefreshCw className="size-3 animate-spin" />
+              正在读取差异…
+            </p>
+          )}
+          {error && (
+            <p role="alert" className="px-4 py-2 text-xs text-destructive">
+              {error}
+              <button type="button" onClick={() => setRetry((value) => value + 1)} className="ml-2 underline">
+                重试
+              </button>
+            </p>
+          )}
+          {content && (
+            <GitDiffViewer
+              diff={content.patch}
+              path={file.path}
+              before={content.before}
+              after={content.after}
+              notice={content.notice}
+              split={split}
+              wrap={wrap}
+            />
+          )}
+        </>
       )}
-    </>
+    </section>
   )
 }

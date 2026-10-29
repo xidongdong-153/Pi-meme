@@ -3,6 +3,9 @@ export type TurnChangeFile = {
   insertions: number
   deletions: number
   patch: string
+  status?: string
+  canOpen?: boolean
+  absolutePath?: string
 }
 
 /** 以原生用户消息 entry ID 标识一轮；内容快照只保存在 Host。 */

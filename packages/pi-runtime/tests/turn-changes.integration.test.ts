@@ -9,7 +9,7 @@ import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
 import type { ExtensionAPI, ExtensionToolContext, ToolDefinition } from '@earendil-works/pi-coding-agent'
 import { loadPiSdk } from '../src/sdk/load'
 import { createTurnChangesExtension } from '../src/extensions/turn-changes'
-import { readTurnChanges, undoTurnChanges } from '../src/turn-change-store'
+import { readTurnChanges, readTurnChangeFile, undoTurnChanges } from '../src/turn-change-store'
 
 test('真实会话的 codemode 嵌套写入按用户 entry ID 保存，恢复后仍能读取', async () => {
   const directory = await realpath(await mkdtemp(path.join(tmpdir(), 'turn-session-')))
@@ -100,13 +100,19 @@ test('文件工具记录覆盖、新建与嵌套调用，持久化净差异并�
     assert.match(turn.files[0].patch, /用户原有修改/)
     assert.doesNotMatch(turn.files[0].patch, /第一版/)
     await writeFile(path.join(directory, 'new.ts'), '用户后续修改\n')
+    const history = await readTurnChangeFile(sessionFile, 'user-one', 'new.ts')
+    assert.equal(history.before, '')
+    assert.equal(history.after, '新文件\n')
+    await assert.rejects(readTurnChangeFile(sessionFile, 'user-one', '../outside'), /历史内容/)
     await assert.rejects(undoTurnChanges(sessionFile, 'user-one', directory, false), /后续修改/)
     assert.equal(await readFile(path.join(directory, 'existing.ts'), 'utf8'), '第二版\n')
     await writeFile(path.join(directory, 'new.ts'), '新文件\n')
     await undoTurnChanges(sessionFile, 'user-one', directory, false)
     assert.equal(await readFile(path.join(directory, 'existing.ts'), 'utf8'), '用户原有修改\n')
     await assert.rejects(readFile(path.join(directory, 'new.ts')), { code: 'ENOENT' })
-    assert.equal((await readTurnChanges(sessionFile, ['user-one']))[0].undone, true)
+    const undone = (await readTurnChanges(sessionFile, ['user-one']))[0]
+    assert.equal(undone.undone, true)
+    assert.equal(undone.files.find((file) => file.path === 'new.ts')?.canOpen, false)
     await undoTurnChanges(sessionFile, 'user-one', directory, false)
   } finally {
     await rm(directory, { recursive: true, force: true })
