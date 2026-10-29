@@ -2,6 +2,8 @@ import '@testing-library/jest-dom/vitest'
 import { afterEach, expect, test, vi } from 'vitest'
 import { act, cleanup, render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { VisualizationRendererContext } from '@pi-meme/ui/components/visualization-renderer'
+import { visualizationMarkdown } from '@pi-meme/contracts/visualize'
 import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 import { ActivityGroup } from '../src/ui/conversation/activity-group'
 import { AssistantTurnView } from '../src/ui/conversation/assistant-turn'
@@ -1052,4 +1054,84 @@ test('完整工具事件流持续保留父活动行，结果补录不重建已�
   expect(group.closest('[aria-hidden="true"]')).not.toBeNull()
   expect(screen.getByRole('button', { name: '工作过程' })).toHaveAttribute('aria-expanded', 'false')
   expect(screen.getByText('检查完成。')).toBeVisible()
+})
+
+test('草图在工具成功后直接可见，轮次结束和收起工作过程后保持同一预览', async () => {
+  const user = userEvent.setup()
+  const reference = { id: '12345678-1234-1234-1234-123456789012', revision: 1 }
+  const preview = (ref: typeof reference) => <button>草图预览 {ref.revision}</button>
+  const view = (status: 'running' | 'success', isLive: boolean, finalText = '') => (
+    <TooltipProvider>
+      <VisualizationRendererContext.Provider value={preview}>
+        <AssistantTurnView
+          turn={{
+            type: 'assistant_turn',
+            key: 'visualize-turn',
+            isLive,
+            finalText,
+            images: [],
+            activities: [
+              {
+                id: 'save',
+                type: 'tool',
+                name: 'save_visualization',
+                status,
+                result: status === 'success' ? { details: { visualization: reference } } : undefined,
+              },
+            ],
+          }}
+        />
+      </VisualizationRendererContext.Provider>
+    </TooltipProvider>
+  )
+  const { rerender } = render(view('running', true))
+  expect(screen.queryByRole('button', { name: '草图预览 1' })).toBeNull()
+  rerender(view('success', true))
+  const card = screen.getByRole('button', { name: '草图预览 1' })
+  expect(card.closest('[aria-hidden="true"], [inert]')).toBeNull()
+  await user.click(screen.getByRole('button', { name: '工作过程' }))
+  expect(screen.getByRole('button', { name: '草图预览 1' })).toBe(card)
+  rerender(view('success', false, '草图已生成，可以直接操作。'))
+  expect(screen.getByRole('button', { name: '草图预览 1' })).toBe(card)
+  expect(card.closest('[aria-hidden="true"], [inert]')).toBeNull()
+  await user.click(screen.getByRole('button', { name: '工作过程' }))
+  expect(screen.getAllByText('草图预览 1')).toHaveLength(1)
+})
+
+test('历史轮次直接显示全部成功草图版本，正文引用不重复，失败结果不展示', () => {
+  const reference = { id: '12345678-1234-1234-1234-123456789012', revision: 1 }
+  const saved = (revision: number): Extract<ActivityItem, { type?: 'tool' }> => ({
+    id: `save-${revision}`,
+    type: 'tool',
+    name: 'save_visualization',
+    status: 'success',
+    result: { details: { visualization: { ...reference, revision } } },
+  })
+  render(
+    <TooltipProvider>
+      <VisualizationRendererContext.Provider value={(ref) => <button>草图预览 {ref.revision}</button>}>
+        <AssistantTurnView
+          turn={{
+            type: 'assistant_turn',
+            key: 'history-visualize',
+            isLive: false,
+            images: [],
+            finalText: `已更新。\n${visualizationMarkdown({ ...reference, revision: 2 })}`,
+            activities: [
+              saved(1),
+              saved(2),
+              { ...saved(2), id: 'retry' },
+              { ...saved(3), status: 'error' },
+              { ...saved(4), result: { details: { visualization: { id: 'bad', revision: 4 } } } },
+            ],
+          }}
+        />
+      </VisualizationRendererContext.Provider>
+    </TooltipProvider>,
+  )
+  expect(screen.getByRole('button', { name: '草图预览 1' })).toBeVisible()
+  expect(screen.getAllByText('草图预览 2')).toHaveLength(1)
+  expect(screen.getByRole('button', { name: '草图预览 2' })).toBeVisible()
+  expect(screen.queryByText('草图预览 3')).toBeNull()
+  expect(screen.queryByText('草图引用无效。')).toBeNull()
 })

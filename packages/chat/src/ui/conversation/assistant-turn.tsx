@@ -1,3 +1,6 @@
+import { VisualizationRenderer } from '@pi-meme/ui/components/visualization-renderer'
+import { MarkdownHiddenVisualizationsContext } from '../content/markdown-components'
+import { turnVisualizations } from '../model/turn-visualizations'
 import * as React from 'react'
 import { ChevronDown } from 'lucide-react'
 import type { PiPauseInterval, PiRetryState } from '@pi-meme/contracts/pi'
@@ -40,6 +43,11 @@ export function AssistantTurnView({
   reply?: React.ReactNode
   changes?: React.ReactNode
 }) {
+  const visualizations = React.useMemo(() => turnVisualizations(turn.activities), [turn.activities])
+  const visualizationKeys = React.useMemo(
+    () => new Set(visualizations.map((reference) => `${reference.id}:${reference.revision}`)),
+    [visualizations],
+  )
   const hasReplyContent =
     !reply && isFinalReply && !turn.isLive && (Boolean(turn.finalText.trim()) || turn.images.length > 0)
   const segments = React.useMemo(
@@ -66,7 +74,7 @@ export function AssistantTurnView({
     />
   )
 
-  return (
+  const content = (
     <article
       data-message-role="assistant"
       className={cn('group flex w-full py-1 text-sm select-text justify-start', className)}
@@ -143,6 +151,13 @@ export function AssistantTurnView({
           )}
           {!hasTrailingText && reply}
           {!hasTrailingText && turn.images.length > 0 && <AttachmentPreview images={turn.images} />}
+          {visualizations.length > 0 && (
+            <div className="my-3 space-y-3" aria-label="本轮生成的草图">
+              {visualizations.map((reference) => (
+                <VisualizationRenderer key={`${reference.id}:${reference.revision}`} reference={reference} />
+              ))}
+            </div>
+          )}
           {(retry?.errorMessage || turn.errorMessage) && (
             <ErrorLine
               className="mt-2"
@@ -176,5 +191,10 @@ export function AssistantTurnView({
         )}
       </div>
     </article>
+  )
+  return (
+    <MarkdownHiddenVisualizationsContext.Provider value={visualizationKeys}>
+      {content}
+    </MarkdownHiddenVisualizationsContext.Provider>
   )
 }

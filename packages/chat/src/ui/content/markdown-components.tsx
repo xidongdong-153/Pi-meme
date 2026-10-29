@@ -1,3 +1,4 @@
+import { validateVisualizationRef } from '@pi-meme/contracts/visualize'
 import { VisualizationRenderer } from '@pi-meme/ui/components/visualization-renderer'
 import * as React from 'react'
 import type { ExtraProps } from 'react-markdown'
@@ -7,19 +8,25 @@ import { MermaidBlock } from './mermaid-block'
 import { isImageLink, MessageImage } from './message-image'
 import { MarkdownLink } from './markdown-link'
 
+export const MarkdownHiddenVisualizationsContext = React.createContext<ReadonlySet<string>>(new Set())
+
 export const MarkdownStreamingContext = React.createContext(false)
 
 function MarkdownPre({ children }: React.ComponentPropsWithoutRef<'pre'>) {
   const isStreaming = React.useContext(MarkdownStreamingContext)
+  const hiddenVisualizations = React.useContext(MarkdownHiddenVisualizationsContext)
   const child = React.Children.toArray(children)[0]
   if (!React.isValidElement<React.ComponentPropsWithoutRef<'code'>>(child)) return <pre>{children}</pre>
   const language = /(?:^|\s)language-(\S+)/.exec(child.props.className ?? '')?.[1]
   const code = String(child.props.children ?? '').replace(/\n$/, '')
-  if (language === 'visualize' && !isStreaming) {
+  if (language === 'visualize') {
     try {
-      return <VisualizationRenderer reference={JSON.parse(code)} />
+      const reference = JSON.parse(code)
+      validateVisualizationRef(reference)
+      if (hiddenVisualizations.has(`${reference.id}:${reference.revision}`)) return null
+      if (!isStreaming) return <VisualizationRenderer reference={reference} />
     } catch {
-      return <p>草图引用无效。</p>
+      if (!isStreaming) return <p>草图引用无效。</p>
     }
   }
   return language?.toLowerCase() === 'mermaid' ? (

@@ -9,6 +9,7 @@ import {
   visualizationReferences,
   projectBranchVisualizations,
   type SaveVisualizationInput,
+  type VisualizationState,
 } from '@pi-meme/contracts/visualize'
 
 const input: SaveVisualizationInput = {
@@ -56,7 +57,14 @@ test('保存版本、重试幂等、重启读取、分支授权与版本冲突',
 })
 test('四类控件校验与未知状态键拒绝', () => {
   expect(() => validateVisualizationInput(input)).not.toThrow()
-  for (const patch of [{ stage: 'unknown' }, { compact: 'yes' }, { spacing: 3 }, { accent: 'red' }, { extra: true }]) {
+  const patches: VisualizationState[] = [
+    { stage: 'unknown' },
+    { compact: 'yes' },
+    { spacing: 3 },
+    { accent: 'red' },
+    { extra: true },
+  ]
+  for (const patch of patches) {
     expect(() => validateVisualizationState({ ...input.initialState, ...patch }, input)).toThrow()
   }
   expect(() => validateVisualizationInput({ ...input, controls: [...input.controls, input.controls[0]] })).toThrow()
