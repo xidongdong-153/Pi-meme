@@ -1,3 +1,4 @@
+import { useRef, useState } from 'react'
 import {
   Circle,
   Clock,
@@ -79,6 +80,12 @@ export function AppRail({
   onShortcutHelp?: () => void
   className?: string
 }) {
+  const [userMenuOpen, setUserMenuOpen] = useState(false)
+  const restoringUserMenuFocus = useRef(false)
+  const openAccount = () => {
+    setUserMenuOpen(false)
+    onAccount?.()
+  }
   const shortcuts = useShortcuts()
   const settingsShortcut = shortcuts.getShortcutLabel('openSettings')
 
@@ -225,7 +232,7 @@ export function AppRail({
 
       {/* 底部个人账户头像与菜单 */}
       <div className="flex flex-col items-center">
-        <DropdownMenu>
+        <DropdownMenu open={userMenuOpen} onOpenChange={setUserMenuOpen}>
           <Tooltip>
             <TooltipTrigger asChild>
               <DropdownMenuTrigger asChild>
@@ -233,6 +240,9 @@ export function AppRail({
                   type="button"
                   aria-label="用户菜单与设置"
                   aria-busy={profileLoading}
+                  onFocus={(event) => {
+                    if (restoringUserMenuFocus.current) event.preventDefault()
+                  }}
                   className="flex size-7 items-center justify-center rounded-full bg-[#e8a838] text-[0.625rem] font-bold text-neutral-900 shadow-xs transition-transform hover:scale-105 active:scale-95 cursor-pointer outline-none overflow-hidden"
                 >
                   {profileLoading ? (
@@ -250,83 +260,98 @@ export function AppRail({
             </TooltipContent>
           </Tooltip>
 
-          <DropdownMenuContent side="right" align="end" sideOffset={12} className="w-52 p-1.5">
-            {/* 1. 顶部展示头像 - 名称（无 Pro 订阅标识，点击直达个人资料） */}
-            <div
-              role="button"
-              tabIndex={0}
-              onClick={onAccount}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  e.preventDefault()
-                  onAccount?.()
-                }
+          {/* 关闭时立即卸载 Portal，避免跳转后继续围绕已隐藏的头像定位。 */}
+          {userMenuOpen && (
+            <DropdownMenuContent
+              side="right"
+              align="end"
+              sideOffset={12}
+              className="w-52 p-1.5"
+              onCloseAutoFocus={() => {
+                // Radix 随后同步恢复头像焦点；这次聚焦不应再次打开 Tooltip。
+                restoringUserMenuFocus.current = true
+                queueMicrotask(() => {
+                  restoringUserMenuFocus.current = false
+                })
               }}
-              className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg select-none hover:bg-secondary/60 transition-colors cursor-pointer group"
             >
-              <div className="flex size-7 items-center justify-center rounded-full bg-[#e8a838] text-[0.625rem] font-bold text-neutral-900 shrink-0 shadow-xs overflow-hidden">
-                {profileLoading ? (
-                  <span className="size-full animate-pulse rounded-full bg-muted" />
-                ) : profile.avatarUrl ? (
-                  <img src={profile.avatarUrl} alt={profile.name} className="size-full rounded-full object-cover" />
-                ) : (
-                  profile.avatarText
-                )}
-              </div>
-              <span className="text-xs font-semibold text-foreground truncate group-hover:text-primary transition-colors">
-                {profileLoading ? '正在加载个人资料…' : profile.name}
-              </span>
-            </div>
-
-            <DropdownMenuSeparator />
-
-            {/* 2. 用量 */}
-            <DropdownMenuItem onClick={onUsage} className="gap-2.5 py-2">
-              <Gauge className="size-4 text-muted-foreground" />
-              <span>用量</span>
-            </DropdownMenuItem>
-
-            {/* 3. 设置 */}
-            <DropdownMenuItem onClick={onSettings} className="gap-2.5 py-2 justify-between">
-              <div className="flex items-center gap-2.5">
-                <Settings className="size-4 text-muted-foreground" />
-                <span>设置</span>
-              </div>
-              {settingsShortcut && (
-                <span className="text-[10px] text-muted-foreground/80 font-mono tracking-tighter">
-                  {settingsShortcut}
+              {/* 1. 顶部展示头像 - 名称（无 Pro 订阅标识，点击直达个人资料） */}
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={openAccount}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    openAccount()
+                  }
+                }}
+                className="flex items-center gap-2.5 px-2 py-1.5 rounded-lg select-none hover:bg-secondary/60 transition-colors cursor-pointer group"
+              >
+                <div className="flex size-7 items-center justify-center rounded-full bg-[#e8a838] text-[0.625rem] font-bold text-neutral-900 shrink-0 shadow-xs overflow-hidden">
+                  {profileLoading ? (
+                    <span className="size-full animate-pulse rounded-full bg-muted" />
+                  ) : profile.avatarUrl ? (
+                    <img src={profile.avatarUrl} alt={profile.name} className="size-full rounded-full object-cover" />
+                  ) : (
+                    profile.avatarText
+                  )}
+                </div>
+                <span className="text-xs font-semibold text-foreground truncate group-hover:text-primary transition-colors">
+                  {profileLoading ? '正在加载个人资料…' : profile.name}
                 </span>
-              )}
-            </DropdownMenuItem>
+              </div>
 
-            <DropdownMenuSeparator />
+              <DropdownMenuSeparator />
 
-            {/* 4. 帮助二级菜单 */}
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger className="gap-2.5 py-2">
-                <LifeBuoy className="size-4 text-muted-foreground" />
-                <span>帮助</span>
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent sideOffset={14} alignOffset={-4} className="w-40 p-1">
-                <DropdownMenuItem disabled className="gap-2.5 py-1.5">
-                  <Gift className="size-4 text-muted-foreground" />
-                  <span>新功能</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={!onShortcutHelp}
-                  onClick={onShortcutHelp}
-                  className="gap-2.5 py-1.5 cursor-pointer"
-                >
-                  <Keyboard className="size-4 text-muted-foreground" />
-                  <span>键盘快捷键</span>
-                </DropdownMenuItem>
-                <DropdownMenuItem disabled className="gap-2.5 py-1.5">
-                  <BookOpen className="size-4 text-muted-foreground" />
-                  <span>用户指南</span>
-                </DropdownMenuItem>
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-          </DropdownMenuContent>
+              {/* 2. 用量 */}
+              <DropdownMenuItem onClick={onUsage} className="gap-2.5 py-2">
+                <Gauge className="size-4 text-muted-foreground" />
+                <span>用量</span>
+              </DropdownMenuItem>
+
+              {/* 3. 设置 */}
+              <DropdownMenuItem onClick={onSettings} className="gap-2.5 py-2 justify-between">
+                <div className="flex items-center gap-2.5">
+                  <Settings className="size-4 text-muted-foreground" />
+                  <span>设置</span>
+                </div>
+                {settingsShortcut && (
+                  <span className="text-[10px] text-muted-foreground/80 font-mono tracking-tighter">
+                    {settingsShortcut}
+                  </span>
+                )}
+              </DropdownMenuItem>
+
+              <DropdownMenuSeparator />
+
+              {/* 4. 帮助二级菜单 */}
+              <DropdownMenuSub>
+                <DropdownMenuSubTrigger className="gap-2.5 py-2">
+                  <LifeBuoy className="size-4 text-muted-foreground" />
+                  <span>帮助</span>
+                </DropdownMenuSubTrigger>
+                <DropdownMenuSubContent sideOffset={14} alignOffset={-4} className="w-40 p-1">
+                  <DropdownMenuItem disabled className="gap-2.5 py-1.5">
+                    <Gift className="size-4 text-muted-foreground" />
+                    <span>新功能</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    disabled={!onShortcutHelp}
+                    onClick={onShortcutHelp}
+                    className="gap-2.5 py-1.5 cursor-pointer"
+                  >
+                    <Keyboard className="size-4 text-muted-foreground" />
+                    <span>键盘快捷键</span>
+                  </DropdownMenuItem>
+                  <DropdownMenuItem disabled className="gap-2.5 py-1.5">
+                    <BookOpen className="size-4 text-muted-foreground" />
+                    <span>用户指南</span>
+                  </DropdownMenuItem>
+                </DropdownMenuSubContent>
+              </DropdownMenuSub>
+            </DropdownMenuContent>
+          )}
         </DropdownMenu>
       </div>
     </nav>

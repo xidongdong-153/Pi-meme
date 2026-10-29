@@ -31,6 +31,7 @@ export type ModelPickerPopoverProps = {
   thinkingLevel?: ThinkingLevel
   disabled: boolean
   busy?: boolean
+  active?: boolean
   openModelsVersion?: number
   shortcutLabel?: string
   onSelectModel: (model: PiModel) => void
@@ -52,6 +53,7 @@ export function ModelPickerPopover({
   thinkingLevel = 'medium',
   disabled,
   busy = false,
+  active = true,
   openModelsVersion,
   shortcutLabel,
   onSelectModel,
@@ -208,14 +210,46 @@ export function ModelPickerPopover({
     onSelectThinkingLevel(resolveThinkingLevel(selectedModel, 'medium'))
   }
 
+  const triggerRef = React.useRef<HTMLButtonElement>(null)
+  const contentRef = React.useRef<HTMLDivElement>(null)
+  const closedByOutsidePointer = React.useRef(false)
   React.useEffect(() => {
-    if (openModelsVersion && openModelsVersion > 0 && !disabled && !busy) {
+    if (!active || !open) return
+    const ownerDocument = triggerRef.current?.ownerDocument
+    if (!ownerDocument) return
+    const dismissOutside = (event: PointerEvent) => {
+      const path = event.composedPath()
+      if (path.includes(triggerRef.current!) || path.includes(contentRef.current!)) return
+      closedByOutsidePointer.current = true
+      gestureRef.current = null
+      setDragRatio(null)
+      setOpen(false)
+    }
+    ownerDocument.addEventListener('pointerdown', dismissOutside, true)
+    return () => ownerDocument.removeEventListener('pointerdown', dismissOutside, true)
+  }, [active, open])
+
+  const handledOpenModelsVersion = React.useRef<number | undefined>(undefined)
+  React.useEffect(() => {
+    const requested = openModelsVersion !== handledOpenModelsVersion.current
+    handledOpenModelsVersion.current = openModelsVersion
+    if (!active) {
+      gestureRef.current = null
+      setDragRatio(null)
+      setOpen(false)
+      return
+    }
+    if (requested && openModelsVersion && openModelsVersion > 0 && !disabled && !busy) {
+      closedByOutsidePointer.current = false
       setView('models')
       setQuery('')
       setShowSearch(false)
       setOpen(true)
     }
-  }, [openModelsVersion, disabled, busy])
+  }, [active, openModelsVersion, disabled, busy])
+
+  // 切页时连同 Portal 立即卸载，避免退场动画继续跟随已经隐藏的触发器定位。
+  if (!active) return null
 
   return (
     <Popover
@@ -224,6 +258,7 @@ export function ModelPickerPopover({
         gestureRef.current = null
         setDragRatio(null)
         if (nextOpen) {
+          closedByOutsidePointer.current = false
           setQuery('')
           setShowSearch(false)
           setView('thinking')
@@ -233,6 +268,7 @@ export function ModelPickerPopover({
     >
       <PopoverTrigger asChild>
         <button
+          ref={triggerRef}
           type="button"
           disabled={disabled}
           aria-busy={busy || undefined}
@@ -263,6 +299,10 @@ export function ModelPickerPopover({
       </PopoverTrigger>
 
       <PopoverContent
+        ref={contentRef}
+        onCloseAutoFocus={(event) => {
+          if (closedByOutsidePointer.current || !triggerRef.current?.isConnected) event.preventDefault()
+        }}
         side="top"
         align="end"
         sideOffset={8}

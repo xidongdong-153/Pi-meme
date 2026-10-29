@@ -1,12 +1,13 @@
 import '@testing-library/jest-dom/vitest'
 import { lazy, type ReactNode } from 'react'
 import { afterEach, expect, test, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 import { AppRail } from '../src/layout/app-rail'
 import { PageHeader, PageHeaderNavigation } from '../src/layout/page-header'
 import { SchedulesWorkspace } from '../src/layout/schedules-workspace'
 import { DEFAULT_PROFILE } from '../src/settings/user-profile'
+import { ModelPickerPopover } from '@pi-meme/models/ui/model-picker-popover'
 
 afterEach(cleanup)
 
@@ -21,6 +22,77 @@ function renderRail(props: Partial<Parameters<typeof AppRail>[0]> = {}) {
 function openUserMenu(btn: HTMLElement) {
   fireEvent.pointerDown(btn, { button: 0, ctrlKey: false })
 }
+
+test('模型弹框打开时点击用户菜单立即关闭弹框，并可直接进入设置', async () => {
+  const onSettings = vi.fn()
+  render(
+    <TooltipProvider>
+      <AppRail profile={DEFAULT_PROFILE} profileLoading={false} onSettings={onSettings} />
+      <ModelPickerPopover models={[]} disabled={false} onSelectModel={vi.fn()} onSelectThinkingLevel={vi.fn()} />
+    </TooltipProvider>,
+  )
+  fireEvent.click(screen.getByRole('button', { name: '选择模型与思考强度' }))
+  expect(screen.getByRole('dialog')).toBeInTheDocument()
+  openUserMenu(screen.getByRole('button', { name: '用户菜单与设置' }))
+  expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  fireEvent.click(await screen.findByRole('menuitem', { name: /设置/ }))
+  expect(onSettings).toHaveBeenCalledOnce()
+})
+
+test.each(['设置', '用量', '个人资料'])('用户菜单选择%s时立即卸载，不在隐藏头像上播放退场动画', (destination) => {
+  const getStyles = window.getComputedStyle.bind(window)
+  vi.spyOn(window, 'getComputedStyle').mockImplementation((element, pseudoElement) => {
+    const styles = getStyles(element, pseudoElement)
+    if (element.getAttribute('role') !== 'menu') return styles
+    return new Proxy(styles, {
+      get(target, property) {
+        if (property === 'animationName') return element.getAttribute('data-state') === 'open' ? 'enter' : 'exit'
+        if (property === 'display') return 'block'
+        return Reflect.get(target, property)
+      },
+    })
+  })
+  const navigate = vi.fn()
+  renderRail({ onSettings: navigate, onUsage: navigate, onAccount: navigate })
+  const avatar = screen.getByRole('button', { name: '用户菜单与设置' })
+  openUserMenu(avatar)
+  const menu = screen.getByRole('menu')
+  fireEvent.click(
+    destination === '个人资料'
+      ? screen.getByRole('button', { name: /meme 用户/ })
+      : screen.getByRole('menuitem', { name: new RegExp(destination) }),
+  )
+  expect(navigate).toHaveBeenCalledOnce()
+  expect(menu.isConnected).toBe(false)
+  expect(document.querySelector('[data-radix-popper-content-wrapper]')).toBeNull()
+  expect(avatar).toHaveAttribute('aria-expanded', 'false')
+  openUserMenu(avatar)
+  expect(screen.getByRole('menu')).toBeInTheDocument()
+})
+
+test.each(['外部点击', 'Escape'])('头像菜单通过%s关闭后恢复焦点，不自动弹出提示', async (method) => {
+  renderRail()
+  const avatar = screen.getByRole('button', { name: '用户菜单与设置' })
+  openUserMenu(avatar)
+  await screen.findByRole('menu')
+  // 等待 Radix 注册外部指针事件，再模拟鼠标抬起后的关闭操作。
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)))
+  fireEvent.pointerUp(avatar)
+  if (method === '外部点击') {
+    fireEvent.pointerDown(document.body, { button: 0, pointerType: 'mouse' })
+    fireEvent.pointerUp(document.body)
+    fireEvent.click(document.body)
+  } else {
+    fireEvent.keyDown(screen.getByRole('menu'), { key: 'Escape' })
+  }
+  await waitFor(() => expect(avatar).toHaveFocus())
+  expect(screen.queryByRole('menu')).not.toBeInTheDocument()
+  expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
+
+  act(() => avatar.blur())
+  act(() => avatar.focus())
+  expect(await screen.findByRole('tooltip')).toHaveTextContent('设置与账户')
+})
 
 test('AppRail 顶部首页入口调用新聊天操作', () => {
   const onHome = vi.fn()

@@ -198,6 +198,7 @@ export function SideChatSession({
       thinkingLevel={chat.selectedConfiguration.thinkingLevel}
       disabled={chat.modelPickerDisabled || locked}
       busy={chat.modelSaving}
+      active={Boolean(target)}
       openModelsVersion={openModelsVersion}
       onSelectModel={(value) => void chat.selectModel(value)}
       onSelectThinkingLevel={(value) => void chat.selectThinkingLevel(value)}

@@ -157,6 +157,92 @@ test('选择模型后直接收起弹框，不再跳回思考面板', () => {
   expect(screen.queryByRole('slider')).toBeNull()
 })
 
+test.each(['点击', '快捷键'])('通过%s打开的模型弹框在离开聊天页时关闭，返回后不自动重开', (entry) => {
+  const models = [{ provider: 'fake', id: 'first', name: '模型 Alpha' }]
+  const props = {
+    models,
+    currentModel: models[0],
+    disabled: false,
+    busy: false,
+    active: true,
+    openModelsVersion: 0,
+    onSelectModel: vi.fn(),
+    onSelectThinkingLevel: vi.fn(),
+  }
+  const view = render(<ModelPickerPopover {...props} />)
+  if (entry === '点击') {
+    fireEvent.click(screen.getByRole('button', { name: '选择模型与思考强度' }))
+    fireEvent.click(screen.getByRole('button', { name: '切换模型' }))
+  } else {
+    props.openModelsVersion++
+    view.rerender(<ModelPickerPopover {...props} />)
+  }
+  expect(screen.getByRole('dialog')).toBeDefined()
+
+  view.rerender(<ModelPickerPopover {...props} active={false} />)
+  expect(screen.queryByRole('dialog')).toBeNull()
+  view.rerender(<ModelPickerPopover {...props} active={false} busy />)
+  expect(screen.queryByRole('dialog')).toBeNull()
+  view.rerender(<ModelPickerPopover {...props} />)
+  expect(screen.queryByRole('dialog')).toBeNull()
+
+  props.openModelsVersion++
+  view.rerender(<ModelPickerPopover {...props} />)
+  expect(screen.getByRole('dialog')).toBeDefined()
+  expect(screen.getByText('可用模型')).toBeDefined()
+})
+
+test('点击拦截冒泡的外部区域也关闭模型弹框，内部操作保持打开', () => {
+  render(
+    <>
+      <button onPointerDown={(event) => event.stopPropagation()}>外部操作</button>
+      <ModelPickerPopover models={[]} disabled={false} onSelectModel={vi.fn()} onSelectThinkingLevel={vi.fn()} />
+    </>,
+  )
+  fireEvent.click(screen.getByRole('button', { name: '选择模型与思考强度' }))
+  const switchModel = screen.getByRole('button', { name: '切换模型' })
+  fireEvent.pointerDown(switchModel)
+  fireEvent.click(switchModel)
+  expect(screen.getByRole('dialog')).toBeDefined()
+  fireEvent.pointerDown(screen.getByRole('button', { name: '外部操作' }))
+  expect(screen.queryByRole('dialog')).toBeNull()
+})
+
+test('离开聊天页立即卸载仍在退场动画中的模型弹框', () => {
+  const getStyles = window.getComputedStyle.bind(window)
+  vi.spyOn(window, 'getComputedStyle').mockImplementation((element, pseudoElement) => {
+    const styles = getStyles(element, pseudoElement)
+    if (element.getAttribute('role') !== 'dialog') return styles
+    // 模拟浏览器实时计算的动画样式，让 Radix 等待 animationend 才卸载。
+    return new Proxy(styles, {
+      get(target, property) {
+        if (property === 'animationName') return element.getAttribute('data-state') === 'open' ? 'enter' : 'exit'
+        if (property === 'display') return 'flex'
+        return Reflect.get(target, property)
+      },
+    })
+  })
+  const props = {
+    models: [{ provider: 'fake', id: 'first', name: '模型 Alpha' }],
+    disabled: false,
+    onSelectModel: vi.fn(),
+    onSelectThinkingLevel: vi.fn(),
+  }
+  const view = render(<ModelPickerPopover {...props} />)
+  const trigger = screen.getByRole('button', { name: '选择模型与思考强度' })
+  fireEvent.click(trigger)
+  const dialog = screen.getByRole('dialog')
+  fireEvent.click(trigger)
+  expect(dialog.dataset.state).toBe('closed')
+  expect(dialog.isConnected).toBe(true)
+
+  view.rerender(<ModelPickerPopover {...props} active={false} />)
+  expect(dialog.isConnected).toBe(false)
+  expect(document.querySelector('[data-radix-popper-content-wrapper]')).toBeNull()
+  view.rerender(<ModelPickerPopover {...props} />)
+  expect(screen.queryByRole('dialog', { hidden: true })).toBeNull()
+})
+
 test('模型列表按供应商分组展示，支持区分同名模型并正确触发选择', () => {
   const models = [
     { provider: 'fake', id: 'common-id', name: '同名模型' },

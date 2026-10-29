@@ -1128,6 +1128,7 @@ export function App({
           thinkingLevel: chat.selectedConfiguration.thinkingLevel,
           disabled: chat.modelPickerDisabled,
           busy: chat.modelSaving,
+          active: active && chatVisible,
           openModelsVersion,
           shortcutLabel: shortcuts.getShortcutLabel('openModelPicker'),
           onSelectModel: (model) => void chat.selectModel(model),
