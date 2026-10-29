@@ -991,6 +991,21 @@ export class SdkSession {
       this.pendingSend = false
       if (!this.running && !forceSettled) return
       this.running = false
+      // 正常结束且没有待处理输入时，清除停止任务留下的空队列暂停标记。
+      if (
+        !aborted &&
+        !this.paused &&
+        this.queuePaused &&
+        !this.delivering &&
+        !this.handingOff &&
+        !this.ownQueue.steering.length &&
+        !this.ownQueue.followUp.length &&
+        !this.nativeQueue.steering.length &&
+        !this.nativeQueue.followUp.length
+      ) {
+        this.queuePaused = false
+        this.emitPause()
+      }
       const interval = this.runIntervals.at(-1)
       if (interval && interval.endedAt === undefined) interval.endedAt = Date.now()
       const pause = this.pauseIntervals.at(-1)

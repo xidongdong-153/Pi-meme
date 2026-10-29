@@ -213,3 +213,35 @@ test('运行中草图反馈排队，失败不覆盖主输入框', async () => {
   expect(result.current.draft).toBe('保留主稿')
   expect(result.current.failedDrafts).toEqual([])
 })
+
+test('发送前处理期间会话结束后按最新状态发送，不再加入队列', async () => {
+  const { result, bridge } = fixture()
+  const prepared = deferred<{ composer: ComposerDraftState; records: [] }>()
+  let source!: ComposerDraftState
+  act(() => {
+    result.current.applyEvent({ type: 'agent_start' })
+    result.current.setDraft('继续更新')
+    result.current.setSubmissionIntegration({
+      blocked: () => undefined,
+      prepare: (value) => {
+        source = value
+        return prepared.promise
+      },
+    })
+  })
+  let sending!: Promise<boolean>
+  act(() => {
+    sending = result.current.submitComposer()
+  })
+  act(() => {
+    result.current.clearPromptPending()
+    result.current.applyEvent({ type: 'agent_settled' })
+  })
+  expect(result.current.chat.running).toBe(false)
+  await act(async () => {
+    prepared.resolve({ composer: source, records: [] })
+    expect(await sending).toBe(true)
+  })
+  expect(bridge.followUp).not.toHaveBeenCalled()
+  expect(bridge.prompt).toHaveBeenCalledWith('session', '继续更新', [], [], { mode: 'default' })
+})

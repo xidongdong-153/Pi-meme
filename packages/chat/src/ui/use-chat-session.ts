@@ -533,6 +533,7 @@ export function useChatSession(options: ChatSessionOptions) {
         return false
       }
       if ((!message && !images.length && !skills.length) || !canSend()) return false
+      const currentChat = chatStream.getSnapshot()
       if (startingGoal) {
         try {
           validateGoalInput({
@@ -543,9 +544,9 @@ export function useChatSession(options: ChatSessionOptions) {
           return false
         }
         if (
-          chat.running ||
-          chat.paused ||
-          chat.queuePaused ||
+          currentChat.running ||
+          currentChat.paused ||
+          currentChat.queuePaused ||
           promptPending.current ||
           editingEntryId !== null ||
           queueEdit.current
@@ -665,7 +666,9 @@ export function useChatSession(options: ChatSessionOptions) {
         }
       }
 
-      const running = !chat.stopped && (chat.running || chat.paused || chat.queuePaused || promptPending.current)
+      const running =
+        !currentChat.stopped &&
+        (currentChat.running || currentChat.paused || currentChat.queuePaused || promptPending.current)
       if (planAction && (running || editingEntryId !== null || queueEdit.current)) return false
       const sendMode = running ? 'followUp' : 'prompt'
       const generation = currentGeneration()
@@ -782,9 +785,6 @@ export function useChatSession(options: ChatSessionOptions) {
       goalAction,
       activateGoal,
       chatStream,
-      chat.running,
-      chat.paused,
-      chat.queuePaused,
       draft,
       planDraft,
       selectedSkills,

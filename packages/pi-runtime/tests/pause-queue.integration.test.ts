@@ -1036,3 +1036,28 @@ test('任务准入期间暂停，恢复继续已准入轮次，不重复准入�
     await f.dispose()
   }
 })
+
+test('无排队消息时停止再继续，正常结束后清除队列暂停状态', async () => {
+  const f = await fixture(() => ({ text: '执行结果', delayMs: 200 }))
+  try {
+    await f.session.prompt('原任务')
+    await until(() => f.fake.provider.requests.length === 1)
+    await f.session.stopTask()
+    assert.equal((await f.session.snapshot()).state.queuePaused, true)
+    await f.session.continueStopped()
+    await until(async () => !(await f.session.snapshot()).state.isStreaming)
+    const finished = await f.session.snapshot()
+    assert.equal(finished.state.stopped, false)
+    assert.equal(finished.state.queuePaused, false)
+    await f.session.prompt('继续提问')
+    await until(async () => !(await f.session.snapshot()).state.isStreaming)
+    assert.equal(f.queue().length, 0)
+    assert.ok(
+      (await f.session.snapshot()).messages.some(
+        (message) => message.role === 'user' && JSON.stringify(message.content).includes('继续提问'),
+      ),
+    )
+  } finally {
+    await f.dispose()
+  }
+})
