@@ -107,7 +107,7 @@ export function ThinkingActivityRow({
         <span
           aria-hidden="true"
           className={cn(
-            'inline-flex size-3.5 shrink-0 text-muted-foreground/70 opacity-0 transition-[opacity,transform] duration-200 ease-out ml-0.5 group-hover/thinking-toggle:opacity-100 group-focus-visible/thinking-toggle:opacity-100',
+            'inline-flex size-3.5 shrink-0 text-muted-foreground/70 opacity-0 transition-[opacity,rotate] duration-200 ease-out motion-reduce:transition-none ml-0.5 group-hover/thinking-toggle:opacity-100 group-focus-visible/thinking-toggle:opacity-100',
             open ? 'rotate-0' : '-rotate-90',
           )}
         >

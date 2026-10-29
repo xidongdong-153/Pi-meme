@@ -172,7 +172,9 @@ export function TurnChangesCard({
           className="flex w-full items-center gap-1.5 border-t border-border/60 px-3 py-2 text-muted-foreground hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
         >
           {expanded ? '收起文件列表' : `再显示 ${changes.files.length - 3} 个文件`}
-          <ChevronDown className={`size-3.5 ${expanded ? 'rotate-180' : ''}`} />
+          <ChevronDown
+            className={`size-3.5 transition-[rotate] duration-200 ease-out motion-reduce:transition-none ${expanded ? 'rotate-180' : ''}`}
+          />
         </button>
       )}
     </section>

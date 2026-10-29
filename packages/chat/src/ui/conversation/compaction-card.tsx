@@ -102,7 +102,7 @@ export const CompactionCard = React.memo(({ kind, summary, tokensBefore, timesta
         </span>
         <ChevronRight
           className={cn(
-            'size-3 text-muted-foreground/50 group-hover:text-muted-foreground transition-transform duration-300 ease-out',
+            'size-3 text-muted-foreground/50 group-hover:text-muted-foreground transition-[rotate] duration-200 ease-out motion-reduce:transition-none',
             expanded && 'rotate-90',
           )}
         />

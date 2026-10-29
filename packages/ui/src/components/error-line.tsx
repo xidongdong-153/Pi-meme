@@ -48,7 +48,7 @@ export function ErrorLine({
             </span>
             <ChevronRight
               aria-hidden="true"
-              className="size-3 shrink-0 text-muted-foreground transition-transform group-open/error:rotate-90"
+              className="size-3 shrink-0 text-muted-foreground transition-[rotate] duration-200 ease-out motion-reduce:transition-none group-open/error:rotate-90"
             />
           </summary>
           <pre className="mt-1 max-h-56 overflow-y-auto whitespace-pre-wrap break-words [overflow-wrap:anywhere] font-mono text-xs leading-relaxed text-muted-foreground select-text">

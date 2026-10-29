@@ -110,7 +110,7 @@ export function CodeBlock({ code, language = 'text', className, ...props }: Code
               <span className="truncate">{languageLabel}</span>
               <ChevronRight
                 className={cn(
-                  'size-3 opacity-0 transition-[opacity,transform] duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)] group-hover/code-language:opacity-100 group-focus-visible/code-language:opacity-100',
+                  'size-3 opacity-0 transition-[opacity,rotate] duration-200 ease-out motion-reduce:transition-none group-hover/code-language:opacity-100 group-focus-visible/code-language:opacity-100',
                   open ? 'rotate-90' : 'opacity-100',
                 )}
               />

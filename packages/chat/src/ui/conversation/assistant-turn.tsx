@@ -99,7 +99,7 @@ export function AssistantTurnView({
                   <span
                     aria-hidden="true"
                     className={cn(
-                      'inline-flex size-3.5 shrink-0 opacity-0 transition-[opacity,transform] duration-200 group-hover/process-toggle:opacity-100 group-focus-visible/process-toggle:opacity-100',
+                      'inline-flex size-3.5 shrink-0 opacity-0 transition-[opacity,rotate] duration-200 ease-out motion-reduce:transition-none group-hover/process-toggle:opacity-100 group-focus-visible/process-toggle:opacity-100',
                       !process.open && '-rotate-90',
                     )}
                   >
