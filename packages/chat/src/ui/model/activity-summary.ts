@@ -41,90 +41,108 @@ export function formatDurationChinese(durationMs: number): string {
   return `${seconds}秒`
 }
 
-export function summarizeActivities(items: ActivityItem[]): {
+function flattenActivities(item: ActivityItem): ActivityItem[] {
+  return item.type === 'thinking' || item.type === 'narration'
+    ? [item]
+    : [item, ...(item.children ?? []).flatMap(flattenActivities)]
+}
+
+const activityActions: Record<ToolKind | 'thinking', string> = {
+  command: '运行命令',
+  read: '读取文件',
+  write: '创建文件',
+  edit: '编辑文件',
+  image: '查看图片',
+  'image-generation': '生成图片',
+  search: '搜索内容',
+  generic: '使用工具',
+  thinking: '思考',
+}
+
+function activityAction(item: ActivityItem): string {
+  const meta = parseToolMeta(item)
+  if (item.type !== 'thinking' && item.type !== 'narration') {
+    if (item.name === 'request_user_input') return '向你提问'
+    if (item.name === 'codemode') return '执行脚本'
+  }
+  if (meta.kind === 'image-generation' && meta.summary === '已编辑图片') return '编辑图片'
+  return activityActions[meta.kind]
+}
+
+export function summarizeActivities(
+  items: ActivityItem[],
+  isLive = false,
+  isPaused = false,
+): {
   summary: string
   kind: ToolKind | 'thinking'
+  status: 'running' | 'waiting' | 'paused' | 'error' | 'complete'
 } {
-  let hasThought = false
-  const readPaths = new Set<string>()
-  const editPaths = new Set<string>()
-  const createPaths = new Set<string>()
-  let readPathless = 0
-  let editPathless = 0
-  let createPathless = 0
-  let commandCount = 0
-  let searchCount = 0
-  let imageCount = 0
-  let generatedCount = 0
-  let editedImageCount = 0
-  let imageFailureCount = 0
-  let otherCount = 0
-
-  for (const item of items) {
-    if (item.type === 'thinking') {
-      hasThought = true
-      continue
-    }
-    if (item.type === 'narration') {
-      continue
-    }
-    const meta = parseToolMeta(item)
-    if (meta.kind === 'command') {
-      commandCount++
-    } else if (meta.kind === 'search') {
-      searchCount++
-    } else if (meta.kind === 'image-generation') {
-      if (item.status === 'error') imageFailureCount++
-      else if (item.status === 'success') {
-        if (meta.summary === '已编辑图片') editedImageCount++
-        else generatedCount++
+  const activities = items.flatMap(flattenActivities)
+  if (isLive) {
+    const item =
+      activities.findLast((entry) => entry.status === 'running') ??
+      activities.findLast((entry) => entry.type !== 'thinking' && entry.type !== 'narration') ??
+      activities.findLast((entry) => entry.type === 'thinking')
+    const kind = item ? parseToolMeta(item).kind : 'thinking'
+    if (isPaused) return { summary: '已暂停，等待继续', kind, status: 'paused' }
+    if (!item) return { summary: '正在处理…', kind, status: 'running' }
+    if (item.status === 'running') {
+      const waiting = item.type !== 'thinking' && item.name === 'request_user_input'
+      return {
+        summary: item.type === 'thinking' ? '正在思考…' : runningActivityLabel([item]),
+        kind,
+        status: waiting ? 'waiting' : 'running',
       }
-    } else if (meta.kind === 'image') {
-      imageCount++
-    } else if (meta.kind === 'read') {
-      if (meta.fullPath) readPaths.add(meta.fullPath)
-      else readPathless++
-    } else if (meta.kind === 'edit') {
-      if (meta.fullPath) editPaths.add(meta.fullPath)
-      else editPathless++
-    } else if (meta.kind === 'write') {
-      if (meta.fullPath) createPaths.add(meta.fullPath)
-      else createPathless++
-    } else {
-      otherCount++
+    }
+    if (item.status === 'error') return { summary: `${activityAction(item)}失败`, kind, status: 'error' }
+    return {
+      summary: item.type === 'thinking' ? '思考过程' : `已${activityAction(item)}`,
+      kind,
+      status: 'complete',
     }
   }
 
-  const readFileTotal = readPaths.size + readPathless
-  const editFileTotal = editPaths.size + editPathless
-  const createFileTotal = createPaths.size + createPathless
+  const actions = new Set<string>()
+  const kinds = new Set<ToolKind | 'thinking'>()
+  let failed: ActivityItem | undefined
+  for (const item of activities) {
+    if (item.type === 'thinking' || item.type === 'narration') continue
+    if (item.status === 'error') failed = item
+    if (item.children?.length) continue
+    const meta = parseToolMeta(item)
+    kinds.add(meta.kind)
+    if (item.status === 'error') continue
+    const action = activityAction(item)
+    actions.add(meta.kind === 'image-generation' && item.status !== 'success' ? `尝试${action}` : action)
+  }
 
-  const parts: string[] = []
-  if (readFileTotal > 0) parts.push(`读取了 ${readFileTotal} 个文件`)
-  if (createFileTotal > 0) parts.push(`创建了 ${createFileTotal} 个文件`)
-  if (editFileTotal > 0) parts.push(`编辑了 ${editFileTotal} 个文件`)
-  if (imageCount > 0) parts.push(`查看了 ${imageCount} 张图像`)
-  if (generatedCount > 0) parts.push(`生成了 ${generatedCount} 张图片`)
-  if (editedImageCount > 0) parts.push(`编辑了 ${editedImageCount} 张图片`)
-  if (imageFailureCount > 0) parts.push(`图片处理失败 ${imageFailureCount} 次`)
-  if (searchCount > 0) parts.push(`在代码中搜索了 ${searchCount} 次`)
-  if (commandCount > 0) parts.push(`执行了 ${commandCount} 条命令`)
-  if (otherCount > 0) parts.push(`调用了 ${otherCount} 项工具`)
-
-  let kind: ToolKind | 'thinking' = 'generic'
-  if (hasThought && items.length === 1) kind = 'thinking'
-  else if (generatedCount + editedImageCount + imageFailureCount > 0) kind = 'image-generation'
-  else if (commandCount > 0 && readFileTotal === 0 && editFileTotal === 0 && createFileTotal === 0 && imageCount === 0)
-    kind = 'command'
-  else if (readFileTotal > 0 && editFileTotal === 0 && createFileTotal === 0 && imageCount === 0) kind = 'read'
-  else if (editFileTotal > 0 || createFileTotal > 0) kind = 'edit'
-  else if (imageCount > 0 && readFileTotal === 0 && editFileTotal === 0 && createFileTotal === 0) kind = 'image'
-  else if (searchCount > 0) kind = 'search'
-  else if (hasThought) kind = 'thinking'
-
+  const kind =
+    kinds.size === 0
+      ? 'thinking'
+      : kinds.size === 1
+        ? [...kinds][0]!
+        : kinds.has('edit') || kinds.has('write')
+          ? 'edit'
+          : 'generic'
+  const parts = [...actions]
+  if (parts.length === 0) {
+    return {
+      summary: failed ? `${activityAction(failed)}失败` : '思考过程',
+      kind,
+      status: failed ? 'error' : 'complete',
+    }
+  }
+  const target = ['文件', '图片'].find((value) => parts.every((part) => part.endsWith(value)))
+  const phrases = target ? parts.map((part) => part.slice(0, -target.length)) : parts
+  const summary =
+    parts.length > 3
+      ? `已完成${parts.slice(0, 3).join('、')}等操作`
+      : `已${phrases.length === 1 ? phrases[0] : `${phrases.slice(0, -1).join('、')}并${phrases.at(-1)}`}${target ?? ''}`
   return {
-    summary: parts.join(' · '),
+    summary: failed ? `${summary}，部分操作失败` : summary,
     kind,
+    status: failed ? 'error' : 'complete',
   }
 }
 
@@ -139,11 +157,12 @@ export function runningActivityLabel(items: ActivityItem[]): string {
       if (meta.kind === 'image-generation') return meta.summary === '已编辑图片' ? '正在编辑图片…' : '正在生成图片…'
       if (meta.kind === 'command')
         return meta.summary.startsWith('已运行 ') ? `${meta.summary.replace(/^已运行/u, '正在运行')}…` : '正在运行命令…'
-      if (meta.kind === 'image') return '正在查看图像…'
+      if (meta.kind === 'image')
+        return meta.fullPath ? `${meta.summary.replace('已查看', '正在查看')}…` : '正在查看图像…'
       if (meta.kind === 'read') return `${meta.summary.replace('已读取', '正在读取')}…`
       if (meta.kind === 'edit') return `${meta.summary.replace('已编辑', '正在编辑').replace('已修改', '正在修改')}…`
       if (meta.kind === 'write') return `${meta.summary.replace('已创建', '正在创建')}…`
-      if (meta.kind === 'search') return '正在搜索…'
+      if (meta.kind === 'search') return `${meta.summary.replace(/^已在/u, '正在')}…`
       return item.name ? `正在执行 ${item.name}…` : '正在执行工具…'
     }
   }

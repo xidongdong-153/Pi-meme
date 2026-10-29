@@ -41,14 +41,14 @@ test('缺少工具结果的历史提问不显示等待，当前提问及下一�
 
   const history = renderTurns(state)[0]!
   assert.match(history, /已结束/)
-  assert.match(history, /已向用户提问/)
+  assert.match(history, /已向你提问/)
   assert.doesNotMatch(history, /等待你的回答/)
   assert.equal(state.tools.question?.status, 'running')
 
   const active = applyEvent(state, { type: 'agent_start' })
   assert.match(renderTurns(active)[0]!, /等待你的回答/)
   const settled = renderTurns(applyEvent(active, { type: 'agent_settled' }))[0]!
-  assert.match(settled, /已向用户提问/)
+  assert.match(settled, /已向你提问/)
   assert.doesNotMatch(settled, /等待你的回答/)
 
   const next = applyEvent(applyEvent(active, { type: 'message_end', message: userMessage('第二轮提问', 2000) }), {
@@ -60,7 +60,7 @@ test('缺少工具结果的历史提问不显示等待，当前提问及下一�
   })
   const turns = renderTurns(next)
   assert.equal(turns.length, 2)
-  assert.match(turns[0]!, /已向用户提问/)
+  assert.match(turns[0]!, /已向你提问/)
   assert.doesNotMatch(turns[0]!, /等待你的回答/)
   assert.match(turns[1]!, /等待你的回答/)
 })
@@ -76,10 +76,10 @@ test('历史工具分组和嵌套工具都不显示运行文案，当前轮次�
     },
   ]
   const history = renderToStaticMarkup(createElement(ActivityGroup, { items }))
-  assert.match(history, /活动详情：调用了 2 项工具/)
+  assert.match(history, /活动详情：已向你提问/)
   assert.doesNotMatch(history, /等待你的回答|正在执行 codemode/)
   const active = renderToStaticMarkup(createElement(ActivityGroup, { items, isLive: true }))
-  assert.match(active, /活动详情：调用了 2 项工具/)
+  assert.match(active, /活动详情：等待你的回答/)
   assert.match(active, /等待你的回答/)
   assert.doesNotMatch(active, /工具详情：codemode/)
 })

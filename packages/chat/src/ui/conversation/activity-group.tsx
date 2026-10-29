@@ -5,7 +5,6 @@ import type { ActivityItem } from '../model/types'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { BookOpen, ChevronDown, Images, Pencil, Search, Sparkles, SquareTerminal, Wrench } from 'lucide-react'
 import { groupAdjacentActivities, summarizeActivities, formatDurationChinese } from '../model/activity-summary'
-import { parseToolMeta } from '../model/tool-details'
 import { MarkdownContent } from '../content/markdown-content'
 import { ThinkingActivityRow } from './thinking-activity-row'
 import { ToolActivityRow } from './tool-activity-row'
@@ -82,12 +81,6 @@ export function ActivityGroup({
   )
 }
 
-function flattenActivities(item: ActivityItem): ActivityItem[] {
-  return item.type === 'thinking' || item.type === 'narration'
-    ? [item]
-    : [item, ...(item.children ?? []).flatMap(flattenActivities)]
-}
-
 function ActivityDisclosure({
   items,
   isLive,
@@ -134,19 +127,8 @@ function ActivityDisclosure({
     setOpen(false)
     setChildOpenMap({})
   }
-  const meta = summarizeActivities(items)
-  const activities = items.flatMap(flattenActivities)
-  const completedSummary =
-    items.length === 1 && items[0]!.type !== 'thinking' ? parseToolMeta(items[0]!).summary : meta.summary || '思考过程'
-  const waitingForInput =
-    isLive &&
-    activities.some(
-      (item) =>
-        item.type !== 'thinking' &&
-        item.type !== 'narration' &&
-        item.name === 'request_user_input' &&
-        item.status === 'running',
-    )
+  const meta = summarizeActivities(items, isLive, isPaused)
+  const waitingForInput = meta.status === 'waiting'
   const toolAnchors = React.useMemo(
     () =>
       items.flatMap((item) => {
@@ -156,7 +138,7 @@ function ActivityDisclosure({
     [items],
   )
   const IconComponent = activityIcons[meta.kind]
-  const isWorking = isLive && !isPaused && !waitingForInput
+  const isWorking = meta.status === 'running'
 
   const toggle = () => {
     onToggle?.()
@@ -171,11 +153,11 @@ function ActivityDisclosure({
       <div className="flex min-w-0 items-center gap-1">
         <button
           type="button"
-          aria-label={`活动详情：${completedSummary}`}
+          aria-label={`活动详情：${meta.summary}`}
           aria-expanded={open}
           aria-controls={detailsId}
           onClick={toggle}
-          title={completedSummary}
+          title={meta.summary}
           className="group/activity-toggle flex min-h-7 max-w-full items-center gap-2 rounded-sm py-0.5 pr-1 text-xs leading-5 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
         >
           {!isPaused && (
@@ -189,12 +171,12 @@ function ActivityDisclosure({
               <IconComponent className="size-4" />
             </span>
           )}
-          <span className={cn('min-w-0 truncate', isWorking && 'thought-shimmer')}>{completedSummary}</span>
-          {waitingForInput && (
-            <span role="status" className="shrink-0">
-              等待你的回答…
-            </span>
-          )}
+          <span
+            role={waitingForInput ? 'status' : undefined}
+            className={cn('min-w-0 truncate', isWorking && 'thought-shimmer')}
+          >
+            {meta.summary}
+          </span>
           <span
             aria-hidden="true"
             className={cn(

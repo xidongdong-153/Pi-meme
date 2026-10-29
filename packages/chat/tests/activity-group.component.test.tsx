@@ -217,9 +217,7 @@ test('图片生成与编辑不记为查看图像，失败操作不计入成功�
     fullPath: '/host/generated.png',
   })
   expect(parseToolMeta(edited).summary).toBe('已编辑图片')
-  expect(summarizeActivities([generated, edited, failed]).summary).toBe(
-    '生成了 1 张图片 · 编辑了 1 张图片 · 图片处理失败 1 次',
-  )
+  expect(summarizeActivities([generated, edited, failed]).summary).toBe('已生成并编辑图片，部分操作失败')
   expect(runningActivityLabel([{ ...generated, status: 'running' }])).toBe('正在生成图片…')
   expect(runningActivityLabel([{ ...edited, status: 'running' }])).toBe('正在编辑图片…')
 })
@@ -888,7 +886,7 @@ test('子代理状态切开的中间回复不显示消息操作，整轮结束�
   expectNoActions(replies().at(-1)!)
 })
 
-test('活动摘要不提示调用失败，错误输出仅在手动展开工具后显示', async () => {
+test('活动摘要简短提示部分失败，错误输出仅在手动展开工具后显示', async () => {
   const user = userEvent.setup()
   render(
     <ActivityGroup
@@ -906,7 +904,7 @@ test('活动摘要不提示调用失败，错误输出仅在手动展开工具�
   )
   const group = screen.getByRole('button', { name: /^活动详情：/ })
   expect(group).toHaveAttribute('aria-expanded', 'false')
-  expect(group).not.toHaveAccessibleName(/失败/)
+  expect(group).toHaveAccessibleName('活动详情：已搜索内容，部分操作失败')
   expect(screen.queryByText('有调用失败')).toBeNull()
   await user.click(group)
   const tool = screen.getByRole('button', { name: '工具详情：bash' })
@@ -986,14 +984,28 @@ test('折叠的嵌套提问显示等待，完成后不再使用等待文案', ()
   expect(screen.queryByRole('status')).toBeNull()
 })
 
-test('父活动摘要在工具开始、输出更新和结束时保留文案、图标与展开节点', () => {
-  const view = (status: 'running' | 'success', result?: string) => (
-    <ActivityGroup isLive items={[...items, { id: 'code', name: 'codemode', status, result }]} />
+test('父活动跟随最新嵌套操作，整组结束后原位显示实际操作摘要', () => {
+  const view = (status: 'running' | 'success', result?: string, isLive = true) => (
+    <ActivityGroup
+      isLive={isLive}
+      items={[
+        ...items,
+        {
+          id: 'code',
+          name: 'codemode',
+          status,
+          children: [
+            { id: 'read', name: 'read', args: { path: 'src/app.ts' }, status: 'success' },
+            { id: 'command', name: 'bash', args: { command: 'pnpm type-check' }, status, result },
+          ],
+        },
+      ]}
+    />
   )
   const { rerender } = render(view('success', '已检查文件'))
   const group = screen.getByRole('button', { name: /^活动详情：/ })
   const icon = group.querySelector('svg')
-  const label = group.textContent
+  expect(group).toHaveTextContent('已运行命令')
   for (const [status, result] of [
     ['running', undefined],
     ['running', '正在检查文件'],
@@ -1003,8 +1015,12 @@ test('父活动摘要在工具开始、输出更新和结束时保留文案、�
     rerender(view(status, result))
     expect(screen.getByRole('button', { name: /^活动详情：/ })).toBe(group)
     expect(group.querySelector('svg')).toBe(icon)
-    expect(group.textContent).toBe(label)
+    expect(group).toHaveTextContent(status === 'running' ? '正在运行 pnpm type-check…' : '已运行命令')
   }
+  rerender(view('success', '已检查文件', false))
+  expect(screen.getByRole('button', { name: /^活动详情：/ })).toBe(group)
+  expect(group).toHaveTextContent('已搜索内容、读取文件并运行命令')
+  expect(group).not.toHaveTextContent(/codemode|调用了|pnpm type-check/)
 })
 
 test('完整工具事件流持续保留父活动行，结果补录不重建已有活动', async () => {

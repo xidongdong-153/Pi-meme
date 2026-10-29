@@ -541,7 +541,7 @@ test('子代理展示只过滤派发消息，保留原始分轮、计时和自�
   )
   assert.doesNotMatch(markup, /主代理派发|主代理发来|data-message-role="user"|对话索引|data-conversation-user/)
   assert.equal((markup.match(/data-message-role="assistant"/g) ?? []).length, 2)
-  assert.match(markup, /活动详情：已读取 a.ts/)
+  assert.match(markup, /活动详情：已读取文件/)
   assert.match(markup, /用时 4秒/)
   assert.match(markup, /用时 5秒/)
   assert.match(markup, /本代理的插件输出/)
@@ -791,22 +791,132 @@ test('工具详情解析保留嵌套 Diff、图片和未知工具输出', () => 
   })
 })
 
-test('活动摘要按实际路径去重，纯模型不需要图标组件', () => {
-  const summary = summarizeActivities([
-    { id: 'thought', type: 'thinking', thinking: '检查文件' },
-    { id: '1', type: 'tool', name: 'read', args: { path: 'src/main.ts' } },
-    { id: '2', type: 'tool', name: 'read', args: { path: 'src/main.ts' } },
-    { id: '3', type: 'tool', name: 'bash', args: { command: 'pnpm test' } },
-  ])
-  assert.equal(summary.summary, '读取了 1 个文件 · 执行了 1 条命令')
-  assert.equal(summary.kind, 'read')
+test('运行时显示最新操作，完成后按操作类型整理成没有数字的短句', () => {
+  const activities: ActivityItem[] = [
+    { id: '1', type: 'tool', name: 'read', args: { path: 'src/main.ts' }, status: 'running' },
+    { id: 'read-again', type: 'tool', name: 'read', args: { path: 'src/main.ts' }, status: 'success' },
+    { id: '2', type: 'tool', name: 'bash', args: { command: 'pnpm test' }, status: 'running' },
+    { id: '3', type: 'tool', name: 'edit', args: { path: 'src/app.ts' }, status: 'success' },
+    { id: 'thought', type: 'thinking', thinking: '检查结果', status: 'success' },
+  ]
+  assert.deepEqual(summarizeActivities(activities, true), {
+    summary: '正在运行 pnpm test…',
+    kind: 'command',
+    status: 'running',
+  })
+  assert.deepEqual(summarizeActivities(activities, true, true), {
+    summary: '已暂停，等待继续',
+    kind: 'command',
+    status: 'paused',
+  })
+  assert.deepEqual(summarizeActivities(activities), {
+    summary: '已读取文件、运行命令并编辑文件',
+    kind: 'edit',
+    status: 'complete',
+  })
+  assert.deepEqual(
+    summarizeActivities(
+      activities.map((item) => ({ ...item, status: 'success' })),
+      true,
+    ),
+    { summary: '已编辑文件', kind: 'edit', status: 'complete' },
+  )
 })
 
-test('只有思考活动时不显示思考过程摘要', () => {
+test('只有思考活动时保留思考过程入口', () => {
   assert.deepEqual(summarizeActivities([{ id: 'thought', type: 'thinking', thinking: '检查文件' }]), {
-    summary: '',
+    summary: '思考过程',
     kind: 'thinking',
+    status: 'complete',
   })
+})
+
+test.each<{
+  items: ActivityItem[]
+  isLive?: boolean
+  summary: string
+  status: ReturnType<typeof summarizeActivities>['status']
+}>([
+  { items: [], isLive: true, summary: '正在处理…', status: 'running' },
+  {
+    items: [{ id: 'think', type: 'thinking', thinking: '分析文件', status: 'running' }],
+    isLive: true,
+    summary: '正在思考…',
+    status: 'running',
+  },
+  {
+    items: [{ id: 'read', name: 'read', args: { path: 'src/app.ts' }, status: 'running' }],
+    isLive: true,
+    summary: '正在读取 app.ts…',
+    status: 'running',
+  },
+  {
+    items: [{ id: 'question', name: 'request_user_input', status: 'running' }],
+    isLive: true,
+    summary: '等待你的回答…',
+    status: 'waiting',
+  },
+  {
+    items: [{ id: 'question', name: 'request_user_input', status: 'success' }],
+    summary: '已向你提问',
+    status: 'complete',
+  },
+  {
+    items: [{ id: 'failed', name: 'read', status: 'error' }],
+    isLive: true,
+    summary: '读取文件失败',
+    status: 'error',
+  },
+  {
+    items: [{ id: 'failed', name: 'bash', status: 'error' }],
+    summary: '运行命令失败',
+    status: 'error',
+  },
+  {
+    items: [
+      { id: 'read', name: 'read', args: { path: 'src/file-123.ts' }, status: 'success' },
+      { id: 'write', name: 'write', status: 'success' },
+    ],
+    summary: '已读取并创建文件',
+    status: 'complete',
+  },
+  {
+    items: [
+      { id: 'read', name: 'read', status: 'success' },
+      { id: 'search', name: 'grep', status: 'success' },
+      { id: 'bash', name: 'bash', status: 'success' },
+      { id: 'image', name: 'view_image', status: 'success' },
+    ],
+    summary: '已完成读取文件、搜索内容、运行命令等操作',
+    status: 'complete',
+  },
+  {
+    items: [{ id: 'custom', name: 'custom_tool', status: 'success' }],
+    summary: '已使用工具',
+    status: 'complete',
+  },
+  {
+    items: [{ id: 'code', name: 'codemode', status: 'success' }],
+    summary: '已执行脚本',
+    status: 'complete',
+  },
+  {
+    items: [
+      { id: 'code', name: 'codemode', status: 'error', children: [{ id: 'read', name: 'read', status: 'success' }] },
+    ],
+    summary: '已读取文件，部分操作失败',
+    status: 'error',
+  },
+  {
+    items: [{ id: 'image', name: 'image_gen', status: 'running' }],
+    summary: '已尝试生成图片',
+    status: 'complete',
+  },
+])('活动状态短句：$summary', ({ items, isLive, summary, status }) => {
+  const result = summarizeActivities(items, isLive)
+  assert.equal(result.summary, summary)
+  assert.equal(result.status, status)
+  assert.doesNotMatch(result.summary, /\d/u)
 })
 
 test('用时独立显示，运行与历史的活动摘要均默认折叠且不显示转圈', () => {
@@ -819,7 +929,7 @@ test('用时独立显示，运行与历史的活动摘要均默认折叠且不�
   assert.ok(liveHeader)
   assert.match(liveHeader, /aria-expanded="false"/)
   assert.match(live, /处理中/)
-  assert.match(liveHeader, /读取了 1 个文件/)
+  assert.match(liveHeader, /已读取文件/)
   assert.doesNotMatch(live, /animate-spin|lucide-loader/)
 
   const completed = renderToStaticMarkup(createElement(ActivityGroup, { items, durationMs: 45000 }))
@@ -827,7 +937,7 @@ test('用时独立显示，运行与历史的活动摘要均默认折叠且不�
   assert.ok(completedHeader)
   assert.match(completedHeader, /aria-expanded="false"/)
   assert.match(completed, /用时 45秒/)
-  assert.match(completedHeader, /读取了 1 个文件/)
+  assert.match(completedHeader, /已读取文件/)
   assert.doesNotMatch(completed, /animate-spin|lucide-loader/)
 })
 
@@ -849,11 +959,11 @@ test('正文分隔活动组，思考与工具连续合并且保留原来顺序',
   assert.equal(items.length, 6)
   const markup = renderToStaticMarkup(createElement(ActivityGroup, { items, isLive: true }))
   assert.match(markup, /aria-label="活动详情：[^>]*aria-expanded="false"/)
-  assert.match(markup, /读取了 1 个文件 · 执行了 1 条命令/)
+  assert.match(markup, /活动详情：已读取文件并运行命令/)
   assert.match(markup, /已经确认 <strong[^>]*>结构<\/strong>。/)
   assert.doesNotMatch(markup, /工具详情：edit/)
   assert.doesNotMatch(markup, /有调用失败/)
-  assert.match(markup, /读取了 1 个文件/)
+  assert.match(markup, /活动详情：编辑文件失败/)
   assert.doesNotMatch(markup, /lucide-circle-x/)
   assert.doesNotMatch(markup, /max-h-80|animate-spin/)
 })
