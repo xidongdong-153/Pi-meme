@@ -241,6 +241,41 @@ test('编辑预检、原子替换和 manager 重载失败均保留原对话并�
   }
 })
 
+test('编辑发送被扩展接管时恢复原模型、思考强度和配置记录', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pi-edit-model-rollback-'))
+  try {
+    await withPool(
+      async (pool, key) => {
+        await pool.prompt(key, '原输入')
+        await waitForSettled(pool)
+        const before = await pool.snapshot()
+        const file = pool.getActiveSession().sessionFile!
+        const original = await readFile(file, 'utf8')
+        const entryId = before.messages.find((message) => message.role === 'user')!.sourceEntry!.id
+        const result = await pool.editAndPrompt(key, entryId, '编辑被接管', [], [], {
+          model: { provider: 'fake', id: 'second' },
+          thinkingLevel: 'high',
+        })
+        assert.match(result.error!, /已保留原对话/)
+        const after = await pool.snapshot()
+        assert.deepEqual(after.state.model, before.state.model)
+        assert.equal(after.state.thinkingLevel, before.state.thinkingLevel)
+        assert.equal(await readFile(file, 'utf8'), original)
+      },
+      directory,
+      [],
+      {
+        models: [
+          { id: 'first', reasoning: true },
+          { id: 'second', reasoning: true },
+        ],
+      },
+    )
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
 test('编辑等待新用户消息持久化才删除旧记录，并清除被编辑消息自己的技能引用', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pi-session-edit-admission-'))
   const blocked = Promise.withResolvers<void>()

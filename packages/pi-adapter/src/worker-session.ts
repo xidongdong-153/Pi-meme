@@ -35,6 +35,7 @@ export type WorkerOptions = {
   ) => Promise<CollaborationResults[keyof CollaborationResults]>
   savePlan?: (input: SavePlanInput, signal: AbortSignal) => Promise<PlanDocument>
   syncPlan?: (force: boolean) => Promise<PlanState>
+  historyEdited?: () => Promise<void>
   resolvePlan?: (reference: PlanRef, signal: AbortSignal) => Promise<PlanDocument>
   goal?: (request: GoalRequest, run: GoalRun | undefined, signal: AbortSignal) => Promise<Goal | undefined>
   goalUsage?: (run: GoalRun, entryId: string, usage: unknown, inputEntryId?: string) => Promise<void>
@@ -134,6 +135,7 @@ export function createWorkerSession(
               | 'savePlan'
               | 'resolvePlan'
               | 'syncPlan'
+              | 'historyEdited'
               | 'admission'
               | 'goal'
               | 'goalUsage'
@@ -203,6 +205,10 @@ export function createWorkerSession(
               if (request.kind === 'activity') {
                 if (!options.activity || !request.activityRequest) throw new Error('活动服务桥未配置')
                 return options.activity(request.activityRequest, controller.signal)
+              }
+              if (request.kind === 'historyEdited') {
+                if (!options.historyEdited) throw new Error('历史编辑同步桥未配置')
+                return options.historyEdited()
               }
               if (request.kind === 'syncPlan') {
                 if (!options.syncPlan) throw new Error('计划同步桥未配置')

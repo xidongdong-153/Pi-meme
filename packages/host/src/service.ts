@@ -738,6 +738,7 @@ export async function createHost(options: HostOptions = {}) {
           collaboration: (request, signal) => collaboration.dispatch(session, request, signal),
           savePlan: (input, signal) => collaboration.savePlan(session, input, signal),
           syncPlan: (force) => collaboration.syncPlan(session, force),
+          historyEdited: () => collaboration.historyEdited(session),
           resolvePlan: (reference, signal) => collaboration.resolvePlan(session, reference, signal),
           release: async () => {
             try {
@@ -818,6 +819,7 @@ export async function createHost(options: HostOptions = {}) {
       beforePrompt: async (key) => {
         await bindRoot(key)
       },
+      beforeEdit: (key) => collaboration.prepareEdit(key),
       beforeFork: (key, agentIds) => collaboration.prepareFork(key, agentIds),
       forked: async (source, key, agentIds) => {
         await collaboration.adoptFork(source, pi.readSessionBinding(key), agentIds)

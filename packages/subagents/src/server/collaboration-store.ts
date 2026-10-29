@@ -12,6 +12,8 @@ import { isPlanDocument, type PlanDocument, type PlanState, type TaskMode } from
 
 export type PersistedAgentRecord = {
   summary: AgentSummary
+  sourceEntryId?: string
+  importedAgentId?: string
   delegation?: AgentRunRef[]
   mailbox: AgentMailboxMessage[]
   consumed: string[]

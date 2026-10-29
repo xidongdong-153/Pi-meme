@@ -36,6 +36,110 @@ test('RPC 会话代理的未知属性不应把正式根会话标成临时会话'
   }
 })
 
+test('编辑预检拒绝清理受阻的子任务；截断移除身份、邮箱与迟到事件', async () => {
+  const context = await setup()
+  try {
+    const appendUser = (id: string) =>
+      context.root.entries.push({
+        type: 'message',
+        id,
+        parentId: context.root.entries.at(-1)?.id ?? null,
+        timestamp: new Date().toISOString(),
+        message: { role: 'user', content: id, timestamp: Date.now() },
+      })
+    appendUser('first')
+    await context.begin()
+    const earlier = await context.spawn('earlier')
+    const oldWorker = context.children.get(earlier.sessionKey)!
+    await context.bridge.stopRoot('root-key')
+    appendUser('second')
+    await context.begin()
+    const later = await context.spawn('later')
+    const laterWorker = context.children.get(later.sessionKey)!
+    await context.bridge.stopRoot('root-key')
+    const records = (context.bridge as unknown as { records: Map<string, { summary: AgentSummary }> }).records
+    const record = records.get(later.agentId)!
+    record.summary.cleanup = { state: 'blocked', causeId: 'test', revision: 1, error: '停止失败' }
+    await assert.rejects(context.bridge.prepareEdit('root-key'), /尚未完成清理/)
+    assert.equal((await context.bridge.getAgents('root-key')).length, 3)
+    record.summary.cleanup.state = 'completed'
+    await context.bridge.prepareEdit('root-key')
+    context.root.entries.pop()
+    await context.bridge.historyEdited(context.root.session)
+    assert.deepEqual(
+      (await context.bridge.getAgents('root-key')).filter((agent) => agent.depth > 0).map((agent) => agent.agentId),
+      [earlier.agentId],
+    )
+    assert.ok((await context.savedRecords()).every((saved) => saved.summary.agentId !== later.agentId))
+    const update = context.events.at(-1)!.event
+    assert.equal(update.type, 'agents_update')
+    if (update.type === 'agents_update') assert.deepEqual(update.agentMessages, [])
+    const count = context.events.length
+    laterWorker.reply('迟到结果')
+    assert.equal(context.events.length, count)
+    await assert.rejects(context.call(laterWorker.session, 'list_agents', {}), /无效或已结束/)
+    assert.equal(oldWorker.session.connection().status, 'disconnected')
+    await context.begin()
+    const replacement = await context.spawn('later')
+    assert.notEqual(replacement.agentId, later.agentId)
+  } finally {
+    await context.cleanup()
+  }
+})
+
+test('旧记录和分叉身份按保留的原生工具结果清理，codemode 嵌套调用不误删', async () => {
+  const context = await setup()
+  try {
+    await context.begin()
+    const retained = await context.spawn('retained')
+    const removed = await context.spawn('removed')
+    await context.bridge.stopRoot('root-key')
+    const records = (
+      context.bridge as unknown as { records: Map<string, { importedAgentId?: string; sourceEntryId?: string }> }
+    ).records
+    records.get(retained.agentId)!.sourceEntryId = undefined
+    const saved = await context.savedRecords()
+    const root = saved.find((record) => record.summary.depth === 0)!
+    const reply = root.replies!.find((reply) => 'agentId' in reply.result && reply.result.agentId === retained.agentId)!
+    context.root.entries.push({
+      id: 'nested-result',
+      parentId: null,
+      type: 'message',
+      timestamp: new Date().toISOString(),
+      message: {
+        role: 'toolResult',
+        toolName: 'codemode',
+        toolCallId: 'outer',
+        isError: false,
+        content: [],
+        timestamp: Date.now(),
+        nestedCalls: { complete: true, calls: [{ id: reply.id, name: 'spawn_agent', status: 'ok', durationMs: 1 }] },
+      },
+    })
+    // 普通旧记录依赖持久回复中的嵌套调用身份。
+    await context.bridge.historyEdited(context.root.session)
+    assert.deepEqual(
+      (await context.bridge.getAgents('root-key')).filter((agent) => agent.depth > 0).map((agent) => agent.agentId),
+      [retained.agentId],
+    )
+    assert.ok((await context.savedRecords()).every((record) => record.summary.agentId !== removed.agentId))
+    records.get(retained.agentId)!.importedAgentId = 'source-agent'
+    const entry = context.root.entries[0]!
+    if (entry.type === 'message' && entry.message.role === 'toolResult') {
+      entry.message.nestedCalls = undefined
+      entry.message.toolName = 'spawn_agent'
+      entry.message.details = { ...retained, agentId: 'source-agent' }
+    }
+    await context.bridge.historyEdited(context.root.session)
+    assert.equal((await context.bridge.getAgents('root-key')).length, 2)
+    context.root.entries.length = 0
+    await context.bridge.historyEdited(context.root.session)
+    assert.equal((await context.bridge.getAgents('root-key')).length, 1)
+  } finally {
+    await context.cleanup()
+  }
+})
+
 function enableCollaboration(bridge: ReturnType<typeof createHostCollaborationBridge>, session: SdkSession) {
   session.configureInlineExtensions(
     collaborationExtension({

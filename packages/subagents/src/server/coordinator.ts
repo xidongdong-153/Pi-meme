@@ -55,6 +55,8 @@ type QueuedTask = {
 }
 type Record = {
   summary: AgentSummary
+  sourceEntryId?: string
+  importedAgentId?: string
   delegation?: AgentRunRef[]
   session?: RuntimeSdkSession
   mailbox: AgentMailboxMessage[]
@@ -538,7 +540,15 @@ export class HostCollaborationBridge {
           ...(entry.summary.runId ? { importedRunId: entry.summary.runId } : {}),
           updatedAt: new Date().toISOString(),
         }
-        this.records.set(agentId, { summary, mailbox: [], consumed: [], queued: [], interactions: [], sequence: 0 })
+        this.records.set(agentId, {
+          summary,
+          importedAgentId: entry.importedAgentId ?? entry.summary.agentId,
+          mailbox: [],
+          consumed: [],
+          queued: [],
+          interactions: [],
+          sequence: 0,
+        })
         created.push(agentId)
       }
       this.roots.set(binding.sessionKey, root)
@@ -927,6 +937,13 @@ export class HostCollaborationBridge {
       if (caller.summary.depth >= collaborationLimits.depth) throw new Error('仅主会话可以创建子代理，不支持嵌套子代理')
       const policy = await this.policy(caller, request.params)
       assertCurrent()
+      const rootSession = this.root(caller.summary.rootSessionKey).session!
+      const { entries, leafId } = await rootSession.getEntries()
+      const byId = new Map(entries.map((entry) => [entry.id, entry]))
+      let source = leafId ? byId.get(leafId) : undefined
+      while (source && !(source.type === 'message' && source.message.role === 'user'))
+        source = source.parentId ? byId.get(source.parentId) : undefined
+      assertCurrent()
       this.capacity(caller)
       if (this.tree(caller).length - 1 >= collaborationLimits.identities) throw new Error('子 Agent 身份最多 16 个')
       const taskPath = `${caller.summary.taskPath}/${name}`
@@ -934,6 +951,7 @@ export class HostCollaborationBridge {
         throw new Error('任务名称已存在，请用 followup_task 继续已有 Agent')
       const agentId = randomUUID()
       const child: Record = {
+        sourceEntryId: source?.id,
         summary: {
           ...caller.summary,
           agentId,
@@ -2062,6 +2080,97 @@ export class HostCollaborationBridge {
       pendingInteractions: tree.flatMap((entry) => entry.interactions),
       agentMessages: tree.flatMap((entry) => entry.mailbox),
     }
+  }
+  async prepareEdit(sessionKey: string) {
+    await this.ready
+    const root = this.root(sessionKey)
+    if (this.tree(root).some((record) => this.busy(record) || record.queued.length || record.interactions.length))
+      throw new Error('子任务尚未完成清理，无法覆盖历史')
+  }
+  async historyEdited(actualSession: RuntimeSdkSession) {
+    await this.ready
+    const root = this.callers.get(actualSession)
+    if (!root || root.session !== actualSession || root.summary.depth !== 0)
+      throw new Error('历史编辑必须来自已绑定的根会话')
+    const { entries, leafId } = await actualSession.getEntries()
+    const byId = new Map(entries.map((entry) => [entry.id, entry]))
+    const retained = new Set<string>()
+    const agents = new Set<string>()
+    const messages = new Set<string>()
+    const calls = new Set<string>()
+    const read = (value: unknown) => {
+      if (!value || typeof value !== 'object') return
+      const details = value as {
+        agentId?: string
+        fromAgentId?: string
+        messageId?: string
+        agent?: unknown
+        agents?: unknown[]
+        messages?: Array<{ id: string }>
+      }
+      if (details.agentId) agents.add(details.agentId)
+      if (details.fromAgentId) agents.add(details.fromAgentId)
+      if (details.messageId) messages.add(details.messageId)
+      if (details.agent) read(details.agent)
+      if (Array.isArray(details.agents)) details.agents.forEach(read)
+      if (Array.isArray(details.messages)) for (const message of details.messages) messages.add(message.id)
+    }
+    let entry = leafId ? byId.get(leafId) : undefined
+    while (entry && !retained.has(entry.id)) {
+      retained.add(entry.id)
+      if (entry.type === 'custom_message' && entry.customType === 'pi-meme-collaboration') read(entry.details)
+      if (entry.type === 'message' && entry.message.role === 'toolResult') {
+        calls.add(entry.message.toolCallId)
+        for (const call of entry.message.nestedCalls?.calls ?? []) calls.add(call.id)
+        read(entry.message.details)
+      }
+      entry = entry.parentId ? byId.get(entry.parentId) : undefined
+    }
+    for (const reply of root.replies ?? []) if (calls.has(reply.id)) read(reply.result)
+    const removed = this.tree(root).filter(
+      (record) =>
+        record !== root &&
+        (record.sourceEntryId
+          ? !retained.has(record.sourceEntryId)
+          : !agents.has(record.importedAgentId ?? record.summary.agentId)),
+    )
+    if (removed.some((record) => this.busy(record) || record.queued.length || record.interactions.length))
+      throw new Error('被覆盖的子任务尚未完成清理')
+    // 先释放 Worker 并删除子会话；失败时保留身份，避免子会话被普通历史列表误收录。
+    for (const record of removed) {
+      await record.session?.stopAndWait()
+      if (record.summary.sessionFile) {
+        await rm(record.summary.sessionFile, { force: true })
+        await rm(`${record.summary.sessionFile}.changes`, { recursive: true, force: true })
+      }
+    }
+    const removedIds = new Set(removed.map((record) => record.summary.agentId))
+    for (const record of removed) {
+      if (record.session) this.callers.delete(record.session)
+      record.session = undefined
+      record.summary.executionGeneration += 1
+      this.records.delete(record.summary.agentId)
+    }
+    for (const record of this.tree(root)) {
+      record.mailbox = record.mailbox.filter(
+        (message) =>
+          !removedIds.has(message.fromAgentId) &&
+          !removedIds.has(message.toAgentId) &&
+          (record !== root || messages.has(message.id)),
+      )
+      const mailboxIds = new Set(record.mailbox.map((message) => message.id))
+      record.consumed = record.consumed.filter((id) => mailboxIds.has(id))
+      record.waitingMessages = record.waitingMessages?.filter((id) => mailboxIds.has(id))
+      record.delivering = record.delivering?.filter((id) => mailboxIds.has(id))
+      if (record === root) record.replies = record.replies?.filter((reply) => calls.has(reply.id))
+    }
+    await this.persist(root)
+    this.emit(root, {
+      type: 'agents_update',
+      agents: this.tree(root).map((record) => ({ ...record.summary })),
+      agentMessages: this.tree(root).flatMap((record) => record.mailbox),
+    })
+    for (const listener of this.listeners) listener()
   }
   async getChildSessions() {
     await this.ready

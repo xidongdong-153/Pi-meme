@@ -121,6 +121,7 @@ export type RuntimePolicy = {
   planTools?: Map<string, PlanToolSource>
   resolvePlan?: (reference: PlanRef, signal: AbortSignal) => Promise<PlanDocument>
   syncPlan?: (force?: boolean) => Promise<PlanState>
+  onHistoryEdited?: () => Promise<void>
   initialGeneration?: number
   onAdmission?: (
     message: string,
@@ -1497,7 +1498,7 @@ export class SdkSession {
           expectedGoal,
         )
         if (generation !== this.generation || this.queueCancelled) throw new Error('消息发送已取消')
-        if (options?.model || options?.thinkingLevel !== undefined) {
+        if (editEntryId === undefined && (options?.model || options?.thinkingLevel !== undefined)) {
           const model = options.model
           if (model) {
             const selected = this.session.modelRuntime
@@ -1606,7 +1607,10 @@ export class SdkSession {
       const edited = Boolean(edit)
       edit = undefined
       this.editingPlanCheckpoints = undefined
-      if (edited) await this.syncPlan(true)
+      if (edited) {
+        await this.policy.onHistoryEdited?.()
+        await this.syncPlan(true)
+      }
       const state = this.getState()
       if (!state.isStreaming && !state.isCompacting && (this.running || command || handled))
         this.handleEvent({ type: 'agent_settled' }, Boolean(command || handled))

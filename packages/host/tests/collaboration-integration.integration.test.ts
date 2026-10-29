@@ -126,6 +126,187 @@ test('真实 Host 编辑规划消息后恢复或清空方案，旧引用失效�
   }
 })
 
+test('编辑历史清除被截断的子代理与邮箱，保留前轮身份，重启不复活且可重用任务名', { timeout: 30000 }, async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'host-edit-agents-'))
+  const fake = await useFakeAgent(directory, {
+    reply: (body) => {
+      const messages = body.messages ?? []
+      const first = JSON.stringify(messages.find((message: { role: string }) => message.role === 'user')?.content)
+      if (first.includes('独立测试子任务')) return finishAgentReply(body, '子任务报告')
+      const latest = JSON.stringify(
+        messages.filter((message: { role: string }) => message.role === 'user').at(-1)?.content,
+      )
+      const name = latest.includes('创建前轮') ? 'earlier' : latest.includes('创建后轮') ? 'later' : undefined
+      if (!name) return { text: '编辑后的普通回复' }
+      const context = JSON.stringify(messages)
+      if (!context.includes(`"task_name":"${name}"`) && !context.includes(`\\"task_name\\":\\"${name}\\"`))
+        return {
+          tool: {
+            name: 'spawn_agent',
+            arguments: JSON.stringify({ task_name: name, message: '独立测试子任务', fork_turns: 'none' }),
+          },
+        }
+      return { text: '主任务完成' }
+    },
+  })
+  const options = { dataRoot: fake.runtimePaths.dataRoot, credentials: fake.credentials }
+  let host = await createHost(options)
+  const rpc = async <T>(method: string, args: unknown[] = [], sessionId?: string): Promise<T> => {
+    const response = await host.rpc({
+      requestId: crypto.randomUUID(),
+      clientId: 'edit-agents',
+      method,
+      args,
+      sessionId,
+    })
+    assert.equal(response.error, undefined, JSON.stringify(response.error))
+    return response.result as T
+  }
+  const snapshot = () => rpc<Snapshot>('pi:snapshot')
+  const idle = () =>
+    eventually(async () => {
+      const value = await snapshot()
+      return (
+        !value.state.isStreaming &&
+        value.agents?.every((agent) => ['completed', 'idle', 'stopped'].includes(agent.status)) === true
+      )
+    })
+  try {
+    let key = (await snapshot()).connection.sessionKey!
+    await rpc('pi:access-mode', [key, 'full-access'], key)
+    await rpc('pi:prompt', [key, '创建前轮'], key)
+    await idle()
+    const earlier = (await snapshot()).agents!.find((agent) => agent.name === 'earlier')!
+    assert.ok(earlier)
+    await rpc('pi:prompt', [key, '创建后轮'], key)
+    await idle()
+    const before = await snapshot()
+    const later = before.agents!.find((agent) => agent.name === 'later')!
+    assert.ok(later)
+    const users = before.messages.filter((message) => message.role === 'user')
+    const rejected = await rpc<{ error?: string }>(
+      'pi:edit-and-prompt',
+      [key, users[1]!.sourceEntry!.id, '/name 无效编辑'],
+      key,
+    )
+    assert.ok(rejected.error)
+    assert.deepEqual(
+      (await snapshot()).agents!.map(({ updatedAt: _updatedAt, ...agent }) => agent),
+      before.agents!.map(({ updatedAt: _updatedAt, ...agent }) => agent),
+    )
+    const edited = await rpc<{ error?: string }>(
+      'pi:edit-and-prompt',
+      [key, users[1]!.sourceEntry!.id, '普通新输入'],
+      key,
+    )
+    assert.equal(edited.error, undefined)
+    await idle()
+    const after = await snapshot()
+    assert.deepEqual(
+      after.agents!.filter((agent) => agent.depth > 0).map((agent) => agent.agentId),
+      [earlier.agentId],
+    )
+    assert.ok(
+      after.agentMessages!.every(
+        (message) => message.fromAgentId !== later.agentId && message.toAgentId !== later.agentId,
+      ),
+    )
+    await assert.rejects(readFile(later.sessionFile!), /ENOENT/)
+    const file = after.connection.sessionFile!
+    await host.dispose()
+    host = await createHost(options)
+    await rpc('pi:switch-session', [file])
+    assert.deepEqual(
+      (await snapshot()).agents!.filter((agent) => agent.depth > 0).map((agent) => agent.agentId),
+      [earlier.agentId],
+    )
+    key = (await snapshot()).connection.sessionKey!
+    await rpc('pi:prompt', [key, '创建后轮'], key)
+    await idle()
+    const replacement = (await snapshot()).agents!.find((agent) => agent.name === 'later')
+    assert.ok(replacement)
+    assert.notEqual(replacement.agentId, later.agentId)
+    const firstEntry = (await snapshot()).messages.find((message) => message.role === 'user')!.sourceEntry!.id
+    const cleared = await rpc<{ error?: string }>('pi:edit-and-prompt', [key, firstEntry, '清空旧协作'], key)
+    assert.equal(cleared.error, undefined)
+    await idle()
+    assert.equal((await snapshot()).agents!.length, 1)
+    assert.deepEqual((await snapshot()).agentMessages, [])
+  } finally {
+    await host.dispose()
+    await fake.dispose()
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('运行中编辑停止子代理与待答任务，旧队列只返回恢复列表，模型失败不复活旧协作', { timeout: 20000 }, async () => {
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'host-edit-running-agents-'))
+  const barrier = Promise.withResolvers<void>()
+  const fake = await useFakeAgent(directory, {
+    reply: (body) => {
+      const messages = body.messages ?? []
+      const first = JSON.stringify(messages.find((message: { role: string }) => message.role === 'user')?.content)
+      if (first.includes('阻塞子任务')) return { text: '旧子任务回复', finishBarrier: barrier.promise }
+      if (first.includes('新输入')) return { status: 400, text: '模拟模型失败' }
+      if (!JSON.stringify(messages).includes('spawn_agent'))
+        return {
+          tool: {
+            name: 'spawn_agent',
+            arguments: JSON.stringify({ task_name: 'worker', message: '阻塞子任务', fork_turns: 'none' }),
+          },
+        }
+      return { tool: { name: 'wait_agent', arguments: JSON.stringify({ targets: ['worker'], timeout_ms: 5000 }) } }
+    },
+  })
+  const host = await createHost({ dataRoot: fake.runtimePaths.dataRoot, credentials: fake.credentials })
+  const rpc = async <T>(method: string, args: unknown[] = [], sessionId?: string): Promise<T> => {
+    const response = await host.rpc({
+      requestId: crypto.randomUUID(),
+      clientId: 'edit-running',
+      method,
+      args,
+      sessionId,
+    })
+    assert.equal(response.error, undefined, JSON.stringify(response.error))
+    return response.result as T
+  }
+  const snapshot = () => rpc<Snapshot>('pi:snapshot')
+  try {
+    const key = (await snapshot()).connection.sessionKey!
+    await rpc('pi:access-mode', [key, 'full-access'], key)
+    await rpc('pi:prompt', [key, '原输入'], key)
+    await eventually(
+      async () => (await snapshot()).agents?.some((agent) => agent.depth > 0 && agent.status === 'running') === true,
+    )
+    await rpc('pi:follow-up', [key, '待恢复队列'], key)
+    const before = await snapshot()
+    const entryId = before.messages.find((message) => message.role === 'user')!.sourceEntry!.id
+    const result = await rpc<{ error?: string; recoveredInputs: Array<{ text: string }> }>(
+      'pi:edit-and-prompt',
+      [key, entryId, '新输入'],
+      key,
+    )
+    assert.equal(result.error, undefined)
+    assert.deepEqual(
+      result.recoveredInputs.map((input) => input.text),
+      ['待恢复队列'],
+    )
+    await eventually(async () => !(await snapshot()).state.isStreaming)
+    barrier.resolve()
+    const after = await snapshot()
+    assert.equal(after.agents!.length, 1)
+    assert.deepEqual(after.agentMessages, [])
+    assert.deepEqual(after.pendingInteractions, [])
+    assert.equal(after.messages.filter((message) => message.role === 'user').length, 1)
+    assert.doesNotMatch(JSON.stringify(after.messages), /旧子任务回复|待恢复队列/)
+  } finally {
+    barrier.resolve()
+    await host.dispose()
+    await fake.dispose()
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
 for (const restart of [false, true]) {
   test(`真实 Host ${restart ? '退出重开后' : ''}恢复失败模型请求时保留原协作任务身份`, { timeout: 15000 }, async () => {
     const directory = await mkdtemp(path.join(os.tmpdir(), 'host-recovery-identity-'))

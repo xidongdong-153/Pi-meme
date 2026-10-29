@@ -178,6 +178,7 @@ export type CollaborationLifecycle = {
   modeChanged?: (sessionKey: string, mode: TaskMode) => Promise<void>
   decorateEvent?: (sessionKey: string, event: DesktopEvent) => DesktopEvent
   beforePrompt: (sessionKey: string, input: { mode: TaskMode; message: string }) => Promise<void>
+  beforeEdit?: (sessionKey: string) => Promise<void>
   beforeFork?: (sessionKey: string, agentIds: readonly string[]) => Promise<void>
   forked?: (sourceSessionKey: string, forkedSessionKey: string, agentIds: readonly string[]) => Promise<void>
   settled: (sessionKey: string, event: { aborted?: boolean; runId?: string }) => void | Promise<void>
@@ -1622,6 +1623,7 @@ export class PiSessionPool implements PiRuntime {
       recoveredInputs.push(...queued.steering, ...queued.followUp)
       await this.abort(sessionKey)
       this.target(sessionKey)
+      await this.collaboration?.beforeEdit?.(sessionKey)
       this.edits.set(sessionKey, 'sending')
       this.notify.connection(this.withSession(sessionKey, () => this.connection()))
       await this.prompt(sessionKey, message, images, skills, options, undefined, entryId)

@@ -164,7 +164,8 @@ export type CollaborationRequest = {
 }[CollaborationMethod]
 export type CollaborationReply = { id: string; result?: CollaborationResults[CollaborationMethod]; error?: string }
 export type CollaborationEvent =
-  { type: 'agents_update'; agents: AgentSummary[] } | { type: 'agent_mailbox'; message: AgentMailboxMessage }
+  | { type: 'agents_update'; agents: AgentSummary[]; agentMessages?: AgentMailboxMessage[] }
+  | { type: 'agent_mailbox'; message: AgentMailboxMessage }
 
 export type PendingInteraction = {
   sessionKey: string

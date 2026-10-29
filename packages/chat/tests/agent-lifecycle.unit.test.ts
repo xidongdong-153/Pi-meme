@@ -364,6 +364,16 @@ test('快照恢复和事件重放得到相同提示，切换会话不带入上�
   assert.equal(projectMainConversation(other).agentStatuses.length, 0)
 })
 
+test('历史编辑的完整协作更新清除旧邮箱，普通状态更新继续保留邮箱', () => {
+  const before = { ...emptyChat, agents: [agent()], agentMessages: [result()] }
+  assert.ok(projectMainConversation(before).agentStatuses.length)
+  const ordinary = applyEvent(before, { type: 'agents_update', agents: before.agents })
+  assert.deepEqual(ordinary.agentMessages, before.agentMessages)
+  const edited = applyEvent(ordinary, { type: 'agents_update', agents: [], agentMessages: [] })
+  assert.deepEqual(edited.agentMessages, [])
+  assert.deepEqual(projectMainConversation(edited).agentStatuses, [])
+})
+
 test('主聊天用并排头像和一句完成文案显示多个子代理，开始保持独立短行', () => {
   const markup = renderToStaticMarkup(
     createElement(Conversation, {

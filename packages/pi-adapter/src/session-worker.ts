@@ -102,6 +102,7 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
     planTools: new Map(),
     resolvePlan: (reference, signal) => hostRequest('resolvePlan', { reference }, signal) as Promise<PlanDocument>,
     syncPlan: (force) => hostRequest('syncPlan', { force }) as Promise<PlanState>,
+    onHistoryEdited: () => hostRequest('historyEdited', {}) as Promise<void>,
     initialGeneration: data.initialGeneration,
     requireRestrictedPolicy: true,
     resourceSnapshot: data.resourceSnapshot,
@@ -148,6 +149,7 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
       | 'savePlan'
       | 'resolvePlan'
       | 'syncPlan'
+      | 'historyEdited'
       | 'admission'
       | 'goal'
       | 'goalUsage'

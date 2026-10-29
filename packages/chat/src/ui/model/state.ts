@@ -166,7 +166,12 @@ export function applyEvent(
     case 'agents_update': {
       const root = event.agents.find((agent) => agent.depth === 0 && agent.agentId === agent.rootAgentId)
       const active = root && ['starting', 'running', 'waiting_children', 'waiting_input'].includes(root.status)
-      return { ...state, agents: event.agents, activeMode: active ? root.mode : undefined }
+      return {
+        ...state,
+        agents: event.agents,
+        agentMessages: event.agentMessages ?? state.agentMessages,
+        activeMode: active ? root.mode : undefined,
+      }
     }
     case 'agent_mailbox':
       return state.agentMessages?.some((message) => message.id === event.message.id)
