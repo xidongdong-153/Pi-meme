@@ -87,6 +87,7 @@ import { beforeSendHookAvailable, UiPluginRegistry, pluginUiGranted } from './pl
 import { PluginUiConsent, PluginConsentDialog } from './plugins/plugin-ui-consent'
 import { usePluginComposerController } from './plugins/plugin-composer-adapter'
 import { useAppNavigation } from './layout/use-app-navigation'
+import { useNavigationMotion } from './layout/use-navigation-motion'
 import { PluginWorkspacePage, pluginRouteForEntry, rememberPluginRoute } from './layout/plugin-workspace-page'
 import type { RegisteredNavigation } from '@pi-meme/plugin-sdk/navigation'
 import { Button } from '@pi-meme/ui/components/ui/button'
@@ -515,6 +516,10 @@ export function App({
   })
   const [imagesVisited, setImagesVisited] = useState(false)
   const route = navigation.route
+  const navigationMotion = useNavigationMotion(
+    route.kind === 'plugin' ? `plugin:${route.pluginId}` : route.kind,
+    active,
+  )
   useEffect(() => pluginConsent.cancel(), [pluginConsent, route])
   useEffect(() => {
     const unload = (event: BeforeUnloadEvent) => {
@@ -1840,6 +1845,7 @@ export function App({
     <PluginRenderers registry={registry} props={pluginProps}>
       <TooltipProvider delayDuration={200}>
         <main
+          ref={navigationMotion}
           data-active-service={serviceUI?.serviceId ?? 'local'}
           className="theme-app flex h-screen w-screen flex-col overflow-hidden bg-background text-foreground select-none"
         >

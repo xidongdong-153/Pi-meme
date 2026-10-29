@@ -205,3 +205,37 @@
     scroll-behavior: auto !important;
   }
 }
+
+/* 平级切换只淡入内容，不移动页面，也不让文字从完全透明开始出现。 */
+@keyframes ui-content-enter {
+  from {
+    opacity: 0.65;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.ui-content-enter {
+  animation: ui-content-enter 180ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.ui-loading-delayed {
+  animation: ui-loading-enter 120ms ease-out 160ms both;
+}
+
+@keyframes ui-loading-enter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-content-enter,
+  .ui-loading-delayed {
+    animation: none;
+  }
+}

@@ -20,7 +20,10 @@ export function SchedulesWorkspace({
         <Suspense
           fallback={
             <div className="content-frame bg-background">
-              <div role="status" className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
+              <div
+                role="status"
+                className="ui-loading-delayed flex flex-1 items-center justify-center text-sm text-muted-foreground"
+              >
                 正在打开定时任务…
               </div>
             </div>

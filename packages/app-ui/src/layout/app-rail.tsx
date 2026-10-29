@@ -127,10 +127,8 @@ export function AppRail({
                   : undefined
               }
               className={cn(
-                'flex size-8 items-center justify-center rounded-lg transition-colors hover:bg-background cursor-pointer',
-                homeActive
-                  ? 'bg-background/80 text-foreground shadow-xs'
-                  : 'text-muted-foreground hover:text-foreground',
+                'app-rail-entry flex size-8 items-center justify-center rounded-lg hover:bg-background cursor-pointer',
+                homeActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
               )}
             >
               <Home className="size-4" />
@@ -148,10 +146,8 @@ export function AppRail({
               aria-current={projectsActive ? 'page' : undefined}
               onClick={onProjects}
               className={cn(
-                'flex size-8 items-center justify-center rounded-lg transition-colors hover:bg-background cursor-pointer',
-                projectsActive
-                  ? 'bg-background/80 text-foreground shadow-xs'
-                  : 'text-muted-foreground hover:text-foreground',
+                'app-rail-entry flex size-8 items-center justify-center rounded-lg hover:bg-background cursor-pointer',
+                projectsActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
               )}
             >
               <Folder className="size-4" />
@@ -169,10 +165,8 @@ export function AppRail({
               aria-current={schedulesActive ? 'page' : undefined}
               onClick={onSchedules}
               className={cn(
-                'relative flex size-8 items-center justify-center rounded-lg transition-colors hover:bg-background cursor-pointer',
-                schedulesActive
-                  ? 'bg-background/80 text-foreground shadow-xs'
-                  : 'text-muted-foreground hover:text-foreground',
+                'app-rail-entry relative flex size-8 items-center justify-center rounded-lg hover:bg-background cursor-pointer',
+                schedulesActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
               )}
             >
               <Clock className="size-4" />
@@ -191,10 +185,8 @@ export function AppRail({
               aria-current={pluginsActive ? 'page' : undefined}
               onClick={onPlugins}
               className={cn(
-                'flex size-8 items-center justify-center rounded-lg transition-colors hover:bg-background cursor-pointer',
-                pluginsActive
-                  ? 'bg-background/80 text-foreground shadow-xs'
-                  : 'text-muted-foreground hover:text-foreground',
+                'app-rail-entry flex size-8 items-center justify-center rounded-lg hover:bg-background cursor-pointer',
+                pluginsActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
               )}
             >
               <span className="relative size-4" aria-hidden="true">
@@ -215,10 +207,8 @@ export function AppRail({
               aria-current={imagesActive ? 'page' : undefined}
               onClick={onImages}
               className={cn(
-                'flex size-8 shrink-0 items-center justify-center rounded-lg transition-colors hover:bg-background cursor-pointer',
-                imagesActive
-                  ? 'bg-background/80 text-foreground shadow-xs'
-                  : 'text-muted-foreground hover:text-foreground',
+                'app-rail-entry flex size-8 shrink-0 items-center justify-center rounded-lg hover:bg-background cursor-pointer',
+                imagesActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
               )}
             >
               <Images className="size-4" />
@@ -244,8 +234,8 @@ export function AppRail({
                       aria-current={activePluginId === entry.pluginId ? 'page' : undefined}
                       onClick={() => onPlugin?.(entry)}
                       className={cn(
-                        'flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg text-muted-foreground transition-colors hover:bg-background hover:text-foreground [&>svg]:size-4',
-                        activePluginId === entry.pluginId && 'bg-background/80 text-foreground shadow-xs',
+                        'app-rail-entry flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg text-muted-foreground hover:bg-background hover:text-foreground [&>svg]:size-4',
+                        activePluginId === entry.pluginId && 'text-foreground',
                       )}
                     >
                       {entry.icon ?? <Puzzle className="size-4" />}

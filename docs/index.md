@@ -17,6 +17,7 @@ pi-meme 的 Desktop 和 Web 共用 Node Host。应用入口在 `apps/`，基础�
 | 使用与部署 | [数据目录与存储](storage.md)                | 文件布局、更改目录、缓存清理与升级恢复         |
 | 使用与部署 | [Remote](remote.md)                         | HTTPS 部署、SSH 连接、认证与断线排错           |
 | 开发与发布 | [开发指南](development.md)                  | 功能修改位置、UI 原语与静态资源                |
+| 开发与发布 | [UI 体验与动效](ui-experience.md)           | 切换、等待反馈、动效参数与接入规则             |
 | 开发与发布 | [测试](testing.md)                          | 静态检查、文件选测、CI、平台验证与报告         |
 | 开发与发布 | [版本发布](releasing.md)                    | 平台包构建、产物验收与 GitHub 草稿发布         |
 | 实现与接口 | [架构](architecture.md)                     | 进程、Host 复用、组合根与包边界                |

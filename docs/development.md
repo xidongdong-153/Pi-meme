@@ -45,6 +45,8 @@ paths:
 
 聊天消息和输入区共用 [global.css](../packages/app-ui/src/global.css) 的 `.chat-content-column`，按聊天面板宽度居中，最大宽度为 `48rem`。Markdown 代码块根据围栏上的语言标记交给 Shiki 高亮，支持 `ts`、`js`、`c++`、`c#`、`shell` 等别名；未标记或不支持的语言保留原文。高亮随应用明暗模式切换；代码块默认展开，点击标题栏可折叠，折叠后仍可复制完整代码。代码正文比聊天正文字号小 `1px`，最大高度为 `320px`，超出后在块内滚动；长行和宽表格在各自容器内横向滚动。入口在 [markdown-components.tsx](../packages/chat/src/ui/content/markdown-components.tsx)、[code-block.tsx](../packages/chat/src/ui/content/code-block.tsx) 和 [use-highlighter.ts](../packages/chat/src/ui/content/use-highlighter.ts)。
 
+前端导航、Tab、面板和异步加载遵循 [UI 体验与动效](ui-experience.md)，复用切换参数、等待反馈和减少动态效果规则。
+
 ## 代码约定与验证入口
 
 命名、依赖方向、组件 Props、顶栏与交互规则统一见 [AGENTS.md](../AGENTS.md)。共享聊天类型在 [model/types.ts](../packages/chat/src/ui/model/types.ts)，基础交互使用 [UI 原语](../packages/ui/src/components/ui/)，类名通过 [cn](../packages/ui/src/lib/utils.ts) 组合。文件图标使用 `FileIcon`，其他图标使用 `lucide-react`。

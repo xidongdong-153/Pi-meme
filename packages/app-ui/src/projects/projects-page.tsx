@@ -206,7 +206,13 @@ export function ProjectsPage({
                 ))}
               </div>
               {!visible.length && (
-                <div role="status" className="flex flex-col items-center gap-3 py-20 text-sm text-muted-foreground">
+                <div
+                  role="status"
+                  className={cn(
+                    'flex flex-col items-center gap-3 py-20 text-sm text-muted-foreground',
+                    loading && 'ui-loading-delayed',
+                  )}
+                >
                   {loading ? (
                     <Loader2 className="size-6 animate-spin" />
                   ) : (
