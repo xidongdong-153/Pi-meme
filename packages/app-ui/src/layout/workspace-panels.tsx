@@ -50,6 +50,7 @@ export function WorkspacePanels({
   props,
   session,
   sessionTitle = '聊天',
+  terminalCwd,
   onFocusComposer,
   requestPanel,
   onPanelRequestHandled,
@@ -94,6 +95,7 @@ export function WorkspacePanels({
   props: UiContributionProps
   session: string
   sessionTitle?: string
+  terminalCwd?: string
   onFocusComposer?: () => void
   errors?: Record<string, string>
   requestPanel?: { id: string; revision: number; target: UiTarget } | null
@@ -536,7 +538,8 @@ export function WorkspacePanels({
         {tabs.map((id) => {
           const panel = available.find((entry) => entry.id === id)
           const isSideChat = id === sideChatTabId
-          const title = isSideChat ? (panel?.title ?? '侧边聊天') : (panel?.title ?? '新标签页')
+          const directory = id === 'builtin:terminal' ? terminalCwd : undefined
+          const title = directory || (isSideChat ? (panel?.title ?? '侧边聊天') : (panel?.title ?? '新标签页'))
           const browserTab = id.startsWith('builtin:browser:')
           const closing = isClosingTab(id)
           const icon = browserTab
@@ -557,7 +560,7 @@ export function WorkspacePanels({
                 aria-controls="right-tool-content"
                 tabIndex={active === id && (!unified || showTool) ? 0 : -1}
                 onClick={() => selectTab(id)}
-                className={`flex h-7 min-w-0 items-center gap-1.5 pl-2.5 pr-1 text-xs ${browserTab ? 'min-w-28 max-w-56' : unified ? 'min-w-20 max-w-36' : ''}`}
+                className={`flex h-7 min-w-0 items-center gap-1.5 pl-2.5 pr-1 text-xs ${browserTab || directory ? 'min-w-28 max-w-56' : unified ? 'min-w-20 max-w-36' : ''}`}
                 title={title}
               >
                 <span
@@ -565,7 +568,7 @@ export function WorkspacePanels({
                 >
                   {icon}
                 </span>
-                <span className="max-w-28 truncate">{title}</span>
+                <span className={`${directory ? 'max-w-48' : 'max-w-28'} truncate`}>{title}</span>
               </button>
               <button
                 type="button"

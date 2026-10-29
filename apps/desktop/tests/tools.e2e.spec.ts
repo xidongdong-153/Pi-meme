@@ -5,7 +5,10 @@ import { test } from '../../../tests/fixtures/desktop'
 async function openTool(page: Page, title: string) {
   const expand = page.getByRole('button', { name: '展开右侧栏', exact: true })
   if (await expand.isVisible()) await expand.click()
-  const tab = page.getByRole('tab', { name: title, exact: true })
+  const tab =
+    title === '终端'
+      ? page.locator('[id="workspace-tool-tab-builtin:terminal"]')
+      : page.getByRole('tab', { name: title, exact: true })
   if (await tab.count()) await tab.click()
   else {
     const chooser = page.getByRole('tabpanel', { name: '工具', exact: true })
@@ -75,19 +78,21 @@ test('真实终端输入、字体变化与会话切换保留 PTY 实例', async 
   await page.evaluate(async () => {
     await window.piMemeClient!.newSession()
   })
-  await expect(page.getByRole('tab', { name: '终端', exact: true })).toHaveCount(0)
+  const terminalTab = page.locator('[id="workspace-tool-tab-builtin:terminal"]')
+  await expect(terminalTab).toHaveCount(0)
   await page.evaluate(async (sessionFile) => {
     await window.piMemeClient!.switchSession(sessionFile)
   }, file)
-  await expect(page.getByRole('tab', { name: '终端', exact: true })).toBeVisible()
-  await page.getByRole('tab', { name: '终端', exact: true }).click()
+  await expect(terminalTab).toBeVisible()
+  await expect(terminalTab).toHaveText(terminal.cwd)
+  await terminalTab.click()
   await expect.poll(async () => (await attach()).output).toContain('PTY_OK')
   await input.focus()
   await page.keyboard.insertText('exit')
   await page.keyboard.press('Enter')
   await expect.poll(async () => (await attach()).exited).toBe(true)
-  await page.getByRole('tab', { name: '终端', exact: true }).hover()
-  await page.getByRole('button', { name: '关闭标签页：终端', exact: true }).click()
+  await terminalTab.hover()
+  await page.getByRole('button', { name: `关闭标签页：${terminal.cwd}`, exact: true }).click()
   const reopened = page.waitForResponse(
     (response) =>
       response.url().endsWith('/api/control') && response.request().postDataJSON()?.method === 'terminal.open',

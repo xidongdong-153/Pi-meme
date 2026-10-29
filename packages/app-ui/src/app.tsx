@@ -1940,6 +1940,7 @@ export function App({
               errors={{ ...registry.errors(), ...(browser.error ? { browser: browser.error } : {}) }}
               props={pluginProps}
               session={appSession?.sessionId ?? runtimeSessionKey ?? ''}
+              terminalCwd={appSession?.cwd ?? cwd}
               sidebar={sidebar}
               sidebarOpen={sidebarOpen}
               sidebarWidth={sidebarWidth}
