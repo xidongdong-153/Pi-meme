@@ -15,7 +15,7 @@ pi-meme 是本地 Pi Coding Agent 的桌面客户端，外加可独立部署的 
 都在仓库根目录执行。
 
 ```bash
-pnpm start                 # Electron Forge 启动 Desktop（本地拉起 Host 子进程）
+pnpm start                 # macOS：Desktop + Host + Web；Linux/WSL：Host + Web
 pnpm start:server          # 独立 Host：apps/server
 pnpm start:web             # 浏览器入口：apps/web（Vite）
 pnpm type-check            # 全 workspace tsc --noEmit

@@ -63,9 +63,9 @@ pnpm install --frozen-lockfile
 pnpm start
 ```
 
-`pnpm start` 启动 macOS Desktop，同时提供 [Web 开发界面](http://127.0.0.1:3181)，两端共用一个 Host。
+`pnpm start` 按系统启动开发环境：macOS 启动 Desktop、Host 和 Web；Linux/WSL 启动 Host 和 Web。浏览器访问 [Web 开发界面](http://127.0.0.1:3181)，macOS 的 Desktop 与 Web 共用一个 Host。Ctrl+C 停止本次启动的进程，复用的已有 Host 仍由原启动方管理。
 
-只运行 Web 时，安装依赖后在两个终端分别执行：
+需要分开启动，或在 macOS 只运行 Host + Web 时，在两个终端分别执行：
 
 ```bash
 # 终端一：启动 Host

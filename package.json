@@ -7,7 +7,7 @@
     "node": ">=22.19.0"
   },
   "scripts": {
-    "start": "pnpm --filter pi-meme start",
+    "start": "node --import tsx scripts/start.mts",
     "package": "pnpm --filter pi-meme package",
     "make": "pnpm --filter pi-meme make",
     "package:host": "node --import tsx scripts/package-host.mts",

@@ -162,7 +162,15 @@ pnpm start
 
 ### 本机 Web 开发
 
-不启动 Desktop 时，在两个终端分别运行，无需额外设置环境变量：
+Linux/WSL 在一个终端执行，无需额外设置环境变量：
+
+```bash
+pnpm start
+```
+
+根入口 [start.mts](../scripts/start.mts) 按系统分流：Linux/WSL 同时运行 Host 和 Web，macOS 使用上节的 Desktop 入口，同时提供 Host 和 Web。Ctrl+C 停止本次启动的进程；任一启动命令失败时停止其余进程。Server 复用已有 Host 后会成功退出，Web 继续运行；已有 Host 仍由原启动方管理。
+
+需要分开启动，或在 macOS 只运行 Host + Web 时，在两个终端分别执行：
 
 ```bash
 # 终端一
@@ -174,7 +182,7 @@ pnpm start:server
 pnpm start:web
 ```
 
-打开 [Web 开发界面](http://127.0.0.1:3181)。Vite 默认将 `/api` 的 HTTP 和 WebSocket 请求代理给 `127.0.0.1:3180`；Web 代码支持热更新，Host 源码修改后需重启终端一。3181 被占用时直接报错，不自动换端口。代理目标可用 `PI_MEME_HOST_URL` 修改，见 [Vite 配置](../apps/web/vite.config.ts)。
+打开 [Web 开发界面](http://127.0.0.1:3181)。Vite 默认将 `/api` 的 HTTP 和 WebSocket 请求代理给 `127.0.0.1:3180`；Web 代码支持热更新，Host 源码修改后需重启 `pnpm start`，分开启动时只重启 `pnpm start:server`。3181 被占用时直接报错，不自动换端口。代理目标可用 `PI_MEME_HOST_URL` 修改，见 [Vite 配置](../apps/web/vite.config.ts)。
 
 `pnpm start:server` 从 [dev.ts](../apps/server/src/dev.ts) 启动，默认监听 `127.0.0.1:3180`，数据目录为 `~/.pi-meme-dev`，与正式环境的 `3185` 和 `~/.pi-meme` 分开。该入口和 Vite 开发服务器都会使用 `NODE_ENV=development`，即使终端继承了 `NODE_ENV=production`。开发环境需单独配置模型凭据，不自动复制正式数据。
 
