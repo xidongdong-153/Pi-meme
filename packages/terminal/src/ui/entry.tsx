@@ -1,7 +1,5 @@
-import { lazy, Suspense, useState, useSyncExternalStore } from 'react'
-import { Button } from '@pi-meme/ui/components/ui/button'
-import { Play, RefreshCw, Square, TerminalSquare } from 'lucide-react'
-import type { HostControlEvent, TerminalSnapshot } from '@pi-meme/contracts/app-host'
+import { lazy, Suspense, useEffect, useRef, useSyncExternalStore } from 'react'
+import type { HostControlEvent, TerminalSnapshot, WorkspaceRef } from '@pi-meme/contracts/app-host'
 import type { UiContributionProps, UiPluginContext } from '@pi-meme/plugin-sdk/ui'
 import type { TerminalOutput as Output } from './terminal-console'
 
@@ -10,6 +8,7 @@ const Console = lazy(() => import('./terminal-console').then((module) => ({ defa
 export async function activate(context: Pick<UiPluginContext, 'host' | 'panels'>) {
   const capabilities = await context.host.capabilities()
   const instances = new Map<string, TerminalSnapshot>()
+  const states = new Map<string, { busy: boolean; error: string }>()
   const restoring = new Map<string, Output[]>()
   const listeners = new Set<() => void>()
   const outputListeners = new Set<(event: Output) => void>()
@@ -63,6 +62,37 @@ export async function activate(context: Pick<UiPluginContext, 'host' | 'panels'>
       if (restoring.get(ref.terminalId) === buffered) restoring.delete(ref.terminalId)
     }
   }
+  async function open(root: WorkspaceRef) {
+    const key = JSON.stringify(root)
+    if (disposed || states.get(key)?.busy || !capabilities.features.includes('terminal')) return
+    const state = { busy: true, error: '' }
+    states.set(key, state)
+    notify()
+    try {
+      const previous = instances.get(key)
+      if (previous && !previous.exited) {
+        await attachInstance(key, previous)
+        return
+      }
+      if (previous) {
+        await context.host.terminal.close(previous, { idempotencyKey: crypto.randomUUID() })
+        instances.delete(key)
+      }
+      if (disposed) return
+      const terminal = await context.host.terminal.open(root, {}, { idempotencyKey: crypto.randomUUID() })
+      if (disposed) {
+        await context.host.terminal.close(terminal, { idempotencyKey: crypto.randomUUID() })
+        return
+      }
+      instances.set(key, terminal)
+      await attachInstance(key, terminal)
+    } catch (cause) {
+      state.error = String(cause)
+    } finally {
+      state.busy = false
+      notify()
+    }
+  }
   function Panel(props: UiContributionProps) {
     useSyncExternalStore(
       (listener) => {
@@ -76,72 +106,33 @@ export async function activate(context: Pick<UiPluginContext, 'host' | 'panels'>
     const root = props.target.session ?? props.target.project
     const key = JSON.stringify(root)
     const instance = instances.get(key)
-    const [busy, setBusy] = useState(false)
-    const [error, setError] = useState('')
-    async function open() {
-      if (!root) return
-      setBusy(true)
-      setError('')
-      try {
-        const terminal = await props.host.terminal.open(root, {}, { idempotencyKey: crypto.randomUUID() })
-        if (disposed) {
-          await props.host.terminal.close(terminal, { idempotencyKey: crypto.randomUUID() })
-          return
-        }
-        instances.set(key, terminal)
-        await attachInstance(key, terminal)
-      } catch (cause) {
-        setError(String(cause))
-      } finally {
-        setBusy(false)
-      }
-    }
-    async function attach() {
-      if (!instance || restoring.has(instance.terminalId)) return
-      try {
-        await attachInstance(key, instance)
-      } catch (cause) {
-        setError(String(cause))
-      }
-    }
-    async function close() {
-      if (!instance) return
-      try {
-        await props.host.terminal.close(instance, { idempotencyKey: crypto.randomUUID() })
-        instances.delete(key)
-        notify()
-      } catch (cause) {
-        setError(String(cause))
-      }
-    }
+    const state = states.get(key)
+    const busy = state?.busy ?? false
+    const error = state?.error ?? ''
+    const supported = capabilities.features.includes('terminal')
+    const started = useRef(false)
+    useEffect(() => {
+      if (!root || !supported || started.current) return
+      started.current = true
+      const current = instances.get(key)
+      if (!current || current.exited || states.get(key)?.error) void open(root)
+    }, [key, root, supported])
     return (
-      <section aria-label="终端工具" className="flex h-full min-h-0 flex-col">
-        <div className="flex min-h-11 shrink-0 items-center gap-2 px-3 text-xs">
-          {instance ? (
-            <>
-              <span title={instance.cwd} className="min-w-0 flex-1 truncate text-muted-foreground">
-                {instance.cwd}
-                {instance.exited ? `（已退出 ${instance.exitCode}）` : ''}
-              </span>
-              <Button variant="ghost" size="icon-sm" aria-label="重新连接终端" onClick={() => void attach()}>
-                <RefreshCw className="size-3.5" />
-              </Button>
-              <Button variant="ghost" size="icon-sm" aria-label="关闭终端实例" onClick={() => void close()}>
-                <Square className="size-3.5" />
-              </Button>
-            </>
-          ) : (
-            <span className="text-muted-foreground">当前会话终端</span>
-          )}
-        </div>
+      <section aria-label="终端工具" className="flex h-full min-h-0 flex-col p-3">
         {error && (
-          <p role="alert" className="break-words px-3 py-2 text-xs text-destructive">
+          <p role="alert" className="break-words text-xs text-destructive">
             {error}
           </p>
         )}
         {instance ? (
-          <div className="flex min-h-0 min-w-0 flex-1 p-3">
-            <Suspense fallback={<p role="status">正在加载终端…</p>}>
+          <div className="flex min-h-0 min-w-0 flex-1">
+            <Suspense
+              fallback={
+                <p role="status" className="text-xs text-muted-foreground">
+                  正在加载终端…
+                </p>
+              }
+            >
               <Console
                 key={instance.terminalId}
                 host={props.host}
@@ -151,22 +142,14 @@ export async function activate(context: Pick<UiPluginContext, 'host' | 'panels'>
             </Suspense>
           </div>
         ) : (
-          <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6 text-center">
-            <TerminalSquare className="size-8 text-muted-foreground" strokeWidth={1.3} />
-            <p className="text-xs text-muted-foreground">
-              {!capabilities.features.includes('terminal')
-                ? '所属 Host 的 node-pty 原生模块不可用。'
-                : '在当前会话目录中启动 shell。关闭面板会保留终端。'}
-            </p>
-            <Button
-              variant="outline"
-              size="sm"
-              disabled={busy || !root || !capabilities.features.includes('terminal')}
-              onClick={() => void open()}
-            >
-              <Play className="size-3.5" />
-              {busy ? '正在创建…' : '创建终端'}
-            </Button>
+          <div className="flex-1 text-xs text-muted-foreground">
+            {!supported ? (
+              <p role="status">所属 Host 的 node-pty 原生模块不可用。</p>
+            ) : !root ? (
+              <p role="status">选择项目或会话后打开终端。</p>
+            ) : busy || (!state && !error) ? (
+              <p role="status">正在启动终端…</p>
+            ) : null}
           </div>
         )}
       </section>

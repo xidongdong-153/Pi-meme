@@ -17,6 +17,7 @@ export function TerminalConsole({
 }) {
   const container = useRef<HTMLDivElement>(null)
   const [error, setError] = useState('')
+  const [loading, setLoading] = useState(true)
   useEffect(() => {
     if (!container.current) return
     const fit = new FitAddon()
@@ -85,7 +86,7 @@ export function TerminalConsole({
     }
     outputListeners.add(output)
     const input = terminal.onData((data) => {
-      if (!ready) return
+      if (!ready || instance.exited) return
       void host.terminal.input(instance, data, { idempotencyKey: crypto.randomUUID() }).catch((cause) => {
         if (!disposed) setError(String(cause))
       })
@@ -97,6 +98,7 @@ export function TerminalConsole({
     const observer = new ResizeObserver(syncSize)
     observer.observe(container.current)
     setError('')
+    setLoading(true)
     void Promise.all([host.terminal.attach(instance), document.fonts.ready])
       .then(([snapshot]) => {
         if (disposed) return
@@ -119,7 +121,8 @@ export function TerminalConsole({
             if (disposed) return
             restoring = false
             syncSize()
-            terminal.options.disableStdin = false
+            terminal.options.disableStdin = snapshot.exited
+            setLoading(false)
             terminal.focus()
           })
         })
@@ -127,6 +130,7 @@ export function TerminalConsole({
       .catch((cause) => {
         if (!disposed) {
           outputListeners.delete(output)
+          setLoading(false)
           setError(String(cause))
         }
       })
@@ -144,6 +148,11 @@ export function TerminalConsole({
   return (
     <div className="relative min-h-0 min-w-0 flex-1">
       <div ref={container} className="h-full min-h-24 w-full [&_.xterm-viewport]:bg-transparent!" />
+      {loading && (
+        <p role="status" className="absolute left-0 top-0 text-xs text-muted-foreground">
+          正在连接终端…
+        </p>
+      )}
       {error && (
         <p role="alert" className="break-words text-xs text-destructive">
           {error}

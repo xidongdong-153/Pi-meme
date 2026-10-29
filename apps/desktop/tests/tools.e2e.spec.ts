@@ -39,12 +39,11 @@ test('真实终端输入、字体变化与会话切换保留 PTY 实例', async 
   await desktop.seedConversation()
   const page = desktop.page
   const file = await page.evaluate(async () => (await window.piMemeClient!.getConnection()).sessionFile!)
-  await openTool(page, '终端')
   const opened = page.waitForResponse(
     (response) =>
       response.url().endsWith('/api/control') && response.request().postDataJSON()?.method === 'terminal.open',
   )
-  await page.getByRole('button', { name: '创建终端', exact: true }).click()
+  await openTool(page, '终端')
   const terminal = (await (await opened).json()).result as TerminalSnapshot
   const input = page.locator('[aria-label="终端"] .xterm-helper-textarea')
   await expect(input).toBeFocused()
@@ -83,6 +82,17 @@ test('真实终端输入、字体变化与会话切换保留 PTY 实例', async 
   await expect(page.getByRole('tab', { name: '终端', exact: true })).toBeVisible()
   await page.getByRole('tab', { name: '终端', exact: true }).click()
   await expect.poll(async () => (await attach()).output).toContain('PTY_OK')
-  await page.getByRole('button', { name: '关闭终端实例', exact: true }).click()
-  await expect(page.getByRole('button', { name: '创建终端', exact: true })).toBeVisible()
+  await input.focus()
+  await page.keyboard.insertText('exit')
+  await page.keyboard.press('Enter')
+  await expect.poll(async () => (await attach()).exited).toBe(true)
+  await page.getByRole('tab', { name: '终端', exact: true }).hover()
+  await page.getByRole('button', { name: '关闭标签页：终端', exact: true }).click()
+  const reopened = page.waitForResponse(
+    (response) =>
+      response.url().endsWith('/api/control') && response.request().postDataJSON()?.method === 'terminal.open',
+  )
+  await openTool(page, '终端')
+  expect(((await (await reopened).json()).result as TerminalSnapshot).terminalId).not.toBe(terminal.terminalId)
+  await expect(input).toBeFocused()
 })
