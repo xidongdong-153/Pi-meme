@@ -101,7 +101,6 @@ export const Conversation = React.memo(
     )
     const {
       containerRef,
-      bottomRef,
       showScrollTop,
       showScrollBottom,
       handleScroll,
@@ -484,7 +483,7 @@ export const Conversation = React.memo(
                 <CompactionProgressCard />
               ) : null}
 
-              <div ref={bottomRef} className="h-2" />
+              <div className="h-2" />
             </div>
           </div>
 

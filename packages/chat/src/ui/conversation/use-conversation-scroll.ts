@@ -19,7 +19,6 @@ export function useConversationScroll(
   sessionKey?: string,
 ) {
   const containerRef = React.useRef<HTMLDivElement>(null)
-  const bottomRef = React.useRef<HTMLDivElement>(null)
   const isAtBottomRef = React.useRef(true)
   const activeSession = React.useRef<string | undefined>(undefined)
   const [showScrollTop, setShowScrollTop] = React.useState(false)
@@ -82,8 +81,10 @@ export function useConversationScroll(
 
   // 流式输出与新消息更新时：仅当处于底部时智能跟进滚动
   React.useEffect(() => {
-    if (isAtBottomRef.current) {
-      bottomRef.current?.scrollIntoView({ behavior: 'instant' })
+    const container = containerRef.current
+    if (container && isAtBottomRef.current) {
+      // 只滚动消息区，避免 scrollIntoView 连带移动侧栏所在的祖先容器。
+      container.scrollTop = container.scrollHeight
       updateScrollState()
     }
   }, [
@@ -106,9 +107,10 @@ export function useConversationScroll(
     const onResize = () => {
       cancelAnimationFrame(frame)
       frame = requestAnimationFrame(() => {
-        if (!containerRef.current) return
+        const target = containerRef.current
+        if (!target) return
         if (isAtBottomRef.current) {
-          bottomRef.current?.scrollIntoView({ behavior: 'instant' })
+          target.scrollTop = target.scrollHeight
         }
         updateScrollState()
       })
@@ -124,7 +126,10 @@ export function useConversationScroll(
 
   // 手动点击回到底部
   const scrollToBottom = React.useCallback(() => {
-    bottomRef.current?.scrollIntoView({
+    const container = containerRef.current
+    if (!container) return
+    container.scrollTo({
+      top: container.scrollHeight,
       behavior: document.documentElement.dataset.reducedMotion === 'true' ? 'instant' : 'smooth',
     })
     isAtBottomRef.current = true
@@ -153,9 +158,10 @@ export function useConversationScroll(
   // 活动项折叠/展开回调：如果处于底部保持吸底，并校准滚动状态，绝不误触跳转逻辑
   const handleActivityToggle = React.useCallback(() => {
     requestAnimationFrame(() => {
-      if (!containerRef.current) return
+      const container = containerRef.current
+      if (!container) return
       if (isAtBottomRef.current) {
-        bottomRef.current?.scrollIntoView({ behavior: 'instant' })
+        container.scrollTop = container.scrollHeight
       }
       updateScrollState()
     })
@@ -163,7 +169,6 @@ export function useConversationScroll(
 
   return {
     containerRef,
-    bottomRef,
     showScrollTop,
     showScrollBottom,
     handleScroll,

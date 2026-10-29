@@ -61,8 +61,7 @@ test('刚开始对话且内容未铺开（不可滚动）时，不显示回到�
 })
 
 test('内容铺开且向上滚动离开底部时显示箭头，点击后调用平滑吸底并隐藏', async () => {
-  const scrollIntoView = vi.fn()
-  window.HTMLElement.prototype.scrollIntoView = scrollIntoView
+  const scrollIntoView = vi.spyOn(HTMLElement.prototype, 'scrollIntoView')
 
   const chat = createChatState([userMessage('用户输入', 1000), assistantMessage('较长的输出内容...', 2000)])
 
@@ -95,13 +94,48 @@ test('内容铺开且向上滚动离开底部时显示箭头，点击后调用�
   const button = screen.getByRole('button', { name: '滚动到底部' })
   expect(button).toBeInTheDocument()
 
+  const scrollTo = vi.fn()
+  scrollContainer.scrollTo = scrollTo
+  scrollIntoView.mockClear()
+
   // 点击回到底部
   act(() => {
     fireEvent.click(button)
   })
 
-  expect(scrollIntoView).toHaveBeenCalled()
+  expect(scrollTo).toHaveBeenCalledWith({ top: 1500, behavior: 'smooth' })
+  expect(scrollIntoView).not.toHaveBeenCalled()
   expect(screen.queryByRole('button', { name: '滚动到底部' })).not.toBeInTheDocument()
+})
+
+test('打开会话和更新消息只滚动消息容器，不连带滚动外层页面', () => {
+  const scrollIntoView = vi.spyOn(HTMLElement.prototype, 'scrollIntoView')
+  const view = (chat: ChatState) => (
+    <TooltipProvider>
+      <Conversation
+        chat={chat}
+        sessionKey="scroll-isolation"
+        canEditMessages={false}
+        onEditMessage={() => {}}
+        onForkReply={() => {}}
+        onCopyError={() => {}}
+      />
+    </TooltipProvider>
+  )
+  const chat = createChatState([userMessage('用户输入', 1000), assistantMessage('回复', 2000)])
+  const { container, rerender } = render(view(chat))
+  expect(scrollIntoView).not.toHaveBeenCalled()
+
+  const scrollContainer = container.querySelector('[aria-label="对话消息流"]') as HTMLDivElement
+  Object.defineProperty(scrollContainer, 'clientHeight', { value: 500, configurable: true })
+  Object.defineProperty(scrollContainer, 'scrollHeight', { value: 1500, configurable: true })
+  scrollContainer.scrollTop = 1000
+  fireEvent.scroll(scrollContainer)
+
+  Object.defineProperty(scrollContainer, 'scrollHeight', { value: 1800, configurable: true })
+  rerender(view(createChatState([...chat.messages, assistantMessage('新增回复', 3000)])))
+  expect(scrollContainer.scrollTop).toBe(1800)
+  expect(scrollIntoView).not.toHaveBeenCalled()
 })
 
 test('内容铺开但在底部附近时，不显示回到底部箭头', async () => {
