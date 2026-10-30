@@ -137,6 +137,7 @@ export type RuntimePolicy = {
     signal: AbortSignal,
     origin?: PromptOrigin,
     expected?: GoalControl,
+    sourceClientId?: string,
   ) => Promise<void | GoalRun>
   onGoalGate?: (tool: boolean) => Promise<unknown>
   onGoalUsage?: (run: GoalRun, entryId: string, usage: unknown, inputEntryId?: string) => Promise<void>
@@ -1524,6 +1525,7 @@ export class SdkSession {
                   ? 'collaboration'
                   : 'user',
           expectedGoal,
+          options?.sourceClientId,
         )
         if (generation !== this.generation || this.queueCancelled) throw new Error('消息发送已取消')
         if (editEntryId === undefined && (options?.model || options?.thinkingLevel !== undefined)) {
@@ -1841,6 +1843,7 @@ export class SdkSession {
     if (normalized.commandOnly) return
     if (builtinCommand(normalized.text)) throw new Error('内置命令不能插话或排队，请等待当前任务完成后执行')
     const input: QueuedInput = {
+      sourceClientId: options?.sourceClientId,
       id: randomUUID(),
       text: normalized.text,
       mode: normalized.mode,
@@ -2241,6 +2244,7 @@ export class SdkSession {
         selected.input.images,
         selected.input.skills,
         {
+          sourceClientId: selected.input.sourceClientId,
           mode: selected.input.mode,
           ...selected.input.configuration,
           clientProcessingAudit: selected.input.clientProcessingAudit,

@@ -926,6 +926,17 @@ export function useAppSession(
             ? chatRef.current?.captureComposer()
             : undefined) ??
           (result.snapshot.connection.sessionKey && drafts.get(result.snapshot.connection.sessionKey))
+        if (previewInput && previewDraftKey && result.snapshot.connection.sessionKey) {
+          window.dispatchEvent(
+            new CustomEvent('pi-meme:workspace-bound', {
+              detail: {
+                hostId,
+                from: previewDraftKey,
+                to: result.snapshot.appSession?.sessionId ?? result.snapshot.connection.sessionKey,
+              },
+            }),
+          )
+        }
         preview.current = null
         commitSnapshot(result.snapshot, transaction.events, pluginRevision, modeRevision)
         if (draft) chatRef.current?.restoreComposer(draft)
@@ -1370,6 +1381,7 @@ export function useAppSession(
       connection.sessionKey && views.current.get(connection.sessionKey)?.snapshot.historyDetails === 'deferred',
     ),
     retrySwitch: failedSwitchPath ? () => switchSession(failedSwitchPath) : undefined,
+    workspaceUiKey: preview.current?.draftKey ?? connection.sessionKey ?? 'new',
     cachedChat: (key: string) => views.current.get(key)?.chat,
     synchronizing: switching && previewing,
     navigationBusy: acting || switching,

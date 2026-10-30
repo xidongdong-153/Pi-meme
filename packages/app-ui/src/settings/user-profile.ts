@@ -87,7 +87,9 @@ export function useUserProfile(bridge?: ProfileBridge) {
       if (profile) cacheUserProfile(profile)
     }
     void load()
+    window.addEventListener('pi-meme:system-changed', load)
     return () => {
+      window.removeEventListener('pi-meme:system-changed', load)
       active = false
     }
   }, [bridge])

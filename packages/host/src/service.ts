@@ -1,3 +1,5 @@
+import { createSystemOperations } from './system-operations'
+import { SystemClientBridge } from './system-client-bridge'
 import { ImageLibraryStore } from '@pi-meme/image-generation/server/library-store'
 import { imageLibraryHistory } from './image-library-history'
 import { projectBranchVisualizations } from '@pi-meme/contracts/visualize'
@@ -29,7 +31,7 @@ import { assertExternalPluginId } from '@pi-meme/plugin-sdk/reserved'
 import { mkdir, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
-import { randomUUID } from 'node:crypto'
+import { randomUUID, createHash } from 'node:crypto'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { validateExtensionUIResponse } from '@pi-meme/contracts/user-input'
 import type { HostEvent, HostRpcRequest } from '@pi-meme/contracts/host'
@@ -57,7 +59,7 @@ import { FileCredentialStore } from '@pi-meme/pi-adapter/file-credentials'
 import { ModelConfigStore } from '@pi-meme/models/server/config-store'
 import { ModelService } from '@pi-meme/models/server/model-service'
 import { SettingsStore } from '@pi-meme/settings/server/store'
-import { InstructionsStore } from '@pi-meme/settings/server/instructions'
+import { InstructionsStore, parseSaveInstruction } from '@pi-meme/settings/server/instructions'
 import { parseTheme } from '@pi-meme/settings/shared/themes'
 import { loadPluginThemes } from '@pi-meme/settings/server/plugin-themes'
 import { getGitEnvironment, resolveGitBase, runGit, switchGitBranch } from '@pi-meme/git/server/git-service'
@@ -292,8 +294,24 @@ export async function createHost(options: HostOptions = {}) {
         if (gitWrites.get(commonDirectory) === pending) gitWrites.delete(commonDirectory)
       }
     }
+    let mcp: McpConfigStore
+    let terminal: TerminalService
     let pi: PiSessionPool
     let appControl: Awaited<ReturnType<typeof createAppControl>> | undefined
+    let systemWrites: Promise<unknown> = Promise.resolve()
+    const executionClients = new Map<string, { clientId: string; rootTaskId: string; epoch: number }>()
+    const systemClients = new SystemClientBridge((clientId, value) => {
+      const subscribers = listeners.get(clientId)
+      if (!subscribers?.size) return false
+      for (const subscriber of subscribers) subscriber({ hostId, type: 'system-request', value })
+      return true
+    })
+    const systemChanged = () => {
+      for (const subscribers of listeners.values())
+        for (const subscriber of subscribers) subscriber({ hostId, type: 'system-changed' })
+    }
+    const instructions = new InstructionsStore(root)
+    const revisionOf = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
     const agentSelections = new Map<string, string[]>()
     const temporaryViews = new Map<string, ClientView>()
     const temporarySessions = new Map<
@@ -503,6 +521,21 @@ export async function createHost(options: HostOptions = {}) {
       hostId,
       file: path.join(root, 'state/modules/%40pi-meme%2Fimage-generation/library.json'),
       attachments: storagePaths.attachmentsDirectory,
+      existingSessionIds: async () => {
+        const sessions = await appControl!.apiFor('image-library').sessions.list()
+        const existing = await Promise.all(
+          sessions.map(async (item) => {
+            if (!item.sessionFile) return item.sessionId
+            try {
+              return (await stat(item.sessionFile)).isFile() ? item.sessionId : undefined
+            } catch (cause) {
+              if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return undefined
+              throw cause
+            }
+          }),
+        )
+        return existing.filter((id): id is string => Boolean(id))
+      },
       history: () => imageLibraryHistory(appControl!.apiFor('image-library'), paths.sessionsDirectory),
       onChange: () => {
         if (!closing) appControl?.publishLive({ type: 'image-library', value: { reason: 'changed' } })
@@ -673,6 +706,7 @@ export async function createHost(options: HostOptions = {}) {
             signal,
             origin = continuation ? 'collaboration' : 'user',
             expected,
+            sourceClientId,
           ) => {
             const actor = collaboration.goalCaller(session)
             const current = await appControl?.goalForRuntime(actor.rootSessionKey)
@@ -688,6 +722,16 @@ export async function createHost(options: HostOptions = {}) {
               await goals.stop(current.session, 'paused', '进入规划模式，目标已暂停')
             if (origin === 'recovery') await collaboration.admitRecovery(session, mode, signal)
             else await collaboration.admit(session, message, mode, origin === 'collaboration', signal)
+            if (actor.depth === 0 && !continuation) {
+              const admitted = collaboration.goalCaller(session)
+              if (sourceClientId)
+                executionClients.set(admitted.rootSessionKey, {
+                  clientId: sourceClientId,
+                  rootTaskId: admitted.rootTaskId,
+                  epoch: admitted.epoch,
+                })
+              else executionClients.delete(admitted.rootSessionKey)
+            }
             const run =
               actor.depth === 0
                 ? await appControl?.admitGoal(actor.rootSessionKey, origin, expected)
@@ -800,6 +844,151 @@ export async function createHost(options: HostOptions = {}) {
               }
             }
             return result
+          },
+          system: async (request, signal) => {
+            const actor = collaboration.goalCaller(session)
+            const assertActive = () => {
+              signal.throwIfAborted()
+              const current = collaboration.goalCaller(session)
+              if (
+                current.runId !== actor.runId ||
+                current.epoch !== actor.epoch ||
+                current.executionGeneration !== actor.executionGeneration ||
+                !['running', 'waiting_children', 'waiting_input'].includes(current.status)
+              )
+                throw new Error('工作台请求来自已结束或过期执行')
+              if (request.write && (current.mode === 'plan' || current.accessMode !== 'full-access'))
+                throw new Error('工作台写操作需要普通模式和完全权限')
+            }
+            assertActive()
+            const ref = await appControl!.sessionForRuntime(actor.rootSessionKey)
+            const api = appControl!.apiFor(`system-api:${ref.sessionId}`)
+            const safeMcp = async () => {
+              const value = await mcp.snapshot()
+              return {
+                revision: value.revision,
+                error: value.error,
+                servers: value.servers.map((entry) => {
+                  const config = entry.config as Record<string, unknown> | undefined
+                  return {
+                    name: entry.name,
+                    error: entry.error,
+                    enabled: config?.enabled !== false,
+                    transport: config?.command ? 'stdio' : 'http',
+                    authorized: config?.desktopAuthorized === true,
+                  }
+                }),
+              }
+            }
+            const profile = async () => {
+              const value = await settings.getUserProfile()
+              const { avatarUrl, ...fields } = value
+              return { profile: { ...fields, hasAvatar: Boolean(avatarUrl) }, revision: revisionOf(value) }
+            }
+            const initiatingClient = () => {
+              const origin = executionClients.get(actor.rootSessionKey)
+              return origin?.rootTaskId === actor.rootTaskId && origin.epoch === actor.epoch
+                ? origin.clientId
+                : undefined
+            }
+            const operations = createSystemOperations({
+              api,
+              session: ref,
+              terminal,
+              canWrite: actor.mode !== 'plan' && actor.accessMode === 'full-access',
+              clientAvailable: (operation) => systemClients.supports(initiatingClient(), operation),
+              client: async (operation, args) => {
+                assertActive()
+                return systemClients.request(initiatingClient(), ref, operation, args, signal)
+              },
+              read: async (operation) => {
+                if (operation === 'profile.get') return profile()
+                if (operation === 'profile.avatar') {
+                  const value = await settings.getUserProfile()
+                  const match = value.avatarUrl?.match(/^data:([^;]+);base64,(.+)$/)
+                  return match ? { type: 'image', mimeType: match[1], data: match[2] } : { hasAvatar: false }
+                }
+                if (operation === 'usage.get') return builtins!.handlers['settings:usage-stats']()
+                if (operation === 'mcp.get') return safeMcp()
+                if (operation === 'instructions.get') return instructions.snapshot(actor.cwd)
+                if (operation === 'resources.list') return resources.snapshot(actor.cwd)
+                if (operation === 'commands.list') return session.getCommands()
+                if (operation === 'schedules.schema')
+                  return {
+                    name: 'string',
+                    prompt: 'string',
+                    project: '{hostId,projectId} 可选',
+                    rule: {
+                      once: '{kind:"once",at:ISO时间,timeZone:IANA时区}',
+                      daily: '{kind:"daily",time:"HH:mm",timeZone:IANA时区}',
+                      weekly: '{kind:"weekly",time:"HH:mm",weekdays:[0到6],timeZone:IANA时区}',
+                      interval:
+                        '{kind:"interval",every:正整数,unit:"minutes"|"hours",anchor:ISO时间,timeZone:IANA时区}',
+                    },
+                    newSessionEachRun: 'boolean',
+                    notification: 'all | failures | off',
+                    configuration: {
+                      model: '{provider,id}，使用 models.list 查询',
+                      thinkingLevel: 'off | minimal | low | medium | high | xhigh',
+                      accessMode: 'read-only | workspace-write | full-access',
+                      agentPlugins: 'string[]',
+                    },
+                  }
+                throw new Error('读取操作未实现')
+              },
+              write: (operation, args) => {
+                const pending = systemWrites.then(async () => {
+                  assertActive()
+                  let result: unknown
+                  if (operation === 'profile.save') {
+                    const current = await profile()
+                    if (args[1] !== current.revision) throw new Error('个人资料已变化，请重新读取')
+                    if (!args[0] || typeof args[0] !== 'object' || Array.isArray(args[0]))
+                      throw new Error('个人资料参数无效')
+                    const input = args[0] as Record<string, unknown>
+                    if (
+                      Object.keys(input).some(
+                        (key) =>
+                          !['name', 'username', 'email', 'avatarData', 'avatarText'].includes(key) ||
+                          typeof input[key] !== 'string',
+                      )
+                    )
+                      throw new Error('个人资料字段无效')
+                    await settings.saveUserProfile(input)
+                    result = await profile()
+                  } else if (operation === 'mcp.save') {
+                    await mcp.save(args[0] as import('@pi-meme/contracts/mcp').SaveMcpServer)
+                    result = { ...(await safeMcp()), reload: '新会话或重新加载后生效；当前执行保持原资源快照' }
+                  } else if (operation === 'mcp.delete') {
+                    await mcp.delete(args[0] as import('@pi-meme/contracts/mcp').DeleteMcpServer)
+                    result = { ...(await safeMcp()), reload: '新会话或重新加载后生效；当前执行保持原资源快照' }
+                  } else if (operation === 'instructions.save') {
+                    await instructions.save(parseSaveInstruction(args[0]))
+                    result = {
+                      snapshot: await instructions.snapshot(actor.cwd),
+                      reload: '新会话或重新加载后生效；当前执行不重启',
+                    }
+                  } else throw new Error('写操作未实现')
+                  systemChanged()
+                  return result
+                })
+                systemWrites = pending.catch(() => {})
+                return pending
+              },
+            })
+            assertActive()
+            return request.write
+              ? appControl!.store.mutate(
+                  `system:${ref.sessionId}:${actor.runId}`,
+                  request.callId,
+                  request.operation,
+                  request.args,
+                  async () => {
+                    assertActive()
+                    return operations.execute(request)
+                  },
+                )
+              : operations.execute(request)
           },
           activity: (request, signal) => activityBridge.dispatch(session, request, signal),
           collaboration: (request, signal) => collaboration.dispatch(session, request, signal),
@@ -1043,7 +1232,7 @@ export async function createHost(options: HostOptions = {}) {
     if (settings.settings.defaultAccessMode) await pi.configureDefaultAccessMode(settings.settings.defaultAccessMode)
     const models = new ModelConfigStore(path.join(paths.agentDir, 'models.json'), credentials, paths.agentDir)
     const modelService = new ModelService(pi, models)
-    const mcp = new McpConfigStore(path.join(paths.agentDir, 'mcp.json'), credentials)
+    mcp = new McpConfigStore(path.join(paths.agentDir, 'mcp.json'), credentials)
     const uiDescriptors = (descriptors: PluginDescriptor[]) =>
       descriptors.map((descriptor) => ({
         ...descriptor,
@@ -1347,7 +1536,7 @@ export async function createHost(options: HostOptions = {}) {
       'host.models': { pi, models, agentDir: paths.agentDir, service: modelService },
       'host.settings': {
         pi,
-        instructions: new InstructionsStore(root),
+        instructions,
         settings,
         handlers: settingsHandlers,
         getSubagents: async () =>
@@ -1744,7 +1933,7 @@ export async function createHost(options: HostOptions = {}) {
         }
       },
     }
-    const terminal = new TerminalService({
+    terminal = new TerminalService({
       hostId,
       resolveRoot: (ref) => appControl!.resolveRoot(ref),
       onEvent: (value) => appControl?.publishLive({ type: 'terminal', value }),
@@ -1857,6 +2046,13 @@ export async function createHost(options: HostOptions = {}) {
     })
     sessionCleanup = new SessionCleanupService({
       maintenanceDirectory: storagePaths.maintenanceDirectory,
+      detachArtifacts: async (ids) => {
+        await imageLibrary.detachSessions(ids)
+        await terminal.closeSessions(ids)
+        for (const subscribers of listeners.values())
+          for (const subscriber of subscribers)
+            subscriber({ hostId, type: 'sessions-deleted', value: { sessionIds: ids } })
+      },
       accessStore,
       collaboration,
       goals,
@@ -2128,6 +2324,12 @@ export async function createHost(options: HostOptions = {}) {
         const pending = registry.run(
           request,
           async () => {
+            if (request.method === 'system:register') return systemClients.register(request.clientId, request.args[0])
+            if (request.method === 'system:reply')
+              return systemClients.reply(
+                request.clientId,
+                request.args[0] as import('@pi-meme/contracts/system-tools').SystemClientReply,
+              )
             const deletion = request.method === 'session:delete' || request.method === 'project:remove'
             const deletionEpoch = selectionEpochs.get(request.clientId) ?? 0
             const epoch = selections.has(request.method) ? (selectionEpochs.get(request.clientId) ?? 0) + 1 : undefined
@@ -2350,6 +2552,7 @@ export async function createHost(options: HostOptions = {}) {
           values.delete(callback)
           if (!values.size) {
             listeners.delete(clientId)
+            systemClients.disconnect(clientId)
             scheduleClientRelease(clientId)
           }
         }

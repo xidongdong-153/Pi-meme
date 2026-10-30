@@ -332,6 +332,7 @@ export function BrowserPanel({
             variant="ghost"
             title="后退"
             aria-label="后退"
+            className="rounded-full hover:bg-transparent hover:opacity-75"
             disabled={!tab.canGoBack}
             onClick={() => void command({ type: 'back' })}
           >
@@ -342,7 +343,7 @@ export function BrowserPanel({
             variant="ghost"
             title="前进"
             aria-label="前进"
-            className={narrow && !tab.canGoForward ? 'hidden' : undefined}
+            className={`rounded-full hover:bg-transparent hover:opacity-75 ${narrow && !tab.canGoForward ? 'hidden' : ''}`}
             disabled={!tab.canGoForward}
             onClick={() => void command({ type: 'forward' })}
           >
@@ -354,6 +355,7 @@ export function BrowserPanel({
             variant="ghost"
             title={tab.loading ? '停止加载' : '刷新'}
             aria-label={tab.loading ? '停止加载' : '刷新'}
+            className="rounded-full hover:bg-transparent hover:opacity-75"
             onClick={() => void command({ type: tab.loading ? 'stop' : 'reload' })}
           >
             {tab.loading ? <Square className="size-3.5" /> : <RefreshCw className="size-3.5" />}

@@ -64,6 +64,18 @@ export function useBrowser({
   )
   useEffect(() => {
     if (!platform) return
+    const bind = (event: Event) => {
+      const detail = (event as CustomEvent<{ hostId: string; from: string; to: string }>).detail
+      const from = JSON.stringify([detail.hostId, detail.from])
+      const to = JSON.stringify([detail.hostId, detail.to])
+      if (from === to || from !== current.current.owner) return
+      pending.current = pending.current.catch(() => {}).then(() => platform.rebind(from, to))
+    }
+    window.addEventListener('pi-meme:workspace-bound', bind)
+    return () => window.removeEventListener('pi-meme:workspace-bound', bind)
+  }, [platform])
+  useEffect(() => {
+    if (!platform) return
     let cancelled = false
     loaded.current = ''
     void pending.current
@@ -103,6 +115,11 @@ export function useBrowser({
         return
       }
       if (event.type === 'changed') return
+      if (event.type === 'tab-closed') {
+        if (event.owner === target.owner && loaded.current === target.owner)
+          update((value) => ({ ...value, tabs: value.tabs.filter((tab) => tab.id !== event.id) }), false)
+        return
+      }
       if (event.type === 'annotation-remove') {
         if (event.owner === target.owner && loaded.current === target.owner) {
           update((value) => ({ ...value, annotations: value.annotations.filter((item) => item.id !== event.id) }))

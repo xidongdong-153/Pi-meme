@@ -112,7 +112,10 @@ function ImageTile({
         <span className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent px-4 pb-3 pt-10 text-left text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100">
           <span className="block truncate text-sm font-medium">{item.name}</span>
           <span className="block truncate text-xs text-white/70">
-            {item.projectName || '独立聊天'} · {item.hostLabel}
+            {item.sourceStatus === 'detached'
+              ? `${item.projectName ? `${item.projectName} · ` : ''}独立素材`
+              : item.projectName || '独立聊天'}{' '}
+            · {item.hostLabel}
           </span>
         </span>
       </button>
@@ -131,10 +134,12 @@ function ImageTile({
             <Info className="size-4" />
             查看信息
           </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => onAction('source')}>
-            <ExternalLink className="size-4" />
-            打开来源会话
-          </DropdownMenuItem>
+          {item.sourceStatus !== 'detached' && (
+            <DropdownMenuItem onSelect={() => onAction('source')}>
+              <ExternalLink className="size-4" />
+              打开来源会话
+            </DropdownMenuItem>
+          )}
           <DropdownMenuItem onSelect={() => onAction('rename')}>
             <Pencil className="size-4" />
             重命名
@@ -356,8 +361,10 @@ export function ImagesPage({
     setError('')
     try {
       const source = sourceFor(item)
-      if (kind === 'source') await onOpenSession(item.serviceId, item.session)
-      else {
+      if (kind === 'source') {
+        if (item.sourceStatus === 'detached') return
+        await onOpenSession(item.serviceId, item.session)
+      } else {
         const url = await loader.load(item, source)
         const anchor = document.createElement('a')
         anchor.href = url
@@ -525,14 +532,16 @@ export function ImagesPage({
               <Button variant="ghost" size="sm" onClick={() => void action(activeImage, 'info')}>
                 信息
               </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={Boolean(busy)}
-                onClick={() => void action(activeImage, 'source')}
-              >
-                来源会话
-              </Button>
+              {activeImage.sourceStatus !== 'detached' && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={Boolean(busy)}
+                  onClick={() => void action(activeImage, 'source')}
+                >
+                  来源会话
+                </Button>
+              )}
               <Button
                 variant="ghost"
                 size="sm"
@@ -590,7 +599,8 @@ export function ImagesPage({
               <div>
                 <dt className="text-muted-foreground">来源</dt>
                 <dd>
-                  {dialog.item.projectName || '独立聊天'} · {dialog.item.hostLabel}
+                  {dialog.item.sourceStatus === 'detached' ? '独立素材' : dialog.item.projectName || '独立聊天'} ·{' '}
+                  {dialog.item.hostLabel}
                 </dd>
               </div>
               <div>

@@ -87,6 +87,7 @@ export function createAppHostClient(transport: AppHostTransport): HostApi {
       write: (ref, input, options) => call('files.write', [ref, input], options.idempotencyKey),
     },
     terminal: {
+      list: (root) => call('terminal.list', [root]),
       open: (ref, input, options) => call('terminal.open', [ref, input], options.idempotencyKey),
       attach: (ref) => call('terminal.attach', [ref]),
       input: (ref, data, options) => call('terminal.input', [ref, data], options.idempotencyKey),

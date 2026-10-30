@@ -32,7 +32,7 @@ export const toolsTabId = 'builtin:tools'
 export const sideChatTabId = 'builtin:side-chat'
 
 export function isPersistentPanelTab(id: string) {
-  return id !== sideChatTabId && !id.startsWith('builtin:file:')
+  return id !== sideChatTabId
 }
 
 export function sanitizePanelLayout(layout: PanelLayoutState): PanelLayoutState {
@@ -47,6 +47,8 @@ export type PanelLayoutState = {
   active: string
   open: boolean
   width: number
+  unified?: boolean
+  toolActive?: boolean
 }
 
 export function defaultPanelLayout(): PanelLayoutState {
@@ -100,6 +102,8 @@ export function readPanelLayout(raw: string | null): PanelLayoutState {
       typeof value.active === 'string' && initial.tabs.includes(migratePanelId(value.active))
         ? migratePanelId(value.active)
         : (initial.tabs[0] ?? '')
+    if (typeof value.unified === 'boolean') initial.unified = value.unified
+    if (typeof value.toolActive === 'boolean') initial.toolActive = value.toolActive
     if (typeof value.open === 'boolean') initial.open = value.open
     if (typeof value.width === 'number' && Number.isFinite(value.width))
       initial.width = Math.max(280, Math.min(1200, value.width))

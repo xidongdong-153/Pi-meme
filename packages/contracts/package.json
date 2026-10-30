@@ -44,7 +44,8 @@
     "./browser-annotations": "./src/browser-annotations.ts",
     "./image-generation": "./src/image-generation.ts",
     "./visualize": "./src/visualize.ts",
-    "./image-library": "./src/image-library.ts"
+    "./image-library": "./src/image-library.ts",
+    "./system-tools": "./src/system-tools.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit"

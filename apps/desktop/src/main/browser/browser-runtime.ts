@@ -51,6 +51,7 @@ type Tab = {
   toolbarMenuOpen: boolean
   screenshot: BrowserSnapshot['settings']['screenshots']
   find?: { requestId: number; text: string }
+  capture?: Promise<string>
 }
 type Overlay = { view: WebContentsView; kind: 'editor' | 'toolbar'; tab: Tab }
 
@@ -381,6 +382,7 @@ export function registerBrowserRuntime(options: {
       },
     })
     view.setBackgroundColor('#ffffff')
+    view.setBounds({ x: 0, y: 0, width: 1024, height: 768 })
     const config = snapshot ?? (await refresh())
     const tab: Tab = {
       view,
@@ -985,6 +987,142 @@ export function registerBrowserRuntime(options: {
     trusted(event)
     if (!Array.isArray(args)) throw new Error('浏览器调用参数无效')
     switch (method) {
+      case 'agent': {
+        const [owner, operation, input] = args as [string, string, unknown[]]
+        if (typeof owner !== 'string' || !Array.isArray(input)) throw new Error('网页操作参数无效')
+        const workspace = await options.rpc<BrowserWorkspace>('browser:workspace', [owner])
+        if (operation === 'list') return workspace.tabs.map((item) => tabs.get(item.id)?.state ?? item)
+        if (operation === 'open') {
+          if (typeof input[0] !== 'string') throw new Error('网页地址无效')
+          const created = await makeTab(owner, randomUUID(), input[0])
+          await options.rpc('browser:save-workspace', [owner, { ...workspace, tabs: [...workspace.tabs, created] }])
+          emit({ type: 'tab', tab: created })
+          return created
+        }
+        const tab = tabs.get(String(input[0]))
+        if (!tab || tab.state.owner !== owner) throw new Error('网页未加载、已关闭或不属于此会话')
+        const web = tab.view.webContents
+        if (operation === 'close') {
+          await options.rpc('browser:save-workspace', [
+            owner,
+            { ...workspace, tabs: workspace.tabs.filter((item) => item.id !== tab.state.id) },
+          ])
+          if (visible === tab) {
+            visible = undefined
+            closeOverlays()
+          }
+          attachedWindow?.contentView.removeChildView(tab.view)
+          web.close()
+          tabs.delete(tab.state.id)
+          emit({ type: 'tab-closed', owner, id: tab.state.id })
+          return { closed: true }
+        }
+        if (operation === 'navigate') {
+          if (typeof input[1] !== 'string') throw new Error('网页地址无效')
+          await command(tab, { type: 'navigate', url: input[1] })
+          return tab.state
+        }
+        if (operation === 'screenshot') {
+          if (!tab.capture) {
+            tab.capture = (async () => {
+              if (web.debugger.isAttached()) throw new Error('网页调试器正在使用，请关闭该网页的开发者工具后重试截图')
+              web.debugger.attach('1.3')
+              let timer: ReturnType<typeof setTimeout> | undefined
+              try {
+                const capture = async () => {
+                  const metrics = await web.debugger.sendCommand('Page.getLayoutMetrics')
+                  const viewport = metrics.cssVisualViewport
+                  if (!viewport || viewport.clientWidth <= 0 || viewport.clientHeight <= 0)
+                    throw new Error('网页尚未完成布局，请加载完成后重试截图')
+                  const result = await web.debugger.sendCommand('Page.captureScreenshot', {
+                    format: 'png',
+                    fromSurface: true,
+                    captureBeyondViewport: true,
+                    clip: {
+                      x: viewport.pageX,
+                      y: viewport.pageY,
+                      width: viewport.clientWidth,
+                      height: viewport.clientHeight,
+                      scale: 1,
+                    },
+                  })
+                  if (typeof result.data !== 'string' || !result.data.startsWith('iVBORw0KGgo'))
+                    throw new Error('网页截图未返回有效 PNG')
+                  return result.data as string
+                }
+                return await Promise.race([
+                  capture(),
+                  new Promise<never>((_, reject) => {
+                    timer = setTimeout(() => reject(new Error('网页截图超时，请检查页面状态')), 20_000)
+                  }),
+                ])
+              } finally {
+                clearTimeout(timer)
+                if (!web.isDestroyed() && web.debugger.isAttached()) web.debugger.detach()
+              }
+            })().finally(() => {
+              tab.capture = undefined
+            })
+          }
+          return { type: 'image', mimeType: 'image/png', data: await tab.capture }
+        }
+        const documentId = tab.state.documentId
+        if (operation === 'read') {
+          const prefix = randomUUID()
+          const result = await web.executeJavaScriptInIsolatedWorld(998, [
+            {
+              code: `(() => {
+            const elements = new Map();
+            const items = [];
+            for (const element of document.querySelectorAll('a,button,input,textarea,select,[role="button"],[contenteditable="true"]')) {
+              if (!element.getClientRects().length || getComputedStyle(element).visibility === 'hidden') continue;
+              const id = ${JSON.stringify(prefix)} + ':' + items.length;
+              elements.set(id, element);
+              items.push({ id, tag: element.tagName.toLowerCase(), role: element.getAttribute('role'), name: (element.getAttribute('aria-label') || element.innerText || element.getAttribute('placeholder') || '').slice(0,300), type: element.getAttribute('type'), value: element.type === 'password' ? undefined : element.value });
+              if (items.length >= 150) break;
+            }
+            globalThis.__piWorkbenchElements = elements;
+            return { title: document.title, text: document.body?.innerText.slice(0,40000) ?? '', elements: items };
+          })()`,
+            },
+          ])
+          if (tab.state.documentId !== documentId) throw new Error('网页已导航，请重新读取')
+          return { tab: tab.state, documentId, ...result }
+        }
+        if (!['click', 'input', 'scroll'].includes(operation) || input[1] !== documentId)
+          throw new Error('网页操作或文档版本无效，请重新读取页面')
+        if (operation === 'scroll') {
+          const delta = input[2]
+          if (typeof delta !== 'number' || !Number.isFinite(delta) || Math.abs(delta) > 10000)
+            throw new Error('滚动距离无效')
+          await web.executeJavaScriptInIsolatedWorld(998, [{ code: `window.scrollBy(0, ${delta})` }])
+        } else {
+          if (typeof input[2] !== 'string' || (operation === 'input' && typeof input[3] !== 'string'))
+            throw new Error('网页元素参数无效')
+          await web.executeJavaScriptInIsolatedWorld(998, [
+            {
+              code: `(() => {
+            const element = globalThis.__piWorkbenchElements?.get(${JSON.stringify(input[2])});
+            if (!element?.isConnected || !element.getClientRects().length || getComputedStyle(element).visibility === 'hidden' || element.closest('[inert]') || element.disabled) throw new Error('元素已变化，请重新读取');
+            if (${JSON.stringify(operation)} === 'click') element.click();
+            else {
+              const text = ${JSON.stringify(input[3] ?? '')};
+              if (element.isContentEditable) element.textContent = text;
+              else {
+                const prototype = element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : element instanceof HTMLSelectElement ? HTMLSelectElement.prototype : HTMLInputElement.prototype;
+                const setter = Object.getOwnPropertyDescriptor(prototype, 'value')?.set;
+                if (!setter) throw new Error('元素不可输入');
+                setter.call(element, text);
+              }
+              element.dispatchEvent(new Event('input', {bubbles:true}));
+              element.dispatchEvent(new Event('change', {bubbles:true}));
+            }
+          })()`,
+            },
+          ])
+        }
+        return { tabId: tab.state.id, documentId: tab.state.documentId, applied: true }
+      }
       case 'snapshot':
         return refresh()
       case 'settings-page':

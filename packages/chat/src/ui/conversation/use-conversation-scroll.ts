@@ -1,7 +1,7 @@
 import * as React from 'react'
 import type { ChatState } from '../model/types'
 
-type ScrollPosition = { top: number; atBottom: boolean }
+type ScrollPosition = { top: number; atBottom: boolean; turn?: string; offset?: number }
 
 // 距离底部小于等于 80px 判定为处于底部
 const BOTTOM_THRESHOLD = 80
@@ -27,6 +27,9 @@ export function useConversationScroll(
   const historyRequest = React.useRef<object | undefined>(undefined)
   const historyFrame = React.useRef(0)
   const anchor = React.useRef<{ element: HTMLElement; offset: number } | undefined>(undefined)
+  const pendingRestore = React.useRef<ScrollPosition | undefined>(undefined)
+  const restoreLoading = React.useRef(false)
+  const [, retryRestore] = React.useReducer((value: number) => value + 1, 0)
   const previousTop = React.useRef(0)
   const upwardIntent = React.useRef(false)
   const captureAnchor = React.useCallback(() => {
@@ -129,7 +132,7 @@ export function useConversationScroll(
   // 统一评估当前容器的滚动状态与回到底部箭头的可见性
   const updateScrollState = React.useCallback(() => {
     const el = containerRef.current
-    if (!el) return
+    if (!el || pendingRestore.current) return
     const overflow = el.scrollHeight - el.clientHeight
     const canScroll = overflow > MIN_SCROLLABLE_OVERFLOW
     const distanceToBottom = Math.max(0, overflow - el.scrollTop)
@@ -139,7 +142,22 @@ export function useConversationScroll(
     setShowScrollTop(el.scrollTop > 1)
     if (activeSession.current) {
       positions.delete(activeSession.current)
-      positions.set(activeSession.current, { top: el.scrollTop, atBottom })
+      const top = el.getBoundingClientRect().top
+      const turn = [...el.querySelectorAll<HTMLElement>('[data-conversation-turn]')].find(
+        (item) => item.getBoundingClientRect().bottom > top,
+      )
+      const saved = {
+        top: el.scrollTop,
+        atBottom,
+        turn: turn?.dataset.conversationTurn,
+        offset: turn ? turn.getBoundingClientRect().top - top : undefined,
+      }
+      positions.set(activeSession.current, saved)
+      try {
+        sessionStorage.setItem(`pi-meme:reading:v1:${activeSession.current}`, JSON.stringify(saved))
+      } catch {
+        /* 存储不可用时仍保留内存位置。 */
+      }
       if (positions.size > 200) positions.delete(positions.keys().next().value!)
     }
     setShowScrollBottom(canScroll && !atBottom)
@@ -160,14 +178,37 @@ export function useConversationScroll(
   React.useLayoutEffect(() => {
     if (activeSession.current === sessionKey) return
     activeSession.current = sessionKey
+    pendingRestore.current = undefined
+    restoreLoading.current = false
     upwardIntent.current = false
     anchor.current = undefined
     const el = containerRef.current
     if (!el) return
-    const saved = sessionKey ? positions.get(sessionKey) : undefined
+    let saved = sessionKey ? positions.get(sessionKey) : undefined
+    if (!saved && sessionKey) {
+      try {
+        const value = JSON.parse(sessionStorage.getItem(`pi-meme:reading:v1:${sessionKey}`) ?? 'null')
+        if (value && Number.isFinite(value.top) && typeof value.atBottom === 'boolean') saved = value
+      } catch {
+        /* 损坏的阅读记录不影响打开会话。 */
+      }
+    }
     const overflow = el.scrollHeight - el.clientHeight
     const canScroll = overflow > MIN_SCROLLABLE_OVERFLOW
 
+    if (
+      saved &&
+      !saved.atBottom &&
+      saved.turn &&
+      ![...el.querySelectorAll<HTMLElement>('[data-conversation-turn]')].some(
+        (item) => item.dataset.conversationTurn === saved.turn,
+      ) &&
+      historyOptions.current?.hasMore
+    ) {
+      pendingRestore.current = saved
+      isAtBottomRef.current = false
+      return
+    }
     if (!saved || saved.atBottom || !canScroll) {
       isAtBottomRef.current = true
       el.scrollTop = el.scrollHeight
@@ -185,12 +226,63 @@ export function useConversationScroll(
     const frame = requestAnimationFrame(() => {
       const target = containerRef.current
       if (!target) return
-      target.scrollTop = saved.top
+      const turn = saved.turn
+        ? [...target.querySelectorAll<HTMLElement>('[data-conversation-turn]')].find(
+            (item) => item.dataset.conversationTurn === saved.turn,
+          )
+        : undefined
+      target.scrollTop =
+        turn && typeof saved.offset === 'number'
+          ? target.scrollTop + turn.getBoundingClientRect().top - target.getBoundingClientRect().top - saved.offset
+          : saved.top
       previousTop.current = target.scrollTop
       updateScrollState()
     })
     return () => cancelAnimationFrame(frame)
   }, [sessionKey, updateScrollState])
+
+  React.useLayoutEffect(() => {
+    const saved = pendingRestore.current
+    const container = containerRef.current
+    if (!saved || !container || restoreLoading.current) return
+    const turn = [...container.querySelectorAll<HTMLElement>('[data-conversation-turn]')].find(
+      (item) => item.dataset.conversationTurn === saved.turn,
+    )
+    const history = historyOptions.current
+    if (turn || !history?.hasMore) {
+      pendingRestore.current = undefined
+      container.scrollTop =
+        turn && typeof saved.offset === 'number'
+          ? container.scrollTop +
+            turn.getBoundingClientRect().top -
+            container.getBoundingClientRect().top -
+            saved.offset
+          : saved.top
+      previousTop.current = container.scrollTop
+      captureAnchor()
+      updateScrollState()
+    } else if (!history.loading) {
+      const owner = activeSession.current
+      restoreLoading.current = true
+      void history
+        .load()
+        .then((loaded) => {
+          if (!loaded && activeSession.current === owner) pendingRestore.current = undefined
+        })
+        .catch(() => {
+          if (activeSession.current === owner) pendingRestore.current = undefined
+        })
+        .finally(() => {
+          if (activeSession.current === owner) {
+            restoreLoading.current = false
+            // 历史提交之后再恢复；不会在另一会话继续加载。
+            historyFrame.current = requestAnimationFrame(() => {
+              if (activeSession.current === owner) retryRestore()
+            })
+          }
+        })
+    }
+  })
 
   // 流式输出与新消息更新时：仅当处于底部时智能跟进滚动
   React.useEffect(() => {

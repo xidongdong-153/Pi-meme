@@ -90,6 +90,8 @@ export type AppHostCapabilities = {
     | 'messages'
     | 'files'
     | 'terminal'
+    | 'terminal-list'
+    | 'system-tools'
     | 'git'
     | 'interaction'
     | 'agents'
@@ -189,6 +191,7 @@ export type HostApi = {
     write: (root: WorkspaceRef, input: FileWriteInput, options: MutationOptions) => Promise<{ revision: string }>
   }
   terminal: {
+    list?: (root?: WorkspaceRef) => Promise<Array<TerminalSnapshot & { root: WorkspaceRef }>>
     open: (
       root: WorkspaceRef,
       input: { command?: string; cols?: number; rows?: number },

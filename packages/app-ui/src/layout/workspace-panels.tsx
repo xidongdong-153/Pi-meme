@@ -12,7 +12,6 @@ import {
   Search,
   X,
 } from 'lucide-react'
-import { ErrorBoundary } from '@pi-meme/ui/components/error-boundary'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
 import type { UiContributionProps, UiPanel, UiTarget } from '@pi-meme/plugin-sdk/ui'
@@ -35,6 +34,7 @@ import {
   type PanelLayoutState,
 } from './panel-layout'
 
+import { RetainedToolPanels } from './retained-tool-panels'
 import { usePaneMotion, useReducedMotion } from './pane-motion'
 import { ResizeHandle } from './resize-handle'
 
@@ -153,19 +153,15 @@ export function WorkspacePanels({
     return {
       storageKey,
       retainActivity: false,
-      // inherited 表示当前布局沿用自其他会话，尚未写入本会话存档。
-      inherited: saved === undefined,
+      inherited: false,
       layout: { ...initial, tabs, active, open },
-      toolActive: false,
+      toolActive: saved?.toolActive ?? false,
     }
   })
-  const [unified, setUnified] = useState(() => {
-    try {
-      return window.localStorage.getItem('pi-meme:workspace-view:v1') === 'unified'
-    } catch {
-      return false
-    }
-  })
+  const unified = state.layout.unified ?? false
+  const setUnified = (value: boolean) => {
+    updateState((current) => ({ ...current, layout: { ...current.layout, unified: value } }))
+  }
   const toolActive = state.toolActive
   const setToolActive = useCallback((action: boolean | ((prev: boolean) => boolean)) => {
     updateState((value) => ({
@@ -180,30 +176,40 @@ export function WorkspacePanels({
     [internalClosingTabs, closingPanelIds],
   )
   if (state.storageKey !== storageKey) {
-    // 新会话没有存档时沿用当前布局，切换会话不收起右栏或重置宽度。
     const saved = readLayout()
-    const sideChatRetained = state.layout.tabs.includes(sideChatTabId) || Boolean(sideChatActive)
-    let nextLayout: PanelLayoutState
-    if (saved) {
-      const tabs = sideChatRetained && !saved.tabs.includes(sideChatTabId) ? [...saved.tabs, sideChatTabId] : saved.tabs
-      const active = state.layout.active === sideChatTabId ? sideChatTabId : saved.active
-      nextLayout = { ...saved, tabs, active }
-    } else {
-      nextLayout = {
-        ...state.layout,
-        tabs: state.layout.tabs.filter((id) => !id.startsWith('builtin:browser:')),
-        active: state.layout.active.startsWith('builtin:browser:') ? '' : state.layout.active,
-      }
-    }
     updateState({
       storageKey,
       retainActivity: false,
-      inherited: saved === undefined,
-      layout: nextLayout,
-      toolActive: false,
+      inherited: false,
+      layout: saved ?? defaultPanelLayout(),
+      toolActive: saved?.toolActive ?? false,
     })
     setSearch('')
   }
+  useEffect(() => {
+    const bind = (event: Event) => {
+      const detail = (event as CustomEvent<{ hostId: string; from: string; to: string }>).detail
+      if (detail.hostId !== props.target.hostId) return
+      const from = panelStorageKey(detail.hostId, detail.from)
+      const to = panelStorageKey(detail.hostId, detail.to)
+      updateState((value) => {
+        if (value.storageKey !== from) return value
+        try {
+          const saved = localStorage.getItem(to)
+          if (saved !== null) {
+            const layout = readPanelLayout(saved)
+            return { ...value, storageKey: to, layout, toolActive: layout.toolActive ?? false }
+          }
+          localStorage.setItem(to, JSON.stringify({ ...value.layout, toolActive: value.toolActive }))
+        } catch {
+          /* 保留内存中的状态。 */
+        }
+        return { ...value, storageKey: to }
+      })
+    }
+    window.addEventListener('pi-meme:workspace-bound', bind)
+    return () => window.removeEventListener('pi-meme:workspace-bound', bind)
+  }, [props.target.hostId])
   const layout = state.layout
   const setLayout = useCallback((update: (value: PanelLayoutState) => PanelLayoutState) => {
     updateState((value) => ({ ...value, inherited: false, layout: update(value.layout) }))
@@ -223,14 +229,12 @@ export function WorkspacePanels({
     return () => observer.disconnect()
   }, [])
   useEffect(() => {
-    // 沿用的布局不写入新会话，避免把上一会话的标签和宽度固化成新会话初始值。
-    if (state.inherited) return
     try {
-      window.localStorage.setItem(storageKey, JSON.stringify(sanitizePanelLayout(layout)))
+      window.localStorage.setItem(storageKey, JSON.stringify(sanitizePanelLayout({ ...layout, toolActive })))
     } catch {
       /* 浏览器禁用存储时仍可使用标签页。 */
     }
-  }, [state.inherited, storageKey, layout])
+  }, [storageKey, layout, toolActive])
   const activityId = 'builtin:activities'
   const activityTabVisible = !activity || activity.count > 0 || !activity.known || state.retainActivity
   const available = panels.filter(
@@ -386,11 +390,6 @@ export function WorkspacePanels({
     if (!next && (showTool || forceTool)) setLayout((value) => ({ ...value, open: true }))
     setUnified(next)
     setToolActive(false)
-    try {
-      window.localStorage.setItem('pi-meme:workspace-view:v1', next ? 'unified' : 'split')
-    } catch {
-      // 本地存储不可用时仍允许切换布局。
-    }
   }
   const workspaceWidth = Math.max(0, containerWidth - (sidebarOpen ? sidebarWidth : 0))
   const maxWidth = Math.max(0, workspaceWidth - Math.min(480, containerWidth * 0.6))
@@ -761,188 +760,176 @@ export function WorkspacePanels({
           >
             {children}
           </div>
-          {rightPane.mounted && (
-            <div
-              className="right-pane relative flex min-w-0 shrink-0 border-l border-white/10"
-              style={{
-                width: unified ? undefined : 'var(--workspace-right-width)',
-                flex: unified ? 1 : undefined,
-                display: unified && !showTool ? 'none' : undefined,
-                borderLeft: unified ? 'none' : undefined,
+          <div
+            className="right-pane relative flex min-w-0 shrink-0 border-l border-white/10"
+            style={{
+              width: unified ? undefined : 'var(--workspace-right-width)',
+              flex: unified ? 1 : undefined,
+              display: !rightPane.mounted || (unified && !showTool) ? 'none' : undefined,
+              borderLeft: unified ? 'none' : undefined,
+            }}
+          >
+            {!unified && layout.open && (
+              <ResizeHandle
+                side="right"
+                width={rightPane.presented}
+                min={Math.min(280, maxWidth)}
+                max={maxWidth}
+                onDragStart={rightPane.beginDrag}
+                onDrag={rightPane.dragTo}
+                onDragEnd={(result) => {
+                  rightPane.endDrag(result)
+                  setLayout((value) =>
+                    result.collapse ? { ...value, open: false } : { ...value, open: true, width: result.width },
+                  )
+                }}
+              />
+            )}
+            <aside
+              id="workspace-right-sidebar"
+              aria-label="右侧栏"
+              aria-hidden={unified ? !showTool : !layout.open}
+              inert={unified ? !showTool : !layout.open}
+              className="flex min-h-0 w-full flex-col overflow-hidden bg-card/40"
+              onKeyDown={(event) => {
+                if (
+                  event.key !== 'Escape' ||
+                  event.defaultPrevented ||
+                  (event.target as HTMLElement).closest('[role="dialog"]')
+                )
+                  return
+                event.stopPropagation()
+                if (unified) {
+                  setToolActive(false)
+                  tabList.current?.querySelector<HTMLButtonElement>('[role="tab"]')?.focus()
+                } else setLayout((value) => ({ ...value, open: false }))
               }}
             >
-              {!unified && layout.open && (
-                <ResizeHandle
-                  side="right"
-                  width={rightPane.presented}
-                  min={Math.min(280, maxWidth)}
-                  max={maxWidth}
-                  onDragStart={rightPane.beginDrag}
-                  onDrag={rightPane.dragTo}
-                  onDragEnd={(result) => {
-                    rightPane.endDrag(result)
-                    setLayout((value) =>
-                      result.collapse ? { ...value, open: false } : { ...value, open: true, width: result.width },
-                    )
-                  }}
-                />
-              )}
-              <aside
-                id="workspace-right-sidebar"
-                aria-label="右侧栏"
-                aria-hidden={unified ? !showTool : !layout.open}
-                inert={unified ? !showTool : !layout.open}
-                className="flex min-h-0 w-full flex-col overflow-hidden bg-card/40"
-                onKeyDown={(event) => {
-                  if (
-                    event.key !== 'Escape' ||
-                    event.defaultPrevented ||
-                    (event.target as HTMLElement).closest('[role="dialog"]')
-                  )
-                    return
-                  event.stopPropagation()
-                  if (unified) {
-                    setToolActive(false)
-                    tabList.current?.querySelector<HTMLButtonElement>('[role="tab"]')?.focus()
-                  } else setLayout((value) => ({ ...value, open: false }))
-                }}
+              <div
+                id="right-tool-content"
+                role="tabpanel"
+                aria-label={
+                  unified ? undefined : active === sideChatTabId ? '侧边聊天' : (selected?.title ?? '新标签页')
+                }
+                className="pane-clip flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden @container"
+                style={{ width: unified || rightPane.dragging ? '100%' : rightWidth }}
+                aria-labelledby={unified ? `workspace-tool-tab-${active}` : undefined}
               >
-                <div
-                  id="right-tool-content"
-                  role="tabpanel"
-                  aria-label={
-                    unified ? undefined : active === sideChatTabId ? '侧边聊天' : (selected?.title ?? '新标签页')
-                  }
-                  className="pane-clip flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden @container"
-                  style={{ width: unified || rightPane.dragging ? '100%' : rightWidth }}
-                  aria-labelledby={unified ? `workspace-tool-tab-${active}` : undefined}
-                >
-                  {tabs.includes(sideChatTabId) && sideChat ? (
-                    <div
-                      ref={onSideChatContainer}
-                      hidden={active !== sideChatTabId}
-                      className={
-                        active === sideChatTabId ? 'flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden' : 'hidden'
-                      }
-                    >
-                      {sideChat}
+                {tabs.includes(sideChatTabId) && sideChat ? (
+                  <div
+                    ref={onSideChatContainer}
+                    hidden={active !== sideChatTabId}
+                    className={
+                      active === sideChatTabId ? 'flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden' : 'hidden'
+                    }
+                  >
+                    {sideChat}
+                  </div>
+                ) : null}
+                <RetainedToolPanels
+                  session={storageKey}
+                  panels={available.filter((panel) => panel.id !== sideChatTabId)}
+                  tabs={layout.tabs}
+                  active={active}
+                  visible={unified ? showTool : layout.open}
+                  contribution={props}
+                />
+                {!selected && active !== sideChatTabId ? (
+                  <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+                    <div className="flex items-center gap-1.5 px-3 py-2">
+                      <label className="flex min-w-0 flex-1 items-center gap-2 rounded-full bg-secondary/50 px-3 py-1 text-xs text-muted-foreground focus-within:ring-1 focus-within:ring-ring">
+                        <Search className="size-3.5 shrink-0 text-muted-foreground" />
+                        <input
+                          aria-label="查找工具和插件"
+                          placeholder="查找工具和插件"
+                          value={search}
+                          onChange={(event) => setSearch(event.target.value)}
+                          className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
+                        />
+                      </label>
                     </div>
-                  ) : null}
-                  {active === sideChatTabId ? (
-                    !sideChat && selected ? (
-                      <ErrorBoundary
-                        key={`${storageKey}:${selected.id}:${selected.generation ?? 0}`}
-                        fallbackTitle={`面板渲染失败：${selected.title}`}
-                      >
-                        <div ref={onSideChatContainer} className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-                          <PanelContent panel={selected} props={props} />
-                        </div>
-                      </ErrorBoundary>
-                    ) : null
-                  ) : selected ? (
-                    <ErrorBoundary
-                      key={`${storageKey}:${selected.id}:${selected.generation ?? 0}`}
-                      fallbackTitle={`面板渲染失败：${selected.title}`}
-                    >
-                      <PanelContent panel={selected} props={props} />
-                    </ErrorBoundary>
-                  ) : (
-                    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-                      <div className="flex items-center gap-1.5 px-3 py-2">
-                        <label className="flex min-w-0 flex-1 items-center gap-2 rounded-full bg-secondary/50 px-3 py-1 text-xs text-muted-foreground focus-within:ring-1 focus-within:ring-ring">
-                          <Search className="size-3.5 shrink-0 text-muted-foreground" />
-                          <input
-                            aria-label="查找工具和插件"
-                            placeholder="查找工具和插件"
-                            value={search}
-                            onChange={(event) => setSearch(event.target.value)}
-                            className="min-w-0 flex-1 bg-transparent text-xs text-foreground outline-none placeholder:text-muted-foreground"
-                          />
-                        </label>
-                      </div>
-                      <div className="p-4 @container">
-                        <h2 className="mb-4 text-sm font-medium text-foreground">新标签页</h2>
-                        <div className="grid grid-cols-1 gap-2 @min-[32rem]:grid-cols-2 @min-[32rem]:gap-x-3">
-                          {onNewWebPage ? (
-                            <button
-                              type="button"
-                              onClick={onNewWebPage}
-                              className="group flex min-h-10 items-center gap-3 rounded-lg bg-secondary/40 px-3 py-2 text-left text-sm hover:bg-secondary/60"
-                            >
-                              <Globe className="size-4 text-muted-foreground" />
-                              新建网页
-                            </button>
-                          ) : null}
-                          {sideChatSearchMatch && (
-                            <button
-                              type="button"
-                              onClick={handleOpenSideChat}
-                              className="group flex min-h-10 min-w-0 items-center rounded-lg bg-secondary/40 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
-                            >
-                              <div className="flex min-w-0 items-center gap-3">
-                                <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground group-hover:text-foreground [&>svg]:size-4">
-                                  <MessageSquarePlus className="size-4" />
-                                </span>
-                                <span className="truncate">侧边聊天</span>
-                              </div>
-                            </button>
-                          )}
-                          {filtered.map((panel) => (
-                            <button
-                              key={panel.id}
-                              type="button"
-                              onClick={() => open(panel.id)}
-                              className="group flex min-h-10 min-w-0 items-center rounded-lg bg-secondary/40 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
-                            >
-                              <div className="flex min-w-0 items-center gap-3">
-                                <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground group-hover:text-foreground [&>svg]:size-4">
-                                  {panel.icon}
-                                </span>
-                                <span className="truncate">{panel.title}</span>
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                        {!filtered.length && !sideChatSearchMatch && (
-                          <p className="py-4 text-xs text-muted-foreground">
-                            {search ? '没有匹配的工具。' : '当前聊天暂无可用工具。可在插件页面安装工具插件。'}
-                          </p>
+                    <div className="p-4 @container">
+                      <h2 className="mb-4 text-sm font-medium text-foreground">新标签页</h2>
+                      <div className="grid grid-cols-1 gap-2 @min-[32rem]:grid-cols-2 @min-[32rem]:gap-x-3">
+                        {onNewWebPage ? (
+                          <button
+                            type="button"
+                            onClick={onNewWebPage}
+                            className="group flex min-h-10 items-center gap-3 rounded-lg bg-secondary/40 px-3 py-2 text-left text-sm hover:bg-secondary/60"
+                          >
+                            <Globe className="size-4 text-muted-foreground" />
+                            新建网页
+                          </button>
+                        ) : null}
+                        {sideChatSearchMatch && (
+                          <button
+                            type="button"
+                            onClick={handleOpenSideChat}
+                            className="group flex min-h-10 min-w-0 items-center rounded-lg bg-secondary/40 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
+                          >
+                            <div className="flex min-w-0 items-center gap-3">
+                              <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground group-hover:text-foreground [&>svg]:size-4">
+                                <MessageSquarePlus className="size-4" />
+                              </span>
+                              <span className="truncate">侧边聊天</span>
+                            </div>
+                          </button>
                         )}
-                        <div className="mt-5">
-                          <h2 className="mb-2.5 text-xs font-medium text-muted-foreground/80">推荐</h2>
-                          <div className="grid grid-cols-1 gap-2 @min-[32rem]:grid-cols-2 @min-[32rem]:gap-x-3">
-                            <button
-                              type="button"
-                              onClick={onNewSession}
-                              disabled={!onNewSession}
-                              className="group flex min-h-10 min-w-0 items-center gap-3 rounded-lg bg-secondary/40 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                              <Globe className="size-4 shrink-0 text-muted-foreground group-hover:text-foreground" />
-                              <span className="truncate">新会话</span>
-                            </button>
-                            <button
-                              type="button"
-                              onClick={onPlugins}
-                              disabled={!onPlugins}
-                              className="group flex min-h-10 min-w-0 items-center gap-3 rounded-lg bg-secondary/40 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
-                            >
-                              <Layers className="size-4 shrink-0 text-muted-foreground group-hover:text-foreground" />
-                              <span className="truncate">扩展中心</span>
-                            </button>
-                          </div>
-                        </div>
-                        {Object.entries(errors).map(([id, error]) => (
-                          <p key={id} role="alert" className="mt-3 break-words text-xs text-destructive">
-                            {id}：{error}
-                          </p>
+                        {filtered.map((panel) => (
+                          <button
+                            key={panel.id}
+                            type="button"
+                            onClick={() => open(panel.id)}
+                            className="group flex min-h-10 min-w-0 items-center rounded-lg bg-secondary/40 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
+                          >
+                            <div className="flex min-w-0 items-center gap-3">
+                              <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground group-hover:text-foreground [&>svg]:size-4">
+                                {panel.icon}
+                              </span>
+                              <span className="truncate">{panel.title}</span>
+                            </div>
+                          </button>
                         ))}
                       </div>
+                      {!filtered.length && !sideChatSearchMatch && (
+                        <p className="py-4 text-xs text-muted-foreground">
+                          {search ? '没有匹配的工具。' : '当前聊天暂无可用工具。可在插件页面安装工具插件。'}
+                        </p>
+                      )}
+                      <div className="mt-5">
+                        <h2 className="mb-2.5 text-xs font-medium text-muted-foreground/80">推荐</h2>
+                        <div className="grid grid-cols-1 gap-2 @min-[32rem]:grid-cols-2 @min-[32rem]:gap-x-3">
+                          <button
+                            type="button"
+                            onClick={onNewSession}
+                            disabled={!onNewSession}
+                            className="group flex min-h-10 min-w-0 items-center gap-3 rounded-lg bg-secondary/40 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <Globe className="size-4 shrink-0 text-muted-foreground group-hover:text-foreground" />
+                            <span className="truncate">新会话</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={onPlugins}
+                            disabled={!onPlugins}
+                            className="group flex min-h-10 min-w-0 items-center gap-3 rounded-lg bg-secondary/40 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                          >
+                            <Layers className="size-4 shrink-0 text-muted-foreground group-hover:text-foreground" />
+                            <span className="truncate">扩展中心</span>
+                          </button>
+                        </div>
+                      </div>
+                      {Object.entries(errors).map(([id, error]) => (
+                        <p key={id} role="alert" className="mt-3 break-words text-xs text-destructive">
+                          {id}：{error}
+                        </p>
+                      ))}
                     </div>
-                  )}
-                </div>
-              </aside>
-            </div>
-          )}
+                  </div>
+                ) : null}
+              </div>
+            </aside>
+          </div>
 
           {/* 折叠态首页悬停浮层：贴在聊天框体内侧，四边等距留白，不挤压正文。 */}
           {flyout.mounted && (
@@ -993,8 +980,4 @@ function HeaderButton({
       <TooltipContent side="bottom">{label}</TooltipContent>
     </Tooltip>
   )
-}
-
-function PanelContent({ panel, props }: { panel: UiPanel; props: UiContributionProps }) {
-  return <>{panel.render(props)}</>
 }

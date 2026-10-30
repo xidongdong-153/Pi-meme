@@ -30,6 +30,7 @@ export type SessionCleanupOptions = {
   accessStore: AgentAccessStore
   collaboration: HostCollaborationBridge
   goals?: GoalService
+  detachArtifacts?: (sessionIds: string[]) => Promise<void>
   control?: {
     deleteSessions: (result: {
       deletedPaths: string[]
@@ -361,6 +362,8 @@ export class SessionCleanupService {
     if (this.options.goals && targetSessionIds.length > 0) {
       await this.options.goals.deleteSessions(targetSessionIds)
     }
+
+    await this.options.detachArtifacts?.(targetSessionIds)
 
     // 4. 清理 collaboration
     await this.options.collaboration.deleteSessions({

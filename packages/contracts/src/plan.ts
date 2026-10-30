@@ -12,6 +12,8 @@ export type ClientProcessingAudit = {
   userConfirmedAt?: string
 }
 export type MessageOptions = MessageConfiguration & {
+  /** 仅由 Host 从已认证的提交上下文写入。 */
+  sourceClientId?: string
   visualization?: import('./visualize').VisualizationMessageContext
   mode?: TaskMode
   plan?: PlanAction
@@ -22,6 +24,7 @@ export type EditMessageOptions = MessageOptions & MessageConfiguration
 /** 覆盖失败时仍返回已取出的队列，供发起编辑的窗口恢复。 */
 export type EditMessageResult = { recoveredInputs: QueuedInput[]; error?: string }
 export type QueuedInput = {
+  sourceClientId?: string
   visualization?: import('./visualize').VisualizationMessageContext
   id: string
   editing?: boolean

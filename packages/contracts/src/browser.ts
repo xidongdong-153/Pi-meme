@@ -70,6 +70,7 @@ export type BrowserSnapshot = {
   downloads: BrowserDownload[]
 }
 export type BrowserEvent =
+  | { type: 'tab-closed'; owner: string; id: string }
   | { type: 'tab'; tab: BrowserTab }
   | { type: 'find-result'; tabId: string; text: string; active: number; matches: number }
   | { type: 'browser-shortcut'; tabId: string; action: 'find' | 'address' | 'close-find' }
@@ -93,6 +94,7 @@ export type BrowserCommand =
   | { type: 'annotation-state' }
   | { type: 'screenshot' }
 export interface BrowserPlatform {
+  agent?: (owner: string, operation: string, args: unknown[]) => Promise<unknown>
   snapshot: () => Promise<BrowserSnapshot>
   settings: (patch: Partial<BrowserSettings>) => Promise<BrowserSnapshot>
   permission: (value: BrowserPermission) => Promise<BrowserSnapshot>

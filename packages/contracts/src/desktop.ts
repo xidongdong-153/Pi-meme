@@ -217,6 +217,10 @@ export interface ConnectionBridge {
   onConnection: (callback: (connection: Connection) => void) => () => void
   onError: (callback: (error: DesktopError) => void) => () => void
   /** 为独立会话绑定读取目标，不改变当前界面的会话选择。 */
+  registerSystemClient?: (
+    operations: string[],
+    handler: (request: import('./system-tools').SystemClientRequest) => Promise<unknown>,
+  ) => () => void
   scopeSession?: (sessionKey: string) => DesktopBridge
   openTemporarySession?: (sourceSessionKey: string) => Promise<Snapshot>
   getTemporarySession?: () => Promise<Snapshot | null>

@@ -28,6 +28,7 @@ type TerminalRecord = {
   parsedSequence: number
   cursorVisible: boolean
   pending: Set<(cause: Error) => void>
+  root: WorkspaceRef
   owner: string
   listeners: Array<{ dispose: () => void }>
 }
@@ -90,11 +91,15 @@ export class TerminalService {
     const command = input.command ?? process.env.SHELL ?? (process.platform === 'win32' ? 'powershell.exe' : '/bin/sh')
     if (typeof command !== 'string' || !command.trim() || command.includes('\0')) throw new Error('终端命令无效')
     const dimensions = size(input.cols, input.rows)
+    const env: NodeJS.ProcessEnv = { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' }
+    // 交互式 PTY 按自身能力显示颜色，不继承 Host 日志的颜色开关。
+    delete env.NO_COLOR
+    delete env.FORCE_COLOR
     const pty = this.pty.spawn(command, [], {
       cwd,
       ...dimensions,
       name: 'xterm-256color',
-      env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' },
+      env,
     })
     const snapshot: TerminalSnapshot = {
       hostId: this.options.hostId,
@@ -117,6 +122,7 @@ export class TerminalService {
       cursorVisible: true,
       pending: new Set(),
       owner,
+      root: structuredClone(root),
       listeners: [],
     }
     for (const final of ['h', 'l']) {
@@ -148,6 +154,35 @@ export class TerminalService {
       }),
     )
     return structuredClone(snapshot)
+  }
+  entries(root?: WorkspaceRef) {
+    return [...this.terminals.values()]
+      .filter(
+        (entry) =>
+          !root ||
+          (entry.root.hostId === root.hostId &&
+            ('sessionId' in root
+              ? 'sessionId' in entry.root && entry.root.sessionId === root.sessionId
+              : 'projectId' in entry.root && entry.root.projectId === root.projectId)),
+      )
+      .map(({ snapshot, root }) => ({ ...snapshot, root: structuredClone(root) }))
+  }
+  async list(root?: WorkspaceRef) {
+    return this.entries(root)
+  }
+  async read(ref: TerminalRef) {
+    const record = this.record(ref)
+    return this.flush(record, () => {
+      const buffer = record.screen.buffer.active
+      const lines: string[] = []
+      for (let index = 0; index < buffer.length; index++)
+        lines.push(buffer.getLine(index)?.translateToString(true) ?? '')
+      return { ...record.snapshot, output: lines.join('\n'), outputSequence: record.parsedSequence }
+    })
+  }
+  async closeSessions(ids: string[]) {
+    for (const record of [...this.terminals.values()])
+      if ('sessionId' in record.root && ids.includes(record.root.sessionId)) await this.close(record.snapshot)
   }
   async attach(ref: TerminalRef) {
     const record = this.record(ref)

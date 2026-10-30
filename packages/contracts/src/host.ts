@@ -43,6 +43,9 @@ export type HostRpcResponse = {
   error?: { message: string; code: string }
 }
 export type HostEvent = { hostId: string } & (
+  | { type: 'system-request'; value: import('./system-tools').SystemClientRequest }
+  | { type: 'system-changed'; value?: undefined }
+  | { type: 'sessions-deleted'; value: { sessionIds: string[] } }
   | { type: 'event'; value: DesktopEvent }
   | { type: 'connection'; value: Connection }
   | { type: 'error'; value: DesktopError }

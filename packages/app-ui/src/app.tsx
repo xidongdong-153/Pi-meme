@@ -1,3 +1,5 @@
+import { useSystemClient } from './session/use-system-client'
+import { useSessionSidebar } from './session/use-session-sidebar'
 import { ImagesPage } from './images/images-page'
 import { useVisualizations } from '@pi-meme/visualize/ui/use-visualizations'
 import { VisualizationRendererContext } from '@pi-meme/ui/components/visualization-renderer'
@@ -195,7 +197,30 @@ export function App({
   }, [registry, pluginConsent])
   const [pluginDescriptors, setPluginDescriptors] = useState<UiPluginDescriptor[]>([])
   const fileStore = useMemo(() => new FileStore(host), [host])
-  const [fileTabs, setFileTabs] = useState<LinkedFileTab[]>([])
+  const [fileTabs, setFileTabs] = useState<LinkedFileTab[]>(() => {
+    const tabs = new Map<string, LinkedFileTab>()
+    try {
+      for (const key of Object.keys(localStorage)) {
+        if (!key.startsWith('pi-meme:panels:v2:')) continue
+        const layout = JSON.parse(localStorage.getItem(key) ?? 'null')
+        if (!Array.isArray(layout?.tabs)) continue
+        for (const id of layout.tabs) {
+          if (typeof id !== 'string' || !id.startsWith('builtin:file:')) continue
+          const ref = JSON.parse(id.slice('builtin:file:'.length))
+          if (
+            Array.isArray(ref) &&
+            ref.length === 3 &&
+            ref.every((part) => typeof part === 'string') &&
+            ref[0] === hostId
+          )
+            tabs.set(id, { id, path: ref[2], session: { hostId: ref[0], sessionId: ref[1] } })
+        }
+      }
+    } catch {
+      /* 损坏的标签存档不阻止打开工作台。 */
+    }
+    return [...tabs.values()]
+  })
   const loadLinkedFile = useCallback(
     (session: SessionRef, path: string) => call<FilePreview>('chat:file-preview', [session, path]),
     [call],
@@ -374,6 +399,7 @@ export function App({
   if (chat.chat.agents?.some((agent) => agent.parentAgentId && agent.rootSessionKey === chat.connection.sessionKey))
     availableRightTabs.push('subagents')
   if (chat.planDocuments.length || (chat.editing && chat.chat.planState?.document)) availableRightTabs.push('plan')
+  useSystemClient(bridge, browserPlatform, hostId)
   const settings = useSettings(bridge, true, false, !serviceUI)
   const appearance = useSettings(serviceUI?.appearanceBridge ?? bridge, Boolean(serviceUI) && active, false)
   useEffect(
@@ -430,6 +456,15 @@ export function App({
     void (chat.appSession ? Promise.resolve(chat.appSession) : bridge.resolveAppSession(runtimeSessionKey))
       .then((value) => {
         if (!current) return
+        window.dispatchEvent(
+          new CustomEvent('pi-meme:workspace-bound', {
+            detail: {
+              hostId: value.hostId,
+              from: runtimeSessionKey,
+              to: value.sessionId,
+            },
+          }),
+        )
         chat.bindDraftSession(runtimeSessionKey, value.sessionId)
         setResolvedSessions((sessions) => {
           const next = { ...sessions, [runtimeSessionKey]: value }
@@ -453,7 +488,7 @@ export function App({
       current = false
     }
   }, [bridge, runtimeSessionKey, chat.appSession, chat.bindDraftSession, chat.setError])
-  const appSession = runtimeSessionKey ? resolvedSessions[runtimeSessionKey] : undefined
+  const appSession = chat.appSession ?? (runtimeSessionKey ? resolvedSessions[runtimeSessionKey] : undefined)
   const activities = useActivities(host, appSession)
   const turnChanges = useTurnChanges(host, appSession, chat.chat, active && !remoteOffline)
   const [changeSelection, setChangeSelection] = useState<{
@@ -766,8 +801,11 @@ export function App({
   )
   const workspacePickerReturnFocus = useRef<HTMLElement | null>(null)
   const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false)
-  const [sidebarOpen, setSidebarOpen] = useState(true)
-  const [sidebarWidth, setSidebarWidth] = useState(256)
+  const {
+    open: sidebarOpen,
+    width: sidebarWidth,
+    change: handleSidebar,
+  } = useSessionSidebar(hostId ?? hostAddress ?? '', appSession?.sessionId ?? chat.workspaceUiKey)
   const [creatingProject, setCreatingProject] = useState(false)
   const creatingSkillSession = useRef(false)
   const assertRestartAllowed = () => {
@@ -1476,27 +1514,13 @@ export function App({
   const [browserSettingsTarget, setBrowserSettingsTarget] = useState<'general' | 'history' | 'downloads' | 'clear'>(
     'general',
   )
-  const browserOwner = JSON.stringify([
-    hostId ?? hostAddress ?? '',
-    appSession?.sessionId ?? `draft:${runtimeSessionKey ?? chat.connection.cwd}`,
-  ])
+  const browserOwner = JSON.stringify([hostId ?? hostAddress ?? '', appSession?.sessionId ?? chat.workspaceUiKey])
   const browserCurrentOwner = useRef(browserOwner)
   browserCurrentOwner.current = browserOwner
-  const browserPrevious = useRef<{ owner: string; runtime?: string; draft: boolean } | undefined>(undefined)
-  const browserRebind =
-    browserPrevious.current &&
-    browserPrevious.current.owner !== browserOwner &&
-    (browserPrevious.current.runtime === runtimeSessionKey || browserPrevious.current.draft)
-      ? browserPrevious.current.owner
-      : undefined
-  useEffect(() => {
-    if (!runtimeSessionKey || appSession)
-      browserPrevious.current = { owner: browserOwner, runtime: runtimeSessionKey, draft: !appSession }
-  }, [browserOwner, runtimeSessionKey, appSession])
   const browser = useBrowser({
     platform: runtimeSessionKey && !appSession ? undefined : browserPlatform,
     owner: browserOwner,
-    rebindFrom: browserRebind,
+
     active: active && chatVisible,
     onDiscard: () => chat.composerStore.setAttachments((items) => items.filter((item) => !item.browserAnnotation)),
     onAnnotationRemove: (id) =>
@@ -1774,10 +1798,6 @@ export function App({
       : []),
     ...pluginPanels,
   ]
-  const handleSidebar = useCallback((open: boolean, width: number) => {
-    setSidebarOpen(open)
-    setSidebarWidth(width)
-  }, [])
   async function invokeSystemSkill(name: string, prompt?: string) {
     if (creatingSkillSession.current) return false
     creatingSkillSession.current = true
@@ -1941,7 +1961,7 @@ export function App({
               }}
               errors={{ ...registry.errors(), ...(browser.error ? { browser: browser.error } : {}) }}
               props={pluginProps}
-              session={appSession?.sessionId ?? runtimeSessionKey ?? ''}
+              session={appSession?.sessionId ?? chat.workspaceUiKey}
               terminalCwd={appSession?.cwd ?? cwd}
               sidebar={sidebar}
               sidebarOpen={sidebarOpen}

@@ -1768,7 +1768,7 @@ export class PiSessionPool implements PiRuntime {
               message,
               images,
               skills,
-              { ...options, mode: normalized.mode },
+              { ...options, mode: normalized.mode, sourceClientId: this.viewContext.getStore()?.clientId },
               false,
               true,
               undefined,
@@ -1850,7 +1850,10 @@ export class PiSessionPool implements PiRuntime {
       await this.ensureRuntime(record, options?.mode)
       if (this.isSessionIdle(sessionKey)) return this.prompt(sessionKey, message, images, skills, options)
     }
-    return record.session.steer(message, images, skills, options)
+    return record.session.steer(message, images, skills, {
+      ...options,
+      sourceClientId: this.viewContext.getStore()?.clientId,
+    })
   }
   async followUp(
     sessionKey: string,
@@ -1865,7 +1868,10 @@ export class PiSessionPool implements PiRuntime {
       await this.ensureRuntime(record, options?.mode)
       if (this.isSessionIdle(sessionKey)) return this.prompt(sessionKey, message, images, skills, options)
     }
-    return record.session.followUp(message, images, skills, options)
+    return record.session.followUp(message, images, skills, {
+      ...options,
+      sourceClientId: this.viewContext.getStore()?.clientId,
+    })
   }
   getRuntimeSession(sessionKey: string) {
     return this.target(sessionKey).session

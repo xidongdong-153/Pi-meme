@@ -115,6 +115,8 @@ export class HostClient {
   private readonly sessionsListeners = new Set<() => void>()
   private readonly servicesListeners = new Set<() => void>()
   private readonly pluginListeners = new Set<() => void>()
+  private systemHandler?: (request: import('@pi-meme/contracts/system-tools').SystemClientRequest) => Promise<unknown>
+  private systemOperations: string[] = []
   private socket?: WebSocket
   private reconnectTimer?: ReturnType<typeof setTimeout>
   private reconnectAttempts = 0
@@ -788,6 +790,7 @@ export class HostClient {
     this.socket = socket
     const isCurrent = () => !this.closed && !this.suspended && this.socket === socket && epoch === this.networkEpoch
     socket.addEventListener('open', () => {
+      if (this.systemHandler) void this.registerSystemCapabilities().catch((cause) => this.reportError(String(cause)))
       if (isCurrent()) void this.resynchronize()
     })
     socket.addEventListener('message', (message) => {
@@ -936,6 +939,29 @@ export class HostClient {
       case 'error':
         for (const callback of this.errorListeners) callback(envelope.value)
         break
+      case 'system-request': {
+        const request = envelope.value
+        const execute = async () => {
+          if (!this.systemHandler || Date.now() > request.deadline) throw new Error('客户端操作不可用或已过期')
+          return this.systemHandler(request)
+        }
+        void execute()
+          .then(
+            (result) => this.rpc('system:reply', [{ id: request.id, result }], null),
+            (cause) => this.rpc('system:reply', [{ id: request.id, error: String(cause) }], null),
+          )
+          .catch((cause) => this.reportError(`无法提交客户端操作结果：${String(cause)}`))
+        break
+      }
+      case 'sessions-deleted':
+        if (typeof window !== 'undefined')
+          window.dispatchEvent(
+            new CustomEvent('pi-meme:sessions-deleted', { detail: { hostId: envelope.hostId, ...envelope.value } }),
+          )
+        break
+      case 'system-changed':
+        if (typeof window !== 'undefined') window.dispatchEvent(new Event('pi-meme:system-changed'))
+        break
       case 'sessions-changed':
         for (const callback of this.sessionsListeners) callback()
         break
@@ -957,6 +983,8 @@ export class HostClient {
   close() {
     this.suspend()
     this.closed = true
+    this.systemHandler = undefined
+    this.systemOperations = []
     for (const subscription of [...this.controlSubscriptions]) subscription.close()
     clearTimeout(this.reconnectTimer)
     this.socket?.close()
@@ -969,6 +997,11 @@ export class HostClient {
     this.sessionsListeners.clear()
     this.servicesListeners.clear()
     this.pluginListeners.clear()
+  }
+
+  private async registerSystemCapabilities() {
+    if (this.closed || !(await this.host.capabilities()).features.includes('system-tools')) return
+    await this.rpc('system:register', [this.systemOperations], null)
   }
 
   private async directory() {
@@ -1002,7 +1035,33 @@ export class HostClient {
       await platform.openPath(settings[field])
     }
     const settingsRpc = async (method: string, args: unknown[] = []) => {
-      const snapshot = await rpc<SettingsSnapshot>(method, args)
+      const appearanceKey = 'pi-meme:appearance:v1'
+      const localWrite = method === 'settings:appearance' || method === 'settings:theme'
+      const snapshot = await rpc<SettingsSnapshot>(localWrite ? 'settings:get' : method, localWrite ? [] : args)
+      let saved: import('@pi-meme/contracts/settings').AppearanceSettings | undefined
+      try {
+        saved = JSON.parse(localStorage.getItem(appearanceKey) ?? 'null') ?? undefined
+      } catch {
+        /* 没有可用覆盖值时使用 Host 默认值。 */
+      }
+      let appearance = saved ?? snapshot.settings.appearance
+      if (method === 'settings:appearance') appearance = args[0] as typeof appearance
+      if (method === 'settings:theme') {
+        const theme = snapshot.themes.find((item) => item.id === args[0])
+        if (!theme || !appearance) throw new Error('主题或外观配置不可用')
+        appearance = {
+          ...appearance,
+          mode: theme.appearance,
+          [theme.appearance === 'dark' ? 'darkThemeId' : 'lightThemeId']: theme.id,
+        }
+      }
+      if (appearance) {
+        snapshot.settings = { ...snapshot.settings, appearance }
+        if (localWrite) {
+          localStorage.setItem(appearanceKey, JSON.stringify(appearance))
+          window.dispatchEvent(new Event('pi-meme:appearance-changed'))
+        }
+      }
       return {
         ...snapshot,
         themes: snapshot.themes.map((theme) => ({
@@ -1014,6 +1073,17 @@ export class HostClient {
       }
     }
     return {
+      registerSystemClient: (operations, handler) => {
+        this.systemHandler = handler
+        this.systemOperations = operations
+        void this.registerSystemCapabilities().catch((cause) => this.reportError(String(cause)))
+        return () => {
+          if (this.systemHandler === handler) {
+            this.systemHandler = undefined
+            this.systemOperations = []
+          }
+        }
+      },
       scopeSession: (key) => this.createBridge(key),
       openTemporarySession: (key) => rpc('temporary-session:open', [{ sourceSessionKey: key }], key),
       getTemporarySession: () => rpc('temporary-session:get', [], null),

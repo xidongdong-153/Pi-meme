@@ -1,3 +1,4 @@
+import type { SystemToolRequest } from '@pi-meme/contracts/system-tools'
 import type { VisualizationRequest, VisualizationDocument } from '@pi-meme/contracts/visualize'
 import type { Goal, GoalControl, GoalRequest, GoalRun, PromptOrigin } from '@pi-meme/contracts/goal'
 import {
@@ -22,6 +23,7 @@ import type { PluginRuntimeRequest } from '@pi-meme/contracts/plugin-call'
 import type { AgentPluginEntry } from '@pi-meme/plugin-sdk/agent'
 
 export type WorkerOptions = {
+  system?: (request: SystemToolRequest, signal: AbortSignal) => Promise<unknown>
   admit?: (
     message: string,
     mode: TaskMode,
@@ -29,6 +31,7 @@ export type WorkerOptions = {
     signal: AbortSignal,
     origin?: PromptOrigin,
     expected?: GoalControl,
+    sourceClientId?: string,
   ) => Promise<void | GoalRun>
   collaboration?: (
     request: CollaborationRequest,
@@ -144,7 +147,9 @@ export function createWorkerSession(
               | 'visualize'
               | 'image-generation'
               | 'activity'
+              | 'system'
               | 'plugin'
+            systemRequest?: SystemToolRequest
             reference?: PlanRef
             pluginRequest?: PluginRuntimeRequest
             visualizationRequest?: VisualizationRequest
@@ -155,6 +160,7 @@ export function createWorkerSession(
             continuation?: boolean
             origin?: PromptOrigin
             expected?: GoalControl
+            sourceClientId?: string
             goalRequest?: GoalRequest
             goalRun?: GoalRun
             entryId?: string
@@ -179,6 +185,10 @@ export function createWorkerSession(
           hostRequests.set(request.id, controller)
           void Promise.resolve()
             .then(async () => {
+              if (request.kind === 'system') {
+                if (!options.system || !request.systemRequest) throw new Error('Host 内置能力桥未配置')
+                return options.system(request.systemRequest, controller.signal)
+              }
               if (request.kind === 'plugin') {
                 if (!options.plugin || !request.pluginRequest)
                   throw new Error('operation-unavailable-in-runtime: 插件桥未配置')
@@ -192,6 +202,7 @@ export function createWorkerSession(
                   controller.signal,
                   request.origin,
                   request.expected,
+                  request.sourceClientId,
                 )
               }
               if (request.kind === 'goal') {

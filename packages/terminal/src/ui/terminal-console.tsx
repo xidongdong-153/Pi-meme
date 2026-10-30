@@ -86,7 +86,7 @@ export function TerminalConsole({
     }
     outputListeners.add(output)
     const input = terminal.onData((data) => {
-      if (!ready || instance.exited) return
+      if (!ready || instance.exited || !container.current?.clientWidth || container.current.closest('[inert]')) return
       void host.terminal.input(instance, data, { idempotencyKey: crypto.randomUUID() }).catch((cause) => {
         if (!disposed) setError(String(cause))
       })
@@ -123,7 +123,7 @@ export function TerminalConsole({
             syncSize()
             terminal.options.disableStdin = snapshot.exited
             setLoading(false)
-            terminal.focus()
+            if (container.current?.clientWidth && !container.current.closest('[inert]')) terminal.focus()
           })
         })
       })

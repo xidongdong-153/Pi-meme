@@ -10,6 +10,7 @@ export type ImageLibraryItem = {
   height: number
   model: string
   operation: 'generate' | 'edit'
+  sourceStatus?: 'detached'
   session: SessionRef
   project?: ProjectRef
   projectName?: string

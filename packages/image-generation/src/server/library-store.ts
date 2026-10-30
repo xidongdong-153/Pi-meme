@@ -37,6 +37,7 @@ export class ImageLibraryStore {
       attachments: string
       history: () => Promise<ImageLibraryHistory[]>
       onChange: () => void
+      existingSessionIds?: () => Promise<string[]>
     },
   ) {}
 
@@ -232,6 +233,11 @@ export class ImageLibraryStore {
       (input.limit !== undefined && (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 100))
     )
       throw new Error('图像查询参数无效')
+    if (this.options.existingSessionIds) {
+      const existing = new Set(await this.options.existingSessionIds())
+      const detached = this.state.records.filter((item) => !item.sourceStatus && !existing.has(item.session.sessionId))
+      if (detached.length) await this.detachSessions(detached.map((item) => item.session.sessionId))
+    }
     this.startScan()
     let after: { createdAt: string; id: string } | undefined
     if (input.cursor) {
@@ -320,6 +326,14 @@ export class ImageLibraryStore {
       const item = this.state.records.find((item) => item.id === id)
       if (!item) throw new Error('图像不存在')
       item.removed = true
+    })
+    this.options.onChange()
+  }
+
+  async detachSessions(sessionIds: string[]) {
+    const ids = new Set(sessionIds)
+    await this.change(() => {
+      for (const item of this.state.records) if (ids.has(item.session.sessionId)) item.sourceStatus = 'detached'
     })
     this.options.onChange()
   }

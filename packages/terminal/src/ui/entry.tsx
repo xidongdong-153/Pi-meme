@@ -5,6 +5,8 @@ import type { TerminalOutput as Output } from './terminal-console'
 
 const Console = lazy(() => import('./terminal-console').then((module) => ({ default: module.TerminalConsole })))
 
+const opening = new Map<string, Promise<TerminalSnapshot>>()
+
 export async function activate(context: Pick<UiPluginContext, 'host' | 'panels'>) {
   const capabilities = await context.host.capabilities()
   const instances = new Map<string, TerminalSnapshot>()
@@ -44,7 +46,6 @@ export async function activate(context: Pick<UiPluginContext, 'host' | 'panels'>
     try {
       const snapshot = await context.host.terminal.attach(ref)
       if (disposed || instances.get(key)?.terminalId !== ref.terminalId) {
-        if (disposed) await context.host.terminal.close(ref, { idempotencyKey: crypto.randomUUID() })
         return
       }
       for (const event of buffered) {
@@ -79,11 +80,24 @@ export async function activate(context: Pick<UiPluginContext, 'host' | 'panels'>
         instances.delete(key)
       }
       if (disposed) return
-      const terminal = await context.host.terminal.open(root, {}, { idempotencyKey: crypto.randomUUID() })
-      if (disposed) {
-        await context.host.terminal.close(terminal, { idempotencyKey: crypto.randomUUID() })
-        return
+      let pending = opening.get(key)
+      if (!pending) {
+        pending = (async () => {
+          const existing =
+            capabilities.features.includes('terminal-list') && context.host.terminal.list
+              ? (await context.host.terminal.list(root)).find((item) => !item.exited)
+              : undefined
+          return existing ?? context.host.terminal.open(root, {}, { idempotencyKey: crypto.randomUUID() })
+        })()
+        opening.set(key, pending)
+        void pending
+          .finally(() => {
+            if (opening.get(key) === pending) opening.delete(key)
+          })
+          .catch(() => {})
       }
+      const terminal = await pending
+      if (disposed) return
       instances.set(key, terminal)
       await attachInstance(key, terminal)
     } catch (cause) {
@@ -185,11 +199,6 @@ export async function activate(context: Pick<UiPluginContext, 'host' | 'panels'>
     unsubscribe()
     outputListeners.clear()
     listeners.clear()
-    await Promise.allSettled(
-      [...instances.values()].map((instance) =>
-        context.host.terminal.close(instance, { idempotencyKey: crypto.randomUUID() }),
-      ),
-    )
     instances.clear()
   }
 }

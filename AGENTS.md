@@ -83,6 +83,7 @@ Web (Vite) ──────────┘                                    
 - 组件 Props 留在组件文件。共享聊天类型在 `packages/chat/src/ui/model/types.ts`。
 - 基础交互用 `packages/ui` 的原语，图标用 `lucide-react`，类名用 `cn`。
 - 页面顶栏复用 `packages/app-ui/src/layout/page-header.tsx` 的 `PageHeader` 和 `PageHeaderNavigation`；顶栏高度、交通灯留白和导航按钮样式只在该文件维护。页面自己的操作通过子组件组合，并使用 `no-drag` 标记交互区域。
+- 新增或修改内置系统能力时，按 [Host 内置工具](docs/host-system-tools.md) 接入 Agent 读取与操作；复用 Host 业务服务，登记参数、作用范围和读写权限，客户端操作绑定发起客户端。
 - 新功能先判断是内置能力还是可独立安装的 App 插件。业务包按需建 `src/server`、`src/agent`、`src/ui`、`src/shared`，不建空层。
 - 插件的安装、项目启停、会话选择与能力授权分别校验。Plan 只能使用获准的受限只读入口，不导入可信 Agent/Server。受限 JS 必须在独立进程和 OS 沙箱中运行；UI 与可信 Server 不属于恶意代码沙箱。
 - 插件输入框 API 复用唯一草稿和提交守卫；发送前处理必须显式授权。消息引用使用 Pi 原生 entry ID，不能用时间戳或数组下标代替。插件页目标、执行目标与当前输入框引用不得混用。

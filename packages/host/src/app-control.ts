@@ -80,7 +80,13 @@ type Options = {
   isSessionClosing?: (session: AppSession) => boolean
   onError: (cause: unknown) => void
 }
-type Pending = { input: SubmissionInput; receipt: SubmissionReceipt; goal?: GoalControl; stopped?: boolean }
+type Pending = {
+  clientId?: string
+  input: SubmissionInput
+  receipt: SubmissionReceipt
+  goal?: GoalControl
+  stopped?: boolean
+}
 type Active = { receipts: SubmissionReceipt[]; error?: string; cancelled?: boolean; runId?: string }
 export async function createAppControl(options: Options) {
   const { hostId, pi, projects, sessions, collaboration, goals } = options
@@ -403,7 +409,7 @@ export async function createAppControl(options: Options) {
     session.status = 'running'
     await publishReceipt(session, receipt)
     track(
-      pi.withClientView(view, async () => {
+      pi.withClientView({ ...view, clientId: pending.clientId ?? view.clientId }, async () => {
         try {
           const key = view.sessionKey!
           await options.bindRoot(key)
@@ -479,6 +485,7 @@ export async function createAppControl(options: Options) {
     input: SubmissionInput,
     operationId: string,
     goal?: GoalControl,
+    clientId?: string,
   ): Promise<SubmissionReceipt> => {
     const key = view.sessionKey!
     if (typeof input?.text !== 'string' || !input.text.trim() || !['start', 'queue', 'steer'].includes(input.delivery))
@@ -527,7 +534,7 @@ export async function createAppControl(options: Options) {
       }
       run.receipts.push(receipt)
       receipt.runId = run.runId
-      await dispatchInput(session, view, { input, receipt }, run)
+      await dispatchInput(session, view, { input, receipt, clientId }, run)
     } else if (
       input.delivery === 'start' &&
       !running &&
@@ -538,10 +545,10 @@ export async function createAppControl(options: Options) {
       // 停止后的新输入独立执行；旧队列继续等待用户明确恢复。
       const run: Active = { receipts: [receipt] }
       active.set(session.sessionId, run)
-      await dispatchInput(session, view, { input, receipt, goal }, run)
+      await dispatchInput(session, view, { input, receipt, goal, clientId }, run)
     } else {
       const queue = queues.get(session.sessionId) ?? []
-      queue.push({ input, receipt, goal })
+      queue.push({ input, receipt, goal, clientId })
       queues.set(session.sessionId, queue)
       await startNext(session, view)
       if (receipt.status === 'accepted') {
@@ -715,6 +722,7 @@ export async function createAppControl(options: Options) {
       hostId,
       fileOperations: ['preview', 'search', 'write'],
       features: [
+        'system-tools',
         ...(options.visualizations ? ['visualize' as const] : []),
         ...(options.imageLibrary ? ['image-library' as const] : []),
         ...(options.imageGeneration ? ['image-generation' as const] : []),
@@ -731,6 +739,7 @@ export async function createAppControl(options: Options) {
         'goals',
         ...(options.activities ? ['activities' as const] : []),
         ...(options.workspace.terminalSupported ? ['terminal' as const] : []),
+        ...(options.workspace.terminal.list ? ['terminal-list' as const] : []),
       ],
     }),
     schedules: {
@@ -972,7 +981,7 @@ export async function createAppControl(options: Options) {
                     )
                   ).receipt
                 }
-                return submitInput(session, view, input, operationId)
+                return submitInput(session, view, input, operationId, undefined, clientId)
               }),
             clientId,
           )
@@ -1134,6 +1143,18 @@ export async function createAppControl(options: Options) {
       },
     },
     terminal: {
+      list: async (root) => {
+        if (root) assertSessionAccess(root, clientId)
+        const entries = (await options.workspace.terminal.list?.(root)) ?? []
+        return entries.filter((entry) => {
+          try {
+            assertSessionAccess(entry.root, clientId)
+            return true
+          } catch {
+            return false
+          }
+        })
+      },
       open: (ref, input, opts) => {
         assertSessionAccess(ref, clientId)
         return mutate(clientId, 'terminal.open', [ref, input], opts, async () => {

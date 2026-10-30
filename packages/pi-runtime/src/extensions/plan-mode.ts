@@ -12,6 +12,7 @@ export const collaborationToolNames = [
   'finish_agent',
 ] as const
 export const planToolNames = new Set<string>([
+  'system_read',
   'read',
   'grep',
   'find',

@@ -115,6 +115,21 @@ export function useSettings(
     },
     [enabled],
   )
+  useEffect(() => {
+    if (!enabled) return
+    const refresh = () => {
+      void bridge
+        .getSettings()
+        .then(accept)
+        .catch((cause) => setError(String(cause)))
+    }
+    window.addEventListener('pi-meme:appearance-changed', refresh)
+    window.addEventListener('pi-meme:system-changed', refresh)
+    return () => {
+      window.removeEventListener('pi-meme:appearance-changed', refresh)
+      window.removeEventListener('pi-meme:system-changed', refresh)
+    }
+  }, [bridge, enabled, accept])
   const [appearanceSaver] = useState(
     () =>
       new AppearanceSaver(

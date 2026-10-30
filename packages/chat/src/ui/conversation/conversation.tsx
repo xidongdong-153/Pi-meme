@@ -310,7 +310,11 @@ export const Conversation = React.memo(
       scrollToMessage,
       handleActivityToggle,
       loadHistory,
-    } = useConversationScroll(chat, sessionKey, { hasMore, loading: historyLoading, load: handleLoadMore })
+    } = useConversationScroll(
+      chat,
+      fileSession ? JSON.stringify([fileSession.hostId, fileSession.sessionId]) : sessionKey,
+      { hasMore, loading: historyLoading, load: handleLoadMore },
+    )
 
     const handleSelectTurn = React.useCallback(
       (entry: ConversationOutlineEntry) => {

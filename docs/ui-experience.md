@@ -25,6 +25,16 @@ Pi-meme 面向长时间使用聊天、项目和工具面板完成开发任务的
 - 目标改变时不能把旧内容当成新内容继续操作。旧内容如需短暂保留，应设置 `inert` 和 `aria-hidden`；等待区域提供 `aria-busy`，等待文字使用 `role="status"`。
 - 空状态仅在加载完成且确实没有数据时出现。加载失败显示具体原因和重试入口，不在失败后留下永久骨架屏。
 
+## 会话状态与工具保留
+
+左右栏开合、宽度、工具标签、活动标签和分栏／完整视图按 Host 与稳定会话 ID 保存到客户端本地存储。新聊天使用独立草稿身份，右栏默认关闭，不继承上一会话；草稿创建为正式会话后迁移状态。不同设备各自保留布局，外观作用于发起操作的客户端。
+
+切换会话或收起右栏时，已打开的工具保留实例和 DOM；隐藏视图不接收键盘输入，不抢焦点。刷新界面后恢复布局与文件标签，并重新附着仍存活的 Host 终端和 Desktop 网页。Host 重启不恢复终端进程；Desktop 进程重启不承诺恢复未提交的网页表单。
+
+聊天阅读位置按会话保存在当前窗口的 `sessionStorage`，记录底部状态、消息锚点和偏移；恢复较早的锚点时按需读取历史。会话删除事件清理关联布局和工具引用。
+
+实现入口为 [WorkspacePanels](../packages/app-ui/src/layout/workspace-panels.tsx)、[RetainedToolPanels](../packages/app-ui/src/layout/retained-tool-panels.tsx)、[useSessionSidebar](../packages/app-ui/src/session/use-session-sidebar.ts) 和 [useConversationScroll](../packages/chat/src/ui/conversation/use-conversation-scroll.ts)。
+
 ## 动效参数
 
 | 场景               | 默认效果                                    | 时长  |

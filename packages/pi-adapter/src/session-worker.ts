@@ -1,3 +1,4 @@
+import { createSystemTools } from './system-tools'
 import { projectBranchVisualizations } from '@pi-meme/contracts/visualize'
 import type { VisualizationRequest, VisualizationDocument } from '@pi-meme/contracts/visualize'
 import type { Goal, GoalRequest, GoalRun } from '@pi-meme/contracts/goal'
@@ -118,8 +119,8 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
     agentSources: data.agentEntries,
     externalTools: new Map(),
     pluginFailures: new Map(),
-    onAdmission: (message, mode, continuation, signal, origin, expected) =>
-      hostRequest('admission', { message, mode, continuation, origin, expected }, signal) as Promise<
+    onAdmission: (message, mode, continuation, signal, origin, expected, sourceClientId) =>
+      hostRequest('admission', { message, mode, continuation, origin, expected, sourceClientId }, signal) as Promise<
         GoalRun | undefined
       >,
     onGoalGate: (tool) => hostRequest('goal', { goalRequest: { method: 'gate', tool }, goalRun: session.getGoalRun() }),
@@ -165,6 +166,7 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
       | 'visualize'
       | 'image-generation'
       | 'activity'
+      | 'system'
       | 'plugin',
     request: object,
     signal?: AbortSignal,
@@ -190,7 +192,13 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
   const ready = (async () => {
     const sdk = await loadPiSdk()
     const agentCore = await loadPiAgentCore()
-    const extensions: InlineExtension[] = []
+    const extensions: InlineExtension[] = [
+      createSystemTools(
+        (systemRequest, signal) => hostRequest('system', { systemRequest }, signal),
+        () => session.getTaskMode(),
+        () => session.getAccessMode(),
+      ),
+    ]
     for (const create of Object.values(builtins)) {
       extensions.push(
         ...(await create({

@@ -9,6 +9,7 @@ const browser: BrowserPlatform = {
   snapshot: () => browserCall('snapshot'),
   settings: (value) => browserCall('settings', value),
   permission: (value) => browserCall('permission', value),
+  agent: (owner, operation, args) => browserCall('agent', owner, operation, args),
   workspace: (owner) => browserCall('workspace', owner),
   saveWorkspace: (owner, value) => browserCall('saveWorkspace', owner, value),
   rebind: (from, to) => browserCall('rebind', from, to),

@@ -6,6 +6,8 @@ import { collaborationToolNames } from './plan-mode'
 import { createTurnChangesExtension } from './turn-changes'
 
 const allowedTools = new Set([
+  'system_read',
+  'system_write',
   'read',
   'bash',
   'write',
