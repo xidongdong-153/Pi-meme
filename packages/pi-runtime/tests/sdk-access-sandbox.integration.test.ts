@@ -6,6 +6,22 @@ import { test, vi } from 'vitest'
 import { setTimeout as delay } from 'node:timers/promises'
 import { AccessSandbox, probeAccessSandbox } from '../src/sdk/access-sandbox'
 
+test('Windows 直接报告受限权限未实现，不尝试创建 Unix 沙箱', async () => {
+  vi.stubGlobal('process', { ...process, platform: 'win32' })
+  const create = vi.spyOn(AccessSandbox, 'create').mockRejectedValue(new Error('不应启动沙箱'))
+  try {
+    const capability = await probeAccessSandbox()
+    assert.equal(capability.supported, false)
+    assert.match(capability.reason ?? '', /Windows.*尚不支持受限权限/)
+    assert.match(capability.reason ?? '', /macOS\/Linux Host/)
+    assert.doesNotMatch(capability.reason ?? '', /namespace|Error:/)
+    assert.equal(create.mock.calls.length, 0)
+  } finally {
+    create.mockRestore()
+    vi.unstubAllGlobals()
+  }
+})
+
 test('AccessSandbox.create 拒绝将系统根目录或用户主目录授权为工作区', async (t) => {
   if (!['darwin', 'linux'].includes(process.platform)) {
     t.skip('当前平台没有受支持的沙箱后端')

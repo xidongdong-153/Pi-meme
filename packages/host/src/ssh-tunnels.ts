@@ -21,6 +21,12 @@ export class SshError extends Error {
 export type SshTunnel = { endpoint: string; closed: Promise<SshError>; stop: () => Promise<void> }
 export type SshTunnelStarter = (connection: SshTarget, remotePort: number, signal: AbortSignal) => Promise<SshTunnel>
 
+export function sshUnavailableReason() {
+  return process.platform === 'win32'
+    ? 'Windows 入口 Host 尚不支持应用内 SSH 管理，可通过 HTTPS 连接已运行的远程 Host。'
+    : '本机服务未找到系统 OpenSSH，请安装后重试'
+}
+
 export async function findSshExecutable(): Promise<string | undefined> {
   if (process.platform === 'win32') return undefined
   for (const directory of (process.env.PATH ?? '/usr/bin:/bin').split(path.delimiter)) {
@@ -153,7 +159,7 @@ export async function validateSshConnection(
   const send = options.signalGroup ?? signalGroup
   signal.throwIfAborted()
   const executable = await (options.executable ?? findSshExecutable)()
-  if (!executable) throw new SshError('ssh-unavailable', '未找到 OpenSSH，请安装后重试')
+  if (!executable) throw new SshError('ssh-unavailable', sshUnavailableReason())
   signal.throwIfAborted()
   if (connection.identityFile) {
     const file = identityFilePath(connection.identityFile)

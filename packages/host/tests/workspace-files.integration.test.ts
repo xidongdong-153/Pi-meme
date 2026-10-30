@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
-import { mkdtemp, mkdir, writeFile, symlink, rm, readdir, realpath } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, symlink, rm, readdir, realpath, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { maxImagePreviewBytes } from '@pi-meme/contracts/app-host'
@@ -108,6 +108,7 @@ test('文件分类预览与保存保留 BOM、CRLF、权限，并拒绝冲突、
   await mkdir(project)
   const filename = path.join(project, 'file.ts')
   await writeFile(filename, '\uFEFFconst old = 1\r\n', { mode: 0o640 })
+  const originalMode = (await stat(filename)).mode & 0o777
   await writeFile(path.join(root, 'outside.txt'), '不可写')
   await symlink(path.join(root, 'outside.txt'), path.join(project, 'outside'))
   const files = createWorkspaceFiles(async () => project)
@@ -121,9 +122,9 @@ test('文件分类预览与保存保留 BOM、CRLF、权限，并拒绝冲突、
     revision: preview.revision,
   })
   assert.notEqual(saved.revision, preview.revision)
-  const { readFile, stat } = await import('node:fs/promises')
+  const { readFile } = await import('node:fs/promises')
   assert.equal(await readFile(filename, 'utf8'), '\uFEFFconst next = 2\r\n')
-  assert.equal((await stat(filename)).mode & 0o777, 0o640)
+  assert.equal((await stat(filename)).mode & 0o777, originalMode)
   await assert.rejects(
     files.write(ref, { relativePath: 'file.ts', content: '覆盖', revision: preview.revision }),
     /其他程序修改/,

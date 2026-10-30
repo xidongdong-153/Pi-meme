@@ -381,6 +381,14 @@ export const AccessSandbox = {
 
 /** 同时验证白名单写入、越界拒绝和 Linux socket 过滤，失败保留系统诊断。 */
 export async function probeAccessSandbox(): Promise<SandboxCapability> {
+  if (process.platform !== 'darwin' && process.platform !== 'linux')
+    return {
+      supported: false,
+      reason:
+        process.platform === 'win32'
+          ? 'Windows 本机尚不支持受限权限。运行本机会话需手动选择完全权限；需要只读或工作区写入权限时，请连接 macOS/Linux Host。'
+          : `当前平台不支持受限权限：${process.platform}`,
+    }
   let directory: string | undefined
   let sandbox: AccessSandboxOperations | undefined
   let outside: string | undefined
@@ -438,9 +446,14 @@ export async function probeAccessSandbox(): Promise<SandboxCapability> {
     }
     return { supported: true }
   } catch (cause) {
+    const diagnostic = cause instanceof Error ? cause.message : String(cause)
+    const guidance =
+      process.platform === 'linux'
+        ? '请检查 bubblewrap、seccomp 和系统 namespace 策略后重启服务'
+        : '请检查 sandbox-exec 和系统沙箱策略后重启服务'
     return {
       supported: false,
-      reason: `受限权限不可用：${String(cause)}；请检查沙箱依赖和系统 namespace 策略后重启服务`,
+      reason: `受限权限不可用：${diagnostic}；${guidance}`,
     }
   } finally {
     await sandbox?.stopAll()

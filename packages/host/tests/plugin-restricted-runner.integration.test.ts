@@ -1,4 +1,4 @@
-import { test } from 'vitest'
+import { test, vi } from 'vitest'
 import assert from 'node:assert/strict'
 import { execFile } from 'node:child_process'
 import { mkdtemp, mkdir, realpath, writeFile, rm, symlink } from 'node:fs/promises'
@@ -7,6 +7,7 @@ import path from 'node:path'
 import { promisify } from 'node:util'
 import { RestrictedRunner } from '@pi-meme/plugin-runtime/restricted-runner'
 import { pluginSandboxLaunch } from '../src/plugin-sandbox'
+import { probePluginSandbox } from '../src/plugin-sandbox-probe'
 import { createHost } from '../src/service'
 import { allowedRestrictedContribution } from '../src/plugin-call-bridge'
 import { emptyPluginGrant } from '@pi-meme/plugin-sdk/permissions'
@@ -14,6 +15,19 @@ import type { DesktopEvent } from '@pi-meme/contracts/desktop'
 import { bundleFacets } from '@earendil-works/chord/bundler'
 import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
 import { setTimeout as delay } from 'node:timers/promises'
+
+test('Windows 受限插件探测报告平台限制，不要求安装 Unix 沙箱依赖', async () => {
+  vi.stubGlobal('process', { ...process, platform: 'win32' })
+  try {
+    const capability = await probePluginSandbox('C:\\missing\\node.exe')
+    assert.equal(capability.supported, false)
+    assert.match(capability.reason ?? '', /Windows.*尚不支持受限插件/)
+    assert.match(capability.reason ?? '', /macOS\/Linux Host/)
+    assert.doesNotMatch(capability.reason ?? '', /ENOENT|EPERM|socket|bwrap/)
+  } finally {
+    vi.unstubAllGlobals()
+  }
+})
 
 test('受限 external-write 仅普通获准写方法可用，Plan/read-only/full-access声明不能放行', () => {
   const grant = emptyPluginGrant('test')

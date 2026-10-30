@@ -16,6 +16,15 @@ const connection: SshConnection = {
   enabled: true,
   phase: 'connecting',
 }
+
+test('Windows SSH 不可用时说明平台限制，不要求重复安装 OpenSSH', async () => {
+  vi.stubGlobal('process', { ...process, platform: 'win32' })
+  try {
+    await assert.rejects(validateSshConnection(connection, new AbortController().signal), /Windows.*HTTPS/)
+  } finally {
+    vi.unstubAllGlobals()
+  }
+})
 let root: string
 beforeAll(async () => {
   root = await mkdtemp(path.join(tmpdir(), 'pi-ssh-identity-'))

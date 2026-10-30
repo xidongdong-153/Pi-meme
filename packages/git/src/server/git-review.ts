@@ -25,7 +25,7 @@ function validateQuery(query: GitReviewQuery) {
 
 async function comparison(cwd: string, query: GitReviewQuery) {
   validateQuery(query)
-  const root = (await runGit(cwd, ['rev-parse', '--show-toplevel'])).stdout.trim()
+  const root = await realpath((await runGit(cwd, ['rev-parse', '--show-toplevel'])).stdout.trim())
   const head = await runGit(root, ['rev-parse', '--verify', 'HEAD^{commit}'])
     .then((r) => r.stdout.trim())
     .catch(() => emptyTree)

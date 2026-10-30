@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { test } from 'vitest'
-import { getGitDiff, getGitSnapshot, runGit } from '../src/server/git-service'
+import { getGitDiff, getGitEnvironment, getGitSnapshot, runGit } from '../src/server/git-service'
 import { getGitReview, getGitReviewFile, getGitReviewOptions } from '../src/server/git-review'
 
 function git(cwd: string, ...args: string[]) {
@@ -37,6 +37,9 @@ test('Git 快照识别暂存、未暂存、未跟踪、二进制和中文空格�
     const snapshot = await getGitSnapshot(repo)
     assert.equal(snapshot.error, undefined)
     assert.equal(snapshot.root, await realpath(repo))
+    const environment = await getGitEnvironment(repo)
+    assert.equal(environment.root, snapshot.root)
+    assert.equal(environment.branches.find((branch) => branch.current)?.occupiedBy, undefined)
     assert.equal(
       snapshot.files.some((file) => file.path === 'base file.txt' && file.kind === 'staged'),
       true,
@@ -127,7 +130,7 @@ test('审阅范围区分暂存、工作区、提交和共同祖先，并读取�
 test('Git 首次提交前可统计暂存文件，支持 worktree 和非仓库错误状态', async () => {
   const base = await mkdtemp(path.join(tmpdir(), 'pi-desktop-git-empty-'))
   const repo = path.join(base, 'repo')
-  const worktree = path.join(base, 'worktree')
+  const worktree = path.join(base, 'worktree 中文 空格')
   const outside = path.join(base, 'outside')
   try {
     await mkdir(repo)
@@ -143,6 +146,13 @@ test('Git 首次提交前可统计暂存文件，支持 worktree 和非仓库错
     await git(repo, 'worktree', 'add', '-qb', 'other', worktree)
     const fromWorktree = await getGitSnapshot(worktree)
     assert.equal(fromWorktree.root, await realpath(worktree))
+    const environment = await getGitEnvironment(repo)
+    assert.equal(
+      environment.branches.find((branch) => branch.ref === 'refs/heads/other')?.occupiedBy,
+      fromWorktree.root,
+    )
+    const worktreeEnvironment = await getGitEnvironment(worktree)
+    assert.equal(worktreeEnvironment.branches.find((branch) => branch.current)?.occupiedBy, undefined)
     await mkdir(outside)
     assert.equal((await getGitSnapshot(outside)).error, 'not-repository')
     assert.equal((await getGitReview(outside, { scope: 'uncommitted' })).error, 'not-repository')

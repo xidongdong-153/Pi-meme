@@ -8,7 +8,7 @@ import { test, vi } from 'vitest'
 import { WebSocket } from 'ws'
 import { startHostServer } from '../src/server'
 
-async function fixture() {
+async function fixture(available = true) {
   const root = await mkdtemp(path.join(tmpdir(), 'pi-ssh-transport-'))
   const server = await startHostServer({
     dataRoot: root,
@@ -16,7 +16,7 @@ async function fixture() {
     token: 'test-token',
     localAutoLogin: false,
     ssh: {
-      available: async () => true,
+      available: async () => available,
       prepare: async (_connection, signal, onStep) => {
         onStep('checking')
         signal.throwIfAborted()
@@ -37,6 +37,32 @@ async function fixture() {
     },
   }
 }
+
+test('Windows SSH 能力接口返回平台限制和 HTTPS 连接提示', async () => {
+  const f = await fixture(false)
+  vi.stubGlobal('process', { ...process, platform: 'win32' })
+  try {
+    const response = await fetch(`${f.server.url}/api/rpc`, {
+      method: 'POST',
+      headers: { Cookie: f.cookie },
+      body: JSON.stringify({
+        requestId: 'windows-ssh',
+        clientId: 'windows-ssh',
+        method: 'host:ssh:capabilities',
+        args: [],
+      }),
+    })
+    assert.equal(response.status, 200)
+    const { result } = await response.json()
+    assert.equal(result.canManage, true)
+    assert.equal(result.available, false)
+    assert.match(result.reason, /Windows.*HTTPS/)
+    assert.doesNotMatch(result.reason, /未找到|请安装/)
+  } finally {
+    vi.unstubAllGlobals()
+    await f.dispose()
+  }
+})
 
 test('token-required 实际能力与认证一致，loopback来源也拒绝空令牌', async () => {
   const f = await fixture()

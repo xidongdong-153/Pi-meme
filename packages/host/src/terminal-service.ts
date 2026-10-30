@@ -88,7 +88,8 @@ export class TerminalService {
     if ([...this.terminals.values()].filter((entry) => !entry.snapshot.exited).length >= 16)
       throw new Error('服务最多同时运行 16 个终端，请先关闭不用的实例')
     const cwd = await this.options.resolveRoot(root)
-    const command = input.command ?? process.env.SHELL ?? (process.platform === 'win32' ? 'powershell.exe' : '/bin/sh')
+    const command =
+      input.command ?? (process.platform === 'win32' ? 'powershell.exe' : (process.env.SHELL ?? '/bin/sh'))
     if (typeof command !== 'string' || !command.trim() || command.includes('\0')) throw new Error('终端命令无效')
     const dimensions = size(input.cols, input.rows)
     const env: NodeJS.ProcessEnv = { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' }

@@ -9,6 +9,14 @@ import { pluginSandboxLaunch } from './plugin-sandbox'
 export type PluginSandboxCapability = { supported: boolean; reason?: string }
 const probes = new Map<string, Promise<PluginSandboxCapability>>()
 export function probePluginSandbox(node: string): Promise<PluginSandboxCapability> {
+  if (process.platform !== 'darwin' && process.platform !== 'linux')
+    return Promise.resolve({
+      supported: false,
+      reason:
+        process.platform === 'win32'
+          ? 'Windows 本机尚不支持受限插件，请连接 macOS/Linux Host 后再启用受限插件。'
+          : `当前平台不支持受限插件：${process.platform}`,
+    })
   const key = `${process.platform}:${process.arch}:${node}`
   let pending = probes.get(key)
   if (!pending) {

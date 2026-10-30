@@ -1,10 +1,40 @@
 import assert from 'node:assert/strict'
-import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { test, vi } from 'vitest'
 import { TerminalService } from '../src/terminal-service'
+
+test.skipIf(process.platform !== 'win32')('Windows 原生 PTY 可在中文空格目录执行并正常退出', async (t) => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pi-terminal-中文 目录-'))
+  const marker = path.join(directory, '终端 输出.txt')
+  const state = { exited: false }
+  const service = new TerminalService({
+    hostId: 'windows-pty',
+    resolveRoot: async () => directory,
+    onEvent: (event) => {
+      if (event.exitCode !== undefined) state.exited = true
+    },
+  })
+  try {
+    if (!service.supported) return t.skip('当前 Node.js 的 node-pty 原生模块不可用')
+    const terminal = await service.open({ hostId: 'windows-pty', projectId: 'project' }, { command: process.execPath })
+    await service.input(
+      terminal,
+      `require('node:fs').writeFileSync(${JSON.stringify(marker)}, '中文终端'); process.exit(0)\r`,
+    )
+    const deadline = Date.now() + 5000
+    while (!state.exited) {
+      if (Date.now() > deadline) throw new Error('等待 Windows 终端退出超时')
+      await delay(10)
+    }
+    assert.equal(await readFile(marker, 'utf8'), '中文终端')
+  } finally {
+    await service.dispose()
+    await rm(directory, { recursive: true, force: true })
+  }
+})
 
 test.skipIf(process.platform !== 'darwin')('原生 PTY 继承 Host PATH，直接执行临时用户工具', async (t) => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pi-terminal-path-'))

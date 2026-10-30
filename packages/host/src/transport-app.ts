@@ -11,6 +11,7 @@ import { MAX_CHAT_ATTACHMENT_BYTES } from '@pi-meme/contracts/chat-attachments'
 import type { HostRpcRequest } from '@pi-meme/contracts/host'
 import type { SshConnectionInput } from '@pi-meme/contracts/ssh-connections'
 import { discoverSshCandidates } from './ssh-config'
+import { sshUnavailableReason } from './ssh-tunnels'
 import { hostRuntimeProtocolVersion, type LocalHostStatus } from '@pi-meme/contracts/host-runtime'
 import type { createHost } from './service'
 import type { RemoteServices } from './remote-services'
@@ -157,11 +158,7 @@ function registerRpc(app: Hono<TransportEnv>, { host, remotes, auth }: Transport
         result = {
           canManage,
           available,
-          reason: !canManage
-            ? '请在本机打开应用后管理 SSH 连接'
-            : !available
-              ? '本机服务未找到系统 OpenSSH'
-              : undefined,
+          reason: !canManage ? '请在本机打开应用后管理 SSH 连接' : !available ? sshUnavailableReason() : undefined,
         }
       } else {
         if (!canManage) return reply(403, { error: '请在本机打开应用后管理 SSH 连接' })

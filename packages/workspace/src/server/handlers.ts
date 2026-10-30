@@ -1,4 +1,5 @@
 import { realpath } from 'node:fs/promises'
+import path from 'node:path'
 import type { PiSessionPool } from '@pi-meme/pi-runtime/session-pool'
 import { deleteSessionFiles, normalizeCwd, scanProjectSessions, validateSessionFile } from './session-files'
 import type { ProjectStore } from './project-store'
@@ -60,7 +61,7 @@ export function createWorkspaceHandlers({
   }
   const normalizeProject = async (value: unknown) => {
     text(value)
-    if (!value.startsWith('/')) throw new Error('项目目录必须是绝对路径')
+    if (!path.isAbsolute(value)) throw new Error('项目目录必须是绝对路径')
     const cwd = await normalizeCwd(value)
     if (!projects || projects.kind(cwd) !== 'project') throw new Error('目标不是项目目录')
     return cwd
@@ -219,7 +220,7 @@ export function createWorkspaceHandlers({
       if (!merged.projects.some((project) => project.cwd === pi.cwd))
         merged.projects.push({
           cwd: pi.cwd,
-          name: pi.cwd.split('/').filter(Boolean).at(-1) ?? pi.cwd,
+          name: path.basename(pi.cwd) || pi.cwd,
           sessionCount: 0,
           lastModified: '1970-01-01T00:00:00.000Z',
           sessions: [],

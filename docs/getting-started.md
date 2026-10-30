@@ -41,6 +41,8 @@ Get-FileHash -Algorithm SHA256 "pi-meme-desktop-<版本>-windows-x64.zip"
 
 Windows 本机 Host 尚不支持只读、工作区写入等受限权限、受限插件和 Agent 受管服务。默认受限会话会明确报不可用；运行本机 Agent 需自行选择完全权限，需要受限执行时连接 macOS/Linux Host。项目打开菜单目前只提供系统文件管理器。
 
+Windows 入口 Host 尚不支持应用内 SSH 管理，安装 OpenSSH 不会启用该入口。连接已运行的远程 Host 时，在应用内添加其 HTTPS 地址。
+
 ### 安装 macOS Desktop
 
 1. 从同一个版本的发布页下载 Desktop ZIP 和 `SHA256SUMS`。

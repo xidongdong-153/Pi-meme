@@ -19,7 +19,7 @@ test('登记项目重启后保留，符号链接去重，同名目录分别展�
     await store.load()
     const registered = await store.register(first)
     assert.equal((await store.register(alias)).cwd, registered.cwd)
-    await store.register(second)
+    const registeredSecond = await store.register(second)
     const restored = new ProjectStore(directory)
     await restored.load()
     const projects = await restored.list()
@@ -30,7 +30,7 @@ test('登记项目重启后保留，符号链接去重，同名目录分别展�
     )
     assert.notEqual(projects[0].cwd, projects[1].cwd)
     await rm(second, { recursive: true })
-    assert.equal((await restored.list()).find((project) => project.cwd.endsWith('/b/project'))?.unavailable, true)
+    assert.equal((await restored.list()).find((project) => project.cwd === registeredSecond.cwd)?.unavailable, true)
   } finally {
     await rm(directory, { recursive: true, force: true })
   }
@@ -123,7 +123,8 @@ test('版本 1 项目文件兼容 Worktree 来源，重启后过滤重复项目�
     assert.equal((await restored.list([checkout])).length, 1)
     await restored.remove(source)
     assert.equal(restored.sourceProjectCwd(checkout), source)
-    assert.equal((await readFile(projectsFile, 'utf8')).includes(checkout), true)
+    const saved = JSON.parse(await readFile(projectsFile, 'utf8'))
+    assert.equal(saved.worktrees[0].cwd, checkout)
   } finally {
     await rm(directory, { recursive: true, force: true })
   }

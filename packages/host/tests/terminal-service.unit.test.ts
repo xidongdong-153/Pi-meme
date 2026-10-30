@@ -1,7 +1,36 @@
 import assert from 'node:assert/strict'
-import { test } from 'vitest'
+import { test, vi } from 'vitest'
 import xterm from '@xterm/headless'
 import { TerminalService, type PtyProcess } from '../src/terminal-service'
+
+test('Windows 默认终端忽略 Unix SHELL，显式命令仍按原值执行', async () => {
+  vi.stubGlobal('process', { ...process, platform: 'win32' })
+  vi.stubEnv('SHELL', '/bin/zsh')
+  const spawn = vi.fn<(command: string) => PtyProcess>(() => ({
+    write() {},
+    resize() {},
+    kill() {},
+    onData: () => ({ dispose() {} }),
+    onExit: () => ({ dispose() {} }),
+  }))
+  const service = new TerminalService({
+    hostId: 'windows',
+    resolveRoot: async () => 'C:\\项目 目录',
+    onEvent() {},
+    pty: { spawn },
+  })
+  try {
+    const root = { hostId: 'windows', projectId: 'project' }
+    await service.open(root, {})
+    await service.open(root, { command: 'C:\\Program Files\\Git\\bin\\bash.exe' })
+    assert.equal(spawn.mock.calls[0][0], 'powershell.exe')
+    assert.equal(spawn.mock.calls[1][0], 'C:\\Program Files\\Git\\bin\\bash.exe')
+  } finally {
+    await service.dispose()
+    vi.unstubAllEnvs()
+    vi.unstubAllGlobals()
+  }
+})
 
 test('PTY输入、窗口调整、重连缓冲和插件释放使用同一个进程', async () => {
   const calls: unknown[] = []

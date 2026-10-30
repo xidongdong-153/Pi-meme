@@ -56,7 +56,7 @@ function decodeStatus(output: string): GitFileChange[] {
 
 export async function getGitSnapshot(cwd: string): Promise<GitSnapshot> {
   try {
-    const root = (await runGit(cwd, ['rev-parse', '--show-toplevel'])).stdout.trim()
+    const root = await realpath((await runGit(cwd, ['rev-parse', '--show-toplevel'])).stdout.trim())
     const [status, branchResult, hasHead] = await Promise.all([
       runGit(root, ['status', '--porcelain=v1', '-z', '--untracked-files=all']),
       runGit(root, ['symbolic-ref', '--quiet', '--short', 'HEAD']).catch(() =>
@@ -165,12 +165,15 @@ export async function getGitEnvironment(cwd: string): Promise<GitEnvironment> {
     'refs/remotes/',
   ])
   const occupied = new Map<string, string>()
-  const worktrees = (await runGit(snapshot.root, ['worktree', 'list', '--porcelain'])).stdout
-  for (const entry of worktrees.split('\n\n')) {
-    const lines = entry.split('\n')
+  const worktrees = (await runGit(snapshot.root, ['worktree', 'list', '--porcelain', '-z'])).stdout
+  for (const entry of worktrees.split('\0\0')) {
+    const lines = entry.split('\0')
     const directory = lines.find((line) => line.startsWith('worktree '))?.slice(9)
     const branch = lines.find((line) => line.startsWith('branch '))?.slice(7)
-    if (directory && branch && directory !== snapshot.root) occupied.set(branch, directory)
+    if (directory && branch) {
+      const normalized = await realpath(directory).catch(() => path.resolve(directory))
+      if (normalized !== snapshot.root) occupied.set(branch, normalized)
+    }
   }
   const headSha = await runGit(snapshot.root, ['rev-parse', '--verify', 'HEAD^{commit}'])
     .then((result) => result.stdout.trim())
