@@ -269,7 +269,6 @@ export const Conversation = React.memo(
     currentSession.current = sessionKey
 
     const hasMore = hasHiddenTurns || Boolean(chat.messagePage && onLoadOlder)
-    const [loadedHistory, setLoadedHistory] = React.useState<{ key?: string }>()
     const loadOwner = React.useRef<object | undefined>(undefined)
     React.useLayoutEffect(
       () => () => {
@@ -286,7 +285,6 @@ export const Conversation = React.memo(
           if (!(await onLoadOlder())) return false
         }
         if (loadOwner.current !== owner || currentSession.current !== sessionKey) return false
-        setLoadedHistory({ key: sessionKey })
         setVisibleCount((prev) => Math.max(prev, turns.length - hiddenCount) + TURN_INCREMENT)
         return true
       } finally {
@@ -390,15 +388,13 @@ export const Conversation = React.memo(
                 agentOnly ? 'max-w-3xl mx-auto' : 'chat-content-column',
               )}
             >
-              {(hasMore || (loadedHistory?.key === sessionKey && loadedHistory !== undefined)) && (
+              {(historyLoading || historyError) && (
                 <div
                   className="flex min-h-11 items-center justify-center gap-2 py-2 text-xs text-muted-foreground"
                   aria-busy={historyLoading}
                 >
                   <span role="status" className={historyLoading ? 'ui-loading-delayed' : undefined}>
-                    {historyLoading
-                      ? '正在加载更早记录…'
-                      : historyError || (hasMore ? '向上滚动加载更早记录' : '已到最早记录')}
+                    {historyLoading ? '正在加载更早记录…' : historyError}
                   </span>
                   {historyError && !historyLoading && (
                     <Button type="button" variant="ghost" size="sm" onClick={loadHistory}>

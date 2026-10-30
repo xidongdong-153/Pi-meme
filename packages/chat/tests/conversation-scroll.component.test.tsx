@@ -175,7 +175,7 @@ test('分页失败后上滑可重试，最早记录停止加载，旧会话迟�
   expect(load).toHaveBeenCalledTimes(2)
   rerender(view('history-retry-next', false))
   await act(async () => resolve(true))
-  expect(screen.queryByText('已到最早记录')).not.toBeInTheDocument()
+  expect(container.querySelectorAll('[data-conversation-turn]')).toHaveLength(1)
   fireEvent.wheel(scroller, { deltaY: -80 })
   expect(load).toHaveBeenCalledTimes(2)
 })
