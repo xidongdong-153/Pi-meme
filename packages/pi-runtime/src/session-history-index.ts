@@ -456,6 +456,7 @@ export async function readIndexedSessionHistory(
       }
     return {
       ...index.summary,
+      stats: index.summary.stats ? { ...index.summary.stats, sessionFile: original } : undefined,
       messages,
       messagePage: selection.messagePage,
       historyRevision: revision,

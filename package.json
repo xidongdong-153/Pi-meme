@@ -21,6 +21,9 @@
     "build:server": "pnpm --filter @pi-meme/server build",
     "postinstall": "node scripts/prepare-node-pty.mjs",
     "test": "node --import tsx scripts/test.mts",
+    "check": "pnpm type-check && pnpm lint && pnpm format && pnpm check-boundaries",
+    "test:source": "pnpm test --all --layer unit,component,integration",
+    "test:web": "pnpm test --all --layer e2e --target web",
     "test:all": "pnpm test --all"
   },
   "devDependencies": {

@@ -38,6 +38,30 @@ test('多个功能取并集并去重，层次过滤不扩大范围', () => {
   assert.ok(selected.suites.every((suite) => suite.features.includes('plan') || suite.features.includes('chat')))
 })
 
+test('主线只选择固定源码用例，不包含专项全集、E2E 或构建，和业务选择合并时去重', () => {
+  const core = selectTests(['--feature', 'core'])
+  assert.deepEqual(
+    core.suites.map((suite) => suite.file).sort(),
+    [
+      'packages/chat/tests/chat.unit.test.ts',
+      'packages/chat/tests/composer-submit.component.test.tsx',
+      'packages/client/tests/client-auth.unit.test.ts',
+      'packages/client/tests/client-sessions.unit.test.ts',
+      'packages/host/tests/app-control-core.integration.test.ts',
+      'packages/host/tests/host-transport.integration.test.ts',
+      'packages/pi-runtime/tests/pause-queue-core.integration.test.ts',
+      'packages/pi-runtime/tests/sdk-access-sandbox.integration.test.ts',
+    ].sort(),
+  )
+  assert.deepEqual(requiredBuilds(core.suites), [])
+  const combined = selectTests(['--feature', 'core', '--feature', 'chat'])
+  const chat = selectTests(['--feature', 'chat'])
+  assert.deepEqual(
+    combined.suites.map((suite) => suite.file).sort(),
+    [...new Set([...core.suites, ...chat.suites].map((suite) => suite.file))].sort(),
+  )
+})
+
 test('单文件和用例名称保留精确范围，清单模式不执行测试', () => {
   const file = 'packages/contracts/tests/plan-message.unit.test.ts'
   const selected = selectTests(['--file', path.resolve(file), '--name', '中文', '--list'])
@@ -61,13 +85,15 @@ test('完整测试按当前平台列出，显式选择不支持的产物必须�
   assert.throws(() => selectTests(['--all', '--coverage']), /--layer/)
 })
 
-test('显式提供已构建产物时不重建它们，但不影响开发态 E2E 的构建', () => {
+test('显式提供已构建产物时不重建它们，但不影响 Web E2E 的构建', () => {
   const artifacts = selectTests(['--all', '--layer', 'artifact'], 'darwin')
   assert.deepEqual(requiredBuilds(artifacts.suites, { serverBundle: true, desktopApp: true }), [])
   assert.deepEqual(requiredBuilds(artifacts.suites, { serverBundle: true }), ['package'])
   assert.deepEqual(requiredBuilds(artifacts.suites, { desktopApp: true }), ['build:server'])
-  const desktop = selectTests(['--all', '--layer', 'e2e', '--target', 'desktop'], 'darwin')
-  assert.deepEqual(requiredBuilds(desktop.suites, { desktopApp: true }), ['package'])
+  const e2e = selectTests(['--all', '--layer', 'e2e'], 'darwin')
+  assert.ok(e2e.suites.every((suite) => suite.target === 'web'))
+  assert.deepEqual(requiredBuilds(e2e.suites, { serverBundle: true, desktopApp: true }), ['build:web'])
+  assert.throws(() => selectTests(['--all', '--layer', 'e2e', '--target', 'desktop'], 'darwin'), /没有/)
 })
 
 test('所有测试都必须登记功能与层次，清单不能重复或引用不存在的文件', async () => {

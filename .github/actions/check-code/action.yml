@@ -1,0 +1,16 @@
+name: 检查源码
+description: 复用类型检查缓存并执行全仓静态检查
+runs:
+  using: composite
+  steps:
+    - uses: actions/cache@v4
+      with:
+        path: |
+          apps/*/*.tsbuildinfo
+          packages/*/*.tsbuildinfo
+          tsconfig.tests.tsbuildinfo
+        key: types-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml', 'tsconfig*.json', 'apps/*/tsconfig*.json', 'packages/*/tsconfig*.json', 'plugins/*/tsconfig*.json') }}-${{ github.sha }}
+        restore-keys: |
+          types-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pnpm-lock.yaml', 'tsconfig*.json', 'apps/*/tsconfig*.json', 'packages/*/tsconfig*.json', 'plugins/*/tsconfig*.json') }}-
+    - shell: bash
+      run: pnpm check

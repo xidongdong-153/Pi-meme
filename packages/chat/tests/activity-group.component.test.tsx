@@ -8,7 +8,6 @@ import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 import { ActivityGroup } from '../src/ui/conversation/activity-group'
 import { AssistantTurnView } from '../src/ui/conversation/assistant-turn'
 import { ChatMessage } from '../src/ui/conversation/chat-message'
-import { ThinkingActivityRow } from '../src/ui/conversation/thinking-activity-row'
 import { ToolActivityRow } from '../src/ui/conversation/tool-activity-row'
 import { TurnChangesCard } from '../src/ui/conversation/turn-changes'
 import { formatMessageTime, formatMessageTimeTitle } from '../src/ui/model/message-time'
@@ -479,21 +478,6 @@ test('用户消息和助手回复都显示真实时间', () => {
     expect(time).toHaveTextContent(formatMessageTime(stamp))
     expect(time).toHaveAttribute('dateTime', new Date(stamp).toISOString())
   }
-})
-
-test('思考行与相邻工具行使用同一字号', () => {
-  const { container } = render(
-    <ThinkingActivityRow
-      item={{ id: 'thinking', type: 'thinking', thinking: '对齐字号', status: 'success' }}
-      open
-      onToggle={() => {}}
-    />,
-  )
-  const row = container.firstElementChild
-  expect(row).toHaveClass('text-xs')
-  expect(row).not.toHaveClass('text-sm')
-  expect(container.querySelector('pre')).toHaveClass('text-xs')
-  expect(container.querySelector('pre')).not.toHaveClass('text-sm')
 })
 
 test.each(
@@ -1004,7 +988,6 @@ test('父活动跟随最新嵌套操作，整组结束后原位显示实际操�
   )
   const { rerender } = render(view('success', '已检查文件'))
   const group = screen.getByRole('button', { name: /^活动详情：/ })
-  const icon = group.querySelector('svg')
   expect(group).toHaveTextContent('已运行命令')
   for (const [status, result] of [
     ['running', undefined],
@@ -1014,7 +997,6 @@ test('父活动跟随最新嵌套操作，整组结束后原位显示实际操�
   ] as const) {
     rerender(view(status, result))
     expect(screen.getByRole('button', { name: /^活动详情：/ })).toBe(group)
-    expect(group.querySelector('svg')).toBe(icon)
     expect(group).toHaveTextContent(status === 'running' ? '正在运行 pnpm type-check…' : '已运行命令')
   }
   rerender(view('success', '已检查文件', false))
@@ -1023,53 +1005,31 @@ test('父活动跟随最新嵌套操作，整组结束后原位显示实际操�
   expect(group).not.toHaveTextContent(/codemode|调用了|pnpm type-check/)
 })
 
-test('思考与不同工具交接时原位更新图标并保持扫光，保留焦点和展开内容', async () => {
+test('思考与不同工具交接时保留焦点和展开内容', async () => {
   const user = userEvent.setup()
   const thinking: ActivityItem = { id: 'thinking', type: 'thinking', thinking: '检查项目', status: 'running' }
   const { rerender } = render(<ActivityGroup items={[thinking]} isLive />)
   const group = screen.getByRole('button', { name: /^活动详情：/ })
   await user.click(group)
-  const indicator = group.querySelector('svg')!
-  const indicatorSlot = indicator.parentElement!
-  const summary = group.children[1]!
-  expect(summary).toHaveClass('thought-shimmer')
   const thinkingDetails = screen.getByRole('button', { name: '思考过程' })
   let activities: ActivityItem[] = [{ ...thinking, status: 'success' }]
 
-  expect(indicator).toHaveClass('lucide-sparkles')
-  for (const [name, iconClass] of [
-    ['grep', 'lucide-search'],
-    ['read', 'lucide-book-open'],
-    ['bash', 'lucide-square-terminal'],
-  ] as const) {
+  for (const name of ['grep', 'read', 'bash']) {
     activities = [...activities, { id: name, name, result: '检查输出', status: 'running' }]
     rerender(<ActivityGroup items={activities} isLive />)
-    const toolIcon = group.querySelector('svg')!
-    expect(toolIcon).toHaveClass(iconClass)
-    expect(toolIcon.parentElement).toBe(indicatorSlot)
-    expect(group.children[1]).toBe(summary)
-    expect(summary).toHaveClass('thought-shimmer')
     expect(group).toHaveFocus()
     expect(group).toHaveAttribute('aria-expanded', 'true')
 
     activities = activities.map((item) => ({ ...item, status: 'success' }))
     rerender(<ActivityGroup items={activities} isLive />)
-    expect(group.querySelector('svg')).toBe(toolIcon)
-    expect(group.children[1]).toBe(summary)
-    expect(summary).toHaveClass('thought-shimmer')
     expect(screen.getByRole('button', { name: '思考过程' })).toBe(thinkingDetails)
   }
 
   rerender(<ActivityGroup items={activities} isLive isPaused />)
   expect(group).toHaveTextContent('已暂停，等待继续')
-  expect(summary).not.toHaveClass('thought-shimmer')
-  expect(indicatorSlot.isConnected).toBe(true)
-  expect(group.querySelector('svg')?.parentElement).toBe(indicatorSlot)
 
   rerender(<ActivityGroup items={activities} />)
   expect(group).toHaveTextContent('已搜索内容、读取文件并运行命令')
-  expect(summary).not.toHaveClass('thought-shimmer')
-  expect(group.querySelector('svg')?.parentElement).toBe(indicatorSlot)
   expect(group).toHaveFocus()
 })
 

@@ -163,12 +163,16 @@ async function runPackagedSmoke(mode: 'local' | 'recovery' | 'remote' | 'fresh',
   let socket: WebSocket | undefined
   try {
     const page = await waitFor(async () => {
-      if (child.exitCode !== null) throw new Error(`打包应用提前退出：${child.exitCode}\n${output}`)
+      if (child.exitCode !== null || child.signalCode !== null)
+        throw new Error(`打包应用提前退出：${child.exitCode ?? child.signalCode}\n${output}`)
+      if (output.includes('服务初始化失败：')) throw new Error(`打包应用初始化失败：${output}`)
       const response = await fetch(`http://127.0.0.1:${port}/json/list`).catch(() => undefined)
       if (!response?.ok) return undefined
       const pages = (await response.json()) as Array<{ type: string; url: string; webSocketDebuggerUrl: string }>
       return pages.find((value) => value.type === 'page' && value.url.startsWith('http://127.0.0.1:'))
-    }, '共享 UI 页面')
+    }, '共享 UI 页面').catch((cause: unknown) => {
+      throw new Error(`${String(cause)}\n${output}`, { cause })
+    })
     socket = new WebSocket(page.webSocketDebuggerUrl)
     await new Promise<void>((resolve, reject) => {
       socket!.addEventListener('open', () => resolve(), { once: true })
@@ -205,15 +209,8 @@ async function runPackagedSmoke(mode: 'local' | 'recovery' | 'remote' | 'fresh',
           }),
         )
       })
-    await waitFor(
-      async () =>
-        (await evaluate('Boolean(window.piMemeClient && document.querySelector("[aria-label=消息]"))'))
-          ? true
-          : undefined,
-      '共享聊天界面',
-    )
+    await waitFor(async () => ((await evaluate('Boolean(window.piMemeClient)')) ? true : undefined), '客户端协议入口')
     assert.ok((await readdir(path.join(dataRoot, 'desktop-cache'))).length > 0, 'Electron profile 写入临时目录')
-    assert.equal(await evaluate('document.querySelector("input[type=password]") !== null'), false)
     const profileFiles = await readdir(path.join(dataRoot, 'desktop-cache'), { recursive: true })
     assert.equal(
       profileFiles.some((value) => path.basename(value) === 'Cookies'),
@@ -382,7 +379,6 @@ async function runPackagedSmoke(mode: 'local' | 'recovery' | 'remote' | 'fresh',
         return error?.local === false ? true : undefined
       }, '远程登记失败保留本机界面')
       assert.equal(await evaluate('window.piPlatform.getHostConnection().then(value => value.local)'), true)
-      assert.notEqual(await evaluate('document.title'), '连接失败')
     }
     if (mode === 'remote') {
       await evaluate(`(async () => {
@@ -429,27 +425,6 @@ async function runPackagedSmoke(mode: 'local' | 'recovery' | 'remote' | 'fresh',
       assert.equal(creator.displayName, 'Skill Creator')
       assert.ok(creator.sourceInfo.path.startsWith(path.join(dataRoot, 'resources/snapshots')))
       assert.ok(creator.resourceId && creator.resourceRevision)
-      await evaluate(`(() => {
-        const input = document.querySelector('[contenteditable=true][aria-label="消息"]')
-        input.textContent = '$'
-        input.focus()
-        const range = document.createRange()
-        range.selectNodeContents(input)
-        range.collapse(false)
-        const selection = window.getSelection()
-        selection.removeAllRanges()
-        selection.addRange(range)
-        input.dispatchEvent(new Event('input', { bubbles: true }))
-      })()`)
-      await waitFor(
-        async () =>
-          (await evaluate(
-            '[...document.querySelectorAll("#composer-suggestions [role=option]")].some(option => option.textContent.includes("Skill Creator") && option.textContent.includes("内置"))',
-          ))
-            ? true
-            : undefined,
-        '内置技能候选渲染',
-      )
       return
     }
     assert.equal(

@@ -80,7 +80,7 @@ type Options = {
   isSessionClosing?: (session: AppSession) => boolean
   onError: (cause: unknown) => void
 }
-type Pending = { input: SubmissionInput; receipt: SubmissionReceipt; goal?: GoalControl }
+type Pending = { input: SubmissionInput; receipt: SubmissionReceipt; goal?: GoalControl; stopped?: boolean }
 type Active = { receipts: SubmissionReceipt[]; error?: string; cancelled?: boolean; runId?: string }
 export async function createAppControl(options: Options) {
   const { hostId, pi, projects, sessions, collaboration, goals } = options
@@ -452,6 +452,7 @@ export async function createAppControl(options: Options) {
   }
   const startNext = async (session: AppSession, view: ClientView) => {
     if (closing || paused.has(session.sessionId) || active.has(session.sessionId) || busy(view.sessionKey!)) return
+    if (queues.get(session.sessionId)?.[0]?.stopped) return
     const pending = queues.get(session.sessionId)?.shift()
     if (!pending) return
     const run: Active = { receipts: [pending.receipt] }
@@ -530,7 +531,9 @@ export async function createAppControl(options: Options) {
     } else if (
       input.delivery === 'start' &&
       !running &&
-      (pi.getSessionContext(key).state.stopped || goals.get(session)?.status === 'paused')
+      (pi.getSessionContext(key).state.stopped ||
+        queues.get(session.sessionId)?.[0]?.stopped ||
+        goals.get(session)?.status === 'paused')
     ) {
       // 停止后的新输入独立执行；旧队列继续等待用户明确恢复。
       const run: Active = { receipts: [receipt] }
@@ -986,6 +989,7 @@ export async function createAppControl(options: Options) {
                 const goal = goals.get(session)
                 if (goal?.status === 'active') await goals.stop(session, 'paused', '用户停止了目标执行')
                 paused.add(session.sessionId)
+                for (const pending of queues.get(session.sessionId) ?? []) pending.stopped = true
                 await pi.stopTask(key)
                 if (run) await finish(session, view, run, true)
                 else {
@@ -1031,6 +1035,7 @@ export async function createAppControl(options: Options) {
             (key, session, view) =>
               serial(session.sessionId, async () => {
                 await pi.resume(key)
+                for (const pending of queues.get(session.sessionId) ?? []) pending.stopped = false
                 paused.delete(session.sessionId)
                 await startNext(session, view)
               }),
@@ -1567,6 +1572,9 @@ export async function createAppControl(options: Options) {
           await sync(session, view)
           await startNext(session, view)
         }
+        // 运行时清除空队列暂停标记时，Host 中停止过的提交仍须等待显式恢复。
+        if (isRoot && piEvent?.type === 'stop_update' && piEvent.stopped)
+          for (const pending of queues.get(session.sessionId) ?? []) pending.stopped = true
         if (isRoot && piEvent?.type === 'pause_update') {
           if (piEvent.isPaused || piEvent.queuePaused) paused.add(session.sessionId)
           else {

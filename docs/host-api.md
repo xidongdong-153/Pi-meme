@@ -155,6 +155,8 @@ sequenceDiagram
 
 `cancelSubmission` 只撤销排队提交，已投递任务需停止会话；`sessions.stop` 中断当前运行并撤销未投递队列。`pause/resume` 控制会话暂停与后续调度。
 
+`sessions.stopTask` 中断当前任务并保留未投递队列。之后的 `start` 输入独立执行，`continueTask` 只继续当前任务；两者都不释放旧队列。调用 `sessions.resume` 后才继续投递这些排队提交。
+
 Host 退出或重启将未完成提交记为 `interrupted`，不重放任务。`outcomeUncertain` 表示关闭前已经开始投递；未投递队列为 false。收到受理回执不能视为任务成功，需读取回执或订阅状态事件。
 
 ## 快照与事件恢复

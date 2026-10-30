@@ -1,7 +1,7 @@
 import { expect } from '@playwright/test'
 import { test, openChat } from '../../../tests/fixtures/web'
 
-test('编辑生成新版本，切回旧版本恢复原对话，分叉后保留来源', async ({ page, host }) => {
+test('编辑覆盖原对话，刷新保留修改，分叉后保留修改后的上下文', async ({ page, host }) => {
   await openChat(page, host.url)
   const composer = page.getByRole('combobox', { name: '消息', exact: true })
   await composer.fill('原始提问')
@@ -15,14 +15,15 @@ test('编辑生成新版本，切回旧版本恢复原对话，分叉后保留�
   const editor = page.getByLabel('编辑历史消息', { exact: true }).getByRole('combobox', { name: '消息', exact: true })
   await editor.fill('修改后的提问')
   await page.getByRole('button', { name: '发送编辑后的消息', exact: true }).click()
-  const flow = page.getByLabel('对话消息流', { exact: true })
+  const flow = page.locator('[aria-label="对话消息流"]:visible')
   await expect(flow.getByText('修改后的提问', { exact: true })).toBeVisible()
   await expect
     .poll(() => page.evaluate(async () => (await window.piMemeClient!.getSnapshot()).state.isStreaming))
     .toBe(false)
-  await page.getByRole('button', { name: '查看上一个版本', exact: true }).click()
-  await expect(flow.getByText('原始提问', { exact: true })).toBeVisible()
-  await expect(flow.getByText('修改后的提问', { exact: true })).toHaveCount(0)
+  expect(await page.evaluate(async () => (await window.piMemeClient!.getConnection()).sessionFile)).toBe(originalFile)
+  await page.reload()
+  await expect(flow.getByText('修改后的提问', { exact: true })).toBeVisible()
+  await expect(flow.getByText('原始提问', { exact: true })).toHaveCount(0)
   await page.getByRole('button', { name: '从这段回复新建会话', exact: true }).first().click()
   await expect
     .poll(() =>
@@ -32,5 +33,6 @@ test('编辑生成新版本，切回旧版本恢复原对话，分叉后保留�
       ),
     )
     .toBe(true)
-  await expect(flow.getByText('原始提问', { exact: true })).toBeVisible()
+  await expect(flow.getByText('修改后的提问', { exact: true })).toBeVisible()
+  await expect(flow.getByText('原始提问', { exact: true })).toHaveCount(0)
 })

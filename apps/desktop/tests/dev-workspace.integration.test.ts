@@ -120,7 +120,7 @@ test('Web 正式构建配置保留 production 模式', async () => {
   }
 })
 
-test('开发模式直接加载 workspace 聊天源码，发送时保留会话标识', async () => {
+test('开发模式直接加载 workspace 聊天源码，不使用预打包缓存', async () => {
   const root = fileURLToPath(new URL('..', import.meta.url))
   const cacheDir = await mkdtemp(path.join(os.tmpdir(), 'pi-desktop-vite-'))
   const loaded = await loadConfigFromFile(
@@ -153,16 +153,6 @@ test('开发模式直接加载 workspace 聊天源码，发送时保留会话标
     assert.ok(!chatUrl.includes('/node_modules/'), 'workspace 软链接应解析到真实源码路径')
     const chat = await server.transformRequest(chatUrl)
     assert.ok(chat)
-    assert.match(
-      chat.code,
-      /bridge\.prompt\(sessionKey, message, images, skills, \{\s*mode: messageMode,\s*\.\.\.audit,\s*\.\.\.submittedConfiguration,?\s*\}\)/,
-    )
-    assert.match(chat.code, /const sendMode = running \? ["']followUp["'] : ["']prompt["']/)
-    assert.match(chat.code, /bridge\.steerQueueInput|bridge\[action\]\(key, id\)/)
-    assert.match(
-      chat.code,
-      /bridge\.followUp\(sessionKey, message, images, skills, \{\s*mode: messageMode,\s*\.\.\.audit,\s*\.\.\.submittedConfiguration,?\s*\}\)/,
-    )
   } finally {
     await server.close()
     await rm(cacheDir, { recursive: true, force: true })

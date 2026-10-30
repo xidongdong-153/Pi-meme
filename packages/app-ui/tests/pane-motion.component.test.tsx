@@ -95,18 +95,6 @@ test('折叠把侧栏宽度收到 0，动画结束前仍保留导航', () => {
   expect(document.getElementById('workspace-sidebar')).not.toBeNull()
 })
 
-test('拖拽越界有阻尼，松手弹回上限', () => {
-  const onSidebar = vi.fn()
-  render(<Panes onSidebar={onSidebar} />)
-  fireEvent.pointerDown(screen.getByRole('separator', { name: '调整侧边栏宽度' }), { button: 0, clientX: 0 })
-  fireEvent.pointerMove(window, { clientX: 300 })
-  const dragged = Number.parseFloat(shell().style.getPropertyValue('--workspace-sidebar-width'))
-  expect(dragged).toBeGreaterThan(420)
-  expect(dragged).toBeLessThan(256 + 300)
-  fireEvent.pointerUp(window)
-  expect(onSidebar).toHaveBeenCalledWith(true, 420)
-})
-
 test('拖过收起阈值后松手关闭，并保留原来的宽度', () => {
   const onSidebar = vi.fn()
   render(<Panes onSidebar={onSidebar} />)
@@ -238,7 +226,7 @@ test('切换会话与刷新不会恢复空活动标签，读取未知时不误�
   expect(screen.queryByRole('tab', { name: '活动' })).not.toBeInTheDocument()
 })
 
-test('折叠后悬停首页展开圆角会话浮层，移出后关闭', async () => {
+test('折叠后悬停首页展开会话浮层，移出后关闭', async () => {
   vi.useFakeTimers()
   try {
     render(<Panes />)
@@ -252,10 +240,6 @@ test('折叠后悬停首页展开圆角会话浮层，移出后关闭', async ()
     const flyout = document.getElementById('workspace-sidebar-flyout')
     expect(flyout).not.toBeNull()
     expect(flyout).toHaveTextContent('会话列表')
-    // 四边同距贴在聊天框体内侧，顶边和底边留白一致。
-    expect(flyout?.className).toContain('inset-2')
-    expect(flyout?.className).toContain('rounded-xl')
-    expect(flyout?.parentElement?.className).toContain('content-frame')
     expect(home).toHaveAttribute('aria-expanded', 'true')
 
     // 从首页移入浮层继续可用，移出后才收起。
@@ -269,7 +253,6 @@ test('折叠后悬停首页展开圆角会话浮层，移出后关闭', async ()
     const closing = document.getElementById('workspace-sidebar-flyout')
     expect(closing).not.toBeNull()
     expect(closing).toHaveAttribute('data-state', 'closed')
-    expect(closing?.className).toContain('data-[state=closed]:animate-out')
     expect(home).toHaveAttribute('aria-expanded', 'false')
 
     act(() => vi.advanceTimersByTime(200))

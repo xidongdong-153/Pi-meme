@@ -69,6 +69,7 @@ test('Host 暂存仅启用自己的注入，保留构建产物并排除开发依
       'apps/desktop/out/application',
       'apps/desktop/.vite/build/main.js',
       'apps/server/.env.local',
+      'apps/server/tsconfig.tsbuildinfo',
     ]
     for (const file of files) {
       await mkdir(path.dirname(path.join(repo, file)), { recursive: true })

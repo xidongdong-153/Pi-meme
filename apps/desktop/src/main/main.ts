@@ -17,7 +17,8 @@ import { createStorageController } from './storage/controller'
 import { pendingStorageJob } from './storage/preferences'
 import { acquireDesktopHost } from './local-host'
 
-if (['memory', 'file'].includes(process.env.PI_MEME_TEST_CREDENTIALS ?? '')) {
+const isolatedTest = ['memory', 'file'].includes(process.env.PI_MEME_TEST_CREDENTIALS ?? '')
+if (isolatedTest) {
   if (!process.env.PI_MEME_DATA_ROOT) throw new Error('Desktop 验收必须指定临时 PI_MEME_DATA_ROOT')
   const cache = path.join(process.env.PI_MEME_DATA_ROOT, 'desktop-cache')
   mkdirSync(cache, { recursive: true })
@@ -134,7 +135,7 @@ async function initializeHost() {
         upstreamUrl: lease.url,
         hostId: lease.status.hostId,
         staticDirectory: path.join(__dirname, '../renderer/main_window'),
-        port: app.isPackaged ? defaultFrontendPort : defaultDevelopmentFrontendPort,
+        port: isolatedTest ? 0 : app.isPackaged ? defaultFrontendPort : defaultDevelopmentFrontendPort,
       })
       uiUrl = frontend.url
     }

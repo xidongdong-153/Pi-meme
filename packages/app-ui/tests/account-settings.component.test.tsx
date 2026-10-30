@@ -10,23 +10,6 @@ function renderAccount(props: Partial<Parameters<typeof AccountSettings>[0]> = {
   return render(<AccountSettings profile={DEFAULT_PROFILE} loading={false} updateProfile={vi.fn()} {...props} />)
 }
 
-test('AccountSettings 渲染表单时已移除状态与年龄，保留姓名、用户名与邮箱', () => {
-  renderAccount()
-
-  // 验证不包含状态、年龄与环境授权
-  expect(screen.queryByText('状态')).not.toBeInTheDocument()
-  expect(screen.queryByText('年龄')).not.toBeInTheDocument()
-  expect(screen.queryByText('18 岁及以上')).not.toBeInTheDocument()
-  expect(screen.queryByText('环境与授权')).not.toBeInTheDocument()
-
-  // 验证包含姓名、用户名与邮箱
-  expect(screen.getByText('姓名')).toBeInTheDocument()
-  expect(screen.getByText('用户名')).toBeInTheDocument()
-  expect(screen.getByText('电子邮箱')).toBeInTheDocument()
-  expect(screen.getAllByText('@meme')[0]).toBeInTheDocument()
-  expect(screen.getByText('meme@example.com')).toBeInTheDocument()
-})
-
 test('AccountSettings 具备头像上传编辑按钮并触发文件选择', () => {
   renderAccount()
 

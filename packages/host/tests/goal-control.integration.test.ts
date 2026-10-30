@@ -660,6 +660,18 @@ test('正式会话停止保留排队回执，新输入独立执行', { timeout: 
     )
     assert.equal((await f.host.app.sessions.receipt(queued.operationId)).status, 'queued')
     assert.equal(f.fake.provider.requests.length, 2)
+    const next = await f.host.app.sessions.submit(f.session, { delivery: 'start', text: '再问一次' }, key('next'))
+    await eventually(
+      () => f.host.app.sessions.receipt(next.operationId),
+      (receipt) => receipt.status === 'completed',
+    )
+    assert.equal((await f.host.app.sessions.receipt(queued.operationId)).status, 'queued')
+    await f.host.app.sessions.resume(f.session, key('resume-queue'))
+    await eventually(
+      () => f.host.app.sessions.receipt(queued.operationId),
+      (receipt) => receipt.status === 'completed',
+    )
+    assert.equal(f.fake.provider.requests.length, 4)
   } finally {
     await f.dispose()
   }

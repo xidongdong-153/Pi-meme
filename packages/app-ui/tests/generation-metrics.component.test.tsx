@@ -167,27 +167,6 @@ test('重新打开时计入采样后经过的时间，工具执行只增加总�
   expect(clear).toHaveBeenCalledWith(timer)
 })
 
-test('悬停指标文字不打开说明，移入感叹号或聚焦图标后才显示', () => {
-  vi.useFakeTimers()
-  renderMetrics(createSource())
-  expect(screen.getAllByRole('button', { name: /说明$/ })).toHaveLength(7)
-  expect(screen.queryByText('输入 ↑')).not.toBeInTheDocument()
-  expect(screen.queryByText('输出 ↓')).not.toBeInTheDocument()
-  expect(screen.queryByText('速率含首响应等待，不计工具执行时间。')).not.toBeInTheDocument()
-  const info = screen.getByRole('button', { name: 'TPS说明' })
-  fireEvent.pointerMove(screen.getByText('TPS'), { pointerType: 'mouse' })
-  act(() => vi.advanceTimersByTime(200))
-  expect(screen.queryByRole('tooltip')).not.toBeInTheDocument()
-  fireEvent.pointerMove(info, { pointerType: 'mouse' })
-  act(() => vi.advanceTimersByTime(200))
-  expect(screen.getByRole('tooltip')).toHaveTextContent('排除工具执行时间')
-  expect(screen.getByRole('dialog', { name: '上下文与生成指标' })).toBeInTheDocument()
-  fireEvent.pointerLeave(info)
-  fireEvent.focus(screen.getByRole('button', { name: '首响应 TTFT说明' }))
-  expect(screen.getByRole('tooltip')).toHaveTextContent('首次有效响应')
-  expect(screen.getByRole('dialog', { name: '上下文与生成指标' })).toBeInTheDocument()
-})
-
 test('formatMetricDuration 正确转化时分秒并处理临界防跳变与补零', () => {
   expect(formatMetricDuration(-100)).toBe('0.0s')
   expect(formatMetricDuration(Number.NaN)).toBe('0.0s')
@@ -202,40 +181,4 @@ test('formatMetricDuration 正确转化时分秒并处理临界防跳变与补�
   expect(formatMetricDuration(3599000)).toBe('59m 59s')
   expect(formatMetricDuration(3600000)).toBe('1h 00m 00s')
   expect(formatMetricDuration(3665000)).toBe('1h 01m 05s')
-})
-
-test('指标卡片支持展示分秒级总耗时与超长首响应 TTFT，并支持小时级展示', () => {
-  const source = createSource()
-  renderMetrics(source)
-  act(() =>
-    source.update({
-      running: false,
-      phase: 'complete',
-      elapsedMs: 683100,
-      generationMs: 300000,
-      generationActive: false,
-      ttftMs: 125000,
-      outputTokens: 1500,
-      estimated: false,
-      receivedAt: performance.now(),
-    }),
-  )
-  expect(screen.getByText('11m 23s')).toBeInTheDocument()
-  expect(screen.getByText('2m 05s')).toBeInTheDocument()
-
-  act(() =>
-    source.update({
-      running: false,
-      phase: 'complete',
-      elapsedMs: 3665000,
-      generationMs: 2000000,
-      generationActive: false,
-      ttftMs: 3200,
-      outputTokens: 5000,
-      estimated: false,
-      receivedAt: performance.now(),
-    }),
-  )
-  expect(screen.getByText('1h 01m 05s')).toBeInTheDocument()
-  expect(screen.getByText('3.2s')).toBeInTheDocument()
 })

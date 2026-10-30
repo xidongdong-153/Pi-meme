@@ -2,7 +2,15 @@ name: Linux Host 与 Web
 
 on:
   push:
+    branches: [main]
   pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   linux:
@@ -18,11 +26,8 @@ jobs:
           cache: pnpm
       - uses: ./.github/actions/setup-linux-sandbox
       - run: pnpm install --frozen-lockfile
-      - run: pnpm type-check
-      - run: pnpm lint
-      - run: pnpm format
-      - run: pnpm check-boundaries
-      - run: pnpm test --all --layer unit,component,integration
+      - uses: ./.github/actions/check-code
+      - run: pnpm test:source
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

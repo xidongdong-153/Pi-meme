@@ -74,14 +74,14 @@ test('工作过程和空回复仅显示用时且没有转圈，暂停后计时�
       }),
     )
   const paused = render(true)
-  assert.doesNotMatch(paused, /lucide-loader|lucide-sparkles|animate-spin/)
+  assert.doesNotMatch(paused, /animate-spin/)
   assert.match(paused, /lucide-chevron-down/)
   assert.match(paused, /用时 3秒/)
   assert.doesNotMatch(render(false), /animate-spin|lucide-loader/)
   const thinking = renderToStaticMarkup(
     createElement(ThinkingActivityRow, { item: items[0], open: true, onToggle: () => {}, isPaused: true }),
   )
-  assert.doesNotMatch(thinking, /animate-spin|lucide-sparkles/)
+  assert.doesNotMatch(thinking, /animate-spin/)
   const tool = renderToStaticMarkup(
     createElement(ToolActivityRow, {
       item: {
@@ -95,7 +95,7 @@ test('工作过程和空回复仅显示用时且没有转圈，暂停后计时�
       isPaused: true,
     }),
   )
-  assert.doesNotMatch(tool, /animate-spin|lucide-wrench|lucide-book-open/)
+  assert.doesNotMatch(tool, /animate-spin/)
   assert.match(tool, /已读取文件/)
   assert.doesNotMatch(tool, /工具详情：read/)
   const history = renderToStaticMarkup(

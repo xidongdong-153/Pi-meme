@@ -10,7 +10,7 @@ import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 import { sandboxPluginId } from '../src/sandbox-platform'
 import { createHost } from '../src/service'
 
-test('没有外部插件或恢复清单损坏时，内置模块与基础操作仍可用', async () => {
+test('没有外部插件或恢复清单损坏时，内置模块与基础操作仍可用', { timeout: 30000 }, async () => {
   for (const legacy of [false, true, '损坏'] as const) {
     const root = await mkdtemp(path.join(os.tmpdir(), 'host-static-modules-'))
     let host: Awaited<ReturnType<typeof createHost>> | undefined

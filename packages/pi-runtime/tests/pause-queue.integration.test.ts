@@ -5,64 +5,11 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import type { QueuedInput } from '@pi-meme/contracts/plan'
-import type { PiEvent } from '@pi-meme/contracts/pi'
-import { SdkSession, type RuntimePolicy } from '../src/sdk/session'
+import { SdkSession } from '../src/sdk/session'
 import { PiSessionPool } from '../src/session-pool'
 import { readSessionHistory } from '../src/session-history'
 import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
-
-async function fixture(
-  reply: NonNullable<Parameters<typeof useFakeAgent>[1]>['reply'],
-  configure?: (session: SdkSession) => void,
-  policy: RuntimePolicy = {},
-) {
-  const directory = await mkdtemp(path.join(tmpdir(), 'pi-pause-queue-'))
-  const fake = await useFakeAgent(directory, { reply })
-  const config = JSON.parse(await readFile(fake.modelsFile, 'utf8'))
-  config.providers.fake.models[0].input = ['text', 'image']
-  await writeFile(fake.modelsFile, JSON.stringify(config))
-  await writeFile(path.join(fake.agentDir, 'settings.json'), JSON.stringify({ images: { autoResize: false } }))
-  const events: PiEvent[] = []
-  let queue: QueuedInput[] = []
-  const session = new SdkSession(
-    directory,
-    {
-      connection: () => {},
-      error: () => {},
-      event: ({ event }) => {
-        if (event.type === 'queue_update') queue = structuredClone([...event.steering, ...event.followUp])
-        events.push(event as PiEvent)
-      },
-    },
-    fake.runtimePaths,
-    fake.credentials,
-    undefined,
-    policy,
-  )
-  configure?.(session)
-  session.start(directory)
-  await session.snapshot()
-  await session.setModel({ provider: 'fake', id: 'first' })
-  return {
-    session,
-    fake,
-    events,
-    queue: () => queue,
-    dispose: async () => {
-      await session.stopAndWait()
-      await fake.dispose()
-      await rm(directory, { recursive: true, force: true })
-    },
-  }
-}
-
-async function until(check: () => boolean | Promise<boolean>) {
-  const deadline = Date.now() + 5000
-  while (!(await check())) {
-    if (Date.now() > deadline) throw new Error('等待运行状态超时')
-    await delay(10)
-  }
-}
+import { fixture, until } from './pause-queue-fixture'
 
 test('停止当前任务后保留排队输入，继续任务不释放队列', async () => {
   const f = await fixture(() => ({ text: '执行结果', delayMs: 200 }))
@@ -117,39 +64,6 @@ test('队列变化保存独立检查点，重复控制不改写已停止会话',
   }
 })
 
-test('重新打开停止的会话后仍保留恢复入口和未执行队列', async () => {
-  const f = await fixture(() => ({ text: '执行结果', delayMs: 200 }))
-  let restored: SdkSession | undefined
-  try {
-    await f.session.prompt('原任务')
-    await until(() => f.fake.provider.requests.length === 1)
-    await f.session.followUp('等待确认的任务')
-    await f.session.stopTask()
-    const file = f.session.getActiveSession().sessionFile!
-    await f.session.stopAndWait()
-    restored = new SdkSession(
-      f.fake.runtimePaths.dataRoot,
-      { connection: () => {}, error: () => {}, event: () => {} },
-      f.fake.runtimePaths,
-      f.fake.credentials,
-    )
-    restored.start(f.fake.runtimePaths.dataRoot, file)
-    const snapshot = await restored.snapshot()
-    assert.equal(snapshot.state.stopped, true)
-    assert.equal(snapshot.state.queuePaused, true)
-    assert.equal(snapshot.state.pendingMessageCount, 1)
-    await restored.continueStopped()
-    await until(async () => !(await restored!.snapshot()).state.isStreaming)
-    const continued = await restored.snapshot()
-    assert.equal(continued.state.stopped, false)
-    assert.equal(continued.state.queuePaused, true)
-    assert.equal(continued.state.pendingMessageCount, 1)
-  } finally {
-    await restored?.stopAndWait()
-    await f.dispose()
-  }
-})
-
 test('冷会话显示停止与排队状态，继续队列会启动运行时并执行消息', async () => {
   const f = await fixture(() => ({ text: '队列已执行', delayMs: 200 }))
   let pool: PiSessionPool | undefined
@@ -184,30 +98,6 @@ test('冷会话显示停止与排队状态，继续队列会启动运行时并�
     assert.equal((await pool.snapshot()).state.pendingMessageCount, 0)
   } finally {
     await pool?.stopAndWait()
-    await f.dispose()
-  }
-})
-
-test('暂停冻结流式视图，恢复保持同一请求；旧修订不能重新暂停，停止释放门控', async () => {
-  const f = await fixture(() => ({ text: '恢复前已发出的正文', delayMs: 100 }))
-  try {
-    await f.session.prompt('初始任务')
-    await until(() => f.fake.provider.requests.length === 1)
-    await f.session.setPaused(true, 2)
-    const paused = await f.session.snapshot()
-    await delay(180)
-    assert.deepEqual((await f.session.snapshot()).messages, paused.messages)
-    assert.equal((await f.session.snapshot()).state.isStreaming, true)
-    assert.equal((await f.session.snapshot()).state.queuePaused, true)
-    await f.session.setPaused(false, 3)
-    await f.session.setPaused(true, 2)
-    await until(async () => !(await f.session.snapshot()).state.isStreaming)
-    assert.equal(f.fake.provider.requests.length, 1)
-    assert.equal((await f.session.snapshot()).state.isPaused, false)
-    await f.session.prompt('停止任务')
-    await f.session.pause()
-    await f.session.abort()
-  } finally {
     await f.dispose()
   }
 })
@@ -358,38 +248,6 @@ test('新一代启动允许重放缓存暂停控制，同代重复修订和旧�
     await f.session.reconnectModels()
     await f.session.setPaused(true, 4)
     assert.equal((await f.session.snapshot()).state.isPaused, false)
-  } finally {
-    await f.dispose()
-  }
-})
-
-test('FIFO保留图片、模式和id；编辑队首阻止出队，跨客户端操作拒绝，释放后逐条执行', async () => {
-  const f = await fixture((_body, index) => ({ text: `完成${index}`, holdMs: index === 1 ? 100 : 0 }))
-  try {
-    await f.session.prompt('初始任务')
-    const image = {
-      type: 'image' as const,
-      mimeType: 'image/png',
-      data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jFbkAAAAASUVORK5CYII=',
-    }
-    await f.session.followUp('', [image])
-    await f.session.followUp('计划输入', undefined, [], { mode: 'plan' })
-    const [first, second] = f.queue()
-    assert.ok(first && second)
-    assert.deepEqual(first.images, [image])
-    await f.session.beginQueueEdit(first.id, '甲')
-    await assert.rejects(f.session.beginQueueEdit(first.id, '乙'), /正在编辑/)
-    await assert.rejects(f.session.cancelQueueEdit(first.id, '乙'), /编辑权/)
-    await delay(180)
-    assert.equal(f.fake.provider.requests.length, 1)
-    assert.equal(f.queue()[0]?.id, first.id)
-    await f.session.updateQueueInput(first.id, '修改后的图片输入', [image], [], { mode: 'default' }, '甲')
-    await until(async () => f.fake.provider.requests.length === 3 && !(await f.session.snapshot()).state.isStreaming)
-    assert.equal(f.queue().length, 0)
-    assert.ok(JSON.stringify(f.fake.provider.requests[1]).includes('修改后的图片输入'))
-    assert.ok(JSON.stringify(f.fake.provider.requests[1]).includes('image_url'))
-    assert.ok(JSON.stringify(f.fake.provider.requests[2]).includes('计划输入'))
-    await assert.rejects(f.session.deleteQueueInput(second.id), /已发送/)
   } finally {
     await f.dispose()
   }

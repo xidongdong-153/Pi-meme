@@ -7,6 +7,7 @@ import { featureHelp, requiredBuilds, selectTests } from '../tests/selection'
 const root = fileURLToPath(new URL('..', import.meta.url))
 process.chdir(root)
 const help = `测试必须明确选择范围：
+  pnpm test --feature core
   pnpm test --feature sessions
   pnpm test --feature sessions --layer integration
   pnpm test --feature sessions --layer e2e --target web

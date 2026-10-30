@@ -147,7 +147,7 @@ test('启动时切换会话，返回原会话恢复对应终端', async () => {
 test('无终端能力或无目标时不启动', async () => {
   const unsupported = await setup(false)
   const first = render(unsupported.view())
-  expect(screen.getByRole('status')).toHaveTextContent('node-pty 原生模块不可用')
+  expect(screen.getByRole('status')).toHaveTextContent('无法启动终端')
   expect(unsupported.terminal.open).not.toHaveBeenCalled()
   first.unmount()
   const supported = await setup()

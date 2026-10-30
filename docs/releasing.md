@@ -168,7 +168,8 @@ flowchart TD
   Check --> LinuxHost["Ubuntu 24.04 x64 Host"]
   Desktop --> Assemble["核对三个最终包与 SHA256"]
   MacHost --> Assemble
-  LinuxHost --> Assemble
+  LinuxHost --> Web["复用已构建界面验证 Web 主线"]
+  Web --> Assemble
   Assemble --> Artifacts["Actions 完整附件"]
   Artifacts -->|"仅版本 Tag"| Draft["GitHub Draft Release"]
   Draft --> Manual["下载抽查后人工公开预览版"]
@@ -176,7 +177,7 @@ flowchart TD
 
 Linux job 复用[测试环境](testing.md#环境报告与完整验收)中的沙箱准备 action，保留相同的 AppArmor、临时目录与隔离验证条件。
 
-只有发布 job 有 `contents: write`，使用 GitHub 自带 `GITHUB_TOKEN`，不需要个人 PAT 或 Apple 凭据。其他 job 只读；发布 job 不执行依赖安装或构建脚本。平台 job 不缓存原生构建结果。Linux 的版本检查 job 执行全仓静态检查和源码测试，平台 job 运行直接对应的产物验收；不会用本机结果代替另一平台。
+只有发布 job 有 `contents: write`，使用 GitHub 自带 `GITHUB_TOKEN`，不需要个人 PAT 或 Apple 凭据。其他 job 只读；发布 job 不执行依赖安装或构建脚本。平台 job 缓存 pnpm 下载存储，不缓存原生构建结果。Linux 的版本检查 job 执行 `pnpm check` 和 `pnpm test:source`，复用类型检查增量缓存；平台 job 运行直接对应的产物验收。Linux Host 构建完成后复用同一份 Web 构建执行 4 个 Web E2E，不再为浏览器验收重复构建界面。macOS job 不安装 Chromium。所有检查仍基于本次 checkout，不用旧 workflow 的成功状态跳过发布检查，也不用本机结果代替另一平台。
 
 汇总的 `release-complete` artifact 包含四个附件和 Release Notes，保留七天。只有所有平台成功才会进入汇总与发布。并发按 ref 排队；重跑可覆盖 Actions artifacts，但公开 Release 附件不可覆盖。
 

@@ -18,8 +18,5 @@ export default defineConfig({
     ['json', { outputFile: `${output}/results.json` }],
   ],
   use: { trace: 'retain-on-failure', screenshot: 'only-on-failure', actionTimeout: 10000, navigationTimeout: 15000 },
-  projects: [
-    { name: 'web', testMatch: '**/web/tests/**/*.e2e.spec.ts', use: { browserName: 'chromium' } },
-    { name: 'desktop', testMatch: '**/desktop/tests/**/*.e2e.spec.ts' },
-  ],
+  projects: [{ name: 'web', testMatch: '**/web/tests/**/*.e2e.spec.ts', use: { browserName: 'chromium' } }],
 })

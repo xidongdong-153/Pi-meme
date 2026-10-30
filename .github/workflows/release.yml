@@ -38,11 +38,8 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - id: version
         run: node --import tsx scripts/release.mts check
-      - run: pnpm type-check
-      - run: pnpm lint
-      - run: pnpm format
-      - run: pnpm check-boundaries
-      - run: pnpm test --all --layer unit,component,integration
+      - uses: ./.github/actions/check-code
+      - run: pnpm test:source
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -88,6 +85,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 24.14.0
+          cache: pnpm
       - if: runner.os == 'Linux'
         uses: ./.github/actions/setup-linux-sandbox
       - run: pnpm install --frozen-lockfile
@@ -107,6 +105,12 @@ jobs:
         if: matrix.product == 'host'
         run: |
           pnpm test --file apps/server/tests/dist-smoke.artifact.test.ts --file apps/server/tests/restricted-dist.artifact.test.ts
+      - name: 安装 Web 验收浏览器
+        if: matrix.product == 'host' && runner.os == 'Linux'
+        run: pnpm exec playwright install --with-deps chromium
+      - name: 复用 Host 构建的界面验收 Web 主线
+        if: matrix.product == 'host' && runner.os == 'Linux'
+        run: pnpm exec playwright test --project web
       - name: 构建并验收 Desktop 应用
         if: matrix.product == 'desktop'
         run: |

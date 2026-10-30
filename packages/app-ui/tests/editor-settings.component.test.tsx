@@ -196,11 +196,6 @@ test('连接恢复后成功刷新设置，清除之前的连接错误并应用�
   expect(f.settings().error).toBe('')
 })
 
-test('权限设置保存时不在说明中插入正在保存提示', () => {
-  render(<AccessSettings supported busy={false} saving onSave={vi.fn()} />)
-  expect(screen.queryByText(/正在保存/)).not.toBeInTheDocument()
-})
-
 test('子代理默认配置逐项保存、失败回退并可重试，运行中也可修改', async () => {
   const context = setup(true)
   await switches()

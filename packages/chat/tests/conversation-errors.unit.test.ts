@@ -81,7 +81,7 @@ test('独立命令非零退出按失败显示，主动取消和助手中断不�
   const turn = groupConversationTurns([userMessage('任务', 1000), command], null, {}, false)[1]!
   assert.equal(turn.type === 'assistant_turn' && turn.activities[0]?.status, 'error')
   const html = renderToStaticMarkup(createElement(ChatMessage, { message: command, tools: {} }))
-  assert.match(html, /已运行 false/)
+  assert.match(html, /运行命令失败/)
   assert.doesNotMatch(html, /text-destructive/)
   const cancelled = groupConversationTurns(
     [userMessage('任务', 1000), { ...command, cancelled: true }],

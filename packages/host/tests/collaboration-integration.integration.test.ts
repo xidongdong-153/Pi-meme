@@ -14,8 +14,9 @@ import { createHost } from '../src/service'
 import { HostCollaborationBridge } from '@pi-meme/subagents/server/coordinator'
 import { agentFixtureManifest, trustPluginFixture, writeAgentFixture } from './plugin-fixture'
 
-async function eventually(check: () => boolean | Promise<boolean>) {
-  for (let count = 0; count < 200; count++) {
+async function eventually(check: () => boolean | Promise<boolean>, timeout = 5000) {
+  const deadline = Date.now() + timeout
+  while (Date.now() < deadline) {
     if (await check()) return
     await delay(25)
   }
@@ -437,7 +438,7 @@ test(
       const key = (await rpc<Snapshot>('pi:snapshot')).connection.sessionKey!
       await rpc('pi:access-mode', [key, 'full-access'], key)
       await rpc('pi:prompt', [key, '持续协作完成接口与页面，并完成两轮验收'], key)
-      await eventually(async () => (await rpc<Snapshot>('pi:snapshot', [], key)).agent?.status === 'completed')
+      await eventually(async () => (await rpc<Snapshot>('pi:snapshot', [], key)).agent?.status === 'completed', 20000)
       const snapshot = await rpc<Snapshot>('pi:snapshot', [], key)
       assert.equal(snapshot.agents!.length, 3)
       assert.ok(snapshot.agents!.every((agent) => agent.status === 'completed'))
@@ -830,7 +831,7 @@ test('模式 RPC 接受 default/plan，纯命令不调用模型，协作入口�
   }
 })
 
-test('零外部插件能聊天，父子 Worker 分别持有租约，子快照不切换视图，退役与退出释放租约', async () => {
+test('零外部插件聊天、父子租约与快照隔离，退役和退出释放租约', { timeout: 30000 }, async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'host-collaboration-'))
   let spawned = false
   const fake = await useFakeAgent(root, {

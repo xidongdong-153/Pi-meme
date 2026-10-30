@@ -33,7 +33,10 @@ export async function stageHostWorkspace(repo: string, workspace: string) {
   for (const directory of ['apps', 'packages', 'plugins', 'patches'])
     await cp(path.join(repo, directory), path.join(workspace, directory), {
       recursive: true,
-      filter: (source) => !excluded.has(path.basename(source)) && !path.basename(source).startsWith('.env'),
+      filter: (source) =>
+        !excluded.has(path.basename(source)) &&
+        !path.basename(source).startsWith('.env') &&
+        !source.endsWith('.tsbuildinfo'),
     })
   const manifestFile = path.join(workspace, 'package.json')
   const manifest = JSON.parse(await readFile(manifestFile, 'utf8'))

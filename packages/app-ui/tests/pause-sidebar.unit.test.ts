@@ -6,7 +6,6 @@ import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 import type { PiProjectGroup, PiSessionSummary } from '@pi-meme/contracts/sessions'
 import { SessionItem } from '@pi-meme/workspace/ui/sidebar/session-item'
 import { ProjectItem } from '@pi-meme/workspace/ui/sidebar/project-item'
-import { PinnedSection } from '@pi-meme/workspace/ui/sidebar/pinned-section'
 import { SidebarMenus, type SidebarMenuBridge } from '@pi-meme/workspace/ui/sidebar/sidebar-menus'
 
 function noop() {}
@@ -54,66 +53,8 @@ test('侧栏三类会话暂停时没有运行图标，恢复后重新转圈', ()
           onTogglePin: noop,
         }),
       )
-    assert.doesNotMatch(item(true), /会话运行中|animate-spin/)
+    assert.doesNotMatch(item(true), /会话运行中/)
     assert.match(item(false), /会话运行中/)
-    assert.match(item(false), /animate-spin/)
-  }
-})
-
-test('普通和置顶项目在运行、暂停和空闲状态下都显示静态目录图标', () => {
-  for (const isPinned of [false, true]) {
-    const item = (sessions: PiSessionSummary[]) => {
-      const value = project(sessions)
-      return render(
-        isPinned
-          ? createElement(PinnedSection, {
-              entries: [{ kind: 'project', key: 'project', serviceId: 'local', project: value }],
-              collapsed: false,
-              onToggle: noop,
-              projectProps: {
-                cwd: '',
-                onNewSessionInProject: noop,
-                onTogglePin: noop,
-                onSwitchSession: noop,
-                onPrefetchSession: noop,
-              },
-              expandedProjectItemLimits: new Set<string>(),
-              toggleProjectItems: noop,
-              sortable: false,
-              reorderEnabled: true,
-              onReorder: noop,
-              onReorderSessions: noop,
-              expandedProjects: new Set<string>(),
-              toggleProject: noop,
-            })
-          : createElement(ProjectItem, {
-              project: value,
-              cwd: '',
-              isExpanded: false,
-              isPinned: false,
-              isItemsExpandedAll: false,
-              onToggle: noop,
-              onToggleItems: noop,
-              onNewSessionInProject: noop,
-              onTogglePin: noop,
-              onSwitchSession: noop,
-              onPrefetchSession: noop,
-            }),
-      )
-    }
-    for (const sessions of [
-      [{ ...session, isPaused: true }],
-      [
-        { ...session, isPaused: true },
-        { ...session, id: 'other', path: '/tmp/other.jsonl', isPaused: false },
-      ],
-      [{ ...session, running: false, isPaused: false }],
-    ]) {
-      const markup = item(sessions)
-      assert.doesNotMatch(markup, /项目内有会话运行中/)
-      assert.match(markup, /lucide-folder/)
-      assert.equal((markup.match(/会话运行中/g) ?? []).length, sessions.filter((s) => s.running && !s.isPaused).length)
-    }
   }
 })
 

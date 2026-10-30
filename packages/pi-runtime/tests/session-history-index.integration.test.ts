@@ -1,5 +1,5 @@
 import { expect, test, vi } from 'vitest'
-import { appendFile, mkdir, mkdtemp, readFile, readdir, rm, stat, utimes, writeFile } from 'node:fs/promises'
+import { appendFile, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, utimes, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { tmpdir } from 'node:os'
 import { readSessionHistory, invalidateSessionHistory } from '../src/session-history'
@@ -124,6 +124,22 @@ test('重新打开控制器时复用持久索引，不完整读取原生正文�
   } finally {
     vi.doUnmock('node:fs/promises')
     vi.resetModules()
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('索引缓存通过不同路径读取同一文件时，统计保留各自调用路径', async () => {
+  const { root, file } = await fixture()
+  const alias = path.join(root, 'alias.jsonl')
+  try {
+    await symlink(file, alias)
+    for (const target of [file, alias, file]) {
+      const page = await readSessionHistory(target, { limit: 10, details: 'deferred' })
+      const full = await readSessionHistory(target)
+      expect(page.stats).toEqual(full.stats)
+      expect(page.stats?.sessionFile).toBe(target)
+    }
+  } finally {
     await rm(root, { recursive: true, force: true })
   }
 })

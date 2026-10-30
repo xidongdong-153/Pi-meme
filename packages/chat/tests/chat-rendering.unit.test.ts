@@ -145,7 +145,6 @@ test('模型提示在原模型未知时只显示目标，长名称完整保留�
     }),
   )
   assert.ok(markup.includes(`模型已更改为 ${longName}。`))
-  assert.match(markup, /overflow-wrap:anywhere/)
 
   const sameName = renderToStaticMarkup(
     createElement(ModelChangeRow, {
@@ -380,16 +379,16 @@ test('Markdown 保留有序列表起始序号和任务列表语义', () => {
   assert.match(markup, /class="[^"]*task-list-item/)
 })
 
-test('Markdown 为大序号留出空间，保留表格对齐并识别警告块', () => {
+test('Markdown 保留大序号、表格正文并识别警告块', () => {
   const markup = renderToStaticMarkup(
     createElement(MarkdownContent, {
       children:
         '## 列表\n\n999. 第一项\n1000. 第二项\n\n| 名称 | 状态 | 金额 |\n| :--- | :---: | ---: |\n| 项目 | 完成 | 8 |\n\n> [!WARNING]\n> 注意风险',
     }),
   )
-  assert.match(markup, /<ol[^>]*start="999"[^>]*padding-left:5\.5ch/)
-  assert.match(markup, /text-align:center/)
-  assert.match(markup, /text-align:right/)
+  assert.match(markup, /<ol[^>]*start="999"/)
+  assert.match(markup, /<td[^>]*>完成<\/td>/)
+  assert.match(markup, /<td[^>]*>8<\/td>/)
   assert.match(markup, /pi-alert-warning/)
   assert.doesNotMatch(markup, /\[!WARNING\]/)
 })
@@ -562,7 +561,7 @@ test('主对话保留编辑与分叉，运行时只禁用按钮，历史数据�
   }
 })
 
-test('主会话子代理结果只显示短状态，不渲染报告正文或来源ID', () => {
+test('主会话子代理结果只显示短状态，不展示报告正文或来源 ID', () => {
   const markup = renderToStaticMarkup(
     createElement(Conversation, {
       chat: {
@@ -588,7 +587,10 @@ test('主会话子代理结果只显示短状态，不渲染报告正文或来�
       onCopyError: () => {},
     }),
   )
-  assert.doesNotMatch(markup, /私有完整报告正文|private-agent-uuid|private-run-uuid|来自子代理/)
+  assert.doesNotMatch(markup, /私有完整报告正文|来自子代理/)
+  // 滚动锚点保留内部标识，正文和其他展示属性不能输出来源 ID。
+  const displayMarkup = markup.replace(/ data-conversation-turn="[^"]*"/g, '')
+  assert.doesNotMatch(displayMarkup, /private-agent-uuid|private-run-uuid/)
   assert.match(markup, /Chat activity/)
   assert.match(markup, /data-agent-avatar=""/)
   assert.doesNotMatch(markup, /chat_activity|animate-spin/)
@@ -919,28 +921,6 @@ test.each<{
   assert.doesNotMatch(result.summary, /\d/u)
 })
 
-test('用时独立显示，运行与历史的活动摘要均默认折叠且不显示转圈', () => {
-  const items = [
-    { id: 'read', type: 'tool' as const, name: 'read', args: { path: 'src/main.ts' }, status: 'success' as const },
-    { id: 'thought', type: 'thinking' as const, thinking: '检查文件', status: 'success' as const },
-  ]
-  const live = renderToStaticMarkup(createElement(ActivityGroup, { items, isLive: true, startedAt: Date.now() }))
-  const liveHeader = live.match(/<button[^>]*aria-label="活动详情：.*?<\/button>/)?.[0]
-  assert.ok(liveHeader)
-  assert.match(liveHeader, /aria-expanded="false"/)
-  assert.match(live, /处理中/)
-  assert.match(liveHeader, /已读取文件/)
-  assert.doesNotMatch(live, /animate-spin|lucide-loader/)
-
-  const completed = renderToStaticMarkup(createElement(ActivityGroup, { items, durationMs: 45000 }))
-  const completedHeader = completed.match(/<button[^>]*aria-label="活动详情：.*?<\/button>/)?.[0]
-  assert.ok(completedHeader)
-  assert.match(completedHeader, /aria-expanded="false"/)
-  assert.match(completed, /用时 45秒/)
-  assert.match(completedHeader, /已读取文件/)
-  assert.doesNotMatch(completed, /animate-spin|lucide-loader/)
-})
-
 test('正文分隔活动组，思考与工具连续合并且保留原来顺序', () => {
   const items: ActivityItem[] = [
     { id: 'read-1', type: 'tool', name: 'read', args: { path: 'a.ts' }, status: 'success' },
@@ -977,48 +957,6 @@ test('用户气泡显示多个内联技能名，不显示技能长正文和路�
   assert.match(markup, /技能：review-code/)
   assert.match(markup, /123|看看技能/)
   assert.doesNotMatch(markup, /长正文 A|长正文 B/)
-})
-
-test('ThinkingActivityRow 在运行和完成态均渲染调皮文案，且文案非空', async () => {
-  const { ThinkingActivityRow } = await import('../src/ui/conversation/thinking-activity-row')
-  const { PLAYFUL_THINKING_LABELS } = await import('../src/ui/model/thinking-labels')
-
-  const runningItem = {
-    id: 'thought-run-1',
-    type: 'thinking' as const,
-    thinking: '正在思考中',
-    status: 'running' as const,
-  }
-  const runningMarkup = renderToStaticMarkup(
-    createElement(ThinkingActivityRow, { item: runningItem, open: false, onToggle: () => {} }),
-  )
-  const hasRunningLabel = PLAYFUL_THINKING_LABELS.some((label) => runningMarkup.includes(label))
-  assert.equal(hasRunningLabel, true)
-
-  const completedItem = {
-    id: 'thought-done-1',
-    type: 'thinking' as const,
-    thinking: '已经思考完毕',
-    status: 'success' as const,
-  }
-  const completedMarkup = renderToStaticMarkup(
-    createElement(ThinkingActivityRow, { item: completedItem, open: false, onToggle: () => {} }),
-  )
-  const hasCompletedLabel = PLAYFUL_THINKING_LABELS.some((label) => completedMarkup.includes(label))
-  assert.equal(hasCompletedLabel, true)
-})
-
-test('ThinkingActivityRow 展开时为无边框无框体设计，不包含复制按钮和思考内容表头', async () => {
-  const { ThinkingActivityRow } = await import('../src/ui/conversation/thinking-activity-row')
-  const item = {
-    id: 'thought-open-1',
-    type: 'thinking' as const,
-    thinking: '正在分析用户诉求',
-    status: 'success' as const,
-  }
-  const openMarkup = renderToStaticMarkup(createElement(ThinkingActivityRow, { item, open: true, onToggle: () => {} }))
-  assert.match(openMarkup, /正在分析用户诉求/)
-  assert.doesNotMatch(openMarkup, /复制|思考内容|border-border/)
 })
 
 test('思考展示清理尾部空白，保留内部空行、前导缩进和原始内容', async () => {

@@ -237,25 +237,23 @@ function createTransfer() {
   }
 }
 
-test.each([false, true])('多服务侧边栏置顶=%s 的项目直接从行内拖拽，不显示手柄或预留空白', (pinned) => {
+test.each([false, true])('多服务侧边栏置顶=%s 的项目拖拽按服务标识保存顺序', (pinned) => {
   const { props, rows } = renderSidebar(pinned)
   expect(screen.queryByRole('button', { name: '拖动排序，方向键上下移动' })).not.toBeInTheDocument()
   for (const row of rows) {
     expect(row).toHaveAttribute('draggable', 'true')
-    expect(row.closest('[data-sidebar-item-key]')).not.toHaveClass('pl-3')
   }
   const listKey = pinned ? 'pinned' : 'projects'
   const keys = props.model[listKey].map((entry) => entry.key)
-  for (const source of [rows[0], rows[0].querySelector('svg')!, screen.getByText('local 项目')]) {
-    const dataTransfer = createTransfer()
-    fireEvent.pointerDown(source)
-    fireEvent.dragStart(source, { dataTransfer })
-    expect(dataTransfer.effectAllowed).toBe('move')
-    fireEvent.dragOver(rows[1], { dataTransfer })
-    expect(dataTransfer.dropEffect).toBe('move')
-    fireEvent.drop(rows[1], { dataTransfer })
-    expect(props.onPreferencesChange).toHaveBeenLastCalledWith({ orders: { [listKey]: [keys[1], keys[0]] } })
-  }
+  const source = screen.getByText('local 项目')
+  const dataTransfer = createTransfer()
+  fireEvent.pointerDown(source)
+  fireEvent.dragStart(source, { dataTransfer })
+  expect(dataTransfer.effectAllowed).toBe('move')
+  fireEvent.dragOver(rows[1], { dataTransfer })
+  expect(dataTransfer.dropEffect).toBe('move')
+  fireEvent.drop(rows[1], { dataTransfer })
+  expect(props.onPreferencesChange).toHaveBeenLastCalledWith({ orders: { [listKey]: [keys[1], keys[0]] } })
   expect(props.onActivate).not.toHaveBeenCalled()
 })
 
@@ -264,7 +262,6 @@ test('置顶会话从行内拖拽并支持方向键排序，操作按钮不触�
   expect(screen.queryByRole('button', { name: '拖动排序，方向键上下移动' })).not.toBeInTheDocument()
   const [source, target] = sessionRows
   expect(source).toHaveAttribute('draggable', 'true')
-  expect(source.closest('[data-sidebar-item-key]')).not.toHaveClass('pl-3')
   const keys = props.model.pinned.map((entry) => entry.key)
   const sourceKey = source.closest<HTMLElement>('[data-sidebar-item-key]')!.dataset.sidebarItemKey!
   const targetKey = target.closest<HTMLElement>('[data-sidebar-item-key]')!.dataset.sidebarItemKey!

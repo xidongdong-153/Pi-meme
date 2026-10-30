@@ -9,6 +9,7 @@ export const reservedPluginIds = [
   '@pi-meme/terminal',
   '@pi-meme/models',
   '@pi-meme/image-generation',
+  '@pi-meme/visualize',
   '@pi-meme/settings',
   '@pi-meme/interaction',
   '@pi-meme/mcp',

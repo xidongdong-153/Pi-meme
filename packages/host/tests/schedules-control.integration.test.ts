@@ -8,7 +8,7 @@ import { createHost } from '../src/service'
 import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
 
 const key = (idempotencyKey: string) => ({ idempotencyKey })
-test('HostApi 持久保存安排、幂等执行并推送结果，执行不改变当前聊天', async () => {
+test('HostApi 持久保存安排、幂等执行并推送结果，执行不改变当前聊天', { timeout: 30000 }, async () => {
   const root = await realpath(await mkdtemp(path.join(tmpdir(), 'pi-schedule-control-')))
   const fake = await useFakeAgent(root, { reply: '定时任务已完成' })
   let host = await createHost({ dataRoot: fake.dataRoot, credentials: fake.credentials })

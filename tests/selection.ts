@@ -76,8 +76,7 @@ export function requiredBuilds(
   for (const suite of selected) {
     if (suite.layer === 'e2e' && suite.target === 'web') builds.add('build:web')
     if (suite.layer === 'artifact' && suite.target === 'server' && !artifacts.serverBundle) builds.add('build:server')
-    if (suite.target === 'desktop' && (suite.layer === 'e2e' || (suite.layer === 'artifact' && !artifacts.desktopApp)))
-      builds.add('package')
+    if (suite.target === 'desktop' && suite.layer === 'artifact' && !artifacts.desktopApp) builds.add('package')
   }
   return [...builds]
 }

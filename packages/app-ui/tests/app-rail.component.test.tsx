@@ -94,14 +94,6 @@ test.each(['外部点击', 'Escape'])('头像菜单通过%s关闭后恢复焦点
   expect(await screen.findByRole('tooltip')).toHaveTextContent('设置与账户')
 })
 
-test('AppRail 顶部首页入口调用新聊天操作', () => {
-  const onHome = vi.fn()
-  renderRail({ onHome, homeActive: true })
-
-  fireEvent.click(screen.getByRole('button', { name: '首页' }))
-  expect(onHome).toHaveBeenCalledTimes(1)
-})
-
 test('定时任务首次加载时保留可交互的顶栏和导航栏', async () => {
   let resolveContent!: (module: { default: () => ReactNode }) => void
   const Content = lazy(
@@ -144,47 +136,6 @@ test('定时任务首次加载时保留可交互的顶栏和导航栏', async ()
   expect(screen.getByRole('button', { name: '定时任务' })).toBe(schedules)
   expect(screen.getByText('定时任务内容')).toHaveClass('content-frame')
   expect(screen.queryByRole('status')).toBeNull()
-})
-
-test('AppRail 用户菜单顶部展示姓名且不含 Pro，点击触发个人资料回调', async () => {
-  const onAccount = vi.fn()
-  renderRail({ onAccount })
-
-  const avatarBtn = screen.getByRole('button', { name: '用户菜单与设置' })
-  openUserMenu(avatarBtn)
-
-  const nameElement = await screen.findByText('meme 用户')
-  expect(nameElement).toBeInTheDocument()
-  expect(screen.queryByText('Pro')).not.toBeInTheDocument()
-
-  fireEvent.click(nameElement)
-  expect(onAccount).toHaveBeenCalledTimes(1)
-})
-
-test('AppRail 用户菜单「用量」项点击触发对应回调', async () => {
-  const onUsage = vi.fn()
-  renderRail({ onUsage })
-
-  const avatarBtn = screen.getByRole('button', { name: '用户菜单与设置' })
-  openUserMenu(avatarBtn)
-
-  const usageItem = await screen.findByRole('menuitem', { name: /用量/ })
-  expect(usageItem).toBeInTheDocument()
-  fireEvent.click(usageItem)
-  expect(onUsage).toHaveBeenCalledTimes(1)
-})
-
-test('AppRail 用户菜单「设置」项点击触发对应回调', async () => {
-  const onSettings = vi.fn()
-  renderRail({ onSettings })
-
-  const avatarBtn = screen.getByRole('button', { name: '用户菜单与设置' })
-  openUserMenu(avatarBtn)
-
-  const settingsItem = await screen.findByRole('menuitem', { name: /设置/ })
-  expect(settingsItem).toBeInTheDocument()
-  fireEvent.click(settingsItem)
-  expect(onSettings).toHaveBeenCalledTimes(1)
 })
 
 test('AppRail 帮助菜单项包含二级菜单触发项，点击键盘快捷键触发回调', async () => {

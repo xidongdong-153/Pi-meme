@@ -23,8 +23,9 @@ flowchart TD
     A["本地开发"] --> B["全仓类型检查与变更文件 Lint、Format"]
     B --> C["必要的文件级测试"]
     C --> D["报告已通过、未运行与风险"]
-    E["日常 CI"] --> F["全仓静态检查、包边界与源码测试"]
-    G["手动完整验收"] --> H["E2E、构建与产物测试"]
+    E["main 推送与 PR"] --> F["Linux：静态检查与全部源码测试"]
+    G["手动完整验收"] --> H["Linux：静态、源码、Web 与 Server 产物"]
+    G --> I["macOS：源码与 Desktop、Server 产物"]
 ```
 
 ## 入口
@@ -34,6 +35,11 @@ pnpm test --file packages/contracts/tests/plan-message.unit.test.ts
 pnpm test --file packages/contracts/tests/plan-message.unit.test.ts --name 中文
 pnpm test --file packages/contracts/tests/plan-message.unit.test.ts --list
 pnpm test --list
+pnpm test --feature core --list
+pnpm test --feature core
+pnpm check
+pnpm test:source
+pnpm test:web
 pnpm test --feature sessions --list
 pnpm test --feature sessions
 pnpm test --feature sessions --feature chat --layer unit,component
@@ -44,6 +50,50 @@ pnpm test --all --list
 `--list` 只列清单。`--feature` 和 `--file` 支持重复指定；`--all` 与它们互斥。`--name` 接受正则表达式，必须同时指定文件。未知功能、无匹配测试和显式选择不支持的平台都会失败。
 
 使用 `--feature` 时默认运行 unit、component、integration，不构建应用、不启动 Electron、不收集覆盖率。`--file` 按所选文件的层次运行，选择 E2E 或产物文件仍会触发必要构建；日常应选择相关源码测试。
+
+## 主线与专项
+
+`pnpm test --feature core` 显式运行以下八个源码测试文件，不启动浏览器或 Electron，不构建应用。局部修改仍优先 `--file`；修改公共执行链路、需要跨包确认主线时再选 `core`。它不代替对应功能的风险回归，也不表示发布验收通过。
+
+| 文件                                                                                                          | 验证行为                                            |
+| ------------------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| [chat.unit.test.ts](../packages/chat/tests/chat.unit.test.ts)                                                 | 流式消息、最终结果、快照与重复事件合并              |
+| [composer-submit.component.test.tsx](../packages/chat/tests/composer-submit.component.test.tsx)               | 提交守卫、草稿保护、失败与迟到响应                  |
+| [client-auth.unit.test.ts](../packages/client/tests/client-auth.unit.test.ts)                                 | 认证、上传、暂停与重连不重发                        |
+| [client-sessions.unit.test.ts](../packages/client/tests/client-sessions.unit.test.ts)                         | 显式会话目标、快速切换与后台事件隔离                |
+| [host-transport.integration.test.ts](../packages/host/tests/host-transport.integration.test.ts)               | 真实 Host 认证、数据目录写锁、关闭与连接回收        |
+| [app-control-core.integration.test.ts](../packages/host/tests/app-control-core.integration.test.ts)           | 稳定引用、幂等提交、历史恢复与重启不重放            |
+| [pause-queue-core.integration.test.ts](../packages/pi-runtime/tests/pause-queue-core.integration.test.ts)     | 重开停止会话、暂停恢复同一请求、FIFO 与队列编辑归属 |
+| [sdk-access-sandbox.integration.test.ts](../packages/pi-runtime/tests/sdk-access-sandbox.integration.test.ts) | 项目内写入、只读与越界拒绝、实际沙箱后端及进程回收  |
+
+沙箱主线需要当前平台的真实后端；Linux 的准备条件见下文。平台不支持而跳过的用例不算该平台验收通过。
+
+Host 与队列主线从各自专项文件中独立登记，共用所属包内的 `app-control-fixture.ts`、`pause-queue-fixture.ts`；同一用例只保留一份。原有 `chat`、`sessions` 选择仍包含这些主线文件，多个功能同时选择时按文件去重：
+
+```bash
+pnpm test --feature core --feature chat
+```
+
+存储迁移、删除、凭据、认证、权限、沙箱、插件代次与资源租约的风险用例保留在所属功能。修改这些行为时，运行直接相关文件；修改共享 fixture 时，运行引用该 fixture 的全部测试文件。不要用 `core` 通过代替这些专项检查。
+
+## 覆盖分工
+
+| 范围       | 自动验证保留的内容                                                 | 不单独维护的断言                                                               |
+| ---------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------ |
+| 设置与导航 | 未保存确认、保存期间禁止离开、实际导航、异步资料不覆盖草稿         | 骨架屏分类枚举、圆角、流光延迟、保存中提示文案、历史字段删除、每个普通菜单回调 |
+| 聊天展示   | 消息顺序、正文完整、只读边界、展开与复制交互                       | 趣味文案、字号、边框、图标 class、扫光效果、图标节点位置、重复的初始折叠结构   |
+| 面板拖拽   | 单元测试验证阻尼和数值边界；组件验证收起接线、草稿、实例与焦点保留 | 组件层重复计算同一阻尼数值，圆角、边距和动画 class                             |
+| 错误展示   | JSON 原因解析、完整详情、关闭与设置操作、异常回退                  | Toast 坐标、颜色、动画 class；重复的空消息与卡片顺序检查集中在错误组件测试     |
+| 生成指标   | 时长边界计算、估算与实际值、订阅和计时器释放                       | 每种时长重复挂载卡片、说明图标的悬停位置                                       |
+| 代码高亮   | 并发加载复用实例、代表语言及别名、明暗主题                         | 逐个枚举第三方支持的全部语言                                                   |
+
+设置导航与未保存保护在 [settings-navigation.component.test.tsx](../packages/app-ui/tests/settings-navigation.component.test.tsx)。普通文案与样式修改做针对性人工检查，不要求新增展示断言。多服务侧栏拖拽只保留一类拖拽起点，仍验证置顶与普通列表的服务标识、排序结果、偏好未就绪禁用和操作按钮不误触。
+
+Web E2E 保留 3 个文件、4 个用例：聊天与刷新恢复、停止后继续、编辑与分叉、指令保存与重新读取。设置导航、浏览器存储维护入口不可用及聊天草稿保留合并到指令保存流程，不再单独遍历技能、插件和 MCP 页面。
+
+不维护桌面 UI 自动化：Desktop E2E、专用 fixture 和通过 Playwright 操作 `.app` 的存储产物测试均已删除。桌面只保留源码测试，以及 [package-runtime.artifact.test.ts](../apps/desktop/tests/package-runtime.artifact.test.ts) 和 [package-signing.artifact.test.ts](../apps/desktop/tests/package-signing.artifact.test.ts) 的进程、协议、资源与签名验收；运行时验收通过调试协议调用客户端和平台 API，不操作 DOM、输入框或技能候选。Server 产物测试保留。
+
+存储风险继续由 [storage-maintenance.integration.test.ts](../packages/host/tests/storage-maintenance.integration.test.ts)、[storage-task.integration.test.ts](../apps/desktop/tests/storage-task.integration.test.ts)、[storage-bootstrap.unit.test.ts](../apps/desktop/tests/storage-bootstrap.unit.test.ts) 和 [storage-ipc.unit.test.ts](../apps/desktop/tests/storage-ipc.unit.test.ts) 验证。真实 `.app` 的迁移入口、重启后界面恢复及缓存清理入口按需人工验收；底层测试通过不代表这些界面流程已验收。
 
 ## 日常验证与新增测试
 
@@ -58,7 +108,11 @@ pnpm exec prettier --check packages/contracts/tests/plan-message.unit.test.ts
 pnpm test --file packages/contracts/tests/plan-message.unit.test.ts
 ```
 
-`pnpm lint` 和 `pnpm format` 检查全仓，供 CI 或明确的全仓检查使用。测试归所属包，共享假模型和环境在 [tests/fixtures](../tests/fixtures/)，不读取真实凭据或调用真实模型。
+`pnpm check` 依次运行全仓类型检查、Lint、Format 和包边界检查，供 CI 与明确的全仓验收使用。日常任务仍只对变更文件运行 Lint、Format。
+
+类型检查保留各包的独立检查范围，启用 TypeScript `incremental`。首次运行生成各目录的 `.tsbuildinfo`，后续按文件变化重新检查；缓存不提交，删除后会完整重建。CI 通过 [check-code action](../.github/actions/check-code/action.yml) 按平台、架构、锁文件和 tsconfig 缓存检查信息，每次仍执行全部检查命令。缓存不是跳过检查的条件。
+
+`pnpm test:source` 运行全部 unit、component、integration；`pnpm test:web` 只构建 Web 并执行剩余 4 个 Web E2E。测试归所属包，共享假模型和环境在 [tests/fixtures](../tests/fixtures/)，不读取真实凭据或调用真实模型。
 
 普通新功能不强制新增测试，不要求补齐多个层次或满足覆盖率。新增测试用于保护已发生 bug、容易写错且影响用户结果的稳定行为，或数据、凭据与权限边界。文案、CSS、导航排列、内部调用顺序不单独增加测试。同一行为优先在能可靠验证的最便宜层次覆盖，不为层次齐全而重复测试。
 
@@ -75,12 +129,12 @@ pnpm test --file packages/contracts/tests/plan-message.unit.test.ts
 | `.unit.test.ts`        | Vitest / Node                    | 纯逻辑、状态投影、协议参数和明确的初始渲染契约                  |
 | `.component.test.tsx`  | Vitest / jsdom / Testing Library | React 实际挂载、effect、输入、点击、状态更新和回调              |
 | `.integration.test.ts` | Vitest / Node                    | 临时文件、真实 Host、Worker、HTTP/WebSocket、SDK 和插件生命周期 |
-| `.e2e.spec.ts`         | Playwright                       | Web 与开发态 Electron 的完整流程、焦点、布局和平台接线          |
+| `.e2e.spec.ts`         | Playwright                       | Web 的完整流程、焦点和布局                                      |
 | `.artifact.test.ts`    | Node 原生测试                    | 构建后的 Server、真实 `.app`、签名和运行时资源                  |
 
 单元与集成测试允许保留 `node:assert/strict` 断言；测试注册和生命周期统一使用 Vitest。不要直接替换 `node:test` 的 import 后保留不兼容的钩子：`after` 对应 `afterAll`，`t.after` 对应 `t.onTestFinished`，动态子测试改为收集阶段的 `describe` 和 `test`。
 
-jsdom 不计算布局；测试环境只补 Radix 需要的指针捕获和滚动方法。尺寸、真实焦点、图片解码、原生按键及文件对话框留在 E2E。静态 HTML 测试只证明初始结构，不证明交互可用。不要修改 React 私有 dispatcher 来执行 effect。
+jsdom 不计算布局；测试环境补 Radix 需要的指针捕获和滚动方法，以及不触发回调的 `ResizeObserver` 订阅接口。需要验证尺寸回调的组件用例自行提供观测数据；真实尺寸、焦点和图片解码由 Web E2E 按需验证；Electron 原生按键及文件对话框按需人工检查。静态 HTML 测试只证明初始结构，不证明交互可用。不要修改 React 私有 dispatcher 来执行 effect。
 
 ## 按改动选测
 
@@ -102,7 +156,7 @@ jsdom 不计算布局；测试环境只补 Radix 需要的指针捕获和滚动�
 | Agent 项目服务与活动面板       | `activities`              | 沙箱权限加 `permissions`；目标与来源加 `sessions`、`subagents` |
 | 设置、指令、外观和用量         | `settings`、`usage`       | 凭据加 `models`                                                |
 | HTTP/WebSocket、认证与重连     | `connection`              | 目标恢复加 `sessions`                                          |
-| Electron 壳、preload、平台 IPC | `desktop`、`connection`   | 先验证相关源码；E2E、产物验收需明确要求                        |
+| Electron 壳、preload、平台 IPC | `desktop`、`connection`   | 先验证相关源码；产物验收需明确要求，桌面交互按需人工检查       |
 | 选测入口、清单和框架配置       | `testing`                 | 加受影响文件；用 `--all --list` 核对完整清单                   |
 
 同一文件同时验证多个功能时，可以登记多个功能，选择结果会去重。独立行为较多的大文件按功能拆分，共用所属包内的 fixture。新增文件必须登记到 [catalog.ts](../tests/catalog.ts)；`testing` 功能检查漏登记、重复登记、未知功能和层次后缀。
@@ -114,11 +168,11 @@ jsdom 不计算布局；测试环境只补 Radix 需要的指针捕获和滚动�
 ```bash
 pnpm test --feature chat --layer e2e --target web
 pnpm test --all --layer artifact --target server
-pnpm test --all --layer e2e,artifact --target desktop
+pnpm test --all --layer artifact --target desktop
 pnpm test:all
 ```
 
-`test:all` 包含当前平台支持的全部层次与必要构建；macOS 包含 Desktop，Linux 只包含源码、Web 和 Server。它不代表已验证其他操作系统或 WSL。
+`test:all` 包含当前平台支持的全部层次与必要构建；macOS 包含桌面产物验收，Linux 只包含源码、Web E2E 和 Server 产物验收。它不代表已验证其他操作系统或 WSL。
 
 E2E 验收前安装浏览器：
 
@@ -126,9 +180,9 @@ E2E 验收前安装浏览器：
 pnpm exec playwright install chromium
 ```
 
-手动完整验收使用 `pnpm exec playwright install --with-deps chromium` 安装浏览器；Linux 还需安装 bubblewrap，日常 CI 只安装 bubblewrap，不安装浏览器。Web E2E 使用构建后的界面、临时 Host 和本地假模型。Desktop E2E 使用可调试的开发态 Electron；真实产物直接启动应用可执行文件，保留正式 Fuse 设置。
+手动完整验收使用 `pnpm exec playwright install --with-deps chromium` 安装浏览器；Linux 还需安装 bubblewrap，日常 CI 只安装 bubblewrap，不安装浏览器。Web E2E 使用构建后的界面、临时 Host 和本地假模型。不启动桌面 UI 自动化；桌面产物验收直接启动应用可执行文件，通过进程和协议验证，保留正式 Fuse 设置。隔离验收模式使用临时数据目录及随机 Host、前端端口，可与正在运行的正式应用共存。
 
-包含 e2e 或 artifact 的命令会准备相应构建，同次执行每个构建只运行一次。明确设置 `PI_MEME_HOST_BUNDLE_ROOT` 时，Server artifact 从仓库外的独立包启动，不重新构建 Server；设置 `PI_DESKTOP_PACKAGED_APP` 时，Desktop artifact 使用指定 `.app`，不重新打包。不存在或无效的产物会在验收中失败；这两个测试变量不跳过 E2E 所需的开发构建。最终发布包的解压与选测步骤见[版本发布](releasing.md)。
+包含 e2e 或 artifact 的命令会准备相应构建，同次执行每个构建只运行一次。明确设置 `PI_MEME_HOST_BUNDLE_ROOT` 时，Server artifact 从仓库外的独立包启动，不重新构建 Server；设置 `PI_DESKTOP_PACKAGED_APP` 时，Desktop artifact 使用指定 `.app`，不重新打包。不存在或无效的产物会在验收中失败；这两个测试变量不跳过 Web E2E 所需的界面构建。最终发布包的解压与选测步骤见[版本发布](releasing.md)。
 
 修改测试本身后调试已有构建，可以直接用运行器的文件过滤：
 
@@ -147,7 +201,9 @@ pnpm test --feature chat --layer unit,component --coverage
 
 覆盖率输出在 `coverage/`，只统计 Vitest 进程执行的代码，不代表独立 Worker 和产物的完整覆盖率。当前只报告数值，不设全仓百分比门槛。
 
-日常 push 和 PR 的 [Linux 检查](../.github/workflows/linux.yml) 运行全仓 `pnpm type-check`、`pnpm lint`、`pnpm format`、`pnpm check-boundaries` 与全部源码测试，不运行 Web E2E。[完整测试](../.github/workflows/full-tests.yml) 仍由手动触发 Linux、macOS 两个平台，包含 Web E2E 和对应平台产物；发布前汇总目标平台结果。WSL 专项只能在真实 WSL 上运行并单独记录；平台跳过不算完成该平台验收。配置存在不表示本次已运行远程 CI。
+`main` 推送和 PR 的 [Linux 检查](../.github/workflows/linux.yml) 运行 `pnpm check`、`pnpm test:source`，不运行 Web E2E；功能分支通过 PR 验证，Tag 交给发布 workflow，避免重复触发普通 CI。同一 ref 的新运行取消旧运行。
+
+[完整测试](../.github/workflows/full-tests.yml) 手动触发 Ubuntu 24.04 与 macOS 15。Linux 运行静态检查、全部源码、Web E2E 和 Server 产物；macOS 运行全部源码及 Desktop、Server 产物，不重复静态检查和 Web E2E，也不安装 Chromium。两个平台都保留源码测试，以覆盖沙箱和路径等系统差异。发布前汇总目标平台结果。WSL 专项只能在真实 WSL 上运行并单独记录；平台跳过不算完成该平台验收。配置存在不表示本次已运行远程 CI。
 
 会话历史性能可单独执行 `node --import tsx scripts/bench-sessions.mts baseline`，生成 1 万条、约 100MB 的临时历史并测量完整读取；随后执行 `node --import tsx scripts/bench-sessions.mts indexed-build` 和 `node --import tsx scripts/bench-sessions.mts indexed-reopen`，比较首次建索引与新进程复用索引。数据和 JSON 报告在 `out/session-performance/`，不读取个人会话。报告包含历史读取及序列化耗时、CPU 时间、响应大小和内存；不代表完整界面切换或发布验收结果。
 

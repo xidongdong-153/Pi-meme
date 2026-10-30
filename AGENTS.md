@@ -22,8 +22,12 @@ pnpm type-check            # 全 workspace tsc --noEmit
 pnpm lint                  # 全仓 Lint，供 CI 或明确的全仓检查使用
 pnpm format                # 全仓格式检查，供 CI 或明确的全仓检查使用
 pnpm check-boundaries      # 包导入、依赖声明、UI/进程边界
+pnpm check                 # 全仓类型、Lint、Format 和包边界检查
+pnpm test:source           # 全部源码测试，不构建应用
+pnpm test:web              # 构建 Web 并运行 Web E2E
 pnpm test --list           # 列出可选业务功能，不执行测试
 pnpm test --file <路径>    # 日常优先选择直接相关的测试文件
+pnpm test --feature core   # 显式验证连接、聊天、恢复、队列与权限主线
 pnpm test --feature chat   # 确需跨包验证时扩大到聊天功能的源码测试
 pnpm test:all              # 手动完整验收，包含必要构建和产物验收
 pnpm build:web             # 浏览器入口
@@ -42,9 +46,9 @@ pnpm make                  # 分发包
 
 未经用户明确要求相应验收，不自动运行全量测试、E2E、打包或产物验收；修改窗口、preload、IPC、打包接线或测试基础设施也不例外。单项验收只选择对应文件或平台，不扩大到整套完整测试。发布前由明确的验收任务或手动完整 workflow 验证目标平台。
 
-日常 CI 保留全仓静态检查、包边界检查和源码测试，Web E2E 留在手动完整验收。普通 Agent 任务不运行或等待完整验收；报告已通过的检查、未运行的检查和剩余风险，不把本地任务完成写成发布验收通过。
+日常 CI 在 main 推送与 PR 上保留全仓静态检查、包边界检查和源码测试，Web E2E 留在手动完整验收与发布的 Linux Host job。类型检查启用增量缓存，但每次仍执行完整命令，不按缓存命中跳过检查。普通 Agent 任务不运行或等待完整验收；报告已通过的检查、未运行的检查和剩余风险，不把本地任务完成写成发布验收通过。
 
-测试使用 Vitest；组件交互使用 React Testing Library，Web 与开发态 Electron 使用 Playwright；真实产物保留 Node 原生测试。文件后缀明确标记 `unit`、`component`、`integration`、`e2e`、`artifact`，所有测试必须登记到 `tests/catalog.ts`。用临时数据目录、本地假模型和可释放的 fixture，不读写真实凭据或会话。具体选测和新增测试条件见 [测试](docs/testing.md)。
+测试使用 Vitest；组件交互使用 React Testing Library，Web E2E 使用 Playwright；不维护桌面 UI 自动化，桌面保留源码测试与不操作界面的 Node 原生产物测试；原生界面、文件对话框和迁移后的界面重启按需人工验收。文件后缀明确标记 `unit`、`component`、`integration`、`e2e`、`artifact`，所有测试必须登记到 `tests/catalog.ts`。用临时数据目录、本地假模型和可释放的 fixture，不读写真实凭据或会话。具体选测和新增测试条件见 [测试](docs/testing.md)。
 
 arm64 应用在 `apps/desktop/out/Pi meme-darwin-arm64/Pi meme.app`。`dist/`、`.vite/`、`out/`、`.vitest/` 不提交。
 

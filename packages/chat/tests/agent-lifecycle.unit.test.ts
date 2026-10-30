@@ -401,5 +401,7 @@ test('主聊天用并排头像和一句完成文案显示多个子代理，开�
   assert.match(markup, /Host bot、Current plugins 和 Reference plugins/)
   assert.equal((markup.match(/已完成/g) ?? []).length, 1)
   assert.equal((markup.match(/开始工作/g) ?? []).length, 3)
-  assert.doesNotMatch(markup, /完整子报告|run-one|plugins-run|reference-run|animate-spin/)
+  assert.doesNotMatch(markup, /完整子报告|animate-spin/)
+  // 来源标识仅用于内部滚动锚点，不出现在正文或其他展示属性中。
+  assert.doesNotMatch(markup.replace(/ data-conversation-turn="[^"]*"/g, ''), /run-one|plugins-run|reference-run/)
 })
