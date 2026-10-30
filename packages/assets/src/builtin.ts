@@ -26,6 +26,7 @@ export const agentAvatars = [
 
 /** 系统插件页图标。键是插件 id，换图时覆盖 system-plugins 下的同名文件。 */
 export const systemPluginIcons: Record<string, string> = {
+  '@pi-meme/visualize': new URL('../files/system-plugins/visualize.png', import.meta.url).href,
   '@pi-meme/git': new URL('../files/system-plugins/git.png', import.meta.url).href,
   '@pi-meme/file-directory': new URL('../files/system-plugins/file-directory.png', import.meta.url).href,
   '@pi-meme/terminal': new URL('../files/system-plugins/terminal.png', import.meta.url).href,

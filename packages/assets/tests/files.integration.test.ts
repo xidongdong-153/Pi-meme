@@ -37,6 +37,7 @@ const rendererFiles = [
   'agents/data.png',
   'agents/product.png',
   'agents/localization.png',
+  'system-plugins/visualize.png',
   'system-plugins/git.png',
   'system-plugins/file-directory.png',
   'system-plugins/terminal.png',

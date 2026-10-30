@@ -7,7 +7,7 @@
 | 目录或文件                         | 用途                                   | 尺寸与数量                   |
 | ---------------------------------- | -------------------------------------- | ---------------------------- |
 | `files/agents/`                    | 子代理任务场景，见下表                 | 256 × 256，20 张透明 PNG     |
-| `files/system-plugins/`            | Git、文件、终端                        | 256 × 256，3 张透明 PNG      |
+| `files/system-plugins/`            | 草图、Git、文件、终端                  | 256 × 256，4 张透明 PNG      |
 | `files/system-skills/`             | 技能创建、插件创建                     | 256 × 256，2 张透明 PNG      |
 | `files/commands/`                  | 斜杠菜单的内置命令                     | 256 × 256，4 张透明 PNG      |
 | `files/profile/default-avatar.png` | 默认用户头像                           | 512 × 512，透明 PNG          |
@@ -23,6 +23,8 @@ ICNS 包含 16、32、64、128、256、512、1024px 表示；ICO 包含 16、32�
 [总览图](preview.png) 展示原图、基础角色与两版桌面图标，分别检查浅底、暗底，以及 16、24、32、48px 的缩小效果。
 
 [应用内透明图标预览](brand-preview.png) 展示侧栏深色、内容区深色、浅色和灰蓝色背景下的 16、20、24、32、64px 效果。
+
+[草图图标预览](visualize-icon-preview.png) 展示白猫、淡紫画板与黄色铅笔在深浅背景下的缩小效果。资源位于 `files/system-plugins/visualize.png`，由 `systemPluginIcons['@pi-meme/visualize']` 提供给插件列表。
 
 资源引用检查：
 
