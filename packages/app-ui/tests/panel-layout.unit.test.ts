@@ -6,6 +6,7 @@ import { DEFAULT_PROFILE } from '../src/settings/user-profile'
 import {
   closePanel,
   defaultPanelLayout,
+  historyPanelsAvailable,
   openPanel,
   panelAvailable,
   panelStorageKey,
@@ -15,6 +16,34 @@ import {
   sideChatTabId,
   toolsTabId,
 } from '../src/layout/panel-layout'
+import { userMessage } from '../../../tests/fixtures/messages.mjs'
+
+test('新会话的延迟详情和初始化记录不显示历史工具，草稿附件仍显示来源', () => {
+  const chat = {
+    messages: [],
+    sessionEntries: {
+      leafId: 'model',
+      entries: [{ id: 'model', parentId: null, timestamp: '', type: 'model_change' as const }],
+    },
+  }
+  for (const deferred of [false, true]) {
+    assert.deepEqual(historyPanelsAvailable(chat, deferred, 0), { tree: false, sources: false })
+    assert.deepEqual(historyPanelsAvailable(chat, deferred, 1), { tree: false, sources: true })
+  }
+  assert.deepEqual(historyPanelsAvailable({ messages: [] }, true, 0), { tree: false, sources: false })
+})
+
+test('已有对话保留延迟历史入口，详情加载完成后按实际内容显示', () => {
+  const chat = { messages: [userMessage('已有对话', 1)] }
+  assert.deepEqual(historyPanelsAvailable(chat, true, 0), { tree: true, sources: true })
+  assert.deepEqual(historyPanelsAvailable(chat, false, 0), { tree: false, sources: false })
+  const sessionEntries = {
+    leafId: 'message',
+    entries: [{ id: 'message', parentId: null, timestamp: '', type: 'message' as const }],
+  }
+  assert.deepEqual(historyPanelsAvailable({ ...chat, sessionEntries }, false, 1), { tree: true, sources: true })
+  assert.deepEqual(historyPanelsAvailable({ messages: [], sessionEntries }, true, 0), { tree: true, sources: true })
+})
 
 test('文件预览标签不写入持久布局，避免恢复没有读取目标的空标签', () => {
   const layout = openPanel(openPanel(defaultPanelLayout(), 'builtin:files'), 'builtin:file:example')

@@ -1111,6 +1111,14 @@ export function useAppSession(
     if (!key || !cached || cached.snapshot.historyDetails !== 'deferred') return
     const generation = current.current.generation
     const revision = cached.snapshot.historyRevision
+    const isCurrent = () =>
+      mounted.current &&
+      !selection.current.current &&
+      !preview.current &&
+      current.current.sessionKey === key &&
+      current.current.generation === generation &&
+      views.current.get(key) === cached &&
+      cached.snapshot.historyRevision === revision
     const requestId = `${key}:${generation}:${revision ?? ''}`
     const previous = detailsReads.current.get(requestId)
     if (previous) return previous
@@ -1118,10 +1126,9 @@ export function useAppSession(
       try {
         const history = await bridge.getSnapshot()
         if (
-          current.current.sessionKey !== key ||
-          current.current.generation !== generation ||
-          views.current.get(key) !== cached ||
-          cached.snapshot.historyRevision !== revision ||
+          !isCurrent() ||
+          history.connection.sessionKey !== key ||
+          history.connection.generation !== generation ||
           (history.historyRevision && revision && history.historyRevision !== revision)
         )
           return
@@ -1139,7 +1146,7 @@ export function useAppSession(
         cached.chat = next
         chatRef.current?.restoreChat(next)
       } catch (cause) {
-        if (current.current.sessionKey === key && current.current.generation === generation) setError(String(cause))
+        if (isCurrent()) setError(String(cause))
       }
     })().finally(() => {
       if (detailsReads.current.get(requestId) === read) detailsReads.current.delete(requestId)

@@ -957,6 +957,62 @@ test('完整历史详情只在主动读取时请求，迟到结果不会覆盖�
   expect(result.current.chat.branchAttachments).toEqual([])
 })
 
+test.each(['成功', '失败'])('旧会话详情在新建预览期间%s时，不污染新会话', async (outcome) => {
+  const details = deferred<Snapshot>()
+  const opening = deferred<SessionSelectionResult>()
+  const getSnapshot = vi.fn<DesktopBridge['getSnapshot']>()
+  const { result, snapshot } = setup({ getSnapshot, newSession: () => opening.promise })
+  snapshot.messages = [userMessage('旧会话正文', 1)]
+  snapshot.historyDetails = 'deferred'
+  snapshot.historyRevision = 'old'
+  getSnapshot.mockResolvedValue(snapshot)
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  getSnapshot.mockReturnValueOnce(details.promise)
+  let reading!: Promise<void>
+  let creating!: Promise<boolean>
+  act(() => {
+    reading = result.current.loadHistoryDetails()
+    creating = result.current.newSession()
+  })
+  expect(result.current.connection.sessionKey).toBeUndefined()
+  await act(async () => {
+    if (outcome === '失败') details.reject(new Error('旧会话详情读取失败'))
+    else details.resolve({ ...snapshot, branchAttachments: [{ id: 'old', entryId: 'old', name: '旧附件' }] })
+    await reading
+  })
+  expect(result.current.chat.branchAttachments ?? []).toEqual([])
+  expect(result.current.error).toBe('')
+  await act(async () => {
+    opening.resolve({
+      cancelled: false,
+      snapshot: { ...snapshot, messages: [], connection: { ...snapshot.connection, generation: 2, sessionKey: 'new' } },
+    })
+    expect(await creating).toBe(true)
+  })
+  expect(result.current.chat.branchAttachments).toEqual([])
+})
+
+test.each(['当前会话', '其他会话', '其他代次'])('历史详情响应属于%s时校验目标后提交', async (target) => {
+  const getSnapshot = vi.fn<DesktopBridge['getSnapshot']>()
+  const { result, snapshot } = setup({ getSnapshot })
+  snapshot.historyDetails = 'deferred'
+  getSnapshot.mockResolvedValue(snapshot)
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  const branchAttachments = [{ id: 'attachment', entryId: 'message', name: '附件' }]
+  getSnapshot.mockResolvedValueOnce({
+    ...snapshot,
+    connection: {
+      ...snapshot.connection,
+      sessionKey: target === '其他会话' ? 'other' : snapshot.connection.sessionKey,
+      generation: target === '其他代次' ? 2 : snapshot.connection.generation,
+    },
+    branchAttachments,
+  })
+  await act(async () => result.current.loadHistoryDetails())
+  expect(result.current.chat.branchAttachments).toEqual(target === '当前会话' ? branchAttachments : [])
+  expect(result.current.historyDetailsDeferred).toBe(target !== '当前会话')
+})
+
 test('历史草稿中的模型已移除时使用会话回退配置并保留草稿', async () => {
   const switchSession = vi.fn<DesktopBridge['switchSession']>()
   const prompt = vi.fn().mockResolvedValue(undefined)

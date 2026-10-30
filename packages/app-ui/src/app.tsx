@@ -94,7 +94,7 @@ import { Button } from '@pi-meme/ui/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
 import { PluginSlot } from './plugins/plugin-slot'
 import { WorkspacePanels } from './layout/workspace-panels'
-import { sessionUiTarget, panelAvailable, sideChatTabId } from './layout/panel-layout'
+import { sessionUiTarget, panelAvailable, sideChatTabId, historyPanelsAvailable } from './layout/panel-layout'
 import { useAgentPluginSelection } from './plugins/use-agent-plugin-selection'
 import {
   Activity,
@@ -371,7 +371,6 @@ export function App({
   )
   const cwd = chat.connection.cwd
   const availableRightTabs: RightSidebarTab[] = []
-  if (chat.historyDetailsDeferred || chat.chat.sessionEntries?.entries.length) availableRightTabs.push('session-tree')
   if (chat.chat.agents?.some((agent) => agent.parentAgentId && agent.rootSessionKey === chat.connection.sessionKey))
     availableRightTabs.push('subagents')
   if (chat.planDocuments.length || (chat.editing && chat.chat.planState?.document)) availableRightTabs.push('plan')
@@ -1465,6 +1464,7 @@ export function App({
   const openTool = (id: string) => {
     setSystemRequest({ id, revision: Date.now(), target: pluginProps.target })
   }
+  const historyPanels = historyPanelsAvailable(chat.chat, chat.historyDetailsDeferred, sources.length)
   const visualize = useVisualizations({
     host,
     session: appSession,
@@ -1737,7 +1737,7 @@ export function App({
           },
         ]
       : []),
-    ...(availableRightTabs.includes('session-tree')
+    ...(historyPanels.tree
       ? [
           {
             id: 'builtin:session-tree',
@@ -1753,7 +1753,7 @@ export function App({
           },
         ]
       : []),
-    ...(sources.length > 0 || chat.historyDetailsDeferred
+    ...(historyPanels.sources
       ? [
           {
             id: 'builtin:sources',

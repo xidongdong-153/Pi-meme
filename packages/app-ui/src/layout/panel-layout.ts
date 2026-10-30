@@ -1,5 +1,24 @@
 import type { UiPanel, UiTarget } from '@pi-meme/plugin-sdk/ui'
 import type { AppSession } from '@pi-meme/contracts/app-host'
+import type { Snapshot } from '@pi-meme/contracts/desktop'
+
+export function historyPanelsAvailable(
+  chat: Pick<Snapshot, 'messages' | 'sessionEntries'>,
+  detailsDeferred: boolean,
+  sourceCount: number,
+) {
+  const hasHistory =
+    chat.messages.length > 0 ||
+    Boolean(
+      chat.sessionEntries?.entries.some((entry) =>
+        ['message', 'custom_message', 'compaction', 'branch_summary'].includes(entry.type),
+      ),
+    )
+  return {
+    tree: hasHistory && Boolean(detailsDeferred || chat.sessionEntries?.entries.length),
+    sources: sourceCount > 0 || (hasHistory && detailsDeferred),
+  }
+}
 
 export function sessionUiTarget(hostId: string, session?: AppSession): UiTarget {
   return {
