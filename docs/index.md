@@ -19,7 +19,7 @@ pi-meme 的 Desktop 和 Web 共用 Node Host。应用入口在 `apps/`，基础�
 | 开发与发布 | [开发指南](development.md)                  | 功能修改位置、UI 原语与静态资源                |
 | 开发与发布 | [UI 体验与动效](ui-experience.md)           | 切换、等待反馈、动效参数与接入规则             |
 | 开发与发布 | [测试](testing.md)                          | 静态检查、文件选测、CI、平台验证与报告         |
-| 开发与发布 | [版本发布](releasing.md)                    | 平台包构建、产物验收与 GitHub 草稿发布         |
+| 开发与发布 | [版本发布](releasing.md)                    | 平台包构建、产物验收与 GitHub 自动发布         |
 | 实现与接口 | [架构](architecture.md)                     | 进程、Host 复用、组合根与包边界                |
 | 实现与接口 | [会话与协作](sessions.md)                   | Worker、消息、队列、子代理、Plan 与 Goal       |
 | 使用与部署 | [内置浏览器](browser.md)                    | 网页标签、元素批注、浏览数据、下载与网站权限   |

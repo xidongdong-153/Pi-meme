@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { execFileSync } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
@@ -6,6 +7,7 @@ import { test } from 'vitest'
 import { parse, stringify } from 'yaml'
 import {
   assertPortableLinks,
+  pushRelease,
   releaseAssetNames,
   releaseInfo,
   sha256,
@@ -16,6 +18,93 @@ import { writeThirdPartyLicenses } from '../scripts/release-licenses.mjs'
 import { assertLockedDependencies, stageHostWorkspace } from '../scripts/release-workspace.mjs'
 
 const version = '0.1.0-beta.1'
+
+async function withReleaseRepository(run: (root: string, git: (...args: string[]) => string) => Promise<void>) {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pi-meme-release-push-'))
+  const root = path.join(directory, 'repo')
+  await mkdir(root)
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim()
+  try {
+    git('init', '--initial-branch=main')
+    git('config', 'user.name', '发布脚本测试')
+    git('config', 'user.email', 'release@example.invalid')
+    git('config', 'commit.gpgSign', 'false')
+    git('config', 'tag.gpgSign', 'false')
+    git('config', 'core.hooksPath', path.join(directory, 'no-hooks'))
+    git('init', '--bare', path.join(directory, 'remote.git'))
+    git('remote', 'add', 'origin', path.join(directory, 'remote.git'))
+    for (const app of ['desktop', 'server']) {
+      await mkdir(path.join(root, 'apps', app), { recursive: true })
+      await writeFile(path.join(root, 'apps', app, 'package.json'), JSON.stringify({ version }))
+    }
+    git('add', '.')
+    git('commit', '-m', '准备发布版本')
+    await run(root, git)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+}
+
+test('本地发布一起推送分支和版本 Tag，不附带其他 Tag，拒绝重复发布', async () => {
+  await withReleaseRepository(async (root, git) => {
+    git('tag', '-a', 'unrelated', '-m', '不发布的 Tag')
+    git('config', 'push.followTags', 'true')
+    await pushRelease(root)
+    const commit = git('rev-parse', 'HEAD')
+    assert.equal(git('ls-remote', 'origin', 'refs/heads/main'), `${commit}\trefs/heads/main`)
+    assert.equal(git('ls-remote', '--tags', 'origin'), `${commit}\trefs/tags/v${version}`)
+    await assert.rejects(pushRelease(root), /远端 Tag .* 已存在/)
+  })
+})
+
+test('本地发布拒绝未提交改动、detached HEAD、版本不一致与指向其他提交的 Tag', async () => {
+  await withReleaseRepository(async (root, git) => {
+    const note = path.join(root, 'note.txt')
+    await writeFile(note, '未提交')
+    await assert.rejects(pushRelease(root), /未提交改动/)
+    git('add', '.')
+    await assert.rejects(pushRelease(root), /未提交改动/)
+    git('commit', '-m', '提交说明')
+    git('checkout', '--detach')
+    await assert.rejects(pushRelease(root), /detached HEAD/)
+    git('checkout', 'main')
+    const server = path.join(root, 'apps/server/package.json')
+    await writeFile(server, JSON.stringify({ version: '0.0.0' }))
+    git('add', '.')
+    git('commit', '-m', '制造不一致版本')
+    await assert.rejects(pushRelease(root), /版本不一致/)
+    git('tag', `v${version}`)
+    await writeFile(server, JSON.stringify({ version }))
+    git('add', '.')
+    git('commit', '-m', '恢复版本')
+    await assert.rejects(pushRelease(root), /本地 Tag .* 指向其他提交/)
+    assert.equal(git('ls-remote', 'origin'), '')
+  })
+})
+
+test('分支推送被拒绝时不发布 Tag，修复后可复用本地 Tag 重试', async () => {
+  await withReleaseRepository(async (root, git) => {
+    git('push', 'origin', 'main')
+    const original = git('rev-parse', 'HEAD')
+    await writeFile(path.join(root, 'note.txt'), '远端已有的新提交')
+    git('add', '.')
+    git('commit', '-m', '推进远端分支')
+    git('push', 'origin', 'main')
+    const remoteCommit = git('rev-parse', 'HEAD')
+    git('reset', '--hard', original)
+    await writeFile(path.join(root, 'note.txt'), '分叉的发布提交')
+    git('add', '.')
+    git('commit', '-m', '准备分叉版本')
+    await assert.rejects(pushRelease(root))
+    assert.equal(git('ls-remote', '--tags', 'origin'), '')
+    assert.equal(git('ls-remote', 'origin', 'refs/heads/main'), `${remoteCommit}\trefs/heads/main`)
+    const commit = git('rev-parse', 'HEAD')
+    assert.equal(git('rev-parse', `v${version}`), commit)
+    git('--git-dir', path.join(root, '../remote.git'), 'update-ref', 'refs/heads/main', original, remoteCommit)
+    await pushRelease(root)
+    assert.equal(git('ls-remote', '--tags', 'origin'), `${commit}\trefs/tags/v${version}`)
+  })
+})
 
 test('第三方许可收集不跟进自有 workspace 链接，保留实际第三方许可', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'pi-meme-release-licenses-'))

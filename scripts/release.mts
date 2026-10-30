@@ -48,6 +48,32 @@ export async function releaseInfo() {
   return { version, commit }
 }
 
+export async function pushRelease(root = repoRoot) {
+  const git = (...args: string[]) => execFileSync('git', args, { cwd: root, encoding: 'utf8' }).trim()
+  assert.equal(git('status', '--porcelain'), '', '工作区有未提交改动，请先提交本次版本和发布代码')
+  const branch = git('branch', '--show-current')
+  assert.ok(branch, '当前处于 detached HEAD，请切换到待发布分支')
+  const desktop = JSON.parse(await readFile(path.join(root, 'apps/desktop/package.json'), 'utf8'))
+  const server = JSON.parse(await readFile(path.join(root, 'apps/server/package.json'), 'utf8'))
+  const version = validateVersion(desktop.version, server.version)
+  const tag = `v${version}`
+  const tagRef = `refs/tags/${tag}`
+  const commit = git('rev-parse', 'HEAD')
+  const remote = git('remote', 'get-url', '--push', 'origin')
+  assert.equal(git('ls-remote', '--tags', remote, tagRef), '', `远端 Tag ${tag} 已存在，请使用新版本`)
+  if (git('tag', '--list', tag)) {
+    assert.equal(git('rev-parse', `${tagRef}^{commit}`), commit, `本地 Tag ${tag} 指向其他提交，不会移动它`)
+  } else git('tag', tag, commit)
+  console.log(`发布版本：${version}；分支：${branch}；commit：${commit}`)
+  console.log(`推送到 origin，GitHub 构建成功后将自动公开${version.includes('-') ? '预发布' : '正式'}版本`)
+  execFileSync(
+    'git',
+    ['push', '--atomic', '--no-follow-tags', 'origin', `refs/heads/${branch}:refs/heads/${branch}`, tagRef],
+    { cwd: root, stdio: 'inherit' },
+  )
+  console.log(`已推送 ${tag}，请在 GitHub Actions 查看“构建发布包”的运行结果`)
+}
+
 export function releaseAssetNames(version: string) {
   return [
     `pi-meme-desktop-${version}-macos-arm64.zip`,
@@ -171,7 +197,7 @@ async function writeReleaseNotes() {
     path.join(repoRoot, 'out/release-notes.md'),
     `# Pi meme v${version}
 
-首个公开预览版。Desktop 包含本机 Host；只使用桌面应用时无需再下载 Host。Host 包含 Web、Worker、内置技能、生产依赖和 Node.js ${nodeVersion}，不需要安装 pnpm 或 Pi CLI。
+Desktop 包含本机 Host；只使用桌面应用时无需再下载 Host。Host 包含 Web、Worker、内置技能、生产依赖和 Node.js ${nodeVersion}，不需要安装 pnpm 或 Pi CLI。
 
 ## 下载
 
@@ -194,13 +220,9 @@ Host 解压后运行 \`./pi-meme-host/bin/pi-meme-host\`，访问 http://127.0.0
 
 ## 验收
 
-自动流程已检查三个原生平台包、独立 Host 的静态页面、PTY、Worker、MCP、codemode、子代理、受限权限、重启恢复和正常停机，以及 Desktop 运行与完整签名。
+自动流程执行静态检查，构建三个原生平台包，核对版本、commit、平台、架构与 SHA256，并检查 Desktop ZIP 内的许可文件和签名完整性。发布 workflow 不运行源码测试、Web E2E 或产物运行测试；功能验收结果需由维护者另行记录。
 
-发布前维护者仍需完成：
-
-- [ ] 从草稿下载附件并重新核验 SHA256。
-- [ ] 在非构建环境确认 macOS 首次打开流程。
-- [ ] 抽查 Host 部署，补充本次已知问题后手动公开此预览版。
+附件上传并核对完整后自动公开；带预发布后缀的版本保留 Pre-release 标记。此流程未验证下载后的 macOS 首次打开与 Host 实际部署。
 
 <!-- pi-meme-release-commit:${commit} -->
 `,
@@ -217,11 +239,12 @@ async function main() {
         `version=${version}\ncommit=${commit}\nprerelease=${version.includes('-')}\n`,
       )
     console.log(`版本：${version}；commit：${commit}`)
-  } else if (command === 'desktop') await prepareDesktopAsset()
+  } else if (command === 'push') await pushRelease()
+  else if (command === 'desktop') await prepareDesktopAsset()
   else if (command === 'checksums') {
     await writeChecksums(releaseDirectory)
     await writeReleaseNotes()
-  } else throw new Error('用法：node --import tsx scripts/release.mts check|desktop|checksums')
+  } else throw new Error('用法：node --import tsx scripts/release.mts check|push|desktop|checksums')
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url))

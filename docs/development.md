@@ -54,6 +54,6 @@ paths:
 [Prettier](../prettier.config.js)、[ESLint](../eslint.config.mjs) 与 [tsconfig](../tsconfig.json) 保存格式、Lint 和类型配置。
 
 - 日常修改：按[测试](testing.md#日常验证与新增测试)依次执行全仓类型检查、变更文件 Lint/Format，再选择必要的相关用例。
-- 分发与验收：按[版本发布](releasing.md)构建 Host 或 Desktop 包、验证产物与创建发布草稿。
+- 分发与验收：按[版本发布](releasing.md)构建 Host 或 Desktop 包、验证产物与自动发布版本。
 
 Desktop 与 Server 直接构建内置模块和[静态 Worker](../packages/host/src/session-worker.ts)。Desktop 的 Pi SDK 与原生运行时复制见 [copy-pi-runtime.mjs](../scripts/copy-pi-runtime.mjs)，PTY 准备见 [prepare-node-pty.mjs](../scripts/prepare-node-pty.mjs)。构建目录 `dist/`、`.vite/`、`out/` 不提交。

@@ -34,18 +34,10 @@ jobs:
         with:
           node-version: 24.14.0
           cache: pnpm
-      - uses: ./.github/actions/setup-linux-sandbox
       - run: pnpm install --frozen-lockfile
       - id: version
         run: node --import tsx scripts/release.mts check
       - uses: ./.github/actions/check-code
-      - run: pnpm test:source
-      - uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: check-test-reports
-          path: out/tests/
-          retention-days: 7
 
   build:
     needs: check
@@ -70,9 +62,7 @@ jobs:
             arch: x64
     runs-on: ${{ matrix.os }}
     env:
-      VERSION: ${{ needs.check.outputs.version }}
       PLATFORM: ${{ matrix.platform }}
-      TARGET_NAME: ${{ matrix.name }}
       TARGET_ARCH: ${{ matrix.arch }}
     steps:
       - uses: actions/checkout@v4
@@ -86,8 +76,6 @@ jobs:
         with:
           node-version: 24.14.0
           cache: pnpm
-      - if: runner.os == 'Linux'
-        uses: ./.github/actions/setup-linux-sandbox
       - run: pnpm install --frozen-lockfile
       - name: 核对原生构建平台
         run: |
@@ -95,27 +83,10 @@ jobs:
       - name: 构建 Host 独立包
         if: matrix.product == 'host'
         run: pnpm package:host
-      - name: 解压到仓库外
-        if: matrix.product == 'host'
-        run: |
-          mkdir -p "$RUNNER_TEMP/Host bundle"
-          tar -xzf "out/release/pi-meme-host-${VERSION}-${TARGET_NAME}-${TARGET_ARCH}.tar.gz" -C "$RUNNER_TEMP/Host bundle"
-          printf 'PI_MEME_HOST_BUNDLE_ROOT=%s\n' "$RUNNER_TEMP/Host bundle/pi-meme-host" >> "$GITHUB_ENV"
-      - name: 验收最终 Host 包
-        if: matrix.product == 'host'
-        run: |
-          pnpm test --file apps/server/tests/dist-smoke.artifact.test.ts --file apps/server/tests/restricted-dist.artifact.test.ts
-      - name: 安装 Web 验收浏览器
-        if: matrix.product == 'host' && runner.os == 'Linux'
-        run: pnpm exec playwright install --with-deps chromium
-      - name: 复用 Host 构建的界面验收 Web 主线
-        if: matrix.product == 'host' && runner.os == 'Linux'
-        run: pnpm exec playwright test --project web
-      - name: 构建并验收 Desktop 应用
+      - name: 构建 Desktop 应用
         if: matrix.product == 'desktop'
-        run: |
-          pnpm test --file apps/desktop/tests/package-runtime.artifact.test.ts --file apps/desktop/tests/package-signing.artifact.test.ts
-      - name: 从已验收应用生成 ZIP 并复核
+        run: pnpm package --arch arm64
+      - name: 从已构建应用生成 ZIP 并复核
         if: matrix.product == 'desktop'
         run: |
           pnpm make --skip-package --arch arm64
@@ -126,12 +97,6 @@ jobs:
           path: out/release/*
           if-no-files-found: error
           overwrite: true
-          retention-days: 7
-      - uses: actions/upload-artifact@v4
-        if: failure()
-        with:
-          name: reports-${{ matrix.product }}-${{ matrix.name }}-${{ matrix.arch }}
-          path: out/tests/
           retention-days: 7
 
   assemble:
@@ -185,7 +150,7 @@ jobs:
         with:
           name: release-complete
           path: out
-      - name: 只创建或更新同一 commit 的草稿
+      - name: 上传完整附件并自动公开 Release
         shell: bash
         run: |
           set -euo pipefail
@@ -208,3 +173,4 @@ jobs:
               --title "pi-meme $TAG" --notes-file ../release-notes.md
           fi
           diff <(printf '%s\n' "${assets[@]}" | sort) <(gh release view "$TAG" --json assets --jq '.assets[].name' | sort)
+          gh release edit "$TAG" --draft=false --prerelease="$PRERELEASE"

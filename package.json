@@ -11,6 +11,7 @@
     "package": "pnpm --filter pi-meme package",
     "make": "pnpm --filter pi-meme make",
     "package:host": "node --import tsx scripts/package-host.mts",
+    "release": "node --import tsx scripts/release.mts push",
     "lint": "eslint .",
     "type-check": "pnpm -r type-check && tsc --noEmit -p tsconfig.tests.json",
     "format": "prettier --check .",

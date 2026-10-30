@@ -203,6 +203,8 @@ pnpm test --feature chat --layer unit,component --coverage
 
 `main` 推送和 PR 的 [Linux 检查](../.github/workflows/linux.yml) 运行 `pnpm check`、`pnpm test:source`，不运行 Web E2E；功能分支通过 PR 验证，Tag 交给发布 workflow，避免重复触发普通 CI。同一 ref 的新运行取消旧运行。
 
+[发布 workflow](../.github/workflows/release.yml) 只执行静态检查、构建与最终包校验，不运行源码测试、Web E2E 或产物运行测试。发布构建成功不表示功能验收通过；需要验收时单独触发完整测试。
+
 [完整测试](../.github/workflows/full-tests.yml) 手动触发 Ubuntu 24.04 与 macOS 15。Linux 运行静态检查、全部源码、Web E2E 和 Server 产物；macOS 运行全部源码及 Desktop、Server 产物，不重复静态检查和 Web E2E，也不安装 Chromium。两个平台都保留源码测试，以覆盖沙箱和路径等系统差异。发布前汇总目标平台结果。WSL 专项只能在真实 WSL 上运行并单独记录；平台跳过不算完成该平台验收。配置存在不表示本次已运行远程 CI。
 
 会话历史性能可单独执行 `node --import tsx scripts/bench-sessions.mts baseline`，生成 1 万条、约 100MB 的临时历史并测量完整读取；随后执行 `node --import tsx scripts/bench-sessions.mts indexed-build` 和 `node --import tsx scripts/bench-sessions.mts indexed-reopen`，比较首次建索引与新进程复用索引。数据和 JSON 报告在 `out/session-performance/`，不读取个人会话。报告包含历史读取及序列化耗时、CPU 时间、响应大小和内存；不代表完整界面切换或发布验收结果。

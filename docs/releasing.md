@@ -1,9 +1,8 @@
 ---
-description: '平台包构建、Host 独立分发、产物验收和 GitHub 草稿发布步骤'
+description: '平台包构建、Host 独立分发、产物验收和 GitHub 自动发布步骤'
 status: implemented
 paths:
   - '.github/workflows/release.yml'
-  - '.github/actions/setup-linux-sandbox/**'
   - 'pnpm-workspace.yaml'
   - 'pnpm-lock.yaml'
   - 'scripts/package-host.mts'
@@ -156,48 +155,47 @@ node --import tsx scripts/release.mts checksums
 
 [release.yml](../.github/workflows/release.yml) 有两个入口：
 
-- `workflow_dispatch`：执行完整构建与验收，仅上传 Actions artifacts，不创建 Release。
-- 推送 `v*` Tag：执行同样的检查，成功后创建或更新同一 Tag、同一 commit 的 Draft Release；不会自动公开。
+- `workflow_dispatch`：执行静态检查、构建与最终包校验，仅上传 Actions artifacts，不创建 Release。
+- 推送 `v*` Tag：执行同样的检查，先创建或更新同一 Tag、同一 commit 的草稿，附件上传并核对完整后自动公开。带 `beta` 等预发布后缀的版本保留 Pre-release 标记，无后缀版本发布为正式版。
 
 ```mermaid
 %%{init: {"theme": "dark"}}%%
 flowchart TD
-  Trigger["手动触发或版本 Tag"] --> Check["版本、静态检查与源码测试"]
+  Trigger["手动触发或版本 Tag"] --> Check["版本与静态检查"]
   Check --> Desktop["macOS 15 arm64 Desktop"]
   Check --> MacHost["macOS 15 arm64 Host"]
   Check --> LinuxHost["Ubuntu 24.04 x64 Host"]
   Desktop --> Assemble["核对三个最终包与 SHA256"]
   MacHost --> Assemble
-  LinuxHost --> Web["复用已构建界面验证 Web 主线"]
-  Web --> Assemble
+  LinuxHost --> Assemble
   Assemble --> Artifacts["Actions 完整附件"]
   Artifacts -->|"仅版本 Tag"| Draft["GitHub Draft Release"]
-  Draft --> Manual["下载抽查后人工公开预览版"]
+  Draft --> Public["附件核对通过后自动公开，保留预发布标记"]
 ```
 
-Linux job 复用[测试环境](testing.md#环境报告与完整验收)中的沙箱准备 action，保留相同的 AppArmor、临时目录与隔离验证条件。
+发布 workflow 不运行源码测试、Web E2E 或产物运行测试，不安装 Chromium，也不准备测试沙箱。日常源码测试仍由 [Linux 检查](../.github/workflows/linux.yml) 执行，完整功能验收通过[手动完整测试](../.github/workflows/full-tests.yml)另行执行。
 
-只有发布 job 有 `contents: write`，使用 GitHub 自带 `GITHUB_TOKEN`，不需要个人 PAT 或 Apple 凭据。其他 job 只读；发布 job 不执行依赖安装或构建脚本。平台 job 缓存 pnpm 下载存储，不缓存原生构建结果。Linux 的版本检查 job 执行 `pnpm check` 和 `pnpm test:source`，复用类型检查增量缓存；平台 job 运行直接对应的产物验收。Linux Host 构建完成后复用同一份 Web 构建执行 4 个 Web E2E，不再为浏览器验收重复构建界面。macOS job 不安装 Chromium。所有检查仍基于本次 checkout，不用旧 workflow 的成功状态跳过发布检查，也不用本机结果代替另一平台。
+只有发布 job 有 `contents: write`，使用 GitHub 自带 `GITHUB_TOKEN`，不需要个人 PAT 或 Apple 凭据。其他 job 只读；发布 job 不执行依赖安装或构建脚本。平台 job 缓存 pnpm 下载存储，不缓存原生构建结果。Linux 的版本检查 job 执行 `pnpm check`，复用类型检查增量缓存。Host 直接运行 `pnpm package:host`；Desktop 先运行 `pnpm package --arch arm64`，再用 `pnpm make --skip-package --arch arm64` 生成 ZIP，并核对元数据、许可文件与签名完整性。所有检查仍基于本次 checkout；发布构建成功不表示功能测试通过。
 
 汇总的 `release-complete` artifact 包含四个附件和 Release Notes，保留七天。只有所有平台成功才会进入汇总与发布。并发按 ref 排队；重跑可覆盖 Actions artifacts，但公开 Release 附件不可覆盖。
 
-草稿正文中的 `pi-meme-release-commit` 标记绑定本次 commit。重跑若发现草稿没有匹配标记、Release 已公开、Tag 被移动或附件列表异常，流程失败，不删除或覆盖已公开内容。上传中断可能留下不完整草稿，不能手动公开它；先排除失败原因并重新运行。已有草稿多出的附件需要维护者核对后手动处理。
+草稿正文中的 `pi-meme-release-commit` 标记绑定本次 commit。重跑若发现草稿没有匹配标记、Release 已公开、Tag 被移动或附件列表异常，流程失败，不删除或覆盖已公开内容。上传中断可能留下不完整草稿，不能手动公开它；先排除失败原因并重新运行。已有草稿多出的附件需要维护者核对后手动处理。完整附件列表核对通过后，执行 `gh release edit --draft=false` 自动公开；成功公开的版本不需要重新运行 workflow。
 
 ## 发布步骤
 
-1. 将 Desktop 与 Server 的 `version` 更新为本次版本，运行 `node --import tsx scripts/release.mts check`。完成代码审核与明确授权后再提交、推送。
-2. 在 Actions 的“构建发布包”中手动运行目标分支，确认三个平台 job 与汇总成功，下载 `release-complete` 做抽查。
-3. 确认版本与待发布 commit 后，由维护者执行：
+1. 将 `apps/desktop/package.json` 与 `apps/server/package.json` 的 `version` 改为相同的新版本，例如 `0.1.0-beta.13`。内部私有包不改版。
+2. 提交本次代码与版本号，确保工作区干净。Agent 执行提交与推送前仍需展示改动并获得明确确认。
+3. 在仓库根目录执行：
 
    ```bash
-   release_version=$(node -p "require('./apps/desktop/package.json').version")
-   git tag "v${release_version}"
-   git push origin "v${release_version}"
+   pnpm release
    ```
 
-4. 等待 Tag workflow 创建 Draft Release。失败时停在失败步骤；修复后使用新版本和新 Tag，不移动已公开 Tag。
-5. 从草稿重新下载附件并校验 SHA256，在非构建环境确认 macOS 首次打开，抽查 Host 部署与重启。
-6. 将实际环境、结果和已知问题补入 Release Notes，完成其中的人工清单，再点击 Publish release；预览版本保留 Pre-release 标记。
+   脚本读取已提交的版本，校验工作区、当前分支和 Tag；创建指向 HEAD 的 `v<版本>` Tag，并用 `git push --atomic` 一起推送当前分支与该 Tag 到 `origin`。不会自动改版、提交、强推或推送其他 Tag，也不在本机构建或跑测试。
+
+4. 等待 GitHub Actions 的“构建发布包”完成。三个平台构建、汇总及附件核对成功后，版本自动公开到 Releases，无需再点击 Publish release。`beta` 等预发布版本保留 Pre-release 标记。
+
+工作区存在未提交或未跟踪文件、两个版本不一致、处于 detached HEAD、远端 Tag 已存在，或本地同名 Tag 指向其他 commit 时，脚本中止。远端分支拒绝快进或不支持原子推送时，分支和 Tag 都不会更新；排除原因后可在同一 HEAD 重试，脚本会复用指向该 HEAD 的本地 Tag。远端 Tag 已存在时需查看对应 Actions，不能靠再次推送触发构建。构建失败后若需修改代码，使用新版本和新 Tag，不移动已公开 Tag。
 
 下载入口用 [Releases 页面](https://github.com/xidongdong-153/Pi-meme/releases) 或明确的 Tag 地址，不依赖 `/releases/latest`。不通过 `pnpm publish` 发布 npm 包。
 
