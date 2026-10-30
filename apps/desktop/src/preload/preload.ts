@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { BrowserPlatform } from '@pi-meme/contracts/browser'
-import type { PlatformAdapter } from '@pi-meme/contracts/host'
+import type { DesktopWindowCommand, PlatformAdapter } from '@pi-meme/contracts/host'
 
 function browserCall<T>(method: string, ...args: unknown[]): Promise<T> {
   return ipcRenderer.invoke('browser:call', method, args)
@@ -32,6 +32,15 @@ const browser: BrowserPlatform = {
 }
 const platform: PlatformAdapter = {
   browser,
+  ...(process.platform === 'win32'
+    ? {
+        titleBar: {
+          update: (value: { background: string; foreground: string }) =>
+            ipcRenderer.invoke('platform:title-bar-update', value),
+          execute: (command: DesktopWindowCommand) => ipcRenderer.invoke('platform:window-command', command),
+        },
+      }
+    : {}),
   storage: {
     getInfo: (hostId) => ipcRenderer.invoke('platform:storage-info', hostId),
     chooseTarget: (hostId) => ipcRenderer.invoke('platform:storage-choose', hostId),

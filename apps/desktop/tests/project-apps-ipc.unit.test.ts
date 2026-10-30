@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { beforeEach, test, vi } from 'vitest'
 import { registerPlatformIpc } from '../src/main/ipc/register'
 import { recoveryUrl } from '../src/main/window/recovery-page'
+import { configureWindowsMenu } from '../src/main/window/desktop-window'
 
 const mocks = vi.hoisted(() => ({
   handlers: new Map<string, (event: unknown, ...args: unknown[]) => unknown>(),
@@ -10,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   realpath: vi.fn(),
   stat: vi.fn(),
   openPath: vi.fn(),
+  buildMenu: vi.fn(),
 }))
 vi.mock('electron', () => ({
   app: { on: () => {} },
@@ -20,6 +22,7 @@ vi.mock('electron', () => ({
   },
   dialog: {},
   shell: { openPath: mocks.openPath },
+  Menu: { buildFromTemplate: mocks.buildMenu },
 }))
 vi.mock('node:fs/promises', () => ({
   readFile: vi.fn(),
@@ -42,19 +45,25 @@ beforeEach(() => {
 })
 function setup(local = true) {
   const frame = { url: 'http://127.0.0.1:3000/' }
-  const webContents = { mainFrame: frame }
+  const webContents = { mainFrame: frame, copy: vi.fn() }
+  const window = { webContents, setTitleBarOverlay: vi.fn() }
   registerPlatformIpc(
-    () => ({ webContents }) as never,
+    () => window as never,
     async () => ({ hostId: 'fixture', url: frame.url, token: '', local }),
     () => 'http://127.0.0.1:3000',
     async () => {},
     async () => {},
     { list: async () => [], remove: async () => {}, error: () => null },
   )
-  return { frame, webContents, event: { sender: webContents, senderFrame: frame } }
+  return { window, frame, webContents, event: { sender: webContents, senderFrame: frame } }
 }
 
-for (const channel of ['platform:project-apps', 'platform:open-project']) {
+for (const channel of [
+  'platform:project-apps',
+  'platform:open-project',
+  'platform:title-bar-update',
+  'platform:window-command',
+]) {
   test(`${channel} 只接受可信主窗口主 Frame，不允许恢复页或远程页面`, () => {
     const f = setup()
     const invoke = mocks.handlers.get(channel)!
@@ -71,7 +80,9 @@ for (const channel of ['platform:project-apps', 'platform:open-project']) {
     assert.equal(mocks.openProjectInApp.mock.calls.length, 0)
     assert.equal(mocks.openPath.mock.calls.length, 0)
   })
+}
 
+for (const channel of ['platform:project-apps', 'platform:open-project']) {
   test(`${channel} 拒绝非本机连接，不访问本机目录或发现应用`, async () => {
     const f = setup(false)
     await assert.rejects(
@@ -83,6 +94,65 @@ for (const channel of ['platform:project-apps', 'platform:open-project']) {
     assert.equal(mocks.realpath.mock.calls.length, 0)
   })
 }
+
+test('标题栏主题 IPC 只接受有效颜色，窗口操作只执行允许的命令', () => {
+  const f = setup()
+  const update = mocks.handlers.get('platform:title-bar-update')!
+  for (const value of [
+    null,
+    {},
+    { background: '#123456', foreground: {} },
+    { background: 'url(x)', foreground: '#ffffff' },
+  ])
+    assert.throws(() => update(f.event, value), /标题栏主题参数无效/)
+  assert.equal(f.window.setTitleBarOverlay.mock.calls.length, 0)
+  update(f.event, { background: '#18181a', foreground: '#e9e9eb' })
+  assert.deepEqual(f.window.setTitleBarOverlay.mock.calls, [[{ color: '#18181a', symbolColor: '#e9e9eb', height: 36 }]])
+
+  const execute = mocks.handlers.get('platform:window-command')!
+  for (const command of [null, {}, 'executeJavaScript', 'constructor'])
+    assert.throws(() => execute(f.event, command), /窗口操作无效/)
+  assert.equal(f.webContents.copy.mock.calls.length, 0)
+  execute(f.event, 'copy')
+  assert.equal(f.webContents.copy.mock.calls.length, 1)
+})
+
+test('Windows 隐藏原生菜单且关闭 Alt 唤出，保留标准操作快捷键', () => {
+  const window = { setMenu: vi.fn(), setAutoHideMenuBar: vi.fn(), setMenuBarVisibility: vi.fn() }
+  configureWindowsMenu(window as never)
+  assert.deepEqual(window.setAutoHideMenuBar.mock.calls, [[false]])
+  assert.deepEqual(window.setMenuBarVisibility.mock.calls, [[false]])
+  const template = mocks.buildMenu.mock.calls[0][0]
+  assert.deepEqual(
+    template.map((group: { label: string }) => group.label),
+    ['文件', '编辑', '视图', '帮助'],
+  )
+  assert.deepEqual(
+    template[1].submenu.flatMap((item: { role?: string }) => item.role ?? []),
+    ['undo', 'redo', 'cut', 'copy', 'paste', 'selectAll'],
+  )
+  const accelerators = template.flatMap((group: { submenu: Array<{ accelerator?: string }> }) =>
+    group.submenu.flatMap((item) => item.accelerator ?? []),
+  )
+  for (const accelerator of [
+    'Ctrl+W',
+    'Alt+F4',
+    'Ctrl+Z',
+    'Ctrl+Y',
+    'Ctrl+X',
+    'Ctrl+C',
+    'Ctrl+V',
+    'Ctrl+A',
+    'Ctrl+R',
+    'Ctrl+Shift+R',
+    'Ctrl+Shift+I',
+    'Ctrl+0',
+    'Ctrl+Plus',
+    'Ctrl+-',
+    'F11',
+  ])
+    assert.ok(accelerators.includes(accelerator), accelerator)
+})
 
 test('本机应用列表通过已有 IPC 返回发现结果，并保留发现错误', async () => {
   const f = setup()

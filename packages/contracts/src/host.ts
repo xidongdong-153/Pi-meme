@@ -56,10 +56,32 @@ export type HostEvent = { hostId: string } & (
 )
 export type HostDirectory = { path: string; parent: string | null; entries: Array<{ name: string; path: string }> }
 
+export type DesktopWindowCommand =
+  | 'close'
+  | 'quit'
+  | 'undo'
+  | 'redo'
+  | 'cut'
+  | 'copy'
+  | 'paste'
+  | 'selectAll'
+  | 'reload'
+  | 'forceReload'
+  | 'toggleDevTools'
+  | 'resetZoom'
+  | 'zoomIn'
+  | 'zoomOut'
+  | 'toggleFullscreen'
+  | 'about'
+
 /** Electron 仅提供本机窗口与文件操作；业务通信由 client 使用 HTTP/WebSocket。 */
 export interface PlatformAdapter {
   browser?: BrowserPlatform
   storage?: DesktopStorageAdapter
+  titleBar?: {
+    update: (value: { background: string; foreground: string }) => Promise<void>
+    execute: (command: DesktopWindowCommand) => Promise<void>
+  }
   listSavedHostConnections?: () => Promise<SavedHostConnection[]>
   removeSavedHostConnection?: (url: string) => Promise<void>
   getHostConnectionError?: () => Promise<HostConnectionError | null>

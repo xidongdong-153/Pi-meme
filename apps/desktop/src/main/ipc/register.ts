@@ -6,6 +6,7 @@ import { isTrustedPlatformSource } from './platform-source'
 import type { DesktopStorageAdapter } from '@pi-meme/contracts/storage'
 import { getProjectApps, openProjectInApp } from '../project-apps'
 import { readShortcutPreferences, writeShortcutPreferences } from '../shortcut-preferences'
+import { executeWindowCommand, updateTitleBar } from '../window/desktop-window'
 
 export function registerPlatformIpc(
   getWindow: () => BrowserWindow | null,
@@ -76,6 +77,8 @@ export function registerPlatformIpc(
     })
   }
   handle('platform:connection', getConnection)
+  handle('platform:title-bar-update', (value) => updateTitleBar(getWindow()!, value))
+  handle('platform:window-command', (command) => executeWindowCommand(getWindow()!, command))
   handle('platform:saved-connections', savedConnections.list)
   handle('platform:connection-error', savedConnections.error)
   handle('platform:shortcuts-read', async () => {
@@ -142,6 +145,8 @@ export function registerPlatformIpc(
   app.on('will-quit', () => {
     for (const channel of [
       'connection',
+      'title-bar-update',
+      'window-command',
       'retry-connection',
       'saved-connections',
       'connection-error',

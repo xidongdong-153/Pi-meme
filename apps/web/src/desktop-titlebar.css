@@ -1,0 +1,97 @@
+:root[data-desktop-titlebar] {
+  --desktop-titlebar-height: env(titlebar-area-height, 36px);
+}
+
+.desktop-titlebar {
+  position: relative;
+  z-index: 60;
+  display: flex;
+  height: var(--desktop-titlebar-height, 36px);
+  align-items: center;
+  padding-left: 10px;
+  padding-right: calc(100vw - env(titlebar-area-width, calc(100vw - 138px)));
+  background: var(--background);
+  color: var(--foreground);
+  user-select: none;
+}
+
+.desktop-titlebar-brand {
+  display: flex;
+  width: 28px;
+  height: 100%;
+  align-items: center;
+}
+
+.desktop-titlebar-brand .brand-mark {
+  max-width: calc(var(--desktop-titlebar-height, 36px) - 8px);
+  max-height: calc(var(--desktop-titlebar-height, 36px) - 8px);
+}
+
+.desktop-titlebar-menus {
+  display: flex;
+  height: 100%;
+  align-items: center;
+  gap: 2px;
+}
+
+.desktop-titlebar-trigger {
+  height: min(28px, calc(var(--desktop-titlebar-height, 36px) - 4px));
+  padding: 0 10px;
+  border-radius: 5px;
+  color: var(--muted-foreground);
+  font-size: min(13px, calc(var(--desktop-titlebar-height, 36px) * 13 / 36));
+  line-height: 1;
+  white-space: nowrap;
+  outline: none;
+}
+
+.desktop-titlebar-trigger:hover,
+.desktop-titlebar-trigger[data-state='open'] {
+  background: var(--secondary);
+  color: var(--foreground);
+}
+
+.desktop-titlebar-trigger:focus-visible {
+  outline: 1px solid var(--ring);
+  outline-offset: -1px;
+}
+
+.desktop-titlebar-menu {
+  z-index: 70;
+  min-width: 232px;
+}
+
+.desktop-titlebar-error {
+  position: absolute;
+  top: var(--desktop-titlebar-height);
+  left: 10px;
+  max-width: calc(100vw - 160px);
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--popover);
+  color: var(--destructive);
+  font-size: 12px;
+}
+
+:root[data-desktop-titlebar] .theme-app {
+  height: calc(100dvh - var(--desktop-titlebar-height));
+}
+
+:root[data-desktop-titlebar] .startup-splash {
+  top: var(--desktop-titlebar-height);
+}
+
+:root[data-desktop-titlebar] .desktop-content > main {
+  min-height: calc(100dvh - var(--desktop-titlebar-height));
+}
+
+@media (display-mode: fullscreen) {
+  :root[data-desktop-titlebar] {
+    --desktop-titlebar-height: 36px;
+  }
+
+  .desktop-titlebar {
+    padding-right: 0;
+  }
+}

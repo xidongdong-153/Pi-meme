@@ -14,6 +14,7 @@ import type { DesktopBridge } from '@pi-meme/contracts/desktop'
 import type { PluginClient } from '@pi-meme/client/plugin-client'
 import { BrandMark } from '@pi-meme/ui/components/brand-mark'
 import { ShortcutProvider } from '@pi-meme/app-ui/shortcuts/shortcut-provider'
+import { DesktopTitleBar } from './desktop-titlebar'
 
 type DirectoryRequest = {
   load: (path?: string) => Promise<HostDirectory>
@@ -93,9 +94,13 @@ function ServiceFixture() {
 }
 
 export function WebApp() {
+  const titleBar = window.piPlatform?.titleBar
   return (
     <ShortcutProvider platform={window.piPlatform}>
-      <WebAppContent />
+      {titleBar && <DesktopTitleBar platform={titleBar} />}
+      <div className={titleBar ? 'desktop-content' : undefined}>
+        <WebAppContent />
+      </div>
     </ShortcutProvider>
   )
 }
