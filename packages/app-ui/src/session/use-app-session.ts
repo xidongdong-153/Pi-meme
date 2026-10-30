@@ -75,8 +75,10 @@ export function useAppSession(
   const [previewing, setPreviewing] = useState(false)
   const [appSession, setAppSession] = useState<Snapshot['appSession']>()
   const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyError, setHistoryError] = useState('')
   const [historyRevision, setHistoryRevision] = useState<string>()
   const historyRequest = useRef(0)
+  const historyPending = useRef<number | undefined>(undefined)
   const commandRequest = useRef(0)
   const [failedSwitchPath, setFailedSwitchPath] = useState<string>()
   const detailsReads = useRef(new Map<string, Promise<void>>())
@@ -318,8 +320,17 @@ export function useAppSession(
   const loadOlderMessages = async () => {
     const expected = current.current
     const before = chatRef.current?.captureChat().messagePage?.before
-    if (!expected.sessionKey || !before || historyLoading || selection.current.current || preview.current) return false
+    if (
+      !expected.sessionKey ||
+      !before ||
+      historyPending.current !== undefined ||
+      selection.current.current ||
+      preview.current
+    )
+      return false
     const request = ++historyRequest.current
+    historyPending.current = request
+    setHistoryError('')
     setHistoryLoading(true)
     const owns = () =>
       mounted.current &&
@@ -347,9 +358,10 @@ export function useAppSession(
       chatRef.current?.restoreChat(next)
       return true
     } catch (cause) {
-      if (owns()) setError(`无法加载更早记录：${String(cause)}`)
+      if (owns()) setHistoryError(`无法加载更早记录：${cause instanceof Error ? cause.message : String(cause)}`)
       return false
     } finally {
+      if (historyPending.current === request) historyPending.current = undefined
       if (mounted.current && request === historyRequest.current) setHistoryLoading(false)
     }
   }
@@ -714,7 +726,9 @@ export function useAppSession(
     actionLock.current = true
     synchronization.current.cancel()
     historyRequest.current++
+    historyPending.current = undefined
     setHistoryLoading(false)
+    setHistoryError('')
     commandRequest.current++
     if (blocking) setActing(true)
     setError('')
@@ -770,7 +784,9 @@ export function useAppSession(
     setPreviewing(false)
     synchronization.current.cancel()
     historyRequest.current++
+    historyPending.current = undefined
     setHistoryLoading(false)
+    setHistoryError('')
     commandRequest.current++
     setSwitching(true)
     setFailedSwitchPath(undefined)
@@ -1233,6 +1249,7 @@ export function useAppSession(
     chatStream: chat.chatStream,
     loadOlderMessages,
     historyLoading,
+    historyError,
     connection,
     hasConnected,
     state,

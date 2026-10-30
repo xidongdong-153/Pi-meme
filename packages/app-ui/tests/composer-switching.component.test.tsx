@@ -1205,6 +1205,40 @@ test('正文快照先于慢命令读取完成，命令返回后再更新', async
   expect(result.current.commands[0]?.name).toBe('test')
 })
 
+test('历史分页同步防重，失败后能重试且错误只在历史区域展示', async () => {
+  const older = deferred<Awaited<ReturnType<DesktopBridge['readSessionHistory']>>>()
+  const readSessionHistory = vi.fn<DesktopBridge['readSessionHistory']>().mockReturnValueOnce(older.promise)
+  const getSnapshot = vi.fn<DesktopBridge['getSnapshot']>()
+  const { result, snapshot } = setup({ readSessionHistory, getSnapshot })
+  snapshot.messages = [
+    { ...userMessage('recent', 1), sourceEntry: { id: 'recent', type: 'message', revision: 'recent' } },
+  ]
+  snapshot.messagePage = { before: 'recent' }
+  getSnapshot.mockResolvedValue(snapshot)
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  let pending!: Promise<boolean>
+  let duplicate!: Promise<boolean>
+  act(() => {
+    pending = result.current.loadOlderMessages()
+    duplicate = result.current.loadOlderMessages()
+  })
+  expect(readSessionHistory).toHaveBeenCalledTimes(1)
+  expect(await duplicate).toBe(false)
+  await act(async () => {
+    older.reject(new Error('网络暂时不可用'))
+    expect(await pending).toBe(false)
+  })
+  expect(result.current.historyError).toContain('网络暂时不可用')
+  expect(result.current.error).toBe('')
+  expect(result.current.historyLoading).toBe(false)
+  readSessionHistory.mockResolvedValueOnce({ cwd: snapshot.connection.cwd, created: '', messages: [] })
+  await act(async () => {
+    expect(await result.current.loadOlderMessages()).toBe(true)
+  })
+  expect(readSessionHistory).toHaveBeenCalledTimes(2)
+  expect(result.current.historyError).toBe('')
+})
+
 test('加载更早记录按ID合并，刷新保留展开范围，切换后丢弃迟到分页', async () => {
   const older = deferred<Awaited<ReturnType<DesktopBridge['readSessionHistory']>>>()
   const readSessionHistory = vi.fn<DesktopBridge['readSessionHistory']>().mockReturnValueOnce(older.promise)

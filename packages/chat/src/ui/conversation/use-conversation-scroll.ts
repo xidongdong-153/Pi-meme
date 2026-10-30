@@ -17,12 +17,114 @@ export function useConversationScroll(
     'messages' | 'sessionEntries' | 'live' | 'tools' | 'agents' | 'agentMessages' | 'retry' | 'compactionError'
   >,
   sessionKey?: string,
+  history?: { hasMore: boolean; loading: boolean; load: () => Promise<boolean> },
 ) {
   const containerRef = React.useRef<HTMLDivElement>(null)
   const isAtBottomRef = React.useRef(true)
   const activeSession = React.useRef<string | undefined>(undefined)
   const [showScrollTop, setShowScrollTop] = React.useState(false)
   const [showScrollBottom, setShowScrollBottom] = React.useState(false)
+  const historyRequest = React.useRef<object | undefined>(undefined)
+  const historyFrame = React.useRef(0)
+  const anchor = React.useRef<{ element: HTMLElement; offset: number } | undefined>(undefined)
+  const previousTop = React.useRef(0)
+  const upwardIntent = React.useRef(false)
+  const captureAnchor = React.useCallback(() => {
+    const container = containerRef.current
+    if (!container) return
+    const top = container.getBoundingClientRect().top
+    const element = Array.from(container.querySelectorAll<HTMLElement>('[data-conversation-turn]')).find(
+      (item) => item.getBoundingClientRect().bottom > top,
+    )
+    anchor.current = element ? { element, offset: element.getBoundingClientRect().top - top } : undefined
+  }, [])
+  const restoreAnchor = React.useCallback(() => {
+    const container = containerRef.current
+    const saved = anchor.current
+    if (!container || !saved?.element.isConnected || !container.contains(saved.element)) return
+    const delta = saved.element.getBoundingClientRect().top - container.getBoundingClientRect().top - saved.offset
+    if (Math.abs(delta) > 0.5) container.scrollTop += delta
+    previousTop.current = container.scrollTop
+  }, [])
+  const historyOptions = React.useRef(history)
+  historyOptions.current = history
+  const loadHistory = React.useCallback(async () => {
+    const history = historyOptions.current
+    if (!history?.hasMore || history.loading || historyRequest.current) return
+    const request = {}
+    historyRequest.current = request
+    upwardIntent.current = false
+    isAtBottomRef.current = false
+    captureAnchor()
+    try {
+      await history.load()
+    } finally {
+      // 等前插内容完成布局后再允许下一次用户动作触发，滚动补偿本身不加载下一页。
+      if (historyRequest.current === request) {
+        historyFrame.current = requestAnimationFrame(() => {
+          if (historyRequest.current !== request) return
+          restoreAnchor()
+          historyRequest.current = undefined
+        })
+      }
+    }
+  }, [captureAnchor, restoreAnchor])
+
+  React.useLayoutEffect(() => {
+    restoreAnchor()
+  })
+
+  React.useLayoutEffect(
+    () => () => {
+      cancelAnimationFrame(historyFrame.current)
+      historyRequest.current = undefined
+      anchor.current = undefined
+      upwardIntent.current = false
+    },
+    [sessionKey],
+  )
+
+  React.useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+    let touchY: number | undefined
+    const intend = (up: boolean) => {
+      upwardIntent.current = up && !historyRequest.current
+      if (upwardIntent.current && container.scrollTop <= 120) void loadHistory()
+    }
+    const wheel = (event: WheelEvent) => {
+      if (!event.ctrlKey && Math.abs(event.deltaY) > Math.abs(event.deltaX)) intend(event.deltaY < 0)
+    }
+    const touchStart = (event: TouchEvent) => {
+      touchY = event.touches[0]?.clientY
+    }
+    const touchMove = (event: TouchEvent) => {
+      const next = event.touches[0]?.clientY
+      if (next !== undefined && touchY !== undefined) intend(next > touchY)
+      touchY = next
+    }
+    const keyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement
+      if (target.closest('input, textarea, select, [contenteditable="true"]') || event.defaultPrevented) return
+      if (['ArrowUp', 'PageUp', 'Home'].includes(event.key) || (event.key === ' ' && event.shiftKey)) intend(true)
+      else upwardIntent.current = false
+    }
+    const pointerDown = () => {
+      upwardIntent.current = !historyRequest.current
+    }
+    container.addEventListener('wheel', wheel, { passive: true })
+    container.addEventListener('touchstart', touchStart, { passive: true })
+    container.addEventListener('touchmove', touchMove, { passive: true })
+    container.addEventListener('keydown', keyDown)
+    container.addEventListener('pointerdown', pointerDown)
+    return () => {
+      container.removeEventListener('wheel', wheel)
+      container.removeEventListener('touchstart', touchStart)
+      container.removeEventListener('touchmove', touchMove)
+      container.removeEventListener('keydown', keyDown)
+      container.removeEventListener('pointerdown', pointerDown)
+    }
+  }, [loadHistory])
 
   // 统一评估当前容器的滚动状态与回到底部箭头的可见性
   const updateScrollState = React.useCallback(() => {
@@ -31,7 +133,7 @@ export function useConversationScroll(
     const overflow = el.scrollHeight - el.clientHeight
     const canScroll = overflow > MIN_SCROLLABLE_OVERFLOW
     const distanceToBottom = Math.max(0, overflow - el.scrollTop)
-    const atBottom = !canScroll || distanceToBottom <= BOTTOM_THRESHOLD
+    const atBottom = !historyRequest.current && (!canScroll || distanceToBottom <= BOTTOM_THRESHOLD)
 
     isAtBottomRef.current = atBottom
     setShowScrollTop(el.scrollTop > 1)
@@ -45,13 +147,21 @@ export function useConversationScroll(
 
   // 监听用户滚动位置
   const handleScroll = React.useCallback(() => {
+    const container = containerRef.current
+    if (!container) return
+    const movingUp = container.scrollTop < previousTop.current
+    previousTop.current = container.scrollTop
+    if (anchor.current) captureAnchor()
     updateScrollState()
-  }, [updateScrollState])
+    if (movingUp && upwardIntent.current && container.scrollTop <= 120) void loadHistory()
+  }, [captureAnchor, loadHistory, updateScrollState])
 
   // 切换会话或重新挂载时恢复位置：贴底或未铺开的会话直接到底，其他会话在消息窗口稳定后再定位。
   React.useLayoutEffect(() => {
     if (activeSession.current === sessionKey) return
     activeSession.current = sessionKey
+    upwardIntent.current = false
+    anchor.current = undefined
     const el = containerRef.current
     if (!el) return
     const saved = sessionKey ? positions.get(sessionKey) : undefined
@@ -61,6 +171,7 @@ export function useConversationScroll(
     if (!saved || saved.atBottom || !canScroll) {
       isAtBottomRef.current = true
       el.scrollTop = el.scrollHeight
+      previousTop.current = el.scrollTop
       setShowScrollTop(el.scrollTop > 1)
       setShowScrollBottom(false)
       return
@@ -69,11 +180,13 @@ export function useConversationScroll(
     setShowScrollBottom(true)
     // 可见轮次和滚动位置都在同一次渲染中恢复，下一帧再校准一次，避免布局未完成时被 clamp。
     el.scrollTop = saved.top
+    previousTop.current = el.scrollTop
     setShowScrollTop(el.scrollTop > 1)
     const frame = requestAnimationFrame(() => {
       const target = containerRef.current
       if (!target) return
       target.scrollTop = saved.top
+      previousTop.current = target.scrollTop
       updateScrollState()
     })
     return () => cancelAnimationFrame(frame)
@@ -111,7 +224,7 @@ export function useConversationScroll(
         if (!target) return
         if (isAtBottomRef.current) {
           target.scrollTop = target.scrollHeight
-        }
+        } else restoreAnchor()
         updateScrollState()
       })
     }
@@ -122,12 +235,14 @@ export function useConversationScroll(
       observer.disconnect()
       cancelAnimationFrame(frame)
     }
-  }, [updateScrollState])
+  }, [restoreAnchor, updateScrollState])
 
   // 手动点击回到底部
   const scrollToBottom = React.useCallback(() => {
     const container = containerRef.current
     if (!container) return
+    upwardIntent.current = false
+    anchor.current = undefined
     container.scrollTo({
       top: container.scrollHeight,
       behavior: document.documentElement.dataset.reducedMotion === 'true' ? 'instant' : 'smooth',
@@ -141,6 +256,8 @@ export function useConversationScroll(
     if (!element) return
     const container = containerRef.current
     if (!container) return
+    upwardIntent.current = false
+    anchor.current = undefined
     const overflow = container.scrollHeight - container.clientHeight
     if (overflow <= MIN_SCROLLABLE_OVERFLOW) {
       isAtBottomRef.current = true
@@ -175,5 +292,6 @@ export function useConversationScroll(
     scrollToBottom,
     scrollToMessage,
     handleActivityToggle,
+    loadHistory,
   }
 }

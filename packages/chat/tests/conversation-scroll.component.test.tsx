@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom/vitest'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, renderHook, screen } from '@testing-library/react'
+import { useConversationScroll } from '../src/ui/conversation/use-conversation-scroll'
 import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 import { Conversation } from '../src/ui/conversation/conversation'
 import { emptyChat } from '../src/ui/model/state'
@@ -29,6 +30,155 @@ function createChatState(messages: ChatState['messages'] = []): ChatState {
     messages,
   }
 }
+
+test('向顶部滚动自动分段展开缓存，不主动读取远程历史', async () => {
+  const messages = Array.from({ length: 80 }, (_, index) => userMessage(`历史消息 ${index}`, index + 1))
+  const onLoadOlder = vi.fn(async () => true)
+  const { container } = render(
+    <TooltipProvider>
+      <Conversation
+        chat={{ ...createChatState(messages), messagePage: { before: 'older' } }}
+        sessionKey="automatic-history"
+        canEditMessages={false}
+        onEditMessage={() => {}}
+        onForkReply={() => {}}
+        onCopyError={() => {}}
+        onLoadOlder={onLoadOlder}
+      />
+    </TooltipProvider>,
+  )
+  const scroller = container.querySelector('[aria-label="对话消息流"]') as HTMLDivElement
+  Object.defineProperties(scroller, {
+    clientHeight: { value: 500, configurable: true },
+    scrollHeight: { value: 3000, configurable: true },
+    scrollTop: { value: 100, writable: true, configurable: true },
+  })
+  expect(container.querySelectorAll('[data-conversation-user]')).toHaveLength(30)
+  expect(onLoadOlder).not.toHaveBeenCalled()
+  fireEvent.scroll(scroller)
+  expect(container.querySelectorAll('[data-conversation-user]')).toHaveLength(30)
+  await act(async () => fireEvent.wheel(scroller, { deltaY: -80 }))
+  expect(container.querySelectorAll('[data-conversation-user]')).toHaveLength(60)
+  expect(onLoadOlder).not.toHaveBeenCalled()
+})
+
+test('向顶部滚动只发送一个分页请求，完成后不会自行连续读取', async () => {
+  let resolve!: (loaded: boolean) => void
+  const onLoadOlder = vi.fn(
+    () =>
+      new Promise<boolean>((done) => {
+        resolve = done
+      }),
+  )
+  const { container } = render(
+    <TooltipProvider>
+      <Conversation
+        chat={{ ...createChatState([userMessage('当前消息', 1)]), messagePage: { before: 'older' } }}
+        sessionKey="automatic-history-request"
+        canEditMessages={false}
+        onEditMessage={() => {}}
+        onForkReply={() => {}}
+        onCopyError={() => {}}
+        onLoadOlder={onLoadOlder}
+      />
+    </TooltipProvider>,
+  )
+  const scroller = container.querySelector('[aria-label="对话消息流"]') as HTMLDivElement
+  expect(onLoadOlder).not.toHaveBeenCalled()
+  act(() => {
+    fireEvent.wheel(scroller, { deltaY: -80 })
+    fireEvent.wheel(scroller, { deltaY: -80 })
+    fireEvent.scroll(scroller)
+  })
+  expect(onLoadOlder).toHaveBeenCalledTimes(1)
+  await act(async () => resolve(true))
+  expect(onLoadOlder).toHaveBeenCalledTimes(1)
+})
+
+test('历史前插按最新阅读锚点补偿，不计入底部同时增长的高度', async () => {
+  const scroller = document.createElement('div')
+  const message = document.createElement('div')
+  message.dataset.conversationTurn = 'stable-entry'
+  scroller.append(message)
+  document.body.append(scroller)
+  let contentTop = 150
+  scroller.scrollTop = 100
+  vi.spyOn(scroller, 'getBoundingClientRect').mockImplementation(() => ({ top: 0 }) as DOMRect)
+  vi.spyOn(message, 'getBoundingClientRect').mockImplementation(
+    () =>
+      ({
+        top: contentTop - scroller.scrollTop,
+        bottom: contentTop - scroller.scrollTop + 300,
+      }) as DOMRect,
+  )
+  let resolve!: (loaded: boolean) => void
+  const load = vi.fn(
+    () =>
+      new Promise<boolean>((done) => {
+        resolve = done
+      }),
+  )
+  const { result, rerender, unmount } = renderHook(() =>
+    useConversationScroll(emptyChat, undefined, { hasMore: true, loading: false, load }),
+  )
+  result.current.containerRef.current = scroller
+  let pending!: Promise<void>
+  act(() => {
+    pending = result.current.loadHistory()
+  })
+  scroller.scrollTop = 50
+  act(() => result.current.handleScroll())
+  contentTop += 400
+  Object.defineProperty(scroller, 'scrollHeight', { value: 2000, configurable: true })
+  rerender()
+  expect(scroller.scrollTop).toBe(450)
+  expect(message.getBoundingClientRect().top).toBe(100)
+  await act(async () => {
+    resolve(true)
+    await pending
+  })
+  unmount()
+  scroller.remove()
+})
+
+test('分页失败后上滑可重试，最早记录停止加载，旧会话迟到结果不展开新会话', async () => {
+  let resolve!: (loaded: boolean) => void
+  const load = vi.fn(
+    () =>
+      new Promise<boolean>((done) => {
+        resolve = done
+      }),
+  )
+  const view = (sessionKey: string, hasMore = true) => (
+    <TooltipProvider>
+      <Conversation
+        chat={{
+          ...createChatState([userMessage('当前消息', 1)]),
+          messagePage: hasMore ? { before: 'older' } : undefined,
+        }}
+        sessionKey={sessionKey}
+        canEditMessages={false}
+        onEditMessage={() => {}}
+        onForkReply={() => {}}
+        onCopyError={() => {}}
+        onLoadOlder={load}
+      />
+    </TooltipProvider>
+  )
+  const { container, rerender } = render(view('history-retry'))
+  const scroller = container.querySelector('[aria-label="对话消息流"]') as HTMLDivElement
+  fireEvent.keyDown(scroller, { key: 'PageUp' })
+  expect(load).toHaveBeenCalledTimes(1)
+  await act(async () => resolve(false))
+  await act(async () => new Promise<void>((done) => requestAnimationFrame(() => done())))
+  fireEvent.wheel(scroller, { deltaY: -80 })
+  expect(load).toHaveBeenCalledTimes(2)
+  rerender(view('history-retry-next', false))
+  await act(async () => resolve(true))
+  expect(screen.queryByText('已到最早记录')).not.toBeInTheDocument()
+  fireEvent.wheel(scroller, { deltaY: -80 })
+  expect(load).toHaveBeenCalledTimes(2)
+})
 
 test('刚开始对话且内容未铺开（不可滚动）时，不显示回到底部箭头', async () => {
   const chat = createChatState([userMessage('测试第一句话', 1000), assistantMessage('收到，正在处理...', 2000)])

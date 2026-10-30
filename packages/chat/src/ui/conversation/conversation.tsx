@@ -62,6 +62,7 @@ export const Conversation = React.memo(
     planState,
     onLoadOlder,
     historyLoading = false,
+    historyError,
     turnChanges,
     onViewChanges,
     onUndoChanges,
@@ -89,6 +90,7 @@ export const Conversation = React.memo(
     planState?: PlanState | null
     onLoadOlder?: () => Promise<boolean>
     historyLoading?: boolean
+    historyError?: string
     turnChanges?: readonly TurnChanges[]
     onViewChanges?: (entryId: string, path?: string) => void
     onUndoChanges?: (entryId: string) => Promise<void>
@@ -99,16 +101,6 @@ export const Conversation = React.memo(
       stream?.getSnapshot ?? (() => initialChat),
       stream?.getSnapshot ?? (() => initialChat),
     )
-    const {
-      containerRef,
-      showScrollTop,
-      showScrollBottom,
-      handleScroll,
-      scrollToBottom,
-      scrollToMessage,
-      handleActivityToggle,
-    } = useConversationScroll(chat, sessionKey)
-
     const stableView = React.useMemo(
       () =>
         readOnly
@@ -276,12 +268,51 @@ export const Conversation = React.memo(
     const currentSession = React.useRef(sessionKey)
     currentSession.current = sessionKey
 
+    const hasMore = hasHiddenTurns || Boolean(chat.messagePage && onLoadOlder)
+    const [loadedHistory, setLoadedHistory] = React.useState<{ key?: string }>()
+    const loadOwner = React.useRef<object | undefined>(undefined)
+    React.useLayoutEffect(
+      () => () => {
+        loadOwner.current = undefined
+      },
+      [sessionKey],
+    )
     const handleLoadMore = React.useCallback(async () => {
-      if (!hasHiddenTurns && chat.messagePage && onLoadOlder) {
-        if (!(await onLoadOlder()) || currentSession.current !== sessionKey) return
+      if (!hasMore || historyLoading || loadOwner.current) return false
+      const owner = {}
+      loadOwner.current = owner
+      try {
+        if (!hasHiddenTurns && chat.messagePage && onLoadOlder) {
+          if (!(await onLoadOlder())) return false
+        }
+        if (loadOwner.current !== owner || currentSession.current !== sessionKey) return false
+        setLoadedHistory({ key: sessionKey })
+        setVisibleCount((prev) => Math.max(prev, turns.length - hiddenCount) + TURN_INCREMENT)
+        return true
+      } finally {
+        if (loadOwner.current === owner) loadOwner.current = undefined
       }
-      setVisibleCount((prev) => Math.max(prev, turns.length - hiddenCount) + TURN_INCREMENT)
-    }, [turns.length, hiddenCount, hasHiddenTurns, chat.messagePage, onLoadOlder, sessionKey])
+    }, [
+      hasMore,
+      historyLoading,
+      turns.length,
+      hiddenCount,
+      hasHiddenTurns,
+      chat.messagePage,
+      onLoadOlder,
+      sessionKey,
+      setVisibleCount,
+    ])
+    const {
+      containerRef,
+      showScrollTop,
+      showScrollBottom,
+      handleScroll,
+      scrollToBottom,
+      scrollToMessage,
+      handleActivityToggle,
+      loadHistory,
+    } = useConversationScroll(chat, sessionKey, { hasMore, loading: historyLoading, load: handleLoadMore })
 
     const handleSelectTurn = React.useCallback(
       (entry: ConversationOutlineEntry) => {
@@ -351,6 +382,7 @@ export const Conversation = React.memo(
               agentOnly && 'px-4',
             )}
             aria-label="对话消息流"
+            tabIndex={0}
           >
             <div
               className={cn(
@@ -358,111 +390,117 @@ export const Conversation = React.memo(
                 agentOnly ? 'max-w-3xl mx-auto' : 'chat-content-column',
               )}
             >
-              {(hasHiddenTurns || (chat.messagePage && onLoadOlder)) && (
-                <div className="flex items-center justify-center py-2">
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    onClick={handleLoadMore}
-                    disabled={historyLoading}
-                    className="text-sm text-muted-foreground hover:text-foreground h-7 px-3 rounded-full border-border/80 bg-secondary/40 hover:bg-secondary cursor-pointer"
-                  >
+              {(hasMore || (loadedHistory?.key === sessionKey && loadedHistory !== undefined)) && (
+                <div
+                  className="flex min-h-11 items-center justify-center gap-2 py-2 text-xs text-muted-foreground"
+                  aria-busy={historyLoading}
+                >
+                  <span role="status" className={historyLoading ? 'ui-loading-delayed' : undefined}>
                     {historyLoading
                       ? '正在加载更早记录…'
-                      : hasHiddenTurns
-                        ? `加载更早记录（剩余 ${hiddenCount} 轮）`
-                        : '加载更早记录'}
-                  </Button>
+                      : historyError || (hasMore ? '向上滚动加载更早记录' : '已到最早记录')}
+                  </span>
+                  {historyError && !historyLoading && (
+                    <Button type="button" variant="ghost" size="sm" onClick={loadHistory}>
+                      重试
+                    </Button>
+                  )}
                 </div>
               )}
 
               {visibleTurns.map((turn) => {
-                if (turn.type === 'model_change')
-                  return <ModelChangeRow key={turn.key} from={turn.from} to={turn.to} models={models} />
-                if (turn.type === 'agent_status')
-                  return <AgentStatusRow key={turn.key} agents={turn.agents} status={turn.status} />
-                if (turn.type === 'compaction') {
+                const renderTurn = () => {
+                  if (turn.type === 'model_change')
+                    return <ModelChangeRow key={turn.key} from={turn.from} to={turn.to} models={models} />
+                  if (turn.type === 'agent_status')
+                    return <AgentStatusRow key={turn.key} agents={turn.agents} status={turn.status} />
+                  if (turn.type === 'compaction') {
+                    return (
+                      <CompactionCard
+                        key={turn.key}
+                        kind={turn.kind}
+                        summary={turn.summary}
+                        tokensBefore={turn.tokensBefore}
+                        timestamp={turn.timestamp}
+                      />
+                    )
+                  }
+                  if (turn.type === 'custom') {
+                    return (
+                      <div key={turn.key}>
+                        <PluginMessage
+                          message={turn.message}
+                          {...turn.message.source}
+                          customType={turn.message.customType}
+                          fallback={<div className="whitespace-pre-wrap text-sm">{messageText(turn.message)}</div>}
+                        />
+                        <PluginMessageActions
+                          role="custom"
+                          entries={turn.message.sourceEntry ? [turn.message.sourceEntry] : []}
+                          displayedText={messageText(turn.message)}
+                          state="complete"
+                          source={turn.message.source}
+                          customType={turn.message.customType}
+                        />
+                      </div>
+                    )
+                  }
+                  if (turn.type === 'user') {
+                    return (
+                      <div
+                        key={turn.key}
+                        data-conversation-user={turn.key}
+                        ref={(element) => {
+                          if (element) userMessageRefs.current.set(turn.key, element)
+                          else userMessageRefs.current.delete(turn.key)
+                        }}
+                      >
+                        {!readOnly && editor && turn.message.sourceEntry?.id === editor.entryId ? (
+                          <InlineMessageEditor editor={editor} />
+                        ) : (
+                          <ChatMessage
+                            message={turn.message}
+                            tools={chat.tools}
+                            onEdit={readOnly ? undefined : onEditMessage}
+                            canEdit={canEditMessages}
+                            onCopyError={onCopyError}
+                          />
+                        )}
+                      </div>
+                    )
+                  }
                   return (
-                    <CompactionCard
+                    <AssistantTurnView
                       key={turn.key}
-                      kind={turn.kind}
-                      summary={turn.summary}
-                      tokensBefore={turn.tokensBefore}
-                      timestamp={turn.timestamp}
+                      turn={turn}
+                      isFinalReply={finalReplyKeys.has(turn.key)}
+                      retry={turn.isLive && chat.retry?.kind === 'model' ? chat.retry : undefined}
+                      isPaused={Boolean(chat.paused && turn.isLive)}
+                      pauseIntervals={chat.pauseIntervals}
+                      canFork={canForkReplies}
+                      onFork={readOnly ? undefined : onForkReply}
+                      onCopyError={onCopyError}
+                      onActivityToggle={handleActivityToggle}
+                      reply={!agentOnly && !turn.isLive && renderPlan ? planReply(turn) : undefined}
+                      changes={(() => {
+                        if (!finalReplyKeys.has(turn.key) || !onViewChanges || !onUndoChanges) return
+                        const changes = turnChanges?.find((item) => item.entryId === turn.userEntryId)
+                        return changes ? (
+                          <TurnChangesCard
+                            changes={changes}
+                            onView={onViewChanges}
+                            onUndo={onUndoChanges}
+                            disabled={changesDisabled}
+                          />
+                        ) : undefined
+                      })()}
                     />
                   )
                 }
-                if (turn.type === 'custom') {
-                  return (
-                    <div key={turn.key}>
-                      <PluginMessage
-                        message={turn.message}
-                        {...turn.message.source}
-                        customType={turn.message.customType}
-                        fallback={<div className="whitespace-pre-wrap text-sm">{messageText(turn.message)}</div>}
-                      />
-                      <PluginMessageActions
-                        role="custom"
-                        entries={turn.message.sourceEntry ? [turn.message.sourceEntry] : []}
-                        displayedText={messageText(turn.message)}
-                        state="complete"
-                        source={turn.message.source}
-                        customType={turn.message.customType}
-                      />
-                    </div>
-                  )
-                }
-                if (turn.type === 'user') {
-                  return (
-                    <div
-                      key={turn.key}
-                      data-conversation-user={turn.key}
-                      ref={(element) => {
-                        if (element) userMessageRefs.current.set(turn.key, element)
-                        else userMessageRefs.current.delete(turn.key)
-                      }}
-                    >
-                      {!readOnly && editor && turn.message.sourceEntry?.id === editor.entryId ? (
-                        <InlineMessageEditor editor={editor} />
-                      ) : (
-                        <ChatMessage
-                          message={turn.message}
-                          tools={chat.tools}
-                          onEdit={readOnly ? undefined : onEditMessage}
-                          canEdit={canEditMessages}
-                          onCopyError={onCopyError}
-                        />
-                      )}
-                    </div>
-                  )
-                }
                 return (
-                  <AssistantTurnView
-                    key={turn.key}
-                    turn={turn}
-                    isFinalReply={finalReplyKeys.has(turn.key)}
-                    retry={turn.isLive && chat.retry?.kind === 'model' ? chat.retry : undefined}
-                    isPaused={Boolean(chat.paused && turn.isLive)}
-                    pauseIntervals={chat.pauseIntervals}
-                    canFork={canForkReplies}
-                    onFork={readOnly ? undefined : onForkReply}
-                    onCopyError={onCopyError}
-                    onActivityToggle={handleActivityToggle}
-                    reply={!agentOnly && !turn.isLive && renderPlan ? planReply(turn) : undefined}
-                    changes={(() => {
-                      if (!finalReplyKeys.has(turn.key) || !onViewChanges || !onUndoChanges) return
-                      const changes = turnChanges?.find((item) => item.entryId === turn.userEntryId)
-                      return changes ? (
-                        <TurnChangesCard
-                          changes={changes}
-                          onView={onViewChanges}
-                          onUndo={onUndoChanges}
-                          disabled={changesDisabled}
-                        />
-                      ) : undefined
-                    })()}
-                  />
+                  <div key={turn.key} data-conversation-turn={turn.key}>
+                    {renderTurn()}
+                  </div>
                 )
               })}
 

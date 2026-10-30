@@ -345,6 +345,7 @@ export function SideChatSession({
       stream={chat.chatStream}
       onLoadOlder={chat.loadOlderMessages}
       historyLoading={chat.historyLoading}
+      historyError={chat.historyError}
       canEditMessages={!chat.inputDisabled && !chat.navigationBusy && !chat.editing && !locked}
       canForkReplies={false}
       onEditMessage={chat.editMessage}

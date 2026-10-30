@@ -1372,6 +1372,7 @@ export function App({
             stream: chat.chatStream,
             onLoadOlder: chat.loadOlderMessages,
             historyLoading: chat.historyLoading,
+            historyError: chat.historyError,
             canEditMessages: !chat.inputDisabled && !chat.navigationBusy && !chat.editing,
             canForkReplies: !chat.busy && !chat.navigationBusy && !chat.editing,
             onEditMessage: chat.editMessage,
