@@ -1215,11 +1215,15 @@ test('草图在工具成功后直接可见，轮次结束和收起工作过程�
   rerender(view('success', false, '草图已生成，可以直接操作。'))
   expect(screen.getByRole('button', { name: '草图预览 1' })).toBe(card)
   expect(card.closest('[aria-hidden="true"], [inert]')).toBeNull()
+  expect(card.compareDocumentPosition(screen.getByText('草图已生成，可以直接操作。'))).toBe(
+    Node.DOCUMENT_POSITION_FOLLOWING,
+  )
   await user.click(screen.getByRole('button', { name: '工作过程' }))
   expect(screen.getAllByText('草图预览 1')).toHaveLength(1)
 })
 
-test('历史轮次直接显示全部成功草图版本，正文引用不重复，失败结果不展示', () => {
+test('历史轮次按直接和嵌套调用位置显示草图，正文引用不重复，失败结果不展示', async () => {
+  const user = userEvent.setup()
   const reference = { id: '12345678-1234-1234-1234-123456789012', revision: 1 }
   const saved = (revision: number): Extract<ActivityItem, { type?: 'tool' }> => ({
     id: `save-${revision}`,
@@ -1240,7 +1244,14 @@ test('历史轮次直接显示全部成功草图版本，正文引用不重复�
             finalText: `已更新。\n${visualizationMarkdown({ ...reference, revision: 2 })}`,
             activities: [
               saved(1),
-              saved(2),
+              { id: 'between', type: 'narration', text: '根据第一版继续调整。' },
+              {
+                id: 'nested-save',
+                name: 'codemode',
+                status: 'success',
+                children: [{ ...saved(2), name: 'save_visualization', status: 'success' }],
+              },
+              { id: 'after-save', name: 'read', status: 'success', args: { path: 'review.md' } },
               { ...saved(2), id: 'retry' },
               { ...saved(3), status: 'error' },
               { ...saved(4), result: { details: { visualization: { id: 'bad', revision: 4 } } } },
@@ -1255,4 +1266,14 @@ test('历史轮次直接显示全部成功草图版本，正文引用不重复�
   expect(screen.getByRole('button', { name: '草图预览 2' })).toBeVisible()
   expect(screen.queryByText('草图预览 3')).toBeNull()
   expect(screen.queryByText('草图引用无效。')).toBeNull()
+  await user.click(screen.getByRole('button', { name: '工作过程' }))
+  const first = screen.getByRole('button', { name: '草图预览 1' })
+  const second = screen.getByRole('button', { name: '草图预览 2' })
+  const narration = screen.getByText('根据第一版继续调整。')
+  expect(first.compareDocumentPosition(narration)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+  expect(narration.compareDocumentPosition(second)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+  expect(second.compareDocumentPosition(screen.getByText('已更新。'))).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+  const activities = screen.getAllByRole('button', { name: /^活动详情：/ })
+  expect(activities[1].compareDocumentPosition(second)).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
+  expect(second.compareDocumentPosition(activities[2])).toBe(Node.DOCUMENT_POSITION_FOLLOWING)
 })

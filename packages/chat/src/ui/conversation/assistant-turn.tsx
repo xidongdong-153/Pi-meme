@@ -1,6 +1,6 @@
 import { VisualizationRenderer } from '@pi-meme/ui/components/visualization-renderer'
 import { MarkdownHiddenVisualizationsContext } from '../content/markdown-components'
-import { turnVisualizations } from '../model/turn-visualizations'
+import { insertTurnVisualizations } from '../model/turn-visualizations'
 import * as React from 'react'
 import { ChevronDown } from 'lucide-react'
 import type { PiPauseInterval, PiRetryState } from '@pi-meme/contracts/pi'
@@ -43,22 +43,31 @@ export function AssistantTurnView({
   reply?: React.ReactNode
   changes?: React.ReactNode
 }) {
-  const visualizations = React.useMemo(() => turnVisualizations(turn.activities), [turn.activities])
-  const visualizationKeys = React.useMemo(
-    () => new Set(visualizations.map((reference) => `${reference.id}:${reference.revision}`)),
-    [visualizations],
-  )
   const hasReplyContent =
     !reply && isFinalReply && !turn.isLive && (Boolean(turn.finalText.trim()) || turn.images.length > 0)
   const segments = React.useMemo(
-    () => groupAgentActivities(turn.activities, turn.finalText, turn.collaboration, turn.hideAgentOperations),
+    () =>
+      insertTurnVisualizations(
+        groupAgentActivities(turn.activities, turn.finalText, turn.collaboration, turn.hideAgentOperations),
+      ),
     [turn.activities, turn.finalText, turn.collaboration, turn.hideAgentOperations],
+  )
+  const visualizationKeys = React.useMemo(
+    () =>
+      new Set(
+        segments.flatMap((segment) =>
+          segment.type === 'visualization' ? [`${segment.reference.id}:${segment.reference.revision}`] : [],
+        ),
+      ),
+    [segments],
   )
   const hasTrailingText = segments.at(-1)?.type === 'text'
   const replyIndex = !turn.isLive && turn.finalText.trim() ? segments.length - 1 : -1
   const processId = React.useId()
   const processIds = segments.flatMap((segment, index) =>
-    index === replyIndex || segment.type === 'collaboration' ? [] : [`${processId}-${index}`],
+    index === replyIndex || segment.type === 'collaboration' || segment.type === 'visualization'
+      ? []
+      : [`${processId}-${index}`],
   )
   const [process, setProcess] = React.useState(() => ({ isLive: turn.isLive, open: turn.isLive }))
   if (process.isLive !== turn.isLive) {
@@ -114,6 +123,14 @@ export function AssistantTurnView({
           {segments.map((segment, index) =>
             segment.type === 'collaboration' ? (
               <AgentCollaborationRow key={`collaboration-${segment.item.id}`} item={segment.item} />
+            ) : segment.type === 'visualization' ? (
+              <div
+                key={`visualization-${segment.reference.id}:${segment.reference.revision}`}
+                className="my-3"
+                aria-label="生成的草图"
+              >
+                <VisualizationRenderer reference={segment.reference} />
+              </div>
             ) : (
               <div
                 key={segment.type === 'activity' ? `activity-${segment.items[0]!.id}` : `text-${index}`}
@@ -151,13 +168,6 @@ export function AssistantTurnView({
           )}
           {!hasTrailingText && reply}
           {!hasTrailingText && turn.images.length > 0 && <AttachmentPreview images={turn.images} />}
-          {visualizations.length > 0 && (
-            <div className="my-3 space-y-3" aria-label="本轮生成的草图">
-              {visualizations.map((reference) => (
-                <VisualizationRenderer key={`${reference.id}:${reference.revision}`} reference={reference} />
-              ))}
-            </div>
-          )}
           {(retry?.errorMessage || turn.errorMessage) && (
             <ErrorLine
               className="mt-2"
