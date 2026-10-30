@@ -24,7 +24,7 @@ export type ServerOptions = HostOptions & {
 export async function startHostServer(options: ServerOptions = {}) {
   const hostname = options.hostname ?? '127.0.0.1'
   const local = ['127.0.0.1', 'localhost', '::1'].includes(hostname)
-  if (!local && !options.tls) throw new Error('远程 Host 必须配置 HTTPS 证书和私钥')
+  if (!local && !options.tls) throw new Error('远程服务必须配置 HTTPS 证书和私钥')
   const host = await createHost(options)
   const remotes = new RemoteServices(host.connections, host.root, options.ssh)
   try {
@@ -78,7 +78,7 @@ export async function startHostServer(options: ServerOptions = {}) {
     throw cause
   }
   const address = server.address()
-  if (!address || typeof address === 'string') throw new Error('Host 地址无效')
+  if (!address || typeof address === 'string') throw new Error('服务地址无效')
   const url = `${options.tls ? 'https' : 'http'}://${hostname.includes(':') ? `[${hostname}]` : hostname}:${address.port}`
   let disposing: Promise<void> | undefined
   return {

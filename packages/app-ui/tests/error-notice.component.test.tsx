@@ -47,12 +47,15 @@ test.each(['找不到 Pi CLI 或 Node.js：/missing-pi', 'Failed to load extensi
   },
 )
 
-test('连接失败使用状态提示，并可以打开设置', () => {
-  render(<ErrorNotice message="Connection refused: localhost" onOpenSettings={() => {}} onDismiss={() => {}} />)
-  expect(screen.getByRole('status')).toHaveTextContent('没有连上 Host')
-  expect(screen.getByRole('status')).toHaveTextContent('Connection refused: localhost')
-  expect(screen.getByRole('button', { name: '打开设置' })).toBeInTheDocument()
-})
+test.each(['Connection refused: localhost', '服务连接已断开，正在重连', '无法连接，请确认应用已启动后重试'])(
+  '连接失败使用状态提示，并可以打开设置：%s',
+  (message) => {
+    render(<ErrorNotice message={message} onOpenSettings={() => {}} onDismiss={() => {}} />)
+    expect(screen.getByRole('status')).toHaveTextContent('没有连上服务')
+    expect(screen.getByRole('status')).toHaveTextContent(message)
+    expect(screen.getByRole('button', { name: '打开设置' })).toBeInTheDocument()
+  },
+)
 
 test('空消息不占用界面，同时最多显示最新的两张卡片', () => {
   const { rerender, container } = render(<ErrorNotice message="" onOpenSettings={() => {}} onDismiss={() => {}} />)

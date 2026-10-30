@@ -3,7 +3,8 @@ import { cn } from '../lib/utils'
 
 const extensionPattern = /Failed to load extension|无法加载 Pi 扩展/
 const settingsPattern = /Pi.*路径|CLI|Node\.js|models\.json|API Key|API key|apiKey|模型配置|服务商配置/
-const connectionPattern = /Host|连接被拒绝|未连接|Connection refused|ECONNREFUSED/
+const connectionPattern =
+  /Host|无法连接|连接.*(?:失败|断开|暂停|变化|就绪)|服务.*(?:认证|登录|身份)|连接被拒绝|未连接|Connection refused|ECONNREFUSED/
 
 export function cleanSystemError(message: string) {
   return message
@@ -24,14 +25,14 @@ export function classifySystemError(message: string, extension = false) {
     : needsConfig
       ? '需要检查配置'
       : connection
-        ? '没有连上 Host'
+        ? '没有连上服务'
         : '这次操作没有完成'
   return {
     text,
     body,
     title,
     settings: extensionFailure || needsConfig || connection,
-    live: title === '没有连上 Host' ? ('polite' as const) : ('assertive' as const),
+    live: title === '没有连上服务' ? ('polite' as const) : ('assertive' as const),
   }
 }
 

@@ -100,7 +100,7 @@ test(
       await delay(30)
       assert.equal(fake.provider.requests.length, requests)
       assert.equal((await host.app.activities.list(ref)).activities[0].stopReason, '用户停止')
-      await assert.rejects(host.app.activities.list({ ...ref, hostId: 'wrong-host' }), /Host 身份不匹配/)
+      await assert.rejects(host.app.activities.list({ ...ref, hostId: 'wrong-host' }), /服务身份不匹配/)
       const again = await host.app.sessions.submit(
         ref,
         { delivery: 'start', text: '再次启动后测试删除' },

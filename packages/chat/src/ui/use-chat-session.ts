@@ -306,7 +306,7 @@ export function useChatSession(options: ChatSessionOptions) {
       }
       const method = action === 'edit' ? 'pauseGoal' : (`${action}Goal` as 'pauseGoal' | 'resumeGoal' | 'clearGoal')
       const operation = bridge[method]
-      if (!operation) throw new Error('当前 Host 不支持目标')
+      if (!operation) throw new Error('当前服务不支持目标')
       const next = await operation(
         key,
         action === 'resume' ? { ...goal, configuration: configurationRef.current } : goal,
@@ -333,7 +333,7 @@ export function useChatSession(options: ChatSessionOptions) {
       const { bridge, currentSessionKey, currentGeneration } = optionsRef.current
       const key = currentSessionKey()
       const generation = currentGeneration()
-      if (!key || !bridge.editGoal) throw new Error('当前 Host 不支持目标')
+      if (!key || !bridge.editGoal) throw new Error('当前服务不支持目标')
       const goal = await bridge.editGoal(key, input)
       if (key === currentSessionKey() && generation === currentGeneration()) {
         setChat((state) => ({ ...state, goal }))
@@ -714,7 +714,7 @@ export function useChatSession(options: ChatSessionOptions) {
           await optionsRef.current.submitPlan(sessionKey, message, attempt.options, attempt.id)
           planSubmissions.current.delete(key)
         } else if (startingGoal) {
-          if (!bridge.startGoal) throw new Error('当前 Host 不支持目标')
+          if (!bridge.startGoal) throw new Error('当前服务不支持目标')
           const result = await bridge.startGoal(sessionKey, {
             objective: message,
             images,

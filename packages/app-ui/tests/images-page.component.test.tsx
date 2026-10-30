@@ -152,3 +152,27 @@ test('预览加载期间刷新新增图片，仍打开原先点击的作品', as
   expect(dialog).toHaveTextContent('白色小猫')
   expect(dialog).toHaveTextContent('2 / 2')
 })
+
+test('图像来源离线或读取失败时静默展示可用图片，刷新失败保留已有图片', async () => {
+  const f = fixture()
+  const unavailable: ImageLibrarySource = {
+    ...f.source,
+    id: 'unavailable',
+    label: '远程设备',
+    host: { ...f.source.host, capabilities: vi.fn().mockRejectedValue(new Error('读取图像失败')) },
+  }
+  const offline = { ...f.source, id: 'offline', label: '离线设备', connected: false }
+  const list = f.api.list.getMockImplementation()!
+  f.api.list.mockImplementation(async (input) => ({
+    ...(await list(input)),
+    scan: { running: false, completed: 1, total: 3, skipped: 2, error: '历史图像读取失败' },
+  }))
+  render(<ImagesPage sources={[f.source, unavailable, offline]} visible onOpenSession={async () => {}} />)
+  expect(await screen.findByRole('button', { name: '查看图像：白色小猫' })).toBeVisible()
+  expect(screen.queryByText(/未连接|结果不完整|读取失败|无法收录/)).not.toBeInTheDocument()
+  f.api.list.mockRejectedValueOnce(new Error('刷新失败'))
+  fireEvent.click(screen.getByRole('button', { name: '刷新图像' }))
+  await waitFor(() => expect(screen.getByRole('button', { name: '刷新图像' })).toBeEnabled())
+  expect(screen.getByRole('button', { name: '查看图像：白色小猫' })).toBeVisible()
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+})

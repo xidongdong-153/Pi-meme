@@ -611,8 +611,7 @@ export class ResourceStore {
         : undefined
       if (input.replace) {
         if (!replaceItem) throw new Error('待更新资源不存在')
-        if (replaceItem.scope !== 'host' || replaceItem.owner.type !== 'loose')
-          throw new Error('只能更新 Host 用户技能')
+        if (replaceItem.scope !== 'host' || replaceItem.owner.type !== 'loose') throw new Error('只能更新用户技能')
         if (input.replace.revision !== replaceItem.revision) throw new Error('资源已更新，请重新读取修订后上传')
       }
       const replaceRecord = replaceItem ? state.imports.find((record) => record.id === replaceItem.owner.id) : undefined

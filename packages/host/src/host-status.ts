@@ -19,7 +19,7 @@ export function assertLocalHostUrl(value: string) {
     url.search ||
     url.hash
   )
-    throw new Error('共享本机 Host 必须使用不含路径和凭据的 loopback 地址')
+    throw new Error('共享本机服务必须使用不含路径和凭据的 loopback 地址')
   return url.origin
 }
 
@@ -35,7 +35,7 @@ export async function readLocalHostStatus(url: string): Promise<LocalHostStatus 
     })
   } catch (cause) {
     if (errorCode(cause) === 'ECONNREFUSED') return undefined
-    throw Object.assign(new Error('本机端口没有返回有效的 Host 状态，请检查端口占用和监听地址', { cause }), {
+    throw Object.assign(new Error('本机端口没有返回有效的服务状态，请检查端口占用和监听地址', { cause }), {
       code: 'EHOSTPORT',
     })
   }
@@ -60,7 +60,7 @@ export async function readLocalHostStatus(url: string): Promise<LocalHostStatus 
     !('owner' in value) ||
     (value.owner !== 'desktop' && value.owner !== 'server')
   )
-    throw Object.assign(new Error('此端口不是兼容的 pi-meme Host，请停止占用程序或指定其他 PI_MEME_PORT'), {
+    throw Object.assign(new Error('此端口不是兼容的 pi-meme 服务，请停止占用程序或指定其他 PI_MEME_PORT'), {
       code: 'EHOSTPORT',
     })
   return value as LocalHostStatus
@@ -71,10 +71,10 @@ export async function waitForLocalHost(url: string, options: { hostId?: string; 
   do {
     const status = await readLocalHostStatus(url)
     if (status) {
-      if (options.hostId && status.hostId !== options.hostId) throw new Error('本机 Host 身份已变化，请重新连接')
+      if (options.hostId && status.hostId !== options.hostId) throw new Error('本机服务身份已变化，请重新连接')
       return status
     }
     await delay(Math.min(100, Math.max(0, deadline - Date.now())))
   } while (Date.now() < deadline)
-  throw new Error('Host 未启动或尚未就绪，请启动 Desktop 或 pnpm start:server')
+  throw new Error('连接尚未就绪，请稍后重试')
 }

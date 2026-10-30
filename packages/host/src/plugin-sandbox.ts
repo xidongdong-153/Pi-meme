@@ -28,7 +28,7 @@ export async function pluginSandboxLaunch(options: RestrictedLaunchOptions): Pro
     within(dataRoot, workspace) &&
     (workspace === dataRoot || workspace === standaloneWorkspaces || !within(standaloneWorkspaces, workspace))
   )
-    throw new Error('sandbox-unavailable: 不能将 Host 数据目录授权为插件工作区')
+    throw new Error('sandbox-unavailable: 不能将应用数据目录授权为插件工作区')
   if (workspace === path.parse(workspace).root || workspace === (await realpath(homedir())))
     throw new Error('sandbox-unavailable: 请选择具体项目目录')
   const reads = [...new Set([node, directory, entry, scratch, ...(options.readable === false ? [] : [workspace])])]

@@ -200,7 +200,7 @@ export class HostCollaborationBridge {
           }
           if (activeStatuses.has(loadedRecord.summary.status)) {
             loadedRecord.summary.status = 'interrupted'
-            loadedRecord.summary.error = 'Host 已重启，任务未自动恢复'
+            loadedRecord.summary.error = '服务已重启，任务未自动恢复'
             loadedRecord.summary.report ??= loadedRecord.completion?.report
             loadedRecord.summary.runCompletedAt = new Date().toISOString()
             loadedRecord.queued = []
@@ -211,7 +211,7 @@ export class HostCollaborationBridge {
             loadedRecord.summary.cleanup = {
               ...loadedRecord.summary.cleanup,
               state: 'blocked',
-              error: 'Host 重启，清理结果无法确认',
+              error: '服务重启，清理结果无法确认',
               revision: loadedRecord.summary.cleanup.revision + 1,
             }
             interruptedRoots.add(partition.rootAgentId)
@@ -674,7 +674,7 @@ export class HostCollaborationBridge {
   async beginRootRun(sessionKey: string, input: { mode: TaskMode; message: string }) {
     await this.ready
     const root = this.root(sessionKey)
-    if (this.stopping) throw new Error('Host 正在停止')
+    if (this.stopping) throw new Error('服务正在停止')
     if (root.cleaning || (root.summary.cleanup && root.summary.cleanup.state !== 'completed'))
       throw new Error('子树清理尚未完成，不能开始新任务')
     this.userSteering.delete(root)
@@ -722,7 +722,9 @@ export class HostCollaborationBridge {
     if (this.stopping || this.paused(root)) throw new Error('当前任务已暂停或正在结束')
     if (root.cleaning || (root.summary.cleanup && root.summary.cleanup.state !== 'completed'))
       throw new Error('子树清理尚未完成，不能恢复根任务')
-    const restarted = root.summary.status === 'interrupted' && root.summary.error === 'Host 已重启，任务未自动恢复'
+    const restarted =
+      root.summary.status === 'interrupted' &&
+      ['服务已重启，任务未自动恢复', 'Host 已重启，任务未自动恢复'].includes(root.summary.error ?? '')
     if (!restarted && !['idle', 'completed', 'failed', 'waiting_children', 'stopped'].includes(root.summary.status))
       throw new Error('当前任务不能恢复，请重新读取会话状态')
     root.settled = false
@@ -1103,7 +1105,7 @@ export class HostCollaborationBridge {
     delegation?: AgentRunRef[],
     allowCleaning = false,
   ) {
-    if (this.stopping) throw new Error('Host 正在停止')
+    if (this.stopping) throw new Error('服务正在停止')
     if ((record.cleaning && !allowCleaning) || (record.summary.cleanup && record.summary.cleanup.state !== 'completed'))
       throw new Error('目标 Agent 尚未完成清理')
     this.options.assertCheckoutAvailable?.(record.summary.cwd)

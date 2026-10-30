@@ -124,7 +124,7 @@ export class RemoteServices {
   private closing = false
   private readonly operations = new Set<Promise<unknown>>()
   private track<T>(action: () => Promise<T>): Promise<T> {
-    if (this.closing) return Promise.reject(new Error('本机 Host 正在退出，远程服务操作未接纳'))
+    if (this.closing) return Promise.reject(new Error('本机服务正在退出，远程服务操作未接纳'))
     const pending = Promise.resolve().then(action)
     this.operations.add(pending)
     void pending.finally(() => this.operations.delete(pending)).catch(() => {})
@@ -165,7 +165,7 @@ export class RemoteServices {
       {
         login: (connection, endpoint, signal) => {
           const token = connections.readSsh(connection.id)
-          if (!token) throw new SshError('host-token', '远端 Host 自动准备未返回访问令牌，请重试连接')
+          if (!token) throw new SshError('host-token', '远程服务自动准备未返回访问令牌，请重试连接')
           return this.login(endpoint, token, connection.hostId, true, signal)
         },
         changed: (connection, endpoint, cookie) => this.sshChanged(connection, endpoint, cookie),
@@ -263,9 +263,9 @@ export class RemoteServices {
       capabilities?: { sshTunnelAuthV1?: unknown }
     }
     if (ssh && value.capabilities?.sshTunnelAuthV1 !== true)
-      throw new SshError('host-upgrade', '远端 Host 不支持安全 SSH 连接，请先升级 Host')
+      throw new SshError('host-upgrade', '远程服务不支持安全 SSH 连接，请先升级服务')
     if (ssh && value.authMode !== 'token-required')
-      throw new SshError('host-auth-mode', '远端 Host 必须以 PI_MEME_AUTH_MODE=token-required 模式启动')
+      throw new SshError('host-auth-mode', '远程服务必须以 PI_MEME_AUTH_MODE=token-required 模式启动')
     if (typeof value.hostId !== 'string' || !value.hostId || (expected && value.hostId !== expected))
       throw new SshError('host-identity', '远程服务身份已变化，请重新登记')
     const cookies = response.headers.getSetCookie()
@@ -308,7 +308,7 @@ export class RemoteServices {
     return this.get(id)
   }
   async authenticate(id: string) {
-    if (this.closing) throw new Error('本机 Host 正在退出')
+    if (this.closing) throw new Error('本机服务正在退出')
     const state = this.get(id)
     const endpoint = this.endpoint(state)
     if (this.cookies.has(id)) return
@@ -381,7 +381,7 @@ export class RemoteServices {
   ) {
     return this.track(async () => {
       const state = this.get(id)
-      if (metadata.get('hostId') !== state.hostId) throw new Error('Host 身份不匹配')
+      if (metadata.get('hostId') !== state.hostId) throw new Error('服务身份不匹配')
       try {
         signal?.throwIfAborted()
         await this.authenticate(id)

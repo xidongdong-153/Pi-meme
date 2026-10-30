@@ -198,7 +198,7 @@ test('bash 的写入、符号链接与 Host 数据边界由实际后端执行', 
     overlapping.stopAll()
     await assert.rejects(
       AccessSandbox.create({ mode: 'workspace-write', cwd: dataRoot, temporary, agentDir: dataRoot, dataRoot }),
-      /配置目录|Host 数据/,
+      /配置目录|应用数据/,
     )
     await assert.rejects(
       AccessSandbox.create({ mode: 'workspace-write', cwd: tmpdir(), temporary, agentDir: dataRoot }),

@@ -69,7 +69,7 @@ export async function createBuiltinModules(
       await mkdir(dataDirectory, { recursive: true })
       const instance = await (module as ServerPluginModule).create({
         get host() {
-          if (!hostApi) throw new Error('Host API 尚未初始化')
+          if (!hostApi) throw new Error('服务 API 尚未初始化')
           return hostApi()
         },
         pluginId: manifest.name,

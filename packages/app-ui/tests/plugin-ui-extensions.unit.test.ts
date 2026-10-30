@@ -43,12 +43,12 @@ test('页面打开捕获目标且拒绝跨 Host、缺少scope和退役上下文'
   target.session.sessionId = 'changed'
   assert.equal((requests[0] as { target: typeof target }).target.session.sessionId, 'first')
   await assert.rejects(extension.navigation.openPage('example:session'), /缺少/)
-  await assert.rejects(extension.navigation.openPage('example:app', { target: { hostId: 'other' } }), /其他 Host/)
+  await assert.rejects(extension.navigation.openPage('example:app', { target: { hostId: 'other' } }), /其他服务/)
   await assert.rejects(
     extension.navigation.openPage('example:app', {
       target: { hostId: 'host', session: { hostId: 'other', sessionId: 'session' } },
     }),
-    /其他 Host/,
+    /其他服务/,
   )
   await assert.rejects(
     extension.navigation.openPage('example:app', {

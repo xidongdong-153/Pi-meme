@@ -37,12 +37,12 @@ export async function findSshExecutable(): Promise<string | undefined> {
 
 export function sshFailure(stderr: string) {
   if (/REMOTE HOST IDENTIFICATION HAS CHANGED|Host key verification failed|No .*host key is known/i.test(stderr))
-    return new SshError('host-key', 'SSH 主机指纹未受信任或已变化，请先在入口 Host 的终端核实')
+    return new SshError('host-key', 'SSH 主机指纹未受信任或已变化，请先在本机终端核实')
   if (/Permission denied|no supported authentication|sign_and_send_pubkey|agent refused/i.test(stderr))
-    return new SshError('ssh-auth', 'SSH 身份验证失败，请检查入口 Host 的密钥和 SSH agent')
+    return new SshError('ssh-auth', 'SSH 身份验证失败，请检查本机密钥和 SSH agent')
   if (/Bad configuration|Bad owner|Bad permissions|Bad SSH|Could not resolve hostname/i.test(stderr))
-    return new SshError('ssh-config', 'SSH 配置或目标无效，请检查入口 Host 的 SSH 配置')
-  return new SshError('ssh-network', 'SSH 连接已中断，请检查网络、SSH 服务和远端 Host', true)
+    return new SshError('ssh-config', 'SSH 配置或目标无效，请检查本机 SSH 配置')
+  return new SshError('ssh-network', 'SSH 连接已中断，请检查网络、SSH 服务和远程服务', true)
 }
 
 async function unusedPort() {
@@ -77,7 +77,7 @@ function signalGroup(pid: number, signal: NodeJS.Signals | 0) {
     return true
   } catch (cause) {
     if ((cause as NodeJS.ErrnoException).code === 'ESRCH') return false
-    throw new SshError('ssh-cleanup', '无法清理 SSH 进程组，请检查入口 Host 的进程权限')
+    throw new SshError('ssh-cleanup', '无法清理 SSH 进程组，请检查本机进程权限')
   }
 }
 export async function stopChild(child: ChildProcess, send: SignalGroup = signalGroup) {
@@ -93,7 +93,7 @@ export async function stopChild(child: ChildProcess, send: SignalGroup = signalG
     if (!send(child.pid, 0)) return
     await delay(25)
   }
-  throw new SshError('ssh-cleanup', 'SSH 进程组未能退出，请检查入口 Host 上的进程')
+  throw new SshError('ssh-cleanup', 'SSH 进程组未能退出，请检查本机进程')
 }
 
 function identityFilePath(value: string) {
@@ -153,7 +153,7 @@ export async function validateSshConnection(
   const send = options.signalGroup ?? signalGroup
   signal.throwIfAborted()
   const executable = await (options.executable ?? findSshExecutable)()
-  if (!executable) throw new SshError('ssh-unavailable', '入口 Host 未找到可执行的 OpenSSH')
+  if (!executable) throw new SshError('ssh-unavailable', '未找到 OpenSSH，请安装后重试')
   signal.throwIfAborted()
   if (connection.identityFile) {
     const file = identityFilePath(connection.identityFile)
@@ -161,7 +161,7 @@ export async function validateSshConnection(
       if (!(await stat(file)).isFile()) throw new Error('不是文件')
       await access(file, constants.R_OK)
     } catch {
-      throw new SshError('identity-file', '指定的身份文件不存在或不可读，请检查入口 Host 上的路径')
+      throw new SshError('identity-file', '指定的身份文件不存在或不可读，请检查本机路径')
     }
     signal.throwIfAborted()
   }

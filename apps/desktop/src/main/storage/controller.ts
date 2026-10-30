@@ -35,11 +35,11 @@ export function createStorageController(options: {
   let chosen: StorageTarget | null = null
   const assertHost = (hostId: string) => {
     if (typeof hostId !== 'string' || hostId !== options.getHostId())
-      throw new Error('存储操作必须指向 Desktop 当前连接的本机 Host')
+      throw new Error('存储操作必须指向 Desktop 当前连接的本机服务')
   }
   const assertManaged = (hostId: string) => {
     assertHost(hostId)
-    if (!options.ownsHost()) throw new Error('当前 Host 由其他入口管理，不能从 Desktop 维护')
+    if (!options.ownsHost()) throw new Error('当前服务由其他入口管理，不能从 Desktop 维护')
     if (options.override !== undefined) throw new Error('数据目录由 PI_MEME_DATA_ROOT 管理，不能从界面维护')
     if (busy || preferences.pending) throw new Error('已有存储维护任务，请等待完成')
   }
@@ -85,7 +85,7 @@ export function createStorageController(options: {
               : 'default',
         canMaintain: options.ownsHost() && options.override === undefined && !busy && !preferences.pending,
         maintenanceDisabledReason: !options.ownsHost()
-          ? '当前 Host 由其他入口管理，不能从 Desktop 维护。'
+          ? '当前服务由其他入口管理，不能从 Desktop 维护。'
           : options.override !== undefined
             ? '由 PI_MEME_DATA_ROOT 管理，不能从界面维护。'
             : busy || preferences.pending
@@ -166,7 +166,7 @@ export function createStorageController(options: {
         try {
           await runPending(preferences.pending)
           preferences = await readStoragePreferences(file)
-          if (preferences.pending) throw new Error(preferences.lastError ?? '存储维护尚未完成，不能启动 Host')
+          if (preferences.pending) throw new Error(preferences.lastError ?? '存储维护尚未完成，无法启动应用')
           app.relaunch()
           app.exit(0)
           await new Promise<void>(() => {})
@@ -224,7 +224,7 @@ export function createStorageController(options: {
         type: 'error',
         title: '存储维护未完成',
         message: cause instanceof Error ? cause.message : String(cause),
-        detail: '原数据未删除。请查看常规设置中的维护错误；尚未恢复的任务会阻止 Host 启动。',
+        detail: '原数据未删除。请查看常规设置中的维护错误；尚未恢复的任务会阻止服务启动。',
       })
     } finally {
       window.destroy()

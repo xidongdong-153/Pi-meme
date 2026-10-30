@@ -212,8 +212,7 @@ export class PluginComposerController implements ComposerAdapter {
       return this.cached.value
     const ref = this.ref()
     const hooks = this.effectiveHooks(ref)
-    const reason =
-      this.blocked() ?? (!this.options.chat.canSubmitComposer() ? '请先连接 Host 并完成会话配置' : undefined)
+    const reason = this.blocked() ?? (!this.options.chat.canSubmitComposer() ? '请先连接服务并完成会话配置' : undefined)
     const value: ComposerView = {
       ref,
       revision: source.revision,

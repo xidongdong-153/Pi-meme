@@ -13,26 +13,26 @@ export function createGitHandlers({ getCwd, environment, switchBranch, createWor
   return {
     'git:environment': (key: unknown) => {
       text(key)
-      if (!environment) throw new Error('此 Host 不支持 Git 工作环境操作')
+      if (!environment) throw new Error('此服务不支持 Git 工作环境操作')
       return environment(key)
     },
     'git:switch-branch': (key: unknown, branch: unknown) => {
       text(key)
       text(branch)
-      if (!switchBranch) throw new Error('此 Host 不支持切换分支')
+      if (!switchBranch) throw new Error('此服务不支持切换分支')
       return switchBranch(key, branch)
     },
     'git:create-branch': (key: unknown, branch: unknown, baseRef: unknown) => {
       text(key)
       text(branch)
       text(baseRef)
-      if (!switchBranch) throw new Error('此 Host 不支持创建分支')
+      if (!switchBranch) throw new Error('此服务不支持创建分支')
       return switchBranch(key, branch, baseRef)
     },
     'git:create-worktree': (key: unknown, baseRef: unknown) => {
       text(key)
       text(baseRef)
-      if (!createWorktree) throw new Error('此 Host 不支持创建 Worktree')
+      if (!createWorktree) throw new Error('此服务不支持创建 Worktree')
       return createWorktree(key, baseRef)
     },
     'git:snapshot': () => getGitSnapshot(getCwd()),

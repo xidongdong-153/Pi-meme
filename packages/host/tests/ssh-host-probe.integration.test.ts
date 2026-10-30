@@ -355,7 +355,7 @@ test('解析器只返回固定中文错误，不泄漏原始输出、异常或�
     '{"status":"absent","token":"never-print-this-secret"}',
     'x'.repeat(65537),
   ]) {
-    expect(() => parseSshHostProbe(output)).toThrow('远端 Host 探测没有返回有效结果，请检查 SSH 登录环境')
+    expect(() => parseSshHostProbe(output)).toThrow('远程服务探测没有返回有效结果，请检查 SSH 登录环境')
   }
   expect(() => parseSshHostProbe('{"status":"error","code":"host-probe-python"}')).toThrow(/Python 3/)
   expect(parseSshHostProbe('{"status":"absent"}')).toBeNull()

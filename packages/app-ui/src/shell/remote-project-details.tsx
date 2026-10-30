@@ -92,7 +92,7 @@ export function RemoteProjectDetails({
           </Button>
         )}
       </div>
-      {offline && !canManage && <p className="text-muted-foreground">请在入口 Host 的本机界面处理连接。</p>}
+      {offline && !canManage && <p className="text-muted-foreground">请在本机应用中管理连接。</p>}
       <div className="flex items-start gap-2 text-muted-foreground">
         <Folder className="mt-0.5 size-3.5 shrink-0" />
         <span className="min-w-0 flex-1 break-all">{project.cwd}</span>

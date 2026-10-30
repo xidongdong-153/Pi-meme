@@ -229,7 +229,7 @@ function ConnectedWebApp() {
             <div className="flex flex-col items-center gap-2 text-center pb-2">
               <BrandMark size={44} />
               <h1 className="text-lg font-semibold tracking-tight">登录 Pi meme</h1>
-              <p className="text-xs text-muted-foreground">输入访问令牌连接本地或远程 Host</p>
+              <p className="text-xs text-muted-foreground">请输入访问令牌</p>
             </div>
             <label className="block space-y-2 text-sm">
               访问令牌

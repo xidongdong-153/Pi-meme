@@ -191,7 +191,7 @@ test('英文 App 区块与用户 SYSTEM.md、普通和 Plan 主子会话共存�
         assert.match(text, /在规划或只读模式下，必要的展示产物放入会话临时目录/)
         assert.match(text, /不得绕过访问拒绝/)
         assert.match(text, /不要使用 file:\/\/、绝对路径、临时 localhost URL 或新建服务器展示本地图片/)
-        assert.match(text, /除 Host 附件目录内已上传图片和 image_gen 产物外/)
+        assert.match(text, /除附件目录内已上传图片和 image_gen 产物外/)
         assert.match(text, /无需复制到工作目录或重复读取/)
         assert.match(text, /除非用户要求渲染测试，不要尝试多种标记变体/)
         assert.match(text, /Keep valid remote HTTP\(S\) image URLs unchanged/)

@@ -38,17 +38,16 @@ export function SubagentDefaultsSettings({
 }) {
   const unavailable = value.model && !models.some((model) => modelKey(model) === modelKey(value.model!))
   const fields = [
-    { field: 'model' as const, title: '默认模型', description: '未指定时，使用主会话派发任务时的模型。' },
-    { field: 'thinkingLevel' as const, title: '默认思考强度', description: '可独立设置，不随默认模型的选择一起修改。' },
+    { field: 'model' as const, title: '默认模型' },
+    { field: 'thinkingLevel' as const, title: '默认思考强度' },
   ]
   return (
     <div className="space-y-4">
-      {fields.map(({ field, title, description }) => (
+      {fields.map(({ field, title }) => (
         <section key={field} className="rounded-xl border border-border bg-card p-5">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div className="min-w-0 space-y-1">
               <h3 className="font-medium">{title}</h3>
-              <p className="text-sm text-muted-foreground">{description}</p>
             </div>
             {loading ? (
               <div aria-label={`正在加载${title}`} className="h-8 w-52 animate-pulse rounded-lg bg-secondary" />
@@ -128,17 +127,9 @@ export function SubagentDefaultsSettings({
       ))}
       {!connected && (
         <p role="status" className="text-sm text-destructive">
-          Host 未连接，暂时无法保存设置。
+          服务未连接，暂时无法保存设置。
         </p>
       )}
-      <p className="text-xs leading-relaxed text-muted-foreground">
-        选择后自动保存，用于后续新建或续派的任务。运行中和已排队的任务保留原配置。
-      </p>
-      <section className="space-y-2 pt-3">
-        <h3 className="text-sm font-medium">运行规则</h3>
-        <p className="text-sm text-muted-foreground">仅主会话可以创建子代理，不支持继续创建下级。</p>
-        <p className="text-sm text-muted-foreground">每个主会话最多 4 个活动子代理，等待也占用名额。</p>
-      </section>
     </div>
   )
 }

@@ -23,25 +23,23 @@ function launchHost(entry: string, env: NodeJS.ProcessEnv): Promise<DesktopHostP
     const requests = new Map<string, { resolve: () => void; reject: (cause: Error) => void; timer: NodeJS.Timeout }>()
     const startup = setTimeout(() => {
       child.kill()
-      reject(new Error('本机 Host 启动超时'))
+      reject(new Error('本机服务启动超时'))
     }, 30000)
     child.stderr?.on('data', (data: Buffer) => console.error(data.toString()))
     function stop(timeoutMs: number, force: boolean) {
       if (exited)
-        return !force && exitCode !== 0
-          ? Promise.reject(new Error(`Host 未正常退出（${exitCode}）`))
-          : Promise.resolve()
+        return !force && exitCode !== 0 ? Promise.reject(new Error(`服务未正常退出（${exitCode}）`)) : Promise.resolve()
       return new Promise<void>((resolve, reject) => {
         let timer: NodeJS.Timeout
         const onExit = (code: number) => {
           clearTimeout(timer)
           if (code === 0) resolve()
-          else reject(new Error(`Host 未正常退出（${code}）`))
+          else reject(new Error(`服务未正常退出（${code}）`))
         }
         timer = setTimeout(() => {
           child.removeListener('exit', onExit)
           if (force) child.kill()
-          reject(new Error(force ? '本机 Host 停机超时' : 'Host 正常停机超时，维护已取消；不会强制终止后迁移'))
+          reject(new Error(force ? '本机服务停机超时' : '服务正常停机超时，维护已取消；不会强制终止后迁移'))
         }, timeoutMs)
         child.once('exit', onExit)
         child.postMessage({ type: 'stop', hostId })
@@ -67,13 +65,13 @@ function launchHost(entry: string, env: NodeJS.ProcessEnv): Promise<DesktopHostP
             prepareMaintenance: () =>
               new Promise<void>((resolve, reject) => {
                 if (exited) {
-                  reject(new Error('本机 Host 已退出'))
+                  reject(new Error('本机服务已退出'))
                   return
                 }
                 const id = randomUUID()
                 const timer = setTimeout(() => {
                   requests.delete(id)
-                  reject(new Error('本机 Host 维护准备超时'))
+                  reject(new Error('本机服务维护准备超时'))
                 }, 10000)
                 requests.set(id, { resolve, reject, timer })
                 child.postMessage({ type: 'maintenance:prepare', id, hostId })
@@ -87,7 +85,7 @@ function launchHost(entry: string, env: NodeJS.ProcessEnv): Promise<DesktopHostP
         }
         if (value.type === 'failed') {
           clearTimeout(startup)
-          reject(Object.assign(new Error(value.message ?? 'Host 启动失败'), { code: value.code }))
+          reject(Object.assign(new Error(value.message ?? '服务启动失败'), { code: value.code }))
         }
         if (value.type === 'maintenance:result') {
           const request = requests.get(value.id)
@@ -103,7 +101,7 @@ function launchHost(entry: string, env: NodeJS.ProcessEnv): Promise<DesktopHostP
       exitCode = code
       exited = true
       clearTimeout(startup)
-      const cause = new Error(`本机 Host 已退出（${code}）`)
+      const cause = new Error(`本机服务已退出（${code}）`)
       for (const request of requests.values()) {
         clearTimeout(request.timer)
         request.reject(cause)

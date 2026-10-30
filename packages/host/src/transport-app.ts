@@ -87,7 +87,7 @@ function serviceRegistrationError(cause: unknown) {
   if (code && /CERT|SELF_SIGNED|ISSUER|TLS/.test(code)) return `远程服务 HTTPS 证书校验失败：${code}`
   if (cause.message === 'fetch failed')
     return code ? `无法连接远程服务：${code}` : '无法连接远程服务，请检查网络和 HTTPS 地址'
-  return cause.message.replace(/https?:\/\/\S+/g, '[Host 地址]')
+  return cause.message.replace(/https?:\/\/\S+/g, '[服务地址]')
 }
 
 function registerRpc(app: Hono<TransportEnv>, { host, remotes, auth }: TransportServices) {
@@ -119,7 +119,7 @@ function registerRpc(app: Hono<TransportEnv>, { host, remotes, auth }: Transport
         value.method.startsWith('browser:')) &&
       !auth.localRequest(c.env.incoming)
     )
-      return reply(403, { error: '旧凭据只能在本机 Host 导入' })
+      return reply(403, { error: '旧凭据只能在本机服务导入' })
     if (
       !value ||
       typeof value.method !== 'string' ||
@@ -132,7 +132,7 @@ function registerRpc(app: Hono<TransportEnv>, { host, remotes, auth }: Transport
       !Array.isArray(value.args)
     )
       throw new Error('请求参数无效')
-    if (value.hostId && value.hostId !== host.hostId) throw new Error('请求 Host 身份不匹配')
+    if (value.hostId && value.hostId !== host.hostId) throw new Error('请求服务身份不匹配')
     if (value.method === 'chat:file-preview') {
       const ref = value.args[0] as { hostId: string; sessionId: string }
       const session = await host.control.apiFor(value.clientId).sessions.get(ref)
@@ -158,13 +158,13 @@ function registerRpc(app: Hono<TransportEnv>, { host, remotes, auth }: Transport
           canManage,
           available,
           reason: !canManage
-            ? 'SSH 连接只能从入口 Host 的本机来源管理'
+            ? '请在本机打开应用后管理 SSH 连接'
             : !available
-              ? '入口 Host 未找到系统 OpenSSH'
+              ? '本机服务未找到系统 OpenSSH'
               : undefined,
         }
       } else {
-        if (!canManage) return reply(403, { error: 'SSH 连接只能从入口 Host 的本机来源管理' })
+        if (!canManage) return reply(403, { error: '请在本机打开应用后管理 SSH 连接' })
         switch (value.method) {
           case 'host:ssh:list':
             result = remotes.ssh.list()
@@ -199,7 +199,7 @@ function registerRpc(app: Hono<TransportEnv>, { host, remotes, auth }: Transport
       if (value.method === 'host:connections:list') result = host.connections.list()
       else {
         const url = value.args[0]
-        if (typeof url !== 'string') throw new Error('Host 地址无效')
+        if (typeof url !== 'string') throw new Error('服务地址无效')
         await remotes.removeSavedConnection(url)
       }
       return reply(200, { requestId: value.requestId, hostId: host.hostId, result })
@@ -304,7 +304,7 @@ function registerEvents(app: Hono<TransportEnv>, { host, remotes }: TransportSer
             if (ws.readyState === WebSocket.OPEN) dispose = unsubscribe
             else unsubscribe()
           })
-          .catch(() => ws.close(1011, 'Host 订阅失败'))
+          .catch(() => ws.close(1011, '服务订阅失败'))
       },
       onClose() {
         disposeChanges?.()
@@ -379,7 +379,7 @@ export function createTransportApp(services: TransportServices) {
     c.set('url', url)
     const upgrade = !c.env.outgoing
     if (url.pathname === '/api/status' && c.req.method === 'GET' && !upgrade) {
-      if (!auth.localRequest(request)) return reply(403, { error: 'Host 状态只允许本机来源读取' })
+      if (!auth.localRequest(request)) return reply(403, { error: '服务状态只允许本机来源读取' })
       const status: LocalHostStatus = {
         product: 'pi-meme',
         runtimeProtocolVersion: hostRuntimeProtocolVersion,
@@ -395,14 +395,14 @@ export function createTransportApp(services: TransportServices) {
       !(url.pathname === '/api/auth' && c.req.method === 'POST' && !upgrade) &&
       !auth.authenticated(request)
     )
-      return reply(401, { error: '需要登录 Host' })
+      return reply(401, { error: '需要登录服务' })
     if (upgrade) {
       if (
         url.pathname !== '/api/events' &&
         url.pathname !== '/api/control/events' &&
         !/^\/api\/services\/[a-f0-9]{24}\/api\/(?:control\/)?events$/.test(url.pathname)
       )
-        return reply(404, { error: 'Host 接口不存在' })
+        return reply(404, { error: '服务接口不存在' })
       const clientId = url.searchParams.get('clientId')
       if (!clientId || clientId.length > 128) return reply(400, { error: '客户端标识无效' })
     }
@@ -427,7 +427,7 @@ export function createTransportApp(services: TransportServices) {
   registerRpc(app, services)
   app.notFound((c) =>
     c.get('url').pathname.startsWith('/api/') || !c.env.outgoing
-      ? reply(404, { error: 'Host 接口不存在' })
+      ? reply(404, { error: '服务接口不存在' })
       : serveFrontend(c.env.incoming.url ?? '/', options),
   )
   return app

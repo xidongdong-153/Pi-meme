@@ -261,11 +261,8 @@ export function ImagesPage({
         setFeed(next)
         setLoading(false)
       })
-      .catch((cause: unknown) => {
-        if (generation.current === version) {
-          setError(String(cause))
-          setLoading(false)
-        }
+      .catch(() => {
+        if (generation.current === version) setLoading(false)
       })
     return () => {
       generation.current++
@@ -322,7 +319,7 @@ export function ImagesPage({
   }
   function sourceFor(item: GalleryImage) {
     const source = sourceRef.current.find((source) => source.id === item.serviceId)
-    if (!source?.connected || !source.host.imageLibrary) throw new Error('图片所属 Host 未连接')
+    if (!source?.connected || !source.host.imageLibrary) throw new Error('图片所属服务未连接')
     return source
   }
   async function preview(index: number | null) {
@@ -429,11 +426,11 @@ export function ImagesPage({
             setProjectFilter('all')
           }}
         >
-          <SelectTrigger aria-label="筛选 Host" className="w-40">
+          <SelectTrigger aria-label="筛选设备" className="w-40">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
-            <SelectItem value="all">全部 Host</SelectItem>
+            <SelectItem value="all">全部</SelectItem>
             {sources.map((source) => (
               <SelectItem key={source.id} value={source.id}>
                 {source.label}
@@ -464,23 +461,7 @@ export function ImagesPage({
           </span>
         )}
       </div>
-      <div className="space-y-1 px-6 text-xs text-muted-foreground sm:px-9" role="status">
-        {feed?.sources.map((state) => {
-          const scan = state.page?.scan
-          const notice =
-            state.error ||
-            scan?.error ||
-            (scan?.running
-              ? `正在补录历史图像 ${scan.completed}/${scan.total}`
-              : scan?.skipped
-                ? `${scan.skipped} 项历史结果无法收录`
-                : '')
-          return notice ? (
-            <p key={state.source.id} className="pb-2">
-              {state.source.label}：{notice}
-            </p>
-          ) : null
-        })}
+      <div className="space-y-1 px-6 text-xs text-muted-foreground sm:px-9">
         {error && !dialogOpen && (
           <p role="alert" className="pb-2 text-destructive">
             {error}

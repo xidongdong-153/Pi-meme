@@ -101,7 +101,7 @@ export function ImageGenerationSettings({ api, hostLabel }: { api?: ImageGenerat
   const imageUrl = result ? `data:${result.image.mimeType};base64,${result.image.data}` : undefined
   const existing = draft && config?.models.find((model) => model.id === draft.id)
 
-  if (!api) return <p role="status">当前 Host 不支持图片生成，请更新 Host。</p>
+  if (!api) return <p role="status">当前版本不支持图片生成，请更新后重试。</p>
   return (
     <div className="space-y-4">
       <p className="text-xs text-muted-foreground">配置保存到：{hostLabel}</p>
@@ -112,7 +112,6 @@ export function ImageGenerationSettings({ api, hostLabel }: { api?: ImageGenerat
           <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-card p-5">
             <div className="space-y-1">
               <h3 className="font-medium">默认图片模型</h3>
-              <p className="text-sm text-muted-foreground">生成和编辑使用同一个模型，修改后下一次调用生效。</p>
             </div>
             <Select
               value={config?.defaultId ?? ''}
@@ -131,8 +130,7 @@ export function ImageGenerationSettings({ api, hostLabel }: { api?: ImageGenerat
               </SelectContent>
             </Select>
           </div>
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-sm text-muted-foreground">服务需要支持 OpenAI Images 生图与编辑协议。</p>
+          <div className="flex flex-wrap items-center justify-end gap-3">
             <div className="flex gap-2">
               <Button
                 variant="outline"
@@ -148,7 +146,7 @@ export function ImageGenerationSettings({ api, hostLabel }: { api?: ImageGenerat
           </div>
           {config && !config.models.length && !config.error && (
             <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-              尚未配置图片模型。添加服务地址、API Key 和模型 ID 后，Agent 即可使用图片工具。
+              添加图片模型后即可生成和编辑图片。
             </div>
           )}
           {config?.models.map((model) => (

@@ -93,9 +93,7 @@ export function SshConnectionDialog({
         <div className="space-y-2 pr-6">
           <DialogTitle>{connection ? '编辑 SSH 连接' : '添加 SSH 连接'}</DialogTitle>
           <DialogDescription>
-            {step === 'discover'
-              ? '从入口 Host 的 ~/.ssh/config 选择连接。添加后优先连接已有 Host，未发现时才自动安装并启动。'
-              : '使用入口 Host 的 SSH 配置，优先连接已有 Host，未发现时才自动安装；编辑不会改变连接开关。'}
+            {step === 'discover' ? '选择已保存的 SSH 配置，或手动填写连接信息。' : '修改 SSH 连接信息。'}
           </DialogDescription>
         </div>
         {step === 'discover' ? (
@@ -337,7 +335,7 @@ function SshConnectionForm({
             onChange={(event) => setIdentityFile(event.target.value)}
           />
           <span className="block text-xs text-muted-foreground">
-            留空沿用入口 Host 的 SSH 配置与 agent。路径位于入口 Host，不会上传或复制私钥。
+            留空使用已有 SSH 配置。私钥路径位于发起连接的设备，不会上传或复制。
           </span>
         </label>
       </fieldset>

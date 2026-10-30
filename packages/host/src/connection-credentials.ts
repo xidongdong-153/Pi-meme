@@ -5,7 +5,7 @@ const prefix = 'remote-host:'
 function origin(value: string) {
   const url = new URL(value)
   if (url.protocol !== 'https:' || url.username || url.password)
-    throw new Error('远程 Host 必须使用 HTTPS，地址不能包含凭据')
+    throw new Error('远程服务必须使用 HTTPS，地址不能包含凭据')
   return url.origin
 }
 
@@ -23,7 +23,7 @@ export class ConnectionCredentialStore {
     try {
       value = JSON.parse(source)
     } catch {
-      throw new Error('已保存的远程 Host 凭据格式无效')
+      throw new Error('已保存的远程服务凭据格式无效')
     }
     if (
       !value ||
@@ -35,7 +35,7 @@ export class ConnectionCredentialStore {
       typeof value.hostId !== 'string' ||
       !value.hostId
     )
-      throw new Error('已保存的远程 Host 凭据格式无效')
+      throw new Error('已保存的远程服务凭据格式无效')
     return { url: normalized, token: value.token, hostId: value.hostId }
   }
   list(): SavedHostConnection[] {
@@ -46,7 +46,7 @@ export class ConnectionCredentialStore {
   }
   async save(value: SavedHostConnection & { token: string }) {
     const url = origin(value.url)
-    if (!value.token || !value.hostId) throw new Error('远程 Host 凭据不完整')
+    if (!value.token || !value.hostId) throw new Error('远程服务凭据不完整')
     this.credentials.set(`${prefix}${url}`, JSON.stringify({ token: value.token, hostId: value.hostId }))
     await this.flush()
   }
@@ -58,7 +58,7 @@ export class ConnectionCredentialStore {
     return this.credentials.get(this.sshKey(id))
   }
   async saveSsh(id: string, token: string) {
-    if (!token || token.length > 4096) throw new Error('Host 访问令牌无效')
+    if (!token || token.length > 4096) throw new Error('服务访问令牌无效')
     const key = this.sshKey(id)
     const previous = this.credentials.get(key)
     this.credentials.set(key, token)

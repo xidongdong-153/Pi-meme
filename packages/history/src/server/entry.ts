@@ -49,7 +49,7 @@ export function create(context: ServerPluginContext) {
     const directory = await realpath(await host.sessions.getSessionsDirectory())
     const target = await realpath(value)
     if (!target.startsWith(`${directory}${path.sep}`) || !target.endsWith('.jsonl'))
-      throw new Error('会话不在 Host 会话目录内')
+      throw new Error('会话不在服务会话目录内')
     return { path: target, history: undefined }
   }
   const read = async (value: unknown) => {

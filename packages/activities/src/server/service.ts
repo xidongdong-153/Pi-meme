@@ -65,7 +65,7 @@ export class ActivityService {
   constructor(private readonly options: Options) {}
 
   private checkRef(ref: SessionRef) {
-    if (ref.hostId !== this.options.hostId) throw new Error('活动所属 Host 不匹配')
+    if (ref.hostId !== this.options.hostId) throw new Error('活动所属服务不匹配')
     text(ref.sessionId, '会话标识', 256)
   }
 
@@ -91,7 +91,7 @@ export class ActivityService {
   }
 
   start(caller: ActivityCaller, input: StartInput, signal?: AbortSignal): Promise<ServiceActivity> {
-    if (this.closing) return Promise.reject(new Error('Host 活动服务已关闭'))
+    if (this.closing) return Promise.reject(new Error('活动服务已关闭'))
     this.checkRef(caller.session)
     if (process.platform !== 'darwin' && process.platform !== 'linux')
       return Promise.reject(new Error(`当前平台不支持受管服务：${process.platform}`))
@@ -334,7 +334,7 @@ export class ActivityService {
     const results = await Promise.allSettled(
       [...this.records.values()]
         .filter((record) => isLiveServiceActivity(record.activity))
-        .map((record) => this.stop(record.activity, record.activity.serviceId, 'Host 正常退出')),
+        .map((record) => this.stop(record.activity, record.activity.serviceId, '服务正常退出')),
     )
     const failed = results.find((result) => result.status === 'rejected')
     if (failed?.status === 'rejected') throw failed.reason

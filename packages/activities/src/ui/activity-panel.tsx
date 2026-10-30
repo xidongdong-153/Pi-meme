@@ -149,7 +149,7 @@ function ActivityCard({
                 <ExternalLink className="size-3.5" />
               </a>
             ) : (
-              <span className="shrink-0 text-muted-foreground">Host 本机地址</span>
+              <span className="shrink-0 text-muted-foreground">本机地址</span>
             )}
             <CopyButton text={address.url} label={`复制 ${activity.name} 地址`} />
           </div>
@@ -246,9 +246,7 @@ export function ActivityPanel({
               ? '本会话 · 正在核对活动'
               : `本会话 · ${count} 个活动服务`}
         </p>
-        <p className="break-all text-muted-foreground">
-          服务运行在：{local ? '本机 Host' : hostAddress || '远程 Host'}
-        </p>
+        <p className="break-all text-muted-foreground">服务运行在：{local ? '此计算机' : hostAddress || '远程设备'}</p>
         {!state.connected && (
           <p role="status" className="text-muted-foreground">
             连接中断，状态待确认。

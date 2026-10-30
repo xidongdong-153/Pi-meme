@@ -382,7 +382,7 @@ async function runPackagedSmoke(mode: 'local' | 'recovery' | 'remote' | 'fresh',
         return error?.local === false ? true : undefined
       }, '远程登记失败保留本机界面')
       assert.equal(await evaluate('window.piPlatform.getHostConnection().then(value => value.local)'), true)
-      assert.notEqual(await evaluate('document.title'), 'Host 连接失败')
+      assert.notEqual(await evaluate('document.title'), '连接失败')
     }
     if (mode === 'remote') {
       await evaluate(`(async () => {

@@ -16,7 +16,7 @@ async function controlHostIdentities(root: string) {
   const ref = (value: unknown, location: string) => {
     const record = object(value)
     if (!record || !('hostId' in record)) return
-    if (typeof record.hostId !== 'string' || !record.hostId.trim()) throw new Error(`Host 身份无效：${location}`)
+    if (typeof record.hostId !== 'string' || !record.hostId.trim()) throw new Error(`服务身份无效：${location}`)
     identities.set(record.hostId, location)
   }
   const entity = (value: unknown, location: string) => {
@@ -80,7 +80,7 @@ function assertIdentities(identities: Map<string, string>, hostId: string) {
   for (const [stored, location] of identities)
     if (stored !== hostId)
       throw new Error(
-        `Host 身份不一致：${location} 记录为 ${JSON.stringify(stored)}，当前为 ${JSON.stringify(hostId)}；请先备份并修复身份引用`,
+        `服务身份不一致：${location} 记录为 ${JSON.stringify(stored)}，当前为 ${JSON.stringify(hostId)}；请先备份并修复身份引用`,
       )
 }
 
@@ -91,7 +91,7 @@ export async function assertControlHostIdentity(root: string, hostId: string) {
 export async function assertStorageHostIdentity(root: string, hostId: string) {
   const file = createHostStoragePaths(root).hostIdFile
   const stored = (await readFile(file, 'utf8')).trim()
-  if (!stored || stored !== hostId) throw new Error(`持久 Host 身份不匹配：${file}`)
+  if (!stored || stored !== hostId) throw new Error(`持久服务身份不匹配：${file}`)
   await assertControlHostIdentity(root, hostId)
 }
 
@@ -105,7 +105,7 @@ export async function ensureHostIdentity(root: string) {
     if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw cause
   }
   const identities = await controlHostIdentities(root)
-  if (!stored && identities.size > 1) throw new Error(`缺少 ${file} 且控制状态含有多个 Host 身份；请先备份并恢复原身份`)
+  if (!stored && identities.size > 1) throw new Error(`缺少 ${file} 且控制状态含有多个服务身份；请先备份并恢复原身份`)
   const hostId = stored ?? identities.keys().next().value?.trim() ?? randomUUID()
   assertIdentities(identities, hostId)
   if (!stored) await writeText(file, hostId)

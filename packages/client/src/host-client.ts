@@ -141,8 +141,8 @@ export class HostClient {
     this.url = new URL(options.endpoint?.baseUrl ?? options.connection.url)
     const loopback = ['localhost', '127.0.0.1', '[::1]'].includes(this.url.hostname)
     if (this.url.protocol !== 'https:' && !(loopback && this.url.protocol === 'http:'))
-      throw new Error('远程 Host 必须使用 HTTPS 地址')
-    if (this.url.username || this.url.password) throw new Error('Host 地址不能包含账号或凭据')
+      throw new Error('远程服务必须使用 HTTPS 地址')
+    if (this.url.username || this.url.password) throw new Error('服务地址不能包含账号或凭据')
     this.connectedHostId = options.connection.hostId
     this.clientId = clientIdentity(options, this.url)
     this.fetch = options.fetch ?? globalThis.fetch.bind(globalThis)
@@ -206,9 +206,9 @@ export class HostClient {
   }
 
   private assertAvailable(epoch = this.networkEpoch) {
-    if (this.closed) throw new Error('Host 客户端已关闭')
-    if (this.suspended) throw new Error('Host 连接已暂停，请恢复连接后继续')
-    if (epoch !== this.networkEpoch) throw new Error('Host 连接已变化，旧操作结果已忽略')
+    if (this.closed) throw new Error('服务客户端已关闭')
+    if (this.suspended) throw new Error('服务连接已暂停，请恢复连接后继续')
+    if (epoch !== this.networkEpoch) throw new Error('服务连接已变化，旧操作结果已忽略')
   }
 
   onServicesChanged(callback: () => void) {
@@ -218,7 +218,7 @@ export class HostClient {
     }
   }
 
-  suspend(reason = 'Host 连接已暂停，请恢复连接后继续') {
+  suspend(reason = '服务连接已暂停，请恢复连接后继续') {
     if (this.closed || this.suspended) return
     this.suspended = true
     this.networkEpoch++
@@ -238,7 +238,7 @@ export class HostClient {
   }
 
   async resume() {
-    if (this.closed) throw new Error('Host 客户端已关闭')
+    if (this.closed) throw new Error('服务客户端已关闭')
     const wasSuspended = this.suspended
     if (wasSuspended) {
       this.suspended = false
@@ -283,20 +283,18 @@ export class HostClient {
           body: JSON.stringify({ token: this.options.connection.token }),
         })
       } catch (cause) {
-        throw new Error('无法连接 Host，请启动 Desktop 或 pnpm start:server', { cause })
+        throw new Error('无法连接，请确认应用已启动后重试', { cause })
       }
       if (response.status === 502 || response.status === 503) {
         const value: unknown = await response.json().catch(() => undefined)
         const message = value && typeof value === 'object' && 'error' in value ? value.error : undefined
-        throw new Error(
-          typeof message === 'string' ? message : 'Host 未启动或尚未就绪，请启动 Desktop 或 pnpm start:server',
-        )
+        throw new Error(typeof message === 'string' ? message : '连接尚未就绪，请稍后重试')
       }
       this.assertAvailable(epoch)
-      if (!response.ok) throw new Error('Host 认证失败，请检查访问令牌')
+      if (!response.ok) throw new Error('服务认证失败，请检查访问令牌')
       const identity = (await response.json()) as { hostId?: unknown }
       this.assertAvailable(epoch)
-      if (typeof identity.hostId !== 'string' || !identity.hostId) throw new Error('Host 没有返回有效身份')
+      if (typeof identity.hostId !== 'string' || !identity.hostId) throw new Error('服务没有返回有效身份')
       this.acceptHost(identity.hostId)
       this.options.connection.token = ''
     })().catch((error: unknown) => {
@@ -325,7 +323,7 @@ export class HostClient {
           new URL(connection.url).origin !== this.url.origin ||
           (this.hostId && connection.hostId && this.hostId !== connection.hostId)
         )
-          throw new Error('Host 连接已变化，请重新连接')
+          throw new Error('服务连接已变化，请重新连接')
         this.options.connection.token = connection.token
       }
       this.assertAvailable(epoch)
@@ -369,7 +367,7 @@ export class HostClient {
         })
       } catch (cause) {
         this.assertAvailable(epoch)
-        throw new Error(`无法连接 Host，操作没有自动重发：${String(cause)}`)
+        throw new Error(`无法连接服务，操作没有自动重发：${String(cause)}`)
       }
     }
     let response = await send()
@@ -380,18 +378,18 @@ export class HostClient {
       response = await send()
     }
     this.assertAvailable(epoch)
-    if (response.status === 401) throw new Error('Host 登录已失效，请重新连接')
+    if (response.status === 401) throw new Error('服务登录已失效，请重新连接')
     const value: unknown = await response.json()
     this.assertAvailable(epoch)
     if (!value || typeof value !== 'object' || !('requestId' in value)) {
       const error = value && typeof value === 'object' && 'error' in value ? value.error : undefined
-      throw new Error(typeof error === 'string' ? error : `Host 请求失败：HTTP ${response.status}`)
+      throw new Error(typeof error === 'string' ? error : `服务请求失败：HTTP ${response.status}`)
     }
     const envelope = value as HostRpcResponse
-    if (envelope.requestId !== requestId) throw new Error('Host 返回了不匹配的请求标识')
+    if (envelope.requestId !== requestId) throw new Error('服务返回了不匹配的请求标识')
     this.acceptHost(envelope.hostId)
     if (envelope.error) throw Object.assign(new Error(envelope.error.message), { code: envelope.error.code })
-    if (!response.ok) throw new Error(`Host 请求失败：HTTP ${response.status}`)
+    if (!response.ok) throw new Error(`服务请求失败：HTTP ${response.status}`)
     return envelope.result as T
   }
 
@@ -484,7 +482,7 @@ export class HostClient {
     if (!response.ok) throw new Error(value.error ?? `附件上传失败：HTTP ${response.status}`)
     this.acceptHost(value.hostId ?? '')
     if (!value.result || typeof value.result.path !== 'string' || typeof value.result.name !== 'string')
-      throw new Error('Host 返回的附件信息无效')
+      throw new Error('服务返回的附件信息无效')
     return value.result
   }
 
@@ -519,7 +517,7 @@ export class HostClient {
       response = await send()
     }
     this.assertAvailable(epoch)
-    if (!response.ok) throw new Error(`Host 请求失败：HTTP ${response.status}`)
+    if (!response.ok) throw new Error(`服务请求失败：HTTP ${response.status}`)
     const value = (await response.json()) as HostControlResponse
     this.assertAvailable(epoch)
     this.acceptHost(value.hostId)
@@ -528,7 +526,7 @@ export class HostClient {
   }
 
   private async subscribeControl(input: EventSubscription, listener: (event: HostControlEvent) => void) {
-    if (this.closed) throw new Error('Host 客户端已关闭')
+    if (this.closed) throw new Error('服务客户端已关闭')
     let stopped = false
     let after: EventCursor | undefined = input.after
     let socket: WebSocket | undefined
@@ -591,7 +589,7 @@ export class HostClient {
             if (event.stream !== 'live') after = { journalEpoch: event.journalEpoch, seq: event.seq }
             listener(event)
           } catch (cause) {
-            this.reportError(`无法读取 Host 控制事件：${String(cause)}`)
+            this.reportError(`无法读取服务控制事件：${String(cause)}`)
           }
         })
         current.addEventListener('close', () => {
@@ -646,7 +644,7 @@ export class HostClient {
   }
 
   private acceptHost(hostId: string) {
-    if (!hostId || (this.hostId && hostId !== this.hostId)) throw new Error('连接的 Host 身份已变化，请重新连接')
+    if (!hostId || (this.hostId && hostId !== this.hostId)) throw new Error('连接的服务身份已变化，请重新连接')
     this.connectedHostId = hostId
   }
 
@@ -800,7 +798,7 @@ export class HostClient {
         if (this.resynchronizing) this.buffered.push(envelope)
         else this.receive(envelope)
       } catch (cause) {
-        this.reportError(`无法读取 Host 事件：${String(cause)}`)
+        this.reportError(`无法读取服务事件：${String(cause)}`)
       }
     })
     socket.addEventListener('close', () => {
@@ -808,12 +806,12 @@ export class HostClient {
       this.socket = undefined
       if (this.closed || this.suspended || epoch !== this.networkEpoch) return
       if (this.selected)
-        this.publishConnection({ ...this.selected, status: 'disconnected', error: 'Host 连接已断开，正在重连' })
+        this.publishConnection({ ...this.selected, status: 'disconnected', error: '服务连接已断开，正在重连' })
       const delay = Math.min((this.options.reconnectDelay ?? 1000) * 2 ** this.reconnectAttempts++, 15000)
       this.reconnectTimer = setTimeout(() => void this.reconnectSocket(), delay)
     })
     socket.addEventListener('error', () => {
-      if (isCurrent()) this.reportError('WebSocket 连接失败，请检查 Host 地址和网络')
+      if (isCurrent()) this.reportError('连接失败，请检查地址和网络')
     })
   }
 
@@ -825,7 +823,7 @@ export class HostClient {
       if (!this.closed && !this.suspended && epoch === this.networkEpoch) this.openSocket()
     } catch (cause) {
       if (this.closed || this.suspended || epoch !== this.networkEpoch) return
-      this.reportError(`Host 重新认证失败：${String(cause)}`)
+      this.reportError(`服务重新认证失败：${String(cause)}`)
       const delay = Math.min((this.options.reconnectDelay ?? 1000) * 2 ** this.reconnectAttempts++, 15000)
       this.reconnectTimer = setTimeout(() => void this.reconnectSocket(), delay)
     }
@@ -858,7 +856,7 @@ export class HostClient {
         recovered = true
       } catch (cause) {
         if (!this.closed && !this.suspended && networkEpoch === this.networkEpoch) {
-          this.reportError(`无法恢复 Host 快照：${String(cause)}`)
+          this.reportError(`无法恢复服务快照：${String(cause)}`)
           this.socket?.close()
         }
       }
@@ -1000,7 +998,7 @@ export class HostClient {
     const platform = this.options.connection.local ? this.options.platform : undefined
     const openPath = async (field: 'themesDirectory') => {
       const settings = await rpc<SettingsSnapshot>('settings:get')
-      if (!platform) throw new Error(`目录位于 Host：${settings[field]}`)
+      if (!platform) throw new Error(`目录位于服务：${settings[field]}`)
       await platform.openPath(settings[field])
     }
     const settingsRpc = async (method: string, args: unknown[] = []) => {
@@ -1084,7 +1082,7 @@ export class HostClient {
       },
       getProjectApps: () => platform?.getProjectApps() ?? Promise.resolve([]),
       openProject: async (app, cwd) => {
-        if (!platform) throw new Error('浏览器和远程 Host 无法打开本机 Finder 或编辑器')
+        if (!platform) throw new Error('浏览器和远程服务无法打开本机 Finder 或编辑器')
         await platform.openProject(app, cwd ?? this.selected?.cwd ?? '')
       },
       setPreferredProjectApp: (app) => rpc('project:preferred-app', [app]),

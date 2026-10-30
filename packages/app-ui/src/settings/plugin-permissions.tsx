@@ -10,7 +10,7 @@ const uiLabels: Record<PluginUiCapability, string> = {
   'composer.read': '读取当前可见草稿',
   'composer.write': '修改当前可见草稿',
   'composer.attachments': '向草稿添加附件',
-  'composer.submit': '请求发送消息（由宿主确认）',
+  'composer.submit': '请求发送消息（需确认）',
   'composer.before-send': '注册发送前处理器',
   'messages.read': '读取聊天消息',
   'messages.actions': '为聊天消息增加操作',
@@ -149,7 +149,7 @@ export function PluginPermissions({
       <div>
         <h4 className="text-sm font-medium">权限与信任</h4>
         <p className="mt-1 text-xs leading-5 text-muted-foreground">
-          安装不等于授权。可信界面与后台可执行宿主代码；受限入口另受操作系统沙箱约束。权限只作用于当前服务。
+          可信插件可访问设备和文件，请仅授权你信任的插件。受限插件只能在授权范围内运行。
         </p>
       </div>
       {plugin.grant && plugin.grant.policyHash !== policyHash && (
@@ -168,7 +168,7 @@ export function PluginPermissions({
         )}
         {plugin.entries?.server?.trusted && (
           <GrantSwitch
-            label="信任后台服务（完整 Host 权限）"
+            label="信任后台服务（完整访问权限）"
             checked={grant.trusted.server}
             disabled={saving}
             onChange={(server) => change((value) => ({ ...value, trusted: { ...value.trusted, server } }))}
@@ -306,8 +306,7 @@ export function PluginPermissions({
         <div className="space-y-3 border-t border-border pt-4">
           <h5 className="text-sm font-medium">网络凭据</h5>
           <p className="text-xs text-muted-foreground">
-            受限进程只使用凭据标识，宿主向指定 HTTPS 目标注入密钥。请确认远端不会在响应中回显认证头。Authorization 只填
-            token，宿主会添加 Bearer 前缀。
+            密钥仅用于指定的 HTTPS 地址，请确认该地址可信。Authorization 只需填写 token，无需添加 Bearer 前缀。
           </p>
           {credentials.map((credential) => (
             <div key={credential.id} className="flex items-center justify-between gap-3 text-xs">

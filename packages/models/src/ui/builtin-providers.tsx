@@ -3,7 +3,7 @@ import type { ModelsBridge } from '@pi-meme/contracts/desktop'
 import type { BuiltinAuthType, BuiltinProviderInfo, ModelLoginState } from '@pi-meme/contracts/model-config'
 import { Badge } from '@pi-meme/ui/components/ui/badge'
 import { Button } from '@pi-meme/ui/components/ui/button'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@pi-meme/ui/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle } from '@pi-meme/ui/components/ui/card'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
 import { Input } from '@pi-meme/ui/components/ui/input'
 import { ScrollArea } from '@pi-meme/ui/components/ui/scroll-area'
@@ -170,9 +170,6 @@ export function BuiltinProviders({ bridge, disabled }: { bridge: LoginBridge; di
         <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 border-b border-border bg-card p-4">
           <div className="min-w-0 space-y-1">
             <CardTitle className="text-base font-medium">内置服务商</CardTitle>
-            <CardDescription className="text-xs">
-              登录 Pi 自带目录中的服务商。凭据只保存在此 Host，不写入 models.json。
-            </CardDescription>
           </div>
           <div className="relative w-full sm:w-56">
             <Search
@@ -289,7 +286,7 @@ export function BuiltinProviders({ bridge, disabled }: { bridge: LoginBridge; di
           <DialogContent aria-label={`${login.providerName} 登录`}>
             <DialogTitle>登录 {login.providerName}</DialogTitle>
             <DialogDescription>
-              {login.authType === 'oauth' ? '按服务商页面完成账号登录。' : '密钥只提交给此 Host 的凭据存储。'}
+              {login.authType === 'oauth' ? '按服务商页面完成账号登录。' : '输入服务商提供的 API Key。'}
             </DialogDescription>
             <div className="space-y-3">
               {login.notices.map((notice, index) => (

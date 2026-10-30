@@ -15,7 +15,7 @@ export async function loadHostPage(
     } catch {
       await window.loadURL(recoveryUrl)
     }
-    throw new Error(`无法连接 Host，请检查地址和网络：${String(cause)}`)
+    throw new Error(`无法连接服务，请检查地址和网络：${String(cause)}`)
   }
 }
 

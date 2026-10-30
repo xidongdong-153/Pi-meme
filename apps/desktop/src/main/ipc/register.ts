@@ -34,7 +34,7 @@ export function registerPlatformIpc(
       return action(...args)
     })
   const local = async () => {
-    if (!(await getConnection()).local) throw new Error('远程 Host 不能调用本机文件操作')
+    if (!(await getConnection()).local) throw new Error('远程服务不能调用本机文件操作')
     const window = getWindow()
     if (!window) throw new Error('桌面窗口已关闭')
     return window
@@ -85,7 +85,7 @@ export function registerPlatformIpc(
     return writeShortcutPreferences(userDataDir ?? app.getPath('userData'), value)
   })
   handle('platform:remove-connection', async (url) => {
-    if (typeof url !== 'string') throw new Error('Host 地址无效')
+    if (typeof url !== 'string') throw new Error('服务地址无效')
     await savedConnections.remove(url)
   })
   handle('platform:retry-connection', retryConnection)
@@ -99,10 +99,10 @@ export function registerPlatformIpc(
       !('token' in input) ||
       typeof input.token !== 'string'
     )
-      throw new Error('Host 连接参数无效')
+      throw new Error('服务连接参数无效')
     const url = new URL(input.url)
     if (url.protocol !== 'https:' || url.username || url.password)
-      throw new Error('远程 Host 必须使用 HTTPS，地址不能包含凭据')
+      throw new Error('远程服务必须使用 HTTPS，地址不能包含凭据')
     return setConnection({ url: url.origin, token: input.token })
   })
   handle('platform:directory', async () => {

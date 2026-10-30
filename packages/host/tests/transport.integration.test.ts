@@ -66,7 +66,7 @@ test('HTTP 路径、方法、JSON 错误与响应头保持现有协议', async (
       assert.equal(response.status, 404, `${method} ${pathname}`)
       assert.equal(response.headers.get('content-type'), 'application/json')
       assert.equal(response.headers.get('cache-control'), 'no-store')
-      if (method !== 'HEAD') assert.deepEqual(await response.json(), { error: 'Host 接口不存在' })
+      if (method !== 'HEAD') assert.deepEqual(await response.json(), { error: '服务接口不存在' })
     }
     const invalid = await fetch(`${f.server.url}/api/rpc`, { method: 'POST', headers: { Cookie: f.cookie }, body: '{' })
     assert.equal(invalid.status, 400)

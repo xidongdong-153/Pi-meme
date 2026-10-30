@@ -42,7 +42,7 @@ export async function executeStorageTask(request: StorageProcessRequest, progres
       const release = await lockDataRoot(job.source)
       try {
         if ((await readFile(path.join(job.source, 'host-id'), 'utf8')).trim() !== job.hostId)
-          throw new Error('维护目标 Host 身份不匹配')
+          throw new Error('维护目标服务身份不匹配')
         progress({ stage: 'cleaning', completedBytes: 0, totalBytes: 0 })
         await clearCaches(job.source, anchor)
         await writeStoragePreferences(file, {

@@ -115,7 +115,7 @@ export async function createAppControl(options: Options) {
     return pending
   }
   const assertHost = (ref: { hostId: string }) => {
-    if (!ref || ref.hostId !== hostId) throw new Error('目标 Host 身份不匹配')
+    if (!ref || ref.hostId !== hostId) throw new Error('目标服务身份不匹配')
   }
   const getProject = (ref: ProjectRef) => {
     assertHost(ref)
@@ -493,13 +493,13 @@ export async function createAppControl(options: Options) {
       })
       if (input.delivery !== 'start') throw new Error('计划操作只能在空闲会话直接开始')
       await options.bindRoot(key)
-      if (!collaboration.resolveSessionPlan) throw new Error('当前 Host 不支持计划引用提交')
+      if (!collaboration.resolveSessionPlan) throw new Error('当前服务不支持计划引用提交')
       await collaboration.resolveSessionPlan(key, input.plan.reference)
       if (input.plan.intent === 'execute' && pi.getSessionContext(key).accessMode === 'read-only')
         throw new Error('请先选择允许实施的访问权限')
     }
     if (input.visualization) {
-      if (!options.visualizations) throw new Error('当前 Host 不支持草图')
+      if (!options.visualizations) throw new Error('当前服务不支持草图')
       const file = session.sessionFile ?? pi.getSessionContext(key).sessionFile
       const references = file ? ((await readSessionHistory(file)).visualizationReferences ?? []) : []
       const document = await options.visualizations(key).read(input.visualization.reference, references)
@@ -666,7 +666,7 @@ export async function createAppControl(options: Options) {
     action: (operationId: string) => Promise<T>,
     options?: { ephemeral?: boolean; sessionId?: string },
   ) => {
-    if (closing) return Promise.reject<T>(new Error('Host 正在退出，操作未接纳'))
+    if (closing) return Promise.reject<T>(new Error('服务正在退出，操作未接纳'))
     let targetSessionId = options?.sessionId
     if (!targetSessionId) {
       if (sessionTargetMethods.has(method)) {
@@ -690,7 +690,7 @@ export async function createAppControl(options: Options) {
     })
   }
   const requireSchedules = () => {
-    if (!options.schedules) throw new Error('当前 Host 不支持定时任务')
+    if (!options.schedules) throw new Error('当前服务不支持定时任务')
     return options.schedules
   }
   const apiFor = (clientId: string): HostApi => ({
@@ -1193,7 +1193,7 @@ export async function createAppControl(options: Options) {
                 const context = pi.getSessionContext(key)
                 if (context.accessMode === 'read-only') throw new Error('只读权限不允许撤销文件变更')
                 if (!context.sessionFile) throw new Error('会话尚未保存变更记录')
-                if (!options.withFileUndo) throw new Error('当前 Host 不支持撤销文件变更')
+                if (!options.withFileUndo) throw new Error('当前服务不支持撤销文件变更')
                 await options.withFileUndo(context.cwd, async () => {
                   await undoTurnChanges(
                     context.sessionFile!,
@@ -1273,19 +1273,19 @@ export async function createAppControl(options: Options) {
     activities: {
       list: async (ref) => {
         getSession(ref, clientId)
-        if (!options.activities) throw new Error('当前 Host 不支持活动服务')
+        if (!options.activities) throw new Error('当前服务不支持活动服务')
         const cursor = store.read().cursor
         return { ...options.activities.list(ref), cursor }
       },
       logs: async (ref, id) => {
         getSession(ref, clientId)
-        if (!options.activities) throw new Error('当前 Host 不支持活动服务')
+        if (!options.activities) throw new Error('当前服务不支持活动服务')
         return options.activities.logs(ref, id)
       },
       stop: (ref, id, opts) =>
         mutate(clientId, 'activities.stop', [ref, id], opts, async () => {
           getSession(ref, clientId)
-          if (!options.activities) throw new Error('当前 Host 不支持活动服务')
+          if (!options.activities) throw new Error('当前服务不支持活动服务')
           return options.activities.stop(ref, id, '用户停止')
         }),
     },
@@ -1434,7 +1434,7 @@ export async function createAppControl(options: Options) {
   ])
   const dispatch = async (request: HostControlRequest): Promise<HostControlResponse> => {
     try {
-      if (closing) throw new Error('Host 正在退出')
+      if (closing) throw new Error('服务正在退出')
       if (
         request?.apiVersion !== 2 ||
         typeof request.clientId !== 'string' ||
@@ -1444,7 +1444,7 @@ export async function createAppControl(options: Options) {
         !Array.isArray(request.args)
       )
         throw new Error('控制请求参数无效')
-      if (request.hostId && request.hostId !== hostId) throw new Error('目标 Host 身份不匹配')
+      if (request.hostId && request.hostId !== hostId) throw new Error('目标服务身份不匹配')
       const [group, name, ...extra] = request.method.split('.')
       const scoped = apiFor(request.clientId)
       let action: unknown
@@ -1893,13 +1893,13 @@ export async function createAppControl(options: Options) {
       for (const timer of goalTimers.values()) clearTimeout(timer)
       goalTimers.clear()
       for (const goal of goals.list())
-        if (goal.status === 'active') await goals.stop(goal.session, 'paused', 'Host 已关闭，请手动恢复目标')
+        if (goal.status === 'active') await goals.stop(goal.session, 'paused', '服务已关闭，请手动恢复目标')
       for (const run of active.values()) run.cancelled = true
       for (const receipt of store.state.receipts)
         if (['accepted', 'queued', 'running'].includes(receipt.status)) {
           receipt.status = 'interrupted'
           receipt.outcomeUncertain = Boolean(receipt.dispatchStartedAt)
-          receipt.error = 'Host 已关闭，任务中断；不会重新执行'
+          receipt.error = '服务已关闭，任务中断；不会重新执行'
           const session = getSession(receipt.session, 'host-internal')
           session.status = 'interrupted'
           await publishReceipt(session, receipt)

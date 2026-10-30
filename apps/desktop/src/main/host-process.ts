@@ -11,7 +11,7 @@ type ParentPort = {
   on: (event: 'message', callback: (event: { data: unknown }) => void) => void
 }
 const parent = (process as NodeJS.Process & { parentPort?: ParentPort }).parentPort
-if (!parent) throw new Error('本地 Host 必须由 Electron utilityProcess 启动')
+if (!parent) throw new Error('本地服务必须由 Electron utilityProcess 启动')
 const testCertificate = process.env.PI_MEME_TEST_TLS_CA
 if (testCertificate) {
   const dataRoot = process.env.PI_MEME_DATA_ROOT
@@ -42,7 +42,7 @@ void startHostServer({
       const value = data as { type?: string; id?: string; hostId?: string }
       if (value.type === 'maintenance:prepare') {
         try {
-          if (value.hostId !== server.host.hostId) throw new Error('维护目标 Host 身份不匹配')
+          if (value.hostId !== server.host.hostId) throw new Error('维护目标服务身份不匹配')
           server.remotes.assertIdle()
           server.host.prepareMaintenance()
           server.remotes.prepareMaintenance()

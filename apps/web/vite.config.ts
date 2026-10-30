@@ -47,9 +47,7 @@ export function createWebConfig(
               .catch((cause: unknown) => {
                 if (response.destroyed) return
                 response.writeHead(503, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' })
-                response.end(
-                  JSON.stringify({ error: cause instanceof Error ? cause.message : 'Host 未启动或尚未就绪' }),
-                )
+                response.end(JSON.stringify({ error: cause instanceof Error ? cause.message : '服务未启动或尚未就绪' }))
               })
           })
         },

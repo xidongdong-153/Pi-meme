@@ -299,7 +299,7 @@ export function App({
     const source = existing.sourceSessionKey ?? chat.connection.sessionKey
     setSideChat((value) => ({ ...value, open: true, sourceSessionKey: source, creationError: '' }))
     if (!source || !bridge.openTemporarySession || !bridge.scopeSession) {
-      setSideChat((value) => ({ ...value, creationError: '当前 Host 尚未准备好临时聊天，请稍后重试。' }))
+      setSideChat((value) => ({ ...value, creationError: '当前服务尚未准备好临时聊天，请稍后重试。' }))
       return
     }
     const pending = bridge.openTemporarySession(source)
@@ -307,7 +307,7 @@ export function App({
     void pending
       .then(
         (snapshot) => {
-          if (!snapshot.connection.sessionKey) throw new Error('Host 未返回临时会话标识')
+          if (!snapshot.connection.sessionKey) throw new Error('服务未返回临时会话标识')
           setSideChat((value) =>
             value.open ? { ...value, sessionKey: snapshot.connection.sessionKey, creationError: '' } : value,
           )
@@ -330,7 +330,7 @@ export function App({
       if (opening) key = (await opening.catch(() => null))?.connection.sessionKey ?? key
       if (!key && bridge.getTemporarySession) key = (await bridge.getTemporarySession())?.connection.sessionKey
       if (key) {
-        if (!bridge.closeTemporarySession) throw new Error('当前 Host 不支持关闭临时聊天')
+        if (!bridge.closeTemporarySession) throw new Error('当前服务不支持关闭临时聊天')
         await bridge.closeTemporarySession(key)
       }
       setSideChat({ open: false, draft: '', creationError: '', closing: false, closeError: '' })
@@ -1112,7 +1112,7 @@ export function App({
         )}
         {remoteOffline && (
           <p className="px-2 pb-1 text-xs text-muted-foreground">
-            当前内容为已加载快照，草稿保留。连接恢复前无法发送；远端任务可能仍在运行。
+            连接已断开，草稿已保留。恢复连接后可发送消息，远程任务可能仍在运行。
           </p>
         )}
         <ExtensionWidgets {...{ widgets: chat.extensionWidgets, placement: 'aboveEditor' }} />
@@ -2055,7 +2055,7 @@ export function App({
                     serviceUI?.imageSources ?? [
                       {
                         id: hostId ?? 'current',
-                        label: hostLocal ? '此计算机' : (hostAddress ?? '当前 Host'),
+                        label: hostLocal ? '此计算机' : (hostAddress ?? '当前设备'),
                         connected: chat.connection.status === 'ready',
                         host,
                       },
@@ -2102,13 +2102,13 @@ export function App({
                 selectedId={route.taskId}
                 onSelect={(taskId) => navigation.replace({ kind: 'schedules', taskId })}
                 locationLabel={
-                  currentService ? serviceLabel(currentService) : hostLocal ? '此计算机' : (hostAddress ?? '当前 Host')
+                  currentService ? serviceLabel(currentService) : hostLocal ? '此计算机' : (hostAddress ?? '当前设备')
                 }
                 location={
                   <ScheduleLocationSelector
                     services={serviceUI?.services ?? []}
                     serviceId={serviceUI?.serviceId}
-                    label={currentService ? serviceLabel(currentService) : hostLocal ? '此计算机' : '当前 Host'}
+                    label={currentService ? serviceLabel(currentService) : hostLocal ? '此计算机' : '当前设备'}
                     onSelect={(id) => serviceUI?.onSchedules(id)}
                   />
                 }
@@ -2530,7 +2530,7 @@ export function App({
                           ? serviceLabel(currentService)
                           : hostLocal
                             ? '此计算机'
-                            : (hostAddress ?? '当前 Host')
+                            : (hostAddress ?? '当前设备')
                       }
                     />
                   )

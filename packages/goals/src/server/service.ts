@@ -138,7 +138,7 @@ export class GoalService {
     await this.reconcile()
     await this.mutate((state) => {
       for (const item of Object.values(state.goals)) {
-        if (item.goal.status === 'active') this.transition(item.goal, 'paused', 'Host 已重启，请手动恢复目标')
+        if (item.goal.status === 'active') this.transition(item.goal, 'paused', '服务已重启，请手动恢复目标')
       }
     })
   }

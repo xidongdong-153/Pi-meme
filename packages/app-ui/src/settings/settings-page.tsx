@@ -233,7 +233,6 @@ export function SettingsPage({
             <FadeContent key={sectionId} className="mx-auto max-w-3xl space-y-8">
               <div>
                 <h2 className="text-xl font-semibold tracking-tight sm:text-2xl">{section.label}</h2>
-                <p className="mt-1 text-xs text-muted-foreground">{section.description}</p>
               </div>
               <Suspense fallback={<SettingsSkeleton section={sectionId} />}>
                 {renderContent(sectionId, navigate)}

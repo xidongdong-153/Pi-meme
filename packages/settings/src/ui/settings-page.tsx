@@ -71,14 +71,11 @@ export function SettingsPage({
         />
       ) : section === 'about' ? (
         <div className="space-y-4 rounded-2xl border border-border bg-card p-6">
-          <h3 className="text-sm font-medium">Pi 运行时</h3>
+          <h3 className="text-sm font-medium">Pi</h3>
           <dl className="grid grid-cols-2 gap-2 text-xs">
             <dt className="text-muted-foreground">内置版本</dt>
             <dd>{piVersion ? `v${piVersion}` : '尚未连接'}</dd>
           </dl>
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            Pi 运行时随 Host 一起分发，不需要另外安装 Pi CLI；升级随 Host 或应用版本发布。
-          </p>
         </div>
       ) : snapshot ? (
         <ThemeSettings snapshot={snapshot} {...appearance} />

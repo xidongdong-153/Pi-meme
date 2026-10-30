@@ -31,7 +31,7 @@ export async function assertActiveDataRoot(root: string) {
       throw new Error('此目录是尚未提交或身份不符的迁移副本，请通过 Desktop 完成维护后使用')
     return
   }
-  throw new Error(`此数据目录已迁移或正在维护，不能启动 Host：${root}。请通过 Desktop 查看当前目录或完成维护`)
+  throw new Error(`此数据目录已迁移或正在维护，不能启动服务：${root}。请通过 Desktop 查看当前目录或完成维护`)
 }
 
 export function hostDataRoot(value = process.env.PI_MEME_DATA_ROOT) {
@@ -45,7 +45,7 @@ export async function lockDataRoot(root: string) {
     const resolved = await realpath(root)
     const drives = windowsMounts(await readFile('/proc/self/mountinfo', 'utf8'))
     if (drives.some((drive) => pathWithin(drive, resolved)))
-      throw new Error('Host 数据目录必须位于 Linux 文件系统，请将 PI_MEME_DATA_ROOT 移入 Linux 用户目录')
+      throw new Error('应用数据目录必须位于 Linux 文件系统，请将 PI_MEME_DATA_ROOT 移入 Linux 用户目录')
   }
   try {
     return await lockfile.lock(root, {
@@ -56,7 +56,7 @@ export async function lockDataRoot(root: string) {
     })
   } catch (cause) {
     if ((cause as NodeJS.ErrnoException).code === 'ELOCKED')
-      throw Object.assign(new Error(`此数据目录已有 Host：${root}`, { cause }), { code: 'ELOCKED' })
+      throw Object.assign(new Error(`此数据目录已有服务：${root}`, { cause }), { code: 'ELOCKED' })
     throw cause
   }
 }

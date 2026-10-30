@@ -52,7 +52,7 @@ test('复用 Host 显示维护禁用原因，允许打开目录但禁止迁移�
 test('Web 和远程只显示 Host 路径与配置说明，不暴露本机维护操作', async () => {
   setup({}, false)
   expect(await screen.findByTestId('storage-root')).toHaveTextContent('/data/local')
-  expect(screen.getByText(/在 Host 启动环境中设置 PI_MEME_DATA_ROOT/)).toBeVisible()
+  expect(screen.getByText(/当前连接仅支持查看存储目录/)).toBeVisible()
   for (const name of ['更改目录', '清理缓存', '打开目录'])
     expect(screen.queryByRole('button', { name })).not.toBeInTheDocument()
 })

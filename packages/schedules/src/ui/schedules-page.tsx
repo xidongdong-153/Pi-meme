@@ -379,16 +379,11 @@ export function SchedulesPage({
                   </div>
                 )
               })}
-              {!visible.length && (
+              {!visible.length && (loading || search || filter !== 'all') && (
                 <p className="px-3 py-6 text-xs text-muted-foreground">
-                  {loading ? '正在读取任务…' : search || filter !== 'all' ? '没有匹配的任务' : '创建任务后会显示在这里'}
+                  {loading ? '正在读取任务…' : '没有匹配的任务'}
                 </p>
               )}
-            </div>
-            <div className="shrink-0 border-t border-border/40 px-5 py-3 text-[11px] leading-5 text-muted-foreground/60">
-              由执行 Host 运行任务
-              <br />
-              休眠或离线期间错过的执行将跳过
             </div>
           </aside>
           <div className={cn('flex min-h-0 min-w-0 flex-1 flex-col', !selectedId && 'hidden md:flex')}>
@@ -400,9 +395,9 @@ export function SchedulesPage({
                 <CircleAlert className="size-4 shrink-0 text-muted-foreground" />
                 <span className="min-w-0 flex-1 break-words">
                   {!connected
-                    ? '执行 Host 未连接。已加载的任务仍可查看，恢复连接后可继续管理。'
+                    ? '连接已断开，恢复连接后可继续管理任务。'
                     : supported === false
-                      ? '当前 Host 不支持定时任务，请更新 Host。'
+                      ? '当前版本不支持定时任务，请更新后重试。'
                       : error || state.error}
                 </span>
                 {connected && supported !== false && (

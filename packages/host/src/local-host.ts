@@ -11,14 +11,11 @@ async function verifyDataRoot(status: LocalHostStatus, dataRoot?: string) {
     throw cause
   })
   if (status.dataRoot !== expected)
-    throw Object.assign(
-      new Error('此端口的 Host 使用了不同数据目录，请统一 PI_MEME_DATA_ROOT 或指定其他 PI_MEME_PORT'),
-      {
-        code: 'EHOSTPORT',
-      },
-    )
+    throw Object.assign(new Error('此端口的服务使用了不同数据目录，请统一 PI_MEME_DATA_ROOT 或指定其他 PI_MEME_PORT'), {
+      code: 'EHOSTPORT',
+    })
   const hostId = (await readFile(path.join(expected, storageLayoutRelativePaths.hostIdFile), 'utf8')).trim()
-  if (hostId !== status.hostId) throw new Error('本机 Host 身份与数据目录不匹配，请停止管理方后重新启动')
+  if (hostId !== status.hostId) throw new Error('本机服务身份与数据目录不匹配，请停止管理方后重新启动')
 }
 
 export type LocalHostLease<T> =
@@ -49,7 +46,7 @@ export async function acquireLocalHost<T extends { url: string; dispose: () => P
   const attach = async (status: LocalHostStatus): Promise<LocalHostLease<T>> => {
     await verifyDataRoot(status, options.dataRoot)
     if (options.allowReuse === false)
-      throw new Error('已有 Host；新的令牌、认证模式、TLS 或 Web 根目录参数不能应用到运行中的 Host，请先停止管理方')
+      throw new Error('已有服务；新的令牌、认证模式、TLS 或 Web 根目录参数不能应用到运行中的服务，请先停止管理方')
     return { ownership: 'attached', url, status }
   }
   if (!ephemeral) {

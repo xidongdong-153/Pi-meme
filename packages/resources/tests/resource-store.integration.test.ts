@@ -416,13 +416,13 @@ test('显式更新拒绝技能改名、类型变化、内置、项目和App资�
   for (const item of catalog.items.filter((entry) => entry.scope !== 'host'))
     await assert.rejects(
       store.import({ content: skill(item.name), replace: { id: item.id, revision: item.revision } }, cwd),
-      /只能更新 Host 用户/,
+      /只能更新用户/,
     )
   const app: ResourceAppPackage = { id: 'app', version: '1', generation: 1, directory: root, enabled: true }
   const withApp = new ResourceStore(root, { getAppPackages: () => [app] })
   await assert.rejects(
     withApp.import({ content: skill('app'), replace: { id: 'app:app', revision: '1:1' } }, cwd),
-    /只能更新 Host 用户/,
+    /只能更新用户/,
   )
   assert.equal((await store.readSkill(first.id, cwd)).content, skill('replace-guard'))
 })

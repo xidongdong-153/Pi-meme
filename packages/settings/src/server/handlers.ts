@@ -29,12 +29,12 @@ export function createSettingsHandlers({
 }: SettingsHandlerContext) {
   return {
     'settings:instructions': () => {
-      if (!instructions) throw new Error('当前 Host 未配置指令目录')
+      if (!instructions) throw new Error('当前服务未配置指令目录')
       return instructions.snapshot(pi.cwd)
     },
     'settings:save-instruction': (value: unknown) =>
       pi.idle(async () => {
-        if (!instructions) throw new Error('当前 Host 未配置指令目录')
+        if (!instructions) throw new Error('当前服务未配置指令目录')
         const input = parseSaveInstruction(value)
         const cwd = pi.cwd
         const restore = await pi.captureRestoreState()
@@ -111,7 +111,7 @@ export function createSettingsHandlers({
     'settings:reload-themes': () => settings.reloadThemes(),
     'settings:open-themes': async () => {
       const error = await (openPath?.(settings.themesDirectory) ??
-        Promise.reject(new Error('当前客户端不能打开 Host 目录')))
+        Promise.reject(new Error('当前客户端不能打开服务目录')))
       if (error) throw new Error(`无法打开主题目录：${error}`)
     },
   }

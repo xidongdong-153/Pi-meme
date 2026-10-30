@@ -65,7 +65,7 @@ export class TerminalService {
     this.supported = this.pty !== null
   }
   private record(ref: TerminalRef) {
-    if (ref.hostId !== this.options.hostId) throw new Error('终端所属 Host 不匹配')
+    if (ref.hostId !== this.options.hostId) throw new Error('终端所属服务不匹配')
     const record = this.terminals.get(ref.terminalId)
     if (!record) throw new Error('终端不存在或已释放')
     return record
@@ -82,10 +82,10 @@ export class TerminalService {
     input: { command?: string; cols?: number; rows?: number },
     owner: string,
   ): Promise<TerminalSnapshot> {
-    if (this.disposed) throw new Error('Host 终端服务已关闭')
-    if (!this.pty) throw new Error('此 Host 的 node-pty 原生模块不可用，无法创建终端')
+    if (this.disposed) throw new Error('终端服务已关闭')
+    if (!this.pty) throw new Error('此服务的 node-pty 原生模块不可用，无法创建终端')
     if ([...this.terminals.values()].filter((entry) => !entry.snapshot.exited).length >= 16)
-      throw new Error('Host 最多同时运行 16 个终端，请先关闭不用的实例')
+      throw new Error('服务最多同时运行 16 个终端，请先关闭不用的实例')
     const cwd = await this.options.resolveRoot(root)
     const command = input.command ?? process.env.SHELL ?? (process.platform === 'win32' ? 'powershell.exe' : '/bin/sh')
     if (typeof command !== 'string' || !command.trim() || command.includes('\0')) throw new Error('终端命令无效')

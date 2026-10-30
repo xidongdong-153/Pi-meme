@@ -41,7 +41,7 @@ test('Host 不可用与认证失败区分，认证身份变化时不发送业务
     try {
       await assert.rejects(
         client.bridge.prompt('A', '不应发出'),
-        failure === 'identity' ? /身份已变化/ : /Host.*启动|无法连接 Host/,
+        failure === 'identity' ? /身份已变化/ : /连接尚未就绪|无法连接/,
       )
       assert.equal(businessRequests, 0)
     } finally {

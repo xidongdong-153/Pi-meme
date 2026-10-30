@@ -10,7 +10,7 @@ function classifyImageError(cause: unknown, relativePath: string): { error: stri
   const rawMessage = cause instanceof Error ? cause.message : ''
   const isAbsolute = /^(?:\/|[a-z]:[\\/]|\\\\)/i.test(relativePath)
   if (rawMessage.includes('越出附件目录') || (isAbsolute && rawMessage.includes('越出'))) {
-    return { error: '图片不在当前 Host 附件目录中，无法读取。', reason: '图片不在附件目录' }
+    return { error: '找不到图片文件，无法读取。', reason: '图片不在附件目录' }
   }
   if (!isAbsolute && (rawMessage.includes('越出工作目录') || rawMessage.includes('必须是工作目录内的相对路径'))) {
     return { error: '图片路径越出当前会话工作目录。', reason: '路径越出工作目录' }
@@ -19,7 +19,7 @@ function classifyImageError(cause: unknown, relativePath: string): { error: stri
     return { error: '该文件不是可预览的图片。', reason: '非可预览图片' }
   }
   if (rawMessage.includes('目标 Host 无效')) {
-    return { error: '目标 Host 无效，无法读取图片。', reason: '目标 Host 无效' }
+    return { error: '无法连接图片所在设备。', reason: '设备不可用' }
   }
   if (rawMessage.includes('EACCES') || rawMessage.includes('EPERM')) {
     return { error: '没有读取该图片的系统权限。', reason: '无读取权限' }

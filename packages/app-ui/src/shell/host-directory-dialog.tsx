@@ -50,8 +50,8 @@ export function HostDirectoryDialog({
     >
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>选择 Host 项目目录</DialogTitle>
-          <DialogDescription>这里显示 Host 上的目录，路径由 Host 读取。</DialogDescription>
+          <DialogTitle>选择项目目录</DialogTitle>
+          <DialogDescription className="sr-only">在当前连接的设备上选择文件夹。</DialogDescription>
         </DialogHeader>
         <form
           className="flex gap-2"
@@ -60,7 +60,7 @@ export function HostDirectoryDialog({
             void navigate(path)
           }}
         >
-          <Input aria-label="Host 目录路径" value={path} onChange={(event) => setPath(event.target.value)} />
+          <Input aria-label="目录路径" value={path} onChange={(event) => setPath(event.target.value)} />
           <Button type="submit" variant="outline" disabled={loading}>
             打开
           </Button>

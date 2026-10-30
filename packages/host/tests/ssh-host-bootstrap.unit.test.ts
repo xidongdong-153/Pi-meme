@@ -215,7 +215,7 @@ test('旧发行包缺少 SSH 启动入口时返回可操作错误', async () => 
   await mkdir(check)
   await expect(validateHostArchive(file, check, '1.2.3', 'linux-x64')).rejects.toMatchObject({
     code: 'host-archive',
-    message: 'Host 发行包缺少运行文件，请更新到包含 SSH 启动入口的版本',
+    message: '安装包缺少运行文件，请更新到包含 SSH 启动入口的版本',
   })
 })
 
@@ -257,7 +257,7 @@ test('私有响应无效时不会把token当作诊断回显', async () => {
     .mockResolvedValueOnce(JSON.stringify({ ...ready, version: '0.0.0' }))
   const prepare = createSshHostPreparer({ version: '1.2.3', validate, command })
   await expect(prepare({ target: 'dev' }, new AbortController().signal, () => {})).rejects.toThrow(
-    '远端 Host 准备响应与当前版本不匹配',
+    '远程服务准备响应与当前版本不匹配',
   )
 })
 

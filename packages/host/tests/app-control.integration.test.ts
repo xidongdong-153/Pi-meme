@@ -204,7 +204,7 @@ test('空会话保持不同稳定ref，同一项目目标隔离，提交幂等�
     assert.equal((await api.sessions.get(first)).sessionId, first.sessionId)
     assert.ok((await api.sessions.get(first)).sessionFile)
     await assert.rejects(api.sessions.submit(second, input, key('same-submit')), /幂等键已经用于不同内容/)
-    await assert.rejects(api.sessions.snapshot({ ...first, hostId: 'another-host' }), /Host 身份不匹配/)
+    await assert.rejects(api.sessions.snapshot({ ...first, hostId: 'another-host' }), /服务身份不匹配/)
     await f.restart()
     assert.equal((await f.host.app.sessions.get(first)).sessionId, first.sessionId)
     assert.equal((await f.host.app.sessions.get(second)).sessionId, second.sessionId)

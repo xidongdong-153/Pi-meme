@@ -62,23 +62,23 @@ const storage = createStorageController({
   recoverHost: retryConnection,
   stopHost: async () => {
     const lease = localHost
-    if (lease?.ownership !== 'owned') throw new Error('当前 Host 由其他入口管理，不能从 Desktop 维护')
+    if (lease?.ownership !== 'owned') throw new Error('当前服务由其他入口管理，不能从 Desktop 维护')
     await lease.resource.prepareMaintenance()
     await lease.resource.stopForMaintenance()
   },
 })
 async function connection(): Promise<HostConnection> {
-  if (!localHost || !uiUrl) throw new Error('本机 Host 尚未连接')
+  if (!localHost || !uiUrl) throw new Error('本机服务尚未连接')
   return { url: uiUrl, hostId: localHost.status.hostId, token: '', local: true }
 }
 function rpc<T>(method: string, args: unknown[] = []): Promise<T> {
-  if (!hostClient) return Promise.reject(new Error('本机 Host 尚未连接'))
+  if (!hostClient) return Promise.reject(new Error('本机服务尚未连接'))
   return hostClient.rpc<T>(method, args)
 }
 async function initializeHost() {
   if (localHost) {
     const status = await readLocalHostStatus(localHost.url)
-    if (status && status.hostId !== localHost.status.hostId) throw new Error('本机 Host 身份已变化，请重新连接')
+    if (status && status.hostId !== localHost.status.hostId) throw new Error('本机服务身份已变化，请重新连接')
     if (!status) {
       if (localHost.ownership === 'owned') await localHost.resource.dispose()
       localHost = undefined
@@ -119,7 +119,7 @@ async function initializeHost() {
     uiUrl = ''
   }
   const lease = localHost
-  if (!lease) throw new Error('本机 Host 已退出')
+  if (!lease) throw new Error('本机服务已退出')
   hostClient ??= await createNodeHostClient({
     url: lease.url,
     token: '',
@@ -161,7 +161,7 @@ async function retryConnection() {
   } catch (cause) {
     lastConnectionError = { local: true, message: cause instanceof Error ? cause.message : String(cause) }
     if (!target.isDestroyed() && target.webContents.getURL() !== recoveryUrl) await target.loadURL(recoveryUrl)
-    throw new Error(`本机 Host 连接失败：${String(cause)}`)
+    throw new Error(`本机服务连接失败：${String(cause)}`)
   }
 }
 async function setConnection(value: { url: string; token: string } | null) {
@@ -197,7 +197,7 @@ app
     } catch (cause) {
       failed = true
       lastConnectionError = { local: true, message: cause instanceof Error ? cause.message : String(cause) }
-      console.error(`Host 初始化失败：${String(cause)}`)
+      console.error(`服务初始化失败：${String(cause)}`)
     }
     registerBrowserRuntime({ getWindow: () => window, origin: trustedOrigin, rpc })
     registerPlatformIpc(

@@ -103,7 +103,7 @@ test('显式启动登记、同请求幂等、停止释放真实端口且会话�
     const port = Number(new URL(running.urls[0]).port)
     assert.equal(await canConnect(port), true)
     assert.throws(() => f.service.logs({ ...ref, sessionId: 'other' }, activity.serviceId), /不属于此会话/)
-    await assert.rejects(f.service.stop({ ...ref, hostId: 'other' }, activity.serviceId), /Host 不匹配/)
+    await assert.rejects(f.service.stop({ ...ref, hostId: 'other' }, activity.serviceId), /服务不匹配/)
     await assert.rejects(f.service.start(f.caller, { ...input, command: 'other' }), /同一启动请求/)
     const stopped = await f.service.stop(ref, activity.serviceId)
     assert.equal(stopped.status, 'stopped')
@@ -153,7 +153,7 @@ test('启动交接后取消原工具不停止服务，Host dispose 停止服务�
     assert.equal(f.service.list(ref).activities[0].status, 'running')
     await f.service.dispose()
     assert.equal(f.service.list(ref).activities[0].status, 'stopped')
-    assert.equal(f.service.list(ref).activities[0].stopReason, 'Host 正常退出')
+    assert.equal(f.service.list(ref).activities[0].stopReason, '服务正常退出')
     await assert.rejects(f.service.start(f.caller, input), /已关闭/)
     assert.equal(f.service.logs(ref, activity.serviceId).sequence, 0)
   } finally {
@@ -173,7 +173,7 @@ test('启动尚未完成时停止和 Host dispose 不留下运行记录', { skip
     await f.service.dispose()
     await rejection
     assert.equal(f.service.list(ref).activities[0].status, 'stopped')
-    assert.equal(f.service.list(ref).activities[0].stopReason, 'Host 正常退出')
+    assert.equal(f.service.list(ref).activities[0].stopReason, '服务正常退出')
     f.service.assertIdle()
   } finally {
     await f.dispose()

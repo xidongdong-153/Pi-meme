@@ -190,8 +190,8 @@ test('开关直接启用；后台服务变更刷新准备步骤', async () => {
   connection.phase = 'connecting'
   for (const [step, label] of [
     ['checking', '正在检查远端环境'],
-    ['installing', '正在安装远端 Host'],
-    ['starting', '正在启动远端 Host'],
+    ['installing', '正在准备远程连接'],
+    ['starting', '正在启动远程服务'],
     ['authenticating', '正在验证远端连接'],
   ] as const) {
     connection.step = step

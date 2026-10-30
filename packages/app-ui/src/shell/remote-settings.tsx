@@ -31,7 +31,6 @@ export function RemoteSettings({
   const tabsId = useId()
   return (
     <div className="space-y-5">
-      <p className="text-sm text-muted-foreground">连接由入口 Host 管理。项目、对话和执行设置保存在各自服务。</p>
       <div role="tablist" aria-label="远程连接方式" className="inline-flex gap-1 rounded-lg bg-secondary/50 p-1">
         {(['ssh', 'https'] as const).map((value) => (
           <button
@@ -145,9 +144,7 @@ function SshSettings({
   const sshServices = services.filter((service) => service.transport === 'ssh')
   return (
     <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">
-        添加后优先连接远端已有 Host，未发现时才自动安装并启动。SSH 配置、agent 和身份文件来自入口 Host。
-      </p>
+      <p className="text-sm text-muted-foreground">使用 SSH 连接远程设备。</p>
       {!capabilities && !loadError && (
         <p role="status" className="text-sm text-muted-foreground">
           正在读取连接权限…
@@ -155,7 +152,7 @@ function SshSettings({
       )}
       {capabilities && !capabilities.canManage && (
         <p className="rounded-xl border border-border p-4 text-sm text-muted-foreground">
-          {capabilities.reason || 'SSH 连接只能从入口 Host 的已认证本机页面管理。已登记的远程服务仍可使用。'}
+          {capabilities.reason || '请在本机应用中管理 SSH 连接。'}
         </p>
       )}
       {capabilities?.canManage && (
@@ -168,7 +165,9 @@ function SshSettings({
             </Button>
           </div>
           {!capabilities.available && (
-            <p className="text-sm text-muted-foreground">{capabilities.reason || '入口 Host 暂时无法启动系统 SSH。'}</p>
+            <p className="text-sm text-muted-foreground">
+              {capabilities.reason || '无法启动 SSH，请检查系统是否已安装 OpenSSH。'}
+            </p>
           )}
           {!profiles.length && !loadError && (
             <p className="rounded-xl border border-dashed border-border p-5 text-sm text-muted-foreground">
@@ -285,7 +284,7 @@ function SshSettings({
         <DialogContent>
           <DialogTitle>移除 SSH 连接？</DialogTitle>
           <DialogDescription>
-            删除入口 Host 保存的“{removing?.name}”连接资料和摘要。不会删除远端项目或会话，也不会停止远端任务。
+            删除“{removing?.name}”的连接记录？远程项目、会话和运行中的任务不受影响。
           </DialogDescription>
           {removing && errors[removing.id] && (
             <p role="alert" className="text-sm text-destructive">

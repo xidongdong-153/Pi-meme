@@ -20,7 +20,7 @@ test('远程切换失败先恢复连接身份，再载入原页面并报告中�
         actions.push('rollback')
       },
     ),
-    /无法连接 Host/,
+    /无法连接服务/,
   )
   assert.deepEqual(actions, ['https://unavailable.example', 'rollback', 'https://previous.example'])
 })
@@ -37,7 +37,7 @@ test('初始 Host 不可达时载入固定恢复页', async () => {
       },
       'https://unavailable.example',
     ),
-    /无法连接 Host/,
+    /无法连接服务/,
   )
   assert.equal(actions[1], recoveryUrl)
 })
@@ -55,7 +55,7 @@ test('原页面也无法恢复时仍显示恢复入口', async () => {
       'https://unavailable.example',
       'https://previous.example',
     ),
-    /无法连接 Host/,
+    /无法连接服务/,
   )
   assert.deepEqual(actions, ['https://unavailable.example', 'https://previous.example', recoveryUrl])
 })

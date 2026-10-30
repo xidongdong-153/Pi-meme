@@ -2,20 +2,20 @@ import { defaultHostPort } from '@pi-meme/contracts/host-runtime'
 import { SshError } from './ssh-tunnels'
 
 const probeErrors: Record<string, string> = {
-  'host-probe-python': '远端缺少 Python 3，无法只读检查已有 Host，请先安装 Python 3',
-  'host-probe-response': '远端 Host 探测没有返回有效结果，请检查 SSH 登录环境',
-  'host-probe-runtime': '远端 Host 运行目录或运行信息无效，请检查文件权限和内容',
-  'host-probe-http': '远端候选端口未返回有效 Host 状态，请检查端口占用和服务状态',
-  'host-probe-identity': '远端 Host 与固定数据目录身份不匹配，请检查原 Host',
-  'host-probe-credentials': '远端 Host 凭据无效，请检查凭据文件权限和访问令牌',
-  'host-probe-lock': '无法检查远端 Host 数据锁，请检查目录权限和文件类型',
-  'host-probe-running': '远端 Host 可能仍在运行，但无法从候选端口发现，请检查监听端口或稍后重试',
+  'host-probe-python': '远端缺少 Python 3，无法只读检查已有服务，请先安装 Python 3',
+  'host-probe-response': '远程服务探测没有返回有效结果，请检查 SSH 登录环境',
+  'host-probe-runtime': '远程服务运行目录或运行信息无效，请检查文件权限和内容',
+  'host-probe-http': '远端候选端口未返回有效服务状态，请检查端口占用和服务状态',
+  'host-probe-identity': '远程服务与固定数据目录身份不匹配，请检查原服务',
+  'host-probe-credentials': '远程服务凭据无效，请检查凭据文件权限和访问令牌',
+  'host-probe-lock': '无法检查远端应用数据锁，请检查目录权限和文件类型',
+  'host-probe-running': '远程服务可能仍在运行，但无法从候选端口发现，请检查监听端口或稍后重试',
 }
 
 export function parseSshHostProbe(output: string): { port: number; hostId: string; token: string } | null {
   let value: unknown
   try {
-    if (Buffer.byteLength(output) > 64 * 1024) throw new Error('远端 Host 探测响应超过大小限制')
+    if (Buffer.byteLength(output) > 64 * 1024) throw new Error('远程服务探测响应超过大小限制')
     value = JSON.parse(output) as unknown
   } catch {
     throw new SshError('host-probe-response', probeErrors['host-probe-response'])

@@ -125,7 +125,7 @@ export async function spawnManagedProcess(
         }
         if (!(await waitGroup(3000))) {
           kill()
-          if (!(await waitGroup(1500))) throw new Error('发送强制终止后服务进程组仍存在，请检查 Host 进程权限')
+          if (!(await waitGroup(1500))) throw new Error('发送强制终止后服务进程组仍存在，请检查服务进程权限')
         }
         const result = await closed
         finished = true

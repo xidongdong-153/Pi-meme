@@ -110,7 +110,7 @@ test('拒绝非空、父子嵌套、链接和已有 Host 锁的目标', async ()
     await assert.rejects(previewMigration(f.source, linked, f.anchor), /符号链接/)
     const release = await lockDataRoot(f.source)
     try {
-      await assert.rejects(migration(f), /已有 Host/)
+      await assert.rejects(migration(f), /已有服务/)
     } finally {
       await release()
     }
@@ -1824,7 +1824,7 @@ test.each(['snapshot', 'events', 'operations'])(
       const before = await Promise.all(
         (await readdir(directory)).map(async (name) => [name, await readFile(path.join(directory, name), 'utf8')]),
       )
-      await assert.rejects(createHost({ dataRoot: f.source, testCredentials: true }), /Host 身份不一致/)
+      await assert.rejects(createHost({ dataRoot: f.source, testCredentials: true }), /服务身份不一致/)
       for (const [name, content] of before) assert.equal(await readFile(path.join(directory, name), 'utf8'), content)
       assert.equal(await readFile(sessionFile, 'utf8'), message)
       assert.equal(await optionalStat(path.join(f.source, 'host.lock')), null)
@@ -1883,7 +1883,7 @@ test('缺少 host-id 且历史引用混合时拒绝生成新身份，布局升�
     const file = path.join(f.source, 'control.json')
     await writeJson(file, legacy)
     const before = await readFile(file, 'utf8')
-    await assert.rejects(upgradeStorageLayout(f.source), /多个 Host 身份/)
+    await assert.rejects(upgradeStorageLayout(f.source), /多个服务身份/)
     assert.equal(await optionalStat(path.join(f.source, 'host-id')), null)
     assert.equal(await optionalStat(path.join(f.source, 'storage.json')), null)
     assert.equal(await readFile(file, 'utf8'), before)
@@ -1896,7 +1896,7 @@ test('布局升级发现持久身份与控制状态冲突时，在备份发布�
   const f = await fixture()
   try {
     await writeJson(path.join(f.source, 'control.json'), identitySnapshot('other-host', f.source))
-    await assert.rejects(upgradeStorageLayout(f.source), /Host 身份不一致/)
+    await assert.rejects(upgradeStorageLayout(f.source), /服务身份不一致/)
     assert.equal(await readFile(path.join(f.source, 'host-id'), 'utf8'), 'storage-fixture')
     assert.equal(await optionalStat(path.join(f.source, 'storage.json')), null)
     assert.equal(await optionalStat(path.join(f.source, 'backups')), null)
@@ -1911,7 +1911,7 @@ test('换根迁移在来源身份冲突时保留空目标，目标身份被修�
     const snapshotFile = path.join(f.source, 'state/control/snapshot.json')
     await mkdir(path.dirname(snapshotFile), { recursive: true })
     await writeJson(snapshotFile, identitySnapshot('other-host', f.source))
-    await assert.rejects(migration(f), /Host 身份不一致/)
+    await assert.rejects(migration(f), /服务身份不一致/)
     assert.deepEqual(await readdir(f.target), [])
     await writeJson(snapshotFile, identitySnapshot('storage-fixture', f.source))
     let committed = false
@@ -1927,7 +1927,7 @@ test('换根迁移在来源身份冲突时保留空目标，目标身份被修�
           if (value.stage === 'relocating') writeFileSync(path.join(f.target, 'host-id'), 'other-host')
         },
       }),
-      /持久 Host 身份不匹配/,
+      /持久服务身份不匹配/,
     )
     assert.equal(committed, false)
     assert.equal(await readFile(path.join(f.source, 'host-id'), 'utf8'), 'storage-fixture')

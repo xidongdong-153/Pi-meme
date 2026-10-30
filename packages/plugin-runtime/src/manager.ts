@@ -536,7 +536,7 @@ export class PluginManager {
                     generation,
                     dataDirectory,
                     get host() {
-                      if (!hostApi) throw new Error('插件 Host API 未装配')
+                      if (!hostApi) throw new Error('插件服务 API 未装配')
                       return hostApi
                     },
                     services: {

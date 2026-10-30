@@ -101,8 +101,8 @@ test('迁移目标由主进程签发，错误 Host 和过期选择不能触发�
   const f = await fixture()
   try {
     await f.controller.initialize()
-    await assert.rejects(f.controller.adapter.getInfo('remote-host'), /本机 Host/)
-    await assert.rejects(f.controller.adapter.clearCache('remote-host'), /本机 Host/)
+    await assert.rejects(f.controller.adapter.getInfo('remote-host'), /本机服务/)
+    await assert.rejects(f.controller.adapter.clearCache('remote-host'), /本机服务/)
     await assert.rejects(
       f.controller.adapter.migrate({ expectedHostId: 'fixture-host', selectionId: 'forged' }),
       /目录选择器/,

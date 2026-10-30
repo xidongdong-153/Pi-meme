@@ -278,9 +278,7 @@ export function PluginPage({
                   卸载插件
                 </Button>
               </div>
-              <p className="text-xs text-muted-foreground">
-                更新时请选择相同包名的 .pim 文件；正在使用的旧代次会保留到任务结束。
-              </p>
+              <p className="text-xs text-muted-foreground">选择此插件的新版 .pim 文件，运行中的任务不受影响。</p>
               {renderSettings?.(detail.id)}
             </>
           )}

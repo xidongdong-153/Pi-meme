@@ -92,20 +92,20 @@ export class InstructionsStore {
     const configDir = path.join(this.root, 'config')
     const configStat = await lstat(configDir).catch(() => undefined)
     if (configStat?.isSymbolicLink()) {
-      throw new Error('Host 配置目录不能是符号链接')
+      throw new Error('应用配置目录不能是符号链接')
     }
     const agentStat = await lstat(this.agentDir).catch(() => undefined)
     if (agentStat?.isSymbolicLink()) {
-      throw new Error('Host 指令目录不能指向数据目录之外')
+      throw new Error('用户指令目录不能指向数据目录之外')
     }
     const agentRoot = await realpath(this.agentDir).catch((cause: NodeJS.ErrnoException) => {
       if (cause.code !== 'ENOENT') throw cause
       return this.agentDir
     })
-    if (!within(resolvedRoot, agentRoot)) throw new Error('Host 指令目录不能指向数据目录之外')
+    if (!within(resolvedRoot, agentRoot)) throw new Error('用户指令目录不能指向数据目录之外')
     const selected = kind === 'agents' ? readDesktopAgentContextFile(this.agentDir) : undefined
     const file = await readInstruction(this.root, selected?.path ?? path.join(this.agentDir, filenames[kind]))
-    if (!within(agentRoot, file.path)) throw new Error(`指令文件超出 Host 指令目录：${file.path}`)
+    if (!within(agentRoot, file.path)) throw new Error(`指令文件超出用户指令目录：${file.path}`)
     return file
   }
 

@@ -123,7 +123,7 @@ export function createPluginUiExtensions(options: PluginUiExtensionsOptions) {
         (target.project && (target.project.hostId !== target.hostId || !target.project.projectId?.trim())) ||
         (target.session && (target.session.hostId !== target.hostId || !target.session.sessionId?.trim()))
       )
-        throw new Error('不能打开其他 Host 的插件页面或无效目标')
+        throw new Error('不能打开其他服务的插件页面或无效目标')
       if (!pageAvailable(page, target)) throw new Error('插件页面缺少对应项目或会话目标')
       const params = input?.params ?? null
       assertPageParams(params)

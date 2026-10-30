@@ -123,9 +123,8 @@ export function ShortcutSettings() {
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <p className="text-xs text-muted-foreground">
-            自定义当前客户端中的快捷键绑定。设置仅保存在本地设备（
-            {environment === 'desktop' ? 'Desktop 应用' : '当前浏览器'}
-            ），不影响执行 Host 或其他设备。
+            快捷键仅用于
+            {environment === 'desktop' ? '当前应用' : '当前浏览器'}。
           </p>
         </div>
         <Button

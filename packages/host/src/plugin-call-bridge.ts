@@ -287,7 +287,7 @@ export function createPluginCallBridge(options: {
       const actor = options.actor()
       const entry = entryFor(request)
       if (request.action === 'hook' && ['sessionStart', 'sessionEnd'].includes(request.name ?? ''))
-        throw new Error('permission-denied: 生命周期只由 Host 管理')
+        throw new Error('permission-denied: 生命周期只由服务管理')
       if (request.action !== 'initialize') {
         assertLive(actor)
         signal.throwIfAborted()

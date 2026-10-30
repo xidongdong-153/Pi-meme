@@ -125,7 +125,7 @@ export function ServicesApp({
     const sourceKey = source.connection.sessionKey
     const draft = source.captureDraft()
     if (id !== sourceId && draft.composer.attachments.some((attachment) => attachment.type === 'file')) {
-      source.setError('文件附件已保存在当前 Host，请先发送或移除附件，再切换到其他服务')
+      source.setError('请先发送或移除附件，再切换设备')
       return false
     }
     const changed = await target.selectLocation(input, id === sourceId ? undefined : draft)

@@ -32,7 +32,7 @@ function LoadedPreview({
   useEffect(() => {
     let active = true
     if (!host.visualizations) {
-      setError('当前 Host 不支持草图')
+      setError('当前服务不支持草图')
       return
     }
     host.visualizations

@@ -16,7 +16,7 @@ declare const __PI_MEME_VERSION__: string
 
 const protocolVersion = 1
 const timeoutMs = 60000
-const conflictMessage = '固定数据目录已有其他 Host 或 SSH 启动锁未释放；不会接管手工启动的 Host'
+const conflictMessage = '固定数据目录已有其他服务或 SSH 启动锁未释放；不会接管手工启动的服务'
 
 function conflict(message: string) {
   return Object.assign(new Error(message), { code: 'host-conflict' })
@@ -78,7 +78,7 @@ function validResult(value: unknown): value is BootstrapResult {
 async function privatePath(file: string) {
   const info = await lstat(file)
   if (!info.isFile() || (info.mode & 0o777) !== 0o600 || (process.getuid && info.uid !== process.getuid()))
-    throw conflict('SSH Host 运行信息权限或所有者无效，拒绝复用')
+    throw conflict('远程服务运行信息权限或所有者无效，拒绝复用')
 }
 
 async function readDescriptor(): Promise<RuntimeDescriptor | undefined> {
@@ -90,7 +90,7 @@ async function readDescriptor(): Promise<RuntimeDescriptor | undefined> {
       if (Buffer.byteLength(body) > 4096) throw new Error('运行信息过大')
       value = JSON.parse(body) as RuntimeDescriptor
     } catch {
-      throw conflict('SSH Host 运行信息无效，拒绝复用')
+      throw conflict('远程服务运行信息无效，拒绝复用')
     }
     if (
       !value ||
@@ -108,7 +108,7 @@ async function readDescriptor(): Promise<RuntimeDescriptor | undefined> {
       typeof value.version !== 'string' ||
       'token' in value
     )
-      throw conflict('SSH Host 运行信息无效，拒绝复用')
+      throw conflict('远程服务运行信息无效，拒绝复用')
     return value
   } catch (cause) {
     if (errorCode(cause) === 'ENOENT') return undefined
@@ -127,7 +127,7 @@ function alive(pid: number) {
 }
 
 async function reuse(descriptor: RuntimeDescriptor): Promise<BootstrapResult> {
-  if (descriptor.version !== version) throw conflict('已有 SSH Host 的版本不同，请停止原 SSH Host 后重试')
+  if (descriptor.version !== version) throw conflict('已有远程服务的版本不同，请停止原远程服务后重试')
   const status = await readLocalHostStatus(`http://127.0.0.1:${descriptor.port}`)
   if (
     !status ||
@@ -137,21 +137,21 @@ async function reuse(descriptor: RuntimeDescriptor): Promise<BootstrapResult> {
     status.dataRoot !== (await realpath(root)) ||
     (await readFile(path.join(root, storageLayoutRelativePaths.hostIdFile), 'utf8')).trim() !== descriptor.hostId
   )
-    throw conflict('SSH Host 与固定数据目录身份不匹配，拒绝复用')
+    throw conflict('远程服务与固定数据目录身份不匹配，拒绝复用')
   const authFile = path.join(root, storageLayoutRelativePaths.authFile)
   await privatePath(authFile)
   let credentials: unknown
   try {
     credentials = JSON.parse(await readFile(authFile, 'utf8')) as unknown
   } catch {
-    throw conflict('无法读取 SSH Host 凭据或凭据 JSON 无效，原文件未修改')
+    throw conflict('无法读取远程服务凭据或凭据 JSON 无效，原文件未修改')
   }
   const token =
     credentials && typeof credentials === 'object' && 'host:token' in credentials
       ? credentials['host:token']
       : undefined
   if (typeof token !== 'string' || token.length < 32 || token.length > 4096)
-    throw conflict('SSH Host 访问令牌无效，原文件未修改')
+    throw conflict('远程服务访问令牌无效，原文件未修改')
   return { protocolVersion, port: descriptor.port, hostId: descriptor.hostId, token, version }
 }
 
@@ -169,16 +169,16 @@ async function startDetached(): Promise<BootstrapResult> {
   let timer: ReturnType<typeof setTimeout> | undefined
   try {
     const result = await Promise.race([
-      readJson(stream, 'SSH Host 就绪通道'),
+      readJson(stream, '远程服务就绪通道'),
       new Promise<never>((_, reject) => {
-        child.once('error', () => reject(new Error('无法启动包内 SSH Host 进程')))
-        timer = setTimeout(() => reject(new Error('SSH Host 启动超时，请稍后重试')), timeoutMs)
+        child.once('error', () => reject(new Error('无法启动包内远程服务进程')))
+        timer = setTimeout(() => reject(new Error('远程服务启动超时，请稍后重试')), timeoutMs)
       }),
     ])
     if (!validResult(result)) {
       if (result && typeof result === 'object' && 'error' in result && typeof result.error === 'string')
         throw Object.assign(new Error(result.error), { code: 'code' in result ? result.code : 'host-start' })
-      throw new Error('SSH Host 没有返回有效启动结果')
+      throw new Error('远程服务没有返回有效启动结果')
     }
     return result
   } finally {
@@ -200,7 +200,7 @@ async function bootstrap() {
   await mkdir(runtime, { recursive: true, mode: 0o700 })
   const info = await lstat(runtime)
   if (!info.isDirectory() || (process.getuid && info.uid !== process.getuid()))
-    throw conflict('SSH Host 运行目录类型或所有者无效')
+    throw conflict('远程服务运行目录类型或所有者无效')
   await chmod(runtime, 0o700)
   const release = await lockfile.lock(runtime, {
     lockfilePath: path.join(runtime, 'bootstrap.lock'),
@@ -306,7 +306,7 @@ try {
     errorCode(cause) === 'ELOCKED'
       ? conflictMessage
       : process.argv[2] === '--host' && code !== 'host-dependencies'
-        ? 'SSH Host 启动失败，请检查固定数据目录、包内运行时与文件权限'
+        ? '远程服务启动失败，请检查固定数据目录、包内运行时与文件权限'
         : cause instanceof Error
           ? cause.message
           : 'SSH 引导失败'

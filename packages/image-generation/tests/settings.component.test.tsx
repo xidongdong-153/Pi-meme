@@ -44,7 +44,7 @@ test('新增配置后显示默认模型，保存不会自动调用图片服务',
   const fixture = apiFixture()
   const user = userEvent.setup()
   render(<ImageGenerationSettings api={fixture.api} hostLabel="远程开发机" />)
-  await screen.findByText(/尚未配置图片模型/)
+  await screen.findByText(/添加图片模型后即可生成和编辑图片/)
   await user.click(screen.getByRole('button', { name: '添加模型' }))
   await user.type(screen.getByLabelText('配置名称'), '图片服务')
   await user.type(screen.getByLabelText('API Key'), 'secret-value')

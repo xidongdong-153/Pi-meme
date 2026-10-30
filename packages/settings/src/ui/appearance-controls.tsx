@@ -205,13 +205,13 @@ export function FontControl({
       <PopoverContent className="space-y-2" aria-label={`${label}选择器`}>
         <Input
           aria-label={`搜索${label}`}
-          placeholder="搜索 Host 字体"
+          placeholder="搜索字体"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
         />
         {loading && (
           <p role="status" className="text-xs text-muted-foreground">
-            正在读取 Host 字体…
+            正在读取字体…
           </p>
         )}
         {!loading && !error && !fonts.length && (

@@ -136,7 +136,7 @@ test('Host 关闭等待凭据落盘，期间不能释放数据目录写锁', asy
     closingCredentials = true
     const closing = server.dispose()
     await started
-    await assert.rejects(lockDataRoot(root), /已有 Host/)
+    await assert.rejects(lockDataRoot(root), /已有服务/)
     finish()
     await closing
     const unlock = await lockDataRoot(root)

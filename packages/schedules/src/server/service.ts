@@ -83,7 +83,7 @@ export class ScheduleService {
   private change<T>(work: () => T | Promise<T>, taskId?: string): Promise<T> {
     this.pendingChanges++
     return this.serial(async () => {
-      if (this.closing) throw new Error('Host 正在退出，不能修改定时任务')
+      if (this.closing) throw new Error('服务正在退出，不能修改定时任务')
       const before = structuredClone(this.state)
       let result: T
       try {
@@ -100,7 +100,7 @@ export class ScheduleService {
     })
   }
   private task(ref: ScheduledTaskRef): StoredTask {
-    if (!ref || ref.hostId !== this.options.hostId) throw new Error('目标 Host 身份不匹配')
+    if (!ref || ref.hostId !== this.options.hostId) throw new Error('目标服务身份不匹配')
     const task = this.state.tasks.find((item) => item.taskId === ref.taskId)
     if (!task) throw new Error('定时任务不存在')
     return task
@@ -143,7 +143,7 @@ export class ScheduleService {
     if (typeof input.newSessionEachRun !== 'boolean' || !['all', 'failures', 'off'].includes(input.notification))
       throw new Error('会话或通知配置无效')
     if (input.project && (input.project.hostId !== this.options.hostId || typeof input.project.projectId !== 'string'))
-      throw new Error('任务项目必须属于当前 Host')
+      throw new Error('任务项目必须属于当前服务')
   }
   private clean(input: ScheduledTaskInput): ScheduledTaskInput {
     return structuredClone({
@@ -455,7 +455,7 @@ export class ScheduleService {
           run.status = 'skipped'
           run.finishedAt = this.timestamp()
           run.missedCount = advance.count
-          run.error = busy ? '上次运行尚未结束，本次已跳过' : 'Host 停止、休眠或调度延迟，已跳过错过的执行'
+          run.error = busy ? '上次运行尚未结束，本次已跳过' : '服务停止、休眠或调度延迟，已跳过错过的执行'
           task.nextRunAt = advance.next
         } else {
           task.nextRunAt = nextOccurrence(task.rule, now)
@@ -502,7 +502,7 @@ export class ScheduleService {
           /* 缺失回执按中断处理。 */
         }
       }
-      await this.finish(run.runId, 'interrupted', 'Host 已重启，本次执行已中断，不会自动重发')
+      await this.finish(run.runId, 'interrupted', '服务已重启，本次执行已中断，不会自动重发')
     }
     await this.tick(true)
     this.timer = setInterval(() => {

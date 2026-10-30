@@ -267,7 +267,7 @@ test('Host 配置目录 config 为符号链接时拒绝执行，防止绕过 Hos
     const configLink = path.join(root, 'config')
     await symlink(outside, configLink, 'dir')
     const store = new InstructionsStore(root)
-    await assert.rejects(store.snapshot(root), /Host 配置目录不能是符号链接/)
+    await assert.rejects(store.snapshot(root), /应用配置目录不能是符号链接/)
   } finally {
     await rm(root, { recursive: true, force: true })
     await rm(outside, { recursive: true, force: true })

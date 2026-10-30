@@ -186,20 +186,18 @@ export function ModelConfigSettings({
       <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-card p-5">
         <div className="min-w-0 space-y-1">
           <h3 className="font-medium">默认模型</h3>
-          <p className="text-sm text-muted-foreground">新建会话默认使用的模型，不影响已打开的会话。</p>
         </div>
         <ModelSelect
           models={models}
           current={defaultModel ?? undefined}
           disabled={busy || saving || defaultSaving || thinkingSaving}
-          placeholder="Pi 自动选择"
+          placeholder="自动选择"
           onSelect={(model) => void selectDefault(model)}
         />
       </div>
       <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-card p-5">
         <div className="min-w-0 space-y-1">
           <h3 className="font-medium">思考强度默认值</h3>
-          <p className="text-sm text-muted-foreground">新建会话默认使用的思考强度，不影响已打开的会话。</p>
         </div>
         <Select
           value={defaultThinking ?? 'medium'}
@@ -278,8 +276,7 @@ export function ModelConfigSettings({
         hidden={providerTab !== 'custom'}
         className="space-y-4"
       >
-        <div className="flex flex-wrap justify-between gap-3">
-          <p className="text-sm text-muted-foreground">管理自定义接口和 API Key，保存后自动重新连接 Pi。</p>
+        <div className="flex flex-wrap justify-end gap-3">
           <div className="flex gap-2">
             <Button variant="outline" disabled={loading || saving} onClick={() => void load()}>
               <RefreshCw className={cn('mr-1.5 size-3.5', loading && 'animate-spin')} />

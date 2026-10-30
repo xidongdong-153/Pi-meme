@@ -164,7 +164,7 @@ describe('SSH 包内引导真实进程', () => {
     assert.equal(rejected.stdout, '')
     assert.deepEqual(JSON.parse(rejected.stderr), {
       code: 'host-conflict',
-      message: '无法读取 SSH Host 凭据或凭据 JSON 无效，原文件未修改',
+      message: '无法读取远程服务凭据或凭据 JSON 无效，原文件未修改',
     })
     assert.equal(await readFile(authFile, 'utf8'), malformed)
     await writeFile(authFile, saved)

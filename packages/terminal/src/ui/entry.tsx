@@ -144,7 +144,7 @@ export async function activate(context: Pick<UiPluginContext, 'host' | 'panels'>
         ) : (
           <div className="flex-1 text-xs text-muted-foreground">
             {!supported ? (
-              <p role="status">所属 Host 的 node-pty 原生模块不可用。</p>
+              <p role="status">当前设备无法启动终端，请检查安装是否完整。</p>
             ) : !root ? (
               <p role="status">选择项目或会话后打开终端。</p>
             ) : busy || (!state && !error) ? (

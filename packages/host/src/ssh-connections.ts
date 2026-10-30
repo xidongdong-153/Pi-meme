@@ -67,7 +67,7 @@ function input(value: SshConnectionInput) {
       /[\0\r\n]/.test(value.identityFile) ||
       (!path.isAbsolute(value.identityFile) && !value.identityFile.startsWith('~/')))
   )
-    throw new Error('身份文件必须是入口 Host 上的绝对路径或 ~/ 路径')
+    throw new Error('身份文件必须是本机服务上的绝对路径或 ~/ 路径')
   return {
     name: value.name?.trim() || value.target,
     target: value.target,
@@ -136,7 +136,7 @@ export class SshConnections {
     return state.tunnel.endpoint
   }
   private serialize<T>(work: () => Promise<T>) {
-    if (this.closing) return Promise.reject(new Error('入口 Host 正在退出'))
+    if (this.closing) return Promise.reject(new Error('本机服务正在退出'))
     this.mutations++
     const action = this.mutation
       .catch(() => {})
@@ -344,7 +344,7 @@ export class SshConnections {
         try {
           await this.credentials.saveSsh(state.saved.id, prepared.token)
         } catch {
-          throw new SshError('storage', '无法保存 SSH 连接凭据，请检查入口 Host 存储')
+          throw new SshError('storage', '无法保存 SSH 连接凭据，请检查本机服务存储')
         }
         if (!current()) return
         tunnel = await this.startTunnel(state.saved, prepared.port, controller.signal)
@@ -369,7 +369,7 @@ export class SshConnections {
         try {
           await this.persist({ state, hostId: result.hostId, current })
         } catch {
-          throw new SshError('storage', '无法保存 SSH 连接身份，请检查入口 Host 存储')
+          throw new SshError('storage', '无法保存 SSH 连接身份，请检查本机服务存储')
         }
         if (!current() || ended) return
         state.phase = 'connected'
@@ -405,7 +405,7 @@ export class SshConnections {
     const failure =
       cause instanceof SshError
         ? cause
-        : new SshError('host-unavailable', 'SSH 连接准备或远端 Host 访问失败，请检查网络后重试', true)
+        : new SshError('host-unavailable', 'SSH 连接准备或远程服务访问失败，请检查网络后重试', true)
     state.errorCode = failure.code
     state.error = failure.message
     if (failure.retryable && state.saved.enabled && !this.closing) {

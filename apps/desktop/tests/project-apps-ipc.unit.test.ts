@@ -76,7 +76,7 @@ for (const channel of ['platform:project-apps', 'platform:open-project']) {
     const f = setup(false)
     await assert.rejects(
       async () => mocks.handlers.get(channel)!(f.event, 'vscode', '/work/project'),
-      /远程 Host 不能调用本机文件操作/,
+      /远程服务不能调用本机文件操作/,
     )
     assert.equal(mocks.getProjectApps.mock.calls.length, 0)
     assert.equal(mocks.openProjectInApp.mock.calls.length, 0)

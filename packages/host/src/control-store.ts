@@ -489,7 +489,7 @@ export class ControlStore {
     for (const [id, operation] of Object.entries(this.state.operations)) {
       if (operation.status === 'pending') {
         operation.status = 'interrupted'
-        operation.error = 'Host 已重启，操作中断；不会重新执行'
+        operation.error = '服务已重启，操作中断；不会重新执行'
         await this.appendOperation({
           id,
           operationId: operation.operationId,
@@ -511,7 +511,7 @@ export class ControlStore {
     for (const receipt of this.committedReceipts.values()) {
       if (['accepted', 'queued', 'running'].includes(receipt.status)) {
         receipt.status = 'interrupted'
-        receipt.error = 'Host 已重启，提交中断；不会重新执行'
+        receipt.error = '服务已重启，提交中断；不会重新执行'
         receipt.outcomeUncertain = Boolean(receipt.dispatchStartedAt)
         const operation = Object.values(this.state.operations).find((item) => item.operationId === receipt.operationId)
         if (operation) {

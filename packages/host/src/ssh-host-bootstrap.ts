@@ -43,7 +43,7 @@ const versionPattern = /^\d+\.\d+\.\d+(?:-[a-z0-9]+(?:\.[a-z0-9]+)*)?$/i
 function releaseVersion(value?: string) {
   const version = value ?? (typeof __PI_MEME_VERSION__ === 'string' ? __PI_MEME_VERSION__ : undefined)
   if (!version || !versionPattern.test(version))
-    throw new SshError('host-release', '当前开发环境没有发行版本，无法自动获取远程 Host 包')
+    throw new SshError('host-release', '当前开发环境没有发行版本，无法自动获取远程服务包')
   return version
 }
 
@@ -52,7 +52,7 @@ export function sshHostTarget(output: string): Target {
   if (extra.length || !release) throw new SshError('host-platform', '无法识别 SSH 登录环境')
   if (system === 'Darwin' && arch === 'arm64' && Number(release.split('.')[0]) >= 24) return 'macos-arm64'
   if (system === 'Linux' && arch === 'x86_64') return 'linux-x64'
-  throw new SshError('host-platform', '远程 Host 仅支持 macOS 15 及以上 arm64 和 Linux x64')
+  throw new SshError('host-platform', '远程服务仅支持 macOS 15 及以上 arm64 和 Linux x64')
 }
 
 // 只发送固定脚本，动态值先限制字符集；不把 SSH 目标拼入远端命令。
@@ -99,9 +99,9 @@ const runCommand: Command = async (ssh, target, script, input, signal) => {
       else if (timedOut) reject(new SshError('host-timeout', '远端准备超时，请重试', true))
       else if (code !== 0) {
         const messages: Record<string, string> = {
-          'host-conflict': '远端已有运行中的 Host，请重试连接；不会停止已有实例',
+          'host-conflict': '远端已有运行中的服务，请重试连接；不会停止已有实例',
           'host-dependencies': '远端缺少运行依赖，请检查 Git、bash、tar 和 Linux bubblewrap',
-          'host-start': '远端 Host 启动失败，请检查目录权限和运行环境',
+          'host-start': '远程服务启动失败，请检查目录权限和运行环境',
         }
         let errorCode: unknown
         try {
@@ -112,7 +112,7 @@ const runCommand: Command = async (ssh, target, script, input, signal) => {
         if (typeof errorCode === 'string' && Object.hasOwn(messages, errorCode))
           reject(new SshError(errorCode, messages[errorCode]))
         else if (code === 255) reject(sshFailure(stderr))
-        else reject(new SshError('host-prepare', '远端准备失败，请检查运行依赖、目录权限及是否存在冲突 Host'))
+        else reject(new SshError('host-prepare', '远端准备失败，请检查运行依赖、目录权限及是否存在冲突服务'))
       } else resolve()
     })
   })
@@ -143,12 +143,12 @@ async function digest(file: string, signal: AbortSignal) {
 }
 
 async function responseText(response: Response, signal: AbortSignal) {
-  if (!response.ok || !response.body) throw new SshError('host-download', '当前版本的 Host 发行资源不可用')
+  if (!response.ok || !response.body) throw new SshError('host-download', '当前版本的安装包不可用')
   let text = ''
   for await (const chunk of Readable.fromWeb(response.body as import('node:stream/web').ReadableStream)) {
     signal.throwIfAborted()
     text += chunk.toString()
-    if (Buffer.byteLength(text) > 64 * 1024) throw new SshError('host-download', 'Host 校验清单超过限制')
+    if (Buffer.byteLength(text) > 64 * 1024) throw new SshError('host-download', '安装包校验清单超过限制')
   }
   return text
 }
@@ -163,7 +163,7 @@ export async function validateHostArchive(file: string, directory: string, versi
     filter(name, entry) {
       if (invalid) return false
       if (!('type' in entry)) {
-        invalid = new SshError('host-archive', 'Host 归档条目无效')
+        invalid = new SshError('host-archive', '安装包内容无效')
         return false
       }
       const normalized = path.posix.normalize(name)
@@ -173,24 +173,24 @@ export async function validateHostArchive(file: string, directory: string, versi
         (normalized !== 'pi-meme-host' && !normalized.startsWith('pi-meme-host/')) ||
         !['File', 'Directory', 'SymbolicLink', 'Link'].includes(entry.type)
       ) {
-        invalid = new SshError('host-archive', 'Host 包含无效路径或文件类型')
+        invalid = new SshError('host-archive', '安装包包含无效路径或文件类型')
         return false
       }
       size += entry.size
       if (size > maxUnpackedBytes) {
-        invalid = new SshError('host-archive', 'Host 解压大小超过限制')
+        invalid = new SshError('host-archive', '安装包解压大小超过限制')
         return false
       }
       if (entry.type === 'SymbolicLink' || entry.type === 'Link') {
         if (typeof entry.linkpath !== 'string') {
-          invalid = new SshError('host-archive', 'Host 链接缺少目标')
+          invalid = new SshError('host-archive', '安装包链接缺少目标')
           return false
         }
         const linked = path.posix.normalize(
           entry.type === 'Link' ? entry.linkpath : path.posix.join(path.posix.dirname(normalized), entry.linkpath),
         )
         if (path.posix.isAbsolute(entry.linkpath) || !linked.startsWith('pi-meme-host/')) {
-          invalid = new SshError('host-archive', 'Host 包含越界链接')
+          invalid = new SshError('host-archive', '安装包包含越界链接')
           return false
         }
       }
@@ -204,7 +204,7 @@ export async function validateHostArchive(file: string, directory: string, versi
     const link = path.join(entry.parentPath, entry.name)
     const resolved = await realpath(link)
     if (path.isAbsolute(await readlink(link)) || !resolved.startsWith(`${root}${path.sep}`))
-      throw new SshError('host-archive', 'Host 包含越界链接')
+      throw new SshError('host-archive', '安装包包含越界链接')
   }
   const metadata = JSON.parse(await readFile(path.join(root, 'release.json'), 'utf8'))
   if (
@@ -212,13 +212,13 @@ export async function validateHostArchive(file: string, directory: string, versi
     metadata.platform !== (target === 'macos-arm64' ? 'darwin' : 'linux') ||
     metadata.arch !== (target === 'macos-arm64' ? 'arm64' : 'x64')
   )
-    throw new SshError('host-archive', 'Host 包版本或平台不匹配')
+    throw new SshError('host-archive', '安装包版本或平台不匹配')
   for (const name of ['runtime/bin/node', 'apps/server/dist/ssh-bootstrap.js']) {
     const info = await lstat(path.join(root, name)).catch((cause: NodeJS.ErrnoException) => {
       if (cause.code !== 'ENOENT') throw cause
       return undefined
     })
-    if (!info?.isFile()) throw new SshError('host-archive', 'Host 发行包缺少运行文件，请更新到包含 SSH 启动入口的版本')
+    if (!info?.isFile()) throw new SshError('host-archive', '安装包缺少运行文件，请更新到包含 SSH 启动入口的版本')
   }
 }
 
@@ -238,7 +238,7 @@ async function downloadPackage(
     .map((line) => line.trim().split(/\s+/))
     .find(([, name]) => name === asset)?.[0]
   if (!checksum || !/^[a-f0-9]{64}$/i.test(checksum))
-    throw new SshError('host-checksum', '发行包校验清单缺少对应 Host 包')
+    throw new SshError('host-checksum', '发行包校验清单缺少对应安装包')
   const cached = path.join(directory, asset)
   try {
     if ((await digest(cached, signal)) === checksum) return cached
@@ -248,14 +248,14 @@ async function downloadPackage(
   const temporary = await mkdtemp(path.join(directory, '.download-'))
   try {
     const response = await request(`${base}/${asset}`, { signal })
-    if (!response.ok || !response.body) throw new SshError('host-download', '无法下载当前版本的 Host 包')
+    if (!response.ok || !response.body) throw new SshError('host-download', '无法下载当前版本的服务包')
     const file = path.join(temporary, asset)
     const handle = await open(file, 'wx', 0o600)
     let bytes = 0
     const limit = new Transform({
       transform(chunk: Buffer, _encoding, callback) {
         bytes += chunk.length
-        callback(bytes > maxPackageBytes ? new SshError('host-download', 'Host 下载大小超过限制') : null, chunk)
+        callback(bytes > maxPackageBytes ? new SshError('host-download', '安装包下载大小超过限制') : null, chunk)
       },
     })
     await pipeline(
@@ -264,7 +264,7 @@ async function downloadPackage(
       handle.createWriteStream(),
       { signal },
     )
-    if ((await digest(file, signal)) !== checksum) throw new SshError('host-checksum', 'Host 发行包 SHA256 校验失败')
+    if ((await digest(file, signal)) !== checksum) throw new SshError('host-checksum', '安装包 SHA256 校验失败')
     await rename(file, cached)
     return cached
   } finally {
@@ -318,7 +318,7 @@ export function createSshHostPreparer(options: Options = {}): SshHostPreparer {
         archive = await downloadPackage(cache, version, target, options.fetch ?? fetch, downloadSignal)
       } catch (cause) {
         if (!signal.aborted && downloadSignal.aborted)
-          throw new SshError('host-download', 'Host 下载超时，正在等待重试', true)
+          throw new SshError('host-download', '安装包下载超时，正在等待重试', true)
         throw cause
       }
       const staging = await mkdtemp(path.join(cache, '.validate-'))
@@ -353,7 +353,7 @@ export function createSshHostPreparer(options: Options = {}): SshHostPreparer {
     try {
       value = JSON.parse(response)
     } catch {
-      throw new SshError('host-response', '远端 Host 准备响应无效')
+      throw new SshError('host-response', '远程服务准备响应无效')
     }
     const result = value as {
       protocolVersion?: unknown
@@ -377,7 +377,7 @@ export function createSshHostPreparer(options: Options = {}): SshHostPreparer {
       !result.token ||
       result.token.length > 4096
     )
-      throw new SshError('host-response', '远端 Host 准备响应与当前版本不匹配')
+      throw new SshError('host-response', '远程服务准备响应与当前版本不匹配')
     return { port: result.port, hostId: result.hostId, token: result.token }
   }
 }

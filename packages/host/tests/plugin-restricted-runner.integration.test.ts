@@ -152,7 +152,7 @@ test('Host 数据根等于工作区拒绝，符号链接数据根嵌在项目内
     writable: false,
     dataRoot: alias,
   }
-  await assert.rejects(pluginSandboxLaunch({ ...options, workspace: dataRoot }), /Host 数据目录/)
+  await assert.rejects(pluginSandboxLaunch({ ...options, workspace: dataRoot }), /应用数据目录/)
   const runner = new RestrictedRunner({
     ...options,
     launch: pluginSandboxLaunch,

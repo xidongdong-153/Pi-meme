@@ -12,15 +12,17 @@ export type ChatUploadedFile = {
   path: string
 }
 
-export const attachmentReferencesHeading = '附加文件（Host 路径，请按需读取）：'
+export const attachmentReferencesHeading = '附加文件（请按需读取）：'
 
 /** 只分离发送器追加的完整结尾块，格式不匹配时保留原文。 */
 export function messageAttachmentParts(text: string): { text: string; attachments: ChatUploadedFile[] } {
   const unchanged = { text, attachments: [] }
-  const start = text.lastIndexOf(`${attachmentReferencesHeading}\n`)
+  const [heading, start] = [attachmentReferencesHeading, '附加文件（Host 路径，请按需读取）：']
+    .map((value) => [value, text.lastIndexOf(`${value}\n`)] as const)
+    .sort((a, b) => b[1] - a[1])[0]
   if (start < 0 || (start > 0 && text.slice(start - 2, start) !== '\n\n')) return unchanged
   const attachments: ChatUploadedFile[] = []
-  for (const line of text.slice(start + attachmentReferencesHeading.length + 1).split('\n')) {
+  for (const line of text.slice(start + heading.length + 1).split('\n')) {
     const match = /^- ("(?:[^"\\]|\\.)*")：("(?:[^"\\]|\\.)*")$/.exec(line)
     if (!match) return unchanged
     try {

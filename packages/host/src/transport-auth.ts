@@ -68,7 +68,7 @@ export function createTransportAuth(options: {
       } else {
         if (authenticated(request)) return { status: 200 }
         if (!localAutoLogin || !localRequest(request) || !request.headers.origin || request.headers.origin === 'null')
-          return { status: 401, error: '需要登录 Host' }
+          return { status: 401, error: '需要登录服务' }
       }
       const session = randomBytes(32).toString('base64url')
       sessions.set(session, Date.now() + 24 * 60 * 60 * 1000)

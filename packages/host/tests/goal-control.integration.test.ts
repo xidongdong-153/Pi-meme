@@ -463,7 +463,7 @@ test('进入 Plan 暂停活跃目标，退出 Plan 保持暂停；控制参数�
     assert.ok(!tools.includes('get_goal'))
     assert.ok(!tools.includes('update_goal'))
     await assert.rejects(f.host.app.goals.pause(f.session, undefined as never, key('missing')), /goalId/)
-    await assert.rejects(f.host.app.goals.get({ ...f.session, hostId: 'foreign' }), /Host/)
+    await assert.rejects(f.host.app.goals.get({ ...f.session, hostId: 'foreign' }), /服务身份不匹配/)
     assert.ok((await f.host.app.capabilities()).features.includes('goals'))
   } finally {
     await f.dispose()

@@ -32,7 +32,7 @@ export async function createNodeHostClient(options: NodeHostClientOptions): Prom
     (baseUrl.protocol !== 'https:' &&
       !(baseUrl.protocol === 'http:' && ['localhost', '127.0.0.1', '[::1]'].includes(baseUrl.hostname)))
   )
-    throw new Error('远程 Host 必须使用不含账号信息的 HTTPS 地址')
+    throw new Error('远程服务必须使用不含账号信息的 HTTPS 地址')
   let hostId = options.hostId
   let cookie = ''
   let authentication: Promise<void> | undefined
@@ -47,12 +47,12 @@ export async function createNodeHostClient(options: NodeHostClientOptions): Prom
         headers: { 'Content-Type': 'application/json', Origin: baseUrl.origin },
         body: JSON.stringify({ token: options.token }),
       })
-      if (!response.ok) throw new Error('Host 登录失败')
+      if (!response.ok) throw new Error('服务登录失败')
       const identity = (await response.json()) as { hostId: string }
-      if (!identity.hostId || (hostId && hostId !== identity.hostId)) throw new Error('Host 身份已变化')
+      if (!identity.hostId || (hostId && hostId !== identity.hostId)) throw new Error('服务身份已变化')
       hostId = identity.hostId
       cookie = response.headers.get('set-cookie')?.split(';')[0] ?? ''
-      if (!cookie) throw new Error('Host 没有返回认证 Cookie')
+      if (!cookie) throw new Error('服务没有返回认证 Cookie')
     })().finally(() => {
       authentication = undefined
     })
@@ -60,7 +60,7 @@ export async function createNodeHostClient(options: NodeHostClientOptions): Prom
   }
   await authenticate()
   async function call<T>(pathname: '/api/control' | '/api/rpc', input: Record<string, unknown>): Promise<T> {
-    if (disposed) throw new Error('Host 客户端已关闭')
+    if (disposed) throw new Error('服务客户端已关闭')
     const body = JSON.stringify({ ...input, hostId, clientId: options.clientId })
     const send = () =>
       request(new URL(pathname, options.url), {
@@ -72,17 +72,17 @@ export async function createNodeHostClient(options: NodeHostClientOptions): Prom
     let response = await send()
     if (response.status === 401) {
       await authenticate()
-      if (disposed) throw new Error('Host 客户端已关闭')
+      if (disposed) throw new Error('服务客户端已关闭')
       response = await send()
     }
     const value = (await response.json()) as HostControlResponse | HostRpcResponse
     if (!response.ok) {
       const error: unknown = value.error
-      throw new Error(typeof error === 'string' ? error : `Host 请求失败：${response.status}`)
+      throw new Error(typeof error === 'string' ? error : `服务请求失败：${response.status}`)
     }
-    if (value.hostId !== hostId) throw new Error('Host 身份已变化')
+    if (value.hostId !== hostId) throw new Error('服务身份已变化')
     if (pathname === '/api/rpc' && (!('requestId' in value) || value.requestId !== input.requestId))
-      throw new Error('Host 返回了不匹配的请求标识')
+      throw new Error('服务返回了不匹配的请求标识')
     if (value.error) throw Object.assign(new Error(value.error.message), { code: value.error.code })
     return value.result as T
   }

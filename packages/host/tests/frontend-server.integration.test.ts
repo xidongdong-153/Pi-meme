@@ -179,7 +179,7 @@ test('后端停止返回 503；相同端口换成其他 Host 时拒绝认证，�
     await f.host.dispose()
     const stopped = await auth()
     assert.equal(stopped.status, 503)
-    assert.match(await stopped.text(), /Host 未启动/)
+    assert.match(await stopped.text(), /连接尚未就绪/)
     await f.replace()
     const replaced = await auth()
     assert.equal(replaced.status, 503)

@@ -56,7 +56,7 @@ async function inventory(root: string, relative = '', hashes = true): Promise<En
 }
 function assertSeparate(source: string, target: string, anchor: string) {
   if (contains(source, anchor) || contains(anchor, source))
-    throw new Error('Host 数据目录与桌面启动目录存在嵌套，不能迁移')
+    throw new Error('应用数据目录与桌面启动目录存在嵌套，不能迁移')
   for (const root of [source, anchor])
     if (contains(root, target) || contains(target, root))
       throw new Error('新目录必须与当前数据目录和桌面启动目录完全分离')
@@ -303,7 +303,7 @@ export async function migrateStorage(input: {
         const current = await readJson<{ id: string }>(marker)
         if (current?.id === id && (markerOwned || journal)) await rm(marker)
       } catch (rollback) {
-        throw new AggregateError([cause, rollback], '迁移失败且 Worktree 登记未完全恢复，请先重试维护，不要启动旧 Host')
+        throw new AggregateError([cause, rollback], '迁移失败且 Worktree 登记未完全恢复，请先重试维护，不要启动旧服务')
       }
     }
     throw cause

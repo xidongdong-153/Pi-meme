@@ -151,8 +151,7 @@ export function WorkspaceContent({
                   <div className="w-full max-w-sm text-center space-y-5 animate-in fade-in duration-300">
                     <BrandMark size={56} className="animate-pulse" />
                     <div className="space-y-1.5">
-                      <h1 className="text-lg font-bold tracking-tight text-foreground">正在连接 Host</h1>
-                      <p className="text-xs text-muted-foreground leading-relaxed">正在读取 Host 的会话快照。</p>
+                      <h1 className="text-lg font-bold tracking-tight text-foreground">正在连接…</h1>
                     </div>
                     <div className="w-32 h-1 bg-secondary rounded-full mx-auto overflow-hidden">
                       <div className="h-full bg-primary/70 rounded-full animate-pulse w-full" />
@@ -162,10 +161,8 @@ export function WorkspaceContent({
                   <div className="w-full max-w-sm text-center space-y-4">
                     <BrandMark size={56} />
                     <div className="space-y-1.5">
-                      <h1 className="text-lg font-bold tracking-tight text-foreground">Host 未连接</h1>
-                      <p className="text-xs text-muted-foreground leading-relaxed">
-                        检查 Host 是否正在运行，以及当前网络是否可访问 Host 地址。
-                      </p>
+                      <h1 className="text-lg font-bold tracking-tight text-foreground">连接已断开</h1>
+                      <p className="text-xs text-muted-foreground leading-relaxed">请检查网络和连接地址后重试。</p>
                     </div>
                     <Button
                       variant="outline"

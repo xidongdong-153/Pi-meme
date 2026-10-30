@@ -69,7 +69,7 @@ export function ProfileSettings({ loadUsage }: { loadUsage: () => Promise<UsageS
         {
           label: '最长任务用时',
           value: taskDuration(snapshot.longestTaskMs),
-          hint: `根据历史时间戳，计算一轮用户消息到最终成功回复落盘的耗时，包含工具执行。${snapshot.longestTaskMs === null ? '暂无已完成任务。' : `最长 ${snapshot.longestTaskMs.toLocaleString('zh-CN')} 毫秒。`}`,
+          hint: `从发送消息到回复完成的时间，包含工具执行。${snapshot.longestTaskMs === null ? '暂无已完成任务。' : `最长 ${snapshot.longestTaskMs.toLocaleString('zh-CN')} 毫秒。`}`,
         },
         { label: '最长连续天数', value: `${snapshot.longestStreak} 天`, hint: '全部历史中连续使用 Token 的最长天数。' },
         {
@@ -82,8 +82,7 @@ export function ProfileSettings({ loadUsage }: { loadUsage: () => Promise<UsageS
 
   return (
     <div aria-label="个人资料统计" aria-busy={loading} className="@container min-w-0 space-y-10">
-      <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
-        <p>本机全部 Pi 历史会话，包含 CLI 和桌面端。</p>
+      <div className="flex flex-wrap items-center justify-end gap-3 text-xs text-muted-foreground">
         <Button
           variant="ghost"
           size="sm"
@@ -132,12 +131,7 @@ export function ProfileSettings({ loadUsage }: { loadUsage: () => Promise<UsageS
           </TooltipProvider>
           <TokenActivity daily={snapshot.daily} today={snapshot.today} />
           <div className="space-y-2 text-xs text-muted-foreground">
-            <p>更新于 {new Date(snapshot.updatedAt).toLocaleString('zh-CN')}。删除历史会话后，统计会随刷新减少。</p>
-            {snapshot.warnings.map((warning, index) => (
-              <p key={`${index}-${warning}`} role="status" className="break-words">
-                {warning}
-              </p>
-            ))}
+            <p>更新于 {new Date(snapshot.updatedAt).toLocaleString('zh-CN')}</p>
           </div>
         </div>
       )}

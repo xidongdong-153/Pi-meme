@@ -197,7 +197,7 @@ export function TaskDialog({
       >
         <div className="shrink-0 px-7 pb-5 pt-7 sm:px-8">
           <DialogTitle className="text-xl tracking-normal">{task ? '编辑定时任务' : '设置定时任务'}</DialogTitle>
-          <DialogDescription className="sr-only">填写任务说明和执行时间，由所选 Host 按安排运行。</DialogDescription>
+          <DialogDescription className="sr-only">填写任务内容和执行时间。</DialogDescription>
         </div>
         <form
           className="min-h-0 overflow-y-auto px-7 sm:px-8"
@@ -470,7 +470,7 @@ export function TaskDialog({
                 {previewError ||
                   (next ? `下次运行：${formatScheduleTime(next, timeZone)} · ${timeZone}` : '暂无后续安排')}
                 <br />
-                执行 Host 需要保持运行；休眠或离线期间错过的任务将跳过。
+                执行设备需保持开机并联网，休眠或离线期间的任务会跳过。
               </span>
             </p>
             {!configuration.model.id && (

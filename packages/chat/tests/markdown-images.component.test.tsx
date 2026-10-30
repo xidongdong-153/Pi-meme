@@ -183,6 +183,10 @@ test('仅附件消息不显示路径说明，类似附件说明但不完整的�
   expect(container).toHaveTextContent('notes.txt')
   expect(container).not.toHaveTextContent('附加文件')
   expect(container).not.toHaveTextContent('/host/attachments')
+  rerender(renderMessage(message.replace('附加文件（请按需读取）：', '附加文件（Host 路径，请按需读取）：')))
+  expect(container).toHaveTextContent('notes.txt')
+  expect(container).not.toHaveTextContent('附加文件')
+  expect(container).not.toHaveTextContent('/host/attachments')
   const malformed = '请解释这段文字\n\n附加文件（Host 路径，请按需读取）：\n- "notes.txt"：路径不完整'
   expect(container.querySelector('[data-message-body]')).toBeNull()
   rerender(renderMessage(malformed))
@@ -328,7 +332,7 @@ test('绝对路径图片越出附件目录时提示不在 Host 附件目录，�
       </MarkdownContent>
     </MessageImageLoaderContext>,
   )
-  expect(await screen.findByRole('status', { name: '图片不在当前 Host 附件目录中，无法读取。' })).toBeInTheDocument()
+  expect(await screen.findByRole('status', { name: '找不到图片文件，无法读取。' })).toBeInTheDocument()
   expect(await screen.findByText('图片不在附件目录')).toBeVisible()
   expect(screen.queryByText(/相对于当前会话工作目录/)).not.toBeInTheDocument()
 })

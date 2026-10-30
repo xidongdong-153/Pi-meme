@@ -75,7 +75,7 @@ test('进入外观页即预读取，严格模式和三个选择器共用请求�
   ]) {
     await f.user.click(screen.getByRole('button', { name: label }))
     expect(within(screen.getByRole('dialog', { name: `${label}选择器` })).getByRole('status')).toHaveTextContent(
-      '正在读取 Host 字体',
+      '正在读取字体',
     )
     await f.user.click(screen.getByRole('option', { name: option }))
   }

@@ -175,9 +175,7 @@ export function StorageSettings({
             保存会话、设置、模型凭据、技能、插件和应用创建的工作目录。不会移动外部项目目录。
           </p>
           {!bridge.storage && (
-            <p className="text-xs leading-relaxed text-muted-foreground">
-              此目录位于所连接的 Host。Web 和远程服务只读展示；请在 Host 启动环境中设置 PI_MEME_DATA_ROOT 后重启服务。
-            </p>
+            <p className="text-xs leading-relaxed text-muted-foreground">当前连接仅支持查看存储目录。</p>
           )}
           {!loading && !info && (
             <Button variant="outline" size="sm" onClick={() => void load()}>
@@ -216,8 +214,7 @@ export function StorageSettings({
               </div>
             </div>
             <p className="text-xs leading-relaxed text-muted-foreground">
-              仅清理会话索引、本机远程摘要和桌面
-              HTTP、代码及图形缓存。不会删除会话、凭据、技能、插件或项目文件；历史技能快照与请求去重记录保留。
+              清理临时缓存，不会删除会话、设置、技能、插件或项目文件。
             </p>
             {desktop?.cacheError && (
               <p role="alert" className="break-words text-xs text-destructive">
@@ -287,8 +284,7 @@ export function StorageSettings({
             <p className="text-sm">当前可清理：{size(desktop.cacheBytes)}</p>
           )}
           <p className="text-xs text-muted-foreground">
-            请先处理未发送的草稿、附件和未保存的文件，并结束本机任务及终端。重启会关闭当前桌面页面，并断开共享此 Host
-            的其他客户端。
+            请先保存草稿和文件，并结束本机任务及终端。重启会关闭当前窗口，并断开连接到此设备的其他窗口。
           </p>
           {error && (
             <p role="alert" className="break-words text-sm text-destructive">

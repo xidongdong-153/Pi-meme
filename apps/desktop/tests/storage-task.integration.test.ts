@@ -37,13 +37,13 @@ test('中断任务的旧锁尚未释放时保留 pending，重试后完成迁移
     await writeJson(path.join(f.source, relocatedMarker), { id: f.job.id, target: f.target, status: 'maintaining' })
     const release = await lockDataRoot(f.source)
     try {
-      await assert.rejects(f.run(), /已有 Host/)
+      await assert.rejects(f.run(), /已有服务/)
     } finally {
       await release()
     }
     const blocked = await readStoragePreferences(f.file)
     assert.equal(blocked.pending?.id, f.job.id)
-    assert.match(blocked.lastError!, /已有 Host/)
+    assert.match(blocked.lastError!, /已有服务/)
     await f.run()
     const saved = await readStoragePreferences(f.file)
     assert.equal(saved.dataRoot, f.target)

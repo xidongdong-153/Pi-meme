@@ -86,7 +86,7 @@ export function useSettings(
         setSnapshot((previous) =>
           previous ? { ...previous, settings: { ...previous.settings, subagentDefaults: defaults } } : previous,
         )
-        setSubagentStatus((previous) => ({ ...previous, [field]: '已保存' }))
+        setSubagentStatus((previous) => ({ ...previous, [field]: '' }))
         setSubagentFailed((previous) => {
           const next = { ...previous }
           delete next[field]

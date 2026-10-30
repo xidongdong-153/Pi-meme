@@ -57,8 +57,8 @@ const sshPhaseLabels: Record<SshConnectionPhase, string> = {
 
 const sshStepLabels: Record<SshConnectionStep, string> = {
   checking: '正在检查远端环境',
-  installing: '正在安装远端 Host',
-  starting: '正在启动远端 Host',
+  installing: '正在准备远程连接',
+  starting: '正在启动远程服务',
   authenticating: '正在验证远端连接',
 }
 

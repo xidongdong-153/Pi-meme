@@ -30,12 +30,9 @@ export function AccessSettings({
         <p role="status" className="text-sm leading-relaxed text-muted-foreground">
           {selected.description} 仅影响新建会话，已保存的会话保留各自权限。
         </p>
-        <p className="text-sm leading-relaxed text-muted-foreground">
-          此处控制 Agent 的执行范围，文件访问仍受运行所在 Host 的操作系统授权限制。
-        </p>
         {!supported && (
           <p className="text-sm text-muted-foreground">
-            {reason ?? '所属 Host 的受限权限沙箱不可用，请检查系统依赖后重启 Host。'}
+            {reason ?? '当前设备无法使用受限权限，请检查系统配置后重启应用。'}
           </p>
         )}
       </div>

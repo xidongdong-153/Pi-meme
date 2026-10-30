@@ -143,8 +143,8 @@ test('第三方直接注入普通自定义提供商，Node 客户端可查询并
 test('Node客户端真实鉴权与正式域调用，稳定refs和写操作幂等键经过HTTP校验', { timeout: 25000 }, async () => {
   const f = await fixture()
   try {
-    await assert.rejects(f.connect({ token: 'wrong-token' }), /Host 登录失败/)
-    await assert.rejects(f.connect({ hostId: 'wrong-host' }), /Host 身份已变化/)
+    await assert.rejects(f.connect({ token: 'wrong-token' }), /服务登录失败/)
+    await assert.rejects(f.connect({ hostId: 'wrong-host' }), /服务身份已变化/)
     const client = await f.connect({ hostId: f.server.host.hostId })
     const capabilities = await client.capabilities()
     assert.equal(capabilities.apiVersion, 2)
@@ -241,7 +241,7 @@ test('同一URL替换为另一Host后，Node客户端拒绝重新认证后的身
     const originalId = (await client.capabilities()).hostId
     await f.replaceHost()
     assert.notEqual(f.server.host.hostId, originalId)
-    await assert.rejects(client.capabilities(), /Host 身份已变化/)
+    await assert.rejects(client.capabilities(), /服务身份已变化/)
   } finally {
     await f.dispose()
   }

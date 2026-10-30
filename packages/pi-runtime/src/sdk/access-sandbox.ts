@@ -310,7 +310,7 @@ class SandboxProcess implements AccessSandboxOperations {
       pathWithin(this.protectedRoot, current) &&
       !pathWithin(path.join(this.protectedRoot, storageLayoutRelativePaths.standaloneWorkspacesDirectory), this.cwd)
     )
-      throw new Error(`当前权限不允许写入 Host 数据路径：${target}`)
+      throw new Error(`当前权限不允许写入应用数据路径：${target}`)
     if (!inside(this.cwd) && !inside(this.temporary)) throw new Error(`当前权限不允许写入项目外路径：${target}`)
   }
 
@@ -355,8 +355,8 @@ export const AccessSandbox = {
       pathWithin(protectedRoot, cwd) &&
       !pathWithin(path.join(protectedRoot, storageLayoutRelativePaths.standaloneWorkspacesDirectory), cwd)
     )
-      throw new Error('请先选择具体项目目录，不能将 Host 数据目录授权为工作区')
-    if (protectedRoot && pathWithin(protectedRoot, temporary)) throw new Error('会话临时目录不能位于 Host 数据目录内')
+      throw new Error('请先选择具体项目目录，不能将应用数据目录授权为工作区')
+    if (protectedRoot && pathWithin(protectedRoot, temporary)) throw new Error('会话临时目录不能位于应用数据目录内')
     const profile = await accessProfile(options.mode, cwd, temporary, options.agentDir, protectedRoot)
     let launch: SandboxLaunch
     if (process.platform === 'darwin') {
@@ -440,7 +440,7 @@ export async function probeAccessSandbox(): Promise<SandboxCapability> {
   } catch (cause) {
     return {
       supported: false,
-      reason: `受限权限不可用：${String(cause)}；请检查沙箱依赖和系统 namespace 策略后重启 Host`,
+      reason: `受限权限不可用：${String(cause)}；请检查沙箱依赖和系统 namespace 策略后重启服务`,
     }
   } finally {
     await sandbox?.stopAll()

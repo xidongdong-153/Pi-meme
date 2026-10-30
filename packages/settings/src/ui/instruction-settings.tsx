@@ -206,9 +206,7 @@ export function InstructionSettings({
           </div>
           {entry?.project && !selected.project && (
             <p className="text-sm text-muted-foreground">
-              {selected.kind === 'agents'
-                ? 'Host 指令与项目指令共同加载。'
-                : '当前项目使用项目同名文件，此 Host 配置不会替换项目指令。'}
+              {selected.kind === 'agents' ? '用户指令与项目指令共同生效。' : '项目已有同名指令，优先使用项目配置。'}
             </p>
           )}
           <Textarea
@@ -337,9 +335,7 @@ export function InstructionSettings({
         <DialogContent>
           <DialogTitle>{confirmation === 'remove' ? '移除此指令文件？' : '丢弃未保存的指令？'}</DialogTitle>
           <DialogDescription>
-            {confirmation === 'remove'
-              ? '只移除当前 Host 的文件，项目文件保持不变；其他适用的指令仍会加载。'
-              : '当前修改不会保存。'}
+            {confirmation === 'remove' ? '仅删除此用户指令，项目指令不受影响。' : '当前修改不会保存。'}
           </DialogDescription>
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setConfirmation(null)}>

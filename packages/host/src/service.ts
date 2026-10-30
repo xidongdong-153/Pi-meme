@@ -473,7 +473,7 @@ export async function createHost(options: HostOptions = {}) {
       },
       sessionForRuntime: (key) => appControl!.sessionForRuntime(key),
       assertAvailable: (cwd) => {
-        if (closing) throw new Error('Host 正在退出，不能管理项目服务')
+        if (closing) throw new Error('服务正在退出，不能管理项目服务')
         assertCheckoutAvailable(cwd)
         pi.assertWorkspaceAvailable(cwd)
       },
@@ -1359,7 +1359,7 @@ export async function createHost(options: HostOptions = {}) {
       'host.mcp': { pi, store: mcp },
     }
     builtins = await createBuiltinModules(root, sharedContexts, () => {
-      if (!appControl) throw new Error('Host API 尚未初始化')
+      if (!appControl) throw new Error('服务 API 尚未初始化')
       return appControl.api
     })
     pi.configureRestrictedAccess(
@@ -1404,7 +1404,7 @@ export async function createHost(options: HostOptions = {}) {
       }),
       'host:import-keychain': () =>
         pi.idle(async () => {
-          if (!(credentials instanceof FileCredentialStore)) throw new Error('当前 Host 不使用文件凭据存储')
+          if (!(credentials instanceof FileCredentialStore)) throw new Error('当前服务不使用文件凭据存储')
           const readLegacy =
             options.readLegacyCredentials ??
             (async () => {
@@ -1718,7 +1718,7 @@ export async function createHost(options: HostOptions = {}) {
         const request = input as PluginCallRequest
         const owner = pluginClient.getStore()!
         const target = request.target ?? { hostId }
-        if (target.hostId !== hostId) throw new Error('permission-denied: 插件目标不属于当前 Host')
+        if (target.hostId !== hostId) throw new Error('permission-denied: 插件目标不属于当前服务')
         if (target.session) await appControl!.api.sessions.get(target.session)
         if (target.project) await appControl!.api.projects.get(target.project)
         const key = `${owner}:${request.requestId}`
@@ -1814,7 +1814,7 @@ export async function createHost(options: HostOptions = {}) {
       collaboration,
       bindRoot,
       snapshot,
-      onError: (cause) => emit('error', { generation: 0, message: `Host 控制事件处理失败：${String(cause)}` }),
+      onError: (cause) => emit('error', { generation: 0, message: `服务控制事件处理失败：${String(cause)}` }),
       isSessionClosing: (session) => {
         const key = appControl?.goalRuntimeKey(session)
         return Boolean(temporaryClosing.has(session.sessionId) || (key && temporaryClosing.has(key)) || closing)
@@ -2022,7 +2022,7 @@ export async function createHost(options: HostOptions = {}) {
       cleanupReport,
       prepareMaintenance() {
         if (closing || inflight.size || checkoutGates.size || temporarySessions.size)
-          throw new Error('Host 仍有操作正在执行或有打开的临时会话，请先关闭临时会话后再维护存储')
+          throw new Error('服务仍有操作正在执行或有打开的临时会话，请先关闭临时会话后再维护存储')
         pi.assertMaintenanceIdle()
         resources.assertIdle()
         collaboration.assertCheckoutIdle(() => true)
@@ -2049,9 +2049,9 @@ export async function createHost(options: HostOptions = {}) {
         body: import('node:stream').Readable,
         signal?: AbortSignal,
       ) {
-        if (closing) throw new Error('Host 正在退出，操作未接纳')
+        if (closing) throw new Error('服务正在退出，操作未接纳')
         if (!metadata.clientId || metadata.clientId.length > 128) throw new Error('客户端标识无效')
-        if (metadata.hostId !== hostId) throw new Error('Host 身份不匹配')
+        if (metadata.hostId !== hostId) throw new Error('服务身份不匹配')
         if (!metadata.sessionKey) throw new Error('会话 ID 参数无效')
         if (metadata.sessionKey) {
           checkSessionAuthorization(metadata.sessionKey, metadata.clientId)
@@ -2087,7 +2087,7 @@ export async function createHost(options: HostOptions = {}) {
         }
         const pending = (async () => {
           await client(clientId)
-          if (closing) throw new Error('Host 正在退出，操作未执行')
+          if (closing) throw new Error('服务正在退出，操作未执行')
           pi.getSessionContext(metadata.sessionKey)
           return storeChatAttachment(
             root,
@@ -2112,7 +2112,7 @@ export async function createHost(options: HostOptions = {}) {
         }
       },
       async rpc(request: HostRpcRequest) {
-        if (closing) throw new Error('Host 正在退出，操作未接纳')
+        if (closing) throw new Error('服务正在退出，操作未接纳')
         if (
           !request ||
           typeof request.requestId !== 'string' ||
@@ -2123,7 +2123,7 @@ export async function createHost(options: HostOptions = {}) {
           typeof request.method !== 'string'
         )
           throw new Error('请求参数无效')
-        if (request.hostId && request.hostId !== hostId) throw new Error('Host 身份不匹配')
+        if (request.hostId && request.hostId !== hostId) throw new Error('服务身份不匹配')
         clientRequests.set(request.clientId, (clientRequests.get(request.clientId) ?? 0) + 1)
         const pending = registry.run(
           request,
@@ -2151,10 +2151,10 @@ export async function createHost(options: HostOptions = {}) {
               }
             }
             const view = await client(request.clientId)
-            if (closing) throw new Error('Host 正在退出，操作未执行')
+            if (closing) throw new Error('服务正在退出，操作未执行')
             const action =
               handlers[request.method] ?? builtins!.handlers[request.method] ?? plugins.handlers()[request.method]
-            if (!action) throw new Error(`Host 方法不存在：${request.method}`)
+            if (!action) throw new Error(`服务方法不存在：${request.method}`)
             if (sessionWrites.has(request.method) && (!request.sessionId || request.args[0] !== request.sessionId))
               throw new Error('会话写操作必须携带匹配的 sessionId')
             if (epoch !== undefined && selectionEpochs.get(request.clientId) !== epoch) {
@@ -2316,7 +2316,7 @@ export async function createHost(options: HostOptions = {}) {
             const queued = (sessionQueues.get(key) ?? Promise.resolve())
               .catch(() => {})
               .then(() => {
-                if (closing) throw new Error('Host 正在退出，操作未执行')
+                if (closing) throw new Error('服务正在退出，操作未执行')
                 return run()
               })
             sessionQueues.set(key, queued)

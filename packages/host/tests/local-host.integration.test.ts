@@ -208,7 +208,7 @@ test('其他程序或不兼容协议占用端口时，不创建第二个 Host', 
           return f.create()
         },
       }),
-      /没有返回有效的 Host 状态/,
+      /没有返回有效的服务状态/,
     )
     assert.equal(created, 0)
   } finally {
@@ -350,6 +350,6 @@ test('Host 自身启动失败时保留原始错误，不尝试换端口', async 
 
 test('等待尚未启动的 Host 有超时，不自动创建或重放业务请求', async () => {
   const port = await freePort()
-  await assert.rejects(waitForLocalHost(localHostUrl(port), { timeoutMs: 20 }), /Host 未启动/)
+  await assert.rejects(waitForLocalHost(localHostUrl(port), { timeoutMs: 20 }), /连接尚未就绪/)
   assert.equal(await readLocalHostStatus(localHostUrl(port)), undefined)
 })

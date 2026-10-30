@@ -47,7 +47,7 @@ export class ImageLibraryFeed {
               if (!state.checked) {
                 const caps = await state.source.host.capabilities()
                 if (!caps.features.includes('image-library') || !state.source.host.imageLibrary)
-                  throw new Error('当前 Host 版本不支持图像库')
+                  throw new Error('当前服务版本不支持图像库')
                 state.checked = true
               }
               const page = await state.source.host.imageLibrary!.list({
@@ -114,7 +114,7 @@ export class GalleryImageLoader {
         this.drain()
       })
       try {
-        if (!source.connected || !source.host.imageLibrary) throw new Error('图片所属 Host 未连接')
+        if (!source.connected || !source.host.imageLibrary) throw new Error('图片所属服务未连接')
         const { dataUrl } = await source.host.imageLibrary.read(item.id)
         this.cache.set(key, dataUrl)
         while (
