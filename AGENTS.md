@@ -15,7 +15,7 @@ pi-meme 是本地 Pi Coding Agent 的桌面客户端，外加可独立部署的 
 都在仓库根目录执行。
 
 ```bash
-pnpm start                 # macOS：Desktop + Host + Web；Linux/WSL：Host + Web
+pnpm start                 # macOS/Windows：Desktop + Host + Web；Linux/WSL：Host + Web
 pnpm start:server          # 独立 Host：apps/server
 pnpm start:web             # 浏览器入口：apps/web（Vite）
 pnpm type-check            # 全 workspace tsc --noEmit
@@ -32,7 +32,7 @@ pnpm test --feature chat   # 确需跨包验证时扩大到聊天功能的源码
 pnpm test:all              # 手动完整验收，包含必要构建和产物验收
 pnpm build:web             # 浏览器入口
 pnpm build:server          # 独立 Host 与静态 Worker
-pnpm package               # 生成本机 .app
+pnpm package               # 生成本机 Desktop 应用目录
 pnpm make                  # 分发包
 pnpm release               # 推送已提交的当前分支和版本 Tag，触发构建并自动公开 Release
 ```

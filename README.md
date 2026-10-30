@@ -7,7 +7,7 @@
 
 # pi-meme
 
-**基于 Pi 的 macOS 桌面与 Web 编码工作台。**
+**基于 Pi 的 macOS、Windows 桌面与 Web 编码工作台。**
 
 [下载安装](https://github.com/xidongdong-153/Pi-meme/releases) · [使用文档](docs/index.md) · [开发插件](docs/plugins.md) · [反馈问题](https://github.com/xidongdong-153/Pi-meme/issues)
 
@@ -35,6 +35,7 @@ Desktop 与 Web 使用同一套界面。Host 是执行任务、保存配置和�
 | 使用方式                   | 下载包                                   | 适用平台                        |
 | -------------------------- | ---------------------------------------- | ------------------------------- |
 | 桌面应用                   | `pi-meme-desktop-<版本>-macos-arm64.zip` | Apple Silicon Mac               |
+| Windows 桌面应用           | `pi-meme-desktop-<版本>-windows-x64.zip` | Windows x64                     |
 | Mac 上的独立 Host 与 Web   | `pi-meme-host-<版本>-macos-arm64.tar.gz` | macOS arm64                     |
 | Linux 上的独立 Host 与 Web | `pi-meme-host-<版本>-linux-x64.tar.gz`   | Linux x64；WSL2 使用 Linux 环境 |
 
@@ -44,7 +45,7 @@ Desktop 与 Web 使用同一套界面。Host 是执行任务、保存配置和�
 
 下载包包含运行时，不需要另外安装 Node.js、pnpm 或 Pi CLI；项目任务和外部工具仍需各自的依赖。独立 Host 启动后，浏览器访问 `http://127.0.0.1:3185`。
 
-产物验收基线为 macOS 15 arm64、Ubuntu 24.04 x64。Linux 需要 Git、bash 和 bubblewrap；当前没有 Intel Mac、Linux arm64 或 Windows 原生安装包。macOS 默认使用 ad-hoc 签名，尚未公证，首次打开请按[系统提示说明](docs/getting-started.md#macos-首次打开)处理。
+发布目标为 macOS 15 arm64、Ubuntu 24.04 x64 和 Windows x64。Linux 需要 Git、bash 和 bubblewrap；Windows 需要 Git for Windows，解压整个 ZIP 后运行 `Pi meme.exe`。当前没有 Intel Mac、Linux arm64 或 Windows arm64 包。macOS 默认使用 ad-hoc 签名，尚未公证，首次打开请按[系统提示说明](docs/getting-started.md#macos-首次打开)处理；Windows 包未配置代码签名。
 
 需要在另一台机器执行任务时，可使用 [HTTPS 或 SSH 连接](docs/remote.md)。项目文件、模型配置和会话属于所连接的 Host，浏览器所在的机器不承担远端执行。
 
@@ -53,6 +54,8 @@ Desktop 与 Web 使用同一套界面。Host 是执行任务、保存配置和�
 会话、配置和凭据保存在 Host 数据目录中，默认是 `~/.pi-meme`。使用远程 Host 时，这些数据保存在远端；模型请求发送给你配置的服务商。凭据文件通过 `0600` 权限保护，不是加密存储，备份时需一并保护。目录迁移、缓存清理与恢复见[数据目录与存储](docs/storage.md)。
 
 新会话默认使用工作区写入权限，也可选择只读或完全权限。内置工具的受限模式限制业务文件写入，仍允许读取与联网；插件的可信入口与受限能力另行授权。执行范围和操作系统限制见[配置与安全](docs/configuration.md#权限与沙箱)。
+
+Windows 本机 Host 尚不支持受限权限、受限插件和 Agent 受管服务。运行本机 Agent 需自行选择完全权限；需要受限执行时连接 macOS/Linux Host，不会自动放宽权限。
 
 ## 从源码运行
 
@@ -63,7 +66,7 @@ pnpm install --frozen-lockfile
 pnpm start
 ```
 
-`pnpm start` 按系统启动开发环境：macOS 启动 Desktop、Host 和 Web；Linux/WSL 启动 Host 和 Web。浏览器访问 [Web 开发界面](http://127.0.0.1:3181)，macOS 的 Desktop 与 Web 共用一个 Host。Ctrl+C 停止本次启动的进程，复用的已有 Host 仍由原启动方管理。
+`pnpm start` 按系统启动开发环境：macOS、Windows 启动 Desktop、Host 和 Web；Linux/WSL 启动 Host 和 Web。浏览器访问 [Web 开发界面](http://127.0.0.1:3181)，Desktop 与 Web 共用一个 Host。Ctrl+C 停止本次启动的进程，复用的已有 Host 仍由原启动方管理。
 
 需要分开启动，或在 macOS 只运行 Host + Web 时，在两个终端分别执行：
 

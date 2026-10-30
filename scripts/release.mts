@@ -79,6 +79,7 @@ export function releaseAssetNames(version: string) {
     `pi-meme-desktop-${version}-macos-arm64.zip`,
     `pi-meme-host-${version}-macos-arm64.tar.gz`,
     `pi-meme-host-${version}-linux-x64.tar.gz`,
+    `pi-meme-desktop-${version}-windows-x64.zip`,
   ]
 }
 
@@ -129,16 +130,52 @@ async function checkMetadata(value: string, platform: string, arch: string, host
   if (host) assert.equal(metadata.nodeVersion, nodeVersion, 'Host Node 版本不一致')
 }
 
+export async function checkWindowsDesktop(directory: string) {
+  const resources = path.join(directory, 'resources')
+  await checkMetadata(await readFile(path.join(resources, 'release.json'), 'utf8'), 'win32', 'x64', false)
+  for (const name of [
+    ...desktopResourceFiles,
+    'app.asar',
+    'runtime/bin/node.exe',
+    'runtime/LICENSE',
+    'runtime/restricted-entry.mjs',
+  ])
+    assert.ok((await lstat(path.join(resources, name))).size > 0, `Windows Desktop 缺少资源：${name}`)
+  const executable = await readFile(path.join(directory, 'Pi meme.exe'))
+  assert.ok(executable.length >= 64 && executable.toString('ascii', 0, 2) === 'MZ', 'Windows 应用不是 PE 可执行文件')
+  const offset = executable.readUInt32LE(60)
+  assert.ok(offset + 6 <= executable.length, 'Windows 应用 PE 头无效')
+  assert.equal(executable.toString('ascii', offset, offset + 4), 'PE\0\0', 'Windows 应用 PE 签名无效')
+  assert.equal(executable.readUInt16LE(offset + 4), 0x8664, 'Windows 应用必须为 x64')
+  const runtime = JSON.parse(await readFile(path.join(resources, 'runtime/runtime.json'), 'utf8'))
+  assert.equal(runtime.nodeVersion, nodeVersion, 'Windows Node 运行时版本不一致')
+  assert.equal(runtime.platform, 'win32', 'Windows Node 运行时平台不一致')
+  assert.equal(runtime.arch, 'x64', 'Windows Node 运行时架构不一致')
+}
+
 async function prepareDesktopAsset() {
-  assert.equal(process.platform, 'darwin', 'Desktop 发布包只在 macOS 构建')
-  assert.equal(process.arch, 'arm64', '首发 Desktop 仅支持 arm64')
+  const windows = process.platform === 'win32'
+  assert.ok(windows || process.platform === 'darwin', 'Desktop 发布包只在 macOS 或 Windows 构建')
+  assert.equal(process.arch, windows ? 'x64' : 'arm64', 'Desktop 仅分发 macOS arm64 和 Windows x64')
   const { version } = await releaseInfo()
-  const source = path.join(repoRoot, 'apps/desktop/out/make/zip/darwin/arm64', `Pi meme-darwin-arm64-${version}.zip`)
-  const destination = path.join(releaseDirectory, releaseAssetNames(version)[0])
+  const source = path.join(
+    repoRoot,
+    'apps/desktop/out/make/zip',
+    process.platform,
+    process.arch,
+    `Pi meme-${process.platform}-${process.arch}-${version}.zip`,
+  )
+  const destination = path.join(releaseDirectory, releaseAssetNames(version)[windows ? 3 : 0])
   await mkdir(releaseDirectory, { recursive: true })
   await copyFile(source, destination)
   const directory = await mkdtemp(path.join(tmpdir(), 'pi-meme desktop '))
   try {
+    if (windows) {
+      execFileSync('tar', ['-xf', destination, '-C', directory], { windowsHide: true })
+      await checkWindowsDesktop(directory)
+      console.log(destination)
+      return
+    }
     execFileSync('unzip', ['-q', destination, '-d', directory])
     const app = path.join(directory, 'Pi meme.app')
     const metadata = await readFile(path.join(app, 'Contents/Resources/release.json'), 'utf8')
@@ -170,21 +207,27 @@ export async function writeChecksums(directory: string) {
   assert.deepEqual(
     (await readdir(directory)).filter((name) => name !== 'SHA256SUMS').sort(),
     [...names].sort(),
-    'Release 目录必须恰好包含三个预期平台包',
+    'Release 目录必须恰好包含四个预期平台包',
   )
   const lines: string[] = []
   for (const [index, name] of names.entries()) {
+    const desktop = index === 0 || index === 3
     const file = path.join(directory, name)
     const stat = await lstat(file)
     assert.ok(stat.isFile() && stat.size > 0, `发布文件无效：${name}`)
     const metadata = execFileSync(
-      index === 0 ? 'unzip' : 'tar',
-      index === 0
-        ? ['-p', file, 'Pi meme.app/Contents/Resources/release.json']
+      desktop ? 'unzip' : 'tar',
+      desktop
+        ? ['-p', file, index === 3 ? 'resources/release.json' : 'Pi meme.app/Contents/Resources/release.json']
         : ['-xOf', file, 'pi-meme-host/release.json'],
       { encoding: 'utf8', maxBuffer: 1024 * 1024 },
     )
-    await checkMetadata(metadata, index === 2 ? 'linux' : 'darwin', index === 2 ? 'x64' : 'arm64', index !== 0)
+    await checkMetadata(
+      metadata,
+      index === 3 ? 'win32' : index === 2 ? 'linux' : 'darwin',
+      index >= 2 ? 'x64' : 'arm64',
+      !desktop,
+    )
     lines.push(`${await sha256(file)}  ${name}`)
   }
   await writeFile(path.join(directory, 'SHA256SUMS'), `${lines.join('\n')}\n`)
@@ -204,13 +247,16 @@ Desktop 包含本机 Host；只使用桌面应用时无需再下载 Host。Host 
 - Apple Silicon Mac 桌面应用：\`${names[0]}\`
 - Apple Silicon Mac 独立 Host：\`${names[1]}\`
 - Linux x64 独立 Host：\`${names[2]}\`
+- Windows x64 桌面应用：\`${names[3]}\`
 - 下载后使用 \`SHA256SUMS\` 核验文件。
 
-构建 commit：\`${commit}\`。首发验收基线为 macOS 15 arm64、Ubuntu 24.04 x64；不支持 Intel Mac、Linux arm64、Alpine/musl 或 Windows 原生运行。
+构建 commit：\`${commit}\`。构建目标为 macOS 15 arm64、Ubuntu 24.04 x64 和 Windows x64；不提供 Intel Mac、Linux arm64、Windows arm64 或 Alpine/musl 包。
 
 ## 安装与限制
 
 Desktop 解压后将 Pi meme.app 放入 /Applications。macOS 使用 ad-hoc 签名，未做 Developer ID 签名与公证，首次打开可能被 Gatekeeper 阻止。仅在确认来源并校验文件后允许打开具体应用，不要关闭系统 Gatekeeper。
+
+Windows Desktop 解压整个 ZIP 后运行 \`Pi meme.exe\`，需要 Git for Windows 及其 bash。Windows 包未配置代码签名、安装向导或自动更新。Windows 本机 Host 尚不支持受限权限、受限插件和 Agent 受管服务；需要受限执行时连接 macOS/Linux Host，不会自动切换为完全权限。
 
 Host 解压后运行 \`./pi-meme-host/bin/pi-meme-host\`，访问 http://127.0.0.1:3185。需要 Git 和 bash；Linux 还需要可用的 bubblewrap。远程监听必须配置 HTTPS 证书、私钥和令牌。
 
@@ -220,9 +266,9 @@ Host 解压后运行 \`./pi-meme-host/bin/pi-meme-host\`，访问 http://127.0.0
 
 ## 验收
 
-自动流程执行静态检查，构建三个原生平台包，核对版本、commit、平台、架构与 SHA256，并检查 Desktop ZIP 内的许可文件和签名完整性。发布 workflow 不运行源码测试、Web E2E 或产物运行测试；功能验收结果需由维护者另行记录。
+自动流程执行静态检查，构建四个原生平台包，核对版本、commit、平台、架构与 SHA256，并检查 Desktop ZIP 内的许可文件、macOS 签名完整性及 Windows 可执行文件和 Node 运行时。发布 workflow 不运行源码测试、Web E2E 或产物运行测试；功能验收结果需由维护者另行记录。
 
-附件上传并核对完整后自动公开；带预发布后缀的版本保留 Pre-release 标记。此流程未验证下载后的 macOS 首次打开与 Host 实际部署。
+附件上传并核对完整后自动公开；带预发布后缀的版本保留 Pre-release 标记。此流程未验证下载后的 Desktop 首次打开与 Host 实际部署。
 
 <!-- pi-meme-release-commit:${commit} -->
 `,

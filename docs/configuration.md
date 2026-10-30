@@ -198,6 +198,8 @@ flowchart TD
 
 macOS 使用 `sandbox-exec`，Linux/WSL2 使用 bubblewrap。Host 启动探测实际隔离能力，通过 `restrictedAccessSupported/restrictedAccessReason` 返回结果；受限 Worker 创建时还验证实际命令。内置权限、工厂或沙箱失效时拒绝受限执行，不自动授予完全权限。设置与历史仍可用。
 
+Windows 本机 Host 未实现受限沙箱和 Agent 受管服务。受限会话与受限插件保持不可用，不自动切换完全权限；本机执行需自行选择完全权限，需要受限执行时连接 macOS/Linux Host。
+
 路径校验与工具执行见 [access-sandbox.ts](../packages/pi-runtime/src/sdk/access-sandbox.ts)，平台选择见 [sandbox-platform.ts](../packages/host/src/sandbox-platform.ts)。Linux namespace、socket 与 WSL 互操作边界见下节。
 
 上表描述内置 Agent 工具的边界，不是 SDK 3 受限插件的读取和联网授权。规划模式拒绝业务写入和可信外部入口，但可使用获准的受限只读插件、只读沙箱命令和默认执行的 MCP 查询；codemode 的每个嵌套调用单独检查。子任务继承父级上限，并按自身真实目录、模式和权限构建执行环境。

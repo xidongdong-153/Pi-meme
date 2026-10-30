@@ -8,8 +8,9 @@ export function createWindow(backgroundColor: string, trustedOrigin: () => strin
     height: 760,
     minWidth: 720,
     minHeight: 500,
-    titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 14, y: 14 },
+    ...(process.platform === 'darwin'
+      ? { titleBarStyle: 'hiddenInset' as const, trafficLightPosition: { x: 14, y: 14 } }
+      : {}),
     backgroundColor,
     webPreferences: {
       // Cookie 仅在本次运行中保留，避免磁盘 Cookie 加密触发系统钥匙串。

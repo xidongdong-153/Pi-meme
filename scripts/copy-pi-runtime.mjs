@@ -40,7 +40,7 @@ function piPackageFilter(source) {
 }
 
 export async function copyPiRuntime(targetDir) {
-  const keyringAbi = process.platform === 'linux' ? '-gnu' : ''
+  const keyringAbi = process.platform === 'linux' ? '-gnu' : process.platform === 'win32' ? '-msvc' : ''
   const packages = [
     { name: piPackage, filter: piPackageFilter },
     { name: '@earendil-works/chord', filter: copyFilter },

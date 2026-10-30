@@ -120,7 +120,7 @@ export function acquireDesktopHost(options: { entry: string; env: NodeJS.Process
       PI_MEME_PORT: String(listenPort),
       PI_MEME_DATA_ROOT: options.dataRoot,
       PI_MEME_PLUGIN_NODE: app.isPackaged
-        ? path.join(process.resourcesPath, 'runtime/bin/node')
+        ? path.join(process.resourcesPath, 'runtime/bin', process.platform === 'win32' ? 'node.exe' : 'node')
         : (options.env.PI_MEME_PLUGIN_NODE ?? ''),
       PI_MEME_PLUGIN_ENTRY: app.isPackaged
         ? path.join(process.resourcesPath, 'runtime/restricted-entry.mjs')

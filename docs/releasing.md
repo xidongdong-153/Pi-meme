@@ -26,18 +26,19 @@ paths:
 
 ## 平台与附件
 
-版本取 Desktop 与 Server 的 `package.json`，Tag 为 `v<版本>`；预览版本在 GitHub 标记 Pre-release。一个版本包含以下四个附件：
+版本取 Desktop 与 Server 的 `package.json`，Tag 为 `v<版本>`；预览版本在 GitHub 标记 Pre-release。一个版本包含以下五个附件：
 
 | 附件                                     | 用途与验收基线                        |
 | ---------------------------------------- | ------------------------------------- |
 | `pi-meme-desktop-<版本>-macos-arm64.zip` | macOS 15 arm64 Desktop，包含本机 Host |
+| `pi-meme-desktop-<版本>-windows-x64.zip` | Windows x64 Desktop，包含本机 Host    |
 | `pi-meme-host-<版本>-macos-arm64.tar.gz` | macOS 15 arm64 独立 Host 与 Web       |
 | `pi-meme-host-<版本>-linux-x64.tar.gz`   | Ubuntu 24.04 x64 独立 Host 与 Web     |
-| `SHA256SUMS`                             | 三个安装包的 SHA256                   |
+| `SHA256SUMS`                             | 四个分发包的 SHA256                   |
 
-Web 随 Host 提供，不单独发布。当前不提供 Intel Mac、Linux arm64、Alpine/musl、Windows、DMG、Docker、Homebrew 或 npm 分发，不自动注册 systemd/launchd，也没有自动更新。其他 macOS 版本与 Linux 发行版未作为产物验收基线。
+Web 随 Host 提供，不单独发布。当前不提供 Intel Mac、Linux arm64、Alpine/musl、Windows arm64、Windows 独立 Host、MSI/Setup、DMG、Docker、Homebrew 或 npm 分发，不自动注册系统服务，也没有自动更新。其他 macOS 版本与 Linux 发行版未作为产物验收基线。Windows 发布构建使用 `windows-2025` runner；构建和文件校验通过不表示 Windows 桌面功能已完成人工验收。
 
-Desktop 默认使用 ad-hoc 签名，可通过 `PI_DESKTOP_SIGNING_IDENTITY` 指定证书，见 [Forge 配置](../apps/desktop/forge.config.ts)；当前未配置公证。`codesign --verify` 检查签名完整性，不代表 Gatekeeper 会接受网络下载的应用。不要把 `spctl` 拒绝未公证应用当作已实现公证，也不要让用户关闭系统 Gatekeeper。
+macOS Desktop 默认使用 ad-hoc 签名，可通过 `PI_DESKTOP_SIGNING_IDENTITY` 指定证书，见 [Forge 配置](../apps/desktop/forge.config.ts)；当前未配置公证。`codesign --verify` 检查签名完整性，不代表 Gatekeeper 会接受网络下载的应用。不要把 `spctl` 拒绝未公证应用当作已实现公证，也不要让用户关闭系统 Gatekeeper。Windows 包未配置代码签名。
 
 ## 版本与产物来源
 
@@ -125,7 +126,7 @@ PI_MEME_HOST_BUNDLE_ROOT="$bundle_dir/pi-meme-host" pnpm test \
 
 ### Desktop
 
-在 macOS arm64、Node.js 24.14.0 下执行：
+在 macOS arm64、Node.js 24.14.0 下验收：
 
 ```bash
 pnpm test \
@@ -141,15 +142,27 @@ Forge 在 `packageAfterExtract` 从本次解压的 Electron 发行包取原始 `
 
 构建成功仍需检查真实 `.app` 和 ZIP，不能只看 Forge 退出码。正式应用关闭 RunAsNode 和 Node 调试 Fuse，产物测试直接启动应用可执行文件。不要通过重新打包、重签名或修改 Fuse 来修补待上传的已验收应用。应用 bundle ID 固定为 `io.github.xidongdong153.pi-meme`。
 
+Windows x64 在原生 Windows、Node.js 24.14.0 下构建，不能复用 macOS/Linux 的依赖或跨平台打包：
+
+```powershell
+pnpm package --arch x64
+pnpm make --skip-package --arch x64
+node --import tsx scripts/release.mts desktop
+```
+
+应用位于 `apps/desktop/out/Pi meme-win32-x64/`，最终 ZIP 位于 `out/release/pi-meme-desktop-<版本>-windows-x64.zip`，使用现有 [Forge ZIP maker](https://www.electronforge.io/config/makers/zip)。Forge 从本次 Electron 发行包复制许可到 `resources/`；发布脚本解压最终 ZIP，检查版本、commit、平台、架构、许可、`app.asar`、[x64 PE 可执行文件](https://learn.microsoft.com/en-us/windows/win32/debug/pe-format)及固定 Node 运行时。Windows 运行时使用[官方归档](https://nodejs.org/dist/v24.14.0/) `node-v24.14.0-win-x64.zip`，按官方 SHASUMS256 清单校验后复制 `node.exe`，不以 Electron RunAsNode 代替。
+
+Windows 本机受限权限、受限插件和 Agent 受管服务尚不可用。现有 macOS Desktop 产物运行测试不作为 Windows 验收；发布前需人工检查首次打开、文件选择、Git for Windows/bash、终端、本机完全权限会话以及连接远程 Host。
+
 ### 汇总
 
-只有来自同一 commit 的三个平台包齐全时，才运行：
+只有来自同一 commit 的四个平台包齐全时，才运行：
 
 ```bash
 node --import tsx scripts/release.mts checksums
 ```
 
-它严格检查 `out/release/` 仅有三个预期包（可已有旧的 `SHA256SUMS`），核对内部元数据后生成 `SHA256SUMS` 和 `out/release-notes.md`。本机只有两个 macOS 包时不应伪造 Linux 包来通过汇总。
+它严格检查 `out/release/` 仅有四个预期包（可已有旧的 `SHA256SUMS`），核对内部元数据后生成 `SHA256SUMS` 和 `out/release-notes.md`。本机缺少 Linux 或 Windows 包时不应伪造包来通过汇总。
 
 ## GitHub workflow
 
@@ -165,9 +178,11 @@ flowchart TD
   Check --> Desktop["macOS 15 arm64 Desktop"]
   Check --> MacHost["macOS 15 arm64 Host"]
   Check --> LinuxHost["Ubuntu 24.04 x64 Host"]
-  Desktop --> Assemble["核对三个最终包与 SHA256"]
+  Check --> Windows["Windows x64 Desktop"]
+  Desktop --> Assemble["核对四个最终包与 SHA256"]
   MacHost --> Assemble
   LinuxHost --> Assemble
+  Windows --> Assemble
   Assemble --> Artifacts["Actions 完整附件"]
   Artifacts -->|"仅版本 Tag"| Draft["GitHub Draft Release"]
   Draft --> Public["附件核对通过后自动公开，保留预发布标记"]
@@ -175,9 +190,9 @@ flowchart TD
 
 发布 workflow 不运行源码测试、Web E2E 或产物运行测试，不安装 Chromium，也不准备测试沙箱。日常源码测试仍由 [Linux 检查](../.github/workflows/linux.yml) 执行，完整功能验收通过[手动完整测试](../.github/workflows/full-tests.yml)另行执行。
 
-只有发布 job 有 `contents: write`，使用 GitHub 自带 `GITHUB_TOKEN`，不需要个人 PAT 或 Apple 凭据。其他 job 只读；发布 job 不执行依赖安装或构建脚本。平台 job 缓存 pnpm 下载存储，不缓存原生构建结果。Linux 的版本检查 job 执行 `pnpm check`，复用类型检查增量缓存。Host 直接运行 `pnpm package:host`；Desktop 先运行 `pnpm package --arch arm64`，再用 `pnpm make --skip-package --arch arm64` 生成 ZIP，并核对元数据、许可文件与签名完整性。所有检查仍基于本次 checkout；发布构建成功不表示功能测试通过。
+只有发布 job 有 `contents: write`，使用 GitHub 自带 `GITHUB_TOKEN`，不需要个人 PAT 或 Apple 凭据。其他 job 只读；发布 job 不执行依赖安装或构建脚本。平台 job 缓存 pnpm 下载存储，不缓存原生构建结果。Linux 的版本检查 job 执行 `pnpm check`，复用类型检查增量缓存。Host 直接运行 `pnpm package:host`；Desktop 先运行 `pnpm package --arch <目标架构>`，再用 `pnpm make --skip-package --arch <目标架构>` 生成 ZIP，macOS 为 `arm64`，Windows 为 `x64`，随后复核对应平台的最终包。所有检查仍基于本次 checkout；发布构建成功不表示功能测试通过。
 
-汇总的 `release-complete` artifact 包含四个附件和 Release Notes，保留七天。只有所有平台成功才会进入汇总与发布。并发按 ref 排队；重跑可覆盖 Actions artifacts，但公开 Release 附件不可覆盖。
+汇总的 `release-complete` artifact 包含五个附件和 Release Notes，保留七天。只有所有平台成功才会进入汇总与发布。并发按 ref 排队；重跑可覆盖 Actions artifacts，但公开 Release 附件不可覆盖。
 
 草稿正文中的 `pi-meme-release-commit` 标记绑定本次 commit。重跑若发现草稿没有匹配标记、Release 已公开、Tag 被移动或附件列表异常，流程失败，不删除或覆盖已公开内容。上传中断可能留下不完整草稿，不能手动公开它；先排除失败原因并重新运行。已有草稿多出的附件需要维护者核对后手动处理。完整附件列表核对通过后，执行 `gh release edit --draft=false` 自动公开；成功公开的版本不需要重新运行 workflow。
 
@@ -193,7 +208,7 @@ flowchart TD
 
    脚本读取已提交的版本，校验工作区、当前分支和 Tag；创建指向 HEAD 的 `v<版本>` Tag，并用 `git push --atomic` 一起推送当前分支与该 Tag 到 `origin`。不会自动改版、提交、强推或推送其他 Tag，也不在本机构建或跑测试。
 
-4. 等待 GitHub Actions 的“构建发布包”完成。三个平台构建、汇总及附件核对成功后，版本自动公开到 Releases，无需再点击 Publish release。`beta` 等预发布版本保留 Pre-release 标记。
+4. 等待 GitHub Actions 的“构建发布包”完成。四个平台包构建、汇总及附件核对成功后，版本自动公开到 Releases，无需再点击 Publish release。`beta` 等预发布版本保留 Pre-release 标记。
 
 工作区存在未提交或未跟踪文件、两个版本不一致、处于 detached HEAD、远端 Tag 已存在，或本地同名 Tag 指向其他 commit 时，脚本中止。远端分支拒绝快进或不支持原子推送时，分支和 Tag 都不会更新；排除原因后可在同一 HEAD 重试，脚本会复用指向该 HEAD 的本地 Tag。远端 Tag 已存在时需查看对应 Actions，不能靠再次推送触发构建。构建失败后若需修改代码，使用新版本和新 Tag，不移动已公开 Tag。
 

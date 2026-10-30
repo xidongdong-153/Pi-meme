@@ -37,15 +37,17 @@ const config: ForgeConfig = {
     ],
   },
   rebuildConfig: {},
-  makers: [new MakerZIP({}, ['darwin'])],
+  makers: [new MakerZIP({}, ['darwin', 'win32'])],
   hooks: {
-    prePackage: async () => {
+    prePackage: async (_config, platform, arch) => {
+      if (platform !== process.platform || arch !== process.arch)
+        throw new Error('Desktop 必须在目标平台与架构的原生环境中构建')
       await prepareNodeRuntime(path.join(desktopResources, 'runtime'))
       await writeReleaseResources(desktopResources, 'desktop')
     },
     packageAfterExtract: async (_config, buildPath, _electronVersion, platform) => {
-      if (platform !== 'darwin') throw new Error('Desktop 当前只分发 macOS 应用')
-      const resources = path.join(buildPath, 'Electron.app/Contents/Resources')
+      if (!['darwin', 'win32'].includes(platform)) throw new Error('Desktop 只分发 macOS 和 Windows 应用')
+      const resources = path.join(buildPath, platform === 'darwin' ? 'Electron.app/Contents/Resources' : 'resources')
       await copyFile(path.join(buildPath, 'LICENSE'), path.join(resources, 'ELECTRON_LICENSE'))
       await copyFile(path.join(buildPath, 'LICENSES.chromium.html'), path.join(resources, 'LICENSES.chromium.html'))
     },

@@ -1,4 +1,4 @@
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 
@@ -6,18 +6,20 @@ const root = fileURLToPath(new URL('..', import.meta.url))
 const pnpm = process.env.npm_execpath
 const platform = process.platform
 
-if (platform !== 'darwin' && platform !== 'linux') {
-  console.error(`开发入口不支持 ${platform}，请在 macOS 或 Linux/WSL 中运行 pnpm start。`)
+if (!['darwin', 'linux', 'win32'].includes(platform)) {
+  console.error(`开发入口不支持 ${platform}，请在 macOS、Windows 或 Linux/WSL 中运行 pnpm start。`)
   process.exitCode = 1
 } else if (!pnpm) {
   console.error('请在仓库根目录通过 pnpm start 启动开发环境。')
   process.exitCode = 1
 } else {
   console.log(
-    platform === 'darwin' ? '启动 macOS 开发环境：Desktop + Host + Web。' : '启动 Linux 开发环境：Host + Web。',
+    platform === 'linux'
+      ? '启动 Linux 开发环境：Host + Web。'
+      : `启动 ${platform === 'win32' ? 'Windows' : 'macOS'} 开发环境：Desktop + Host + Web。`,
   )
   const commands =
-    platform === 'darwin'
+    platform !== 'linux'
       ? [{ name: 'Desktop', args: ['--filter', 'pi-meme', 'start'], allowSuccess: false }]
       : [
           { name: 'Host', args: ['run', 'start:server'], allowSuccess: true },
@@ -31,8 +33,22 @@ if (platform !== 'darwin' && platform !== 'linux') {
   process.on('SIGTERM', terminate)
 
   function signalGroup(pid: number, signal: NodeJS.Signals | 0) {
+    if (platform === 'win32' && signal !== 0) {
+      try {
+        execFileSync('taskkill', ['/PID', String(pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
+      } catch (cause) {
+        try {
+          process.kill(pid, 0)
+        } catch (check) {
+          if ((check as NodeJS.ErrnoException).code === 'ESRCH') return false
+          throw check
+        }
+        throw cause
+      }
+      return true
+    }
     try {
-      process.kill(-pid, signal)
+      process.kill(platform === 'win32' ? pid : -pid, signal)
       return true
     } catch (cause) {
       if ((cause as NodeJS.ErrnoException).code === 'ESRCH') return false
@@ -42,11 +58,12 @@ if (platform !== 'darwin' && platform !== 'linux') {
 
   try {
     for (const command of commands) {
-      const child = spawn(pnpm, command.args, {
+      const child = spawn(process.execPath, [pnpm, ...command.args], {
         cwd: root,
         env: { ...process.env, NODE_ENV: 'development' },
         stdio: 'inherit',
-        detached: true,
+        detached: platform !== 'win32',
+        windowsHide: true,
       })
       if (child.pid) groups.push(child.pid)
       child.once('error', (cause) => {

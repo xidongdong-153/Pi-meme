@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { beforeEach, test, vi } from 'vitest'
+import { afterEach, beforeEach, test, vi } from 'vitest'
 import { getProjectApps, openProjectInApp } from '../src/main/project-apps'
 
 const mocks = vi.hoisted(() => ({ execute: vi.fn(), realpath: vi.fn(), stat: vi.fn() }))
@@ -14,10 +14,19 @@ function output(entries: unknown) {
   return { stdout: JSON.stringify(entries), stderr: '' }
 }
 beforeEach(() => {
+  vi.stubGlobal('process', { ...process, platform: 'darwin' })
   vi.resetAllMocks()
   mocks.execute.mockResolvedValue(output([]))
   mocks.realpath.mockImplementation(async (value: string) => value)
   mocks.stat.mockResolvedValue({ isDirectory: () => true })
+})
+afterEach(() => vi.unstubAllGlobals())
+
+test('Windows 只提供系统文件管理器，不调用 macOS 应用查询', async () => {
+  vi.stubGlobal('process', { ...process, platform: 'win32' })
+  assert.deepEqual(await getProjectApps(), [manager])
+  await assert.rejects(openProjectInApp('vscode', 'C:\\work\\project'), /未安装或已不可用/)
+  assert.equal(mocks.execute.mock.calls.length, 0)
 })
 
 test('单次固定 JXA 查询只返回已安装应用，不向界面暴露应用路径', async () => {

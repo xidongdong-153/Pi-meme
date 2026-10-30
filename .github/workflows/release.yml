@@ -60,6 +60,11 @@ jobs:
             platform: linux
             name: linux
             arch: x64
+          - product: desktop
+            os: windows-2025
+            platform: win32
+            name: windows
+            arch: x64
     runs-on: ${{ matrix.os }}
     env:
       PLATFORM: ${{ matrix.platform }}
@@ -85,12 +90,14 @@ jobs:
         run: pnpm package:host
       - name: 构建 Desktop 应用
         if: matrix.product == 'desktop'
-        run: pnpm package --arch arm64
-      - name: 从已构建应用生成 ZIP 并复核
+        run: pnpm package --arch ${{ matrix.arch }}
+      - name: 从已构建应用生成 ZIP
         if: matrix.product == 'desktop'
         run: |
-          pnpm make --skip-package --arch arm64
-          node --import tsx scripts/release.mts desktop
+          pnpm make --skip-package --arch ${{ matrix.arch }}
+      - name: 复核 Desktop 发布包
+        if: matrix.product == 'desktop'
+        run: node --import tsx scripts/release.mts desktop
       - uses: actions/upload-artifact@v4
         with:
           name: platform-${{ matrix.product }}-${{ matrix.name }}-${{ matrix.arch }}
@@ -161,6 +168,7 @@ jobs:
             "pi-meme-desktop-${VERSION}-macos-arm64.zip"
             "pi-meme-host-${VERSION}-macos-arm64.tar.gz"
             "pi-meme-host-${VERSION}-linux-x64.tar.gz"
+            "pi-meme-desktop-${VERSION}-windows-x64.zip"
             SHA256SUMS
           )
           if gh release view "$TAG" --json isDraft,body > "$RUNNER_TEMP/existing-release.json"; then

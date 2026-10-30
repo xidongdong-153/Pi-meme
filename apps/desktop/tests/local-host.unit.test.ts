@@ -88,8 +88,11 @@ test.each([
     assert.equal(Boolean(mocks.acquire.mock.calls[0][0].createOnFreePort), packaged && override === undefined)
     const env = mocks.fork.mock.calls[0][2].env
     assert.equal(env.PI_MEME_PORT, port)
-    assert.equal(env.PI_MEME_PLUGIN_NODE, packaged ? '/fixture/resources/runtime/bin/node' : '')
-    assert.equal(env.PI_MEME_PLUGIN_ENTRY, packaged ? '/fixture/resources/runtime/restricted-entry.mjs' : '')
+    assert.equal(
+      env.PI_MEME_PLUGIN_NODE,
+      packaged ? path.join('/fixture/resources/runtime/bin', process.platform === 'win32' ? 'node.exe' : 'node') : '',
+    )
+    assert.equal(env.PI_MEME_PLUGIN_ENTRY, packaged ? path.join('/fixture/resources/runtime/restricted-entry.mjs') : '')
   } finally {
     await f.process.dispose()
   }
@@ -109,7 +112,10 @@ test('构建 App 默认端口冲突时，由系统分配 Host 端口并保留数
     assert.equal(mocks.fork.mock.calls.length, 1)
     assert.equal(mocks.fork.mock.calls[0][2].env.PI_MEME_PORT, '0')
     assert.equal(mocks.fork.mock.calls[0][2].env.PI_MEME_DATA_ROOT, '/fixture/data')
-    assert.equal(mocks.fork.mock.calls[0][2].env.PI_MEME_PLUGIN_NODE, '/fixture/resources/runtime/bin/node')
+    assert.equal(
+      mocks.fork.mock.calls[0][2].env.PI_MEME_PLUGIN_NODE,
+      path.join('/fixture/resources/runtime/bin', process.platform === 'win32' ? 'node.exe' : 'node'),
+    )
     assert.deepEqual(env, { PATH: '/usr/bin:/bin' })
   } finally {
     await f.process.dispose()

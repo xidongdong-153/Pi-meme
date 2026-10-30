@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { chmod, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { fileURLToPath, pathToFileURL } from 'node:url'
 import { test, vi } from 'vitest'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
@@ -14,7 +14,12 @@ async function fixture(platform: string, scenario = '') {
   const preload = path.join(directory, 'platform.cjs')
   const pnpm = path.join(directory, 'pnpm.cjs')
   const descendantFile = path.join(directory, 'child.cjs')
-  await writeFile(preload, `Object.defineProperty(process, 'platform', { value: ${JSON.stringify(platform)} })`)
+  await writeFile(
+    preload,
+    `Object.defineProperty(process, 'platform', { value: ${JSON.stringify(platform)} })
+process.env.npm_execpath = ${JSON.stringify(pnpm)}
+`,
+  )
   await writeFile(
     descendantFile,
     `const fs = require('node:fs')
@@ -33,6 +38,7 @@ const args = process.argv.slice(2)
 const name = args.includes('start:server') ? 'Host' : args.includes('start:web') ? 'Web' : 'Desktop'
 const record = (event) => fs.appendFileSync(process.env.START_TEST_LOG, JSON.stringify({ name, pid: process.pid, ...event }) + '\\n')
 record({ type: 'start', args, env: process.env.NODE_ENV })
+if (process.env.START_TEST_SCENARIO === 'desktop-exit') process.exit(7)
 if (process.env.START_TEST_SCENARIO === 'reuse' && name === 'Host') process.exit(0)
 const descendant = spawn(process.execPath, [${JSON.stringify(descendantFile)}, name], { stdio: 'inherit' })
 process.on('SIGTERM', () => {
@@ -52,20 +58,27 @@ if (process.env.START_TEST_SCENARIO === 'failure' && name === 'Web') {
 `,
   )
   await chmod(pnpm, 0o755)
-  const child = spawn(process.execPath, ['--import', preload, '--import', 'tsx', 'scripts/start.mts'], {
-    cwd: root,
-    env: {
-      ...process.env,
-      npm_execpath: pnpm,
-      NODE_ENV: 'production',
-      TMPDIR: directory,
-      TMP: directory,
-      TEMP: directory,
-      START_TEST_LOG: log,
-      START_TEST_SCENARIO: scenario,
+  const child = spawn(
+    process.execPath,
+    ['--import', pathToFileURL(preload).href, '--import', 'tsx', 'scripts/start.mts'],
+    {
+      cwd: root,
+      env: {
+        ...process.env,
+        npm_execpath: pnpm,
+        NODE_ENV: 'production',
+        TMPDIR: directory,
+        TMP: directory,
+        TEMP: directory,
+        START_TEST_LOG: log,
+        START_TEST_SCENARIO: scenario,
+        PI_MEME_DATA_ROOT: path.join(directory, 'data'),
+        PI_MEME_TEST_CREDENTIALS: 'memory',
+        PI_MEME_PORT: '0',
+      },
+      stdio: ['ignore', 'pipe', 'pipe'],
     },
-    stdio: ['ignore', 'pipe', 'pipe'],
-  })
+  )
   let output = ''
   child.stdout.on('data', (chunk) => (output += String(chunk)))
   child.stderr.on('data', (chunk) => (output += String(chunk)))
@@ -88,6 +101,12 @@ if (process.env.START_TEST_SCENARIO === 'failure' && name === 'Web') {
       await closed
       for (const event of await events()) {
         if (event.type !== 'start') continue
+        if (process.platform === 'win32') {
+          try {
+            execFileSync('taskkill', ['/PID', String(event.pid), '/T', '/F'], { stdio: 'ignore', windowsHide: true })
+          } catch {}
+          continue
+        }
         try {
           process.kill(-event.pid, 'SIGKILL')
         } catch (cause) {
@@ -99,30 +118,33 @@ if (process.env.START_TEST_SCENARIO === 'failure' && name === 'Web') {
   }
 }
 
-test.each(['darwin', 'linux'])('%s 选择开发入口，Ctrl+C 停止命令及其子进程', async (platform) => {
-  const app = await fixture(platform)
-  const names = platform === 'darwin' ? ['Desktop'] : ['Host', 'Web']
-  try {
-    await vi.waitFor(async () => {
-      assert.equal((await app.events()).filter((event) => event.type === 'ready').length, names.length)
-    })
-    const starts = (await app.events()).filter((event) => event.type === 'start')
-    assert.deepEqual(starts.map((event) => event.name).sort(), names)
-    assert.ok(starts.every((event) => event.env === 'development'))
-    if (platform === 'darwin') assert.deepEqual(starts[0].args, ['--filter', 'pi-meme', 'start'])
-    app.child.kill('SIGINT')
-    assert.equal(await app.closed, 130)
-    const stops = (await app.events()).filter((event) => event.type === 'stop')
-    assert.deepEqual(
-      stops.map((event) => event.name).sort(),
-      names.flatMap((name) => [name, `${name} child`]),
-    )
-  } finally {
-    await app.cleanup()
-  }
-})
+test.skipIf(process.platform === 'win32').each(['darwin', 'linux'])(
+  '%s 选择开发入口，Ctrl+C 停止命令及其子进程',
+  async (platform) => {
+    const app = await fixture(platform)
+    const names = platform === 'darwin' ? ['Desktop'] : ['Host', 'Web']
+    try {
+      await vi.waitFor(async () => {
+        assert.equal((await app.events()).filter((event) => event.type === 'ready').length, names.length)
+      })
+      const starts = (await app.events()).filter((event) => event.type === 'start')
+      assert.deepEqual(starts.map((event) => event.name).sort(), names)
+      assert.ok(starts.every((event) => event.env === 'development'))
+      if (platform === 'darwin') assert.deepEqual(starts[0].args, ['--filter', 'pi-meme', 'start'])
+      app.child.kill('SIGINT')
+      assert.equal(await app.closed, 130)
+      const stops = (await app.events()).filter((event) => event.type === 'stop')
+      assert.deepEqual(
+        stops.map((event) => event.name).sort(),
+        names.flatMap((name) => [name, `${name} child`]),
+      )
+    } finally {
+      await app.cleanup()
+    }
+  },
+)
 
-test('Server 复用成功退出后 Web 继续运行，SIGTERM 可以停止入口', async () => {
+test.skipIf(process.platform === 'win32')('Server 复用成功退出后 Web 继续运行，SIGTERM 可以停止入口', async () => {
   const app = await fixture('linux', 'reuse')
   try {
     await vi.waitFor(async () => {
@@ -138,7 +160,7 @@ test('Server 复用成功退出后 Web 继续运行，SIGTERM 可以停止入口
   }
 })
 
-test('Web 失败时保留退出码，并停止 Host 和残留子进程', async () => {
+test.skipIf(process.platform === 'win32')('Web 失败时保留退出码，并停止 Host 和残留子进程', async () => {
   const app = await fixture('linux', 'failure')
   try {
     assert.equal(await app.closed, 7)
@@ -150,11 +172,26 @@ test('Web 失败时保留退出码，并停止 Host 和残留子进程', async (
 })
 
 test('不支持的平台不启动任何进程', async () => {
-  const app = await fixture('win32')
+  const app = await fixture('freebsd')
   try {
     assert.equal(await app.closed, 1)
     assert.deepEqual(await app.events(), [])
-    assert.match(app.output(), /开发入口不支持 win32/)
+    assert.match(app.output(), /开发入口不支持 freebsd/)
+  } finally {
+    await app.cleanup()
+  }
+})
+
+test.runIf(process.platform === 'win32')('Windows 通过 Node 启动 pnpm，选择 Desktop 并保留失败退出码', async () => {
+  const app = await fixture('win32', 'desktop-exit')
+  try {
+    await vi.waitFor(() => assert.notEqual(app.child.exitCode, null, app.output()), { timeout: 5000 })
+    assert.equal(await app.closed, 7, app.output())
+    const starts = (await app.events()).filter((event) => event.type === 'start')
+    assert.equal(starts.length, 1)
+    assert.equal(starts[0].name, 'Desktop')
+    assert.equal(starts[0].env, 'development')
+    assert.deepEqual(starts[0].args, ['--filter', 'pi-meme', 'start'])
   } finally {
     await app.cleanup()
   }

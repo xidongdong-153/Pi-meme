@@ -43,6 +43,7 @@ type InstalledApp = ProjectApp & { path: string }
 let inflight: Promise<InstalledApp[]> | undefined
 
 async function probeProjectApps(): Promise<InstalledApp[]> {
+  if (process.platform !== 'darwin') return []
   const { stdout } = await execute('/usr/bin/osascript', ['-l', 'JavaScript', '-e', appScript], {
     timeout: 5000,
     maxBuffer: 256 * 1024,

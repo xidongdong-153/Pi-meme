@@ -25,7 +25,21 @@ paths:
 
 从 [GitHub Releases](https://github.com/xidongdong-153/Pi-meme/releases) 选择版本，下载对应附件与同一版本的 `SHA256SUMS`。下文 `<版本>` 替换为下载文件中的版本号，不含 Tag 的 `v` 前缀。GitHub 自动生成的 Source code 是源码归档，不是安装包。
 
-下载包的产物验收基线为 macOS 15 arm64、Ubuntu 24.04 x64。Desktop 支持 Apple Silicon Mac，不提供 Intel Mac 或 Windows 原生安装包。Desktop 已包含本机 Host，使用桌面应用只需下载 `pi-meme-desktop-<版本>-macos-arm64.zip`。独立 Host 已包含 Web、Node.js 24.14.0、Worker、技能和生产依赖；启动下载版无需另外安装 Node.js、pnpm 或 Pi CLI。
+下载包的构建目标为 macOS 15 arm64、Ubuntu 24.04 x64 和 Windows x64，不提供 Intel Mac、Windows arm64 包。Desktop 已包含本机 Host，使用桌面应用只需下载对应系统的 Desktop ZIP。独立 Host 已包含 Web、Node.js 24.14.0、Worker、技能和生产依赖；启动下载版无需另外安装 Node.js、pnpm 或 Pi CLI。
+
+### 安装 Windows Desktop
+
+安装 Git for Windows，保留 Git 和 bash。下载 `pi-meme-desktop-<版本>-windows-x64.zip` 与同一版本的 `SHA256SUMS`，在 PowerShell 中计算校验值：
+
+```powershell
+Get-FileHash -Algorithm SHA256 "pi-meme-desktop-<版本>-windows-x64.zip"
+```
+
+与 `SHA256SUMS` 中对应值一致后，解压整个 ZIP，运行目录内的 `Pi meme.exe`。保留同目录的 DLL、`resources` 和其他文件，不单独移动 EXE。当前为 ZIP 分发，未配置 Windows 代码签名、安装向导或自动更新。
+
+应用数据默认位于 `%USERPROFILE%\.pi-meme`。升级时完全退出 Desktop，用新版完整目录替换应用文件，保留数据目录。
+
+Windows 本机 Host 尚不支持只读、工作区写入等受限权限、受限插件和 Agent 受管服务。默认受限会话会明确报不可用；运行本机 Agent 需自行选择完全权限，需要受限执行时连接 macOS/Linux Host。项目打开菜单目前只提供系统文件管理器。
 
 ### 安装 macOS Desktop
 
@@ -121,7 +135,7 @@ tar -xzf "pi-meme-host-<版本>-macos-arm64.tar.gz"
 
 ### 升级
 
-先退出旧 Host 的管理方，备份数据目录，再替换 Desktop 的 `.app` 或解压新版 Host。数据默认在 `~/.pi-meme`，与安装目录分离；独立 Host 继续使用原来的 `PI_MEME_DATA_ROOT`。新版 Host 启动时若检测到旧版数据根，会在独占锁下自动就地升级布局并建立备份，规则与异常恢复见 [数据目录与存储](storage.md)。不要覆盖或上传备份中的凭据。不承诺数据格式变化后可直接降级。Desktop 与独立 Host 使用相同目录和端口时可能复用旧实例，见[共享 Host](#desktop-与-server-共享-host)。
+先退出旧 Host 的管理方，备份数据目录，再替换 Desktop 的 `.app`、Windows 完整应用目录，或解压新版 Host。数据默认在 `~/.pi-meme`，与安装目录分离；独立 Host 继续使用原来的 `PI_MEME_DATA_ROOT`。新版 Host 启动时若检测到旧版数据根，会在独占锁下自动就地升级布局并建立备份，规则与异常恢复见 [数据目录与存储](storage.md)。不要覆盖或上传备份中的凭据。不承诺数据格式变化后可直接降级。Desktop 与独立 Host 使用相同目录和端口时可能复用旧实例，见[共享 Host](#desktop-与-server-共享-host)。
 
 ## 源码开发
 
@@ -133,11 +147,11 @@ pnpm --version
 pnpm install --frozen-lockfile
 ```
 
-Linux/WSL2 先完成下节环境准备，再按[本机 Web 开发](#本机-web-开发)启动；Desktop 的打包与验收面向 macOS。
+Linux/WSL2 先完成下节环境准备，再按[本机 Web 开发](#本机-web-开发)启动；Desktop 的打包目标为 macOS arm64 和 Windows x64。
 
 ### Linux 与 WSL 环境
 
-Linux/WSL2 运行 Host/Web，不运行 Electron。下载包基线为 Ubuntu 24.04 x64；不提供 Linux arm64、Alpine/musl、WSL1 或 Windows 原生包。仓库、解压目录、数据和项目放在 Linux 文件系统，例如 `~/Code/pi-meme`；不复用 Windows/macOS 的 Node 或 `node_modules`。Windows 编辑器通过 WSL 连接编辑，参见[微软文件系统说明](https://learn.microsoft.com/en-us/windows/wsl/filesystems)。
+Linux/WSL2 运行 Host/Web，不运行 Electron。下载包基线为 Ubuntu 24.04 x64；不提供 Linux arm64、Alpine/musl 或 WSL1 包。Windows 原生桌面版见[安装 Windows Desktop](#安装-windows-desktop)。仓库、解压目录、数据和项目放在 Linux 文件系统，例如 `~/Code/pi-meme`；不复用 Windows/macOS 的 Node 或 `node_modules`。Windows 编辑器通过 WSL 连接编辑，参见[微软文件系统说明](https://learn.microsoft.com/en-us/windows/wsl/filesystems)。
 
 Ubuntu 安装依赖：
 
@@ -150,7 +164,7 @@ sudo apt-get install -y git bash bubblewrap
 
 Windows 浏览器经 localhost 访问 WSL 的开发界面 `http://127.0.0.1:3181` 或正式 Host `http://127.0.0.1:3185`。平台差异仅影响 Host：模型、Git、MCP 与会话留在 Linux；字体列表不枚举 Windows 字体。连接失败见 [Remote 排错](remote.md#排错与验证)。
 
-### macOS Desktop 开发
+### macOS 与 Windows Desktop 开发
 
 ```bash
 pnpm start
@@ -168,7 +182,7 @@ Linux/WSL 在一个终端执行，无需额外设置环境变量：
 pnpm start
 ```
 
-根入口 [start.mts](../scripts/start.mts) 按系统分流：Linux/WSL 同时运行 Host 和 Web，macOS 使用上节的 Desktop 入口，同时提供 Host 和 Web。Ctrl+C 停止本次启动的进程；任一启动命令失败时停止其余进程。Server 复用已有 Host 后会成功退出，Web 继续运行；已有 Host 仍由原启动方管理。
+根入口 [start.mts](../scripts/start.mts) 按系统分流：Linux/WSL 同时运行 Host 和 Web，macOS、Windows 使用上节的 Desktop 入口，同时提供 Host 和 Web。Ctrl+C 停止本次启动的进程；任一启动命令失败时停止其余进程。Server 复用已有 Host 后会成功退出，Web 继续运行；已有 Host 仍由原启动方管理。
 
 需要分开启动，或在 macOS 只运行 Host + Web 时，在两个终端分别执行：
 

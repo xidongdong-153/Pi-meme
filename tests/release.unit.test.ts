@@ -7,6 +7,8 @@ import { test } from 'vitest'
 import { parse, stringify } from 'yaml'
 import {
   assertPortableLinks,
+  checkWindowsDesktop,
+  nodeVersion,
   pushRelease,
   releaseAssetNames,
   releaseInfo,
@@ -222,6 +224,7 @@ test('Desktop、Host 和 Tag 必须使用同一个可分发版本', () => {
     `pi-meme-desktop-${version}-macos-arm64.zip`,
     `pi-meme-host-${version}-macos-arm64.tar.gz`,
     `pi-meme-host-${version}-linux-x64.tar.gz`,
+    `pi-meme-desktop-${version}-windows-x64.zip`,
   ])
 })
 
@@ -248,11 +251,13 @@ test('分发包允许相对内部软链接，拒绝越界、绝对和失效软�
 test('校验和不能把缺少平台、额外文件或软链接发布文件当作完整 Release', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'pi-meme-release-sums-'))
   try {
-    await assert.rejects(writeChecksums(root), /三个预期平台包/)
+    await assert.rejects(writeChecksums(root), /四个预期平台包/)
     const names = releaseAssetNames((await releaseInfo()).version)
-    for (const name of names) await writeFile(path.join(root, name), 'fixture')
+    for (const name of names.slice(0, 3)) await writeFile(path.join(root, name), 'fixture')
+    await assert.rejects(writeChecksums(root), /四个预期平台包/)
+    await writeFile(path.join(root, names[3]), 'fixture')
     await writeFile(path.join(root, 'unexpected.zip'), 'fixture')
-    await assert.rejects(writeChecksums(root), /三个预期平台包/)
+    await assert.rejects(writeChecksums(root), /四个预期平台包/)
     await rm(path.join(root, 'unexpected.zip'))
     await rm(path.join(root, names[0]))
     await symlink(names[1], path.join(root, names[0]))
@@ -261,6 +266,48 @@ test('校验和不能把缺少平台、额外文件或软链接发布文件当�
       await sha256(path.join(root, names[1])),
       'f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d',
     )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test('Windows 发布包检查可执行文件、Node 运行时与平台元数据', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'pi-windows-release-'))
+  const resources = path.join(root, 'resources')
+  await mkdir(path.join(resources, 'runtime/bin'), { recursive: true })
+  const executable = Buffer.alloc(128)
+  executable.write('MZ')
+  executable.writeUInt32LE(64, 60)
+  executable.write('PE\0\0', 64)
+  executable.writeUInt16LE(0x8664, 68)
+  const metadata = { ...(await releaseInfo()), platform: 'win32', arch: 'x64' }
+  const runtime = { nodeVersion, platform: 'win32', arch: 'x64' }
+  try {
+    for (const name of [
+      'LICENSE',
+      'THIRD_PARTY_NOTICES.md',
+      'THIRD_PARTY_LICENSES.txt',
+      'ELECTRON_LICENSE',
+      'LICENSES.chromium.html',
+      'app.asar',
+      'runtime/bin/node.exe',
+      'runtime/LICENSE',
+      'runtime/restricted-entry.mjs',
+    ])
+      await writeFile(path.join(resources, name), 'fixture')
+    await writeFile(path.join(root, 'Pi meme.exe'), executable)
+    await writeFile(path.join(resources, 'release.json'), JSON.stringify(metadata))
+    await writeFile(path.join(resources, 'runtime/runtime.json'), JSON.stringify(runtime))
+    await checkWindowsDesktop(root)
+    executable.writeUInt16LE(0xaa64, 68)
+    await writeFile(path.join(root, 'Pi meme.exe'), executable)
+    await assert.rejects(checkWindowsDesktop(root), /必须为 x64/)
+    executable.writeUInt16LE(0x8664, 68)
+    await writeFile(path.join(root, 'Pi meme.exe'), executable)
+    await writeFile(path.join(resources, 'runtime/runtime.json'), JSON.stringify({ ...runtime, platform: 'darwin' }))
+    await assert.rejects(checkWindowsDesktop(root), /运行时平台不一致/)
+    await writeFile(path.join(resources, 'release.json'), JSON.stringify({ ...metadata, commit: 'wrong' }))
+    await assert.rejects(checkWindowsDesktop(root), /commit 不一致/)
   } finally {
     await rm(root, { recursive: true, force: true })
   }

@@ -106,7 +106,7 @@ pnpm --filter @pi-meme/theme-landscape run pack
 
 ### 受限 Node 运行时
 
-Node 属于应用，不随每个插件打包。Desktop 正式版使用 asar 外的 `Resources/runtime/bin/node` 与 `restricted-entry.mjs`，同目录包含 Node `LICENSE` 和 `runtime.json`。官方版本来自 [release.mts](../scripts/release.mts) 的 `nodeVersion`；[node-runtime.mts](../scripts/node-runtime.mts) 下载官方归档并按精确 SHASUMS 项验证 SHA256，Host 分发和 Desktop 共用这一个准备函数。Desktop 不使用 Electron RunAsNode 或用户 PATH 中的 Node。
+Node 属于应用，不随每个插件打包。Desktop 正式版使用 asar 外的 `Resources/runtime/bin/node`（Windows 为 `resources/runtime/bin/node.exe`）与 `restricted-entry.mjs`，同目录包含 Node `LICENSE` 和 `runtime.json`。官方版本来自 [release.mts](../scripts/release.mts) 的 `nodeVersion`；[node-runtime.mts](../scripts/node-runtime.mts) 下载官方归档并按精确 SHASUMS 项验证 SHA256，Host 分发和 Desktop 共用这一个准备函数。Windows 携带 Node 运行时不表示支持受限插件；当前仍拒绝受限启动。Desktop 不使用 Electron RunAsNode 或用户 PATH 中的 Node。
 
 开发态 Desktop 需要先明确准备运行时。在仓库根目录执行；第一条会下载官方 Node 资源，不运行插件：
 
