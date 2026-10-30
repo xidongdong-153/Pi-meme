@@ -1023,6 +1023,56 @@ test('父活动跟随最新嵌套操作，整组结束后原位显示实际操�
   expect(group).not.toHaveTextContent(/codemode|调用了|pnpm type-check/)
 })
 
+test('思考与不同工具交接时原位更新图标并保持扫光，保留焦点和展开内容', async () => {
+  const user = userEvent.setup()
+  const thinking: ActivityItem = { id: 'thinking', type: 'thinking', thinking: '检查项目', status: 'running' }
+  const { rerender } = render(<ActivityGroup items={[thinking]} isLive />)
+  const group = screen.getByRole('button', { name: /^活动详情：/ })
+  await user.click(group)
+  const indicator = group.querySelector('svg')!
+  const indicatorSlot = indicator.parentElement!
+  const summary = group.children[1]!
+  expect(summary).toHaveClass('thought-shimmer')
+  const thinkingDetails = screen.getByRole('button', { name: '思考过程' })
+  let activities: ActivityItem[] = [{ ...thinking, status: 'success' }]
+
+  expect(indicator).toHaveClass('lucide-sparkles')
+  for (const [name, iconClass] of [
+    ['grep', 'lucide-search'],
+    ['read', 'lucide-book-open'],
+    ['bash', 'lucide-square-terminal'],
+  ] as const) {
+    activities = [...activities, { id: name, name, result: '检查输出', status: 'running' }]
+    rerender(<ActivityGroup items={activities} isLive />)
+    const toolIcon = group.querySelector('svg')!
+    expect(toolIcon).toHaveClass(iconClass)
+    expect(toolIcon.parentElement).toBe(indicatorSlot)
+    expect(group.children[1]).toBe(summary)
+    expect(summary).toHaveClass('thought-shimmer')
+    expect(group).toHaveFocus()
+    expect(group).toHaveAttribute('aria-expanded', 'true')
+
+    activities = activities.map((item) => ({ ...item, status: 'success' }))
+    rerender(<ActivityGroup items={activities} isLive />)
+    expect(group.querySelector('svg')).toBe(toolIcon)
+    expect(group.children[1]).toBe(summary)
+    expect(summary).toHaveClass('thought-shimmer')
+    expect(screen.getByRole('button', { name: '思考过程' })).toBe(thinkingDetails)
+  }
+
+  rerender(<ActivityGroup items={activities} isLive isPaused />)
+  expect(group).toHaveTextContent('已暂停，等待继续')
+  expect(summary).not.toHaveClass('thought-shimmer')
+  expect(indicatorSlot.isConnected).toBe(true)
+  expect(group.querySelector('svg')?.parentElement).toBe(indicatorSlot)
+
+  rerender(<ActivityGroup items={activities} />)
+  expect(group).toHaveTextContent('已搜索内容、读取文件并运行命令')
+  expect(summary).not.toHaveClass('thought-shimmer')
+  expect(group.querySelector('svg')?.parentElement).toBe(indicatorSlot)
+  expect(group).toHaveFocus()
+})
+
 test('完整工具事件流持续保留父活动行，结果补录不重建已有活动', async () => {
   vi.stubGlobal(
     'ResizeObserver',

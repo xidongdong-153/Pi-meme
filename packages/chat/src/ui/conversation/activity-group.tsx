@@ -138,7 +138,8 @@ function ActivityDisclosure({
     [items],
   )
   const IconComponent = activityIcons[meta.kind]
-  const isWorking = meta.status === 'running'
+  // 工具交接期间保持扫光连续，避免每次收到结果都停止并重启动画。
+  const isWorking = isLive && !isPaused && (meta.status === 'running' || meta.status === 'complete')
 
   const toggle = () => {
     onToggle?.()
@@ -160,17 +161,9 @@ function ActivityDisclosure({
           title={meta.summary}
           className="group/activity-toggle flex min-h-7 max-w-full items-center gap-2 rounded-sm py-0.5 pr-1 text-xs leading-5 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
         >
-          {!isPaused && (
-            <span
-              aria-hidden="true"
-              className={cn(
-                'inline-flex size-4 shrink-0',
-                isWorking && 'text-primary animate-[thought-pulse_1.6s_ease-in-out_infinite]',
-              )}
-            >
-              <IconComponent className="size-4" />
-            </span>
-          )}
+          <span aria-hidden="true" className="inline-flex size-4 shrink-0">
+            <IconComponent className="size-4" />
+          </span>
           <span
             role={waitingForInput ? 'status' : undefined}
             className={cn('min-w-0 truncate', isWorking && 'thought-shimmer')}
