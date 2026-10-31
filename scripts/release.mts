@@ -228,7 +228,7 @@ export async function writeChecksums(directory: string) {
     const metadata = execFileSync(
       desktop ? 'unzip' : 'tar',
       desktop
-        ? ['-p', file, index === 3 ? 'resources/release.json' : 'Pi meme.app/Contents/Resources/release.json']
+        ? ['-p', file, index === 3 ? 'resources[/\\\\]release.json' : 'Pi meme.app/Contents/Resources/release.json']
         : ['-xOf', file, 'pi-meme-host/release.json'],
       { encoding: 'utf8', maxBuffer: 1024 * 1024 },
     )

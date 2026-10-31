@@ -3,6 +3,7 @@ import { execFileSync } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { crc32 } from 'node:zlib'
 import { test } from 'vitest'
 import { parse, stringify } from 'yaml'
 import {
@@ -20,6 +21,29 @@ import { writeThirdPartyLicenses } from '../scripts/release-licenses.mjs'
 import { assertLockedDependencies, stageHostWorkspace } from '../scripts/release-workspace.mjs'
 
 const version = '0.1.0-beta.1'
+
+function createZipFixture(entry: string, content: string) {
+  const name = Buffer.from(entry)
+  const data = Buffer.from(content)
+  const header = Buffer.alloc(30)
+  header.writeUInt32LE(0x04034b50, 0)
+  header.writeUInt16LE(20, 4)
+  header.writeUInt32LE(crc32(data), 14)
+  header.writeUInt32LE(data.length, 18)
+  header.writeUInt32LE(data.length, 22)
+  header.writeUInt16LE(name.length, 26)
+  const central = Buffer.alloc(46)
+  central.writeUInt32LE(0x02014b50, 0)
+  central.writeUInt16LE(20, 4)
+  header.copy(central, 6, 4, 30)
+  const end = Buffer.alloc(22)
+  end.writeUInt32LE(0x06054b50, 0)
+  end.writeUInt16LE(1, 8)
+  end.writeUInt16LE(1, 10)
+  end.writeUInt32LE(central.length + name.length, 12)
+  end.writeUInt32LE(header.length + name.length + data.length, 16)
+  return Buffer.concat([header, name, data, central, name, end])
+}
 
 async function withReleaseRepository(run: (root: string, git: (...args: string[]) => string) => Promise<void>) {
   const directory = await mkdtemp(path.join(tmpdir(), 'pi-meme-release-push-'))
@@ -266,6 +290,44 @@ test('校验和不能把缺少平台、额外文件或软链接发布文件当�
       await sha256(path.join(root, names[1])),
       'f16d05ec6b29248d2c61adb1e9263f78e4f7bace1b955014a2d17872cfe4064d',
     )
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
+})
+
+test.each(['/', '\\'])('校验清单兼容 Windows ZIP 的 %s 分隔符并拒绝错误 commit', async (separator) => {
+  const root = await mkdtemp(path.join(tmpdir(), 'pi-meme-release-zip-'))
+  const directory = path.join(root, 'release')
+  const source = path.join(root, 'source')
+  const info = await releaseInfo()
+  const names = releaseAssetNames(info.version)
+  const windowsEntry = `resources${separator}release.json`
+  try {
+    await mkdir(directory)
+    await mkdir(path.join(source, 'pi-meme-host'), { recursive: true })
+    for (const [index, name] of names.entries()) {
+      const metadata = JSON.stringify({
+        ...info,
+        platform: index === 3 ? 'win32' : index === 2 ? 'linux' : 'darwin',
+        arch: index >= 2 ? 'x64' : 'arm64',
+        ...(index === 1 || index === 2 ? { nodeVersion } : {}),
+      })
+      if (index === 0 || index === 3) {
+        const entry = index === 3 ? windowsEntry : 'Pi meme.app/Contents/Resources/release.json'
+        await writeFile(path.join(directory, name), createZipFixture(entry, metadata))
+      } else {
+        await writeFile(path.join(source, 'pi-meme-host/release.json'), metadata)
+        execFileSync('tar', ['-czf', path.join(directory, name), '-C', source, 'pi-meme-host/release.json'])
+      }
+    }
+    await writeChecksums(directory)
+    const sums = await Promise.all(names.map(async (name) => `${await sha256(path.join(directory, name))}  ${name}`))
+    assert.equal(await readFile(path.join(directory, 'SHA256SUMS'), 'utf8'), `${sums.join('\n')}\n`)
+    await writeFile(
+      path.join(directory, names[3]),
+      createZipFixture(windowsEntry, JSON.stringify({ ...info, commit: 'wrong', platform: 'win32', arch: 'x64' })),
+    )
+    await assert.rejects(writeChecksums(directory), /commit 不一致/)
   } finally {
     await rm(root, { recursive: true, force: true })
   }
