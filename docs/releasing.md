@@ -201,7 +201,7 @@ flowchart TD
 ## 发布步骤
 
 1. 将 `apps/desktop/package.json` 与 `apps/server/package.json` 的 `version` 改为相同的新版本，例如 `0.1.0`。内部私有包不改版。
-2. 提交本次代码与版本号，确保工作区干净。Agent 执行提交与推送前仍需展示改动并获得明确确认。
+2. 按[Git 提交规范](development.md#git-提交规范)提交本次代码与版本号，确保工作区干净。单独的版本号提交使用 `chore(release): 发布 <版本>`；包含功能或修复的提交按实际改动选择类型。Agent 执行提交与推送前仍需展示改动并获得明确确认，提交确认同时展示拟用提交信息。
 3. 在仓库根目录执行：
 
    ```bash
