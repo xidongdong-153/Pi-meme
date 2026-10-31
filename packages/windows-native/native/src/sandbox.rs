@@ -9,8 +9,8 @@ use serde_json::json;
 use std::collections::HashSet;
 use std::io::{self, BufRead, Read, Write};
 use std::os::windows::fs::{MetadataExt, OpenOptionsExt};
-use std::os::windows::io::AsRawHandle;
-use std::path::Path;
+use std::os::windows::io::{AsRawHandle, FromRawHandle};
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 use std::time::Duration;
@@ -44,8 +44,38 @@ impl Drop for LinkNames {
     }
 }
 
-// 硬链接有多个文件名；只允许所有名称均位于本次写入白名单中的文件。
-fn check_hardlinks(policy: &Policy) -> io::Result<()> {
+fn pin_writable_directories(
+    policy: &Policy,
+    directory: &Path,
+    pinned: &mut HashSet<PathBuf>,
+    locks: &mut Vec<std::fs::File>,
+) -> io::Result<()> {
+    for parent in directory.ancestors() {
+        if !policy
+            .write
+            .iter()
+            .any(|root| within(root, &parent.to_string_lossy()))
+        {
+            break;
+        }
+        if pinned.insert(parent.to_path_buf()) {
+            locks.push(
+                std::fs::OpenOptions::new()
+                    .access_mode(FILE_LIST_DIRECTORY)
+                    .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
+                    .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OPEN_REPARSE_POINT)
+                    .open(parent)?,
+            );
+        }
+    }
+    Ok(())
+}
+
+// 已安装依赖整体只读；其他共享硬链接逐个保护，不阻止整个工作区启动。
+fn readonly_shared_paths(policy: &Policy) -> io::Result<(Vec<String>, Vec<std::fs::File>)> {
+    let mut readonly = Vec::new();
+    let mut locks = Vec::new();
+    let mut pinned_directories = HashSet::new();
     let mut pending = policy
         .write
         .iter()
@@ -61,6 +91,20 @@ fn check_hardlinks(policy: &Policy) -> io::Result<()> {
             continue;
         }
         if metadata.is_dir() {
+            let name = path.file_name().unwrap_or_default().to_string_lossy();
+            let in_node_modules = path
+                .parent()
+                .and_then(Path::file_name)
+                .is_some_and(|name| name.to_string_lossy().eq_ignore_ascii_case("node_modules"));
+            if policy.deny.is_empty()
+                && in_node_modules
+                && (name.eq_ignore_ascii_case(".pnpm") || !name.starts_with('.'))
+            {
+                // 固定祖先目录，防止通过改名移走整个只读子树。
+                pin_writable_directories(policy, &path, &mut pinned_directories, &mut locks)?;
+                readonly.push(text.into_owned());
+                continue;
+            }
             for entry in std::fs::read_dir(&path)? {
                 pending.push(entry?.path());
             }
@@ -91,6 +135,7 @@ fn check_hardlinks(policy: &Policy) -> io::Result<()> {
             .ancestors()
             .last()
             .ok_or_else(|| io::Error::other("硬链接卷路径无效"))?;
+        let mut shared = false;
         loop {
             let count = buffer
                 .iter()
@@ -101,12 +146,13 @@ fn check_hardlinks(policy: &Policy) -> io::Result<()> {
                 .join(relative.trim_start_matches('\\'))
                 .to_string_lossy()
                 .into_owned();
-            if !policy.write.iter().any(|root| within(root, &alias))
-                || policy.deny.iter().any(|root| within(root, &alias))
-            {
+            if policy.deny.iter().any(|root| within(root, &alias)) {
                 return Err(io::Error::other(format!(
-                    "写入目录存在白名单外的硬链接：{text}；请改用独立文件副本后重试"
+                    "写入目录存在受保护路径的硬链接：{text}；请移除此链接后重试"
                 )));
+            }
+            if !policy.write.iter().any(|root| within(root, &alias)) {
+                shared = true;
             }
             length = buffer.len() as u32;
             if unsafe { FindNextFileNameW(find.0, &mut length, buffer.as_mut_ptr()) } == 0 {
@@ -119,8 +165,29 @@ fn check_hardlinks(policy: &Policy) -> io::Result<()> {
                 return Err(error);
             }
         }
+        if shared {
+            // PSEC 路径规则在父目录改名后会失效；句柄按文件对象禁止写入和删除。
+            let handle =
+                unsafe { ReOpenFile(file.as_raw_handle(), FILE_READ_DATA, FILE_SHARE_READ, 0) };
+            if handle == windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE {
+                return Err(io::Error::other(format!(
+                    "无法锁定共享硬链接文件：{text}；请等待其他进程关闭该文件后重试：{}",
+                    io::Error::last_os_error()
+                )));
+            }
+            locks.push(unsafe { std::fs::File::from_raw_handle(handle) });
+            // 固定可写范围内的祖先目录，避免改名后绕过只读规则修改文件属性。
+            pin_writable_directories(
+                policy,
+                path.parent()
+                    .ok_or_else(|| io::Error::other("共享文件缺少父目录"))?,
+                &mut pinned_directories,
+                &mut locks,
+            )?;
+            readonly.push(text.into_owned());
+        }
     }
-    Ok(())
+    Ok((readonly, locks))
 }
 
 fn require_native(request: &ContainerRequest) -> io::Result<serde_json::Value> {
@@ -248,7 +315,7 @@ pub fn run(mut launch: Launch) -> io::Result<()> {
             "Windows 受限写入目录不能包含受保护数据目录",
         ));
     }
-    check_hardlinks(&policy)?;
+    let (shared_paths, _shared_locks) = readonly_shared_paths(&policy)?;
     let mut request = ContainerRequest::new(
         std::iter::once(launch.executable.as_str())
             .chain(launch.args.iter().map(String::as_str))
@@ -305,6 +372,7 @@ pub fn run(mut launch: Launch) -> io::Result<()> {
                 .iter()
                 .any(|write| root.eq_ignore_ascii_case(write))
         })
+        .chain(shared_paths)
         .collect();
     request.filesystem = Some(FilesystemPolicy {
         readonly_paths,
