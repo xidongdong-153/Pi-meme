@@ -8,6 +8,7 @@ import { Input } from '@pi-meme/ui/components/ui/input'
 import { Slider } from '@pi-meme/ui/components/ui/slider'
 import { Popover, PopoverContent, PopoverTrigger } from '@pi-meme/ui/components/ui/popover'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@pi-meme/ui/components/ui/select'
+import { cn } from '@pi-meme/ui/lib/utils'
 
 export function AppearanceRow({
   label,
@@ -189,10 +190,16 @@ export function RangeControl({
         max={max}
         step={step}
         value={value}
-        className="w-32 min-w-0 sm:w-40"
+        className="w-36 min-w-0 sm:w-48"
         onChange={(event) => onChange(Number(event.target.value))}
       />
-      <output aria-label={`${label}当前值`} className="w-14 shrink-0 text-right text-sm tabular-nums">
+      <output
+        aria-label={`${label}当前值`}
+        className={cn(
+          'min-w-12 shrink-0 whitespace-nowrap text-right text-xs font-medium tabular-nums transition-colors',
+          customized ? 'text-foreground' : 'text-muted-foreground',
+        )}
+      >
         {display}
       </output>
       <Button
