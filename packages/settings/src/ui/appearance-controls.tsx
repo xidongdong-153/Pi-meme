@@ -1,10 +1,11 @@
 import { useEffect, useState, type ReactNode } from 'react'
-import { ChevronDown } from 'lucide-react'
+import { ChevronDown, RotateCcw } from 'lucide-react'
 import type { InstalledFont } from '@pi-meme/contracts/settings'
 import { Card } from '@pi-meme/ui/components/ui/card'
 import { ScrollArea } from '@pi-meme/ui/components/ui/scroll-area'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Input } from '@pi-meme/ui/components/ui/input'
+import { Slider } from '@pi-meme/ui/components/ui/slider'
 import { Popover, PopoverContent, PopoverTrigger } from '@pi-meme/ui/components/ui/popover'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@pi-meme/ui/components/ui/select'
 
@@ -84,7 +85,7 @@ export function ColorControl({
           {value.toUpperCase()}
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="space-y-3" aria-label={`${label}颜色选择器`}>
+      <PopoverContent side="bottom" align="end" className="space-y-3" aria-label={`${label}颜色选择器`}>
         <Input
           type="color"
           aria-label={`${label}拾色器`}
@@ -158,6 +159,56 @@ export function SizeControl({
     </div>
   )
 }
+export function RangeControl({
+  label,
+  value,
+  min,
+  max,
+  step = 1,
+  display,
+  onChange,
+  onReset,
+  customized = false,
+}: {
+  label: string
+  value: number
+  min: number
+  max: number
+  step?: number
+  display: string
+  onChange: (value: number) => void
+  onReset: () => void
+  customized?: boolean
+}) {
+  return (
+    <div className="flex max-w-full items-center gap-2">
+      <Slider
+        aria-label={label}
+        aria-valuetext={display}
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        className="w-32 min-w-0 sm:w-40"
+        onChange={(event) => onChange(Number(event.target.value))}
+      />
+      <output aria-label={`${label}当前值`} className="w-14 shrink-0 text-right text-sm tabular-nums">
+        {display}
+      </output>
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label={`恢复${label}默认值`}
+        title={`恢复${label}默认值`}
+        disabled={!customized}
+        onClick={onReset}
+      >
+        <RotateCcw className="size-3.5" />
+      </Button>
+    </div>
+  )
+}
+
 export function FontControl({
   label,
   value,
@@ -188,7 +239,7 @@ export function FontControl({
   if (code) visible.sort((a, b) => Number(b.monospace) - Number(a.monospace))
   const text =
     !value || value === 'inherit'
-      ? inherit
+      ? value === 'inherit'
         ? '与界面字体相同'
         : '跟随主题'
       : value === system
@@ -202,7 +253,7 @@ export function FontControl({
           <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="space-y-2" aria-label={`${label}选择器`}>
+      <PopoverContent side="bottom" align="end" className="space-y-2" aria-label={`${label}选择器`}>
         <Input
           aria-label={`搜索${label}`}
           placeholder="搜索字体"
@@ -232,7 +283,8 @@ export function FontControl({
         <ScrollArea className="h-60">
           <div role="listbox" aria-label={label}>
             {[
-              { family: inherit ? '与界面字体相同' : '跟随主题', value: undefined },
+              { family: '跟随主题', value: undefined },
+              ...(inherit ? [{ family: '与界面字体相同', value: 'inherit' }] : []),
               { family: '系统', value: system },
               ...visible.map((font) => ({
                 family: font.family,

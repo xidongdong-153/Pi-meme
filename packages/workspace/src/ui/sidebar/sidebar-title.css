@@ -69,12 +69,12 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .sidebar-title {
+  :root:not([data-reduced-motion]) .sidebar-title {
     mask-image: none !important;
     animation: none !important;
   }
 
-  .sidebar-title > span {
+  :root:not([data-reduced-motion]) .sidebar-title > span {
     width: auto !important;
     overflow: hidden !important;
     text-overflow: ellipsis !important;

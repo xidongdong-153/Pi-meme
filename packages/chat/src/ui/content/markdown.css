@@ -129,7 +129,7 @@
 .pi-link:focus-visible {
   outline: 2px solid var(--color-accent);
   outline-offset: 3px;
-  border-radius: 3px;
+  border-radius: calc(var(--radius) * 0.375);
 }
 
 .pi-link-icon {
@@ -164,7 +164,7 @@
 .pi-path-tooltip {
   max-width: min(32rem, calc(100vw - 24px));
   padding: 10px 14px;
-  border-radius: 12px;
+  border-radius: calc(var(--radius) * 1.5);
   text-align: center;
   font-family: var(--font-code);
   line-height: 1.5;
@@ -184,7 +184,7 @@
   max-height: min(480px, var(--radix-popover-content-available-height));
   overflow: auto;
   padding: 0;
-  border-radius: 14px;
+  border-radius: calc(var(--radius) * 1.75);
   font-family: var(--font-content);
   font-size: 13px;
   line-height: 1.5;
@@ -278,7 +278,7 @@
 .pi-link-preview-address button {
   flex-shrink: 0;
   padding: 5px;
-  border-radius: 5px;
+  border-radius: calc(var(--radius) * 0.625);
   cursor: pointer;
 }
 
@@ -348,7 +348,7 @@
   padding: 0.55em 1.1em;
   border-left: 3px solid var(--color-accent);
   background: color-mix(in srgb, var(--color-surface) 60%, transparent);
-  border-radius: 0 8px 8px 0;
+  border-radius: 0 var(--radius) var(--radius) 0;
   color: var(--color-muted);
   font-style: italic;
 }
@@ -361,7 +361,7 @@
 .pi-alert {
   margin: 0 0 0.9em;
   padding: 0.7em 1em;
-  border-radius: 8px;
+  border-radius: var(--radius);
   border-left: 4px solid;
   font-size: inherit;
   line-height: 1.6;
@@ -425,7 +425,7 @@
   font-size: inherit;
   font-family: var(--font-code);
   background: color-mix(in srgb, var(--color-elevated) 80%, transparent);
-  border-radius: 5px;
+  border-radius: calc(var(--radius) * 0.625);
   color: var(--color-accent);
   font-weight: 450;
   border: 1px solid color-mix(in srgb, var(--color-border) 50%, transparent);
@@ -555,7 +555,7 @@
 /* ---- 图片 ---- */
 .pi-img {
   max-width: 100%;
-  border-radius: 8px;
+  border-radius: var(--radius);
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
 }
 

@@ -93,6 +93,15 @@ test('非法颜色、字号、字体及样式被拒绝，对比度只改变层�
   assert.equal(custom.fonts.content, 'Georgia')
   assert.equal(custom.fontStyles?.content, 'italic')
 })
+test('内容字体继承按配置解析，同名字体独立时不继承界面字形', () => {
+  const value = { ...defaultAppearance(), shared: { fontStyles: { ui: 'bold' as const } } }
+  assert.equal(resolveTheme(value, builtinThemes, 'dark').fontStyles?.content, 'bold')
+  const independent = { ...builtinThemes[0], fonts: { ...builtinThemes[0].fonts, content: builtinThemes[0].fonts.ui } }
+  assert.equal(resolveTheme(value, [independent], 'dark').fontStyles?.content, 'regular')
+  const explicit = { ...value, shared: { fonts: { content: 'inherit' }, fontStyles: { ui: 'italic' as const } } }
+  assert.equal(resolveTheme(explicit, [independent], 'dark').fontStyles?.content, 'italic')
+})
+
 test('读取旧配置不写文件，独立保存保留运行配置，导入导出兼容并拒绝重复 ID', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pi-appearance-'))
   try {

@@ -9,6 +9,7 @@ export function applyTheme(theme: Theme) {
   root.style.setProperty('--font-code', theme.fonts.code)
   root.style.setProperty('--theme-space-scale', String(theme.tokens?.spacing ?? 1))
   root.style.setProperty('--radius', `${theme.tokens?.radius ?? 8}px`)
+  root.style.setProperty('--theme-radius-scale', String((theme.tokens?.radius ?? 8) / 8))
   root.style.setProperty('--theme-surface-opacity', `${(theme.tokens?.surfaceOpacity ?? 1) * 100}%`)
   const background = theme.background
   root.dataset.themeBackground = background?.url ? background.area : ''
@@ -35,10 +36,7 @@ export function applyAppearance(
   root.style.setProperty('--font-content', theme.fonts.content ?? theme.fonts.ui)
   root.style.setProperty('--code-size', `${value.codeSize}px`)
   for (const role of ['ui', 'content', 'code'] as const) {
-    const style =
-      theme.fontStyles?.[role] ??
-      (role === 'content' && theme.fonts.content === theme.fonts.ui ? theme.fontStyles?.ui : undefined) ??
-      'regular'
+    const style = theme.fontStyles?.[role] ?? 'regular'
     root.style.setProperty(`--font-${role}-weight`, style.includes('bold') ? '700' : '400')
     root.style.setProperty(`--font-${role}-style`, style.includes('italic') ? 'italic' : 'normal')
   }

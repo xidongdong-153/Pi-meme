@@ -39,8 +39,8 @@
   --space-4: calc(16px * var(--theme-space-scale, 1));
   --space-5: calc(24px * var(--theme-space-scale, 1));
   --space-6: calc(32px * var(--theme-space-scale, 1));
-  --radius-small: 7px;
-  --radius-large: 12px;
+  --radius-small: calc(var(--radius) * 0.875);
+  --radius-large: calc(var(--radius) * 1.5);
   --text-small: 12px;
   --text-ui: 13px;
   --text-body: 14px;
@@ -101,7 +101,11 @@
 }
 
 :root[data-translucent-sidebar='true'] .appearance-sidebar {
-  background: color-mix(in srgb, var(--color-surface) 65%, transparent) !important;
+  background: color-mix(
+    in srgb,
+    var(--color-surface) calc(var(--theme-surface-opacity, 100%) * 0.65),
+    transparent
+  ) !important;
   backdrop-filter: blur(16px);
 }
 
@@ -183,7 +187,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .thought-shimmer {
+  :root:not([data-reduced-motion]) .thought-shimmer {
     background: none !important;
     -webkit-text-fill-color: currentColor !important;
     animation: none !important;
@@ -234,8 +238,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .ui-content-enter,
-  .ui-loading-delayed {
+  :root:not([data-reduced-motion]) .ui-content-enter,
+  :root:not([data-reduced-motion]) .ui-loading-delayed {
     animation: none;
   }
 }

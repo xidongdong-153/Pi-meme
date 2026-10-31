@@ -18,7 +18,7 @@ afterEach(cleanup)
 beforeEach(() => {
   vi.stubGlobal(
     'matchMedia',
-    vi.fn(() => ({ matches: false })),
+    vi.fn(() => ({ matches: false, addEventListener: vi.fn(), removeEventListener: vi.fn() })),
   )
   vi.stubGlobal(
     'ResizeObserver',
@@ -32,6 +32,7 @@ beforeEach(() => {
 
 function setup(loadFonts = vi.fn(async () => fonts), initial = defaultAppearance()) {
   const onAppearance = vi.fn<(value: AppearanceSettings) => void>()
+  const onPreview = vi.fn()
   function Page() {
     const [appearance, setAppearance] = useState(initial)
     return (
@@ -41,7 +42,7 @@ function setup(loadFonts = vi.fn(async () => fonts), initial = defaultAppearance
           onAppearance(next)
           setAppearance(next)
         }}
-        onPreview={() => {}}
+        onPreview={onPreview}
         onFlush={async () => {}}
         onOpenDirectory={() => {}}
         onReload={() => {}}
@@ -56,7 +57,7 @@ function setup(loadFonts = vi.fn(async () => fonts), initial = defaultAppearance
       <Page />
     </StrictMode>,
   )
-  return { loadFonts, onAppearance, user: userEvent.setup() }
+  return { loadFonts, onAppearance, onPreview, user: userEvent.setup() }
 }
 
 test('进入外观页即预读取，严格模式和三个选择器共用请求，加载中仍可选默认项', async () => {
@@ -144,6 +145,41 @@ test('预读取失败只在字体选择器内提示，重试后恢复列表且�
   await waitFor(() => expect(screen.queryByRole('alert')).not.toBeInTheDocument())
   expect(loadFonts).toHaveBeenCalledTimes(2)
   expect(f.onAppearance).not.toHaveBeenCalled()
+})
+
+test('分别编辑时切换模式同步预览，退出页面释放预览', async () => {
+  const f = setup(undefined, { ...defaultAppearance(), separate: true })
+  await f.user.click(screen.getByRole('button', { name: '深色模式' }))
+  expect(f.onPreview).toHaveBeenLastCalledWith('dark')
+  expect(screen.getByRole('button', { name: '编辑深色' })).toHaveAttribute('aria-pressed', 'true')
+  cleanup()
+  expect(f.onPreview).toHaveBeenLastCalledWith(null)
+})
+
+test('跟随系统时外观控件同步明暗变化，不写入配置', async () => {
+  const media = new EventTarget()
+  const query = Object.assign(media, { matches: false })
+  vi.stubGlobal(
+    'matchMedia',
+    vi.fn(() => query),
+  )
+  const f = setup()
+  expect(screen.getByRole('combobox', { name: '外观主题' })).toHaveTextContent('浅色')
+  await act(async () => {})
+  await act(async () => {
+    query.matches = true
+    query.dispatchEvent(new Event('change'))
+  })
+  expect(screen.getByRole('combobox', { name: '外观主题' })).toHaveTextContent('深色')
+  expect(f.onAppearance).not.toHaveBeenCalled()
+})
+
+test('内容字体可在继承界面和跟随主题之间切换，继承选项正确选中', async () => {
+  const f = setup(undefined, { ...defaultAppearance(), shared: { fonts: { content: 'inherit' } } })
+  await f.user.click(screen.getByRole('button', { name: '内容字体' }))
+  expect(screen.getByRole('option', { name: '与界面字体相同' })).toHaveAttribute('aria-selected', 'true')
+  await f.user.click(screen.getByRole('option', { name: '跟随主题' }))
+  expect(f.onAppearance.mock.lastCall?.[0].shared.fonts?.content).toBeUndefined()
 })
 
 test('原生列表不包含已保存字体时保留配置和选择器文字，不自动改写字体', async () => {

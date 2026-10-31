@@ -7,7 +7,7 @@
   margin-bottom: 8px;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--foreground) 14%, var(--background));
-  border-radius: 24px;
+  border-radius: calc(var(--radius) * 3);
   background: color-mix(in srgb, var(--foreground) 8%, var(--background));
   color: var(--foreground);
   font-size: var(--text-ui);
@@ -58,7 +58,7 @@
   height: 26px;
   place-items: center;
   border: 0;
-  border-radius: 6px;
+  border-radius: calc(var(--radius) * 0.75);
   background: transparent;
   cursor: pointer;
 }
@@ -111,7 +111,7 @@
   gap: 10px;
   padding: 4px 8px;
   border: 0;
-  border-radius: 10px;
+  border-radius: calc(var(--radius) * 1.25);
   background: transparent;
   text-align: left;
   cursor: pointer;
@@ -131,7 +131,7 @@
   flex-shrink: 0;
   place-items: center;
   border: 1px solid color-mix(in srgb, var(--foreground) 12%, transparent);
-  border-radius: 5px;
+  border-radius: calc(var(--radius) * 0.625);
   background: color-mix(in srgb, var(--foreground) 5%, transparent);
   color: var(--user-input-muted);
   line-height: 18px;
@@ -184,7 +184,7 @@
   gap: 10px;
   padding: 5px 12px;
   border: 1px solid transparent;
-  border-radius: 12px;
+  border-radius: calc(var(--radius) * 1.5);
 }
 
 .user-input-response:has(.user-input-textarea:focus) {

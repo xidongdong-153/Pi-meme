@@ -160,10 +160,14 @@ export function resolveTheme(
       colors[key] = mix(colors[key], value.contrast > 50 ? colors.text : colors.background, amount)
   }
   const fonts = { ...base.fonts, ...overrides.fonts }
-  if (!fonts.content || fonts.content === 'inherit') fonts.content = fonts.ui
+  const inheritsContent = !fonts.content || fonts.content === 'inherit'
+  if (inheritsContent) fonts.content = fonts.ui
   const fontStyles = { ...base.fontStyles, ...overrides.fontStyles }
-  if (overrides.fonts?.content === 'inherit' && !overrides.fontStyles?.content)
-    fontStyles.content = fontStyles.ui ?? 'regular'
+  fontStyles.content =
+    overrides.fontStyles?.content ??
+    (overrides.fonts?.content === 'inherit' ? undefined : base.fontStyles?.content) ??
+    (inheritsContent ? fontStyles.ui : undefined) ??
+    'regular'
   return {
     ...base,
     colors,

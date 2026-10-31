@@ -9,11 +9,18 @@ import type {
   SettingsSnapshot,
   Theme,
 } from '@pi-meme/contracts/settings'
-import { Slider } from '@pi-meme/ui/components/ui/slider'
 import { Switch } from '@pi-meme/ui/components/ui/switch'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@pi-meme/ui/components/ui/select'
-import { AppearanceGroup, AppearanceRow, Choice, ColorControl, FontControl, SizeControl } from './appearance-controls'
+import {
+  AppearanceGroup,
+  AppearanceRow,
+  Choice,
+  ColorControl,
+  FontControl,
+  RangeControl,
+  SizeControl,
+} from './appearance-controls'
 import {
   defaultAppearance,
   editingOverrides,
@@ -59,9 +66,14 @@ export function ThemeSettings({
   loadFonts: () => Promise<InstalledFont[]>
 }) {
   const value = migrateAppearance(snapshot.settings, snapshot.themes)
-  const [editing, setEditing] = useState<'light' | 'dark'>(() =>
-    resolvedMode(value, window.matchMedia('(prefers-color-scheme: dark)').matches),
-  )
+  const [systemDark, setSystemDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches)
+  const [editing, setEditing] = useState<'light' | 'dark'>(() => resolvedMode(value, systemDark))
+  useEffect(() => {
+    const media = window.matchMedia('(prefers-color-scheme: dark)')
+    const update = () => setSystemDark(media.matches)
+    media.addEventListener('change', update)
+    return () => media.removeEventListener('change', update)
+  }, [])
   const [customAccent, setCustomAccent] = useState(false)
   const [fonts, setFonts] = useState<InstalledFont[]>([])
   const [fontLoading, setFontLoading] = useState(false)
@@ -104,7 +116,7 @@ export function ThemeSettings({
   useEffect(() => {
     callbacks.current.onPreview(value.separate ? editing : null)
   }, [editing, value.separate])
-  const mode = value.separate ? editing : resolvedMode(value, window.matchMedia('(prefers-color-scheme: dark)').matches)
+  const mode = value.separate ? editing : resolvedMode(value, systemDark)
   const overrides = editingOverrides(value, mode)
   const theme = resolveTheme(value, snapshot.themes, mode, false)
   const [resetting, setResetting] = useState(false)
@@ -113,6 +125,16 @@ export function ThemeSettings({
   }
   function override(patch: Partial<AppearanceOverrides>) {
     onAppearance(setOverrides(value, mode, { ...overrides, ...patch }))
+  }
+  function resetToken(key: keyof NonNullable<AppearanceOverrides['tokens']>) {
+    const tokens = { ...overrides.tokens }
+    delete tokens[key]
+    override({ tokens })
+  }
+  function resetBackground(key: 'opacity' | 'blur') {
+    const background = { ...overrides.background }
+    delete background[key]
+    override({ background })
   }
   function color(key: 'background' | 'text' | 'accent', next?: string) {
     const colors = { ...overrides.colors }
@@ -124,9 +146,8 @@ export function ThemeSettings({
     const nextFonts = { ...overrides.fonts }
     const nextStyles = { ...overrides.fontStyles }
     if (next) nextFonts[role] = next
-    else if (role === 'content') nextFonts.content = 'inherit'
     else delete nextFonts[role]
-    if (next) {
+    if (next && next !== 'inherit') {
       const styles = fonts.find((entry) => next.startsWith(JSON.stringify(entry.family)))?.styles
       nextStyles[role] = styles && !styles.includes('regular') ? styles[0] : 'regular'
     } else delete nextStyles[role]
@@ -136,11 +157,7 @@ export function ThemeSettings({
     return (
       <FontControl
         label={label}
-        value={
-          role === 'content'
-            ? (overrides.fonts?.content ?? snapshot.themes.find((entry) => entry.id === theme.id)?.fonts.content)
-            : overrides.fonts?.[role]
-        }
+        value={overrides.fonts?.[role]}
         fonts={fonts}
         loading={fontLoading}
         error={fontError}
@@ -157,10 +174,7 @@ export function ThemeSettings({
     const available = system
       ? fontStyles
       : (fonts.find((entry) => families.includes(entry.family))?.styles ?? ['regular'])
-    const style =
-      theme.fontStyles?.[role] ??
-      (role === 'content' && theme.fonts.content === theme.fonts.ui ? theme.fontStyles?.ui : undefined) ??
-      'regular'
+    const style = theme.fontStyles?.[role] ?? 'regular'
     return (
       <span>
         <Choice
@@ -205,7 +219,10 @@ export function ThemeSettings({
                 variant="outline"
                 aria-label={`${entry === 'system' ? '系统' : entry === 'light' ? '浅色' : '深色'}模式`}
                 aria-pressed={value.mode === entry}
-                onClick={() => change({ mode: entry })}
+                onClick={() => {
+                  setEditing(entry === 'system' ? (systemDark ? 'dark' : 'light') : entry)
+                  change({ mode: entry })
+                }}
                 className={`h-auto flex-col gap-0 rounded-xl border-2 p-1.5 ${value.mode === entry ? 'border-primary' : 'border-border'}`}
               >
                 <span
@@ -335,68 +352,74 @@ export function ThemeSettings({
             {theme.background.url && (
               <img src={theme.background.url} alt={theme.name} className="h-16 w-24 rounded object-cover" />
             )}
-            <label className="flex items-center gap-2 text-sm">
-              透明度
-              <Slider
-                aria-label="背景图透明度"
+          </AppearanceRow>
+        )}
+        {theme.background && (
+          <>
+            <AppearanceRow label="背景图透明度">
+              <RangeControl
+                label="背景图透明度"
                 min={0}
                 max={1}
                 step={0.05}
                 value={theme.background.opacity}
-                onChange={(event) =>
-                  override({ background: { ...overrides.background, opacity: Number(event.target.value) } })
-                }
+                display={`${Math.round(theme.background.opacity * 100)}%`}
+                onChange={(opacity) => override({ background: { ...overrides.background, opacity } })}
+                customized={overrides.background?.opacity !== undefined}
+                onReset={() => resetBackground('opacity')}
               />
-            </label>
-            <label className="flex items-center gap-2 text-sm">
-              模糊
-              <Slider
-                aria-label="背景图模糊"
+            </AppearanceRow>
+            <AppearanceRow label="背景图模糊">
+              <RangeControl
+                label="背景图模糊"
                 min={0}
                 max={32}
                 value={theme.background.blur}
-                onChange={(event) =>
-                  override({ background: { ...overrides.background, blur: Number(event.target.value) } })
-                }
+                display={`${theme.background.blur} px`}
+                onChange={(blur) => override({ background: { ...overrides.background, blur } })}
+                customized={overrides.background?.blur !== undefined}
+                onReset={() => resetBackground('blur')}
               />
-            </label>
-          </AppearanceRow>
+            </AppearanceRow>
+          </>
         )}
-        <AppearanceRow label="间距与圆角">
-          <label className="flex items-center gap-2 text-sm">
-            间距
-            <Slider
-              aria-label="主题间距"
-              min={0.5}
-              max={2}
-              step={0.1}
-              value={theme.tokens?.spacing ?? 1}
-              onChange={(event) => override({ tokens: { ...overrides.tokens, spacing: Number(event.target.value) } })}
-            />
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            圆角
-            <Slider
-              aria-label="主题圆角"
-              min={0}
-              max={24}
-              value={theme.tokens?.radius ?? 8}
-              onChange={(event) => override({ tokens: { ...overrides.tokens, radius: Number(event.target.value) } })}
-            />
-          </label>
-          <label className="flex items-center gap-2 text-sm">
-            面板透明度
-            <Slider
-              aria-label="面板透明度"
-              min={0.4}
-              max={1}
-              step={0.05}
-              value={theme.tokens?.surfaceOpacity ?? 1}
-              onChange={(event) =>
-                override({ tokens: { ...overrides.tokens, surfaceOpacity: Number(event.target.value) } })
-              }
-            />
-          </label>
+        <AppearanceRow label="间距" description="调整内边距和元素间距，保留图标与控件尺寸">
+          <RangeControl
+            label="主题间距"
+            min={0.5}
+            max={2}
+            step={0.1}
+            value={theme.tokens?.spacing ?? 1}
+            display={`${Math.round((theme.tokens?.spacing ?? 1) * 100)}%`}
+            onChange={(spacing) => override({ tokens: { ...overrides.tokens, spacing } })}
+            customized={overrides.tokens?.spacing !== undefined}
+            onReset={() => resetToken('spacing')}
+          />
+        </AppearanceRow>
+        <AppearanceRow label="圆角" description="调整卡片、输入框和按钮；圆形控件保持圆形">
+          <RangeControl
+            label="主题圆角"
+            min={0}
+            max={24}
+            value={theme.tokens?.radius ?? 8}
+            display={`${theme.tokens?.radius ?? 8} px`}
+            onChange={(radius) => override({ tokens: { ...overrides.tokens, radius } })}
+            customized={overrides.tokens?.radius !== undefined}
+            onReset={() => resetToken('radius')}
+          />
+        </AppearanceRow>
+        <AppearanceRow label="面板透明度" description="调整卡片与侧边栏的背景透明度">
+          <RangeControl
+            label="面板透明度"
+            min={0.4}
+            max={1}
+            step={0.05}
+            value={theme.tokens?.surfaceOpacity ?? 1}
+            display={`${Math.round((theme.tokens?.surfaceOpacity ?? 1) * 100)}%`}
+            onChange={(surfaceOpacity) => override({ tokens: { ...overrides.tokens, surfaceOpacity } })}
+            customized={overrides.tokens?.surfaceOpacity !== undefined}
+            onReset={() => resetToken('surfaceOpacity')}
+          />
         </AppearanceRow>
         <AppearanceRow label="字体">{fontControl('ui', '界面字体')}</AppearanceRow>
       </AppearanceGroup>
@@ -447,7 +470,7 @@ export function ThemeSettings({
               ))}
             </div>
           </AppearanceRow>
-          <AppearanceRow label="分别设置浅色和深色模式" description="分别选择主题、颜色和字体">
+          <AppearanceRow label="分别设置浅色和深色模式" description="分别设置主题、颜色、字体和布局；编辑时实时预览">
             <Switch
               label="分别设置浅色和深色模式"
               checked={value.separate}
@@ -476,16 +499,16 @@ export function ThemeSettings({
             />
           </AppearanceRow>
           <AppearanceRow label="对比度" description="调整卡片、边框和辅助文字的层次">
-            <Slider
-              aria-label="对比度"
+            <RangeControl
+              label="对比度"
               min={0}
               max={100}
-              step={1}
               value={value.contrast}
-              onChange={(event) => change({ contrast: Number(event.target.value) })}
-              className="w-40"
+              display={String(value.contrast)}
+              onChange={(contrast) => change({ contrast })}
+              customized={value.contrast !== 50}
+              onReset={() => change({ contrast: 50 })}
             />
-            <output className="w-8 text-right text-sm">{value.contrast}</output>
           </AppearanceRow>
         </AppearanceGroup>
       </div>
