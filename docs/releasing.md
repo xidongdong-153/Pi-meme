@@ -168,7 +168,7 @@ node --import tsx scripts/release.mts checksums
 
 ## GitHub workflow
 
-[release.yml](../.github/workflows/release.yml) 有两个入口：
+[release.yml](../.github/workflows/release.yml) 有两个入口。`main` 分支推送不自动运行 Actions，发布由版本 Tag 单独触发。
 
 - `workflow_dispatch`：执行静态检查、构建与最终包校验，仅上传 Actions artifacts，不创建 Release。
 - 推送 `v*` Tag：执行同样的检查，先创建或更新同一 Tag、同一 commit 的草稿，附件上传并核对完整后自动公开。带 `beta` 等预发布后缀的版本保留 Pre-release 标记，无后缀版本发布为正式版。
@@ -200,7 +200,7 @@ flowchart TD
 
 ## 发布步骤
 
-1. 将 `apps/desktop/package.json` 与 `apps/server/package.json` 的 `version` 改为相同的新版本，例如 `0.1.0-beta.13`。内部私有包不改版。
+1. 将 `apps/desktop/package.json` 与 `apps/server/package.json` 的 `version` 改为相同的新版本，例如 `0.1.0`。内部私有包不改版。
 2. 提交本次代码与版本号，确保工作区干净。Agent 执行提交与推送前仍需展示改动并获得明确确认。
 3. 在仓库根目录执行：
 

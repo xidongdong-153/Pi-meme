@@ -23,7 +23,7 @@ flowchart TD
     A["本地开发"] --> B["全仓类型检查与变更文件 Lint、Format"]
     B --> C["必要的文件级测试"]
     C --> D["报告已通过、未运行与风险"]
-    E["main 推送与 PR"] --> F["Linux：静态检查与全部源码测试"]
+    E["PR 或手动源码检查"] --> F["Linux：静态检查与全部源码测试"]
     G["手动完整验收"] --> H["Linux：静态、源码、Web 与 Server 产物"]
     G --> I["macOS：源码与 Desktop、Server 产物"]
 ```
@@ -214,7 +214,7 @@ pnpm test --feature chat --layer unit,component --coverage
 
 覆盖率输出在 `coverage/`，只统计 Vitest 进程执行的代码，不代表独立 Worker 和产物的完整覆盖率。当前只报告数值，不设全仓百分比门槛。
 
-`main` 推送和 PR 的 [Linux 检查](../.github/workflows/linux.yml) 运行 `pnpm check`、`pnpm test:source`，不运行 Web E2E；功能分支通过 PR 验证，Tag 交给发布 workflow，避免重复触发普通 CI。同一 ref 的新运行取消旧运行。
+PR 或手动触发的 [Linux 检查](../.github/workflows/linux.yml) 运行 `pnpm check`、`pnpm test:source`，不运行 Web E2E；`main` 推送不自动运行 Actions，Tag 交给发布 workflow。同一 ref 的新运行取消旧运行。
 
 [发布 workflow](../.github/workflows/release.yml) 只执行静态检查、构建与最终包校验，不运行源码测试、Web E2E 或产物运行测试。发布构建成功不表示功能验收通过；需要验收时单独触发完整测试。
 

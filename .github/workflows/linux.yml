@@ -1,9 +1,8 @@
 name: Linux Host 与 Web
 
 on:
-  push:
-    branches: [main]
   pull_request:
+  workflow_dispatch:
 
 permissions:
   contents: read
