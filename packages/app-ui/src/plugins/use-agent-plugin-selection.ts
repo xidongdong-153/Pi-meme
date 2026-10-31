@@ -188,8 +188,9 @@ export function useAgentPluginSelection({
     return success
   }
   const mentions = useMemo(
-    () => selected.filter((plugin) => pluginMentions.includes(plugin.id)),
-    [selected, pluginMentions],
+    () =>
+      pluginMentions.map((id) => selected.find((plugin) => plugin.id === id) ?? entries.get(id) ?? { id, name: id }),
+    [selected, pluginMentions, entries],
   )
   return { ids, options, selected, mentions, select, loading, saving, disabledReason, change }
 }

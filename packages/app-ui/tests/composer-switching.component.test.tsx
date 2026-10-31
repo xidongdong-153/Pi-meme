@@ -16,7 +16,11 @@ import type { ComponentProps } from 'react'
 import { emptyChat } from '@pi-meme/chat/ui/model/state'
 import { assistantMessage, streamUpdate, toolResult, userMessage } from '../../../tests/fixtures/messages.mjs'
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  localStorage.clear()
+  sessionStorage.clear()
+})
 
 test('关闭侧边会话卸载控制器时释放焦点和插件输入框，并调用最新回调', () => {
   const bridge = {
@@ -1096,6 +1100,136 @@ test('没有可用模型时保留历史草稿并禁止发送', async () => {
   expect(prompt).not.toHaveBeenCalled()
 })
 
+test('新聊天草稿在重复点击及往返历史会话后保留，项目跟随当前会话', async () => {
+  const newSession = vi.fn<DesktopBridge['newSession']>()
+  const switchSession = vi.fn<DesktopBridge['switchSession']>()
+  const { result, snapshot } = setup({ newSession, switchSession })
+  snapshot.messages = [userMessage('历史正文', 1)]
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  newSession.mockResolvedValue({
+    cancelled: false,
+    snapshot: { ...snapshot, messages: [], connection: { ...snapshot.connection, sessionKey: 'draft', generation: 2 } },
+  })
+  await act(async () => {
+    await result.current.newSession()
+  })
+  act(() => result.current.setDraft('第一行\n第二行'))
+  for (let index = 0; index < 20; index++)
+    await act(async () => {
+      await result.current.newSession()
+    })
+  expect(newSession).toHaveBeenCalledTimes(1)
+  expect(result.current.draft).toBe('第一行\n第二行')
+  switchSession.mockResolvedValue({
+    cancelled: false,
+    snapshot: {
+      ...snapshot,
+      connection: { ...snapshot.connection, cwd: '/project-b', sessionKey: 'history', generation: 3 },
+    },
+  })
+  await act(async () => {
+    await result.current.switchSession('history')
+  })
+  act(() => result.current.setDraft('历史会话自己的草稿'))
+  newSession.mockResolvedValue({
+    cancelled: false,
+    snapshot: {
+      ...snapshot,
+      messages: [],
+      connection: { ...snapshot.connection, cwd: '/project-b', sessionKey: 'draft-b', generation: 4 },
+    },
+  })
+  await act(async () => {
+    await result.current.newSession()
+  })
+  expect(result.current.draft).toBe('第一行\n第二行')
+  expect(result.current.connection.cwd).toBe('/project-b')
+  await act(async () => {
+    await result.current.switchSession('history')
+  })
+  expect(result.current.draft).toBe('历史会话自己的草稿')
+})
+
+test.each([true, false])('新聊天首次发送结算后不会恢复已发送内容或丢失失败内容（成功=%s）', async (success) => {
+  const request = deferred<void>()
+  const { result, snapshot } = setup({ prompt: () => request.promise })
+  snapshot.totalMessages = 0
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  act(() => result.current.setDraft('首次消息'))
+  let sending!: Promise<unknown>
+  act(() => {
+    sending = result.current.send()
+  })
+  await waitFor(() => expect(result.current.draft).toBe(''))
+  await act(async () => {
+    if (success) request.resolve()
+    else request.reject(new Error('请求未接纳'))
+    await sending
+  })
+  expect(result.current.draft).toBe(success ? '' : '首次消息')
+  expect(result.current.isNewChat).toBe(!success)
+})
+
+test('刷新后恢复新聊天草稿与目标，初始历史快照不覆盖输入', async () => {
+  const first = setup({
+    newSession: async () => ({
+      cancelled: false,
+      snapshot: { ...first.snapshot, messages: [], connection: { ...first.snapshot.connection, sessionKey: 'draft' } },
+    }),
+  })
+  first.snapshot.messages = [userMessage('历史', 1)]
+  await waitFor(() => expect(first.result.current.loading).toBe(false))
+  await act(async () => {
+    await first.result.current.newSession()
+  })
+  act(() => first.result.current.setDraft('刷新保留\n第二行'))
+  first.unmount()
+  const restored = setup({
+    newSession: async () => ({
+      cancelled: false,
+      snapshot: {
+        ...restored.snapshot,
+        messages: [],
+        connection: { ...restored.snapshot.connection, sessionKey: 'restored' },
+      },
+    }),
+  })
+  restored.snapshot.messages = [userMessage('历史', 1)]
+  await waitFor(() => expect(restored.result.current.connection.sessionKey).toBe('restored'))
+  expect(restored.result.current.draft).toBe('刷新保留\n第二行')
+  expect(restored.result.current.isNewChat).toBe(true)
+})
+
+test('新聊天项目准备期间保持同一草稿，保留增量文字和已添加附件', async () => {
+  const pending = deferred<SessionSelectionResult>()
+  const { result, snapshot } = setup({ selectWorkspace: () => pending.promise })
+  snapshot.totalMessages = 0
+  await waitFor(() => expect(result.current.loading).toBe(false))
+  act(() => {
+    result.current.setDraft('最初文字')
+    result.current.setAttachments([{ id: 'image', type: 'image', mimeType: 'image/png', data: 'test' }])
+  })
+  let selecting!: Promise<boolean>
+  act(() => {
+    selecting = result.current.newSessionInProject('/project-b')
+  })
+  expect(result.current.draft).toBe('最初文字')
+  expect(result.current.draftEditable).toBe(true)
+  act(() => result.current.setDraft('准备期间继续输入'))
+  await act(async () => {
+    pending.resolve({
+      cancelled: false,
+      snapshot: {
+        ...snapshot,
+        connection: { ...snapshot.connection, cwd: '/project-b', sessionKey: 'b', generation: 2 },
+      },
+    })
+    await selecting
+  })
+  expect(result.current.draft).toBe('准备期间继续输入')
+  expect(result.current.attachments).toHaveLength(1)
+})
+
 test('新建立即显示空白草稿，创建期间输入在确认后保留且原草稿独立', async () => {
   const opening = deferred<SessionSelectionResult>()
   const { result, snapshot } = setup({
@@ -1164,7 +1298,7 @@ test('新建失败保留可编辑草稿，禁止向原会话发送并支持重�
   expect(result.current.draft).toBe('失败也保留这段文字')
 })
 
-test('离开待创建会话后再次新建使用独立请求和草稿，旧确认不影响新输入', async () => {
+test('离开待创建会话后再次新建恢复同一草稿，旧确认不影响新输入', async () => {
   const first = deferred<SessionSelectionResult>()
   const second = deferred<SessionSelectionResult>()
   const newSession = vi
@@ -1191,7 +1325,7 @@ test('离开待创建会话后再次新建使用独立请求和草稿，旧确�
     latest = result.current.newSession()
   })
   expect(newSession).toHaveBeenCalledTimes(2)
-  expect(result.current.draft).toBe('')
+  expect(result.current.draft).toBe('第一次新建输入')
   act(() => result.current.setDraft('第二次新建输入'))
   await act(async () => {
     first.resolve({
@@ -1518,6 +1652,7 @@ test('历史消息替换正在提交时，导航和新建不能取消编辑或�
 test('项目切换期间保留多行草稿，完成后将草稿转移到新项目', async () => {
   const selection = deferred<SessionSelectionResult>()
   const { result, snapshot } = setup({ selectWorkspace: () => selection.promise })
+  snapshot.totalMessages = 0
   await waitFor(() => expect(result.current.loading).toBe(false))
   const draft = '第一行\n第二行\n第三行'
   act(() => result.current.setDraft(draft))

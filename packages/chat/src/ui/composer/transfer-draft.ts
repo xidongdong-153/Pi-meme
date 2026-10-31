@@ -27,6 +27,7 @@ export function transferDraft(composer: ComposerSnapshot, commands: PiSlashComma
   })
   return {
     composer: {
+      ...composer,
       draft,
       ...(composer.planDraft ? { planDraft: composer.planDraft } : {}),
       selectedSkills,

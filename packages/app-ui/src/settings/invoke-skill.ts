@@ -10,8 +10,8 @@ export function appendSkillInvocation(draft: string, prompt?: string) {
 export async function invokeSkillInNewSession(
   session: {
     newSession: () => Promise<boolean>
-    setSelectedSkills: (skills: PiSlashCommand[]) => void
-    setDraft: (draft: string) => void
+    setSelectedSkills: (skills: PiSlashCommand[] | ((previous: PiSlashCommand[]) => PiSlashCommand[])) => void
+    setDraft: (draft: string | ((previous: string) => string)) => void
     focusDraft: () => void
   },
   getCommands: () => Promise<PiSlashCommand[]>,
@@ -22,8 +22,8 @@ export async function invokeSkillInNewSession(
   const commands = await getCommands()
   const command = commands.find((entry) => entry.source === 'skill' && entry.name === `skill:${name}`)
   if (!command) return false
-  session.setSelectedSkills([command])
-  session.setDraft(appendSkillInvocation('', prompt))
+  session.setSelectedSkills((previous) => [...previous, command])
+  session.setDraft((previous) => appendSkillInvocation(previous, prompt))
   session.focusDraft()
   return true
 }

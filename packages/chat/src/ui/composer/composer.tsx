@@ -49,6 +49,7 @@ export type ComposerProps = {
   recoveredInputs?: QueuedInput[]
   onRestoreQueuedInput?: (input: QueuedInput) => void
   sessionKey?: string
+  editorKey?: string
   attachmentContextKey?: string
   uploadAttachment: ChatBridge['uploadAttachment']
   projectPath?: string
@@ -124,6 +125,7 @@ export function Composer({
   recoveredInputs,
   onRestoreQueuedInput,
   sessionKey,
+  editorKey,
   attachmentContextKey,
   uploadAttachment,
   projectPath,
@@ -347,7 +349,7 @@ export function Composer({
           <ComposerEditor
             composerStore={composerStore}
             disabled={editorDisabled}
-            sessionKey={sessionKey}
+            sessionKey={editorKey ?? sessionKey}
             agentPlugins={agentPlugins}
             onPlanCommand={onPlanCommand}
             onGoalCommand={onGoalCommand}

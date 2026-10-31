@@ -27,6 +27,7 @@ export function WorkspaceContent({
   hasConnected,
   switching = false,
   synchronizing = false,
+  isNewChat = false,
   retrySwitch,
   active = true,
   composer,
@@ -43,6 +44,7 @@ export function WorkspaceContent({
   hasConnected: boolean
   switching?: boolean
   synchronizing?: boolean
+  isNewChat?: boolean
   retrySwitch?: () => Promise<boolean>
   active?: boolean
   composer: ReactNode
@@ -68,6 +70,7 @@ export function WorkspaceContent({
     previousView.current = { sessionKey: connection.sessionKey, active }
     if (
       !active ||
+      isNewChat ||
       !connection.sessionKey ||
       (previous.active && (!previous.sessionKey || previous.sessionKey === connection.sessionKey))
     )
@@ -111,14 +114,14 @@ export function WorkspaceContent({
       media?.removeEventListener('change', onMotionChange)
       observer.disconnect()
     }
-  }, [connection.sessionKey, active, switching, hasConversation])
+  }, [connection.sessionKey, active, switching, hasConversation, isNewChat])
   const isStandalone = connection.workspaceKind === 'standalone' || !connection.cwd
   const projectName = (connection.sourceProjectCwd ?? connection.cwd).split(/[\\/]/).filter(Boolean).pop() || '当前项目'
   return (
     <section className="relative flex flex-1 min-h-0 min-w-0 flex-col bg-background" aria-label="工作区">
       {notice}
       <div className="relative flex flex-1 min-h-0 min-w-0 flex-col" aria-busy={switching || synchronizing}>
-        {(synchronizing || retrySwitch) && (
+        {!isNewChat && (synchronizing || retrySwitch) && (
           <div className="absolute right-3 top-2 z-10 text-xs text-muted-foreground" role="status">
             {retrySwitch ? (
               <Button size="sm" variant="ghost" onClick={() => void retrySwitch()}>

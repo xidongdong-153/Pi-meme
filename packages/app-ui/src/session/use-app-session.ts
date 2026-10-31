@@ -24,7 +24,7 @@ import { SessionSelection, type SelectionTransaction } from './session-selection
 import { SessionStreamEvents } from './stream-events'
 import { SnapshotSync } from './snapshot-sync'
 import { PluginSnapshotSync } from './plugin-snapshot-sync'
-import { ComposerDrafts } from './composer-drafts'
+import { ComposerDrafts, newChatDraftKey } from './composer-drafts'
 
 function modelIsAvailable(models: PiModel[], model?: PiModel) {
   return Boolean(model && models.some((entry) => entry.provider === model.provider && entry.id === model.id))
@@ -121,6 +121,23 @@ export function useAppSession(
     )
   }, [hostId, persistDrafts])
   const chatRef = useRef<ReturnType<typeof useChatSession> | null>(null)
+  const newChat = useRef(false)
+  const initializedDraft = useRef(false)
+  const newChatVersion = useRef(0)
+  const [savedNewChatView] = useState(() => drafts.readNewChatView())
+  const restoreNewChat = useRef(savedNewChatView?.active ? savedNewChatView : undefined)
+  const newChatView = useRef(savedNewChatView)
+  const saveNewChatView = (active: boolean, target?: SelectWorkspace) => {
+    const next = {
+      active,
+      target: target ?? newChatView.current?.target ?? { kind: 'standalone' as const },
+      mode: active
+        ? (chatRef.current?.mode ?? newChatView.current?.mode ?? 'default')
+        : (newChatView.current?.mode ?? 'default'),
+    }
+    newChatView.current = next
+    drafts.saveNewChatView(next)
+  }
   const extensionsRef = useRef<ReturnType<typeof useExtensionUI> | null>(null)
   const { sessions, sessionsLoading, refreshSessions, setActiveSession } = useSessions(bridge, workspaceEnabled)
   const snapshotWindow = useCallback((key?: string) => {
@@ -207,6 +224,15 @@ export function useAppSession(
       setThinkingLevels(snapshot.thinkingLevels ?? [])
       statsRequest.current++
       setSessionStats(snapshot.stats ?? null)
+      if (!initializedDraft.current) {
+        initializedDraft.current = true
+        const fresh = snapshot.totalMessages === 0 && !snapshot.messages.length && !snapshot.state.isStreaming
+        if (persistDrafts && fresh && !restoreNewChat.current) {
+          newChat.current = true
+          const saved = drafts.get(newChatDraftKey)
+          if (saved) chatRef.current?.restoreComposer(saved)
+        }
+      }
       setHasConnected(true)
       setLoading(false)
       setActiveSession(snapshot.connection.sessionFile ?? key, key)
@@ -430,7 +456,28 @@ export function useAppSession(
         void refresh()
       }
     },
-    onSendStarted: (key, composer) => drafts.startSend(key, composer),
+    onSendStarted: (key, submitted) => {
+      const composer = { ...chatRef.current?.captureComposer(), ...submitted }
+      const finish = drafts.startSend(key, composer)
+      if (!newChat.current) return finish
+      const version = ++newChatVersion.current
+      newChat.current = false
+      saveNewChatView(false)
+      const pending = drafts.startSend(newChatDraftKey, composer)
+      drafts.set(newChatDraftKey, { draft: '', selectedSkills: [], attachments: [], queueMode: composer.queueMode })
+      return (accepted?: boolean) => {
+        const hasMessage = views.current.get(key)?.chat.messages.some((message) => message.role === 'user')
+        if (!accepted && !hasMessage && newChatVersion.current === version) {
+          drafts.set(newChatDraftKey, composer)
+          if (current.current.sessionKey === key && !selection.current.current && !newChat.current) {
+            newChat.current = true
+            saveNewChatView(true)
+          }
+        }
+        pending()
+        finish()
+      }
+    },
     onSendFailed: (key, composer) => {
       if (!key || key === current.current.sessionKey) void refresh()
       else {
@@ -450,14 +497,24 @@ export function useAppSession(
   const bindDraftSession = useCallback(
     (key: string, sessionId: string) => {
       const saved = drafts.bind(key, sessionId)
-      if (saved && key === current.current.sessionKey && !selection.current.current)
+      if (saved && !newChat.current && key === current.current.sessionKey && !selection.current.current)
         chatRef.current?.restoreComposer(saved)
     },
     [drafts],
   )
   useEffect(() => {
-    const key = preview.current?.draftKey ?? connection.sessionKey
-    if (key && (!switching || preview.current)) drafts.set(key, chat.captureComposer())
+    const key = newChat.current ? newChatDraftKey : (preview.current?.draftKey ?? connection.sessionKey)
+    if (initializedDraft.current && !restoreNewChat.current && key && (!switching || preview.current)) {
+      drafts.set(key, chat.captureComposer())
+      if (newChat.current)
+        saveNewChatView(
+          true,
+          preview.current?.input ??
+            (connection.workspaceKind === 'standalone'
+              ? { kind: 'standalone' }
+              : { kind: 'project', cwd: connection.cwd }),
+        )
+    }
   }, [
     drafts,
     connection.sessionKey,
@@ -475,6 +532,7 @@ export function useAppSession(
     chat.editConfiguration,
     chat.recoveredInputs,
     chat.editingQueue,
+    chat.mode,
   ])
   const extensions = useExtensionUI(bridge, chat.setDraft, () => current.current.sessionKey)
   extensionsRef.current = extensions
@@ -513,8 +571,13 @@ export function useAppSession(
       if (selection.current.current) return
       if (next.generation !== previous.generation || next.sessionKey !== previous.sessionKey) {
         synchronization.current.cancel()
-        if (previous.sessionKey && chatRef.current) drafts.set(previous.sessionKey, chatRef.current.captureComposer())
+        if (previous.sessionKey && chatRef.current)
+          drafts.set(newChat.current ? newChatDraftKey : previous.sessionKey, chatRef.current.captureComposer())
         if (next.sessionKey !== previous.sessionKey) {
+          if (initializedDraft.current) {
+            newChat.current = false
+            saveNewChatView(false)
+          }
           currentRootAgentId.current = undefined
           currentAgentTree.current = []
           setPlanDocuments([])
@@ -768,6 +831,13 @@ export function useAppSession(
     let previousMode = chatRef.current?.mode
     const previous = displayed.current
     const previousPath = previous.sessionFile ?? previous.sessionKey
+    const wasNewChat = newChat.current
+    if (wasNewChat && chatRef.current) drafts.set(newChatDraftKey, chatRef.current.captureComposer())
+    if (previewInput && !wasNewChat) newChatVersion.current++
+    if (!previewInput) {
+      newChat.current = false
+      saveNewChatView(false)
+    }
     const savedComposer = previous.sessionKey && drafts.get(previous.sessionKey)
     const sourcePreview = preview.current
     if (preview.current && chatRef.current) drafts.set(preview.current.draftKey, chatRef.current.captureComposer())
@@ -822,11 +892,13 @@ export function useAppSession(
         }
         return
       }
-      const draftKey = cached?.snapshot.connection.sessionKey ?? `draft:${transaction.id}`
+      const draftKey = previewInput
+        ? newChatDraftKey
+        : (cached?.snapshot.connection.sessionKey ?? `draft:${transaction.id}`)
       previewDraftKey = draftKey
       preview.current = { transaction, draftKey, input: previewInput }
       const nextState: PiState = cached?.snapshot.state ?? {
-        mode: 'default',
+        mode: newChatView.current?.mode ?? 'default',
         model: state?.model,
         isStreaming: false,
         isCompacting: false,
@@ -862,15 +934,28 @@ export function useAppSession(
       chatRef.current?.loadSnapshot(next, null)
       chatRef.current?.restoreChat(cached?.chat ?? { ...emptyChat, goalsSupported: chat.chat.goalsSupported })
       const failedKey = previewInput && failedCreationDrafts.current.get(JSON.stringify(previewInput))
-      const draft = carryDraft
-        ? sourcePreview
-          ? drafts.get(sourcePreview.draftKey)
-          : previousComposer
-        : drafts.get(failedKey || draftKey)
-      if (draft) chatRef.current?.restoreComposer(draft)
-      else chatRef.current?.clearComposer()
+      if (previewInput) {
+        newChat.current = true
+      }
+      const draft =
+        previewInput && !carryDraft
+          ? drafts.get(newChatDraftKey)
+          : carryDraft
+            ? sourcePreview
+              ? drafts.get(sourcePreview.draftKey)
+              : previousComposer
+            : drafts.get(failedKey || draftKey)
+      if (!previewInput || !wasNewChat) {
+        if (draft) chatRef.current?.restoreComposer(draft)
+        else chatRef.current?.clearComposer()
+      }
+      if (previewInput) {
+        const mode = newChatView.current?.mode ?? previousMode ?? 'default'
+        newChatView.current = { active: true, target: previewInput, mode }
+        drafts.saveNewChatView(newChatView.current)
+      }
       setPreviewing(true)
-      extensionsRef.current?.focusDraft()
+      if (!wasNewChat) extensionsRef.current?.focusDraft()
     }
     const pending = (async () => {
       try {
@@ -883,16 +968,7 @@ export function useAppSession(
         }
         showPreview()
         const result = await work()
-        if (!owns()) {
-          if (previewInput && previewDraftKey && !result.cancelled && result.snapshot.connection.sessionKey) {
-            const draft = drafts.get(previewDraftKey)
-            if (draft) drafts.set(result.snapshot.connection.sessionKey, draft)
-            if (result.snapshot.appSession)
-              drafts.bind(result.snapshot.connection.sessionKey, result.snapshot.appSession.sessionId)
-            drafts.delete(previewDraftKey)
-          }
-          return
-        }
+        if (!owns()) return
         if (result.cancelled) {
           if (previewInput) {
             if (previewDraftKey) {
@@ -911,7 +987,7 @@ export function useAppSession(
           return
         }
         let transferred: ReturnType<typeof transferDraft> | undefined
-        if (carryDraft && previousComposer) {
+        if ((carryDraft || previewInput) && previousComposer) {
           const nextCommands = result.commands ?? (await bridge.getCommands())
           if (!owns()) return
           transferred = transferDraft(
@@ -940,18 +1016,18 @@ export function useAppSession(
         preview.current = null
         commitSnapshot(result.snapshot, transaction.events, pluginRevision, modeRevision)
         if (draft) chatRef.current?.restoreComposer(draft)
-        else chatRef.current?.clearComposer()
+        else if (!draft) chatRef.current?.clearComposer()
+        if (previewInput && newChatView.current) chatRef.current?.changeMode(newChatView.current.mode)
         if (previewInput && previewDraftKey) {
-          drafts.delete(previewDraftKey)
           const identity = JSON.stringify(previewInput)
           const failedKey = failedCreationDrafts.current.get(identity)
-          if (failedKey) drafts.delete(failedKey)
+          if (failedKey && failedKey !== newChatDraftKey) drafts.delete(failedKey)
           failedCreationDrafts.current.delete(identity)
         }
-        if (transferred) {
+        if (transferred && !previewInput) {
           if (previousMode) chatRef.current?.changeMode(previousMode)
           if (sourcePreview) {
-            drafts.delete(sourcePreview.draftKey)
+            if (sourcePreview.draftKey !== newChatDraftKey) drafts.delete(sourcePreview.draftKey)
             if (sourcePreview.input) failedCreationDrafts.current.delete(JSON.stringify(sourcePreview.input))
           } else if (previous.sessionKey) drafts.delete(previous.sessionKey)
           setWorkspaceNotice(
@@ -962,9 +1038,9 @@ export function useAppSession(
               .filter(Boolean)
               .join('；'),
           )
-        } else setWorkspaceNotice('')
+        } else setWorkspaceNotice(transferred?.removedSkills ? '部分技能在当前项目不可用，已转为文字' : '')
         succeeded = true
-        extensionsRef.current?.focusDraft()
+        if (!previewInput && !wasNewChat) extensionsRef.current?.focusDraft()
         setRefreshToken((value) => value + 1)
         const generation = result.snapshot.connection.generation
         if (!carryDraft && refreshCommands)
@@ -1045,6 +1121,21 @@ export function useAppSession(
   }
 
   const createSession = (input: SelectWorkspace, carryDraft = false, refreshCommands = true) => {
+    if (actionLock.current || current.current.accessChanging || chatRef.current?.editSubmitting)
+      return Promise.resolve(false)
+    if (
+      newChat.current &&
+      !chat.editing &&
+      !selection.current.current &&
+      !preview.current &&
+      !loading &&
+      !error &&
+      !chat.chat.running &&
+      !chat.chat.messages.length &&
+      ((input.kind === 'standalone' && current.current.workspaceKind === 'standalone') ||
+        (input.kind === 'project' && input.cwd === current.current.cwd))
+    )
+      return Promise.resolve(true)
     const identity = JSON.stringify([input, carryDraft, refreshCommands])
     const existing = pendingCreations.current.get(identity)
     if (existing && selection.current.current === existing.transaction) return existing.promise
@@ -1068,6 +1159,15 @@ export function useAppSession(
     void pending.then(release, release)
     return pending
   }
+  useEffect(() => {
+    if (loading || !initializedDraft.current || !restoreNewChat.current) return
+    const saved = restoreNewChat.current
+    restoreNewChat.current = undefined
+    void createSession(saved.target).then((success) => {
+      if (success && newChat.current && !selection.current.current) chatRef.current?.changeMode(saved.mode)
+    })
+  }, [loading])
+
   const switchSession = (sessionPath: string) => {
     if (selection.current.current?.target === sessionPath && pendingSwitch.current?.target === sessionPath)
       return pendingSwitch.current.promise
@@ -1097,12 +1197,14 @@ export function useAppSession(
   const selectWorkspace = (input: SelectWorkspace) => {
     if (chat.editing || actionLock.current || current.current.accessChanging) return Promise.resolve(false)
     if (
+      newChat.current &&
+      !preview.current &&
       !selection.current.current &&
       ((input.kind === 'standalone' && current.current.workspaceKind === 'standalone') ||
         (input.kind === 'project' && input.cwd === current.current.cwd))
     )
       return Promise.resolve(true)
-    return select(() => bridge.selectWorkspace(input), undefined, true, true, true, input)
+    return createSession(input)
   }
   const chooseDirectory = async () => {
     if (chat.editing || actionLock.current || selection.current.current || current.current.accessChanging) return false
@@ -1214,13 +1316,13 @@ export function useAppSession(
     captureDraft: () => ({ composer: chat.captureComposer(), mode: chat.mode }),
     clearDraft: () => {
       chat.clearComposer()
-      if (current.current.sessionKey) drafts.delete(current.current.sessionKey)
+      drafts.delete(newChat.current ? newChatDraftKey : (current.current.sessionKey ?? ''))
     },
     selectLocation: async (
       input: SelectWorkspace,
       incoming?: { composer: ComposerSnapshot; mode: import('@pi-meme/contracts/plan').TaskMode },
     ) => {
-      const changed = await createSession(input, !incoming, !incoming)
+      const changed = await createSession(input, false, !incoming)
       if (changed && incoming) {
         const expected = { ...current.current }
         const commands = await bridge.getCommands().catch(() => [] as PiSlashCommand[])
@@ -1321,7 +1423,7 @@ export function useAppSession(
           : undefined,
     workspaceDisabledReason: chat.editing
       ? '请先完成或取消历史消息编辑'
-      : acting || switching || connection.accessChanging || loading
+      : acting || (switching && !newChat.current) || connection.accessChanging || loading
         ? '正在切换会话或更新配置，请稍后选择项目'
         : undefined,
     mode: chat.mode,
@@ -1380,13 +1482,18 @@ export function useAppSession(
     historyDetailsDeferred: Boolean(
       connection.sessionKey && views.current.get(connection.sessionKey)?.snapshot.historyDetails === 'deferred',
     ),
+    retryNewChat:
+      newChat.current && preview.current?.input && !switching
+        ? () => createSession(preview.current!.input!)
+        : undefined,
     retrySwitch: failedSwitchPath ? () => switchSession(failedSwitchPath) : undefined,
+    isNewChat: newChat.current,
     workspaceUiKey: preview.current?.draftKey ?? connection.sessionKey ?? 'new',
     cachedChat: (key: string) => views.current.get(key)?.chat,
     synchronizing: switching && previewing,
     navigationBusy: acting || switching,
     inputDisabled,
-    draftEditable: Boolean(preview.current?.input) || !inputDisabled,
+    draftEditable: newChat.current || Boolean(preview.current?.input) || !inputDisabled,
     contentLoading: switching && !previewing,
     loading,
     switching,

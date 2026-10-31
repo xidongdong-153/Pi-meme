@@ -1072,6 +1072,7 @@ export function App({
     recoveredInputs: chat.recoveredInputs,
     onRestoreQueuedInput: chat.restoreQueuedInput,
     sessionKey: chat.connection.sessionKey,
+    editorKey: chat.isNewChat ? 'new-chat' : chat.connection.sessionKey,
     attachmentContextKey: JSON.stringify([chat.editingEntryId, chat.editingQueue]),
     composerStore: chat.composerStore,
     files: chat.composerFiles,
@@ -1216,6 +1217,20 @@ export function App({
       >
         <div className="flex min-w-0 flex-1 items-center gap-1">
           {projectSelector}
+          {chat.retryNewChat && (
+            <button
+              type="button"
+              onClick={() => void chat.retryNewChat?.()}
+              className="shrink-0 text-xs text-destructive underline"
+            >
+              重试准备项目
+            </button>
+          )}
+          {chat.isNewChat && chat.synchronizing && (
+            <span role="status" className="ui-loading-delayed truncate text-xs text-muted-foreground">
+              正在准备项目…
+            </span>
+          )}
           {serviceUI && (
             <LocationSelector
               services={serviceUI.services}
@@ -1396,6 +1411,7 @@ export function App({
       hasConnected={chat.hasConnected || Boolean(chat.connection.sessionKey)}
       switching={chat.contentLoading}
       synchronizing={chat.synchronizing}
+      isNewChat={chat.isNewChat}
       retrySwitch={chat.retrySwitch}
       active={serviceUI?.active ?? true}
       composer={composer}

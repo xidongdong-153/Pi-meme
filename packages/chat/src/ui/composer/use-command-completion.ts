@@ -4,7 +4,7 @@ import * as React from 'react'
 import type { ProjectFile } from '@pi-meme/contracts/desktop'
 import type { KeyboardEvent } from 'react'
 import type { AgentPluginOption, ComposerProps } from './composer'
-import { editorCaret, setEditorCaret } from './rich-draft'
+import { editorCaret, setEditorCaret, setEditorSelection } from './rich-draft'
 import { skillMarker } from '@pi-meme/contracts/skills'
 import { completionQuery } from './completion-query'
 import type { PiSlashCommand } from '@pi-meme/contracts/pi'
@@ -73,7 +73,11 @@ export function useCommandCompletion({
     if (previousFocusVersion.current === focusVersion) return
     previousFocusVersion.current = focusVersion
     editor.current?.focus()
-    if (editor.current) setEditorCaret(editor.current, draftValue.current.length)
+    if (editor.current) {
+      const selection = composerStore?.getSnapshot().selection
+      if (selection) setEditorSelection(editor.current, selection)
+      else setEditorCaret(editor.current, draftValue.current.length)
+    }
   }, [focusVersion])
 
   const query = completionQuery(draft, draftCaret)

@@ -35,6 +35,14 @@ Pi-meme 面向长时间使用聊天、项目和工具面板完成开发任务的
 
 实现入口为 [WorkspacePanels](../packages/app-ui/src/layout/workspace-panels.tsx)、[RetainedToolPanels](../packages/app-ui/src/layout/retained-tool-panels.tsx)、[useSessionSidebar](../packages/app-ui/src/session/use-session-sidebar.ts) 和 [useConversationScroll](../packages/chat/src/ui/conversation/use-conversation-scroll.ts)。
 
+## 新聊天草稿
+
+同一 Host、同一窗口保留一份新聊天草稿。点击新聊天或选择其他项目时复用该草稿；进入历史会话后，显示该会话自己的输入，再返回新聊天时恢复原草稿。顶部新聊天采用当前会话的项目，项目旁入口采用指定项目。
+
+文字与可序列化引用按窗口保存，刷新后恢复；附件只在窗口内保留。首次提交成功后消费对应草稿，失败保留内容，迟到响应不得覆盖后来输入的内容。不同 Host 和窗口的草稿独立。
+
+同目标已就绪时重复点击不重新创建会话、不重播正文入场。新聊天内切项目保持编辑器节点，项目准备信息只在项目控件附近延迟出现；输入仍可编辑，发送等待目标就绪。运行时会话标识继续用于请求、权限、插件与工具归属，不使用编辑器身份替代。
+
 ## 动效参数
 
 | 场景               | 默认效果                                    | 时长  |

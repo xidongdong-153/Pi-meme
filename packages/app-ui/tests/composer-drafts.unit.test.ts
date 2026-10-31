@@ -3,7 +3,7 @@ import { test } from 'vitest'
 import type { ComposerSnapshot } from '@pi-meme/chat/ui/use-chat-session'
 import type { PiSlashCommand } from '@pi-meme/contracts/pi'
 import { skillMarker } from '@pi-meme/contracts/skills'
-import { ComposerDrafts, composerDraftPrefix } from '../src/session/composer-drafts'
+import { ComposerDrafts, composerDraftPrefix, newChatDraftKey } from '../src/session/composer-drafts'
 
 function fixture() {
   const values = new Map<string, string>()
@@ -37,6 +37,22 @@ const composer: ComposerSnapshot = {
   selectedSkills: [skill],
   attachments: [{ id: 'image', type: 'image', mimeType: 'image/png', data: '不应保存的图片数据' }],
 }
+
+test('新聊天无需绑定会话即可恢复，按Host和窗口隔离且不保存附件', () => {
+  const { open } = fixture()
+  const drafts = open()
+  drafts.set(newChatDraftKey, composer)
+  drafts.saveNewChatView({ active: true, target: { kind: 'project', cwd: '/project-b' }, mode: 'plan' })
+  assert.deepEqual(open().get(newChatDraftKey), { ...composer, attachments: [] })
+  assert.deepEqual(open().readNewChatView(), {
+    active: true,
+    target: { kind: 'project', cwd: '/project-b' },
+    mode: 'plan',
+  })
+  assert.equal(open('host-b').get(newChatDraftKey), undefined)
+  assert.equal(open('host-a', 'window-b').get(newChatDraftKey), undefined)
+  assert.equal(open().get('session'), undefined)
+})
 
 test('计划调整文字随同会话草稿保存，刷新恢复且会话之间隔离', () => {
   const { open } = fixture()

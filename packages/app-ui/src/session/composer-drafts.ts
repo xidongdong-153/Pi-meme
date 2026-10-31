@@ -3,6 +3,8 @@ import { thinkingLevels, type PiSlashCommand } from '@pi-meme/contracts/pi'
 import type { MessageConfiguration } from '@pi-meme/contracts/plan'
 
 export const composerDraftPrefix = 'pi-meme:composer:v1:'
+export const newChatDraftKey = 'new-chat'
+
 type DraftStorage = Pick<Storage, 'getItem' | 'setItem' | 'removeItem'>
 
 function windowDraftId() {
@@ -58,8 +60,39 @@ export class ComposerDrafts {
   ) {}
 
   private key(sessionKey: string) {
+    if (sessionKey === newChatDraftKey)
+      return composerDraftPrefix + JSON.stringify([this.hostId, { kind: 'new-chat' }, this.windowId])
     const sessionId = this.identities.get(sessionKey)
     return sessionId ? composerDraftPrefix + JSON.stringify([this.hostId, sessionId, this.windowId]) : undefined
+  }
+
+  private viewKey() {
+    return composerDraftPrefix + JSON.stringify([this.hostId, { kind: 'new-chat-view' }, this.windowId])
+  }
+
+  readNewChatView():
+    | { active: boolean; target: import('@pi-meme/contracts/sessions').SelectWorkspace; mode: 'default' | 'plan' }
+    | undefined {
+    try {
+      const value = JSON.parse(this.storage().getItem(this.viewKey()) ?? 'null')
+      if (typeof value?.active !== 'boolean' || !['default', 'plan'].includes(value.mode)) return
+      if (
+        value.target?.kind !== 'standalone' &&
+        !(value.target?.kind === 'project' && typeof value.target.cwd === 'string')
+      )
+        return
+      return value
+    } catch {
+      // 损坏记录不影响当前窗口使用。
+    }
+  }
+
+  saveNewChatView(value: NonNullable<ReturnType<ComposerDrafts['readNewChatView']>>) {
+    try {
+      this.storage().setItem(this.viewKey(), JSON.stringify(value))
+    } catch {
+      // 存储不可用时继续保留窗口内草稿。
+    }
   }
 
   bind(sessionKey: string, sessionId: string): ComposerSnapshot | undefined {

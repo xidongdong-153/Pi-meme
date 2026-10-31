@@ -195,6 +195,9 @@ export class PluginComposerController implements ComposerAdapter {
     if (!visible) return '当前没有可见的聊天输入框'
     if (chat.inputDisabled || chat.savingQueue) return '当前输入框暂不可提交'
     if (agentPlugins?.saving) return '正在保存 Agent 插件选择'
+    const { pluginMentions } = chat.composerStore.getSnapshot()
+    if (agentPlugins && pluginMentions.some((id) => !agentPlugins.selected.some((plugin) => plugin.id === id)))
+      return '草稿中的部分插件在当前项目尚未启用，请重新选择或移除引用'
     if (chat.composerStore.getSnapshot().composing) return '请先完成输入法组合输入'
     if (chat.composerFiles.isUploading()) return '请等待附件上传完成'
     return this.availabilityReason()

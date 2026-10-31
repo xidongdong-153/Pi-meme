@@ -31,6 +31,7 @@ const emptySkills: PiSlashCommand[] = []
 export type QueueMode = 'steering' | 'followUp'
 
 export type ComposerSnapshot = {
+  selection?: { anchor: number; focus: number } | null
   planDraft?: string
   goalDraft?: true
   draft: string
@@ -62,7 +63,7 @@ export type ChatSessionOptions = {
   /** 编辑期间切换会话时，将结果保存回原会话的窗口草稿。 */
   onBackgroundEdit?: (sessionKey: string, composer: ComposerSnapshot) => void
   /** 请求返回前保留待发送草稿；返回的函数在请求结束后释放保留记录。 */
-  onSendStarted?: (sessionKey: string, composer: ComposerSnapshot) => () => void
+  onSendStarted?: (sessionKey: string, composer: ComposerSnapshot) => (accepted?: boolean) => void
   /** 发送失败并回滚草稿后触发，由 desktop 重新读取快照。 */
   onSendFailed?: (sessionKey: string | undefined, composer: ComposerSnapshot) => void
 }
@@ -687,6 +688,7 @@ export function useChatSession(options: ChatSessionOptions) {
       dismissComposerHint()
       if (!feedback && !planAction)
         composerStore.patch({ draft: '', selectedSkills: [], pluginMentions: [], attachments: [] })
+      let accepted = false
       const clearedRevision = composerStore.getSnapshot().revision
       if (!running) {
         promptPending.current = true
@@ -741,6 +743,7 @@ export function useChatSession(options: ChatSessionOptions) {
             ...(visualization ? { visualization } : {}),
           })
         }
+        accepted = true
         if (planAction && sessionKey === optionsRef.current.currentSessionKey() && generation === currentGeneration())
           changeMode(messageMode)
         return true
@@ -777,7 +780,7 @@ export function useChatSession(options: ChatSessionOptions) {
       } finally {
         if (attachments.length > 0)
           setSendingAttachments((current) => current.filter((item) => !attachments.includes(item)))
-        finishSend?.()
+        finishSend?.(accepted)
       }
     },
     [
@@ -1258,6 +1261,7 @@ export function useChatSession(options: ChatSessionOptions) {
     setPlanDraft,
     captureComposer: () =>
       queueEdit.current?.restore ?? {
+        selection: composerStore.getSnapshot().selection,
         draft,
         goalDraft,
         planDraft,
@@ -1273,6 +1277,7 @@ export function useChatSession(options: ChatSessionOptions) {
             : undefined,
       },
     restoreComposer: (value: ComposerSnapshot) => {
+      composerStore.setSelection(value.selection ?? null)
       releaseQueueEdit()
       setGoalDraft(value.goalDraft)
       setPlanDraft(value.planDraft ?? '')
