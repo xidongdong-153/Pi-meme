@@ -146,7 +146,7 @@ Host 指令在 `config/agent/AGENTS.md`、`config/agent/SYSTEM.md`、`config/age
 
 用户主题保存在 `resources/themes/`，App 主题由插件的 `resources.themes/assets` 分发。主题保持 JSON，背景图来自包内素材，不执行 JavaScript 或任意 CSS；字段和范围见 [结构化主题](plugins.md#结构化主题)。
 
-进入外观页后，三个字体选择器共用后台读取的 Host 字体列表，不等待展开菜单才读取。macOS 通过系统自带的 `osascript` 调用 AppKit，读取中文字体族名、可用样式和等宽属性，不下载或传输字体文件；代码字体优先显示等宽字体。列表由 Host 进程内存缓存，读取失败可重试；安装或移除字体后需重启 Host 更新列表。其他系统保持默认字体选项；枚举结果不包含已保存的字体时，不会改写配置。实现见 [fonts.ts](../packages/settings/src/server/fonts.ts) 与 [theme-settings.tsx](../packages/settings/src/ui/theme-settings.tsx)。
+进入外观页后，三个字体选择器共用后台读取的 Host 字体列表，不等待展开菜单才读取。macOS 通过系统自带的 `osascript` 调用 AppKit；Windows 通过随包原生程序调用 DirectWrite，读取字体族名、字重、斜体和等宽属性，映射为现有四种样式。两者都不下载或传输字体文件；代码字体优先显示等宽字体。列表由 Host 进程内存缓存，读取失败可重试；安装或移除字体后需重启 Host 更新列表。其他系统保持默认字体选项；枚举结果不包含已保存的字体时，不会改写配置。实现见 [fonts.ts](../packages/settings/src/server/fonts.ts) 与 [theme-settings.tsx](../packages/settings/src/ui/theme-settings.tsx)。
 
 ## 凭据
 
@@ -176,11 +176,11 @@ Bash、会话 Worker、MCP 和项目终端继承本机 Host 的 PATH；MCP 显�
 
 默认权限为 `workspace-write`，枚举与说明见 [agent-access.ts](../packages/contracts/src/agent-access.ts)。
 
-| 模式              | 文件写入与执行边界                                                   |
-| ----------------- | -------------------------------------------------------------------- |
-| `read-only`       | 允许读取和联网，拒绝修改业务文件；沙箱临时目录与必要设备仍可写       |
-| `workspace-write` | 允许修改当前工作区和会话临时目录，项目外写入被拒绝；读取和联网不受限 |
-| `full-access`     | 允许项目外写入，普通任务可加载已选择且获准的可信 AppAgent 和 MCP     |
+| 模式              | 文件写入与执行边界                                               |
+| ----------------- | ---------------------------------------------------------------- |
+| `read-only`       | 允许读取和联网，拒绝修改业务文件；沙箱临时目录与必要设备仍可写   |
+| `workspace-write` | 允许修改当前工作区和会话临时目录，项目外写入被拒绝               |
+| `full-access`     | 允许项目外写入，普通任务可加载已选择且获准的可信 AppAgent 和 MCP |
 
 三档权限只控制 Agent 的执行范围，仍受 Host 操作系统的文件授权限制。App 内的“完全权限”不会授予 macOS 的“完全磁盘访问权限”；开发态终端与 Finder 启动的应用也可能具有不同授权。系统提示与处理方法见[首次打开与目录授权的区别](getting-started.md#首次打开与目录授权的区别)。
 
@@ -198,11 +198,21 @@ flowchart TD
 
 macOS 使用 `sandbox-exec`，Linux/WSL2 使用 bubblewrap。Host 启动探测实际隔离能力，通过 `restrictedAccessSupported/restrictedAccessReason` 返回结果；受限 Worker 创建时还验证实际命令。内置权限、工厂或沙箱失效时拒绝受限执行，不自动授予完全权限。设置与历史仍可用。
 
-Windows 本机 Host 未实现受限沙箱和 Agent 受管服务。受限会话与受限插件保持不可用，不自动切换完全权限；本机执行需自行选择完全权限，需要受限执行时连接 macOS/Linux Host。
+Windows 11 x64 本机 Host 使用 PSEC 执行受限命令、插件和 Agent 受管服务。实际能力探测失败时保留原因，不自动切换完全权限。
 
 路径校验与工具执行见 [access-sandbox.ts](../packages/pi-runtime/src/sdk/access-sandbox.ts)，平台选择见 [sandbox-platform.ts](../packages/host/src/sandbox-platform.ts)。Linux namespace、socket 与 WSL 互操作边界见下节。
 
 上表描述内置 Agent 工具的边界，不是 SDK 3 受限插件的读取和联网授权。规划模式拒绝业务写入和可信外部入口，但可使用获准的受限只读插件、只读沙箱命令和默认执行的 MCP 查询；codemode 的每个嵌套调用单独检查。子任务继承父级上限，并按自身真实目录、模式和权限构建执行环境。
+
+### Windows 隔离
+
+原生程序通过微软 MXC SDK 1.0.1 调用 PSEC。最低系统更新为 Windows 11 24H2 的 26100.9278、25H2 的 26200.9278，其他版本见[微软支持表](https://github.com/microsoft/mxc/blob/main/docs/backends/process-container/os-version-support.md)。应用要求原生 `base-container`、路径拒绝与目录元数据枚举能力；不使用修改主机 ACL 的降级后端，也不创建专用账户。
+
+只读命令的可写范围只有会话临时目录；工作区写入额外开放真实项目目录。命令可读取项目、Windows、Program Files 和本次可执行文件的运行时目录；Host 凭据、代理和 Node 注入环境变量不传入子进程。命令允许外部网络出站，禁止入站和接入本机服务；需要本机端口的开发服务需显式选择完全权限。
+
+可写项目不能包含应用原生运行时、应用数据或 Pi 配置目录。原生启动器核对可写目录中的 NTFS 硬链接名称；存在白名单外的名称时拒绝启动，避免修改项目外的同一文件。使用硬链接安装依赖的项目可在独立副本中运行；pnpm 可使用 `pnpm install --offline --package-import-method=copy` 准备复制依赖。只读模式不修改这些文件。junction 目标仍按实际路径限制，取消、超时、控制方退出和主进程结束均清理整个 Job。
+
+受限插件只读取固定 Node、插件目录、私有 scratch 与获准的工作区；原始网络、命名管道和派生进程被拒绝。Windows 工作区写入需同时授权 `workspace.read`；缺少该授权时拒绝启动，不扩大读取权限。协议使用标准输入输出，日志走 stderr，关闭或撤权等待进程树退出。实现见 [Windows 原生后端](../packages/windows-native/native/src/sandbox.rs) 与 [权限接线](../packages/pi-runtime/src/sdk/windows-sandbox.ts)。
 
 ### Linux 与 WSL 隔离
 
@@ -229,7 +239,7 @@ SDK 3 将 `agent/server` 分为 `trusted` 与 `restricted`。可信 Server 是 H
 
 [state/plugins.json（原 installed.json）管理](../packages/plugin-runtime/src/manager.ts) 保存 policyHash、grant revision 与可信入口、UI 能力、受限访问、网络、命名共享数据、发送前处理器的授权。代码或申请变化后旧授权不匹配；SDK 2 记录保留为不兼容，不执行旧入口、不删除私有数据。读取损坏文件时保留原文件并报告，不默认扩大授权。
 
-受限启动器见 [plugin-sandbox.ts](../packages/host/src/plugin-sandbox.ts)，协议与生命周期见 [restricted-runner.ts](../packages/plugin-runtime/src/restricted-runner.ts)。Linux 使用 bubblewrap 的 user/pid/ipc/net namespace 与 seccomp；工作区按权限只读或可写，环境使用白名单，不继承模型 key、代理、SSH socket 或 Node 注入变量。macOS 使用单独的 deny-by-default profile；Windows 原生不支持，WSL Windows 盘工作区拒绝受限插件。不能把 Host 数据根或其私有目录直接授权为插件工作区，Host 管理的 standalone 精确工作目录除外；路径别名先解析 realpath。平台缺少必要能力时拒绝执行，不降级为无沙箱。macOS 签名后 Node/JIT 与沙箱行为需在真实目标产物单独验收，Linux 检查不能代表 macOS 已通过。
+受限启动器见 [plugin-sandbox.ts](../packages/host/src/plugin-sandbox.ts)，协议与生命周期见 [restricted-runner.ts](../packages/plugin-runtime/src/restricted-runner.ts)。Linux 使用 bubblewrap 的 user/pid/ipc/net namespace 与 seccomp；工作区按权限只读或可写，环境使用白名单，不继承模型 key、代理、SSH socket 或 Node 注入变量。macOS 使用单独的 deny-by-default profile；Windows 使用上节的 PSEC 后端，WSL Windows 盘工作区拒绝受限插件。不能把 Host 数据根或其私有目录直接授权为插件工作区，Host 管理的 standalone 精确工作目录除外；路径别名先解析 realpath。平台缺少必要能力时拒绝执行，不降级为无沙箱。macOS 签名后 Node/JIT 与沙箱行为需在真实目标产物单独验收，Linux 检查不能代表 macOS 已通过。
 
 独立插件能力探测见 [plugin-sandbox-probe.ts](../packages/host/src/plugin-sandbox-probe.ts)，结果通过连接的 `restrictedPluginRuntimeSupported/restrictedPluginRuntimeReason` 提供，不能用旧 `restrictedAccessSupported` 的 bash 检查代替。探测运行 Node 并检查工作区读写、边界秘密、TCP/Unix socket、子进程与环境白名单；它不代替真实插件协议、取消和目标产物的专项测试。开发态 Node 准备命令见 [受限 Node 运行时](plugins.md#受限-node-运行时)。
 

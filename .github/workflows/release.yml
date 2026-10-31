@@ -85,6 +85,9 @@ jobs:
       - name: 核对原生构建平台
         run: |
           node --input-type=module -e "import assert from 'node:assert/strict'; assert.equal(process.platform, process.env.PLATFORM); assert.equal(process.arch, process.env.TARGET_ARCH)"
+      - name: 准备 Windows 原生构建工具链
+        if: runner.os == 'Windows'
+        run: rustup toolchain install stable --profile minimal
       - name: 构建 Host 独立包
         if: matrix.product == 'host'
         run: pnpm package:host

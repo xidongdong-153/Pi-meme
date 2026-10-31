@@ -16,14 +16,13 @@ import { bundleFacets } from '@earendil-works/chord/bundler'
 import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
 import { setTimeout as delay } from 'node:timers/promises'
 
-test('Windows 受限插件探测报告平台限制，不要求安装 Unix 沙箱依赖', async () => {
+test('Windows 缺少固定 Node 时拒绝受限插件，不尝试 Unix 沙箱', async () => {
   vi.stubGlobal('process', { ...process, platform: 'win32' })
   try {
     const capability = await probePluginSandbox('C:\\missing\\node.exe')
     assert.equal(capability.supported, false)
-    assert.match(capability.reason ?? '', /Windows.*尚不支持受限插件/)
-    assert.match(capability.reason ?? '', /macOS\/Linux Host/)
-    assert.doesNotMatch(capability.reason ?? '', /ENOENT|EPERM|socket|bwrap/)
+    assert.match(capability.reason ?? '', /ENOENT.*node.exe/)
+    assert.doesNotMatch(capability.reason ?? '', /bwrap|sandbox-exec/)
   } finally {
     vi.unstubAllGlobals()
   }
@@ -285,7 +284,7 @@ test('伪造或超大私有协议帧只关闭该受限实例，不调用 Host br
     for (const malformed of [true, false]) {
       await writeFile(
         path.join(directory, 'agent.js'),
-        `import fs from 'node:fs';export function activate(ctx){ctx.tools.register({name:'bad',title:'坏帧',description:'坏帧',parameters:{type:'object'},effect:'read',capabilities:[],execute:()=>{const body=Buffer.from(JSON.stringify({type:'broker',id:{bad:true},scope:'x',method:'http',input:{}}));const h=Buffer.alloc(4);h.writeUInt32BE(${malformed ? 'body.length' : '4194305'});fs.writeSync(5,${malformed ? 'Buffer.concat([h,body])' : 'h'});return {text:'bad'}}})}`,
+        `import fs from 'node:fs';export function activate(ctx){ctx.tools.register({name:'bad',title:'坏帧',description:'坏帧',parameters:{type:'object'},effect:'read',capabilities:[],execute:()=>{const body=Buffer.from(JSON.stringify({type:'broker',id:{bad:true},scope:'x',method:'http',input:{}}));const h=Buffer.alloc(4);h.writeUInt32BE(${malformed ? 'body.length' : '4194305'});fs.writeSync(${process.platform === 'win32' ? 1 : 5},${malformed ? 'Buffer.concat([h,body])' : 'h'});return {text:'bad'}}})}`,
       )
       const runner = new RestrictedRunner({
         node: process.execPath,

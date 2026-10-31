@@ -1,10 +1,19 @@
 import assert from 'node:assert/strict'
 import { afterEach, beforeEach, test, vi } from 'vitest'
 import { getProjectApps, openProjectInApp } from '../src/main/project-apps'
+import { EventEmitter } from 'node:events'
 
-const mocks = vi.hoisted(() => ({ execute: vi.fn(), realpath: vi.fn(), stat: vi.fn() }))
+const mocks = vi.hoisted(() => ({
+  execute: vi.fn(),
+  realpath: vi.fn(),
+  stat: vi.fn(),
+  windowsApps: vi.fn(),
+  spawn: vi.fn(),
+}))
+vi.mock('../src/main/windows-project-apps', () => ({ windowsProjectApps: mocks.windowsApps }))
 vi.mock('node:child_process', () => ({
   execFile: Object.assign(vi.fn(), { [Symbol.for('nodejs.util.promisify.custom')]: mocks.execute }),
+  spawn: mocks.spawn,
 }))
 vi.mock('node:fs/promises', () => ({ realpath: mocks.realpath, stat: mocks.stat }))
 
@@ -19,13 +28,34 @@ beforeEach(() => {
   mocks.execute.mockResolvedValue(output([]))
   mocks.realpath.mockImplementation(async (value: string) => value)
   mocks.stat.mockResolvedValue({ isDirectory: () => true })
+  mocks.windowsApps.mockResolvedValue([])
 })
 afterEach(() => vi.unstubAllGlobals())
 
-test('Windows 只提供系统文件管理器，不调用 macOS 应用查询', async () => {
+test('Windows 没有已安装编辑器时提供系统文件管理器，不调用 macOS 查询', async () => {
   vi.stubGlobal('process', { ...process, platform: 'win32' })
   assert.deepEqual(await getProjectApps(), [manager])
   await assert.rejects(openProjectInApp('vscode', 'C:\\work\\project'), /未安装或已不可用/)
+  assert.equal(mocks.execute.mock.calls.length, 0)
+})
+
+test('Windows 使用真实编辑器可执行文件与独立参数打开中文空格路径', async () => {
+  vi.stubGlobal('process', { ...process, platform: 'win32' })
+  const executable = 'C:\\Users\\用户\\编辑器 Apps\\Code.exe'
+  mocks.windowsApps.mockResolvedValue([{ id: 'vscode', path: executable }])
+  mocks.spawn.mockImplementation(() => {
+    const child = Object.assign(new EventEmitter(), { unref: vi.fn() })
+    queueMicrotask(() => child.emit('spawn'))
+    return child
+  })
+  assert.deepEqual(await getProjectApps(), [manager, { id: 'vscode', name: 'Visual Studio Code' }])
+  const target = 'D:\\中文 项目 & 引号\\文件.ts'
+  await openProjectInApp('vscode', target)
+  assert.deepEqual(mocks.spawn.mock.calls[0], [
+    executable,
+    [target],
+    { shell: false, windowsHide: true, detached: true, stdio: 'ignore' },
+  ])
   assert.equal(mocks.execute.mock.calls.length, 0)
 })
 

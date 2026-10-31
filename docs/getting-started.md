@@ -29,7 +29,7 @@ paths:
 
 ### 安装 Windows Desktop
 
-安装 Git for Windows，保留 Git 和 bash。下载 `pi-meme-desktop-<版本>-windows-x64.zip` 与同一版本的 `SHA256SUMS`，在 PowerShell 中计算校验值：
+安装 Git for Windows，保留 Git。下载 `pi-meme-desktop-<版本>-windows-x64.zip` 与同一版本的 `SHA256SUMS`，在 PowerShell 中计算校验值：
 
 ```powershell
 Get-FileHash -Algorithm SHA256 "pi-meme-desktop-<版本>-windows-x64.zip"
@@ -39,9 +39,9 @@ Get-FileHash -Algorithm SHA256 "pi-meme-desktop-<版本>-windows-x64.zip"
 
 应用数据默认位于 `%USERPROFILE%\.pi-meme`。升级时完全退出 Desktop，用新版完整目录替换应用文件，保留数据目录。
 
-Windows 本机 Host 尚不支持只读、工作区写入等受限权限、受限插件和 Agent 受管服务。默认受限会话会明确报不可用；运行本机 Agent 需自行选择完全权限，需要受限执行时连接 macOS/Linux Host。项目打开菜单目前只提供系统文件管理器。
+Windows 本机 Host 的只读、工作区写入和受限插件使用原生 PSEC 沙箱，无需管理员账户。需要已更新的 Windows 11 24H2（26100.9278）、25H2（26200.9278）或更新版本；应用启动时探测实际系统能力，不支持时明确报错，不自动改为完全权限。项目中的外部硬链接和应用数据目录等限制见 [Windows 隔离](configuration.md#windows-隔离)。命令与 Agent 项目服务默认使用 PowerShell 7，缺失时使用 Windows PowerShell 5.1。项目打开菜单识别已安装编辑器，外观设置读取 Windows 系统字体。
 
-Windows 入口 Host 尚不支持应用内 SSH 管理，安装 OpenSSH 不会启用该入口。连接已运行的远程 Host 时，在应用内添加其 HTTPS 地址。
+Windows 入口 Host 支持应用内 SSH 管理，需要 Windows 原生 OpenSSH 客户端。缺失时先安装 Windows 可选功能“OpenSSH 客户端”，重启应用；配置和密钥要求见 [Remote](remote.md#ssh-配置和非交互限制)。已运行的远程 Host 也可通过 HTTPS 连接。
 
 ### 安装 macOS Desktop
 
@@ -167,6 +167,8 @@ sudo apt-get install -y git bash bubblewrap
 Windows 浏览器经 localhost 访问 WSL 的开发界面 `http://127.0.0.1:3181` 或正式 Host `http://127.0.0.1:3185`。平台差异仅影响 Host：模型、Git、MCP 与会话留在 Linux；字体列表不枚举 Windows 字体。连接失败见 [Remote 排错](remote.md#排错与验证)。
 
 ### macOS 与 Windows Desktop 开发
+
+Windows 11 x64 源码开发还需要 Rust MSVC 工具链、Visual C++ Build Tools 和 Windows SDK。`pnpm start` 先编译 [Windows 原生程序](../packages/windows-native/native/Cargo.toml)，再启动 Desktop；下载版已包含该程序，不需要安装构建工具。原生构建失败会停止启动，不改用其他进程清理方式。
 
 ```bash
 pnpm start

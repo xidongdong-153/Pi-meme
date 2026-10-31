@@ -5,17 +5,15 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type { Writable } from 'node:stream'
 import { pluginSandboxLaunch } from './plugin-sandbox'
+import { spawnWindowsProcess, WindowsCommandProcess } from '@pi-meme/windows-native/process'
 
 export type PluginSandboxCapability = { supported: boolean; reason?: string }
 const probes = new Map<string, Promise<PluginSandboxCapability>>()
 export function probePluginSandbox(node: string): Promise<PluginSandboxCapability> {
-  if (process.platform !== 'darwin' && process.platform !== 'linux')
+  if (!['darwin', 'linux', 'win32'].includes(process.platform))
     return Promise.resolve({
       supported: false,
-      reason:
-        process.platform === 'win32'
-          ? 'Windows 本机尚不支持受限插件，请连接 macOS/Linux Host 后再启用受限插件。'
-          : `当前平台不支持受限插件：${process.platform}`,
+      reason: `当前平台不支持受限插件：${process.platform}`,
     })
   const key = `${process.platform}:${process.arch}:${node}`
   let pending = probes.get(key)
@@ -29,6 +27,10 @@ async function probe(node: string): Promise<PluginSandboxCapability> {
   const root = await mkdtemp(path.join(tmpdir(), 'pi-plugin-probe-'))
   const tcp = createServer((socket) => socket.destroy())
   const unix = createServer((socket) => socket.destroy())
+  const socketPath =
+    process.platform === 'win32'
+      ? `\\\\.\\pipe\\pi-meme-plugin-probe-${path.basename(root)}`
+      : path.join(root, 'workspace/socket')
   try {
     const workspace = path.join(root, 'workspace')
     const directory = path.join(root, 'plugin')
@@ -42,27 +44,41 @@ async function probe(node: string): Promise<PluginSandboxCapability> {
     })
     await new Promise<void>((resolve, reject) => {
       unix.once('error', reject)
-      unix.listen(path.join(workspace, 'socket'), resolve)
+      unix.listen(socketPath, resolve)
     })
     const address = tcp.address()
     if (!address || typeof address === 'string') throw new Error('沙箱探测端口不可用')
     const entry = path.join(directory, 'probe.mjs')
     await writeFile(
       entry,
-      `import fs from 'node:fs';import net from 'node:net';import cp from 'node:child_process';const denied=async fn=>{try{await fn();return false}catch{return true}};const socket=(value)=>new Promise((resolve,reject)=>{const s=net.connect(value,()=>{s.destroy();resolve()});s.once('error',reject);s.setTimeout(500,()=>{s.destroy();reject(new Error('timeout'))})});console.log(JSON.stringify({read:fs.readFileSync('read','utf8')==='readable',writeDenied:await denied(()=>fs.writeFileSync('write','allowed')),outside:await denied(()=>fs.readFileSync(${JSON.stringify(path.join(root, 'private'))})),tcp:await denied(()=>socket({host:'127.0.0.1',port:${address.port}})),unix:await denied(()=>socket(${JSON.stringify(path.join(workspace, 'socket'))})),fork:await denied(()=>cp.execFileSync(${JSON.stringify(node)},['-e','process.exit(0)'])),env:!process.env.PI_MEME_DATA_ROOT&&!process.env.SSH_AUTH_SOCK&&!process.env.NODE_OPTIONS}));`,
+      `import fs from 'node:fs';import net from 'node:net';import cp from 'node:child_process';const denied=async fn=>{try{await fn();return false}catch{return true}};const socket=(value)=>new Promise((resolve,reject)=>{const s=net.connect(value,()=>{s.destroy();resolve()});s.once('error',error=>${process.platform === 'win32' ? "['EACCES','EPERM'].includes(error.code)?reject(error):resolve()" : 'reject(error)'});s.setTimeout(500,()=>{s.destroy();resolve()})});console.log(JSON.stringify({read:fs.readFileSync('read','utf8')==='readable',writeDenied:await denied(()=>fs.writeFileSync('write','allowed')),outside:await denied(()=>fs.readFileSync(${JSON.stringify(path.join(root, 'private'))})),tcp:await denied(()=>socket({host:'127.0.0.1',port:${address.port}})),unix:await denied(()=>socket(${JSON.stringify(socketPath)})),fork:await denied(()=>cp.execFileSync(${JSON.stringify(node)},['-e','process.exit(0)'])),env:!process.env.PI_MEME_DATA_ROOT&&!process.env.SSH_AUTH_SOCK&&!process.env.NODE_OPTIONS}));`,
     )
     for (const writable of [true, false]) {
       const launch = await pluginSandboxLaunch({ node, entry, workspace, directory, scratch, writable })
+      // Windows 探测不带 Node 权限参数，逐项核对原生隔离。
+      const native = launch.windowsSandbox
+        ? await spawnWindowsProcess(launch.executable, [entry], {
+            env: launch.env,
+            cwd: workspace,
+            sandbox: launch.windowsSandbox,
+          })
+        : undefined
       const result = await new Promise<string>((resolve, reject) => {
-        const child = spawn(launch.executable, launch.args, {
-          env: launch.env,
-          cwd: workspace,
-          detached: true,
-          stdio: ['ignore', 'pipe', 'pipe', 'pipe'],
-        })
+        const child = native
+          ? new WindowsCommandProcess(native)
+          : spawn(launch.executable, launch.args, {
+              env: launch.env,
+              cwd: workspace,
+              detached: true,
+              stdio: ['ignore', 'pipe', 'pipe', 'pipe'],
+            })
         let output = ''
         let error = ''
         const timer = setTimeout(() => {
+          if (child instanceof WindowsCommandProcess) {
+            child.native.kill()
+            return
+          }
           if (child.pid) {
             try {
               process.kill(-child.pid, 'SIGKILL')
@@ -77,9 +93,12 @@ async function probe(node: string): Promise<PluginSandboxCapability> {
         child.stderr!.on('data', (b: Buffer) => {
           error = (error + b.toString()).slice(-2048)
         })
-        const fd = child.stdio[3] as Writable
-        fd.on('error', () => {})
-        fd.end(launch.seccomp)
+        if (child instanceof WindowsCommandProcess) child.stdin.end()
+        else {
+          const fd = child.stdio[3] as Writable
+          fd.on('error', () => {})
+          fd.end(launch.seccomp)
+        }
         child.once('error', (cause) => {
           clearTimeout(timer)
           reject(cause)
@@ -100,7 +119,7 @@ async function probe(node: string): Promise<PluginSandboxCapability> {
         !value.fork ||
         !value.env
       )
-        throw new Error('受限进程读写、秘密、网络或进程边界探测失败')
+        throw new Error(`受限进程读写、秘密、网络或进程边界探测失败：${JSON.stringify(value)}`)
       if (writable && (await readFile(path.join(workspace, 'write'), 'utf8')) !== 'allowed')
         throw new Error('受限工作区写入探测失败')
     }

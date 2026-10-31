@@ -16,7 +16,7 @@ export function create(context: Context): InlineExtension[] {
           name: 'manage_service',
           label: '管理项目服务',
           description:
-            'Manage long-running project services owned by the current session. Call list before start to avoid duplicates. Start a foreground command for Web/API previews; do not use &, nohup, daemon mode, or attach an existing PID. Use bash for finite builds and tests. Services survive the assistant reply; do not restart a user-stopped service without explicit permission. A running process or detected URL does not prove application readiness. logs returns only a bounded tail and may be truncated. Unavailable in Plan mode; startup supports macOS and Linux Hosts and obeys the current access policy.',
+            '管理当前会话的长期项目服务。启动前先 list，避免重复启动。command 必须在前台运行，不能使用后台或 daemon 模式，也不能接管已有 PID。Windows command 使用 PowerShell 语法，macOS/Linux 使用 bash。有限构建和测试使用对应命令工具。服务在 Agent 回复后继续运行；用户主动停止的服务未经明确要求不能重启。进程运行或检测到 URL 不代表应用已就绪。logs 只返回有限尾部日志，可能截断。Plan 模式不可用，启动遵守当前权限。',
           parameters: Type.Object(
             {
               action: Type.Union(
@@ -47,6 +47,13 @@ export function create(context: Context): InlineExtension[] {
                     'Optional service working directory. Relative paths resolve from the session working directory; omitted means that directory.',
                 }),
               ),
+              timeout: Type.Optional(
+                Type.Integer({
+                  minimum: 1,
+                  maximum: 2147483,
+                  description: '服务运行时限，单位为秒；不传则持续运行。超时后停止整棵进程树。',
+                }),
+              ),
               serviceId: Type.Optional(
                 Type.String({
                   minLength: 1,
@@ -67,6 +74,7 @@ export function create(context: Context): InlineExtension[] {
                 name: input.name,
                 command: input.command,
                 cwd: input.cwd,
+                timeout: input.timeout,
                 requestId: toolCallId,
               }
             } else if (input.action === 'list') request = { action: 'list' }

@@ -22,6 +22,7 @@
     "./sdk/session": "./src/sdk/session.ts",
     "./sdk/access-sandbox": "./src/sdk/access-sandbox.ts",
     "./sdk/managed-process": "./src/sdk/managed-process.ts",
+    "./sdk/command-shell": "./src/sdk/command-shell.ts",
     "./extensions/agent-access": "./src/extensions/agent-access.ts",
     "./sdk/linux-sandbox": "./src/sdk/linux-sandbox.ts",
     "./sdk/app-agent": "./src/sdk/app-agent.ts",
@@ -31,6 +32,7 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
+    "@pi-meme/windows-native": "workspace:*",
     "@earendil-works/pi-agent-core": "1.3.0",
     "@earendil-works/pi-coding-agent": "1.3.0",
     "@pi-meme/contracts": "workspace:*",

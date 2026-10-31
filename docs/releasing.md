@@ -142,7 +142,7 @@ Forge 在 `packageAfterExtract` 从本次解压的 Electron 发行包取原始 `
 
 构建成功仍需检查真实 `.app` 和 ZIP，不能只看 Forge 退出码。正式应用关闭 RunAsNode 和 Node 调试 Fuse，产物测试直接启动应用可执行文件。不要通过重新打包、重签名或修改 Fuse 来修补待上传的已验收应用。应用 bundle ID 固定为 `io.github.xidongdong153.pi-meme`。
 
-Windows x64 在原生 Windows、Node.js 24.14.0 下构建，不能复用 macOS/Linux 的依赖或跨平台打包：
+Windows x64 在原生 Windows、Node.js 24.14.0 下构建，还需要 Rust MSVC、Visual C++ Build Tools 和 Windows SDK，不能复用 macOS/Linux 的依赖或跨平台打包：
 
 ```powershell
 pnpm package --arch x64
@@ -152,7 +152,9 @@ node --import tsx scripts/release.mts desktop
 
 应用位于 `apps/desktop/out/Pi meme-win32-x64/`，最终 ZIP 位于 `out/release/pi-meme-desktop-<版本>-windows-x64.zip`，使用现有 [Forge ZIP maker](https://www.electronforge.io/config/makers/zip)。Forge 从本次 Electron 发行包复制许可到 `resources/`；发布脚本解压最终 ZIP，检查版本、commit、平台、架构、许可、`app.asar`、[x64 PE 可执行文件](https://learn.microsoft.com/en-us/windows/win32/debug/pe-format)及固定 Node 运行时。Windows 运行时使用[官方归档](https://nodejs.org/dist/v24.14.0/) `node-v24.14.0-win-x64.zip`，按官方 SHASUMS256 清单校验后复制 `node.exe`，不以 Electron RunAsNode 代替。
 
-Windows 本机受限权限、受限插件和 Agent 受管服务尚不可用。现有 macOS Desktop 产物运行测试不作为 Windows 验收；发布前需人工检查首次打开、文件选择、Git for Windows/bash、终端、本机完全权限会话以及连接远程 Host。
+Forge 在 Windows 构建前编译 `packages/windows-native/native`，复制原生程序到 `resources/runtime/bin/pi-meme-windows.exe`，依赖许可写入 `resources/runtime/WINDOWS_NATIVE_LICENSES.txt`；发布校验同时检查原生程序的 x64 PE 头。
+
+Windows 本机受限权限与受限插件尚不可用。现有 macOS Desktop 产物运行测试不作为 Windows 验收；发布前需人工检查首次打开、文件选择、Git、PowerShell、终端、本机完全权限会话、项目服务、编辑器打开、系统字体与 SSH 连接。
 
 ### 汇总
 

@@ -98,6 +98,8 @@ Python 3 缺失、运行描述损坏、目录或凭据权限错误、协议或�
 
 ### SSH 配置和非交互限制
 
+Windows 优先使用 `%SystemRoot%\System32\OpenSSH\ssh.exe`，其次探测 PATH 中的原生 Windows OpenSSH；不使用 Git/MSYS 的 SSH 替代。配置发现读取入口用户的 `~/.ssh/config`，支持 Windows 盘符、反斜杠和中文空格路径。应用预检身份文件是否存在且可读，由 OpenSSH 校验密钥 ACL；权限过宽时明确报错，不自动修改文件权限。配置预检、远端准备和隧道进程都加入独立 Job，取消时一并清理代理子进程。
+
 - 配置发现只提取具体 `Host` 名称，过滤通配符和否定模式，递归读取 `Include` 并限制深度、文件数和累计大小。`Host`/`Match` 条件内的内容也只是候选，不求值条件，不代表该别名此刻一定生效。
 - 发现列表不运行 `ssh -G`，也不逐一探测主机。用户启用某条连接后，才由系统 OpenSSH 做该目标的有效配置预检；有效配置包含额外 `LocalForward`、`RemoteForward` 或 `DynamicForward` 时拒绝连接，需使用不含额外转发的别名。
 - SSH 配置属于入口 Host 用户信任的配置。连接预检和建通可能执行其中的 `Match exec`、`ProxyCommand` 等命令；不要导入不可信 SSH 配置。应用禁止本次连接的 `LocalCommand`、`RemoteCommand`、agent/X11 转发和共享 ControlMaster，不因此把其余 SSH 配置当作安全沙箱。

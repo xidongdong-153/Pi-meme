@@ -69,7 +69,7 @@ Worker 创建时固定技能资源快照与外部插件代次。资源变更发�
 
 ## 当前活动：项目服务
 
-Agent 通过内置 `manage_service` 工具启动常驻项目服务，例如 `pnpm run start:web`。工具提供 `start`、`list`、`logs`、`stop`；构建、测试等短命令仍使用 `bash`。启动命令须前台运行，不使用 `&`、`nohup` 或自行脱离进程组的 daemon；不接管已有 PID。
+Agent 通过内置 `manage_service` 工具启动常驻项目服务，例如 `pnpm run start:web`。工具提供 `start`、`list`、`logs`、`stop`；构建、测试等短命令使用 Windows 的 `powershell` 或 macOS/Linux 的 `bash`。启动命令须前台运行，不使用后台运行、`nohup` 或 daemon；不接管已有 PID。`start` 可传正整数 `timeout`，单位为秒；不传则持续运行，超时后停止整棵进程树。
 
 服务归属正式根会话，子 Agent 启动的服务也显示在根会话，并标明来源。Host 从真实 Worker 校验来源、权限和任务模式，受限服务仍使用原工作区的沙箱授权。规划模式不能调用该工具。
 
@@ -79,7 +79,7 @@ Agent 本轮结束、停止响应、Worker 回收、切换会话、关闭工具�
 
 停止先请求进程组退出，超时后强制清理；确认清理完成才显示已停止。进程存活只表示“运行中”，不代表 HTTP 已就绪。断线保留最后快照并标记状态待确认，重连后重新读取。远程 Host 的回环地址只能代表 Host 本机，不提供端口转发。
 
-运行记录和日志保留在 Host 内存，不在重启后恢复服务。日志尾部有大小上限，不持续发送给模型。Host 被强制终止、系统崩溃或程序主动脱离管理时，不保证所有平台都没有残留进程，也不会按保存的旧 PID 盲目终止其他进程。第一版受管执行支持 macOS 和 Linux/WSL，未支持的平台明确拒绝启动。
+运行记录和日志保留在 Host 内存，不在重启后恢复服务。日志尾部有大小上限，不持续发送给模型。受管执行支持 macOS、Linux/WSL 和 Windows 11 x64。Windows 通过随包原生程序在创建进程时加入 Job，禁止 breakaway，控制管道断开或 Job 最后一个句柄关闭时终止关联进程；完全权限服务停止时先尝试 `CTRL_BREAK`，三秒后强制终止。受限服务使用 PSEC，并直接终止其 Job；文件与网络边界见 [Windows 隔离](configuration.md#windows-隔离)。其他平台被强制终止、系统崩溃或程序主动脱离管理时，不保证没有残留进程；应用不会按保存的旧 PID 盲目终止其他进程。
 
 实现见 [活动服务](../packages/activities/src/server/service.ts)、[Agent 工具](../packages/activities/src/agent/entry.ts)、[活动面板](../packages/activities/src/ui/activity-panel.tsx) 和 [活动契约](../packages/contracts/src/service-activity.ts)。
 

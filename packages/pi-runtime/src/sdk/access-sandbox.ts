@@ -7,6 +7,10 @@ import { linuxSandboxLaunch } from './linux-sandbox'
 import { serviceProcessEnvironment, spawnManagedProcess, type ManagedProcess } from './managed-process'
 import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
 import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
+import { spawnWindowsProcess, type WindowsSandboxPolicy } from '@pi-meme/windows-native/process'
+import { windowsSandboxEnvironment, windowsRuntimeReadPaths } from '@pi-meme/windows-native/sandbox'
+import { windowsSandboxPolicy } from './windows-sandbox'
+import { windowsNodeExecutable } from '@pi-meme/windows-native/runtime'
 
 export type AccessSandboxOptions = {
   mode: Exclude<AgentAccessMode, 'full-access'>
@@ -53,7 +57,13 @@ export interface AccessSandboxOperations {
   writeFile: (target: string, content: string, signal?: AbortSignal) => Promise<void>
 }
 
-export type SandboxLaunch = { executable: string; args: string[]; seccomp?: Buffer; hiddenRoots?: string[] }
+export type SandboxLaunch = {
+  executable: string
+  args: string[]
+  seccomp?: Buffer
+  hiddenRoots?: string[]
+  windows?: WindowsSandboxPolicy
+}
 
 export function pathWithin(root: string, value: string) {
   const relative = path.relative(root, value)
@@ -103,6 +113,7 @@ class SandboxProcess implements AccessSandboxOperations {
   private readonly running = new Set<() => void>()
   private readonly executions = new Set<Promise<unknown>>()
   private readonly managed = new Set<Promise<unknown>>()
+  private stopGeneration = 0
 
   constructor(
     private readonly mode: AccessSandboxOptions['mode'],
@@ -139,7 +150,52 @@ class SandboxProcess implements AccessSandboxOperations {
     return result
   }
 
+  private async startWindows(executable: string, args: string[], options: { cwd: string; env?: NodeJS.ProcessEnv }) {
+    const generation = this.stopGeneration
+    const starting = (async () => {
+      const child = await spawnWindowsProcess(executable, args, {
+        cwd: await realpath(options.cwd),
+        env: windowsSandboxEnvironment(this.temporary, options.env),
+        sandbox: {
+          ...this.launch.windows!,
+          read: [...this.launch.windows!.read, ...(await windowsRuntimeReadPaths(executable))],
+        },
+      })
+      if (generation !== this.stopGeneration) {
+        await child.stop()
+        throw new Error('受限进程启动已取消')
+      }
+      this.running.add(child.kill)
+      this.executions.add(child.completion)
+      void child.completion
+        .finally(() => {
+          this.running.delete(child.kill)
+          this.executions.delete(child.completion)
+        })
+        .catch(() => {})
+      return child
+    })()
+    this.executions.add(starting)
+    try {
+      return await starting
+    } finally {
+      this.executions.delete(starting)
+    }
+  }
+
   async startStdio(executable: string, args: string[], options: { cwd: string; env?: NodeJS.ProcessEnv }) {
+    if (this.launch.windows) {
+      const child = await this.startWindows(executable, args, options)
+      return {
+        stdin: child.stdin,
+        stdout: child.stdout,
+        stderr: child.stderr,
+        completion: child.completion.then(() => {}),
+        stop: async () => {
+          await child.stop()
+        },
+      }
+    }
     const cwd = await realpath(options.cwd)
     const launchArgs = [...this.launch.args]
     if (this.launch.seccomp) launchArgs[launchArgs.indexOf('--chdir') + 1] = cwd
@@ -194,6 +250,14 @@ class SandboxProcess implements AccessSandboxOperations {
   }
 
   async startManaged(executable: string, args: string[], options: Pick<SandboxRunOptions, 'cwd' | 'env' | 'onData'>) {
+    if (this.launch.windows) {
+      const child = await this.startWindows(executable, args, options)
+      child.stdin.on('error', () => {})
+      child.stdin.end()
+      child.stdout.on('data', options.onData)
+      child.stderr.on('data', options.onData)
+      return child
+    }
     const cwd = await realpath(options.cwd)
     const launchArgs = [...this.launch.args]
     if (this.launch.seccomp) launchArgs[launchArgs.indexOf('--chdir') + 1] = cwd
@@ -212,6 +276,33 @@ class SandboxProcess implements AccessSandboxOperations {
 
   /** 在沙箱里运行进程；取消、超时和进程退出都会终止整个进程组。 */
   async run(executable: string, args: string[], options: SandboxRunOptions): Promise<{ exitCode: number }> {
+    if (this.launch.windows) {
+      if (options.signal?.aborted) throw new Error('aborted')
+      const child = await this.startWindows(executable, args, options)
+      let timedOut = false
+      const kill = child.kill
+      const timer = options.timeout
+        ? setTimeout(() => {
+            timedOut = true
+            kill()
+          }, options.timeout * 1000)
+        : undefined
+      options.signal?.addEventListener('abort', kill, { once: true })
+      if (options.signal?.aborted) kill()
+      child.stdout.on('data', options.onData)
+      child.stderr.on('data', options.onData)
+      child.stdin.on('error', () => {})
+      child.stdin.end(options.input)
+      try {
+        const result = await child.completion
+        if (options.signal?.aborted) throw new Error('aborted')
+        if (timedOut) throw new Error(`timeout:${options.timeout}`)
+        return { exitCode: result.exitCode ?? 1 }
+      } finally {
+        clearTimeout(timer)
+        options.signal?.removeEventListener('abort', kill)
+      }
+    }
     const cwd = await realpath(options.cwd)
     const execution = new Promise<{ exitCode: number }>((resolve, reject) => {
       if (options.signal?.aborted) return reject(new Error('aborted'))
@@ -280,6 +371,7 @@ class SandboxProcess implements AccessSandboxOperations {
   }
 
   async stopAll() {
+    this.stopGeneration++
     for (const kill of this.running) kill()
     await Promise.allSettled([...this.executions, ...this.managed])
   }
@@ -316,11 +408,27 @@ class SandboxProcess implements AccessSandboxOperations {
 
   async mkdir(target: string, signal?: AbortSignal) {
     await this.assertWritable(target)
+    if (this.launch.windows)
+      return this.fileCommand(
+        this.launch.executable,
+        ['-e', 'require("node:fs").mkdirSync(process.argv[1],{recursive:true})', target],
+        target,
+        undefined,
+        signal,
+      )
     await this.fileCommand('/bin/mkdir', ['-p', target], target, undefined, signal)
   }
 
   async writeFile(target: string, content: string, signal?: AbortSignal) {
     await this.assertWritable(target)
+    if (this.launch.windows)
+      return this.fileCommand(
+        this.launch.executable,
+        ['-e', 'require("node:fs").writeFileSync(process.argv[1],require("node:fs").readFileSync(0))', target],
+        target,
+        content,
+        signal,
+      )
     await this.fileCommand('/usr/bin/tee', [target], target, content, signal)
   }
 
@@ -364,30 +472,38 @@ export const AccessSandbox = {
       launch = { executable: '/usr/bin/sandbox-exec', args: ['-p', profile] }
     } else if (process.platform === 'linux') {
       launch = await linuxSandboxLaunch({ ...options, cwd, temporary })
+    } else if (process.platform === 'win32') {
+      launch = {
+        executable: await windowsNodeExecutable(),
+        args: [],
+        windows: await windowsSandboxPolicy({ ...options, cwd, temporary }),
+      }
     } else throw new Error(`当前平台不支持受限权限：${process.platform}`)
     const sandbox = new SandboxProcess(options.mode, cwd, temporary, launch, protectedRoot)
     let diagnostic = ''
-    const result = await sandbox.run('/usr/bin/true', [], {
-      cwd,
-      onData: (chunk) => {
-        diagnostic = (diagnostic + chunk.toString()).slice(-4096)
+    const result = await sandbox.run(
+      process.platform === 'win32' ? launch.executable : '/usr/bin/true',
+      process.platform === 'win32' ? ['-e', 'process.exit(0)'] : [],
+      {
+        cwd,
+        onData: (chunk) => {
+          diagnostic = (diagnostic + chunk.toString()).slice(-4096)
+        },
+        timeout: 5,
       },
-      timeout: 5,
-    })
-    if (result.exitCode !== 0) throw new Error(`沙箱启动检查失败：${diagnostic || result.exitCode}`)
+    )
+    if (result.exitCode !== 0)
+      throw new Error(`沙箱启动检查失败（${result.exitCode}）：${diagnostic.trim() || '进程未返回诊断'}`)
     return sandbox
   },
 }
 
 /** 同时验证白名单写入、越界拒绝和 Linux socket 过滤，失败保留系统诊断。 */
 export async function probeAccessSandbox(): Promise<SandboxCapability> {
-  if (process.platform !== 'darwin' && process.platform !== 'linux')
+  if (!['darwin', 'linux', 'win32'].includes(process.platform))
     return {
       supported: false,
-      reason:
-        process.platform === 'win32'
-          ? 'Windows 本机尚不支持受限权限。运行本机会话需手动选择完全权限；需要只读或工作区写入权限时，请连接 macOS/Linux Host。'
-          : `当前平台不支持受限权限：${process.platform}`,
+      reason: `当前平台不支持受限权限：${process.platform}`,
     }
   let directory: string | undefined
   let sandbox: AccessSandboxOperations | undefined
@@ -416,7 +532,12 @@ export async function probeAccessSandbox(): Promise<SandboxCapability> {
           diagnostic = (diagnostic + chunk.toString()).slice(-4096)
         },
       })
-    const denied = await run('/usr/bin/tee', [path.join(outside, 'original')])
+    const denied = await run(
+      process.platform === 'win32' ? await windowsNodeExecutable() : '/usr/bin/tee',
+      process.platform === 'win32'
+        ? ['-e', 'require("node:fs").writeFileSync(process.argv[1],"forbidden")', path.join(outside, 'original')]
+        : [path.join(outside, 'original')],
+    )
     if (denied.exitCode === 0 || (await readFile(path.join(outside, 'original'), 'utf8')) !== 'original')
       throw new Error('项目外写入未被隔离')
     if (process.platform === 'linux') {
@@ -450,7 +571,9 @@ export async function probeAccessSandbox(): Promise<SandboxCapability> {
     const guidance =
       process.platform === 'linux'
         ? '请检查 bubblewrap、seccomp 和系统 namespace 策略后重启服务'
-        : '请检查 sandbox-exec 和系统沙箱策略后重启服务'
+        : process.platform === 'win32'
+          ? '请检查 Windows 更新与原生 PSEC 沙箱后重启服务'
+          : '请检查 sandbox-exec 和系统沙箱策略后重启服务'
     return {
       supported: false,
       reason: `受限权限不可用：${diagnostic}；${guidance}`,

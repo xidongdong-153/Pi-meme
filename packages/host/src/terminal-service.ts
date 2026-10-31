@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto'
 import { createRequire } from 'node:module'
-import process from 'node:process'
+import path from 'node:path'
 import xterm from '@xterm/headless'
 import { SerializeAddon } from '@xterm/addon-serialize'
 import type { MutationOptions, TerminalRef, TerminalSnapshot, WorkspaceRef } from '@pi-meme/contracts/app-host'
@@ -89,7 +89,10 @@ export class TerminalService {
       throw new Error('服务最多同时运行 16 个终端，请先关闭不用的实例')
     const cwd = await this.options.resolveRoot(root)
     const command =
-      input.command ?? (process.platform === 'win32' ? 'powershell.exe' : (process.env.SHELL ?? '/bin/sh'))
+      input.command ??
+      (process.platform === 'win32'
+        ? path.win32.join(process.env.SystemRoot || 'C:\\Windows', 'System32/WindowsPowerShell/v1.0/powershell.exe')
+        : (process.env.SHELL ?? '/bin/sh'))
     if (typeof command !== 'string' || !command.trim() || command.includes('\0')) throw new Error('终端命令无效')
     const dimensions = size(input.cols, input.rows)
     const env: NodeJS.ProcessEnv = { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor' }

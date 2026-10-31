@@ -6,6 +6,7 @@ import { TerminalService, type PtyProcess } from '../src/terminal-service'
 test('Windows 默认终端忽略 Unix SHELL，显式命令仍按原值执行', async () => {
   vi.stubGlobal('process', { ...process, platform: 'win32' })
   vi.stubEnv('SHELL', '/bin/zsh')
+  vi.stubEnv('SystemRoot', 'C:\\Windows')
   const spawn = vi.fn<(command: string) => PtyProcess>(() => ({
     write() {},
     resize() {},
@@ -23,7 +24,7 @@ test('Windows 默认终端忽略 Unix SHELL，显式命令仍按原值执行', a
     const root = { hostId: 'windows', projectId: 'project' }
     await service.open(root, {})
     await service.open(root, { command: 'C:\\Program Files\\Git\\bin\\bash.exe' })
-    assert.equal(spawn.mock.calls[0][0], 'powershell.exe')
+    assert.equal(spawn.mock.calls[0][0], 'C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe')
     assert.equal(spawn.mock.calls[1][0], 'C:\\Program Files\\Git\\bin\\bash.exe')
   } finally {
     await service.dispose()

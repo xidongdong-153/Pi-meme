@@ -1,4 +1,6 @@
-import { spawn, type ChildProcess } from 'node:child_process'
+import { execFile, spawn, type ChildProcess, type SpawnOptions } from 'node:child_process'
+import { promisify } from 'node:util'
+import { WindowsCommandProcess, spawnWindowsProcess } from '@pi-meme/windows-native/process'
 import { access, stat } from 'node:fs/promises'
 import { constants } from 'node:fs'
 import { createConnection, createServer } from 'node:net'
@@ -8,6 +10,27 @@ import { setTimeout as delay } from 'node:timers/promises'
 import type { SshConnectionInput } from '@pi-meme/contracts/ssh-connections'
 
 type SshTarget = Pick<SshConnectionInput, 'target' | 'port' | 'identityFile'>
+const execute = promisify(execFile)
+export type SshProcess = ChildProcess | WindowsCommandProcess
+
+export async function spawnSshProcess(
+  executable: string,
+  args: string[],
+  options: SpawnOptions,
+  run?: typeof spawn,
+): Promise<SshProcess> {
+  if (process.platform === 'win32' && !run) {
+    const child = new WindowsCommandProcess(
+      await spawnWindowsProcess(executable, args, {
+        cwd: String(options.cwd ?? process.cwd()),
+        env: options.env ?? process.env,
+      }),
+    )
+    if (Array.isArray(options.stdio) && options.stdio[0] === 'ignore') child.stdin.end()
+    return child
+  }
+  return (run ?? spawn)(executable, args, options)
+}
 
 export class SshError extends Error {
   constructor(
@@ -23,17 +46,26 @@ export type SshTunnelStarter = (connection: SshTarget, remotePort: number, signa
 
 export function sshUnavailableReason() {
   return process.platform === 'win32'
-    ? 'Windows 入口 Host 尚不支持应用内 SSH 管理，可通过 HTTPS 连接已运行的远程 Host。'
+    ? '未找到 Windows 原生 OpenSSH，请安装 Windows 可选功能“OpenSSH 客户端”后重启应用。'
     : '本机服务未找到系统 OpenSSH，请安装后重试'
 }
 
 export async function findSshExecutable(): Promise<string | undefined> {
-  if (process.platform === 'win32') return undefined
-  for (const directory of (process.env.PATH ?? '/usr/bin:/bin').split(path.delimiter)) {
+  const directories = [
+    ...(process.platform === 'win32' && process.env.SystemRoot
+      ? [path.join(process.env.SystemRoot, 'System32/OpenSSH')]
+      : []),
+    ...(process.env.PATH ?? '/usr/bin:/bin').split(path.delimiter),
+  ]
+  for (const directory of directories) {
     if (!path.isAbsolute(directory)) continue
-    const file = path.join(directory, 'ssh')
+    const file = path.join(directory, process.platform === 'win32' ? 'ssh.exe' : 'ssh')
     try {
       await access(file, constants.X_OK)
+      if (process.platform === 'win32') {
+        const version = await execute(file, ['-V'], { timeout: 5000, windowsHide: true, maxBuffer: 8192 })
+        if (!/^OpenSSH_for_Windows_/m.test(version.stdout + version.stderr)) continue
+      }
       return file
     } catch {
       // PATH 中不可执行的候选不作为 ssh 使用。
@@ -42,6 +74,8 @@ export async function findSshExecutable(): Promise<string | undefined> {
 }
 
 export function sshFailure(stderr: string) {
+  if (/UNPROTECTED PRIVATE KEY FILE|Permissions for .* too open|bad permissions.*key/i.test(stderr))
+    return new SshError('identity-permissions', 'SSH 私钥文件权限过宽，请在本机检查该文件的 Windows ACL 后重试')
   if (/REMOTE HOST IDENTIFICATION HAS CHANGED|Host key verification failed|No .*host key is known/i.test(stderr))
     return new SshError('host-key', 'SSH 主机指纹未受信任或已变化，请先在本机终端核实')
   if (/Permission denied|no supported authentication|sign_and_send_pubkey|agent refused/i.test(stderr))
@@ -86,7 +120,11 @@ function signalGroup(pid: number, signal: NodeJS.Signals | 0) {
     throw new SshError('ssh-cleanup', '无法清理 SSH 进程组，请检查本机进程权限')
   }
 }
-export async function stopChild(child: ChildProcess, send: SignalGroup = signalGroup) {
+export async function stopChild(child: SshProcess, send: SignalGroup = signalGroup) {
+  if (child instanceof WindowsCommandProcess) {
+    await child.native.stop()
+    return
+  }
   if (child.pid === undefined) return
   // ssh 与它创建的代理命令均属于本应用独立进程组，不使用用户共享 Master。
   if (!send(child.pid, 'SIGTERM')) return
@@ -144,6 +182,7 @@ export function sshArguments(connection: SshTarget) {
 }
 
 type SshValidationOptions = {
+  configFile?: string
   spawn?: typeof spawn
   executable?: () => Promise<string | undefined>
   signalGroup?: SignalGroup
@@ -155,7 +194,6 @@ export async function validateSshConnection(
   signal: AbortSignal,
   options: SshValidationOptions = {},
 ) {
-  const run = options.spawn ?? spawn
   const send = options.signalGroup ?? signalGroup
   signal.throwIfAborted()
   const executable = await (options.executable ?? findSshExecutable)()
@@ -171,12 +209,20 @@ export async function validateSshConnection(
     }
     signal.throwIfAborted()
   }
-  const base = sshArguments(connection)
-  const config = run(executable, ['-G', ...base, '--', connection.target], {
-    shell: false,
-    detached: true,
-    stdio: ['ignore', 'pipe', 'pipe'],
-  })
+  if (options.configFile && !path.isAbsolute(options.configFile))
+    throw new SshError('ssh-config', 'SSH 配置路径必须是绝对路径')
+  const base = [...(options.configFile ? ['-F', options.configFile] : []), ...sshArguments(connection)]
+  const config = await spawnSshProcess(
+    executable,
+    ['-G', ...base, '--', connection.target],
+    {
+      shell: false,
+      detached: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+      windowsHide: true,
+    },
+    options.spawn,
+  )
   let configStopping: Promise<void> | undefined
   const stopConfig = () => (configStopping ??= stopChild(config, send))
   const abortConfig = () => {
@@ -184,6 +230,7 @@ export async function validateSshConnection(
   }
   let preflightTimeout: ReturnType<typeof setTimeout> | undefined
   signal.addEventListener('abort', abortConfig, { once: true })
+  if (signal.aborted) abortConfig()
   let output = ''
   let stderr = ''
   config.stdout?.on('data', (chunk: Buffer) => {
@@ -201,6 +248,12 @@ export async function validateSshConnection(
       }, options.preflightTimeoutMs ?? 10000)
       config.once('error', () => reject(new SshError('ssh-unavailable', '无法启动系统 OpenSSH')))
       config.once('close', (code) => (code === 0 ? resolve() : reject(sshFailure(stderr))))
+      if (config.exitCode !== null) {
+        setImmediate(() => {
+          if (config.exitCode === 0) resolve()
+          else reject(sshFailure(stderr))
+        })
+      }
     })
     signal.throwIfAborted()
     if (/^(?:localforward|remoteforward|dynamicforward)\s+(?!none(?:\s|$))/im.test(output))
@@ -220,7 +273,6 @@ export function createSshTunnelStarter(
     ready?: (port: number) => Promise<boolean>
   } = {},
 ): SshTunnelStarter {
-  const run = options.spawn ?? spawn
   const send = options.signalGroup ?? signalGroup
   return async (connection, remotePort, signal) => {
     const { executable, args: base } = await validateSshConnection(connection, signal, options)
@@ -228,10 +280,11 @@ export function createSshTunnelStarter(
       signal.throwIfAborted()
       const port = await (options.allocatePort ?? unusedPort)()
       signal.throwIfAborted()
-      const child = run(
+      const child = await spawnSshProcess(
         executable,
         ['-N', ...base, '-L', `127.0.0.1:${port}:127.0.0.1:${remotePort}`, '--', connection.target],
-        { shell: false, detached: true, stdio: ['ignore', 'pipe', 'pipe'] },
+        { shell: false, detached: true, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] },
+        options.spawn,
       )
       let failure: SshError | undefined
       let errors = ''

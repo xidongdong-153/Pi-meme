@@ -38,7 +38,7 @@ async function fixture(available = true) {
   }
 }
 
-test('Windows SSH 能力接口返回平台限制和 HTTPS 连接提示', async () => {
+test('Windows 缺少 OpenSSH 时能力接口返回安装提示', async () => {
   const f = await fixture(false)
   vi.stubGlobal('process', { ...process, platform: 'win32' })
   try {
@@ -56,8 +56,8 @@ test('Windows SSH 能力接口返回平台限制和 HTTPS 连接提示', async (
     const { result } = await response.json()
     assert.equal(result.canManage, true)
     assert.equal(result.available, false)
-    assert.match(result.reason, /Windows.*HTTPS/)
-    assert.doesNotMatch(result.reason, /未找到|请安装/)
+    assert.match(result.reason, /OpenSSH 客户端/)
+    assert.doesNotMatch(result.reason, /尚不支持|HTTPS/)
   } finally {
     vi.unstubAllGlobals()
     await f.dispose()

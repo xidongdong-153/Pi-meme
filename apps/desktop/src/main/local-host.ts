@@ -125,6 +125,9 @@ export function acquireDesktopHost(options: { entry: string; env: NodeJS.Process
       PI_MEME_PLUGIN_ENTRY: app.isPackaged
         ? path.join(process.resourcesPath, 'runtime/restricted-entry.mjs')
         : (options.env.PI_MEME_PLUGIN_ENTRY ?? ''),
+      ...(app.isPackaged && process.platform === 'win32'
+        ? { PI_MEME_WINDOWS_NATIVE: path.join(process.resourcesPath, 'runtime/bin/pi-meme-windows.exe') }
+        : {}),
     })
   return acquireLocalHost({
     url: localHostUrl(port),

@@ -4,6 +4,11 @@ import path from 'node:path'
 import { unixSocketFilter, windowsMounts } from '@pi-meme/pi-runtime/sdk/linux-sandbox'
 import type { RestrictedLaunchOptions, RestrictedLaunch } from '@pi-meme/plugin-runtime/restricted-runner'
 import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
+import {
+  requireWindowsSandbox,
+  windowsRuntimeReadPaths,
+  windowsSandboxEnvironment,
+} from '@pi-meme/windows-native/sandbox'
 
 function within(root: string, value: string) {
   const relative = path.relative(root, value)
@@ -41,6 +46,25 @@ export async function pluginSandboxLaunch(options: RestrictedLaunchOptions): Pro
     entry,
   ]
   const env: NodeJS.ProcessEnv = { HOME: scratch, TMPDIR: scratch, LANG: 'C.UTF-8', PATH: '/usr/bin:/bin' }
+  if (process.platform === 'win32') {
+    await requireWindowsSandbox()
+    if (options.writable && dataRoot && within(workspace, dataRoot))
+      throw new Error('sandbox-unavailable: Windows 受限写入的项目不能包含应用数据目录')
+    if (options.writable && options.readable === false)
+      throw new Error('sandbox-unavailable: Windows 受限插件写入工作区需同时授权 workspace.read')
+    return {
+      executable: node,
+      args: nodeArgs,
+      env: windowsSandboxEnvironment(scratch),
+      windowsSandbox: {
+        read: [...reads, ...(await windowsRuntimeReadPaths(node))],
+        write: [scratch, ...(options.writable ? [workspace] : [])],
+        deny: dataRoot && within(workspace, dataRoot) ? [dataRoot] : [],
+        allowNetwork: false,
+        allowChildren: false,
+      },
+    }
+  }
   if (process.platform === 'linux') {
     await access('/usr/bin/bwrap')
     const drives = windowsMounts(await readFile('/proc/self/mountinfo', 'utf8'))

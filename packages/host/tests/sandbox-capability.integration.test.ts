@@ -50,7 +50,7 @@ for (const reason of [
   })
 }
 
-test('默认工作区会话的子代理沿用同一沙箱，bash 和 codemode 都不能越界写入', { timeout: 30000 }, async () => {
+test('默认工作区会话的子代理沿用同一沙箱，命令和 codemode 都不能越界写入', { timeout: 30000 }, async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'host-child-sandbox-'))
   const outside = path.join(root, 'outside.txt')
   await writeFile(outside, 'original')
@@ -65,8 +65,13 @@ test('默认工作区会话的子代理沿用同一沙箱，bash 和 codemode �
         if (childStep === 1)
           return {
             tool: {
-              name: 'bash',
-              arguments: JSON.stringify({ command: `echo forbidden > ${JSON.stringify(outside)}` }),
+              name: process.platform === 'win32' ? 'powershell' : 'bash',
+              arguments: JSON.stringify({
+                command:
+                  process.platform === 'win32'
+                    ? `Set-Content -LiteralPath '${outside.replaceAll("'", "''")}' -Value forbidden`
+                    : `echo forbidden > ${JSON.stringify(outside)}`,
+              }),
             },
           }
         if (childStep === 2)
@@ -124,7 +129,11 @@ test('默认工作区会话的子代理沿用同一沙箱，bash 和 codemode �
     const childSnapshot = await rpc<Snapshot>('pi:agent-snapshot', [child.agentId])
     assert.ok(
       childSnapshot.messages.some(
-        (message) => message.role === 'toolResult' && message.toolName === 'bash' && message.isError,
+        (message) =>
+          message.role === 'toolResult' &&
+          message.toolName === (process.platform === 'win32' ? 'powershell' : 'bash') &&
+          message.isError &&
+          /denied|拒绝|权限|EPERM|EACCES/i.test(JSON.stringify(message)),
       ),
     )
     assert.ok(

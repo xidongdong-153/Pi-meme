@@ -23,6 +23,7 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
+    "@pi-meme/windows-native": "workspace:*",
     "@earendil-works/pi-coding-agent": "1.3.0",
     "@hono/node-server": "2.1.5",
     "@pi-meme/activities": "workspace:*",
@@ -58,7 +59,8 @@
     "@pi-meme/schedules": "workspace:*",
     "@pi-meme/browser": "workspace:*",
     "@pi-meme/image-generation": "workspace:*",
-    "@pi-meme/visualize": "workspace:*"
+    "@pi-meme/visualize": "workspace:*",
+    "@pi-meme/sandbox-windows": "workspace:*"
   },
   "devDependencies": {
     "@earendil-works/chord": "1.1.0",

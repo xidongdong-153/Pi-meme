@@ -36,6 +36,13 @@ export interface TestSuite {
 }
 
 const files: Array<[string, Feature[]]> = [
+  ['apps/desktop/tests/windows-runtime.artifact.test.ts', ['desktop', 'terminal', 'settings']],
+  ['packages/windows-native/tests/windows-process.integration.test.ts', ['desktop', 'activities', 'permissions']],
+  ['packages/windows-native/tests/windows-plugin-sandbox.integration.test.ts', ['plugins', 'permissions']],
+  ['packages/pi-runtime/tests/windows-sandbox.integration.test.ts', ['permissions', 'plan']],
+  ['packages/activities/tests/windows-service.integration.test.ts', ['activities', 'permissions']],
+  ['packages/settings/tests/windows-fonts.unit.test.ts', ['settings']],
+  ['packages/host/tests/windows-ssh.integration.test.ts', ['connection']],
   ['packages/host/tests/visualize.integration.test.ts', ['chat', 'plan', 'permissions']],
   ['packages/visualize/tests/store.integration.test.ts', ['chat', 'plan']],
   ['packages/app-ui/tests/linked-file-panel.component.test.tsx', ['chat', 'files']],
@@ -361,6 +368,12 @@ export const suites: TestSuite[] = files.map(([file, features]) => {
     features,
     layer,
     target,
-    ...(target === 'desktop' ? { platforms: ['darwin'] as NodeJS.Platform[] } : {}),
+    ...(target === 'desktop'
+      ? {
+          platforms: [
+            file === 'apps/desktop/tests/windows-runtime.artifact.test.ts' ? 'win32' : 'darwin',
+          ] as NodeJS.Platform[],
+        }
+      : {}),
   }
 })

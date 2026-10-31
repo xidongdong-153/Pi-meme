@@ -163,6 +163,19 @@ jsdom 不计算布局；测试环境补 Radix 需要的指针捕获和滚动方�
 
 ## 环境、报告与完整验收
 
+Windows 原生基础验证先运行 `pnpm --filter @pi-meme/windows-native build:native`，再分别选择 `packages/windows-native/tests/windows-process.integration.test.ts`、`packages/activities/tests/windows-service.integration.test.ts` 和 `packages/host/tests/windows-ssh.integration.test.ts`。这些测试使用临时目录和测试进程，不读取真实 SSH 密钥；OpenSSH 测试需要 Windows 原生客户端。
+
+PSEC 验证需要满足 [Windows 系统要求](configuration.md#windows-隔离)。选择 `packages/windows-native/tests/windows-plugin-sandbox.integration.test.ts` 验证不带 Node 权限参数的文件、网络、环境与派生进程限制；选择 `packages/pi-runtime/tests/windows-sandbox.integration.test.ts` 验证两档权限、junction、硬链接和后代清理。完整 Plan 与插件接线分别选择 `packages/pi-runtime/tests/plan-mode.integration.test.ts` 和 `packages/host/tests/plugin-restricted-runner.integration.test.ts`。系统能力不足应报错，不能用完全权限替代或把失败记成通过。
+
+Windows 包验收选择 `apps/desktop/tests/windows-runtime.artifact.test.ts`，需要先准备同版本的 Windows ZIP。测试解压到中文空格目录，通过真实包检查固定 Node、Host、Worker、ConPTY、PowerShell 5.1、Plan 强制只读、工作区写入和受限 Agent/Server。它不操作桌面界面，也不代替窗口和编辑器的人工检查。
+
+已经完成打包时，在 PowerShell 中设置测试入口已有的产物变量，避免再次触发 `package`：
+
+```powershell
+$env:PI_DESKTOP_PACKAGED_APP = (Resolve-Path 'apps/desktop/out/Pi meme-win32-x64/Pi meme.exe').Path
+pnpm test --file apps/desktop/tests/windows-runtime.artifact.test.ts
+```
+
 仅在用户明确要求相应验收时运行：
 
 ```bash

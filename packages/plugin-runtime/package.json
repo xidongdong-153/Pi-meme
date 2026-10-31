@@ -13,6 +13,7 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
+    "@pi-meme/windows-native": "workspace:*",
     "@earendil-works/chord": "1.1.0",
     "@pi-meme/contracts": "workspace:*",
     "@pi-meme/plugin-sdk": "workspace:*",

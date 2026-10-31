@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process'
 import { setTimeout as delay } from 'node:timers/promises'
 import type { Writable } from 'node:stream'
+import { spawnWindowsProcess } from '@pi-meme/windows-native/process'
 
 export type ManagedProcessExit = { exitCode: number | null; signal: string | null }
 export type ManagedProcess = {
@@ -21,6 +22,13 @@ export async function spawnManagedProcess(
   args: string[],
   options: ManagedProcessOptions,
 ): Promise<ManagedProcess> {
+  if (process.platform === 'win32') {
+    const child = await spawnWindowsProcess(executable, args, { cwd: options.cwd, env: options.env })
+    child.stdout.on('data', options.onData)
+    child.stderr.on('data', options.onData)
+    child.stdin.end()
+    return { completion: child.completion, stop: child.stop, kill: child.kill }
+  }
   if (process.platform !== 'darwin' && process.platform !== 'linux')
     throw new Error(`当前平台不支持受管服务：${process.platform}`)
   const child = spawn(executable, args, {
@@ -147,5 +155,9 @@ export function serviceProcessEnvironment(env?: NodeJS.ProcessEnv) {
   delete result.NODE_PATH
   delete result.BASH_ENV
   delete result.ENV
+  if (process.platform === 'win32') {
+    for (const key of Object.keys(result))
+      if (/^(?:NODE_OPTIONS|NODE_PATH|BASH_ENV|ENV)$/i.test(key)) delete result[key]
+  }
   return result
 }

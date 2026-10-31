@@ -21,10 +21,14 @@ async function eventually<T>(read: () => Promise<T>, ready: (value: T) => boolea
 
 test(
   'Agent 通过 Worker 启动服务，回复结束后持续；显式 API 停止不请求模型且可补读状态',
-  { timeout: 30000, skip: process.platform === 'win32' },
+  { timeout: 30000 },
   async () => {
     const root = await realpath(await mkdtemp(path.join(tmpdir(), 'pi-service-api-')))
-    const command = `${JSON.stringify(process.execPath)} -e ${JSON.stringify("console.log('SERVICE_READY');setInterval(()=>{},1000)")}`
+    const source = "console.log('SERVICE_READY');setInterval(()=>{},1000)"
+    const command =
+      process.platform === 'win32'
+        ? `& '${process.execPath.replaceAll("'", "''")}' -e '${source.replaceAll("'", "''")}'`
+        : `${JSON.stringify(process.execPath)} -e ${JSON.stringify(source)}`
     const fake = await useFakeAgent(root, {
       reply: (_body, index) =>
         index === 1 || index === 3

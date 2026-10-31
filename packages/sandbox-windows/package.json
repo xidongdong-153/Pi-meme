@@ -1,0 +1,18 @@
+{
+  "name": "@pi-meme/sandbox-windows",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./server/entry": "./src/server/entry.ts",
+    "./agent/entry": "./src/agent/entry.ts"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@pi-meme/contracts": "workspace:*",
+    "@pi-meme/plugin-sdk": "workspace:*",
+    "@pi-meme/pi-runtime": "workspace:*"
+  }
+}

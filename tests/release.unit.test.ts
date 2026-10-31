@@ -291,11 +291,13 @@ test('Windows 发布包检查可执行文件、Node 运行时与平台元数据'
       'LICENSES.chromium.html',
       'app.asar',
       'runtime/bin/node.exe',
+      'runtime/WINDOWS_NATIVE_LICENSES.txt',
       'runtime/LICENSE',
       'runtime/restricted-entry.mjs',
     ])
       await writeFile(path.join(resources, name), 'fixture')
     await writeFile(path.join(root, 'Pi meme.exe'), executable)
+    await writeFile(path.join(resources, 'runtime/bin/pi-meme-windows.exe'), executable)
     await writeFile(path.join(resources, 'release.json'), JSON.stringify(metadata))
     await writeFile(path.join(resources, 'runtime/runtime.json'), JSON.stringify(runtime))
     await checkWindowsDesktop(root)

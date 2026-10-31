@@ -67,6 +67,7 @@ import { projectAgentConversation } from '../agent-conversation'
 import { projectBranchEntries } from '../session-tree-entries'
 import { projectBranchAttachments } from '../session-attachments'
 import { createAgentAccessExtension } from '../extensions/agent-access'
+import { windowsShellDescription } from './command-shell'
 import { createTurnChangesExtension } from '../extensions/turn-changes'
 import { expandSkills } from '../skill-prompt'
 import { toResourceSkillCommand } from '../skill-command'
@@ -475,6 +476,7 @@ export class SdkSession {
     const restricted = executionAccess !== 'full-access'
     let extensionErrors: Array<{ path: string; error: string }> = []
     const createRuntime: CreateAgentSessionRuntimeFactory = async ({ cwd, sessionManager }) => {
+      const shellDescription = process.platform === 'win32' ? await windowsShellDescription() : undefined
       const extensionFactories = [
         (pi: ExtensionAPI) => {
           const gate = () => this.waitForResume()
@@ -598,6 +600,7 @@ export class SdkSession {
         (pi: ExtensionAPI) => {
           pi.on('before_agent_start', (event) => {
             const sections = event.systemPromptOptions.sections
+            if (shellDescription) sections.app_shell = shellDescription
             sections.app_runtime = [
               'For App Host tools, paths and commands refer to the current session working directory on the Host. The Host may be remote from the user’s browser or desktop.',
               'Use only tools declared or discovered through an available discovery mechanism for this run. Follow their actual schemas, task-mode restrictions, and access permissions; do not assume tools from another session are available.',
@@ -659,7 +662,14 @@ export class SdkSession {
         // 按当前设置、模式和资源快照装配工具，避免历史清单覆盖本轮工具。
         noTools: 'builtin',
         tools: [
-          ...(settingsManager.getDefaultTools() ?? ['read', 'bash', 'edit', 'write']).map((name) => `+${name}`),
+          ...(
+            settingsManager.getDefaultTools() ?? [
+              'read',
+              process.platform === 'win32' ? 'powershell' : 'bash',
+              'edit',
+              'write',
+            ]
+          ).map((name) => `+${process.platform === 'win32' && name === 'bash' ? 'powershell' : name}`),
           '+read',
           '+grep',
           '+find',

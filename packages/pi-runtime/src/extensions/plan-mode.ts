@@ -23,13 +23,14 @@ export const planToolNames = new Set<string>([
   'read_visualization',
   'save_plan',
   'bash',
+  'powershell',
   'codemode',
   'tool_search',
 ])
 
 export function planCommandDecision(command: string): 'allow' | 'deny' {
   if (
-    /^\s*(?:git\s+(?:commit|push|merge|reset|clean|checkout|switch|rebase|add|apply)|gh\s+(?:pr|issue|release)\s+(?:create|edit|comment|merge|close|delete)|(?:npm|pnpm)\s+(?:publish|install|add)|rm|mv|cp|mkdir|touch|chmod|tee)(?:\s|$)/.test(
+    /^\s*(?:git\s+(?:commit|push|merge|reset|clean|checkout|switch|rebase|add|apply)|gh\s+(?:pr|issue|release)\s+(?:create|edit|comment|merge|close|delete)|(?:npm|pnpm)\s+(?:publish|install|add)|rm|mv|cp|mkdir|touch|chmod|tee|(?:Set|Add|Remove|Clear|New|Copy|Move|Rename|Out)-[\w-]+|sc|ac|ri|del|erase|rd|rmdir|ni|ci|mi|ren)(?:\s|$)/i.test(
       command,
     )
   )
@@ -72,12 +73,19 @@ export function createPlanGuard(
         if (mode() !== 'plan') return
         if (context.signal?.aborted) throw new Error('调研操作已取消')
         const source = tools?.get(event.toolName)
-        const command = event.toolName === 'bash' ? String(event.input.command ?? '') : undefined
+        const commandInput =
+          (event.toolName === 'bash' || event.toolName === 'powershell') && 'command' in event.input
+            ? event.input
+            : undefined
+        const command = commandInput ? String(commandInput.command ?? '') : undefined
         if ((command !== undefined && planCommandDecision(command) === 'deny') || source?.readOnly === false)
           throw new Error('规划模式不允许此写入操作，请先开始执行计划')
-        if (event.toolName === 'bash' && command !== undefined && /^\s*git\s/.test(command)) {
-          event.input.command = command
-            .replace(/^\s*git\s+/, 'git --no-pager -c core.fsmonitor=false -c core.hooksPath=/dev/null ')
+        if (command !== undefined && /^\s*git\s/.test(command)) {
+          commandInput!.command = command
+            .replace(
+              /^\s*git\s+/,
+              `git --no-pager -c core.fsmonitor=false -c core.hooksPath=${process.platform === 'win32' ? 'NUL' : '/dev/null'} `,
+            )
             .replace(/\bdiff\s+/, 'diff --no-ext-diff --no-textconv ')
         }
         if (source || command !== undefined) freezeInput(event.input)

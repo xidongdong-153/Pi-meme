@@ -47,3 +47,20 @@ test('SSH 配置不存在返回空列表，未闭合引号保留错误', async (
     await rm(home, { recursive: true, force: true })
   }
 })
+
+test('Windows Include 保留盘符反斜杠和中文空格路径', { skip: process.platform !== 'win32' }, async () => {
+  const home = await mkdtemp(path.join(tmpdir(), 'pi-ssh-中文 '))
+  const directory = path.join(home, '.ssh')
+  await mkdir(directory)
+  const included = path.join(home, '中文 配置.conf')
+  await writeFile(included, 'Host windows-native\r\n')
+  await writeFile(path.join(directory, 'config'), `Include "${included}"\r\n`)
+  try {
+    assert.deepEqual(
+      (await discoverSshCandidates(home)).map((candidate) => candidate.target),
+      ['windows-native'],
+    )
+  } finally {
+    await rm(home, { recursive: true, force: true })
+  }
+})

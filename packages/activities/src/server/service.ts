@@ -13,6 +13,7 @@ import {
   type ServiceActivityLogs,
 } from '@pi-meme/contracts/service-activity'
 import { AccessSandbox, pathWithin } from '@pi-meme/pi-runtime/sdk/access-sandbox'
+import { shellCommand } from '@pi-meme/pi-runtime/sdk/command-shell'
 import {
   serviceProcessEnvironment,
   spawnManagedProcess,
@@ -29,7 +30,7 @@ export type ActivityCaller = {
   sourceRun?: AgentRunRef
   sourceName: string
 }
-type StartInput = { name: string; command: string; cwd?: string; requestId: string }
+type StartInput = { name: string; command: string; cwd?: string; timeout?: number; requestId: string }
 type ActivityRecord = {
   activity: ServiceActivity
   output: Buffer
@@ -40,6 +41,7 @@ type ActivityRecord = {
   starting?: Promise<ServiceActivity>
   completed?: Promise<void>
   logTimer?: ReturnType<typeof setTimeout>
+  timeoutTimer?: ReturnType<typeof setTimeout>
 }
 type Options = {
   hostId: string
@@ -93,19 +95,24 @@ export class ActivityService {
   start(caller: ActivityCaller, input: StartInput, signal?: AbortSignal): Promise<ServiceActivity> {
     if (this.closing) return Promise.reject(new Error('活动服务已关闭'))
     this.checkRef(caller.session)
-    if (process.platform !== 'darwin' && process.platform !== 'linux')
+    if (!['darwin', 'linux', 'win32'].includes(process.platform))
       return Promise.reject(new Error(`当前平台不支持受管服务：${process.platform}`))
     text(input.name, '服务名称', 120)
     text(input.command, '服务命令', 16 * 1024)
     text(input.requestId, '启动请求标识', 256)
     if (input.cwd !== undefined) text(input.cwd, '服务目录', 4096)
+    if (
+      input.timeout !== undefined &&
+      (!Number.isInteger(input.timeout) || input.timeout <= 0 || input.timeout > 2147483)
+    )
+      return Promise.reject(new Error('服务 timeout 必须是 1 到 2147483 之间的整数秒'))
     const identity = JSON.stringify([
       caller.session.sessionId,
       caller.sourceAgentId,
       caller.sourceRun?.runId,
       input.requestId,
     ])
-    const serialized = JSON.stringify([input.name, input.command, input.cwd])
+    const serialized = JSON.stringify([input.name, input.command, input.cwd, input.timeout])
     const previous = this.requests.get(identity)
     if (previous) {
       if (previous.input !== serialized) return Promise.reject(new Error('同一启动请求不能改用其他命令'))
@@ -122,6 +129,7 @@ export class ActivityService {
       serviceId: randomUUID(),
       name: input.name,
       command: input.command,
+      ...(input.timeout !== undefined ? { timeout: input.timeout } : {}),
       cwd: path.resolve(caller.cwd, input.cwd ?? '.'),
       sourceAgentId: caller.sourceAgentId,
       sourceRun: caller.sourceRun,
@@ -149,12 +157,17 @@ export class ActivityService {
       activity.cwd = cwd
       record.temporary = await realpath(await mkdtemp(path.join(tmpdir(), 'pi-activity-')))
       const onData = (chunk: Buffer) => this.output(record, chunk)
+      const command = await shellCommand(activity.command)
       const child =
         caller.accessMode === 'full-access'
           ? () =>
-              spawnManagedProcess('/bin/bash', ['-c', activity.command], {
+              spawnManagedProcess(command.executable, command.args, {
                 cwd,
-                env: serviceProcessEnvironment({ TMPDIR: record.temporary }),
+                env: serviceProcessEnvironment({
+                  TMPDIR: record.temporary,
+                  TEMP: record.temporary,
+                  TMP: record.temporary,
+                }),
                 onData,
               })
           : await AccessSandbox.create({
@@ -165,9 +178,9 @@ export class ActivityService {
               dataRoot: this.options.dataRoot,
             }).then(
               (sandbox) => () =>
-                sandbox.startManaged('/bin/bash', ['-c', activity.command], {
+                sandbox.startManaged(command.executable, command.args, {
                   cwd,
-                  env: { TMPDIR: record.temporary },
+                  env: { TMPDIR: record.temporary, TEMP: record.temporary, TMP: record.temporary },
                   onData,
                 }),
             )
@@ -191,6 +204,15 @@ export class ActivityService {
         throw new Error('服务启动已取消')
       }
       activity.status = 'running'
+      if (activity.timeout !== undefined) {
+        record.timeoutTimer = setTimeout(() => {
+          void this.stop(activity, activity.serviceId, '服务超时').catch((cause) => {
+            activity.lastError = String(cause)
+            this.change(record)
+          })
+        }, activity.timeout * 1000)
+        record.timeoutTimer.unref()
+      }
       this.change(record)
       return structuredClone(activity)
     } catch (cause) {
@@ -218,6 +240,8 @@ export class ActivityService {
     activity.endedAt = new Date().toISOString()
     activity.lastError = undefined
     clearTimeout(record.logTimer)
+    clearTimeout(record.timeoutTimer)
+    record.timeoutTimer = undefined
     record.logTimer = undefined
     await this.cleanTemporary(record)
     this.change(record)

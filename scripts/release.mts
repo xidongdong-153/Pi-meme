@@ -137,6 +137,8 @@ export async function checkWindowsDesktop(directory: string) {
     ...desktopResourceFiles,
     'app.asar',
     'runtime/bin/node.exe',
+    'runtime/bin/pi-meme-windows.exe',
+    'runtime/WINDOWS_NATIVE_LICENSES.txt',
     'runtime/LICENSE',
     'runtime/restricted-entry.mjs',
   ])
@@ -147,6 +149,14 @@ export async function checkWindowsDesktop(directory: string) {
   assert.ok(offset + 6 <= executable.length, 'Windows 应用 PE 头无效')
   assert.equal(executable.toString('ascii', offset, offset + 4), 'PE\0\0', 'Windows 应用 PE 签名无效')
   assert.equal(executable.readUInt16LE(offset + 4), 0x8664, 'Windows 应用必须为 x64')
+  const native = await readFile(path.join(resources, 'runtime/bin/pi-meme-windows.exe'))
+  assert.ok(native.length >= 64 && native.toString('ascii', 0, 2) === 'MZ', 'Windows 原生程序不是 PE 可执行文件')
+  const nativeOffset = native.readUInt32LE(60)
+  assert.ok(
+    nativeOffset + 6 <= native.length && native.toString('ascii', nativeOffset, nativeOffset + 4) === 'PE\0\0',
+    'Windows 原生程序 PE 头无效',
+  )
+  assert.equal(native.readUInt16LE(nativeOffset + 4), 0x8664, 'Windows 原生程序必须为 x64')
   const runtime = JSON.parse(await readFile(path.join(resources, 'runtime/runtime.json'), 'utf8'))
   assert.equal(runtime.nodeVersion, nodeVersion, 'Windows Node 运行时版本不一致')
   assert.equal(runtime.platform, 'win32', 'Windows Node 运行时平台不一致')

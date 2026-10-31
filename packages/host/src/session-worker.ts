@@ -5,6 +5,7 @@ import { runSessionWorker } from '@pi-meme/pi-adapter/session-worker'
 import { create as createPermissions } from '@pi-meme/permissions/agent/entry'
 import { create as createSandboxMacos } from '@pi-meme/sandbox-macos/agent/entry'
 import { create as createSandboxLinux } from '@pi-meme/sandbox-linux/agent/entry'
+import { create as createSandboxWindows } from '@pi-meme/sandbox-windows/agent/entry'
 import { sandboxPluginId } from './sandbox-platform'
 import { create as createResources } from '@pi-meme/resources/agent/entry'
 import { create as createInteraction } from '@pi-meme/interaction/agent/entry'
@@ -18,7 +19,12 @@ runSessionWorker({
   '@pi-meme/goals': createGoals,
   '@pi-meme/activities': createActivities,
   '@pi-meme/permissions': createPermissions,
-  [sandboxPluginId()]: sandboxPluginId() === '@pi-meme/sandbox-linux' ? createSandboxLinux : createSandboxMacos,
+  [sandboxPluginId()]:
+    sandboxPluginId() === '@pi-meme/sandbox-windows'
+      ? createSandboxWindows
+      : sandboxPluginId() === '@pi-meme/sandbox-linux'
+        ? createSandboxLinux
+        : createSandboxMacos,
   '@pi-meme/resources': createResources,
   '@pi-meme/interaction': createInteraction,
   '@pi-meme/codemode': createCodemode,

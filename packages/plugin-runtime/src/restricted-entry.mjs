@@ -1,10 +1,12 @@
 import fs from 'node:fs'
 import { AsyncLocalStorage } from 'node:async_hooks'
 import { pathToFileURL } from 'node:url'
+import { Console } from 'node:console'
 
 const scopes = new AsyncLocalStorage()
-const input = fs.createReadStream(null, { fd: 4, autoClose: false })
-const output = fs.createWriteStream(null, { fd: 5, autoClose: false })
+const input = process.platform === 'win32' ? process.stdin : fs.createReadStream(null, { fd: 4, autoClose: false })
+const output = process.platform === 'win32' ? process.stdout : fs.createWriteStream(null, { fd: 5, autoClose: false })
+if (process.platform === 'win32') globalThis.console = new Console({ stdout: process.stderr, stderr: process.stderr })
 const tools = new Map()
 const commands = new Map()
 const hooks = new Map()

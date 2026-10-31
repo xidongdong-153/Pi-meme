@@ -71,6 +71,7 @@ export const BUILTIN_MODULE_NAMES = new Set([
   '@pi-meme/resources',
   '@pi-meme/sandbox-macos',
   '@pi-meme/sandbox-linux',
+  '@pi-meme/sandbox-windows',
   '@pi-meme/permissions',
   '@pi-meme/codemode',
   '@pi-meme/subagents',

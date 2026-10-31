@@ -3,6 +3,7 @@ import { realpath, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { promisify } from 'node:util'
 import type { ProjectApp } from '@pi-meme/contracts/desktop'
+import { windowsProjectApps } from './windows-project-apps'
 
 const execute = promisify(execFile)
 const candidates = [
@@ -43,6 +44,11 @@ type InstalledApp = ProjectApp & { path: string }
 let inflight: Promise<InstalledApp[]> | undefined
 
 async function probeProjectApps(): Promise<InstalledApp[]> {
+  if (process.platform === 'win32')
+    return (await windowsProjectApps()).map((app) => ({
+      ...app,
+      name: candidates.find((candidate) => candidate.id === app.id)!.name,
+    }))
   if (process.platform !== 'darwin') return []
   const { stdout } = await execute('/usr/bin/osascript', ['-l', 'JavaScript', '-e', appScript], {
     timeout: 5000,
@@ -109,7 +115,17 @@ export async function openProjectInApp(id: unknown, cwd: string): Promise<void> 
   const installed = (await installedProjectApps()).find((app) => app.id === id)
   if (!installed) throw new Error(`${candidate.name} 未安装或已不可用`)
   try {
-    await execute('/usr/bin/open', ['-a', installed.path, cwd], { timeout: 5000, maxBuffer: 256 * 1024 })
+    if (process.platform === 'win32') {
+      const { spawn } = await import('node:child_process')
+      await new Promise<void>((resolve, reject) => {
+        const child = spawn(installed.path, [cwd], { shell: false, windowsHide: true, detached: true, stdio: 'ignore' })
+        child.once('error', reject)
+        child.once('spawn', () => {
+          child.unref()
+          resolve()
+        })
+      })
+    } else await execute('/usr/bin/open', ['-a', installed.path, cwd], { timeout: 5000, maxBuffer: 256 * 1024 })
   } catch (cause) {
     throw new Error(`${candidate.name} 无法打开项目：${String(cause)}`)
   }

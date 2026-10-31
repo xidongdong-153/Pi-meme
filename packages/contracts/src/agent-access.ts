@@ -7,7 +7,7 @@ export const agentAccessChoices = [
   {
     mode: 'workspace-write',
     label: '工作区内修改',
-    description: '允许修改当前项目和会话临时目录，读取和联网不受限。',
+    description: '允许修改当前项目和会话临时目录。',
   },
   {
     mode: 'full-access',

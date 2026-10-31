@@ -6,16 +6,15 @@ import { test, vi } from 'vitest'
 import { setTimeout as delay } from 'node:timers/promises'
 import { AccessSandbox, probeAccessSandbox } from '../src/sdk/access-sandbox'
 
-test('Windows 直接报告受限权限未实现，不尝试创建 Unix 沙箱', async () => {
+test('Windows 探测保留原生沙箱失败原因，不自动降低权限', async () => {
   vi.stubGlobal('process', { ...process, platform: 'win32' })
-  const create = vi.spyOn(AccessSandbox, 'create').mockRejectedValue(new Error('不应启动沙箱'))
+  const create = vi.spyOn(AccessSandbox, 'create').mockRejectedValue(new Error('PSEC 原生隔离能力不可用'))
   try {
     const capability = await probeAccessSandbox()
     assert.equal(capability.supported, false)
-    assert.match(capability.reason ?? '', /Windows.*尚不支持受限权限/)
-    assert.match(capability.reason ?? '', /macOS\/Linux Host/)
-    assert.doesNotMatch(capability.reason ?? '', /namespace|Error:/)
-    assert.equal(create.mock.calls.length, 0)
+    assert.match(capability.reason ?? '', /PSEC 原生隔离能力不可用/)
+    assert.doesNotMatch(capability.reason ?? '', /bwrap|sandbox-exec/)
+    assert.equal(create.mock.calls.length, 1)
   } finally {
     create.mockRestore()
     vi.unstubAllGlobals()
@@ -23,7 +22,7 @@ test('Windows 直接报告受限权限未实现，不尝试创建 Unix 沙箱', 
 })
 
 test('AccessSandbox.create 拒绝将系统根目录或用户主目录授权为工作区', async (t) => {
-  if (!['darwin', 'linux'].includes(process.platform)) {
+  if (!['darwin', 'linux', 'win32'].includes(process.platform)) {
     t.skip('当前平台没有受支持的沙箱后端')
     return
   }
@@ -74,7 +73,7 @@ test('AccessSandbox.create 拒绝将系统根目录或用户主目录授权为�
 })
 
 test('AccessSandbox read-only 模式拒绝任何本地文件修改', async (t) => {
-  if (!['darwin', 'linux'].includes(process.platform)) {
+  if (!['darwin', 'linux', 'win32'].includes(process.platform)) {
     t.skip('当前平台没有受支持的沙箱后端')
     return
   }
@@ -103,7 +102,7 @@ test('AccessSandbox read-only 模式拒绝任何本地文件修改', async (t) =
 })
 
 test('AccessSandbox workspace-write 模式允许项目内写入与递归创建目录，拒绝越界写入', async (t) => {
-  if (!['darwin', 'linux'].includes(process.platform)) {
+  if (!['darwin', 'linux', 'win32'].includes(process.platform)) {
     t.skip('当前平台没有受支持的沙箱后端')
     return
   }

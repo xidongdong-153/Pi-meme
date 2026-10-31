@@ -7,6 +7,7 @@ export type ServiceActivity = SessionRef & {
   serviceId: string
   name: string
   command: string
+  timeout?: number
   cwd: string
   sourceAgentId?: string
   sourceRun?: AgentRunRef
@@ -33,7 +34,7 @@ export type ServiceActivityLogs = {
   truncated: boolean
 }
 export type ServiceActivityRequest =
-  | { action: 'start'; name: string; command: string; cwd?: string; requestId: string }
+  | { action: 'start'; name: string; command: string; cwd?: string; timeout?: number; requestId: string }
   | { action: 'list' }
   | { action: 'logs'; serviceId: string }
   | { action: 'stop'; serviceId: string }

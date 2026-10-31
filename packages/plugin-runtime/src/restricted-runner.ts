@@ -8,6 +8,12 @@ import type { Readable, Writable } from 'node:stream'
 import type { JsonValue } from '@pi-meme/plugin-sdk/rpc'
 import { checkedJson } from './operation'
 import type { RestrictedRegistration } from '@pi-meme/contracts/plugin-call'
+import {
+  spawnWindowsProcess,
+  WindowsCommandProcess,
+  type WindowsSandboxPolicy,
+  type WindowsProcess,
+} from '@pi-meme/windows-native/process'
 
 export type RestrictedLaunchOptions = {
   node: string
@@ -19,10 +25,16 @@ export type RestrictedLaunchOptions = {
   readable?: boolean
   dataRoot?: string
 }
-export type RestrictedLaunch = { executable: string; args: string[]; env: NodeJS.ProcessEnv; seccomp?: Buffer }
+export type RestrictedLaunch = {
+  executable: string
+  args: string[]
+  env: NodeJS.ProcessEnv
+  seccomp?: Buffer
+  windowsSandbox?: WindowsSandboxPolicy
+}
 export type { RestrictedRegistration } from '@pi-meme/contracts/plugin-call'
 export class RestrictedRunner extends EventEmitter {
-  private child?: ChildProcess
+  private child?: ChildProcess | WindowsCommandProcess
   private input?: Writable
   private pending = new Map<
     string,
@@ -34,6 +46,8 @@ export class RestrictedRunner extends EventEmitter {
   private closing?: Promise<void>
   private ready?: Promise<RestrictedRegistration>
   private logs = ''
+  private closed = false
+  private starting?: Promise<WindowsProcess>
   constructor(
     private readonly options: RestrictedLaunchOptions & {
       launch: (options: RestrictedLaunchOptions) => Promise<RestrictedLaunch>
@@ -53,6 +67,7 @@ export class RestrictedRunner extends EventEmitter {
     )
   }
   start() {
+    if (this.closed) return Promise.reject(new Error('scope-expired: 插件实例已释放'))
     this.ready ??= this.boot()
     return this.ready
   }
@@ -62,15 +77,34 @@ export class RestrictedRunner extends EventEmitter {
     for (const key of ['agent', 'server'])
       if (typeof initialize[key] === 'string') initialize[key] = await realpath(initialize[key])
     const launch = await this.options.launch(this.options)
-    const child = spawn(launch.executable, launch.args, {
-      cwd: this.options.workspace,
-      env: launch.env,
-      detached: true,
-      stdio: ['ignore', 'pipe', 'pipe', 'pipe', 'pipe', 'pipe'],
-    })
+    if (this.closed) throw new Error('scope-expired: 插件实例已释放')
+    let native: WindowsProcess | undefined
+    if (launch.windowsSandbox) {
+      this.starting = spawnWindowsProcess(launch.executable, launch.args, {
+        cwd: this.options.workspace,
+        env: launch.env,
+        sandbox: launch.windowsSandbox,
+      })
+      native = await this.starting
+      if (this.closed) {
+        await native.stop()
+        throw new Error('scope-expired: 插件实例已释放')
+      }
+    }
+    const child = native
+      ? new WindowsCommandProcess(native)
+      : spawn(launch.executable, launch.args, {
+          cwd: this.options.workspace,
+          env: launch.env,
+          detached: true,
+          stdio: ['ignore', 'pipe', 'pipe', 'pipe', 'pipe', 'pipe'],
+        })
     this.child = child
-    this.input = child.stdio[4] as Writable
-    const output = (child.stdio as Array<Readable | Writable | null>)[5] as Readable
+    this.input = child instanceof WindowsCommandProcess ? child.stdin : (child.stdio[4] as Writable)
+    const output =
+      child instanceof WindowsCommandProcess
+        ? child.stdout
+        : ((child.stdio as Array<Readable | Writable | null>)[5] as Readable)
     const fail = (cause: Error) => {
       for (const call of this.pending.values()) {
         call.cleanup()
@@ -96,12 +130,12 @@ export class RestrictedRunner extends EventEmitter {
       fail(new Error(`scope-expired: 受限插件进程已退出${detail ? `：${detail}` : ''}`))
     })
     this.input.on('error', () => {})
-    if (launch.seccomp) {
+    if (!(child instanceof WindowsCommandProcess)) {
       const fd = child.stdio[3] as Writable
       fd.on('error', () => {})
       fd.end(launch.seccomp)
-    } else (child.stdio[3] as Writable).end()
-    for (const stream of [child.stdout!, child.stderr!])
+    }
+    for (const stream of child instanceof WindowsCommandProcess ? [child.stderr] : [child.stdout!, child.stderr!])
       stream.on('data', (b: Buffer) => {
         this.logs = (this.logs + b.toString()).slice(-65536)
       })
@@ -159,7 +193,7 @@ export class RestrictedRunner extends EventEmitter {
   }
   private async broker(message: { id: string; scope: string; method: string; input: JsonValue }) {
     const parent = this.scopes.get(message.scope)
-    if (!parent || parent.aborted) {
+    if (!parent || parent.aborted || this.closed) {
       this.send({ type: 'brokerReply', id: message.id, error: 'scope-expired: 调用已结束' })
       return
     }
@@ -190,7 +224,7 @@ export class RestrictedRunner extends EventEmitter {
   }
   call(method: string, input: unknown, signal: AbortSignal): Promise<unknown> {
     if (signal.aborted) return Promise.reject(new Error('cancelled: 插件调用已取消'))
-    if (!this.child) return Promise.reject(new Error('scope-expired: 插件实例已释放'))
+    if (!this.child || this.closed) return Promise.reject(new Error('scope-expired: 插件实例已释放'))
     if (this.pending.size >= 64) return Promise.reject(new Error('permission-denied: 插件并发请求过多'))
     const id = randomUUID()
     const scope = new AbortController()
@@ -221,9 +255,18 @@ export class RestrictedRunner extends EventEmitter {
     })
   }
   close() {
+    this.closed = true
     this.closing ??= (async () => {
+      if (this.starting && !this.child) {
+        const native = await this.starting.catch(() => undefined)
+        await native?.stop()
+      }
       const child = this.child
       if (!child) return
+      if (child instanceof WindowsCommandProcess) {
+        await child.native.stop()
+        return
+      }
       await new Promise<void>((resolve) => {
         child.once('close', () => resolve())
         try {

@@ -1,4 +1,3 @@
-import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { createReadStream } from 'node:fs'
 import { lstat, mkdir, mkdtemp, open, readFile, readdir, readlink, realpath, rename, rm } from 'node:fs/promises'
@@ -8,7 +7,7 @@ import { Readable, Transform } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { create as createTar, extract as extractTar } from 'tar'
 import type { SshConnectionInput } from '@pi-meme/contracts/ssh-connections'
-import { SshError, sshFailure, stopChild, validateSshConnection } from './ssh-tunnels'
+import { SshError, sshFailure, stopChild, validateSshConnection, spawnSshProcess } from './ssh-tunnels'
 import { parseSshHostProbe, sshHostProbeScript } from './ssh-host-probe'
 
 declare const __PI_MEME_VERSION__: string
@@ -62,10 +61,11 @@ function quote(value: string) {
 
 const runCommand: Command = async (ssh, target, script, input, signal) => {
   signal.throwIfAborted()
-  const child = spawn(ssh.executable, [...ssh.args, '--', target, `sh -c ${quote(script)}`], {
+  const child = await spawnSshProcess(ssh.executable, [...ssh.args, '--', target, `sh -c ${quote(script)}`], {
     shell: false,
     detached: true,
     stdio: ['pipe', 'pipe', 'pipe'],
+    windowsHide: true,
   })
   let output = ''
   let stderr = ''
@@ -82,13 +82,13 @@ const runCommand: Command = async (ssh, target, script, input, signal) => {
     },
     10 * 60 * 1000,
   )
-  child.stdout.on('data', (chunk: Buffer) => {
+  child.stdout!.on('data', (chunk: Buffer) => {
     if (Buffer.byteLength(output) + chunk.length > 64 * 1024) {
       overflow = true
       abort()
     } else output += chunk.toString()
   })
-  child.stderr.on('data', (chunk: Buffer) => {
+  child.stderr!.on('data', (chunk: Buffer) => {
     if (stderr.length < 8192) stderr += chunk.toString()
   })
   const exited = new Promise<void>((resolve, reject) => {
@@ -118,10 +118,10 @@ const runCommand: Command = async (ssh, target, script, input, signal) => {
   })
   const written =
     input && 'file' in input
-      ? pipeline(createReadStream(input.file), child.stdin, { signal })
+      ? pipeline(createReadStream(input.file), child.stdin!, { signal })
       : new Promise<void>((resolve, reject) => {
-          child.stdin.once('error', reject)
-          child.stdin.end(input?.text ?? '', resolve)
+          child.stdin!.once('error', reject)
+          child.stdin!.end(input?.text ?? '', resolve)
         })
   try {
     const [exitResult, writeResult] = await Promise.allSettled([exited, written])

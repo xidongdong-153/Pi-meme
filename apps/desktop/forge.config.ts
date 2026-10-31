@@ -7,6 +7,7 @@ import { copyFile } from 'node:fs/promises'
 import path from 'node:path'
 import { copyPiRuntime } from '../../scripts/copy-pi-runtime.mjs'
 import { prepareNodeRuntime } from '../../scripts/node-runtime.mjs'
+import { prepareWindowsNative } from '../../scripts/windows-native.mjs'
 import { desktopResources, releaseResourceFiles, writeReleaseResources } from '../../scripts/release.mjs'
 
 const signingIdentity = process.env.PI_DESKTOP_SIGNING_IDENTITY
@@ -43,6 +44,7 @@ const config: ForgeConfig = {
       if (platform !== process.platform || arch !== process.arch)
         throw new Error('Desktop 必须在目标平台与架构的原生环境中构建')
       await prepareNodeRuntime(path.join(desktopResources, 'runtime'))
+      await prepareWindowsNative(path.join(desktopResources, 'runtime/bin'))
       await writeReleaseResources(desktopResources, 'desktop')
     },
     packageAfterExtract: async (_config, buildPath, _electronVersion, platform) => {

@@ -58,7 +58,7 @@ export async function readInstalledState(filePath: string): Promise<InstalledSta
   return state
 }
 
-/** 确认文件与目录均已同步后，调用方才能使用预留的代次。 */
+/** 先同步临时文件再原子替换；Windows 不支持目录 fsync。 */
 export async function writeInstalledState(filePath: string, state: InstalledState) {
   const dir = path.dirname(filePath)
   await mkdir(dir, { recursive: true })
@@ -72,11 +72,13 @@ export async function writeInstalledState(filePath: string, state: InstalledStat
       await file.close()
     }
     await rename(temporary, filePath)
-    const parent = await open(dir, 'r')
-    try {
-      await parent.sync()
-    } finally {
-      await parent.close()
+    if (process.platform !== 'win32') {
+      const parent = await open(dir, 'r')
+      try {
+        await parent.sync()
+      } finally {
+        await parent.close()
+      }
     }
   } finally {
     await rm(temporary, { force: true })

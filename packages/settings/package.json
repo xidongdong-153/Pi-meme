@@ -23,6 +23,7 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
+    "@pi-meme/windows-native": "workspace:*",
     "@pi-meme/contracts": "workspace:*",
     "@pi-meme/pi-runtime": "workspace:*",
     "@pi-meme/ui": "workspace:*",

@@ -18,6 +18,7 @@ export const reservedPluginIds = [
   '@pi-meme/resources',
   '@pi-meme/sandbox-macos',
   '@pi-meme/sandbox-linux',
+  '@pi-meme/sandbox-windows',
   '@pi-meme/permissions',
   '@pi-meme/codemode',
   '@pi-meme/subagents',

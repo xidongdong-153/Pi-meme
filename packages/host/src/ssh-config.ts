@@ -34,7 +34,11 @@ export async function discoverSshCandidates(home = homedir()): Promise<SshCandid
         }
       } else if (keyword === 'include') {
         for (const pattern of words) {
-          const expanded = pattern.startsWith('~/') ? path.join(home, pattern.slice(2)) : pattern
+          let expanded =
+            pattern.startsWith('~/') || (process.platform === 'win32' && pattern.startsWith('~\\'))
+              ? path.join(home, pattern.slice(2))
+              : pattern
+          if (process.platform === 'win32') expanded = expanded.replaceAll('\\', '/')
           const files: string[] = []
           for await (const match of glob(expanded, { cwd: directory })) {
             files.push(path.resolve(directory, match))
@@ -54,12 +58,17 @@ function sshConfigWords(line: string) {
   let current = ''
   let quoted = ''
   let escaped = false
-  for (const char of line.replace(/^(\s*\w+)\s*=\s*/, '$1 ')) {
+  const source = line.replace(/^(\s*\w+)\s*=\s*/, '$1 ')
+  for (let index = 0; index < source.length; index++) {
+    const char = source[index]
     if (escaped) {
       current += char
       escaped = false
-    } else if (char === '\\') escaped = true
-    else if (quoted) {
+    } else if (char === '\\') {
+      const next = source[index + 1]
+      if (process.platform === 'win32' && (next === undefined || !/[\s"'#\\]/.test(next))) current += char
+      else escaped = true
+    } else if (quoted) {
       if (char === quoted) quoted = ''
       else current += char
     } else if (char === '"' || char === "'") quoted = char

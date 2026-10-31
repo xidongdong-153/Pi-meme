@@ -17,6 +17,7 @@ import * as usage from '@pi-meme/usage/server/entry'
 import * as resources from '@pi-meme/resources/server/entry'
 import * as sandboxMacos from '@pi-meme/sandbox-macos/server/entry'
 import * as sandboxLinux from '@pi-meme/sandbox-linux/server/entry'
+import * as sandboxWindows from '@pi-meme/sandbox-windows/server/entry'
 import { sandboxPluginId } from './sandbox-platform'
 import * as permissions from '@pi-meme/permissions/server/entry'
 import * as codemode from '@pi-meme/codemode/server/entry'
@@ -44,7 +45,11 @@ const modules = [
   history,
   usage,
   resources,
-  sandboxPluginId() === '@pi-meme/sandbox-linux' ? sandboxLinux : sandboxMacos,
+  sandboxPluginId() === '@pi-meme/sandbox-windows'
+    ? sandboxWindows
+    : sandboxPluginId() === '@pi-meme/sandbox-linux'
+      ? sandboxLinux
+      : sandboxMacos,
   permissions,
   codemode,
   subagents,

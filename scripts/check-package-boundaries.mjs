@@ -28,6 +28,7 @@ const businessPackages = new Set(
     'permissions',
     'sandbox-macos',
     'sandbox-linux',
+    'sandbox-windows',
     'usage',
     'goals',
     'git',

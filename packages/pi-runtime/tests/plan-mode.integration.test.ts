@@ -12,6 +12,8 @@ import type { TaskMode } from '@pi-meme/contracts/plan'
 import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
 import { requestText } from '../../../tests/fixtures/fake-provider.mjs'
 
+const commandTool = process.platform === 'win32' ? 'powershell' : 'bash'
+
 test('新用户任务的模型上下文排除上一轮已持久化的协作消息', async () => {
   const directory = await mkdtemp(path.join(tmpdir(), 'pi-collaboration-epoch-context-'))
   const fake = await useFakeAgent(directory, { reply: '已处理' })
@@ -176,7 +178,10 @@ test('跨模式输入保留各自mode，计划队列逐条admission且关闭模�
       assert.match(text, /保存计划不代表获准实施/)
       const tools = request.tools?.map((tool: { function: { name: string } }) => tool.function.name) ?? []
       assert.ok(
-        tools.includes('bash') && tools.includes('codemode') && !tools.includes('write') && !tools.includes('edit'),
+        tools.includes(commandTool) &&
+          tools.includes('codemode') &&
+          !tools.includes('write') &&
+          !tools.includes('edit'),
       )
     }
   } finally {
@@ -550,7 +555,10 @@ test('Plan准备期间关闭模式只改变未来模式，不执行第三方star
     for (const request of fake.provider.requests) {
       const tools = request.tools?.map((tool: { function: { name: string } }) => tool.function.name) ?? []
       assert.ok(
-        tools.includes('bash') && tools.includes('codemode') && !tools.includes('write') && !tools.includes('edit'),
+        tools.includes(commandTool) &&
+          tools.includes('codemode') &&
+          !tools.includes('write') &&
+          !tools.includes('edit'),
       )
     }
     await session.prompt('后续普通任务')
@@ -571,9 +579,16 @@ test('Plan 调研命令默认执行且只读沙箱拒绝业务写入', async () 
       index <= 2
         ? {
             tool: {
-              name: 'bash',
+              name: commandTool,
               arguments: JSON.stringify({
-                command: index === 1 ? "printf '自动查询结果'" : "printf '不应写入' > business.txt",
+                command:
+                  process.platform === 'win32'
+                    ? index === 1
+                      ? "Write-Output '自动查询结果'"
+                      : "Set-Content -LiteralPath business.txt -Value '不应写入'"
+                    : index === 1
+                      ? "printf '自动查询结果'"
+                      : "printf '不应写入' > business.txt",
               }),
             },
           }
@@ -604,7 +619,7 @@ test('Plan 调研命令默认执行且只读沙箱拒绝业务写入', async () 
     }
     const snapshot = await session.snapshot()
     const toolResults = snapshot.messages.filter((message) => message.role === 'toolResult')
-    const results = toolResults.filter((message) => message.toolName === 'bash')
+    const results = toolResults.filter((message) => message.toolName === commandTool)
     assert.equal(results.length, 2)
     assert.match(JSON.stringify(results[0]), /自动查询结果/)
     assert.ok(!results[0]!.isError)
@@ -673,10 +688,17 @@ test('Plan 默认执行仍拒绝已知写入、破坏性 MCP 与已取消调用�
   await assert.rejects(call('delete_record', {}), /写入操作/)
   const input = { command: 'git status --short' }
   await call('bash', input)
-  assert.match(input.command, /--no-pager -c core.fsmonitor=false -c core.hooksPath=\/dev\/null/)
+  assert.ok(
+    input.command.includes(
+      `--no-pager -c core.fsmonitor=false -c core.hooksPath=${process.platform === 'win32' ? 'NUL' : '/dev/null'}`,
+    ),
+  )
   assert.throws(() => {
     input.command = '已替换'
   }, TypeError)
+  await call('powershell', { command: 'Get-ChildItem' })
+  await assert.rejects(call('powershell', { command: 'Set-Content file value' }), /写入操作/)
+  await assert.rejects(call('powershell', { command: 'Remove-Item file' }), /写入操作/)
   controller.abort()
   await assert.rejects(call('bash', { command: 'pnpm run type-check' }), /已取消/)
 })

@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterAll, beforeAll, test, vi } from 'vitest'
 import type { SshConnection } from '@pi-meme/contracts/ssh-connections'
-import { createSshTunnelStarter, validateSshConnection } from '../src/ssh-tunnels'
+import { createSshTunnelStarter, validateSshConnection, sshFailure } from '../src/ssh-tunnels'
 
 const connection: SshConnection = {
   id: 'a'.repeat(24),
@@ -17,13 +17,20 @@ const connection: SshConnection = {
   phase: 'connecting',
 }
 
-test('Windows SSH 不可用时说明平台限制，不要求重复安装 OpenSSH', async () => {
+test('Windows OpenSSH 缺失时说明安装入口，不再宣称平台不支持', async () => {
   vi.stubGlobal('process', { ...process, platform: 'win32' })
   try {
-    await assert.rejects(validateSshConnection(connection, new AbortController().signal), /Windows.*HTTPS/)
+    await assert.rejects(
+      validateSshConnection(connection, new AbortController().signal, { executable: async () => undefined }),
+      /OpenSSH 客户端/,
+    )
   } finally {
     vi.unstubAllGlobals()
   }
+})
+
+test('Windows 私钥 ACL 过宽返回明确诊断，不修改权限', () => {
+  assert.equal(sshFailure('WARNING: UNPROTECTED PRIVATE KEY FILE!').code, 'identity-permissions')
 })
 let root: string
 beforeAll(async () => {
