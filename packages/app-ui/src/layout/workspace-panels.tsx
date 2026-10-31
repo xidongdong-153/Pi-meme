@@ -42,6 +42,7 @@ const emptyBrowserPanels: string[] = []
 
 export function WorkspacePanels({
   panels,
+  onLoadTools,
   onNewWebPage,
   onClosePanel,
   browserPanelIds = emptyBrowserPanels,
@@ -91,6 +92,7 @@ export function WorkspacePanels({
   browserPanelIds?: string[]
   focusComposerRequest?: number
   panels: UiPanel[]
+  onLoadTools?: () => Promise<void>
   activity?: { count: number; known: boolean }
   props: UiContributionProps
   session: string
@@ -312,6 +314,11 @@ export function WorkspacePanels({
   const active = tabs.includes(layout.active) ? layout.active : tabs[0]
   const selected = available.find((panel) => panel.id === active)
   const showTool = unified && toolActive && tabs.includes(layout.active)
+  const toolsNeedLoading =
+    (unified ? toolActive : layout.open) && ((!selected && active !== sideChatTabId) || !tabs.includes(layout.active))
+  useEffect(() => {
+    if (toolsNeedLoading) void onLoadTools?.()
+  }, [toolsNeedLoading, storageKey, onLoadTools])
   const sideChatVisible = active === sideChatTabId && (unified ? showTool : layout.open)
   useEffect(() => {
     onSideChatVisibilityChange?.(sideChatVisible)

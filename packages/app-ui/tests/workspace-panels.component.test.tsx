@@ -1,12 +1,13 @@
 import '@testing-library/jest-dom/vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 import type { UiContributionProps, UiPanel } from '@pi-meme/plugin-sdk/ui'
 import { DEFAULT_PROFILE } from '../src/settings/user-profile'
 import { WorkspacePanels } from '../src/layout/workspace-panels'
-import { sideChatTabId, toolsTabId } from '../src/layout/panel-layout'
+import { historyPanelsAvailable, panelStorageKey, sideChatTabId, toolsTabId } from '../src/layout/panel-layout'
+import { userMessage } from '../../../tests/fixtures/messages.mjs'
 
 const originalScrollIntoView = Element.prototype.scrollIntoView
 
@@ -60,6 +61,95 @@ const mockTerminalPanel: UiPanel = {
 }
 
 describe('WorkspacePanels 异步关闭与侧边聊天交互', () => {
+  it.each([0, 1])('打开工具页后读取历史附件，附件数为 %i 时按实际内容显示来源', async (sourceCount) => {
+    let finishLoading!: () => void
+    const loading = new Promise<void>((resolve) => {
+      finishLoading = resolve
+    })
+    const load = vi.fn(() => loading)
+    function TestWrapper() {
+      const [history, setHistory] = useState({ deferred: true, count: 0 })
+      const available = historyPanelsAvailable(
+        { messages: [userMessage('已有对话', 1)] },
+        history.deferred,
+        history.count,
+      )
+      const onLoadTools = useCallback(async () => {
+        await load()
+        setHistory({ deferred: false, count: sourceCount })
+      }, [])
+      return (
+        <TooltipProvider>
+          <WorkspacePanels
+            profile={DEFAULT_PROFILE}
+            profileLoading={false}
+            props={defaultProps}
+            session="session-a"
+            sidebar="侧栏"
+            sidebarOpen={false}
+            sidebarWidth={256}
+            onSidebar={() => {}}
+            header={(_toggle, tabs) => tabs?.()}
+            onLoadTools={onLoadTools}
+            panels={available.sources ? [{ ...mockFilesPanel, id: 'builtin:sources', title: '来源' }] : []}
+          >
+            主聊天正文
+          </WorkspacePanels>
+        </TooltipProvider>
+      )
+    }
+    render(<TestWrapper />)
+    expect(load).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: '展开右侧栏' }))
+    expect(load).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('button', { name: '来源' })).not.toBeInTheDocument()
+    await act(async () => finishLoading())
+    expect(Boolean(screen.queryByRole('button', { name: '来源' }))).toBe(sourceCount > 0)
+    if (sourceCount > 0) {
+      fireEvent.click(screen.getByRole('button', { name: '来源' }))
+      expect(screen.getByRole('tab', { name: '来源' })).toBeInTheDocument()
+      expect(screen.getByTestId('files-panel')).toBeVisible()
+    }
+  })
+
+  it.each([false, true])('恢复已保存的空来源标签时隐藏标签并读取工具内容，完整视图：%s', (unified) => {
+    window.localStorage.setItem(
+      panelStorageKey('test-host', 'session-a'),
+      JSON.stringify({
+        version: 2,
+        tabs: ['builtin:sources'],
+        active: 'builtin:sources',
+        open: true,
+        width: 480,
+        unified,
+        toolActive: true,
+      }),
+    )
+    const onLoadTools = vi.fn(async () => {})
+    render(
+      <TooltipProvider>
+        <WorkspacePanels
+          profile={DEFAULT_PROFILE}
+          profileLoading={false}
+          props={defaultProps}
+          session="session-a"
+          sidebar="侧栏"
+          sidebarOpen={false}
+          sidebarWidth={256}
+          onSidebar={() => {}}
+          header={(_toggle, tabs) => tabs?.()}
+          panels={[]}
+          onLoadTools={onLoadTools}
+        >
+          主聊天正文
+        </WorkspacePanels>
+      </TooltipProvider>,
+    )
+    expect(screen.queryByRole('tab', { name: '来源' })).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: '来源' })).not.toBeInTheDocument()
+    expect(onLoadTools).toHaveBeenCalledTimes(1)
+  })
+
   it('文件引用只打开独立标签，不出现在新标签页的工具列表', () => {
     const filePanel: UiPanel = {
       ...mockFilesPanel,
@@ -351,8 +441,7 @@ describe('WorkspacePanels 异步关闭与侧边聊天交互', () => {
     expect(screen.getByText('没有匹配的工具。')).toBeInTheDocument()
   })
 
-  it('统一视图(unified)下关闭唯一工具标签时，updater 纯粹更新且 toolActive 安全重置', async () => {
-    window.localStorage.setItem('pi-meme:workspace-view:v1', 'unified')
+  it('完整视图下关闭唯一工具标签后恢复主聊天', async () => {
     const onClose = vi.fn().mockResolvedValue(true)
 
     function TestWrapper() {
@@ -367,7 +456,7 @@ describe('WorkspacePanels 异步关闭与侧边聊天交互', () => {
             sidebarOpen={false}
             sidebarWidth={256}
             onSidebar={() => {}}
-            header={() => <div>顶栏</div>}
+            header={(_toggle, tabs) => tabs?.()}
             panels={[mockFilesPanel]}
             sideChatActive={true}
             sideChat={<div data-testid="side-chat-body">侧边聊天正文</div>}
@@ -380,10 +469,11 @@ describe('WorkspacePanels 异步关闭与侧边聊天交互', () => {
     }
 
     render(<TestWrapper />)
-    // 初始展示主聊天，点击“分栏显示工具”切入工具视图
-    expect(screen.getByTestId('main-chat-body')).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: '分栏显示工具' }))
-    expect(screen.getByTestId('side-chat-body')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: '进入完整视图' }))
+    expect(screen.getByTestId('main-chat-body')).toBeVisible()
+    fireEvent.click(screen.getByRole('tab', { name: '侧边聊天' }))
+    expect(screen.getByTestId('side-chat-body')).toBeVisible()
+    expect(screen.getByTestId('main-chat-body')).not.toBeVisible()
 
     // 关闭侧边聊天标签
     const closeButton = screen.getByRole('button', { name: '关闭标签页：侧边聊天' })
@@ -391,8 +481,8 @@ describe('WorkspacePanels 异步关闭与侧边聊天交互', () => {
       fireEvent.click(closeButton)
     })
 
-    // 关闭完成后，唯一工具标签移除，updater 纯粹计算使 toolActive 安全重置为 false，主聊天正文恢复可见
+    expect(onClose).toHaveBeenCalledWith(sideChatTabId)
     expect(screen.queryByTestId('side-chat-body')).toBeNull()
-    expect(screen.getByTestId('main-chat-body')).toBeInTheDocument()
+    expect(screen.getByTestId('main-chat-body')).toBeVisible()
   })
 })

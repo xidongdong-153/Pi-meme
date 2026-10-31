@@ -1951,6 +1951,7 @@ export function App({
               profile={userProfile.profile}
               profileLoading={userProfile.showPlaceholder}
               panels={panels}
+              onLoadTools={chat.loadHistoryDetails}
               activity={{
                 count: activities.count,
                 known:

@@ -33,22 +33,25 @@ test('新会话的延迟详情和初始化记录不显示历史工具，草稿�
   assert.deepEqual(historyPanelsAvailable({ messages: [] }, true, 0), { tree: false, sources: false })
 })
 
-test('已有对话保留延迟历史入口，详情加载完成后按实际内容显示', () => {
+test('已有对话保留会话树入口，来源只在有附件时显示', () => {
   const chat = { messages: [userMessage('已有对话', 1)] }
-  assert.deepEqual(historyPanelsAvailable(chat, true, 0), { tree: true, sources: true })
+  assert.deepEqual(historyPanelsAvailable(chat, true, 0), { tree: true, sources: false })
+  assert.deepEqual(historyPanelsAvailable(chat, true, 1), { tree: true, sources: true })
   assert.deepEqual(historyPanelsAvailable(chat, false, 0), { tree: false, sources: false })
   const sessionEntries = {
     leafId: 'message',
     entries: [{ id: 'message', parentId: null, timestamp: '', type: 'message' as const }],
   }
   assert.deepEqual(historyPanelsAvailable({ ...chat, sessionEntries }, false, 1), { tree: true, sources: true })
-  assert.deepEqual(historyPanelsAvailable({ messages: [], sessionEntries }, true, 0), { tree: true, sources: true })
+  assert.deepEqual(historyPanelsAvailable({ messages: [], sessionEntries }, true, 0), { tree: true, sources: false })
+  assert.deepEqual(historyPanelsAvailable({ ...chat, sessionEntries }, false, 0), { tree: true, sources: false })
 })
 
-test('文件预览标签不写入持久布局，避免恢复没有读取目标的空标签', () => {
-  const layout = openPanel(openPanel(defaultPanelLayout(), 'builtin:files'), 'builtin:file:example')
-  assert.deepEqual(sanitizePanelLayout(layout).tabs, ['builtin:files'])
-  assert.deepEqual(readPanelLayout(JSON.stringify(layout)).tabs, ['builtin:files'])
+test('文件预览标签保留读取目标和选中状态，供会话布局恢复', () => {
+  const fileTab = `builtin:file:${JSON.stringify(['host', 'session', '/project/example.ts'])}`
+  const layout = openPanel(openPanel(defaultPanelLayout(), 'builtin:files'), fileTab)
+  assert.deepEqual(sanitizePanelLayout(layout), layout)
+  assert.deepEqual(readPanelLayout(JSON.stringify(layout)), layout)
 })
 
 test('右侧标签按 Host 与会话隔离，保存顺序、选中项和宽度', () => {

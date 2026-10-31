@@ -16,7 +16,7 @@ export function historyPanelsAvailable(
     )
   return {
     tree: hasHistory && Boolean(detailsDeferred || chat.sessionEntries?.entries.length),
-    sources: sourceCount > 0 || (hasHistory && detailsDeferred),
+    sources: sourceCount > 0,
   }
 }
 
