@@ -1,0 +1,127 @@
+.turn-image-gallery {
+  container-type: inline-size;
+  width: 100%;
+  max-width: 38rem;
+}
+
+.turn-image-gallery-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: stretch;
+  gap: clamp(0.5rem, 2cqw, 1rem);
+}
+
+.turn-image-gallery-layout.has-thumbnails {
+  grid-template-columns: minmax(0, 1fr) clamp(3rem, 14cqw, 5rem);
+}
+
+.turn-image-thumbnails {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  scrollbar-width: none;
+  padding: 0.25rem;
+}
+
+.turn-image-thumbnails::-webkit-scrollbar {
+  display: none;
+}
+
+.image-generation-dots {
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(circle, color-mix(in srgb, var(--foreground) 8%, transparent) 1px, transparent 1px);
+  background-size: 8px 8px;
+  mask-image: radial-gradient(ellipse at 50% 60%, black, transparent 70%);
+}
+
+.image-generation-dots::before,
+.image-generation-dots::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(
+    circle,
+    color-mix(in srgb, var(--foreground) 38%, transparent) 1px,
+    transparent 1px
+  );
+  background-size: 8px 8px;
+  mask-image: radial-gradient(ellipse, transparent 12%, black 34%, transparent 65%);
+  mask-repeat: no-repeat;
+  mask-size: 0% 0%;
+  opacity: 0;
+}
+
+.image-generation-placeholder[data-running='true'] .image-generation-dots::before {
+  animation: image-generation-ripples 11.3s linear infinite;
+}
+
+.image-generation-placeholder[data-running='true'] .image-generation-dots::after {
+  animation: image-generation-ripples 7.7s linear -3.8s infinite reverse;
+}
+
+/* 点位保持固定，只让不同区域的明暗波纹交错扩散。 */
+@keyframes image-generation-ripples {
+  0%,
+  100% {
+    mask-position: 22% 68%;
+    mask-size: 0% 0%;
+    opacity: 0;
+  }
+  8% {
+    mask-position: 22% 68%;
+    mask-size: 42% 54%;
+    opacity: 0.9;
+  }
+  28% {
+    mask-position: 22% 68%;
+    mask-size: 180% 210%;
+    opacity: 0;
+  }
+  33% {
+    mask-position: 76% 30%;
+    mask-size: 0% 0%;
+    opacity: 0;
+  }
+  42% {
+    mask-position: 76% 30%;
+    mask-size: 56% 38%;
+    opacity: 0.75;
+  }
+  61% {
+    mask-position: 76% 30%;
+    mask-size: 220% 160%;
+    opacity: 0;
+  }
+  66% {
+    mask-position: 46% 82%;
+    mask-size: 0% 0%;
+    opacity: 0;
+  }
+  76% {
+    mask-position: 46% 82%;
+    mask-size: 36% 60%;
+    opacity: 1;
+  }
+  95% {
+    mask-position: 46% 82%;
+    mask-size: 170% 230%;
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root:not([data-reduced-motion]) .image-generation-dots::before,
+  :root:not([data-reduced-motion]) .image-generation-dots::after {
+    animation: none;
+  }
+}
+
+:root[data-reduced-motion='true'] .image-generation-dots::before,
+:root[data-reduced-motion='true'] .image-generation-dots::after {
+  animation: none;
+}

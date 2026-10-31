@@ -9,8 +9,40 @@ import { isImageLink, MessageImage } from './message-image'
 import { MarkdownLink } from './markdown-link'
 
 export const MarkdownHiddenVisualizationsContext = React.createContext<ReadonlySet<string>>(new Set())
+export const MarkdownHiddenImagesContext = React.createContext<ReadonlySet<string>>(new Set())
 
 export const MarkdownStreamingContext = React.createContext(false)
+
+function isHiddenImage(path: string, hidden: ReadonlySet<string>) {
+  if (hidden.has(path)) return true
+  try {
+    return hidden.has(decodeURIComponent(path))
+  } catch {
+    return false
+  }
+}
+
+function MarkdownImage({ src, alt }: React.ComponentPropsWithoutRef<'img'>) {
+  const hidden = React.useContext(MarkdownHiddenImagesContext)
+  if (typeof src !== 'string' || !src || isHiddenImage(src, hidden)) return null
+  return <MessageImage key={src} src={src} alt={alt} />
+}
+
+function MarkdownAnchor({ href, children, node, title }: React.ComponentPropsWithoutRef<'a'> & ExtraProps) {
+  const hidden = React.useContext(MarkdownHiddenImagesContext)
+  if (node?.children.some((child) => child.type === 'element' && child.tagName === 'img')) return <>{children}</>
+  if (href && isImageLink(href) && !isHiddenImage(href, hidden)) {
+    const label = React.Children.toArray(children)
+      .filter((child) => typeof child === 'string' || typeof child === 'number')
+      .join('')
+    return <MessageImage key={href} src={href} alt={label === href ? undefined : label} />
+  }
+  return (
+    <MarkdownLink href={href} title={title}>
+      {children}
+    </MarkdownLink>
+  )
+}
 
 function MarkdownPre({ children }: React.ComponentPropsWithoutRef<'pre'>) {
   const isStreaming = React.useContext(MarkdownStreamingContext)
@@ -121,22 +153,7 @@ export function useMarkdownComponents() {
         return <tr className="pi-tr">{children}</tr>
       },
 
-      a({ href, children, node, title }: React.ComponentPropsWithoutRef<'a'> & ExtraProps) {
-        if (node?.children.some((child) => child.type === 'element' && child.tagName === 'img')) {
-          return <>{children}</>
-        }
-        if (href && isImageLink(href)) {
-          const label = React.Children.toArray(children)
-            .filter((child) => typeof child === 'string' || typeof child === 'number')
-            .join('')
-          return <MessageImage key={href} src={href} alt={label === href ? undefined : label} />
-        }
-        return (
-          <MarkdownLink href={href} title={title}>
-            {children}
-          </MarkdownLink>
-        )
-      },
+      a: MarkdownAnchor,
 
       blockquote({ children }: React.ComponentPropsWithoutRef<'blockquote'>) {
         const alert = parseAlert(children)
@@ -193,9 +210,7 @@ export function useMarkdownComponents() {
         return <hr className="pi-hr" />
       },
 
-      img({ src, alt }: React.ComponentPropsWithoutRef<'img'>) {
-        return typeof src === 'string' && src ? <MessageImage key={src} src={src} alt={alt} /> : null
-      },
+      img: MarkdownImage,
 
       strong({ children }: React.ComponentPropsWithoutRef<'strong'>) {
         return <strong className="pi-strong">{children}</strong>

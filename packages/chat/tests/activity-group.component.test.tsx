@@ -11,7 +11,7 @@ import { ChatMessage } from '../src/ui/conversation/chat-message'
 import { ToolActivityRow } from '../src/ui/conversation/tool-activity-row'
 import { TurnChangesCard } from '../src/ui/conversation/turn-changes'
 import { formatMessageTime, formatMessageTimeTitle } from '../src/ui/model/message-time'
-import type { ActivityItem, ChatState } from '../src/ui/model/types'
+import type { ActivityItem, ChatState, TurnChunk } from '../src/ui/model/types'
 import { groupConversationTurns } from '../src/ui/model/conversation-turns'
 import { Conversation } from '../src/ui/conversation/conversation'
 import { ChatStream } from '../src/ui/model/chat-stream'
@@ -20,6 +20,7 @@ import type { PiEvent } from '@pi-meme/contracts/pi'
 import type { AgentSummary } from '@pi-meme/contracts/collaboration'
 import { projectAgentConversation } from '../src/ui/model/agent-collaboration'
 import { parseToolMeta } from '../src/ui/model/tool-details'
+import { collectImageGenerations, groupTurnImageGenerations } from '../src/ui/model/turn-image-generations'
 import { runningActivityLabel, summarizeActivities } from '../src/ui/model/activity-summary'
 import {
   assistantMessage,
@@ -30,6 +31,111 @@ import {
 } from '../../../tests/fixtures/messages.mjs'
 
 afterEach(cleanup)
+
+test('生图等待独立于工作过程，完成后显示画廊并去掉重复 Markdown 图片', async () => {
+  const user = userEvent.setup()
+  const pending: ActivityItem = { id: 'generate', name: 'image_gen', status: 'running' }
+  const turn: Extract<TurnChunk, { type: 'assistant_turn' }> = {
+    type: 'assistant_turn',
+    key: 'images',
+    activities: [pending],
+    finalText: '',
+    images: [],
+    isLive: true,
+  }
+  const { rerender } = render(<AssistantTurnView turn={turn} />, { wrapper: TooltipProvider })
+  await user.click(screen.getByRole('button', { name: '工作过程' }))
+  expect(screen.getByRole('region', { name: '本轮生成的图片' })).toHaveTextContent('正在生成图片')
+  const completed = {
+    ...pending,
+    status: 'success' as const,
+    result: {
+      content: [{ type: 'image', mimeType: 'image/png', data: 'YWJj' }],
+      details: { artifact: { id: 'artifact', path: '/attachments/generated.png' } },
+    },
+  }
+  rerender(
+    <AssistantTurnView
+      turn={{ ...turn, isLive: false, activities: [completed], finalText: '![成图](/attachments/generated.png)' }}
+    />,
+  )
+  expect(screen.queryByText('正在生成图片')).not.toBeInTheDocument()
+  expect(screen.getAllByRole('img', { name: '本轮生成图片 1' })).toHaveLength(1)
+  expect(screen.queryByRole('button', { name: '预览图片：成图' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('link', { name: '下载图片' })).not.toBeInTheDocument()
+  expect(screen.queryByRole('button', { name: '查看大图' })).not.toBeInTheDocument()
+})
+
+test('画廊切换和放大，新增结果保留用户选择，中断不保留等待动画状态', async () => {
+  const user = userEvent.setup()
+  const image = (id: string): ActivityItem => ({
+    id,
+    name: 'image_gen',
+    status: 'success',
+    result: { content: [{ type: 'image', mimeType: 'image/png', data: id }] },
+  })
+  const turn: Extract<TurnChunk, { type: 'assistant_turn' }> = {
+    type: 'assistant_turn',
+    key: 'images',
+    activities: [image('first'), image('second')],
+    finalText: '',
+    images: [],
+    isLive: true,
+  }
+  const { rerender } = render(<AssistantTurnView turn={turn} />)
+  expect(screen.getByRole('button', { name: '查看第 2 张生成图片' })).toHaveAttribute('aria-pressed', 'true')
+  await user.click(screen.getByRole('button', { name: '查看第 1 张生成图片' }))
+  rerender(<AssistantTurnView turn={{ ...turn, activities: [...turn.activities, image('third')] }} />)
+  expect(screen.getByRole('button', { name: '查看第 1 张生成图片' })).toHaveAttribute('aria-pressed', 'true')
+  await user.click(screen.getByRole('button', { name: '放大第 1 张生成图片' }))
+  expect(screen.getByRole('dialog', { name: '图片预览' })).toBeVisible()
+  await user.keyboard('{ArrowRight}')
+  expect(screen.getByRole('img', { name: '图片大图预览，第 2 张' })).toHaveAttribute(
+    'src',
+    'data:image/png;base64,second',
+  )
+  await user.keyboard('{Escape}')
+  rerender(
+    <AssistantTurnView
+      turn={{ ...turn, isLive: false, activities: [{ id: 'stopped', name: 'image_gen', status: 'running' }] }}
+    />,
+  )
+  expect(screen.getByText('图片生成已中断')).toBeVisible()
+  expect(screen.queryByText('正在生成图片')).not.toBeInTheDocument()
+})
+
+test('只汇总本轮生图，包含嵌套工具并跨展示段去重', () => {
+  const generated = {
+    id: 'generated',
+    name: 'image_gen',
+    status: 'success' as const,
+    result: { content: [{ type: 'image', mimeType: 'image/png', data: 'YWJj' }] },
+  }
+  const activities: ActivityItem[] = [
+    { ...generated, id: 'reference', name: 'read' },
+    { id: 'code', name: 'codemode', status: 'success', children: [generated] },
+    generated,
+  ]
+  expect(collectImageGenerations(activities).map((item) => item.id)).toEqual(['generated'])
+  const turn: Extract<TurnChunk, { type: 'assistant_turn' }> = {
+    type: 'assistant_turn',
+    key: 'first',
+    activities,
+    finalText: '',
+    images: [],
+    isLive: false,
+  }
+  const galleries = groupTurnImageGenerations([
+    turn,
+    { type: 'model_change', key: 'model', timestamp: 2, to: { provider: 'test', id: 'test' } },
+    { ...turn, key: 'last', activities: [] },
+    { type: 'user', key: 'user', message: userMessage('下一轮') },
+    { ...turn, key: 'next', activities: [] },
+  ])
+  expect(galleries.get('first')).toEqual([])
+  expect(galleries.get('last')?.map((item) => item.id)).toEqual(['generated'])
+  expect(galleries.get('next')).toEqual([])
+})
 
 test.each([
   { name: 'bash', args: { command: 'printf "第一行\\n第二行"' }, label: '复制命令', code: 'printf "第一行\\n第二行"' },

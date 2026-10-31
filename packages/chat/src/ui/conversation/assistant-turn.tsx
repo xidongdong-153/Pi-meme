@@ -1,5 +1,5 @@
 import { VisualizationRenderer } from '@pi-meme/ui/components/visualization-renderer'
-import { MarkdownHiddenVisualizationsContext } from '../content/markdown-components'
+import { MarkdownHiddenImagesContext, MarkdownHiddenVisualizationsContext } from '../content/markdown-components'
 import { insertTurnVisualizations } from '../model/turn-visualizations'
 import * as React from 'react'
 import { ChevronDown } from 'lucide-react'
@@ -15,6 +15,8 @@ import { cn } from '@pi-meme/ui/lib/utils'
 import { MessageActions } from './message-actions'
 import { MessageTime } from './message-time'
 import { PluginMessageActions } from '@pi-meme/ui/components/plugin-message-actions'
+import { collectImageGenerations, type TurnImageGeneration } from '../model/turn-image-generations'
+import { TurnImageGallery } from './turn-image-gallery'
 
 export function AssistantTurnView({
   turn,
@@ -29,6 +31,7 @@ export function AssistantTurnView({
   onActivityToggle,
   reply,
   changes,
+  imageGenerations,
 }: {
   turn: Extract<TurnChunk, { type: 'assistant_turn' }>
   isFinalReply?: boolean
@@ -42,7 +45,16 @@ export function AssistantTurnView({
   onActivityToggle?: () => void
   reply?: React.ReactNode
   changes?: React.ReactNode
+  imageGenerations?: readonly TurnImageGeneration[]
 }) {
+  const generated = React.useMemo(
+    () => imageGenerations ?? collectImageGenerations(turn.activities),
+    [imageGenerations, turn.activities],
+  )
+  const hiddenImagePaths = React.useMemo(
+    () => new Set(generated.flatMap((item) => (item.image && item.path ? [item.path] : []))),
+    [generated],
+  )
   const hasReplyContent =
     !reply && isFinalReply && !turn.isLive && (Boolean(turn.finalText.trim()) || turn.images.length > 0)
   const segments = React.useMemo(
@@ -168,6 +180,7 @@ export function AssistantTurnView({
           )}
           {!hasTrailingText && reply}
           {!hasTrailingText && turn.images.length > 0 && <AttachmentPreview images={turn.images} />}
+          <TurnImageGallery generations={generated} isLive={turn.isLive} isPaused={isPaused} />
           {(retry?.errorMessage || turn.errorMessage) && (
             <ErrorLine
               className="mt-2"
@@ -204,7 +217,7 @@ export function AssistantTurnView({
   )
   return (
     <MarkdownHiddenVisualizationsContext.Provider value={visualizationKeys}>
-      {content}
+      <MarkdownHiddenImagesContext value={hiddenImagePaths}>{content}</MarkdownHiddenImagesContext>
     </MarkdownHiddenVisualizationsContext.Provider>
   )
 }

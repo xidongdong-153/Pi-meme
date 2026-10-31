@@ -29,6 +29,7 @@ import type { TurnChanges } from '@pi-meme/contracts/turn-changes'
 import { TurnChangesCard } from './turn-changes'
 import { MarkdownFileSessionContext, MarkdownWorkingDirectoryContext } from '../content/markdown-link'
 import type { SessionRef } from '@pi-meme/contracts/app-host'
+import { groupTurnImageGenerations } from '../model/turn-image-generations'
 
 function noSubscription() {
   return () => {}
@@ -120,7 +121,7 @@ export const Conversation = React.memo(
     )
     const groupTurns = React.useMemo(() => createConversationTurnProjector(), [])
     // 按对话轮次（Turn）聚合消息流：将同一交互轮次内的思考、多次工具调用、Bash 与最终正文聚合成单一轮次卡片
-    const { turns, finalReplyKeys } = React.useMemo(() => {
+    const { turns, finalReplyKeys, imageGenerations } = React.useMemo(() => {
       const view = {
         ...stableView,
         live: readOnly ? chat.live : chat.live ? (mainMessage(chat.live) as ChatState['live']) : null,
@@ -150,6 +151,7 @@ export const Conversation = React.memo(
         }
       }
       return {
+        imageGenerations: groupTurnImageGenerations(grouped),
         turns: agentOnly
           ? grouped.filter(
               (turn) =>
@@ -473,6 +475,7 @@ export const Conversation = React.memo(
                     <AssistantTurnView
                       key={turn.key}
                       turn={turn}
+                      imageGenerations={imageGenerations.get(turn.key)}
                       isFinalReply={finalReplyKeys.has(turn.key)}
                       retry={turn.isLive && chat.retry?.kind === 'model' ? chat.retry : undefined}
                       isPaused={Boolean(chat.paused && turn.isLive)}
