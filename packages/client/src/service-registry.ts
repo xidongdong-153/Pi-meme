@@ -21,6 +21,12 @@ export class HostServiceRegistry {
   private readonly disposers = new Map<string, Array<() => void>>()
   private readonly listeners = new Set<() => void>()
   private readonly refreshes = new Map<string, symbol>()
+  private readonly pendingRefreshes = new Map<string, Promise<void>>()
+  private readonly dirtyServices = new Set<string>()
+  private readonly onVisible = () => {
+    if (typeof document !== 'undefined' && !document.hidden)
+      for (const id of this.dirtyServices) void this.refresh(id).catch(() => {})
+  }
   private serviceRefresh?: Promise<void>
   private serviceRefreshRequested = false
   private initialized = false
@@ -40,6 +46,7 @@ export class HostServiceRegistry {
     readonly local: HostClient,
     private readonly options: ServiceRegistryOptions,
   ) {
+    if (typeof document !== 'undefined') document.addEventListener('visibilitychange', this.onVisible)
     this.clients.set(this.localServiceId, local)
     this.disposers.set(this.localServiceId, [
       local.bridge.onSessionsChanged(() => {
@@ -206,7 +213,29 @@ export class HostServiceRegistry {
     this.drop(id)
     this.publish()
   }
-  async refresh(id: string) {
+  refresh(id: string): Promise<void> {
+    if (this.closed) return Promise.resolve()
+    this.dirtyServices.add(id)
+    if (typeof document !== 'undefined' && document.hidden) return Promise.resolve()
+    const pending = this.pendingRefreshes.get(id)
+    if (pending) return pending
+    const task = (async () => {
+      do {
+        if (typeof document !== 'undefined' && document.hidden) break
+        this.dirtyServices.delete(id)
+        try {
+          await this.refreshOnce(id)
+        } catch (cause) {
+          if (!this.dirtyServices.has(id) || this.closed) throw cause
+        }
+      } while (!this.closed && this.dirtyServices.has(id))
+    })().finally(() => {
+      this.pendingRefreshes.delete(id)
+    })
+    this.pendingRefreshes.set(id, task)
+    return task
+  }
+  private async refreshOnce(id: string) {
     const state = this.states.get(id)
     if (!state) throw new Error('服务不存在')
     if (!this.canConnect(state)) return
@@ -219,6 +248,7 @@ export class HostServiceRegistry {
       this.publish()
     }
     let connected = false
+    let changed = false
     try {
       if (state.transport === 'ssh') await client.resume()
       else await client.connect()
@@ -230,15 +260,26 @@ export class HostServiceRegistry {
       }
       const [projects, sessions] = await Promise.all([client.bridge.getProjects(), client.bridge.getSessions()])
       if (!isCurrent()) return
-      state.projects = projects
-      state.sessions = sessions
-      state.hostId = client.hostId
+      if (JSON.stringify(state.projects) !== JSON.stringify(projects)) {
+        state.projects = projects
+        changed = true
+      }
+      if (state.sessions !== sessions) {
+        state.sessions = sessions
+        changed = true
+      }
+      if (state.hostId !== client.hostId) {
+        state.hostId = client.hostId
+        changed = true
+      }
       if (state.transport !== 'ssh') {
+        changed ||= state.status !== 'connected' || state.error !== undefined
         state.status = 'connected'
         delete state.error
       }
     } catch (cause) {
       if (isCurrent() && state.transport !== 'ssh') {
+        changed = true
         if (!connected) state.status = 'disconnected'
         state.error = cause instanceof Error ? cause.message : String(cause)
       }
@@ -246,12 +287,14 @@ export class HostServiceRegistry {
     } finally {
       if (isCurrent()) {
         this.refreshes.delete(id)
-        this.publish()
+        if (changed) this.publish()
       }
     }
   }
   close() {
     this.closed = true
+    if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', this.onVisible)
+    this.dirtyServices.clear()
     for (const disposers of this.disposers.values()) for (const dispose of disposers) dispose()
     this.disposers.clear()
     this.refreshes.clear()

@@ -5,12 +5,14 @@ import type { ExtensionContext, InlineExtension } from '@earendil-works/pi-codin
 import type { AccessSandboxOperations } from '../sdk/access-sandbox'
 import type { PiSdk } from '../sdk/load'
 import { recordFileChange } from '../turn-change-store'
+import { generateFilePatch } from '../file-patch'
 
 /** 在 SDK 的文件写入队列内捕获前后内容，直接调用与嵌套调用共用此路径。 */
 export function createTurnChangesExtension(
   sdk: PiSdk,
   cwd: string,
   sandbox?: AccessSandboxOperations,
+  onSaved?: (entryId: string, revision: string) => void,
 ): Exclude<InlineExtension, (...args: never[]) => unknown> {
   return {
     name: 'pi-meme-turn-changes',
@@ -40,12 +42,13 @@ export function createTurnChangesExtension(
           if (sandbox) await sandbox.writeFile(target, content, signal)
           else await writeFile(target, content, 'utf8')
           changes.set(id, {
-            patch: sdk.generateUnifiedPatch(path.relative(cwd, target), before?.toString('utf8') ?? '', content),
+            patch: generateFilePatch(sdk, path.relative(cwd, target), before?.toString('utf8') ?? '', content),
             created: before === null,
           })
           if (sessionFile && entryId) {
             const canonical = await realpath(target)
-            await recordFileChange(sessionFile, entryId, cwd, canonical, before, Buffer.from(content))
+            const revision = await recordFileChange(sessionFile, entryId, cwd, canonical, before, Buffer.from(content))
+            onSaved?.(entryId, revision)
           }
         }
       }

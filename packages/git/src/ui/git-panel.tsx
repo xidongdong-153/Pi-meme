@@ -7,7 +7,7 @@ import type {
   GitReviewQuery,
   GitReviewSnapshot,
 } from '@pi-meme/contracts/git-review'
-import type { TurnChanges } from '@pi-meme/contracts/turn-changes'
+import type { TurnChangeSummary } from '@pi-meme/contracts/turn-changes'
 import { FileIcon } from '@pi-meme/ui/components/file-icon'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import {
@@ -37,6 +37,7 @@ export type GitReviewBridge = {
 }
 
 export function GitPanel({
+  visible = true,
   cwd,
   projectKey = cwd,
   bridge,
@@ -47,12 +48,13 @@ export function GitPanel({
   selectionRevision = 0,
   onOpenFile,
 }: {
+  visible?: boolean
   cwd: string
   projectKey?: string
   bridge: GitReviewBridge
   refreshToken: number
-  turnChanges?: TurnChanges
-  previousTurnChanges?: TurnChanges
+  turnChanges?: TurnChangeSummary
+  previousTurnChanges?: TurnChangeSummary
   selectedPath?: string
   selectionRevision?: number
   onOpenFile?: (absolutePath: string) => Promise<void>
@@ -73,6 +75,11 @@ export function GitPanel({
   const [width, setWidth] = useState(0)
   const panel = useRef<HTMLDivElement>(null)
   const request = useRef(0)
+  const pendingRefresh = useRef<Promise<void> | null>(null)
+  const refreshAgain = useRef(false)
+  const visibleRef = useRef(visible)
+  visibleRef.current = visible
+  const refreshRef = useRef<() => Promise<void>>(async () => {})
   const bridgeRef = useRef(bridge)
   bridgeRef.current = bridge
   const scope = preferences.scope
@@ -99,12 +106,13 @@ export function GitPanel({
   }
   useEffect(() => {
     const element = panel.current
-    if (!element || typeof ResizeObserver === 'undefined') return
+    if (!visible || !element || typeof ResizeObserver === 'undefined') return
     const observer = new ResizeObserver((entries) => setWidth(entries[0]?.contentRect.width ?? 0))
     observer.observe(element)
     return () => observer.disconnect()
-  }, [])
+  }, [visible])
   useEffect(() => {
+    if (!visible) return
     if (scope !== 'branch' && scope !== 'commit') return
     if (ref) return
     let cancelled = false
@@ -131,46 +139,64 @@ export function GitPanel({
     return () => {
       cancelled = true
     }
-  }, [scope, ref, storageKey, cwd, queryKey])
+  }, [scope, ref, storageKey, cwd, queryKey, visible])
   const refresh = useCallback(async () => {
-    const id = ++request.current
-    if (!query || ((query.scope === 'branch' || query.scope === 'commit') && !query.ref)) {
-      setLoading(false)
-      setGeneration((value) => value + 1)
-      return
+    if (!visibleRef.current) return
+    if (pendingRefresh.current) {
+      refreshAgain.current = true
+      return pendingRefresh.current
     }
-    setLoading(true)
-    try {
-      const result = await bridgeRef.current.review(query)
-      if (id !== request.current) return
-      setSnapshot(result)
-      setSnapshotKey(queryKey)
-      setError('')
-      setGeneration((value) => value + 1)
-    } catch (cause) {
-      if (id === request.current) setError(cause instanceof Error ? cause.message : String(cause))
-    } finally {
-      if (id === request.current) setLoading(false)
-    }
+    const task = (async () => {
+      const id = ++request.current
+      if (!query || ((query.scope === 'branch' || query.scope === 'commit') && !query.ref)) {
+        setLoading(false)
+        setGeneration((value) => value + 1)
+        return
+      }
+      setLoading(true)
+      try {
+        const result = await bridgeRef.current.review(query)
+        if (id !== request.current) return
+        setSnapshot(result)
+        setSnapshotKey(queryKey)
+        setError('')
+        setGeneration((value) => value + 1)
+      } catch (cause) {
+        if (id === request.current) setError(cause instanceof Error ? cause.message : String(cause))
+      } finally {
+        if (id === request.current) setLoading(false)
+      }
+    })().finally(() => {
+      pendingRefresh.current = null
+      if (refreshAgain.current && visibleRef.current) {
+        refreshAgain.current = false
+        void refreshRef.current()
+      }
+    })
+    pendingRefresh.current = task
+    return task
   }, [query, queryKey])
+  refreshRef.current = refresh
   useEffect(() => {
+    if (!visible) return
     void refresh()
     const focus = () => void refresh()
-    const timer = window.setInterval(focus, 10000)
+    const timer = query && query.scope !== 'commit' ? window.setInterval(focus, 10000) : undefined
     window.addEventListener('focus', focus)
     return () => {
       request.current++
+      refreshAgain.current = false
       window.clearInterval(timer)
       window.removeEventListener('focus', focus)
     }
-  }, [refresh, refreshToken])
+  }, [refresh, refreshToken, visible, query])
   useEffect(() => {
-    if (!selectedPath || scope !== 'turn') return
+    if (!visible || !selectedPath || scope !== 'turn') return
     const row = Array.from(panel.current?.querySelectorAll<HTMLElement>('[data-review-path]') ?? []).find(
       (element) => element.dataset.reviewPath === selectedPath,
     )
     row?.scrollIntoView?.({ block: 'nearest' })
-  }, [selectionRevision, selectedPath, scope])
+  }, [selectionRevision, selectedPath, scope, visible])
   const files: GitReviewFile[] = agentScope
     ? (changes?.files ?? []).map((file) => ({
         path: file.path,
@@ -249,6 +275,7 @@ export function GitPanel({
         {files.map((file) => (
           <ReviewFile
             key={`${queryKey}:${agentScope ? changes?.entryId : ''}:${file.path}`}
+            visible={visible}
             file={file}
             open={openPaths.has(file.path)}
             onToggle={() => toggle(file.path)}
@@ -267,7 +294,7 @@ export function GitPanel({
                 ? bridgeRef.current.turnFile(changes!.entryId, file.path)
                 : bridgeRef.current.file({ query: query!, path: file.path })
             }
-            initial={agentScope ? changes?.files.find((item) => item.path === file.path)?.patch : undefined}
+            revision={agentScope ? changes?.revision : undefined}
           />
         ))}
         {currentSnapshot?.error && (
@@ -317,6 +344,7 @@ const statuses: Record<string, string> = {
 }
 
 function ReviewFile({
+  visible,
   file,
   open,
   onToggle,
@@ -327,8 +355,9 @@ function ReviewFile({
   onOpenFile,
   feedback,
   load,
-  initial,
+  revision,
 }: {
+  visible: boolean
   file: GitReviewFile
   open: boolean
   onToggle: () => void
@@ -339,18 +368,16 @@ function ReviewFile({
   onOpenFile?: (path: string) => Promise<void>
   feedback: (message: string) => void
   load: () => Promise<GitReviewFileContent>
-  initial?: string
+  revision?: string
 }) {
-  const [content, setContent] = useState<GitReviewFileContent | undefined>(() =>
-    initial === undefined ? undefined : { patch: initial },
-  )
+  const [content, setContent] = useState<GitReviewFileContent>()
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [retry, setRetry] = useState(0)
   const loadRef = useRef(load)
   loadRef.current = load
   useEffect(() => {
-    if (!open) return
+    if (!open || !visible) return
     let current = true
     setLoading(true)
     void loadRef
@@ -370,7 +397,7 @@ function ReviewFile({
     return () => {
       current = false
     }
-  }, [open, generation, retry, initial])
+  }, [open, generation, retry, revision, visible])
   const slash = Math.max(file.path.lastIndexOf('/'), file.path.lastIndexOf('\\'))
   const directory = file.path.slice(0, slash + 1)
   const name = file.path.slice(slash + 1)

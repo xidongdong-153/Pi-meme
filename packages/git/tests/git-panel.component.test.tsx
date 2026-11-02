@@ -1,21 +1,22 @@
 import assert from 'node:assert/strict'
-import { afterEach, beforeEach, test } from 'vitest'
-import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, test, vi } from 'vitest'
+import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { createElement } from 'react'
 import { GitPanel, type GitReviewBridge } from '../src/ui/git-panel'
 import { GitDiffViewer } from '../src/ui/git-diff-viewer'
-import type { TurnChanges } from '@pi-meme/contracts/turn-changes'
+import type { TurnChangeSummary } from '@pi-meme/contracts/turn-changes'
 import { projectReviewKey } from '../src/ui/git-review-preferences'
 
 const patch = '@@ -1 +1 @@\n-old line\n+new line\n'
-const changes: TurnChanges = {
+const changes: TurnChangeSummary = {
   entryId: 'user-entry',
+  revision: '1',
   undone: false,
   insertions: 2,
   deletions: 1,
   files: [
-    { path: 'readme.md', patch: '@@ -0,0 +1 @@\n+readme\n', insertions: 1, deletions: 0 },
-    { path: 'src/app.ts', patch, insertions: 1, deletions: 1 },
+    { path: 'readme.md', insertions: 1, deletions: 0 },
+    { path: 'src/app.ts', insertions: 1, deletions: 1 },
   ],
 }
 function bridge(overrides: Partial<GitReviewBridge> = {}): GitReviewBridge {
@@ -23,7 +24,7 @@ function bridge(overrides: Partial<GitReviewBridge> = {}): GitReviewBridge {
     review: async () => ({ cwd: '/repo', root: '/repo', branch: 'main', files: [], insertions: 0, deletions: 0 }),
     file: async () => ({ patch, before: 'old line\n', after: 'new line\n' }),
     options: async () => ({ branches: [], commits: [], hasMore: false }),
-    turnFile: async (_, path) => ({ patch: changes.files.find((file) => file.path === path)!.patch }),
+    turnFile: async (_, path) => ({ patch: path === 'readme.md' ? '@@ -0,0 +1 @@\n+readme\n' : patch }),
     ...overrides,
   }
 }
@@ -76,16 +77,16 @@ test('聊天入口覆盖已记忆范围，允许多个文件展开与全部收�
     }),
   )
   assert.ok(view.getByRole('button', { name: '变更范围：本轮' }))
-  assert.ok(view.getByText('readme'))
+  await waitFor(() => assert.ok(view.getByText('readme')))
   fireEvent.click(view.getByRole('button', { name: 'src/app.ts' }))
-  await waitFor(() => assert.ok(view.getByText('new line')))
-  assert.ok(view.getByText('readme'))
+  await waitFor(() => assert.match(view.container.textContent ?? '', /new line/))
+  await waitFor(() => assert.ok(view.getByText('readme')))
   fireEvent.click(view.getByRole('button', { name: '收起全部差异' }))
-  assert.equal(view.queryByText('new line'), null)
+  assert.doesNotMatch(view.container.textContent ?? '', /new line/)
   assert.equal(view.queryByText('readme'), null)
   fireEvent.click(view.getByRole('button', { name: '展开全部差异' }))
-  assert.ok(view.getByText('new line'))
-  assert.ok(view.getByText('readme'))
+  await waitFor(() => assert.match(view.container.textContent ?? '', /new line/))
+  await waitFor(() => assert.ok(view.getByText('readme')))
 })
 
 test('无 Git 仓库显示正常说明，Agent 轮次仍独立可读', async () => {
@@ -112,7 +113,7 @@ test('无 Git 仓库显示正常说明，Agent 轮次仍独立可读', async () 
   )
   assert.ok(previous.getByRole('button', { name: '变更范围：上一轮' }))
   fireEvent.click(previous.getByRole('button', { name: 'readme.md' }))
-  assert.ok(previous.getByText('readme'))
+  await waitFor(() => assert.ok(previous.getByText('readme')))
   assert.equal(gitCalls, 1)
 })
 
@@ -153,4 +154,30 @@ test('展开上下文使用历史内容，缺失快照时禁用完整文件', ()
   const missing = render(createElement(GitDiffViewer, { diff: props.diff }))
   assert.equal(missing.getByRole('button', { name: '展开完整文件' }).hasAttribute('disabled'), true)
   assert.ok(missing.getByText(/历史上下文不可用/))
+})
+
+test('隐藏 Git 面板停止定时刷新，恢复后补读且保留实例', async () => {
+  vi.useFakeTimers()
+  try {
+    const review = vi.fn().mockResolvedValue({ cwd: '/repo', root: '/repo', files: [], insertions: 0, deletions: 0 })
+    const api = bridge({ review })
+    const view = render(<GitPanel cwd="/repo" bridge={api} refreshToken={0} />)
+    await act(async () => {})
+    assert.equal(review.mock.calls.length, 1)
+    view.rerender(<GitPanel cwd="/repo" bridge={api} refreshToken={1} visible={false} />)
+    await act(async () => {
+      vi.advanceTimersByTime(30000)
+    })
+    assert.equal(review.mock.calls.length, 1)
+    view.rerender(<GitPanel cwd="/repo" bridge={api} refreshToken={1} visible />)
+    await act(async () => {})
+    assert.equal(review.mock.calls.length, 2)
+    await act(async () => {
+      vi.advanceTimersByTime(10000)
+    })
+    assert.equal(review.mock.calls.length, 3)
+    view.unmount()
+  } finally {
+    vi.useRealTimers()
+  }
 })

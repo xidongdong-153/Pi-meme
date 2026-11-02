@@ -9,7 +9,39 @@ import { useFakeAgent } from '../../../tests/fixtures/fake-agent.mjs'
 import type { ExtensionAPI, ExtensionToolContext, ToolDefinition } from '@earendil-works/pi-coding-agent'
 import { loadPiSdk } from '../src/sdk/load'
 import { createTurnChangesExtension } from '../src/extensions/turn-changes'
-import { readTurnChanges, readTurnChangeFile, undoTurnChanges } from '../src/turn-change-store'
+import { generateFilePatch } from '../src/file-patch'
+import {
+  recordFileChange,
+  readTurnChangeSummaries,
+  turnChangeCacheStats,
+  readTurnChanges,
+  readTurnChangeFile,
+  undoTurnChanges,
+} from '../src/turn-change-store'
+
+test('整段替换 patch 与 SDK 一致，覆盖换行、空文件和相同行边界', async () => {
+  const sdk = await loadPiSdk()
+  const samples = ['', '旧\n', '新\n', '旧', '新', '\n', '旧\r\n', '新\r\n', '共同\n旧\n', '共同\n新\n']
+  for (const before of samples)
+    for (const after of samples)
+      assert.equal(
+        generateFilePatch(sdk, '测试 file.txt', before, after),
+        sdk.generateUnifiedPatch('测试 file.txt', before, after),
+      )
+  const before = '旧内容\n'.repeat(1500)
+  const after = '新内容\n'.repeat(1500)
+  const patch = generateFilePatch(
+    {
+      generateUnifiedPatch: () => {
+        throw new Error('整段替换不能进入差异搜索')
+      },
+    },
+    'large.txt',
+    before,
+    after,
+  )
+  assert.equal(patch, sdk.generateUnifiedPatch('large.txt', before, after))
+})
 
 test('真实会话的 codemode 嵌套写入按用户 entry ID 保存，恢复后仍能读取', async () => {
   const directory = await realpath(await mkdtemp(path.join(tmpdir(), 'turn-session-')))
@@ -24,9 +56,16 @@ test('真实会话的 codemode 嵌套写入按用户 entry ID 保存，恢复后
           }
         : '完成',
   })
+  const saved: import('@pi-meme/contracts/desktop').DesktopEvent[] = []
   const session = new SdkSession(
     directory,
-    { connection: () => {}, error: () => {}, event: () => {} },
+    {
+      connection: () => {},
+      error: () => {},
+      event: (event) => {
+        saved.push(event)
+      },
+    },
     fake.runtimePaths,
     fake.credentials,
   )
@@ -48,6 +87,10 @@ test('真实会话的 codemode 嵌套写入按用户 entry ID 保存，恢复后
     await session.stopAndWait()
     const [turn] = await readTurnChanges(sessionFile, [user.sourceEntry.id])
     assert.ok(turn, JSON.stringify(snapshot.messages))
+    assert.ok(saved.some((value) => value.event.type === 'session_saved'))
+    assert.ok(
+      saved.some((value) => value.event.type === 'turn_changes_update' && value.event.entryId === user.sourceEntry!.id),
+    )
     assert.equal(turn.files[0].path, 'nested.txt')
     assert.equal(turn.insertions, 1)
     await undoTurnChanges(sessionFile, user.sourceEntry.id, directory, false)
@@ -114,6 +157,44 @@ test('文件工具记录覆盖、新建与嵌套调用，持久化净差异并�
     assert.equal(undone.undone, true)
     assert.equal(undone.files.find((file) => file.path === 'new.ts')?.canOpen, false)
     await undoTurnChanges(sessionFile, 'user-one', directory, false)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('摘要不传 patch，并发读取与文件详情复用计算，更新只计算变动文件', async () => {
+  const directory = await realpath(await mkdtemp(path.join(tmpdir(), 'turn-cache-')))
+  const session = path.join(directory, 'session.jsonl')
+  const file = path.join(directory, 'a.txt')
+  const second = path.join(directory, 'b.txt')
+  try {
+    await writeFile(file, 'one\n')
+    await writeFile(second, 'two\n')
+    await recordFileChange(session, 'u', directory, file, null, Buffer.from('one\n'))
+    await recordFileChange(session, 'u', directory, second, null, Buffer.from('two\n'))
+    const before = turnChangeCacheStats()
+    const [summary, full] = await Promise.all([
+      readTurnChangeSummaries(session, ['u']),
+      readTurnChanges(session, ['u']),
+    ])
+    assert.equal(turnChangeCacheStats().patchComputations - before.patchComputations, 2)
+    assert.equal(turnChangeCacheStats().recordReads - before.recordReads, 1)
+    assert.equal('patch' in summary[0].files[0], false)
+    assert.equal(summary[0].insertions, full[0].insertions)
+    assert.ok(summary[0].revision)
+    await readTurnChangeFile(session, 'u', 'a.txt')
+    for (let i = 0; i < 10; i++) await readTurnChangeSummaries(session, ['u'])
+    assert.equal(turnChangeCacheStats().patchComputations - before.patchComputations, 2)
+    await writeFile(file, 'changed\n')
+    await recordFileChange(session, 'u', directory, file, Buffer.from('one\n'), Buffer.from('changed\n'))
+    const updated = await readTurnChangeSummaries(session, ['u'])
+    assert.notEqual(updated[0].revision, summary[0].revision)
+    assert.equal(turnChangeCacheStats().patchComputations - before.patchComputations, 3)
+    assert.match((await readTurnChangeFile(session, 'u', 'a.txt')).patch, /changed/)
+    // 撤销读取当前磁盘内容，不能信任刚命中的缓存。
+    await writeFile(file, 'external\n')
+    await assert.rejects(undoTurnChanges(session, 'u', directory, false), /后续修改/)
+    assert.ok(turnChangeCacheStats().bytes <= turnChangeCacheStats().budget)
   } finally {
     await rm(directory, { recursive: true, force: true })
   }

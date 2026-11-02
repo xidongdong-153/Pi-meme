@@ -555,6 +555,12 @@ export class SdkSession {
         ...(restricted
           ? [
               (this.policy.createAccessExtension ?? createAgentAccessExtension)({
+                onTurnSaved: (entryId, revision) => {
+                  this.notify.event({
+                    generation: this.generation,
+                    event: { type: 'turn_changes_update', entryId, revision },
+                  })
+                },
                 sdk,
                 sandbox: this.sandbox!,
                 cwd,
@@ -589,7 +595,16 @@ export class SdkSession {
               extension.name === 'pi-meme-user-input' ||
               ['pi-meme-visualize', 'pi-meme-codemode', 'pi-meme-mcp', 'pi-meme-tool-search'].includes(extension.name)),
         ),
-        ...(!restricted ? [createTurnChangesExtension(sdk, cwd)] : []),
+        ...(!restricted
+          ? [
+              createTurnChangesExtension(sdk, cwd, undefined, (entryId, revision) => {
+                this.notify.event({
+                  generation: this.generation,
+                  event: { type: 'turn_changes_update', entryId, revision },
+                })
+              }),
+            ]
+          : []),
         ...(this.policy.resourceSnapshot ? [createSkillUsageExtension(this.policy.resourceSnapshot)] : []),
         createPlanGuard(
           () => this.activeMode ?? this.preparationMode ?? this.mode,
@@ -813,6 +828,8 @@ export class SdkSession {
       publishedEntries.add(entryId)
       if (message.role === 'toolResult' && message.toolName === 'save_plan' && !message.isError)
         void this.syncPlan()?.catch((cause: unknown) => this.report(`无法同步已保存计划：${String(cause)}`))
+      const sessionFile = manager.getSessionFile()
+      if (sessionFile) this.notify.event({ generation, event: { type: 'session_saved', sessionFile } })
       const committed: PiEvent = { type: 'message_end', message }
       const source = eventUiSource(committed, session, this.policy.agentSources)
       this.handleEvent(
@@ -847,6 +864,14 @@ export class SdkSession {
           generation: this.generation,
           event: { type: 'skill_usage_update', usages: this.getSkillUsages() },
         })
+      if (event.type === 'entry_appended') {
+        const sessionFile = session.sessionManager.getSessionFile()
+        if (sessionFile)
+          queueMicrotask(() => {
+            if (generation === this.generation)
+              this.notify.event({ generation, event: { type: 'session_saved', sessionFile } })
+          })
+      }
       if (event.type === 'entry_appended' && this.goalRun)
         void this.accountGoalUsage().catch((cause: unknown) => this.report(String(cause)))
       const desktopEvent = toDesktopEvent(event)

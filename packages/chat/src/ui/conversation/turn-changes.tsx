@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
 import { ChevronDown, FileDiff, Undo2 } from 'lucide-react'
-import type { TurnChanges } from '@pi-meme/contracts/turn-changes'
+import type { TurnChangeSummary } from '@pi-meme/contracts/turn-changes'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@pi-meme/ui/components/ui/popover'
 
-export function ChangeCounts({ insertions, deletions }: Pick<TurnChanges, 'insertions' | 'deletions'>) {
+export function ChangeCounts({ insertions, deletions }: Pick<TurnChangeSummary, 'insertions' | 'deletions'>) {
   return (
     <span className="inline-flex shrink-0 gap-1.5 font-mono tabular-nums">
       <span className="text-emerald-600 dark:text-emerald-400">+{insertions}</span>
@@ -18,7 +18,7 @@ function ChangeFiles({
   expanded = true,
   onView,
 }: {
-  changes: TurnChanges
+  changes: TurnChangeSummary
   expanded?: boolean
   onView: (entryId: string, path?: string) => void
 }) {
@@ -46,7 +46,7 @@ export function LiveTurnChanges({
   changes,
   onView,
 }: {
-  changes: TurnChanges
+  changes: TurnChangeSummary
   onView: (entryId: string, path?: string) => void
 }) {
   const [open, setOpen] = useState(false)
@@ -106,7 +106,7 @@ export function TurnChangesCard({
   onUndo,
   disabled,
 }: {
-  changes: TurnChanges
+  changes: TurnChangeSummary
   onView: (entryId: string, path?: string) => void
   onUndo: (entryId: string) => Promise<void>
   disabled?: boolean

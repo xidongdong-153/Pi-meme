@@ -651,3 +651,35 @@ test('首次恢复编辑遇到网络错误时保留占位，后续快照重试�
     f.client.close()
   }
 })
+
+test('同一客户端会话列表并发读取共享请求，不同会话选择隔离', async () => {
+  let release!: () => void
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const { client, requests } = create(async (request) => {
+    if (request.method === 'pi:sessions') {
+      await gate
+      return { recents: [], projects: [], pinnedPaths: [], activeSessionId: request.sessionId }
+    }
+    return null
+  })
+  try {
+    const scoped = client.bridge.scopeSession!('secondary')
+    const first = client.bridge.getSessions()
+    const second = client.bridge.getSessions()
+    const third = scoped.getSessions()
+    await tick()
+    assert.equal(requests.filter((request) => request.method === 'pi:sessions').length, 2)
+    release()
+    const [a, b, c] = await Promise.all([first, second, third])
+    assert.equal(a, b)
+    assert.equal(c.activeSessionId, 'secondary')
+    assert.notEqual(a, c)
+    const next = await scoped.getSessions()
+    assert.equal(next, c)
+  } finally {
+    release()
+    client.close()
+  }
+})

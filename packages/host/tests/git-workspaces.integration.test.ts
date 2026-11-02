@@ -37,7 +37,7 @@ test('Host 按会话读取与撤销文件，拒绝只读权限，撤销期间阻
     await writeFile(target, 'after\n')
     await recordFileChange(file, 'entry-one', directory, target, Buffer.from('before\n'), Buffer.from('after\n'))
     const api = host.control.api
-    assert.equal((await api.git.turnChanges(session, ['entry-one']))[0].files[0].path, 'changed.txt')
+    assert.equal((await api.git.turnChangeSummaries(session, ['entry-one']))[0].files[0].path, 'changed.txt')
     await host.pi.setAccessMode(key, 'read-only')
     await assert.rejects(api.git.undoTurn(session, 'entry-one', { idempotencyKey: crypto.randomUUID() }), /只读/)
     await host.pi.setAccessMode(key, 'full-access')
@@ -54,7 +54,7 @@ test('Host 按会话读取与撤销文件，拒绝只读权限，撤销期间阻
       host.pi.assertCheckoutIdle = assertIdle
     }
     assert.equal(await readFile(target, 'utf8'), 'before\n')
-    assert.equal((await api.git.turnChanges(session, ['entry-one']))[0].undone, true)
+    assert.equal((await api.git.turnChangeSummaries(session, ['entry-one']))[0].undone, true)
   } finally {
     await host.dispose()
     await fake.dispose()

@@ -20,6 +20,12 @@ export function RetainedToolPanels({
   visible: boolean
   contribution: UiContributionProps
 }) {
+  const [windowVisible, setWindowVisible] = useState(() => !document.hidden)
+  useEffect(() => {
+    const update = () => setWindowVisible(!document.hidden)
+    document.addEventListener('visibilitychange', update)
+    return () => document.removeEventListener('visibilitychange', update)
+  }, [])
   const retained = useRef(new Map<string, Pane>())
   const [, refresh] = useState(0)
   useEffect(() => {
@@ -88,7 +94,18 @@ export function RetainedToolPanels({
           className="min-h-0 min-w-0 flex-1 flex-col [&:not([hidden])]:flex"
         >
           <ErrorBoundary fallbackTitle={`面板渲染失败：${pane.panel.title}`}>
-            <div className="flex min-h-0 min-w-0 flex-1 flex-col">{pane.panel.render(pane.contribution)}</div>
+            <div className="flex min-h-0 min-w-0 flex-1 flex-col">
+              {pane.panel.render({
+                ...pane.contribution,
+                visible:
+                  windowVisible &&
+                  contribution.visible !== false &&
+                  visible &&
+                  pane.session === session &&
+                  pane.panel.id === active &&
+                  panels.some((panel) => panel.id === pane.panel.id),
+              })}
+            </div>
           </ErrorBoundary>
         </div>
       ))}

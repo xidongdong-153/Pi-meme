@@ -38,6 +38,7 @@ export function createAgentAccessExtension(options: {
   sandbox: AccessSandbox
   cwd: string
   mode: AgentAccessMode
+  onTurnSaved?: (entryId: string, revision: string) => void
   externalToolAllowed?: (name: string) => boolean
 }): InlineExtension {
   const { sdk, sandbox, cwd, mode } = options
@@ -55,7 +56,7 @@ export function createAgentAccessExtension(options: {
           ? sdk.createPowerShellToolDefinition(cwd, { operations: bashOperations })
           : sdk.createBashToolDefinition(cwd, { operations: bashOperations }),
       )
-      createTurnChangesExtension(sdk, cwd, sandbox).factory(pi)
+      createTurnChangesExtension(sdk, cwd, sandbox, options.onTurnSaved).factory(pi)
       const isAllowed = (name: string) =>
         (process.platform !== 'win32' || name !== 'bash') &&
         (allowedTools.has(name) || options.externalToolAllowed?.(name) === true)

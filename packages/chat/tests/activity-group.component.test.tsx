@@ -19,7 +19,7 @@ import { applyEvent, emptyChat, fromSnapshot } from '../src/ui/model/state'
 import type { PiEvent } from '@pi-meme/contracts/pi'
 import type { AgentSummary } from '@pi-meme/contracts/collaboration'
 import { projectAgentConversation } from '../src/ui/model/agent-collaboration'
-import { parseToolMeta } from '../src/ui/model/tool-details'
+import { fileChangeStats, parseToolMeta } from '../src/ui/model/tool-details'
 import { collectImageGenerations, groupTurnImageGenerations } from '../src/ui/model/turn-image-generations'
 import { runningActivityLabel, summarizeActivities } from '../src/ui/model/activity-summary'
 import {
@@ -31,6 +31,25 @@ import {
 } from '../../../tests/fixtures/messages.mjs'
 
 afterEach(cleanup)
+
+test('相同工具结果只扫描一次 patch，内容变化后重新统计', () => {
+  const result = { details: { patch: '--- a/a\n+++ b/a\n@@ -1 +1,2 @@\n-旧\n+新\n+追加', created: false } }
+  const split = vi.spyOn(String.prototype, 'split')
+  try {
+    for (let index = 0; index < 20; index++) {
+      expect(fileChangeStats(result)).toEqual({ insertions: 2, deletions: 1, created: false })
+      expect(
+        parseToolMeta({ id: 'write', name: 'write', status: 'success', args: { path: 'a' }, result }).summary,
+      ).toBe('已编辑 a')
+    }
+    expect(split.mock.contexts.filter((value) => String(value) === result.details.patch)).toHaveLength(1)
+    result.details.patch = '@@ -0,0 +1 @@\n+创建'
+    result.details.created = true
+    expect(fileChangeStats(result)).toEqual({ insertions: 1, deletions: 0, created: true })
+  } finally {
+    split.mockRestore()
+  }
+})
 
 test('生图等待独立于工作过程，完成后显示画廊并去掉重复 Markdown 图片', async () => {
   const user = userEvent.setup()
@@ -243,10 +262,11 @@ test('本轮卡片携带消息与文件目标打开详情，撤销失败保留�
     <TurnChangesCard
       changes={{
         entryId: 'native-user',
+        revision: '1',
         undone: false,
         insertions: 1,
         deletions: 0,
-        files: [{ path: 'src/app.ts', insertions: 1, deletions: 0, patch: '+line' }],
+        files: [{ path: 'src/app.ts', insertions: 1, deletions: 0 }],
       }}
       onView={view}
       onUndo={undo}

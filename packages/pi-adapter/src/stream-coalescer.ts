@@ -42,7 +42,8 @@ export function createStreamCoalescer(emit: (record: DesktopEvent) => void) {
       }
       bytes += Buffer.byteLength(next.delta)
       if (bytes >= 32 * 1024) flush()
-      else timer ??= setTimeout(flush, 16)
+      // 连续增量以 50ms 合并，减少 Markdown 与布局重算；边界和字节上限仍立即提交。
+      else timer ??= setTimeout(flush, 50)
     },
   }
 }

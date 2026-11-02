@@ -9,7 +9,6 @@ import type { SessionService } from './session-service'
 import type { PiProjectGroup, PiSessionSummary } from '@pi-meme/contracts/sessions'
 import { mergeRuntimeSessions } from './session-groups'
 import type { SessionHistoryData } from './session-reader'
-import { readSessionCwd } from './session-reader'
 
 export type WorkspaceHandlerContext = {
   mutations?: Pick<PiSessionPool, 'renameSession' | 'deleteSessions' | 'assertWorkspaceAvailable'>
@@ -46,13 +45,7 @@ export function createWorkspaceHandlers({
   const getProjects = async () => {
     if (!projects) return []
     const snapshot = await sessions.getSnapshot(pi.getActiveSession(), getPinnedPaths())
-    const cwds = await Promise.all(
-      snapshot.projects.map(async (group) => {
-        const session = group.sessions[0]
-        if (!session) return undefined
-        return session.path.startsWith('runtime:') ? session.cwd : readSessionCwd(session.path).catch(() => undefined)
-      }),
-    )
+    const cwds = snapshot.projects.flatMap((group) => group.sessions.map((session) => session.cwd).filter(Boolean))
     return projects.list([
       ...cwds.filter((cwd): cwd is string => Boolean(cwd)),
       ...(getRuntimeSessions?.() ?? []).map((session) => session.cwd),
@@ -93,7 +86,7 @@ export function createWorkspaceHandlers({
     }
   }
   const finishDeletion = async (result: import('@pi-meme/contracts/desktop').WorkspaceDeletionResult, cwd?: string) => {
-    sessions.invalidate()
+    for (const file of result.deletedPaths) sessions.invalidate(file)
     try {
       await removePins?.([
         ...result.deletedPaths,
@@ -148,7 +141,7 @@ export function createWorkspaceHandlers({
       else if (!(getRuntimeSessions?.() ?? []).some((session) => session.path === value || session.id === value))
         throw new Error('目标会话不存在')
       await mutations!.renameSession(value, parseName(nextName))
-      sessions.invalidate()
+      sessions.invalidate(value, 'append')
     },
     'session:delete': async (value: unknown) => {
       text(value)
@@ -190,9 +183,7 @@ export function createWorkspaceHandlers({
         }
         const groups = new Map<string, PiProjectGroup>()
         for (const group of snapshot.projects) {
-          const headerCwd =
-            group.sessions.find((session) => session.cwd)?.cwd ??
-            (group.sessions[0] && (await readSessionCwd(group.sessions[0].path).catch(() => undefined)))
+          const headerCwd = group.sessions.find((session) => session.cwd)?.cwd
           if (!headerCwd) continue
           const cwd = await normalize(headerCwd)
           const saved = groups.get(cwd)

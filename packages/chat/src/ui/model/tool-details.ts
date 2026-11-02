@@ -14,21 +14,27 @@ function getBasename(pathStr: string): string {
   return parts[parts.length - 1] || pathStr
 }
 
-export function fileChangeStats(
-  result: unknown,
-): { insertions: number; deletions: number; created?: boolean } | undefined {
+type FileChangeStats = { insertions: number; deletions: number; created?: boolean }
+const fileStats = new WeakMap<object, { patch: string; stats: FileChangeStats }>()
+
+export function fileChangeStats(result: unknown): FileChangeStats | undefined {
   if (!result || typeof result !== 'object') return
   const value = result as Record<string, unknown>
   const details =
     value.details && typeof value.details === 'object' ? (value.details as Record<string, unknown>) : value
   if (typeof details.patch !== 'string') return
+  const created = typeof details.created === 'boolean' ? details.created : undefined
+  const cached = fileStats.get(details)
+  if (cached?.patch === details.patch && cached.stats.created === created) return cached.stats
   let insertions = 0
   let deletions = 0
   for (const line of details.patch.split('\n')) {
     if (line.startsWith('+') && !line.startsWith('+++')) insertions++
     if (line.startsWith('-') && !line.startsWith('---')) deletions++
   }
-  return { insertions, deletions, created: typeof details.created === 'boolean' ? details.created : undefined }
+  const stats = { insertions, deletions, created }
+  fileStats.set(details, { patch: details.patch, stats })
+  return stats
 }
 
 export function extractFilePatch(result: unknown): string | null {

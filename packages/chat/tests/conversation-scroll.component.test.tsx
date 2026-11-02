@@ -13,13 +13,21 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+const resizeCallbacks = new Set<() => void>()
+
 beforeEach(() => {
+  resizeCallbacks.clear()
   vi.stubGlobal(
     'ResizeObserver',
     class {
+      constructor(private callback: () => void) {
+        resizeCallbacks.add(callback)
+      }
       observe() {}
       unobserve() {}
-      disconnect() {}
+      disconnect() {
+        resizeCallbacks.delete(this.callback)
+      }
     },
   )
 })
@@ -119,7 +127,7 @@ test('历史前插按最新阅读锚点补偿，不计入底部同时增长的�
       }),
   )
   const { result, rerender, unmount } = renderHook(() =>
-    useConversationScroll(emptyChat, undefined, { hasMore: true, loading: false, load }),
+    useConversationScroll(undefined, { hasMore: true, loading: false, load }),
   )
   result.current.containerRef.current = scroller
   let pending!: Promise<void>
@@ -258,7 +266,7 @@ test('内容铺开且向上滚动离开底部时显示箭头，点击后调用�
   expect(screen.queryByRole('button', { name: '滚动到底部' })).not.toBeInTheDocument()
 })
 
-test('打开会话和更新消息只滚动消息容器，不连带滚动外层页面', () => {
+test('消息更新等待尺寸通知后滚动消息容器，不重复同步测量布局', async () => {
   const scrollIntoView = vi.spyOn(HTMLElement.prototype, 'scrollIntoView')
   const view = (chat: ChatState) => (
     <TooltipProvider>
@@ -284,6 +292,11 @@ test('打开会话和更新消息只滚动消息容器，不连带滚动外层�
 
   Object.defineProperty(scrollContainer, 'scrollHeight', { value: 1800, configurable: true })
   rerender(view(createChatState([...chat.messages, assistantMessage('新增回复', 3000)])))
+  expect(scrollContainer.scrollTop).toBe(1000)
+  await act(async () => {
+    for (const callback of resizeCallbacks) callback()
+    await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
+  })
   expect(scrollContainer.scrollTop).toBe(1800)
   expect(scrollIntoView).not.toHaveBeenCalled()
 })
@@ -575,4 +588,41 @@ test('清空计划状态后不补显残留工具结果或孤立索引文档', ()
     </TooltipProvider>,
   )
   expect(screen.queryByRole('region', { name: '计划卡片' })).not.toBeInTheDocument()
+})
+
+test('持续吸底不测量历史锚点，也不重复写阅读位置；上翻后仍保存锚点', async () => {
+  const { container } = render(
+    <TooltipProvider>
+      <Conversation
+        chat={createChatState([userMessage('问题', 1), assistantMessage('答案', 2)])}
+        sessionKey="bottom-measurement"
+        canEditMessages={false}
+        onEditMessage={() => {}}
+        onForkReply={() => {}}
+        onCopyError={() => {}}
+      />
+    </TooltipProvider>,
+  )
+  const scroller = container.querySelector('[aria-label="对话消息流"]') as HTMLDivElement
+  Object.defineProperties(scroller, {
+    clientHeight: { value: 500, configurable: true },
+    scrollHeight: { value: 2000, configurable: true },
+    scrollTop: { value: 1500, writable: true, configurable: true },
+  })
+  const geometry = vi.spyOn(scroller, 'getBoundingClientRect').mockReturnValue({ top: 0 } as DOMRect)
+  const save = vi.spyOn(Storage.prototype, 'setItem')
+  fireEvent.scroll(scroller)
+  geometry.mockClear()
+  save.mockClear()
+  for (let i = 0; i < 5; i++) {
+    scroller.scrollTop = 1500 + i * 100
+    Object.defineProperty(scroller, 'scrollHeight', { value: 2000 + i * 100, configurable: true })
+    fireEvent.scroll(scroller)
+  }
+  expect(geometry).not.toHaveBeenCalled()
+  expect(save).not.toHaveBeenCalled()
+  scroller.scrollTop = 100
+  fireEvent.scroll(scroller)
+  expect(geometry).toHaveBeenCalled()
+  expect(save).toHaveBeenCalled()
 })

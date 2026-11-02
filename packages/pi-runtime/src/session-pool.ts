@@ -486,7 +486,7 @@ export class PiSessionPool implements PiRuntime {
         record.state = { ...record.state, sessionName: name }
       }
       invalidateSessionHistory([sessionPath])
-      this.notify.sessionsChanged()
+      this.notify.sessionsChanged({ paths: [sessionPath], kind: 'append' })
     } finally {
       this.mutatingPaths.delete(sessionPath)
       if (record) this.mutatingPaths.delete(record.key)
@@ -571,7 +571,7 @@ export class PiSessionPool implements PiRuntime {
           result.errors.push(`会话已删除，无法读取新会话：${String(cause)}`)
         }
       }
-      this.notify.sessionsChanged()
+      this.notify.sessionsChanged({ paths: result.deletedPaths, kind: 'rewrite' })
       const outcome = { ...result, deletedKeys, selection: selected }
       return finish ? await finish(outcome) : outcome
     } finally {
@@ -656,7 +656,7 @@ export class PiSessionPool implements PiRuntime {
       connection: (value: Connection) => void
       event: (value: DesktopEvent) => void
       error: (value: DesktopError) => void
-      sessionsChanged: () => void
+      sessionsChanged: (change?: { paths: string[]; kind: 'append' | 'rewrite' }) => void
       title?: (value: string) => void
     },
     private readonly accessStore = new AgentAccessStore(),
@@ -916,6 +916,12 @@ export class PiSessionPool implements PiRuntime {
   private handleEvent(record: RuntimeSession, value: DesktopEvent) {
     if (!this.sessions.has(record.key)) return
     const event = value.event
+    if (event.type === 'session_saved') {
+      record.sessionFile = event.sessionFile
+      markHistoryAppend(event.sessionFile)
+      if (!record.temporary) this.notify.sessionsChanged({ paths: [event.sessionFile], kind: 'append' })
+      return
+    }
     if (event.type === 'agent_settled') {
       if (record.settled) return
       record.settled = true
@@ -984,7 +990,11 @@ export class PiSessionPool implements PiRuntime {
       event.type === 'message_end' ||
       event.type === 'pause_update'
     ) {
-      this.notify.sessionsChanged()
+      this.notify.sessionsChanged(
+        event.type === 'agent_settled' && record.sessionFile && !record.temporary
+          ? { paths: [record.sessionFile], kind: 'rewrite' }
+          : undefined,
+      )
       if (event.type === 'agent_settled') this.prune()
     }
   }
@@ -1007,7 +1017,10 @@ export class PiSessionPool implements PiRuntime {
               : entry,
           ),
         }
-      if (record.sessionFile) invalidateSessionHistory([record.sessionFile])
+      if (record.sessionFile) {
+        invalidateSessionHistory([record.sessionFile])
+        if (!record.temporary) this.notify.sessionsChanged({ paths: [record.sessionFile], kind: 'rewrite' })
+      }
     }
     if (event.type === 'auto_retry_start' || event.type === 'summarization_retry_scheduled')
       record.state = {
@@ -1510,7 +1523,9 @@ export class PiSessionPool implements PiRuntime {
       if (record.sessionFile && !record.temporary) await this.accessStore.set(record.sessionFile, record.accessMode)
       if (!this.sessions.has(record.key)) return
       this.commands.set(`${record.cwd}:${record.accessMode}`, { value: await record.session.getCommands() })
-      this.notify.sessionsChanged()
+      this.notify.sessionsChanged(
+        record.sessionFile && !record.temporary ? { paths: [record.sessionFile], kind: 'rewrite' } : undefined,
+      )
     })()
     record.starting = starting
     return starting.finally(() => {

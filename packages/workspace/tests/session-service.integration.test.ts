@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict'
-import { test } from 'vitest'
-import { mkdtemp, mkdir, writeFile, appendFile, rm, utimes, stat } from 'node:fs/promises'
+import { test, vi } from 'vitest'
+import { mkdtemp, mkdir, writeFile, appendFile, rm, utimes, stat, readFile, rename } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { groupSessions, mergeRuntimeSessions } from '../src/server/session-groups'
 import { SessionService } from '../src/server/session-service'
+import * as sessionReader from '../src/server/session-reader'
 import { assistantMessage, userMessage } from '../../../tests/fixtures/messages.mjs'
 
 test('SessionService 在临时目录扫描摘要、项目与置顶，并保留部分读取行为', async () => {
@@ -346,6 +347,167 @@ test('文件时间相同但大小变化时重新读取，扫描中的失效不�
     assert.equal((await stat(file)).mtimeMs, before.mtimeMs)
     service.invalidate()
     assert.equal((await service.getSnapshot()).recents[0].name, '大小变化后的标题')
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('增量摘要处理半行与 UTF-8 尾部、重写、替换和缓存恢复', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pi-summary-incremental-'))
+  const project = path.join(directory, 'project')
+  const file = path.join(project, 'session.jsonl')
+  const cache = path.join(directory, 'index.json')
+  await mkdir(project)
+  const header = JSON.stringify({ type: 'session', id: 'one', cwd: project, timestamp: '2026-09-29T00:00:00Z' })
+  const user = JSON.stringify({ type: 'message', message: userMessage('中文问题', 1) })
+  const title = Buffer.from(`${JSON.stringify({ type: 'session_info', name: '增量标题' })}\n`)
+  try {
+    await writeFile(file, `${header}\n${user}\n`)
+    const service = new SessionService(directory, cache)
+    const first = await service.getSnapshot()
+    const split = title.indexOf(Buffer.from('增')) + 1
+    await appendFile(file, title.subarray(0, split))
+    service.invalidate(file, 'append')
+    assert.equal((await service.getSnapshot()).recents[0].messageCount, 1)
+    await appendFile(file, title.subarray(split))
+    service.invalidate(file, 'append')
+    const appended = await service.getSnapshot()
+    assert.equal(appended.recents[0].name, '增量标题')
+    assert.equal(appended.recents[0].firstMessage, '中文问题')
+    assert.equal(appended.recents[0].messageCount, 1)
+    assert.notEqual(appended.recents, first.recents)
+    await service.flush()
+    const persisted = JSON.parse(await readFile(cache, 'utf8'))
+    assert.equal(persisted.files[0][1].index.offset, (await stat(file)).size)
+    const savedTime = (await stat(cache)).mtimeMs
+    for (let i = 0; i < 10; i++) assert.equal((await service.getSnapshot()).recents, appended.recents)
+    await service.flush()
+    assert.equal((await stat(cache)).mtimeMs, savedTime)
+    const restored = new SessionService(directory, cache)
+    await restored.init()
+    assert.equal((await restored.getSnapshot()).recents[0].name, '增量标题')
+    await writeFile(file, `${header}\n${user}\n`)
+    restored.invalidate(file)
+    assert.equal((await restored.getSnapshot()).recents[0].name, undefined)
+    await writeFile(`${file}.tmp`, `${header.replace('one', 'two')}\n${user}\n`)
+    await rename(`${file}.tmp`, file)
+    restored.invalidate(file, 'append')
+    assert.equal((await restored.getSnapshot()).recents[0].id, 'two')
+    await restored.flush()
+    await writeFile(cache, '{invalid')
+    const rebuilt = new SessionService(directory, cache)
+    await rebuilt.init()
+    assert.equal((await rebuilt.getSnapshot()).recents[0].id, 'two')
+    await rebuilt.flush()
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('重写读取失败期间收到追加通知，重试仍重建文件摘要', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pi-summary-retry-'))
+  const project = path.join(directory, 'project')
+  const file = path.join(project, 'session.jsonl')
+  await mkdir(project)
+  const header = JSON.stringify({ type: 'session', id: 'one', cwd: project, timestamp: '2026-09-29T00:00:00Z' })
+  const user = JSON.stringify({ type: 'message', message: userMessage('原始问题'.repeat(100), 1) })
+  const original = `${header}\n${user}\n`
+  try {
+    await writeFile(file, original)
+    const service = new SessionService(directory)
+    assert.equal((await service.getSnapshot()).recents[0].id, 'one')
+    await writeFile(file, `${original.replace('"one"', '"two"')}{"type":"session_info","name":"新标题"}\n`)
+    service.invalidate(file, 'rewrite')
+    const read = vi.spyOn(sessionReader, 'readSessionSummaryIndex').mockImplementationOnce(async () => {
+      service.invalidate(file, 'append')
+      throw new Error('测试读取失败')
+    })
+    try {
+      await assert.rejects(service.getSnapshot(), /测试读取失败/)
+    } finally {
+      read.mockRestore()
+    }
+    const recovered = (await service.getSnapshot()).recents[0]
+    assert.equal(recovered.id, 'two')
+    assert.equal(recovered.name, '新标题')
+    assert.equal(recovered.messageCount, 1)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('扫描失败也等待同批读取结束，重试不与旧批次交叠', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pi-summary-batch-'))
+  const project = path.join(directory, 'project')
+  await mkdir(project)
+  let release!: () => void
+  let started!: () => void
+  const blocked = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const reading = new Promise<void>((resolve) => {
+    started = resolve
+  })
+  const original = sessionReader.readSessionSummaryIndex
+  const read = vi.spyOn(sessionReader, 'readSessionSummaryIndex').mockImplementation(async (...args) => {
+    if (args[0].endsWith('a.jsonl')) {
+      await reading
+      throw new Error('测试批次失败')
+    }
+    started()
+    await blocked
+    return original(...args)
+  })
+  try {
+    for (const id of ['a', 'b'])
+      await writeFile(path.join(project, `${id}.jsonl`), `${JSON.stringify({ type: 'session', id, cwd: project })}\n`)
+    const service = new SessionService(directory)
+    let settled = false
+    const scan = service.getSnapshot().catch((cause: unknown) => {
+      settled = true
+      return cause
+    })
+    await reading
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    assert.equal(settled, false)
+    release()
+    assert.match(String(await scan), /测试批次失败/)
+    read.mockRestore()
+    await service.getSnapshot()
+  } finally {
+    release()
+    read.mockRestore()
+    await rm(directory, { recursive: true, force: true })
+  }
+})
+
+test('跨块长消息只合并一次，异常 content 不阻断其他消息摘要', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pi-summary-long-line-'))
+  const file = path.join(directory, 'session.jsonl')
+  const content = '中文'.repeat(350000)
+  const text = `${[
+    { type: 'session', id: 'long', cwd: directory },
+    { type: 'message', message: { role: 'user', content: null } },
+    { type: 'message', message: userMessage(content, 1) },
+  ]
+    .map((entry) => JSON.stringify(entry))
+    .join('\n')}\n`
+  try {
+    await writeFile(file, text)
+    const concat = vi.spyOn(Buffer, 'concat')
+    try {
+      const result = await sessionReader.readSessionSummaryIndex(file, Date.now(), Buffer.byteLength(text))
+      assert.equal(result.summary?.firstMessage, content)
+      assert.equal(result.summary?.messageCount, 2)
+      assert.equal(result.index.offset, Buffer.byteLength(text))
+      const copied = concat.mock.calls.reduce(
+        (sum, [buffers]) => sum + buffers.reduce((size, buffer) => size + buffer.byteLength, 0),
+        0,
+      )
+      assert.ok(copied <= Buffer.byteLength(text) * 2, `拼接复制 ${copied} 字节超过线性预算`)
+    } finally {
+      concat.mockRestore()
+    }
   } finally {
     await rm(directory, { recursive: true, force: true })
   }

@@ -36,7 +36,7 @@ import type { PiSessionPool, ClientView } from '@pi-meme/pi-runtime/session-pool
 import type { ProjectStore } from '@pi-meme/workspace/server/project-store'
 import type { SessionService } from '@pi-meme/workspace/server/session-service'
 import { readSessionHistory } from '@pi-meme/pi-runtime/session-history'
-import { readTurnChanges, readTurnChangeFile, undoTurnChanges } from '@pi-meme/pi-runtime/turn-change-store'
+import { readTurnChangeSummaries, readTurnChangeFile, undoTurnChanges } from '@pi-meme/pi-runtime/turn-change-store'
 import { getGitDiff, getGitEnvironment, getGitSnapshot } from '@pi-meme/git/server/git-service'
 import { getGitReview, getGitReviewFile, getGitReviewOptions } from '@pi-meme/git/server/git-review'
 import type { CollaborationBridge } from '@pi-meme/contracts/collaboration'
@@ -1189,14 +1189,14 @@ export async function createAppControl(options: Options) {
       },
     },
     git: {
-      turnChanges: (ref, entryIds) =>
+      turnChangeSummaries: (ref, entryIds) =>
         target(
           ref,
           async (key) => {
             if (!Array.isArray(entryIds) || entryIds.length > 200 || entryIds.some((id) => typeof id !== 'string'))
               throw new Error('变更轮次参数无效')
             const file = pi.getSessionContext(key).sessionFile
-            return file ? readTurnChanges(file, entryIds) : []
+            return file ? readTurnChangeSummaries(file, entryIds) : []
           },
           clientId,
         ),

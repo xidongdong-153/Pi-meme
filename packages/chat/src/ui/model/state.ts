@@ -177,6 +177,8 @@ export function applyEvent(
       return state.agentMessages?.some((message) => message.id === event.message.id)
         ? state
         : { ...state, agentMessages: [...(state.agentMessages ?? []), event.message] }
+    case 'turn_changes_update':
+    case 'session_saved':
     case 'access_mode_changed':
       return state
     case 'goal_updated':

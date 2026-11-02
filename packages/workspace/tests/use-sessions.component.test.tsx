@@ -85,7 +85,7 @@ test('并发刷新合并：进行中多次触发仅追加一次后续读取', as
   expect(getSessions).toHaveBeenCalledTimes(2)
 })
 
-test('慢请求跨多次 tick 后无事件不 trailing，轮询跳过且不续刷', async () => {
+test('无事件时不定时轮询，慢请求完成后也不续刷', async () => {
   vi.useFakeTimers()
   try {
     const pending = deferred<PiSessionsSnapshot>()
@@ -120,11 +120,11 @@ test('慢请求跨多次 tick 后无事件不 trailing，轮询跳过且不续�
     expect(result.current.sessions?.recents[0]?.name).toBe('done')
     expect(result.current.sessionsLoading).toBe(false)
 
-    // 下次定时 tick 正常发起轮询
+    // 后续时间流逝不触发读取
     await act(async () => {
       vi.advanceTimersByTime(2000)
     })
-    expect(getSessions).toHaveBeenCalledTimes(2)
+    expect(getSessions).toHaveBeenCalledTimes(1)
   } finally {
     vi.useRealTimers()
   }
@@ -377,4 +377,58 @@ test('enabled 切换时旧批次 trailing 失效，重新启用时从新代次�
     newPending.resolve(makeSnapshot('re-enabled'))
   })
   expect(result.current.sessions?.recents[0]?.name).toBe('re-enabled')
+})
+
+test('隐藏时只记脏，恢复可见后刷新一次并保留列表', async () => {
+  let changed = () => {}
+  const getSessions = vi.fn().mockResolvedValue(makeSnapshot('same'))
+  const bridge = {
+    getSessions,
+    onSessionsChanged: (callback: () => void) => {
+      changed = callback
+      return () => {}
+    },
+  }
+  const { result, rerender } = renderHook(({ foreground }) => useSessions(bridge, true, foreground), {
+    initialProps: { foreground: true },
+  })
+  await act(async () => {})
+  const original = result.current.sessions
+  rerender({ foreground: false })
+  await act(async () => {
+    changed()
+    changed()
+    changed()
+  })
+  expect(getSessions).toHaveBeenCalledTimes(1)
+  expect(result.current.sessions).toBe(original)
+  rerender({ foreground: true })
+  await act(async () => {})
+  expect(getSessions).toHaveBeenCalledTimes(2)
+  expect(result.current.sessions).toBe(original)
+  expect(result.current.sessionsLoading).toBe(false)
+})
+
+test('前台排队的刷新在切到后台后保留，返回前台补读', async () => {
+  const pending = deferred<PiSessionsSnapshot>()
+  const getSessions = vi.fn().mockReturnValueOnce(pending.promise).mockResolvedValue(makeSnapshot('new'))
+  let changed = () => {}
+  const bridge = {
+    getSessions,
+    onSessionsChanged: (callback: () => void) => {
+      changed = callback
+      return () => {}
+    },
+  }
+  const { result, rerender } = renderHook(({ foreground }) => useSessions(bridge, true, foreground), {
+    initialProps: { foreground: true },
+  })
+  act(() => changed())
+  rerender({ foreground: false })
+  await act(async () => pending.resolve(makeSnapshot('old')))
+  expect(getSessions).toHaveBeenCalledTimes(1)
+  rerender({ foreground: true })
+  await act(async () => {})
+  expect(getSessions).toHaveBeenCalledTimes(2)
+  expect(result.current.sessions?.recents[0]?.name).toBe('new')
 })

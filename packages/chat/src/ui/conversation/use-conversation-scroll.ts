@@ -1,5 +1,4 @@
 import * as React from 'react'
-import type { ChatState } from '../model/types'
 
 type ScrollPosition = { top: number; atBottom: boolean; turn?: string; offset?: number }
 
@@ -12,10 +11,6 @@ const MIN_SCROLLABLE_OVERFLOW = 100
 const positions = new Map<string, ScrollPosition>()
 
 export function useConversationScroll(
-  chat: Pick<
-    ChatState,
-    'messages' | 'sessionEntries' | 'live' | 'tools' | 'agents' | 'agentMessages' | 'retry' | 'compactionError'
-  >,
   sessionKey?: string,
   history?: { hasMore: boolean; loading: boolean; load: () => Promise<boolean> },
 ) {
@@ -141,24 +136,37 @@ export function useConversationScroll(
     isAtBottomRef.current = atBottom
     setShowScrollTop(el.scrollTop > 1)
     if (activeSession.current) {
-      positions.delete(activeSession.current)
-      const top = el.getBoundingClientRect().top
-      const turn = [...el.querySelectorAll<HTMLElement>('[data-conversation-turn]')].find(
-        (item) => item.getBoundingClientRect().bottom > top,
-      )
-      const saved = {
-        top: el.scrollTop,
-        atBottom,
-        turn: turn?.dataset.conversationTurn,
-        offset: turn ? turn.getBoundingClientRect().top - top : undefined,
+      const previous = positions.get(activeSession.current)
+      // 贴底恢复不需要历史锚点，流式增高也不改变这份阅读状态。
+      if (!atBottom || !previous?.atBottom) {
+        const top = atBottom ? 0 : el.getBoundingClientRect().top
+        const turn = atBottom
+          ? undefined
+          : [...el.querySelectorAll<HTMLElement>('[data-conversation-turn]')].find(
+              (item) => item.getBoundingClientRect().bottom > top,
+            )
+        const saved = {
+          top: atBottom ? 0 : el.scrollTop,
+          atBottom,
+          turn: turn?.dataset.conversationTurn,
+          offset: turn ? turn.getBoundingClientRect().top - top : undefined,
+        }
+        positions.delete(activeSession.current)
+        positions.set(activeSession.current, saved)
+        if (
+          previous?.top !== saved.top ||
+          previous.atBottom !== saved.atBottom ||
+          previous.turn !== saved.turn ||
+          previous.offset !== saved.offset
+        ) {
+          try {
+            sessionStorage.setItem(`pi-meme:reading:v1:${activeSession.current}`, JSON.stringify(saved))
+          } catch {
+            /* 存储不可用时仍保留内存位置。 */
+          }
+        }
+        if (positions.size > 200) positions.delete(positions.keys().next().value!)
       }
-      positions.set(activeSession.current, saved)
-      try {
-        sessionStorage.setItem(`pi-meme:reading:v1:${activeSession.current}`, JSON.stringify(saved))
-      } catch {
-        /* 存储不可用时仍保留内存位置。 */
-      }
-      if (positions.size > 200) positions.delete(positions.keys().next().value!)
     }
     setShowScrollBottom(canScroll && !atBottom)
   }, [])
@@ -283,26 +291,6 @@ export function useConversationScroll(
         })
     }
   })
-
-  // 流式输出与新消息更新时：仅当处于底部时智能跟进滚动
-  React.useEffect(() => {
-    const container = containerRef.current
-    if (container && isAtBottomRef.current) {
-      // 只滚动消息区，避免 scrollIntoView 连带移动侧栏所在的祖先容器。
-      container.scrollTop = container.scrollHeight
-      updateScrollState()
-    }
-  }, [
-    chat.messages,
-    chat.sessionEntries,
-    chat.live,
-    chat.tools,
-    chat.agents,
-    chat.agentMessages,
-    chat.retry,
-    chat.compactionError,
-    updateScrollState,
-  ])
 
   // 监听容器及内部尺寸变化（如流式新增、折叠展开）：若处于吸底状态则跟进吸底，并实时更新箭头可见性
   React.useEffect(() => {

@@ -21,6 +21,8 @@ export type { UiReactiveState, UiTarget } from '@pi-meme/contracts/plugin-ui-dat
 export type UiPluginSlot = 'composer' | 'composer-actions' | 'tool-card' | 'message' | 'status' | 'settings'
 export type UiContributionMatch = { ownerId?: string; toolName?: string; customType?: string }
 export type UiContributionProps = {
+  /** 隐藏时暂停刷新和测量，保留实例与执行任务。 */
+  visible?: boolean
   target: UiTarget
   snapshot: UiSessionMetadata | null
   messages?: readonly UiMessageMetadata[]

@@ -490,7 +490,14 @@ export function App({
   }, [bridge, runtimeSessionKey, chat.appSession, chat.bindDraftSession, chat.setError])
   const appSession = chat.appSession ?? (runtimeSessionKey ? resolvedSessions[runtimeSessionKey] : undefined)
   const activities = useActivities(host, appSession)
-  const turnChanges = useTurnChanges(host, appSession, chat.chat, active && !remoteOffline)
+  const turnChanges = useTurnChanges(
+    host,
+    appSession,
+    chat.chat,
+    active && !remoteOffline,
+    bridge.onEvent,
+    runtimeSessionKey,
+  )
   const [changeSelection, setChangeSelection] = useState<{
     sessionId: string
     entryId: string
@@ -1679,6 +1686,7 @@ export function App({
       render: (props) =>
         props.target.session ? (
           <GitPanel
+            visible={props.visible}
             key={JSON.stringify(props.target.session)}
             cwd={appSession?.cwd ?? cwd}
             projectKey={`${props.target.session.hostId}:${appSession?.cwd ?? cwd}`}
@@ -1977,7 +1985,7 @@ export function App({
                   !activities.state.error,
               }}
               errors={{ ...registry.errors(), ...(browser.error ? { browser: browser.error } : {}) }}
-              props={pluginProps}
+              props={{ ...pluginProps, visible: active }}
               session={appSession?.sessionId ?? chat.workspaceUiKey}
               terminalCwd={appSession?.cwd ?? cwd}
               sidebar={sidebar}

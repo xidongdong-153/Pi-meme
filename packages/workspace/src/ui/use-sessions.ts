@@ -3,13 +3,20 @@ import type { WorkspaceBridge } from '@pi-meme/contracts/desktop'
 import type { PiSessionsSnapshot } from '@pi-meme/contracts/sessions'
 import { SessionActivity } from './session-activity'
 
-export function useSessions(bridge: Pick<WorkspaceBridge, 'getSessions' | 'onSessionsChanged'>, enabled = true) {
+export function useSessions(
+  bridge: Pick<WorkspaceBridge, 'getSessions' | 'onSessionsChanged'>,
+  enabled = true,
+  foreground = true,
+) {
   const [sessions, setSessions] = useState<PiSessionsSnapshot | null>(null)
   const [sessionsLoading, setSessionsLoading] = useState(false)
+  const hasSessions = useRef(false)
+  const visible = useRef(foreground)
+  visible.current = foreground
+  const dirty = useRef(true)
   const mounted = useRef(false)
   const generation = useRef(0)
   const activePromise = useRef<Promise<void> | null>(null)
-  const subsequentGen = useRef<number | null>(null)
   const activity = useRef(new SessionActivity())
   const bridgeRef = useRef(bridge)
   bridgeRef.current = bridge
@@ -23,27 +30,35 @@ export function useSessions(bridge: Pick<WorkspaceBridge, 'getSessions' | 'onSes
 
   const refreshSessions = useCallback(async () => {
     if (!enabled || !mounted.current) return
-    if (activePromise.current) {
-      subsequentGen.current = generation.current
-      return activePromise.current
-    }
+    dirty.current = true
+    if (!visible.current || document.hidden) return
+    if (activePromise.current) return activePromise.current
     const currentGen = generation.current
-    setSessionsLoading(true)
+    if (!hasSessions.current) setSessionsLoading(true)
     const runner = async () => {
       do {
-        subsequentGen.current = null
+        dirty.current = false
         try {
           const data = await bridgeRef.current.getSessions()
-          if (mounted.current && generation.current === currentGen) setSessions(activity.current.apply(data))
+          if (mounted.current && generation.current === currentGen) {
+            hasSessions.current = true
+            const next = activity.current.apply(data)
+            setSessions((previous) => (JSON.stringify(previous) === JSON.stringify(next) ? previous : next))
+          }
         } catch {
-          // 读取失败时保留已有列表，后续事件或轮询可以重试。
+          // 读取失败时保留已有列表，后续事件、恢复可见或手动刷新可以重试。
         }
-      } while (mounted.current && generation.current === currentGen && subsequentGen.current === currentGen)
+      } while (
+        mounted.current &&
+        generation.current === currentGen &&
+        visible.current &&
+        !document.hidden &&
+        dirty.current
+      )
     }
     const task = runner().finally(() => {
       if (generation.current !== currentGen) return
       activePromise.current = null
-      subsequentGen.current = null
       if (mounted.current) setSessionsLoading(false)
     })
     activePromise.current = task
@@ -52,24 +67,28 @@ export function useSessions(bridge: Pick<WorkspaceBridge, 'getSessions' | 'onSes
 
   useEffect(() => {
     if (!enabled) {
+      hasSessions.current = false
       setSessions(null)
       setSessionsLoading(false)
       return
     }
     void refreshSessions()
     const off = bridge.onSessionsChanged?.(() => void refreshSessions())
-    const timer = setInterval(() => {
-      // 慢请求不因轮询不断追加读取；只有显式刷新和变更事件要求后续刷新。
-      if (!activePromise.current) void refreshSessions()
-    }, 2000)
+    const resume = () => {
+      if (!document.hidden) void refreshSessions()
+    }
+    document.addEventListener('visibilitychange', resume)
     return () => {
       off?.()
-      clearInterval(timer)
+      document.removeEventListener('visibilitychange', resume)
       generation.current += 1
       activePromise.current = null
-      subsequentGen.current = null
     }
   }, [bridge, refreshSessions, enabled])
+
+  useEffect(() => {
+    if (foreground && dirty.current) void refreshSessions()
+  }, [foreground, refreshSessions])
 
   const setActiveSession = useCallback((sessionPath?: string, sessionId?: string) => {
     activity.current.select(sessionPath, sessionId)

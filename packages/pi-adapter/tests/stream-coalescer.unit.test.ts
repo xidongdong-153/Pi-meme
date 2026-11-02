@@ -13,14 +13,17 @@ function update(
   return { generation: 1, event: streamUpdate({ type, contentIndex, delta: text }) }
 }
 
-test('同一内容块按 16ms 合并，保留所有字符', () => {
+test('同一内容块在 50ms 内合并，连续到达不推迟发送，保留所有字符', () => {
   vi.useFakeTimers()
   const events: DesktopEvent[] = []
   const stream = createStreamCoalescer((event) => events.push(event))
   for (let i = 0; i < 100; i++) stream.push(update(String(i)))
   expect(events).toHaveLength(0)
-  vi.advanceTimersByTime(16)
-  expect(events).toEqual([update(Array.from({ length: 100 }, (_, i) => String(i)).join(''))])
+  vi.advanceTimersByTime(40)
+  expect(events).toHaveLength(0)
+  stream.push(update('末尾'))
+  vi.advanceTimersByTime(10)
+  expect(events).toEqual([update(`${Array.from({ length: 100 }, (_, i) => String(i)).join('')}末尾`)])
 })
 
 test('思考、文本、工具参数和完成边界保持顺序', () => {

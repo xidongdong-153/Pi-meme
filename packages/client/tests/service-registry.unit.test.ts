@@ -337,7 +337,7 @@ test('连接自身失败仍标记断线并保留错误，后续刷新可恢复',
 })
 
 for (const result of ['失败', '成功'] as const) {
-  test(`较早摘要刷新迟到${result}不覆盖最新刷新结果`, async () => {
+  test(`并发摘要刷新合并，前次${result}后补读最新结果`, async () => {
     const { registry, source } = createRegistry()
     const pending = deferred<unknown[]>()
     const started = deferred<void>()
@@ -348,13 +348,13 @@ for (const result of ['失败', '成功'] as const) {
         return pending.promise
       }
       const earlier = registry.refresh('local')
-      const settled = result === '失败' ? assert.rejects(earlier, /旧摘要失败/) : earlier
       await started.promise
       source.projects = async () => [{ cwd: '/new-project', name: '新项目', lastSelectedAt: 1 }]
-      await registry.refresh('local')
+      const latest = registry.refresh('local')
+      assert.equal(latest, earlier)
       if (result === '失败') pending.reject(new Error('旧摘要失败'))
       else pending.resolve([{ cwd: '/old-project', name: '旧项目', lastSelectedAt: 0 }])
-      await settled
+      await Promise.all([earlier, latest])
       assert.equal(registry.list()[0].status, 'connected')
       assert.equal(registry.list()[0].error, undefined)
       assert.equal(registry.list()[0].projects[0].cwd, '/new-project')
@@ -363,3 +363,23 @@ for (const result of ['失败', '成功'] as const) {
     }
   })
 }
+
+test('摘要未变化时保留引用，不重复发布列表', async () => {
+  const { registry } = createRegistry()
+  try {
+    await registry.refresh('local')
+    const previous = registry.list()[0]
+    const projects = previous.projects
+    const sessions = previous.sessions
+    let notifications = 0
+    registry.subscribe(() => {
+      notifications++
+    })
+    await registry.refresh('local')
+    assert.equal(registry.list()[0].projects, projects)
+    assert.equal(registry.list()[0].sessions, sessions)
+    assert.equal(notifications, 0)
+  } finally {
+    registry.close()
+  }
+})

@@ -1024,8 +1024,8 @@ export async function createHost(options: HostOptions = {}) {
         connection: (value) => emit('connection', value),
         event: (value) => emit('event', value),
         error: (value) => emit('error', value),
-        sessionsChanged: () => {
-          sessions.invalidate()
+        sessionsChanged: (change) => {
+          for (const file of change?.paths ?? []) sessions.invalidate(file, change!.kind)
           emit('sessions-changed')
         },
       },
@@ -2575,6 +2575,7 @@ export async function createHost(options: HostOptions = {}) {
           await imageLibrary.dispose()
           await appControl!.dispose()
           unsubscribeGoals()
+          await sessions.flush()
           await terminal.dispose()
           await plugins.dispose()
           await builtins!.dispose()

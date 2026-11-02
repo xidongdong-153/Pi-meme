@@ -139,7 +139,11 @@ export function useAppSession(
     drafts.saveNewChatView(next)
   }
   const extensionsRef = useRef<ReturnType<typeof useExtensionUI> | null>(null)
-  const { sessions, sessionsLoading, refreshSessions, setActiveSession } = useSessions(bridge, workspaceEnabled)
+  const { sessions, sessionsLoading, refreshSessions, setActiveSession } = useSessions(
+    bridge,
+    workspaceEnabled,
+    foreground,
+  )
   const snapshotWindow = useCallback((key?: string) => {
     const messages = key ? views.current.get(key)?.chat.messages : undefined
     return { limit: 60, from: messages?.[0]?.sourceEntry?.id, details: 'deferred' as const }

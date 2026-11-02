@@ -95,7 +95,7 @@ export function createAppHostClient(transport: AppHostTransport): HostApi {
       close: (ref, options) => call('terminal.close', [ref], options.idempotencyKey),
     },
     git: {
-      turnChanges: (ref, entryIds) => call('git.turnChanges', [ref, entryIds]),
+      turnChangeSummaries: (ref, entryIds) => call('git.turnChangeSummaries', [ref, entryIds]),
       turnFile: (ref, entryId, path) => call('git.turnFile', [ref, entryId, path]),
       undoTurn: (ref, entryId, options) => call('git.undoTurn', [ref, entryId], options.idempotencyKey),
       environment: (ref) => call('git.environment', [ref]),

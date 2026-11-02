@@ -136,6 +136,7 @@ const files: Array<[string, Feature[]]> = [
   ['packages/app-ui/tests/pane-motion.unit.test.ts', ['workspace']],
   ['packages/app-ui/tests/panel-layout.unit.test.ts', ['plugins', 'files', 'terminal']],
   ['packages/app-ui/tests/terminal-panel.component.test.tsx', ['terminal']],
+  ['packages/app-ui/tests/use-turn-changes.component.test.tsx', ['chat', 'git']],
   ['packages/app-ui/tests/workspace-panels.component.test.tsx', ['workspace', 'chat']],
   ['packages/app-ui/tests/pause-sidebar.unit.test.ts', ['chat', 'sessions']],
   ['packages/app-ui/tests/plan-events.component.test.tsx', ['plan']],

@@ -5,6 +5,7 @@ import { useCallback, useState } from 'react'
 import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 import type { UiContributionProps, UiPanel } from '@pi-meme/plugin-sdk/ui'
 import { DEFAULT_PROFILE } from '../src/settings/user-profile'
+import { RetainedToolPanels } from '../src/layout/retained-tool-panels'
 import { WorkspacePanels } from '../src/layout/workspace-panels'
 import { historyPanelsAvailable, panelStorageKey, sideChatTabId, toolsTabId } from '../src/layout/panel-layout'
 import { userMessage } from '../../../tests/fixtures/messages.mjs'
@@ -485,4 +486,37 @@ describe('WorkspacePanels 异步关闭与侧边聊天交互', () => {
     expect(screen.queryByTestId('side-chat-body')).toBeNull()
     expect(screen.getByTestId('main-chat-body')).toBeVisible()
   })
+})
+
+it('保留工具实例，按窗口、Host、面板和 Tab 组合传递可见性', () => {
+  const panel: UiPanel = {
+    id: 'test',
+    title: '测试',
+    icon: null,
+    location: 'right',
+    scope: 'session',
+    render: (props) => <input data-testid="retained-input" data-visible={String(props.visible)} defaultValue="初始" />,
+  }
+  const props = {
+    session: 'one',
+    panels: [panel],
+    tabs: ['test'],
+    active: 'test',
+    visible: true,
+    contribution: defaultProps,
+  }
+  const view = render(<RetainedToolPanels {...props} />)
+  const input = screen.getByTestId('retained-input')
+  fireEvent.change(input, { target: { value: '保留草稿' } })
+  expect(input).toHaveAttribute('data-visible', 'true')
+  view.rerender(<RetainedToolPanels {...props} visible={false} />)
+  expect(input).toHaveAttribute('data-visible', 'false')
+  view.rerender(<RetainedToolPanels {...props} contribution={{ ...defaultProps, visible: false }} />)
+  expect(input).toHaveAttribute('data-visible', 'false')
+  view.rerender(<RetainedToolPanels {...props} active="other" />)
+  expect(input).toHaveAttribute('data-visible', 'false')
+  view.rerender(<RetainedToolPanels {...props} />)
+  expect(screen.getByTestId('retained-input')).toBe(input)
+  expect(input).toHaveValue('保留草稿')
+  expect(input).toHaveAttribute('data-visible', 'true')
 })
