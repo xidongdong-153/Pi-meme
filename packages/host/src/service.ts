@@ -1249,8 +1249,13 @@ export async function createHost(options: HostOptions = {}) {
       const current = new Map(plugins.list().map((entry) => [entry.id, entry]))
       if (sessionId && workerPlugins.has(sessionId)) {
         const retained = workerPlugins.get(sessionId)!
+        // 未进入 Worker 的插件仍可提供 UI；Agent 工具和技能继续由 Worker 快照决定。
         for (const entry of current.values())
-          if ((entry.agent || entry.resources?.skills?.length) && !retained.some((old) => old.id === entry.id))
+          if (
+            !entry.ui &&
+            (entry.agent || entry.resources?.skills?.length) &&
+            !retained.some((old) => old.id === entry.id)
+          )
             current.delete(entry.id)
         for (const entry of retained) {
           const latest = current.get(entry.id)

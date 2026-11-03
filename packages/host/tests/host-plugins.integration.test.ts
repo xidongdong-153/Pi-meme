@@ -7,7 +7,7 @@ import { MemoryCredentialStorage } from '@pi-meme/pi-runtime/secure-store'
 import { setTimeout as delay } from 'node:timers/promises'
 import type { Snapshot } from '@pi-meme/contracts/desktop'
 import { setup, selectAgentPlugins, installAgentFixture } from './host-server-fixture'
-import { trustPluginFixture, writeAgentFixture } from './plugin-fixture'
+import { agentFixtureManifest, trustPluginFixture, writeAgentFixture } from './plugin-fixture'
 
 test('AppAgent 命令按会话启用，插件接口不能停用内置资源模块', async () => {
   const fixture = await setup(true)
@@ -221,6 +221,84 @@ test('同地址新 Host 的插件入口与相对子模块都使用新的实例�
     assert.equal((await fetch(firstChild, { headers: { Cookie: cookie } })).status, 404)
   } finally {
     await restarted?.dispose()
+    await fixture.dispose()
+  }
+})
+
+test('未选择的 Agent 插件仍在对话前后提供 UI，项目停用仍隐藏入口', { timeout: 20000 }, async () => {
+  const fixture = await setup(true)
+  const pluginId = 'agent-ui-fixture'
+  try {
+    const directory = path.join(fixture.root, pluginId)
+    await writeAgentFixture(
+      directory,
+      pluginId,
+      `export function activate(context) { context.tools.register({ name: 'ui_fixture_tool', title: '测试工具', description: '验证界面可见不启用工具', parameters: { type: 'object', properties: {} }, effect: 'read', capabilities: [], execute: async () => ({ text: '测试', data: {} }) }) }`,
+    )
+    const manifest = agentFixtureManifest(pluginId)
+    manifest.piMeme.ui = 'dist/ui.js'
+    manifest.piMeme.permissions!.ui = ['navigation.pages']
+    await writeFile(path.join(directory, 'package.json'), JSON.stringify(manifest))
+    await writeFile(
+      path.join(directory, 'dist/ui.js'),
+      `export function activate(context) {
+        context.pages.register({ id: '${pluginId}:home', title: '测试页面', scope: 'app', render: () => null })
+        context.navigation.register({ title: '测试页面', defaultPageId: '${pluginId}:home', groups: [] })
+      }`,
+    )
+    await fixture.server.host.plugins.loadDirectory(directory)
+    const trusted = await trustPluginFixture(fixture.server.host.plugins, pluginId)
+    await fixture.server.host.plugins.setGrant(pluginId, {
+      ...trusted.grant!,
+      expectedRevision: trusted.grant!.revision,
+      ui: ['navigation.pages'],
+    })
+    const snapshot = async () => {
+      const response = await fixture.rpc('agent-ui', 'pi:snapshot')
+      assert.equal(response.error, undefined)
+      return response.result as Snapshot
+    }
+    const initial = await snapshot()
+    const descriptor = initial.uiPlugins?.find((plugin) => plugin.id === pluginId)
+    assert.ok(descriptor?.ui, '开始对话前应提供插件 UI')
+    const key = initial.connection.sessionKey!
+    const ref = await fixture.server.host.control.sessionForRuntime(key)
+    assert.deepEqual((await fixture.server.host.app.sessions.get(ref)).configuration.agentPlugins, [])
+    assert.equal((await fixture.rpc('agent-ui', 'pi:access-mode', [key, 'full-access'], key)).error, undefined)
+    assert.equal((await fixture.rpc('agent-ui', 'pi:prompt', [key, '不选择插件开始对话'], key)).error, undefined)
+    const running = await snapshot()
+    assert.equal(running.state.isStreaming, true)
+    assert.deepEqual(
+      running.uiPlugins?.find((plugin) => plugin.id === pluginId),
+      descriptor,
+      '运行中不能因未选择 Agent 插件而移除其 UI',
+    )
+    let completed = running
+    for (let count = 0; count < 200 && completed.state.isStreaming; count++) {
+      await delay(25)
+      completed = await snapshot()
+    }
+    assert.equal(completed.state.isStreaming, false)
+    assert.deepEqual(
+      completed.uiPlugins?.find((plugin) => plugin.id === pluginId),
+      descriptor,
+    )
+    assert.ok(fixture.modelTools.length > 0)
+    assert.ok(
+      fixture.modelTools.every((tools) => !tools.includes('ui_fixture_tool')),
+      'UI 可见不能自动选择 Agent 工具',
+    )
+    for (const enabled of [false, true]) {
+      const response = await fixture.rpc('agent-ui', 'resources:set-policy', [
+        { id: `app:${pluginId}`, scope: 'project', cwd: initial.connection.cwd, enabled },
+      ])
+      assert.equal(response.error, undefined)
+      assert.equal(
+        (await snapshot()).uiPlugins?.some((plugin) => plugin.id === pluginId),
+        enabled,
+      )
+    }
+  } finally {
     await fixture.dispose()
   }
 })

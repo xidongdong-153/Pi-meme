@@ -168,7 +168,8 @@ test('真实Worker运行和已提交队列固定完整旧修订，退役后从JS
     const active = await fixture.snapshot()
     assert.equal(
       active.uiPlugins?.some((plugin) => plugin.id === 'resource-only-app'),
-      false,
+      true,
+      '运行中安装的插件 UI 应立即可用，不等待旧技能快照退役',
     )
     assert.equal(
       active.state.resourceSnapshot?.skills.some((skill) => skill.owner.id === 'resource-only-app'),
