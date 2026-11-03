@@ -495,6 +495,7 @@ describe('WorkspacePanels 异步关闭与侧边聊天交互', () => {
 })
 
 it('保留工具实例，按窗口、Host、面板和 Tab 组合传递可见性', () => {
+  const hidden = vi.spyOn(document, 'hidden', 'get').mockReturnValue(true)
   const panel: UiPanel = {
     id: 'test',
     title: '测试',
@@ -514,6 +515,9 @@ it('保留工具实例，按窗口、Host、面板和 Tab 组合传递可见性'
   const view = render(<RetainedToolPanels {...props} />)
   const input = screen.getByTestId('retained-input')
   fireEvent.change(input, { target: { value: '保留草稿' } })
+  expect(input).toHaveAttribute('data-visible', 'false')
+  hidden.mockReturnValue(false)
+  fireEvent(document, new Event('visibilitychange'))
   expect(input).toHaveAttribute('data-visible', 'true')
   view.rerender(<RetainedToolPanels {...props} visible={false} />)
   expect(input).toHaveAttribute('data-visible', 'false')

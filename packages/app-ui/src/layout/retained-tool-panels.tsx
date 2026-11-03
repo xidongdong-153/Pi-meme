@@ -20,7 +20,7 @@ export function RetainedToolPanels({
   visible: boolean
   contribution: UiContributionProps
 }) {
-  const [windowVisible, setWindowVisible] = useState(() => !document.hidden)
+  const [windowVisible, setWindowVisible] = useState(() => typeof document === 'undefined' || !document.hidden)
   useEffect(() => {
     const update = () => setWindowVisible(!document.hidden)
     document.addEventListener('visibilitychange', update)
