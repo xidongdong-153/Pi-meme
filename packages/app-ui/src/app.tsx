@@ -1,5 +1,5 @@
 import { useSystemClient } from './session/use-system-client'
-import { useSessionSidebar } from './session/use-session-sidebar'
+import type { SidebarLayout } from './layout/use-sidebar-layout'
 import { ImagesPage } from './images/images-page'
 import { useVisualizations } from '@pi-meme/visualize/ui/use-visualizations'
 import { VisualizationRendererContext } from '@pi-meme/ui/components/visualization-renderer'
@@ -162,9 +162,11 @@ export function App({
   onHostConnection,
   hostConnections,
   serviceUI,
+  sidebarLayout,
   onBootComplete,
 }: {
   serviceUI?: ServiceUI
+  sidebarLayout: SidebarLayout
   bridge: DesktopBridge
   host: HostApi
   plugins: PluginClient
@@ -808,11 +810,7 @@ export function App({
   )
   const workspacePickerReturnFocus = useRef<HTMLElement | null>(null)
   const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false)
-  const {
-    open: sidebarOpen,
-    width: sidebarWidth,
-    change: handleSidebar,
-  } = useSessionSidebar(hostId ?? hostAddress ?? '', appSession?.sessionId ?? chat.workspaceUiKey)
+  const { open: sidebarOpen, width: sidebarWidth, change: handleSidebar } = sidebarLayout
   const [creatingProject, setCreatingProject] = useState(false)
   const creatingSkillSession = useRef(false)
   const assertRestartAllowed = () => {

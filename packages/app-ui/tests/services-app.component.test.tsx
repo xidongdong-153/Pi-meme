@@ -7,11 +7,13 @@ import { useAppSession } from '../src/session/use-app-session'
 import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 import type { ServiceController, ServiceRegistry, ServiceUI } from '../src/shell/service-ui'
 import { ServicesApp } from '../src/shell/services-app'
+import type { SidebarLayout } from '../src/layout/use-sidebar-layout'
 
 const controllers = new Map<string, ServiceController>()
 const removalErrors: unknown[] = []
 const liveBridges = new Map<string, DesktopBridge>()
 const rpcCallbacks: unknown[] = []
+const sidebarLayouts = new Map<string, SidebarLayout>()
 
 function LiveApp({ serviceUI, bridge }: { serviceUI: ServiceUI; bridge: DesktopBridge }) {
   const chat = useAppSession(bridge, { chatEnabled: false, workspaceEnabled: false })
@@ -30,8 +32,9 @@ function LiveApp({ serviceUI, bridge }: { serviceUI: ServiceUI; bridge: DesktopB
 }
 
 vi.mock('../src/app', () => ({
-  App: ({ serviceUI, call }: { serviceUI: ServiceUI; call: unknown }) => {
+  App: ({ serviceUI, call, sidebarLayout }: { serviceUI: ServiceUI; call: unknown; sidebarLayout: SidebarLayout }) => {
     if (serviceUI.serviceId === 'local') rpcCallbacks.push(call)
+    sidebarLayouts.set(serviceUI.serviceId, sidebarLayout)
     const { serviceId, onController } = serviceUI
     useEffect(() => {
       onController(serviceId, controllers.get(serviceId)!)
@@ -67,6 +70,8 @@ afterEach(() => {
   liveBridges.clear()
   removalErrors.length = 0
   rpcCallbacks.length = 0
+  sidebarLayouts.clear()
+  window.localStorage.clear()
 })
 
 async function setup(
@@ -141,6 +146,19 @@ async function setup(
   await act(async () => {})
   return { controller: controllers.get(target)!, source: controllers.get('local')!, removeSsh }
 }
+
+test('本地和远程会话共享左侧栏开合与宽度，切回原服务仍保留最新布局', async () => {
+  await setup('local', 'connected')
+  act(() => sidebarLayouts.get('local')!.change(false, 340))
+  fireEvent.click(screen.getByText('remote 会话 A'))
+  await waitFor(() => expect(screen.getByTestId('active-service').getAttribute('data-service')).toBe('remote'))
+  expect(sidebarLayouts.get('remote')).toMatchObject({ open: false, width: 340 })
+
+  act(() => sidebarLayouts.get('remote')!.change(true, 300))
+  fireEvent.click(screen.getByText('local 会话 B'))
+  await waitFor(() => expect(screen.getByTestId('active-service').getAttribute('data-service')).toBe('local'))
+  expect(sidebarLayouts.get('local')).toMatchObject({ open: true, width: 300 })
+})
 
 test('服务状态刷新不重建 App 的 RPC 回调，避免文件标签重复读取', async () => {
   await setup('local', 'connected')

@@ -2,7 +2,7 @@ import '@testing-library/jest-dom/vitest'
 import { afterEach, beforeEach, expect, test, vi } from 'vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, type ReactNode } from 'react'
 import type { HostApi } from '@pi-meme/contracts/app-host'
 import type { UiPanel } from '@pi-meme/plugin-sdk/ui'
 import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
@@ -10,6 +10,7 @@ import { WorkspacePanels } from '../src/layout/workspace-panels'
 import { defaultPanelLayout, panelStorageKey } from '../src/layout/panel-layout'
 import { detectPlatform, ShortcutProvider } from '../src/shortcuts/shortcut-provider'
 import { DEFAULT_PROFILE } from '../src/settings/user-profile'
+import { useSidebarLayout } from '../src/layout/use-sidebar-layout'
 
 afterEach(cleanup)
 
@@ -44,8 +45,7 @@ function Panes({
   onNewSession?: () => void
   onPlugins?: () => void
 }) {
-  const [open, setOpen] = useState(true)
-  const [width, setWidth] = useState(256)
+  const { open, width, change } = useSidebarLayout()
   return (
     <TooltipProvider>
       <WorkspacePanels
@@ -63,8 +63,7 @@ function Panes({
         sidebarWidth={width}
         onSidebar={(next, size) => {
           onSidebar?.(next, size)
-          setOpen(next)
-          setWidth(size)
+          change(next, size)
         }}
         header={(toggleSidebar, tabs) => (
           <>
@@ -93,6 +92,35 @@ test('折叠把侧栏宽度收到 0，动画结束前仍保留导航', () => {
   fireEvent.click(screen.getByRole('button', { name: '切换侧栏' }))
   expect(shell().style.getPropertyValue('--workspace-sidebar-width')).toBe('0px')
   expect(document.getElementById('workspace-sidebar')).not.toBeNull()
+})
+
+test('左侧栏开合和宽度跨会话共享，进入新聊天和重新挂载后保持布局', () => {
+  const view = render(<Panes session="a" />)
+  fireEvent.pointerDown(screen.getByRole('separator', { name: '调整侧边栏宽度' }), { button: 0, clientX: 400 })
+  fireEvent.pointerMove(window, { clientX: 480 })
+  fireEvent.pointerUp(window)
+  const width = shell().style.getPropertyValue('--workspace-sidebar-width')
+  expect(Number.parseFloat(width)).toBeGreaterThan(256)
+
+  fireEvent.click(screen.getByRole('button', { name: '切换侧栏' }))
+  view.rerender(<Panes session="b" />)
+  expect(shell()).toHaveAttribute('data-pane-sidebar', 'closed')
+
+  fireEvent.click(screen.getByRole('button', { name: '切换侧栏' }))
+  expect(shell().style.getPropertyValue('--workspace-sidebar-width')).toBe(width)
+  view.rerender(<Panes session="draft" />)
+  expect(shell()).toHaveAttribute('data-pane-sidebar', 'open')
+  expect(shell().style.getPropertyValue('--workspace-sidebar-width')).toBe(width)
+  view.rerender(<Panes session="a" />)
+  expect(shell()).toHaveAttribute('data-pane-sidebar', 'open')
+  expect(shell().style.getPropertyValue('--workspace-sidebar-width')).toBe(width)
+
+  fireEvent.click(screen.getByRole('button', { name: '切换侧栏' }))
+  view.unmount()
+  render(<Panes session="fresh" />)
+  expect(shell()).toHaveAttribute('data-pane-sidebar', 'closed')
+  fireEvent.click(screen.getByRole('button', { name: '切换侧栏' }))
+  expect(shell().style.getPropertyValue('--workspace-sidebar-width')).toBe(width)
 })
 
 test('拖过收起阈值后松手关闭，并保留原来的宽度', () => {
@@ -459,6 +487,7 @@ test('完整视图快捷键切换模式，聚焦输入框快捷键先恢复聊�
 
 test('布局存储损坏或被禁用时仍可切换模式', () => {
   window.localStorage.setItem('pi-meme:workspace-view:v1', 'broken')
+  window.localStorage.setItem('pi-meme:sidebar:v2', 'broken')
   const view = render(<Panes />)
   expect(shell()).toHaveAttribute('data-view', 'split')
   view.unmount()
@@ -470,6 +499,8 @@ test('布局存储损坏或被禁用时仍可切换模式', () => {
   })
   try {
     render(<Panes />)
+    fireEvent.click(screen.getByRole('button', { name: '切换侧栏' }))
+    expect(shell()).toHaveAttribute('data-pane-sidebar', 'closed')
     fireEvent.click(screen.getByRole('button', { name: '进入完整视图' }))
     expect(shell()).toHaveAttribute('data-view', 'unified')
   } finally {

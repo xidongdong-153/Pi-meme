@@ -3,6 +3,7 @@ import { ServicesApp } from '@pi-meme/app-ui/services-app'
 import { HostServiceRegistry } from '@pi-meme/client/service-registry'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { App } from '@pi-meme/app-ui/app'
+import { useSidebarLayout } from '@pi-meme/app-ui/sidebar-layout'
 import { StartupSplash, useStartupSplash } from '@pi-meme/app-ui/startup-splash'
 import { HostDirectoryDialog } from '@pi-meme/app-ui/host-directory-dialog'
 import { HostClient } from '@pi-meme/client/host-client'
@@ -93,6 +94,21 @@ function ServiceFixture() {
   return <ServicesApp registry={registry} nativeWindow />
 }
 
+function SessionFixture() {
+  const sidebarLayout = useSidebarLayout()
+  return (
+    <App
+      bridge={window.piMemeTestBridge!}
+      host={fixtureHost}
+      plugins={fixturePlugins}
+      call={fixtureUnavailable}
+      sidebarLayout={sidebarLayout}
+      nativeWindow
+      onHostConnection={() => {}}
+    />
+  )
+}
+
 export function WebApp() {
   const titleBar = window.piPlatform?.titleBar
   return (
@@ -112,16 +128,7 @@ function WebAppContent() {
   )
     return <ServiceFixture />
   if (new URLSearchParams(window.location.search).get('test-fixture') === 'session-switch' && window.piMemeTestBridge)
-    return (
-      <App
-        bridge={window.piMemeTestBridge}
-        host={fixtureHost}
-        plugins={fixturePlugins}
-        call={fixtureUnavailable}
-        nativeWindow
-        onHostConnection={() => {}}
-      />
-    )
+    return <SessionFixture />
   return <ConnectedWebApp />
 }
 

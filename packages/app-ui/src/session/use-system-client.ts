@@ -9,12 +9,10 @@ export function useSystemClient(bridge: DesktopBridge, browser?: BrowserPlatform
       const detail = (event as CustomEvent<{ hostId: string; sessionIds: string[] }>).detail
       if (detail.hostId !== hostId) return
       for (const sessionId of detail.sessionIds) {
-        for (const prefix of ['pi-meme:panels:v2:', 'pi-meme:sidebar:v1:']) {
-          try {
-            localStorage.removeItem(prefix + JSON.stringify([hostId, sessionId]))
-          } catch {
-            /* 存储不可用不阻止资源清理。 */
-          }
+        try {
+          localStorage.removeItem(`pi-meme:panels:v2:${JSON.stringify([hostId, sessionId])}`)
+        } catch {
+          /* 存储不可用不阻止资源清理。 */
         }
         if (browser) {
           const owner = JSON.stringify([hostId, sessionId])

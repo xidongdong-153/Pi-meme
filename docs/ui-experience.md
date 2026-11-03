@@ -27,13 +27,13 @@ Pi-meme 面向长时间使用聊天、项目和工具面板完成开发任务的
 
 ## 会话状态与工具保留
 
-左右栏开合、宽度、工具标签、活动标签和分栏／完整视图按 Host 与稳定会话 ID 保存到客户端本地存储。新聊天使用独立草稿身份，右栏默认关闭，不继承上一会话；草稿创建为正式会话后迁移状态。不同设备各自保留布局，外观作用于发起操作的客户端。
+左侧导航栏的开合和宽度由客户端外层统一管理，同一窗口内跨会话与 Host 共享，并保存到客户端本地存储；切换会话、进入新聊天和删除会话不重置左栏布局。窄窗口空间不足时仍会自动收起左栏。右栏开合、宽度、工具标签、活动标签和分栏／完整视图按 Host 与稳定会话 ID 保存。新聊天使用独立草稿身份，右栏默认关闭，不继承上一会话；草稿创建为正式会话后迁移右栏状态。不同设备各自保留布局，外观作用于发起操作的客户端。
 
 切换会话或收起右栏时，已打开的工具保留实例和 DOM；隐藏视图不接收键盘输入，不抢焦点。刷新界面后恢复布局与文件标签，并重新附着仍存活的 Host 终端和 Desktop 网页。Host 重启不恢复终端进程；Desktop 进程重启不承诺恢复未提交的网页表单。
 
 聊天阅读位置按会话保存在当前窗口的 `sessionStorage`，记录底部状态、消息锚点和偏移；恢复较早的锚点时按需读取历史。会话删除事件清理关联布局和工具引用。
 
-实现入口为 [WorkspacePanels](../packages/app-ui/src/layout/workspace-panels.tsx)、[RetainedToolPanels](../packages/app-ui/src/layout/retained-tool-panels.tsx)、[useSessionSidebar](../packages/app-ui/src/session/use-session-sidebar.ts) 和 [useConversationScroll](../packages/chat/src/ui/conversation/use-conversation-scroll.ts)。
+实现入口为 [WorkspacePanels](../packages/app-ui/src/layout/workspace-panels.tsx)、[RetainedToolPanels](../packages/app-ui/src/layout/retained-tool-panels.tsx)、[useSidebarLayout](../packages/app-ui/src/layout/use-sidebar-layout.ts) 和 [useConversationScroll](../packages/chat/src/ui/conversation/use-conversation-scroll.ts)。
 
 ## 新聊天草稿
 
