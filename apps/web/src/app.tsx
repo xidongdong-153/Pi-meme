@@ -4,6 +4,7 @@ import { HostServiceRegistry } from '@pi-meme/client/service-registry'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { App } from '@pi-meme/app-ui/app'
 import { useSidebarLayout } from '@pi-meme/app-ui/sidebar-layout'
+import { useWorkspaceView } from '@pi-meme/app-ui/workspace-view'
 import { StartupSplash, useStartupSplash } from '@pi-meme/app-ui/startup-splash'
 import { HostDirectoryDialog } from '@pi-meme/app-ui/host-directory-dialog'
 import { HostClient } from '@pi-meme/client/host-client'
@@ -96,6 +97,7 @@ function ServiceFixture() {
 
 function SessionFixture() {
   const sidebarLayout = useSidebarLayout()
+  const workspaceView = useWorkspaceView()
   return (
     <App
       bridge={window.piMemeTestBridge!}
@@ -103,6 +105,7 @@ function SessionFixture() {
       plugins={fixturePlugins}
       call={fixtureUnavailable}
       sidebarLayout={sidebarLayout}
+      workspaceView={workspaceView}
       nativeWindow
       onHostConnection={() => {}}
     />

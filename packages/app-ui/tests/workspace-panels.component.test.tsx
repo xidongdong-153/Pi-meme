@@ -1,14 +1,20 @@
 import '@testing-library/jest-dom/vitest'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { useCallback, useState } from 'react'
+import { useCallback, useState, type ComponentProps } from 'react'
 import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 import type { UiContributionProps, UiPanel } from '@pi-meme/plugin-sdk/ui'
 import { DEFAULT_PROFILE } from '../src/settings/user-profile'
 import { RetainedToolPanels } from '../src/layout/retained-tool-panels'
-import { WorkspacePanels } from '../src/layout/workspace-panels'
+import { WorkspacePanels as WorkspacePanelsContent } from '../src/layout/workspace-panels'
+import { useWorkspaceView } from '../src/layout/use-workspace-view'
 import { historyPanelsAvailable, panelStorageKey, sideChatTabId, toolsTabId } from '../src/layout/panel-layout'
 import { userMessage } from '../../../tests/fixtures/messages.mjs'
+
+function WorkspacePanels(props: Omit<ComponentProps<typeof WorkspacePanelsContent>, 'workspaceView'>) {
+  const workspaceView = useWorkspaceView()
+  return <WorkspacePanelsContent {...props} workspaceView={workspaceView} />
+}
 
 const originalScrollIntoView = Element.prototype.scrollIntoView
 
@@ -114,6 +120,7 @@ describe('WorkspacePanels 异步关闭与侧边聊天交互', () => {
   })
 
   it.each([false, true])('恢复已保存的空来源标签时隐藏标签并读取工具内容，完整视图：%s', (unified) => {
+    window.localStorage.setItem('pi-meme:workspace-view:v1', unified ? 'unified' : 'split')
     window.localStorage.setItem(
       panelStorageKey('test-host', 'session-a'),
       JSON.stringify({
@@ -122,7 +129,6 @@ describe('WorkspacePanels 异步关闭与侧边聊天交互', () => {
         active: 'builtin:sources',
         open: true,
         width: 480,
-        unified,
         toolActive: true,
       }),
     )

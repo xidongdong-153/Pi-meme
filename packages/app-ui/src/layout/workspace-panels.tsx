@@ -37,6 +37,7 @@ import {
 import { RetainedToolPanels } from './retained-tool-panels'
 import { usePaneMotion, useReducedMotion } from './pane-motion'
 import { ResizeHandle } from './resize-handle'
+import type { WorkspaceView } from './use-workspace-view'
 
 const emptyBrowserPanels: string[] = []
 
@@ -63,6 +64,7 @@ export function WorkspacePanels({
   sidebarOpen,
   sidebarWidth,
   onSidebar,
+  workspaceView,
   header,
   profile,
   profileLoading,
@@ -109,6 +111,7 @@ export function WorkspacePanels({
   sidebarOpen: boolean
   sidebarWidth: number
   onSidebar: (open: boolean, width: number) => void
+  workspaceView: WorkspaceView
   header: (toggleSidebar: () => void, workspaceTabs?: (menu?: ReactNode) => ReactNode) => ReactNode
   profile: UserProfile
   profileLoading: boolean
@@ -160,10 +163,7 @@ export function WorkspacePanels({
       toolActive: saved?.toolActive ?? false,
     }
   })
-  const unified = state.layout.unified ?? false
-  const setUnified = (value: boolean) => {
-    updateState((current) => ({ ...current, layout: { ...current.layout, unified: value } }))
-  }
+  const { unified, change: setUnified } = workspaceView
   const toolActive = state.toolActive
   const setToolActive = useCallback((action: boolean | ((prev: boolean) => boolean)) => {
     updateState((value) => ({

@@ -11,6 +11,7 @@ import { defaultPanelLayout, panelStorageKey } from '../src/layout/panel-layout'
 import { detectPlatform, ShortcutProvider } from '../src/shortcuts/shortcut-provider'
 import { DEFAULT_PROFILE } from '../src/settings/user-profile'
 import { useSidebarLayout } from '../src/layout/use-sidebar-layout'
+import { useWorkspaceView } from '../src/layout/use-workspace-view'
 
 afterEach(cleanup)
 
@@ -46,6 +47,7 @@ function Panes({
   onPlugins?: () => void
 }) {
   const { open, width, change } = useSidebarLayout()
+  const workspaceView = useWorkspaceView()
   return (
     <TooltipProvider>
       <WorkspacePanels
@@ -61,6 +63,7 @@ function Panes({
         sidebar="会话列表"
         sidebarOpen={open}
         sidebarWidth={width}
+        workspaceView={workspaceView}
         onSidebar={(next, size) => {
           onSidebar?.(next, size)
           change(next, size)
@@ -327,6 +330,7 @@ test('浮层内按 Escape 关闭并交还首页焦点，输入框内不抢 Escap
           props={{ host: {} as HostApi, target: { hostId: 'host' }, snapshot: null }}
           session="chat"
           sidebar={<button type="button">会话列表</button>}
+          workspaceView={{ unified: false, change: () => {} }}
           sidebarOpen={false}
           sidebarWidth={256}
           onSidebar={() => {}}
@@ -436,7 +440,7 @@ test('完整视图支持工具去重、键盘切换、关闭最后工具回聊�
   expect(screen.getByText('聊天正文')).toBeVisible()
 })
 
-test('完整视图在窄窗口独立展开左栏，切换会话回到聊天，工具失效安全回退', () => {
+test('完整视图在窄窗口独立展开左栏，切换会话保留模式并隔离工具标签', () => {
   vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(660)
   const panels: UiPanel[] = [
     { id: 'example:file', title: '文件', location: 'right', scope: 'app', icon: null, render: () => '文件正文' },
@@ -447,11 +451,29 @@ test('完整视图在窄窗口独立展开左栏，切换会话回到聊天，�
   fireEvent.click(screen.getByRole('button', { name: '文件' }))
   expect(shell()).toHaveAttribute('data-pane-sidebar', 'open')
   view.rerender(<Panes panels={panels} session="other" />)
+  expect(shell()).toHaveAttribute('data-view', 'unified')
   expect(screen.getByRole('tab', { name: '聊天' })).toHaveAttribute('aria-selected', 'true')
-  fireEvent.click(screen.getByRole('tab', { name: '文件' }))
+  expect(screen.queryByRole('tab', { name: '文件' })).not.toBeInTheDocument()
+  fireEvent.click(screen.getByRole('button', { name: '新标签页' }))
+  fireEvent.click(screen.getByRole('button', { name: '文件' }))
   view.rerender(<Panes panels={[]} session="other" />)
   expect(screen.getByRole('tab', { name: '聊天' })).toHaveAttribute('aria-selected', 'true')
   expect(screen.getByText('聊天正文')).toBeVisible()
+})
+
+test('完整视图与分栏模式跨会话共享，进入新聊天后沿用当前模式', () => {
+  const view = render(<Panes session="a" />)
+  fireEvent.click(screen.getByRole('button', { name: '进入完整视图' }))
+  view.rerender(<Panes session="b" />)
+  expect(shell()).toHaveAttribute('data-view', 'unified')
+  expect(screen.getByRole('tab', { name: '聊天' })).toHaveAttribute('aria-selected', 'true')
+
+  fireEvent.click(screen.getByRole('button', { name: '退出完整视图' }))
+  view.rerender(<Panes session="a" />)
+  expect(shell()).toHaveAttribute('data-view', 'split')
+  fireEvent.click(screen.getByRole('button', { name: '进入完整视图' }))
+  view.rerender(<Panes session="draft" />)
+  expect(shell()).toHaveAttribute('data-view', 'unified')
 })
 
 test('从聊天退出完整视图恢复原关闭状态，分栏按钮显式展开工具', () => {

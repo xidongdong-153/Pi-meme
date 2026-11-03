@@ -60,6 +60,7 @@ test('右侧标签按 Host 与会话隔离，保存顺序、选中项和宽度',
   const layout = { ...openPanel(defaultPanelLayout(), 'example:files'), width: 580 }
   assert.deepEqual(readPanelLayout(JSON.stringify(layout)), layout)
   assert.deepEqual(readPanelLayout(JSON.stringify({ ...layout, expanded: true })), layout)
+  assert.deepEqual(readPanelLayout(JSON.stringify({ ...layout, unified: true })), layout)
 })
 
 test('工具选择页打开面板，重复打开只选中原标签，关闭选中相邻标签', () => {
@@ -145,6 +146,7 @@ test('左栏和聊天固定渲染，插件不能生成左侧或中央工作区�
         children: '聊天正文',
         onSidebar: () => {},
         header: () => null,
+        workspaceView: { unified: false, change: () => {} },
         panels: [
           {
             id: 'example:files',
@@ -211,6 +213,7 @@ test('Worktree 使用会话的来源项目身份，右栏保留文件目录和�
         sidebarOpen: true,
         sidebarWidth: 256,
         children: 'Worktree 聊天',
+        workspaceView: { unified: false, change: () => {} },
         onSidebar: () => {},
         header: () => null,
       }),
@@ -305,6 +308,7 @@ test('WorkspacePanels 支持侧边聊天常驻入口与 sideChat 呈现插槽', 
         panels: [],
         sideChatActive: true,
         sideChat: createElement('div', { id: 'side-chat-content' }, '侧边聊天独立正文'),
+        workspaceView: { unified: false, change: () => {} },
       }),
     }),
   )
@@ -365,6 +369,7 @@ test('WorkspacePanels 在 sideChat 挂载时渲染 portal 宿主容器', async (
         panels: [],
         sideChatActive: true,
         sideChat: createElement('div', { id: 'portal-host' }, 'Portal宿主'),
+        workspaceView: { unified: false, change: () => {} },
       }),
     }),
   )

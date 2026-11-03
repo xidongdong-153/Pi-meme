@@ -1,5 +1,6 @@
 import { useSystemClient } from './session/use-system-client'
 import type { SidebarLayout } from './layout/use-sidebar-layout'
+import type { WorkspaceView } from './layout/use-workspace-view'
 import { ImagesPage } from './images/images-page'
 import { useVisualizations } from '@pi-meme/visualize/ui/use-visualizations'
 import { VisualizationRendererContext } from '@pi-meme/ui/components/visualization-renderer'
@@ -163,10 +164,12 @@ export function App({
   hostConnections,
   serviceUI,
   sidebarLayout,
+  workspaceView,
   onBootComplete,
 }: {
   serviceUI?: ServiceUI
   sidebarLayout: SidebarLayout
+  workspaceView: WorkspaceView
   bridge: DesktopBridge
   host: HostApi
   plugins: PluginClient
@@ -1998,6 +2001,7 @@ export function App({
               requestRightToken={planRequest ? `${planRequest.id}:${planRequest.revision}` : undefined}
               onRightRequestHandled={() => setPlanRequest(undefined)}
               onSidebar={handleSidebar}
+              workspaceView={workspaceView}
               onSettings={() => openSettings('general')}
               onUsage={() => openSettings('profile')}
               onAccount={() => openSettings('account')}

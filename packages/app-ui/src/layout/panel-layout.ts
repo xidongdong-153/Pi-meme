@@ -47,7 +47,6 @@ export type PanelLayoutState = {
   active: string
   open: boolean
   width: number
-  unified?: boolean
   toolActive?: boolean
 }
 
@@ -102,7 +101,6 @@ export function readPanelLayout(raw: string | null): PanelLayoutState {
       typeof value.active === 'string' && initial.tabs.includes(migratePanelId(value.active))
         ? migratePanelId(value.active)
         : (initial.tabs[0] ?? '')
-    if (typeof value.unified === 'boolean') initial.unified = value.unified
     if (typeof value.toolActive === 'boolean') initial.toolActive = value.toolActive
     if (typeof value.open === 'boolean') initial.open = value.open
     if (typeof value.width === 'number' && Number.isFinite(value.width))

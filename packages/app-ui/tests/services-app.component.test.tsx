@@ -8,12 +8,14 @@ import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 import type { ServiceController, ServiceRegistry, ServiceUI } from '../src/shell/service-ui'
 import { ServicesApp } from '../src/shell/services-app'
 import type { SidebarLayout } from '../src/layout/use-sidebar-layout'
+import type { WorkspaceView } from '../src/layout/use-workspace-view'
 
 const controllers = new Map<string, ServiceController>()
 const removalErrors: unknown[] = []
 const liveBridges = new Map<string, DesktopBridge>()
 const rpcCallbacks: unknown[] = []
 const sidebarLayouts = new Map<string, SidebarLayout>()
+const workspaceViews = new Map<string, WorkspaceView>()
 
 function LiveApp({ serviceUI, bridge }: { serviceUI: ServiceUI; bridge: DesktopBridge }) {
   const chat = useAppSession(bridge, { chatEnabled: false, workspaceEnabled: false })
@@ -32,9 +34,20 @@ function LiveApp({ serviceUI, bridge }: { serviceUI: ServiceUI; bridge: DesktopB
 }
 
 vi.mock('../src/app', () => ({
-  App: ({ serviceUI, call, sidebarLayout }: { serviceUI: ServiceUI; call: unknown; sidebarLayout: SidebarLayout }) => {
+  App: ({
+    serviceUI,
+    call,
+    sidebarLayout,
+    workspaceView,
+  }: {
+    serviceUI: ServiceUI
+    call: unknown
+    sidebarLayout: SidebarLayout
+    workspaceView: WorkspaceView
+  }) => {
     if (serviceUI.serviceId === 'local') rpcCallbacks.push(call)
     sidebarLayouts.set(serviceUI.serviceId, sidebarLayout)
+    workspaceViews.set(serviceUI.serviceId, workspaceView)
     const { serviceId, onController } = serviceUI
     useEffect(() => {
       onController(serviceId, controllers.get(serviceId)!)
@@ -71,6 +84,7 @@ afterEach(() => {
   removalErrors.length = 0
   rpcCallbacks.length = 0
   sidebarLayouts.clear()
+  workspaceViews.clear()
   window.localStorage.clear()
 })
 
@@ -158,6 +172,19 @@ test('本地和远程会话共享左侧栏开合与宽度，切回原服务仍�
   fireEvent.click(screen.getByText('local 会话 B'))
   await waitFor(() => expect(screen.getByTestId('active-service').getAttribute('data-service')).toBe('local'))
   expect(sidebarLayouts.get('local')).toMatchObject({ open: true, width: 300 })
+})
+
+test('完整视图和分栏模式在本地与远程服务之间共享，切回原服务沿用最新选择', async () => {
+  await setup('local', 'connected')
+  act(() => workspaceViews.get('local')!.change(true))
+  fireEvent.click(screen.getByText('remote 会话 A'))
+  await waitFor(() => expect(screen.getByTestId('active-service').getAttribute('data-service')).toBe('remote'))
+  expect(workspaceViews.get('remote')!.unified).toBe(true)
+
+  act(() => workspaceViews.get('remote')!.change(false))
+  fireEvent.click(screen.getByText('local 会话 B'))
+  await waitFor(() => expect(screen.getByTestId('active-service').getAttribute('data-service')).toBe('local'))
+  expect(workspaceViews.get('local')!.unified).toBe(false)
 })
 
 test('服务状态刷新不重建 App 的 RPC 回调，避免文件标签重复读取', async () => {

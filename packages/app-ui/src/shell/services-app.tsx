@@ -6,6 +6,7 @@ import { SessionSearchDialog } from '@pi-meme/workspace/ui/sidebar/session-searc
 import { useSidebarManualOrders, useSidebarPreferences } from '@pi-meme/workspace/ui/sidebar/use-sidebar-preferences'
 import { App } from '../app'
 import { useSidebarLayout } from '../layout/use-sidebar-layout'
+import { useWorkspaceView } from '../layout/use-workspace-view'
 import { MultiServiceSidebar } from './multi-service-sidebar'
 import { RemoteSettings } from './remote-settings'
 import { serviceLabel, servicePaused, type ServiceController, type ServiceRegistry } from './service-ui'
@@ -34,6 +35,7 @@ export function ServicesApp({
   const [services, setServices] = useState(() => registry.list())
   const [activeId, setActiveId] = useState(registry.localServiceId)
   const sidebarLayout = useSidebarLayout()
+  const workspaceView = useWorkspaceView()
   const [, setRevision] = useState(0)
   const [searchOpen, setSearchOpen] = useState(false)
   const {
@@ -216,6 +218,7 @@ export function ServicesApp({
           <ServiceApp
             key={service.id}
             sidebarLayout={sidebarLayout}
+            workspaceView={workspaceView}
             client={client}
             bridge={client.bridge}
             host={client.host}
