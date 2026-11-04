@@ -74,6 +74,7 @@ const files: Array<[string, Feature[]]> = [
   ['packages/pi-runtime/tests/managed-process.integration.test.ts', ['activities', 'permissions']],
   ['packages/chat/tests/composer-goal.component.test.tsx', ['goals']],
   ['packages/chat/tests/composer-files.component.test.tsx', ['chat']],
+  ['packages/chat/tests/file-completion.component.test.tsx', ['chat', 'files']],
   ['packages/chat/tests/composer-transactions.unit.test.ts', ['chat', 'plugins']],
   ['packages/chat/tests/composer-submit.component.test.tsx', ['core', 'chat', 'plugins']],
   ['packages/chat/tests/composer-session-commands.component.test.tsx', ['chat', 'sessions']],

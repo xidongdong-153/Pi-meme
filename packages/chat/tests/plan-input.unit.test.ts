@@ -20,7 +20,8 @@ for (const alias of ['plan', '计划', '计划模式']) {
     assert.equal(prepareComposerMessage(`/${alias}.md`, 'default').mode, 'default')
     const command = builtinCommands.find((entry) => entry.name === 'plan')!
     assert.equal(planCompletion(command, `/${alias} 保留正文`, 0, alias.length + 1), '/plan 保留正文')
-    assert.equal(planCompletion(command, `正文 /${alias}`, 3, alias.length + 4), undefined)
+    assert.equal(planCompletion(command, `正文 /${alias}`, 3, alias.length + 4), '/plan 正文 ')
+    assert.equal(planCompletion(command, `第一段\n/${alias} 后文`, 4, alias.length + 5), '/plan 第一段\n 后文')
   })
 }
 test('旧builtin中文候选按canonical plan接受，外部同名命令不触发计划', () => {

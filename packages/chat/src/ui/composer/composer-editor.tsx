@@ -6,7 +6,7 @@ import { useCommandCompletion } from './use-command-completion'
 import { FileSuggestions } from './file-suggestions'
 import { CommandSuggestions } from './command-suggestions'
 import { SessionNamePanel } from './session-name-panel'
-import { completionQuery } from './completion-query'
+import { completionQuery, fileReferences } from './completion-query'
 import { skillMarker } from '@pi-meme/contracts/skills'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { editorCaret, editorSelection, readEditorText, setEditorCaret, setEditorSelection } from './rich-draft'
@@ -249,6 +249,7 @@ export function ComposerEditor({
   }, [composerStore, editor, sessionKey])
 
   function updateSelection() {
+    if (composing.current) return
     updateCaret()
     if (editor.current) composerStore?.setSelection(editorSelection(editor.current))
   }
@@ -261,6 +262,19 @@ export function ComposerEditor({
     if (!element.contains(range.commonAncestorContainer)) return
     document.execCommand('insertText', false, text.replaceAll(skillMarker, ''))
     acceptInput()
+  }
+
+  function copyFileReferences(event: ClipboardEvent<HTMLDivElement>) {
+    const selection = window.getSelection()
+    if (!selection?.rangeCount || !editor.current?.contains(selection.getRangeAt(0).commonAncestorContainer)) return
+    const contents = selection.getRangeAt(0).cloneContents()
+    if (!contents.querySelector('[data-file-token]')) return
+    event.preventDefault()
+    event.clipboardData.setData('text/plain', readEditorText(contents))
+    if (event.type === 'cut') {
+      document.execCommand('delete')
+      acceptInput()
+    }
   }
 
   return (
@@ -316,6 +330,7 @@ export function ComposerEditor({
         onInput={acceptInput}
         onCompositionStart={() => {
           composing.current = true
+          setSuggestionsOpen(false)
           composerStore?.setComposing(true)
         }}
         onCompositionEnd={() => {
@@ -343,6 +358,18 @@ export function ComposerEditor({
             }
           }
           const tokenIndex = event.key === 'Backspace' ? caret - 1 : event.key === 'Delete' ? caret : -1
+          const file = fileReferences(draft).find((reference) =>
+            event.key === 'Backspace' ? reference.end === caret : event.key === 'Delete' && reference.start === caret,
+          )
+          if (window.getSelection()?.isCollapsed && file) {
+            event.preventDefault()
+            onDraft(draft.slice(0, file.start) + draft.slice(file.end))
+            setDraftCaret(file.start)
+            requestAnimationFrame(() => {
+              if (editor.current) setEditorCaret(editor.current, file.start)
+            })
+            return
+          }
           if (window.getSelection()?.isCollapsed && tokenIndex >= 0 && draft[tokenIndex] === skillMarker) {
             event.preventDefault()
             const index = draft.slice(0, tokenIndex).split(skillMarker).length - 1
@@ -375,6 +402,8 @@ export function ComposerEditor({
           event.preventDefault()
           insertText(event.clipboardData.getData('text/plain'))
         }}
+        onCopy={copyFileReferences}
+        onCut={copyFileReferences}
         className={cn(
           'composer-draft w-full min-h-[40px] max-h-[220px] overflow-y-auto whitespace-pre-wrap break-words px-2 py-1 text-sm leading-relaxed text-foreground outline-none empty:before:content-[attr(data-placeholder)] empty:before:text-muted-foreground/70',
           hint && 'pr-10',

@@ -1,4 +1,14 @@
+export function fileReferences(text: string) {
+  return [...text.matchAll(/(?:^|[\s\uFFFC])(@"([^"\n]+)")/gu)].map((match) => ({
+    text: match[1],
+    path: match[2],
+    start: match.index + match[0].length - match[1].length,
+    end: match.index + match[0].length,
+  }))
+}
+
 export function completionQuery(draft: string, caret: number) {
+  if (fileReferences(draft).some((reference) => caret > reference.start && caret <= reference.end)) return null
   const before = draft.slice(0, caret)
   const file = before.match(/(?:^|\s|\uFFFC)(@"([^"]*)|@([^\s"@]*))$/)
   if (file)

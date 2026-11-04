@@ -54,7 +54,13 @@ test('斜杠候选仅有一个 plan，中文前缀匹配该候选且技能保持
     completion('$ver').result.matches.map((item) => (item.kind === 'plugin' ? item.plugin.id : item.command.name)),
     ['skill:verify'],
   )
-  assert.equal(completion('正文 /计划').result.matches.length, 0)
+  for (const prefix of ['正文 ', '第一段\n第二段 ', '第一段\n']) {
+    assert.deepEqual(completion(`${prefix}/`).result.matches, completion('/').result.matches)
+    const { result, accepted } = completion(`${prefix}/计划`)
+    assert.equal(result.matches.length, 1)
+    result.completeItem(result.matches[0])
+    assert.deepEqual(accepted, [`/plan ${prefix}`])
+  }
   assert.equal(completion('/计划外').result.matches.length, 0)
 })
 
@@ -131,6 +137,15 @@ test('合并旧builtin计划命令不隐藏同名外部命令或技能', () => {
       ['skill', 'skill:verify'],
     ],
   )
+})
+
+test('段落中的外部命令补全仍置于命令位置，并保留原有正文', () => {
+  const command: PiSlashCommand = { ...builtinCommands[0], source: 'extension', name: 'review' }
+  for (const prefix of ['', '正文 ', '第一段\n第二段 ']) {
+    const { result, changedDrafts } = completion(`${prefix}/rev`, [command])
+    result.completeItem(result.matches[0])
+    assert.deepEqual(changedDrafts, [`/review ${prefix}`])
+  }
 })
 
 function composerProps(): ComposerProps {

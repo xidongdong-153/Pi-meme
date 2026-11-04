@@ -951,12 +951,13 @@ test('正文分隔活动组，思考与工具连续合并且保留原来顺序',
 test('用户气泡显示多个内联技能名，不显示技能长正文和路径', async () => {
   const { UserMessageContent } = await import('../src/ui/conversation/user-message-content')
   const text =
-    '123 <skill name="typescript" location="/skills/a/SKILL.md">长正文 A</skill> <skill name="review-code" location="/skills/b/SKILL.md">长正文 B</skill> 看看技能'
+    '123 @"src/main.ts" <skill name="typescript" location="/skills/a/SKILL.md">长正文 A @"隐藏文件.md"</skill> <skill name="review-code" location="/skills/b/SKILL.md">长正文 B</skill> 看看技能'
   const markup = renderToStaticMarkup(createElement(UserMessageContent, { text }))
   assert.match(markup, /技能：typescript/)
   assert.match(markup, /技能：review-code/)
+  assert.match(markup, /已选择文件：src\/main.ts/)
   assert.match(markup, /123|看看技能/)
-  assert.doesNotMatch(markup, /长正文 A|长正文 B/)
+  assert.doesNotMatch(markup, /长正文 A|长正文 B|隐藏文件/)
 })
 
 test('思考展示清理尾部空白，保留内部空行、前导缩进和原始内容', async () => {

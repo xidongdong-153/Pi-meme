@@ -35,4 +35,12 @@ test('@ 文件补全支持句中、嵌套路径和含空格的引号路径，不
   })
   assert.equal(completionQuery('name@example.com', 16), null)
   assert.equal(completionQuery('@"src/中文 文件"', 12), null)
+  assert.equal(completionQuery('@"src/main.ts" 后文', 5), null)
+  const nextFile = '@"src/main.ts" @'
+  assert.deepEqual(completionQuery(nextFile, nextFile.length), {
+    kind: 'file',
+    query: '',
+    start: nextFile.length - 1,
+    quoted: false,
+  })
 })

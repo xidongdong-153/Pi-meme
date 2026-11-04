@@ -4,6 +4,7 @@ export function readEditorText(node: Node): string {
   if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? ''
   if (node instanceof HTMLElement && node.dataset.pluginToken !== undefined) return ''
   if (node instanceof HTMLElement && node.dataset.skillToken !== undefined) return skillMarker
+  if (node instanceof HTMLElement && node.dataset.fileToken !== undefined) return node.dataset.fileToken
   if (node.nodeName === 'BR') return '\n'
   let text = ''
   for (const child of node.childNodes) {
@@ -15,6 +16,7 @@ export function readEditorText(node: Node): string {
 }
 
 function logicalEditorText(node: Node): string {
+  if (node instanceof HTMLElement && node.dataset.fileToken !== undefined) return node.dataset.fileToken
   if (node instanceof HTMLElement && (node.dataset.pluginToken !== undefined || node.dataset.skillToken !== undefined))
     return skillMarker
   if (node.nodeType === Node.TEXT_NODE) return node.textContent ?? ''
@@ -68,7 +70,9 @@ export function setEditorSelection(editor: HTMLElement, input: { anchor: number;
           cursor += value.length
         } else if (
           (node instanceof HTMLElement &&
-            (node.dataset.pluginToken !== undefined || node.dataset.skillToken !== undefined)) ||
+            (node.dataset.pluginToken !== undefined ||
+              node.dataset.skillToken !== undefined ||
+              node.dataset.fileToken !== undefined)) ||
           node.nodeName === 'BR'
         ) {
           if (offset <= cursor + value.length) return [parent, index + (offset > cursor ? 1 : 0)]

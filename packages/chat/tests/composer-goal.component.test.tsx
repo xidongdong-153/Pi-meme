@@ -134,7 +134,7 @@ test('从菜单打开目标设置保留当前正文和图片', () => {
 })
 
 test('英文和中文目标补全只激活输入标记，不插入普通命令或发送消息', () => {
-  for (const draft of ['/go', '/目', '/目标模']) {
+  for (const draft of ['/go', '/目', '/目标模', '已有正文 /go', '第一段\n/目标模']) {
     const selected: string[] = []
     const changed: string[] = []
     const { result } = renderHook(() =>
@@ -154,7 +154,7 @@ test('英文和中文目标补全只激活输入标记，不插入普通命令�
     act(() => {
       result.current.completeItem(result.current.matches[0])
     })
-    assert.deepEqual(selected, ['/goal '])
+    assert.deepEqual(selected, [`/goal ${draft.slice(0, draft.lastIndexOf('/'))}`])
     assert.deepEqual(changed, [])
   }
 })

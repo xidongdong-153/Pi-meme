@@ -296,3 +296,16 @@ test('已开始但正在运行时，命名不打开面板', () => {
   assert.equal(page.draft(), '/n')
   assert.equal(page.renamed.mock.calls.length, 0)
 })
+
+test('正文和换行后的压缩、命名候选执行相同行为，保留已有草稿', () => {
+  const page = composerFixture()
+  page.input('正文 /c')
+  fireEvent.keyDown(page.editor, { key: 'Enter' })
+  assert.equal(page.compacted.mock.calls.length, 1)
+  assert.equal(page.draft(), '正文 /c')
+  page.input('第一段\n/n')
+  fireEvent.keyDown(page.editor, { key: 'Enter' })
+  assert.ok(screen.getByRole('dialog', { name: '重命名会话' }))
+  assert.equal(page.draft(), '第一段\n/n')
+  assert.equal(page.sent.mock.calls.length, 0)
+})

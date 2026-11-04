@@ -118,7 +118,6 @@ export function useCommandCompletion({
   }, [fileCompletion, projectPath, fileQuery, loadProjectFiles])
   const skillCompletion = query?.kind === 'skill'
   const commandCompletion = suggestionsOpen && Boolean(query && query.kind !== 'file')
-  const commandStart = query?.kind === 'command' && !draft.slice(0, query.start).trim()
   const matches = React.useMemo<CompletionItem[]>(() => {
     if (!suggestionsOpen || !query || query.kind === 'file') return []
     const prefix = query.query.toLowerCase()
@@ -138,30 +137,29 @@ export function useCommandCompletion({
     if (query.kind === 'skill') return skills
     const canonicalPlan = commands.find((command) => command.source === 'builtin' && command.name === 'plan')
     let planSeen = false
-    const top =
-      commandStart && !editing
-        ? commands.flatMap<CompletionItem>((command) => {
-            if (command.source === 'skill') return []
-            if (
-              !sessionStarted &&
-              command.source === 'builtin' &&
-              (command.name === 'compact' || command.name === 'name')
-            )
-              return []
-            const plan = command.source === 'builtin' && ['plan', '计划', '计划模式'].includes(command.name)
-            if (plan && planSeen) return []
-            if (plan) planSeen = true
-            const preferred = plan ? (canonicalPlan ?? command) : command
-            const candidate = plan && preferred.name !== 'plan' ? { ...preferred, name: 'plan' } : preferred
-            return candidate.name.toLowerCase().startsWith(prefix) ||
-              (plan && '计划模式'.startsWith(prefix)) ||
-              (candidate.source === 'builtin' &&
-                candidate.name === 'goal' &&
-                ['目标', '目标模式'].some((name) => name.startsWith(prefix)))
-              ? [{ kind: 'command', command: candidate }]
-              : []
-          })
-        : []
+    const top = !editing
+      ? commands.flatMap<CompletionItem>((command) => {
+          if (command.source === 'skill') return []
+          if (
+            !sessionStarted &&
+            command.source === 'builtin' &&
+            (command.name === 'compact' || command.name === 'name')
+          )
+            return []
+          const plan = command.source === 'builtin' && ['plan', '计划', '计划模式'].includes(command.name)
+          if (plan && planSeen) return []
+          if (plan) planSeen = true
+          const preferred = plan ? (canonicalPlan ?? command) : command
+          const candidate = plan && preferred.name !== 'plan' ? { ...preferred, name: 'plan' } : preferred
+          return candidate.name.toLowerCase().startsWith(prefix) ||
+            (plan && '计划模式'.startsWith(prefix)) ||
+            (candidate.source === 'builtin' &&
+              candidate.name === 'goal' &&
+              ['目标', '目标模式'].some((name) => name.startsWith(prefix)))
+            ? [{ kind: 'command', command: candidate }]
+            : []
+        })
+      : []
     top.sort(
       (left, right) =>
         Number(right.kind !== 'plugin' && right.command.source === 'builtin') -
@@ -173,16 +171,7 @@ export function useCommandCompletion({
       )
       .map((plugin) => ({ kind: 'plugin', plugin }))
     return [...top, ...skills, ...plugins]
-  }, [
-    commands,
-    commandStart,
-    editing,
-    query?.kind,
-    query?.query,
-    sessionStarted,
-    suggestionsOpen,
-    agentPlugins?.options,
-  ])
+  }, [commands, editing, query?.kind, query?.query, sessionStarted, suggestionsOpen, agentPlugins?.options])
   const selectable = matches.flatMap((item, index) =>
     item.kind === 'plugin' && agentPlugins?.disabledReason ? [] : [index],
   )
@@ -207,7 +196,7 @@ export function useCommandCompletion({
       return
     }
     const command = item.command
-    if (item.kind === 'command' && command.source === 'builtin' && query.start === draft.search(/\S/u)) {
+    if (item.kind === 'command' && command.source === 'builtin') {
       if (command.name === 'compact' && onCompact) {
         onCompact()
         setSuggestionsOpen(false)
@@ -224,10 +213,9 @@ export function useCommandCompletion({
       item.kind === 'command' &&
       command.source === 'builtin' &&
       (goalCommands as readonly string[]).includes(command.name) &&
-      onGoalCommand &&
-      query.start === draft.search(/\S/u)
+      onGoalCommand
     ) {
-      onGoalCommand(`/goal ${draft.slice(draftCaret).trimStart()}`)
+      onGoalCommand(`/goal ${(draft.slice(0, query.start) + draft.slice(draftCaret)).trimStart()}`)
       setSuggestionsOpen(false)
       editor.current?.focus()
       return
@@ -235,12 +223,13 @@ export function useCommandCompletion({
     const plan = item.kind === 'command' ? planCompletion(command, draft, query.start, draftCaret) : undefined
     if (plan !== undefined && onPlanCommand) {
       onPlanCommand(plan)
-      completionCaret.current = 0
-      setDraftCaret(0)
+      const caret = draft.slice(0, query.start).trimStart().length
+      completionCaret.current = caret
+      setDraftCaret(caret)
       setSuggestionsOpen(false)
       editor.current?.focus()
       requestAnimationFrame(() => {
-        if (editor.current) setEditorCaret(editor.current, 0)
+        if (editor.current) setEditorCaret(editor.current, caret)
         completionCaret.current = null
       })
       return
@@ -255,13 +244,22 @@ export function useCommandCompletion({
       }
       onSkills(skills)
     }
-    replaceQuery(item.kind === 'skill' ? `${skillMarker} ` : `/${command.name} `)
+    if (item.kind === 'skill') replaceQuery(`${skillMarker} `)
+    else {
+      const prefix = `/${command.name} `
+      const body = (before + draft.slice(draftCaret)).trimStart()
+      changeDraft(prefix + body, prefix.length + before.trimStart().length)
+    }
   }
 
   function replaceQuery(insertion: string, skills?: PiSlashCommand[]) {
     if (!query) return
     const caret = query.start + insertion.length
     const text = draft.slice(0, query.start) + insertion + draft.slice(draftCaret)
+    changeDraft(text, caret, skills)
+  }
+
+  function changeDraft(text: string, caret: number, skills?: PiSlashCommand[]) {
     if (composerStore && skills) composerStore.patch({ draft: text, selectedSkills: skills })
     else onDraft(text)
     completionCaret.current = caret
@@ -277,7 +275,7 @@ export function useCommandCompletion({
   function completeFile(file: ProjectFile, drill = false) {
     if (query?.kind !== 'file') return
     const path = file.path + (file.kind === 'directory' ? '/' : '')
-    const quoted = query.quoted || /\s/u.test(path)
+    const quoted = !drill || query.quoted || /\s/u.test(path)
     const insertion = quoted ? `@"${path}${drill ? '' : '"'}` : `@${path}`
     replaceFileQuery(insertion + (drill ? '' : ' '), drill)
   }

@@ -4,26 +4,39 @@ import type { ComposerDraftData, ComposerDraftState } from './composer-state'
 import { composerDocument } from './composer-document'
 import { createEditorToken, editorPluginPositions } from './editor-plugin-tokens'
 import { editorSelection, readEditorText, setEditorSelection } from './rich-draft'
+import { fileReferenceNodes } from './editor-file-tokens'
+import { fileReferences } from './completion-query'
 
 type Selection = { anchor: number; focus: number }
+type EditorInline = ComposerInline | { kind: 'file'; text: string }
 function units(value: ComposerDraftData) {
-  return composerDocument(value).flatMap((part) =>
-    part.kind === 'text' ? Array.from(part.text, (text): ComposerInline => ({ kind: 'text', text })) : [part],
-  )
+  return composerDocument(value).flatMap<EditorInline>((part) => {
+    if (part.kind !== 'text') return [part]
+    const result: EditorInline[] = []
+    const textUnits = (text: string) => Array.from(text, (text): EditorInline => ({ kind: 'text', text }))
+    let offset = 0
+    for (const reference of fileReferences(part.text)) {
+      result.push(...textUnits(part.text.slice(offset, reference.start)), { kind: 'file', text: reference.text })
+      offset = reference.end
+    }
+    return [...result, ...textUnits(part.text.slice(offset))]
+  })
 }
-function key(part: ComposerInline) {
+function key(part: EditorInline) {
   return JSON.stringify(part)
 }
-function length(parts: ComposerInline[]) {
-  return parts.reduce((size, part) => size + (part.kind === 'text' ? part.text.length : 1), 0)
+function length(parts: EditorInline[]) {
+  return parts.reduce((size, part) => size + (part.kind === 'text' || part.kind === 'file' ? part.text.length : 1), 0)
 }
-function nodes(parts: ComposerInline[], value: ComposerDraftData, plugins: AgentPluginOption[]) {
+function nodes(parts: EditorInline[], value: ComposerDraftData, plugins: AgentPluginOption[]) {
   const result: Node[] = []
   for (const part of parts) {
     if (part.kind === 'text') {
       const previous = result.at(-1)
       if (previous?.nodeType === Node.TEXT_NODE) previous.textContent += part.text
       else result.push(document.createTextNode(part.text))
+    } else if (part.kind === 'file') {
+      result.push(...fileReferenceNodes(part.text))
     } else if (part.kind === 'agent-plugin') {
       const plugin = plugins.find((entry) => entry.id === part.id)
       result.push(createEditorToken('plugin', part.id, plugin?.name ?? part.name, plugin?.description, plugin?.iconUrl))
@@ -44,10 +57,17 @@ function nodes(parts: ComposerInline[], value: ComposerDraftData, plugins: Agent
   return result
 }
 export function editorDraftNodes(value: ComposerDraftData, plugins: AgentPluginOption[]) {
-  return nodes(composerDocument(value), value, plugins)
+  return nodes(units(value), value, plugins)
 }
 export function editorMatchesDraft(element: HTMLElement, value: ComposerDraftData) {
   if (readEditorText(element) !== value.draft) return false
+  const files = [...element.querySelectorAll<HTMLElement>('[data-file-token]')]
+  const references = fileReferences(value.draft)
+  if (
+    files.length !== references.length ||
+    files.some((token, index) => token.dataset.fileToken !== references[index].text)
+  )
+    return false
   const skills = [...element.querySelectorAll<HTMLElement>('[data-skill-token]')]
   if (
     skills.length !== value.selectedSkills.length ||

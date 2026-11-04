@@ -11,13 +11,8 @@ export function prepareComposerMessage(draft: string, mode: TaskMode) {
   }
 }
 export function planCompletion(command: PiSlashCommand, draft: string, tokenStart: number, caret: number) {
-  if (
-    command.source !== 'builtin' ||
-    !['plan', '计划', '计划模式'].includes(command.name) ||
-    tokenStart !== draft.search(/\S/u)
-  )
-    return undefined
-  return `/plan ${draft.slice(caret).trimStart()}`
+  if (command.source !== 'builtin' || !['plan', '计划', '计划模式'].includes(command.name)) return undefined
+  return `/plan ${(draft.slice(0, tokenStart) + draft.slice(caret)).trimStart()}`
 }
 export function sendQueueMode(
   running: boolean,

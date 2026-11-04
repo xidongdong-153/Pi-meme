@@ -2,6 +2,7 @@ import { useId, useLayoutEffect, useRef, useState } from 'react'
 import { Box, ChevronDown } from 'lucide-react'
 import { skillMessageParts } from '@pi-meme/contracts/skills'
 import { cn } from '@pi-meme/ui/lib/utils'
+import { FileReferences } from '../content/file-reference'
 
 export function UserMessageContent({ text }: { text: string }) {
   const contentId = useId()
@@ -27,7 +28,7 @@ export function UserMessageContent({ text }: { text: string }) {
       <div id={contentId} ref={content} className={cn('pi-content', !expanded && 'max-h-[12lh] overflow-hidden')}>
         {skillMessageParts(text).map((part, index) =>
           part.type === 'text' ? (
-            part.text
+            <FileReferences key={index} text={part.text} />
           ) : (
             <span key={index} title={part.path} className="inline text-blue-400" aria-label={`技能：${part.name}`}>
               <Box aria-hidden="true" className="inline-block size-4 align-[-0.125em] mr-1" />${part.name}
