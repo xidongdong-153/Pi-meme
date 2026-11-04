@@ -62,7 +62,7 @@ export function selectTests(args: string[], platform: NodeJS.Platform = process.
   if (unsupported.length && (values.target || files.length))
     throw new Error(`当前平台 ${platform} 不支持所选测试：${unsupported.map((suite) => suite.file).join('、')}`)
   selected = selected.filter((suite) => !suite.platforms || suite.platforms.includes(platform))
-  if (!selected.length) throw new Error('所选范围没有可在当前平台执行的测试。')
+  if (!selected.length && suites.length) throw new Error('所选范围没有可在当前平台执行的测试。')
   if (values.coverage && selected.some((suite) => !sourceLayers.includes(suite.layer)))
     throw new Error('--coverage 只用于 unit、component、integration，请同时指定 --layer。')
   return { suites: selected, list: Boolean(values.list), help: false, name, coverage: Boolean(values.coverage) }

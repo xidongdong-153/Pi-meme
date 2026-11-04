@@ -65,7 +65,7 @@ stateDiagram-v2
 
 Worker 创建时固定技能资源快照与外部插件代次。资源变更发布新修订后，相关任务和未答交互结束才退役旧 Worker；新一轮读取新修订。纯 Agent 插件版本可共存，共享 Server 组切换需等待所属调用和租约释放，详见 [插件生命周期](plugins.md#释放与更新)。
 
-模型配置修改保留空闲检查、恢复状态捕获、写文件、重连和恢复顺序。失败保留会话身份、正文和已保存配置。打开历史会话或重连时，原模型不可用则使用默认模型；默认模型也不可用时选择其他可用模型。思考强度使用该模型的设置或全局默认值，并按模型支持的档位调整。没有可用模型时需要先配置模型。模型与命令缓存随重连失效。回归入口见 [session-configuration.integration.test.ts](../packages/pi-runtime/tests/session-configuration.integration.test.ts) 与 [model-reconnect.integration.test.ts](../apps/desktop/tests/model-reconnect.integration.test.ts)。
+模型配置修改保留空闲检查、恢复状态捕获、写文件、重连和恢复顺序。失败保留会话身份、正文和已保存配置。打开历史会话或重连时，原模型不可用则使用默认模型；默认模型也不可用时选择其他可用模型。思考强度使用该模型的设置或全局默认值，并按模型支持的档位调整。没有可用模型时需要先配置模型。模型与命令缓存随重连失效。
 
 ## 当前活动：项目服务
 
@@ -113,7 +113,7 @@ Agent 本轮结束、停止响应、Worker 回收、切换会话、关闭工具�
 
 恢复只接受当前分支最新可重试错误的原生 entry ID，通过内部 `pi:recover` 控制接口继续原会话，不新增用户消息、不重发原始任务。Pi `context_edit` 省略尾部失败助手消息，保留此前成功回复和工具结果；聊天与会话树隐藏已省略的错误，原始 JSONL 记录保留用于记账。重新打开会话仍采用省略后的上下文。恢复沿用失败轮次的任务模式和当前访问权限，不修改输入框的模式选择。中断中的文本可能重新生成，执行结果不确定的外部操作仍需先核对。
 
-实现见 [恢复判定](../packages/pi-runtime/src/sdk/recovery.ts)、[SDK 会话](../packages/pi-runtime/src/sdk/session.ts) 和 [输入框按钮](../packages/chat/src/ui/composer/composer-toolbar.tsx)；持久化回归见 [session-recovery.integration.test.ts](../packages/pi-runtime/tests/session-recovery.integration.test.ts)。
+实现见 [恢复判定](../packages/pi-runtime/src/sdk/recovery.ts)、[SDK 会话](../packages/pi-runtime/src/sdk/session.ts) 和 [输入框按钮](../packages/chat/src/ui/composer/composer-toolbar.tsx)。
 
 ## 编辑用户消息
 
@@ -121,7 +121,7 @@ Agent 本轮结束、停止响应、Worker 回收、切换会话、关闭工具�
 
 点击“停止当前任务”后，未执行队列保留。主输入框调整的模型或思考强度先暂存；清空输入后点击“继续当前任务”，按所选配置继续已有对话，保留历史，不重新覆盖原用户消息。有草稿时发送新的消息。需要替换原输入时，使用消息的“编辑”入口；覆盖只修改对话历史，不撤销工具已经产生的文件修改。
 
-实现见 [SDK 会话](../packages/pi-runtime/src/sdk/session.ts) 与 [聊天输入状态](../packages/chat/src/ui/use-chat-session.ts)，持久化验证见 [session-branch.integration.test.ts](../packages/pi-runtime/tests/session-branch.integration.test.ts)。
+实现见 [SDK 会话](../packages/pi-runtime/src/sdk/session.ts) 与 [聊天输入状态](../packages/chat/src/ui/use-chat-session.ts)。
 
 ## 草稿与历史搜索
 
@@ -196,7 +196,7 @@ sequenceDiagram
 
 [右侧子代理面板](../packages/app-ui/src/panels/subagents-panel.tsx) 按已开启与已结束分组，后代按层级缩进。详情按持久 `conversationOrigin` 边界展示子任务自己的消息、思考、工具、错误与后续轮次，不展示模型继承的父历史，不改变根会话选择，也不提供编辑、分支或输入。
 
-旧子会话通过原生 header 的 `parentSession` 和共同 entry IDs 恢复边界；无法确认时明确报错，不猜测裁剪或改写 JSONL。子任务提问进入根快照，回答按实际源 sessionKey、agentId 和执行代次处理，避免误答其他子任务。覆盖测试见 [agent-conversation.unit.test.ts](../packages/pi-runtime/tests/agent-conversation.unit.test.ts) 与 [collaboration-integration.integration.test.ts](../packages/host/tests/collaboration-integration.integration.test.ts)。
+旧子会话通过原生 header 的 `parentSession` 和共同 entry IDs 恢复边界；无法确认时明确报错，不猜测裁剪或改写 JSONL。子任务提问进入根快照，回答按实际源 sessionKey、agentId 和执行代次处理，避免误答其他子任务。
 
 ## 规划模式与计划文件
 
@@ -240,7 +240,7 @@ flowchart LR
 
 进入历史消息编辑时，临时隐藏编辑点之后的方案并隐藏实施入口；取消编辑恢复原展示。新用户消息落盘且历史替换提交后，恢复编辑点之前最后一份有效方案；此前没有方案则清空。提交前失败恢复原历史和方案，提交后模型失败不恢复已被撤销的内容。编辑时同时移除该消息自己的隐藏计划上下文。所有窗口接收完整替换状态，清空后的迟到事件不能重新添加旧方案。
 
-实施保留已有草稿，不自动附带未发送内容；沿用执行权限，只读权限需要先选择允许修改的权限。跳过或关闭仅恢复普通输入框，不发送消息、不切换模式，同一内部修订不重复询问；方案更新或回退后可重新确认。调整文字随会话草稿保存，临时隐藏、刷新及提交失败不会丢失。正在调研、切换、编辑或等待交互时不提供实施操作。实现见 [plan-decision.tsx](../packages/app-ui/src/panels/plan-decision.tsx)，定向验证见 [plan-mode.integration.test.ts](../packages/pi-runtime/tests/plan-mode.integration.test.ts) 和 [agent-plans.integration.test.ts](../packages/subagents/tests/agent-plans.integration.test.ts)。
+实施保留已有草稿，不自动附带未发送内容；沿用执行权限，只读权限需要先选择允许修改的权限。跳过或关闭仅恢复普通输入框，不发送消息、不切换模式，同一内部修订不重复询问；方案更新或回退后可重新确认。调整文字随会话草稿保存，临时隐藏、刷新及提交失败不会丢失。正在调研、切换、编辑或等待交互时不提供实施操作。实现见 [plan-decision.tsx](../packages/app-ui/src/panels/plan-decision.tsx)。
 
 ## 持久目标 Goal
 

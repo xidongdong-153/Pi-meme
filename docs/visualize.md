@@ -73,12 +73,6 @@ iframe 初始化检查父窗口来源和随机 token，再通过独立 MessageCh
 - [App](../packages/app-ui/src/app.tsx)、[样式扫描](../packages/app-ui/src/global.css)：右栏入口与共享渲染上下文。
 - [内置技能](../pi/skills/visualize/SKILL.md)：草图生成约束和状态用法。
 
-针对性测试：
-
-```bash
-pnpm test --file packages/visualize/tests/store.integration.test.ts
-pnpm test --file packages/host/tests/visualize.integration.test.ts
-pnpm test --file packages/chat/tests/composer-submit.component.test.tsx
-```
+当前没有测试用例，保留的测试框架见[测试](testing.md)。
 
 开发环境使用 `pnpm run start`。实机检查生成、四类控件、草图内点击、反馈更新、旧版切换、主输入框草稿保留及刷新恢复。

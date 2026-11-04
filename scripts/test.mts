@@ -86,7 +86,8 @@ try {
     console.log(`测试范围：${selection.suites.length} 个文件；当前平台：${process.platform}`)
     for (const suite of selection.suites) console.log(`  [${suite.layer}/${suite.target}] ${suite.file}`)
     if (builds.length) console.log(`必要构建：${builds.join('、')}`)
-    if (!selection.list) {
+    if (!selection.suites.length) console.log('当前没有已登记的测试，跳过执行。')
+    else if (!selection.list) {
       await mkdir(output, { recursive: true })
       const source = selection.suites.filter((suite) => ['unit', 'component', 'integration'].includes(suite.layer))
       if (source.length) {

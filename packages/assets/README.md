@@ -26,11 +26,7 @@ ICNS 包含 16、32、64、128、256、512、1024px 表示；ICO 包含 16、32�
 
 [草图图标预览](visualize-icon-preview.png) 展示白猫、淡紫画板与黄色铅笔在深浅背景下的缩小效果。资源位于 `files/system-plugins/visualize.png`，由 `systemPluginIcons['@pi-meme/visualize']` 提供给插件列表。
 
-资源引用检查：
-
-```bash
-pnpm test --file packages/assets/tests/files.integration.test.ts
-```
+当前没有测试用例，保留的测试框架见[测试](../../docs/testing.md)。
 
 ## 子代理场景
 

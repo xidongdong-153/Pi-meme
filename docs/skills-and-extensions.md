@@ -127,5 +127,3 @@ Worker 创建时固定资源快照，子代理继承父快照。安装、编辑�
 ## App 资源与权限
 
 App 附带技能、主题和素材随插件整体分发；主题格式见[结构化主题](plugins.md#结构化主题)，UI 入口见[插件开发](plugins.md#ui-面板与贡献)。技能在原任务权限内读取和执行，不单独授予文件、网络或插件能力；插件入口的执行矩阵见[插件执行与授权](configuration.md#插件执行与授权)。
-
-验证入口：[resources.integration.test.ts](../packages/host/tests/resources.integration.test.ts)、[resource-lifecycle.integration.test.ts](../packages/host/tests/resource-lifecycle.integration.test.ts)、[resource-snapshot.integration.test.ts](../packages/pi-runtime/tests/resource-snapshot.integration.test.ts)。

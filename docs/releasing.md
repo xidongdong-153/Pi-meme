@@ -10,14 +10,9 @@ paths:
   - 'scripts/release-licenses.mts'
   - 'scripts/release-workspace.mts'
   - 'apps/desktop/forge.config.ts'
-  - 'apps/desktop/tests/package-runtime.artifact.test.ts'
-  - 'apps/desktop/tests/package-signing.artifact.test.ts'
   - 'apps/desktop/package.json'
   - 'apps/server/package.json'
   - 'apps/server/README.md'
-  - 'apps/server/tests/*dist*.artifact.test.ts'
-  - 'tests/fixtures/server-artifact.ts'
-  - 'tests/selection.ts'
 ---
 
 # 版本发布
@@ -104,7 +99,7 @@ pi-meme-host/
 
 ## 本机产物验收
 
-以下是明确的发布验收命令，不是普通代码任务的默认检查。测试只使用临时数据和假模型，不读取真实模型凭据或会话。
+以下是发布构建与文件校验命令，不是普通代码任务的默认检查。当前已删除测试用例，保留的测试框架见[测试](testing.md)。功能流程需使用隔离的临时数据人工验收，不读取真实模型凭据或会话。
 
 ### Host
 
@@ -115,32 +110,27 @@ pnpm package:host
 bundle_dir=$(mktemp -d "${TMPDIR:-/tmp}/pi-meme Host.XXXXXX")
 release_version=$(node -p "require('./apps/server/package.json').version")
 tar -xzf "out/release/pi-meme-host-${release_version}-macos-arm64.tar.gz" -C "$bundle_dir"
-PI_MEME_HOST_BUNDLE_ROOT="$bundle_dir/pi-meme-host" pnpm test \
-  --file apps/server/tests/dist-smoke.artifact.test.ts \
-  --file apps/server/tests/restricted-dist.artifact.test.ts
 ```
 
-[server-artifact.ts](../tests/fixtures/server-artifact.ts) 验证版本、commit、平台、包内 Node、许可与软链接。子进程的 HOME 为临时目录，PATH 不带开发环境的 Node，不传 NODE_PATH/NODE_OPTIONS。统一测试入口看到显式包路径后不重新构建 Server。
+解压后人工核对版本、commit、平台、包内 Node、许可与软链接。运行时使用临时 HOME，PATH 不带开发环境的 Node，不传 NODE_PATH/NODE_OPTIONS。
 
-测试检查静态页面与脚本、未认证请求拒绝、原生 PTY、Worker、JSONL、插件、MCP、codemode、子代理、计划、默认受限权限、只读与重启恢复，以及 SIGTERM 正常退出。Linux 必须真实通过 bubblewrap 探测，不能以跳过或完全权限绕过。
+人工验收检查静态页面与脚本、未认证请求拒绝、原生 PTY、Worker、JSONL、插件、MCP、codemode、子代理、计划、默认受限权限、只读与重启恢复，以及 SIGTERM 正常退出。Linux 必须真实通过 bubblewrap 探测，不能以跳过或完全权限绕过。
 
 ### Desktop
 
 在 macOS arm64、Node.js 24.14.0 下验收：
 
 ```bash
-pnpm test \
-  --file apps/desktop/tests/package-runtime.artifact.test.ts \
-  --file apps/desktop/tests/package-signing.artifact.test.ts
+pnpm package --arch arm64
 pnpm make --skip-package --arch arm64
 node --import tsx scripts/release.mts desktop
 ```
 
-测试入口只打包一次。Make 必须用 `--skip-package`，把已验收的应用压缩成 ZIP。[release.mts](../scripts/release.mts) 将 ZIP 复制到 `out/release/` 后解压到临时目录，再检查 commit、版本、固定 bundle ID、许可文件与完整签名。
+打包后 Make 使用 `--skip-package`，把已有应用压缩成 ZIP。[release.mts](../scripts/release.mts) 将 ZIP 复制到 `out/release/` 后解压到临时目录，再检查 commit、版本、固定 bundle ID、许可文件与完整签名。
 
-Forge 在 `packageAfterExtract` 从本次解压的 Electron 发行包取原始 `LICENSE`，另存为 `Contents/Resources/ELECTRON_LICENSE`，并携带完整的 `LICENSES.chromium.html`，不依赖本机已经存在 `node_modules/electron/dist`。这样只压缩 `.app` 时也不会遗漏发行根目录中的许可。[签名产物测试](../apps/desktop/tests/package-signing.artifact.test.ts)逐字节哈希对照本次 Packager 产物目录中的原始 Electron 发行文件。
+Forge 在 `packageAfterExtract` 从本次解压的 Electron 发行包取原始 `LICENSE`，另存为 `Contents/Resources/ELECTRON_LICENSE`，并携带完整的 `LICENSES.chromium.html`，不依赖本机已经存在 `node_modules/electron/dist`。这样只压缩 `.app` 时也不会遗漏发行根目录中的许可。
 
-构建成功仍需检查真实 `.app` 和 ZIP，不能只看 Forge 退出码。正式应用关闭 RunAsNode 和 Node 调试 Fuse，产物测试直接启动应用可执行文件。不要通过重新打包、重签名或修改 Fuse 来修补待上传的已验收应用。应用 bundle ID 固定为 `io.github.xidongdong153.pi-meme`。
+构建成功仍需检查真实 `.app` 和 ZIP，不能只看 Forge 退出码。正式应用关闭 RunAsNode 和 Node 调试 Fuse，运行时人工验收需直接启动应用可执行文件。不要通过重新打包、重签名或修改 Fuse 来修补待上传的已验收应用。应用 bundle ID 固定为 `io.github.xidongdong153.pi-meme`。
 
 Windows x64 在原生 Windows、Node.js 24.14.0 下构建，还需要 Rust MSVC、Visual C++ Build Tools 和 Windows SDK，不能复用 macOS/Linux 的依赖或跨平台打包：
 
@@ -154,7 +144,7 @@ node --import tsx scripts/release.mts desktop
 
 Forge 在 Windows 构建前编译 `packages/windows-native/native`，复制原生程序到 `resources/runtime/bin/pi-meme-windows.exe`，依赖许可写入 `resources/runtime/WINDOWS_NATIVE_LICENSES.txt`；发布校验同时检查原生程序的 x64 PE 头。
 
-Windows 本机受限权限与受限插件尚不可用。现有 macOS Desktop 产物运行测试不作为 Windows 验收；发布前需人工检查首次打开、文件选择、Git、PowerShell、终端、本机完全权限会话、项目服务、编辑器打开、系统字体与 SSH 连接。
+Windows 本机受限权限与受限插件尚不可用。发布前需人工检查首次打开、文件选择、Git、PowerShell、终端、本机完全权限会话、项目服务、编辑器打开、系统字体与 SSH 连接。
 
 ### 汇总
 
@@ -190,7 +180,7 @@ flowchart TD
   Draft --> Public["附件核对通过后自动公开，保留预发布标记"]
 ```
 
-发布 workflow 不运行源码测试、Web E2E 或产物运行测试，不安装 Chromium，也不准备测试沙箱。日常源码测试仍由 [Linux 检查](../.github/workflows/linux.yml) 执行，完整功能验收通过[手动完整测试](../.github/workflows/full-tests.yml)另行执行。
+发布 workflow 不运行源码测试、Web E2E 或产物运行测试，不安装 Chromium，也不准备测试沙箱。[Linux 检查](../.github/workflows/linux.yml)与[手动完整测试](../.github/workflows/full-tests.yml)保留测试入口，当前没有可执行用例；功能验收需另行人工执行。
 
 只有发布 job 有 `contents: write`，使用 GitHub 自带 `GITHUB_TOKEN`，不需要个人 PAT 或 Apple 凭据。其他 job 只读；发布 job 不执行依赖安装或构建脚本。平台 job 缓存 pnpm 下载存储，不缓存原生构建结果。Linux 的版本检查 job 执行 `pnpm check`，复用类型检查增量缓存。Host 直接运行 `pnpm package:host`；Desktop 先运行 `pnpm package --arch <目标架构>`，再用 `pnpm make --skip-package --arch <目标架构>` 生成 ZIP，macOS 为 `arm64`，Windows 为 `x64`，随后复核对应平台的最终包。所有检查仍基于本次 checkout；发布构建成功不表示功能测试通过。
 

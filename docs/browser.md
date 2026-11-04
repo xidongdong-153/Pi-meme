@@ -76,14 +76,4 @@ Chromium 使用 `persist:pi-meme-browser-v1` 分区，其 Cookie、网站存储�
 
 ## 验证
 
-在仓库根目录运行相关检查：
-
-```bash
-pnpm test --file packages/browser/tests/store.integration.test.ts
-pnpm test --file packages/browser/tests/navigation.unit.test.ts
-pnpm test --file packages/chat/tests/browser-annotations.unit.test.ts
-pnpm test --file packages/app-ui/tests/browser-workspace.component.test.tsx
-pnpm test --file apps/desktop/tests/browser-runtime.unit.test.ts
-```
-
-源码用例验证聊天隔离、批注与图片保存、消息往返、异步切换、保存失败恢复、IPC 来源和站点权限。原生视图定位、浮层焦点、系统授权与网站兼容性需要 Desktop 开发态验证。测试使用临时目录和本地假模型，不读写真实凭据。
+当前没有测试用例，保留的测试框架见[测试](testing.md)。聊天隔离、批注与图片保存、消息往返、异步切换、保存失败恢复、IPC 来源和站点权限，以及原生视图定位、浮层焦点、系统授权与网站兼容性需要 Desktop 开发态人工验证。

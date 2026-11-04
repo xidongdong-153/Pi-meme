@@ -115,7 +115,7 @@ Host 与 app-ui 是组合根。基础包和契约不得反向依赖业务实现�
 
 Agent 项目服务由 [activities](../packages/activities/src/server/service.ts) 管理，Host 持有进程，不依赖会话 Worker 或右侧面板的生命周期。启动走内置 `manage_service` 工具；列表、日志和用户停止走正式 HostApi。受限服务复用 [AccessSandbox](../packages/pi-runtime/src/sdk/access-sandbox.ts)，不借用无 Agent 沙箱的用户终端。
 
-外部 App 插件由用户安装，进入独立启停、卸载和更新流程。内置身份冲突在执行外部入口前拒绝；内置初始化失败中止 Host，外部插件恢复失败隔离相关依赖组并保留诊断。对应测试见 [builtin-modules.integration.test.ts](../packages/host/tests/builtin-modules.integration.test.ts)。
+外部 App 插件由用户安装，进入独立启停、卸载和更新流程。内置身份冲突在执行外部入口前拒绝；内置初始化失败中止 Host，外部插件恢复失败隔离相关依赖组并保留诊断。
 
 ## 界面组合
 

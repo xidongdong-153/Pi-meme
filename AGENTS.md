@@ -24,12 +24,12 @@ pnpm format                # 全仓格式检查，供 CI 或明确的全仓检�
 pnpm check-boundaries      # 包导入、依赖声明、UI/进程边界
 pnpm check                 # 全仓类型、Lint、Format 和包边界检查
 pnpm test:source           # 全部源码测试，不构建应用
-pnpm test:web              # 构建 Web 并运行 Web E2E
+pnpm test:web              # 选择 Web E2E，有用例时构建 Web 并运行
 pnpm test --list           # 列出可选业务功能，不执行测试
 pnpm test --file <路径>    # 日常优先选择直接相关的测试文件
-pnpm test --feature core   # 显式验证连接、聊天、恢复、队列与权限主线
+pnpm test --feature core   # 选择连接、聊天、恢复、队列与权限主线
 pnpm test --feature chat   # 确需跨包验证时扩大到聊天功能的源码测试
-pnpm test:all              # 手动完整验收，包含必要构建和产物验收
+pnpm test:all              # 手动选择全部层次，按清单准备必要构建
 pnpm build:web             # 浏览器入口
 pnpm build:server          # 独立 Host 与静态 Worker
 pnpm package               # 生成本机 Desktop 应用目录
@@ -49,7 +49,9 @@ pnpm release               # 推送已提交的当前分支和版本 Tag，触�
 
 代码任务收尾按顺序执行一轮 `pnpm type-check`、`pnpm exec eslint <变更文件>`、`pnpm exec prettier --check <变更文件>`，前一项通过后再执行下一项；失败修复后重跑受影响的检查。类型检查保留全仓，Lint 和 Format 只传本任务修改且仍存在的适用文件，包含新增和暂存文件，不包含已有无关改动或已删除路径。只修本次引入的问题。仅修改文档时检查格式、链接和来源路径，不运行类型检查或应用构建。
 
-日常优先 `pnpm test --file <路径>`，需要时用 `--name` 缩到用例。确需跨包验证时才使用 `--feature`，不因所属功能自动扩大范围。修改测试清单或选测入口时运行 `pnpm test --feature testing` 和受影响文件，可用 `pnpm test --all --list` 检查完整清单。无参数 `pnpm test` 返回选测帮助并失败，不执行测试。
+当前测试用例及专用夹具已清空，测试框架、配置、依赖、选测入口和 CI 保留。清单为空时，显式选择合法范围会显示零个文件并跳过执行，不启动运行器或构建；跳过不表示验收通过。
+
+有相关用例时，日常优先 `pnpm test --file <路径>`，需要时用 `--name` 缩到用例。确需跨包验证时才使用 `--feature`，不因所属功能自动扩大范围。修改测试清单或选测入口时运行 `pnpm test --feature testing` 和受影响文件，可用 `pnpm test --all --list` 检查完整清单；无用例时如实记录跳过。无参数 `pnpm test` 返回选测帮助并失败，不执行测试。
 
 普通新功能不强制新增测试，不要求覆盖多个层次或达到覆盖率。文案、CSS、普通布局不新增仅验证展示细节的自动测试。修 bug 先用最窄范围复现，必要时补最小回归。会话持久化、存储迁移、凭据、认证和权限改动必须做针对性验证，必要时补用例，但不因此扩大到全仓。没有可复用用例的普通功能可做针对性手工检查，并说明未自动验证的部分。
 
@@ -57,7 +59,7 @@ pnpm release               # 推送已提交的当前分支和版本 Tag，触�
 
 日常 CI 在 PR 和手动触发时执行全仓静态检查、包边界检查和源码测试，main 推送不自动运行 Actions，Web E2E 留在手动完整验收。发布 workflow 保留静态检查、构建和最终包校验，不运行源码测试、Web E2E 或产物运行测试。类型检查启用增量缓存，但每次仍执行完整命令，不按缓存命中跳过检查。普通 Agent 任务不运行或等待完整验收；报告已通过的检查、未运行的检查和剩余风险，不把本地任务完成写成发布验收通过。
 
-测试使用 Vitest；组件交互使用 React Testing Library，Web E2E 使用 Playwright；不维护桌面 UI 自动化，桌面保留源码测试与不操作界面的 Node 原生产物测试；原生界面、文件对话框和迁移后的界面重启按需人工验收。文件后缀明确标记 `unit`、`component`、`integration`、`e2e`、`artifact`，所有测试必须登记到 `tests/catalog.ts`。用临时数据目录、本地假模型和可释放的 fixture，不读写真实凭据或会话。具体选测和新增测试条件见 [测试](docs/testing.md)。
+测试框架使用 Vitest；组件交互使用 React Testing Library，Web E2E 使用 Playwright，产物层使用 Node 原生测试运行器。不维护桌面 UI 自动化；原生界面、文件对话框和迁移后的界面重启按需人工验收。新增测试文件后缀明确标记 `unit`、`component`、`integration`、`e2e`、`artifact`，并登记到 `tests/catalog.ts`。用临时数据目录、本地假模型和可释放的 fixture，不读写真实凭据或会话。具体选测和新增测试条件见 [测试](docs/testing.md)。
 
 arm64 应用在 `apps/desktop/out/Pi meme-darwin-arm64/Pi meme.app`。`dist/`、`.vite/`、`out/`、`.vitest/` 不提交。
 

@@ -394,8 +394,8 @@ Chord 1.1 的 `reload` 只替换已有相同服务 shape 的 facet；安装、�
 
 Server 产物使用 Chord fresh VM loader，释放后丢弃模块引用，不通过累加 ESM query 参数重载。不可变代码快照没有引用后才回收；卸载默认保留插件私有数据（`plugins/data/`，详见 [数据目录与存储](storage.md)）和 Pi 会话。
 
-启动恢复失败只隔离相关外部组，内置模块初始化失败中止启动。安装清单无法解析时保留 `state/plugins.json`（旧版本为 `installed.json`），本次不加载外部项并报告诊断；内置身份冲突不能删除源目录或用户数据。恢复边界见 [external-recovery.integration.test.ts](../packages/plugin-runtime/tests/external-recovery.integration.test.ts)。
+启动恢复失败只隔离相关外部组，内置模块初始化失败中止启动。安装清单无法解析时保留 `state/plugins.json`（旧版本为 `installed.json`），本次不加载外部项并报告诊断；内置身份冲突不能删除源目录或用户数据。
 
 可信 Server/Agent 是可信 Node 代码，UI 是可信同源代码；受限入口才使用独立进程和 OS 沙箱。撤权不能回滚已经发生的可信代码副作用；怀疑恶意插件时停用并重启 Host。Pi、Host 与受限 Node 运行时随应用发布，不能通过插件热更新。
 
-源码与测试：[插件管理器](../packages/plugin-runtime/src/manager.ts)、[释放作用域](../packages/plugin-sdk/src/scope.ts)、[运行时测试](../packages/plugin-runtime/tests/)、[Host 内置边界测试](../packages/host/tests/builtin-modules.integration.test.ts)。
+源码：[插件管理器](../packages/plugin-runtime/src/manager.ts)、[释放作用域](../packages/plugin-sdk/src/scope.ts)。

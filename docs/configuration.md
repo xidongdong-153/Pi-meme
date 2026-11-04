@@ -134,7 +134,7 @@ MCP 合并 Host `config/agent/mcp.json`（原 `pi/mcp.json`）、项目只读 `.
 
 逐服务启停与明确授权分开校验，授权绑定配置摘要；外部修改配置后旧授权不能继续使用。旧 `mcpEnabled: false` 保留不连接未重新授权服务的选择，升级不会自动连接。MCP 只在完全权限的普通任务中装配，规划模式不运行 MCP。
 
-配置损坏时显示错误并保留原文件；保存使用修订检查。OAuth Client Secret 和令牌进入凭据存储。配置合并、授权和诊断见 [runtime-config.ts](../packages/mcp/src/server/runtime-config.ts)、[config-store.ts](../packages/mcp/src/server/config-store.ts) 与 [MCP 测试](../packages/mcp/tests/)。
+配置损坏时显示错误并保留原文件；保存使用修订检查。OAuth Client Secret 和令牌进入凭据存储。配置合并、授权和诊断见 [runtime-config.ts](../packages/mcp/src/server/runtime-config.ts) 与 [config-store.ts](../packages/mcp/src/server/config-store.ts)。
 
 ## 指令、资源与主题
 
@@ -156,7 +156,7 @@ Host 指令在 `config/agent/AGENTS.md`、`config/agent/SYSTEM.md`、`config/age
 
 Desktop 使用内存 Electron Session，认证 Cookie 不写磁盘；本机 Host 的自动登录同时校验真实连接来源、Host 和 Origin，不向 Renderer 传递长期令牌。HTTPS 和 SSH 的远程令牌留在入口 Host 凭据存储，不返回 Renderer。SSH 令牌使用 `ssh-host:<稳定连接ID>` 键，与 `config/ssh-connections.json` 中的目标、名称、身份文件路径、启用状态和已确认 `hostId` 分开；身份文件只保存路径引用，不复制私钥。认证与远程代理规则见 [Remote](remote.md)。
 
-当前 Pi SDK 的 `ModelRuntime.create` 没有公开的认证环境注入参数。[model-runtime.ts](../packages/pi-runtime/src/sdk/model-runtime.ts) 是唯一依赖 SDK private shape 的认证隔离层：检查 `runtime.models.authContext` 后注入空环境和不可用文件检查，阻止隐式读取本机模型认证。守卫失败报错；升级 SDK 时需重新核对该守卫，并验证 [model-config.integration.test.ts](../packages/models/tests/model-config.integration.test.ts) 与 [sdk-settings-isolation.integration.test.ts](../packages/pi-runtime/tests/sdk-settings-isolation.integration.test.ts)。会话、JSONL 与扩展仍使用公开 SDK。
+当前 Pi SDK 的 `ModelRuntime.create` 没有公开的认证环境注入参数。[model-runtime.ts](../packages/pi-runtime/src/sdk/model-runtime.ts) 是唯一依赖 SDK private shape 的认证隔离层：检查 `runtime.models.authContext` 后注入空环境和不可用文件检查，阻止隐式读取本机模型认证。守卫失败报错；升级 SDK 时需重新核对该守卫，并验证模型配置与认证隔离。会话、JSONL 与扩展仍使用公开 SDK。
 
 ## SSH 连接配置与信任边界
 
@@ -226,7 +226,7 @@ Linux 隔离 user、mount、PID 和 IPC namespace，保留 TCP/UDP 网络与 DNS
 
 WSL 按实际 mountinfo 识别 Windows 驱动器，拒绝用作受限工作区，不把所有 `/mnt` 路径视为 Windows 盘。沙箱隐藏驱动器、`/init`、`/run/WSL` 和 WSLg，清除互操作变量和 Windows PATH，不继承额外文件描述符；复制 exe 到 Linux 工作区也不能通过 Windows 互操作执行。完全权限沿用普通执行方式。
 
-Ubuntu 的 AppArmor 或内核策略可能限制 user namespace。应用不关闭 AppArmor、不修改 sysctl；依赖或探测失败时查看 `restrictedAccessReason`，修复后重启 Host，不自动退回完全权限。安装要求见[Linux 与 WSL 环境](getting-started.md#linux-与-wsl-环境)，源码与专项回归见 [linux-sandbox.ts](../packages/pi-runtime/src/sdk/linux-sandbox.ts) 和 [linux-sandbox.integration.test.ts](../packages/pi-runtime/tests/linux-sandbox.integration.test.ts)。
+Ubuntu 的 AppArmor 或内核策略可能限制 user namespace。应用不关闭 AppArmor、不修改 sysctl；依赖或探测失败时查看 `restrictedAccessReason`，修复后重启 Host，不自动退回完全权限。安装要求见[Linux 与 WSL 环境](getting-started.md#linux-与-wsl-环境)，源码见 [linux-sandbox.ts](../packages/pi-runtime/src/sdk/linux-sandbox.ts)。
 
 ### 插件执行与授权
 
