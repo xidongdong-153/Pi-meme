@@ -96,7 +96,7 @@ test.each(['resolve', 'reject'] as const)(
       const snapshot = await session.snapshot()
       assert.equal(snapshot.connection.status, 'ready')
       assert.equal(snapshot.messages.length, 0)
-      assert.equal(snapshot.connection.piVersion, '1.3.0')
+      assert.equal(snapshot.connection.piVersion, '1.5.0')
       assert.equal(
         connections.some((value) => value.status === 'disconnected'),
         false,
