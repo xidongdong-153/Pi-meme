@@ -38,7 +38,7 @@ function noSubscription() {
 const INITIAL_VISIBLE_TURNS = 30
 const TURN_INCREMENT = 30
 
-// 按会话保留“加载更早记录”展开的窗口大小，切回会话时连同滚动位置一起恢复。
+// 按会话保留“加载更早记录”展开的窗口大小，切回时无需重新展开。
 const visibleWindows = new Map<string, number>()
 
 export const Conversation = React.memo(
@@ -52,6 +52,7 @@ export const Conversation = React.memo(
     onCopyError,
     editor,
     sessionKey,
+    scrollResetVersion,
     loadImage,
     cwd,
     fileSession,
@@ -80,6 +81,8 @@ export const Conversation = React.memo(
     editor?: MessageEditorState
     /** 当前会话标识，用于按会话恢复滚动位置。 */
     sessionKey?: string
+    /** 会话选择变化时递增，让保留的面板切回后定位到最新消息。 */
+    scrollResetVersion?: number
     loadImage?: MessageImageLoader
     cwd?: string
     fileSession?: SessionRef
@@ -312,11 +315,15 @@ export const Conversation = React.memo(
       scrollToMessage,
       handleActivityToggle,
       loadHistory,
-    } = useConversationScroll(fileSession ? JSON.stringify([fileSession.hostId, fileSession.sessionId]) : sessionKey, {
-      hasMore,
-      loading: historyLoading,
-      load: handleLoadMore,
-    })
+    } = useConversationScroll(
+      fileSession ? JSON.stringify([fileSession.hostId, fileSession.sessionId]) : sessionKey,
+      {
+        hasMore,
+        loading: historyLoading,
+        load: handleLoadMore,
+      },
+      scrollResetVersion,
+    )
 
     const handleSelectTurn = React.useCallback(
       (entry: ConversationOutlineEntry) => {

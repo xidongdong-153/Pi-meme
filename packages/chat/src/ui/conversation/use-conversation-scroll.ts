@@ -7,16 +7,18 @@ const BOTTOM_THRESHOLD = 80
 // 内容总溢出高度（scrollHeight - clientHeight）必须超过 100px 才视为内容已铺开并具有有效滚动空间
 const MIN_SCROLLABLE_OVERFLOW = 100
 
-// 按会话保留滚动位置，切换会话后恢复，避免从旧位置跳到新会话底部。
+// 按会话保留阅读位置，刷新界面时恢复。
 const positions = new Map<string, ScrollPosition>()
 
 export function useConversationScroll(
   sessionKey?: string,
   history?: { hasMore: boolean; loading: boolean; load: () => Promise<boolean> },
+  scrollResetVersion = 0,
 ) {
   const containerRef = React.useRef<HTMLDivElement>(null)
   const isAtBottomRef = React.useRef(true)
   const activeSession = React.useRef<string | undefined>(undefined)
+  const previousResetVersion = React.useRef<number | undefined>(undefined)
   const [showScrollTop, setShowScrollTop] = React.useState(false)
   const [showScrollBottom, setShowScrollBottom] = React.useState(false)
   const historyRequest = React.useRef<object | undefined>(undefined)
@@ -182,18 +184,20 @@ export function useConversationScroll(
     if (movingUp && upwardIntent.current && container.scrollTop <= 120) void loadHistory()
   }, [captureAnchor, loadHistory, updateScrollState])
 
-  // 切换会话或重新挂载时恢复位置：贴底或未铺开的会话直接到底，其他会话在消息窗口稳定后再定位。
+  // 首次挂载恢复刷新前的阅读位置；切换会话时回到底部，临时隐藏同一会话时保留位置。
   React.useLayoutEffect(() => {
-    if (activeSession.current === sessionKey) return
+    if (activeSession.current === sessionKey && previousResetVersion.current === scrollResetVersion) return
+    const restoreSaved = previousResetVersion.current === undefined && scrollResetVersion === 0
     activeSession.current = sessionKey
+    previousResetVersion.current = scrollResetVersion
     pendingRestore.current = undefined
     restoreLoading.current = false
     upwardIntent.current = false
     anchor.current = undefined
     const el = containerRef.current
     if (!el) return
-    let saved = sessionKey ? positions.get(sessionKey) : undefined
-    if (!saved && sessionKey) {
+    let saved = restoreSaved && sessionKey ? positions.get(sessionKey) : undefined
+    if (!saved && restoreSaved && sessionKey) {
       try {
         const value = JSON.parse(sessionStorage.getItem(`pi-meme:reading:v1:${sessionKey}`) ?? 'null')
         if (value && Number.isFinite(value.top) && typeof value.atBottom === 'boolean') saved = value
@@ -247,7 +251,7 @@ export function useConversationScroll(
       updateScrollState()
     })
     return () => cancelAnimationFrame(frame)
-  }, [sessionKey, updateScrollState])
+  }, [sessionKey, scrollResetVersion, updateScrollState])
 
   React.useLayoutEffect(() => {
     const saved = pendingRestore.current

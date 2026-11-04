@@ -33,7 +33,9 @@ export function RetainedConversations({
   const retained = useSyncExternalStore(subscribe, snapshot, snapshot)
   const key = props.sessionKey ? `${hostId}:${props.sessionKey}` : `${hostId}:empty`
   const previous = useRef(key)
+  const scrollResetVersion = useRef(0)
   if (previous.current !== key) {
+    scrollResetVersion.current += 1
     const old = panes.current.get(previous.current)
     if (old)
       panes.current.set(previous.current, {
@@ -46,7 +48,7 @@ export function RetainedConversations({
       })
     previous.current = key
   }
-  panes.current.set(key, props)
+  panes.current.set(key, { ...props, scrollResetVersion: scrollResetVersion.current })
   useLayoutEffect(() => {
     if (!active) return
     if (order[0]?.owner === owner && order[0].key === key) return

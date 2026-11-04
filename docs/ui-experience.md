@@ -33,7 +33,7 @@ Pi-meme 面向长时间使用聊天、项目和工具面板完成开发任务的
 
 切换会话或收起右栏时，已打开的工具保留实例和 DOM；隐藏视图不接收键盘输入，不抢焦点。刷新界面后恢复布局与文件标签，并重新附着仍存活的 Host 终端和 Desktop 网页。Host 重启不恢复终端进程；Desktop 进程重启不承诺恢复未提交的网页表单。
 
-聊天阅读位置按会话保存在当前窗口的 `sessionStorage`，记录底部状态、消息锚点和偏移；恢复较早的锚点时按需读取历史。会话删除事件清理关联布局和工具引用。
+切换会话时定位到最新消息，包括切回保留的面板；同一会话临时隐藏再显示时保留阅读位置。聊天阅读位置按会话保存在当前窗口的 `sessionStorage`，记录底部状态、消息锚点和偏移，供刷新界面时恢复；恢复较早的锚点时按需读取历史。会话删除事件清理关联布局和工具引用。
 
 实现入口为 [WorkspacePanels](../packages/app-ui/src/layout/workspace-panels.tsx)、[RetainedToolPanels](../packages/app-ui/src/layout/retained-tool-panels.tsx)、[useSidebarLayout](../packages/app-ui/src/layout/use-sidebar-layout.ts)、[useWorkspaceView](../packages/app-ui/src/layout/use-workspace-view.ts) 和 [useConversationScroll](../packages/chat/src/ui/conversation/use-conversation-scroll.ts)。
 

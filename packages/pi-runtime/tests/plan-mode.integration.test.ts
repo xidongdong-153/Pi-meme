@@ -738,12 +738,14 @@ test('计划实施从 Host 固定正文，调整保留引用，完整权限的 P
     session.start(directory)
     await session.snapshot()
     await session.setModel({ provider: 'fake', id: 'first' })
-    await session.prompt('请实施', [], [], {
+    await session.prompt('请实施此计划。', [], [], {
       mode: 'default',
       plan: { intent: 'execute', reference: { id: 'plan', revision: 2 } },
     })
     while ((await session.snapshot()).state.isStreaming) await delay(5)
     assert.match(requestText(fake.provider.requests[0]), /Host 保存的正文/)
+    const implementation = (await session.snapshot()).messages.find((message) => message.role === 'user')
+    assert.equal(requestText({ messages: [implementation] }), '请实施此计划。\n\n引用计划「已确认方案」')
     assert.ok(
       (await session.snapshot()).messages
         .filter((message) => message.role === 'user')

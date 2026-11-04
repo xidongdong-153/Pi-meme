@@ -1521,7 +1521,11 @@ export class SdkSession {
         if (intent === 'execute' && this.accessMode === 'read-only') throw new Error('请先选择允许实施的访问权限')
         const document = await this.policy.resolvePlan(reference, this.admission.signal)
         planDocument = document
-        message = `${intent === 'execute' ? '请实施此计划。' : '请根据以下要求调整当前计划并保存。'}\n\n${message.trim()}\n\n引用计划「${document.title}」`
+        const instruction = intent === 'execute' ? '请实施此计划。' : '请根据以下要求调整当前计划并保存。'
+        const body = message.trim()
+        message = [instruction, body !== instruction ? body : '', `引用计划「${document.title}」`]
+          .filter(Boolean)
+          .join('\n\n')
         if (intent === 'revise') this.planReference = reference
       }
       if (this.runtime && this.runtimeMode !== normalized.mode) {
