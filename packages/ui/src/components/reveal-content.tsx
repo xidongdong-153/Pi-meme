@@ -3,16 +3,19 @@ import { cn } from '../lib/utils'
 
 /** 保留容器，用于异步区域就绪时展开；固定标题和操作放在容器外。 */
 export function RevealContent({
+  id,
   ready,
   children,
   className,
 }: {
+  id?: string
   ready: boolean
   children: ReactNode
   className?: string
 }) {
   return (
     <div
+      id={id}
       className={cn(
         'grid grid-rows-[0fr] opacity-0 transition-[grid-template-rows,opacity] duration-[240ms] ease-[cubic-bezier(0.22,1,0.36,1)] data-[ready=true]:grid-rows-[1fr] data-[ready=true]:opacity-100 motion-reduce:transition-none',
         className,

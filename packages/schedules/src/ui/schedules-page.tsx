@@ -24,6 +24,8 @@ import {
 import type { AppProject, HostApi, SessionRef } from '@pi-meme/contracts/app-host'
 import type { ScheduleConfiguration, ScheduledTask, ScheduleRun } from '@pi-meme/contracts/schedules'
 import { Button } from '@pi-meme/ui/components/ui/button'
+import { CrossfadeText } from '@pi-meme/ui/components/crossfade-text'
+import { RevealContent } from '@pi-meme/ui/components/reveal-content'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
 import {
   DropdownMenu,
@@ -218,7 +220,7 @@ export function SchedulesPage({
           <aside
             aria-label="定时任务列表"
             className={cn(
-              'flex w-full shrink-0 flex-col border-r border-border/60 bg-secondary/25 md:w-[280px]',
+              'flex w-full shrink-0 flex-col border-r border-border/60 bg-secondary/25 md:w-64',
               selectedId && 'hidden md:flex',
             )}
           >
@@ -314,91 +316,85 @@ export function SchedulesPage({
                           closed && '-rotate-90',
                         )}
                       />
-                      <span className="ml-1 text-muted-foreground/50">{items.length}</span>
+                      <span className="ml-1 text-muted-foreground/50">
+                        <CrossfadeText>{String(items.length)}</CrossfadeText>
+                      </span>
                     </button>
-                    <div
-                      id={`${disclosureId}-${status}`}
-                      aria-hidden={closed}
-                      inert={closed}
-                      className={cn(
-                        'grid transition-[grid-template-rows,opacity] duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
-                        closed ? 'grid-rows-[0fr] opacity-0' : 'grid-rows-[1fr] opacity-100',
-                      )}
-                    >
-                      <div className="min-h-0 overflow-hidden">
-                        {items.map((task) => (
-                          <button
-                            type="button"
-                            key={task.taskId}
-                            onClick={() => onSelect(task.taskId)}
-                            aria-current={selectedId === task.taskId ? 'page' : undefined}
-                            className={cn(
-                              'group mb-1 flex w-full items-start gap-2 rounded-xl px-3 py-3 text-left transition-colors hover:bg-secondary/70',
-                              selectedId === task.taskId && 'bg-secondary',
-                            )}
-                          >
-                            <div className="min-w-0 flex-1">
-                              <div className="flex items-center gap-2">
-                                <span className="truncate text-sm font-medium">{task.name}</span>
-                                {task.unreadCount > 0 && (
-                                  <span
-                                    aria-label={`${task.unreadCount} 条未读运行记录`}
-                                    className="size-1.5 shrink-0 rounded-full bg-blue-500"
-                                  />
-                                )}
-                              </div>
-                              <p className="mt-1 truncate text-xs text-muted-foreground">
-                                {running(task.activeRun)
-                                  ? '正在运行'
-                                  : task.status === 'paused'
-                                    ? '已暂停'
-                                    : task.nextRunAt
-                                      ? `${formatScheduleTime(task.nextRunAt, task.rule.timeZone)} · ${describeRule(task.rule)}`
-                                      : describeRule(task.rule)}
-                              </p>
-                              {task.lastRun && !running(task.activeRun) && (
-                                <p
-                                  className={cn(
-                                    'mt-1 truncate text-[11px] text-muted-foreground/65',
-                                    task.lastRun.status === 'failed' && 'text-destructive/80',
-                                  )}
-                                >
-                                  最近{statusLabels[task.lastRun.status]}
-                                </p>
+                    <RevealContent id={`${disclosureId}-${status}`} ready={!closed}>
+                      {items.map((task) => (
+                        <button
+                          type="button"
+                          key={task.taskId}
+                          onClick={() => onSelect(task.taskId)}
+                          aria-current={selectedId === task.taskId ? 'page' : undefined}
+                          className={cn(
+                            'group mb-1 flex w-full items-start gap-2 rounded-xl px-3 py-3 text-left transition-colors hover:bg-secondary/70',
+                            selectedId === task.taskId && 'bg-secondary',
+                          )}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <span className="truncate text-sm font-medium">{task.name}</span>
+                              {task.unreadCount > 0 && (
+                                <span
+                                  aria-label={`${task.unreadCount} 条未读运行记录`}
+                                  className="size-1.5 shrink-0 rounded-full bg-blue-500"
+                                />
                               )}
                             </div>
-                            {running(task.activeRun) ? (
-                              <Loader2 className="mt-1 size-3.5 shrink-0 animate-spin text-muted-foreground" />
-                            ) : task.lastRun?.status === 'failed' ? (
-                              <CircleAlert className="mt-1 size-3.5 shrink-0 text-destructive" />
-                            ) : null}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
+                            <p className="mt-1 truncate text-xs text-muted-foreground">
+                              {running(task.activeRun)
+                                ? '正在运行'
+                                : task.status === 'paused'
+                                  ? '已暂停'
+                                  : task.nextRunAt
+                                    ? `${formatScheduleTime(task.nextRunAt, task.rule.timeZone)} · ${describeRule(task.rule)}`
+                                    : describeRule(task.rule)}
+                            </p>
+                            {task.lastRun && !running(task.activeRun) && (
+                              <p
+                                className={cn(
+                                  'mt-1 truncate text-[11px] text-muted-foreground/65',
+                                  task.lastRun.status === 'failed' && 'text-destructive/80',
+                                )}
+                              >
+                                最近{statusLabels[task.lastRun.status]}
+                              </p>
+                            )}
+                          </div>
+                          {running(task.activeRun) ? (
+                            <Loader2 className="mt-1 size-3.5 shrink-0 animate-spin text-muted-foreground" />
+                          ) : task.lastRun?.status === 'failed' ? (
+                            <CircleAlert className="mt-1 size-3.5 shrink-0 text-destructive" />
+                          ) : null}
+                        </button>
+                      ))}
+                    </RevealContent>
                   </div>
                 )
               })}
               {!visible.length && (loading || search || filter !== 'all') && (
                 <p className="px-3 py-6 text-xs text-muted-foreground">
-                  {loading ? '正在读取任务…' : '没有匹配的任务'}
+                  <CrossfadeText>{loading ? '正在读取任务…' : '没有匹配的任务'}</CrossfadeText>
                 </p>
               )}
             </div>
           </aside>
           <div className={cn('flex min-h-0 min-w-0 flex-1 flex-col', !selectedId && 'hidden md:flex')}>
-            {(error || state.error || !connected || supported === false) && (
+            <RevealContent ready={Boolean(error || state.error || !connected || supported === false)}>
               <div
                 role="alert"
                 className="m-5 flex items-center gap-3 rounded-xl border border-border/70 bg-secondary/40 px-4 py-3 text-sm"
               >
                 <CircleAlert className="size-4 shrink-0 text-muted-foreground" />
                 <span className="min-w-0 flex-1 break-words">
-                  {!connected
-                    ? '连接已断开，恢复连接后可继续管理任务。'
-                    : supported === false
-                      ? '当前版本不支持定时任务，请更新后重试。'
-                      : error || state.error}
+                  <CrossfadeText>
+                    {!connected
+                      ? '连接已断开，恢复连接后可继续管理任务。'
+                      : supported === false
+                        ? '当前版本不支持定时任务，请更新后重试。'
+                        : error || state.error || ''}
+                  </CrossfadeText>
                 </span>
                 {connected && supported !== false && (
                   <Button
@@ -413,7 +409,7 @@ export function SchedulesPage({
                   </Button>
                 )}
               </div>
-            )}
+            </RevealContent>
             {selected ? (
               <>
                 <div className="flex shrink-0 items-center gap-3 border-b border-border/50 px-5 py-4 sm:px-8">
@@ -432,7 +428,9 @@ export function SchedulesPage({
                   <div className="min-w-0 flex-1">
                     <h2 className="truncate text-sm font-semibold">{selected.name}</h2>
                     <span className="text-xs text-muted-foreground">
-                      {selected.status === 'active' ? '活跃' : selected.status === 'paused' ? '已暂停' : '已结束'}
+                      <CrossfadeText>
+                        {selected.status === 'active' ? '活跃' : selected.status === 'paused' ? '已暂停' : '已结束'}
+                      </CrossfadeText>
                     </span>
                   </div>
                   <DropdownMenu>
@@ -464,11 +462,13 @@ export function SchedulesPage({
                       <div>
                         <p className="mb-2 text-xs text-muted-foreground">下次运行</p>
                         <p className="text-xl font-medium tracking-tight">
-                          {selected.status === 'paused'
-                            ? '任务已暂停'
-                            : selected.nextRunAt
-                              ? formatScheduleTime(selected.nextRunAt, selected.rule.timeZone)
-                              : '暂无后续安排'}
+                          <CrossfadeText>
+                            {selected.status === 'paused'
+                              ? '任务已暂停'
+                              : selected.nextRunAt
+                                ? formatScheduleTime(selected.nextRunAt, selected.rule.timeZone)
+                                : '暂无后续安排'}
+                          </CrossfadeText>
                         </p>
                         <p className="mt-2 text-xs text-muted-foreground">
                           {describeRule(selected.rule)} · {selected.rule.timeZone}
@@ -678,7 +678,7 @@ export function SchedulesPage({
                       <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed border-border/60 py-12 text-center">
                         <Clock className="size-6 text-muted-foreground/50" />
                         <p className="text-sm text-muted-foreground">
-                          {recordsLoading ? '正在读取运行记录…' : '还没有运行记录'}
+                          <CrossfadeText>{recordsLoading ? '正在读取运行记录…' : '还没有运行记录'}</CrossfadeText>
                         </p>
                         <p className="px-5 text-xs text-muted-foreground/60">
                           任务会按安排运行，也可以点击「立即运行」。
@@ -701,7 +701,9 @@ export function SchedulesPage({
                           })
                         }
                       >
-                        加载更多记录
+                        <CrossfadeText reserve={['加载更多记录', '正在读取…']}>
+                          {pending.has('more') ? '正在读取…' : '加载更多记录'}
+                        </CrossfadeText>
                       </Button>
                     )}
                   </div>

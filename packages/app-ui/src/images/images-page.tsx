@@ -4,6 +4,8 @@ import type { SessionRef } from '@pi-meme/contracts/app-host'
 import { ImageViewer } from '@pi-meme/chat/ui/content/image-viewer'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Input } from '@pi-meme/ui/components/ui/input'
+import { CrossfadeText } from '@pi-meme/ui/components/crossfade-text'
+import { RevealContent } from '@pi-meme/ui/components/reveal-content'
 import {
   Dialog,
   DialogContent,
@@ -464,19 +466,26 @@ export function ImagesPage({
         </Button>
         {busy && (
           <span role="status" className="text-xs text-muted-foreground">
-            正在处理图像…
+            <CrossfadeText>正在处理图像…</CrossfadeText>
           </span>
         )}
       </div>
-      <div className="space-y-1 px-6 text-xs text-muted-foreground sm:px-9">
-        {error && !dialogOpen && (
-          <p role="alert" className="pb-2 text-destructive">
-            {error}
-          </p>
-        )}
-      </div>
+      <RevealContent ready={Boolean(error && !dialogOpen)}>
+        <div className="space-y-1 px-6 text-xs text-muted-foreground sm:px-9">
+          {error && !dialogOpen && (
+            <p role="alert" className="pb-2 text-destructive">
+              <CrossfadeText>{error}</CrossfadeText>
+            </p>
+          )}
+        </div>
+      </RevealContent>
       <div ref={scroll} className="min-h-0 flex-1 overflow-y-auto px-6 pb-8 sm:px-9">
-        <div ref={wall} className="relative w-full" style={{ height: items.length ? layout.height : undefined }}>
+        <div
+          ref={wall}
+          aria-busy={loading}
+          className="relative w-full"
+          style={{ height: items.length ? layout.height : undefined }}
+        >
           {items.map((item, index) => {
             const source = sources.find((source) => source.id === item.serviceId)
             return source && width > 0 ? (
@@ -499,7 +508,9 @@ export function ImagesPage({
             <div className="flex min-h-80 flex-col items-center justify-center gap-3 text-muted-foreground">
               <Images className="size-10 opacity-50" />
               <p className="text-sm">
-                {loading ? '正在读取图像…' : query || projectFilter !== 'all' ? '没有找到匹配的图像' : '还没有图像'}
+                <CrossfadeText>
+                  {loading ? '正在读取图像…' : query || projectFilter !== 'all' ? '没有找到匹配的图像' : '还没有图像'}
+                </CrossfadeText>
               </p>
               {!loading && !query && projectFilter === 'all' && (
                 <p className="text-xs">在聊天中生成的图片会自动保存在这里。</p>
@@ -510,7 +521,7 @@ export function ImagesPage({
         {feed?.hasMore && (
           <div className="flex justify-center pt-5">
             <Button variant="outline" disabled={more || loading} onClick={() => void loadMore()}>
-              {more ? '正在加载…' : '加载更多'}
+              <CrossfadeText reserve={['加载更多', '正在加载…']}>{more ? '正在加载…' : '加载更多'}</CrossfadeText>
             </Button>
           </div>
         )}

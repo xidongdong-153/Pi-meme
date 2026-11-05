@@ -44,16 +44,7 @@ import { isWorkspaceSlotVisible, WorkspaceContent } from './layout/workspace-con
 import { SideChatPanel } from './panels/side-chat-panel'
 import { SideChatSession } from './session/side-chat-session'
 import { ErrorNotice, SystemErrorStack, SystemErrorToast } from './layout/error-notice'
-import {
-  lazy,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  useSyncExternalStore,
-  type ComponentProps,
-} from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ComponentProps } from 'react'
 import { Composer } from '@pi-meme/chat/ui/composer/composer'
 import { MessageImageLoaderContext } from '@pi-meme/chat/ui/content/message-image'
 import { Sidebar } from '@pi-meme/workspace/ui/sidebar/sidebar'
@@ -129,10 +120,7 @@ import { McpSettings } from '@pi-meme/mcp/ui/mcp-settings'
 import { SettingsPage as SettingsContent } from '@pi-meme/settings/ui/settings-page'
 import { ProfileSettings } from '@pi-meme/usage/ui/profile-settings'
 import { AccountSettings } from './settings/account-settings'
-
-const SchedulesPage = lazy(() =>
-  import('@pi-meme/schedules/ui/schedules-page').then((module) => ({ default: module.SchedulesPage })),
-)
+import { SchedulesPage } from '@pi-meme/schedules/ui/schedules-page'
 
 export function App({
   bridge,

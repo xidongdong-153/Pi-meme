@@ -15,6 +15,8 @@ import type { DesktopBridge, WorkspaceDeletionResult } from '@pi-meme/contracts/
 import type { DesktopProject, PiProjectGroup, PiSessionsSnapshot } from '@pi-meme/contracts/sessions'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Input } from '@pi-meme/ui/components/ui/input'
+import { CrossfadeText } from '@pi-meme/ui/components/crossfade-text'
+import { RevealContent } from '@pi-meme/ui/components/reveal-content'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { SidebarMenus, SidebarMoreMenu, type SidebarMenuBridge } from '@pi-meme/workspace/ui/sidebar/sidebar-menus'
 import { formatSessionTitle } from '@pi-meme/workspace/ui/sidebar/session-title'
@@ -171,14 +173,14 @@ export function ProjectsPage({
                 </div>
               </div>
               {notice}
-              {error && (
-                <div role="alert" className="mb-4 flex items-center gap-3 text-sm text-destructive">
-                  <span className="min-w-0 flex-1 break-all">{error}</span>
+              <RevealContent ready={Boolean(error)} className="mb-4">
+                <div role="alert" className="flex items-center gap-3 text-sm text-destructive">
+                  <CrossfadeText className="min-w-0 flex-1 break-all">{error}</CrossfadeText>
                   <Button variant="ghost" size="sm" disabled={loading} onClick={() => void refresh()}>
                     重试
                   </Button>
                 </div>
-              )}
+              </RevealContent>
               <div className="flex items-center gap-3 border-b border-border/60 px-3 pb-3 text-xs text-muted-foreground">
                 <span className="min-w-0 flex-1">名称</span>
                 <button
@@ -219,13 +221,15 @@ export function ProjectsPage({
                     <Folder className="size-8 text-muted-foreground/60" />
                   )}
                   <p>
-                    {loading
-                      ? '正在读取项目…'
-                      : search
-                        ? '没有匹配的项目'
-                        : error
-                          ? '项目列表暂时不可用'
-                          : '还没有项目'}
+                    <CrossfadeText>
+                      {loading
+                        ? '正在读取项目…'
+                        : search
+                          ? '没有匹配的项目'
+                          : error
+                            ? '项目列表暂时不可用'
+                            : '还没有项目'}
+                    </CrossfadeText>
                   </p>
                   {!loading && !search && !error && (
                     <Button variant="outline" size="sm" onClick={() => setCreating(true)}>
@@ -345,49 +349,40 @@ function ProjectRow({
           </button>
         </div>
       </div>
-      <div
-        aria-hidden={!expanded}
-        inert={!expanded}
-        className={cn(
-          'grid transition-[grid-template-rows,opacity] duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
-          expanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0',
-        )}
-      >
-        <div className="min-h-0 overflow-hidden">
-          <div className="pb-4 pl-11 pr-3 sm:pl-12">
-            {entries.map((session) => (
-              <button
-                key={session.path}
-                type="button"
-                disabled={pending === session.path}
-                onClick={() => void run(session.path, () => onSwitchSession(session.path))}
-                onMouseEnter={() => onPrefetchSession(session.path)}
-                onFocus={() => onPrefetchSession(session.path)}
-                className="flex w-full min-w-0 items-center gap-3 rounded-lg py-2.5 pl-1 pr-0 text-left text-sm hover:bg-secondary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-              >
-                <span className="min-w-0 flex-1 truncate">{formatSessionTitle(session)}</span>
-                {(pending === session.path || (session.running && !session.isPaused)) && (
-                  <Loader2 aria-label="会话加载中" className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
-                )}
-                <time dateTime={session.modified} className="w-24 shrink-0 text-xs text-muted-foreground sm:w-28">
-                  {updatedTime(session.modified)}
-                </time>
-                <span className="w-24 shrink-0 sm:w-28" aria-hidden="true" />
-              </button>
-            ))}
-            {!entries.length && <p className="py-3 text-sm text-muted-foreground">暂无聊天，可点击右侧按钮新建。</p>}
-            {project.sessions.length > 10 && (
-              <button
-                type="button"
-                onClick={() => setShowAll((value) => !value)}
-                className="rounded px-1 py-2 text-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              >
-                {showAll ? '收起' : '展开显示'}
-              </button>
-            )}
-          </div>
+      <RevealContent ready={expanded}>
+        <div className="pb-4 pl-11 pr-3 sm:pl-12">
+          {entries.map((session) => (
+            <button
+              key={session.path}
+              type="button"
+              disabled={pending === session.path}
+              onClick={() => void run(session.path, () => onSwitchSession(session.path))}
+              onMouseEnter={() => onPrefetchSession(session.path)}
+              onFocus={() => onPrefetchSession(session.path)}
+              className="flex w-full min-w-0 items-center gap-3 rounded-lg py-2.5 pl-1 pr-0 text-left text-sm hover:bg-secondary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+            >
+              <span className="min-w-0 flex-1 truncate">{formatSessionTitle(session)}</span>
+              {(pending === session.path || (session.running && !session.isPaused)) && (
+                <Loader2 aria-label="会话加载中" className="size-3.5 shrink-0 animate-spin text-muted-foreground" />
+              )}
+              <time dateTime={session.modified} className="w-24 shrink-0 text-xs text-muted-foreground sm:w-28">
+                {updatedTime(session.modified)}
+              </time>
+              <span className="w-24 shrink-0 sm:w-28" aria-hidden="true" />
+            </button>
+          ))}
+          {!entries.length && <p className="py-3 text-sm text-muted-foreground">暂无聊天，可点击右侧按钮新建。</p>}
+          {project.sessions.length > 10 && (
+            <button
+              type="button"
+              onClick={() => setShowAll((value) => !value)}
+              className="rounded px-1 py-2 text-sm text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {showAll ? '收起' : '展开显示'}
+            </button>
+          )}
         </div>
-      </div>
+      </RevealContent>
     </div>
   )
 }

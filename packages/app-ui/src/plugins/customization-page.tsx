@@ -1,7 +1,8 @@
-import { Suspense, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { BookOpen, Puzzle } from 'lucide-react'
 import type { UiPluginDescriptor } from '@pi-meme/plugin-sdk/ui'
 import { isReservedPluginId } from '@pi-meme/plugin-sdk/reserved'
+import { CrossfadeText } from '@pi-meme/ui/components/crossfade-text'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { PageHeader, PageHeaderNavigation } from '../layout/page-header'
 import { PluginIcon } from '../settings/plugin-page'
@@ -90,7 +91,11 @@ export function CustomizationPage({
                     <span className="truncate">{plugin.display?.name ?? plugin.id}</span>
                   </button>
                 ))}
-                {!installed.length && <p className="px-2.5 text-xs text-muted-foreground">暂无已安装插件</p>}
+                {!installed.length && (
+                  <p className="px-2.5 text-xs text-muted-foreground">
+                    <CrossfadeText>暂无已安装插件</CrossfadeText>
+                  </p>
+                )}
               </div>
             </section>
           </aside>
@@ -99,9 +104,7 @@ export function CustomizationPage({
             className="theme-workspace min-w-0 flex-1 overflow-y-auto bg-background px-6 py-8 sm:px-8 lg:px-12 lg:py-12"
           >
             <div className="mx-auto max-w-6xl">
-              <Suspense fallback={null}>
-                {renderContent(section, { id: selectedPlugin, onChange: setSelectedPlugin })}
-              </Suspense>
+              {renderContent(section, { id: selectedPlugin, onChange: setSelectedPlugin })}
             </div>
           </div>
         </div>
