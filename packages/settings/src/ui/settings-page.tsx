@@ -10,12 +10,8 @@ import type { SettingsBridge, ModelsBridge } from '@pi-meme/contracts/desktop'
 import { ThemeSettings } from './theme-settings'
 import { GeneralSettings } from './general-settings'
 import { InstructionSettings } from './instruction-settings'
-import {
-  BentoSkeletonBar,
-  BentoSkeletonButton,
-  BentoSkeletonCard,
-  BentoSkeletonCircle,
-} from '@pi-meme/ui/components/bento-skeleton'
+import { CrossfadeText } from '@pi-meme/ui/components/crossfade-text'
+import { Button } from '@pi-meme/ui/components/ui/button'
 
 export type SettingsPageProps = {
   section: 'about' | 'appearance' | 'general' | 'instructions'
@@ -74,46 +70,13 @@ export function SettingsPage({
           <h3 className="text-sm font-medium">Pi</h3>
           <dl className="grid grid-cols-2 gap-2 text-xs">
             <dt className="text-muted-foreground">内置版本</dt>
-            <dd>{piVersion ? `v${piVersion}` : '尚未连接'}</dd>
+            <dd>
+              <CrossfadeText>{piVersion ? `v${piVersion}` : '尚未连接'}</CrossfadeText>
+            </dd>
           </dl>
         </div>
-      ) : snapshot ? (
-        <ThemeSettings snapshot={snapshot} {...appearance} />
       ) : (
-        <div className="space-y-6" data-testid="appearance-skeleton">
-          <div className="flex justify-end gap-2">
-            <BentoSkeletonButton className="h-8 w-8 rounded-lg" />
-            <BentoSkeletonButton className="h-8 w-8 rounded-lg" />
-            <BentoSkeletonButton className="h-8 w-8 rounded-lg" />
-          </div>
-          <section className="space-y-3">
-            <BentoSkeletonBar className="w-16" size="sm" />
-            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-              <BentoSkeletonCard delay={0} className="flex h-28 flex-col justify-between p-4">
-                <div className="h-10 w-full rounded-lg bg-muted/40" />
-                <BentoSkeletonBar className="w-16" size="xs" />
-              </BentoSkeletonCard>
-              <BentoSkeletonCard delay={80} className="flex h-28 flex-col justify-between p-4">
-                <div className="h-10 w-full rounded-lg bg-muted/40" />
-                <BentoSkeletonBar className="w-16" size="xs" />
-              </BentoSkeletonCard>
-              <BentoSkeletonCard delay={160} className="flex h-28 flex-col justify-between p-4">
-                <div className="h-10 w-full rounded-lg bg-muted/40" />
-                <BentoSkeletonBar className="w-16" size="xs" />
-              </BentoSkeletonCard>
-            </div>
-          </section>
-          <section className="space-y-3">
-            <BentoSkeletonBar className="w-16" size="sm" />
-            <BentoSkeletonCard delay={120}>
-              <div className="flex flex-wrap items-center gap-3">
-                {Array.from({ length: 8 }).map((_, index) => (
-                  <BentoSkeletonCircle key={index} className="size-8" />
-                ))}
-              </div>
-            </BentoSkeletonCard>
-          </section>
-        </div>
+        <ThemeSettings snapshot={snapshot} {...appearance} />
       )}
       {snapshot?.errors.map((message) => (
         <p key={message} role="alert" className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
@@ -123,6 +86,9 @@ export function SettingsPage({
       {error && (
         <p role="alert" className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
           {error}
+          <Button variant="outline" size="sm" className="ml-3" onClick={appearance.onReload}>
+            重新读取
+          </Button>
         </p>
       )}
     </div>

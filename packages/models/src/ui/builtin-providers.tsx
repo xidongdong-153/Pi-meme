@@ -8,6 +8,8 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/
 import { Input } from '@pi-meme/ui/components/ui/input'
 import { ScrollArea } from '@pi-meme/ui/components/ui/scroll-area'
 import { Search } from 'lucide-react'
+import { CrossfadeText } from '@pi-meme/ui/components/crossfade-text'
+import { RevealContent } from '@pi-meme/ui/components/reveal-content'
 
 type LoginBridge = Pick<
   ModelsBridge,
@@ -24,27 +26,27 @@ function statusBadge(provider: BuiltinProviderInfo) {
   if (provider.subscription) {
     return (
       <Badge variant="success" className="h-5 px-1.5 text-[0.6875rem]">
-        已登录订阅账号
+        <CrossfadeText>已登录订阅账号</CrossfadeText>
       </Badge>
     )
   }
   if (provider.authType === 'oauth') {
     return (
       <Badge variant="success" className="h-5 px-1.5 text-[0.6875rem]">
-        已登录
+        <CrossfadeText>已登录</CrossfadeText>
       </Badge>
     )
   }
   if (provider.configured) {
     return (
       <Badge variant="success" className="h-5 px-1.5 text-[0.6875rem]">
-        已保存 API Key
+        <CrossfadeText>已保存 API Key</CrossfadeText>
       </Badge>
     )
   }
   return (
     <Badge variant="outline" className="h-5 px-1.5 text-[0.6875rem] text-muted-foreground">
-      未登录
+      <CrossfadeText>未登录</CrossfadeText>
     </Badge>
   )
 }
@@ -58,6 +60,8 @@ function methodLabel(provider: BuiltinProviderInfo, type: BuiltinAuthType) {
 export function BuiltinProviders({ bridge, disabled }: { bridge: LoginBridge; disabled: boolean }) {
   const [providers, setProviders] = useState<BuiltinProviderInfo[] | null>(null)
   const [query, setQuery] = useState('')
+  const [loading, setLoading] = useState(true)
+  const loadingRef = useRef(false)
   const [error, setError] = useState('')
   const [logoutError, setLogoutError] = useState('')
   const [busyId, setBusyId] = useState('')
@@ -67,6 +71,9 @@ export function BuiltinProviders({ bridge, disabled }: { bridge: LoginBridge; di
   const [submitting, setSubmitting] = useState(false)
   const active = useRef(true)
   async function load() {
+    if (loadingRef.current) return
+    loadingRef.current = true
+    setLoading(true)
     try {
       const next = await bridge.listBuiltinProviders()
       if (active.current) {
@@ -75,6 +82,9 @@ export function BuiltinProviders({ bridge, disabled }: { bridge: LoginBridge; di
       }
     } catch (cause) {
       if (active.current) setError(String(cause))
+    } finally {
+      loadingRef.current = false
+      if (active.current) setLoading(false)
     }
   }
   useEffect(() => {
@@ -185,72 +195,88 @@ export function BuiltinProviders({ bridge, disabled }: { bridge: LoginBridge; di
             />
           </div>
         </CardHeader>
-        <CardContent className="p-0">
-          {!providers && !error && (
-            <p role="status" className="p-8 text-center text-sm text-muted-foreground">
-              正在加载内置服务商…
+        <CardContent className="p-0" aria-busy={loading}>
+          <div className="flex min-h-12 items-center justify-between gap-3 px-4 py-3">
+            <p role="status" className="text-xs text-muted-foreground">
+              <CrossfadeText>
+                {loading
+                  ? providers
+                    ? '正在更新服务商…'
+                    : '正在读取内置服务商…'
+                  : providers
+                    ? visible.length
+                      ? `${visible.length} 个服务商`
+                      : '没有匹配的服务商'
+                    : '服务商读取失败'}
+              </CrossfadeText>
             </p>
-          )}
-          {providers && (
+            {error && (
+              <Button size="sm" variant="outline" disabled={loading} onClick={() => void load()}>
+                重试读取
+              </Button>
+            )}
+          </div>
+          <RevealContent ready={providers !== null}>
             <ScrollArea className="h-96">
-              <div className="divide-y divide-border">
-                {visible.map((provider) => {
-                  const interactive = provider.methods.some((method) => method.interactive)
-                  return (
-                    <div key={provider.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
-                      <div className="min-w-0 space-y-1.5">
+              {providers && (
+                <div className="divide-y divide-border">
+                  {visible.map((provider) => {
+                    const interactive = provider.methods.some((method) => method.interactive)
+                    return (
+                      <div key={provider.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                        <div className="min-w-0 space-y-1.5">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <h4 className="text-sm font-medium">{provider.name}</h4>
+                            <span className="font-mono text-xs text-muted-foreground">{provider.id}</span>
+                            {statusBadge(provider)}
+                          </div>
+                          <div className="flex flex-wrap items-center gap-1.5">
+                            {provider.methods.map((method) => (
+                              <Badge
+                                key={method.type}
+                                variant="secondary"
+                                className="h-4.5 px-1.5 text-[0.625rem] font-normal text-muted-foreground"
+                              >
+                                {method.name}
+                              </Badge>
+                            ))}
+                            {!interactive && (
+                              <span className="text-xs text-muted-foreground">（不能在应用内登录）</span>
+                            )}
+                          </div>
+                        </div>
                         <div className="flex flex-wrap items-center gap-2">
-                          <h4 className="text-sm font-medium">{provider.name}</h4>
-                          <span className="font-mono text-xs text-muted-foreground">{provider.id}</span>
-                          {statusBadge(provider)}
-                        </div>
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          {provider.methods.map((method) => (
-                            <Badge
-                              key={method.type}
-                              variant="secondary"
-                              className="h-4.5 px-1.5 text-[0.625rem] font-normal text-muted-foreground"
-                            >
-                              {method.name}
-                            </Badge>
-                          ))}
-                          {!interactive && <span className="text-xs text-muted-foreground">（不能在应用内登录）</span>}
-                        </div>
-                      </div>
-                      <div className="flex flex-wrap items-center gap-2">
-                        {provider.methods
-                          .filter((method) => method.interactive)
-                          .map((method) => (
+                          {provider.methods
+                            .filter((method) => method.interactive)
+                            .map((method) => (
+                              <Button
+                                key={method.type}
+                                size="sm"
+                                variant="outline"
+                                disabled={disabled || Boolean(busyId) || Boolean(login)}
+                                onClick={() => void begin(provider, method.type)}
+                              >
+                                {busyId === provider.id ? '正在处理…' : methodLabel(provider, method.type)}
+                              </Button>
+                            ))}
+                          {provider.configured && (
                             <Button
-                              key={method.type}
                               size="sm"
-                              variant="outline"
+                              variant="ghost"
                               disabled={disabled || Boolean(busyId) || Boolean(login)}
-                              onClick={() => void begin(provider, method.type)}
+                              onClick={() => void logout(provider)}
                             >
-                              {busyId === provider.id ? '正在处理…' : methodLabel(provider, method.type)}
+                              退出登录
                             </Button>
-                          ))}
-                        {provider.configured && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            disabled={disabled || Boolean(busyId) || Boolean(login)}
-                            onClick={() => void logout(provider)}
-                          >
-                            退出登录
-                          </Button>
-                        )}
+                          )}
+                        </div>
                       </div>
-                    </div>
-                  )
-                })}
-                {!visible.length && (
-                  <p className="px-4 py-8 text-center text-sm text-muted-foreground">没有匹配的服务商</p>
-                )}
-              </div>
+                    )
+                  })}
+                </div>
+              )}
             </ScrollArea>
-          )}
+          </RevealContent>
         </CardContent>
       </Card>
       {logoutError && (

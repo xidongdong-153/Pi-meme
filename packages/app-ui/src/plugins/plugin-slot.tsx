@@ -1,6 +1,7 @@
 import { Fragment, useSyncExternalStore, type ReactNode } from 'react'
 import { ChevronRight } from 'lucide-react'
 import type { UiContribution, UiContributionProps, UiPluginSlot } from '@pi-meme/plugin-sdk/ui'
+import { RevealContent } from '@pi-meme/ui/components/reveal-content'
 import { ErrorBoundary } from '@pi-meme/ui/components/error-boundary'
 import type { UiPluginRegistry } from './plugin-registry'
 
@@ -37,9 +38,10 @@ export function PluginSlot({
       (!contributionId || entry.id === contributionId) &&
       matchesContribution(entry, props),
   )
-  if (!matched.length) return <>{fallback}</>
-  return (
+  if (!matched.length && slot !== 'settings') return <>{fallback}</>
+  const rendered = (
     <>
+      {!matched.length && fallback}
       {matched.map((entry) => {
         const key = `${entry.id}:${registry.identity(entry.id)}`
         const contribution = (
@@ -69,6 +71,11 @@ export function PluginSlot({
         )
       })}
     </>
+  )
+  return slot === 'settings' ? (
+    <RevealContent ready={matched.length > 0 || fallback !== null}>{rendered}</RevealContent>
+  ) : (
+    rendered
   )
 }
 

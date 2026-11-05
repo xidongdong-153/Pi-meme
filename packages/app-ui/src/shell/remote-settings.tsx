@@ -4,6 +4,8 @@ import type { HostService } from '@pi-meme/contracts/host'
 import type { SshCapabilities, SshConnection } from '@pi-meme/contracts/ssh-connections'
 import type { ServiceRegistry } from './service-ui'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
+import { CrossfadeText } from '@pi-meme/ui/components/crossfade-text'
+import { RevealContent } from '@pi-meme/ui/components/reveal-content'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import {
   DropdownMenu,
@@ -86,6 +88,7 @@ function SshSettings({
 }) {
   const [capabilities, setCapabilities] = useState<SshCapabilities>()
   const [profiles, setProfiles] = useState<SshConnection[]>([])
+  const [profilesReady, setProfilesReady] = useState(false)
   const [loadError, setLoadError] = useState('')
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [pending, setPending] = useState<Set<string>>(() => new Set())
@@ -108,6 +111,7 @@ function SshSettings({
       const list = await registry.ssh.list()
       if (current !== revision.current) return
       setProfiles([...list])
+      setProfilesReady(true)
       setLoadError('')
     } catch (cause) {
       if (current === revision.current) setLoadError(errorMessage(cause))
@@ -145,116 +149,113 @@ function SshSettings({
   return (
     <div className="space-y-4">
       <p className="text-sm text-muted-foreground">使用 SSH 连接远程设备。</p>
-      {!capabilities && !loadError && (
-        <p role="status" className="text-sm text-muted-foreground">
-          正在读取连接权限…
-        </p>
-      )}
+      <div className="flex items-center justify-between gap-3">
+        <h3 className="text-sm font-medium">SSH 连接</h3>
+        <Button size="sm" disabled={!capabilities?.canManage || !capabilities.available} onClick={() => setDialog({})}>
+          <Plus aria-hidden="true" className="mr-1 size-3.5" />
+          添加
+        </Button>
+      </div>
       {capabilities && !capabilities.canManage && (
         <p className="rounded-xl border border-border p-4 text-sm text-muted-foreground">
           {capabilities.reason || '请在本机应用中管理 SSH 连接。'}
         </p>
       )}
-      {capabilities?.canManage && (
-        <>
-          <div className="flex items-center justify-between gap-3">
-            <h3 className="text-sm font-medium">SSH 连接</h3>
-            <Button size="sm" disabled={!capabilities.available} onClick={() => setDialog({})}>
-              <Plus aria-hidden="true" className="mr-1 size-3.5" />
-              添加
-            </Button>
-          </div>
-          {!capabilities.available && (
-            <p className="text-sm text-muted-foreground">
-              {capabilities.reason || '无法启动 SSH，请检查系统是否已安装 OpenSSH。'}
-            </p>
-          )}
-          {!profiles.length && !loadError && (
-            <p className="rounded-xl border border-dashed border-border p-5 text-sm text-muted-foreground">
-              还没有 SSH 连接。从 SSH 配置选择主机，或手动填写连接资料。
-            </p>
-          )}
-          {profiles.map((profile) => {
-            const busy = pending.has(profile.id)
-            const transitioning = profile.phase === 'connecting' || profile.phase === 'retrying'
-            return (
-              <section
-                key={profile.id}
-                aria-label={`SSH 连接 ${profile.name}`}
-                className="space-y-2 rounded-xl border border-border bg-card/40 p-4"
-              >
-                <div className="flex items-center gap-3">
-                  <Switch
-                    label={`保持连接 ${profile.name}`}
-                    checked={profile.enabled}
-                    disabled={busy || (!capabilities.available && !profile.enabled)}
-                    onChange={(enabled) => {
-                      void perform(profile.id, () => registry.ssh.setEnabled(profile.id, enabled))
-                    }}
-                  />
-                  <div className="min-w-0 flex-1 space-y-1">
-                    <div className="flex items-center gap-2 text-sm font-medium">
-                      <Globe aria-hidden="true" className="size-4 shrink-0 text-primary" />
-                      <span className="truncate" title={profile.name}>
-                        {profile.name}
-                      </span>
+      <RevealContent ready={Boolean(capabilities?.canManage && profilesReady)}>
+        {capabilities?.canManage && (
+          <div className="space-y-4">
+            {!capabilities.available && (
+              <p className="text-sm text-muted-foreground">
+                {capabilities.reason || '无法启动 SSH，请检查系统是否已安装 OpenSSH。'}
+              </p>
+            )}
+            {!profiles.length && !loadError && (
+              <p className="rounded-xl border border-dashed border-border p-5 text-sm text-muted-foreground">
+                还没有 SSH 连接。从 SSH 配置选择主机，或手动填写连接资料。
+              </p>
+            )}
+            {profiles.map((profile) => {
+              const busy = pending.has(profile.id)
+              const transitioning = profile.phase === 'connecting' || profile.phase === 'retrying'
+              return (
+                <section
+                  key={profile.id}
+                  aria-label={`SSH 连接 ${profile.name}`}
+                  className="space-y-2 rounded-xl border border-border bg-card/40 p-4"
+                >
+                  <div className="flex items-center gap-3">
+                    <Switch
+                      label={`保持连接 ${profile.name}`}
+                      checked={profile.enabled}
+                      disabled={busy || (!capabilities.available && !profile.enabled)}
+                      onChange={(enabled) => {
+                        void perform(profile.id, () => registry.ssh.setEnabled(profile.id, enabled))
+                      }}
+                    />
+                    <div className="min-w-0 flex-1 space-y-1">
+                      <div className="flex items-center gap-2 text-sm font-medium">
+                        <Globe aria-hidden="true" className="size-4 shrink-0 text-primary" />
+                        <span className="truncate" title={profile.name}>
+                          {profile.name}
+                        </span>
+                      </div>
+                      <p className="truncate text-xs text-muted-foreground" title={profile.target}>
+                        {profile.target}
+                        {profile.port ? ` · SSH 端口 ${profile.port}` : ''}
+                      </p>
+                      <p className="flex items-center gap-1.5 text-xs text-muted-foreground" role="status">
+                        {transitioning && <Loader2 aria-hidden="true" className="size-3 animate-spin" />}
+                        <CrossfadeText>{sshConnectionStatus(profile)}</CrossfadeText>
+                        {profile.phase === 'retrying' && profile.nextRetryAt && (
+                          <span>· 下次尝试 {new Date(profile.nextRetryAt).toLocaleTimeString()}</span>
+                        )}
+                      </p>
                     </div>
-                    <p className="truncate text-xs text-muted-foreground" title={profile.target}>
-                      {profile.target}
-                      {profile.port ? ` · SSH 端口 ${profile.port}` : ''}
-                    </p>
-                    <p className="flex items-center gap-1.5 text-xs text-muted-foreground" role="status">
-                      {transitioning && <Loader2 aria-hidden="true" className="size-3 animate-spin" />}
-                      {sshConnectionStatus(profile)}
-                      {profile.phase === 'retrying' && profile.nextRetryAt && (
-                        <span>· 下次尝试 {new Date(profile.nextRetryAt).toLocaleTimeString()}</span>
-                      )}
-                    </p>
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button size="icon" variant="ghost" aria-label={`管理 ${profile.name}`} disabled={busy}>
+                          <MoreHorizontal aria-hidden="true" className="size-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent side="bottom" align="end">
+                        <DropdownMenuItem onSelect={() => setDialog({ connection: profile })}>
+                          <Pencil />
+                          编辑
+                        </DropdownMenuItem>
+                        <DropdownMenuItem
+                          disabled={!capabilities.available || !profile.enabled || profile.phase === 'connecting'}
+                          onSelect={() => void perform(profile.id, () => registry.ssh.retry(profile.id))}
+                        >
+                          <RefreshCw />
+                          立即重试
+                        </DropdownMenuItem>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem className="text-destructive" onSelect={() => setRemoving(profile)}>
+                          <Trash2 />
+                          移除
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
                   </div>
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button size="icon" variant="ghost" aria-label={`管理 ${profile.name}`} disabled={busy}>
-                        <MoreHorizontal aria-hidden="true" className="size-4" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent side="bottom" align="end">
-                      <DropdownMenuItem onSelect={() => setDialog({ connection: profile })}>
-                        <Pencil />
-                        编辑
-                      </DropdownMenuItem>
-                      <DropdownMenuItem
-                        disabled={!capabilities.available || !profile.enabled || profile.phase === 'connecting'}
-                        onSelect={() => void perform(profile.id, () => registry.ssh.retry(profile.id))}
-                      >
-                        <RefreshCw />
-                        立即重试
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem className="text-destructive" onSelect={() => setRemoving(profile)}>
-                        <Trash2 />
-                        移除
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </div>
-                {profile.error && <p className="break-words text-xs text-destructive">{profile.error}</p>}
-                {errors[profile.id] && (
-                  <p role="alert" className="break-words text-xs text-destructive">
-                    {errors[profile.id]}
-                  </p>
-                )}
-              </section>
-            )
-          })}
-        </>
-      )}
+                  {profile.error && <p className="break-words text-xs text-destructive">{profile.error}</p>}
+                  {errors[profile.id] && (
+                    <p role="alert" className="break-words text-xs text-destructive">
+                      {errors[profile.id]}
+                    </p>
+                  )}
+                </section>
+              )
+            })}
+          </div>
+        )}
+      </RevealContent>
       {capabilities &&
         !capabilities.canManage &&
         sshServices.map((service) => (
           <section key={service.id} className="flex items-center gap-2 rounded-xl border border-border p-4 text-sm">
             <Globe aria-hidden="true" className="size-4 text-primary" />
             <span className="min-w-0 flex-1 truncate">{service.name || 'SSH 远程服务'}</span>
-            <span className="text-xs text-muted-foreground">{serviceStatus(service)}</span>
+            <CrossfadeText className="text-xs text-muted-foreground">{serviceStatus(service)}</CrossfadeText>
           </section>
         ))}
       {loadError && (
@@ -307,7 +308,9 @@ function SshSettings({
                 })
               }}
             >
-              {pending.has(removing?.id ?? '') ? '移除中…' : '移除'}
+              <CrossfadeText reserve={['移除中…', '移除']}>
+                {pending.has(removing?.id ?? '') ? '移除中…' : '移除'}
+              </CrossfadeText>
             </Button>
           </div>
         </DialogContent>
@@ -350,7 +353,9 @@ function HttpsSettings({
             <div className="flex flex-wrap items-center gap-2">
               <span className="min-w-0 flex-1 break-all text-sm">{serviceAddress(service.address)}</span>
               <span className="text-xs text-muted-foreground">
-                {service.status === 'connected' ? '已连接' : service.status === 'connecting' ? '连接中' : '未连接'}
+                <CrossfadeText reserve={['已连接', '连接中', '未连接']}>
+                  {service.status === 'connected' ? '已连接' : service.status === 'connecting' ? '连接中' : '未连接'}
+                </CrossfadeText>
               </span>
               <Button
                 size="sm"
@@ -428,7 +433,7 @@ function HttpsSettings({
               </p>
             )}
             <Button type="submit" disabled={busy}>
-              {busy ? '连接中' : '连接'}
+              <CrossfadeText reserve={['连接中', '连接']}>{busy ? '连接中' : '连接'}</CrossfadeText>
             </Button>
           </form>
         </DialogContent>

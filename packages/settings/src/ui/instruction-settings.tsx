@@ -5,7 +5,8 @@ import type { InstructionFile, InstructionKind, InstructionsSnapshot } from '@pi
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Textarea } from '@pi-meme/ui/components/ui/textarea'
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@pi-meme/ui/components/ui/dialog'
-import { BentoSkeletonBar, BentoSkeletonCard, BentoSkeletonCircle } from '@pi-meme/ui/components/bento-skeleton'
+import { CrossfadeText } from '@pi-meme/ui/components/crossfade-text'
+import { RevealContent } from '@pi-meme/ui/components/reveal-content'
 
 const titles: Record<InstructionKind, { title: string; description: string; file: string }> = {
   agents: { title: '用户指令', description: '配置语言、回复风格与长期工作约定。', file: 'AGENTS.md' },
@@ -241,76 +242,42 @@ export function InstructionSettings({
         </section>
       ) : (
         <>
-          {!snapshot && !error && (
-            <div className="space-y-6" data-testid="instruction-skeleton">
-              <section className="space-y-4">
-                <BentoSkeletonBar className="w-12" size="sm" />
-                <BentoSkeletonCard delay={0} className="p-0">
-                  <div className="flex items-center gap-4 p-5">
-                    <BentoSkeletonCircle className="size-6" />
-                    <div className="min-w-0 flex-1 space-y-1.5">
-                      <div className="flex items-center gap-2">
-                        <BentoSkeletonBar className="w-20" size="sm" />
-                        <BentoSkeletonBar className="w-24" size="xs" />
-                      </div>
-                      <BentoSkeletonBar className="w-56 max-w-full" size="xs" />
-                    </div>
-                    <BentoSkeletonBar className="size-4 rounded" />
-                  </div>
-                </BentoSkeletonCard>
-              </section>
-              <section className="space-y-4">
-                <BentoSkeletonBar className="w-12" size="sm" />
-                <BentoSkeletonCard delay={80} className="divide-y divide-border/60 p-0">
-                  <div className="flex items-center gap-4 p-5">
-                    <BentoSkeletonCircle className="size-6" />
-                    <div className="min-w-0 flex-1 space-y-1.5">
-                      <div className="flex items-center gap-2">
-                        <BentoSkeletonBar className="w-24" size="sm" />
-                        <BentoSkeletonBar className="w-24" size="xs" />
-                      </div>
-                      <BentoSkeletonBar className="w-64 max-w-full" size="xs" />
-                    </div>
-                    <BentoSkeletonBar className="size-4 rounded" />
-                  </div>
-                </BentoSkeletonCard>
-              </section>
-            </div>
-          )}
-          {snapshot &&
-            groups.map((group) => (
-              <section key={group.label} aria-label={group.label} className="space-y-4">
-                <h3 className="text-sm font-medium">{group.label}</h3>
-                <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card">
-                  {group.kinds.map((kind) => {
-                    const item = snapshot.entries.find((entry) => entry.kind === kind)
-                    if (!item) return null
-                    return (
-                      <div key={item.kind} className="p-5">
-                        <button
-                          type="button"
-                          aria-label={`编辑指令：${item.kind}`}
-                          onClick={() => edit(item.kind, false, item.host)}
-                          className="flex w-full items-center gap-4 text-left"
-                        >
-                          <FileText className="size-5 shrink-0 text-muted-foreground" />
-                          <span className="min-w-0 flex-1">
-                            <span className="flex flex-wrap items-baseline gap-2">
-                              <span className="text-sm font-medium">{titles[item.kind].title}</span>
-                              <span className="font-mono text-xs text-muted-foreground">
-                                {fileName(item.host.path, titles[item.kind].file)}
-                              </span>
-                            </span>
-                            <span className="mt-1 block text-sm text-muted-foreground">
-                              {titles[item.kind].description}
+          {groups.map((group) => (
+            <section key={group.label} aria-label={group.label} className="space-y-4">
+              <h3 className="text-sm font-medium">{group.label}</h3>
+              <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card">
+                {group.kinds.map((kind) => {
+                  const item = snapshot?.entries.find((entry) => entry.kind === kind)
+                  return (
+                    <div key={kind} className="p-5">
+                      <button
+                        type="button"
+                        aria-label={`编辑指令：${kind}`}
+                        disabled={!item}
+                        onClick={() => item && edit(kind, false, item.host)}
+                        className="flex w-full items-center gap-4 text-left"
+                      >
+                        <FileText className="size-5 shrink-0 text-muted-foreground" />
+                        <span className="min-w-0 flex-1">
+                          <span className="flex flex-wrap items-baseline gap-2">
+                            <span className="text-sm font-medium">{titles[kind].title}</span>
+                            <span className="font-mono text-xs text-muted-foreground">
+                              <CrossfadeText>
+                                {item ? fileName(item.host.path, titles[kind].file) : titles[kind].file}
+                              </CrossfadeText>
                             </span>
                           </span>
-                          <span className="shrink-0 text-xs text-muted-foreground">
-                            {item.host.exists ? '已配置' : '未配置'}
-                          </span>
-                          <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
-                        </button>
-                        {item.project && (
+                          <span className="mt-1 block text-sm text-muted-foreground">{titles[kind].description}</span>
+                        </span>
+                        <span className="shrink-0 text-xs text-muted-foreground">
+                          <CrossfadeText>
+                            {item ? (item.host.exists ? '已配置' : '未配置') : error ? '读取失败' : '正在读取…'}
+                          </CrossfadeText>
+                        </span>
+                        <ChevronRight className="size-4 shrink-0 text-muted-foreground" />
+                      </button>
+                      <RevealContent ready={Boolean(item?.project)}>
+                        {item?.project && (
                           <div className="ml-9 mt-4 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
                             <span>{item.effective === 'combined' ? '同时加载项目指令' : '当前使用项目指令'}</span>
                             <Button size="xs" variant="ghost" onClick={() => edit(item.kind, true, item.project!)}>
@@ -318,12 +285,13 @@ export function InstructionSettings({
                             </Button>
                           </div>
                         )}
-                      </div>
-                    )
-                  })}
-                </div>
-              </section>
-            ))}
+                      </RevealContent>
+                    </div>
+                  )
+                })}
+              </div>
+            </section>
+          ))}
         </>
       )}
       <Dialog

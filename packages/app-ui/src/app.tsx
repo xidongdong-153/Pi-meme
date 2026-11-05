@@ -31,6 +31,8 @@ import { SubagentsPanel } from './panels/subagents-panel'
 import { createResourceClient } from '@pi-meme/client/resource-client'
 import { appendSkillInvocation, invokeSkillInNewSession } from './settings/invoke-skill'
 import { AccessSettings } from '@pi-meme/permissions/ui/access-settings'
+import { GeneralSettings } from '@pi-meme/settings/ui/general-settings'
+import { ModelConfigSettings } from '@pi-meme/models/ui/model-config/model-config-settings'
 import { AgentAccessSelector } from '@pi-meme/permissions/ui/agent-access-selector'
 import { AppHeader } from './layout/app-header'
 import { AppRail } from './layout/app-rail'
@@ -121,32 +123,15 @@ import type { DesktopBridge, ProjectApp } from '@pi-meme/contracts/desktop'
 import { useShortcutHandlers, useShortcuts } from './shortcuts/shortcut-provider'
 import { ShortcutHelpDialog } from './shortcuts/shortcut-help-dialog'
 import { ShortcutSettings } from './shortcuts/shortcut-settings'
+import { HostSettings } from './settings/host-settings'
+import { SubagentDefaultsSettings } from '@pi-meme/subagents/ui/subagent-defaults-settings'
+import { McpSettings } from '@pi-meme/mcp/ui/mcp-settings'
+import { SettingsPage as SettingsContent } from '@pi-meme/settings/ui/settings-page'
+import { ProfileSettings } from '@pi-meme/usage/ui/profile-settings'
+import { AccountSettings } from './settings/account-settings'
 
 const SchedulesPage = lazy(() =>
   import('@pi-meme/schedules/ui/schedules-page').then((module) => ({ default: module.SchedulesPage })),
-)
-const HostSettings = lazy(() => import('./settings/host-settings').then((module) => ({ default: module.HostSettings })))
-const ModelConfigSettings = lazy(() =>
-  import('@pi-meme/models/ui/model-config/model-config-settings').then((module) => ({
-    default: module.ModelConfigSettings,
-  })),
-)
-const SubagentDefaultsSettings = lazy(() =>
-  import('@pi-meme/subagents/ui/subagent-defaults-settings').then((module) => ({
-    default: module.SubagentDefaultsSettings,
-  })),
-)
-const McpSettings = lazy(() =>
-  import('@pi-meme/mcp/ui/mcp-settings').then((module) => ({ default: module.McpSettings })),
-)
-const SettingsContent = lazy(() =>
-  import('@pi-meme/settings/ui/settings-page').then((module) => ({ default: module.SettingsPage })),
-)
-const ProfileSettings = lazy(() =>
-  import('@pi-meme/usage/ui/profile-settings').then((module) => ({ default: module.ProfileSettings })),
-)
-const AccountSettings = lazy(() =>
-  import('./settings/account-settings').then((module) => ({ default: module.AccountSettings })),
 )
 
 export function App({
@@ -2454,6 +2439,7 @@ export function App({
                   accessSettings: (
                     <AccessSettings
                       value={settings.snapshot?.settings.defaultAccessMode}
+                      loading={!settings.snapshot}
                       supported={Boolean(chat.connection.restrictedAccessSupported)}
                       reason={chat.connection.restrictedAccessReason}
                       busy={chat.busy}
@@ -2536,12 +2522,34 @@ export function App({
                       )}
                     />
                   )
-                if (
-                  section === 'about' ||
-                  section === 'appearance' ||
-                  section === 'general' ||
-                  section === 'instructions'
-                )
+                if (section === 'general')
+                  return (
+                    <div className="space-y-6">
+                      <GeneralSettings
+                        accessSettings={contentProps.accessSettings}
+                        settings={settings.snapshot?.settings}
+                        onEditor={contentProps.onEditor}
+                        bridge={bridge}
+                        onBeforeRestart={contentProps.onBeforeRestart}
+                        onMaintaining={setInstructionsSaving}
+                      />
+                      {settings.snapshot?.errors.map((message) => (
+                        <p
+                          key={message}
+                          role="alert"
+                          className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive"
+                        >
+                          {message}
+                        </p>
+                      ))}
+                      {settings.error && (
+                        <p role="alert" className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
+                          {settings.error}
+                        </p>
+                      )}
+                    </div>
+                  )
+                if (section === 'about' || section === 'appearance' || section === 'instructions')
                   return (
                     <SettingsContent
                       section={section}

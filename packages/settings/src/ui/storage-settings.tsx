@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { SettingsBridge } from '@pi-meme/contracts/desktop'
 import type { DesktopStorageInfo, HostStorageInfo, StorageTarget } from '@pi-meme/contracts/storage'
 import { Button } from '@pi-meme/ui/components/ui/button'
+import { CrossfadeText } from '@pi-meme/ui/components/crossfade-text'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
 
 function size(bytes: number) {
@@ -127,33 +128,26 @@ export function StorageSettings({
     <div className="space-y-6">
       <section className="space-y-3" aria-label="存储设置">
         <h3 className="text-sm font-medium">存储</h3>
-        <div className="space-y-4 rounded-2xl border border-border bg-card p-5">
+        <div className="space-y-4 rounded-2xl border border-border bg-card p-5" aria-busy={loading && !info}>
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="min-w-0 flex-1 space-y-2">
               <h4 className="text-sm font-medium">应用数据目录</h4>
-              {info ? (
-                <p className="break-all font-mono text-xs" data-testid="storage-root">
-                  {info.dataRoot}
-                </p>
-              ) : loading ? (
-                <div className="flex h-4 items-center" data-testid="storage-skeleton-root">
-                  <div className="h-3 w-56 max-w-full animate-pulse rounded bg-muted/80" />
-                  <span className="sr-only">正在读取存储信息…</span>
-                </div>
-              ) : (
-                <p role="status" className="text-xs text-muted-foreground">
-                  存储信息不可用
+              <p role="status" className="font-mono text-xs" data-testid="storage-root" title={info?.dataRoot}>
+                <CrossfadeText className="grid min-h-4" textClassName="truncate">
+                  {info?.dataRoot ?? (loading ? '正在读取存储信息…' : '存储信息不可用')}
+                </CrossfadeText>
+              </p>
+              {bridge.storage && (
+                <p className="text-xs text-muted-foreground">
+                  <CrossfadeText className="grid min-h-4">
+                    {desktop
+                      ? (desktop.maintenanceDisabledReason ?? (desktop.source === 'custom' ? '自定义目录' : '默认目录'))
+                      : loading
+                        ? '正在读取目录状态…'
+                        : '目录状态不可用'}
+                  </CrossfadeText>
                 </p>
               )}
-              {desktop ? (
-                <p className="text-xs text-muted-foreground">
-                  {desktop.maintenanceDisabledReason ?? (desktop.source === 'custom' ? '自定义目录' : '默认目录')}
-                </p>
-              ) : loading ? (
-                <div className="flex h-4 items-center" data-testid="storage-skeleton-status">
-                  <div className="h-3 w-20 animate-pulse rounded bg-muted/50" />
-                </div>
-              ) : null}
             </div>
             {bridge.storage && (
               <div className="flex gap-2">
@@ -192,11 +186,13 @@ export function StorageSettings({
               <div className="space-y-2">
                 <h4 className="text-sm font-medium">可清理缓存</h4>
                 <p role="status" className="text-xs text-muted-foreground">
-                  {loading && !desktop
-                    ? '正在统计…'
-                    : desktop?.cacheBytes == null
-                      ? '占用统计不可用'
-                      : size(desktop.cacheBytes)}
+                  <CrossfadeText className="min-h-4 min-w-28">
+                    {loading && !desktop
+                      ? '正在统计…'
+                      : desktop?.cacheBytes == null
+                        ? '占用统计不可用'
+                        : size(desktop.cacheBytes)}
+                  </CrossfadeText>
                 </p>
               </div>
               <div className="flex gap-2">

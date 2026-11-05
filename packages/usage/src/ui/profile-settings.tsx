@@ -5,7 +5,8 @@ import { Button } from '@pi-meme/ui/components/ui/button'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
 import { compactTokens, taskDuration } from './usage-chart-model'
 import { TokenActivity } from './token-activity'
-import { ProfileSkeleton } from './profile-skeleton'
+import { CrossfadeText } from '@pi-meme/ui/components/crossfade-text'
+import { RevealContent } from '@pi-meme/ui/components/reveal-content'
 
 /** 会话级内存缓存，使设置页内标签切换时 0 延迟秒开，避免重复展示骨架屏 */
 let cachedUsageSnapshot: UsageStatsSnapshot | null = null
@@ -78,7 +79,11 @@ export function ProfileSettings({ loadUsage }: { loadUsage: () => Promise<UsageS
           hint: '从今天或昨天向前计算连续使用 Token 的天数。',
         },
       ]
-    : []
+    : ['累计 Token 数', '单日 Token 峰值', '最长任务用时', '最长连续天数', '当前连续天数'].map((label) => ({
+        label,
+        value: error ? '读取失败' : '读取中…',
+        hint: '正在读取历史用量统计。',
+      }))
 
   return (
     <div aria-label="个人资料统计" aria-busy={loading} className="@container min-w-0 space-y-10">
@@ -105,36 +110,55 @@ export function ProfileSettings({ loadUsage }: { loadUsage: () => Promise<UsageS
           </Button>
         </div>
       )}
-      {!snapshot && !error && <ProfileSkeleton showHeader={false} testId="profile-skeleton" className="space-y-10" />}
-      {snapshot && (
-        <div className="space-y-10 animate-in fade-in-0 duration-200 fill-mode-forwards ease-out">
-          <TooltipProvider delayDuration={100}>
-            <dl
-              className="grid grid-cols-2 gap-y-5 rounded-2xl border border-border bg-card/30 px-3 py-5 @min-[600px]:grid-cols-5"
-              aria-label="历史用量统计"
-            >
-              {metrics.map((metric) => (
-                <Tooltip key={metric.label}>
-                  <TooltipTrigger asChild>
-                    <div
-                      tabIndex={0}
-                      className="flex min-w-0 flex-col px-2 py-1 text-center focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring @min-[600px]:border-r @min-[600px]:border-border @min-[600px]:last:border-r-0"
-                    >
-                      <dt className="mt-2 text-xs text-muted-foreground">{metric.label}</dt>
-                      <dd className="-order-1 mt-1 text-lg font-medium tabular-nums">{metric.value}</dd>
-                    </div>
-                  </TooltipTrigger>
-                  <TooltipContent className="max-w-xs">{metric.hint}</TooltipContent>
-                </Tooltip>
-              ))}
-            </dl>
-          </TooltipProvider>
-          <TokenActivity daily={snapshot.daily} today={snapshot.today} />
-          <div className="space-y-2 text-xs text-muted-foreground">
-            <p>更新于 {new Date(snapshot.updatedAt).toLocaleString('zh-CN')}</p>
-          </div>
+      <div className="space-y-10">
+        <TooltipProvider delayDuration={100}>
+          <dl
+            className="grid grid-cols-2 gap-y-5 rounded-2xl border border-border bg-card/30 px-3 py-5 @min-[600px]:grid-cols-5"
+            aria-label="历史用量统计"
+          >
+            {metrics.map((metric) => (
+              <Tooltip key={metric.label}>
+                <TooltipTrigger asChild>
+                  <div
+                    tabIndex={0}
+                    className="flex min-w-0 flex-col px-2 py-1 text-center focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring @min-[600px]:border-r @min-[600px]:border-border @min-[600px]:last:border-r-0"
+                  >
+                    <dt className="mt-2 text-xs text-muted-foreground">{metric.label}</dt>
+                    <dd className="-order-1 mt-1 min-h-7 text-lg font-medium tabular-nums">
+                      <CrossfadeText>{metric.value}</CrossfadeText>
+                    </dd>
+                  </div>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-xs">{metric.hint}</TooltipContent>
+              </Tooltip>
+            ))}
+          </dl>
+        </TooltipProvider>
+        <section className="space-y-3" aria-label="Token 活动记录">
+          <h3 className="text-sm font-medium">Token 活动</h3>
+          <p role="status" className="text-xs text-muted-foreground">
+            <CrossfadeText>
+              {snapshot
+                ? loading
+                  ? '正在更新活动记录…'
+                  : '活动记录已就绪'
+                : error
+                  ? '活动记录读取失败'
+                  : '正在读取活动记录…'}
+            </CrossfadeText>
+          </p>
+          <RevealContent ready={snapshot !== null}>
+            {snapshot && <TokenActivity daily={snapshot.daily} today={snapshot.today} />}
+          </RevealContent>
+        </section>
+        <div className="space-y-2 text-xs text-muted-foreground">
+          <p>
+            <CrossfadeText>
+              {snapshot ? `更新于 ${new Date(snapshot.updatedAt).toLocaleString('zh-CN')}` : '尚未获取统计'}
+            </CrossfadeText>
+          </p>
         </div>
-      )}
+      </div>
     </div>
   )
 }

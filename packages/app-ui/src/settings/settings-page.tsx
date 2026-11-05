@@ -1,4 +1,4 @@
-import { Suspense, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import {
   Globe,
   BookOpen,
@@ -21,10 +21,8 @@ import {
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Input } from '@pi-meme/ui/components/ui/input'
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@pi-meme/ui/components/ui/dialog'
-import { FadeContent } from '@pi-meme/ui/components/fade-content'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { PageHeader, PageHeaderNavigation } from '../layout/page-header'
-import { SettingsSkeleton } from './settings-skeleton'
 
 function PluginSettingsIcon({ className, strokeWidth }: { className?: string; strokeWidth?: number }) {
   return (
@@ -230,14 +228,12 @@ export function SettingsPage({
             id="settings-content"
             className="theme-workspace min-w-0 flex-1 overflow-y-auto bg-background px-6 py-8 sm:px-8 lg:px-12 lg:py-12"
           >
-            <FadeContent key={sectionId} className="mx-auto max-w-3xl space-y-8">
+            <div key={sectionId} className="mx-auto max-w-3xl space-y-8">
               <div>
                 <h2 className="text-xl font-semibold tracking-tight sm:text-2xl">{section.label}</h2>
               </div>
-              <Suspense fallback={<SettingsSkeleton section={sectionId} />}>
-                {renderContent(sectionId, navigate)}
-              </Suspense>
-            </FadeContent>
+              {renderContent(sectionId, navigate)}
+            </div>
           </div>
         </div>
       </div>

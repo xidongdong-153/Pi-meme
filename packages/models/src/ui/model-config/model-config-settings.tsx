@@ -10,12 +10,12 @@ import { modelApis } from '@pi-meme/contracts/model-config'
 import { thinkingLevels, type PiModel, type ThinkingLevel } from '@pi-meme/contracts/pi'
 import type { ModelsBridge } from '@pi-meme/contracts/desktop'
 import { Button } from '@pi-meme/ui/components/ui/button'
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@pi-meme/ui/components/ui/select'
+import { Select, SelectContent, SelectItem, SelectTrigger } from '@pi-meme/ui/components/ui/select'
 import { BrandMark } from '@pi-meme/ui/components/brand-mark'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
 import { RefreshCw } from 'lucide-react'
 import { cn } from '@pi-meme/ui/lib/utils'
-import { BentoSkeletonBar, BentoSkeletonCard } from '@pi-meme/ui/components/bento-skeleton'
+import { CrossfadeText } from '@pi-meme/ui/components/crossfade-text'
 import { BuiltinProviders } from '../builtin-providers'
 import { apiLabels, ModelConfigForm } from './model-config-form'
 import { ModelSelect } from '../model-select'
@@ -37,6 +37,10 @@ export function ModelConfigSettings({
   const [saving, setSaving] = useState(false)
   const [defaultModel, setDefaultModel] = useState<PiModel | null>(null)
   const [defaultSaving, setDefaultSaving] = useState(false)
+  const [defaultLoading, setDefaultLoading] = useState(true)
+  const [defaultError, setDefaultError] = useState('')
+  const [thinkingLoading, setThinkingLoading] = useState(true)
+  const [thinkingError, setThinkingError] = useState('')
   const [defaultThinking, setDefaultThinking] = useState<ThinkingLevel | null>(null)
   const [thinkingSaving, setThinkingSaving] = useState(false)
   const [editing, setEditing] = useState<ConfiguredProvider | 'new' | null>(null)
@@ -57,7 +61,6 @@ export function ModelConfigSettings({
       if (active.current) setSnapshot(next)
     } catch (cause) {
       if (active.current) {
-        setSnapshot(null)
         setError(String(cause))
       }
     } finally {
@@ -66,19 +69,27 @@ export function ModelConfigSettings({
     }
   }
   async function loadDefault() {
+    setDefaultLoading(true)
+    setDefaultError('')
     try {
       const model = await bridge.getDefaultModel()
       if (active.current) setDefaultModel(model)
     } catch (cause) {
-      if (active.current) setError(String(cause))
+      if (active.current) setDefaultError(String(cause))
+    } finally {
+      if (active.current) setDefaultLoading(false)
     }
   }
   async function loadThinking() {
+    setThinkingLoading(true)
+    setThinkingError('')
     try {
       const level = await bridge.getDefaultThinkingLevel()
       if (active.current) setDefaultThinking(level)
     } catch (cause) {
-      if (active.current) setError(String(cause))
+      if (active.current) setThinkingError(String(cause))
+    } finally {
+      if (active.current) setThinkingLoading(false)
     }
   }
   async function selectThinking(level: ThinkingLevel) {
@@ -190,8 +201,16 @@ export function ModelConfigSettings({
         <ModelSelect
           models={models}
           current={defaultModel ?? undefined}
-          disabled={busy || saving || defaultSaving || thinkingSaving}
-          placeholder="自动选择"
+          disabled={busy || saving || defaultSaving || thinkingSaving || defaultLoading || Boolean(defaultError)}
+          displayText={
+            defaultLoading
+              ? '正在读取…'
+              : defaultError
+                ? '读取失败'
+                : defaultModel
+                  ? `${defaultModel.provider} / ${defaultModel.name ?? defaultModel.id}`
+                  : '自动选择'
+          }
           onSelect={(model) => void selectDefault(model)}
         />
       </div>
@@ -201,7 +220,7 @@ export function ModelConfigSettings({
         </div>
         <Select
           value={defaultThinking ?? 'medium'}
-          disabled={busy || saving || defaultSaving || thinkingSaving}
+          disabled={busy || saving || defaultSaving || thinkingSaving || thinkingLoading || Boolean(thinkingError)}
           onValueChange={(value) => {
             if ((thinkingLevels as readonly string[]).includes(value)) void selectThinking(value as ThinkingLevel)
           }}
@@ -210,7 +229,13 @@ export function ModelConfigSettings({
             aria-label="思考强度默认值"
             className="h-8 w-[140px] text-xs bg-secondary/50 border-border hover:bg-secondary/80 focus:outline-none"
           >
-            <SelectValue />
+            <CrossfadeText className="min-w-0" textClassName="truncate">
+              {thinkingLoading
+                ? '正在读取…'
+                : thinkingError
+                  ? '读取失败'
+                  : THINKING_LEVEL_LABELS[defaultThinking ?? 'medium']}
+            </CrossfadeText>
           </SelectTrigger>
           <SelectContent>
             {thinkingLevels.map((level) => (
@@ -274,7 +299,8 @@ export function ModelConfigSettings({
         role="tabpanel"
         aria-labelledby={`${tabsId}-custom`}
         hidden={providerTab !== 'custom'}
-        className="space-y-4"
+        className="min-h-80 space-y-4"
+        aria-busy={loading}
       >
         <div className="flex flex-wrap justify-end gap-3">
           <div className="flex gap-2">
@@ -287,30 +313,21 @@ export function ModelConfigSettings({
             </Button>
           </div>
         </div>
-        {!snapshot && loading && (
-          <div className="space-y-3" data-testid="models-skeleton-providers">
-            <BentoSkeletonCard delay={0}>
-              <div className="flex items-center justify-between">
-                <div className="space-y-1.5">
-                  <BentoSkeletonBar className="w-32" size="sm" />
-                  <BentoSkeletonBar className="w-48" size="xs" />
-                </div>
-                <BentoSkeletonBar className="h-8 w-24 rounded-lg" />
-              </div>
-            </BentoSkeletonCard>
-            <BentoSkeletonCard delay={80}>
-              <div className="flex items-center justify-between">
-                <div className="space-y-1.5">
-                  <BentoSkeletonBar className="w-28" size="sm" />
-                  <BentoSkeletonBar className="w-40" size="xs" />
-                </div>
-                <BentoSkeletonBar className="h-8 w-24 rounded-lg" />
-              </div>
-            </BentoSkeletonCard>
-          </div>
-        )}
+        <p role="status" className="min-h-5 text-sm text-muted-foreground">
+          <CrossfadeText>
+            {loading
+              ? snapshot
+                ? '正在刷新配置…'
+                : '正在读取自定义服务商…'
+              : snapshot
+                ? snapshot.providers.length
+                  ? `${snapshot.providers.length} 个自定义服务商`
+                  : '尚未配置自定义服务商'
+                : '配置读取失败，请重试。'}
+          </CrossfadeText>
+        </p>
         {snapshot && (
-          <>
+          <div className="ui-text-enter min-h-48 space-y-4">
             {!snapshot.providers.length && (
               <div className="rounded-xl border border-dashed border-border py-12 text-center space-y-2">
                 <p className="font-medium">尚未配置自定义服务商</p>
@@ -324,15 +341,16 @@ export function ModelConfigSettings({
               >
                 <div className="min-w-0 space-y-1">
                   <h3 className="font-medium">
-                    {provider.name}
+                    <CrossfadeText>{provider.name}</CrossfadeText>
                     <span className="ml-2 font-mono text-xs text-muted-foreground">{provider.id}</span>
                   </h3>
                   <p className="text-sm text-muted-foreground">
-                    {apiLabels[provider.api as ModelApi] ?? (provider.api || '继承 SDK 协议')} ·{' '}
-                    {provider.models.length} 个模型 · {provider.hasApiKey ? '已配置 Key' : '未配置 Key'}
+                    <CrossfadeText>
+                      {`${apiLabels[provider.api as ModelApi] ?? (provider.api || '继承 SDK 协议')} · ${provider.models.length} 个模型 · ${provider.hasApiKey ? '已配置 Key' : '未配置 Key'}`}
+                    </CrossfadeText>
                   </p>
                   <p className="select-text break-all text-xs text-muted-foreground">
-                    {provider.baseUrl || '使用服务默认地址'}
+                    <CrossfadeText className="grid">{provider.baseUrl || '使用服务默认地址'}</CrossfadeText>
                   </p>
                 </div>
                 <div className="flex gap-2">
@@ -354,9 +372,24 @@ export function ModelConfigSettings({
                 )}
               </div>
             ))}
-          </>
+          </div>
         )}
       </div>
+      {(defaultError || thinkingError) && (
+        <div role="alert" className="space-y-2 rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
+          <p>{defaultError || thinkingError}</p>
+          <Button
+            variant="outline"
+            disabled={defaultLoading || thinkingLoading}
+            onClick={() => {
+              if (defaultError) void loadDefault()
+              if (thinkingError) void loadThinking()
+            }}
+          >
+            重试读取默认值
+          </Button>
+        </div>
+      )}
       {error && (
         <p role="alert" className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
           {error}

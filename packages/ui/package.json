@@ -13,6 +13,8 @@
     "./components/brand-mark": "./src/components/brand-mark.tsx",
     "./components/agent-avatar": "./src/components/agent-avatar.tsx",
     "./components/fade-content": "./src/components/fade-content.tsx",
+    "./components/crossfade-text": "./src/components/crossfade-text.tsx",
+    "./components/reveal-content": "./src/components/reveal-content.tsx",
     "./components/error-boundary": "./src/components/error-boundary.tsx",
     "./components/error-line": "./src/components/error-line.tsx",
     "./components/system-error-card": "./src/components/system-error-card.tsx",

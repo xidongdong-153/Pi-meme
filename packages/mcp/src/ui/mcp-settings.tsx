@@ -10,12 +10,8 @@ import { Button } from '@pi-meme/ui/components/ui/button'
 import { ServerForm } from './server-form'
 import { object } from '../shared/config'
 import { cn } from '@pi-meme/ui/lib/utils'
-import {
-  BentoSkeletonBar,
-  BentoSkeletonCard,
-  BentoSkeletonCircle,
-  BentoSkeletonPill,
-} from '@pi-meme/ui/components/bento-skeleton'
+import { CrossfadeText } from '@pi-meme/ui/components/crossfade-text'
+import { RevealContent } from '@pi-meme/ui/components/reveal-content'
 
 export function McpSettings({
   bridge,
@@ -62,16 +58,11 @@ export function McpSettings({
     if (refreshing || blocked) return
     setRefreshing(true)
     setError('')
-    const start = Date.now()
     try {
       setSnapshot(await bridge.getMcpConfig())
     } catch (cause) {
       setError(String(cause))
     } finally {
-      const elapsed = Date.now() - start
-      if (elapsed < 400) {
-        await new Promise((resolve) => setTimeout(resolve, 400 - elapsed))
-      }
       setRefreshing(false)
     }
   }
@@ -101,7 +92,7 @@ export function McpSettings({
     snapshot?.servers.filter((entry) => entry.name.toLowerCase().includes(query.trim().toLowerCase())) ?? []
   const config = selected && object(selected.config) ? selected.config : {}
   return (
-    <section aria-label="MCP 管理" className="space-y-6" aria-busy={blocked}>
+    <section aria-label="MCP 管理" className="space-y-6" aria-busy={blocked || refreshing || (!snapshot && !error)}>
       {!editing && (
         <IntegrationHeader
           query={query}
@@ -131,28 +122,12 @@ export function McpSettings({
           }
         />
       )}
-      {(snapshot?.error || error) && (
+      <RevealContent ready={Boolean(snapshot?.error || error)}>
         <p role="alert" className="text-sm text-destructive">
-          {snapshot?.error || error}
+          <CrossfadeText>{snapshot?.error || error}</CrossfadeText>
         </p>
-      )}
-      {!snapshot ? (
-        <BentoSkeletonCard delay={60} className="divide-y divide-border/60 p-0" testId="mcp-skeleton">
-          {Array.from({ length: 3 }).map((_, index) => (
-            <div key={index} className="flex items-center gap-4 p-5">
-              <BentoSkeletonCircle className="size-8 rounded-lg" />
-              <div className="min-w-0 flex-1 space-y-1.5">
-                <div className="flex items-center gap-2">
-                  <BentoSkeletonBar className="w-28" size="sm" />
-                  <BentoSkeletonBar className="w-16" size="xs" />
-                </div>
-                <BentoSkeletonBar className="w-64 max-w-full" size="xs" />
-              </div>
-              <BentoSkeletonPill className="h-6 w-12" />
-            </div>
-          ))}
-        </BentoSkeletonCard>
-      ) : editing ? (
+      </RevealContent>
+      {snapshot && editing ? (
         <div className="space-y-5">
           <Button
             variant="ghost"
@@ -198,7 +173,9 @@ export function McpSettings({
                       .catch(() => setError('复制失败，请手动复制登录命令'))
                   }}
                 >
-                  {copied === selected.name ? '已复制登录命令' : `复制 ${selected.name} 登录命令`}
+                  <CrossfadeText>
+                    {copied === selected.name ? '已复制登录命令' : `复制 ${selected.name} 登录命令`}
+                  </CrossfadeText>
                 </Button>
               )}
               <Button variant="outline" disabled={blocked} onClick={() => setDeleting(selected.name)}>
@@ -252,59 +229,65 @@ export function McpSettings({
       ) : (
         <div className="space-y-4">
           <h3 className="text-sm font-medium">服务器</h3>
-          {servers.length ? (
-            <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card">
-              {servers.map((entry) => {
-                const value = object(entry.config) ? entry.config : {}
-                const authorizationRequired = capabilities.mcpEnabled === false && value.desktopAuthorized !== true
-                return (
-                  <div key={entry.name} aria-label={`MCP 服务：${entry.name}`} className="flex items-center gap-4 p-5">
-                    <div className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium">{entry.name}</span>
-                      {entry.error && (
-                        <p role="alert" className="mt-1 text-xs text-destructive">
-                          {entry.error}
-                        </p>
-                      )}
-                    </div>
-                    <Button
-                      size="icon-sm"
-                      variant="ghost"
-                      aria-label={`设置 MCP 服务：${entry.name}`}
-                      disabled={blocked}
-                      onClick={() => {
-                        setEditing(entry)
-                        setDeleting(null)
-                      }}
+          <RevealContent ready={Boolean(snapshot)}>
+            {servers.length ? (
+              <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card">
+                {servers.map((entry) => {
+                  const value = object(entry.config) ? entry.config : {}
+                  const authorizationRequired = capabilities.mcpEnabled === false && value.desktopAuthorized !== true
+                  return (
+                    <div
+                      key={entry.name}
+                      aria-label={`MCP 服务：${entry.name}`}
+                      className="flex items-center gap-4 p-5"
                     >
-                      <Settings className="size-4 text-muted-foreground" />
-                    </Button>
-                    <Switch
-                      label={`启用 MCP 服务：${entry.name}`}
-                      checked={value.enabled !== false && !authorizationRequired}
-                      disabled={blocked || Boolean(entry.error) || Boolean(snapshot.error)}
-                      onChange={(enabled) =>
-                        void act(async () => {
-                          setSnapshot(
-                            await bridge.saveMcpServer({
-                              revision: snapshot.revision,
-                              name: entry.name,
-                              previousName: entry.name,
-                              config: { ...value, enabled },
-                            }),
-                          )
-                        })
-                      }
-                    />
-                  </div>
-                )
-              })}
-            </div>
-          ) : (
-            <p role="status" className="text-sm text-muted-foreground">
-              {query ? '没有匹配的 MCP 服务。' : '尚未配置 MCP 服务。'}
-            </p>
-          )}
+                      <div className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium">{entry.name}</span>
+                        {entry.error && (
+                          <p role="alert" className="mt-1 text-xs text-destructive">
+                            {entry.error}
+                          </p>
+                        )}
+                      </div>
+                      <Button
+                        size="icon-sm"
+                        variant="ghost"
+                        aria-label={`设置 MCP 服务：${entry.name}`}
+                        disabled={blocked}
+                        onClick={() => {
+                          setEditing(entry)
+                          setDeleting(null)
+                        }}
+                      >
+                        <Settings className="size-4 text-muted-foreground" />
+                      </Button>
+                      <Switch
+                        label={`启用 MCP 服务：${entry.name}`}
+                        checked={value.enabled !== false && !authorizationRequired}
+                        disabled={blocked || Boolean(entry.error) || Boolean(snapshot?.error)}
+                        onChange={(enabled) =>
+                          void act(async () => {
+                            setSnapshot(
+                              await bridge.saveMcpServer({
+                                revision: snapshot!.revision,
+                                name: entry.name,
+                                previousName: entry.name,
+                                config: { ...value, enabled },
+                              }),
+                            )
+                          })
+                        }
+                      />
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <p role="status" className="text-sm text-muted-foreground">
+                <CrossfadeText>{query ? '没有匹配的 MCP 服务。' : '尚未配置 MCP 服务。'}</CrossfadeText>
+              </p>
+            )}
+          </RevealContent>
         </div>
       )}
       {capabilities.mcpEnabled === false && (
@@ -331,31 +314,33 @@ export function McpSettings({
             检查全部全局服务
           </Button>
           <p className="text-xs">检查会在独立目录启动配置中的服务，不启动聊天。相对工作目录按诊断目录解析。</p>
-          {diagnostic && (
-            <section aria-label="MCP 诊断结果" className="space-y-2">
-              <p className="text-sm">
-                检查时间：{new Date(diagnostic.checkedAt).toLocaleString()} ·{' '}
-                {diagnostic.timedOut
-                  ? '检查超时'
-                  : diagnostic.exitCode === 0
-                    ? '检查完成'
-                    : `检查失败（退出码 ${String(diagnostic.exitCode)}）`}
-              </p>
-              <p className="text-xs text-muted-foreground">
-                这是本次 Desktop 全局配置诊断结果，不代表当前聊天的实时连接状态。
-              </p>
-              <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-lg border border-border p-3 text-xs select-text">
-                {diagnostic.output || 'Pi 未返回诊断输出'}
-              </pre>
-            </section>
-          )}
+          <RevealContent ready={Boolean(diagnostic)}>
+            {diagnostic && (
+              <section aria-label="MCP 诊断结果" className="space-y-2">
+                <p className="text-sm">
+                  检查时间：{new Date(diagnostic.checkedAt).toLocaleString()} ·{' '}
+                  {diagnostic.timedOut
+                    ? '检查超时'
+                    : diagnostic.exitCode === 0
+                      ? '检查完成'
+                      : `检查失败（退出码 ${String(diagnostic.exitCode)}）`}
+                </p>
+                <p className="text-xs text-muted-foreground">
+                  这是本次 Desktop 全局配置诊断结果，不代表当前聊天的实时连接状态。
+                </p>
+                <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-lg border border-border p-3 text-xs select-text">
+                  {diagnostic.output || 'Pi 未返回诊断输出'}
+                </pre>
+              </section>
+            )}
+          </RevealContent>
         </div>
       </CollapsibleSection>
-      {working && (
+      <RevealContent ready={working}>
         <p role="status" className="text-xs text-muted-foreground">
           正在处理 MCP 操作…
         </p>
-      )}
+      </RevealContent>
     </section>
   )
 }

@@ -5,9 +5,14 @@ import {
   type AgentAccessMode,
 } from '@pi-meme/contracts/agent-access'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@pi-meme/ui/components/ui/select'
+import { CrossfadeText } from '@pi-meme/ui/components/crossfade-text'
+
+const descriptions = agentAccessChoices.map((choice) => choice.description)
+const labels = agentAccessChoices.map((choice) => choice.label)
 
 export function AccessSettings({
   value,
+  loading = false,
   supported,
   reason,
   busy,
@@ -15,6 +20,7 @@ export function AccessSettings({
   onSave,
 }: {
   value?: AgentAccessMode
+  loading?: boolean
   supported: boolean
   reason?: string
   busy: boolean
@@ -28,7 +34,10 @@ export function AccessSettings({
       <div className="min-w-0 space-y-1">
         <p className="text-sm font-medium">新会话默认权限</p>
         <p role="status" className="text-sm leading-relaxed text-muted-foreground">
-          {selected.description} 仅影响新建会话，已保存的会话保留各自权限。
+          <CrossfadeText reserve={descriptions} className="grid">
+            {loading ? '正在读取权限…' : selected.description}
+          </CrossfadeText>
+          <span className="block">仅影响新建会话，已保存的会话保留各自权限。</span>
         </p>
         {!supported && (
           <p className="text-sm text-muted-foreground">
@@ -38,7 +47,7 @@ export function AccessSettings({
       </div>
       <Select
         value={mode}
-        disabled={busy || saving}
+        disabled={loading || busy || saving}
         onValueChange={(next) => {
           if (isAgentAccessMode(next)) onSave(next)
         }}
@@ -47,7 +56,9 @@ export function AccessSettings({
           aria-label="新会话默认权限"
           className="h-8 w-auto max-w-full shrink-0 rounded-full border-0 bg-secondary px-3 shadow-none"
         >
-          <span className="truncate">{selected.label}</span>
+          <CrossfadeText reserve={labels} textClassName="truncate">
+            {loading ? '读取中…' : selected.label}
+          </CrossfadeText>
         </SelectTrigger>
         <SelectContent align="end">
           {agentAccessChoices.map((choice) => (

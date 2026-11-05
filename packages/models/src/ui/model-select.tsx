@@ -1,4 +1,5 @@
 import { Sparkles } from 'lucide-react'
+import { CrossfadeText } from '@pi-meme/ui/components/crossfade-text'
 import type { PiModel } from '@pi-meme/contracts/pi'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@pi-meme/ui/components/ui/select'
 
@@ -7,12 +8,14 @@ export function ModelSelect({
   current,
   disabled,
   placeholder,
+  displayText,
   onSelect,
 }: {
   models: PiModel[]
   current?: PiModel
   disabled: boolean
   placeholder?: string
+  displayText?: string
   onSelect: (model: PiModel) => void
 }) {
   const key = (model: PiModel) => JSON.stringify([model.provider, model.id])
@@ -34,9 +37,15 @@ export function ModelSelect({
           className="h-8 min-w-[140px] max-w-[220px] text-xs bg-secondary/50 border-border hover:bg-secondary/80 focus:outline-none gap-1.5"
         >
           <Sparkles className="size-3.5 text-muted-foreground shrink-0" />
-          <SelectValue
-            placeholder={models.length ? (placeholder ?? '选择模型') : disabled ? '加载模型中...' : '暂无可用模型'}
-          />
+          {displayText !== undefined ? (
+            <CrossfadeText className="w-40 text-left" textClassName="truncate">
+              {displayText}
+            </CrossfadeText>
+          ) : (
+            <SelectValue
+              placeholder={models.length ? (placeholder ?? '选择模型') : disabled ? '加载模型中...' : '暂无可用模型'}
+            />
+          )}
         </SelectTrigger>
         <SelectContent className="max-h-72">
           {choices.map((model) => (

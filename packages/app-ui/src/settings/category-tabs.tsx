@@ -1,3 +1,4 @@
+import { CrossfadeText } from '@pi-meme/ui/components/crossfade-text'
 import { cn } from '@pi-meme/ui/lib/utils'
 
 export function CategoryTabs<T extends string>({
@@ -12,7 +13,7 @@ export function CategoryTabs<T extends string>({
   idPrefix: string
   value: T
   onChange: (value: T) => void
-  options: ReadonlyArray<{ id: T; label: string; count: number }>
+  options: ReadonlyArray<{ id: T; label: string; count?: number }>
   controls?: string
 }) {
   return (
@@ -46,7 +47,9 @@ export function CategoryTabs<T extends string>({
           )}
         >
           {entry.label}
-          <span className="ml-2 text-muted-foreground">{entry.count}</span>
+          <CrossfadeText className="ml-2 text-muted-foreground">
+            {entry.count === undefined ? '—' : String(entry.count)}
+          </CrossfadeText>
         </button>
       ))}
     </div>

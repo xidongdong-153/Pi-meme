@@ -16,6 +16,7 @@ import type { PluginClient } from '@pi-meme/client/plugin-client'
 import type { UiPluginDescriptor } from '@pi-meme/plugin-sdk/ui'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Switch } from '@pi-meme/ui/components/ui/switch'
+import { CrossfadeText } from '@pi-meme/ui/components/crossfade-text'
 import { IntegrationHeader } from '@pi-meme/ui/components/integration-header'
 import { systemPlugins } from '@pi-meme/plugin-sdk/system-plugins'
 import { isReservedPluginId } from '@pi-meme/plugin-sdk/reserved'
@@ -105,16 +106,11 @@ export function PluginPage({
     if (refreshing || busy) return
     setRefreshing(true)
     setError('')
-    const start = Date.now()
     try {
       await onChanged()
     } catch (cause) {
       setError(String(cause))
     } finally {
-      const elapsed = Date.now() - start
-      if (elapsed < 400) {
-        await new Promise((resolve) => setTimeout(resolve, 400 - elapsed))
-      }
       setRefreshing(false)
     }
   }
@@ -195,7 +191,7 @@ export function PluginPage({
             <div>
               <h3 className="text-xl font-semibold">{detail.display?.name ?? detail.id}</h3>
               <p className="mt-1 text-sm text-muted-foreground">
-                {detail.version} · {statusNames[detail.status]}
+                <CrossfadeText>{`${detail.version} · ${statusNames[detail.status]}`}</CrossfadeText>
               </p>
             </div>
           </div>
@@ -268,7 +264,9 @@ export function PluginPage({
                     void action(() => (detail.enabled ? client.disable(detail.id) : client.enable(detail.id)))
                   }
                 >
-                  {detail.enabled ? '停用插件' : '启用插件'}
+                  <CrossfadeText reserve={['停用插件', '启用插件']}>
+                    {detail.enabled ? '停用插件' : '启用插件'}
+                  </CrossfadeText>
                 </Button>
                 {installButton}
                 <Button variant="outline" disabled={busy} onClick={() => void action(() => client.reload(detail.id))}>
@@ -333,7 +331,7 @@ export function PluginPage({
           >
             {view === 'catalog' ? (
               <h2 className="text-sm font-medium">
-                已安装 <span className="ml-2 text-muted-foreground">{installed.length}</span>
+                已安装 <CrossfadeText className="ml-2 text-muted-foreground">{String(installed.length)}</CrossfadeText>
               </h2>
             ) : (
               <CategoryTabs
@@ -396,7 +394,7 @@ export function PluginPage({
                         {plugin.enabled && plugin.status === 'active' ? (
                           <Check aria-label="已启用" className="size-4" />
                         ) : (
-                          statusNames[plugin.status]
+                          <CrossfadeText>{statusNames[plugin.status]}</CrossfadeText>
                         )}
                       </span>
                     ) : (
@@ -415,7 +413,9 @@ export function PluginPage({
             )}
             {!filtered.length && (
               <p role="status" className="text-sm text-muted-foreground">
-                {query ? '没有匹配的插件。' : category === 'system' ? '没有系统插件。' : '没有个人插件。'}
+                <CrossfadeText>
+                  {query ? '没有匹配的插件。' : category === 'system' ? '没有系统插件。' : '没有个人插件。'}
+                </CrossfadeText>
               </p>
             )}
           </div>

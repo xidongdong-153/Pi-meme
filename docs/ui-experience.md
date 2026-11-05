@@ -17,7 +17,7 @@ Pi-meme 面向长时间使用聊天、项目和工具面板完成开发任务的
 ## 切换与反馈
 
 - 点击后立即更新选中态或等待状态，不等请求结束才反馈。数据就绪后立即显示，不为动画增加固定等待时间。
-- 平级菜单只做短淡入，不用左右滑动暗示前进或后退。内容从可读的低透明度恢复，避免整屏先消失再出现。
+- 平级菜单不用左右滑动暗示前进或后退。一般内容可短淡入；设置分类直接呈现固定标题、说明和操作，只过渡依赖数据的文字与区域，避免整屏先消失再出现。
 - 顶栏、导航轨、内容外框与背景保持稳定，只让发生变化的内容过渡。不要在父子层同时叠加入场动画。
 - 同一目标重复点击、聊天流式输出、后台刷新不重复播放页面入场。快速连续切换直接响应最后一次选择，取消未完成动画，不排队、不锁住菜单。
 - 草稿、输入框、滚动位置和已保留页面不能为了重播动画而重新挂载。需要保留实例时，监听目标变化触发动效，不给整个业务树换 `key`。
@@ -52,6 +52,8 @@ Pi-meme 面向长时间使用聊天、项目和工具面板完成开发任务的
 | 导航悬停、文字颜色 | 颜色过渡                                    | 120ms |
 | 导航选中底色       | 透明度 0.4 → 1，缩放 0.94 → 1；图标位置不动 | 160ms |
 | 平级页面、分类内容 | 透明度 0.65 → 1，不平移                     | 180ms |
+| 动态文本替换       | 旧文字淡出、新文字淡入，共用所在位置        | 180ms |
+| 异步区域展开       | 网格行从 0fr 到 1fr，同时淡入               | 240ms |
 | 异步等待提示       | 延迟 160ms 后淡入；完成立即移除             | 120ms |
 | 已有会话就绪       | 淡入，最多上移 6px                          | 200ms |
 | 新会话品牌图标     | 轻微倾斜后回正                              | 280ms |
@@ -64,7 +66,10 @@ Pi-meme 面向长时间使用聊天、项目和工具面板完成开发任务的
 
 - 一级导航：[use-navigation-motion.ts](../packages/app-ui/src/layout/use-navigation-motion.ts) 在首页、项目、定时任务、插件与技能、图像、设置及不同插件之间切换时，对可见 `.content-frame` 的直接子内容做淡入；不改变导航状态和页面生命周期。
 - 导航选中底色：[AppRail](../packages/app-ui/src/layout/app-rail.tsx) 使用 `.app-rail-entry`；样式在 [global.css](../packages/app-ui/src/global.css)。
-- 局部内容入场：[FadeContent](../packages/ui/src/components/fade-content.tsx) 使用 `.ui-content-enter`，现用于设置分类、右侧栏 Tab 和启动画面。仅在原本就需要挂载的新内容上使用；不要包裹已有页面后再通过更换 `key` 重播动画。
+- 局部内容入场：[FadeContent](../packages/ui/src/components/fade-content.tsx) 使用 `.ui-content-enter`，用于右侧栏 Tab 和启动画面。仅在原本就需要挂载的新内容上使用；不要包裹已有页面后再通过更换 `key` 重播动画。
+- 设置分类：[SettingsPage](../packages/app-ui/src/settings/settings-page.tsx) 直接渲染固定界面，不使用分类骨架或整页淡入。快捷键等同步页面立即可用；外观、指令等页面保留已知结构，未知配置读取完成前禁用相关操作。刷新保留已有数据，不为动效增加固定等待。
+- 动态文字：[CrossfadeText](../packages/ui/src/components/crossfade-text.tsx) 将新值立即提交，旧文字仅作短暂的视觉过渡并从辅助技术中隐藏。有限的可能文案可以用 `reserve` 预留尺寸；输入框不替换实例、不为重播动效更换 `key`。
+- 异步内容：[RevealContent](../packages/ui/src/components/reveal-content.tsx) 常驻容器，在 `ready` 变化时展开，例如服务商、技能、MCP 列表和用量图表。固定标题与操作放在容器外，后台刷新保持 `ready`，不反复收起；隐藏区域使用 `inert` 和 `aria-hidden`。系统或应用减少动态效果时直接切换。
 - 首次等待提示：`.ui-loading-delayed` 在 [tokens.css](../packages/ui/src/tokens.css) 中维护，目前用于项目空列表读取提示和定时任务的懒加载提示。它只延迟视觉提示，不延迟请求和数据提交。
 - 会话切换：[WorkspaceContent](../packages/app-ui/src/layout/workspace-content.tsx) 继续独立处理旧内容隔离、等待和会话入场，不改为一级导航动效。
 

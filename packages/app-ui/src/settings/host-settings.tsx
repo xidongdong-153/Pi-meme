@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Monitor, Server } from 'lucide-react'
+import { CrossfadeText } from '@pi-meme/ui/components/crossfade-text'
+import { RevealContent } from '@pi-meme/ui/components/reveal-content'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import type { CredentialImportResult, SavedHostConnection } from '@pi-meme/contracts/host'
 
@@ -80,40 +82,42 @@ export function HostSettings({
           </dl>
         )}
       </section>
-      {saved.length > 0 && connections && (
-        <section className="space-y-3" aria-label="已保存的远程">
-          <h3 className="text-sm font-medium">已保存的远程</h3>
-          {saved.map((entry) => (
-            <div key={entry.url} className="flex flex-wrap items-center gap-3 rounded-xl border border-border p-4">
-              <span className="min-w-0 flex-1 break-all text-sm">{entry.url}</span>
-              <Button
-                variant="secondary"
-                disabled={busy}
-                onClick={() => void run(() => connections.connect(entry.url))}
-              >
-                连接
-              </Button>
-              <Button
-                variant="ghost"
-                disabled={busy}
-                onClick={() =>
-                  void run(async () => {
-                    await connections.remove(entry.url)
-                    setSaved(await connections.list())
-                  })
-                }
-              >
-                移除
-              </Button>
-            </div>
-          ))}
-        </section>
-      )}
+      <RevealContent ready={saved.length > 0 && Boolean(connections)}>
+        {connections && (
+          <section className="space-y-3" aria-label="已保存的远程">
+            <h3 className="text-sm font-medium">已保存的远程</h3>
+            {saved.map((entry) => (
+              <div key={entry.url} className="flex flex-wrap items-center gap-3 rounded-xl border border-border p-4">
+                <span className="min-w-0 flex-1 break-all text-sm">{entry.url}</span>
+                <Button
+                  variant="secondary"
+                  disabled={busy}
+                  onClick={() => void run(() => connections.connect(entry.url))}
+                >
+                  连接
+                </Button>
+                <Button
+                  variant="ghost"
+                  disabled={busy}
+                  onClick={() =>
+                    void run(async () => {
+                      await connections.remove(entry.url)
+                      setSaved(await connections.list())
+                    })
+                  }
+                >
+                  移除
+                </Button>
+              </div>
+            ))}
+          </section>
+        )}
+      </RevealContent>
       <Button variant="secondary" disabled={busy} onClick={onConnect}>
         <Server />
         配置远程服务
       </Button>
-      {canImport && (
+      <RevealContent ready={canImport}>
         <section className="space-y-3 rounded-xl border border-border p-4">
           <h3 className="text-sm font-medium">旧钥匙串凭据</h3>
           <p className="text-sm text-muted-foreground">
@@ -132,7 +136,7 @@ export function HostSettings({
             导入旧钥匙串凭据
           </Button>
         </section>
-      )}
+      </RevealContent>
       {error && (
         <p role="alert" className="break-words text-sm text-destructive">
           {error}
@@ -140,7 +144,7 @@ export function HostSettings({
       )}
       {notice && (
         <p role="status" className="text-sm text-muted-foreground">
-          {notice}
+          <CrossfadeText>{notice}</CrossfadeText>
         </p>
       )}
     </div>

@@ -2,6 +2,7 @@ import { useRef, useState, type ChangeEvent } from 'react'
 import { Check, Pencil, UserCheck } from 'lucide-react'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Input } from '@pi-meme/ui/components/ui/input'
+import { CrossfadeText } from '@pi-meme/ui/components/crossfade-text'
 import type { UserProfile } from './user-profile'
 
 export function AccountSettings({
@@ -101,10 +102,12 @@ export function AccountSettings({
         </div>
 
         <div className="space-y-1">
-          <h2 className="text-xl font-bold text-foreground tracking-tight">{profile.name}</h2>
+          <h2 className="min-h-7 text-xl font-bold text-foreground tracking-tight">
+            <CrossfadeText>{loading ? '正在读取个人资料…' : profile.name}</CrossfadeText>
+          </h2>
           <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-secondary/80 text-xs font-mono text-muted-foreground border border-border/50">
             <UserCheck className="size-3 text-primary" />
-            <span>{profile.username}</span>
+            <CrossfadeText>{loading ? '读取中…' : profile.username}</CrossfadeText>
           </div>
         </div>
       </section>
@@ -139,14 +142,20 @@ export function AccountSettings({
           {/* 用户名 */}
           <div className="flex items-center justify-between px-5 py-3.5">
             <span className="text-muted-foreground">用户名</span>
-            <span className="font-mono text-xs text-foreground/90">{profile.username}</span>
+            <CrossfadeText className="font-mono text-xs text-foreground/90">
+              {loading ? '读取中…' : profile.username}
+            </CrossfadeText>
           </div>
 
           {/* 电子邮箱 */}
           <div className="flex items-center justify-between gap-4 px-5 py-3.5">
             <div className="space-y-0.5">
               <span className="text-muted-foreground block">电子邮箱</span>
-              {!isEditingEmail && <span className="text-xs font-mono text-foreground/90">{profile.email}</span>}
+              {!isEditingEmail && (
+                <CrossfadeText className="min-h-4 text-xs font-mono text-foreground/90">
+                  {loading ? '读取中…' : profile.email}
+                </CrossfadeText>
+              )}
             </div>
             <div className="flex items-center gap-2">
               {isEditingEmail ? (

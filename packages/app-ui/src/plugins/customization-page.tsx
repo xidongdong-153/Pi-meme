@@ -5,7 +5,6 @@ import { isReservedPluginId } from '@pi-meme/plugin-sdk/reserved'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { PageHeader, PageHeaderNavigation } from '../layout/page-header'
 import { PluginIcon } from '../settings/plugin-page'
-import { SettingsSkeleton } from '../settings/settings-skeleton'
 
 export function CustomizationPage({
   plugins,
@@ -100,7 +99,7 @@ export function CustomizationPage({
             className="theme-workspace min-w-0 flex-1 overflow-y-auto bg-background px-6 py-8 sm:px-8 lg:px-12 lg:py-12"
           >
             <div className="mx-auto max-w-6xl">
-              <Suspense fallback={<SettingsSkeleton section={section} />}>
+              <Suspense fallback={null}>
                 {renderContent(section, { id: selectedPlugin, onChange: setSelectedPlugin })}
               </Suspense>
             </div>

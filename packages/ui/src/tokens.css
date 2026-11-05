@@ -224,6 +224,65 @@
   animation: ui-content-enter 180ms cubic-bezier(0.22, 1, 0.36, 1);
 }
 
+/* 展开期间裁剪内容，完成后允许焦点环和非 Portal 浮层越过容器。 */
+@keyframes ui-reveal-clip {
+  from,
+  to {
+    overflow: hidden;
+  }
+}
+
+.ui-reveal-clip {
+  overflow: visible;
+  animation: ui-reveal-clip 240ms step-end;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-reveal-clip {
+    animation: none;
+  }
+}
+
+/* 动态文本共用同一空间，新值立即提交，只交叉淡化文字。 */
+@keyframes ui-text-enter {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes ui-text-exit {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.ui-text-enter {
+  animation: ui-text-enter 180ms ease-out both;
+}
+
+.ui-text-exit {
+  animation: ui-text-exit 180ms ease-out both;
+}
+
+:root[data-reduced-motion='true'] .ui-text-exit {
+  display: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ui-text-enter {
+    animation: none;
+  }
+  .ui-text-exit {
+    display: none;
+  }
+}
+
 .ui-loading-delayed {
   animation: ui-loading-enter 120ms ease-out 160ms both;
 }

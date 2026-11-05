@@ -30,12 +30,8 @@ import {
   DropdownMenuItem,
 } from '@pi-meme/ui/components/ui/dropdown-menu'
 import { cn } from '@pi-meme/ui/lib/utils'
-import {
-  BentoSkeletonBar,
-  BentoSkeletonCard,
-  BentoSkeletonCircle,
-  BentoSkeletonPill,
-} from '@pi-meme/ui/components/bento-skeleton'
+import { CrossfadeText } from '@pi-meme/ui/components/crossfade-text'
+import { RevealContent } from '@pi-meme/ui/components/reveal-content'
 import { CategoryTabs } from './category-tabs'
 
 const scopes = { builtin: '系统', host: '此设备', project: '当前项目' }
@@ -101,7 +97,6 @@ export function SkillPage({
     if (refreshing || busy) return false
     setRefreshing(true)
     setError('')
-    const start = Date.now()
     try {
       await client.refresh(cwd)
       await Promise.all([load(), onChanged()])
@@ -110,10 +105,6 @@ export function SkillPage({
       setError(String(cause))
       return false
     } finally {
-      const elapsed = Date.now() - start
-      if (elapsed < 400) {
-        await new Promise((resolve) => setTimeout(resolve, 400 - elapsed))
-      }
       setRefreshing(false)
     }
   }
@@ -261,7 +252,7 @@ export function SkillPage({
             <div>
               <h3 className="text-xl font-semibold">{current.displayName ?? current.name}</h3>
               <p className="mt-2 text-sm text-muted-foreground">
-                技能 · {scopes[current.scope]} · {state(current)}
+                <CrossfadeText>{`技能 · ${scopes[current.scope]} · ${state(current)}`}</CrossfadeText>
               </p>
             </div>
           </div>
@@ -288,11 +279,13 @@ export function SkillPage({
             </dl>
           </CollapsibleSection>
           <p className="text-sm text-muted-foreground">
-            {pending
-              ? '当前聊天仍使用原版本，任务结束后更新。'
-              : command
-                ? '可以在当前聊天中选择此技能。'
-                : '此技能暂不可用于当前聊天。'}
+            <CrossfadeText>
+              {pending
+                ? '当前聊天仍使用原版本，任务结束后更新。'
+                : command
+                  ? '可以在当前聊天中选择此技能。'
+                  : '此技能暂不可用于当前聊天。'}
+            </CrossfadeText>
           </p>
           {currentUsages.length > 0 && (
             <ul className="space-y-1 text-xs text-muted-foreground">
@@ -446,56 +439,61 @@ export function SkillPage({
               </>
             }
           >
-            {view === 'catalog' && catalog && (
+            {view === 'catalog' && (
               <section aria-label="已安装技能" className="space-y-3">
                 <h2 className="border-b border-border pb-3 text-sm font-medium">
-                  已安装 <span className="ml-2 text-muted-foreground">{installed.length}</span>
+                  已安装{' '}
+                  <CrossfadeText className="ml-2 text-muted-foreground">
+                    {catalog ? String(installed.length) : '—'}
+                  </CrossfadeText>
                 </h2>
-                <div>
-                  <SkillCatalogList label="已安装技能列表" items={installed.slice(0, 6)} onSelect={select} />
-                  <div
-                    id="installed-skill-more"
-                    aria-hidden={!installedExpanded}
-                    inert={!installedExpanded}
-                    className={cn(
-                      'grid transition-[grid-template-rows,opacity] duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
-                      installedExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0',
-                    )}
-                  >
-                    <div className="min-h-0 overflow-hidden">
-                      <div className="pt-2">
-                        <SkillCatalogList label="更多已安装技能" items={installed.slice(6)} onSelect={select} />
+                <RevealContent ready={Boolean(catalog)}>
+                  <div>
+                    <SkillCatalogList label="已安装技能列表" items={installed.slice(0, 6)} onSelect={select} />
+                    <div
+                      id="installed-skill-more"
+                      aria-hidden={!installedExpanded}
+                      inert={!installedExpanded}
+                      className={cn(
+                        'grid transition-[grid-template-rows,opacity] duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none',
+                        installedExpanded ? 'grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0',
+                      )}
+                    >
+                      <div className="min-h-0 overflow-hidden">
+                        <div className="pt-2">
+                          <SkillCatalogList label="更多已安装技能" items={installed.slice(6)} onSelect={select} />
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
-                {installed.length > 6 && (
-                  <Button
-                    variant="ghost"
-                    aria-expanded={installedExpanded}
-                    aria-controls="installed-skill-more"
-                    onClick={() => setInstalledExpanded((value) => !value)}
-                    className="text-muted-foreground"
-                  >
-                    {installedExpanded
-                      ? '收起已安装技能'
-                      : `查看 ${installed
-                          .slice(6, 8)
-                          .map((item) => item.displayName ?? item.name)
-                          .join('、')}${installed.length > 8 ? `，另有 ${installed.length - 8} 项` : ''}`}
-                    <ChevronDown
-                      className={cn(
-                        'size-4 transition-transform duration-250 motion-reduce:transition-none',
-                        installedExpanded && 'rotate-180',
-                      )}
-                    />
-                  </Button>
-                )}
-                {!installed.length && (
-                  <p role="status" className="py-4 text-sm text-muted-foreground">
-                    {query.trim() ? '没有匹配的技能。' : '暂无已安装技能。'}
-                  </p>
-                )}
+                  {installed.length > 6 && (
+                    <Button
+                      variant="ghost"
+                      aria-expanded={installedExpanded}
+                      aria-controls="installed-skill-more"
+                      onClick={() => setInstalledExpanded((value) => !value)}
+                      className="text-muted-foreground"
+                    >
+                      {installedExpanded
+                        ? '收起已安装技能'
+                        : `查看 ${installed
+                            .slice(6, 8)
+                            .map((item) => item.displayName ?? item.name)
+                            .join('、')}${installed.length > 8 ? `，另有 ${installed.length - 8} 项` : ''}`}
+                      <ChevronDown
+                        className={cn(
+                          'size-4 transition-transform duration-250 motion-reduce:transition-none',
+                          installedExpanded && 'rotate-180',
+                        )}
+                      />
+                    </Button>
+                  )}
+                  {catalog && !installed.length && (
+                    <p role="status" className="py-4 text-sm text-muted-foreground">
+                      {query.trim() ? '没有匹配的技能。' : '暂无已安装技能。'}
+                    </p>
+                  )}
+                </RevealContent>
               </section>
             )}
             <CategoryTabs
@@ -505,28 +503,12 @@ export function SkillPage({
               onChange={setCategory}
               controls={listId}
               options={[
-                { id: 'personal', label: '个人', count: personal.length },
-                { id: 'system', label: '系统', count: system.length },
+                { id: 'personal', label: '个人', count: catalog ? personal.length : undefined },
+                { id: 'system', label: '系统', count: catalog ? system.length : undefined },
               ]}
             />
           </IntegrationHeader>
-          {!catalog ? (
-            <BentoSkeletonCard delay={60} className="divide-y divide-border/60 p-0" testId="skill-skeleton">
-              {Array.from({ length: 4 }).map((_, index) => (
-                <div key={index} className="flex items-center gap-4 p-5">
-                  <BentoSkeletonCircle className="size-9 rounded-xl" />
-                  <div className="min-w-0 flex-1 space-y-1.5">
-                    <div className="flex items-center gap-2">
-                      <BentoSkeletonBar className="w-32" size="sm" />
-                      <BentoSkeletonBar className="w-16" size="xs" />
-                    </div>
-                    <BentoSkeletonBar className="w-72 max-w-full" size="xs" />
-                  </div>
-                  <BentoSkeletonPill className="h-6 w-12" />
-                </div>
-              ))}
-            </BentoSkeletonCard>
-          ) : (
+          <RevealContent ready={Boolean(catalog)}>
             <div id={listId} role="tabpanel" aria-labelledby={`${listId}-category-${category}`}>
               {filtered.length > 0 &&
                 (view === 'catalog' ? (
@@ -575,11 +557,13 @@ export function SkillPage({
                 ))}
               {!filtered.length && (
                 <p role="status" className="text-sm text-muted-foreground">
-                  {query.trim() ? '没有匹配的技能。' : category === 'system' ? '没有系统技能。' : '没有个人技能。'}
+                  <CrossfadeText>
+                    {query.trim() ? '没有匹配的技能。' : category === 'system' ? '没有系统技能。' : '没有个人技能。'}
+                  </CrossfadeText>
                 </p>
               )}
             </div>
-          )}
+          </RevealContent>
         </>
       )}
       <Dialog open={importOpen} onOpenChange={setImportOpen}>

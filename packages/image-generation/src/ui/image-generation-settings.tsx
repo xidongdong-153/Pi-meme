@@ -6,6 +6,8 @@ import type {
   ImageModelConfig,
 } from '@pi-meme/contracts/image-generation'
 import { imageQualities, imageSizes } from '@pi-meme/contracts/image-generation'
+import { CrossfadeText } from '@pi-meme/ui/components/crossfade-text'
+import { RevealContent } from '@pi-meme/ui/components/reveal-content'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Input } from '@pi-meme/ui/components/ui/input'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
@@ -100,50 +102,61 @@ export function ImageGenerationSettings({ api, hostLabel }: { api?: ImageGenerat
   }
   const imageUrl = result ? `data:${result.image.mimeType};base64,${result.image.data}` : undefined
   const existing = draft && config?.models.find((model) => model.id === draft.id)
+  const defaultModel = config?.models.find((model) => model.id === config.defaultId)
 
   if (!api) return <p role="status">当前版本不支持图片生成，请更新后重试。</p>
   return (
-    <div className="space-y-4">
-      <p className="text-xs text-muted-foreground">配置保存到：{hostLabel}</p>
-      {loading ? (
-        <p role="status">正在读取图片模型配置…</p>
-      ) : (
-        <>
-          <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-card p-5">
-            <div className="space-y-1">
-              <h3 className="font-medium">默认图片模型</h3>
-            </div>
-            <Select
-              value={config?.defaultId ?? ''}
-              disabled={!config?.models.length || Boolean(config.error) || pending === 'default'}
-              onValueChange={(id) => void change('default', () => api.setDefault(id, config!.revision))}
-            >
-              <SelectTrigger aria-label="默认图片模型" className="w-56">
-                <SelectValue placeholder="未选择默认模型" />
-              </SelectTrigger>
-              <SelectContent>
-                {config?.models.map((model) => (
-                  <SelectItem key={model.id} value={model.id}>
-                    {model.name} · {model.model}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="flex flex-wrap items-center justify-end gap-3">
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                disabled={pending === 'refresh'}
-                onClick={() => void change('refresh', () => api.getConfig())}
-              >
-                刷新
-              </Button>
-              <Button disabled={!config || Boolean(config.error)} onClick={() => setDraft(newDraft())}>
-                添加模型
-              </Button>
-            </div>
-          </div>
+    <div className="space-y-4" aria-busy={loading || Boolean(pending)}>
+      <p className="text-xs text-muted-foreground">
+        配置保存到：<CrossfadeText>{hostLabel}</CrossfadeText>
+      </p>
+      <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-card p-5">
+        <div className="space-y-1">
+          <h3 className="font-medium">默认图片模型</h3>
+        </div>
+        <Select
+          value={config?.defaultId ?? ''}
+          disabled={!config?.models.length || Boolean(config.error) || pending === 'default'}
+          onValueChange={(id) => void change('default', () => api.setDefault(id, config!.revision))}
+        >
+          <SelectTrigger aria-label="默认图片模型" className="w-56">
+            <SelectValue placeholder={!config ? (loading ? '读取中…' : '未读取配置') : '未选择默认模型'}>
+              <CrossfadeText>
+                {defaultModel
+                  ? `${defaultModel.name} · ${defaultModel.model}`
+                  : !config
+                    ? loading
+                      ? '读取中…'
+                      : '未读取配置'
+                    : '未选择默认模型'}
+              </CrossfadeText>
+            </SelectValue>
+          </SelectTrigger>
+          <SelectContent>
+            {config?.models.map((model) => (
+              <SelectItem key={model.id} value={model.id}>
+                {model.name} · {model.model}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+      <div className="flex flex-wrap items-center justify-end gap-3">
+        <div className="flex gap-2">
+          <Button
+            variant="outline"
+            disabled={loading || pending === 'refresh'}
+            onClick={() => void change('refresh', () => api.getConfig())}
+          >
+            <CrossfadeText reserve={['刷新', '刷新中…']}>{pending === 'refresh' ? '刷新中…' : '刷新'}</CrossfadeText>
+          </Button>
+          <Button disabled={!config || Boolean(config.error)} onClick={() => setDraft(newDraft())}>
+            添加模型
+          </Button>
+        </div>
+      </div>
+      <RevealContent ready={Boolean(config)}>
+        <div className="space-y-4">
           {config && !config.models.length && !config.error && (
             <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
               添加图片模型后即可生成和编辑图片。
@@ -154,8 +167,7 @@ export function ImageGenerationSettings({ api, hostLabel }: { api?: ImageGenerat
               <div className="space-y-1">
                 <h3 className="font-medium">{model.name}</h3>
                 <p className="text-sm text-muted-foreground">
-                  {model.model} · {model.hasApiKey ? '已配置 Key' : '未配置 Key'}
-                  {model.id === config.defaultId ? ' · 默认' : ''}
+                  <CrossfadeText>{`${model.model} · ${model.hasApiKey ? '已配置 Key' : '未配置 Key'}${model.id === config.defaultId ? ' · 默认' : ''}`}</CrossfadeText>
                 </p>
                 <p className="break-all text-xs text-muted-foreground">{model.baseUrl}</p>
               </div>
@@ -168,7 +180,9 @@ export function ImageGenerationSettings({ api, hostLabel }: { api?: ImageGenerat
                   disabled={!model.hasApiKey || pending === `test:${model.id}`}
                   onClick={() => setTesting(model)}
                 >
-                  {pending === `test:${model.id}` ? '正在生成测试图片…' : '生成测试图片'}
+                  <CrossfadeText reserve={['正在生成测试图片…', '生成测试图片']}>
+                    {pending === `test:${model.id}` ? '正在生成测试图片…' : '生成测试图片'}
+                  </CrossfadeText>
                 </Button>
                 <Button variant="ghost" disabled={pending === `delete:${model.id}`} onClick={() => setDeleting(model)}>
                   删除
@@ -176,30 +190,32 @@ export function ImageGenerationSettings({ api, hostLabel }: { api?: ImageGenerat
               </div>
             </div>
           ))}
-        </>
-      )}
-      {(error || config?.error) && (
-        <p role="alert" className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
-          {error || config?.error}
-        </p>
-      )}
-      {imageUrl && (
-        <div className="space-y-2">
-          <p className="text-sm">测试图片</p>
-          <button type="button" aria-label="预览测试图片" onClick={() => setPreview(true)}>
-            <img
-              src={imageUrl}
-              alt="图片服务生成的测试图片"
-              className="size-32 rounded-lg object-contain bg-secondary"
-            />
-          </button>
-          <div>
-            <a href={imageUrl} download="image-generation-test.png" className="text-sm underline">
-              下载原图
-            </a>
-          </div>
         </div>
-      )}
+      </RevealContent>
+      <RevealContent ready={Boolean(error || config?.error)}>
+        <p role="alert" className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
+          <CrossfadeText>{error || config?.error || ''}</CrossfadeText>
+        </p>
+      </RevealContent>
+      <RevealContent ready={Boolean(imageUrl)}>
+        {imageUrl && (
+          <div className="space-y-2">
+            <p className="text-sm">测试图片</p>
+            <button type="button" aria-label="预览测试图片" onClick={() => setPreview(true)}>
+              <img
+                src={imageUrl}
+                alt="图片服务生成的测试图片"
+                className="size-32 rounded-lg object-contain bg-secondary"
+              />
+            </button>
+            <div>
+              <a href={imageUrl} download="image-generation-test.png" className="text-sm underline">
+                下载原图
+              </a>
+            </div>
+          </div>
+        )}
+      </RevealContent>
       {draft && config && (
         <Dialog
           open
@@ -334,7 +350,9 @@ export function ImageGenerationSettings({ api, hostLabel }: { api?: ImageGenerat
                   取消
                 </Button>
                 <Button type="submit" disabled={pending === 'save'}>
-                  {pending === 'save' ? '正在保存…' : '保存'}
+                  <CrossfadeText reserve={['正在保存…', '保存']}>
+                    {pending === 'save' ? '正在保存…' : '保存'}
+                  </CrossfadeText>
                 </Button>
               </div>
             </form>
