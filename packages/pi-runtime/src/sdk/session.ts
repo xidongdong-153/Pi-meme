@@ -125,6 +125,7 @@ function toModel(model: SessionModel | undefined): PiModel | undefined {
  * 替换后通过 `setRebindSession` 重新订阅事件并绑定扩展。
  */
 export type RuntimePolicy = {
+  recordTurnChange?: (change: import('../turn-change-store').FileChangeRecord) => Promise<string>
   readVisualization?: (reference: VisualizationRef) => Promise<VisualizationDocument>
   planTools?: Map<string, PlanToolSource>
   resolvePlan?: (reference: PlanRef, signal: AbortSignal) => Promise<PlanDocument>
@@ -555,6 +556,7 @@ export class SdkSession {
         ...(restricted
           ? [
               (this.policy.createAccessExtension ?? createAgentAccessExtension)({
+                recordTurnChange: this.policy.recordTurnChange,
                 onTurnSaved: (entryId, revision) => {
                   this.notify.event({
                     generation: this.generation,
@@ -597,12 +599,18 @@ export class SdkSession {
         ),
         ...(!restricted
           ? [
-              createTurnChangesExtension(sdk, cwd, undefined, (entryId, revision) => {
-                this.notify.event({
-                  generation: this.generation,
-                  event: { type: 'turn_changes_update', entryId, revision },
-                })
-              }),
+              createTurnChangesExtension(
+                sdk,
+                cwd,
+                undefined,
+                (entryId, revision) => {
+                  this.notify.event({
+                    generation: this.generation,
+                    event: { type: 'turn_changes_update', entryId, revision },
+                  })
+                },
+                this.policy.recordTurnChange,
+              ),
             ]
           : []),
         ...(this.policy.resourceSnapshot ? [createSkillUsageExtension(this.policy.resourceSnapshot)] : []),

@@ -103,6 +103,7 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
   }
   const stream = createStreamCoalescer((value) => send({ notify: 'event', value }))
   const policy: RuntimePolicy = {
+    recordTurnChange: (change) => hostRequest('turnChange', { change }) as Promise<string>,
     readVisualization: async (reference) => {
       const { entries, leafId } = await session.getEntries()
       return hostRequest('visualize', {
@@ -155,6 +156,7 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
   >()
   function hostRequest(
     kind:
+      | 'turnChange'
       | 'collaboration'
       | 'savePlan'
       | 'resolvePlan'

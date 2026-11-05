@@ -23,6 +23,7 @@ import type { PluginRuntimeRequest } from '@pi-meme/contracts/plugin-call'
 import type { AgentPluginEntry } from '@pi-meme/plugin-sdk/agent'
 
 export type WorkerOptions = {
+  recordTurnChange?: (change: import('@pi-meme/pi-runtime/turn-change-store').FileChangeRecord) => Promise<string>
   system?: (request: SystemToolRequest, signal: AbortSignal) => Promise<unknown>
   admit?: (
     message: string,
@@ -136,6 +137,7 @@ export function createWorkerSession(
           hostCancel?: string
           hostRequest?: {
             kind:
+              | 'turnChange'
               | 'collaboration'
               | 'savePlan'
               | 'resolvePlan'
@@ -149,6 +151,7 @@ export function createWorkerSession(
               | 'activity'
               | 'system'
               | 'plugin'
+            change?: import('@pi-meme/pi-runtime/turn-change-store').FileChangeRecord
             systemRequest?: SystemToolRequest
             reference?: PlanRef
             pluginRequest?: PluginRuntimeRequest
@@ -185,6 +188,10 @@ export function createWorkerSession(
           hostRequests.set(request.id, controller)
           void Promise.resolve()
             .then(async () => {
+              if (request.kind === 'turnChange') {
+                if (!options.recordTurnChange || !request.change) throw new Error('文件变更记录桥未配置')
+                return options.recordTurnChange(request.change)
+              }
               if (request.kind === 'system') {
                 if (!options.system || !request.systemRequest) throw new Error('Host 内置能力桥未配置')
                 return options.system(request.systemRequest, controller.signal)

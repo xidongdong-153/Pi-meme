@@ -11,8 +11,6 @@ export function useSessions(
   const [sessions, setSessions] = useState<PiSessionsSnapshot | null>(null)
   const [sessionsLoading, setSessionsLoading] = useState(false)
   const hasSessions = useRef(false)
-  const visible = useRef(foreground)
-  visible.current = foreground
   const dirty = useRef(true)
   const mounted = useRef(false)
   const generation = useRef(0)
@@ -31,7 +29,7 @@ export function useSessions(
   const refreshSessions = useCallback(async () => {
     if (!enabled || !mounted.current) return
     dirty.current = true
-    if (!visible.current || document.hidden) return
+    if (document.hidden) return
     if (activePromise.current) return activePromise.current
     const currentGen = generation.current
     if (!hasSessions.current) setSessionsLoading(true)
@@ -48,13 +46,7 @@ export function useSessions(
         } catch {
           // 读取失败时保留已有列表，后续事件、恢复可见或手动刷新可以重试。
         }
-      } while (
-        mounted.current &&
-        generation.current === currentGen &&
-        visible.current &&
-        !document.hidden &&
-        dirty.current
-      )
+      } while (mounted.current && generation.current === currentGen && !document.hidden && dirty.current)
     }
     const task = runner().finally(() => {
       if (generation.current !== currentGen) return

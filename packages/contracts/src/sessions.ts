@@ -24,6 +24,12 @@ export type PiSessionSummary = Pick<SessionInfo, 'id' | 'path' | 'cwd' | 'name' 
     modified: string
     completedAt?: string | null
     running?: boolean
+    needsInput?: boolean
+    /** 待答交互的真实来源、执行代次与请求 ID，用于客户端按次标记已查看。 */
+    inputRequestIds?: string[]
+    inputUnread?: boolean
+    /** 当前客户端派生的未读状态，不写入会话文件。 */
+    unread?: boolean
     isPaused?: boolean
     error?: string
     scheduledTask?: Pick<ScheduledTask, 'taskId' | 'name' | 'status' | 'nextRunAt'> & { timeZone: string }

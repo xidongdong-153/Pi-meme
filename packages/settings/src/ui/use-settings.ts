@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { SettingsBridge } from '@pi-meme/contracts/desktop'
 import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
 import type {
@@ -54,6 +54,7 @@ export function useSettings(
   const subagentWrites = useRef(Promise.resolve())
   const subagentLocks = useRef(new Set<keyof SubagentDefaults>())
   const appearanceRevision = useRef(0)
+  const settingsReadRevision = useRef(0)
   const confirmed = useRef<SettingsSnapshot | null>(null)
   const [editorSettings, setEditorSettings] = useState<EditorSettings | null>(null)
   const confirmedEditor = useRef<EditorSettings | null>(null)
@@ -115,26 +116,12 @@ export function useSettings(
     },
     [enabled],
   )
-  useEffect(() => {
-    if (!enabled) return
-    const refresh = () => {
-      void bridge
-        .getSettings()
-        .then(accept)
-        .catch((cause) => setError(String(cause)))
-    }
-    window.addEventListener('pi-meme:appearance-changed', refresh)
-    window.addEventListener('pi-meme:system-changed', refresh)
-    return () => {
-      window.removeEventListener('pi-meme:appearance-changed', refresh)
-      window.removeEventListener('pi-meme:system-changed', refresh)
-    }
-  }, [bridge, enabled, accept])
-  const [appearanceSaver] = useState(
+  const appearanceSaver = useMemo(
     () =>
       new AppearanceSaver(
-        (value) => bridgeRef.current.saveAppearance(value),
+        (value) => bridge.saveAppearance(value),
         (next, current) => {
+          if (bridge !== bridgeRef.current) return
           confirmed.current = next
           if (current) {
             setSnapshot(next)
@@ -142,11 +129,38 @@ export function useSettings(
           }
         },
         (cause, current) => {
+          if (bridge !== bridgeRef.current) return
           setError(`外观保存失败：${String(cause)}`)
           if (current) setSnapshot(confirmed.current)
         },
       ),
+    [bridge],
   )
+  useEffect(() => {
+    if (!enabled) return
+    let active = true
+    const refresh = () => {
+      const readRevision = ++settingsReadRevision.current
+      void appearanceSaver
+        .flush()
+        .then(async () => {
+          const revision = appearanceRevision.current
+          const next = await bridge.getSettings()
+          if (active && revision === appearanceRevision.current && readRevision === settingsReadRevision.current)
+            accept(next)
+        })
+        .catch((cause) => {
+          if (active) setError(String(cause))
+        })
+    }
+    window.addEventListener('pi-meme:appearance-changed', refresh)
+    window.addEventListener('pi-meme:system-changed', refresh)
+    return () => {
+      active = false
+      window.removeEventListener('pi-meme:appearance-changed', refresh)
+      window.removeEventListener('pi-meme:system-changed', refresh)
+    }
+  }, [bridge, enabled, accept, appearanceSaver])
   useEffect(() => {
     if (!enabled) return
     const dark = window.matchMedia('(prefers-color-scheme: dark)')
@@ -186,10 +200,14 @@ export function useSettings(
       return
     }
     let active = true
-    void bridgeRef.current
-      .getSettings()
+    const revision = appearanceRevision.current
+    const readRevision = ++settingsReadRevision.current
+    void appearanceSaver
+      .flush()
+      .then(() => bridge.getSettings())
       .then((next) => {
-        if (active) accept(next)
+        if (active && revision === appearanceRevision.current && readRevision === settingsReadRevision.current)
+          accept(next)
       })
       .catch((cause) => {
         if (active) setError(String(cause))
@@ -197,7 +215,7 @@ export function useSettings(
     return () => {
       active = false
     }
-  }, [accept, enabled])
+  }, [accept, enabled, bridge, appearanceSaver])
   useEffect(() => {
     if (!enabled || !subagentsEnabled) {
       setSubagents(null)
@@ -300,9 +318,19 @@ export function useSettings(
   const refresh = useCallback(async () => {
     if (!enabled) return
     try {
+      const readRevision = ++settingsReadRevision.current
       await appearanceSaver.flush()
-      accept(await bridgeRef.current.getSettings())
-      setError('')
+      const revision = appearanceRevision.current
+      const targetBridge = bridgeRef.current
+      const next = await targetBridge.getSettings()
+      if (
+        targetBridge === bridgeRef.current &&
+        revision === appearanceRevision.current &&
+        readRevision === settingsReadRevision.current
+      ) {
+        accept(next)
+        setError('')
+      }
     } catch (cause) {
       setError(`刷新外观失败：${String(cause)}`)
     }

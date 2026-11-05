@@ -87,6 +87,7 @@ export function WorkspacePanels({
   onOpenSideChat,
   onSideChatContainer,
   onSideChatVisibilityChange,
+  onChatVisibilityChange,
   children,
 }: {
   onNewWebPage?: () => void
@@ -134,6 +135,7 @@ export function WorkspacePanels({
   onOpenSideChat?: () => void | boolean | Promise<void | boolean>
   onSideChatContainer?: (element: HTMLDivElement | null) => void
   onSideChatVisibilityChange?: (visible: boolean) => void
+  onChatVisibilityChange?: (visible: boolean) => void
   children: ReactNode
 }) {
   const storageKey = panelStorageKey(props.target.hostId, session)
@@ -314,6 +316,10 @@ export function WorkspacePanels({
   const active = tabs.includes(layout.active) ? layout.active : tabs[0]
   const selected = available.find((panel) => panel.id === active)
   const showTool = unified && toolActive && tabs.includes(layout.active)
+  useEffect(() => {
+    onChatVisibilityChange?.(!showTool)
+    return () => onChatVisibilityChange?.(false)
+  }, [showTool, onChatVisibilityChange])
   const toolsNeedLoading =
     (unified ? toolActive : layout.open) && ((!selected && active !== sideChatTabId) || !tabs.includes(layout.active))
   useEffect(() => {

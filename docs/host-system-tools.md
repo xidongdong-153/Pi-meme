@@ -53,7 +53,7 @@ Agent 使用 `system_read` 和 `system_write` 操作工作台。先调用 `syste
 
 `profile.get` 返回资料摘要、`hasAvatar` 和内容修订，不携带头像 base64；`profile.avatar` 单独返回图片。`profile.save` 参数为 `[patch, revision]`。只允许 `name`、`username`、`email`、`avatarText`、`avatarData` 字符串字段，作用于当前 Host。资料事件触发已连接界面重新读取。
 
-`appearance.get` 返回外观及内容修订；`appearance.save` 参数为 `[patch, revision]`。可修改 `mode`、`uiSize`、`codeSize`、`reducedMotion` 等现有外观字段；由现有外观校验器校验。外观保存在发起客户端的本地存储，不写 Host 全局外观。同一浏览器配置空间的页面共享本地设置，Desktop 与 Web 独立。内容恢复成原值时，内容修订也恢复成原值；它不是递增版本号。
+`appearance.get` 返回外观及内容修订；`appearance.save` 参数为 `[patch, revision]`。可修改 `mode`、`uiSize`、`codeSize`、`reducedMotion` 等现有外观字段；由现有外观校验器校验。外观由发起客户端选定的外观 Host 保存到 `.pi-meme/config/app.json`。多服务界面始终使用客户端本地 Host，切换远程服务不会改写远端外观；独立 Web 使用所连接的 Host。共享同一外观 Host 的客户端读取同一份长期配置。内容恢复成原值时，内容修订也恢复成原值；它不是递增版本号。
 
 `mcp.get` 返回配置修订、服务名称、启用状态、传输方式和授权状态，不返回环境变量、请求头、命令参数或凭据。它表示配置状态，不冒充实时连通性探测。修改 MCP 和指令后，当前执行仍使用原有资源快照；新会话或重新加载后采用新配置，工具调用中不强制重启自己的 Worker。
 

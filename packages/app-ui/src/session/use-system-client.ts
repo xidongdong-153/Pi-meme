@@ -3,7 +3,12 @@ import type { DesktopBridge } from '@pi-meme/contracts/desktop'
 import type { BrowserPlatform } from '@pi-meme/contracts/browser'
 import { migrateAppearance, validateAppearance } from '@pi-meme/settings/shared/appearance'
 
-export function useSystemClient(bridge: DesktopBridge, browser?: BrowserPlatform, hostId?: string) {
+export function useSystemClient(
+  bridge: DesktopBridge,
+  browser?: BrowserPlatform,
+  hostId?: string,
+  appearanceBridge: DesktopBridge = bridge,
+) {
   useEffect(() => {
     const remove = (event: Event) => {
       const detail = (event as CustomEvent<{ hostId: string; sessionIds: string[] }>).detail
@@ -56,7 +61,7 @@ export function useSystemClient(bridge: DesktopBridge, browser?: BrowserPlatform
             const owner = JSON.stringify([request.session.hostId, request.session.sessionId])
             return browser.agent(owner, request.operation.slice(8), request.args)
           }
-          const snapshot = await bridge.getSettings()
+          const snapshot = await appearanceBridge.getSettings()
           const appearance = migrateAppearance(snapshot.settings, snapshot.themes)
           const hash = async (value: unknown) =>
             [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(value))))]
@@ -70,10 +75,10 @@ export function useSystemClient(bridge: DesktopBridge, browser?: BrowserPlatform
           if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new Error('外观修改参数无效')
           const next = { ...appearance, ...patch }
           validateAppearance(next)
-          await bridge.saveAppearance(next)
+          await appearanceBridge.saveAppearance(next)
           return { appearance: next, revision: await hash(next) }
         },
       ),
-    [bridge, browser, hostId],
+    [bridge, browser, hostId, appearanceBridge],
   )
 }

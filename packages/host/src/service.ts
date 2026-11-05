@@ -990,6 +990,7 @@ export async function createHost(options: HostOptions = {}) {
                 )
               : operations.execute(request)
           },
+          recordTurnChange: (change) => collaboration.recordTurnChange(session, change),
           activity: (request, signal) => activityBridge.dispatch(session, request, signal),
           collaboration: (request, signal) => collaboration.dispatch(session, request, signal),
           savePlan: (input, signal) => collaboration.savePlan(session, input, signal),
@@ -1049,6 +1050,12 @@ export async function createHost(options: HostOptions = {}) {
         if (value.agentId && value.agentId === value.rootAgentId && value.sessionKey)
           pi.publishSessionEvent(value.sessionKey, value)
         else emit('event', value)
+        if (
+          value.event.type === 'agents_update' ||
+          (value.agentId !== value.rootAgentId &&
+            ['extension_ui_request', 'extension_ui_closed', 'extension_ui_timeout'].includes(value.event.type))
+        )
+          emit('sessions-changed')
       },
     })
     const bindRoot = async (key: string) => collaboration.bindRoot(pi.readSessionBinding(key))
@@ -1310,7 +1317,27 @@ export async function createHost(options: HostOptions = {}) {
       enrichSnapshot(await pi.snapshot(window))
     const readSessionsSnapshot = sessions.getSnapshot.bind(sessions)
     sessions.getSnapshot = async (...args): Promise<PiSessionsSnapshot> => {
-      const [value, children] = await Promise.all([readSessionsSnapshot(...args), collaboration.getChildSessions()])
+      const [raw, children, inputRequests] = await Promise.all([
+        readSessionsSnapshot(...args),
+        collaboration.getChildSessions(),
+        collaboration.inputRequestsBySession(),
+      ])
+      const attention = (session: PiSessionsSnapshot['recents'][number]) => {
+        const inputRequestIds = [
+          ...new Set([
+            ...(session.inputRequestIds ?? []),
+            ...(inputRequests.get(session.id) ?? []),
+            ...(inputRequests.get(session.path) ?? []),
+          ]),
+        ]
+        return { ...session, needsInput: Boolean(session.needsInput || inputRequestIds.length), inputRequestIds }
+      }
+      const value = {
+        ...raw,
+        recents: raw.recents.map(attention),
+        standaloneSessions: raw.standaloneSessions?.map(attention),
+        projects: raw.projects.map((group) => ({ ...group, sessions: group.sessions.map(attention) })),
+      }
       if (!children.length) return value
       const files = new Set(children.flatMap((child) => (child.sessionFile ? [child.sessionFile] : [])))
       const ids = new Set(children.flatMap((child) => (child.sessionId ? [child.sessionId] : [])))

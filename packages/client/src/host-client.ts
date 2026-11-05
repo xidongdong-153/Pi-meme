@@ -144,6 +144,8 @@ export class HostClient {
   private suspended = false
   private networkEpoch = 0
   private lifetime = new AbortController()
+  private appearanceMigration?: Promise<void>
+  private appearanceWrites: Promise<unknown> = Promise.resolve()
   private authenticated?: Promise<void>
   private renewing?: Promise<void>
   private selected?: Connection
@@ -1056,31 +1058,43 @@ export class HostClient {
     }
     const settingsRpc = async (method: string, args: unknown[] = []) => {
       const appearanceKey = 'pi-meme:appearance:v1'
-      const localWrite = method === 'settings:appearance' || method === 'settings:theme'
-      const snapshot = await rpc<SettingsSnapshot>(localWrite ? 'settings:get' : method, localWrite ? [] : args)
-      let saved: import('@pi-meme/contracts/settings').AppearanceSettings | undefined
-      try {
-        saved = JSON.parse(localStorage.getItem(appearanceKey) ?? 'null') ?? undefined
-      } catch {
-        /* 没有可用覆盖值时使用 Host 默认值。 */
+      const appearanceWrite = method === 'settings:appearance' || method === 'settings:theme'
+      if (this.options.connection.local && !appearanceWrite) {
+        this.appearanceMigration ??= (async () => {
+          let saved: unknown
+          try {
+            saved = JSON.parse(localStorage.getItem(appearanceKey) ?? 'null')
+          } catch {
+            return
+          }
+          if (!saved) return
+          // 旧客户端只保存浏览器覆盖值；落盘成功后才移除，断线时允许重试。
+          await rpc<SettingsSnapshot>('settings:appearance', [saved], null)
+          try {
+            localStorage.removeItem(appearanceKey)
+          } catch {
+            // 浏览器拒绝存储访问不影响已经保存到 Host 的配置。
+          }
+        })().catch(() => {
+          // 无效旧值或暂时断线不应阻止读取、重新保存外观；原值保留供下次迁移。
+          this.appearanceMigration = undefined
+        })
+        await this.appearanceMigration
       }
-      let appearance = saved ?? snapshot.settings.appearance
-      if (method === 'settings:appearance') appearance = args[0] as typeof appearance
-      if (method === 'settings:theme') {
-        const theme = snapshot.themes.find((item) => item.id === args[0])
-        if (!theme || !appearance) throw new Error('主题或外观配置不可用')
-        appearance = {
-          ...appearance,
-          mode: theme.appearance,
-          [theme.appearance === 'dark' ? 'darkThemeId' : 'lightThemeId']: theme.id,
+      if (appearanceWrite) await this.appearanceMigration
+      const request = this.appearanceWrites.then(() => rpc<SettingsSnapshot>(method, args, null))
+      if (appearanceWrite) this.appearanceWrites = request.catch(() => undefined)
+      const snapshot = await request
+      if (appearanceWrite) {
+        if (this.options.connection.local) {
+          this.appearanceMigration = Promise.resolve()
+          try {
+            localStorage.removeItem(appearanceKey)
+          } catch {
+            // Host 已保存成功，不依赖浏览器存储确认。
+          }
         }
-      }
-      if (appearance) {
-        snapshot.settings = { ...snapshot.settings, appearance }
-        if (localWrite) {
-          localStorage.setItem(appearanceKey, JSON.stringify(appearance))
-          window.dispatchEvent(new Event('pi-meme:appearance-changed'))
-        }
+        window.dispatchEvent(new Event('pi-meme:appearance-changed'))
       }
       return {
         ...snapshot,

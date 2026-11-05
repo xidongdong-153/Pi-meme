@@ -24,6 +24,7 @@ import { loadPiSdk } from '@pi-meme/pi-runtime/sdk/load'
 import { readSessionHistory } from '@pi-meme/pi-runtime/session-history'
 import { inferAgentConversationOrigin, readAgentConversation } from '@pi-meme/pi-runtime/agent-conversation'
 import { safeBranchLeaf } from '@pi-meme/pi-runtime/safe-session-fork'
+import { recordFileChange, type FileChangeRecord } from '@pi-meme/pi-runtime/turn-change-store'
 
 import {
   loadCollaborationPartitions,
@@ -45,7 +46,9 @@ type RootBinding = {
   temporary?: boolean
 }
 type RunPolicy = Pick<AgentSummary, 'mode' | 'accessMode' | 'model' | 'thinkingLevel'>
+type ChangeOwner = { sessionFile: string; entryId: string }
 type QueuedTask = {
+  changeOwner?: ChangeOwner
   message: string
   rootTaskId: string
   epoch: number
@@ -55,6 +58,7 @@ type QueuedTask = {
 }
 type Record = {
   summary: AgentSummary
+  changeOwner?: ChangeOwner
   sourceEntryId?: string
   importedAgentId?: string
   delegation?: AgentRunRef[]
@@ -658,6 +662,8 @@ export class HostCollaborationBridge {
           pending.policy,
           pending.runId,
           pending.delegation,
+          false,
+          pending.changeOwner,
         )
       } else if (!activeStatuses.has(record.summary.status)) await this.startQueued(record)
       if (this.paused(record)) return
@@ -791,6 +797,46 @@ export class HostCollaborationBridge {
     await this.persist(root)
     this.changed(root)
     await this.summarize(root)
+  }
+  async recordTurnChange(session: RuntimeSdkSession, change: FileChangeRecord) {
+    const record = this.callers.get(session)
+    if (!record || record.session !== session) throw new Error('文件变更来自无效 Worker')
+    const active = session.getActiveSession()
+    if (!active.sessionFile || active.sessionFile !== change.sessionFile || record.summary.cwd !== change.cwd)
+      throw new Error('文件变更所属会话无效')
+    const before = change.before === null ? null : Buffer.from(change.before, 'base64')
+    const after = Buffer.from(change.after, 'base64')
+    const saved = recordFileChange(change.sessionFile, change.entryId, change.cwd, change.target, before, after)
+    const owner = record.changeOwner
+    let aggregated: Promise<void> | undefined
+    if (record.summary.depth > 0 && owner) {
+      const root = this.root(record.summary.rootSessionKey)
+      // 与子记录同步入队，避免等待子记录落盘期间被主 Worker 的下一次写入超越。
+      aggregated = recordFileChange(
+        owner.sessionFile,
+        owner.entryId,
+        root.summary.cwd,
+        change.target,
+        before,
+        after,
+      ).then((revision) => {
+        this.emit(root, { type: 'turn_changes_update', entryId: owner.entryId, revision })
+      })
+    }
+    const [revision] = await Promise.all([saved, aggregated])
+    return revision
+  }
+  private async changeOwner(record: Record): Promise<ChangeOwner | undefined> {
+    const root = this.root(record.summary.rootSessionKey)
+    const session = root.session
+    if (!session) return
+    const { entries, leafId } = await session.getEntries()
+    const byId = new Map(entries.map((entry) => [entry.id, entry]))
+    let entry = leafId ? byId.get(leafId) : undefined
+    while (entry && !(entry.type === 'message' && entry.message.role === 'user'))
+      entry = entry.parentId ? byId.get(entry.parentId) : undefined
+    const sessionFile = session.getActiveSession().sessionFile
+    return entry && sessionFile ? { sessionFile, entryId: entry.id } : undefined
   }
   activityCaller(session: RuntimeSdkSession) {
     const record = this.caller(session)
@@ -954,6 +1000,10 @@ export class HostCollaborationBridge {
       const agentId = randomUUID()
       const child: Record = {
         sourceEntryId: source?.id,
+        changeOwner:
+          source?.id && rootSession.getActiveSession().sessionFile
+            ? { sessionFile: rootSession.getActiveSession().sessionFile!, entryId: source.id }
+            : undefined,
         summary: {
           ...caller.summary,
           agentId,
@@ -1037,9 +1087,12 @@ export class HostCollaborationBridge {
       if (!request.params.message.trim()) throw new Error('任务不能为空')
       const policy = await this.policy(caller, request.params)
       assertCurrent()
+      const changeOwner = await this.changeOwner(caller)
+      assertCurrent()
       if (this.busy(target)) {
         if (!activeStatuses.has(target.summary.status)) throw new Error('目标 Agent 尚未完成清理')
         target.queued.push({
+          changeOwner,
           message: request.params.message,
           rootTaskId: caller.summary.rootTaskId,
           epoch: caller.summary.epoch,
@@ -1061,6 +1114,8 @@ export class HostCollaborationBridge {
           policy,
           undefined,
           this.delegationFrom(caller),
+          false,
+          changeOwner,
         )
       } catch (cause) {
         const generation = target.summary.executionGeneration
@@ -1104,6 +1159,7 @@ export class HostCollaborationBridge {
     scheduledRunId?: string,
     delegation?: AgentRunRef[],
     allowCleaning = false,
+    changeOwner = record.changeOwner,
   ) {
     if (this.stopping) throw new Error('服务正在停止')
     if ((record.cleaning && !allowCleaning) || (record.summary.cleanup && record.summary.cleanup.state !== 'completed'))
@@ -1116,7 +1172,8 @@ export class HostCollaborationBridge {
       if (this.stopping || record.summary.runId !== runId || !['starting', 'running'].includes(record.summary.status))
         throw new Error('子 Agent 启动已取消或轮次更换')
     }
-    const task = { message, rootTaskId, epoch, policy, runId, delegation }
+    const task = { message, rootTaskId, epoch, policy, runId, delegation, changeOwner }
+    record.changeOwner = changeOwner
     this.userSteering.delete(record)
     record.completion = undefined
     record.feedbackSent = false
@@ -1663,6 +1720,7 @@ export class HostCollaborationBridge {
           next.runId,
           next.delegation,
           allowCleaning,
+          next.changeOwner,
         )
         return
       }
@@ -2173,6 +2231,20 @@ export class HostCollaborationBridge {
       agentMessages: this.tree(root).flatMap((record) => record.mailbox),
     })
     for (const listener of this.listeners) listener()
+  }
+  async inputRequestsBySession() {
+    await this.ready
+    const requests = new Map<string, string[]>()
+    for (const record of this.records.values()) {
+      if (!record.interactions.length) continue
+      const root = this.roots.get(record.summary.rootSessionKey)
+      const keys = [record.summary.rootSessionKey, ...(root?.summary.sessionFile ? [root.summary.sessionFile] : [])]
+      const ids = record.interactions.map((interaction) =>
+        JSON.stringify([interaction.sessionKey, interaction.executionGeneration, interaction.request.id]),
+      )
+      for (const key of keys) requests.set(key, [...(requests.get(key) ?? []), ...ids])
+    }
+    return requests
   }
   async getChildSessions() {
     await this.ready

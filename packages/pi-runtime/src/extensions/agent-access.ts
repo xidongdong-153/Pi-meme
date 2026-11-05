@@ -38,6 +38,7 @@ export function createAgentAccessExtension(options: {
   sandbox: AccessSandbox
   cwd: string
   mode: AgentAccessMode
+  recordTurnChange?: (change: import('../turn-change-store').FileChangeRecord) => Promise<string>
   onTurnSaved?: (entryId: string, revision: string) => void
   externalToolAllowed?: (name: string) => boolean
 }): InlineExtension {
@@ -56,7 +57,7 @@ export function createAgentAccessExtension(options: {
           ? sdk.createPowerShellToolDefinition(cwd, { operations: bashOperations })
           : sdk.createBashToolDefinition(cwd, { operations: bashOperations }),
       )
-      createTurnChangesExtension(sdk, cwd, sandbox, options.onTurnSaved).factory(pi)
+      createTurnChangesExtension(sdk, cwd, sandbox, options.onTurnSaved, options.recordTurnChange).factory(pi)
       const isAllowed = (name: string) =>
         (process.platform !== 'win32' || name !== 'bash') &&
         (allowedTools.has(name) || options.externalToolAllowed?.(name) === true)

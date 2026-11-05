@@ -16,6 +16,7 @@
     "./ui/sidebar/session-title": "./src/ui/sidebar/session-title.ts",
     "./ui/sidebar/sidebar": "./src/ui/sidebar/sidebar.tsx",
     "./ui/use-sessions": "./src/ui/use-sessions.ts",
+    "./ui/use-session-attention": "./src/ui/use-session-attention.ts",
     "./server/project-store": "./src/server/project-store.ts",
     "./ui/project-selector": "./src/ui/project-selector.tsx",
     "./server/entry": "./src/server/entry.ts",

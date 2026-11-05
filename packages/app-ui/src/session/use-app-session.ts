@@ -20,6 +20,7 @@ import type { ChatState } from '@pi-meme/chat/ui/model/types'
 import { useChatSession, type ComposerSnapshot } from '@pi-meme/chat/ui/use-chat-session'
 import { useExtensionUI } from '@pi-meme/interaction/ui/use-extension-ui'
 import { useSessions } from '@pi-meme/workspace/ui/use-sessions'
+import { useSessionAttention } from '@pi-meme/workspace/ui/use-session-attention'
 import { SessionSelection, type SelectionTransaction } from './session-selection'
 import { SessionStreamEvents } from './stream-events'
 import { SnapshotSync } from './snapshot-sync'
@@ -144,6 +145,7 @@ export function useAppSession(
     workspaceEnabled,
     foreground,
   )
+  const [readVisible, setReadVisible] = useState(false)
   const snapshotWindow = useCallback((key?: string) => {
     const messages = key ? views.current.get(key)?.chat.messages : undefined
     return { limit: 60, from: messages?.[0]?.sourceEntry?.id, details: 'deferred' as const }
@@ -491,6 +493,13 @@ export function useAppSession(
     },
   })
   chatRef.current = chat
+  const attentionSessions = useSessionAttention(
+    sessions,
+    hostId,
+    !switching && !previewing && !loading ? (connection.sessionFile ?? connection.sessionKey) : undefined,
+    foreground && readVisible,
+    chat.chat.running,
+  )
   const draftModel = (chat.editConfiguration ?? chat.pendingConfiguration)?.model
   useEffect(() => {
     const model = state?.model
@@ -1392,7 +1401,8 @@ export function useAppSession(
         setCommands(next)
     },
     refreshUiPlugins,
-    sessions,
+    sessions: attentionSessions,
+    setReadVisible,
     sessionsLoading,
     refreshMenu: async () => {
       await refreshSessions()

@@ -988,7 +988,10 @@ export class PiSessionPool implements PiRuntime {
       event.type === 'agent_start' ||
       event.type === 'agent_settled' ||
       event.type === 'message_end' ||
-      event.type === 'pause_update'
+      event.type === 'pause_update' ||
+      event.type === 'extension_ui_request' ||
+      event.type === 'extension_ui_closed' ||
+      event.type === 'extension_ui_timeout'
     ) {
       this.notify.sessionsChanged(
         event.type === 'agent_settled' && record.sessionFile && !record.temporary
@@ -1303,6 +1306,13 @@ export class PiSessionPool implements PiRuntime {
           completedAt: record.completedAt,
           messageCount: record.totalMessages ?? record.messages.length,
           running: record.running,
+          needsInput: [...record.extensions.keys()].some((key) => key.startsWith('dialog:')),
+          inputRequestIds: [...record.extensions.values()].flatMap((value) =>
+            value.event.type === 'extension_ui_request' &&
+            ['select', 'confirm', 'input', 'editor', 'questions'].includes(value.event.method)
+              ? [JSON.stringify([record.key, value.executionGeneration ?? value.generation, value.event.id])]
+              : [],
+          ),
           isPaused: Boolean(record.state.isPaused),
           error: record.error ?? record.session.connection().error,
           temporary: record.temporary ? true : undefined,

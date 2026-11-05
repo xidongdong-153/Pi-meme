@@ -3,7 +3,6 @@ import type { AppearanceSettings, SettingsSnapshot } from '@pi-meme/contracts/se
 /** 合并连续编辑；旧保存结果不覆盖新预览。 */
 export class AppearanceSaver {
   private pending: AppearanceSettings | undefined
-  private timer: ReturnType<typeof setTimeout> | undefined
   private running: Promise<void> | undefined
   private revision = 0
   constructor(
@@ -14,16 +13,14 @@ export class AppearanceSaver {
   schedule(value: AppearanceSettings) {
     this.pending = structuredClone(value)
     this.revision += 1
-    clearTimeout(this.timer)
-    this.timer = setTimeout(() => {
-      void this.flush()
-    }, 300)
+    void this.flush()
   }
   flush(): Promise<void> {
-    clearTimeout(this.timer)
     if (this.running) return this.running
+    if (!this.pending) return Promise.resolve()
     this.running = this.drain().finally(() => {
       this.running = undefined
+      if (this.pending) return this.flush()
     })
     return this.running
   }

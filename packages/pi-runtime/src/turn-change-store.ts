@@ -6,6 +6,15 @@ import type { GitReviewFileContent } from '@pi-meme/contracts/git-review'
 import { loadPiSdk } from './sdk/load'
 import { generateFilePatch } from './file-patch'
 
+export type FileChangeRecord = {
+  sessionFile: string
+  entryId: string
+  cwd: string
+  target: string
+  before: string | null
+  after: string
+}
+
 type SavedFile = { path: string; target: string; before: string | null; after: string }
 type SavedTurn = { entryId: string; files: SavedFile[]; undone: boolean; undoUnavailable?: string; revision: string }
 const pending = new Map<string, Promise<unknown>>()

@@ -144,6 +144,8 @@ Host 指令在 `config/agent/AGENTS.md`、`config/agent/SYSTEM.md`、`config/age
 
 技能来源包括内置技能（`resources/builtin/skills/`）、Host 用户技能（`resources/skills/`）、项目 `.agents/skills/` 和 App 附带技能。项目资源只读，导入、修订、优先级和策略见 [技能与资源](skills-and-extensions.md)。不装配裸 Pi 扩展或原生 Pi 包，不读取本机 Pi CLI、Codex、Claude、Gemini 的全局资源配置。
 
+外观页的明暗模式、主题、分模式覆盖、字体与字形、字号、颜色、对比度、减少动态效果、透明侧栏、布局和背景参数统一保存在外观 Host 的 `config/app.json`。多服务界面使用客户端本地 Host，切换项目、会话或远程服务后保持一致；独立 Web 使用所连接的 Host。修改立即提交，连续编辑按顺序保存最新值；切换应用内页面时继续提交尚未完成的保存，浏览器强制关闭或断线前未确认的修改不保证落盘。旧浏览器外观缓存首次读取时迁移到本地 Host，成功后删除；显式修改成功后也会清除旧缓存。
+
 用户主题保存在 `resources/themes/`，App 主题由插件的 `resources.themes/assets` 分发。主题保持 JSON，背景图来自包内素材，不执行 JavaScript 或任意 CSS；字段和范围见 [结构化主题](plugins.md#结构化主题)。
 
 进入外观页后，三个字体选择器共用后台读取的 Host 字体列表，不等待展开菜单才读取。macOS 通过系统自带的 `osascript` 调用 AppKit；Windows 通过随包原生程序调用 DirectWrite，读取字体族名、字重、斜体和等宽属性，映射为现有四种样式。两者都不下载或传输字体文件；代码字体优先显示等宽字体。列表由 Host 进程内存缓存，读取失败可重试；安装或移除字体后需重启 Host 更新列表。其他系统保持默认字体选项；枚举结果不包含已保存的字体时，不会改写配置。实现见 [fonts.ts](../packages/settings/src/server/fonts.ts) 与 [theme-settings.tsx](../packages/settings/src/ui/theme-settings.tsx)。

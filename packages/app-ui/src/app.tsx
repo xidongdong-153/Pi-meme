@@ -404,7 +404,7 @@ export function App({
   if (chat.chat.agents?.some((agent) => agent.parentAgentId && agent.rootSessionKey === chat.connection.sessionKey))
     availableRightTabs.push('subagents')
   if (chat.planDocuments.length || (chat.editing && chat.chat.planState?.document)) availableRightTabs.push('plan')
-  useSystemClient(bridge, browserPlatform, hostId)
+  useSystemClient(bridge, browserPlatform, hostId, serviceUI?.appearanceBridge ?? bridge)
   const settings = useSettings(bridge, true, false, !serviceUI)
   const appearance = useSettings(serviceUI?.appearanceBridge ?? bridge, Boolean(serviceUI) && active, false)
   useEffect(
@@ -579,6 +579,11 @@ export function App({
   const projectsOpen = route.kind === 'projects'
   const customizationOpen = route.kind === 'customization'
   const chatVisible = route.kind === 'chat'
+  const [chatPaneVisible, setChatPaneVisible] = useState(false)
+  useEffect(() => {
+    chat.setReadVisible(chatVisible && active && chatPaneVisible)
+    return () => chat.setReadVisible(false)
+  }, [chatVisible, active, chatPaneVisible, chat.setReadVisible])
   const openSettings = (section: SettingsSection = 'general') => navigation.open({ kind: 'settings', section })
   const pluginPages = useSyncExternalStore(registry.subscribe, registry.getPages, registry.getPages)
   const pluginNavigation = useSyncExternalStore(registry.subscribe, registry.getNavigation, registry.getNavigation)
@@ -2004,6 +2009,7 @@ export function App({
               onRightRequestHandled={() => setPlanRequest(undefined)}
               onSidebar={handleSidebar}
               workspaceView={workspaceView}
+              onChatVisibilityChange={setChatPaneVisible}
               onSettings={() => openSettings('general')}
               onUsage={() => openSettings('profile')}
               onAccount={() => openSettings('account')}

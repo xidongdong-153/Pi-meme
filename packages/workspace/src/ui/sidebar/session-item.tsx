@@ -67,7 +67,20 @@ export function SessionItem({
     cancelPrefetch()
     if (!isActive) prefetchTimer.current = setTimeout(() => onPrefetchSession?.(session.path), 120)
   }
-  const isRunning = session.running && !session.isPaused && (!source || source.connected)
+  const needsInput = (session.inputUnread ?? session.needsInput) && (!source || source.connected)
+  const isRunning = session.running && !session.isPaused && !session.needsInput && (!source || source.connected)
+  const attentionIndicator = needsInput ? (
+    <span role="status" className="shrink-0 rounded-full bg-blue-500/15 px-2 py-0.5 text-[10px] text-blue-500">
+      需要用户输入
+    </span>
+  ) : session.unread ? (
+    <span
+      role="img"
+      aria-label="会话有未读回复"
+      title="有未读回复"
+      className="size-2 shrink-0 rounded-full bg-blue-500"
+    />
+  ) : null
   const scheduleIndicator = session.scheduledTask ? (
     <span
       role="img"
@@ -103,13 +116,13 @@ export function SessionItem({
             type="button"
             aria-current={isActive ? 'true' : undefined}
             onClick={() => {
-              if (!isActive) onSwitchSession(session.path)
+              onSwitchSession(session.path)
             }}
             onFocus={handleMouseEnter}
             onBlur={cancelPrefetch}
             className={cn(
               'flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden py-0.5 pr-1 text-left rounded cursor-[inherit] transition-[padding] duration-150 ease-out focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
-              !session.scheduledTask && 'group-hover:pr-7 group-has-[:focus-visible]:pr-7',
+              !session.scheduledTask && !needsInput && 'group-hover:pr-7 group-has-[:focus-visible]:pr-7',
             )}
           >
             <SidebarTitle>{formatSessionTitle(session)}</SidebarTitle>
@@ -122,6 +135,7 @@ export function SessionItem({
                 <SidebarSourceBadge source={source} />
               </span>
             )}
+            {attentionIndicator}
             {runningIndicator}
             {scheduleIndicator}
           </div>
@@ -138,6 +152,7 @@ export function SessionItem({
           >
             <button
               type="button"
+              hidden={Boolean(needsInput)}
               aria-label={`取消置顶：${formatSessionTitle(session)}`}
               disabled={Boolean(source?.disabledReason)}
               onClick={(e) => {
@@ -171,19 +186,20 @@ export function SessionItem({
             type="button"
             aria-current={isActive ? 'true' : undefined}
             onClick={() => {
-              if (!isActive) onSwitchSession(session.path)
+              onSwitchSession(session.path)
             }}
             onFocus={handleMouseEnter}
             onBlur={cancelPrefetch}
             className={cn(
               'flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden py-0.5 pr-1 text-left rounded transition-[padding] duration-150 ease-out focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
-              !session.scheduledTask && 'group-hover:pr-7 group-has-[:focus-visible]:pr-7',
+              !session.scheduledTask && !needsInput && 'group-hover:pr-7 group-has-[:focus-visible]:pr-7',
             )}
           >
             <SidebarTitle>{formatSessionTitle(session)}</SidebarTitle>
             <ForkBadge session={session} />
           </button>
           <div className={cn('flex items-center gap-1 shrink-0', session.scheduledTask && 'ml-1 -mr-1')}>
+            {attentionIndicator}
             {runningIndicator}
             {scheduleIndicator}
           </div>
@@ -201,6 +217,7 @@ export function SessionItem({
             <button
               type="button"
               disabled={Boolean(source?.disabledReason)}
+              hidden={Boolean(needsInput)}
               title={source?.disabledReason || (isPinned ? '取消置顶会话' : '置顶会话')}
               aria-label={`${isPinned ? '取消置顶会话' : '置顶会话'}：${formatSessionTitle(session)}`}
               onClick={(e) => {
@@ -236,13 +253,13 @@ export function SessionItem({
           type="button"
           aria-current={isActive ? 'true' : undefined}
           onClick={() => {
-            if (!isActive) onSwitchSession(session.path)
+            onSwitchSession(session.path)
           }}
           onFocus={handleMouseEnter}
           onBlur={cancelPrefetch}
           className={cn(
             'flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden py-0.5 pr-1 text-left rounded transition-[padding] duration-150 ease-out focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
-            !session.scheduledTask && 'group-hover:pr-7 group-has-[:focus-visible]:pr-7',
+            !session.scheduledTask && !needsInput && 'group-hover:pr-7 group-has-[:focus-visible]:pr-7',
           )}
         >
           <SidebarTitle>{formatSessionTitle(session)}</SidebarTitle>
@@ -254,6 +271,7 @@ export function SessionItem({
               <SidebarSourceBadge source={source} />
             </span>
           )}
+          {attentionIndicator}
           {runningIndicator}
           {scheduleIndicator}
         </div>
@@ -270,6 +288,7 @@ export function SessionItem({
         >
           <button
             type="button"
+            hidden={Boolean(needsInput)}
             aria-label={`${isPinned ? '取消置顶会话' : '置顶会话'}：${formatSessionTitle(session)}`}
             disabled={Boolean(source?.disabledReason)}
             onClick={(e) => {
