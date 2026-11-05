@@ -1764,11 +1764,13 @@ export function App({
             icon: <Network />,
             location: 'right' as const,
             scope: 'session' as const,
-            render: () => (
+            render: (props: UiContributionProps) => (
               <SubagentsPanel
                 key={chat.connection.sessionKey}
                 bridge={bridge}
                 sessionKey={chat.connection.sessionKey}
+                files={host.files}
+                fileSession={props.target.session}
               />
             ),
           },

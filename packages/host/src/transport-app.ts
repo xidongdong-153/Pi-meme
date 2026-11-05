@@ -21,6 +21,7 @@ import { frontendMime, serveFrontend } from './frontend'
 import { ChatAttachmentTooLargeError } from './chat-attachments'
 import { createLinkPreviewLoader } from './link-preview'
 import { previewLinkedFile } from './workspace-files'
+import { visualizationPreviewPath, visualizationPreviewResponse } from '@pi-meme/visualize/server/preview-page'
 
 type TransportEnv = {
   Bindings: Pick<HttpBindings, 'incoming'> & Partial<Pick<HttpBindings, 'outgoing'>>
@@ -419,6 +420,8 @@ export function createTransportApp(services: TransportServices) {
       result.cookie ? { 'Set-Cookie': result.cookie } : undefined,
     )
   })
+  // 固定沙箱壳公开提供，不含会话、凭据或草图数据。内容仅由父页面通过端口传入。
+  app.get(visualizationPreviewPath, () => visualizationPreviewResponse())
   registerEvents(app, services)
   registerResources(app, services)
   registerRpc(app, services)

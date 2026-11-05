@@ -1,6 +1,7 @@
 import { readFile, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
+import { visualizationPreviewPath, visualizationPreviewResponse } from '@pi-meme/visualize/server/preview-page'
 
 export const frontendMime: Record<string, string> = {
   '.html': 'text/html; charset=utf-8',
@@ -20,6 +21,7 @@ export const frontendMime: Record<string, string> = {
 
 export async function serveFrontend(requestPath: string, options: { staticDirectory?: string; frontendUrl?: string }) {
   const requestUrl = new URL(requestPath, 'http://frontend')
+  if (requestUrl.pathname === visualizationPreviewPath) return visualizationPreviewResponse()
   if (options.frontendUrl) {
     const target = new URL(options.frontendUrl)
     target.pathname = requestUrl.pathname

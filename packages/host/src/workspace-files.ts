@@ -100,6 +100,20 @@ export function createWorkspaceFiles(
     if (filename !== root && !filename.startsWith(`${root}${path.sep}`)) throw new Error('文件路径越出工作目录')
     return { root, filename }
   }
+  async function absolutePreviewTarget(ref: WorkspaceRef, absolute: string) {
+    if (absolute.includes('\0')) throw new Error('文件路径无效')
+    const configuredRoot = path.resolve(await resolveRoot(ref))
+    const root = await realpath(configuredRoot)
+    const resolved = path.resolve(absolute)
+    // 同时接受工作目录的配置路径与真实路径；后续仍由 target 检查符号链接是否逃逸。
+    for (const directory of [configuredRoot, root]) {
+      const relative = path.relative(directory, resolved)
+      if (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative)) {
+        return target(ref, relative.split(path.sep).join('/'))
+      }
+    }
+    return attachmentTarget(ref, absolute)
+  }
   async function attachmentTarget(ref: WorkspaceRef, absolute: string) {
     await resolveRoot(ref)
     const configuredRoots =
@@ -117,7 +131,7 @@ export function createWorkspaceFiles(
         break
       }
     }
-    if (!matchedRoot) throw new Error('图片路径越出附件目录')
+    if (!matchedRoot) throw new Error('图片路径越出工作目录和附件目录')
     const filename = await realpath(absolute)
     if (!filename.startsWith(`${matchedRoot}${path.sep}`)) throw new Error('图片路径越出附件目录')
     if (!imageTypes[path.extname(filename).toLowerCase()]) throw new Error('附件预览只支持图片')
@@ -153,8 +167,8 @@ export function createWorkspaceFiles(
     },
     async preview(ref: WorkspaceRef, relative: string): Promise<FilePreview> {
       const { filename } =
-        attachmentsRoot && typeof relative === 'string' && path.isAbsolute(relative)
-          ? await attachmentTarget(ref, relative)
+        typeof relative === 'string' && path.isAbsolute(relative)
+          ? await absolutePreviewTarget(ref, relative)
           : await target(ref, relative)
       return readPreview(filename, relative)
     },

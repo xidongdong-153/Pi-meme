@@ -1,4 +1,5 @@
-import { memo, useEffect, useState, useSyncExternalStore } from 'react'
+import { memo, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
+import type { HostApi, SessionRef } from '@pi-meme/contracts/app-host'
 import { ArrowLeft } from 'lucide-react'
 import type { AgentSummary, AgentStatus } from '@pi-meme/contracts/collaboration'
 import type { DesktopBridge } from '@pi-meme/contracts/desktop'
@@ -66,7 +67,11 @@ export function orderAgents(agents: AgentSummary[], opened: boolean) {
 }
 function noop() {}
 
-const AgentConversation = memo(({ bridge, id, onBack }: { bridge: DesktopBridge; id: string; onBack: () => void }) => {
+type FileScope = { files: HostApi['files']; fileSession?: SessionRef }
+type AgentConversationProps = FileScope & { bridge: DesktopBridge; id: string; onBack: () => void }
+type SubagentsPanelProps = FileScope & { bridge: DesktopBridge; sessionKey?: string }
+
+const AgentConversation = memo(({ bridge, id, onBack, files, fileSession }: AgentConversationProps) => {
   const [store] = useState(() => new AgentConversationStore(bridge, id))
   const view = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot)
   const [copyError, setCopyError] = useState('')
@@ -74,6 +79,14 @@ const AgentConversation = memo(({ bridge, id, onBack }: { bridge: DesktopBridge;
     void store.start()
     return () => store.close()
   }, [store])
+  const hostId = fileSession?.hostId
+  const sessionId = fileSession?.sessionId
+  const loadImage = useMemo(() => {
+    if (!hostId || !sessionId) return undefined
+    // 子代理与根会话共享工作目录；原生 Agent sessionId 不是 Host 的稳定 SessionRef。
+    const ref = { hostId, sessionId }
+    return (relativePath: string) => files.preview(ref, relativePath)
+  }, [files, hostId, sessionId])
   const name = view.agent ? formatAgentName(view.agent.name) : '子代理'
   const status = view.agent ? (view.agent.isPaused ? '已暂停' : labels[view.agent.status]) : '读取中'
   const model = view.agent?.model?.name || view.agent?.model?.id || '模型未知'
@@ -116,6 +129,10 @@ const AgentConversation = memo(({ bridge, id, onBack }: { bridge: DesktopBridge;
       <Conversation
         chat={view.chat}
         agent={view.agent}
+        sessionKey={view.agent?.sessionKey}
+        cwd={view.agent?.cwd}
+        fileSession={fileSession}
+        loadImage={loadImage}
         readOnly
         agentOnly
         canEditMessages={false}
@@ -127,7 +144,7 @@ const AgentConversation = memo(({ bridge, id, onBack }: { bridge: DesktopBridge;
   )
 })
 
-const SubagentsContent = memo(({ bridge, sessionKey }: { bridge: DesktopBridge; sessionKey?: string }) => {
+const SubagentsContent = memo(({ bridge, sessionKey, files, fileSession }: SubagentsPanelProps) => {
   const [agents, setAgents] = useState<AgentSummary[]>([])
   const [selected, setSelected] = useState<string>()
   const [error, setError] = useState('')
@@ -180,7 +197,16 @@ const SubagentsContent = memo(({ bridge, sessionKey }: { bridge: DesktopBridge; 
     return () => clearInterval(timer)
   }, [interval])
   if (selected)
-    return <AgentConversation key={selected} bridge={bridge} id={selected} onBack={() => setSelected(undefined)} />
+    return (
+      <AgentConversation
+        key={selected}
+        bridge={bridge}
+        id={selected}
+        files={files}
+        fileSession={fileSession}
+        onBack={() => setSelected(undefined)}
+      />
+    )
   return (
     <div className="min-h-0 flex-1 overflow-auto px-3 py-4 text-xs">
       {error && <ErrorLine message={error} className="mb-2 text-xs" />}
@@ -230,6 +256,12 @@ const SubagentsContent = memo(({ bridge, sessionKey }: { bridge: DesktopBridge; 
   )
 })
 
-export const SubagentsPanel = memo(({ bridge, sessionKey }: { bridge: DesktopBridge; sessionKey?: string }) => (
-  <SubagentsContent key={sessionKey || ''} bridge={bridge} sessionKey={sessionKey} />
+export const SubagentsPanel = memo(({ bridge, sessionKey, files, fileSession }: SubagentsPanelProps) => (
+  <SubagentsContent
+    key={sessionKey || ''}
+    bridge={bridge}
+    sessionKey={sessionKey}
+    files={files}
+    fileSession={fileSession}
+  />
 ))

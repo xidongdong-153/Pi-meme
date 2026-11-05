@@ -3,7 +3,7 @@ import { Input } from '@pi-meme/ui/components/ui/input'
 import { Switch } from '@pi-meme/ui/components/ui/switch'
 import { Slider } from '@pi-meme/ui/components/ui/slider'
 import { Popover, PopoverTrigger, PopoverContent } from '@pi-meme/ui/components/ui/popover'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useEffectEvent, useMemo, useRef, useState } from 'react'
 import { SlidersHorizontal, RotateCcw, PanelRightOpen } from 'lucide-react'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import {
@@ -11,7 +11,6 @@ import {
   type VisualizationDocument,
   type VisualizationState,
 } from '@pi-meme/contracts/visualize'
-import { previewDocument } from './preview-runtime'
 
 const feedbackSubmissions = new Set<string>()
 
@@ -54,6 +53,9 @@ export function VisualizationPreview({
   const current = useRef(state)
   const [height, setHeight] = useState(360)
   const [error, setError] = useState('')
+  const [previewError, setPreviewError] = useState('')
+  const [starting, setStarting] = useState(true)
+  const [attempt, setAttempt] = useState(0)
   const [controls, setControls] = useState(false)
   const [draft, setDraft] = useState(() => {
     try {
@@ -81,7 +83,6 @@ export function VisualizationPreview({
   }, [storageKey])
   const [sending, setSending] = useState(false)
   const token = useMemo(() => crypto.randomUUID(), [])
-  const source = useMemo(() => previewDocument(document, token), [document, token])
   const apply = (next: VisualizationState, broadcast = true) => {
     validateVisualizationState(next, document)
     current.current = next
@@ -106,7 +107,6 @@ export function VisualizationPreview({
     window.addEventListener('pi-visualization-state', receive)
     return () => {
       window.removeEventListener('pi-visualization-state', receive)
-      port.current?.close()
     }
     // 状态通过 current 引用读取，监听仅随设计版本切换。
   }, [storageKey, token])
@@ -119,31 +119,72 @@ export function VisualizationPreview({
     observer.observe(window.document.documentElement, { attributes: true, attributeFilter: ['class', 'style'] })
     return () => observer.disconnect()
   }, [])
-  const initialize = () => {
-    port.current?.close()
-    const channel = new MessageChannel()
-    port.current = channel.port1
-    channel.port1.onmessage = ({ data }) => {
-      if (!data || typeof data !== 'object') return
-      if (data.type === 'height' && Number.isFinite(data.height)) setHeight(Math.max(160, Math.min(1200, data.height)))
-      if (data.type === 'error') setError(String(data.message).slice(0, 2000))
-      if (data.type === 'patch') {
-        try {
-          if (!data.patch || typeof data.patch !== 'object' || Array.isArray(data.patch))
-            throw new Error('状态变更无效')
-          apply({ ...current.current, ...data.patch })
-          channel.port1.postMessage({ type: 'reply', requestId: data.requestId, state: current.current })
-        } catch (cause) {
-          channel.port1.postMessage({ type: 'reply', requestId: data.requestId, error: String(cause) })
+  const applyPreviewState = useEffectEvent((patch: Record<string, unknown>) => {
+    apply({ ...current.current, ...patch } as VisualizationState)
+  })
+  useEffect(() => {
+    const iframe = frame.current
+    if (!iframe) return
+    const bridgeToken = crypto.randomUUID()
+    let channel: MessageChannel | undefined
+    let active = true
+    setStarting(true)
+    setPreviewError('')
+    const startupFailure = '草图未能启动，请重新加载。'
+    const timeout = window.setTimeout(() => {
+      if (!active) return
+      setStarting(false)
+      setPreviewError(startupFailure)
+    }, 10000)
+    const initialize = () => {
+      if (!active) return
+      channel?.port1.close()
+      channel = new MessageChannel()
+      const connected = channel
+      port.current = connected.port1
+      connected.port1.onmessage = ({ data }) => {
+        if (!active || port.current !== connected.port1 || !data || typeof data !== 'object') return
+        if (data.type === 'ready') {
+          window.clearTimeout(timeout)
+          setStarting(false)
+          setPreviewError((previous) => (previous === startupFailure ? '' : previous))
+        }
+        if (data.type === 'height' && Number.isFinite(data.height))
+          setHeight(Math.max(160, Math.min(1200, data.height)))
+        if (data.type === 'error') {
+          window.clearTimeout(timeout)
+          setStarting(false)
+          setPreviewError(String(data.message).slice(0, 2000))
+        }
+        if (data.type === 'patch') {
+          try {
+            if (!data.patch || typeof data.patch !== 'object' || Array.isArray(data.patch))
+              throw new Error('状态变更无效')
+            applyPreviewState(data.patch)
+            connected.port1.postMessage({ type: 'reply', requestId: data.requestId, state: current.current })
+          } catch (cause) {
+            connected.port1.postMessage({ type: 'reply', requestId: data.requestId, error: String(cause) })
+          }
         }
       }
+      iframe.contentWindow?.postMessage(
+        { token: bridgeToken, html: document.html, state: current.current, sequence: sequence.current, theme: theme() },
+        '*',
+        [connected.port2],
+      )
     }
-    frame.current?.contentWindow?.postMessage(
-      { token, state: current.current, sequence: sequence.current, theme: theme() },
-      '*',
-      [channel.port2],
-    )
-  }
+    iframe.addEventListener('load', initialize)
+    // 独立响应的 CSP 不继承应用页面。query 确保重试/恢复真正重载文档，fragment 只承载握手 token。
+    iframe.src = `/visualization-preview?instance=${crypto.randomUUID()}#${bridgeToken}`
+    return () => {
+      active = false
+      window.clearTimeout(timeout)
+      iframe.removeEventListener('load', initialize)
+      channel?.port1.close()
+      channel?.port2.close()
+      if (port.current === channel?.port1) port.current = null
+    }
+  }, [document, attempt])
   const feedbackForm = (
     <form
       className="flex gap-2"
@@ -200,12 +241,25 @@ export function VisualizationPreview({
           title={document.title}
           sandbox="allow-scripts"
           referrerPolicy="no-referrer"
-          loading="lazy"
-          srcDoc={source}
-          onLoad={initialize}
+          aria-busy={starting}
           className="w-full border-0"
           style={{ height }}
         />
+        {starting && (
+          <p role="status" className="ui-loading-delayed text-sm text-muted-foreground">
+            正在加载草图…
+          </p>
+        )}
+        {previewError && (
+          <div className="flex items-center gap-2">
+            <p role="alert" className="min-w-0 flex-1 text-sm text-destructive">
+              {previewError}
+            </p>
+            <Button variant="outline" size="sm" onClick={() => setAttempt((value) => value + 1)}>
+              重新加载
+            </Button>
+          </div>
+        )}
         {error && (
           <p role="alert" className="text-destructive">
             {error}

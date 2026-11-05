@@ -83,6 +83,7 @@ export function createWebConfig(
       strictPort: true,
       proxy: {
         '/api': { target: hostUrl, ws: true, changeOrigin: false },
+        '/visualization-preview': { target: hostUrl, changeOrigin: false },
       },
     },
     build: {

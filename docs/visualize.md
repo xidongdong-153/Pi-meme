@@ -49,7 +49,7 @@ await window.piVisualize.setState({ compact: true })
 
 首次渲染需读取 `getState()`；订阅回调不要重复写状态。`setState` 仅修改声明的键，返回 Promise；无效类型、选项或范围会拒绝。Host UI 控件与草图内部点击共用状态，同一会话同一版本的内联预览与右栏同步。
 
-iframe 初始化检查父窗口来源和随机 token，再通过独立 MessageChannel 传递完整状态、递增序号、补丁请求、错误、主题和高度。草图只能访问模拟状态；不提供宿主业务调用。主题变量随宿主主题更新。
+iframe 初始化检查消息来自父窗口、URL fragment 中的随机 token 和唯一消息端口，再通过独立 MessageChannel 传递 HTML、完整状态、递增序号、补丁请求、错误、主题和高度。草图只能访问模拟状态；不提供宿主业务调用。主题变量随宿主主题更新。预览在 10 秒内没有报告就绪时显示启动失败；脚本错误同样显示原因，可点击“重新加载”恢复，保留设计状态和反馈草稿。
 
 反馈提交包含草图 ID、版本和当时状态，走当前会话的提交守卫及队列。反馈不清空主输入框草稿，不创建新会话；接受后清空反馈框并跟随该设计的最新版本。历史消息保留原版本。用户可以在版本下拉中切回旧版本。
 
@@ -61,13 +61,15 @@ iframe 初始化检查父窗口来源和随机 token，再通过独立 MessageCh
 - UI 状态：浏览器 localStorage 按 Host、会话、草图和版本保存预览状态、反馈草稿；草图选择另行保存。不同浏览器不共享此状态，同一会话分支中引用相同版本时共用该预览状态。
 - 反馈上下文：随队列保存，执行时再次验证，写入 Pi 自定义上下文 entry。
 
-预览使用 `sandbox="allow-scripts"`，没有同源、弹窗、表单提交和宿主桥接权限。CSP 禁止联网及外部脚本、样式、字体；图片仅允许 data URI。它用于模拟交互，不是任意网页浏览器。正式产物当前不自动做孤立文件回收，删除会话后不应手动删除其他分支仍引用的版本。
+预览导航到 Host 的固定 `/visualization-preview` 页面，不使用 `srcDoc`，避免继承应用页面禁止内联脚本的 CSP。该页面公开提供固定运行壳，不含会话或草图数据；HTML 与状态在页面加载后由父窗口通过消息端口传入。开发 Vite 将此路径代理给 Host，Desktop 与生产 Web 共用相同入口。预览响应有独立 CSP，仅该页面允许内联脚本，应用页面的脚本策略不变。
+
+iframe 和预览响应均使用 `sandbox allow-scripts`，没有同源、弹窗、表单提交和宿主桥接权限。CSP 禁止联网及外部脚本、样式、字体；图片仅允许 data URI，且仅允许同源父页面嵌入。它用于模拟交互，不是任意网页浏览器。正式产物当前不自动做孤立文件回收，删除会话后不应手动删除其他分支仍引用的版本。
 
 ## 修改位置与验证
 
 - [契约](../packages/contracts/src/visualize.ts)：参数、控件校验、分支投影。
 - [工具](../packages/visualize/src/agent/entry.ts)、[存储](../packages/visualize/src/server/store.ts)：Agent 工具与不可变版本。
-- [预览](../packages/visualize/src/ui/visualization-preview.tsx)、[运行环境](../packages/visualize/src/ui/preview-runtime.ts)、[目录与面板](../packages/visualize/src/ui/use-visualizations.tsx)：渲染、设计控件、状态与反馈。
+- [预览](../packages/visualize/src/ui/visualization-preview.tsx)、[运行环境](../packages/visualize/src/server/preview-page.ts)、[目录与面板](../packages/visualize/src/ui/use-visualizations.tsx)：渲染、设计控件、状态与反馈。
 - [Host](../packages/host/src/service.ts)、[HostApi](../packages/host/src/app-control.ts)、[Worker](../packages/pi-adapter/src/session-worker.ts)：生命周期、存储选择与调用授权。
 - [Pi 会话](../packages/pi-runtime/src/sdk/session.ts)、[聊天提交](../packages/chat/src/ui/use-chat-session.ts)：反馈上下文与队列。
 - [App](../packages/app-ui/src/app.tsx)、[样式扫描](../packages/app-ui/src/global.css)：右栏入口与共享渲染上下文。

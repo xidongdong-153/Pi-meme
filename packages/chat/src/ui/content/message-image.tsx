@@ -9,10 +9,13 @@ export const MessageImageLoaderContext = React.createContext<MessageImageLoader 
 function classifyImageError(cause: unknown, relativePath: string): { error: string; reason: string } {
   const rawMessage = cause instanceof Error ? cause.message : ''
   const isAbsolute = /^(?:\/|[a-z]:[\\/]|\\\\)/i.test(relativePath)
-  if (rawMessage.includes('越出附件目录') || (isAbsolute && rawMessage.includes('越出'))) {
-    return { error: '找不到图片文件，无法读取。', reason: '图片不在附件目录' }
+  if (rawMessage.includes('越出工作目录和附件目录')) {
+    return { error: '图片路径不在当前会话工作目录或附件目录内。', reason: '图片路径超出范围' }
   }
-  if (!isAbsolute && (rawMessage.includes('越出工作目录') || rawMessage.includes('必须是工作目录内的相对路径'))) {
+  if (rawMessage.includes('越出附件目录')) {
+    return { error: '图片路径越出附件目录。', reason: '图片不在附件目录' }
+  }
+  if (rawMessage.includes('越出工作目录') || rawMessage.includes('必须是工作目录内的相对路径')) {
     return { error: '图片路径越出当前会话工作目录。', reason: '路径越出工作目录' }
   }
   if (rawMessage.includes('只支持图片') || rawMessage.includes('只能预览普通文件')) {

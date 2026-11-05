@@ -166,7 +166,7 @@ Host 退出或重启将未完成提交记为 `interrupted`，不重放任务。`
 
 ## 文件与终端
 
-文件操作使用显式目标的工作目录内相对路径；只有 `preview` 额外接受当前 Host 附件目录内的图片绝对路径，用于显示用户消息中的上传图片。[workspace-files.ts](../packages/host/src/workspace-files.ts) 校验目标、路径与真实符号链接目标，拒绝越界：
+文件操作使用显式目标的工作目录内相对路径；`preview` 额外接受该工作目录内的绝对路径，以及当前 Host 附件目录内的图片绝对路径，用于显示 Agent 截图和上传图片。工作目录的配置路径与解析后的真实路径均可使用，符号链接目标仍须留在对应允许目录内。[workspace-files.ts](../packages/host/src/workspace-files.ts) 校验目标、路径与真实符号链接目标，拒绝越界：
 
 - `preview` 分类返回文本、图片或不支持原因；附件预览只读取数据目录 `data/attachments/` 内的图片，拒绝符号链接根目录与越界链接，不允许读取附件文本或修改附件。`search` 按文件名搜索并返回分页游标。
 - `write` 只保存现有 UTF-8 文本文件，携带读取时的 `revision` 和幂等键，外部修改后拒绝覆盖。

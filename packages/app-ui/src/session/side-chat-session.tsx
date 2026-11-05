@@ -503,7 +503,12 @@ export function SideChatSession({
               view === 'plan' ? (
                 <PlanPanel documents={chat.planDocuments} />
               ) : view === 'agents' ? (
-                <SubagentsPanel bridge={bridge} sessionKey={chat.connection.sessionKey} />
+                <SubagentsPanel
+                  bridge={bridge}
+                  sessionKey={chat.connection.sessionKey}
+                  files={host.files}
+                  fileSession={session ?? undefined}
+                />
               ) : (
                 conversation
               )

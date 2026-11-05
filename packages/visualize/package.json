@@ -6,6 +6,7 @@
   "exports": {
     "./agent/entry": "./src/agent/entry.ts",
     "./server/store": "./src/server/store.ts",
+    "./server/preview-page": "./src/server/preview-page.ts",
     "./ui/use-visualizations": "./src/ui/use-visualizations.tsx",
     "./server/entry": "./src/server/entry.ts"
   },
