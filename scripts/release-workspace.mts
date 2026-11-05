@@ -38,15 +38,9 @@ export async function stageHostWorkspace(repo: string, workspace: string) {
         !path.basename(source).startsWith('.env') &&
         !source.endsWith('.tsbuildinfo'),
     })
-  const manifestFile = path.join(workspace, 'package.json')
-  const manifest = JSON.parse(await readFile(manifestFile, 'utf8'))
-  const desktop = JSON.parse(await readFile(path.join(repo, 'apps/desktop/package.json'), 'utf8'))
-  // 注入副本沿用既有类型 peer，避免冷缓存生成不同的依赖上下文。
-  for (const name of ['@types/react', '@types/react-dom'])
-    manifest.devDependencies[name] = desktop.devDependencies[name]
-  await writeFile(manifestFile, `${JSON.stringify(manifest, null, 2)}\n`)
   const file = path.join(workspace, 'pnpm-workspace.yaml')
   const config = parse(await readFile(file, 'utf8')) as Record<string, unknown>
+  // deploy 直接将源锁文件的工作区 link 引用转换为部署快照，无需重新解析依赖。
   config.injectWorkspacePackages = true
   await writeFile(file, stringify(config))
 }

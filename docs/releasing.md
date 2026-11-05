@@ -56,17 +56,17 @@ pnpm install --frozen-lockfile --registry=https://registry.npmjs.org
 pnpm package:host
 ```
 
-脚本先在日常源码工作区构建 Web 和 Server，再复制到临时发布工作区；排除 `node_modules`、Electron 产物、缓存和环境文件，只在暂存配置启用 `injectWorkspacePackages`。日常安装继续使用源码软链接，避免把 TS 源文件放入 `node_modules` 后破坏开发入口、Vite 配置和源码热更新。暂存根复用 Desktop 已声明的 `@types/react`、`@types/react-dom` 开发依赖，明确既有的 peer 上下文，避免冷元数据缓存生成额外依赖图；不新增外部版本。
+脚本先在日常源码工作区构建 Web 和 Server，再复制到临时发布工作区；排除 `node_modules`、Electron 产物、缓存和环境文件，只在暂存配置启用 `injectWorkspacePackages`，不改包清单或锁文件。日常安装继续使用源码软链接，避免把 TS 源文件放入 `node_modules` 后破坏开发入口、Vite 配置和源码热更新。
 
-暂存区通过 `pnpm install --lockfile-only --ignore-scripts --no-frozen-lockfile` 从已有锁文件派生工作区注入关系；该步骤允许读取官方 npm 元数据，不运行安装脚本。脚本逐项比较外部依赖版本、下载校验值与依赖图，任何变化都会中止，不接受重新解析出的其他版本。然后执行非 legacy 的 `pnpm deploy --prod --frozen-lockfile`，按核对后的锁文件安装生产依赖；不修改仓库的锁文件或 `node_modules`。不能添加 `--offline`：只有已下载的包内容、不含 registry 元数据的干净 runner 无法派生注入关系。实现见 [release-workspace.mts](../scripts/release-workspace.mts)。
+脚本逐项比较暂存锁文件与源码锁文件的外部依赖版本、下载校验值与依赖图，任何变化都会中止。随后直接执行非 legacy 的 `pnpm deploy --prod --frozen-lockfile`。固定的 pnpm 10.29.1 会读取原锁文件，将工作区 `link:` 引用和各包的生产依赖转换为部署用的本地 `file:` 快照，再按生成的单项目锁文件冻结安装；外部依赖沿用原锁定记录，不经过 registry 版本或 peer 上下文重解析。暂存区不运行 `pnpm install --lockfile-only --no-frozen-lockfile`，避免重新选择已有版本或改变外部依赖图；不修改仓库的锁文件或 `node_modules`。实现见 [release-workspace.mts](../scripts/release-workspace.mts) 和 [package-host.mts](../scripts/package-host.mts)。
 
 ```mermaid
 %%{init: {"theme": "dark"}}%%
 flowchart LR
   Source["源码工作区与冻结锁文件"] --> Build["构建 Web 与 Server"]
-  Build --> Stage["临时发布工作区启用注入"]
+  Build --> Stage["临时工作区保留原锁文件"]
   Stage --> Verify["核对外部版本、校验值与依赖图"]
-  Verify --> Deploy["非 legacy 冻结部署"]
+  Verify --> Deploy["非 legacy 转换工作区引用并冻结部署"]
   Deploy --> Host["Host 独立包"]
 ```
 

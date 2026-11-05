@@ -41,16 +41,6 @@ async function main() {
     pnpm(['build:server'])
     const workspace = path.join(directory, 'workspace')
     await stageHostWorkspace(repoRoot, workspace)
-    pnpm(
-      [
-        'install',
-        '--lockfile-only',
-        '--ignore-scripts',
-        '--no-frozen-lockfile',
-        '--registry=https://registry.npmjs.org',
-      ],
-      workspace,
-    )
     assertLockedDependencies(
       await readFile(path.join(repoRoot, 'pnpm-lock.yaml'), 'utf8'),
       await readFile(path.join(workspace, 'pnpm-lock.yaml'), 'utf8'),
