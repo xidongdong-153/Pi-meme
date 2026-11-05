@@ -25,6 +25,24 @@ function inputReadKey(path: string, requestId: string): string {
   return JSON.stringify(['input', path, requestId])
 }
 
+/**
+ * 已读基线：首次运行或新增未读状态后首次运行时只写一次。
+ * 基线之前完成的会话一律算已读，升级后不会把历史会话整片标成未读。
+ */
+function readBaseline(key: string): string {
+  try {
+    const stored = localStorage.getItem(key)
+    if (stored && Number.isFinite(Date.parse(stored))) return stored
+    localStorage.setItem(key, new Date().toISOString())
+    // 其他窗口可能同时写入更早的基线，以已落盘的值为准。
+    const saved = localStorage.getItem(key)
+    if (saved && Number.isFinite(Date.parse(saved))) return saved
+  } catch {
+    // 存储不可用时退回本次挂载时间，只影响当前窗口。
+  }
+  return new Date().toISOString()
+}
+
 /** 已读状态属于当前客户端，按 Host 和原生会话路径隔离。 */
 export function useSessionAttention(
   snapshot: PiSessionsSnapshot | null,
@@ -34,20 +52,30 @@ export function useSessionAttention(
   running = false,
 ) {
   const storageKey = `pi-meme:session-read:v1:${encodeURIComponent(hostId)}`
-  const [saved, setSaved] = useState<{ key: string; read: Record<string, string> }>(() => ({ key: '', read: {} }))
+  const baselineKey = `pi-meme:session-read-baseline:v1:${encodeURIComponent(hostId)}`
+  const [saved, setSaved] = useState<{ key: string; baseline: string; read: Record<string, string> }>(() => ({
+    key: '',
+    baseline: '',
+    read: {},
+  }))
   useEffect(() => {
-    setSaved({ key: storageKey, read: readStorage(storageKey) })
+    setSaved({ key: storageKey, baseline: readBaseline(baselineKey), read: readStorage(storageKey) })
     const changed = (event: StorageEvent) => {
-      if (event.key !== storageKey) return
+      if (event.key !== storageKey && event.key !== baselineKey) return
       const latest = readStorage(storageKey)
-      setSaved((previous) => ({
-        key: storageKey,
-        read: mergeRead(previous.key === storageKey ? previous.read : {}, latest),
-      }))
+      setSaved((previous) =>
+        previous.key === storageKey
+          ? {
+              key: storageKey,
+              baseline: event.key === baselineKey ? readBaseline(baselineKey) : previous.baseline,
+              read: mergeRead(previous.read, latest),
+            }
+          : previous,
+      )
     }
     window.addEventListener('storage', changed)
     return () => window.removeEventListener('storage', changed)
-  }, [storageKey])
+  }, [storageKey, baselineKey])
 
   useEffect(() => {
     if (saved.key !== storageKey) return
@@ -93,7 +121,7 @@ export function useSessionAttention(
       } catch {
         // 存储不可用时保留当前窗口的已读状态。
       }
-      setSaved({ key: storageKey, read })
+      setSaved({ ...saved, read })
     }
     mark()
     document.addEventListener('visibilitychange', mark)
@@ -106,6 +134,8 @@ export function useSessionAttention(
 
   return useMemo(() => {
     if (!snapshot) return snapshot
+    // 基线缺失时先渲染为已读，避免挂载首帧整片标蓝。
+    const baseline = saved.key === storageKey ? Date.parse(saved.baseline) : Number.NaN
     const decorate = (session: PiSessionSummary): PiSessionSummary => ({
       ...session,
       inputUnread: Boolean(
@@ -117,10 +147,11 @@ export function useSessionAttention(
           : true),
       ),
       unread: Boolean(
-        saved.key === storageKey &&
         session.completedAt &&
         Number.isFinite(Date.parse(session.completedAt)) &&
         !session.running &&
+        Number.isFinite(baseline) &&
+        Date.parse(session.completedAt) > baseline &&
         !(Date.parse(saved.read[session.path] ?? '') >= Date.parse(session.completedAt)),
       ),
     })
