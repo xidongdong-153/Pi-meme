@@ -249,7 +249,8 @@ export function ModelPickerPopover({
     return () => ownerDocument.removeEventListener('pointerdown', dismissOutside, true)
   }, [active, open])
 
-  const handledOpenModelsVersion = React.useRef<number | undefined>(undefined)
+  // 挂载时以当前版本为基线，避免重新挂载时重放历史打开请求。
+  const handledOpenModelsVersion = React.useRef(openModelsVersion)
   React.useEffect(() => {
     const requested = openModelsVersion !== handledOpenModelsVersion.current
     handledOpenModelsVersion.current = openModelsVersion
