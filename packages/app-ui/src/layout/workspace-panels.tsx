@@ -40,6 +40,8 @@ import { ResizeHandle } from './resize-handle'
 import type { WorkspaceView } from './use-workspace-view'
 
 const emptyBrowserPanels: string[] = []
+const tabIconClassName =
+  'flex size-3.5 shrink-0 items-center justify-center [&_img]:size-3.5 [&_img]:object-contain [&_svg]:size-3.5'
 
 export function WorkspacePanels({
   panels,
@@ -582,7 +584,9 @@ export function WorkspacePanels({
                 onClick={() => selectTab('chat')}
                 className="flex h-7 w-40 max-w-60 items-center gap-1.5 pl-2.5 pr-1 text-xs"
               >
-                <MessageCircle className="size-3.5 shrink-0" />
+                <span aria-hidden="true" className={tabIconClassName}>
+                  <MessageCircle />
+                </span>
                 <span className="truncate">{sessionTitle}</span>
               </button>
             </TooltipHint>
@@ -596,11 +600,7 @@ export function WorkspacePanels({
           const title = directory || (isSideChat ? (panel?.title ?? '侧边聊天') : (panel?.title ?? '新标签页'))
           const browserTab = id.startsWith('builtin:browser:')
           const closing = isClosingTab(id)
-          const icon = browserTab
-            ? (panel?.icon ?? <Grid2X2 />)
-            : isSideChat
-              ? (panel?.icon ?? <MessageSquarePlus className="size-3.5" />)
-              : (panel?.icon ?? <Grid2X2 />)
+          const icon = panel?.icon ?? (isSideChat ? <MessageSquarePlus /> : <Grid2X2 />)
           return (
             <div
               key={id}
@@ -617,9 +617,7 @@ export function WorkspacePanels({
                   onClick={() => selectTab(id)}
                   className={`flex h-7 min-w-0 items-center gap-1.5 pl-2.5 pr-1 text-xs ${browserTab || directory ? 'min-w-28 max-w-56' : unified ? 'min-w-20 max-w-36' : ''}`}
                 >
-                  <span
-                    className={`flex shrink-0 items-center justify-center ${browserTab ? 'size-5 [&>img]:size-5 [&>svg]:size-5' : 'size-3.5 [&>svg]:size-3.5'}`}
-                  >
+                  <span aria-hidden="true" className={tabIconClassName}>
                     {icon}
                   </span>
                   <span className={`${directory ? 'max-w-48' : 'max-w-28'} truncate`}>{title}</span>
