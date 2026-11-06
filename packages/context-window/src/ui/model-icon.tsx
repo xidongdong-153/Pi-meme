@@ -1,3 +1,5 @@
+import type { CSSProperties } from 'react'
+
 // Original model logos from Magpie (MIT © 2026 yetone).
 const labs: Array<{ pattern: RegExp; src: string; mono?: boolean }> = [
   { pattern: /claude/, src: new URL('./icons/claude-color.svg', import.meta.url).href },
@@ -20,14 +22,14 @@ const labs: Array<{ pattern: RegExp; src: string; mono?: boolean }> = [
 export function ModelIcon({ model }: { model: string }) {
   const name = model.toLowerCase().split('/').pop() ?? ''
   const lab = labs.find((one) => one.pattern.test(name))
-  return lab ? (
-    <img
-      src={lab.src}
-      alt=""
+  if (!lab) return null
+  return lab.mono ? (
+    <span
       aria-hidden="true"
-      className={`ctx-model-icon${lab.mono ? ' mono' : ''}`}
-      width={12}
-      height={12}
+      className="ctx-model-icon mono"
+      style={{ '--ctx-logo': `url("${lab.src}")` } as CSSProperties}
     />
-  ) : null
+  ) : (
+    <img src={lab.src} alt="" aria-hidden="true" className="ctx-model-icon" width={12} height={12} />
+  )
 }

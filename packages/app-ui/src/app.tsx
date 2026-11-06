@@ -65,7 +65,8 @@ import { useAppSession } from './session/use-app-session'
 import { messageText } from '@pi-meme/chat/ui/model/message-text'
 import { LiveTurnChanges } from '@pi-meme/chat/ui/conversation/turn-changes'
 import { useTurnChanges } from './session/use-turn-changes'
-import { ContextWindowTool, SessionContextUsage, useContextWindowApi } from './panels/context-window-tool'
+import { ContextUsageRing } from '@pi-meme/models/ui/context-usage-ring'
+import { ContextWindowTool, useContextWindowApi, useSessionContextRequest } from './panels/context-window-tool'
 import { useSettings } from '@pi-meme/settings/ui/use-settings'
 import { AppearanceProvider, useAppearance, useOptionalAppearance } from '@pi-meme/settings/ui/appearance-provider'
 import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
@@ -566,6 +567,7 @@ function AppContent({
   const projectsOpen = route.kind === 'projects'
   const customizationOpen = route.kind === 'customization'
   const chatVisible = route.kind === 'chat'
+  const contextRequest = useSessionContextRequest(host, contextApi, appSession, active && chatVisible)
   const [chatPaneVisible, setChatPaneVisible] = useState(false)
   useEffect(() => {
     chat.setReadVisible(chatVisible && active && chatPaneVisible)
@@ -1180,14 +1182,11 @@ function AppContent({
     onError: chat.setError,
     contextUsage:
       settings.snapshot?.settings.showContextUsage !== false ? (
-        <SessionContextUsage
-          host={host}
-          api={contextApi}
-          session={appSession}
-          active={active && chatVisible}
+        <ContextUsageRing
+          context={contextRequest}
           stats={chat.sessionStats}
           generationMetrics={generationMetrics}
-          onOpenContext={() => openTool('builtin:context-window')}
+          onOpenContext={contextRequest ? () => openTool('builtin:context-window') : undefined}
         />
       ) : null,
     model: (
@@ -1623,7 +1622,7 @@ function AppContent({
     return () => document.removeEventListener('click', follow, true)
   }, [browserPlatform, browserOwner, active, chatVisible, chat.setError])
   const panels: UiPanel[] = [
-    ...(contextApi
+    ...(contextApi && contextRequest
       ? [
           {
             id: 'builtin:context-window',

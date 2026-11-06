@@ -1,43 +1,41 @@
 /* Adapted from Magpie context.css, MIT © 2026 yetone. All colors and rules are local. */
 .magpie-context {
-  --card: #fff;
-  --pill: #f1f1f4;
-  --line: #e3e3e8;
-  --fg: #1c1c21;
-  --fg-2: #4b4b53;
-  --muted: #85858d;
-  --faint: #b9b9c2;
-  --accent: #4f46e5;
-  --green: #189a58;
-  --green-soft: #e4f6ec;
-  --amber: #b45309;
-  --amber-soft: #fbf0df;
-  --red: #d64545;
-  --red-soft: #fbe9e9;
-  --c1: #4f46e5;
-  --c2: #0ea5e9;
-  --c3: #10b981;
-  --c4: #f59e0b;
-  --c6: #8b5cf6;
-  --c7: #64748b;
+  --ctx-card: var(--color-surface);
+  --pill: var(--color-elevated);
+  --line: var(--color-border);
+  --fg: var(--color-text);
+  --fg-2: color-mix(in srgb, var(--color-text) 80%, var(--color-muted));
+  --ctx-muted: var(--color-muted);
+  --faint: var(--color-muted);
+  --ctx-accent: var(--color-accent);
+  --green: var(--color-success);
+  --green-soft: color-mix(in srgb, var(--green) 12%, var(--ctx-card));
+  --amber: light-dark(#b45309, #f2b544);
+  --amber-soft: color-mix(in srgb, var(--amber) 12%, var(--ctx-card));
+  --red: var(--color-error);
+  --red-soft: color-mix(in srgb, var(--red) 12%, var(--ctx-card));
+  --c1: var(--color-accent);
+  --c2: light-dark(#0284c7, #7dd3fc);
+  --c3: var(--color-success);
+  --c4: light-dark(#b45309, #fcd34d);
+  --c6: light-dark(#7c3aed, #c4b5fd);
+  --c7: var(--color-muted);
   --k-system: var(--c6);
   --k-tools: var(--c2);
   --k-skills: var(--c7);
   --k-memory: var(--c4);
   --k-files: var(--c3);
   --k-chat: var(--c1);
-  --k-results: #ea580c;
+  --k-results: light-dark(#c2410c, #fdba74);
   --k-free: color-mix(in srgb, var(--fg) 7%, transparent);
-  --code: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  --code: var(--font-code);
   --ease: cubic-bezier(0.22, 1, 0.36, 1);
   color: var(--fg);
-  font:
-    400 13px/1.4 -apple-system,
-    BlinkMacSystemFont,
-    'SF Pro Text',
-    'Segoe UI',
-    system-ui,
-    sans-serif;
+  font-family: var(--font-ui);
+  font-size: 13px;
+  font-weight: var(--font-ui-weight, 400);
+  font-style: var(--font-ui-style, normal);
+  line-height: 1.4;
   font-variant-numeric: tabular-nums;
   *,
   *::before,
@@ -54,7 +52,7 @@
     opacity: 0.55;
   }
   button:focus-visible {
-    outline: 2px solid var(--accent);
+    outline: 2px solid var(--ctx-accent);
     outline-offset: 2px;
   }
   .k-system {
@@ -101,7 +99,7 @@
     border: 0;
     padding: 4px 6px;
     border-radius: 6px;
-    color: var(--muted);
+    color: var(--ctx-muted);
     font-size: 11.5px;
   }
   .text:hover {
@@ -109,11 +107,11 @@
     color: var(--fg);
   }
   .text.primary {
-    color: var(--accent);
+    color: var(--ctx-accent);
   }
   .ctx-card {
     position: relative;
-    background: var(--card);
+    background: var(--ctx-card);
     border: 1px solid var(--line);
     border-radius: 14px;
     padding: 14px 16px 12px;
@@ -215,7 +213,7 @@
     white-space: nowrap;
     font-family: var(--code-font, var(--code));
     font-size: 11px;
-    color: var(--muted);
+    color: var(--ctx-muted);
   }
   .ctx-state {
     display: inline-flex;
@@ -269,7 +267,7 @@
     font-weight: 600;
     letter-spacing: 0.06em;
     text-transform: uppercase;
-    color: var(--muted);
+    color: var(--ctx-muted);
     white-space: nowrap;
   }
   & .ctx-k,
@@ -297,7 +295,7 @@
     align-items: baseline;
     gap: 0.35em;
     white-space: nowrap;
-    color: var(--muted);
+    color: var(--ctx-muted);
     font-size: 13px;
   }
   .ctx-big b {
@@ -311,7 +309,7 @@
     font-size: 10.5px;
     letter-spacing: 0.05em;
     text-transform: uppercase;
-    color: var(--muted);
+    color: var(--ctx-muted);
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -432,8 +430,9 @@
     max-width: 280px;
     padding: 8px 10px;
     border-radius: 9px;
-    background: #17171b;
-    color: #ededf1;
+    background: var(--popover);
+    color: var(--popover-foreground);
+    border: 1px solid var(--line);
     box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28);
     font-size: 11.5px;
     pointer-events: none;
@@ -454,12 +453,12 @@
     flex: 1;
   }
   .ctx-tip-head span:last-child {
-    color: #a1a1aa;
+    color: var(--ctx-muted);
   }
   .ctx-tip-row {
     display: flex;
     gap: 10px;
-    color: #b9b9c1;
+    color: var(--fg-2);
   }
   .ctx-tip-row .n {
     flex: 1;
@@ -469,11 +468,11 @@
     white-space: nowrap;
   }
   .ctx-tip-row.on {
-    color: #fff;
+    color: var(--fg);
     font-weight: 500;
   }
   .ctx-tip-more {
-    color: #85858d;
+    color: var(--ctx-muted);
     font-size: 10.5px;
   }
 
@@ -493,7 +492,7 @@
     padding: 2px 0;
   }
   .ctx-leg .v {
-    color: var(--muted);
+    color: var(--ctx-muted);
   }
   .ctx-leg:hover .n {
     color: var(--fg);
@@ -576,7 +575,7 @@
   }
   .ctx-x {
     font-size: 11px;
-    color: var(--muted);
+    color: var(--ctx-muted);
   }
   .ctx-tag {
     flex: none;
@@ -585,7 +584,7 @@
     padding: 1px 5px;
     border-radius: 4px;
     background: var(--pill);
-    color: var(--muted);
+    color: var(--ctx-muted);
   }
   .ctx-mini {
     flex: none;
@@ -613,7 +612,7 @@
   }
   .ctx-empty {
     font-size: 12px;
-    color: var(--muted);
+    color: var(--ctx-muted);
     padding: 4px 0;
   }
   .ctx-more {
@@ -628,7 +627,7 @@
     gap: 10px;
     min-width: 0;
     font-size: 11px;
-    color: var(--muted);
+    color: var(--ctx-muted);
   }
   .ctx-crumbs {
     min-width: 0;
@@ -637,7 +636,7 @@
     white-space: nowrap;
     font-family: var(--code-font, var(--code));
     font-size: 10.5px;
-    color: var(--muted);
+    color: var(--ctx-muted);
   }
   .ctx-note {
     white-space: nowrap;
@@ -671,7 +670,7 @@
     height: 7px;
     margin: -3.5px 0 0 -3.5px;
     border-radius: 50%;
-    background: var(--card);
+    background: var(--ctx-card);
     border: 1.6px solid var(--k-chat);
     box-sizing: border-box;
     pointer-events: none;
@@ -746,7 +745,7 @@
     display: none;
     flex: none;
     font-size: 11.5px;
-    color: var(--muted);
+    color: var(--ctx-muted);
     white-space: nowrap;
   }
   .ctx-card.shut .ctx-short {
@@ -825,7 +824,7 @@
     border-radius: 5px;
   }
   .ctx-click:focus-visible {
-    outline: 2px solid var(--accent, var(--fg));
+    outline: 2px solid var(--ctx-accent, var(--fg));
     outline-offset: 1px;
   }
   .ctx-waffle > i:not(.free) {
@@ -849,7 +848,7 @@
   .ctx-view-total {
     flex: none;
     font-size: 11.5px;
-    color: var(--muted);
+    color: var(--ctx-muted);
     font-variant-numeric: tabular-nums;
   }
   .modal .editor.ctx-view > .ebody {
@@ -864,14 +863,14 @@
   .ctx-view-note {
     margin: 0;
     font-size: 11.5px;
-    color: var(--muted);
+    color: var(--ctx-muted);
   }
   .ctx-view-wait,
   .ctx-view-gone {
     margin: 0;
     padding: 12px 0;
     font-size: 12px;
-    color: var(--muted);
+    color: var(--ctx-muted);
   }
   .ctx-vi-list {
     display: flex;
@@ -950,7 +949,7 @@
     font-weight: 600;
     letter-spacing: 0.04em;
     text-transform: uppercase;
-    color: var(--muted);
+    color: var(--ctx-muted);
   }
   .ctx-piece-name {
     font-family: var(--code-font, var(--code));
@@ -963,7 +962,7 @@
   }
   .ctx-piece-note {
     font-size: 11.5px;
-    color: var(--muted);
+    color: var(--ctx-muted);
   }
   .ctx-text-box {
     display: flex;
@@ -1027,7 +1026,7 @@
     padding: 7px 9px;
     border-radius: 7px;
     cursor: pointer;
-    background: color-mix(in srgb, var(--k) 11%, var(--card));
+    background: color-mix(in srgb, var(--k) 11%, var(--ctx-card));
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--k) 24%, transparent);
     transition:
       left 0.62s var(--t-ease),
@@ -1050,7 +1049,7 @@
   .ctx-tile .v {
     font-size: 10.5px;
     line-height: 1.25;
-    color: color-mix(in srgb, var(--k) 42%, var(--muted));
+    color: color-mix(in srgb, var(--k) 42%, var(--ctx-muted));
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -1067,7 +1066,7 @@
   }
   .ctx-tile:hover,
   .ctx-tile.on {
-    background: color-mix(in srgb, var(--k) 19%, var(--card));
+    background: color-mix(in srgb, var(--k) 19%, var(--ctx-card));
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--k) 48%, transparent);
   }
   .ctx-tile.free {
@@ -1075,15 +1074,15 @@
     cursor: default;
     background:
       repeating-linear-gradient(-45deg, color-mix(in srgb, var(--fg) 5.5%, transparent) 0 1px, transparent 1px 6px),
-      color-mix(in srgb, var(--fg) 1.5%, var(--card));
+      color-mix(in srgb, var(--fg) 1.5%, var(--ctx-card));
     box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--fg) 9%, transparent);
   }
   .ctx-tile.free .n {
-    color: var(--muted);
+    color: var(--ctx-muted);
     font-weight: 500;
   }
   .ctx-tile.free .v {
-    color: color-mix(in srgb, var(--muted) 78%, transparent);
+    color: color-mix(in srgb, var(--ctx-muted) 78%, transparent);
   }
   .ctx-tile.gone {
     pointer-events: none;
@@ -1120,7 +1119,7 @@
     white-space: nowrap;
   }
   .ctx-tip-sub {
-    color: #a1a1aa;
+    color: var(--ctx-muted);
     font-size: 11px;
   }
 
@@ -1157,7 +1156,7 @@
     color: var(--fg-2);
   }
   .ctx-look-b.on {
-    background: var(--card);
+    background: var(--ctx-card);
     color: var(--fg);
     box-shadow:
       0 1px 2px rgba(0, 0, 0, 0.12),
@@ -1281,11 +1280,11 @@
     border: 0;
     border-radius: 6px;
     background: none;
-    color: var(--muted);
+    color: var(--ctx-muted);
     cursor: pointer;
   }
   .segs .opt.on {
-    background: var(--card);
+    background: var(--ctx-card);
     color: var(--fg);
     box-shadow: 0 1px 2px rgba(0, 0, 0, 0.12);
   }
@@ -1313,7 +1312,7 @@
   }
   .ctx-panel-state p {
     font-size: 12px;
-    color: var(--muted);
+    color: var(--ctx-muted);
     margin: 0;
   }
   .ctx-copy {
@@ -1327,37 +1326,14 @@
     object-fit: contain;
   }
   .ctx-model-icon.mono {
-    filter: var(--ctx-logo-filter, none);
+    background: currentColor;
+    mask: var(--ctx-logo) center / contain no-repeat;
   }
   .ctx-dialog-loading {
     font-size: 12px;
-    color: var(--muted);
+    color: var(--ctx-muted);
     padding: 8px;
   }
-}
-:where(.dark, [data-theme='dark'], [data-appearance='dark']) .magpie-context {
-  --card: #232327;
-  --pill: #2d2d33;
-  --line: #333339;
-  --fg: #ededf1;
-  --fg-2: #b9b9c1;
-  --muted: #8b8b94;
-  --faint: #56565f;
-  --accent: #a5b4fc;
-  --green: #6fd99b;
-  --green-soft: #1e3a2b;
-  --red: #f28b82;
-  --red-soft: #45272a;
-  --amber: #f2b544;
-  --amber-soft: #3f3220;
-  --c1: #a5b4fc;
-  --c2: #7dd3fc;
-  --c3: #6ee7b7;
-  --c4: #fcd34d;
-  --c6: #c4b5fd;
-  --c7: #94a3b8;
-  --k-results: #fdba74;
-  --ctx-logo-filter: invert(1);
 }
 .context-window-panel {
   min-width: 0;
@@ -1378,7 +1354,7 @@
   padding: 0;
   border: 1px solid var(--line);
   border-radius: 14px;
-  background: var(--card);
+  background: var(--ctx-card);
   color: var(--fg);
   box-shadow: 0 16px 44px rgba(0, 0, 0, 0.3);
   animation: none;

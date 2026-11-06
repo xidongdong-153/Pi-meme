@@ -7,13 +7,13 @@ import { GenerationMetrics, type GenerationMetricsSource } from './generation-me
 import { MetricLabel } from './metric-label'
 
 const colors = {
-  system: '#c4b5fd',
-  tools: '#7dd3fc',
-  skills: '#94a3b8',
-  memory: '#fcd34d',
-  files: '#6ee7b7',
-  results: '#fdba74',
-  chat: '#a5b4fc',
+  system: 'light-dark(#7c3aed, #c4b5fd)',
+  tools: 'light-dark(#0284c7, #7dd3fc)',
+  skills: 'var(--color-muted)',
+  memory: 'light-dark(#b45309, #fcd34d)',
+  files: 'var(--color-success)',
+  results: 'light-dark(#c2410c, #fdba74)',
+  chat: 'var(--color-accent)',
 }
 const labels = {
   system: '系统提示',
