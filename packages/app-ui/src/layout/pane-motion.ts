@@ -27,14 +27,26 @@ export function settlePane(value: number, min: number, max: number): PaneSettle 
 }
 
 export function useReducedMotion() {
-  const [reduced, setReduced] = useState(false)
+  const [reduced, setReduced] = useState(() => {
+    const preference = document.documentElement.dataset.reducedMotion
+    return preference === undefined
+      ? window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true
+      : preference === 'true'
+  })
   useEffect(() => {
-    if (typeof window.matchMedia !== 'function') return
-    const media = window.matchMedia('(prefers-reduced-motion: reduce)')
-    const update = () => setReduced(media.matches)
+    const media = window.matchMedia?.('(prefers-reduced-motion: reduce)')
+    const update = () => {
+      const preference = document.documentElement.dataset.reducedMotion
+      setReduced(preference === undefined ? media?.matches === true : preference === 'true')
+    }
+    const observer = new MutationObserver(update)
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['data-reduced-motion'] })
     update()
-    media.addEventListener('change', update)
-    return () => media.removeEventListener('change', update)
+    media?.addEventListener('change', update)
+    return () => {
+      observer.disconnect()
+      media?.removeEventListener('change', update)
+    }
   }, [])
   return reduced
 }
@@ -128,6 +140,17 @@ export function usePaneMotion(open: boolean, width: number, reduced: boolean) {
     setSpringTo(target)
   }, [])
 
+  const cancelDrag = useCallback(() => {
+    draggingRef.current = false
+    springRef.current = false
+    setSpringTo(null)
+    setDragging(false)
+    setOverscroll(false)
+    setInstant(true)
+    setPresented(openRef.current ? widthRef.current : 0)
+    setMounted(openRef.current)
+  }, [])
+
   const jump = useCallback(() => {
     if (draggingRef.current) return
     springRef.current = false
@@ -137,5 +160,5 @@ export function usePaneMotion(open: boolean, width: number, reduced: boolean) {
     if (!openRef.current) setMounted(false)
   }, [])
 
-  return { presented, dragging, overscroll, instant, mounted, beginDrag, dragTo, endDrag, jump }
+  return { presented, dragging, overscroll, instant, mounted, beginDrag, dragTo, endDrag, cancelDrag, jump }
 }

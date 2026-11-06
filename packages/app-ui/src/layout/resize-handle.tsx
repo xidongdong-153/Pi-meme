@@ -22,6 +22,7 @@ export function ResizeHandle({
   onDragStart,
   onDrag,
   onDragEnd,
+  onDragCancel,
 }: {
   side: 'left' | 'right'
   width: number
@@ -30,6 +31,7 @@ export function ResizeHandle({
   onDragStart: (visual: number) => void
   onDrag: (visual: number, collapsing: boolean) => void
   onDragEnd: (result: PaneSettle) => void
+  onDragCancel: () => void
 }) {
   const drag = useRef<{ x: number; width: number; raw: number } | null>(null)
   const releaseRef = useRef<(() => void) | null>(null)
@@ -58,24 +60,31 @@ export function ResizeHandle({
       setCollapsing((current) => (current === collapsingNow ? current : collapsingNow))
       onDrag(resistWidth(raw, min, max), collapsingNow)
     }
-    const handleEnd = () => {
+    function finish(commit: boolean) {
       const from = drag.current
       if (!from) return
       drag.current = null
       releaseRef.current = null
       window.removeEventListener('pointermove', handleMove)
       window.removeEventListener('pointerup', handleEnd)
-      window.removeEventListener('pointercancel', handleEnd)
+      window.removeEventListener('pointercancel', handleCancel)
       setDragging(false)
       setCollapsing(false)
       document.documentElement.style.cursor = ''
       document.body.style.userSelect = ''
-      onDragEnd(settlePane(from.raw, min, max))
+      if (commit) onDragEnd(settlePane(from.raw, min, max))
+      else onDragCancel()
     }
-    releaseRef.current = handleEnd
+    function handleEnd() {
+      finish(true)
+    }
+    function handleCancel() {
+      finish(false)
+    }
+    releaseRef.current = handleCancel
     window.addEventListener('pointermove', handleMove)
     window.addEventListener('pointerup', handleEnd)
-    window.addEventListener('pointercancel', handleEnd)
+    window.addEventListener('pointercancel', handleCancel)
   }
 
   return (
@@ -87,11 +96,20 @@ export function ResizeHandle({
         aria-valuemin={Math.round(min)}
         aria-valuemax={Math.round(max)}
         aria-valuenow={Math.round(width)}
+        tabIndex={0}
+        onKeyDown={(event) => {
+          if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+          event.preventDefault()
+          const direction = (event.key === 'ArrowRight' ? 1 : -1) * (side === 'left' ? 1 : -1)
+          const next = event.key === 'Home' ? min : event.key === 'End' ? max : width + direction * 16
+          onDragStart(width)
+          onDragEnd({ collapse: false, width: Math.round(Math.min(max, Math.max(min, next))) })
+        }}
         data-dragging={dragging ? '' : undefined}
         data-collapsing={collapsing ? '' : undefined}
         onPointerDown={handlePointerDown}
         className={cn(
-          'group absolute inset-y-0 z-20 w-3 touch-none cursor-col-resize',
+          'group absolute inset-y-0 z-20 w-3 touch-none cursor-col-resize focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
           side === 'left' ? 'right-0 translate-x-1/2' : 'left-0 -translate-x-1/2',
         )}
       >
@@ -106,7 +124,7 @@ export function ResizeHandle({
         <span
           aria-hidden="true"
           className={cn(
-            'pointer-events-none absolute top-1/2 left-1/2 h-7 w-[3px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-muted-foreground/40 opacity-0 transition-all duration-150',
+            'pointer-events-none absolute top-1/2 left-1/2 h-7 w-[3px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-muted-foreground/40 opacity-0 transition-[height,background-color,opacity] duration-150',
             'group-hover:bg-primary group-hover:opacity-100',
             dragging && 'h-11 bg-primary opacity-100',
             collapsing && 'h-14',

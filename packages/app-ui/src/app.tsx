@@ -36,7 +36,7 @@ import { ModelConfigSettings } from '@pi-meme/models/ui/model-config/model-confi
 import { AgentAccessSelector } from '@pi-meme/permissions/ui/agent-access-selector'
 import { AppHeader } from './layout/app-header'
 import { AppRail } from './layout/app-rail'
-import { SchedulesWorkspace } from './layout/schedules-workspace'
+import { SidebarWorkspace } from './layout/sidebar-workspace'
 import { ProjectsPage } from './projects/projects-page'
 import { ProjectDialog } from './projects/project-dialog'
 import { ForkNotice } from './layout/fork-notice'
@@ -818,7 +818,6 @@ function AppContent({
   )
   const workspacePickerReturnFocus = useRef<HTMLElement | null>(null)
   const [workspacePickerOpen, setWorkspacePickerOpen] = useState(false)
-  const { open: sidebarOpen, width: sidebarWidth, change: handleSidebar } = sidebarLayout
   const [creatingProject, setCreatingProject] = useState(false)
   const creatingSkillSession = useRef(false)
   const assertRestartAllowed = () => {
@@ -2082,8 +2081,8 @@ function AppContent({
               session={appSession?.sessionId ?? chat.workspaceUiKey}
               terminalCwd={appSession?.cwd ?? cwd}
               sidebar={sidebar}
-              sidebarOpen={sidebarOpen}
-              sidebarWidth={sidebarWidth}
+              sidebarLayout={sidebarLayout}
+              visible={chatVisible}
               requestPanel={systemRequest ?? panelRequest}
               onPanelRequestHandled={(revision) => {
                 if (systemRequest) setSystemRequest(undefined)
@@ -2092,7 +2091,6 @@ function AppContent({
               requestRight={planRequest && planRequest.sessionKey === runtimeSessionKey ? 'builtin:plan' : undefined}
               requestRightToken={planRequest ? `${planRequest.id}:${planRequest.revision}` : undefined}
               onRightRequestHandled={() => setPlanRequest(undefined)}
-              onSidebar={handleSidebar}
               workspaceView={workspaceView}
               onChatVisibilityChange={setChatPaneVisible}
               onSettings={() => openSettings('general')}
@@ -2106,7 +2104,7 @@ function AppContent({
               onPlugins={() => navigation.open({ kind: 'customization' })}
               pluginNavigation={pluginNavigation}
               onPlugin={openPlugin}
-              header={(toggleSidebar, workspaceTabs) => (
+              header={(sidebarState, workspaceTabs) => (
                 <SidebarMenus
                   bridge={bridge}
                   pinnedPaths={chat.sessions?.pinnedPaths ?? []}
@@ -2122,8 +2120,7 @@ function AppContent({
                     nativeWindow={nativeWindow}
                     canOpenProject={localPlatform}
                     loadProjectApps={bridge.getProjectApps}
-                    sidebarOpen={sidebarOpen}
-                    onToggleSidebar={toggleSidebar}
+                    sidebar={sidebarState}
                     busy={Boolean(chat.workspaceDisabledReason)}
                     cwd={chat.connection.cwd}
                     directoryDisabledReason={chat.workspaceDisabledReason}
@@ -2212,92 +2209,95 @@ function AppContent({
             </section>
           )}
           {route.kind === 'schedules' && (
-            <SchedulesWorkspace
-              header={
-                <PageHeader>
-                  <PageHeaderNavigation
-                    nativeWindow={nativeWindow}
-                    back={{ label: '返回上一页', onClick: navigation.back, disabled: !navigation.canBack }}
-                    forward={{ label: '前进', onClick: navigation.forward, disabled: !navigation.canForward }}
-                  />
-                </PageHeader>
+            <SchedulesPage
+              renderLayout={({ sidebar, content }) => (
+                <SidebarWorkspace
+                  label="定时任务页面"
+                  sidebarLabel="定时任务列表"
+                  layout={sidebarLayout}
+                  navigation={{
+                    nativeWindow,
+                    back: { label: '返回上一页', onClick: navigation.back, disabled: !navigation.canBack },
+                    forward: { label: '前进', onClick: navigation.forward, disabled: !navigation.canForward },
+                  }}
+                  rail={(flyout) => (
+                    <AppRail
+                      profile={userProfile.profile}
+                      profileLoading={userProfile.showPlaceholder}
+                      {...pluginRailProps}
+                      sidebarFlyout={flyout ? { entry: 'schedules', control: flyout } : undefined}
+                      onHome={navigation.home}
+                      onProjects={() => navigation.open({ kind: 'projects' })}
+                      onPlugins={() => navigation.open({ kind: 'customization' })}
+                      onSettings={() => openSettings('general')}
+                      onUsage={() => openSettings('profile')}
+                      onAccount={() => openSettings('account')}
+                    />
+                  )}
+                  sidebar={sidebar}
+                >
+                  {content}
+                </SidebarWorkspace>
+              )}
+              host={host}
+              state={scheduleState}
+              selectedId={route.taskId}
+              onSelect={(taskId) => navigation.replace({ kind: 'schedules', taskId })}
+              locationLabel={
+                currentService ? serviceLabel(currentService) : hostLocal ? '此计算机' : (hostAddress ?? '当前设备')
               }
-              rail={
-                <AppRail
-                  profile={userProfile.profile}
-                  profileLoading={userProfile.showPlaceholder}
-                  {...pluginRailProps}
-                  onHome={navigation.home}
-                  onProjects={() => navigation.open({ kind: 'projects' })}
-                  onPlugins={() => navigation.open({ kind: 'customization' })}
-                  onSettings={() => openSettings('general')}
-                  onUsage={() => openSettings('profile')}
-                  onAccount={() => openSettings('account')}
+              location={
+                <ScheduleLocationSelector
+                  services={serviceUI?.services ?? []}
+                  serviceId={serviceUI?.serviceId}
+                  label={currentService ? serviceLabel(currentService) : hostLocal ? '此计算机' : '当前设备'}
+                  onSelect={(id) => serviceUI?.onSchedules(id)}
                 />
               }
-            >
-              <SchedulesPage
-                host={host}
-                state={scheduleState}
-                selectedId={route.taskId}
-                onSelect={(taskId) => navigation.replace({ kind: 'schedules', taskId })}
-                locationLabel={
-                  currentService ? serviceLabel(currentService) : hostLocal ? '此计算机' : (hostAddress ?? '当前设备')
-                }
-                location={
-                  <ScheduleLocationSelector
-                    services={serviceUI?.services ?? []}
-                    serviceId={serviceUI?.serviceId}
-                    label={currentService ? serviceLabel(currentService) : hostLocal ? '此计算机' : '当前设备'}
-                    onSelect={(id) => serviceUI?.onSchedules(id)}
-                  />
-                }
-                defaults={{
-                  model: chat.state?.model ?? chat.models[0] ?? { provider: '', id: '' },
-                  thinkingLevel: chat.state?.thinkingLevel ?? 'medium',
-                  accessMode: settings.snapshot?.settings.defaultAccessMode ?? 'workspace-write',
-                  agentPlugins: [...agentPlugins],
-                  mode: 'default',
-                }}
-                plugins={pluginDescriptors
-                  .filter((plugin) => plugin.enabled && plugin.capabilities?.agent)
-                  .map((plugin) => ({ id: plugin.id, name: plugin.display?.name ?? plugin.id }))}
-                renderAccessSelector={(configuration, onChange) => (
-                  <AgentAccessSelector
-                    mode={configuration.accessMode}
-                    busy={false}
-                    supported={Boolean(chat.connection.restrictedAccessSupported)}
-                    onChange={(accessMode) => onChange({ ...configuration, accessMode })}
-                  />
-                )}
-                renderModelPicker={(configuration, onChange) => (
-                  <ModelPickerPopover
-                    models={chat.models}
-                    currentModel={
-                      chat.models.find(
-                        (model) =>
-                          model.provider === configuration.model.provider && model.id === configuration.model.id,
-                      ) ?? configuration.model
-                    }
-                    thinkingLevel={configuration.thinkingLevel}
-                    disabled={false}
-                    onSelectModel={(model) =>
-                      onChange({
-                        ...configuration,
-                        model,
-                        thinkingLevel: resolveThinkingLevel(model, configuration.thinkingLevel),
-                      })
-                    }
-                    onSelectThinkingLevel={(thinkingLevel) => onChange({ ...configuration, thinkingLevel })}
-                  />
-                )}
-                onOpenSession={async (ref) => {
-                  const session = await host.sessions.get(ref)
-                  if (!session.sessionFile) throw new Error('聊天尚未保存，请等待本次运行开始后重试')
-                  if (await switchSession(session.sessionFile)) navigation.home()
-                }}
-              />
-            </SchedulesWorkspace>
+              defaults={{
+                model: chat.state?.model ?? chat.models[0] ?? { provider: '', id: '' },
+                thinkingLevel: chat.state?.thinkingLevel ?? 'medium',
+                accessMode: settings.snapshot?.settings.defaultAccessMode ?? 'workspace-write',
+                agentPlugins: [...agentPlugins],
+                mode: 'default',
+              }}
+              plugins={pluginDescriptors
+                .filter((plugin) => plugin.enabled && plugin.capabilities?.agent)
+                .map((plugin) => ({ id: plugin.id, name: plugin.display?.name ?? plugin.id }))}
+              renderAccessSelector={(configuration, onChange) => (
+                <AgentAccessSelector
+                  mode={configuration.accessMode}
+                  busy={false}
+                  supported={Boolean(chat.connection.restrictedAccessSupported)}
+                  onChange={(accessMode) => onChange({ ...configuration, accessMode })}
+                />
+              )}
+              renderModelPicker={(configuration, onChange) => (
+                <ModelPickerPopover
+                  models={chat.models}
+                  currentModel={
+                    chat.models.find(
+                      (model) => model.provider === configuration.model.provider && model.id === configuration.model.id,
+                    ) ?? configuration.model
+                  }
+                  thinkingLevel={configuration.thinkingLevel}
+                  disabled={false}
+                  onSelectModel={(model) =>
+                    onChange({
+                      ...configuration,
+                      model,
+                      thinkingLevel: resolveThinkingLevel(model, configuration.thinkingLevel),
+                    })
+                  }
+                  onSelectThinkingLevel={(thinkingLevel) => onChange({ ...configuration, thinkingLevel })}
+                />
+              )}
+              onOpenSession={async (ref) => {
+                const session = await host.sessions.get(ref)
+                if (!session.sessionFile) throw new Error('聊天尚未保存，请等待本次运行开始后重试')
+                if (await switchSession(session.sessionFile)) navigation.home()
+              }}
+            />
           )}
           {scheduleState.notice && (
             <div
@@ -2376,13 +2376,15 @@ function AppContent({
               <CustomizationPage
                 plugins={pluginDescriptors}
                 nativeWindow={nativeWindow}
+                sidebarLayout={sidebarLayout}
                 onDismiss={navigation.back}
-                rail={
+                rail={(flyout) => (
                   <AppRail
                     profile={userProfile.profile}
                     profileLoading={userProfile.showPlaceholder}
                     {...pluginRailProps}
                     pluginsActive
+                    sidebarFlyout={flyout ? { entry: 'plugins', control: flyout } : undefined}
                     onHome={navigation.home}
                     onProjects={() => navigation.open({ kind: 'projects' })}
                     onPlugins={() => navigation.open({ kind: 'customization' })}
@@ -2390,7 +2392,7 @@ function AppContent({
                     onUsage={() => openSettings('profile')}
                     onAccount={() => openSettings('account')}
                   />
-                }
+                )}
                 renderContent={(section, selection) =>
                   section === 'plugins' ? (
                     <PluginPage

@@ -1,5 +1,13 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from 'react'
-import type { HomeFlyoutControl } from './app-rail'
+
+export type SidebarFlyoutControl = {
+  open: boolean
+  contentId: string
+  triggerRef: RefObject<HTMLButtonElement | null>
+  onPointerEnter: () => void
+  onPointerLeave: () => void
+  onKeyboardOpen: () => void
+}
 
 /** 会话菜单、重命名和删除对话框都渲染在 body 上，指针进入这些浮层不算离开会话栏。 */
 const overlaySelector = '[data-radix-popper-content-wrapper], [role="dialog"]'
@@ -9,23 +17,36 @@ const closeDelay = 200
 /** 面板退场动画是 `duration-150`，多等一点再卸载，避免截掉最后一帧。 */
 const exitDuration = 190
 
-/**
- * 折叠态首页的悬停会话浮层。
- * 只在固定会话栏收起后启用，浮层盖在聊天区上，不改变保存的侧栏宽度。
- */
-export function useSidebarFlyout({ enabled, reduceMotion }: { enabled: boolean; reduceMotion: boolean }): {
+/** 固定侧栏完全收起后启用；浮层覆盖内容区，不改变客户端保存的开合和宽度。 */
+export function useSidebarFlyout({
+  enabled,
+  ready = true,
+  reduceMotion,
+  contentId,
+  toggleRef,
+}: {
+  enabled: boolean
+  ready?: boolean
+  reduceMotion: boolean
+  contentId: string
+  toggleRef: RefObject<HTMLButtonElement | null>
+}): {
+  open: boolean
   visible: boolean
   mounted: boolean
-  control: HomeFlyoutControl
+  control: SidebarFlyoutControl | undefined
   panelRef: RefObject<HTMLDivElement | null>
   panelProps: { onPointerEnter: () => void; onPointerLeave: () => void }
   close: () => void
 } {
   const [requested, setRequested] = useState(false)
-  const visible = requested && enabled
+  const open = requested && enabled
+  const visible = open && ready
   // 关闭时保留一帧完成退场动画，否则元素一卸载就没有过渡。
   const [mounted, setMounted] = useState(false)
   const panelRef = useRef<HTMLDivElement>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const returnFocus = useRef<HTMLButtonElement | null>(null)
   const timer = useRef<number | null>(null)
   // 键盘打开后焦点在浮层里，不跟随指针位置收起。
   const pinned = useRef(false)
@@ -38,6 +59,13 @@ export function useSidebarFlyout({ enabled, reduceMotion }: { enabled: boolean; 
   }, [])
 
   const unmount = useCallback(() => setMounted(false), [])
+  const focusPanel = useCallback(() => {
+    panelRef.current
+      ?.querySelector<HTMLElement>(
+        'button:not(:disabled), [href], input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex="-1"])',
+      )
+      ?.focus()
+  }, [])
 
   useEffect(() => {
     if (visible) {
@@ -59,6 +87,7 @@ export function useSidebarFlyout({ enabled, reduceMotion }: { enabled: boolean; 
       timer.current = window.setTimeout(
         () => {
           timer.current = null
+          if (!open && (pinned.current || panelRef.current?.contains(document.activeElement))) return
           setRequested(open)
         },
         open ? openDelay : closeDelay,
@@ -75,8 +104,12 @@ export function useSidebarFlyout({ enabled, reduceMotion }: { enabled: boolean; 
   useEffect(() => clearTimer, [clearTimer])
 
   useEffect(() => {
-    if (!enabled) setRequested(false)
-  }, [enabled])
+    if (!enabled) {
+      clearTimer()
+      focusOnOpen.current = false
+      setRequested(false)
+    }
+  }, [enabled, clearTimer])
 
   useEffect(() => {
     if (!requested) pinned.current = false
@@ -84,11 +117,15 @@ export function useSidebarFlyout({ enabled, reduceMotion }: { enabled: boolean; 
 
   useEffect(() => {
     if (!visible) return
-    const overlayOpen = () => Boolean(document.querySelector(overlaySelector))
+    const overlayOpen = () =>
+      [...document.querySelectorAll(overlaySelector)].some(
+        (element) => element.getClientRects().length > 0 && !element.querySelector('[role="tooltip"]'),
+      )
     const inside = (target: EventTarget | null) =>
       target instanceof Element &&
       (Boolean(panelRef.current?.contains(target)) ||
-        Boolean(target.closest('[data-home-trigger]')) ||
+        Boolean(triggerRef.current?.contains(target)) ||
+        Boolean(toggleRef.current?.contains(target)) ||
         Boolean(target.closest(overlaySelector)))
     const onPointerMove = (event: PointerEvent) => {
       if (inside(event.target)) {
@@ -110,28 +147,41 @@ export function useSidebarFlyout({ enabled, reduceMotion }: { enabled: boolean; 
       if (focus !== null && focus !== document.body && !inside(focus)) return
       event.stopPropagation()
       close()
-      document.querySelector<HTMLElement>('[data-home-trigger]')?.focus()
+      const button = returnFocus.current ?? triggerRef.current
+      button?.focus()
     }
+    const onFocusIn = (event: FocusEvent) => {
+      if (inside(event.target)) {
+        clearTimer()
+        if (
+          panelRef.current?.contains(event.target as Node) ||
+          (event.target instanceof Element && event.target.closest(overlaySelector))
+        )
+          pinned.current = true
+      } else close()
+    }
+    document.addEventListener('focusin', onFocusIn)
     document.addEventListener('pointermove', onPointerMove)
     document.addEventListener('pointerdown', onPointerDown, true)
     document.addEventListener('keydown', onKeyDown)
     return () => {
+      document.removeEventListener('focusin', onFocusIn)
       document.removeEventListener('pointermove', onPointerMove)
       document.removeEventListener('pointerdown', onPointerDown, true)
       document.removeEventListener('keydown', onKeyDown)
     }
-  }, [visible, clearTimer, schedule, close])
+  }, [visible, clearTimer, schedule, close, toggleRef])
 
   useEffect(() => {
     if (!visible || !mounted || !focusOnOpen.current) return
     focusOnOpen.current = false
-    panelRef.current
-      ?.querySelector<HTMLElement>('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')
-      ?.focus()
-  }, [visible, mounted])
+    focusPanel()
+  }, [visible, mounted, focusPanel])
 
-  const control: HomeFlyoutControl = {
-    open: visible,
+  const control: SidebarFlyoutControl = {
+    open,
+    contentId,
+    triggerRef,
     onPointerEnter: () => {
       if (enabled) schedule(true)
     },
@@ -141,22 +191,25 @@ export function useSidebarFlyout({ enabled, reduceMotion }: { enabled: boolean; 
     onKeyboardOpen: () => {
       if (!enabled) return
       focusOnOpen.current = true
+      returnFocus.current = document.activeElement === toggleRef.current ? toggleRef.current : triggerRef.current
       pinned.current = true
       clearTimer()
       setRequested(true)
+      if (visible && mounted) {
+        focusOnOpen.current = false
+        focusPanel()
+      }
     },
   }
 
   return {
+    open,
     visible,
     mounted,
-    control,
+    control: enabled ? control : undefined,
     panelRef,
     panelProps: {
-      onPointerEnter: () => {
-        pinned.current = false
-        clearTimer()
-      },
+      onPointerEnter: clearTimer,
       onPointerLeave: () => {
         if (!pinned.current) schedule(false)
       },

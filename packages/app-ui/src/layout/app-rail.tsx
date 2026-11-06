@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import {
   Circle,
   Clock,
@@ -30,13 +30,7 @@ import type { UserProfile } from '../settings/user-profile'
 import type { RegisteredNavigation } from '@pi-meme/plugin-sdk/navigation'
 import { useShortcuts } from '../shortcuts/shortcut-provider'
 
-/** 折叠态首页的悬停会话浮层。只在聊天工作区传入，其他页面没有这套入口。 */
-export type HomeFlyoutControl = {
-  open: boolean
-  onPointerEnter: () => void
-  onPointerLeave: () => void
-  onKeyboardOpen: () => void
-}
+import type { SidebarFlyoutControl } from './sidebar-flyout'
 
 export function AppRail({
   profile,
@@ -46,7 +40,7 @@ export function AppRail({
   onAccount,
   onHome,
   homeActive = false,
-  homeFlyout,
+  sidebarFlyout,
   onImages,
   imagesActive = false,
   onProjects,
@@ -69,7 +63,7 @@ export function AppRail({
   onAccount?: () => void
   onHome?: () => void
   homeActive?: boolean
-  homeFlyout?: HomeFlyoutControl
+  sidebarFlyout?: { entry: 'home' | 'schedules' | 'plugins'; control: SidebarFlyoutControl }
   onImages?: () => void
   imagesActive?: boolean
   onProjects?: () => void
@@ -102,122 +96,43 @@ export function AppRail({
         className,
       )}
     >
-      {/* 顶部应用入口 */}
       <div className="flex min-h-0 w-full flex-col items-center gap-1.5 pt-2">
-        {/* 会话工作区里首页改用悬停浮层，不再叠一个提示气泡。 */}
-        <Tooltip open={homeFlyout ? false : undefined}>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              aria-label="首页"
-              aria-current={homeActive ? 'page' : undefined}
-              aria-expanded={homeFlyout?.open}
-              aria-controls={homeFlyout?.open ? 'workspace-sidebar-flyout' : undefined}
-              data-home-trigger={homeFlyout ? '' : undefined}
-              onClick={onHome}
-              onPointerEnter={homeFlyout?.onPointerEnter}
-              onPointerLeave={homeFlyout?.onPointerLeave}
-              onKeyDown={
-                homeFlyout
-                  ? (event) => {
-                      if (event.key !== 'ArrowRight' || event.defaultPrevented) return
-                      event.preventDefault()
-                      homeFlyout.onKeyboardOpen()
-                    }
-                  : undefined
-              }
-              className={cn(
-                'app-rail-entry flex size-8 items-center justify-center rounded-lg hover:bg-background cursor-pointer',
-                homeActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              <Home className="size-4" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="right" sideOffset={8}>
-            {homeActive ? '新聊天' : '返回聊天'}
-          </TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              aria-label="项目"
-              aria-current={projectsActive ? 'page' : undefined}
-              onClick={onProjects}
-              className={cn(
-                'app-rail-entry flex size-8 items-center justify-center rounded-lg hover:bg-background cursor-pointer',
-                projectsActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              <Folder className="size-4" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="right" sideOffset={8}>
-            项目
-          </TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              aria-label={schedulesUnread ? '定时任务，有未读结果' : '定时任务'}
-              aria-current={schedulesActive ? 'page' : undefined}
-              onClick={onSchedules}
-              className={cn(
-                'app-rail-entry relative flex size-8 items-center justify-center rounded-lg hover:bg-background cursor-pointer',
-                schedulesActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              <Clock className="size-4" />
-              {schedulesUnread && <span className="absolute right-1 top-1 size-1.5 rounded-full bg-blue-500" />}
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="right" sideOffset={8}>
-            定时任务
-          </TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              aria-label="插件"
-              aria-current={pluginsActive ? 'page' : undefined}
-              onClick={onPlugins}
-              className={cn(
-                'app-rail-entry flex size-8 items-center justify-center rounded-lg hover:bg-background cursor-pointer',
-                pluginsActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              <span className="relative size-4" aria-hidden="true">
-                <Circle className="size-4" />
-                <Plug className="absolute inset-[3px] size-2.5 -rotate-45" />
-              </span>
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="right" sideOffset={8}>
-            插件与技能
-          </TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              aria-label="图像"
-              aria-current={imagesActive ? 'page' : undefined}
-              onClick={onImages}
-              className={cn(
-                'app-rail-entry flex size-8 shrink-0 items-center justify-center rounded-lg hover:bg-background cursor-pointer',
-                imagesActive ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
-              )}
-            >
-              <Images className="size-4" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="right" sideOffset={8}>
-            图像
-          </TooltipContent>
-        </Tooltip>
+        <AppRailEntry
+          label="首页"
+          hint={homeActive ? '新聊天' : '返回聊天'}
+          active={homeActive}
+          onClick={onHome}
+          flyout={sidebarFlyout?.entry === 'home' ? sidebarFlyout.control : undefined}
+        >
+          <Home className="size-4" />
+        </AppRailEntry>
+        <AppRailEntry label="项目" active={projectsActive} onClick={onProjects}>
+          <Folder className="size-4" />
+        </AppRailEntry>
+        <AppRailEntry
+          label={schedulesUnread ? '定时任务，有未读结果' : '定时任务'}
+          hint="定时任务"
+          active={schedulesActive}
+          onClick={onSchedules}
+          flyout={sidebarFlyout?.entry === 'schedules' ? sidebarFlyout.control : undefined}
+        >
+          <Clock className="size-4" />
+          {schedulesUnread && <span className="absolute right-1 top-1 size-1.5 rounded-full bg-blue-500" />}
+        </AppRailEntry>
+        <AppRailEntry
+          label="插件与技能"
+          active={pluginsActive}
+          onClick={onPlugins}
+          flyout={sidebarFlyout?.entry === 'plugins' ? sidebarFlyout.control : undefined}
+        >
+          <span className="relative size-4" aria-hidden="true">
+            <Circle className="size-4" />
+            <Plug className="absolute inset-[3px] size-2.5 -rotate-45" />
+          </span>
+        </AppRailEntry>
+        <AppRailEntry label="图像" active={imagesActive} onClick={onImages}>
+          <Images className="size-4" />
+        </AppRailEntry>
         {pluginNavigation.length > 0 && (
           <>
             <div className="my-1 h-px w-6 shrink-0 bg-border" />
@@ -226,25 +141,15 @@ export function AppRail({
               aria-label="插件业务入口"
             >
               {pluginNavigation.map((entry) => (
-                <Tooltip key={entry.pluginId}>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      aria-label={`打开插件页面：${entry.title}`}
-                      aria-current={activePluginId === entry.pluginId ? 'page' : undefined}
-                      onClick={() => onPlugin?.(entry)}
-                      className={cn(
-                        'app-rail-entry flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg text-muted-foreground hover:bg-background hover:text-foreground [&>svg]:size-4',
-                        activePluginId === entry.pluginId && 'text-foreground',
-                      )}
-                    >
-                      {entry.icon ?? <Puzzle className="size-4" />}
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="right" sideOffset={8}>
-                    {entry.title}
-                  </TooltipContent>
-                </Tooltip>
+                <AppRailEntry
+                  key={entry.pluginId}
+                  label={`打开插件页面：${entry.title}`}
+                  hint={entry.title}
+                  active={activePluginId === entry.pluginId}
+                  onClick={() => onPlugin?.(entry)}
+                >
+                  {entry.icon ?? <Puzzle className="size-4" />}
+                </AppRailEntry>
               ))}
             </div>
           </>
@@ -376,5 +281,57 @@ export function AppRail({
         </DropdownMenu>
       </div>
     </nav>
+  )
+}
+
+function AppRailEntry({
+  label,
+  hint = label,
+  active,
+  onClick,
+  flyout,
+  children,
+}: {
+  label: string
+  hint?: string
+  active?: boolean
+  onClick?: () => void
+  flyout?: SidebarFlyoutControl
+  children: ReactNode
+}) {
+  return (
+    <Tooltip open={flyout ? false : undefined}>
+      <TooltipTrigger asChild>
+        <button
+          ref={flyout?.triggerRef}
+          type="button"
+          aria-label={label}
+          aria-current={active ? 'page' : undefined}
+          aria-expanded={flyout?.open}
+          aria-controls={flyout?.contentId}
+          onClick={onClick}
+          onPointerEnter={flyout?.onPointerEnter}
+          onPointerLeave={flyout?.onPointerLeave}
+          onKeyDown={
+            flyout
+              ? (event) => {
+                  if (event.key !== 'ArrowRight' || event.defaultPrevented) return
+                  event.preventDefault()
+                  flyout.onKeyboardOpen()
+                }
+              : undefined
+          }
+          className={cn(
+            'app-rail-entry relative flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-lg hover:bg-background cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&>svg]:size-4',
+            active ? 'text-foreground' : 'text-muted-foreground hover:text-foreground',
+          )}
+        >
+          {children}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right" sideOffset={8}>
+        {hint}
+      </TooltipContent>
+    </Tooltip>
   )
 }

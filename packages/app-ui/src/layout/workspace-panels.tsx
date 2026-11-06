@@ -18,7 +18,13 @@ import type { UiContributionProps, UiPanel, UiTarget } from '@pi-meme/plugin-sdk
 import type { RegisteredNavigation } from '@pi-meme/plugin-sdk/navigation'
 import { AppRail } from './app-rail'
 import { PageHeader } from './page-header'
-import { useSidebarFlyout } from './sidebar-flyout'
+import type { SidebarLayout } from './use-sidebar-layout'
+import {
+  useSidebarContainer,
+  useWorkspaceSidebar,
+  WorkspaceSidebar,
+  type WorkspaceSidebarState,
+} from './workspace-sidebar'
 import type { UserProfile } from '../settings/user-profile'
 import { useShortcutHandlers, useShortcuts } from '../shortcuts/shortcut-provider'
 import {
@@ -35,7 +41,7 @@ import {
 
 import { RetainedToolPanels, type PanelOpenRequest } from './retained-tool-panels'
 import { resolvePanelAvailability, type PanelDataFacts } from './panel-availability'
-import { usePaneMotion, useReducedMotion } from './pane-motion'
+import { usePaneMotion } from './pane-motion'
 import { ResizeHandle } from './resize-handle'
 import type { WorkspaceView } from './use-workspace-view'
 
@@ -65,9 +71,8 @@ export function WorkspacePanels({
   requestRightToken,
   onRightRequestHandled,
   sidebar,
-  sidebarOpen,
-  sidebarWidth,
-  onSidebar,
+  sidebarLayout,
+  visible = true,
   workspaceView,
   header,
   profile,
@@ -120,11 +125,10 @@ export function WorkspacePanels({
   requestRightToken?: string
   onRightRequestHandled?: () => void
   sidebar: ReactNode
-  sidebarOpen: boolean
-  sidebarWidth: number
-  onSidebar: (open: boolean, width: number) => void
+  sidebarLayout: SidebarLayout
+  visible?: boolean
   workspaceView: WorkspaceView
-  header: (toggleSidebar: () => void, workspaceTabs?: (menu?: ReactNode) => ReactNode) => ReactNode
+  header: (sidebar: WorkspaceSidebarState, workspaceTabs?: (menu?: ReactNode) => ReactNode) => ReactNode
   profile: UserProfile
   profileLoading: boolean
   onSettings?: () => void
@@ -149,6 +153,7 @@ export function WorkspacePanels({
   onChatVisibilityChange?: (visible: boolean) => void
   children: ReactNode
 }) {
+  const { open: sidebarOpen, width: sidebarWidth, change: onSidebar } = sidebarLayout
   const storageKey = panelStorageKey(props.target.hostId, session)
   const readLayout = (): PanelLayoutState | undefined => {
     try {
@@ -234,7 +239,7 @@ export function WorkspacePanels({
   const setLayout = useCallback((update: (value: PanelLayoutState) => PanelLayoutState) => {
     updateState((value) => ({ ...value, inherited: false, layout: update(value.layout) }))
   }, [])
-  const container = useRef<HTMLDivElement>(null)
+  const { container, width: containerWidth } = useSidebarContainer()
   const launcherFocus = useRef<HTMLElement | null>(null)
   useLayoutEffect(() => {
     const focused = launcherFocus.current
@@ -243,19 +248,7 @@ export function WorkspacePanels({
     if (document.activeElement === document.body)
       container.current?.querySelector<HTMLInputElement>('input[aria-label="查找工具和插件"]')?.focus()
   })
-  const [containerWidth, setContainerWidth] = useState(1280)
   const tabList = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    const element = container.current
-    if (!element) return
-    const measure = () => {
-      if (element.clientWidth > 0) setContainerWidth(element.clientWidth)
-    }
-    const observer = new ResizeObserver(measure)
-    measure()
-    observer.observe(element)
-    return () => observer.disconnect()
-  }, [])
   useEffect(() => {
     try {
       window.localStorage.setItem(storageKey, JSON.stringify(sanitizePanelLayout({ ...layout, toolActive })))
@@ -445,11 +438,8 @@ export function WorkspacePanels({
   const rightWidth = Math.min(layout.width, maxWidth)
   const bothPanesFit = containerWidth - sidebarWidth >= 480 + 280
   useEffect(() => {
-    if (sidebarOpen && containerWidth - sidebarWidth < 320) onSidebar(false, sidebarWidth)
-  }, [containerWidth, sidebarOpen, sidebarWidth, onSidebar])
-  useEffect(() => {
-    if (!unified && layout.open && sidebarOpen && !bothPanesFit) onSidebar(false, sidebarWidth)
-  }, [layout.open, sidebarOpen, bothPanesFit, sidebarWidth, onSidebar, unified])
+    if (visible && !unified && layout.open && sidebarOpen && !bothPanesFit) onSidebar(false, sidebarWidth)
+  }, [visible, layout.open, sidebarOpen, bothPanesFit, sidebarWidth, onSidebar, unified])
   const browserIdsKey = browserPanelIds.join(',')
   useEffect(() => {
     if (!browserPanelIds.length) return
@@ -465,24 +455,22 @@ export function WorkspacePanels({
     changeView(false, true)
     onFocusComposer?.()
   }, [focusComposerRequest])
-  const changeSidebar = (open: boolean, width: number) => {
-    if (!unified && open && containerWidth - width < 480 + 280) setLayout((value) => ({ ...value, open: false }))
-    onSidebar(open, width)
-  }
-  const toggleSidebar = () => changeSidebar(!sidebarOpen, sidebarWidth)
-  const reducedMotion = useReducedMotion()
-  const leftPane = usePaneMotion(sidebarOpen, sidebarWidth, reducedMotion)
-  const rightPane = usePaneMotion(layout.open || unified, rightWidth, reducedMotion)
-
-  // 折叠态首页悬停浮层：固定侧栏完全收起后才挂载，避免同时渲染两份会话列表。
-  const flyout = useSidebarFlyout({ enabled: !sidebarOpen && !leftPane.mounted, reduceMotion: reducedMotion })
-  const flyoutWidth = Math.min(sidebarWidth, Math.max(160, containerWidth - 16))
-  const [motionReady, setMotionReady] = useState(false)
+  const changeSidebar = useCallback(
+    (open: boolean, width: number) => {
+      if (!unified && open && containerWidth - width < 480 + 280) setLayout((value) => ({ ...value, open: false }))
+      onSidebar(open, width)
+    },
+    [unified, containerWidth, onSidebar, setLayout],
+  )
+  const workspaceSidebar = useWorkspaceSidebar({
+    layout: { ...sidebarLayout, change: changeSidebar },
+    containerWidth,
+    visible,
+    shortcutEnabled,
+  })
+  const { pane: leftPane, flyout } = workspaceSidebar
+  const rightPane = usePaneMotion(layout.open || unified, rightWidth, workspaceSidebar.reducedMotion)
   const containerRef = useRef(containerWidth)
-  useEffect(() => {
-    const frame = requestAnimationFrame(() => setMotionReady(true))
-    return () => cancelAnimationFrame(frame)
-  }, [])
   // 只在窗口尺寸变化时取消过渡。折叠左栏也会改变右栏上限，不能因此把左栏宽度动画关掉。
   useLayoutEffect(() => {
     if (containerRef.current === containerWidth) return
@@ -499,7 +487,6 @@ export function WorkspacePanels({
 
   useShortcutHandlers(
     {
-      toggleSidebar,
       toggleFullView: () => changeView(!unified),
       toggleTools: () => {
         if (unified) {
@@ -538,8 +525,7 @@ export function WorkspacePanels({
       ...(openError ? [openError] : []),
     ]),
   ]
-  const directMotion =
-    !motionReady || reducedMotion || leftPane.dragging || rightPane.dragging || leftPane.instant || rightPane.instant
+  const directMotion = workspaceSidebar.directMotion || rightPane.dragging || rightPane.instant
   const overscroll = leftPane.overscroll ? 'sidebar' : rightPane.overscroll ? 'right' : undefined
   const shellStyle = {
     '--workspace-sidebar-width': `${leftPane.presented}px`,
@@ -663,7 +649,7 @@ export function WorkspacePanels({
       {/* 顶部栏：位于最外层外框中，与最左侧 ICON 栏同底色 */}
       <PageHeader>
         <div className="workspace-main-header flex h-full min-w-0 overflow-hidden bg-transparent window-drag">
-          {header(toggleSidebar, unified ? renderTabs : undefined)}
+          {header(workspaceSidebar, unified ? renderTabs : undefined)}
         </div>
         {!unified && rightPane.mounted && (
           <div
@@ -751,7 +737,7 @@ export function WorkspacePanels({
             flyout.close()
             onNewSession?.()
           }}
-          homeFlyout={flyout.control}
+          sidebarFlyout={flyout.control ? { entry: 'home', control: flyout.control } : undefined}
           onProjects={onProjects}
           onImages={onImages}
           onSchedules={onSchedules}
@@ -765,44 +751,9 @@ export function WorkspacePanels({
 
         {/* 内容部分：被有圆角框体圈起来的 3 部分容器（四角全圆角，右侧与底部留外框边距，复刻 Codex 设计） */}
         <div ref={container} className="content-frame relative bg-background">
-          {leftPane.mounted && (
-            <div
-              className="sidebar-pane relative flex min-w-0 shrink-0 overflow-hidden"
-              style={{ width: 'var(--workspace-sidebar-width)' }}
-            >
-              <aside
-                id="workspace-sidebar"
-                aria-label="会话导航"
-                aria-hidden={!sidebarOpen}
-                inert={!sidebarOpen}
-                className="appearance-sidebar flex min-h-0 w-full flex-col overflow-hidden bg-card/40"
-              >
-                <div
-                  className="pane-clip flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
-                  style={{
-                    width: leftPane.dragging ? '100%' : sidebarWidth,
-                    minWidth: leftPane.dragging ? undefined : sidebarWidth,
-                  }}
-                >
-                  {sidebar}
-                </div>
-              </aside>
-              {sidebarOpen && (
-                <ResizeHandle
-                  side="left"
-                  width={leftPane.presented}
-                  min={200}
-                  max={420}
-                  onDragStart={leftPane.beginDrag}
-                  onDrag={leftPane.dragTo}
-                  onDragEnd={(result) => {
-                    leftPane.endDrag(result)
-                    changeSidebar(!result.collapse, result.collapse ? sidebarWidth : result.width)
-                  }}
-                />
-              )}
-            </div>
-          )}
+          <WorkspaceSidebar sidebar={workspaceSidebar} label="会话导航">
+            {sidebar}
+          </WorkspaceSidebar>
           <div
             id="chat-workspace"
             role={unified ? 'tabpanel' : undefined}
@@ -831,6 +782,7 @@ export function WorkspacePanels({
                 max={maxWidth}
                 onDragStart={rightPane.beginDrag}
                 onDrag={rightPane.dragTo}
+                onDragCancel={rightPane.cancelDrag}
                 onDragEnd={(result) => {
                   rightPane.endDrag(result)
                   setLayout((value) =>
@@ -1002,21 +954,6 @@ export function WorkspacePanels({
               </div>
             </aside>
           </div>
-
-          {/* 折叠态首页悬停浮层：贴在聊天框体内侧，四边等距留白，不挤压正文。 */}
-          {flyout.mounted && (
-            <div
-              ref={flyout.panelRef}
-              id="workspace-sidebar-flyout"
-              data-state={flyout.visible ? 'open' : 'closed'}
-              aria-hidden={!flyout.visible}
-              className="absolute inset-2 z-30 flex min-h-0 flex-col overflow-hidden rounded-xl border border-border bg-card shadow-md data-[state=closed]:pointer-events-none data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:zoom-in-95 data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=closed]:zoom-out-95 data-[state=closed]:fill-mode-forwards duration-150 motion-reduce:animate-none"
-              style={{ width: flyoutWidth }}
-              {...flyout.panelProps}
-            >
-              <div className="flex min-h-0 flex-1 flex-col overflow-hidden">{sidebar}</div>
-            </div>
-          )}
         </div>
       </div>
     </div>

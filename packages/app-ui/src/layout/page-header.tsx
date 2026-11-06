@@ -15,6 +15,19 @@ export function PageHeader({ children }: { children: ReactNode }) {
   )
 }
 
+/** 顶栏侧栏区与下方导航轨、固定侧栏对齐，折叠时保留导航和按钮的最小宽度。 */
+export function PageHeaderSidebar({ open, children }: { open: boolean; children: ReactNode }) {
+  return (
+    <div
+      className="relative flex h-full min-w-max shrink-0 items-center justify-between bg-transparent pr-3"
+      style={{ width: 'calc(50px + var(--workspace-sidebar-width))' }}
+    >
+      {children}
+      {open && <div aria-hidden="true" className="absolute right-0 top-1/2 h-4 w-px -translate-y-1/2 bg-white/15" />}
+    </div>
+  )
+}
+
 export function PageHeaderNavigation({
   nativeWindow,
   back,

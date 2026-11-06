@@ -1,5 +1,5 @@
 import { useRef, useState, type ReactNode } from 'react'
-import { ArrowUpRight, Copy, Ellipsis, FolderOpen, GitFork, PanelLeft, Pencil, Pin, PinOff } from 'lucide-react'
+import { ArrowUpRight, Copy, Ellipsis, FolderOpen, GitFork, Pencil, Pin, PinOff } from 'lucide-react'
 import type { ProjectApp } from '@pi-meme/contracts/desktop'
 import type { PiSessionSummary } from '@pi-meme/contracts/sessions'
 import { useSidebarMenus } from '@pi-meme/workspace/ui/sidebar/sidebar-menus'
@@ -16,52 +16,14 @@ import {
 } from '@pi-meme/ui/components/ui/dropdown-menu'
 import { TooltipHint, Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
 import { cn } from '@pi-meme/ui/lib/utils'
-import { PageHeaderNavigation } from './page-header'
-import { useShortcuts } from '../shortcuts/shortcut-provider'
-
-function SidebarTools({
-  nativeWindow,
-  sidebarOpen,
-  onToggleSidebar,
-}: {
-  nativeWindow: boolean
-  sidebarOpen: boolean
-  onToggleSidebar: () => void
-}) {
-  const shortcuts = useShortcuts()
-  const sidebarShortcut = shortcuts.getShortcutLabel('toggleSidebar')
-
-  return (
-    <>
-      <PageHeaderNavigation nativeWindow={nativeWindow} />
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <Button
-            variant="ghost"
-            size="icon-sm"
-            onClick={onToggleSidebar}
-            aria-label={sidebarOpen ? '收起侧边栏' : '展开侧边栏'}
-            aria-expanded={sidebarOpen}
-            className="size-7 shrink-0 text-muted-foreground hover:text-foreground"
-          >
-            <PanelLeft className="size-4" />
-          </Button>
-        </TooltipTrigger>
-        <TooltipContent side="bottom">
-          {sidebarOpen ? '收起侧边栏' : '展开侧边栏'}
-          {sidebarShortcut ? ` · ${sidebarShortcut}` : ''}
-        </TooltipContent>
-      </Tooltip>
-    </>
-  )
-}
+import { PageHeaderNavigation, PageHeaderSidebar } from './page-header'
+import { SidebarToggle, type WorkspaceSidebarState } from './workspace-sidebar'
 
 export function AppHeader({
   nativeWindow,
   canOpenProject,
   loadProjectApps,
-  sidebarOpen,
-  onToggleSidebar,
+  sidebar,
   busy,
   cwd,
   onDirectory,
@@ -82,8 +44,7 @@ export function AppHeader({
   nativeWindow: boolean
   canOpenProject: boolean
   loadProjectApps: () => Promise<ProjectApp[]>
-  sidebarOpen: boolean
-  onToggleSidebar: () => void
+  sidebar: WorkspaceSidebarState
   busy: boolean
   cwd: string
   onDirectory: (trigger?: HTMLButtonElement) => void
@@ -247,14 +208,10 @@ export function AppHeader({
   return (
     <div className="flex h-full min-w-0 w-full items-center justify-between window-drag select-none bg-transparent">
       {/* 分区 1：左顶栏（宽度 = 50px AppRail + var(--workspace-sidebar-width)，与下方左侧栏精确对齐） */}
-      <div
-        className="flex h-full min-w-max shrink-0 items-center justify-between pr-3 bg-transparent relative"
-        style={{ width: 'calc(50px + var(--workspace-sidebar-width))' }}
-      >
-        <SidebarTools nativeWindow={nativeWindow} sidebarOpen={sidebarOpen} onToggleSidebar={onToggleSidebar} />
-        {/* 与下方目录栏右边缘严格对齐的短竖向分割线，折叠时隐藏 */}
-        {sidebarOpen && <div className="absolute right-0 top-1/2 -translate-y-1/2 h-4 w-px bg-white/15 shrink-0" />}
-      </div>
+      <PageHeaderSidebar open={sidebar.open}>
+        <PageHeaderNavigation nativeWindow={nativeWindow} />
+        <SidebarToggle sidebar={sidebar} />
+      </PageHeaderSidebar>
 
       {/* 分区 2：中间顶栏（flex-1，与下方主会话画布精确对齐） */}
       <div
