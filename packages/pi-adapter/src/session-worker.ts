@@ -22,8 +22,11 @@ import { createPiRuntimePaths, createTemporaryRuntimePaths } from '@pi-meme/pi-r
 import { MemoryCredentialStorage } from '@pi-meme/pi-runtime/secure-store'
 import { loadPiSdk, loadPiAgentCore } from '@pi-meme/pi-runtime/sdk/load'
 import { createStreamCoalescer } from './stream-coalescer'
+import type { ContextCapture, ContextRuntimeCapture } from '@pi-meme/contracts/context-window'
 
 export type SessionWorkerContext = {
+  registerContextCaptureHandler: (handler: (event: ContextRuntimeCapture) => void) => void
+  requestContextCapture: (capture: ContextCapture) => Promise<void>
   requestVisualization: (request: VisualizationRequest, signal?: AbortSignal) => Promise<VisualizationDocument>
   sdk: typeof import('@earendil-works/pi-coding-agent')
   agentCore: typeof import('@earendil-works/pi-agent-core')
@@ -156,6 +159,7 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
   >()
   function hostRequest(
     kind:
+      | 'contextCapture'
       | 'turnChange'
       | 'collaboration'
       | 'savePlan'
@@ -205,6 +209,8 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
       extensions.push(
         ...(await create({
           sdk,
+          registerContextCaptureHandler: (handler) => session.setContextCaptureHandler(handler),
+          requestContextCapture: (capture) => hostRequest('contextCapture', { capture }).then(() => {}),
           agentCore,
           paths,
           credentials,

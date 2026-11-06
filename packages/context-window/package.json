@@ -1,0 +1,29 @@
+{
+  "name": "@pi-meme/context-window",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./shared/prompt": "./src/shared/prompt.ts",
+    "./agent/entry": "./src/agent/entry.ts",
+    "./server/entry": "./src/server/entry.ts",
+    "./server/store": "./src/server/store.ts",
+    "./ui/context-window-panel": "./src/ui/context-window-panel.tsx"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@pi-meme/contracts": "workspace:*",
+    "@pi-meme/ui": "workspace:*",
+    "@pi-meme/plugin-sdk": "workspace:*",
+    "lucide-react": "^1.48.0"
+  },
+  "peerDependencies": {
+    "react": "^19.3.0"
+  },
+  "devDependencies": {
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  }
+}

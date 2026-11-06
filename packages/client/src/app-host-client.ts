@@ -14,6 +14,14 @@ export function createAppHostClient(transport: AppHostTransport): HostApi {
   return {
     apiVersion: 2,
     models: { list: () => call('models.list', []) },
+    contextWindow: {
+      list: (ref, query) => call('contextWindow.list', [ref, query]),
+      get: (ref, id) => call('contextWindow.get', [ref, id]),
+      item: (ref, query) => call('contextWindow.item', [ref, query]),
+      reply: (ref, id) => call('contextWindow.reply', [ref, id]),
+      piece: (ref, query) => call('contextWindow.piece', [ref, query]),
+      image: (ref, query) => call('contextWindow.image', [ref, query]),
+    },
     visualizations: {
       list: (ref) => call('visualizations.list', [ref]),
       get: (ref, reference) => call('visualizations.get', [ref, reference]),

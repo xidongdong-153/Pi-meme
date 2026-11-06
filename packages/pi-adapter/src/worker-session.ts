@@ -1,4 +1,5 @@
 import type { SystemToolRequest } from '@pi-meme/contracts/system-tools'
+import type { ContextCapture } from '@pi-meme/contracts/context-window'
 import type { VisualizationRequest, VisualizationDocument } from '@pi-meme/contracts/visualize'
 import type { Goal, GoalControl, GoalRequest, GoalRun, PromptOrigin } from '@pi-meme/contracts/goal'
 import {
@@ -23,6 +24,7 @@ import type { PluginRuntimeRequest } from '@pi-meme/contracts/plugin-call'
 import type { AgentPluginEntry } from '@pi-meme/plugin-sdk/agent'
 
 export type WorkerOptions = {
+  contextCapture?: (capture: ContextCapture) => Promise<void>
   recordTurnChange?: (change: import('@pi-meme/pi-runtime/turn-change-store').FileChangeRecord) => Promise<string>
   system?: (request: SystemToolRequest, signal: AbortSignal) => Promise<unknown>
   admit?: (
@@ -137,6 +139,7 @@ export function createWorkerSession(
           hostCancel?: string
           hostRequest?: {
             kind:
+              | 'contextCapture'
               | 'turnChange'
               | 'collaboration'
               | 'savePlan'
@@ -151,6 +154,7 @@ export function createWorkerSession(
               | 'activity'
               | 'system'
               | 'plugin'
+            capture?: ContextCapture
             change?: import('@pi-meme/pi-runtime/turn-change-store').FileChangeRecord
             systemRequest?: SystemToolRequest
             reference?: PlanRef
@@ -188,6 +192,10 @@ export function createWorkerSession(
           hostRequests.set(request.id, controller)
           void Promise.resolve()
             .then(async () => {
+              if (request.kind === 'contextCapture') {
+                if (!options.contextCapture || !request.capture) throw new Error('上下文采集桥未配置')
+                return options.contextCapture(request.capture)
+              }
               if (request.kind === 'turnChange') {
                 if (!options.recordTurnChange || !request.change) throw new Error('文件变更记录桥未配置')
                 return options.recordTurnChange(request.change)

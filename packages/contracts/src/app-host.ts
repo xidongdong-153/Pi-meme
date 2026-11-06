@@ -103,6 +103,7 @@ export type AppHostCapabilities = {
     | 'image-generation'
     | 'image-library'
     | 'models'
+    | 'context-window'
   >
   fileOperations?: Array<'preview' | 'search' | 'write'>
 }
@@ -114,7 +115,16 @@ export type HostControlEvent = EventCursor & {
   timestamp: string
   projectId?: string
   sessionId?: string
-  type: 'session' | 'submission' | 'runtime' | 'terminal' | 'activity' | 'schedule' | 'image-library' | 'resync'
+  type:
+    | 'session'
+    | 'submission'
+    | 'runtime'
+    | 'terminal'
+    | 'activity'
+    | 'schedule'
+    | 'image-library'
+    | 'context-window'
+    | 'resync'
   value:
     | AppSession
     | SubmissionReceipt
@@ -139,6 +149,7 @@ export type HostApi = {
   imageGeneration?: ImageGenerationApi
   imageLibrary?: ImageLibraryApi
   models?: ModelsReadonlyApi
+  contextWindow?: import('./context-window').ContextWindowApi
   schedules: SchedulesApi
   capabilities: () => Promise<AppHostCapabilities>
   plugins: {

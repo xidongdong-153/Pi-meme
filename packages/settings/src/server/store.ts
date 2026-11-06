@@ -78,6 +78,7 @@ export class SettingsStore {
     enabledSubagents: [],
     showComposerHint: true,
     showContextUsage: true,
+    contextWindowArchive: false,
     appearance: defaultAppearance(),
     sidebar: defaultSidebarPreferences(),
   }
@@ -231,6 +232,7 @@ export class SettingsStore {
         enabledSubagents: normalizeEnabledSubagents(value.enabledSubagents ?? []),
         showComposerHint: value.showComposerHint ?? true,
         showContextUsage: value.showContextUsage ?? true,
+        contextWindowArchive: value.contextWindowArchive ?? false,
         sidebar: value.sidebar ?? defaultSidebarPreferences(),
       }
       this.fileFingerprint = this.fingerprint(bytes)
@@ -293,6 +295,8 @@ export class SettingsStore {
       if (settings[key] !== undefined && typeof settings[key] !== 'boolean')
         throw new Error('编辑器显示开关必须是布尔值')
     }
+    if (settings.contextWindowArchive !== undefined && typeof settings.contextWindowArchive !== 'boolean')
+      throw new Error('上下文正文归档开关必须是布尔值')
     if (settings.subagentDefaults !== undefined) parseSubagentDefaults(settings.subagentDefaults)
     if (settings.enabledSubagents !== undefined) normalizeEnabledSubagents(settings.enabledSubagents)
     if (settings.appearance !== undefined) validateAppearance(settings.appearance)
@@ -352,8 +356,12 @@ export class SettingsStore {
     return this.enqueue(() => {
       if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('编辑器显示设置无效')
       for (const [key, entry] of Object.entries(value)) {
-        if (key !== 'showComposerHint' && key !== 'showContextUsage') throw new Error('编辑器显示设置包含未知字段')
-        if (typeof entry !== 'boolean') throw new Error('编辑器显示开关必须是布尔值')
+        if (key !== 'showComposerHint' && key !== 'showContextUsage' && key !== 'contextWindowArchive')
+          throw new Error('编辑器显示设置包含未知字段')
+        if (typeof entry !== 'boolean')
+          throw new Error(
+            key === 'contextWindowArchive' ? '上下文正文归档开关必须是布尔值' : '编辑器显示开关必须是布尔值',
+          )
       }
       return this.saveNow({ ...this.settings, ...value })
     })
@@ -510,6 +518,7 @@ export class SettingsStore {
       defaultAccessMode: value.defaultAccessMode ?? this.settings.defaultAccessMode,
       showComposerHint: value.showComposerHint ?? this.settings.showComposerHint ?? true,
       showContextUsage: value.showContextUsage ?? this.settings.showContextUsage ?? true,
+      contextWindowArchive: value.contextWindowArchive ?? this.settings.contextWindowArchive ?? false,
       pinnedPaths: Array.isArray(value.pinnedPaths)
         ? value.pinnedPaths.filter((entry): entry is string => typeof entry === 'string')
         : (this.settings.pinnedPaths ?? []),

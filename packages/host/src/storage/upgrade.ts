@@ -60,6 +60,7 @@ export type StorageLayoutCheckResult =
 export const BUILTIN_MODULE_NAMES = new Set([
   '@pi-meme/goals',
   '@pi-meme/chat',
+  '@pi-meme/context-window',
   '@pi-meme/workspace',
   '@pi-meme/git',
   '@pi-meme/models',

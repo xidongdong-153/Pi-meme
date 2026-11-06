@@ -5,6 +5,7 @@ import {
   type VisualizationRef,
 } from '@pi-meme/contracts/visualize'
 import type { SessionWindow } from '@pi-meme/contracts/sessions'
+import type { ContextRuntimeCapture } from '@pi-meme/contracts/context-window'
 import { projectSessionWindow, projectSessionDetails } from '@pi-meme/contracts/session-window'
 import {
   goalEntryUsage,
@@ -86,6 +87,7 @@ import { GenerationMetricsTracker } from './generation-metrics'
 import { findSessionRecovery, recoveryEntryType, recoveryMessage } from './recovery'
 import { loadPiSdk, type PiSdk } from './load'
 import { createDesktopModelRuntime, projectModel } from './model-runtime'
+import { contextCaptureOptions, type ContextObserverState } from './context-observer'
 import { createDesktopSettingsManager } from './settings'
 import { readDesktopAgentContextFiles } from './context-files'
 import { ExtensionUiBridge } from './ui-bridge'
@@ -125,6 +127,7 @@ function toModel(model: SessionModel | undefined): PiModel | undefined {
  * 替换后通过 `setRebindSession` 重新订阅事件并绑定扩展。
  */
 export type RuntimePolicy = {
+  onContextCapture?: (event: ContextRuntimeCapture) => void
   recordTurnChange?: (change: import('../turn-change-store').FileChangeRecord) => Promise<string>
   readVisualization?: (reference: VisualizationRef) => Promise<VisualizationDocument>
   planTools?: Map<string, PlanToolSource>
@@ -155,6 +158,42 @@ export type RuntimePolicy = {
 }
 export class SdkSession {
   private static readonly controlEntry = 'pi-meme-task-control'
+  private contextCaptureBinding?: {
+    session: AgentSession
+    onPayload: AgentSession['agent']['onPayload']
+    streamFunction: AgentSession['agent']['streamFunction']
+  }
+
+  setContextCaptureHandler(handler: RuntimePolicy['onContextCapture']) {
+    this.policy.onContextCapture = handler
+  }
+
+  private contextObserverState(modelRuntime: AgentSession['modelRuntime']): ContextObserverState | undefined {
+    const binding = this.contextCaptureBinding
+    if (!binding || binding.session.modelRuntime !== modelRuntime || this.runtime?.session !== binding.session)
+      return undefined
+    const { session } = binding
+    return {
+      enabled: Boolean(this.policy.onContextCapture),
+      generation: this.generation,
+      nativeSessionId: session.sessionId,
+      inputLeafId: session.sessionManager.getLeafId() ?? undefined,
+      onPayload: session.agent.onPayload === binding.onPayload ? binding.onPayload : undefined,
+      defaultStreamFunction: binding.streamFunction,
+      currentStreamFunction: session.agent.streamFunction,
+      summarizing: session.isCompacting,
+      resultEntryId: (message) => {
+        const entry = session.sessionManager
+          .getEntries()
+          .findLast(
+            (entry) =>
+              (entry.type === 'message' && entry.message === message) ||
+              (entry.type === 'usage' && entry.usage === message.usage),
+          )
+        return entry?.id
+      },
+    }
+  }
   private paused = false
   private queuePaused = false
   private pauseRevision = 0
@@ -650,7 +689,10 @@ export class SdkSession {
         },
       ]
       const settingsManager = createDesktopSettingsManager(sdk, cwd, agentDir)
-      const modelRuntime = await createDesktopModelRuntime(sdk, agentDir, this.credentials)
+      const modelRuntime = await createDesktopModelRuntime(sdk, agentDir, this.credentials, undefined, {
+        state: (runtime) => this.contextObserverState(runtime),
+        capture: (event) => this.policy.onContextCapture?.(event),
+      })
       const services = await sdk.createAgentSessionServices({
         cwd,
         agentDir,
@@ -773,6 +815,11 @@ export class SdkSession {
     if (!runtime) return
     const generation = this.generation
     const session = runtime.session
+    this.contextCaptureBinding = {
+      session,
+      onPayload: session.agent.onPayload,
+      streamFunction: session.agent.streamFunction,
+    }
     this.bridge?.clear()
     this.bridge = new ExtensionUiBridge((event) => {
       if (generation !== this.generation) return
@@ -2232,7 +2279,10 @@ export class SdkSession {
           systemPrompt: composerHintSystemPrompt,
           messages: [{ role: 'user', content: summary, timestamp: Date.now() }],
         },
-        { maxTokens: 80, temperature: 0, reasoning: 'minimal', signal: controller.signal },
+        contextCaptureOptions(
+          { maxTokens: 80, temperature: 0, reasoning: 'minimal' as const, signal: controller.signal },
+          'hint',
+        ),
       )
       if (
         this.hintController !== controller ||

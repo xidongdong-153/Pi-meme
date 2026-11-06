@@ -13,7 +13,7 @@ export function GeneralSettings({
 }: {
   accessSettings: ReactNode
   settings?: DesktopSettings
-  onEditor: (value: Pick<DesktopSettings, 'showComposerHint' | 'showContextUsage'>) => void
+  onEditor: (value: Pick<DesktopSettings, 'showComposerHint' | 'showContextUsage' | 'contextWindowArchive'>) => void
 } & ComponentProps<typeof StorageSettings>) {
   return (
     <div className="space-y-6">
@@ -63,6 +63,34 @@ export function GeneralSettings({
                   label="显示上下文窗口使用情况"
                   checked={settings.showContextUsage !== false}
                   onChange={(showContextUsage) => onEditor({ showContextUsage })}
+                />
+              )}
+            </div>
+          </SettingsRow>
+        </SettingsCard>
+      </SettingsGroup>
+      <SettingsGroup title="会话">
+        <SettingsCard>
+          <SettingsRow className="flex-nowrap">
+            <div className="min-w-0">
+              <p className="font-medium">归档上下文正文</p>
+              <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                默认关闭。开启后在本机保存完整提示词和回复，最多 1 GiB、30 日；临时会话不归档。
+              </p>
+            </div>
+            <div
+              className={cn(
+                'h-6 w-11 shrink-0 transition-opacity duration-150 motion-reduce:transition-none',
+                !settings && 'opacity-0',
+              )}
+              aria-busy={!settings}
+              aria-label={!settings ? '正在读取上下文归档设置' : undefined}
+            >
+              {settings && (
+                <Switch
+                  label="归档上下文正文"
+                  checked={settings.contextWindowArchive === true}
+                  onChange={(contextWindowArchive) => onEditor({ contextWindowArchive })}
                 />
               )}
             </div>

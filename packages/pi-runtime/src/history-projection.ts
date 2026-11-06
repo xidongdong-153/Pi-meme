@@ -109,8 +109,9 @@ export function computeHistoryStats(history: SessionEntry[], headerId: string, f
         (lastAssistantUsage.cacheRead ?? 0) +
         (lastAssistantUsage.cacheWrite ?? 0)
     : 0
-  const contextWindow = 256000
-  const percent = contextWindow > 0 ? (contextTokens / contextWindow) * 100 : 0
+  // Historical JSONL does not record a reliable window for the last served model.
+  const contextWindow = 0
+  const percent = null
 
   return {
     sessionFile: filePath,

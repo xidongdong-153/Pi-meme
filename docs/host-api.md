@@ -229,6 +229,10 @@ try {
 
 定时任务通过 `capabilities().features` 中的 `schedules` 协商能力，使用 `{ hostId, taskId }` 定位。写操作沿用幂等键，变化通过 `schedule` 控制事件推送；运行执行复用显式会话接口。规则、恢复和接口参数见 [定时任务](schedules.md)。
 
+## 会话上下文窗口
+
+`capabilities().features` 包含 `context-window` 时提供可选的 `contextWindow`。`list/get` 读取真实请求摘要，`item/reply` 返回正文索引元数据，`piece/image` 显式读取分页文本或受限内联位图。首个参数始终是明确的 `SessionRef`，复用临时会话授权及删除校验。`context-window` 控制事件只携带请求 ID 和修订，客户端重新读取摘要，不在事件中传输正文。读取、缓存未知值、容量来源和归档限制见[会话上下文窗口](context-window.md)，契约见[context-window.ts](../packages/contracts/src/context-window.ts)。
+
 ## 图像库
 
 `capabilities().features` 包含 `image-library` 时提供 `imageLibrary`，类型见 [image-library.ts](../packages/contracts/src/image-library.ts)。

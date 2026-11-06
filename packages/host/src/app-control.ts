@@ -43,6 +43,8 @@ import type { CollaborationBridge } from '@pi-meme/contracts/collaboration'
 import { ControlStore, ControlError, createControlStorePaths, type ControlStorePaths } from './control-store'
 
 type Options = {
+  contextWindow?: import('@pi-meme/contracts/context-window').ContextWindowApi
+  prepareContextSession?: (session: AppSession) => void
   visualizations?: (sessionKey: string) => import('@pi-meme/visualize/server/store').VisualizationStore
   models?: import('@pi-meme/contracts/model-config').ModelsReadonlyApi
   imageLibrary?: Omit<import('@pi-meme/contracts/image-library').ImageLibraryApi, 'rename' | 'remove'> & {
@@ -146,6 +148,12 @@ export async function createAppControl(options: Options) {
       throw new Error('临时会话正在关闭，操作未执行')
     }
     return session
+  }
+  const prepareContextSession = (ref: SessionRef, callerClientId: string, reader?: SessionRef) => {
+    // The Host binds this reader from the active execution; it is never supplied by a control request.
+    const ownExecution = reader?.hostId === ref.hostId && reader.sessionId === ref.sessionId
+    const session = getSession(ref, ownExecution ? undefined : callerClientId)
+    options.prepareContextSession?.(session)
   }
   const assertActivityAccess = (ref: SessionRef, mode: unknown) => {
     if (!isAgentAccessMode(mode)) throw new Error('会话权限无效')
@@ -703,7 +711,7 @@ export async function createAppControl(options: Options) {
     if (!options.schedules) throw new Error('当前服务不支持定时任务')
     return options.schedules
   }
-  const apiFor = (clientId: string): HostApi => ({
+  const apiFor = (clientId: string, contextReader?: SessionRef): HostApi => ({
     apiVersion: 2,
     imageGeneration: options.imageGeneration,
     imageLibrary: options.imageLibrary
@@ -717,6 +725,34 @@ export async function createAppControl(options: Options) {
         }
       : undefined,
     models: options.models,
+    contextWindow: options.contextWindow
+      ? {
+          list: (ref, query) => {
+            prepareContextSession(ref, clientId, contextReader)
+            return options.contextWindow!.list(ref, query)
+          },
+          get: (ref, id) => {
+            prepareContextSession(ref, clientId, contextReader)
+            return options.contextWindow!.get(ref, id)
+          },
+          item: (ref, query) => {
+            prepareContextSession(ref, clientId, contextReader)
+            return options.contextWindow!.item(ref, query)
+          },
+          reply: (ref, id) => {
+            prepareContextSession(ref, clientId, contextReader)
+            return options.contextWindow!.reply(ref, id)
+          },
+          piece: (ref, query) => {
+            prepareContextSession(ref, clientId, contextReader)
+            return options.contextWindow!.piece(ref, query)
+          },
+          image: (ref, query) => {
+            prepareContextSession(ref, clientId, contextReader)
+            return options.contextWindow!.image(ref, query)
+          },
+        }
+      : undefined,
     capabilities: async () => ({
       apiVersion: 2,
       hostId,
@@ -727,6 +763,7 @@ export async function createAppControl(options: Options) {
         ...(options.imageLibrary ? ['image-library' as const] : []),
         ...(options.imageGeneration ? ['image-generation' as const] : []),
         ...(options.models ? ['models' as const] : []),
+        ...(options.contextWindow ? ['context-window' as const] : []),
         ...(options.schedules ? ['schedules' as const] : []),
         'projects',
         'sessions',
@@ -1693,6 +1730,8 @@ export async function createAppControl(options: Options) {
   return {
     api,
     apiFor,
+    publishContext: (session: SessionRef, value: { requestId: string; revision: number }) =>
+      store.publish({ type: 'context-window', sessionId: session.sessionId, value }),
     assertActivityAccess,
     waitForSessionOperations: (sessionId: string) => store.waitForSessionOperations(sessionId),
     goalRuntimeKey: (ref: SessionRef) => runtime.get(ref.sessionId)?.sessionKey,

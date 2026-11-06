@@ -11,5 +11,6 @@ pi-meme 自有代码使用根目录 `LICENSE` 中的 MIT 许可。第三方代�
 - GSAP 使用 [GSAP Standard License](https://gsap.com/standard-license/)，不是 MIT 许可。
 - React Bits 衍生组件使用 MIT + Commons Clause，许可全文保留在 `packages/ui/src/components/react-bits.LICENSE.md`，并复制进生成的许可清单。允许作为应用的一部分分发，不将组件作为独立组件包出售、再许可或重新分发。
 - 内置 Skill Creator 的许可保留在随包技能的 `license.txt`，并复制进生成的许可清单。
+- 会话上下文窗口的界面、布局算法、请求解析和模型图标衍生自 [Magpie](https://github.com/yetone/magpie)，MIT，Copyright (c) 2026 yetone。完整许可保留于 `packages/context-window/src/ui/magpie-license.txt` 和解析器文件头，并复制进生成的许可清单。
 
 重新分发或商用前应核对相应第三方条款。仓库不授予第三方商标或应用外独立分发组件的权利。

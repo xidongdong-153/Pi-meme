@@ -66,6 +66,7 @@ export async function writeThirdPartyLicenses(repo: string, output: string) {
     'packages/ui/src/components/react-bits.LICENSE.md',
     'pi/skills/skill-creator/license.txt',
     'packages/assets/files/file-icons/LICENSE',
+    'packages/context-window/src/ui/magpie-license.txt',
   ])
     sections.push(`${source}\n\n${await readFile(path.join(repo, source), 'utf8')}`)
   await writeFile(output, `${sections.join('\n\n========================================\n\n')}\n`)

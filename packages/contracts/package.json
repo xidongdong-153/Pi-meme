@@ -45,7 +45,8 @@
     "./image-generation": "./src/image-generation.ts",
     "./visualize": "./src/visualize.ts",
     "./image-library": "./src/image-library.ts",
-    "./system-tools": "./src/system-tools.ts"
+    "./system-tools": "./src/system-tools.ts",
+    "./context-window": "./src/context-window.ts"
   },
   "scripts": {
     "type-check": "tsc --noEmit"

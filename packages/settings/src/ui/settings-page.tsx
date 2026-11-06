@@ -29,7 +29,7 @@ export type SettingsPageProps = {
   onSaving: (saving: boolean) => void
   onMaintaining: (maintaining: boolean) => void
   accessSettings: ReactNode
-  onEditor: (value: Pick<DesktopSettings, 'showComposerHint' | 'showContextUsage'>) => void
+  onEditor: (value: Pick<DesktopSettings, 'showComposerHint' | 'showContextUsage' | 'contextWindowArchive'>) => void
   onOperation: (operation: AppearanceOperation) => void
   status?: AppearanceSaveStatus
   frozen?: boolean

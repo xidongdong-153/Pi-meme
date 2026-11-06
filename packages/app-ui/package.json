@@ -31,6 +31,7 @@
     "@pi-meme/client": "workspace:*",
     "@pi-meme/codemode": "workspace:*",
     "@pi-meme/contracts": "workspace:*",
+    "@pi-meme/context-window": "workspace:*",
     "@pi-meme/file-directory": "workspace:*",
     "@pi-meme/git": "workspace:*",
     "@pi-meme/history": "workspace:*",

@@ -125,6 +125,10 @@ Agent 本轮结束、停止响应、Worker 回收、切换会话、关闭工具�
 
 实现见 [SDK 会话](../packages/pi-runtime/src/sdk/session.ts) 与 [聊天输入状态](../packages/chat/src/ui/use-chat-session.ts)。
 
+## 上下文窗口
+
+聊天右侧工具目录的“上下文窗口”显示当前会话采到的实际模型请求，可查看分类地图、400格、原文、回复与固定历史请求。输入框上下文圆环提供直达入口；旧会话没有采集记录时不补造历史。采集独立于面板是否展开，窗口容量来自本次模型目录，正文默认仅内存保留；数据含义、临时会话隔离及可选归档见[会话上下文窗口](context-window.md)。
+
 ## 草稿与历史搜索
 
 Desktop 和 Web 将文字草稿、已选技能引用和队列模式保存到当前界面的 `localStorage`，按 Host 与正式会话 ID 隔离。刷新页面后恢复；发送请求尚未确认时保留原草稿，成功后清理，等待期间输入的新草稿不被清理。实现见 [composer-drafts.ts](../packages/app-ui/src/session/composer-drafts.ts)。

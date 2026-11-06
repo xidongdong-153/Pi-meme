@@ -2,6 +2,7 @@ import { createSystemOperations } from './system-operations'
 import { SystemClientBridge } from './system-client-bridge'
 import { ImageLibraryStore } from '@pi-meme/image-generation/server/library-store'
 import { imageLibraryHistory } from './image-library-history'
+import { ContextWindowStore } from '@pi-meme/context-window/server/store'
 import { projectBranchVisualizations } from '@pi-meme/contracts/visualize'
 import { VisualizationStore } from '@pi-meme/visualize/server/store'
 import { ImageConfigStore } from '@pi-meme/image-generation/server/config-store'
@@ -518,6 +519,13 @@ export async function createHost(options: HostOptions = {}) {
         for (const subscriber of subscribers)
           subscriber({ hostId, type: 'resources-changed', value: { generation: resourceGeneration } })
     }
+    const contextWindows = new ContextWindowStore(
+      path.join(root, 'state/modules/%40pi-meme%2Fcontext-window'),
+      () => settings.settings.contextWindowArchive === true,
+    )
+    await contextWindows.init()
+    let contextCaptureBytes = 0
+    const contextCaptureTargets = new Map<string, import('@pi-meme/contracts/app-host').SessionRef>()
     const visualizations = new VisualizationStore(path.join(root, 'state/modules/%40pi-meme%2Fvisualize/artifacts'))
     const temporaryVisualizations = new Map<string, VisualizationStore>()
     const visualizationStore = (temporaryRoot?: string) => {
@@ -624,6 +632,7 @@ export async function createHost(options: HostOptions = {}) {
           : (parentSessionKey && temporaryPathsBySessionKey.get(parentSessionKey)) ||
             (sessionKey && temporaryPathsBySessionKey.get(sessionKey)) ||
             paths
+      const contextSessions = new Set<string>()
       const session = createWorkerSession(cwd, notify, effectivePaths, async () => {
         let snapshot = (parentSessionKey && workerSnapshots.get(parentSessionKey)) || (await resources.snapshot(cwd))
         let lease: ReturnType<PluginManager['acquire']> | undefined
@@ -787,6 +796,41 @@ export async function createHost(options: HostOptions = {}) {
               throw new Error('用量来自未接纳的目标执行')
             await goals.usage(run, entryId, usage, inputEntryId)
           },
+          contextCapture: async (capture) => {
+            if (!appControl || closing || temporaryClosing.has(sessionKey)) return
+            let ref = contextCaptureTargets.get(capture.id)
+            const connection = session.connection()
+            if (!ref || capture.phase === 'payload') {
+              if (capture.generation !== connection.generation) return
+              const nativeId = session.getActiveSession().sessionId
+              if (nativeId && nativeId !== capture.nativeSessionId) return
+              ref ??= await appControl.sessionForRuntime(sessionKey)
+            }
+            if (temporaryClosing.has(ref.sessionId)) return
+            if (capture.phase === 'payload') contextCaptureTargets.set(capture.id, ref)
+            contextSessions.add(ref.sessionId)
+            contextWindows.registerSession(ref.sessionId, effectivePaths.temporaryRoot)
+            const bytes =
+              Buffer.byteLength(capture.body ?? '') +
+              (capture.reply ? Buffer.byteLength(JSON.stringify(capture.reply)) : 0)
+            if (contextCaptureBytes + bytes > 64 * 1024 * 1024)
+              capture = {
+                ...capture,
+                body: undefined,
+                reply: undefined,
+                bodyState: capture.body ? 'missing' : capture.bodyState,
+              }
+            const admittedBytes = capture.body || capture.reply ? bytes : 0
+            contextCaptureBytes += admittedBytes
+            try {
+              const record = await contextWindows.capture(ref.sessionId, capture)
+              if (record && !temporaryClosing.has(ref.sessionId))
+                await appControl.publishContext(ref, { requestId: record.id, revision: record.revision })
+            } finally {
+              contextCaptureBytes -= admittedBytes
+              if (capture.phase !== 'payload') contextCaptureTargets.delete(capture.id)
+            }
+          },
           plugin: (request, signal) => pluginBridge.dispatch(request, signal),
           visualize: async (request, signal) => {
             signal.throwIfAborted()
@@ -874,7 +918,7 @@ export async function createHost(options: HostOptions = {}) {
             }
             assertActive()
             const ref = await appControl!.sessionForRuntime(actor.rootSessionKey)
-            const api = appControl!.apiFor(`system-api:${ref.sessionId}`)
+            const api = appControl!.apiFor(`system-api:${ref.sessionId}`, ref)
             const safeMcp = async () => {
               const value = await mcp.snapshot()
               return {
@@ -1017,6 +1061,9 @@ export async function createHost(options: HostOptions = {}) {
                 await lease.release()
               }
             } finally {
+              await Promise.allSettled([...contextSessions].map((id) => contextWindows.abortPending(id)))
+              for (const [id, ref] of contextCaptureTargets)
+                if (contextSessions.has(ref.sessionId)) contextCaptureTargets.delete(id)
               releaseResource()
               workerPluginBridges.delete(sessionKey)
               workerSnapshots.delete(sessionKey)
@@ -1154,6 +1201,7 @@ export async function createHost(options: HostOptions = {}) {
           await appControl?.waitForSessionOperations(ref.sessionId)
         }
 
+        await contextWindows.deleteSessions(targetSessionIds)
         await collaboration.deleteTemporarySessions({
           sessionIds: targetSessionIds,
           sessionFiles: [],
@@ -1577,6 +1625,7 @@ export async function createHost(options: HostOptions = {}) {
       'host.resources': { store: resources, getCwd: () => pi.cwd, hostId },
       'host.image-generation': imageGeneration,
       'host.visualize': visualizations,
+      'host.context-window': contextWindows,
       'host.models': { pi, models, agentDir: paths.agentDir, service: modelService },
       'host.settings': {
         pi,
@@ -1808,6 +1857,7 @@ export async function createHost(options: HostOptions = {}) {
               status: 'idle',
               temporary: true,
             }
+            contextWindows.registerSession(tempAppSession.sessionId, temporaryRoot)
             await appControl!.registerTemporarySession(tempAppSession, tempRecord.key)
 
             temporaryViews.set(clientId, tempView)
@@ -1997,6 +2047,20 @@ export async function createHost(options: HostOptions = {}) {
       'host.schedules.runtime'
     ] as import('@pi-meme/schedules/server/service').ScheduleService
     appControl = await createAppControl({
+      prepareContextSession: (session) => {
+        const key = appControl?.goalRuntimeKey(session)
+        const temporaryRoot = key ? temporaryPathsBySessionKey.get(key)?.temporaryRoot : undefined
+        if (session.temporary && !temporaryRoot) throw new Error('临时会话上下文存储尚未就绪')
+        contextWindows.registerSession(session.sessionId, temporaryRoot)
+      },
+      contextWindow: {
+        list: (ref, query) => contextWindows.list(ref.sessionId, query),
+        get: (ref, id) => contextWindows.get(ref.sessionId, id),
+        item: (ref, query) => contextWindows.item(ref.sessionId, query),
+        reply: (ref, id) => contextWindows.reply(ref.sessionId, id),
+        piece: (ref, query) => contextWindows.piece(ref.sessionId, query),
+        image: (ref, query) => contextWindows.image(ref.sessionId, query),
+      },
       visualizations: (key) => visualizationStore(temporaryPathsBySessionKey.get(key)?.temporaryRoot),
       models: { list: () => modelService.list() },
       imageLibrary: {
@@ -2091,6 +2155,7 @@ export async function createHost(options: HostOptions = {}) {
     sessionCleanup = new SessionCleanupService({
       maintenanceDirectory: storagePaths.maintenanceDirectory,
       detachArtifacts: async (ids) => {
+        await contextWindows.deleteSessions(ids)
         await imageLibrary.detachSessions(ids)
         await terminal.closeSessions(ids)
         for (const subscribers of listeners.values())

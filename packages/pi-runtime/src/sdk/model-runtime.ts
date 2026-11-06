@@ -3,6 +3,7 @@ import { getSupportedThinkingLevels } from '@earendil-works/pi-ai/models'
 import type { PiModel } from '@pi-meme/contracts/pi'
 import type { SecureCredentialStorage } from '@pi-meme/contracts/secure-storage'
 import type { PiSdk } from './load'
+import { observeModelRuntime, type ContextObserverOptions } from './context-observer'
 
 type StoredModelCredentials = { credential?: Credential; env?: Record<string, string> }
 
@@ -91,6 +92,7 @@ export async function createDesktopModelRuntime(
   agentDir: string,
   storage: SecureCredentialStorage,
   modelsPath = `${agentDir}/models.json`,
+  observer?: ContextObserverOptions,
 ) {
   const runtime = await sdk.ModelRuntime.create({
     modelsPath,
@@ -110,6 +112,7 @@ export async function createDesktopModelRuntime(
     fileExists: async () => false,
   }
   await runtime.refresh({ allowNetwork: false })
+  if (observer) observeModelRuntime(runtime, observer)
   return runtime
 }
 

@@ -105,6 +105,7 @@ export type DesktopSettings = {
   defaultAccessMode?: AgentAccessMode
   showComposerHint?: boolean
   showContextUsage?: boolean
+  contextWindowArchive?: boolean
 }
 export type SettingsSnapshot = {
   settings: DesktopSettings

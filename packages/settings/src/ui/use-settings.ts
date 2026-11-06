@@ -10,12 +10,13 @@ import type {
   Theme,
 } from '@pi-meme/contracts/settings'
 
-type EditorSettings = Required<Pick<DesktopSettings, 'showComposerHint' | 'showContextUsage'>>
+type EditorSettings = Required<Pick<DesktopSettings, 'showComposerHint' | 'showContextUsage' | 'contextWindowArchive'>>
 
 function readEditorSettings(snapshot: SettingsSnapshot): EditorSettings {
   return {
     showComposerHint: snapshot.settings.showComposerHint !== false,
     showContextUsage: snapshot.settings.showContextUsage !== false,
+    contextWindowArchive: snapshot.settings.contextWindowArchive === true,
   }
 }
 
@@ -171,6 +172,7 @@ export function useSettings(
         const runtime: Partial<DesktopSettings> = { ...value }
         delete runtime.showComposerHint
         delete runtime.showContextUsage
+        delete runtime.contextWindowArchive
         delete runtime.appearance
         delete runtime.appearanceStorage
         delete runtime.themeId
@@ -191,6 +193,7 @@ export function useSettings(
     const next = {
       showComposerHint: value.showComposerHint ?? current.showComposerHint,
       showContextUsage: value.showContextUsage ?? current.showContextUsage,
+      contextWindowArchive: value.contextWindowArchive ?? current.contextWindowArchive,
     }
     const revision = ++editorRevision.current
     const editorBridge = bridgeRef.current

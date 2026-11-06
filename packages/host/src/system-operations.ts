@@ -98,6 +98,53 @@ export function createSystemOperations(context: SystemOperationContext) {
     'session',
     ([input, ref]) => api.sessions.messages(target(ref), input as Parameters<HostApi['sessions']['messages']>[1]),
   )
+  if (api.contextWindow) {
+    for (const name of ['list', 'get', 'item', 'reply', 'piece', 'image'] as const) {
+      const parameters = {
+        list: '[{cursor?,limit?:1..100,includeAuxiliary?}?,SessionRef?]',
+        get: '[requestId,SessionRef?]',
+        item: '[{requestId,payloadRevision?,kind,itemId?,offset?,limit?:1..100},SessionRef?]',
+        reply: '[requestId,SessionRef?]',
+        piece: '[{requestId,payloadRevision?,kind,itemId?,pieceIndex,offset?,limit?:1..20000},SessionRef?]',
+        image: '[{requestId,payloadRevision?,kind,itemId?,pieceIndex},SessionRef?]',
+      }
+      register(
+        `contextWindow.${name}`,
+        name === 'list' || name === 'get'
+          ? '读取实际模型请求的上下文摘要，不含正文；默认仅主请求'
+          : name === 'piece'
+            ? '显式分页读取上下文正文，每页最多20000字符且JSON文本不超过48KiB'
+            : name === 'image'
+              ? '显式读取上下文内联位图，不访问远程URL或文件路径'
+              : '读取上下文项目或回复的元数据；正文需显式调用contextWindow.piece',
+        parameters[name],
+        false,
+        'session',
+        async ([input, ref]) => {
+          const result = await (api.contextWindow![name] as (ref: SessionRef, query?: unknown) => unknown)(
+            target(ref),
+            input,
+          )
+          if (
+            name === 'image' &&
+            result &&
+            typeof result === 'object' &&
+            'src' in result &&
+            typeof result.src === 'string'
+          ) {
+            const image = /^data:(image\/(?:png|jpe?g|gif|webp));base64,/.exec(result.src)
+            if (image)
+              return {
+                type: 'image',
+                mimeType: image[1] === 'image/jpg' ? 'image/jpeg' : image[1],
+                data: result.src.slice(image[0].length),
+              }
+          }
+          return result
+        },
+      )
+    }
+  }
   for (const name of ['list', 'get', 'runs'] as const) {
     const descriptions = { list: '列出定时任务', get: '读取定时任务', runs: '读取定时任务运行记录' }
     register(

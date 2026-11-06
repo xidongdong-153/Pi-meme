@@ -30,6 +30,7 @@
     "@pi-meme/chat": "workspace:*",
     "@pi-meme/codemode": "workspace:*",
     "@pi-meme/contracts": "workspace:*",
+    "@pi-meme/context-window": "workspace:*",
     "@pi-meme/git": "workspace:*",
     "@pi-meme/goals": "workspace:*",
     "@pi-meme/history": "workspace:*",

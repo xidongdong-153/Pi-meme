@@ -14,6 +14,7 @@ const businessPackages = new Set(
     'activities',
     'schedules',
     'chat',
+    'context-window',
     'workspace',
     'history',
     'models',

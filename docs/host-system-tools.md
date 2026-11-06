@@ -24,6 +24,7 @@ Agent 使用 `system_read` 和 `system_write` 操作工作台。先调用 `syste
 | 定时任务     | `schedules.list`、`get`、`runs`、`schema`                             | `create`、`update`、`pause`、`resume`、`delete`、`runNow`、`stopRun`、`markRead`、`resetSession` |
 | 图像素材     | `images.list`、`images.read`                                          | `images.rename`、`images.remove`；生成沿用 `image_gen`                                           |
 | 草图         | `visualizations.list`、`visualizations.read`                          | 沿用 `save_visualization` 创建与保存版本                                                         |
+| 上下文窗口   | `contextWindow.list`、`get`、`item`、`reply`、`piece`、`image`        | 只读；默认摘要，正文和图片显式分页读取                                                           |
 | 文件         | `files.list`、`read`、`preview`、`search`                             | `files.write`，需文件修订                                                                        |
 | Git 与计划   | `git.snapshot`、`git.diff`、`plans.list`                              | Git 现有专用入口保持原权限                                                                       |
 | 后台活动     | `activities.list`、`activities.logs`                                  | `activities.stop`                                                                                |
@@ -48,6 +49,10 @@ Agent 使用 `system_read` 和 `system_write` 操作工作台。先调用 `syste
 ### 定时任务
 
 创建前读取 `schedules.schema` 和 `models.list`，不要猜模型 ID、时区或通知枚举。创建参数为 `[ScheduledTaskInput]`；读取、暂停等操作使用 `[{hostId,taskId}]`；更新为 `[{hostId,taskId}, ScheduledTaskInput]`。更新传完整输入。任务读取与执行不要求先进入定时任务页面。
+
+### 上下文窗口
+
+`contextWindow.*` 使用 `[query-or-requestId, SessionRef?]`，缺省目标为执行会话。`list/get` 返回请求摘要，`item/reply` 返回项目和 piece 元数据；只有 `piece/image` 显式读取正文或内联位图。列表最多100条、文本最多20000字符且序列化文本限48 KiB。所有方法都是会话范围只读操作，临时会话仍校验归属，不会打开或切换客户端面板。完整参数、估算与保留语义见[会话上下文窗口](context-window.md)。
 
 ### 配置与修订
 

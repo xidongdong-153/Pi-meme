@@ -100,6 +100,7 @@ Host 与 app-ui 是组合根。基础包和契约不得反向依赖业务实现�
 | `workspace`                       | [项目、会话摘要索引与侧栏](../packages/workspace/src/)                                                             |
 | `history`                         | [Pi JSONL 查询、导出和分支树](../packages/history/src/)                                                            |
 | `models`                          | [模型配置、发现、默认选择和上下文用量](../packages/models/src/)                                                    |
+| `context-window`                  | [实际请求采集、分类估算、正文保留和上下文卡片](../packages/context-window/src/)                                    |
 | `settings`                        | [偏好、外观、主题和指令](../packages/settings/src/)                                                                |
 | `resources`                       | [技能导入、策略、编辑与资源快照](../packages/resources/src/)                                                       |
 | `interaction`                     | [Agent 提问、通知、状态与图形交互](../packages/interaction/src/)                                                   |

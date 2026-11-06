@@ -383,7 +383,7 @@ export interface SettingsBridge {
   saveSettings: (settings: RuntimeSettingsPatch) => Promise<SettingsSnapshot>
   saveSubagentDefaults: (patch: SubagentDefaultsPatch) => Promise<SubagentDefaults>
   saveEditorSettings: (
-    settings: Pick<DesktopSettings, 'showComposerHint' | 'showContextUsage'>,
+    settings: Pick<DesktopSettings, 'showComposerHint' | 'showContextUsage' | 'contextWindowArchive'>,
   ) => Promise<SettingsSnapshot>
   saveSidebarPreferences: (patch: SidebarPreferencesPatch) => Promise<SidebarPreferences>
   saveAppearance: (update: AppearanceUpdate, signal?: AbortSignal) => Promise<AppearanceSaveResult>

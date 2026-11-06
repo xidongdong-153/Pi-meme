@@ -65,7 +65,7 @@ import { useAppSession } from './session/use-app-session'
 import { messageText } from '@pi-meme/chat/ui/model/message-text'
 import { LiveTurnChanges } from '@pi-meme/chat/ui/conversation/turn-changes'
 import { useTurnChanges } from './session/use-turn-changes'
-import { ContextUsageRing } from '@pi-meme/models/ui/context-usage-ring'
+import { ContextWindowTool, SessionContextUsage, useContextWindowApi } from './panels/context-window-tool'
 import { useSettings } from '@pi-meme/settings/ui/use-settings'
 import { AppearanceProvider, useAppearance, useOptionalAppearance } from '@pi-meme/settings/ui/appearance-provider'
 import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
@@ -95,6 +95,7 @@ import { sessionUiTarget, panelAvailable, sideChatTabId, historyPanelsAvailable 
 import { useAgentPluginSelection } from './plugins/use-agent-plugin-selection'
 import {
   Activity,
+  Blocks,
   FileDiff,
   Folder,
   Globe,
@@ -186,6 +187,7 @@ function AppContent({
   }, [registry, pluginConsent])
   const [pluginDescriptors, setPluginDescriptors] = useState<UiPluginDescriptor[]>([])
   const fileStore = useMemo(() => new FileStore(host), [host])
+  const contextApi = useContextWindowApi(host)
   const [fileTabs, setFileTabs] = useState<LinkedFileTab[]>(() => {
     const tabs = new Map<string, LinkedFileTab>()
     try {
@@ -1178,7 +1180,15 @@ function AppContent({
     onError: chat.setError,
     contextUsage:
       settings.snapshot?.settings.showContextUsage !== false ? (
-        <ContextUsageRing {...{ stats: chat.sessionStats, generationMetrics }} />
+        <SessionContextUsage
+          host={host}
+          api={contextApi}
+          session={appSession}
+          active={active && chatVisible}
+          stats={chat.sessionStats}
+          generationMetrics={generationMetrics}
+          onOpenContext={() => openTool('builtin:context-window')}
+        />
       ) : null,
     model: (
       <ModelPickerPopover
@@ -1519,7 +1529,7 @@ function AppContent({
       chat.failedDrafts,
     ],
   )
-  const openTool = (id: string) => {
+  function openTool(id: string) {
     setSystemRequest({ id, revision: Date.now(), target: pluginProps.target })
   }
   const historyPanels = historyPanelsAvailable(chat.chat, chat.historyDetailsDeferred, sources.length)
@@ -1613,6 +1623,28 @@ function AppContent({
     return () => document.removeEventListener('click', follow, true)
   }, [browserPlatform, browserOwner, active, chatVisible, chat.setError])
   const panels: UiPanel[] = [
+    ...(contextApi
+      ? [
+          {
+            id: 'builtin:context-window',
+            title: '上下文窗口',
+            icon: <Blocks />,
+            location: 'right' as const,
+            scope: 'session' as const,
+            render: (props: UiContributionProps) =>
+              props.target.session ? (
+                <ContextWindowTool
+                  host={host}
+                  api={contextApi}
+                  session={props.target.session}
+                  visible={props.visible === true}
+                  reducedMotion={appearance.snapshot?.settings.appearance?.reducedMotion === 'on'}
+                  sessionName={appSession?.name}
+                />
+              ) : null,
+          },
+        ]
+      : []),
     ...(visualize.available
       ? [
           {
