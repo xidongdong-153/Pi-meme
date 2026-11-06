@@ -1,3 +1,4 @@
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { SidebarMenus, type SidebarMenuBridge } from './sidebar-menus'
 import type { SettingsBridge, WorkspaceBridge, WorkspaceDeletionResult } from '@pi-meme/contracts/desktop'
 import { useMemo, useState } from 'react'
@@ -187,40 +188,45 @@ export function Sidebar({
             <ChevronDown className="size-3 text-muted-foreground/60" />
           </button>
           <div className="flex items-center gap-0.5">
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label="通知"
-              title="暂无新通知"
-              className="size-7 text-muted-foreground hover:text-foreground cursor-pointer"
-            >
-              <Bell className="size-3.5" />
-            </Button>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              aria-label="搜索聊天"
-              title={searchShortcutLabel ? `搜索聊天（${searchShortcutLabel}）` : '搜索聊天'}
-              disabled={!searchEnabled}
-              onClick={() => setSearchOpen(true)}
-              className="size-7 text-muted-foreground hover:text-foreground cursor-pointer"
-            >
-              <Search className="size-3.5" />
-            </Button>
+            <TooltipHint content="暂无新通知">
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                aria-label="通知"
+                className="size-7 text-muted-foreground hover:text-foreground cursor-pointer"
+              >
+                <Bell className="size-3.5" />
+              </Button>
+            </TooltipHint>
+            <TooltipHint content={searchShortcutLabel ? `搜索聊天（${searchShortcutLabel}）` : '搜索聊天'}>
+              <span className="inline-flex">
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="搜索聊天"
+                  disabled={!searchEnabled}
+                  onClick={() => setSearchOpen(true)}
+                  className="size-7 text-muted-foreground hover:text-foreground cursor-pointer"
+                >
+                  <Search className="size-3.5" />
+                </Button>
+              </span>
+            </TooltipHint>
           </div>
         </div>
 
         {/* 新聊天入口 */}
         <div className="px-3 py-1.5">
-          <button
-            type="button"
-            onClick={onNewSession}
-            title={newChatShortcutLabel ? `新聊天（${newChatShortcutLabel}）` : '新聊天'}
-            className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-xs font-medium text-foreground transition-colors duration-200 ease-out hover:bg-secondary/70 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer text-left group"
-          >
-            <SquarePen className="size-4 text-foreground/80 shrink-0 group-hover:text-primary transition-colors" />
-            <span>新聊天</span>
-          </button>
+          <TooltipHint content={newChatShortcutLabel ? `新聊天（${newChatShortcutLabel}）` : '新聊天'}>
+            <button
+              type="button"
+              onClick={onNewSession}
+              className="flex w-full items-center gap-2.5 rounded-lg px-2 py-2 text-xs font-medium text-foreground transition-colors duration-200 ease-out hover:bg-secondary/70 disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer text-left group"
+            >
+              <SquarePen className="size-4 text-foreground/80 shrink-0 group-hover:text-primary transition-colors" />
+              <span>新聊天</span>
+            </button>
+          </TooltipHint>
         </div>
 
         {/* 滚动区域：未连接占位 vs 置顶、项目与最近列表 */}
@@ -318,15 +324,16 @@ export function Sidebar({
                   preferences.groupMode === 'merged' && (
                     <>
                       {preferencesMenu}
-                      <button
-                        type="button"
-                        aria-label="新聊天"
-                        title={newChatShortcutLabel ? `新聊天（${newChatShortcutLabel}）` : '新聊天'}
-                        onClick={onNewSession}
-                        className="rounded p-1 transition-colors duration-200 ease-out hover:bg-secondary"
-                      >
-                        <SquarePen className="size-3.5" />
-                      </button>
+                      <TooltipHint content={newChatShortcutLabel ? `新聊天（${newChatShortcutLabel}）` : '新聊天'}>
+                        <button
+                          type="button"
+                          aria-label="新聊天"
+                          onClick={onNewSession}
+                          className="rounded p-1 transition-colors duration-200 ease-out hover:bg-secondary"
+                        >
+                          <SquarePen className="size-3.5" />
+                        </button>
+                      </TooltipHint>
                     </>
                   )
                 }

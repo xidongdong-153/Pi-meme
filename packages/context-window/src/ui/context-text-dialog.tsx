@@ -1,3 +1,4 @@
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { useEffect, useRef, useState } from 'react'
 import { ChevronDown, Copy } from 'lucide-react'
 import type { SessionRef } from '@pi-meme/contracts/app-host'
@@ -39,10 +40,12 @@ export function ItemLabel({ item, kind }: { item: ContextPromptItem; kind: Conte
   const name = itemName(item)
   const at = kind === 'files' || kind === 'memory' ? name.lastIndexOf('/') : -1
   return (
-    <span className="ctx-name" title={name}>
-      <b>{at >= 0 ? name.slice(at + 1) : name}</b>
-      {at >= 0 ? <small>{name.slice(0, at + 1)}</small> : null}
-    </span>
+    <TooltipHint content={name}>
+      <span className="ctx-name">
+        <b>{at >= 0 ? name.slice(at + 1) : name}</b>
+        {at >= 0 ? <small>{name.slice(0, at + 1)}</small> : null}
+      </span>
+    </TooltipHint>
   )
 }
 type PieceProps = {
@@ -144,10 +147,12 @@ function PieceView({ api, session, requestId, payloadRevision, kind, itemId, pie
         {piece.name ? <code className="ctx-piece-name">{piece.name}</code> : null}
         <span className="grow" />
         {piece.characters || text ? (
-          <button className="text ctx-copy" onClick={() => void copy()} disabled={busy} title="复制完整正文">
-            <Copy size={12} />
-            {copied ? '已复制' : '复制'}
-          </button>
+          <TooltipHint content="复制完整正文">
+            <button aria-label="复制完整正文" className="text ctx-copy" onClick={() => void copy()} disabled={busy}>
+              <Copy size={12} />
+              {copied ? '已复制' : '复制'}
+            </button>
+          </TooltipHint>
         ) : null}
       </div>
       {piece.size && (piece.role === 'sealed' || (piece.role === 'thinking' && !piece.characters && !piece.text)) ? (

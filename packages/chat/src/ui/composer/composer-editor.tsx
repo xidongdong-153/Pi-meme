@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useReducer, useRef, useState } from 'react'
 import type { ClipboardEvent } from 'react'
 import { ImagePlus } from 'lucide-react'
+import { DelegatedTooltip } from '@pi-meme/ui/components/ui/tooltip'
 import type { AgentPluginOption, ComposerProps } from './composer'
 import { useCommandCompletion } from './use-command-completion'
 import { FileSuggestions } from './file-suggestions'
@@ -409,6 +410,7 @@ export function ComposerEditor({
           hint && 'pr-10',
         )}
       />
+      <DelegatedTooltip containerRef={editor} />
       {hint && (
         <>
           <span id="composer-next-step" className="sr-only">

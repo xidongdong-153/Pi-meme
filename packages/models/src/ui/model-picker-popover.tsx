@@ -1,3 +1,4 @@
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import * as React from 'react'
 import { Brain, Check, ChevronDown, ChevronLeft, ChevronRight, RotateCcw, Search, X, Zap } from 'lucide-react'
 import { modelThinkingLevels, resolveThinkingLevel, type PiModel, type ThinkingLevel } from '@pi-meme/contracts/pi'
@@ -285,37 +286,41 @@ export function ModelPickerPopover({
         setOpen(nextOpen)
       }}
     >
-      <PopoverTrigger asChild>
-        <button
-          ref={triggerRef}
-          type="button"
-          disabled={disabled}
-          aria-busy={busy || undefined}
-          aria-label="选择模型与思考强度"
-          title={`${displayName} · ${currentLevelLabel}${shortcutLabel ? `（${shortcutLabel}）` : ''}`}
-          className={cn(
-            'inline-flex min-w-0 max-w-full whitespace-nowrap items-center justify-center select-none cursor-pointer transition-colors rounded-full',
-            'bg-secondary/60 hover:bg-secondary text-foreground/90 hover:text-foreground',
-            'size-7 p-0 @min-[500px]:h-7 @min-[500px]:w-auto @min-[500px]:px-2.5 @min-[500px]:text-xs @min-[500px]:font-normal @min-[500px]:gap-1.5',
-            disabled && 'cursor-not-allowed opacity-60',
-            open && 'bg-secondary text-foreground',
-          )}
-        >
-          {/* 窄视口或窄容器：仅显示大脑图标（参考 GPT） */}
-          <Brain className="size-4 shrink-0 @min-[500px]:hidden text-foreground/80" />
+      <TooltipHint
+        content={`${displayName} · ${currentLevelLabel}${shortcutLabel ? `（${shortcutLabel}）` : ''}`}
+        open={open ? false : undefined}
+      >
+        <PopoverTrigger asChild>
+          <button
+            ref={triggerRef}
+            type="button"
+            disabled={disabled}
+            aria-busy={busy || undefined}
+            aria-label="选择模型与思考强度"
+            className={cn(
+              'inline-flex min-w-0 max-w-full whitespace-nowrap items-center justify-center select-none cursor-pointer transition-colors rounded-full',
+              'bg-secondary/60 hover:bg-secondary text-foreground/90 hover:text-foreground',
+              'size-7 p-0 @min-[500px]:h-7 @min-[500px]:w-auto @min-[500px]:px-2.5 @min-[500px]:text-xs @min-[500px]:font-normal @min-[500px]:gap-1.5',
+              disabled && 'cursor-not-allowed opacity-60',
+              open && 'bg-secondary text-foreground',
+            )}
+          >
+            {/* 窄视口或窄容器：仅显示大脑图标（参考 GPT） */}
+            <Brain className="size-4 shrink-0 @min-[500px]:hidden text-foreground/80" />
 
-          {/* 宽容器：稳定显示模型名称、思考强度与下拉箭头，结构稳定不突变 */}
-          <div className="hidden min-w-0 @min-[500px]:inline-flex items-center gap-1.5">
-            <div className="flex min-w-0 items-center gap-1 max-w-[160px]">
-              <span className="min-w-0 truncate">{displayName}</span>
-              <span className="w-[2em] text-center text-muted-foreground shrink-0 text-[0.6875rem]">
-                {currentLevelLabel}
-              </span>
+            {/* 宽容器：稳定显示模型名称、思考强度与下拉箭头，结构稳定不突变 */}
+            <div className="hidden min-w-0 @min-[500px]:inline-flex items-center gap-1.5">
+              <div className="flex min-w-0 items-center gap-1 max-w-[160px]">
+                <span className="min-w-0 truncate">{displayName}</span>
+                <span className="w-[2em] text-center text-muted-foreground shrink-0 text-[0.6875rem]">
+                  {currentLevelLabel}
+                </span>
+              </div>
+              <ChevronDown className="size-3 text-muted-foreground/80 shrink-0 ml-0.5" />
             </div>
-            <ChevronDown className="size-3 text-muted-foreground/80 shrink-0 ml-0.5" />
-          </div>
-        </button>
-      </PopoverTrigger>
+          </button>
+        </PopoverTrigger>
+      </TooltipHint>
 
       <PopoverContent
         ref={contentRef}
@@ -338,15 +343,16 @@ export function ModelPickerPopover({
                 {isMax && <Zap aria-hidden="true" className="model-thinking-max-accent size-3.5" />}
               </div>
               <div className="flex flex-col items-center">
-                <span
-                  className={cn(
-                    'text-sm font-semibold tracking-wide leading-tight',
-                    isMax ? 'model-thinking-max-accent' : 'text-blue-500',
-                  )}
-                  title={isMax ? 'Max · 超级模式' : undefined}
-                >
-                  {currentLevelLabel}
-                </span>
+                <TooltipHint content={isMax ? 'Max · 超级模式' : undefined}>
+                  <span
+                    className={cn(
+                      'text-sm font-semibold tracking-wide leading-tight',
+                      isMax ? 'model-thinking-max-accent' : 'text-blue-500',
+                    )}
+                  >
+                    {currentLevelLabel}
+                  </span>
+                </TooltipHint>
                 <button
                   type="button"
                   onClick={() => setView('models')}
@@ -357,16 +363,19 @@ export function ModelPickerPopover({
                   <ChevronRight className="size-3 shrink-0 text-muted-foreground/70 group-hover:text-foreground transition-colors" />
                 </button>
               </div>
-              <button
-                type="button"
-                onClick={handleResetLevel}
-                disabled={disabled || busy}
-                aria-label="重置思考强度"
-                title="重置为默认强度"
-                className="flex size-6 items-center justify-center text-muted-foreground/70 hover:text-foreground transition-colors rounded-md hover:bg-secondary/60 cursor-pointer"
-              >
-                <RotateCcw className="size-3.5" />
-              </button>
+              <TooltipHint content="重置为默认强度">
+                <span className="inline-flex shrink-0" tabIndex={disabled || busy ? 0 : undefined}>
+                  <button
+                    type="button"
+                    onClick={handleResetLevel}
+                    disabled={disabled || busy}
+                    aria-label="重置思考强度"
+                    className="flex size-6 items-center justify-center text-muted-foreground/70 hover:text-foreground transition-colors rounded-md hover:bg-secondary/60 cursor-pointer"
+                  >
+                    <RotateCcw className="size-3.5" />
+                  </button>
+                </span>
+              </TooltipHint>
             </div>
 
             {/* 步进滑块 Stepper Slider：胶囊轨道与纯白小球 Thumb */}

@@ -1,3 +1,4 @@
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { SettingsBridge } from '@pi-meme/contracts/desktop'
 import type { DesktopStorageInfo, HostStorageInfo, StorageTarget } from '@pi-meme/contracts/storage'
@@ -132,11 +133,13 @@ export function StorageSettings({
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div className="min-w-0 flex-1 basis-56 space-y-0.5">
               <h4 className="font-medium">应用数据目录</h4>
-              <p role="status" className="font-mono text-xs" data-testid="storage-root" title={info?.dataRoot}>
-                <CrossfadeText className="grid min-h-4" textClassName="truncate">
-                  {info?.dataRoot ?? (loading ? '正在读取存储信息…' : '存储信息不可用')}
-                </CrossfadeText>
-              </p>
+              <TooltipHint content={info?.dataRoot}>
+                <p role="status" className="font-mono text-xs" data-testid="storage-root">
+                  <CrossfadeText className="grid min-h-4" textClassName="truncate">
+                    {info?.dataRoot ?? (loading ? '正在读取存储信息…' : '存储信息不可用')}
+                  </CrossfadeText>
+                </p>
+              </TooltipHint>
               {bridge.storage && (
                 <p className="text-[11px] text-muted-foreground">
                   <CrossfadeText className="grid min-h-4">

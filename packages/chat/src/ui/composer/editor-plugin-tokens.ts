@@ -79,7 +79,7 @@ export function createEditorToken(
   token.className =
     kind === 'plugin' ? 'inline-block mr-2 text-blue-400 select-none' : 'inline text-blue-400 select-none'
   token.setAttribute('aria-label', kind === 'skill' ? '已选择技能' : `插件：${name}`)
-  token.title = title ?? id
+  token.dataset.tooltip = title ?? id
   if (iconUrl) {
     const icon = document.createElement('img')
     icon.src = iconUrl

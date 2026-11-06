@@ -1,4 +1,5 @@
 import { useId, useRef, useState, type ReactNode } from 'react'
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import {
   ArrowLeft,
   Check,
@@ -98,16 +99,17 @@ export function PluginPage({
   }
 
   const settingsButton = onSettings && (
-    <Button
-      className={settingsControlClassName}
-      variant="ghost"
-      size="icon"
-      aria-label="插件设置"
-      title="插件设置"
-      onClick={onSettings}
-    >
-      <Settings />
-    </Button>
+    <TooltipHint content="插件设置">
+      <Button
+        className={settingsControlClassName}
+        variant="ghost"
+        size="icon"
+        aria-label="插件设置"
+        onClick={onSettings}
+      >
+        <Settings />
+      </Button>
+    </TooltipHint>
   )
 
   async function refresh() {
@@ -428,13 +430,15 @@ export function PluginPage({
                       <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">始终启用</span>
                     )}
                     {view === 'catalog' ? (
-                      <span className="shrink-0 text-xs text-muted-foreground" title={statusNames[plugin.status]}>
-                        {plugin.enabled && plugin.status === 'active' ? (
-                          <Check aria-label="已启用" className="size-4" />
-                        ) : (
-                          <CrossfadeText>{statusNames[plugin.status]}</CrossfadeText>
-                        )}
-                      </span>
+                      <TooltipHint content={statusNames[plugin.status]}>
+                        <span className="shrink-0 text-xs text-muted-foreground">
+                          {plugin.enabled && plugin.status === 'active' ? (
+                            <Check aria-label="已启用" className="size-4" />
+                          ) : (
+                            <CrossfadeText>{statusNames[plugin.status]}</CrossfadeText>
+                          )}
+                        </span>
+                      </TooltipHint>
                     ) : (
                       <Switch
                         label={`${plugin.builtin ? '系统插件' : '启用插件'}：${plugin.display?.name ?? plugin.id}`}

@@ -1,3 +1,4 @@
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { useId, useState, type ReactNode } from 'react'
 import { Check, ChevronDown, Clock, Loader2 } from 'lucide-react'
 import type { AppProject } from '@pi-meme/contracts/app-host'
@@ -342,9 +343,9 @@ export function TaskDialog({
                 <div className="space-y-3 pb-4">
                   <div className="overflow-hidden rounded-[20px] border border-border/70">
                     <Row label="执行位置">
-                      <span className="truncate px-2 text-sm text-muted-foreground" title={locationLabel}>
-                        {locationLabel}
-                      </span>
+                      <TooltipHint content={locationLabel}>
+                        <span className="truncate px-2 text-sm text-muted-foreground">{locationLabel}</span>
+                      </TooltipHint>
                     </Row>
                     <div className="mx-4 border-t border-border/60" />
                     <Row label="项目">

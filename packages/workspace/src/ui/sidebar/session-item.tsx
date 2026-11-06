@@ -1,3 +1,4 @@
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { Clock, GitFork, Loader2, Pin, PinOff } from 'lucide-react'
 import { cn } from '@pi-meme/ui/lib/utils'
 import type { PiSessionSummary } from '@pi-meme/contracts/sessions'
@@ -13,13 +14,12 @@ function ForkBadge({ session }: { session: PiSessionSummary }) {
   if (!session.parentSessionPath) return null
   const time = formatForkTime(session.created)
   return (
-    <span
-      title={`分叉自：${session.parentSessionPath}`}
-      className="inline-flex shrink-0 items-center gap-0.5 text-[0.625rem] text-primary/70"
-    >
-      <GitFork aria-label="分叉自其他会话" className="size-3 text-primary/80" />
-      {time && <span className="tabular-nums">{time}</span>}
-    </span>
+    <TooltipHint content={`分叉自：${session.parentSessionPath}`}>
+      <span className="inline-flex shrink-0 items-center gap-0.5 text-[0.625rem] text-primary/70">
+        <GitFork aria-label="分叉自其他会话" className="size-3 text-primary/80" />
+        {time && <span className="tabular-nums">{time}</span>}
+      </span>
+    </TooltipHint>
   )
 }
 
@@ -74,16 +74,17 @@ export function SessionItem({
       需要用户输入
     </span>
   ) : session.unread ? (
-    <span
-      role="img"
-      aria-label="会话有未读回复"
-      title="有未读回复"
-      className={cn(
-        'size-2 shrink-0 rounded-full bg-blue-500',
-        'transition-transform duration-150 ease-out motion-reduce:transition-none',
-        'group-hover:-translate-x-6 group-has-[:focus-visible]:-translate-x-6 group-has-[[data-state=open]]:-translate-x-6',
-      )}
-    />
+    <TooltipHint content="有未读回复">
+      <span
+        role="img"
+        aria-label="会话有未读回复"
+        className={cn(
+          'size-2 shrink-0 rounded-full bg-blue-500',
+          'transition-transform duration-150 ease-out motion-reduce:transition-none',
+          'group-hover:-translate-x-6 group-has-[:focus-visible]:-translate-x-6 group-has-[[data-state=open]]:-translate-x-6',
+        )}
+      />
+    </TooltipHint>
   ) : null
   const scheduleIndicator = session.scheduledTask ? (
     <span
@@ -217,23 +218,26 @@ export function SessionItem({
               isRunning && '[&_button]:transition-none',
             )}
           >
-            <button
-              type="button"
-              disabled={Boolean(source?.disabledReason)}
-              hidden={Boolean(needsInput)}
-              title={source?.disabledReason || (isPinned ? '取消置顶会话' : '置顶会话')}
-              aria-label={`${isPinned ? '取消置顶会话' : '置顶会话'}：${formatSessionTitle(session)}`}
-              onClick={(e) => {
-                e.stopPropagation()
-                onTogglePin?.(session.path)
-              }}
-              className={cn(
-                'p-1 hover:text-foreground cursor-pointer rounded transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
-                isPinned ? 'text-primary' : 'text-muted-foreground',
-              )}
-            >
-              <Pin className="size-3" />
-            </button>
+            <TooltipHint content={source?.disabledReason || (isPinned ? '取消置顶会话' : '置顶会话')}>
+              <span className={needsInput ? 'hidden' : 'inline-flex'}>
+                <button
+                  type="button"
+                  disabled={Boolean(source?.disabledReason)}
+                  hidden={Boolean(needsInput)}
+                  aria-label={`${isPinned ? '取消置顶会话' : '置顶会话'}：${formatSessionTitle(session)}`}
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onTogglePin?.(session.path)
+                  }}
+                  className={cn(
+                    'p-1 hover:text-foreground cursor-pointer rounded transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                    isPinned ? 'text-primary' : 'text-muted-foreground',
+                  )}
+                >
+                  <Pin className="size-3" />
+                </button>
+              </span>
+            </TooltipHint>
           </div>
         </div>
       </SessionDetailsTooltip>

@@ -1,4 +1,5 @@
 import type { BrowserPlatform } from '@pi-meme/contracts/browser'
+import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 import { AppearanceProvider } from '@pi-meme/settings/ui/appearance-provider'
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from 'react'
 import type { SelectWorkspace } from '@pi-meme/contracts/sessions'
@@ -265,21 +266,23 @@ export function ServicesApp({
           />
         )
       })}
-      <SessionSearchDialog
-        searchHistory={searchHistory}
-        open={searchOpen}
-        onOpenChange={setSearchOpen}
-        entries={model.sessions}
-        serviceLabels={Object.fromEntries(
-          services
-            .filter((service) => !service.local)
-            .map((service) => [
-              service.id,
-              `远程 · ${serviceLabel(service)} · ${service.transport === 'ssh' ? 'SSH' : 'HTTPS'}`,
-            ]),
-        )}
-        onSelect={(entry) => activate(entry.serviceId, (controller) => controller.switchSession(entry.session.path))}
-      />
+      <TooltipProvider delayDuration={200}>
+        <SessionSearchDialog
+          searchHistory={searchHistory}
+          open={searchOpen}
+          onOpenChange={setSearchOpen}
+          entries={model.sessions}
+          serviceLabels={Object.fromEntries(
+            services
+              .filter((service) => !service.local)
+              .map((service) => [
+                service.id,
+                `远程 · ${serviceLabel(service)} · ${service.transport === 'ssh' ? 'SSH' : 'HTTPS'}`,
+              ]),
+          )}
+          onSelect={(entry) => activate(entry.serviceId, (controller) => controller.switchSession(entry.session.path))}
+        />
+      </TooltipProvider>
     </AppearanceProvider>
   )
 }

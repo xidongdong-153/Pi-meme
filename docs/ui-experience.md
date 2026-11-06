@@ -85,6 +85,15 @@ Desktop 正常关窗、退出、受控重新加载和存储维护使用同一准
 
 后续页面优先复用这些入口和参数。需要不同效果时，在对应需求中说明是哪种空间关系或状态变化，不仅因为“想加动画”另建一套实现。
 
+## 悬停提示
+
+所有悬停说明复用 [Tooltip](../packages/ui/src/components/ui/tooltip.tsx)，不在界面元素上使用浏览器原生 `title`，也不另写气泡的背景、边框、圆角或阴影。页面标题、折叠分组标题、iframe 的无障碍名称不属于悬停提示。
+
+- 普通提示使用 `TooltipHint content={说明}` 包住原元素；已有复杂内容继续组合 `Tooltip`、`TooltipTrigger` 和 `TooltipContent`。气泡统一换行、视口避让与减少动态效果行为；`aria-label` 等无障碍名称继续保留。
+- `TooltipHint` 放在菜单或 Popover 的触发器外，确保实际按钮仍接收它们的事件、ref 和展开状态。禁用按钮使用保持原布局的 `span` 作提示触发器，禁用时让该触发器可聚焦，保留不可用原因。
+- 输入框标签、CodeMirror 等命令式 DOM 用 `data-tooltip` 保存说明，由所在容器的 `DelegatedTooltip` 展示；节点替换、移除、滚动和输入时清理旧提示。图表受控提示使用 `AnchoredTooltip`，共享同一气泡与定位行为。
+- 包含按钮或链接的预览保留 Popover 交互，并复用 `tooltipSurfaceClassName`；只按内容需要调整宽度、间距和排版。
+
 ## 检查方式
 
 在实际页面检查以下行为，不用只断言 CSS 类名的测试代替体验检查：

@@ -1,3 +1,4 @@
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { useId, useRef, type HTMLAttributes, type ReactNode } from 'react'
 import { ArrowDownUp, ChevronRight, Folder, GripVertical, List, MoreHorizontal, PanelLeft } from 'lucide-react'
 import type { SidebarPreferences, SidebarPreferencesPatch } from '@pi-meme/contracts/settings'
@@ -223,16 +224,17 @@ export function SidebarSortable({
       }}
     >
       {enabled && !rowDrag && (
-        <button
-          {...dragProps}
-          type="button"
-          aria-label="拖动排序，方向键上下移动"
-          title="拖动排序，方向键上下移动"
-          className="absolute right-0 top-1.5 z-10 rounded text-muted-foreground opacity-0 group-hover/sortable:opacity-100 group-focus-within/sortable:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-grab active:cursor-grabbing"
-          onClick={(event) => event.stopPropagation()}
-        >
-          <GripVertical className="size-3" />
-        </button>
+        <TooltipHint content="拖动排序，方向键上下移动">
+          <button
+            {...dragProps}
+            type="button"
+            aria-label="拖动排序，方向键上下移动"
+            className="absolute right-0 top-1.5 z-10 rounded text-muted-foreground opacity-0 group-hover/sortable:opacity-100 group-focus-within/sortable:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-grab active:cursor-grabbing"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <GripVertical className="size-3" />
+          </button>
+        </TooltipHint>
       )}
       {typeof children === 'function' ? children(dragProps) : children}
     </div>

@@ -2,7 +2,7 @@ import type { ReactNode } from 'react'
 import { ArrowUp, CornerDownLeft, Lightbulb, LoaderCircle, Play, Plus, RotateCcw, Square, X } from 'lucide-react'
 import type { TaskMode } from '@pi-meme/contracts/plan'
 import type { PiState } from '@pi-meme/contracts/pi'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
+import { Tooltip, TooltipContent, TooltipHint, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
 import { cn } from '@pi-meme/ui/lib/utils'
 
 export type ComposerToolbarProps = {
@@ -141,40 +141,8 @@ export function ComposerToolbar({
             {stopping ? <LoaderCircle className="size-4 animate-spin" /> : <Square className="size-3.5 fill-current" />}
           </button>
         )}
-        <button
-          type={canSend || editingQueue ? 'submit' : 'button'}
-          disabled={buttonDisabled}
-          onClick={
-            canRecover
-              ? onRecover
-              : !canSend && !editingQueue
-                ? paused
-                  ? onResume
-                  : running
-                    ? onStop
-                    : undefined
-                : undefined
-          }
-          aria-label={
-            stopping
-              ? '正在停止当前任务'
-              : canRecover || showRecovering
-                ? '恢复当前任务'
-                : editingQueue
-                  ? '保存排队消息'
-                  : canSend
-                    ? editing
-                      ? '重新发送消息'
-                      : running || (paused && !stopped)
-                        ? '加入队列'
-                        : '发送消息'
-                    : paused
-                      ? (resumeLabel ?? '继续当前任务')
-                      : running
-                        ? '停止当前任务'
-                        : '发送消息'
-          }
-          title={
+        <TooltipHint
+          content={
             stopping
               ? undefined
               : canRecover || showRecovering
@@ -189,28 +157,64 @@ export function ComposerToolbar({
                         ? '停止当前任务'
                         : '发送 (Enter)'
           }
-          className={cn(
-            'inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-[#2f6bca] text-white transition-all shadow-xs cursor-pointer hover:bg-[#3675d8] active:scale-95',
-            compact && 'size-7',
-            buttonDisabled && 'opacity-40 cursor-not-allowed hover:bg-[#2f6bca] active:scale-100',
-          )}
         >
-          {stopping ? (
-            <LoaderCircle className="size-4 animate-spin" />
-          ) : showRecovering ? (
-            <LoaderCircle className="size-4 animate-spin" />
-          ) : canRecover ? (
-            <RotateCcw className="size-4" />
-          ) : !canSend && paused && !editingQueue ? (
-            <Play className="size-3.5 fill-current" />
-          ) : !canSend && running && !editingQueue ? (
-            <Square className="size-3.5 fill-current" />
-          ) : (running || (paused && !stopped)) && !editingQueue ? (
-            <CornerDownLeft className="size-4" />
-          ) : (
-            <ArrowUp className="size-4 stroke-[2.5]" />
-          )}
-        </button>
+          <button
+            type={canSend || editingQueue ? 'submit' : 'button'}
+            disabled={buttonDisabled}
+            onClick={
+              canRecover
+                ? onRecover
+                : !canSend && !editingQueue
+                  ? paused
+                    ? onResume
+                    : running
+                      ? onStop
+                      : undefined
+                  : undefined
+            }
+            aria-label={
+              stopping
+                ? '正在停止当前任务'
+                : canRecover || showRecovering
+                  ? '恢复当前任务'
+                  : editingQueue
+                    ? '保存排队消息'
+                    : canSend
+                      ? editing
+                        ? '重新发送消息'
+                        : running || (paused && !stopped)
+                          ? '加入队列'
+                          : '发送消息'
+                      : paused
+                        ? (resumeLabel ?? '继续当前任务')
+                        : running
+                          ? '停止当前任务'
+                          : '发送消息'
+            }
+
+            className={cn(
+              'inline-flex size-8 shrink-0 items-center justify-center rounded-full bg-[#2f6bca] text-white transition-all shadow-xs cursor-pointer hover:bg-[#3675d8] active:scale-95',
+              compact && 'size-7',
+              buttonDisabled && 'opacity-40 cursor-not-allowed hover:bg-[#2f6bca] active:scale-100',
+            )}
+          >
+            {stopping ? (
+              <LoaderCircle className="size-4 animate-spin" />
+            ) : showRecovering ? (
+              <LoaderCircle className="size-4 animate-spin" />
+            ) : canRecover ? (
+              <RotateCcw className="size-4" />
+            ) : !canSend && paused && !editingQueue ? (
+              <Play className="size-3.5 fill-current" />
+            ) : !canSend && running && !editingQueue ? (
+              <Square className="size-3.5 fill-current" />
+            ) : (running || (paused && !stopped)) && !editingQueue ? (
+              <CornerDownLeft className="size-4" />
+            ) : (
+              <ArrowUp className="size-4 stroke-[2.5]" />
+            )}
+          </button>
+        </TooltipHint>
       </div>
     </div>
   )

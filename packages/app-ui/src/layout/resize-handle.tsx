@@ -1,4 +1,5 @@
 import type { PointerEvent as ReactPointerEvent } from 'react'
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { useEffect, useRef, useState } from 'react'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { paneCollapsePull, resistWidth, settlePane, type PaneSettle } from './pane-motion'
@@ -78,39 +79,40 @@ export function ResizeHandle({
   }
 
   return (
-    <div
-      role="separator"
-      aria-orientation="vertical"
-      aria-label={side === 'left' ? '调整侧边栏宽度' : '调整右侧栏宽度'}
-      aria-valuemin={Math.round(min)}
-      aria-valuemax={Math.round(max)}
-      aria-valuenow={Math.round(width)}
-      title="拖拽调整宽度"
-      data-dragging={dragging ? '' : undefined}
-      data-collapsing={collapsing ? '' : undefined}
-      onPointerDown={handlePointerDown}
-      className={cn(
-        'group absolute inset-y-0 z-20 w-3 touch-none cursor-col-resize',
-        side === 'left' ? 'right-0 translate-x-1/2' : 'left-0 -translate-x-1/2',
-      )}
-    >
-      <span
-        aria-hidden="true"
+    <TooltipHint content="拖拽调整宽度" open={dragging ? false : undefined}>
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label={side === 'left' ? '调整侧边栏宽度' : '调整右侧栏宽度'}
+        aria-valuemin={Math.round(min)}
+        aria-valuemax={Math.round(max)}
+        aria-valuenow={Math.round(width)}
+        data-dragging={dragging ? '' : undefined}
+        data-collapsing={collapsing ? '' : undefined}
+        onPointerDown={handlePointerDown}
         className={cn(
-          'pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border/80 transition-[width,background-color,box-shadow] duration-150',
-          'group-hover:w-0.5 group-hover:bg-primary/70',
-          dragging && 'w-0.5 bg-primary shadow-[0_0_12px_color-mix(in_srgb,var(--primary)_45%,transparent)]',
+          'group absolute inset-y-0 z-20 w-3 touch-none cursor-col-resize',
+          side === 'left' ? 'right-0 translate-x-1/2' : 'left-0 -translate-x-1/2',
         )}
-      />
-      <span
-        aria-hidden="true"
-        className={cn(
-          'pointer-events-none absolute top-1/2 left-1/2 h-7 w-[3px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-muted-foreground/40 opacity-0 transition-all duration-150',
-          'group-hover:bg-primary group-hover:opacity-100',
-          dragging && 'h-11 bg-primary opacity-100',
-          collapsing && 'h-14',
-        )}
-      />
-    </div>
+      >
+        <span
+          aria-hidden="true"
+          className={cn(
+            'pointer-events-none absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-border/80 transition-[width,background-color,box-shadow] duration-150',
+            'group-hover:w-0.5 group-hover:bg-primary/70',
+            dragging && 'w-0.5 bg-primary shadow-[0_0_12px_color-mix(in_srgb,var(--primary)_45%,transparent)]',
+          )}
+        />
+        <span
+          aria-hidden="true"
+          className={cn(
+            'pointer-events-none absolute top-1/2 left-1/2 h-7 w-[3px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-muted-foreground/40 opacity-0 transition-all duration-150',
+            'group-hover:bg-primary group-hover:opacity-100',
+            dragging && 'h-11 bg-primary opacity-100',
+            collapsing && 'h-14',
+          )}
+        />
+      </div>
+    </TooltipHint>
   )
 }

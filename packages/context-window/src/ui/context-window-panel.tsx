@@ -1,10 +1,10 @@
+import { AnchoredTooltip, TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import {
   lazy,
   memo,
   Suspense,
   useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -132,10 +132,12 @@ function Label({ item, kind }: { item: ContextPromptItem; kind: ContextPartKind 
   const name = itemName(item)
   const at = kind === 'files' || kind === 'memory' ? name.lastIndexOf('/') : -1
   return (
-    <span className="ctx-name" title={name}>
-      <b>{at >= 0 ? name.slice(at + 1) : name}</b>
-      {at >= 0 ? <small>{name.slice(0, at + 1)}</small> : null}
-    </span>
+    <TooltipHint content={name}>
+      <span className="ctx-name">
+        <b>{at >= 0 ? name.slice(at + 1) : name}</b>
+        {at >= 0 ? <small>{name.slice(0, at + 1)}</small> : null}
+      </span>
+    </TooltipHint>
   )
 }
 function Spark({
@@ -175,27 +177,26 @@ function Spark({
           const left = i === 0 ? 0 : (x(i - 1) + x(i)) / 2
           const right = i === series.length - 1 ? W : (x(i) + x(i + 1)) / 2
           return (
-            <rect
-              key={point.id}
-              x={left}
-              y={0}
-              width={right - left}
-              height={H}
-              className={`hit${point.id === at ? ' on' : ''}`}
-              tabIndex={0}
-              role="button"
-              aria-label={`请求 ${i + 1}：${fmtK(point.tokens)} token`}
-              aria-pressed={point.id === at}
-              onClick={() => onPoint(point.id)}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter' || event.key === ' ') {
-                  event.preventDefault()
-                  onPoint(point.id)
-                }
-              }}
-            >
-              <title>{`请求 ${i + 1}：${fmtK(point.tokens)} token`}</title>
-            </rect>
+            <TooltipHint key={point.id} content={`请求 ${i + 1}：${fmtK(point.tokens)} token`}>
+              <rect
+                x={left}
+                y={0}
+                width={right - left}
+                height={H}
+                className={`hit${point.id === at ? ' on' : ''}`}
+                tabIndex={0}
+                role="button"
+                aria-label={`请求 ${i + 1}：${fmtK(point.tokens)} token`}
+                aria-pressed={point.id === at}
+                onClick={() => onPoint(point.id)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault()
+                    onPoint(point.id)
+                  }
+                }}
+              />
+            </TooltipHint>
           )
         })}
       </svg>
@@ -245,7 +246,6 @@ const Card = memo(
       kind: ContextPartKind | 'free'
     }>()
     const [gridAt, setGridAt] = useState(0)
-    const tipNode = useRef<HTMLDivElement>(null)
     const card = useRef<HTMLDivElement>(null)
     const map = useRef<HTMLDivElement>(null)
     const grid = useRef<HTMLDivElement>(null)
@@ -270,46 +270,9 @@ const Card = memo(
     const availableParts = contextPartKinds.filter((kind) =>
       p.parts.some((part) => part.kind === kind && part.tokens > 0),
     )
-    useLayoutEffect(() => {
-      const node = tipNode.current
-      const host = card.current
-      if (!tip || !node || !host || fold) return
-      const target = tip.target
-      let frame = 0
-      const place = () => {
-        if (!target.isConnected || !target.getClientRects().length) {
-          node.style.visibility = 'hidden'
-          return
-        }
-        const bounds = host.getBoundingClientRect()
-        const anchor = target.getBoundingClientRect()
-        const width = node.offsetWidth
-        const height = node.offsetHeight
-        const left = Math.max(
-          8,
-          Math.min(bounds.width - width - 8, anchor.left - bounds.left + anchor.width / 2 - width / 2),
-        )
-        let top = anchor.top - bounds.top - height - 8
-        if (top < 4) top = anchor.bottom - bounds.top + 8
-        node.style.left = `${left}px`
-        node.style.top = `${top}px`
-        node.style.visibility = 'visible'
-      }
-      place()
-      // Match Magpie's followTip while the map's tiles glide to their new coordinates.
-      const started = performance.now()
-      const follow = (now: number) => {
-        place()
-        if (now - started < 660) frame = requestAnimationFrame(follow)
-      }
-      frame = requestAnimationFrame(follow)
-      const observer = new ResizeObserver(place)
-      for (const element of [node, host, target]) observer.observe(element)
-      return () => {
-        cancelAnimationFrame(frame)
-        observer.disconnect()
-      }
-    }, [tip, tiles, fold])
+    const onTipOpenChange = useCallback((open: boolean) => {
+      if (!open) setTip(undefined)
+    }, [])
     const showTip = (
       target: HTMLElement,
       title: string,
@@ -405,14 +368,13 @@ const Card = memo(
               <span className="ctx-sep">›</span>
               <span className="ctx-what">
                 <ModelIcon model={request.servedModel ?? request.model} />
-                <code className="ctx-model" title={request.servedModel ?? request.model}>
-                  {request.servedModel ?? request.model}
-                </code>
+                <TooltipHint content={request.servedModel ?? request.model}>
+                  <code className="ctx-model">{request.servedModel ?? request.model}</code>
+                </TooltipHint>
               </span>
             </span>
-            <span
-              className={`ctx-state ${state}`}
-              title={
+            <TooltipHint
+              content={
                 !request.done
                   ? '请求正在进行，按 agent 发送的内容估算。'
                   : p.counted
@@ -420,19 +382,21 @@ const Card = memo(
                     : '服务商没有告知输入用量，按发送的内容估算。'
               }
             >
-              <i />
-              <span className="ctx-state-w">
-                {[
-                  ['live', '实时'],
-                  ['counted', '已计数'],
-                  ['est', '估算'],
-                ].map(([key, text]) => (
-                  <span key={key} className={state === key ? 'on' : ''} aria-hidden={state !== key}>
-                    {text}
-                  </span>
-                ))}
+              <span className={`ctx-state ${state}`}>
+                <i />
+                <span className="ctx-state-w">
+                  {[
+                    ['live', '实时'],
+                    ['counted', '已计数'],
+                    ['est', '估算'],
+                  ].map(([key, text]) => (
+                    <span key={key} className={state === key ? 'on' : ''} aria-hidden={state !== key}>
+                      {text}
+                    </span>
+                  ))}
+                </span>
               </span>
-            </span>
+            </TooltipHint>
           </span>
         </div>
         <RevealContent ready={!fold} className="ctx-body">
@@ -622,22 +586,22 @@ const Card = memo(
           </div>
           <div className="ctx-legend">
             {availableParts.map((kind) => (
-              <button
-                key={kind}
-                className="ctx-leg ctx-click"
-                title={partNotes[kind]}
-                onClick={() => open(kind)}
-                onPointerEnter={() => setFocus({ kind })}
-                onPointerLeave={clear}
-                onFocus={() => setFocus({ kind })}
-                onBlur={clear}
-              >
-                <i className={`dot k-${kind}`} />
-                <span className="n">{partNames[kind]}</span>
-                <span className="v">
-                  <Count value={p.parts.find((part) => part.kind === kind)?.tokens ?? 0} quiet={quiet} />
-                </span>
-              </button>
+              <TooltipHint key={kind} content={partNotes[kind]}>
+                <button
+                  className="ctx-leg ctx-click"
+                  onClick={() => open(kind)}
+                  onPointerEnter={() => setFocus({ kind })}
+                  onPointerLeave={clear}
+                  onFocus={() => setFocus({ kind })}
+                  onBlur={clear}
+                >
+                  <i className={`dot k-${kind}`} />
+                  <span className="n">{partNames[kind]}</span>
+                  <span className="v">
+                    <Count value={p.parts.find((part) => part.kind === kind)?.tokens ?? 0} quiet={quiet} />
+                  </span>
+                </button>
+              </TooltipHint>
             ))}
             {windowSize > p.tokens ? (
               <span className="ctx-leg" onPointerEnter={() => setFocus({ kind: 'free' })} onPointerLeave={clear}>
@@ -648,20 +612,20 @@ const Card = memo(
             ) : null}
             <span className="ctx-look" role="group" aria-label="上下文显示方式">
               {(['map', 'grid'] as const).map((mode) => (
-                <button
-                  key={mode}
-                  className={`ctx-look-b${look === mode ? ' on' : ''}`}
-                  aria-label={mode === 'map' ? '上下文地图' : '方格'}
-                  aria-pressed={look === mode}
-                  title={mode === 'map' ? '上下文地图' : '方格'}
-                  onClick={() => {
-                    setLook(mode)
-                    savePreference('pi-meme:context:look', mode)
-                    clear()
-                  }}
-                >
-                  <LookIcon mode={mode} />
-                </button>
+                <TooltipHint key={mode} content={mode === 'map' ? '上下文地图' : '方格'}>
+                  <button
+                    className={`ctx-look-b${look === mode ? ' on' : ''}`}
+                    aria-label={mode === 'map' ? '上下文地图' : '方格'}
+                    aria-pressed={look === mode}
+                    onClick={() => {
+                      setLook(mode)
+                      savePreference('pi-meme:context:look', mode)
+                      clear()
+                    }}
+                  >
+                    <LookIcon mode={mode} />
+                  </button>
+                </TooltipHint>
               ))}
             </span>
           </div>
@@ -723,9 +687,11 @@ const Card = memo(
             </div>
           </div>
           <div className="ctx-foot">
-            <code className="ctx-crumbs" title={request.id}>
-              Pi meme › {sessionName ?? request.nativeSessionId.slice(0, 12)} › #{request.sequence}
-            </code>
+            <TooltipHint content={request.id}>
+              <code className="ctx-crumbs">
+                Pi meme › {sessionName ?? request.nativeSessionId.slice(0, 12)} › #{request.sequence}
+              </code>
+            </TooltipHint>
             <span className="grow" />
             {p.held ? <span className="ctx-note">更早的轮次保存在服务商那里</span> : null}
             {p.turns ? <span className="ctx-note">{p.turns} 轮</span> : null}
@@ -748,21 +714,27 @@ const Card = memo(
             </p>
           ) : null}
         </RevealContent>
-        {tip && !fold ? (
-          <div ref={tipNode} className="ctx-tip" role="tooltip" style={{ visibility: 'hidden' }}>
-            <div className="ctx-tip-head">
-              <i className={`dot ${tip.kind === 'free' ? 'free' : `k-${tip.kind}`}`} />
-              <b>{tip.title}</b>
-            </div>
-            <div className="ctx-tip-sub">{tip.sub}</div>
-            {tip.rows.map((item) => (
-              <div className="ctx-tip-row" key={item.id}>
-                <span className="n">{itemName(item)}</span>
-                <span>{fmtK(item.tokens)}</span>
+        <AnchoredTooltip
+          target={!fold ? (tip?.target ?? null) : null}
+          onOpenChange={onTipOpenChange}
+          content={
+            tip ? (
+              <div className="magpie-context space-y-1" style={{ fontSize: 'inherit', color: 'inherit' }}>
+                <div className="ctx-tip-head">
+                  <i className={`dot ${tip.kind === 'free' ? 'free' : `k-${tip.kind}`}`} />
+                  <b>{tip.title}</b>
+                </div>
+                <div className="ctx-tip-sub">{tip.sub}</div>
+                {tip.rows.map((item) => (
+                  <div className="ctx-tip-row" key={item.id}>
+                    <span className="n">{itemName(item)}</span>
+                    <span>{fmtK(item.tokens)}</span>
+                  </div>
+                ))}
               </div>
-            ))}
-          </div>
-        ) : null}
+            ) : null
+          }
+        />
       </div>
     )
   },

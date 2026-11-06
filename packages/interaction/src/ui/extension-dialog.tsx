@@ -1,3 +1,4 @@
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { composingKey } from './interaction-queue'
 import * as React from 'react'
 import { ExtensionEditor } from './extension-editor'
@@ -76,14 +77,18 @@ export function ExtensionDialog({
             <div className="space-y-1.5">
               <label className="text-xs font-medium text-foreground">请选择一项</label>
               <Select value={selected} onValueChange={setSelected} disabled={submitting}>
-                <SelectTrigger aria-label="扩展选择项" className="w-full text-xs min-w-0" title={selected}>
-                  <SelectValue placeholder="点击选择选项" />
-                </SelectTrigger>
+                <TooltipHint content={selected}>
+                  <SelectTrigger aria-label="扩展选择项" className="w-full text-xs min-w-0">
+                    <SelectValue placeholder="点击选择选项" />
+                  </SelectTrigger>
+                </TooltipHint>
                 <SelectContent className="max-w-[var(--radix-select-trigger-width)]">
                   {request.options.map((option) => (
-                    <SelectItem key={option} value={option} className="text-xs" title={option}>
-                      {option}
-                    </SelectItem>
+                    <TooltipHint key={option} content={option}>
+                      <SelectItem value={option} className="text-xs">
+                        {option}
+                      </SelectItem>
+                    </TooltipHint>
                   ))}
                 </SelectContent>
               </Select>

@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, type ReactNode } from 'react'
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import type { HostApi } from '@pi-meme/contracts/app-host'
 import type { UiJsonValue, UiTarget } from '@pi-meme/contracts/plugin-ui-data'
 import { freezeUiValue } from '@pi-meme/contracts/plugin-ui-data'
@@ -110,25 +111,25 @@ export function PluginWorkspacePage({
                     )
                     const available = Boolean(targetPage && pageAvailable(targetPage, route.target))
                     return (
-                      <button
-                        key={item.id}
-                        type="button"
-                        disabled={!available}
-                        title={!available ? '请先选择对应项目或会话' : undefined}
-                        aria-current={route.pageId === item.pageId ? 'page' : undefined}
-                        onClick={() => onOpen({ ...route, pageId: item.pageId, params: null })}
-                        className={cn(
-                          'flex h-9 w-full items-center gap-2 rounded-lg px-2.5 text-left text-sm text-muted-foreground hover:bg-secondary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40',
-                          route.pageId === item.pageId && 'bg-secondary font-medium text-foreground',
-                        )}
-                      >
-                        {item.icon && (
-                          <span className="flex size-4 items-center justify-center overflow-hidden [&>svg]:size-4">
-                            {item.icon}
-                          </span>
-                        )}
-                        {item.title ?? targetPage?.title ?? item.pageId}
-                      </button>
+                      <TooltipHint key={item.id} content={!available ? '请先选择对应项目或会话' : undefined}>
+                        <button
+                          type="button"
+                          disabled={!available}
+                          aria-current={route.pageId === item.pageId ? 'page' : undefined}
+                          onClick={() => onOpen({ ...route, pageId: item.pageId, params: null })}
+                          className={cn(
+                            'flex h-9 w-full items-center gap-2 rounded-lg px-2.5 text-left text-sm text-muted-foreground hover:bg-secondary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40',
+                            route.pageId === item.pageId && 'bg-secondary font-medium text-foreground',
+                          )}
+                        >
+                          {item.icon && (
+                            <span className="flex size-4 items-center justify-center overflow-hidden [&>svg]:size-4">
+                              {item.icon}
+                            </span>
+                          )}
+                          {item.title ?? targetPage?.title ?? item.pageId}
+                        </button>
+                      </TooltipHint>
                     )
                   })}
                 </section>

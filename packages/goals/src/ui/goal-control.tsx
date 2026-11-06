@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { CirclePause, CirclePlay, Maximize, Target, Trash2, X } from 'lucide-react'
 import type { Goal, GoalEdit } from '@pi-meme/contracts/goal'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
+import { TooltipHint, Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
 import { Popover, PopoverContent, PopoverTrigger } from '@pi-meme/ui/components/ui/popover'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Textarea } from '@pi-meme/ui/components/ui/textarea'
@@ -116,47 +116,57 @@ export function GoalControl({
             </span>
           </button>
         </PopoverTrigger>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="size-7 shrink-0 text-muted-foreground"
-          aria-label="清除目标"
-          title="清除目标"
-          disabled={!!pending}
-          onClick={() => void apply('clear', () => onAction('clear'))}
-        >
-          <Trash2 className="size-4" />
-        </Button>
+        <TooltipHint content="清除目标">
+          <span className="inline-flex shrink-0" tabIndex={pending ? 0 : undefined}>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-7 shrink-0 text-muted-foreground"
+              aria-label="清除目标"
+              disabled={!!pending}
+              onClick={() => void apply('clear', () => onAction('clear'))}
+            >
+              <Trash2 className="size-4" />
+            </Button>
+          </span>
+        </TooltipHint>
         {goal.status !== 'complete' ? (
+          <TooltipHint content={goal.status === 'active' ? '暂停目标' : '恢复目标'}>
+            <span
+              className="inline-flex shrink-0"
+              tabIndex={pending || (goal.status !== 'active' && (running || editing)) ? 0 : undefined}
+            >
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="size-7 shrink-0 text-muted-foreground"
+                aria-label={goal.status === 'active' ? '暂停目标' : '恢复目标'}
+                disabled={!!pending || (goal.status !== 'active' && (running || editing))}
+                onClick={() =>
+                  void apply(goal.status === 'active' ? 'pause' : 'resume', () =>
+                    onAction(goal.status === 'active' ? 'pause' : 'resume'),
+                  )
+                }
+              >
+                {goal.status === 'active' ? <CirclePause className="size-4" /> : <CirclePlay className="size-4" />}
+              </Button>
+            </span>
+          </TooltipHint>
+        ) : null}
+        <TooltipHint content="展开目标">
           <Button
             type="button"
             variant="ghost"
             size="icon"
             className="size-7 shrink-0 text-muted-foreground"
-            aria-label={goal.status === 'active' ? '暂停目标' : '恢复目标'}
-            title={goal.status === 'active' ? '暂停目标' : '恢复目标'}
-            disabled={!!pending || (goal.status !== 'active' && (running || editing))}
-            onClick={() =>
-              void apply(goal.status === 'active' ? 'pause' : 'resume', () =>
-                onAction(goal.status === 'active' ? 'pause' : 'resume'),
-              )
-            }
+            aria-label="展开目标"
+            onClick={() => onOpen(!open)}
           >
-            {goal.status === 'active' ? <CirclePause className="size-4" /> : <CirclePlay className="size-4" />}
+            <Maximize className="size-4" />
           </Button>
-        ) : null}
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="size-7 shrink-0 text-muted-foreground"
-          aria-label="展开目标"
-          title="展开目标"
-          onClick={() => onOpen(!open)}
-        >
-          <Maximize className="size-4" />
-        </Button>
+        </TooltipHint>
       </div>
       <PopoverContent side="top" align="start" className="w-[min(28rem,calc(100vw-2rem))] space-y-3">
         <div className="flex items-center justify-between gap-2">

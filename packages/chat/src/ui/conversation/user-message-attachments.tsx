@@ -1,3 +1,4 @@
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import type { ChatUploadedFile } from '@pi-meme/contracts/chat-attachments'
 import type { PiImage } from '@pi-meme/contracts/pi'
 import { FileIcon } from '@pi-meme/ui/components/file-icon'
@@ -31,13 +32,12 @@ export function UserMessageAttachments({
             <div className="flex min-h-0 flex-1 items-center justify-center bg-background/70">
               <FileIcon path={attachment.name} className="size-6" />
             </div>
-            <div
-              className="flex h-6 shrink-0 items-center gap-1.5 bg-background/50 px-2 text-xs"
-              title={attachment.name}
-            >
-              <FileIcon path={attachment.name} className="size-3.5" />
-              <span className="min-w-0 truncate">{attachment.name}</span>
-            </div>
+            <TooltipHint content={attachment.name}>
+              <div className="flex h-6 shrink-0 items-center gap-1.5 bg-background/50 px-2 text-xs">
+                <FileIcon path={attachment.name} className="size-3.5" />
+                <span className="min-w-0 truncate">{attachment.name}</span>
+              </div>
+            </TooltipHint>
           </div>
         ),
       )}

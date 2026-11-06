@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import type { PiImage } from '@pi-meme/contracts/pi'
 import { FileIcon } from '@pi-meme/ui/components/file-icon'
 import { isImageLink, MessageImage } from '@pi-meme/chat/ui/content/message-image'
@@ -84,13 +85,13 @@ export function SourcesPanel({ sources }: { sources: SourceItem[] }) {
             <SourceThumbnail item={item} />
           </div>
           <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-            <span className="font-mono text-xs font-semibold text-foreground break-all select-text" title={item.name}>
-              {item.name}
-            </span>
+            <TooltipHint content={item.name}>
+              <span className="font-mono text-xs font-semibold text-foreground break-all select-text">{item.name}</span>
+            </TooltipHint>
             {item.path && (
-              <span className="font-mono text-[11px] text-muted-foreground break-all select-text" title={item.path}>
-                {item.path}
-              </span>
+              <TooltipHint content={item.path}>
+                <span className="font-mono text-[11px] text-muted-foreground break-all select-text">{item.path}</span>
+              </TooltipHint>
             )}
             <span className="text-xs text-muted-foreground pt-0.5">{item.statusText}</span>
           </div>

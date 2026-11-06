@@ -1,3 +1,4 @@
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { useMemo, useState } from 'react'
 import { Check, Copy } from 'lucide-react'
 import { Button } from '@pi-meme/ui/components/ui/button'
@@ -68,9 +69,9 @@ export function FileToolDiff({ patch, path }: { patch: string; path?: string }) 
       className="my-2 min-w-0 overflow-hidden rounded-xl border border-border/60 bg-card/50 select-text"
     >
       <div className="flex min-w-0 items-center gap-2 border-b border-border/60 bg-secondary/50 px-3 py-1.5 font-mono text-xs">
-        <span className="min-w-0 truncate text-muted-foreground" title={path}>
-          {path?.split(/[\\/]/).pop() ?? '文件变更'}
-        </span>
+        <TooltipHint content={path}>
+          <span className="min-w-0 truncate text-muted-foreground">{path?.split(/[\\/]/).pop() ?? '文件变更'}</span>
+        </TooltipHint>
         {lines.length > 0 && (
           <span className="inline-flex shrink-0 gap-1.5 tabular-nums">
             <span className="text-emerald-600 dark:text-emerald-400">+{insertions}</span>

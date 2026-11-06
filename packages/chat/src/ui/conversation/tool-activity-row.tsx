@@ -1,3 +1,4 @@
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import * as React from 'react'
 import { PluginToolCard } from '@pi-meme/ui/components/plugin-tool-card'
 import { PluginMessageActions } from '@pi-meme/ui/components/plugin-message-actions'
@@ -138,65 +139,64 @@ function ToolActivityRowContent({
   return (
     <div className={cn('text-xs select-none', className)}>
       <div className="flex min-w-0 items-center gap-1">
-        <div
-          role={hasDetail ? 'button' : undefined}
-          aria-label={hasDetail ? `工具详情：${item.name ?? '未知工具'}` : undefined}
-          aria-expanded={hasDetail ? open : undefined}
-          tabIndex={hasDetail ? 0 : undefined}
-          onClick={() => hasDetail && onToggle()}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter' || e.key === ' ') {
-              e.preventDefault()
-              if (hasDetail) onToggle()
-            }
-          }}
-          title={meta.fullPath}
-          className={cn(
-            'group/tool-toggle flex min-h-6 w-fit max-w-full items-center gap-2 py-0.5 pr-1 rounded leading-5 cursor-pointer transition-colors',
-            'text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-            !hasDetail && 'cursor-default',
-          )}
-        >
-          {!isPaused && (
-            <IconComponent className="size-4 shrink-0 text-muted-foreground group-hover/tool-toggle:text-foreground" />
-          )}
+        <TooltipHint content={meta.fullPath}>
+          <div
+            role={hasDetail ? 'button' : undefined}
+            aria-label={hasDetail ? `工具详情：${item.name ?? '未知工具'}` : undefined}
+            aria-expanded={hasDetail ? open : undefined}
+            tabIndex={hasDetail ? 0 : undefined}
+            onClick={() => hasDetail && onToggle()}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault()
+                if (hasDetail) onToggle()
+              }
+            }}
 
-          <span className="truncate">
-            {isError ? summary.replace(/^已/u, '') : summary}
-            {isError ? ' · 失败' : ''}
-          </span>
+            className={cn(
+              'group/tool-toggle flex min-h-6 w-fit max-w-full items-center gap-2 py-0.5 pr-1 rounded leading-5 cursor-pointer transition-colors',
+              'text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              !hasDetail && 'cursor-default',
+            )}
+          >
+            {!isPaused && (
+              <IconComponent className="size-4 shrink-0 text-muted-foreground group-hover/tool-toggle:text-foreground" />
+            )}
 
-          {fileChange && (
-            <span className="inline-flex shrink-0 gap-1 font-mono tabular-nums">
-              <span className="group-hover/tool-toggle:text-emerald-600 group-focus-visible/tool-toggle:text-emerald-600 dark:group-hover/tool-toggle:text-emerald-400 dark:group-focus-visible/tool-toggle:text-emerald-400">
-                +{fileChange.insertions}
-              </span>
-              <span className="group-hover/tool-toggle:text-rose-600 group-focus-visible/tool-toggle:text-rose-600 dark:group-hover/tool-toggle:text-rose-400 dark:group-focus-visible/tool-toggle:text-rose-400">
-                −{fileChange.deletions}
-              </span>
+            <span className="truncate">
+              {isError ? summary.replace(/^已/u, '') : summary}
+              {isError ? ' · 失败' : ''}
             </span>
-          )}
-          {fileChange?.created && (
-            <span
-              className="size-1.5 shrink-0 rounded-full bg-blue-500"
-              role="img"
-              aria-label="新建文件"
-              title="新建文件"
-            />
-          )}
 
-          {hasDetail && (
-            <span
-              aria-hidden="true"
-              className={cn(
-                'inline-flex size-3.5 shrink-0 text-muted-foreground/70 opacity-0 transition-[opacity,rotate] duration-200 ease-out motion-reduce:transition-none ml-0.5 group-hover/tool-toggle:opacity-100 group-focus-visible/tool-toggle:opacity-100',
-                open ? 'rotate-0 opacity-100' : '-rotate-90',
-              )}
-            >
-              <ChevronDown className="size-3.5" />
-            </span>
-          )}
-        </div>
+            {fileChange && (
+              <span className="inline-flex shrink-0 gap-1 font-mono tabular-nums">
+                <span className="group-hover/tool-toggle:text-emerald-600 group-focus-visible/tool-toggle:text-emerald-600 dark:group-hover/tool-toggle:text-emerald-400 dark:group-focus-visible/tool-toggle:text-emerald-400">
+                  +{fileChange.insertions}
+                </span>
+                <span className="group-hover/tool-toggle:text-rose-600 group-focus-visible/tool-toggle:text-rose-600 dark:group-hover/tool-toggle:text-rose-400 dark:group-focus-visible/tool-toggle:text-rose-400">
+                  −{fileChange.deletions}
+                </span>
+              </span>
+            )}
+            {fileChange?.created && (
+              <TooltipHint content="新建文件">
+                <span className="size-1.5 shrink-0 rounded-full bg-blue-500" role="img" aria-label="新建文件" />
+              </TooltipHint>
+            )}
+
+            {hasDetail && (
+              <span
+                aria-hidden="true"
+                className={cn(
+                  'inline-flex size-3.5 shrink-0 text-muted-foreground/70 opacity-0 transition-[opacity,rotate] duration-200 ease-out motion-reduce:transition-none ml-0.5 group-hover/tool-toggle:opacity-100 group-focus-visible/tool-toggle:opacity-100',
+                  open ? 'rotate-0 opacity-100' : '-rotate-90',
+                )}
+              >
+                <ChevronDown className="size-3.5" />
+              </span>
+            )}
+          </div>
+        </TooltipHint>
         {actions === undefined ? actionAnchor && <PluginMessageActions {...actionAnchor} /> : actions}
       </div>
 

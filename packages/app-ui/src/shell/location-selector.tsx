@@ -1,4 +1,5 @@
 import { useRef, useState } from 'react'
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { ArrowLeft, Globe, Monitor } from 'lucide-react'
 import type { HostService } from '@pi-meme/contracts/host'
 import type { SelectWorkspace } from '@pi-meme/contracts/sessions'
@@ -46,22 +47,23 @@ export function LocationSelector({
           }
         }}
       >
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            aria-label="工作位置"
-            title={disabledReason || label}
-            disabled={Boolean(disabledReason)}
-            className="flex h-7 min-w-0 max-w-[180px] shrink items-center gap-1.5 rounded-lg px-2 text-xs text-muted-foreground transition-colors enabled:hover:bg-secondary/60 enabled:hover:text-foreground data-[state=open]:bg-secondary/60 data-[state=open]:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset enabled:cursor-pointer disabled:opacity-50"
-          >
-            {current?.local ? (
-              <Monitor className="size-3.5 shrink-0" />
-            ) : (
-              <Globe className="size-3.5 shrink-0 text-primary" />
-            )}
-            <span className="truncate">{label}</span>
-          </button>
-        </PopoverTrigger>
+        <TooltipHint content={disabledReason || label} open={open ? false : undefined}>
+          <PopoverTrigger asChild>
+            <button
+              type="button"
+              aria-label="工作位置"
+              disabled={Boolean(disabledReason)}
+              className="flex h-7 min-w-0 max-w-[180px] shrink items-center gap-1.5 rounded-lg px-2 text-xs text-muted-foreground transition-colors enabled:hover:bg-secondary/60 enabled:hover:text-foreground data-[state=open]:bg-secondary/60 data-[state=open]:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset enabled:cursor-pointer disabled:opacity-50"
+            >
+              {current?.local ? (
+                <Monitor className="size-3.5 shrink-0" />
+              ) : (
+                <Globe className="size-3.5 shrink-0 text-primary" />
+              )}
+              <span className="truncate">{label}</span>
+            </button>
+          </PopoverTrigger>
+        </TooltipHint>
         <PopoverContent
           side="top"
           align="start"

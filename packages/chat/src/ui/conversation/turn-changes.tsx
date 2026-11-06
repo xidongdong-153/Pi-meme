@@ -1,3 +1,4 @@
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { useEffect, useRef, useState } from 'react'
 import { ChevronDown, FileDiff, Undo2 } from 'lucide-react'
 import type { TurnChangeSummary } from '@pi-meme/contracts/turn-changes'
@@ -31,9 +32,9 @@ function ChangeFiles({
             onClick={() => onView(changes.entryId, file.path)}
             className="flex w-full min-w-0 items-center gap-3 px-3 py-2 text-left text-xs hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
           >
-            <span className="min-w-0 flex-1 truncate font-mono text-muted-foreground" title={file.path}>
-              {file.path}
-            </span>
+            <TooltipHint content={file.path}>
+              <span className="min-w-0 flex-1 truncate font-mono text-muted-foreground">{file.path}</span>
+            </TooltipHint>
             <ChangeCounts {...file} />
           </button>
         </li>
@@ -141,16 +142,23 @@ export function TurnChangesCard({
           <ChangeCounts {...changes} />
         </div>
         {!changes.undone && (
-          <Button
-            size="sm"
-            variant="ghost"
-            disabled={disabled || undoing || Boolean(changes.undoUnavailable)}
-            title={changes.undoUnavailable}
-            onClick={() => void undo()}
-          >
-            <Undo2 className="size-3.5" />
-            {undoing ? '正在撤销…' : '撤销'}
-          </Button>
+          <TooltipHint content={changes.undoUnavailable}>
+            <span
+              className="inline-flex"
+              tabIndex={disabled || undoing || Boolean(changes.undoUnavailable) ? 0 : undefined}
+            >
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={disabled || undoing || Boolean(changes.undoUnavailable)}
+
+                onClick={() => void undo()}
+              >
+                <Undo2 className="size-3.5" />
+                {undoing ? '正在撤销…' : '撤销'}
+              </Button>
+            </span>
+          </TooltipHint>
         )}
         <Button size="sm" variant="outline" onClick={() => onView(changes.entryId)}>
           查看变更

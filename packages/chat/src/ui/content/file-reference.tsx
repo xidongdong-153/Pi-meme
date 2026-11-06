@@ -1,3 +1,4 @@
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import type { ReactNode } from 'react'
 import { FileIcon } from '@pi-meme/ui/components/file-icon'
 import { fileReferences } from '../composer/completion-query'
@@ -23,10 +24,12 @@ export function FileReferences({ text }: { text: string }) {
     const file = fileReferenceDetails(reference.path)
     parts.push(
       text.slice(offset, reference.start),
-      <span key={reference.start} title={reference.path} className={fileReferenceClassName} aria-label={file.label}>
-        <FileIcon path={file.iconPath} directory={file.directory} className={fileReferenceIconClassName} />
-        {file.name}
-      </span>,
+      <TooltipHint key={reference.start} content={reference.path}>
+        <span className={fileReferenceClassName} aria-label={file.label}>
+          <FileIcon path={file.iconPath} directory={file.directory} className={fileReferenceIconClassName} />
+          {file.name}
+        </span>
+      </TooltipHint>,
     )
     offset = reference.end
   }

@@ -1,3 +1,4 @@
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { useRef, useState } from 'react'
 import { Check, Folder, Plus, Search, X } from 'lucide-react'
 import type { DesktopProject, SelectWorkspace, WorkspaceKind } from '@pi-meme/contracts/sessions'
@@ -126,18 +127,24 @@ export function ProjectSelector({
     <div className="flex min-w-0 max-w-[min(60%,260px)] shrink items-center">
       <Popover open={open} onOpenChange={(next) => void changeOpen(next)}>
         {activeAnchor && <PopoverAnchor virtualRef={virtualAnchorRef.current} />}
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            aria-label="选择当前项目"
-            disabled={blocked}
-            title={disabledReason || (standalone ? '文件保存在此会话的独立目录' : cwd)}
-            className="flex h-7 min-w-0 max-w-full items-center gap-1.5 rounded-lg px-2 text-xs text-foreground/85 transition-colors enabled:hover:bg-secondary/60 enabled:hover:text-foreground data-[state=open]:bg-secondary/60 data-[state=open]:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset enabled:cursor-pointer disabled:opacity-50"
-          >
-            <Folder className="size-4 shrink-0" />
-            <span className="truncate">{name}</span>
-          </button>
-        </PopoverTrigger>
+        <TooltipHint
+          content={disabledReason || (standalone ? '文件保存在此会话的独立目录' : cwd)}
+          open={open ? false : undefined}
+        >
+          <span className="inline-flex min-w-0 max-w-full">
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                aria-label="选择当前项目"
+                disabled={blocked}
+                className="flex h-7 min-w-0 max-w-full items-center gap-1.5 rounded-lg px-2 text-xs text-foreground/85 transition-colors enabled:hover:bg-secondary/60 enabled:hover:text-foreground data-[state=open]:bg-secondary/60 data-[state=open]:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset enabled:cursor-pointer disabled:opacity-50"
+              >
+                <Folder className="size-4 shrink-0" />
+                <span className="truncate">{name}</span>
+              </button>
+            </PopoverTrigger>
+          </span>
+        </TooltipHint>
         <PopoverContent
           ref={contentRef}
           aria-label="项目选择"
@@ -203,31 +210,36 @@ export function ProjectSelector({
                 </p>
               ) : (
                 filtered.map((project, index) => (
-                  <button
-                    key={project.cwd}
-                    type="button"
-                    role="option"
-                    aria-selected={!standalone && cwd === project.cwd}
-                    data-project-index={index}
-                    title={project.cwd}
-                    disabled={blocked}
-                    onClick={() => void choose(index)}
-                    onMouseEnter={() => setActiveIndex(index)}
-                    className={cn(
-                      'flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-xs transition-colors hover:bg-secondary/60 disabled:opacity-50 cursor-pointer',
-                      activeIndex === index && 'bg-secondary/70 text-foreground font-medium',
-                    )}
-                  >
-                    <Folder className="size-3.5 shrink-0 text-muted-foreground/80" />
-                    <span className="min-w-0 flex-1 leading-snug">
-                      <span className="block truncate font-medium">{project.name}</span>
-                      <span className="block truncate text-[0.625rem] text-muted-foreground/70">
-                        {project.unavailable ? '目录不可用 · ' : ''}
-                        {projectPathLabel(project.cwd)}
-                      </span>
+                  <TooltipHint key={project.cwd} content={project.cwd}>
+                    <span className="flex w-full min-w-0">
+                      <button
+                        key={project.cwd}
+                        type="button"
+                        role="option"
+                        aria-selected={!standalone && cwd === project.cwd}
+                        data-project-index={index}
+                        disabled={blocked}
+                        onClick={() => void choose(index)}
+                        onMouseEnter={() => setActiveIndex(index)}
+                        className={cn(
+                          'flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-xs transition-colors hover:bg-secondary/60 disabled:opacity-50 cursor-pointer',
+                          activeIndex === index && 'bg-secondary/70 text-foreground font-medium',
+                        )}
+                      >
+                        <Folder className="size-3.5 shrink-0 text-muted-foreground/80" />
+                        <span className="min-w-0 flex-1 leading-snug">
+                          <span className="block truncate font-medium">{project.name}</span>
+                          <span className="block truncate text-[0.625rem] text-muted-foreground/70">
+                            {project.unavailable ? '目录不可用 · ' : ''}
+                            {projectPathLabel(project.cwd)}
+                          </span>
+                        </span>
+                        {!standalone && cwd === project.cwd && (
+                          <Check className="size-3.5 shrink-0 text-foreground ml-1" />
+                        )}
+                      </button>
                     </span>
-                    {!standalone && cwd === project.cwd && <Check className="size-3.5 shrink-0 text-foreground ml-1" />}
-                  </button>
+                  </TooltipHint>
                 ))
               )}
             </div>

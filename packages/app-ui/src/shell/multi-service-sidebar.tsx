@@ -3,7 +3,7 @@ import { Plus, Search, SquarePen } from 'lucide-react'
 import type { HostService } from '@pi-meme/contracts/host'
 import type { SidebarPreferences, SidebarPreferencesPatch } from '@pi-meme/contracts/settings'
 import { BrandMark } from '@pi-meme/ui/components/brand-mark'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
+import { TooltipHint, Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
 import { ProjectItem } from '@pi-meme/workspace/ui/sidebar/project-item'
 import { SessionItem } from '@pi-meme/workspace/ui/sidebar/session-item'
 import { SidebarMenus } from '@pi-meme/workspace/ui/sidebar/sidebar-menus'
@@ -271,16 +271,21 @@ export function MultiServiceSidebar({
           <TooltipContent>搜索聊天{searchShortcut ? ` · ${searchShortcut}` : ''}</TooltipContent>
         </Tooltip>
       </div>
-      <button
-        type="button"
-        onClick={() => onActivate(activeId, (chat) => chat.newSession())}
-        disabled={activePaused}
-        title={activePaused ? '连接已暂停，请先恢复连接' : newChatShortcut ? `新聊天（${newChatShortcut}）` : '新聊天'}
-        className="mx-3 my-1.5 flex items-center gap-2 rounded-lg px-2 py-2 text-left text-xs hover:bg-secondary"
+      <TooltipHint
+        content={
+          activePaused ? '连接已暂停，请先恢复连接' : newChatShortcut ? `新聊天（${newChatShortcut}）` : '新聊天'
+        }
       >
-        <SquarePen className="size-4" />
-        新聊天
-      </button>
+        <button
+          type="button"
+          onClick={() => onActivate(activeId, (chat) => chat.newSession())}
+          disabled={activePaused}
+          className="mx-3 my-1.5 flex items-center gap-2 rounded-lg px-2 py-2 text-left text-xs hover:bg-secondary"
+        >
+          <SquarePen className="size-4" />
+          新聊天
+        </button>
+      </TooltipHint>
       {preferenceError && (
         <p role="alert" className="px-3 text-xs text-destructive">
           {preferenceError}
@@ -312,18 +317,19 @@ export function MultiServiceSidebar({
                   disabled={!preferencesLoaded}
                   onChange={onPreferencesChange}
                 />
-                <button
-                  type="button"
-                  aria-label="新建项目"
-                  disabled={activePaused}
-                  title={activePaused ? '连接已暂停，请先恢复连接' : '新建项目'}
-                  onClick={() =>
-                    void (active?.openProjectDialog ? active.openProjectDialog() : active?.chooseDirectory())
-                  }
-                  className="rounded p-1 hover:bg-secondary"
-                >
-                  <Plus className="size-3.5" />
-                </button>
+                <TooltipHint content={activePaused ? '连接已暂停，请先恢复连接' : '新建项目'}>
+                  <button
+                    type="button"
+                    aria-label="新建项目"
+                    disabled={activePaused}
+                    onClick={() =>
+                      void (active?.openProjectDialog ? active.openProjectDialog() : active?.chooseDirectory())
+                    }
+                    className="rounded p-1 hover:bg-secondary"
+                  >
+                    <Plus className="size-3.5" />
+                  </button>
+                </TooltipHint>
               </>
             }
           >
@@ -354,15 +360,16 @@ export function MultiServiceSidebar({
                   disabled={!preferencesLoaded}
                   onChange={onPreferencesChange}
                 />
-                <button
-                  type="button"
-                  aria-label="新聊天"
-                  title={newChatShortcut ? `新聊天（${newChatShortcut}）` : '新聊天'}
-                  onClick={() => onActivate(activeId, (chat) => chat.newSession())}
-                  className="rounded p-1 hover:bg-secondary"
-                >
-                  <SquarePen className="size-3.5" />
-                </button>
+                <TooltipHint content={newChatShortcut ? `新聊天（${newChatShortcut}）` : '新聊天'}>
+                  <button
+                    type="button"
+                    aria-label="新聊天"
+                    onClick={() => onActivate(activeId, (chat) => chat.newSession())}
+                    className="rounded p-1 hover:bg-secondary"
+                  >
+                    <SquarePen className="size-3.5" />
+                  </button>
+                </TooltipHint>
               </>
             )
           }

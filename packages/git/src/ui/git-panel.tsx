@@ -1,3 +1,4 @@
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ChevronDown, ChevronRight, Copy, ExternalLink, MoreHorizontal, RefreshCw } from 'lucide-react'
 import type {
@@ -490,49 +491,59 @@ function ReviewFile({
       <div
         className={cn('group flex min-w-0 items-center gap-1 px-2 hover:bg-secondary/40', open && 'bg-secondary/25')}
       >
-        <button
-          type="button"
-          aria-label={file.path}
-          aria-expanded={open}
-          onClick={onToggle}
-          title={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}
-          className="flex min-w-0 flex-1 items-center gap-2 rounded py-3 text-left text-xs focus-visible:outline-2 focus-visible:outline-ring"
+        <TooltipHint content={file.oldPath ? `${file.oldPath} → ${file.path}` : file.path}>
+          <button
+            type="button"
+            aria-label={file.path}
+            aria-expanded={open}
+            onClick={onToggle}
+            className="flex min-w-0 flex-1 items-center gap-2 rounded py-3 text-left text-xs focus-visible:outline-2 focus-visible:outline-ring"
+          >
+            {open ? (
+              <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
+            ) : (
+              <ChevronRight className="size-3 shrink-0 text-muted-foreground" />
+            )}
+            <FileIcon path={file.path} />
+            <span className="flex min-w-0 flex-1 items-baseline overflow-hidden">
+              <span className="min-w-0 truncate text-muted-foreground">{directory}</span>
+              <span className="max-w-full shrink-0 truncate font-medium">{name}</span>
+            </span>
+            {file.status !== 'M' && (
+              <TooltipHint content={statuses[file.status] ?? file.status}>
+                <span className="shrink-0 text-[10px] text-muted-foreground">
+                  {file.status === '?' ? '新' : file.status}
+                </span>
+              </TooltipHint>
+            )}
+            <span className="ml-auto flex shrink-0 items-center gap-1.5 font-mono text-[11px] tabular-nums">
+              <span className="text-emerald-600 dark:text-emerald-400">
+                {file.insertions === null ? '—' : `+${file.insertions}`}
+              </span>
+              <span className="text-rose-600 dark:text-rose-400">
+                {file.deletions === null ? '—' : `−${file.deletions}`}
+              </span>
+            </span>
+          </button>
+        </TooltipHint>
+        <TooltipHint
+          content={
+            !file.canOpen ? '当前工作区中无法打开此文件' : !onOpenFile ? '当前连接不支持本机编辑器' : '在编辑器中打开'
+          }
         >
-          {open ? (
-            <ChevronDown className="size-3 shrink-0 text-muted-foreground" />
-          ) : (
-            <ChevronRight className="size-3 shrink-0 text-muted-foreground" />
-          )}
-          <FileIcon path={file.path} />
-          <span className="flex min-w-0 flex-1 items-baseline overflow-hidden">
-            <span className="min-w-0 truncate text-muted-foreground">{directory}</span>
-            <span className="max-w-full shrink-0 truncate font-medium">{name}</span>
+          <span className="hidden shrink-0 @min-[600px]:inline-flex">
+            <Button
+              variant="ghost"
+              size="icon-sm"
+              className="size-7 shrink-0 text-muted-foreground"
+              aria-label={`在编辑器中打开 ${file.path}`}
+              disabled={!onOpenFile || !file.canOpen}
+              onClick={openFile}
+            >
+              <ExternalLink className="size-3.5" />
+            </Button>
           </span>
-          {file.status !== 'M' && (
-            <span className="shrink-0 text-[10px] text-muted-foreground" title={statuses[file.status] ?? file.status}>
-              {file.status === '?' ? '新' : file.status}
-            </span>
-          )}
-          <span className="ml-auto flex shrink-0 items-center gap-1.5 font-mono text-[11px] tabular-nums">
-            <span className="text-emerald-600 dark:text-emerald-400">
-              {file.insertions === null ? '—' : `+${file.insertions}`}
-            </span>
-            <span className="text-rose-600 dark:text-rose-400">
-              {file.deletions === null ? '—' : `−${file.deletions}`}
-            </span>
-          </span>
-        </button>
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          className="hidden size-7 shrink-0 text-muted-foreground @min-[600px]:inline-flex"
-          title={file.canOpen ? '在编辑器中打开' : '当前工作区中无法打开此文件'}
-          aria-label={`在编辑器中打开 ${file.path}`}
-          disabled={!onOpenFile || !file.canOpen}
-          onClick={openFile}
-        >
-          <ExternalLink className="size-3.5" />
-        </Button>
+        </TooltipHint>
         <DropdownMenu key={String(visible)}>
           <DropdownMenuTrigger asChild>
             <Button
@@ -550,16 +561,18 @@ function ReviewFile({
               复制相对路径
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => void copy(absolutePath, '绝对路径')}>复制绝对路径</DropdownMenuItem>
-            <DropdownMenuItem
-              disabled={!onOpenFile || !file.canOpen}
-              title={
+            <TooltipHint
+              content={
                 !file.canOpen ? '当前工作区中无法打开此文件' : !onOpenFile ? '当前连接不支持本机编辑器' : undefined
               }
-              onSelect={openFile}
             >
-              <ExternalLink />
-              在编辑器中打开
-            </DropdownMenuItem>
+              <span className="flex w-full">
+                <DropdownMenuItem className="w-full" disabled={!onOpenFile || !file.canOpen} onSelect={openFile}>
+                  <ExternalLink />
+                  在编辑器中打开
+                </DropdownMenuItem>
+              </span>
+            </TooltipHint>
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={onToggle}>{open ? '收起差异' : '展开差异'}</DropdownMenuItem>
             <DropdownMenuItem onSelect={() => void copyDiff()}>复制 Diff</DropdownMenuItem>

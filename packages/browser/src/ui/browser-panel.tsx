@@ -1,3 +1,4 @@
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   ArrowLeft,
@@ -327,39 +328,46 @@ export function BrowserPanel({
     >
       <div className="flex h-12 shrink-0 items-center gap-1.5 border-b border-border bg-background px-2 no-drag">
         <div className="flex h-8 shrink-0 items-center rounded-full bg-secondary/80 px-0.5">
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            title="后退"
-            aria-label="后退"
-            className="rounded-full hover:bg-transparent hover:opacity-75"
-            disabled={!tab.canGoBack}
-            onClick={() => void command({ type: 'back' })}
-          >
-            <ArrowLeft className="size-4" />
-          </Button>
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            title="前进"
-            aria-label="前进"
-            className={`rounded-full hover:bg-transparent hover:opacity-75 ${narrow && !tab.canGoForward ? 'hidden' : ''}`}
-            disabled={!tab.canGoForward}
-            onClick={() => void command({ type: 'forward' })}
-          >
-            <ArrowRight className="size-4" />
-          </Button>
+          <TooltipHint content="后退">
+            <span className="inline-flex">
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                aria-label="后退"
+                className="rounded-full hover:bg-transparent hover:opacity-75"
+                disabled={!tab.canGoBack}
+                onClick={() => void command({ type: 'back' })}
+              >
+                <ArrowLeft className="size-4" />
+              </Button>
+            </span>
+          </TooltipHint>
+          <TooltipHint content="前进">
+            <span className={narrow && !tab.canGoForward ? 'hidden' : 'inline-flex'}>
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                aria-label="前进"
+                className="rounded-full hover:bg-transparent hover:opacity-75"
+                disabled={!tab.canGoForward}
+                onClick={() => void command({ type: 'forward' })}
+              >
+                <ArrowRight className="size-4" />
+              </Button>
+            </span>
+          </TooltipHint>
           <span className="mx-0.5 h-4 w-px bg-border" />
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            title={tab.loading ? '停止加载' : '刷新'}
-            aria-label={tab.loading ? '停止加载' : '刷新'}
-            className="rounded-full hover:bg-transparent hover:opacity-75"
-            onClick={() => void command({ type: tab.loading ? 'stop' : 'reload' })}
-          >
-            {tab.loading ? <Square className="size-3.5" /> : <RefreshCw className="size-3.5" />}
-          </Button>
+          <TooltipHint content={tab.loading ? '停止加载' : '刷新'}>
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              aria-label={tab.loading ? '停止加载' : '刷新'}
+              className="rounded-full hover:bg-transparent hover:opacity-75"
+              onClick={() => void command({ type: tab.loading ? 'stop' : 'reload' })}
+            >
+              {tab.loading ? <Square className="size-3.5" /> : <RefreshCw className="size-3.5" />}
+            </Button>
+          </TooltipHint>
         </div>
         <Button
           size="sm"
@@ -417,17 +425,18 @@ export function BrowserPanel({
           />
         </form>
         <DropdownMenu open={menuOpen} onOpenChange={changeMenuOpen}>
-          <DropdownMenuTrigger asChild>
-            <Button
-              size="icon-sm"
-              variant="ghost"
-              className="shrink-0 rounded-full bg-secondary/80"
-              title="更多浏览器操作"
-              aria-label="更多浏览器操作"
-            >
-              <MoreHorizontal className="size-4" />
-            </Button>
-          </DropdownMenuTrigger>
+          <TooltipHint content="更多浏览器操作">
+            <DropdownMenuTrigger asChild>
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                className="shrink-0 rounded-full bg-secondary/80"
+                aria-label="更多浏览器操作"
+              >
+                <MoreHorizontal className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+          </TooltipHint>
           <DropdownMenuContent
             align="end"
             side="bottom"
@@ -464,14 +473,15 @@ export function BrowserPanel({
                 >
                   <ZoomOut className="size-3" />
                 </Button>
-                <button
-                  className="min-w-10 text-center tabular-nums"
-                  title="重置缩放"
-                  type="button"
-                  onClick={() => void changeZoom(1)}
-                >
-                  {Math.round(menuZoom * 100)}%
-                </button>
+                <TooltipHint content="重置缩放">
+                  <button
+                    className="min-w-10 text-center tabular-nums"
+                    type="button"
+                    onClick={() => void changeZoom(1)}
+                  >
+                    {Math.round(menuZoom * 100)}%
+                  </button>
+                </TooltipHint>
                 <Button
                   size="icon-sm"
                   variant="ghost"
@@ -558,29 +568,37 @@ export function BrowserPanel({
                   ? `${findResult.active}/${findResult.matches}`
                   : '无匹配'}
           </span>
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            aria-label="上一个匹配"
-            title="上一个匹配（Shift+Enter）"
-            disabled={!query || !findResult?.matches}
-            onClick={() => find(query, true, false)}
-          >
-            <ChevronUp className="size-3.5" />
-          </Button>
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            aria-label="下一个匹配"
-            title="下一个匹配（Enter）"
-            disabled={!query || !findResult?.matches}
-            onClick={() => find(query, true)}
-          >
-            <ChevronDown className="size-3.5" />
-          </Button>
-          <Button size="icon-sm" variant="ghost" aria-label="关闭查找" title="关闭查找（Esc）" onClick={closeFind}>
-            <X className="size-3.5" />
-          </Button>
+          <TooltipHint content="上一个匹配（Shift+Enter）">
+            <span className="inline-flex">
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                aria-label="上一个匹配"
+                disabled={!query || !findResult?.matches}
+                onClick={() => find(query, true, false)}
+              >
+                <ChevronUp className="size-3.5" />
+              </Button>
+            </span>
+          </TooltipHint>
+          <TooltipHint content="下一个匹配（Enter）">
+            <span className="inline-flex">
+              <Button
+                size="icon-sm"
+                variant="ghost"
+                aria-label="下一个匹配"
+                disabled={!query || !findResult?.matches}
+                onClick={() => find(query, true)}
+              >
+                <ChevronDown className="size-3.5" />
+              </Button>
+            </span>
+          </TooltipHint>
+          <TooltipHint content="关闭查找（Esc）">
+            <Button size="icon-sm" variant="ghost" aria-label="关闭查找" onClick={closeFind}>
+              <X className="size-3.5" />
+            </Button>
+          </TooltipHint>
         </div>
       ) : null}
       {saveError ? (
@@ -618,14 +636,15 @@ export function BrowserPanel({
               <div className="mt-4 w-full space-y-2 text-left">
                 <h3 className="text-xs">最近访问</h3>
                 {recent.map((item) => (
-                  <button
-                    key={item.id}
-                    onClick={() => void command({ type: 'navigate', url: item.url })}
-                    className="block w-full truncate rounded-lg bg-secondary/50 px-3 py-2 text-left text-xs hover:bg-secondary"
-                    title={item.url}
-                  >
-                    {item.title || item.url}
-                  </button>
+                  <TooltipHint key={item.id} content={item.url}>
+                    <button
+                      key={item.id}
+                      onClick={() => void command({ type: 'navigate', url: item.url })}
+                      className="block w-full truncate rounded-lg bg-secondary/50 px-3 py-2 text-left text-xs hover:bg-secondary"
+                    >
+                      {item.title || item.url}
+                    </button>
+                  </TooltipHint>
                 ))}
               </div>
             ) : null}

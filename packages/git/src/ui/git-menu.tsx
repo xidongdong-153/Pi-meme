@@ -1,3 +1,4 @@
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { useEffect, useRef, useState } from 'react'
 import { Check, FileDiff, Settings } from 'lucide-react'
 import type { GitBridge, GitEnvironment } from '@pi-meme/contracts/desktop'
@@ -105,17 +106,20 @@ export function GitMenu({
   return (
     <>
       <Popover open={open} onOpenChange={setOpen}>
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            aria-label="Git 分支与工作树"
-            title={unavailable || environment?.branch || '分离 HEAD'}
-            disabled={Boolean(disabledReason)}
-            className="flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors enabled:hover:bg-secondary/60 enabled:hover:text-foreground data-[state=open]:bg-secondary/60 data-[state=open]:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset enabled:cursor-pointer disabled:opacity-50"
-          >
-            <Settings className="size-3.5" />
-          </button>
-        </PopoverTrigger>
+        <TooltipHint content={unavailable || environment?.branch || '分离 HEAD'} open={open ? false : undefined}>
+          <span className="inline-flex">
+            <PopoverTrigger asChild>
+              <button
+                type="button"
+                aria-label="Git 分支与工作树"
+                disabled={Boolean(disabledReason)}
+                className="flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors enabled:hover:bg-secondary/60 enabled:hover:text-foreground data-[state=open]:bg-secondary/60 data-[state=open]:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 focus-visible:ring-inset enabled:cursor-pointer disabled:opacity-50"
+              >
+                <Settings className="size-3.5" />
+              </button>
+            </PopoverTrigger>
+          </span>
+        </TooltipHint>
         <PopoverContent
           side="top"
           align="end"
@@ -168,22 +172,28 @@ export function GitMenu({
               />
               <div className="max-h-52 space-y-0.5 overflow-y-auto" role="listbox" aria-label="Git 分支">
                 {branches.map((branch) => (
-                  <button
+                  <TooltipHint
                     key={branch.ref}
-                    type="button"
-                    role="option"
-                    aria-selected={branch.current}
-                    title={branch.occupiedBy ? `已被工作树占用：${branch.occupiedBy}` : branch.ref}
-                    disabled={busy || Boolean(branch.occupiedBy) || environment?.dirty || !environment?.headSha}
-                    onClick={() => void run(() => onSwitch(branch.ref))}
-                    className="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-xs hover:bg-secondary disabled:opacity-50"
+                    content={branch.occupiedBy ? `已被工作树占用：${branch.occupiedBy}` : branch.ref}
                   >
-                    <span className="truncate">
-                      {branch.name}
-                      {branch.kind === 'remote' ? ' · 远程' : branch.occupiedBy ? ' · 已占用' : ''}
+                    <span className="flex w-full min-w-0">
+                      <button
+                        key={branch.ref}
+                        type="button"
+                        role="option"
+                        aria-selected={branch.current}
+                        disabled={busy || Boolean(branch.occupiedBy) || environment?.dirty || !environment?.headSha}
+                        onClick={() => void run(() => onSwitch(branch.ref))}
+                        className="flex w-full items-center justify-between rounded-lg px-2 py-1.5 text-left text-xs hover:bg-secondary disabled:opacity-50"
+                      >
+                        <span className="truncate">
+                          {branch.name}
+                          {branch.kind === 'remote' ? ' · 远程' : branch.occupiedBy ? ' · 已占用' : ''}
+                        </span>
+                        {branch.current && <Check className="size-3.5 shrink-0" />}
+                      </button>
                     </span>
-                    {branch.current && <Check className="size-3.5 shrink-0" />}
-                  </button>
+                  </TooltipHint>
                 ))}
               </div>
               <div className="border-t border-border pt-1">

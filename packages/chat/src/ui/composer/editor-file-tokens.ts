@@ -13,7 +13,7 @@ export function fileReferenceNodes(text: string): Node[] {
     token.setAttribute('contenteditable', 'false')
     const file = fileReferenceDetails(reference.path)
     token.setAttribute('aria-label', file.label)
-    token.title = reference.path
+    token.dataset.tooltip = reference.path
     token.className = `${fileReferenceClassName} select-none`
     const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg')
     icon.setAttribute('viewBox', '0 0 16 16')

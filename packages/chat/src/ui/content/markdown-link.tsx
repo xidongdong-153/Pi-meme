@@ -3,7 +3,15 @@ import { Copy, ExternalLink, Globe } from 'lucide-react'
 import type { LinkPreview } from '@pi-meme/contracts/link-preview'
 import type { SessionRef } from '@pi-meme/contracts/app-host'
 import { Popover, PopoverAnchor, PopoverContent } from '@pi-meme/ui/components/ui/popover'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipHint,
+  TooltipProvider,
+  TooltipTrigger,
+  tooltipSurfaceClassName,
+} from '@pi-meme/ui/components/ui/tooltip'
+import { cn } from '@pi-meme/ui/lib/utils'
 
 export const MarkdownLinkContext = React.createContext<{
   loadPreview?: (url: string) => Promise<LinkPreview>
@@ -42,7 +50,7 @@ export function fileLinkTarget(href: string, cwd?: string) {
   return { path, line, column, label: `${path}${line ? `（第 ${line} 行${column ? `，第 ${column} 列` : ''}）` : ''}` }
 }
 
-function FileLink({ href, children }: { href: string; children: React.ReactNode }) {
+function FileLink({ href, children, title }: { href: string; children: React.ReactNode; title?: string }) {
   const cwd = React.useContext(MarkdownWorkingDirectoryContext)
   const { openFile } = React.useContext(MarkdownLinkContext)
   const session = React.useContext(MarkdownFileSessionContext)
@@ -78,6 +86,7 @@ function FileLink({ href, children }: { href: string; children: React.ReactNode 
           </button>
         </TooltipTrigger>
         <TooltipContent side="top" className="pi-path-tooltip">
+          {title ? <span className="block">{title}</span> : null}
           <span>{target.label}</span>
           <span className="pi-path-action">{status || (openFile ? '在标签页中打开' : '点击复制路径')}</span>
         </TooltipContent>
@@ -153,7 +162,6 @@ function WebLink({ href, children, title }: { href: string; children: React.Reac
           target="_blank"
           rel="noopener noreferrer"
           className="pi-link"
-          title={open ? undefined : title}
           onPointerEnter={(event) => {
             if (event.pointerType !== 'touch') show()
           }}
@@ -180,7 +188,7 @@ function WebLink({ href, children, title }: { href: string; children: React.Reac
         align="start"
         sideOffset={8}
         collisionPadding={12}
-        className="pi-link-preview"
+        className={cn(tooltipSurfaceClassName, 'pi-link-preview pointer-events-auto')}
         aria-label="链接预览"
         onOpenAutoFocus={(event) => event.preventDefault()}
         onCloseAutoFocus={(event) => event.preventDefault()}
@@ -219,19 +227,20 @@ function WebLink({ href, children, title }: { href: string; children: React.Reac
           {result?.failed ? <p className="pi-link-preview-description">暂时无法预览，可直接打开网页。</p> : null}
           <div className="pi-link-preview-address">
             <span>{url.href}</span>
-            <button
-              type="button"
-              aria-label="复制链接"
-              title="复制链接"
-              onClick={() => {
-                void navigator.clipboard.writeText(href).then(
-                  () => setCopyStatus('链接已复制'),
-                  () => setCopyStatus('复制失败'),
-                )
-              }}
-            >
-              <Copy aria-hidden="true" />
-            </button>
+            <TooltipHint content={copyStatus || '复制链接'}>
+              <button
+                type="button"
+                aria-label="复制链接"
+                onClick={() => {
+                  void navigator.clipboard.writeText(href).then(
+                    () => setCopyStatus('链接已复制'),
+                    () => setCopyStatus('复制失败'),
+                  )
+                }}
+              >
+                <Copy aria-hidden="true" />
+              </button>
+            </TooltipHint>
           </div>
           <span className="sr-only" role="status">
             {copyStatus}
@@ -246,7 +255,7 @@ export function MarkdownLink({ href, children, title }: { href?: string; childre
   if (!href) return <>{children}</>
   if (fileLinkTarget(href))
     return (
-      <FileLink key={href} href={href}>
+      <FileLink key={href} href={href} title={title}>
         {children}
       </FileLink>
     )
@@ -259,8 +268,10 @@ export function MarkdownLink({ href, children, title }: { href?: string; childre
     )
   }
   return (
-    <a href={href} className="pi-link" title={title}>
-      {children}
-    </a>
+    <TooltipHint content={title}>
+      <a href={href} className="pi-link">
+        {children}
+      </a>
+    </TooltipHint>
   )
 }

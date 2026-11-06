@@ -13,7 +13,7 @@ import {
   X,
 } from 'lucide-react'
 import { Button } from '@pi-meme/ui/components/ui/button'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
+import { TooltipHint, Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
 import type { UiContributionProps, UiPanel, UiTarget } from '@pi-meme/plugin-sdk/ui'
 import type { RegisteredNavigation } from '@pi-meme/plugin-sdk/navigation'
 import { AppRail } from './app-rail'
@@ -571,20 +571,21 @@ export function WorkspacePanels({
           <div
             className={`group flex shrink-0 items-center rounded-lg ${!showTool ? 'bg-background/80 text-foreground shadow-xs' : 'text-muted-foreground hover:bg-background/40'}`}
           >
-            <button
-              type="button"
-              role="tab"
-              id="workspace-chat-tab"
-              aria-selected={!showTool}
-              aria-controls="chat-workspace"
-              tabIndex={!showTool ? 0 : -1}
-              onClick={() => selectTab('chat')}
-              title={sessionTitle}
-              className="flex h-7 w-40 max-w-60 items-center gap-1.5 pl-2.5 pr-1 text-xs"
-            >
-              <MessageCircle className="size-3.5 shrink-0" />
-              <span className="truncate">{sessionTitle}</span>
-            </button>
+            <TooltipHint content={sessionTitle}>
+              <button
+                type="button"
+                role="tab"
+                id="workspace-chat-tab"
+                aria-selected={!showTool}
+                aria-controls="chat-workspace"
+                tabIndex={!showTool ? 0 : -1}
+                onClick={() => selectTab('chat')}
+                className="flex h-7 w-40 max-w-60 items-center gap-1.5 pl-2.5 pr-1 text-xs"
+              >
+                <MessageCircle className="size-3.5 shrink-0" />
+                <span className="truncate">{sessionTitle}</span>
+              </button>
+            </TooltipHint>
             {menu}
           </div>
         )}
@@ -605,24 +606,25 @@ export function WorkspacePanels({
               key={id}
               className={`group flex min-w-0 shrink-0 items-center ${browserTab ? 'rounded-xl border border-transparent' : 'rounded-md'} ${active === id && (!unified || showTool) ? (browserTab ? 'border-border/60 bg-secondary/80 text-foreground shadow-xs' : 'bg-background/80 text-foreground shadow-xs') : 'text-muted-foreground hover:bg-background/40'}`}
             >
-              <button
-                type="button"
-                role="tab"
-                aria-selected={active === id && (!unified || showTool)}
-                id={`workspace-tool-tab-${id}`}
-                aria-controls="right-tool-content"
-                tabIndex={active === id && (!unified || showTool) ? 0 : -1}
-                onClick={() => selectTab(id)}
-                className={`flex h-7 min-w-0 items-center gap-1.5 pl-2.5 pr-1 text-xs ${browserTab || directory ? 'min-w-28 max-w-56' : unified ? 'min-w-20 max-w-36' : ''}`}
-                title={title}
-              >
-                <span
-                  className={`flex shrink-0 items-center justify-center ${browserTab ? 'size-5 [&>img]:size-5 [&>svg]:size-5' : 'size-3.5 [&>svg]:size-3.5'}`}
+              <TooltipHint content={title}>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={active === id && (!unified || showTool)}
+                  id={`workspace-tool-tab-${id}`}
+                  aria-controls="right-tool-content"
+                  tabIndex={active === id && (!unified || showTool) ? 0 : -1}
+                  onClick={() => selectTab(id)}
+                  className={`flex h-7 min-w-0 items-center gap-1.5 pl-2.5 pr-1 text-xs ${browserTab || directory ? 'min-w-28 max-w-56' : unified ? 'min-w-20 max-w-36' : ''}`}
                 >
-                  {icon}
-                </span>
-                <span className={`${directory ? 'max-w-48' : 'max-w-28'} truncate`}>{title}</span>
-              </button>
+                  <span
+                    className={`flex shrink-0 items-center justify-center ${browserTab ? 'size-5 [&>img]:size-5 [&>svg]:size-5' : 'size-3.5 [&>svg]:size-3.5'}`}
+                  >
+                    {icon}
+                  </span>
+                  <span className={`${directory ? 'max-w-48' : 'max-w-28'} truncate`}>{title}</span>
+                </button>
+              </TooltipHint>
               <button
                 type="button"
                 aria-label={closing ? `正在关闭标签页：${title}` : `关闭标签页：${title}`}

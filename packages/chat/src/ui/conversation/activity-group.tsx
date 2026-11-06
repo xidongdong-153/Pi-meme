@@ -1,3 +1,4 @@
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import * as React from 'react'
 import type { PiPauseInterval } from '@pi-meme/contracts/pi'
 import { activeDuration } from '../model/active-duration'
@@ -136,34 +137,36 @@ function ActivityDisclosureContent({
   return (
     <div className="min-w-0 py-1">
       <div className="flex min-w-0 items-center gap-1">
-        <button
-          type="button"
-          aria-label={`活动详情：${meta.summary}`}
-          aria-expanded={open}
-          aria-controls={detailsId}
-          onClick={toggle}
-          title={meta.summary}
-          className="group/activity-toggle flex min-h-7 max-w-full items-center gap-2 rounded-sm py-0.5 pr-1 text-xs leading-5 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
-        >
-          <span aria-hidden="true" className="inline-flex size-4 shrink-0">
-            <IconComponent className="size-4" />
-          </span>
-          <span
-            role={waitingForInput ? 'status' : undefined}
-            className={cn('min-w-0 truncate', isWorking && 'thought-shimmer')}
+        <TooltipHint content={meta.summary}>
+          <button
+            type="button"
+            aria-label={`活动详情：${meta.summary}`}
+            aria-expanded={open}
+            aria-controls={detailsId}
+            onClick={toggle}
+
+            className="group/activity-toggle flex min-h-7 max-w-full items-center gap-2 rounded-sm py-0.5 pr-1 text-xs leading-5 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
           >
-            {meta.summary}
-          </span>
-          <span
-            aria-hidden="true"
-            className={cn(
-              'inline-flex size-3.5 shrink-0 opacity-0 transition-[opacity,rotate] duration-200 ease-out motion-reduce:transition-none group-hover/activity-toggle:opacity-100 group-focus-visible/activity-toggle:opacity-100',
-              !open && '-rotate-90',
-            )}
-          >
-            <ChevronDown className="size-3.5" />
-          </span>
-        </button>
+            <span aria-hidden="true" className="inline-flex size-4 shrink-0">
+              <IconComponent className="size-4" />
+            </span>
+            <span
+              role={waitingForInput ? 'status' : undefined}
+              className={cn('min-w-0 truncate', isWorking && 'thought-shimmer')}
+            >
+              {meta.summary}
+            </span>
+            <span
+              aria-hidden="true"
+              className={cn(
+                'inline-flex size-3.5 shrink-0 opacity-0 transition-[opacity,rotate] duration-200 ease-out motion-reduce:transition-none group-hover/activity-toggle:opacity-100 group-focus-visible/activity-toggle:opacity-100',
+                !open && '-rotate-90',
+              )}
+            >
+              <ChevronDown className="size-3.5" />
+            </span>
+          </button>
+        </TooltipHint>
         <PluginMessageActionsGroup anchors={toolAnchors} />
       </div>
       <RetainedDisclosure

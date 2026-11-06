@@ -1,7 +1,7 @@
 import { Box } from 'lucide-react'
 import { builtinCommandIcons } from '@pi-meme/assets/builtin'
 import { Badge } from '@pi-meme/ui/components/ui/badge'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { cn } from '@pi-meme/ui/lib/utils'
 import type { ComposerAgentPlugins } from './composer'
 import type { CompletionItem } from './use-command-completion'
@@ -59,7 +59,6 @@ export function CommandSuggestions({
         role="option"
         aria-selected={index === suggestionIndex}
         aria-disabled={disabled || undefined}
-        title={disabled ? agentPlugins?.disabledReason : undefined}
         onMouseDown={(event) => event.preventDefault()}
         onClick={() => {
           if (!disabled) onComplete(item)
@@ -97,18 +96,14 @@ export function CommandSuggestions({
         )}
       </button>
     )
-    return item.kind === 'skill' && command ? (
-      <Tooltip key={key} delayDuration={300}>
-        <TooltipTrigger asChild>{button}</TooltipTrigger>
-        <TooltipContent
-          side={placement === 'bottom' ? 'bottom' : 'top'}
-          className="max-w-[min(32rem,calc(100vw-2rem))] break-all rounded-xl px-4 py-2 text-center font-mono text-sm"
-        >
-          {command.sourceInfo.path}
-        </TooltipContent>
-      </Tooltip>
-    ) : (
-      button
+    return (
+      <TooltipHint
+        key={key}
+        content={disabled ? agentPlugins?.disabledReason : item.kind === 'skill' ? command?.sourceInfo.path : undefined}
+        side={placement === 'bottom' ? 'bottom' : 'top'}
+      >
+        {button}
+      </TooltipHint>
     )
   }
 

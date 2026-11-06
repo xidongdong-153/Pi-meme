@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import {
   ArrowLeft,
   BookOpen,
@@ -200,16 +201,17 @@ export function SkillPage({
   }
 
   const settingsButton = onSettings && (
-    <Button
-      className={settingsControlClassName}
-      variant="ghost"
-      size="icon"
-      aria-label="技能设置"
-      title="技能设置"
-      onClick={onSettings}
-    >
-      <Settings />
-    </Button>
+    <TooltipHint content="技能设置">
+      <Button
+        className={settingsControlClassName}
+        variant="ghost"
+        size="icon"
+        aria-label="技能设置"
+        onClick={onSettings}
+      >
+        <Settings />
+      </Button>
+    </TooltipHint>
   )
 
   return (
@@ -573,9 +575,11 @@ export function SkillPage({
                               </span>
                             </span>
                           </button>
-                          <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline" title={state(item)}>
-                            {item.owner.type === 'app-package' ? '来自插件' : scopes[item.scope]}
-                          </span>
+                          <TooltipHint content={state(item)}>
+                            <span className="hidden shrink-0 text-xs text-muted-foreground sm:inline">
+                              {item.owner.type === 'app-package' ? '来自插件' : scopes[item.scope]}
+                            </span>
+                          </TooltipHint>
                           <Switch
                             label={`启用技能：${item.displayName ?? item.name}`}
                             checked={item.hostPolicy?.enabled ?? item.defaultPolicy.enabled ?? true}

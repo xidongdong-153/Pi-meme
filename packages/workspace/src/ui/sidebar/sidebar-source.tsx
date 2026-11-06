@@ -1,3 +1,4 @@
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { Globe } from 'lucide-react'
 
 export type SidebarSource = {
@@ -9,13 +10,14 @@ export type SidebarSource = {
 
 export function SidebarSourceBadge({ source }: { source: SidebarSource }) {
   return (
-    <span
-      role="img"
-      aria-label={`远程：${source.label}`}
-      title={source.description}
-      className="inline-flex size-4 shrink-0 items-center justify-center text-primary"
-    >
-      <Globe aria-hidden="true" className="size-3" />
-    </span>
+    <TooltipHint content={source.description}>
+      <span
+        role="img"
+        aria-label={`远程：${source.label}`}
+        className="inline-flex size-4 shrink-0 items-center justify-center text-primary"
+      >
+        <Globe aria-hidden="true" className="size-3" />
+      </span>
+    </TooltipHint>
   )
 }

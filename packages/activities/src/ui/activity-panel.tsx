@@ -1,3 +1,4 @@
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { Check, ChevronDown, Copy, ExternalLink, RefreshCw, Square } from 'lucide-react'
 import type { SessionRef } from '@pi-meme/contracts/app-host'
@@ -53,23 +54,24 @@ function CopyButton({ text, label }: { text: string; label: string }) {
   }, [copied])
   return (
     <span className="inline-flex shrink-0 items-center">
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        aria-label={label}
-        title={error || label}
-        onClick={async () => {
-          try {
-            await navigator.clipboard.writeText(text)
-            setCopied(true)
-            setError('')
-          } catch (cause) {
-            setError(`复制失败：${String(cause)}`)
-          }
-        }}
-      >
-        {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
-      </Button>
+      <TooltipHint content={error || label}>
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label={label}
+          onClick={async () => {
+            try {
+              await navigator.clipboard.writeText(text)
+              setCopied(true)
+              setError('')
+            } catch (cause) {
+              setError(`复制失败：${String(cause)}`)
+            }
+          }}
+        >
+          {copied ? <Check className="size-3.5" /> : <Copy className="size-3.5" />}
+        </Button>
+      </TooltipHint>
       {error && (
         <span role="alert" className="text-destructive">
           复制失败

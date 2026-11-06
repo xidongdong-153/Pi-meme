@@ -1,3 +1,4 @@
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import * as React from 'react'
 import { ChevronRight, Copy, Check, Target, CheckCircle2, FileEdit, FileText } from 'lucide-react'
 import { Button } from '@pi-meme/ui/components/ui/button'
@@ -125,17 +126,19 @@ export const CompactionCard = React.memo(({ kind, summary, tokensBefore, timesta
                 {tokenLabel && <span>原上下文 ~{tokenLabel} Tokens</span>}
                 {timeLabel && <span className="text-muted-foreground/50">{timeLabel}</span>}
               </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                onClick={handleCopySummary}
-                className="size-6 rounded text-muted-foreground hover:text-foreground cursor-pointer"
-                title="复制完整摘要"
-                aria-label="复制完整摘要"
-              >
-                {copied ? <Check className="size-3 text-emerald-500" /> : <Copy className="size-3" />}
-              </Button>
+              <TooltipHint content="复制完整摘要">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  onClick={handleCopySummary}
+                  className="size-6 rounded text-muted-foreground hover:text-foreground cursor-pointer"
+
+                  aria-label="复制完整摘要"
+                >
+                  {copied ? <Check className="size-3 text-emerald-500" /> : <Copy className="size-3" />}
+                </Button>
+              </TooltipHint>
             </div>
 
             {parsed.isStructured ? (
@@ -175,18 +178,18 @@ export const CompactionCard = React.memo(({ kind, summary, tokensBefore, timesta
                         </div>
                         <div className="flex flex-col gap-0.5">
                           {parsed.modifiedFiles.map((file) => (
-                            <button
-                              key={file}
-                              type="button"
-                              onClick={(e) => handleCopyPath(file, e)}
-                              className="group/file text-left font-mono text-sm text-muted-foreground hover:text-foreground truncate transition-colors cursor-pointer py-0.5"
-                              title="点击复制路径"
-                            >
-                              <span className="truncate">{file}</span>
-                              <span className="opacity-0 group-hover/file:opacity-100 text-sm text-muted-foreground/60 ml-2">
-                                {copiedPath === file ? '已复制' : '复制'}
-                              </span>
-                            </button>
+                            <TooltipHint key={file} content="点击复制路径">
+                              <button
+                                type="button"
+                                onClick={(e) => handleCopyPath(file, e)}
+                                className="group/file text-left font-mono text-sm text-muted-foreground hover:text-foreground truncate transition-colors cursor-pointer py-0.5"
+                              >
+                                <span className="truncate">{file}</span>
+                                <span className="opacity-0 group-hover/file:opacity-100 text-sm text-muted-foreground/60 ml-2">
+                                  {copiedPath === file ? '已复制' : '复制'}
+                                </span>
+                              </button>
+                            </TooltipHint>
                           ))}
                         </div>
                       </div>
@@ -200,18 +203,18 @@ export const CompactionCard = React.memo(({ kind, summary, tokensBefore, timesta
                         </div>
                         <div className="flex flex-col gap-0.5">
                           {parsed.readFiles.map((file) => (
-                            <button
-                              key={file}
-                              type="button"
-                              onClick={(e) => handleCopyPath(file, e)}
-                              className="group/file text-left font-mono text-sm text-muted-foreground hover:text-foreground truncate transition-colors cursor-pointer py-0.5"
-                              title="点击复制路径"
-                            >
-                              <span className="truncate">{file}</span>
-                              <span className="opacity-0 group-hover/file:opacity-100 text-sm text-muted-foreground/60 ml-2">
-                                {copiedPath === file ? '已复制' : '复制'}
-                              </span>
-                            </button>
+                            <TooltipHint key={file} content="点击复制路径">
+                              <button
+                                type="button"
+                                onClick={(e) => handleCopyPath(file, e)}
+                                className="group/file text-left font-mono text-sm text-muted-foreground hover:text-foreground truncate transition-colors cursor-pointer py-0.5"
+                              >
+                                <span className="truncate">{file}</span>
+                                <span className="opacity-0 group-hover/file:opacity-100 text-sm text-muted-foreground/60 ml-2">
+                                  {copiedPath === file ? '已复制' : '复制'}
+                                </span>
+                              </button>
+                            </TooltipHint>
                           ))}
                         </div>
                       </div>

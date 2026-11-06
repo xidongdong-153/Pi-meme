@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { Clock, Globe, Laptop, MessageCircle } from 'lucide-react'
 import type { PiSessionSummary } from '@pi-meme/contracts/sessions'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
@@ -65,20 +65,69 @@ export function SessionDetailsTooltip({
   projectName?: string
   children: ReactNode
 }) {
+  const [open, setOpen] = useState(false)
+  const nestedHint = useRef(false)
+  const recoveryTimer = useRef<ReturnType<typeof setTimeout>>(undefined)
+  const cancelRecovery = () => clearTimeout(recoveryTimer.current)
+  const recoverParent = () => setOpen(!nestedHint.current)
+  useEffect(() => () => clearTimeout(recoveryTimer.current), [])
   const title = formatSessionTitle(session)
   const activity = session.completedAt ?? session.modified
   const running = session.running && !session.isPaused && (!source || source.connected)
   return (
-    <Tooltip delayDuration={350} disableHoverableContent>
+    <Tooltip
+      delayDuration={350}
+      disableHoverableContent
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) cancelRecovery()
+        setOpen(next && !nestedHint.current)
+      }}
+    >
       <SidebarRowMenu target={{ kind: 'session', session }}>
-        <TooltipTrigger asChild>{children}</TooltipTrigger>
+        <TooltipTrigger
+          asChild
+          onPointerMoveCapture={(event) => {
+            if (event.pointerType === 'touch') return
+            const target = event.target instanceof Element ? event.target.closest('[data-tooltip-trigger]') : null
+            const wasNested = nestedHint.current
+            nestedHint.current = Boolean(target && target !== event.currentTarget)
+            if (nestedHint.current) {
+              cancelRecovery()
+              setOpen(false)
+            } else if (wasNested) {
+              // Radix may retain its pointer-open flag after a controlled close within the same row.
+              cancelRecovery()
+              recoveryTimer.current = setTimeout(recoverParent, 350)
+            }
+          }}
+          onFocusCapture={(event) => {
+            cancelRecovery()
+            const target = event.target instanceof Element ? event.target.closest('[data-tooltip-trigger]') : null
+            nestedHint.current = Boolean(target && target !== event.currentTarget)
+            if (nestedHint.current) setOpen(false)
+          }}
+          onPointerLeave={() => {
+            cancelRecovery()
+            nestedHint.current = false
+          }}
+          onPointerDownCapture={cancelRecovery}
+          onKeyDownCapture={(event) => {
+            if (event.key === 'Escape') cancelRecovery()
+          }}
+          onBlurCapture={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget)) cancelRecovery()
+          }}
+        >
+          {children}
+        </TooltipTrigger>
       </SidebarRowMenu>
       <TooltipContent
         side="right"
         align="start"
         sideOffset={8}
         collisionPadding={12}
-        className="w-80 max-w-[calc(100vw-24px)] rounded-xl px-3 py-2.5 text-xs shadow-lg"
+        className="w-80 max-w-[calc(100vw-24px)] py-2.5"
       >
         <div className="flex items-start gap-2">
           <span className="min-w-0 flex-1 break-words text-sm font-medium leading-5">{title}</span>

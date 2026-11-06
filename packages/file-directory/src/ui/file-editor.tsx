@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { DelegatedTooltip } from '@pi-meme/ui/components/ui/tooltip'
 import { basicSetup, EditorView } from 'codemirror'
 import { javascript } from '@codemirror/lang-javascript'
 import { json } from '@codemirror/lang-json'
@@ -41,7 +42,7 @@ const foldGutterTheme = EditorView.theme({
     maskSize: 'contain',
     maskRepeat: 'no-repeat',
   },
-  '.cm-foldGutter span[title="Unfold line"]::before': {
+  '.cm-foldGutter span[data-tooltip="Unfold line"]::before': {
     transform: 'rotate(-90deg)',
   },
 })
@@ -96,7 +97,18 @@ export function FileEditor({
       ],
     })
     editor.current = view
+    // CodeMirror creates folding and search controls imperatively; route their hints through the shared bubble.
+    const migrateHints = () => {
+      for (const element of view.dom.querySelectorAll<HTMLElement>('[title]')) {
+        element.dataset.tooltip = element.title
+        element.removeAttribute('title')
+      }
+    }
+    migrateHints()
+    const hints = new MutationObserver(migrateHints)
+    hints.observe(view.dom, { childList: true, subtree: true, attributes: true, attributeFilter: ['title'] })
     return () => {
+      hints.disconnect()
       editor.current = null
       view.destroy()
     }
@@ -108,5 +120,10 @@ export function FileEditor({
     const offset = target.from + Math.max(0, Math.min((column ?? 1) - 1, target.length))
     view.dispatch({ selection: { anchor: offset }, effects: EditorView.scrollIntoView(offset, { y: 'center' }) })
   }, [line, column, path, editable])
-  return <div ref={parent} className="file-editor min-h-0 flex-1 overflow-hidden" />
+  return (
+    <>
+      <div ref={parent} className="file-editor min-h-0 flex-1 overflow-hidden" />
+      <DelegatedTooltip containerRef={parent} />
+    </>
+  )
 }

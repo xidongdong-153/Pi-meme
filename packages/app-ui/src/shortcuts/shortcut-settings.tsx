@@ -218,34 +218,38 @@ export function ShortcutSettings() {
 
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon-sm"
-                            aria-label={`取消绑定：${meta.title}`}
-                            disabled={isUnbound || saving}
-                            onClick={() => void storeBinding(shortcut, null, 'unbind')}
-                            className="size-7 text-muted-foreground hover:text-foreground"
-                          >
-                            <Ban className="size-3.5" />
-                          </Button>
+                          <span className="inline-flex" tabIndex={isUnbound || saving ? 0 : undefined}>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon-sm"
+                              aria-label={`取消绑定：${meta.title}`}
+                              disabled={isUnbound || saving}
+                              onClick={() => void storeBinding(shortcut, null, 'unbind')}
+                              className="size-7 text-muted-foreground hover:text-foreground"
+                            >
+                              <Ban className="size-3.5" />
+                            </Button>
+                          </span>
                         </TooltipTrigger>
                         <TooltipContent side="top">取消快捷键</TooltipContent>
                       </Tooltip>
 
                       <Tooltip>
                         <TooltipTrigger asChild>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="icon-sm"
-                            aria-label={`恢复默认：${meta.title}`}
-                            disabled={!isCustomized || saving}
-                            onClick={() => void storeBinding(shortcut, null, 'reset')}
-                            className="size-7 text-muted-foreground hover:text-foreground"
-                          >
-                            <RotateCcw className="size-3.5" />
-                          </Button>
+                          <span className="inline-flex" tabIndex={!isCustomized || saving ? 0 : undefined}>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon-sm"
+                              aria-label={`恢复默认：${meta.title}`}
+                              disabled={!isCustomized || saving}
+                              onClick={() => void storeBinding(shortcut, null, 'reset')}
+                              className="size-7 text-muted-foreground hover:text-foreground"
+                            >
+                              <RotateCcw className="size-3.5" />
+                            </Button>
+                          </span>
                         </TooltipTrigger>
                         <TooltipContent side="top">恢复默认</TooltipContent>
                       </Tooltip>

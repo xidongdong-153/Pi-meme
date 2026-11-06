@@ -1,3 +1,4 @@
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import type { ProjectFile } from '@pi-meme/contracts/desktop'
 import { ChevronRight, File, Folder } from 'lucide-react'
 import { cn } from '@pi-meme/ui/lib/utils'
@@ -67,32 +68,33 @@ export function FileSuggestions({
           const parent = file.path.slice(0, file.path.lastIndexOf('/') + 1)
           return (
             <div key={file.path} className={cn('flex rounded-xl', index === suggestionIndex && 'bg-secondary')}>
-              <button
-                id={`composer-option-${index}`}
-                type="button"
-                tabIndex={-1}
-                role="option"
-                aria-selected={index === suggestionIndex}
-                onMouseDown={(event) => event.preventDefault()}
-                onClick={() => onComplete(file)}
-                className="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-3 py-2 text-left text-sm hover:bg-secondary/60"
-                title={file.path}
-              >
-                {folder ? (
-                  <span className="flex size-6 shrink-0 items-center justify-center">
-                    <Folder className="size-4 text-muted-foreground" />
+              <TooltipHint content={file.path}>
+                <button
+                  id={`composer-option-${index}`}
+                  type="button"
+                  tabIndex={-1}
+                  role="option"
+                  aria-selected={index === suggestionIndex}
+                  onMouseDown={(event) => event.preventDefault()}
+                  onClick={() => onComplete(file)}
+                  className="flex min-w-0 flex-1 items-center gap-2 rounded-xl px-3 py-2 text-left text-sm hover:bg-secondary/60"
+                >
+                  {folder ? (
+                    <span className="flex size-6 shrink-0 items-center justify-center">
+                      <Folder className="size-4 text-muted-foreground" />
+                    </span>
+                  ) : (
+                    <span className="flex size-6 shrink-0 items-center justify-center">
+                      <File className="size-4 text-muted-foreground" />
+                    </span>
+                  )}
+                  <span className="truncate">
+                    {name}
+                    {folder ? '/' : ''}
                   </span>
-                ) : (
-                  <span className="flex size-6 shrink-0 items-center justify-center">
-                    <File className="size-4 text-muted-foreground" />
-                  </span>
-                )}
-                <span className="truncate">
-                  {name}
-                  {folder ? '/' : ''}
-                </span>
-                {!directory && parent && <span className="truncate text-muted-foreground">{parent}</span>}
-              </button>
+                  {!directory && parent && <span className="truncate text-muted-foreground">{parent}</span>}
+                </button>
+              </TooltipHint>
               {folder && (
                 <button
                   type="button"

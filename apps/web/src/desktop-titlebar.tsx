@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { TooltipHint, TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 import type { DesktopWindowCommand, PlatformAdapter } from '@pi-meme/contracts/host'
 import { BrandMark } from '@pi-meme/ui/components/brand-mark'
 import {
@@ -151,9 +152,13 @@ export function DesktopTitleBar({ platform }: { platform: NonNullable<PlatformAd
           previousFocus.current = event.relatedTarget
       }}
     >
-      <span className="desktop-titlebar-brand" title="Pi meme">
-        <BrandMark size={21} />
-      </span>
+      <TooltipProvider delayDuration={200}>
+        <TooltipHint content="Pi meme">
+          <span className="desktop-titlebar-brand">
+            <BrandMark size={21} />
+          </span>
+        </TooltipHint>
+      </TooltipProvider>
       <nav role="menubar" aria-label="应用菜单" className="desktop-titlebar-menus no-drag">
         {menus.map((menu, index) => (
           <DropdownMenu

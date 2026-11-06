@@ -1,3 +1,4 @@
+import { TooltipHint, TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import type { BrowserOverlayAction, BrowserOverlayPlatform, BrowserOverlayState } from '@pi-meme/contracts/browser'
 import { Button } from '@pi-meme/ui/components/ui/button'
@@ -34,6 +35,14 @@ const propertyNames: Record<string, string> = {
 }
 
 export function BrowserOverlay({ platform }: { platform: BrowserOverlayPlatform }) {
+  return (
+    <TooltipProvider delayDuration={200}>
+      <BrowserOverlayContent platform={platform} />
+    </TooltipProvider>
+  )
+}
+
+function BrowserOverlayContent({ platform }: { platform: BrowserOverlayPlatform }) {
   const [state, setState] = useState<BrowserOverlayState>()
   const [pending, setPending] = useState(false)
   const [error, setError] = useState('')
@@ -168,55 +177,61 @@ export function BrowserOverlay({ platform }: { platform: BrowserOverlayPlatform 
             正在批注{state.count ? ` · ${state.count}` : ''}
           </span>
           {!compact ? (
-            <Button
-              size="icon-sm"
-              className="size-7 shrink-0"
-              variant="ghost"
-              title="截取当前页面"
-              aria-label="截取当前页面"
-              onClick={() => void action({ type: 'screenshot' })}
-            >
-              <Scan className="size-4" />
-            </Button>
+            <TooltipHint side="left" content="截取当前页面">
+              <Button
+                size="icon-sm"
+                className="size-7 shrink-0"
+                variant="ghost"
+                aria-label="截取当前页面"
+                onClick={() => void action({ type: 'screenshot' })}
+              >
+                <Scan className="size-4" />
+              </Button>
+            </TooltipHint>
           ) : null}
-          <Button
-            size="icon-sm"
-            className="size-7 shrink-0"
-            variant="ghost"
-            title="隐藏标记"
-            aria-label="隐藏标记"
-            aria-pressed={state.hidden}
-            onClick={() => void action({ type: 'hide', hidden: !state.hidden })}
-          >
-            <EyeOff className={`size-4 ${state.hidden ? 'text-primary' : ''}`} />
-          </Button>
-          {!compact ? (
+          <TooltipHint side="left" content="隐藏标记">
             <Button
               size="icon-sm"
               className="size-7 shrink-0"
               variant="ghost"
-              title="按住查看原始页面"
-              aria-label="按住查看原始页面"
-              onPointerDown={() => void platform.action({ type: 'original', pressed: true })}
-              onPointerUp={() => void platform.action({ type: 'original', pressed: false })}
-              onPointerCancel={() => void platform.action({ type: 'original', pressed: false })}
-              onPointerLeave={() => void platform.action({ type: 'original', pressed: false })}
+              aria-label="隐藏标记"
+              aria-pressed={state.hidden}
+              onClick={() => void action({ type: 'hide', hidden: !state.hidden })}
             >
-              <Camera className="size-4" />
+              <EyeOff className={`size-4 ${state.hidden ? 'text-primary' : ''}`} />
             </Button>
+          </TooltipHint>
+          {!compact ? (
+            <TooltipHint side="left" content="按住查看原始页面">
+              <Button
+                size="icon-sm"
+                className="size-7 shrink-0"
+                variant="ghost"
+                aria-label="按住查看原始页面"
+                onPointerDown={() => void platform.action({ type: 'original', pressed: true })}
+                onPointerUp={() => void platform.action({ type: 'original', pressed: false })}
+                onPointerCancel={() => void platform.action({ type: 'original', pressed: false })}
+                onPointerLeave={() => void platform.action({ type: 'original', pressed: false })}
+              >
+                <Camera className="size-4" />
+              </Button>
+            </TooltipHint>
           ) : null}
           {!compact ? (
-            <Button
-              size="icon-sm"
-              className="size-7 shrink-0"
-              variant="ghost"
-              title="丢弃批注"
-              aria-label="丢弃批注"
-              disabled={!state.count && !state.annotation}
-              onClick={() => void action({ type: 'discard' })}
-            >
-              <Trash2 className="size-4" />
-            </Button>
+            <TooltipHint side="left" content="丢弃批注">
+              <span className="inline-flex">
+                <Button
+                  size="icon-sm"
+                  className="size-7 shrink-0"
+                  variant="ghost"
+                  aria-label="丢弃批注"
+                  disabled={!state.count && !state.annotation}
+                  onClick={() => void action({ type: 'discard' })}
+                >
+                  <Trash2 className="size-4" />
+                </Button>
+              </span>
+            </TooltipHint>
           ) : null}
           {compact ? (
             <DropdownMenu
@@ -257,16 +272,17 @@ export function BrowserOverlay({ platform }: { platform: BrowserOverlayPlatform 
           >
             发送
           </Button>
-          <Button
-            size="icon-sm"
-            className="size-7 shrink-0"
-            variant="ghost"
-            title="退出批注"
-            aria-label="退出批注"
-            onClick={() => void action({ type: 'exit' })}
-          >
-            <X className="size-4" />
-          </Button>
+          <TooltipHint side="left" content="退出批注">
+            <Button
+              size="icon-sm"
+              className="size-7 shrink-0"
+              variant="ghost"
+              aria-label="退出批注"
+              onClick={() => void action({ type: 'exit' })}
+            >
+              <X className="size-4" />
+            </Button>
+          </TooltipHint>
         </div>
         {error ? (
           <p role="alert" className="absolute bottom-0 text-xs text-destructive">
@@ -304,33 +320,37 @@ export function BrowserOverlay({ platform }: { platform: BrowserOverlayPlatform 
     />
   )
   const saveButton = (expanded = false) => (
-    <Button
-      size="icon-sm"
-      className={`${expanded ? 'size-8' : 'size-9'} shrink-0 rounded-full disabled:opacity-100 ${expanded || state.editing ? 'bg-foreground text-background hover:bg-foreground/90' : comment.trim() ? 'bg-primary text-primary-foreground hover:bg-primary/90' : 'bg-muted-foreground/60 text-background'}`}
-      disabled={pending || !comment.trim()}
-      title={state.editing ? '保存批注' : '加入对话'}
-      aria-label={state.editing ? '保存批注' : '加入对话'}
-      onClick={() => void action({ type: 'add' })}
-    >
-      {state.editing && !expanded ? <Check className="size-4" /> : <ArrowUp className="size-4" />}
-    </Button>
+    <TooltipHint side="left" content={state.editing ? '保存批注' : '加入对话'}>
+      <span className="inline-flex">
+        <Button
+          size="icon-sm"
+          className={`${expanded ? 'size-8' : 'size-9'} shrink-0 rounded-full disabled:opacity-100 ${expanded || state.editing ? 'bg-foreground text-background hover:bg-foreground/90' : comment.trim() ? 'bg-primary text-primary-foreground hover:bg-primary/90' : 'bg-muted-foreground/60 text-background'}`}
+          disabled={pending || !comment.trim()}
+          aria-label={state.editing ? '保存批注' : '加入对话'}
+          onClick={() => void action({ type: 'add' })}
+        >
+          {state.editing && !expanded ? <Check className="size-4" /> : <ArrowUp className="size-4" />}
+        </Button>
+      </span>
+    </TooltipHint>
   )
   if (!state.expanded)
     return (
       <div
         className={`group relative m-1 flex h-[calc(100%-8px)] gap-3 rounded-[28px] border border-border/60 bg-secondary px-3 text-foreground shadow-xl ${multiline ? 'items-start' : 'items-center'}`}
       >
-        <Button
-          size="icon-sm"
-          variant="ghost"
-          className={`absolute left-2 size-8 rounded-full ${multiline ? 'top-2' : 'top-1/2 -translate-y-1/2'}`}
-          title="查看元素属性"
-          aria-label="查看元素属性"
-          aria-expanded={false}
-          onClick={() => void action({ type: 'expand', expanded: true })}
-        >
-          <SlidersHorizontal className="size-4" />
-        </Button>
+        <TooltipHint side="left" content="查看元素属性">
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            className={`absolute left-2 size-8 rounded-full ${multiline ? 'top-2' : 'top-1/2 -translate-y-1/2'}`}
+            aria-label="查看元素属性"
+            aria-expanded={false}
+            onClick={() => void action({ type: 'expand', expanded: true })}
+          >
+            <SlidersHorizontal className="size-4" />
+          </Button>
+        </TooltipHint>
         {commentInput(
           'min-h-10 w-full min-w-0 resize-none overflow-hidden bg-transparent py-2.5 pl-9 text-sm leading-6 outline-none placeholder:text-muted-foreground',
         )}
@@ -347,30 +367,32 @@ export function BrowserOverlay({ platform }: { platform: BrowserOverlayPlatform 
   return (
     <div className="m-1 flex h-[calc(100%-8px)] flex-col overflow-hidden rounded-[22px] border border-border/70 bg-secondary text-foreground shadow-xl">
       <div className="flex min-h-12 items-start gap-2 px-3 py-2">
-        <Button
-          size="icon-sm"
-          variant="ghost"
-          className="mt-1 size-7 shrink-0 rounded-full bg-secondary/70"
-          title="查看元素属性"
-          aria-label="查看元素属性"
-          aria-expanded={state.expanded}
-          onClick={() => void action({ type: 'expand', expanded: !state.expanded })}
-        >
-          <SlidersHorizontal className="size-4" />
-        </Button>
+        <TooltipHint side="left" content="查看元素属性">
+          <Button
+            size="icon-sm"
+            variant="ghost"
+            className="mt-1 size-7 shrink-0 rounded-full bg-secondary/70"
+            aria-label="查看元素属性"
+            aria-expanded={state.expanded}
+            onClick={() => void action({ type: 'expand', expanded: !state.expanded })}
+          >
+            <SlidersHorizontal className="size-4" />
+          </Button>
+        </TooltipHint>
         {commentInput(
           'min-h-8 min-w-0 flex-1 resize-none overflow-hidden bg-transparent py-1.5 text-sm leading-6 outline-none placeholder:text-muted-foreground',
         )}
         {state.editing ? (
-          <Button
-            size="icon-sm"
-            variant="ghost"
-            title="删除批注"
-            aria-label="删除批注"
-            onClick={() => void action({ type: 'remove' })}
-          >
-            <Trash2 className="size-4" />
-          </Button>
+          <TooltipHint side="left" content="删除批注">
+            <Button
+              size="icon-sm"
+              variant="ghost"
+              aria-label="删除批注"
+              onClick={() => void action({ type: 'remove' })}
+            >
+              <Trash2 className="size-4" />
+            </Button>
+          </TooltipHint>
         ) : null}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto border-y border-border/70 text-xs">
@@ -382,12 +404,11 @@ export function BrowserOverlay({ platform }: { platform: BrowserOverlayPlatform 
               className="flex items-center justify-between gap-3 border-b border-border/40 py-1 last:border-0"
             >
               <span>{label}</span>
-              <span
-                className="w-[48%] truncate rounded-lg border border-border bg-card/60 px-2 py-1 font-mono text-muted-foreground"
-                title={properties[key]}
-              >
-                {properties[key] || '—'}
-              </span>
+              <TooltipHint side="top" content={properties[key]}>
+                <span className="w-[48%] truncate rounded-lg border border-border bg-card/60 px-2 py-1 font-mono text-muted-foreground">
+                  {properties[key] || '—'}
+                </span>
+              </TooltipHint>
             </div>
           ))}
           <div className="flex items-center justify-between gap-3 py-1.5">

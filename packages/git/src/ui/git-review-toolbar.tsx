@@ -1,3 +1,4 @@
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   Check,
@@ -41,21 +42,24 @@ export function ReviewTool({
   children: ReactNode
 }) {
   return (
-    <Button
-      variant="ghost"
-      size="icon-sm"
-      title={label}
-      aria-label={label}
-      aria-pressed={active}
-      disabled={disabled}
-      onClick={onClick}
-      className={cn(
-        'size-7 rounded-full text-muted-foreground [&_svg]:size-3.5',
-        active && 'bg-background text-foreground shadow-xs',
-      )}
-    >
-      {children}
-    </Button>
+    <TooltipHint content={label}>
+      <span className="inline-flex">
+        <Button
+          variant="ghost"
+          size="icon-sm"
+          aria-label={label}
+          aria-pressed={active}
+          disabled={disabled}
+          onClick={onClick}
+          className={cn(
+            'size-7 rounded-full text-muted-foreground [&_svg]:size-3.5',
+            active && 'bg-background text-foreground shadow-xs',
+          )}
+        >
+          {children}
+        </Button>
+      </span>
+    </TooltipHint>
   )
 }
 
@@ -135,17 +139,13 @@ export function GitReviewToolbar({
           <WrapText />
         </ReviewTool>
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className="size-7 rounded-full"
-              title="差异布局"
-              aria-label="差异布局"
-            >
-              <Columns2 className="size-3.5" />
-            </Button>
-          </DropdownMenuTrigger>
+          <TooltipHint content="差异布局">
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon-sm" className="size-7 rounded-full" aria-label="差异布局">
+                <Columns2 className="size-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+          </TooltipHint>
           <DropdownMenuContent align="end" side="bottom">
             <DropdownMenuRadioGroup
               value={reading.layout}
@@ -158,17 +158,13 @@ export function GitReviewToolbar({
           </DropdownMenuContent>
         </DropdownMenu>
         <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className="size-7 rounded-full"
-              title="更多阅读操作"
-              aria-label="更多阅读操作"
-            >
-              <MoreHorizontal className="size-3.5" />
-            </Button>
-          </DropdownMenuTrigger>
+          <TooltipHint content="更多阅读操作">
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" size="icon-sm" className="size-7 rounded-full" aria-label="更多阅读操作">
+                <MoreHorizontal className="size-3.5" />
+              </Button>
+            </DropdownMenuTrigger>
+          </TooltipHint>
           <DropdownMenuContent align="end" side="bottom">
             <DropdownMenuItem onSelect={onExpand}>{allExpanded ? '收起全部差异' : '展开全部差异'}</DropdownMenuItem>
             <DropdownMenuItem onSelect={() => onReading({ layout: 'auto', wrap: true })}>
@@ -249,25 +245,26 @@ export function ReviewTargetPicker({
       : options?.commits.map((item) => ({ id: item.sha, title: item.subject, detail: item.sha.slice(0, 7) }))
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        <button
-          type="button"
-          className="flex h-8 min-w-0 max-w-full items-center gap-2 rounded-full bg-secondary/70 px-3 text-xs hover:bg-secondary focus-visible:outline-2 focus-visible:outline-ring"
-          aria-label={kind === 'branch' ? '选择比较分支' : '选择提交'}
-          title={value}
-        >
-          {kind === 'branch' ? (
-            <GitBranch className="size-3.5 shrink-0" />
-          ) : (
-            <GitCommitHorizontal className="size-3.5 shrink-0" />
-          )}
-          <span className="truncate">
-            {kind === 'branch' && branch ? `${branch} → ` : ''}
-            {label || (kind === 'branch' ? '选择比较分支' : '选择提交')}
-          </span>
-          <ChevronDown className="size-3 shrink-0" />
-        </button>
-      </PopoverTrigger>
+      <TooltipHint content={value}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className="flex h-8 min-w-0 max-w-full items-center gap-2 rounded-full bg-secondary/70 px-3 text-xs hover:bg-secondary focus-visible:outline-2 focus-visible:outline-ring"
+            aria-label={kind === 'branch' ? '选择比较分支' : '选择提交'}
+          >
+            {kind === 'branch' ? (
+              <GitBranch className="size-3.5 shrink-0" />
+            ) : (
+              <GitCommitHorizontal className="size-3.5 shrink-0" />
+            )}
+            <span className="truncate">
+              {kind === 'branch' && branch ? `${branch} → ` : ''}
+              {label || (kind === 'branch' ? '选择比较分支' : '选择提交')}
+            </span>
+            <ChevronDown className="size-3 shrink-0" />
+          </button>
+        </PopoverTrigger>
+      </TooltipHint>
       <PopoverContent align="start" side="bottom" className="w-80 max-w-[calc(100vw-2rem)] rounded-xl p-2">
         <div className="relative">
           <Search className="absolute left-2 top-2.5 size-3.5 text-muted-foreground" />
@@ -290,9 +287,9 @@ export function ReviewTargetPicker({
               }}
               className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-xs hover:bg-secondary focus-visible:outline-2 focus-visible:outline-ring"
             >
-              <span className="min-w-0 flex-1 truncate" title={item.title}>
-                {item.title}
-              </span>
+              <TooltipHint content={item.title}>
+                <span className="min-w-0 flex-1 truncate">{item.title}</span>
+              </TooltipHint>
               <span className="shrink-0 text-[10px] text-muted-foreground">{item.detail}</span>
               {value === item.id && <Check className="size-3.5 shrink-0" />}
             </button>

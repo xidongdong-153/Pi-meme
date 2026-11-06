@@ -1,3 +1,4 @@
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import * as React from 'react'
 import { Check, Copy } from 'lucide-react'
 import { Button } from '@pi-meme/ui/components/ui/button'
@@ -123,23 +124,25 @@ function ExecutionSectionContent({
         )}
       </div>
       {text && (
-        <Button
-          variant="ghost"
-          size="icon-sm"
-          title={feedback}
-          aria-label={feedback}
-          className="absolute right-2 top-2 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-hover/execution-section:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
-          onClick={async () => {
-            try {
-              await navigator.clipboard.writeText(text)
-              setCopyState('copied')
-            } catch {
-              setCopyState('failed')
-            }
-          }}
-        >
-          {copyState === 'copied' ? <Check /> : <Copy />}
-        </Button>
+        <TooltipHint content={feedback}>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+
+            aria-label={feedback}
+            className="absolute right-2 top-2 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-hover/execution-section:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(text)
+                setCopyState('copied')
+              } catch {
+                setCopyState('failed')
+              }
+            }}
+          >
+            {copyState === 'copied' ? <Check /> : <Copy />}
+          </Button>
+        </TooltipHint>
       )}
     </div>
   )

@@ -1,4 +1,5 @@
 import { memo, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import type { HostApi, SessionRef } from '@pi-meme/contracts/app-host'
 import { ArrowLeft } from 'lucide-react'
 import type { AgentSummary, AgentStatus } from '@pi-meme/contracts/collaboration'
@@ -94,30 +95,25 @@ const AgentConversation = memo(({ bridge, id, onBack, files, fileSession }: Agen
   return (
     <>
       <header className="flex h-12 min-w-0 shrink-0 items-center gap-2 border-b border-border px-2">
-        <Button
-          size="icon-sm"
-          variant="ghost"
-          className="shrink-0"
-          onClick={onBack}
-          aria-label="返回子代理列表"
-          title="返回子代理列表"
-        >
-          <ArrowLeft />
-        </Button>
+        <TooltipHint content="返回子代理列表">
+          <Button size="icon-sm" variant="ghost" className="shrink-0" onClick={onBack} aria-label="返回子代理列表">
+            <ArrowLeft />
+          </Button>
+        </TooltipHint>
         <AgentAvatar seed={id} name={view.agent?.name} avatar={view.agent?.avatar} className="size-6 shrink-0" />
-        <p className="min-w-0 flex-1 truncate text-xs font-medium" title={`${name} · ${status}`}>
-          {name}
-        </p>
+        <TooltipHint content={`${name} · ${status}`}>
+          <p className="min-w-0 flex-1 truncate text-xs font-medium">{name}</p>
+        </TooltipHint>
         <div className="ml-auto flex min-w-0 max-w-[55%] shrink-0 items-center gap-1 text-xs text-muted-foreground">
-          <span className="min-w-0 truncate" title={model}>
-            {model}
-          </span>
+          <TooltipHint content={model}>
+            <span className="min-w-0 truncate">{model}</span>
+          </TooltipHint>
           <span aria-hidden="true" className="shrink-0">
             ·
           </span>
-          <span className="shrink-0" title={`思考强度：${thinking}`}>
-            {thinking}
-          </span>
+          <TooltipHint content={`思考强度：${thinking}`}>
+            <span className="shrink-0">{thinking}</span>
+          </TooltipHint>
         </div>
       </header>
       {view.loading && (
@@ -225,29 +221,37 @@ const SubagentsContent = memo(({ bridge, sessionKey, files, fileSession }: Subag
               <p className="px-2 py-2 text-muted-foreground">{opened ? '没有已开启的子代理' : '没有已结束的子代理'}</p>
             )}
             {group.map((agent) => (
-              <button
+              <TooltipHint
                 key={agent.agentId}
-                type="button"
-                className="flex w-full items-center gap-3 rounded-lg px-2 py-3 text-left transition-colors hover:bg-secondary/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                title={`${formatAgentName(agent.name)} · ${agent.isPaused ? '已暂停' : `${labels[agent.status]} · ${agentElapsed(agent, now)}`}`}
-                style={{
-                  marginLeft: Math.max(0, agent.depth - 1) * 8,
-                  width: `calc(100% - ${Math.max(0, agent.depth - 1) * 8}px)`,
-                }}
-                onClick={() => setSelected(agent.agentId)}
+                content={`${formatAgentName(agent.name)} · ${agent.isPaused ? '已暂停' : `${labels[agent.status]} · ${agentElapsed(agent, now)}`}`}
               >
-                <AgentAvatar seed={agent.agentId} name={agent.name} avatar={agent.avatar} className="size-6 shrink-0" />
-                <span className="min-w-0 flex-1 truncate font-medium">{formatAgentName(agent.name)}</span>
-                <span className="shrink-0 text-right tabular-nums text-muted-foreground">
-                  {opened
-                    ? agent.isPaused
-                      ? '已暂停'
-                      : agent.status === 'idle'
-                        ? labels[agent.status]
-                        : `${labels[agent.status]} · ${agentElapsed(agent, now)}`
-                    : `${agent.status === 'completed' ? '' : `${labels[agent.status]} · `}${agentFinishedAgo(agent, now)}`}
-                </span>
-              </button>
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-3 rounded-lg px-2 py-3 text-left transition-colors hover:bg-secondary/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  style={{
+                    marginLeft: Math.max(0, agent.depth - 1) * 8,
+                    width: `calc(100% - ${Math.max(0, agent.depth - 1) * 8}px)`,
+                  }}
+                  onClick={() => setSelected(agent.agentId)}
+                >
+                  <AgentAvatar
+                    seed={agent.agentId}
+                    name={agent.name}
+                    avatar={agent.avatar}
+                    className="size-6 shrink-0"
+                  />
+                  <span className="min-w-0 flex-1 truncate font-medium">{formatAgentName(agent.name)}</span>
+                  <span className="shrink-0 text-right tabular-nums text-muted-foreground">
+                    {opened
+                      ? agent.isPaused
+                        ? '已暂停'
+                        : agent.status === 'idle'
+                          ? labels[agent.status]
+                          : `${labels[agent.status]} · ${agentElapsed(agent, now)}`
+                      : `${agent.status === 'completed' ? '' : `${labels[agent.status]} · `}${agentFinishedAgo(agent, now)}`}
+                  </span>
+                </button>
+              </TooltipHint>
             ))}
           </section>
         )

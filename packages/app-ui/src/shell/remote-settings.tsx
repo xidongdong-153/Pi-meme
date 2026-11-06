@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { Globe, Loader2, MoreHorizontal, Pencil, Plus, RefreshCw, Trash2 } from 'lucide-react'
 import type { HostService } from '@pi-meme/contracts/host'
 import type { SshCapabilities, SshConnection } from '@pi-meme/contracts/ssh-connections'
@@ -206,14 +207,16 @@ function SshSettings({
                     <div className="min-w-0 flex-1 space-y-0.5">
                       <div className="flex min-w-0 items-center gap-2 text-xs font-medium">
                         <Globe aria-hidden="true" className="size-4 shrink-0 text-primary" />
-                        <span className="min-w-0 [overflow-wrap:anywhere]" title={profile.name}>
-                          {profile.name}
-                        </span>
+                        <TooltipHint content={profile.name}>
+                          <span className="min-w-0 [overflow-wrap:anywhere]">{profile.name}</span>
+                        </TooltipHint>
                       </div>
-                      <p className="text-[11px] text-muted-foreground [overflow-wrap:anywhere]" title={profile.target}>
-                        {profile.target}
-                        {profile.port ? ` · SSH 端口 ${profile.port}` : ''}
-                      </p>
+                      <TooltipHint content={profile.target}>
+                        <p className="text-[11px] text-muted-foreground [overflow-wrap:anywhere]">
+                          {profile.target}
+                          {profile.port ? ` · SSH 端口 ${profile.port}` : ''}
+                        </p>
+                      </TooltipHint>
                       <p
                         className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-muted-foreground [overflow-wrap:anywhere]"
                         role="status"

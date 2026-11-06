@@ -71,7 +71,7 @@ import { ContextUsageRing } from '@pi-meme/models/ui/context-usage-ring'
 import { ContextWindowTool, useContextWindowApi, useSessionContextRequest } from './panels/context-window-tool'
 import { useSettings } from '@pi-meme/settings/ui/use-settings'
 import { AppearanceProvider, useAppearance, useOptionalAppearance } from '@pi-meme/settings/ui/appearance-provider'
-import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
+import { TooltipHint, TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 import { SessionTreePanel } from '@pi-meme/history/ui/session-tree-panel'
 import { PlanPanel } from './panels/plan-panel'
 import { PlanCard } from './panels/plan-card'
@@ -1045,15 +1045,18 @@ function AppContent({
       {chat.failedDrafts.map((draft, index) => (
         <div key={index} className="flex items-center justify-between gap-2 rounded-lg border border-border p-2">
           <span className="truncate">发送失败的待恢复草稿：{draft.draft.slice(0, 80) || '附件'}</span>
-          <Button
-            size="sm"
-            variant="outline"
-            disabled={Boolean(chat.draft || chat.attachments.length)}
-            title={chat.draft || chat.attachments.length ? '请先处理当前草稿' : undefined}
-            onClick={() => chat.restoreFailedDraft(index)}
-          >
-            恢复草稿
-          </Button>
+          <TooltipHint content={chat.draft || chat.attachments.length ? '请先处理当前草稿' : undefined}>
+            <span className="inline-flex" tabIndex={chat.draft || chat.attachments.length ? 0 : undefined}>
+              <Button
+                size="sm"
+                variant="outline"
+                disabled={Boolean(chat.draft || chat.attachments.length)}
+                onClick={() => chat.restoreFailedDraft(index)}
+              >
+                恢复草稿
+              </Button>
+            </span>
+          </TooltipHint>
         </div>
       ))}
     </div>
@@ -1156,10 +1159,12 @@ function AppContent({
         {currentService && !currentService.local && (
           <div role="status" className="flex min-w-0 items-center gap-1.5 px-2 py-1 text-xs text-muted-foreground">
             <Globe aria-hidden="true" className="size-3 shrink-0 text-primary" />
-            <span className="min-w-0 flex-1 truncate" title={currentService.error}>
-              远程 · {serviceLabel(currentService)} · {currentService.transport === 'ssh' ? 'SSH' : 'HTTPS'} ·{' '}
-              {serviceStatus(currentService)}
-            </span>
+            <TooltipHint content={currentService.error}>
+              <span className="min-w-0 flex-1 truncate">
+                远程 · {serviceLabel(currentService)} · {currentService.transport === 'ssh' ? 'SSH' : 'HTTPS'} ·{' '}
+                {serviceStatus(currentService)}
+              </span>
+            </TooltipHint>
             {remoteOffline && (
               <Button size="sm" variant="ghost" onClick={() => openSettings('host')}>
                 管理连接

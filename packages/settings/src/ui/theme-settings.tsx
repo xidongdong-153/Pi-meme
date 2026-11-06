@@ -1,3 +1,4 @@
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Download, FolderOpen, RefreshCw, Upload } from 'lucide-react'
 import type {
@@ -325,26 +326,29 @@ export function ThemeSettings({
               </div>
             </AppearanceRow>
             <AppearanceRow label="主题">
-              <Button variant="ghost" size="icon-sm" aria-label="导入主题" title="导入 JSON 主题" onClick={onImport}>
-                <Upload className="size-4" />
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon-sm"
-                aria-label="导出主题"
-                title="导出颜色、字体和布局；背景图片随插件分发"
-                onClick={() =>
-                  onExport({
-                    ...theme,
-                    plugin: undefined,
-                    background: undefined,
-                    id: `custom-${mode}`,
-                    name: `自定义${mode === 'light' ? '浅色' : '深色'}`,
-                  })
-                }
-              >
-                <Download className="size-4" />
-              </Button>
+              <TooltipHint content="导入 JSON 主题">
+                <Button variant="ghost" size="icon-sm" aria-label="导入主题" onClick={onImport}>
+                  <Upload className="size-4" />
+                </Button>
+              </TooltipHint>
+              <TooltipHint content="导出颜色、字体和布局；背景图片随插件分发">
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="导出主题"
+                  onClick={() =>
+                    onExport({
+                      ...theme,
+                      plugin: undefined,
+                      background: undefined,
+                      id: `custom-${mode}`,
+                      name: `自定义${mode === 'light' ? '浅色' : '深色'}`,
+                    })
+                  }
+                >
+                  <Download className="size-4" />
+                </Button>
+              </TooltipHint>
               <Select
                 value={theme.id}
                 onValueChange={(id) => {

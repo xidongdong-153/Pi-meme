@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import {
   ArrowDown,
   ArrowUp,
@@ -292,61 +293,65 @@ function ProjectRow({
   return (
     <div className="border-b border-border/60" data-project-cwd={project.cwd}>
       <div className="group relative isolate z-10 flex min-w-0 items-center gap-3 px-3 before:pointer-events-none before:absolute before:-inset-x-3 before:-inset-y-px before:-z-10 before:rounded-xl before:bg-secondary before:opacity-0 before:transition-opacity hover:before:opacity-100 focus-within:before:opacity-100">
-        <button
-          type="button"
-          title={project.cwd}
-          aria-label={`${expanded ? '收起项目' : '展开项目'}：${project.name}`}
-          aria-expanded={expanded}
-          onClick={() => setExpanded((value) => !value)}
-          className="flex min-w-0 flex-1 items-center gap-4 rounded-lg py-5 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        >
-          {expanded ? (
-            <FolderOpen className="size-4 shrink-0 text-muted-foreground" />
-          ) : (
-            <Folder className="size-4 shrink-0 text-muted-foreground" />
-          )}
-          <span className="truncate font-medium">{project.name}</span>
-          {project.unavailable && <span className="shrink-0 text-xs text-muted-foreground">目录不可用</span>}
-          <ChevronRight
-            aria-hidden="true"
-            className={cn(
-              'size-3.5 shrink-0 text-muted-foreground opacity-0 transition-[transform,opacity] duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100',
-              expanded && 'rotate-90 opacity-100',
+        <TooltipHint content={project.cwd}>
+          <button
+            type="button"
+            aria-label={`${expanded ? '收起项目' : '展开项目'}：${project.name}`}
+            aria-expanded={expanded}
+            onClick={() => setExpanded((value) => !value)}
+            className="flex min-w-0 flex-1 items-center gap-4 rounded-lg py-5 text-left text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            {expanded ? (
+              <FolderOpen className="size-4 shrink-0 text-muted-foreground" />
+            ) : (
+              <Folder className="size-4 shrink-0 text-muted-foreground" />
             )}
-          />
-        </button>
-        <time
-          dateTime={project.lastModified || undefined}
-          title={project.lastModified ? new Date(project.lastModified).toLocaleString() : undefined}
-          className="w-24 shrink-0 text-xs text-muted-foreground sm:w-28"
-        >
-          {updatedTime(project.lastModified)}
-        </time>
+            <span className="truncate font-medium">{project.name}</span>
+            {project.unavailable && <span className="shrink-0 text-xs text-muted-foreground">目录不可用</span>}
+            <ChevronRight
+              aria-hidden="true"
+              className={cn(
+                'size-3.5 shrink-0 text-muted-foreground opacity-0 transition-[transform,opacity] duration-250 ease-[cubic-bezier(0.22,1,0.36,1)] motion-reduce:transition-none group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100',
+                expanded && 'rotate-90 opacity-100',
+              )}
+            />
+          </button>
+        </TooltipHint>
+        <TooltipHint content={project.lastModified ? new Date(project.lastModified).toLocaleString() : undefined}>
+          <time
+            dateTime={project.lastModified || undefined}
+            className="w-24 shrink-0 text-xs text-muted-foreground sm:w-28"
+          >
+            {updatedTime(project.lastModified)}
+          </time>
+        </TooltipHint>
         <div className="flex w-24 shrink-0 items-center justify-end sm:w-28">
           <SidebarMoreMenu
             target={{ kind: 'project', project }}
             className="flex size-8 items-center justify-center rounded-lg opacity-100 hover:bg-secondary group-focus-within:opacity-100 data-[state=open]:bg-secondary [&_svg]:size-4"
           />
-          <button
-            type="button"
-            title={pinned ? '取消置顶项目' : '置顶项目'}
-            aria-label={`${pinned ? '取消置顶项目' : '置顶项目'}：${project.name}`}
-            disabled={pending === 'pin'}
-            onClick={() => void run('pin', () => onTogglePin(project.cwd))}
-            className="flex size-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-          >
-            <Pin className={cn('size-4', pinned && 'fill-current text-foreground')} />
-          </button>
-          <button
-            type="button"
-            title={project.unavailable ? '项目目录不可用' : '新建聊天'}
-            aria-label={`在项目中新建聊天：${project.name}`}
-            disabled={project.unavailable || pending === 'new'}
-            onClick={() => void run('new', () => onNewSession(project.cwd))}
-            className="flex size-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
-          >
-            {pending === 'new' ? <Loader2 className="size-4 animate-spin" /> : <SquarePen className="size-4" />}
-          </button>
+          <TooltipHint content={pinned ? '取消置顶项目' : '置顶项目'}>
+            <button
+              type="button"
+              aria-label={`${pinned ? '取消置顶项目' : '置顶项目'}：${project.name}`}
+              disabled={pending === 'pin'}
+              onClick={() => void run('pin', () => onTogglePin(project.cwd))}
+              className="flex size-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+            >
+              <Pin className={cn('size-4', pinned && 'fill-current text-foreground')} />
+            </button>
+          </TooltipHint>
+          <TooltipHint content={project.unavailable ? '项目目录不可用' : '新建聊天'}>
+            <button
+              type="button"
+              aria-label={`在项目中新建聊天：${project.name}`}
+              disabled={project.unavailable || pending === 'new'}
+              onClick={() => void run('new', () => onNewSession(project.cwd))}
+              className="flex size-8 items-center justify-center rounded-lg text-muted-foreground hover:bg-secondary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+            >
+              {pending === 'new' ? <Loader2 className="size-4 animate-spin" /> : <SquarePen className="size-4" />}
+            </button>
+          </TooltipHint>
         </div>
       </div>
       <RevealContent ready={expanded}>

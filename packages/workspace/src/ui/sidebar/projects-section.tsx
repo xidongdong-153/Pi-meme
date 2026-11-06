@@ -1,3 +1,4 @@
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { Plus } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { SidebarProjectEntry } from './sidebar-model'
@@ -76,16 +77,19 @@ export function ProjectsSection({
       actions={
         <>
           {menu}
-          <button
-            type="button"
-            onClick={onDirectory}
-            disabled={!ready}
-            aria-label="新建项目"
-            title="新建项目"
-            className="rounded p-1 transition-colors duration-200 ease-out hover:bg-secondary disabled:opacity-50"
-          >
-            <Plus className="size-3.5" />
-          </button>
+          <TooltipHint content="新建项目">
+            <span className="inline-flex">
+              <button
+                type="button"
+                onClick={onDirectory}
+                disabled={!ready}
+                aria-label="新建项目"
+                className="rounded p-1 transition-colors duration-200 ease-out hover:bg-secondary disabled:opacity-50"
+              >
+                <Plus className="size-3.5" />
+              </button>
+            </span>
+          </TooltipHint>
         </>
       }
     >

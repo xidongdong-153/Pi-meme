@@ -14,7 +14,7 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@pi-meme/ui/components/ui/dropdown-menu'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
+import { TooltipHint, Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { PageHeaderNavigation } from './page-header'
 import { useShortcuts } from '../shortcuts/shortcut-provider'
@@ -268,24 +268,22 @@ export function AppHeader({
         ) : (
           <>
             <div className="flex items-center gap-1.5 min-w-0">
-              <button
-                type="button"
-                disabled={busy}
-                title={directoryDisabledReason || cwd}
-                aria-label="在顶栏选择项目"
-                onClick={(event) => onDirectory(event.currentTarget)}
-                className="flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs font-medium text-muted-foreground hover:bg-background/50 hover:text-foreground transition-colors max-w-[160px] truncate disabled:opacity-50 cursor-pointer"
-              >
-                <FolderOpen className="size-3.5 text-muted-foreground shrink-0" />
-                <span className="truncate">{project}</span>
-              </button>
+              <TooltipHint content={directoryDisabledReason || cwd}>
+                <button
+                  type="button"
+                  disabled={busy}
+                  aria-label="在顶栏选择项目"
+                  onClick={(event) => onDirectory(event.currentTarget)}
+                  className="flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-xs font-medium text-muted-foreground hover:bg-background/50 hover:text-foreground transition-colors max-w-[160px] truncate disabled:opacity-50 cursor-pointer"
+                >
+                  <FolderOpen className="size-3.5 text-muted-foreground shrink-0" />
+                  <span className="truncate">{project}</span>
+                </button>
+              </TooltipHint>
               <span className="text-muted-foreground/30 text-xs select-none">/</span>
-              <span
-                className="text-xs font-medium text-foreground/90 truncate max-w-[420px]"
-                title={sessionName || title}
-              >
-                {title}
-              </span>
+              <TooltipHint content={sessionName || title}>
+                <span className="text-xs font-medium text-foreground/90 truncate max-w-[420px]">{title}</span>
+              </TooltipHint>
               {forkedFrom && (
                 <Tooltip>
                   <TooltipTrigger asChild>

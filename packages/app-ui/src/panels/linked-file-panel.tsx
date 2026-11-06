@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { ChevronDown, Copy, Download, FolderOpen, RefreshCw, ExternalLink } from 'lucide-react'
 import type { FilePreview, SessionRef } from '@pi-meme/contracts/app-host'
 import type { DesktopBridge, ProjectApp } from '@pi-meme/contracts/desktop'
@@ -93,10 +94,12 @@ export function LinkedFilePanel({
   return (
     <section aria-label={`文件预览：${filename}`} className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div className="flex min-h-11 shrink-0 flex-wrap items-center gap-2 border-b border-border/60 px-3 py-2">
-        <div className="flex min-w-0 flex-1 items-center gap-2 text-xs" title={tab.path}>
-          <FileIcon path={tab.path} />
-          <span className="truncate">{tab.path}</span>
-        </div>
+        <TooltipHint content={tab.path}>
+          <div className="flex min-w-0 flex-1 items-center gap-2 text-xs">
+            <FileIcon path={tab.path} />
+            <span className="truncate">{tab.path}</span>
+          </div>
+        </TooltipHint>
         <div className="flex shrink-0 items-center gap-1">
           {markdown && (
             <Button size="sm" variant="ghost" onClick={() => setSource(!source)}>

@@ -1,3 +1,4 @@
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { useEffect, useState } from 'react'
 import { Download, File, Globe, History, Search, ShieldCheck, Trash2 } from 'lucide-react'
 import type {
@@ -413,9 +414,9 @@ export function BrowserSettings({
                     <SettingsRow key={item.id} className="flex-nowrap items-start">
                       <File aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
                       <div className="min-w-0 flex-1">
-                        <p className="truncate font-medium" title={item.name}>
-                          {item.name}
-                        </p>
+                        <TooltipHint content={item.name}>
+                          <p className="truncate font-medium">{item.name}</p>
+                        </TooltipHint>
                         <p className="mt-0.5 text-[11px] text-muted-foreground">
                           <CrossfadeText>{`${{ progressing: '下载中', completed: '已完成', cancelled: '已取消', interrupted: '已中断' }[item.state]} · ${(item.received / 1024 / 1024).toFixed(1)} / ${(item.total / 1024 / 1024).toFixed(1)} MB`}</CrossfadeText>
                         </p>

@@ -2,6 +2,8 @@ import * as React from 'react'
 import type { PiSessionStats } from '@pi-meme/contracts/pi'
 import type { ContextRequest } from '@pi-meme/contracts/context-window'
 import { Popover, PopoverContent, PopoverTrigger } from '@pi-meme/ui/components/ui/popover'
+import { tooltipSurfaceClassName } from '@pi-meme/ui/components/ui/tooltip'
+import { cn } from '@pi-meme/ui/lib/utils'
 import { formatTokenCount } from './thinking-config'
 import { GenerationMetrics, type GenerationMetricsSource } from './generation-metrics'
 import { MetricLabel } from './metric-label'
@@ -127,7 +129,7 @@ export function ContextUsageRing({
         onPointerLeave={scheduleClose}
         onOpenAutoFocus={(event) => event.preventDefault()}
         onCloseAutoFocus={(event) => event.preventDefault()}
-        className="w-72 max-w-[calc(100vw-2rem)] space-y-2 rounded-2xl border border-border/80 bg-popover p-3 shadow-xl select-none"
+        className={cn(tooltipSurfaceClassName, 'w-72 max-w-[calc(100vw-2rem)] space-y-2 p-3 select-none')}
       >
         <div className="flex items-center justify-between text-xs">
           <div>

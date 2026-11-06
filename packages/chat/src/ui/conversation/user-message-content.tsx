@@ -1,3 +1,4 @@
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { useId, useLayoutEffect, useRef, useState } from 'react'
 import { Box, ChevronDown } from 'lucide-react'
 import { skillMessageParts } from '@pi-meme/contracts/skills'
@@ -30,9 +31,11 @@ export function UserMessageContent({ text }: { text: string }) {
           part.type === 'text' ? (
             <FileReferences key={index} text={part.text} />
           ) : (
-            <span key={index} title={part.path} className="inline text-blue-400" aria-label={`技能：${part.name}`}>
-              <Box aria-hidden="true" className="inline-block size-4 align-[-0.125em] mr-1" />${part.name}
-            </span>
+            <TooltipHint key={index} content={part.path}>
+              <span className="inline text-blue-400" aria-label={`技能：${part.name}`}>
+                <Box aria-hidden="true" className="inline-block size-4 align-[-0.125em] mr-1" />${part.name}
+              </span>
+            </TooltipHint>
           ),
         )}
       </div>

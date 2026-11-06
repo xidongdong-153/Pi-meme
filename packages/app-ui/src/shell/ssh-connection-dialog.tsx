@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useRef, useState } from 'react'
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { ArrowLeft, Globe, Laptop, RefreshCw } from 'lucide-react'
 import type { SshCandidate, SshConnection, SshConnectionInput } from '@pi-meme/contracts/ssh-connections'
 import { Button } from '@pi-meme/ui/components/ui/button'
@@ -123,12 +124,11 @@ export function SshConnectionDialog({
                       <Laptop aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
                       <span className="min-w-0 flex-1">
                         <span className="block font-medium [overflow-wrap:anywhere]">{candidate.target}</span>
-                        <span
-                          className="mt-0.5 block text-[11px] text-muted-foreground [overflow-wrap:anywhere]"
-                          title={candidate.source}
-                        >
-                          {candidate.source}
-                        </span>
+                        <TooltipHint content={candidate.source}>
+                          <span className="mt-0.5 block text-[11px] text-muted-foreground [overflow-wrap:anywhere]">
+                            {candidate.source}
+                          </span>
+                        </TooltipHint>
                       </span>
                       {exists && <span className="shrink-0 text-[11px] text-muted-foreground">已添加</span>}
                       <input

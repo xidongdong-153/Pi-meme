@@ -1,3 +1,4 @@
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { ComposerAnnotationSummary } from './composer-annotation-summary'
 import * as React from 'react'
 import { X } from 'lucide-react'
@@ -129,10 +130,12 @@ export function ComposerAttachments({
                     <FileIcon path={iconPath} className="size-8" />
                   )}
                 </div>
-                <div className="flex h-7 shrink-0 items-center gap-1.5 bg-background/50 px-2 text-xs" title={name}>
-                  <FileIcon path={iconPath} className="size-3.5" />
-                  <span className="min-w-0 truncate">{name}</span>
-                </div>
+                <TooltipHint content={name}>
+                  <div className="flex h-7 shrink-0 items-center gap-1.5 bg-background/50 px-2 text-xs">
+                    <FileIcon path={iconPath} className="size-3.5" />
+                    <span className="min-w-0 truncate">{name}</span>
+                  </div>
+                </TooltipHint>
               </>
             )
 
@@ -157,14 +160,16 @@ export function ComposerAttachments({
                   <div className="flex size-full flex-col">{content}</div>
                 )}
                 {oversized && (
-                  <div
-                    role="status"
-                    aria-label={`${name}：图片超过 8 MiB，发送后无法在会话中预览`}
-                    title="图片超过 8 MiB，发送后无法在会话中预览"
-                    className="pointer-events-none absolute inset-x-0 bottom-7 bg-amber-500/90 px-1 py-0.5 text-center text-[10px] font-medium text-white shadow-xs dark:bg-amber-600/90"
-                  >
-                    超过 8 MiB 无法预览
-                  </div>
+                  <TooltipHint content="图片超过 8 MiB，发送后无法在会话中预览">
+                    <div
+                      role="status"
+                      aria-label={`${name}：图片超过 8 MiB，发送后无法在会话中预览`}
+
+                      className="pointer-events-none absolute inset-x-0 bottom-7 bg-amber-500/90 px-1 py-0.5 text-center text-[10px] font-medium text-white shadow-xs dark:bg-amber-600/90"
+                    >
+                      超过 8 MiB 无法预览
+                    </div>
+                  </TooltipHint>
                 )}
                 {progress !== undefined && (
                   <div className="pointer-events-none absolute inset-x-0 top-0 flex h-[calc(100%-1.75rem)] items-center justify-center bg-black/40">

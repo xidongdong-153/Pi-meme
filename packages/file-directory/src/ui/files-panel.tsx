@@ -1,6 +1,7 @@
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { ChevronRight, PanelLeft, RefreshCw, Save, Search } from 'lucide-react'
-import Markdown from 'react-markdown'
+import Markdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import type { FileEntry, WorkspaceRef } from '@pi-meme/contracts/app-host'
 import type { UiContributionProps } from '@pi-meme/plugin-sdk/ui'
@@ -12,6 +13,18 @@ import { cn } from '@pi-meme/ui/lib/utils'
 import { type FileStore, fileDirty } from './file-store'
 
 const FileEditor = lazy(() => import('./file-editor').then((module) => ({ default: module.FileEditor })))
+const markdownComponents: Components = {
+  a: ({ title, href, children }) => (
+    <TooltipHint content={title}>
+      <a href={href}>{children}</a>
+    </TooltipHint>
+  ),
+  img: ({ title, src, alt, width, height }) => (
+    <TooltipHint content={title}>
+      <img src={src} alt={alt} width={width} height={height} />
+    </TooltipHint>
+  ),
+}
 
 export function FilesPanel({ store, target }: Pick<UiContributionProps, 'target'> & { store: FileStore }) {
   const hostId = target.session?.hostId ?? target.project?.hostId ?? target.hostId
@@ -72,10 +85,12 @@ function Browser({ store, root }: { store: FileStore; root: WorkspaceRef }) {
         >
           <PanelLeft className="size-4" />
         </Button>
-        <span className="min-w-0 flex-1 truncate" title={state.selected}>
-          {state.selected || '项目文件'}
-          {dirty && <span className="ml-2 text-primary">未保存</span>}
-        </span>
+        <TooltipHint content={state.selected}>
+          <span className="min-w-0 flex-1 truncate">
+            {state.selected || '项目文件'}
+            {dirty && <span className="ml-2 text-primary">未保存</span>}
+          </span>
+        </TooltipHint>
         {state.preview?.kind === 'text' && store.canWrite(state) && (
           <Button size="sm" variant="ghost" onClick={() => setEditingPath(preview ? state.selected : undefined)}>
             {preview ? '编辑' : '预览'}
@@ -137,22 +152,23 @@ function Browser({ store, root }: { store: FileStore; root: WorkspaceRef }) {
               {state.query.trim() ? (
                 <>
                   {state.matches.map((entry) => (
-                    <button
-                      key={entry.relativePath}
-                      type="button"
-                      onClick={() => choose(entry.relativePath)}
-                      className={cn(
-                        'flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-secondary/50',
-                        state.selected === entry.relativePath && 'bg-primary/15 text-foreground',
-                      )}
-                      title={entry.relativePath}
-                    >
-                      <FileIcon path={entry.name} />
-                      <span className="min-w-0">
-                        <span className="block truncate">{entry.name}</span>
-                        <span className="block truncate text-[10px] text-muted-foreground">{entry.relativePath}</span>
-                      </span>
-                    </button>
+                    <TooltipHint key={entry.relativePath} content={entry.relativePath}>
+                      <button
+                        key={entry.relativePath}
+                        type="button"
+                        onClick={() => choose(entry.relativePath)}
+                        className={cn(
+                          'flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-secondary/50',
+                          state.selected === entry.relativePath && 'bg-primary/15 text-foreground',
+                        )}
+                      >
+                        <FileIcon path={entry.name} />
+                        <span className="min-w-0">
+                          <span className="block truncate">{entry.name}</span>
+                          <span className="block truncate text-[10px] text-muted-foreground">{entry.relativePath}</span>
+                        </span>
+                      </button>
+                    </TooltipHint>
                   ))}
                   {state.searching && (
                     <p role="status" className="p-3 text-muted-foreground">
@@ -228,7 +244,9 @@ function Browser({ store, root }: { store: FileStore; root: WorkspaceRef }) {
           ) : state.preview?.kind === 'text' ? (
             markdown && preview ? (
               <div className="file-markdown overflow-auto p-5 text-sm select-text">
-                <Markdown remarkPlugins={[remarkGfm]}>{state.draft}</Markdown>
+                <Markdown remarkPlugins={[remarkGfm]} components={markdownComponents}>
+                  {state.draft}
+                </Markdown>
               </div>
             ) : (
               <Suspense
@@ -355,39 +373,40 @@ function Entry({
   const [visited, setVisited] = useState(expanded)
   return (
     <li>
-      <button
-        type="button"
-        aria-label={`${directory ? '目录' : '打开文件'}：${entry.relativePath}`}
-        aria-expanded={directory ? expanded : undefined}
-        aria-current={!directory && state.selected === entry.relativePath ? 'true' : undefined}
-        onClick={() => {
-          if (directory) {
-            setVisited(true)
-            store.toggleDirectory(root, entry.relativePath)
-          } else choose(entry.relativePath)
-        }}
-        style={{ paddingLeft: 8 + depth * 12 }}
-        className={cn(
-          'flex h-8 w-full items-center gap-1.5 pr-2 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring',
-          !directory && state.selected === entry.relativePath
-            ? 'bg-primary/15 font-medium text-foreground'
-            : 'hover:bg-secondary/50',
-        )}
-        title={entry.relativePath}
-      >
-        {directory ? (
-          <ChevronRight
-            className={cn(
-              'size-3 shrink-0 text-muted-foreground transition-transform duration-200 motion-reduce:transition-none',
-              expanded && 'rotate-90',
-            )}
-          />
-        ) : (
-          <span className="w-3 shrink-0" />
-        )}
-        <FileIcon path={entry.name} directory={directory} expanded={expanded} />
-        <span className="truncate">{entry.name}</span>
-      </button>
+      <TooltipHint content={entry.relativePath}>
+        <button
+          type="button"
+          aria-label={`${directory ? '目录' : '打开文件'}：${entry.relativePath}`}
+          aria-expanded={directory ? expanded : undefined}
+          aria-current={!directory && state.selected === entry.relativePath ? 'true' : undefined}
+          onClick={() => {
+            if (directory) {
+              setVisited(true)
+              store.toggleDirectory(root, entry.relativePath)
+            } else choose(entry.relativePath)
+          }}
+          style={{ paddingLeft: 8 + depth * 12 }}
+          className={cn(
+            'flex h-8 w-full items-center gap-1.5 pr-2 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-ring',
+            !directory && state.selected === entry.relativePath
+              ? 'bg-primary/15 font-medium text-foreground'
+              : 'hover:bg-secondary/50',
+          )}
+        >
+          {directory ? (
+            <ChevronRight
+              className={cn(
+                'size-3 shrink-0 text-muted-foreground transition-transform duration-200 motion-reduce:transition-none',
+                expanded && 'rotate-90',
+              )}
+            />
+          ) : (
+            <span className="w-3 shrink-0" />
+          )}
+          <FileIcon path={entry.name} directory={directory} expanded={expanded} />
+          <span className="truncate">{entry.name}</span>
+        </button>
+      </TooltipHint>
       {directory && (
         <div
           aria-hidden={!expanded}

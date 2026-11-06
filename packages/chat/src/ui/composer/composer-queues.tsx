@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { CornerDownRight, Ellipsis, ListEnd, Pencil, Play, Trash2 } from 'lucide-react'
 import type { ComposerProps } from './composer'
 import type { MessageConfiguration } from '@pi-meme/contracts/plan'
-import { Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
+import { Tooltip, TooltipContent, TooltipHint, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -66,10 +66,12 @@ export function ComposerQueues({
         return (
           <div key={input.id} data-queue-id={input.id} className="flex h-9 min-w-0 items-center gap-2 px-3">
             <ListEnd className="size-3.5 shrink-0 text-muted-foreground" />
-            <span className="min-w-0 flex-1 truncate" title={input.text}>
-              {input.editing ? '正在编辑：' : ''}
-              {input.text || (input.skills?.length ? '技能消息' : '图片消息')}
-            </span>
+            <TooltipHint content={input.text}>
+              <span className="min-w-0 flex-1 truncate">
+                {input.editing ? '正在编辑：' : ''}
+                {input.text || (input.skills?.length ? '技能消息' : '图片消息')}
+              </span>
+            </TooltipHint>
             {input.images?.slice(0, 1).map((image, index) => (
               <img
                 key={index}

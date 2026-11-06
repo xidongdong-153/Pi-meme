@@ -1,3 +1,4 @@
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { useSyncExternalStore } from 'react'
 import { formatMessageTime, formatMessageTimeTitle } from '../model/message-time'
 
@@ -34,13 +35,15 @@ export function MessageTime({ timestamp }: { timestamp?: number }) {
   const title = formatMessageTimeTitle(timestamp)
   if (!label || !title) return null
   return (
-    <time
-      dateTime={new Date(timestamp).toISOString()}
-      title={title}
-      aria-label={title}
-      className="shrink-0 text-xs tabular-nums text-muted-foreground/70"
-    >
-      {label}
-    </time>
+    <TooltipHint content={title}>
+      <time
+        dateTime={new Date(timestamp).toISOString()}
+
+        aria-label={title}
+        className="shrink-0 text-xs tabular-nums text-muted-foreground/70"
+      >
+        {label}
+      </time>
+    </TooltipHint>
   )
 }

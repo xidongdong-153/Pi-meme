@@ -1,3 +1,4 @@
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { useEffect, useState, type ReactNode } from 'react'
 import { ChevronDown, RotateCcw } from 'lucide-react'
 import type { InstalledFont } from '@pi-meme/contracts/settings'
@@ -203,16 +204,19 @@ export function RangeControl({
       >
         {display}
       </output>
-      <Button
-        variant="ghost"
-        size="icon-sm"
-        aria-label={`恢复${label}默认值`}
-        title={`恢复${label}默认值`}
-        disabled={!customized}
-        onClick={onReset}
-      >
-        <RotateCcw className="size-3.5" />
-      </Button>
+      <TooltipHint content={`恢复${label}默认值`}>
+        <span className="inline-flex shrink-0" tabIndex={!customized ? 0 : undefined}>
+          <Button
+            variant="ghost"
+            size="icon-sm"
+            aria-label={`恢复${label}默认值`}
+            disabled={!customized}
+            onClick={onReset}
+          >
+            <RotateCcw className="size-3.5" />
+          </Button>
+        </span>
+      </TooltipHint>
     </div>
   )
 }

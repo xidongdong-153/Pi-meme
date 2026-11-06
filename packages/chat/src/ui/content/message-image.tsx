@@ -1,3 +1,4 @@
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import * as React from 'react'
 import { maxImagePreviewBytes, type FilePreview } from '@pi-meme/contracts/app-host'
 import { cn } from '@pi-meme/ui/lib/utils'
@@ -176,24 +177,26 @@ export function ImageThumbnail({
     <span className={cn('my-2 mr-2 inline-flex size-24 max-w-full align-top', className)}>
       {failure ? (
         <span role="status" aria-label={failure} className="size-full">
-          <button
-            type="button"
-            aria-label="预览失败点击重试"
-            title={failure}
-            onClick={() => {
-              setFailed(false)
-              onRetry?.()
-            }}
-            className="flex size-full cursor-pointer flex-col items-center justify-center rounded-xl bg-secondary/30 px-1 py-1.5 text-center text-xs text-muted-foreground hover:bg-secondary/50"
-          >
-            <span className="flex flex-col items-center justify-center leading-tight">
-              <span className="font-medium text-foreground/80">预览失败</span>
-              {displayReason ? (
-                <span className="my-0.5 line-clamp-2 text-xs text-muted-foreground">{displayReason}</span>
-              ) : null}
-              <span className="text-xs text-muted-foreground/70">点击重试</span>
-            </span>
-          </button>
+          <TooltipHint content={failure}>
+            <button
+              type="button"
+              aria-label="预览失败点击重试"
+
+              onClick={() => {
+                setFailed(false)
+                onRetry?.()
+              }}
+              className="flex size-full cursor-pointer flex-col items-center justify-center rounded-xl bg-secondary/30 px-1 py-1.5 text-center text-xs text-muted-foreground hover:bg-secondary/50"
+            >
+              <span className="flex flex-col items-center justify-center leading-tight">
+                <span className="font-medium text-foreground/80">预览失败</span>
+                {displayReason ? (
+                  <span className="my-0.5 line-clamp-2 text-xs text-muted-foreground">{displayReason}</span>
+                ) : null}
+                <span className="text-xs text-muted-foreground/70">点击重试</span>
+              </span>
+            </button>
+          </TooltipHint>
         </span>
       ) : (
         <button

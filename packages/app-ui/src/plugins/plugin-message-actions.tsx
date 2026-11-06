@@ -1,4 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { MoreHorizontal } from 'lucide-react'
 import type { UiContributionProps } from '@pi-meme/plugin-sdk/ui'
 import type { RegisteredMessageAction } from '@pi-meme/plugin-sdk/message-actions'
@@ -171,25 +172,26 @@ export function PluginMessageActionMenu({
   return (
     <span className="inline-flex items-center" onClick={(event) => event.stopPropagation()}>
       <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            type="button"
-            aria-label="插件消息操作"
-            title={error || '插件消息操作'}
-            className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          >
-            <MoreHorizontal className="size-4" />
-          </button>
-        </DropdownMenuTrigger>
+        <TooltipHint content={error || '插件消息操作'}>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              aria-label="插件消息操作"
+              className="inline-flex size-7 items-center justify-center rounded-md text-muted-foreground hover:bg-secondary/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              <MoreHorizontal className="size-4" />
+            </button>
+          </DropdownMenuTrigger>
+        </TooltipHint>
         <DropdownMenuContent align="end">
           {matchedGroups.map((group, index) => (
             <Fragment key={group.identity}>
               {index > 0 && <DropdownMenuSeparator />}
               <div role="group" aria-label={group.title}>
                 {matchedGroups.length > 1 && (
-                  <div className="max-w-80 truncate px-2.5 py-1 text-xs text-muted-foreground" title={group.title}>
-                    {group.title}
-                  </div>
+                  <TooltipHint content={group.title}>
+                    <div className="max-w-80 truncate px-2.5 py-1 text-xs text-muted-foreground">{group.title}</div>
+                  </TooltipHint>
                 )}
                 {group.actions.map((action) => {
                   let reason: string | undefined
@@ -206,21 +208,23 @@ export function PluginMessageActionMenu({
                   }
                   const key = invocationKey(action, group.identity)
                   return (
-                    <DropdownMenuItem
-                      key={key}
-                      disabled={Boolean(reason) || busy.includes(key)}
-                      title={reason}
-                      onSelect={() => {
-                        void execute(action, group)
-                      }}
-                    >
-                      {action.icon && (
-                        <span className="flex size-4 items-center justify-center overflow-hidden [&>svg]:size-4">
-                          {action.icon}
-                        </span>
-                      )}
-                      {busy.includes(key) ? `${action.title}（执行中）` : action.title}
-                    </DropdownMenuItem>
+                    <TooltipHint key={key} content={reason}>
+                      <span className="block">
+                        <DropdownMenuItem
+                          disabled={Boolean(reason) || busy.includes(key)}
+                          onSelect={() => {
+                            void execute(action, group)
+                          }}
+                        >
+                          {action.icon && (
+                            <span className="flex size-4 items-center justify-center overflow-hidden [&>svg]:size-4">
+                              {action.icon}
+                            </span>
+                          )}
+                          {busy.includes(key) ? `${action.title}（执行中）` : action.title}
+                        </DropdownMenuItem>
+                      </span>
+                    </TooltipHint>
                   )
                 })}
               </div>

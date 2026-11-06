@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { X } from 'lucide-react'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { cn } from '@pi-meme/ui/lib/utils'
@@ -68,16 +69,11 @@ export function RightSidebar({
               {item.label}
             </button>
           ))}
-        <Button
-          size="icon-sm"
-          variant="ghost"
-          onClick={onClose}
-          aria-label="关闭右侧栏"
-          title="关闭右侧栏"
-          className="ml-auto"
-        >
-          <X className="size-3.5" />
-        </Button>
+        <TooltipHint content="关闭右侧栏">
+          <Button size="icon-sm" variant="ghost" onClick={onClose} aria-label="关闭右侧栏" className="ml-auto">
+            <X className="size-3.5" />
+          </Button>
+        </TooltipHint>
       </div>
       <div role="tabpanel" className="flex min-h-0 flex-1 flex-col">
         <FadeContent key={tab} className="flex min-h-0 flex-1 flex-col">

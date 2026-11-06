@@ -1,3 +1,4 @@
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import * as React from 'react'
 import { ChevronRight } from 'lucide-react'
 import { Button } from '@pi-meme/ui/components/ui/button'
@@ -95,27 +96,28 @@ export function CodeBlock({ code, language = 'text', className, ...props }: Code
     <Collapsible open={open} onOpenChange={setOpen} asChild>
       <div className={cn('pi-code-block relative my-4 min-w-0 max-w-full font-mono text-sm', className)} {...props}>
         <div className="pi-code-block-header flex min-h-8 items-center justify-between gap-4 pb-3 pl-4 select-none">
-          <CollapsibleTrigger asChild>
-            <Button
-              variant="ghost"
-              className="group/code-language h-8 min-w-0 justify-start gap-2 rounded-sm px-0 py-1 font-sans text-xs font-medium text-muted-foreground hover:bg-transparent hover:text-foreground"
-              aria-label={open ? '折叠代码块' : '展开代码块'}
-              title={open ? '折叠代码块' : '展开代码块'}
-            >
-              {extension ? (
-                <FileIcon path={`code.${extension}`} />
-              ) : (
-                <span aria-hidden="true" className="mx-1 size-1.5 shrink-0 rounded-full bg-muted-foreground/70" />
-              )}
-              <span className="truncate">{languageLabel}</span>
-              <ChevronRight
-                className={cn(
-                  'size-3 opacity-0 transition-[opacity,rotate] duration-200 ease-out motion-reduce:transition-none group-hover/code-language:opacity-100 group-focus-visible/code-language:opacity-100',
-                  open ? 'rotate-90' : 'opacity-100',
+          <TooltipHint content={open ? '折叠代码块' : '展开代码块'}>
+            <CollapsibleTrigger asChild>
+              <Button
+                variant="ghost"
+                className="group/code-language h-8 min-w-0 justify-start gap-2 rounded-sm px-0 py-1 font-sans text-xs font-medium text-muted-foreground hover:bg-transparent hover:text-foreground"
+                aria-label={open ? '折叠代码块' : '展开代码块'}
+              >
+                {extension ? (
+                  <FileIcon path={`code.${extension}`} />
+                ) : (
+                  <span aria-hidden="true" className="mx-1 size-1.5 shrink-0 rounded-full bg-muted-foreground/70" />
                 )}
-              />
-            </Button>
-          </CollapsibleTrigger>
+                <span className="truncate">{languageLabel}</span>
+                <ChevronRight
+                  className={cn(
+                    'size-3 opacity-0 transition-[opacity,rotate] duration-200 ease-out motion-reduce:transition-none group-hover/code-language:opacity-100 group-focus-visible/code-language:opacity-100',
+                    open ? 'rotate-90' : 'opacity-100',
+                  )}
+                />
+              </Button>
+            </CollapsibleTrigger>
+          </TooltipHint>
           <Button
             variant="ghost"
             size="xs"

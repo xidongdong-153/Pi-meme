@@ -54,7 +54,7 @@ export function ConversationOutline({
               side="right"
               align="center"
               sideOffset={12}
-              className="w-80 max-w-[min(calc(100vw-4rem),var(--radix-tooltip-content-available-width))] rounded-2xl border-border bg-secondary px-4 py-3 text-sm shadow-lg"
+              className="w-80 max-w-[min(calc(100vw-4rem),var(--radix-tooltip-content-available-width))]"
             >
               <p className="truncate font-medium text-foreground">{entry.title}</p>
               <p className="mt-1.5 line-clamp-3 leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">

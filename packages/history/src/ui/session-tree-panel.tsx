@@ -1,3 +1,4 @@
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Bot, Check, ChevronDown, ChevronRight, Copy, Terminal, User } from 'lucide-react'
 import type { PiBranchEntry, PiSessionEntries } from '@pi-meme/contracts/pi'
@@ -242,51 +243,54 @@ export function SessionTreePanel({ sessionEntries }: { sessionEntries: PiSession
             const selected = row.entry.id === resolvedSelectedId
             const isLeaf = row.entry.id === model.leafId
             return (
-              <div
+              <TooltipHint
                 key={row.entry.id}
-                data-entry-id={row.entry.id}
-                onClick={() => setSelectedId(row.entry.id)}
-                className={cn(
-                  'group flex w-full cursor-pointer items-center gap-1.5 py-1.5 pr-2 text-left text-[0.6875rem] select-none transition-colors',
-                  selected
-                    ? 'bg-primary/15 font-medium text-foreground'
-                    : 'text-foreground/85 hover:bg-secondary/60 hover:text-foreground',
-                )}
-                title={`${absoluteTime(row.entry.timestamp)} · ${row.entry.preview?.trim() || row.entry.type}`}
+                content={`${absoluteTime(row.entry.timestamp)} · ${row.entry.preview?.trim() || row.entry.type}`}
               >
-                <span className="shrink-0 whitespace-pre font-mono text-[0.6875rem] leading-none text-border">
-                  {treePrefix(row)}
-                </span>
-                {row.foldable ? (
-                  <span
-                    aria-label={row.folded ? '展开分支' : '折叠分支'}
-                    className="flex size-3.5 shrink-0 items-center justify-center rounded-xs text-muted-foreground hover:bg-muted hover:text-foreground"
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      toggleFold(row.entry.id)
-                    }}
-                  >
-                    {row.folded ? <ChevronRight className="size-3" /> : <ChevronDown className="size-3" />}
+                <div
+                  data-entry-id={row.entry.id}
+                  onClick={() => setSelectedId(row.entry.id)}
+                  className={cn(
+                    'group flex w-full cursor-pointer items-center gap-1.5 py-1.5 pr-2 text-left text-[0.6875rem] select-none transition-colors',
+                    selected
+                      ? 'bg-primary/15 font-medium text-foreground'
+                      : 'text-foreground/85 hover:bg-secondary/60 hover:text-foreground',
+                  )}
+                >
+                  <span className="shrink-0 whitespace-pre font-mono text-[0.6875rem] leading-none text-border">
+                    {treePrefix(row)}
                   </span>
-                ) : (
-                  <span className="size-3.5 shrink-0" />
-                )}
-                <span className="w-14 shrink-0 text-right text-[0.625rem] tabular-nums text-muted-foreground">
-                  {relativeTime(row.entry.timestamp)}
-                </span>
-                <span className="w-2 shrink-0 text-center text-[0.6875rem] text-primary" aria-hidden>
-                  {active ? '•' : ''}
-                </span>
-                <span className={cn('min-w-0 flex-1 truncate', isLeaf ? 'text-foreground' : 'text-foreground/80')}>
-                  {chip && <span className={cn('font-semibold', chip.className)}>{chip.label}: </span>}
-                  <span>{cleanInlinePreview(row.entry)}</span>
-                </span>
-                {row.childCount > 1 && (
-                  <span className="shrink-0 rounded bg-secondary/80 px-1 text-[0.625rem] text-muted-foreground">
-                    {row.childCount}
+                  {row.foldable ? (
+                    <span
+                      aria-label={row.folded ? '展开分支' : '折叠分支'}
+                      className="flex size-3.5 shrink-0 items-center justify-center rounded-xs text-muted-foreground hover:bg-muted hover:text-foreground"
+                      onClick={(event) => {
+                        event.stopPropagation()
+                        toggleFold(row.entry.id)
+                      }}
+                    >
+                      {row.folded ? <ChevronRight className="size-3" /> : <ChevronDown className="size-3" />}
+                    </span>
+                  ) : (
+                    <span className="size-3.5 shrink-0" />
+                  )}
+                  <span className="w-14 shrink-0 text-right text-[0.625rem] tabular-nums text-muted-foreground">
+                    {relativeTime(row.entry.timestamp)}
                   </span>
-                )}
-              </div>
+                  <span className="w-2 shrink-0 text-center text-[0.6875rem] text-primary" aria-hidden>
+                    {active ? '•' : ''}
+                  </span>
+                  <span className={cn('min-w-0 flex-1 truncate', isLeaf ? 'text-foreground' : 'text-foreground/80')}>
+                    {chip && <span className={cn('font-semibold', chip.className)}>{chip.label}: </span>}
+                    <span>{cleanInlinePreview(row.entry)}</span>
+                  </span>
+                  {row.childCount > 1 && (
+                    <span className="shrink-0 rounded bg-secondary/80 px-1 text-[0.625rem] text-muted-foreground">
+                      {row.childCount}
+                    </span>
+                  )}
+                </div>
+              </TooltipHint>
             )
           })
         )}
@@ -305,25 +309,26 @@ export function SessionTreePanel({ sessionEntries }: { sessionEntries: PiSession
                 <RoleIcon entry={selectedEntry} />
                 {kindLabel(selectedEntry)}
               </span>
-              <span
-                className="truncate text-[0.6875rem] text-muted-foreground tabular-nums"
-                title={absoluteTime(selectedEntry.timestamp)}
-              >
-                {absoluteTime(selectedEntry.timestamp)}
-              </span>
+              <TooltipHint content={absoluteTime(selectedEntry.timestamp)}>
+                <span className="truncate text-[0.6875rem] text-muted-foreground tabular-nums">
+                  {absoluteTime(selectedEntry.timestamp)}
+                </span>
+              </TooltipHint>
             </div>
 
             <div className="flex shrink-0 items-center gap-1.5">
               {selectedEntry.preview?.trim() && (
-                <Button
-                  size="icon-sm"
-                  variant="ghost"
-                  className="size-6 text-muted-foreground hover:text-foreground"
-                  title={copied ? '已复制' : '复制正文'}
-                  onClick={() => handleCopy(selectedEntry.preview?.trim() ?? '')}
-                >
-                  {copied ? <Check className="size-3.5 text-emerald-500" /> : <Copy className="size-3.5" />}
-                </Button>
+                <TooltipHint content={copied ? '已复制' : '复制正文'}>
+                  <Button
+                    aria-label={copied ? '已复制' : '复制正文'}
+                    size="icon-sm"
+                    variant="ghost"
+                    className="size-6 text-muted-foreground hover:text-foreground"
+                    onClick={() => handleCopy(selectedEntry.preview?.trim() ?? '')}
+                  >
+                    {copied ? <Check className="size-3.5 text-emerald-500" /> : <Copy className="size-3.5" />}
+                  </Button>
+                </TooltipHint>
               )}
             </div>
           </div>

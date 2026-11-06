@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, type ReactNode } from 'react'
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import type { Connection } from '@pi-meme/contracts/desktop'
 import type { ChatState } from '@pi-meme/chat/ui/model/types'
 import type { MessageEditorState } from '@pi-meme/chat/ui/conversation/inline-message-editor'
@@ -190,17 +191,18 @@ export function WorkspaceContent({
                         <>
                           你想让我们在{' '}
                           {onSelectProject ? (
-                            <button
-                              type="button"
-                              onClick={(event) => onSelectProject(event.currentTarget)}
-                              data-state={projectSelectorOpen ? 'open' : 'closed'}
-                              className="inline-flex items-center rounded-md px-1.5 py-0.5 -my-0.5 underline decoration-dotted underline-offset-8 decoration-muted-foreground/60 transition-colors hover:bg-secondary/70 hover:decoration-foreground/80 data-[state=open]:bg-secondary/70 data-[state=open]:decoration-foreground/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 cursor-pointer"
-                              title="切换项目"
-                              aria-label={`切换项目：当前为 ${projectName}`}
-                              aria-expanded={projectSelectorOpen}
-                            >
-                              {projectName}
-                            </button>
+                            <TooltipHint content="切换项目">
+                              <button
+                                type="button"
+                                onClick={(event) => onSelectProject(event.currentTarget)}
+                                data-state={projectSelectorOpen ? 'open' : 'closed'}
+                                className="inline-flex items-center rounded-md px-1.5 py-0.5 -my-0.5 underline decoration-dotted underline-offset-8 decoration-muted-foreground/60 transition-colors hover:bg-secondary/70 hover:decoration-foreground/80 data-[state=open]:bg-secondary/70 data-[state=open]:decoration-foreground/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 cursor-pointer"
+                                aria-label={`切换项目：当前为 ${projectName}`}
+                                aria-expanded={projectSelectorOpen}
+                              >
+                                {projectName}
+                              </button>
+                            </TooltipHint>
                           ) : (
                             <span className="underline decoration-dotted underline-offset-8 decoration-muted-foreground/60">
                               {projectName}

@@ -163,8 +163,6 @@
 
 .pi-path-tooltip {
   max-width: min(32rem, calc(100vw - 24px));
-  padding: 10px 14px;
-  border-radius: calc(var(--radius) * 1.5);
   text-align: center;
   font-family: var(--font-code);
   line-height: 1.5;
@@ -184,9 +182,7 @@
   max-height: min(480px, var(--radix-popover-content-available-height));
   overflow: auto;
   padding: 0;
-  border-radius: calc(var(--radius) * 1.75);
   font-family: var(--font-content);
-  font-size: 13px;
   line-height: 1.5;
   scrollbar-width: thin;
 }
