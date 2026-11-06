@@ -8,7 +8,7 @@ import type { SessionHistoryData } from '@pi-meme/contracts/sessions'
 import { branchSkillUsages } from './extensions/skill-usage'
 import { projectBranchEntries } from './session-tree-entries'
 import { projectBranchAttachments } from './session-attachments'
-import { projectStableMessageMetadata } from './sdk/message-projection'
+import { projectConversationEntries, projectStableMessageMetadata } from './sdk/message-projection'
 import { loadPiSdk } from './sdk/load'
 import { findSessionRecovery } from './sdk/recovery'
 
@@ -141,11 +141,12 @@ export async function projectSessionHistory(
   filePath: string,
   entries: Array<SessionHeader | SessionEntry>,
 ): Promise<SessionHistoryData> {
-  const { buildSessionProjection } = await loadPiSdk()
+  const sdk = await loadPiSdk()
   const header = entries.find((entry): entry is SessionHeader => entry.type === 'session')
   if (!header?.cwd) throw new Error('会话文件缺少工作目录')
   const history = entries.filter((entry): entry is SessionEntry => entry.type !== 'session')
-  const context = buildSessionProjection(history)
+  const context = sdk.buildSessionProjection(history)
+  const conversation = projectConversationEntries(history, sdk)
   const sessionName = history.findLast((entry) => entry.type === 'session_info')
   const byId = new Map(history.map((entry) => [entry.id, entry]))
   const branch: SessionEntry[] = []
@@ -180,7 +181,7 @@ export async function projectSessionHistory(
     skillUsages: branchSkillUsages(branch),
     recovery: recovery ? { entryId: recovery.entryId, mode: recovery.mode } : undefined,
     taskControl,
-    messages: projectStableMessageMetadata(history, context),
+    messages: projectStableMessageMetadata(history, conversation),
     visualizationReferences: projectBranchVisualizations(history, history.at(-1)?.id ?? null),
     planCheckpoints: projectBranchPlans(history, history.at(-1)?.id ?? null),
     sessionEntries: {

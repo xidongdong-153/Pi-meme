@@ -6,7 +6,7 @@ import type { PiBranchEntry, PiMessage } from '@pi-meme/contracts/pi'
 import type { SessionHistoryData, SessionWindow } from '@pi-meme/contracts/sessions'
 import { projectSessionWindow, projectSessionDetails } from '@pi-meme/contracts/session-window'
 import { loadPiSdk, getPiVersion } from './sdk/load'
-import { projectStableMessageMetadata } from './sdk/message-projection'
+import { projectConversationEntries, projectStableMessageMetadata } from './sdk/message-projection'
 import { projectSessionHistory, computeHistoryStats } from './history-projection'
 import { projectBranchEntries } from './session-tree-entries'
 import { projectBranchAttachments } from './session-attachments'
@@ -133,7 +133,7 @@ async function build(file: string, expected: string, version: string): Promise<I
   if (locations.length !== entries.length || entries.some((entry) => typeof entry.id !== 'string')) return
   const byId = new Map(entries.map((entry, index) => [entry.id, locations[index]]))
   const history = entries.filter((entry): entry is SessionEntry => entry.type !== 'session')
-  const projection = sdk.buildSessionProjection(history)
+  const projection = projectConversationEntries(history, sdk)
   const messages = projectStableMessageMetadata(history, projection)
   const edits = new Map(
     projection.entries.flatMap(({ sourceEntry }) =>
@@ -224,6 +224,7 @@ async function appendIndex(file: string, previous: Index, expected: string): Pro
   }
   if (!entries.length) return
   const sdk = await loadPiSdk()
+  // 增量路径只接受普通线性追加，不含压缩或编辑，沿用 SDK 投影及模型设置。
   const projection = sdk.buildSessionProjection(entries)
   const messages = projectStableMessageMetadata(entries, projection)
   let position = 0
@@ -299,7 +300,7 @@ async function readIndex(file: string, background = false): Promise<Index | unde
   const target = indexFile(file)
   if (!target) return
   const expected = await signature(file)
-  const version = `3:${getPiVersion()}`
+  const version = `4:${getPiVersion()}`
   const retained = cache.get(file)
   if (retained?.signature === expected && retained.version === version) {
     remember(file, retained)

@@ -50,7 +50,7 @@ export async function readSessionHistory(filePath: string, window?: SessionWindo
     const data = await projectSessionHistory(filePath, entries)
     const after = await stat(filePath)
     data.historyRevision = createHash('sha256')
-      .update(`3:${getPiVersion()}:${before.dev}:${before.ino}:${before.size}:${before.mtimeMs}:${before.ctimeMs}`)
+      .update(`4:${getPiVersion()}:${before.dev}:${before.ino}:${before.size}:${before.mtimeMs}:${before.ctimeMs}`)
       .digest('hex')
     data.historyDetails = 'complete'
     data.totalMessages = data.messages.length
