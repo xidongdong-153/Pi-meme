@@ -44,7 +44,7 @@ export function PinnedSection({
   const keys = entries.map((entry) => entry.key)
   return (
     <SidebarSection id="pinned" title="置顶" collapsed={collapsed} onToggle={onToggle}>
-      <div className="space-y-0.5">
+      <div className="space-y-1">
         {entries.map((entry) => (
           <SidebarSortable
             key={entry.key}

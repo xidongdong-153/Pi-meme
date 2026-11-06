@@ -294,7 +294,9 @@ export function MultiServiceSidebar({
             collapsed={preferences.collapsed.pinned}
             onToggle={() => toggleSection('pinned')}
           >
-            {model.pinned.map((entry) => renderEntry(entry, 'pinned', pinnedKeys, true))}
+            <div className="space-y-1">
+              {model.pinned.map((entry) => renderEntry(entry, 'pinned', pinnedKeys, true))}
+            </div>
           </SidebarSection>
         )}
         {preferences.groupMode === 'projects' && (
@@ -325,16 +327,18 @@ export function MultiServiceSidebar({
               </>
             }
           >
-            {visibleProjects.map((entry) => renderEntry(entry, 'projects', projectKeys))}
-            {model.projects.length > 5 && (
-              <button
-                type="button"
-                onClick={() => setShowAllProjects((value) => !value)}
-                className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground cursor-pointer rounded transition-colors w-full text-left"
-              >
-                <span>{showAllProjects ? '收起' : '展开显示'}</span>
-              </button>
-            )}
+            <div className="space-y-1">
+              {visibleProjects.map((entry) => renderEntry(entry, 'projects', projectKeys))}
+              {model.projects.length > 5 && (
+                <button
+                  type="button"
+                  onClick={() => setShowAllProjects((value) => !value)}
+                  className="flex items-center gap-1.5 px-2 py-1 text-[11px] text-muted-foreground hover:text-foreground cursor-pointer rounded transition-colors w-full text-left"
+                >
+                  <span>{showAllProjects ? '收起' : '展开显示'}</span>
+                </button>
+              )}
+            </div>
           </SidebarSection>
         )}
         <SidebarSection
@@ -363,20 +367,22 @@ export function MultiServiceSidebar({
             )
           }
         >
-          {visibleRecents.map((entry) => renderEntry(entry, 'recents', recentKeys))}
-          {model.recents.length > 8 && (
-            <button
-              type="button"
-              onClick={() =>
-                setRecentsLimit((limit) =>
-                  limit >= model.recents.length ? 8 : Math.min(limit + 8, model.recents.length),
-                )
-              }
-              className="px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
-            >
-              {recentsLimit >= model.recents.length ? '收起' : '加载更多'}
-            </button>
-          )}
+          <div className="space-y-1">
+            {visibleRecents.map((entry) => renderEntry(entry, 'recents', recentKeys))}
+            {model.recents.length > 8 && (
+              <button
+                type="button"
+                onClick={() =>
+                  setRecentsLimit((limit) =>
+                    limit >= model.recents.length ? 8 : Math.min(limit + 8, model.recents.length),
+                  )
+                }
+                className="px-2 py-1 text-xs text-muted-foreground hover:text-foreground"
+              >
+                {recentsLimit >= model.recents.length ? '收起' : '加载更多'}
+              </button>
+            )}
+          </div>
         </SidebarSection>
       </div>
     </aside>

@@ -257,7 +257,7 @@ export function ProjectItem({
           )}
         >
           <div className="min-h-0 overflow-hidden">
-            <div className="space-y-0.5 py-0.5">
+            <div className="space-y-1 py-0.5">
               {visibleSessions.map((session) => (
                 <SidebarSortable
                   key={session.path}

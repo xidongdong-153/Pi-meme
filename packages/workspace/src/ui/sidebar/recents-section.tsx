@@ -53,7 +53,7 @@ export function RecentsSection({
   const groups = sortable ? [] : visibleRecents.map((entry) => recentGroup(entry.session, today))
   return (
     <SidebarSection id="recents" title="最近" collapsed={collapsed} onToggle={onToggle} actions={actions}>
-      <div className="space-y-0.5">
+      <div className="space-y-1">
         {visibleRecents.map((entry, index) => (
           <Fragment key={entry.key}>
             {groups[index] && groups[index] !== groups[index - 1] && (

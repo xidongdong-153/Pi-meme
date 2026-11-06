@@ -78,7 +78,11 @@ export function SessionItem({
       role="img"
       aria-label="会话有未读回复"
       title="有未读回复"
-      className="size-2 shrink-0 rounded-full bg-blue-500"
+      className={cn(
+        'size-2 shrink-0 rounded-full bg-blue-500',
+        'transition-transform duration-150 ease-out motion-reduce:transition-none',
+        'group-hover:-translate-x-6 group-has-[:focus-visible]:-translate-x-6 group-has-[[data-state=open]]:-translate-x-6',
+      )}
     />
   ) : null
   const scheduleIndicator = session.scheduledTask ? (
