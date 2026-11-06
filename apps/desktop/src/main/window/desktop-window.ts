@@ -1,5 +1,6 @@
-import { app, Menu, type BrowserWindow, type MenuItemConstructorOptions } from 'electron'
+import { app, BrowserWindow, Menu, type MenuItemConstructorOptions } from 'electron'
 import type { DesktopWindowCommand } from '@pi-meme/contracts/host'
+import { reloadPreparedWindow } from './prepare-window'
 
 export function updateTitleBar(window: BrowserWindow, value: unknown) {
   const color = /^#[\da-f]{6}$/i
@@ -32,9 +33,9 @@ export function executeWindowCommand(window: BrowserWindow, command: unknown) {
     case 'selectAll':
       return contents[command]()
     case 'reload':
-      return contents.reload()
+      return reloadPreparedWindow(window)
     case 'forceReload':
-      return contents.reloadIgnoringCache()
+      return reloadPreparedWindow(window, true)
     case 'toggleDevTools':
       return contents.toggleDevTools()
     case 'resetZoom':
@@ -63,7 +64,15 @@ export function configureWindowsMenu(window: BrowserWindow) {
       case 'selectAll':
         return { label, role: command, accelerator }
       default:
-        return { label, accelerator, click: () => executeWindowCommand(window, command) }
+        return {
+          label,
+          accelerator,
+          click: () => {
+            void Promise.resolve(executeWindowCommand(window, command)).catch((cause: unknown) =>
+              console.error(String(cause)),
+            )
+          },
+        }
     }
   }
   window.setMenu(
@@ -103,4 +112,47 @@ export function configureWindowsMenu(window: BrowserWindow) {
   )
   window.setAutoHideMenuBar(false)
   window.setMenuBarVisibility(false)
+}
+
+/** Native menu roles bypass executeWindowCommand, so replace only their reload actions. */
+export function configurePreparedApplicationMenu(window: BrowserWindow) {
+  const current =
+    Menu.getApplicationMenu() ??
+    Menu.buildFromTemplate([
+      ...(process.platform === 'darwin' ? [{ role: 'appMenu' as const }] : []),
+      { role: 'fileMenu' },
+      { role: 'editMenu' },
+      { role: 'viewMenu' },
+      { role: 'windowMenu' },
+    ])
+  const clone = (menu: Menu): MenuItemConstructorOptions[] =>
+    menu.items.map((item) => {
+      const reload = item.role === 'reload' || item.id === 'pi-meme-prepared-reload'
+      const forceReload = item.role === 'forceReload' || item.id === 'pi-meme-prepared-force-reload'
+      if (reload || forceReload)
+        return {
+          id: forceReload ? 'pi-meme-prepared-force-reload' : 'pi-meme-prepared-reload',
+          label: item.label,
+          accelerator: item.accelerator ?? (forceReload ? 'CmdOrCtrl+Shift+R' : 'CmdOrCtrl+R'),
+          click: (_item, target) => {
+            const active = target ? BrowserWindow.fromId(target.id) : window
+            if (!active || active.isDestroyed()) return
+            void reloadPreparedWindow(active, forceReload).catch((cause: unknown) => console.error(String(cause)))
+          },
+        }
+      return {
+        id: item.id,
+        label: item.label,
+        role: item.role === 'viewMenu' ? undefined : item.role,
+        type: item.type,
+        accelerator: item.accelerator ?? undefined,
+        enabled: item.enabled,
+        visible: item.visible,
+        checked: item.checked,
+        submenu: item.submenu ? clone(item.submenu) : undefined,
+        click: (_item, target, event) =>
+          item.click(event, target, target ? BrowserWindow.fromId(target.id)?.webContents : undefined),
+      }
+    })
+  Menu.setApplicationMenu(Menu.buildFromTemplate(clone(current)))
 }

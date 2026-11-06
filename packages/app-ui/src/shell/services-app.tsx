@@ -1,4 +1,5 @@
 import type { BrowserPlatform } from '@pi-meme/contracts/browser'
+import { AppearanceProvider } from '@pi-meme/settings/ui/appearance-provider'
 import { useCallback, useEffect, useMemo, useRef, useState, type ComponentProps } from 'react'
 import type { SelectWorkspace } from '@pi-meme/contracts/sessions'
 import { buildSidebarModel, sidebarManualOrders } from '@pi-meme/workspace/ui/sidebar/sidebar-model'
@@ -211,7 +212,7 @@ export function ServicesApp({
   )
   const remoteSettings = <RemoteSettings services={services} registry={registry} onRemove={remove} />
   return (
-    <>
+    <AppearanceProvider bridge={registry.local.bridge}>
       {services.map((service) => {
         const client = registry.get(service.id)
         return (
@@ -234,7 +235,6 @@ export function ServicesApp({
             serviceUI={{
               serviceId: service.id,
               active: service.id === activeId,
-              appearanceBridge: registry.local.bridge,
               services,
               imageSources,
               onImageSession: async (id, ref) => {
@@ -280,6 +280,6 @@ export function ServicesApp({
         )}
         onSelect={(entry) => activate(entry.serviceId, (controller) => controller.switchSession(entry.session.path))}
       />
-    </>
+    </AppearanceProvider>
   )
 }

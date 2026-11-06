@@ -62,9 +62,12 @@ import type {
   SessionMessagePage,
 } from './sessions'
 import type {
-  AppearanceSettings,
+  AppearanceMigrationResult,
+  AppearanceSaveResult,
+  AppearanceUpdate,
   DesktopSettings,
   InstalledFont,
+  RuntimeSettingsPatch,
   InstructionsSnapshot,
   SaveInstruction,
   SaveInstructionResult,
@@ -372,19 +375,22 @@ export interface SettingsBridge {
   saveInstruction: (input: SaveInstruction) => Promise<SaveInstructionResult>
   getUsageStats: () => Promise<UsageStatsSnapshot>
   getSettings: () => Promise<SettingsSnapshot>
+  reloadSettings: () => Promise<SettingsSnapshot>
+  onAppearanceChanged: (listener: () => void) => () => void
+  migrateLegacyAppearance: (expectedRevision: string, signal?: AbortSignal) => Promise<AppearanceMigrationResult | null>
   getSubagents: () => Promise<SubagentCatalogSnapshot>
   reloadSubagents: () => Promise<SubagentCatalogSnapshot>
-  saveSettings: (settings: DesktopSettings) => Promise<SettingsSnapshot>
+  saveSettings: (settings: RuntimeSettingsPatch) => Promise<SettingsSnapshot>
   saveSubagentDefaults: (patch: SubagentDefaultsPatch) => Promise<SubagentDefaults>
   saveEditorSettings: (
     settings: Pick<DesktopSettings, 'showComposerHint' | 'showContextUsage'>,
   ) => Promise<SettingsSnapshot>
   saveSidebarPreferences: (patch: SidebarPreferencesPatch) => Promise<SidebarPreferences>
-  saveAppearance: (appearance: AppearanceSettings) => Promise<SettingsSnapshot>
+  saveAppearance: (update: AppearanceUpdate, signal?: AbortSignal) => Promise<AppearanceSaveResult>
   getInstalledFonts: () => Promise<InstalledFont[]>
   importTheme: () => Promise<SettingsSnapshot | null>
   exportTheme: (theme: Theme) => Promise<void>
-  selectTheme: (id: string) => Promise<SettingsSnapshot>
+  selectTheme: (id: string, expectedRevision: string, signal?: AbortSignal) => Promise<AppearanceSaveResult>
   reloadThemes: () => Promise<SettingsSnapshot>
   openThemesDirectory: () => Promise<void>
   getUserProfile?: () => Promise<{

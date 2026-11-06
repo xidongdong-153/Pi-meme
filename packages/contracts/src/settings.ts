@@ -98,6 +98,7 @@ export type DesktopSettings = {
   subagentsEnabled?: boolean
   enabledSubagents?: string[]
   appearance?: AppearanceSettings
+  appearanceStorage?: { version: 1; legacyImport: 'eligible' | 'complete' }
   themeId: string
   pinnedPaths?: string[]
   preferredProjectApp?: ProjectApp['id']
@@ -107,6 +108,9 @@ export type DesktopSettings = {
 }
 export type SettingsSnapshot = {
   settings: DesktopSettings
+  appearanceRevision: string
+  writeState: { status: 'ready' | 'blocked'; error?: string }
+  legacyAppearanceImport: 'eligible' | 'complete'
   themes: Theme[]
   themesDirectory: string
   errors: string[]
@@ -136,4 +140,32 @@ export type AppearanceSettings = {
   translucentSidebar: boolean
   contrast: number
 }
+type OverridePatch<T> = { [K in keyof T]?: T[K] | null }
+export type AppearanceOverridesPatch = {
+  colors?: OverridePatch<NonNullable<AppearanceOverrides['colors']>>
+  fonts?: OverridePatch<NonNullable<AppearanceOverrides['fonts']>>
+  fontStyles?: OverridePatch<NonNullable<AppearanceOverrides['fontStyles']>>
+  tokens?: OverridePatch<NonNullable<AppearanceOverrides['tokens']>>
+  background?: OverridePatch<NonNullable<AppearanceOverrides['background']>>
+}
+export type AppearancePatch = Partial<
+  Pick<AppearanceSettings, 'mode' | 'uiSize' | 'codeSize' | 'reducedMotion' | 'translucentSidebar' | 'contrast'>
+> & {
+  shared?: AppearanceOverridesPatch
+  light?: AppearanceOverridesPatch
+  dark?: AppearanceOverridesPatch
+}
+export type AppearanceOperation =
+  | { type: 'patch'; patch: AppearancePatch }
+  | { type: 'select-theme'; themeId: string }
+  | { type: 'separate'; separate: boolean; mode: 'light' | 'dark' }
+  | { type: 'reset' }
+export type AppearanceUpdate = { expectedRevision: string; operation: AppearanceOperation }
+export type AppearanceSaveResult = { status: 'saved' | 'conflict'; snapshot: SettingsSnapshot }
+export type AppearanceMigration = { expectedRevision: string; appearance: AppearanceSettings }
+export type AppearanceMigrationResult = {
+  status: 'applied' | 'already-migrated' | 'host-authoritative' | 'conflict'
+  snapshot: SettingsSnapshot
+}
+export type RuntimeSettingsPatch = Omit<DesktopSettings, 'appearance' | 'appearanceStorage' | 'themeId'>
 export type InstalledFont = { family: string; styles: FontStyle[]; monospace: boolean }

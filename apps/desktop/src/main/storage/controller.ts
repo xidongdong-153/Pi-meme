@@ -24,6 +24,8 @@ export function createStorageController(options: {
   getWindow: () => BrowserWindow | null
   getHostId: () => string | undefined
   ownsHost: () => boolean
+  prepareWindow?: () => Promise<void>
+  cancelPreparation?: () => void
   stopHost: () => Promise<void>
   recoverHost?: () => Promise<void>
 }) {
@@ -45,13 +47,19 @@ export function createStorageController(options: {
   }
   async function schedule(job: StorageJob) {
     busy = true
+    let stopStarted = false
     try {
+      await options.prepareWindow?.()
+      stopStarted = true
       await options.stopHost()
       preferences = { ...preferences, dataRoot: preferences.dataRoot ?? root, pending: job, lastError: undefined }
       await writeStoragePreferences(file, preferences)
       app.relaunch()
       app.exit(0)
     } catch (cause) {
+      options.cancelPreparation?.()
+      // A failed renderer barrier must not stop/restart the Host or create maintenance state.
+      if (!stopStarted) throw cause
       preferences = {
         ...preferences,
         pending: undefined,

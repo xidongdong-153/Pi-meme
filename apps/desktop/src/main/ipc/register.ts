@@ -7,6 +7,7 @@ import type { DesktopStorageAdapter } from '@pi-meme/contracts/storage'
 import { getProjectApps, openProjectInApp } from '../project-apps'
 import { readShortcutPreferences, writeShortcutPreferences } from '../shortcut-preferences'
 import { executeWindowCommand, updateTitleBar } from '../window/desktop-window'
+import { replyWindowPreparation } from '../window/prepare-window'
 
 export function registerPlatformIpc(
   getWindow: () => BrowserWindow | null,
@@ -76,6 +77,7 @@ export function registerPlatformIpc(
       return storage.openDirectory({ expectedHostId: input.expectedHostId, path: input.path })
     })
   }
+  handle('platform:lifecycle-reply', (value) => replyWindowPreparation(getWindow()!, value))
   handle('platform:connection', getConnection)
   handle('platform:title-bar-update', (value) => updateTitleBar(getWindow()!, value))
   handle('platform:window-command', (command) => executeWindowCommand(getWindow()!, command))
@@ -145,6 +147,7 @@ export function registerPlatformIpc(
   app.on('will-quit', () => {
     for (const channel of [
       'connection',
+      'lifecycle-reply',
       'title-bar-update',
       'window-command',
       'retry-connection',

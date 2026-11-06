@@ -45,6 +45,7 @@ export type HostRpcResponse = {
 export type HostEvent = { hostId: string } & (
   | { type: 'system-request'; value: import('./system-tools').SystemClientRequest }
   | { type: 'system-changed'; value?: undefined }
+  | { type: 'appearance-changed'; value: { revision: string } }
   | { type: 'sessions-deleted'; value: { sessionIds: string[] } }
   | { type: 'event'; value: DesktopEvent }
   | { type: 'connection'; value: Connection }
@@ -74,9 +75,19 @@ export type DesktopWindowCommand =
   | 'toggleFullscreen'
   | 'about'
 
+export type PlatformPrepareRequest = {
+  requestId: string
+  documentGeneration: number
+  reason: 'close' | 'quit' | 'reload' | 'forceReload' | 'maintenance'
+}
+
 /** Electron 仅提供本机窗口与文件操作；业务通信由 client 使用 HTTP/WebSocket。 */
 export interface PlatformAdapter {
   browser?: BrowserPlatform
+  lifecycle?: {
+    onPrepare: (handler: (request: PlatformPrepareRequest) => Promise<void>) => () => void
+    onCancel: (listener: (request: PlatformPrepareRequest) => void) => () => void
+  }
   storage?: DesktopStorageAdapter
   titleBar?: {
     update: (value: { background: string; foreground: string }) => Promise<void>

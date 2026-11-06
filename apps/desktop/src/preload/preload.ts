@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { BrowserPlatform } from '@pi-meme/contracts/browser'
-import type { DesktopWindowCommand, PlatformAdapter } from '@pi-meme/contracts/host'
+import type { DesktopWindowCommand, PlatformAdapter, PlatformPrepareRequest } from '@pi-meme/contracts/host'
 
 function browserCall<T>(method: string, ...args: unknown[]): Promise<T> {
   return ipcRenderer.invoke('browser:call', method, args)
@@ -30,8 +30,59 @@ const browser: BrowserPlatform = {
     return () => ipcRenderer.removeListener('browser:event', callback)
   },
 }
+let prepareHandler: ((request: PlatformPrepareRequest) => Promise<void>) | undefined
+let hadPrepareOwner = false
+let pendingPreparation: PlatformPrepareRequest | undefined
+const prepareCancellations = new Set<(request: PlatformPrepareRequest) => void>()
+ipcRenderer.on('platform:lifecycle-prepare', (_event, request: PlatformPrepareRequest) => {
+  pendingPreparation = request
+  const handler = prepareHandler
+  void Promise.resolve()
+    .then(() => {
+      if (!handler && hadPrepareOwner) throw new Error('外观保存界面不可用，保存尚未确认')
+      return handler?.(request)
+    })
+    .then(
+      () => ({ ...request, ok: true }),
+      (cause: unknown) => ({ ...request, ok: false, error: String(cause).slice(0, 2_048) }),
+    )
+    .then((reply) => {
+      if (
+        pendingPreparation?.requestId !== request.requestId ||
+        pendingPreparation.documentGeneration !== request.documentGeneration
+      )
+        return
+      return ipcRenderer.invoke('platform:lifecycle-reply', reply)
+    })
+    .catch((cause: unknown) => console.error(`界面准备回执失败：${String(cause)}`))
+})
+ipcRenderer.on('platform:lifecycle-cancel', (_event, request: PlatformPrepareRequest) => {
+  if (
+    pendingPreparation?.requestId !== request.requestId ||
+    pendingPreparation.documentGeneration !== request.documentGeneration
+  )
+    return
+  pendingPreparation = undefined
+  for (const listener of prepareCancellations) listener(request)
+})
 const platform: PlatformAdapter = {
   browser,
+  lifecycle: {
+    onPrepare: (handler) => {
+      if (prepareHandler) throw new Error('当前窗口已注册界面准备处理器')
+      hadPrepareOwner = true
+      prepareHandler = handler
+      return () => {
+        if (prepareHandler === handler) prepareHandler = undefined
+      }
+    },
+    onCancel: (listener) => {
+      prepareCancellations.add(listener)
+      return () => {
+        prepareCancellations.delete(listener)
+      }
+    },
+  },
   ...(process.platform === 'win32'
     ? {
         titleBar: {

@@ -28,7 +28,9 @@ export function migrateAppearance(settings: DesktopSettings, themes: Theme[]): A
   return { ...defaultAppearance(), mode: theme.appearance, [`${theme.appearance}ThemeId`]: theme.id }
 }
 function record(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === 'object' && !Array.isArray(value)
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const prototype = Object.getPrototypeOf(value)
+  return prototype === Object.prototype || prototype === null
 }
 export function validateAppearance(value: unknown): asserts value is AppearanceSettings {
   if (
@@ -43,6 +45,27 @@ export function validateAppearance(value: unknown): asserts value is AppearanceS
     typeof value.darkThemeId !== 'string'
   )
     throw new Error('外观设置无效')
+  if (
+    Object.keys(value).some(
+      (key) =>
+        ![
+          'mode',
+          'lightThemeId',
+          'darkThemeId',
+          'separate',
+          'shared',
+          'light',
+          'dark',
+          'uiSize',
+          'codeSize',
+          'reducedMotion',
+          'translucentSidebar',
+          'contrast',
+        ].includes(key),
+    ) ||
+    [value.lightThemeId, value.darkThemeId].some((id) => !id.trim() || id.length > 256)
+  )
+    throw new Error('外观包含未知字段或无效主题 ID')
   for (const [key, min, max] of [
     ['uiSize', 12, 20],
     ['codeSize', 10, 24],
@@ -57,7 +80,18 @@ export function validateAppearance(value: unknown): asserts value is AppearanceS
   for (const key of ['shared', 'light', 'dark'] as const) {
     const overrides = value[key]
     if (overrides === undefined && key !== 'shared') continue
-    if (!record(overrides)) throw new Error('外观覆盖值无效')
+    if (
+      !record(overrides) ||
+      Object.keys(overrides).some((name) => !['colors', 'fonts', 'fontStyles', 'tokens', 'background'].includes(name))
+    )
+      throw new Error('外观覆盖值无效')
+    for (const name of ['fonts', 'fontStyles', 'tokens'] as const)
+      if (overrides[name] !== undefined && !record(overrides[name])) throw new Error('外观覆盖分组无效')
+    if (
+      overrides.fonts &&
+      Object.values(overrides.fonts).some((font) => typeof font === 'string' && font.length > 2048)
+    )
+      throw new Error('字体配置过长')
     if (
       overrides.colors !== undefined &&
       (!record(overrides.colors) ||
@@ -122,7 +156,12 @@ export function toggleSeparate(
     : { ...value, separate, shared: structuredClone(value[mode] ?? {}) }
 }
 export function selectAppearanceTheme(value: AppearanceSettings, theme: Theme): AppearanceSettings {
-  return setOverrides({ ...value, [`${theme.appearance}ThemeId`]: theme.id }, theme.appearance, {})
+  if (value[`${theme.appearance}ThemeId`] === theme.id) return value
+  const { fonts, fontStyles } = editingOverrides(value, theme.appearance)
+  return setOverrides({ ...value, [`${theme.appearance}ThemeId`]: theme.id }, theme.appearance, {
+    ...(fonts ? { fonts: structuredClone(fonts) } : {}),
+    ...(fontStyles ? { fontStyles: structuredClone(fontStyles) } : {}),
+  })
 }
 export function resolvedMode(value: AppearanceSettings, systemDark: boolean): 'light' | 'dark' {
   return value.mode === 'system' ? (systemDark ? 'dark' : 'light') : value.mode

@@ -52,6 +52,8 @@ export function createSettingsHandlers({
       return settings.togglePin(value)
     },
     'settings:appearance': (value: unknown) => settings.saveAppearance(value),
+    'settings:appearance-migrate': (value: unknown) => settings.importLegacyAppearance(value),
+    'settings:reload': () => settings.load(),
     'settings:subagent-defaults': (value: unknown) => settings.saveSubagentDefaults(value),
     'settings:editor': (value: unknown) => settings.saveEditorSettings(value),
     'settings:sidebar': (value: unknown) => settings.saveSidebarPreferences(value),
@@ -104,9 +106,9 @@ export function createSettingsHandlers({
         }
         return snapshot
       }, true),
-    'settings:theme': (id: unknown) => {
+    'settings:theme': (id: unknown, expectedRevision: unknown) => {
       text(id)
-      return settings.selectTheme(id)
+      return settings.selectTheme(id, expectedRevision)
     },
     'settings:reload-themes': () => settings.reloadThemes(),
     'settings:open-themes': async () => {

@@ -1,7 +1,8 @@
 import { BrowserWindow, shell } from 'electron'
 import path from 'node:path'
 import { recoveryUrl } from './recovery-page'
-import { configureWindowsMenu } from './desktop-window'
+import { configurePreparedApplicationMenu, configureWindowsMenu } from './desktop-window'
+import { attachWindowPreparation } from './prepare-window'
 
 export function createWindow(backgroundColor: string, trustedOrigin: () => string) {
   const window = new BrowserWindow({
@@ -27,7 +28,9 @@ export function createWindow(backgroundColor: string, trustedOrigin: () => strin
       sandbox: true,
     },
   })
+  attachWindowPreparation(window, trustedOrigin)
   if (process.platform === 'win32') configureWindowsMenu(window)
+  else configurePreparedApplicationMenu(window)
   window.webContents.on('will-navigate', (event, url) => {
     if (url === recoveryUrl) return
     try {

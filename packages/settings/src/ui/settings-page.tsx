@@ -2,12 +2,13 @@ import type { ReactNode } from 'react'
 import type {
   DesktopSettings,
   SettingsSnapshot,
-  AppearanceSettings,
+  AppearanceOperation,
   InstalledFont,
   Theme,
 } from '@pi-meme/contracts/settings'
 import type { SettingsBridge, ModelsBridge } from '@pi-meme/contracts/desktop'
 import { ThemeSettings } from './theme-settings'
+import type { AppearanceSaveStatus } from './appearance-save'
 import { GeneralSettings } from './general-settings'
 import { InstructionSettings } from './instruction-settings'
 import { CrossfadeText } from '@pi-meme/ui/components/crossfade-text'
@@ -26,9 +27,14 @@ export type SettingsPageProps = {
   busy: boolean
   onDirty: (dirty: boolean) => void
   onSaving: (saving: boolean) => void
+  onMaintaining: (maintaining: boolean) => void
   accessSettings: ReactNode
   onEditor: (value: Pick<DesktopSettings, 'showComposerHint' | 'showContextUsage'>) => void
-  onAppearance: (value: AppearanceSettings) => void
+  onOperation: (operation: AppearanceOperation) => void
+  status?: AppearanceSaveStatus
+  frozen?: boolean
+  onRetry?: () => void
+  onAdoptLatest?: () => void
   onPreview: (mode: 'light' | 'dark' | null) => void
   onFlush: () => Promise<void>
   loadFonts: () => Promise<InstalledFont[]>
@@ -48,6 +54,7 @@ export function SettingsPage({
   busy,
   onDirty,
   onSaving,
+  onMaintaining,
   accessSettings,
   onEditor,
   onBeforeRestart,
@@ -64,7 +71,7 @@ export function SettingsPage({
           onEditor={onEditor}
           bridge={bridge}
           onBeforeRestart={onBeforeRestart}
-          onMaintaining={onSaving}
+          onMaintaining={onMaintaining}
         />
       ) : section === 'about' ? (
         <SettingsGroup title="Pi">

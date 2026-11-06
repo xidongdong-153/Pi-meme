@@ -3,7 +3,6 @@ import type { SessionRef } from '@pi-meme/contracts/app-host'
 import type { HostServiceRegistry } from '@pi-meme/client/service-registry'
 import type { HostClient } from '@pi-meme/client/host-client'
 import type { ReactNode } from 'react'
-import type { DesktopBridge } from '@pi-meme/contracts/desktop'
 import type { HostService } from '@pi-meme/contracts/host'
 import type { SshConnectionPhase, SshConnectionStep } from '@pi-meme/contracts/ssh-connections'
 import type { SelectWorkspace } from '@pi-meme/contracts/sessions'
@@ -21,7 +20,6 @@ export type ServiceController = ReturnType<typeof useAppSession> & {
 export type ServiceUI = {
   serviceId: string
   active: boolean
-  appearanceBridge: DesktopBridge
   services: HostService[]
   imageSources?: ImageLibrarySource[]
   onImageSession?: (serviceId: string, session: SessionRef) => Promise<void>

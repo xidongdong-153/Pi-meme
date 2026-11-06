@@ -16,6 +16,7 @@ import { retryHostPage } from './window/load-host-page'
 import { createStorageController } from './storage/controller'
 import { pendingStorageJob } from './storage/preferences'
 import { acquireDesktopHost } from './local-host'
+import { cancelWindowPreparation, closePreparedWindow, prepareWindowMaintenance } from './window/prepare-window'
 
 const isolatedTest = ['memory', 'file'].includes(process.env.PI_MEME_TEST_CREDENTIALS ?? '')
 if (isolatedTest) {
@@ -60,6 +61,8 @@ const storage = createStorageController({
   getWindow: () => window,
   getHostId: () => localHost?.status.hostId,
   ownsHost: () => localHost?.ownership === 'owned',
+  prepareWindow: () => prepareWindowMaintenance(window),
+  cancelPreparation: () => cancelWindowPreparation(window),
   recoverHost: retryConnection,
   stopHost: async () => {
     const lease = localHost
@@ -248,6 +251,8 @@ app.on('before-quit', (event) => {
   const contents = target?.webContents
   function cancelQuit() {
     target?.removeListener('closed', dispose)
+    contents?.removeListener('will-prevent-unload', cancelQuit)
+    cancelWindowPreparation(target)
     stopping = false
   }
   function dispose() {
@@ -270,6 +275,14 @@ app.on('before-quit', (event) => {
   if (target) {
     target.once('closed', dispose)
     contents?.once('will-prevent-unload', cancelQuit)
-    target.close()
+    void closePreparedWindow(target, 'quit').then(
+      (allowed) => {
+        if (!allowed) cancelQuit()
+      },
+      (cause: unknown) => {
+        console.error(`退出准备失败：${String(cause)}`)
+        cancelQuit()
+      },
+    )
   } else dispose()
 })

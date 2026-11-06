@@ -27,7 +27,12 @@ import type {
   HostRpcResponse,
   PlatformAdapter,
 } from '@pi-meme/contracts/host'
-import type { SettingsSnapshot, Theme } from '@pi-meme/contracts/settings'
+import type {
+  AppearanceMigrationResult,
+  AppearanceSaveResult,
+  SettingsSnapshot,
+  Theme,
+} from '@pi-meme/contracts/settings'
 import type { PluginClient } from './plugin-client'
 import { createResourceClient, type ResourceClient } from './resource-client'
 
@@ -135,6 +140,7 @@ export class HostClient {
   private readonly sessionsListeners = new Set<() => void>()
   private readonly servicesListeners = new Set<() => void>()
   private readonly pluginListeners = new Set<() => void>()
+  private readonly appearanceListeners = new Set<() => void>()
   private systemHandler?: (request: import('@pi-meme/contracts/system-tools').SystemClientRequest) => Promise<unknown>
   private systemOperations: string[] = []
   private socket?: WebSocket
@@ -144,8 +150,6 @@ export class HostClient {
   private suspended = false
   private networkEpoch = 0
   private lifetime = new AbortController()
-  private appearanceMigration?: Promise<void>
-  private appearanceWrites: Promise<unknown> = Promise.resolve()
   private authenticated?: Promise<void>
   private renewing?: Promise<void>
   private selected?: Connection
@@ -369,11 +373,14 @@ export class HostClient {
     const epoch = this.networkEpoch
     this.assertAvailable(epoch)
     const requestSignal = signal ? AbortSignal.any([signal, this.lifetime.signal]) : this.lifetime.signal
+    requestSignal.throwIfAborted()
     await this.authenticate()
     this.assertAvailable(epoch)
+    requestSignal.throwIfAborted()
     const requestId = crypto.randomUUID()
     const send = async () => {
       this.assertAvailable(epoch)
+      requestSignal.throwIfAborted()
       try {
         return await this.fetch(this.endpoint('/api/rpc'), {
           method: 'POST',
@@ -877,6 +884,7 @@ export class HostClient {
         this.assertAvailable(networkEpoch)
         for (const callback of this.sessionsListeners) callback()
         for (const callback of this.pluginListeners) callback()
+        for (const callback of this.appearanceListeners) callback()
         this.reconnectAttempts = 0
         recovered = true
       } catch (cause) {
@@ -984,6 +992,9 @@ export class HostClient {
       case 'system-changed':
         if (typeof window !== 'undefined') window.dispatchEvent(new Event('pi-meme:system-changed'))
         break
+      case 'appearance-changed':
+        for (const callback of this.appearanceListeners) callback()
+        break
       case 'sessions-changed':
         for (const callback of this.sessionsListeners) callback()
         break
@@ -1019,6 +1030,7 @@ export class HostClient {
     this.sessionsListeners.clear()
     this.servicesListeners.clear()
     this.pluginListeners.clear()
+    this.appearanceListeners.clear()
   }
 
   private async registerSystemCapabilities() {
@@ -1056,55 +1068,51 @@ export class HostClient {
       if (!platform) throw new Error(`目录位于服务：${settings[field]}`)
       await platform.openPath(settings[field])
     }
-    const settingsRpc = async (method: string, args: unknown[] = []) => {
-      const appearanceKey = 'pi-meme:appearance:v1'
-      const appearanceWrite = method === 'settings:appearance' || method === 'settings:theme'
-      if (this.options.connection.local && !appearanceWrite) {
-        this.appearanceMigration ??= (async () => {
-          let saved: unknown
-          try {
-            saved = JSON.parse(localStorage.getItem(appearanceKey) ?? 'null')
-          } catch {
-            return
-          }
-          if (!saved) return
-          // 旧客户端只保存浏览器覆盖值；落盘成功后才移除，断线时允许重试。
-          await rpc<SettingsSnapshot>('settings:appearance', [saved], null)
-          try {
-            localStorage.removeItem(appearanceKey)
-          } catch {
-            // 浏览器拒绝存储访问不影响已经保存到 Host 的配置。
-          }
-        })().catch(() => {
-          // 无效旧值或暂时断线不应阻止读取、重新保存外观；原值保留供下次迁移。
-          this.appearanceMigration = undefined
-        })
-        await this.appearanceMigration
+    const settingsRequest = <T>(method: string, args: unknown[], signal?: AbortSignal): Promise<T> => {
+      const deadline = AbortSignal.timeout(5000)
+      const requestSignal = AbortSignal.any([this.lifetime.signal, deadline, ...(signal ? [signal] : [])])
+      requestSignal.throwIfAborted()
+      const pending = new Promise<T>((resolve, reject) => {
+        const abort = () =>
+          reject(deadline.aborted ? new Error('外观请求超时，请重试；若正在保存，结果尚未确认') : requestSignal.reason)
+        requestSignal.addEventListener('abort', abort, { once: true })
+        void this.rpc<T>(method, args, null, requestSignal)
+          .then(resolve, reject)
+          .finally(() => {
+            requestSignal.removeEventListener('abort', abort)
+          })
+      })
+      return pending
+    }
+    const settingsSnapshot = (snapshot: SettingsSnapshot): SettingsSnapshot => ({
+      ...snapshot,
+      themes: snapshot.themes.map((theme) => ({
+        ...theme,
+        ...(theme.background?.url
+          ? { background: { ...theme.background, url: this.resourceUrl(theme.background.url) } }
+          : {}),
+      })),
+    })
+    const clearLegacyAppearance = () => {
+      if (!this.options.connection.local) return
+      try {
+        localStorage.removeItem('pi-meme:appearance:v1')
+      } catch {
+        // Host 已确认提交或权威配置，不依赖浏览器存储确认。
       }
-      if (appearanceWrite) await this.appearanceMigration
-      const request = this.appearanceWrites.then(() => rpc<SettingsSnapshot>(method, args, null))
-      if (appearanceWrite) this.appearanceWrites = request.catch(() => undefined)
-      const snapshot = await request
-      if (appearanceWrite) {
-        if (this.options.connection.local) {
-          this.appearanceMigration = Promise.resolve()
-          try {
-            localStorage.removeItem(appearanceKey)
-          } catch {
-            // Host 已保存成功，不依赖浏览器存储确认。
-          }
-        }
-        window.dispatchEvent(new Event('pi-meme:appearance-changed'))
-      }
-      return {
-        ...snapshot,
-        themes: snapshot.themes.map((theme) => ({
-          ...theme,
-          ...(theme.background?.url
-            ? { background: { ...theme.background, url: this.resourceUrl(theme.background.url) } }
-            : {}),
-        })),
-      }
+    }
+    const settingsRpc = async (method: string, args: unknown[] = []) =>
+      settingsSnapshot(
+        await (method === 'settings:get' || method === 'settings:reload'
+          ? settingsRequest<SettingsSnapshot>(method, args)
+          : rpc<SettingsSnapshot>(method, args, null)),
+      )
+    const appearanceRpc = async (method: string, args: unknown[], signal?: AbortSignal) => {
+      const result = await settingsRequest<AppearanceSaveResult>(method, args, signal)
+      if (!['saved', 'conflict'].includes(result.status) || typeof result.snapshot?.appearanceRevision !== 'string')
+        throw new Error('当前服务不支持带修订的外观保存，请更新服务并重新加载')
+      if (result.status === 'saved') clearLegacyAppearance()
+      return { ...result, snapshot: settingsSnapshot(result.snapshot) }
     }
     return {
       registerSystemClient: (operations, handler) => {
@@ -1292,6 +1300,31 @@ export class HostClient {
       storage: platform?.storage,
       getUsageStats: () => rpc('settings:usage-stats'),
       getSettings: () => settingsRpc('settings:get'),
+      reloadSettings: () => settingsRpc('settings:reload'),
+      onAppearanceChanged: (callback) => subscribe(this.appearanceListeners, callback),
+      migrateLegacyAppearance: async (expectedRevision, signal) => {
+        if (!this.options.connection.local) return null
+        let appearance: unknown
+        try {
+          const saved = localStorage.getItem('pi-meme:appearance:v1')
+          if (!saved) return null
+          appearance = JSON.parse(saved)
+        } catch {
+          throw new Error('无法读取旧外观缓存，已保留原值；当前 Host 配置仍可使用')
+        }
+        const result = await settingsRequest<AppearanceMigrationResult>(
+          'settings:appearance-migrate',
+          [{ expectedRevision, appearance }],
+          signal,
+        )
+        if (
+          !['applied', 'already-migrated', 'host-authoritative', 'conflict'].includes(result.status) ||
+          typeof result.snapshot?.appearanceRevision !== 'string'
+        )
+          throw new Error('当前服务不支持受控外观迁移，请更新服务并重新加载')
+        if (result.status !== 'conflict') clearLegacyAppearance()
+        return { ...result, snapshot: settingsSnapshot(result.snapshot) }
+      },
       getInstructions: () => rpc('settings:instructions'),
       saveInstruction: (input) => rpc('settings:save-instruction', [input]),
       getSubagents: () => rpc('settings:subagents'),
@@ -1300,7 +1333,7 @@ export class HostClient {
       saveSubagentDefaults: (patch) => rpc('settings:subagent-defaults', [patch], null),
       saveEditorSettings: (settings) => rpc('settings:editor', [settings], null),
       saveSidebarPreferences: (patch) => rpc('settings:sidebar', [patch]),
-      saveAppearance: (appearance) => settingsRpc('settings:appearance', [appearance]),
+      saveAppearance: (update, signal) => appearanceRpc('settings:appearance', [update], signal),
       getInstalledFonts: () => rpc('settings:fonts'),
       importTheme: async () => {
         const content = platform ? await platform.importTheme() : await readThemeFile()
@@ -1311,7 +1344,7 @@ export class HostClient {
         if (platform) await platform.exportTheme(content)
         else downloadTheme(content)
       },
-      selectTheme: (id) => settingsRpc('settings:theme', [id]),
+      selectTheme: (id, expectedRevision, signal) => appearanceRpc('settings:theme', [id, expectedRevision], signal),
       reloadThemes: () => settingsRpc('settings:reload-themes'),
       openThemesDirectory: () => openPath('themesDirectory'),
       getUserProfile: () => rpc('settings:get-user-profile'),

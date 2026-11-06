@@ -14,8 +14,10 @@
     "./ui/theme-settings": "./src/ui/theme-settings.tsx",
     "./ui/theme/apply": "./src/ui/theme/apply.ts",
     "./ui/use-settings": "./src/ui/use-settings.ts",
+    "./ui/appearance-provider": "./src/ui/appearance-provider.tsx",
     "./shared/themes": "./src/shared/themes.ts",
     "./shared/appearance": "./src/shared/appearance.ts",
+    "./shared/appearance-update": "./src/shared/appearance-update.ts",
     "./shared/user-profile": "./src/shared/user-profile.ts",
     "./server/entry": "./src/server/entry.ts",
     "./server/plugin-themes": "./src/server/plugin-themes.ts"

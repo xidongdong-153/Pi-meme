@@ -53,7 +53,11 @@ Agent 使用 `system_read` 和 `system_write` 操作工作台。先调用 `syste
 
 `profile.get` 返回资料摘要、`hasAvatar` 和内容修订，不携带头像 base64；`profile.avatar` 单独返回图片。`profile.save` 参数为 `[patch, revision]`。只允许 `name`、`username`、`email`、`avatarText`、`avatarData` 字符串字段，作用于当前 Host。资料事件触发已连接界面重新读取。
 
-`appearance.get` 返回外观及内容修订；`appearance.save` 参数为 `[patch, revision]`。可修改 `mode`、`uiSize`、`codeSize`、`reducedMotion` 等现有外观字段；由现有外观校验器校验。外观由发起客户端选定的外观 Host 保存到 `.pi-meme/config/app.json`。多服务界面始终使用客户端本地 Host，切换远程服务不会改写远端外观；独立 Web 使用所连接的 Host。共享同一外观 Host 的客户端读取同一份长期配置。内容恢复成原值时，内容修订也恢复成原值；它不是递增版本号。
+`appearance.get` 返回外观 Host 提供的外观及内容修订；`appearance.save` 参数仍为 `[patch, revision]`。可修改 `mode`、`uiSize`、`codeSize`、`reducedMotion` 及允许的 `shared / light / dark` 覆盖叶子。缺席字段不改，可选叶子的 `null` 表示删除并恢复主题继承；必填值、未知字段和非法值会被拒绝。内容字体的 `inherit` 是明确跟随界面字体，与删除覆盖不同。
+
+保存复用外观 Host 的队列内修订校验和原子提交；客户端不得自行计算修订后无条件写回整份外观。冲突要求重新读取，不能覆盖并发修改。底层 `settings:appearance` 和 `settings:theme` 也必须携带修订，旧的无修订调用不会兼容降级。普通设置保存不能借 `appearance / themeId` 修改外观。内容恢复成原值时，内容修订也恢复成原值；它不是递增版本号。
+
+外观由发起客户端选定的外观 Host 保存到 `config/app.json`。Desktop 多服务界面始终使用客户端本地 Host，切换远程服务不会改写远端外观；独立 Web 使用连接入口的 Host。共享同一外观 Host 的客户端读取同一份长期配置；提交后广播修订，事件和重新连接只触发读取。Host 配置进入写保护时，Agent 与界面写入同样拒绝，不能以旧缓存或默认值覆盖原文件。
 
 `mcp.get` 返回配置修订、服务名称、启用状态、传输方式和授权状态，不返回环境变量、请求头、命令参数或凭据。它表示配置状态，不冒充实时连通性探测。修改 MCP 和指令后，当前执行仍使用原有资源快照；新会话或重新加载后采用新配置，工具调用中不强制重启自己的 Worker。
 

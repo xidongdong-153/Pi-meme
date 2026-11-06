@@ -1,7 +1,8 @@
 import { useEffect } from 'react'
 import type { DesktopBridge } from '@pi-meme/contracts/desktop'
 import type { BrowserPlatform } from '@pi-meme/contracts/browser'
-import { migrateAppearance, validateAppearance } from '@pi-meme/settings/shared/appearance'
+import { migrateAppearance } from '@pi-meme/settings/shared/appearance'
+import type { AppearancePatch } from '@pi-meme/contracts/settings'
 
 export function useSystemClient(
   bridge: DesktopBridge,
@@ -63,20 +64,22 @@ export function useSystemClient(
           }
           const snapshot = await appearanceBridge.getSettings()
           const appearance = migrateAppearance(snapshot.settings, snapshot.themes)
-          const hash = async (value: unknown) =>
-            [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(JSON.stringify(value))))]
-              .map((byte) => byte.toString(16).padStart(2, '0'))
-              .join('')
-          const revision = await hash(appearance)
+          const revision = snapshot.appearanceRevision
+          if (!revision) throw new Error('外观 Host 不支持受控保存，请更新服务')
           if (request.operation === 'appearance.get') return { appearance, revision }
           if (request.operation !== 'appearance.save') throw new Error('客户端操作不支持')
-          if (request.args[1] !== revision) throw new Error('外观已变化，请重新读取')
+          if (typeof request.args[1] !== 'string') throw new Error('保存外观必须携带读取时的修订')
           const patch = request.args[0]
           if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new Error('外观修改参数无效')
-          const next = { ...appearance, ...patch }
-          validateAppearance(next)
-          await appearanceBridge.saveAppearance(next)
-          return { appearance: next, revision: await hash(next) }
+          const result = await appearanceBridge.saveAppearance({
+            expectedRevision: request.args[1],
+            operation: { type: 'patch', patch: patch as AppearancePatch },
+          })
+          if (result.status === 'conflict') throw new Error('外观已变化，请重新读取；本次修改未覆盖最新配置')
+          return {
+            appearance: migrateAppearance(result.snapshot.settings, result.snapshot.themes),
+            revision: result.snapshot.appearanceRevision,
+          }
         },
       ),
     [bridge, browser, hostId, appearanceBridge],

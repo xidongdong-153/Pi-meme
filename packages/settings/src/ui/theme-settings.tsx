@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { Download, FolderOpen, RefreshCw, Upload } from 'lucide-react'
 import type {
   AppearanceOverrides,
-  AppearanceSettings,
+  AppearanceOperation,
+  AppearancePatch,
   FontRole,
   FontStyle,
   InstalledFont,
@@ -25,16 +26,15 @@ import {
   SizeControl,
 } from './appearance-controls'
 import {
-  defaultAppearance,
   editingOverrides,
   fontStyles,
   migrateAppearance,
   resolveTheme,
   resolvedMode,
-  selectAppearanceTheme,
   setOverrides,
-  toggleSeparate,
 } from '../shared/appearance'
+import { diffAppearance } from '../shared/appearance-update'
+import type { AppearanceSaveStatus } from './appearance-save'
 
 const accents = [
   { value: '', label: '主题默认' },
@@ -49,7 +49,11 @@ const accents = [
 const styleLabels = ['常规', '粗体', '斜体', '粗斜体']
 export function ThemeSettings({
   snapshot: loadedSnapshot,
-  onAppearance,
+  onOperation,
+  status = 'idle',
+  frozen = false,
+  onRetry,
+  onAdoptLatest,
   onPreview,
   onFlush,
   onOpenDirectory,
@@ -59,7 +63,11 @@ export function ThemeSettings({
   loadFonts,
 }: {
   snapshot: SettingsSnapshot | null
-  onAppearance: (value: AppearanceSettings) => void
+  onOperation: (operation: AppearanceOperation) => void
+  status?: AppearanceSaveStatus
+  frozen?: boolean
+  onRetry?: () => void
+  onAdoptLatest?: () => void
   onPreview: (mode: 'light' | 'dark' | null) => void
   onFlush: () => Promise<void>
   onOpenDirectory: () => void
@@ -74,7 +82,10 @@ export function ThemeSettings({
     themesDirectory: '',
     errors: [],
   }
-  const ready = loadedSnapshot !== null
+  const ready =
+    loadedSnapshot !== null &&
+    loadedSnapshot.writeState?.status !== 'blocked' &&
+    Boolean(loadedSnapshot.appearanceRevision)
   const value = migrateAppearance(snapshot.settings, snapshot.themes)
   const [systemDark, setSystemDark] = useState(() => window.matchMedia('(prefers-color-scheme: dark)').matches)
   const [editingState, setEditingState] = useState(() => ({
@@ -130,7 +141,7 @@ export function ThemeSettings({
     return () => {
       live.current = false
       callbacks.current.onPreview(null)
-      void callbacks.current.onFlush()
+      void callbacks.current.onFlush().catch(() => {})
     }
   }, [getFonts])
   useEffect(() => {
@@ -140,11 +151,11 @@ export function ThemeSettings({
   const overrides = editingOverrides(value, mode)
   const theme = resolveTheme(value, snapshot.themes, mode, false)
   const [resetting, setResetting] = useState(false)
-  function change(patch: Partial<AppearanceSettings>) {
-    onAppearance({ ...value, ...patch })
+  function change(patch: AppearancePatch) {
+    onOperation({ type: 'patch', patch })
   }
   function override(patch: Partial<AppearanceOverrides>) {
-    onAppearance(setOverrides(value, mode, { ...overrides, ...patch }))
+    onOperation({ type: 'patch', patch: diffAppearance(value, setOverrides(value, mode, { ...overrides, ...patch })) })
   }
   function resetToken(key: keyof NonNullable<AppearanceOverrides['tokens']>) {
     const tokens = { ...overrides.tokens }
@@ -211,11 +222,45 @@ export function ThemeSettings({
     )
   }
   return (
-    <div className="space-y-4" aria-busy={!ready}>
-      <p role="status" className="min-h-5 text-xs text-muted-foreground">
-        <CrossfadeText>{ready ? '外观设置已就绪' : '正在读取外观设置…'}</CrossfadeText>
-      </p>
-      <fieldset disabled={!ready} className="min-w-0 space-y-6">
+    <div className="space-y-4" aria-busy={loadedSnapshot === null && status === 'loading'}>
+      <div className="flex min-h-5 flex-wrap items-center gap-2 text-xs">
+        <p role="status" className="text-muted-foreground">
+          <CrossfadeText>
+            {frozen
+              ? '正在准备离开…'
+              : status === 'pending'
+                ? '正在保存…'
+                : status === 'saved'
+                  ? '已保存'
+                  : status === 'conflict'
+                    ? '外观有冲突'
+                    : status === 'failed'
+                      ? '外观尚未确认'
+                      : ready
+                        ? '外观设置已就绪'
+                        : loadedSnapshot
+                          ? '外观暂不可写'
+                          : '正在读取外观设置…'}
+          </CrossfadeText>
+        </p>
+        {(status === 'failed' || status === 'conflict') && onRetry && (
+          <Button size="sm" variant="outline" className={settingsControlClassName} disabled={frozen} onClick={onRetry}>
+            {status === 'conflict' ? '重试我的修改' : '重试保存'}
+          </Button>
+        )}
+        {status === 'conflict' && onAdoptLatest && (
+          <Button
+            size="sm"
+            variant="ghost"
+            className={settingsControlClassName}
+            disabled={frozen}
+            onClick={onAdoptLatest}
+          >
+            采用最新值
+          </Button>
+        )}
+      </div>
+      <fieldset disabled={!ready || frozen} className="min-w-0 space-y-6">
         <SettingsGroup
           title="视觉风格"
           action={
@@ -306,7 +351,7 @@ export function ThemeSettings({
                   const next = snapshot.themes.find((entry) => entry.id === id)
                   if (next) {
                     setCustomAccent(false)
-                    onAppearance(selectAppearanceTheme(value, next))
+                    onOperation({ type: 'select-theme', themeId: next.id })
                   }
                 }}
               >
@@ -508,7 +553,7 @@ export function ThemeSettings({
                 checked={value.separate}
                 onChange={(separate) => {
                   if (separate) setEditing(mode)
-                  onAppearance(toggleSeparate(value, mode, separate))
+                  onOperation({ type: 'separate', mode, separate })
                 }}
               />
             </AppearanceRow>
@@ -553,7 +598,7 @@ export function ThemeSettings({
               onClick={() => {
                 setResetting(false)
                 setCustomAccent(false)
-                onAppearance(defaultAppearance())
+                onOperation({ type: 'reset' })
               }}
             >
               确认恢复

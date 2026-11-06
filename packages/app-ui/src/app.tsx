@@ -67,6 +67,7 @@ import { LiveTurnChanges } from '@pi-meme/chat/ui/conversation/turn-changes'
 import { useTurnChanges } from './session/use-turn-changes'
 import { ContextUsageRing } from '@pi-meme/models/ui/context-usage-ring'
 import { useSettings } from '@pi-meme/settings/ui/use-settings'
+import { AppearanceProvider, useAppearance, useOptionalAppearance } from '@pi-meme/settings/ui/appearance-provider'
 import { TooltipProvider } from '@pi-meme/ui/components/ui/tooltip'
 import { SessionTreePanel } from '@pi-meme/history/ui/session-tree-panel'
 import { PlanPanel } from './panels/plan-panel'
@@ -122,7 +123,17 @@ import { ProfileSettings } from '@pi-meme/usage/ui/profile-settings'
 import { AccountSettings } from './settings/account-settings'
 import { SchedulesPage } from '@pi-meme/schedules/ui/schedules-page'
 
-export function App({
+export function App(props: ComponentProps<typeof AppContent>) {
+  const appearance = useOptionalAppearance()
+  if (appearance) return <AppContent {...props} />
+  return (
+    <AppearanceProvider bridge={props.bridge}>
+      <AppContent {...props} />
+    </AppearanceProvider>
+  )
+}
+
+function AppContent({
   bridge,
   host,
   plugins,
@@ -377,9 +388,9 @@ export function App({
   if (chat.chat.agents?.some((agent) => agent.parentAgentId && agent.rootSessionKey === chat.connection.sessionKey))
     availableRightTabs.push('subagents')
   if (chat.planDocuments.length || (chat.editing && chat.chat.planState?.document)) availableRightTabs.push('plan')
-  useSystemClient(bridge, browserPlatform, hostId, serviceUI?.appearanceBridge ?? bridge)
-  const settings = useSettings(bridge, true, false, !serviceUI)
-  const appearance = useSettings(serviceUI?.appearanceBridge ?? bridge, Boolean(serviceUI) && active, false)
+  const appearance = useAppearance()
+  useSystemClient(bridge, browserPlatform, hostId, appearance.bridge)
+  const settings = useSettings(bridge, true, false)
   useEffect(
     () =>
       plugins.onChange(() => {
@@ -513,6 +524,7 @@ export function App({
   const agentPlugins = agentPluginSelection.ids
   const [instructionsDirty, setInstructionsDirty] = useState(false)
   const [instructionsSaving, setInstructionsSaving] = useState(false)
+  const [storageMaintaining, setStorageMaintaining] = useState(false)
   const [dirtyPage, setDirtyPage] = useState<{ pluginId: string; generation: number; routeInstance: string } | null>(
     null,
   )
@@ -527,7 +539,7 @@ export function App({
   }
   const navigation = useAppNavigation({
     dirty: instructionsDirty || Boolean(dirtyPage),
-    saving: instructionsSaving,
+    saving: instructionsSaving || storageMaintaining,
     onDiscard: () => {
       setInstructionsDirty(false)
       discardPluginPage()
@@ -542,11 +554,11 @@ export function App({
   useEffect(() => pluginConsent.cancel(), [pluginConsent, route])
   useEffect(() => {
     const unload = (event: BeforeUnloadEvent) => {
-      if (dirtyPage || instructionsDirty || instructionsSaving) event.preventDefault()
+      if (dirtyPage || instructionsDirty || instructionsSaving || storageMaintaining) event.preventDefault()
     }
     window.addEventListener('beforeunload', unload)
     return () => window.removeEventListener('beforeunload', unload)
-  }, [dirtyPage, instructionsDirty, instructionsSaving])
+  }, [dirtyPage, instructionsDirty, instructionsSaving, storageMaintaining])
   const settingsSection = route.kind === 'settings' ? route.section : null
   const settingsOpen = settingsSection !== null
   const projectsOpen = route.kind === 'projects'
@@ -800,6 +812,12 @@ export function App({
     if (browserUnstored.current()) throw new Error('浏览器草稿尚未保存，请先重试保存后再维护存储')
     if (chat.hasDraftInput()) throw new Error('仍有未发送的草稿或附件，请先处理后再维护存储')
   }
+  const restartGuard = useRef(assertRestartAllowed)
+  restartGuard.current = assertRestartAllowed
+  useEffect(
+    () => appearance.registerMaintenanceGuard(() => restartGuard.current()),
+    [appearance.registerMaintenanceGuard],
+  )
   useEffect(() => {
     serviceUI?.onController(serviceUI.serviceId, {
       ...chat,
@@ -817,7 +835,7 @@ export function App({
       },
       openProjectDialog: () => setCreatingProject(true),
       beforeDeactivate: async () => {
-        if (instructionsSaving) return false
+        if (instructionsSaving || storageMaintaining) return false
         if (browserUnstored.current()) {
           chat.setError('浏览器草稿尚未保存，请先重试保存')
           return false
@@ -2377,7 +2395,7 @@ export function App({
             <SettingsPage
               initialSection={settingsSection}
               dirty={instructionsDirty}
-              saving={instructionsSaving}
+              saving={instructionsSaving || storageMaintaining}
               nativeWindow={nativeWindow}
               onDiscard={() => setInstructionsDirty(false)}
               onDismiss={navigation.back}
@@ -2418,11 +2436,11 @@ export function App({
                   error: settings.error,
                   onDirty: setInstructionsDirty,
                   onSaving: setInstructionsSaving,
+                  onMaintaining: setStorageMaintaining,
                   onBeforeRestart: async () => {
                     if (serviceUI) serviceUI.beforeRestart()
                     else assertRestartAllowed()
-                    await settings.flushAppearance()
-                    if (serviceUI) await appearance.flushAppearance()
+                    await appearance.flushAppearance()
                   },
                   accessSettings: (
                     <AccessSettings
@@ -2435,10 +2453,10 @@ export function App({
                       onSave={(mode) => void settings.saveAccessMode(mode)}
                     />
                   ),
-                  onAppearance: settings.saveAppearance,
+                  onOperation: appearance.onOperation,
                   onEditor: (value) => void settings.saveEditor(value),
-                  onPreview: settings.previewAppearance,
-                  onFlush: settings.flushAppearance,
+                  onPreview: appearance.previewAppearance,
+                  onFlush: appearance.flushAppearance,
                   loadFonts: settings.getInstalledFonts,
                   onImport: () => void settings.importTheme(),
                   onExport: (theme) => void settings.exportTheme(theme),
@@ -2542,11 +2560,15 @@ export function App({
                     <SettingsContent
                       section={section}
                       {...contentProps}
-                      {...(section === 'appearance' && serviceUI
+                      {...(section === 'appearance'
                         ? {
                             snapshot: appearance.snapshot,
                             error: appearance.error,
-                            onAppearance: appearance.saveAppearance,
+                            onOperation: appearance.onOperation,
+                            status: appearance.status,
+                            frozen: appearance.frozen,
+                            onRetry: () => void appearance.retryAppearance(),
+                            onAdoptLatest: appearance.adoptLatestAppearance,
                             onPreview: appearance.previewAppearance,
                             onFlush: appearance.flushAppearance,
                             loadFonts: appearance.getInstalledFonts,

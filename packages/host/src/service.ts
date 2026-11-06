@@ -145,6 +145,7 @@ const reads = new Set([
   'models:default-thinking',
   'host:credential-import-status',
   'settings:get',
+  'settings:reload',
   'settings:instructions',
   'settings:fonts',
   'mcp:get',
@@ -235,6 +236,17 @@ export async function createHost(options: HostOptions = {}) {
       }
     }
     const listeners = new Map<string, Set<(event: HostEvent) => void>>()
+    settings.setAppearanceObserver((revision) => {
+      const event: HostEvent = { hostId, type: 'appearance-changed', value: { revision } }
+      for (const subscribers of listeners.values())
+        for (const subscriber of subscribers) {
+          try {
+            subscriber(event)
+          } catch (cause) {
+            console.error('外观已保存，但通知客户端失败', cause)
+          }
+        }
+    })
     const views = new Map<string, ClientView>()
     const selectionEpochs = new Map<string, number>()
     const sessionQueues = new Map<string, Promise<unknown>>()
@@ -2470,7 +2482,12 @@ export async function createHost(options: HostOptions = {}) {
                     const goal = await appControl!.goalForRuntime(key)
                     if (goal && goal.status !== 'complete') throw new Error('当前会话有未结束的目标，请使用目标恢复')
                   }
-                  result = await pluginClient.run(request.clientId, () => action(...request.args))
+                  result = await pluginClient.run(request.clientId, () =>
+                    settings.withWriteContext(
+                      { hostId, clientId: request.clientId, requestId: request.requestId },
+                      async () => action(...request.args),
+                    ),
+                  )
                 }
                 if (deletion) {
                   const outcome = result as WorkspaceDeletionResult

@@ -1,16 +1,28 @@
 import { thinkingLevels } from '@pi-meme/contracts/pi'
-import { mkdir, readFile, readdir, writeFile, rename } from 'node:fs/promises'
+import { mkdir, readFile, readdir, writeFile, rename, open, rm, lstat } from 'node:fs/promises'
+import { createHash, randomUUID } from 'node:crypto'
+import { AsyncLocalStorage } from 'node:async_hooks'
 import path from 'node:path'
 import { isAgentAccessMode } from '@pi-meme/contracts/agent-access'
 import { projectAppIds } from '@pi-meme/contracts/desktop'
 import type {
+  AppearanceMigration,
+  AppearanceMigrationResult,
+  AppearanceOperation,
+  AppearanceSaveResult,
   AppearanceSettings,
   DesktopSettings,
   SettingsSnapshot,
   SubagentDefaults,
   Theme,
 } from '@pi-meme/contracts/settings'
-import { defaultAppearance, migrateAppearance, selectAppearanceTheme, validateAppearance } from '../shared/appearance'
+import { defaultAppearance, migrateAppearance, validateAppearance } from '../shared/appearance'
+import {
+  applyAppearanceOperation,
+  canonicalAppearance,
+  changedAppearancePaths,
+  validateAppearanceUpdate,
+} from '../shared/appearance-update'
 import { builtinThemes, parseTheme } from '../shared/themes'
 import { defaultSidebarPreferences, parseSidebarPreferencesPatch, validateSidebarPreferences } from '../shared/sidebar'
 import { DEFAULT_USER_PROFILE } from '../shared/user-profile'
@@ -72,6 +84,17 @@ export class SettingsStore {
   private writes: Promise<unknown> = Promise.resolve()
   private themes = [...builtinThemes]
   private errors: string[] = []
+  private configError = ''
+  private loaded = false
+  private fileFingerprint: string | null | undefined
+  private migrationApplied = false
+  private appearanceObserver?: (revision: string) => void
+  private readonly writeContext = new AsyncLocalStorage<{
+    clientId: string
+    requestId: string
+    source?: 'ui' | 'agent'
+    hostId?: string
+  }>()
   readonly themesDirectory: string
   readonly profileDirectory: string
   private pluginThemes: Theme[] = []
@@ -160,17 +183,48 @@ export class SettingsStore {
     }
   }
 
-  private pendingPluginSelection?: Pick<DesktopSettings, 'themeId' | 'appearance'>
+  setAppearanceObserver(listener: (revision: string) => void) {
+    this.appearanceObserver = listener
+  }
 
-  async load() {
+  withWriteContext<T>(
+    context: { clientId: string; requestId: string; source?: 'ui' | 'agent'; hostId?: string },
+    work: () => Promise<T>,
+  ): Promise<T> {
+    return this.writeContext.run(context, work)
+  }
+
+  load() {
+    return this.enqueue(() => this.loadNow())
+  }
+
+  private fingerprint(value: string | Uint8Array) {
+    return createHash('sha256').update(value).digest('hex')
+  }
+
+  private async assertFileTarget() {
+    for (const target of [path.dirname(this.settingsFile), this.settingsFile]) {
+      const info = await lstat(target).catch((cause: NodeJS.ErrnoException) => {
+        if (cause.code === 'ENOENT') return undefined
+        throw cause
+      })
+      if (info?.isSymbolicLink()) throw new Error('应用配置文件和目录不能是符号链接')
+    }
+  }
+
+  private async loadNow() {
     await mkdir(this.themesDirectory, { recursive: true })
     try {
-      const value: unknown = JSON.parse(await readFile(this.settingsFile, 'utf8'))
+      await this.assertFileTarget()
+      const bytes = await readFile(this.settingsFile)
+      const raw = new TextDecoder('utf-8', { fatal: true }).decode(bytes)
+      const value: unknown = JSON.parse(raw)
       this.validateSettings(value)
       const stored = { ...value } as DesktopSettings & { userExtensionPaths?: unknown }
       delete stored.userExtensionPaths
       this.settings = {
         ...stored,
+        appearanceStorage: stored.appearanceStorage ?? { version: 1, legacyImport: 'complete' },
         codemodeEnabled: Boolean(value.codemodeEnabled || value.mcpEnabled),
         mcpEnabled: Boolean(value.mcpEnabled),
         subagentsEnabled: Boolean(value.subagentsEnabled),
@@ -179,16 +233,41 @@ export class SettingsStore {
         showContextUsage: value.showContextUsage ?? true,
         sidebar: value.sidebar ?? defaultSidebarPreferences(),
       }
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') this.errors.push(`无法读取桌面设置：${String(error)}`)
+      this.fileFingerprint = this.fingerprint(bytes)
+      this.configError = ''
+    } catch (cause) {
+      if (
+        (cause as NodeJS.ErrnoException).code === 'ENOENT' &&
+        this.fileFingerprint !== undefined &&
+        this.fileFingerprint !== null
+      )
+        this.configError = '应用配置文件已消失；请恢复文件后重新读取，不会使用默认值覆盖'
+      else if ((cause as NodeJS.ErrnoException).code === 'ENOENT' && (!this.loaded || this.fileFingerprint === null)) {
+        this.fileFingerprint = null
+        this.configError = ''
+        this.settings.appearanceStorage = { version: 1, legacyImport: 'eligible' }
+      } else this.configError = `无法读取桌面设置：${String(cause)}；原文件已保护，请修复后重新读取`
     }
-    this.pendingPluginSelection = structuredClone({
-      themeId: this.settings.themeId,
-      appearance: this.settings.appearance,
-    })
-    await this.reloadThemes(false)
+    this.loaded = true
     this.settings.appearance = migrateAppearance(this.settings, this.themes)
+    await this.reloadThemes()
     return this.snapshot()
+  }
+
+  private async assertWritable() {
+    if (!this.loaded || this.configError) throw new Error(this.configError || '应用设置尚未读取，不能保存')
+    try {
+      await this.assertFileTarget()
+      const raw = await readFile(this.settingsFile).catch((cause: NodeJS.ErrnoException) => {
+        if (cause.code === 'ENOENT') return null
+        throw cause
+      })
+      if ((raw === null ? null : this.fingerprint(raw)) !== this.fileFingerprint)
+        throw new Error('应用配置已被外部修改，请重新读取后保存；当前修改仍保留')
+    } catch (cause) {
+      this.configError = String(cause)
+      throw cause
+    }
   }
 
   private validateSettings(value: unknown): asserts value is DesktopSettings {
@@ -217,6 +296,16 @@ export class SettingsStore {
     if (settings.subagentDefaults !== undefined) parseSubagentDefaults(settings.subagentDefaults)
     if (settings.enabledSubagents !== undefined) normalizeEnabledSubagents(settings.enabledSubagents)
     if (settings.appearance !== undefined) validateAppearance(settings.appearance)
+    if (
+      settings.appearanceStorage !== undefined &&
+      (!settings.appearanceStorage ||
+        typeof settings.appearanceStorage !== 'object' ||
+        Array.isArray(settings.appearanceStorage) ||
+        settings.appearanceStorage.version !== 1 ||
+        !['eligible', 'complete'].includes(settings.appearanceStorage.legacyImport) ||
+        Object.keys(settings.appearanceStorage).some((key) => key !== 'version' && key !== 'legacyImport'))
+    )
+      throw new Error('外观存储版本标记无效')
     if (settings.sidebar !== undefined) validateSidebarPreferences(settings.sidebar)
     if (settings.defaultAccessMode !== undefined && !isAgentAccessMode(settings.defaultAccessMode))
       throw new Error('Agent 访问权限默认值无效')
@@ -229,7 +318,20 @@ export class SettingsStore {
   }
 
   save(value: unknown) {
-    return this.enqueue(() => this.saveNow(value))
+    return this.enqueue(() => {
+      if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('应用设置必须是对象')
+      const input = value as Partial<DesktopSettings>
+      if (
+        (input.themeId !== undefined && input.themeId !== this.settings.themeId) ||
+        (input.appearance !== undefined &&
+          (validateAppearance(input.appearance),
+          canonicalAppearance(input.appearance) !== canonicalAppearance(this.settings.appearance!))) ||
+        (input.appearanceStorage !== undefined &&
+          JSON.stringify(input.appearanceStorage) !== JSON.stringify(this.settings.appearanceStorage))
+      )
+        throw new Error('外观修改必须携带修订并通过外观接口保存，请重新读取或更新客户端')
+      return this.saveNow({ ...this.settings, ...input })
+    })
   }
 
   saveSubagentDefaults(value: unknown) {
@@ -272,26 +374,100 @@ export class SettingsStore {
     })
   }
 
-  saveAppearance(value: unknown) {
-    return this.enqueue(async () => {
-      validateAppearance(value)
-      for (const mode of ['light', 'dark'] as const) {
-        if (!this.themes.some((theme) => theme.id === value[`${mode}ThemeId`] && theme.appearance === mode))
-          throw new Error('主题不存在或明暗模式不匹配，请重新加载主题列表')
-      }
-      const appearance: AppearanceSettings = structuredClone(value)
+  private auditAppearance(
+    operation: string,
+    outcome: 'committed' | 'conflict' | 'rejected',
+    before: AppearanceSettings,
+    after = before,
+  ) {
+    try {
+      console.info(
+        JSON.stringify({
+          event: 'appearance-write',
+          time: new Date().toISOString(),
+          source: this.writeContext.getStore() ? 'client-rpc' : 'host-internal',
+          ...this.writeContext.getStore(),
+          operation,
+          outcome,
+          beforeRevision: this.fingerprint(canonicalAppearance(before)),
+          afterRevision: this.fingerprint(canonicalAppearance(after)),
+          changedPaths: changedAppearancePaths(before, after),
+        }),
+      )
+    } catch (cause) {
+      console.error(`外观写入诊断不可用：${String(cause)}`)
+    }
+  }
+
+  private async commitAppearance(appearance: AppearanceSettings, operation: string) {
+    const before = this.settings.appearance!
+    const changed = canonicalAppearance(before) !== canonicalAppearance(appearance)
+    if (changed || this.settings.appearanceStorage?.legacyImport !== 'complete') {
       const themeId = appearance.mode === 'light' ? appearance.lightThemeId : appearance.darkThemeId
-      return this.saveNow({ ...this.settings, appearance, themeId }, true)
+      await this.saveNow(
+        {
+          ...this.settings,
+          appearance,
+          themeId,
+          appearanceStorage: { version: 1, legacyImport: 'complete' },
+        },
+        true,
+      )
+    }
+    const snapshot = this.snapshot()
+    this.auditAppearance(operation, 'committed', before, appearance)
+    if (changed) {
+      try {
+        this.appearanceObserver?.(snapshot.appearanceRevision)
+      } catch (cause) {
+        console.error(`外观已保存，事件发送失败：${String(cause)}`)
+      }
+    }
+    return snapshot
+  }
+
+  saveAppearance(value: unknown): Promise<AppearanceSaveResult> {
+    return this.enqueue(async () => {
+      const before = this.settings.appearance ?? defaultAppearance()
+      try {
+        validateAppearanceUpdate(value)
+        await this.assertWritable()
+        if (value.expectedRevision !== this.snapshot().appearanceRevision) {
+          this.auditAppearance(value.operation.type, 'conflict', before)
+          return { status: 'conflict', snapshot: this.snapshot() }
+        }
+        const next = applyAppearanceOperation(before, value.operation, this.themes)
+        return { status: 'saved', snapshot: await this.commitAppearance(next, value.operation.type) }
+      } catch (cause) {
+        this.auditAppearance('update', 'rejected', before)
+        throw cause
+      }
     })
   }
 
-  selectTheme(id: string) {
-    const theme = this.themes.find((entry) => entry.id === id)
-    if (!theme) return Promise.reject(new Error('主题不存在，请重新加载主题列表'))
-    return this.saveAppearance({
-      ...selectAppearanceTheme(migrateAppearance(this.settings, this.themes), theme),
-      mode: theme.appearance,
+  importLegacyAppearance(value: unknown): Promise<AppearanceMigrationResult> {
+    return this.enqueue(async () => {
+      await this.assertWritable()
+      if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('旧外观迁移参数无效')
+      const input = value as AppearanceMigration
+      if (Object.keys(input).some((key) => key !== 'appearance' && key !== 'expectedRevision'))
+        throw new Error('旧外观迁移包含未知字段')
+      if (typeof input.expectedRevision !== 'string' || !/^[a-f0-9]{64}$/.test(input.expectedRevision))
+        throw new Error('旧外观迁移必须携带有效修订')
+      if (this.settings.appearanceStorage?.legacyImport !== 'eligible')
+        return { status: this.migrationApplied ? 'already-migrated' : 'host-authoritative', snapshot: this.snapshot() }
+      if (input.expectedRevision !== this.snapshot().appearanceRevision)
+        return { status: 'conflict', snapshot: this.snapshot() }
+      validateAppearance(input.appearance)
+      const snapshot = await this.commitAppearance(structuredClone(input.appearance), 'legacy-migration')
+      this.migrationApplied = true
+      return { status: 'applied', snapshot }
     })
+  }
+
+  selectTheme(id: string, expectedRevision: unknown): Promise<AppearanceSaveResult> {
+    const operation: AppearanceOperation = { type: 'select-theme', themeId: id }
+    return this.saveAppearance({ expectedRevision, operation })
   }
 
   async importTheme(filename: string) {
@@ -315,22 +491,16 @@ export class SettingsStore {
   }
 
   private async saveNow(value: unknown, appearanceOnly = false, sidebarOnly = false, subagentsOnly = false) {
+    await this.assertWritable()
     this.validateSettings(value)
-    if (!this.themes.some((theme) => theme.id === value.themeId)) throw new Error('主题不存在，请重新加载主题列表')
-    let appearance = appearanceOnly ? value.appearance : this.settings.appearance
-    if (!appearanceOnly && value.appearance === undefined && value.themeId !== this.settings.themeId) {
-      const theme = this.themes.find((entry) => entry.id === value.themeId)!
-      appearance = {
-        ...selectAppearanceTheme(migrateAppearance(this.settings, this.themes), theme),
-        mode: theme.appearance,
-      }
-    }
+    const appearance = appearanceOnly ? value.appearance : this.settings.appearance
     const next: DesktopSettings = {
       subagentDefaults: subagentsOnly ? value.subagentDefaults : this.settings.subagentDefaults,
       defaultAgentPlugins: [...new Set(value.defaultAgentPlugins ?? this.settings.defaultAgentPlugins ?? [])],
       sidebar: sidebarOnly ? value.sidebar : (this.settings.sidebar ?? defaultSidebarPreferences()),
       appearance,
-      themeId: !appearanceOnly && value.appearance ? this.settings.themeId : value.themeId,
+      appearanceStorage: appearanceOnly ? value.appearanceStorage : this.settings.appearanceStorage,
+      themeId: appearanceOnly ? value.themeId : this.settings.themeId,
       mcpEnabled: value.mcpEnabled ?? this.settings.mcpEnabled ?? false,
       subagentsEnabled: value.subagentsEnabled ?? this.settings.subagentsEnabled ?? false,
       enabledSubagents: normalizeEnabledSubagents(value.enabledSubagents ?? this.settings.enabledSubagents ?? []),
@@ -345,10 +515,26 @@ export class SettingsStore {
         : (this.settings.pinnedPaths ?? []),
       preferredProjectApp: value.preferredProjectApp ?? this.settings.preferredProjectApp ?? 'finder',
     }
-    await mkdir(path.dirname(this.settingsFile), { recursive: true })
-    await writeFile(`${this.settingsFile}.tmp`, `${JSON.stringify(next, null, 2)}\n`, 'utf8')
-    await rename(`${this.settingsFile}.tmp`, this.settingsFile)
-    this.settings = next
+    await mkdir(path.dirname(this.settingsFile), { recursive: true, mode: 0o700 })
+    const temporary = path.join(path.dirname(this.settingsFile), `.app-${randomUUID()}.tmp`)
+    const raw = `${JSON.stringify(next, null, 2)}\n`
+    try {
+      const handle = await open(temporary, 'wx', 0o600)
+      try {
+        await handle.writeFile(raw, 'utf8')
+        await handle.sync()
+      } finally {
+        await handle.close()
+      }
+      await this.assertWritable()
+      await rename(temporary, this.settingsFile)
+      this.fileFingerprint = this.fingerprint(raw)
+      this.settings = next
+    } finally {
+      await rm(temporary, { force: true }).catch((cause: unknown) =>
+        console.error(`无法清理设置临时文件：${String(cause)}`),
+      )
+    }
     return this.snapshot()
   }
 
@@ -375,8 +561,6 @@ export class SettingsStore {
 
   async reloadThemes(clearErrors = true) {
     if (clearErrors) this.errors = []
-    const previousThemes = this.themes
-    const previous = this.themes.find((theme) => theme.id === this.settings.themeId)
     const themes: Theme[] = [...builtinThemes, ...this.pluginThemes]
     for (const filename of (await readdir(this.themesDirectory)).sort()) {
       if (!filename.endsWith('.json')) continue
@@ -389,23 +573,10 @@ export class SettingsStore {
         this.errors.push(`${filename}：${String(error)}`)
       }
     }
-    if (!themes.some((theme) => theme.id === this.settings.themeId)) {
-      if (previous && !previous.plugin) {
-        themes.push(previous)
-      } else {
-        this.errors.push(`主题 ${this.settings.themeId} 不存在，已使用深色主题`)
-        this.settings = { ...this.settings, themeId: 'dark' }
-      }
-    }
-    if (this.settings.appearance) {
-      for (const mode of ['light', 'dark'] as const) {
-        const id = this.settings.appearance[`${mode}ThemeId`]
-        if (!themes.some((entry) => entry.id === id)) {
-          const cached = previousThemes.find((entry) => entry.id === id)
-          if (cached && !cached.plugin) themes.push(cached)
-          else this.settings.appearance[`${mode}ThemeId`] = mode
-        }
-      }
+    for (const mode of ['light', 'dark'] as const) {
+      const id = this.settings.appearance?.[`${mode}ThemeId`]
+      if (id && !themes.some((theme) => theme.id === id && theme.appearance === mode))
+        this.errors.push(`主题 ${id} 暂不可用，正在使用内置主题；已保留原选择与字体`)
     }
     this.themes = themes
     return this.snapshot()
@@ -414,28 +585,21 @@ export class SettingsStore {
   setPluginThemes(themes: Theme[]) {
     return this.enqueue(async () => {
       this.pluginThemes = structuredClone(themes)
-      const pending = this.pendingPluginSelection
-      this.pendingPluginSelection = undefined
-      if (pending) {
-        if (themes.some((theme) => theme.id === pending.themeId)) this.settings.themeId = pending.themeId
-        for (const mode of ['light', 'dark'] as const) {
-          const id = pending.appearance?.[`${mode}ThemeId`]
-          if (id && this.settings.appearance && themes.some((theme) => theme.id === id))
-            this.settings.appearance[`${mode}ThemeId`] = id
-        }
-      }
-      const snapshot = await this.reloadThemes()
-      await this.saveNow(snapshot.settings)
-      return this.snapshot()
+      return this.reloadThemes()
     })
   }
 
   snapshot(): SettingsSnapshot {
     return {
       settings: structuredClone(this.settings),
+      appearanceRevision: this.fingerprint(canonicalAppearance(this.settings.appearance ?? defaultAppearance())),
+      writeState: this.configError
+        ? { status: 'blocked', error: this.configError }
+        : { status: this.loaded ? 'ready' : 'blocked', ...(!this.loaded ? { error: '应用设置尚未读取' } : {}) },
+      legacyAppearanceImport: this.settings.appearanceStorage?.legacyImport ?? 'complete',
       themes: [...this.themes],
       themesDirectory: this.themesDirectory,
-      errors: [...this.errors],
+      errors: [...(this.configError ? [this.configError] : []), ...this.errors],
     }
   }
 }
