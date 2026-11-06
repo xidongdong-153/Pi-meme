@@ -260,12 +260,6 @@
   .ctx-state-w > span:not(.on) {
     visibility: hidden;
   }
-  @keyframes ctx-pulse {
-    50% {
-      opacity: 0.35;
-      transform: scale(0.8);
-    }
-  }
 
   .ctx-k {
     display: flex;
@@ -390,11 +384,6 @@
       transition: none;
     }
   }
-  @keyframes ctx-grow {
-    from {
-      transform: scaleX(0);
-    }
-  }
 
   /* the window, a cell for each 1/400 of it */
   .ctx-waffle {
@@ -418,12 +407,6 @@
   }
   .ctx-waffle > i.free {
     --k: var(--k-free);
-  }
-  @keyframes ctx-cell {
-    from {
-      opacity: 0;
-      transform: scale(0.4);
-    }
   }
   .ctx-waffle[data-f] > i {
     opacity: 0.16;
@@ -1443,6 +1426,23 @@
     animation: none !important;
     transition: none !important;
     scroll-behavior: auto !important;
+  }
+}
+@keyframes ctx-pulse {
+  50% {
+    opacity: 0.35;
+    transform: scale(0.8);
+  }
+}
+@keyframes ctx-grow {
+  from {
+    transform: scaleX(0);
+  }
+}
+@keyframes ctx-cell {
+  from {
+    opacity: 0;
+    transform: scale(0.4);
   }
 }
 @keyframes context-tile-in {
