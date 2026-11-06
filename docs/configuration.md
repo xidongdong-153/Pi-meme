@@ -156,7 +156,11 @@ Desktop 正常关窗、退出、受控重新加载和存储维护前等待外观
 
 用户主题保存在 `resources/themes/`，App 主题由插件的 `resources.themes/assets` 分发。主题保持 JSON，背景图来自包内素材，不执行 JavaScript 或任意 CSS；字段和范围见 [结构化主题](plugins.md#结构化主题)。
 
-进入外观页后，三个字体选择器共用后台读取的 Host 字体列表，不等待展开菜单才读取。macOS 通过系统自带的 `osascript` 调用 AppKit；Windows 通过随包原生程序调用 DirectWrite，读取字体族名、字重、斜体和等宽属性，映射为现有四种样式。两者都不下载或传输字体文件；代码字体优先显示等宽字体。列表由 Host 进程内存缓存，读取失败可重试；安装或移除字体后需重启 Host 更新列表。其他系统保持默认字体选项；枚举结果不包含已保存的字体时，不会改写配置。实现见 [fonts.ts](../packages/settings/src/server/fonts.ts) 与 [theme-settings.tsx](../packages/settings/src/ui/theme-settings.tsx)。
+进入外观页后，三个字体选择器共用字体列表，代码字体优先显示等宽字体。Desktop 后台读取本机 Host 的字体：macOS 通过系统自带的 `osascript` 调用 AppKit；Windows 通过随包原生程序调用 DirectWrite，读取字体族名、字重、斜体和等宽属性，映射为现有四种样式。列表由 Host 进程内存缓存，读取失败可重试；安装或移除字体后需重启 Host 更新列表。其他 Desktop 系统保持默认字体选项。实现见 [fonts.ts](../packages/settings/src/server/fonts.ts)。
+
+独立 Web 读取浏览器所在设备的字体，不使用远端 Host 的字体目录。常见字体候选先用 canvas 探测浏览器是否可绘制；搜索框也可输入本机字体名称，探测可用后选择或按 Enter 应用。支持 Local Font Access API 的 Chromium 浏览器在 HTTPS 或 localhost 下可点击“读取全部本机字体”请求权限，已授权时进入外观页自动读取；再次点击可重新读取目录。其他浏览器、普通远程 HTTP 或拒绝权限时仍可使用候选列表和名称探测。候选与手动输入的样式允许浏览器合成，完整目录按系统样式名映射四种字形；Web 等宽属性由字符宽度推断。canvas 探测和样式名解析存在浏览器隐私设置、字体别名及语言差异等限制。
+
+两种入口均不读取或传输字体文件。Web 字体目录留在浏览器，只有选中的字体与字形按现有外观保存规则写入外观 Host；目录读取、权限失败或字体暂时不可用不改写已保存的选择，换设备后浏览器可使用 CSS 字体栈回退。实现见 [browser-fonts.ts](../packages/settings/src/ui/browser-fonts.ts)、[use-font-catalog.ts](../packages/settings/src/ui/use-font-catalog.ts) 与 [theme-settings.tsx](../packages/settings/src/ui/theme-settings.tsx)。
 
 ## 凭据
 

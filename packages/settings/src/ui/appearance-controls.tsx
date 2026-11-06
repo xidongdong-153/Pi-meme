@@ -1,5 +1,5 @@
 import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { ChevronDown, RotateCcw } from 'lucide-react'
 import type { InstalledFont } from '@pi-meme/contracts/settings'
 import { SettingsCard, SettingsRow, settingsControlClassName } from '@pi-meme/ui/components/settings'
@@ -10,6 +10,7 @@ import { Slider } from '@pi-meme/ui/components/ui/slider'
 import { Popover, PopoverContent, PopoverTrigger } from '@pi-meme/ui/components/ui/popover'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@pi-meme/ui/components/ui/select'
 import { cn } from '@pi-meme/ui/lib/utils'
+import { firstFontFamily } from './browser-fonts'
 
 export function AppearanceRow({
   label,
@@ -228,6 +229,9 @@ export function FontControl({
   loading,
   error,
   load,
+  hint,
+  requestAccess,
+  probe,
   onChange,
   inherit = false,
   code = false,
@@ -238,17 +242,36 @@ export function FontControl({
   loading: boolean
   error: string
   load: () => void
+  hint?: string
+  requestAccess?: () => void
+  probe?: (family: string) => InstalledFont | null
   onChange: (value?: string) => void
   inherit?: boolean
   code?: boolean
 }) {
   const [search, setSearch] = useState('')
   const [open, setOpen] = useState(false)
+  const listbox = useRef<HTMLDivElement>(null)
   const system = code
     ? 'ui-monospace, SFMono-Regular, Menlo, monospace'
     : '-apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif'
-  const visible = fonts.filter((font) => font.family.toLowerCase().includes(search.toLowerCase()))
+  const selected = value && value !== 'inherit' ? probe?.(firstFontFamily(value)) : null
+  const catalogue =
+    selected && !fonts.some((font) => font.family.toLowerCase() === selected.family.toLowerCase())
+      ? [...fonts, selected]
+      : fonts
+  const query = search.trim()
+  const visible = catalogue.filter((font) => font.family.toLowerCase().includes(query.toLowerCase()))
   if (code) visible.sort((a, b) => Number(b.monospace) - Number(a.monospace))
+  const exact = visible.find((font) => font.family.toLowerCase() === query.toLowerCase())
+  const typed = Boolean(probe && query && !exact)
+  const detected = typed ? probe?.(query) : null
+  const stack = (family: string) => `${JSON.stringify(family)}, ${code ? 'monospace' : 'sans-serif'}`
+  function choose(next?: string) {
+    onChange(next)
+    setOpen(false)
+    setSearch('')
+  }
   const text =
     !value || value === 'inherit'
       ? value === 'inherit'
@@ -256,7 +279,7 @@ export function FontControl({
         : '跟随主题'
       : value === system
         ? '系统'
-        : value.split(',')[0].replaceAll('"', '')
+        : firstFontFamily(value)
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
@@ -268,40 +291,81 @@ export function FontControl({
       <PopoverContent side="bottom" align="end" className="space-y-2" aria-label={`${label}选择器`}>
         <Input
           aria-label={`搜索${label}`}
-          placeholder="搜索字体"
+          placeholder={probe ? '搜索或输入本机字体名称' : '搜索字体'}
           className="h-9 rounded-lg text-xs shadow-none"
           value={search}
+          maxLength={200}
           onChange={(event) => setSearch(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.nativeEvent.isComposing) return
+            if (event.key === 'ArrowDown') {
+              event.preventDefault()
+              listbox.current?.querySelector<HTMLButtonElement>('button[role="option"]:not(:disabled)')?.focus()
+            }
+            const entered = detected ?? exact
+            if (event.key === 'Enter' && entered) {
+              event.preventDefault()
+              choose(stack(entered.family))
+            }
+          }}
         />
         {loading && (
           <p role="status" className="text-xs text-muted-foreground">
             正在读取字体…
           </p>
         )}
-        {!loading && !error && !fonts.length && (
-          <p className="text-xs text-muted-foreground">
-            无法枚举浏览器系统字体，可使用跟随主题、系统默认或已保存的主题字体。
-          </p>
+        {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+        {!loading && !error && !fonts.length && !probe && (
+          <p className="text-xs text-muted-foreground">未读取到系统字体，可使用跟随主题或系统默认。</p>
         )}
         {error && (
           <div>
             <p role="alert" className="text-xs text-destructive">
               {error}
             </p>
-            <Button className={settingsControlClassName} size="sm" variant="outline" onClick={load}>
-              重试
-            </Button>
+            {!requestAccess && (
+              <Button
+                className={settingsControlClassName}
+                size="sm"
+                variant="outline"
+                disabled={loading}
+                onClick={load}
+              >
+                重试
+              </Button>
+            )}
           </div>
         )}
         <ScrollArea className="h-60">
-          <div role="listbox" aria-label={label}>
+          <div
+            ref={listbox}
+            role="listbox"
+            aria-label={label}
+            aria-busy={loading}
+            onKeyDown={(event) => {
+              if (!['ArrowDown', 'ArrowUp', 'Home', 'End'].includes(event.key)) return
+              const options = Array.from(
+                event.currentTarget.querySelectorAll<HTMLButtonElement>('button[role="option"]:not(:disabled)'),
+              )
+              if (!options.length) return
+              event.preventDefault()
+              const current = options.indexOf(document.activeElement as HTMLButtonElement)
+              const index =
+                event.key === 'Home'
+                  ? 0
+                  : event.key === 'End'
+                    ? options.length - 1
+                    : (current + (event.key === 'ArrowDown' ? 1 : -1) + options.length) % options.length
+              options[index]?.focus()
+            }}
+          >
             {[
               { family: '跟随主题', value: undefined },
               ...(inherit ? [{ family: '与界面字体相同', value: 'inherit' }] : []),
               { family: '系统', value: system },
               ...visible.map((font) => ({
                 family: font.family,
-                value: `${JSON.stringify(font.family)}, ${code ? 'monospace' : 'sans-serif'}`,
+                value: stack(font.family),
               })),
             ].map((font) => (
               <Button
@@ -309,20 +373,51 @@ export function FontControl({
                 role="option"
                 aria-selected={font.value === value}
                 key={font.family}
-                className="h-auto min-h-8 w-full justify-start whitespace-normal rounded-lg px-2 py-1.5 text-left text-xs font-normal aria-selected:bg-secondary"
-                onClick={() => {
-                  onChange(font.value)
-                  setOpen(false)
-                }}
+                className="h-auto min-h-8 w-full justify-between whitespace-normal rounded-lg px-2 py-1.5 text-left text-xs font-normal aria-selected:bg-secondary"
+                onClick={() => choose(font.value)}
               >
-                {font.family}
+                <span className="min-w-0 break-words">{font.family}</span>
+                {font.value && font.value !== 'inherit' && font.value !== system && (
+                  <span
+                    aria-hidden="true"
+                    className="shrink-0 text-muted-foreground"
+                    style={{ fontFamily: font.value }}
+                  >
+                    Aa 字
+                  </span>
+                )}
               </Button>
             ))}
-            {!loading && !error && !visible.length && search && (
-              <p className="p-2 text-xs text-muted-foreground">未找到匹配字体</p>
+            {typed && (
+              <Button
+                role="option"
+                aria-selected={false}
+                variant="ghost"
+                disabled={!detected}
+                className="h-auto min-h-8 w-full justify-start whitespace-normal rounded-lg px-2 py-1.5 text-left text-xs font-normal"
+                onClick={() => detected && choose(stack(detected.family))}
+              >
+                <span className="min-w-0 break-words">使用「{query}」</span>
+              </Button>
+            )}
+            {!loading && query && !detected && !visible.length && (
+              <p role="status" className="p-2 text-xs text-muted-foreground">
+                {probe ? '当前浏览器未找到此字体' : '未找到匹配字体'}
+              </p>
             )}
           </div>
         </ScrollArea>
+        {requestAccess && (
+          <Button
+            variant="outline"
+            size="sm"
+            className={cn(settingsControlClassName, 'w-full')}
+            disabled={loading}
+            onClick={requestAccess}
+          >
+            读取全部本机字体
+          </Button>
+        )}
       </PopoverContent>
     </Popover>
   )

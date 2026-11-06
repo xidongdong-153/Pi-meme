@@ -1,5 +1,5 @@
 import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Download, FolderOpen, RefreshCw, Upload } from 'lucide-react'
 import type {
   AppearanceOverrides,
@@ -36,6 +36,8 @@ import {
 } from '../shared/appearance'
 import { diffAppearance } from '../shared/appearance-update'
 import type { AppearanceSaveStatus } from './appearance-save'
+import { firstFontFamily } from './browser-fonts'
+import { useFontCatalog } from './use-font-catalog'
 
 const accents = [
   { value: '', label: '主题默认' },
@@ -107,44 +109,17 @@ export function ThemeSettings({
     return () => media.removeEventListener('change', update)
   }, [])
   const [customAccent, setCustomAccent] = useState(false)
-  const [fonts, setFonts] = useState<InstalledFont[]>([])
-  const [fontLoading, setFontLoading] = useState(false)
-  const [fontError, setFontError] = useState('')
-  const loaded = useRef(false)
-  const loading = useRef(false)
-  const live = useRef(true)
-  const callbacks = useRef({ onPreview, onFlush, loadFonts })
-  callbacks.current = { onPreview, onFlush, loadFonts }
-  const getFonts = useCallback(() => {
-    if (loaded.current || loading.current) return
-    loading.current = true
-    setFontLoading(true)
-    setFontError('')
-    void callbacks.current
-      .loadFonts()
-      .then((next) => {
-        if (live.current) {
-          setFonts(next)
-          loaded.current = true
-        }
-      })
-      .catch((cause) => {
-        if (live.current) setFontError(String(cause))
-      })
-      .finally(() => {
-        loading.current = false
-        if (live.current) setFontLoading(false)
-      })
-  }, [])
-  useEffect(() => {
-    live.current = true
-    getFonts()
-    return () => {
-      live.current = false
+  const fontCatalog = useFontCatalog(loadFonts)
+  const { fonts } = fontCatalog
+  const callbacks = useRef({ onPreview, onFlush })
+  callbacks.current = { onPreview, onFlush }
+  useEffect(
+    () => () => {
       callbacks.current.onPreview(null)
       void callbacks.current.onFlush().catch(() => {})
-    }
-  }, [getFonts])
+    },
+    [],
+  )
   useEffect(() => {
     if (ready) callbacks.current.onPreview(value.separate ? editing : null)
   }, [editing, value.separate, ready])
@@ -180,8 +155,10 @@ export function ThemeSettings({
     if (next) nextFonts[role] = next
     else delete nextFonts[role]
     if (next && next !== 'inherit') {
-      const styles = fonts.find((entry) => next.startsWith(JSON.stringify(entry.family)))?.styles
+      const family = firstFontFamily(next)
+      const styles = (fonts.find((entry) => entry.family === family) ?? fontCatalog.probe?.(family))?.styles
       nextStyles[role] = styles && !styles.includes('regular') ? styles[0] : 'regular'
+      fontCatalog.remember(family)
     } else delete nextStyles[role]
     override({ fonts: nextFonts, fontStyles: nextStyles })
   }
@@ -191,9 +168,12 @@ export function ThemeSettings({
         label={label}
         value={overrides.fonts?.[role]}
         fonts={fonts}
-        loading={fontLoading}
-        error={fontError}
-        load={getFonts}
+        loading={fontCatalog.loading}
+        error={fontCatalog.error}
+        load={fontCatalog.retry}
+        hint={fontCatalog.hint}
+        requestAccess={fontCatalog.requestAccess}
+        probe={fontCatalog.probe}
         onChange={(next) => font(role, next)}
         inherit={role === 'content'}
         code={role === 'code'}
@@ -201,11 +181,11 @@ export function ThemeSettings({
     )
   }
   function styleControl(role: FontRole, label: string) {
-    const families = theme.fonts[role]?.split(',').map((family) => family.trim().replaceAll('"', '')) ?? []
-    const system = families.includes('-apple-system') || families.includes('ui-monospace')
+    const family = firstFontFamily(theme.fonts[role])
+    const system = family === '-apple-system' || family === 'ui-monospace'
     const available = system
       ? fontStyles
-      : (fonts.find((entry) => families.includes(entry.family))?.styles ?? ['regular'])
+      : ((fonts.find((entry) => entry.family === family) ?? fontCatalog.probe?.(family))?.styles ?? ['regular'])
     const style = theme.fontStyles?.[role] ?? 'regular'
     return (
       <span>
