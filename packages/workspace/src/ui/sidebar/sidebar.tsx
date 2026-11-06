@@ -5,6 +5,7 @@ import { useMemo, useState } from 'react'
 import { Bell, ChevronDown, Search, SquarePen } from 'lucide-react'
 import type { PiSessionsSnapshot } from '@pi-meme/contracts/sessions'
 import { Button } from '@pi-meme/ui/components/ui/button'
+import { BrandMark } from '@pi-meme/ui/components/brand-mark'
 import { buildSidebarModel, sidebarManualOrders } from './sidebar-model'
 import { SidebarPreferencesMenu } from './sidebar-controls'
 import { SessionSearchDialog } from './session-search-dialog'
@@ -177,13 +178,14 @@ export function Sidebar({
         aria-label="侧边栏"
       >
         {/* 侧边栏顶部品牌与搜索 */}
-        <div className="flex h-10 items-center justify-between px-3 shrink-0">
+        <div className="flex h-10 items-center justify-between pl-5 pr-3 shrink-0">
           <button
             type="button"
             onClick={onDirectory}
             aria-label="切换项目目录"
-            className="flex items-center gap-1 rounded-md px-1.5 py-1 text-xs font-semibold text-foreground/90 hover:bg-secondary/60 transition-colors cursor-pointer"
+            className="flex items-center gap-2 rounded-md py-1 text-xs font-semibold text-foreground/90 hover:bg-secondary/60 transition-colors cursor-pointer"
           >
+            <BrandMark size={20} />
             <span>Pi meme</span>
             <ChevronDown className="size-3 text-muted-foreground/60" />
           </button>

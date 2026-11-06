@@ -1,5 +1,5 @@
 import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
-import { Clock, GitFork, Loader2, Pin, PinOff } from 'lucide-react'
+import { Clock, GitFork, Loader2, MessageCircle, Pin, PinOff } from 'lucide-react'
 import { cn } from '@pi-meme/ui/lib/utils'
 import type { PiSessionSummary } from '@pi-meme/contracts/sessions'
 import { formatSessionTitle } from './session-title'
@@ -130,6 +130,7 @@ export function SessionItem({
               !session.scheduledTask && !needsInput && 'group-hover:pr-7 group-has-[:focus-visible]:pr-7',
             )}
           >
+            <MessageCircle aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
             <SidebarTitle>{formatSessionTitle(session)}</SidebarTitle>
             <ForkBadge session={session} />
           </button>

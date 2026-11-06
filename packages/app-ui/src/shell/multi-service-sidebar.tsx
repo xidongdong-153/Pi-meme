@@ -252,7 +252,7 @@ export function MultiServiceSidebar({
       aria-label="侧边栏"
       className="appearance-sidebar flex h-full w-full flex-col border-r border-border bg-card/60 select-none"
     >
-      <div className="flex h-10 shrink-0 items-center justify-between border-b border-border/40 px-3 text-xs font-semibold">
+      <div className="flex h-10 shrink-0 items-center justify-between pl-5 pr-3 text-xs font-semibold">
         <div className="flex items-center gap-2">
           <BrandMark size={20} />
           Pi meme
