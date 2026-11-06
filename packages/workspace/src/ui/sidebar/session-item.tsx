@@ -1,4 +1,4 @@
-import { Clock, GitFork, Loader2, MessageSquare, Pin, PinOff } from 'lucide-react'
+import { Clock, GitFork, Loader2, Pin, PinOff } from 'lucide-react'
 import { cn } from '@pi-meme/ui/lib/utils'
 import type { PiSessionSummary } from '@pi-meme/contracts/sessions'
 import { formatSessionTitle } from './session-title'
@@ -126,7 +126,6 @@ export function SessionItem({
             )}
           >
             <SidebarTitle>{formatSessionTitle(session)}</SidebarTitle>
-            <MessageSquare aria-hidden="true" className="size-3.5 shrink-0 text-muted-foreground" />
             <ForkBadge session={session} />
           </button>
           <div className={cn('flex items-center gap-1 shrink-0 ml-1', session.scheduledTask && '-mr-1')}>
