@@ -18,6 +18,14 @@ const terminalLabels = {
   stopped: '已停止',
 } as const
 type AgentStatusTurn = Extract<TurnChunk, { type: 'agent_status' }>
+const messageViews = new WeakMap<PiMessage, PiMessage>()
+const aliasedLiveViews = new WeakMap<PiMessage, ChatState['live']>()
+const messageLists = new WeakMap<PiMessage[], PiMessage[]>()
+const toolViews = new WeakMap<ChatState['tools'], ChatState['tools']>()
+const statusViews = new WeakMap<
+  PiMessage[],
+  { agents: ChatState['agents']; messages: ChatState['agentMessages']; statuses: AgentStatusTurn[] }
+>()
 
 export function mainMessage(message: PiMessage): PiMessage | undefined {
   if (
@@ -30,13 +38,21 @@ export function mainMessage(message: PiMessage): PiMessage | undefined {
   )
     return
   if (message.role === 'toolResult' && collaborationTools.has(message.toolName)) return
-  if (message.role === 'assistant')
-    return {
-      ...message,
-      content: message.content.map((part) =>
-        part.type === 'toolCall' && collaborationTools.has(part.name) ? { type: 'text', text: '' } : part,
-      ),
-    }
+  if (message.role === 'assistant') {
+    const cached = messageViews.get(message)
+    if (cached) return cached
+    const hidden = message.content.some((part) => part.type === 'toolCall' && collaborationTools.has(part.name))
+    const projected: PiMessage = hidden
+      ? {
+          ...message,
+          content: message.content.map((part) =>
+            part.type === 'toolCall' && collaborationTools.has(part.name) ? { type: 'text', text: '' } : part,
+          ),
+        }
+      : message
+    messageViews.set(message, projected)
+    return projected
+  }
   return message
 }
 
@@ -44,21 +60,53 @@ export function mainMessage(message: PiMessage): PiMessage | undefined {
 export function projectMainConversation(
   chat: Pick<ChatState, 'messages' | 'live' | 'tools' | 'agents' | 'agentMessages'>,
 ) {
-  const messages = chat.messages.flatMap((message) => {
-    const projected = mainMessage(message)
-    return projected ? [projected] : []
-  })
-  const live = chat.live ? (mainMessage(chat.live) as ChatState['live']) : null
-  const hiddenTools = new Set(
-    Object.values(chat.tools)
-      .filter((tool) => collaborationTools.has(tool.name ?? ''))
-      .map((tool) => tool.id),
-  )
-  const tools = Object.fromEntries(
-    Object.entries(chat.tools).filter(
-      ([id, tool]) => !hiddenTools.has(id) && !hiddenTools.has(tool.parentToolCallId ?? ''),
-    ),
-  )
+  let messages = messageLists.get(chat.messages)
+  if (!messages) {
+    messages = chat.messages.flatMap((message) => {
+      const projected = mainMessage(message)
+      return projected ? [projected] : []
+    })
+    messageLists.set(chat.messages, messages)
+  }
+  let live = chat.live ? (mainMessage(chat.live) as ChatState['live']) : null
+  // 原投影为历史和 live 分别构造助手对象；非常规共享输入也保留这种身份隔离。
+  if (live && chat.live && chat.messages.includes(chat.live)) {
+    let isolated = aliasedLiveViews.get(chat.live)
+    if (!isolated) {
+      isolated = { ...live }
+      aliasedLiveViews.set(chat.live, isolated)
+    }
+    live = isolated
+  }
+  let tools = toolViews.get(chat.tools)
+  if (!tools) {
+    const hiddenTools = new Set(
+      Object.values(chat.tools)
+        .filter((tool) => collaborationTools.has(tool.name ?? ''))
+        .map((tool) => tool.id),
+    )
+    tools = hiddenTools.size
+      ? Object.fromEntries(
+          Object.entries(chat.tools).filter(
+            ([id, tool]) => !hiddenTools.has(id) && !hiddenTools.has(tool.parentToolCallId ?? ''),
+          ),
+        )
+      : chat.tools
+    toolViews.set(chat.tools, tools)
+  }
+  let cached = statusViews.get(chat.messages)
+  if (!cached || cached.agents !== chat.agents || cached.messages !== chat.agentMessages) {
+    cached = {
+      agents: chat.agents,
+      messages: chat.agentMessages,
+      statuses: mainAgentStatuses(chat),
+    }
+    statusViews.set(chat.messages, cached)
+  }
+  return { messages, live, tools, agentStatuses: cached.statuses }
+}
+
+function mainAgentStatuses(chat: Pick<ChatState, 'messages' | 'agents' | 'agentMessages'>): AgentStatusTurn[] {
   const byRun = new Map<string, AgentStatusTurn>()
   const agents = new Map(chat.agents?.map((agent) => [agent.agentId, agent]))
   const started = (agentId: string, name: string, startedAt?: string, avatar?: AgentSummary['avatar']) => {
@@ -140,12 +188,7 @@ export function projectMainConversation(
       timestamp,
     })
   }
-  return {
-    messages,
-    live,
-    tools,
-    agentStatuses: [...byRun.values()].sort(
-      (a, b) => a.timestamp - b.timestamp || a.agents[0].agentId.localeCompare(b.agents[0].agentId),
-    ),
-  }
+  return [...byRun.values()].sort(
+    (a, b) => a.timestamp - b.timestamp || a.agents[0].agentId.localeCompare(b.agents[0].agentId),
+  )
 }

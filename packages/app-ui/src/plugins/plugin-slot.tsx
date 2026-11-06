@@ -4,6 +4,7 @@ import type { UiContribution, UiContributionProps, UiPluginSlot } from '@pi-meme
 import { RevealContent } from '@pi-meme/ui/components/reveal-content'
 import { ErrorBoundary } from '@pi-meme/ui/components/error-boundary'
 import type { UiPluginRegistry } from './plugin-registry'
+import { usePluginSnapshot } from './plugin-snapshot'
 
 export function matchesContribution(entry: UiContribution, props: UiContributionProps) {
   if (entry.slot !== 'tool-card' && entry.slot !== 'message') return true
@@ -86,5 +87,6 @@ function Contribution({
   render: (props: UiContributionProps) => React.ReactNode
   props: UiContributionProps
 }) {
-  return <>{render(props)}</>
+  const liveProps = usePluginSnapshot(props)
+  return <>{render(liveProps)}</>
 }

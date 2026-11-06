@@ -10,6 +10,7 @@ import { ThinkingActivityRow } from './thinking-activity-row'
 import { ToolActivityRow } from './tool-activity-row'
 import { PluginMessageActionsGroup } from '@pi-meme/ui/components/plugin-message-actions'
 import { toolMessageActionAnchor } from '../model/tool-message-action-anchor'
+import { RetainedDisclosure, usePresentationActive } from './retained-disclosure'
 
 const activityIcons = {
   command: SquareTerminal,
@@ -23,7 +24,11 @@ const activityIcons = {
   thinking: Sparkles,
 }
 
-export function ActivityGroup({
+const ActivityDisclosure = React.memo(ActivityDisclosureContent)
+const ActivityRow = React.memo(ActivityRowContent)
+export const ActivityGroup = React.memo(ActivityGroupContent)
+
+function ActivityGroupContent({
   items,
   isLive = false,
   isPaused = false,
@@ -81,7 +86,7 @@ export function ActivityGroup({
   )
 }
 
-function ActivityDisclosure({
+function ActivityDisclosureContent({
   items,
   isLive,
   isPaused,
@@ -97,37 +102,13 @@ function ActivityDisclosure({
   const [open, setOpen] = React.useState(false)
   const [hasOpened, setHasOpened] = React.useState(false)
   const [childOpenMap, setChildOpenMap] = React.useState<Record<string, boolean>>({})
-  const [hasOverflowAbove, setHasOverflowAbove] = React.useState(false)
-  const [hasOverflowBelow, setHasOverflowBelow] = React.useState(false)
-  const detailsRef = React.useRef<HTMLDivElement>(null)
-  const detailsContentRef = React.useRef<HTMLDivElement>(null)
   const detailsId = React.useId()
-
-  React.useLayoutEffect(() => {
-    const element = detailsRef.current
-    const content = detailsContentRef.current
-    if (!element || !content) return
-
-    const measure = () => {
-      setHasOverflowAbove(element.scrollTop > 1)
-      setHasOverflowBelow(element.scrollHeight - element.clientHeight - element.scrollTop > 1)
-    }
-    measure()
-    element.addEventListener('scroll', measure, { passive: true })
-    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
-    observer?.observe(element)
-    observer?.observe(content)
-    return () => {
-      element.removeEventListener('scroll', measure)
-      observer?.disconnect()
-    }
-  }, [hasOpened])
 
   if (collapsed && open) {
     setOpen(false)
     setChildOpenMap({})
   }
-  const meta = summarizeActivities(items, isLive, isPaused)
+  const meta = React.useMemo(() => summarizeActivities(items, isLive, isPaused), [items, isLive, isPaused])
   const waitingForInput = meta.status === 'waiting'
   const toolAnchors = React.useMemo(
     () =>
@@ -147,7 +128,10 @@ function ActivityDisclosure({
     else setChildOpenMap({})
     setOpen(!open)
   }
-  const toggleChild = (id: string) => setChildOpenMap((previous) => ({ ...previous, [id]: !previous[id] }))
+  const toggleChild = React.useCallback(
+    (id: string) => setChildOpenMap((previous) => ({ ...previous, [id]: !previous[id] })),
+    [],
+  )
 
   return (
     <div className="min-w-0 py-1">
@@ -182,7 +166,8 @@ function ActivityDisclosure({
         </button>
         <PluginMessageActionsGroup anchors={toolAnchors} />
       </div>
-      <div
+      <RetainedDisclosure
+        open={open}
         id={detailsId}
         aria-hidden={!open}
         inert={!open}
@@ -193,42 +178,86 @@ function ActivityDisclosure({
       >
         <div className="min-h-0 overflow-hidden">
           {hasOpened && (
-            <div
-              ref={detailsRef}
-              aria-label="活动详情列表"
-              data-overflow-top={hasOverflowAbove}
-              data-overflow-bottom={hasOverflowBelow}
-              className="scroll-fade mt-1 max-h-[min(16rem,40dvh)] overflow-y-auto overscroll-y-contain pr-2 py-1 [&_pre]:max-h-none [&_pre]:overflow-visible [&_pre]:whitespace-pre-wrap [&_pre]:[overflow-wrap:anywhere]"
-            >
-              <div ref={detailsContentRef} className="space-y-1">
-                {items.map((item) =>
-                  item.type === 'thinking' ? (
-                    <ThinkingActivityRow
-                      key={item.id}
-                      item={item}
-                      open={Boolean(childOpenMap[item.id])}
-                      onToggle={() => toggleChild(item.id)}
-                      isPaused={isPaused}
-                      isLive={isLive}
-                    />
-                  ) : item.type !== 'narration' ? (
-                    <ToolActivityRow
-                      key={item.id}
-                      item={item}
-                      open={Boolean(childOpenMap[item.id])}
-                      onToggle={() => toggleChild(item.id)}
-                      isLive={isLive}
-                      isPaused={isPaused}
-                      actions={null}
-                    />
-                  ) : null,
-                )}
-              </div>
-            </div>
+            <ActivityDetails>
+              {items.map((item) =>
+                item.type !== 'narration' ? (
+                  <ActivityRow
+                    key={item.id}
+                    item={item}
+                    open={Boolean(childOpenMap[item.id])}
+                    onToggle={toggleChild}
+                    isPaused={isPaused}
+                    isLive={isLive}
+                  />
+                ) : null,
+              )}
+            </ActivityDetails>
           )}
         </div>
+      </RetainedDisclosure>
+    </div>
+  )
+}
+
+function ActivityDetails({ children }: { children: React.ReactNode }) {
+  const active = usePresentationActive()
+  const [hasOverflowAbove, setHasOverflowAbove] = React.useState(false)
+  const [hasOverflowBelow, setHasOverflowBelow] = React.useState(false)
+  const detailsRef = React.useRef<HTMLDivElement>(null)
+  const detailsContentRef = React.useRef<HTMLDivElement>(null)
+
+  React.useLayoutEffect(() => {
+    const element = detailsRef.current
+    const content = detailsContentRef.current
+    if (!active || !element || !content) return
+    const measure = () => {
+      setHasOverflowAbove(element.scrollTop > 1)
+      setHasOverflowBelow(element.scrollHeight - element.clientHeight - element.scrollTop > 1)
+    }
+    measure()
+    element.addEventListener('scroll', measure, { passive: true })
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure)
+    observer?.observe(element)
+    observer?.observe(content)
+    return () => {
+      element.removeEventListener('scroll', measure)
+      observer?.disconnect()
+    }
+  }, [active])
+
+  return (
+    <div
+      ref={detailsRef}
+      aria-label="活动详情列表"
+      data-overflow-top={hasOverflowAbove}
+      data-overflow-bottom={hasOverflowBelow}
+      className="scroll-fade mt-1 max-h-[min(16rem,40dvh)] overflow-y-auto overscroll-y-contain pr-2 py-1 [&_pre]:max-h-none [&_pre]:overflow-visible [&_pre]:whitespace-pre-wrap [&_pre]:[overflow-wrap:anywhere]"
+    >
+      <div ref={detailsContentRef} className="space-y-1">
+        {children}
       </div>
     </div>
+  )
+}
+
+function ActivityRowContent({
+  item,
+  open,
+  onToggle,
+  isPaused,
+  isLive,
+}: {
+  item: Exclude<ActivityItem, { type: 'narration' }>
+  open: boolean
+  onToggle: (id: string) => void
+  isPaused: boolean
+  isLive: boolean
+}) {
+  const toggle = React.useCallback(() => onToggle(item.id), [onToggle, item.id])
+  return item.type === 'thinking' ? (
+    <ThinkingActivityRow item={item} open={open} onToggle={toggle} isPaused={isPaused} isLive={isLive} />
+  ) : (
+    <ToolActivityRow item={item} open={open} onToggle={toggle} isPaused={isPaused} isLive={isLive} actions={null} />
   )
 }
 

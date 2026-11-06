@@ -17,8 +17,11 @@ import { MessageTime } from './message-time'
 import { PluginMessageActions } from '@pi-meme/ui/components/plugin-message-actions'
 import { collectImageGenerations, type TurnImageGeneration } from '../model/turn-image-generations'
 import { TurnImageGallery } from './turn-image-gallery'
+import { RetainedDisclosure } from './retained-disclosure'
 
-export function AssistantTurnView({
+export const AssistantTurnView = React.memo(AssistantTurnContent)
+
+function AssistantTurnContent({
   turn,
   isFinalReply = !turn.isLive,
   className,
@@ -144,7 +147,8 @@ export function AssistantTurnView({
                 <VisualizationRenderer reference={segment.reference} />
               </div>
             ) : (
-              <div
+              <RetainedDisclosure
+                open={index === replyIndex || process.open}
                 key={segment.type === 'activity' ? `activity-${segment.items[0]!.id}` : `text-${index}`}
                 id={`${processId}-${index}`}
                 aria-hidden={index !== replyIndex && !process.open}
@@ -175,7 +179,7 @@ export function AssistantTurnView({
                     />
                   )}
                 </div>
-              </div>
+              </RetainedDisclosure>
             ),
           )}
           {!hasTrailingText && reply}

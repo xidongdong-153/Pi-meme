@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { UiContributionProps, UiPanel } from '@pi-meme/plugin-sdk/ui'
 import { ErrorBoundary } from '@pi-meme/ui/components/error-boundary'
 import { panelsRetiredEvent, type PanelsRetiredDetail } from './panel-layout'
+import { usePluginSnapshot } from '../plugins/plugin-snapshot'
 
 export type PanelOpenRequest = {
   intent: NonNullable<UiContributionProps['panelOpenIntent']>
@@ -9,6 +10,20 @@ export type PanelOpenRequest = {
 }
 
 type Pane = { session: string; panel: UiPanel; contribution: UiContributionProps }
+
+function PanelContent({ panel, contribution }: Pick<Pane, 'panel' | 'contribution'>) {
+  // 外部面板注册时必定写入插件代次，名称前缀不能作为内置身份。
+  return panel.generation === undefined ? (
+    <>{panel.render(contribution)}</>
+  ) : (
+    <PluginPanelContent panel={panel} contribution={contribution} />
+  )
+}
+
+function PluginPanelContent({ panel, contribution }: Pick<Pane, 'panel' | 'contribution'>) {
+  const liveProps = usePluginSnapshot(contribution)
+  return <>{panel.render(liveProps)}</>
+}
 
 /** 保留工具的 DOM 与实例；隐藏视图不参与布局和键盘焦点。 */
 export function RetainedToolPanels({
@@ -141,16 +156,19 @@ export function RetainedToolPanels({
         >
           <ErrorBoundary fallbackTitle={`面板渲染失败：${pane.panel.title}`}>
             <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-              {pane.panel.render({
-                ...pane.contribution,
-                visible:
-                  windowVisible &&
-                  contribution.visible !== false &&
-                  visible &&
-                  pane.session === session &&
-                  pane.panel.id === active &&
-                  panels.some((panel) => panel.id === pane.panel.id),
-              })}
+              <PanelContent
+                panel={pane.panel}
+                contribution={{
+                  ...pane.contribution,
+                  visible:
+                    windowVisible &&
+                    contribution.visible !== false &&
+                    visible &&
+                    pane.session === session &&
+                    pane.panel.id === active &&
+                    panels.some((panel) => panel.id === pane.panel.id),
+                }}
+              />
             </div>
           </ErrorBoundary>
         </div>

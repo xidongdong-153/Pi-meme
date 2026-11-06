@@ -1,8 +1,14 @@
-import { nestedTools } from './nested-tools'
+import { nestedTools, toolTreeIndex } from './nested-tools'
+import { retainTurns, sameItems } from './stable-turns'
 import type { PiImage, PiMessage, PiRunInterval } from '@pi-meme/contracts/pi'
 import type { ActivityItem, ChatState, TurnChunk } from './types'
 
 type RawTurnItem = { kind: 'activity'; item: ActivityItem } | { kind: 'text'; text: string; message?: PiMessage }
+type GroupBoundary = { last: boolean; timestamp?: number; assigned: ReadonlySet<string> }
+const emptyCompleted: Record<number, boolean> = {}
+const emptyIntervals: readonly PiRunInterval[] = []
+const emptyStatuses: Array<Extract<TurnChunk, { type: 'agent_status' }>> = []
+const emptyChanges: Array<Extract<TurnChunk, { type: 'model_change' }>> = []
 
 /** 按交互轮次（Turn）聚合整个对话流中的所有思考、工具调用与最终文本 */
 export function groupConversationTurns(
@@ -15,6 +21,7 @@ export function groupConversationTurns(
   runIntervals: readonly PiRunInterval[] = [],
   modelChanges: Array<Extract<TurnChunk, { type: 'model_change' }>> = [],
   messageOffset = 0,
+  boundary?: GroupBoundary,
 ): TurnChunk[] {
   // Pi 的 get_messages 会把 compactionSummary 与 branchSummary 强制放在数组首位作为模型上下文。
   // 但其真实 timestamp 记录了压缩发生的真实时刻。按 timestamp 稳定排序，
@@ -31,18 +38,8 @@ export function groupConversationTurns(
     .map((entry) => entry.message)
   const chunks: TurnChunk[] = []
 
-  const assignedToolIds = new Set<string>()
-  for (const msg of allMessages) {
-    if ('content' in msg && Array.isArray(msg.content)) {
-      for (const part of msg.content) {
-        if (part.type === 'toolCall' && part.id) {
-          assignedToolIds.add(part.id)
-        }
-      }
-    }
-  }
-
-  const unassignedTools: ActivityItem[] = Object.values(toolsMap)
+  const assignedToolIds = boundary?.assigned ?? assignedTools(allMessages)
+  const unassignedTools: ActivityItem[] = (boundary?.last === false ? [] : toolTreeIndex(toolsMap).values)
     .filter((t) => !t.parentToolCallId && !assignedToolIds.has(t.id))
     .map((t) => ({
       id: t.id,
@@ -315,7 +312,7 @@ export function groupConversationTurns(
     }
   }
 
-  flushTurn(true)
+  flushTurn(boundary?.last ?? true, boundary?.timestamp)
   const grouped: TurnChunk[] = []
   for (const chunk of chunks) {
     const previous = grouped.at(-1)
@@ -334,33 +331,90 @@ export function groupConversationTurns(
   return grouped
 }
 
-/** 纯文本历史只重算最后一轮；存在工具、状态插入或非顺序时间戳时沿用完整分组。 */
+function assignedTools(messages: readonly PiMessage[]) {
+  const assigned = new Set<string>()
+  for (const message of messages) {
+    if (!('content' in message) || !Array.isArray(message.content)) continue
+    for (const part of message.content) if (part.type === 'toolCall' && part.id) assigned.add(part.id)
+  }
+  return assigned
+}
+
+type TurnPartition = {
+  messages: PiMessage[]
+  live: PiMessage | null
+  dependencies: unknown[]
+  running: boolean
+  completed: Record<number, boolean>
+  intervals: readonly PiRunInterval[]
+  boundary?: number
+  offset: number
+  last: boolean
+  turns: TurnChunk[]
+}
+
+/** 单条工具的迟到结果也能失效历史片段；关系依赖按原枚举顺序包含全部后代。 */
+function toolDependencies(
+  ids: Iterable<string>,
+  tools: ChatState['tools'],
+  unassigned: boolean,
+  assigned: Set<string>,
+) {
+  const index = toolTreeIndex(tools)
+  const dependencies: unknown[] = []
+  const visit = (id: string, ancestors: Set<string>) => {
+    if (ancestors.has(id)) return
+    ancestors.add(id)
+    for (const child of index.children.get(id) ?? []) {
+      if (ancestors.has(child.id)) continue
+      dependencies.push(child)
+      visit(child.id, ancestors)
+    }
+    ancestors.delete(id)
+  }
+  for (const id of ids) {
+    dependencies.push(tools[id])
+    visit(id, new Set())
+  }
+  if (unassigned) {
+    for (const tool of index.values) {
+      if (tool.parentToolCallId || assigned.has(tool.id)) continue
+      dependencies.push(tool)
+      visit(tool.id, new Set())
+    }
+  }
+  return dependencies
+}
+
+/** 有序消息按用户轮次失效；复杂时间线保留原分组并共享未变化的展示对象。 */
 export function createConversationTurnProjector() {
-  let previous:
-    | {
-        messages: PiMessage[]
-        tools: ChatState['tools']
-        running: boolean
-        intervals: readonly PiRunInterval[]
-        prefix: TurnChunk[]
-        tail: PiMessage[]
-        offset: number
-      }
-    | undefined
+  let partitions = new Map<number, TurnPartition>()
+  let previous: TurnChunk[] = []
+  let previousInputs: readonly unknown[] = []
   return (...args: Parameters<typeof groupConversationTurns>): TurnChunk[] => {
-    const [messages, live, tools, running, completed, statuses = [], intervals = [], changes = []] = args
-    if (!live || statuses.length || changes.length || Object.keys(tools).length) return groupConversationTurns(...args)
-    if (
-      !previous ||
-      previous.messages !== messages ||
-      previous.tools !== tools ||
-      previous.running !== running ||
-      previous.intervals !== intervals
-    ) {
-      let timestamp = -Infinity
-      const compatible = messages.every((message) => {
+    const [
+      messages,
+      live,
+      tools,
+      running,
+      completed = emptyCompleted,
+      statuses = emptyStatuses,
+      intervals = emptyIntervals,
+      changes = emptyChanges,
+      messageOffset = 0,
+    ] = args
+    const inputs = [messages, live, tools, running, completed, statuses, intervals, changes, messageOffset, args[9]]
+    if (sameItems(previousInputs, inputs)) return previous
+    const input = live ? [...messages, live] : messages
+    let timestamp = -Infinity
+    const compatible =
+      !statuses.length &&
+      !changes.length &&
+      !args[9] &&
+      (!live || !messages.includes(live)) &&
+      input.every((message) => {
         if (
-          !['user', 'assistant'].includes(message.role) ||
+          !['user', 'assistant', 'toolResult', 'bashExecution'].includes(message.role) ||
           typeof message.timestamp !== 'number' ||
           !Number.isFinite(message.timestamp) ||
           message.timestamp < timestamp
@@ -369,31 +423,78 @@ export function createConversationTurnProjector() {
         timestamp = message.timestamp
         return true
       })
-      const offset = messages.findLastIndex((message) => message.role === 'user')
-      if (!compatible || offset < 1) return groupConversationTurns(...args)
-      const grouped = groupConversationTurns(messages, null, tools, running, {}, [], intervals)
-      const key = `user-${messages[offset].timestamp}-${offset}`
-      const boundary = grouped.findIndex((turn) => turn.key === key)
-      if (boundary < 0) return groupConversationTurns(...args)
-      previous = {
-        messages,
-        tools,
-        running,
-        intervals,
-        prefix: grouped.slice(0, boundary),
-        tail: messages.slice(offset),
-        offset,
-      }
+    if (!compatible) {
+      partitions.clear()
+      previous = retainTurns(previous, groupConversationTurns(...args))
+      previousInputs = inputs
+      return previous
     }
-    if (
-      typeof live.timestamp !== 'number' ||
-      !Number.isFinite(live.timestamp) ||
-      live.timestamp < (messages.at(-1)?.timestamp ?? -Infinity)
-    )
-      return groupConversationTurns(...args)
-    return [
-      ...previous.prefix,
-      ...groupConversationTurns(previous.tail, live, tools, running, completed, [], intervals, [], previous.offset),
-    ]
+
+    const assigned = assignedTools(input)
+    const starts = [0]
+    for (let index = 1; index < input.length; index++) if (input[index]!.role === 'user') starts.push(index)
+    const nextPartitions = new Map<number, TurnPartition>()
+    const turns: TurnChunk[] = []
+    for (let index = 0; index < starts.length; index++) {
+      const from = starts[index]!
+      const end = starts[index + 1] ?? input.length
+      const last = index === starts.length - 1
+      const boundary = last ? undefined : input[end]!.timestamp
+      const slice = messages.slice(from, Math.min(end, messages.length))
+      const active = last ? live : null
+      const source = active ? [...slice, active] : slice
+      const dependencies = toolDependencies(assignedTools(source), tools, last, assigned)
+      const old = partitions.get(from)
+      const completion = active ? completed : emptyCompleted
+      const unchanged =
+        old &&
+        old.live === active &&
+        old.running === running &&
+        old.completed === completion &&
+        old.intervals === intervals &&
+        old.boundary === boundary &&
+        old.offset === from + messageOffset &&
+        old.last === last &&
+        sameItems(old.messages, slice) &&
+        sameItems(old.dependencies, dependencies)
+      const grouped = unchanged
+        ? old.turns
+        : groupConversationTurns(
+            slice,
+            active,
+            tools,
+            running,
+            completion,
+            emptyStatuses,
+            intervals,
+            emptyChanges,
+            from + messageOffset,
+            { last, timestamp: boundary, assigned },
+          )
+      const partition = unchanged
+        ? old
+        : {
+            messages: slice,
+            live: active,
+            dependencies,
+            running,
+            completed: completion,
+            intervals,
+            boundary,
+            offset: from + messageOffset,
+            last,
+            turns: grouped,
+          }
+      nextPartitions.set(from, partition)
+      turns.push(...partition.turns)
+    }
+    partitions = nextPartitions
+    previous = retainTurns(previous, turns)
+    const stable = new Map(previous.map((turn) => [turn.key, turn]))
+    for (const partition of partitions.values()) {
+      partition.turns = partition.turns.map((turn) => stable.get(turn.key) ?? turn)
+    }
+    previousInputs = inputs
+    return previous
   }
 }

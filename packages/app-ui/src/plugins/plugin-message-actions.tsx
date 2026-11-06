@@ -13,6 +13,7 @@ import {
   DropdownMenuTrigger,
 } from '@pi-meme/ui/components/ui/dropdown-menu'
 import type { UiPluginRegistry } from './plugin-registry'
+import { usePluginMetadata } from './plugin-snapshot'
 
 function subjectKey(subject: UiMessageActionSubject) {
   return JSON.stringify([
@@ -116,6 +117,7 @@ export function PluginMessageActionMenu({
   const matchedGroups = groups
     .map((group) => ({ ...group, actions: actions.filter((action) => matchesMessageAction(action, group.subject)) }))
     .filter((group) => group.actions.length)
+  usePluginMetadata(matchedGroups.some((group) => group.actions.some((action) => action.isEnabled !== undefined)))
   if (!matchedGroups.length) return null
 
   async function execute(action: RegisteredMessageAction, group: ActionGroup) {

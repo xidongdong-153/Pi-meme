@@ -9,6 +9,7 @@ import { freezeUiValue } from '@pi-meme/contracts/plugin-ui-data'
 import type { UiContributionProps } from '@pi-meme/plugin-sdk/ui'
 import type { UiPluginRegistry } from './plugin-registry'
 import { PluginSlot } from './plugin-slot'
+import { PluginSnapshotProvider } from './plugin-snapshot'
 
 export function PluginRenderers({
   registry,
@@ -20,36 +21,40 @@ export function PluginRenderers({
   children: ReactNode
 }) {
   return (
-    <PluginToolCardProvider
-      render={(tool, source) => (
-        <PluginSlot
-          registry={registry}
-          slot="tool-card"
-          props={{ ...props, ...source, tool: freezeUiValue(uiJson(tool)) }}
-        />
-      )}
-    >
-      <PluginMessageProvider
-        render={(message, source, fallback) => (
+    <PluginSnapshotProvider source={registry.dataSource.reactive.metadata}>
+      <PluginToolCardProvider
+        render={(tool, source) => (
           <PluginSlot
             registry={registry}
-            slot="message"
-            props={{
-              ...props,
-              ...source,
-              message: props.target.session ? projectUiMessage(message as PiMessage, props.target.session) : undefined,
-            }}
-            fallback={fallback}
+            slot="tool-card"
+            props={{ ...props, ...source, tool: freezeUiValue(uiJson(tool)) }}
           />
         )}
       >
-        <PluginMessageActionsProvider
-          render={(anchor) => <PluginMessageActionMenu registry={registry} props={props} anchor={anchor} />}
-          renderGroup={(anchors) => <PluginMessageActionMenu registry={registry} props={props} anchors={anchors} />}
+        <PluginMessageProvider
+          render={(message, source, fallback) => (
+            <PluginSlot
+              registry={registry}
+              slot="message"
+              props={{
+                ...props,
+                ...source,
+                message: props.target.session
+                  ? projectUiMessage(message as PiMessage, props.target.session)
+                  : undefined,
+              }}
+              fallback={fallback}
+            />
+          )}
         >
-          {children}
-        </PluginMessageActionsProvider>
-      </PluginMessageProvider>
-    </PluginToolCardProvider>
+          <PluginMessageActionsProvider
+            render={(anchor) => <PluginMessageActionMenu registry={registry} props={props} anchor={anchor} />}
+            renderGroup={(anchors) => <PluginMessageActionMenu registry={registry} props={props} anchors={anchors} />}
+          >
+            {children}
+          </PluginMessageActionsProvider>
+        </PluginMessageProvider>
+      </PluginToolCardProvider>
+    </PluginSnapshotProvider>
   )
 }

@@ -28,6 +28,60 @@ import { messageWithAttachments, type ComposerAttachment as Attachment } from '.
 
 const emptySkills: PiSlashCommand[] = []
 
+function sameBashOutputDetails(before: unknown, after: unknown) {
+  if (before === undefined || after === undefined) return before === after
+  if (!before || !after || typeof before !== 'object' || typeof after !== 'object') return false
+  if (Array.isArray(before) || Array.isArray(after)) return false
+  const keys = Object.keys(after)
+  return (
+    keys.length === Object.keys(before).length &&
+    keys.every(
+      (key) =>
+        (key === 'truncation' || key === 'fullOutputPath') &&
+        Object.hasOwn(before, key) &&
+        Object.is(Reflect.get(before, key), Reflect.get(after, key)),
+    )
+  )
+}
+
+function isPlainToolOutput(state: ChatState, event: Parameters<typeof reduceEvent>[1]) {
+  if (event.type !== 'tool_execution_update' || event.toolName !== 'bash' || event.source) return false
+  const previous = state.tools[event.toolCallId]
+  if (
+    !previous ||
+    previous.status !== 'running' ||
+    previous.name !== event.toolName ||
+    previous.source ||
+    (event.parentToolCallId ?? previous.parentToolCallId) !== previous.parentToolCallId
+  )
+    return false
+  // 只合并内置 Bash 的纯正文。参数、来源或结构化详情变化仍立即呈现。
+  const before = previous.args
+  const after = event.args
+  if (before !== after) {
+    if (!before || !after || typeof before !== 'object' || typeof after !== 'object') return false
+    const keys = Object.keys(before)
+    if (
+      keys.length !== Object.keys(after).length ||
+      keys.some((key) => !Object.hasOwn(after, key) || !Object.is(Reflect.get(before, key), Reflect.get(after, key)))
+    )
+      return false
+  }
+  const result = event.partialResult
+  return (
+    result != null &&
+    typeof result === 'object' &&
+    sameBashOutputDetails(
+      previous.result && typeof previous.result === 'object' ? Reflect.get(previous.result, 'details') : undefined,
+      result.details,
+    ) &&
+    Array.isArray(result.content) &&
+    result.content.every(
+      (part: unknown) => part != null && typeof part === 'object' && 'type' in part && part.type === 'text',
+    )
+  )
+}
+
 export type QueueMode = 'steering' | 'followUp'
 
 export type ComposerSnapshot = {
@@ -210,8 +264,10 @@ export function useChatSession(options: ChatSessionOptions) {
 
   const applyEvent = useCallback(
     (event: Parameters<typeof reduceEvent>[1]) => {
-      chatStream.update((value) => reduceEvent(value, event))
-      if (event.type !== 'message_update') setRenderedChat(chatStream.getSnapshot())
+      const frame = isPlainToolOutput(chatStream.getSnapshot(), event)
+      chatStream.update((value) => reduceEvent(value, event), frame ? 'frame' : 'immediate')
+      // 已确认的纯输出由对话自己订阅；其他工具更新和语义事件仍同步控制区。
+      if (event.type !== 'message_update' && !frame) setRenderedChat(chatStream.getSnapshot())
     },
     [chatStream],
   )

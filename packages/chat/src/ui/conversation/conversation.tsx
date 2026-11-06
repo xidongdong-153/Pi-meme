@@ -41,6 +41,35 @@ const TURN_INCREMENT = 30
 // 按会话保留“加载更早记录”展开的窗口大小，切回时无需重新展开。
 const visibleWindows = new Map<string, number>()
 
+type AssistantConversationTurnProps = Omit<React.ComponentProps<typeof AssistantTurnView>, 'reply' | 'changes'> & {
+  renderReply?: (turn: Extract<TurnChunk, { type: 'assistant_turn' }>) => React.ReactNode
+  changes?: TurnChangeSummary
+  onViewChanges?: (entryId: string, path?: string) => void
+  onUndoChanges?: (entryId: string) => Promise<void>
+  changesDisabled?: boolean
+}
+
+const AssistantConversationTurn = React.memo(
+  ({
+    renderReply,
+    changes,
+    onViewChanges,
+    onUndoChanges,
+    changesDisabled,
+    ...props
+  }: AssistantConversationTurnProps) => (
+    <AssistantTurnView
+      {...props}
+      reply={renderReply?.(props.turn)}
+      changes={
+        changes && onViewChanges && onUndoChanges ? (
+          <TurnChangesCard changes={changes} onView={onViewChanges} onUndo={onUndoChanges} disabled={changesDisabled} />
+        ) : undefined
+      }
+    />
+  ),
+)
+
 export const Conversation = React.memo(
   ({
     chat: initialChat,
@@ -101,9 +130,9 @@ export const Conversation = React.memo(
     changesDisabled?: boolean
   }) => {
     const chat = React.useSyncExternalStore(
-      stream?.subscribe ?? noSubscription,
-      stream?.getSnapshot ?? (() => initialChat),
-      stream?.getSnapshot ?? (() => initialChat),
+      stream?.subscribeView ?? noSubscription,
+      stream?.getViewSnapshot ?? (() => initialChat),
+      stream?.getViewSnapshot ?? (() => initialChat),
     )
     const stableView = React.useMemo(
       () =>
@@ -125,9 +154,11 @@ export const Conversation = React.memo(
     const groupTurns = React.useMemo(() => createConversationTurnProjector(), [])
     // 按对话轮次（Turn）聚合消息流：将同一交互轮次内的思考、多次工具调用、Bash 与最终正文聚合成单一轮次卡片
     const { turns, finalReplyKeys, imageGenerations } = React.useMemo(() => {
+      const live = readOnly ? chat.live : chat.live ? (mainMessage(chat.live) as ChatState['live']) : null
       const view = {
         ...stableView,
-        live: readOnly ? chat.live : chat.live ? (mainMessage(chat.live) as ChatState['live']) : null,
+        // 主对话原来分别投影历史与实时消息；缓存不能让两者意外共享用于思考状态判断的身份。
+        live: !readOnly && live && stableView.messages.includes(live) ? { ...live } : live,
       }
       const grouped =
         agentOnly && agent
@@ -199,27 +230,35 @@ export const Conversation = React.memo(
                 currentPlan && document.id === currentPlan.id && document.revision === currentPlan.revision,
             )?.[0]
           : undefined
-    function planReply(turn: Extract<TurnChunk, { type: 'assistant_turn' }>): React.ReactNode {
-      const callIds = new Set(
-        turn.sourceMessages?.flatMap((message) =>
-          message.role === 'assistant'
-            ? message.content.flatMap((part) => (part.type === 'toolCall' ? [part.id] : []))
-            : [],
-        ),
-      )
-      function findPlan(items: readonly { id: string; children?: readonly { id: string }[] }[]): React.ReactNode {
-        for (const item of [...items].reverse()) {
-          if (plansByTool.has(item.id))
-            return item.id === sourceToolId && currentPlan ? renderPlan?.(currentPlan) : <React.Fragment />
-          if (item.children) {
-            const nested = findPlan(item.children)
-            if (nested) return nested
+    const planReply = React.useCallback(
+      (turn: Extract<TurnChunk, { type: 'assistant_turn' }>): React.ReactNode => {
+        const callIds = new Set(
+          turn.sourceMessages?.flatMap((message) =>
+            message.role === 'assistant'
+              ? message.content.flatMap((part) => (part.type === 'toolCall' ? [part.id] : []))
+              : [],
+          ),
+        )
+        function findPlan(items: readonly { id: string; children?: readonly { id: string }[] }[]): React.ReactNode {
+          for (const item of [...items].reverse()) {
+            if (plansByTool.has(item.id))
+              return item.id === sourceToolId && currentPlan ? renderPlan?.(currentPlan) : <React.Fragment />
+            if (item.children) {
+              const nested = findPlan(item.children)
+              if (nested) return nested
+            }
           }
+          return undefined
         }
-        return undefined
-      }
-      return findPlan(turn.activities.filter((item) => callIds.has(item.id)))
-    }
+        return findPlan(turn.activities.filter((item) => callIds.has(item.id)))
+      },
+      [plansByTool, sourceToolId, currentPlan, renderPlan],
+    )
+    const changesByEntry = React.useMemo(() => {
+      const changes = new Map<string, TurnChangeSummary>()
+      for (const change of turnChanges ?? []) if (!changes.has(change.entryId)) changes.set(change.entryId, change)
+      return changes
+    }, [turnChanges])
 
     const [visible, setVisible] = React.useState({ key: sessionKey, count: INITIAL_VISIBLE_TURNS })
     if (visible.key !== sessionKey)
@@ -479,7 +518,7 @@ export const Conversation = React.memo(
                     )
                   }
                   return (
-                    <AssistantTurnView
+                    <AssistantConversationTurn
                       key={turn.key}
                       turn={turn}
                       imageGenerations={imageGenerations.get(turn.key)}
@@ -491,19 +530,15 @@ export const Conversation = React.memo(
                       onFork={readOnly ? undefined : onForkReply}
                       onCopyError={onCopyError}
                       onActivityToggle={handleActivityToggle}
-                      reply={!agentOnly && !turn.isLive && renderPlan ? planReply(turn) : undefined}
-                      changes={(() => {
-                        if (!finalReplyKeys.has(turn.key) || !onViewChanges || !onUndoChanges) return
-                        const changes = turnChanges?.find((item) => item.entryId === turn.userEntryId)
-                        return changes ? (
-                          <TurnChangesCard
-                            changes={changes}
-                            onView={onViewChanges}
-                            onUndo={onUndoChanges}
-                            disabled={changesDisabled}
-                          />
-                        ) : undefined
-                      })()}
+                      renderReply={!agentOnly && !turn.isLive && renderPlan ? planReply : undefined}
+                      changes={
+                        finalReplyKeys.has(turn.key) && turn.userEntryId !== undefined
+                          ? changesByEntry.get(turn.userEntryId)
+                          : undefined
+                      }
+                      onViewChanges={onViewChanges}
+                      onUndoChanges={onUndoChanges}
+                      changesDisabled={changesDisabled}
                     />
                   )
                 }

@@ -598,11 +598,6 @@ function AppContent({
     registry.getBeforeSendHooks,
     registry.getBeforeSendHooks,
   )
-  const pluginMetadata = useSyncExternalStore(
-    registry.dataSource.reactive.metadata.subscribe,
-    registry.dataSource.reactive.metadata.getSnapshot,
-    registry.dataSource.reactive.metadata.getSnapshot,
-  )
   const pluginTarget = useMemo(
     () => sessionUiTarget(hostId ?? appSession?.hostId ?? '', appSession),
     [hostId, appSession],
@@ -612,9 +607,10 @@ function AppContent({
     () => ({
       host,
       target: publicPluginTarget,
-      snapshot: pluginMetadata.session,
+      // 实时插件快照在实际贡献/面板叶子订阅，避免每次用量更新重绘整个工作台。
+      snapshot: null,
     }),
-    [host, publicPluginTarget, pluginMetadata.session],
+    [host, publicPluginTarget],
   )
   const authorizationRevision = JSON.stringify(
     pluginDescriptors.map((plugin) => [

@@ -2,8 +2,12 @@ import * as React from 'react'
 import { Check, Copy } from 'lucide-react'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { cn } from '@pi-meme/ui/lib/utils'
+import { usePresentationActive } from './retained-disclosure'
 
-export function ToolExecutionDetails({
+const ExecutionSection = React.memo(ExecutionSectionContent)
+export const ToolExecutionDetails = React.memo(ToolExecutionDetailsContent)
+
+function ToolExecutionDetailsContent({
   code,
   output,
   isScript = false,
@@ -44,7 +48,7 @@ export function ToolExecutionDetails({
   )
 }
 
-function ExecutionSection({
+function ExecutionSectionContent({
   text,
   label,
   copyLabel,
@@ -59,27 +63,37 @@ function ExecutionSection({
   className: string
   children?: React.ReactNode
 }) {
+  const active = usePresentationActive()
   const viewportRef = React.useRef<HTMLDivElement>(null)
   const [copyState, setCopyState] = React.useState<'idle' | 'copied' | 'failed'>('idle')
+  const retained = React.useRef({ text, placeholder, children })
+  const presentation = active ? { text, placeholder, children } : retained.current
   const updateOverflow = React.useCallback(() => {
     const viewport = viewportRef.current
-    if (!viewport) return
-    viewport.dataset.overflowTop = String(viewport.scrollTop > 1)
-    viewport.dataset.overflowBottom = String(viewport.scrollHeight - viewport.clientHeight - viewport.scrollTop > 1)
-  }, [])
+    if (!active || !viewport) return
+    const top = viewport.scrollTop
+    const overflowTop = String(top > 1)
+    const overflowBottom = String(viewport.scrollHeight - viewport.clientHeight - top > 1)
+    if (viewport.dataset.overflowTop !== overflowTop) viewport.dataset.overflowTop = overflowTop
+    if (viewport.dataset.overflowBottom !== overflowBottom) viewport.dataset.overflowBottom = overflowBottom
+  }, [active])
 
   React.useLayoutEffect(() => {
-    updateOverflow()
-  }, [text, updateOverflow])
+    if (active) retained.current = { text, placeholder, children }
+    // 普通 pre 随正文自然增高，由尺寸观察在同次绘制前更新，避免每批输出强制提前布局。
+    // 自定义正文可能只改变内部溢出而不改变外框，仍保留同步测量。
+    if (children != null || typeof ResizeObserver === 'undefined') updateOverflow()
+  }, [active, text, placeholder, children, updateOverflow])
 
   React.useLayoutEffect(() => {
     const viewport = viewportRef.current
-    if (!viewport || typeof ResizeObserver === 'undefined') return
+    if (!active || !viewport || typeof ResizeObserver === 'undefined') return
+    updateOverflow()
     const observer = new ResizeObserver(updateOverflow)
     observer.observe(viewport)
     if (viewport.firstElementChild) observer.observe(viewport.firstElementChild)
     return () => observer.disconnect()
-  }, [updateOverflow])
+  }, [active, updateOverflow, children])
 
   React.useEffect(() => {
     if (copyState === 'idle') return
@@ -102,7 +116,11 @@ function ExecutionSection({
           className,
         )}
       >
-        {children ?? <pre className="whitespace-pre-wrap [overflow-wrap:anywhere]">{text || placeholder}</pre>}
+        {presentation.children ?? (
+          <pre className="whitespace-pre-wrap [overflow-wrap:anywhere]">
+            {presentation.text || presentation.placeholder}
+          </pre>
+        )}
       </div>
       {text && (
         <Button

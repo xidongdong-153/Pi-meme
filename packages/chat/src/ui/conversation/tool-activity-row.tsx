@@ -19,8 +19,13 @@ import { ImageThumbnail } from '../content/message-image'
 import { imageSource } from '../content/image-viewer'
 import { toolMessageActionAnchor } from '../model/tool-message-action-anchor'
 import { ToolExecutionDetails } from './tool-execution-details'
+import { RetainedDisclosure } from './retained-disclosure'
 
-export function ToolActivityRow({
+const MemoFileToolDiff = React.memo(FileToolDiff)
+const NestedToolActivity = React.memo(NestedToolActivityContent)
+export const ToolActivityRow = React.memo(ToolActivityRowContent)
+
+function ToolActivityRowContent({
   item,
   open,
   onToggle,
@@ -40,9 +45,14 @@ export function ToolActivityRow({
   const isRunning = isLive && item.status === 'running'
   const isError = item.status === 'error'
 
-  const meta = parseToolMeta(item)
-  const fileChange =
-    !isRunning && !isError && (meta.kind === 'edit' || meta.kind === 'write') ? fileChangeStats(item.result) : undefined
+  const meta = React.useMemo(() => parseToolMeta(item), [item])
+  const fileChange = React.useMemo(
+    () =>
+      !isRunning && !isError && (meta.kind === 'edit' || meta.kind === 'write')
+        ? fileChangeStats(item.result)
+        : undefined,
+    [isRunning, isError, meta.kind, item.result],
+  )
   const summary = isRunning && !isPaused ? runningActivityLabel([item]).replace(/…$/, '') : meta.summary
   const IconComponent = {
     command: SquareTerminal,
@@ -57,11 +67,14 @@ export function ToolActivityRow({
   }[meta.kind]
 
   const isFileMutation = meta.kind === 'edit' || meta.kind === 'write'
-  const filePatch = isFileMutation && !isError && !isRunning ? extractFilePatch(item.result) : null
+  const filePatch = React.useMemo(
+    () => (isFileMutation && !isError && !isRunning ? extractFilePatch(item.result) : null),
+    [isFileMutation, isError, isRunning, item.result],
+  )
   const [hasOpened, setHasOpened] = React.useState(open)
   if (open && !hasOpened) setHasOpened(true)
-  const diff = extractDiff(item.result)
-  const images = extractImages(item.result)
+  const diff = React.useMemo(() => extractDiff(item.result), [item.result])
+  const images = React.useMemo(() => extractImages(item.result), [item.result])
   const script =
     item.name === 'codemode' &&
     item.args &&
@@ -81,9 +94,13 @@ export function ToolActivityRow({
           ? args.cmd
           : '')
   const isExecution = meta.kind === 'command' || script !== undefined
-  const rawText =
-    item.output ?? (isExecution ? formatDetailValue(item.result) : formatDetailValue(item.result ?? item.args))
-  const actionAnchor = toolMessageActionAnchor(item, rawText)
+  const detailValue = isExecution ? item.result : (item.result ?? item.args)
+  const rawText = React.useMemo(() => item.output ?? formatDetailValue(detailValue), [item.output, detailValue])
+  const actionAnchor = React.useMemo(() => toolMessageActionAnchor(item, rawText), [item, rawText])
+  const diffContent = React.useMemo(
+    () => (!isExecution && diff ? <ToolDiff diff={diff} /> : undefined),
+    [isExecution, diff],
+  )
   const hasDetail = isFileMutation
     ? Boolean(filePatch)
     : meta.kind !== 'read' &&
@@ -184,7 +201,8 @@ export function ToolActivityRow({
       </div>
 
       {hasDetail && (
-        <div
+        <RetainedDisclosure
+          open={open}
           aria-hidden={!open}
           inert={!open}
           className={cn(
@@ -194,7 +212,7 @@ export function ToolActivityRow({
         >
           <div className="min-h-0 overflow-hidden">
             {filePatch ? (
-              hasOpened && <FileToolDiff patch={filePatch} path={meta.fullPath} />
+              hasOpened && <MemoFileToolDiff patch={filePatch} path={meta.fullPath} />
             ) : (
               <>
                 <ToolExecutionDetails
@@ -204,7 +222,7 @@ export function ToolActivityRow({
                   isRunning={isRunning}
                   isPaused={isPaused}
                 >
-                  {!isExecution && diff ? <ToolDiff diff={diff} /> : undefined}
+                  {diffContent}
                 </ToolExecutionDetails>
                 {item.children?.map((child) => (
                   <NestedToolActivity
@@ -220,13 +238,13 @@ export function ToolActivityRow({
             )}
             {imagePreviews}
           </div>
-        </div>
+        </RetainedDisclosure>
       )}
     </div>
   )
 }
 
-function NestedToolActivity({
+function NestedToolActivityContent({
   tool,
   isLive,
   isPaused,
@@ -238,10 +256,11 @@ function NestedToolActivity({
   parentOpen: boolean
 }) {
   const [open, setOpen] = React.useState(false)
+  const toggle = React.useCallback(() => setOpen((previous) => !previous), [])
   if (!parentOpen && open) setOpen(false)
   return (
     <div className="mt-1" data-parent-tool={tool.parentToolCallId}>
-      <ToolActivityRow item={tool} open={open} onToggle={() => setOpen(!open)} isLive={isLive} isPaused={isPaused} />
+      <ToolActivityRow item={tool} open={open} onToggle={toggle} isLive={isLive} isPaused={isPaused} />
     </div>
   )
 }
