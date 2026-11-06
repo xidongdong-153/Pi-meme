@@ -25,7 +25,6 @@ import {
   closePanel,
   defaultPanelLayout,
   openPanel,
-  panelAvailable,
   panelStorageKey,
   readPanelLayout,
   sanitizePanelLayout,
@@ -34,7 +33,8 @@ import {
   type PanelLayoutState,
 } from './panel-layout'
 
-import { RetainedToolPanels } from './retained-tool-panels'
+import { RetainedToolPanels, type PanelOpenRequest } from './retained-tool-panels'
+import { resolvePanelAvailability, type PanelDataFacts } from './panel-availability'
 import { usePaneMotion, useReducedMotion } from './pane-motion'
 import { ResizeHandle } from './resize-handle'
 import type { WorkspaceView } from './use-workspace-view'
@@ -43,12 +43,14 @@ const emptyBrowserPanels: string[] = []
 
 export function WorkspacePanels({
   panels,
-  onLoadTools,
   onNewWebPage,
   onClosePanel,
   browserPanelIds = emptyBrowserPanels,
   focusComposerRequest,
   activity,
+  dataFacts = {},
+  onDataRetry,
+  onToolsVisibilityChange,
   props,
   session,
   sessionTitle = '聊天',
@@ -95,15 +97,22 @@ export function WorkspacePanels({
   browserPanelIds?: string[]
   focusComposerRequest?: number
   panels: UiPanel[]
-  onLoadTools?: () => Promise<void>
   activity?: { count: number; known: boolean }
+  dataFacts?: PanelDataFacts
+  onDataRetry?: () => void
+  onToolsVisibilityChange?: (visible: boolean) => void
   props: UiContributionProps
   session: string
   sessionTitle?: string
   terminalCwd?: string
   onFocusComposer?: () => void
   errors?: Record<string, string>
-  requestPanel?: { id: string; revision: number; target: UiTarget } | null
+  requestPanel?: {
+    id: string
+    revision: number
+    target: UiTarget
+    intent?: UiContributionProps['panelOpenIntent']
+  } | null
   onPanelRequestHandled?: (revision: number) => void
   requestRight?: string
   requestRightToken?: string
@@ -159,7 +168,7 @@ export function WorkspacePanels({
     const open = sideChatActive ? true : initial.open
     return {
       storageKey,
-      retainActivity: false,
+      openRequests: {} as Record<string, PanelOpenRequest>,
       inherited: false,
       layout: { ...initial, tabs, active, open },
       toolActive: saved?.toolActive ?? false,
@@ -174,6 +183,10 @@ export function WorkspacePanels({
     }))
   }, [])
   const [search, setSearch] = useState('')
+  const [openError, setOpenError] = useState('')
+  const openRevision = useRef(0)
+  const handledRequest = useRef<number | undefined>(undefined)
+  const handledRightRequest = useRef<string | undefined>(undefined)
   const [internalClosingTabs, setInternalClosingTabs] = useState<string[]>([])
   const isClosingTab = useCallback(
     (id: string) => internalClosingTabs.includes(id) || Boolean(closingPanelIds?.includes(id)),
@@ -183,12 +196,13 @@ export function WorkspacePanels({
     const saved = readLayout()
     updateState({
       storageKey,
-      retainActivity: false,
+      openRequests: {},
       inherited: false,
       layout: saved ?? defaultPanelLayout(),
       toolActive: saved?.toolActive ?? false,
     })
     setSearch('')
+    setOpenError('')
   }
   useEffect(() => {
     const bind = (event: Event) => {
@@ -202,7 +216,7 @@ export function WorkspacePanels({
           const saved = localStorage.getItem(to)
           if (saved !== null) {
             const layout = readPanelLayout(saved)
-            return { ...value, storageKey: to, layout, toolActive: layout.toolActive ?? false }
+            return { ...value, storageKey: to, layout, openRequests: {}, toolActive: layout.toolActive ?? false }
           }
           localStorage.setItem(to, JSON.stringify({ ...value.layout, toolActive: value.toolActive }))
         } catch {
@@ -219,6 +233,14 @@ export function WorkspacePanels({
     updateState((value) => ({ ...value, inherited: false, layout: update(value.layout) }))
   }, [])
   const container = useRef<HTMLDivElement>(null)
+  const launcherFocus = useRef<HTMLElement | null>(null)
+  useLayoutEffect(() => {
+    const focused = launcherFocus.current
+    if (!focused || focused.isConnected) return
+    launcherFocus.current = null
+    if (document.activeElement === document.body)
+      container.current?.querySelector<HTMLInputElement>('input[aria-label="查找工具和插件"]')?.focus()
+  })
   const [containerWidth, setContainerWidth] = useState(1280)
   const tabList = useRef<HTMLDivElement>(null)
   useEffect(() => {
@@ -239,51 +261,60 @@ export function WorkspacePanels({
       /* 浏览器禁用存储时仍可使用标签页。 */
     }
   }, [storageKey, layout, toolActive])
-  const activityId = 'builtin:activities'
-  const activityTabVisible = !activity || activity.count > 0 || !activity.known || state.retainActivity
-  const available = panels.filter(
-    (panel) => panelAvailable(panel, props.target) && (panel.id !== activityId || activityTabVisible),
-  )
+  const available = panels.filter((panel) => resolvePanelAvailability(panel, props.target, dataFacts).canRetain)
   const open = useCallback(
-    (id: string) => {
+    (id: string, intent: PanelOpenRequest['intent'] = 'manual') => {
+      if (id !== toolsTabId && id !== sideChatTabId) {
+        const panel = panels.find((entry) => entry.id === id)
+        const availability = panel && resolvePanelAvailability(panel, props.target, dataFacts)
+        if (!availability || !(intent === 'launcher' ? availability.launcherVisible : availability.canExplicitOpen)) {
+          setOpenError('此工具当前不可用。')
+          return false
+        }
+      }
       setSearch('')
+      setOpenError('')
       setToolActive(true)
+      const request = { intent, revision: ++openRevision.current }
       updateState((value) => ({
         ...value,
         inherited: false,
-        retainActivity: value.retainActivity || id === 'builtin:activities',
+        openRequests: { ...value.openRequests, [id]: request },
         layout: { ...openPanel(value.layout, id), open: unified ? value.layout.open : true },
       }))
+      return true
     },
-    [unified],
+    [unified, panels, props.target, dataFacts],
   )
   useEffect(() => {
-    if (!activity || state.storageKey !== storageKey) return
-    if (activity.count > 0 && (layout.open || unified) && layout.tabs.includes(activityId) && !state.retainActivity) {
-      updateState((value) => ({ ...value, retainActivity: true }))
-    } else if (activity.known && activity.count === 0 && !state.retainActivity && layout.tabs.includes(activityId)) {
-      setLayout((value) => closePanel(value, activityId))
+    if (!requestRight) {
+      handledRightRequest.current = undefined
+      return
     }
-  }, [activity?.count, activity?.known, layout, state.retainActivity, state.storageKey, storageKey, setLayout, unified])
+    const token = requestRightToken ?? requestRight
+    if (handledRightRequest.current === token) return
+    handledRightRequest.current = token
+    open(requestRight, 'manual')
+    onRightRequestHandled?.()
+  }, [requestRight, requestRightToken, open, onRightRequestHandled])
   useEffect(() => {
-    if (requestRight && panels.some((panel) => panel.id === requestRight && panelAvailable(panel, props.target))) {
-      open(requestRight)
-      onRightRequestHandled?.()
+    if (!requestPanel) {
+      handledRequest.current = undefined
+      return
     }
-  }, [requestRight, requestRightToken, open, onRightRequestHandled, panels, props.target])
-  useEffect(() => {
-    if (
-      requestPanel &&
+    if (handledRequest.current === requestPanel.revision) return
+    handledRequest.current = requestPanel.revision
+    const matches =
       requestPanel.target.hostId === props.target.hostId &&
       requestPanel.target.session?.sessionId === props.target.session?.sessionId &&
-      requestPanel.target.project?.projectId === props.target.project?.projectId &&
-      panels.some((panel) => panel.id === requestPanel.id && panelAvailable(panel, props.target))
-    ) {
-      if (requestPanel.id.startsWith('builtin:file:')) setUnified(true)
-      open(requestPanel.id)
-      onPanelRequestHandled?.(requestPanel.revision)
+      requestPanel.target.project?.projectId === props.target.project?.projectId
+    if (matches) {
+      if (open(requestPanel.id, requestPanel.intent ?? 'manual') && requestPanel.id.startsWith('builtin:file:'))
+        setUnified(true)
     }
-  }, [requestPanel, open, panels, props.target, onPanelRequestHandled])
+    // 过期目标、撤权和未知面板均是终态，不能让旧请求永久阻塞后续打开。
+    onPanelRequestHandled?.(requestPanel.revision)
+  }, [requestPanel, open, props.target, onPanelRequestHandled, setUnified])
   const previousSideChatActive = useRef(sideChatActive)
   useEffect(() => {
     const previous = previousSideChatActive.current
@@ -320,11 +351,17 @@ export function WorkspacePanels({
     onChatVisibilityChange?.(!showTool)
     return () => onChatVisibilityChange?.(false)
   }, [showTool, onChatVisibilityChange])
-  const toolsNeedLoading =
-    (unified ? toolActive : layout.open) && ((!selected && active !== sideChatTabId) || !tabs.includes(layout.active))
+  const toolsVisible =
+    (unified ? showTool : layout.open) && !selected && active !== sideChatTabId && props.visible !== false
   useEffect(() => {
-    if (toolsNeedLoading) void onLoadTools?.()
-  }, [toolsNeedLoading, storageKey, onLoadTools])
+    const update = () => onToolsVisibilityChange?.(toolsVisible && !document.hidden)
+    update()
+    document.addEventListener('visibilitychange', update)
+    return () => {
+      document.removeEventListener('visibilitychange', update)
+      onToolsVisibilityChange?.(false)
+    }
+  }, [toolsVisible, onToolsVisibilityChange])
   const sideChatVisible = active === sideChatTabId && (unified ? showTool : layout.open)
   useEffect(() => {
     onSideChatVisibilityChange?.(sideChatVisible)
@@ -340,12 +377,9 @@ export function WorkspacePanels({
     const finalize = () => {
       setInternalClosingTabs((prev) => prev.filter((item) => item !== id))
       updateState((value) => {
-        if (!value.layout.tabs.includes(id)) {
-          return {
-            ...value,
-            retainActivity: id === activityId ? false : value.retainActivity,
-          }
-        }
+        if (!value.layout.tabs.includes(id)) return value
+        const openRequests = { ...value.openRequests }
+        delete openRequests[id]
         const nextLayout = closePanel(value.layout, id)
         const nextVisibleTabs = nextLayout.tabs.filter(
           (tabId) => tabId === toolsTabId || tabId === sideChatTabId || available.some((panel) => panel.id === tabId),
@@ -355,7 +389,7 @@ export function WorkspacePanels({
         return {
           ...value,
           inherited: false,
-          retainActivity: id === activityId ? false : value.retainActivity,
+          openRequests,
           layout: {
             ...nextLayout,
             open: unified ? value.layout.open : nextLayout.tabs.length > 0,
@@ -485,16 +519,23 @@ export function WorkspacePanels({
     open(sideChatTabId)
   }
 
-  const sideChatSearchMatch = !search.trim() || '侧边聊天'.includes(search.trim().toLocaleLowerCase())
-
+  const normalizedSearch = search.trim().toLocaleLowerCase()
+  const matchesSearch = (title: string) => title.toLocaleLowerCase().includes(normalizedSearch)
+  const sideChatSearchMatch = Boolean(onOpenSideChat) && matchesSearch('侧边聊天')
+  const webSearchMatch = Boolean(onNewWebPage) && matchesSearch('新建网页')
   const filtered = available.filter(
     (panel) =>
       panel.id !== sideChatTabId &&
-      (panel.id !== activityId || !activity || activity.count > 0) &&
-      !panel.id.startsWith('builtin:browser:') &&
-      !panel.id.startsWith('builtin:file:') &&
-      panel.title.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()),
+      resolvePanelAvailability(panel, props.target, dataFacts).launcherVisible &&
+      matchesSearch(panel.title),
   )
+  const toolErrors = [
+    ...new Set([
+      ...Object.values(errors),
+      ...Object.values(dataFacts).flatMap((fact) => (fact?.status === 'error' && fact.error ? [fact.error] : [])),
+      ...(openError ? [openError] : []),
+    ]),
+  ]
   const directMotion =
     !motionReady || reducedMotion || leftPane.dragging || rightPane.dragging || leftPane.instant || rightPane.instant
   const overscroll = leftPane.overscroll ? 'sidebar' : rightPane.overscroll ? 'right' : undefined
@@ -846,6 +887,7 @@ export function WorkspacePanels({
                   active={active}
                   visible={unified ? showTool : layout.open}
                   contribution={props}
+                  openRequests={state.openRequests}
                 />
                 {!selected && active !== sideChatTabId ? (
                   <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
@@ -863,8 +905,13 @@ export function WorkspacePanels({
                     </div>
                     <div className="p-4 @container">
                       <h2 className="mb-4 text-sm font-medium text-foreground">新标签页</h2>
-                      <div className="grid grid-cols-1 gap-2 @min-[32rem]:grid-cols-2 @min-[32rem]:gap-x-3">
-                        {onNewWebPage ? (
+                      <div
+                        className="grid grid-cols-1 gap-2 @min-[32rem]:grid-cols-2 @min-[32rem]:gap-x-3"
+                        onFocusCapture={(event) => {
+                          launcherFocus.current = event.target as HTMLElement
+                        }}
+                      >
+                        {webSearchMatch ? (
                           <button
                             type="button"
                             onClick={onNewWebPage}
@@ -892,7 +939,7 @@ export function WorkspacePanels({
                           <button
                             key={panel.id}
                             type="button"
-                            onClick={() => open(panel.id)}
+                            onClick={() => open(panel.id, 'launcher')}
                             className="group flex min-h-10 min-w-0 items-center rounded-lg bg-secondary/40 px-3 py-2 text-left text-sm text-foreground transition-colors hover:bg-secondary/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
                           >
                             <div className="flex min-w-0 items-center gap-3">
@@ -904,9 +951,9 @@ export function WorkspacePanels({
                           </button>
                         ))}
                       </div>
-                      {!filtered.length && !sideChatSearchMatch && (
+                      {!filtered.length && !sideChatSearchMatch && !webSearchMatch && !toolErrors.length && (
                         <p className="py-4 text-xs text-muted-foreground">
-                          {search ? '没有匹配的工具。' : '当前聊天暂无可用工具。可在插件页面安装工具插件。'}
+                          {normalizedSearch ? '没有匹配的工具。' : '当前聊天暂无可用工具。'}
                         </p>
                       )}
                       <div className="mt-5">
@@ -932,11 +979,23 @@ export function WorkspacePanels({
                           </button>
                         </div>
                       </div>
-                      {Object.entries(errors).map(([id, error]) => (
-                        <p key={id} role="alert" className="mt-3 break-words text-xs text-destructive">
-                          {id}：{error}
-                        </p>
-                      ))}
+                      {toolErrors.length > 0 && (
+                        <div role="alert" className="mt-3 flex items-start gap-2 text-xs text-destructive">
+                          <p className="min-w-0 flex-1 break-words">{toolErrors.join('；')}</p>
+                          {onDataRetry && (
+                            <button
+                              type="button"
+                              className="shrink-0 rounded underline underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                              onClick={() => {
+                                setOpenError('')
+                                onDataRetry?.()
+                              }}
+                            >
+                              重试
+                            </button>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 ) : null}

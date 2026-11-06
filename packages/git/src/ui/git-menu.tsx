@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Check, Settings } from 'lucide-react'
+import { Check, FileDiff, Settings } from 'lucide-react'
 import type { GitBridge, GitEnvironment } from '@pi-meme/contracts/desktop'
 import { Popover, PopoverContent, PopoverTrigger } from '@pi-meme/ui/components/ui/popover'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
@@ -15,6 +15,7 @@ export function GitMenu({
   onSwitch,
   onCreateBranch,
   onCreateWorktree,
+  onReview,
 }: {
   bridge: GitBridge
   sessionKey?: string
@@ -23,6 +24,7 @@ export function GitMenu({
   onSwitch: (branch: string) => Promise<boolean>
   onCreateBranch: (name: string, base: string) => Promise<boolean>
   onCreateWorktree: (base: string) => Promise<boolean>
+  onReview?: () => void
 }) {
   const [open, setOpen] = useState(false)
   const [environment, setEnvironment] = useState<GitEnvironment | null>(null)
@@ -34,6 +36,7 @@ export function GitMenu({
   const [base, setBase] = useState('HEAD')
   const [busy, setBusy] = useState(false)
   const searchRef = useRef<HTMLInputElement>(null)
+  const reviewRef = useRef<HTMLButtonElement>(null)
   const previousKey = useRef(sessionKey)
   useEffect(() => {
     let current = true
@@ -120,9 +123,24 @@ export function GitMenu({
           className="w-72 max-w-[calc(100vw-24px)] space-y-2 rounded-2xl p-2"
           onOpenAutoFocus={(event) => {
             event.preventDefault()
-            searchRef.current?.focus()
+            ;(searchRef.current ?? reviewRef.current)?.focus()
           }}
         >
+          {onReview && (
+            <button
+              ref={reviewRef}
+              type="button"
+              disabled={busy || Boolean(disabledReason)}
+              onClick={() => {
+                setOpen(false)
+                onReview()
+              }}
+              className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs hover:bg-secondary disabled:opacity-50"
+            >
+              <FileDiff className="size-3.5" />
+              查看变更
+            </button>
+          )}
           {notRepository ? (
             <div role="status" className="space-y-1 px-2 py-1">
               <p className="text-xs text-foreground/85">当前项目未使用 Git</p>

@@ -35,9 +35,20 @@ import type { HostEvent } from '@pi-meme/contracts/host'
 import type { PiSessionPool, ClientView } from '@pi-meme/pi-runtime/session-pool'
 import type { ProjectStore } from '@pi-meme/workspace/server/project-store'
 import type { SessionService } from '@pi-meme/workspace/server/session-service'
-import { readSessionHistory } from '@pi-meme/pi-runtime/session-history'
-import { readTurnChangeSummaries, readTurnChangeFile, undoTurnChanges } from '@pi-meme/pi-runtime/turn-change-store'
-import { getGitDiff, getGitEnvironment, getGitSnapshot } from '@pi-meme/git/server/git-service'
+import { readSessionHistory, readSessionBranchUserEntries } from '@pi-meme/pi-runtime/session-history'
+import {
+  readTurnChangeSummaries,
+  readTurnChangeFile,
+  readTurnChangePresence,
+  undoTurnChanges,
+} from '@pi-meme/pi-runtime/turn-change-store'
+import {
+  getGitDiff,
+  getGitEnvironment,
+  getGitSnapshot,
+  getGitWorkspaceAvailability,
+} from '@pi-meme/git/server/git-service'
+import type { GitAvailability, GitTurnAvailability } from '@pi-meme/contracts/git-availability'
 import { getGitReview, getGitReviewFile, getGitReviewOptions } from '@pi-meme/git/server/git-review'
 import type { CollaborationBridge } from '@pi-meme/contracts/collaboration'
 import { ControlStore, ControlError, createControlStorePaths, type ControlStorePaths } from './control-store'
@@ -313,6 +324,115 @@ export async function createAppControl(options: Options) {
       getSession(ref as SessionRef, callerClientId)
     }
   }
+  type GitAvailabilityCacheEntry = {
+    sessionId: string
+    expires: number
+    invalidated?: boolean
+    pending?: Promise<GitAvailability>
+    value?: GitAvailability
+  }
+  const gitAvailabilityCache = new Map<string, GitAvailabilityCacheEntry>()
+  const invalidateGitAvailability = (sessionId: string) => {
+    for (const [key, value] of gitAvailabilityCache) {
+      if (value.sessionId !== sessionId) continue
+      value.invalidated = true
+      gitAvailabilityCache.delete(key)
+    }
+  }
+  const sessionHistoryOwner = (session: AppSession) => {
+    let file = session.sessionFile
+    let historySaved: boolean | undefined
+    const key = runtime.get(session.sessionId)?.sessionKey
+    if (key) {
+      try {
+        const binding = pi.readSessionBinding(key)
+        file = binding.sessionFile ?? file
+        historySaved = binding.historySaved
+      } catch {
+        // 已关闭的 runtime 不影响磁盘会话的只读探测。
+      }
+    }
+    return { file, historySaved, key: JSON.stringify([session.sessionId, session.cwd, file ?? null, historySaved]) }
+  }
+  const gitAvailability = async (ref: SessionRef, callerClientId: string): Promise<GitAvailability> => {
+    const session = getSession(ref, callerClientId)
+    const owner = sessionHistoryOwner(session)
+    let cached = gitAvailabilityCache.get(owner.key)
+    if (!cached || (!cached.pending && cached.expires <= Date.now())) {
+      const entry: GitAvailabilityCacheEntry = { sessionId: session.sessionId, expires: 0 }
+      const readTurns = async (): Promise<{
+        turns: GitTurnAvailability
+        branchRevision?: string
+        turnRevision?: string
+      }> => {
+        if (!owner.file) return { turns: { status: 'ready', hasChanges: false } }
+        try {
+          const branch = await readSessionBranchUserEntries(owner.file)
+          const presence = await readTurnChangePresence(owner.file, branch.entryIds)
+          return {
+            turns: { status: 'ready', hasChanges: presence.hasChanges, entryId: presence.entryId },
+            branchRevision: branch.revision,
+            turnRevision: presence.revision,
+          }
+        } catch (cause) {
+          // 首条消息前仅预分配路径；没有已保存历史时不存在轮次记录。
+          if (owner.historySaved === false && (cause as NodeJS.ErrnoException).code === 'ENOENT')
+            return { turns: { status: 'ready', hasChanges: false } }
+          return { turns: { status: 'error', error: cause instanceof Error ? cause.message : '读取轮次变更失败' } }
+        }
+      }
+      entry.pending = (async () => {
+        const [workspace, turnResult] = await Promise.all([getGitWorkspaceAvailability(session.cwd), readTurns()])
+        const { turns, branchRevision, turnRevision } = turnResult
+        const suggestedOpen: GitAvailability['suggestedOpen'] =
+          workspace.status === 'ready' && (workspace.hasUnstaged || workspace.hasUntracked)
+            ? { scope: 'unstaged' }
+            : workspace.status === 'ready' && workspace.hasStaged
+              ? { scope: 'staged' }
+              : turns.status === 'ready' && turns.hasChanges
+                ? { scope: 'turn', entryId: turns.entryId }
+                : undefined
+        const value: GitAvailability = {
+          sessionId: session.sessionId,
+          revision: createHash('sha256')
+            .update(JSON.stringify([owner.key, workspace, turns, branchRevision, turnRevision]))
+            .digest('hex'),
+          branchRevision,
+          workspace,
+          turns,
+          suggestedOpen,
+        }
+        entry.value = value
+        entry.expires = Date.now() + 1000
+        return value
+      })().finally(() => {
+        entry.pending = undefined
+      })
+      gitAvailabilityCache.delete(owner.key)
+      gitAvailabilityCache.set(owner.key, entry)
+      while (gitAvailabilityCache.size > 128) {
+        const oldest = [...gitAvailabilityCache].find(([, value]) => !value.pending)
+        if (!oldest) break
+        gitAvailabilityCache.delete(oldest[0])
+      }
+      cached = entry
+    }
+    const value = await (cached.pending ?? cached.value!)
+    const current = getSession(ref, callerClientId)
+    if (cached.invalidated) throw new Error('会话变更数据已更新，请重新读取')
+    if (sessionHistoryOwner(current).key !== owner.key) throw new Error('会话工作目录或历史已切换，请重新读取变更')
+    return structuredClone(value)
+  }
+  const readVisualizationReferences = async (session: AppSession) => {
+    const owner = sessionHistoryOwner(session)
+    if (!owner.file) return []
+    try {
+      return (await readSessionHistory(owner.file)).visualizationReferences ?? []
+    } catch (cause) {
+      if (owner.historySaved === false && (cause as NodeJS.ErrnoException).code === 'ENOENT') return []
+      throw cause
+    }
+  }
   const terminalRoots = new Map<string, WorkspaceRef>()
   const assertTerminalAccess = (ref: TerminalRef, callerClientId?: string) => {
     const root = terminalRoots.get(ref.terminalId)
@@ -523,8 +643,7 @@ export async function createAppControl(options: Options) {
     }
     if (input.visualization) {
       if (!options.visualizations) throw new Error('当前服务不支持草图')
-      const file = session.sessionFile ?? pi.getSessionContext(key).sessionFile
-      const references = file ? ((await readSessionHistory(file)).visualizationReferences ?? []) : []
+      const references = await readVisualizationReferences(session)
       const document = await options.visualizations(key).read(input.visualization.reference, references)
       validateVisualizationState(input.visualization.state, document)
       input = { ...input, visualization: structuredClone(input.visualization) }
@@ -779,6 +898,7 @@ export async function createAppControl(options: Options) {
         'messages',
         'files',
         'git',
+        'git-availability',
         'interaction',
         'agents',
         'plans',
@@ -1240,6 +1360,7 @@ export async function createAppControl(options: Options) {
       },
     },
     git: {
+      availability: (ref) => gitAvailability(ref, clientId),
       turnChangeSummaries: (ref, entryIds) =>
         target(
           ref,
@@ -1278,6 +1399,7 @@ export async function createAppControl(options: Options) {
                     context.cwd,
                     context.accessMode === 'full-access',
                   )
+                  invalidateGitAvailability(session.sessionId)
                 })
               }),
             clientId,
@@ -1443,8 +1565,7 @@ export async function createAppControl(options: Options) {
             target(
               ref,
               async (key, session) => {
-                const history = session.sessionFile ?? pi.getSessionContext(key).sessionFile
-                const refs = history ? ((await readSessionHistory(history)).visualizationReferences ?? []) : []
+                const refs = await readVisualizationReferences(session)
                 return Promise.all(
                   refs.map(async (reference) => {
                     const { html: _html, ...summary } = await options.visualizations!(key).read(reference, refs)
@@ -1458,11 +1579,7 @@ export async function createAppControl(options: Options) {
             target(
               ref,
               async (key, session) => {
-                const file = session.sessionFile ?? pi.getSessionContext(key).sessionFile
-                return options.visualizations!(key).read(
-                  reference,
-                  file ? ((await readSessionHistory(file)).visualizationReferences ?? []) : [],
-                )
+                return options.visualizations!(key).read(reference, await readVisualizationReferences(session))
               },
               clientId,
             ),
@@ -1612,6 +1729,8 @@ export async function createAppControl(options: Options) {
     const observedRun = isRoot ? active.get(session.sessionId) : undefined
     const value = event.value
     const piEvent = event.type === 'event' ? event.value.event : undefined
+    if (isRoot && (!piEvent || ['turn_changes_update', 'agent_settled', 'message_end'].includes(piEvent.type)))
+      invalidateGitAvailability(session.sessionId)
     const live = piEvent && ['message_update', 'tool_execution_update'].includes(piEvent.type)
     if (live) {
       store.publishLive({

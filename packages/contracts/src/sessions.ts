@@ -78,6 +78,8 @@ export type SessionHistoryData = {
   visualizationReferences?: import('./visualize').VisualizationRef[]
   historyRevision?: string
   historyDetails?: 'complete' | 'deferred'
+  /** 全量投影的存在性摘要，详情分页不会清除此字段。 */
+  historyAvailability?: { tree: boolean; sources: boolean }
   totalMessages?: number
   cwd: string
   created: string

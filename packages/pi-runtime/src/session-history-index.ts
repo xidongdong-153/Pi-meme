@@ -9,6 +9,7 @@ import { loadPiSdk, getPiVersion } from './sdk/load'
 import { projectStableMessageMetadata } from './sdk/message-projection'
 import { projectSessionHistory, computeHistoryStats } from './history-projection'
 import { projectBranchEntries } from './session-tree-entries'
+import { projectBranchAttachments } from './session-attachments'
 
 type Location = { offset: number; length: number }
 type Row = Location & {
@@ -272,6 +273,15 @@ async function appendIndex(file: string, previous: Index, expected: string): Pro
       ...previous.summary,
       stats,
       totalMessages: previous.rows.length + added.length,
+      historyAvailability: {
+        tree: Boolean(
+          previous.summary.historyAvailability?.tree ||
+          entries.some((entry) => ['message', 'custom_message', 'compaction', 'branch_summary'].includes(entry.type)),
+        ),
+        sources: Boolean(
+          previous.summary.historyAvailability?.sources || projectBranchAttachments(entries, parent).length,
+        ),
+      },
       model: projection.model
         ? { provider: projection.model.provider, id: projection.model.modelId }
         : previous.summary.model,
@@ -289,7 +299,7 @@ async function readIndex(file: string, background = false): Promise<Index | unde
   const target = indexFile(file)
   if (!target) return
   const expected = await signature(file)
-  const version = `2:${getPiVersion()}`
+  const version = `3:${getPiVersion()}`
   const retained = cache.get(file)
   if (retained?.signature === expected && retained.version === version) {
     remember(file, retained)
@@ -382,6 +392,37 @@ async function readIndex(file: string, background = false): Promise<Index | unde
 
 export async function prefetchHistoryIndex(file: string) {
   await readIndex(await realpath(file), true)
+}
+
+/** 使用现有完整索引取当前分支的原生用户 ID，不加载消息分页和正文。 */
+export async function readIndexedBranchUserEntries(original: string, full: () => Promise<SessionHistoryData>) {
+  const file = await realpath(original)
+  const index = await readIndex(file)
+  const history = index ? undefined : await full()
+  const entries = index?.entries ?? history?.sessionEntries?.entries
+  const leafId = index?.leafId ?? history?.sessionEntries?.leafId ?? null
+  if (!entries) throw new Error('无法读取会话分支索引')
+  const byId = new Map(entries.map((entry) => [entry.id, entry]))
+  const seen = new Set<string>()
+  const entryIds: string[] = []
+  let current = leafId
+  while (current) {
+    if (seen.has(current)) throw new Error('会话分支索引存在循环，请重新读取')
+    seen.add(current)
+    const entry = byId.get(current)
+    if (!entry) throw new Error('会话分支索引不完整，请重新读取')
+    if (entry.type === 'message' && entry.role === 'user') entryIds.push(entry.id)
+    current = entry.parentId
+  }
+  return {
+    entryIds: entryIds.reverse(),
+    revision: index
+      ? createHash('sha256').update(`${index.version}:${index.signature}`).digest('hex')
+      : (history!.historyRevision ??
+        createHash('sha256')
+          .update(JSON.stringify([leafId, entryIds]))
+          .digest('hex')),
+  }
 }
 
 function windowEntries(index: Index, messages: PiMessage[]) {

@@ -8,6 +8,7 @@ export function projectSessionDetails<
     sessionEntries?: PiSessionEntries
     branchAttachments?: ChatBranchAttachment[]
     historyDetails?: 'complete' | 'deferred'
+    historyAvailability?: { tree: boolean; sources: boolean }
   },
 >(value: T, window?: SessionWindow): T {
   if (window?.details !== 'deferred') return value
@@ -28,6 +29,14 @@ export function projectSessionDetails<
   return {
     ...value,
     historyDetails: 'deferred',
+    historyAvailability: value.historyAvailability ?? {
+      tree: Boolean(
+        source?.entries.some((item) =>
+          ['message', 'custom_message', 'compaction', 'branch_summary'].includes(item.type),
+        ),
+      ),
+      sources: Boolean(value.branchAttachments?.length),
+    },
     sessionEntries: source ? { entries, leafId: entries.at(-1)?.id ?? null } : undefined,
     branchAttachments: undefined,
   }

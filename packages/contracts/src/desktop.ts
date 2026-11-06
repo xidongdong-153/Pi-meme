@@ -176,6 +176,7 @@ export type Snapshot = {
   totalMessages?: number
   historyRevision?: string
   historyDetails?: 'complete' | 'deferred'
+  historyAvailability?: { tree: boolean; sources: boolean }
   appSession?: AppSession
   agent?: AgentSummary
   agents?: AgentSummary[]

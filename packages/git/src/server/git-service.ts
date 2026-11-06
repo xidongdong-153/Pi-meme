@@ -2,26 +2,46 @@ import { spawn } from 'node:child_process'
 import { lstat, readFile, realpath } from 'node:fs/promises'
 import path from 'node:path'
 import type { GitEnvironment, GitFileChange, GitSnapshot } from '@pi-meme/contracts/desktop'
+import type { GitWorkspaceAvailability } from '@pi-meme/contracts/git-availability'
 
 const outputLimit = 8 * 1024 * 1024
 const untrackedPreviewLimit = 200 * 1024
 
-export function runGit(cwd: string, args: string[]) {
+export function runGit(cwd: string, args: string[], limits?: { timeoutMs: number; outputBytes: number }) {
   return new Promise<{ stdout: string; stderr: string; code: number }>((resolve, reject) => {
-    const child = spawn('git', ['-C', cwd, ...args], { stdio: ['ignore', 'pipe', 'pipe'] })
+    const child = spawn('git', ['-C', cwd, ...args], {
+      stdio: ['ignore', 'pipe', 'pipe'],
+      ...(limits ? { env: { ...process.env, LC_ALL: 'C', LANG: 'C' } } : {}),
+    })
     const stdout: Buffer[] = []
     const stderr: Buffer[] = []
     let size = 0
-    child.stdout.on('data', (chunk: Buffer) => {
+    let settled = false
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const fail = (cause: Error) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      child.kill('SIGKILL')
+      reject(cause)
+    }
+    if (limits) {
+      timer = setTimeout(() => fail(new Error('读取 Git 状态超时，请重试')), limits.timeoutMs)
+      timer.unref()
+    }
+    const collect = (chunks: Buffer[], chunk: Buffer) => {
+      if (settled) return
       size += chunk.length
-      if (size > outputLimit) {
-        child.kill('SIGTERM')
-        reject(new Error('Git 输出超过 8 MiB'))
-      } else stdout.push(chunk)
-    })
-    child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk))
-    child.once('error', reject)
+      if (size > (limits?.outputBytes ?? outputLimit)) fail(new Error('Git 输出超过读取上限，请缩小工作区后重试'))
+      else chunks.push(chunk)
+    }
+    child.stdout.on('data', (chunk: Buffer) => collect(stdout, chunk))
+    child.stderr.on('data', (chunk: Buffer) => collect(stderr, chunk))
+    child.once('error', fail)
     child.once('close', (code) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
       const result = {
         stdout: Buffer.concat(stdout).toString(),
         stderr: Buffer.concat(stderr).toString(),
@@ -52,6 +72,37 @@ function decodeStatus(output: string): GitFileChange[] {
     }
   }
   return files
+}
+
+/** 入口探测只读取 status；不生成 diff、不读取文件正文、不刷新索引锁。 */
+export async function getGitWorkspaceAvailability(cwd: string): Promise<GitWorkspaceAvailability> {
+  try {
+    const directory = await realpath(cwd)
+    const flags = ['--no-optional-locks', '-c', 'core.fsmonitor=false']
+    const root = (
+      await runGit(directory, [...flags, 'rev-parse', '--show-toplevel'], { timeoutMs: 5000, outputBytes: 64 * 1024 })
+    ).stdout.replace(/\r?\n$/, '')
+    if (!root) throw new Error('Git 未返回工作树目录')
+    const status = await runGit(root, [...flags, 'status', '--porcelain=v1', '-z', '--untracked-files=normal'], {
+      timeoutMs: 5000,
+      outputBytes: 1024 * 1024,
+    })
+    const files = decodeStatus(status.stdout)
+    return {
+      status: 'ready',
+      root,
+      hasStaged: files.some((file) => file.kind === 'staged'),
+      hasUnstaged: files.some((file) => file.kind === 'unstaged'),
+      hasUntracked: files.some((file) => file.kind === 'untracked'),
+    }
+  } catch (cause) {
+    const error = cause as NodeJS.ErrnoException
+    if (error.code === 'ENOENT' && error.syscall?.startsWith('spawn'))
+      return { status: 'unsupported', error: '未找到 Git' }
+    if ((cause as { code?: number }).code === 128 && error.message?.includes('not a git repository'))
+      return { status: 'ready', hasStaged: false, hasUnstaged: false, hasUntracked: false }
+    return { status: 'error', error: error.message || '读取 Git 状态失败' }
+  }
 }
 
 export async function getGitSnapshot(cwd: string): Promise<GitSnapshot> {

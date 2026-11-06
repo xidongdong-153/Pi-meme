@@ -3,11 +3,12 @@ import type { AppSession } from '@pi-meme/contracts/app-host'
 import type { Snapshot } from '@pi-meme/contracts/desktop'
 
 export function historyPanelsAvailable(
-  chat: Pick<Snapshot, 'messages' | 'sessionEntries'>,
+  chat: Pick<Snapshot, 'messages' | 'sessionEntries' | 'totalMessages' | 'historyAvailability'>,
   detailsDeferred: boolean,
   sourceCount: number,
 ) {
   const hasHistory =
+    (chat.totalMessages ?? 0) > 0 ||
     chat.messages.length > 0 ||
     Boolean(
       chat.sessionEntries?.entries.some((entry) =>
@@ -15,8 +16,10 @@ export function historyPanelsAvailable(
       ),
     )
   return {
-    tree: hasHistory && Boolean(detailsDeferred || chat.sessionEntries?.entries.length),
-    sources: sourceCount > 0,
+    tree: Boolean(
+      chat.historyAvailability?.tree || (hasHistory && (detailsDeferred || chat.sessionEntries?.entries.length)),
+    ),
+    sources: sourceCount > 0 || chat.historyAvailability?.sources === true,
   }
 }
 
@@ -30,6 +33,11 @@ export function sessionUiTarget(hostId: string, session?: AppSession): UiTarget 
 
 export const toolsTabId = 'builtin:tools'
 export const sideChatTabId = 'builtin:side-chat'
+export const panelsRetiredEvent = 'pi-meme:panels-retired'
+export type PanelsRetiredDetail = {
+  hostId: string
+  panels: Array<{ id: string; generation?: number }>
+}
 
 export function isPersistentPanelTab(id: string) {
   return id !== sideChatTabId

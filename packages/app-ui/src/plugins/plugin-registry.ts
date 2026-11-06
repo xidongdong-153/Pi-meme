@@ -9,7 +9,15 @@ import type { ComposerAdapter, ComposerApi, RegisteredBeforeSendHook } from '@pi
 import type { RegisteredMessageAction } from '@pi-meme/plugin-sdk/message-actions'
 import type { RegisteredNavigation, RegisteredPage, UiPageRequest } from '@pi-meme/plugin-sdk/navigation'
 import type { UiDataSource, UiExternalStore, UiReactiveApi } from '@pi-meme/plugin-sdk/reactive'
-import type { UiContribution, UiPanel, UiPluginDescriptor, UiPluginModule, UiTarget } from '@pi-meme/plugin-sdk/ui'
+import {
+  uiPanelRequirements,
+  type UiContribution,
+  type UiPanel,
+  type UiPluginDescriptor,
+  type UiPluginModule,
+  type UiTarget,
+} from '@pi-meme/plugin-sdk/ui'
+import { panelsRetiredEvent, type PanelsRetiredDetail } from '../layout/panel-layout'
 import { createPluginUiExtensions } from './plugin-ui-extensions'
 import { PluginUiDataSource } from './plugin-ui-data-source'
 import type { PluginConsentRequest } from './plugin-ui-consent'
@@ -629,17 +637,34 @@ export class UiPluginRegistry {
                   validateId(panel.id)
                   if (panel.location !== 'right') throw new Error('插件面板位置无效，只能注册到聊天右侧栏')
                   if (!['app', 'project', 'session'].includes(panel.scope)) throw new Error('插件面板范围无效')
-                  if (!panel.title.trim() || typeof panel.render !== 'function')
+                  if (typeof panel.title !== 'string' || !panel.title.trim() || typeof panel.render !== 'function')
                     throw new Error('插件面板必须提供标题和 render(props)')
-                  candidate.panels.set(panel.id, {
+                  if (panel.launcher !== undefined && !['auto', 'hidden'].includes(panel.launcher))
+                    throw new Error('插件面板入口模式无效')
+                  if (
+                    panel.requirements !== undefined &&
+                    (!Array.isArray(panel.requirements) ||
+                      Array.from(panel.requirements).some((requirement) => !uiPanelRequirements.includes(requirement)))
+                  )
+                    throw new Error('插件面板数据依赖无效')
+                  const render = panel.render
+                  const registered: UiPanel = {
                     ...panel,
+                    requirements: panel.requirements ? Object.freeze([...new Set(panel.requirements)]) : undefined,
                     generation: descriptor.generation,
-                    render: (props) => panel.render({ ...props, host: candidate.host }),
-                  })
+                    render: (props) => render({ ...props, host: candidate.host }),
+                  }
+                  const previousPanel = candidate.panels.get(panel.id)
+                  if (previousPanel && this.active.get(descriptor.id) === candidate) this.retirePanels([previousPanel])
+                  candidate.panels.set(panel.id, registered)
                   if (this.active.get(descriptor.id) === candidate) this.changed()
                   return scope.own(() => {
-                    candidate.panels.delete(panel.id)
-                    if (this.active.get(descriptor.id) === candidate) this.changed()
+                    if (candidate.panels.get(registered.id) !== registered) return
+                    candidate.panels.delete(registered.id)
+                    if (this.active.get(descriptor.id) === candidate) {
+                      this.retirePanels([registered])
+                      this.changed()
+                    }
                   })
                 },
               },
@@ -717,7 +742,19 @@ export class UiPluginRegistry {
     return work
   }
 
+  private retirePanels(panels: UiPanel[]) {
+    if (typeof window === 'undefined' || !panels.length) return
+    window.dispatchEvent(
+      new CustomEvent<PanelsRetiredDetail>(panelsRetiredEvent, {
+        detail: {
+          hostId: this.getReactiveSnapshot().target.hostId,
+          panels: panels.map(({ id, generation }) => ({ id, generation })),
+        },
+      }),
+    )
+  }
   private async retire(plugin: ActivePlugin) {
+    this.retirePanels([...plugin.panels.values()])
     plugin.retired = true
     plugin.controller.abort()
     this.cancelConfirmation(plugin.descriptor.id)

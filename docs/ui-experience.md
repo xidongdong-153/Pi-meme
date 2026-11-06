@@ -37,6 +37,12 @@ Desktop 正常关窗、退出、受控重新加载和存储维护使用同一准
 
 切换会话或收起右栏时，已打开的工具保留实例和 DOM；隐藏视图不接收键盘输入，不抢焦点。刷新界面后恢复布局与文件标签，并重新附着仍存活的 Host 终端和 Desktop 网页。Host 重启不恢复终端进程；Desktop 进程重启不承诺恢复未提交的网页表单。
 
+工具目录按数据是否可查看显示入口。上下文窗口要求正式会话记录和真实主请求摘要；变更要求工作区修改或当前分支的轮次差异；计划、活动、子代理、来源、草图和会话树分别依赖自己的内容。文件、终端、网页和侧边聊天可主动使用，不要求已有聊天消息。已打开的文件与网页实例不在目录重复列出。
+
+入口显隐和标签保留独立：数据归零只隐藏新入口，已打开或恢复的标签继续存在，内容更新为空态；加载、断线和读取失败保留同一目标最后确认的内容并显示必要错误与重试。首次未知不显示内容型入口，不能把失败当成空数据。确认插件卸载、撤权或代次替换时清理相关实例和订阅，不清理其他会话的普通保留视图。
+
+变更入口使用轻量摘要，不通过挂载内容面板或读取完整差异判断。目录在前台时按事件、重新聚焦及约 10 秒兜底更新；完整内容由可见面板按需读取。入口打开时定位有内容的范围，消息操作定位指定轮次，恢复标签保留原选择。干净仓库仍可通过 Git 菜单的“查看变更”主动比较分支或提交。
+
 切换会话时定位到最新消息，包括切回保留的面板；同一会话临时隐藏再显示时保留阅读位置。聊天阅读位置按会话保存在当前窗口的 `sessionStorage`，记录底部状态、消息锚点和偏移，供刷新界面时恢复；恢复较早的锚点时按需读取历史。会话删除事件清理关联布局和工具引用。
 
 实现入口为 [WorkspacePanels](../packages/app-ui/src/layout/workspace-panels.tsx)、[RetainedToolPanels](../packages/app-ui/src/layout/retained-tool-panels.tsx)、[useSidebarLayout](../packages/app-ui/src/layout/use-sidebar-layout.ts)、[useWorkspaceView](../packages/app-ui/src/layout/use-workspace-view.ts) 和 [useConversationScroll](../packages/chat/src/ui/conversation/use-conversation-scroll.ts)。

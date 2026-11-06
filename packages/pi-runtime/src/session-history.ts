@@ -4,7 +4,12 @@ import type { SessionHistoryData, SessionWindow } from '@pi-meme/contracts/sessi
 import { projectSessionWindow } from '@pi-meme/contracts/session-window'
 import { loadPiSdk, getPiVersion } from './sdk/load'
 import { projectSessionHistory } from './history-projection'
-import { readIndexedSessionHistory, invalidateHistoryIndex, prefetchHistoryIndex } from './session-history-index'
+import {
+  readIndexedSessionHistory,
+  readIndexedBranchUserEntries,
+  invalidateHistoryIndex,
+  prefetchHistoryIndex,
+} from './session-history-index'
 
 export type { SessionHistoryData } from '@pi-meme/contracts/sessions'
 
@@ -45,7 +50,7 @@ export async function readSessionHistory(filePath: string, window?: SessionWindo
     const data = await projectSessionHistory(filePath, entries)
     const after = await stat(filePath)
     data.historyRevision = createHash('sha256')
-      .update(`2:${getPiVersion()}:${before.dev}:${before.ino}:${before.size}:${before.mtimeMs}:${before.ctimeMs}`)
+      .update(`3:${getPiVersion()}:${before.dev}:${before.ino}:${before.size}:${before.mtimeMs}:${before.ctimeMs}`)
       .digest('hex')
     data.historyDetails = 'complete'
     data.totalMessages = data.messages.length
@@ -67,6 +72,11 @@ export async function readSessionHistory(filePath: string, window?: SessionWindo
   } finally {
     if (pending.get(filePath) === request) pending.delete(filePath)
   }
+}
+
+/** 冷旧格式回退复用完整历史缓存；常规路径仅读取已有索引。 */
+export async function readSessionBranchUserEntries(filePath: string) {
+  return readIndexedBranchUserEntries(filePath, () => readSessionHistory(filePath))
 }
 
 export async function prefetchSessionHistory(filePath: string): Promise<void> {

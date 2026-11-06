@@ -94,6 +94,7 @@ export type AppHostCapabilities = {
     | 'terminal-list'
     | 'system-tools'
     | 'git'
+    | 'git-availability'
     | 'interaction'
     | 'agents'
     | 'plans'
@@ -221,6 +222,7 @@ export type HostApi = {
     close: (ref: TerminalRef, options: MutationOptions) => Promise<void>
   }
   git: {
+    availability?: (ref: SessionRef) => Promise<import('./git-availability').GitAvailability>
     turnChangeSummaries: (ref: SessionRef, entryIds: string[]) => Promise<import('./turn-changes').TurnChangeSummary[]>
     turnFile: (ref: SessionRef, entryId: string, path: string) => Promise<GitReviewFileContent>
     undoTurn: (ref: SessionRef, entryId: string, options: MutationOptions) => Promise<void>

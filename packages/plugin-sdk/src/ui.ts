@@ -23,6 +23,9 @@ export type UiContributionMatch = { ownerId?: string; toolName?: string; customT
 export type UiContributionProps = {
   /** 隐藏时暂停刷新和测量，保留实例与执行任务。 */
   visible?: boolean
+  /** 最近一次打开意图；恢复或切换已有标签不会重新应用工具目录的默认选择。 */
+  panelOpenIntent?: 'launcher' | 'manual' | 'message' | 'restore'
+  panelOpenRevision?: number
   target: UiTarget
   snapshot: UiSessionMetadata | null
   messages?: readonly UiMessageMetadata[]
@@ -46,6 +49,18 @@ export type UiContribution = {
   render: (props: UiContributionProps) => ReactNode
 }
 export type UiPanelLocation = 'right'
+export const uiPanelRequirements = Object.freeze([
+  'history',
+  'historyTree',
+  'contextRequests',
+  'changes',
+  'activities',
+  'agents',
+  'plans',
+  'sources',
+  'visualizations',
+] as const)
+export type UiPanelRequirement = (typeof uiPanelRequirements)[number]
 export type UiPanel = {
   id: string
   title: string
@@ -53,6 +68,10 @@ export type UiPanel = {
   location: UiPanelLocation
   generation?: number
   scope: 'app' | 'project' | 'session'
+  /** 工具目录入口所需的会话数据；多个条件同时满足。空数据不关闭已有标签。 */
+  requirements?: readonly UiPanelRequirement[]
+  /** 已打开的文件、网页等实例可隐藏工具目录入口，仍支持显式打开与恢复。 */
+  launcher?: 'auto' | 'hidden'
   render: (props: UiContributionProps) => ReactNode
 }
 export type UiPluginContext = {

@@ -77,7 +77,9 @@ export function useVisualizations({
   onSubmit: (text: string, context: VisualizationMessageContext) => Promise<boolean>
 }) {
   const scope = JSON.stringify([session?.hostId, session?.sessionId])
-  const [catalog, setCatalog] = useState<{ scope: string; documents: Summary[] }>({ scope, documents: [] })
+  const [catalog, setCatalog] = useState<{ host: HostApi; scope: string; documents: Summary[] }>()
+  const [retryRevision, setRetryRevision] = useState(0)
+  const retry = useCallback(() => setRetryRevision((value) => value + 1), [])
   const [selection, setSelection] = useState<{ scope: string; reference: VisualizationRef; follow?: boolean }>()
   useEffect(() => {
     try {
@@ -90,8 +92,10 @@ export function useVisualizations({
       /* 无效的本地选择使用最新草图。 */
     }
   }, [scope])
-  const [error, setError] = useState('')
-  const documents = catalog.scope === scope ? catalog.documents : []
+  const [failure, setFailure] = useState<{ host: HostApi; scope: string; error: string }>()
+  const error = failure?.host === host && failure.scope === scope ? failure.error : ''
+  const currentCatalog = catalog?.host === host && catalog.scope === scope ? catalog : undefined
+  const documents = currentCatalog?.documents ?? []
   useEffect(() => {
     let active = true
     if (!session || !host.visualizations) return
@@ -99,17 +103,17 @@ export function useVisualizations({
       .list(session)
       .then((values) => {
         if (active) {
-          setCatalog({ scope, documents: values })
-          setError('')
+          setCatalog({ host, scope, documents: values })
+          setFailure(undefined)
         }
       })
       .catch((cause) => {
-        if (active) setError(String(cause))
+        if (active) setFailure({ host, scope, error: String(cause) })
       })
     return () => {
       active = false
     }
-  }, [host, scope, revision])
+  }, [host, scope, revision, retryRevision])
   const chosen = selection?.scope === scope ? selection : undefined
   const versions = documents.filter((d) => d.id === chosen?.reference.id)
   const selected =
@@ -221,5 +225,20 @@ export function useVisualizations({
       )}
     </div>
   )
-  return { render, panel, available: documents.length > 0 }
+  return {
+    render,
+    panel,
+    available: documents.length > 0,
+    status: !host.visualizations
+      ? ('unsupported' as const)
+      : !session
+        ? ('ready' as const)
+        : error
+          ? ('error' as const)
+          : currentCatalog
+            ? ('ready' as const)
+            : ('loading' as const),
+    error,
+    retry,
+  }
 }

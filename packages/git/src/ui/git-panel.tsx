@@ -34,6 +34,13 @@ export type GitReviewBridge = {
   file: (input: { query: GitReviewQuery; path: string }) => Promise<GitReviewFileContent>
   options: (input: { search?: string; offset?: number }) => Promise<GitReviewOptions>
   turnFile: (entryId: string, path: string) => Promise<GitReviewFileContent>
+  turnSummary?: (entryId: string) => Promise<TurnChangeSummary | undefined>
+}
+
+export type GitPanelOpenRequest = {
+  revision: number
+  scope: 'unstaged' | 'staged' | 'turn'
+  entryId?: string
 }
 
 export function GitPanel({
@@ -45,7 +52,9 @@ export function GitPanel({
   turnChanges,
   previousTurnChanges,
   selectedPath,
+  selectedEntryId,
   selectionRevision = 0,
+  openRequest,
   onOpenFile,
 }: {
   visible?: boolean
@@ -56,15 +65,24 @@ export function GitPanel({
   turnChanges?: TurnChangeSummary
   previousTurnChanges?: TurnChangeSummary
   selectedPath?: string
+  selectedEntryId?: string
   selectionRevision?: number
+  openRequest?: GitPanelOpenRequest
   onOpenFile?: (absolutePath: string) => Promise<void>
 }) {
   const storageKey = projectReviewKey(projectKey)
-  const [preferences, setPreferences] = useState(() => ({
+  const initialPreferences = () => ({
     ...readProjectReview(storageKey),
+    ...(openRequest ? { scope: openRequest.scope } : {}),
     ...(selectionRevision ? { scope: 'turn' as const } : {}),
+  })
+  const [preferences, setPreferences] = useState<ProjectReviewPreferences>(initialPreferences)
+  const [selection, setSelection] = useState(() => ({
+    storageKey,
+    revision: selectionRevision,
+    openRevision: openRequest?.revision,
+    entryId: selectionRevision ? selectedEntryId : openRequest?.entryId,
   }))
-  const [revision, setRevision] = useState(selectionRevision)
   const [reading, setReading] = useState(readReadingPreferences)
   const [snapshot, setSnapshot] = useState<GitReviewSnapshot>()
   const [openPaths, setOpenPaths] = useState<Set<string>>(() => new Set(selectedPath ? [selectedPath] : []))
@@ -84,19 +102,52 @@ export function GitPanel({
   bridgeRef.current = bridge
   const scope = preferences.scope
   const agentScope = scope === 'turn' || scope === 'previous-turn'
-  const changes = scope === 'previous-turn' ? previousTurnChanges : turnChanges
+  const entryId =
+    scope === 'previous-turn'
+      ? previousTurnChanges?.entryId
+      : (selection.entryId ?? selectedEntryId ?? turnChanges?.entryId)
+  const turnKey = JSON.stringify([storageKey, cwd, scope, entryId])
+  const [turnSnapshot, setTurnSnapshot] = useState<{ key: string; changes?: TurnChangeSummary }>()
+  const providedChanges = scope === 'previous-turn' ? previousTurnChanges : turnChanges
+  const changes =
+    turnSnapshot?.key === turnKey
+      ? turnSnapshot.changes
+      : providedChanges?.entryId === entryId
+        ? providedChanges
+        : undefined
   const ref = scope === 'branch' ? preferences.branch : scope === 'commit' ? preferences.commit : undefined
   const query = useMemo<GitReviewQuery | undefined>(
     () => (scope === 'turn' || scope === 'previous-turn' ? undefined : { scope, ...(ref ? { ref } : {}) }),
     [scope, ref],
   )
-  const queryKey = `${scope}:${ref ?? ''}`
+  const queryKey = JSON.stringify([storageKey, cwd, scope, ref])
   const [snapshotKey, setSnapshotKey] = useState('')
   const currentSnapshot = snapshotKey === queryKey ? snapshot : undefined
-  if (revision !== selectionRevision) {
-    setRevision(selectionRevision)
-    setPreferences((value) => ({ ...value, scope: 'turn' }))
+  if (selection.storageKey !== storageKey) {
+    setSelection({
+      storageKey,
+      revision: selectionRevision,
+      openRevision: openRequest?.revision,
+      entryId: selectionRevision ? selectedEntryId : openRequest?.entryId,
+    })
+    setPreferences(initialPreferences())
     setOpenPaths(new Set(selectedPath ? [selectedPath] : []))
+    setError('')
+    setFeedback('')
+  } else if (selection.revision !== selectionRevision || selection.openRevision !== openRequest?.revision) {
+    const messageSelection = selection.revision !== selectionRevision && selectionRevision !== 0
+    const launcherSelection = openRequest && selection.openRevision !== openRequest.revision
+    setSelection({
+      storageKey,
+      revision: selectionRevision,
+      openRevision: openRequest?.revision,
+      entryId: messageSelection ? selectedEntryId : launcherSelection ? openRequest.entryId : selection.entryId,
+    })
+    if (messageSelection || launcherSelection) {
+      setPreferences((value) => ({ ...value, scope: messageSelection ? 'turn' : openRequest!.scope }))
+      setOpenPaths(new Set(messageSelection && selectedPath ? [selectedPath] : []))
+      setError('')
+    }
   }
   function select(value: ProjectReviewPreferences) {
     setPreferences(value)
@@ -148,17 +199,27 @@ export function GitPanel({
     }
     const task = (async () => {
       const id = ++request.current
-      if (!query || ((query.scope === 'branch' || query.scope === 'commit') && !query.ref)) {
+      if (query && (query.scope === 'branch' || query.scope === 'commit') && !query.ref) {
+        setLoading(false)
+        return
+      }
+      if (!query && (!entryId || !bridgeRef.current.turnSummary)) {
         setLoading(false)
         setGeneration((value) => value + 1)
         return
       }
       setLoading(true)
       try {
-        const result = await bridgeRef.current.review(query)
-        if (id !== request.current) return
-        setSnapshot(result)
-        setSnapshotKey(queryKey)
+        if (query) {
+          const result = await bridgeRef.current.review(query)
+          if (id !== request.current || !visibleRef.current) return
+          setSnapshot(result)
+          setSnapshotKey(queryKey)
+        } else {
+          const result = await bridgeRef.current.turnSummary!(entryId!)
+          if (id !== request.current || !visibleRef.current) return
+          setTurnSnapshot({ key: turnKey, changes: result })
+        }
         setError('')
         setGeneration((value) => value + 1)
       } catch (cause) {
@@ -175,7 +236,7 @@ export function GitPanel({
     })
     pendingRefresh.current = task
     return task
-  }, [query, queryKey])
+  }, [query, queryKey, entryId, turnKey])
   refreshRef.current = refresh
   useEffect(() => {
     if (!visible) return
@@ -189,14 +250,14 @@ export function GitPanel({
       window.clearInterval(timer)
       window.removeEventListener('focus', focus)
     }
-  }, [refresh, refreshToken, visible, query])
+  }, [refresh, refreshToken, visible, query, turnChanges?.revision, previousTurnChanges?.revision])
   useEffect(() => {
     if (!visible || !selectedPath || scope !== 'turn') return
     const row = Array.from(panel.current?.querySelectorAll<HTMLElement>('[data-review-path]') ?? []).find(
       (element) => element.dataset.reviewPath === selectedPath,
     )
     row?.scrollIntoView?.({ block: 'nearest' })
-  }, [selectionRevision, selectedPath, scope, visible])
+  }, [selectionRevision, selectedPath, scope, visible, changes?.revision, changes?.entryId])
   const files: GitReviewFile[] = agentScope
     ? (changes?.files ?? []).map((file) => ({
         path: file.path,
@@ -234,7 +295,7 @@ export function GitPanel({
           saveReadingPreferences(value)
         }}
       >
-        {(scope === 'branch' || scope === 'commit') && (
+        {visible && (scope === 'branch' || scope === 'commit') && (
           <ReviewTargetPicker
             kind={scope}
             value={ref}
@@ -274,7 +335,7 @@ export function GitPanel({
       <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden" aria-busy={loading}>
         {files.map((file) => (
           <ReviewFile
-            key={`${queryKey}:${agentScope ? changes?.entryId : ''}:${file.path}`}
+            key={`${queryKey}:${agentScope ? entryId : ''}:${file.path}`}
             visible={visible}
             file={file}
             open={openPaths.has(file.path)}
@@ -472,7 +533,7 @@ function ReviewFile({
         >
           <ExternalLink className="size-3.5" />
         </Button>
-        <DropdownMenu>
+        <DropdownMenu key={String(visible)}>
           <DropdownMenuTrigger asChild>
             <Button
               variant="ghost"

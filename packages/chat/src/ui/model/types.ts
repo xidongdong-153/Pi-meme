@@ -42,6 +42,10 @@ export type ChatState = {
   planCheckpoints?: PlanCheckpoint[]
   skillUsages?: BranchSkillUsage[]
   messages: PiMessage[]
+  /** 当前历史投影的总量；分页未加载或未知不等于没有记录。 */
+  totalMessages?: number
+  historyRevision?: string
+  historyAvailability?: { tree: boolean; sources: boolean }
   messagePage?: SessionMessagePage
   sessionEntries?: PiSessionEntries
   branchAttachments?: ChatBranchAttachment[]

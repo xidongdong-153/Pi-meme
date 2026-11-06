@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { lstat, mkdir, readFile, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, readFile, readdir, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { TurnChanges, TurnChangeFile, TurnChangeSummary } from '@pi-meme/contracts/turn-changes'
 import type { GitReviewFileContent } from '@pi-meme/contracts/git-review'
@@ -205,6 +205,29 @@ export async function readTurnChanges(sessionFile: string, entryIds: string[]): 
     })
   }
   return result
+}
+
+/** 当前分支的轮次存在性；不生成 patch，也不探测目标文件是否还存在。 */
+export async function readTurnChangePresence(
+  sessionFile: string,
+  entryIds: readonly string[],
+): Promise<{ hasChanges: boolean; entryId?: string; revision: string }> {
+  let names: Set<string>
+  try {
+    names = new Set(await readdir(`${sessionFile}.changes`))
+  } catch (cause) {
+    if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return { hasChanges: false, revision: 'empty' }
+    throw cause
+  }
+  for (let index = entryIds.length - 1; index >= 0; index--) {
+    const entryId = entryIds[index]!
+    if (!names.has(path.basename(location(sessionFile, entryId)))) continue
+    const turn = await readCachedTurn(sessionFile, entryId)
+    // 撤销后历史仍可查看；只排除本轮最终内容与初始内容完全相同的记录。
+    if (turn?.files.some((file) => file.before !== file.after))
+      return { hasChanges: true, entryId, revision: turn.revision }
+  }
+  return { hasChanges: false, revision: 'empty' }
 }
 
 export async function readTurnChangeSummaries(sessionFile: string, entryIds: string[]): Promise<TurnChangeSummary[]> {

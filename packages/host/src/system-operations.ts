@@ -262,6 +262,15 @@ export function createSystemOperations(context: SystemOperationContext) {
   register('git.snapshot', '读取会话仓库状态', '[SessionRef?]', false, 'session', ([ref]) =>
     api.git.snapshot(target(ref)),
   )
+  if (api.git.availability)
+    register(
+      'git.availability',
+      '轻量读取当前会话工作区与当前分支轮次是否有可查看变更，不含文件正文或差异',
+      '[SessionRef?]',
+      false,
+      'session',
+      ([ref]) => api.git.availability!(target(ref)),
+    )
   register('activities.list', '列出会话启动的后台服务', '[SessionRef?]', false, 'session', ([ref]) =>
     api.activities.list(target(ref)),
   )

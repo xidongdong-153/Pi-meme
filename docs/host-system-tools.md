@@ -26,7 +26,7 @@ Agent 使用 `system_read` 和 `system_write` 操作工作台。先调用 `syste
 | 草图         | `visualizations.list`、`visualizations.read`                                                | 沿用 `save_visualization` 创建与保存版本                                                         |
 | 上下文窗口   | `contextWindow.list`、`get`、`item`、`reply`、`piece`、`image`                              | 只读；默认摘要，正文和图片显式分页读取                                                           |
 | 文件         | `files.list`、`read`、`preview`、`search`                                                   | `files.write`，需文件修订                                                                        |
-| Git 与计划   | `git.snapshot`、`git.diff`、`plans.list`                                                    | Git 现有专用入口保持原权限                                                                       |
+| Git 与计划   | `git.availability`、`git.snapshot`、`git.diff`、`plans.list`                                | Git 现有专用入口保持原权限                                                                       |
 | 后台活动     | `activities.list`、`activities.logs`                                                        | `activities.stop`                                                                                |
 | 个人资料     | `profile.get`、`profile.avatar`                                                             | `profile.save`，需修订                                                                           |
 | 外观         | `appearance.get`                                                                            | `appearance.save`，需修订，仅发起客户端                                                          |
@@ -53,6 +53,12 @@ Agent 使用 `system_read` 和 `system_write` 操作工作台。先调用 `syste
 ### 上下文窗口
 
 `contextWindow.*` 使用 `[query-or-requestId, SessionRef?]`，缺省目标为执行会话。`list/get` 返回请求摘要，`item/reply` 返回项目和 piece 元数据；只有 `piece/image` 显式读取正文或内联位图。列表最多100条、文本最多20000字符且序列化文本限48 KiB。所有方法都是会话范围只读操作，临时会话仍校验归属，不会打开或切换客户端面板。完整参数、估算与保留语义见[会话上下文窗口](context-window.md)。
+
+### Git 可用性摘要
+
+`git.availability([SessionRef?])` 只读查询该会话是否有可查看变更，正式 HostApi 需要 `git-availability` 子能力。返回工作区与当前会话分支的轮次差异两类独立结果，以及有内容的建议打开范围和修订；不包含文件正文或 patch。工作区只运行有超时与输出限制的 status，轮次只比较已保存的前后快照。非 Git 目录仍可有轮次记录；已撤销的轮次保留历史可读性。读取失败和不支持不表示工作区干净。
+
+操作复用显式会话访问校验，不创建 Worker、不切换客户端选择。旧 Host 不支持新摘要时，客户端保留原有 Git 显式查看能力，不将未知的未加载历史判为空。
 
 ### 会话查看
 

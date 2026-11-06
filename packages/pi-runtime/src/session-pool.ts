@@ -1355,6 +1355,7 @@ export class PiSessionPool implements PiRuntime {
             messagePage: history?.messagePage,
             historyRevision: history?.historyRevision,
             historyDetails: history?.historyDetails,
+            historyAvailability: history?.historyAvailability,
             totalMessages: history?.totalMessages,
             sessionEntries: history?.sessionEntries ?? record.sessionEntries,
             branchAttachments: history?.branchAttachments ?? record.branchAttachments,
@@ -1923,6 +1924,8 @@ export class PiSessionPool implements PiRuntime {
       sessionFile: record.sessionFile,
       sessionId: record.session.getActiveSession().sessionId ?? record.stats?.sessionId,
       session: record.session,
+      // 预分配路径不等于有已保存历史；恢复过的文件丢失仍须报错。
+      historySaved: record.restored || record.messages.length > 0 || (record.totalMessages ?? 0) > 0,
       modeRevision: record.modeRevision ?? 0,
       temporary: record.temporary ? true : undefined,
     }

@@ -65,6 +65,8 @@ import { useAppSession } from './session/use-app-session'
 import { messageText } from '@pi-meme/chat/ui/model/message-text'
 import { LiveTurnChanges } from '@pi-meme/chat/ui/conversation/turn-changes'
 import { useTurnChanges } from './session/use-turn-changes'
+import { useGitAvailability } from './session/use-git-availability'
+import type { PanelDataFacts } from './layout/panel-availability'
 import { ContextUsageRing } from '@pi-meme/models/ui/context-usage-ring'
 import { ContextWindowTool, useContextWindowApi, useSessionContextRequest } from './panels/context-window-tool'
 import { useSettings } from '@pi-meme/settings/ui/use-settings'
@@ -76,7 +78,6 @@ import { PlanCard } from './panels/plan-card'
 import { PlanDecision } from './panels/plan-decision'
 import { SourcesPanel } from './panels/sources-panel'
 import { collectSources } from './panels/sources-data'
-import type { RightSidebarTab } from './layout/right-sidebar'
 import type { PluginClient } from '@pi-meme/client/plugin-client'
 import type { UiContributionProps, UiPluginDescriptor, UiPluginSlot, UiPanel, UiTarget } from '@pi-meme/plugin-sdk/ui'
 import { freezeUiValue } from '@pi-meme/contracts/plugin-ui-data'
@@ -218,7 +219,12 @@ function AppContent({
     [call],
   )
   const [terminalPanel, setTerminalPanel] = useState<UiPanel>()
-  const [systemRequest, setSystemRequest] = useState<{ id: string; revision: number; target: UiTarget }>()
+  const [systemRequest, setSystemRequest] = useState<{
+    id: string
+    revision: number
+    target: UiTarget
+    intent?: 'manual' | 'message'
+  }>()
   useEffect(() => () => fileStore.dispose(), [fileStore])
   useEffect(() => {
     let stopped = false
@@ -387,10 +393,6 @@ function AppContent({
       : chat.connection.status !== 'disconnected' && chat.connection.status !== 'connecting',
   )
   const cwd = chat.connection.cwd
-  const availableRightTabs: RightSidebarTab[] = []
-  if (chat.chat.agents?.some((agent) => agent.parentAgentId && agent.rootSessionKey === chat.connection.sessionKey))
-    availableRightTabs.push('subagents')
-  if (chat.planDocuments.length || (chat.editing && chat.chat.planState?.document)) availableRightTabs.push('plan')
   const appearance = useAppearance()
   useSystemClient(bridge, browserPlatform, hostId, appearance.bridge)
   const settings = useSettings(bridge, true, false)
@@ -505,6 +507,7 @@ function AppContent({
       id: 'builtin:git',
       revision: Date.now(),
       target: sessionUiTarget(appSession.hostId, appSession),
+      intent: 'message',
     })
   }
   const loadConversationImage = useMemo(() => {
@@ -567,7 +570,19 @@ function AppContent({
   const projectsOpen = route.kind === 'projects'
   const customizationOpen = route.kind === 'customization'
   const chatVisible = route.kind === 'chat'
-  const contextRequest = useSessionContextRequest(host, contextApi, appSession, active && chatVisible)
+  const contextState = useSessionContextRequest(host, contextApi, appSession, active && chatVisible)
+  const contextRequest = contextState.request
+  const [toolsVisible, setToolsVisible] = useState(false)
+  const gitAvailability = useGitAvailability({
+    host,
+    session: appSession,
+    enabled: active && chatVisible && toolsVisible && !remoteOffline,
+    revision: JSON.stringify([chat.refreshToken, chat.chat.historyRevision]),
+    targetKey: JSON.stringify([cwd, chat.connection.generation, chat.editingEntryId, chat.chat.historyRevision]),
+    onEvent: bridge.onEvent,
+    sessionKey: runtimeSessionKey,
+    knownTurns: turnChanges.turns,
+  })
   const [chatPaneVisible, setChatPaneVisible] = useState(false)
   useEffect(() => {
     chat.setReadVisible(chatVisible && active && chatPaneVisible)
@@ -1263,6 +1278,7 @@ function AppContent({
             onSwitch={chat.switchGitBranch}
             onCreateBranch={chat.createGitBranch}
             onCreateWorktree={chat.createGitWorktree}
+            onReview={() => openTool('builtin:git')}
           />
         )}
       </div>
@@ -1532,13 +1548,46 @@ function AppContent({
     setSystemRequest({ id, revision: Date.now(), target: pluginProps.target })
   }
   const historyPanels = historyPanelsAvailable(chat.chat, chat.historyDetailsDeferred, sources.length)
+  const hasHistory = (chat.chat.totalMessages ?? 0) > 0 || chat.chat.messages.length > 0
   const visualize = useVisualizations({
     host,
-    session: appSession,
+    session: hasHistory ? appSession : undefined,
     revision: `${chat.chat.messages.length}:${chat.chat.sessionEntries?.leafId ?? ''}`,
     openPanel: () => openTool('builtin:visualize'),
     onSubmit: (text, context) => chat.submitVisualization(text, context),
   })
+  const historyKnown = chat.chat.totalMessages !== undefined || (!chat.loading && !chat.historyDetailsDeferred)
+  const dataFacts: PanelDataFacts = {
+    history: {
+      status: hasHistory || historyKnown ? 'ready' : 'loading',
+      value: hasHistory || (historyKnown ? false : undefined),
+    },
+    historyTree: { status: chat.loading && !historyPanels.tree ? 'loading' : 'ready', value: historyPanels.tree },
+    contextRequests: contextState.fact,
+    changes: gitAvailability.fact,
+    activities: {
+      status:
+        activities.state.error || !activities.state.connected ? 'error' : activities.state.known ? 'ready' : 'loading',
+      value: activities.state.known ? activities.count > 0 : undefined,
+      error: activities.state.error || (!activities.state.connected ? '服务未连接' : undefined),
+    },
+    agents: {
+      status: 'ready',
+      value: Boolean(
+        chat.chat.agents?.some((agent) => agent.parentAgentId && agent.rootSessionKey === runtimeSessionKey),
+      ),
+    },
+    plans: { status: 'ready', value: chat.planDocuments.length > 0 },
+    sources: { status: 'ready', value: historyPanels.sources },
+    visualizations: { status: visualize.status, value: visualize.available, error: visualize.error },
+  }
+  const retryPanelData = useCallback(() => {
+    gitAvailability.retry()
+    contextState.retry()
+    visualize.retry()
+    if (appSession) void activities.store.refresh(appSession)
+    void chat.refreshSnapshot()
+  }, [gitAvailability.retry, contextState.retry, visualize.retry, appSession, activities.store, chat.refreshSnapshot])
   const [browserFocus, setBrowserFocus] = useState(0)
   const [browserSettingsTarget, setBrowserSettingsTarget] = useState<'general' | 'history' | 'downloads' | 'clear'>(
     'general',
@@ -1622,10 +1671,11 @@ function AppContent({
     return () => document.removeEventListener('click', follow, true)
   }, [browserPlatform, browserOwner, active, chatVisible, chat.setError])
   const panels: UiPanel[] = [
-    ...(contextApi && contextRequest
+    ...(contextApi
       ? [
           {
             id: 'builtin:context-window',
+            requirements: ['history', 'contextRequests'] as const,
             title: '上下文窗口',
             icon: <Blocks />,
             location: 'right' as const,
@@ -1644,10 +1694,11 @@ function AppContent({
           },
         ]
       : []),
-    ...(visualize.available
+    ...(host.visualizations
       ? [
           {
             id: 'builtin:visualize',
+            requirements: ['visualizations'] as const,
             title: '草图',
             icon: <NotebookPen />,
             location: 'right' as const,
@@ -1658,6 +1709,7 @@ function AppContent({
       : []),
     ...fileTabs.map((tab): UiPanel => ({
       id: tab.id,
+      launcher: 'hidden',
       title: tab.path.split(/[\\/]/).at(-1) || tab.path,
       icon: <FileIcon path={tab.path} />,
       location: 'right',
@@ -1668,6 +1720,7 @@ function AppContent({
     })),
     ...browser.tabs.map((tab) => ({
       id: `builtin:browser:${tab.id}`,
+      launcher: 'hidden' as const,
       title: tab.title || '新网页',
       icon: <BrowserFavicon key={tab.favicon} src={tab.favicon} />,
       location: 'right' as const,
@@ -1690,6 +1743,7 @@ function AppContent({
     })),
     {
       id: 'builtin:activities',
+      requirements: ['activities'],
       title: activities.count ? `活动 · ${activities.count}` : '活动',
       icon: <Activity />,
       location: 'right',
@@ -1707,6 +1761,7 @@ function AppContent({
     },
     {
       id: 'builtin:git',
+      requirements: ['changes'],
       title: '变更',
       icon: <FileDiff />,
       location: 'right',
@@ -1723,6 +1778,7 @@ function AppContent({
               file: (input) => host.git.reviewFile(props.target.session!, input),
               options: (input) => host.git.reviewOptions(props.target.session!, input),
               turnFile: (entryId, path) => host.git.turnFile(props.target.session!, entryId, path),
+              turnSummary: async (entryId) => (await host.git.turnChangeSummaries(props.target.session!, [entryId]))[0],
             }}
             onOpenFile={
               hostLocal
@@ -1737,6 +1793,18 @@ function AppContent({
                 : undefined
             }
             refreshToken={chat.refreshToken}
+            openRequest={
+              props.panelOpenIntent === 'launcher' &&
+              props.panelOpenRevision !== undefined &&
+              gitAvailability.snapshot?.suggestedOpen
+                ? { revision: props.panelOpenRevision, ...gitAvailability.snapshot.suggestedOpen }
+                : undefined
+            }
+            selectedEntryId={
+              props.panelOpenIntent === 'message' && changeSelection?.sessionId === props.target.session.sessionId
+                ? changeSelection.entryId
+                : undefined
+            }
             turnChanges={turnChanges.turns.find(
               (turn) =>
                 turn.entryId ===
@@ -1755,10 +1823,14 @@ function AppContent({
               return turn.entryId === entries[entries.indexOf(current ?? '') - 1]
             })}
             selectedPath={
-              changeSelection?.sessionId === props.target.session.sessionId ? changeSelection.path : undefined
+              props.panelOpenIntent === 'message' && changeSelection?.sessionId === props.target.session.sessionId
+                ? changeSelection.path
+                : undefined
             }
             selectionRevision={
-              changeSelection?.sessionId === props.target.session.sessionId ? changeSelection.revision : 0
+              props.panelOpenIntent === 'message' && changeSelection?.sessionId === props.target.session.sessionId
+                ? changeSelection.revision
+                : 0
             }
           />
         ) : null,
@@ -1783,73 +1855,61 @@ function AppContent({
         </p>
       ),
     },
-    ...(availableRightTabs.includes('subagents')
-      ? [
-          {
-            id: 'builtin:subagents',
-            title: '子代理',
-            icon: <Network />,
-            location: 'right' as const,
-            scope: 'session' as const,
-            render: (props: UiContributionProps) => (
-              <SubagentsPanel
-                key={chat.connection.sessionKey}
-                bridge={bridge}
-                sessionKey={chat.connection.sessionKey}
-                files={host.files}
-                fileSession={props.target.session}
-              />
-            ),
-          },
-        ]
-      : []),
-    ...(availableRightTabs.includes('plan')
-      ? [
-          {
-            id: 'builtin:plan',
-            title: '计划',
-            icon: <NotebookPen />,
-            location: 'right' as const,
-            scope: 'session' as const,
-            render: () => <PlanPanel documents={chat.planDocuments} />,
-          },
-        ]
-      : []),
-    ...(historyPanels.tree
-      ? [
-          {
-            id: 'builtin:session-tree',
-            title: '会话树',
-            icon: <ListTree />,
-            location: 'right' as const,
-            scope: 'session' as const,
-            render: () => (
-              <HistoryDetails load={chat.loadHistoryDetails}>
-                <SessionTreePanel sessionEntries={chat.chat.sessionEntries} />
-              </HistoryDetails>
-            ),
-          },
-        ]
-      : []),
-    ...(historyPanels.sources
-      ? [
-          {
-            id: 'builtin:sources',
-            title: '来源',
-            icon: <GitFork />,
-            location: 'right' as const,
-            scope: 'session' as const,
-            render: (props: UiContributionProps) =>
-              props.target.session ? (
-                <MessageImageLoaderContext value={loadConversationImage}>
-                  <HistoryDetails load={chat.loadHistoryDetails}>
-                    <SourcesPanel sources={sources} />
-                  </HistoryDetails>
-                </MessageImageLoaderContext>
-              ) : null,
-          },
-        ]
-      : []),
+    {
+      id: 'builtin:subagents',
+      requirements: ['agents'],
+      title: '子代理',
+      icon: <Network />,
+      location: 'right',
+      scope: 'session',
+      render: (props) => (
+        <SubagentsPanel
+          key={chat.connection.sessionKey}
+          bridge={bridge}
+          sessionKey={chat.connection.sessionKey}
+          files={host.files}
+          fileSession={props.target.session}
+        />
+      ),
+    },
+    {
+      id: 'builtin:plan',
+      requirements: ['plans'],
+      title: '计划',
+      icon: <NotebookPen />,
+      location: 'right',
+      scope: 'session',
+      render: () => <PlanPanel documents={chat.planDocuments} />,
+    },
+    {
+      id: 'builtin:session-tree',
+      requirements: ['historyTree'],
+      title: '会话树',
+      icon: <ListTree />,
+      location: 'right',
+      scope: 'session',
+      render: () => (
+        <HistoryDetails load={chat.loadHistoryDetails}>
+          <SessionTreePanel sessionEntries={chat.chat.sessionEntries} />
+        </HistoryDetails>
+      ),
+    },
+    {
+      id: 'builtin:sources',
+      requirements: ['sources'],
+      title: '来源',
+      icon: <GitFork />,
+      location: 'right',
+      scope: 'session',
+      render: (props) =>
+        props.target.session ? (
+          <MessageImageLoaderContext value={loadConversationImage}>
+            <HistoryDetails load={chat.loadHistoryDetails}>
+              <SourcesPanel sources={sources} />
+            </HistoryDetails>
+          </MessageImageLoaderContext>
+        ) : null,
+    },
     ...pluginPanels,
   ]
   async function invokeSystemSkill(name: string, prompt?: string) {
@@ -1950,6 +2010,9 @@ function AppContent({
             )}
             <WorkspacePanels
               sessionTitle={title}
+              dataFacts={dataFacts}
+              onDataRetry={retryPanelData}
+              onToolsVisibilityChange={setToolsVisible}
               onNewWebPage={browserPlatform && browser.ready ? () => void browser.create() : undefined}
               browserPanelIds={browser.tabs.map((tab) => `builtin:browser:${tab.id}`)}
               onClosePanel={(id) => {
@@ -2005,7 +2068,6 @@ function AppContent({
               profile={userProfile.profile}
               profileLoading={userProfile.showPlaceholder}
               panels={panels}
-              onLoadTools={chat.loadHistoryDetails}
               activity={{
                 count: activities.count,
                 known:

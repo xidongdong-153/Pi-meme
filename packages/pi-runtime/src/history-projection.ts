@@ -194,5 +194,13 @@ export async function projectSessionHistory(
     thinkingLevel: context.thinkingLevel as ThinkingLevel,
     stats: computeHistoryStats(history, header.id, filePath),
   }
+  data.historyAvailability = {
+    tree: Boolean(
+      data.sessionEntries?.entries.some((entry) =>
+        ['message', 'custom_message', 'compaction', 'branch_summary'].includes(entry.type),
+      ),
+    ),
+    sources: Boolean(data.branchAttachments?.length),
+  }
   return data
 }

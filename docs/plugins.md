@@ -186,6 +186,10 @@ export function activate(context: UiPluginContext) {
 
 首页聊天保留原来的置顶、项目、最近列表与聊天实现。插件可注册自己的活动栏入口、次级菜单和中央业务页，但不能替换内置首页、项目、插件管理、设置或聊天。工具面板统一注册为 `right`，不接受左侧、中央或底部位置。分栏模式在当前聊天右侧显示；完整视图由应用将当前会话与工具合并为顶栏标签，选中的工具使用整个内容区。右侧顶栏提供可关闭标签、“＋”工具选择页与收起，栏宽通过拖拽边界调整；完整视图保留工具标签与选择页，左侧会话列表可独立开关，退出时恢复分栏宽度；分栏模式收起时保留当前标签，关闭最后一个工具标签后收起；完整视图关闭最后一个工具后回到聊天。顶栏“进入完整视图”按钮或 `Mod+Shift+F` 切换布局，模式保存在客户端本地。标签与宽度按 Host、会话保存；不支持拖拽停靠。`scope` 是 `app`、`project` 或 `session`，缺少对应目标时隐藏。`panels.open(id)` 只能打开本插件已登记的面板。切换目标时读取新的 `target`；异步结果需检查它仍属于发起请求时的目标。
 
+面板可选声明 `requirements`，由宿主统一决定工具目录入口是否显示。它是以下有限数据条件的 AND 数组：`history`、`historyTree`、`contextRequests`、`changes`、`activities`、`agents`、`plans`、`sources`、`visualizations`。例如 `requirements: ['history', 'contextRequests']` 要求正式会话记录与主请求摘要都存在。省略或空数组保持原作用域行为；未知条件在注册时拒绝。`launcher: 'hidden'` 仅隐藏目录入口，可用于通过动作打开的文件等实例。
+
+这些字段不授予数据访问权限。加载和失败不能被当作没有数据；数据归零不关闭已打开标签。`panels.open(id)` 是显式操作，仍可打开作用域内无内容的面板；`render(props)` 可通过 `panelOpenIntent`（`launcher/manual/message/restore`）和 `panelOpenRevision` 区分一次打开请求与后台刷新，不能因刷新反复重置用户选择。卸载、撤权、注册释放和代次更换会清理对应保留实例。
+
 贡献 ID 以 `${pluginId}:` 开头。工具卡片声明 `match.toolName`，自定义消息声明 `match.customType`。正文卡片按运行时真实 `ownerId`、`generation`、代码快照 `policyHash` 与类型匹配；插件不能渲染另一个插件的正文。没有对应贡献时保留普通文字和工具详情。SDK 3 删除旧 `message-actions` render 槽，消息操作改用单独的 typed API，见下节。
 
 ```mermaid
