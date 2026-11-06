@@ -75,9 +75,9 @@ export function SubagentDefaultsSettings({
                 } else onSave({ thinkingLevel: selection === 'inherit' ? null : (selection as ThinkingLevel) })
               }}
             >
-              <SelectTrigger aria-label={title} className="h-8 w-full text-xs sm:w-60">
+              <SelectTrigger aria-label={title} className="h-8 w-full max-w-full text-xs sm:w-60">
                 <SelectValue placeholder="读取中…">
-                  <CrossfadeText>
+                  <CrossfadeText className="max-w-full" textClassName="truncate">
                     {!ready
                       ? '读取中…'
                       : field === 'model'

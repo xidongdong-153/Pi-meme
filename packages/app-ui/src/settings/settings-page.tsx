@@ -226,7 +226,7 @@ export function SettingsPage({
           </aside>
           <div
             id="settings-content"
-            className="theme-workspace min-w-0 flex-1 overflow-y-auto bg-background px-6 py-8 sm:px-8 lg:px-12 lg:py-12"
+            className="theme-workspace min-w-0 flex-1 overflow-y-auto bg-background px-6 py-8 [scrollbar-gutter:stable] sm:px-8 lg:px-12 lg:py-12"
           >
             <div key={sectionId} className="mx-auto max-w-3xl space-y-8">
               <div>
