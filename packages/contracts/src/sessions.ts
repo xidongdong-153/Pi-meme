@@ -5,6 +5,19 @@ import type { QueuedInput, PlanCheckpoint } from './plan'
 import type { SessionInfo } from '@earendil-works/pi-coding-agent'
 import type { ScheduledTask } from './schedules'
 
+export type SessionReadObservation = { completionToken?: string; inputRequestIds?: string[] }
+
+/** Host 统一保存的查看状态；token 只确认对应正文版本，不确认之后的新内容。 */
+export type SessionAttention = {
+  session: import('./app-host').SessionRef
+  revision: number
+  completionToken?: string
+  completionSource?: { id: string; revision: string }
+  inputRequestIds: string[]
+  unread: boolean
+  inputUnread: boolean
+}
+
 export type WorkspaceKind = 'project' | 'standalone'
 
 export type SelectWorkspace = { kind: 'project'; cwd: string } | { kind: 'standalone' }
@@ -23,12 +36,14 @@ export type PiSessionSummary = Pick<SessionInfo, 'id' | 'path' | 'cwd' | 'name' 
     created: string
     modified: string
     completedAt?: string | null
+    completionSource?: { id: string; revision: string }
+    attention?: SessionAttention
     running?: boolean
     needsInput?: boolean
-    /** 待答交互的真实来源、执行代次与请求 ID，用于客户端按次标记已查看。 */
+    /** 待答交互的真实来源、执行代次与请求 ID，用于向 Host 按次确认已查看。 */
     inputRequestIds?: string[]
     inputUnread?: boolean
-    /** 当前客户端派生的未读状态，不写入会话文件。 */
+    /** Host 共享的未读状态，不写入会话文件。 */
     unread?: boolean
     isPaused?: boolean
     error?: string
@@ -45,6 +60,7 @@ export type PiProjectGroup = {
 }
 
 export type PiSessionsSnapshot = {
+  attentionRevision?: number
   standaloneSessions?: PiSessionSummary[]
   recents: PiSessionSummary[]
   projects: PiProjectGroup[]

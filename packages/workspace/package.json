@@ -8,6 +8,7 @@
     "./server/session-groups": "./src/server/session-groups.ts",
     "./server/session-reader": "./src/server/session-reader.ts",
     "./server/session-service": "./src/server/session-service.ts",
+    "./server/session-attention-store": "./src/server/session-attention-store.ts",
     "./ui/sidebar/pinned-section": "./src/ui/sidebar/pinned-section.tsx",
     "./ui/sidebar/project-item": "./src/ui/sidebar/project-item.tsx",
     "./ui/sidebar/projects-section": "./src/ui/sidebar/projects-section.tsx",

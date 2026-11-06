@@ -14,7 +14,7 @@ type CachedFile = {
   summary: PiSessionSummary | null
   index: SessionSummaryIndex
 }
-type SerializedCache = { version: 4; files: [string, CachedFile][] }
+type SerializedCache = { version: 5; files: [string, CachedFile][] }
 
 export class SessionService {
   private fileCache = new Map<string, CachedFile>()
@@ -37,7 +37,7 @@ export class SessionService {
     try {
       const data = JSON.parse(await readFile(this.cacheFile, 'utf8')) as SerializedCache
       if (
-        data.version === 4 &&
+        data.version === 5 &&
         Array.isArray(data.files) &&
         data.files.every(
           ([file, item]) =>
@@ -52,6 +52,8 @@ export class SessionService {
             typeof item.index.state?.messageCount === 'number' &&
             typeof item.index.state.firstMessage === 'string' &&
             typeof item.index.state.hasUserMessage === 'boolean' &&
+            typeof item.index.state.appendSafe === 'boolean' &&
+            (item.index.state.leafId === null || typeof item.index.state.leafId === 'string') &&
             (item.summary === null || (item.summary.path === file && typeof item.summary.cwd === 'string')),
         )
       )
@@ -76,7 +78,7 @@ export class SessionService {
     if (this.cacheFile && this.cacheDirty) {
       this.cacheDirty = false
       const cacheFile = this.cacheFile
-      const text = JSON.stringify({ version: 4, files: [...this.fileCache] } satisfies SerializedCache)
+      const text = JSON.stringify({ version: 5, files: [...this.fileCache] } satisfies SerializedCache)
       this.saving = this.saving
         .then(async () => {
           const temporary = `${cacheFile}.tmp`

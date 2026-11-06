@@ -50,6 +50,7 @@ Host 的应用配置、持久状态、执行数据与内部管理的工作区文
 ├── state/
 │   ├── projects.json                    # 项目与 Worktree 登记
 │   ├── goals.json                       # 目标持久化状态
+│   ├── session-attention.json           # Host 共享的会话已读与交互已查看
 │   ├── agent-permissions.json           # 会话权限映射
 │   ├── resources.json                   # 资源导入记录与策略
 │   ├── plugins.json                     # 已安装插件清单（版本化 envelope）
@@ -100,6 +101,7 @@ Host 的应用配置、持久状态、执行数据与内部管理的工作区文
 | `credentials/auth.json`        | 连接与服务凭据（0600）                   | `FileCredentialStore`                                     | 否（敏感凭据）     | 永久保留                                                |
 | `state/projects.json`          | 登记项目与活动 Worktree                  | `ProjectStore`                                            | 否                 | 显式移除项目时更新                                      |
 | `state/goals.json`             | 目标执行与续跑状态                       | `GoalService`                                             | 否                 | 目标清除或会话成功删除时清理                            |
+| `state/session-attention.json` | 正式会话的回复版本与交互查看记录         | `SessionAttentionStore`                                   | 否                 | 首次初始化历史回复已读；会话成功删除时清理              |
 | `state/agent-permissions.json` | 会话文件权限映射                         | `AgentAccessStore`                                        | 否                 | 会话成功删除时级联清理                                  |
 | `state/resources.json`         | 技能策略与导入记录                       | `ResourceStore`                                           | 否                 | 永久保留                                                |
 | `state/plugins.json`           | 插件安装记录与代次高水位                 | `PluginManager`                                           | 否                 | 卸载插件时更新                                          |

@@ -172,6 +172,7 @@ export type SessionPluginDescriptor = {
   error?: string
 }
 export type Snapshot = {
+  sessionAttention?: import('./sessions').SessionAttention
   totalMessages?: number
   historyRevision?: string
   historyDetails?: 'complete' | 'deferred'
@@ -250,6 +251,10 @@ export interface WorkspaceBridge {
   getProjects: () => Promise<DesktopProject[]>
   selectWorkspace: (input: SelectWorkspace) => Promise<SessionSelectionResult>
   getSessions: () => Promise<PiSessionsSnapshot>
+  markSessionRead: (
+    ref: import('./app-host').SessionRef,
+    observed: import('./sessions').SessionReadObservation,
+  ) => Promise<import('./sessions').SessionAttention>
   onSessionsChanged: (callback: () => void) => () => void
   newSession: () => Promise<SessionSelectionResult>
   switchSession: (sessionPath: string, window?: SessionWindow) => Promise<SessionSelectionResult>

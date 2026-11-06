@@ -66,6 +66,9 @@ import { loadPluginThemes } from '@pi-meme/settings/server/plugin-themes'
 import { getGitEnvironment, resolveGitBase, runGit, switchGitBranch } from '@pi-meme/git/server/git-service'
 import { ProjectStore } from '@pi-meme/workspace/server/project-store'
 import { SessionService } from '@pi-meme/workspace/server/session-service'
+import { SessionAttentionStore } from '@pi-meme/workspace/server/session-attention-store'
+import { mergeRuntimeSessions } from '@pi-meme/workspace/server/session-groups'
+import { SessionAttentionService } from './session-attention'
 import { McpConfigStore } from '@pi-meme/mcp/server/config-store'
 import { optionalRuntimeExtensions } from './runtime-extensions'
 import { RequestRegistry } from './request-registry'
@@ -221,6 +224,8 @@ export async function createHost(options: HostOptions = {}) {
     await projects.load()
     const sessions = new SessionService(paths.sessionsDirectory, storagePaths.sessionsCacheFile)
     await sessions.init()
+    const attentionStore = new SessionAttentionStore(storagePaths.sessionAttentionFile)
+    let sessionAttention: SessionAttentionService
     if (options.testCredentials && !options.dataRoot) throw new Error('测试凭据必须同时配置临时数据目录')
     const credentials =
       options.credentials ??
@@ -1356,6 +1361,8 @@ export async function createHost(options: HostOptions = {}) {
       return {
         ...value,
         appSession,
+        sessionAttention:
+          appSession && !appSession.temporary ? await sessionAttention.forSnapshot(appSession, value) : undefined,
         goalsSupported: true,
         goal: appSession ? goals.get(appSession) : undefined,
         connection: {
@@ -1662,6 +1669,8 @@ export async function createHost(options: HostOptions = {}) {
       return value
     }
     const handlers: Record<string, Action> = {
+      'pi:sessions': async () =>
+        sessionAttention.decorate((await builtins!.handlers['pi:sessions']()) as PiSessionsSnapshot),
       'resources:import': async (value, cwd) => {
         if (!value || typeof value !== 'object') throw new Error('资源导入参数无效')
         const input = value as ResourceImportInput
@@ -2046,7 +2055,17 @@ export async function createHost(options: HostOptions = {}) {
     const schedules = builtins.services[
       'host.schedules.runtime'
     ] as import('@pi-meme/schedules/server/service').ScheduleService
+    sessionAttention = new SessionAttentionService(
+      attentionStore,
+      async () => ({
+        snapshot: mergeRuntimeSessions(await sessions.getSnapshot(), pi.getRuntimeSessions()),
+        sessions: await appControl!.api.sessions.list(),
+      }),
+      (session) => appControl!.goalRuntimeKey(session),
+      () => emit('sessions-changed'),
+    )
     appControl = await createAppControl({
+      sessionAttention,
       prepareContextSession: (session) => {
         const key = appControl?.goalRuntimeKey(session)
         const temporaryRoot = key ? temporaryPathsBySessionKey.get(key)?.temporaryRoot : undefined
@@ -2152,9 +2171,11 @@ export async function createHost(options: HostOptions = {}) {
         terminalSupported: terminal.supported,
       },
     })
+    await sessionAttention.init()
     sessionCleanup = new SessionCleanupService({
       maintenanceDirectory: storagePaths.maintenanceDirectory,
       detachArtifacts: async (ids) => {
+        await attentionStore.removeSessions(ids)
         await contextWindows.deleteSessions(ids)
         await imageLibrary.detachSessions(ids)
         await terminal.closeSessions(ids)
@@ -2690,6 +2711,7 @@ export async function createHost(options: HostOptions = {}) {
           await appControl!.dispose()
           unsubscribeGoals()
           await sessions.flush()
+          await attentionStore.flush()
           await terminal.dispose()
           await plugins.dispose()
           await builtins!.dispose()

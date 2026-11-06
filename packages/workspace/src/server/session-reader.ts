@@ -4,6 +4,7 @@ import path from 'node:path'
 import { createInterface } from 'node:readline'
 import type { FileEntry, SessionHeader } from '@earendil-works/pi-coding-agent'
 import type { PiSessionSummary } from '@pi-meme/contracts/sessions'
+import { readSessionHistory } from '@pi-meme/pi-runtime/session-history'
 
 export {
   prefetchSessionHistory,
@@ -25,6 +26,10 @@ type SummaryState = {
   messageCount: number
   hasUserMessage: boolean
   completedAt: string | null
+  completionSource?: { id: string; revision: string }
+  /** 非线性分支或上下文变换必须复用正文投影，不能按物理文件顺序判断完成身份。 */
+  appendSafe: boolean
+  leafId: string | null
 }
 export type SessionSummaryIndex = {
   offset: number
@@ -43,10 +48,21 @@ function applyLine(state: SummaryState, line: string) {
     if (entry.type === 'session') state.header = entry
     return
   }
+  if (
+    !['message', 'model_change', 'thinking_level_change', 'usage', 'session_info'].includes(entry.type) ||
+    typeof entry.id !== 'string' ||
+    !('parentId' in entry) ||
+    entry.parentId !== state.leafId
+  )
+    state.appendSafe = false
+  state.leafId = entry.id ?? null
   if (entry.type === 'session_info') state.name = entry.name?.trim() || undefined
   if (entry.type !== 'message') return
   state.messageCount++
-  if (entry.message.role === 'assistant' && entry.message.stopReason !== 'toolUse') state.completedAt = entry.timestamp
+  if (entry.message.role === 'assistant' && entry.message.stopReason !== 'toolUse') {
+    state.completedAt = entry.timestamp
+    state.completionSource = entry.id ? { id: entry.id, revision: entry.id } : undefined
+  }
   if (entry.message.role !== 'user') return
   state.hasUserMessage = true
   if (state.firstMessage) return
@@ -74,6 +90,8 @@ export async function readSessionSummaryIndex(
       messageCount: 0,
       hasUserMessage: false,
       completedAt: null,
+      appendSafe: true,
+      leafId: null,
     }
     if (previous && previous.offset <= size) {
       const signature = Buffer.alloc(Math.min(128, previous.offset))
@@ -107,6 +125,19 @@ export async function readSessionSummaryIndex(
     // 当前切片的完整 JSON 尾行可用于展示，但未换行前不能计入增量检查点。
     const view = { ...state }
     if (tail.length) applyLine(view, Buffer.concat(tail).toString('utf8'))
+    if (!view.appendSafe) {
+      // 普通线性追加不加载正文；分支、压缩、隐藏或编辑使用与聊天相同的 SDK 投影。
+      const history = await readSessionHistory(filePath)
+      const completed = history.messages.findLast(
+        (message) => message.role === 'assistant' && message.stopReason !== 'toolUse',
+      )
+      const timestamp = completed && (completed.completedAt ?? completed.timestamp)
+      view.completedAt =
+        typeof timestamp === 'number' && Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : null
+      view.completionSource = completed?.sourceEntry
+        ? { id: completed.sourceEntry.id, revision: completed.sourceEntry.revision }
+        : undefined
+    }
     const header = view.header
     const summary: PiSessionSummary | null = !view.hasUserMessage
       ? null
@@ -120,6 +151,7 @@ export async function readSessionSummaryIndex(
           created: header?.timestamp ?? new Date(mtime).toISOString(),
           modified: new Date(mtime).toISOString(),
           completedAt: view.completedAt,
+          completionSource: view.completionSource,
           messageCount: view.messageCount,
         }
     return { index, summary }

@@ -90,6 +90,18 @@ export function createSystemOperations(context: SystemOperationContext) {
   register('sessions.get', '读取会话身份与状态', '[SessionRef?]', false, 'session', ([ref]) =>
     api.sessions.get(target(ref)),
   )
+  register('sessions.attention', '读取 Host 共享的会话查看状态', '[SessionRef?]', false, 'session', ([ref]) =>
+    api.sessions.attention(target(ref)),
+  )
+  register(
+    'sessions.markRead',
+    '确认明确回复版本或交互请求已查看；不回答交互',
+    '[{completionToken?,inputRequestIds?}, SessionRef?]',
+    true,
+    'session',
+    ([observed, ref], mutation) =>
+      api.sessions.markRead(target(ref), observed as Parameters<HostApi['sessions']['markRead']>[1], mutation),
+  )
   register(
     'sessions.messages',
     '分页读取会话可见消息',

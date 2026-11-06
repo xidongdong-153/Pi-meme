@@ -77,6 +77,13 @@ type Options = {
   configureAgentPlugins: (key: string, ids: string[], input?: { restore?: boolean }) => Promise<void>
   defaultAgentPlugins: HostApi['plugins']
   snapshot: () => Promise<import('@pi-meme/contracts/desktop').Snapshot>
+  sessionAttention: {
+    get: (session: AppSession) => Promise<import('@pi-meme/contracts/sessions').SessionAttention>
+    markRead: (
+      session: AppSession,
+      observed: import('@pi-meme/contracts/sessions').SessionReadObservation,
+    ) => Promise<import('@pi-meme/contracts/sessions').SessionAttention>
+  }
   workspace: { files: HostApi['files']; terminal: HostApi['terminal']; terminalSupported: boolean }
   withFileUndo?: (cwd: string, operation: () => Promise<void>) => Promise<void>
   isSessionClosing?: (session: AppSession) => boolean
@@ -658,6 +665,7 @@ export async function createAppControl(options: Options) {
       callerClientId,
     )
   const sessionTargetMethods = new Set([
+    'sessions.markRead',
     'sessions.configure',
     'sessions.submit',
     'sessions.stop',
@@ -767,6 +775,7 @@ export async function createAppControl(options: Options) {
         ...(options.schedules ? ['schedules' as const] : []),
         'projects',
         'sessions',
+        'session-attention',
         'messages',
         'files',
         'git',
@@ -860,6 +869,11 @@ export async function createAppControl(options: Options) {
         await refresh()
         return structuredClone(getSession(ref, clientId))
       },
+      attention: (ref) => options.sessionAttention.get(getSession(ref, clientId)),
+      markRead: (ref, observed, opts) =>
+        mutate(clientId, 'sessions.markRead', [ref, observed], opts, () =>
+          options.sessionAttention.markRead(getSession(ref, clientId), observed),
+        ),
       snapshot: (ref) =>
         target(
           ref,
@@ -1473,6 +1487,7 @@ export async function createAppControl(options: Options) {
     'plugins.setDefaultAgentPlugins',
     'projects.register',
     'sessions.create',
+    'sessions.markRead',
     'sessions.configure',
     'sessions.submit',
     'sessions.stop',

@@ -43,6 +43,7 @@ export const storageLayoutRelativePaths = {
   stateDirectory: 'state',
   projectsFile: 'state/projects.json',
   goalsFile: 'state/goals.json',
+  sessionAttentionFile: 'state/session-attention.json',
   agentPermissionsFile: 'state/agent-permissions.json',
   resourcesFile: 'state/resources.json',
   pluginsFile: 'state/plugins.json',

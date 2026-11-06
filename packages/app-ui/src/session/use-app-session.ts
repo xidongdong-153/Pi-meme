@@ -75,6 +75,7 @@ export function useAppSession(
   const [switching, setSwitching] = useState(false)
   const [previewing, setPreviewing] = useState(false)
   const [appSession, setAppSession] = useState<Snapshot['appSession']>()
+  const [sessionAttention, setSessionAttention] = useState<Snapshot['sessionAttention']>()
   const [historyLoading, setHistoryLoading] = useState(false)
   const [historyError, setHistoryError] = useState('')
   const [historyRevision, setHistoryRevision] = useState<string>()
@@ -140,10 +141,11 @@ export function useAppSession(
     drafts.saveNewChatView(next)
   }
   const extensionsRef = useRef<ReturnType<typeof useExtensionUI> | null>(null)
-  const { sessions, sessionsLoading, refreshSessions, setActiveSession } = useSessions(
+  const { sessions, sessionsLoading, refreshSessions, setActiveSession, receiveAttention } = useSessions(
     bridge,
     workspaceEnabled,
     foreground,
+    hostId,
   )
   const [readVisible, setReadVisible] = useState(false)
   const snapshotWindow = useCallback((key?: string) => {
@@ -187,6 +189,16 @@ export function useAppSession(
       current.current = snapshot.connection
       setConnection(snapshot.connection)
       setAppSession(snapshot.appSession)
+      setSessionAttention((previous) => {
+        const next = snapshot.sessionAttention
+        return previous &&
+          next &&
+          previous.session.hostId === next.session.hostId &&
+          previous.session.sessionId === next.session.sessionId &&
+          previous.revision > next.revision
+          ? previous
+          : next
+      })
       const diagnostic = snapshot.extensionError
       const dismissed = dismissedExtensionError.current
       if (
@@ -493,13 +505,6 @@ export function useAppSession(
     },
   })
   chatRef.current = chat
-  const attentionSessions = useSessionAttention(
-    sessions,
-    hostId,
-    !switching && !previewing && !loading ? (connection.sessionFile ?? connection.sessionKey) : undefined,
-    foreground && readVisible,
-    chat.chat.running,
-  )
   const draftModel = (chat.editConfiguration ?? chat.pendingConfiguration)?.model
   useEffect(() => {
     const model = state?.model
@@ -549,6 +554,33 @@ export function useAppSession(
   ])
   const extensions = useExtensionUI(bridge, chat.setDraft, () => current.current.sessionKey)
   extensionsRef.current = extensions
+  // App 仅呈现队首交互；后续排队问题必须真正展示后才能清除提醒。
+  const visibleInteraction = extensions.extensionDialogs[0]
+  const visibleInputIds = visibleInteraction
+    ? [
+        JSON.stringify([
+          visibleInteraction.sessionKey,
+          visibleInteraction.executionGeneration,
+          visibleInteraction.requestId,
+        ]),
+      ]
+    : []
+  const attentionSessions = useSessionAttention(
+    sessions,
+    hostId,
+    !switching && !previewing && !loading ? (connection.sessionFile ?? connection.sessionKey) : undefined,
+    foreground && readVisible && !chat.editing,
+    chat.chat.running,
+    {
+      bridge,
+      sessionId: appSession?.hostId === hostId ? appSession.sessionId : undefined,
+      messages: chat.chat.messages,
+      inputRequestIds: visibleInputIds,
+      attention: sessionAttention,
+      connected: connection.status === 'ready' || connection.status === 'idle',
+      onAttention: receiveAttention,
+    },
+  )
 
   useEffect(() => {
     mounted.current = true

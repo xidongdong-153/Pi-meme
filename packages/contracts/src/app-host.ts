@@ -87,6 +87,7 @@ export type AppHostCapabilities = {
   features: Array<
     | 'projects'
     | 'sessions'
+    | 'session-attention'
     | 'messages'
     | 'files'
     | 'terminal'
@@ -168,6 +169,12 @@ export type HostApi = {
     ) => Promise<AppSession>
     list: (input?: { project?: ProjectRef }) => Promise<AppSession[]>
     get: (ref: SessionRef) => Promise<AppSession>
+    attention: (ref: SessionRef) => Promise<import('./sessions').SessionAttention>
+    markRead: (
+      ref: SessionRef,
+      observed: import('./sessions').SessionReadObservation,
+      options: MutationOptions,
+    ) => Promise<import('./sessions').SessionAttention>
     snapshot: (ref: SessionRef) => Promise<Snapshot & { controlCursor: EventCursor }>
     history: (
       ref: SessionRef,

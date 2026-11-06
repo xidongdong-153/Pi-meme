@@ -1,165 +1,142 @@
-import { useEffect, useMemo, useState } from 'react'
-import type { PiSessionsSnapshot, PiSessionSummary } from '@pi-meme/contracts/sessions'
+import { useEffect, useRef } from 'react'
+import type { WorkspaceBridge } from '@pi-meme/contracts/desktop'
+import type { PiMessage } from '@pi-meme/contracts/pi'
+import type { SessionAttention, PiSessionsSnapshot } from '@pi-meme/contracts/sessions'
 
-function mergeRead(...records: Record<string, string>[]): Record<string, string> {
-  const result: Record<string, string> = {}
-  for (const record of records)
-    for (const [path, time] of Object.entries(record))
-      if (Number.isFinite(Date.parse(time)) && (!result[path] || Date.parse(time) > Date.parse(result[path]!)))
-        result[path] = time
-  return result
-}
-
-function readStorage(key: string): Record<string, string> {
-  try {
-    const value: unknown = JSON.parse(localStorage.getItem(key) ?? '{}')
-    if (value && typeof value === 'object' && !Array.isArray(value))
-      return Object.fromEntries(Object.entries(value).filter(([, time]) => typeof time === 'string'))
-  } catch {
-    // 本地记录不可用时仍可在当前窗口阅读会话。
-  }
-  return {}
-}
-
-function inputReadKey(path: string, requestId: string): string {
-  return JSON.stringify(['input', path, requestId])
-}
-
-/**
- * 已读基线：首次运行或新增未读状态后首次运行时只写一次。
- * 基线之前完成的会话一律算已读，升级后不会把历史会话整片标成未读。
- */
-function readBaseline(key: string): string {
-  try {
-    const stored = localStorage.getItem(key)
-    if (stored && Number.isFinite(Date.parse(stored))) return stored
-    localStorage.setItem(key, new Date().toISOString())
-    // 其他窗口可能同时写入更早的基线，以已落盘的值为准。
-    const saved = localStorage.getItem(key)
-    if (saved && Number.isFinite(Date.parse(saved))) return saved
-  } catch {
-    // 存储不可用时退回本次挂载时间，只影响当前窗口。
-  }
-  return new Date().toISOString()
-}
-
-/** 已读状态属于当前客户端，按 Host 和原生会话路径隔离。 */
+/** 仅确认当前正文已呈现的 Host 内容版本；未读状态始终取 Host 返回值。 */
 export function useSessionAttention(
   snapshot: PiSessionsSnapshot | null,
   hostId: string,
   viewedPath: string | undefined,
   visible: boolean,
-  running = false,
+  running: boolean,
+  {
+    bridge,
+    sessionId,
+    messages,
+    inputRequestIds,
+    attention,
+    connected,
+    onAttention,
+  }: {
+    bridge: Pick<WorkspaceBridge, 'markSessionRead'>
+    sessionId?: string
+    messages: PiMessage[]
+    inputRequestIds: string[]
+    attention?: SessionAttention
+    connected: boolean
+    onAttention: (value: SessionAttention) => void
+  },
 ) {
-  const storageKey = `pi-meme:session-read:v1:${encodeURIComponent(hostId)}`
-  const baselineKey = `pi-meme:session-read-baseline:v1:${encodeURIComponent(hostId)}`
-  const [saved, setSaved] = useState<{ key: string; baseline: string; read: Record<string, string> }>(() => ({
-    key: '',
-    baseline: '',
-    read: {},
-  }))
-  useEffect(() => {
-    setSaved({ key: storageKey, baseline: readBaseline(baselineKey), read: readStorage(storageKey) })
-    const changed = (event: StorageEvent) => {
-      if (event.key !== storageKey && event.key !== baselineKey) return
-      const latest = readStorage(storageKey)
-      setSaved((previous) =>
-        previous.key === storageKey
-          ? {
-              key: storageKey,
-              baseline: event.key === baselineKey ? readBaseline(baselineKey) : previous.baseline,
-              read: mergeRead(previous.read, latest),
-            }
-          : previous,
-      )
-    }
-    window.addEventListener('storage', changed)
-    return () => window.removeEventListener('storage', changed)
-  }, [storageKey, baselineKey])
+  const summary = viewedPath
+    ? [
+        ...(snapshot?.recents ?? []),
+        ...(snapshot?.standaloneSessions ?? []),
+        ...(snapshot?.projects.flatMap((project) => project.sessions) ?? []),
+      ].find((entry) => entry.path === viewedPath)?.attention
+    : undefined
+  const matches = (value: SessionAttention | undefined) =>
+    value?.session.hostId === hostId && value.session.sessionId === sessionId
+  const current =
+    matches(summary) && (!matches(attention) || summary!.revision >= attention!.revision)
+      ? summary
+      : matches(attention)
+        ? attention
+        : undefined
+  const source = current?.completionSource
+  const completionToken =
+    !running &&
+    current?.unread &&
+    source &&
+    messages.some(
+      (message) => message.sourceEntry?.id === source.id && message.sourceEntry.revision === source.revision,
+    )
+      ? current.completionToken
+      : undefined
+  const observedInputs = current?.inputUnread
+    ? [...new Set(inputRequestIds.filter((id) => current.inputRequestIds.includes(id)))].sort()
+    : []
+  const observation = JSON.stringify({ completionToken, inputRequestIds: observedInputs })
+  const scope = JSON.stringify([hostId, sessionId])
+  const attempts = useRef<{
+    scope: string
+    pending: Map<string, Promise<SessionAttention>>
+    confirmed: Map<string, SessionAttention>
+  }>({
+    scope,
+    pending: new Map(),
+    confirmed: new Map(),
+  })
 
   useEffect(() => {
-    if (saved.key !== storageKey) return
-    const latest = readStorage(storageKey)
-    const read = mergeRead(latest, saved.read)
-    if (Object.keys(read).every((path) => latest[path] === read[path])) return
-    try {
-      // 其他窗口并发覆盖整份记录后，将 storage 事件合并出的并集补回持久存储。
-      localStorage.setItem(storageKey, JSON.stringify(read))
-    } catch {
-      // 存储不可用时只保留当前窗口状态。
-    }
-  }, [saved, storageKey])
-
-  useEffect(() => {
-    if (!visible || !viewedPath || !snapshot || saved.key !== storageKey) return
-    const mark = () => {
-      if (document.hidden || !document.hasFocus()) return
-      const session = [
-        ...snapshot.recents,
-        ...(snapshot.standaloneSessions ?? []),
-        ...snapshot.projects.flatMap((project) => project.sessions),
-      ].find((entry) => entry.path === viewedPath)
-      if (!session) return
-      const latest = mergeRead(saved.read, readStorage(storageKey))
-      const updates: Record<string, string> = {}
-      for (const id of session.inputRequestIds ?? []) {
-        const key = inputReadKey(viewedPath, id)
-        if (!latest[key]) updates[key] = new Date().toISOString()
-      }
-      if (
-        session.completedAt &&
-        Number.isFinite(Date.parse(session.completedAt)) &&
-        !session.running &&
-        !running &&
-        !(Date.parse(latest[viewedPath] ?? '') >= Date.parse(session.completedAt))
-      )
-        updates[viewedPath] = session.completedAt
-      if (!Object.keys(updates).length) return
-      const read = mergeRead(latest, updates)
+    if (attempts.current.scope !== scope) attempts.current = { scope, pending: new Map(), confirmed: new Map() }
+    if (!visible || !viewedPath || !connected || !hostId || !sessionId) return
+    const observed = JSON.parse(observation) as { completionToken?: string; inputRequestIds: string[] }
+    if (!observed.completionToken && !observed.inputRequestIds.length) return
+    const state = attempts.current
+    let active = true
+    let waiting = false
+    let notified = false
+    let failures = 0
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let frame: number | undefined
+    const mark = async () => {
+      if (!active || waiting || notified || document.hidden || !document.hasFocus()) return
+      waiting = true
       try {
-        localStorage.setItem(storageKey, JSON.stringify(read))
+        let result = state.confirmed.get(observation)
+        if (!result) {
+          let pending = state.pending.get(observation)
+          if (!pending) {
+            const request = bridge.markSessionRead({ hostId, sessionId }, observed).then((value) => {
+              if (value.session.hostId !== hostId || value.session.sessionId !== sessionId)
+                throw new Error('已读响应的会话身份不匹配')
+              state.confirmed.set(observation, value)
+              return value
+            })
+            pending = request.finally(() => {
+              if (state.pending.get(observation) === pending) state.pending.delete(observation)
+            })
+            state.pending.set(observation, pending)
+          }
+          // effect 关闭不取消已发送业务；接替者等待同一请求，再接管成功通知或有限重试。
+          result = await pending
+        }
+        if (active) {
+          notified = true
+          onAttention(result)
+        }
       } catch {
-        // 存储不可用时保留当前窗口的已读状态。
+        // 有限退避；失焦、切换或离开正文后取消，恢复焦点与重连可再次尝试。
+        if (active && failures < 3 && !document.hidden && document.hasFocus()) {
+          timer = setTimeout(() => void mark(), [1000, 3000, 10000][failures++])
+        }
+      } finally {
+        waiting = false
       }
-      setSaved({ ...saved, read })
     }
-    mark()
-    document.addEventListener('visibilitychange', mark)
-    window.addEventListener('focus', mark)
+    const resume = () => {
+      if (timer) clearTimeout(timer)
+      timer = undefined
+      if (frame !== undefined) cancelAnimationFrame(frame)
+      if (document.hidden || !document.hasFocus()) return
+      failures = 0
+      // 等待提交后的绘制机会，不能在正文尚未呈现时消费侧栏的新状态。
+      frame = requestAnimationFrame(() => void mark())
+    }
+    resume()
+    document.addEventListener('visibilitychange', resume)
+    window.addEventListener('focus', resume)
+    window.addEventListener('blur', resume)
     return () => {
-      document.removeEventListener('visibilitychange', mark)
-      window.removeEventListener('focus', mark)
+      active = false
+      if (timer) clearTimeout(timer)
+      if (frame !== undefined) cancelAnimationFrame(frame)
+      document.removeEventListener('visibilitychange', resume)
+      window.removeEventListener('focus', resume)
+      window.removeEventListener('blur', resume)
     }
-  }, [visible, viewedPath, snapshot, storageKey, saved, running])
+  }, [bridge, connected, hostId, observation, onAttention, scope, sessionId, viewedPath, visible])
 
-  return useMemo(() => {
-    if (!snapshot) return snapshot
-    // 基线缺失时先渲染为已读，避免挂载首帧整片标蓝。
-    const baseline = saved.key === storageKey ? Date.parse(saved.baseline) : Number.NaN
-    const decorate = (session: PiSessionSummary): PiSessionSummary => ({
-      ...session,
-      inputUnread: Boolean(
-        session.needsInput &&
-        (session.inputRequestIds?.length
-          ? session.inputRequestIds.some(
-              (id) => saved.key !== storageKey || !saved.read[inputReadKey(session.path, id)],
-            )
-          : true),
-      ),
-      unread: Boolean(
-        session.completedAt &&
-        Number.isFinite(Date.parse(session.completedAt)) &&
-        !session.running &&
-        Number.isFinite(baseline) &&
-        Date.parse(session.completedAt) > baseline &&
-        !(Date.parse(saved.read[session.path] ?? '') >= Date.parse(session.completedAt)),
-      ),
-    })
-    return {
-      ...snapshot,
-      recents: snapshot.recents.map(decorate),
-      standaloneSessions: snapshot.standaloneSessions?.map(decorate),
-      projects: snapshot.projects.map((project) => ({ ...project, sessions: project.sessions.map(decorate) })),
-    }
-  }, [snapshot, saved, storageKey])
+  return snapshot
 }

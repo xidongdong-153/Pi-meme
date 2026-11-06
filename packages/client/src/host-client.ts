@@ -119,16 +119,21 @@ export class HostClient {
   private readonly errorListeners = new Set<(value: DesktopError) => void>()
   private readonly sessionReads = new Map<string, Promise<import('@pi-meme/contracts/sessions').PiSessionsSnapshot>>()
   private lastSessions?: { key: string; value: import('@pi-meme/contracts/sessions').PiSessionsSnapshot; text: string }
+  private sessionReadSequence = 0
+  private lastSessionReadSequence = 0
   private readSessions(sessionKey?: string) {
     const target = sessionKey ?? this.selected?.sessionKey
     const key = target ?? ''
     const active = this.sessionReads.get(key)
     if (active) return active
+    const sequence = ++this.sessionReadSequence
     const task = this.rpc<import('@pi-meme/contracts/sessions').PiSessionsSnapshot>('pi:sessions', [], target)
       .then((value) => {
         const text = JSON.stringify(value)
+        const newest = sequence >= this.lastSessionReadSequence
+        this.lastSessionReadSequence = Math.max(this.lastSessionReadSequence, sequence)
         if (this.lastSessions?.key === key && this.lastSessions.text === text) return this.lastSessions.value
-        this.lastSessions = { key, value, text }
+        if (newest) this.lastSessions = { key, value, text }
         return value
       })
       .finally(() => {
@@ -1206,6 +1211,11 @@ export class HostClient {
       deleteSession: (path) => this.deletion('session:delete', [path]),
       selectWorkspace: (input) => this.selection('workspace:select', [input]),
       getSessions: () => this.readSessions(sessionKey),
+      markSessionRead: async (ref, observed) => {
+        const result = await this.host.sessions.markRead(ref, observed, { idempotencyKey: crypto.randomUUID() })
+        for (const callback of this.sessionsListeners) callback()
+        return result
+      },
       newSession: () => this.selection('pi:new-session'),
       switchSession: (path, window) => this.selection('pi:switch-session', window ? [path, window] : [path]),
       readSessionHistory: (path, window) => rpc('session:history', window ? [path, window] : [path]),
