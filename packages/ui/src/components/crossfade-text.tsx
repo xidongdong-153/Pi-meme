@@ -43,10 +43,11 @@ export function CrossfadeText({
         {children}
       </span>
       {frame.previous !== null && (
+        // 旧文字也参与网格尺寸计算，避免新文案变短时把退场文字挤换行。
         <span
           key={`previous-${frame.revision}`}
           aria-hidden="true"
-          className={cn('ui-text-exit pointer-events-none absolute inset-0 min-w-0 select-none', textClassName)}
+          className={cn('ui-text-exit pointer-events-none col-start-1 row-start-1 min-w-0 select-none', textClassName)}
         >
           {frame.previous}
         </span>

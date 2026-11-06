@@ -285,7 +285,11 @@ export function InstructionSettings({
                           </span>
                         </span>
                         <span className="shrink-0 text-[11px] text-muted-foreground">
-                          <CrossfadeText>
+                          <CrossfadeText
+                            reserve={['正在读取…', '已配置', '未配置', '读取失败']}
+                            className="text-right"
+                            textClassName="whitespace-nowrap"
+                          >
                             {item ? (item.host.exists ? '已配置' : '未配置') : error ? '读取失败' : '正在读取…'}
                           </CrossfadeText>
                         </span>
