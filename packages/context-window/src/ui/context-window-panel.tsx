@@ -4,6 +4,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -235,11 +236,11 @@ const Card = memo(
       title: string
       sub: string
       rows: ContextPromptItem[]
-      left: number
-      top: number
+      target: HTMLElement
       kind: ContextPartKind | 'free'
     }>()
     const [gridAt, setGridAt] = useState(0)
+    const tipNode = useRef<HTMLDivElement>(null)
     const card = useRef<HTMLDivElement>(null)
     const map = useRef<HTMLDivElement>(null)
     const grid = useRef<HTMLDivElement>(null)
@@ -264,6 +265,46 @@ const Card = memo(
     const availableParts = contextPartKinds.filter((kind) =>
       p.parts.some((part) => part.kind === kind && part.tokens > 0),
     )
+    useLayoutEffect(() => {
+      const node = tipNode.current
+      const host = card.current
+      if (!tip || !node || !host || fold) return
+      const target = tip.target
+      let frame = 0
+      const place = () => {
+        if (!target.isConnected || !target.getClientRects().length) {
+          node.style.visibility = 'hidden'
+          return
+        }
+        const bounds = host.getBoundingClientRect()
+        const anchor = target.getBoundingClientRect()
+        const width = node.offsetWidth
+        const height = node.offsetHeight
+        const left = Math.max(
+          8,
+          Math.min(bounds.width - width - 8, anchor.left - bounds.left + anchor.width / 2 - width / 2),
+        )
+        let top = anchor.top - bounds.top - height - 8
+        if (top < 4) top = anchor.bottom - bounds.top + 8
+        node.style.left = `${left}px`
+        node.style.top = `${top}px`
+        node.style.visibility = 'visible'
+      }
+      place()
+      // Match Magpie's followTip while the map's tiles glide to their new coordinates.
+      const started = performance.now()
+      const follow = (now: number) => {
+        place()
+        if (now - started < 660) frame = requestAnimationFrame(follow)
+      }
+      frame = requestAnimationFrame(follow)
+      const observer = new ResizeObserver(place)
+      for (const element of [node, host, target]) observer.observe(element)
+      return () => {
+        cancelAnimationFrame(frame)
+        observer.disconnect()
+      }
+    }, [tip, tiles, fold])
     const showTip = (
       target: HTMLElement,
       title: string,
@@ -272,18 +313,8 @@ const Card = memo(
       kind: ContextPartKind | 'free',
       itemId?: string,
     ) => {
-      const bounds = card.current?.getBoundingClientRect()
-      const b = target.getBoundingClientRect()
-      if (!bounds) return
       setFocus({ kind, itemId })
-      setTip({
-        title,
-        sub,
-        rows: items.slice(0, 5),
-        kind,
-        left: Math.max(8, Math.min(bounds.width - 288, b.left - bounds.left + b.width / 2 - 140)),
-        top: Math.max(4, b.top - bounds.top - 120),
-      })
+      setTip({ title, sub, rows: items.slice(0, 5), kind, target })
     }
     const clear = () => {
       setFocus(undefined)
@@ -711,7 +742,7 @@ const Card = memo(
           </p>
         ) : null}
         {tip && !fold ? (
-          <div className="ctx-tip" role="tooltip" style={{ left: tip.left, top: tip.top }}>
+          <div ref={tipNode} className="ctx-tip" role="tooltip" style={{ visibility: 'hidden' }}>
             <div className="ctx-tip-head">
               <i className={`dot ${tip.kind === 'free' ? 'free' : `k-${tip.kind}`}`} />
               <b>{tip.title}</b>
