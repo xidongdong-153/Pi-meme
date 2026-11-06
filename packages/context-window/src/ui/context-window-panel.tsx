@@ -22,6 +22,7 @@ import {
 } from '@pi-meme/contracts/context-window'
 import { cellsOf, fmtK, headroom, health, itemName, partNames, pct, tilesOf } from './layout'
 import { Dialog, DialogContent, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
+import { RevealContent } from '@pi-meme/ui/components/reveal-content'
 import { ModelIcon } from './model-icon'
 import './context-window.css'
 
@@ -170,29 +171,33 @@ function Spark({
             <polyline points={pts.join(' ')} className="line" />
           </>
         ) : null}
-        {series.map((point, i) => (
-          <rect
-            key={point.id}
-            x={x(i) - Math.max(2, W / series.length / 2)}
-            y={0}
-            width={Math.max(4, W / series.length)}
-            height={H}
-            className={`hit${point.id === at ? ' on' : ''}`}
-            tabIndex={0}
-            role="button"
-            aria-label={`请求 ${i + 1}：${fmtK(point.tokens)} token`}
-            aria-pressed={point.id === at}
-            onClick={() => onPoint(point.id)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter' || event.key === ' ') {
-                event.preventDefault()
-                onPoint(point.id)
-              }
-            }}
-          >
-            <title>{`请求 ${i + 1}：${fmtK(point.tokens)} token`}</title>
-          </rect>
-        ))}
+        {series.map((point, i) => {
+          const left = i === 0 ? 0 : (x(i - 1) + x(i)) / 2
+          const right = i === series.length - 1 ? W : (x(i) + x(i + 1)) / 2
+          return (
+            <rect
+              key={point.id}
+              x={left}
+              y={0}
+              width={right - left}
+              height={H}
+              className={`hit${point.id === at ? ' on' : ''}`}
+              tabIndex={0}
+              role="button"
+              aria-label={`请求 ${i + 1}：${fmtK(point.tokens)} token`}
+              aria-pressed={point.id === at}
+              onClick={() => onPoint(point.id)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter' || event.key === ' ') {
+                  event.preventDefault()
+                  onPoint(point.id)
+                }
+              }}
+            >
+              <title>{`请求 ${i + 1}：${fmtK(point.tokens)} token`}</title>
+            </rect>
+          )
+        })}
       </svg>
       {selected >= 0 ? (
         <span
@@ -430,317 +435,319 @@ const Card = memo(
             </span>
           </span>
         </div>
-        <div className="ctx-top">
-          <div className="ctx-stat">
-            <div className="ctx-k">
-              已用上下文{windowSize ? <span className={`ctx-health ${tone}`}>{healthName}</span> : null}
-            </div>
-            <div className="ctx-big">
-              <b>
-                <Count value={p.tokens} quiet={quiet} />
-              </b>
-              <span>{windowSize ? `/ ${fmtK(windowSize)} token` : 'token'}</span>
-            </div>
-            <div className="ctx-sub">
-              {windowSize
-                ? `已用 ${pct(fill)} · ${turns !== null ? (turns >= 999 ? '余量充足' : `约还能容纳 ${turns} 个请求`) : `剩余 ${fmtK(Math.max(0, windowSize - p.tokens))}`}`
-                : '模型的窗口大小未知'}
-            </div>
-          </div>
-          {cacheSeen || request.done ? (
-            <div className={`ctx-stat ctx-cache${shownCache && !cache ? ' was' : !shownCache ? ' none' : ''}`}>
-              <div className="ctx-k">提示词缓存</div>
-              <div className="ctx-big">
-                <b>{shownCache ? pct(shownCache.read / shownCache.total) : '—'}</b>
-                <span>命中</span>
+        <RevealContent ready={!fold} className="ctx-body">
+          <div className="ctx-top">
+            <div className="ctx-stat">
+              <div className="ctx-k">
+                已用上下文{windowSize ? <span className={`ctx-health ${tone}`}>{healthName}</span> : null}
               </div>
-              <div className="ctx-bar">
-                <i style={{ width: `${shownCache ? (shownCache.read / shownCache.total) * 100 : 0}%` }} />
+              <div className="ctx-big">
+                <b>
+                  <Count value={p.tokens} quiet={quiet} />
+                </b>
+                <span>{windowSize ? `/ ${fmtK(windowSize)} token` : 'token'}</span>
               </div>
               <div className="ctx-sub">
-                {cache
-                  ? `${fmtK(cache.read)} 来自缓存 · ${fmtK(cache.total - cache.read)} 新增`
-                  : shownCache
-                    ? '上一个请求的 · 本次请求进行中'
-                    : request.done
-                      ? '供应商未报告'
-                      : '供应商回答后可见'}
+                {windowSize
+                  ? `已用 ${pct(fill)} · ${turns !== null ? (turns >= 999 ? '余量充足' : `约还能容纳 ${turns} 个请求`) : `剩余 ${fmtK(Math.max(0, windowSize - p.tokens))}`}`
+                  : '模型的窗口大小未知'}
               </div>
             </div>
-          ) : null}
-        </div>
-        <div className="ctx-viz" data-look={look}>
-          <div
-            ref={map}
-            className="ctx-map"
-            data-f={focus ? (focus.itemId ? 'tile' : focus.kind) : undefined}
-            role="group"
-            aria-label={`已用 ${fmtK(p.tokens)} / ${fmtK(windowSize || p.tokens)} token`}
-            onPointerLeave={clear}
-          >
-            {tiles.map((tile, tileIndex) => {
-              const title = tile.free
-                ? '剩余空间'
-                : tile.it
-                  ? itemName(tile.it) +
-                    ((tile.it.n ?? 0) > 1 && !['turns', 'more'].includes(tile.it.tag ?? '') ? ` ×${tile.it.n}` : '')
-                  : tile.key === tile.kind
-                    ? partNames[tile.kind as ContextPartKind]
-                    : `另外 ${tile.its.length} 项`
-              const dirs = new Set(tile.its.map((item) => item.name.slice(0, item.name.lastIndexOf('/') + 1)))
-              const dir = [...dirs][0]
-              const groupedDirectory =
-                !tile.it && tile.kind === 'files' && tile.key !== tile.kind && dirs.size === 1 && !!dir
-              const shortTitle = groupedDirectory
-                ? dir.slice(dir.lastIndexOf('/', dir.length - 2) + 1)
-                : tile.it && ['files', 'memory'].includes(tile.kind)
-                  ? title.slice(title.lastIndexOf('/') + 1) || title
-                  : title
-              const sub = groupedDirectory
-                ? `${fmtK(tile.tokens)} · ${tile.its.length} 个文件`
-                : tile.free
-                  ? `${fmtK(tile.tokens)} · ${pct(tile.tokens / Math.max(windowSize, p.tokens, 1))}`
-                  : `${fmtK(tile.tokens)}${tile.it ? ` · ${partNames[tile.kind as ContextPartKind]}` : ''}`
-              const style: CSSProperties = {
-                animationDelay: quiet ? '0ms' : `${40 + Math.min(tileIndex, 16) * 32}ms`,
-                left: `calc(${(tile.x / mapSize.width) * 100}% + 1.5px)`,
-                top: `calc(${(tile.y / mapSize.height) * 100}% + 1.5px)`,
-                width: `max(0px, calc(${(tile.w / mapSize.width) * 100}% - 3px))`,
-                height: `max(0px, calc(${(tile.h / mapSize.height) * 100}% - 3px))`,
-              }
-              return (
-                <button
-                  key={tile.key}
-                  className={`ctx-tile ${tile.free ? 'free' : `k-${tile.kind}`}${tile.w < 54 || tile.h < 30 ? ' bare' : tile.h < 46 ? ' low' : ''}${isOn(tile.kind, tile.its) ? ' on' : ''}`}
-                  style={style}
-                  aria-label={`${title}，${sub}`}
-                  tabIndex={tile.free ? -1 : 0}
-                  aria-disabled={tile.free || undefined}
-                  onPointerEnter={(event) =>
-                    showTip(
-                      event.currentTarget,
-                      title,
-                      sub,
-                      tile.its,
-                      tile.free ? 'free' : (tile.kind as ContextPartKind),
-                      tile.it?.id,
-                    )
-                  }
-                  onFocus={(event) =>
-                    showTip(
-                      event.currentTarget,
-                      title,
-                      sub,
-                      tile.its,
-                      tile.free ? 'free' : (tile.kind as ContextPartKind),
-                      tile.it?.id,
-                    )
-                  }
-                  onBlur={clear}
-                  onClick={() => {
-                    if (!tile.free) open(tile.kind as ContextPartKind, tile.it)
-                  }}
-                >
-                  <b className="n">{shortTitle}</b>
-                  <span className="v">{sub}</span>
-                </button>
-              )
-            })}
+            {cacheSeen || request.done ? (
+              <div className={`ctx-stat ctx-cache${shownCache && !cache ? ' was' : !shownCache ? ' none' : ''}`}>
+                <div className="ctx-k">提示词缓存</div>
+                <div className="ctx-big">
+                  <b>{shownCache ? pct(shownCache.read / shownCache.total) : '—'}</b>
+                  <span>命中</span>
+                </div>
+                <div className="ctx-bar">
+                  <i style={{ width: `${shownCache ? (shownCache.read / shownCache.total) * 100 : 0}%` }} />
+                </div>
+                <div className="ctx-sub">
+                  {cache
+                    ? `${fmtK(cache.read)} 来自缓存 · ${fmtK(cache.total - cache.read)} 新增`
+                    : shownCache
+                      ? '上一个请求的 · 本次请求进行中'
+                      : request.done
+                        ? '供应商未报告'
+                        : '供应商回答后可见'}
+                </div>
+              </div>
+            ) : null}
           </div>
-          <div
-            ref={grid}
-            className="ctx-waffle"
-            data-f={focus ? (focus.itemId ? 'item' : focus.kind) : undefined}
-            role="group"
-            aria-label="上下文窗口，400 个方格"
-            onPointerLeave={clear}
-          >
-            {cells.map((cell, index) => (
-              <button
-                key={index}
-                className={`${cell ? `k-${cell.kind}` : 'free'}${cell && isOn(cell.kind, cell.item ? [cell.item] : []) ? ' on' : ''}`}
-                tabIndex={index === gridAt ? 0 : -1}
-                style={{ '--d': `${Math.round(index * 1.4)}ms` } as CSSProperties}
-                aria-label={
-                  cell
-                    ? `${partNames[cell.kind]}：${cell.item ? itemName(cell.item) : fmtK(p.parts.find((part) => part.kind === cell.kind)?.tokens ?? 0)}`
-                    : '剩余空间'
-                }
-                onKeyDown={(event) => {
-                  const columns = cardSize.width <= 520 ? 25 : 50
-                  const change: Record<string, number> = {
-                    ArrowRight: 1,
-                    ArrowLeft: -1,
-                    ArrowUp: -columns,
-                    ArrowDown: columns,
-                  }
-                  if (change[event.key] !== undefined) {
-                    event.preventDefault()
-                    const next = Math.max(0, Math.min(399, index + change[event.key]))
-                    setGridAt(next)
-                    ;(grid.current?.children[next] as HTMLElement | undefined)?.focus()
-                  }
-                }}
-                onFocus={(event) => {
-                  setGridAt(index)
-                  const part = cell ? p.parts.find((part) => part.kind === cell.kind) : undefined
-                  showTip(
-                    event.currentTarget,
-                    cell ? partNames[cell.kind] : '剩余空间',
-                    cell
-                      ? `${fmtK(part?.tokens ?? 0)} · ${pct((part?.tokens ?? 0) / Math.max(1, p.tokens))}`
-                      : fmtK(Math.max(0, windowSize - p.tokens)),
-                    part?.items ?? [],
-                    cell?.kind ?? 'free',
-                    cell?.item?.id,
-                  )
-                }}
-                onBlur={clear}
-                onPointerEnter={(event) => {
-                  const part = cell ? p.parts.find((part) => part.kind === cell.kind) : undefined
-                  showTip(
-                    event.currentTarget,
-                    cell ? partNames[cell.kind] : '剩余空间',
-                    fmtK(part?.tokens ?? Math.max(0, windowSize - p.tokens)),
-                    part?.items ?? [],
-                    cell?.kind ?? 'free',
-                    cell?.item?.id,
-                  )
-                }}
-                onClick={() => {
-                  if (cell) open(cell.kind, cell.item)
-                }}
-              />
-            ))}
-          </div>
-        </div>
-        <div className="ctx-legend">
-          {availableParts.map((kind) => (
-            <button
-              key={kind}
-              className="ctx-leg ctx-click"
-              title={partNotes[kind]}
-              onClick={() => open(kind)}
-              onPointerEnter={() => setFocus({ kind })}
+          <div className="ctx-viz" data-look={look}>
+            <div
+              ref={map}
+              className="ctx-map"
+              data-f={focus ? (focus.itemId ? 'tile' : focus.kind) : undefined}
+              role="group"
+              aria-label={`已用 ${fmtK(p.tokens)} / ${fmtK(windowSize || p.tokens)} token`}
               onPointerLeave={clear}
-              onFocus={() => setFocus({ kind })}
-              onBlur={clear}
             >
-              <i className={`dot k-${kind}`} />
-              <span className="n">{partNames[kind]}</span>
-              <span className="v">
-                <Count value={p.parts.find((part) => part.kind === kind)?.tokens ?? 0} quiet={quiet} />
-              </span>
-            </button>
-          ))}
-          {windowSize > p.tokens ? (
-            <span className="ctx-leg" onPointerEnter={() => setFocus({ kind: 'free' })} onPointerLeave={clear}>
-              <i className="dot free" />
-              <span className="n">剩余空间</span>
-              <span className="v">{fmtK(windowSize - p.tokens)}</span>
-            </span>
-          ) : null}
-          <span className="ctx-look" role="group" aria-label="上下文显示方式">
-            {(['map', 'grid'] as const).map((mode) => (
-              <button
-                key={mode}
-                className={`ctx-look-b${look === mode ? ' on' : ''}`}
-                aria-label={mode === 'map' ? '上下文地图' : '方格'}
-                aria-pressed={look === mode}
-                title={mode === 'map' ? '上下文地图' : '方格'}
-                onClick={() => {
-                  setLook(mode)
-                  savePreference('pi-meme:context:look', mode)
-                  clear()
-                }}
-              >
-                <LookIcon mode={mode} />
-              </button>
-            ))}
-          </span>
-        </div>
-        <div className="ctx-contents">
-          <div className="ctx-contents-head">
-            <span className="ctx-k">内容</span>
-            <span className="grow" />
-            <div className="segs" role="group" aria-label="内容分类">
-              {(['all', ...availableParts] as const).map((kind) => (
+              {tiles.map((tile, tileIndex) => {
+                const title = tile.free
+                  ? '剩余空间'
+                  : tile.it
+                    ? itemName(tile.it) +
+                      ((tile.it.n ?? 0) > 1 && !['turns', 'more'].includes(tile.it.tag ?? '') ? ` ×${tile.it.n}` : '')
+                    : tile.key === tile.kind
+                      ? partNames[tile.kind as ContextPartKind]
+                      : `另外 ${tile.its.length} 项`
+                const dirs = new Set(tile.its.map((item) => item.name.slice(0, item.name.lastIndexOf('/') + 1)))
+                const dir = [...dirs][0]
+                const groupedDirectory =
+                  !tile.it && tile.kind === 'files' && tile.key !== tile.kind && dirs.size === 1 && !!dir
+                const shortTitle = groupedDirectory
+                  ? dir.slice(dir.lastIndexOf('/', dir.length - 2) + 1)
+                  : tile.it && ['files', 'memory'].includes(tile.kind)
+                    ? title.slice(title.lastIndexOf('/') + 1) || title
+                    : title
+                const sub = groupedDirectory
+                  ? `${fmtK(tile.tokens)} · ${tile.its.length} 个文件`
+                  : tile.free
+                    ? `${fmtK(tile.tokens)} · ${pct(tile.tokens / Math.max(windowSize, p.tokens, 1))}`
+                    : `${fmtK(tile.tokens)}${tile.it ? ` · ${partNames[tile.kind as ContextPartKind]}` : ''}`
+                const style: CSSProperties = {
+                  animationDelay: quiet ? '0ms' : `${40 + Math.min(tileIndex, 16) * 32}ms`,
+                  left: `calc(${(tile.x / mapSize.width) * 100}% + 1.5px)`,
+                  top: `calc(${(tile.y / mapSize.height) * 100}% + 1.5px)`,
+                  width: `max(0px, calc(${(tile.w / mapSize.width) * 100}% - 3px))`,
+                  height: `max(0px, calc(${(tile.h / mapSize.height) * 100}% - 3px))`,
+                }
+                return (
+                  <button
+                    key={tile.key}
+                    className={`ctx-tile ${tile.free ? 'free' : `k-${tile.kind}`}${tile.w < 54 || tile.h < 30 ? ' bare' : tile.h < 46 ? ' low' : ''}${isOn(tile.kind, tile.its) ? ' on' : ''}`}
+                    style={style}
+                    aria-label={`${title}，${sub}`}
+                    tabIndex={tile.free ? -1 : 0}
+                    aria-disabled={tile.free || undefined}
+                    onPointerEnter={(event) =>
+                      showTip(
+                        event.currentTarget,
+                        title,
+                        sub,
+                        tile.its,
+                        tile.free ? 'free' : (tile.kind as ContextPartKind),
+                        tile.it?.id,
+                      )
+                    }
+                    onFocus={(event) =>
+                      showTip(
+                        event.currentTarget,
+                        title,
+                        sub,
+                        tile.its,
+                        tile.free ? 'free' : (tile.kind as ContextPartKind),
+                        tile.it?.id,
+                      )
+                    }
+                    onBlur={clear}
+                    onClick={() => {
+                      if (!tile.free) open(tile.kind as ContextPartKind, tile.it)
+                    }}
+                  >
+                    <b className="n">{shortTitle}</b>
+                    <span className="v">{sub}</span>
+                  </button>
+                )
+              })}
+            </div>
+            <div
+              ref={grid}
+              className="ctx-waffle"
+              data-f={focus ? (focus.itemId ? 'item' : focus.kind) : undefined}
+              role="group"
+              aria-label="上下文窗口，400 个方格"
+              onPointerLeave={clear}
+            >
+              {cells.map((cell, index) => (
                 <button
-                  key={kind}
-                  className={`opt${activeTab === kind ? ' on' : ''}`}
-                  aria-pressed={activeTab === kind}
-                  onClick={() => {
-                    setTab(kind)
-                    setMore(false)
-                    clear()
+                  key={index}
+                  className={`${cell ? `k-${cell.kind}` : 'free'}${cell && isOn(cell.kind, cell.item ? [cell.item] : []) ? ' on' : ''}`}
+                  tabIndex={index === gridAt ? 0 : -1}
+                  style={{ '--d': `${Math.round(index * 1.4)}ms` } as CSSProperties}
+                  aria-label={
+                    cell
+                      ? `${partNames[cell.kind]}：${cell.item ? itemName(cell.item) : fmtK(p.parts.find((part) => part.kind === cell.kind)?.tokens ?? 0)}`
+                      : '剩余空间'
+                  }
+                  onKeyDown={(event) => {
+                    const columns = cardSize.width <= 520 ? 25 : 50
+                    const change: Record<string, number> = {
+                      ArrowRight: 1,
+                      ArrowLeft: -1,
+                      ArrowUp: -columns,
+                      ArrowDown: columns,
+                    }
+                    if (change[event.key] !== undefined) {
+                      event.preventDefault()
+                      const next = Math.max(0, Math.min(399, index + change[event.key]))
+                      setGridAt(next)
+                      ;(grid.current?.children[next] as HTMLElement | undefined)?.focus()
+                    }
                   }}
-                >
-                  {kind === 'all' ? '全部' : partNames[kind]}
-                </button>
+                  onFocus={(event) => {
+                    setGridAt(index)
+                    const part = cell ? p.parts.find((part) => part.kind === cell.kind) : undefined
+                    showTip(
+                      event.currentTarget,
+                      cell ? partNames[cell.kind] : '剩余空间',
+                      cell
+                        ? `${fmtK(part?.tokens ?? 0)} · ${pct((part?.tokens ?? 0) / Math.max(1, p.tokens))}`
+                        : fmtK(Math.max(0, windowSize - p.tokens)),
+                      part?.items ?? [],
+                      cell?.kind ?? 'free',
+                      cell?.item?.id,
+                    )
+                  }}
+                  onBlur={clear}
+                  onPointerEnter={(event) => {
+                    const part = cell ? p.parts.find((part) => part.kind === cell.kind) : undefined
+                    showTip(
+                      event.currentTarget,
+                      cell ? partNames[cell.kind] : '剩余空间',
+                      fmtK(part?.tokens ?? Math.max(0, windowSize - p.tokens)),
+                      part?.items ?? [],
+                      cell?.kind ?? 'free',
+                      cell?.item?.id,
+                    )
+                  }}
+                  onClick={() => {
+                    if (cell) open(cell.kind, cell.item)
+                  }}
+                />
               ))}
             </div>
           </div>
-          <div className="ctx-rows">
-            {rows.slice(0, more ? rows.length : 8).map(({ item, kind }) => (
+          <div className="ctx-legend">
+            {availableParts.map((kind) => (
               <button
-                key={`${kind}:${item.id}`}
-                className="ctx-row"
-                onClick={() => open(kind, item)}
-                onPointerEnter={() => setFocus({ kind, itemId: item.id })}
+                key={kind}
+                className="ctx-leg ctx-click"
+                title={partNotes[kind]}
+                onClick={() => open(kind)}
+                onPointerEnter={() => setFocus({ kind })}
                 onPointerLeave={clear}
-                onFocus={() => setFocus({ kind, itemId: item.id })}
+                onFocus={() => setFocus({ kind })}
                 onBlur={clear}
               >
                 <i className={`dot k-${kind}`} />
-                <Label {...{ item, kind }} />
-                {(item.n ?? 0) > 1 && !['turns', 'more'].includes(item.tag ?? '') ? (
-                  <span className="ctx-x">×{item.n}</span>
-                ) : null}
-                {tagName(item.tag) ? <code className="ctx-tag">{tagName(item.tag)}</code> : null}
-                <span className="ctx-mini">
-                  <i
-                    className={`k-${kind}`}
-                    style={{
-                      width: `${Math.max(2, (item.tokens / Math.max(1, ...rows.map((row) => row.item.tokens))) * 100)}%`,
-                    }}
-                  />
+                <span className="n">{partNames[kind]}</span>
+                <span className="v">
+                  <Count value={p.parts.find((part) => part.kind === kind)?.tokens ?? 0} quiet={quiet} />
                 </span>
-                <span className="ctx-v">{fmtK(item.tokens)}</span>
               </button>
             ))}
-            {!rows.length ? <div className="ctx-empty">没有内容</div> : null}
-            {rows.length > 8 ? (
-              <button className="text ctx-more" onClick={() => setMore(!more)}>
-                {more ? '收起' : `显示全部 ${rows.length} 项`}
-              </button>
+            {windowSize > p.tokens ? (
+              <span className="ctx-leg" onPointerEnter={() => setFocus({ kind: 'free' })} onPointerLeave={clear}>
+                <i className="dot free" />
+                <span className="n">剩余空间</span>
+                <span className="v">{fmtK(windowSize - p.tokens)}</span>
+              </span>
             ) : null}
+            <span className="ctx-look" role="group" aria-label="上下文显示方式">
+              {(['map', 'grid'] as const).map((mode) => (
+                <button
+                  key={mode}
+                  className={`ctx-look-b${look === mode ? ' on' : ''}`}
+                  aria-label={mode === 'map' ? '上下文地图' : '方格'}
+                  aria-pressed={look === mode}
+                  title={mode === 'map' ? '上下文地图' : '方格'}
+                  onClick={() => {
+                    setLook(mode)
+                    savePreference('pi-meme:context:look', mode)
+                    clear()
+                  }}
+                >
+                  <LookIcon mode={mode} />
+                </button>
+              ))}
+            </span>
           </div>
-        </div>
-        <div className="ctx-foot">
-          <code className="ctx-crumbs" title={request.id}>
-            Pi meme › {sessionName ?? request.nativeSessionId.slice(0, 12)} › #{request.sequence}
-          </code>
-          <span className="grow" />
-          {p.held ? <span className="ctx-note">更早的轮次保存在服务商那里</span> : null}
-          {p.turns ? <span className="ctx-note">{p.turns} 轮</span> : null}
-        </div>
-        {series.length > 1 ? (
-          <div className="ctx-session">
-            <span className="ctx-k">本会话</span>
-            <Spark {...{ series, at: request.id, window: windowSize, onPoint }} />
-            <span className="ctx-sub">{series.length} 个请求</span>
+          <div className="ctx-contents">
+            <div className="ctx-contents-head">
+              <span className="ctx-k">内容</span>
+              <span className="grow" />
+              <div className="segs" role="group" aria-label="内容分类">
+                {(['all', ...availableParts] as const).map((kind) => (
+                  <button
+                    key={kind}
+                    className={`opt${activeTab === kind ? ' on' : ''}`}
+                    aria-pressed={activeTab === kind}
+                    onClick={() => {
+                      setTab(kind)
+                      setMore(false)
+                      clear()
+                    }}
+                  >
+                    {kind === 'all' ? '全部' : partNames[kind]}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="ctx-rows">
+              {rows.slice(0, more ? rows.length : 8).map(({ item, kind }) => (
+                <button
+                  key={`${kind}:${item.id}`}
+                  className="ctx-row"
+                  onClick={() => open(kind, item)}
+                  onPointerEnter={() => setFocus({ kind, itemId: item.id })}
+                  onPointerLeave={clear}
+                  onFocus={() => setFocus({ kind, itemId: item.id })}
+                  onBlur={clear}
+                >
+                  <i className={`dot k-${kind}`} />
+                  <Label {...{ item, kind }} />
+                  {(item.n ?? 0) > 1 && !['turns', 'more'].includes(item.tag ?? '') ? (
+                    <span className="ctx-x">×{item.n}</span>
+                  ) : null}
+                  {tagName(item.tag) ? <code className="ctx-tag">{tagName(item.tag)}</code> : null}
+                  <span className="ctx-mini">
+                    <i
+                      className={`k-${kind}`}
+                      style={{
+                        width: `${Math.max(2, (item.tokens / Math.max(1, ...rows.map((row) => row.item.tokens))) * 100)}%`,
+                      }}
+                    />
+                  </span>
+                  <span className="ctx-v">{fmtK(item.tokens)}</span>
+                </button>
+              ))}
+              {!rows.length ? <div className="ctx-empty">没有内容</div> : null}
+              {rows.length > 8 ? (
+                <button className="text ctx-more" onClick={() => setMore(!more)}>
+                  {more ? '收起' : `显示全部 ${rows.length} 项`}
+                </button>
+              ) : null}
+            </div>
           </div>
-        ) : null}
-        {pinned ? (
-          <button className="text ctx-follow" onClick={onLive}>
-            返回实时
-          </button>
-        ) : null}
-        {request.error ? (
-          <p className="ctx-request-error" role="status">
-            {request.error}
-          </p>
-        ) : null}
+          <div className="ctx-foot">
+            <code className="ctx-crumbs" title={request.id}>
+              Pi meme › {sessionName ?? request.nativeSessionId.slice(0, 12)} › #{request.sequence}
+            </code>
+            <span className="grow" />
+            {p.held ? <span className="ctx-note">更早的轮次保存在服务商那里</span> : null}
+            {p.turns ? <span className="ctx-note">{p.turns} 轮</span> : null}
+          </div>
+          {series.length > 1 ? (
+            <div className="ctx-session">
+              <span className="ctx-k">本会话</span>
+              <Spark {...{ series, at: request.id, window: windowSize, onPoint }} />
+              <span className="ctx-sub">{series.length} 个请求</span>
+            </div>
+          ) : null}
+          {pinned ? (
+            <button className="text ctx-follow" onClick={onLive}>
+              返回实时
+            </button>
+          ) : null}
+          {request.error ? (
+            <p className="ctx-request-error" role="status">
+              {request.error}
+            </p>
+          ) : null}
+        </RevealContent>
         {tip && !fold ? (
           <div ref={tipNode} className="ctx-tip" role="tooltip" style={{ visibility: 'hidden' }}>
             <div className="ctx-tip-head">
