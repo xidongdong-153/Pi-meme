@@ -7,6 +7,7 @@ import { Textarea } from '@pi-meme/ui/components/ui/textarea'
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@pi-meme/ui/components/ui/dialog'
 import { CrossfadeText } from '@pi-meme/ui/components/crossfade-text'
 import { RevealContent } from '@pi-meme/ui/components/reveal-content'
+import { SettingsCard, SettingsGroup, settingsControlClassName } from '@pi-meme/ui/components/settings'
 
 const titles: Record<InstructionKind, { title: string; description: string; file: string }> = {
   agents: { title: '用户指令', description: '配置语言、回复风格与长期工作约定。', file: 'AGENTS.md' },
@@ -141,11 +142,12 @@ export function InstructionSettings({
 
   const entry = snapshot?.entries.find((item) => item.kind === selected?.kind)
   return (
-    <div className="space-y-8" aria-busy={saving}>
+    <div className="space-y-6" aria-busy={saving}>
       {error && (
-        <div role="alert" className="space-y-2 rounded-xl bg-destructive/10 p-4 text-sm text-destructive">
+        <div role="alert" className="space-y-2 rounded-xl bg-destructive/10 p-4 text-xs text-destructive">
           <p>{error}</p>
           <Button
+            className={settingsControlClassName}
             variant="outline"
             size="sm"
             disabled={saving}
@@ -156,23 +158,30 @@ export function InstructionSettings({
         </div>
       )}
       {reloadError && (
-        <div role="alert" className="space-y-3 rounded-xl bg-destructive/10 p-4 text-sm text-destructive">
+        <div role="alert" className="space-y-3 rounded-xl bg-destructive/10 p-4 text-xs text-destructive">
           <p>{reloadError}</p>
-          <Button variant="outline" size="sm" disabled={saving || busy} onClick={() => void retryReload()}>
+          <Button
+            className={settingsControlClassName}
+            variant="outline"
+            size="sm"
+            disabled={saving || busy}
+            onClick={() => void retryReload()}
+          >
             <RefreshCw />
             重新加载
           </Button>
         </div>
       )}
       {notice && (
-        <p role="status" className="text-sm text-muted-foreground">
+        <p role="status" className="text-xs text-muted-foreground">
           {notice}
         </p>
       )}
       {selected && base ? (
-        <section aria-label="指令编辑器" className="space-y-6">
+        <section aria-label="指令编辑器" className="space-y-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <Button
+              className={settingsControlClassName}
               variant="ghost"
               disabled={saving}
               onClick={() => (dirty ? setConfirmation('discard') : setSelected(null))}
@@ -183,30 +192,35 @@ export function InstructionSettings({
             {!selected.project && (
               <div className="flex gap-2">
                 <Button
+                  className={settingsControlClassName}
                   variant="secondary"
                   disabled={saving}
                   onClick={() => (dirty ? setConfirmation('discard') : setSelected(null))}
                 >
                   取消
                 </Button>
-                <Button disabled={!dirty || busy || saving} onClick={() => void save()}>
+                <Button
+                  className={settingsControlClassName}
+                  disabled={!dirty || busy || saving}
+                  onClick={() => void save()}
+                >
                   {saving ? '正在保存…' : '保存'}
                 </Button>
               </div>
             )}
           </div>
           <div>
-            <h3 className="text-2xl font-semibold">
+            <h3 className="text-xs font-semibold text-muted-foreground">
               {titles[selected.kind].title}
               {selected.project ? ' · 项目' : ''}
             </h3>
-            <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
+            <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
               {titles[selected.kind].description}
               {selected.project ? ' 项目文件只读。' : ' 保存时要求所有会话空闲。'}
             </p>
           </div>
           {entry?.project && !selected.project && (
-            <p className="text-sm text-muted-foreground">
+            <p className="text-[11px] text-muted-foreground">
               {selected.kind === 'agents' ? '用户指令与项目指令共同生效。' : '项目已有同名指令，优先使用项目配置。'}
             </p>
           )}
@@ -217,16 +231,16 @@ export function InstructionSettings({
             disabled={saving}
             onChange={(event) => setDraft(event.target.value)}
             spellCheck={false}
-            className="min-h-80 resize-y rounded-2xl bg-card p-5 font-mono text-sm leading-7 select-text"
+            className="min-h-80 resize-y rounded-xl border-border/70 bg-card/40 px-4 py-3 font-mono text-sm leading-7 shadow-none select-text"
           />
           {!selected.project && (
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <p className="text-xs text-muted-foreground">
+              <p className="text-[11px] text-muted-foreground">
                 保存空文本会保留空文件。移除文件后按 Pi 原有规则选择指令。
               </p>
               <Button
                 variant="ghost"
-                className="text-destructive"
+                className={`${settingsControlClassName} text-destructive`}
                 disabled={!base.exists || busy || saving}
                 onClick={() => setConfirmation('remove')}
               >
@@ -235,7 +249,7 @@ export function InstructionSettings({
             </div>
           )}
           {busy && !selected.project && (
-            <p role="status" className="text-sm text-muted-foreground">
+            <p role="status" className="text-xs text-muted-foreground">
               有会话正在运行，请等会话结束或停止后再保存。
             </p>
           )}
@@ -243,33 +257,34 @@ export function InstructionSettings({
       ) : (
         <>
           {groups.map((group) => (
-            <section key={group.label} aria-label={group.label} className="space-y-4">
-              <h3 className="text-sm font-medium">{group.label}</h3>
-              <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card">
+            <SettingsGroup key={group.label} title={group.label}>
+              <SettingsCard>
                 {group.kinds.map((kind) => {
                   const item = snapshot?.entries.find((entry) => entry.kind === kind)
                   return (
-                    <div key={kind} className="p-5">
+                    <div key={kind} className="px-4 py-3">
                       <button
                         type="button"
                         aria-label={`编辑指令：${kind}`}
                         disabled={!item}
                         onClick={() => item && edit(kind, false, item.host)}
-                        className="flex w-full items-center gap-4 text-left"
+                        className="flex w-full items-center gap-3 rounded-sm text-left text-xs focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:opacity-50"
                       >
-                        <FileText className="size-5 shrink-0 text-muted-foreground" />
+                        <FileText className="size-4 shrink-0 text-muted-foreground" />
                         <span className="min-w-0 flex-1">
                           <span className="flex flex-wrap items-baseline gap-2">
-                            <span className="text-sm font-medium">{titles[kind].title}</span>
-                            <span className="font-mono text-xs text-muted-foreground">
+                            <span className="font-medium">{titles[kind].title}</span>
+                            <span className="min-w-0 break-all font-mono text-[11px] text-muted-foreground">
                               <CrossfadeText>
                                 {item ? fileName(item.host.path, titles[kind].file) : titles[kind].file}
                               </CrossfadeText>
                             </span>
                           </span>
-                          <span className="mt-1 block text-sm text-muted-foreground">{titles[kind].description}</span>
+                          <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                            {titles[kind].description}
+                          </span>
                         </span>
-                        <span className="shrink-0 text-xs text-muted-foreground">
+                        <span className="shrink-0 text-[11px] text-muted-foreground">
                           <CrossfadeText>
                             {item ? (item.host.exists ? '已配置' : '未配置') : error ? '读取失败' : '正在读取…'}
                           </CrossfadeText>
@@ -278,9 +293,14 @@ export function InstructionSettings({
                       </button>
                       <RevealContent ready={Boolean(item?.project)}>
                         {item?.project && (
-                          <div className="ml-9 mt-4 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                          <div className="ml-7 mt-2 flex flex-wrap items-center gap-2 text-[11px] text-muted-foreground">
                             <span>{item.effective === 'combined' ? '同时加载项目指令' : '当前使用项目指令'}</span>
-                            <Button size="xs" variant="ghost" onClick={() => edit(item.kind, true, item.project!)}>
+                            <Button
+                              className={settingsControlClassName}
+                              size="xs"
+                              variant="ghost"
+                              onClick={() => edit(item.kind, true, item.project!)}
+                            >
                               查看项目文件
                             </Button>
                           </div>
@@ -289,8 +309,8 @@ export function InstructionSettings({
                     </div>
                   )
                 })}
-              </div>
-            </section>
+              </SettingsCard>
+            </SettingsGroup>
           ))}
         </>
       )}
@@ -306,10 +326,11 @@ export function InstructionSettings({
             {confirmation === 'remove' ? '仅删除此用户指令，项目指令不受影响。' : '当前修改不会保存。'}
           </DialogDescription>
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setConfirmation(null)}>
+            <Button className={settingsControlClassName} variant="outline" onClick={() => setConfirmation(null)}>
               取消
             </Button>
             <Button
+              className={settingsControlClassName}
               onClick={() => {
                 const action = confirmation
                 setConfirmation(null)

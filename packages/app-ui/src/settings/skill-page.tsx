@@ -22,7 +22,8 @@ import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/
 import { Switch } from '@pi-meme/ui/components/ui/switch'
 import { CollapsibleSection } from '@pi-meme/ui/components/ui/collapsible'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@pi-meme/ui/components/ui/select'
-import { IntegrationHeader } from '@pi-meme/ui/components/integration-header'
+import { SettingsCard, settingsControlClassName } from '@pi-meme/ui/components/settings'
+import { ResourceSettingsHeader as IntegrationHeader } from './resource-settings-header'
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -199,13 +200,20 @@ export function SkillPage({
   }
 
   const settingsButton = onSettings && (
-    <Button variant="ghost" size="icon" aria-label="技能设置" title="技能设置" onClick={onSettings}>
+    <Button
+      className={settingsControlClassName}
+      variant="ghost"
+      size="icon"
+      aria-label="技能设置"
+      title="技能设置"
+      onClick={onSettings}
+    >
       <Settings />
     </Button>
   )
 
   return (
-    <section aria-label="技能管理" className="space-y-6" aria-busy={busy}>
+    <section aria-label="技能管理" className="min-w-0 space-y-6" aria-busy={busy}>
       <input
         hidden
         ref={uploadRef}
@@ -229,46 +237,50 @@ export function SkillPage({
         }}
       />
       {error && (
-        <p role="alert" className="break-words text-sm text-destructive">
+        <p role="alert" className="break-words text-xs text-destructive">
           {error}
         </p>
       )}
       {catalog?.diagnostics.map((message) => (
-        <p key={message} className="break-words text-sm text-destructive">
+        <p key={message} className="break-words text-xs text-destructive">
           {message}
         </p>
       ))}
       {current ? (
         <div className="space-y-6">
           <div className="flex items-center justify-between">
-            <Button variant="ghost" onClick={() => setSelected(undefined)}>
+            <Button className={settingsControlClassName} variant="ghost" onClick={() => setSelected(undefined)}>
               <ArrowLeft />
               返回技能
             </Button>
             {settingsButton}
           </div>
-          <div className="flex items-center gap-3">
-            <SkillIcon item={current} />
-            <div>
-              <h3 className="text-xl font-semibold">{current.displayName ?? current.name}</h3>
-              <p className="mt-2 text-sm text-muted-foreground">
+          <div className="flex min-w-0 items-center gap-3">
+            <SkillIcon item={current} compact={view === 'settings'} />
+            <div className="min-w-0">
+              <h3 className="break-words text-base font-semibold">{current.displayName ?? current.name}</h3>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
                 <CrossfadeText>{`技能 · ${scopes[current.scope]} · ${state(current)}`}</CrossfadeText>
               </p>
             </div>
           </div>
-          <p className="whitespace-pre-wrap text-sm leading-7">{current.description || '未提供说明'}</p>
-          <dl className="grid gap-4 rounded-2xl border border-border p-5 text-sm">
-            {Object.entries({
-              ...(current.owner.type === 'app-package' ? { 所属安装包: current.owner.name ?? current.owner.id } : {}),
-              版本: current.owner.version ?? current.revision.slice(0, 12),
-            }).map(([label, value]) => (
-              <div key={label}>
-                <dt className="text-xs text-muted-foreground">{label}</dt>
-                <dd className="mt-1 break-all font-mono text-xs">{value}</dd>
-              </div>
-            ))}
-          </dl>
-          <CollapsibleSection title="文件信息">
+          <p className="whitespace-pre-wrap text-xs leading-relaxed [overflow-wrap:anywhere]">
+            {current.description || '未提供说明'}
+          </p>
+          <SettingsCard>
+            <dl className="grid gap-3 px-4 py-3 text-xs">
+              {Object.entries({
+                ...(current.owner.type === 'app-package' ? { 所属安装包: current.owner.name ?? current.owner.id } : {}),
+                版本: current.owner.version ?? current.revision.slice(0, 12),
+              }).map(([label, value]) => (
+                <div key={label}>
+                  <dt className="text-xs text-muted-foreground">{label}</dt>
+                  <dd className="mt-1 break-all font-mono text-xs">{value}</dd>
+                </div>
+              ))}
+            </dl>
+          </SettingsCard>
+          <CollapsibleSection title="文件信息" className="bg-card/40 [&>button]:text-xs">
             <dl className="space-y-3 text-xs text-muted-foreground">
               {Object.entries({ 文件位置: current.sourcePath, 运行副本: current.path }).map(([label, value]) => (
                 <div key={label}>
@@ -278,7 +290,7 @@ export function SkillPage({
               ))}
             </dl>
           </CollapsibleSection>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-xs text-muted-foreground">
             <CrossfadeText>
               {pending
                 ? '当前聊天仍使用原版本，任务结束后更新。'
@@ -298,13 +310,13 @@ export function SkillPage({
             </ul>
           )}
           {current.diagnostics.map((message) => (
-            <p key={message} role="alert" className="text-sm text-destructive">
+            <p key={message} role="alert" className="text-xs text-destructive">
               {message}
             </p>
           ))}
           <div className="flex flex-wrap items-center gap-2">
             <Select value={scope} onValueChange={(value) => setScope(value as 'host' | 'project')}>
-              <SelectTrigger aria-label="技能策略范围" className="w-auto min-w-36">
+              <SelectTrigger aria-label="技能策略范围" className={cn(settingsControlClassName, 'w-auto min-w-36')}>
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -313,6 +325,7 @@ export function SkillPage({
               </SelectContent>
             </Select>
             <Button
+              className={settingsControlClassName}
               variant="outline"
               disabled={busy}
               onClick={() =>
@@ -323,6 +336,7 @@ export function SkillPage({
             </Button>
             {activePolicy && (
               <Button
+                className={settingsControlClassName}
                 variant="ghost"
                 disabled={busy}
                 onClick={() => void action(() => client.setPolicy({ id: current.id, scope, cwd, reset: true }))}
@@ -332,6 +346,7 @@ export function SkillPage({
             )}
             <>
               <Button
+                className={settingsControlClassName}
                 variant="outline"
                 disabled={busy}
                 onClick={() =>
@@ -348,17 +363,24 @@ export function SkillPage({
                 {policyInvocation === 'manual' ? '允许自动调用' : '设为仅手动'}
               </Button>
               <Button
+                className={settingsControlClassName}
                 disabled={!command || !current.enabled || Boolean(current.shadowedBy) || busy || pending}
                 onClick={() => command && onUse(command)}
               >
                 用于当前聊天
               </Button>
               {current.editable && (
-                <Button variant="outline" disabled={busy} onClick={() => void edit(current)}>
+                <Button
+                  className={settingsControlClassName}
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => void edit(current)}
+                >
                   编辑 SKILL.md
                 </Button>
               )}
               <Button
+                className={settingsControlClassName}
                 variant="outline"
                 disabled={busy}
                 onClick={() =>
@@ -379,7 +401,12 @@ export function SkillPage({
               </Button>
             </>
             {current.scope === 'host' && current.owner.type === 'loose' && (
-              <Button variant="destructive" disabled={busy} onClick={() => setRemoving(current)}>
+              <Button
+                className={settingsControlClassName}
+                variant="destructive"
+                disabled={busy}
+                onClick={() => setRemoving(current)}
+              >
                 卸载
               </Button>
             )}
@@ -396,6 +423,7 @@ export function SkillPage({
             actions={
               <>
                 <Button
+                  className={settingsControlClassName}
                   variant="ghost"
                   size="icon"
                   aria-label="重新扫描技能"
@@ -406,13 +434,18 @@ export function SkillPage({
                 </Button>
                 {settingsButton}
                 {view === 'settings' && (
-                  <Button variant="outline" disabled={busy} onClick={() => setImportOpen(true)}>
+                  <Button
+                    className={settingsControlClassName}
+                    variant="outline"
+                    disabled={busy}
+                    onClick={() => setImportOpen(true)}
+                  >
                     从设备目录导入
                   </Button>
                 )}
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button aria-label="添加技能" disabled={busy || creating} className="rounded-full">
+                    <Button aria-label="添加技能" disabled={busy || creating} className={settingsControlClassName}>
                       添加
                       <ChevronDown className="size-4" />
                     </Button>
@@ -441,7 +474,7 @@ export function SkillPage({
           >
             {view === 'catalog' && (
               <section aria-label="已安装技能" className="space-y-3">
-                <h2 className="border-b border-border pb-3 text-sm font-medium">
+                <h2 className="border-b border-border pb-3 text-xs font-medium">
                   已安装{' '}
                   <CrossfadeText className="ml-2 text-muted-foreground">
                     {catalog ? String(installed.length) : '—'}
@@ -472,7 +505,7 @@ export function SkillPage({
                       aria-expanded={installedExpanded}
                       aria-controls="installed-skill-more"
                       onClick={() => setInstalledExpanded((value) => !value)}
-                      className="text-muted-foreground"
+                      className={cn(settingsControlClassName, 'text-muted-foreground')}
                     >
                       {installedExpanded
                         ? '收起已安装技能'
@@ -489,7 +522,7 @@ export function SkillPage({
                     </Button>
                   )}
                   {catalog && !installed.length && (
-                    <p role="status" className="py-4 text-sm text-muted-foreground">
+                    <p role="status" className="py-4 text-xs text-muted-foreground">
                       {query.trim() ? '没有匹配的技能。' : '暂无已安装技能。'}
                     </p>
                   )}
@@ -498,6 +531,7 @@ export function SkillPage({
             )}
             <CategoryTabs
               label="技能类别"
+              compact={view === 'settings'}
               idPrefix={`${listId}-category`}
               value={category}
               onChange={setCategory}
@@ -515,26 +549,26 @@ export function SkillPage({
                   <SkillCatalogList label="技能列表" items={filtered} onSelect={select} />
                 ) : (
                   <ul
-                    className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card"
+                    className="divide-y divide-border/40 overflow-hidden rounded-xl border border-border/70 bg-card/40"
                     aria-label="技能列表"
                   >
                     {filtered.map((item) => {
                       return (
-                        <li key={item.id} className="flex items-center gap-4 p-5">
+                        <li key={item.id} className="flex min-w-0 items-center gap-3 px-4 py-3 text-xs">
                           <button
                             type="button"
                             aria-label={`查看技能：${item.name}`}
                             onClick={() => {
                               select(item)
                             }}
-                            className="flex min-w-0 flex-1 items-center gap-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                            className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                           >
                             <SkillIcon item={item} compact />
                             <span className="min-w-0">
-                              <span className="block truncate text-sm font-medium">
+                              <span className="block truncate text-xs font-medium">
                                 {item.displayName ?? item.name}
                               </span>
-                              <span className="mt-1 block truncate text-sm text-muted-foreground">
+                              <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
                                 {item.shortDescription ?? item.description ?? '未提供说明'}
                               </span>
                             </span>
@@ -556,7 +590,7 @@ export function SkillPage({
                   </ul>
                 ))}
               {!filtered.length && (
-                <p role="status" className="text-sm text-muted-foreground">
+                <p role="status" className="text-xs text-muted-foreground">
                   <CrossfadeText>
                     {query.trim() ? '没有匹配的技能。' : category === 'system' ? '没有系统技能。' : '没有个人技能。'}
                   </CrossfadeText>
@@ -572,12 +606,18 @@ export function SkillPage({
           <DialogDescription>
             填写当前连接设备 上含 SKILL.md 的技能目录。远程连接填写远程设备上的路径。
           </DialogDescription>
-          <Input aria-label="技能目录路径" value={importPath} onChange={(event) => setImportPath(event.target.value)} />
+          <Input
+            className={settingsControlClassName}
+            aria-label="技能目录路径"
+            value={importPath}
+            onChange={(event) => setImportPath(event.target.value)}
+          />
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setImportOpen(false)}>
+            <Button className={settingsControlClassName} variant="outline" onClick={() => setImportOpen(false)}>
               取消
             </Button>
             <Button
+              className={settingsControlClassName}
               disabled={busy || !importPath.trim()}
               onClick={() =>
                 void action(async () => {
@@ -591,7 +631,7 @@ export function SkillPage({
             </Button>
           </div>
           {error && (
-            <p role="alert" className="text-sm text-destructive">
+            <p role="alert" className="text-xs text-destructive">
               {error}
             </p>
           )}
@@ -608,6 +648,7 @@ export function SkillPage({
           <DialogDescription>只编辑 SKILL.md。保存后生成新版本，正在进行的任务继续使用原版本。</DialogDescription>
           {!editor?.item && (
             <Input
+              className={settingsControlClassName}
               aria-label="技能名称"
               placeholder="my-skill"
               value={editor?.name ?? ''}
@@ -626,7 +667,7 @@ export function SkillPage({
           )}
           <textarea
             aria-label="SKILL.md 正文"
-            className="min-h-80 w-full rounded-lg border border-border bg-background p-3 font-mono text-sm"
+            className="min-h-80 w-full rounded-lg border border-border bg-background p-3 font-mono text-xs leading-relaxed"
             value={editor?.content ?? ''}
             onChange={(event) => {
               setEditor((value) => value && { ...value, content: event.target.value })
@@ -635,6 +676,7 @@ export function SkillPage({
           />
           <div className="flex justify-end gap-2">
             <Button
+              className={settingsControlClassName}
               variant="outline"
               disabled={busy}
               onClick={() => {
@@ -645,6 +687,7 @@ export function SkillPage({
               {dirty ? '丢弃修改' : '取消'}
             </Button>
             <Button
+              className={settingsControlClassName}
               disabled={busy || !editor || (!editor.item && !editor.name.trim())}
               onClick={() =>
                 editor &&
@@ -667,7 +710,7 @@ export function SkillPage({
             </Button>
           </div>
           {error && (
-            <p role="alert" className="text-sm text-destructive">
+            <p role="alert" className="text-xs text-destructive">
               {error}
             </p>
           )}
@@ -683,10 +726,16 @@ export function SkillPage({
           <DialogTitle>卸载技能？</DialogTitle>
           <DialogDescription>移除设备上的技能文件；已有聊天记录和正在使用的旧版本保留。</DialogDescription>
           <div className="flex justify-end gap-2">
-            <Button variant="outline" disabled={busy} onClick={() => setRemoving(undefined)}>
+            <Button
+              className={settingsControlClassName}
+              variant="outline"
+              disabled={busy}
+              onClick={() => setRemoving(undefined)}
+            >
               取消
             </Button>
             <Button
+              className={settingsControlClassName}
               variant="destructive"
               disabled={busy}
               onClick={() =>
@@ -702,7 +751,7 @@ export function SkillPage({
             </Button>
           </div>
           {error && (
-            <p role="alert" className="text-sm text-destructive">
+            <p role="alert" className="text-xs text-destructive">
               {error}
             </p>
           )}

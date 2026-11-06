@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { Search } from 'lucide-react'
 import { Input } from './ui/input'
+import { cn } from '../lib/utils'
 
 export function IntegrationHeader({
   actions,
@@ -8,6 +9,7 @@ export function IntegrationHeader({
   query,
   onQuery,
   searchLabel,
+  searchClassName,
   title,
   description,
 }: {
@@ -16,6 +18,7 @@ export function IntegrationHeader({
   query: string
   onQuery: (value: string) => void
   searchLabel: string
+  searchClassName?: string
   title?: string
   description?: string
 }) {
@@ -27,7 +30,7 @@ export function IntegrationHeader({
         placeholder={searchLabel}
         value={query}
         onChange={(event) => onQuery(event.target.value)}
-        className="bg-card pl-9 shadow-none"
+        className={cn('bg-card pl-9 shadow-none', searchClassName)}
       />
     </div>
   )

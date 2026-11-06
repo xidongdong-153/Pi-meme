@@ -2,6 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import { RefreshCw } from 'lucide-react'
 import type { UsageStatsSnapshot } from '@pi-meme/contracts/usage'
 import { Button } from '@pi-meme/ui/components/ui/button'
+import { SettingsGroup, settingsCardClassName, settingsControlClassName } from '@pi-meme/ui/components/settings'
+import { cn } from '@pi-meme/ui/lib/utils'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
 import { compactTokens, taskDuration } from './usage-chart-model'
 import { TokenActivity } from './token-activity'
@@ -86,12 +88,13 @@ export function ProfileSettings({ loadUsage }: { loadUsage: () => Promise<UsageS
       }))
 
   return (
-    <div aria-label="个人资料统计" aria-busy={loading} className="@container min-w-0 space-y-10">
+    <div aria-label="个人资料统计" aria-busy={loading} className="@container min-w-0 space-y-6">
       <div className="flex flex-wrap items-center justify-end gap-3 text-xs text-muted-foreground">
         <Button
           variant="ghost"
           size="sm"
           aria-label="刷新 Token 统计"
+          className={settingsControlClassName}
           disabled={loading}
           onClick={() => void refresh()}
         >
@@ -102,18 +105,24 @@ export function ProfileSettings({ loadUsage }: { loadUsage: () => Promise<UsageS
       {error && (
         <div
           role="alert"
-          className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-destructive/10 p-4 text-sm text-destructive"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-destructive/10 p-4 text-xs text-destructive"
         >
           <p className="min-w-0 break-words">{error}</p>
-          <Button variant="outline" size="sm" disabled={loading} onClick={() => void refresh()}>
+          <Button
+            variant="outline"
+            size="sm"
+            className={settingsControlClassName}
+            disabled={loading}
+            onClick={() => void refresh()}
+          >
             重试
           </Button>
         </div>
       )}
-      <div className="space-y-10">
+      <div className="space-y-6">
         <TooltipProvider delayDuration={100}>
           <dl
-            className="grid grid-cols-2 gap-y-5 rounded-2xl border border-border bg-card/30 px-3 py-5 @min-[600px]:grid-cols-5"
+            className={cn(settingsCardClassName, 'grid grid-cols-2 gap-y-4 divide-y-0 p-4 @min-[600px]:grid-cols-5')}
             aria-label="历史用量统计"
           >
             {metrics.map((metric) => (
@@ -121,10 +130,10 @@ export function ProfileSettings({ loadUsage }: { loadUsage: () => Promise<UsageS
                 <TooltipTrigger asChild>
                   <div
                     tabIndex={0}
-                    className="flex min-w-0 flex-col px-2 py-1 text-center focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring @min-[600px]:border-r @min-[600px]:border-border @min-[600px]:last:border-r-0"
+                    className="flex min-w-0 flex-col px-2 py-1 text-center focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring @min-[600px]:border-r @min-[600px]:border-border/40 @min-[600px]:last:border-r-0"
                   >
-                    <dt className="mt-2 text-xs text-muted-foreground">{metric.label}</dt>
-                    <dd className="-order-1 mt-1 min-h-7 text-lg font-medium tabular-nums">
+                    <dt className="mt-1 text-[11px] text-muted-foreground">{metric.label}</dt>
+                    <dd className="-order-1 min-h-6 text-base font-medium tabular-nums">
                       <CrossfadeText>{metric.value}</CrossfadeText>
                     </dd>
                   </div>
@@ -134,9 +143,8 @@ export function ProfileSettings({ loadUsage }: { loadUsage: () => Promise<UsageS
             ))}
           </dl>
         </TooltipProvider>
-        <section className="space-y-3" aria-label="Token 活动记录">
-          <h3 className="text-sm font-medium">Token 活动</h3>
-          <p role="status" className="text-xs text-muted-foreground">
+        <SettingsGroup title="Token 活动" aria-label="Token 活动记录">
+          <p role="status" className="text-[11px] text-muted-foreground">
             <CrossfadeText>
               {snapshot
                 ? loading
@@ -150,8 +158,8 @@ export function ProfileSettings({ loadUsage }: { loadUsage: () => Promise<UsageS
           <RevealContent ready={snapshot !== null}>
             {snapshot && <TokenActivity daily={snapshot.daily} today={snapshot.today} />}
           </RevealContent>
-        </section>
-        <div className="space-y-2 text-xs text-muted-foreground">
+        </SettingsGroup>
+        <div className="space-y-2 text-[11px] text-muted-foreground">
           <p>
             <CrossfadeText>
               {snapshot ? `更新于 ${new Date(snapshot.updatedAt).toLocaleString('zh-CN')}` : '尚未获取统计'}

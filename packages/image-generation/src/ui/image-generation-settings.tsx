@@ -9,6 +9,7 @@ import { imageQualities, imageSizes } from '@pi-meme/contracts/image-generation'
 import { CrossfadeText } from '@pi-meme/ui/components/crossfade-text'
 import { RevealContent } from '@pi-meme/ui/components/reveal-content'
 import { Button } from '@pi-meme/ui/components/ui/button'
+import { SettingsCard, SettingsRow, settingsControlClassName } from '@pi-meme/ui/components/settings'
 import { Input } from '@pi-meme/ui/components/ui/input'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@pi-meme/ui/components/ui/select'
@@ -106,76 +107,88 @@ export function ImageGenerationSettings({ api, hostLabel }: { api?: ImageGenerat
 
   if (!api) return <p role="status">当前版本不支持图片生成，请更新后重试。</p>
   return (
-    <div className="space-y-4" aria-busy={loading || Boolean(pending)}>
-      <p className="text-xs text-muted-foreground">
+    <div className="space-y-6" aria-busy={loading || Boolean(pending)}>
+      <p className="text-[11px] text-muted-foreground">
         配置保存到：<CrossfadeText>{hostLabel}</CrossfadeText>
       </p>
-      <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-card p-5">
-        <div className="space-y-1">
-          <h3 className="font-medium">默认图片模型</h3>
-        </div>
-        <Select
-          value={config?.defaultId ?? ''}
-          disabled={!config?.models.length || Boolean(config.error) || pending === 'default'}
-          onValueChange={(id) => void change('default', () => api.setDefault(id, config!.revision))}
-        >
-          <SelectTrigger aria-label="默认图片模型" className="w-56">
-            <SelectValue placeholder={!config ? (loading ? '读取中…' : '未读取配置') : '未选择默认模型'}>
-              <CrossfadeText>
-                {defaultModel
-                  ? `${defaultModel.name} · ${defaultModel.model}`
-                  : !config
-                    ? loading
-                      ? '读取中…'
-                      : '未读取配置'
-                    : '未选择默认模型'}
-              </CrossfadeText>
-            </SelectValue>
-          </SelectTrigger>
-          <SelectContent>
-            {config?.models.map((model) => (
-              <SelectItem key={model.id} value={model.id}>
-                {model.name} · {model.model}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+      <SettingsCard>
+        <SettingsRow>
+          <div className="space-y-1">
+            <h3 className="font-medium">默认图片模型</h3>
+          </div>
+          <Select
+            value={config?.defaultId ?? ''}
+            disabled={!config?.models.length || Boolean(config.error) || pending === 'default'}
+            onValueChange={(id) => void change('default', () => api.setDefault(id, config!.revision))}
+          >
+            <SelectTrigger aria-label="默认图片模型" className="w-56 h-8 max-w-full rounded-lg text-xs shadow-none">
+              <SelectValue placeholder={!config ? (loading ? '读取中…' : '未读取配置') : '未选择默认模型'}>
+                <CrossfadeText className="min-w-0 max-w-full" textClassName="truncate">
+                  {defaultModel
+                    ? `${defaultModel.name} · ${defaultModel.model}`
+                    : !config
+                      ? loading
+                        ? '读取中…'
+                        : '未读取配置'
+                      : '未选择默认模型'}
+                </CrossfadeText>
+              </SelectValue>
+            </SelectTrigger>
+            <SelectContent>
+              {config?.models.map((model) => (
+                <SelectItem key={model.id} value={model.id}>
+                  {model.name} · {model.model}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </SettingsRow>
+      </SettingsCard>
       <div className="flex flex-wrap items-center justify-end gap-3">
         <div className="flex gap-2">
           <Button
+            className={settingsControlClassName}
             variant="outline"
             disabled={loading || pending === 'refresh'}
             onClick={() => void change('refresh', () => api.getConfig())}
           >
             <CrossfadeText reserve={['刷新', '刷新中…']}>{pending === 'refresh' ? '刷新中…' : '刷新'}</CrossfadeText>
           </Button>
-          <Button disabled={!config || Boolean(config.error)} onClick={() => setDraft(newDraft())}>
+          <Button
+            className={settingsControlClassName}
+            disabled={!config || Boolean(config.error)}
+            onClick={() => setDraft(newDraft())}
+          >
             添加模型
           </Button>
         </div>
       </div>
-      <RevealContent ready={Boolean(config)}>
-        <div className="space-y-4">
+      <RevealContent ready={Boolean(config && (config.models.length || !config.error))}>
+        <SettingsCard>
           {config && !config.models.length && !config.error && (
-            <div className="rounded-xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+            <div className="px-4 py-8 text-center text-[11px] text-muted-foreground">
               添加图片模型后即可生成和编辑图片。
             </div>
           )}
           {config?.models.map((model) => (
-            <div key={model.id} className="rounded-xl border border-border bg-card p-5 space-y-3">
-              <div className="space-y-1">
-                <h3 className="font-medium">{model.name}</h3>
-                <p className="text-sm text-muted-foreground">
+            <SettingsRow key={model.id}>
+              <div className="min-w-0 flex-1 basis-48 space-y-1">
+                <h3 className="break-words font-medium">{model.name}</h3>
+                <p className="break-all text-[11px] text-muted-foreground">
                   <CrossfadeText>{`${model.model} · ${model.hasApiKey ? '已配置 Key' : '未配置 Key'}${model.id === config.defaultId ? ' · 默认' : ''}`}</CrossfadeText>
                 </p>
-                <p className="break-all text-xs text-muted-foreground">{model.baseUrl}</p>
+                <p className="break-all text-[11px] text-muted-foreground">{model.baseUrl}</p>
               </div>
               <div className="flex flex-wrap gap-2">
-                <Button variant="outline" onClick={() => setDraft({ ...model, apiKey: '', clearApiKey: false })}>
+                <Button
+                  className={settingsControlClassName}
+                  variant="outline"
+                  onClick={() => setDraft({ ...model, apiKey: '', clearApiKey: false })}
+                >
                   编辑
                 </Button>
                 <Button
+                  className={settingsControlClassName}
                   variant="outline"
                   disabled={!model.hasApiKey || pending === `test:${model.id}`}
                   onClick={() => setTesting(model)}
@@ -184,23 +197,28 @@ export function ImageGenerationSettings({ api, hostLabel }: { api?: ImageGenerat
                     {pending === `test:${model.id}` ? '正在生成测试图片…' : '生成测试图片'}
                   </CrossfadeText>
                 </Button>
-                <Button variant="ghost" disabled={pending === `delete:${model.id}`} onClick={() => setDeleting(model)}>
+                <Button
+                  className={settingsControlClassName}
+                  variant="ghost"
+                  disabled={pending === `delete:${model.id}`}
+                  onClick={() => setDeleting(model)}
+                >
                   删除
                 </Button>
               </div>
-            </div>
+            </SettingsRow>
           ))}
-        </div>
+        </SettingsCard>
       </RevealContent>
       <RevealContent ready={Boolean(error || config?.error)}>
-        <p role="alert" className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
+        <p role="alert" className="rounded-lg bg-destructive/10 p-3 text-xs text-destructive">
           <CrossfadeText>{error || config?.error || ''}</CrossfadeText>
         </p>
       </RevealContent>
       <RevealContent ready={Boolean(imageUrl)}>
         {imageUrl && (
           <div className="space-y-2">
-            <p className="text-sm">测试图片</p>
+            <p className="text-xs">测试图片</p>
             <button type="button" aria-label="预览测试图片" onClick={() => setPreview(true)}>
               <img
                 src={imageUrl}
@@ -209,7 +227,7 @@ export function ImageGenerationSettings({ api, hostLabel }: { api?: ImageGenerat
               />
             </button>
             <div>
-              <a href={imageUrl} download="image-generation-test.png" className="text-sm underline">
+              <a href={imageUrl} download="image-generation-test.png" className="text-xs underline">
                 下载原图
               </a>
             </div>
@@ -250,26 +268,29 @@ export function ImageGenerationSettings({ api, hostLabel }: { api?: ImageGenerat
                 )
               }}
             >
-              <label className="block space-y-1 text-sm">
+              <label className="block space-y-1 text-xs">
                 配置名称
                 <Input
+                  className={settingsControlClassName}
                   required
                   value={draft.name}
                   onChange={(event) => setDraft({ ...draft, name: event.target.value })}
                 />
               </label>
-              <label className="block space-y-1 text-sm">
+              <label className="block space-y-1 text-xs">
                 Base URL
                 <Input
+                  className={settingsControlClassName}
                   required
                   type="url"
                   value={draft.baseUrl}
                   onChange={(event) => setDraft({ ...draft, baseUrl: event.target.value })}
                 />
               </label>
-              <label className="block space-y-1 text-sm">
+              <label className="block space-y-1 text-xs">
                 API Key
                 <Input
+                  className={settingsControlClassName}
                   required={!existing}
                   type="password"
                   autoComplete="new-password"
@@ -280,7 +301,7 @@ export function ImageGenerationSettings({ api, hostLabel }: { api?: ImageGenerat
                 />
               </label>
               {existing?.hasApiKey && (
-                <label className="flex items-center gap-2 text-sm">
+                <label className="flex items-center gap-2 text-xs">
                   <input
                     type="checkbox"
                     checked={draft.clearApiKey}
@@ -289,22 +310,23 @@ export function ImageGenerationSettings({ api, hostLabel }: { api?: ImageGenerat
                   清除已保存的 API Key
                 </label>
               )}
-              <label className="block space-y-1 text-sm">
+              <label className="block space-y-1 text-xs">
                 模型 ID
                 <Input
+                  className={settingsControlClassName}
                   required
                   value={draft.model}
                   onChange={(event) => setDraft({ ...draft, model: event.target.value })}
                 />
               </label>
               <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1 text-sm">
+                <div className="space-y-1 text-xs">
                   <span>默认尺寸</span>
                   <Select
                     value={draft.size}
                     onValueChange={(value) => setDraft({ ...draft, size: value as Draft['size'] })}
                   >
-                    <SelectTrigger aria-label="默认尺寸">
+                    <SelectTrigger className={settingsControlClassName} aria-label="默认尺寸">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -316,13 +338,13 @@ export function ImageGenerationSettings({ api, hostLabel }: { api?: ImageGenerat
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="space-y-1 text-sm">
+                <div className="space-y-1 text-xs">
                   <span>默认质量</span>
                   <Select
                     value={draft.quality}
                     onValueChange={(value) => setDraft({ ...draft, quality: value as Draft['quality'] })}
                   >
-                    <SelectTrigger aria-label="默认质量">
+                    <SelectTrigger className={settingsControlClassName} aria-label="默认质量">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -336,12 +358,13 @@ export function ImageGenerationSettings({ api, hostLabel }: { api?: ImageGenerat
                 </div>
               </div>
               {error && (
-                <p role="alert" className="text-sm text-destructive">
+                <p role="alert" className="text-xs text-destructive">
                   {error}
                 </p>
               )}
               <div className="flex justify-end gap-2">
                 <Button
+                  className={settingsControlClassName}
                   type="button"
                   variant="outline"
                   disabled={pending === 'save'}
@@ -349,7 +372,7 @@ export function ImageGenerationSettings({ api, hostLabel }: { api?: ImageGenerat
                 >
                   取消
                 </Button>
-                <Button type="submit" disabled={pending === 'save'}>
+                <Button className={settingsControlClassName} type="submit" disabled={pending === 'save'}>
                   <CrossfadeText reserve={['正在保存…', '保存']}>
                     {pending === 'save' ? '正在保存…' : '保存'}
                   </CrossfadeText>
@@ -370,10 +393,11 @@ export function ImageGenerationSettings({ api, hostLabel }: { api?: ImageGenerat
             <DialogTitle>删除 {deleting.name}？</DialogTitle>
             <DialogDescription>删除配置及其凭据。若为默认模型，需要重新选择默认图片模型。</DialogDescription>
             <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setDeleting(undefined)}>
+              <Button className={settingsControlClassName} variant="outline" onClick={() => setDeleting(undefined)}>
                 取消
               </Button>
               <Button
+                className={settingsControlClassName}
                 variant="destructive"
                 disabled={pending === `delete:${deleting.id}`}
                 onClick={() =>
@@ -398,10 +422,11 @@ export function ImageGenerationSettings({ api, hostLabel }: { api?: ImageGenerat
               将使用 {testing.name} 的 {testing.model} 生成一张图片，可能产生费用。成功只表示生图可用，编辑需另行验证。
             </DialogDescription>
             <div className="flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setTesting(undefined)}>
+              <Button className={settingsControlClassName} variant="outline" onClick={() => setTesting(undefined)}>
                 取消
               </Button>
               <Button
+                className={settingsControlClassName}
                 onClick={() => {
                   const selected = testing
                   setTesting(undefined)

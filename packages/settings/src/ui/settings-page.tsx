@@ -12,6 +12,7 @@ import { GeneralSettings } from './general-settings'
 import { InstructionSettings } from './instruction-settings'
 import { CrossfadeText } from '@pi-meme/ui/components/crossfade-text'
 import { Button } from '@pi-meme/ui/components/ui/button'
+import { SettingsCard, SettingsGroup, settingsControlClassName } from '@pi-meme/ui/components/settings'
 
 export type SettingsPageProps = {
   section: 'about' | 'appearance' | 'general' | 'instructions'
@@ -66,27 +67,33 @@ export function SettingsPage({
           onMaintaining={onSaving}
         />
       ) : section === 'about' ? (
-        <div className="space-y-4 rounded-2xl border border-border bg-card p-6">
-          <h3 className="text-sm font-medium">Pi</h3>
-          <dl className="grid grid-cols-2 gap-2 text-xs">
-            <dt className="text-muted-foreground">内置版本</dt>
-            <dd>
-              <CrossfadeText>{piVersion ? `v${piVersion}` : '尚未连接'}</CrossfadeText>
-            </dd>
-          </dl>
-        </div>
+        <SettingsGroup title="Pi">
+          <SettingsCard>
+            <dl className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-xs">
+              <dt className="font-medium">内置版本</dt>
+              <dd>
+                <CrossfadeText>{piVersion ? `v${piVersion}` : '尚未连接'}</CrossfadeText>
+              </dd>
+            </dl>
+          </SettingsCard>
+        </SettingsGroup>
       ) : (
         <ThemeSettings snapshot={snapshot} {...appearance} />
       )}
       {snapshot?.errors.map((message) => (
-        <p key={message} role="alert" className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
+        <p key={message} role="alert" className="rounded-lg bg-destructive/10 p-3 text-xs text-destructive">
           {message}
         </p>
       ))}
       {error && (
-        <p role="alert" className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
+        <p role="alert" className="rounded-lg bg-destructive/10 p-3 text-xs text-destructive">
           {error}
-          <Button variant="outline" size="sm" className="ml-3" onClick={appearance.onReload}>
+          <Button
+            variant="outline"
+            size="sm"
+            className={`ml-3 ${settingsControlClassName}`}
+            onClick={appearance.onReload}
+          >
             重新读取
           </Button>
         </p>

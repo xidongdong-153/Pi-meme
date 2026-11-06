@@ -1,6 +1,7 @@
 import { useMemo, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react'
 import { Ban, RotateCcw, Search } from 'lucide-react'
 import { Button } from '@pi-meme/ui/components/ui/button'
+import { SettingsCard, SettingsGroup, SettingsRow } from '@pi-meme/ui/components/settings'
 import { Input } from '@pi-meme/ui/components/ui/input'
 import { Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
@@ -165,9 +166,8 @@ export function ShortcutSettings() {
         )}
 
         {filteredGroups.map((group) => (
-          <section key={group.id} aria-label={group.label} className="space-y-2">
-            <h3 className="text-xs font-semibold text-muted-foreground select-none">{group.label}</h3>
-            <div className="rounded-xl border border-border/70 divide-y divide-border/40 overflow-hidden bg-card/40">
+          <SettingsGroup key={group.id} title={group.label}>
+            <SettingsCard>
               {group.items.map((shortcut) => {
                 const meta = SHORTCUT_META_MAP[shortcut.id]
                 const bound = resolveKeybinding(shortcut, overrides, environment)
@@ -177,10 +177,7 @@ export function ShortcutSettings() {
                 const error = rowError?.id === shortcut.id ? rowError.message : null
 
                 return (
-                  <div
-                    key={shortcut.id}
-                    className="flex flex-wrap items-center justify-between gap-3 px-4 py-3 text-xs"
-                  >
+                  <SettingsRow key={shortcut.id}>
                     <div className="min-w-0 flex-1 pr-2">
                       <div className="font-medium text-foreground">{meta.title}</div>
                       <div className="text-[11px] text-muted-foreground/75 mt-0.5">{meta.scope}</div>
@@ -253,11 +250,11 @@ export function ShortcutSettings() {
                         <TooltipContent side="top">恢复默认</TooltipContent>
                       </Tooltip>
                     </div>
-                  </div>
+                  </SettingsRow>
                 )
               })}
-            </div>
-          </section>
+            </SettingsCard>
+          </SettingsGroup>
         ))}
       </div>
 

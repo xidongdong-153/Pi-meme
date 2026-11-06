@@ -8,6 +8,7 @@
     "./components/ui/slider": "./src/components/ui/slider.tsx",
     "./components/ui/switch": "./src/components/ui/switch.tsx",
     "./components/integration-header": "./src/components/integration-header.tsx",
+    "./components/settings": "./src/components/settings.tsx",
     "./components/bento-skeleton": "./src/components/bento-skeleton.tsx",
     "./brand-mark.css": "./src/brand-mark.css",
     "./components/brand-mark": "./src/components/brand-mark.tsx",

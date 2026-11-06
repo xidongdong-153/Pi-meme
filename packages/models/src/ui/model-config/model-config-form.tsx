@@ -11,6 +11,7 @@ import { modelApis } from '@pi-meme/contracts/model-config'
 import { thinkingLevels, type ThinkingLevel } from '@pi-meme/contracts/pi'
 import { THINKING_LEVEL_LABELS } from '../thinking-config'
 import { Button } from '@pi-meme/ui/components/ui/button'
+import { settingsControlClassName } from '@pi-meme/ui/components/settings'
 import { BrandMark } from '@pi-meme/ui/components/brand-mark'
 import { Input } from '@pi-meme/ui/components/ui/input'
 import { ScrollArea } from '@pi-meme/ui/components/ui/scroll-area'
@@ -207,10 +208,10 @@ export function ModelConfigForm({
               </div>
             </div>
             <div className="flex gap-2">
-              <Button variant="ghost" onClick={close} disabled={locked}>
+              <Button className={settingsControlClassName} variant="ghost" onClick={close} disabled={locked}>
                 取消
               </Button>
-              <Button type="submit" disabled={locked || busy}>
+              <Button className={settingsControlClassName} type="submit" disabled={locked || busy}>
                 {saving ? '正在保存…' : '保存服务商'}
               </Button>
             </div>
@@ -218,9 +219,10 @@ export function ModelConfigForm({
           <ScrollArea type="always" aria-label="模型配置内容" className="flex-1 min-h-0 min-w-0">
             <fieldset disabled={locked} className="min-w-0 p-5 space-y-5">
               <div className="grid gap-4 sm:grid-cols-2">
-                <label className="space-y-1.5 text-sm">
+                <label className="space-y-1.5 text-xs">
                   服务商名称
                   <Input
+                    className={settingsControlClassName}
                     aria-label="服务商名称"
                     autoFocus
                     required
@@ -232,12 +234,13 @@ export function ModelConfigForm({
                 <CollapsibleSection
                   title="高级连接设置"
                   description={`${apiLabels[api]} · ${baseUrl}`}
-                  className="sm:col-span-2"
+                  className="sm:col-span-2 bg-card/40 [&>button]:text-xs [&>button>span>span+span]:text-[11px]"
                 >
                   <div className="grid gap-4 sm:grid-cols-2">
-                    <label className="space-y-1.5 text-sm">
+                    <label className="space-y-1.5 text-xs">
                       服务商 ID
                       <Input
+                        className={settingsControlClassName}
                         aria-label="服务商 ID"
                         required
                         pattern="[a-zA-Z0-9][a-zA-Z0-9._-]*"
@@ -246,12 +249,15 @@ export function ModelConfigForm({
                         onChange={(event) => setId(event.target.value)}
                         placeholder="例如：my-provider"
                       />
-                      <span className="text-xs text-muted-foreground">唯一标识，创建后不可修改。</span>
+                      <span className="text-[11px] text-muted-foreground">唯一标识，创建后不可修改。</span>
                     </label>
-                    <label className="min-w-0 space-y-1.5 text-sm">
+                    <label className="min-w-0 space-y-1.5 text-xs">
                       API 协议
                       <Select value={api} onValueChange={(value) => setApi(value as ModelApi)}>
-                        <SelectTrigger aria-label="API 协议" className="bg-background">
+                        <SelectTrigger
+                          aria-label="API 协议"
+                          className="bg-background h-8 max-w-full rounded-lg text-xs shadow-none"
+                        >
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent className="w-[var(--radix-select-trigger-width)]">
@@ -263,9 +269,10 @@ export function ModelConfigForm({
                         </SelectContent>
                       </Select>
                     </label>
-                    <label className="space-y-1.5 text-sm">
+                    <label className="space-y-1.5 text-xs">
                       Base URL
                       <Input
+                        className={settingsControlClassName}
                         aria-label="Base URL"
                         required
                         type="url"
@@ -273,16 +280,17 @@ export function ModelConfigForm({
                         onChange={(event) => setBaseUrl(event.target.value)}
                         placeholder={examples[api]}
                       />
-                      <span className="text-xs text-muted-foreground">示例：{examples[api]}</span>
+                      <span className="text-[11px] text-muted-foreground">示例：{examples[api]}</span>
                     </label>
                   </div>
                 </CollapsibleSection>
                 <div className="sm:col-span-2 space-y-2">
-                  <label className="text-sm" htmlFor="model-api-key">
+                  <label className="text-xs" htmlFor="model-api-key">
                     API Key{provider?.hasApiKey && !clearKey ? ' · 已配置，留空保留' : ''}
                   </label>
                   <div className="flex gap-2">
                     <Input
+                      className={settingsControlClassName}
                       id="model-api-key"
                       aria-label="API Key"
                       type={showKey ? 'text' : 'password'}
@@ -294,11 +302,16 @@ export function ModelConfigForm({
                       }}
                       placeholder="输入 Key 或 $环境变量名"
                     />
-                    <Button variant="outline" onClick={() => setShowKey((value) => !value)}>
+                    <Button
+                      className={settingsControlClassName}
+                      variant="outline"
+                      onClick={() => setShowKey((value) => !value)}
+                    >
                       {showKey ? '隐藏' : '显示'}
                     </Button>
                     {provider?.hasApiKey && (
                       <Button
+                        className={settingsControlClassName}
                         variant="outline"
                         onClick={() => {
                           setClearKey((value) => !value)
@@ -309,13 +322,17 @@ export function ModelConfigForm({
                       </Button>
                     )}
                   </div>
-                  <p className="text-xs text-muted-foreground">
+                  <p className="text-[11px] text-muted-foreground">
                     本地无鉴权接口可填写占位值，例如 ollama。{clearKey ? '保存后将清除原 Key。' : ''}
                   </p>
                 </div>
               </div>
-              <CollapsibleSection title="服务商高级配置" description="请求头与协议兼容参数">
-                <p className="text-xs text-muted-foreground">
+              <CollapsibleSection
+                title="服务商高级配置"
+                description="请求头与协议兼容参数"
+                className="bg-card/40 [&>button]:text-xs [&>button>span>span+span]:text-[11px]"
+              >
+                <p className="text-[11px] text-muted-foreground">
                   敏感请求头留空保留原值；删除对应键即可清除。JSON 留空则移除该配置。
                 </p>
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -325,7 +342,7 @@ export function ModelConfigForm({
                       aria-label="服务商请求头 JSON"
                       value={headers}
                       onChange={(event) => setHeaders(event.target.value)}
-                      className="font-mono"
+                      className="font-mono rounded-lg text-xs"
                       placeholder={'{"X-Custom-Header":"value"}'}
                     />
                   </label>
@@ -335,7 +352,7 @@ export function ModelConfigForm({
                       aria-label="服务商 compat JSON"
                       value={compat}
                       onChange={(event) => setCompat(event.target.value)}
-                      className="font-mono"
+                      className="font-mono rounded-lg text-xs"
                       placeholder={'{"supportsDeveloperRole":false}'}
                     />
                   </label>
@@ -344,15 +361,22 @@ export function ModelConfigForm({
               <div className="grid min-h-0 gap-4 lg:grid-cols-2">
                 <section
                   aria-label="接口模型列表"
-                  className="flex h-[28rem] min-w-0 flex-col gap-3 rounded-xl border border-border bg-background p-3"
+                  className="flex h-[28rem] min-w-0 flex-col gap-3 rounded-xl border border-border/70 bg-card/40 p-3"
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <h3 className="text-sm font-medium">接口模型列表</h3>
-                    <Button variant="outline" size="sm" onClick={() => void discover()} disabled={!baseUrl}>
+                    <h3 className="text-xs font-medium">接口模型列表</h3>
+                    <Button
+                      className={settingsControlClassName}
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void discover()}
+                      disabled={!baseUrl}
+                    >
                       {fetching ? '正在获取…' : '获取模型列表'}
                     </Button>
                   </div>
                   <Input
+                    className="h-9 max-w-full rounded-lg text-xs shadow-none"
                     aria-label="搜索模型"
                     placeholder="搜索模型 ID 或名称"
                     value={search}
@@ -411,14 +435,16 @@ export function ModelConfigForm({
                               }}
                               className="mt-1 accent-primary"
                             />
-                            <span className="min-w-0 text-sm break-all">
+                            <span className="min-w-0 text-xs break-all">
                               <span className="font-mono">{model.id}</span>
-                              {model.name && <span className="block text-xs text-muted-foreground">{model.name}</span>}
+                              {model.name && (
+                                <span className="block text-[11px] text-muted-foreground">{model.name}</span>
+                              )}
                             </span>
                           </label>
                         ))
                       ) : (
-                        <p className="py-8 text-center text-sm text-muted-foreground">
+                        <p className="py-8 text-center text-[11px] text-muted-foreground">
                           获取模型列表，或在下方手动添加。
                         </p>
                       )}
@@ -426,6 +452,7 @@ export function ModelConfigForm({
                   </ScrollArea>
                   <div className="flex gap-2">
                     <Input
+                      className={settingsControlClassName}
                       aria-label="自定义模型 ID"
                       value={customId}
                       onChange={(event) => setCustomId(event.target.value)}
@@ -441,6 +468,7 @@ export function ModelConfigForm({
                       }}
                     />
                     <Button
+                      className={settingsControlClassName}
                       variant="secondary"
                       disabled={!customId.trim()}
                       onClick={() => {
@@ -454,19 +482,20 @@ export function ModelConfigForm({
                 </section>
                 <section
                   aria-label="已选模型设置"
-                  className="flex h-[28rem] min-w-0 flex-col gap-3 rounded-xl border border-border bg-background p-3"
+                  className="flex h-[28rem] min-w-0 flex-col gap-3 rounded-xl border border-border/70 bg-card/40 p-3"
                 >
-                  <h3 className="text-sm font-medium">已选模型 · {models.length}</h3>
+                  <h3 className="text-xs font-medium">已选模型 · {models.length}</h3>
                   <ScrollArea type="always" aria-label="已选模型滚动列表" className="min-h-0 flex-1">
                     <div className="space-y-3 pr-2">
                       {!models.length && (
-                        <p className="py-8 text-center text-sm text-muted-foreground">先选择一个模型。</p>
+                        <p className="py-8 text-center text-[11px] text-muted-foreground">先选择一个模型。</p>
                       )}
                       {models.map((model) => (
                         <div key={model.id} className="rounded-lg bg-secondary/40 p-3 space-y-3">
                           <div className="flex items-center justify-between gap-2">
-                            <h4 className="font-mono text-sm break-all">{model.id}</h4>
+                            <h4 className="font-mono text-xs break-all">{model.id}</h4>
                             <Button
+                              className={settingsControlClassName}
                               variant="ghost"
                               size="sm"
                               aria-label={`移除模型 ${model.id}`}
@@ -480,6 +509,7 @@ export function ModelConfigForm({
                           <label className="block space-y-1 text-xs">
                             显示名称
                             <Input
+                              className={settingsControlClassName}
                               aria-label={`${model.id} 显示名称`}
                               value={model.name ?? ''}
                               placeholder={model.id}
@@ -490,7 +520,7 @@ export function ModelConfigForm({
                             <div className="space-y-3">
                               <fieldset className="space-y-2">
                                 <legend className="text-xs">思考强度</legend>
-                                <p className="text-xs text-muted-foreground">
+                                <p className="text-[11px] text-muted-foreground">
                                   未配置思考档位时默认全选，可按接口支持情况调整。
                                 </p>
                                 <label className="flex items-center gap-2 text-xs">
@@ -531,6 +561,7 @@ export function ModelConfigForm({
                                   <label key={field} className="space-y-1 text-xs">
                                     {field === 'contextWindow' ? '上下文窗口' : '最大输出'}
                                     <Input
+                                      className={settingsControlClassName}
                                       aria-label={`${model.id} ${field}`}
                                       type="number"
                                       min="1"
@@ -573,14 +604,14 @@ export function ModelConfigForm({
                                     aria-label={`${model.id} ${label} JSON`}
                                     value={model[field]}
                                     onChange={(event) => updateModel(model.id, { [field]: event.target.value })}
-                                    className="font-mono"
+                                    className="font-mono rounded-lg text-xs"
                                   />
                                 </label>
                               ))}
                               {model.reasoning && (
                                 <div className="space-y-2">
                                   <p className="text-xs">思考等级映射</p>
-                                  <p className="text-xs text-muted-foreground">
+                                  <p className="text-[11px] text-muted-foreground">
                                     填写接口接受的参数值；留空使用 Pi 协议默认值。极高和最大需显式映射。
                                   </p>
                                   <div className="grid grid-cols-2 gap-3">
@@ -590,6 +621,7 @@ export function ModelConfigForm({
                                         <label key={level} className="space-y-1 text-xs">
                                           {THINKING_LEVEL_LABELS[level]}（{level}）
                                           <Input
+                                            className={settingsControlClassName}
                                             aria-label={`${model.id} ${level} 映射`}
                                             value={model.thinkingLevelMap?.[level] ?? ''}
                                             placeholder={defaultThinkingMapping(api, level) ?? 'Pi 协议默认值'}
@@ -615,12 +647,12 @@ export function ModelConfigForm({
                 </section>
               </div>
               {busy && (
-                <p role="status" className="text-sm text-muted-foreground">
+                <p role="status" className="text-[11px] text-muted-foreground">
                   Pi 正在运行或连接，请等待完成后保存。
                 </p>
               )}
               {error && (
-                <p role="alert" className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+                <p role="alert" className="rounded-md bg-destructive/10 p-3 text-xs text-destructive">
                   {error}
                 </p>
               )}
@@ -636,10 +668,15 @@ export function ModelConfigForm({
             <div className="rounded-xl border border-border bg-card p-5 space-y-4">
               <p>有未保存的修改，是否放弃？</p>
               <div className="flex justify-end gap-2">
-                <Button variant="outline" autoFocus onClick={() => setDiscard(false)}>
+                <Button
+                  className={settingsControlClassName}
+                  variant="outline"
+                  autoFocus
+                  onClick={() => setDiscard(false)}
+                >
                   继续编辑
                 </Button>
-                <Button variant="destructive" onClick={onClose}>
+                <Button className={settingsControlClassName} variant="destructive" onClick={onClose}>
                   放弃修改
                 </Button>
               </div>

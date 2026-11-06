@@ -3,6 +3,7 @@ import type { SettingsBridge } from '@pi-meme/contracts/desktop'
 import type { DesktopStorageInfo, HostStorageInfo, StorageTarget } from '@pi-meme/contracts/storage'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { CrossfadeText } from '@pi-meme/ui/components/crossfade-text'
+import { SettingsCard, SettingsGroup, settingsControlClassName } from '@pi-meme/ui/components/settings'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
 
 function size(bytes: number) {
@@ -126,19 +127,18 @@ export function StorageSettings({
   }
   return (
     <div className="space-y-6">
-      <section className="space-y-3" aria-label="存储设置">
-        <h3 className="text-sm font-medium">存储</h3>
-        <div className="space-y-4 rounded-2xl border border-border bg-card p-5" aria-busy={loading && !info}>
-          <div className="flex flex-wrap items-start justify-between gap-4">
-            <div className="min-w-0 flex-1 space-y-2">
-              <h4 className="text-sm font-medium">应用数据目录</h4>
+      <SettingsGroup title="存储" aria-label="存储设置">
+        <SettingsCard className="space-y-3 divide-y-0 px-4 py-3" aria-busy={loading && !info}>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0 flex-1 basis-56 space-y-0.5">
+              <h4 className="font-medium">应用数据目录</h4>
               <p role="status" className="font-mono text-xs" data-testid="storage-root" title={info?.dataRoot}>
                 <CrossfadeText className="grid min-h-4" textClassName="truncate">
                   {info?.dataRoot ?? (loading ? '正在读取存储信息…' : '存储信息不可用')}
                 </CrossfadeText>
               </p>
               {bridge.storage && (
-                <p className="text-xs text-muted-foreground">
+                <p className="text-[11px] text-muted-foreground">
                   <CrossfadeText className="grid min-h-4">
                     {desktop
                       ? (desktop.maintenanceDisabledReason ?? (desktop.source === 'custom' ? '自定义目录' : '默认目录'))
@@ -152,6 +152,7 @@ export function StorageSettings({
             {bridge.storage && (
               <div className="flex gap-2">
                 <Button
+                  className={settingsControlClassName}
                   variant="outline"
                   size="sm"
                   disabled={!info || Boolean(action)}
@@ -159,33 +160,38 @@ export function StorageSettings({
                 >
                   打开目录
                 </Button>
-                <Button variant="secondary" size="sm" disabled={disabled} onClick={() => void choose()}>
+                <Button
+                  className={settingsControlClassName}
+                  variant="secondary"
+                  size="sm"
+                  disabled={disabled}
+                  onClick={() => void choose()}
+                >
                   {action === 'choose' ? '正在检查…' : '更改目录'}
                 </Button>
               </div>
             )}
           </div>
-          <p className="text-xs leading-relaxed text-muted-foreground">
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
             保存会话、设置、模型凭据、技能、插件和应用创建的工作目录。不会移动外部项目目录。
           </p>
           {!bridge.storage && (
-            <p className="text-xs leading-relaxed text-muted-foreground">当前连接仅支持查看存储目录。</p>
+            <p className="text-[11px] leading-relaxed text-muted-foreground">当前连接仅支持查看存储目录。</p>
           )}
           {!loading && !info && (
-            <Button variant="outline" size="sm" onClick={() => void load()}>
+            <Button className={settingsControlClassName} variant="outline" size="sm" onClick={() => void load()}>
               重试读取
             </Button>
           )}
-        </div>
-      </section>
+        </SettingsCard>
+      </SettingsGroup>
       {bridge.storage && (
-        <section className="space-y-3" aria-label="缓存设置">
-          <h3 className="text-sm font-medium">缓存</h3>
-          <div className="space-y-3 rounded-2xl border border-border bg-card p-5">
-            <div className="flex flex-wrap items-center justify-between gap-4">
-              <div className="space-y-2">
-                <h4 className="text-sm font-medium">可清理缓存</h4>
-                <p role="status" className="text-xs text-muted-foreground">
+        <SettingsGroup title="缓存" aria-label="缓存设置">
+          <SettingsCard className="space-y-3 divide-y-0 px-4 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="space-y-0.5">
+                <h4 className="font-medium">可清理缓存</h4>
+                <p role="status" className="text-[11px] text-muted-foreground">
                   <CrossfadeText className="min-h-4 min-w-28">
                     {loading && !desktop
                       ? '正在统计…'
@@ -196,10 +202,17 @@ export function StorageSettings({
                 </p>
               </div>
               <div className="flex gap-2">
-                <Button variant="outline" size="sm" disabled={loading || Boolean(action)} onClick={() => void load()}>
+                <Button
+                  className={settingsControlClassName}
+                  variant="outline"
+                  size="sm"
+                  disabled={loading || Boolean(action)}
+                  onClick={() => void load()}
+                >
                   刷新
                 </Button>
                 <Button
+                  className={settingsControlClassName}
                   variant="secondary"
                   size="sm"
                   disabled={disabled || desktop?.cacheBytes == null || desktop.cacheBytes === 0}
@@ -209,7 +222,7 @@ export function StorageSettings({
                 </Button>
               </div>
             </div>
-            <p className="text-xs leading-relaxed text-muted-foreground">
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
               清理临时缓存，不会删除会话、设置、技能、插件或项目文件。
             </p>
             {desktop?.cacheError && (
@@ -217,34 +230,39 @@ export function StorageSettings({
                 {desktop.cacheError}
               </p>
             )}
-          </div>
-        </section>
+          </SettingsCard>
+        </SettingsGroup>
       )}
       {desktop && desktop.backupPaths.length > 0 && (
-        <section className="space-y-3" aria-label="迁移备份">
-          <h3 className="text-sm font-medium">迁移备份</h3>
-          <div className="space-y-4 rounded-2xl border border-border bg-card p-5">
-            <p className="text-xs leading-relaxed text-muted-foreground">
+        <SettingsGroup title="迁移备份">
+          <SettingsCard className="space-y-3 divide-y-0 px-4 py-3">
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
               原目录保留了会话和凭据，不会被缓存清理删除。旧 Worktree 副本仅作文件备份，不再作为活动 Worktree 使用。
             </p>
             {desktop.backupPaths.map((path) => (
-              <div key={path} className="flex items-center justify-between gap-4">
+              <div key={path} className="flex flex-wrap items-center justify-between gap-3">
                 <p className="min-w-0 break-all font-mono text-xs">{path}</p>
-                <Button variant="outline" size="sm" disabled={Boolean(action)} onClick={() => void openDirectory(path)}>
+                <Button
+                  className={settingsControlClassName}
+                  variant="outline"
+                  size="sm"
+                  disabled={Boolean(action)}
+                  onClick={() => void openDirectory(path)}
+                >
                   打开备份
                 </Button>
               </div>
             ))}
-          </div>
-        </section>
+          </SettingsCard>
+        </SettingsGroup>
       )}
       {desktop?.lastError && (
-        <p role="alert" className="break-words text-sm text-destructive">
+        <p role="alert" className="break-words text-xs text-destructive">
           上次维护未完成：{desktop.lastError}
         </p>
       )}
       {error && (
-        <p role="alert" className="break-words text-sm text-destructive">
+        <p role="alert" className="break-words text-xs text-destructive">
           {error}
         </p>
       )}
@@ -289,6 +307,7 @@ export function StorageSettings({
           )}
           <div className="flex justify-end gap-2">
             <Button
+              className={settingsControlClassName}
               variant="outline"
               disabled={action === 'restart'}
               onClick={() => {
@@ -298,7 +317,7 @@ export function StorageSettings({
             >
               取消
             </Button>
-            <Button disabled={disabled} onClick={() => void confirm()}>
+            <Button className={settingsControlClassName} disabled={disabled} onClick={() => void confirm()}>
               {action === 'restart' ? '正在准备重启…' : confirmation === 'migrate' ? '迁移并重启' : '清理并重启'}
             </Button>
           </div>

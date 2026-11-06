@@ -5,6 +5,8 @@ import { emptyPluginGrant, type PluginGrant, type PluginUiCapability } from '@pi
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Input } from '@pi-meme/ui/components/ui/input'
 import { Switch } from '@pi-meme/ui/components/ui/switch'
+import { SettingsCard, SettingsGroup, settingsControlClassName } from '@pi-meme/ui/components/settings'
+import { cn } from '@pi-meme/ui/lib/utils'
 
 const uiLabels: Record<PluginUiCapability, string> = {
   'composer.read': '读取当前可见草稿',
@@ -39,8 +41,8 @@ function GrantSwitch({
   onChange: (checked: boolean) => void
 }) {
   return (
-    <label className="flex items-center justify-between gap-4 py-1.5 text-sm">
-      <span>{label}</span>
+    <label className="flex min-w-0 items-center justify-between gap-3 py-3 text-xs first:pt-0 last:pb-0">
+      <span className="min-w-0 font-medium [overflow-wrap:anywhere]">{label}</span>
       <Switch label={label} checked={checked} disabled={disabled} onChange={onChange} />
     </label>
   )
@@ -145,237 +147,245 @@ export function PluginPermissions({
   }
 
   return (
-    <section aria-label="插件权限" className="space-y-4 rounded-xl border border-border p-4">
-      <div>
-        <h4 className="text-sm font-medium">权限与信任</h4>
-        <p className="mt-1 text-xs leading-5 text-muted-foreground">
-          可信插件可访问设备和文件，请仅授权你信任的插件。受限插件只能在授权范围内运行。
-        </p>
-      </div>
-      {plugin.grant && plugin.grant.policyHash !== policyHash && (
-        <p role="status" className="text-sm text-muted-foreground">
-          插件代码或权限已变化，请重新确认。
-        </p>
-      )}
-      <div>
-        {plugin.capabilities?.ui && (
-          <GrantSwitch
-            label="信任插件界面（同源 React 代码）"
-            checked={grant.trusted.ui}
-            disabled={saving}
-            onChange={(ui) => change((value) => ({ ...value, trusted: { ...value.trusted, ui } }))}
-          />
-        )}
-        {plugin.entries?.server?.trusted && (
-          <GrantSwitch
-            label="信任后台服务（完整访问权限）"
-            checked={grant.trusted.server}
-            disabled={saving}
-            onChange={(server) => change((value) => ({ ...value, trusted: { ...value.trusted, server } }))}
-          />
-        )}
-        {plugin.entries?.agent?.trusted && (
-          <GrantSwitch
-            label="允许完全权限任务使用可信 Agent"
-            checked={grant.trusted.agent}
-            disabled={saving}
-            onChange={(agent) => change((value) => ({ ...value, trusted: { ...value.trusted, agent } }))}
-          />
-        )}
-      </div>
-      {Boolean(requested?.ui?.length) && (
-        <div className="border-t border-border pt-3">
-          <h5 className="mb-1 text-xs font-medium text-muted-foreground">界面能力</h5>
-          {requested?.ui?.map((capability) => (
-            <GrantSwitch
-              key={capability}
-              label={uiLabels[capability]}
-              checked={grant.ui.includes(capability)}
-              disabled={saving}
-              onChange={(checked) => uiCapability(capability, checked)}
-            />
-          ))}
-        </div>
-      )}
-      {requested?.restricted && (
-        <div className="border-t border-border pt-3">
-          <h5 className="mb-1 text-xs font-medium text-muted-foreground">受限执行</h5>
-          <p className="mb-2 text-xs text-muted-foreground">
-            Plan 始终禁止业务文件写入。网络授权不保证远端没有副作用。
+    <SettingsGroup title="权限与信任" aria-label="插件权限">
+      <SettingsCard className="space-y-4 divide-y-0 p-4">
+        <div>
+          <p className="text-[11px] leading-relaxed text-muted-foreground">
+            可信插件可访问设备和文件，请仅授权你信任的插件。受限插件只能在授权范围内运行。
           </p>
-          {(requested.restricted.capabilities ?? []).map((capability) => (
-            <GrantSwitch
-              key={capability}
-              label={restrictedLabels[capability]}
-              checked={grant.restricted.capabilities?.includes(capability) ?? false}
-              disabled={saving}
-              onChange={(checked) =>
-                change((value) => ({
-                  ...value,
-                  restricted: {
-                    ...value.restricted,
-                    ...(capability === 'workspace.write'
-                      ? { maxAccess: checked ? ('workspace-write' as const) : ('read-only' as const) }
-                      : {}),
-                    capabilities: checked
-                      ? [...new Set([...(value.restricted.capabilities ?? []), capability])]
-                      : value.restricted.capabilities?.filter((entry) => entry !== capability),
-                  },
-                }))
-              }
-            />
-          ))}
-          {network.map((permission) => (
-            <GrantSwitch
-              key={permission.id}
-              label={`${permission.origin} · ${permission.methods.join(', ')}`}
-              checked={grant.restricted.network?.some((entry) => entry.id === permission.id) ?? false}
-              disabled={saving}
-              onChange={(checked) =>
-                change((value) => ({
-                  ...value,
-                  restricted: {
-                    ...value.restricted,
-                    network: checked
-                      ? [...(value.restricted.network ?? []).filter((entry) => entry.id !== permission.id), permission]
-                      : value.restricted.network?.filter((entry) => entry.id !== permission.id),
-                  },
-                }))
-              }
-            />
-          ))}
-          {sharedData.map((key) => (
-            <GrantSwitch
-              key={key}
-              label={`读取共享记录：${key}`}
-              checked={grant.restricted.sharedData?.includes(key) ?? false}
-              disabled={saving}
-              onChange={(checked) =>
-                change((value) => ({
-                  ...value,
-                  restricted: {
-                    ...value.restricted,
-                    sharedData: checked
-                      ? [...new Set([...(value.restricted.sharedData ?? []), key])]
-                      : value.restricted.sharedData?.filter((entry) => entry !== key),
-                  },
-                }))
-              }
-            />
-          ))}
         </div>
-      )}
-      {beforeSend.length > 0 && (
-        <div className="border-t border-border pt-3">
-          <h5 className="mb-1 text-xs font-medium text-muted-foreground">自动处理发送内容</h5>
-          <p className="mb-2 text-xs text-muted-foreground">
-            只有这里开启的处理器才会自动修改或阻止发送；错误时不会静默放行。
+        {plugin.grant && plugin.grant.policyHash !== policyHash && (
+          <p role="status" className="text-xs text-muted-foreground">
+            插件代码或权限已变化，请重新确认。
           </p>
-          {beforeSend.map((id) => (
+        )}
+        <div className="divide-y divide-border/40">
+          {plugin.capabilities?.ui && (
             <GrantSwitch
-              key={id}
-              label={id}
-              checked={grant.beforeSend.includes(id)}
+              label="信任插件界面（同源 React 代码）"
+              checked={grant.trusted.ui}
               disabled={saving}
-              onChange={(checked) =>
-                change((value) => ({
-                  ...value,
-                  beforeSend: checked
-                    ? [...new Set([...value.beforeSend, id])]
-                    : value.beforeSend.filter((entry) => entry !== id),
-                }))
-              }
+              onChange={(ui) => change((value) => ({ ...value, trusted: { ...value.trusted, ui } }))}
             />
-          ))}
+          )}
+          {plugin.entries?.server?.trusted && (
+            <GrantSwitch
+              label="信任后台服务（完整访问权限）"
+              checked={grant.trusted.server}
+              disabled={saving}
+              onChange={(server) => change((value) => ({ ...value, trusted: { ...value.trusted, server } }))}
+            />
+          )}
+          {plugin.entries?.agent?.trusted && (
+            <GrantSwitch
+              label="允许完全权限任务使用可信 Agent"
+              checked={grant.trusted.agent}
+              disabled={saving}
+              onChange={(agent) => change((value) => ({ ...value, trusted: { ...value.trusted, agent } }))}
+            />
+          )}
         </div>
-      )}
-      {error && (
-        <p role="alert" className="break-words text-sm text-destructive">
-          {error}
-        </p>
-      )}
-      {saved && !onSaved && (
-        <p role="status" className="text-xs text-muted-foreground">
-          权限已保存。
-        </p>
-      )}
-      <Button disabled={saving || !policyHash} onClick={() => void save()}>
-        {saving ? '正在保存权限…' : '保存权限'}
-      </Button>
-      {network.length > 0 && (
-        <div className="space-y-3 border-t border-border pt-4">
-          <h5 className="text-sm font-medium">网络凭据</h5>
-          <p className="text-xs text-muted-foreground">
-            密钥仅用于指定的 HTTPS 地址，请确认该地址可信。Authorization 只需填写 token，无需添加 Bearer 前缀。
-          </p>
-          {credentials.map((credential) => (
-            <div key={credential.id} className="flex items-center justify-between gap-3 text-xs">
-              <span className="break-all">
-                {credential.id} · {credential.origin} · {credential.header}
-              </span>
-              <Button
-                variant="ghost"
-                size="sm"
-                disabled={credentialBusy}
-                onClick={() => {
-                  setCredentialBusy(true)
-                  void client
-                    .removeCredential(plugin.id, credential.id)
-                    .then(() => client.listCredentials(plugin.id))
-                    .then(setCredentials)
-                    .catch((cause) => setError(String(cause)))
-                    .finally(() => setCredentialBusy(false))
-                }}
-              >
-                删除
-              </Button>
-            </div>
-          ))}
-          <div className="grid gap-2 sm:grid-cols-2">
-            <Input
-              aria-label="凭据标识"
-              placeholder="凭据标识，例如 search-api"
-              value={credentialId}
-              onChange={(event) => setCredentialId(event.target.value)}
-            />
-            <select
-              aria-label="凭据目标"
-              value={credentialOrigin}
-              onChange={(event) => setCredentialOrigin(event.target.value)}
-              className="rounded-md border border-input bg-background px-3 text-sm"
-            >
-              {[...new Set(network.map((entry) => entry.origin))].map((origin) => (
-                <option key={origin} value={origin}>
-                  {origin}
-                </option>
-              ))}
-            </select>
-            <select
-              aria-label="凭据请求头"
-              value={credentialHeader}
-              onChange={(event) => setCredentialHeader(event.target.value as Credential['header'])}
-              className="rounded-md border border-input bg-background px-3 text-sm"
-            >
-              <option value="Authorization">Authorization</option>
-              <option value="X-Api-Key">X-Api-Key</option>
-            </select>
-            <Input
-              aria-label="网络密钥"
-              type="password"
-              autoComplete="new-password"
-              value={credentialValue}
-              onChange={(event) => setCredentialValue(event.target.value)}
-            />
+        {Boolean(requested?.ui?.length) && (
+          <div className="border-t border-border/40 pt-3">
+            <h5 className="mb-3 text-xs font-semibold text-muted-foreground">界面能力</h5>
+            {requested?.ui?.map((capability) => (
+              <GrantSwitch
+                key={capability}
+                label={uiLabels[capability]}
+                checked={grant.ui.includes(capability)}
+                disabled={saving}
+                onChange={(checked) => uiCapability(capability, checked)}
+              />
+            ))}
           </div>
-          <Button
-            variant="outline"
-            disabled={credentialBusy || !credentialId.trim() || !credentialValue}
-            onClick={() => void saveCredential()}
-          >
-            {credentialBusy ? '正在保存凭据…' : '保存网络凭据'}
-          </Button>
-        </div>
-      )}
-    </section>
+        )}
+        {requested?.restricted && (
+          <div className="border-t border-border/40 pt-3">
+            <h5 className="mb-3 text-xs font-semibold text-muted-foreground">受限执行</h5>
+            <p className="mb-2 text-[11px] leading-relaxed text-muted-foreground">
+              Plan 始终禁止业务文件写入。网络授权不保证远端没有副作用。
+            </p>
+            {(requested.restricted.capabilities ?? []).map((capability) => (
+              <GrantSwitch
+                key={capability}
+                label={restrictedLabels[capability]}
+                checked={grant.restricted.capabilities?.includes(capability) ?? false}
+                disabled={saving}
+                onChange={(checked) =>
+                  change((value) => ({
+                    ...value,
+                    restricted: {
+                      ...value.restricted,
+                      ...(capability === 'workspace.write'
+                        ? { maxAccess: checked ? ('workspace-write' as const) : ('read-only' as const) }
+                        : {}),
+                      capabilities: checked
+                        ? [...new Set([...(value.restricted.capabilities ?? []), capability])]
+                        : value.restricted.capabilities?.filter((entry) => entry !== capability),
+                    },
+                  }))
+                }
+              />
+            ))}
+            {network.map((permission) => (
+              <GrantSwitch
+                key={permission.id}
+                label={`${permission.origin} · ${permission.methods.join(', ')}`}
+                checked={grant.restricted.network?.some((entry) => entry.id === permission.id) ?? false}
+                disabled={saving}
+                onChange={(checked) =>
+                  change((value) => ({
+                    ...value,
+                    restricted: {
+                      ...value.restricted,
+                      network: checked
+                        ? [
+                            ...(value.restricted.network ?? []).filter((entry) => entry.id !== permission.id),
+                            permission,
+                          ]
+                        : value.restricted.network?.filter((entry) => entry.id !== permission.id),
+                    },
+                  }))
+                }
+              />
+            ))}
+            {sharedData.map((key) => (
+              <GrantSwitch
+                key={key}
+                label={`读取共享记录：${key}`}
+                checked={grant.restricted.sharedData?.includes(key) ?? false}
+                disabled={saving}
+                onChange={(checked) =>
+                  change((value) => ({
+                    ...value,
+                    restricted: {
+                      ...value.restricted,
+                      sharedData: checked
+                        ? [...new Set([...(value.restricted.sharedData ?? []), key])]
+                        : value.restricted.sharedData?.filter((entry) => entry !== key),
+                    },
+                  }))
+                }
+              />
+            ))}
+          </div>
+        )}
+        {beforeSend.length > 0 && (
+          <div className="border-t border-border/40 pt-3">
+            <h5 className="mb-3 text-xs font-semibold text-muted-foreground">自动处理发送内容</h5>
+            <p className="mb-2 text-[11px] leading-relaxed text-muted-foreground">
+              只有这里开启的处理器才会自动修改或阻止发送；错误时不会静默放行。
+            </p>
+            {beforeSend.map((id) => (
+              <GrantSwitch
+                key={id}
+                label={id}
+                checked={grant.beforeSend.includes(id)}
+                disabled={saving}
+                onChange={(checked) =>
+                  change((value) => ({
+                    ...value,
+                    beforeSend: checked
+                      ? [...new Set([...value.beforeSend, id])]
+                      : value.beforeSend.filter((entry) => entry !== id),
+                  }))
+                }
+              />
+            ))}
+          </div>
+        )}
+        {error && (
+          <p role="alert" className="break-words text-xs text-destructive">
+            {error}
+          </p>
+        )}
+        {saved && !onSaved && (
+          <p role="status" className="text-xs text-muted-foreground">
+            权限已保存。
+          </p>
+        )}
+        <Button className={settingsControlClassName} disabled={saving || !policyHash} onClick={() => void save()}>
+          {saving ? '正在保存权限…' : '保存权限'}
+        </Button>
+        {network.length > 0 && (
+          <div className="space-y-3 border-t border-border/40 pt-4">
+            <h5 className="text-xs font-semibold text-muted-foreground">网络凭据</h5>
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              密钥仅用于指定的 HTTPS 地址，请确认该地址可信。Authorization 只需填写 token，无需添加 Bearer 前缀。
+            </p>
+            {credentials.map((credential) => (
+              <div key={credential.id} className="flex min-w-0 flex-wrap items-center justify-between gap-3 text-xs">
+                <span className="break-all">
+                  {credential.id} · {credential.origin} · {credential.header}
+                </span>
+                <Button
+                  className={settingsControlClassName}
+                  variant="ghost"
+                  size="sm"
+                  disabled={credentialBusy}
+                  onClick={() => {
+                    setCredentialBusy(true)
+                    void client
+                      .removeCredential(plugin.id, credential.id)
+                      .then(() => client.listCredentials(plugin.id))
+                      .then(setCredentials)
+                      .catch((cause) => setError(String(cause)))
+                      .finally(() => setCredentialBusy(false))
+                  }}
+                >
+                  删除
+                </Button>
+              </div>
+            ))}
+            <div className="grid gap-2 sm:grid-cols-2">
+              <Input
+                className={settingsControlClassName}
+                aria-label="凭据标识"
+                placeholder="凭据标识，例如 search-api"
+                value={credentialId}
+                onChange={(event) => setCredentialId(event.target.value)}
+              />
+              <select
+                aria-label="凭据目标"
+                value={credentialOrigin}
+                onChange={(event) => setCredentialOrigin(event.target.value)}
+                className={cn(settingsControlClassName, 'min-w-0 border border-border bg-background px-3')}
+              >
+                {[...new Set(network.map((entry) => entry.origin))].map((origin) => (
+                  <option key={origin} value={origin}>
+                    {origin}
+                  </option>
+                ))}
+              </select>
+              <select
+                aria-label="凭据请求头"
+                value={credentialHeader}
+                onChange={(event) => setCredentialHeader(event.target.value as Credential['header'])}
+                className={cn(settingsControlClassName, 'min-w-0 border border-border bg-background px-3')}
+              >
+                <option value="Authorization">Authorization</option>
+                <option value="X-Api-Key">X-Api-Key</option>
+              </select>
+              <Input
+                className={settingsControlClassName}
+                aria-label="网络密钥"
+                type="password"
+                autoComplete="new-password"
+                value={credentialValue}
+                onChange={(event) => setCredentialValue(event.target.value)}
+              />
+            </div>
+            <Button
+              className={settingsControlClassName}
+              variant="outline"
+              disabled={credentialBusy || !credentialId.trim() || !credentialValue}
+              onClick={() => void saveCredential()}
+            >
+              {credentialBusy ? '正在保存凭据…' : '保存网络凭据'}
+            </Button>
+          </div>
+        )}
+      </SettingsCard>
+    </SettingsGroup>
   )
 }

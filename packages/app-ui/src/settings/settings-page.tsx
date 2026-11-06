@@ -170,7 +170,7 @@ export function SettingsPage({
           onPlugins ? () => leave(onPlugins) : undefined,
         )}
         <div className="content-frame bg-background">
-          <aside className="appearance-sidebar settings-sidebar w-52 shrink-0 overflow-y-auto border-r border-border bg-card/40 px-2.5 py-4 sm:w-64 sm:py-5">
+          <aside className="appearance-sidebar settings-sidebar w-44 shrink-0 overflow-y-auto border-r border-border bg-card/40 px-2.5 py-4 sm:w-52 sm:py-5 lg:w-64">
             <h1 className="px-2.5 text-base font-semibold tracking-tight text-foreground">设置</h1>
             <div className="relative mt-3">
               <Search
@@ -226,13 +226,13 @@ export function SettingsPage({
           </aside>
           <div
             id="settings-content"
-            className="theme-workspace min-w-0 flex-1 overflow-y-auto bg-background px-6 py-8 [scrollbar-gutter:stable] sm:px-8 lg:px-12 lg:py-12"
+            className="theme-workspace min-w-0 flex-1 overflow-y-auto bg-background px-4 py-6 [scrollbar-gutter:stable] sm:px-6 sm:py-8 lg:px-12 lg:py-12"
           >
             <div key={sectionId} className="mx-auto max-w-3xl space-y-8">
               <div>
                 <h2 className="text-xl font-semibold tracking-tight sm:text-2xl">{section.label}</h2>
               </div>
-              {renderContent(sectionId, navigate)}
+              <div className="min-w-0 space-y-6 text-xs">{renderContent(sectionId, navigate)}</div>
             </div>
           </div>
         </div>

@@ -3,6 +3,7 @@ import { Check, Pencil, UserCheck } from 'lucide-react'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Input } from '@pi-meme/ui/components/ui/input'
 import { CrossfadeText } from '@pi-meme/ui/components/crossfade-text'
+import { SettingsCard, SettingsGroup, SettingsRow, settingsControlClassName } from '@pi-meme/ui/components/settings'
 import type { UserProfile } from './user-profile'
 
 export function AccountSettings({
@@ -62,119 +63,111 @@ export function AccountSettings({
   }
 
   return (
-    <div className="space-y-6 max-w-2xl text-foreground">
-      {/* 头部个人展示卡片（包含头像上传配置，参考图设计） */}
-      <section className="flex flex-col items-center justify-center py-6 px-4 rounded-2xl border border-border bg-card/50 text-center gap-3">
-        {/* 隐藏的文件上传 input */}
-        <input
-          ref={fileInputRef}
-          type="file"
-          accept="image/png,image/jpeg,image/webp,image/gif"
-          disabled={loading}
-          onChange={handleFileChange}
-          className="hidden"
-          aria-label="上传个人头像图片"
-        />
-
-        {/* 头像容器，支持 hover 触发铅笔 ICON */}
-        <div className="relative group cursor-pointer" onClick={handleAvatarClick}>
-          <div className="flex size-20 items-center justify-center rounded-full bg-[#e8a838] text-2xl font-bold text-neutral-900 shadow-md overflow-hidden transition-transform group-hover:scale-102">
-            {profile.avatarUrl ? (
-              <img src={profile.avatarUrl} alt={profile.name} className="size-full rounded-full object-cover" />
-            ) : (
-              profile.avatarText
-            )}
-          </div>
-
-          {/* 鼠标移上去显示的铅笔 ICON（参考设计稿右上角浮层） */}
+    <div className="min-w-0 space-y-6 text-foreground">
+      <SettingsCard>
+        <SettingsRow className="justify-start">
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp,image/gif"
+            disabled={loading}
+            onChange={handleFileChange}
+            className="hidden"
+            aria-label="上传个人头像图片"
+          />
           <button
             type="button"
             aria-label="修改头像"
             disabled={loading}
-            onClick={(e) => {
-              e.stopPropagation()
-              handleAvatarClick()
-            }}
-            className="absolute -top-1 -right-1 flex size-7 items-center justify-center rounded-full bg-neutral-800 text-white border border-neutral-600/80 shadow-md transition-all opacity-0 group-hover:opacity-100 focus-visible:opacity-100 hover:scale-110 active:scale-95 cursor-pointer"
+            onClick={handleAvatarClick}
+            className="group relative size-12 shrink-0 rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-card disabled:opacity-50"
           >
-            <Pencil className="size-3.5 text-white" />
+            <span className="flex size-full items-center justify-center overflow-hidden rounded-full bg-[#e8a838] text-lg font-semibold text-neutral-900">
+              {profile.avatarUrl ? (
+                <img src={profile.avatarUrl} alt="" className="size-full object-cover" />
+              ) : (
+                profile.avatarText
+              )}
+            </span>
+            <span
+              className="absolute -bottom-0.5 -right-0.5 flex size-5 items-center justify-center rounded-full border border-border bg-secondary text-foreground transition-colors group-hover:bg-background"
+              aria-hidden="true"
+            >
+              <Pencil className="size-2.5" />
+            </span>
           </button>
-        </div>
-
-        <div className="space-y-1">
-          <h2 className="min-h-7 text-xl font-bold text-foreground tracking-tight">
-            <CrossfadeText>{loading ? '正在读取个人资料…' : profile.name}</CrossfadeText>
-          </h2>
-          <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-secondary/80 text-xs font-mono text-muted-foreground border border-border/50">
-            <UserCheck className="size-3 text-primary" />
-            <CrossfadeText>{loading ? '读取中…' : profile.username}</CrossfadeText>
+          <div className="min-w-0 flex-1 space-y-1">
+            <h3 className="break-words text-sm font-medium text-foreground [overflow-wrap:anywhere]">
+              <CrossfadeText>{loading ? '正在读取个人资料…' : profile.name}</CrossfadeText>
+            </h3>
+            <div className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+              <UserCheck aria-hidden="true" className="size-3 shrink-0" />
+              <CrossfadeText className="min-w-0 break-all">{loading ? '读取中…' : profile.username}</CrossfadeText>
+            </div>
           </div>
-        </div>
-      </section>
+        </SettingsRow>
+      </SettingsCard>
 
-      {/* 账户卡片区域（已移除状态和年龄） */}
-      <section className="space-y-3">
-        <h3 className="text-sm font-semibold text-foreground px-1">账户设置</h3>
-        <div className="rounded-2xl border border-border bg-card divide-y divide-border/60 overflow-hidden text-sm">
-          {/* 姓名 */}
-          <div className="flex items-center justify-between gap-4 px-5 py-3.5">
-            <span className="text-muted-foreground shrink-0">姓名</span>
-            <div className="flex items-center gap-2 max-w-xs w-full justify-end">
+      <SettingsGroup title="账户设置">
+        <SettingsCard>
+          <SettingsRow>
+            <label htmlFor="settings-profile-name" className="shrink-0 font-medium">
+              姓名
+            </label>
+            <div className="flex w-full min-w-0 max-w-xs items-center justify-end gap-2">
               <Input
+                id="settings-profile-name"
                 value={nameInput}
                 disabled={loading}
                 onChange={(e) => setNameDraft(e.target.value)}
                 placeholder="请输入姓名"
-                className="h-8 text-xs bg-background/60"
+                className={`${settingsControlClassName} min-w-0 bg-background/60`}
               />
               <Button
                 size="sm"
                 variant={isNameChanged ? 'default' : 'secondary'}
                 disabled={loading || !isNameChanged}
                 onClick={handleSaveName}
-                className="h-8 text-xs shrink-0 cursor-pointer"
+                className={`${settingsControlClassName} shrink-0`}
               >
-                {nameSavedNotice ? <Check className="size-3 text-emerald-400" /> : '保存'}
+                {nameSavedNotice ? <Check aria-label="已保存" className="size-3" /> : '保存'}
               </Button>
             </div>
-          </div>
-
-          {/* 用户名 */}
-          <div className="flex items-center justify-between px-5 py-3.5">
-            <span className="text-muted-foreground">用户名</span>
-            <CrossfadeText className="font-mono text-xs text-foreground/90">
+          </SettingsRow>
+          <SettingsRow>
+            <span className="font-medium">用户名</span>
+            <CrossfadeText className="min-w-0 break-all text-muted-foreground">
               {loading ? '读取中…' : profile.username}
             </CrossfadeText>
-          </div>
-
-          {/* 电子邮箱 */}
-          <div className="flex items-center justify-between gap-4 px-5 py-3.5">
-            <div className="space-y-0.5">
-              <span className="text-muted-foreground block">电子邮箱</span>
+          </SettingsRow>
+          <SettingsRow>
+            <div className="min-w-0 space-y-0.5">
+              <span className="block font-medium">电子邮箱</span>
               {!isEditingEmail && (
-                <CrossfadeText className="min-h-4 text-xs font-mono text-foreground/90">
+                <CrossfadeText className="min-h-4 break-all text-[11px] text-muted-foreground">
                   {loading ? '读取中…' : profile.email}
                 </CrossfadeText>
               )}
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">
               {isEditingEmail ? (
                 <>
                   <Input
+                    aria-label="电子邮箱"
                     value={emailInput}
                     disabled={loading}
                     onChange={(e) => setEmailDraft(e.target.value)}
                     placeholder="请输入邮箱"
-                    className="h-8 text-xs w-52 bg-background/60"
+                    className={`${settingsControlClassName} min-w-0 flex-1 basis-44 bg-background/60`}
                   />
                   <Button
                     size="sm"
                     variant="default"
                     disabled={loading}
                     onClick={handleSaveEmail}
-                    className="h-8 text-xs cursor-pointer"
+                    className={settingsControlClassName}
                   >
-                    {emailSavedNotice ? <Check className="size-3 text-emerald-400" /> : '确定'}
+                    {emailSavedNotice ? <Check aria-label="已保存" className="size-3" /> : '确定'}
                   </Button>
                   <Button
                     size="sm"
@@ -183,7 +176,7 @@ export function AccountSettings({
                       setEmailDraft(null)
                       setIsEditingEmail(false)
                     }}
-                    className="h-8 text-xs cursor-pointer"
+                    className={settingsControlClassName}
                   >
                     取消
                   </Button>
@@ -194,15 +187,15 @@ export function AccountSettings({
                   variant="outline"
                   disabled={loading}
                   onClick={() => setIsEditingEmail(true)}
-                  className="h-8 text-xs cursor-pointer"
+                  className={settingsControlClassName}
                 >
                   更改
                 </Button>
               )}
             </div>
-          </div>
-        </div>
-      </section>
+          </SettingsRow>
+        </SettingsCard>
+      </SettingsGroup>
     </div>
   )
 }

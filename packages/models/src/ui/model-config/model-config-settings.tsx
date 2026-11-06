@@ -10,6 +10,7 @@ import { modelApis } from '@pi-meme/contracts/model-config'
 import { thinkingLevels, type PiModel, type ThinkingLevel } from '@pi-meme/contracts/pi'
 import type { ModelsBridge } from '@pi-meme/contracts/desktop'
 import { Button } from '@pi-meme/ui/components/ui/button'
+import { SettingsCard, SettingsRow, settingsControlClassName } from '@pi-meme/ui/components/settings'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@pi-meme/ui/components/ui/select'
 import { BrandMark } from '@pi-meme/ui/components/brand-mark'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
@@ -193,59 +194,61 @@ export function ModelConfigSettings({
   }
   const save = (input: SaveModelProvider) => change(() => bridge.saveModelProvider(input))
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-card p-5">
-        <div className="min-w-0 space-y-1">
-          <h3 className="font-medium">默认模型</h3>
-        </div>
-        <ModelSelect
-          models={models}
-          current={defaultModel ?? undefined}
-          disabled={busy || saving || defaultSaving || thinkingSaving || defaultLoading || Boolean(defaultError)}
-          displayText={
-            defaultLoading
-              ? '正在读取…'
-              : defaultError
-                ? '读取失败'
-                : defaultModel
-                  ? `${defaultModel.provider} / ${defaultModel.name ?? defaultModel.id}`
-                  : '自动选择'
-          }
-          onSelect={(model) => void selectDefault(model)}
-        />
-      </div>
-      <div className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-card p-5">
-        <div className="min-w-0 space-y-1">
-          <h3 className="font-medium">思考强度默认值</h3>
-        </div>
-        <Select
-          value={defaultThinking ?? 'medium'}
-          disabled={busy || saving || defaultSaving || thinkingSaving || thinkingLoading || Boolean(thinkingError)}
-          onValueChange={(value) => {
-            if ((thinkingLevels as readonly string[]).includes(value)) void selectThinking(value as ThinkingLevel)
-          }}
-        >
-          <SelectTrigger
-            aria-label="思考强度默认值"
-            className="h-8 w-[140px] text-xs bg-secondary/50 border-border hover:bg-secondary/80 focus:outline-none"
-          >
-            <CrossfadeText className="min-w-0" textClassName="truncate">
-              {thinkingLoading
+    <div className="space-y-6">
+      <SettingsCard>
+        <SettingsRow className="[&>div]:max-w-full [&_[role=combobox]]:min-w-0 [&_[role=combobox]]:max-w-full">
+          <div className="min-w-0 space-y-1">
+            <h3 className="font-medium">默认模型</h3>
+          </div>
+          <ModelSelect
+            models={models}
+            current={defaultModel ?? undefined}
+            disabled={busy || saving || defaultSaving || thinkingSaving || defaultLoading || Boolean(defaultError)}
+            displayText={
+              defaultLoading
                 ? '正在读取…'
-                : thinkingError
+                : defaultError
                   ? '读取失败'
-                  : THINKING_LEVEL_LABELS[defaultThinking ?? 'medium']}
-            </CrossfadeText>
-          </SelectTrigger>
-          <SelectContent>
-            {thinkingLevels.map((level) => (
-              <SelectItem key={level} value={level} className="text-xs">
-                {THINKING_LEVEL_LABELS[level]}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      </div>
+                  : defaultModel
+                    ? `${defaultModel.provider} / ${defaultModel.name ?? defaultModel.id}`
+                    : '自动选择'
+            }
+            onSelect={(model) => void selectDefault(model)}
+          />
+        </SettingsRow>
+        <SettingsRow>
+          <div className="min-w-0 space-y-1">
+            <h3 className="font-medium">思考强度默认值</h3>
+          </div>
+          <Select
+            value={defaultThinking ?? 'medium'}
+            disabled={busy || saving || defaultSaving || thinkingSaving || thinkingLoading || Boolean(thinkingError)}
+            onValueChange={(value) => {
+              if ((thinkingLevels as readonly string[]).includes(value)) void selectThinking(value as ThinkingLevel)
+            }}
+          >
+            <SelectTrigger
+              aria-label="思考强度默认值"
+              className="h-8 w-[140px] text-xs bg-secondary/50 border-border hover:bg-secondary/80 focus:outline-none max-w-full rounded-lg shadow-none"
+            >
+              <CrossfadeText className="min-w-0" textClassName="truncate">
+                {thinkingLoading
+                  ? '正在读取…'
+                  : thinkingError
+                    ? '读取失败'
+                    : THINKING_LEVEL_LABELS[defaultThinking ?? 'medium']}
+              </CrossfadeText>
+            </SelectTrigger>
+            <SelectContent>
+              {thinkingLevels.map((level) => (
+                <SelectItem key={level} value={level} className="text-xs">
+                  {THINKING_LEVEL_LABELS[level]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </SettingsRow>
+      </SettingsCard>
       <div role="tablist" aria-label="模型服务商类型" className="inline-flex gap-1 rounded-lg bg-secondary/50 p-1">
         {(
           [
@@ -263,7 +266,7 @@ export function ModelConfigSettings({
             tabIndex={providerTab === id ? 0 : -1}
             data-tab={id}
             className={cn(
-              'rounded-md px-4 py-1.5 text-sm text-muted-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              'rounded-lg px-3 py-1.5 text-[11px] text-muted-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
               providerTab === id && 'bg-secondary text-foreground',
             )}
             onClick={() => setProviderTab(id)}
@@ -304,16 +307,25 @@ export function ModelConfigSettings({
       >
         <div className="flex flex-wrap justify-end gap-3">
           <div className="flex gap-2">
-            <Button variant="outline" disabled={loading || saving} onClick={() => void load()}>
+            <Button
+              className={settingsControlClassName}
+              variant="outline"
+              disabled={loading || saving}
+              onClick={() => void load()}
+            >
               <RefreshCw className={cn('mr-1.5 size-3.5', loading && 'animate-spin')} />
               刷新配置
             </Button>
-            <Button disabled={!snapshot || loading || saving} onClick={() => setEditing('new')}>
+            <Button
+              className={settingsControlClassName}
+              disabled={!snapshot || loading || saving}
+              onClick={() => setEditing('new')}
+            >
               添加服务商
             </Button>
           </div>
         </div>
-        <p role="status" className="min-h-5 text-sm text-muted-foreground">
+        <p role="status" className="min-h-5 text-[11px] text-muted-foreground">
           <CrossfadeText>
             {loading
               ? snapshot
@@ -327,58 +339,62 @@ export function ModelConfigSettings({
           </CrossfadeText>
         </p>
         {snapshot && (
-          <div className="ui-text-enter min-h-48 space-y-4">
+          <SettingsCard className="ui-text-enter">
             {!snapshot.providers.length && (
-              <div className="rounded-xl border border-dashed border-border py-12 text-center space-y-2">
+              <div className="px-4 py-8 text-center space-y-2">
                 <p className="font-medium">尚未配置自定义服务商</p>
-                <p className="text-sm text-muted-foreground">添加接口、填写 API Key，再选择或添加模型。</p>
+                <p className="text-[11px] text-muted-foreground">添加接口、填写 API Key，再选择或添加模型。</p>
               </div>
             )}
             {snapshot.providers.map((provider) => (
-              <div
-                key={provider.id}
-                className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-border bg-card p-5"
-              >
-                <div className="min-w-0 space-y-1">
+              <SettingsRow key={provider.id}>
+                <div className="min-w-0 flex-1 basis-48 space-y-1 break-words">
                   <h3 className="font-medium">
                     <CrossfadeText>{provider.name}</CrossfadeText>
-                    <span className="ml-2 font-mono text-xs text-muted-foreground">{provider.id}</span>
+                    <span className="ml-2 font-mono text-[11px] text-muted-foreground">{provider.id}</span>
                   </h3>
-                  <p className="text-sm text-muted-foreground">
+                  <p className="text-[11px] text-muted-foreground">
                     <CrossfadeText>
                       {`${apiLabels[provider.api as ModelApi] ?? (provider.api || '继承 SDK 协议')} · ${provider.models.length} 个模型 · ${provider.hasApiKey ? '已配置 Key' : '未配置 Key'}`}
                     </CrossfadeText>
                   </p>
-                  <p className="select-text break-all text-xs text-muted-foreground">
+                  <p className="select-text break-all text-[11px] text-muted-foreground">
                     <CrossfadeText className="grid">{provider.baseUrl || '使用服务默认地址'}</CrossfadeText>
                   </p>
                 </div>
                 <div className="flex gap-2">
                   <Button
+                    className={settingsControlClassName}
                     variant="outline"
                     disabled={saving || !modelApis.includes(provider.api as ModelApi)}
                     onClick={() => setEditing(provider)}
                   >
                     编辑
                   </Button>
-                  <Button variant="ghost" disabled={busy || saving} onClick={() => setDeleting(provider)}>
+                  <Button
+                    className={settingsControlClassName}
+                    variant="ghost"
+                    disabled={busy || saving}
+                    onClick={() => setDeleting(provider)}
+                  >
                     删除
                   </Button>
                 </div>
                 {!modelApis.includes(provider.api as ModelApi) && (
-                  <p className="w-full text-xs text-muted-foreground">
+                  <p className="w-full text-[11px] text-muted-foreground">
                     此配置使用继承协议或其他协议，请在配置文件中编辑。
                   </p>
                 )}
-              </div>
+              </SettingsRow>
             ))}
-          </div>
+          </SettingsCard>
         )}
       </div>
       {(defaultError || thinkingError) && (
-        <div role="alert" className="space-y-2 rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
+        <div role="alert" className="space-y-2 rounded-lg bg-destructive/10 p-3 text-xs text-destructive">
           <p>{defaultError || thinkingError}</p>
           <Button
+            className={settingsControlClassName}
             variant="outline"
             disabled={defaultLoading || thinkingLoading}
             onClick={() => {
@@ -391,14 +407,19 @@ export function ModelConfigSettings({
         </div>
       )}
       {error && (
-        <p role="alert" className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
+        <p role="alert" className="rounded-lg bg-destructive/10 p-3 text-xs text-destructive">
           {error}
         </p>
       )}
       {reconnectError && (
         <div role="alert" className="rounded-lg bg-destructive/10 p-3 space-y-2">
-          <p className="text-sm text-destructive">{reconnectError}</p>
-          <Button variant="outline" disabled={saving || busy} onClick={() => void reconnect()}>
+          <p className="text-xs text-destructive">{reconnectError}</p>
+          <Button
+            className={settingsControlClassName}
+            variant="outline"
+            disabled={saving || busy}
+            onClick={() => void reconnect()}
+          >
             重新连接
           </Button>
         </div>
@@ -427,10 +448,20 @@ export function ModelConfigSettings({
             </div>
             <DialogDescription>将删除 Desktop 应用数据目录中的此服务商模型配置和安全凭据。</DialogDescription>
             <div className="flex justify-end gap-2">
-              <Button variant="outline" disabled={saving} onClick={() => setDeleting(null)}>
+              <Button
+                className={settingsControlClassName}
+                variant="outline"
+                disabled={saving}
+                onClick={() => setDeleting(null)}
+              >
                 取消
               </Button>
-              <Button variant="destructive" disabled={busy || saving} onClick={() => void remove()}>
+              <Button
+                className={settingsControlClassName}
+                variant="destructive"
+                disabled={busy || saving}
+                onClick={() => void remove()}
+              >
                 {saving ? '正在删除…' : '确认删除'}
               </Button>
             </div>

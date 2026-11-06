@@ -3,7 +3,7 @@ import type { ModelsBridge } from '@pi-meme/contracts/desktop'
 import type { BuiltinAuthType, BuiltinProviderInfo, ModelLoginState } from '@pi-meme/contracts/model-config'
 import { Badge } from '@pi-meme/ui/components/ui/badge'
 import { Button } from '@pi-meme/ui/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '@pi-meme/ui/components/ui/card'
+import { SettingsCard, SettingsGroup, SettingsRow, settingsControlClassName } from '@pi-meme/ui/components/settings'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
 import { Input } from '@pi-meme/ui/components/ui/input'
 import { ScrollArea } from '@pi-meme/ui/components/ui/scroll-area'
@@ -176,28 +176,23 @@ export function BuiltinProviders({ bridge, disabled }: { bridge: LoginBridge; di
       : prompt?.message
   return (
     <div className="space-y-4">
-      <Card className="overflow-hidden">
-        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 border-b border-border bg-card p-4">
-          <div className="min-w-0 space-y-1">
-            <CardTitle className="text-base font-medium">内置服务商</CardTitle>
-          </div>
-          <div className="relative w-full sm:w-56">
-            <Search
-              aria-hidden="true"
-              className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-muted-foreground"
-            />
-            <Input
-              aria-label="搜索内置服务商"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="搜索服务商"
-              className="h-9 rounded-lg bg-secondary/40 pl-8 text-xs"
-            />
-          </div>
-        </CardHeader>
-        <CardContent className="p-0" aria-busy={loading}>
+      <SettingsGroup title="内置服务商">
+        <div className="relative">
+          <Search
+            aria-hidden="true"
+            className="pointer-events-none absolute left-2.5 top-2.5 size-4 text-muted-foreground"
+          />
+          <Input
+            aria-label="搜索内置服务商"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="搜索服务商"
+            className="h-9 rounded-lg bg-secondary/40 pl-8 text-xs max-w-full shadow-none"
+          />
+        </div>
+        <SettingsCard aria-busy={loading}>
           <div className="flex min-h-12 items-center justify-between gap-3 px-4 py-3">
-            <p role="status" className="text-xs text-muted-foreground">
+            <p role="status" className="text-[11px] text-muted-foreground">
               <CrossfadeText>
                 {loading
                   ? providers
@@ -211,7 +206,13 @@ export function BuiltinProviders({ bridge, disabled }: { bridge: LoginBridge; di
               </CrossfadeText>
             </p>
             {error && (
-              <Button size="sm" variant="outline" disabled={loading} onClick={() => void load()}>
+              <Button
+                className={settingsControlClassName}
+                size="sm"
+                variant="outline"
+                disabled={loading}
+                onClick={() => void load()}
+              >
                 重试读取
               </Button>
             )}
@@ -219,15 +220,15 @@ export function BuiltinProviders({ bridge, disabled }: { bridge: LoginBridge; di
           <RevealContent ready={providers !== null}>
             <ScrollArea className="h-96">
               {providers && (
-                <div className="divide-y divide-border">
+                <div className="divide-y divide-border/40">
                   {visible.map((provider) => {
                     const interactive = provider.methods.some((method) => method.interactive)
                     return (
-                      <div key={provider.id} className="flex flex-wrap items-center justify-between gap-3 px-4 py-3">
+                      <SettingsRow key={provider.id}>
                         <div className="min-w-0 space-y-1.5">
                           <div className="flex flex-wrap items-center gap-2">
-                            <h4 className="text-sm font-medium">{provider.name}</h4>
-                            <span className="font-mono text-xs text-muted-foreground">{provider.id}</span>
+                            <h4 className="text-xs font-medium">{provider.name}</h4>
+                            <span className="font-mono text-[11px] text-muted-foreground">{provider.id}</span>
                             {statusBadge(provider)}
                           </div>
                           <div className="flex flex-wrap items-center gap-1.5">
@@ -241,7 +242,7 @@ export function BuiltinProviders({ bridge, disabled }: { bridge: LoginBridge; di
                               </Badge>
                             ))}
                             {!interactive && (
-                              <span className="text-xs text-muted-foreground">（不能在应用内登录）</span>
+                              <span className="text-[11px] text-muted-foreground">（不能在应用内登录）</span>
                             )}
                           </div>
                         </div>
@@ -250,6 +251,7 @@ export function BuiltinProviders({ bridge, disabled }: { bridge: LoginBridge; di
                             .filter((method) => method.interactive)
                             .map((method) => (
                               <Button
+                                className={settingsControlClassName}
                                 key={method.type}
                                 size="sm"
                                 variant="outline"
@@ -261,6 +263,7 @@ export function BuiltinProviders({ bridge, disabled }: { bridge: LoginBridge; di
                             ))}
                           {provider.configured && (
                             <Button
+                              className={settingsControlClassName}
                               size="sm"
                               variant="ghost"
                               disabled={disabled || Boolean(busyId) || Boolean(login)}
@@ -270,19 +273,20 @@ export function BuiltinProviders({ bridge, disabled }: { bridge: LoginBridge; di
                             </Button>
                           )}
                         </div>
-                      </div>
+                      </SettingsRow>
                     )
                   })}
                 </div>
               )}
             </ScrollArea>
           </RevealContent>
-        </CardContent>
-      </Card>
+        </SettingsCard>
+      </SettingsGroup>
       {logoutError && (
         <div role="alert" className="space-y-2 rounded-lg bg-destructive/10 p-3">
-          <p className="text-sm text-destructive">{logoutError}</p>
+          <p className="text-xs text-destructive">{logoutError}</p>
           <Button
+            className={settingsControlClassName}
             size="sm"
             variant="outline"
             disabled={disabled}
@@ -298,7 +302,7 @@ export function BuiltinProviders({ bridge, disabled }: { bridge: LoginBridge; di
         </div>
       )}
       {error && (
-        <p role="alert" className="rounded-lg bg-destructive/10 p-3 text-sm text-destructive">
+        <p role="alert" className="rounded-lg bg-destructive/10 p-3 text-xs text-destructive">
           {error}
         </p>
       )}
@@ -316,7 +320,7 @@ export function BuiltinProviders({ bridge, disabled }: { bridge: LoginBridge; di
             </DialogDescription>
             <div className="space-y-3">
               {login.notices.map((notice, index) => (
-                <div key={`${notice.type}-${index}`} className="space-y-1 text-sm">
+                <div key={`${notice.type}-${index}`} className="space-y-1 text-xs">
                   {notice.message && <p>{notice.message}</p>}
                   {notice.instructions && <p className="text-muted-foreground">{notice.instructions}</p>}
                   {notice.url && (
@@ -340,7 +344,7 @@ export function BuiltinProviders({ bridge, disabled }: { bridge: LoginBridge; di
                       <Button
                         size="sm"
                         variant="ghost"
-                        className="ml-2"
+                        className="ml-2 h-8 max-w-full rounded-lg text-xs shadow-none"
                         onClick={() => void navigator.clipboard?.writeText(notice.userCode ?? '')}
                       >
                         复制
@@ -361,7 +365,7 @@ export function BuiltinProviders({ bridge, disabled }: { bridge: LoginBridge; di
                 </div>
               ))}
               {login.status === 'running' && !prompt && (
-                <p role="status" className="text-sm text-muted-foreground">
+                <p role="status" className="text-[11px] text-muted-foreground">
                   正在等待服务商…
                 </p>
               )}
@@ -373,14 +377,14 @@ export function BuiltinProviders({ bridge, disabled }: { bridge: LoginBridge; di
                     void submit()
                   }}
                 >
-                  <p className="text-sm">{promptMessage}</p>
+                  <p className="text-xs">{promptMessage}</p>
                   {prompt.type === 'select' ? (
                     <div className="space-y-2">
                       {prompt.options?.map((option) => (
                         <Button
                           key={option.id}
                           variant="outline"
-                          className="h-auto w-full justify-start px-3 py-2 text-left"
+                          className="h-auto w-full justify-start px-3 py-2 text-left rounded-lg text-xs shadow-none"
                           disabled={submitting}
                           onClick={() => {
                             setAnswer(option.id)
@@ -398,7 +402,9 @@ export function BuiltinProviders({ bridge, disabled }: { bridge: LoginBridge; di
                           <span>
                             {option.label}
                             {option.description && (
-                              <span className="mt-0.5 block text-xs text-muted-foreground">{option.description}</span>
+                              <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                                {option.description}
+                              </span>
                             )}
                           </span>
                         </Button>
@@ -407,6 +413,7 @@ export function BuiltinProviders({ bridge, disabled }: { bridge: LoginBridge; di
                   ) : (
                     <div className="flex gap-2">
                       <Input
+                        className={settingsControlClassName}
                         aria-label={promptMessage}
                         autoFocus
                         type={prompt.type === 'secret' && !showSecret ? 'password' : 'text'}
@@ -418,11 +425,19 @@ export function BuiltinProviders({ bridge, disabled }: { bridge: LoginBridge; di
                         onChange={(event) => setAnswer(event.target.value)}
                       />
                       {prompt.type === 'secret' && (
-                        <Button variant="outline" onClick={() => setShowSecret((value) => !value)}>
+                        <Button
+                          className={settingsControlClassName}
+                          variant="outline"
+                          onClick={() => setShowSecret((value) => !value)}
+                        >
                           {showSecret ? '隐藏' : '显示'}
                         </Button>
                       )}
-                      <Button type="submit" disabled={submitting || !answer.trim()}>
+                      <Button
+                        className={settingsControlClassName}
+                        type="submit"
+                        disabled={submitting || !answer.trim()}
+                      >
                         {submitting ? '正在提交…' : '继续'}
                       </Button>
                     </div>
@@ -430,12 +445,13 @@ export function BuiltinProviders({ bridge, disabled }: { bridge: LoginBridge; di
                 </form>
               )}
               {login.error && login.status !== 'needs_input' && (
-                <p className="text-sm text-destructive">{login.error}</p>
+                <p className="text-xs text-destructive">{login.error}</p>
               )}
               {login.reconnectError && (
                 <div role="alert" className="space-y-2">
-                  <p className="text-sm text-destructive">{login.reconnectError}</p>
+                  <p className="text-xs text-destructive">{login.reconnectError}</p>
                   <Button
+                    className={settingsControlClassName}
                     size="sm"
                     variant="outline"
                     onClick={() =>
@@ -450,12 +466,12 @@ export function BuiltinProviders({ bridge, disabled }: { bridge: LoginBridge; di
                 </div>
               )}
               {login.status === 'done' && !login.reconnectError && (
-                <p role="status" className="text-sm text-muted-foreground">
+                <p role="status" className="text-[11px] text-muted-foreground">
                   登录已保存。
                 </p>
               )}
               <div className="flex justify-end">
-                <Button variant="outline" onClick={() => void closeLogin()}>
+                <Button className={settingsControlClassName} variant="outline" onClick={() => void closeLogin()}>
                   {login.status === 'running' || login.status === 'needs_input' ? '取消' : '关闭'}
                 </Button>
               </div>

@@ -6,6 +6,8 @@ import {
 } from '@pi-meme/contracts/agent-access'
 import { Select, SelectContent, SelectItem, SelectTrigger } from '@pi-meme/ui/components/ui/select'
 import { CrossfadeText } from '@pi-meme/ui/components/crossfade-text'
+import { SettingsRow, settingsControlClassName } from '@pi-meme/ui/components/settings'
+import { cn } from '@pi-meme/ui/lib/utils'
 
 const descriptions = agentAccessChoices.map((choice) => choice.description)
 const labels = agentAccessChoices.map((choice) => choice.label)
@@ -30,17 +32,17 @@ export function AccessSettings({
   const mode = value ?? defaultAccessMode
   const selected = agentAccessChoices.find((choice) => choice.mode === mode)!
   return (
-    <div className="flex items-center justify-between gap-6 py-4">
-      <div className="min-w-0 space-y-1">
-        <p className="text-sm font-medium">新会话默认权限</p>
-        <p role="status" className="text-sm leading-relaxed text-muted-foreground">
+    <SettingsRow>
+      <div className="min-w-0 flex-1 basis-56">
+        <p className="font-medium">新会话默认权限</p>
+        <p role="status" className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
           <CrossfadeText reserve={descriptions} className="grid">
             {loading ? '正在读取权限…' : selected.description}
           </CrossfadeText>
           <span className="block">仅影响新建会话，已保存的会话保留各自权限。</span>
         </p>
         {!supported && (
-          <p className="text-sm text-muted-foreground">
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
             {reason ?? '当前设备无法使用受限权限，请检查系统配置后重启应用。'}
           </p>
         )}
@@ -54,7 +56,7 @@ export function AccessSettings({
       >
         <SelectTrigger
           aria-label="新会话默认权限"
-          className="h-8 w-auto max-w-full shrink-0 rounded-full border-0 bg-secondary px-3 shadow-none"
+          className={cn(settingsControlClassName, 'w-auto shrink-0 bg-secondary/60 px-3')}
         >
           <CrossfadeText reserve={labels} textClassName="truncate">
             {loading ? '读取中…' : selected.label}
@@ -77,6 +79,6 @@ export function AccessSettings({
           ))}
         </SelectContent>
       </Select>
-    </div>
+    </SettingsRow>
   )
 }

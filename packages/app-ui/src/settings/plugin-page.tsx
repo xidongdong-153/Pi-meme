@@ -17,7 +17,8 @@ import type { UiPluginDescriptor } from '@pi-meme/plugin-sdk/ui'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Switch } from '@pi-meme/ui/components/ui/switch'
 import { CrossfadeText } from '@pi-meme/ui/components/crossfade-text'
-import { IntegrationHeader } from '@pi-meme/ui/components/integration-header'
+import { SettingsCard, SettingsGroup, settingsControlClassName } from '@pi-meme/ui/components/settings'
+import { ResourceSettingsHeader as IntegrationHeader } from './resource-settings-header'
 import { systemPlugins } from '@pi-meme/plugin-sdk/system-plugins'
 import { isReservedPluginId } from '@pi-meme/plugin-sdk/reserved'
 import { cn } from '@pi-meme/ui/lib/utils'
@@ -97,7 +98,14 @@ export function PluginPage({
   }
 
   const settingsButton = onSettings && (
-    <Button variant="ghost" size="icon" aria-label="插件设置" title="插件设置" onClick={onSettings}>
+    <Button
+      className={settingsControlClassName}
+      variant="ghost"
+      size="icon"
+      aria-label="插件设置"
+      title="插件设置"
+      onClick={onSettings}
+    >
       <Settings />
     </Button>
   )
@@ -142,6 +150,7 @@ export function PluginPage({
   }
   const installButton = (
     <Button
+      className={settingsControlClassName}
       variant="outline"
       disabled={busy}
       onClick={() => {
@@ -154,7 +163,7 @@ export function PluginPage({
     </Button>
   )
   return (
-    <section aria-label="插件管理" className="space-y-6" aria-busy={busy}>
+    <section aria-label="插件管理" className="min-w-0 space-y-6" aria-busy={busy}>
       <input
         hidden
         ref={uploadRef}
@@ -168,50 +177,57 @@ export function PluginPage({
         }}
       />
       {error && (
-        <p role="alert" className="break-words text-sm text-destructive">
+        <p role="alert" className="break-words text-xs text-destructive">
           {error}
         </p>
       )}
       {installResult && (
-        <p role="status" className="text-sm text-muted-foreground">
+        <p role="status" className="text-xs text-muted-foreground">
           {installResult}
         </p>
       )}
       {detail ? (
         <>
           <div className="flex items-center justify-between">
-            <Button variant="ghost" onClick={() => select(undefined)}>
+            <Button className={settingsControlClassName} variant="ghost" onClick={() => select(undefined)}>
               <ArrowLeft />
               返回插件
             </Button>
             {settingsButton}
           </div>
-          <div className="flex items-center gap-3">
-            <PluginIcon plugin={detail} />
-            <div>
-              <h3 className="text-xl font-semibold">{detail.display?.name ?? detail.id}</h3>
-              <p className="mt-1 text-sm text-muted-foreground">
+          <div className="flex min-w-0 items-center gap-3">
+            <PluginIcon plugin={detail} compact={view === 'settings'} />
+            <div className="min-w-0">
+              <h3 className="min-w-0 break-words text-base font-semibold">{detail.display?.name ?? detail.id}</h3>
+              <p className="mt-0.5 text-[11px] text-muted-foreground">
                 <CrossfadeText>{`${detail.version} · ${statusNames[detail.status]}`}</CrossfadeText>
               </p>
             </div>
           </div>
-          <p className="whitespace-pre-wrap text-sm leading-7">{detail.description || '未提供说明'}</p>
-          <dl className="space-y-3 rounded-xl border border-border p-4 text-sm">
-            <div>
-              <dt className="text-muted-foreground">包名</dt>
-              <dd className="mt-1 break-all font-mono text-xs">{detail.id}</dd>
-            </div>
-          </dl>
+          <p className="whitespace-pre-wrap text-xs leading-relaxed [overflow-wrap:anywhere]">
+            {detail.description || '未提供说明'}
+          </p>
+          <SettingsCard>
+            <dl className="px-4 py-3">
+              <dt className="font-medium">包名</dt>
+              <dd className="mt-0.5 break-all font-mono text-[11px] text-muted-foreground">{detail.id}</dd>
+            </dl>
+          </SettingsCard>
           <PluginCapabilities plugin={detail} />
           {(detail.error || errors[detail.id]) && (
-            <p role="alert" className="whitespace-pre-wrap break-words text-sm text-destructive">
+            <p role="alert" className="whitespace-pre-wrap break-words text-xs text-destructive">
               {detail.error || errors[detail.id]}
             </p>
           )}
           {detail.builtin ? (
             <div className="space-y-3">
-              <p className="text-sm text-muted-foreground">随应用提供，始终启用。可在当前会话右侧栏打开。</p>
-              <Button variant="outline" disabled={!onOpenSystem} onClick={() => onOpenSystem?.(detail.id)}>
+              <p className="text-xs text-muted-foreground">随应用提供，始终启用。可在当前会话右侧栏打开。</p>
+              <Button
+                className={settingsControlClassName}
+                variant="outline"
+                disabled={!onOpenSystem}
+                onClick={() => onOpenSystem?.(detail.id)}
+              >
                 <PanelRight />
                 在聊天中打开
               </Button>
@@ -258,6 +274,7 @@ export function PluginPage({
                 )}
               <div className="flex flex-wrap gap-2">
                 <Button
+                  className={settingsControlClassName}
                   variant="outline"
                   disabled={busy}
                   onClick={() =>
@@ -269,10 +286,20 @@ export function PluginPage({
                   </CrossfadeText>
                 </Button>
                 {installButton}
-                <Button variant="outline" disabled={busy} onClick={() => void action(() => client.reload(detail.id))}>
+                <Button
+                  className={settingsControlClassName}
+                  variant="outline"
+                  disabled={busy}
+                  onClick={() => void action(() => client.reload(detail.id))}
+                >
                   重新加载插件
                 </Button>
-                <Button variant="destructive" disabled={busy} onClick={() => setRemoving(detail)}>
+                <Button
+                  className={settingsControlClassName}
+                  variant="destructive"
+                  disabled={busy}
+                  onClick={() => setRemoving(detail)}
+                >
                   卸载插件
                 </Button>
               </div>
@@ -292,6 +319,7 @@ export function PluginPage({
             actions={
               <>
                 <Button
+                  className={settingsControlClassName}
                   variant="ghost"
                   size="icon"
                   aria-label="刷新插件列表"
@@ -303,7 +331,7 @@ export function PluginPage({
                 {settingsButton}
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
-                    <Button aria-label="添加插件" disabled={busy || creating} className="rounded-full">
+                    <Button aria-label="添加插件" disabled={busy || creating} className={settingsControlClassName}>
                       添加
                       <ChevronDown className="size-4" />
                     </Button>
@@ -336,6 +364,7 @@ export function PluginPage({
             ) : (
               <CategoryTabs
                 label="插件类别"
+                compact
                 idPrefix={`${listId}-category`}
                 value={category}
                 onChange={setCategory}
@@ -358,15 +387,17 @@ export function PluginPage({
                 className={
                   view === 'catalog'
                     ? 'grid grid-cols-1 gap-x-6 gap-y-2 xl:grid-cols-2'
-                    : 'divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card'
+                    : 'divide-y divide-border/40 overflow-hidden rounded-xl border border-border/70 bg-card/40'
                 }
               >
                 {filtered.map((plugin) => (
                   <li
                     key={plugin.id}
                     className={cn(
-                      'flex items-center gap-4',
-                      view === 'catalog' ? 'rounded-2xl p-3 transition-colors hover:bg-secondary/60' : 'p-5',
+                      'flex min-w-0 items-center gap-3',
+                      view === 'catalog'
+                        ? 'rounded-2xl p-3 transition-colors hover:bg-secondary/60'
+                        : 'px-4 py-3 text-xs',
                     )}
                   >
                     <button
@@ -376,12 +407,19 @@ export function PluginPage({
                         select(plugin.id)
                         setInstallResult('')
                       }}
-                      className="flex min-w-0 flex-1 items-center gap-4 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      className="flex min-w-0 flex-1 items-center gap-3 rounded-lg text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
                       <PluginIcon plugin={plugin} compact={view === 'settings'} />
                       <span className="min-w-0">
-                        <span className="block truncate text-sm font-medium">{plugin.display?.name ?? plugin.id}</span>
-                        <span className="mt-1 block truncate text-sm text-muted-foreground">
+                        <span className={cn('block truncate font-medium', view === 'catalog' ? 'text-sm' : 'text-xs')}>
+                          {plugin.display?.name ?? plugin.id}
+                        </span>
+                        <span
+                          className={cn(
+                            'block truncate text-muted-foreground',
+                            view === 'catalog' ? 'mt-1 text-sm' : 'mt-0.5 text-[11px]',
+                          )}
+                        >
                           {plugin.description || '未提供说明'}
                         </span>
                       </span>
@@ -412,7 +450,7 @@ export function PluginPage({
               </ul>
             )}
             {!filtered.length && (
-              <p role="status" className="text-sm text-muted-foreground">
+              <p role="status" className="text-xs text-muted-foreground">
                 <CrossfadeText>
                   {query ? '没有匹配的插件。' : category === 'system' ? '没有系统插件。' : '没有个人插件。'}
                 </CrossfadeText>
@@ -434,10 +472,16 @@ export function PluginPage({
             会拒绝卸载。
           </DialogDescription>
           <div className="flex justify-end gap-2">
-            <Button variant="outline" disabled={busy} onClick={() => setRemoving(undefined)}>
+            <Button
+              className={settingsControlClassName}
+              variant="outline"
+              disabled={busy}
+              onClick={() => setRemoving(undefined)}
+            >
               取消
             </Button>
             <Button
+              className={settingsControlClassName}
               variant="destructive"
               disabled={busy}
               onClick={() =>
@@ -500,19 +544,20 @@ export function PluginIcon({
 export function PluginCapabilities({ plugin }: { plugin: UiPluginDescriptor }) {
   const capabilities = plugin.capabilities
   return (
-    <section aria-label="插件能力" className="space-y-3 rounded-xl border border-border p-4 text-sm">
-      <h4 className="font-medium">插件能力</h4>
-      <ul className="space-y-2 text-muted-foreground">
-        {capabilities?.server && <li>后台服务：在所属设备上运行。</li>}
-        {capabilities?.agent && (
-          <li>Agent 工具与消息：在聊天输入区逐会话选择；运行中不能修改。安装或启用插件不会自动加入当前聊天。</li>
-        )}
-        {capabilities?.ui && <li>界面：业务页面从左侧插件图标进入；工具面板仍从聊天右侧栏的“＋”打开。</li>}
-        {capabilities?.resources && (
-          <li>包内资源：附带的技能在技能页管理调用策略，主题在外观设置中选择。包内文件随插件一起更新和卸载。</li>
-        )}
-        {!capabilities && <li>所属设备未提供能力说明。</li>}
-      </ul>
-    </section>
+    <SettingsGroup title="插件能力">
+      <SettingsCard>
+        <ul className="space-y-2 px-4 py-3 text-[11px] leading-relaxed text-muted-foreground">
+          {capabilities?.server && <li>后台服务：在所属设备上运行。</li>}
+          {capabilities?.agent && (
+            <li>Agent 工具与消息：在聊天输入区逐会话选择；运行中不能修改。安装或启用插件不会自动加入当前聊天。</li>
+          )}
+          {capabilities?.ui && <li>界面：业务页面从左侧插件图标进入；工具面板仍从聊天右侧栏的“＋”打开。</li>}
+          {capabilities?.resources && (
+            <li>包内资源：附带的技能在技能页管理调用策略，主题在外观设置中选择。包内文件随插件一起更新和卸载。</li>
+          )}
+          {!capabilities && <li>所属设备未提供能力说明。</li>}
+        </ul>
+      </SettingsCard>
+    </SettingsGroup>
   )
 }

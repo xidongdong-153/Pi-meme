@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { ChevronDown, RotateCcw } from 'lucide-react'
 import type { InstalledFont } from '@pi-meme/contracts/settings'
-import { Card } from '@pi-meme/ui/components/ui/card'
+import { SettingsCard, SettingsRow, settingsControlClassName } from '@pi-meme/ui/components/settings'
 import { ScrollArea } from '@pi-meme/ui/components/ui/scroll-area'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Input } from '@pi-meme/ui/components/ui/input'
@@ -20,17 +20,17 @@ export function AppearanceRow({
   children: ReactNode
 }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-3 py-4 first:pt-0 last:pb-0">
+    <SettingsRow>
       <div className="min-w-0">
-        <p className="text-sm font-medium">{label}</p>
-        {description && <p className="mt-1 text-xs text-muted-foreground">{description}</p>}
+        <p className="font-medium">{label}</p>
+        {description && <p className="mt-0.5 text-[11px] text-muted-foreground">{description}</p>}
       </div>
-      <div className="flex max-w-full flex-wrap items-center justify-end gap-2">{children}</div>
-    </div>
+      <div className="flex min-w-0 max-w-full flex-wrap items-center gap-2">{children}</div>
+    </SettingsRow>
   )
 }
 export function AppearanceGroup({ children }: { children: ReactNode }) {
-  return <Card className="rounded-2xl p-5 divide-y divide-border">{children}</Card>
+  return <SettingsCard>{children}</SettingsCard>
 }
 export function Choice({
   label,
@@ -45,7 +45,7 @@ export function Choice({
 }) {
   return (
     <Select value={`choice:${value}`} onValueChange={(next) => onChange(next.slice('choice:'.length))}>
-      <SelectTrigger aria-label={label} className="h-8 w-auto max-w-full rounded-full bg-background text-sm">
+      <SelectTrigger aria-label={label} className={cn(settingsControlClassName, 'w-auto bg-secondary/60')}>
         <SelectValue />
       </SelectTrigger>
       <SelectContent align="end">
@@ -81,7 +81,7 @@ export function ColorControl({
   return (
     <Popover>
       <PopoverTrigger asChild>
-        <Button variant="outline" aria-label={`${label}颜色`} className="rounded-full h-8 text-sm gap-2">
+        <Button variant="outline" aria-label={`${label}颜色`} className={cn(settingsControlClassName, 'gap-2')}>
           <span className="size-4 rounded-full border border-border" style={{ background: value }} />
           {value.toUpperCase()}
         </Button>
@@ -96,6 +96,7 @@ export function ColorControl({
         />
         <Input
           aria-label={`${label} HEX`}
+          className={settingsControlClassName}
           value={draft}
           maxLength={7}
           aria-invalid={!valid}
@@ -106,7 +107,7 @@ export function ColorControl({
             请输入六位 HEX 颜色，例如 #181818
           </p>
         )}
-        <Button variant="outline" size="sm" onClick={onReset}>
+        <Button className={settingsControlClassName} variant="outline" size="sm" onClick={onReset}>
           恢复主题默认
         </Button>
       </PopoverContent>
@@ -137,7 +138,7 @@ export function SizeControl({
         <Input
           type="number"
           aria-label={label}
-          className="w-20 h-8"
+          className={cn(settingsControlClassName, 'w-20')}
           min={min}
           max={max}
           step={1}
@@ -255,7 +256,7 @@ export function FontControl({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button variant="outline" aria-label={label} className="h-8 max-w-56 gap-3 rounded-full text-sm">
+        <Button variant="outline" aria-label={label} className={cn(settingsControlClassName, 'min-w-0 max-w-56 gap-2')}>
           <span className="truncate">{text}</span>
           <ChevronDown className="size-4 shrink-0 text-muted-foreground" />
         </Button>
@@ -264,6 +265,7 @@ export function FontControl({
         <Input
           aria-label={`搜索${label}`}
           placeholder="搜索字体"
+          className="h-9 rounded-lg text-xs shadow-none"
           value={search}
           onChange={(event) => setSearch(event.target.value)}
         />
@@ -282,7 +284,7 @@ export function FontControl({
             <p role="alert" className="text-xs text-destructive">
               {error}
             </p>
-            <Button size="sm" variant="outline" onClick={load}>
+            <Button className={settingsControlClassName} size="sm" variant="outline" onClick={load}>
               重试
             </Button>
           </div>
@@ -303,7 +305,7 @@ export function FontControl({
                 role="option"
                 aria-selected={font.value === value}
                 key={font.family}
-                className="h-auto w-full justify-start whitespace-normal px-2 py-1.5 text-left font-normal aria-selected:bg-secondary"
+                className="h-auto min-h-8 w-full justify-start whitespace-normal rounded-lg px-2 py-1.5 text-left text-xs font-normal aria-selected:bg-secondary"
                 onClick={() => {
                   onChange(font.value)
                   setOpen(false)

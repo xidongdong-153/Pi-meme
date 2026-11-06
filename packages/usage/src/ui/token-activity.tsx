@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { DailyTokenUsage } from '@pi-meme/contracts/usage'
+import { settingsCardClassName } from '@pi-meme/ui/components/settings'
+import { cn } from '@pi-meme/ui/lib/utils'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
 import { activityCells, activityRange, compactTokens, parseDate, type ActivityPeriod } from './usage-chart-model'
 
@@ -30,15 +32,16 @@ export function TokenActivity({ daily, today }: { daily: DailyTokenUsage[]; toda
   const columns = period === 'day' ? cells.length / 7 : cells.length
 
   return (
-    <section aria-label="Token 活动" className="min-w-0 space-y-5">
+    <section aria-label="Token 活动" className={cn(settingsCardClassName, 'space-y-4 divide-y-0 p-4')}>
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h3 className="text-base font-medium">Token 活动</h3>
-          <p className="mt-1 text-xs text-muted-foreground">
-            {displayDate(range.start)}至{displayDate(range.end)}
-          </p>
-        </div>
-        <div role="group" aria-label="活动统计周期" className="flex gap-1 rounded-lg bg-secondary/50 p-1">
+        <p className="text-[11px] text-muted-foreground">
+          {displayDate(range.start)}至{displayDate(range.end)}
+        </p>
+        <div
+          role="group"
+          aria-label="活动统计周期"
+          className="flex max-w-full flex-wrap gap-1 rounded-lg bg-secondary/50 p-1"
+        >
           {modes.map((mode) => (
             <button
               key={mode.id}
@@ -98,7 +101,7 @@ export function TokenActivity({ daily, today }: { daily: DailyTokenUsage[]; toda
               })}
             </div>
             <div
-              className="mt-2 grid text-xs text-muted-foreground"
+              className="mt-2 grid text-[11px] text-muted-foreground"
               style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
             >
               {months.map((month) => (
@@ -119,7 +122,7 @@ export function TokenActivity({ daily, today }: { daily: DailyTokenUsage[]; toda
           </div>
         </div>
       </TooltipProvider>
-      <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-muted-foreground">
+      <div className="flex flex-wrap items-center justify-between gap-3 text-[11px] text-muted-foreground">
         <span>{total ? `近 12 个月使用 ${compactTokens(total)} 个 Token` : '近 12 个月暂无 Token 活动'}</span>
         {period === 'day' && (
           <div aria-label="用量颜色从少到多" className="flex items-center gap-1.5">

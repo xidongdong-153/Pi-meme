@@ -20,6 +20,13 @@ import {
 } from '@pi-meme/ui/components/ui/dialog'
 import { CrossfadeText } from '@pi-meme/ui/components/crossfade-text'
 import { RevealContent } from '@pi-meme/ui/components/reveal-content'
+import {
+  SettingsCard,
+  SettingsGroup,
+  SettingsRow,
+  settingsCardClassName,
+  settingsControlClassName,
+} from '@pi-meme/ui/components/settings'
 import { cn } from '@pi-meme/ui/lib/utils'
 
 const permissionNames: Record<string, string> = {
@@ -88,9 +95,9 @@ export function BrowserSettings({
   }
   if (!platform)
     return (
-      <p className="rounded-2xl border border-border bg-card p-5 text-sm leading-relaxed text-muted-foreground">
+      <SettingsCard className="px-4 py-3 leading-relaxed text-muted-foreground">
         当前客户端暂不提供内置浏览器。已发送的网页批注仍可在聊天中查看。
-      </p>
+      </SettingsCard>
     )
   const settings = snapshot?.settings
   const history =
@@ -99,15 +106,15 @@ export function BrowserSettings({
     ) ?? []
   const save = (patch: Partial<Preferences>) => void run(() => platform.settings(patch))
   const row = (title: string, description: string, control: React.ReactNode) => (
-    <div className="flex flex-wrap items-center justify-between gap-x-6 gap-y-3 py-4">
-      <div className="min-w-0 flex-1 basis-52 space-y-1">
-        <p className="text-sm font-medium">{title}</p>
-        <p className="break-words text-sm leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
+    <SettingsRow>
+      <div className="min-w-0 flex-1 basis-52 space-y-0.5">
+        <p className="font-medium">{title}</p>
+        <p className="break-words text-[11px] leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
           <CrossfadeText>{description}</CrossfadeText>
         </p>
       </div>
       <div className="max-w-full shrink-0">{control}</div>
-    </div>
+    </SettingsRow>
   )
   const select = <K extends keyof Preferences>(key: K, choices: Array<[Preferences[K], string]>) => (
     <Select
@@ -126,7 +133,7 @@ export function BrowserSettings({
             } as Record<string, string>
           )[key] ?? key
         }
-        className="h-8 w-44 max-w-full rounded-full bg-background"
+        className={cn(settingsControlClassName, 'w-44 bg-secondary/60')}
       >
         <SelectValue placeholder="读取中…">
           <CrossfadeText>
@@ -136,7 +143,7 @@ export function BrowserSettings({
       </SelectTrigger>
       <SelectContent side="bottom" align="end">
         {choices.map(([value, label]) => (
-          <SelectItem key={String(value)} value={String(value)}>
+          <SelectItem key={String(value)} value={String(value)} className="text-xs">
             {label}
           </SelectItem>
         ))}
@@ -159,7 +166,8 @@ export function BrowserSettings({
             variant="ghost"
             aria-current={section === id ? 'page' : undefined}
             className={cn(
-              'h-auto rounded-xl px-3 py-2 font-normal',
+              settingsControlClassName,
+              'px-3 font-normal',
               section === id ? 'bg-secondary font-medium' : 'text-muted-foreground',
             )}
             onClick={() => setSection(id)}
@@ -171,16 +179,15 @@ export function BrowserSettings({
       {error ? (
         <p
           role="alert"
-          className="break-words rounded-xl border border-destructive/20 bg-destructive/5 p-4 text-sm text-destructive"
+          className="break-words rounded-xl border border-destructive/20 bg-destructive/5 p-4 text-xs text-destructive"
         >
           {error}
         </p>
       ) : null}
       {section === 'general' ? (
         <div className="space-y-6">
-          <section className="space-y-3" aria-label="网页与搜索">
-            <h3 className="text-sm font-medium">网页与搜索</h3>
-            <div className="divide-y divide-border rounded-2xl border border-border bg-card px-5">
+          <SettingsGroup title="网页与搜索">
+            <SettingsCard>
               {row(
                 '网页链接打开位置',
                 '聊天中的普通网页链接。',
@@ -227,11 +234,10 @@ export function BrowserSettings({
                   )}
                 </div>,
               )}
-            </div>
-          </section>
-          <section className="space-y-3" aria-label="网页批注与恢复">
-            <h3 className="text-sm font-medium">网页批注与恢复</h3>
-            <div className="divide-y divide-border rounded-2xl border border-border bg-card px-5">
+            </SettingsCard>
+          </SettingsGroup>
+          <SettingsGroup title="网页批注与恢复">
+            <SettingsCard>
               {row(
                 '批注截图',
                 '每条批注可以单独调整截图方式。',
@@ -262,25 +268,30 @@ export function BrowserSettings({
                   )}
                 </div>,
               )}
-            </div>
-          </section>
-          <section className="space-y-3" aria-label="浏览数据">
-            <h3 className="text-sm font-medium">浏览数据</h3>
-            <div className="rounded-2xl border border-border bg-card px-5">
+            </SettingsCard>
+          </SettingsGroup>
+          <SettingsGroup title="浏览数据">
+            <SettingsCard>
               {row(
                 '浏览数据',
                 '分别清理历史、网站数据、缓存和下载记录。',
-                <Button variant="outline" size="sm" disabled={saving || !snapshot} onClick={() => setClearing(true)}>
+                <Button
+                  className={settingsControlClassName}
+                  variant="outline"
+                  size="sm"
+                  disabled={saving || !snapshot}
+                  onClick={() => setClearing(true)}
+                >
                   <Trash2 aria-hidden="true" />
                   清理浏览数据
                 </Button>,
               )}
-            </div>
-          </section>
+            </SettingsCard>
+          </SettingsGroup>
         </div>
       ) : null}
       {section === 'history' ? (
-        <div className="space-y-3">
+        <div className="space-y-6">
           <div className="flex flex-wrap items-center gap-3">
             <div className="relative min-w-0 flex-1 basis-48">
               <Search
@@ -292,10 +303,11 @@ export function BrowserSettings({
                 placeholder="搜索浏览历史"
                 value={query}
                 onChange={(event) => setQuery(event.target.value)}
-                className="rounded-full pl-9"
+                className="h-9 rounded-lg border-border/80 bg-secondary/50 pl-9 text-xs shadow-none focus-visible:bg-secondary/80"
               />
             </div>
             <Button
+              className={settingsControlClassName}
               variant="outline"
               size="sm"
               disabled={saving || !snapshot?.history.length}
@@ -310,19 +322,22 @@ export function BrowserSettings({
           </div>
           <RevealContent ready={Boolean(snapshot)}>
             {history.length ? (
-              <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card">
+              <SettingsCard>
                 {history.map((item) => (
-                  <div key={item.id} className="flex items-center gap-3 px-5 py-4">
+                  <SettingsRow key={item.id} className="flex-nowrap">
                     <Globe aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
                     <button
                       className="min-w-0 flex-1 rounded-md text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                       onClick={() => onOpen(item.url)}
                     >
-                      <p className="truncate text-sm font-medium">{item.title || item.url}</p>
-                      <p className="truncate text-xs text-muted-foreground">{item.url}</p>
-                      <p className="mt-1 text-xs text-muted-foreground">{new Date(item.visitedAt).toLocaleString()}</p>
+                      <p className="truncate font-medium">{item.title || item.url}</p>
+                      <p className="mt-0.5 truncate text-[11px] text-muted-foreground">{item.url}</p>
+                      <p className="mt-0.5 text-[11px] text-muted-foreground">
+                        {new Date(item.visitedAt).toLocaleString()}
+                      </p>
                     </button>
                     <Button
+                      className={settingsControlClassName}
                       size="sm"
                       variant="ghost"
                       disabled={saving || !snapshot}
@@ -330,32 +345,30 @@ export function BrowserSettings({
                     >
                       删除
                     </Button>
-                  </div>
+                  </SettingsRow>
                 ))}
-              </div>
+              </SettingsCard>
             ) : (
-              <div role="status" className="rounded-2xl border border-border bg-card px-5 py-10 text-center">
-                <History aria-hidden="true" className="mx-auto mb-3 size-6 text-muted-foreground" />
-                <p className="text-sm font-medium">
-                  {snapshot?.history.length ? '没有匹配的浏览记录' : '暂无浏览记录'}
-                </p>
-                <p className="mt-1 text-sm text-muted-foreground">
+              <SettingsCard role="status" className="divide-y-0 px-4 py-8 text-center">
+                <History aria-hidden="true" className="mx-auto mb-2 size-5 text-muted-foreground" />
+                <p className="font-medium">{snapshot?.history.length ? '没有匹配的浏览记录' : '暂无浏览记录'}</p>
+                <p className="mt-0.5 text-[11px] text-muted-foreground">
                   {snapshot?.history.length ? '试试其他标题或网址。' : '访问过的网页会显示在这里。'}
                 </p>
-              </div>
+              </SettingsCard>
             )}
           </RevealContent>
         </div>
       ) : null}
       {section === 'downloads' ? (
         <div className="space-y-6">
-          <section className="space-y-3" aria-label="下载设置">
-            <h3 className="text-sm font-medium">下载设置</h3>
-            <div className="divide-y divide-border rounded-2xl border border-border bg-card px-5">
+          <SettingsGroup title="下载设置">
+            <SettingsCard>
               {row(
                 '下载位置',
                 settings ? settings.downloadDirectory || '系统下载目录' : '读取中…',
                 <Button
+                  className={settingsControlClassName}
                   variant="outline"
                   size="sm"
                   disabled={saving || !snapshot}
@@ -390,21 +403,20 @@ export function BrowserSettings({
                   )}
                 </div>,
               )}
-            </div>
-          </section>
-          <section className="space-y-3" aria-label="下载记录">
-            <h3 className="text-sm font-medium">下载记录</h3>
+            </SettingsCard>
+          </SettingsGroup>
+          <SettingsGroup title="下载记录">
             <RevealContent ready={Boolean(snapshot)}>
               {snapshot?.downloads.length ? (
-                <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card">
+                <SettingsCard>
                   {snapshot?.downloads.map((item) => (
-                    <div key={item.id} className="flex gap-3 px-5 py-4">
+                    <SettingsRow key={item.id} className="flex-nowrap items-start">
                       <File aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium" title={item.name}>
+                        <p className="truncate font-medium" title={item.name}>
                           {item.name}
                         </p>
-                        <p className="mt-1 text-xs text-muted-foreground">
+                        <p className="mt-0.5 text-[11px] text-muted-foreground">
                           <CrossfadeText>{`${{ progressing: '下载中', completed: '已完成', cancelled: '已取消', interrupted: '已中断' }[item.state]} · ${(item.received / 1024 / 1024).toFixed(1)} / ${(item.total / 1024 / 1024).toFixed(1)} MB`}</CrossfadeText>
                         </p>
                         {item.state === 'progressing' && item.total > 0 ? (
@@ -425,6 +437,7 @@ export function BrowserSettings({
                         <div className="mt-2 flex flex-wrap gap-2">
                           {item.state === 'progressing' ? (
                             <Button
+                              className={settingsControlClassName}
                               size="sm"
                               variant="outline"
                               onClick={() => void run(() => platform.download(item.id, 'cancel'))}
@@ -434,6 +447,7 @@ export function BrowserSettings({
                           ) : (
                             <>
                               <Button
+                                className={settingsControlClassName}
                                 size="sm"
                                 variant="ghost"
                                 disabled={item.state !== 'completed'}
@@ -442,6 +456,7 @@ export function BrowserSettings({
                                 打开
                               </Button>
                               <Button
+                                className={settingsControlClassName}
                                 size="sm"
                                 variant="ghost"
                                 disabled={item.state !== 'completed'}
@@ -450,6 +465,7 @@ export function BrowserSettings({
                                 在 Finder 显示
                               </Button>
                               <Button
+                                className={settingsControlClassName}
                                 size="sm"
                                 variant="ghost"
                                 onClick={() => void run(() => platform.download(item.id, 'remove'))}
@@ -460,31 +476,28 @@ export function BrowserSettings({
                           )}
                         </div>
                       </div>
-                    </div>
+                    </SettingsRow>
                   ))}
-                </div>
+                </SettingsCard>
               ) : (
-                <div role="status" className="rounded-2xl border border-border bg-card px-5 py-10 text-center">
-                  <Download aria-hidden="true" className="mx-auto mb-3 size-6 text-muted-foreground" />
-                  <p className="text-sm font-medium">暂无下载记录</p>
-                  <p className="mt-1 text-sm text-muted-foreground">下载的文件和进度会显示在这里。</p>
-                </div>
+                <SettingsCard role="status" className="divide-y-0 px-4 py-8 text-center">
+                  <Download aria-hidden="true" className="mx-auto mb-2 size-5 text-muted-foreground" />
+                  <p className="font-medium">暂无下载记录</p>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">下载的文件和进度会显示在这里。</p>
+                </SettingsCard>
               )}
             </RevealContent>
-          </section>
+          </SettingsGroup>
         </div>
       ) : null}
       {section === 'permissions' ? (
         <div className="space-y-6">
-          <section className="space-y-3" aria-label="添加网站权限">
-            <div className="space-y-1">
-              <h3 className="text-sm font-medium">添加网站权限</h3>
-              <p className="text-sm leading-relaxed text-muted-foreground">
-                未单独设置的网站默认询问。系统权限仍由 macOS 控制。
-              </p>
-            </div>
+          <SettingsGroup title="添加网站权限">
+            <p className="text-[11px] leading-relaxed text-muted-foreground">
+              未单独设置的网站默认询问。系统权限仍由 macOS 控制。
+            </p>
             <form
-              className="space-y-4 rounded-2xl border border-border bg-card p-5"
+              className={cn(settingsCardClassName, 'space-y-3 divide-y-0 px-4 py-3')}
               onSubmit={(event) => {
                 event.preventDefault()
                 void run(async () => {
@@ -493,10 +506,11 @@ export function BrowserSettings({
                 })
               }}
             >
-              <label className="block space-y-2">
-                <span className="text-sm font-medium">网站地址</span>
+              <label className="block space-y-1.5">
+                <span className="font-medium">网站地址</span>
                 <Input
                   aria-label="网站地址"
+                  className={settingsControlClassName}
                   placeholder="https://example.com"
                   required
                   value={origin}
@@ -504,86 +518,85 @@ export function BrowserSettings({
                 />
               </label>
               <div className="flex flex-wrap items-end gap-3">
-                <div className="min-w-0 flex-1 basis-48 space-y-2">
-                  <p className="text-sm font-medium">权限类型</p>
+                <div className="min-w-0 flex-1 basis-48 space-y-1.5">
+                  <p className="font-medium">权限类型</p>
                   <Select value={permission} onValueChange={setPermission}>
-                    <SelectTrigger aria-label="权限类型">
+                    <SelectTrigger aria-label="权限类型" className={settingsControlClassName}>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent side="bottom">
                       {Object.entries(permissionNames).map(([id, name]) => (
-                        <SelectItem key={id} value={id}>
+                        <SelectItem key={id} value={id} className="text-xs">
                           {name}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
-                <div className="min-w-0 flex-1 basis-28 space-y-2">
-                  <p className="text-sm font-medium">网站权限</p>
+                <div className="min-w-0 flex-1 basis-28 space-y-1.5">
+                  <p className="font-medium">网站权限</p>
                   <Select value={grant} onValueChange={(value) => setGrant(value as BrowserPermission['value'])}>
-                    <SelectTrigger aria-label="网站权限">
+                    <SelectTrigger aria-label="网站权限" className={settingsControlClassName}>
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent side="bottom">
                       {Object.entries(permissionValues).map(([value, label]) => (
-                        <SelectItem key={value} value={value}>
+                        <SelectItem key={value} value={value} className="text-xs">
                           {label}
                         </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
                 </div>
-                <Button type="submit" disabled={saving || !snapshot}>
+                <Button className={settingsControlClassName} type="submit" disabled={saving || !snapshot}>
                   添加
                 </Button>
               </div>
             </form>
-          </section>
-          <section className="space-y-3" aria-label="已设置的网站">
-            <h3 className="text-sm font-medium">已设置的网站</h3>
+          </SettingsGroup>
+          <SettingsGroup title="已设置的网站">
             <RevealContent ready={Boolean(snapshot)}>
               {snapshot?.permissions.length ? (
-                <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card">
+                <SettingsCard>
                   {snapshot?.permissions.map((item) => (
-                    <div
-                      key={`${item.origin}:${item.permission}`}
-                      className="flex flex-wrap items-center justify-between gap-3 px-5 py-4"
-                    >
-                      <div className="min-w-0 flex-1 basis-48 space-y-1">
-                        <p className="break-all text-sm font-medium">{item.origin}</p>
-                        <p className="text-sm text-muted-foreground">
+                    <SettingsRow key={`${item.origin}:${item.permission}`}>
+                      <div className="min-w-0 flex-1 basis-48 space-y-0.5">
+                        <p className="break-all font-medium">{item.origin}</p>
+                        <p className="text-[11px] text-muted-foreground">
                           {permissionNames[item.permission] || item.permission} · {permissionValues[item.value]}
                         </p>
                       </div>
                       <Button
+                        className={settingsControlClassName}
                         variant="ghost"
                         size="sm"
                         onClick={() => void run(() => platform.permission({ ...item, value: 'ask' }))}
                       >
                         恢复询问
                       </Button>
-                    </div>
+                    </SettingsRow>
                   ))}
-                </div>
+                </SettingsCard>
               ) : (
-                <div role="status" className="rounded-2xl border border-border bg-card px-5 py-10 text-center">
-                  <ShieldCheck aria-hidden="true" className="mx-auto mb-3 size-6 text-muted-foreground" />
-                  <p className="text-sm font-medium">暂无网站权限设置</p>
-                  <p className="mt-1 text-sm text-muted-foreground">网站请求权限时会先询问。</p>
-                </div>
+                <SettingsCard role="status" className="divide-y-0 px-4 py-8 text-center">
+                  <ShieldCheck aria-hidden="true" className="mx-auto mb-2 size-5 text-muted-foreground" />
+                  <p className="font-medium">暂无网站权限设置</p>
+                  <p className="mt-0.5 text-[11px] text-muted-foreground">网站请求权限时会先询问。</p>
+                </SettingsCard>
               )}
             </RevealContent>
-          </section>
+          </SettingsGroup>
         </div>
       ) : null}
       <Dialog open={clearing} onOpenChange={setClearing}>
-        <DialogContent>
+        <DialogContent className="gap-4">
           <DialogHeader>
-            <DialogTitle>清理浏览数据</DialogTitle>
-            <DialogDescription>清理网站数据会退出网站登录。下载文件、聊天批注和应用登录信息会保留。</DialogDescription>
+            <DialogTitle className="text-sm">清理浏览数据</DialogTitle>
+            <DialogDescription className="text-xs leading-relaxed">
+              清理网站数据会退出网站登录。下载文件、聊天批注和应用登录信息会保留。
+            </DialogDescription>
           </DialogHeader>
-          <div className="divide-y divide-border rounded-xl border border-border px-4">
+          <SettingsCard>
             {(
               [
                 ['history', '浏览历史'],
@@ -592,7 +605,7 @@ export function BrowserSettings({
                 ['downloads', '下载记录'],
               ] as const
             ).map(([id, label]) => (
-              <div key={id} className="flex items-center justify-between gap-4 py-3 text-sm">
+              <SettingsRow key={id} className="flex-nowrap">
                 <span>{label}</span>
                 <Switch
                   label={label}
@@ -602,14 +615,20 @@ export function BrowserSettings({
                     setParts((value) => (checked ? [...value, id] : value.filter((part) => part !== id)))
                   }
                 />
-              </div>
+              </SettingsRow>
             ))}
-          </div>
+          </SettingsCard>
           <DialogFooter>
-            <Button variant="outline" disabled={saving || !snapshot} onClick={() => setClearing(false)}>
+            <Button
+              className={settingsControlClassName}
+              variant="outline"
+              disabled={saving || !snapshot}
+              onClick={() => setClearing(false)}
+            >
               取消
             </Button>
             <Button
+              className={settingsControlClassName}
               variant="destructive"
               disabled={saving || !parts.length}
               onClick={() =>

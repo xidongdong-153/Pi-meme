@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import type { McpServerEntry, SaveMcpServer } from '@pi-meme/contracts/mcp'
 import { Button } from '@pi-meme/ui/components/ui/button'
+import { settingsControlClassName } from '@pi-meme/ui/components/settings'
 import { Input } from '@pi-meme/ui/components/ui/input'
 import { Textarea } from '@pi-meme/ui/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@pi-meme/ui/components/ui/select'
@@ -58,8 +59,9 @@ export function ServerForm({
   }
   const field = (label: string, value: unknown, key: string) => (
     <label className="block space-y-1.5">
-      <span className="text-sm">{label}</span>
+      <span className="text-xs">{label}</span>
       <Input
+        className={settingsControlClassName}
         aria-label={label}
         value={typeof value === 'string' ? value : ''}
         onChange={(event) => setConfig({ ...config, [key]: event.target.value })}
@@ -70,7 +72,7 @@ export function ServerForm({
   return (
     <form
       aria-label="MCP 服务编辑"
-      className="space-y-4 rounded-xl border border-border p-4"
+      className="space-y-4 rounded-xl border border-border/70 bg-card/40 p-4 text-xs"
       onSubmit={async (event) => {
         event.preventDefault()
         try {
@@ -87,23 +89,31 @@ export function ServerForm({
       }}
     >
       <label className="block space-y-1.5">
-        <span className="text-sm">服务名称</span>
+        <span className="text-xs">服务名称</span>
         <Input
+          className={settingsControlClassName}
           aria-label="MCP 服务名称"
           value={name}
           onChange={(event) => setName(event.target.value)}
           disabled={busy}
         />
       </label>
-      <Button type="button" variant="outline" size="sm" disabled={busy} onClick={changeMode}>
+      <Button
+        className={settingsControlClassName}
+        type="button"
+        variant="outline"
+        size="sm"
+        disabled={busy}
+        onClick={changeMode}
+      >
         {advanced ? '切换到表单' : '编辑高级 JSON'}
       </Button>
       {advanced ? (
         <label className="block space-y-1.5">
-          <span className="text-sm">单个服务的原生 JSON</span>
+          <span className="text-xs">单个服务的原生 JSON</span>
           <Textarea
             aria-label="MCP 高级 JSON"
-            className="font-mono text-xs select-text"
+            className="font-mono text-xs select-text rounded-lg"
             rows={14}
             value={json}
             onChange={(event) => setJson(event.target.value)}
@@ -113,7 +123,7 @@ export function ServerForm({
       ) : (
         <>
           <label className="block space-y-1.5">
-            <span className="text-sm">连接类型</span>
+            <span className="text-xs">连接类型</span>
             <Select
               value={http ? 'http' : 'stdio'}
               disabled={busy}
@@ -137,7 +147,10 @@ export function ServerForm({
                 setConfig(next)
               }}
             >
-              <SelectTrigger aria-label="MCP 连接类型" className="bg-background">
+              <SelectTrigger
+                aria-label="MCP 连接类型"
+                className="bg-background h-8 max-w-full rounded-lg text-xs shadow-none"
+              >
                 <SelectValue />
               </SelectTrigger>
               <SelectContent className="w-[var(--radix-select-trigger-width)]">
@@ -150,11 +163,11 @@ export function ServerForm({
             <>
               {field('MCP URL', config.url, 'url')}
               <label className="block space-y-1.5">
-                <span className="text-sm">Headers（JSON 字符串键值对象）</span>
+                <span className="text-xs">Headers（JSON 字符串键值对象）</span>
                 <Textarea
                   aria-label="MCP Headers"
                   rows={4}
-                  className="font-mono text-xs select-text"
+                  className="font-mono text-xs select-text rounded-lg"
                   value={headers}
                   onChange={(event) => setHeaders(event.target.value)}
                   disabled={busy}
@@ -164,26 +177,26 @@ export function ServerForm({
           ) : (
             <>
               {field('可执行命令', config.command, 'command')}
-              <p className="text-xs text-muted-foreground">
+              <p className="text-[11px] text-muted-foreground">
                 命令填写单个可执行文件，参数填入下方数组，不拼接 Shell 命令。
               </p>
               <label className="block space-y-1.5">
-                <span className="text-sm">参数（JSON 字符串数组）</span>
+                <span className="text-xs">参数（JSON 字符串数组）</span>
                 <Textarea
                   aria-label="MCP 参数"
                   rows={3}
-                  className="font-mono text-xs select-text"
+                  className="font-mono text-xs select-text rounded-lg"
                   value={args}
                   onChange={(event) => setArgs(event.target.value)}
                   disabled={busy}
                 />
               </label>
               <label className="block space-y-1.5">
-                <span className="text-sm">环境变量（JSON 字符串键值对象）</span>
+                <span className="text-xs">环境变量（JSON 字符串键值对象）</span>
                 <Textarea
                   aria-label="MCP 环境变量"
                   rows={4}
-                  className="font-mono text-xs select-text"
+                  className="font-mono text-xs select-text rounded-lg"
                   value={env}
                   onChange={(event) => setEnv(event.target.value)}
                   disabled={busy}
@@ -193,21 +206,21 @@ export function ServerForm({
             </>
           )}
           {field('服务说明', config.description, 'description')}
-          <p className="text-xs text-muted-foreground">
+          <p className="text-[11px] text-muted-foreground">
             OAuth、超时和工具暴露方式在高级 JSON 中编辑；其他原生字段会保留。
           </p>
         </>
       )}
       {error && (
-        <p role="alert" className="text-sm text-destructive">
+        <p role="alert" className="text-xs text-destructive">
           {error}
         </p>
       )}
       <div className="flex gap-2">
-        <Button type="submit" disabled={busy}>
+        <Button className={settingsControlClassName} type="submit" disabled={busy}>
           保存服务
         </Button>
-        <Button type="button" variant="outline" disabled={busy} onClick={onCancel}>
+        <Button className={settingsControlClassName} type="button" variant="outline" disabled={busy} onClick={onCancel}>
           取消编辑
         </Button>
       </div>

@@ -16,6 +16,7 @@ import {
 } from '@pi-meme/ui/components/ui/dropdown-menu'
 import { Input } from '@pi-meme/ui/components/ui/input'
 import { Switch } from '@pi-meme/ui/components/ui/switch'
+import { settingsCardClassName, settingsControlClassName } from '@pi-meme/ui/components/settings'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { serviceAddress, serviceStatus, sshConnectionStatus } from './service-ui'
 import { SshConnectionDialog } from './ssh-connection-dialog'
@@ -32,8 +33,8 @@ export function RemoteSettings({
   const [tab, setTab] = useState<'https' | 'ssh'>('ssh')
   const tabsId = useId()
   return (
-    <div className="space-y-5">
-      <div role="tablist" aria-label="远程连接方式" className="inline-flex gap-1 rounded-lg bg-secondary/50 p-1">
+    <div className="min-w-0 space-y-6">
+      <div role="tablist" aria-label="远程连接方式" className="inline-flex max-w-full flex-wrap items-center gap-1">
         {(['ssh', 'https'] as const).map((value) => (
           <button
             key={value}
@@ -45,8 +46,8 @@ export function RemoteSettings({
             tabIndex={tab === value ? 0 : -1}
             data-tab={value}
             className={cn(
-              'rounded-md px-4 py-1.5 text-sm text-muted-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-              tab === value && 'bg-secondary text-foreground',
+              'h-8 rounded-lg px-3 text-xs text-muted-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+              tab === value && 'bg-secondary font-medium text-foreground',
             )}
             onClick={() => setTab(value)}
             onKeyDown={(event) => {
@@ -62,7 +63,7 @@ export function RemoteSettings({
           </button>
         ))}
       </div>
-      <div id={`${tabsId}-panel`} role="tabpanel" aria-labelledby={`${tabsId}-${tab}`}>
+      <div id={`${tabsId}-panel`} role="tabpanel" aria-labelledby={`${tabsId}-${tab}`} className="min-w-0">
         {tab === 'https' ? (
           <HttpsSettings services={services} registry={registry} onRemove={onRemove} />
         ) : (
@@ -147,30 +148,40 @@ function SshSettings({
 
   const sshServices = services.filter((service) => service.transport === 'ssh')
   return (
-    <div className="space-y-4">
-      <p className="text-sm text-muted-foreground">使用 SSH 连接远程设备。</p>
+    <div className="min-w-0 space-y-6">
+      <p className="text-[11px] leading-relaxed text-muted-foreground">使用 SSH 连接远程设备。</p>
       <div className="flex items-center justify-between gap-3">
-        <h3 className="text-sm font-medium">SSH 连接</h3>
-        <Button size="sm" disabled={!capabilities?.canManage || !capabilities.available} onClick={() => setDialog({})}>
+        <h3 className="text-xs font-semibold text-muted-foreground">SSH 连接</h3>
+        <Button
+          className={settingsControlClassName}
+          size="sm"
+          disabled={!capabilities?.canManage || !capabilities.available}
+          onClick={() => setDialog({})}
+        >
           <Plus aria-hidden="true" className="mr-1 size-3.5" />
           添加
         </Button>
       </div>
       {capabilities && !capabilities.canManage && (
-        <p className="rounded-xl border border-border p-4 text-sm text-muted-foreground">
+        <p className={cn(settingsCardClassName, 'px-4 py-3 text-[11px] leading-relaxed text-muted-foreground')}>
           {capabilities.reason || '请在本机应用中管理 SSH 连接。'}
         </p>
       )}
       <RevealContent ready={Boolean(capabilities?.canManage && profilesReady)}>
         {capabilities?.canManage && (
-          <div className="space-y-4">
+          <div className="min-w-0 space-y-3">
             {!capabilities.available && (
-              <p className="text-sm text-muted-foreground">
+              <p className="text-[11px] leading-relaxed text-muted-foreground">
                 {capabilities.reason || '无法启动 SSH，请检查系统是否已安装 OpenSSH。'}
               </p>
             )}
             {!profiles.length && !loadError && (
-              <p className="rounded-xl border border-dashed border-border p-5 text-sm text-muted-foreground">
+              <p
+                className={cn(
+                  settingsCardClassName,
+                  'border-dashed px-4 py-3 text-[11px] leading-relaxed text-muted-foreground',
+                )}
+              >
                 还没有 SSH 连接。从 SSH 配置选择主机，或手动填写连接资料。
               </p>
             )}
@@ -181,7 +192,7 @@ function SshSettings({
                 <section
                   key={profile.id}
                   aria-label={`SSH 连接 ${profile.name}`}
-                  className="space-y-2 rounded-xl border border-border bg-card/40 p-4"
+                  className={cn(settingsCardClassName, 'space-y-2 divide-y-0 px-4 py-3')}
                 >
                   <div className="flex items-center gap-3">
                     <Switch
@@ -192,20 +203,23 @@ function SshSettings({
                         void perform(profile.id, () => registry.ssh.setEnabled(profile.id, enabled))
                       }}
                     />
-                    <div className="min-w-0 flex-1 space-y-1">
-                      <div className="flex items-center gap-2 text-sm font-medium">
+                    <div className="min-w-0 flex-1 space-y-0.5">
+                      <div className="flex min-w-0 items-center gap-2 text-xs font-medium">
                         <Globe aria-hidden="true" className="size-4 shrink-0 text-primary" />
-                        <span className="truncate" title={profile.name}>
+                        <span className="min-w-0 [overflow-wrap:anywhere]" title={profile.name}>
                           {profile.name}
                         </span>
                       </div>
-                      <p className="truncate text-xs text-muted-foreground" title={profile.target}>
+                      <p className="text-[11px] text-muted-foreground [overflow-wrap:anywhere]" title={profile.target}>
                         {profile.target}
                         {profile.port ? ` · SSH 端口 ${profile.port}` : ''}
                       </p>
-                      <p className="flex items-center gap-1.5 text-xs text-muted-foreground" role="status">
-                        {transitioning && <Loader2 aria-hidden="true" className="size-3 animate-spin" />}
-                        <CrossfadeText>{sshConnectionStatus(profile)}</CrossfadeText>
+                      <p
+                        className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[11px] text-muted-foreground [overflow-wrap:anywhere]"
+                        role="status"
+                      >
+                        {transitioning && <Loader2 aria-hidden="true" className="size-3 shrink-0 animate-spin" />}
+                        <CrossfadeText className="min-w-0">{sshConnectionStatus(profile)}</CrossfadeText>
                         {profile.phase === 'retrying' && profile.nextRetryAt && (
                           <span>· 下次尝试 {new Date(profile.nextRetryAt).toLocaleTimeString()}</span>
                         )}
@@ -213,7 +227,13 @@ function SshSettings({
                     </div>
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button size="icon" variant="ghost" aria-label={`管理 ${profile.name}`} disabled={busy}>
+                        <Button
+                          className={settingsControlClassName}
+                          size="icon"
+                          variant="ghost"
+                          aria-label={`管理 ${profile.name}`}
+                          disabled={busy}
+                        >
                           <MoreHorizontal aria-hidden="true" className="size-4" />
                         </Button>
                       </DropdownMenuTrigger>
@@ -252,18 +272,23 @@ function SshSettings({
       {capabilities &&
         !capabilities.canManage &&
         sshServices.map((service) => (
-          <section key={service.id} className="flex items-center gap-2 rounded-xl border border-border p-4 text-sm">
+          <section
+            key={service.id}
+            className={cn(settingsCardClassName, 'flex flex-wrap items-center gap-3 divide-y-0 px-4 py-3')}
+          >
             <Globe aria-hidden="true" className="size-4 text-primary" />
-            <span className="min-w-0 flex-1 truncate">{service.name || 'SSH 远程服务'}</span>
-            <CrossfadeText className="text-xs text-muted-foreground">{serviceStatus(service)}</CrossfadeText>
+            <span className="min-w-0 flex-1 [overflow-wrap:anywhere]">{service.name || 'SSH 远程服务'}</span>
+            <CrossfadeText className="text-[11px] leading-relaxed text-muted-foreground">
+              {serviceStatus(service)}
+            </CrossfadeText>
           </section>
         ))}
       {loadError && (
         <div className="space-y-2">
-          <p role="alert" className="break-words text-sm text-destructive">
+          <p role="alert" className="break-words text-xs text-destructive">
             {loadError}
           </p>
-          <Button size="sm" variant="secondary" onClick={() => void refresh()}>
+          <Button className={settingsControlClassName} size="sm" variant="secondary" onClick={() => void refresh()}>
             重新读取
           </Button>
         </div>
@@ -283,20 +308,26 @@ function SshSettings({
         onOpenChange={(open) => !open && !pending.has(removing?.id ?? '') && setRemoving(undefined)}
       >
         <DialogContent>
-          <DialogTitle>移除 SSH 连接？</DialogTitle>
-          <DialogDescription>
+          <DialogTitle className="text-base">移除 SSH 连接？</DialogTitle>
+          <DialogDescription className="text-[11px] leading-relaxed [overflow-wrap:anywhere]">
             删除“{removing?.name}”的连接记录？远程项目、会话和运行中的任务不受影响。
           </DialogDescription>
           {removing && errors[removing.id] && (
-            <p role="alert" className="text-sm text-destructive">
+            <p role="alert" className="text-xs text-destructive">
               {errors[removing.id]}
             </p>
           )}
           <div className="flex justify-end gap-2">
-            <Button variant="outline" disabled={pending.has(removing?.id ?? '')} onClick={() => setRemoving(undefined)}>
+            <Button
+              className={settingsControlClassName}
+              variant="outline"
+              disabled={pending.has(removing?.id ?? '')}
+              onClick={() => setRemoving(undefined)}
+            >
               取消
             </Button>
             <Button
+              className={settingsControlClassName}
               disabled={pending.has(removing?.id ?? '')}
               onClick={() => {
                 if (!removing) return
@@ -345,19 +376,22 @@ function HttpsSettings({
     }
   }
   return (
-    <div className="space-y-4">
+    <div className="min-w-0 space-y-6">
       {services
         .filter((service) => !service.local && service.transport !== 'ssh')
         .map((service) => (
-          <section key={service.id} className="space-y-2 rounded-xl border border-border p-4">
+          <section key={service.id} className={cn(settingsCardClassName, 'space-y-2 divide-y-0 px-4 py-3')}>
             <div className="flex flex-wrap items-center gap-2">
-              <span className="min-w-0 flex-1 break-all text-sm">{serviceAddress(service.address)}</span>
-              <span className="text-xs text-muted-foreground">
+              <span className="min-w-0 flex-1 basis-48 break-all text-xs font-medium">
+                {serviceAddress(service.address)}
+              </span>
+              <span className="text-[11px] leading-relaxed text-muted-foreground">
                 <CrossfadeText reserve={['已连接', '连接中', '未连接']}>
                   {service.status === 'connected' ? '已连接' : service.status === 'connecting' ? '连接中' : '未连接'}
                 </CrossfadeText>
               </span>
               <Button
+                className={settingsControlClassName}
                 size="sm"
                 variant="secondary"
                 disabled={busy}
@@ -365,7 +399,13 @@ function HttpsSettings({
               >
                 重试
               </Button>
-              <Button size="sm" variant="ghost" disabled={busy} onClick={() => void run(() => onRemove(service.id))}>
+              <Button
+                className={settingsControlClassName}
+                size="sm"
+                variant="ghost"
+                disabled={busy}
+                onClick={() => void run(() => onRemove(service.id))}
+              >
                 移除
               </Button>
             </div>
@@ -373,6 +413,7 @@ function HttpsSettings({
           </section>
         ))}
       <Button
+        className={settingsControlClassName}
         onClick={() => {
           setUrl('')
           setToken('')
@@ -383,7 +424,7 @@ function HttpsSettings({
         配置远程服务
       </Button>
       {error && (
-        <p role="alert" className="break-words text-sm text-destructive">
+        <p role="alert" className="break-words text-xs text-destructive">
           {error}
         </p>
       )}
@@ -394,10 +435,12 @@ function HttpsSettings({
         }}
       >
         <DialogContent>
-          <DialogTitle>配置远程服务</DialogTitle>
-          <DialogDescription>填写服务地址和访问令牌，添加后可在工作位置中选择项目。</DialogDescription>
+          <DialogTitle className="text-base">配置远程服务</DialogTitle>
+          <DialogDescription className="text-[11px] leading-relaxed [overflow-wrap:anywhere]">
+            填写服务地址和访问令牌，添加后可在工作位置中选择项目。
+          </DialogDescription>
           <form
-            className="space-y-4"
+            className={cn(settingsCardClassName, 'space-y-4 divide-y-0 p-4')}
             onSubmit={(event) => {
               event.preventDefault()
               void run(async () => {
@@ -407,9 +450,10 @@ function HttpsSettings({
               })
             }}
           >
-            <label className="block space-y-2 text-sm">
+            <label className="block min-w-0 space-y-2 text-xs font-medium">
               服务地址
               <Input
+                className={settingsControlClassName}
                 aria-label="远程服务地址"
                 placeholder="https://example.com"
                 value={url}
@@ -417,9 +461,10 @@ function HttpsSettings({
                 required
               />
             </label>
-            <label className="block space-y-2 text-sm">
+            <label className="block min-w-0 space-y-2 text-xs font-medium">
               访问令牌
               <Input
+                className={settingsControlClassName}
                 aria-label="远程访问令牌"
                 type="password"
                 autoComplete="off"
@@ -428,11 +473,11 @@ function HttpsSettings({
               />
             </label>
             {error && (
-              <p role="alert" className="break-words text-sm text-destructive">
+              <p role="alert" className="break-words text-xs text-destructive">
                 {error}
               </p>
             )}
-            <Button type="submit" disabled={busy}>
+            <Button className={settingsControlClassName} type="submit" disabled={busy}>
               <CrossfadeText reserve={['连接中', '连接']}>{busy ? '连接中' : '连接'}</CrossfadeText>
             </Button>
           </form>

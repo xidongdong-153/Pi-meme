@@ -8,6 +8,7 @@ export function CategoryTabs<T extends string>({
   onChange,
   options,
   controls,
+  compact = false,
 }: {
   label: string
   idPrefix: string
@@ -15,6 +16,7 @@ export function CategoryTabs<T extends string>({
   onChange: (value: T) => void
   options: ReadonlyArray<{ id: T; label: string; count?: number }>
   controls?: string
+  compact?: boolean
 }) {
   return (
     <div role="tablist" aria-label={label} className="flex items-center gap-1">
@@ -42,7 +44,8 @@ export function CategoryTabs<T extends string>({
             document.getElementById(`${idPrefix}-${next.id}`)?.focus()
           }}
           className={cn(
-            'rounded-xl px-3 py-2 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            'px-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+            compact ? 'h-8 rounded-lg text-xs' : 'rounded-xl py-2 text-sm',
             value === entry.id ? 'bg-secondary font-medium' : 'text-muted-foreground hover:text-foreground',
           )}
         >

@@ -7,6 +7,7 @@ import type { McpBridge, McpConfigSnapshot, McpDiagnostic, McpServerEntry } from
 import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
 import type { ToolExecutionSettings } from '@pi-meme/contracts/settings'
 import { Button } from '@pi-meme/ui/components/ui/button'
+import { SettingsCard, SettingsGroup, SettingsRow, settingsControlClassName } from '@pi-meme/ui/components/settings'
 import { ServerForm } from './server-form'
 import { object } from '../shared/config'
 import { cn } from '@pi-meme/ui/lib/utils'
@@ -98,9 +99,11 @@ export function McpSettings({
           query={query}
           onQuery={setQuery}
           searchLabel="搜索 MCP 服务器"
+          searchClassName="h-9 rounded-lg border-border/80 bg-secondary/50 text-xs focus-visible:bg-secondary/80"
           actions={
             <>
               <Button
+                className="rounded-lg text-xs shadow-none"
                 variant="ghost"
                 size="icon"
                 aria-label="重新加载 MCP 配置"
@@ -110,6 +113,7 @@ export function McpSettings({
                 <RefreshCw className={cn(refreshing && 'animate-spin')} />
               </Button>
               <Button
+                className={settingsControlClassName}
                 disabled={blocked || !snapshot || Boolean(snapshot.error)}
                 onClick={() => {
                   setEditing('new')
@@ -123,13 +127,14 @@ export function McpSettings({
         />
       )}
       <RevealContent ready={Boolean(snapshot?.error || error)}>
-        <p role="alert" className="text-sm text-destructive">
+        <p role="alert" className="text-xs text-destructive">
           <CrossfadeText>{snapshot?.error || error}</CrossfadeText>
         </p>
       </RevealContent>
       {snapshot && editing ? (
         <div className="space-y-5">
           <Button
+            className={settingsControlClassName}
             variant="ghost"
             disabled={blocked}
             onClick={() => {
@@ -141,6 +146,7 @@ export function McpSettings({
             返回 MCP
           </Button>
           <Button
+            className={settingsControlClassName}
             variant="outline"
             size="sm"
             disabled={blocked}
@@ -154,9 +160,11 @@ export function McpSettings({
           >
             重新加载配置
           </Button>
-          <h3 className="text-xl font-semibold">{selected?.name ?? '新增 MCP 服务'}</h3>
+          <h3 className="break-words text-xs font-semibold text-muted-foreground">
+            {selected?.name ?? '新增 MCP 服务'}
+          </h3>
           {selected?.error && (
-            <p role="alert" className="text-sm text-destructive">
+            <p role="alert" className="text-xs text-destructive">
               {selected.error}
             </p>
           )}
@@ -164,6 +172,7 @@ export function McpSettings({
             <div className="flex flex-wrap gap-2">
               {typeof config.url === 'string' && (
                 <Button
+                  className={settingsControlClassName}
                   variant="outline"
                   disabled={blocked}
                   onClick={() => {
@@ -178,21 +187,27 @@ export function McpSettings({
                   </CrossfadeText>
                 </Button>
               )}
-              <Button variant="outline" disabled={blocked} onClick={() => setDeleting(selected.name)}>
+              <Button
+                className={settingsControlClassName}
+                variant="outline"
+                disabled={blocked}
+                onClick={() => setDeleting(selected.name)}
+              >
                 删除 {selected.name}
               </Button>
             </div>
           )}
           {selected && typeof config.url === 'string' && (
-            <p className="text-xs text-muted-foreground">
+            <p className="text-[11px] text-muted-foreground">
               在完全权限会话中执行 <code>/mcp login {selected.name}</code> 完成登录。
             </p>
           )}
           {deleting && (
-            <div className="space-y-3 rounded-xl border border-border p-4">
-              <p className="text-sm">删除全局服务 {deleting}？</p>
+            <SettingsCard className="space-y-3 divide-y-0 p-4">
+              <p className="text-xs">删除全局服务 {deleting}？</p>
               <div className="flex gap-2">
                 <Button
+                  className={settingsControlClassName}
                   disabled={blocked}
                   onClick={() =>
                     void act(async () => {
@@ -204,11 +219,16 @@ export function McpSettings({
                 >
                   确认删除 {deleting}
                 </Button>
-                <Button variant="outline" disabled={blocked} onClick={() => setDeleting(null)}>
+                <Button
+                  className={settingsControlClassName}
+                  variant="outline"
+                  disabled={blocked}
+                  onClick={() => setDeleting(null)}
+                >
                   取消删除
                 </Button>
               </div>
-            </div>
+            </SettingsCard>
           )}
           {!snapshot.error && (
             <ServerForm
@@ -227,22 +247,17 @@ export function McpSettings({
           )}
         </div>
       ) : (
-        <div className="space-y-4">
-          <h3 className="text-sm font-medium">服务器</h3>
+        <SettingsGroup title="服务器">
           <RevealContent ready={Boolean(snapshot)}>
             {servers.length ? (
-              <div className="divide-y divide-border overflow-hidden rounded-2xl border border-border bg-card">
+              <SettingsCard>
                 {servers.map((entry) => {
                   const value = object(entry.config) ? entry.config : {}
                   const authorizationRequired = capabilities.mcpEnabled === false && value.desktopAuthorized !== true
                   return (
-                    <div
-                      key={entry.name}
-                      aria-label={`MCP 服务：${entry.name}`}
-                      className="flex items-center gap-4 p-5"
-                    >
+                    <SettingsRow key={entry.name} aria-label={`MCP 服务：${entry.name}`} className="flex-nowrap">
                       <div className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium">{entry.name}</span>
+                        <span className="block truncate text-xs font-medium">{entry.name}</span>
                         {entry.error && (
                           <p role="alert" className="mt-1 text-xs text-destructive">
                             {entry.error}
@@ -250,6 +265,7 @@ export function McpSettings({
                         )}
                       </div>
                       <Button
+                        className="rounded-lg text-xs shadow-none"
                         size="icon-sm"
                         variant="ghost"
                         aria-label={`设置 MCP 服务：${entry.name}`}
@@ -278,31 +294,36 @@ export function McpSettings({
                           })
                         }
                       />
-                    </div>
+                    </SettingsRow>
                   )
                 })}
-              </div>
+              </SettingsCard>
             ) : (
-              <p role="status" className="text-sm text-muted-foreground">
+              <p role="status" className="text-[11px] text-muted-foreground">
                 <CrossfadeText>{query ? '没有匹配的 MCP 服务。' : '尚未配置 MCP 服务。'}</CrossfadeText>
               </p>
             )}
           </RevealContent>
-        </div>
+        </SettingsGroup>
       )}
       {capabilities.mcpEnabled === false && (
-        <p role="status" className="text-xs text-muted-foreground">
+        <p role="status" className="text-[11px] text-muted-foreground">
           原配置关闭了 MCP；逐个启用需要连接的服务。
         </p>
       )}
       {mode !== 'full-access' && (
-        <p role="status" className="text-xs text-muted-foreground">
+        <p role="status" className="text-[11px] text-muted-foreground">
           当前权限不加载 MCP；切换到完全权限后可使用。
         </p>
       )}
-      <CollapsibleSection title="连接诊断" description="检查已配置服务，查看诊断输出">
+      <CollapsibleSection
+        title="连接诊断"
+        description="检查已配置服务，查看诊断输出"
+        className="bg-card/40 [&>button]:text-xs [&>button>span>span+span]:text-[11px]"
+      >
         <div className="space-y-4 text-muted-foreground">
           <Button
+            className={settingsControlClassName}
             variant="outline"
             disabled={blocked || mode !== 'full-access' || !sessionKey || !snapshot || Boolean(snapshot.error)}
             onClick={() =>
@@ -317,7 +338,7 @@ export function McpSettings({
           <RevealContent ready={Boolean(diagnostic)}>
             {diagnostic && (
               <section aria-label="MCP 诊断结果" className="space-y-2">
-                <p className="text-sm">
+                <p className="text-xs">
                   检查时间：{new Date(diagnostic.checkedAt).toLocaleString()} ·{' '}
                   {diagnostic.timedOut
                     ? '检查超时'
@@ -325,7 +346,7 @@ export function McpSettings({
                       ? '检查完成'
                       : `检查失败（退出码 ${String(diagnostic.exitCode)}）`}
                 </p>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-[11px] text-muted-foreground">
                   这是本次 Desktop 全局配置诊断结果，不代表当前聊天的实时连接状态。
                 </p>
                 <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-lg border border-border p-3 text-xs select-text">
@@ -337,7 +358,7 @@ export function McpSettings({
         </div>
       </CollapsibleSection>
       <RevealContent ready={working}>
-        <p role="status" className="text-xs text-muted-foreground">
+        <p role="status" className="text-[11px] text-muted-foreground">
           正在处理 MCP 操作…
         </p>
       </RevealContent>
