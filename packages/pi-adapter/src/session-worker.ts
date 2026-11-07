@@ -15,7 +15,7 @@ import type { CollaborationRequest, CollaborationResults } from '@pi-meme/contra
 import type { PlanDocument, PlanState, SavePlanInput } from '@pi-meme/contracts/plan'
 import type { InlineExtension, ExtensionAPI, ToolDefinition } from '@earendil-works/pi-coding-agent'
 import type { DesktopSettings } from '@pi-meme/contracts/settings'
-import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
+import { canUseExternalAgentTools, type AgentAccessMode } from '@pi-meme/contracts/agent-access'
 import type { ResourceSnapshot } from '@pi-meme/contracts/resources'
 import { SdkSession, type RuntimePolicy } from '@pi-meme/pi-runtime/sdk/session'
 import { createPiRuntimePaths, createTemporaryRuntimePaths } from '@pi-meme/pi-runtime/runtime-paths'
@@ -54,8 +54,6 @@ export type SessionWorkerContext = {
   registerResourcePolicy: (value: RuntimePolicy['resourcePaths']) => void
   registerSandbox: (factory: RuntimePolicy['createSandbox']) => void
   registerAccessExtension: (factory: RuntimePolicy['createAccessExtension']) => void
-  planSandbox: () => import('@pi-meme/pi-runtime/sdk/access-sandbox').AccessSandboxOperations
-  registerPlanTool: (name: string, source: import('@pi-meme/contracts/plan').PlanToolSource) => void
 }
 export type SessionWorkerFactory = (context: SessionWorkerContext) => InlineExtension[] | Promise<InlineExtension[]>
 export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> = {}) {
@@ -67,6 +65,7 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
     agentEntries: AgentPluginEntry[]
     credentials: Array<[string, string]>
     access: AgentAccessMode
+    taskMode: import('@pi-meme/contracts/plan').TaskMode
     capabilities: DesktopSettings
     initialGeneration?: number
     resourceSnapshot?: ResourceSnapshot
@@ -113,7 +112,6 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
         visualizationRequest: { action: 'read', reference, references: projectBranchVisualizations(entries, leafId) },
       }) as Promise<VisualizationDocument>
     },
-    planTools: new Map(),
     resolvePlan: (reference, signal) => hostRequest('resolvePlan', { reference }, signal) as Promise<PlanDocument>,
     syncPlan: (force) => hostRequest('syncPlan', { force }) as Promise<PlanState>,
     onHistoryEdited: () => hostRequest('historyEdited', {}) as Promise<void>,
@@ -223,8 +221,6 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
             hostRequest('visualize', { visualizationRequest }, signal) as Promise<VisualizationDocument>,
           requestImageGeneration: (imageRequest, signal) =>
             hostRequest('image-generation', { imageRequest }, signal) as Promise<ImageGenerationReply>,
-          planSandbox: () => session.getPlanSandbox(),
-          registerPlanTool: (name, source) => policy.planTools!.set(name, source),
           requestCollaboration: (request, signal) =>
             hostRequest('collaboration', request, signal) as Promise<CollaborationResults[keyof CollaborationResults]>,
           requestActivity: (activityRequest, signal) =>
@@ -275,7 +271,7 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
         factory: (api) => factory(instrumentBuiltin(api)),
       }
     }
-    for (const entry of data.agentEntries) {
+    for (const entry of canUseExternalAgentTools(data.access, data.taskMode) ? data.agentEntries : []) {
       if (entry.pluginId in builtins) throw new Error('外部 Agent 不能替换内置能力')
       const offset = extensions.length
       const pluginRequest = (request: PluginRuntimeRequest, signal?: AbortSignal) =>
@@ -336,6 +332,7 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
     session.configureInlineExtensions(extensions)
     session.configureCapabilities({ codemodeEnabled: false, mcpEnabled: false })
     session.configureAccess(data.access)
+    await session.setSessionMode(data.taskMode)
   })()
   port.on(
     'message',

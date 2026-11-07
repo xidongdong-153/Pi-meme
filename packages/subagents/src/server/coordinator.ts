@@ -19,7 +19,7 @@ import {
 import type { PlanCheckpoint, PlanDocument, PlanState, PlanRef, SavePlanInput, TaskMode } from '@pi-meme/contracts/plan'
 import { thinkingLevels, type PiState } from '@pi-meme/contracts/pi'
 import type { RuntimeSdkSession } from '@pi-meme/pi-runtime/session-pool'
-import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
+import { effectiveAgentAccess, type AgentAccessMode } from '@pi-meme/contracts/agent-access'
 import { loadPiSdk } from '@pi-meme/pi-runtime/sdk/load'
 import { readSessionHistory } from '@pi-meme/pi-runtime/session-history'
 import { inferAgentConversationOrigin, readAgentConversation } from '@pi-meme/pi-runtime/agent-conversation'
@@ -139,6 +139,22 @@ export class HostCollaborationBridge {
       )
     )
       throw new Error('此工作目录仍有运行中的子任务或待答交互，请先结束任务')
+  }
+  async assertSessionIdle(sessionKey: string) {
+    await this.ready
+    const root = this.roots.get(sessionKey)
+    if (!root) return
+    if (
+      this.tree(root).some(
+        (record) =>
+          this.busy(record) ||
+          record.queued.length > 0 ||
+          Boolean(record.pendingStart) ||
+          record.interactions.length > 0 ||
+          record.draining === true,
+      )
+    )
+      throw new Error('主任务或子任务树尚未结束（含等待与排队任务），结束后才能切换权限或任务模式')
   }
   async retireCheckout(matches: (cwd: string) => boolean) {
     for (const record of this.records.values())
@@ -567,8 +583,14 @@ export class HostCollaborationBridge {
   async setSessionMode(sessionKey: string, mode: TaskMode) {
     await this.ready
     const root = this.root(sessionKey)
+    const previous = root.nextMode
     root.nextMode = mode
-    await this.persist(root)
+    try {
+      await this.persist(root)
+    } catch (cause) {
+      root.nextMode = previous
+      throw cause
+    }
     this.changed(root)
   }
   async getSessionMode(sessionKey: string) {
@@ -1145,10 +1167,22 @@ export class HostCollaborationBridge {
     if (!model) throw new Error('主会话没有可继承的模型，请先选择模型')
     return {
       mode: record.summary.mode,
-      accessMode: record.summary.accessMode,
+      accessMode: effectiveAgentAccess(record.summary.accessMode, record.summary.mode),
       model,
       thinkingLevel: level,
     }
+  }
+  private inheritedPolicy(record: Record, policy: RunPolicy): RunPolicy {
+    const parent = this.records.get(record.summary.parentAgentId ?? '')
+    if (!parent || !parent.session) throw new Error('父 Agent 已不可用，不能启动子任务')
+    if (path.resolve(record.summary.cwd) !== path.resolve(parent.summary.cwd))
+      throw new Error('子 Agent 必须继承父级工作区，不能通过更换目录扩大写入范围')
+    const parentMode = activeStatuses.has(parent.summary.status)
+      ? parent.summary.mode
+      : (parent.nextMode ?? parent.summary.mode)
+    const parentAccess = effectiveAgentAccess(parent.summary.accessMode, parentMode)
+    const mode = parentMode === 'plan' ? 'plan' : policy.mode
+    return { ...policy, mode, accessMode: effectiveAgentAccess(policy.accessMode, mode, parentAccess) }
   }
   private async start(
     record: Record,
@@ -1165,12 +1199,16 @@ export class HostCollaborationBridge {
     if ((record.cleaning && !allowCleaning) || (record.summary.cleanup && record.summary.cleanup.state !== 'completed'))
       throw new Error('目标 Agent 尚未完成清理')
     this.options.assertCheckoutAvailable?.(record.summary.cwd)
+    policy = this.inheritedPolicy(record, policy)
     const replaceWorker =
       record.session && (record.summary.mode !== policy.mode || record.summary.accessMode !== policy.accessMode)
     const runId = scheduledRunId ?? randomUUID()
     const assertStarting = () => {
       if (this.stopping || record.summary.runId !== runId || !['starting', 'running'].includes(record.summary.status))
         throw new Error('子 Agent 启动已取消或轮次更换')
+      const currentPolicy = this.inheritedPolicy(record, policy)
+      if (currentPolicy.mode !== policy.mode || currentPolicy.accessMode !== policy.accessMode)
+        throw new Error('父级权限或任务模式已收窄，请重新派发子任务')
     }
     const task = { message, rootTaskId, epoch, policy, runId, delegation, changeOwner }
     record.changeOwner = changeOwner

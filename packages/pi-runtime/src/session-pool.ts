@@ -12,10 +12,15 @@ import {
 import { AsyncLocalStorage } from 'node:async_hooks'
 import type { ToolExecutionSettings } from '@pi-meme/contracts/settings'
 import type { InlineExtension } from '@earendil-works/pi-coding-agent'
-import { realpath, stat } from 'node:fs/promises'
+import { mkdtemp, realpath, rm, stat } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
-import { defaultAccessMode, isAgentAccessMode, type AgentAccessMode } from '@pi-meme/contracts/agent-access'
+import {
+  defaultAccessMode,
+  effectiveAgentAccess,
+  isAgentAccessMode,
+  type AgentAccessMode,
+} from '@pi-meme/contracts/agent-access'
 import { AgentAccessStore } from './access-store'
 import {
   builtinCommand,
@@ -49,7 +54,7 @@ import type {
   PiState,
   ThinkingLevel,
 } from '@pi-meme/contracts/pi'
-import type { SandboxCapability } from './sdk/access-sandbox'
+import { AccessSandbox, type SandboxCapability } from './sdk/access-sandbox'
 import { SdkSession } from './sdk/session'
 import { recoveryMessage } from './sdk/recovery'
 import { getPiVersion, loadPiSdk } from './sdk/load'
@@ -176,6 +181,8 @@ export type CollaborationLifecycle = {
   pause?: (sessionKey: string) => Promise<void>
   resume?: (sessionKey: string) => Promise<void>
   modeChanged?: (sessionKey: string, mode: TaskMode) => Promise<void>
+  beforePolicyChange?: (sessionKey: string, access: AgentAccessMode, mode: TaskMode) => Promise<void>
+  beforeExecution?: (sessionKey: string, access: AgentAccessMode, mode: TaskMode) => Promise<void>
   decorateEvent?: (sessionKey: string, event: DesktopEvent) => DesktopEvent
   beforePrompt: (sessionKey: string, input: { mode: TaskMode; message: string }) => Promise<void>
   beforeEdit?: (sessionKey: string) => Promise<void>
@@ -626,12 +633,14 @@ export class PiSessionPool implements PiRuntime {
     this.restrictedAccess = { ...capability }
   }
   private defaultMode: AgentAccessMode = defaultAccessMode
+  validateDefaultAccessMode(mode: AgentAccessMode) {
+    if (!isAgentAccessMode(mode)) throw new Error('Agent 访问权限无效')
+    if (this.restrictedAccess && mode !== this.defaultMode) this.assertExecutionAccess(mode, 'default')
+  }
   async configureDefaultAccessMode(mode: AgentAccessMode) {
     if (!isAgentAccessMode(mode)) throw new Error('Agent 访问权限无效')
+    // 启动恢复及已保存设置的提交不重新探测，避免失败回滚时被环境变化阻断。
     this.defaultMode = mode
-    const record = this.active
-    if (!record || record.sessionFile || this.hasContent(record) || record.accessMode === mode) return
-    await this.switchAccessMode(record, mode)
   }
   private inlineExtensions: InlineExtension[] = []
   private mcpExtensionFactory?: (sdk: PiSdk, cwd: string) => InlineExtension
@@ -642,9 +651,12 @@ export class PiSessionPool implements PiRuntime {
     this.inlineExtensions = extensions.slice()
     for (const record of this.sessions.values()) record.session.configureInlineExtensions(this.inlineExtensions)
   }
-  private configureSession(record: RuntimeSession) {
-    if (record.accessMode !== 'full-access' && this.restrictedAccess && !this.restrictedAccess.supported)
-      throw new Error(this.restrictedAccess.reason ?? '受限权限沙箱不可用')
+  private assertExecutionAccess(access: AgentAccessMode, mode: TaskMode) {
+    if (effectiveAgentAccess(access, mode) !== 'full-access' && !this.restrictedAccess?.supported)
+      throw new Error(this.restrictedAccess?.reason ?? '受限权限沙箱不可用')
+  }
+  private configureSession(record: RuntimeSession, mode = record.state.mode) {
+    this.assertExecutionAccess(record.accessMode, mode)
     record.extensionError = undefined
     record.session.configureInlineExtensions(this.inlineExtensions)
     record.session.configureCapabilities(this.capabilities)
@@ -716,9 +728,10 @@ export class PiSessionPool implements PiRuntime {
     this.commands.clear()
     const record = this.create(cwd, sessionFile)
     record.dormant = false
-    record.accessReady = record.accessReady.then(() => {
+    record.accessReady = record.accessReady.then(async () => {
       if (!this.sessions.has(record.key)) return
       this.configureSession(record)
+      await record.session.setSessionMode(record.state.mode)
       record.session.start(cwd, sessionFile)
     })
     void record.accessReady.catch(() => {})
@@ -1519,7 +1532,7 @@ export class PiSessionPool implements PiRuntime {
     record.dormant = false
     const starting = (async () => {
       await record.accessReady
-      this.configureSession(record)
+      this.configureSession(record, executionMode ?? record.state.mode)
       await record.session.setSessionMode(executionMode ?? record.state.mode)
       await record.session.reconnectModels({
         sessionFile: record.sessionFile,
@@ -1582,43 +1595,109 @@ export class PiSessionPool implements PiRuntime {
     return record
   }
   async setAccessMode(sessionKey: string, mode: AgentAccessMode) {
-    if (!isAgentAccessMode(mode)) throw new Error('Agent 访问权限无效')
-    const record = this.target(sessionKey)
-    await this.switchAccessMode(record, mode)
+    await this.setExecutionPolicy(sessionKey, { accessMode: mode })
   }
 
-  private async switchAccessMode(record: RuntimeSession, mode: AgentAccessMode) {
+  /** 仅供 Host 恢复已保存的选择；不授予执行能力，也不创建或配置运行时。 */
+  async restoreExecutionPolicy(
+    sessionKey: string,
+    policy: { accessMode?: AgentAccessMode; mode?: TaskMode },
+    expectedRevision?: number,
+  ) {
+    if (policy.accessMode !== undefined && !isAgentAccessMode(policy.accessMode)) throw new Error('Agent 访问权限无效')
+    if (policy.mode !== undefined && policy.mode !== 'default' && policy.mode !== 'plan')
+      throw new Error('会话模式无效')
+    const record = this.target(sessionKey)
+    const revision = record.modeRevision ?? 0
+    if (expectedRevision !== undefined && revision !== expectedRevision) return undefined
+    await record.accessReady
+    if (this.target(sessionKey) !== record || (record.modeRevision ?? 0) !== revision) {
+      if (expectedRevision !== undefined) return undefined
+      throw new Error('会话权限或模式已变化，请重新读取')
+    }
+    // 读历史可能复用界面已有的运行时；保存的旧配置不能覆盖当前选择。
+    if (!record.dormant) return undefined
+    this.assertNotEditing(sessionKey)
+    if (!this.isSessionIdle(sessionKey, true) || record.session.connection().status !== 'disconnected')
+      throw new Error('只能为未启动且空闲的会话恢复已保存的权限或模式')
+    const previous = { accessMode: record.accessMode, mode: record.state.mode }
+    const access = policy.accessMode ?? previous.accessMode
+    const mode = policy.mode ?? previous.mode
+    if (previous.accessMode === access && previous.mode === mode) return { revision, previous }
+    this.commands.delete(`${record.cwd}:${record.accessMode}`)
+    this.commands.delete(`${record.cwd}:${access}`)
+    record.accessMode = access
+    record.state = { ...record.state, mode }
+    record.modeRevision = revision + 1
+    return { revision: record.modeRevision, previous }
+  }
+
+  async setExecutionPolicy(sessionKey: string, policy: { accessMode?: AgentAccessMode; mode?: TaskMode }) {
+    if (policy.accessMode !== undefined && !isAgentAccessMode(policy.accessMode)) throw new Error('Agent 访问权限无效')
+    if (policy.mode !== undefined && policy.mode !== 'default' && policy.mode !== 'plan')
+      throw new Error('会话模式无效')
+    const record = this.target(sessionKey)
+    await record.accessReady
+    this.target(sessionKey)
+    const access = policy.accessMode ?? record.accessMode
+    const mode = policy.mode ?? record.state.mode
+    this.assertExecutionAccess(access, mode)
+    if (record.accessMode === access && record.state.mode === mode) return
     if (
-      record.running ||
-      record.pendingPrompt ||
-      record.starting ||
-      record.stopping ||
+      !this.isSessionIdle(sessionKey, true) ||
+      this.hasPendingGoalInput(sessionKey) ||
       record.session.connection().status === 'connecting'
     )
-      throw new Error('任务结束后可切换权限')
-    if (mode !== 'full-access' && !this.restrictedAccess?.supported)
-      throw new Error(this.restrictedAccess?.reason ?? '受限权限沙箱不可用')
+      throw new Error('主任务及子任务树结束、队列清空后可切换权限或模式')
     record.accessChanging = true
     this.notify.connection(this.withSession(record.key, () => this.connection()))
+    const previousAccess = record.accessMode
+    const previousMode = record.state.mode
     try {
-      await record.accessReady
-      if (record.session.connection().status === 'connecting') throw new Error('任务结束后可切换权限')
-      if (record.accessMode === mode) return
+      await this.collaboration?.beforePolicyChange?.(sessionKey, access, mode)
+      const effective = effectiveAgentAccess(access, mode)
+      if (effective !== 'full-access') {
+        const temporary = await mkdtemp(path.join(tmpdir(), 'pi-access-preflight-'))
+        try {
+          const sandbox = await AccessSandbox.create({
+            mode: effective,
+            cwd: record.cwd,
+            temporary,
+            agentDir: this.runtimePaths.agentDir,
+            dataRoot: this.runtimePaths.dataRoot,
+          })
+          await sandbox.stopAll()
+        } finally {
+          await rm(temporary, { recursive: true, force: true })
+        }
+      }
       await record.session.idle(async () => {
         if (record.session.connection().status === 'ready')
           this.rememberSnapshot(record, await record.session.snapshot())
+        // 所有拒绝条件先检查，再释放旧权限下的运行时与连接。
         await record.session.stopAndWait()
         record.dormant = true
         record.extensions.clear()
         record.extensionError = undefined
-        if (record.sessionFile && !record.temporary) await this.accessStore.set(record.sessionFile, mode)
         if (!this.sessions.has(record.key)) throw new Error('目标会话已关闭')
-        record.accessMode = mode
-        this.commands.delete(`${record.cwd}:${record.accessMode}`)
+        if (access !== previousAccess && record.sessionFile && !record.temporary)
+          await this.accessStore.set(record.sessionFile, access)
+        try {
+          if (mode !== previousMode) await this.collaboration?.modeChanged?.(sessionKey, mode)
+        } catch (cause) {
+          if (access !== previousAccess && record.sessionFile && !record.temporary)
+            await this.accessStore.set(record.sessionFile, previousAccess)
+          throw cause
+        }
+        record.accessMode = access
+        record.state = { ...record.state, mode }
+        record.modeRevision = (record.modeRevision ?? 0) + 1
+        this.commands.delete(`${record.cwd}:${previousAccess}`)
+        this.commands.delete(`${record.cwd}:${access}`)
         this.handleEvent(record, {
           generation: this.generation,
           executionGeneration: record.session.connection().generation,
-          event: { type: 'access_mode_changed', mode },
+          event: { type: 'access_mode_changed', mode: access },
         })
       }, true)
     } finally {
@@ -1723,6 +1802,7 @@ export class PiSessionPool implements PiRuntime {
       temporary.configureInlineExtensions(this.inlineExtensions)
       temporary.configureCapabilities(this.capabilities)
       temporary.configureAccess(source.accessMode)
+      await temporary.setSessionMode(source.state.mode)
       temporary.start(source.cwd, sourcePath)
       await temporary.getEntries()
       const result = await temporary.forkAtEntry(forkPoint)
@@ -1769,6 +1849,22 @@ export class PiSessionPool implements PiRuntime {
     if (this.changing || record.running || record.stopping) throw new Error('当前会话正在运行或修改配置，请稍后发送')
     if (recoveryEntryId && (!this.isSessionIdle(sessionKey) || record.state.recovery?.entryId !== recoveryEntryId))
       throw new Error('当前失败已失效或会话正在运行，请重新读取状态')
+    if (recoveryEntryId) {
+      if (normalized.mode !== record.state.mode) throw new Error('恢复任务的模式与当前会话不同，请先手动切换模式再恢复')
+      this.assertExecutionAccess(record.accessMode, normalized.mode)
+    } else await this.setExecutionPolicy(sessionKey, { mode: normalized.mode })
+    const executionRevision = record.modeRevision ?? 0
+    const executionAccess = record.accessMode
+    await this.collaboration?.beforeExecution?.(sessionKey, executionAccess, normalized.mode)
+    this.target(sessionKey)
+    if (
+      normalized.mode !== record.state.mode ||
+      executionAccess !== record.accessMode ||
+      executionRevision !== (record.modeRevision ?? 0)
+    )
+      throw new Error('发送期间会话权限或模式已变化，请重新读取状态后发送')
+    if (record.running || record.pendingPrompt || record.stopping)
+      throw new Error('当前会话正在运行或修改配置，请稍后发送')
     const run = ++record.run
     record.settled = false
     record.cancelledPrompt = false
@@ -1780,7 +1876,6 @@ export class PiSessionPool implements PiRuntime {
       record.firstMessage ||= message
     this.notify.sessionsChanged()
     try {
-      if (!recoveryEntryId) await this.setSessionMode(sessionKey, normalized.mode)
       await this.ensureRuntime(record, normalized.mode)
       if (record.cancelledPrompt || !this.sessions.has(record.key)) throw new Error('消息发送已取消')
       await this.collaboration?.beforePrompt(sessionKey, { mode: normalized.mode, message })
@@ -1849,6 +1944,8 @@ export class PiSessionPool implements PiRuntime {
     const recovery = record.state.recovery
     if (!this.isSessionIdle(sessionKey) || !recovery || recovery.entryId !== failureEntryId)
       throw new Error('当前失败已失效或会话正在运行，请重新读取状态')
+    if (recovery.mode !== record.state.mode)
+      throw new Error(`恢复任务需要${recovery.mode === 'plan' ? '规划' : '普通'}模式，请先手动切换模式再恢复`)
     return this.prompt(
       sessionKey,
       recoveryMessage,
@@ -1872,6 +1969,7 @@ export class PiSessionPool implements PiRuntime {
   ) {
     this.assertNotEditing(sessionKey)
     const record = this.target(sessionKey)
+    if (this.isSessionIdle(sessionKey)) return this.prompt(sessionKey, message, images, skills, options)
     if (record.session.connection().status !== 'ready') {
       await this.ensureRuntime(record, options?.mode)
       if (this.isSessionIdle(sessionKey)) return this.prompt(sessionKey, message, images, skills, options)
@@ -1890,6 +1988,7 @@ export class PiSessionPool implements PiRuntime {
   ) {
     this.assertNotEditing(sessionKey)
     const record = this.target(sessionKey)
+    if (this.isSessionIdle(sessionKey)) return this.prompt(sessionKey, message, images, skills, options)
     if (record.session.connection().status !== 'ready') {
       await this.ensureRuntime(record, options?.mode)
       if (this.isSessionIdle(sessionKey)) return this.prompt(sessionKey, message, images, skills, options)
@@ -1938,12 +2037,7 @@ export class PiSessionPool implements PiRuntime {
     return record.state.mode
   }
   async setSessionMode(sessionKey: string, mode: TaskMode) {
-    const record = this.target(sessionKey)
-    const revision = (record.modeRevision = (record.modeRevision ?? 0) + 1)
-    record.state = { ...record.state, mode }
-    await this.collaboration?.modeChanged?.(sessionKey, mode)
-    if (record.modeRevision !== revision) return
-    if (!record.dormant && !record.pendingPrompt) await record.session.setSessionMode(mode)
+    await this.setExecutionPolicy(sessionKey, { mode })
   }
   abort(sessionKey: string) {
     const pending = this.aborts.get(sessionKey)

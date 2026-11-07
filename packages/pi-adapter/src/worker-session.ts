@@ -1,3 +1,4 @@
+import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
 import type { SystemToolRequest } from '@pi-meme/contracts/system-tools'
 import type { ContextCapture } from '@pi-meme/contracts/context-window'
 import type { VisualizationRequest, VisualizationDocument } from '@pi-meme/contracts/visualize'
@@ -75,7 +76,7 @@ export function createWorkerSession(
   cwd: string,
   notify: Notify,
   paths: PiRuntimePaths,
-  getOptions: () => WorkerOptions | Promise<WorkerOptions>,
+  getOptions: (access: AgentAccessMode, taskMode: TaskMode) => WorkerOptions | Promise<WorkerOptions>,
 ): RuntimeSdkSession {
   let worker: Worker | undefined
   let connection: Connection = { cwd, generation: 0, status: 'disconnected' }
@@ -86,6 +87,7 @@ export function createWorkerSession(
   let release: (() => void | Promise<void>) | undefined
   let capabilities: Parameters<SdkSession['configureCapabilities']>[0] = { codemodeEnabled: false, mcpEnabled: false }
   let access: Parameters<SdkSession['configureAccess']>[0] = 'full-access'
+  let taskMode: TaskMode = 'default'
   let releasing: Promise<void> = Promise.resolve()
   const hostRequests = new Map<string, AbortController>()
   const pending = new Map<number, Pending>()
@@ -101,7 +103,7 @@ export function createWorkerSession(
   }
   const initialize = async () => {
     const epoch = initializationEpoch
-    const options = await getOptions()
+    const options = await getOptions(access, taskMode)
     if (epoch !== initializationEpoch) {
       await options.release?.()
       throw new Error('会话 Worker 启动已取消')
@@ -123,6 +125,7 @@ export function createWorkerSession(
             .filter(([key]) => !key.startsWith('plugin:') && !key.startsWith(imageGenerationCredentialPrefix)),
           capabilities,
           access,
+          taskMode,
         },
         execArgv: entry.endsWith('.ts') ? ['--import', 'tsx'] : [],
       })
@@ -415,6 +418,12 @@ export function createWorkerSession(
     connection: () => connection,
     getActiveSession: () => active,
     configureInlineExtensions: () => {},
+    getAccessMode: () => access,
+    getTaskMode: () => taskMode,
+    setSessionMode: async (value: TaskMode) => {
+      if (worker) await call('setSessionMode', [value])
+      taskMode = value
+    },
     configureCapabilities: (value: typeof capabilities) => {
       capabilities = value
       if (worker) void call('configureCapabilities', [value])

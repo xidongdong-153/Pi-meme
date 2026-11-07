@@ -18,7 +18,6 @@ import type { PluginCallRequest, PluginCallContext } from '@pi-meme/plugin-sdk/r
 import type { PluginGrantUpdate } from '@pi-meme/plugin-sdk/permissions'
 import { isLiveServiceActivity } from '@pi-meme/contracts/service-activity'
 import { parseGoalCommand, type GoalRun } from '@pi-meme/contracts/goal'
-import { normalizePlanMessage } from '@pi-meme/contracts/plan'
 import { PluginManager, type PluginDescriptor } from '@pi-meme/plugin-runtime/manager'
 import { fileURLToPath } from 'node:url'
 import { createHostCollaborationBridge } from './collaboration-bridge'
@@ -43,7 +42,12 @@ import type {
   WorkspaceDeletionResult,
   Snapshot,
 } from '@pi-meme/contracts/desktop'
-import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
+import {
+  canUseExternalAgentTools,
+  effectiveAgentAccess,
+  isBuiltinAgentToolAllowed,
+  type AgentAccessMode,
+} from '@pi-meme/contracts/agent-access'
 import type { PiModel, ThinkingLevel } from '@pi-meme/contracts/pi'
 import type { SelectWorkspace, PiSessionsSnapshot, PiSessionSummary } from '@pi-meme/contracts/sessions'
 import { PiSessionPool, type ClientView, type RuntimeSdkSession } from '@pi-meme/pi-runtime/session-pool'
@@ -638,10 +642,12 @@ export async function createHost(options: HostOptions = {}) {
             (sessionKey && temporaryPathsBySessionKey.get(sessionKey)) ||
             paths
       const contextSessions = new Set<string>()
-      const session = createWorkerSession(cwd, notify, effectivePaths, async () => {
+      const session = createWorkerSession(cwd, notify, effectivePaths, async (access, taskMode) => {
         let snapshot = (parentSessionKey && workerSnapshots.get(parentSessionKey)) || (await resources.snapshot(cwd))
         let lease: ReturnType<PluginManager['acquire']> | undefined
-        if (parentSessionKey && workerPlugins.has(parentSessionKey)) {
+        if (!canUseExternalAgentTools(access, taskMode)) {
+          lease = plugins.acquire(() => false)
+        } else if (parentSessionKey && workerPlugins.has(parentSessionKey)) {
           lease = plugins.acquire(undefined, workerPlugins.get(parentSessionKey))
         } else {
           for (let attempt = 0; attempt < 3; attempt++) {
@@ -692,7 +698,11 @@ export async function createHost(options: HostOptions = {}) {
         const pluginBridge = createPluginCallBridge({
           lease,
           manager: plugins,
-          actor: () => collaboration.goalCaller(session),
+          actor: () => ({
+            ...collaboration.goalCaller(session),
+            accessMode: session.getAccessMode(),
+            mode: session.getTaskMode(),
+          }),
           sessionRef: () => appControl!.sessionForRuntime(collaboration.goalCaller(session).rootSessionKey),
           node: pluginNode,
           runnerEntry: options.restrictedEntry ?? (process.env.PI_MEME_PLUGIN_ENTRY || undefined),
@@ -861,7 +871,7 @@ export async function createHost(options: HostOptions = {}) {
           },
           imageGeneration: async (request, signal) => {
             const actor = collaboration.goalCaller(session)
-            const permitted = actor.mode !== 'plan' && actor.accessMode !== 'read-only'
+            const permitted = isBuiltinAgentToolAllowed('image_gen', effectiveAgentAccess(actor.accessMode, actor.mode))
             if (request.action === 'ready') return { ready: permitted && (await imageGeneration.ready()) }
             if (!permitted) throw new Error('当前任务模式或访问权限不允许生成图片')
             if (request.action !== 'generate') throw new Error('图片生成请求无效')
@@ -874,8 +884,7 @@ export async function createHost(options: HostOptions = {}) {
               assertActive: () => {
                 const current = collaboration.goalCaller(session)
                 if (
-                  current.mode === 'plan' ||
-                  current.accessMode === 'read-only' ||
+                  !isBuiltinAgentToolAllowed('image_gen', effectiveAgentAccess(current.accessMode, current.mode)) ||
                   current.runId !== actor.runId ||
                   current.epoch !== actor.epoch ||
                   current.executionGeneration !== actor.executionGeneration ||
@@ -918,7 +927,12 @@ export async function createHost(options: HostOptions = {}) {
                 !['running', 'waiting_children', 'waiting_input'].includes(current.status)
               )
                 throw new Error('工作台请求来自已结束或过期执行')
-              if (request.write && (current.mode === 'plan' || current.accessMode !== 'full-access'))
+              if (
+                !isBuiltinAgentToolAllowed(
+                  request.write ? 'system_write' : 'system_read',
+                  effectiveAgentAccess(current.accessMode, current.mode),
+                )
+              )
                 throw new Error('工作台写操作需要普通模式和完全权限')
             }
             assertActive()
@@ -956,7 +970,7 @@ export async function createHost(options: HostOptions = {}) {
               api,
               session: ref,
               terminal,
-              canWrite: actor.mode !== 'plan' && actor.accessMode === 'full-access',
+              canWrite: isBuiltinAgentToolAllowed('system_write', effectiveAgentAccess(actor.accessMode, actor.mode)),
               clientAvailable: (operation) => systemClients.supports(initiatingClient(), operation),
               client: async (operation, args) => {
                 assertActive()
@@ -1138,9 +1152,26 @@ export async function createHost(options: HostOptions = {}) {
         await bindRoot(key)
         await collaboration.resumeRoot(key)
       },
-      modeChanged: async (key) => {
+      beforePolicyChange: async (key, access, mode) => {
         await bindRoot(key)
-        await collaboration.setSessionMode(key, pi.getSessionContext(key).state.mode)
+        await collaboration.assertSessionIdle(key)
+        appControl?.assertPolicyQueueIdle(key)
+        await activityBridge.waitForStarts(key)
+        if (appControl) {
+          const ref = await appControl.sessionForRuntime(key)
+          appControl.assertActivityAccess(ref, effectiveAgentAccess(access, mode))
+        }
+      },
+      beforeExecution: async (key, access, mode) => {
+        await activityBridge.waitForStarts(key)
+        if (appControl) {
+          const ref = await appControl.sessionForRuntime(key)
+          appControl.assertActivityAccess(ref, effectiveAgentAccess(access, mode))
+        }
+      },
+      modeChanged: async (key, mode) => {
+        await bindRoot(key)
+        await collaboration.setSessionMode(key, mode)
       },
       decorateEvent: (key, event) => collaboration.decorateRootEvent(key, event),
       beforePrompt: async (key) => {
@@ -1758,11 +1789,6 @@ export async function createHost(options: HostOptions = {}) {
       ),
       'pi:session-mode': async (key, mode) => {
         if (typeof key !== 'string' || (mode !== 'default' && mode !== 'plan')) throw new Error('会话模式参数无效')
-        if (mode === 'plan') {
-          const ref = await appControl!.sessionForRuntime(key)
-          const goal = goals.get(ref)
-          if (goal?.status === 'active') await appControl!.api.goals.pause(ref, goal, { idempotencyKey: randomUUID() })
-        }
         await pi.setSessionMode(key, mode)
       },
       'temporary-session:open': async (input) => {
@@ -2146,6 +2172,7 @@ export async function createHost(options: HostOptions = {}) {
           return [...settings.settings.defaultAgentPlugins!]
         },
       },
+      validateAgentPlugins: validateAgentIds,
       configureAgentPlugins: async (key, ids, input) => {
         validateAgentIds(ids, input?.restore === true)
         if (JSON.stringify(agentSelections.get(key)) === JSON.stringify(ids)) return
@@ -2543,26 +2570,13 @@ export async function createHost(options: HostOptions = {}) {
                       .goals[method](ref, goal, { idempotencyKey: request.requestId })
                   }
                 } else {
-                  if (
-                    key &&
-                    (['pi:edit-and-prompt', 'pi:fork-reply'].includes(request.method) ||
-                      (sends.includes(request.method) &&
-                        typeof request.args[1] === 'string' &&
-                        normalizePlanMessage(
-                          request.args[1],
-                          (request.args[4] as { mode?: 'default' | 'plan' } | undefined)?.mode ?? 'default',
-                        ).mode === 'plan'))
-                  ) {
+                  if (key && ['pi:edit-and-prompt', 'pi:fork-reply'].includes(request.method)) {
                     const ref = await appControl!.sessionForRuntime(key)
                     const goal = goals.get(ref)
                     if (goal?.status === 'active') {
                       const clientApi = appControl!.apiFor(request.clientId)
                       await clientApi.goals.pause(ref, goal, { idempotencyKey: randomUUID() })
                     }
-                  }
-                  if (request.method === 'pi:access-mode' && key) {
-                    const ref = await appControl!.sessionForRuntime(key)
-                    appControl!.assertActivityAccess(ref, request.args[1])
                   }
                   if (request.method === 'pi:recover' && key) {
                     const goal = await appControl!.goalForRuntime(key)

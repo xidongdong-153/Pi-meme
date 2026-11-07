@@ -1,10 +1,12 @@
 import type { InlineExtension, ToolDefinition } from '@earendil-works/pi-coding-agent'
+import { effectiveAgentAccess, isBuiltinAgentToolAllowed, type AgentAccessMode } from '@pi-meme/contracts/agent-access'
+import type { TaskMode } from '@pi-meme/contracts/plan'
 import type { SystemToolRequest } from '@pi-meme/contracts/system-tools'
 
 export function createSystemTools(
   request: (input: SystemToolRequest, signal?: AbortSignal) => Promise<unknown>,
-  mode: () => string,
-  access: () => string,
+  mode: () => TaskMode,
+  access: () => AgentAccessMode,
 ): InlineExtension {
   return {
     name: 'pi-meme-system',
@@ -26,7 +28,9 @@ export function createSystemTools(
             additionalProperties: false,
           } as ToolDefinition['parameters'],
           execute: async (callId, parameters, signal) => {
-            if (write && (mode() === 'plan' || access() !== 'full-access'))
+            if (
+              !isBuiltinAgentToolAllowed(write ? 'system_write' : 'system_read', effectiveAgentAccess(access(), mode()))
+            )
               throw new Error('工作台写操作需要普通模式和完全权限')
             const input = parameters as { operation: string; args: unknown[] }
             const result = await request({ ...input, write, callId }, signal)
@@ -64,9 +68,14 @@ export function createSystemTools(
           ...new Set([
             ...pi
               .getActiveTools()
-              .filter((name) => name !== 'system_write' || (mode() !== 'plan' && access() === 'full-access')),
+              .filter(
+                (name) =>
+                  name !== 'system_write' || isBuiltinAgentToolAllowed(name, effectiveAgentAccess(access(), mode())),
+              ),
             'system_read',
-            ...(mode() !== 'plan' && access() === 'full-access' ? ['system_write'] : []),
+            ...(isBuiltinAgentToolAllowed('system_write', effectiveAgentAccess(access(), mode()))
+              ? ['system_write']
+              : []),
           ]),
         ]),
       )

@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { AppSession, HostApi } from '@pi-meme/contracts/app-host'
+import { canUseExternalAgentTools, defaultAccessMode, type AgentAccessMode } from '@pi-meme/contracts/agent-access'
+import type { TaskMode } from '@pi-meme/contracts/plan'
 import type { ResourceCatalog } from '@pi-meme/contracts/resources'
 import type { ResourceClient } from '@pi-meme/client/resource-client'
 import type { UiPluginDescriptor } from '@pi-meme/plugin-sdk/ui'
@@ -26,6 +28,8 @@ export function useAgentPluginSelection({
   pluginMentions,
   onPluginMentions,
   busy,
+  accessMode = defaultAccessMode,
+  taskMode = 'default',
   onChanged,
   onError,
 }: {
@@ -37,6 +41,8 @@ export function useAgentPluginSelection({
   pluginMentions: string[]
   onPluginMentions: (ids: string[]) => void
   busy: boolean
+  accessMode?: AgentAccessMode
+  taskMode?: TaskMode
   onChanged: () => Promise<unknown>
   onError: (error: string) => void
 }): ComposerAgentPlugins & { ids: string[] } {
@@ -111,18 +117,28 @@ export function useAgentPluginSelection({
         .map((plugin) => entries.get(plugin.id)!),
     [plugins, catalog, context, entries],
   )
-  const selected = useMemo(() => ids.map((id) => entries.get(id) ?? { id, name: id }), [ids, entries])
+  const externalToolsAvailable = canUseExternalAgentTools(accessMode, taskMode)
+  const selected = useMemo(
+    () =>
+      ids.map((id) => {
+        const plugin = entries.get(id) ?? { id, name: id }
+        return externalToolsAvailable ? plugin : { ...plugin, name: `${plugin.name}（完全权限可用）` }
+      }),
+    [ids, entries, externalToolsAvailable],
+  )
   const disabledReason = !session
     ? '正在准备会话'
-    : saving
-      ? '正在保存插件选择'
-      : busy
-        ? '任务结束后可修改插件'
-        : loading
-          ? '正在读取插件列表'
-          : catalog?.context === context
-            ? catalog.error
-            : undefined
+    : !externalToolsAvailable
+      ? 'Agent 插件仅在完全权限的普通任务中可用；已保存选择会保留。'
+      : saving
+        ? '正在保存插件选择'
+        : busy
+          ? '任务结束后可修改插件'
+          : loading
+            ? '正在读取插件列表'
+            : catalog?.context === context
+              ? catalog.error
+              : undefined
 
   const change = useCallback(
     async (requested: string[]) => {

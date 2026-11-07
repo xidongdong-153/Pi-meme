@@ -25,7 +25,8 @@ export function copyBuiltinSkillsPlugin() {
     configResolved(config) {
       outputDirectory = path.resolve(config.root, config.build.outDir)
     },
-    async closeBundle() {
+    // Forge 在 closeBundle 宣告就绪，资源必须在此前完成，避免 Host 读取半复制目录。
+    async writeBundle() {
       const entries = await readdir(skillsRoot, { withFileTypes: true })
       for (const entry of entries) {
         if (!entry.isDirectory()) continue

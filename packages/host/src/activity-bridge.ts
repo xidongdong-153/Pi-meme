@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { effectiveAgentAccess, isBuiltinAgentToolAllowed } from '@pi-meme/contracts/agent-access'
 import type { ActivityService } from '@pi-meme/activities/server/service'
 import type { AgentSummary } from '@pi-meme/contracts/collaboration'
 import type { SessionRef } from '@pi-meme/contracts/app-host'
@@ -40,8 +41,10 @@ export function createActivityBridge(options: Options) {
     ): Promise<ServiceActivityResult> {
       if (signal.aborted) throw new Error('活动服务请求已取消')
       const actor = options.caller(session)
-      if (actor.mode === 'plan') throw new Error('规划模式不能管理项目服务')
       if (!request || !['start', 'list', 'logs', 'stop'].includes(request.action)) throw new Error('活动服务操作无效')
+      const mutating = request.action === 'start' || request.action === 'stop'
+      if (mutating && !isBuiltinAgentToolAllowed('write', effectiveAgentAccess(actor.accessMode, actor.mode)))
+        throw new Error('本地只读模式不能启动或停止项目服务')
       const pendingCwd = request.action === 'start' ? path.resolve(actor.cwd, request.cwd ?? '.') : undefined
       const pendingId = Symbol('activity-start')
       let completeStart: (() => void) | undefined
@@ -56,7 +59,9 @@ export function createActivityBridge(options: Options) {
         const current = options.caller(session)
         if (
           signal.aborted ||
-          current.mode === 'plan' ||
+          current.mode !== actor.mode ||
+          current.accessMode !== actor.accessMode ||
+          (mutating && !isBuiltinAgentToolAllowed('write', effectiveAgentAccess(current.accessMode, current.mode))) ||
           current.runId !== actor.runId ||
           current.executionGeneration !== actor.executionGeneration ||
           current.epoch !== actor.epoch
@@ -70,7 +75,7 @@ export function createActivityBridge(options: Options) {
               session: ref,
               cwd: current.cwd,
               agentDir: options.agentDir,
-              accessMode: current.accessMode,
+              accessMode: effectiveAgentAccess(current.accessMode, current.mode),
               sourceAgentId: current.depth === 0 ? undefined : current.agentId,
               sourceRun: current.runId
                 ? {

@@ -1,9 +1,11 @@
+import { effectiveAgentAccess, isBuiltinAgentToolAllowed, type AgentAccessMode } from '@pi-meme/contracts/agent-access'
 import type { InlineExtension } from '@earendil-works/pi-coding-agent'
 import { Type } from 'typebox'
 import type { ServiceActivityRequest, ServiceActivityResult } from '@pi-meme/contracts/service-activity'
 
 type Context = {
   taskMode: () => 'default' | 'plan'
+  accessMode: () => AgentAccessMode
   requestActivity: (request: ServiceActivityRequest, signal?: AbortSignal) => Promise<ServiceActivityResult>
 }
 
@@ -16,7 +18,7 @@ export function create(context: Context): InlineExtension[] {
           name: 'manage_service',
           label: '管理项目服务',
           description:
-            '管理当前会话的长期项目服务。启动前先 list，避免重复启动。command 必须在前台运行，不能使用后台或 daemon 模式，也不能接管已有 PID。Windows command 使用 PowerShell 语法，macOS/Linux 使用 bash。有限构建和测试使用对应命令工具。服务在 Agent 回复后继续运行；用户主动停止的服务未经明确要求不能重启。进程运行或检测到 URL 不代表应用已就绪。logs 只返回有限尾部日志，可能截断。Plan 模式不可用，启动遵守当前权限。',
+            '管理当前会话的长期项目服务。启动前先 list，避免重复启动。command 必须在前台运行，不能使用后台或 daemon 模式，也不能接管已有 PID。Windows command 使用 PowerShell 语法，macOS/Linux 使用 bash。有限构建和测试使用对应命令工具。服务在 Agent 回复后继续运行；用户主动停止的服务未经明确要求不能重启。进程运行或检测到 URL 不代表应用已就绪。logs 只返回有限尾部日志，可能截断。只读和 Plan 模式仅允许 list/logs；启动与停止需要工作区修改或完全权限。',
           parameters: Type.Object(
             {
               action: Type.Union(
@@ -65,7 +67,11 @@ export function create(context: Context): InlineExtension[] {
             { additionalProperties: false },
           ),
           execute: async (toolCallId, input, signal) => {
-            if (context.taskMode() === 'plan') throw new Error('规划模式不能管理项目服务')
+            if (
+              (input.action === 'start' || input.action === 'stop') &&
+              !isBuiltinAgentToolAllowed('write', effectiveAgentAccess(context.accessMode(), context.taskMode()))
+            )
+              throw new Error('本地只读模式不能启动或停止项目服务')
             let request: ServiceActivityRequest
             if (input.action === 'start') {
               if (!input.name || !input.command) throw new Error('启动服务必须提供 name 和 command')

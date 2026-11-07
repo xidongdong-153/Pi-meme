@@ -128,6 +128,8 @@ export function SideChatSession({
     pluginMentions: chat.pluginMentions,
     onPluginMentions: chat.setPluginMentions,
     busy: Boolean(locked || chat.busy || chat.chat.paused || chat.chat.queuePaused),
+    accessMode: chat.connection.accessMode,
+    taskMode: chat.mode,
     onChanged: chat.refreshSnapshot,
     onError: chat.setError,
   })
@@ -206,7 +208,9 @@ export function SideChatSession({
   )
   const access = (
     <AgentAccessSelector
+      key={chat.connection.sessionKey}
       mode={chat.connection.accessMode}
+      taskMode={chat.mode}
       busy={chat.accessBusy || locked}
       supported={chat.connection.restrictedAccessSupported === true}
       onChange={(value) => void chat.setAccessMode(value)}

@@ -2,7 +2,7 @@ import type { PiRuntime } from '@pi-meme/pi-runtime/runtime'
 import { getInstalledFonts } from './fonts'
 import { parseTheme } from '../shared/themes'
 import { text } from '@pi-meme/contracts/ipc'
-import { defaultAccessMode } from '@pi-meme/contracts/agent-access'
+import { defaultAccessMode, isAgentAccessMode } from '@pi-meme/contracts/agent-access'
 import type { SettingsStore } from './store'
 import type { DesktopSettings, SubagentCatalogSnapshot } from '@pi-meme/contracts/settings'
 import { parseSaveInstruction, type InstructionsStore } from './instructions'
@@ -82,13 +82,19 @@ export function createSettingsHandlers({
     'settings:save': (value: unknown) =>
       pi.idle(async () => {
         const previous = settings.snapshot().settings
+        const requestedAccess =
+          value && typeof value === 'object' ? (value as { defaultAccessMode?: unknown }).defaultAccessMode : undefined
+        if (requestedAccess !== undefined) {
+          if (!isAgentAccessMode(requestedAccess)) throw new Error('Agent 访问权限无效')
+          pi.validateDefaultAccessMode(requestedAccess)
+        }
         const snapshot = await settings.save(value)
+        if (previous.defaultAccessMode !== snapshot.settings.defaultAccessMode)
+          await pi.configureDefaultAccessMode(snapshot.settings.defaultAccessMode ?? defaultAccessMode)
         const optionalExtensionsChanged =
           previous.subagentsEnabled !== snapshot.settings.subagentsEnabled ||
           JSON.stringify(previous.enabledSubagents ?? []) !== JSON.stringify(snapshot.settings.enabledSubagents ?? [])
         if (optionalExtensionsChanged) await configureOptionalExtensions?.(snapshot.settings)
-        if (previous.defaultAccessMode !== snapshot.settings.defaultAccessMode)
-          await pi.configureDefaultAccessMode(snapshot.settings.defaultAccessMode ?? defaultAccessMode)
         const changed =
           previous.codemodeEnabled !== snapshot.settings.codemodeEnabled ||
           previous.mcpEnabled !== snapshot.settings.mcpEnabled ||

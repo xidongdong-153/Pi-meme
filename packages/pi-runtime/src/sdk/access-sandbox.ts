@@ -2,7 +2,6 @@ import { spawn } from 'node:child_process'
 import { access, mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import path from 'node:path'
-import type { Readable, Writable } from 'node:stream'
 import { linuxSandboxLaunch } from './linux-sandbox'
 import { serviceProcessEnvironment, spawnManagedProcess, type ManagedProcess } from './managed-process'
 import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
@@ -34,17 +33,6 @@ export type SandboxCapability = { supported: boolean; reason?: string }
 
 export interface AccessSandboxOperations {
   readonly workspace: string
-  startStdio?: (
-    executable: string,
-    args: string[],
-    options: { cwd: string; env?: NodeJS.ProcessEnv },
-  ) => Promise<{
-    stdin: Writable
-    stdout: Readable
-    stderr: Readable
-    completion: Promise<void>
-    stop: () => Promise<void>
-  }>
   run: (executable: string, args: string[], options: SandboxRunOptions) => Promise<{ exitCode: number }>
   startManaged: (
     executable: string,
@@ -87,12 +75,24 @@ async function accessProfile(
     } catch (cause) {
       if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw cause
     }
+    const systemTemporaryRoots =
+      process.platform === 'win32'
+        ? []
+        : await Promise.all(
+            ['/tmp', '/var/tmp'].map(async (directory) => {
+              try {
+                return await realpath(directory)
+              } catch (cause) {
+                if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw cause
+                return directory
+              }
+            }),
+          )
     if (
       project === path.parse(project).root ||
       project === (await realpath(homedir())) ||
       project === (await realpath(tmpdir())) ||
-      project === '/tmp' ||
-      project === '/var/tmp' ||
+      systemTemporaryRoots.includes(project) ||
       project === agentRoot ||
       (agentRoot !== undefined && pathWithin(agentRoot, project))
     )
@@ -180,72 +180,6 @@ class SandboxProcess implements AccessSandboxOperations {
       return await starting
     } finally {
       this.executions.delete(starting)
-    }
-  }
-
-  async startStdio(executable: string, args: string[], options: { cwd: string; env?: NodeJS.ProcessEnv }) {
-    if (this.launch.windows) {
-      const child = await this.startWindows(executable, args, options)
-      return {
-        stdin: child.stdin,
-        stdout: child.stdout,
-        stderr: child.stderr,
-        completion: child.completion.then(() => {}),
-        stop: async () => {
-          await child.stop()
-        },
-      }
-    }
-    const cwd = await realpath(options.cwd)
-    const launchArgs = [...this.launch.args]
-    if (this.launch.seccomp) launchArgs[launchArgs.indexOf('--chdir') + 1] = cwd
-    const child = spawn(this.launch.executable, [...launchArgs, executable, ...args], {
-      cwd,
-      env: this.environment(options.env),
-      detached: true,
-      stdio: this.launch.seccomp ? ['pipe', 'pipe', 'pipe', 'pipe'] : ['pipe', 'pipe', 'pipe'],
-    })
-    const kill = () => {
-      if (!child.pid) return
-      try {
-        process.kill(-child.pid, 'SIGKILL')
-      } catch (cause) {
-        if ((cause as NodeJS.ErrnoException).code !== 'ESRCH') child.kill('SIGKILL')
-      }
-    }
-    this.running.add(kill)
-    process.once('exit', kill)
-    child.stdin!.on('error', () => {})
-    if (this.launch.seccomp) {
-      const filter = child.stdio[3] as Writable
-      filter.on('error', () => {})
-      filter.end(this.launch.seccomp)
-    }
-    const completion = new Promise<void>((resolve, reject) => {
-      child.once('error', reject)
-      child.once('close', () => {
-        kill()
-        resolve()
-      })
-    }).finally(() => {
-      this.running.delete(kill)
-      process.off('exit', kill)
-    })
-    this.executions.add(completion)
-    void completion.finally(() => this.executions.delete(completion)).catch(() => {})
-    await new Promise<void>((resolve, reject) => {
-      child.once('spawn', resolve)
-      child.once('error', reject)
-    })
-    return {
-      stdin: child.stdin!,
-      stdout: child.stdout!,
-      stderr: child.stderr!,
-      completion,
-      stop: async () => {
-        kill()
-        await completion
-      },
     }
   }
 

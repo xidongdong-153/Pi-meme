@@ -67,7 +67,7 @@ node .pi-meme-devkit/cli.mjs check .
 `check` 检查 manifest、内置身份冲突、资源路径、包内技能格式、源入口和必要导出，运行 TypeScript 检查，并检查 UI 是否可作为浏览器代码构建。纯资源插件检查资源，不要求创建 TS 源码。
 
 - 使用当前 SDK 类型，工具返回 `{ text, data? }`，只传 JSON 可序列化数据。
-- 调用 Server 明确 audience、effect 和 capabilities。Plan 只使用获准的受限只读入口，不回退可信入口。
+- 调用 Server 明确 audience、effect 和 capabilities。插件 Agent 仅在完全权限普通任务中按既有授权加载；Plan、本地只读和工作区修改不加载插件 Agent，也不回退可信入口。
 - 不把凭据写入源码、manifest、页面参数、日志或包内技能。
 - 用户请求涉及外部服务、文件写入或界面交互时，用临时数据和可释放的 fixture 验证关键行为；不要以模板能构建代替功能验证。
 

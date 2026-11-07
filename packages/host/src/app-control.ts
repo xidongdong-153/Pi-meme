@@ -2,7 +2,7 @@ import { validateVisualizationState } from '@pi-meme/contracts/visualize'
 import type { GoalService } from '@pi-meme/goals/server/service'
 import type { ActivityService } from '@pi-meme/activities/server/service'
 import { isLiveServiceActivity } from '@pi-meme/contracts/service-activity'
-import { isAgentAccessMode } from '@pi-meme/contracts/agent-access'
+import { agentAccessRank, isAgentAccessMode } from '@pi-meme/contracts/agent-access'
 import {
   parseGoalCommand,
   validateGoalControl,
@@ -85,6 +85,7 @@ type Options = {
     ) => Promise<unknown>
   }
   bindRoot: (key: string) => Promise<unknown>
+  validateAgentPlugins: (ids: string[], restore: boolean) => void
   configureAgentPlugins: (key: string, ids: string[], input?: { restore?: boolean }) => Promise<void>
   defaultAgentPlugins: HostApi['plugins']
   snapshot: () => Promise<import('@pi-meme/contracts/desktop').Snapshot>
@@ -175,9 +176,12 @@ export async function createAppControl(options: Options) {
   }
   const assertActivityAccess = (ref: SessionRef, mode: unknown) => {
     if (!isAgentAccessMode(mode)) throw new Error('会话权限无效')
-    const rank = { 'read-only': 0, 'workspace-write': 1, 'full-access': 2 }
     const activities = options.activities?.list(ref).activities ?? []
-    if (activities.some((activity) => isLiveServiceActivity(activity) && rank[activity.accessMode] > rank[mode]))
+    if (
+      activities.some(
+        (activity) => isLiveServiceActivity(activity) && agentAccessRank(activity.accessMode) > agentAccessRank(mode),
+      )
+    )
       throw new Error('仍有更高权限的项目服务运行，请先在活动面板停止，再降低权限')
   }
   const projectFor = async (cwd: string): Promise<AppProject | undefined> => {
@@ -241,31 +245,45 @@ export async function createAppControl(options: Options) {
     )
       throw new Error('模型标识无效')
     const key = view.sessionKey!
-    if (config.mode === 'plan' && goals.get(session)?.status === 'active') {
-      await goals.stop(session, 'paused', '进入规划模式，目标已暂停')
-      paused.add(session.sessionId)
-      for (const pending of queues.get(session.sessionId) ?? []) {
-        pending.receipt.status = 'cancelled'
-        await publishReceipt(session, pending.receipt)
+    if (config.agentPlugins !== undefined) options.validateAgentPlugins(config.agentPlugins, restore)
+    if (config.model && !restore && options.models) {
+      const available = await options.models.list()
+      if (!available.some((model) => model.provider === config.model!.provider && model.id === config.model!.id))
+        throw new Error('模型已不可用，请重新选择模型')
+    }
+    const previous = pi.readSessionBinding(key)
+    const previousConfiguration = { ...session.configuration }
+    let restoredRevision: number | undefined
+    let previousPolicy = { accessMode: previous.accessMode, mode: previous.state.mode }
+    try {
+      if (restore) {
+        const restored = await pi.restoreExecutionPolicy(key, { mode: config.mode, accessMode: config.accessMode })
+        if (!restored) {
+          await sync(session, view)
+          return structuredClone(session)
+        }
+        restoredRevision = restored.revision
+        previousPolicy = restored.previous
       }
-      queues.delete(session.sessionId)
-      const run = active.get(session.sessionId)
-      if (run) run.cancelled = true
-      await pi.abort(key)
-      if (run) await finish(session, view, run, true)
+      if (active.has(session.sessionId) || busy(key)) throw new Error('会话正在运行，不能修改配置')
+      if (!restore && (config.mode !== undefined || config.accessMode !== undefined))
+        await pi.setExecutionPolicy(key, { mode: config.mode, accessMode: config.accessMode })
+      if (config.agentPlugins !== undefined) await options.configureAgentPlugins(key, config.agentPlugins, { restore })
+      if (config.model !== undefined) await pi.setModel(key, config.model)
+      if (config.thinkingLevel !== undefined) await pi.setThinkingLevel(key, config.thinkingLevel)
+      session.configuration = { ...session.configuration, ...config }
+      await sync(session, view)
+      return structuredClone(session)
+    } catch (cause) {
+      session.configuration = previousConfiguration
+      const current = pi.readSessionBinding(key)
+      if (current.accessMode !== previousPolicy.accessMode || current.state.mode !== previousPolicy.mode) {
+        if (restore) {
+          if (restoredRevision !== undefined) await pi.restoreExecutionPolicy(key, previousPolicy, restoredRevision)
+        } else await pi.setExecutionPolicy(key, previousPolicy)
+      }
+      throw cause
     }
-    if (active.has(session.sessionId) || busy(key)) throw new Error('会话正在运行，不能修改配置')
-    if (config.agentPlugins !== undefined) await options.configureAgentPlugins(key, config.agentPlugins, { restore })
-    if (config.mode !== undefined) await pi.setSessionMode(key, config.mode)
-    if (config.accessMode !== undefined) {
-      assertActivityAccess(session, config.accessMode)
-      await pi.setAccessMode(key, config.accessMode)
-    }
-    if (config.model !== undefined) await pi.setModel(key, config.model)
-    if (config.thinkingLevel !== undefined) await pi.setThinkingLevel(key, config.thinkingLevel)
-    session.configuration = { ...session.configuration, ...config }
-    await sync(session, view)
-    return structuredClone(session)
   }
   const resolveSession = async (ref: SessionRef, restore = true): Promise<ClientView> => {
     const session = getSession(ref)
@@ -1105,7 +1123,22 @@ export async function createAppControl(options: Options) {
         mutate(clientId, 'sessions.configure', [ref, config], opts, () =>
           target(
             ref,
-            (_key, session, view) => serial(session.sessionId, () => configure(session, view, config)),
+            (key, session, view) =>
+              serial(session.sessionId, () => {
+                const current = pi.readSessionBinding(key)
+                const policyChanged =
+                  (config?.accessMode !== undefined && config.accessMode !== current.accessMode) ||
+                  (config?.mode !== undefined && config.mode !== current.state.mode)
+                const otherChanged =
+                  (config?.model !== undefined &&
+                    (config.model?.provider !== current.state.model?.provider ||
+                      config.model?.id !== current.state.model?.id)) ||
+                  (config?.thinkingLevel !== undefined && config.thinkingLevel !== current.state.thinkingLevel) ||
+                  (config?.agentPlugins !== undefined &&
+                    JSON.stringify(config.agentPlugins) !== JSON.stringify(session.configuration.agentPlugins ?? []))
+                if (policyChanged && otherChanged) throw new Error('权限或任务模式请与模型、思考强度和插件选择分开保存')
+                return configure(session, view, config)
+              }),
             clientId,
           ),
         ),
@@ -1867,6 +1900,11 @@ export async function createAppControl(options: Options) {
     publishContext: (session: SessionRef, value: { requestId: string; revision: number }) =>
       store.publish({ type: 'context-window', sessionId: session.sessionId, value }),
     assertActivityAccess,
+    assertPolicyQueueIdle: (key: string) => {
+      for (const [id, view] of runtime)
+        if (view.sessionKey === key && queues.get(id)?.length)
+          throw new Error('会话仍有排队任务，请先执行或清空队列再切换权限或模式')
+    },
     waitForSessionOperations: (sessionId: string) => store.waitForSessionOperations(sessionId),
     goalRuntimeKey: (ref: SessionRef) => runtime.get(ref.sessionId)?.sessionKey,
     async admitGoal(key: string, origin: import('@pi-meme/contracts/goal').PromptOrigin, expected?: GoalControl) {

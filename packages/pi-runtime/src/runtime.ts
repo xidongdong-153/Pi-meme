@@ -19,9 +19,14 @@ export type ModelRestore = { sessionFile?: string; model?: PiModel; thinkingLeve
 export interface PiRuntime {
   configureCapabilities: (value: ToolExecutionSettings) => void
   configureInlineExtensions: (extensions: InlineExtension[]) => void
+  validateDefaultAccessMode: (mode: AgentAccessMode) => void
   configureDefaultAccessMode: (mode: AgentAccessMode) => Promise<void>
   cwd: string
   connection: () => Connection
+  getSessionContext: (sessionKey: string) => {
+    accessMode: AgentAccessMode
+    state: Pick<PiState, 'mode' | 'activeMode'>
+  }
   snapshot: (window?: SessionWindow) => Promise<Snapshot>
   getActiveSession: () => { sessionFile?: string; sessionId?: string }
   newSession: () => Promise<SessionSelectionResult>

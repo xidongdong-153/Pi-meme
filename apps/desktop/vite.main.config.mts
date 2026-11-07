@@ -20,7 +20,7 @@ export default defineConfig(({ forgeConfigSelf }) => {
               configResolved(config) {
                 outputDirectory = path.resolve(config.root, config.build.outDir)
               },
-              async closeBundle() {
+              async writeBundle() {
                 await copyFile(
                   fileURLToPath(new URL('../../packages/plugin-runtime/src/restricted-entry.mjs', import.meta.url)),
                   path.join(outputDirectory, 'restricted-entry.mjs'),

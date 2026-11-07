@@ -21,6 +21,7 @@
     "./sdk/model-runtime": "./src/sdk/model-runtime.ts",
     "./sdk/session": "./src/sdk/session.ts",
     "./sdk/access-sandbox": "./src/sdk/access-sandbox.ts",
+    "./sdk/access-sandbox-service": "./src/sdk/access-sandbox-service.ts",
     "./sdk/managed-process": "./src/sdk/managed-process.ts",
     "./sdk/command-shell": "./src/sdk/command-shell.ts",
     "./extensions/agent-access": "./src/extensions/agent-access.ts",

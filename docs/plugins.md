@@ -149,7 +149,7 @@ export function activate(context: AgentPluginContext) {
 
 新会话默认选择空 Agent 插件列表；Host 可通过 `plugins.setDefaultAgentPlugins(ids, options)` 修改后续会话的默认列表。输入 `/` 后，顶部保留命令，下面分“技能”“插件”；插件分类只列当前项目可用且具有 Agent 入口的已安装插件。选择插件通过 `sessions.configure(ref, { agentPlugins }, options)` 保存到当前会话，成功后在编辑器内显示图标与名称，不显示额外启用说明或插件管理区。同一草稿内重复选择不重复插入，删除未发送的行内引用取消会话选择。发送后清空输入框中的插件引用，但不清除会话配置；后续消息持续使用所选插件，不重新渲染旧引用。待发送引用只以插件 ID 随本地草稿保存，发送失败随草稿恢复，不写入消息正文，也不能通过恢复草稿自动启用插件。运行中不能修改插件选择，保存期间阻止发送但允许继续编辑正文。子代理继承父任务的插件代次与权限。安装 UI 或主题插件不要求选择 Agent。
 
-安装、项目可用策略、会话选择和能力授权分别校验。`agent.trusted` 只在完全权限普通任务中、取得可信 Agent 授权后加载；Plan、read-only 和 workspace-write 使用获准的 `agent.restricted`。restricted-only 插件在完全权限任务中仍受插件上限约束，不会自动成为可信 Node。Plan 限定只读能力，禁止业务写入和可信 Server 跳转。选择的插件不可用时必须说明原因，不能静默少加载后继续。插件安装不会提升任务权限。
+安装、项目可用策略、会话选择和能力授权分别校验。所有插件 Agent（包括 `agent.trusted` 和 `agent.restricted`）仅在有效权限为完全权限的普通任务中装配。Plan、read-only 和 workspace-write 在导入、初始化和工具发现前排除外部 Agent，也不连接 MCP；已保存的插件选择保留并标记暂不可用，不能因此阻止受限会话启动。切回完全权限后恢复选择，仍需核对安装与既有授权；普通完全权限任务中选择的插件不可用时明确报错。restricted-only 插件在完全权限任务中仍受插件上限约束，不会自动成为可信 Node。插件安装不会提升任务权限，独立 Server 与 UI 保留自身隔离及授权。
 
 受限入口使用独立进程和 OS 沙箱，不能在会话 Worker 中导入。工具的 `effect/capabilities` 用于检查和分派，不能代替 OS 限制。受限进程可能在任务结束或权限改变后重建；初始化和释放应可重复执行，不依赖进程内变量跨任务永久存在。受限工具和命令需显式声明 `effect` 与 `capabilities`，缺少所需元数据时不会进入有效工具列表。具体能力与平台边界见[配置与安全](configuration.md#插件执行与授权)。
 
@@ -338,7 +338,7 @@ context.registerOperations([
 
 ### 受限网络与共享数据
 
-受限 context 只有窄接口，类型见 [restricted.ts](../packages/plugin-sdk/src/restricted.ts)。原始网络被沙箱禁止；HTTPS 请求必须通过 `http.request`，manifest 精确声明 network 的 `id/origin/methods` 并取得单独授权。Plan 只允许获准的 GET/HEAD；方法只读不保证远端服务无副作用。
+受限 context 只有窄接口，类型见 [restricted.ts](../packages/plugin-sdk/src/restricted.ts)。原始网络被插件沙箱禁止；HTTPS 请求必须通过 `http.request`，manifest 精确声明 network 的 `id/origin/methods` 并取得单独授权。受限 Agent 入口也只在完全权限普通任务中加载，Plan 不提供插件网络入口；GET/HEAD 不保证远端服务无副作用。这些插件隔离规则不代表内置 Agent 三档文件权限提供网络隔离。
 
 [HTTPS broker](../packages/host/src/plugin-http-broker.ts) 拒绝本机、私网与其他禁止地址，重定向重新检查，不继承环境代理、Host Cookie 或模型凭据。`credentialRef` 用于插件专属、绑定 origin 的凭据，由 Host 注入，不提供向 runner 返回密钥的凭据读取接口。在插件详情录入 `Authorization` 凭据时只填 token，Host 自动添加 `Bearer ` 前缀；`X-Api-Key` 按录入值发送。远端响应仍会交给插件，授权前应确认该服务不会回显敏感请求头。请求失败、策略拒绝、超时与取消应按稳定错误区分，不输出密钥、请求正文或私有路径。
 

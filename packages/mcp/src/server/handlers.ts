@@ -1,4 +1,5 @@
 import type { PiRuntime } from '@pi-meme/pi-runtime/runtime'
+import { canUseExternalAgentTools } from '@pi-meme/contracts/agent-access'
 import type { DeleteMcpServer, SaveMcpServer } from '@pi-meme/contracts/mcp'
 import { text } from '@pi-meme/contracts/ipc'
 import { object } from '../shared/config'
@@ -37,9 +38,10 @@ export function createMcpHandlers({ pi, store }: { pi: PiRuntime; store: McpConf
       text(sessionKey)
       return pi.idle(async () => {
         const connection = pi.connection()
+        const actor = pi.getSessionContext(sessionKey)
         if (
           connection.sessionKey !== sessionKey ||
-          connection.accessMode !== 'full-access' ||
+          !canUseExternalAgentTools(actor.accessMode, actor.state.activeMode ?? actor.state.mode) ||
           connection.accessChanging
         )
           throw new Error('仅当前完全权限会话可以检查 MCP 服务')

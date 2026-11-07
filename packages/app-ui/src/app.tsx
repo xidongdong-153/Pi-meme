@@ -524,6 +524,8 @@ function AppContent({
     pluginMentions: chat.pluginMentions,
     onPluginMentions: chat.setPluginMentions,
     busy: Boolean(chat.busy || chat.chat.paused || chat.chat.queuePaused),
+    accessMode: chat.connection.accessMode,
+    taskMode: chat.mode,
     onChanged: chat.refreshSnapshot,
     onError: chat.setError,
   })
@@ -1102,8 +1104,10 @@ function AppContent({
     loadProjectFiles: chat.inputDisabled ? undefined : bridge.getProjectFiles,
     access: (
       <AgentAccessSelector
+        key={chat.connection.sessionKey}
         {...{
           mode: chat.connection.accessMode,
+          taskMode: chat.mode,
           busy: chat.accessBusy,
           supported: chat.connection.restrictedAccessSupported === true,
           onChange: (mode) => void chat.setAccessMode(mode),
@@ -2267,6 +2271,7 @@ function AppContent({
               renderAccessSelector={(configuration, onChange) => (
                 <AgentAccessSelector
                   mode={configuration.accessMode}
+                  taskMode={configuration.mode}
                   busy={false}
                   supported={Boolean(chat.connection.restrictedAccessSupported)}
                   onChange={(accessMode) => onChange({ ...configuration, accessMode })}

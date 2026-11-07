@@ -2,12 +2,7 @@ import type {
   BuiltinModuleDescriptor as PluginManifest,
   BuiltinModuleContext as ServerPluginContext,
 } from '@pi-meme/contracts/builtin-module'
-import {
-  AccessSandbox,
-  probeAccessSandbox,
-  type AccessSandboxOperations,
-  type AccessSandboxOptions,
-} from '@pi-meme/pi-runtime/sdk/access-sandbox'
+import { registerAccessSandbox } from '@pi-meme/pi-runtime/sdk/access-sandbox-service'
 
 export const manifest: PluginManifest = {
   name: '@pi-meme/sandbox-linux',
@@ -20,21 +15,5 @@ export const manifest: PluginManifest = {
   },
 }
 export async function create(context: ServerPluginContext) {
-  const capability = await probeAccessSandbox()
-  if (!capability.supported) console.error(capability.reason)
-  const running = new Set<AccessSandboxOperations>()
-  context.provide('agent.sandbox', {
-    available: () => capability.supported,
-    capability: () => ({ ...capability }),
-    create: async (options: AccessSandboxOptions) => {
-      if (!capability.supported) throw new Error(capability.reason ?? '受限权限沙箱不可用')
-      const sandbox = await AccessSandbox.create(options)
-      running.add(sandbox)
-      return sandbox
-    },
-  })
-  context.onDispose(() => {
-    for (const sandbox of running) sandbox.stopAll()
-    running.clear()
-  })
+  await registerAccessSandbox(context)
 }

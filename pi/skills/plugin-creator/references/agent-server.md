@@ -14,11 +14,11 @@ Agent 与 UI 通过 `context.server.call('operation', input, { signal, target? }
 
 ## 受限入口
 
-工具和命令必须明确 effect 与 capabilities；manifest 的 restricted 权限是上限，安装不会自动授权。Plan 仅允许获准的只读入口。完全权限任务中的受限插件仍受原上限约束。
+工具和命令必须明确 effect 与 capabilities；manifest 的 restricted 权限是上限，安装不会自动授权。所有插件 Agent 仅在完全权限普通任务中加载；Plan、本地只读和工作区修改只装配内置工具。完全权限任务中的受限插件仍受原上限约束。
 
 受限代码由应用在独立进程和 OS 沙箱中运行。不要生成另一套 runner、携带 Node 二进制，或退回 Host 导入、VM、Worker 线程。沙箱不可用时报告 sandbox-unavailable 并停止。
 
-网络请求使用 `context.http.request`，manifest 精确声明 HTTPS origin、method 和规则 ID。Plan 只允许获准的 GET/HEAD。凭据使用插件专属 credentialRef，不读取或复制 Host、模型、MCP 密钥。
+网络请求使用 `context.http.request`，manifest 精确声明 HTTPS origin、method 和规则 ID。Plan 不加载插件 Agent，不提供插件网络入口；方法名不保证远端无副作用。凭据使用插件专属 credentialRef，不读取或复制 Host、模型、MCP 密钥。
 
 受限入口读取可信 Server 显式发布的 sharedData 需要授权；不共享整个数据目录。共享数据是 Host 内存中的有修订 JSON，重启后需要重新发布，不是持久数据库。
 

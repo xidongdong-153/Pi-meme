@@ -34,9 +34,9 @@
 ```
 
 - Agent 工具返回 `{ text, data? }`，`data` 必须可序列化为 JSON。安装、项目启停、会话选择和能力授权分别校验，不因安装提升权限。
-- 优先生成真正需要的受限入口。Plan 仅加载获准的受限只读入口；可信 Agent 只在完全权限普通任务中、明确授权后加载。restricted-only 插件在完全权限任务中仍受原上限约束。
+- 优先生成真正需要的受限入口。所有插件 Agent 只在完全权限普通任务中按既有授权加载；Plan、本地只读和工作区修改不导入或初始化插件 Agent。restricted-only 插件在完全权限任务中仍受原上限约束。
 - 受限 JS/TS 产物在独立进程和 OS 沙箱执行，不能改成 Host 导入、VM 或 Worker 线程。平台不可用时报告 `sandbox-unavailable` 并停止，不退回无沙箱运行。不要把可执行文件或 Node 运行时打进插件。
-- 受限工具和命令显式声明 effect 与 capabilities，不靠工具名前缀或 safe 标记放行。`permissions.restricted` 明确列出 maxAccess、capabilities、network 与 sharedData；缺省不授予能力。联网只走 `http.request` 和精确授权的 HTTPS origin/method，Plan 限 GET/HEAD。凭据只传插件专属 credentialRef，不复制 Host、模型或 MCP 的密钥。
+- 受限工具和命令显式声明 effect 与 capabilities，不靠工具名前缀或 safe 标记放行。`permissions.restricted` 明确列出 maxAccess、capabilities、network 与 sharedData；缺省不授予能力。联网只走 `http.request` 和精确授权的 HTTPS origin/method；Plan 不加载插件 Agent。凭据只传插件专属 credentialRef，不复制 Host、模型或 MCP 的密钥。
 - Server 用 `registerOperations` 登记局部 name、inputSchema、outputSchema、audience、effect、capabilities 和 execute；UI/Agent 统一通过 `context.server.call` 调用同插件同代次操作。受限入口不能回退可信 Server。
 - UI 使用宿主 React，不把 Node 产物打进浏览器；可信 UI 在加载前单独授权，不把同源 React 宣传为恶意代码沙箱。面板 `location` 为 `right`。CSS 只作用自己的根并在释放时移除。
 - 包内技能目录包含 `SKILL.md`，并列入 `resources.skills`。安装后它们出现在技能页，标记为来自插件，属于个人技能，不是系统技能。

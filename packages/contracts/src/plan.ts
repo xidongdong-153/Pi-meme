@@ -55,7 +55,6 @@ export type PlanState = {
   sourceEntryId?: string
 }
 export type PlanAction = { intent: 'execute' | 'revise'; reference: PlanRef }
-export type PlanToolSource = { readOnly?: boolean }
 export type PlanEvent =
   | { type: 'plan_saved'; document: PlanDocument }
   | { type: 'plan_state_changed'; state: PlanState; reason: 'saved' | 'restored' }

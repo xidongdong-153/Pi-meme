@@ -12,7 +12,9 @@ paths:
 
 Agent 使用 `system_read` 和 `system_write` 操作工作台。先调用 `system_read({operation: "capabilities", args: []})` 获取当前操作目录。目录包含名称、参数顺序、读写性质、作用范围、权限和客户端可用性。业务失败直接返回工具错误，不转换为成功提示。
 
-内置工具的写操作复用已有“完全权限”，不增加第二套权限开关。`system_write` 仅在普通模式和完全权限下开放；Worker 与 Host 都校验。Plan、仅可查看、工作区内修改模式不能借此输入终端命令、改 Host 配置或操作客户端网页。只读工具仍可查询 Host 的内置资源，包括终端输出。
+工作台全局写操作复用“完全权限”，不增加第二套权限开关。`system_write` 仅在有效权限为完全权限的普通任务下开放；Worker、Host 与 codemode 嵌套调用都校验同一要求。Plan、本地只读、工作区内修改模式不能借此输入终端命令、改 Host 配置或操作客户端网页。只读工具仍可查询 Host 的内置资源，包括终端输出。内置读取、工作区写入、完全权限三类工具要求集中在 [agent-access.ts](../packages/contracts/src/agent-access.ts)。
+
+`write`、`edit`、`image_gen` 与 `manage_service` 的启停至少要求工作区修改；本地文件写入、命令和受管服务统一使用 AccessSandbox。Plan 覆盖会话选择并按本地只读执行；计划、草图与聊天元数据由固定 Host 入口保存，不接受任意落盘路径。权限越界只返回原因，不自动重试提权。受限会话不导入插件 Agent 或连接 MCP；`mcp.get` 只读取 Host 配置摘要。
 
 ## 操作目录
 

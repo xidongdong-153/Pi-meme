@@ -1,31 +1,9 @@
 import type { BashOperations, ExtensionAPI, InlineExtension } from '@earendil-works/pi-coding-agent'
-import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
+import { isBuiltinAgentToolAllowed, type AgentAccessMode } from '@pi-meme/contracts/agent-access'
 import type { AccessSandboxOperations as AccessSandbox } from '../sdk/access-sandbox'
 import type { PiSdk } from '../sdk/load'
-import { collaborationToolNames } from './plan-mode'
 import { createTurnChangesExtension } from './turn-changes'
 import { shellCommand } from '../sdk/command-shell'
-
-const allowedTools = new Set([
-  'system_read',
-  'system_write',
-  'read',
-  'bash',
-  'powershell',
-  'write',
-  'edit',
-  'grep',
-  'find',
-  'ls',
-  'codemode',
-  ...collaborationToolNames,
-  'request_user_input',
-  'save_visualization',
-  'read_visualization',
-  'save_plan',
-  'manage_service',
-  'image_gen',
-])
 
 /**
  * 受限权限会话的扩展工厂：替换 bash/写入/编辑工具，让所有落盘操作经过沙箱，
@@ -40,7 +18,6 @@ export function createAgentAccessExtension(options: {
   mode: AgentAccessMode
   recordTurnChange?: (change: import('../turn-change-store').FileChangeRecord) => Promise<string>
   onTurnSaved?: (entryId: string, revision: string) => void
-  externalToolAllowed?: (name: string) => boolean
 }): InlineExtension {
   const { sdk, sandbox, cwd, mode } = options
   return {
@@ -59,8 +36,7 @@ export function createAgentAccessExtension(options: {
       )
       createTurnChangesExtension(sdk, cwd, sandbox, options.onTurnSaved, options.recordTurnChange).factory(pi)
       const isAllowed = (name: string) =>
-        (process.platform !== 'win32' || name !== 'bash') &&
-        (allowedTools.has(name) || options.externalToolAllowed?.(name) === true)
+        (process.platform !== 'win32' || name !== 'bash') && isBuiltinAgentToolAllowed(name, mode)
       pi.on('session_start', () => {
         pi.setActiveTools(pi.getActiveTools().filter(isAllowed))
       })
@@ -78,6 +54,13 @@ export function createAgentAccessExtension(options: {
       }))
       pi.on('tool_call', (event) => {
         if (!isAllowed(event.toolName)) throw new Error(`受限权限不允许执行工具：${event.toolName}`)
+        if (
+          mode === 'read-only' &&
+          event.toolName === 'manage_service' &&
+          event.input.action !== 'list' &&
+          event.input.action !== 'logs'
+        )
+          throw new Error('本地只读权限不允许启动或停止服务')
       })
       pi.on('user_bash', () => ({ operations: bashOperations }))
       pi.on('session_shutdown', () => sandbox.stopAll())

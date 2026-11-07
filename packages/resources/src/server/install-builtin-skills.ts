@@ -1,4 +1,5 @@
-import { chmod, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises'
+import { randomUUID } from 'node:crypto'
+import { chmod, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
 async function copySkillDirectory(source: string, target: string) {
@@ -9,8 +10,15 @@ async function copySkillDirectory(source: string, target: string) {
     if (entry.isDirectory()) await copySkillDirectory(input, output)
     else if (entry.isFile()) {
       const mode = (await stat(input)).mode & 0o777
-      await writeFile(output, await readFile(input), { mode })
-      await chmod(output, mode)
+      const temporary = path.join(target, `.${entry.name}.${randomUUID()}.tmp`)
+      try {
+        await writeFile(temporary, await readFile(input), { mode, flag: 'wx' })
+        await chmod(temporary, mode)
+        // 已安装资源可能是只读文件；替换目录项，避免原地覆盖失败或留下半写文件。
+        await rename(temporary, output)
+      } finally {
+        await rm(temporary, { force: true })
+      }
     }
   }
 }

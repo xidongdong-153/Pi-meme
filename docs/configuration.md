@@ -188,20 +188,26 @@ Bash、会话 Worker、MCP 和项目终端继承本机 Host 的 PATH；MCP 显�
 
 ## 权限与沙箱
 
-默认权限为 `workspace-write`，枚举与说明见 [agent-access.ts](../packages/contracts/src/agent-access.ts)。
+默认权限为 `workspace-write`，沿用输入框选择器、新会话默认设置和各会话保存的选择，无需迁移。三档枚举、有效权限计算与内置工具要求集中在 [agent-access.ts](../packages/contracts/src/agent-access.ts)。越界直接返回原因，不逐次审批、不自动重试提权，也不提供自定义目录或联网开关。
 
-| 模式              | 文件写入与执行边界                                               |
-| ----------------- | ---------------------------------------------------------------- |
-| `read-only`       | 允许读取和联网，拒绝修改业务文件；沙箱临时目录与必要设备仍可写   |
-| `workspace-write` | 允许修改当前工作区和会话临时目录，项目外写入被拒绝               |
-| `full-access`     | 允许项目外写入，普通任务可加载已选择且获准的可信 AppAgent 和 MCP |
+| 模式              | 文件写入与执行边界                                                      |
+| ----------------- | ----------------------------------------------------------------------- |
+| `read-only`       | 本地只读；命令在只读沙箱运行，私有临时目录可写，不加载插件 Agent 或 MCP |
+| `workspace-write` | 工作区内修改；命令在工作区沙箱运行，不加载插件 Agent 或 MCP             |
+| `full-access`     | 完全权限；命令不使用 Agent 沙箱，可加载已选择且获准的插件 Agent 和 MCP  |
 
-三档权限只控制 Agent 的执行范围，仍受 Host 操作系统的文件授权限制。App 内的“完全权限”不会授予 macOS 的“完全磁盘访问权限”；开发态终端与 Finder 启动的应用也可能具有不同授权。系统提示与处理方法见[首次打开与目录授权的区别](getting-started.md#首次打开与目录授权的区别)。
+Plan 始终按本地只读执行，覆盖会话保存的完全权限；选择器显示实际只读状态，退出 Plan 后恢复原选择。用户主动选择完全权限时确认一次，恢复已有会话或已保存的默认选择不重复确认。
+
+权限或任务模式改变前，主任务及子任务树必须结束，包括等待、排队、暂停待启动和清理中的任务；存在权限高于目标的后台服务时，需要先停止服务。先检查、释放旧运行时与连接，再提交状态；检查失败保留原选择。设置、RPC、消息、队列和恢复入口使用同一规则。
+
+联网不属于这套文件权限：不承诺阻止上传、远端修改或网络服务的副作用，也不增加秘密文件读取隔离。Host 仍正常保存聊天、计划、草图和必要元数据，相关入口不接受任意落盘路径。本地只读禁止业务文件修改、生图与服务启停；工作台全局写操作要求完全权限。
+
+三档权限仍受 Host 操作系统的文件授权限制。App 内的“完全权限”不会授予 macOS 的“完全磁盘访问权限”；开发态终端与 Finder 启动的应用也可能具有不同授权。系统提示与处理方法见[首次打开与目录授权的区别](getting-started.md#首次打开与目录授权的区别)。
 
 ```mermaid
 %%{init: {"theme": "dark"}}%%
 flowchart TD
-  Task["会话权限与任务模式"] --> Access{"是否受限权限"}
+  Task["会话权限、任务模式与父级上限计算有效权限"] --> Access{"是否受限权限"}
   Access -->|是| Probe["验证内置权限与平台沙箱"]
   Probe -->|通过| Plan{"是否规划模式"}
   Probe -->|失败| Reject["拒绝受限任务并返回原因"]
@@ -210,13 +216,13 @@ flowchart TD
   Plan -->|否| Run["按会话权限与授权执行"]
 ```
 
-macOS 使用 `sandbox-exec`，Linux/WSL2 使用 bubblewrap。Host 启动探测实际隔离能力，通过 `restrictedAccessSupported/restrictedAccessReason` 返回结果；受限 Worker 创建时还验证实际命令。内置权限、工厂或沙箱失效时拒绝受限执行，不自动授予完全权限。设置与历史仍可用。
+根据执行 Host 选择唯一受限后端：macOS 使用 Seatbelt / `sandbox-exec`，Linux/WSL2 使用 bubblewrap 与现有 seccomp。Host 启动探测实际隔离能力，通过 `restrictedAccessSupported/restrictedAccessReason` 返回结果；受限 Worker 创建时还验证实际命令。内置权限、工厂或沙箱失效时禁止本地只读、工作区修改和 Plan，返回具体原因，不自动授予完全权限。设置与历史仍可用；用户可以修复环境、使用 WSL2 Host，或主动选择完全权限。
 
 Windows 11 x64 本机 Host 使用 PSEC 执行受限命令、插件和 Agent 受管服务。实际能力探测失败时保留原因，不自动切换完全权限。
 
 路径校验与工具执行见 [access-sandbox.ts](../packages/pi-runtime/src/sdk/access-sandbox.ts)，平台选择见 [sandbox-platform.ts](../packages/host/src/sandbox-platform.ts)。Linux namespace、socket 与 WSL 互操作边界见下节。
 
-上表描述内置 Agent 工具的边界，不是 SDK 3 受限插件的读取和联网授权。规划模式拒绝业务写入和可信外部入口，但可使用获准的受限只读插件、只读沙箱命令和默认执行的 MCP 查询；codemode 的每个嵌套调用单独检查。子任务继承父级上限，并按自身真实目录、模式和权限构建执行环境。
+受限会话只装配内置工具，在导入、初始化、发现外部工具和连接 MCP 之前检查有效权限。已保存的插件选择保留并标记不可用，切回完全权限后恢复；历史会话选过插件不阻止受限执行。codemode 的每个嵌套调用仍检查同一工具要求。子任务继承父级有效权限和工作区，排队或恢复后实际启动时重新核对父级上限，不能换目录扩大写入范围。文件写入、命令与受管服务统一经过 [AccessSandbox](../packages/pi-runtime/src/sdk/access-sandbox.ts)，工作区按真实路径确定，符号链接不能扩大写入范围。
 
 ### Windows 隔离
 
@@ -246,12 +252,12 @@ Ubuntu 的 AppArmor 或内核策略可能限制 user namespace。应用不关闭
 
 SDK 3 将 `agent/server` 分为 `trusted` 与 `restricted`。可信 Server 是 Host Node 代码，可信 Agent 在会话 Worker 中执行，UI 是宿主同源 React；三者分别取得信任授权，不能把它们称为恶意代码沙箱。受限入口运行真正 JS/TS 构建产物，使用独立进程、固定 Node 与 OS 沙箱，不通过 VM 或线程模拟隔离。
 
-| 任务边界             | 受限入口                         | 工作区                  | 网络与共享数据                          | 可信入口             |
-| -------------------- | -------------------------------- | ----------------------- | --------------------------------------- | -------------------- |
-| Plan                 | 获准的只读工具与 handler         | 只读，私有 scratch 例外 | 共享记录只读；HTTPS 仅单独授权 GET/HEAD | 不导入               |
-| 普通 read-only       | 获准的受限能力                   | 只读，scratch 例外      | 按 origin/method 和记录名授权           | 不导入               |
-| 普通 workspace-write | 不超过 manifest 与 grant 上限    | 仅获准工作区可写        | 按授权                                  | 不导入               |
-| 普通 full-access     | restricted-only 仍按受限上限运行 | 最多获准工作区          | 受限入口仍走 broker                     | 仅明确授权的可信入口 |
+| 任务边界             | 受限入口                         | 工作区         | 网络与共享数据      | 可信入口             |
+| -------------------- | -------------------------------- | -------------- | ------------------- | -------------------- |
+| Plan                 | 不加载 Agent 入口                | 不适用         | 不适用              | 不导入               |
+| 普通 read-only       | 不加载 Agent 入口                | 不适用         | 不适用              | 不导入               |
+| 普通 workspace-write | 不加载 Agent 入口                | 不适用         | 不适用              | 不导入               |
+| 普通 full-access     | restricted-only 仍按受限上限运行 | 最多获准工作区 | 受限入口仍走 broker | 仅明确授权的可信入口 |
 
 有效能力取 manifest 申请、用户 grant、项目可用策略、任务 mode/access 与实际运行边界的交集。安装、启用和会话选择不自动授予能力。工具 `effect/capabilities` 是分派检查，不替代 OS 拒写；同一个可写进程内的 read 标签也不提供逐工具 OS 隔离。
 

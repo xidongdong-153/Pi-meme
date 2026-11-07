@@ -1,6 +1,7 @@
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
+import { canUseExternalAgentTools } from '@pi-meme/contracts/agent-access'
 import type { AgentSummary } from '@pi-meme/contracts/collaboration'
 import type { SessionRef, ProjectRef } from '@pi-meme/contracts/app-host'
 import type { PluginRuntimeRequest, RestrictedRegistration } from '@pi-meme/contracts/plugin-call'
@@ -25,7 +26,7 @@ export function allowedRestrictedContribution(
     value.capabilities.some((capability) => !grant.restricted.capabilities?.includes(capability as never))
   )
     return false
-  if (actor.mode === 'plan' || actor.accessMode === 'read-only') return value.effect === 'read'
+  if (!canUseExternalAgentTools(actor.accessMode, actor.mode)) return false
   if (value.effect === 'read') return true
   if (value.effect === 'workspace-write')
     return (
@@ -82,6 +83,8 @@ export function createPluginCallBridge(options: {
       actor.accessMode !== current.accessMode
     )
       throw new Error('scope-expired: 插件执行已结束或权限变化')
+    if (!canUseExternalAgentTools(current.accessMode, current.mode))
+      throw new Error('permission-denied: 外部 Agent 工具需要完全权限')
     return current
   }
   const entryFor = (request: PluginRuntimeRequest) => {
@@ -150,6 +153,8 @@ export function createPluginCallBridge(options: {
   }
   const ensure = async (request: PluginRuntimeRequest) => {
     const actor = options.actor()
+    if (!canUseExternalAgentTools(actor.accessMode, actor.mode))
+      throw new Error('permission-denied: 外部 Agent 工具需要完全权限')
     const entry = entryFor(request)
     if (!options.sandboxCapability.supported)
       throw new Error(`sandbox-unavailable: ${options.sandboxCapability.reason ?? '受限进程探测失败'}`)
@@ -285,6 +290,8 @@ export function createPluginCallBridge(options: {
         return null
       }
       const actor = options.actor()
+      if (!canUseExternalAgentTools(actor.accessMode, actor.mode))
+        throw new Error('permission-denied: 外部 Agent 工具需要完全权限')
       const entry = entryFor(request)
       if (request.action === 'hook' && ['sessionStart', 'sessionEnd'].includes(request.name ?? ''))
         throw new Error('permission-denied: 生命周期只由服务管理')

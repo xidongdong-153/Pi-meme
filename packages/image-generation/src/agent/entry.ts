@@ -1,5 +1,5 @@
 import type { InlineExtension } from '@earendil-works/pi-coding-agent'
-import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
+import { effectiveAgentAccess, isBuiltinAgentToolAllowed, type AgentAccessMode } from '@pi-meme/contracts/agent-access'
 import type {
   ImageGenerationReply,
   ImageGenerationRequest,
@@ -16,7 +16,8 @@ type Context = {
 }
 
 export function create(context: Context): InlineExtension[] {
-  const permitted = () => context.taskMode() !== 'plan' && context.accessMode() !== 'read-only'
+  const permitted = () =>
+    isBuiltinAgentToolAllowed('image_gen', effectiveAgentAccess(context.accessMode(), context.taskMode()))
   return [
     {
       name: 'pi-meme-image-generation',

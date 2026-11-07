@@ -30,7 +30,7 @@ import type {
   RpcSessionState,
   SessionEntry,
 } from '@earendil-works/pi-coding-agent'
-import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
+import { effectiveAgentAccess, canUseExternalAgentTools, type AgentAccessMode } from '@pi-meme/contracts/agent-access'
 import { builtinCommand, freshSessionCommandError, thinkingLevels } from '@pi-meme/contracts/pi'
 import {
   normalizePlanMessage,
@@ -40,7 +40,6 @@ import {
   type PlanState,
   type PlanDocument,
   type PlanRef,
-  type PlanToolSource,
   type MessageOptions,
   type QueuedInput,
   type TaskMode,
@@ -130,7 +129,6 @@ export type RuntimePolicy = {
   onContextCapture?: (event: ContextRuntimeCapture) => void
   recordTurnChange?: (change: import('../turn-change-store').FileChangeRecord) => Promise<string>
   readVisualization?: (reference: VisualizationRef) => Promise<VisualizationDocument>
-  planTools?: Map<string, PlanToolSource>
   resolvePlan?: (reference: PlanRef, signal: AbortSignal) => Promise<PlanDocument>
   syncPlan?: (force?: boolean) => Promise<PlanState>
   onHistoryEdited?: () => Promise<void>
@@ -232,10 +230,6 @@ export class SdkSession {
   private planReference?: PlanRef
   getPlanReference() {
     return this.planReference
-  }
-  getPlanSandbox() {
-    if (this.runtimeMode !== 'plan' || !this.sandbox) throw new Error('规划模式只读沙箱不可用')
-    return this.sandbox
   }
   private ownQueue: { steering: QueuedInput[]; followUp: QueuedInput[] } = { steering: [], followUp: [] }
   private delivering?: { kind: 'steering' | 'followUp'; input: QueuedInput }
@@ -468,6 +462,7 @@ export class SdkSession {
   }
 
   private assertPluginAvailability(mode: TaskMode) {
+    if (!canUseExternalAgentTools(this.accessMode, mode)) return
     for (const entry of this.policy.agentSources ?? []) {
       const failure = mode === this.runtimeMode ? this.policy.pluginFailures?.get(entry.pluginId) : undefined
       if (failure) throw new Error(`operation-unavailable-in-runtime: ${entry.pluginId}：${failure}`)
@@ -486,8 +481,7 @@ export class SdkSession {
     const generation = this.generation
     const runtimeMode = this.preparationMode ?? this.mode
     const plan = runtimeMode === 'plan'
-    const executionAccess = plan ? 'read-only' : this.accessMode
-    this.policy.planTools?.clear()
+    const executionAccess = effectiveAgentAccess(this.accessMode, runtimeMode)
     this.runtimeMode = runtimeMode
     const sdk = (this.sdk ??= await loadPiSdk())
     this.piVersion = sdk.VERSION
@@ -606,21 +600,21 @@ export class SdkSession {
                 sandbox: this.sandbox!,
                 cwd,
                 mode: executionAccess,
-                externalToolAllowed: (name) =>
-                  (this.policy.externalTools?.has(name) ?? false) ||
-                  (plan && (this.policy.planTools?.has(name) ?? false)) ||
-                  (plan && name === 'tool_search'),
               }),
             ]
           : []),
         ...(!this.inlineExtensions.some((extension) => extension.name === 'pi-meme-codemode')
-          ? [sdk.createCodemodeExtension({ models: !plan })]
+          ? [sdk.createCodemodeExtension({ models: executionAccess !== 'read-only' })]
           : []),
-        ...(this.capabilities.mcpEnabled ? [this.desktopMcpExtension(sdk, cwd), sdk.createToolSearchExtension()] : []),
+        ...(!restricted && this.capabilities.mcpEnabled
+          ? [this.desktopMcpExtension(sdk, cwd), sdk.createToolSearchExtension()]
+          : []),
         ...this.inlineExtensions.filter(
           (extension) =>
-            (!restricted || !extension.name.startsWith('app-agent:')) &&
-            (plan || !restricted || !['pi-meme-mcp', 'pi-meme-tool-search'].includes(extension.name)) &&
+            (!restricted ||
+              (!extension.name.startsWith('app-agent:') &&
+                !extension.name.startsWith('restricted-agent:') &&
+                !['pi-meme-mcp', 'pi-meme-tool-search'].includes(extension.name))) &&
             (!extension.name.startsWith('restricted-agent:') ||
               plan ||
               restricted ||
@@ -629,12 +623,7 @@ export class SdkSession {
                   extension.name === `restricted-agent:${entry.pluginId}:${entry.generation}` &&
                   entry.trusted &&
                   entry.grant?.trusted.agent,
-              )) &&
-            (!plan ||
-              extension.name.startsWith('restricted-agent:') ||
-              extension.name === 'pi-meme-collaboration' ||
-              extension.name === 'pi-meme-user-input' ||
-              ['pi-meme-visualize', 'pi-meme-codemode', 'pi-meme-mcp', 'pi-meme-tool-search'].includes(extension.name)),
+              )),
         ),
         ...(!restricted
           ? [
@@ -653,12 +642,7 @@ export class SdkSession {
             ]
           : []),
         ...(this.policy.resourceSnapshot ? [createSkillUsageExtension(this.policy.resourceSnapshot)] : []),
-        createPlanGuard(
-          () => this.activeMode ?? this.preparationMode ?? this.mode,
-          (name) =>
-            this.policy.externalTools?.get(name)?.effect === 'read' || (this.policy.planTools?.has(name) ?? false),
-          this.policy.planTools,
-        ),
+        createPlanGuard(() => this.activeMode ?? this.preparationMode ?? this.mode),
         (pi: ExtensionAPI) => {
           pi.on('before_agent_start', (event) => {
             const sections = event.systemPromptOptions.sections
@@ -1350,6 +1334,7 @@ export class SdkSession {
     const mode = this.activeMode ?? this.preparationMode ?? this.mode
     const effective = (this.policy.agentSources ?? []).filter(
       (entry) =>
+        canUseExternalAgentTools(this.accessMode, mode) &&
         !this.policy.pluginFailures?.has(entry.pluginId) &&
         Boolean(
           entry.restricted ||
@@ -1562,7 +1547,6 @@ export class SdkSession {
       this.visibleCollaborationMessages.clear()
     }
     this.preparationMode = normalized.mode
-    if (!preserveMode && !continuation) this.mode = normalized.mode
     this.admission = new AbortController()
     let edit: { commit: () => void; restore: () => void } | undefined
     let recovery: ReturnType<SdkSession['prepareRecovery']> | undefined
@@ -1588,6 +1572,7 @@ export class SdkSession {
         if (this.queueCancelled) throw new Error('消息发送已取消')
         await this.reconnectModels(restore)
       }
+      if (!preserveMode && !continuation) this.mode = normalized.mode
       const generation = this.generation
       const state = this.getState()
       this.assertPluginAvailability(normalized.mode)
@@ -1933,8 +1918,12 @@ export class SdkSession {
     }
     if (options?.plan) throw new Error('计划操作不能插话或排队，请等待当前任务完成')
     const normalized = normalizePlanMessage(message, options?.mode ?? this.mode)
-    this.mode = normalized.mode
-    if (normalized.commandOnly) return
+    if (normalized.mode !== (this.activeMode ?? this.mode))
+      throw new Error('插话或排队不能切换任务模式，请先结束任务并清空队列，再手动切换模式')
+    if (normalized.commandOnly) {
+      await this.setSessionMode(normalized.mode)
+      return
+    }
     if (builtinCommand(normalized.text)) throw new Error('内置命令不能插话或排队，请等待当前任务完成后执行')
     const input: QueuedInput = {
       sourceClientId: options?.sourceClientId,
@@ -2087,6 +2076,8 @@ export class SdkSession {
       const { input } = this.queueItem(id)
       if (!input.editing || this.queueEdits.get(id) !== clientId) throw new Error('此客户端未持有排队输入编辑权')
       const normalized = normalizePlanMessage(message, options?.mode ?? input.mode)
+      if (normalized.mode !== (this.activeMode ?? this.mode))
+        throw new Error('排队输入必须使用当前任务模式；请先清空队列再手动切换模式')
       if (normalized.commandOnly || builtinCommand(normalized.text)) throw new Error('排队输入必须包含任务正文')
       Object.assign(input, {
         text: normalized.text,
@@ -2145,8 +2136,8 @@ export class SdkSession {
       if (this.nativeQueue.steering.some((input) => input.id === id)) return undefined
       const selected = this.queueItem(id)
       if (selected.input.editing) throw new Error('排队输入正在编辑')
-      if (this.running && selected.input.mode !== (this.activeMode ?? this.runtimeMode))
-        throw new Error('不能引导不同模式的排队输入，请等待当前任务结束')
+      if (selected.input.mode !== (this.activeMode ?? this.mode))
+        throw new Error('排队输入与当前任务模式不同，请先编辑或移除此输入')
       const configuration = selected.input.configuration
       const currentModel = this.getState().model
       if (
@@ -2336,6 +2327,8 @@ export class SdkSession {
         return { kind, input }
       })
       if (!selected) return
+      if (selected.input.mode !== this.mode)
+        throw new Error('排队输入与当前任务模式不同，队列已暂停；请先编辑或移除此输入')
       await this.prompt(
         selected.input.text,
         selected.input.images,
@@ -2407,11 +2400,21 @@ export class SdkSession {
   }
 
   async setSessionMode(mode: TaskMode) {
-    this.mode = mode
-    if (!this.running && !this.changing && this.runtime && this.runtimeMode !== mode) {
+    if (mode === this.mode) return
+    if (this.running || this.changing || this.ownQueue.steering.length || this.ownQueue.followUp.length)
+      throw new Error('任务运行、切换或排队中不能变更任务模式，请等待当前任务结束')
+    if (this.runtime && this.runtimeMode !== mode) {
       const restore = await this.captureRestoreState()
-      await this.reconnectModels(restore)
+      this.preparationMode = mode
+      this.changing = true
+      try {
+        await this.reconnectModels(restore)
+      } finally {
+        this.preparationMode = undefined
+        this.changing = false
+      }
     }
+    this.mode = mode
   }
 
   deliverCollaborationMessage(message: AgentMailboxMessage) {
