@@ -1,4 +1,4 @@
-import { lstat, readFile, realpath } from 'node:fs/promises'
+import { lstat, realpath } from 'node:fs/promises'
 import path from 'node:path'
 import type {
   GitReviewQuery,
@@ -8,6 +8,7 @@ import type {
   GitReviewFile,
 } from '@pi-meme/contracts/git-review'
 import { getGitEnvironment, runGit } from './git-service'
+import { rejectGitWorktreeRead } from './safe-git-command'
 
 const previewLimit = 200 * 1024
 const emptyTree = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
@@ -49,30 +50,12 @@ async function comparison(cwd: string, query: GitReviewQuery) {
   return { root, before, after, revisions }
 }
 
-async function currentFile(root: string, file: string): Promise<{ text?: string; notice?: string; exists: boolean }> {
-  const target = path.resolve(root, file)
-  const relative = path.relative(root, target)
-  if (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative))
-    throw new Error('文件路径无效')
-  const info = await lstat(target).catch((cause: NodeJS.ErrnoException) => {
-    if (cause.code === 'ENOENT') return null
-    throw cause
-  })
-  if (!info) return { text: '', exists: false }
-  const actual = await realpath(target)
-  const actualRelative = path.relative(await realpath(root), actual)
-  if (actualRelative === '..' || actualRelative.startsWith(`..${path.sep}`) || path.isAbsolute(actualRelative))
-    return { exists: false, notice: '不支持预览仓库外部链接文件' }
-  if (!info.isFile()) return { exists: false, notice: '不支持预览非普通文件' }
-  if (info.size > previewLimit) return { exists: true, notice: '文件超过 200 KiB，未在面板中预览。' }
-  const data = await readFile(target)
-  return data.includes(0)
-    ? { exists: true, notice: '二进制文件，不提供文本预览。' }
-    : { exists: true, text: data.toString('utf8') }
+async function currentFile(): Promise<{ text?: string; notice?: string; exists: boolean }> {
+  return rejectGitWorktreeRead()
 }
 
 async function versionFile(root: string, revision: string, file: string) {
-  if (!revision) return currentFile(root, file)
+  if (!revision) return currentFile()
   if (revision === emptyTree) return { text: '', exists: false }
   const spec = revision === ':' ? `:${file}` : `${revision}:${file}`
   const size = await runGit(root, ['cat-file', '-s', spec])
@@ -144,7 +127,7 @@ export async function getGitReview(cwd: string, query: GitReviewQuery): Promise<
     }
   }
   for (const filePath of untracked.stdout.split('\0').filter(Boolean)) {
-    const content = await currentFile(root, filePath)
+    const content = await currentFile()
     const count =
       content.text === undefined ? null : content.text ? content.text.replace(/\n$/, '').split('\n').length : 0
     files.push({

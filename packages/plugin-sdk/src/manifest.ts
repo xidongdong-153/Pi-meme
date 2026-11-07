@@ -1,16 +1,20 @@
 import { pluginUiCapabilities, type PluginPermissions } from './permissions'
 
-export const pluginSdkVersion = 3
+export const pluginSdkVersion = 4
 export type PluginDisplay = { name?: string; icon?: string }
 export type PluginResources = { skills?: string[]; themes?: string[]; assets?: string[] }
-export type PluginEntries = { trusted?: string; restricted?: string }
+export type PluginEntries = {
+  /** @deprecated 仅供读取旧版元信息；SDK 4 解析器始终拒绝此字段。 */
+  trusted?: string
+  restricted?: string
+}
 export type PluginManifest = {
   name: string
   version: string
   description?: string
   type?: 'module'
   piMeme: {
-    sdkVersion: 3
+    sdkVersion: 4
     server?: PluginEntries
     agent?: PluginEntries
     ui?: string
@@ -53,8 +57,14 @@ export function parsePluginManifest(value: unknown): PluginManifest {
     throw new Error('插件 name 必须是合法的 npm 包名')
   if (typeof m.version !== 'string' || !/^\d+\.\d+\.\d+(?:-[\w.-]+)?(?:\+[\w.-]+)?$/.test(m.version))
     throw new Error('插件 version 必须是语义版本号')
-  const c = m.piMeme
-  if (!c || typeof c !== 'object' || c.sdkVersion !== 3) throw new Error('unsupported-sdk: 插件必须升级至 SDK 3 重建')
+  let c = m.piMeme
+  if (!c || typeof c !== 'object') throw new Error('unsupported-sdk: 插件必须升级至 SDK 4 重建')
+  const version = (c as { sdkVersion: number }).sdkVersion
+  // 资源没有可执行入口，旧主题与技能可无损转为新契约；旧代码绝不导入。
+  if (version === 3 && !c.agent && !c.server && !c.ui) {
+    c = { ...c, sdkVersion: 4 }
+    m.piMeme = c
+  } else if (version !== 4) throw new Error('unsupported-sdk: 插件包含旧版代码，需升级至 SDK 4 并重新授权')
   if (m.description !== undefined && typeof m.description !== 'string') throw new Error('插件 description 必须是字符串')
   const paths: string[] = []
   for (const kind of ['server', 'agent'] as const) {
@@ -65,30 +75,26 @@ export function parsePluginManifest(value: unknown): PluginManifest {
       typeof entries !== 'object' ||
       Array.isArray(entries) ||
       !Object.keys(entries).length ||
-      Object.keys(entries).some((k) => !['trusted', 'restricted'].includes(k))
+      Object.keys(entries).some((k) => k !== 'restricted')
     )
-      throw new Error(`插件 ${kind} 必须声明 trusted/restricted 入口`)
-    for (const runtime of ['trusted', 'restricted'] as const) {
+      throw new Error(`SDK 4 插件 ${kind} 只支持独立受限入口 restricted；不能加载 trusted 代码`)
+    for (const runtime of ['restricted'] as const) {
       const p = entries[runtime]
       if (p === undefined) continue
-      if (
-        typeof p !== 'string' ||
-        !safeResourcePath(p) ||
-        !(kind === 'server' && runtime === 'trusted' ? p.endsWith('chord-facets.json') : p.endsWith('.js'))
-      )
+      if (typeof p !== 'string' || !safeResourcePath(p) || !p.endsWith('.js'))
         throw new Error(`插件 ${kind}.${runtime} 必须是包内构建产物`)
       paths.push(p)
     }
   }
   if (c.ui !== undefined) {
-    if (typeof c.ui !== 'string' || !safeResourcePath(c.ui) || !c.ui.endsWith('.js'))
-      throw new Error('插件 ui 必须是包内 .js')
+    if (typeof c.ui !== 'string' || !safeResourcePath(c.ui) || !c.ui.endsWith('.json'))
+      throw new Error('SDK 4 插件 ui 必须是包内声明式 .json，不能导入宿主 JavaScript')
     paths.push(c.ui)
   }
-  if (new Set(paths).size !== paths.length) throw new Error('可信与受限入口不能指向同一产物')
+  if (new Set(paths).size !== paths.length) throw new Error('插件入口不能指向同一产物')
   for (const k of ['requires', 'provides'] as const) names(c[k], k)
-  if ((c.requires?.length || c.provides?.length) && !c.server?.trusted)
-    throw new Error('只有可信 Server 可以声明 requires/provides')
+  if (c.requires?.length || c.provides?.length)
+    throw new Error('SDK 4 插件不能共享同进程服务对象；请通过受限 broker 调用')
   if (c.display !== undefined) {
     if (!c.display || typeof c.display !== 'object' || Array.isArray(c.display))
       throw new Error('插件 display 必须是对象')

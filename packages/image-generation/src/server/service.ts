@@ -1,6 +1,4 @@
 import { randomUUID } from 'node:crypto'
-import { constants } from 'node:fs'
-import { open } from 'node:fs/promises'
 import path from 'node:path'
 import { maxImagePreviewBytes } from '@pi-meme/contracts/app-host'
 import { MAX_CHAT_ATTACHMENT_BYTES } from '@pi-meme/contracts/chat-attachments'
@@ -26,7 +24,11 @@ export type ImageExecution = {
   cwd: string
   signal: AbortSignal
   destinationDirectory?: string
-  assertActive?: () => void
+  assertActive?: () => void | Promise<void>
+  preparedModel?: Awaited<ReturnType<ImageConfigStore['selected']>>
+  onRequest?: () => void
+  /** Host-owned reader binds canonical identity and private roots; never supplied by the image request. */
+  readFile?: (target: string, options: { maxBytes: number; signal: AbortSignal }) => Promise<Uint8Array>
 }
 
 export class ImageGenerationService {
@@ -63,40 +65,34 @@ export class ImageGenerationService {
     validateImageInput(input)
     const expected = input.referenced_image_paths?.length ?? input.num_last_images_to_include ?? 0
     if (sources.length !== expected || sources.length > 5) throw new Error('图片引用数量与请求不一致')
-    const model = await this.config.selected(modelId)
+    const model = execution.preparedModel ?? (await this.config.selected(modelId))
+    if (modelId && model.id !== modelId) throw new Error('图片模型与本次授权不匹配')
     const timeout = AbortSignal.timeout(5 * 60 * 1000)
     const controller = new AbortController()
     this.pending.add(controller)
     const signal = AbortSignal.any([execution.signal, timeout, controller.signal])
-    const assertActive = () => {
+    const assertActive = async () => {
       signal.throwIfAborted()
-      execution.assertActive?.()
+      await execution.assertActive?.()
+      signal.throwIfAborted()
     }
     try {
-      assertActive()
+      await assertActive()
       let total = 0
       const images: Array<{ bytes: Buffer; mime: string }> = []
       for (const source of sources) {
         let bytes: Buffer
         if (source.path) {
-          const file = await open(path.resolve(execution.cwd, source.path), constants.O_RDONLY | constants.O_NONBLOCK)
-          try {
-            const info = await file.stat()
-            if (!info.isFile()) throw new Error('引用图片必须是普通文件')
-            if (info.size > MAX_CHAT_ATTACHMENT_BYTES - total) throw new Error('输入图片合计不能超过 50 MiB')
-            const buffer = Buffer.alloc(info.size + 1)
-            let length = 0
-            while (length < buffer.length) {
-              const result = await file.read(buffer, length, buffer.length - length, null)
-              if (!result.bytesRead) break
-              length += result.bytesRead
-              assertActive()
-            }
-            if (length > info.size) throw new Error('图片文件在读取期间发生变化，请重试')
-            bytes = buffer.subarray(0, length)
-          } finally {
-            await file.close()
-          }
+          if (!execution.readFile)
+            throw new Error('unsupported: 引用图片缺少 Host 受控文件读取后端，不能按请求路径直接读取')
+          const remaining = MAX_CHAT_ATTACHMENT_BYTES - total
+          const data = await execution.readFile(path.resolve(execution.cwd, source.path), {
+            maxBytes: remaining,
+            signal,
+          })
+          await assertActive()
+          if (data.byteLength > remaining) throw new Error('输入图片合计不能超过 50 MiB')
+          bytes = Buffer.from(data)
         } else if (source.image) {
           if (source.image.data.length > Math.ceil((MAX_CHAT_ATTACHMENT_BYTES - total) / 3) * 4)
             throw new Error('输入图片合计不能超过 50 MiB')
@@ -138,7 +134,8 @@ export class ImageGenerationService {
         headers['Content-Type'] = 'application/json'
         body = JSON.stringify(parameters)
       }
-      assertActive()
+      await assertActive()
+      execution.onRequest?.()
       const response = await fetch(`${model.baseUrl}/images/${images.length ? 'edits' : 'generations'}`, {
         method: 'POST',
         headers,
@@ -175,7 +172,7 @@ export class ImageGenerationService {
       else throw new Error('图片服务没有返回图片')
       if (bytes.length > maxImagePreviewBytes) throw new Error('生成图片超过 8 MiB')
       if (imageMime(bytes) !== 'image/png') throw new Error('图片服务未按要求返回 PNG 图片')
-      assertActive()
+      await assertActive()
       const id = randomUUID()
       const saved = await this.save(`${id}.png`, bytes, signal, execution.destinationDirectory)
       return {

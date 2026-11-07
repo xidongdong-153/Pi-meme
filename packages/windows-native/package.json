@@ -5,6 +5,7 @@
   "type": "module",
   "exports": {
     "./process": "./src/process.ts",
+    "./controlled-read": "./src/controlled-read.ts",
     "./sandbox": "./src/sandbox.ts",
     "./runtime": "./src/runtime.ts"
   },

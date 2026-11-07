@@ -4,6 +4,9 @@ import type { BrowserPlatform } from '@pi-meme/contracts/browser'
 import { migrateAppearance } from '@pi-meme/settings/shared/appearance'
 import type { AppearancePatch } from '@pi-meme/contracts/settings'
 
+// Module lifetime is the actual UI document lifetime; remounts keep the same UUID.
+const documentUUID = crypto.randomUUID()
+
 export function useSystemClient(
   bridge: DesktopBridge,
   browser?: BrowserPlatform,
@@ -35,9 +38,16 @@ export function useSystemClient(
     window.addEventListener('pi-meme:sessions-deleted', remove)
     return () => window.removeEventListener('pi-meme:sessions-deleted', remove)
   }, [browser, hostId])
-  useEffect(
-    () =>
-      bridge.registerSystemClient?.(
+  useEffect(() => {
+    let active = true
+    let unregister: (() => void) | undefined
+    const register = async () => {
+      if (browser?.agent) {
+        if (!browser.bindAgentDocument) throw new Error('当前 Desktop 不支持文档绑定，请更新应用')
+        await browser.bindAgentDocument(documentUUID)
+      }
+      if (!active) return
+      unregister = bridge.registerSystemClient?.(
         [
           'appearance.get',
           'appearance.save',
@@ -55,22 +65,28 @@ export function useSystemClient(
               ]
             : []),
         ],
-        async (request) => {
+        async (request, execution) => {
+          if (!active || request.permit.documentUUID !== documentUUID) throw new Error('客户端文档已失效')
           if (!hostId || request.session.hostId !== hostId) throw new Error('客户端请求的 Host 身份不匹配')
           if (request.operation.startsWith('browser.')) {
             if (!browser?.agent) throw new Error('当前客户端不支持 Desktop 网页操作')
             const owner = JSON.stringify([request.session.hostId, request.session.sessionId])
-            return browser.agent(owner, request.operation.slice(8), request.args)
+            return browser.agent(owner, request.operation.slice(8), request.args, execution.native)
           }
-          const snapshot = await appearanceBridge.getSettings()
-          const appearance = migrateAppearance(snapshot.settings, snapshot.themes)
-          const revision = snapshot.appearanceRevision
-          if (!revision) throw new Error('外观 Host 不支持受控保存，请更新服务')
-          if (request.operation === 'appearance.get') return { appearance, revision }
+          if (appearanceBridge !== bridge) throw new Error('外观操作不能跨 Host 转发，请在外观所属 Host 发起')
+          if (request.operation === 'appearance.get') {
+            await execution.claim()
+            const snapshot = await appearanceBridge.getSettings()
+            const revision = snapshot.appearanceRevision
+            if (!revision) throw new Error('外观 Host 不支持受控保存，请更新服务')
+            return { appearance: migrateAppearance(snapshot.settings, snapshot.themes), revision }
+          }
           if (request.operation !== 'appearance.save') throw new Error('客户端操作不支持')
           if (typeof request.args[1] !== 'string') throw new Error('保存外观必须携带读取时的修订')
           const patch = request.args[0]
           if (!patch || typeof patch !== 'object' || Array.isArray(patch)) throw new Error('外观修改参数无效')
+          if (!active) throw new Error('客户端文档已失效')
+          await execution.claim()
           const result = await appearanceBridge.saveAppearance({
             expectedRevision: request.args[1],
             operation: { type: 'patch', patch: patch as AppearancePatch },
@@ -81,7 +97,13 @@ export function useSystemClient(
             revision: result.snapshot.appearanceRevision,
           }
         },
-      ),
-    [bridge, browser, hostId, appearanceBridge],
-  )
+        { documentUUID },
+      )
+    }
+    void register().catch((cause) => console.error('系统客户端注册失败', cause))
+    return () => {
+      active = false
+      unregister?.()
+    }
+  }, [bridge, browser, hostId, appearanceBridge])
 }

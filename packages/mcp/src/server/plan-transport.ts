@@ -1,4 +1,10 @@
 import { homedir } from 'node:os'
+import { AsyncLocalStorage } from 'node:async_hooks'
+import { McpExecutionBoundary } from './execution-boundary'
+import { authorizeMcpHttpRequest, type McpHttpSource } from './http-request-authorization'
+import type { McpAuthorizeOperation } from '@pi-meme/contracts/mcp-authorization'
+import { mcpAuthorization } from '../shared/authorization'
+import { guardMcpTransport } from './mcp-transport-guard'
 import path from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
 import {
@@ -7,7 +13,7 @@ import {
   type JsonRpcMessage,
   type McpTransport,
 } from '@earendil-works/pi-mcp'
-import type { McpTransportFactory } from '@earendil-works/pi-coding-agent'
+import type { McpTransportFactory, McpServerEntry } from '@earendil-works/pi-coding-agent'
 import type { AccessSandboxOperations } from '@pi-meme/pi-runtime/sdk/access-sandbox'
 
 function configValue(value: string) {
@@ -23,18 +29,100 @@ function homePath(value: string) {
   return value === '~' ? homedir() : value.startsWith('~/') ? path.join(homedir(), value.slice(2)) : value
 }
 
-export function createPlanTransport(sandbox: () => AccessSandboxOperations): McpTransportFactory {
+export function createPlanTransport(
+  sandbox: () => AccessSandboxOperations,
+  authorizedTools: (entry: McpServerEntry) => string[] | undefined,
+  authorize?: McpAuthorizeOperation,
+): McpTransportFactory {
+  return createAuthorizedMcpTransport(sandbox, authorizedTools, true, authorize)
+}
+
+export function createAuthorizedMcpTransport(
+  sandbox: () => AccessSandboxOperations,
+  authorizedTools: (entry: McpServerEntry) => string[] | undefined,
+  planning = false,
+  authorize?: McpAuthorizeOperation,
+  boundary?: McpExecutionBoundary,
+  cachedToken?: (entry: McpServerEntry) => Promise<string | undefined>,
+): McpTransportFactory {
   return (entry, cwd, authProvider) => {
-    if ('url' in entry.config) {
-      return new StreamableHttpTransport({
-        url: entry.config.url,
-        authProvider,
-        headers: Object.fromEntries(
-          Object.entries(entry.config.headers ?? {}).map(([key, value]) => [key, configValue(value)]),
-        ),
-      })
-    }
     const config = entry.config
+    const runtime = boundary ?? new McpExecutionBoundary()
+    const ticket = runtime.capture()
+    const permitted = () => {
+      runtime.assert(ticket)
+      return authorizedTools(entry)
+    }
+    const authority = {
+      service: entry.name,
+      configurationHash: mcpAuthorization(config),
+      authorize,
+      ...(boundary ? { beforeToolCall: () => boundary.claimToolCall() } : {}),
+    }
+    if ('url' in config) {
+      if (config.auth?.provider)
+        throw new Error('auth-refresh-unavailable: MCP 不共享模型 provider 凭据，请使用 MCP 专用授权')
+      const requests = new AsyncLocalStorage<McpHttpSource>()
+      const raw = new StreamableHttpTransport({
+        url: config.url,
+        authProvider: authProvider
+          ? {
+              token: () =>
+                runtime.perform(ticket, async () => {
+                  if (!cachedToken) throw new Error('auth-refresh-unavailable: 缺少 MCP 专用缓存 token 读取器')
+                  const token = await cachedToken(entry)
+                  runtime.assert(ticket)
+                  return token
+                }),
+              onUnauthorized: async () => {
+                throw new Error('auth-refresh-unavailable: OAuth refresh/login 尚无可取消的 Host 授权适配器')
+              },
+            }
+          : undefined,
+        headers: Object.fromEntries(
+          Object.entries(config.headers ?? {}).map(([key, value]) => [key, configValue(value)]),
+        ),
+        maxMessageBytes: 4 * 1024 * 1024,
+        fetch: (input, init) =>
+          runtime.perform(ticket, async () => {
+            const signal = init?.signal ? AbortSignal.any([ticket.signal, init.signal]) : ticket.signal
+            signal.throwIfAborted()
+            const allowed = authorizedTools(entry)
+            if (!allowed || (planning && !allowed.length))
+              throw new Error('permission-denied: MCP 服务授权已撤销或配置改变')
+            const endpoint = new URL(config.url)
+            const url = new URL(String(input))
+            // Authentication endpoints are not silently admitted as readonly MCP protocol metadata.
+            if (url.href !== endpoint.href || url.username || url.password)
+              throw new Error('permission-denied: MCP HTTP 请求超出已签名 endpoint')
+            const settled = await authorizeMcpHttpRequest(entry, authorize, url, init, requests.getStore(), signal)
+            try {
+              runtime.assert(ticket)
+              signal.throwIfAborted()
+              return await runtime.fetch(
+                ticket,
+                url,
+                { ...init, signal, redirect: 'error', credentials: 'omit' },
+                settled,
+              )
+            } catch (cause) {
+              await settled?.(true)
+              throw cause
+            }
+          }),
+      })
+      const transport: McpTransport = {
+        start: () => runtime.perform(ticket, () => raw.start()),
+        send: (message, options) =>
+          runtime.perform(ticket, () => requests.run({ message, toolPosts: 0 }, () => raw.send(message, options))),
+        close: () => requests.run({ toolPosts: 0, closing: true }, () => raw.close()),
+        onMessage: (listener) => raw.onMessage(listener),
+        onError: (listener) => raw.onError(listener),
+        onClose: (listener) => raw.onClose(listener),
+        setProtocolVersion: (version) => raw.setProtocolVersion(version),
+      }
+      return runtime.bind(guardMcpTransport(transport, permitted, planning, authority), ticket)
+    }
     const messages = new Set<(message: JsonRpcMessage) => void>()
     const errors = new Set<(error: Error) => void>()
     const closes = new Set<() => void>()
@@ -45,7 +133,7 @@ export function createPlanTransport(sandbox: () => AccessSandboxOperations): Mcp
       start: () =>
         (starting ??= (async () => {
           const boundary = sandbox()
-          if (!boundary.startStdio) throw new Error('当前只读沙箱不支持 MCP 进程')
+          if (!boundary.startStdio) throw new Error('sandbox-unavailable: 当前执行沙箱不支持 MCP stdio 进程')
           process = await boundary.startStdio(homePath(config.command), (config.args ?? []).map(homePath), {
             cwd: path.resolve(cwd, homePath(config.cwd ?? '.')),
             env: Object.fromEntries(Object.entries(config.env ?? {}).map(([key, value]) => [key, configValue(value)])),
@@ -129,6 +217,6 @@ export function createPlanTransport(sandbox: () => AccessSandboxOperations): Mcp
         }
       },
     }
-    return transport
+    return runtime.bind(guardMcpTransport(transport, permitted, planning, authority), ticket)
   }
 }

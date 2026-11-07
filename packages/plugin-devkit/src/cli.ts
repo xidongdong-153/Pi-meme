@@ -22,7 +22,7 @@ export async function runDevkit(args: string[]) {
   if (command === 'doctor' && positionals.length === 1 && !Object.keys(values).length) return doctor()
   if (!directory || !['create', 'prepare', 'check', 'build', 'validate', 'pack'].includes(command ?? ''))
     throw new Error(
-      '用法：plugin-devkit doctor | create <目录> <包名> [--agent none|restricted|trusted|both] [--server none|restricted|trusted|both] [--ui none|panel|page] [--resources skills,themes,assets] [--display-name 名称] | prepare <目录> | check <目录> | build <目录> | validate <目录> | pack <目录> <输出.pim>',
+      '用法：plugin-devkit doctor | create <目录> <包名> [--agent none|restricted] [--server none|restricted] [--ui none|panel|page] [--resources skills,themes,assets] [--display-name 名称] | prepare <目录> | check <目录> | build <目录> | validate <目录> | pack <目录> <输出.pim>',
     )
   if (command !== 'create' && Object.keys(values).length) throw new Error('能力选项仅用于 create')
   if (positionals.length !== (command === 'create' || command === 'pack' ? 3 : 2)) throw new Error('命令参数数量不正确')

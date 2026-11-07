@@ -3,6 +3,8 @@ import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
 import type { TaskMode } from '@pi-meme/contracts/plan'
 import type { RestrictedCapability } from './permissions'
 
+export const pluginRuntimeProtocolVersion = 2
+
 export type JsonValue = null | boolean | number | string | JsonValue[] | { [key: string]: JsonValue }
 export type JsonSchema = { type?: string; [key: string]: unknown }
 export type PluginEffect = 'read' | 'workspace-write' | 'external-write' | 'full-access'

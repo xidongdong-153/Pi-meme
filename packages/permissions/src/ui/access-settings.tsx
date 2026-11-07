@@ -42,9 +42,7 @@ export function AccessSettings({
           <span className="block">仅影响新建会话，已保存的会话保留各自权限。</span>
         </p>
         {!supported && (
-          <p className="mt-0.5 text-[11px] text-muted-foreground">
-            {reason ?? '当前设备无法使用受限权限，请检查系统配置后重启应用。'}
-          </p>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">受限原生命令不可用{reason ? `：${reason}` : ''}</p>
         )}
       </div>
       <Select
@@ -64,13 +62,7 @@ export function AccessSettings({
         </SelectTrigger>
         <SelectContent align="end">
           {agentAccessChoices.map((choice) => (
-            <SelectItem
-              key={choice.mode}
-              value={choice.mode}
-              textValue={choice.label}
-              disabled={!supported && choice.mode !== 'full-access'}
-              className="py-2.5"
-            >
+            <SelectItem key={choice.mode} value={choice.mode} textValue={choice.label} className="py-2.5">
               <span className="flex flex-col gap-1">
                 <span className="font-medium">{choice.label}</span>
                 <span className="text-xs text-muted-foreground">{choice.description}</span>

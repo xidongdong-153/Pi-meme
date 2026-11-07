@@ -5,7 +5,15 @@ import { object } from '../shared/config'
 import type { McpConfigStore } from './config-store'
 import { checkMcpServers } from './diagnostics'
 
-export function createMcpHandlers({ pi, store }: { pi: PiRuntime; store: McpConfigStore }) {
+export function createMcpHandlers({
+  pi,
+  store,
+  diagnosticsSandbox,
+}: {
+  pi: PiRuntime
+  store: McpConfigStore
+  diagnosticsSandbox?: () => import('@pi-meme/pi-runtime/sdk/access-sandbox').AccessSandboxOperations
+}) {
   const apply = async (action: () => ReturnType<McpConfigStore['snapshot']>) =>
     pi.idle(async () => {
       const snapshot = await action()
@@ -43,7 +51,7 @@ export function createMcpHandlers({ pi, store }: { pi: PiRuntime; store: McpConf
           connection.accessChanging
         )
           throw new Error('仅当前完全权限会话可以检查 MCP 服务')
-        return checkMcpServers(store.filePath)
+        return checkMcpServers(store.filePath, 90000, diagnosticsSandbox, connection.cwd)
       }, true)
     },
   }

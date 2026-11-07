@@ -1,18 +1,18 @@
-import type { HostApi, EventSubscription, HostControlEvent } from '@pi-meme/contracts/app-host'
+import type { HostApi, EventSubscription, HostControlEvent, MutationExpected } from '@pi-meme/contracts/app-host'
 
 export type AppHostTransport = {
-  call: <T>(method: string, args: unknown[], idempotencyKey?: string) => Promise<T>
+  call: <T>(method: string, args: unknown[], idempotencyKey?: string, expected?: MutationExpected) => Promise<T>
   subscribe: (input: EventSubscription, listener: (event: HostControlEvent) => void) => Promise<() => void>
 }
 export function createAppHostClient(transport: AppHostTransport): HostApi {
-  function call<T>(method: string, args: unknown[], idempotencyKey?: string): Promise<T> {
+  function call<T>(method: string, args: unknown[], idempotencyKey?: string, expected?: MutationExpected): Promise<T> {
     // JSON 数组中的 undefined 会变成 null；省略末尾可选参数以保留服务端默认值。
     let length = args.length
     while (length && args[length - 1] === undefined) length--
-    return transport.call<T>(method, args.slice(0, length), idempotencyKey)
+    return transport.call<T>(method, args.slice(0, length), idempotencyKey, expected)
   }
   return {
-    apiVersion: 2,
+    apiVersion: 3,
     models: { list: () => call('models.list', []) },
     contextWindow: {
       list: (ref, query) => call('contextWindow.list', [ref, query]),
@@ -73,9 +73,10 @@ export function createAppHostClient(transport: AppHostTransport): HostApi {
       history: (ref, input) => call('sessions.history', [ref, input]),
       messages: (ref, input) => call('sessions.messages', [ref, input]),
       message: (ref, input) => call('sessions.message', [ref, input]),
-      configure: (ref, config, options) => call('sessions.configure', [ref, config], options.idempotencyKey),
-      submit: (ref, input, options) => call('sessions.submit', [ref, input], options.idempotencyKey),
-      stop: (ref, options) => call('sessions.stop', [ref], options.idempotencyKey),
+      configure: (ref, config, options) =>
+        call('sessions.configure', [ref, config], options.idempotencyKey, options.expected),
+      submit: (ref, input, options) => call('sessions.submit', [ref, input], options.idempotencyKey, options.expected),
+      stop: (ref, options) => call('sessions.stop', [ref], options.idempotencyKey, options.expected),
       stopTask: (ref, options) => call('sessions.stopTask', [ref], options.idempotencyKey),
       continueTask: (ref, configuration, options) =>
         call('sessions.continueTask', [ref, configuration ?? null], options.idempotencyKey),

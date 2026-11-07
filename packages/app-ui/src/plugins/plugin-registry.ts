@@ -22,6 +22,7 @@ import { createPluginUiExtensions } from './plugin-ui-extensions'
 import { PluginUiDataSource } from './plugin-ui-data-source'
 import type { PluginConsentRequest } from './plugin-ui-consent'
 import { createPluginActionHost } from './plugin-action-host'
+import { loadPluginUI } from './load-plugin-ui'
 
 type ActivePlugin = {
   descriptor: UiPluginDescriptor
@@ -104,8 +105,7 @@ export class UiPluginRegistry {
 
   constructor(
     private readonly host: HostApi,
-    private readonly load: (url: string) => Promise<UiPluginModule> = (url) =>
-      import(/* @vite-ignore */ url) as Promise<UiPluginModule>,
+    private readonly load: (url: string) => Promise<UiPluginModule> = loadPluginUI,
     private readonly client?: PluginClient,
   ) {
     this.dataSource = new PluginUiDataSource(host)
@@ -575,19 +575,7 @@ export class UiPluginRegistry {
                     ? AbortSignal.any([candidate.controller.signal, signal])
                     : candidate.controller.signal
                   if (combined.aborted) throw new Error('cancelled：插件调用已取消')
-                  const operation = this.assertLive(candidate).operations?.find(
-                    (entry) => entry.name === captured.operation && entry.audience.includes('ui'),
-                  )
-                  if (operation?.effect !== 'read') {
-                    const accepted = await this.confirmation({
-                      pluginId: descriptor.id,
-                      title: '允许插件调用后台操作？',
-                      description: `${captured.operation}\n目标：${JSON.stringify(captured.target ?? { hostId: this.getReactiveSnapshot().target.hostId })}\n${JSON.stringify(captured.input).slice(0, 1200)}`,
-                      signal: combined,
-                    })
-                    if (!accepted) throw new Error('cancelled：用户取消了插件后台操作')
-                    this.assertLive(candidate)
-                  }
+                  // 实际 effect 与审批由 Host 受限 Server 的 operation 注册和统一授权入口决定。
                   if (combined.aborted) throw new Error('cancelled：插件调用已取消')
                   const result = await this.client.callOperation(captured, combined)
                   this.assertLive(candidate)

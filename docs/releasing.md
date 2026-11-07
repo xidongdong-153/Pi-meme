@@ -56,7 +56,7 @@ pnpm install --frozen-lockfile --registry=https://registry.npmjs.org
 pnpm package:host
 ```
 
-脚本先在日常源码工作区构建 Web 和 Server，再复制到临时发布工作区；排除 `node_modules`、Electron 产物、缓存和环境文件，只在暂存配置启用 `injectWorkspacePackages`，不改包清单或锁文件。日常安装继续使用源码软链接，避免把 TS 源文件放入 `node_modules` 后破坏开发入口、Vite 配置和源码热更新。
+脚本先在日常源码工作区构建 Web 和 Server，再复制到临时发布工作区；排除 `node_modules`、Electron 产物、缓存和环境文件，只在暂存配置启用 `injectWorkspacePackages`，不改包清单或锁文件。日常安装继续使用源码软链接，避免把 TS 源文件放入 `node_modules` 后破坏开发入口、Vite 配置和有限快照构建；开发 owner 不依赖源码热更新。
 
 脚本逐项比较暂存锁文件与源码锁文件的外部依赖版本、下载校验值与依赖图，任何变化都会中止。随后直接执行非 legacy 的 `pnpm deploy --prod --frozen-lockfile`。固定的 pnpm 10.29.1 会读取原锁文件，将工作区 `link:` 引用和各包的生产依赖转换为部署用的本地 `file:` 快照，再按生成的单项目锁文件冻结安装；外部依赖沿用原锁定记录，不经过 registry 版本或 peer 上下文重解析。暂存区不运行 `pnpm install --lockfile-only --no-frozen-lockfile`，避免重新选择已有版本或改变外部依赖图；不修改仓库的锁文件或 `node_modules`。实现见 [release-workspace.mts](../scripts/release-workspace.mts) 和 [package-host.mts](../scripts/package-host.mts)。
 

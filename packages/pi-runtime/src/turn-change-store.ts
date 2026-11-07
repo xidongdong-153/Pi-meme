@@ -1,5 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto'
-import { lstat, mkdir, readFile, readdir, realpath, rename, stat, unlink, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, readFile, readdir, rename, stat, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import type { TurnChanges, TurnChangeFile, TurnChangeSummary } from '@pi-meme/contracts/turn-changes'
 import type { GitReviewFileContent } from '@pi-meme/contracts/git-review'
@@ -258,39 +258,17 @@ export async function readTurnChangeFile(
   }
 }
 
-/** 先校验整轮，再恢复文件；出现写入失败时恢复已经处理的文件。 */
-export async function undoTurnChanges(sessionFile: string, entryId: string, cwd: string, fullAccess: boolean) {
+/** A callback running on Host does not constrain its Node I/O; require a real controlled restore backend. */
+export async function undoTurnChanges(sessionFile: string, entryId: string, _cwd: string, _fullAccess: boolean) {
   const turn = await readTurn(sessionFile, entryId)
   if (!turn) throw new Error('没有可撤销的变更记录')
   if (turn.undone) return
-  if (turn.undoUnavailable) throw new Error(turn.undoUnavailable)
-  const root = await realpath(cwd)
-  const files = turn.files.filter((file) => file.before !== file.after)
-  for (const file of files) {
-    const target = await realpath(file.target).catch(() => '')
-    const relative = path.relative(root, target)
-    if (target !== file.target || !(await lstat(file.target)).isFile())
-      throw new Error(`文件路径已变化，未撤销：${file.path}`)
-    if (!fullAccess && (relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)))
-      throw new Error(`当前权限不允许撤销工作区外的文件：${file.path}`)
-    if (!(await readFile(file.target)).equals(Buffer.from(file.after, 'base64')))
-      throw new Error(`文件已有后续修改，未撤销：${file.path}`)
-  }
-  const restored: SavedFile[] = []
-  try {
-    for (const file of files) {
-      if (file.before === null) await unlink(file.target)
-      else await writeFile(file.target, Buffer.from(file.before, 'base64'))
-      restored.push(file)
-    }
+  if (!turn.files.some((file) => file.before !== file.after)) {
+    // A no-op turn only changes its trusted private record, never opens a recorded workspace target.
     turn.undone = true
     await saveTurn(sessionFile, turn)
-  } catch (cause) {
-    const rollback = await Promise.allSettled(
-      restored.map((file) => writeFile(file.target, Buffer.from(file.after, 'base64'))),
-    )
-    if (rollback.some((result) => result.status === 'rejected'))
-      throw new Error('撤销未完成，部分文件恢复失败，请检查工作区')
-    throw cause
+    return
   }
+  if (turn.undoUnavailable) throw new Error(turn.undoUnavailable)
+  throw new Error('unsupported: 撤销尚无受控写入、删除与祖先目录身份保证的后端，不能读取或恢复轮次记录中的目标文件')
 }

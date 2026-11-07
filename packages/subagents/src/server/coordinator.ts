@@ -77,9 +77,20 @@ type Record = {
   pauseRequested?: boolean
   pauseRevision?: number
   pauseApplied?: boolean
+  pauseTransition?: Promise<void>
+  pausedRun?: {
+    ref: AgentRunRef
+    session: RuntimeSdkSession
+    needsContinuation: boolean
+    mode: TaskMode
+    accessMode: AgentAccessMode
+    settled?: boolean
+    aborted?: boolean
+  }
   pendingStart?: QueuedTask
   draining?: boolean
   nextMode?: TaskMode
+  nextAccessMode?: AgentAccessMode
   replies?: Array<{ id: string; result: CollaborationResults[keyof CollaborationResults] }>
   lastAssistant?: { text: string; error?: string }
   cleaning?: boolean
@@ -92,6 +103,7 @@ export type HostCollaborationOptions = {
   plansDataDirectory?: string
   assertCheckoutAvailable?: (cwd: string) => void
   stopServicesForRun?: (run: AgentRunRef) => Promise<void>
+  resolveRootAuthorizationPolicy?: (rootSessionKey: string) => Pick<RunPolicy, 'mode' | 'accessMode'>
   createSession: (
     cwd: string,
     notify: ConstructorParameters<typeof import('@pi-meme/pi-runtime/sdk/session').SdkSession>[1],
@@ -267,6 +279,8 @@ export class HostCollaborationBridge {
             pauseRequested: _pause,
             pauseRevision: _revision,
             pauseApplied: _applied,
+            pauseTransition: _pauseTransition,
+            pausedRun: _pausedRun,
             pendingStart: _start,
             draining: _draining,
             waitingMessages: _waitingMessages,
@@ -386,12 +400,18 @@ export class HostCollaborationBridge {
         if (entry.summary.depth === 0) entry.summary.sessionKey = binding.sessionKey
       }
     }
+    record.nextAccessMode = binding.accessMode
+    const accessRank = { 'read-only': 0, 'workspace-write': 1, 'full-access': 2 }
+    const admitted = Boolean(record.summary.runId) && activeStatuses.has(record.summary.status)
     Object.assign(record.summary, {
       cwd: binding.cwd,
       executionGeneration: binding.session.connection().generation,
       sessionId: binding.sessionId ?? record.summary.sessionId,
       sessionFile: binding.sessionFile,
-      accessMode: binding.accessMode,
+      accessMode:
+        admitted && accessRank[record.summary.accessMode] < accessRank[binding.accessMode]
+          ? record.summary.accessMode
+          : binding.accessMode,
       model: binding.state.model,
       thinkingLevel: binding.state.thinkingLevel,
     })
@@ -591,50 +611,234 @@ export class HostCollaborationBridge {
     const revision = (root.pauseRevision ?? 0) + 1
     root.pauseRevision = revision
     const tree = this.tree(root)
-    const active = tree.filter((record) => record === root || activeStatuses.has(record.summary.status))
+    const active = tree.filter(
+      (record) =>
+        record === root ||
+        (activeStatuses.has(record.summary.status) && record.summary.status !== 'starting' && !record.pendingStart),
+    )
+    const rootTaskId = root.summary.rootTaskId
+    const epoch = root.summary.epoch
+    const runs = new Map(tree.map((record) => [record, this.runRef(record)]))
+    const sessions = new Map(tree.map((record) => [record, record.session]))
+    const cancelledStarts: Record[] = []
+    for (const record of tree) {
+      record.queued = []
+      if (record.pendingStart || (record !== root && record.summary.status === 'starting')) {
+        record.pendingStart = undefined
+        record.pausedRun = undefined
+        record.summary.status = 'interrupted'
+        record.summary.runCompletedAt = new Date().toISOString()
+        cancelledStarts.push(record)
+      }
+    }
     for (const record of active) {
+      const ref = runs.get(record)
+      if (
+        ref &&
+        record.session &&
+        activeStatuses.has(record.summary.status) &&
+        (!this.sameRun(record, record.pausedRun?.ref) || record.pausedRun?.session !== record.session)
+      )
+        record.pausedRun = {
+          ref,
+          session: record.session,
+          needsContinuation: false,
+          mode: record.summary.mode,
+          accessMode: record.summary.accessMode,
+        }
       record.summary.isPaused = true
       record.pauseApplied = Boolean(record.session)
     }
     this.changed(root)
-    await Promise.all(active.map((record) => record.session?.setPaused(true, revision)))
+    const previous = root.pauseTransition
+    const transition = (async () => {
+      await previous?.catch(() => {})
+      await this.persist(root)
+      for (const record of cancelledStarts) await this.publishResult(record)
+      if (
+        !root.pauseRequested ||
+        this.stopping ||
+        root.summary.rootTaskId !== rootTaskId ||
+        root.summary.epoch !== epoch ||
+        ['stopped', 'interrupted'].includes(root.summary.status)
+      )
+        return
+      const results = await Promise.allSettled(
+        tree.map(async (record) => {
+          const run = runs.get(record)
+          if ((run && !this.sameRun(record, run)) || record.session !== sessions.get(record)) return
+          const results = await Promise.allSettled([
+            (async () => {
+              if (!active.includes(record) || !record.session) return
+              const session = record.session
+              await session.setPaused(true, revision)
+              const paused = record.pausedRun
+              if (!paused || paused.session !== session || !this.sameRun(record, paused.ref)) return
+              const interrupted = await session.needsPauseContinuation(revision)
+              if (record.pausedRun === paused && this.sameRun(record, paused.ref))
+                paused.needsContinuation ||= interrupted
+            })(),
+            run && this.options.stopServicesForRun?.(run),
+          ])
+          const failure = results.find((result) => result.status === 'rejected')
+          if (failure?.status === 'rejected') throw failure.reason
+        }),
+      )
+      const failures = results.filter((result) => result.status === 'rejected')
+      if (failures.length)
+        throw new AggregateError(
+          failures.map((result) => result.reason),
+          '部分执行暂停尚未完成',
+        )
+    })()
+    root.pauseTransition = transition
+    try {
+      await transition
+    } finally {
+      if (root.pauseTransition === transition) root.pauseTransition = undefined
+    }
   }
   async resumeRoot(sessionKey: string) {
     await this.ready
     const root = this.root(sessionKey)
-    root.pauseRequested = false
+    if (!root.pauseRequested) return
     const revision = (root.pauseRevision ?? 0) + 1
     root.pauseRevision = revision
+    const rootTaskId = root.summary.rootTaskId
+    const epoch = root.summary.epoch
+    const runId = root.summary.runId
+    const current = () =>
+      !this.stopping &&
+      root.pauseRevision === revision &&
+      root.summary.rootTaskId === rootTaskId &&
+      root.summary.epoch === epoch &&
+      root.summary.runId === runId
+    await root.pauseTransition
+    if (!current()) return
     const tree = this.tree(root)
+    for (const record of tree) {
+      if (!current()) return
+      record.queued = []
+      if (record !== root && (record.pendingStart || record.summary.status === 'starting')) {
+        record.pendingStart = undefined
+        record.pausedRun = undefined
+        record.summary.status = 'interrupted'
+        record.summary.runCompletedAt = new Date().toISOString()
+        await this.persist(record)
+        await this.publishResult(record)
+      }
+    }
+    if (!current()) return
     const gated = tree.filter((record) => record === root || record.pauseApplied)
+    const runs = new Map(gated.map((record) => [record, this.runRef(record)]))
+    const sessions = new Map(gated.map((record) => [record, record.session]))
+    const same = (record: Record) =>
+      current() &&
+      record.session === sessions.get(record) &&
+      (runs.get(record) ? this.sameRun(record, runs.get(record)) : record.summary.runId === undefined)
+    const restore = await Promise.allSettled(
+      gated.map(async (record) => {
+        if (!same(record) || !record.session) return
+        // bindRoot may refresh access from user preferences while paused; retain this task's old ceiling.
+        const paused = record.pausedRun
+        if (paused && paused.session === record.session && this.sameRun(record, paused.ref)) {
+          const rank = { 'read-only': 0, 'workspace-write': 1, 'full-access': 2 }
+          if (rank[paused.accessMode] < rank[record.summary.accessMode]) record.summary.accessMode = paused.accessMode
+          if (paused.mode === 'plan') record.summary.mode = 'plan'
+        }
+        await record.session.configureAccess(record.summary.accessMode)
+        if (!same(record)) return
+        await record.session.setSessionMode(record.summary.mode)
+      }),
+    )
+    const restoreFailure = restore.find((result) => result.status === 'rejected')
+    if (restoreFailure?.status === 'rejected') throw restoreFailure.reason
+    if (!current()) return
+    const unpaused = await Promise.allSettled(
+      gated.map((record) => (same(record) ? record.session?.setPaused(false, revision) : undefined)),
+    )
+    const failure = unpaused.find((result) => result.status === 'rejected')
+    if (failure?.status === 'rejected') {
+      if (current()) {
+        const rollbackRevision = revision + 1
+        root.pauseRevision = rollbackRevision
+        await Promise.allSettled(
+          gated.map((record) => {
+            if (
+              record.session !== sessions.get(record) ||
+              (runs.get(record) && !this.sameRun(record, runs.get(record)))
+            )
+              return undefined
+            return record.session?.setPaused(true, rollbackRevision)
+          }),
+        )
+      }
+      throw failure.reason
+    }
+    if (!current()) return
+    root.pauseRequested = false
     for (const record of tree) {
       record.summary.isPaused = false
       record.pauseApplied = false
     }
+    await this.persist(root)
     this.changed(root)
-    await Promise.all(gated.map((record) => record.session?.setPaused(false, revision)))
-    if (root.pauseRequested || root.pauseRevision !== revision || this.stopping) return
-    for (const record of tree) {
-      const runId =
-        record.pendingStart?.runId ??
-        (!activeStatuses.has(record.summary.status) ? record.queued[0]?.runId : undefined) ??
-        record.summary.runId
-      const epoch = root.summary.epoch
-      const rootTaskId = root.summary.rootTaskId
-      void this.resumeRecord(record).catch((cause: unknown) => {
-        if (
-          this.stopping ||
-          root.pauseRevision !== revision ||
-          root.summary.epoch !== epoch ||
-          root.summary.rootTaskId !== rootTaskId ||
-          record.summary.runId !== runId ||
-          ['stopped', 'interrupted'].includes(root.summary.status) ||
-          ['stopped', 'interrupted'].includes(record.summary.status)
-        )
-          return
-        record.summary.error = String(cause)
-        this.changed(record)
-      })
+    if (!current() || root.pauseRequested) return
+    for (const record of gated) {
+      if (!same(record)) continue
+      const paused = record.pausedRun
+      const session = record.session
+      const continuation =
+        paused &&
+        paused.session === session &&
+        this.sameRun(record, paused.ref) &&
+        paused.needsContinuation &&
+        !(paused.settled && !paused.aborted) &&
+        record.summary.rootTaskId === rootTaskId &&
+        record.summary.epoch === epoch
+      const valid = () =>
+        same(record) &&
+        !root.pauseRequested &&
+        record.session === session &&
+        !['stopped', 'interrupted'].includes(record.summary.status)
+      const resume = async () => {
+        if (!valid() || !session) return
+        if (continuation && paused && activeStatuses.has(record.summary.status)) {
+          record.pausedRun = undefined
+          record.settled = false
+          record.summary.status = 'running'
+          record.summary.runCompletedAt = undefined
+          record.summary.error = undefined
+          this.changed(record)
+          await session.prompt(
+            '继续未完成任务。先核对结果未知的操作及已完成的结果，避免重复执行；随后继续原任务。',
+            undefined,
+            [],
+            { mode: record.summary.mode },
+            true,
+          )
+        } else if (paused?.settled && !paused.aborted) {
+          record.pausedRun = undefined
+          record.settled = false
+          if (record === root) await this.rootSettled(sessionKey, { runId: record.summary.runId })
+          else await this.settle(record, false)
+        } else record.pausedRun = undefined
+        if (valid()) await this.resumeRecord(record)
+      }
+      void resume()
+        .catch((cause: unknown) => {
+          if (!valid()) return
+          record.summary.error = String(cause)
+          this.changed(record)
+        })
+        .finally(() => {
+          if (valid())
+            void Promise.resolve(session?.resumeQueue(revision)).catch((cause: unknown) => {
+              if (!valid()) return
+              record.summary.error = String(cause)
+              this.changed(record)
+            })
+        })
     }
   }
   private async resumeRecord(record: Record) {
@@ -694,6 +898,7 @@ export class HostCollaborationBridge {
       runId: randomUUID(),
       status: 'running',
       mode: input.mode,
+      accessMode: root.nextAccessMode ?? root.summary.accessMode,
       task: input.message,
       runStartedAt: new Date().toISOString(),
       runCompletedAt: undefined,
@@ -749,7 +954,39 @@ export class HostCollaborationBridge {
     const root = this.root(sessionKey)
     if ((runId && root.summary.runId !== runId) || ['stopped', 'interrupted'].includes(root.summary.status)) return
     if (root.summary.status === 'failed') return
+    const ref = this.runRef(root)
+    const message = cause instanceof Error ? `${cause.name}: ${cause.message}` : String(cause)
+    const preservePausedFailure = () => {
+      const paused = root.pausedRun
+      const cancelled =
+        paused?.aborted || /AbortError|This operation was aborted|^(?:Error: )?消息发送已取消$/.test(message)
+      if (
+        !cancelled ||
+        !paused ||
+        paused.session !== root.session ||
+        !this.sameRun(root, paused.ref) ||
+        !activeStatuses.has(root.summary.status) ||
+        (!root.pauseRequested && !root.summary.isPaused)
+      )
+        return false
+      paused.settled = true
+      paused.aborted = true
+      paused.needsContinuation = true
+      root.settled = true
+      return true
+    }
+    if (preservePausedFailure()) {
+      await this.persist(root)
+      this.changed(root)
+      return
+    }
     await this.settlePlan(root)
+    if (!this.sameRun(root, ref) || ['stopped', 'interrupted'].includes(root.summary.status)) return
+    if (preservePausedFailure()) {
+      await this.persist(root)
+      this.changed(root)
+      return
+    }
     root.summary.status = 'failed'
     root.summary.error = String(cause)
     root.summary.runCompletedAt = new Date().toISOString()
@@ -773,8 +1010,35 @@ export class HostCollaborationBridge {
   async rootSettled(sessionKey: string, event?: { aborted?: boolean; runId?: string }) {
     const root = this.root(sessionKey)
     if (event?.runId && root.summary.runId !== event.runId) return
+    const ref = this.runRef(root)
+    const preservePaused = () => {
+      const paused = root.pausedRun
+      if (
+        !paused ||
+        paused.session !== root.session ||
+        !this.sameRun(root, paused.ref) ||
+        !activeStatuses.has(root.summary.status) ||
+        (!root.pauseRequested && !root.summary.isPaused)
+      )
+        return false
+      paused.settled = true
+      paused.aborted ||= Boolean(event?.aborted)
+      paused.needsContinuation ||= Boolean(event?.aborted)
+      root.settled = true
+      return true
+    }
+    if (preservePaused()) {
+      await this.persist(root)
+      this.changed(root)
+      return
+    }
     await this.settlePlan(root)
-    if (!activeStatuses.has(root.summary.status)) return
+    if (!this.sameRun(root, ref) || !activeStatuses.has(root.summary.status)) return
+    if (preservePaused()) {
+      await this.persist(root)
+      this.changed(root)
+      return
+    }
     if (event?.aborted) {
       await this.stopRoot(sessionKey)
       return
@@ -1150,6 +1414,26 @@ export class HostCollaborationBridge {
       thinkingLevel: level,
     }
   }
+  private inheritedAuthorizationPolicy(record: Record, policy: RunPolicy, delegation?: AgentRunRef[]): RunPolicy {
+    if (record.summary.depth === 0) return policy
+    const rootPolicy = this.options.resolveRootAuthorizationPolicy?.(record.summary.rootSessionKey)
+    if (!rootPolicy) throw new Error('子代理缺少当前根会话授权上限，不能启动')
+    const ceilings = [rootPolicy]
+    for (const ref of delegation ?? []) {
+      const parent = this.records.get(ref.agentId)
+      if (!parent || !this.sameRun(parent, ref)) throw new Error('父代理委托轮次已失效')
+      ceilings.push(parent.summary)
+    }
+    const rank = { 'read-only': 0, 'workspace-write': 1, 'full-access': 2 }
+    let accessMode = policy.accessMode
+    for (const ceiling of ceilings) if (rank[ceiling.accessMode] < rank[accessMode]) accessMode = ceiling.accessMode
+    return {
+      ...policy,
+      accessMode,
+      mode: policy.mode === 'plan' || ceilings.some((ceiling) => ceiling.mode === 'plan') ? 'plan' : 'default',
+    }
+  }
+
   private async start(
     record: Record,
     message: string,
@@ -1165,12 +1449,16 @@ export class HostCollaborationBridge {
     if ((record.cleaning && !allowCleaning) || (record.summary.cleanup && record.summary.cleanup.state !== 'completed'))
       throw new Error('目标 Agent 尚未完成清理')
     this.options.assertCheckoutAvailable?.(record.summary.cwd)
+    policy = this.inheritedAuthorizationPolicy(record, policy, delegation)
     const replaceWorker =
       record.session && (record.summary.mode !== policy.mode || record.summary.accessMode !== policy.accessMode)
     const runId = scheduledRunId ?? randomUUID()
     const assertStarting = () => {
       if (this.stopping || record.summary.runId !== runId || !['starting', 'running'].includes(record.summary.status))
         throw new Error('子 Agent 启动已取消或轮次更换')
+      const latest = this.inheritedAuthorizationPolicy(record, policy, delegation)
+      if (latest.mode !== policy.mode || latest.accessMode !== policy.accessMode)
+        throw new Error('子代理启动期间授权上限已收紧，请重新委派')
     }
     const task = { message, rootTaskId, epoch, policy, runId, delegation, changeOwner }
     record.changeOwner = changeOwner
@@ -1257,7 +1545,7 @@ export class HostCollaborationBridge {
       )
       record.session = boundSession
       this.callers.set(record.session, record)
-      record.session.configureAccess(record.summary.accessMode)
+      await record.session.configureAccess(record.summary.accessMode)
       const root = this.root(record.summary.rootSessionKey)
       record.pauseApplied = Boolean(root.pauseRequested)
       await boundSession.setPaused(Boolean(root.pauseRequested), root.pauseRevision ?? 0)
@@ -1410,6 +1698,21 @@ export class HostCollaborationBridge {
 
   private async settle(record: Record, aborted: boolean) {
     if (!activeStatuses.has(record.summary.status)) return
+    const preservePaused = () => {
+      const paused = record.pausedRun
+      if (!paused || paused.session !== record.session || !this.sameRun(record, paused.ref) || !this.paused(record))
+        return false
+      paused.settled = true
+      paused.aborted ||= aborted
+      paused.needsContinuation ||= aborted
+      record.settled = true
+      return true
+    }
+    if (preservePaused()) {
+      await this.persist(record)
+      this.changed(record)
+      return
+    }
     const runId = record.summary.runId
     if (record.settled) return
     record.settled = true
@@ -1422,6 +1725,11 @@ export class HostCollaborationBridge {
             return { messages: [] as Snapshot['messages'] }
           })
     if (runId !== record.summary.runId || !activeStatuses.has(record.summary.status)) return
+    if (preservePaused()) {
+      await this.persist(record)
+      this.changed(record)
+      return
+    }
     record.settled = true
     record.summary.sessionFile = record.session!.getActiveSession().sessionFile
     record.summary.sessionId = record.session!.getActiveSession().sessionId
@@ -2077,7 +2385,7 @@ export class HostCollaborationBridge {
           await Promise.race([
             Promise.all([
               child.summary.depth > 0 ? child.session?.stopAndWait() : child.session?.abort(),
-              child.summary.depth > 0 && childRun && this.options.stopServicesForRun?.(childRun),
+              childRun && this.options.stopServicesForRun?.(childRun),
             ]),
             new Promise<never>((_, reject) => {
               timer = setTimeout(() => reject(new Error('运行清理超过 10 秒')), 10000)

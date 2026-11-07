@@ -28,12 +28,21 @@ export function ServerForm({
   const [args, setArgs] = useState(() => stringify(initial.args, []))
   const [env, setEnv] = useState(() => stringify(initial.env, {}))
   const [headers, setHeaders] = useState(() => stringify(initial.headers, {}))
+  const [planTools, setPlanTools] = useState(() =>
+    Array.isArray(initial.planReadOnlyTools) ? initial.planReadOnlyTools.join('\n') : '',
+  )
   const [advanced, setAdvanced] = useState(false)
   const [json, setJson] = useState(() => stringify(initial, {}))
   const [error, setError] = useState('')
   const http = 'url' in config || !('command' in config)
   const compose = () => {
-    const next = { ...config }
+    const next: Record<string, unknown> = {
+      ...config,
+      planReadOnlyTools: planTools
+        .split('\n')
+        .map((name) => name.trim())
+        .filter(Boolean),
+    }
     if (http) next.headers = JSON.parse(headers)
     else {
       next.args = JSON.parse(args)
@@ -50,6 +59,7 @@ export function ServerForm({
         setArgs(stringify(next.args, []))
         setEnv(stringify(next.env, {}))
         setHeaders(stringify(next.headers, {}))
+        setPlanTools(Array.isArray(next.planReadOnlyTools) ? next.planReadOnlyTools.join('\n') : '')
       } else setJson(stringify(compose(), {}))
       setAdvanced(!advanced)
       setError('')
@@ -122,6 +132,21 @@ export function ServerForm({
         </label>
       ) : (
         <>
+          <label className="block space-y-1.5">
+            <span className="text-xs">Plan / 只读模式工具（每行一个远端工具名称）</span>
+            <Textarea
+              aria-label="Plan 只读工具"
+              rows={3}
+              maxLength={65536}
+              className="font-mono text-xs select-text rounded-lg"
+              value={planTools}
+              onChange={(event) => setPlanTools(event.target.value)}
+              disabled={busy}
+            />
+            <p className="text-[11px] text-muted-foreground">
+              保存即授权这些工具用于 Plan 和只读模式；修改服务配置后需重新保存授权。远端也必须声明工具只读。
+            </p>
+          </label>
           <label className="block space-y-1.5">
             <span className="text-xs">连接类型</span>
             <Select

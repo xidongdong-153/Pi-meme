@@ -1,12 +1,30 @@
-# UI 能力
+# 声明式 UI
 
-UI 入口导出 `activate(context)`，读取本技能 `dist/toolchain/node_modules/@pi-meme/plugin-sdk/src/ui.d.ts`，再按本次能力读取同目录的 `composer.d.ts`、`reactive.d.ts`、`message-actions.d.ts` 或 `navigation.d.ts`。使用宿主 React，不把 React 本体打入插件。
+读取随附 `dist/toolchain/node_modules/@pi-meme/plugin-sdk/src/declarative-ui.d.ts`。SDK 4 UI 是 JSON，源码 `src/ui/entry.json`，构建产物 `dist/ui/entry.json`；没有 activate/render 函数。Host 渲染固定控件，不导入插件 JS、React、HTML 或 CSS。
 
-- 使用输入框：申请对应 `composer.read/write/attachments/submit/before-send`。先用 `composer.current()` 取得 view，再使用它的 ref/revision；离开聊天或目标改变后重新取得。不要维护第二份可写草稿、操作隐藏输入框、绕过 CAS/IME/上传/配置保存检查，或用 DOM 模拟发送。
-- 发送前处理：局部 hook ID 列入 `permissions.beforeSend`，默认不执行，交给用户逐项开启。只能 pass、replace 或 block 候选输入；附件仅使用已有 ready 引用，不在 hook 内上传。异常与超时必须阻止发送，不吞错放行。
-- 读取消息：申请 `reactive.read/messages.read`，使用 metadata/select/body 或 messages.page/getMessage。MessageRef 用 Pi 原生 entryId，不根据时间戳或数组下标构造；不能导出隐藏 thinking、展开技能全文、base64 或凭据。
-- 消息动作：使用 `messageActions.register`，申请 `messages.actions` 与 `messages.read`，声明 roles 和 source。宿主控制菜单、busy 与确认，不注册旧 `message-actions` contribution。自定义正文 renderer 仍只能匹配本插件 ownerId/generation。
-- 中央业务页：使用 `pages.register` 和每插件一个 `navigation.register`，申请 `navigation.pages`。scope 为 app/project/session，菜单和默认页只引用本插件页面。页面使用捕获 target、signal、page.params/setParams/setUnsavedChanges；不改变后台聊天选择，不跨 Host 导航，不把秘密写入 params。
-- 未保存表单用 `setUnsavedChanges(true)`，保存后设 false。租约过期后保留可见内容但停止保存，不向新代 Server 重放旧表单。
+```json
+{
+  "version": 1,
+  "pages": [
+    {
+      "id": "main",
+      "title": "状态",
+      "scope": "app",
+      "blocks": [
+        { "kind": "text", "text": "当前状态" },
+        { "kind": "action", "title": "刷新", "operation": "status", "input": {} }
+      ]
+    }
+  ]
+}
+```
 
-页面与面板最小模板位于本技能 `assets/templates/`。UI 调用 Server 必须配同代可信 Server，操作 audience 包含 ui；受限 Server 不能用作 UI 的后台。注册返回的释放函数需要在插件释放时执行，样式只作用于自己的根节点。
+- 根字段只接受 version/pages/panels；scope 为 app/project/session。
+- pages/panels 每类最多 32 项，id 全包唯一、以字母起始，只含字母数字、下划线、点或横线，最长 80；title 非空、最长 160。
+- 每个 surface 最多 128 blocks，全包最多 512；序列化 JSON 长度最多 128 × 1024 字符。text 最长 16,000 字符。
+- 当前 block 只支持 text/action。action 的 operation 为同插件局部操作名，不能加插件前缀，input 为 JSON。
+- 页面需申请 navigation.pages。action 路由到同代受限 Server，操作 audience 包含 ui；Host 继续检查实际目标、schema、effect、capabilities、grant 与取消信号。
+
+UI JSON 由 generator 直接生成，不需要模板里的 React 文件。旧 composer hook、before-send JS、message renderer、messageActions、pages.register/navigation.register 不是 SDK 4 外部能力。随附旧类型文件不能用来绕过 manifest 和加载器。
+
+迁移现有 React 插件时保留用户源码，逐项转成声明与受限操作；当前控件无法表达的功能明确报告能力缺口，不回退同源 JS，也不擅自删除旧资产。页面参数和 input 不放凭据。重放或取消后结果不明的写操作不自动重试。

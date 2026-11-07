@@ -1,5 +1,5 @@
 ---
-description: 'HostApi v2 的稳定目标、HTTP 控制、幂等提交、回执、事件补读和 Node 客户端'
+description: 'HostApi v3 的稳定目标、HTTP 控制、幂等提交、回执、事件补读和 Node 客户端'
 status: implemented
 paths:
   - 'packages/contracts/src/app-host.ts'
@@ -21,13 +21,13 @@ paths:
   - 'packages/client/src/node-host-client.ts'
 ---
 
-# HostApi v2
+# HostApi v3
 
-本文描述已实现的正式接口。公共类型在 [app-host.ts](../packages/contracts/src/app-host.ts)，实现位于 [app-control.ts](../packages/host/src/app-control.ts)。Server/UI 插件通过 `context.host` 调用，不取得内部 Store、SessionPool 或 Worker。
+本文描述当前正式接口契约，不代表本轮运行验收。认证、执行硬顶和破坏性升级见 [权限控制与版本迁移](permissions-and-migration.md)。公共类型在 [app-host.ts](../packages/contracts/src/app-host.ts)，实现位于 [app-control.ts](../packages/host/src/app-control.ts)。外部应用通过认证客户端调用显式目标接口；SDK 4 插件只使用受限 broker 和声明式 UI，不取得完整 context.host、内部 Store、SessionPool 或 Worker。
 
 ## 稳定目标与接口组
 
-`apiVersion` 固定为 2。`ProjectRef = { hostId, projectId }`，`SessionRef = { hostId, sessionId }`，`WorkspaceRef` 接受二者之一。Host 身份在 `host-id`，项目、会话与操作记录持久化于 `state/control/`（快照与追加日志；旧版本为单个 `control.json`，详见 [数据目录与存储](storage.md)）。
+`apiVersion` 固定为 3。`ProjectRef = { hostId, projectId }`，`SessionRef = { hostId, sessionId }`，`WorkspaceRef` 接受二者之一。Host 身份在 `host-id`，项目、会话与操作记录持久化于 `state/control/`（快照与追加日志；旧版本为单个 `control.json`，详见 [数据目录与存储](storage.md)）。
 
 操作指定目标，不读取或改变客户端的界面选择。会话创建立即持久化身份，首次生成 Pi JSONL 后补充文件绑定；内部 `sessionKey` 不作为公开持久 ID。
 
@@ -41,7 +41,7 @@ paths:
 | `sessions`        | `create`、`list`、`get`、`attention`、`markRead`、`snapshot`、`history`、`messages`、`message`、`configure`、`submit`、`stop`、`pause`、`resume`、`receipt`、`submissions`、`cancelSubmission` |
 | `files`           | `list`、`read`、`preview`、`search`、`write`                                                                                                                                                   |
 | `terminal`        | `open`、`attach`、`input`、`resize`、`close`                                                                                                                                                   |
-| `git`             | `environment`、`snapshot`、`diff`，只读                                                                                                                                                        |
+| `git`             | 契约包含 `environment`、`snapshot`、`diff`；当前工作树 executor 不支持，见下文能力边界                                                                                                         |
 | `interaction`     | `respond`，按根会话或子任务来源回答                                                                                                                                                            |
 | `agents`          | `list`、`get`、`stop`                                                                                                                                                                          |
 | `goals`           | `get`、`start`、`edit`、`pause`、`resume`、`clear`                                                                                                                                             |
@@ -81,14 +81,16 @@ if (capabilities.features.includes('models') && client.models) {
 
 `capabilities().features` 包含 `image-generation` 时，`imageGeneration` 提供当前 Host 的图片模型配置。类型见 [image-generation.ts](../packages/contracts/src/image-generation.ts)。`getConfig` 返回修订、默认配置 ID、模型列表与凭据是否存在，不返回 API Key。`saveModel`、`deleteModel`、`setDefault` 携带读取时的 `revision`，不使用 `MutationOptions`，过期修订被拒绝。
 
-`test(id)` 明确指定配置并实际生成一张测试图，可能产生费用，不自动重试。返回原生图片与 Host 附件路径；它不修改默认模型，也不验证编辑能力。设置调用不进入控制操作回执或日志，凭据单独保存。Agent 生图和编辑使用绑定执行会话的 Worker 桥接，不通过此设置接口执行。
+`test(id)` 只允许已认证用户直接发起，独立于当前选中会话的只读/Plan 设置；它明确指定配置并实际生成一张测试图，可能产生费用，不自动重试。所有非用户主体均拒绝，Agent 生图和编辑使用绑定当前任务预算与模式的 Worker 桥接。
+
+测试使用当前授权租约的取消信号，撤权会取消实际请求和响应读取；已送出的请求仍可能产生费用，未知结果不能自动重试。返回原生图片与 Host 附件路径；它不修改默认模型，也不验证编辑能力。设置调用不进入 ControlStore 的操作回执或日志，授权日志仍记录对应 lease，凭据单独保存。
 
 ## 消息查找与分页
 
-SDK 3 的消息数据仍使用 HostApi v2，不增加 HostApi v3。公共类型见 [plugin-ui-data.ts](../packages/contracts/src/plugin-ui-data.ts)，可见内容转换见 [plugin-ui-message.ts](../packages/contracts/src/plugin-ui-message.ts)。
+SDK 4 的公共消息数据沿用原生条目身份与分页投影；正式接口已升级为 HostApi v3，权限迁移见 [权限控制与版本迁移](permissions-and-migration.md)。公共类型见 [plugin-ui-data.ts](../packages/contracts/src/plugin-ui-data.ts)，可见内容转换见 [plugin-ui-message.ts](../packages/contracts/src/plugin-ui-message.ts)。
 
 - `sessions.messages(ref, { offset?, limit?, cursor? })`：读取当前原生分支的公共消息投影，默认 100、最大 500 条。返回 `messages/totalMessages/nextOffset/nextCursor/branchRevision/leafId`。
-- `sessions.message(ref, { entryId })`：按原生条目 ID 查单条消息。调用 UI SDK 时使用 `MessageRef = { session: ref, entryId }`。
+- `sessions.message(ref, { entryId })`：按原生条目 ID 查单条消息。内置共享界面的引用使用 `MessageRef = { session: ref, entryId }`，不表示 SDK 4 声明式插件获得任意消息读取能力。
 - `messages` 每项包含角色、状态、内容 revision、来源插件与 generation、工具或自定义类型，以及可见 `text`、JSON `data` 和图片元数据。不返回隐藏 thinking、技能展开全文、原始 Pi 对象或图片 base64。
 - 持久 ref 只对应原生 `message/custom_message`；流式内容和压缩、分支摘要等合成内容不伪造可操作 ref。assistant 聚合回复保留多个真实 refs，不分配虚构聚合 ID。
 - cursor 绑定 session、由 leaf 与消息 sourceEntry 计算的 branch revision，以及下一页 offset；分支或 context edit 改变后返回 `stale-cursor`，调用方应重新读取，不能拼接不同分支。
@@ -103,7 +105,7 @@ SDK 3 的消息数据仍使用 HostApi v2，不增加 HostApi v3。公共类型�
 
 ```json
 {
-  "apiVersion": 2,
+  "apiVersion": 3,
   "hostId": "example-host",
   "clientId": "example-app",
   "method": "sessions.submit",
@@ -119,13 +121,17 @@ SDK 3 的消息数据仍使用 HostApi v2，不增加 HostApi v3。公共类型�
 
 ## 幂等操作
 
-除上述图片配置与测试接口外，写操作携带 `MutationOptions = { idempotencyKey }`；HTTP 请求将键放在顶层。键长度为 1–128 字符，按 `clientId + idempotencyKey` 去重：
+除上述图片配置与测试接口外，写操作携带 `MutationOptions = { idempotencyKey, expected? }`；HTTP 请求将键和比较前置条件放在顶层。`expected` 可包含 operationId、runId、policy 或 schedule 的任务/运行/授权修订，仅用于比较当前状态；它不能配置会话或授予权限。认证 principal 来自通道身份，请求体 clientId 不能覆盖它。键长度为 1–128 字符，在认证身份隔离后的客户端 namespace 内按 idempotencyKey 去重；namespace 由 principalId、installationId 与调用者 clientId 绑定。重新登录或配对可能改变 installationId，不能假定跨身份沿用旧 namespace：
 
 - 相同键和相同方法、参数返回已保存结果；并发调用等待同一次操作。
 - 同键不同内容返回 `idempotency-conflict`，缺失或无效键返回 `invalid-key`。
 - 已失败或中断的操作不重新执行；中断提交可读取已有回执。
 
-[ControlStore](../packages/host/src/control-store.ts) 保存请求摘要、操作结果、回执与关键事件，不把终端输入正文存入控制日志。客户端遇到网络不确定时用相同键查询或重试，不为同一外部事件生成新键。该保证不等于工具副作用恰好执行一次。
+[ControlStore](../packages/host/src/control-store.ts) 保存请求摘要、操作结果、回执与关键事件，不把终端输入正文存入控制日志。客户端遇到网络不确定时用相同键查询或重试，不为同一外部事件生成新键。
+
+这层控制请求 namespace 与工具执行身份不同。固定 SDK 把真实持久 Native session、assistant entry、唯一工具槽位绑定为 `toolop:v1:<SHA-256>`；嵌套调用绑定私有父 operation 与 Native ordinal，原 provider callId 保留用于 Native 路由与 entry 内槽位核对，不能独立用作全局去重。Host 同一授权 journal 跨 registration/principal 阻挡已记录工具的重放；boot/registration 不进入逻辑键，但在途调用仍核对原注册归属。
+
+授权 journal 现为 format 2，旧未发布开发 format 1 缺可信工具映射，明确拒恢复并保留原日志，不猜迁移或自动删除；64 MiB 安全读取上限不通过裁剪幂等记录绕过。控制请求和工具准入均不承诺不同 Host/dataRoot 或任意外部效果全局 exactly-once。详情见 [单次授权、幂等与撤销](permissions-and-migration.md#单次授权幂等与撤销)。
 
 ```mermaid
 sequenceDiagram
@@ -158,6 +164,10 @@ sequenceDiagram
 
 `cancelSubmission` 只撤销排队提交，已投递任务需停止会话；`sessions.stop` 中断当前运行并撤销未投递队列。`pause/resume` 控制会话暂停与后续调度。
 
+pause 会结束原 submit attempt；原 `sessions.receipt(operationId)` 永久保持 `interrupted`。显式 resume 发送新的 custom continuation，继续同一逻辑任务的 rootTask/epoch/run，保留原权限 ceiling 与预算计数 key。恢复完成不能将旧 receipt 改为 `completed`，当前逻辑任务状态应看 agents/root/run，而不是等待旧提交回执复活。
+
+Host 用私有 authorization generation 与 await 后 context 校验隔离旧执行，SDK 用 run ticket、按运行绑定的 facade 与旧 signal 取消阻断旧回调。旧模型 I/O 尚未 drain 时新请求快速拒绝；暂停恢复不会清除用户撤权。停止或 interrupted 也不证明远端计算、计费或外部副作用已经停止/回滚。来源：[app-control.ts](../packages/host/src/app-control.ts)、[coordinator.ts](../packages/subagents/src/server/coordinator.ts)、[SDK session](../packages/pi-runtime/src/sdk/session.ts)。
+
 `sessions.stopTask` 中断当前任务并保留未投递队列。之后的 `start` 输入独立执行，`continueTask` 只继续当前任务；两者都不释放旧队列。调用 `sessions.resume` 后才继续投递这些排队提交。
 
 Host 退出或重启将未完成提交记为 `interrupted`，不重放任务。`outcomeUncertain` 表示关闭前已经开始投递；未投递队列为 false。收到受理回执不能视为任务成功，需读取回执或订阅状态事件。
@@ -175,13 +185,17 @@ Host 退出或重启将未完成提交记为 `interrupted`，不重放任务。`
 文件操作使用显式目标的工作目录内相对路径；`preview` 额外接受该工作目录内的绝对路径，以及当前 Host 附件目录内的图片绝对路径，用于显示 Agent 截图和上传图片。工作目录的配置路径与解析后的真实路径均可使用，符号链接目标仍须留在对应允许目录内。[workspace-files.ts](../packages/host/src/workspace-files.ts) 校验目标、路径与真实符号链接目标，拒绝越界：
 
 - `preview` 分类返回文本、图片或不支持原因；附件预览只读取数据目录 `data/attachments/` 内的图片，拒绝符号链接根目录与越界链接，不允许读取附件文本或修改附件。`search` 按文件名搜索并返回分页游标。
-- `write` 只保存现有 UTF-8 文本文件，携带读取时的 `revision` 和幂等键，外部修改后拒绝覆盖。
+- `write` 只保存现有 UTF-8 文本文件，携带读取时的 `revision` 和幂等键，按身份与内容 CAS 拒绝已变化的目标。实际 typed writer 在同一经验证的 `O_RDWR` FD 上原地写入、截断、fsync 和哈希校验，不做临时文件 rename；取消可能留下部分或完整内容，不能承诺原子替换或回滚。
 - 文本读取/保存上限为 1 MiB，图片上限 8 MiB；保存保留 BOM、LF/CRLF 与文件权限。
 - `capabilities().fileOperations` 用于协商 `preview/search/write`，旧 Host 未提供该字段时文件面板保持只读。
 
-终端由 [terminal-service.ts](../packages/host/src/terminal-service.ts) 使用 `node-pty`，界面使用 xterm.js。每个 Host 最多 16 个活动终端，单终端保留 256 KiB 输出，单次输入最多 64 KiB。能力不可用时 `capabilities().features` 不包含 `terminal`。
+文件/目录读取使用 [controlled reader](../packages/pi-runtime/src/sdk/controlled-file-read.ts) 的窄能力；macOS 目录 `expected` 身份验证不支持，不能由预检查声称祖先 ABA 已被完整证明。底层 writer 的 `expected` 必填，新增文件用 `null`；公共 `files.write` 仍只写已有文件，由 Host 绑定该批准对象。完整边界见 [权限控制与版本迁移](permissions-and-migration.md#平台能力与未验范围)。
+
+终端由 [terminal-service.ts](../packages/host/src/terminal-service.ts) 使用 `node-pty`，界面使用 xterm.js。Owner PTY 的 open/input/resize/close 仅允许真实用户来源；Agent 不能凭同一 SessionRef、父能力或声明 user 身份调用。每个 Host 最多 16 个活动终端，单终端保留 256 KiB 输出，单次输入最多 64 KiB。能力不可用时 `capabilities().features` 不包含 `terminal`。
 
 隐藏面板、关闭右侧标签和切换会话保留 PTY；显式关闭终端实例或 Host 退出才关闭进程。重新附着读取输出序号与缓冲，重启不恢复 PTY 进程。
+
+Git 契约存在不表示 executor 可用：status/diff/checkout/switch/worktree 当前明确 unsupported，availability 也会执行 status，因此相关 UI 可显示不可用。changed-turn undo 尚缺受控 restore 后端，不通过旧记录路径直接恢复。来源：[safe-git-command.ts](../packages/git/src/server/safe-git-command.ts)、[git-service.ts](../packages/git/src/server/git-service.ts)、[turn-change-store.ts](../packages/pi-runtime/src/turn-change-store.ts)。
 
 ## Agent 项目服务
 

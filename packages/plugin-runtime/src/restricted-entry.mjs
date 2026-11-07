@@ -18,7 +18,7 @@ let bytes = Buffer.alloc(0)
 let serial = 0
 let identity
 function send(value) {
-  const body = Buffer.from(JSON.stringify(value))
+  const body = Buffer.from(JSON.stringify({ ...value, protocol: 2 }))
   if (body.length > 4194304) throw new Error('payload-too-large: 响应过大')
   const header = Buffer.alloc(4)
   header.writeUInt32BE(body.length)
@@ -151,6 +151,7 @@ input.on('data', (data) => {
       if (size > 4194304) throw new Error('payload-too-large')
       if (bytes.length < size + 4) break
       const message = JSON.parse(bytes.subarray(4, size + 4).toString())
+      if (message?.protocol !== 2) throw new Error('unsupported-protocol: 插件执行协议需要升级至 2')
       bytes = bytes.subarray(size + 4)
       if (message.type === 'brokerReply') {
         const call = pending.get(message.id)

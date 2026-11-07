@@ -55,8 +55,11 @@ export function parseLinkPreview(html: string, url: string): LinkPreview {
 /** 复用网络代理的 DNS 固定、公开地址校验、大小限制和并发限制；不带用户凭据。 */
 export function createLinkPreviewLoader() {
   const broker = new PluginHttpBroker(() => undefined)
-  const cache = new Map<string, { expires: number; result: Promise<LinkPreview> }>()
-  return (input: unknown): Promise<LinkPreview> => {
+  // Only completed public metadata is shared; an in-flight fetch always belongs to its own lease.
+  const cache = new Map<string, { expires: number; result: LinkPreview }>()
+  return async (input: unknown, signal?: AbortSignal): Promise<LinkPreview> => {
+    const activeSignal = signal ? AbortSignal.any([signal, AbortSignal.timeout(8000)]) : AbortSignal.timeout(8000)
+    activeSignal.throwIfAborted()
     if (typeof input !== 'string' || input.length > 8192) throw new Error('链接地址无效')
     const url = new URL(input)
     if (url.protocol !== 'https:' || url.username || url.password) throw new Error('仅支持公开 HTTPS 网页预览')
@@ -67,24 +70,19 @@ export function createLinkPreviewLoader() {
     const grant = emptyPluginGrant('builtin-link-preview')
     grant.restricted.capabilities = ['http.request']
     grant.restricted.network = [{ id: 'preview', origin: url.origin, methods: ['GET'] }]
-    const result = broker
-      .request(
-        'builtin-link-preview',
-        grant,
-        'plan',
-        { url: key, method: 'GET', headers: { accept: 'text/html', 'user-agent': 'Pi-meme-Link-Preview' } },
-        AbortSignal.timeout(8000),
-      )
-      .then((response) => {
-        if (
-          response.status < 200 ||
-          response.status >= 300 ||
-          !response.headers['content-type']?.includes('text/html')
-        ) {
-          throw new Error('网页未提供可用的预览')
-        }
-        return parseLinkPreview(response.body, key)
-      })
+    activeSignal.throwIfAborted()
+    const response = await broker.request(
+      'builtin-link-preview',
+      grant,
+      'plan',
+      { url: key, method: 'GET', headers: { accept: 'text/html', 'user-agent': 'Pi-meme-Link-Preview' } },
+      activeSignal,
+    )
+    activeSignal.throwIfAborted()
+    if (response.status < 200 || response.status >= 300 || !response.headers['content-type']?.includes('text/html'))
+      throw new Error('网页未提供可用的预览')
+    const result = parseLinkPreview(response.body, key)
+    activeSignal.throwIfAborted()
     cache.delete(key)
     if (cache.size >= 128) cache.delete(cache.keys().next().value!)
     cache.set(key, { expires: Date.now() + 5 * 60_000, result })

@@ -32,7 +32,7 @@ Desktop 和 Web 使用同一 Host 会话实现。Pi SDK 负责原生 JSONL、恢
 
 ## 会话与 Worker 生命周期
 
-正式控制接口创建会话时立即保存稳定 `SessionRef`，首次写入 Pi JSONL 后再绑定文件路径；空会话也有独立身份。内部 `sessionKey` 是当前进程的映射，不能代替持久目标。协议见 [HostApi v2](host-api.md)。
+正式控制接口创建会话时立即保存稳定 `SessionRef`，首次写入 Pi JSONL 后再绑定文件路径；空会话也有独立身份。内部 `sessionKey` 是当前进程的映射，不能代替持久目标。协议见 [HostApi v3](host-api.md)。
 
 新建会话、选择历史或切换页面先读取本地投影，首次发送才创建或恢复所属 Worker。每个执行会话持有独立 Worker，切换到其他会话不改变已发送消息的执行目标。
 
@@ -71,7 +71,7 @@ stateDiagram-v2
 
 图中状态描述 Worker 生命周期，不是公开 `AppSession.status` 的枚举。`agent_end` 不表示已经空闲，`agent_settled` 才结束执行。旧 Worker 事件按 generation 隔离，过期启动结果释放；停止响应和结束事件只处理一次。
 
-Worker 创建时固定技能资源快照与外部插件代次。资源变更发布新修订后，相关任务和未答交互结束才退役旧 Worker；新一轮读取新修订。纯 Agent 插件版本可共存，共享 Server 组切换需等待所属调用和租约释放，详见 [插件生命周期](plugins.md#释放与更新)。
+Worker 创建时固定技能资源快照与外部插件代次，owner Worker 入口来自固定运行时快照。资源发布新修订后，相关任务和未答交互结束才退役旧 Worker；新一轮读取新资源修订。业务资源更新不等于允许导入可写仓库 TS 或旧 trusted 插件，见 [插件生命周期](plugins.md#释放与更新)。
 
 模型配置修改保留空闲检查、恢复状态捕获、写文件、重连和恢复顺序。失败保留会话身份、正文和已保存配置。打开历史会话或重连时，原模型不可用则使用默认模型；默认模型也不可用时选择其他可用模型。思考强度使用该模型的设置或全局默认值，并按模型支持的档位调整。没有可用模型时需要先配置模型。模型与命令缓存随重连失效。
 
@@ -87,7 +87,7 @@ Agent 本轮结束、停止响应、Worker 回收、切换会话、关闭工具�
 
 停止先请求进程组退出，超时后强制清理；确认清理完成才显示已停止。进程存活只表示“运行中”，不代表 HTTP 已就绪。断线保留最后快照并标记状态待确认，重连后重新读取。远程 Host 的回环地址只能代表 Host 本机，不提供端口转发。
 
-运行记录和日志保留在 Host 内存，不在重启后恢复服务。日志尾部有大小上限，不持续发送给模型。受管执行支持 macOS、Linux/WSL 和 Windows 11 x64。Windows 通过随包原生程序在创建进程时加入 Job，禁止 breakaway，控制管道断开或 Job 最后一个句柄关闭时终止关联进程；完全权限服务停止时先尝试 `CTRL_BREAK`，三秒后强制终止。受限服务使用 PSEC，并直接终止其 Job；文件与网络边界见 [Windows 隔离](configuration.md#windows-隔离)。其他平台被强制终止、系统崩溃或程序主动脱离管理时，不保证没有残留进程；应用不会按保存的旧 PID 盲目终止其他进程。
+运行记录和日志保留在 Host 内存，重启不恢复服务，不按旧 PID 接管进程。启动须通过实际授权与执行能力检查，不能从平台实现存在推导可执行；当前 Unix 任意命令受 host-secrets unknown 拒绝，Windows Full typed/PSEC 组合也明确拒绝。Windows Job、控制管道与停止机制见 [Windows 隔离](configuration.md#windows-隔离)，本轮 Windows 真路径未验。撤权取消服务，不把取消当作外部效果已回滚。
 
 实现见 [活动服务](../packages/activities/src/server/service.ts)、[Agent 工具](../packages/activities/src/agent/entry.ts)、[活动面板](../packages/activities/src/ui/activity-panel.tsx) 和 [活动契约](../packages/contracts/src/service-activity.ts)。
 
@@ -214,16 +214,16 @@ sequenceDiagram
 
 输入 `/plan`、`/计划` 或 `/计划模式` 激活输入区的计划标记。纯命令只切换后续输入的模式，带正文时发送计划任务；关闭标记返回执行模式。切换不改变正在运行的轮次。解析规则见 [normalizePlanMessage](../packages/contracts/src/plan.ts)。
 
-规划模式保留读取、搜索、协作、提问与保存计划，命令和可用的 MCP 调研工具默认执行，无需逐次确认。已知写入命令被拒绝。codemode 可编排可用工具，每个嵌套调用仍经过实际准入检查，不能直接使用模型调用入口。实现见 [plan-mode.ts](../packages/pi-runtime/src/extensions/plan-mode.ts)。
+规划模式保留获准读取、搜索、协作、提问与 Host 专用计划产物，业务写入受只读硬顶约束。命令仍须满足真实执行能力；Unix host-secrets unknown 等缺项会拒绝任意执行，不能因是调研就默认放行。codemode 每次嵌套调用继续检查权限，模型请求经 Host broker。实现见 [plan-mode.ts](../packages/pi-runtime/src/extensions/plan-mode.ts)。
 
-MCP 查询和通用脚本工具不再要求单次或本轮调研授权。明确声明破坏性写入、且未声明只读的工具在 Plan 中隐藏并拒绝执行。工具是否可用仍由 Host 注册信息决定；SDK 3 受限插件继续检查已有的安装、选择和能力授权。
+MCP 授权绑定当前配置哈希。Plan/read-only 只允许用户显式加入 planReadOnlyTools、同时具有只读注解且不声明破坏性的工具；注解不能自行授权。不默认执行所有 MCP 查询或通用脚本。配置变化、撤权或哈希不匹配立即拒绝。
 
-Plan 始终使用只读沙箱，即使会话选择完全权限。命令与本地 MCP 进程不能修改业务文件；临时输出使用沙箱临时目录。MCP 的 HTTP 查询仍依赖用户信任的外部接口语义，本地沙箱不保证远端只读。可信 App 插件仍不导入，SDK 3 受限只读插件继续按已有授权执行。子代理继承父级上限，不能向普通模式子任务派发消息绕过限制。权限边界见 [插件执行与授权](configuration.md#插件执行与授权)。
+Plan 始终保持只读，即使会话选择 Full；一次批准不能扩大硬顶。SDK 4 外部插件仅受限入口，不加载可信代码。子代理继承父级上限，不能向更宽权限子任务派发消息绕过限制。MCP 远端只读仍依赖服务语义，GET/HEAD 不证明无副作用。详见 [权限控制与版本迁移](permissions-and-migration.md)。
 
 ```mermaid
 %%{init: {"theme": "dark"}}%%
 flowchart TD
-  Input["规划输入"] --> Research["默认执行只读调研"]
+  Input["规划输入"] --> Research["按授权执行只读调研"]
   Research --> Wait["子任务结束并读取结果"]
   Wait --> Save["根 Agent 保存计划"]
   Save --> Card["对话内计划节选"]

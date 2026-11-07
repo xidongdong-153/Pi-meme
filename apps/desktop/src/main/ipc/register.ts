@@ -13,7 +13,7 @@ export function registerPlatformIpc(
   getWindow: () => BrowserWindow | null,
   getConnection: () => Promise<HostConnection>,
   getTrustedOrigin: () => string,
-  setConnection: (value: { url: string; token: string } | null) => Promise<void>,
+  setConnection: (value: { url: string; token: string; save?: boolean } | null) => Promise<void>,
   retryConnection: () => Promise<void>,
   savedConnections: {
     list: () => Promise<SavedHostConnection[]>
@@ -106,9 +106,16 @@ export function registerPlatformIpc(
     )
       throw new Error('服务连接参数无效')
     const url = new URL(input.url)
-    if (url.protocol !== 'https:' || url.username || url.password)
-      throw new Error('远程服务必须使用 HTTPS，地址不能包含凭据')
-    return setConnection({ url: url.origin, token: input.token })
+    const pairingUrl = savedConnections.error()?.pairingUrl
+    const localPairing = pairingUrl !== undefined && url.origin === pairingUrl
+    if ((url.protocol !== 'https:' && !localPairing) || url.username || url.password)
+      throw new Error('远程服务必须使用 HTTPS，本机配对只能连接当前等待认证的服务')
+    if ('save' in input && typeof input.save !== 'boolean') throw new Error('保存配对选项无效')
+    return setConnection({
+      url: url.origin,
+      token: input.token,
+      save: 'save' in input ? (input.save as boolean) : undefined,
+    })
   })
   handle('platform:directory', async () => {
     const result = await dialog.showOpenDialog(await local(), { properties: ['openDirectory'] })

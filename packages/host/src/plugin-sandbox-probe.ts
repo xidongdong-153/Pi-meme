@@ -8,6 +8,7 @@ import { pluginSandboxLaunch } from './plugin-sandbox'
 import { spawnWindowsProcess, WindowsCommandProcess } from '@pi-meme/windows-native/process'
 
 export type PluginSandboxCapability = { supported: boolean; reason?: string }
+const probeTimeoutMs = 20000
 const probes = new Map<string, Promise<PluginSandboxCapability>>()
 export function probePluginSandbox(node: string): Promise<PluginSandboxCapability> {
   if (!['darwin', 'linux', 'win32'].includes(process.platform))
@@ -18,12 +19,24 @@ export function probePluginSandbox(node: string): Promise<PluginSandboxCapabilit
   const key = `${process.platform}:${process.arch}:${node}`
   let pending = probes.get(key)
   if (!pending) {
-    pending = probe(node)
+    const controller = new AbortController()
+    let timer: ReturnType<typeof setTimeout> | undefined
+    pending = Promise.race([
+      probe(node, controller.signal),
+      new Promise<PluginSandboxCapability>((resolve) => {
+        timer = setTimeout(() => {
+          controller.abort()
+          resolve({ supported: false, reason: '受限插件沙箱探测超时' })
+        }, probeTimeoutMs)
+      }),
+    ])
+      .catch((cause: unknown) => ({ supported: false, reason: cause instanceof Error ? cause.message : String(cause) }))
+      .finally(() => clearTimeout(timer))
     probes.set(key, pending)
   }
   return pending
 }
-async function probe(node: string): Promise<PluginSandboxCapability> {
+async function probe(node: string, signal: AbortSignal): Promise<PluginSandboxCapability> {
   const root = await mkdtemp(path.join(tmpdir(), 'pi-plugin-probe-'))
   const tcp = createServer((socket) => socket.destroy())
   const unix = createServer((socket) => socket.destroy())
@@ -54,6 +67,7 @@ async function probe(node: string): Promise<PluginSandboxCapability> {
       `import fs from 'node:fs';import net from 'node:net';import cp from 'node:child_process';const denied=async fn=>{try{await fn();return false}catch{return true}};const socket=(value)=>new Promise((resolve,reject)=>{const s=net.connect(value,()=>{s.destroy();resolve()});s.once('error',error=>${process.platform === 'win32' ? "['EACCES','EPERM'].includes(error.code)?reject(error):resolve()" : 'reject(error)'});s.setTimeout(500,()=>{s.destroy();resolve()})});console.log(JSON.stringify({read:fs.readFileSync('read','utf8')==='readable',writeDenied:await denied(()=>fs.writeFileSync('write','allowed')),outside:await denied(()=>fs.readFileSync(${JSON.stringify(path.join(root, 'private'))})),tcp:await denied(()=>socket({host:'127.0.0.1',port:${address.port}})),unix:await denied(()=>socket(${JSON.stringify(socketPath)})),fork:await denied(()=>cp.execFileSync(${JSON.stringify(node)},['-e','process.exit(0)'])),env:!process.env.PI_MEME_DATA_ROOT&&!process.env.SSH_AUTH_SOCK&&!process.env.NODE_OPTIONS}));`,
     )
     for (const writable of [true, false]) {
+      if (signal.aborted) throw new Error('受限插件沙箱探测已取消')
       const launch = await pluginSandboxLaunch({ node, entry, workspace, directory, scratch, writable })
       // Windows 探测不带 Node 权限参数，逐项核对原生隔离。
       const native = launch.windowsSandbox
@@ -61,8 +75,13 @@ async function probe(node: string): Promise<PluginSandboxCapability> {
             env: launch.env,
             cwd: workspace,
             sandbox: launch.windowsSandbox,
+            signal,
           })
         : undefined
+      if (signal.aborted) {
+        await native?.stop()
+        throw new Error('受限插件沙箱探测已取消')
+      }
       const result = await new Promise<string>((resolve, reject) => {
         const child = native
           ? new WindowsCommandProcess(native)
@@ -74,7 +93,7 @@ async function probe(node: string): Promise<PluginSandboxCapability> {
             })
         let output = ''
         let error = ''
-        const timer = setTimeout(() => {
+        const kill = () => {
           if (child instanceof WindowsCommandProcess) {
             child.native.kill()
             return
@@ -86,7 +105,10 @@ async function probe(node: string): Promise<PluginSandboxCapability> {
               child.kill('SIGKILL')
             }
           }
-        }, 5000)
+        }
+        const timer = setTimeout(kill, 5000)
+        signal.addEventListener('abort', kill, { once: true })
+        if (signal.aborted) kill()
         child.stdout!.on('data', (b: Buffer) => {
           output = (output + b.toString()).slice(-65536)
         })
@@ -100,10 +122,12 @@ async function probe(node: string): Promise<PluginSandboxCapability> {
           fd.end(launch.seccomp)
         }
         child.once('error', (cause) => {
+          signal.removeEventListener('abort', kill)
           clearTimeout(timer)
           reject(cause)
         })
         child.once('close', (code) => {
+          signal.removeEventListener('abort', kill)
           clearTimeout(timer)
           if (code === 0) resolve(output)
           else reject(new Error(`受限 Node 探测退出 ${code}：${error}`))

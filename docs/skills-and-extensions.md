@@ -31,12 +31,12 @@ Host 用户技能在 `resources/skills/`，内置技能在 `resources/builtin/sk
 
 项目资源只读取当前工作目录的 `.agents/skills/`。这些文件不由管理页直接修改；项目策略保存到所属 Host。裸 Pi 扩展、原生 Pi 包、Host `extensions/` 和项目 `.agents/extensions/` 不再装配；旧文件不自动转换成 App 插件。应用不读取本机 Pi CLI、Codex、Claude 或 Gemini 的全局技能目录。
 
-| 类型        | 管理内容                              | 执行方式                                            |
-| ----------- | ------------------------------------- | --------------------------------------------------- |
-| AI 模型配置 | 服务商、模型、协议、地址与凭据        | Host 保存配置与凭据，Worker 调用模型                |
-| 技能        | `SKILL.md` 与脚本、引用、素材目录     | 按描述自动选择，或用户显式调用；正文按需读取        |
-| App 插件    | App SDK 3 manifest、构建目录或 `.pim` | 可信/受限 Server 与 Agent、UI、包内技能、主题和素材 |
-| MCP         | 服务配置、授权与连接状态              | 内置 MCP 客户端连接明确授权的服务                   |
+| 类型        | 管理内容                            | 执行方式                                            |
+| ----------- | ----------------------------------- | --------------------------------------------------- |
+| AI 模型配置 | 服务商、模型、协议、地址与凭据      | Host 保存配置与凭据，Worker 调用模型                |
+| 技能        | `SKILL.md` 与脚本、引用、素材目录   | 按描述自动选择，或用户显式调用；正文按需读取        |
+| App 插件    | App SDK 4 manifest、构建目录或 .pim | 受限 Server/Agent、声明式 JSON UI、技能、主题和素材 |
+| MCP         | 服务配置、授权与连接状态            | 内置 MCP 客户端连接明确授权的服务                   |
 
 模型配置与 MCP 通过各自设置页管理，文件与授权规则见 [配置与安全](configuration.md)。App Server 由 Host 全局管理，不为每个项目另建实例。
 
@@ -105,7 +105,7 @@ Worker 创建时固定资源快照，子代理继承父快照。安装、编辑�
 
 ## Host 接口
 
-类型见 [resources.ts](../packages/contracts/src/resources.ts)，客户端见 [resource-client.ts](../packages/client/src/resource-client.ts)，处理函数见 [entry.ts](../packages/resources/src/server/entry.ts)。以下为内置界面的 `/api/rpc` 方法，不是正式 HostApi v2 的方法；外部 App 对系统目标的操作使用 [HostApi](host-api.md)。
+类型见 [resources.ts](../packages/contracts/src/resources.ts)，客户端见 [resource-client.ts](../packages/client/src/resource-client.ts)，处理函数见 [entry.ts](../packages/resources/src/server/entry.ts)。以下为内置界面的 `/api/rpc` 方法，不是正式 HostApi v3 的方法；外部 App 对系统目标的操作使用 [HostApi](host-api.md)。
 
 | 方法                   | 参数                                 | 结果                                          |
 | ---------------------- | ------------------------------------ | --------------------------------------------- |

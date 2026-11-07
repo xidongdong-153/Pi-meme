@@ -57,7 +57,7 @@ export function unixSocketFilter(architecture = process.arch): Buffer {
   return filter
 }
 
-export async function linuxSandboxLaunch(options: AccessSandboxOptions): Promise<SandboxLaunch> {
+export async function linuxSandboxLaunch(options: AccessSandboxOptions, fileNode?: string): Promise<SandboxLaunch> {
   await access('/usr/bin/bwrap')
   const drives = windowsMounts(await readFile('/proc/self/mountinfo', 'utf8'))
   if (drives.some((root) => pathWithin(root, options.cwd) || pathWithin(root, options.temporary)))
@@ -71,7 +71,7 @@ export async function linuxSandboxLaunch(options: AccessSandboxOptions): Promise
     'ALL',
     '--new-session',
     '--die-with-parent',
-    '--ro-bind',
+    options.mode === 'full-access' ? '--bind' : '--ro-bind',
     '/',
     '/',
     '--proc',
@@ -80,11 +80,18 @@ export async function linuxSandboxLaunch(options: AccessSandboxOptions): Promise
     '/dev',
     '--tmpfs',
     '/run',
-    '--tmpfs',
-    '/tmp',
-    '--tmpfs',
-    '/var/tmp',
   ]
+  if (options.mode !== 'full-access') args.push('--tmpfs', '/tmp', '--tmpfs', '/var/tmp')
+  if (options.taskMode === 'plan' || options.network === 'deny') args.push('--unshare-net')
+  const privateRoots: string[] = []
+  for (const root of [options.agentDir, options.dataRoot, ...(options.protectedRoots ?? [])]) {
+    if (!root) continue
+    try {
+      privateRoots.push(await realpath(root))
+    } catch (cause) {
+      if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw cause
+    }
+  }
   const hiddenRoots = [...new Set([...drives, '/run', '/mnt/wslg'])]
   for (const root of hiddenRoots) {
     try {
@@ -104,38 +111,56 @@ export async function linuxSandboxLaunch(options: AccessSandboxOptions): Promise
   const resolver = await realpath('/etc/resolv.conf')
   args.push('--ro-bind', resolver, resolver)
   const nodeDirectory = path.dirname(await realpath(process.execPath))
-  if (pathWithin('/tmp', nodeDirectory) || pathWithin('/var/tmp', nodeDirectory))
+  if (options.mode !== 'full-access' && (pathWithin('/tmp', nodeDirectory) || pathWithin('/var/tmp', nodeDirectory)))
     args.push('--ro-bind', nodeDirectory, nodeDirectory)
-  args.push('--ro-bind', options.cwd, options.cwd)
-  if (options.mode === 'workspace-write') args.push('--bind', options.cwd, options.cwd)
-  if (options.dataRoot && pathWithin(options.cwd, options.dataRoot))
-    args.push('--ro-bind', options.dataRoot, options.dataRoot)
+  if (options.mode !== 'full-access') {
+    args.push('--ro-bind', options.cwd, options.cwd)
+    if (options.mode === 'workspace-write') args.push('--bind', options.cwd, options.cwd)
+  }
+  const overlays: Array<{ root: string; mode: 'private' | 'read' | 'write' }> = privateRoots.map((root) => ({
+    root,
+    mode: 'private',
+  }))
+  for (const candidate of options.readOnlyRoots ?? []) {
+    try {
+      const root = await realpath(candidate)
+      // Read-only code does not create a read exception inside a private root.
+      if (!privateRoots.some((privateRoot) => pathWithin(privateRoot, root))) overlays.push({ root, mode: 'read' })
+    } catch (cause) {
+      if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw cause
+    }
+  }
+  if (privateRoots.some((root) => pathWithin(root, options.cwd))) {
+    const immutable = options.readOnlyRoots?.some((root) => pathWithin(root, options.cwd))
+    overlays.push({ root: options.cwd, mode: options.mode !== 'read-only' && !immutable ? 'write' : 'read' })
+  }
+  const readable = [...(options.readableRoots ?? []), ...(fileNode ? [fileNode] : [])]
   if (options.dataRoot) {
     const attachments = path.join(await realpath(options.dataRoot), storageLayoutRelativePaths.attachmentsDirectory)
     try {
       const resolved = await realpath(attachments)
       if (resolved !== attachments) throw new Error('附件目录不能是符号链接')
-      // 自定义数据目录位于 /tmp 时，仅恢复附件读取，不暴露同级凭据与会话。
-      args.push('--ro-bind', attachments, attachments)
+      readable.push(attachments)
     } catch (cause) {
       if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw cause
     }
   }
-  args.push(
-    '--bind',
-    options.temporary,
-    options.temporary,
-    '--remount-ro',
-    '/tmp',
-    '--remount-ro',
-    '/var/tmp',
-    '--remount-ro',
-    '/run',
-    '--chdir',
-    options.cwd,
-    '--seccomp',
-    '3',
-    '--',
-  )
+  for (const candidate of readable) {
+    try {
+      overlays.push({ root: await realpath(candidate), mode: 'read' })
+    } catch (cause) {
+      if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw cause
+    }
+  }
+  // Parent mounts precede child masks, so a code/runtime mount cannot reveal a nested private root.
+  overlays.sort((a, b) => a.root.length - b.root.length || Number(a.mode === 'private') - Number(b.mode === 'private'))
+  for (const overlay of overlays) {
+    if (overlay.mode === 'private') args.push('--tmpfs', overlay.root, '--remount-ro', overlay.root)
+    else args.push(overlay.mode === 'write' ? '--bind' : '--ro-bind', overlay.root, overlay.root)
+  }
+  hiddenRoots.push(...privateRoots)
+  args.push('--bind', options.temporary, options.temporary)
+  if (options.mode !== 'full-access') args.push('--remount-ro', '/tmp', '--remount-ro', '/var/tmp')
+  args.push('--remount-ro', '/run', '--chdir', options.cwd, '--seccomp', '3', '--')
   return { executable: '/usr/bin/bwrap', args, seccomp: unixSocketFilter(), hiddenRoots }
 }

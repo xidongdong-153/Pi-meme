@@ -11,6 +11,9 @@ paths:
   - 'packages/host/src/ssh-connections.ts'
   - 'packages/host/src/connection-credentials.ts'
   - 'packages/host/src/remote-services.ts'
+  - 'packages/permissions/src/server/authorization-journal.ts'
+  - 'packages/host/src/runtime-snapshot.ts'
+  - 'scripts/development-runtime.mts'
 ---
 
 # 数据目录与存储维护
@@ -20,6 +23,16 @@ Host 的应用配置、持久状态、执行数据与内部管理的工作区文
 外部项目的工作区文件保留在用户本机的项目目录中，数据根仅保存外部项目的配置覆盖（`config/workspaces/<cwd-hash>/`）与原生会话记录（`data/sessions/<cwd-hash>/`）；只有无外部项目的独立会话目录（`workspaces/standalone/<id>`）与应用创建的 Git Worktree 检出目录（`workspaces/worktrees/<id>`）才位于数据根内部。
 
 工作区分组使用规范化真实路径的 SHA-256，见 [runtime-paths.ts](../packages/pi-runtime/src/runtime-paths.ts)。Linux 拒绝将 Host 数据放在识别到的 Windows 驱动器挂载中。路径定义见 [storage-paths.ts](../packages/contracts/src/storage-paths.ts)。
+
+## 开发控制面快照与授权日志
+
+官方 bootstrap 先完成 `assertStorageLayout`，再创建 cache/snapshot。开发启动额外在 dataRoot/runtime-snapshots/<内容哈希> 发布固定运行时树，包含 Host、Worker、前端和必要依赖，不能当普通项目输出或可写 HMR 目录。开发进程的数据根在本次运行固定，目录切换需退出后显式重启；当前没有 active snapshot/UI 跨目录热迁移。不要因有内容哈希就自动删除仍被进程引用的快照。Electron 用 original-fs 原始 callback/promisify 按物理 ASAR archive 检查；启动实现见 [development-runtime.mts](../scripts/development-runtime.mts) 与 [runtime-snapshot.ts](../packages/host/src/runtime-snapshot.ts)。发布应用的布局升级与迁移仍按下文执行。
+
+`state/authorization/events.jsonl` 保存单次确认、grant 与执行 lease；`.head` 是持久提交点，`.lock` 用于约束日志写入者。授权服务构造时同步恢复并校验记录后才准入；日志损坏或不可读拒绝恢复，重启将无法确定的执行记为 outcome-unknown，不重放。
+
+授权 journal 本轮升为 format 2，与 `storage.json` 的布局版本 2 相互独立。旧未发布开发 format 1 缺可信工具身份映射，明确不兼容并保留原日志；不由布局升级器猜测迁移，不自动删除或重放。超过 64 MiB 安全读取上限时 fail closed，不能裁剪日志丢失幂等阻挡。同一 Host/journal 能阻挡跨 Worker principal/registration 的同一逻辑工具重放，不承诺复制到另一 Host/dataRoot 后全局 exactly-once。
+
+桌面配对材料位于 Electron 私有目录，与 Host 数据根分别保护。来源：[authorization-journal.ts](../packages/permissions/src/server/authorization-journal.ts)、[Host 工具身份](../packages/host/src/authorization.ts)；完整迁移边界见 [权限控制与版本迁移](permissions-and-migration.md)。
 
 ## 布局概览与版本
 
@@ -55,6 +68,7 @@ Host 的应用配置、持久状态、执行数据与内部管理的工作区文
 │   ├── resources.json                   # 资源导入记录与策略
 │   ├── plugins.json                     # 已安装插件清单（版本化 envelope）
 │   ├── requests.jsonl                   # RPC 请求接纳追加日志（永久防重放）
+│   ├── authorization/                   # format 2 授权 journal、提交点与写入锁
 │   ├── control/                         # 控制状态（snapshot.json, events.jsonl, operations.jsonl）
 │   ├── collaboration/                   # 协作根分片（roots/<rootAgentId>.json, plans.json）
 │   ├── modules/<encoded-plugin-id>/     # 内置服务模块私有数据
@@ -106,6 +120,7 @@ Host 的应用配置、持久状态、执行数据与内部管理的工作区文
 | `state/resources.json`         | 技能策略与导入记录                       | `ResourceStore`                                           | 否                 | 永久保留                                                |
 | `state/plugins.json`           | 插件安装记录与代次高水位                 | `PluginManager`                                           | 否                 | 卸载插件时更新                                          |
 | `state/requests.jsonl`         | 请求去重日志                             | `RequestRegistry`                                         | 否（防重放）       | 永久追加，不加 TTL                                      |
+| `state/authorization/`         | format 2 单次授权与执行 journal          | `AuthorizationService`、`AuthorizationJournal`            | 否（授权与防重放） | 保留幂等记录；旧格式或超上限拒恢复，不自动清空          |
 | `state/control/`               | 快照与操作、事件日志                     | `ControlStore`                                            | 否                 | 事件保留 4096 条窗口，快照增量压缩                      |
 | `state/collaboration/`         | 子代理根分片与计划索引                   | `Coordinator`                                             | 否                 | 依 rootAgentId 分片保存，不自动删除历史                 |
 | `state/modules/`               | 内置服务模块持久数据                     | 内置模块（如 activities 等）                              | 否（服务数据）     | 依各内置模块业务规则管理                                |
@@ -255,7 +270,7 @@ flowchart TD
      - `cache/remote-services.json` 及 `.tmp`
    - Electron 固定 `userData`：存在的 `Cache`、`Code Cache`、`GPUCache`、`DawnCache`、`ShaderCache`、`GrShaderCache`、`GraphiteDawnCache`。
 2. **清理时的资产保护范围**：
-   - 执行缓存清理时，绝不误伤用户资产：会话历史（`data/sessions/`）、计划正文（`data/plans/`）、用户附件（`data/attachments/`）、凭据（`credentials/auth.json`）、SSH 连接资料（`config/ssh-connections.json`）、技能、外部插件私有数据（`plugins/data/`）、去重与控制日志（`state/requests.jsonl`、`state/control/`）以及仍被引用的工作目录。
+   - 执行缓存清理时，绝不误伤用户资产：会话历史（`data/sessions/`）、计划正文（`data/plans/`）、用户附件（`data/attachments/`）、凭据（`credentials/auth.json`）、SSH 连接资料（`config/ssh-connections.json`）、技能、外部插件私有数据（`plugins/data/`）、去重、授权与控制日志（`state/requests.jsonl`、`state/authorization/`、`state/control/`）以及仍被引用的工作目录。
 3. **符号链接保护**：检查到缓存中包含符号链接或特殊文件时立即中止清理，绝不沿链接删除外部文件。
 
 ### 会话删除生命周期

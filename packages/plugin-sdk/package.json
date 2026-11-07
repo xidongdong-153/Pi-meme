@@ -8,6 +8,7 @@
     "./server": "./src/server.ts",
     "./agent": "./src/agent.ts",
     "./ui": "./src/ui.ts",
+    "./declarative-ui": "./src/declarative-ui.ts",
     "./composer": "./src/composer.ts",
     "./navigation": "./src/navigation.ts",
     "./message-actions": "./src/message-actions.ts",

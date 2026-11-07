@@ -23,7 +23,6 @@ const choices = agentAccessChoices.map((choice) => ({ ...choice, icon: icons[cho
 export function AgentAccessSelector({
   mode = defaultAccessMode,
   busy,
-  supported,
   onChange,
   compact = false,
 }: {
@@ -68,13 +67,7 @@ export function AgentAccessSelector({
         <SelectGroup>
           <SelectLabel className="px-3 font-normal">Agent 访问权限</SelectLabel>
           {choices.map((choice) => (
-            <SelectItem
-              key={choice.mode}
-              value={choice.mode}
-              textValue={choice.label}
-              disabled={!supported && choice.mode !== 'full-access'}
-              className="rounded-xl py-2.5"
-            >
+            <SelectItem key={choice.mode} value={choice.mode} textValue={choice.label} className="rounded-xl py-2.5">
               <span className="flex gap-2">
                 <choice.icon className="mt-0.5 size-4 shrink-0" />
                 <span className="flex flex-col gap-1">

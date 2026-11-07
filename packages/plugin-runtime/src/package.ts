@@ -2,7 +2,7 @@ import { lstat, mkdir, readFile, readdir, realpath, writeFile } from 'node:fs/pr
 import path from 'node:path'
 import { promisify } from 'node:util'
 import { gzip, gunzip } from 'node:zlib'
-import { validateBrowserModule } from './validate-ui'
+import { parseDeclarativePluginUi } from '@pi-meme/plugin-sdk/declarative-ui'
 import { parsePluginManifest, safeRelativePath, type PluginManifest } from '@pi-meme/plugin-sdk/manifest'
 
 const compress = promisify(gzip)
@@ -64,8 +64,8 @@ export async function readPluginManifest(directory: string): Promise<PluginManif
         throw new Error('Chord 构建产物与插件身份或版本不匹配')
     }
     if (kind === 'ui') {
-      const code = await readFile(target, 'utf8')
-      validateBrowserModule(code)
+      if ((await lstat(target)).size > 128 * 1024) throw new Error('插件界面不能超过 128 KiB')
+      parseDeclarativePluginUi(JSON.parse(await readFile(target, 'utf8')))
     }
   }
   await validatePluginResources(directory, manifest)

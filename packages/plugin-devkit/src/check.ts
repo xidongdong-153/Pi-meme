@@ -2,7 +2,7 @@ import { access, constants, readFile } from 'node:fs/promises'
 import path from 'node:path'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { build } from 'esbuild'
+import { parseDeclarativePluginUi } from '@pi-meme/plugin-sdk/declarative-ui'
 import ts from 'typescript'
 import { parsePluginManifest } from '@pi-meme/plugin-sdk/manifest'
 import { assertExternalManifest } from '@pi-meme/plugin-sdk/reserved'
@@ -19,10 +19,15 @@ export async function doctor() {
   }
   const [major, minor] = process.versions.node.split('.').map(Number)
   if (major < 22 || (major === 22 && minor < 19)) throw new Error('构建插件需要 Node.js >=22.19.0')
-  if (info.sdkVersion !== 3 || info.platform !== process.platform || info.arch !== process.arch)
-    throw new Error(`工具包不匹配：需要 SDK 3、${process.platform}/${process.arch}，请使用当前 Host 随附的工具包`)
-  const binary = path.join(tools, 'node_modules/@esbuild', `${info.platform}-${info.arch}`, 'bin/esbuild')
-  await access(binary, constants.X_OK)
+  if (info.sdkVersion !== 4 || info.platform !== process.platform || info.arch !== process.arch)
+    throw new Error(`工具包不匹配：需要 SDK 4、${process.platform}/${process.arch}，请使用当前 Host 随附的工具包`)
+  const binary = path.join(
+    tools,
+    'node_modules/@esbuild',
+    `${info.platform}-${info.arch}`,
+    info.platform === 'win32' ? 'esbuild.exe' : 'bin/esbuild',
+  )
+  await access(binary, info.platform === 'win32' ? constants.F_OK : constants.X_OK)
   for (const file of [
     'cli.mjs',
     'templates/agent.ts.template',
@@ -54,7 +59,6 @@ export async function checkPlugin(directory: string) {
     }
   }
   const sources = [
-    ['server.trusted', manifest.piMeme.server?.trusted, 'src/server/entry.ts', 'server', 'ServerPluginModule'],
     [
       'server.restricted',
       manifest.piMeme.server?.restricted,
@@ -62,7 +66,6 @@ export async function checkPlugin(directory: string) {
       'restricted',
       'RestrictedServerContext',
     ],
-    ['agent.trusted', manifest.piMeme.agent?.trusted, 'src/agent/entry.ts', 'agent', 'AgentPluginModule'],
     [
       'agent.restricted',
       manifest.piMeme.agent?.restricted,
@@ -70,7 +73,6 @@ export async function checkPlugin(directory: string) {
       'restricted',
       'RestrictedAgentContext',
     ],
-    ['ui', manifest.piMeme.ui, 'src/ui/entry.tsx', 'ui', 'UiPluginModule'],
   ].filter((entry) => entry[1])
   const checks: string[] = []
   for (const [kind, output, source, module, type] of sources) {
@@ -112,21 +114,15 @@ export async function checkPlugin(directory: string) {
     const diagnostics = ts.getPreEmitDiagnostics(program)
     if (diagnostics.length)
       throw new Error(`类型检查失败：\n${ts.formatDiagnosticsWithColorAndContext(diagnostics, diagnosticHost)}`)
-    if (manifest.piMeme.ui) {
-      await build({
-        entryPoints: [path.join(root, 'src/ui/entry.tsx')],
-        bundle: true,
-        write: false,
-        platform: 'browser',
-        format: 'esm',
-        jsx: 'automatic',
-        target: 'es2022',
-        loader: { '.css': 'text' },
-        external: ['react', 'react-dom', 'react-dom/*', 'react/*'],
-        nodePaths: [path.join(tools, 'node_modules')],
-        logLevel: 'silent',
-      })
-    }
   }
-  return { name: manifest.name, sdkVersion: 3, entries: sources.length, resources: manifest.piMeme.resources ?? {} }
+  if (manifest.piMeme.ui) {
+    if (manifest.piMeme.ui !== 'dist/ui/entry.json') throw new Error('DevKit 声明式 UI 输出必须为 dist/ui/entry.json')
+    parseDeclarativePluginUi(JSON.parse(await readFile(path.join(root, 'src/ui/entry.json'), 'utf8')))
+  }
+  return {
+    name: manifest.name,
+    sdkVersion: 4,
+    entries: sources.length + Number(Boolean(manifest.piMeme.ui)),
+    resources: manifest.piMeme.resources ?? {},
+  }
 }

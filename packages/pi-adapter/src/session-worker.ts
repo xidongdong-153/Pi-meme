@@ -11,6 +11,7 @@ import type { PluginRuntimeRequest, PluginUiRequest } from '@pi-meme/contracts/p
 import type { AgentPluginEntry } from '@pi-meme/plugin-sdk/agent'
 import { parentPort, workerData } from 'node:worker_threads'
 import { randomUUID } from 'node:crypto'
+import path from 'node:path'
 import type { CollaborationRequest, CollaborationResults } from '@pi-meme/contracts/collaboration'
 import type { PlanDocument, PlanState, SavePlanInput } from '@pi-meme/contracts/plan'
 import type { InlineExtension, ExtensionAPI, ToolDefinition } from '@earendil-works/pi-coding-agent'
@@ -23,8 +24,13 @@ import { MemoryCredentialStorage } from '@pi-meme/pi-runtime/secure-store'
 import { loadPiSdk, loadPiAgentCore } from '@pi-meme/pi-runtime/sdk/load'
 import { createStreamCoalescer } from './stream-coalescer'
 import type { ContextCapture, ContextRuntimeCapture } from '@pi-meme/contracts/context-window'
+import type { ExecutionBoundaryListener, RegisterExecutionBoundary } from '@pi-meme/contracts/execution-boundary'
 
 export type SessionWorkerContext = {
+  onExecutionBoundary: RegisterExecutionBoundary
+  executionSandbox: () => import('@pi-meme/pi-runtime/sdk/access-sandbox').AccessSandboxOperations
+  requestMcpAuthorization: import('@pi-meme/contracts/mcp-authorization').McpAuthorizeOperation
+  registerMcpTool: (tool: import('@earendil-works/pi-coding-agent').ToolDefinition) => void
   registerContextCaptureHandler: (handler: (event: ContextRuntimeCapture) => void) => void
   requestContextCapture: (capture: ContextCapture) => Promise<void>
   requestVisualization: (request: VisualizationRequest, signal?: AbortSignal) => Promise<VisualizationDocument>
@@ -66,12 +72,24 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
     settings: DesktopSettings
     agentEntries: AgentPluginEntry[]
     credentials: Array<[string, string]>
+    modelBroker: import('@pi-meme/pi-runtime/sdk/model-broker-protocol').ModelBrokerCatalog
+    protectedRoots?: string[]
+    readOnlyRoots?: string[]
+    readableRoots?: string[]
+    fileReadRoots?: string[]
+    fixedRuntime: { nodePath: string; nativePath?: string }
     access: AgentAccessMode
     capabilities: DesktopSettings
     initialGeneration?: number
     resourceSnapshot?: ResourceSnapshot
   }
   if (!parentPort) throw new Error('会话入口只能由 Worker 启动')
+  if (!data.fixedRuntime || !path.isAbsolute(data.fixedRuntime.nodePath))
+    throw new Error('runtime-node-unavailable: Host 未提供固定 Node')
+  if (data.fixedRuntime.nativePath && !path.isAbsolute(data.fixedRuntime.nativePath))
+    throw new Error('runtime-path-invalid: 原生程序路径无效')
+  process.env.PI_MEME_PLUGIN_NODE = data.fixedRuntime.nodePath
+  if (data.fixedRuntime.nativePath) process.env.PI_MEME_WINDOWS_NATIVE = data.fixedRuntime.nativePath
   const port = parentPort
   const basePaths = createPiRuntimePaths(data.root)
   const paths = data.temporaryRoot ? createTemporaryRuntimePaths(basePaths, data.temporaryRoot) : basePaths
@@ -105,7 +123,64 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
     return port.postMessage({ ...value, connection: session.connection(), active: session.getActiveSession() })
   }
   const stream = createStreamCoalescer((value) => send({ notify: 'event', value }))
+  const executionBoundaryListeners = new Set<ExecutionBoundaryListener>()
+  const boundaryReplays = new Set<Promise<void>>()
+  let latestBoundary: { reason: string; paused: boolean } | undefined
+  let replayFailure: { reason: unknown } | undefined
+  const onExecutionBoundary: RegisterExecutionBoundary = (listener) => {
+    executionBoundaryListeners.add(listener)
+    if (latestBoundary) {
+      let replay: Promise<void>
+      try {
+        // Invoke now so a rebuilt runtime inherits its paused/fenced state before agent_start.
+        replay = Promise.resolve(listener(latestBoundary.reason, latestBoundary.paused))
+      } catch (reason) {
+        replay = Promise.reject(reason)
+      }
+      boundaryReplays.add(replay)
+      void replay.then(
+        () => {
+          boundaryReplays.delete(replay)
+        },
+        (reason) => {
+          boundaryReplays.delete(replay)
+          replayFailure ??= { reason }
+        },
+      )
+    }
+    return () => {
+      executionBoundaryListeners.delete(listener)
+    }
+  }
   const policy: RuntimePolicy = {
+    onExecutionBoundary: async (reason, paused) => {
+      latestBoundary = { reason, paused }
+      const settled = await Promise.allSettled([
+        ...boundaryReplays,
+        ...[...executionBoundaryListeners].map(async (listener) => {
+          await listener(reason, paused)
+        }),
+      ])
+      const rejected = settled.find((result) => result.status === 'rejected')
+      if (rejected?.status === 'rejected') throw rejected.reason
+      if (replayFailure) throw replayFailure.reason
+    },
+    authorizeTool: (authorizationRequest, signal) =>
+      hostRequest('authorization', { authorizationRequest }, signal) as Promise<
+        import('@pi-meme/contracts/system-tools').AgentToolAuthorizationReply
+      >,
+    modelBroker: {
+      catalog: data.modelBroker,
+      request: (modelRequest, signal) =>
+        hostRequest('model', { modelRequest }, signal) as Promise<
+          import('@pi-meme/pi-runtime/sdk/model-broker-protocol').ModelBrokerReply
+        >,
+    },
+    protectedRoots: data.protectedRoots,
+    readOnlyRoots: data.readOnlyRoots,
+    readableRoots: data.readableRoots,
+    fileReadRoots: data.fileReadRoots,
+    fixedRuntime: data.fixedRuntime,
     recordTurnChange: (change) => hostRequest('turnChange', { change }) as Promise<string>,
     readVisualization: async (reference) => {
       const { entries, leafId } = await session.getEntries()
@@ -173,6 +248,9 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
       | 'image-generation'
       | 'activity'
       | 'system'
+      | 'authorization'
+      | 'model'
+      | 'mcp-authorization'
       | 'plugin',
     request: object,
     signal?: AbortSignal,
@@ -224,6 +302,11 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
           requestImageGeneration: (imageRequest, signal) =>
             hostRequest('image-generation', { imageRequest }, signal) as Promise<ImageGenerationReply>,
           planSandbox: () => session.getPlanSandbox(),
+          executionSandbox: () => session.getExecutionSandbox(),
+          onExecutionBoundary,
+          requestMcpAuthorization: (request, signal) =>
+            hostRequest('mcp-authorization', { mcpAuthorization: request }, signal).then(() => {}),
+          registerMcpTool: (tool) => session.registerMcpTool(tool),
           registerPlanTool: (name, source) => policy.planTools!.set(name, source),
           requestCollaboration: (request, signal) =>
             hostRequest('collaboration', request, signal) as Promise<CollaborationResults[keyof CollaborationResults]>,

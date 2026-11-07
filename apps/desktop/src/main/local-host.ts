@@ -8,6 +8,7 @@ import { prepareDesktopHostEnv } from './user-login-path'
 export type DesktopHostProcess = {
   url: string
   child: UtilityProcess
+  createBootstrapTicket: (installationId: string) => Promise<string>
   prepareMaintenance: () => Promise<void>
   stopForMaintenance: () => Promise<void>
   dispose: () => Promise<void>
@@ -21,10 +22,17 @@ function launchHost(entry: string, env: NodeJS.ProcessEnv): Promise<DesktopHostP
     let hostId = ''
     let disposing: Promise<void> | undefined
     const requests = new Map<string, { resolve: () => void; reject: (cause: Error) => void; timer: NodeJS.Timeout }>()
-    const startup = setTimeout(() => {
-      child.kill()
-      reject(new Error('本机服务启动超时'))
-    }, 30000)
+    const tickets = new Map<
+      string,
+      { resolve: (ticket: string) => void; reject: (cause: Error) => void; timer: NodeJS.Timeout }
+    >()
+    const startup = setTimeout(
+      () => {
+        child.kill()
+        reject(new Error('本机服务启动超时'))
+      },
+      env.PI_MEME_RUNTIME_SNAPSHOT ? 120000 : 30000,
+    )
     child.stderr?.on('data', (data: Buffer) => console.error(data.toString()))
     function stop(timeoutMs: number, force: boolean) {
       if (exited)
@@ -55,6 +63,7 @@ function launchHost(entry: string, env: NodeJS.ProcessEnv): Promise<DesktopHostP
         message?: string
         error?: string
         code?: string
+        ticket?: string
       }) => {
         if (value.type === 'ready') {
           clearTimeout(startup)
@@ -62,6 +71,17 @@ function launchHost(entry: string, env: NodeJS.ProcessEnv): Promise<DesktopHostP
           resolve({
             url: value.url,
             child,
+            createBootstrapTicket: (installationId) =>
+              new Promise<string>((resolve, reject) => {
+                if (exited) return reject(new Error('本机服务已退出'))
+                const id = randomUUID()
+                const timer = setTimeout(() => {
+                  tickets.delete(id)
+                  reject(new Error('本机服务配对超时'))
+                }, 10000)
+                tickets.set(id, { resolve, reject, timer })
+                child.postMessage({ type: 'auth:ticket', id, hostId, installationId })
+              }),
             prepareMaintenance: () =>
               new Promise<void>((resolve, reject) => {
                 if (exited) {
@@ -87,6 +107,14 @@ function launchHost(entry: string, env: NodeJS.ProcessEnv): Promise<DesktopHostP
           clearTimeout(startup)
           reject(Object.assign(new Error(value.message ?? '服务启动失败'), { code: value.code }))
         }
+        if (value.type === 'auth:ticket-result') {
+          const request = tickets.get(value.id)
+          if (!request) return
+          tickets.delete(value.id)
+          clearTimeout(request.timer)
+          if (value.error || !value.ticket) request.reject(new Error(value.error ?? '配对票据无效'))
+          else request.resolve(value.ticket)
+        }
         if (value.type === 'maintenance:result') {
           const request = requests.get(value.id)
           if (!request) return
@@ -107,6 +135,11 @@ function launchHost(entry: string, env: NodeJS.ProcessEnv): Promise<DesktopHostP
         request.reject(cause)
       }
       requests.clear()
+      for (const request of tickets.values()) {
+        clearTimeout(request.timer)
+        request.reject(cause)
+      }
+      tickets.clear()
       reject(cause)
     })
   })
@@ -116,9 +149,15 @@ export function acquireDesktopHost(options: { entry: string; env: NodeJS.Process
   const port = hostPort(options.env.PI_MEME_PORT, app.isPackaged ? defaultHostPort : defaultDevelopmentHostPort)
   const create = async (listenPort: number) =>
     launchHost(options.entry, {
-      ...(await prepareDesktopHostEnv(options.env)),
+      ...(await prepareDesktopHostEnv({
+        ...options.env,
+        PI_MEME_PLUGIN_NODE: app.isPackaged
+          ? path.join(process.resourcesPath, 'runtime/bin', process.platform === 'win32' ? 'node.exe' : 'node')
+          : (options.env.PI_MEME_PLUGIN_NODE ?? ''),
+      })),
       PI_MEME_PORT: String(listenPort),
       PI_MEME_DATA_ROOT: options.dataRoot,
+      PI_MEME_DESKTOP_PRIVATE_ROOT: app.getPath('userData'),
       PI_MEME_PLUGIN_NODE: app.isPackaged
         ? path.join(process.resourcesPath, 'runtime/bin', process.platform === 'win32' ? 'node.exe' : 'node')
         : (options.env.PI_MEME_PLUGIN_NODE ?? ''),

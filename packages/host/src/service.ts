@@ -1,8 +1,24 @@
 import { createSystemOperations } from './system-operations'
+import { createTransportAuthorizer } from './transport-authorization'
+import type { TransportIdentity } from '@pi-meme/contracts/transport-identity'
+import { HostAuthorization, physicalTarget } from './authorization'
+import { scheduleAuthorization } from './schedule-authorization'
+import { executionRuntime } from './execution-runtime'
+import { apiAuthorizationOperation, apiManagesPolicy, auditInput } from './authorization-adapters'
+import { createPluginUiBridge } from './plugin-ui-bridge'
+import { createModelBrokerSession } from './model-broker'
+import { createMcpAuthorizationBridge } from './mcp-authorization'
+import { executionCapabilityReport } from '@pi-meme/pi-runtime/sdk/access-sandbox'
+import { createDesktopModelRuntime } from '@pi-meme/pi-runtime/sdk/model-runtime'
+import { loadPiSdk } from '@pi-meme/pi-runtime/sdk/load'
+import { authorizationScopeContains, presetEffects } from '@pi-meme/permissions/shared/authorization-policy'
+import type { AuthorizationContext, AuthorizationEffect, AuthorizationScope } from '@pi-meme/contracts/authorization'
 import { SystemClientBridge } from './system-client-bridge'
 import { ImageLibraryStore } from '@pi-meme/image-generation/server/library-store'
 import { imageLibraryHistory } from './image-library-history'
 import { ContextWindowStore } from '@pi-meme/context-window/server/store'
+import { inspectPrompt } from '@pi-meme/context-window/shared/prompt'
+import { contextCaptureLimits, type ContextCapture } from '@pi-meme/contracts/context-window'
 import { projectBranchVisualizations } from '@pi-meme/contracts/visualize'
 import { VisualizationStore } from '@pi-meme/visualize/server/store'
 import { ImageConfigStore } from '@pi-meme/image-generation/server/config-store'
@@ -14,22 +30,23 @@ import { createActivityBridge } from './activity-bridge'
 import { createPluginCallBridge } from './plugin-call-bridge'
 import { PluginHttpBroker, type PluginCredentialValue } from './plugin-http-broker'
 import { probePluginSandbox } from './plugin-sandbox-probe'
-import type { PluginCallRequest, PluginCallContext } from '@pi-meme/plugin-sdk/rpc'
+import type { PluginCallRequest, PluginCallContext, JsonValue } from '@pi-meme/plugin-sdk/rpc'
 import type { PluginGrantUpdate } from '@pi-meme/plugin-sdk/permissions'
 import { isLiveServiceActivity } from '@pi-meme/contracts/service-activity'
 import { parseGoalCommand, type GoalRun } from '@pi-meme/contracts/goal'
-import { normalizePlanMessage } from '@pi-meme/contracts/plan'
+import { normalizePlanMessage, type TaskMode } from '@pi-meme/contracts/plan'
 import { PluginManager, type PluginDescriptor } from '@pi-meme/plugin-runtime/manager'
 import { fileURLToPath } from 'node:url'
 import { createHostCollaborationBridge } from './collaboration-bridge'
 import { createAppControl } from './app-control'
-import { createWorkspaceFiles } from './workspace-files'
+import { createWorkspaceFiles, previewLinkedFile } from './workspace-files'
+import { controlledWorkspaceFiles } from './controlled-workspace-files'
 import { storeChatAttachment } from './chat-attachments'
 import { systemPlugins } from '@pi-meme/plugin-sdk/system-plugins'
 import { TerminalService } from './terminal-service'
 import { createBuiltinModules } from './builtin-modules'
 import { assertExternalPluginId } from '@pi-meme/plugin-sdk/reserved'
-import { mkdir, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
+import { lstat, mkdir, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
 import { randomUUID, createHash } from 'node:crypto'
@@ -44,6 +61,7 @@ import type {
   Snapshot,
 } from '@pi-meme/contracts/desktop'
 import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
+import type { SessionRef } from '@pi-meme/contracts/app-host'
 import type { PiModel, ThinkingLevel } from '@pi-meme/contracts/pi'
 import type { SelectWorkspace, PiSessionsSnapshot, PiSessionSummary } from '@pi-meme/contracts/sessions'
 import { PiSessionPool, type ClientView, type RuntimeSdkSession } from '@pi-meme/pi-runtime/session-pool'
@@ -149,6 +167,7 @@ const reads = new Set([
   'models:default-thinking',
   'host:credential-import-status',
   'settings:get',
+  'settings:get-user-profile',
   'settings:reload',
   'settings:instructions',
   'settings:fonts',
@@ -184,6 +203,8 @@ const selections = new Set([
 
 export async function createHost(options: HostOptions = {}) {
   const root = hostDataRoot(options.dataRoot)
+  if (options.testCredentials && !options.dataRoot) throw new Error('测试凭据必须同时配置临时数据目录')
+  const runtime = await executionRuntime({ ...options, dataRoot: root })
   const storagePaths = createHostStoragePaths(root)
   const instanceId = randomUUID()
   const unlock = await lockDataRoot(root)
@@ -316,8 +337,97 @@ export async function createHost(options: HostOptions = {}) {
     let terminal: TerminalService
     let pi: PiSessionPool
     let appControl: Awaited<ReturnType<typeof createAppControl>> | undefined
+    const authorization = new HostAuthorization(hostId, instanceId, path.join(root, 'state/authorization/events.jsonl'))
+    const assertOwnerTerminalExecution = () => {
+      const identity = authorization.identity()
+      const context = authorization.currentContext()
+      authorization.currentSignal()?.throwIfAborted()
+      if (
+        !identity ||
+        identity.hostId !== hostId ||
+        identity.role !== 'owner' ||
+        (context && context.principal.kind !== 'user')
+      )
+        throw new Error('unsupported: Owner 终端只允许已认证用户直接操作')
+    }
+    const privateFsRoots = await Promise.all(
+      [
+        root,
+        paths.agentDir,
+        path.join(homedir(), '.pi-meme'),
+        path.join(homedir(), '.ssh'),
+        path.join(homedir(), '.gnupg'),
+        ...['.zshenv', '.zprofile', '.zshrc', '.zlogin', '.bash_profile', '.bash_login', '.bashrc', '.profile'].map(
+          (name) => path.join(homedir(), name),
+        ),
+        ...(process.platform === 'darwin' ? ['/dev/fd'] : []),
+        ...(process.platform === 'darwin' ? [path.join(homedir(), 'Library/Application Support/Pi meme')] : []),
+        ...(process.platform === 'win32'
+          ? [path.join(process.env.APPDATA ?? path.join(homedir(), 'AppData/Roaming'), 'Pi meme')]
+          : []),
+        ...(process.platform === 'linux'
+          ? [
+              path.join(process.env.XDG_CONFIG_HOME ?? path.join(homedir(), '.config'), 'Pi meme'),
+              '/proc',
+              '/sys',
+              '/dev/fd',
+            ]
+          : []),
+        ...(process.env.PI_MEME_DESKTOP_PRIVATE_ROOT ? [process.env.PI_MEME_DESKTOP_PRIVATE_ROOT] : []),
+      ].map(physicalTarget),
+    )
+    const runtimeReadOnlyRoots = runtime.readOnlyRoots
+    const readableExceptions = async (candidates: string[]) =>
+      (await Promise.all(candidates.map(physicalTarget))).filter(
+        (candidate) =>
+          privateFsRoots.some((root) => candidate !== root && withinCheckout(candidate, root)) &&
+          !privateFsRoots.some((root) => withinCheckout(root, candidate)),
+      )
+    const agentContexts = new Map<string, () => Promise<AuthorizationContext>>()
+    const workerExecutions = new Map<
+      string,
+      { context: () => AuthorizationContext | undefined; cancel: () => Promise<void> }
+    >()
+    const pendingModelDrains = new Map<string, Set<() => boolean>>()
+    const revokingScopes = new Set<AuthorizationScope>()
     let systemWrites: Promise<unknown> = Promise.resolve()
     const executionClients = new Map<string, { clientId: string; rootTaskId: string; epoch: number }>()
+    const authenticatedClients = new Map<string, Readonly<TransportIdentity>>()
+    const isAuthenticatedClient = (clientId: string, identity?: TransportIdentity) => {
+      const known = authenticatedClients.get(clientId)
+      return Boolean(
+        known &&
+        (!identity ||
+          (known.hostId === identity.hostId &&
+            known.principalId === identity.principalId &&
+            known.installationId === identity.installationId &&
+            known.connectionEpoch === identity.connectionEpoch)),
+      )
+    }
+    const registerAuthenticatedClient = (clientId: string, identity: TransportIdentity) => {
+      const current = authorization.identity()
+      if (
+        !current ||
+        current.hostId !== hostId ||
+        !/^client:[a-f0-9]{64}$/.test(clientId) ||
+        current.principalId !== identity.principalId ||
+        current.installationId !== identity.installationId ||
+        current.connectionEpoch !== identity.connectionEpoch ||
+        identity.hostId !== hostId
+      )
+        throw new Error('permission-denied: 客户端来源未通过当前传输认证')
+      authenticatedClients.delete(clientId)
+      if (authenticatedClients.size >= 8192) {
+        const oldest = authenticatedClients.keys().next().value
+        if (oldest) authenticatedClients.delete(oldest)
+      }
+      authenticatedClients.set(clientId, Object.freeze({ ...identity }))
+    }
+    const authorizeTransport = createTransportAuthorizer({
+      authorization,
+      readSession: (ref, clientId) => appControl!.rawAuthorizationSession(ref, clientId),
+      genuine: isAuthenticatedClient,
+    })
     const systemClients = new SystemClientBridge((clientId, value) => {
       const subscribers = listeners.get(clientId)
       if (!subscribers?.size) return false
@@ -330,6 +440,31 @@ export async function createHost(options: HostOptions = {}) {
     }
     const instructions = new InstructionsStore(root)
     const revisionOf = (value: unknown) => createHash('sha256').update(JSON.stringify(value)).digest('hex')
+    let modelRuntimeCache: { revision: string; runtime: ReturnType<typeof createDesktopModelRuntime> } | undefined
+    const hostModelRuntime = async () => {
+      const source = await readFile(path.join(paths.agentDir, 'models.json'), 'utf8').catch(
+        (cause: NodeJS.ErrnoException) => {
+          if (cause.code !== 'ENOENT') throw cause
+          return '{}'
+        },
+      )
+      const revision = revisionOf([source, credentials.entries()])
+      if (modelRuntimeCache?.revision !== revision)
+        modelRuntimeCache = {
+          revision,
+          runtime: loadPiSdk().then((sdk) => createDesktopModelRuntime(sdk, paths.agentDir, credentials)),
+        }
+      return modelRuntimeCache.runtime
+    }
+    const modelRequests = new Map<string, number>()
+    const takeModelRequest = (actor: { rootTaskId: string; epoch: number }) => {
+      if (!actor.rootTaskId || !Number.isSafeInteger(actor.epoch) || actor.epoch < 0)
+        throw new Error('模型请求没有有效任务预算归属')
+      const key = `${actor.rootTaskId}:${actor.epoch}`
+      const count = modelRequests.get(key) ?? 0
+      if (count >= 256) throw new Error('model-budget-exhausted: 本次任务已达到 256 次模型请求上限')
+      modelRequests.set(key, count + 1)
+    }
     const agentSelections = new Map<string, string[]>()
     const temporaryViews = new Map<string, ClientView>()
     const temporarySessions = new Map<
@@ -593,11 +728,66 @@ export async function createHost(options: HostOptions = {}) {
       },
     })
     await resources.init()
+    const standaloneFsRoot = await physicalTarget(storagePaths.standaloneWorkspacesDirectory)
+    const filesBackend = controlledWorkspaceFiles({
+      dataRoot: root,
+      agentDir: paths.agentDir,
+      nodePath: runtime.nodePath,
+      nativePath: runtime.nativePath,
+      protectedRoots: privateFsRoots,
+      readOnlyRoots: runtimeReadOnlyRoots,
+      runtimeReadables: () => readableExceptions(runtimeReadOnlyRoots),
+      signal: () => authorization.currentSignal(),
+      readableRoots: async (workspace) => {
+        const context = authorization.currentContext()
+        const temporary = [...temporarySessions.values()].find(
+          (item) => item.ref?.sessionId === context?.scope.sessionId,
+        )
+        const snapshot =
+          context?.principal.kind === 'agent'
+            ? workerSnapshots.get(context.principal.id.slice('agent:'.length))
+            : undefined
+        const canonicalWorkspace = workspace ? await physicalTarget(workspace) : undefined
+        return readableExceptions([
+          storagePaths.attachmentsDirectory,
+          ...runtimeReadOnlyRoots,
+          ...(temporary ? [path.join(temporary.temporaryRoot, 'attachments')] : []),
+          ...(snapshot?.skills.map((skill) => skill.baseDir) ?? []),
+          ...(canonicalWorkspace && path.dirname(canonicalWorkspace) === standaloneFsRoot ? [canonicalWorkspace] : []),
+        ])
+      },
+    })
     const workerPlugins = new Map<string, PluginDescriptor[]>()
     const workerPluginIds = new Map<string, Set<string>>()
-    const pluginNode =
-      options.restrictedNode ?? process.env.PI_MEME_PLUGIN_NODE ?? (process.versions.electron ? '' : process.execPath)
-    const pluginSandboxCapability = await probePluginSandbox(pluginNode)
+    const pluginNode = runtime.nodePath
+    const pluginSandboxCapability = {
+      supported: false,
+      reason: '受限插件能力正在探测',
+      report: executionCapabilityReport(false),
+    }
+    void probePluginSandbox(pluginNode)
+      .then((result) => {
+        Object.assign(pluginSandboxCapability, result, {
+          report: executionCapabilityReport(result.supported, result.reason),
+        })
+        const missing = Object.entries(pluginSandboxCapability.report.capabilities).filter(
+          ([, state]) => state.status !== 'enforced',
+        )
+        if (
+          missing.some(([name]) =>
+            ['host-secrets', 'process-tree', 'network-deny', 'environment-isolation', 'unix-socket-deny'].includes(
+              name,
+            ),
+          )
+        ) {
+          pluginSandboxCapability.supported = false
+          pluginSandboxCapability.reason = `sandbox-unavailable: ${missing.map(([name]) => name).join(', ')}`
+        }
+        emit('plugins-changed')
+      })
+      .catch(() => {
+        pluginSandboxCapability.reason = 'sandbox-unavailable: 受限插件探测失败'
+      })
     const workers = new Map<string, RuntimeSdkSession>()
     const workerPluginBridges = new Map<string, ReturnType<typeof createPluginCallBridge>>()
     const pluginCredentialPrefix = (id: string) => `plugin:${encodeURIComponent(id)}:http:`
@@ -618,6 +808,61 @@ export async function createHost(options: HostOptions = {}) {
     const pluginClient = new AsyncLocalStorage<string>()
     const goalRuns = new WeakMap<RuntimeSdkSession, GoalRun>()
     const admittedGoalRuns = new WeakMap<RuntimeSdkSession, Set<string>>()
+    const executePluginOperation = async (
+      definition: { kind: string; name: string; effect: string },
+      pluginContext: PluginCallContext,
+      input: JsonValue,
+      signal: AbortSignal,
+      action: (signal: AbortSignal) => Promise<JsonValue>,
+      actorContext?: () => Promise<AuthorizationContext>,
+    ) => {
+      const target = pluginContext.target.session
+      const clientId = pluginClient.getStore()
+      if (!actorContext && !clientId) throw new Error('permission-denied: 插件 UI 缺少已认证客户端')
+      const context = actorContext
+        ? await actorContext()
+        : await authorization.userContext(
+            clientId!,
+            target ? () => appControl!.rawAuthorizationSession(target, clientId) : undefined,
+          )
+      if (definition.effect === 'full-access') throw new Error('permission-denied: 插件不能取得拥有者执行域')
+      const workspace = target
+        ? appControl!.rawAuthorizationSession(target, clientId).cwd
+        : pluginContext.target.project
+          ? await appControl!.resolveRoot(pluginContext.target.project)
+          : undefined
+      let effect: AuthorizationEffect = {
+        kind: 'process.read',
+        resource: `plugin:${pluginContext.pluginId}:${definition.name}`,
+        boundary: 'scratch',
+      }
+      if (definition.kind === 'http') {
+        if (!input || typeof input !== 'object' || Array.isArray(input) || typeof input.url !== 'string')
+          throw new Error('插件网络目标无效')
+        const url = new URL(input.url)
+        effect = {
+          kind: ['GET', 'HEAD'].includes(String(input.method).toUpperCase()) ? 'network.read' : 'network.write',
+          resource: `${url.origin}${url.pathname}`,
+          boundary: 'external',
+        }
+      } else if (definition.effect === 'workspace-write') {
+        if (!workspace) throw new Error('permission-denied: 插件写入必须绑定具体工作区')
+        effect = { kind: 'fs.write', resource: workspace, boundary: 'workspace' }
+      }
+      return authorization.execute(
+        context,
+        {
+          id: `plugin.${definition.kind}.${pluginContext.pluginId}.${definition.name}`,
+          summary: `${pluginContext.pluginId} · ${definition.name} · ${effect.resource}`,
+          effects: [effect],
+          requiredCapabilities: definition.effect === 'workspace-write' ? ['hardlink-write-boundary'] : [],
+        },
+        input,
+        `plugin:${pluginContext.pluginId}:${pluginContext.requestId}:${definition.kind}:${definition.name}`,
+        action,
+        signal,
+      )
+    }
     const createSession = (
       cwd: string,
       notify: Parameters<typeof createWorkerSession>[1],
@@ -695,10 +940,12 @@ export async function createHost(options: HostOptions = {}) {
           actor: () => collaboration.goalCaller(session),
           sessionRef: () => appControl!.sessionForRuntime(collaboration.goalCaller(session).rootSessionKey),
           node: pluginNode,
-          runnerEntry: options.restrictedEntry ?? (process.env.PI_MEME_PLUGIN_ENTRY || undefined),
+          runnerEntry: runtime.restrictedEntry,
           dataRoot: root,
           http: pluginHttp,
           sandboxCapability: pluginSandboxCapability,
+          executeOperation: (definition, context, input, signal, action) =>
+            executePluginOperation(definition, context, input, signal, action, resolveAuthorizationContext),
           ui: async (input, signal) => {
             const target = session as unknown as {
               pluginUi: (input: unknown) => Promise<unknown>
@@ -718,13 +965,410 @@ export async function createHost(options: HostOptions = {}) {
           },
         })
         workerPluginBridges.set(sessionKey, pluginBridge)
+        const principalId = `agent:${sessionKey}`
+        let executionCeiling: { runId: string; mode: TaskMode; accessMode: AgentAccessMode } | undefined
+        let boundaryDepth = 0
+        let authorizationGeneration = 0
+        let lastAuthorizationContext: AuthorizationContext | undefined
+        let lastContextFrame: string | undefined
+        let lastActorFrame: string | undefined
+        const blockedFrames = new Set<string>()
+        const actorFrame = (actor: ReturnType<typeof collaboration.goalCaller>) =>
+          revisionOf([actor.rootSessionKey, actor.rootTaskId, actor.runId, actor.epoch, actor.executionGeneration])
+        async function resolveAuthorizationContext(): Promise<AuthorizationContext> {
+          if (boundaryDepth) throw new Error('scope-expired: 执行正在停止或切换')
+          const permissionGeneration = authorizationGeneration
+          const drains = pendingModelDrains.get(principalId)
+          for (const pending of drains ?? []) {
+            if (pending()) throw new Error('model-broker-drain: 原执行尚未完成真实 IO 停止')
+            drains!.delete(pending)
+          }
+          if (drains && !drains.size) pendingModelDrains.delete(principalId)
+          const actor = collaboration.goalCaller(session)
+          if (!actor.runId || !['starting', 'running', 'waiting_children', 'waiting_input'].includes(actor.status))
+            throw new Error('scope-expired: Agent 没有有效执行')
+          const frame = actorFrame(actor)
+          if (blockedFrames.has(frame)) throw new Error('scope-expired: 此执行已暂停、停止或改变权限，需重新接纳')
+          lastActorFrame = frame
+          const binding = pi.readSessionBinding(actor.rootSessionKey)
+          const bindingStamp = revisionOf([binding?.state.mode, binding?.accessMode])
+          if (executionCeiling?.runId !== actor.runId)
+            executionCeiling = { runId: actor.runId, mode: actor.mode, accessMode: actor.accessMode }
+          const modes: AgentAccessMode[] = ['read-only', 'workspace-write', 'full-access']
+          executionCeiling.accessMode =
+            modes[
+              Math.min(
+                modes.indexOf(executionCeiling.accessMode),
+                modes.indexOf(actor.accessMode),
+                modes.indexOf(binding?.accessMode ?? actor.accessMode),
+              )
+            ]!
+          if (actor.mode === 'plan' || binding?.state.mode === 'plan') executionCeiling.mode = 'plan'
+          const ref = await appControl!.sessionForRuntime(actor.rootSessionKey)
+          const source = executionClients.get(actor.rootSessionKey)
+          if (
+            source &&
+            source.rootTaskId === actor.rootTaskId &&
+            source.epoch === actor.epoch &&
+            !isAuthenticatedClient(source.clientId)
+          )
+            throw new Error('scope-expired: 执行的已认证客户端来源已失效')
+          const sourceClientId =
+            source &&
+            source.rootTaskId === actor.rootTaskId &&
+            source.epoch === actor.epoch &&
+            isAuthenticatedClient(source.clientId)
+              ? source.clientId
+              : undefined
+          const context: AuthorizationContext = {
+            principal: { id: principalId, kind: 'agent' },
+            scope: {
+              hostId,
+              projectId: ref.project?.projectId,
+              sessionId: ref.sessionId,
+              clientId: sourceClientId,
+            },
+            policyRevision: revisionOf([
+              actor.runId,
+              actor.epoch,
+              actor.executionGeneration,
+              actor.mode,
+              actor.accessMode,
+              executionCeiling,
+              bindingStamp,
+              permissionGeneration,
+            ]),
+            accessMode: executionCeiling.accessMode,
+            taskMode: executionCeiling.mode,
+            capabilities: Object.entries(
+              (
+                builtins?.services['agent.sandbox'] as
+                  | {
+                      capability?: () => import('@pi-meme/pi-runtime/sdk/access-sandbox').SandboxCapability
+                    }
+                  | undefined
+              )?.capability?.().report?.capabilities ?? {},
+            )
+              .filter(([, state]) => state.status === 'enforced')
+              .map(([name]) => name),
+            allowedEffects: presetEffects('full-access').filter(
+              (effect) => effect !== 'policy.write' && effect !== 'secret.read',
+            ),
+          }
+          const parentResolver = parentSessionKey && agentContexts.get(parentSessionKey)
+          if (parentSessionKey && !parentResolver) throw new Error('scope-expired: 父执行授权来源已释放')
+          if (parentResolver) {
+            const parent = await parentResolver()
+            context.delegation = {
+              parentPrincipalId: parent.principal.id,
+              parentRevision: parent.policyRevision,
+              scope: parent.scope,
+              effects: presetEffects(parent.accessMode).filter(
+                (effect) =>
+                  (!parent.allowedEffects || parent.allowedEffects.includes(effect)) &&
+                  (!parent.delegation || parent.delegation.effects.includes(effect)),
+              ),
+              capabilities: parent.capabilities,
+            }
+          }
+          const current = collaboration.goalCaller(session)
+          const currentBinding = pi.readSessionBinding(current.rootSessionKey)
+          if (
+            boundaryDepth ||
+            permissionGeneration !== authorizationGeneration ||
+            blockedFrames.has(frame) ||
+            actorFrame(current) !== frame ||
+            bindingStamp !== revisionOf([currentBinding?.state.mode, currentBinding?.accessMode]) ||
+            [...revokingScopes].some((scope) => authorizationScopeContains(scope, context.scope))
+          )
+            throw new Error('scope-expired: 授权归属在接纳期间变化')
+          lastAuthorizationContext = structuredClone(context)
+          lastContextFrame = frame
+          return context
+        }
+        agentContexts.set(sessionKey, resolveAuthorizationContext)
+        const releaseAuthorization = authorization.register(principalId, resolveAuthorizationContext)
+        const persistContextCapture = async (
+          capture: ContextCapture,
+          owner: Readonly<import('./model-broker').ModelBrokerCaptureOwner>,
+        ) => {
+          if (!appControl || closing || temporaryClosing.has(owner.actor.sessionKey)) return
+          const ref = owner.session
+          if (temporaryClosing.has(ref.sessionId)) return
+          const previous = contextCaptureTargets.get(capture.id)
+          if (previous && (previous.hostId !== ref.hostId || previous.sessionId !== ref.sessionId)) return
+          if (capture.phase === 'payload') contextCaptureTargets.set(capture.id, ref)
+          contextSessions.add(ref.sessionId)
+          contextWindows.registerSession(ref.sessionId, owner.temporaryRoot)
+          const bytes =
+            Buffer.byteLength(capture.body ?? '') +
+            (capture.reply ? Buffer.byteLength(JSON.stringify(capture.reply)) : 0)
+          if (contextCaptureBytes + bytes > 64 * 1024 * 1024)
+            capture = {
+              ...capture,
+              body: undefined,
+              reply: undefined,
+              bodyState: capture.body ? 'missing' : capture.bodyState,
+              replyCut: capture.reply ? true : capture.replyCut,
+            }
+          const admittedBytes = capture.body || capture.reply ? bytes : 0
+          contextCaptureBytes += admittedBytes
+          try {
+            const record = await contextWindows.capture(ref.sessionId, capture)
+            if (record && !temporaryClosing.has(ref.sessionId))
+              await appControl.publishContext(ref, { requestId: record.id, revision: record.revision })
+          } finally {
+            contextCaptureBytes -= admittedBytes
+            if (capture.phase !== 'payload') contextCaptureTargets.delete(capture.id)
+          }
+        }
+        const modelBroker = createModelBrokerSession({
+          runtime: hostModelRuntime,
+          context: async (capture) => {
+            const actor = collaboration.goalCaller(session)
+            const connection = session.connection()
+            const nativeSessionId = session.getActiveSession().sessionId ?? actor.sessionId
+            const generation = connection.generation
+            const actorRevision = (value: typeof actor) =>
+              revisionOf([
+                value.agentId,
+                value.rootAgentId,
+                value.rootSessionKey,
+                value.sessionKey,
+                value.rootTaskId,
+                value.runId,
+                value.epoch,
+                value.executionGeneration,
+                value.cwd,
+                value.mode,
+                value.accessMode,
+                value.model?.provider,
+                value.model?.id,
+              ])
+            const before = actorRevision(actor)
+            const context = await resolveAuthorizationContext()
+            const runtime = await hostModelRuntime()
+            const modelRevision = modelRuntimeCache?.revision
+            const available = await runtime.getAllAvailable()
+            let captureOwner: import('./model-broker').ModelBrokerCaptureOwner | undefined
+            if (capture) {
+              const [own, rootSession] = await Promise.all([
+                appControl!.sessionForRuntime(sessionKey),
+                appControl!.sessionForRuntime(actor.rootSessionKey),
+              ])
+              if (nativeSessionId)
+                captureOwner = {
+                  requestId: capture.requestId,
+                  captureId: randomUUID(),
+                  actor: {
+                    agentId: actor.agentId,
+                    rootAgentId: actor.rootAgentId,
+                    rootSessionKey: actor.rootSessionKey,
+                    sessionKey: actor.sessionKey,
+                    rootTaskId: actor.rootTaskId,
+                    runId: actor.runId,
+                    epoch: actor.epoch,
+                    executionGeneration: actor.executionGeneration,
+                  },
+                  session: { hostId: own.hostId, sessionId: own.sessionId },
+                  rootSession: { hostId: rootSession.hostId, sessionId: rootSession.sessionId },
+                  project: own.project ? { ...own.project } : undefined,
+                  cwd: actor.cwd,
+                  generation,
+                  nativeSessionId,
+                  temporaryRoot: effectivePaths.temporaryRoot,
+                }
+            }
+            const currentActor = collaboration.goalCaller(session)
+            if (
+              before !== actorRevision(currentActor) ||
+              generation !== session.connection().generation ||
+              nativeSessionId !== (session.getActiveSession().sessionId ?? currentActor.sessionId)
+            )
+              throw new Error('scope-expired: 模型请求归属在接纳期间变化')
+            return {
+              scopeKey: revisionOf([context.policyRevision, modelRevision, generation, nativeSessionId]),
+              model: actor.model,
+              allowedModels: available.map((model) => ({ provider: model.provider, id: model.id })),
+              maxOutputTokens: 16_384,
+              captureOwner,
+            }
+          },
+          onCapture: async (event, owner) => {
+            // Owner was captured at open. Never recover it from the current actor, UI selection or callback ALS.
+            if (!owner || owner.requestId !== event.id) return
+            const { canonicalModel, ...captured } = event
+            const capture: ContextCapture = {
+              ...captured,
+              id: owner.captureId,
+              generation: owner.generation,
+              nativeSessionId: owner.nativeSessionId,
+              purpose: event.purpose ?? owner.purpose ?? 'unknown',
+              api: canonicalModel.api,
+              model: `${canonicalModel.provider}/${canonicalModel.id}`,
+              window: canonicalModel.contextWindow,
+              inputLeafId: owner.inputLeafId,
+            }
+            if (capture.body) {
+              try {
+                capture.prompt = inspectPrompt(capture.api, capture.body, capture.window)
+                if (
+                  capture.prompt &&
+                  Buffer.byteLength(JSON.stringify(capture.prompt)) > contextCaptureLimits.summaryRecordBytes
+                ) {
+                  capture.prompt = undefined
+                  capture.error ??= '上下文摘要超过保留上限'
+                }
+              } catch {
+                capture.bodyState = 'unread'
+              }
+            }
+            await persistContextCapture(capture, owner)
+          },
+          execute: async (operation, input, signal, body) => {
+            const context = await resolveAuthorizationContext()
+            const actor = collaboration.goalCaller(session)
+            takeModelRequest(actor)
+            const run = goals.currentRun(await appControl!.sessionForRuntime(actor.rootSessionKey))
+            if (run) goals.assertActive(run)
+            const requestId = input && typeof input === 'object' && 'id' in input ? String(input.id) : randomUUID()
+            return authorization.execute(
+              context,
+              {
+                id: `model.${operation.kind}`,
+                summary: `${operation.kind} · ${operation.provider}/${operation.id}`,
+                effects: [
+                  {
+                    kind: operation.kind === 'images' ? 'artifact.write' : 'process.read',
+                    resource: `model:${operation.provider}/${operation.id}`,
+                    boundary: 'external',
+                  },
+                ],
+              },
+              { operation, request: input, modelRevision: modelRuntimeCache?.revision },
+              `model:${requestId}`,
+              body,
+              signal,
+            )
+          },
+        })
+        const mcpAuthorization = createMcpAuthorizationBridge({
+          authorization,
+          context: resolveAuthorizationContext,
+          cwd: () => collaboration.goalCaller(session).cwd,
+          paths: effectivePaths,
+          credentials,
+        })
+        const standaloneWorkspace = path.dirname(await physicalTarget(cwd)) === standaloneFsRoot
+        const readableRoots = await readableExceptions([
+          storagePaths.attachmentsDirectory,
+          ...(effectivePaths.temporaryRoot ? [path.join(effectivePaths.temporaryRoot, 'attachments')] : []),
+          ...snapshot.skills.map((skill) => skill.baseDir),
+          ...runtimeReadOnlyRoots,
+        ])
+        const fileReadRoots = await readableExceptions([...readableRoots, ...(standaloneWorkspace ? [cwd] : [])])
+        const draining = () => modelBroker.isDraining
+        const cancelExecution = async () => {
+          const previous = lastAuthorizationContext && structuredClone(lastAuthorizationContext)
+          authorizationGeneration++
+          if (lastActorFrame) blockedFrames.add(lastActorFrame)
+          boundaryDepth++
+          const drains = pendingModelDrains.get(principalId) ?? new Set<() => boolean>()
+          drains.add(draining)
+          pendingModelDrains.set(principalId, drains)
+          try {
+            const stopped = await Promise.allSettled([
+              authorization.cancelPrincipal(principalId, previous),
+              modelBroker.cancelAll(),
+              session.abort(true),
+            ])
+            const failed = stopped.find((item) => item.status === 'rejected')
+            if (failed?.status === 'rejected') throw failed.reason
+          } finally {
+            boundaryDepth--
+          }
+        }
+        const execution = {
+          context: () => {
+            try {
+              if (lastContextFrame && actorFrame(collaboration.goalCaller(session)) !== lastContextFrame)
+                return undefined
+            } catch {
+              /* An idle Worker still owns its previous transport cleanup. */
+            }
+            return lastAuthorizationContext
+          },
+          cancel: cancelExecution,
+        }
+        workerExecutions.set(sessionKey, execution)
         return {
+          authorizationBoundary: async (reason, action) => {
+            const frame = lastActorFrame
+            boundaryDepth++
+            try {
+              let failure: unknown
+              try {
+                await cancelExecution()
+              } catch (cause) {
+                failure = cause
+              }
+              if (failure && reason === 'resume') throw failure
+              await action()
+              if (reason === 'resume' && frame) blockedFrames.delete(frame)
+              if (failure) throw failure
+            } finally {
+              boundaryDepth--
+            }
+          },
+          mcpAuthorization: mcpAuthorization.dispatch,
+          modelBroker: { catalog: await modelBroker.catalog(), request: modelBroker.request },
+          protectedRoots: privateFsRoots,
+          readOnlyRoots: runtimeReadOnlyRoots,
+          readableRoots,
+          fileReadRoots,
+          authorizeTool: async (request, signal) =>
+            authorization.tool(
+              request,
+              {
+                context: resolveAuthorizationContext,
+                principalId,
+                cwd,
+                protectedRoots: privateFsRoots,
+                readOnlyRoots: runtimeReadOnlyRoots,
+                writableRoots: standaloneWorkspace ? [await realpath(cwd)] : [],
+                readableRoots,
+                knownTool: (name) =>
+                  [
+                    'system_read',
+                    'system_write',
+                    'codemode',
+                    'tool_search',
+                    'request_user_input',
+                    'read_visualization',
+                    'read_plan',
+                    'sync_plan',
+                    'spawn_agent',
+                    'send_message',
+                    'list_agents',
+                    'wait_agent',
+                    'finish_agent',
+                    'followup_task',
+                    'interrupt_agent',
+                    'list_agent_models',
+                  ].includes(name) || pluginBridge.isKnownTool(name),
+                abort: () => {
+                  void session.abort(true).catch(() => {})
+                },
+              },
+              signal,
+            ),
           credentials,
           dataRoot: root,
           settings: settings.settings,
           agentEntries: lease.agentEntries,
           resourceSnapshot: snapshot,
-          workerPath: options.workerPath ?? fileURLToPath(new URL('./session-worker.ts', import.meta.url)),
+          workerPath: runtime.workerPath,
+          fixedRuntime: { nodePath: runtime.nodePath, nativePath: runtime.nativePath },
           admit: async (
             message,
             mode,
@@ -748,15 +1392,22 @@ export async function createHost(options: HostOptions = {}) {
               await goals.stop(current.session, 'paused', '进入规划模式，目标已暂停')
             if (origin === 'recovery') await collaboration.admitRecovery(session, mode, signal)
             else await collaboration.admit(session, message, mode, origin === 'collaboration', signal)
-            if (actor.depth === 0 && !continuation) {
+            if (actor.depth === 0) {
               const admitted = collaboration.goalCaller(session)
-              if (sourceClientId)
+              const previous = executionClients.get(admitted.rootSessionKey)
+              if (sourceClientId && isAuthenticatedClient(sourceClientId))
                 executionClients.set(admitted.rootSessionKey, {
                   clientId: sourceClientId,
                   rootTaskId: admitted.rootTaskId,
                   epoch: admitted.epoch,
                 })
-              else executionClients.delete(admitted.rootSessionKey)
+              else if (
+                !continuation ||
+                !previous ||
+                previous.rootTaskId !== admitted.rootTaskId ||
+                previous.epoch !== admitted.epoch
+              )
+                executionClients.delete(admitted.rootSessionKey)
             }
             const run =
               actor.depth === 0
@@ -801,41 +1452,9 @@ export async function createHost(options: HostOptions = {}) {
               throw new Error('用量来自未接纳的目标执行')
             await goals.usage(run, entryId, usage, inputEntryId)
           },
-          contextCapture: async (capture) => {
-            if (!appControl || closing || temporaryClosing.has(sessionKey)) return
-            let ref = contextCaptureTargets.get(capture.id)
-            const connection = session.connection()
-            if (!ref || capture.phase === 'payload') {
-              if (capture.generation !== connection.generation) return
-              const nativeId = session.getActiveSession().sessionId
-              if (nativeId && nativeId !== capture.nativeSessionId) return
-              ref ??= await appControl.sessionForRuntime(sessionKey)
-            }
-            if (temporaryClosing.has(ref.sessionId)) return
-            if (capture.phase === 'payload') contextCaptureTargets.set(capture.id, ref)
-            contextSessions.add(ref.sessionId)
-            contextWindows.registerSession(ref.sessionId, effectivePaths.temporaryRoot)
-            const bytes =
-              Buffer.byteLength(capture.body ?? '') +
-              (capture.reply ? Buffer.byteLength(JSON.stringify(capture.reply)) : 0)
-            if (contextCaptureBytes + bytes > 64 * 1024 * 1024)
-              capture = {
-                ...capture,
-                body: undefined,
-                reply: undefined,
-                bodyState: capture.body ? 'missing' : capture.bodyState,
-              }
-            const admittedBytes = capture.body || capture.reply ? bytes : 0
-            contextCaptureBytes += admittedBytes
-            try {
-              const record = await contextWindows.capture(ref.sessionId, capture)
-              if (record && !temporaryClosing.has(ref.sessionId))
-                await appControl.publishContext(ref, { requestId: record.id, revision: record.revision })
-            } finally {
-              contextCaptureBytes -= admittedBytes
-              if (capture.phase !== 'payload') contextCaptureTargets.delete(capture.id)
-            }
-          },
+          // Broker inference is captured authoritatively at the Host. Worker placeholders must not create
+          // duplicate request records or replace the actual provider payload with synthetic context.
+          contextCapture: async () => {},
           plugin: (request, signal) => pluginBridge.dispatch(request, signal),
           visualize: async (request, signal) => {
             signal.throwIfAborted()
@@ -859,55 +1478,137 @@ export async function createHost(options: HostOptions = {}) {
             if (request.action !== 'save') throw new Error('草图请求无效')
             return store.save(request.input, `${sessionKey}:${actor.runId}:${request.callId}`, references, assertActive)
           },
-          imageGeneration: async (request, signal) => {
+          imageGeneration: async (request, signal, requestId) => {
             const actor = collaboration.goalCaller(session)
-            const permitted = actor.mode !== 'plan' && actor.accessMode !== 'read-only'
-            if (request.action === 'ready') return { ready: permitted && (await imageGeneration.ready()) }
-            if (!permitted) throw new Error('当前任务模式或访问权限不允许生成图片')
-            if (request.action !== 'generate') throw new Error('图片生成请求无效')
-            const result = await imageGeneration.generate(request.input, request.sources, {
-              cwd: actor.cwd,
-              signal,
-              destinationDirectory: effectivePaths.temporaryRoot
-                ? path.join(effectivePaths.temporaryRoot, 'attachments')
-                : undefined,
-              assertActive: () => {
-                const current = collaboration.goalCaller(session)
-                if (
-                  current.mode === 'plan' ||
-                  current.accessMode === 'read-only' ||
-                  current.runId !== actor.runId ||
-                  current.epoch !== actor.epoch ||
-                  current.executionGeneration !== actor.executionGeneration ||
-                  !['running', 'waiting_children', 'waiting_input'].includes(current.status)
-                )
-                  throw new Error('图片请求来自已结束或过期执行')
-              },
-            })
-            if (!effectivePaths.temporaryRoot) {
-              try {
-                const source = await appControl!.sessionForRuntime(actor.rootSessionKey)
-                if (!source.temporary) {
-                  const project = source.project
-                    ? await appControl!.apiFor('image-library').projects.get(source.project)
-                    : undefined
-                  await imageLibrary.add({
-                    artifact: result.artifact,
-                    prompt: request.input.prompt,
-                    createdAt: new Date().toISOString(),
-                    session: { hostId, sessionId: source.sessionId },
-                    project: source.project,
-                    projectName: project?.name,
-                  })
-                }
-              } catch {
-                result.retentionWarning = '图片已生成，但未能收录到图像库；稍后打开图像页可重新补录。'
+            if (request.action === 'ready') {
+              const binding = pi.readSessionBinding(actor.rootSessionKey)
+              return {
+                ready:
+                  actor.mode !== 'plan' &&
+                  binding?.state.mode !== 'plan' &&
+                  actor.accessMode !== 'read-only' &&
+                  binding?.accessMode !== 'read-only' &&
+                  (await imageGeneration.ready()),
               }
             }
-            return result
+            const context = await resolveAuthorizationContext()
+            const permitted = context.taskMode !== 'plan' && context.accessMode !== 'read-only'
+            if (!permitted) throw new Error('当前任务模式或访问权限不允许生成图片')
+            if (request.action !== 'generate' || !Array.isArray(request.sources) || request.sources.length > 5)
+              throw new Error('图片生成请求无效')
+            const prepared = Object.freeze(await imageGeneration.config.selected())
+            const modelVersion = revisionOf(prepared)
+            const identities = new Map<string, { dev: string; ino: string }>()
+            const sources = await Promise.all(
+              request.sources.map(async (source) => {
+                if (!source.path) return source
+                const target = await physicalTarget(path.resolve(actor.cwd, source.path))
+                if (
+                  privateFsRoots.some((root) => withinCheckout(target, root)) &&
+                  !fileReadRoots.some((root) => withinCheckout(target, root))
+                )
+                  throw new Error('permission-denied: 引用图片不能访问 Host 私有数据')
+                const info = await lstat(target, { bigint: true })
+                if (!info.isFile() || info.nlink !== 1n || info.ino === 0n)
+                  throw new Error('引用图片不是可核对的普通单链接文件')
+                identities.set(target, { dev: info.dev.toString(), ino: info.ino.toString() })
+                return { ...source, path: target }
+              }),
+            )
+            const boundSources = sources.map((source) => ({
+              ...source,
+              image: source.image
+                ? {
+                    mimeType: source.image.mimeType,
+                    characters: source.image.data.length,
+                    digest: createHash('sha256').update(source.image.data).digest('hex'),
+                  }
+                : undefined,
+            }))
+            const run = goals.currentRun(await appControl!.sessionForRuntime(actor.rootSessionKey))
+            if (run) goals.assertActive(run)
+            return authorization.execute(
+              context,
+              {
+                id: 'model.image-generation',
+                summary: `生成图片 · ${prepared.model}`,
+                effects: [
+                  { kind: 'network.write', resource: `image-model:${prepared.id}`, boundary: 'external' },
+                  { kind: 'artifact.write', resource: 'image-artifacts', boundary: 'scratch' },
+                  ...[...identities.keys()].map((resource) => ({
+                    kind: 'fs.read' as const,
+                    resource,
+                    boundary: 'external' as const,
+                  })),
+                ],
+              },
+              { input: request.input, sources: boundSources, fileIdentities: [...identities], modelVersion },
+              `image:${requestId}`,
+              async (leaseSignal) => {
+                takeModelRequest(actor)
+                let sent = false
+                try {
+                  const result = await imageGeneration.generate(
+                    request.input,
+                    sources,
+                    {
+                      cwd: actor.cwd,
+                      signal: leaseSignal,
+                      preparedModel: prepared,
+                      destinationDirectory: effectivePaths.temporaryRoot
+                        ? path.join(effectivePaths.temporaryRoot, 'attachments')
+                        : undefined,
+                      onRequest: () => {
+                        sent = true
+                      },
+                      readFile: (target, { maxBytes, signal }) => {
+                        const expected = identities.get(target)
+                        if (!expected) throw new Error('permission-denied: 引用图片与本次批准对象不匹配')
+                        return filesBackend.read(target, maxBytes, expected, actor.cwd, signal)
+                      },
+                      assertActive: async () => {
+                        leaseSignal.throwIfAborted()
+                        const current = await resolveAuthorizationContext()
+                        if (
+                          current.policyRevision !== context.policyRevision ||
+                          revisionOf(await imageGeneration.config.selected(prepared.id)) !== modelVersion
+                        )
+                          throw new Error('图片请求的执行或模型配置已变化')
+                        if (run) goals.assertActive(run)
+                      },
+                    },
+                    prepared.id,
+                  )
+                  if (!effectivePaths.temporaryRoot) {
+                    try {
+                      const source = await appControl!.sessionForRuntime(actor.rootSessionKey)
+                      if (!source.temporary) {
+                        const project = source.project ? await projects.get(source.project.projectId) : undefined
+                        await imageLibrary.add({
+                          artifact: result.artifact,
+                          prompt: request.input.prompt,
+                          createdAt: new Date().toISOString(),
+                          session: { hostId, sessionId: source.sessionId },
+                          project: source.project,
+                          projectName: project?.name,
+                        })
+                      }
+                    } catch {
+                      result.retentionWarning = '图片已生成，但未能收录到图像库；稍后打开图像页可重新补录。'
+                    }
+                  }
+                  return result
+                } finally {
+                  if (sent && run) await goals.usage(run, `image:${requestId}`, undefined)
+                }
+              },
+              signal,
+            )
           },
           system: async (request, signal) => {
             const actor = collaboration.goalCaller(session)
+            const operationContext = await resolveAuthorizationContext()
+            let operationSignal = signal
             const assertActive = () => {
               signal.throwIfAborted()
               const current = collaboration.goalCaller(session)
@@ -915,15 +1616,20 @@ export async function createHost(options: HostOptions = {}) {
                 current.runId !== actor.runId ||
                 current.epoch !== actor.epoch ||
                 current.executionGeneration !== actor.executionGeneration ||
+                current.mode !== actor.mode ||
+                current.accessMode !== actor.accessMode ||
                 !['running', 'waiting_children', 'waiting_input'].includes(current.status)
               )
                 throw new Error('工作台请求来自已结束或过期执行')
-              if (request.write && (current.mode === 'plan' || current.accessMode !== 'full-access'))
-                throw new Error('工作台写操作需要普通模式和完全权限')
+              if (
+                request.write &&
+                (operationContext.taskMode === 'plan' || operationContext.accessMode === 'read-only')
+              )
+                throw new Error('规划或只读权限不允许工作台写操作')
             }
             assertActive()
             const ref = await appControl!.sessionForRuntime(actor.rootSessionKey)
-            const api = appControl!.apiFor(`system-api:${ref.sessionId}`, ref)
+            const api = appControl!.apiFor(operationContext.scope.clientId ?? `system-api:${ref.sessionId}`, ref)
             const safeMcp = async () => {
               const value = await mcp.snapshot()
               return {
@@ -956,11 +1662,20 @@ export async function createHost(options: HostOptions = {}) {
               api,
               session: ref,
               terminal,
-              canWrite: actor.mode !== 'plan' && actor.accessMode === 'full-access',
+              canWrite: operationContext.taskMode !== 'plan' && operationContext.accessMode !== 'read-only',
               clientAvailable: (operation) => systemClients.supports(initiatingClient(), operation),
               client: async (operation, args) => {
                 assertActive()
-                return systemClients.request(initiatingClient(), ref, operation, args, signal)
+                return systemClients.request(initiatingClient(), ref, operation, args, operationSignal, {
+                  policyRevision: operationContext.policyRevision,
+                  validate: async () => {
+                    operationSignal.throwIfAborted()
+                    assertActive()
+                    const current = await resolveAuthorizationContext()
+                    if (current.policyRevision !== operationContext.policyRevision)
+                      throw new Error('policy-revoked: 客户端操作权限已变化')
+                  },
+                })
               },
               read: async (operation) => {
                 if (operation === 'profile.get') return profile()
@@ -1038,18 +1753,60 @@ export async function createHost(options: HostOptions = {}) {
               },
             })
             assertActive()
-            return request.write
-              ? appControl!.store.mutate(
-                  `system:${ref.sessionId}:${actor.runId}`,
-                  request.callId,
-                  request.operation,
-                  request.args,
-                  async () => {
-                    assertActive()
-                    return operations.execute(request)
+            const definition = operations.definition(request.operation)
+            const direct =
+              definition.scope === 'client' ||
+              /^(?:profile\.|usage\.|mcp\.|instructions\.|resources\.|commands\.)/.test(request.operation) ||
+              ['capabilities', 'schedules.schema', 'terminal.list', 'terminal.read'].includes(request.operation)
+            const kind =
+              !direct || !definition.write
+                ? 'process.read'
+                : /^(?:mcp\.|instructions\.)/.test(request.operation)
+                  ? 'policy.write'
+                  : 'host.write'
+            return authorization.execute(
+              operationContext,
+              {
+                id: `system.${request.operation}`,
+                summary: `${request.operation} · ${ref.sessionId}`,
+                effects: [
+                  {
+                    kind,
+                    resource:
+                      definition.scope === 'host'
+                        ? `host:${hostId}:${request.operation}`
+                        : `session:${ref.sessionId}:${request.operation}`,
+                    boundary: 'host',
                   },
-                )
-              : operations.execute(request)
+                ],
+                approvalRequired:
+                  direct &&
+                  !definition.write &&
+                  definition.scope === 'host' &&
+                  !['models.list', 'mcp.get', 'resources.list', 'commands.list', 'schedules.schema'].includes(
+                    request.operation,
+                  ),
+              },
+              request.args,
+              `system:${request.callId}`,
+              async (leaseSignal) => {
+                operationSignal = leaseSignal
+                assertActive()
+                return request.write
+                  ? appControl!.store.mutate(
+                      `system:${ref.sessionId}:${actor.runId}`,
+                      request.callId,
+                      request.operation,
+                      request.args,
+                      async () => {
+                        assertActive()
+                        return operations.execute(request)
+                      },
+                    )
+                  : operations.execute(request)
+              },
+              signal,
+            )
           },
           recordTurnChange: (change) => collaboration.recordTurnChange(session, change),
           activity: (request, signal) => activityBridge.dispatch(session, request, signal),
@@ -1061,6 +1818,8 @@ export async function createHost(options: HostOptions = {}) {
           release: async () => {
             try {
               try {
+                await mcpAuthorization.dispose()
+                await modelBroker.dispose()
                 await pluginBridge.close()
               } finally {
                 await lease.release()
@@ -1069,6 +1828,9 @@ export async function createHost(options: HostOptions = {}) {
               await Promise.allSettled([...contextSessions].map((id) => contextWindows.abortPending(id)))
               for (const [id, ref] of contextCaptureTargets)
                 if (contextSessions.has(ref.sessionId)) contextCaptureTargets.delete(id)
+              await releaseAuthorization()
+              if (agentContexts.get(sessionKey) === resolveAuthorizationContext) agentContexts.delete(sessionKey)
+              if (workerExecutions.get(sessionKey) === execution) workerExecutions.delete(sessionKey)
               releaseResource()
               workerPluginBridges.delete(sessionKey)
               workerSnapshots.delete(sessionKey)
@@ -1103,6 +1865,10 @@ export async function createHost(options: HostOptions = {}) {
     pi.configureCheckoutGate(assertCheckoutAvailable)
     collaboration = createHostCollaborationBridge({
       getSubagentDefaults: () => settings.snapshot().settings.subagentDefaults,
+      resolveRootAuthorizationPolicy: (key) => {
+        const current = pi.readSessionBinding(key)
+        return { mode: current.state.activeMode ?? current.state.mode, accessMode: current.accessMode }
+      },
       dataRoot: root,
       collaborationRootsDirectory: storagePaths.collaborationRootsDirectory,
       collaborationPlansFile: storagePaths.collaborationPlansFile,
@@ -1651,9 +2417,12 @@ export async function createHost(options: HostOptions = {}) {
       if (!appControl) throw new Error('服务 API 尚未初始化')
       return appControl.api
     })
-    pi.configureRestrictedAccess(
+    const schedules = builtins.services[
+      'host.schedules.runtime'
+    ] as import('@pi-meme/schedules/server/service').ScheduleService
+    pi.configureRestrictedAccess(() =>
       (
-        builtins.services['agent.sandbox'] as {
+        builtins!.services['agent.sandbox'] as {
           capability: () => import('@pi-meme/pi-runtime/sdk/access-sandbox').SandboxCapability
         }
       ).capability(),
@@ -1714,6 +2483,46 @@ export async function createHost(options: HostOptions = {}) {
       'host:session-ref': (key) => {
         if (typeof key !== 'string') throw new Error('会话 ID 参数无效')
         return appControl!.sessionForRuntime(key)
+      },
+      'authorization:snapshot': () => authorization.authority.snapshot(),
+      'authorization:respond': async (id, input) => {
+        if (typeof id !== 'string' || !input || typeof input !== 'object') throw new Error('审批参数无效')
+        const response = input as { decision?: unknown; nonce?: unknown }
+        if (!['allow-once', 'deny'].includes(String(response.decision)) || typeof response.nonce !== 'string')
+          throw new Error('审批参数无效')
+        return authorization.respond(id, {
+          context: authorization.ownerContext(pluginClient.getStore()!),
+          decision: response.decision === 'allow-once' ? 'approve' : 'reject',
+          nonce: response.nonce,
+        })
+      },
+      'authorization:revoke': async (value) => {
+        const scope = structuredClone(value) as AuthorizationScope
+        if (!scope || scope.hostId !== hostId) throw new Error('撤权目标无效')
+        revokingScopes.add(scope)
+        try {
+          const executions = [...workerExecutions.values()].filter((execution) => {
+            const context = execution.context()
+            return context
+              ? authorizationScopeContains(scope, context.scope)
+              : authorizationScopeContains(scope, { hostId })
+          })
+          const stopped = await Promise.allSettled([
+            authorization.revoke(scope),
+            ...executions.map((execution) => execution.cancel()),
+            schedules.revokeAuthorization(scope),
+            activities.revokeAuthorization(scope),
+          ])
+          const failed = stopped.find((item) => item.status === 'rejected')
+          if (failed?.status === 'rejected') throw failed.reason
+        } finally {
+          revokingScopes.delete(scope)
+        }
+      },
+      'authorization:resume': async (value) => {
+        const scope = value as AuthorizationScope
+        if (!scope || scope.hostId !== hostId) throw new Error('授权目标无效')
+        await authorization.authority.resume(scope)
       },
       'host:storage-info': () => ({ hostId, dataRoot: root }),
       'pi:connection': () => pi.connection(),
@@ -2038,6 +2847,7 @@ export async function createHost(options: HostOptions = {}) {
     }
     terminal = new TerminalService({
       hostId,
+      assertOwnerExecution: assertOwnerTerminalExecution,
       resolveRoot: (ref) => appControl!.resolveRoot(ref),
       onEvent: (value) => appControl?.publishLive({ type: 'terminal', value }),
     })
@@ -2052,9 +2862,6 @@ export async function createHost(options: HostOptions = {}) {
       )
         throw new Error('Agent 插件选择无效')
     }
-    const schedules = builtins.services[
-      'host.schedules.runtime'
-    ] as import('@pi-meme/schedules/server/service').ScheduleService
     sessionAttention = new SessionAttentionService(
       attentionStore,
       async () => ({
@@ -2065,6 +2872,57 @@ export async function createHost(options: HostOptions = {}) {
       () => emit('sessions-changed'),
     )
     appControl = await createAppControl({
+      authorizeApi: async (input, action) => {
+        const perform = async () => {
+          const mutation = input.args.at(-1) as import('@pi-meme/contracts/app-host').MutationOptions | undefined
+          const cleanup = [
+            'sessions.stop',
+            'sessions.stopTask',
+            'sessions.pause',
+            'sessions.cancelSubmission',
+            'agents.stop',
+            'activities.stop',
+            'terminal.close',
+            'goals.pause',
+            'goals.clear',
+            'schedules.pause',
+            'schedules.stopRun',
+          ].includes(input.method)
+          if (cleanup && mutation?.expected?.schedule) {
+            schedules.assertMutationCurrent(input.method, input.args.slice(0, -1), mutation)
+            return action()
+          }
+          const inherited = authorization.currentContext()
+          if (
+            cleanup &&
+            authorization.identity()?.role === 'owner' &&
+            (!inherited || inherited.principal.kind === 'user')
+          )
+            return action()
+          const context = await authorization.userContext(input.clientId, input.session, apiManagesPolicy(input.method))
+          const session = input.session?.()
+          const operation = apiAuthorizationOperation(input.method, context, session, input.args)
+          if (input.method === 'events.subscribe' && typeof input.args[1] === 'function') {
+            const listener = input.args[1] as (...args: unknown[]) => unknown
+            input.args[1] = (...args: unknown[]) =>
+              context.principal.kind === 'service'
+                ? authorization.withServiceContext(input.clientId, () => listener(...args))
+                : authorization.withContext(context, () => listener(...args))
+          }
+          const key =
+            mutation && typeof mutation === 'object' && typeof mutation.idempotencyKey === 'string'
+              ? `api:${mutation.idempotencyKey}`
+              : randomUUID()
+          return authorization.execute(context, operation, auditInput(input.args), key, async () => action())
+        }
+        return input.clientId === 'host-schedules'
+          ? authorization.withServiceContext(input.clientId, perform)
+          : perform()
+      },
+      assertMutationCurrent: (method, args, mutation) => {
+        if (method !== 'sessions.stop') authorization.currentSignal()?.throwIfAborted()
+        schedules.assertMutationCurrent(method, args, mutation)
+      },
       sessionAttention,
       prepareContextSession: (session) => {
         const key = appControl?.goalRuntimeKey(session)
@@ -2095,10 +2953,13 @@ export async function createHost(options: HostOptions = {}) {
         setDefault: (id, revision) => imageGeneration.config.setDefault(id, revision),
         test: (id) => {
           if (typeof id !== 'string' || !id) throw new Error('测试图片必须选择模型配置')
+          const signal = authorization.currentSignal()
+          if (!signal) throw new Error('permission-denied: 图片配置测试缺少可信执行信号')
+          signal.throwIfAborted()
           return imageGeneration.generate(
             { prompt: '生成一张简洁的蓝色圆形测试图片，白色背景，不包含文字。' },
             [],
-            { cwd: root, signal: new AbortController().signal },
+            { cwd: root, signal, assertActive: () => signal.throwIfAborted() },
             id,
           )
         },
@@ -2166,6 +3027,7 @@ export async function createHost(options: HostOptions = {}) {
             }
             return roots
           },
+          filesBackend,
         ),
         terminal,
         terminalSupported: terminal.supported,
@@ -2212,6 +3074,22 @@ export async function createHost(options: HostOptions = {}) {
       if (!closing) emit('plugins-changed')
     }
     plugins = new PluginManager({
+      callRestrictedUi: createPluginUiBridge({
+        manager: () => plugins,
+        node: pluginNode,
+        runnerEntry: runtime.restrictedEntry,
+        dataRoot: root,
+        sandboxCapability: pluginSandboxCapability,
+        http: pluginHttp,
+        workspace: async (target) =>
+          target.session
+            ? appControl!.rawAuthorizationSession(target.session, pluginClient.getStore()).cwd
+            : target.project
+              ? appControl!.resolveRoot(target.project)
+              : undefined,
+        executeOperation: (definition, context, action, input) =>
+          executePluginOperation(definition, context, input, context.signal, action),
+      }),
       hostApi: appControl.api,
       hostApiForPlugin: (id) => {
         const api = appControl!.apiFor(`plugin:${id}`)
@@ -2289,6 +3167,14 @@ export async function createHost(options: HostOptions = {}) {
     })
     await plugins.restore()
     pluginsRestored = true
+    schedules.setAuthorizationHooks(
+      scheduleAuthorization({
+        hostId,
+        authorization,
+        schedules,
+        readSession: (ref) => appControl!.rawAuthorizationSession(ref, 'host-schedules'),
+      }),
+    )
     await schedules.start(appControl.apiFor('host-schedules'), (taskId) =>
       appControl!.publish({ type: 'schedule', value: { taskId } }),
     )
@@ -2359,6 +3245,14 @@ export async function createHost(options: HostOptions = {}) {
         schedules.prepareMaintenance()
         closing = true
       },
+      withIdentity: authorization.withIdentity.bind(authorization),
+      registerAuthenticatedClient,
+      isAuthenticatedClient,
+      authorizeTransport,
+      disconnectSystemClient(clientId: string, identity: TransportIdentity) {
+        if (!listeners.get(clientId)?.size) systemClients.disconnect(clientId, identity)
+      },
+      authorization: authorization.authority,
       app: appControl.api,
       control: appControl,
       settings,
@@ -2437,6 +3331,13 @@ export async function createHost(options: HostOptions = {}) {
           if (!closing) scheduleClientRelease(clientId)
         }
       },
+      async readLinkedPreview(clientId: string, ref: SessionRef, input: string, signal?: AbortSignal) {
+        if (!isAuthenticatedClient(clientId, authorization.identity()))
+          throw new Error('permission-denied: 文件预览缺少可信客户端')
+        signal?.throwIfAborted()
+        const source = await appControl!.rawAuthorizationSession(ref, clientId)
+        return previewLinkedFile(source.cwd, input, filesBackend, signal)
+      },
       async rpc(request: HostRpcRequest) {
         if (closing) throw new Error('服务正在退出，操作未接纳')
         if (
@@ -2454,214 +3355,301 @@ export async function createHost(options: HostOptions = {}) {
         const pending = registry.run(
           request,
           async () => {
-            if (request.method === 'system:register') return systemClients.register(request.clientId, request.args[0])
+            const identity = authorization.identity()
+            if (request.method === 'system:register')
+              return systemClients.register(
+                request.clientId,
+                request.args[0],
+                identity,
+                (request.args[1] as { documentUUID?: string } | undefined)?.documentUUID,
+              )
             if (request.method === 'system:reply')
               return systemClients.reply(
                 request.clientId,
                 request.args[0] as import('@pi-meme/contracts/system-tools').SystemClientReply,
+                identity,
               )
-            const deletion = request.method === 'session:delete' || request.method === 'project:remove'
-            const deletionEpoch = selectionEpochs.get(request.clientId) ?? 0
-            const epoch = selections.has(request.method) ? (selectionEpochs.get(request.clientId) ?? 0) + 1 : undefined
-            if (epoch !== undefined) selectionEpochs.set(request.clientId, epoch)
-            if (request.method === 'pi:extension-ui-response' && request.sessionId?.startsWith('agent:')) {
-              const [key, id, response] = request.args
-              if (key !== request.sessionId || typeof id !== 'string' || !response || typeof response !== 'object')
-                throw new Error('子 Agent 交互响应参数无效')
-              checkSessionAuthorization(request.sessionId, request.clientId)
-              validateExtensionUIResponse(response)
-              return collaboration.respondExtensionUI(key as string, id, response)
+            if (request.method === 'system:claim') {
+              if (!identity) throw new Error('permission-denied: 缺少客户端认证身份')
+              return systemClients.claim(
+                request.clientId,
+                request.args[0] as import('@pi-meme/contracts/system-tools').SystemClientClaim,
+                identity,
+              )
             }
-            if (request.method === 'pi:agent-snapshot' || request.method === 'pi:interrupt-agent') {
-              if (typeof request.args[0] === 'string') {
-                checkSessionAuthorization(request.args[0], request.clientId)
+            if (request.method === 'system:unregister') {
+              if (!identity) throw new Error('permission-denied: 缺少客户端认证身份')
+              return systemClients.unregister(
+                request.clientId,
+                String(request.args[0]),
+                String(request.args[1]),
+                identity,
+              )
+            }
+            const perform = async () => {
+              const deletion = request.method === 'session:delete' || request.method === 'project:remove'
+              const deletionEpoch = selectionEpochs.get(request.clientId) ?? 0
+              const epoch = selections.has(request.method)
+                ? (selectionEpochs.get(request.clientId) ?? 0) + 1
+                : undefined
+              if (epoch !== undefined) selectionEpochs.set(request.clientId, epoch)
+              if (request.method === 'pi:extension-ui-response' && request.sessionId?.startsWith('agent:')) {
+                const [key, id, response] = request.args
+                if (key !== request.sessionId || typeof id !== 'string' || !response || typeof response !== 'object')
+                  throw new Error('子 Agent 交互响应参数无效')
+                checkSessionAuthorization(request.sessionId, request.clientId)
+                validateExtensionUIResponse(response)
+                return collaboration.respondExtensionUI(key as string, id, response)
               }
-            }
-            if (request.method === 'pi:agents') {
-              if (typeof request.args[0] === 'string') {
-                checkSessionAuthorization(request.args[0], request.clientId)
+              if (request.method === 'pi:agent-snapshot' || request.method === 'pi:interrupt-agent') {
+                if (typeof request.args[0] === 'string') {
+                  checkSessionAuthorization(request.args[0], request.clientId)
+                }
               }
-            }
-            const view = await client(request.clientId)
-            if (closing) throw new Error('服务正在退出，操作未执行')
-            const action =
-              handlers[request.method] ?? builtins!.handlers[request.method] ?? plugins.handlers()[request.method]
-            if (!action) throw new Error(`服务方法不存在：${request.method}`)
-            if (sessionWrites.has(request.method) && (!request.sessionId || request.args[0] !== request.sessionId))
-              throw new Error('会话写操作必须携带匹配的 sessionId')
-            if (epoch !== undefined && selectionEpochs.get(request.clientId) !== epoch) {
-              if (request.method === 'git:create-worktree') throw new Error('工作环境选择已变化，Worktree 未创建')
-              return { cancelled: true }
-            }
-            if (request.sessionId) {
-              const isClosingAllowed = request.method === 'temporary-session:close'
-              checkSessionAuthorization(request.sessionId, request.clientId, isClosingAllowed)
-            }
-            const tempInfo = temporarySessions.get(request.clientId)
-            const isTempTarget = Boolean(tempInfo && request.sessionId === tempInfo.sessionKey)
-            const selected = isTempTarget
-              ? tempInfo!.view
-              : { ...view, sessionKey: request.sessionId ?? view.sessionKey }
-            const previousKey = selected.sessionKey
-            const run = () =>
-              pi.withClientView(selected, async () => {
-                if (epoch !== undefined) await pi.releaseQueueEdits(request.clientId)
-                const key = selected.sessionKey
-                const sends = ['pi:prompt', 'pi:steer', 'pi:follow-up']
-                const command =
-                  sends.includes(request.method) && typeof request.args[1] === 'string'
-                    ? parseGoalCommand(request.args[1])
-                    : undefined
-                let result: unknown
-                if (request.method.startsWith('goal:') && key) {
-                  const ref = await appControl!.sessionForRuntime(key)
-                  const method = request.method.slice(5) as 'start' | 'edit' | 'pause' | 'resume' | 'clear'
-                  const operation = appControl!.apiFor(request.clientId).goals[method] as (
-                    ref: import('@pi-meme/contracts/app-host').SessionRef,
-                    input: unknown,
-                    options: { idempotencyKey: string },
-                  ) => Promise<unknown>
-                  result = await operation(ref, request.args[1], { idempotencyKey: request.requestId })
-                } else if (command && key) {
-                  const ref = await appControl!.sessionForRuntime(key)
-                  if (command.action === 'start')
-                    result = await appControl!.apiFor(request.clientId).goals.start(
-                      ref,
-                      {
-                        objective: command.objective,
-                        images: request.args[2] as import('@pi-meme/contracts/pi').PiImage[] | undefined,
-                        skills: request.args[3] as import('@pi-meme/contracts/skills').SkillReference[] | undefined,
-                      },
-                      { idempotencyKey: request.requestId },
-                    )
-                  else if (command.action !== 'open') {
-                    const goal = goals.get(ref)
-                    if (!goal) throw new Error('当前会话没有目标')
-                    const method = command.action === 'edit' ? 'pause' : command.action
-                    result = await appControl!
-                      .apiFor(request.clientId)
-                      .goals[method](ref, goal, { idempotencyKey: request.requestId })
-                  }
-                } else {
-                  if (
-                    key &&
-                    (['pi:edit-and-prompt', 'pi:fork-reply'].includes(request.method) ||
-                      (sends.includes(request.method) &&
-                        typeof request.args[1] === 'string' &&
-                        normalizePlanMessage(
-                          request.args[1],
-                          (request.args[4] as { mode?: 'default' | 'plan' } | undefined)?.mode ?? 'default',
-                        ).mode === 'plan'))
-                  ) {
+              if (request.method === 'pi:agents') {
+                if (typeof request.args[0] === 'string') {
+                  checkSessionAuthorization(request.args[0], request.clientId)
+                }
+              }
+              const view = await client(request.clientId)
+              if (closing) throw new Error('服务正在退出，操作未执行')
+              const action =
+                handlers[request.method] ?? builtins!.handlers[request.method] ?? plugins.handlers()[request.method]
+              if (!action) throw new Error(`服务方法不存在：${request.method}`)
+              if (sessionWrites.has(request.method) && (!request.sessionId || request.args[0] !== request.sessionId))
+                throw new Error('会话写操作必须携带匹配的 sessionId')
+              if (epoch !== undefined && selectionEpochs.get(request.clientId) !== epoch) {
+                if (request.method === 'git:create-worktree') throw new Error('工作环境选择已变化，Worktree 未创建')
+                return { cancelled: true }
+              }
+              if (request.sessionId) {
+                const isClosingAllowed = request.method === 'temporary-session:close'
+                checkSessionAuthorization(request.sessionId, request.clientId, isClosingAllowed)
+              }
+              const tempInfo = temporarySessions.get(request.clientId)
+              const isTempTarget = Boolean(tempInfo && request.sessionId === tempInfo.sessionKey)
+              const selected = isTempTarget
+                ? tempInfo!.view
+                : { ...view, sessionKey: request.sessionId ?? view.sessionKey }
+              const previousKey = selected.sessionKey
+              const run = () =>
+                pi.withClientView(selected, async () => {
+                  if (epoch !== undefined) await pi.releaseQueueEdits(request.clientId)
+                  const key = selected.sessionKey
+                  const sends = ['pi:prompt', 'pi:steer', 'pi:follow-up']
+                  const command =
+                    sends.includes(request.method) && typeof request.args[1] === 'string'
+                      ? parseGoalCommand(request.args[1])
+                      : undefined
+                  let result: unknown
+                  if (request.method.startsWith('goal:') && key) {
                     const ref = await appControl!.sessionForRuntime(key)
-                    const goal = goals.get(ref)
-                    if (goal?.status === 'active') {
-                      const clientApi = appControl!.apiFor(request.clientId)
-                      await clientApi.goals.pause(ref, goal, { idempotencyKey: randomUUID() })
+                    const method = request.method.slice(5) as 'start' | 'edit' | 'pause' | 'resume' | 'clear'
+                    const operation = appControl!.apiFor(request.clientId).goals[method] as (
+                      ref: import('@pi-meme/contracts/app-host').SessionRef,
+                      input: unknown,
+                      options: { idempotencyKey: string },
+                    ) => Promise<unknown>
+                    result = await operation(ref, request.args[1], { idempotencyKey: request.requestId })
+                  } else if (command && key) {
+                    const ref = await appControl!.sessionForRuntime(key)
+                    if (command.action === 'start')
+                      result = await appControl!.apiFor(request.clientId).goals.start(
+                        ref,
+                        {
+                          objective: command.objective,
+                          images: request.args[2] as import('@pi-meme/contracts/pi').PiImage[] | undefined,
+                          skills: request.args[3] as import('@pi-meme/contracts/skills').SkillReference[] | undefined,
+                        },
+                        { idempotencyKey: request.requestId },
+                      )
+                    else if (command.action !== 'open') {
+                      const goal = goals.get(ref)
+                      if (!goal) throw new Error('当前会话没有目标')
+                      const method = command.action === 'edit' ? 'pause' : command.action
+                      result = await appControl!
+                        .apiFor(request.clientId)
+                        .goals[method](ref, goal, { idempotencyKey: request.requestId })
+                    }
+                  } else {
+                    if (
+                      key &&
+                      (['pi:edit-and-prompt', 'pi:fork-reply'].includes(request.method) ||
+                        (sends.includes(request.method) &&
+                          typeof request.args[1] === 'string' &&
+                          normalizePlanMessage(
+                            request.args[1],
+                            (request.args[4] as { mode?: 'default' | 'plan' } | undefined)?.mode ?? 'default',
+                          ).mode === 'plan'))
+                    ) {
+                      const ref = await appControl!.sessionForRuntime(key)
+                      const goal = goals.get(ref)
+                      if (goal?.status === 'active') {
+                        const clientApi = appControl!.apiFor(request.clientId)
+                        await clientApi.goals.pause(ref, goal, { idempotencyKey: randomUUID() })
+                      }
+                    }
+                    if (request.method === 'pi:access-mode' && key) {
+                      const ref = await appControl!.sessionForRuntime(key)
+                      appControl!.assertActivityAccess(ref, request.args[1])
+                    }
+                    if (request.method === 'pi:recover' && key) {
+                      const goal = await appControl!.goalForRuntime(key)
+                      if (goal && goal.status !== 'complete') throw new Error('当前会话有未结束的目标，请使用目标恢复')
+                    }
+                    result = await pluginClient.run(request.clientId, () =>
+                      settings.withWriteContext(
+                        { hostId, clientId: request.clientId, requestId: request.requestId },
+                        async () => action(...request.args),
+                      ),
+                    )
+                  }
+                  if (deletion) {
+                    const outcome = result as WorkspaceDeletionResult
+                    if (outcome.selection && !outcome.selection.cancelled) {
+                      if (
+                        (selectionEpochs.get(request.clientId) ?? 0) === deletionEpoch &&
+                        view.sessionKey === previousKey
+                      ) {
+                        Object.assign(view, selected)
+                        emit('connection', pi.connection())
+                        outcome.selection.snapshot = await enrichSnapshot(outcome.selection.snapshot)
+                      } else outcome.selection = { cancelled: true }
                     }
                   }
-                  if (request.method === 'pi:access-mode' && key) {
-                    const ref = await appControl!.sessionForRuntime(key)
-                    appControl!.assertActivityAccess(ref, request.args[1])
-                  }
-                  if (request.method === 'pi:recover' && key) {
-                    const goal = await appControl!.goalForRuntime(key)
-                    if (goal && goal.status !== 'complete') throw new Error('当前会话有未结束的目标，请使用目标恢复')
-                  }
-                  result = await pluginClient.run(request.clientId, () =>
-                    settings.withWriteContext(
-                      { hostId, clientId: request.clientId, requestId: request.requestId },
-                      async () => action(...request.args),
-                    ),
-                  )
-                }
-                if (deletion) {
-                  const outcome = result as WorkspaceDeletionResult
-                  if (outcome.selection && !outcome.selection.cancelled) {
-                    if (
-                      (selectionEpochs.get(request.clientId) ?? 0) === deletionEpoch &&
-                      view.sessionKey === previousKey
-                    ) {
+                  const gitSelection =
+                    request.method === 'git:switch-branch' ||
+                    request.method === 'git:create-branch' ||
+                    request.method === 'git:create-worktree'
+                  if (epoch !== undefined && !gitSelection) {
+                    if (selectionEpochs.get(request.clientId) !== epoch) return { cancelled: true }
+                    if (!isTempTarget) {
                       Object.assign(view, selected)
                       emit('connection', pi.connection())
-                      outcome.selection.snapshot = await enrichSnapshot(outcome.selection.snapshot)
-                    } else outcome.selection = { cancelled: true }
+                    }
                   }
-                }
-                const gitSelection =
-                  request.method === 'git:switch-branch' ||
-                  request.method === 'git:create-branch' ||
-                  request.method === 'git:create-worktree'
-                if (epoch !== undefined && !gitSelection) {
-                  if (selectionEpochs.get(request.clientId) !== epoch) return { cancelled: true }
-                  if (!isTempTarget) {
+                  if (selected.sessionKey === view.sessionKey) view.defaults = selected.defaults
+                  else if (isTempTarget) tempInfo!.view.defaults = selected.defaults
+                  if (
+                    isTempTarget &&
+                    (request.method === 'pi:set-model' ||
+                      request.method === 'pi:set-thinking-level' ||
+                      request.method === 'pi:session-mode')
+                  ) {
+                    emit(
+                      'connection',
+                      pi.withSession(tempInfo!.sessionKey, () => pi.connection()),
+                    )
+                  }
+                  try {
+                    if (
+                      result &&
+                      typeof result === 'object' &&
+                      'snapshot' in result &&
+                      'cancelled' in result &&
+                      !result.cancelled
+                    )
+                      result = {
+                        ...result,
+                        snapshot: await enrichSnapshot(result.snapshot as Snapshot),
+                      }
+                    if (request.method === 'git:create-worktree') {
+                      const outcome = result as {
+                        selection: import('@pi-meme/contracts/desktop').SessionSelectionResult
+                      }
+                      if (!outcome.selection.cancelled)
+                        outcome.selection.snapshot = await enrichSnapshot(outcome.selection.snapshot)
+                    }
+                    await (credentials as SecureCredentialStorage & { flush?: () => Promise<void> }).flush?.()
+                  } catch (cause) {
+                    if (request.method !== 'git:create-worktree') throw cause
+                    return {
+                      ...(result as object),
+                      selection: { cancelled: true },
+                      selectionError: `Worktree 已创建，但会话初始化失败，目录与来源记录已保留：${String(cause)}`,
+                    }
+                  }
+                  if (epoch !== undefined && gitSelection) {
+                    if (selectionEpochs.get(request.clientId) !== epoch)
+                      return request.method === 'git:create-worktree'
+                        ? { ...(result as object), selection: { cancelled: true } }
+                        : { cancelled: true }
                     Object.assign(view, selected)
                     emit('connection', pi.connection())
                   }
-                }
-                if (selected.sessionKey === view.sessionKey) view.defaults = selected.defaults
-                else if (isTempTarget) tempInfo!.view.defaults = selected.defaults
-                if (
-                  isTempTarget &&
-                  (request.method === 'pi:set-model' ||
-                    request.method === 'pi:set-thinking-level' ||
-                    request.method === 'pi:session-mode')
-                ) {
-                  emit(
-                    'connection',
-                    pi.withSession(tempInfo!.sessionKey, () => pi.connection()),
-                  )
-                }
-                try {
-                  if (
-                    result &&
-                    typeof result === 'object' &&
-                    'snapshot' in result &&
-                    'cancelled' in result &&
-                    !result.cancelled
-                  )
-                    result = {
-                      ...result,
-                      snapshot: await enrichSnapshot(result.snapshot as Snapshot),
-                    }
-                  if (request.method === 'git:create-worktree') {
-                    const outcome = result as { selection: import('@pi-meme/contracts/desktop').SessionSelectionResult }
-                    if (!outcome.selection.cancelled)
-                      outcome.selection.snapshot = await enrichSnapshot(outcome.selection.snapshot)
-                  }
-                  await (credentials as SecureCredentialStorage & { flush?: () => Promise<void> }).flush?.()
-                } catch (cause) {
-                  if (request.method !== 'git:create-worktree') throw cause
-                  return {
-                    ...(result as object),
-                    selection: { cancelled: true },
-                    selectionError: `Worktree 已创建，但会话初始化失败，目录与来源记录已保留：${String(cause)}`,
-                  }
-                }
-                if (epoch !== undefined && gitSelection) {
-                  if (selectionEpochs.get(request.clientId) !== epoch)
-                    return request.method === 'git:create-worktree'
-                      ? { ...(result as object), selection: { cancelled: true } }
-                      : { cancelled: true }
-                  Object.assign(view, selected)
-                  emit('connection', pi.connection())
-                }
-                return result
-              })
-            if (!request.sessionId || reads.has(request.method) || controls.has(request.method)) return run()
-            const key = request.sessionId
-            const queued = (sessionQueues.get(key) ?? Promise.resolve())
-              .catch(() => {})
-              .then(() => {
-                if (closing) throw new Error('服务正在退出，操作未执行')
-                return run()
-              })
-            sessionQueues.set(key, queued)
-            try {
-              return await queued
-            } finally {
-              if (sessionQueues.get(key) === queued) sessionQueues.delete(key)
+                  return result
+                })
+              if (!request.sessionId || reads.has(request.method) || controls.has(request.method)) return run()
+              const key = request.sessionId
+              const queued = (sessionQueues.get(key) ?? Promise.resolve())
+                .catch(() => {})
+                .then(() => {
+                  if (closing) throw new Error('服务正在退出，操作未执行')
+                  return run()
+                })
+              sessionQueues.set(key, queued)
+              try {
+                return await queued
+              } finally {
+                if (sessionQueues.get(key) === queued) sessionQueues.delete(key)
+              }
             }
+            if (request.method.startsWith('authorization:')) {
+              if (!identity || identity.role !== 'owner')
+                throw new Error('permission-denied: 只有已认证的拥有者可以管理授权')
+              return perform()
+            }
+            const administrative =
+              request.method.startsWith('settings:') || ['pi:access-mode', 'pi:session-mode'].includes(request.method)
+            const runtimeKey = request.sessionId && (getAgentRootSessionKey(request.sessionId) ?? request.sessionId)
+            if (runtimeKey) checkSessionAuthorization(runtimeKey, request.clientId)
+            const ref = runtimeKey ? await appControl!.sessionForRuntime(runtimeKey) : undefined
+            const context = await authorization.userContext(
+              request.clientId,
+              ref ? () => appControl!.rawAuthorizationSession(ref, request.clientId) : undefined,
+              administrative,
+            )
+            const taskControl = [
+              'pi:prompt',
+              'pi:steer',
+              'pi:follow-up',
+              'pi:abort',
+              'pi:pause',
+              'pi:resume',
+              'pi:recover',
+              'pi:extension-ui-response',
+              'workspace:select',
+              'project:select',
+              'pi:select-session',
+              'pi:new-session',
+              'temporary-session:open',
+              'temporary-session:close',
+            ].includes(request.method)
+            const kind =
+              reads.has(request.method) || taskControl
+                ? 'process.read'
+                : administrative ||
+                    /^(?:settings:|models:|mcp:|permissions:|plugins:(?:grant|enable|disable|install|remove))/.test(
+                      request.method,
+                    )
+                  ? 'policy.write'
+                  : 'host.write'
+            return authorization.execute(
+              context,
+              {
+                id: `rpc.${request.method}`,
+                effects: [
+                  {
+                    kind,
+                    resource: ref ? `session:${ref.sessionId}:${request.method}` : `host:${hostId}:${request.method}`,
+                    boundary: 'host',
+                  },
+                ],
+              },
+              request.args,
+              `rpc:${request.requestId}`,
+              perform,
+            )
           },
           !reads.has(request.method),
         )
@@ -2677,7 +3665,10 @@ export async function createHost(options: HostOptions = {}) {
         }
       },
       plugins,
-      async subscribe(clientId: string, callback: (event: HostEvent) => void) {
+      async subscribe(clientId: string, callback: (event: HostEvent) => void, identity?: TransportIdentity) {
+        const capturedIdentity = identity ?? authorization.identity()
+        if (!capturedIdentity || !isAuthenticatedClient(clientId, capturedIdentity))
+          throw new Error('permission-denied: 订阅缺少真实客户端身份')
         await client(clientId)
         const values = listeners.get(clientId) ?? new Set()
         listeners.set(clientId, values)
@@ -2687,7 +3678,7 @@ export async function createHost(options: HostOptions = {}) {
           values.delete(callback)
           if (!values.size) {
             listeners.delete(clientId)
-            systemClients.disconnect(clientId)
+            systemClients.disconnect(clientId, capturedIdentity)
             scheduleClientRelease(clientId)
           }
         }
@@ -2705,6 +3696,7 @@ export async function createHost(options: HostOptions = {}) {
           await appControl!.beginShutdown()
           await collaboration.stopAndWait()
           await pi.stopAndWait()
+          await authorization.close()
           await Promise.allSettled(inflight)
           await activities.dispose()
           await imageLibrary.dispose()

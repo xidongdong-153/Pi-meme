@@ -51,7 +51,7 @@ Worker 最多四条并发采集通道、128 个排队请求，活动与排队正
 
 ## 只读接口
 
-能力契约见 [context-window.ts](../packages/contracts/src/context-window.ts)，所有调用都先校验 Host、会话存在性、临时会话归属及关闭状态。Agent 读取自己的临时执行根时使用 Host 绑定的执行身份；显式读取其他临时会话仍校验原归属，客户端不能传入该执行身份。Desktop、Web 和远程转发使用同一 HostApi v2 与现有 HTTP/WebSocket 通路。
+能力契约见 [context-window.ts](../packages/contracts/src/context-window.ts)，所有调用都先校验 Host、会话存在性、临时会话归属及关闭状态。Agent 读取自己的临时执行根时使用 Host 绑定的执行身份；显式读取其他临时会话仍校验原归属，客户端不能传入该执行身份。Desktop、Web 和远程转发使用同一 HostApi v3 与现有 HTTP/WebSocket 通路。
 
 | 方法                  | 参数（省略共同的第一个 `SessionRef`）                                 | 返回                                                                     |
 | --------------------- | --------------------------------------------------------------------- | ------------------------------------------------------------------------ |

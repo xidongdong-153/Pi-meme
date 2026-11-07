@@ -94,7 +94,13 @@ export type BrowserCommand =
   | { type: 'annotation-state' }
   | { type: 'screenshot' }
 export interface BrowserPlatform {
-  agent?: (owner: string, operation: string, args: unknown[]) => Promise<unknown>
+  bindAgentDocument?: (documentUUID: string) => Promise<void>
+  agent?: (
+    owner: string,
+    operation: string,
+    args: unknown[],
+    execution?: import('./system-tools').SystemClientExecution['native'],
+  ) => Promise<unknown>
   snapshot: () => Promise<BrowserSnapshot>
   settings: (patch: Partial<BrowserSettings>) => Promise<BrowserSnapshot>
   permission: (value: BrowserPermission) => Promise<BrowserSnapshot>

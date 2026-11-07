@@ -153,7 +153,9 @@ type RuntimeSession = {
   stats?: Snapshot['stats']
 }
 
-export type RuntimeSdkSession = Pick<SdkSession, keyof SdkSession>
+export type RuntimeSdkSession = Omit<Pick<SdkSession, keyof SdkSession>, 'configureAccess'> & {
+  configureAccess: (...args: Parameters<SdkSession['configureAccess']>) => void | Promise<void>
+}
 export type SessionFactory = (
   ...args: [
     cwd: string,
@@ -621,9 +623,12 @@ export class PiSessionPool implements PiRuntime {
   configureCapabilities(value: ToolExecutionSettings) {
     this.capabilities = { ...value, codemodeEnabled: value.codemodeEnabled || value.mcpEnabled }
   }
-  private restrictedAccess?: SandboxCapability
-  configureRestrictedAccess(capability: SandboxCapability) {
-    this.restrictedAccess = { ...capability }
+  private restrictedAccessSource?: () => SandboxCapability
+  private get restrictedAccess() {
+    return this.restrictedAccessSource?.()
+  }
+  configureRestrictedAccess(capability: SandboxCapability | (() => SandboxCapability)) {
+    this.restrictedAccessSource = typeof capability === 'function' ? capability : () => structuredClone(capability)
   }
   private defaultMode: AgentAccessMode = defaultAccessMode
   async configureDefaultAccessMode(mode: AgentAccessMode) {
@@ -642,13 +647,11 @@ export class PiSessionPool implements PiRuntime {
     this.inlineExtensions = extensions.slice()
     for (const record of this.sessions.values()) record.session.configureInlineExtensions(this.inlineExtensions)
   }
-  private configureSession(record: RuntimeSession) {
-    if (record.accessMode !== 'full-access' && this.restrictedAccess && !this.restrictedAccess.supported)
-      throw new Error(this.restrictedAccess.reason ?? '受限权限沙箱不可用')
+  private async configureSession(record: RuntimeSession) {
     record.extensionError = undefined
     record.session.configureInlineExtensions(this.inlineExtensions)
     record.session.configureCapabilities(this.capabilities)
-    record.session.configureAccess(record.accessMode)
+    await record.session.configureAccess(record.accessMode)
   }
   constructor(
     private initialCwd: string,
@@ -716,9 +719,9 @@ export class PiSessionPool implements PiRuntime {
     this.commands.clear()
     const record = this.create(cwd, sessionFile)
     record.dormant = false
-    record.accessReady = record.accessReady.then(() => {
+    record.accessReady = record.accessReady.then(async () => {
       if (!this.sessions.has(record.key)) return
-      this.configureSession(record)
+      await this.configureSession(record)
       record.session.start(cwd, sessionFile)
     })
     void record.accessReady.catch(() => {})
@@ -1519,7 +1522,7 @@ export class PiSessionPool implements PiRuntime {
     record.dormant = false
     const starting = (async () => {
       await record.accessReady
-      this.configureSession(record)
+      await this.configureSession(record)
       await record.session.setSessionMode(executionMode ?? record.state.mode)
       await record.session.reconnectModels({
         sessionFile: record.sessionFile,
@@ -1596,8 +1599,6 @@ export class PiSessionPool implements PiRuntime {
       record.session.connection().status === 'connecting'
     )
       throw new Error('任务结束后可切换权限')
-    if (mode !== 'full-access' && !this.restrictedAccess?.supported)
-      throw new Error(this.restrictedAccess?.reason ?? '受限权限沙箱不可用')
     record.accessChanging = true
     this.notify.connection(this.withSession(record.key, () => this.connection()))
     try {
@@ -1722,7 +1723,7 @@ export class PiSessionPool implements PiRuntime {
 
       temporary.configureInlineExtensions(this.inlineExtensions)
       temporary.configureCapabilities(this.capabilities)
-      temporary.configureAccess(source.accessMode)
+      await temporary.configureAccess(source.accessMode)
       temporary.start(source.cwd, sourcePath)
       await temporary.getEntries()
       const result = await temporary.forkAtEntry(forkPoint)
@@ -2227,7 +2228,7 @@ export class PiSessionPool implements PiRuntime {
     this.checkoutGate?.(record.cwd)
     const starting = Promise.resolve().then(async () => {
       await record.accessReady
-      this.configureSession(record)
+      await this.configureSession(record)
       await record.session.setSessionMode(record.state.mode)
       await record.session.reconnectModels(
         restore ?? {

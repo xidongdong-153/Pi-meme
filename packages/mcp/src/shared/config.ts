@@ -31,6 +31,20 @@ export function serverError(name: string, config: unknown): string | undefined {
     )
       return `${key} 必须是字符串键值对象`
   }
+  if (
+    config.planReadOnlyTools !== undefined &&
+    (!Array.isArray(config.planReadOnlyTools) ||
+      config.planReadOnlyTools.length > 256 ||
+      !config.planReadOnlyTools.every(
+        (name) =>
+          typeof name === 'string' &&
+          name.length > 0 &&
+          name.length <= 256 &&
+          Array.from(name).every((character) => character.charCodeAt(0) >= 0x20),
+      ) ||
+      new Set(config.planReadOnlyTools).size !== config.planReadOnlyTools.length)
+  )
+    return 'planReadOnlyTools 必须是不重复的远端工具名称数组（最多 256 项）'
   if (config.enabled !== undefined && typeof config.enabled !== 'boolean') return 'enabled 必须是布尔值'
   if (config.description !== undefined && typeof config.description !== 'string') return 'description 必须是字符串'
   if (

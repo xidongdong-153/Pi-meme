@@ -1,18 +1,25 @@
-import type { SystemToolRequest } from '@pi-meme/contracts/system-tools'
+import type {
+  AgentToolAuthorizationReply,
+  AgentToolAuthorizationRequest,
+  SystemToolRequest,
+} from '@pi-meme/contracts/system-tools'
+import type {
+  ModelBrokerCatalog,
+  ModelBrokerReply,
+  ModelBrokerRequest,
+} from '@pi-meme/pi-runtime/sdk/model-broker-protocol'
 import type { ContextCapture } from '@pi-meme/contracts/context-window'
 import type { VisualizationRequest, VisualizationDocument } from '@pi-meme/contracts/visualize'
 import type { Goal, GoalControl, GoalRequest, GoalRun, PromptOrigin } from '@pi-meme/contracts/goal'
-import {
-  imageGenerationCredentialPrefix,
-  type ImageGenerationRequest,
-  type ImageGenerationReply,
-} from '@pi-meme/contracts/image-generation'
+import type { ImageGenerationRequest, ImageGenerationReply } from '@pi-meme/contracts/image-generation'
 import type { ServiceActivityRequest, ServiceActivityResult } from '@pi-meme/contracts/service-activity'
 import type { CollaborationRequest, CollaborationResults } from '@pi-meme/contracts/collaboration'
 import type { PlanDocument, PlanRef, PlanState, SavePlanInput, TaskMode } from '@pi-meme/contracts/plan'
 import { Worker } from 'node:worker_threads'
+import { mkdtemp, rm } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { restrictedProcessEnvironment } from '@pi-meme/pi-runtime/sdk/managed-process'
 import path from 'node:path'
-import { fileURLToPath } from 'node:url'
 import type { Connection } from '@pi-meme/contracts/desktop'
 import type { DesktopSettings } from '@pi-meme/contracts/settings'
 import type { SdkSession } from '@pi-meme/pi-runtime/sdk/session'
@@ -24,9 +31,24 @@ import type { PluginRuntimeRequest } from '@pi-meme/contracts/plugin-call'
 import type { AgentPluginEntry } from '@pi-meme/plugin-sdk/agent'
 
 export type WorkerOptions = {
+  authorizationBoundary?: (
+    reason: 'pause' | 'resume' | 'mode' | 'access' | 'stop',
+    action: () => Promise<void>,
+  ) => Promise<void>
   contextCapture?: (capture: ContextCapture) => Promise<void>
   recordTurnChange?: (change: import('@pi-meme/pi-runtime/turn-change-store').FileChangeRecord) => Promise<string>
   system?: (request: SystemToolRequest, signal: AbortSignal) => Promise<unknown>
+  authorizeTool?: (request: AgentToolAuthorizationRequest, signal: AbortSignal) => Promise<AgentToolAuthorizationReply>
+  modelBroker: {
+    catalog: ModelBrokerCatalog
+    request: (request: ModelBrokerRequest, signal: AbortSignal) => Promise<ModelBrokerReply>
+  }
+  protectedRoots?: string[]
+  readOnlyRoots?: string[]
+  readableRoots?: string[]
+  fileReadRoots?: string[]
+  fixedRuntime: { nodePath: string; nativePath?: string }
+  mcpAuthorization: import('@pi-meme/contracts/mcp-authorization').McpAuthorizeOperation
   admit?: (
     message: string,
     mode: TaskMode,
@@ -47,7 +69,11 @@ export type WorkerOptions = {
   goal?: (request: GoalRequest, run: GoalRun | undefined, signal: AbortSignal) => Promise<Goal | undefined>
   goalUsage?: (run: GoalRun, entryId: string, usage: unknown, inputEntryId?: string) => Promise<void>
   visualize?: (request: VisualizationRequest, signal: AbortSignal) => Promise<VisualizationDocument>
-  imageGeneration?: (request: ImageGenerationRequest, signal: AbortSignal) => Promise<ImageGenerationReply>
+  imageGeneration?: (
+    request: ImageGenerationRequest,
+    signal: AbortSignal,
+    requestId: string,
+  ) => Promise<ImageGenerationReply>
   activity?: (request: ServiceActivityRequest, signal: AbortSignal) => Promise<ServiceActivityResult>
   credentials: SecureCredentialStorage & { flush?: () => Promise<void> }
   dataRoot: string
@@ -55,7 +81,7 @@ export type WorkerOptions = {
   agentEntries: AgentPluginEntry[]
   plugin?: (request: PluginRuntimeRequest, signal: AbortSignal) => Promise<unknown>
   resourceSnapshot?: ResourceSnapshot
-  workerPath?: string
+  workerPath: string
   release?: () => void | Promise<void>
 }
 type Notify = ConstructorParameters<typeof SdkSession>[1]
@@ -84,8 +110,12 @@ export function createWorkerSession(
   let paused = false
   let pauseRevision = -1
   let release: (() => void | Promise<void>) | undefined
+  let authorizationBoundary: WorkerOptions['authorizationBoundary']
+  let authorizationBoundaryOwner: symbol | undefined
   let capabilities: Parameters<SdkSession['configureCapabilities']>[0] = { codemodeEnabled: false, mcpEnabled: false }
   let access: Parameters<SdkSession['configureAccess']>[0] = 'full-access'
+  let mode: TaskMode = 'default'
+  let controls: Promise<void> = Promise.resolve()
   let releasing: Promise<void> = Promise.resolve()
   const hostRequests = new Map<string, AbortController>()
   const pending = new Map<number, Pending>()
@@ -106,8 +136,27 @@ export function createWorkerSession(
       await options.release?.()
       throw new Error('会话 Worker 启动已取消')
     }
-    release = options.release
-    const entry = options.workerPath ?? fileURLToPath(new URL('./generic-worker.ts', import.meta.url))
+    const workerHome = await mkdtemp(path.join(tmpdir(), 'pi-worker-home-'))
+    const boundaryOwner = Symbol('worker-authorization-boundary')
+    authorizationBoundary = options.authorizationBoundary
+    authorizationBoundaryOwner = boundaryOwner
+    release = async () => {
+      try {
+        await options.release?.()
+      } finally {
+        if (authorizationBoundaryOwner === boundaryOwner) {
+          authorizationBoundary = undefined
+          authorizationBoundaryOwner = undefined
+        }
+        await rm(workerHome, { recursive: true, force: true })
+      }
+    }
+    const entry = options.workerPath
+    if (!path.isAbsolute(entry) || !/\.(?:js|mjs|cjs)$/i.test(entry)) {
+      await release?.()
+      release = undefined
+      throw new Error('runtime-snapshot-required: 会话 Worker 必须使用固定编译后的 JavaScript 入口')
+    }
     try {
       worker = new Worker(entry, {
         workerData: {
@@ -118,13 +167,18 @@ export function createWorkerSession(
           settings: options.settings,
           agentEntries: options.agentEntries,
           resourceSnapshot: options.resourceSnapshot,
-          credentials: options.credentials
-            .entries()
-            .filter(([key]) => !key.startsWith('plugin:') && !key.startsWith(imageGenerationCredentialPrefix)),
+          credentials: [],
+          modelBroker: options.modelBroker.catalog,
+          protectedRoots: options.protectedRoots,
+          readOnlyRoots: options.readOnlyRoots,
+          readableRoots: options.readableRoots,
+          fileReadRoots: options.fileReadRoots,
+          fixedRuntime: options.fixedRuntime,
           capabilities,
           access,
         },
-        execArgv: entry.endsWith('.ts') ? ['--import', 'tsx'] : [],
+        env: restrictedProcessEnvironment(workerHome),
+        execArgv: [],
       })
     } catch (cause) {
       releasing = Promise.resolve(release?.())
@@ -140,6 +194,9 @@ export function createWorkerSession(
           hostRequest?: {
             kind:
               | 'contextCapture'
+              | 'authorization'
+              | 'model'
+              | 'mcp-authorization'
               | 'turnChange'
               | 'collaboration'
               | 'savePlan'
@@ -157,6 +214,9 @@ export function createWorkerSession(
             capture?: ContextCapture
             change?: import('@pi-meme/pi-runtime/turn-change-store').FileChangeRecord
             systemRequest?: SystemToolRequest
+            authorizationRequest?: AgentToolAuthorizationRequest
+            modelRequest?: ModelBrokerRequest
+            mcpAuthorization?: import('@pi-meme/contracts/mcp-authorization').McpAuthorizationRequest
             reference?: PlanRef
             pluginRequest?: PluginRuntimeRequest
             visualizationRequest?: VisualizationRequest
@@ -200,6 +260,19 @@ export function createWorkerSession(
                 if (!options.recordTurnChange || !request.change) throw new Error('文件变更记录桥未配置')
                 return options.recordTurnChange(request.change)
               }
+              if (request.kind === 'mcp-authorization') {
+                if (!request.mcpAuthorization) throw new Error('permission-denied: MCP 授权请求缺失')
+                return options.mcpAuthorization(request.mcpAuthorization, controller.signal)
+              }
+              if (request.kind === 'model') {
+                if (!request.modelRequest) throw new Error('model-broker-denied: 模型请求缺失')
+                return options.modelBroker.request(request.modelRequest, controller.signal)
+              }
+              if (request.kind === 'authorization') {
+                if (!options.authorizeTool || !request.authorizationRequest)
+                  throw new Error('permission-denied: 工具授权桥未配置')
+                return options.authorizeTool(request.authorizationRequest, controller.signal)
+              }
               if (request.kind === 'system') {
                 if (!options.system || !request.systemRequest) throw new Error('Host 内置能力桥未配置')
                 return options.system(request.systemRequest, controller.signal)
@@ -234,7 +307,7 @@ export function createWorkerSession(
               }
               if (request.kind === 'image-generation') {
                 if (!options.imageGeneration || !request.imageRequest) throw new Error('图片生成服务桥未配置')
-                return options.imageGeneration(request.imageRequest, controller.signal)
+                return options.imageGeneration(request.imageRequest, controller.signal, request.id)
               }
               if (request.kind === 'activity') {
                 if (!options.activity || !request.activityRequest) throw new Error('活动服务桥未配置')
@@ -271,17 +344,10 @@ export function createWorkerSession(
           return
         }
         if (reply.credential) {
-          const mutation = reply.credential
-          void Promise.resolve()
-            .then(async () => {
-              if (mutation.key.startsWith(imageGenerationCredentialPrefix))
-                throw new Error('Worker 不能修改图片服务凭据')
-              if (mutation.value === undefined) options.credentials.delete(mutation.key)
-              else options.credentials.set(mutation.key, mutation.value)
-              await options.credentials.flush?.()
-              current.postMessage({ credentialReply: mutation.id })
-            })
-            .catch((cause: unknown) => current.postMessage({ credentialReply: mutation.id, error: String(cause) }))
+          current.postMessage({
+            credentialReply: reply.credential.id,
+            error: 'permission-denied: 凭据只能在 Host 设置中修改',
+          })
           return
         }
         if (worker !== current) return
@@ -410,6 +476,46 @@ export function createWorkerSession(
     })
     return stopping
   }
+  const boundary = (
+    reason: Parameters<NonNullable<WorkerOptions['authorizationBoundary']>>[0],
+    action: () => Promise<void>,
+  ) => (authorizationBoundary ? authorizationBoundary(reason, action) : action())
+  // Control an existing generation only. Waiting for stop then ensure() would resurrect a released Worker.
+  const callExisting = (method: string, args: unknown[]) =>
+    new Promise<unknown>((resolve, reject) => {
+      const current = worker
+      if (!current) {
+        resolve(undefined)
+        return
+      }
+      const id = ++serial
+      pending.set(id, { resolve, reject })
+      try {
+        current.postMessage({ id, method, args })
+      } catch (cause) {
+        pending.delete(id)
+        reject(cause)
+      }
+    })
+  const control = (action: () => Promise<void>) => {
+    const pendingControl = controls.then(action)
+    controls = pendingControl.catch(() => {})
+    return pendingControl
+  }
+  const controlledStop = () => control(() => boundary('stop', stopAndWait))
+  const setPaused = (value: boolean, revision?: number) =>
+    control(async () => {
+      const nextRevision = revision ?? pauseRevision + 1
+      if (nextRevision < pauseRevision) return
+      const action = async () => {
+        if (value) paused = true
+        pauseRevision = nextRevision
+        await callExisting('setPaused', [value, nextRevision])
+        if (!value) paused = false
+      }
+      if (paused === value) await action()
+      else await boundary(value ? 'pause' : 'resume', action)
+    })
   const sync: Record<string, unknown> = {
     cwd,
     connection: () => connection,
@@ -420,9 +526,29 @@ export function createWorkerSession(
       if (worker) void call('configureCapabilities', [value])
     },
     configureAccess: (value: typeof access) => {
-      access = value
-      if (worker) void call('configureAccess', [value])
+      const changed = control(async () => {
+        const action = async () => {
+          await callExisting('configureAccess', [value])
+          access = value
+        }
+        if (access === value) await action()
+        else await boundary('access', action)
+      })
+      void changed.catch((cause: unknown) => fail(new Error(String(cause))))
+      return changed
     },
+    setSessionMode: (value: TaskMode) =>
+      control(async () => {
+        await stopping
+        await releasing
+        await ensure()
+        const action = async () => {
+          await callExisting('setSessionMode', [value])
+          mode = value
+        }
+        if (mode === value) await action()
+        else await boundary('mode', action)
+      }),
     start: (directory: string, sessionFile?: string) => {
       active = { sessionFile }
       connection = { ...connection, cwd: directory, status: 'connecting' }
@@ -431,19 +557,26 @@ export function createWorkerSession(
         void call('setPaused', [paused, pauseRevision]).catch((cause: unknown) => fail(new Error(String(cause))))
     },
     stop: () => {
-      void stopAndWait().catch((cause: unknown) => fail(new Error(String(cause))))
+      void controlledStop().catch((cause: unknown) => fail(new Error(String(cause))))
     },
-    stopAndWait,
-    abort: () => {
-      paused = false
-      return worker ? call('abort', []) : Promise.resolve()
+    stopAndWait: controlledStop,
+    abort: (preservePause = false) => {
+      const action = async () => {
+        if (!preservePause) paused = false
+        await callExisting('abort', [preservePause])
+      }
+      // Lease cancellation calls abort(true); invoking the hook again would recursively cancel itself.
+      return preservePause ? action() : control(() => boundary('stop', action))
     },
-    setPaused: (value: boolean, revision: number) => {
-      if (revision < pauseRevision) return Promise.resolve()
-      paused = value
-      pauseRevision = revision
-      return worker ? call('setPaused', [value, revision]) : Promise.resolve()
-    },
+    setPaused,
+    pause: () => setPaused(true),
+    resume: () => setPaused(false),
+    stopTask: () =>
+      control(() =>
+        boundary('stop', async () => {
+          await callExisting('stopTask', [])
+        }),
+      ),
     releaseQueueEdits: (clientId: string) => (worker ? call('releaseQueueEdits', [clientId]) : Promise.resolve()),
     idle: async <T>(action: () => Promise<T>, allowDisconnected?: boolean) => {
       if (worker) await call('assertIdle', [allowDisconnected])

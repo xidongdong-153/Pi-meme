@@ -2,13 +2,11 @@ import type { HostApi } from '@pi-meme/contracts/app-host'
 import { createHash, randomUUID } from 'node:crypto'
 import { emptyPluginGrant, type PluginGrant, type PluginGrantUpdate } from '@pi-meme/plugin-sdk/permissions'
 import type { PluginCallContext, PluginUiLease, JsonValue } from '@pi-meme/plugin-sdk/rpc'
-import type { PluginOperation, PluginHandlers, ServerPluginModule } from '@pi-meme/plugin-sdk/server'
-import { authorizeOperation, checkSchema, checkedJson, validateOperation } from './operation'
+import type { PluginOperation, PluginHandlers } from '@pi-meme/plugin-sdk/server'
+import { authorizeOperation, checkSchema, checkedJson } from './operation'
 import { validatePluginGrant } from './grant'
 import { mkdir, mkdtemp, readFile, rm } from 'node:fs/promises'
 import path from 'node:path'
-import type { Facet, FacetHost } from '@earendil-works/chord'
-import type { FacetBundleArtifact } from '@earendil-works/chord/node'
 import { parsePluginManifest, type PluginManifest } from '@pi-meme/plugin-sdk/manifest'
 import { assertExternalPluginId, assertExternalManifest, isReservedPluginId } from '@pi-meme/plugin-sdk/reserved'
 import { legacySystemPluginIds } from '@pi-meme/plugin-sdk/system-plugins'
@@ -60,12 +58,17 @@ export type PluginManagerOptions = {
   revoke?: (pluginIds: string[]) => Promise<void>
   onChange?: (plugins: PluginDescriptor[]) => void
   reservedHandlers?: string[]
+  callRestrictedUi?: (input: RestrictedUiCall) => Promise<JsonValue>
+}
+export type RestrictedUiCall = {
+  descriptor: PluginDescriptor
+  operation: string
+  input: JsonValue
+  context: PluginCallContext
 }
 type Registration = {
   manifest: PluginManifest
   directory: string
-  module?: ServerPluginModule
-  artifact?: FacetBundleArtifact
   enabled: boolean
   sourceDirectory?: string
   policyHash?: string
@@ -77,7 +80,7 @@ type Group = {
   registrations: Registration[]
   handlers: PluginHandlers
   pluginOperations: Map<string, PluginOperation>
-  host: FacetHost
+  host: { dispose: () => Promise<void> }
   scope: PluginScope
   references: number
   retired: boolean
@@ -105,6 +108,7 @@ export class PluginManager {
     string,
     { lease: PluginUiLease; owner: string; route: string; group: Group; timer: ReturnType<typeof setTimeout> }
   >()
+  private uiInvocations = new Map<AbortController, { pluginId: string; leaseId?: string }>()
   private shared = new Map<string, { value: JsonValue; revision: number }>()
   constructor(private readonly options: PluginManagerOptions) {}
 
@@ -231,6 +235,7 @@ export class PluginManager {
     if (this.pending.has(id) || this.revoking.has(id))
       throw new Error('policy-changed: 插件依赖组正在切换版本，请稍后重试')
     this.revoking.add(id)
+    for (const [controller, call] of this.uiInvocations) if (call.pluginId === id) controller.abort()
     this.pending.add(id)
     this.changed()
     try {
@@ -247,10 +252,14 @@ export class PluginManager {
     }
   }
   isGrantCurrent(pluginId: string, generation: number, revision: number) {
+    const current = this.registrations.get(pluginId)
+    const snapshot = this.getGeneration(pluginId, generation)
     return (
-      this.registrations.get(pluginId)?.enabled === true &&
+      current?.enabled === true &&
       !this.revoking.has(pluginId) &&
-      this.getGeneration(pluginId, generation)?.grant?.revision === revision
+      current.grant?.revision === revision &&
+      snapshot?.grant?.revision === revision &&
+      current.policyHash === snapshot.policyHash
     )
   }
   readSharedData(pluginId: string, key: string, scope = '') {
@@ -319,6 +328,7 @@ export class PluginManager {
     const entry = this.uiLeases.get(id)
     if (!entry || entry.owner !== owner) return
     this.uiLeases.delete(id)
+    for (const [controller, call] of this.uiInvocations) if (call.leaseId === id) controller.abort()
     clearTimeout(entry.timer)
     await this.release(entry.group)
   }
@@ -344,10 +354,36 @@ export class PluginManager {
       throw new Error('generation-mismatch: UI 与 Server 代次不可调用')
     if (!request.policyHash || request.policyHash !== registration.policyHash)
       throw new Error('policy-changed: UI 调用不属于此代码快照')
-    if (!registration.manifest.piMeme.server?.trusted)
-      throw new Error('operation-unavailable-in-runtime: UI 只能调用本插件可信 Server')
-    if (!registration.grant.trusted.server) throw new Error('grant-required: 尚未信任 Server 入口')
-    return this.invokeOperation(group, request.pluginId, request.operation, request.input, context)
+    if (!registration.manifest.piMeme.server?.restricted || !this.options.callRestrictedUi)
+      throw new Error('operation-unavailable-in-runtime: 插件没有可用的受限 Server')
+    if (context.origin !== 'ui' || context.pluginId !== request.pluginId || context.generation !== request.generation)
+      throw new Error('scope-expired: UI 调用身份或代次不匹配')
+    if (this.revoking.has(request.pluginId)) throw new Error('policy-changed: 插件正在撤权')
+    if (
+      this.uiInvocations.size >= 32 ||
+      [...this.uiInvocations.values()].filter((call) => call.pluginId === request.pluginId).length >= 4
+    )
+      throw new Error('permission-denied: 插件并发调用过多')
+    const controller = new AbortController()
+    this.uiInvocations.set(controller, { pluginId: request.pluginId, leaseId: request.leaseId })
+    group.references++
+    try {
+      return await this.options.callRestrictedUi({
+        descriptor: this.descriptor(registration, group.generation),
+        operation: request.operation,
+        input: checkedJson(request.input),
+        context: {
+          ...context,
+          runtime: 'restricted',
+          policyHash: registration.policyHash,
+          signal: AbortSignal.any([context.signal, controller.signal]),
+        },
+      })
+    } finally {
+      this.uiInvocations.delete(controller)
+      controller.abort()
+      await this.release(group)
+    }
   }
   diagnostics(): PluginDiagnostic[] {
     return [...this.restoreDiagnostics, ...this.failures.values()]
@@ -465,162 +501,21 @@ export class PluginManager {
   private async startGroup(registrations: Registration[], generation: number): Promise<Group> {
     if (!Number.isSafeInteger(generation) || generation < 1 || generation > this.generation)
       throw new Error('插件代次未完成持久预留')
-    const { createFacetHost, defineFacet, defineService } = await import('@earendil-works/chord')
-    const { createFacetBundleArtifactLoader } = await import('@earendil-works/chord/node')
-    const scope = new PluginScope()
-    const handlers: PluginHandlers = {}
-    const pluginOperations = new Map<string, PluginOperation>()
-    const facets: Facet[] = []
-    const serviceDefinitions = new Map<string, ReturnType<typeof defineService<object>>>()
-    const definition = (name: string) => {
-      if (!serviceDefinitions.has(name)) serviceDefinitions.set(name, defineService<object>(name, { local: true }))
-      return serviceDefinitions.get(name)!
+    // 外部 Server 的代码只由 RestrictedRunner 导入。管理器保留代次与租约，不激活包内 Node。
+    for (const registration of registrations) {
+      if (registration.manifest.piMeme.agent?.trusted || registration.manifest.piMeme.server?.trusted)
+        throw new Error('unsupported-sdk: 旧可信插件必须升级 SDK 4 并重新授权')
     }
-    try {
-      for (const registration of registrations) {
-        if (registration.artifact && registration.grant?.trusted.server) {
-          const loaded = await createFacetBundleArtifactLoader({ artifact: registration.artifact }).load()
-          scope.own(() => loaded.dispose())
-          facets.push(...loaded.facets)
-        }
-        const pluginScope = new PluginScope()
-        if (this.options.disposePluginHost)
-          pluginScope.own(() => this.options.disposePluginHost!(registration.manifest.name))
-        scope.own(() => pluginScope.dispose())
-        const dataDirectory = path.join(this.options.dataDirectory, encodeURIComponent(registration.manifest.name))
-        await mkdir(dataDirectory, { recursive: true })
-        facets.push(
-          defineFacet({
-            id: `app:${registration.manifest.name}:${generation}`,
-            setup: (env) => {
-              const required = new Map<string, object>()
-              for (const name of registration.grant?.trusted.server
-                ? (registration.manifest.piMeme.requires ?? [])
-                : [])
-                required.set(name, env.use(definition(name)))
-              const module =
-                (registration.grant?.trusted.server ? registration.module : undefined) ??
-                (registration.artifact && registration.grant?.trusted.server
-                  ? env.use(
-                      defineService<ServerPluginModule>(`pi-meme.plugin.module:${registration.manifest.name}`, {
-                        local: true,
-                      }),
-                    )
-                  : undefined)
-              const provided = new Map<string, object>()
-              for (const name of registration.grant?.trusted.server
-                ? (registration.manifest.piMeme.provides ?? [])
-                : []) {
-                env.provide(
-                  definition(name),
-                  new Proxy(
-                    {},
-                    {
-                      get: (_target, key) => {
-                        const service = provided.get(name)
-                        if (!service) throw new Error(`插件服务尚未初始化：${name}`)
-                        const member = Reflect.get(service, key)
-                        return typeof member === 'function' ? member.bind(service) : member
-                      },
-                    },
-                  ),
-                )
-              }
-              env.own(() => pluginScope.dispose())
-              env.onActivate(async () => {
-                if (module) {
-                  if (typeof module.create !== 'function') throw new Error('插件 server 入口必须导出 create(context)')
-                  const hostApi = this.options.hostApiForPlugin?.(registration.manifest.name) ?? this.options.hostApi
-                  const instance = await module.create({
-                    pluginId: registration.manifest.name,
-                    generation,
-                    dataDirectory,
-                    get host() {
-                      if (!hostApi) throw new Error('插件服务 API 未装配')
-                      return hostApi
-                    },
-                    services: {
-                      require: <T>(name: string) => {
-                        if (!required.has(name)) throw new Error(`插件未声明所需服务：${name}`)
-                        return required.get(name) as T
-                      },
-                    },
-                    registerOperations: (values) => {
-                      for (const operation of values) {
-                        validateOperation(operation)
-                        const key = `${registration.manifest.name}:${operation.name}`
-                        if (pluginOperations.has(key)) throw new Error(`插件操作重复：${key}`)
-                        pluginOperations.set(key, operation)
-                      }
-                      return pluginScope.own(() => {
-                        for (const operation of values)
-                          pluginOperations.delete(`${registration.manifest.name}:${operation.name}`)
-                      })
-                    },
-                    sharedData: {
-                      getSnapshot: async (key, options) => {
-                        if (!/^[\w.-]+$/.test(key)) throw new Error('invalid-input: 共享数据名称无效')
-                        const id = JSON.stringify([registration.manifest.name, options?.scope ?? '', key])
-                        const snapshot = this.shared.get(id)
-                        return snapshot ? structuredClone(snapshot) : undefined
-                      },
-                      publish: async (key, value, options) => {
-                        checkedJson(value, 1048576)
-                        if (!/^[\w.-]+$/.test(key)) throw new Error('invalid-input: 共享数据名称无效')
-                        const id = JSON.stringify([registration.manifest.name, options.scope ?? '', key])
-                        const previous = this.shared.get(id)
-                        if ((previous?.revision ?? 0) !== options.expectedRevision)
-                          throw new Error('policy-changed: 共享数据修订冲突')
-                        const next = { value: structuredClone(value), revision: options.expectedRevision + 1 }
-                        this.shared.set(id, next)
-                        return structuredClone(next)
-                      },
-                    },
-                    provide: (name, service) => {
-                      if (!(registration.manifest.piMeme.provides ?? []).includes(name))
-                        throw new Error(`插件未声明提供服务：${name}`)
-                      if (
-                        !service ||
-                        (typeof service !== 'object' && typeof service !== 'function') ||
-                        provided.has(name)
-                      )
-                        throw new Error(`插件服务必须是对象且不能重复：${name}`)
-                      provided.set(name, service as object)
-                      return pluginScope.own(() => {
-                        provided.delete(name)
-                      })
-                    },
-                    onDispose: (effect) => {
-                      pluginScope.own(effect)
-                    },
-                  })
-                  if (instance?.dispose) pluginScope.own(instance.dispose)
-                }
-                for (const name of registration.grant?.trusted.server
-                  ? (registration.manifest.piMeme.provides ?? [])
-                  : []) {
-                  if (!provided.has(name)) throw new Error(`插件没有提供声明的服务：${name}`)
-                }
-              })
-            },
-          }),
-        )
-      }
-      const host = await createFacetHost({ facets })
-      return {
-        ids: new Set(registrations.map((item) => item.manifest.name)),
-        generation,
-        registrations,
-        handlers,
-        pluginOperations,
-        host,
-        scope,
-        references: 0,
-        retired: false,
-      }
-    } catch (cause) {
-      await scope.dispose().catch(() => {})
-      throw cause
+    return {
+      ids: new Set(registrations.map((item) => item.manifest.name)),
+      generation,
+      registrations,
+      handlers: {},
+      pluginOperations: new Map(),
+      host: { dispose: async () => {} },
+      scope: new PluginScope(),
+      references: 0,
+      retired: false,
     }
   }
 
@@ -829,19 +724,6 @@ export class PluginManager {
       parsePluginManifest(JSON.parse(await readFile(path.join(directory, 'package.json'), 'utf8'))),
     )
     const manifest = await readPluginManifest(directory)
-    const { readFacetBundleArtifact } = await import('@earendil-works/chord/node')
-    const artifact = manifest.piMeme.server?.trusted
-      ? await readFacetBundleArtifact({
-          manifestPath: path.join(directory, manifest.piMeme.server.trusted),
-          entry: 'server',
-        })
-      : undefined
-    if (
-      artifact &&
-      (artifact.plugin.id !== manifest.name ||
-        (artifact.plugin.version && artifact.plugin.version !== manifest.version))
-    )
-      throw new Error('Chord 构建产物与插件身份或版本不匹配')
     const policyHash = createHash('sha256')
       .update(await packPlugin(directory))
       .digest('hex')
@@ -854,7 +736,7 @@ export class PluginManager {
         this.restoreDiagnostics.push({ id: manifest.name, message: '插件授权记录损坏，已拒绝所有能力，请重新授权' })
       }
     }
-    return { manifest, directory: path.resolve(directory), artifact, enabled: true, policyHash, grant }
+    return { manifest, directory: path.resolve(directory), enabled: true, policyHash, grant }
   }
 
   private async validateResources(registration: Registration) {

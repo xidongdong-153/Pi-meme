@@ -13,7 +13,7 @@ if (['127.0.0.1', 'localhost', '::1'].includes(hostname) && !options.tls) {
     allowReuse: ![
       process.env.PI_MEME_TOKEN,
       process.env.PI_MEME_TLS_CERT,
-      process.env.PI_MEME_WEB_ROOT,
+      ...(process.env.PI_MEME_RUNTIME_SNAPSHOT ? [] : [process.env.PI_MEME_WEB_ROOT]),
       process.env.PI_MEME_AUTH_MODE,
     ].some((value) => value !== undefined),
     create: () => startHostServer(options),

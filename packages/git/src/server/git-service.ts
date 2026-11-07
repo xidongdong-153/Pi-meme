@@ -1,17 +1,46 @@
 import { spawn } from 'node:child_process'
-import { lstat, readFile, realpath } from 'node:fs/promises'
+import { realpath } from 'node:fs/promises'
 import path from 'node:path'
 import type { GitEnvironment, GitFileChange, GitSnapshot } from '@pi-meme/contracts/desktop'
 import type { GitWorkspaceAvailability } from '@pi-meme/contracts/git-availability'
+import { executionCapabilities, type ExecutionCapabilityReport } from '@pi-meme/contracts/execution-capabilities'
+import {
+  gitIsolationUnavailable,
+  rejectGitWorktreeRead,
+  safeGitArguments,
+  safeGitEnvironment,
+  trustedGitExecutable,
+} from './safe-git-command'
 
 const outputLimit = 8 * 1024 * 1024
-const untrackedPreviewLimit = 200 * 1024
 
-export function runGit(cwd: string, args: string[], limits?: { timeoutMs: number; outputBytes: number }) {
+/** This report describes THIS executor, never the session Worker's unrelated sandbox. */
+export function getGitExecutionCapabilityReport(): ExecutionCapabilityReport {
+  return {
+    backend: 'unavailable',
+    platform: process.platform,
+    architecture: process.arch,
+    checkedAt: new Date().toISOString(),
+    capabilities: Object.fromEntries(
+      executionCapabilities.map((capability) => [
+        capability,
+        {
+          status: 'unsupported',
+          reason: 'Git 仅有受信系统二进制的固定元数据白名单，尚无私有读取隔离与进程树受控执行后端',
+        },
+      ]),
+    ) as ExecutionCapabilityReport['capabilities'],
+  }
+}
+
+export async function runGit(cwd: string, args: string[], limits?: { timeoutMs: number; outputBytes: number }) {
+  const safeArgs = safeGitArguments(args)
+  const executable = await trustedGitExecutable()
   return new Promise<{ stdout: string; stderr: string; code: number }>((resolve, reject) => {
-    const child = spawn('git', ['-C', cwd, ...args], {
+    const child = spawn(executable, ['-C', cwd, ...safeArgs], {
+      cwd: '/',
       stdio: ['ignore', 'pipe', 'pipe'],
-      ...(limits ? { env: { ...process.env, LC_ALL: 'C', LANG: 'C' } } : {}),
+      env: safeGitEnvironment(),
     })
     const stdout: Buffer[] = []
     const stderr: Buffer[] = []
@@ -25,10 +54,8 @@ export function runGit(cwd: string, args: string[], limits?: { timeoutMs: number
       child.kill('SIGKILL')
       reject(cause)
     }
-    if (limits) {
-      timer = setTimeout(() => fail(new Error('读取 Git 状态超时，请重试')), limits.timeoutMs)
-      timer.unref()
-    }
+    timer = setTimeout(() => fail(new Error('读取 Git 状态超时，请重试')), limits?.timeoutMs ?? 10_000)
+    timer.unref()
     const collect = (chunks: Buffer[], chunk: Buffer) => {
       if (settled) return
       size += chunk.length
@@ -74,7 +101,7 @@ function decodeStatus(output: string): GitFileChange[] {
   return files
 }
 
-/** 入口探测只读取 status；不生成 diff、不读取文件正文、不刷新索引锁。 */
+/** status 也可能执行工作树过滤器；无安全后端时必须返回明确错误，不能当作版本探测豁免。 */
 export async function getGitWorkspaceAvailability(cwd: string): Promise<GitWorkspaceAvailability> {
   try {
     const directory = await realpath(cwd)
@@ -163,6 +190,7 @@ export async function getGitSnapshot(cwd: string): Promise<GitSnapshot> {
     }
   } catch (cause) {
     const code = (cause as { code?: string | number }).code
+    if (code === gitIsolationUnavailable) throw cause
     return {
       cwd,
       files: [],
@@ -178,21 +206,7 @@ export async function getGitDiff(cwd: string, filePath: string, kind: GitFileCha
   if (!snapshot.root) throw new Error(snapshot.error === 'unavailable' ? '未找到 Git' : '当前目录不是 Git 仓库')
   if (!snapshot.files.some((file) => file.path === filePath && file.kind === kind))
     throw new Error('文件已不在变更列表中，请刷新')
-  if (kind === 'untracked') {
-    const root = await realpath(snapshot.root)
-    const target = path.resolve(root, filePath)
-    const relative = path.relative(root, target)
-    if (relative.startsWith('..') || path.isAbsolute(relative)) throw new Error('文件路径无效')
-    const actual = await realpath(target)
-    const actualRelative = path.relative(root, actual)
-    if (actualRelative.startsWith('..') || path.isAbsolute(actualRelative)) throw new Error('不支持仓库外部链接文件')
-    const info = await lstat(actual)
-    if (!info.isFile()) return '不支持预览非普通文件'
-    if (info.size > untrackedPreviewLimit) return `文件超过 ${untrackedPreviewLimit / 1024} KiB，未在面板中预览。`
-    const data = await readFile(actual)
-    if (data.includes(0)) return '二进制文件，不提供文本预览。'
-    return data.toString('utf8')
-  }
+  if (kind === 'untracked') return rejectGitWorktreeRead()
   const args = [
     '--literal-pathspecs',
     'diff',

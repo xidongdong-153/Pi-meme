@@ -5,6 +5,7 @@ import { getCACertificates, setDefaultCACertificates } from 'node:tls'
 import { startHostServer } from '@pi-meme/host/server'
 import { errorCode } from '@pi-meme/host/host-status'
 import { hostPort } from '@pi-meme/contracts/host-runtime'
+import { readRuntimeSnapshot } from '@pi-meme/host/runtime-snapshot'
 
 type ParentPort = {
   postMessage: (value: unknown) => void
@@ -25,21 +26,38 @@ if (testCertificate) {
   if (!certificatePath.startsWith(`${fixtureRoot}${path.sep}`)) throw new Error('验收证书必须位于临时 fixture 目录')
   setDefaultCACertificates([...getCACertificates('default'), readFileSync(certificatePath, 'utf8')])
 }
-void startHostServer({
-  dataRoot: process.env.PI_MEME_DATA_ROOT,
-  testCredentials: process.env.PI_MEME_TEST_CREDENTIALS === 'memory',
-  port: hostPort(process.env.PI_MEME_PORT),
-  owner: 'desktop',
-  localAutoLogin: true,
-  staticDirectory: path.join(__dirname, '../renderer/main_window'),
-  frontendUrl: process.env.PI_MEME_FRONTEND_URL,
-  workerPath: path.join(__dirname, 'session-worker.js'),
-  builtinSkillsSource: path.join(__dirname, 'skills'),
-})
+void (async () => {
+  const snapshot = process.env.PI_MEME_RUNTIME_SNAPSHOT
+    ? await readRuntimeSnapshot(process.env.PI_MEME_RUNTIME_SNAPSHOT, process.env.PI_MEME_DATA_ROOT)
+    : undefined
+  return startHostServer({
+    dataRoot: process.env.PI_MEME_DATA_ROOT,
+    testCredentials: process.env.PI_MEME_TEST_CREDENTIALS === 'memory',
+    port: hostPort(process.env.PI_MEME_PORT),
+    owner: 'desktop',
+    staticDirectory: snapshot?.staticDirectory ?? path.join(__dirname, '../renderer/main_window'),
+    workerPath: snapshot?.workerPath ?? path.join(__dirname, 'session-worker.js'),
+    builtinSkillsSource: snapshot?.skillsDirectory ?? path.join(__dirname, 'skills'),
+  })
+})()
   .then((server) => {
     parent.postMessage({ type: 'ready', url: server.url, hostId: server.host.hostId })
     parent.on('message', ({ data }) => {
-      const value = data as { type?: string; id?: string; hostId?: string }
+      const value = data as { type?: string; id?: string; hostId?: string; installationId?: string }
+      if (value.type === 'auth:ticket') {
+        try {
+          if (value.hostId !== server.host.hostId || typeof value.id !== 'string')
+            throw new Error('配对目标服务身份不匹配')
+          const ticket = server.createBootstrapTicket({ installationId: value.installationId })
+          parent.postMessage({ type: 'auth:ticket-result', id: value.id, ticket })
+        } catch (cause) {
+          parent.postMessage({
+            type: 'auth:ticket-result',
+            id: value.id,
+            error: cause instanceof Error ? cause.message : String(cause),
+          })
+        }
+      }
       if (value.type === 'maintenance:prepare') {
         try {
           if (value.hostId !== server.host.hostId) throw new Error('维护目标服务身份不匹配')

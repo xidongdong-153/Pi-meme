@@ -30,8 +30,6 @@ export function create(context: ServerPluginContext) {
     'pi:access-mode': (sessionKey, mode) => {
       text(sessionKey)
       if (!isAgentAccessMode(mode)) throw new Error('Agent 访问权限无效')
-      if (mode !== 'full-access' && !sandbox.available())
-        throw new Error(sandbox.capability().reason ?? '受限权限沙箱不可用；不能启动该会话')
       return pi.setAccessMode(sessionKey, mode)
     },
   })

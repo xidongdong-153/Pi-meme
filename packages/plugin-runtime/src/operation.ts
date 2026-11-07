@@ -1,5 +1,4 @@
-import { Value } from 'typebox/value'
-import type { TSchema } from 'typebox'
+import { validateJsonSchema } from './schema'
 import type { JsonSchema, JsonValue, PluginCallContext } from '@pi-meme/plugin-sdk/rpc'
 import type { PluginOperation } from '@pi-meme/plugin-sdk/server'
 
@@ -29,16 +28,19 @@ export function checkedJson(value: unknown, limit = 4 * 1024 * 1024): JsonValue 
 }
 export function checkSchema(schema: JsonSchema, value: unknown, output = false) {
   checkedJson(value, output ? 4194304 : 1048576)
-  if (!Value.Check(schema as TSchema, value))
+  checkedJson(schema, 262144)
+  if (!validateJsonSchema(schema, value))
     throw new Error(`${output ? 'invalid-output' : 'invalid-input'}: 插件操作不符合 schema`)
 }
 export function authorizeOperation(operation: Omit<PluginOperation, 'execute'>, context: PluginCallContext) {
+  if (!['read', 'workspace-write', 'external-write', 'full-access'].includes(operation.effect))
+    throw new Error('permission-denied: 未知操作效果')
   if (!operation.audience.includes(context.origin)) throw new Error('audience-denied: 操作不接受此来源')
   if (context.mode === 'plan' && operation.effect !== 'read')
     throw new Error('permission-denied: Plan 只能执行只读操作')
   if (context.accessMode === 'read-only' && operation.effect !== 'read')
     throw new Error('permission-denied: 当前任务只读')
-  if (operation.effect === 'workspace-write' && context.workspaceWritable === false)
+  if (operation.effect === 'workspace-write' && context.workspaceWritable !== true)
     throw new Error('permission-denied: 未授权工作区写入')
   if (operation.effect === 'full-access' && (context.accessMode !== 'full-access' || context.runtime === 'restricted'))
     throw new Error('permission-denied: 操作需要完全权限')
@@ -55,6 +57,8 @@ export function authorizeOperation(operation: Omit<PluginOperation, 'execute'>, 
 export function validateOperation(operation: PluginOperation) {
   if (
     !operation ||
+    typeof operation.name !== 'string' ||
+    operation.name.length > 80 ||
     !/^[a-zA-Z][\w-]*$/.test(operation.name) ||
     !operation.inputSchema ||
     !operation.outputSchema ||
@@ -63,6 +67,7 @@ export function validateOperation(operation: PluginOperation) {
     operation.audience.some((v) => !['ui', 'agent'].includes(v)) ||
     !['read', 'workspace-write', 'external-write', 'full-access'].includes(operation.effect) ||
     !Array.isArray(operation.capabilities) ||
+    operation.capabilities.some((capability) => typeof capability !== 'string') ||
     typeof operation.execute !== 'function'
   )
     throw new Error('invalid-input: 插件操作描述无效')

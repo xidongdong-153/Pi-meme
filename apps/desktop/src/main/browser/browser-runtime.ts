@@ -28,8 +28,15 @@ import type {
   BrowserWorkspace,
 } from '@pi-meme/contracts/browser'
 import type { ThemeColors } from '@pi-meme/contracts/settings'
+import type { SystemClientExecution } from '@pi-meme/contracts/system-tools'
 import { browserUrl, isLocalBrowserUrl } from '@pi-meme/browser/shared/navigation'
 import { validAnnotation } from '@pi-meme/browser/shared/annotations'
+import {
+  BrowserControlPolicy,
+  businessRequestHeaders,
+  businessResponseHeaders,
+  controlPlaneResponse,
+} from './browser-policy'
 
 type Rpc = <T>(method: string, args?: unknown[]) => Promise<T>
 type Tab = {
@@ -58,13 +65,62 @@ type Overlay = { view: WebContentsView; kind: 'editor' | 'toolbar'; tab: Tab }
 export function registerBrowserRuntime(options: {
   getWindow: () => BrowserWindow | null
   origin: () => string
+  controlOrigins: () => Promise<readonly string[]>
   rpc: Rpc
 }) {
   const tabs = new Map<string, Tab>()
+  const agentDocuments = new WeakMap<WebContents, { documentUUID: string; frame: Electron.WebFrameMain }>()
+  const documentListeners = new WeakSet<WebContents>()
   const visitedWorkspaces = new Set<string>()
   const overlays = new Set<Overlay>()
   const activeDownloads = new Map<string, DownloadItem>()
   const guestSession = session.fromPartition('persist:pi-meme-browser-v1')
+  const controlPolicy = new BrowserControlPolicy(options.controlOrigins)
+  const markedContents = new Set<number>()
+  // This profile is shared by business tabs and OAuth popups, never by the owner UI.
+  // Filter at Chromium's actual network boundary, including existing persistent cookies.
+  guestSession.webRequest.onBeforeSendHeaders((details, callback) => {
+    callback({ requestHeaders: businessRequestHeaders(details.requestHeaders) })
+  })
+  guestSession.webRequest.onBeforeRequest((details, callback) => {
+    const decide = () => callback({ cancel: controlPolicy.isControlPlane(details.url) })
+    void controlPolicy.refresh().then(decide, () => callback({ cancel: true }))
+  })
+  guestSession.webRequest.onHeadersReceived((details, callback) => {
+    const headers = details.responseHeaders ?? {}
+    const marked = controlPlaneResponse(headers)
+    if (marked) {
+      controlPolicy.remember(details.url)
+      if (
+        details.webContentsId !== undefined &&
+        (details.resourceType === 'mainFrame' || details.resourceType === 'subFrame')
+      )
+        markedContents.add(details.webContentsId)
+    }
+    callback({ cancel: marked, responseHeaders: businessResponseHeaders(headers) })
+  })
+  const guardGuestNavigation = (web: WebContents) => {
+    const id = web.id
+    const guard = (event: { url: string; isMainFrame: boolean; preventDefault: () => void }) => {
+      try {
+        if (event.isMainFrame) browserUrl(event.url)
+        controlPolicy.assertBusinessUrl(event.url)
+      } catch {
+        event.preventDefault()
+      }
+    }
+    web.on('will-frame-navigate', guard)
+    web.on('will-redirect', guard)
+    web.once('destroyed', () => markedContents.delete(id))
+  }
+  const assertBusinessTab = (tab: Tab) => {
+    const web = tab.view.webContents
+    if (web.isDestroyed() || markedContents.has(web.id))
+      throw new Error('业务网页发现 Host 控制台，Agent 不允许读取或操作此标签')
+    controlPolicy.assertBusinessUrl(tab.state.url)
+    controlPolicy.assertBusinessUrl(web.getURL())
+    for (const frame of web.mainFrame.framesInSubtree) controlPolicy.assertBusinessUrl(frame.url)
+  }
   let snapshot: BrowserSnapshot | undefined
   let attachedWindow: BrowserWindow | undefined
   let visible: Tab | undefined
@@ -531,16 +587,11 @@ export function registerBrowserRuntime(options: {
       if (visible === tab) closeOverlays()
       publish(tab)
     })
-    web.on('will-navigate', (event, target) => {
-      try {
-        browserUrl(target)
-      } catch {
-        event.preventDefault()
-      }
-    })
+    guardGuestNavigation(web)
     web.setWindowOpenHandler((details) => {
       try {
         browserUrl(details.url)
+        controlPolicy.assertBusinessUrl(details.url)
       } catch {
         return { action: 'deny' }
       }
@@ -568,13 +619,7 @@ export function registerBrowserRuntime(options: {
     })
     web.on('did-create-window', (popup) => {
       popup.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
-      popup.webContents.on('will-navigate', (event, target) => {
-        try {
-          browserUrl(target)
-        } catch {
-          event.preventDefault()
-        }
-      })
+      guardGuestNavigation(popup.webContents)
     })
     void web.loadURL(tab.state.url).catch(() => {})
     return { ...tab.state }
@@ -987,13 +1032,157 @@ export function registerBrowserRuntime(options: {
     trusted(event)
     if (!Array.isArray(args)) throw new Error('浏览器调用参数无效')
     switch (method) {
+      case 'bind-agent-document': {
+        const frame = event.senderFrame
+        if (!frame) throw new Error('客户端文档 Frame 已失效')
+        const documentUUID = args[0]
+        if (
+          typeof documentUUID !== 'string' ||
+          !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(documentUUID)
+        )
+          throw new Error('客户端文档标识无效')
+        const previous = agentDocuments.get(event.sender)
+        if (previous && (previous.documentUUID !== documentUUID || previous.frame !== frame))
+          throw new Error('当前页面已经绑定其他文档标识')
+        agentDocuments.set(event.sender, previous ?? { documentUUID, frame })
+        if (!documentListeners.has(event.sender)) {
+          documentListeners.add(event.sender)
+          event.sender.on('did-start-navigation', (_event, _url, inPlace, isMainFrame) => {
+            if (isMainFrame && !inPlace) agentDocuments.delete(event.sender)
+          })
+          event.sender.on('render-process-gone', () => agentDocuments.delete(event.sender))
+        }
+        return
+      }
       case 'agent': {
-        const [owner, operation, input] = args as [string, string, unknown[]]
-        if (typeof owner !== 'string' || !Array.isArray(input)) throw new Error('网页操作参数无效')
+        const [owner, operation, input, execution] = args as [
+          string,
+          string,
+          unknown[],
+          SystemClientExecution['native'] | undefined,
+        ]
+        const request = execution?.request
+        const permit = request?.permit
+        const binding = agentDocuments.get(event.sender)
+        if (
+          !execution ||
+          !request ||
+          !permit ||
+          !binding ||
+          binding.documentUUID !== permit.documentUUID ||
+          binding.frame !== event.senderFrame ||
+          typeof owner !== 'string' ||
+          !Array.isArray(input) ||
+          owner !== JSON.stringify([request.session.hostId, request.session.sessionId]) ||
+          request.session.hostId !== permit.hostId ||
+          request.operation !== `browser.${operation}` ||
+          JSON.stringify(input) !== JSON.stringify(request.args) ||
+          request.deadline !== permit.deadline
+        )
+          throw new Error('网页操作缺少当前文档的执行许可')
+        const endpoint = new URL(execution.url)
+        if (
+          endpoint.origin !== options.origin() ||
+          endpoint.username ||
+          endpoint.password ||
+          endpoint.search ||
+          endpoint.hash ||
+          !/^\/api\/(?:rpc|services\/[\w-]{1,128}\/api\/rpc)$/.test(endpoint.pathname)
+        )
+          throw new Error('网页执行许可必须由当前 Host 验证')
+        const assertDocument = () => {
+          trusted(event)
+          if (
+            agentDocuments.get(event.sender) !== binding ||
+            Date.now() >= permit.deadline ||
+            !options.getWindow()?.isVisible()
+          )
+            throw new Error('客户端文档、窗口或执行许可已失效')
+        }
+        const claim = async (target?: Tab) => {
+          const documentId = target?.state.documentId
+          const assertCurrent = () => {
+            assertDocument()
+            if (
+              target &&
+              (tabs.get(target.state.id) !== target ||
+                target.state.documentId !== documentId ||
+                visible !== target ||
+                !target.bounds ||
+                target.view.webContents.isDestroyed() ||
+                (!['close', 'navigate'].includes(operation) && target.view.webContents.isLoadingMainFrame()))
+            )
+              throw new Error('网页已切换、导航或关闭，请重新读取')
+          }
+          assertCurrent()
+          const requestId = randomUUID()
+          const response = await event.sender.session.fetch(endpoint.href, {
+            method: 'POST',
+            credentials: 'include',
+            redirect: 'error',
+            cache: 'no-store',
+            signal: AbortSignal.timeout(Math.max(1, Math.min(5000, permit.deadline - Date.now()))),
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              requestId,
+              clientId: execution.clientId,
+              hostId: request.session.hostId,
+              method: 'system:claim',
+              args: [
+                {
+                  id: request.id,
+                  nonce: permit.nonce,
+                  registrationId: permit.registrationId,
+                  documentUUID: permit.documentUUID,
+                  policyRevision: permit.policyRevision,
+                  operation: request.operation,
+                  args: input,
+                  session: request.session,
+                },
+              ],
+            }),
+          })
+          const envelope = (await response.json()) as {
+            requestId?: string
+            hostId?: string
+            error?: unknown
+            result?: { id: string; nonce: string; deadline: number }
+          }
+          if (
+            !response.ok ||
+            envelope.error ||
+            envelope.requestId !== requestId ||
+            envelope.hostId !== request.session.hostId ||
+            envelope.result?.id !== request.id ||
+            envelope.result.nonce !== permit.nonce ||
+            envelope.result.deadline !== permit.deadline
+          )
+            throw new Error('Host 拒绝网页最终执行授权')
+          assertCurrent()
+          return assertCurrent
+        }
+        await controlPolicy.refresh()
         const workspace = await options.rpc<BrowserWorkspace>('browser:workspace', [owner])
-        if (operation === 'list') return workspace.tabs.map((item) => tabs.get(item.id)?.state ?? item)
+        if (operation === 'list') {
+          await claim()
+          return workspace.tabs
+            .filter((item) => {
+              try {
+                controlPolicy.assertBusinessUrl(item.url)
+                const current = tabs.get(item.id)
+                if (current) assertBusinessTab(current)
+                return true
+              } catch {
+                return false
+              }
+            })
+            .map((item) => tabs.get(item.id)?.state ?? item)
+        }
         if (operation === 'open') {
           if (typeof input[0] !== 'string') throw new Error('网页地址无效')
+          await refresh()
+          controlPolicy.assertBusinessUrl(browserUrl(input[0], snapshot!.settings.search))
+          await claim()
           const created = await makeTab(owner, randomUUID(), input[0])
           await options.rpc('browser:save-workspace', [owner, { ...workspace, tabs: [...workspace.tabs, created] }])
           emit({ type: 'tab', tab: created })
@@ -1002,11 +1191,26 @@ export function registerBrowserRuntime(options: {
         const tab = tabs.get(String(input[0]))
         if (!tab || tab.state.owner !== owner) throw new Error('网页未加载、已关闭或不属于此会话')
         const web = tab.view.webContents
+        if (['click', 'input', 'scroll'].includes(operation) && input[1] !== tab.state.documentId)
+          throw new Error('网页文档版本无效，请重新读取')
+        if (operation === 'navigate') {
+          if (typeof input[1] !== 'string') throw new Error('网页地址无效')
+          await refresh()
+          controlPolicy.assertBusinessUrl(browserUrl(input[1], snapshot!.settings.search))
+        }
+        assertBusinessTab(tab)
+        const assertClaimCurrent = await claim(tab)
+        const assertCurrent = () => {
+          assertClaimCurrent()
+          assertBusinessTab(tab)
+        }
+        assertCurrent()
         if (operation === 'close') {
           await options.rpc('browser:save-workspace', [
             owner,
             { ...workspace, tabs: workspace.tabs.filter((item) => item.id !== tab.state.id) },
           ])
+          assertCurrent()
           if (visible === tab) {
             visible = undefined
             closeOverlays()
@@ -1019,7 +1223,9 @@ export function registerBrowserRuntime(options: {
         }
         if (operation === 'navigate') {
           if (typeof input[1] !== 'string') throw new Error('网页地址无效')
-          await command(tab, { type: 'navigate', url: input[1] })
+          tab.state.error = undefined
+          await web.loadURL(browserUrl(input[1], snapshot!.settings.search)).catch(() => {})
+          assertBusinessTab(tab)
           return tab.state
         }
         if (operation === 'screenshot') {
@@ -1034,6 +1240,7 @@ export function registerBrowserRuntime(options: {
                   const viewport = metrics.cssVisualViewport
                   if (!viewport || viewport.clientWidth <= 0 || viewport.clientHeight <= 0)
                     throw new Error('网页尚未完成布局，请加载完成后重试截图')
+                  assertCurrent()
                   const result = await web.debugger.sendCommand('Page.captureScreenshot', {
                     format: 'png',
                     fromSurface: true,
@@ -1046,6 +1253,7 @@ export function registerBrowserRuntime(options: {
                       scale: 1,
                     },
                   })
+                  assertCurrent()
                   if (typeof result.data !== 'string' || !result.data.startsWith('iVBORw0KGgo'))
                     throw new Error('网页截图未返回有效 PNG')
                   return result.data as string
@@ -1064,7 +1272,9 @@ export function registerBrowserRuntime(options: {
               tab.capture = undefined
             })
           }
-          return { type: 'image', mimeType: 'image/png', data: await tab.capture }
+          const data = await tab.capture
+          assertCurrent()
+          return { type: 'image', mimeType: 'image/png', data }
         }
         const documentId = tab.state.documentId
         if (operation === 'read') {
@@ -1082,10 +1292,12 @@ export function registerBrowserRuntime(options: {
               if (items.length >= 150) break;
             }
             globalThis.__piWorkbenchElements = elements;
+            globalThis.__piWorkbenchDocumentId = ${JSON.stringify(documentId)};
             return { title: document.title, text: document.body?.innerText.slice(0,40000) ?? '', elements: items };
           })()`,
             },
           ])
+          assertCurrent()
           if (tab.state.documentId !== documentId) throw new Error('网页已导航，请重新读取')
           return { tab: tab.state, documentId, ...result }
         }
@@ -1095,13 +1307,18 @@ export function registerBrowserRuntime(options: {
           const delta = input[2]
           if (typeof delta !== 'number' || !Number.isFinite(delta) || Math.abs(delta) > 10000)
             throw new Error('滚动距离无效')
-          await web.executeJavaScriptInIsolatedWorld(998, [{ code: `window.scrollBy(0, ${delta})` }])
+          await web.executeJavaScriptInIsolatedWorld(998, [
+            {
+              code: `if (globalThis.__piWorkbenchDocumentId !== ${JSON.stringify(documentId)}) throw new Error('网页文档已变化，请重新读取'); window.scrollBy(0, ${delta})`,
+            },
+          ])
         } else {
           if (typeof input[2] !== 'string' || (operation === 'input' && typeof input[3] !== 'string'))
             throw new Error('网页元素参数无效')
           await web.executeJavaScriptInIsolatedWorld(998, [
             {
               code: `(() => {
+            if (globalThis.__piWorkbenchDocumentId !== ${JSON.stringify(documentId)}) throw new Error('网页文档已变化，请重新读取');
             const element = globalThis.__piWorkbenchElements?.get(${JSON.stringify(input[2])});
             if (!element?.isConnected || !element.getClientRects().length || getComputedStyle(element).visibility === 'hidden' || element.closest('[inert]') || element.disabled) throw new Error('元素已变化，请重新读取');
             if (${JSON.stringify(operation)} === 'click') element.click();
@@ -1121,6 +1338,7 @@ export function registerBrowserRuntime(options: {
             },
           ])
         }
+        assertBusinessTab(tab)
         return { tabId: tab.state.id, documentId: tab.state.documentId, applied: true }
       }
       case 'snapshot':

@@ -17,7 +17,7 @@ pi-meme 是本地 Pi Coding Agent 的桌面客户端，外加可独立部署的 
 ```bash
 pnpm start                 # macOS/Windows：Desktop + Host + Web；Linux/WSL：Host + Web
 pnpm start:server          # 独立 Host：apps/server
-pnpm start:web             # 浏览器入口：apps/web（Vite）
+pnpm start:web             # 浏览器入口：固定静态快照（Vite 有限构建）
 pnpm type-check            # 全 workspace tsc --noEmit
 pnpm lint                  # 全仓 Lint，供 CI 或明确的全仓检查使用
 pnpm format                # 全仓格式检查，供 CI 或明确的全仓检查使用
@@ -68,7 +68,7 @@ arm64 应用在 `apps/desktop/out/Pi meme-darwin-arm64/Pi meme.app`。`dist/`、
 ```
 Desktop (Electron) ──┐
                      ├─ app-ui (React) ─ client ─ Node Host ─┬─ 内置服务（静态装配）
-Web (Vite) ──────────┘                                      ├─ 可信插件（Chord 作用域）
+Web (静态快照) ─────┘                                      ├─ 插件清单与声明式 JSON UI
                                                             ├─ 受限插件（独立进程 + OS 沙箱）
                                                             └─ pi-adapter ─ 会话 Worker ─ Pi SDK
 ```
@@ -83,9 +83,9 @@ Web (Vite) ──────────┘                                    
 - 跨包导入写 `@pi-meme/<包名>/<具体文件>`，不要新增批量导出的 `index.ts`。包内用相对路径。
 - 边界由 `scripts/check-package-boundaries.mjs` 检查静态导入、动态 `import()`、re-export 和 UI 边界。
 
-内置模块由 `packages/host/src/builtin-modules.ts` 静态装配（聊天、工作区、历史、模型、设置、资源、交互、子代理、MCP、codemode、权限、当前平台沙箱、用量、git）。内置初始化失败会中止 Host。外部 App 插件由用户安装，走独立启停；恢复失败只隔离相关依赖组。插件源码在 `plugins/`，SDK 在 `packages/plugin-sdk`、`plugin-runtime`、`plugin-devkit`。外部插件使用 SDK 3，Agent/Server 入口分 `trusted` 与 `restricted`，不保留 SDK 2 执行路径。插件可新增自己的活动栏入口、次级菜单和中央业务页，但不能替换内置导航或聊天；工具面板仍只允许 `right`。
+内置模块由 `packages/host/src/builtin-modules.ts` 静态装配（聊天、工作区、历史、模型、设置、资源、交互、子代理、MCP、codemode、权限、当前平台沙箱、用量、git）。内置初始化失败会中止 Host。外部 App 插件由用户安装，走独立启停；恢复失败只隔离相关依赖组。插件源码在 `plugins/`，SDK 在 `packages/plugin-sdk`、`plugin-runtime`、`plugin-devkit`。外部插件使用 SDK 4，Agent/Server 仅 restricted、UI 仅声明式 JSON，外部 runtime protocol 为 2；旧 trusted Node/React UI 不再执行。内置 Builtin modules 仍使用自己的版本 3 契约，不能随外部 SDK 升级。插件可声明页面与面板，不能替换内置导航或聊天。
 
-同一个 Host 是其数据目录的唯一写入者。会话 Worker 按执行会话独立创建，持有固定资源快照和插件代次；JSONL 由 Pi SDK 保存。正式 HostApi v2 用稳定 `ProjectRef` / `SessionRef` 操作显式目标，不读写界面选择。App 内部 `/api/rpc` 继续服务内置界面。`PlatformAdapter`（`packages/contracts`）承载本机文件选择、Finder/编辑器等平台操作；Electron preload 只连接平台 channel。远程路径不要交给本机文件选择器。
+同一个 Host 是其数据目录的唯一写入者。会话 Worker 按执行会话独立创建，持有固定资源快照和插件代次；JSONL 由 Pi SDK 保存。正式 HostApi v3 用稳定 `ProjectRef` / `SessionRef` 操作显式目标，不读写界面选择。Host runtime protocol 为 2；写操作的 expected 仅比较当前运行/策略/计划修订，不能授权或配置会话。认证 principal 来自通道身份，不取请求体 clientId。App 内部 `/api/rpc` 继续服务内置界面。`PlatformAdapter`（`packages/contracts`）承载本机文件选择、Finder/编辑器等平台操作；Electron preload 只连接平台 channel。远程路径不要交给本机文件选择器。
 
 ## 改代码时容易踩的约定
 
@@ -95,7 +95,7 @@ Web (Vite) ──────────┘                                    
 - 页面顶栏复用 `packages/app-ui/src/layout/page-header.tsx` 的 `PageHeader` 和 `PageHeaderNavigation`；顶栏高度、交通灯留白和导航按钮样式只在该文件维护。页面自己的操作通过子组件组合，并使用 `no-drag` 标记交互区域。
 - 新增或修改内置系统能力时，按 [Host 内置工具](docs/host-system-tools.md) 接入 Agent 读取与操作；复用 Host 业务服务，登记参数、作用范围和读写权限，客户端操作绑定发起客户端。
 - 新功能先判断是内置能力还是可独立安装的 App 插件。业务包按需建 `src/server`、`src/agent`、`src/ui`、`src/shared`，不建空层。
-- 插件的安装、项目启停、会话选择与能力授权分别校验。Plan 只能使用获准的受限只读入口，不导入可信 Agent/Server。受限 JS 必须在独立进程和 OS 沙箱中运行；UI 与可信 Server 不属于恶意代码沙箱。
+- 插件的安装、项目启停、会话选择与能力授权分别校验。外部 SDK 4 仅支持受限 Agent/Server 与 JSON UI；Plan/read-only 保持只读硬顶。受限 JS 在独立进程与 OS 沙箱运行，缺必要能力明确拒绝，不回退 trusted、Host、VM 或 Worker 路径。
 - 插件输入框 API 复用唯一草稿和提交守卫；发送前处理必须显式授权。消息引用使用 Pi 原生 entry ID，不能用时间戳或数组下标代替。插件页目标、执行目标与当前输入框引用不得混用。
 - 新增或修改导航、Tab、面板与加载状态时遵循 [UI 体验与动效](docs/ui-experience.md)，复用现有过渡入口，保持页面状态，并支持系统和应用的减少动态效果设置。
 - 刷新保留已有列表结构；加载和禁用只作用在触发操作上。Popover 关闭动画结束前保留虚拟 Anchor，并显式指定展开方向。

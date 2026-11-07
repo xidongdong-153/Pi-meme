@@ -22,16 +22,11 @@ export const frontendMime: Record<string, string> = {
 export async function serveFrontend(requestPath: string, options: { staticDirectory?: string; frontendUrl?: string }) {
   const requestUrl = new URL(requestPath, 'http://frontend')
   if (requestUrl.pathname === visualizationPreviewPath) return visualizationPreviewResponse()
-  if (options.frontendUrl) {
-    const target = new URL(options.frontendUrl)
-    target.pathname = requestUrl.pathname
-    target.search = requestUrl.search
-    const upstream = await fetch(target, { redirect: 'manual' })
-    return new Response(upstream.body, {
-      status: upstream.status,
-      headers: { 'Content-Type': upstream.headers.get('content-type') ?? 'application/octet-stream' },
-    })
-  }
+  if (options.frontendUrl)
+    return Response.json(
+      { error: 'runtime-snapshot-required: 拥有者界面不接受 live frontendUrl，请使用固定静态运行时快照' },
+      { status: 503 },
+    )
   if (!options.staticDirectory) return Response.json({ error: '没有配置 Web 静态目录' }, { status: 404 })
   const root = path.resolve(options.staticDirectory)
   let target = path.resolve(root, `.${decodeURIComponent(requestUrl.pathname)}`)

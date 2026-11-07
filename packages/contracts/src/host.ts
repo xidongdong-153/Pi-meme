@@ -26,7 +26,7 @@ export type HostServiceRegistration = { url: string; token?: string }
 
 export type HostConnection = { url: string; token: string; hostId: string; local: boolean }
 export type SavedHostConnection = { url: string; hostId: string }
-export type HostConnectionError = { local: boolean; message: string }
+export type HostConnectionError = { local: boolean; message: string; pairingUrl?: string }
 export type CredentialImportResult = { imported: number; skipped: number; reconnectError?: string }
 export type HostRpcRequest = {
   requestId: string
@@ -97,7 +97,7 @@ export interface PlatformAdapter {
   removeSavedHostConnection?: (url: string) => Promise<void>
   getHostConnectionError?: () => Promise<HostConnectionError | null>
   retryHostConnection?: () => Promise<void>
-  setHostConnection: (value: { url: string; token: string } | null) => Promise<void>
+  setHostConnection: (value: { url: string; token: string; save?: boolean } | null) => Promise<void>
   getHostConnection: () => Promise<HostConnection>
   chooseDirectory: () => Promise<string | null>
   getPathForFile?: (file: File) => string

@@ -4,6 +4,7 @@ import type {
   EventSubscription,
   EventCursor,
   HostControlEvent,
+  MutationExpected,
 } from '@pi-meme/contracts/app-host'
 import { createAppHostClient } from './app-host-client'
 import {
@@ -146,8 +147,14 @@ export class HostClient {
   private readonly servicesListeners = new Set<() => void>()
   private readonly pluginListeners = new Set<() => void>()
   private readonly appearanceListeners = new Set<() => void>()
-  private systemHandler?: (request: import('@pi-meme/contracts/system-tools').SystemClientRequest) => Promise<unknown>
+  private systemHandler?: (
+    request: import('@pi-meme/contracts/system-tools').SystemClientRequest,
+    execution: import('@pi-meme/contracts/system-tools').SystemClientExecution,
+  ) => Promise<unknown>
   private systemOperations: string[] = []
+  private systemRegistrationQueue: Promise<void> = Promise.resolve()
+  private systemDocumentUUID?: string
+  private systemRegistration?: import('@pi-meme/contracts/system-tools').SystemClientRegistration
   private socket?: WebSocket
   private reconnectTimer?: ReturnType<typeof setTimeout>
   private reconnectAttempts = 0
@@ -522,18 +529,24 @@ export class HostClient {
     return value.result
   }
 
-  private async controlCall<T>(method: string, args: unknown[], idempotencyKey?: string): Promise<T> {
+  private async controlCall<T>(
+    method: string,
+    args: unknown[],
+    idempotencyKey?: string,
+    expected?: MutationExpected,
+  ): Promise<T> {
     const epoch = this.networkEpoch
     this.assertAvailable(epoch)
     await this.authenticate()
     this.assertAvailable(epoch)
     const body = JSON.stringify({
-      apiVersion: 2,
+      apiVersion: 3,
       hostId: this.connectedHostId,
       clientId: this.clientId,
       method,
       args,
       idempotencyKey,
+      expected,
     })
     const send = () => {
       this.assertAvailable(epoch)
@@ -977,13 +990,86 @@ export class HostClient {
       case 'system-request': {
         const request = envelope.value
         const execute = async () => {
-          if (!this.systemHandler || Date.now() > request.deadline) throw new Error('客户端操作不可用或已过期')
-          return this.systemHandler(request)
+          const handler = this.systemHandler
+          const registration = this.systemRegistration
+          const permit = request.permit
+          if (
+            !handler ||
+            !registration ||
+            !permit ||
+            Date.now() >= permit.deadline ||
+            request.deadline !== permit.deadline ||
+            permit.registrationId !== registration.registrationId ||
+            permit.documentUUID !== this.systemDocumentUUID ||
+            permit.installationId !== registration.installationId ||
+            permit.connectionEpoch !== registration.connectionEpoch ||
+            permit.hostId !== registration.hostId ||
+            request.session.hostId !== registration.hostId
+          )
+            throw new Error('客户端操作缺少当前文档的有效许可')
+          return handler(request, {
+            claim: async () => {
+              if (
+                handler !== this.systemHandler ||
+                registration !== this.systemRegistration ||
+                !this.socket ||
+                this.socket.readyState !== 1
+              )
+                throw new Error('客户端连接或文档已变化')
+              await this.rpc(
+                'system:claim',
+                [
+                  {
+                    id: request.id,
+                    nonce: permit.nonce,
+                    registrationId: permit.registrationId,
+                    documentUUID: permit.documentUUID,
+                    policyRevision: permit.policyRevision,
+                    operation: request.operation,
+                    args: request.args,
+                    session: request.session,
+                  },
+                ],
+                null,
+              )
+              if (
+                handler !== this.systemHandler ||
+                registration !== this.systemRegistration ||
+                Date.now() >= permit.deadline
+              )
+                throw new Error('客户端执行许可已失效')
+            },
+            native: { request, url: this.endpoint('/api/rpc').href, clientId: this.clientId },
+          })
         }
         void execute()
           .then(
-            (result) => this.rpc('system:reply', [{ id: request.id, result }], null),
-            (cause) => this.rpc('system:reply', [{ id: request.id, error: String(cause) }], null),
+            (result) =>
+              this.rpc(
+                'system:reply',
+                [
+                  {
+                    id: request.id,
+                    nonce: request.permit?.nonce,
+                    registrationId: request.permit?.registrationId,
+                    result,
+                  },
+                ],
+                null,
+              ),
+            (cause) =>
+              this.rpc(
+                'system:reply',
+                [
+                  {
+                    id: request.id,
+                    nonce: request.permit?.nonce,
+                    registrationId: request.permit?.registrationId,
+                    error: String(cause),
+                  },
+                ],
+                null,
+              ),
           )
           .catch((cause) => this.reportError(`无法提交客户端操作结果：${String(cause)}`))
         break
@@ -1038,9 +1124,25 @@ export class HostClient {
     this.appearanceListeners.clear()
   }
 
-  private async registerSystemCapabilities() {
+  private registerSystemCapabilities() {
+    const task = this.systemRegistrationQueue.then(() => this.performSystemRegistration())
+    this.systemRegistrationQueue = task.catch(() => undefined)
+    return task
+  }
+
+  private async performSystemRegistration() {
     if (this.closed || !(await this.host.capabilities()).features.includes('system-tools')) return
-    await this.rpc('system:register', [this.systemOperations], null)
+    const documentUUID = this.systemDocumentUUID
+    const handler = this.systemHandler
+    this.systemRegistration = undefined
+    if (!documentUUID || !handler) return
+    const registration = await this.rpc<import('@pi-meme/contracts/system-tools').SystemClientRegistration>(
+      'system:register',
+      [this.systemOperations, { documentUUID }],
+      null,
+    )
+    if (this.systemDocumentUUID === documentUUID && this.systemHandler === handler)
+      this.systemRegistration = registration
   }
 
   private async directory() {
@@ -1120,14 +1222,24 @@ export class HostClient {
       return { ...result, snapshot: settingsSnapshot(result.snapshot) }
     }
     return {
-      registerSystemClient: (operations, handler) => {
+      registerSystemClient: (operations, handler, document) => {
+        if (!document?.documentUUID) throw new Error('系统客户端注册缺少文档标识')
         this.systemHandler = handler
         this.systemOperations = operations
+        this.systemDocumentUUID = document.documentUUID
+        this.systemRegistration = undefined
         void this.registerSystemCapabilities().catch((cause) => this.reportError(String(cause)))
         return () => {
           if (this.systemHandler === handler) {
+            const registration = this.systemRegistration
             this.systemHandler = undefined
             this.systemOperations = []
+            this.systemDocumentUUID = undefined
+            this.systemRegistration = undefined
+            if (registration)
+              void this.rpc('system:unregister', [registration.registrationId, registration.documentUUID], null).catch(
+                () => undefined,
+              )
           }
         }
       },

@@ -11,7 +11,12 @@ export function create(context: {
   settings: DesktopSettings
   cwd: string
   taskMode?: () => import('@pi-meme/contracts/plan').TaskMode
+  accessMode?: () => import('@pi-meme/contracts/agent-access').AgentAccessMode
   planSandbox?: () => import('@pi-meme/pi-runtime/sdk/access-sandbox').AccessSandboxOperations
+  executionSandbox?: () => import('@pi-meme/pi-runtime/sdk/access-sandbox').AccessSandboxOperations
+  requestMcpAuthorization?: import('@pi-meme/contracts/mcp-authorization').McpAuthorizeOperation
+  registerMcpTool?: (tool: import('@earendil-works/pi-coding-agent').ToolDefinition) => void
+  onExecutionBoundary?: import('@pi-meme/contracts/execution-boundary').RegisterExecutionBoundary
   registerPlanTool?: (name: string, source: import('@pi-meme/contracts/plan').PlanToolSource) => void
 }): InlineExtension[] {
   return [
@@ -24,10 +29,15 @@ export function create(context: {
       context.planSandbox && context.registerPlanTool
         ? {
             active: () => context.taskMode?.() === 'plan',
+            readOnly: () => context.accessMode?.() === 'read-only',
             sandbox: context.planSandbox,
             register: context.registerPlanTool,
           }
         : undefined,
+      context.executionSandbox,
+      context.requestMcpAuthorization,
+      context.registerMcpTool,
+      context.onExecutionBoundary,
     ),
     { name: 'pi-meme-tool-search', factory: context.sdk.createToolSearchExtension() },
   ]

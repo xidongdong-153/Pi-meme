@@ -149,15 +149,56 @@ export async function spawnManagedProcess(
   }
 }
 
-export function serviceProcessEnvironment(env?: NodeJS.ProcessEnv) {
-  const result = { ...process.env, ...env }
-  delete result.NODE_OPTIONS
-  delete result.NODE_PATH
-  delete result.BASH_ENV
-  delete result.ENV
-  if (process.platform === 'win32') {
-    for (const key of Object.keys(result))
-      if (/^(?:NODE_OPTIONS|NODE_PATH|BASH_ENV|ENV)$/i.test(key)) delete result[key]
+/** Restricted processes receive toolchain locations and locale, never Host credentials. */
+export function restrictedProcessEnvironment(temporary: string, env?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const source = { ...process.env, ...env }
+  const result: NodeJS.ProcessEnv = {
+    HOME: temporary,
+    USERPROFILE: temporary,
+    TMPDIR: temporary,
+    TMP: temporary,
+    TEMP: temporary,
+    XDG_CONFIG_HOME: temporary,
+    XDG_CACHE_HOME: temporary,
+    XDG_DATA_HOME: temporary,
+    GIT_CONFIG_NOSYSTEM: '1',
+    GIT_CONFIG_GLOBAL: `${temporary}/.gitconfig`,
+    GIT_OPTIONAL_LOCKS: '0',
+    GIT_PAGER: 'cat',
+    PAGER: 'cat',
+  }
+  for (const key of ['PATH', 'LANG', 'LC_ALL', 'LC_CTYPE', 'TZ', 'TERM', 'COLORTERM']) {
+    if (source[key] !== undefined) result[key] = source[key]
   }
   return result
+}
+
+export function serviceProcessEnvironment(env?: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const allowed = new Set([
+    'PATH',
+    'PATHEXT',
+    'COMSPEC',
+    'SYSTEMROOT',
+    'WINDIR',
+    'SYSTEMDRIVE',
+    'PSMODULEPATH',
+    'HOME',
+    'USER',
+    'LOGNAME',
+    'USERPROFILE',
+    'LOCALAPPDATA',
+    'APPDATA',
+    'TMPDIR',
+    'TMP',
+    'TEMP',
+    'LANG',
+    'LC_ALL',
+    'LC_CTYPE',
+    'TZ',
+    'TERM',
+    'COLORTERM',
+  ])
+  return Object.fromEntries(
+    Object.entries({ ...process.env, ...env }).filter(([key]) => allowed.has(key.toUpperCase())),
+  )
 }

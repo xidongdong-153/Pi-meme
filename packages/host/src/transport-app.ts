@@ -1,7 +1,12 @@
 import { readFile, realpath } from 'node:fs/promises'
 import path from 'node:path'
 import { Readable } from 'node:stream'
-import { randomBytes } from 'node:crypto'
+import { createHash, randomBytes } from 'node:crypto'
+import {
+  controlPlaneResponseHeader,
+  controlPlaneResponseValue,
+  type TransportIdentity,
+} from '@pi-meme/contracts/transport-identity'
 import { Hono, type Context } from 'hono'
 import { compress } from 'hono/compress'
 import { upgradeWebSocket, type HttpBindings } from '@hono/node-server'
@@ -20,12 +25,11 @@ import type { ServerOptions } from './server'
 import { frontendMime, serveFrontend } from './frontend'
 import { ChatAttachmentTooLargeError } from './chat-attachments'
 import { createLinkPreviewLoader } from './link-preview'
-import { previewLinkedFile } from './workspace-files'
 import { visualizationPreviewPath, visualizationPreviewResponse } from '@pi-meme/visualize/server/preview-page'
 
 type TransportEnv = {
   Bindings: Pick<HttpBindings, 'incoming'> & Partial<Pick<HttpBindings, 'outgoing'>>
-  Variables: { url: URL }
+  Variables: { url: URL; identity: TransportIdentity }
 }
 type TransportContext = Context<TransportEnv>
 type TransportServices = {
@@ -92,6 +96,17 @@ function serviceRegistrationError(cause: unknown) {
   return cause.message.replace(/https?:\/\/\S+/g, '[服务地址]')
 }
 
+function authenticatedClientId(c: TransportContext, value: unknown, host: TransportServices['host']) {
+  if (typeof value !== 'string' || !value || value.length > 128) throw new Error('客户端标识无效')
+  const identity = c.get('identity')
+  if (!identity) throw new Error('需要登录服务')
+  const clientId = `client:${createHash('sha256')
+    .update(JSON.stringify([identity.principalId, identity.installationId, value]))
+    .digest('hex')}`
+  host.registerAuthenticatedClient(clientId, identity)
+  return clientId
+}
+
 function registerRpc(app: Hono<TransportEnv>, { host, remotes, auth }: TransportServices) {
   const loadLinkPreview = createLinkPreviewLoader()
   app.use('/api/rpc', compress())
@@ -99,29 +114,39 @@ function registerRpc(app: Hono<TransportEnv>, { host, remotes, auth }: Transport
   app.post('/api/chat/attachments', async (c) => {
     if (Number(c.req.header('Content-Length')) > MAX_CHAT_ATTACHMENT_BYTES) throw new ChatAttachmentTooLargeError()
     const query = c.get('url').searchParams
-    const result = await host.uploadAttachment(
+    const metadata = {
+      clientId: authenticatedClientId(c, query.get('clientId'), host),
+      hostId: query.get('hostId') ?? '',
+      sessionKey: query.get('sessionKey') ?? '',
+      name: query.get('name') ?? '',
+    }
+    const result = await host.authorizeTransport(
       {
-        clientId: query.get('clientId') ?? '',
-        hostId: query.get('hostId') ?? '',
-        sessionKey: query.get('sessionKey') ?? '',
-        name: query.get('name') ?? '',
+        requestId: randomBytes(16).toString('hex'),
+        clientId: metadata.clientId,
+        kind: 'attachment',
+        method: 'upload',
+        args: [metadata],
       },
-      c.req.raw.body ? Readable.fromWeb(c.req.raw.body as import('node:stream/web').ReadableStream) : Readable.from([]),
       c.req.raw.signal,
+      (signal) =>
+        host.uploadAttachment(
+          metadata,
+          c.req.raw.body
+            ? Readable.fromWeb(c.req.raw.body as import('node:stream/web').ReadableStream)
+            : Readable.from([]),
+          signal,
+        ),
     )
     return reply(200, { hostId: host.hostId, result })
   })
   app.post('/api/control', async (c) => {
-    return reply(200, await host.control.dispatch((await jsonBody(c.req.raw)) as HostControlRequest))
+    const request = (await jsonBody(c.req.raw)) as HostControlRequest
+    request.clientId = authenticatedClientId(c, request?.clientId, host)
+    return reply(200, await host.withIdentity(c.get('identity'), () => host.control.dispatch(request)))
   })
   app.post('/api/rpc', async (c) => {
     const value = (await jsonBody(c.req.raw, true)) as HostRpcRequest
-    if (
-      (['host:import-keychain', 'host:credential-import-status'].includes(value.method) ||
-        value.method.startsWith('browser:')) &&
-      !auth.localRequest(c.env.incoming)
-    )
-      return reply(403, { error: '旧凭据只能在本机服务导入' })
     if (
       !value ||
       typeof value.method !== 'string' ||
@@ -135,110 +160,171 @@ function registerRpc(app: Hono<TransportEnv>, { host, remotes, auth }: Transport
     )
       throw new Error('请求参数无效')
     if (value.hostId && value.hostId !== host.hostId) throw new Error('请求服务身份不匹配')
-    if (value.method === 'chat:file-preview') {
-      const ref = value.args[0] as { hostId: string; sessionId: string }
-      const session = await host.control.apiFor(value.clientId).sessions.get(ref)
+    if (
+      (['host:import-keychain', 'host:credential-import-status'].includes(value.method) ||
+        value.method.startsWith('browser:')) &&
+      !auth.localRequest(c.env.incoming)
+    )
+      return reply(403, { error: '旧凭据与浏览器操作只能在本机服务管理' })
+    value.clientId = authenticatedClientId(c, value.clientId, host)
+    if (value.method === 'host:control-origins') {
+      const identity = c.get('identity')
+      if (!identity || identity.role !== 'owner' || identity.hostId !== host.hostId || value.args.length)
+        return reply(403, { error: '控制服务登记只允许已认证的 Owner 读取' })
+      // Security metadata remains readable during revoke so the client cannot mistake a control page for business UI.
+      c.req.raw.signal.throwIfAborted()
       return reply(200, {
         requestId: value.requestId,
         hostId: host.hostId,
-        result: await previewLinkedFile(session.cwd, value.args[1] as string),
+        result: { origins: remotes.controlOrigins() },
       })
     }
-    if (value.method === 'chat:link-preview') {
-      return reply(200, {
-        requestId: value.requestId,
-        hostId: host.hostId,
-        result: await loadLinkPreview(value.args[0]),
-      })
-    }
-    if (value.method.startsWith('host:ssh:')) {
-      const canManage = auth.localRequest(c.env.incoming)
-      let result: unknown
-      if (value.method === 'host:ssh:capabilities') {
-        const available = canManage && (await remotes.ssh.available())
-        result = {
-          canManage,
-          available,
-          reason: !canManage ? '请在本机打开应用后管理 SSH 连接' : !available ? sshUnavailableReason() : undefined,
+    const special =
+      ['chat:file-preview', 'chat:link-preview'].includes(value.method) ||
+      /^(?:host:ssh:|host:connections:|host:services:)/.test(value.method)
+    const perform = async (signal: AbortSignal) => {
+      signal.throwIfAborted()
+      if (value.method === 'chat:file-preview') {
+        const ref = value.args[0] as { hostId: string; sessionId: string }
+        return reply(200, {
+          requestId: value.requestId,
+          hostId: host.hostId,
+          result: await host.readLinkedPreview(value.clientId, ref, value.args[1] as string, signal),
+        })
+      }
+      if (value.method === 'chat:link-preview') {
+        return reply(200, {
+          requestId: value.requestId,
+          hostId: host.hostId,
+          result: await loadLinkPreview(value.args[0], signal),
+        })
+      }
+      if (value.method.startsWith('host:ssh:')) {
+        const canManage = auth.localRequest(c.env.incoming)
+        let result: unknown
+        if (value.method === 'host:ssh:capabilities') {
+          const available = canManage && (await remotes.ssh.available())
+          result = {
+            canManage,
+            available,
+            reason: !canManage ? '请在本机打开应用后管理 SSH 连接' : !available ? sshUnavailableReason() : undefined,
+          }
+        } else {
+          if (!canManage) return reply(403, { error: '请在本机打开应用后管理 SSH 连接' })
+          switch (value.method) {
+            case 'host:ssh:list':
+              result = remotes.ssh.list()
+              break
+            case 'host:ssh:discover':
+              result = await discoverSshCandidates()
+              break
+            case 'host:ssh:save':
+              result = await remotes.ssh.save(value.args[0] as SshConnectionInput)
+              break
+            case 'host:ssh:enabled':
+              if (typeof value.args[0] !== 'string' || typeof value.args[1] !== 'boolean')
+                throw new Error('SSH 启停参数无效')
+              result = await remotes.ssh.setEnabled(value.args[0], value.args[1])
+              break
+            case 'host:ssh:retry':
+            case 'host:ssh:remove':
+              if (typeof value.args[0] !== 'string') throw new Error('SSH 连接标识无效')
+              result = value.method.endsWith(':retry')
+                ? await remotes.ssh.retry(value.args[0])
+                : await remotes.ssh.remove(value.args[0])
+              break
+            default:
+              throw new Error('SSH 管理接口不存在')
+          }
         }
-      } else {
-        if (!canManage) return reply(403, { error: '请在本机打开应用后管理 SSH 连接' })
+        return reply(200, { requestId: value.requestId, hostId: host.hostId, result })
+      }
+      if (value.method === 'host:connections:list' || value.method === 'host:connections:remove') {
+        if (!auth.localRequest(c.env.incoming)) return reply(403, { error: '本机连接记录只能在本机管理' })
+        let result: unknown
+        if (value.method === 'host:connections:list') result = host.connections.list()
+        else {
+          const url = value.args[0]
+          if (typeof url !== 'string') throw new Error('服务地址无效')
+          await remotes.removeSavedConnection(url)
+        }
+        return reply(200, { requestId: value.requestId, hostId: host.hostId, result })
+      }
+      if (value.method.startsWith('host:services:')) {
+        let result: unknown
         switch (value.method) {
-          case 'host:ssh:list':
-            result = remotes.ssh.list()
+          case 'host:services:list':
+            result = remotes.list()
             break
-          case 'host:ssh:discover':
-            result = await discoverSshCandidates()
+          case 'host:services:register': {
+            const input = value.args[0] as { url?: unknown; token?: unknown }
+            if (typeof input?.url !== 'string' || (input.token !== undefined && typeof input.token !== 'string'))
+              throw new Error('远程服务登记参数无效')
+            result = await remotes.register(input.url, input.token, signal).catch((cause: unknown) => {
+              throw new Error(serviceRegistrationError(cause))
+            })
             break
-          case 'host:ssh:save':
-            result = await remotes.ssh.save(value.args[0] as SshConnectionInput)
-            break
-          case 'host:ssh:enabled':
-            if (typeof value.args[0] !== 'string' || typeof value.args[1] !== 'boolean')
-              throw new Error('SSH 启停参数无效')
-            result = await remotes.ssh.setEnabled(value.args[0], value.args[1])
-            break
-          case 'host:ssh:retry':
-          case 'host:ssh:remove':
-            if (typeof value.args[0] !== 'string') throw new Error('SSH 连接标识无效')
+          }
+          case 'host:services:retry':
+          case 'host:services:remove':
+            if (typeof value.args[0] !== 'string') throw new Error('服务标识无效')
             result = value.method.endsWith(':retry')
-              ? await remotes.ssh.retry(value.args[0])
-              : await remotes.ssh.remove(value.args[0])
+              ? await remotes.retry(value.args[0], signal)
+              : await remotes.remove(value.args[0])
             break
           default:
-            throw new Error('SSH 管理接口不存在')
+            throw new Error('服务管理接口不存在')
         }
+        return reply(200, { requestId: value.requestId, hostId: host.hostId, result })
       }
-      return reply(200, { requestId: value.requestId, hostId: host.hostId, result })
+      const start = performance.now()
+      const result = await host.withIdentity(c.get('identity'), () => host.rpc(value))
+      return reply(200, result, { 'Server-Timing': `host;dur=${(performance.now() - start).toFixed(1)}` })
     }
-    if (value.method === 'host:connections:list' || value.method === 'host:connections:remove') {
-      if (!auth.localRequest(c.env.incoming)) return reply(403, { error: '本机连接记录只能在本机管理' })
-      let result: unknown
-      if (value.method === 'host:connections:list') result = host.connections.list()
-      else {
-        const url = value.args[0]
-        if (typeof url !== 'string') throw new Error('服务地址无效')
-        await remotes.removeSavedConnection(url)
-      }
-      return reply(200, { requestId: value.requestId, hostId: host.hostId, result })
+    if (special) {
+      const session =
+        value.method === 'chat:file-preview' ? (value.args[0] as { hostId: string; sessionId: string }) : undefined
+      if (
+        value.method === 'chat:file-preview' &&
+        (!session ||
+          typeof session.hostId !== 'string' ||
+          typeof session.sessionId !== 'string' ||
+          !session.sessionId ||
+          session.hostId !== host.hostId ||
+          typeof value.args[1] !== 'string')
+      )
+        throw new Error('文件预览会话身份无效')
+      return host.withIdentity(c.get('identity'), () =>
+        host.authorizeTransport(
+          {
+            requestId: value.requestId,
+            clientId: value.clientId,
+            kind: 'rpc',
+            method: value.method,
+            args: value.args,
+            session,
+          },
+          c.req.raw.signal,
+          perform,
+        ),
+      )
     }
-    if (value.method.startsWith('host:services:')) {
-      let result: unknown
-      switch (value.method) {
-        case 'host:services:list':
-          result = remotes.list()
-          break
-        case 'host:services:register': {
-          const input = value.args[0] as { url?: unknown; token?: unknown }
-          if (typeof input?.url !== 'string' || (input.token !== undefined && typeof input.token !== 'string'))
-            throw new Error('远程服务登记参数无效')
-          result = await remotes.register(input.url, input.token).catch((cause: unknown) => {
-            throw new Error(serviceRegistrationError(cause))
-          })
-          break
-        }
-        case 'host:services:retry':
-        case 'host:services:remove':
-          if (typeof value.args[0] !== 'string') throw new Error('服务标识无效')
-          result = value.method.endsWith(':retry')
-            ? await remotes.retry(value.args[0])
-            : await remotes.remove(value.args[0])
-          break
-        default:
-          throw new Error('服务管理接口不存在')
-      }
-      return reply(200, { requestId: value.requestId, hostId: host.hostId, result })
-    }
-    const start = performance.now()
-    const result = await host.rpc(value)
-    return reply(200, result, { 'Server-Timing': `host;dur=${(performance.now() - start).toFixed(1)}` })
+    // The fixed Owner authorization controls remain reachable to recover from a Host-wide revoke.
+    if (
+      value.method.startsWith('authorization:') &&
+      !['authorization:snapshot', 'authorization:respond', 'authorization:revoke', 'authorization:resume'].includes(
+        value.method,
+      )
+    )
+      throw new Error('授权管理接口不存在')
+    return perform(c.req.raw.signal)
   })
   app.get('/api/snapshot', async (c) => {
     if (c.req.method !== 'GET') return c.notFound()
     const url = c.get('url')
     const result = await host.rpc({
       requestId: randomBytes(16).toString('hex'),
-      clientId: url.searchParams.get('clientId') ?? '',
+      clientId: authenticatedClientId(c, url.searchParams.get('clientId'), host),
       sessionId: url.searchParams.get('sessionId') ?? undefined,
       method: 'pi:snapshot',
       args: [],
@@ -250,63 +336,112 @@ function registerRpc(app: Hono<TransportEnv>, { host, remotes, auth }: Transport
   })
 }
 
-function registerEvents(app: Hono<TransportEnv>, { host, remotes }: TransportServices) {
+function registerEvents(app: Hono<TransportEnv>, { host, remotes, auth }: TransportServices) {
   const events = (c: TransportContext) => {
     if (c.env.outgoing) return c.notFound()
     const url = c.get('url')
-    const clientId = url.searchParams.get('clientId')!
+    const clientId = authenticatedClientId(c, url.searchParams.get('clientId'), host)
+    // This is the actual cookie identity captured at handshake, never later ALS or client metadata.
+    const identity = Object.freeze({ ...c.get('identity') })
+    const valid = () =>
+      auth.identity(c.env.incoming)?.connectionEpoch === identity.connectionEpoch &&
+      host.isAuthenticatedClient(clientId, identity)
+    const controller = new AbortController()
+    let finish!: () => void
+    const closed = new Promise<void>((resolve) => {
+      finish = resolve
+    })
     let dispose: (() => void) | undefined
     let disposeChanges: (() => void) | undefined
+    const cleanup = () => {
+      disposeChanges?.()
+      disposeChanges = undefined
+      dispose?.()
+      dispose = undefined
+      host.disconnectSystemClient(clientId, identity)
+    }
     return upgradeWebSocket(c, {
       onOpen(_event, ws) {
-        if (url.pathname === '/api/control/events') {
-          try {
-            const input: EventSubscription = JSON.parse(url.searchParams.get('subscription') ?? '{}')
-            if (
-              !input ||
-              typeof input !== 'object' ||
-              (input.after &&
-                (typeof input.after.journalEpoch !== 'string' ||
-                  !Number.isSafeInteger(input.after.seq) ||
-                  input.after.seq < 0))
-            )
-              throw new Error('事件订阅参数无效')
-            dispose = host.control.subscribe(input, (event) => {
-              if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(event))
-            })
-          } catch {
-            ws.close(1008, '事件订阅参数无效')
-          }
-          return
-        }
         const remote = url.pathname.match(/^\/api\/services\/([a-f0-9]{24})\/api\/(control\/)?events$/)
-        if (remote) {
-          if (!(ws.raw instanceof WebSocket)) {
-            ws.close(1011, '远程服务连接类型无效')
-            return
-          }
-          void remotes
-            .events(remote[1], clientId, ws.raw, remote[2] ? (url.searchParams.get('subscription') ?? '{}') : undefined)
-            .catch(() => ws.close(1011, '远程服务订阅失败'))
-          return
-        }
-        disposeChanges = remotes.onChanged(() => {
-          if (ws.readyState === WebSocket.OPEN)
-            ws.send(JSON.stringify({ hostId: host.hostId, type: 'services-changed' }))
-        })
+        const method = remote ? 'remote-events' : url.pathname === '/api/control/events' ? 'control-events' : 'events'
         void host
-          .subscribe(clientId, (event) => {
-            if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(event))
+          .withIdentity(identity, () =>
+            host.authorizeTransport(
+              {
+                requestId: randomBytes(16).toString('hex'),
+                clientId,
+                kind: 'subscription',
+                method,
+                args: [url.pathname, url.searchParams.get('subscription')],
+              },
+              controller.signal,
+              async (signal) => {
+                const abort = () => ws.close(1008, '事件订阅授权已失效')
+                const send = (event: unknown) => {
+                  if (signal.aborted || !valid()) {
+                    abort()
+                    return
+                  }
+                  if (ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify(event))
+                }
+                signal.addEventListener('abort', abort, { once: true })
+                const timer = setInterval(() => {
+                  if (!valid()) abort()
+                }, 2500)
+                timer.unref()
+                try {
+                  signal.throwIfAborted()
+                  if (!valid() || ws.readyState !== WebSocket.OPEN) throw new Error('事件认证已失效')
+                  if (method === 'control-events') {
+                    const input: EventSubscription = JSON.parse(url.searchParams.get('subscription') ?? '{}')
+                    if (
+                      !input ||
+                      typeof input !== 'object' ||
+                      (input.after &&
+                        (typeof input.after.journalEpoch !== 'string' ||
+                          !Number.isSafeInteger(input.after.seq) ||
+                          input.after.seq < 0))
+                    )
+                      throw new Error('事件订阅参数无效')
+                    dispose = host.control.subscribe(input, send)
+                  } else if (remote) {
+                    if (!(ws.raw instanceof WebSocket)) throw new Error('远程服务连接类型无效')
+                    await remotes.events(
+                      remote[1],
+                      clientId,
+                      ws.raw,
+                      remote[2] ? (url.searchParams.get('subscription') ?? '{}') : undefined,
+                      signal,
+                    )
+                  } else {
+                    disposeChanges = remotes.onChanged(() => send({ hostId: host.hostId, type: 'services-changed' }))
+                    const unsubscribe = await host.subscribe(clientId, send, identity)
+                    if (ws.readyState === WebSocket.OPEN && !signal.aborted) dispose = unsubscribe
+                    else unsubscribe()
+                  }
+                  await closed
+                } finally {
+                  clearInterval(timer)
+                  signal.removeEventListener('abort', abort)
+                  cleanup()
+                }
+              },
+            ),
+          )
+          .catch(() => {
+            ws.close(1008, '事件订阅未获授权或已失效')
+            cleanup()
           })
-          .then((unsubscribe) => {
-            if (ws.readyState === WebSocket.OPEN) dispose = unsubscribe
-            else unsubscribe()
-          })
-          .catch(() => ws.close(1011, '服务订阅失败'))
       },
       onClose() {
-        disposeChanges?.()
-        dispose?.()
+        controller.abort()
+        finish()
+        cleanup()
+      },
+      onError() {
+        controller.abort()
+        finish()
+        cleanup()
       },
     })
   }
@@ -322,14 +457,42 @@ function registerResources(app: Hono<TransportEnv>, { host, remotes }: Transport
     const remote = c.get('url').pathname.match(/^\/api\/services\/([a-f0-9]{24})(\/api\/.*)$/)
     if (!remote) return next()
     const attachment = remote[2] === '/api/chat/attachments' && c.req.method === 'POST'
-    const upstream = attachment
-      ? await remotes.uploadAttachment(remote[1], c.get('url').searchParams, c.req.raw.body, c.req.raw.signal)
-      : await remotes.request(
-          remote[1],
-          remote[2],
-          c.req.method,
-          c.req.method === 'POST' ? JSON.stringify(await jsonBody(c.req.raw, true)) : undefined,
-        )
+    const query = new URLSearchParams(c.get('url').searchParams)
+    let clientId: string | undefined
+    let body: unknown
+    if (attachment) {
+      clientId = authenticatedClientId(c, query.get('clientId'), host)
+      query.set('clientId', clientId)
+    } else if (c.req.method === 'POST') {
+      body = await jsonBody(c.req.raw, true)
+      if (remote[2] === '/api/rpc' || remote[2] === '/api/control') {
+        if (!body || typeof body !== 'object' || !('clientId' in body)) throw new Error('远程客户端请求无效')
+        clientId = authenticatedClientId(c, body.clientId, host)
+        body = { ...body, clientId }
+      }
+    }
+    const upstream = await host.authorizeTransport(
+      {
+        requestId: randomBytes(16).toString('hex'),
+        clientId,
+        kind: 'proxy',
+        method: c.req.method,
+        args: [remote[1], remote[2], body ?? null],
+      },
+      c.req.raw.signal,
+      async (signal) => {
+        signal.throwIfAborted()
+        return attachment
+          ? remotes.uploadAttachment(remote[1], query, c.req.raw.body, signal)
+          : remotes.request(
+              remote[1],
+              remote[2],
+              c.req.method,
+              body === undefined ? undefined : JSON.stringify(body),
+              signal,
+            )
+      },
+    )
     return new Response(new Uint8Array(upstream.data), {
       status: upstream.status,
       headers: {
@@ -341,28 +504,43 @@ function registerResources(app: Hono<TransportEnv>, { host, remotes }: Transport
   })
   app.get('/api/plugins/*', async (c) => {
     if (c.req.method !== 'GET') return c.notFound()
-    const parts = c.get('url').pathname.slice('/api/plugins/'.length).split('/')
-    if (parts.shift() !== host.instanceId) return reply(404, { error: '插件资源已过期，请刷新快照' })
-    const id = decodeURIComponent(parts.shift() ?? '')
-    const generation = Number(parts.shift())
-    const relative = parts.map((part) => decodeURIComponent(part)).join('/')
-    const descriptor = host.plugins.getGeneration(id, generation)
-    if (
-      !descriptor ||
-      !relative ||
-      relative.split('/').some((part) => !part || part === '..' || part === '.' || part.includes('\\'))
-    )
-      return reply(404, { error: '插件资源不存在' })
-    const root = await realpath(descriptor.directory)
-    const target = await realpath(path.join(root, relative))
-    if (!target.startsWith(`${root}${path.sep}`)) return reply(403, { error: '插件资源路径无效' })
-    return new Response(new Uint8Array(await readFile(target)), {
-      headers: {
-        'Content-Type': frontendMime[path.extname(target)] ?? 'application/octet-stream',
-        'X-Content-Type-Options': 'nosniff',
-        'Cache-Control': 'private, max-age=31536000, immutable',
+    return host.authorizeTransport(
+      {
+        requestId: randomBytes(16).toString('hex'),
+        kind: 'resource',
+        method: 'plugin-resource',
+        args: [c.get('url').pathname],
       },
-    })
+      c.req.raw.signal,
+      async (signal) => {
+        signal.throwIfAborted()
+        const parts = c.get('url').pathname.slice('/api/plugins/'.length).split('/')
+        if (parts.shift() !== host.instanceId) return reply(404, { error: '插件资源已过期，请刷新快照' })
+        const id = decodeURIComponent(parts.shift() ?? '')
+        const generation = Number(parts.shift())
+        const relative = parts.map((part) => decodeURIComponent(part)).join('/')
+        const descriptor = host.plugins.getGeneration(id, generation)
+        if (
+          !descriptor ||
+          !relative ||
+          relative.split('/').some((part) => !part || part === '..' || part === '.' || part.includes('\\'))
+        )
+          return reply(404, { error: '插件资源不存在' })
+        const root = await realpath(descriptor.directory)
+        const target = await realpath(path.join(root, relative))
+        if (!target.startsWith(`${root}${path.sep}`)) return reply(403, { error: '插件资源路径无效' })
+        signal.throwIfAborted()
+        return new Response(new Uint8Array(await readFile(target, { signal })), {
+          headers: {
+            'Content-Type': frontendMime[path.extname(target)] ?? 'application/octet-stream',
+            'X-Content-Type-Options': 'nosniff',
+            'Content-Security-Policy':
+              "sandbox; default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+            'Cache-Control': 'private, max-age=31536000, immutable',
+          },
+        })
+      },
+    )
   })
 }
 
@@ -370,6 +548,15 @@ export function createTransportApp(services: TransportServices) {
   const { host, auth, options } = services
   const app = new Hono<TransportEnv>({ getPath: (request) => new URL(request.url).pathname })
   app.onError((cause) => reply(cause instanceof ChatAttachmentTooLargeError ? 413 : 400, { error: cause.message }))
+  app.use('*', async (c, next) => {
+    await next()
+    c.header(controlPlaneResponseHeader, controlPlaneResponseValue)
+    if (c.req.path !== visualizationPreviewPath) {
+      // A separate CSP policy intersects existing policies instead of weakening their directives.
+      c.header('Content-Security-Policy', "frame-ancestors 'none'", { append: true })
+      c.header('X-Frame-Options', 'DENY')
+    }
+  })
   app.use('*', async (c, next) => {
     const request = c.env.incoming
     if (!auth.allowedSource(request)) return reply(403, { error: '请求来源无效' })
@@ -394,6 +581,8 @@ export function createTransportApp(services: TransportServices) {
       !auth.authenticated(request)
     )
       return reply(401, { error: '需要登录服务' })
+    const identity = auth.identity(request)
+    if (identity) c.set('identity', identity)
     if (upgrade) {
       if (
         url.pathname !== '/api/events' &&
@@ -404,7 +593,7 @@ export function createTransportApp(services: TransportServices) {
       const clientId = url.searchParams.get('clientId')
       if (!clientId || clientId.length > 128) return reply(400, { error: '客户端标识无效' })
     }
-    return next()
+    return identity ? host.withIdentity(identity, () => next()) : next()
   })
   app.post('/api/auth', async (c) => {
     const result = auth.login(c.env.incoming, (await jsonBody(c.req.raw)) as { token?: unknown })

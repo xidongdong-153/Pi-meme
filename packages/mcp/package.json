@@ -6,6 +6,7 @@
   "exports": {
     "./server/config-store": "./src/server/config-store.ts",
     "./server/runtime-config": "./src/server/runtime-config.ts",
+    "./shared/authorization": "./src/shared/authorization.ts",
     "./server/handlers": "./src/server/handlers.ts",
     "./ui/mcp-settings": "./src/ui/mcp-settings.tsx",
     "./server/entry": "./src/server/entry.ts",

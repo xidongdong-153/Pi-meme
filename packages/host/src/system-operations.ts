@@ -44,13 +44,11 @@ export function createSystemOperations(context: SystemOperationContext) {
     return value as SessionRef
   }
   const terminalRef = (id: unknown) => {
-    if (typeof id !== 'string' || !context.terminal.entries().some((entry) => entry.terminalId === id))
+    if (typeof id !== 'string' || !context.terminal.entries(session).some((entry) => entry.terminalId === id))
       throw new Error('终端不存在')
     return { hostId: session.hostId, terminalId: id }
   }
-  register('terminal.list', '列出当前 Host 的终端及其所属会话或项目', '[]', false, 'host', () =>
-    context.terminal.entries(),
-  )
+  register('terminal.list', '列出当前执行会话的终端', '[]', false, 'session', () => context.terminal.entries(session))
   register(
     'terminal.read',
     '读取终端当前屏幕和保留的滚动输出，返回纯文本、输出序号和退出状态',
@@ -325,6 +323,13 @@ export function createSystemOperations(context: SystemOperationContext) {
   ] as const)
     register(name, description, parameters, write, 'client', (args) => context.client(name, args))
   return {
+    definition(name: string): SystemOperation {
+      if (name === 'capabilities')
+        return { name, description: '读取能力目录', parameters: '[]', write: false, scope: 'session' }
+      const entry = operations.get(name)
+      if (!entry) throw new Error(`内置操作不存在：${name}`)
+      return entry.definition
+    },
     async execute(request: SystemToolRequest) {
       if (
         !request ||
@@ -347,7 +352,7 @@ export function createSystemOperations(context: SystemOperationContext) {
       const operation = operations.get(request.operation)
       if (!operation) throw new Error(`内置操作不存在：${request.operation}，请先读取 capabilities`)
       if (operation.definition.write !== request.write) throw new Error('请使用与操作读写性质一致的工具')
-      if (request.write && !context.canWrite) throw new Error('工作台写操作需要普通模式和完全权限')
+      if (request.write && !context.canWrite) throw new Error('规划或只读权限不允许工作台写操作')
       return operation.run(request.args, { idempotencyKey: request.callId })
     },
   }

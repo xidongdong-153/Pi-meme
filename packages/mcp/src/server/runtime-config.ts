@@ -1,6 +1,18 @@
 import { mcpAuthorization } from '../shared/authorization'
 import { createHash, randomUUID } from 'node:crypto'
-import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  closeSync,
+  constants,
+  fstatSync,
+  lstatSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  readSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import path from 'node:path'
 import type {
   InlineExtension,
@@ -13,13 +25,18 @@ import type {
 } from '@earendil-works/pi-coding-agent'
 import type { McpOAuthState } from '@earendil-works/pi-mcp/oauth'
 import type { SecureCredentialStorage } from '@pi-meme/contracts/secure-storage'
+import type { McpAuthorizeOperation } from '@pi-meme/contracts/mcp-authorization'
+import type { RegisterExecutionBoundary } from '@pi-meme/contracts/execution-boundary'
+import { McpExecutionBoundary } from './execution-boundary'
+import { createMcpExtensionLifecycle } from './extension-lifecycle'
 import type { PiRuntimePaths } from '@pi-meme/pi-runtime/runtime-paths'
 import type { AccessSandboxOperations } from '@pi-meme/pi-runtime/sdk/access-sandbox'
 import type { PlanToolSource } from '@pi-meme/contracts/plan'
-import { createPlanTransport } from './plan-transport'
+import { createAuthorizedMcpTransport } from './plan-transport'
 
 type PlanMcpOptions = {
   active: () => boolean
+  readOnly?: () => boolean
   sandbox: () => AccessSandboxOperations
   register: (name: string, source: PlanToolSource) => void
 }
@@ -31,21 +48,44 @@ function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value))
 }
 
-function readConfig(filePath: string): ConfigFile {
+export function readDesktopMcpConfigFile(filePath: string): ConfigFile {
   let contents: string
+  let fd: number | undefined
   try {
-    contents = readFileSync(filePath, 'utf8')
+    const before = lstatSync(filePath)
+    if (!before.isFile() || before.nlink !== 1) throw new Error('配置必须是非链接的普通文件')
+    fd = openSync(filePath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0))
+    const opened = fstatSync(fd)
+    if (
+      !opened.isFile() ||
+      opened.nlink !== 1 ||
+      opened.dev !== before.dev ||
+      opened.ino !== before.ino ||
+      opened.size > 1048576
+    )
+      throw new Error('配置文件已改变、包含链接或超过 1 MiB')
+    const buffer = Buffer.alloc(1048577)
+    let size = 0
+    while (size < buffer.length) {
+      const count = readSync(fd, buffer, size, buffer.length - size, size)
+      if (!count) break
+      size += count
+    }
+    if (size > 1048576) throw new Error('配置超过 1 MiB')
+    contents = buffer.subarray(0, size).toString('utf8')
   } catch (cause) {
     if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return {}
-    return { error: `无法读取 MCP 配置 ${filePath}：${String(cause)}` }
+    return { error: `无法安全读取 MCP 配置 ${filePath}：文件须为可读、单链接且不超过 1 MiB 的普通文件` }
+  } finally {
+    if (fd !== undefined) closeSync(fd)
   }
   try {
     const parsed: unknown = JSON.parse(contents)
     if (!isObject(parsed) || (parsed.mcpServers !== undefined && !isObject(parsed.mcpServers)))
       throw new Error('配置必须是对象，mcpServers 必须是服务键值对象')
     return { data: parsed }
-  } catch (cause) {
-    return { error: `MCP 配置无效 ${filePath}：${String(cause)}` }
+  } catch {
+    return { error: `MCP 配置无效 ${filePath}：必须是有效 JSON 对象` }
   }
 }
 
@@ -59,7 +99,7 @@ function applyConfigFile(
   scope: 'global' | 'project',
   errors: string[],
 ) {
-  const loaded = readConfig(filePath)
+  const loaded = readDesktopMcpConfigFile(filePath)
   if (loaded.error) {
     errors.push(loaded.error)
     return loaded.data
@@ -93,7 +133,7 @@ export function loadDesktopMcpConfig(
   paths: PiRuntimePaths,
   cwd: string,
   credentials: SecureCredentialStorage,
-  legacyDisabled = false,
+  _legacyDisabled = false,
 ): LoadedMcpConfig {
   const servers = new Map<string, McpServerEntry>()
   const errors: string[] = []
@@ -106,7 +146,8 @@ export function loadDesktopMcpConfig(
 
   for (const [name, entry] of servers) {
     const config = structuredClone(entry.config) as unknown as Record<string, unknown>
-    if (legacyDisabled) {
+    {
+      // 所有服务都要求 Host 保存的具体配置授权；旧开关不能绕过此边界。
       const authorization = mcpAuthorization(config)
       const globalAuthorizations = isObject(globalData?.desktopAuthorizedServers)
         ? globalData.desktopAuthorizedServers
@@ -231,44 +272,87 @@ export function createDesktopMcpExtension(
   cwd: string,
   legacyDisabled = false,
   plan?: PlanMcpOptions,
+  executionSandbox?: () => AccessSandboxOperations,
+  authorizeMcp?: McpAuthorizeOperation,
+  registerMcpTool?: (tool: ToolDefinition) => void,
+  onExecutionBoundary?: RegisterExecutionBoundary,
 ): InlineExtension {
+  const oauthCredentials = new DesktopMcpOAuthCredentials(credentials)
   const options: NonNullable<Parameters<typeof sdk.createMcpExtension>[0]> = {
     loadConfig: (context) => loadDesktopMcpConfig(paths, context.cwd, credentials, legacyDisabled),
-    credentials: new DesktopMcpOAuthCredentials(credentials) as unknown as NonNullable<
+    credentials: oauthCredentials as unknown as NonNullable<
       NonNullable<Parameters<typeof sdk.createMcpExtension>[0]>['credentials']
     >,
     logPath: path.join(paths.dataRoot, 'logs', 'mcp.log'),
     updateConfig: (entry: McpServerEntry, patch: McpConfigPatch) => {
-      writeDesktopMcpWorkspaceOverride(paths, cwd, entry.name, patch, mcpAuthorization({ ...entry.config, ...patch }))
+      // SDK/模型切换展示或启停不能创建新授权；授权只能由 Host 用户入口写入。
+      writeDesktopMcpWorkspaceOverride(paths, cwd, entry.name, patch)
     },
   }
   return {
     name: 'pi-meme-mcp',
     factory: (pi) => {
+      const boundary = new McpExecutionBoundary()
+      const lifecycle = createMcpExtensionLifecycle(pi, boundary, onExecutionBoundary, (context) => {
+        const config = options.loadConfig!(context)
+        return config.servers.filter((entry) => entry.config.enabled !== false).map((entry) => entry.name)
+      })
       const planning = plan?.active() === true
+      const readOnly = planning || plan?.readOnly?.() === true
       const extension = sdk.createMcpExtension({
         ...options,
-        ...(planning ? { createTransport: createPlanTransport(plan!.sandbox) } : {}),
+        createTransport: createAuthorizedMcpTransport(
+          () => {
+            const getter = planning ? plan?.sandbox : executionSandbox
+            if (!getter) throw new Error('sandbox-unavailable: MCP stdio 需要隔离执行器')
+            return getter()
+          },
+          (entry) => {
+            if ((plan?.active() === true) !== planning || (planning || plan?.readOnly?.() === true) !== readOnly)
+              return undefined
+            const current = loadDesktopMcpConfig(paths, cwd, credentials).servers.find(
+              (server) => server.name === entry.name,
+            )
+            if (
+              !current ||
+              current.config.enabled === false ||
+              mcpAuthorization(current.config) !== mcpAuthorization(entry.config)
+            )
+              return undefined
+            const tools = (current.config as unknown as { planReadOnlyTools?: unknown }).planReadOnlyTools
+            return Array.isArray(tools) && tools.length <= 256 && tools.every((name) => typeof name === 'string')
+              ? (tools as string[])
+              : []
+          },
+          readOnly,
+          authorizeMcp,
+          boundary,
+          async (entry) =>
+            'url' in entry.config ? oauthCredentials.tokens(entry.name, entry.config.url)?.access_token : undefined,
+        ),
       })
       return extension(
-        new Proxy(pi, {
+        new Proxy(lifecycle.api, {
           get(target, key, receiver) {
             if (key === 'registerTool')
               return (tool: ToolDefinition) => {
-                if (planning)
-                  plan!.register(tool.name, {
-                    readOnly:
-                      tool.annotations?.readOnlyHint === true
-                        ? true
-                        : tool.annotations?.destructiveHint === true
-                          ? false
-                          : undefined,
-                  })
-                target.registerTool(
-                  planning && tool.annotations?.readOnlyHint !== true && tool.annotations?.destructiveHint === true
-                    ? { ...tool, exposure: 'hidden' }
-                    : tool,
-                )
+                const candidate = tool.annotations?.readOnlyHint === true && tool.annotations?.destructiveHint !== true
+                // Transport 先过滤用户明确授权且配置哈希仍匹配的工具；注解仅是第二个候选条件。
+                if (planning && candidate) plan!.register(tool.name, { readOnly: true })
+                const execute: ToolDefinition['execute'] = (...args) => {
+                  const action = async () => {
+                    await lifecycle.ready(args[4])
+                    return tool.execute(...args)
+                  }
+                  return tool.name.startsWith('mcp__') ? boundary.invokeTool(action) : boundary.invoke(action)
+                }
+                const registered = {
+                  ...tool,
+                  execute,
+                  ...(readOnly && !candidate ? { exposure: 'hidden' as const } : {}),
+                }
+                target.registerTool(registered)
+                if (registered.name.startsWith('mcp__')) registerMcpTool?.(registered)
               }
             return Reflect.get(target, key, receiver)
           },

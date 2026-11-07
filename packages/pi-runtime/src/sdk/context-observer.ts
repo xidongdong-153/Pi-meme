@@ -436,3 +436,6 @@ export function observeModelRuntime(runtime: ModelRuntime, options: ContextObser
   runtime.stream = wrap(runtime.stream.bind(runtime)) as ModelRuntime['stream']
   runtime.streamSimple = wrap(runtime.streamSimple.bind(runtime))
 }
+
+// Pure bounded projections; importing them does not install a runtime/session observer.
+export { bodyText as contextCaptureBody, replyPieces as contextCaptureReply }

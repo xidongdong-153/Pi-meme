@@ -44,7 +44,14 @@ export type AppSession = SessionRef & {
   temporary?: boolean
   ownerClientId?: string
 }
-export type MutationOptions = { idempotencyKey: string }
+/** Comparison-only preconditions. These fields never grant authority or configure a session. */
+export type MutationExpected = {
+  operationId?: string
+  runId?: string
+  policy?: { accessMode: AgentAccessMode; mode: TaskMode; agentPlugins: string[] }
+  schedule?: { taskId: string; runId: string; taskRevision: string; authorizationRevision: string }
+}
+export type MutationOptions = { idempotencyKey: string; expected?: MutationExpected }
 export type SubmissionInput = MessageOptions & {
   delivery: 'start' | 'queue' | 'steer'
   text: string
@@ -82,7 +89,7 @@ export type TerminalSnapshot = TerminalRef & {
   exitCode?: number
 }
 export type AppHostCapabilities = {
-  apiVersion: 2
+  apiVersion: 3
   hostId: string
   features: Array<
     | 'projects'
@@ -140,7 +147,7 @@ export type EventFilter = { projectId?: string; sessionId?: string; terminalId?:
 export type EventPage = { events: HostControlEvent[]; cursor: EventCursor; resyncRequired: boolean }
 export type EventSubscription = EventFilter & { after?: EventCursor }
 export type HostApi = {
-  readonly apiVersion: 2
+  readonly apiVersion: 3
   visualizations?: {
     list: (session: SessionRef) => Promise<Omit<import('./visualize').VisualizationDocument, 'html'>[]>
     get: (
@@ -265,10 +272,11 @@ export type HostApi = {
 }
 export type HostControlRequest = {
   hostId?: string
-  apiVersion: 2
+  apiVersion: 3
   clientId: string
   method: string
   args: unknown[]
   idempotencyKey?: string
+  expected?: MutationExpected
 }
 export type HostControlResponse = { hostId: string; result?: unknown; error?: { code: string; message: string } }

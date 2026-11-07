@@ -1,15 +1,51 @@
 import { randomUUID } from 'node:crypto'
 import { mkdir, readFile, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import type { HostApi, HostControlEvent, SubmissionReceipt } from '@pi-meme/contracts/app-host'
+import type {
+  AppSession,
+  HostApi,
+  HostControlEvent,
+  MutationOptions,
+  SessionRef,
+  SubmissionInput,
+  SubmissionReceipt,
+} from '@pi-meme/contracts/app-host'
+import type { AuthorizationScope } from '@pi-meme/contracts/authorization'
 import type { ScheduledTask, ScheduledTaskInput, ScheduledTaskRef, ScheduleRun } from '@pi-meme/contracts/schedules'
 import type { PiSessionSummary } from '@pi-meme/contracts/sessions'
 import { isAgentAccessMode } from '@pi-meme/contracts/agent-access'
 import { thinkingLevels } from '@pi-meme/contracts/pi'
 import { missedOccurrences, nextOccurrence, validateRule } from '../shared/rules'
 
-type StoredTask = Omit<ScheduledTask, 'lastRun' | 'activeRun' | 'latestUnreadRun' | 'unreadCount'>
-type State = { version: 1; tasks: StoredTask[]; runs: ScheduleRun[] }
+type StoredTask = Omit<ScheduledTask, 'lastRun' | 'activeRun' | 'latestUnreadRun' | 'unreadCount'> & {
+  authorizationRevision?: string
+}
+type StoredRun = ScheduleRun & { authorizationRevision?: string; taskRevision?: string; executionRunId?: string }
+type ScheduleAuthorization = {
+  revision: string
+  signal?: AbortSignal
+  assertCurrent: () => void | Promise<void>
+  complete?: (status: ScheduleRun['status'], error?: string) => Promise<void>
+}
+type ScheduleAuthorizationHooks = {
+  admit: (input: {
+    task: ScheduledTask
+    run: ScheduleRun
+    session?: AppSession
+    signal: AbortSignal
+    taskRevision: string
+  }) => Promise<ScheduleAuthorization>
+  /** Synchronous check against the Host-owned authorization lease, never caller-provided permissions. */
+  assertMutationCurrent?: (input: {
+    method: string
+    args: unknown[]
+    mutation: MutationOptions
+    run: ScheduleRun
+    taskRevision: string
+    authorizationRevision: string
+  }) => void
+}
+type State = { version: 1; tasks: StoredTask[]; runs: StoredRun[] }
 const inProgress = (run: ScheduleRun) => run.status === 'starting' || run.status === 'running'
 
 export class ScheduleService {
@@ -22,12 +58,100 @@ export class ScheduleService {
   private timer?: ReturnType<typeof setInterval>
   private unsubscribe?: () => void
   private closing = false
+  private authorizationHooks?: ScheduleAuthorizationHooks
+  private readonly executions = new Map<
+    string,
+    { controller: AbortController; revision: string; cleanup?: () => void; authorization?: ScheduleAuthorization }
+  >()
+  private readonly mutationGuards = new WeakMap<
+    MutationOptions,
+    { method: string; args: string; runId: string; taskRevision: string; authorizationRevision: string }
+  >()
+  private readonly executionJobs = new Map<string, Promise<unknown>>()
   private readonly file: string
   constructor(
     private options: { directory: string; hostId: string; now?: () => number; onError?: (cause: unknown) => void },
   ) {
     this.file = path.join(options.directory, 'schedules.json')
   }
+  setAuthorizationHooks(hooks: ScheduleAuthorizationHooks) {
+    this.authorizationHooks = hooks
+  }
+  /** Host may call inside its serialized submit boundary to reject a late start atomically. */
+  assertRunAuthorization(runId: string, taskRevision: string) {
+    const run = this.state.runs.find((item) => item.runId === runId)
+    const task = run && this.state.tasks.find((item) => item.taskId === run.taskId)
+    if (
+      !run ||
+      !task ||
+      this.closing ||
+      !inProgress(run) ||
+      run.stopRequested ||
+      this.executions.get(runId)?.controller.signal.aborted ||
+      (task.authorizationRevision ?? task.updatedAt) !== taskRevision
+    )
+      throw new Error('定时任务运行授权已失效')
+  }
+  /** Invoked by AppControl's synchronous commit hook. A JSON caller cannot mint this WeakMap identity. */
+  assertMutationCurrent(method: string, args: unknown[], mutation: MutationOptions) {
+    const expected = mutation.expected?.schedule
+    if (!expected) return
+    const guard = this.mutationGuards.get(mutation)
+    if (
+      !guard ||
+      guard.method !== method ||
+      guard.args !== JSON.stringify(args) ||
+      guard.runId !== expected.runId ||
+      guard.taskRevision !== expected.taskRevision ||
+      guard.authorizationRevision !== expected.authorizationRevision
+    )
+      throw new Error('定时操作缺少 Host 注册的提交守卫')
+    const run = this.state.runs.find((item) => item.runId === guard.runId)
+    if (!run || run.taskId !== expected.taskId) throw new Error('定时操作目标已变化')
+    if (method === 'sessions.submit') {
+      this.assertRunAuthorization(guard.runId, guard.taskRevision)
+      const authorization = this.executions.get(guard.runId)?.authorization
+      if (!authorization || authorization.signal?.aborted || authorization.revision !== guard.authorizationRevision)
+        throw new Error('定时任务执行授权已撤销')
+    }
+    this.authorizationHooks?.assertMutationCurrent?.({
+      method,
+      args,
+      mutation,
+      run,
+      taskRevision: guard.taskRevision,
+      authorizationRevision: guard.authorizationRevision,
+    })
+  }
+
+  private guardedMutation(method: string, args: unknown[], run: StoredRun, mutation: MutationOptions): MutationOptions {
+    const task = this.state.tasks.find((item) => item.taskId === run.taskId)
+    const expected = {
+      taskId: run.taskId,
+      runId: run.runId,
+      taskRevision: run.taskRevision ?? task?.authorizationRevision ?? task?.updatedAt ?? 'legacy',
+      authorizationRevision: run.authorizationRevision ?? 'legacy',
+    }
+    mutation.expected = { ...mutation.expected, schedule: expected }
+    this.mutationGuards.set(mutation, {
+      method,
+      args: JSON.stringify(args),
+      runId: run.runId,
+      taskRevision: expected.taskRevision,
+      authorizationRevision: expected.authorizationRevision,
+    })
+    return mutation
+  }
+
+  private async stopOwnedOperation(run: StoredRun, idempotencyKey: string) {
+    if (!run.session || !run.operationId) throw new Error('定时提交结果未知，不能停止可能属于其他任务的会话运行')
+    const mutation = this.guardedMutation('sessions.stop', [run.session], run, {
+      idempotencyKey,
+      expected: { operationId: run.operationId, ...(run.executionRunId ? { runId: run.executionRunId } : {}) },
+    })
+    await this.api!.sessions.stop(run.session, mutation)
+  }
+
   private now() {
     return this.options.now?.() ?? Date.now()
   }
@@ -135,6 +259,7 @@ export class ScheduleService {
       !config.model.id.trim() ||
       !thinkingLevels.includes(config.thinkingLevel) ||
       !isAgentAccessMode(config.accessMode) ||
+      (config.mode !== undefined && config.mode !== 'default' && config.mode !== 'plan') ||
       !Array.isArray(config.agentPlugins) ||
       config.agentPlugins.some((id) => typeof id !== 'string' || !id)
     )
@@ -201,21 +326,26 @@ export class ScheduleService {
         createdAt: this.timestamp(),
         updatedAt: this.timestamp(),
         status: 'active',
+        authorizationRevision: randomUUID(),
         nextRunAt,
       }
       this.state.tasks.push(task)
       return this.view(task)
     }, taskId)
   }
-  update(ref: ScheduledTaskRef, input: ScheduledTaskInput) {
+  async update(ref: ScheduledTaskRef, input: ScheduledTaskInput) {
     this.validateInput(input)
-    return this.change(() => {
+    let authorizationChanged = false
+    await this.change(() => {
       const task = this.task(ref)
       if (JSON.stringify(task.project) !== JSON.stringify(input.project))
         throw new Error('创建后不能更改任务的执行项目')
       const ruleChanged = JSON.stringify(task.rule) !== JSON.stringify(input.rule)
+      authorizationChanged =
+        JSON.stringify([task.configuration.accessMode, task.configuration.mode, task.configuration.agentPlugins]) !==
+        JSON.stringify([input.configuration.accessMode, input.configuration.mode, input.configuration.agentPlugins])
       if (task.newSessionEachRun !== input.newSessionEachRun) task.session = undefined
-      Object.assign(task, this.clean(input), { updatedAt: this.timestamp() })
+      Object.assign(task, this.clean(input), { updatedAt: this.timestamp(), authorizationRevision: randomUUID() })
       if (ruleChanged) {
         task.nextRunAt = nextOccurrence(task.rule, this.now())
         if (!task.nextRunAt) throw new Error('请选择未来的执行时间')
@@ -223,14 +353,22 @@ export class ScheduleService {
       }
       return this.view(task)
     }, ref.taskId)
+    if (authorizationChanged) await this.stopRun(ref)
+    return this.get(ref)
   }
-  pause(ref: ScheduledTaskRef) {
-    return this.change(() => {
+  async pause(ref: ScheduledTaskRef) {
+    await this.change(() => {
       const task = this.task(ref)
       task.status = 'paused'
       task.updatedAt = this.timestamp()
+      task.authorizationRevision = randomUUID()
+      for (const run of this.state.runs) if (run.taskId === task.taskId && inProgress(run)) run.stopRequested = true
       return this.view(task)
     }, ref.taskId)
+    for (const run of this.state.runs)
+      if (run.taskId === ref.taskId) this.executions.get(run.runId)?.controller.abort(new Error('定时任务已暂停'))
+    await this.stopRun(ref)
+    return this.get(ref)
   }
   resume(ref: ScheduledTaskRef) {
     return this.change(() => {
@@ -239,13 +377,17 @@ export class ScheduleService {
       task.nextRunAt = nextOccurrence(task.rule, this.now())
       task.status = task.nextRunAt ? 'active' : 'completed'
       task.updatedAt = this.timestamp()
+      task.authorizationRevision = randomUUID()
       return this.view(task)
     }, ref.taskId)
   }
   resetSession(ref: ScheduledTaskRef) {
     return this.change(() => {
       const task = this.task(ref)
+      if (this.state.runs.some((run) => run.taskId === ref.taskId && inProgress(run)))
+        throw new Error('请先停止本次运行，再重建任务会话')
       task.session = undefined
+      task.authorizationRevision = randomUUID()
       task.error = undefined
       return this.view(task)
     }, ref.taskId)
@@ -281,7 +423,7 @@ export class ScheduleService {
       run.unread = false
     }, ref.taskId)
   }
-  private makeRun(task: StoredTask, trigger: ScheduleRun['trigger'], scheduledAt: string): ScheduleRun {
+  private makeRun(task: StoredTask, trigger: ScheduleRun['trigger'], scheduledAt: string): StoredRun {
     return {
       runId: randomUUID(),
       taskId: task.taskId,
@@ -293,6 +435,7 @@ export class ScheduleService {
       project: task.project,
       newSessionEachRun: task.newSessionEachRun,
       configuration: structuredClone(task.configuration),
+      taskRevision: task.authorizationRevision,
       unread: false,
     }
   }
@@ -317,21 +460,49 @@ export class ScheduleService {
   private launch(run: ScheduleRun) {
     if (this.launching.has(run.runId) || run.status !== 'starting') return
     this.launching.add(run.runId)
-    this.track(this.execute(run).finally(() => this.launching.delete(run.runId)))
+    const job = this.execute(run).finally(() => {
+      this.launching.delete(run.runId)
+      this.executionJobs.delete(run.runId)
+    })
+    this.executionJobs.set(run.runId, job)
+    this.track(job)
   }
-  private async execute(snapshot: ScheduleRun) {
+  private async execute(snapshot: StoredRun) {
     const ref = { hostId: this.options.hostId, taskId: snapshot.taskId }
+    const controller = new AbortController()
+    let authorization: ScheduleAuthorization | undefined
+    let target: SessionRef | undefined
+    let submitted = false
+    let submissionAttempted = false
     try {
       const task = await this.get(ref)
-      if (this.state.runs.find((run) => run.runId === snapshot.runId)?.stopRequested) {
-        await this.finish(snapshot.runId, 'cancelled', '用户停止了本次运行')
-        return
+      const revision = snapshot.taskRevision ?? this.task(ref).authorizationRevision ?? task.updatedAt
+      this.executions.set(snapshot.runId, { controller, revision })
+      const assertLocal = () => {
+        const current = this.state.runs.find((run) => run.runId === snapshot.runId)
+        const owner = this.task(ref)
+        if (
+          this.closing ||
+          controller.signal.aborted ||
+          !current ||
+          !inProgress(current) ||
+          current.stopRequested ||
+          (owner.authorizationRevision ?? owner.updatedAt) !== revision
+        )
+          throw new Error('定时任务启动授权已取消或版本已变化')
       }
-      let session = !snapshot.newSessionEachRun ? task.session : undefined
-      if (session) {
-        let existing
+      const assertActive = async () => {
+        assertLocal()
+        await authorization?.assertCurrent()
+        assertLocal()
+        if (authorization?.signal?.aborted || controller.signal.aborted) throw new Error('定时任务运行授权已撤销')
+      }
+      await assertActive()
+      target = !snapshot.newSessionEachRun ? task.session : undefined
+      let existing: AppSession | undefined
+      if (target) {
         try {
-          existing = await this.api!.sessions.get(session)
+          existing = await this.api!.sessions.get(target)
         } catch (cause) {
           if (!(cause instanceof Error) || cause.message !== '会话不存在') throw cause
           await this.change(() => {
@@ -345,10 +516,44 @@ export class ScheduleService {
           await this.finish(snapshot.runId, 'skipped', '任务专属聊天正在使用，本次已跳过')
           return
         }
-        await this.api!.sessions.configure(session, snapshot.configuration, {
-          idempotencyKey: `schedule:${snapshot.runId}:configure`,
-        })
-      } else {
+        const rank = { 'read-only': 0, 'workspace-write': 1, 'full-access': 2 }
+        const currentAccess = existing.configuration.accessMode
+        if (!currentAccess || rank[currentAccess] > rank[snapshot.configuration.accessMode])
+          throw new Error('当前会话高于定时任务的权限上限，请先手动收紧会话权限后重新运行')
+        if ((existing.configuration.agentPlugins ?? []).some((id) => !snapshot.configuration.agentPlugins.includes(id)))
+          throw new Error('当前会话包含任务未授权的 Agent 插件，请先移除后重新运行')
+      }
+      if (!this.authorizationHooks) throw new Error('定时执行缺少当前授权准入器，任务未提交')
+      authorization = await this.authorizationHooks.admit({
+        task,
+        run: snapshot,
+        session: existing,
+        signal: controller.signal,
+        taskRevision: revision,
+      })
+      if (!authorization.revision || !authorization.assertCurrent) throw new Error('定时任务授权版本无效')
+      this.executions.get(snapshot.runId)!.authorization = authorization
+      const abort = () => {
+        controller.abort(new Error('定时任务授权已撤销'))
+        void this.stopRun(ref).catch((cause) => this.options.onError?.(cause))
+      }
+      authorization.signal?.addEventListener('abort', abort, { once: true })
+      this.executions.get(snapshot.runId)!.cleanup = () => authorization?.signal?.removeEventListener('abort', abort)
+      if (authorization.signal?.aborted) abort()
+      await assertActive()
+      await this.change(() => {
+        const run = this.state.runs.find((item) => item.runId === snapshot.runId)!
+        run.authorizationRevision = authorization!.revision
+        if (existing)
+          run.configuration = {
+            ...snapshot.configuration,
+            accessMode: existing.configuration.accessMode!,
+            agentPlugins: existing.configuration.agentPlugins ?? [],
+            mode: snapshot.configuration.mode === 'plan' || existing.configuration.mode === 'plan' ? 'plan' : undefined,
+          }
+      }, ref.taskId)
+      await assertActive()
+      if (!target) {
         const created = await this.api!.sessions.create(
           {
             project: snapshot.project,
@@ -357,47 +562,83 @@ export class ScheduleService {
           },
           { idempotencyKey: `schedule:${snapshot.runId}:create` },
         )
-        session = { hostId: created.hostId, sessionId: created.sessionId }
+        target = { hostId: created.hostId, sessionId: created.sessionId }
+        existing = created
       }
-      const target = session
+      // Never restore saved access/mode/plugins onto an existing, possibly tightened session.
+      const activeTarget = target
       const proceed = await this.change(() => {
         const run = this.state.runs.find((item) => item.runId === snapshot.runId)!
-        if (!inProgress(run) || run.stopRequested) return false
-        run.session = target
-        if (!snapshot.newSessionEachRun) this.task(ref).session = target
-        return true
+        run.session = activeTarget
+        if (!snapshot.newSessionEachRun) this.task(ref).session = activeTarget
+        return inProgress(run) && !run.stopRequested
       }, ref.taskId)
-      if (!proceed) {
-        await this.finish(snapshot.runId, 'cancelled', '用户停止了本次运行')
-        return
+      if (!proceed) throw new Error('定时任务启动已取消')
+      await assertActive()
+      submissionAttempted = true
+      const submission: SubmissionInput = {
+        delivery: 'start',
+        text: snapshot.prompt,
+        // Explicit Plan can only narrow; omitted default preserves a concurrent Plan selection.
+        ...(snapshot.configuration.mode === 'plan' || existing?.configuration.mode === 'plan'
+          ? { mode: 'plan' as const }
+          : {}),
+        model: snapshot.configuration.model,
+        thinkingLevel: snapshot.configuration.thinkingLevel,
       }
-      const receipt = await this.api!.sessions.submit(
-        target,
-        { delivery: 'start', text: snapshot.prompt, mode: 'default' },
-        { idempotencyKey: `schedule:${snapshot.runId}:submit` },
-      )
+      const ownedRun = this.state.runs.find((item) => item.runId === snapshot.runId)!
+      const mutation = this.guardedMutation('sessions.submit', [activeTarget, submission], ownedRun, {
+        idempotencyKey: `schedule:${snapshot.runId}:submit`,
+        expected: {
+          policy: {
+            accessMode: existing!.configuration.accessMode!,
+            mode: existing!.configuration.mode ?? 'default',
+            agentPlugins: existing!.configuration.agentPlugins ?? [],
+          },
+        },
+      })
+      const receipt = await this.api!.sessions.submit(activeTarget, submission, mutation)
+      submitted = true
       const stopped = await this.change(() => {
         const run = this.state.runs.find((item) => item.runId === snapshot.runId)!
         run.operationId = receipt.operationId
+        run.executionRunId = receipt.runId
         if (!inProgress(run)) return true
         run.status = 'running'
-        return Boolean(run.stopRequested)
+        return Boolean(run.stopRequested || controller.signal.aborted || authorization!.signal?.aborted)
       }, ref.taskId)
       if (stopped) {
-        await this.api!.sessions.stop(target, { idempotencyKey: `schedule:${snapshot.runId}:late-stop` })
-        await this.finish(snapshot.runId, 'cancelled', '用户停止了本次运行')
+        await this.stopOwnedOperation(
+          this.state.runs.find((run) => run.runId === snapshot.runId)!,
+          `schedule:${snapshot.runId}:late-stop`,
+        )
+        await this.finish(snapshot.runId, 'cancelled', '定时任务授权已取消')
       } else await this.observeReceipt(await this.api!.sessions.receipt(receipt.operationId))
     } catch (cause) {
       if (!this.closing) {
         const run = this.state.runs.find((item) => item.runId === snapshot.runId)
         const message = cause instanceof Error ? cause.message : String(cause)
-        if (run?.stopRequested && run.operationId && inProgress(run))
-          await this.change(() => {
-            const current = this.state.runs.find((item) => item.runId === snapshot.runId)!
-            current.error = `停止未成功：${message}`
-          }, ref.taskId)
+        if (
+          (submitted || run?.operationId) &&
+          target &&
+          (controller.signal.aborted || run?.stopRequested || authorization?.signal?.aborted)
+        ) {
+          try {
+            await this.stopOwnedOperation(run!, `schedule:${snapshot.runId}:failed-start-stop`)
+          } catch (stopCause) {
+            await this.change(() => {
+              const current = this.state.runs.find((item) => item.runId === snapshot.runId)!
+              current.error = `停止未确认：${String(stopCause)}`
+            }, ref.taskId)
+            throw stopCause
+          }
+        }
+        if (run?.stopRequested || controller.signal.aborted || authorization?.signal?.aborted)
+          await this.finish(snapshot.runId, 'cancelled', message)
         else if (!snapshot.newSessionEachRun && !run?.operationId && message.startsWith('会话正在运行'))
           await this.finish(snapshot.runId, 'skipped', '任务专属聊天正在使用，本次已跳过')
+        else if (submissionAttempted && !run?.operationId)
+          await this.finish(snapshot.runId, 'interrupted', `提交结果未确认；不会自动重发：${message}`)
         else await this.finish(snapshot.runId, 'failed', message)
       }
     }
@@ -420,10 +661,19 @@ export class ScheduleService {
         (task.notification === 'all' || ['failed', 'interrupted'].includes(status)),
       )
     }, taskId)
+    const execution = this.executions.get(runId)
+    execution?.cleanup?.()
+    this.executions.delete(runId)
+    await execution?.authorization?.complete?.(status, error)
   }
   private async observeReceipt(receipt: SubmissionReceipt) {
     const run = this.state.runs.find((item) => item.operationId === receipt.operationId)
     if (!run || !inProgress(run)) return
+    if (receipt.runId && run.executionRunId !== receipt.runId)
+      await this.change(() => {
+        const current = this.state.runs.find((item) => item.runId === run.runId)
+        if (current && current.operationId === receipt.operationId) current.executionRunId = receipt.runId
+      }, run.taskId)
     if (['completed', 'failed', 'interrupted', 'cancelled'].includes(receipt.status))
       await this.finish(run.runId, receipt.status as ScheduleRun['status'], receipt.error)
   }
@@ -434,10 +684,61 @@ export class ScheduleService {
       if (current) current.stopRequested = true
       return current
     }, ref.taskId)
-    if (!run || !run.operationId || !run.session) return
-    await this.api!.sessions.stop(run.session, { idempotencyKey: `schedule:${run.runId}:stop:${randomUUID()}` })
-    await this.finish(run.runId, 'cancelled', '用户停止了本次运行')
+    if (!run) return
+    this.executions.get(run.runId)?.controller.abort(new Error('定时任务运行已停止'))
+    if (run.operationId && run.session) {
+      await this.stopOwnedOperation(run, `schedule:${run.runId}:stop:${randomUUID()}`)
+      await this.finish(run.runId, 'cancelled', '用户停止了本次运行')
+    }
+    const job = this.executionJobs.get(run.runId)
+    if (job) {
+      let timer: ReturnType<typeof setTimeout> | undefined
+      try {
+        await Promise.race([
+          job,
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new Error('定时任务启动取消尚未确认')), 10000)
+          }),
+        ])
+      } finally {
+        clearTimeout(timer)
+      }
+    }
+    const latest = this.state.runs.find((item) => item.runId === run.runId)
+    if (latest && inProgress(latest) && !latest.operationId)
+      await this.finish(latest.runId, 'cancelled', '用户停止了本次运行')
   }
+  /** Pauses matched tasks and drains their starts/runs; reopening authorization never resumes them. */
+  async revokeAuthorization(scope: AuthorizationScope) {
+    if (scope.hostId !== this.options.hostId) throw new Error('撤权目标服务不匹配')
+    const ids = await this.change(() => {
+      const matches = (task: StoredTask) =>
+        (!scope.projectId || task.project?.projectId === scope.projectId) &&
+        (!scope.sessionId ||
+          task.session?.sessionId === scope.sessionId ||
+          this.state.runs.some(
+            (run) =>
+              run.taskId === task.taskId &&
+              (run.session?.sessionId === scope.sessionId || (inProgress(run) && !run.session)),
+          ))
+      const tasks = this.state.tasks.filter(matches)
+      for (const task of tasks) {
+        task.status = 'paused'
+        task.authorizationRevision = randomUUID()
+        task.updatedAt = this.timestamp()
+        for (const run of this.state.runs) if (run.taskId === task.taskId && inProgress(run)) run.stopRequested = true
+      }
+      return tasks.map((task) => task.taskId)
+    })
+    for (const taskId of ids)
+      for (const run of this.state.runs)
+        if (run.taskId === taskId) this.executions.get(run.runId)?.controller.abort(new Error('定时任务授权已撤销'))
+    const results = await Promise.allSettled(ids.map((taskId) => this.stopRun({ hostId: this.options.hostId, taskId })))
+    const failed = results.find((result) => result.status === 'rejected')
+    if (failed?.status === 'rejected') throw failed.reason
+    for (const taskId of ids) await this.publish?.(taskId)
+  }
+
   async tick(startup = false) {
     if (this.closing) return
     const launched = await this.change(() => {
@@ -526,8 +827,18 @@ export class ScheduleService {
   async beginShutdown() {
     if (this.timer) clearInterval(this.timer)
     this.unsubscribe?.()
+    if (this.closing) {
+      await Promise.allSettled([...this.jobs])
+      return
+    }
     await this.tail
+    const activeTasks = [...new Set(this.state.runs.filter(inProgress).map((run) => run.taskId))]
+    const stopped = await Promise.allSettled(
+      activeTasks.map((taskId) => this.stopRun({ hostId: this.options.hostId, taskId })),
+    )
     this.closing = true
+    const failed = stopped.find((result) => result.status === 'rejected')
+    if (failed?.status === 'rejected') throw failed.reason
     await Promise.allSettled([...this.jobs])
   }
   async dispose() {

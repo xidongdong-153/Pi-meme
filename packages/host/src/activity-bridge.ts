@@ -71,6 +71,27 @@ export function createActivityBridge(options: Options) {
               cwd: current.cwd,
               agentDir: options.agentDir,
               accessMode: current.accessMode,
+              mode: current.mode,
+              policyRevision: JSON.stringify([
+                current.runId,
+                current.epoch,
+                current.executionGeneration,
+                current.mode,
+                current.accessMode,
+              ]),
+              assertCurrent: () => {
+                const latest = options.caller(session)
+                if (
+                  latest.runId !== current.runId ||
+                  latest.epoch !== current.epoch ||
+                  latest.executionGeneration !== current.executionGeneration ||
+                  latest.mode !== current.mode ||
+                  latest.accessMode !== current.accessMode ||
+                  latest.mode === 'plan' ||
+                  latest.accessMode === 'read-only'
+                )
+                  throw new Error('policy-revoked: 服务启动授权已变化')
+              },
               sourceAgentId: current.depth === 0 ? undefined : current.agentId,
               sourceRun: current.runId
                 ? {

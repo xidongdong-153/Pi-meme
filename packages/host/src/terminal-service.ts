@@ -37,6 +37,8 @@ type TerminalOptions = {
   resolveRoot: ResolveWorkspaceRoot
   onEvent: (event: { terminalId: string; data?: string; outputSequence?: number; exitCode?: number }) => void
   pty?: PtyModule | null
+  /** Host-private source check; Owner PTY is never backed by a session Worker's sandbox. */
+  assertOwnerExecution?: (operation: 'open' | 'input' | 'resize') => void
 }
 function loadPty(): PtyModule | null {
   try {
@@ -65,6 +67,11 @@ export class TerminalService {
     this.pty = options.pty === undefined ? loadPty() : options.pty
     this.supported = this.pty !== null
   }
+  private assertOwnerExecution(operation: 'open' | 'input' | 'resize') {
+    if (!this.options.assertOwnerExecution)
+      throw new Error('unsupported: Owner PTY 缺少可信用户调用来源校验，不能创建、输入或调整终端')
+    this.options.assertOwnerExecution(operation)
+  }
   private record(ref: TerminalRef) {
     if (ref.hostId !== this.options.hostId) throw new Error('终端所属服务不匹配')
     const record = this.terminals.get(ref.terminalId)
@@ -83,6 +90,7 @@ export class TerminalService {
     input: { command?: string; cols?: number; rows?: number },
     owner: string,
   ): Promise<TerminalSnapshot> {
+    this.assertOwnerExecution('open')
     if (this.disposed) throw new Error('终端服务已关闭')
     if (!this.pty) throw new Error('此服务的 node-pty 原生模块不可用，无法创建终端')
     if ([...this.terminals.values()].filter((entry) => !entry.snapshot.exited).length >= 16)
@@ -99,6 +107,7 @@ export class TerminalService {
     // 交互式 PTY 按自身能力显示颜色，不继承 Host 日志的颜色开关。
     delete env.NO_COLOR
     delete env.FORCE_COLOR
+    this.assertOwnerExecution('open')
     const pty = this.pty.spawn(command, [], {
       cwd,
       ...dimensions,
@@ -212,12 +221,14 @@ export class TerminalService {
     })
   }
   async input(ref: TerminalRef, data: string, _options?: MutationOptions) {
+    this.assertOwnerExecution('input')
     const record = this.record(ref)
     if (record.snapshot.exited) throw new Error('终端进程已退出')
     if (typeof data !== 'string' || Buffer.byteLength(data) > 64 * 1024) throw new Error('单次终端输入不能超过 64 KiB')
     record.pty.write(data)
   }
   async resize(ref: TerminalRef, dimensions: { cols: number; rows: number }, _options?: MutationOptions) {
+    this.assertOwnerExecution('resize')
     const record = this.record(ref)
     if (record.snapshot.exited) throw new Error('终端进程已退出')
     const next = size(dimensions.cols, dimensions.rows)

@@ -1,8 +1,8 @@
-import { mkdir, readFile, writeFile, rm } from 'node:fs/promises'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 import { build } from 'esbuild'
-import { bundleFacets } from '@earendil-works/chord/bundler'
 import { parsePluginManifest } from '@pi-meme/plugin-sdk/manifest'
+import { parseDeclarativePluginUi } from '@pi-meme/plugin-sdk/declarative-ui'
 import { packPlugin, readPluginManifest } from '@pi-meme/plugin-runtime/package'
 import { assertExternalManifest } from '@pi-meme/plugin-sdk/reserved'
 import { toolchainDirectory } from './toolchain'
@@ -12,57 +12,12 @@ export async function buildPlugin(directory: string) {
   assertExternalManifest(manifest)
   const tools = await toolchainDirectory()
   const nodePaths = [path.join(directory, '.pi-meme-devkit/dist/node_modules'), path.join(tools, 'node_modules')]
-  const trustedServer = manifest.piMeme.server?.trusted
-  if (trustedServer) {
-    if (trustedServer !== 'dist/server/chord-facets.json')
-      throw new Error('DevKit 可信 Server 输出必须为 dist/server/chord-facets.json')
-    const wrapper = path.resolve(directory, 'src/server/.chord-entry.ts')
-    const module = path.resolve(directory, 'src/server/.chord-module.mjs')
-    const compiled = await build({
-      entryPoints: [path.resolve(directory, 'src/server/entry.ts')],
-      bundle: true,
-      write: false,
-      format: 'esm',
-      platform: 'node',
-      target: 'node22.19',
-      nodePaths,
-      external: ['@earendil-works/chord', '@earendil-works/chord/*'],
-      logLevel: 'silent',
-    })
-    await writeFile(module, compiled.outputFiles[0].contents, { flag: 'wx' })
-    try {
-      await writeFile(
-        wrapper,
-        `import { defineFacet, defineService } from '@earendil-works/chord'
-import { create } from './.chord-module.mjs'
-export default defineFacet({id:${JSON.stringify(`module:${manifest.name}`)},setup(env){env.provide(defineService(${JSON.stringify(`pi-meme.plugin.module:${manifest.name}`)},{local:true}),{create})}})`,
-        { flag: 'wx' },
-      )
-      try {
-        await bundleFacets({
-          plugin: { id: manifest.name, version: manifest.version },
-          entries: { server: wrapper },
-          outdir: path.resolve(directory, 'dist/server'),
-          workingDirectory: path.resolve(directory),
-          platform: 'node',
-          external: [],
-          sourceMap: true,
-        })
-      } finally {
-        await rm(wrapper, { force: true })
-      }
-    } finally {
-      await rm(module, { force: true })
-    }
-  }
-  for (const [source, output, browser] of [
-    ['src/agent/entry.ts', manifest.piMeme.agent?.trusted, false],
-    ['src/agent/restricted.ts', manifest.piMeme.agent?.restricted, false],
-    ['src/server/restricted.ts', manifest.piMeme.server?.restricted, false],
-    ['src/ui/entry.tsx', manifest.piMeme.ui, true],
+  for (const [source, output] of [
+    ['src/agent/restricted.ts', manifest.piMeme.agent?.restricted],
+    ['src/server/restricted.ts', manifest.piMeme.server?.restricted],
   ] as const) {
     if (!output) continue
-    const expected = source.replace(/^src\//, 'dist/').replace(/\.tsx?$/, '.js')
+    const expected = source.replace(/^src\//, 'dist/').replace(/\.ts$/, '.js')
     if (output !== expected) throw new Error(`DevKit 输出必须为 ${expected}`)
     await build({
       entryPoints: [path.join(directory, source)],
@@ -70,15 +25,19 @@ export default defineFacet({id:${JSON.stringify(`module:${manifest.name}`)},setu
       bundle: true,
       nodePaths,
       format: 'esm',
-      platform: browser ? 'browser' : 'node',
-      target: browser ? 'es2022' : 'node22.19',
-      jsx: 'automatic',
-      loader: { '.css': 'text' },
+      platform: 'node',
+      target: 'node22.19',
       sourcemap: true,
-      external: browser ? ['react', 'react-dom', 'react-dom/*', 'react/*'] : [],
       absWorkingDir: path.resolve(directory),
       logLevel: 'silent',
     })
+  }
+  if (manifest.piMeme.ui) {
+    if (manifest.piMeme.ui !== 'dist/ui/entry.json') throw new Error('DevKit 声明式 UI 输出必须为 dist/ui/entry.json')
+    const source = await readFile(path.join(directory, 'src/ui/entry.json'), 'utf8')
+    const ui = parseDeclarativePluginUi(JSON.parse(source))
+    await mkdir(path.join(directory, 'dist/ui'), { recursive: true })
+    await writeFile(path.join(directory, manifest.piMeme.ui), `${JSON.stringify(ui, null, 2)}\n`)
   }
   return readPluginManifest(directory)
 }

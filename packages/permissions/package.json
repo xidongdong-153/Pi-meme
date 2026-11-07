@@ -5,7 +5,10 @@
   "type": "module",
   "exports": {
     "./server/entry": "./src/server/entry.ts",
+    "./server/authorization-service": "./src/server/authorization-service.ts",
+    "./shared/authorization-policy": "./src/shared/authorization-policy.ts",
     "./ui/access-settings": "./src/ui/access-settings.tsx",
+    "./ui/authorization-panel": "./src/ui/authorization-panel.tsx",
     "./agent/entry": "./src/agent/entry.ts",
     "./ui/agent-access-selector": "./src/ui/agent-access-selector.tsx"
   },

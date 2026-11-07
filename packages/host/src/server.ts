@@ -13,6 +13,7 @@ export type ServerOptions = HostOptions & {
   hostname?: string
   port?: number
   token?: string
+  /** @deprecated 已忽略；本机连接同样需要令牌或私有配对票据。 */
   localAutoLogin?: boolean
   ssh?: SshConnectionOptions
   owner?: 'desktop' | 'server'
@@ -22,6 +23,10 @@ export type ServerOptions = HostOptions & {
 }
 
 export async function startHostServer(options: ServerOptions = {}) {
+  if (options.frontendUrl)
+    throw new Error('runtime-snapshot-required: frontendUrl live 代理已移除，请配置不可变静态界面快照')
+  if (options.token !== undefined && (!options.token.trim() || options.token.length > 4096))
+    throw new Error('访问令牌不能为空且不能超过 4096 字符')
   const hostname = options.hostname ?? '127.0.0.1'
   const local = ['127.0.0.1', 'localhost', '::1'].includes(hostname)
   if (!local && !options.tls) throw new Error('远程服务必须配置 HTTPS 证书和私钥')
@@ -35,7 +40,8 @@ export async function startHostServer(options: ServerOptions = {}) {
     await host.dispose()
     throw cause
   }
-  const token = options.token ?? host.credentials.get('host:token') ?? randomBytes(32).toString('base64url')
+  const savedToken = host.credentials.get('host:token')
+  const token = options.token ?? (savedToken?.trim() ? savedToken : randomBytes(32).toString('base64url'))
   if (host.credentials.get('host:token') !== token) {
     try {
       host.credentials.set('host:token', token)

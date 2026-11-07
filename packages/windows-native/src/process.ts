@@ -52,9 +52,11 @@ export class WindowsCommandProcess extends EventEmitter {
 export async function spawnWindowsProcess(
   executable: string,
   args: string[],
-  options: { cwd: string; env: NodeJS.ProcessEnv; sandbox?: WindowsSandboxPolicy },
+  options: { cwd: string; env: NodeJS.ProcessEnv; sandbox?: WindowsSandboxPolicy; signal?: AbortSignal },
 ): Promise<WindowsProcess> {
-  const helper = spawn(await windowsNativeExecutable(), [], {
+  const nativeExecutable = await windowsNativeExecutable()
+  if (options.signal?.aborted) throw new Error('aborted')
+  const helper = spawn(nativeExecutable, [], {
     windowsHide: true,
     stdio: ['pipe', 'pipe', 'pipe'],
   })
@@ -72,6 +74,14 @@ export async function spawnWindowsProcess(
     if (!helper.stdin.destroyed) helper.stdin.write(`${JSON.stringify(message)}\n`)
   }
   const shutdown = () => helper.stdin.destroy()
+  const abort = () => {
+    failure = new Error('aborted')
+    ready.reject(failure)
+    shutdown()
+    helper.kill()
+  }
+  options.signal?.addEventListener('abort', abort, { once: true })
+  if (options.signal?.aborted) abort()
   const startup = setTimeout(() => {
     failure = new Error('Windows 原生进程启动超时')
     ready.reject(failure)
@@ -125,6 +135,7 @@ export async function spawnWindowsProcess(
     ready.reject(cause)
   })
   helper.once('close', (helperCode) => {
+    options.signal?.removeEventListener('abort', abort)
     clearTimeout(startup)
     process.removeListener('exit', shutdown)
     stdout.end()

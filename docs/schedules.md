@@ -73,6 +73,6 @@ Host 在会话控制与插件恢复后启动调度。先保存运行记录，再
 | `runs`                                                           | `ScheduledTaskRef, { offset?, limit? }?`；默认 50 条，上限 200 条 |
 | `markRead`                                                       | `ScheduledTaskRef, runId, MutationOptions`                        |
 
-任务引用为 `{ hostId, taskId }`，跨 Host 引用会被拒绝。写操作使用现有 `idempotencyKey`。`schedule` 控制事件携带 `taskId`，客户端收到后重新读取任务；断线后通过快照恢复。旧 Host 不支持时，页面明确提示需要更新 Host。
+任务引用为 `{ hostId, taskId }`，跨 Host 引用会被拒绝。实际执行绑定 taskRevision、authorizationRevision 和运行 ID，并在提交前重新核对当前授权；撤权会取消受影响运行并更新授权修订，重启不借旧授权重放。MutationOptions.expected 只比较计划/运行/策略前置条件，不能授予能力。审批与不确定结果见 [权限控制与版本迁移](permissions-and-migration.md)。写操作使用现有 `idempotencyKey`。`schedule` 控制事件携带 `taskId`，客户端收到后重新读取任务；断线后通过快照恢复。旧 Host 不支持时，页面明确提示需要更新 Host。
 
 类型定义见 [schedules.ts](../packages/contracts/src/schedules.ts)，HostApi 接线见 [app-control.ts](../packages/host/src/app-control.ts)。

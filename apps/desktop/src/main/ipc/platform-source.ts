@@ -5,7 +5,9 @@ export function isTrustedPlatformSource(url: string, trustedOrigin: string, chan
     return (
       channel === 'platform:connection-error' ||
       channel === 'platform:retry-connection' ||
-      (channel === 'platform:set-connection' && args[0] === null)
+      (channel === 'platform:set-connection' &&
+        (args[0] === null ||
+          (typeof args[0] === 'object' && args[0] !== null && 'url' in args[0] && 'token' in args[0])))
     )
   try {
     return ['https:', 'http:'].includes(new URL(url).protocol) && new URL(url).origin === trustedOrigin

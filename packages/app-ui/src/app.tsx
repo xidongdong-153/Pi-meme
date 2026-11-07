@@ -31,6 +31,7 @@ import { SubagentsPanel } from './panels/subagents-panel'
 import { createResourceClient } from '@pi-meme/client/resource-client'
 import { appendSkillInvocation, invokeSkillInNewSession } from './settings/invoke-skill'
 import { AccessSettings } from '@pi-meme/permissions/ui/access-settings'
+import { AuthorizationPanel } from '@pi-meme/permissions/ui/authorization-panel'
 import { GeneralSettings } from '@pi-meme/settings/ui/general-settings'
 import { ModelConfigSettings } from '@pi-meme/models/ui/model-config/model-config-settings'
 import { AgentAccessSelector } from '@pi-meme/permissions/ui/agent-access-selector'
@@ -2539,15 +2540,18 @@ function AppContent({
                     await appearance.flushAppearance()
                   },
                   accessSettings: (
-                    <AccessSettings
-                      value={settings.snapshot?.settings.defaultAccessMode}
-                      loading={!settings.snapshot}
-                      supported={Boolean(chat.connection.restrictedAccessSupported)}
-                      reason={chat.connection.restrictedAccessReason}
-                      busy={chat.busy}
-                      saving={settings.saving}
-                      onSave={(mode) => void settings.saveAccessMode(mode)}
-                    />
+                    <>
+                      <AccessSettings
+                        value={settings.snapshot?.settings.defaultAccessMode}
+                        loading={!settings.snapshot}
+                        supported={Boolean(chat.connection.restrictedAccessSupported)}
+                        reason={chat.connection.restrictedAccessReason}
+                        busy={chat.busy}
+                        saving={settings.saving}
+                        onSave={(mode) => void settings.saveAccessMode(mode)}
+                      />
+                      <AuthorizationPanel bridge={{ rpc: call }} />
+                    </>
                   ),
                   onOperation: appearance.onOperation,
                   onEditor: (value) => void settings.saveEditor(value),

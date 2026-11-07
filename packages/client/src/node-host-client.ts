@@ -1,10 +1,18 @@
-import type { EventCursor, HostApi, HostControlEvent, HostControlResponse } from '@pi-meme/contracts/app-host'
+import type {
+  EventCursor,
+  HostApi,
+  HostControlEvent,
+  HostControlResponse,
+  MutationExpected,
+} from '@pi-meme/contracts/app-host'
 import type { HostRpcResponse } from '@pi-meme/contracts/host'
 import { createAppHostClient } from './app-host-client'
 
 export type NodeHostClientOptions = {
   url: string
-  token: string
+  token?: string
+  /** 可信本机父进程按需提供一次票据，不能把它放入环境变量或公开接口。 */
+  getAuthenticationToken?: () => Promise<string>
   hostId?: string
   clientId: string
   fetch?: typeof fetch
@@ -45,7 +53,9 @@ export async function createNodeHostClient(options: NodeHostClientOptions): Prom
         redirect: 'error',
         signal: AbortSignal.timeout(30000),
         headers: { 'Content-Type': 'application/json', Origin: baseUrl.origin },
-        body: JSON.stringify({ token: options.token }),
+        body: JSON.stringify({
+          token: options.getAuthenticationToken ? await options.getAuthenticationToken() : options.token,
+        }),
       })
       if (!response.ok) throw new Error('服务登录失败')
       const identity = (await response.json()) as { hostId: string }
@@ -87,8 +97,8 @@ export async function createNodeHostClient(options: NodeHostClientOptions): Prom
     return value.result as T
   }
   const api = createAppHostClient({
-    call: <T>(method: string, args: unknown[], idempotencyKey?: string) =>
-      call<T>('/api/control', { apiVersion: 2, method, args, idempotencyKey }),
+    call: <T>(method: string, args: unknown[], idempotencyKey?: string, expected?: MutationExpected) =>
+      call<T>('/api/control', { apiVersion: 3, method, args, idempotencyKey, expected }),
     async subscribe(input, listener) {
       const webSocket = options.webSocket
       if (!webSocket) throw new Error('此 Node 客户端未配置 WebSocket')

@@ -1,130 +1,89 @@
-import { McpClient, StdioTransport, StreamableHttpTransport } from '@earendil-works/pi-mcp'
+import { McpClient } from '@earendil-works/pi-mcp'
+import type { McpServerEntry, McpServerConfig } from '@earendil-works/pi-coding-agent'
 import type { McpDiagnostic } from '@pi-meme/contracts/mcp'
-import { object } from '../shared/config'
+import type { AccessSandboxOperations } from '@pi-meme/pi-runtime/sdk/access-sandbox'
+import { object, serverError } from '../shared/config'
+import { mcpAuthorization } from '../shared/authorization'
+import { createAuthorizedMcpTransport } from './plan-transport'
+import { readDesktopMcpConfigFile } from './runtime-config'
 
-type ServerConfig = {
-  name: string
-  enabled: boolean
-  url?: string
-  command?: string
-  args?: string[]
-  env?: Record<string, string>
-  cwd?: string
-  headers?: Record<string, string>
-  timeout?: number
-  needsAuth: boolean
-}
-
-function parseServers(contents: string): { servers: ServerConfig[]; error?: string } {
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(contents)
-  } catch {
-    return { servers: [], error: 'MCP 配置文件不是有效 JSON' }
-  }
-  if (!object(parsed) || !object(parsed.mcpServers)) return { servers: [], error: 'MCP 配置缺少 mcpServers 对象' }
-  const servers: ServerConfig[] = []
-  for (const [name, value] of Object.entries(parsed.mcpServers)) {
-    if (!object(value)) continue
-    const config = value as Record<string, unknown>
-    const strings = (input: unknown) =>
-      object(input)
-        ? Object.fromEntries(
-            Object.entries(input)
-              .filter(([, item]) => typeof item === 'string')
-              .map(([key, item]) => [key, item as string]),
-          )
-        : undefined
-    servers.push({
-      name,
-      enabled: config.enabled !== false,
-      url: typeof config.url === 'string' ? config.url : undefined,
-      command: typeof config.command === 'string' ? config.command : undefined,
-      args: Array.isArray(config.args)
-        ? config.args.filter((item): item is string => typeof item === 'string')
-        : undefined,
-      env: strings(config.env),
-      cwd: typeof config.cwd === 'string' ? config.cwd : undefined,
-      headers: strings(config.headers),
-      timeout: typeof config.timeout === 'number' && config.timeout > 0 ? config.timeout : undefined,
-      needsAuth: object(config.auth) || object(config.oauth),
-    })
-  }
-  return { servers }
-}
-
-async function checkServer(config: ServerConfig, timeoutMs: number) {
-  if (config.needsAuth)
-    return { lines: [`${config.name}: 该服务需要 OAuth 登录，请在 Desktop 会话中完成认证后再检查`], failed: true }
-  const transport = config.url
-    ? new StreamableHttpTransport({ url: config.url, headers: config.headers })
-    : new StdioTransport({
-        command: config.command!,
-        args: config.args,
-        cwd: config.cwd,
-        env: config.env,
-        inheritEnv: true,
-        stderr: 'pipe',
-      })
-  const client = new McpClient({
-    name: 'pi-meme',
-    version: '0.0.0',
-    requestTimeoutMs: Math.min((config.timeout ?? 30) * 1000, timeoutMs),
-  })
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), Math.min((config.timeout ?? 30) * 1000, timeoutMs))
-  try {
-    await client.connect(transport)
-    const tools = await client.listTools({ signal: controller.signal })
-    const info = client.serverInfo
-    return {
-      lines: [`${config.name}: 已连接${info ? `（${info.name} ${info.version}）` : ''}，共 ${tools.length} 个工具`],
-      failed: false,
-    }
-  } catch (cause) {
-    const stderr = transport instanceof StdioTransport ? transport.stderr.trim() : ''
-    return { lines: [`${config.name}: 连接失败：${String(cause)}${stderr ? `\n${stderr}` : ''}`], failed: true }
-  } finally {
-    clearTimeout(timer)
-    await client.close().catch(() => {})
-  }
-}
-
-/**
- * 进程内检查 Desktop 全局 mcp.json 里的服务：逐个连接并列出工具，产出诊断文本。
- *
- * 检查不经过会话，也不会启动 Pi 进程；需要 OAuth 登录的服务提示在 Desktop 会话中完成认证。
- */
-export async function checkMcpServers(filePath: string, timeoutMs = 90_000): Promise<McpDiagnostic> {
+/** 诊断也经过同一服务授权和隔离入口；缺少隔离器时不裸跑 stdio。 */
+export async function checkMcpServers(
+  filePath: string,
+  timeoutMs = 90_000,
+  sandbox?: () => AccessSandboxOperations,
+  cwd = process.cwd(),
+): Promise<McpDiagnostic> {
   const checkedAt = new Date().toISOString()
-  let contents: string
-  try {
-    contents = await (await import('node:fs/promises')).readFile(filePath, 'utf8')
-  } catch (cause) {
-    const missing = (cause as NodeJS.ErrnoException).code === 'ENOENT'
-    return {
-      checkedAt,
-      output: missing ? `未找到 MCP 配置文件：${filePath}` : `无法读取 MCP 配置：${String(cause)}`,
-      exitCode: 1,
-      timedOut: false,
-    }
-  }
-  const { servers, error } = parseServers(contents)
-  if (error) return { checkedAt, output: error, exitCode: 1, timedOut: false }
-  const enabled = servers.filter((server) => server.enabled && (server.url || server.command))
+  const snapshot = readDesktopMcpConfigFile(filePath)
+  if (snapshot.error || !snapshot.data)
+    return { checkedAt, output: snapshot.error ?? `未找到 MCP 配置文件：${filePath}`, exitCode: 1, timedOut: false }
+  const configured = snapshot.data.mcpServers
+  if (!object(configured)) return { checkedAt, output: 'MCP 配置缺少 mcpServers 对象', exitCode: 1, timedOut: false }
+  const enabled = Object.entries(configured).filter(([, config]) => object(config) && config.enabled !== false)
   if (!enabled.length) return { checkedAt, output: '没有已启用的 MCP 服务', exitCode: 0, timedOut: false }
-  const deadline = Date.now() + timeoutMs
+  const transport = createAuthorizedMcpTransport(
+    () => {
+      if (!sandbox) throw new Error('sandbox-unavailable: stdio 诊断需要具备 Host 私有数据隔离和网络禁止能力的执行器')
+      return sandbox()
+    },
+    (entry) => {
+      const current = readDesktopMcpConfigFile(filePath)
+      const servers = object(current.data?.mcpServers) ? current.data.mcpServers : {}
+      const authorizations = object(current.data?.desktopAuthorizedServers) ? current.data.desktopAuthorizedServers : {}
+      const config = servers[entry.name]
+      const hash = mcpAuthorization(entry.config)
+      return object(config) &&
+        config.enabled !== false &&
+        mcpAuthorization(config) === hash &&
+        authorizations[entry.name] === hash
+        ? []
+        : undefined
+    },
+  )
+  const deadline = Date.now() + Math.max(1, Math.min(timeoutMs, 300000))
   const lines: string[] = []
   let failed = false
-  for (const server of enabled) {
-    const remaining = deadline - Date.now()
-    if (remaining <= 0) {
-      lines.push(`${server.name}: 检查超时`)
-      return { checkedAt, output: lines.join('\n'), exitCode: 1, timedOut: true }
+  for (const [name, raw] of enabled) {
+    if (Date.now() >= deadline)
+      return { checkedAt, output: [...lines, `${name}: 检查超时`].join('\n'), exitCode: 1, timedOut: true }
+    const issue = serverError(name, raw)
+    if (issue || !object(raw)) {
+      lines.push(`${name}: ${issue ?? '服务配置无效'}`)
+      failed = true
+      continue
     }
-    const result = await checkServer(server, remaining)
-    if (result.failed) failed = true
-    lines.push(...result.lines)
+    if (object(raw.auth) || object(raw.oauth)) {
+      lines.push(`${name}: 该服务需要登录，请在已授权的会话中完成认证后使用`)
+      failed = true
+      continue
+    }
+    const entry: McpServerEntry = { name, config: raw as unknown as McpServerConfig, source: filePath, scope: 'global' }
+    const timeout = Math.min(typeof raw.timeout === 'number' ? raw.timeout * 1000 : 30000, deadline - Date.now())
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), Math.max(1, timeout))
+    const client = new McpClient({ name: 'pi-meme', version: '0.0.0', requestTimeoutMs: Math.max(1, timeout) })
+    const connection = transport(entry, cwd, undefined)
+    const abort = () => {
+      void connection.close().catch(() => {})
+    }
+    controller.signal.addEventListener('abort', abort, { once: true })
+    try {
+      await client.connect(connection)
+      const tools = await client.listTools({ signal: controller.signal })
+      const info = client.serverInfo
+      lines.push(`${name}: 已连接${info ? `（${info.name} ${info.version}）` : ''}，共 ${tools.length} 个工具`)
+    } catch (cause) {
+      // 不回显未受信任进程 stderr 或 HTTP 正文，避免将凭据放进诊断消息。
+      lines.push(
+        `${name}: ${controller.signal.aborted ? '检查超时' : cause instanceof Error && cause.message.startsWith('sandbox-unavailable:') ? cause.message : '连接失败，请检查当前配置授权和会话连接错误'}`,
+      )
+      failed = true
+    } finally {
+      clearTimeout(timer)
+      controller.signal.removeEventListener('abort', abort)
+      await client.close().catch(() => {})
+    }
   }
-  return { checkedAt, output: lines.join('\n'), exitCode: failed ? 1 : 0, timedOut: false }
+  return { checkedAt, output: lines.join('\n'), exitCode: failed ? 1 : 0, timedOut: Date.now() >= deadline }
 }

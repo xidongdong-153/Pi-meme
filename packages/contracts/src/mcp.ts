@@ -1,3 +1,5 @@
+/** 保存服务时显式授权；由 Host 将列表与完整服务配置哈希一起绑定。工具名称使用远端原始名称。 */
+export type McpServerPlanAuthorization = { planReadOnlyTools?: string[] }
 export type McpServerEntry = { name: string; config: unknown; error?: string }
 export type McpConfigSnapshot = {
   path: string

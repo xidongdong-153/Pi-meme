@@ -2,6 +2,7 @@ import { execFileSync, spawn } from 'node:child_process'
 import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { prepareWindowsNative, windowsNativePath } from './windows-native.mjs'
+import { prepareDevelopmentRuntime } from './development-runtime.mjs'
 
 const root = fileURLToPath(new URL('..', import.meta.url))
 const pnpm = process.env.npm_execpath
@@ -18,6 +19,7 @@ if (!['darwin', 'linux', 'win32'].includes(platform)) {
     await prepareWindowsNative()
     process.env.PI_MEME_WINDOWS_NATIVE = windowsNativePath
   }
+  await prepareDevelopmentRuntime({ desktop: platform !== 'linux' })
   console.log(
     platform === 'linux'
       ? '启动 Linux 开发环境：Host + Web。'

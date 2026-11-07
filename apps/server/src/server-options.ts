@@ -3,6 +3,7 @@ import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { ServerOptions } from '@pi-meme/host/server'
 import { hostPort } from '@pi-meme/contracts/host-runtime'
+import { readRuntimeSnapshot } from '@pi-meme/host/runtime-snapshot'
 
 export async function serverOptions(
   entryUrl: string,
@@ -14,6 +15,9 @@ export async function serverOptions(
   const certificate = environment.PI_MEME_TLS_CERT
   const key = environment.PI_MEME_TLS_KEY
   if (Boolean(certificate) !== Boolean(key)) throw new Error('HTTPS 证书与私钥必须同时配置')
+  const snapshot = environment.PI_MEME_RUNTIME_SNAPSHOT
+    ? await readRuntimeSnapshot(environment.PI_MEME_RUNTIME_SNAPSHOT, environment.PI_MEME_DATA_ROOT)
+    : undefined
   const directory = path.dirname(fileURLToPath(entryUrl))
   const bundled = entryUrl.endsWith('.js')
   return {
@@ -27,9 +31,13 @@ export async function serverOptions(
     owner: 'server',
     token: environment.PI_MEME_TOKEN,
     localAutoLogin: authMode !== 'token-required',
-    staticDirectory: environment.PI_MEME_WEB_ROOT ?? path.resolve(directory, '../../web/dist'),
+    staticDirectory:
+      snapshot?.staticDirectory ?? environment.PI_MEME_WEB_ROOT ?? path.resolve(directory, '../../web/dist'),
     tls: certificate && key ? { cert: await readFile(certificate), key: await readFile(key) } : undefined,
-    workerPath: environment.PI_MEME_WORKER_PATH ?? (bundled ? path.join(directory, 'session-worker.js') : undefined),
-    builtinSkillsSource: bundled ? path.join(directory, 'skills') : undefined,
+    workerPath:
+      snapshot?.workerPath ??
+      environment.PI_MEME_WORKER_PATH ??
+      (bundled ? path.join(directory, 'session-worker.js') : undefined),
+    builtinSkillsSource: snapshot?.skillsDirectory ?? (bundled ? path.join(directory, 'skills') : undefined),
   }
 }

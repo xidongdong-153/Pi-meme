@@ -2,7 +2,7 @@
 description: '独立 Host 的 HTTPS 与 SSH 连接、认证、运行参数、会话来源和排错'
 status: implemented
 paths:
-  - 'apps/server/src/dev.ts'
+  - 'scripts/start-server.mts'
   - 'apps/server/src/main.ts'
   - 'scripts/package-host.mts'
   - 'apps/server/README.md'
@@ -32,7 +32,7 @@ paths:
 
 # 独立 Host 与 Remote
 
-工作区文件、模型、MCP、插件与 Pi 会话存放在执行它们的 Host 机器。Desktop 和 Web 共用界面与协议，浏览器不执行 Host 上的文件工具。架构见 [进程与调用](architecture.md#进程与调用)，正式控制接口见 [HostApi v2](host-api.md)。
+工作区文件、模型、MCP、插件与 Pi 会话存放在执行它们的 Host 机器。Desktop 和 Web 共用界面与协议，浏览器不执行 Host 上的文件工具。架构见 [进程与调用](architecture.md#进程与调用)，正式控制接口见 [HostApi v3](host-api.md)。
 
 远程设置支持 HTTPS 直连和 SSH 隧道；SSH 仍传输已有 HTTP/WebSocket 协议，不提供远程桌面或终端。下文 SSH 说明对应当前源码实现，不代表已完成真实 SSH、WSL/Tailscale 或发布包联通验收。
 
@@ -139,7 +139,7 @@ SSH 配置读取、保存、启停、重试和移除要求已认证且通过入�
 | `PI_MEME_HOST`                         | 独立 Server                   | 监听地址，默认 `127.0.0.1`                                                                                                          |
 | `PI_MEME_PORT`                         | Desktop、Server、Web 开发代理 | 构建 App、构建后的 Server 和独立包默认 `3185`；Desktop、Server 开发入口及 Web 开发代理默认 `3180`；`0` 自动分配端口，不参与自动复用 |
 | `PI_MEME_TOKEN`                        | 独立 Server                   | 登录令牌；未设置时读取 `credentials/auth.json`，首次生成（数据布局详见 [数据目录与存储](storage.md)）                               |
-| `PI_MEME_AUTH_MODE`                    | 独立 Server                   | 仅接受 `token-required`，关闭本机自动登录；SSH 认证模式由自动启动入口强制设置；手工独立 Server 的环境变量不用于配置 SSH             |
+| `PI_MEME_AUTH_MODE`                    | 独立 Server                   | 仅接受 token-required；不再存在 loopback 自动登录模式，SSH 入口仍强制 token-required                                                |
 | `PI_MEME_WEB_ROOT`                     | 独立 Server                   | 页面目录，默认应用相邻的 `apps/web/dist`                                                                                            |
 | `PI_MEME_TLS_CERT` / `PI_MEME_TLS_KEY` | 独立 Server                   | HTTPS 证书与私钥文件路径，必须同时提供                                                                                              |
 | `PI_MEME_HOST_URL`                     | 独立 Web 开发服务器           | `/api` 代理目标，优先于 `PI_MEME_PORT`；Forge Renderer 不使用此覆盖                                                                 |
@@ -147,7 +147,7 @@ SSH 配置读取、保存、启停、重试和移除要求已认证且通过入�
 
 构建 App 未显式设置 `PI_MEME_PORT` 时，默认端口冲突会自动改用系统分配的空闲端口，界面使用实际 Host 地址。Server、开发入口和显式指定端口的 Desktop 保留固定端口。
 
-Server 参数来自 [main.ts](../apps/server/src/main.ts)，开发默认值来自 [dev.ts](../apps/server/src/dev.ts)，开发代理来自 [Vite 配置](../apps/web/vite.config.ts)，Desktop 登记来自 [main.ts](../apps/desktop/src/main/main.ts)。测试凭据与 Worker 路径覆盖属于开发接线，不是日常部署所需参数。
+Server 参数来自 [main.ts](../apps/server/src/main.ts)，开发快照启动来自 [development-runtime.mts](../scripts/development-runtime.mts)，静态 Web 代理来自 [static-development-web.mts](../scripts/static-development-web.mts)，Desktop 登记来自 [main.ts](../apps/desktop/src/main/main.ts)。测试凭据与 Worker 路径覆盖属于开发接线，不是日常部署参数。
 
 ## 在界面登记远程服务
 
@@ -193,9 +193,9 @@ SSH 配置位于 `config/ssh-connections.json`；令牌在凭据存储中使用 
 
 认证入口是 `/api/auth`。Cookie 名按 Host 身份区分，避免同一 `127.0.0.1` 下不同端口的登录互相覆盖；Cookie 为 HttpOnly、SameSite=Strict，HTTPS 下带 Secure。HTTP 操作、WebSocket 和插件资源共用认证与来源检查，令牌不放在资源或事件 URL 中。
 
-Desktop 创建的 Host 和未设置认证模式的独立 Server，只监听 loopback 时默认启用本机自动登录，即使设置了 `PI_MEME_TOKEN`，本机来源仍可免填令牌；来源地址、Host 与 Origin 必须满足本机检查。独立 Server 显式设置 `PI_MEME_AUTH_MODE=token-required` 后不再免登录。非 loopback 监听要求令牌。Vite 和正式 Desktop 的同源代理保留原始 Host、Origin 和 Cookie，不放宽 CORS，不跟随上游重定向。
+所有监听方式都要求有效认证，loopback 不再免令牌。独立 Server 使用明确 token；Desktop owned 通过可信父进程 IPC 签发的短时单次票据建立会话，attached 复用已有 Host 时须显式令牌配对。同源代理只转发当前调用者自己的 Cookie，不持有或注入上游 owner 凭据。Host/Origin 检查防跨站，不能证明 owner 身份。完整身份与迁移见 [权限控制与版本迁移](permissions-and-migration.md#认证身份与代理)。
 
-Desktop 使用内存浏览器会话；正式界面由随包资源提供，不依赖已运行 Server 的 Web 构建。开发入口首次认证最多等待本机 Host 就绪 30 秒，超时返回 503 并提示启动 Host，不作为令牌错误处理。状态探测可以重试，业务写请求不会因网络失败自动重放。长期凭据的落盘、钥匙串导入与认证隔离见 [配置与安全](configuration.md#凭据)。
+Desktop 使用内存浏览器会话；正式界面来自随包资源，开发界面来自当前固定快照，不连接 live Vite/HMR。开发快照 Host/Web 等待上限 120 秒，正式 Desktop Host 启动等待仍为 30 秒；具体认证就绪失败返回 503，不应解释为令牌无效。状态探测可重试，业务写请求不因网络失败自动重放。凭据存储见 [配置与安全](configuration.md#凭据)。
 
 | WebSocket 升级失败                    | HTTP 状态 |
 | ------------------------------------- | --------- |
@@ -206,9 +206,9 @@ Desktop 使用内存浏览器会话；正式界面由随包资源提供，不依
 
 连接建立后，控制订阅参数无效以 1008 关闭，订阅或代理失败以 1011 关闭。具体顺序见 [transport-app.ts](../packages/host/src/transport-app.ts)。
 
-短暂断线自动重连并补读快照，客户端缓冲快照读取期间的事件，过滤旧序号与代次；不重放 prompt。Host 重启使内存 Cookie 失效，本机客户端重新认证，代理用已保存令牌恢复上游认证。代理只对明确 401 的未执行请求续期并重试一次，保留原 requestId；网络失败不重发消息。
+短暂断线自动重连并补读快照，过滤旧序号与代次，不重放 prompt。Host 重启使内存 Cookie 失效；owned Desktop 重新取得单次票据，attached 客户端使用配对材料或重新输入令牌，普通浏览器重新登录。远程代理只对明确 401 的未执行请求续期并重试一次，保留原 requestId；网络失败不重发消息。
 
-直接访问远程地址的浏览器使用该地址自己的登录页。已登记令牌失效时在远程页重新配置服务。正式 API 的幂等回执与事件补读有独立规则，见 [HostApi v2](host-api.md)。
+直接访问远程地址的浏览器使用该地址自己的登录页。已登记令牌失效时在远程页重新配置服务。正式 API 的幂等回执与事件补读有独立规则，见 [HostApi v3](host-api.md)。
 
 ## 排错与验证
 
@@ -216,9 +216,9 @@ Desktop 使用内存浏览器会话；正式界面由随包资源提供，不依
 | ----------------------------------------- | -------------------------------------------------------------------------------------------------- |
 | 解压后提示原生模块或运行时不可用          | 核对下载平台、CPU 架构与 `release.json`；不要从源码目录单独复制 `dist` 或跨平台复用 `node_modules` |
 | 启动提示已有 Host、目录不一致或协议不兼容 | 核对两个入口的目录和端口；停止旧版本 Host，或为独立实例指定另一目录和端口                          |
-| `/api/auth` 返回 503 或代理连接被拒绝     | 确认管理方仍在运行、`PI_MEME_PORT` 与代理目标一致；首次启动等待最多 30 秒                          |
+| /api/auth 返回 503 或代理连接被拒绝       | 核对管理方、端口与代理目标；开发快照启动可能等待最多 120 秒，正式 Host 启动按对应就绪超时          |
 | 非本机监听被拒绝                          | 同时设置 TLS 证书与私钥，核对文件路径和读取权限                                                    |
-| 3181 被占用                               | 停止占用进程后重启；Vite 的 `strictPort` 不会换端口                                                |
+| 3181 被占用                               | 停止占用进程后重启；固定静态前端不自动换端口                                                       |
 | WSL 内可访问、Windows 浏览器失败          | 先确认 WSL 服务，再检查 localhost 转发、端口和防火墙，不放宽认证                                   |
 | 页面能打开，WebSocket 失败                | 查看升级 HTTP 状态、Origin、Cookie、clientId 及代理是否支持 WebSocket                              |
 | 远程身份变化                              | 核对所连 Host 数据目录与持久 host-id，重新确认连接目标                                             |
@@ -231,6 +231,6 @@ Desktop 使用内存浏览器会话；正式界面由随包资源提供，不依
 | SSH 安装失败或新建 Host 不可用            | 检查当前发行资产、远端平台、安装依赖、目录权限和已有 Host 冲突                                     |
 | SSH 管理按钮不可用                        | 确认访问的是已认证的入口 Host 本机来源，并确认该 Host 的 PATH 能找到系统 OpenSSH                   |
 
-Windows 浏览器访问 WSL 时，先检查 WSL 内服务，再检查 localhost 转发、端口和防火墙，不放宽认证。平台验收需分别确认本机登录、Cookie、RPC、事件 WebSocket、插件资源与 Vite 热更新；参考[WSL 网络说明](https://learn.microsoft.com/en-us/windows/wsl/networking#accessing-linux-networking-apps-from-windows-localhost)。
+Windows 浏览器访问 WSL 时，先检查 WSL 内服务，再检查 localhost 转发、端口和防火墙，不放宽认证。平台验收分别确认显式登录、Cookie、RPC、事件 WebSocket、插件资源和固定静态 UI；开发运行不再验收 Vite 热更新。参考 [WSL 网络说明](https://learn.microsoft.com/en-us/windows/wsl/networking#accessing-linux-networking-apps-from-windows-localhost)。
 
 源码选测与平台条件见[测试](testing.md)，从独立包启动的验证步骤见[Host 产物验收](releasing.md#host)。

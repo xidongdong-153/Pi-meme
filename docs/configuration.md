@@ -95,7 +95,7 @@ HTTP 接入使用 `POST /api/auth` 登录后返回的 Cookie，向 `POST /api/rp
 
 保存时 API Key 和敏感请求头进入已有凭据存储，不回显明文，不要求用户准备声明文件。操作使用现有空闲守卫：运行中拒绝写入，空闲时自动重连并保留已选模型；移除当前模型时沿用原有回退行为。重连失败返回 `reconnectError`，配置已保存，接入方可在空闲后调用 `models:reconnect`。设置页随模型目录更新自动读取配置，仍在原有自定义提供商列表中编辑和删除。
 
-查询可用模型使用 [HostApi.models.list](host-api.md#模型目录)，配置写入复用内置 RPC，不向可信插件的 `context.host` 增加全局模型写方法。
+查询可用模型使用 [HostApi.models.list](host-api.md#模型目录)，配置写入复用认证内置 RPC。SDK 4 外部插件不取得完整 context.host；Worker 的实际模型请求经 Host broker，不取得模型凭据。
 
 ## 图片生成与编辑
 
@@ -168,7 +168,7 @@ Desktop 正常关窗、退出、受控重新加载和存储维护前等待外观
 
 启动不读系统钥匙串。旧 macOS 凭据只通过主动导入操作读取，保留已有文件凭据和旧钥匙串条目；实现见 [credentials.ts](../packages/host/src/credentials.ts) 与 [HostSettings](../packages/app-ui/src/settings/host-settings.tsx)。Linux 不提供该导入操作。
 
-Desktop 使用内存 Electron Session，认证 Cookie 不写磁盘；本机 Host 的自动登录同时校验真实连接来源、Host 和 Origin，不向 Renderer 传递长期令牌。HTTPS 和 SSH 的远程令牌留在入口 Host 凭据存储，不返回 Renderer。SSH 令牌使用 `ssh-host:<稳定连接ID>` 键，与 `config/ssh-connections.json` 中的目标、名称、身份文件路径、启用状态和已确认 `hostId` 分开；身份文件只保存路径引用，不复制私钥。认证与远程代理规则见 [Remote](remote.md)。
+Desktop 使用内存 Electron Session，认证 Cookie 不写磁盘；owned Host 使用父进程单次票据，attached Host 需要显式令牌配对。loopback、Host 和 Origin 不再授予免登录权限，不向 Renderer 传递长期令牌。HTTPS 和 SSH 的远程令牌留在入口 Host 凭据存储，不返回 Renderer。SSH 令牌使用 `ssh-host:<稳定连接ID>` 键，与 `config/ssh-connections.json` 中的目标、名称、身份文件路径、启用状态和已确认 `hostId` 分开；身份文件只保存路径引用，不复制私钥。认证与远程代理规则见 [Remote](remote.md)。
 
 当前 Pi SDK 的 `ModelRuntime.create` 没有公开的认证环境注入参数。[model-runtime.ts](../packages/pi-runtime/src/sdk/model-runtime.ts) 是唯一依赖 SDK private shape 的认证隔离层：检查 `runtime.models.authContext` 后注入空环境和不可用文件检查，阻止隐式读取本机模型认证。守卫失败报错；升级 SDK 时需重新核对该守卫，并验证模型配置与认证隔离。会话、JSONL 与扩展仍使用公开 SDK。
 
@@ -178,92 +178,45 @@ Desktop 使用内存 Electron Session，认证 Cookie 不写磁盘；本机 Host
 
 ## macOS Desktop 命令环境
 
-Desktop 创建本机 Host 前，通过用户 Shell 的 `-lic` 读取 PATH，兼容 `.zprofile`、`.zshrc` 中的工具初始化。探测异步执行，最多 5 秒，成功与失败都在当前 Desktop 进程内缓存；超时回收探测进程及其后代。只读取 PATH，不导入 Shell 导出的其他变量。
+Desktop 创建本机 Host 不再执行登录 Shell、-lic 或用户 profile。PATH 使用启动父环境的绝对目录、固定系统/Homebrew目录和明确的固定 Node 目录；去重并排除相对路径，不自动扫描 nvm、cargo、pnpm 等用户目录，也不导入 profile 导出的其他变量。NODE_OPTIONS、NODE_PATH、BASH_ENV、ENV 不进入 owner 子进程。来源：[user-login-path.ts](../apps/desktop/src/main/user-login-path.ts)。
 
-PATH 按登录 Shell、启动时继承值、已存在的常用工具目录依次合并，保留首次出现的目录并删除空项和重复项。常用目录包括 Homebrew、`/usr/local/bin`、`~/.local/bin`、`~/.cargo/bin`、`~/Library/pnpm` 和已声明的 `PNPM_HOME`，不递归扫描版本目录。探测失败会记录一次原因，继续使用继承值和常用目录。
-
-Bash、会话 Worker、MCP 和项目终端继承本机 Host 的 PATH；MCP 显式配置的 `env.PATH` 仍优先。连接已有 Host 时不会重新探测或修改它的环境；独立 Server 和远程 Host 使用各自的启动环境。修改 Shell 配置后，需退出并重新启动拥有该 Host 的入口。
-
-命令返回 `command not found` 时，Agent 的内置提示要求先检查 `command -v`、PATH 和明确的安装位置；无法定位时说明缺失信息，不自动执行 `find /` 或遍历整个用户目录。这是工具定位指导，不是 Shell 命令拦截。
+从终端启动可以继承该终端已有 PATH；Finder 启动不会自动加载 .zprofile/.zshrc，自定义工具路径需在启动父环境明确提供。连接已有 Host 不重写它的环境；独立 Server 和远程 Host 使用各自环境。权限受限子进程另有环境白名单，不代表能读取 owner 的其他变量。命令不存在时先检查 command -v、PATH 和明确安装位置，不遍历整个用户目录。
 
 ## 权限与沙箱
 
-默认权限为 `workspace-write`，枚举与说明见 [agent-access.ts](../packages/contracts/src/agent-access.ts)。
+默认权限是 workspace-write。权限预设决定业务边界，不能代替平台执行能力、安装授权或一次操作的审批。完整授权、重放、模型 broker 和版本迁移见 [权限控制与版本迁移](permissions-and-migration.md)。
 
-| 模式              | 文件写入与执行边界                                               |
-| ----------------- | ---------------------------------------------------------------- |
-| `read-only`       | 允许读取和联网，拒绝修改业务文件；沙箱临时目录与必要设备仍可写   |
-| `workspace-write` | 允许修改当前工作区和会话临时目录，项目外写入被拒绝               |
-| `full-access`     | 允许项目外写入，普通任务可加载已选择且获准的可信 AppAgent 和 MCP |
+| 模式            | 业务文件边界                                                                      |
+| --------------- | --------------------------------------------------------------------------------- |
+| read-only       | 读取；拒绝业务写，私有 scratch 与 Host 专用计划产物另行处理                       |
+| workspace-write | 限真实工作区与 scratch，拒绝越界业务写                                            |
+| full-access     | 扩大业务写范围，仍保护 Host 私有根、凭据和固定运行时代码；不启用外部 trusted 插件 |
 
-三档权限只控制 Agent 的执行范围，仍受 Host 操作系统的文件授权限制。App 内的“完全权限”不会授予 macOS 的“完全磁盘访问权限”；开发态终端与 Finder 启动的应用也可能具有不同授权。系统提示与处理方法见[首次打开与目录授权的区别](getting-started.md#首次打开与目录授权的区别)。
+Plan 叠加只读硬顶；批准一次操作、子代理、codemode 或插件都不能将它提升为可写。Full 不授予 macOS 完全磁盘访问，系统权限仍独立校验。能力报告使用 enforced/unsupported/unknown，必要能力未兑现明确拒绝；核心设置、历史和连接不等待沙箱可用，不因后端失败放宽权限。
 
-```mermaid
-%%{init: {"theme": "dark"}}%%
-flowchart TD
-  Task["会话权限与任务模式"] --> Access{"是否受限权限"}
-  Access -->|是| Probe["验证内置权限与平台沙箱"]
-  Probe -->|通过| Plan{"是否规划模式"}
-  Probe -->|失败| Reject["拒绝受限任务并返回原因"]
-  Access -->|否| Plan
-  Plan -->|是| Read["只读工具、协作、提问与保存计划"]
-  Plan -->|否| Run["按会话权限与授权执行"]
-```
-
-macOS 使用 `sandbox-exec`，Linux/WSL2 使用 bubblewrap。Host 启动探测实际隔离能力，通过 `restrictedAccessSupported/restrictedAccessReason` 返回结果；受限 Worker 创建时还验证实际命令。内置权限、工厂或沙箱失效时拒绝受限执行，不自动授予完全权限。设置与历史仍可用。
-
-Windows 11 x64 本机 Host 使用 PSEC 执行受限命令、插件和 Agent 受管服务。实际能力探测失败时保留原因，不自动切换完全权限。
-
-路径校验与工具执行见 [access-sandbox.ts](../packages/pi-runtime/src/sdk/access-sandbox.ts)，平台选择见 [sandbox-platform.ts](../packages/host/src/sandbox-platform.ts)。Linux namespace、socket 与 WSL 互操作边界见下节。
-
-上表描述内置 Agent 工具的边界，不是 SDK 3 受限插件的读取和联网授权。规划模式拒绝业务写入和可信外部入口，但可使用获准的受限只读插件、只读沙箱命令和默认执行的 MCP 查询；codemode 的每个嵌套调用单独检查。子任务继承父级上限，并按自身真实目录、模式和权限构建执行环境。
+内置 typed 文件写使用同目录临时文件和原子替换，不原地改旧 inode；授权读取绑定 canonical path、dev/ino 与同一 FD。它们不能证明 Shell、rg 或任意脚本满足 Host 秘密隔离。当前 Unix host-secrets 仍为 unknown，要求该能力的任意执行即使 Full 也拒绝。源码见 [access-sandbox.ts](../packages/pi-runtime/src/sdk/access-sandbox.ts) 与 [执行能力契约](../packages/contracts/src/execution-capabilities.ts)。
 
 ### Windows 隔离
 
-原生程序通过微软 MXC SDK 1.0.1 调用 PSEC。最低系统更新为 Windows 11 24H2 的 26100.9278、25H2 的 26200.9278，其他版本见[微软支持表](https://github.com/microsoft/mxc/blob/main/docs/backends/process-container/os-version-support.md)。应用要求原生 `base-container`、路径拒绝与目录元数据枚举能力；不使用修改主机 ACL 的降级后端，也不创建专用账户。
+Windows core 启动不以 PSEC 成功为前提。PSEC 后端依赖微软 MXC SDK 1.0.1、原生 base-container、路径拒绝和目录枚举，不采用 ACL 或管理员服务降级。最低更新见 [微软支持表](https://github.com/microsoft/mxc/blob/main/docs/backends/process-container/os-version-support.md)。
 
-只读命令的可写范围只有会话临时目录；工作区写入额外开放真实项目目录。命令可读取项目、Windows、Program Files 和本次可执行文件的运行时目录；Host 凭据、代理和 Node 注入环境变量不传入子进程。命令允许外部网络出站，禁止入站和接入本机服务；需要本机端口的开发服务需显式选择完全权限。
+当前 PSEC 不能同时兑现 Full 广泛写与私有根拒绝，Full typed 执行明确返回 sandbox-unavailable，不能缩成工作区冒充 Full。只读、workspace-write 和插件也逐项核对实际能力及冲突根；探测通过不代表任意命令可用。缺项保持拒绝，不能通过选择完全权限绕过。
 
-原生启动器首次使用时按内容 SHA-256 复制到 `%LOCALAPPDATA%\Pi meme\windows-native\<hash>\pi-meme-windows.exe`，后续 Worker 继承固定副本。应用或构建产物位于项目内时，仍可使用工作区写入权限；正在执行的原生副本、应用数据和 Pi 配置目录不能包含在可写项目内。
-
-`node_modules/.pnpm` 和已安装依赖包目录设为只读，直接复用 pnpm 的共享文件，不扫描或复制其中每个文件。项目源码和 `node_modules/.vite` 等点号缓存目录仍可写。工作区包的 junction 不改为只读，目标仍按实际路径限制。
-
-其他位置的硬链接逐个核对：仍有名称位于写入白名单外的文件设为只读，所有名称都在白名单内的文件仍可写。命令运行期间保留共享文件和可写祖先目录的保护句柄，禁止通过改名或删除绕过只读规则；逐文件保护时，其他进程正写入共享文件会拒绝启动。命令及后代退出后释放句柄。连到显式受保护路径的硬链接仍拒绝启动。取消、超时、控制方退出和主进程结束均清理整个 Job。
-
-受限插件只读取固定 Node、插件目录、私有 scratch 与获准的工作区；原始网络、命名管道和派生进程被拒绝。Windows 工作区写入需同时授权 `workspace.read`；缺少该授权时拒绝启动，不扩大读取权限。协议使用标准输入输出，日志走 stderr，关闭或撤权等待进程树退出。实现见 [Windows 原生后端](../packages/windows-native/native/src/sandbox.rs) 与 [权限接线](../packages/pi-runtime/src/sdk/windows-sandbox.ts)。
+Node/native 固定路径、私有根、后代清理和调用取消来自 [windows-sandbox.ts](../packages/pi-runtime/src/sdk/windows-sandbox.ts) 与 [原生后端](../packages/windows-native/native/src/sandbox.rs)。Windows 本轮没有真实执行、ZIP、安装或最终产物验收；不能写为已支持全链路。Node 24、ZIP 分发与 native 构建约束仍见 [发布](releasing.md)。
 
 ### Linux 与 WSL 隔离
 
-内置受限工具通过 `/usr/bin/bwrap` 执行，文件写入另有路径校验。根文件系统只读，`workspace-write` 只开放真实工作区和会话临时目录；Host 数据位于项目内时再次挂为只读。无项目会话的工作区为 `workspaces/standalone/<id>`。根目录、用户主目录、Pi 配置与系统临时目录不能整体授权，符号链接不能扩大写入范围。
+Linux/WSL 使用 bubblewrap、namespace 与 seccomp。只读和工作区写分别收窄挂载；Full 扩大业务可写根，仍保留 Host 私有与 runtime 只读覆盖，不沿用无沙箱执行。Plan 禁止直接网络。Unix socket、硬链接、环境、网络与进程树能力分开报告；某一项可用不能替代其他必要项。macOS 完整进程树仍存在 unknown，Unix hardlink-write-boundary 存在 unsupported。
 
-Linux 隔离 user、mount、PID 和 IPC namespace，保留 TCP/UDP 网络与 DNS；seccomp 拒绝 Unix socket，包括 abstract socket。x64 同时处理 i386 ABI，拒绝 x32 与 io_uring 绕过；arm64 拒绝未知兼容 ABI。未知 CPU 架构不能启用受限权限。公共 `/tmp`、`/var/tmp` 和 `/run` 不提供额外可写空间，`TMPDIR` 指向会话临时目录；调用 `setsid` 的后代仍受 PID namespace 清理约束。这不提供秘密文件读取隔离或网络访问控制。
-
-WSL 按实际 mountinfo 识别 Windows 驱动器，拒绝用作受限工作区，不把所有 `/mnt` 路径视为 Windows 盘。沙箱隐藏驱动器、`/init`、`/run/WSL` 和 WSLg，清除互操作变量和 Windows PATH，不继承额外文件描述符；复制 exe 到 Linux 工作区也不能通过 Windows 互操作执行。完全权限沿用普通执行方式。
-
-Ubuntu 的 AppArmor 或内核策略可能限制 user namespace。应用不关闭 AppArmor、不修改 sysctl；依赖或探测失败时查看 `restrictedAccessReason`，修复后重启 Host，不自动退回完全权限。安装要求见[Linux 与 WSL 环境](getting-started.md#linux-与-wsl-环境)，源码见 [linux-sandbox.ts](../packages/pi-runtime/src/sdk/linux-sandbox.ts)。
+WSL Windows 驱动器、互操作入口与变量继续受限制，不能通过复制 exe 绕过。系统策略不允许 namespace 时明确报告，应用不关闭 AppArmor 或修改 sysctl。安装前提见 [Linux 与 WSL 环境](getting-started.md#linux-与-wsl-环境)，实际边界见 [linux-sandbox.ts](../packages/pi-runtime/src/sdk/linux-sandbox.ts)。
 
 ### 插件执行与授权
 
-SDK 3 将 `agent/server` 分为 `trusted` 与 `restricted`。可信 Server 是 Host Node 代码，可信 Agent 在会话 Worker 中执行，UI 是宿主同源 React；三者分别取得信任授权，不能把它们称为恶意代码沙箱。受限入口运行真正 JS/TS 构建产物，使用独立进程、固定 Node 与 OS 沙箱，不通过 VM 或线程模拟隔离。
+外部 App SDK 4 的 Agent/Server 仅 restricted，UI 仅声明式 JSON。内置模块版本 3 不受这个外部版本号替换。旧 trusted Server/Agent、宿主同源 React UI 与同进程 requires/provides 不再执行；旧代码需重建并重新授权，纯资源迁移按 manifest 解析器执行。见 [App 插件开发](plugins.md)。
 
-| 任务边界             | 受限入口                         | 工作区                  | 网络与共享数据                          | 可信入口             |
-| -------------------- | -------------------------------- | ----------------------- | --------------------------------------- | -------------------- |
-| Plan                 | 获准的只读工具与 handler         | 只读，私有 scratch 例外 | 共享记录只读；HTTPS 仅单独授权 GET/HEAD | 不导入               |
-| 普通 read-only       | 获准的受限能力                   | 只读，scratch 例外      | 按 origin/method 和记录名授权           | 不导入               |
-| 普通 workspace-write | 不超过 manifest 与 grant 上限    | 仅获准工作区可写        | 按授权                                  | 不导入               |
-| 普通 full-access     | restricted-only 仍按受限上限运行 | 最多获准工作区          | 受限入口仍走 broker                     | 仅明确授权的可信入口 |
+有效能力取 manifest、用户 grant、项目策略、任务 mode/access、父级委派和真实后端的交集。受限代码在独立进程运行，不能退回 Host、VM 或线程模拟隔离。Plan/read-only 只允许获准只读操作，scratch 不代表业务文件可写。原始网络禁止，HTTPS 走精确 origin/method broker；插件 credentialRef 不引用 Host、模型或 MCP 密钥。
 
-有效能力取 manifest 申请、用户 grant、项目可用策略、任务 mode/access 与实际运行边界的交集。安装、启用和会话选择不自动授予能力。工具 `effect/capabilities` 是分派检查，不替代 OS 拒写；同一个可写进程内的 read 标签也不提供逐工具 OS 隔离。
-
-[state/plugins.json（原 installed.json）管理](../packages/plugin-runtime/src/manager.ts) 保存 policyHash、grant revision 与可信入口、UI 能力、受限访问、网络、命名共享数据、发送前处理器的授权。代码或申请变化后旧授权不匹配；SDK 2 记录保留为不兼容，不执行旧入口、不删除私有数据。读取损坏文件时保留原文件并报告，不默认扩大授权。
-
-受限启动器见 [plugin-sandbox.ts](../packages/host/src/plugin-sandbox.ts)，协议与生命周期见 [restricted-runner.ts](../packages/plugin-runtime/src/restricted-runner.ts)。Linux 使用 bubblewrap 的 user/pid/ipc/net namespace 与 seccomp；工作区按权限只读或可写，环境使用白名单，不继承模型 key、代理、SSH socket 或 Node 注入变量。macOS 使用单独的 deny-by-default profile；Windows 使用上节的 PSEC 后端，WSL Windows 盘工作区拒绝受限插件。不能把 Host 数据根或其私有目录直接授权为插件工作区，Host 管理的 standalone 精确工作目录除外；路径别名先解析 realpath。平台缺少必要能力时拒绝执行，不降级为无沙箱。macOS 签名后 Node/JIT 与沙箱行为需在真实目标产物单独验收，Linux 检查不能代表 macOS 已通过。
-
-独立插件能力探测见 [plugin-sandbox-probe.ts](../packages/host/src/plugin-sandbox-probe.ts)，结果通过连接的 `restrictedPluginRuntimeSupported/restrictedPluginRuntimeReason` 提供，不能用旧 `restrictedAccessSupported` 的 bash 检查代替。探测运行 Node 并检查工作区读写、边界秘密、TCP/Unix socket、子进程与环境白名单；它不代替真实插件协议、取消和目标产物的专项测试。开发态 Node 准备命令见 [受限 Node 运行时](plugins.md#受限-node-运行时)。
-
-原始网络与本机 Host 通道不属于受限接口。HTTPS 走 Host broker，精确校验 origin、method、DNS 地址与重定向；默认不联网、不继承 Cookie、代理或模型认证。插件凭据使用自身 credentialRef，由 Host 注入，不把明文交给 runner。命名共享数据仅包含可信 Server 显式发布并获准读取的 JSON，不自动共享 plugin-data 目录。GET/HEAD 不能保证远端服务没有副作用。
-
-撤销或收窄受限授权需要取消旧调用并重建进程，不能只更新 JS policy。可信代码已发生的外部副作用不能靠撤权回滚；怀疑恶意代码时停用并重启 Host。工作区内用户主动放入的秘密或硬链接、强 CPU/RSS 配额、OS 内核漏洞防护不属于此沙箱保证。更多 API 见 [App 插件](plugins.md)。
+撤销阻止新准入并取消受影响执行；取消和断线不保证外部效果回滚，结果不明保留 outcome-unknown。平台探测与代码说明均不能代替真实插件、取消和目标产物验收。来源：[plugin-sandbox.ts](../packages/host/src/plugin-sandbox.ts)、[restricted-runner.ts](../packages/plugin-runtime/src/restricted-runner.ts)、[plugin-sandbox-probe.ts](../packages/host/src/plugin-sandbox-probe.ts)。
 
 ## 键盘快捷键
 

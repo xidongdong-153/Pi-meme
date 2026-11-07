@@ -5,7 +5,7 @@ import { realpath } from 'node:fs/promises'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
 import type { Readable, Writable } from 'node:stream'
-import type { JsonValue } from '@pi-meme/plugin-sdk/rpc'
+import { pluginRuntimeProtocolVersion, type JsonValue } from '@pi-meme/plugin-sdk/rpc'
 import { checkedJson } from './operation'
 import type { RestrictedRegistration } from '@pi-meme/contracts/plugin-call'
 import {
@@ -42,6 +42,7 @@ export class RestrictedRunner extends EventEmitter {
   >()
   private scopes = new Map<string, AbortSignal>()
   private brokerCalls = new Map<string, { scope: string; controller: AbortController }>()
+  private brokers = new Set<Promise<void>>()
   private incoming = Buffer.alloc(0)
   private closing?: Promise<void>
   private ready?: Promise<RestrictedRegistration>
@@ -147,6 +148,8 @@ export class RestrictedRunner extends EventEmitter {
           if (size > 4 * 1024 * 1024 || size === 0) throw new Error('payload-too-large: 受限响应超过限制')
           if (this.incoming.length < size + 4) break
           const message = JSON.parse(this.incoming.subarray(4, 4 + size).toString())
+          if (message?.protocol !== pluginRuntimeProtocolVersion)
+            throw new Error('unsupported-protocol: 插件执行协议需要升级至 2')
           this.incoming = this.incoming.subarray(4 + size)
           if (message.type === 'broker') {
             if (
@@ -158,10 +161,14 @@ export class RestrictedRunner extends EventEmitter {
               message.method.length > 64
             )
               throw new Error('invalid-output: broker 信封无效')
-            void this.broker(message).catch((cause: unknown) => {
-              fail(cause instanceof Error ? cause : new Error(String(cause)))
-              void this.close()
-            })
+            const task = this.broker(message)
+            this.brokers.add(task)
+            void task
+              .catch((cause: unknown) => {
+                fail(cause instanceof Error ? cause : new Error(String(cause)))
+                void this.close()
+              })
+              .finally(() => this.brokers.delete(task))
             continue
           }
           if (message.type === 'brokerCancel') {
@@ -215,8 +222,8 @@ export class RestrictedRunner extends EventEmitter {
       controller.abort()
     }
   }
-  private send(value: unknown) {
-    const body = Buffer.from(JSON.stringify(value))
+  private send(value: Record<string, unknown>) {
+    const body = Buffer.from(JSON.stringify({ ...value, protocol: pluginRuntimeProtocolVersion }))
     if (body.length > 4 * 1024 * 1024) throw new Error('payload-too-large: 插件协议超过限制')
     const header = Buffer.alloc(4)
     header.writeUInt32BE(body.length)
@@ -256,25 +263,28 @@ export class RestrictedRunner extends EventEmitter {
   }
   close() {
     this.closed = true
+    for (const call of this.brokerCalls.values()) call.controller.abort()
     this.closing ??= (async () => {
-      if (this.starting && !this.child) {
-        const native = await this.starting.catch(() => undefined)
-        await native?.stop()
-      }
-      const child = this.child
-      if (!child) return
-      if (child instanceof WindowsCommandProcess) {
-        await child.native.stop()
-        return
-      }
-      await new Promise<void>((resolve) => {
-        child.once('close', () => resolve())
-        try {
-          if (child.pid) process.kill(-child.pid, 'SIGKILL')
-        } catch {
-          child.kill('SIGKILL')
+      try {
+        if (this.starting && !this.child) {
+          const native = await this.starting.catch(() => undefined)
+          await native?.stop()
         }
-      })
+        const child = this.child
+        if (child instanceof WindowsCommandProcess) await child.native.stop()
+        else if (child)
+          await new Promise<void>((resolve) => {
+            child.once('close', () => resolve())
+            try {
+              if (child.pid) process.kill(-child.pid, 'SIGKILL')
+            } catch {
+              child.kill('SIGKILL')
+            }
+          })
+      } finally {
+        // 租约不能早于并发 broker 请求的取消/结算结束。
+        await Promise.allSettled([...this.brokers])
+      }
     })()
     return this.closing
   }

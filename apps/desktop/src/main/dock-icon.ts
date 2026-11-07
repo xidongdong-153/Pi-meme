@@ -11,7 +11,9 @@ export function syncDockIcon() {
   if (process.platform !== 'darwin' || !app.dock) return
   const directory = app.isPackaged
     ? path.join(process.resourcesPath, 'dock')
-    : path.resolve(app.getAppPath(), '../../packages/assets/files/desktop/dock')
+    : process.env.PI_MEME_RUNTIME_SNAPSHOT
+      ? path.join(process.env.PI_MEME_RUNTIME_SNAPSHOT, 'assets/dock')
+      : path.resolve(app.getAppPath(), '../../packages/assets/files/desktop/dock')
   const appearance = nativeTheme.shouldUseDarkColors ? 'dark' : 'light'
   app.dock.setIcon(nativeImage.createFromPath(path.join(directory, files[appearance])))
 }

@@ -4,6 +4,13 @@ import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { stripVTControlCharacters } from 'node:util'
 import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
+import type { AuthorizationScope } from '@pi-meme/contracts/authorization'
+import type { TaskMode } from '@pi-meme/contracts/plan'
+import {
+  assertExecutionRequirements,
+  type ExecutionCapability,
+  type ExecutionCapabilityReport,
+} from '@pi-meme/contracts/execution-capabilities'
 import type { SessionRef } from '@pi-meme/contracts/app-host'
 import type { AgentRunRef } from '@pi-meme/contracts/collaboration'
 import {
@@ -12,20 +19,24 @@ import {
   type ServiceActivityList,
   type ServiceActivityLogs,
 } from '@pi-meme/contracts/service-activity'
-import { AccessSandbox, pathWithin } from '@pi-meme/pi-runtime/sdk/access-sandbox'
-import { shellCommand } from '@pi-meme/pi-runtime/sdk/command-shell'
 import {
-  serviceProcessEnvironment,
-  spawnManagedProcess,
-  type ManagedProcess,
-  type ManagedProcessExit,
-} from '@pi-meme/pi-runtime/sdk/managed-process'
+  AccessSandbox,
+  executionCapabilityReport,
+  pathWithin,
+  type AccessSandboxOperations,
+} from '@pi-meme/pi-runtime/sdk/access-sandbox'
+import { shellCommand } from '@pi-meme/pi-runtime/sdk/command-shell'
+import type { ManagedProcess, ManagedProcessExit } from '@pi-meme/pi-runtime/sdk/managed-process'
 
 export type ActivityCaller = {
   session: SessionRef
   cwd: string
   agentDir: string
   accessMode: AgentAccessMode
+  mode?: TaskMode
+  policyRevision?: string
+  /** Host closure over the real runtime actor, checked again at the spawn boundary. */
+  assertCurrent?: () => void | Promise<void>
   sourceAgentId?: string
   sourceRun?: AgentRunRef
   sourceName: string
@@ -42,6 +53,10 @@ type ActivityRecord = {
   completed?: Promise<void>
   logTimer?: ReturnType<typeof setTimeout>
   timeoutTimer?: ReturnType<typeof setTimeout>
+  controller: AbortController
+  abortCleanup?: () => void
+  scope?: AuthorizationScope
+  sandbox?: AccessSandboxOperations
 }
 type Options = {
   hostId: string
@@ -51,6 +66,22 @@ type Options = {
 }
 const logLimit = 256 * 1024
 const endedLimit = 64
+const serviceRequirements: readonly ExecutionCapability[] = [
+  'host-secrets',
+  'process-tree',
+  'environment-isolation',
+  'filesystem-write-boundary',
+]
+type ActivityExecutionBackend = {
+  capability: () => ExecutionCapabilityReport
+  create: (input: {
+    caller: ActivityCaller
+    workspace: string
+    temporary: string
+    signal: AbortSignal
+    requirements: readonly ExecutionCapability[]
+  }) => Promise<AccessSandboxOperations>
+}
 
 function text(value: unknown, label: string, limit: number): asserts value is string {
   if (typeof value !== 'string' || !value.trim() || value.length > limit || value.includes('\0'))
@@ -63,6 +94,18 @@ export class ActivityService {
   private readonly requests = new Map<string, { serviceId: string; input: string }>()
   private revision = 0
   private closing = false
+  private executionBackend?: ActivityExecutionBackend
+  private scopeResolver?: (ref: SessionRef) => Promise<AuthorizationScope>
+
+  /** Host-installed backend; Full must be implemented explicitly, never by an unconfined fallback. */
+  setExecutionBackend(backend: ActivityExecutionBackend) {
+    this.assertIdle()
+    this.executionBackend = backend
+  }
+
+  setScopeResolver(resolve: (ref: SessionRef) => Promise<AuthorizationScope>) {
+    this.scopeResolver = resolve
+  }
 
   constructor(private readonly options: Options) {}
 
@@ -95,6 +138,10 @@ export class ActivityService {
   start(caller: ActivityCaller, input: StartInput, signal?: AbortSignal): Promise<ServiceActivity> {
     if (this.closing) return Promise.reject(new Error('活动服务已关闭'))
     this.checkRef(caller.session)
+    if (caller.mode === 'plan' || caller.accessMode === 'read-only')
+      return Promise.reject(new Error('规划或只读权限不能启动长期服务'))
+    if (!caller.policyRevision || !caller.assertCurrent)
+      return Promise.reject(new Error('服务启动缺少当前运行授权版本，命令未启动'))
     if (!['darwin', 'linux', 'win32'].includes(process.platform))
       return Promise.reject(new Error(`当前平台不支持受管服务：${process.platform}`))
     text(input.name, '服务名称', 120)
@@ -140,17 +187,41 @@ export class ActivityService {
       urls: [],
       revision: 0,
     }
-    const record: ActivityRecord = { activity, output: Buffer.alloc(0), sequence: 0, truncated: false }
+    const record: ActivityRecord = {
+      activity,
+      output: Buffer.alloc(0),
+      sequence: 0,
+      truncated: false,
+      controller: new AbortController(),
+    }
     this.records.set(activity.serviceId, record)
     this.requests.set(identity, { serviceId: activity.serviceId, input: serialized })
     this.change(record)
-    record.starting = this.launch(record, caller, signal)
+    const activeSignal = signal ? AbortSignal.any([signal, record.controller.signal]) : record.controller.signal
+    const cancel = () => {
+      void this.stop(caller.session, activity.serviceId, '运行授权已取消').catch((cause) => {
+        activity.lastError = String(cause)
+        this.change(record)
+      })
+    }
+    activeSignal.addEventListener('abort', cancel, { once: true })
+    record.abortCleanup = () => activeSignal.removeEventListener('abort', cancel)
+    record.starting = this.launch(record, caller, activeSignal)
     return record.starting
   }
 
   private async launch(record: ActivityRecord, caller: ActivityCaller, signal?: AbortSignal) {
     const activity = record.activity
     try {
+      await caller.assertCurrent!()
+      record.scope = this.scopeResolver
+        ? await this.scopeResolver(caller.session)
+        : { hostId: caller.session.hostId, sessionId: caller.session.sessionId }
+      if (
+        record.scope.hostId !== this.options.hostId ||
+        (record.scope.sessionId && record.scope.sessionId !== caller.session.sessionId)
+      )
+        throw new Error('活动授权范围不匹配')
       const [workspace, cwd] = await Promise.all([realpath(caller.cwd), realpath(activity.cwd)])
       if (caller.accessMode !== 'full-access' && !pathWithin(workspace, cwd))
         throw new Error('当前权限不允许在工作区外启动服务')
@@ -158,34 +229,35 @@ export class ActivityService {
       record.temporary = await realpath(await mkdtemp(path.join(tmpdir(), 'pi-activity-')))
       const onData = (chunk: Buffer) => this.output(record, chunk)
       const command = await shellCommand(activity.command)
-      const child =
-        caller.accessMode === 'full-access'
-          ? () =>
-              spawnManagedProcess(command.executable, command.args, {
-                cwd,
-                env: serviceProcessEnvironment({
-                  TMPDIR: record.temporary,
-                  TEMP: record.temporary,
-                  TMP: record.temporary,
-                }),
-                onData,
-              })
-          : await AccessSandbox.create({
-              mode: caller.accessMode,
-              cwd: workspace,
-              temporary: record.temporary,
-              agentDir: caller.agentDir,
-              dataRoot: this.options.dataRoot,
-            }).then(
-              (sandbox) => () =>
-                sandbox.startManaged(command.executable, command.args, {
-                  cwd,
-                  env: { TMPDIR: record.temporary, TEMP: record.temporary, TMP: record.temporary },
-                  onData,
-                }),
-            )
+      const report = this.executionBackend?.capability() ?? executionCapabilityReport()
+      assertExecutionRequirements(report, serviceRequirements)
+      await caller.assertCurrent!()
+      if (!this.executionBackend && caller.accessMode === 'full-access')
+        throw new Error('sandbox-unavailable: 当前后端不能同时兑现 Full 文件范围与 Host 凭据保护，服务命令未启动')
+      record.sandbox = this.executionBackend
+        ? await this.executionBackend.create({
+            caller,
+            workspace,
+            temporary: record.temporary,
+            signal: signal!,
+            requirements: serviceRequirements,
+          })
+        : await AccessSandbox.create({
+            mode: caller.accessMode as Exclude<AgentAccessMode, 'full-access'>,
+            cwd: workspace,
+            temporary: record.temporary,
+            agentDir: caller.agentDir,
+            dataRoot: this.options.dataRoot,
+            requirements: serviceRequirements,
+            signal,
+          })
+      await caller.assertCurrent!()
       if (signal?.aborted || this.closing || activity.status === 'stopping') throw new Error('服务启动已取消')
-      record.child = await child()
+      record.child = await record.sandbox.startManaged(command.executable, command.args, {
+        cwd,
+        env: { TMPDIR: record.temporary, TEMP: record.temporary, TMP: record.temporary },
+        onData,
+      })
       record.completed = record.child.completion.then(
         (result) => this.finish(record, result),
         (cause) => {
@@ -196,13 +268,20 @@ export class ActivityService {
         },
       )
       void record.completed.catch(() => {})
-      if (signal?.aborted || this.closing || record.activity.stopReason) {
+      try {
+        await caller.assertCurrent!()
+      } catch (cause) {
+        record.activity.stopReason = '服务启动期间授权已变化'
+        record.controller.abort(cause)
+      }
+      if (signal?.aborted || this.closing || record.activity.stopReason || record.activity.status === 'stopping') {
         activity.stopReason = '启动取消'
         const result = await record.child.stop()
         await record.completed.catch(() => {})
         if (isLiveServiceActivity(activity)) await this.finish(record, result)
         throw new Error('服务启动已取消')
       }
+      if (activity.endedAt) return structuredClone(activity)
       activity.status = 'running'
       if (activity.timeout !== undefined) {
         record.timeoutTimer = setTimeout(() => {
@@ -221,6 +300,8 @@ export class ActivityService {
         if (activity.status === 'stopped') activity.stopReason ??= '启动取消'
         else activity.lastError = String(cause)
         activity.endedAt = new Date().toISOString()
+        record.abortCleanup?.()
+        await record.sandbox?.stopAll()
         await this.cleanTemporary(record)
         this.change(record)
         this.prune()
@@ -238,6 +319,7 @@ export class ActivityService {
     activity.signal = result.signal ?? undefined
     activity.status = activity.stopReason ? 'stopped' : result.exitCode === 0 ? 'exited' : 'failed'
     activity.endedAt = new Date().toISOString()
+    record.abortCleanup?.()
     activity.lastError = undefined
     clearTimeout(record.logTimer)
     clearTimeout(record.timeoutTimer)
@@ -325,6 +407,24 @@ export class ActivityService {
       }
     }
     return structuredClone(record.activity)
+  }
+
+  /** Revoke without disposing the service; restoring authority never restarts a command. */
+  async revokeAuthorization(scope: AuthorizationScope) {
+    if (scope.hostId !== this.options.hostId) throw new Error('撤权目标服务不匹配')
+    const targets = [...this.records.values()].filter(
+      (record) =>
+        isLiveServiceActivity(record.activity) &&
+        (!scope.sessionId || scope.sessionId === record.activity.sessionId) &&
+        (!scope.projectId || !record.scope?.projectId || scope.projectId === record.scope.projectId) &&
+        (!scope.clientId || !record.scope?.clientId || scope.clientId === record.scope.clientId),
+    )
+    for (const record of targets) record.controller.abort(new Error('授权已撤销'))
+    const results = await Promise.allSettled(
+      targets.map((record) => this.stop(record.activity, record.activity.serviceId, '授权已撤销')),
+    )
+    const failed = results.find((result) => result.status === 'rejected')
+    if (failed?.status === 'rejected') throw failed.reason
   }
 
   async stopRun(run: AgentRunRef) {

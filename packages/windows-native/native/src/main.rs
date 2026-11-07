@@ -1,3 +1,4 @@
+mod controlled_read;
 mod editors;
 mod fonts;
 mod process;
@@ -8,6 +9,7 @@ fn main() {
         windows_sys::Win32::System::Diagnostics::Debug::SetErrorMode(0x8003);
     }
     let result = match std::env::args().nth(1).as_deref() {
+        Some("controlled-read") => controlled_read::run(),
         Some("fonts") => fonts::list().map_err(|error| std::io::Error::other(error.to_string())),
         Some("editor-roots") => editors::list(),
         Some("sandbox-probe") => sandbox::probe(),

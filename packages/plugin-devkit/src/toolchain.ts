@@ -126,7 +126,7 @@ async function prepareToolchain() {
     })
     await writeFile(
       path.join(staging, 'toolchain.json'),
-      `${JSON.stringify({ sdkVersion: 3, platform: process.platform, arch: process.arch, node: '22.19.0' }, null, 2)}\n`,
+      `${JSON.stringify({ sdkVersion: 4, platform: process.platform, arch: process.arch, node: '22.19.0' }, null, 2)}\n`,
     )
     try {
       await rename(staging, output)

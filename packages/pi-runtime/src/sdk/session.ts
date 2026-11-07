@@ -27,6 +27,8 @@ import type {
   CreateAgentSessionRuntimeFactory,
   InlineExtension,
   ExtensionAPI,
+  ExtensionFactory,
+  ToolDefinition,
   RpcSessionState,
   SessionEntry,
 } from '@earendil-works/pi-coding-agent'
@@ -46,7 +48,7 @@ import {
   type TaskMode,
   type EditMessageOptions,
 } from '@pi-meme/contracts/plan'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { createPlanGuard } from '../extensions/plan-mode'
 import type { ToolExecutionSettings } from '@pi-meme/contracts/settings'
 import type { SkillReference, SkillUsage } from '@pi-meme/contracts/skills'
@@ -69,7 +71,6 @@ import { projectBranchEntries } from '../session-tree-entries'
 import { projectBranchAttachments } from '../session-attachments'
 import { createAgentAccessExtension } from '../extensions/agent-access'
 import { windowsShellDescription } from './command-shell'
-import { createTurnChangesExtension } from '../extensions/turn-changes'
 import { expandSkills } from '../skill-prompt'
 import { toResourceSkillCommand } from '../skill-command'
 import { branchSkillUsages, createSkillUsageExtension, skillUsageEntry } from '../extensions/skill-usage'
@@ -87,6 +88,17 @@ import { GenerationMetricsTracker } from './generation-metrics'
 import { findSessionRecovery, recoveryEntryType, recoveryMessage } from './recovery'
 import { loadPiSdk, type PiSdk } from './load'
 import { createDesktopModelRuntime, projectModel } from './model-runtime'
+import { createBrokeredModelRuntime } from './model-broker-runtime'
+import type { ModelBrokerTransport } from './model-broker-protocol'
+import {
+  createAuthorizedReadToolDefinition,
+  type AuthorizedFileRead,
+  type AuthorizedFileReadBackend,
+} from './authorized-file-read'
+import { readControlledFile } from './controlled-file-read'
+import type { AuthorizedFileMutation } from '@pi-meme/contracts/authorization'
+import { createAuthorizedFileMutationResolver } from './authorized-file-mutation'
+import { lazyAccessSandbox, scopedAccessSandbox } from './lazy-access-sandbox'
 import { contextCaptureOptions, type ContextObserverState } from './context-observer'
 import { createDesktopSettingsManager } from './settings'
 import { readDesktopAgentContextFiles } from './context-files'
@@ -127,6 +139,17 @@ function toModel(model: SessionModel | undefined): PiModel | undefined {
  * 替换后通过 `setRebindSession` 重新订阅事件并绑定扩展。
  */
 export type RuntimePolicy = {
+  authorizeTool?: (
+    request: import('@pi-meme/contracts/system-tools').AgentToolAuthorizationRequest,
+    signal?: AbortSignal,
+  ) => Promise<import('@pi-meme/contracts/system-tools').AgentToolAuthorizationReply>
+  modelBroker?: ModelBrokerTransport
+  protectedRoots?: string[]
+  readOnlyRoots?: string[]
+  readableRoots?: string[]
+  fileReadRoots?: string[]
+  fixedRuntime?: { nodePath: string; nativePath?: string }
+  onExecutionBoundary?: (reason: string, paused: boolean) => Promise<void>
   onContextCapture?: (event: ContextRuntimeCapture) => void
   recordTurnChange?: (change: import('../turn-change-store').FileChangeRecord) => Promise<string>
   readVisualization?: (reference: VisualizationRef) => Promise<VisualizationDocument>
@@ -198,6 +221,9 @@ export class SdkSession {
   private queuePaused = false
   private pauseRevision = 0
   private pauseControlApplied = true
+  private pauseDrain?: Promise<void>
+  private pauseInterrupted = false
+  private pauseInterruptedSignal?: AbortSignal
   private pauseIntervals: PiPauseInterval[] = []
   private runIntervals: PiRunInterval[] = []
   private readonly generationMetrics = new GenerationMetricsTracker()
@@ -234,13 +260,29 @@ export class SdkSession {
     return this.planReference
   }
   getPlanSandbox() {
-    if (this.runtimeMode !== 'plan' || !this.sandbox) throw new Error('规划模式只读沙箱不可用')
-    return this.sandbox
+    if (this.runtimeMode !== 'plan') throw new Error('规划模式只读沙箱不可用')
+    return this.getExecutionSandbox()
   }
+  getExecutionSandbox() {
+    if (this.paused || !this.mcpSandbox) throw new Error('sandbox-unavailable: MCP 只读执行器不可用')
+    this.executionAbort.signal.throwIfAborted()
+    if (
+      !this.scopedExecutionSandbox ||
+      this.scopedExecutionSandbox.signal !== this.executionAbort.signal ||
+      this.scopedExecutionSandbox.value.stopped
+    )
+      this.scopedExecutionSandbox = {
+        signal: this.executionAbort.signal,
+        value: scopedAccessSandbox(this.mcpSandbox, this.executionAbort.signal),
+      }
+    return this.scopedExecutionSandbox.value
+  }
+  private scopedExecutionSandbox?: { signal: AbortSignal; value: ReturnType<typeof scopedAccessSandbox> }
   private ownQueue: { steering: QueuedInput[]; followUp: QueuedInput[] } = { steering: [], followUp: [] }
   private delivering?: { kind: 'steering' | 'followUp'; input: QueuedInput }
   private nativeQueue: { steering: QueuedInput[]; followUp: QueuedInput[] } = { steering: [], followUp: [] }
   private queueCancelled = false
+  private executionAbort = new AbortController()
   private stopped = false
   private admission?: AbortController
   private pendingDeliveries = new Set<string>()
@@ -267,7 +309,27 @@ export class SdkSession {
   private stopping: Promise<void> = Promise.resolve()
   private unsubscribe: (() => void) | null = null
   private bridge: ExtensionUiBridge | null = null
+  private readonly readAuthorizedFile: AuthorizedFileReadBackend = (authorization, signal) =>
+    readControlledFile({
+      canonicalPath: authorization.canonicalPath,
+      expected: { dev: authorization.dev, ino: authorization.ino },
+      protectedRoots: this.policy.protectedRoots ?? [],
+      readableRoots: this.policy.fileReadRoots ?? this.policy.readableRoots,
+      fixedNode: this.policy.fixedRuntime ? { executable: this.policy.fixedRuntime.nodePath } : undefined,
+      native: this.policy.fixedRuntime?.nativePath ? { executable: this.policy.fixedRuntime.nativePath } : undefined,
+      maxBytes: 64 * 1024 * 1024,
+      signal,
+    })
   private sandbox: AccessSandboxOperations | null = null
+  private mcpSandbox: AccessSandboxOperations | null = null
+  private fileSandbox: AccessSandboxOperations | null = null
+  private readonly authorizedFileReads = new Map<string, AuthorizedFileRead>()
+  private readonly fileMutationApprovals = new Map<string, AuthorizedFileMutation>()
+  private readonly mcpExecutions = new Map<string, unknown>()
+  private readonly toolExecutions = new Map<string, unknown>()
+  registerMcpTool(tool: ToolDefinition) {
+    this.mcpExecutions.set(tool.name, tool.execute)
+  }
   private accessTemporary: string | null = null
   private inlineExtensions: InlineExtension[] = []
   private capabilities: ToolExecutionSettings = { codemodeEnabled: false, mcpEnabled: false }
@@ -393,6 +455,9 @@ export class SdkSession {
       this.admission = admission
     }
     this.queueCancelled = false
+    this.pauseInterruptedSignal = undefined
+    this.executionAbort.abort()
+    this.executionAbort = new AbortController()
     this.cwd = cwd
     this.cachedModels = null
     this.cachedCommands = null
@@ -410,6 +475,11 @@ export class SdkSession {
       await this.createRuntime(sessionFile, seq)
       if (generation !== this.generation || seq !== this.startSeq) return
       this.status = 'ready'
+      await this.policy.onExecutionBoundary?.(
+        this.paused ? 'pause' : this.executionAbort.signal.aborted ? 'abort' : 'resume',
+        this.paused,
+      )
+      if (generation !== this.generation || seq !== this.startSeq) return
       this.sessionFile = this.runtime?.session.sessionFile ?? sessionFile
       this.sessionId = this.runtime?.session.sessionId
       this.notify.connection(this.connection())
@@ -488,26 +558,83 @@ export class SdkSession {
     const plan = runtimeMode === 'plan'
     const executionAccess = plan ? 'read-only' : this.accessMode
     this.policy.planTools?.clear()
+    this.mcpExecutions.clear()
+    this.toolExecutions.clear()
     this.runtimeMode = runtimeMode
     const sdk = (this.sdk ??= await loadPiSdk())
     this.piVersion = sdk.VERSION
-    if (executionAccess !== 'full-access') {
-      if (this.policy.requireRestrictedPolicy && (!this.policy.createSandbox || !this.policy.createAccessExtension))
-        throw new Error('受限权限插件或沙箱不可用，执行已拒绝')
-      this.accessTemporary = await mkdtemp(path.join(tmpdir(), 'pi-desktop-access-'))
-      try {
-        this.sandbox = await (this.policy.createSandbox ?? AccessSandbox.create)({
-          mode: executionAccess,
-          cwd: this.cwd,
-          temporary: this.accessTemporary,
-          agentDir: this.paths.agentDir,
-          dataRoot: this.paths.dataRoot,
-        })
-      } catch (cause) {
-        await this.discardAccessTemporary()
-        throw new Error(`受限权限无法启用：${String(cause)}`)
-      }
-    }
+    this.accessTemporary = await mkdtemp(path.join(tmpdir(), 'pi-desktop-access-'))
+    this.sandbox = lazyAccessSandbox(
+      {
+        mode: executionAccess,
+        taskMode: runtimeMode,
+        network: 'deny',
+        cwd: this.cwd,
+        temporary: this.accessTemporary,
+        agentDir: this.paths.agentDir,
+        nodePath: this.policy.fixedRuntime?.nodePath,
+        dataRoot: this.paths.dataRoot,
+        protectedRoots: this.policy.protectedRoots,
+        readOnlyRoots: this.policy.readOnlyRoots,
+        readableRoots: this.policy.readableRoots,
+      },
+      async (options) => {
+        if (this.policy.requireRestrictedPolicy && !this.policy.createSandbox)
+          throw new Error('sandbox-unavailable: Host 未提供执行器')
+        return (this.policy.createSandbox ?? AccessSandbox.create)(options)
+      },
+      () => !this.paused && !this.executionAbort.signal.aborted,
+    )
+    this.mcpSandbox = lazyAccessSandbox(
+      {
+        mode: 'read-only',
+        taskMode: runtimeMode,
+        network: 'deny',
+        cwd: this.cwd,
+        temporary: this.accessTemporary,
+        agentDir: this.paths.agentDir,
+        nodePath: this.policy.fixedRuntime?.nodePath,
+        dataRoot: this.paths.dataRoot,
+        protectedRoots: this.policy.protectedRoots,
+        readOnlyRoots: this.policy.readOnlyRoots,
+        readableRoots: this.policy.readableRoots,
+        requirements: [
+          'host-secrets',
+          'filesystem-write-boundary',
+          'network-deny',
+          'process-tree',
+          'environment-isolation',
+        ],
+      },
+      async (options) => {
+        if (this.policy.requireRestrictedPolicy && !this.policy.createSandbox)
+          throw new Error('sandbox-unavailable: Host 未提供 MCP 执行器')
+        return (this.policy.createSandbox ?? AccessSandbox.create)(options)
+      },
+      () => !this.paused && !this.executionAbort.signal.aborted,
+    )
+    this.fileSandbox = lazyAccessSandbox(
+      {
+        mode: executionAccess,
+        taskMode: runtimeMode,
+        network: 'deny',
+        cwd: this.cwd,
+        temporary: this.accessTemporary,
+        agentDir: this.paths.agentDir,
+        nodePath: this.policy.fixedRuntime?.nodePath,
+        dataRoot: this.paths.dataRoot,
+        protectedRoots: this.policy.protectedRoots,
+        readOnlyRoots: this.policy.readOnlyRoots,
+        readableRoots: this.policy.fileReadRoots ?? this.policy.readableRoots,
+        requirements: ['filesystem-write-boundary', 'environment-isolation', 'network-deny'],
+      },
+      async (options) => {
+        if (!options.nodePath || (this.policy.requireRestrictedPolicy && !this.policy.createSandbox))
+          throw new Error('controlled-write-unavailable: 缺少固定文件执行器')
+        return (this.policy.createSandbox ?? AccessSandbox.create)(options)
+      },
+      () => !this.paused && !this.executionAbort.signal.aborted,
+    )
     const sessionDirectory = this.paths.sessionDirectory(this.cwd)
     const sessionManager = sessionFile
       ? sdk.SessionManager.open(sessionFile, sessionDirectory, this.cwd)
@@ -568,14 +695,6 @@ export class SdkSession {
                 }),
             }
           })
-          pi.on('message_start', gate)
-          pi.on('message_update', gate)
-          pi.on('message_end', gate)
-          pi.on('turn_start', gate)
-          pi.on('tool_execution_start', gate)
-          pi.on('tool_execution_update', gate)
-          pi.on('tool_execution_end', gate)
-          pi.on('agent_end', gate)
           pi.on('tool_call', gate)
           pi.on('before_provider_request', gate)
           pi.on('cache_warming_decision', () => (this.goalRun ? { action: 'stop' as const } : undefined))
@@ -592,10 +711,14 @@ export class SdkSession {
           pi.on('before_provider_request', (event, context) => goalGate(event, context))
           pi.on('tool_call', (event, context) => goalGate(event, context, true))
         },
-        ...(restricted
+        ...(this.sandbox
           ? [
               (this.policy.createAccessExtension ?? createAgentAccessExtension)({
                 recordTurnChange: this.policy.recordTurnChange,
+                resolveFileMutation: createAuthorizedFileMutationResolver(
+                  this.fileMutationApprovals,
+                  this.readAuthorizedFile,
+                ),
                 onTurnSaved: (entryId, revision) => {
                   this.notify.event({
                     generation: this.generation,
@@ -604,11 +727,13 @@ export class SdkSession {
                 },
                 sdk,
                 sandbox: this.sandbox!,
+                fileSandbox: this.fileSandbox!,
                 cwd,
                 mode: executionAccess,
                 externalToolAllowed: (name) =>
                   (this.policy.externalTools?.has(name) ?? false) ||
-                  (plan && (this.policy.planTools?.has(name) ?? false)) ||
+                  (this.policy.planTools?.has(name) ?? false) ||
+                  this.mcpExecutions.has(name) ||
                   (plan && name === 'tool_search'),
               }),
             ]
@@ -620,7 +745,6 @@ export class SdkSession {
         ...this.inlineExtensions.filter(
           (extension) =>
             (!restricted || !extension.name.startsWith('app-agent:')) &&
-            (plan || !restricted || !['pi-meme-mcp', 'pi-meme-tool-search'].includes(extension.name)) &&
             (!extension.name.startsWith('restricted-agent:') ||
               plan ||
               restricted ||
@@ -636,22 +760,6 @@ export class SdkSession {
               extension.name === 'pi-meme-user-input' ||
               ['pi-meme-visualize', 'pi-meme-codemode', 'pi-meme-mcp', 'pi-meme-tool-search'].includes(extension.name)),
         ),
-        ...(!restricted
-          ? [
-              createTurnChangesExtension(
-                sdk,
-                cwd,
-                undefined,
-                (entryId, revision) => {
-                  this.notify.event({
-                    generation: this.generation,
-                    event: { type: 'turn_changes_update', entryId, revision },
-                  })
-                },
-                this.policy.recordTurnChange,
-              ),
-            ]
-          : []),
         ...(this.policy.resourceSnapshot ? [createSkillUsageExtension(this.policy.resourceSnapshot)] : []),
         createPlanGuard(
           () => this.activeMode ?? this.preparationMode ?? this.mode,
@@ -687,12 +795,147 @@ export class SdkSession {
               ].join('\n')
           })
         },
+        (pi: ExtensionAPI) => {
+          const toolScopes = new Map<
+            string,
+            { operationId: string; nativeSessionId: string; entryId: string; name: string }
+          >()
+          pi.registerTool(
+            createAuthorizedReadToolDefinition({
+              sdk,
+              cwd,
+              approvals: this.authorizedFileReads,
+              read: this.readAuthorizedFile,
+            }),
+          )
+          pi.on('tool_call', async (event, context) => {
+            if (!this.policy.authorizeTool) {
+              if (this.policy.requireRestrictedPolicy) throw new Error('permission-denied: Host 工具授权不可用')
+              return
+            }
+            const rawId = event.toolCallId
+            if (
+              typeof rawId !== 'string' ||
+              !rawId ||
+              rawId.length > 4096 ||
+              rawId.includes('\0') ||
+              toolScopes.has(rawId)
+            )
+              throw new Error('permission-denied: Native 工具调用编号无效或已有未结束的同编号调用')
+            const nativeSessionId = context.sessionManager.getSessionId()
+            const assistant = context.sessionManager
+              .getBranch()
+              .findLast((entry) => entry.type === 'message' && entry.message.role === 'assistant')
+            if (
+              !sessionManager.isPersisted() ||
+              !context.sessionManager.getSessionFile() ||
+              context.sessionManager.getSessionFile() !== sessionManager.getSessionFile() ||
+              nativeSessionId !== sessionManager.getSessionId() ||
+              !nativeSessionId ||
+              !assistant ||
+              assistant.type !== 'message' ||
+              assistant.message.role !== 'assistant' ||
+              !assistant.id
+            )
+              throw new Error('permission-denied: 工具调用缺少可信的已持久化 assistant entry 绑定')
+            const nativeCalls = assistant.message.content.filter((part) => part.type === 'toolCall')
+            let invocation: unknown[]
+            if (event.parentToolCallId) {
+              const parent = toolScopes.get(event.parentToolCallId)
+              const prefix = `${event.parentToolCallId}/`
+              if (
+                !parent ||
+                parent.nativeSessionId !== nativeSessionId ||
+                parent.entryId !== assistant.id ||
+                !rawId.startsWith(prefix) ||
+                !/^[1-9]\d*$/.test(rawId.slice(prefix.length)) ||
+                nativeCalls.some((part) => part.id === rawId)
+              )
+                throw new Error('permission-denied: 嵌套工具调用缺少可信父调用或持久化路径绑定')
+              invocation = ['nested', parent.operationId, rawId.slice(prefix.length)]
+            } else {
+              const matches = nativeCalls.filter((part) => part.id === rawId)
+              const matched = matches[0]
+              if (matches.length !== 1 || !matched || matched.name !== event.toolName)
+                throw new Error('permission-denied: assistant entry 内的工具调用绑定不存在或有歧义')
+              invocation = ['native', nativeCalls.indexOf(matched), rawId]
+            }
+            const operationId = `toolop:v1:${createHash('sha256')
+              .update(JSON.stringify([nativeSessionId, assistant.id, invocation]))
+              .digest('hex')}`
+            const binding = { operationId, nativeSessionId, entryId: assistant.id, name: event.toolName }
+            toolScopes.set(rawId, binding)
+            try {
+              const reply = await this.policy.authorizeTool(
+                {
+                  phase: 'start',
+                  callId: rawId,
+                  operationId,
+                  name: event.toolName,
+                  input: event.input,
+                  adapter:
+                    this.mcpExecutions.has(event.toolName) &&
+                    this.mcpExecutions.get(event.toolName) === this.toolExecutions.get(event.toolName)
+                      ? 'mcp'
+                      : undefined,
+                },
+                context.signal,
+              )
+              if (reply.fileRead) this.authorizedFileReads.set(rawId, reply.fileRead)
+              if (reply.fileMutation) this.fileMutationApprovals.set(rawId, reply.fileMutation)
+            } catch (cause) {
+              if (toolScopes.get(rawId) === binding) toolScopes.delete(rawId)
+              throw cause
+            }
+          })
+          pi.on('tool_result', async (event) => {
+            const binding = toolScopes.get(event.toolCallId)
+            if (!binding) return
+            if (binding.name !== event.toolName) throw new Error('permission-denied: 工具结果与已绑定的执行不匹配')
+            this.authorizedFileReads.delete(event.toolCallId)
+            this.fileMutationApprovals.delete(event.toolCallId)
+            try {
+              await this.policy.authorizeTool?.({
+                phase: 'finish',
+                callId: event.toolCallId,
+                operationId: binding.operationId,
+                failed: event.isError,
+              })
+            } finally {
+              if (toolScopes.get(event.toolCallId) === binding) toolScopes.delete(event.toolCallId)
+            }
+          })
+          pi.on('session_shutdown', () => {
+            toolScopes.clear()
+            this.authorizedFileReads.clear()
+            this.fileMutationApprovals.clear()
+          })
+        },
       ]
       const settingsManager = createDesktopSettingsManager(sdk, cwd, agentDir)
-      const modelRuntime = await createDesktopModelRuntime(sdk, agentDir, this.credentials, undefined, {
-        state: (runtime) => this.contextObserverState(runtime),
-        capture: (event) => this.policy.onContextCapture?.(event),
-      })
+      if (this.policy.requireRestrictedPolicy && !this.policy.modelBroker)
+        throw new Error('model-broker-denied: Host 模型通道未配置')
+      const modelRuntime = this.policy.modelBroker
+        ? await createBrokeredModelRuntime(sdk, this.policy.modelBroker)
+        : await createDesktopModelRuntime(sdk, agentDir, this.credentials, undefined, {
+            state: (runtime) => this.contextObserverState(runtime),
+            capture: (event) => this.policy.onContextCapture?.(event),
+          })
+      const guardFactory =
+        (factory: ExtensionFactory): ExtensionFactory =>
+        (api) =>
+          factory(
+            new Proxy(api, {
+              get: (target, key, receiver) => {
+                if (key === 'registerTool')
+                  return (tool: ToolDefinition) => {
+                    this.toolExecutions.set(tool.name, tool.execute)
+                    return target.registerTool(tool)
+                  }
+                return Reflect.get(target, key, receiver)
+              },
+            }),
+          )
       const services = await sdk.createAgentSessionServices({
         cwd,
         agentDir,
@@ -708,7 +951,9 @@ export class SdkSession {
           additionalSkillPaths: [],
           skillsOverride: () => ({ skills: snapshotSkills(this.policy.resourceSnapshot), diagnostics: [] }),
           disabledBuiltinExtensions: ['mcp'],
-          extensionFactories,
+          extensionFactories: extensionFactories.map((entry) =>
+            typeof entry === 'function' ? guardFactory(entry) : { ...entry, factory: guardFactory(entry.factory) },
+          ),
           agentsFilesOverride: () => ({ agentsFiles: readDesktopAgentContextFiles(cwd, agentDir) }),
         },
       })
@@ -1162,19 +1407,26 @@ export class SdkSession {
     const runtime = this.runtime
     this.runtime = null
     const sandbox = this.sandbox
-    this.sandbox = null
-    void this.discardAccessTemporary()
-    if (runtime || sandbox) {
-      this.stopping = Promise.all([this.stopping, runtime?.dispose().catch(() => {}), sandbox?.stopAll()]).then(
-        () => {},
-      )
-    }
-  }
-
-  private async discardAccessTemporary() {
+    const mcpSandbox = this.mcpSandbox
+    const fileSandbox = this.fileSandbox
     const temporary = this.accessTemporary
+    this.sandbox = null
+    this.mcpSandbox = null
+    this.fileSandbox = null
     this.accessTemporary = null
-    if (temporary) await rm(temporary, { recursive: true, force: true }).catch(() => {})
+    this.stopping = Promise.allSettled([
+      this.stopping,
+      this.policy.onExecutionBoundary?.('release', this.paused),
+      runtime?.dispose(),
+      sandbox?.stopAll(),
+      mcpSandbox?.stopAll(),
+      fileSandbox?.stopAll(),
+    ]).then(async (results) => {
+      const failed = results.find((result) => result.status === 'rejected')
+      if (failed?.status === 'rejected') throw failed.reason
+      if (temporary) await rm(temporary, { recursive: true, force: true })
+    })
+    void this.stopping.catch(() => {})
   }
 
   stop(preserveTiming = false) {
@@ -1186,6 +1438,7 @@ export class SdkSession {
       this.emitPause()
     }
     this.queueCancelled = true
+    this.executionAbort.abort()
     this.admission?.abort()
     this.generation += 1
     this.status = 'disconnected'
@@ -1540,7 +1793,11 @@ export class SdkSession {
       return
     }
     message = normalized.text
+    await this.scopedExecutionSandbox?.value.stopAll()
+    this.pauseInterruptedSignal = undefined
+    this.executionAbort.abort()
     this.queueCancelled = false
+    this.executionAbort = new AbortController()
     const command = options?.plan ? undefined : builtinCommand(message)
     const extensionCommand = message.match(/^\/(\S+)/)?.[1]
     if (
@@ -2011,7 +2268,26 @@ export class SdkSession {
 
   private async waitForResume() {
     const generation = this.generation
-    while (generation === this.generation && this.paused && this.pauseGate) await this.pauseGate
+    const signal = this.executionAbort.signal
+    signal.throwIfAborted()
+    while (generation === this.generation && this.paused && this.pauseGate) {
+      const gate = this.pauseGate
+      let rejectAbort!: (reason?: unknown) => void
+      const aborted = new Promise<never>((_resolve, reject) => {
+        rejectAbort = reject
+      })
+      const onAbort = () => rejectAbort(signal.reason)
+      signal.addEventListener('abort', onAbort, { once: true })
+      try {
+        signal.throwIfAborted()
+        await Promise.race([gate, aborted])
+      } finally {
+        signal.removeEventListener('abort', onAbort)
+      }
+      signal.throwIfAborted()
+    }
+    if (generation !== this.generation) throw new Error('执行代次已结束')
+    signal.throwIfAborted()
   }
 
   private cancelPause(closeInterval = true) {
@@ -2025,10 +2301,17 @@ export class SdkSession {
   }
 
   async setPaused(paused: boolean, revision: number) {
-    if (revision < this.pauseRevision || (revision === this.pauseRevision && this.pauseControlApplied)) return
+    if (revision < this.pauseRevision) return
+    if (revision === this.pauseRevision && this.pauseControlApplied) {
+      await this.pauseDrain
+      return
+    }
     this.pauseRevision = revision
     this.pauseControlApplied = true
     if (paused && !this.paused) {
+      this.pauseInterrupted =
+        this.running || this.changing || this.pendingSend || this.pauseInterruptedSignal === this.executionAbort.signal
+      this.pauseInterruptedSignal = undefined
       if (this.status === 'ready')
         this.frozenView = structuredClone({
           messages: this.session.messages.filter((message) => message.role !== 'system'),
@@ -2041,19 +2324,50 @@ export class SdkSession {
       this.pauseGate = new Promise<void>((resolve) => {
         this.releasePause = resolve
       })
-    } else if (!paused) {
-      this.cancelPause()
-      this.queuePaused = false
+      const drain = (async () => {
+        await this.abort(true)
+        // agent_settled waits for accounting too; drain its callbacks before a fresh continuation.
+        await this.goalAccounting.catch(() => {})
+      })()
+      this.pauseDrain = drain
+      try {
+        await drain
+      } finally {
+        if (this.pauseDrain === drain) this.pauseDrain = undefined
+      }
+    } else {
+      await this.pauseDrain
+      if (revision !== this.pauseRevision) return
+      if (!paused) {
+        await this.policy.onExecutionBoundary?.('resume', false)
+        if (revision !== this.pauseRevision) return
+        this.cancelPause()
+        // Host opens this queue only after the whole tree has crossed its unpause fence.
+        this.queuePaused = true
+      }
     }
+    if (revision === this.pauseRevision) this.emitPause()
+  }
+
+  needsPauseContinuation(revision: number) {
+    return this.paused && revision === this.pauseRevision && this.pauseInterrupted
+  }
+
+  resumeQueue(revision = this.pauseRevision) {
+    if (revision !== this.pauseRevision || this.paused) return
+    this.queueCancelled = false
+    this.queuePaused = false
     this.emitPause()
-    if (!paused) this.scheduleQueue()
+    this.scheduleQueue()
   }
 
   pause() {
     return this.setPaused(true, this.pauseRevision + 1)
   }
-  resume() {
-    return this.setPaused(false, this.pauseRevision + 1)
+  async resume() {
+    const revision = this.pauseRevision + 1
+    await this.setPaused(false, revision)
+    this.resumeQueue(revision)
   }
 
   private queueItem(id: string) {
@@ -2520,12 +2834,25 @@ export class SdkSession {
     this.bridge.respond(id, response)
   }
 
-  abort() {
-    this.cancelPause()
+  async abort(preservePause = false) {
+    // Host boundary cancellation reaches abort(true) before the explicit pause command.
+    if (preservePause && (this.running || this.changing || this.pendingSend))
+      this.pauseInterruptedSignal = this.executionAbort.signal
+    else if (!preservePause) this.pauseInterruptedSignal = undefined
+    this.executionAbort.abort()
+    if (!preservePause) this.cancelPause()
     this.emitPause()
     this.queueCancelled = true
     this.admission?.abort()
-    return this.call(() => this.session.abort())
+    const results = await Promise.allSettled([
+      this.policy.onExecutionBoundary?.('abort', this.paused),
+      this.sandbox?.stopAll(),
+      this.mcpSandbox?.stopAll(),
+      this.fileSandbox?.stopAll(),
+      this.status === 'ready' && this.runtime ? this.runtime.session.abort() : undefined,
+    ])
+    const failed = results.find((result) => result.status === 'rejected')
+    if (failed?.status === 'rejected') throw failed.reason
   }
 
   async stopTask() {
