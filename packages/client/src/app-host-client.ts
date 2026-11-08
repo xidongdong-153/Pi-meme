@@ -3,6 +3,7 @@ import type { HostApi, EventSubscription, HostControlEvent } from '@pi-meme/cont
 export type AppHostTransport = {
   call: <T>(method: string, args: unknown[], idempotencyKey?: string) => Promise<T>
   subscribe: (input: EventSubscription, listener: (event: HostControlEvent) => void) => Promise<() => void>
+  uploadImage?: NonNullable<NonNullable<HostApi['imageLibrary']>['upload']>
 }
 export function createAppHostClient(transport: AppHostTransport): HostApi {
   function call<T>(method: string, args: unknown[], idempotencyKey?: string): Promise<T> {
@@ -28,7 +29,10 @@ export function createAppHostClient(transport: AppHostTransport): HostApi {
     },
     imageLibrary: {
       list: (input) => call('imageLibrary.list', [input]),
+      get: (id) => call('imageLibrary.get', [id]),
       read: (id) => call('imageLibrary.read', [id]),
+      import: (input, options) => call('imageLibrary.import', [input], options.idempotencyKey),
+      upload: transport.uploadImage,
       rename: (id, name, options) => call('imageLibrary.rename', [id, name], options.idempotencyKey),
       remove: (id, options) => call('imageLibrary.remove', [id], options.idempotencyKey),
     },

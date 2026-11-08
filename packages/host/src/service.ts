@@ -24,6 +24,7 @@ import { createHostCollaborationBridge } from './collaboration-bridge'
 import { createAppControl } from './app-control'
 import { createWorkspaceFiles } from './workspace-files'
 import { storeChatAttachment } from './chat-attachments'
+import { storeImageUpload } from './image-uploads'
 import { systemPlugins } from '@pi-meme/plugin-sdk/system-plugins'
 import { TerminalService } from './terminal-service'
 import { createBuiltinModules } from './builtin-modules'
@@ -86,6 +87,7 @@ import { SessionCleanupService } from './session-cleanup'
 import { installBuiltinSkills } from '@pi-meme/resources/server/install-builtin-skills'
 import { ResourceStore } from '@pi-meme/resources/server/resource-store'
 import type { ResourceImportInput, ResourceSnapshot } from '@pi-meme/contracts/resources'
+import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 
 export type HostOptions = {
   dataRoot?: string
@@ -546,10 +548,19 @@ export async function createHost(options: HostOptions = {}) {
       }
       return store
     }
+    const canonicalImageDataRoot = await realpath(root)
+    // 只替换已确认的数据根别名；附件目录及内部路径仍由图库严格拒绝符号链接。
+    const imageDataPath = (file: string) => {
+      const resolved = path.resolve(file)
+      const relative = path.relative(root, resolved)
+      return relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)
+        ? resolved
+        : path.join(canonicalImageDataRoot, relative)
+    }
     const imageLibrary = new ImageLibraryStore({
       hostId,
-      file: path.join(root, 'state/modules/%40pi-meme%2Fimage-generation/library.json'),
-      attachments: storagePaths.attachmentsDirectory,
+      file: path.join(canonicalImageDataRoot, 'state/modules/%40pi-meme%2Fimage-generation/library.json'),
+      attachments: path.join(canonicalImageDataRoot, storageLayoutRelativePaths.attachmentsDirectory),
       existingSessionIds: async () => {
         const sessions = await appControl!.apiFor('image-library').sessions.list()
         const existing = await Promise.all(
@@ -565,7 +576,7 @@ export async function createHost(options: HostOptions = {}) {
         )
         return existing.filter((id): id is string => Boolean(id))
       },
-      history: () => imageLibraryHistory(appControl!.apiFor('image-library'), paths.sessionsDirectory),
+      history: () => imageLibraryHistory(appControl!.apiFor('image-library'), paths.sessionsDirectory, imageDataPath),
       onChange: () => {
         if (!closing) appControl?.publishLive({ type: 'image-library', value: { reason: 'changed' } })
       },
@@ -2110,7 +2121,12 @@ export async function createHost(options: HostOptions = {}) {
       models: { list: () => modelService.list() },
       imageLibrary: {
         list: (input) => imageLibrary.list(input),
+        get: (id) => imageLibrary.get(id),
         read: (id) => imageLibrary.read(id),
+        import: async (input, idempotencyKey) => {
+          if (!input || typeof input.path !== 'string') throw new Error('图片导入路径无效')
+          return (await imageLibrary.importFile(imageDataPath(input.path), input.name, idempotencyKey)).item
+        },
         rename: (id, name) => imageLibrary.rename(id, name),
         remove: (id) => imageLibrary.remove(id),
       },
@@ -2183,7 +2199,7 @@ export async function createHost(options: HostOptions = {}) {
         files: createWorkspaceFiles(
           (ref) => appControl!.resolveRoot(ref),
           (ref) => {
-            const roots = [storagePaths.attachmentsDirectory]
+            const roots = [path.join(canonicalImageDataRoot, storageLayoutRelativePaths.attachmentsDirectory)]
             if (ref && 'sessionId' in ref) {
               for (const item of temporarySessions.values()) {
                 if (item.ref?.sessionId === ref.sessionId) {
@@ -2397,6 +2413,28 @@ export async function createHost(options: HostOptions = {}) {
       ),
       flushCredentials: () =>
         (credentials as SecureCredentialStorage & { flush?: () => Promise<void> }).flush?.() ?? Promise.resolve(),
+      async uploadImage(
+        metadata: { clientId: string; hostId: string; name: string; idempotencyKey: string },
+        body: import('node:stream').Readable,
+        signal?: AbortSignal,
+      ) {
+        if (closing) throw new Error('服务正在退出，操作未接纳')
+        if (!metadata.clientId || metadata.clientId.length > 128) throw new Error('客户端标识无效')
+        if (metadata.hostId !== hostId) throw new Error('服务身份不匹配')
+        const clientId = metadata.clientId
+        clientRequests.set(clientId, (clientRequests.get(clientId) ?? 0) + 1)
+        const pending = storeImageUpload(root, imageLibrary, metadata, body, signal)
+        inflight.add(pending)
+        try {
+          return await pending
+        } finally {
+          inflight.delete(pending)
+          const count = (clientRequests.get(clientId) ?? 1) - 1
+          if (count) clientRequests.set(clientId, count)
+          else clientRequests.delete(clientId)
+          if (!closing) scheduleClientRelease(clientId)
+        }
+      },
       async uploadAttachment(
         metadata: { clientId: string; hostId: string; sessionKey: string; name: string },
         body: import('node:stream').Readable,

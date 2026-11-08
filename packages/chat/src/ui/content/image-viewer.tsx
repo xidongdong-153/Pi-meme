@@ -2,6 +2,7 @@ import * as React from 'react'
 import { ChevronLeft, ChevronRight, ZoomIn, ZoomOut } from 'lucide-react'
 import type { PiImage } from '@pi-meme/contracts/pi'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
+import { Button } from '@pi-meme/ui/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@pi-meme/ui/components/ui/select'
 import { cn } from '@pi-meme/ui/lib/utils'
 
@@ -67,9 +68,11 @@ export function ImageViewer({
           {variant === 'diagram' ? '滚轮缩放，Esc 关闭图表。' : '左右方向键切换图片，滚轮缩放，Esc 关闭预览。'}
         </DialogDescription>
         {image && index !== null && (
-          <ImageViewerContent
+          <ImagePreviewStage
             key={`${index}:${image.id ?? image.mimeType}`}
             image={image}
+            imageId={image.id}
+            autoFocus
             index={index}
             count={images.length}
             onNavigate={navigate}
@@ -91,32 +94,43 @@ const zoomOptions = [25, 50, 75, 100, 125, 150, 200, 300, 400, 500]
 const controlClass =
   'flex size-8 shrink-0 items-center justify-center rounded-md hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-30 disabled:cursor-default cursor-pointer'
 
-function ImageViewerContent({
+/** 非模态图片舞台；聊天预览仍由 ImageViewer 的 Dialog 管理焦点。 */
+export function ImagePreviewStage({
   image,
+  imageId,
   index,
   count,
   onNavigate,
-  variant,
+  variant = 'image',
   actions,
+  autoFocus = false,
+  onError,
 }: {
-  image: PreviewImage
+  image: PiImage
+  imageId?: string
   index: number
   count: number
   onNavigate: (offset: number) => void
-  variant: 'image' | 'diagram'
+  variant?: 'image' | 'diagram'
   actions?: React.ReactNode
+  autoFocus?: boolean
+  onError?: (message: string) => void
 }) {
   const isDiagram = variant === 'diagram'
   const viewportRef = React.useRef<HTMLDivElement>(null)
   const imageRef = React.useRef<HTMLImageElement>(null)
   const [zoom, setZoom] = React.useState<number | null>(null)
   const [naturalSize, setNaturalSize] = React.useState<{ width: number; height: number } | null>(null)
-  const [source, setSource] = React.useState({ data: image.data, mimeType: image.mimeType })
+  const [error, setError] = React.useState('')
+  const [retry, setRetry] = React.useState(0)
+  const [source, setSource] = React.useState({ data: image.data, mimeType: image.mimeType, imageId })
 
-  if (source.data !== image.data || source.mimeType !== image.mimeType) {
-    setSource({ data: image.data, mimeType: image.mimeType })
+  if (source.data !== image.data || source.mimeType !== image.mimeType || source.imageId !== imageId) {
+    setSource({ data: image.data, mimeType: image.mimeType, imageId })
     setZoom(null)
     setNaturalSize(null)
+    setError('')
+    setRetry((value) => value + 1)
   }
 
   const changeZoom = React.useCallback((factor: number) => {
@@ -130,7 +144,7 @@ function ImageViewerContent({
   React.useEffect(() => {
     const viewport = viewportRef.current
     if (!viewport) return
-    viewport.focus({ preventScroll: true })
+    if (autoFocus) viewport.focus({ preventScroll: true })
     const onWheel = (event: WheelEvent) => {
       if (!event.deltaY) return
       event.preventDefault()
@@ -138,7 +152,7 @@ function ImageViewerContent({
     }
     viewport.addEventListener('wheel', onWheel, { passive: false })
     return () => viewport.removeEventListener('wheel', onWheel)
-  }, [changeZoom])
+  }, [changeZoom, autoFocus])
 
   const zoomControls = (
     <>
@@ -196,23 +210,50 @@ function ImageViewerContent({
               : 'flex min-h-full min-w-full w-fit items-center justify-center'
           }
         >
-          <img
-            ref={imageRef}
-            src={imageSource(image)}
-            alt={isDiagram ? 'Mermaid 图表大图预览' : `图片大图预览，第 ${index + 1} 张`}
-            draggable={false}
-            onLoad={(event) =>
-              setNaturalSize({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight })
-            }
-            className={
-              zoom === null ? 'max-h-full max-w-full object-contain select-none' : 'max-w-none shrink-0 select-none'
-            }
-            style={
-              zoom !== null && naturalSize
-                ? { width: (naturalSize.width * zoom) / 100, height: (naturalSize.height * zoom) / 100 }
-                : undefined
-            }
-          />
+          {error ? (
+            <div className="flex flex-col items-center gap-3 p-6 text-center">
+              <p role="alert" className="text-sm text-destructive">
+                {error}
+              </p>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setError('')
+                  setZoom(null)
+                  setNaturalSize(null)
+                  setRetry((value) => value + 1)
+                }}
+              >
+                重试
+              </Button>
+            </div>
+          ) : (
+            <img
+              key={retry}
+              ref={imageRef}
+              src={imageSource(image)}
+              alt={isDiagram ? 'Mermaid 图表大图预览' : `图片大图预览，第 ${index + 1} 张`}
+              draggable={false}
+              onLoad={(event) =>
+                setNaturalSize({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight })
+              }
+              onError={() => {
+                const message = isDiagram ? '图表无法显示，请重试' : '图片无法显示，文件可能已损坏，请重试'
+                setZoom(null)
+                setNaturalSize(null)
+                setError(message)
+                onError?.(message)
+              }}
+              className={
+                zoom === null ? 'max-h-full max-w-full object-contain select-none' : 'max-w-none shrink-0 select-none'
+              }
+              style={
+                zoom !== null && naturalSize
+                  ? { width: (naturalSize.width * zoom) / 100, height: (naturalSize.height * zoom) / 100 }
+                  : undefined
+              }
+            />
+          )}
         </div>
       </div>
       <div className="flex flex-wrap items-center justify-center gap-2">

@@ -195,10 +195,27 @@ export function createSystemOperations(context: SystemOperationContext) {
     context.read('schedules.schema', []),
   )
   if (api.imageLibrary) {
-    register('images.list', '查询图像素材', '[{projectId?,query?,cursor?,limit?}?]', false, 'host', ([query]) =>
-      api.imageLibrary!.list(query as Parameters<NonNullable<HostApi['imageLibrary']>['list']>[0]),
+    register(
+      'images.list',
+      '查询生成或上传的图像素材',
+      '[{origin?:all|generated|uploaded,projectId?,query?,cursor?,limit?}?]，默认仅生成图',
+      false,
+      'host',
+      ([query]) => api.imageLibrary!.list(query as Parameters<NonNullable<HostApi['imageLibrary']>['list']>[0]),
     )
-    register('images.read', '读取素材 PNG', '[id]', false, 'host', ([id]) => api.imageLibrary!.read(id as string))
+    register('images.get', '读取图像素材信息', '[id]', false, 'host', ([id]) => api.imageLibrary!.get(id as string))
+    register('images.read', '读取原始 MIME 的 PNG、JPEG 或 WebP 图像', '[id]', false, 'host', ([id]) =>
+      api.imageLibrary!.read(id as string),
+    )
+    register(
+      'images.import',
+      '收录当前 Host 附件目录内已有图片',
+      '[{path,name?}]，路径必须位于当前 Host 的 data/attachments 内',
+      true,
+      'host',
+      ([input], mutation) =>
+        api.imageLibrary!.import(input as Parameters<NonNullable<HostApi['imageLibrary']>['import']>[0], mutation),
+    )
     register('images.rename', '重命名素材', '[id,name]', true, 'host', ([id, name], mutation) =>
       api.imageLibrary!.rename(id as string, name as string, mutation),
     )

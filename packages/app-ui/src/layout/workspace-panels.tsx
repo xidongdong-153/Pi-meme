@@ -83,7 +83,7 @@ export function WorkspacePanels({
   onNewSession,
   onPlugins,
   onProjects,
-  onImages,
+  onMaterials,
   onSchedules,
   schedulesUnread,
   pluginNavigation,
@@ -136,7 +136,7 @@ export function WorkspacePanels({
   onAccount?: () => void
   onNewSession?: () => void
   onPlugins?: () => void
-  onImages?: () => void
+  onMaterials?: () => void
   onProjects?: () => void
   onSchedules?: () => void
   schedulesUnread?: boolean
@@ -739,7 +739,7 @@ export function WorkspacePanels({
           }}
           sidebarFlyout={flyout.control ? { entry: 'home', control: flyout.control } : undefined}
           onProjects={onProjects}
-          onImages={onImages}
+          onMaterials={onMaterials}
           onSchedules={onSchedules}
           schedulesUnread={schedulesUnread}
           onPlugins={onPlugins}

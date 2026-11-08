@@ -1,9 +1,14 @@
 import type { HostApi } from '@pi-meme/contracts/app-host'
-import type { ImageLibraryItem, ImageLibraryPage } from '@pi-meme/contracts/image-library'
+import type { ImageLibraryItem, ImageLibraryPage, ImageLibraryQuery } from '@pi-meme/contracts/image-library'
 
 export type ImageLibrarySource = { id: string; label: string; connected: boolean; host: HostApi }
 export type GalleryImage = ImageLibraryItem & { serviceId: string; hostLabel: string }
 export const galleryKey = (item: GalleryImage) => `${item.serviceId}:${item.id}`
+export function toGalleryImage(item: ImageLibraryItem, source: ImageLibrarySource): GalleryImage {
+  const connection = { serviceId: source.id, hostLabel: source.label }
+  if (item.origin === 'uploaded') return { ...item, ...connection }
+  return { ...item, origin: 'generated', mimeType: 'image/png', ...connection }
+}
 export function compareImages(a: ImageLibraryItem, b: ImageLibraryItem) {
   return b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id) || b.hostId.localeCompare(a.hostId)
 }
@@ -15,6 +20,7 @@ export class ImageLibraryFeed {
     cursor?: string
     done: boolean
     checked: boolean
+    supportsUploads: boolean
     page?: ImageLibraryPage
     error?: string
   }>
@@ -22,13 +28,14 @@ export class ImageLibraryFeed {
 
   constructor(
     sources: ImageLibrarySource[],
-    private readonly input: { query: string; projectId?: string },
+    private readonly input: ImageLibraryQuery,
   ) {
     this.sources = sources.map((source) => ({
       source,
       buffer: [],
       done: !source.connected,
       checked: false,
+      supportsUploads: false,
       error: source.connected ? undefined : '未连接，结果不完整',
     }))
   }
@@ -48,19 +55,19 @@ export class ImageLibraryFeed {
                 const caps = await state.source.host.capabilities()
                 if (!caps.features.includes('image-library') || !state.source.host.imageLibrary)
                   throw new Error('当前服务版本不支持图像库')
+                state.supportsUploads = caps.features.includes('image-library-upload')
                 state.checked = true
               }
+              if (this.input.origin === 'uploaded' && !state.supportsUploads)
+                throw new Error('当前服务版本不支持上传图片，请升级服务')
               const page = await state.source.host.imageLibrary!.list({
                 ...this.input,
+                origin: state.supportsUploads ? this.input.origin : undefined,
                 cursor: state.cursor,
                 limit: 40,
               })
               state.page = page
-              state.buffer = page.items.map((item) => ({
-                ...item,
-                serviceId: state.source.id,
-                hostLabel: state.source.label,
-              }))
+              state.buffer = page.items.map((item) => toGalleryImage(item, state.source))
               state.done = !page.nextCursor || page.nextCursor === state.cursor
               state.cursor = page.nextCursor
             } catch (cause) {
@@ -80,9 +87,12 @@ export class ImageLibraryFeed {
   }
 }
 
-export function imageMasonry(items: ImageLibraryItem[], width: number) {
-  const gap = 16
-  const columns = Math.max(1, Math.floor((width + gap) / 256))
+export function imageMasonry(
+  items: Array<Pick<ImageLibraryItem, 'width' | 'height'>>,
+  width: number,
+  { gap = 15, minWidth = 180 }: { gap?: number; minWidth?: number } = {},
+) {
+  const columns = Math.max(1, Math.floor((width + gap) / (minWidth + gap)))
   const cardWidth = Math.max(1, (width - gap * (columns - 1)) / columns)
   const heights = Array.from<number>({ length: columns }).fill(0)
   const positions = items.map((item) => {

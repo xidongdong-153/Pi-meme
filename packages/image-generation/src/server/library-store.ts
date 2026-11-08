@@ -1,14 +1,20 @@
 import { constants } from 'node:fs'
 import { mkdir, open, readFile, realpath, rename, rm, writeFile } from 'node:fs/promises'
 import path from 'node:path'
-import { randomUUID } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import { maxImagePreviewBytes } from '@pi-meme/contracts/app-host'
 import type { ImageArtifact } from '@pi-meme/contracts/image-generation'
-import type { ImageLibraryItem, ImageLibraryPage, ImageLibraryQuery } from '@pi-meme/contracts/image-library'
-
-type RecordItem = ImageLibraryItem & { path: string; removed?: boolean }
-export type ImageLibraryCandidate = Pick<
+import type {
+  GeneratedImageLibraryItem,
   ImageLibraryItem,
+  ImageLibraryPage,
+  ImageLibraryQuery,
+} from '@pi-meme/contracts/image-library'
+import { imageMetadata } from './image-metadata'
+import { decodeLibraryState, publicLibraryItem, type LibraryState } from './library-state'
+
+export type ImageLibraryCandidate = Pick<
+  GeneratedImageLibraryItem,
   'prompt' | 'createdAt' | 'session' | 'project' | 'projectName'
 > & {
   artifact: ImageArtifact
@@ -18,11 +24,8 @@ export type ImageLibraryHistory = {
   revision: string
   read: () => Promise<ImageLibraryCandidate[]>
 }
-type State = { version: 1; records: RecordItem[]; scanned: Record<string, { revision: string; skipped: number }> }
-const signature = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])
-
 export class ImageLibraryStore {
-  private state: State = { version: 1, records: [], scanned: {} }
+  private state: LibraryState = { version: 2, records: [], scanned: Object.create(null), imports: Object.create(null) }
   private ready?: Promise<void>
   private queue: Promise<unknown> = Promise.resolve()
   private scanning?: Promise<void>
@@ -43,66 +46,64 @@ export class ImageLibraryStore {
 
   private init() {
     return (this.ready ??= (async () => {
+      let raw: string
       try {
-        const state = JSON.parse(await readFile(this.options.file, 'utf8')) as State
-        if (
-          state.version !== 1 ||
-          !Array.isArray(state.records) ||
-          !state.scanned ||
-          state.records.some(
-            (item) =>
-              !item ||
-              typeof item.id !== 'string' ||
-              typeof item.path !== 'string' ||
-              typeof item.name !== 'string' ||
-              typeof item.prompt !== 'string' ||
-              !item.session ||
-              typeof item.session.sessionId !== 'string' ||
-              item.session.hostId !== this.options.hostId ||
-              !Number.isFinite(item.width) ||
-              item.width <= 0 ||
-              !Number.isFinite(item.height) ||
-              item.height <= 0 ||
-              typeof item.model !== 'string' ||
-              !['generate', 'edit'].includes(item.operation) ||
-              item.hostId !== this.options.hostId ||
-              !Number.isFinite(Date.parse(item.createdAt)),
-          )
-        )
-          throw new Error('图像索引格式无效')
-        if (
-          typeof state.scanned !== 'object' ||
-          Array.isArray(state.scanned) ||
-          Object.values(state.scanned).some(
-            (entry) =>
-              !entry || typeof entry.revision !== 'string' || !Number.isInteger(entry.skipped) || entry.skipped < 0,
-          ) ||
-          new Set(state.records.map((item) => item.id)).size !== state.records.length
-        )
-          throw new Error('图像索引格式无效')
+        raw = await readFile(this.options.file, 'utf8')
+      } catch (cause) {
+        if ((cause as NodeJS.ErrnoException).code === 'ENOENT') return
+        throw new Error('无法读取图像索引，原文件已保留', { cause })
+      }
+      try {
+        const { state, legacy } = decodeLibraryState(JSON.parse(raw), this.options.hostId)
+        if (legacy) {
+          const backup = `${this.options.file}.v1.bak`
+          try {
+            await writeFile(backup, raw, { mode: 0o600, flag: 'wx' })
+          } catch (cause) {
+            if ((cause as NodeJS.ErrnoException).code !== 'EEXIST') throw cause
+            if ((await readFile(backup, 'utf8')) !== raw)
+              throw new Error('v1 图像索引备份与当前文件不同，请先处理备份后再升级')
+          }
+          await this.persist(state)
+        }
         this.state = state
       } catch (cause) {
-        if ((cause as NodeJS.ErrnoException).code !== 'ENOENT')
-          throw new Error('无法读取图像索引，原文件已保留', { cause })
+        throw new Error('无法读取或升级图像索引，原文件和已有备份已保留', { cause })
       }
     })())
   }
 
-  private change(action: () => void) {
+  private async persist(state: LibraryState) {
+    const temporary = `${this.options.file}.${randomUUID()}.tmp`
+    try {
+      await mkdir(path.dirname(this.options.file), { recursive: true, mode: 0o700 })
+      await writeFile(temporary, JSON.stringify(state), { mode: 0o600, flag: 'wx' })
+      await rename(temporary, this.options.file)
+    } finally {
+      await rm(temporary, { force: true }).catch(() => {})
+    }
+  }
+
+  private notify() {
+    // A failed live event must not turn a committed upload into a failure and delete its file.
+    try {
+      this.options.onChange()
+    } catch {
+      // The next refresh reads the durable index.
+    }
+  }
+
+  private change<T>(action: () => T) {
     const job = this.queue.then(async () => {
       await this.init()
       const previous = structuredClone(this.state)
-      const temporary = `${this.options.file}.${randomUUID()}.tmp`
       try {
-        action()
-        await mkdir(path.dirname(this.options.file), { recursive: true, mode: 0o700 })
-        await writeFile(temporary, JSON.stringify(this.state), { mode: 0o600, flag: 'wx' })
-        await rename(temporary, this.options.file)
+        const result = action()
+        await this.persist(this.state)
+        return result
       } catch (cause) {
         this.state = previous
         throw cause
-      } finally {
-        await rm(temporary, { force: true })
       }
     })
     this.queue = job.catch(() => {})
@@ -121,7 +122,8 @@ export class ImageLibraryStore {
     const handle = await open(resolved, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK)
     try {
       const info = await handle.stat()
-      if (!info.isFile() || info.size > maxImagePreviewBytes) throw new Error('图片文件无效或超过 8 MiB')
+      if (!info.isFile() || info.size <= 0 || info.size > maxImagePreviewBytes)
+        throw new Error('图片文件无效或超过 8 MiB')
       const buffer = Buffer.alloc(info.size + 1)
       let length = 0
       while (length < buffer.length) {
@@ -130,17 +132,15 @@ export class ImageLibraryStore {
         length += result.bytesRead
       }
       const bytes = buffer.subarray(0, length)
+      const after = await handle.stat()
       if (
         length !== info.size ||
-        bytes.length < 33 ||
-        !bytes.subarray(0, 8).equals(signature) ||
-        bytes.toString('ascii', 12, 16) !== 'IHDR'
+        after.size !== info.size ||
+        after.mtimeMs !== info.mtimeMs ||
+        after.ctimeMs !== info.ctimeMs
       )
         throw new Error('图片文件损坏或读取期间发生变化')
-      const width = bytes.readUInt32BE(16)
-      const height = bytes.readUInt32BE(20)
-      if (!width || !height) throw new Error('图片尺寸无效')
-      return { bytes, width, height }
+      return { bytes, ...imageMetadata(bytes) }
     } finally {
       await handle.close()
     }
@@ -157,12 +157,15 @@ export class ImageLibraryStore {
       session.hostId !== this.options.hostId
     )
       throw new Error('图像来源无效')
-    const { width, height } = await this.bytes(artifact.path)
+    const { width, height, mimeType } = await this.bytes(artifact.path)
+    if (mimeType !== 'image/png' || artifact.mimeType !== 'image/png') throw new Error('生成图像必须是 PNG')
     await this.change(() => {
       if (this.state.records.some((item) => item.id === artifact.id)) return
       this.state.records.push({
         id: artifact.id,
         hostId: this.options.hostId,
+        origin: 'generated',
+        mimeType: 'image/png',
         path: artifact.path,
         name: Array.from(prompt.split(/\r?\n/)[0].trim()).slice(0, 40).join('') || `图像 · ${createdAt}`,
         prompt,
@@ -176,7 +179,50 @@ export class ImageLibraryStore {
         operation: artifact.operation,
       })
     })
-    this.options.onChange()
+    this.notify()
+  }
+
+  async importFile(
+    file: string,
+    name?: string,
+    idempotencyKey?: string,
+  ): Promise<{ item: ImageLibraryItem; created: boolean }> {
+    if (typeof file !== 'string' || !file || (name !== undefined && typeof name !== 'string'))
+      throw new Error('导入图片路径或名称无效')
+    if (
+      idempotencyKey !== undefined &&
+      (typeof idempotencyKey !== 'string' || !idempotencyKey || idempotencyKey.length > 256)
+    )
+      throw new Error('图片导入幂等键无效')
+    const displayName = this.validName(name ?? path.basename(file))
+    const key = idempotencyKey === undefined ? undefined : createHash('sha256').update(idempotencyKey).digest('hex')
+    await this.init()
+    const { bytes, mimeType, width, height } = await this.bytes(file)
+    const digest = createHash('sha256').update(bytes).digest('hex')
+    const result = await this.change(() => {
+      const previous = key ? this.state.imports[key] : undefined
+      if (previous) {
+        if (previous.digest !== digest || previous.name !== displayName)
+          throw new Error('图片导入幂等键已用于不同内容或名称')
+        return { item: publicLibraryItem(this.record(previous.id)), created: false }
+      }
+      const item: LibraryState['records'][number] = {
+        id: randomUUID(),
+        hostId: this.options.hostId,
+        origin: 'uploaded',
+        path: path.resolve(file),
+        name: displayName,
+        createdAt: new Date().toISOString(),
+        mimeType,
+        width,
+        height,
+      }
+      this.state.records.push(item)
+      if (key) this.state.imports[key] = { id: item.id, digest, name: displayName }
+      return { item: publicLibraryItem(item), created: true }
+    })
+    if (result.created) this.notify()
+    return result
   }
 
   private startScan() {
@@ -220,7 +266,7 @@ export class ImageLibraryStore {
       .finally(() => {
         this.scan.running = false
         this.scanning = undefined
-        this.options.onChange()
+        this.notify()
       })
   }
 
@@ -228,6 +274,10 @@ export class ImageLibraryStore {
     await this.init()
     if (
       !input ||
+      typeof input !== 'object' ||
+      Array.isArray(input) ||
+      (input.origin !== undefined && !['all', 'generated', 'uploaded'].includes(input.origin)) ||
+      (input.cursor !== undefined && typeof input.cursor !== 'string') ||
       (input.query !== undefined && typeof input.query !== 'string') ||
       (input.projectId !== undefined && typeof input.projectId !== 'string') ||
       (input.limit !== undefined && (!Number.isInteger(input.limit) || input.limit < 1 || input.limit > 100))
@@ -235,7 +285,10 @@ export class ImageLibraryStore {
       throw new Error('图像查询参数无效')
     if (this.options.existingSessionIds) {
       const existing = new Set(await this.options.existingSessionIds())
-      const detached = this.state.records.filter((item) => !item.sourceStatus && !existing.has(item.session.sessionId))
+      const detached = this.state.records.filter(
+        (item): item is GeneratedImageLibraryItem & { path: string; removed?: boolean } =>
+          item.origin === 'generated' && !item.sourceStatus && !existing.has(item.session.sessionId),
+      )
       if (detached.length) await this.detachSessions(detached.map((item) => item.session.sessionId))
     }
     this.startScan()
@@ -251,11 +304,15 @@ export class ImageLibraryStore {
     }
     await this.queue
     const query = input.query?.trim().toLocaleLowerCase() ?? ''
-    const all = this.state.records.filter((item) => !item.removed)
+    const origin = input.origin ?? 'generated'
+    const all = this.state.records.filter((item) => !item.removed && (origin === 'all' || item.origin === origin))
     const projects = [
       ...new Map(
         all
-          .filter((item) => item.project)
+          .filter(
+            (item): item is GeneratedImageLibraryItem & { path: string; removed?: boolean } =>
+              item.origin === 'generated' && Boolean(item.project),
+          )
           .map((item) => [
             item.project!.projectId,
             {
@@ -269,8 +326,10 @@ export class ImageLibraryStore {
       .filter(
         (item) =>
           (!input.projectId ||
-            (input.projectId === 'standalone' ? !item.project : item.project?.projectId === input.projectId)) &&
-          (!query || `${item.name}\n${item.prompt}`.toLocaleLowerCase().includes(query)) &&
+            (item.origin === 'generated' &&
+              (input.projectId === 'standalone' ? !item.project : item.project?.projectId === input.projectId))) &&
+          (!query ||
+            `${item.name}\n${item.origin === 'generated' ? item.prompt : ''}`.toLocaleLowerCase().includes(query)) &&
           (!after || item.createdAt < after.createdAt || (item.createdAt === after.createdAt && item.id < after.id)),
       )
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id))
@@ -278,7 +337,7 @@ export class ImageLibraryStore {
     const records = sorted.slice(0, limit)
     const last = records.at(-1)
     return {
-      items: records.map(({ path: _path, removed: _removed, ...item }) => structuredClone(item)),
+      items: records.map(publicLibraryItem),
       projects,
       nextCursor:
         sorted.length > limit && last
@@ -294,20 +353,28 @@ export class ImageLibraryStore {
     return item
   }
 
+  async get(id: string): Promise<ImageLibraryItem> {
+    await this.init()
+    await this.queue
+    return publicLibraryItem(this.record(id))
+  }
+
   async read(id: string) {
     await this.init()
     await this.queue
-    let bytes: Buffer
+    const item = this.record(id)
     try {
-      ;({ bytes } = await this.bytes(this.record(id).path))
+      const { bytes, mimeType, width, height } = await this.bytes(item.path)
+      if (mimeType !== item.mimeType || width !== item.width || height !== item.height)
+        throw new Error('原图格式或尺寸已变化，请重新导入')
+      return { dataUrl: `data:${mimeType};base64,${bytes.toString('base64')}`, size: bytes.length }
     } catch (cause) {
       if ((cause as NodeJS.ErrnoException).code === 'ENOENT') throw new Error('原图文件不存在')
       throw cause
     }
-    return { dataUrl: `data:image/png;base64,${bytes.toString('base64')}`, size: bytes.length }
   }
 
-  async rename(id: string, name: string) {
+  private validName(name: string) {
     if (
       typeof name !== 'string' ||
       !name.trim() ||
@@ -315,10 +382,15 @@ export class ImageLibraryStore {
       Array.from(name).some((character) => character.charCodeAt(0) < 32)
     )
       throw new Error('图像名称需为 1～120 个字符，不能包含换行或控制字符')
+    return name.trim()
+  }
+
+  async rename(id: string, name: string) {
+    const normalized = this.validName(name)
     await this.change(() => {
-      this.record(id).name = name.trim()
+      this.record(id).name = normalized
     })
-    this.options.onChange()
+    this.notify()
   }
 
   async remove(id: string) {
@@ -327,15 +399,16 @@ export class ImageLibraryStore {
       if (!item) throw new Error('图像不存在')
       item.removed = true
     })
-    this.options.onChange()
+    this.notify()
   }
 
   async detachSessions(sessionIds: string[]) {
     const ids = new Set(sessionIds)
     await this.change(() => {
-      for (const item of this.state.records) if (ids.has(item.session.sessionId)) item.sourceStatus = 'detached'
+      for (const item of this.state.records)
+        if (item.origin === 'generated' && ids.has(item.session.sessionId)) item.sourceStatus = 'detached'
     })
-    this.options.onChange()
+    this.notify()
   }
 
   async dispose() {

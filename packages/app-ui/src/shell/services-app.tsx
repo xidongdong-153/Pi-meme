@@ -76,7 +76,10 @@ export function ServicesApp({
       .initialize()
       .catch((cause: unknown) => controllers.current.get(registry.localServiceId)?.setError(String(cause)))
   }, [registry])
-  const activate = (id: string, work: (controller: ServiceController) => Promise<boolean>): Promise<boolean> => {
+  const activate = (
+    id: string,
+    work: (controller: ServiceController, isCurrent: () => boolean) => Promise<boolean>,
+  ): Promise<boolean> => {
     const source = controllers.current.get(activeRef.current)
     const service = registry.list().find((entry) => entry.id === id)
     if (service && servicePaused(service)) {
@@ -104,7 +107,9 @@ export function ServicesApp({
     })()
       .then((allowed) => {
         const target = controllers.current.get(id)
-        return allowed && transaction === navigation.current && target ? work(target) : false
+        return allowed && transaction === navigation.current && target
+          ? work(target, () => transaction === navigation.current)
+          : false
       })
       .then((changed) => {
         if (!changed || transaction !== navigation.current) return false
@@ -247,6 +252,28 @@ export function ServicesApp({
                   return true
                 })
                 if (!changed) throw new Error('未能打开来源会话，请检查连接或未保存的更改')
+              },
+              onCreateImage: async (id, item, originIsCurrent = () => true) => {
+                const service = registry.list().find((entry) => entry.id === id)
+                if (!service || service.status !== 'connected' || servicePaused(service))
+                  throw new Error('图片所属服务未连接，请恢复连接后重试')
+                const sourceId = activeRef.current
+                let failure: unknown
+                const changed = await activate(id, async (controller, isCurrent) => {
+                  if (id !== sourceId && !(await (controller.beforeDeactivate?.() ?? true))) return false
+                  const owns = () => isCurrent() && originIsCurrent()
+                  if (!owns()) return false
+                  try {
+                    return await controller.prepareImageDraft(item, owns)
+                  } catch (cause) {
+                    failure = cause
+                    throw cause
+                  }
+                })
+                if (!changed)
+                  throw failure instanceof Error
+                    ? failure
+                    : new Error('未能准备图像创作，请检查连接或未保存的更改后重试')
               },
               sidebar,
               remoteSettings,

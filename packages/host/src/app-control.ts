@@ -58,9 +58,16 @@ type Options = {
   prepareContextSession?: (session: AppSession) => void
   visualizations?: (sessionKey: string) => import('@pi-meme/visualize/server/store').VisualizationStore
   models?: import('@pi-meme/contracts/model-config').ModelsReadonlyApi
-  imageLibrary?: Omit<import('@pi-meme/contracts/image-library').ImageLibraryApi, 'rename' | 'remove'> & {
+  imageLibrary?: Omit<
+    import('@pi-meme/contracts/image-library').ImageLibraryApi,
+    'rename' | 'remove' | 'import' | 'upload'
+  > & {
     rename: (id: string, name: string) => Promise<void>
     remove: (id: string) => Promise<void>
+    import: (
+      input: Parameters<import('@pi-meme/contracts/image-library').ImageLibraryApi['import']>[0],
+      idempotencyKey: string,
+    ) => Promise<import('@pi-meme/contracts/image-library').ImageLibraryItem>
   }
   imageGeneration?: import('@pi-meme/contracts/image-generation').ImageGenerationApi
   schedules?: import('@pi-meme/schedules/server/service').ScheduleService
@@ -862,7 +869,12 @@ export async function createAppControl(options: Options) {
     imageLibrary: options.imageLibrary
       ? {
           list: (input) => options.imageLibrary!.list(input),
+          get: (id) => options.imageLibrary!.get(id),
           read: (id) => options.imageLibrary!.read(id),
+          import: (input, opts) =>
+            mutate(clientId, 'imageLibrary.import', [input], opts, (operationId) =>
+              options.imageLibrary!.import(input, operationId),
+            ),
           rename: (id, name, opts) =>
             mutate(clientId, 'imageLibrary.rename', [id, name], opts, () => options.imageLibrary!.rename(id, name)),
           remove: (id, opts) =>
@@ -905,7 +917,7 @@ export async function createAppControl(options: Options) {
       features: [
         'system-tools',
         ...(options.visualizations ? ['visualize' as const] : []),
-        ...(options.imageLibrary ? ['image-library' as const] : []),
+        ...(options.imageLibrary ? (['image-library', 'image-library-upload'] as const) : []),
         ...(options.imageGeneration ? ['image-generation' as const] : []),
         ...(options.models ? ['models' as const] : []),
         ...(options.contextWindow ? ['context-window' as const] : []),
@@ -1622,6 +1634,7 @@ export async function createAppControl(options: Options) {
   })
   const api = apiFor('host-internal')
   const writes = new Set([
+    'imageLibrary.import',
     'imageLibrary.rename',
     'imageLibrary.remove',
     'schedules.create',

@@ -5,7 +5,11 @@ import type { ImageArtifact } from '@pi-meme/contracts/image-generation'
 import type { ImageLibraryCandidate, ImageLibraryHistory } from '@pi-meme/image-generation/server/library-store'
 import { loadPiSdk } from '@pi-meme/pi-runtime/sdk/load'
 
-export async function imageLibraryHistory(api: HostApi, sessionsDirectory: string): Promise<ImageLibraryHistory[]> {
+export async function imageLibraryHistory(
+  api: HostApi,
+  sessionsDirectory: string,
+  normalizeDataPath: (file: string) => string = (file) => file,
+): Promise<ImageLibraryHistory[]> {
   const [sessions, projects, root] = await Promise.all([
     api.sessions.list(),
     api.projects.list(),
@@ -14,7 +18,7 @@ export async function imageLibraryHistory(api: HostApi, sessionsDirectory: strin
   const result: ImageLibraryHistory[] = []
   for (const session of sessions.sort((a, b) => a.createdAt.localeCompare(b.createdAt))) {
     if (session.temporary || !session.sessionFile) continue
-    const file = session.sessionFile
+    const file = normalizeDataPath(session.sessionFile)
     try {
       const resolved = await realpath(file)
       if (!resolved.startsWith(`${root}${path.sep}`) || resolved !== path.resolve(file)) continue
@@ -63,7 +67,7 @@ export async function imageLibraryHistory(api: HostApi, sessionsDirectory: strin
               parent = parent.parentId ? byId.get(parent.parentId) : undefined
             }
             images.push({
-              artifact,
+              artifact: { ...artifact, path: normalizeDataPath(artifact.path) },
               prompt,
               createdAt: entry.timestamp,
               session: { hostId: session.hostId, sessionId: session.sessionId },

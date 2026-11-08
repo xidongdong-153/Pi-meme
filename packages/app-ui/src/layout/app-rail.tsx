@@ -7,7 +7,7 @@ import {
   Gauge,
   Gift,
   Home,
-  Images,
+  LibraryBig,
   Keyboard,
   LifeBuoy,
   Plug,
@@ -41,8 +41,8 @@ export function AppRail({
   onHome,
   homeActive = false,
   sidebarFlyout,
-  onImages,
-  imagesActive = false,
+  onMaterials,
+  materialsActive = false,
   onProjects,
   projectsActive = false,
   onSchedules,
@@ -63,9 +63,9 @@ export function AppRail({
   onAccount?: () => void
   onHome?: () => void
   homeActive?: boolean
-  sidebarFlyout?: { entry: 'home' | 'schedules' | 'plugins'; control: SidebarFlyoutControl }
-  onImages?: () => void
-  imagesActive?: boolean
+  sidebarFlyout?: { entry: 'home' | 'materials' | 'schedules' | 'plugins'; control: SidebarFlyoutControl }
+  onMaterials?: () => void
+  materialsActive?: boolean
   onProjects?: () => void
   projectsActive?: boolean
   onSchedules?: () => void
@@ -106,6 +106,14 @@ export function AppRail({
         >
           <Home className="size-4" />
         </AppRailEntry>
+        <AppRailEntry
+          label="资料空间"
+          active={materialsActive}
+          onClick={onMaterials}
+          flyout={sidebarFlyout?.entry === 'materials' ? sidebarFlyout.control : undefined}
+        >
+          <LibraryBig className="size-4" />
+        </AppRailEntry>
         <AppRailEntry label="项目" active={projectsActive} onClick={onProjects}>
           <Folder className="size-4" />
         </AppRailEntry>
@@ -129,9 +137,6 @@ export function AppRail({
             <Circle className="size-4" />
             <Plug className="absolute inset-[3px] size-2.5 -rotate-45" />
           </span>
-        </AppRailEntry>
-        <AppRailEntry label="图像" active={imagesActive} onClick={onImages}>
-          <Images className="size-4" />
         </AppRailEntry>
         {pluginNavigation.length > 0 && (
           <>

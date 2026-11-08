@@ -104,6 +104,7 @@ export type AppHostCapabilities = {
     | 'visualize'
     | 'image-generation'
     | 'image-library'
+    | 'image-library-upload'
     | 'models'
     | 'context-window'
   >

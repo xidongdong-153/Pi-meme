@@ -1,0 +1,286 @@
+.materials-workspace {
+  --materials-sidebar: color-mix(in srgb, var(--background) 97%, var(--foreground) 3%);
+  --materials-card: color-mix(in srgb, var(--background) 87%, var(--foreground) 13%);
+  --materials-selection: color-mix(in srgb, var(--background) 90%, var(--foreground) 10%);
+  --materials-gap: 15px;
+}
+
+.materials-workspace .content-frame {
+  margin-right: 4px;
+  margin-bottom: 4px;
+  border-radius: 0 0 12px 12px;
+  box-shadow: none;
+}
+
+.materials-sidebar {
+  background: var(--materials-sidebar);
+}
+
+.materials-sidebar-entry {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  min-height: 29px;
+  padding: 5px 10px;
+  border-radius: 8px;
+  font-size: var(--text-ui, 13px);
+  text-align: left;
+  color: var(--foreground);
+  cursor: pointer;
+  transition: background-color 120ms ease-out;
+}
+
+.materials-sidebar-entry:hover,
+.materials-sidebar-entry.is-active {
+  background: var(--materials-selection);
+}
+
+.materials-sidebar-entry:focus-visible,
+.materials-tab:focus-visible,
+.materials-image:focus-visible,
+.materials-table button:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
+.materials-content {
+  background: var(--background);
+}
+
+.materials-header {
+  padding: 26px 44px 18px;
+}
+
+.materials-search {
+  width: 216px;
+  background: transparent;
+  border-color: color-mix(in srgb, var(--foreground) 12%, transparent);
+  box-shadow: none;
+}
+
+.materials-create {
+  height: 30px;
+  padding: 0 17px;
+  background: var(--foreground);
+  color: var(--background);
+  font-size: 12px;
+  box-shadow: none;
+}
+
+.materials-create:hover {
+  background: var(--foreground);
+  color: var(--background);
+  opacity: 0.9;
+}
+
+.materials-toolbar {
+  min-height: 60px;
+  padding: 0 44px 28px;
+}
+
+.materials-tab {
+  min-height: 33px;
+  padding: 6px 17px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition:
+    color 120ms ease-out,
+    background-color 120ms ease-out;
+}
+
+.materials-tab:hover {
+  color: var(--foreground);
+}
+
+.materials-tab.is-active {
+  background: var(--materials-selection);
+  color: var(--foreground);
+}
+
+.materials-scroll {
+  padding: 0 44px 28px;
+  scrollbar-gutter: stable;
+}
+
+.materials-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 180px), 1fr));
+  gap: var(--materials-gap);
+}
+
+.materials-card {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 16px;
+  background: var(--materials-card);
+}
+
+.materials-grid .materials-card {
+  position: relative;
+  aspect-ratio: 4 / 5;
+}
+
+.materials-card-title {
+  height: 39px;
+  flex-shrink: 0;
+  padding-right: 38px;
+  border-bottom: 1px solid color-mix(in srgb, var(--foreground) 3%, transparent);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.materials-image {
+  width: 100%;
+  height: 100%;
+  flex: 1 1 0%;
+  cursor: pointer;
+  border-radius: inherit;
+}
+
+.materials-grid .materials-image {
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+.materials-image.is-compact {
+  background: var(--materials-card);
+}
+
+.materials-card-menu {
+  background: color-mix(in srgb, var(--background) 90%, transparent);
+  color: var(--foreground);
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+
+.materials-card:hover .materials-card-menu,
+.materials-card:focus-within .materials-card-menu,
+.materials-card-menu[data-state='open'] {
+  opacity: 1;
+}
+
+.materials-card-caption {
+  color: white;
+  background: rgb(0 0 0 / 78%);
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+}
+
+.materials-card:hover .materials-card-caption,
+.materials-card:focus-within .materials-card-caption {
+  opacity: 1;
+}
+
+.materials-table {
+  font-size: 13px;
+}
+
+.materials-table th {
+  height: 35px;
+  padding: 0 12px;
+  color: var(--muted-foreground);
+  font-size: 12px;
+}
+
+.materials-table td {
+  height: 45px;
+  padding: 0 12px;
+  border-top: 1px solid color-mix(in srgb, var(--foreground) 4%, transparent);
+}
+
+.materials-table tr:hover td {
+  background: color-mix(in srgb, var(--foreground) 3%, transparent);
+}
+
+.materials-table .materials-more {
+  opacity: 0;
+}
+
+.materials-table tr:hover .materials-more,
+.materials-table tr:focus-within .materials-more,
+.materials-table .materials-more[data-state='open'] {
+  opacity: 1;
+}
+
+.materials-references {
+  padding: 0 44px 30px;
+}
+
+.materials-empty {
+  min-height: max(240px, calc(100dvh - 245px));
+}
+
+.materials-notice,
+.materials-issues {
+  padding: 8px 44px;
+}
+
+.materials-preview-stage > [aria-label='图片预览区域'] {
+  background: transparent;
+}
+
+.materials-detail-header .materials-more {
+  background: var(--secondary);
+}
+
+.materials-use-image {
+  height: 40px;
+  background: var(--materials-card);
+  color: var(--foreground);
+}
+
+@media (hover: none) {
+  .materials-card-menu,
+  .materials-card-caption,
+  .materials-table .materials-more {
+    opacity: 1;
+  }
+}
+
+@media (max-width: 700px) {
+  .materials-header {
+    padding: 24px 20px 16px;
+  }
+
+  .materials-toolbar {
+    padding-inline: 20px;
+  }
+
+  .materials-scroll {
+    padding-inline: 20px;
+  }
+
+  .materials-search {
+    width: min(216px, 42vw);
+  }
+
+  .materials-references,
+  .materials-notice,
+  .materials-issues {
+    padding-inline: 20px;
+  }
+
+  .materials-table th:nth-child(2),
+  .materials-table td:nth-child(2) {
+    display: none;
+  }
+
+  .materials-table th:nth-child(3) {
+    width: 28%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .materials-sidebar-entry,
+  .materials-tab,
+  .materials-card-menu,
+  .materials-card-caption {
+    transition: none;
+  }
+}

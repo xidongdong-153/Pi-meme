@@ -379,6 +379,18 @@ export class RemoteServices {
     body: ReadableStream<Uint8Array> | null,
     signal?: AbortSignal,
   ) {
+    return this.uploadBinary('/api/chat/attachments', id, metadata, body, signal)
+  }
+  uploadImage(id: string, metadata: URLSearchParams, body: ReadableStream<Uint8Array> | null, signal?: AbortSignal) {
+    return this.uploadBinary('/api/images/upload', id, metadata, body, signal)
+  }
+  private uploadBinary(
+    pathname: '/api/chat/attachments' | '/api/images/upload',
+    id: string,
+    metadata: URLSearchParams,
+    body: ReadableStream<Uint8Array> | null,
+    signal?: AbortSignal,
+  ) {
     return this.track(async () => {
       const state = this.get(id)
       if (metadata.get('hostId') !== state.hostId) throw new Error('服务身份不匹配')
@@ -388,7 +400,7 @@ export class RemoteServices {
         this.assertCurrent(state)
         signal?.throwIfAborted()
         const endpoint = this.endpoint(state)
-        const url = new URL('/api/chat/attachments', endpoint)
+        const url = new URL(pathname, endpoint)
         url.search = metadata.toString()
         const init: RequestInit & { duplex: 'half' } = {
           method: 'POST',

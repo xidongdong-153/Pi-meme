@@ -1,7 +1,8 @@
 import { useSystemClient } from './session/use-system-client'
 import type { SidebarLayout } from './layout/use-sidebar-layout'
 import type { WorkspaceView } from './layout/use-workspace-view'
-import { ImagesPage } from './images/images-page'
+import { MaterialsPage } from './materials/materials-page'
+import type { GalleryImage } from './images/image-library-data'
 import { useVisualizations } from '@pi-meme/visualize/ui/use-visualizations'
 import { VisualizationRendererContext } from '@pi-meme/ui/components/visualization-renderer'
 import { LinkedFilePanel, type LinkedFileTab } from './panels/linked-file-panel'
@@ -16,11 +17,10 @@ import type { BrowserPlatform } from '@pi-meme/contracts/browser'
 import { BrowserFavicon, BrowserPanel } from '@pi-meme/browser/ui/browser-panel'
 import { BrowserSettings } from '@pi-meme/browser/ui/browser-settings'
 import { useBrowser } from '@pi-meme/browser/ui/use-browser'
-import { annotationAttachment } from '@pi-meme/chat/ui/composer/image-attachment'
+import { annotationAttachment, type ComposerAttachment } from '@pi-meme/chat/ui/composer/image-attachment'
 import { parseAnnotations } from '@pi-meme/contracts/browser-annotations'
 import { useSchedules } from '@pi-meme/schedules/ui/use-schedules'
 import { ScheduleLocationSelector } from './shell/schedule-location-selector'
-import { PageHeader, PageHeaderNavigation } from './layout/page-header'
 import { ActivityPanel } from '@pi-meme/activities/ui/activity-panel'
 import { useActivities } from '@pi-meme/activities/ui/activity-store'
 import { GoalControl } from '@pi-meme/goals/ui/goal-control'
@@ -553,8 +553,11 @@ function AppContent({
       discardPluginPage()
     },
   })
-  const [imagesVisited, setImagesVisited] = useState(false)
+  const [materialsVisited, setMaterialsVisited] = useState(false)
   const route = navigation.route
+  const imageDraftContext = useRef({ chat, route })
+  imageDraftContext.current = { chat, route }
+  const preparingImageDraft = useRef(false)
   const navigationMotion = useNavigationMotion(
     route.kind === 'plugin' ? `plugin:${route.pluginId}` : route.kind,
     active,
@@ -752,12 +755,24 @@ function AppContent({
     if (next) navigation.open(next)
     else chat.setError('插件页面需要对应项目或会话，请先在聊天中选择目标。')
   }
+  const imageSources = useMemo(
+    () =>
+      serviceUI?.imageSources ?? [
+        {
+          id: hostId ?? 'current',
+          label: hostLocal ? '此计算机' : (hostAddress ?? '当前设备'),
+          connected: chat.connection.status === 'ready',
+          host,
+        },
+      ],
+    [serviceUI?.imageSources, hostId, hostLocal, hostAddress, chat.connection.status, host],
+  )
   const pluginRailProps = {
-    onImages: () => {
-      setImagesVisited(true)
-      navigation.open({ kind: 'images' })
+    onMaterials: () => {
+      setMaterialsVisited(true)
+      navigation.open({ kind: 'materials', section: 'all' })
     },
-    imagesActive: route.kind === 'images',
+    materialsActive: route.kind === 'materials',
     onSchedules: () => navigation.open({ kind: 'schedules' }),
     schedulesActive: route.kind === 'schedules',
     schedulesUnread: scheduleState.tasks.some((task) => task.unreadCount > 0),
@@ -834,9 +849,88 @@ function AppContent({
     () => appearance.registerMaintenanceGuard(() => restartGuard.current()),
     [appearance.registerMaintenanceGuard],
   )
+  async function beforeDeactivate() {
+    if (instructionsSaving || storageMaintaining) return false
+    if (browserUnstored.current()) {
+      chat.setError('浏览器草稿尚未保存，请先重试保存')
+      return false
+    }
+    if (!dirtyPage && !instructionsDirty) return true
+    const accepted = await pluginConsent.request({
+      pluginId: dirtyPage?.pluginId ?? '应用指令',
+      title: '切换前放弃未保存的更改？',
+      description: '当前插件页面或指令有未保存更改。切换会话或服务后，这些修改不会自动恢复。',
+    })
+    if (accepted) {
+      discardPluginPage()
+      setInstructionsDirty(false)
+    }
+    return accepted
+  }
+  async function prepareImageDraft(item?: GalleryImage, isCurrent: () => boolean = () => true) {
+    if (preparingImageDraft.current) return false
+    preparingImageDraft.current = true
+    const initial = imageDraftContext.current
+    const ownsSource = () =>
+      isCurrent() &&
+      imageDraftContext.current.route === initial.route &&
+      imageDraftContext.current.chat.workspaceUiKey === initial.chat.workspaceUiKey
+    try {
+      if (!serviceUI && !(await beforeDeactivate())) return false
+      if (!ownsSource()) return false
+      let attachment: ComposerAttachment | undefined
+      if (item) {
+        const source = imageSources.find((entry) => entry.id === item.serviceId)
+        if (!source?.connected || source.host !== host || !host.imageLibrary)
+          throw new Error('图片所属服务未连接，请恢复连接后重试')
+        const sessionKey = initial.chat.connection.sessionKey
+        if (!sessionKey) throw new Error('请先连接会话再使用此图片')
+        const { dataUrl } = await host.imageLibrary.read(item.id)
+        if (!ownsSource()) return false
+        // data: 图片可用于 img-src，但不属于 connect-src；直接解码避免触发网络请求和 CSP 阻断。
+        const encoded = /^data:(image\/[a-z0-9.+-]+);base64,([a-z0-9+/]*={0,2})$/i.exec(dataUrl)
+        if (!encoded) throw new Error('图片数据无效，请重新打开图片后重试')
+        const bytes = Uint8Array.from(atob(encoded[2]), (character) => character.charCodeAt(0))
+        const data = new Blob([bytes], { type: encoded[1] })
+        if (!ownsSource()) return false
+        const extensions: Record<string, string> = {
+          'image/png': '.png',
+          'image/jpeg': '.jpg',
+          'image/webp': '.webp',
+          'image/gif': '.gif',
+          'image/avif': '.avif',
+          'image/bmp': '.bmp',
+          'image/svg+xml': '.svg',
+        }
+        const extension = extensions[data.type] ?? '.png'
+        const name = item.name.toLowerCase().endsWith(extension) ? item.name : `${item.name}${extension}`
+        const file = await bridge.uploadAttachment(sessionKey, { name, data })
+        if (!ownsSource()) return false
+        attachment = { ...file, type: 'file', id: crypto.randomUUID() }
+      }
+      if (!ownsSource() || !(await initial.chat.newSession())) return false
+      if (!isCurrent() || imageDraftContext.current.route !== initial.route) return false
+      const store = imageDraftContext.current.chat.composerStore
+      const draft = store.getSnapshot()
+      const intent = item ? '请基于所附图片进行图像创作。' : '请帮我生成一张图片。'
+      // 创作入口仍在资料页，聊天编辑器可能隐藏或未挂载；先原子更新草稿，显示后再聚焦。
+      store.patch({
+        draft: [draft.draft.trimEnd(), intent].filter(Boolean).join('\n\n'),
+        attachments: attachment ? [...draft.attachments, attachment] : draft.attachments,
+      })
+      navigation.home()
+      requestAnimationFrame(() => {
+        if (imageDraftContext.current.route.kind === 'chat') store.editor?.focus()
+      })
+      return true
+    } finally {
+      preparingImageDraft.current = false
+    }
+  }
   useEffect(() => {
     serviceUI?.onController(serviceUI.serviceId, {
       ...chat,
+      prepareImageDraft,
       openSettings: () => openSettings('general'),
       openSchedules: () => navigation.open({ kind: 'schedules' }),
       openChat: navigation.home,
@@ -850,24 +944,7 @@ function AppContent({
           throw new Error('仍有未发送的草稿、附件或消息编辑，请先处理后再移除连接')
       },
       openProjectDialog: () => setCreatingProject(true),
-      beforeDeactivate: async () => {
-        if (instructionsSaving || storageMaintaining) return false
-        if (browserUnstored.current()) {
-          chat.setError('浏览器草稿尚未保存，请先重试保存')
-          return false
-        }
-        if (!dirtyPage && !instructionsDirty) return true
-        const accepted = await pluginConsent.request({
-          pluginId: dirtyPage?.pluginId ?? '应用指令',
-          title: '切换前放弃未保存的更改？',
-          description: '当前插件页面或指令有未保存更改。切换会话或服务后，这些修改不会自动恢复。',
-        })
-        if (accepted) {
-          discardPluginPage()
-          setInstructionsDirty(false)
-        }
-        return accepted
-      },
+      beforeDeactivate,
     })
   })
   const [preferredApp, setPreferredApp] = useState<ProjectApp['id']>('finder')
@@ -953,8 +1030,8 @@ function AppContent({
   useEffect(() => {
     if (active)
       document.title =
-        route.kind === 'images'
-          ? '图像'
+        route.kind === 'materials'
+          ? '资料空间'
           : customizationOpen
             ? '插件与技能'
             : projectsOpen
@@ -2101,7 +2178,7 @@ function AppContent({
               onUsage={() => openSettings('profile')}
               onAccount={() => openSettings('account')}
               onProjects={() => navigation.open({ kind: 'projects' })}
-              onImages={pluginRailProps.onImages}
+              onMaterials={pluginRailProps.onMaterials}
               onSchedules={() => navigation.open({ kind: 'schedules' })}
               schedulesUnread={scheduleState.tasks.some((task) => task.unreadCount > 0)}
               onNewSession={() => void newSession()}
@@ -2161,56 +2238,63 @@ function AppContent({
             </WorkspacePanels>
           </div>
 
-          {imagesVisited && (
-            <section
-              aria-label="图像页面"
-              className={
-                route.kind === 'images'
-                  ? 'workspace-panes flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-secondary'
-                  : 'hidden'
-              }
-              inert={route.kind !== 'images'}
+          {materialsVisited && (
+            <div
+              className={route.kind === 'materials' ? 'flex min-h-0 min-w-0 flex-1 flex-col' : 'hidden'}
+              inert={route.kind !== 'materials'}
+              aria-hidden={route.kind !== 'materials'}
             >
-              <PageHeader>
-                <PageHeaderNavigation
-                  nativeWindow={nativeWindow}
-                  back={{ label: '返回上一页', onClick: navigation.back, disabled: !navigation.canBack }}
-                  forward={{ label: '前进', onClick: navigation.forward, disabled: !navigation.canForward }}
-                />
-              </PageHeader>
-              <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-                <AppRail
-                  profile={userProfile.profile}
-                  profileLoading={userProfile.showPlaceholder}
-                  {...pluginRailProps}
-                  onHome={navigation.home}
-                  onProjects={() => navigation.open({ kind: 'projects' })}
-                  onPlugins={() => navigation.open({ kind: 'customization' })}
-                  onSettings={() => openSettings('general')}
-                  onUsage={() => openSettings('profile')}
-                  onAccount={() => openSettings('account')}
-                />
-                <ImagesPage
-                  visible={route.kind === 'images'}
-                  sources={
-                    serviceUI?.imageSources ?? [
-                      {
-                        id: hostId ?? 'current',
-                        label: hostLocal ? '此计算机' : (hostAddress ?? '当前设备'),
-                        connected: chat.connection.status === 'ready',
-                        host,
-                      },
-                    ]
-                  }
-                  onOpenSession={async (id, ref) => {
-                    if (serviceUI?.onImageSession) return serviceUI.onImageSession(id, ref)
-                    const session = await host.sessions.get(ref)
-                    if (!session.sessionFile) throw new Error('来源会话已不可用')
-                    if (await switchSession(session.sessionFile)) navigation.home()
-                  }}
-                />
-              </div>
-            </section>
+              <MaterialsPage
+                visible={route.kind === 'materials'}
+                sources={imageSources}
+                route={route.kind === 'materials' ? route : { kind: 'materials', section: 'all' }}
+                onNavigate={(next) => navigation.open(next)}
+                onBack={navigation.back}
+                onOpenSession={async (id, ref) => {
+                  if (serviceUI?.onImageSession) return serviceUI.onImageSession(id, ref)
+                  const session = await host.sessions.get(ref)
+                  if (!session.sessionFile) throw new Error('来源会话已不可用')
+                  if (await switchSession(session.sessionFile)) navigation.home()
+                }}
+                onCreateImage={async (id, item) => {
+                  const origin = imageDraftContext.current.route
+                  if (serviceUI?.onCreateImage)
+                    return serviceUI.onCreateImage(id, item, () => imageDraftContext.current.route === origin)
+                  if (id !== imageSources[0]?.id) throw new Error('图片所属服务不可用')
+                  if (!(await prepareImageDraft(item))) throw new Error('未能准备图像创作，请检查连接后重试')
+                }}
+                renderLayout={({ sidebar, content }) => (
+                  <SidebarWorkspace
+                    visible={route.kind === 'materials'}
+                    label="资料空间"
+                    sidebarLabel="资料空间导航"
+                    layout={sidebarLayout}
+                    navigation={{
+                      nativeWindow,
+                      back: { label: '返回上一页', onClick: navigation.back, disabled: !navigation.canBack },
+                      forward: { label: '前进', onClick: navigation.forward, disabled: !navigation.canForward },
+                    }}
+                    rail={(flyout) => (
+                      <AppRail
+                        profile={userProfile.profile}
+                        profileLoading={userProfile.showPlaceholder}
+                        {...pluginRailProps}
+                        sidebarFlyout={flyout ? { entry: 'materials', control: flyout } : undefined}
+                        onHome={navigation.home}
+                        onProjects={() => navigation.open({ kind: 'projects' })}
+                        onPlugins={() => navigation.open({ kind: 'customization' })}
+                        onSettings={() => openSettings('general')}
+                        onUsage={() => openSettings('profile')}
+                        onAccount={() => openSettings('account')}
+                      />
+                    )}
+                    sidebar={sidebar}
+                  >
+                    {content}
+                  </SidebarWorkspace>
+                )}
+              />
+            </div>
           )}
           {route.kind === 'schedules' && (
             <SchedulesPage

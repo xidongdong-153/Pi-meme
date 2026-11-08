@@ -24,7 +24,7 @@ Agent 使用 `system_read` 和 `system_write` 操作工作台。先调用 `syste
 | ------------ | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
 | 终端         | `terminal.list`、`terminal.read`                                                            | `terminal.open`、`terminal.input`、`terminal.resize`、`terminal.close`                           |
 | 定时任务     | `schedules.list`、`get`、`runs`、`schema`                                                   | `create`、`update`、`pause`、`resume`、`delete`、`runNow`、`stopRun`、`markRead`、`resetSession` |
-| 图像素材     | `images.list`、`images.read`                                                                | `images.rename`、`images.remove`；生成沿用 `image_gen`                                           |
+| 图像素材     | `images.list`、`images.get`、`images.read`                                                  | `images.import`、`images.rename`、`images.remove`；生成沿用 `image_gen`                          |
 | 草图         | `visualizations.list`、`visualizations.read`                                                | 沿用 `save_visualization` 创建与保存版本                                                         |
 | 上下文窗口   | `contextWindow.list`、`get`、`item`、`reply`、`piece`、`image`                              | 只读；默认摘要，正文和图片显式分页读取                                                           |
 | 文件         | `files.list`、`read`、`preview`、`search`                                                   | `files.write`，需文件修订                                                                        |
@@ -51,6 +51,14 @@ Agent 使用 `system_read` 和 `system_write` 操作工作台。先调用 `syste
 ### 定时任务
 
 创建前读取 `schedules.schema` 和 `models.list`，不要猜模型 ID、时区或通知枚举。创建参数为 `[ScheduledTaskInput]`；读取、暂停等操作使用 `[{hostId,taskId}]`；更新为 `[{hostId,taskId}, ScheduledTaskInput]`。更新传完整输入。任务读取与执行不要求先进入定时任务页面。
+
+### 图像素材
+
+`images.list([{origin?,projectId?,query?,cursor?,limit?}?])` 默认只返回生成图，`origin` 可显式选择 `all`、`generated` 或 `uploaded`。来源筛选先于分页；更换来源或项目时重新开始分页。`images.get([id])` 读取单项信息，`images.read([id])` 返回保留真实 MIME 的图片 data URL 与字节数。生成图带来源会话、提示词与模型，上传图没有这些字段；不要替上传图猜造来源。
+
+`images.import([{path,name?}])` 将当前 Host 的 `data/attachments/` 内已有 PNG、JPEG 或 WebP 收录为上传素材，单张最多 8 MiB。路径必须是该 Host 附件目录内的真实普通文件，不接受工作区外任意路径、符号链接、浏览器本机路径或 URL。导入不复制原文件，复用业务入库校验与幂等机制；改名、移除同样通过 HostApi 执行。移除只隐藏图库记录，保留聊天与原始文件，不表示进入回收站。
+
+导入登记为 Host 范围写操作，只有普通任务的完全权限可调用；Plan、本地只读和工作区修改模式不能导入。界面上传另走已认证的 Host 级二进制接口，不以当前 Agent 任务权限替代客户端身份校验。`image-library-upload` 能力表示支持上传、真实来源筛选与联合条目协议；旧 Host 未声明时，不向它发送上传来源查询。
 
 ### 上下文窗口
 

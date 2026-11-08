@@ -6,6 +6,7 @@ import { SidebarToggle, useSidebarContainer, useWorkspaceSidebar, WorkspaceSideb
 
 /** 列表/分类与正文共用的页面壳；业务页面不再处理侧栏宽度、断点或浮层。 */
 export function SidebarWorkspace({
+  visible = true,
   label,
   sidebarLabel,
   layout,
@@ -14,6 +15,7 @@ export function SidebarWorkspace({
   sidebar,
   children,
 }: {
+  visible?: boolean
   label: string
   sidebarLabel: string
   layout: SidebarLayout
@@ -23,7 +25,7 @@ export function SidebarWorkspace({
   children: ReactNode
 }) {
   const { container, width } = useSidebarContainer()
-  const state = useWorkspaceSidebar({ layout, containerWidth: width })
+  const state = useWorkspaceSidebar({ layout, containerWidth: width, visible })
   return (
     <section
       aria-label={label}

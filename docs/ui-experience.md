@@ -27,9 +27,9 @@ Pi-meme 面向长时间使用聊天、项目和工具面板完成开发任务的
 
 ## 会话状态与工具保留
 
-会话、定时任务、插件与技能共用左侧栏的开合与宽度，由客户端外层统一管理，同一窗口内跨页面、会话与 Host 共享，并保存到客户端本地存储；切换页面、会话、进入新聊天和删除会话不重置这些布局偏好。完整视图／分栏模式同样由客户端管理。窄窗口空间不足时自动收起左栏，点击顶栏展开按钮以浮层打开，不挤压正文。
+会话、资料空间、定时任务、插件与技能共用左侧栏的开合与宽度，由客户端外层统一管理，同一窗口内跨页面、会话与 Host 共享，并保存到客户端本地存储；切换页面、会话、进入新聊天和删除会话不重置这些布局偏好。完整视图／分栏模式同样由客户端管理。窄窗口空间不足时自动收起左栏，点击顶栏展开按钮以浮层打开，不挤压正文。
 
-三处侧栏复用 [WorkspaceSidebar](../packages/app-ui/src/layout/workspace-sidebar.tsx) 的固定栏、浮层、拖拽与折叠按钮。折叠后悬停当前页面的导航轨入口可临时查看；键盘聚焦入口后按右方向键打开，Escape 关闭并返回入口。浮层不改变保存的开合与宽度，关闭及退场时立即设置 `inert` 和 `aria-hidden`，同一份内容保留表单与滚动位置，不重复挂载列表。
+这些侧栏复用 [WorkspaceSidebar](../packages/app-ui/src/layout/workspace-sidebar.tsx) 的固定栏、浮层、拖拽与折叠按钮。折叠后悬停当前页面的导航轨入口可临时查看；键盘聚焦入口后按右方向键打开，Escape 关闭并返回入口。浮层不改变保存的开合与宽度，关闭及退场时立即设置 `inert` 和 `aria-hidden`，同一份内容保留表单与滚动位置，不重复挂载列表。
 
 新增有列表或分类侧栏的内置页面，优先组合 [SidebarWorkspace](../packages/app-ui/src/layout/sidebar-workspace.tsx)，传入客户端 `SidebarLayout`、导航、侧栏内容和正文；业务包可通过 `renderLayout` 交给组合根装配，避免反向依赖 `app-ui`。复杂工作区可直接组合 `useWorkspaceSidebar`、`WorkspaceSidebar` 和 `SidebarToggle`。业务页面不再单独声明侧栏宽度或用响应式类隐藏侧栏；常驻但不可见的工作区必须传入 `visible={false}`，暂停自动折叠与快捷键。
 
@@ -78,7 +78,7 @@ Desktop 正常关窗、退出、受控重新加载和存储维护使用同一准
 
 ## 实现入口与接入范围
 
-- 一级导航：[use-navigation-motion.ts](../packages/app-ui/src/layout/use-navigation-motion.ts) 在首页、项目、定时任务、插件与技能、图像、设置及不同插件之间切换时，对可见 `.content-frame` 的直接子内容做淡入；不改变导航状态和页面生命周期。
+- 一级导航：[use-navigation-motion.ts](../packages/app-ui/src/layout/use-navigation-motion.ts) 在首页、资料空间、项目、定时任务、插件与技能、设置及不同插件之间切换时，对可见 `.content-frame` 的直接子内容做淡入；不改变导航状态和页面生命周期。
 - 导航选中底色：[AppRail](../packages/app-ui/src/layout/app-rail.tsx) 使用 `.app-rail-entry`；样式在 [global.css](../packages/app-ui/src/global.css)。
 - 局部内容入场：[FadeContent](../packages/ui/src/components/fade-content.tsx) 使用 `.ui-content-enter`，用于右侧栏 Tab 和启动画面。仅在原本就需要挂载的新内容上使用；不要包裹已有页面后再通过更换 `key` 重播动画。
 - 设置分类：[SettingsPage](../packages/app-ui/src/settings/settings-page.tsx) 直接渲染固定界面，不使用分类骨架或整页淡入。快捷键等同步页面立即可用；外观、指令等页面保留已知结构，未知配置读取完成前禁用相关操作。刷新保留已有数据，不为动效增加固定等待。
@@ -88,6 +88,14 @@ Desktop 正常关窗、退出、受控重新加载和存储维护使用同一准
 - 会话切换：[WorkspaceContent](../packages/app-ui/src/layout/workspace-content.tsx) 继续独立处理旧内容隔离、等待和会话入场，不改为一级导航动效。
 
 后续页面优先复用这些入口和参数。需要不同效果时，在对应需求中说明是哪种空间关系或状态变化，不仅因为“想加动画”另建一套实现。
+
+## 资料空间
+
+资料空间复用 `SidebarWorkspace`，全部、图像与中央图片详情进入同一导航历史。首次访问后保留页面实例；隐藏时向公共侧栏和数据入口透传 `visible={false}`，暂停快捷键与订阅，不重置其他页面共用的侧栏偏好。详情按 Host、服务与稳定图片 ID 定位，列表刷新与重排不改变当前目标。
+
+中央详情嵌入 [ImagePreviewStage](../packages/chat/src/ui/content/image-viewer.tsx)，默认不自动抢焦点，不使用模态焦点锁。聊天中的 `ImageViewer` 继续保留原有 Dialog、关闭后的焦点返回与键盘行为。
+
+创建图像与基于此图复用目标 Host 的新聊天草稿和唯一输入框。跨 Host 先经过离开守卫，再由对应控制器准备图片附件；准备完成后追加创作意图与附件，保留已有草稿。入口只预填，不自动提交，也不在导航时触发生图计费。切页、切 Host 或准备失败后，迟到请求不改写另一目标的输入。
 
 ## 悬停提示
 

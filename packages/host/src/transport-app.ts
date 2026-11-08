@@ -6,7 +6,7 @@ import { Hono, type Context } from 'hono'
 import { compress } from 'hono/compress'
 import { upgradeWebSocket, type HttpBindings } from '@hono/node-server'
 import { WebSocket } from 'ws'
-import type { HostControlRequest, EventSubscription } from '@pi-meme/contracts/app-host'
+import { maxImagePreviewBytes, type HostControlRequest, type EventSubscription } from '@pi-meme/contracts/app-host'
 import { MAX_CHAT_ATTACHMENT_BYTES } from '@pi-meme/contracts/chat-attachments'
 import type { HostRpcRequest } from '@pi-meme/contracts/host'
 import type { SshConnectionInput } from '@pi-meme/contracts/ssh-connections'
@@ -19,6 +19,7 @@ import type { createTransportAuth } from './transport-auth'
 import type { ServerOptions } from './server'
 import { frontendMime, serveFrontend } from './frontend'
 import { ChatAttachmentTooLargeError } from './chat-attachments'
+import { ImageUploadTooLargeError } from './image-uploads'
 import { createLinkPreviewLoader } from './link-preview'
 import { previewLinkedFile } from './workspace-files'
 import { visualizationPreviewPath, visualizationPreviewResponse } from '@pi-meme/visualize/server/preview-page'
@@ -96,6 +97,21 @@ function registerRpc(app: Hono<TransportEnv>, { host, remotes, auth }: Transport
   const loadLinkPreview = createLinkPreviewLoader()
   app.use('/api/rpc', compress())
   app.use('/api/control', compress())
+  app.post('/api/images/upload', async (c) => {
+    if (Number(c.req.header('Content-Length')) > maxImagePreviewBytes) throw new ImageUploadTooLargeError()
+    const query = c.get('url').searchParams
+    const result = await host.uploadImage(
+      {
+        clientId: query.get('clientId') ?? '',
+        hostId: query.get('hostId') ?? '',
+        name: query.get('name') ?? '',
+        idempotencyKey: query.get('idempotencyKey') ?? '',
+      },
+      c.req.raw.body ? Readable.fromWeb(c.req.raw.body as import('node:stream/web').ReadableStream) : Readable.from([]),
+      c.req.raw.signal,
+    )
+    return reply(200, { hostId: host.hostId, result })
+  })
   app.post('/api/chat/attachments', async (c) => {
     if (Number(c.req.header('Content-Length')) > MAX_CHAT_ATTACHMENT_BYTES) throw new ChatAttachmentTooLargeError()
     const query = c.get('url').searchParams
@@ -321,9 +337,14 @@ function registerResources(app: Hono<TransportEnv>, { host, remotes }: Transport
   app.all('/api/services/:id/api/*', async (c, next) => {
     const remote = c.get('url').pathname.match(/^\/api\/services\/([a-f0-9]{24})(\/api\/.*)$/)
     if (!remote) return next()
-    const attachment = remote[2] === '/api/chat/attachments' && c.req.method === 'POST'
-    const upstream = attachment
-      ? await remotes.uploadAttachment(remote[1], c.get('url').searchParams, c.req.raw.body, c.req.raw.signal)
+    const binaryUpload =
+      c.req.method === 'POST' && (remote[2] === '/api/chat/attachments' || remote[2] === '/api/images/upload')
+    if (remote[2] === '/api/images/upload' && Number(c.req.header('Content-Length')) > maxImagePreviewBytes)
+      throw new ImageUploadTooLargeError()
+    const upstream = binaryUpload
+      ? remote[2] === '/api/images/upload'
+        ? await remotes.uploadImage(remote[1], c.get('url').searchParams, c.req.raw.body, c.req.raw.signal)
+        : await remotes.uploadAttachment(remote[1], c.get('url').searchParams, c.req.raw.body, c.req.raw.signal)
       : await remotes.request(
           remote[1],
           remote[2],
@@ -369,7 +390,11 @@ function registerResources(app: Hono<TransportEnv>, { host, remotes }: Transport
 export function createTransportApp(services: TransportServices) {
   const { host, auth, options } = services
   const app = new Hono<TransportEnv>({ getPath: (request) => new URL(request.url).pathname })
-  app.onError((cause) => reply(cause instanceof ChatAttachmentTooLargeError ? 413 : 400, { error: cause.message }))
+  app.onError((cause) =>
+    reply(cause instanceof ChatAttachmentTooLargeError || cause instanceof ImageUploadTooLargeError ? 413 : 400, {
+      error: cause.message,
+    }),
+  )
   app.use('*', async (c, next) => {
     const request = c.env.incoming
     if (!auth.allowedSource(request)) return reply(403, { error: '请求来源无效' })

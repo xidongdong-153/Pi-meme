@@ -1,4 +1,4 @@
-import type { ImageLibrarySource } from '../images/image-library-data'
+import type { GalleryImage, ImageLibrarySource } from '../images/image-library-data'
 import type { SessionRef } from '@pi-meme/contracts/app-host'
 import type { HostServiceRegistry } from '@pi-meme/client/service-registry'
 import type { HostClient } from '@pi-meme/client/host-client'
@@ -12,6 +12,7 @@ export type ServiceController = ReturnType<typeof useAppSession> & {
   openSettings: () => void
   openSchedules: () => void
   openChat?: () => void
+  prepareImageDraft: (item?: GalleryImage, isCurrent?: () => boolean) => Promise<boolean>
   assertRestartAllowed: () => void
   assertRemoveAllowed?: () => void
   openProjectDialog?: () => void
@@ -23,6 +24,7 @@ export type ServiceUI = {
   services: HostService[]
   imageSources?: ImageLibrarySource[]
   onImageSession?: (serviceId: string, session: SessionRef) => Promise<void>
+  onCreateImage?: (serviceId: string, item?: GalleryImage, isCurrent?: () => boolean) => Promise<void>
   sidebar: ReactNode
   remoteSettings: ReactNode
   onController: (id: string, controller: ServiceController) => void

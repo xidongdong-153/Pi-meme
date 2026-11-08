@@ -6,6 +6,8 @@ import type {
   HostControlEvent,
 } from '@pi-meme/contracts/app-host'
 import { createAppHostClient } from './app-host-client'
+import { maxImagePreviewBytes } from '@pi-meme/contracts/app-host'
+import type { ImageLibraryItem, ImageLibraryUploadInput } from '@pi-meme/contracts/image-library'
 import {
   MAX_CHAT_ATTACHMENT_BYTES,
   type ChatFileUpload,
@@ -179,7 +181,11 @@ export class HostClient {
     this.connectedHostId = options.connection.hostId
     this.clientId = clientIdentity(options, this.url)
     this.fetch = options.fetch ?? globalThis.fetch.bind(globalThis)
-    this.host = createAppHostClient({ call: this.controlCall.bind(this), subscribe: this.subscribeControl.bind(this) })
+    this.host = createAppHostClient({
+      call: this.controlCall.bind(this),
+      subscribe: this.subscribeControl.bind(this),
+      uploadImage: this.uploadImage.bind(this),
+    })
     this.bridge = this.createBridge()
     this.resources = createResourceClient(this.rpc.bind(this), (callback) => {
       this.pluginListeners.add(callback)
@@ -436,10 +442,8 @@ export class HostClient {
     onProgress?: (percent: number) => void,
   ): Promise<ChatUploadedFile> {
     const input = normalizeAttachmentInput(rawInput)
-    const epoch = this.networkEpoch
-    this.assertAvailable(epoch)
-    signal = signal ? AbortSignal.any([signal, this.lifetime.signal]) : this.lifetime.signal
-    signal.throwIfAborted()
+    this.assertAvailable()
+    signal?.throwIfAborted()
     if (
       this.nativePlatformAvailable &&
       typeof File !== 'undefined' &&
@@ -450,31 +454,82 @@ export class HostClient {
       if (path) return { name: input.name, path }
     }
     if (input.data.size > MAX_CHAT_ATTACHMENT_BYTES) throw new Error('单个上传文件不能超过 50 MB')
+    const result = await this.uploadBlob(
+      '/api/chat/attachments',
+      { sessionKey, name: input.name },
+      input.data,
+      signal,
+      onProgress
+        ? (loaded, total) => onProgress(total ? Math.min(100, Math.round((loaded / total) * 100)) : 0)
+        : undefined,
+      '附件',
+    )
+    const file = result as ChatUploadedFile | undefined
+    if (!file || typeof file.path !== 'string' || typeof file.name !== 'string')
+      throw new Error('服务返回的附件信息无效')
+    return file
+  }
+
+  private async uploadImage(input: ImageLibraryUploadInput): Promise<ImageLibraryItem> {
+    if (!input || typeof input.name !== 'string' || !input.name.trim()) throw new Error('图片名称无效')
+    if (typeof input.idempotencyKey !== 'string' || !input.idempotencyKey || input.idempotencyKey.length > 128)
+      throw new Error('图片上传幂等标识无效')
+    if (!input.data || typeof input.data.arrayBuffer !== 'function') throw new Error('图片上传内容无效')
+    if (!input.data.size || input.data.size > maxImagePreviewBytes) throw new Error('图片不能为空或超过 8 MiB')
+    const result = (await this.uploadBlob(
+      '/api/images/upload',
+      { name: input.name, idempotencyKey: input.idempotencyKey },
+      input.data,
+      input.signal,
+      input.onProgress,
+      '图片',
+    )) as ImageLibraryItem | undefined
+    if (
+      !result ||
+      typeof result.id !== 'string' ||
+      typeof result.name !== 'string' ||
+      result.hostId !== this.hostId ||
+      result.origin !== 'uploaded'
+    )
+      throw new Error('服务返回的图片信息无效')
+    return result
+  }
+
+  private async uploadBlob(
+    pathname: '/api/chat/attachments' | '/api/images/upload',
+    metadata: Record<string, string>,
+    data: Blob,
+    signal: AbortSignal | undefined,
+    onProgress: ((loaded: number, total: number) => void) | undefined,
+    label: string,
+  ): Promise<unknown> {
+    const epoch = this.networkEpoch
+    this.assertAvailable(epoch)
+    const activeSignal = signal ? AbortSignal.any([signal, this.lifetime.signal]) : this.lifetime.signal
+    activeSignal.throwIfAborted()
     await this.authenticate()
     this.assertAvailable(epoch)
-    const url = this.endpoint('/api/chat/attachments')
-    url.search = new URLSearchParams({
-      sessionKey,
-      clientId: this.clientId,
-      hostId: this.hostId,
-      name: input.name,
-    }).toString()
+    activeSignal.throwIfAborted()
+    const targetHostId = this.hostId
+    const url = this.endpoint(pathname)
+    url.search = new URLSearchParams({ ...metadata, clientId: this.clientId, hostId: targetHostId }).toString()
     const send = () => {
       this.assertAvailable(epoch)
-      signal?.throwIfAborted()
+      activeSignal.throwIfAborted()
+      onProgress?.(0, data.size)
       if (typeof XMLHttpRequest === 'undefined') {
         return this.fetch(url, {
           method: 'POST',
           credentials: 'include',
           headers: { 'Content-Type': 'application/octet-stream' },
-          body: input.data,
-          signal,
+          body: data,
+          signal: activeSignal,
         })
       }
       return new Promise<Response>((resolve, reject) => {
         const request = new XMLHttpRequest()
         const cleanup = () => {
-          signal?.removeEventListener('abort', abort)
+          activeSignal.removeEventListener('abort', abort)
           request.upload.onprogress = null
           request.onload = null
           request.onerror = null
@@ -485,40 +540,49 @@ export class HostClient {
           reject(error)
         }
         function abort() {
+          fail(activeSignal.reason ?? new DOMException(`${label}上传已取消`, 'AbortError'))
           request.abort()
-          fail(signal?.reason ?? new DOMException('附件上传已取消', 'AbortError'))
         }
         request.open('POST', url.href)
         request.withCredentials = true
         request.setRequestHeader('Content-Type', 'application/octet-stream')
         request.upload.onprogress = (event) => {
-          if (event.lengthComputable && event.total > 0)
-            onProgress?.(Math.min(100, Math.round((event.loaded / event.total) * 100)))
+          if (event.lengthComputable && event.total > 0) onProgress?.(event.loaded, event.total)
         }
         request.onload = () => {
-          cleanup()
-          resolve(new Response(request.responseText, { status: request.status }))
+          try {
+            const response = new Response(request.responseText, { status: request.status })
+            cleanup()
+            resolve(response)
+          } catch (cause) {
+            fail(cause)
+          }
         }
-        request.onerror = () => fail(new Error('附件上传失败，请检查网络连接'))
-        request.onabort = () => fail(signal?.reason ?? new DOMException('附件上传已取消', 'AbortError'))
-        signal?.addEventListener('abort', abort, { once: true })
-        request.send(input.data)
+        request.onerror = () => fail(new Error(`${label}上传失败，请检查网络连接`))
+        request.onabort = () => fail(activeSignal.reason ?? new DOMException(`${label}上传已取消`, 'AbortError'))
+        activeSignal.addEventListener('abort', abort, { once: true })
+        if (activeSignal.aborted) return abort()
+        try {
+          request.send(data)
+        } catch (cause) {
+          fail(cause)
+        }
       })
     }
     let response = await send()
     this.assertAvailable(epoch)
     if (response.status === 401) {
-      signal?.throwIfAborted()
+      activeSignal.throwIfAborted()
       await this.renewAuthentication()
       this.assertAvailable(epoch)
       response = await send()
     }
-    const value = (await response.json()) as { hostId?: string; result?: ChatUploadedFile; error?: string }
+    const value = (await response.json()) as { hostId?: string; result?: unknown; error?: string }
     this.assertAvailable(epoch)
-    if (!response.ok) throw new Error(value.error ?? `附件上传失败：HTTP ${response.status}`)
-    this.acceptHost(value.hostId ?? '')
-    if (!value.result || typeof value.result.path !== 'string' || typeof value.result.name !== 'string')
-      throw new Error('服务返回的附件信息无效')
+    if (!response.ok) throw new Error(value.error ?? `${label}上传失败：HTTP ${response.status}`)
+    if (value.hostId !== targetHostId) throw new Error('服务返回了不匹配的 Host 身份')
+    this.acceptHost(value.hostId)
+    onProgress?.(data.size, data.size)
     return value.result
   }
 

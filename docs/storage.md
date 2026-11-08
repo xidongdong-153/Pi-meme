@@ -63,7 +63,7 @@ Host 的应用配置、持久状态、执行数据与内部管理的工作区文
 │   ├── sessions/<cwd-hash>/*.jsonl      # Pi 原生执行会话分支
 │   ├── temporary-sessions/<id>/         # 侧边临时会话运行期文件（退出或关闭清理）
 │   ├── plans/<sessionId>/<planId>.md    # 计划 Markdown 正文
-│   └── attachments/upload-*/            # 聊天附件与生成图片
+│   └── attachments/upload-*/            # 聊天附件、生成图片与资料空间上传图片
 ├── resources/
 │   ├── skills/                          # 用户技能
 │   ├── themes/                          # 用户主题
@@ -112,7 +112,7 @@ Host 的应用配置、持久状态、执行数据与内部管理的工作区文
 | `data/sessions/`               | Pi 原生 JSONL 会话历史                   | Pi Worker, `SessionPool`                                  | 否（用户历史）     | 用户显式删除会话时物理删除                              |
 | `data/temporary-sessions/`     | 侧边临时会话文件                         | Pi Worker, `SessionPool`                                  | 是                 | 会话关闭或断线超时删除，Host 启动清理                   |
 | `data/plans/`                  | 计划正文 Markdown                        | `Coordinator`                                             | 否（用户成果）     | 永久保留                                                |
-| `data/attachments/`            | 消息上传文件                             | `chat-attachments`                                        | 否（用户文件）     | 永久保留，失败上传自动删除                              |
+| `data/attachments/`            | 聊天附件、生成图与资料上传图片           | `chat-attachments`、`image-uploads`                       | 否（用户文件）     | 永久保留，失败上传只删除本次新文件                      |
 | `resources/`                   | 技能、主题与历史快照                     | `ResourceStore`                                           | 否                 | 具有历史内容引用语义，不自动批量删除                    |
 | `plugins/packages/`            | 外部插件解压代码                         | `PluginManager`                                           | 是（可重新安装）   | 插件卸载且无活动租约后修剪                              |
 | `plugins/data/`                | 外部插件持久私有数据                     | 已安装外部 App 插件                                       | 否（插件私有资产） | 插件卸载默认保留，不自动删除                            |
@@ -125,6 +125,18 @@ Host 的应用配置、持久状态、执行数据与内部管理的工作区文
 计划索引 `state/collaboration/plans.json` 使用格式 2，保存当前状态、单调递增的内部修订和候选文档，兼容读取格式 1。每个会话只公开零或一份当前方案。原生 JSONL 中当前分支的成功 `save_plan` 工具结果是正文恢复依据；索引或 Markdown 与分支不一致时重新同步，同步失败时禁止实施。历史编辑可恢复旧正文或清空当前方案，旧 Markdown 文件不因此删除。
 
 定时任务由 `ScheduleService` 保存到 `state/modules/%40pi-meme%2Fschedules/schedules.json`，包含任务配置、运行状态和未读记录。删除任务时移除调度记录，已生成的聊天保留。使用与恢复规则见 [定时任务](schedules.md)。
+
+## 资料空间图片
+
+资料空间复用 `state/modules/%40pi-meme%2Fimage-generation/library.json` 保存图片索引。格式 2 区分生成图与上传图，保存改名、移除状态、历史扫描进度和导入幂等回执；原图仍保存在 `data/attachments/`，升级不搬图、不重算既有图片 ID。
+
+读取格式 1 时，旧记录按生成 PNG 解释；首次升级先以独占写入保留原始索引字节到 `library.json.v1.bak`，再通过临时文件与原子替换写入格式 2。备份已存在时，只有内容与本次升级来源一致才继续，冲突或原索引损坏会报错并保留文件。备份不随日常改名、移除或列表刷新覆盖。旧 Host 不能读取格式 2；恢复旧备份会失去升级后的索引变更，不能视为无损降级。
+
+Host 级 `/api/images/upload` 接收单张不超过 8 MiB 的 PNG、JPEG 或 WebP 二进制流，不绑定聊天会话。服务端校验真实格式与展示尺寸，文件落盘与索引收录都完成后才返回成功。上传使用客户端与请求幂等键识别重放，相同键的不同内容或名称拒绝入库；重复请求只删除本次新写目录，不删除原图。客户端取消、断线、保存或入库失败同样仅清理本次文件。已经成功入库但响应丢失时，重试相同请求可取得原回执。
+
+上传图属于目标 Host 的全局资料，没有虚构的来源会话、模型或项目。生成图的来源会话删除后仍保留图片，来源状态改为独立素材。图库移除仅隐藏索引项，聊天与原文件保留，也不会被历史补录自动恢复；尚无回收站或自动清除原图功能。
+
+`image-library-upload` 能力声明上传与来源筛选协议。旧客户端的默认列表仍只见生成图；新界面显式请求全部或上传图。旧 Host 不支持上传查询时，界面显示版本限制，不把生成图当上传图。图片读取与下载保留真实 MIME 和扩展名，图片原件及索引都不是可直接清空的缓存。
 
 ## SSH 连接资料与摘要
 

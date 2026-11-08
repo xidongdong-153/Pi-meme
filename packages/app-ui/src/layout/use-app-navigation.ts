@@ -6,7 +6,7 @@ import type { SettingsSection } from '../settings/settings-page'
 export type AppRoute =
   | { kind: 'chat' }
   | { kind: 'projects' }
-  | { kind: 'images' }
+  | { kind: 'materials'; section: 'all' | 'images'; image?: { hostId: string; id: string; serviceId: string } }
   | { kind: 'schedules'; taskId?: string }
   | { kind: 'customization'; section?: 'plugins' | 'skills'; selectedId?: string }
   | { kind: 'settings'; section: SettingsSection }
