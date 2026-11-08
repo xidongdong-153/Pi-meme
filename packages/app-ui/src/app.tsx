@@ -1533,6 +1533,7 @@ function AppContent({
           {...{
             chat: chat.chat,
             stream: chat.chatStream,
+            scrollToBottomVersion: chat.scrollToBottomVersion,
             onLoadOlder: chat.loadOlderMessages,
             historyLoading: chat.historyLoading,
             historyError: chat.historyError,

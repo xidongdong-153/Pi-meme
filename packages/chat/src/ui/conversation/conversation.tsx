@@ -82,6 +82,7 @@ export const Conversation = React.memo(
     editor,
     sessionKey,
     scrollResetVersion,
+    scrollToBottomVersion,
     loadImage,
     cwd,
     fileSession,
@@ -112,6 +113,8 @@ export const Conversation = React.memo(
     sessionKey?: string
     /** 会话选择变化时递增，让保留的面板切回后定位到最新消息。 */
     scrollResetVersion?: number
+    /** 本窗口向当前会话发送消息时递增，恢复跟随最新输出。 */
+    scrollToBottomVersion?: number
     loadImage?: MessageImageLoader
     cwd?: string
     fileSession?: SessionRef
@@ -362,6 +365,7 @@ export const Conversation = React.memo(
         load: handleLoadMore,
       },
       scrollResetVersion,
+      scrollToBottomVersion,
     )
 
     const handleSelectTurn = React.useCallback(

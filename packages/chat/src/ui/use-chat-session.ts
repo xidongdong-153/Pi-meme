@@ -136,6 +136,7 @@ export function useChatSession(options: ChatSessionOptions) {
   }, [])
   const [chat, setRenderedChat] = useState(emptyChat)
   const [chatStream] = useState(() => new ChatStream(emptyChat))
+  const [scrollRequest, setScrollRequest] = useState<{ sessionKey: string; version: number }>()
   const setChat = useCallback(
     (value: ChatState | ((state: ChatState) => ChatState)) => {
       chatStream.update(value)
@@ -809,6 +810,7 @@ export function useChatSession(options: ChatSessionOptions) {
       if (planAction && (running || editingEntryId !== null || queueEdit.current)) return false
       const sendMode = running ? 'followUp' : 'prompt'
       const generation = currentGeneration()
+      setScrollRequest((previous) => ({ sessionKey, version: (previous?.version ?? 0) + 1 }))
       const finishSend =
         !feedback && !planAction
           ? optionsRef.current.onSendStarted?.(sessionKey, {
@@ -1311,6 +1313,8 @@ export function useChatSession(options: ChatSessionOptions) {
   return {
     chat,
     chatStream,
+    scrollToBottomVersion:
+      scrollRequest && scrollRequest.sessionKey === options.currentSessionKey() ? scrollRequest.version : 0,
     composerStore,
     composerFiles,
     canSubmitComposer: () =>

@@ -1532,6 +1532,7 @@ export function useAppSession(
     setPluginMentions: chat.setPluginMentions,
     attachments: chat.attachments,
     sendingAttachments: chat.sendingAttachments,
+    scrollToBottomVersion: chat.scrollToBottomVersion,
     queueMode: chat.queueMode,
     ...extensions,
     extensionDialogs: switching ? [] : extensions.extensionDialogs,
