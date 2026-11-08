@@ -51,6 +51,7 @@ export type SandboxLaunch = {
   seccomp?: Buffer
   hiddenRoots?: string[]
   windows?: WindowsSandboxPolicy
+  prepare?: () => Promise<{ args: string[]; files?: Buffer[] }>
 }
 
 export function pathWithin(root: string, value: string) {
@@ -150,6 +151,15 @@ class SandboxProcess implements AccessSandboxOperations {
     return result
   }
 
+  private async invocation(cwd: string) {
+    const prepared = this.launch.prepare ? await this.launch.prepare() : { args: [...this.launch.args] }
+    if (!this.launch.seccomp) return { args: prepared.args, inputFiles: [] }
+    prepared.args[prepared.args.indexOf('--chdir') + 1] = cwd
+    // 挂载参数走 fd，避免大量共享文件超过 Linux argv 大小限制。fd 3 固定为 seccomp。
+    const inputFiles = [this.launch.seccomp, ...(prepared.files ?? []), Buffer.from(`${prepared.args.join('\0')}\0`)]
+    return { args: ['--args', String(inputFiles.length + 2)], inputFiles }
+  }
+
   private async startWindows(executable: string, args: string[], options: { cwd: string; env?: NodeJS.ProcessEnv }) {
     const generation = this.stopGeneration
     const starting = (async () => {
@@ -192,20 +202,33 @@ class SandboxProcess implements AccessSandboxOperations {
       child.stderr.on('data', options.onData)
       return child
     }
-    const cwd = await realpath(options.cwd)
-    const launchArgs = [...this.launch.args]
-    if (this.launch.seccomp) launchArgs[launchArgs.indexOf('--chdir') + 1] = cwd
-    const child = await spawnManagedProcess(this.launch.executable, [...launchArgs, executable, ...args], {
-      cwd,
-      env: this.environment(options.env),
-      onData: options.onData,
-      seccomp: this.launch.seccomp,
-    })
-    this.running.add(child.kill)
-    void child.completion.finally(() => this.running.delete(child.kill)).catch(() => {})
-    this.managed.add(child.completion)
-    void child.completion.finally(() => this.managed.delete(child.completion)).catch(() => {})
-    return child
+    const generation = this.stopGeneration
+    const starting = (async () => {
+      const cwd = await realpath(options.cwd)
+      const invocation = await this.invocation(cwd)
+      if (generation !== this.stopGeneration) throw new Error('受限进程启动已取消')
+      const child = await spawnManagedProcess(this.launch.executable, [...invocation.args, executable, ...args], {
+        cwd,
+        env: this.environment(options.env),
+        onData: options.onData,
+        inputFiles: invocation.inputFiles,
+      })
+      if (generation !== this.stopGeneration) {
+        await child.stop()
+        throw new Error('受限进程启动已取消')
+      }
+      this.running.add(child.kill)
+      void child.completion.finally(() => this.running.delete(child.kill)).catch(() => {})
+      this.managed.add(child.completion)
+      void child.completion.finally(() => this.managed.delete(child.completion)).catch(() => {})
+      return child
+    })()
+    this.executions.add(starting)
+    try {
+      return await starting
+    } finally {
+      this.executions.delete(starting)
+    }
   }
 
   /** 在沙箱里运行进程；取消、超时和进程退出都会终止整个进程组。 */
@@ -237,68 +260,71 @@ class SandboxProcess implements AccessSandboxOperations {
         options.signal?.removeEventListener('abort', kill)
       }
     }
-    const cwd = await realpath(options.cwd)
-    const execution = new Promise<{ exitCode: number }>((resolve, reject) => {
-      if (options.signal?.aborted) return reject(new Error('aborted'))
-      const env = this.environment(options.env)
-      const launchArgs = [...this.launch.args]
-      if (this.launch.seccomp) launchArgs[launchArgs.indexOf('--chdir') + 1] = cwd
-      const child = spawn(this.launch.executable, [...launchArgs, executable, ...args], {
-        cwd,
-        env,
-        detached: true,
-        stdio: this.launch.seccomp ? ['pipe', 'pipe', 'pipe', 'pipe'] : ['pipe', 'pipe', 'pipe'],
-      })
-      if (this.launch.seccomp) {
-        const filter = child.stdio[3] as import('node:stream').Writable
-        filter.on('error', () => {})
-        filter.end(this.launch.seccomp)
-      }
-      let timedOut = false
-      const kill = () => {
-        if (!child.pid) return
-        try {
-          process.kill(-child.pid, 'SIGKILL')
-        } catch (cause) {
-          if ((cause as NodeJS.ErrnoException).code !== 'ESRCH') child.kill('SIGKILL')
+    const generation = this.stopGeneration
+    const execution = (async () => {
+      const cwd = await realpath(options.cwd)
+      const invocation = await this.invocation(cwd)
+      if (generation !== this.stopGeneration) throw new Error('受限进程启动已取消')
+      return new Promise<{ exitCode: number }>((resolve, reject) => {
+        if (options.signal?.aborted) return reject(new Error('aborted'))
+        const env = this.environment(options.env)
+        const child = spawn(this.launch.executable, [...invocation.args, executable, ...args], {
+          cwd,
+          env,
+          detached: true,
+          stdio: ['pipe', 'pipe', 'pipe', ...invocation.inputFiles.map(() => 'pipe' as const)],
+        })
+        invocation.inputFiles.forEach((data, index) => {
+          const stream = child.stdio[index + 3] as import('node:stream').Writable
+          stream.on('error', () => {})
+          stream.end(data)
+        })
+        let timedOut = false
+        const kill = () => {
+          if (!child.pid) return
+          try {
+            process.kill(-child.pid, 'SIGKILL')
+          } catch (cause) {
+            if ((cause as NodeJS.ErrnoException).code !== 'ESRCH') child.kill('SIGKILL')
+          }
         }
-      }
-      const abort = () => kill()
-      const shutdown = () => kill()
-      this.running.add(kill)
-      const timer = options.timeout
-        ? setTimeout(() => {
-            timedOut = true
-            kill()
-          }, options.timeout * 1000)
-        : undefined
-      options.signal?.addEventListener('abort', abort, { once: true })
-      process.once('exit', shutdown)
-      child.stdout!.on('data', options.onData)
-      child.stderr!.on('data', options.onData)
-      child.stdin!.on('error', () => {
-        // 启动失败或取消会关闭 stdin；错误由 error / close 统一返回。
+        const abort = () => kill()
+        const shutdown = () => kill()
+        this.running.add(kill)
+        const timer = options.timeout
+          ? setTimeout(() => {
+              timedOut = true
+              kill()
+            }, options.timeout * 1000)
+          : undefined
+        options.signal?.addEventListener('abort', abort, { once: true })
+        process.once('exit', shutdown)
+        child.stdout!.on('data', options.onData)
+        child.stderr!.on('data', options.onData)
+        child.stdin!.on('error', () => {
+          // 启动失败或取消会关闭 stdin；错误由 error / close 统一返回。
+        })
+        child.stdin!.end(options.input)
+        const cleanup = () => {
+          clearTimeout(timer)
+          options.signal?.removeEventListener('abort', abort)
+          process.removeListener('exit', shutdown)
+          this.running.delete(kill)
+          kill()
+        }
+        child.once('error', (cause) => {
+          cleanup()
+          reject(cause)
+        })
+        child.once('exit', kill)
+        child.once('close', (exitCode) => {
+          cleanup()
+          if (options.signal?.aborted) reject(new Error('aborted'))
+          else if (timedOut) reject(new Error(`timeout:${options.timeout}`))
+          else resolve({ exitCode: exitCode ?? 1 })
+        })
       })
-      child.stdin!.end(options.input)
-      const cleanup = () => {
-        clearTimeout(timer)
-        options.signal?.removeEventListener('abort', abort)
-        process.removeListener('exit', shutdown)
-        this.running.delete(kill)
-        kill()
-      }
-      child.once('error', (cause) => {
-        cleanup()
-        reject(cause)
-      })
-      child.once('exit', kill)
-      child.once('close', (exitCode) => {
-        cleanup()
-        if (options.signal?.aborted) reject(new Error('aborted'))
-        else if (timedOut) reject(new Error(`timeout:${options.timeout}`))
-        else resolve({ exitCode: exitCode ?? 1 })
-      })
-    })
+    })()
     this.executions.add(execution)
     void execution.finally(() => this.executions.delete(execution)).catch(() => {})
     return execution
@@ -405,7 +431,7 @@ export const AccessSandbox = {
       await access('/usr/bin/sandbox-exec')
       launch = { executable: '/usr/bin/sandbox-exec', args: ['-p', profile] }
     } else if (process.platform === 'linux') {
-      launch = await linuxSandboxLaunch({ ...options, cwd, temporary })
+      launch = await linuxSandboxLaunch({ ...options, cwd, temporary, dataRoot: protectedRoot })
     } else if (process.platform === 'win32') {
       launch = {
         executable: await windowsNodeExecutable(),

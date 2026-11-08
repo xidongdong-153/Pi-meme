@@ -1,7 +1,7 @@
 import { access, realpath, readFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import path from 'node:path'
-import { unixSocketFilter, windowsMounts } from '@pi-meme/pi-runtime/sdk/linux-sandbox'
+import { linuxReadonlyMounts, unixSocketFilter, windowsMounts } from '@pi-meme/pi-runtime/sdk/linux-sandbox'
 import type { RestrictedLaunchOptions, RestrictedLaunch } from '@pi-meme/plugin-runtime/restricted-runner'
 import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 import {
@@ -99,7 +99,20 @@ export async function pluginSandboxLaunch(options: RestrictedLaunchOptions): Pro
     if (maskRoot) args.push('--tmpfs', dataRoot)
     args.push('--ro-bind', node, node, '--ro-bind', entry, entry, '--ro-bind', directory, directory)
     if (maskRoot) args.push('--remount-ro', dataRoot)
-    args.push('--bind', scratch, scratch, '--chdir', workspace, '--seccomp', '3', '--', node, ...nodeArgs)
+    args.push('--bind', scratch, scratch)
+    args.push(
+      ...(await linuxReadonlyMounts(
+        [...(options.readable !== false && options.writable ? [workspace] : []), scratch],
+        maskRoot ? [dataRoot!] : [],
+      )),
+      '--chdir',
+      workspace,
+      '--seccomp',
+      '3',
+      '--',
+      node,
+      ...nodeArgs,
+    )
     return { executable: '/usr/bin/bwrap', args, env, seccomp: unixSocketFilter() }
   }
   if (process.platform === 'darwin') {

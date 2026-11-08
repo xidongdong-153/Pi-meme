@@ -1,4 +1,4 @@
-import { access, readFile, realpath } from 'node:fs/promises'
+import { access, lstat, readFile, readdir, readlink, realpath } from 'node:fs/promises'
 import path from 'node:path'
 import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 import type { AccessSandboxOptions, SandboxLaunch } from './access-sandbox'
@@ -39,11 +39,15 @@ export function unixSocketFilter(architecture = process.arch): Buffer {
     result.push([0x06, 0, 0, 0x7fff0000])
     return result
   }
-  const nativeBody = body(architecture === 'x64' ? [41, 53] : [198, 199], [425])
+  // 不允许为只读共享 inode 创建新的可写别名；io_uring 也不能绕过该限制。
+  const nativeBody = body(
+    architecture === 'x64' ? [41, 53] : [198, 199],
+    architecture === 'x64' ? [86, 265, 425] : [37, 425],
+  )
   const instructions: Instruction[] = [[0x20, 0, 0, 4], [0x15, 0, nativeBody.length, native], ...nativeBody]
   if (architecture === 'x64') {
     // i386 socketcall 与 io_uring 可绕过直接 socket 参数检查；x32 高位 syscall 全部拒绝。
-    const compatible = body([359, 360], [102, 425])
+    const compatible = body([359, 360], [9, 303, 102, 425])
     instructions.push([0x15, 0, compatible.length, 0x40000003], ...compatible)
   }
   instructions.push([0x06, 0, 0, 0x80000000])
@@ -55,6 +59,43 @@ export function unixSocketFilter(architecture = process.arch): Buffer {
     filter.writeUInt32LE(value, index * 8 + 4)
   })
   return filter
+}
+
+/** Linux 无法枚举 inode 的全部名称，保守地将所有共享文件挂为只读。每次启动重新收集。 */
+export async function linuxReadonlyMounts(writable: string[], protectedRoots: string[] = []): Promise<string[]> {
+  const args: string[] = []
+  const pending = [...new Set(writable)]
+  while (pending.length) {
+    const target = pending.pop()!
+    if (protectedRoots.some((root) => pathWithin(root, target))) continue
+    // 不跟随符号链接；它指向的真实可写根也必须单独扫描。
+    const metadata = await lstat(target)
+    if (metadata.isSymbolicLink()) continue
+    if (metadata.isDirectory()) {
+      const name = path.basename(target)
+      if (path.basename(path.dirname(target)) === 'node_modules' && (name === '.pnpm' || !name.startsWith('.'))) {
+        // pnpm store 中的硬链接很多，已安装依赖整体只读，保留 .vite 等缓存目录可写。
+        args.push('--ro-bind', target, target)
+        continue
+      }
+      for (const entry of await readdir(target)) pending.push(path.join(target, entry))
+    } else if (metadata.isFile() && metadata.nlink > 1) args.push('--ro-bind', target, target)
+  }
+  return args
+}
+
+/** 私有 /etc 保留系统配置与链接，DNS 通过独立 fd 快照提供，不依赖被隐藏的 /run 或 WSL 挂载。 */
+async function resolverMounts(): Promise<{ args: string[]; files: Buffer[] }> {
+  const resolver = await readFile('/etc/resolv.conf')
+  const args = ['--tmpfs', '/etc']
+  for (const entry of await readdir('/etc', { withFileTypes: true })) {
+    if (entry.name === 'resolv.conf') continue
+    const target = path.join('/etc', entry.name)
+    if (entry.isSymbolicLink()) args.push('--symlink', await readlink(target), target)
+    else args.push('--ro-bind', target, target)
+  }
+  args.push('--ro-bind-data', '4', '/etc/resolv.conf', '--remount-ro', '/etc')
+  return { args, files: [resolver] }
 }
 
 export async function linuxSandboxLaunch(options: AccessSandboxOptions): Promise<SandboxLaunch> {
@@ -100,9 +141,7 @@ export async function linuxSandboxLaunch(options: AccessSandboxOptions): Promise
   } catch {
     /* 原生 Linux 没有 WSL 入口。 */
   }
-  // /etc/resolv.conf 可能指向 /run；用真实源文件覆盖，保留 DNS。
-  const resolver = await realpath('/etc/resolv.conf')
-  args.push('--ro-bind', resolver, resolver)
+  const systemMountCount = args.length
   const nodeDirectory = path.dirname(await realpath(process.execPath))
   if (pathWithin('/tmp', nodeDirectory) || pathWithin('/var/tmp', nodeDirectory))
     args.push('--ro-bind', nodeDirectory, nodeDirectory)
@@ -121,10 +160,8 @@ export async function linuxSandboxLaunch(options: AccessSandboxOptions): Promise
       if ((cause as NodeJS.ErrnoException).code !== 'ENOENT') throw cause
     }
   }
-  args.push(
-    '--bind',
-    options.temporary,
-    options.temporary,
+  args.push('--bind', options.temporary, options.temporary)
+  const finish = [
     '--remount-ro',
     '/tmp',
     '--remount-ro',
@@ -136,6 +173,28 @@ export async function linuxSandboxLaunch(options: AccessSandboxOptions): Promise
     '--seccomp',
     '3',
     '--',
-  )
-  return { executable: '/usr/bin/bwrap', args, seccomp: unixSocketFilter(), hiddenRoots }
+  ]
+  return {
+    executable: '/usr/bin/bwrap',
+    args: [...args, ...finish],
+    seccomp: unixSocketFilter(),
+    hiddenRoots,
+    prepare: async () => {
+      const dns = await resolverMounts()
+      const readonly = await linuxReadonlyMounts(
+        [...(options.mode === 'workspace-write' ? [options.cwd] : []), options.temporary],
+        options.dataRoot && pathWithin(options.cwd, options.dataRoot) ? [options.dataRoot] : [],
+      )
+      return {
+        args: [
+          ...args.slice(0, systemMountCount),
+          ...dns.args,
+          ...args.slice(systemMountCount),
+          ...readonly,
+          ...finish,
+        ],
+        files: dns.files,
+      }
+    },
+  }
 }

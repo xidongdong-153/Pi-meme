@@ -13,7 +13,7 @@ export type ManagedProcessOptions = {
   cwd: string
   env: NodeJS.ProcessEnv
   onData: (chunk: Buffer) => void
-  seccomp?: Buffer
+  inputFiles?: Buffer[]
 }
 
 /** 托管同一进程组；不接管自行脱离进程组的 daemon。 */
@@ -35,7 +35,7 @@ export async function spawnManagedProcess(
     cwd: options.cwd,
     env: options.env,
     detached: true,
-    stdio: options.seccomp ? ['pipe', 'pipe', 'pipe', 'pipe'] : ['pipe', 'pipe', 'pipe'],
+    stdio: ['pipe', 'pipe', 'pipe', ...(options.inputFiles ?? []).map(() => 'pipe' as const)],
   })
   let finished = false
   let stopRequested = false
@@ -77,11 +77,11 @@ export async function spawnManagedProcess(
   child.stderr!.on('data', options.onData)
   child.stdin!.on('error', () => {})
   child.stdin!.end()
-  if (options.seccomp) {
-    const filter = child.stdio[3] as Writable
-    filter.on('error', () => {})
-    filter.end(options.seccomp)
-  }
+  options.inputFiles?.forEach((data, index) => {
+    const stream = child.stdio[index + 3] as Writable
+    stream.on('error', () => {})
+    stream.end(data)
+  })
   let exitCleanupError: unknown
   child.once('exit', () => {
     if (stopRequested) return

@@ -242,7 +242,11 @@ Windows 11 x64 本机 Host 使用 PSEC 执行受限命令、插件和 Agent 受�
 
 内置受限工具通过 `/usr/bin/bwrap` 执行，文件写入另有路径校验。根文件系统只读，`workspace-write` 只开放真实工作区和会话临时目录；Host 数据位于项目内时再次挂为只读。无项目会话的工作区为 `workspaces/standalone/<id>`。根目录、用户主目录、Pi 配置与系统临时目录不能整体授权，符号链接不能扩大写入范围。
 
+每次启动命令或后台服务前，重新扫描可写目录，将链接数大于 1 的普通文件挂为只读，防止通过预先存在的硬链接改写工作区外的同一 inode。Linux 不能枚举一个 inode 的全部名称，因此工作区内部互相硬链接的文件也只读；需要修改时先在沙箱外替换为独立副本。`node_modules/.pnpm` 和已安装依赖目录整体只读，跳过依赖逐文件扫描，`.vite` 等点号缓存目录仍可写。受限插件使用同一规则。seccomp 同时禁止 `link`、`linkat` 和 `io_uring`，不能在运行期间新建可写硬链接别名；需要硬链接的安装操作可能失败，应使用复制方式。此边界不防御沙箱外的可信进程主动向可写目录并发注入或移动共享 inode。
+
 Linux 隔离 user、mount、PID 和 IPC namespace，保留 TCP/UDP 网络与 DNS；seccomp 拒绝 Unix socket，包括 abstract socket。x64 同时处理 i386 ABI，拒绝 x32 与 io_uring 绕过；arm64 拒绝未知兼容 ABI。未知 CPU 架构不能启用受限权限。公共 `/tmp`、`/var/tmp` 和 `/run` 不提供额外可写空间，`TMPDIR` 指向会话临时目录；调用 `setsid` 的后代仍受 PID namespace 清理约束。这不提供秘密文件读取隔离或网络访问控制。
+
+每次启动从宿主读取当前 DNS 配置，通过独立文件描述符在私有 `/etc` 中提供只读的 `resolv.conf`；其他系统配置保留原文件或符号链接。DNS 不依赖被隐藏的 `/run`、WSL 路径或会话创建时缓存的链接目标。挂载参数通过独立文件描述符传入，避免大量共享文件触发命令行长度限制；命令和服务均等待启动准备结束后完成取消与释放。
 
 WSL 按实际 mountinfo 识别 Windows 驱动器，拒绝用作受限工作区，不把所有 `/mnt` 路径视为 Windows 盘。沙箱隐藏驱动器、`/init`、`/run/WSL` 和 WSLg，清除互操作变量和 Windows PATH，不继承额外文件描述符；复制 exe 到 Linux 工作区也不能通过 Windows 互操作执行。完全权限沿用普通执行方式。
 

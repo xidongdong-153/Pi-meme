@@ -81,8 +81,9 @@ export function ComposerToolbar({
           <button
             type="button"
             aria-label="关闭计划模式"
+            disabled={disabled}
             onClick={() => onMode('default')}
-            className="group inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full bg-secondary p-1.5 @min-[500px]:px-2 text-xs text-foreground transition-colors hover:bg-secondary/70 cursor-pointer select-none"
+            className="group inline-flex h-7 shrink-0 items-center gap-1.5 rounded-full bg-secondary p-1.5 @min-[500px]:px-2 text-xs text-foreground transition-colors hover:bg-secondary/70 cursor-pointer select-none disabled:cursor-not-allowed disabled:opacity-40"
           >
             <Lightbulb className="size-4 group-hover:hidden group-focus-visible:hidden" />
             <span className="hidden size-4 items-center justify-center rounded-full bg-muted-foreground/20 group-hover:flex group-focus-visible:flex">

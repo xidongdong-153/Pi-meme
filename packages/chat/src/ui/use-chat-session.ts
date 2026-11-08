@@ -17,7 +17,7 @@ import {
   type MessageOptions,
 } from '@pi-meme/contracts/plan'
 import { skillMarker, skillMessageParts } from '@pi-meme/contracts/skills'
-import { useCallback, useRef, useState, useSyncExternalStore } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { ComposerDraftStore, type ComposerDraftState } from './composer/composer-state'
 import { useComposerFiles } from './composer/use-composer-files'
 import type { ComposerIntent, ComposerProcessingRecord } from '@pi-meme/plugin-sdk/composer'
@@ -113,6 +113,7 @@ export type ChatSessionOptions = {
   awaitPendingSwitch: () => Promise<void>
   currentGeneration: () => number
   currentSessionKey: () => string | undefined
+  onModeConfirmed?: (sessionKey: string, generation: number, mode: TaskMode) => void
   onError: (message: string) => void
   /** 编辑期间切换会话时，将结果保存回原会话的窗口草稿。 */
   onBackgroundEdit?: (sessionKey: string, composer: ComposerSnapshot) => void
@@ -126,6 +127,13 @@ export type ChatSessionOptions = {
  * 聊天数据、草稿、附件与发送行为。连接、快照与事件订阅由 desktop 协调。
  */
 export function useChatSession(options: ChatSessionOptions) {
+  const mounted = useRef(true)
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
   const [chat, setRenderedChat] = useState(emptyChat)
   const [chatStream] = useState(() => new ChatStream(emptyChat))
   const setChat = useCallback(
@@ -165,6 +173,13 @@ export function useChatSession(options: ChatSessionOptions) {
   const composerHintRef = useRef<string | undefined>(undefined)
   const [mode, setMode] = useState<TaskMode>('default')
   const modeWrites = useRef<Promise<unknown>>(Promise.resolve())
+  const pendingMode = useRef<{
+    key: string
+    generation: number
+    mode: TaskMode
+    promise: Promise<boolean>
+  } | null>(null)
+  const [modeChange, setModeChange] = useState<{ key: string; generation: number } | null>(null)
   const modeRef = useRef<TaskMode>('default')
   const modes = useRef(new SessionMode())
   const activeMode = useRef<TaskMode | undefined>(undefined)
@@ -254,7 +269,12 @@ export function useChatSession(options: ChatSessionOptions) {
       const merged = kept ? { ...next, composerHint: kept } : next
       setChat(merged)
       activeMode.current = snapshot.state.activeMode
-      const nextMode = modes.current.snapshot(key, snapshot.state.mode, readModeRevision)
+      const nextMode = modes.current.snapshot(
+        key,
+        snapshot.connection.generation,
+        snapshot.state.mode,
+        readModeRevision,
+      )
       modeRef.current = nextMode
       setMode(nextMode)
       return merged
@@ -322,28 +342,55 @@ export function useChatSession(options: ChatSessionOptions) {
 
   const changeMode = useCallback(
     (next: TaskMode) => {
-      const key = optionsRef.current.currentSessionKey()
-      if (!key) return
-      if (next === 'plan') setGoalDraft(undefined)
-      modeRef.current = next
+      const { bridge, currentSessionKey, currentGeneration, onModeConfirmed } = optionsRef.current
+      const key = currentSessionKey()
+      const generation = currentGeneration()
+      if (!key) return Promise.resolve(false)
+      const previous = pendingMode.current
+      if (previous?.key === key && previous.generation === generation && previous.mode === next) return previous.promise
+      const request = { key, generation }
+      const owns = () =>
+        mounted.current &&
+        optionsRef.current.bridge === bridge &&
+        key === optionsRef.current.currentSessionKey() &&
+        generation === optionsRef.current.currentGeneration()
       const pausesGoal = next === 'plan' && chatStream.getSnapshot().goal?.status === 'active'
-      const revision = modes.current.change(key, next)
-      setMode(next)
-      modeWrites.current = modeWrites.current
+      const pending: Promise<boolean> = modeWrites.current
         .catch(() => {})
         .then(async () => {
-          await optionsRef.current.bridge.setSessionMode(key, next)
-          if (pausesGoal) {
-            const cleared = await optionsRef.current.bridge.clearQueue(key)
-            if (key === optionsRef.current.currentSessionKey())
-              setRecoveredInputs((current) => [...current, ...cleared.steering, ...cleared.followUp])
+          if (!owns()) return false
+          await bridge.setSessionMode(key, next)
+          if (mounted.current && optionsRef.current.bridge === bridge) {
+            modes.current.confirm(key, generation, next)
+            onModeConfirmed?.(key, generation, next)
           }
+          if (!owns()) return false
+          modeRef.current = next
+          setMode(next)
+          if (next === 'plan' && pendingMode.current?.promise === pending) setGoalDraft(undefined)
+          if (pausesGoal) {
+            const cleared = await bridge.clearQueue(key)
+            if (owns()) setRecoveredInputs((current) => [...current, ...cleared.steering, ...cleared.followUp])
+          }
+          return true
         })
         .catch((cause) => {
-          if (key === optionsRef.current.currentSessionKey())
+          if (owns() && pendingMode.current?.promise === pending)
             optionsRef.current.onError(`无法保存计划模式：${String(cause)}`)
+          return false
         })
-        .finally(() => modes.current.settled(key, revision))
+        .finally(async () => {
+          if (owns() && pendingMode.current?.promise === pending)
+            await optionsRef.current.refresh?.().catch((cause) => {
+              if (owns()) optionsRef.current.onError(String(cause))
+            })
+          if (pendingMode.current?.promise === pending) pendingMode.current = null
+          if (mounted.current) setModeChange((current) => (current === request ? null : current))
+        })
+      modeWrites.current = pending
+      pendingMode.current = { ...request, mode: next, promise: pending }
+      setModeChange(request)
+      return pending
     },
     [chatStream],
   )
@@ -426,10 +473,23 @@ export function useChatSession(options: ChatSessionOptions) {
 
   const activatePlan = useCallback(
     (value: string) => {
-      changeMode('plan')
-      setDraft(normalizePlanMessage(value, 'plan').text)
+      const key = optionsRef.current.currentSessionKey()
+      const generation = optionsRef.current.currentGeneration()
+      setDraft(value)
+      const revision = composerStore.getSnapshot().revision
+      void changeMode('plan').then((saved) => {
+        if (
+          saved &&
+          mounted.current &&
+          key === optionsRef.current.currentSessionKey() &&
+          generation === optionsRef.current.currentGeneration() &&
+          revision === composerStore.getSnapshot().revision &&
+          modeRef.current === 'plan'
+        )
+          setDraft(normalizePlanMessage(value, 'plan').text)
+      })
     },
-    [changeMode],
+    [changeMode, composerStore],
   )
 
   const compactNow = useCallback(async () => {
@@ -506,14 +566,23 @@ export function useChatSession(options: ChatSessionOptions) {
       const { bridge, canSend, isSwitching, awaitPendingSwitch, currentGeneration, onError, onSendFailed } =
         optionsRef.current
       const selectedGeneration = currentGeneration()
+      const selectedKey = optionsRef.current.currentSessionKey()
+      const modePending = () =>
+        pendingMode.current?.key === selectedKey && pendingMode.current?.generation === selectedGeneration
+      let savedMode = true
+      while (modePending()) {
+        savedMode = await pendingMode.current!.promise
+      }
+      if (!savedMode) return false
       const selectedMode = modeRef.current
-      await modeWrites.current
       await awaitPendingSwitch()
       const goalCommand = !planAction && chatStream.getSnapshot().goalsSupported ? parseGoalCommand(draft) : undefined
       const controlOnly = goalCommand && goalCommand.action !== 'start'
       if (
         isSwitching() ||
+        modePending() ||
         selectedMode !== modeRef.current ||
+        selectedKey !== optionsRef.current.currentSessionKey() ||
         (!controlOnly && submissionIntegration.current?.isPreparedCurrent?.() === false) ||
         sourceRevision !== composerStore.getSnapshot().revision ||
         composerStore.getSnapshot().composing ||
@@ -549,7 +618,18 @@ export function useChatSession(options: ChatSessionOptions) {
             startingGoal ? 'default' : modeRef.current,
           )
       const messageMode = normalized.mode
-      if (!planAction && messageMode !== modeRef.current) changeMode(messageMode)
+      if (!planAction && messageMode !== modeRef.current) {
+        if (!(await changeMode(messageMode))) return false
+        if (
+          isSwitching() ||
+          modePending() ||
+          selectedKey !== optionsRef.current.currentSessionKey() ||
+          selectedGeneration !== currentGeneration() ||
+          sourceRevision !== composerStore.getSnapshot().revision ||
+          modeRef.current !== messageMode
+        )
+          return false
+      }
       if (normalized.commandOnly) {
         setDraft(normalized.text)
         return false
@@ -1267,7 +1347,10 @@ export function useChatSession(options: ChatSessionOptions) {
       setFailedDrafts((values) => values.filter((item) => item !== failed))
     },
     captureChat: chatStream.getSnapshot,
+    captureMode: () => modeRef.current,
     mode,
+    modeChanging:
+      modeChange?.key === options.currentSessionKey() && modeChange?.generation === options.currentGeneration(),
     changeMode,
     activatePlan,
     activateGoal,

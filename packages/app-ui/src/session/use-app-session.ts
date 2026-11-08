@@ -1,4 +1,4 @@
-import type { PlanDocument, PlanState } from '@pi-meme/contracts/plan'
+import type { PlanDocument, PlanState, TaskMode } from '@pi-meme/contracts/plan'
 import { activePathIds } from '@pi-meme/contracts/session-tree'
 import type { SelectWorkspace } from '@pi-meme/contracts/sessions'
 import { transferDraft } from '@pi-meme/chat/ui/composer/transfer-draft'
@@ -156,6 +156,17 @@ export function useAppSession(
   const commitSnapshot = useCallback(
     (snapshot: Snapshot, events: DesktopEvent[] | null, pluginRevision: number, modeRevision?: number) => {
       streamEvents.current?.flush()
+      for (const record of events ?? []) {
+        if (
+          record.event.type === 'access_mode_changed' &&
+          record.sessionKey === snapshot.connection.sessionKey &&
+          record.generation === snapshot.connection.generation &&
+          (record.sequence === undefined ||
+            snapshot.eventSequence === undefined ||
+            record.sequence > snapshot.eventSequence)
+        )
+          snapshot = { ...snapshot, connection: { ...snapshot.connection, accessMode: record.event.mode } }
+      }
       const retained = snapshot.connection.sessionKey && views.current.get(snapshot.connection.sessionKey)
       if (
         retained &&
@@ -209,6 +220,9 @@ export function useAppSession(
       )
         setExtensionError(diagnostic)
       const next = chatRef.current?.loadSnapshot(snapshot, events, modeRevision)
+      const confirmedMode = chatRef.current?.captureMode()
+      if (confirmedMode && confirmedMode !== snapshot.state.mode)
+        snapshot = { ...snapshot, state: { ...snapshot.state, mode: confirmedMode } }
       if (next?.planState) {
         setPlanState(next.planState)
         setPlanDocuments(next.planState.document ? [next.planState.document] : [])
@@ -466,6 +480,19 @@ export function useAppSession(
     },
     currentGeneration: () => current.current.generation,
     currentSessionKey: () => (selection.current.current || preview.current ? undefined : current.current.sessionKey),
+    onModeConfirmed: (key, generation, mode) => {
+      const cached = views.current.get(key)
+      if (cached?.snapshot.connection.generation === generation)
+        cached.snapshot = { ...cached.snapshot, state: { ...cached.snapshot.state, mode } }
+      if (
+        mounted.current &&
+        !selection.current.current &&
+        !preview.current &&
+        key === current.current.sessionKey &&
+        generation === current.current.generation
+      )
+        setState((state) => state && { ...state, mode })
+    },
     onError: setError,
     onBackgroundEdit: (key, composer) => {
       drafts.set(key, composer)
@@ -674,6 +701,8 @@ export function useAppSession(
         event.type === 'extension_ui_closed'
       const cached = record.sessionKey && views.current.get(record.sessionKey)
       if (cached && record.sequence !== undefined && record.sequence <= cached.sequence) return
+      if (event.type === 'access_mode_changed' && cached && cached.snapshot.connection.generation === record.generation)
+        cached.snapshot = { ...cached.snapshot, connection: { ...cached.snapshot.connection, accessMode: event.mode } }
       const visible =
         record.sessionKey === current.current.sessionKey &&
         record.generation === current.current.generation &&
@@ -691,6 +720,8 @@ export function useAppSession(
       if (event.type === 'access_mode_changed') {
         if (record.sessionKey === current.current.sessionKey && record.generation === current.current.generation) {
           current.current = { ...current.current, accessMode: event.mode }
+          if (displayed.current.sessionKey === record.sessionKey && displayed.current.generation === record.generation)
+            displayed.current = { ...displayed.current, accessMode: event.mode }
           setConnection(current.current)
         }
         return
@@ -868,6 +899,7 @@ export function useAppSession(
     )
       return false
     let succeeded = false
+    let transferredMode: TaskMode | undefined
     const replacing = selection.current.current !== null
     const transaction = selection.current.begin(target, replaceable)
     const pluginRevision = pluginSynchronization.current.begin()
@@ -1062,7 +1094,7 @@ export function useAppSession(
         commitSnapshot(result.snapshot, transaction.events, pluginRevision, modeRevision)
         if (draft) chatRef.current?.restoreComposer(draft)
         else if (!draft) chatRef.current?.clearComposer()
-        if (previewInput && newChatView.current) chatRef.current?.changeMode(newChatView.current.mode)
+        if (previewInput && newChatView.current) transferredMode = newChatView.current.mode
         if (previewInput && previewDraftKey) {
           const identity = JSON.stringify(previewInput)
           const failedKey = failedCreationDrafts.current.get(identity)
@@ -1070,7 +1102,7 @@ export function useAppSession(
           failedCreationDrafts.current.delete(identity)
         }
         if (transferred && !previewInput) {
-          if (previousMode) chatRef.current?.changeMode(previousMode)
+          transferredMode = previousMode
           if (sourcePreview) {
             if (sourcePreview.draftKey !== newChatDraftKey) drafts.delete(sourcePreview.draftKey)
             if (sourcePreview.input) failedCreationDrafts.current.delete(JSON.stringify(sourcePreview.input))
@@ -1153,6 +1185,7 @@ export function useAppSession(
       } finally {
         if (owns()) {
           selection.current.finish(transaction)
+          if (succeeded && transferredMode) void chatRef.current?.changeMode(transferredMode)
           setSwitching(false)
           setPreviewing(Boolean(preview.current))
           setSwitchingToPath(undefined)
@@ -1314,6 +1347,7 @@ export function useAppSession(
   }, [bridge, connection.sessionKey, connection.generation, switching, previewing, historyRevision])
   const inputDisabled =
     chat.editSubmitting ||
+    chat.modeChanging ||
     loading ||
     acting ||
     switching ||
@@ -1508,6 +1542,7 @@ export function useAppSession(
     accessBusy:
       loading ||
       acting ||
+      chat.modeChanging ||
       switching ||
       previewing ||
       chat.chat.running ||

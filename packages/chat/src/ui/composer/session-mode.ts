@@ -2,24 +2,17 @@ import type { TaskMode } from '@pi-meme/contracts/plan'
 
 export class SessionMode {
   revision = 0
-  private key?: string
-  private mode: TaskMode = 'default'
-  private readonly pending = new Map<string, { revision: number; mode: TaskMode }>()
+  private readonly confirmed = new Map<string, { generation: number; revision: number; mode: TaskMode }>()
 
-  change(key: string, mode: TaskMode) {
-    const revision = ++this.revision
-    this.key = key
-    this.mode = mode
-    this.pending.set(key, { revision, mode })
-    return revision
+  confirm(key: string, generation: number, mode: TaskMode) {
+    this.confirmed.delete(key)
+    this.confirmed.set(key, { generation, revision: ++this.revision, mode })
+    if (this.confirmed.size > 20) this.confirmed.delete(this.confirmed.keys().next().value!)
   }
-  settled(key: string, revision: number) {
-    if (this.pending.get(key)?.revision === revision) this.pending.delete(key)
-  }
-  snapshot(key: string | undefined, persisted: TaskMode, readRevision: number) {
-    if (key === this.key && readRevision < this.revision) return this.mode
-    this.key = key
-    this.mode = (key && this.pending.get(key)?.mode) || persisted
-    return this.mode
+  snapshot(key: string | undefined, generation: number, persisted: TaskMode, readRevision: number) {
+    const confirmed = key ? this.confirmed.get(key) : undefined
+    // 查看代次在切回同一会话后会增大；确认前开始的读取仍不能覆盖已确认的值。
+    if (confirmed && confirmed.generation <= generation && readRevision < confirmed.revision) return confirmed.mode
+    return persisted
   }
 }
