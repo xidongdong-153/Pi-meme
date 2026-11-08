@@ -1,5 +1,5 @@
 import { useRef, useState, type ReactNode } from 'react'
-import { ArrowUpRight, Copy, Ellipsis, FolderOpen, GitFork, Pencil, Pin, PinOff } from 'lucide-react'
+import { ArrowUpRight, Copy, Ellipsis, FolderOpen, GitFork, Info, Pencil, Pin, PinOff } from 'lucide-react'
 import type { ProjectApp } from '@pi-meme/contracts/desktop'
 import type { PiSessionSummary } from '@pi-meme/contracts/sessions'
 import { useSidebarMenus } from '@pi-meme/workspace/ui/sidebar/sidebar-menus'
@@ -14,7 +14,13 @@ import {
   DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from '@pi-meme/ui/components/ui/dropdown-menu'
-import { TooltipHint, Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
+import {
+  OverflowTooltip,
+  TooltipHint,
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from '@pi-meme/ui/components/ui/tooltip'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { PageHeaderNavigation, PageHeaderSidebar } from './page-header'
 import { SidebarToggle, type WorkspaceSidebarState } from './workspace-sidebar'
@@ -156,6 +162,13 @@ export function AppHeader({
           </DropdownMenuItem>
         )}
         <DropdownMenuItem
+          disabled={!session}
+          onSelect={() => session && menus.details({ kind: 'session', session, projectName: project })}
+        >
+          <Info />
+          会话详情
+        </DropdownMenuItem>
+        <DropdownMenuItem
           disabled={!session || !canRenameSession}
           onSelect={() => session && menus.rename({ kind: 'session', session })}
         >
@@ -238,9 +251,11 @@ export function AppHeader({
                 </button>
               </TooltipHint>
               <span className="text-muted-foreground/30 text-xs select-none">/</span>
-              <TooltipHint content={sessionName || title}>
-                <span className="text-xs font-medium text-foreground/90 truncate max-w-[420px]">{title}</span>
-              </TooltipHint>
+              <OverflowTooltip content={sessionName || title}>
+                <span className="text-xs font-medium text-foreground/90 truncate max-w-[420px]">
+                  {sessionName || title}
+                </span>
+              </OverflowTooltip>
               {forkedFrom && (
                 <Tooltip>
                   <TooltipTrigger asChild>

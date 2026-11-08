@@ -1,4 +1,4 @@
-import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
+import { OverflowTooltip, TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import * as React from 'react'
 import { ChevronRight, Copy, Check, Target, CheckCircle2, FileEdit, FileText } from 'lucide-react'
 import { Button } from '@pi-meme/ui/components/ui/button'
@@ -178,18 +178,20 @@ export const CompactionCard = React.memo(({ kind, summary, tokensBefore, timesta
                         </div>
                         <div className="flex flex-col gap-0.5">
                           {parsed.modifiedFiles.map((file) => (
-                            <TooltipHint key={file} content="点击复制路径">
-                              <button
-                                type="button"
-                                onClick={(e) => handleCopyPath(file, e)}
-                                className="group/file text-left font-mono text-sm text-muted-foreground hover:text-foreground truncate transition-colors cursor-pointer py-0.5"
-                              >
-                                <span className="truncate">{file}</span>
-                                <span className="opacity-0 group-hover/file:opacity-100 text-sm text-muted-foreground/60 ml-2">
-                                  {copiedPath === file ? '已复制' : '复制'}
-                                </span>
-                              </button>
-                            </TooltipHint>
+                            <button
+                              key={file}
+                              type="button"
+                              aria-label={`复制路径：${file}`}
+                              onClick={(e) => handleCopyPath(file, e)}
+                              className="group/file flex min-w-0 items-center text-left font-mono text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer py-0.5"
+                            >
+                              <OverflowTooltip content={file}>
+                                <span className="min-w-0 flex-1 truncate">{file}</span>
+                              </OverflowTooltip>
+                              <span className="shrink-0 opacity-0 group-hover/file:opacity-100 group-focus-visible/file:opacity-100 text-sm text-muted-foreground/60 ml-2">
+                                {copiedPath === file ? '已复制' : '复制'}
+                              </span>
+                            </button>
                           ))}
                         </div>
                       </div>
@@ -203,18 +205,20 @@ export const CompactionCard = React.memo(({ kind, summary, tokensBefore, timesta
                         </div>
                         <div className="flex flex-col gap-0.5">
                           {parsed.readFiles.map((file) => (
-                            <TooltipHint key={file} content="点击复制路径">
-                              <button
-                                type="button"
-                                onClick={(e) => handleCopyPath(file, e)}
-                                className="group/file text-left font-mono text-sm text-muted-foreground hover:text-foreground truncate transition-colors cursor-pointer py-0.5"
-                              >
-                                <span className="truncate">{file}</span>
-                                <span className="opacity-0 group-hover/file:opacity-100 text-sm text-muted-foreground/60 ml-2">
-                                  {copiedPath === file ? '已复制' : '复制'}
-                                </span>
-                              </button>
-                            </TooltipHint>
+                            <button
+                              key={file}
+                              type="button"
+                              aria-label={`复制路径：${file}`}
+                              onClick={(e) => handleCopyPath(file, e)}
+                              className="group/file flex min-w-0 items-center text-left font-mono text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer py-0.5"
+                            >
+                              <OverflowTooltip content={file}>
+                                <span className="min-w-0 flex-1 truncate">{file}</span>
+                              </OverflowTooltip>
+                              <span className="shrink-0 opacity-0 group-hover/file:opacity-100 group-focus-visible/file:opacity-100 text-sm text-muted-foreground/60 ml-2">
+                                {copiedPath === file ? '已复制' : '复制'}
+                              </span>
+                            </button>
                           ))}
                         </div>
                       </div>

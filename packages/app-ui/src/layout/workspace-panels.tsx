@@ -13,7 +13,7 @@ import {
   X,
 } from 'lucide-react'
 import { Button } from '@pi-meme/ui/components/ui/button'
-import { TooltipHint, Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
+import { OverflowTooltip, Tooltip, TooltipContent, TooltipTrigger } from '@pi-meme/ui/components/ui/tooltip'
 import type { UiContributionProps, UiPanel, UiTarget } from '@pi-meme/plugin-sdk/ui'
 import type { RegisteredNavigation } from '@pi-meme/plugin-sdk/navigation'
 import { AppRail } from './app-rail'
@@ -559,23 +559,23 @@ export function WorkspacePanels({
           <div
             className={`group flex shrink-0 items-center rounded-lg ${!showTool ? 'bg-background/80 text-foreground shadow-xs' : 'text-muted-foreground hover:bg-background/40'}`}
           >
-            <TooltipHint content={sessionTitle}>
-              <button
-                type="button"
-                role="tab"
-                id="workspace-chat-tab"
-                aria-selected={!showTool}
-                aria-controls="chat-workspace"
-                tabIndex={!showTool ? 0 : -1}
-                onClick={() => selectTab('chat')}
-                className="flex h-7 w-40 max-w-60 items-center gap-1.5 pl-2.5 pr-1 text-xs"
-              >
-                <span aria-hidden="true" className={tabIconClassName}>
-                  <MessageCircle />
-                </span>
-                <span className="truncate">{sessionTitle}</span>
-              </button>
-            </TooltipHint>
+            <button
+              type="button"
+              role="tab"
+              id="workspace-chat-tab"
+              aria-selected={!showTool}
+              aria-controls="chat-workspace"
+              tabIndex={!showTool ? 0 : -1}
+              onClick={() => selectTab('chat')}
+              className="flex h-7 w-40 max-w-60 items-center gap-1.5 pl-2.5 pr-1 text-xs"
+            >
+              <span aria-hidden="true" className={tabIconClassName}>
+                <MessageCircle />
+              </span>
+              <OverflowTooltip content={sessionTitle}>
+                <span className="min-w-0 flex-1 truncate">{sessionTitle}</span>
+              </OverflowTooltip>
+            </button>
             {menu}
           </div>
         )}
@@ -592,23 +592,23 @@ export function WorkspacePanels({
               key={id}
               className={`group flex min-w-0 shrink-0 items-center ${browserTab ? 'rounded-xl border border-transparent' : 'rounded-md'} ${active === id && (!unified || showTool) ? (browserTab ? 'border-border/60 bg-secondary/80 text-foreground shadow-xs' : 'bg-background/80 text-foreground shadow-xs') : 'text-muted-foreground hover:bg-background/40'}`}
             >
-              <TooltipHint content={title}>
-                <button
-                  type="button"
-                  role="tab"
-                  aria-selected={active === id && (!unified || showTool)}
-                  id={`workspace-tool-tab-${id}`}
-                  aria-controls="right-tool-content"
-                  tabIndex={active === id && (!unified || showTool) ? 0 : -1}
-                  onClick={() => selectTab(id)}
-                  className={`flex h-7 min-w-0 items-center gap-1.5 pl-2.5 pr-1 text-xs ${browserTab || directory ? 'min-w-28 max-w-56' : unified ? 'min-w-20 max-w-36' : ''}`}
-                >
-                  <span aria-hidden="true" className={tabIconClassName}>
-                    {icon}
-                  </span>
-                  <span className={`${directory ? 'max-w-48' : 'max-w-28'} truncate`}>{title}</span>
-                </button>
-              </TooltipHint>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={active === id && (!unified || showTool)}
+                id={`workspace-tool-tab-${id}`}
+                aria-controls="right-tool-content"
+                tabIndex={active === id && (!unified || showTool) ? 0 : -1}
+                onClick={() => selectTab(id)}
+                className={`flex h-7 min-w-0 items-center gap-1.5 pl-2.5 pr-1 text-xs ${browserTab || directory ? 'min-w-28 max-w-56' : unified ? 'min-w-20 max-w-36' : ''}`}
+              >
+                <span aria-hidden="true" className={tabIconClassName}>
+                  {icon}
+                </span>
+                <OverflowTooltip content={title}>
+                  <span className={`${directory ? 'max-w-48' : 'max-w-28'} min-w-0 truncate`}>{title}</span>
+                </OverflowTooltip>
+              </button>
               <button
                 type="button"
                 aria-label={closing ? `正在关闭标签页：${title}` : `关闭标签页：${title}`}

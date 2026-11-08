@@ -103,6 +103,92 @@ export const TooltipHint = React.forwardRef<React.ElementRef<typeof TooltipTrigg
 )
 TooltipHint.displayName = 'TooltipHint'
 
+/** Completes clipped text without repeating labels that already fit. */
+export function OverflowTooltip({
+  content,
+  children,
+  delayDuration,
+  ...placement
+}: TooltipPlacement & { content: string; children: React.ReactElement; delayDuration?: number }) {
+  const trigger = React.useRef<React.ElementRef<typeof TooltipTrigger>>(null)
+  const [requested, setRequested] = React.useState(false)
+  const [truncated, setTruncated] = React.useState(false)
+  const [focusParent, setFocusParent] = React.useState(false)
+  const measure = React.useCallback(() => {
+    const element = trigger.current
+    const clipped = Boolean(
+      element?.getClientRects().length && !element.closest('[inert]') && element.scrollWidth > element.clientWidth + 1,
+    )
+    setTruncated(clipped)
+    return clipped
+  }, [])
+
+  React.useLayoutEffect(() => {
+    measure()
+  }, [content, measure])
+
+  React.useLayoutEffect(() => {
+    const element = trigger.current
+    if (!element) return
+    const observer = new ResizeObserver(measure)
+    observer.observe(element)
+    return () => observer.disconnect()
+  }, [measure])
+
+  React.useLayoutEffect(() => {
+    const element = trigger.current
+    if (!requested || !element) return
+    const observer = new MutationObserver(measure)
+    observer.observe(element, { childList: true, characterData: true, subtree: true })
+    const fonts = element.ownerDocument.fonts
+    fonts.addEventListener('loadingdone', measure)
+    return () => {
+      observer.disconnect()
+      fonts.removeEventListener('loadingdone', measure)
+    }
+  }, [requested, measure])
+
+  React.useLayoutEffect(() => {
+    const element = trigger.current
+    const interactive =
+      'button, a[href], input, select, textarea, [role="button"], [role="tab"], [tabindex]:not([tabindex="-1"])'
+    const parent = element?.parentElement?.closest<HTMLElement>(interactive)
+    if (!element || element.matches(interactive) || !parent) return
+    setFocusParent(true)
+    const focus = () => {
+      if (parent.matches(':focus-visible')) {
+        measure()
+        setRequested(true)
+      }
+    }
+    const blur = () => setRequested(false)
+    parent.addEventListener('focus', focus)
+    parent.addEventListener('blur', blur)
+    if (parent === element.ownerDocument.activeElement) focus()
+    return () => {
+      parent.removeEventListener('focus', focus)
+      parent.removeEventListener('blur', blur)
+    }
+  }, [measure])
+
+  return (
+    <Tooltip
+      open={requested && truncated && Boolean(content)}
+      onOpenChange={(next) => {
+        if (next) measure()
+        setRequested(next)
+      }}
+      delayDuration={delayDuration}
+      disableHoverableContent
+    >
+      <TooltipTrigger asChild ref={trigger} tabIndex={truncated && !focusParent ? 0 : undefined}>
+        {children}
+      </TooltipTrigger>
+      {content && <TooltipContent {...placement}>{content}</TooltipContent>}
+    </Tooltip>
+  )
+}
+
 /** Shares the bubble and collision handling with DOM rendered outside React, such as editor tokens. */
 export function AnchoredTooltip({
   target,

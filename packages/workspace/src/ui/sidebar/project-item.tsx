@@ -1,8 +1,8 @@
 import { TooltipHint, tooltipSurfaceClassName } from '@pi-meme/ui/components/ui/tooltip'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useRef, useState, type ReactNode } from 'react'
 import { SidebarRowMenu } from './sidebar-menus'
 import { Folder, Globe, Pin, PinOff, SquarePen } from 'lucide-react'
-import { Popover, PopoverAnchor, PopoverContent } from '@pi-meme/ui/components/ui/popover'
+import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@pi-meme/ui/components/ui/popover'
 import type { SidebarSource } from './sidebar-source'
 import { cn } from '@pi-meme/ui/lib/utils'
 import type { PiProjectGroup } from '@pi-meme/contracts/sessions'
@@ -58,19 +58,6 @@ export function ProjectItem({
 }: ProjectItemProps) {
   const [detailsOpen, setDetailsOpen] = useState(false)
   const anchor = useRef<HTMLDivElement>(null)
-  const nestedHint = useRef(false)
-  const timer = useRef<ReturnType<typeof setTimeout>>(undefined)
-  useEffect(() => () => clearTimeout(timer.current), [])
-  const keepDetails = () => clearTimeout(timer.current)
-  const showDetails = () => {
-    keepDetails()
-    if (details && !anchor.current?.querySelector('[aria-haspopup="menu"][data-state="open"]'))
-      timer.current = setTimeout(setDetailsOpen, 300, true)
-  }
-  const hideDetails = () => {
-    keepDetails()
-    timer.current = setTimeout(setDetailsOpen, 200, false)
-  }
   const isCurrentCwd = project.cwd === cwd
   const sessionThreshold = 5
   const visibleSessions = isItemsExpandedAll
@@ -96,46 +83,10 @@ export function ProjectItem({
             {...dragProps}
             ref={anchor}
             onDragStart={(event) => {
-              keepDetails()
               setDetailsOpen(false)
               dragProps?.onDragStart?.(event)
             }}
-            onPointerEnter={() => {
-              nestedHint.current = false
-              showDetails()
-            }}
-            onPointerMoveCapture={(event) => {
-              const target = event.target instanceof Element ? event.target.closest('[data-tooltip-trigger]') : null
-              const wasNested = nestedHint.current
-              nestedHint.current = Boolean(target && target !== event.currentTarget)
-              if (nestedHint.current) {
-                keepDetails()
-                setDetailsOpen(false)
-              } else if (wasNested) {
-                showDetails()
-              }
-            }}
-            onPointerLeave={hideDetails}
-            onContextMenuCapture={() => {
-              keepDetails()
-              setDetailsOpen(false)
-            }}
-            onPointerDownCapture={(event) => {
-              dragProps?.onPointerDownCapture?.(event)
-              if ((event.target as HTMLElement).closest('[aria-haspopup="menu"]')) {
-                keepDetails()
-                setDetailsOpen(false)
-              }
-            }}
-            onKeyDownCapture={(event) => {
-              if (event.key === 'Escape') {
-                keepDetails()
-                setDetailsOpen(false)
-              }
-            }}
-            onBlurCapture={(event) => {
-              if (!event.currentTarget.contains(event.relatedTarget)) hideDetails()
-            }}
+            onContextMenuCapture={() => setDetailsOpen(false)}
             className={cn(
               'group relative flex w-full min-w-0 items-center justify-between rounded-lg pr-1.5 text-xs transition-colors duration-150 ease-out cursor-pointer',
               isCurrentCwd
@@ -150,8 +101,10 @@ export function ProjectItem({
                 type="button"
                 onClick={() => (onSelectProject ? onSelectProject(project.cwd) : onToggle())}
                 aria-expanded={onSelectProject ? undefined : isExpanded}
-                onFocus={showDetails}
-                className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden py-1.5 pl-2 pr-1 text-left rounded cursor-[inherit] transition-[padding] duration-150 ease-out group-hover:pr-14 group-focus-within:pr-14 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className={cn(
+                  'flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden py-1.5 pl-2 pr-1 text-left rounded cursor-[inherit] transition-[padding] duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                  !source && 'group-hover:pr-14 group-focus-within:pr-14',
+                )}
               >
                 <span className={cn('relative shrink-0', source ? 'size-4' : 'size-3.5')}>
                   <Folder
@@ -160,44 +113,37 @@ export function ProjectItem({
                     className={cn('text-muted-foreground', source ? 'size-4' : 'size-3.5')}
                   />
                   {source && (
-                    <TooltipHint content={source.description}>
-                      <span
-                        role="img"
-                        aria-label={`远程：${source.label}`}
-                        className="absolute -bottom-0.5 -right-1 rounded-full text-primary"
-                      >
-                        <Globe aria-hidden="true" className="size-2.5" />
-                      </span>
-                    </TooltipHint>
+                    <span
+                      role="img"
+                      aria-label={`远程：${source.label}`}
+                      className="absolute -bottom-0.5 -right-1 rounded-full text-primary"
+                    >
+                      <Globe aria-hidden="true" className="size-2.5" />
+                    </span>
                   )}
                 </span>
                 <SidebarTitle className="font-medium">{project.name}</SidebarTitle>
               </button>
             </TooltipHint>
 
-            {/* 远程来源标签：平时展示，有详情时支持点击打开详情，hover/focus 时淡出，腾出右侧空间给浮动操作按钮 */}
             {source &&
               (details ? (
-                <TooltipHint content={source.description}>
+                <PopoverTrigger asChild>
                   <button
                     type="button"
                     data-project-source-label
                     aria-label={`远程项目详情：${project.name}`}
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      keepDetails()
-                      setDetailsOpen((value) => !value)
-                    }}
-                    className="ml-1 max-w-[76px] shrink-0 truncate text-[0.625rem] font-normal text-muted-foreground transition-opacity duration-150 hover:text-foreground cursor-pointer group-hover:opacity-0 group-focus-within:opacity-0 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    onClick={(event) => event.stopPropagation()}
+                    className="ml-1 mr-12 max-w-[76px] shrink-0 truncate rounded text-[0.625rem] font-normal text-muted-foreground hover:text-foreground cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                   >
                     {source.label}
                   </button>
-                </TooltipHint>
+                </PopoverTrigger>
               ) : (
                 <TooltipHint content={source.description}>
                   <span
                     data-project-source-label
-                    className="ml-1 max-w-[76px] shrink-0 truncate text-[0.625rem] font-normal text-muted-foreground transition-opacity duration-150 group-hover:opacity-0 group-focus-within:opacity-0"
+                    className="ml-1 mr-12 max-w-[76px] shrink-0 truncate text-[0.625rem] font-normal text-muted-foreground"
                   >
                     {source.label}
                   </span>
@@ -215,7 +161,7 @@ export function ProjectItem({
               )}
             >
               <TooltipHint content={source?.disabledReason || '在项目中新建会话'}>
-                <span className="inline-flex">
+                <span className="inline-flex" tabIndex={source?.disabledReason ? 0 : undefined}>
                   <button
                     type="button"
                     disabled={Boolean(source?.disabledReason)}
@@ -232,7 +178,7 @@ export function ProjectItem({
               </TooltipHint>
 
               <TooltipHint content={source?.disabledReason || (isPinned ? '取消置顶项目' : '置顶项目')}>
-                <span className="inline-flex">
+                <span className="inline-flex" tabIndex={source?.disabledReason ? 0 : undefined}>
                   <button
                     type="button"
                     disabled={Boolean(source?.disabledReason)}
@@ -259,14 +205,6 @@ export function ProjectItem({
             align="start"
             aria-label={`远程项目：${project.name}`}
             className={cn(tooltipSurfaceClassName, 'w-80 max-w-[calc(100vw-24px)] p-3 pointer-events-auto select-text')}
-            onPointerEnter={keepDetails}
-            onPointerLeave={hideDetails}
-            onFocusCapture={keepDetails}
-            onBlurCapture={(event) => {
-              if (!event.currentTarget.contains(event.relatedTarget)) hideDetails()
-            }}
-            onOpenAutoFocus={(event) => event.preventDefault()}
-            onCloseAutoFocus={(event) => event.preventDefault()}
           >
             {details}
           </PopoverContent>
@@ -296,6 +234,7 @@ export function ProjectItem({
                   <SessionItem
                     session={session}
                     variant="project"
+                    projectName={project.name}
                     source={source}
                     isActive={activeSessionId === session.id || activeSessionPath === session.path}
                     isPinned={pinnedSet?.has(session.path) ?? false}

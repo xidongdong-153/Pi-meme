@@ -1,4 +1,4 @@
-import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
+import { OverflowTooltip } from '@pi-meme/ui/components/ui/tooltip'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
 import { Input } from '@pi-meme/ui/components/ui/input'
@@ -248,9 +248,9 @@ export function SessionSearchDialog({
               )}
             >
               <div className="flex min-w-0 items-center gap-3">
-                <TooltipHint content={sidebarSessionTitle(entry.session)}>
+                <OverflowTooltip content={sidebarSessionTitle(entry.session)}>
                   <div className="min-w-0 flex-1 truncate">{sidebarSessionTitle(entry.session)}</div>
-                </TooltipHint>
+                </OverflowTooltip>
                 <div className="max-w-[45%] shrink-0 truncate text-right text-xs text-muted-foreground">
                   {entry.projectName}
                   {serviceLabels?.[entry.serviceId] ? ` · ${serviceLabels[entry.serviceId]}` : ''}

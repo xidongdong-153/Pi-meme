@@ -93,7 +93,9 @@ Desktop 正常关窗、退出、受控重新加载和存储维护使用同一准
 
 所有悬停说明复用 [Tooltip](../packages/ui/src/components/ui/tooltip.tsx)，不在界面元素上使用浏览器原生 `title`，也不另写气泡的背景、边框、圆角或阴影。页面标题、折叠分组标题、iframe 的无障碍名称不属于悬停提示。
 
-- 普通提示使用 `TooltipHint content={说明}` 包住原元素；已有复杂内容继续组合 `Tooltip`、`TooltipTrigger` 和 `TooltipContent`。气泡统一换行、视口避让与减少动态效果行为；`aria-label` 等无障碍名称继续保留。
+- 已完整可见的名称、状态和带字操作不再用气泡复述。会话、子代理、会话树等列表不以整行悬停展示详情；会话活动记录、来源、定时安排和运行耗时通过明确的菜单或点击详情查看。远程项目详情点击来源标签打开，不随整行悬停或焦点自动展开。
+- 被截断的文字使用 `OverflowTooltip content={完整文字}` 包住实际省略的文字元素，仅溢出时补全；不要测量外层按钮代替文字。侧栏标题复用 `SidebarTitle` 的溢出判断。完整路径、真实链接目标与禁用原因有额外信息，不能因为名称未截断就移除。
+- 图标含义、不可用原因、异常、输入限制和必要指标说明保留。普通提示使用 `TooltipHint content={说明}` 包住原元素；已有复杂内容继续组合 `Tooltip`、`TooltipTrigger` 和 `TooltipContent`。气泡统一换行、视口避让与减少动态效果行为；`aria-label` 等无障碍名称继续保留。
 - `TooltipHint` 放在菜单或 Popover 的触发器外，确保实际按钮仍接收它们的事件、ref 和展开状态。禁用按钮使用保持原布局的 `span` 作提示触发器，禁用时让该触发器可聚焦，保留不可用原因。
 - 输入框标签、CodeMirror 等命令式 DOM 用 `data-tooltip` 保存说明，由所在容器的 `DelegatedTooltip` 展示；节点替换、移除、滚动和输入时清理旧提示。图表受控提示使用 `AnchoredTooltip`，共享同一气泡与定位行为。
 - 包含按钮或链接的预览保留 Popover 交互，并复用 `tooltipSurfaceClassName`；只按内容需要调整宽度、间距和排版。

@@ -39,7 +39,7 @@ export function QueueModeDropdown({
 
   return (
     <DropdownMenu open={open} onOpenChange={setOpen}>
-      <TooltipHint content={`当前模式：${modeLabel}（${strategyLabel}），点击修改`}>
+      <TooltipHint content={`${modeLabel} · ${strategyLabel}`} open={open ? false : undefined}>
         <DropdownMenuTrigger asChild>
           <button
             type="button"
@@ -109,57 +109,53 @@ export function QueueModeDropdown({
         </div>
 
         {isSteering ? (
-          <TooltipHint content="点击切换插话模式">
-            <DropdownMenuItem
-              asChild
-              onSelect={() => {
-                onSteeringMode(isAllSteering ? 'one-at-a-time' : 'all')
-                setOpen(false)
-              }}
-            >
-              <button
-                type="button"
+          <DropdownMenuItem
+            asChild
+            onSelect={() => {
+              onSteeringMode(isAllSteering ? 'one-at-a-time' : 'all')
+              setOpen(false)
+            }}
+          >
+            <button
+              type="button"
 
-                className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-secondary cursor-pointer"
-              >
-                <div className="flex flex-col gap-0.5">
-                  <span className="font-medium text-foreground">{isAllSteering ? '整批插入' : '逐项插入'}</span>
-                  <span className="text-[11px] text-muted-foreground">
-                    {isAllSteering ? '多条插话合并整批插入' : '多条插话逐项单独插入'}
-                  </span>
-                </div>
-                <span className="text-[10px] text-muted-foreground border border-border/60 px-1 py-0.5 rounded">
-                  点击切换
+              className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-secondary cursor-pointer"
+            >
+              <div className="flex flex-col gap-0.5">
+                <span className="font-medium text-foreground">{isAllSteering ? '整批插入' : '逐项插入'}</span>
+                <span className="text-[11px] text-muted-foreground">
+                  {isAllSteering ? '多条插话合并整批插入' : '多条插话逐项单独插入'}
                 </span>
-              </button>
-            </DropdownMenuItem>
-          </TooltipHint>
+              </div>
+              <span className="text-[10px] text-muted-foreground border border-border/60 px-1 py-0.5 rounded">
+                点击切换
+              </span>
+            </button>
+          </DropdownMenuItem>
         ) : (
-          <TooltipHint content="点击切换排队模式">
-            <DropdownMenuItem
-              asChild
-              onSelect={() => {
-                onFollowUpMode(isAllFollowUp ? 'one-at-a-time' : 'all')
-                setOpen(false)
-              }}
-            >
-              <button
-                type="button"
+          <DropdownMenuItem
+            asChild
+            onSelect={() => {
+              onFollowUpMode(isAllFollowUp ? 'one-at-a-time' : 'all')
+              setOpen(false)
+            }}
+          >
+            <button
+              type="button"
 
-                className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-secondary cursor-pointer"
-              >
-                <div className="flex flex-col gap-0.5">
-                  <span className="font-medium text-foreground">{isAllFollowUp ? '整批执行' : '逐项执行'}</span>
-                  <span className="text-[11px] text-muted-foreground">
-                    {isAllFollowUp ? '排队任务合并整批执行' : '排队任务按顺序逐个执行'}
-                  </span>
-                </div>
-                <span className="text-[10px] text-muted-foreground border border-border/60 px-1 py-0.5 rounded">
-                  点击切换
+              className="flex w-full items-center justify-between rounded-md px-2 py-1.5 text-left text-xs transition-colors hover:bg-secondary cursor-pointer"
+            >
+              <div className="flex flex-col gap-0.5">
+                <span className="font-medium text-foreground">{isAllFollowUp ? '整批执行' : '逐项执行'}</span>
+                <span className="text-[11px] text-muted-foreground">
+                  {isAllFollowUp ? '排队任务合并整批执行' : '排队任务按顺序逐个执行'}
                 </span>
-              </button>
-            </DropdownMenuItem>
-          </TooltipHint>
+              </div>
+              <span className="text-[10px] text-muted-foreground border border-border/60 px-1 py-0.5 rounded">
+                点击切换
+              </span>
+            </button>
+          </DropdownMenuItem>
         )}
       </DropdownMenuContent>
     </DropdownMenu>

@@ -1,5 +1,5 @@
 import { createContext, useContext, useId, useRef, useState, type ReactNode } from 'react'
-import { Copy, FolderOpen, MoreHorizontal, Pencil, Pin, PinOff, SquarePen, Trash2 } from 'lucide-react'
+import { Copy, FolderOpen, Info, MoreHorizontal, Pencil, Pin, PinOff, SquarePen, Trash2 } from 'lucide-react'
 import type { DesktopBridge, ProjectApp, WorkspaceDeletionResult } from '@pi-meme/contracts/desktop'
 import type { PiProjectGroup, PiSessionSummary } from '@pi-meme/contracts/sessions'
 import * as Context from '@pi-meme/ui/components/ui/context-menu'
@@ -17,7 +17,12 @@ import { Input } from '@pi-meme/ui/components/ui/input'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { formatSessionTitle } from './session-title'
 
-export type MenuTarget = { kind: 'project'; project: PiProjectGroup } | { kind: 'session'; session: PiSessionSummary }
+import type { SidebarSource } from './sidebar-source'
+import { SessionDetails } from './session-details'
+
+export type MenuTarget =
+  | { kind: 'project'; project: PiProjectGroup }
+  | { kind: 'session'; session: PiSessionSummary; source?: SidebarSource; projectName?: string }
 export type SidebarMenuBridge = Pick<
   DesktopBridge,
   | 'getProjectApps'
@@ -39,6 +44,7 @@ type MenuState = {
   loadApps: () => void
   onNewSession: (cwd: string) => void
   onTogglePin: (path: string) => void
+  details: (target: MenuTarget) => void
   rename: (target: MenuTarget) => void
   remove: (target: MenuTarget) => void
   open: (app: ProjectApp['id'], cwd: string) => void
@@ -80,7 +86,7 @@ export function SidebarMenus({
   const [appsLoading, setAppsLoading] = useState(false)
   const [appsError, setAppsError] = useState('')
   const appsLock = useRef(false)
-  const [action, setAction] = useState<{ kind: 'rename' | 'delete'; target: MenuTarget } | null>(null)
+  const [action, setAction] = useState<{ kind: 'rename' | 'delete' | 'details'; target: MenuTarget } | null>(null)
   const [name, setName] = useState('')
   const [preview, setPreview] = useState<{ paths: string[]; warnings: string[] } | null>(null)
   const [busy, setBusy] = useState(false)
@@ -118,7 +124,7 @@ export function SidebarMenus({
     void work.catch((cause) => setNotice(String(cause)))
   }
   const submit = async () => {
-    if (!action || lock.current) return
+    if (!action || action.kind === 'details' || lock.current) return
     if (disabledReason) {
       setError(disabledReason)
       return
@@ -192,11 +198,18 @@ export function SidebarMenus({
         setAppsLoading(false)
       }
     },
+    details: (target) => {
+      dialogOpening.current = true
+      setPreview(null)
+      setError('')
+      setAction({ kind: 'details', target })
+    },
     rename: (target) => prepare('rename', target),
     remove: (target) => prepare('delete', target),
     open: (app, cwd) => report(bridge.openProject(app, cwd)),
     copy: (cwd) => report(navigator.clipboard.writeText(cwd)),
   }
+  const isDetails = action?.kind === 'details'
   const isRename = action?.kind === 'rename'
   const project = action?.target.kind === 'project' ? action.target.project : undefined
   return (
@@ -217,6 +230,7 @@ export function SidebarMenus({
         }}
       >
         <DialogContent
+          className={isDetails ? 'w-[calc(100vw-2rem)] overflow-y-auto' : undefined}
           onCloseAutoFocus={(event) => {
             const trigger = dialogTrigger.current
             dialogTrigger.current = null
@@ -235,26 +249,36 @@ export function SidebarMenus({
         >
           <DialogHeader>
             <DialogTitle>
-              {isRename
-                ? project
-                  ? '编辑项目名称'
-                  : '重命名会话'
-                : project
-                  ? '移除项目并删除全部会话'
-                  : '永久删除会话'}
+              {isDetails
+                ? '会话详情'
+                : isRename
+                  ? project
+                    ? '编辑项目名称'
+                    : '重命名会话'
+                  : project
+                    ? '移除项目并删除全部会话'
+                    : '永久删除会话'}
             </DialogTitle>
-            <DialogDescription>
-              {isRename
-                ? project
-                  ? '仅修改显示名称，磁盘目录不变。'
-                  : '修改此会话的显示名称。'
-                : project
-                  ? `将停止所属会话中正在运行或暂停的任务及活动服务，永久删除 ${preview?.paths.length ?? '…'} 个会话，并移除项目。项目目录、代码和附件文件保留。此操作无法撤销。`
-                  : '将停止此会话中正在运行或暂停的任务及活动服务，并永久删除会话及其全部消息分支。此操作无法撤销。'}
+            <DialogDescription className="break-words [overflow-wrap:anywhere]">
+              {isDetails && action.target.kind === 'session'
+                ? formatSessionTitle(action.target.session)
+                : isRename
+                  ? project
+                    ? '仅修改显示名称，磁盘目录不变。'
+                    : '修改此会话的显示名称。'
+                  : project
+                    ? `将停止所属会话中正在运行或暂停的任务及活动服务，永久删除 ${preview?.paths.length ?? '…'} 个会话，并移除项目。项目目录、代码和附件文件保留。此操作无法撤销。`
+                    : '将停止此会话中正在运行或暂停的任务及活动服务，并永久删除会话及其全部消息分支。此操作无法撤销。'}
             </DialogDescription>
           </DialogHeader>
           {project && <p className="text-xs text-muted-foreground break-all">{project.cwd}</p>}
-          {isRename ? (
+          {isDetails && action.target.kind === 'session' ? (
+            <SessionDetails
+              session={action.target.session}
+              source={action.target.source}
+              projectName={action.target.projectName}
+            />
+          ) : isRename ? (
             <form
               id={renameFormId}
               onSubmit={(event) => {
@@ -287,15 +311,17 @@ export function SidebarMenus({
           )}
           <DialogFooter>
             <Button variant="outline" disabled={busy} onClick={() => setAction(null)}>
-              取消
+              {isDetails ? '关闭' : '取消'}
             </Button>
-            <Button
-              variant={isRename ? 'default' : 'destructive'}
-              disabled={busy || (isRename ? !name.trim() : Boolean(project && !preview))}
-              onClick={() => void submit()}
-            >
-              {busy ? '处理中…' : isRename ? '保存' : '永久删除'}
-            </Button>
+            {!isDetails && (
+              <Button
+                variant={isRename ? 'default' : 'destructive'}
+                disabled={busy || (isRename ? !name.trim() : Boolean(project && !preview))}
+                onClick={() => void submit()}
+              >
+                {busy ? '处理中…' : isRename ? '保存' : '永久删除'}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -324,10 +350,16 @@ function MenuItems({ target, kind }: { target: MenuTarget; kind: 'context' | 'dr
         </Item>
       )}
       {target.kind === 'session' && (
-        <Item disabled={Boolean(menus.disabledReason)} onSelect={() => menus.rename(target)}>
-          <Pencil />
-          重命名
-        </Item>
+        <>
+          <Item onSelect={() => menus.details(target)}>
+            <Info />
+            会话详情
+          </Item>
+          <Item disabled={Boolean(menus.disabledReason)} onSelect={() => menus.rename(target)}>
+            <Pencil />
+            重命名
+          </Item>
+        </>
       )}
       <Item disabled={Boolean(menus.disabledReason)} onSelect={() => menus.onTogglePin(path)}>
         {pinned ? <PinOff /> : <Pin />}
@@ -383,7 +415,9 @@ export function SidebarRowMenu({ target, children }: { target: MenuTarget; child
       onOpenChange={(open) => {
         if (open)
           menus.dialogTrigger.current =
-            row.current?.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]') ?? null
+            row.current?.querySelector<HTMLButtonElement>('button[aria-haspopup="menu"]') ??
+            row.current?.querySelector<HTMLButtonElement>('button') ??
+            null
         if (open && target.kind === 'project') menus.loadApps()
       }}
     >
