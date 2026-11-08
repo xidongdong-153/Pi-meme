@@ -172,9 +172,10 @@ export function useMarkdownComponents() {
         return <ul className={cn('pi-ul', className)}>{children}</ul>
       },
       ol({ children, start, className }: React.ComponentPropsWithoutRef<'ol'>) {
-        const digits = String(Math.max(1, Number(start ?? 1) + React.Children.count(children) - 1)).length
+        const itemCount = React.Children.toArray(children).filter(React.isValidElement).length
+        const digits = String(Math.max(1, (start ?? 1) + itemCount - 1)).length
         return (
-          <ol start={start} className={cn('pi-ol', className)} style={{ paddingLeft: `${digits + 1.5}ch` }}>
+          <ol start={start} className={cn('pi-ol', className)} style={{ paddingLeft: `calc(${digits}ch + 1.5em)` }}>
             {children}
           </ol>
         )
