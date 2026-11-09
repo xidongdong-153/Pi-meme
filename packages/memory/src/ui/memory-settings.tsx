@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react'
-import { ArrowLeft, ChevronDown, ChevronRight, LoaderCircle, Plus, RefreshCw } from 'lucide-react'
+import { ArrowLeft, ChevronDown, ChevronRight, LoaderCircle, Plus, RefreshCw, X } from 'lucide-react'
 import type { HostApi } from '@pi-meme/contracts/app-host'
 import type { MemoryEntry, MemoryEntryInput, MemoryJob, MemorySource } from '@pi-meme/contracts/memory'
 import type { PiModel } from '@pi-meme/contracts/pi'
@@ -14,6 +14,7 @@ import { SettingsCard, SettingsGroup, SettingsRow, settingsControlClassName } fr
 import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { memoryScopeKey, parseMemoryScope, useMemorySettings } from './use-memory-settings'
+import { MemoryEntryPreview } from './memory-entry-preview'
 
 type Editor = { original?: MemoryEntry; input: MemoryEntryInput; baseline: string; epoch: number }
 type Confirmation = { kind: 'remove'; entry: MemoryEntry } | { kind: 'clear'; revision: number; count: number }
@@ -73,6 +74,8 @@ export function MemorySettings({
   const [openingSession, setOpeningSession] = useState(false)
   const selectedRequest = useRef(0)
   const sourceRequest = useRef(0)
+  const selectedButton = useRef<HTMLButtonElement | null>(null)
+  const createButton = useRef<HTMLButtonElement>(null)
   const config = memory.status?.config
   const dirtyBudget = budgetDraft !== undefined && budgetDraft !== String(config?.dailyTokenBudget ?? '')
   const dirty = Boolean(editor && JSON.stringify(editor.input) !== editor.baseline) || dirtyBudget
@@ -130,6 +133,16 @@ export function MemorySettings({
     setLatestEntry(undefined)
     setLocalError('')
   }
+  function closeDetail() {
+    leave(() => {
+      resetDraft()
+      setSelected(undefined)
+      requestAnimationFrame(() => {
+        const target = selectedButton.current?.isConnected ? selectedButton.current : createButton.current
+        target?.focus({ preventScroll: true })
+      })
+    })
+  }
   function beginCreate() {
     leave(() => {
       if (!memory.status) return
@@ -139,13 +152,15 @@ export function MemorySettings({
         (currentProjectId ? { kind: 'project' as const, projectId: currentProjectId } : { kind: 'global' as const })
       const input: MemoryEntryInput = { title: '', content: '', scope }
       setEditor({ input, baseline: JSON.stringify(input), epoch: memory.status.epoch })
+      selectedButton.current = null
       setSelected(undefined)
       setLocalError('')
     })
   }
-  function selectEntry(entry: MemoryEntry) {
+  function selectEntry(entry: MemoryEntry, button: HTMLButtonElement) {
     leave(() => {
       resetDraft()
+      selectedButton.current = button
       setSelected(entry)
       const request = ++selectedRequest.current
       void host.memory?.get(entry.id).then(
@@ -511,7 +526,7 @@ export function MemorySettings({
               ))}
             </SelectContent>
           </Select>
-          <Button className="h-9" size="sm" disabled={!memory.writable} onClick={beginCreate}>
+          <Button ref={createButton} className="h-9" size="sm" disabled={!memory.writable} onClick={beginCreate}>
             <Plus className="size-3.5" />
             添加记忆
           </Button>
@@ -527,9 +542,17 @@ export function MemorySettings({
             </Button>
           </TooltipHint>
         </div>
-        <div className={cn('grid min-w-0 gap-5', hasDetail && '@[42rem]/memory:grid-cols-2')}>
+        <div
+          className={cn(
+            'grid min-w-0 items-start gap-6',
+            hasDetail && '@[42rem]/memory:grid-cols-[minmax(0,0.38fr)_minmax(0,0.62fr)]',
+          )}
+        >
           <div className={cn('min-w-0 space-y-3', hasDetail && 'hidden @[42rem]/memory:block')}>
-            <div className="overflow-hidden rounded-xl border border-border/70" aria-busy={memory.reading}>
+            <div
+              className="max-h-[min(36rem,65vh)] overflow-y-auto overscroll-contain rounded-xl border border-border/70"
+              aria-busy={memory.reading}
+            >
               {!memory.page ? (
                 <p role="status" className="px-4 py-6 text-muted-foreground">
                   {memory.error ? '记忆尚未读取，请重试。' : '读取中…'}
@@ -549,19 +572,19 @@ export function MemorySettings({
                       key={entry.id}
                       type="button"
                       aria-pressed={selected?.id === entry.id || editor?.original?.id === entry.id}
-                      onClick={() => selectEntry(entry)}
+                      onClick={(event) => selectEntry(entry, event.currentTarget)}
                       className={cn(
                         'block w-full min-w-0 space-y-1 px-4 py-3 text-left transition-colors hover:bg-foreground/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
-                        selected?.id === entry.id && 'bg-foreground/10',
+                        (selected?.id === entry.id || editor?.original?.id === entry.id) && 'bg-foreground/7',
                       )}
                     >
                       <span className="flex min-w-0 items-start justify-between gap-3">
-                        <span className="min-w-0 break-words font-medium">{entry.title}</span>
+                        <span className="line-clamp-2 min-w-0 font-medium [overflow-wrap:anywhere]">{entry.title}</span>
                         <span className="shrink-0 text-muted-foreground">
                           {entry.scope.kind === 'global' ? '通用' : '项目'}
                         </span>
                       </span>
-                      <span className="line-clamp-2 break-words text-muted-foreground">{entry.content}</span>
+                      <span className="block truncate text-muted-foreground">{entry.content}</span>
                       <span className="block truncate text-muted-foreground">
                         {scopeName(entry)} · {entry.locked ? '手动保存' : '自动学习'}
                       </span>
@@ -593,24 +616,34 @@ export function MemorySettings({
             )}
           </div>
           {hasDetail && (
-            <div className="min-w-0 space-y-4 @[42rem]/memory:border-l @[42rem]/memory:border-border @[42rem]/memory:pl-5">
+            <div className="min-w-0 space-y-4 @[42rem]/memory:border-l @[42rem]/memory:border-border/60 @[42rem]/memory:pl-6">
               <Button
                 variant="ghost"
                 size="sm"
                 className="@[42rem]/memory:hidden"
-                onClick={() =>
-                  leave(() => {
-                    resetDraft()
-                    setSelected(undefined)
-                  })
-                }
+                disabled={saving}
+                onClick={closeDetail}
               >
                 <ArrowLeft className="size-3.5" />
                 返回列表
               </Button>
               {editor ? (
                 <div className="space-y-4">
-                  <h3 className="font-medium">{editor.original ? '编辑记忆' : '添加记忆'}</h3>
+                  <div className="flex items-center justify-between gap-3">
+                    <h3 className="text-sm font-medium">{editor.original ? '编辑记忆' : '添加记忆'}</h3>
+                    <TooltipHint content="关闭编辑">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label="关闭记忆编辑"
+                        className="hidden @[42rem]/memory:inline-flex"
+                        disabled={saving}
+                        onClick={closeDetail}
+                      >
+                        <X />
+                      </Button>
+                    </TooltipHint>
+                  </div>
                   <label className="grid gap-2">
                     标题
                     <Input
@@ -701,54 +734,16 @@ export function MemorySettings({
                 </div>
               ) : (
                 selected && (
-                  <div className="space-y-4">
-                    <div className="space-y-1">
-                      <h3 className="break-words text-sm font-medium">{selected.title}</h3>
-                      <p className="text-muted-foreground">
-                        {scopeName(selected)} · {selected.locked ? '手动保存，不自动覆盖' : '自动学习'}
-                      </p>
-                    </div>
-                    <p className="whitespace-pre-wrap break-words leading-relaxed">{selected.content}</p>
-                    <p className="text-muted-foreground">更新于 {readableDate(selected.updatedAt)}</p>
-                    {selected.sources.length > 0 ? (
-                      <div className="space-y-2">
-                        <h4 className="font-medium">来源</h4>
-                        {selected.sources.map((source, index) => (
-                          <div key={source.id} className="space-y-1">
-                            <Button
-                              variant="link"
-                              size="sm"
-                              className="h-auto max-w-full justify-start whitespace-normal p-0 text-left"
-                              disabled={!connected}
-                              onClick={() => void showSource(source)}
-                            >
-                              查看原始条目 {index + 1}
-                            </Button>
-                            {source.excerpt && (
-                              <p className="line-clamp-3 break-words text-muted-foreground">
-                                保存时摘录：{source.excerpt}
-                              </p>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    ) : (
-                      <p className="text-muted-foreground">用户手动保存</p>
-                    )}
-                    <div className="flex gap-2">
-                      <Button variant="outline" size="sm" disabled={!memory.writable} onClick={beginEdit}>
-                        编辑
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        disabled={!memory.writable}
-                        onClick={() => setConfirmation({ kind: 'remove', entry: selected })}
-                      >
-                        删除
-                      </Button>
-                    </div>
-                  </div>
+                  <MemoryEntryPreview
+                    entry={selected}
+                    scopeLabel={scopeName(selected)}
+                    writable={memory.writable}
+                    connected={connected}
+                    onEdit={beginEdit}
+                    onDelete={() => setConfirmation({ kind: 'remove', entry: selected })}
+                    onClose={closeDetail}
+                    onShowSource={(source) => void showSource(source)}
+                  />
                 )
               )}
             </div>
