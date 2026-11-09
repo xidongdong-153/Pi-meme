@@ -1,7 +1,7 @@
 import type { PiSessionSummary } from '@pi-meme/contracts/sessions'
 import type { SidebarSource } from './sidebar-source'
 
-function activityTime(value: string) {
+export function activityTime(value: string) {
   const timestamp = Date.parse(value)
   if (!Number.isFinite(timestamp)) return ''
   const minutes = Math.max(0, Math.floor((Date.now() - timestamp) / 60000))

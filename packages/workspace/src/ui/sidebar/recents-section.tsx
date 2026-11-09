@@ -62,6 +62,7 @@ export function RecentsSection({
             <SidebarSortable itemKey={entry.key} listKey="recents" keys={keys} enabled={sortable} onReorder={onReorder}>
               <SessionItem
                 session={entry.session}
+                projectName={entry.projectName}
                 variant="recent"
                 isActive={activeSessionId === entry.session.id || activeSessionPath === entry.session.path}
                 onSwitchSession={onSwitchSession}

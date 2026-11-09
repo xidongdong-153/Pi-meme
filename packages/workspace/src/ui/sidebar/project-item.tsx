@@ -1,8 +1,8 @@
-import { TooltipHint, tooltipSurfaceClassName } from '@pi-meme/ui/components/ui/tooltip'
-import { useRef, useState, type ReactNode } from 'react'
-import { SidebarRowMenu } from './sidebar-menus'
-import { Folder, Globe, Pin, PinOff, SquarePen } from 'lucide-react'
-import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from '@pi-meme/ui/components/ui/popover'
+import { TooltipHint } from '@pi-meme/ui/components/ui/tooltip'
+import { useRef, type ReactNode } from 'react'
+import { SidebarRowMenu, useSidebarMenus } from './sidebar-menus'
+import { Folder, Globe, MessageCircle, Pin, PinOff, Settings2, SquarePen } from 'lucide-react'
+import { SidebarHoverCard } from './sidebar-hover-card'
 import type { SidebarSource } from './sidebar-source'
 import { cn } from '@pi-meme/ui/lib/utils'
 import type { PiProjectGroup } from '@pi-meme/contracts/sessions'
@@ -56,8 +56,9 @@ export function ProjectItem({
   onSwitchSession,
   onPrefetchSession,
 }: ProjectItemProps) {
-  const [detailsOpen, setDetailsOpen] = useState(false)
-  const anchor = useRef<HTMLDivElement>(null)
+  const menus = useSidebarMenus()
+  const row = useRef<HTMLDivElement>(null)
+  const disabledReason = source?.disabledReason ?? menus.disabledReason
   const isCurrentCwd = project.cwd === cwd
   const sessionThreshold = 5
   const visibleSessions = isItemsExpandedAll
@@ -76,17 +77,63 @@ export function ProjectItem({
 
   return (
     <div key={project.cwd} className="space-y-0.5">
-      <Popover open={detailsOpen} onOpenChange={setDetailsOpen}>
-        <PopoverAnchor virtualRef={anchor} />
+      <SidebarHoverCard
+        label={`项目预览：${project.name}`}
+        content={(close) => (
+          <div className="space-y-2.5">
+            {details ?? (
+              <>
+                <div className="flex items-start gap-2">
+                  <Folder aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                  <h3 className="min-w-0 flex-1 pt-px font-semibold [overflow-wrap:anywhere]">{project.name}</h3>
+                  <button
+                    type="button"
+                    disabled={Boolean(disabledReason)}
+                    aria-label={`${isPinned ? '取消置顶项目' : '置顶项目'}：${project.name}`}
+                    onClick={() => onTogglePin(project.cwd)}
+                    className={cn(
+                      'shrink-0 rounded p-0.5 hover:text-foreground disabled:opacity-50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
+                      isPinned ? 'text-primary' : 'text-muted-foreground',
+                    )}
+                  >
+                    {isPinned ? <PinOff className="size-3.5" /> : <Pin className="size-3.5" />}
+                  </button>
+                </div>
+                <div className="flex items-center gap-2 text-foreground/90">
+                  <MessageCircle aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+                  <span>{project.sessionCount} 次聊天</span>
+                </div>
+                <div className="flex items-start gap-2 border-t border-border/70 pt-2.5 text-foreground/90">
+                  <Folder aria-hidden="true" className="mt-px size-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 [overflow-wrap:anywhere]">{project.cwd}</span>
+                </div>
+              </>
+            )}
+            <div className="border-t border-border/70 pt-1.5">
+              <button
+                type="button"
+                disabled={Boolean(disabledReason)}
+                aria-label={`编辑项目：${project.name}`}
+                onClick={() => {
+                  menus.dialogTrigger.current = row.current?.querySelector<HTMLButtonElement>('button') ?? null
+                  close()
+                  menus.rename({ kind: 'project', project })
+                  menus.dialogOpening.current = false
+                }}
+                className="flex w-full items-center gap-2 rounded-md px-0.5 py-1 text-left text-foreground/90 hover:bg-background/40 hover:text-foreground cursor-pointer disabled:cursor-default disabled:opacity-50 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                <Settings2 aria-hidden="true" className="size-4 shrink-0 text-muted-foreground" />
+                编辑项目
+              </button>
+              {disabledReason && <p className="pt-1 text-[11px] text-muted-foreground">{disabledReason}</p>}
+            </div>
+          </div>
+        )}
+      >
         <SidebarRowMenu target={{ kind: 'project', project }}>
           <div
             {...dragProps}
-            ref={anchor}
-            onDragStart={(event) => {
-              setDetailsOpen(false)
-              dragProps?.onDragStart?.(event)
-            }}
-            onContextMenuCapture={() => setDetailsOpen(false)}
+            ref={row}
             className={cn(
               'group relative flex w-full min-w-0 items-center justify-between rounded-lg pr-1.5 text-xs transition-colors duration-150 ease-out cursor-pointer',
               isCurrentCwd
@@ -96,59 +143,42 @@ export function ProjectItem({
             )}
             data-project-cwd={project.cwd}
           >
-            <TooltipHint content={details ? undefined : project.cwd}>
-              <button
-                type="button"
-                onClick={() => (onSelectProject ? onSelectProject(project.cwd) : onToggle())}
-                aria-expanded={onSelectProject ? undefined : isExpanded}
-                className={cn(
-                  'flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden py-1.5 pl-2 pr-1 text-left rounded cursor-[inherit] transition-[padding] duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
-                  !source && 'group-hover:pr-14 group-focus-within:pr-14',
-                )}
-              >
-                <span className={cn('relative shrink-0', source ? 'size-4' : 'size-3.5')}>
-                  <Folder
-                    data-project-folder-icon
-                    aria-hidden="true"
-                    className={cn('text-muted-foreground', source ? 'size-4' : 'size-3.5')}
-                  />
-                  {source && (
-                    <span
-                      role="img"
-                      aria-label={`远程：${source.label}`}
-                      className="absolute -bottom-0.5 -right-1 rounded-full text-primary"
-                    >
-                      <Globe aria-hidden="true" className="size-2.5" />
-                    </span>
-                  )}
-                </span>
-                <SidebarTitle className="font-medium">{project.name}</SidebarTitle>
-              </button>
-            </TooltipHint>
-
-            {source &&
-              (details ? (
-                <PopoverTrigger asChild>
-                  <button
-                    type="button"
-                    data-project-source-label
-                    aria-label={`远程项目详情：${project.name}`}
-                    onClick={(event) => event.stopPropagation()}
-                    className="ml-1 mr-12 max-w-[76px] shrink-0 truncate rounded text-[0.625rem] font-normal text-muted-foreground hover:text-foreground cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                  >
-                    {source.label}
-                  </button>
-                </PopoverTrigger>
-              ) : (
-                <TooltipHint content={source.description}>
+            <button
+              type="button"
+              onClick={() => (onSelectProject ? onSelectProject(project.cwd) : onToggle())}
+              aria-expanded={onSelectProject ? undefined : isExpanded}
+              className={cn(
+                'flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden py-1.5 pl-2 pr-1 text-left rounded cursor-[inherit] transition-[padding] duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                !source && 'group-hover:pr-14 group-focus-within:pr-14',
+              )}
+            >
+              <span className={cn('relative shrink-0', source ? 'size-4' : 'size-3.5')}>
+                <Folder
+                  data-project-folder-icon
+                  aria-hidden="true"
+                  className={cn('text-muted-foreground', source ? 'size-4' : 'size-3.5')}
+                />
+                {source && (
                   <span
-                    data-project-source-label
-                    className="ml-1 mr-12 max-w-[76px] shrink-0 truncate text-[0.625rem] font-normal text-muted-foreground"
+                    role="img"
+                    aria-label={`远程：${source.label}`}
+                    className="absolute -bottom-0.5 -right-1 rounded-full text-primary"
                   >
-                    {source.label}
+                    <Globe aria-hidden="true" className="size-2.5" />
                   </span>
-                </TooltipHint>
-              ))}
+                )}
+              </span>
+              <SidebarTitle className="font-medium">{project.name}</SidebarTitle>
+            </button>
+
+            {source && (
+              <span
+                data-project-source-label
+                className="ml-1 mr-12 max-w-[76px] shrink-0 truncate text-[0.625rem] font-normal text-muted-foreground"
+              >
+                {source.label}
+              </span>
+            )}
 
             {/* 悬浮操作按钮组：采用绝对定位浮在右侧，hover/focus 时浮现，遮盖在最右侧，不挤压项目名称 */}
             <div
@@ -199,17 +229,7 @@ export function ProjectItem({
             </div>
           </div>
         </SidebarRowMenu>
-        {details && (
-          <PopoverContent
-            side="right"
-            align="start"
-            aria-label={`远程项目：${project.name}`}
-            className={cn(tooltipSurfaceClassName, 'w-80 max-w-[calc(100vw-24px)] p-3 pointer-events-auto select-text')}
-          >
-            {details}
-          </PopoverContent>
-        )}
-      </Popover>
+      </SidebarHoverCard>
       {/* 展开的会话列表：默认展示前 5 个，支持展开显示。常驻挂载以便折叠时行高缓动 */}
       {!onSelectProject && (
         <div
