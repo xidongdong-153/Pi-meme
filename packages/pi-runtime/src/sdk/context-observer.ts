@@ -27,6 +27,7 @@ export type ContextObserverState = {
   generation: number
   nativeSessionId: string
   inputLeafId?: string
+  compactionId?: string
   onPayload: SimpleStreamOptions['onPayload']
   defaultStreamFunction: AgentSession['agent']['streamFunction']
   currentStreamFunction: AgentSession['agent']['streamFunction']
@@ -321,6 +322,7 @@ export function observeModelRuntime(runtime: ModelRuntime, options: ContextObser
           model: `${model.provider}/${model.id}`,
           window: model.contextWindow > 0 ? model.contextWindow : undefined,
           inputLeafId: state.inputLeafId,
+          compactionId: state.compactionId,
           cacheKnowledge: 'unknown',
         },
       }

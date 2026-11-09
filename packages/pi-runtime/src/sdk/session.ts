@@ -87,6 +87,7 @@ import { findSessionRecovery, recoveryEntryType, recoveryMessage } from './recov
 import { loadPiSdk, type PiSdk } from './load'
 import { createDesktopModelRuntime, projectModel } from './model-runtime'
 import { contextCaptureOptions, type ContextObserverState } from './context-observer'
+import { withCompactionContextUsage } from './context-usage'
 import { createDesktopSettingsManager } from './settings'
 import { readDesktopAgentContextFiles } from './context-files'
 import { ExtensionUiBridge } from './ui-bridge'
@@ -177,6 +178,7 @@ export class SdkSession {
       generation: this.generation,
       nativeSessionId: session.sessionId,
       inputLeafId: session.sessionManager.getLeafId() ?? undefined,
+      compactionId: session.sessionManager.getBranch().findLast((entry) => entry.type === 'compaction')?.id,
       onPayload: session.agent.onPayload === binding.onPayload ? binding.onPayload : undefined,
       defaultStreamFunction: binding.streamFunction,
       currentStreamFunction: session.agent.streamFunction,
@@ -1294,7 +1296,7 @@ export class SdkSession {
           },
           branchAttachments: projectBranchAttachments(entries.entries, entries.leafId),
           planCheckpoints: projectBranchPlans(entries.entries, entries.leafId),
-          stats: this.session.getSessionStats(),
+          stats: this.currentSessionStats(),
         },
       }
       this.viewProjection = cached
@@ -2609,8 +2611,16 @@ export class SdkSession {
     return this.call(() => this.session.getAvailableThinkingLevels())
   }
 
+  private currentSessionStats() {
+    return withCompactionContextUsage(
+      this.session.getSessionStats(),
+      this.session.sessionManager.getBranch(),
+      this.sdk!,
+    )
+  }
+
   getSessionStats() {
-    return this.call(() => this.session.getSessionStats())
+    return this.call(() => this.currentSessionStats())
   }
 
   async validateMessageEdit(entryId: string, message: string, options?: EditMessageOptions) {

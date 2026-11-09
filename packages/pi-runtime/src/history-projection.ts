@@ -11,6 +11,7 @@ import { projectBranchAttachments } from './session-attachments'
 import { projectConversationEntries, projectStableMessageMetadata } from './sdk/message-projection'
 import { loadPiSdk } from './sdk/load'
 import { findSessionRecovery } from './sdk/recovery'
+import { withCompactionContextUsage } from './sdk/context-usage'
 
 export function computeHistoryStats(history: SessionEntry[], headerId: string, filePath: string): PiSessionStats {
   let userMessages = 0
@@ -193,7 +194,7 @@ export async function projectSessionHistory(
     parentSessionPath: header.parentSession,
     model: context.model ? { provider: context.model.provider, id: context.model.modelId } : undefined,
     thinkingLevel: context.thinkingLevel as ThinkingLevel,
-    stats: computeHistoryStats(history, header.id, filePath),
+    stats: withCompactionContextUsage(computeHistoryStats(history, header.id, filePath), branch, sdk, context),
   }
   data.historyAvailability = {
     tree: Boolean(

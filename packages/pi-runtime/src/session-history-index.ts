@@ -258,6 +258,7 @@ async function appendIndex(file: string, previous: Index, expected: string): Pro
     for (const field of ['input', 'output', 'cacheRead', 'cacheWrite', 'total'] as const)
       stats.tokens[field] += before.tokens[field]
     if (!stats.contextUsage?.tokens) stats.contextUsage = before.contextUsage
+    else if (before.contextUsage?.compactionId) stats.contextUsage.compactionId = before.contextUsage.compactionId
   }
   if ((await signature(file)) !== expected) throw new Error('会话历史已更新，请重新加载')
   return {
@@ -300,7 +301,7 @@ async function readIndex(file: string, background = false): Promise<Index | unde
   const target = indexFile(file)
   if (!target) return
   const expected = await signature(file)
-  const version = `4:${getPiVersion()}`
+  const version = `5:${getPiVersion()}`
   const retained = cache.get(file)
   if (retained?.signature === expected && retained.version === version) {
     remember(file, retained)

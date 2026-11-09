@@ -134,7 +134,14 @@ export function resolveThinkingLevel(model: PiModel | undefined, level: Thinking
     'off'
   )
 }
-export type PiSessionStats = SessionStats
+export type PiSessionStats = Omit<SessionStats, 'contextUsage'> & {
+  contextUsage?: NonNullable<SessionStats['contextUsage']> & {
+    /** 当前分支最近一次成功压缩；用于排除压缩前的请求快照。 */
+    compactionId?: string
+    /** 压缩后尚无有效模型用量，按当前保留上下文估算。 */
+    estimated?: boolean
+  }
+}
 /** 当前一次 Agent 运行的生成指标；不写入会话 JSONL。 */
 export type PiGenerationMetrics = {
   running: boolean

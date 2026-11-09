@@ -59,20 +59,22 @@ export function ContextUsageRing({
       if (!contentRef.current?.contains(document.activeElement)) setOpen(false)
     }, 250)
   }
-  const prompt = context?.prompt
+  const usage = stats?.contextUsage
+  const request = !usage?.compactionId || context?.compactionId === usage.compactionId ? context : undefined
+  const prompt = request?.prompt
   const tokens =
     prompt?.tokens ??
-    (context
-      ? context.usage
-        ? context.usage.input + context.usage.cacheRead + context.usage.cacheWrite
+    (request
+      ? request.usage
+        ? request.usage.input + request.usage.cacheRead + request.usage.cacheWrite
         : undefined
-      : stats?.contextUsage?.tokens)
-  const window = prompt?.window ?? (context ? undefined : stats?.contextUsage?.contextWindow)
+      : usage?.tokens)
+  const window = prompt?.window ?? (request ? undefined : usage?.contextWindow)
   const hasUsage = typeof tokens === 'number' && Number.isFinite(tokens) && tokens >= 0
   const used = hasUsage ? Math.round(tokens) : 0
   const capacity = typeof window === 'number' && Number.isFinite(window) && window > 0 ? window : 0
   const percent = hasUsage && capacity ? Math.min(100, Math.max(0, Math.round((used / capacity) * 100))) : undefined
-  const counted = prompt ? prompt.counted : Boolean(context?.usage)
+  const counted = prompt ? prompt.counted : Boolean(request?.usage)
   const usedLabel = hasUsage ? `${counted ? '' : '~'}${formatTokenCount(used)}` : '—'
   const parts = prompt?.parts.filter((part) => part.tokens > 0) ?? []
   const size = 18
@@ -136,7 +138,7 @@ export function ContextUsageRing({
             <span className="text-muted-foreground">
               <MetricLabel
                 label="上下文已用"
-                description="最近一次主请求的输入占用；没有快照时使用 SDK 上下文估算。容量来自模型目录。"
+                description="主请求的输入占用；压缩完成后按当前保留上下文估算，下一次主请求时更新。容量来自模型目录。"
               />{' '}
             </span>
             <span className="font-semibold">

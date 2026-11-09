@@ -1478,6 +1478,18 @@ export class PiSessionPool implements PiRuntime {
       if (model) {
         target.state.model = model
         target.state.thinkingLevel = resolveThinkingLevel(model, target.state.thinkingLevel ?? 'medium')
+        const usage = target.stats?.contextUsage
+        if (usage?.estimated && target.stats) {
+          const contextWindow = model.contextWindow ?? 0
+          target.stats = {
+            ...target.stats,
+            contextUsage: {
+              ...usage,
+              contextWindow,
+              percent: contextWindow > 0 && usage.tokens !== null ? (usage.tokens / contextWindow) * 100 : null,
+            },
+          }
+        }
       }
     } catch (cause) {
       if (record === this.active && this.sessions.has(record.key))

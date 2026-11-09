@@ -38,6 +38,7 @@ export type ContextRuntimeCapture = {
   model: string
   window?: number
   inputLeafId?: string
+  compactionId?: string
   resultEntryId?: string
   body?: string
   bodyState?: ContextBodyState
@@ -63,6 +64,7 @@ export type ContextRequest = {
   servedModel?: string
   windowSource: 'catalog' | 'unknown'
   inputLeafId?: string
+  compactionId?: string
   resultEntryId?: string
   phase: ContextRuntimeCapture['phase']
   done: boolean
