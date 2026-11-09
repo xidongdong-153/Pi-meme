@@ -30,6 +30,8 @@ export type SessionCleanupOptions = {
   accessStore: AgentAccessStore
   collaboration: HostCollaborationBridge
   goals?: GoalService
+  prepareArtifacts?: (sessionIds: string[]) => Promise<void>
+  resumeArtifacts?: (sessionIds: string[]) => Promise<void>
   detachArtifacts?: (sessionIds: string[]) => Promise<void>
   control?: {
     deleteSessions: (result: {
@@ -186,6 +188,7 @@ export class SessionCleanupService {
 
     const file = path.join(this.options.maintenanceDirectory, `pending-cleanup-${id}.json`)
     await atomicWrite(file, `${JSON.stringify(record, null, 2)}\n`)
+    await this.options.prepareArtifacts?.([...new Set(sessionIdsMap.values())])
 
     return {
       id,
@@ -208,6 +211,7 @@ export class SessionCleanupService {
     const file = path.join(this.options.maintenanceDirectory, `pending-cleanup-${prepared.id}.json`)
 
     if (!result.deletedPaths.length && !result.deletedKeys.length) {
+      await this.options.resumeArtifacts?.(prepared.candidateSessionIds)
       await rm(file, { force: true })
       return
     }
@@ -224,6 +228,8 @@ export class SessionCleanupService {
       }
     }
 
+    // Release unsuccessful targets before narrowing the durable intent to successes.
+    await this.options.resumeArtifacts?.(prepared.candidateSessionIds.filter((id) => !confirmedSessionIdsSet.has(id)))
     const record: PendingCleanupRecord = {
       version: 1,
       id: prepared.id,
@@ -274,6 +280,7 @@ export class SessionCleanupService {
         validatePendingCleanupRecord(record, fileId)
 
         const sessionMap = new Map(record.sessionIdsMap)
+        await this.options.prepareArtifacts?.([...new Set(sessionMap.values())])
 
         if (record.stage === 'deleted') {
           const canonicalKeys = record.canonicalKeys.map(([, c]) => c)
@@ -318,6 +325,9 @@ export class SessionCleanupService {
               record.cwd,
             )
           }
+          await this.options.resumeArtifacts?.(
+            [...new Set(sessionMap.values())].filter((id) => !confirmedSessionIdsSet.has(id)),
+          )
           await rm(file, { force: true })
         }
       } catch (cause) {

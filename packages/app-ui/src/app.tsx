@@ -12,6 +12,8 @@ import type { LinkPreview } from '@pi-meme/contracts/link-preview'
 import { ImageGenerationSettings } from '@pi-meme/image-generation/ui/image-generation-settings'
 import { RetainedConversations } from './session/retained-conversations'
 import { HistoryDetails } from './session/history-details'
+import { HistoryMarkdown } from '@pi-meme/history/ui/history-markdown'
+import { MemorySettings } from '@pi-meme/memory/ui/memory-settings'
 import { resolveThinkingLevel } from '@pi-meme/contracts/pi'
 import type { BrowserPlatform } from '@pi-meme/contracts/browser'
 import { BrowserFavicon, BrowserPanel } from '@pi-meme/browser/ui/browser-panel'
@@ -532,6 +534,13 @@ function AppContent({
   const agentPlugins = agentPluginSelection.ids
   const [instructionsDirty, setInstructionsDirty] = useState(false)
   const [instructionsSaving, setInstructionsSaving] = useState(false)
+  const [memoryDirty, setMemoryDirty] = useState(false)
+  const [memorySaving, setMemorySaving] = useState(false)
+  const [memoryDiscardVersion, setMemoryDiscardVersion] = useState(0)
+  const discardMemory = useCallback(() => {
+    setMemoryDirty(false)
+    setMemoryDiscardVersion((value) => value + 1)
+  }, [])
   const [storageMaintaining, setStorageMaintaining] = useState(false)
   const [dirtyPage, setDirtyPage] = useState<{ pluginId: string; generation: number; routeInstance: string } | null>(
     null,
@@ -546,10 +555,11 @@ function AppContent({
     setPluginPageError('')
   }
   const navigation = useAppNavigation({
-    dirty: instructionsDirty || Boolean(dirtyPage),
-    saving: instructionsSaving || storageMaintaining,
+    dirty: instructionsDirty || memoryDirty || Boolean(dirtyPage),
+    saving: instructionsSaving || memorySaving || storageMaintaining,
     onDiscard: () => {
       setInstructionsDirty(false)
+      discardMemory()
       discardPluginPage()
     },
   })
@@ -565,11 +575,12 @@ function AppContent({
   useEffect(() => pluginConsent.cancel(), [pluginConsent, route])
   useEffect(() => {
     const unload = (event: BeforeUnloadEvent) => {
-      if (dirtyPage || instructionsDirty || instructionsSaving || storageMaintaining) event.preventDefault()
+      if (dirtyPage || instructionsDirty || instructionsSaving || memoryDirty || memorySaving || storageMaintaining)
+        event.preventDefault()
     }
     window.addEventListener('beforeunload', unload)
     return () => window.removeEventListener('beforeunload', unload)
-  }, [dirtyPage, instructionsDirty, instructionsSaving, storageMaintaining])
+  }, [dirtyPage, instructionsDirty, instructionsSaving, memoryDirty, memorySaving, storageMaintaining])
   const settingsSection = route.kind === 'settings' ? route.section : null
   const settingsOpen = settingsSection !== null
   const projectsOpen = route.kind === 'projects'
@@ -838,8 +849,8 @@ function AppContent({
   const [creatingProject, setCreatingProject] = useState(false)
   const creatingSkillSession = useRef(false)
   const assertRestartAllowed = () => {
-    if (fileStore.hasDirty() || instructionsDirty || instructionsSaving || dirtyPage)
-      throw new Error('仍有未保存的文件或指令，请先保存后再维护存储')
+    if (fileStore.hasDirty() || instructionsDirty || instructionsSaving || memoryDirty || memorySaving || dirtyPage)
+      throw new Error('仍有未保存的文件、设置或页面，请先保存后再维护存储')
     if (browserUnstored.current()) throw new Error('浏览器草稿尚未保存，请先重试保存后再维护存储')
     if (chat.hasDraftInput()) throw new Error('仍有未发送的草稿或附件，请先处理后再维护存储')
   }
@@ -850,20 +861,21 @@ function AppContent({
     [appearance.registerMaintenanceGuard],
   )
   async function beforeDeactivate() {
-    if (instructionsSaving || storageMaintaining) return false
+    if (instructionsSaving || memorySaving || storageMaintaining) return false
     if (browserUnstored.current()) {
       chat.setError('浏览器草稿尚未保存，请先重试保存')
       return false
     }
-    if (!dirtyPage && !instructionsDirty) return true
+    if (!dirtyPage && !instructionsDirty && !memoryDirty) return true
     const accepted = await pluginConsent.request({
-      pluginId: dirtyPage?.pluginId ?? '应用指令',
+      pluginId: dirtyPage?.pluginId ?? '应用设置',
       title: '切换前放弃未保存的更改？',
-      description: '当前插件页面或指令有未保存更改。切换会话或服务后，这些修改不会自动恢复。',
+      description: '当前页面或设置有未保存更改。切换会话或服务后，这些修改不会自动恢复。',
     })
     if (accepted) {
       discardPluginPage()
       setInstructionsDirty(false)
+      discardMemory()
     }
     return accepted
   }
@@ -936,10 +948,16 @@ function AppContent({
       openChat: navigation.home,
       assertRestartAllowed,
       assertRemoveAllowed: () => {
-        if (instructionsSaving || chat.navigationBusy || chat.modelSaving || chat.sendingAttachments.length)
+        if (
+          instructionsSaving ||
+          memorySaving ||
+          chat.navigationBusy ||
+          chat.modelSaving ||
+          chat.sendingAttachments.length
+        )
           throw new Error('正在保存、提交或切换，请完成后再移除连接')
-        if (fileStore.hasDirty() || instructionsDirty || dirtyPage)
-          throw new Error('仍有未保存的文件、指令或插件页面，请先保存或放弃修改后再移除连接')
+        if (fileStore.hasDirty() || instructionsDirty || memoryDirty || dirtyPage)
+          throw new Error('仍有未保存的文件、设置或插件页面，请先保存或放弃修改后再移除连接')
         if (chat.hasDraftInput() || chat.editing)
           throw new Error('仍有未发送的草稿、附件或消息编辑，请先处理后再移除连接')
       },
@@ -2580,10 +2598,13 @@ function AppContent({
           {settingsSection && (
             <SettingsPage
               initialSection={settingsSection}
-              dirty={instructionsDirty}
-              saving={instructionsSaving || storageMaintaining}
+              dirty={instructionsDirty || memoryDirty}
+              saving={instructionsSaving || memorySaving || storageMaintaining}
               nativeWindow={nativeWindow}
-              onDiscard={() => setInstructionsDirty(false)}
+              onDiscard={() => {
+                setInstructionsDirty(false)
+                discardMemory()
+              }}
               onDismiss={navigation.back}
               onHome={navigation.home}
               dismissLabel="返回上一页"
@@ -2604,6 +2625,38 @@ function AppContent({
               )}
               renderContent={(section, navigate) => {
                 if (section === 'shortcuts') return <ShortcutSettings />
+                if (section === 'memory')
+                  return (
+                    <MemorySettings
+                      key={hostId}
+                      host={host}
+                      connected={
+                        currentService
+                          ? currentService.status === 'connected'
+                          : chat.connection.status !== 'disconnected' && chat.connection.status !== 'connecting'
+                      }
+                      hostLabel={
+                        currentService
+                          ? serviceLabel(currentService)
+                          : hostLocal
+                            ? '此计算机'
+                            : (hostAddress ?? '当前服务')
+                      }
+                      currentProjectId={appSession?.project?.projectId}
+                      models={chat.models}
+                      onModels={() => navigate('models')}
+                      onDirty={setMemoryDirty}
+                      onSaving={setMemorySaving}
+                      discardVersion={memoryDiscardVersion}
+                      renderSource={(message) => <HistoryMarkdown>{message.text}</HistoryMarkdown>}
+                      onOpenSourceSession={async (source) => {
+                        const sourceSession = await host.sessions.get(source.session)
+                        if (!sourceSession.sessionFile) throw new Error('来源会话当前无法打开')
+                        if (!serviceUI && !(await beforeDeactivate())) return
+                        if (await switchSession(sourceSession.sessionFile)) navigation.replace({ kind: 'chat' })
+                      }}
+                    />
+                  )
                 if (section === 'browser')
                   return (
                     <BrowserSettings
@@ -2840,7 +2893,7 @@ function AppContent({
           >
             <DialogContent>
               <DialogTitle>放弃未保存的更改？</DialogTitle>
-              <DialogDescription>离开后，当前插件页面或指令中尚未保存的修改不会自动恢复。</DialogDescription>
+              <DialogDescription>离开后，当前页面或设置中尚未保存的修改不会自动恢复。</DialogDescription>
               <div className="flex justify-end gap-2">
                 <Button variant="outline" onClick={navigation.cancelLeave}>
                   继续编辑

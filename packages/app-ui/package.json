@@ -37,6 +37,7 @@
     "@pi-meme/history": "workspace:*",
     "@pi-meme/interaction": "workspace:*",
     "@pi-meme/mcp": "workspace:*",
+    "@pi-meme/memory": "workspace:*",
     "@pi-meme/models": "workspace:*",
     "@pi-meme/permissions": "workspace:*",
     "@pi-meme/plugin-sdk": "workspace:*",

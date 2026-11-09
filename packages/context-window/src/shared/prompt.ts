@@ -356,6 +356,10 @@ class PromptBuilder {
   }
   userText(text: string): void {
     const trimmed = text.trim()
+    if (trimmed.startsWith('<app_memory>')) {
+      this.add('memory', 'Pi meme 记忆', 'memory', tokensOf(text), textPiece('user', text))
+      return
+    }
     if (trimmed.startsWith('<system-reminder>')) {
       const rest = this.splitSkills(this.splitMemory(trimmed), 'user')
         .trim()

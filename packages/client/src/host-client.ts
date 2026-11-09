@@ -117,6 +117,8 @@ export class HostClient {
   private readonly fetch: typeof fetch
   private readonly eventListeners = new Set<(value: DesktopEvent) => void>()
   private readonly connectionListeners = new Set<(value: Connection) => void>()
+  private readonly transportListeners = new Set<(connected: boolean) => void>()
+  private publishedTransportConnected = false
   private readonly scopedConnectionListeners = new Map<string, Set<(value: Connection) => void>>()
   private readonly errorListeners = new Set<(value: DesktopError) => void>()
   private readonly sessionReads = new Map<string, Promise<import('@pi-meme/contracts/sessions').PiSessionsSnapshot>>()
@@ -244,6 +246,25 @@ export class HostClient {
     return Boolean(this.options.connection.local && this.options.platform)
   }
 
+  /** Host event transport availability, independent of any Pi Worker or model connection. */
+  get transportConnected() {
+    return !this.closed && !this.suspended && this.socket?.readyState === 1
+  }
+
+  onTransportConnection(callback: (connected: boolean) => void) {
+    this.transportListeners.add(callback)
+    return () => {
+      this.transportListeners.delete(callback)
+    }
+  }
+
+  private publishTransportConnection(force = false) {
+    const connected = this.transportConnected
+    if (!force && connected === this.publishedTransportConnected) return
+    this.publishedTransportConnected = connected
+    for (const callback of this.transportListeners) callback(connected)
+  }
+
   private assertAvailable(epoch = this.networkEpoch) {
     if (this.closed) throw new Error('服务客户端已关闭')
     if (this.suspended) throw new Error('服务连接已暂停，请恢复连接后继续')
@@ -270,6 +291,7 @@ export class HostClient {
     this.reconnectTimer = undefined
     const socket = this.socket
     this.socket = undefined
+    this.publishTransportConnection(true)
     socket?.close()
     for (const subscription of this.controlSubscriptions) subscription.suspend()
     this.buffered = []
@@ -843,20 +865,37 @@ export class HostClient {
     return read
   }
 
-  private async selection(method: string, args: unknown[] = [], sessionId = this.selected?.sessionKey) {
+  private async selection(
+    method: string,
+    args: unknown[] = [],
+    sessionId: string | null | undefined = this.selected?.sessionKey,
+    isCurrent?: () => boolean,
+  ) {
+    const networkEpoch = this.networkEpoch
     const epoch = ++this.selectionEpoch
     this.pendingSelections++
     let accepted: Connection | undefined
     try {
       const result = await this.rpc<Awaited<ReturnType<DesktopBridge['switchSession']>>>(method, args, sessionId)
-      if (!result.cancelled && epoch === this.selectionEpoch) {
+      if (
+        !result.cancelled &&
+        epoch === this.selectionEpoch &&
+        networkEpoch === this.networkEpoch &&
+        (!isCurrent || isCurrent())
+      ) {
         this.selected = result.snapshot.connection
         accepted = result.snapshot.connection
       }
       return result
     } finally {
       this.pendingSelections--
-      if (accepted && epoch === this.selectionEpoch) this.publishConnection(accepted)
+      if (
+        accepted &&
+        epoch === this.selectionEpoch &&
+        networkEpoch === this.networkEpoch &&
+        (!isCurrent || isCurrent())
+      )
+        this.publishConnection(accepted)
     }
   }
 
@@ -886,10 +925,14 @@ export class HostClient {
     url.searchParams.set('clientId', this.clientId)
     const socket = (this.options.createSocket ?? ((address) => new WebSocket(address)))(url.href)
     this.socket = socket
+    this.publishTransportConnection()
     const isCurrent = () => !this.closed && !this.suspended && this.socket === socket && epoch === this.networkEpoch
     socket.addEventListener('open', () => {
+      if (!isCurrent()) return
+      this.reconnectAttempts = 0
+      this.publishTransportConnection()
       if (this.systemHandler) void this.registerSystemCapabilities().catch((cause) => this.reportError(String(cause)))
-      if (isCurrent()) void this.resynchronize()
+      void this.resynchronize()
     })
     socket.addEventListener('message', (message) => {
       if (!isCurrent()) return
@@ -905,6 +948,7 @@ export class HostClient {
     socket.addEventListener('close', () => {
       if (this.socket !== socket) return
       this.socket = undefined
+      this.publishTransportConnection(true)
       if (this.closed || this.suspended || epoch !== this.networkEpoch) return
       if (this.selected)
         this.publishConnection({ ...this.selected, status: 'disconnected', error: '服务连接已断开，正在重连' })
@@ -933,14 +977,57 @@ export class HostClient {
   private resynchronize(sessionId = this.selected?.sessionKey) {
     if (this.resynchronizing) return this.resynchronizing
     const networkEpoch = this.networkEpoch
+    const socket = this.socket
+    const selected = this.selected
+    let epoch = this.selectionEpoch
+    const isCurrent = () =>
+      !this.closed &&
+      !this.suspended &&
+      networkEpoch === this.networkEpoch &&
+      socket === this.socket &&
+      this.transportConnected &&
+      epoch === this.selectionEpoch
     let recovered = false
     const pending = (async () => {
       try {
-        const epoch = this.selectionEpoch
         const scoped = Boolean(sessionId && this.scopedConnectionListeners.has(sessionId))
-        const snapshot = await this.snapshot(sessionId, sessionId === this.selected?.sessionKey, undefined, scoped)
+        let snapshot: Snapshot
+        try {
+          snapshot = await this.snapshot(sessionId, sessionId === this.selected?.sessionKey, undefined, scoped)
+        } catch (cause) {
+          const file = selected?.sessionFile
+          if (
+            !isCurrent() ||
+            this.pendingSelections ||
+            scoped ||
+            !sessionId ||
+            sessionId !== selected?.sessionKey ||
+            sessionId !== this.selected?.sessionKey ||
+            !file ||
+            file !== this.selected?.sessionFile ||
+            !(cause instanceof Error) ||
+            !('code' in cause) ||
+            cause.code !== 'operation-failed'
+          )
+            throw cause
+          // A new empty session can have a reserved file path without any persisted history.
+          const history = await this.rpc<import('@pi-meme/contracts/sessions').SessionHistoryData>(
+            'session:history',
+            [file, { limit: 1 }],
+            null,
+          )
+          if (!isCurrent() || this.pendingSelections) return
+          if (!(history.totalMessages ?? history.messages.length)) throw cause
+          // Restore only the same saved conversation, without targeting its obsolete runtime key.
+          const restoration = this.selection('pi:switch-session', [file, { limit: 60 }], null, isCurrent)
+          epoch = this.selectionEpoch
+          const result = await restoration
+          if (!isCurrent() || result.cancelled) return
+          snapshot = result.snapshot
+        }
         this.assertAvailable(networkEpoch)
-        if (epoch === this.selectionEpoch && snapshot.connection.sessionKey === this.selected?.sessionKey)
+        if (!isCurrent()) return
+        if (!this.pendingSelections && snapshot.connection.sessionKey === this.selected?.sessionKey)
           this.publishConnection(snapshot.connection)
         else if (snapshot.connection.sessionKey) {
           const listeners = this.scopedConnectionListeners.get(snapshot.connection.sessionKey)
@@ -951,23 +1038,27 @@ export class HostClient {
         }
         await Promise.allSettled([...new Set(this.childAgents.values())].map((id) => this.agentSnapshot(id)))
         this.assertAvailable(networkEpoch)
+        if (!isCurrent()) return
         for (const callback of this.sessionsListeners) callback()
         for (const callback of this.pluginListeners) callback()
         for (const callback of this.appearanceListeners) callback()
-        this.reconnectAttempts = 0
         recovered = true
       } catch (cause) {
-        if (!this.closed && !this.suspended && networkEpoch === this.networkEpoch) {
-          this.reportError(`无法恢复服务快照：${String(cause)}`)
-          this.socket?.close()
-        }
+        if (isCurrent()) this.reportError(`无法恢复会话快照：${String(cause)}`)
       }
     })().finally(() => {
       if (this.resynchronizing === pending) this.resynchronizing = undefined
       if (networkEpoch === this.networkEpoch) {
+        if (socket !== this.socket) {
+          if (this.transportConnected && !this.resynchronizing) void this.resynchronize()
+          return
+        }
         const buffered = this.buffered
         this.buffered = []
-        if (recovered) for (const envelope of buffered) this.receive(envelope)
+        for (const envelope of buffered) {
+          // Service management remains usable even when a particular conversation cannot recover.
+          if (recovered || envelope.type !== 'event') this.receive(envelope)
+        }
       }
     })
     this.resynchronizing = pending
@@ -1085,6 +1176,7 @@ export class HostClient {
   close() {
     this.suspend()
     this.closed = true
+    this.publishTransportConnection()
     this.systemHandler = undefined
     this.systemOperations = []
     for (const subscription of [...this.controlSubscriptions]) subscription.close()
@@ -1094,6 +1186,7 @@ export class HostClient {
     this.buffered = []
     this.eventListeners.clear()
     this.connectionListeners.clear()
+    this.transportListeners.clear()
     this.scopedConnectionListeners.clear()
     this.errorListeners.clear()
     this.sessionsListeners.clear()

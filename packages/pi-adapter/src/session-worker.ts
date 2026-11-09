@@ -2,6 +2,7 @@ import { createSystemTools } from './system-tools'
 import { projectBranchVisualizations } from '@pi-meme/contracts/visualize'
 import type { VisualizationRequest, VisualizationDocument } from '@pi-meme/contracts/visualize'
 import type { Goal, GoalRequest, GoalRun } from '@pi-meme/contracts/goal'
+import type { MemoryRuntimeBridge, MemoryRuntimeResult } from '@pi-meme/contracts/memory'
 import type { ImageGenerationRequest, ImageGenerationReply } from '@pi-meme/contracts/image-generation'
 import type { ServiceActivityRequest, ServiceActivityResult } from '@pi-meme/contracts/service-activity'
 import { createAppAgent } from '@pi-meme/pi-runtime/sdk/app-agent'
@@ -25,6 +26,7 @@ import { createStreamCoalescer } from './stream-coalescer'
 import type { ContextCapture, ContextRuntimeCapture } from '@pi-meme/contracts/context-window'
 
 export type SessionWorkerContext = {
+  requestMemory: MemoryRuntimeBridge
   registerContextCaptureHandler: (handler: (event: ContextRuntimeCapture) => void) => void
   requestContextCapture: (capture: ContextCapture) => Promise<void>
   requestVisualization: (request: VisualizationRequest, signal?: AbortSignal) => Promise<VisualizationDocument>
@@ -121,10 +123,12 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
     agentSources: data.agentEntries,
     externalTools: new Map(),
     pluginFailures: new Map(),
-    onAdmission: (message, mode, continuation, signal, origin, expected, sourceClientId) =>
-      hostRequest('admission', { message, mode, continuation, origin, expected, sourceClientId }, signal) as Promise<
-        GoalRun | undefined
-      >,
+    onAdmission: (message, mode, continuation, signal, origin, expected, sourceClientId, selectedModel) =>
+      hostRequest(
+        'admission',
+        { message, mode, continuation, origin, expected, sourceClientId, selectedModel },
+        signal,
+      ) as Promise<GoalRun | undefined>,
     onGoalGate: (tool) => hostRequest('goal', { goalRequest: { method: 'gate', tool }, goalRun: session.getGoalRun() }),
     onGoalUsage: (goalRun, entryId, usage, inputEntryId) =>
       hostRequest('goalUsage', { goalRun, entryId, usage, inputEntryId }) as Promise<void>,
@@ -170,6 +174,7 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
       | 'visualize'
       | 'image-generation'
       | 'activity'
+      | 'memory'
       | 'system'
       | 'plugin',
     request: object,
@@ -209,6 +214,8 @@ export function runSessionWorker(builtins: Record<string, SessionWorkerFactory> 
           sdk,
           registerContextCaptureHandler: (handler) => session.setContextCaptureHandler(handler),
           requestContextCapture: (capture) => hostRequest('contextCapture', { capture }).then(() => {}),
+          requestMemory: (memoryRequest, signal) =>
+            hostRequest('memory', { memoryRequest }, signal) as Promise<MemoryRuntimeResult>,
           agentCore,
           paths,
           credentials,

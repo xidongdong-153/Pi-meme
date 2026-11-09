@@ -1,5 +1,6 @@
 import type { AgentAccessMode } from '@pi-meme/contracts/agent-access'
 import type { SystemToolRequest } from '@pi-meme/contracts/system-tools'
+import type { MemoryRuntimeBridge, MemoryRuntimeRequest } from '@pi-meme/contracts/memory'
 import type { ContextCapture } from '@pi-meme/contracts/context-window'
 import type { VisualizationRequest, VisualizationDocument } from '@pi-meme/contracts/visualize'
 import type { Goal, GoalControl, GoalRequest, GoalRun, PromptOrigin } from '@pi-meme/contracts/goal'
@@ -25,6 +26,7 @@ import type { PluginRuntimeRequest } from '@pi-meme/contracts/plugin-call'
 import type { AgentPluginEntry } from '@pi-meme/plugin-sdk/agent'
 
 export type WorkerOptions = {
+  memory?: MemoryRuntimeBridge
   contextCapture?: (capture: ContextCapture) => Promise<void>
   recordTurnChange?: (change: import('@pi-meme/pi-runtime/turn-change-store').FileChangeRecord) => Promise<string>
   system?: (request: SystemToolRequest, signal: AbortSignal) => Promise<unknown>
@@ -36,6 +38,7 @@ export type WorkerOptions = {
     origin?: PromptOrigin,
     expected?: GoalControl,
     sourceClientId?: string,
+    selectedModel?: { provider: string; id: string },
   ) => Promise<void | GoalRun>
   collaboration?: (
     request: CollaborationRequest,
@@ -155,6 +158,7 @@ export function createWorkerSession(
               | 'visualize'
               | 'image-generation'
               | 'activity'
+              | 'memory'
               | 'system'
               | 'plugin'
             capture?: ContextCapture
@@ -165,12 +169,14 @@ export function createWorkerSession(
             visualizationRequest?: VisualizationRequest
             imageRequest?: ImageGenerationRequest
             activityRequest?: ServiceActivityRequest
+            memoryRequest?: MemoryRuntimeRequest
             message?: string
             mode?: TaskMode
             continuation?: boolean
             origin?: PromptOrigin
             expected?: GoalControl
             sourceClientId?: string
+            selectedModel?: { provider: string; id: string }
             goalRequest?: GoalRequest
             goalRun?: GoalRun
             entryId?: string
@@ -203,6 +209,10 @@ export function createWorkerSession(
                 if (!options.recordTurnChange || !request.change) throw new Error('文件变更记录桥未配置')
                 return options.recordTurnChange(request.change)
               }
+              if (request.kind === 'memory') {
+                if (!options.memory || !request.memoryRequest) throw new Error('记忆服务桥未配置')
+                return options.memory(request.memoryRequest, controller.signal)
+              }
               if (request.kind === 'system') {
                 if (!options.system || !request.systemRequest) throw new Error('Host 内置能力桥未配置')
                 return options.system(request.systemRequest, controller.signal)
@@ -221,6 +231,7 @@ export function createWorkerSession(
                   request.origin,
                   request.expected,
                   request.sourceClientId,
+                  request.selectedModel,
                 )
               }
               if (request.kind === 'goal') {

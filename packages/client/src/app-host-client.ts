@@ -15,6 +15,18 @@ export function createAppHostClient(transport: AppHostTransport): HostApi {
   return {
     apiVersion: 2,
     models: { list: () => call('models.list', []) },
+    memory: {
+      status: () => call('memory.status', []),
+      configure: (patch, revision, options) => call('memory.configure', [patch, revision], options.idempotencyKey),
+      list: (query) => call('memory.list', [query]),
+      get: (id) => call('memory.get', [id]),
+      create: (input, epoch, options) => call('memory.create', [input, epoch], options.idempotencyKey),
+      update: (id, input, revision, options) => call('memory.update', [id, input, revision], options.idempotencyKey),
+      remove: (id, revision, options) => call('memory.remove', [id, revision], options.idempotencyKey),
+      clear: (revision, options) => call('memory.clear', [revision], options.idempotencyKey),
+      stop: (id, options) => call('memory.stop', [id], options.idempotencyKey),
+      retry: (id, options) => call('memory.retry', [id], options.idempotencyKey),
+    },
     contextWindow: {
       list: (ref, query) => call('contextWindow.list', [ref, query]),
       get: (ref, id) => call('contextWindow.get', [ref, id]),

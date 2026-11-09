@@ -55,8 +55,9 @@ export class HostServiceRegistry {
       local.onServicesChanged(() => {
         void this.refreshServices().catch(() => {})
       }),
-      local.bridge.onConnection((connection) => {
-        if (connection.status !== 'disconnected') void this.refreshServices().catch(() => {})
+      local.onTransportConnection((connected) => {
+        this.transportChanged(this.localServiceId, connected)
+        if (connected) void this.refreshServices().catch(() => {})
       }),
     ])
     this.states.set(this.localServiceId, {
@@ -64,7 +65,7 @@ export class HostServiceRegistry {
       hostId: local.hostId,
       address: local.hostAddress,
       local: true,
-      status: 'connected',
+      status: local.transportConnected ? 'connected' : 'disconnected',
       projects: [],
     })
   }
@@ -88,6 +89,14 @@ export class HostServiceRegistry {
   private canConnect(state: HostService) {
     return state.transport !== 'ssh' || (state.enabled === true && state.phase === 'connected')
   }
+  private transportChanged(id: string, connected: boolean) {
+    const state = this.states.get(id)
+    if (this.closed || !state || !this.canConnect(state)) return
+    state.status = connected ? 'connected' : 'disconnected'
+    if (connected) delete state.error
+    else state.error = '服务连接已断开，正在重连'
+    this.publish()
+  }
   private accept(state: HostService) {
     const existing = this.states.get(state.id)
     const wasConnectable = existing ? this.canConnect(existing) : false
@@ -110,15 +119,10 @@ export class HostServiceRegistry {
       })
       this.clients.set(state.id, client)
       const disposers = [
-        client.bridge.onConnection((connection) => {
-          if (state.transport === 'ssh') {
-            if (connection.status === 'disconnected' && this.canConnect(state))
-              void this.refreshServices().catch(() => {})
-            return
-          }
-          state.status = connection.status === 'disconnected' ? 'disconnected' : 'connected'
-          state.error = connection.error
-          this.publish()
+        client.onTransportConnection((connected) => {
+          this.transportChanged(state.id, connected)
+          if (!connected && state.transport === 'ssh' && this.canConnect(state))
+            void this.refreshServices().catch(() => {})
         }),
         client.bridge.onError((error) => {
           if (state.transport === 'ssh') {
@@ -137,6 +141,8 @@ export class HostServiceRegistry {
     if (!this.canConnect(state)) {
       this.refreshes.delete(state.id)
       this.get(state.id).suspend(state.error ?? '远程连接当前不可用，请恢复连接或处理连接问题')
+    } else {
+      state.status = this.get(state.id).transportConnected ? 'connected' : 'disconnected'
     }
     return this.canConnect(state) && (fresh || !wasConnectable)
   }
@@ -247,17 +253,11 @@ export class HostServiceRegistry {
       state.status = 'connecting'
       this.publish()
     }
-    let connected = false
     let changed = false
     try {
       if (state.transport === 'ssh') await client.resume()
       else await client.connect()
-      connected = true
       if (!isCurrent()) return
-      if (state.transport !== 'ssh' && state.status === 'connecting') {
-        state.status = 'connected'
-        this.publish()
-      }
       const [projects, sessions] = await Promise.all([client.bridge.getProjects(), client.bridge.getSessions()])
       if (!isCurrent()) return
       if (JSON.stringify(state.projects) !== JSON.stringify(projects)) {
@@ -273,14 +273,15 @@ export class HostServiceRegistry {
         changed = true
       }
       if (state.transport !== 'ssh') {
-        changed ||= state.status !== 'connected' || state.error !== undefined
-        state.status = 'connected'
-        delete state.error
+        const status = client.transportConnected ? 'connected' : 'disconnected'
+        changed ||= state.status !== status || (client.transportConnected && state.error !== undefined)
+        state.status = status
+        if (client.transportConnected) delete state.error
       }
     } catch (cause) {
       if (isCurrent() && state.transport !== 'ssh') {
         changed = true
-        if (!connected) state.status = 'disconnected'
+        state.status = client.transportConnected ? 'connected' : 'disconnected'
         state.error = cause instanceof Error ? cause.message : String(cause)
       }
       throw cause

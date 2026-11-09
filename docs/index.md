@@ -23,6 +23,7 @@ pi-meme 的 Desktop 和 Web 共用 Node Host。应用入口在 `apps/`，基础�
 | 实现与接口 | [架构](architecture.md)                     | 进程、Host 复用、组合根与包边界                |
 | 实现与接口 | [会话与协作](sessions.md)                   | Worker、消息、队列、子代理、Plan 与 Goal       |
 | 使用与部署 | [内置浏览器](browser.md)                    | 网页标签、元素批注、浏览数据、下载与网站权限   |
+| 使用与部署 | [记忆](memory.md)                           | 启停、项目与通用条目、来源、自动学习与用量     |
 | 使用与部署 | [定时任务](schedules.md)                    | 时间安排、执行位置、会话模式与运行记录         |
 | 使用与部署 | [交互草图](visualize.md)                    | 内联预览、设计控件、版本、反馈与存储           |
 | 使用与部署 | [会话上下文窗口](context-window.md)         | 实际请求、分类地图、正文、历史与归档           |

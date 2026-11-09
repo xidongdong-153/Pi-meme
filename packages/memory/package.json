@@ -1,0 +1,29 @@
+{
+  "name": "@pi-meme/memory",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./server/service": "./src/server/service.ts",
+    "./server/entry": "./src/server/entry.ts",
+    "./shared/validation": "./src/shared/validation.ts",
+    "./agent/entry": "./src/agent/entry.ts",
+    "./ui/memory-settings": "./src/ui/memory-settings.tsx",
+    "./ui/use-memory-settings": "./src/ui/use-memory-settings.ts"
+  },
+  "scripts": {
+    "type-check": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "1.5.0",
+    "@pi-meme/contracts": "workspace:*",
+    "@pi-meme/ui": "workspace:*",
+    "lucide-react": "^1.48.0"
+  },
+  "peerDependencies": {
+    "react": "^19.3.0"
+  },
+  "devDependencies": {
+    "react": "^19.3.0"
+  }
+}

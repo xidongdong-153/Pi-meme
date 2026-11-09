@@ -4,6 +4,7 @@ import { readdir, stat } from 'node:fs/promises'
 import path from 'node:path'
 import { createInterface } from 'node:readline'
 import type { UsageStatsSnapshot } from '@pi-meme/contracts/usage'
+import { readBackgroundUsage } from './background-usage'
 
 type UsageRecord = { key: string; date: string; tokens: number }
 type FileUsage = { records: UsageRecord[]; longestTaskMs: number | null; warnings: string[] }
@@ -132,6 +133,7 @@ export class UsageService {
   constructor(
     private readonly sessionsDirectory: string,
     private readonly now: () => Date = () => new Date(),
+    private readonly backgroundDirectory?: string,
   ) {}
 
   getSnapshot(): Promise<UsageStatsSnapshot> {
@@ -191,6 +193,46 @@ export class UsageService {
         warnings.push(`无法读取会话 ${path.basename(file)}，统计可能不完整。`)
       }
     }
+    let memoryUsage:
+      | Pick<
+          UsageStatsSnapshot,
+          'memoryTotalTokens' | 'memoryCalls' | 'memoryUnknownCalls' | 'memoryKnownCost' | 'memoryUnknownCostCalls'
+        >
+      | undefined
+    if (this.backgroundDirectory) {
+      try {
+        const records = await readBackgroundUsage(this.backgroundDirectory)
+        let memoryTotalTokens = 0
+        let memoryUnknownCalls = 0
+        let memoryKnownCost = 0
+        let memoryUnknownCostCalls = 0
+        const memoryDaily = new Map<string, number>()
+        for (const entry of records) {
+          if (entry.outcome === 'unknown' || entry.tokens === undefined) memoryUnknownCalls += 1
+          if (entry.cost === undefined) memoryUnknownCostCalls += 1
+          else memoryKnownCost += entry.cost
+          if (entry.tokens !== undefined) {
+            memoryTotalTokens += entry.tokens
+            const date = localDate(Date.parse(entry.timestamp))
+            if (entry.tokens > 0) memoryDaily.set(date, (memoryDaily.get(date) ?? 0) + entry.tokens)
+          }
+        }
+        if (!Number.isSafeInteger(memoryTotalTokens) || !Number.isFinite(memoryKnownCost))
+          throw new Error('记忆用量超出统计数值范围。')
+        memoryUsage = {
+          memoryTotalTokens,
+          memoryCalls: records.length,
+          memoryUnknownCalls,
+          memoryKnownCost,
+          memoryUnknownCostCalls,
+        }
+        for (const [date, count] of memoryDaily) daily.set(date, (daily.get(date) ?? 0) + count)
+        if (memoryUnknownCalls > 0) warnings.push(`记忆后台有 ${memoryUnknownCalls} 次调用结果或 Token 用量未知。`)
+        if (memoryUnknownCostCalls > 0) warnings.push(`记忆后台有 ${memoryUnknownCostCalls} 次调用费用未知。`)
+      } catch (cause) {
+        warnings.push(`无法读取记忆后台用量，累计统计不完整：${cause instanceof Error ? cause.message : String(cause)}`)
+      }
+    }
     const now = this.now()
     const today = localDate(now.getTime())
     const days = [...daily].sort(([a], [b]) => a.localeCompare(b)).map(([date, tokens]) => ({ date, tokens }))
@@ -223,6 +265,7 @@ export class UsageService {
       currentStreak,
       daily: days,
       warnings,
+      ...memoryUsage,
     }
   }
 }

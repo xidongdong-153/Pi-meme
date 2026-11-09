@@ -14,7 +14,10 @@ export const manifest: PluginManifest = {
   },
 }
 export function create(context: ServerPluginContext) {
-  const { sessionsDirectory } = context.services.require<{ sessionsDirectory: string }>('host.usage')
-  const usage = new UsageService(sessionsDirectory)
+  const { sessionsDirectory, backgroundDirectory } = context.services.require<{
+    sessionsDirectory: string
+    backgroundDirectory?: string
+  }>('host.usage')
+  const usage = new UsageService(sessionsDirectory, undefined, backgroundDirectory)
   context.registerHandlers({ 'settings:usage-stats': () => usage.getSnapshot() })
 }

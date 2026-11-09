@@ -1,4 +1,8 @@
 import { createSystemOperations } from './system-operations'
+import { MemoryCoordinator, memoryModelCompletion } from './memory-coordinator'
+import { memorySystem } from './memory-system'
+import type { MemoryService } from '@pi-meme/memory/server/service'
+import { BackgroundUsageJournal } from '@pi-meme/usage/server/background-usage'
 import { SystemClientBridge } from './system-client-bridge'
 import { ImageLibraryStore } from '@pi-meme/image-generation/server/library-store'
 import { imageLibraryHistory } from './image-library-history'
@@ -322,6 +326,8 @@ export async function createHost(options: HostOptions = {}) {
     let terminal: TerminalService
     let pi: PiSessionPool
     let appControl: Awaited<ReturnType<typeof createAppControl>> | undefined
+    let memory: MemoryService | undefined
+    let memorySourceChanges: Promise<void> = Promise.resolve()
     let systemWrites: Promise<unknown> = Promise.resolve()
     const executionClients = new Map<string, { clientId: string; rootTaskId: string; epoch: number }>()
     const systemClients = new SystemClientBridge((clientId, value) => {
@@ -633,6 +639,13 @@ export async function createHost(options: HostOptions = {}) {
     const pluginClient = new AsyncLocalStorage<string>()
     const goalRuns = new WeakMap<RuntimeSdkSession, GoalRun>()
     const admittedGoalRuns = new WeakMap<RuntimeSdkSession, Set<string>>()
+    const memoryCoordinator = new MemoryCoordinator({
+      hostId,
+      service: () => memory,
+      pi: () => pi,
+      resolve: (key) => appControl!.sessionForRuntime(key),
+      get: (ref) => appControl!.api.sessions.get(ref),
+    })
     const createSession = (
       cwd: string,
       notify: Parameters<typeof createWorkerSession>[1],
@@ -746,6 +759,16 @@ export async function createHost(options: HostOptions = {}) {
           agentEntries: lease.agentEntries,
           resourceSnapshot: snapshot,
           workerPath: options.workerPath ?? fileURLToPath(new URL('./session-worker.ts', import.meta.url)),
+          memory: async (request, signal) => {
+            signal?.throwIfAborted()
+            await memorySourceChanges
+            if (!memory || !appControl) throw new Error('记忆服务尚未就绪')
+            const actor = collaboration.goalCaller(session)
+            const ref = await appControl.sessionForRuntime(actor.rootSessionKey)
+            const projectId = ref.project?.projectId ?? ''
+            if (request.kind === 'snapshot') return memory.snapshot(projectId, request.query)
+            return memory.admit(projectId, request.epoch, request.scopeRevision, request.hasMemory)
+          },
           admit: async (
             message,
             mode,
@@ -754,6 +777,7 @@ export async function createHost(options: HostOptions = {}) {
             origin = continuation ? 'collaboration' : 'user',
             expected,
             sourceClientId,
+            selectedModel,
           ) => {
             const actor = collaboration.goalCaller(session)
             const current = await appControl?.goalForRuntime(actor.rootSessionKey)
@@ -791,6 +815,24 @@ export async function createHost(options: HostOptions = {}) {
               known.add(`${run.goalId}:${run.cycleId}`)
               admittedGoalRuns.set(session, known)
             } else goalRuns.delete(session)
+            if (actor.depth === 0) {
+              try {
+                await memoryCoordinator.begin(
+                  actor.rootSessionKey,
+                  message,
+                  mode,
+                  !continuation &&
+                    origin === 'user' &&
+                    Boolean(sourceClientId) &&
+                    !sourceClientId!.startsWith('host-') &&
+                    !sourceClientId!.startsWith('system-api:') &&
+                    !temporaryPathsBySessionKey.has(sessionKey),
+                  selectedModel,
+                )
+              } catch (cause) {
+                emit('error', { generation: 0, message: `记忆来源登记失败：${String(cause)}` })
+              }
+            }
             return run
           },
           goal: async (request, run, signal) => {
@@ -949,6 +991,7 @@ export async function createHost(options: HostOptions = {}) {
             assertActive()
             const ref = await appControl!.sessionForRuntime(actor.rootSessionKey)
             const api = appControl!.apiFor(`system-api:${ref.sessionId}`, ref)
+            const memoryAccess = memory && memorySystem(memory, ref, ref.project?.projectId)
             const safeMcp = async () => {
               const value = await mcp.snapshot()
               return {
@@ -987,7 +1030,12 @@ export async function createHost(options: HostOptions = {}) {
                 assertActive()
                 return systemClients.request(initiatingClient(), ref, operation, args, signal)
               },
-              read: async (operation) => {
+              read: async (operation, args) => {
+                assertActive()
+                if (operation.startsWith('memory.')) {
+                  if (!memoryAccess) throw new Error('当前服务不支持记忆')
+                  return memoryAccess.read(operation, args)
+                }
                 if (operation === 'profile.get') return profile()
                 if (operation === 'profile.avatar') {
                   const value = await settings.getUserProfile()
@@ -1026,6 +1074,14 @@ export async function createHost(options: HostOptions = {}) {
                 const pending = systemWrites.then(async () => {
                   assertActive()
                   let result: unknown
+                  if (operation.startsWith('memory.')) {
+                    if (!memoryAccess) throw new Error('当前服务不支持记忆')
+                    return memoryAccess.write(operation, args, {
+                      idempotencyKey: createHash('sha256')
+                        .update(JSON.stringify([ref.sessionId, actor.runId, request.callId]))
+                        .digest('hex'),
+                    })
+                  }
                   if (operation === 'profile.save') {
                     const current = await profile()
                     if (args[1] !== current.revision) throw new Error('个人资料已变化，请重新读取')
@@ -1063,7 +1119,7 @@ export async function createHost(options: HostOptions = {}) {
               },
             })
             assertActive()
-            return request.write
+            return request.write && !request.operation.startsWith('memory.')
               ? appControl!.store.mutate(
                   `system:${ref.sessionId}:${actor.runId}`,
                   request.callId,
@@ -1081,10 +1137,17 @@ export async function createHost(options: HostOptions = {}) {
           collaboration: (request, signal) => collaboration.dispatch(session, request, signal),
           savePlan: (input, signal) => collaboration.savePlan(session, input, signal),
           syncPlan: (force) => collaboration.syncPlan(session, force),
-          historyEdited: () => collaboration.historyEdited(session),
+          historyEdited: async () => {
+            const actor = collaboration.goalCaller(session)
+            if (actor.depth === 0) await memoryCoordinator.historyEdited(actor.rootSessionKey)
+            await collaboration.historyEdited(session)
+          },
           resolvePlan: (reference, signal) => collaboration.resolvePlan(session, reference, signal),
           release: async () => {
             try {
+              await memoryCoordinator
+                .cancel(sessionKey)
+                .catch((cause) => emit('error', { generation: 0, message: `释放记忆轮次失败：${String(cause)}` }))
               try {
                 await pluginBridge.close()
               } finally {
@@ -1112,10 +1175,33 @@ export async function createHost(options: HostOptions = {}) {
       paths.workspaceDataRoot,
       {
         connection: (value) => emit('connection', value),
-        event: (value) => emit('event', value),
+        event: (value) => {
+          if (value.sessionKey && pi) {
+            const state = pi.readSessionBinding(value.sessionKey).state
+            memoryCoordinator.observeState(
+              value.sessionKey,
+              Boolean(state.isStreaming || state.isCompacting || state.isPaused || state.pendingMessageCount),
+            )
+          }
+          emit('event', value)
+        },
         error: (value) => emit('error', value),
         sessionsChanged: (change) => {
           for (const file of change?.paths ?? []) sessions.invalidate(file, change!.kind)
+          // Cache rewrites also follow ordinary completed turns; only changed native sources are revoked.
+          if (change?.kind === 'rewrite' && memory && appControl) {
+            const ids = appControl.store.state.sessions
+              .filter((session) => session.sessionFile && change.paths.includes(session.sessionFile))
+              .map((session) => session.sessionId)
+            if (ids.length) {
+              memorySourceChanges = memorySourceChanges
+                .catch(() => {})
+                .then(() => memory!.revalidateSessionHistory(ids))
+              void memorySourceChanges.catch((cause) =>
+                emit('error', { generation: 0, message: `记忆来源失效失败：${String(cause)}` }),
+              )
+            }
+          }
           emit('sessions-changed')
         },
       },
@@ -1525,9 +1611,41 @@ export async function createHost(options: HostOptions = {}) {
         themes: settings.themesDirectory,
       }),
     }
+    const backgroundUsageDirectory = path.join(root, 'state/usage')
+    const backgroundUsage = new BackgroundUsageJournal(backgroundUsageDirectory)
+    await backgroundUsage
+      .init()
+      .catch((cause) => emit('error', { generation: 0, message: `后台用量日志不可写：${String(cause)}` }))
     const sharedContexts = {
+      'host.memory': {
+        hostId,
+        complete: memoryModelCompletion(paths.agentDir, credentials),
+        recordUsage: (record: import('@pi-meme/contracts/memory').MemoryUsageRecord) => backgroundUsage.record(record),
+        validateProject: (id: string) =>
+          Boolean(appControl?.store.state.projects.some((project) => project.projectId === id)),
+        validateSources: (sources: import('@pi-meme/contracts/memory').MemorySource[]) =>
+          memoryCoordinator.validateSources(sources),
+        sessionIdleSince: (ref: import('@pi-meme/contracts/app-host').SessionRef) => {
+          const key = appControl?.goalRuntimeKey(ref)
+          if (key && pi) {
+            const state = pi.readSessionBinding(key).state
+            memoryCoordinator.observeState(
+              key,
+              Boolean(state.isStreaming || state.isCompacting || state.isPaused || state.pendingMessageCount),
+            )
+          }
+          return memoryCoordinator.idleSince(ref.sessionId)
+        },
+        onChanged: () => {
+          systemChanged()
+          void appControl
+            ?.publish({ type: 'memory', value: { changed: true } })
+            .catch((cause) => emit('error', { generation: 0, message: `记忆事件发送失败：${String(cause)}` }))
+        },
+        onError: (cause: unknown) => emit('error', { generation: 0, message: `记忆服务：${String(cause)}` }),
+      },
       'host.goals': { goals },
-      'host.usage': { sessionsDirectory: paths.sessionsDirectory },
+      'host.usage': { sessionsDirectory: paths.sessionsDirectory, backgroundDirectory: backgroundUsageDirectory },
       'host.chat': { pi, getCwd: () => pi.cwd },
       'host.workspace': {
         pi,
@@ -1539,7 +1657,15 @@ export async function createHost(options: HostOptions = {}) {
           res: WorkspaceDeletionResult,
           prepared: import('./session-cleanup').PreparedDeletionContext,
           cwd?: string,
-        ) => sessionCleanup.afterDelete(res, prepared, cwd),
+        ) => {
+          return (async () => {
+            await sessionCleanup.afterDelete(res, prepared, cwd)
+            if (cwd && !res.errors.length) {
+              const project = appControl!.store.state.projects.find((item) => item.cwd === cwd)
+              if (project) await memory!.removeProject(project.projectId)
+            }
+          })()
+        },
         beforeDelete: async (targets: string[]) => {
           const refs = await appControl!.api.sessions.list()
           for (const ref of refs) {
@@ -2101,7 +2227,10 @@ export async function createHost(options: HostOptions = {}) {
       (session) => appControl!.goalRuntimeKey(session),
       () => emit('sessions-changed'),
     )
+    memory = builtins.services['host.memory.runtime'] as MemoryService
     appControl = await createAppControl({
+      memory: memory.api,
+      memorySettled: (session, key, aborted) => memoryCoordinator.settled(session, key, aborted),
       sessionAttention,
       prepareContextSession: (session) => {
         const key = appControl?.goalRuntimeKey(session)
@@ -2217,7 +2346,10 @@ export async function createHost(options: HostOptions = {}) {
     await sessionAttention.init()
     sessionCleanup = new SessionCleanupService({
       maintenanceDirectory: storagePaths.maintenanceDirectory,
+      prepareArtifacts: (ids) => memory!.invalidateSessions(ids, { permanent: false }),
+      resumeArtifacts: (ids) => memory!.resumeSessions(ids),
       detachArtifacts: async (ids) => {
+        await memory!.invalidateSessions(ids, { permanent: true })
         await attentionStore.removeSessions(ids)
         await contextWindows.deleteSessions(ids)
         await imageLibrary.detachSessions(ids)
@@ -2244,6 +2376,7 @@ export async function createHost(options: HostOptions = {}) {
       },
     })
     await sessionCleanup.recoverPending()
+    memory.start()
     let pluginsRestored = false
     const refreshPluginThemes = async () => {
       const themes = await loadPluginThemes(
@@ -2753,6 +2886,7 @@ export async function createHost(options: HostOptions = {}) {
           for (const [cid, info] of [...temporarySessions.entries()]) {
             await closeAndDestroyTemporarySession(cid, info)
           }
+          await memory!.dispose()
           await schedules.beginShutdown()
           await appControl!.beginShutdown()
           await collaboration.stopAndWait()

@@ -8,6 +8,7 @@ import {
   Image,
   Keyboard,
   Network,
+  Brain,
   Palette,
   Plug,
   ScrollText,
@@ -66,6 +67,7 @@ const groups = [
       { id: 'image-generation', label: '图片生成', icon: Image, description: '配置生成和编辑图片使用的服务与模型。' },
       { id: 'subagents', label: '子代理', icon: Users, description: '设置子代理默认使用的模型和思考强度。' },
       { id: 'instructions', label: '指令', icon: ScrollText, description: '编辑用户指令和系统提示词。' },
+      { id: 'memory', label: '记忆', icon: Brain, description: '启停记忆与自动学习，管理项目和通用记忆。' },
       { id: 'skills', label: '技能', icon: BookOpen, description: '导入、创建和编辑技能，设置设备或项目的调用方式。' },
       {
         id: 'plugins',
@@ -244,7 +246,7 @@ export function SettingsPage({
         }}
       >
         <DialogContent>
-          <DialogTitle>丢弃未保存的指令？</DialogTitle>
+          <DialogTitle>丢弃未保存的修改？</DialogTitle>
           <DialogDescription>离开后，当前修改不会保存。</DialogDescription>
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setPending(null)}>

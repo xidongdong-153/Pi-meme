@@ -54,6 +54,8 @@ import type { CollaborationBridge } from '@pi-meme/contracts/collaboration'
 import { ControlStore, ControlError, createControlStorePaths, type ControlStorePaths } from './control-store'
 
 type Options = {
+  memory?: import('@pi-meme/contracts/memory').MemoryApi
+  memorySettled?: (session: AppSession, key: string, aborted: boolean) => Promise<void>
   contextWindow?: import('@pi-meme/contracts/context-window').ContextWindowApi
   prepareContextSession?: (session: AppSession) => void
   visualizations?: (sessionKey: string) => import('@pi-meme/visualize/server/store').VisualizationStore
@@ -116,6 +118,17 @@ type Pending = {
   stopped?: boolean
 }
 type Active = { receipts: SubmissionReceipt[]; error?: string; cancelled?: boolean; runId?: string }
+
+function memoryMutation(clientId: string, options: MutationOptions): MutationOptions {
+  const key = options?.idempotencyKey
+  if (typeof key !== 'string' || !key || key.length > 256) throw new Error('记忆操作需要有效的幂等键')
+  return {
+    idempotencyKey: createHash('sha256')
+      .update(JSON.stringify([clientId, key]))
+      .digest('hex'),
+  }
+}
+
 export async function createAppControl(options: Options) {
   const { hostId, pi, projects, sessions, collaboration, goals } = options
   const paths = options.controlPaths ?? createControlStorePaths(path.join(options.root, 'state/control'))
@@ -882,6 +895,22 @@ export async function createAppControl(options: Options) {
         }
       : undefined,
     models: options.models,
+    memory: options.memory
+      ? {
+          status: () => options.memory!.status(),
+          list: (query) => options.memory!.list(query),
+          get: (id) => options.memory!.get(id),
+          configure: (patch, revision, opts) =>
+            options.memory!.configure(patch, revision, memoryMutation(clientId, opts)),
+          create: (input, epoch, opts) => options.memory!.create(input, epoch, memoryMutation(clientId, opts)),
+          update: (id, input, revision, opts) =>
+            options.memory!.update(id, input, revision, memoryMutation(clientId, opts)),
+          remove: (id, revision, opts) => options.memory!.remove(id, revision, memoryMutation(clientId, opts)),
+          clear: (revision, opts) => options.memory!.clear(revision, memoryMutation(clientId, opts)),
+          stop: (id, opts) => options.memory!.stop(id, memoryMutation(clientId, opts)),
+          retry: (id, opts) => options.memory!.retry(id, memoryMutation(clientId, opts)),
+        }
+      : undefined,
     contextWindow: options.contextWindow
       ? {
           list: (ref, query) => {
@@ -921,6 +950,7 @@ export async function createAppControl(options: Options) {
         ...(options.imageGeneration ? ['image-generation' as const] : []),
         ...(options.models ? ['models' as const] : []),
         ...(options.contextWindow ? ['context-window' as const] : []),
+        ...(options.memory ? ['memory' as const] : []),
         ...(options.schedules ? ['schedules' as const] : []),
         'projects',
         'sessions',
@@ -1634,6 +1664,13 @@ export async function createAppControl(options: Options) {
   })
   const api = apiFor('host-internal')
   const writes = new Set([
+    'memory.configure',
+    'memory.create',
+    'memory.update',
+    'memory.remove',
+    'memory.clear',
+    'memory.stop',
+    'memory.retry',
     'imageLibrary.import',
     'imageLibrary.rename',
     'imageLibrary.remove',
@@ -1763,6 +1800,7 @@ export async function createAppControl(options: Options) {
   const observe = (event: HostEvent) => {
     if (closing || !event.value || !('sessionKey' in event.value)) return
     const eventKey = event.value.sessionKey
+    if (!eventKey) return
     const rootId = event.type === 'event' ? event.value.rootAgentId : undefined
     const session = store.state.sessions.find(
       (item) =>
@@ -1789,6 +1827,14 @@ export async function createAppControl(options: Options) {
     }
     track(
       serial(session.sessionId, async () => {
+        if (isRoot && piEvent?.type === 'agent_settled' && options.memorySettled) {
+          try {
+            await sync(session, view)
+            await options.memorySettled(session, eventKey, Boolean(piEvent.aborted))
+          } catch (cause) {
+            options.onError(cause)
+          }
+        }
         if (observedRun && active.get(session.sessionId) === observedRun) {
           if (event.type === 'error') observedRun.error = event.value.message
           if (

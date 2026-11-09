@@ -21,6 +21,7 @@
     "./storage": "./src/storage.ts",
     "./storage-paths": "./src/storage-paths.ts",
     "./usage": "./src/usage.ts",
+    "./memory": "./src/memory.ts",
     "./skills": "./src/skills.ts",
     "./agent-access": "./src/agent-access.ts",
     "./mcp": "./src/mcp.ts",

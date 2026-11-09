@@ -141,6 +141,7 @@ export type RuntimePolicy = {
     origin?: PromptOrigin,
     expected?: GoalControl,
     sourceClientId?: string,
+    selectedModel?: { provider: string; id: string },
   ) => Promise<void | GoalRun>
   onGoalGate?: (tool: boolean) => Promise<unknown>
   onGoalUsage?: (run: GoalRun, entryId: string, usage: unknown, inputEntryId?: string) => Promise<void>
@@ -1589,6 +1590,7 @@ export class SdkSession {
         this.notify.event({ generation: this.generation, event: { type: 'stop_update', stopped: false } })
       this.activeMode = normalized.mode
       if (!command) {
+        const selectedModel = options?.model ?? this.getState().model
         const run = await this.policy.onAdmission?.(
           message,
           normalized.mode,
@@ -1605,6 +1607,7 @@ export class SdkSession {
                   : 'user',
           expectedGoal,
           options?.sourceClientId,
+          selectedModel ? { provider: selectedModel.provider, id: selectedModel.id } : undefined,
         )
         if (generation !== this.generation || this.queueCancelled) throw new Error('消息发送已取消')
         if (editEntryId === undefined && (options?.model || options?.thinkingLevel !== undefined)) {

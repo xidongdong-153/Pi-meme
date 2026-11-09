@@ -1,0 +1,107 @@
+---
+description: '内置记忆的启停、项目与通用条目、自动学习、来源、用量、存储和 Agent 接口'
+status: implemented
+paths:
+  - 'packages/memory/**'
+  - 'packages/contracts/src/memory.ts'
+  - 'packages/host/src/memory-coordinator.ts'
+  - 'packages/host/src/memory-system.ts'
+  - 'packages/host/src/system-operations.ts'
+  - 'packages/usage/src/server/background-usage.ts'
+  - 'packages/usage/src/server/usage-service.ts'
+---
+
+# 记忆
+
+入口是“设置 → Agent → 记忆”，管理所选执行 Host 的记忆。页面提供启停、搜索、项目范围筛选、新建、编辑、删除、来源查看和清空全部，也能查看学习任务与额度。入口接线见 [设置导航](../packages/app-ui/src/settings/settings-page.tsx) 和 [记忆页面](../packages/memory/src/ui/memory-settings.tsx)。
+
+## 两个开关
+
+| 字段               | 页面名称     | 默认值   | 行为                                                                                |
+| ------------------ | ------------ | -------- | ----------------------------------------------------------------------------------- |
+| `enabled`          | 启用记忆     | `false`  | Host 级主开关；关闭后不为后续请求提供记忆，也不自动学习，已存条目仍可在设置中管理。 |
+| `autoLearn`        | 自动学习     | `true`   | 受主开关约束；关闭只停止自动学习，已存记忆仍可用于后续请求。                        |
+| `model`            | 提炼模型     | `null`   | 跟随来源轮次的会话模型；可指定已有可用模型，不会在失败后自动换模型。                |
+| `dailyTokenBudget` | 每日学习预算 | `100000` | 当前 Host 本地日期的 Token 额度，可配置为 `20000`～`1000000` 的整数。               |
+
+开启主开关后，默认允许自动学习；如果只想使用手工条目，可以关闭“自动学习”。配置带独立 `revision`，提交时检查冲突。配置属于记忆服务状态，不写入 `config/app.json` 或项目 `.pi/settings.json`。定义见 [memory.ts](../packages/contracts/src/memory.ts) 和 [初始状态](../packages/memory/src/server/state.ts)。
+
+关闭、删除和清空阻止尚未获准的新请求继续使用相关记忆，并使旧学习任务不能回写。已经获准并发给模型的请求无法撤回，已有聊天回复、模型上下文及上游保留的内容不会因此擦除。清空保留聊天和用量记录，不扫描已有消息重新学习；清空之后的新合格轮次仍可产生新记忆。
+
+## 项目、通用与手工保护
+
+项目记忆绑定稳定 `projectId`，只向该项目的会话提供；通用记忆属于当前 Host，可向该 Host 的不同项目提供。无项目会话只能使用通用记忆。这里的“通用”不是跨 Host、跨账号的云同步。
+
+自动学习只创建或更新当前项目的条目，不自动将信息提升为通用记忆。用户可以手工新建通用记忆，或明确编辑条目的范围。手工新建与编辑都会将条目标为 `locked`，后续自动学习不能覆盖；自动条目在手工保存后也受此保护。
+
+每条记忆包含标题、正文、范围、来源、条目 `revision` 和时间。标题最多 80 字符、正文最多 2000 字符，当前 Host 最多 1000 条。设置中的搜索匹配标题和正文；请求时召回另使用当前问题、中文分词与词片段评分，在当前项目和通用范围内选择最多 20 条，最终序列化正文不超过 7900 字节。记忆是参考信息，不能提升权限或覆盖用户当前要求。实现见 [MemoryService](../packages/memory/src/server/service.ts)。
+
+删除单条记忆会撤销关联旧来源及当时未完成的学习任务。它不删除原始会话，也不能保证未来的新消息永远不会再次表达、并学习到同义信息。清空作用于所选 Host 的全部通用与项目条目，而非仅清空当前筛选结果。
+
+## 自动学习来源与调度
+
+自动来源必须是 Host 接纳的真实用户轮次：普通任务、`full-access`、正式根会话，且属于有效项目。Plan、只读、工作区修改、子代理、临时会话、定时执行与内部续行不取得学习授权。仅有 `session_saved`、合成的结束事件或打开旧历史，不构成新学习来源。
+
+Host 在轮次开始时保存授权票据和原生条目基线，在真实根任务 `agent_settled` 后，只提取当前活动分支上新增的用户与助手文本。工具结果、系统提示和已知技能展开块不作为用户证据；已识别的凭据格式在任务持久化及模型输入前脱敏。脱敏不能保证识别所有任意格式的秘密。来源身份仍绑定未改写的原生 entry ID 与内容修订。协调逻辑见 [MemoryCoordinator](../packages/host/src/memory-coordinator.ts)。
+
+学习等待来源会话空闲约 2 分钟；同会话新的合格轮次会延后等待时间，调度和调用前仍须确认根会话确实空闲。同一会话成功学习后，至少间隔 15 分钟再处理下一任务。Host 同时最多运行一个记忆模型调用，记忆任务由 Host 持有，关闭页面或断开客户端不会取消已持久化任务。
+
+模型分两阶段调用：先提出最多 10 个候选，再结合现有可修改项目条目提出 `add`、`update` 或 `ignore`。模型没有写文件、执行工具或直接提交条目的权限；Host 校验 JSON、作用域、来源、条目修订及执行代次后，才原子保存结果。调用在写锁之外进行，返回时来源已变、手工内容已修改、记忆已关闭或任务已撤销，则拒绝迟到结果。
+
+每阶段模型输入最多 64 KiB、估算输入最多 12000 Token，输出最多 16 KiB，请求 `maxTokens` 为 2000；单次调用约 60 秒超时。模型不支持、输入超限、输出非法或提交冲突会留下任务错误，失败不推进来源处理水位。不自动切模型或无限重试；可重试任务允许显式重试，执行次数最多 3 次。当前没有模型批量 API、历史全量回填或向量数据库。
+
+## 预算与未知用量
+
+每天最多 20 次记忆模型调用，提炼与整合分别计次。每次调用前持久化输入估算与最大输出的预留额度；额度不足时暂停任务。已知 Token 在响应后记账并释放相应预留。服务商缺报、零值、用量不一致、超时或重启后无法确认的调用标为 `unknown`，保留保守预留，不能按零费用处理。
+
+用量通过 `usageOutbox` 投递到 `state/usage/background-usage.jsonl` 的独立 [后台用量日志](../packages/usage/src/server/background-usage.ts)，持久确认后才移除待投递记录，按 `attemptId` 去重。用途区分 `memory.extract` 与 `memory.consolidate`。连续投递失败 8 次后保留记录并停止后续自动调用，需要修复存储后重启 Host；不丢弃账单记录换取继续学习。
+
+用量页将已知记忆 Token 加入日统计，并单独提供 `memoryTotalTokens`、`memoryCalls`、`memoryUnknownCalls`、`memoryKnownCost`、`memoryUnknownCostCalls`。未知次数与未知费用保留提示，不把目录估价当作上游真实账单。关闭或清空记忆后，已发生调用仍可补记用量；取消本地等待不能保证上游停止计费。字段见 [usage.ts](../packages/contracts/src/usage.ts)，聚合见 [UsageService](../packages/usage/src/server/usage-service.ts)。
+
+## 来源、删除与恢复
+
+自动条目保留稳定 `SessionRef`、原生 `entryId`、内容 `revision` 及保存时的脱敏摘录。页面可查看原始条目，并明确区分保存时摘录与原始消息；摘录不代表当前内容，原始消息可能已经变化或不可用。手工新建条目没有自动来源。
+
+复制或分叉的旧历史不自动取得新学习票据；新分支仅从以后获准轮次的新增条目学习。用户编辑历史会撤销相关任务与旧来源。删除会话时先持久暂停来源，使自动条目暂时不再提供给请求；成功删除后移除相关来源支持，失败目标可恢复。没有其他来源支持的自动条目随来源清理撤销；用户已经手工保存、锁定的条目保留。
+
+Host 重启先恢复删除意向与来源撤销，再启动调度。已处于模型调用中的任务标记 `interrupted`，用量不确定时保留 `unknown`，不会把未确认调用当作成功完成。可手动重试的任务仍须通过来源、作用域和代次检查；旧票据不能跨清空、主开关、自动学习开关或提炼模型变化恢复写入。
+
+条目、配置、任务、代次、来源处理记录和待投递用量统一保存在：
+
+```text
+state/modules/%40pi-meme%2Fmemory/memory-state.json
+```
+
+结构化条目是记忆事实源；原始 Pi JSONL、`AGENTS.md`、`SYSTEM.md` 和项目文件不因记忆生成而改写。记忆状态最多 20 MiB，单 Host 串行提交，临时文件权限为 `0600`，同步后原子替换。文件损坏、被外部修改、路径为符号链接或提交结果不确定时停止写入并保留原文件；修复后重启重新读取，不能用默认空文件覆盖。Windows 不执行父目录 `fsync`，不承诺所有文件系统的断电行为。实现见 [MemoryStore](../packages/memory/src/server/store.ts)，数据根规则见 [存储](storage.md)。
+
+## HostApi 与 Agent 工具
+
+正式 HostApi 在 `capabilities.features` 中声明 `memory`，客户端通过可选 `host.memory` 使用管理接口。认证管理客户端可以读取所有项目与通用条目；关闭主开关后仍可管理已存内容。
+
+| 方法                                                                    | 参数要点                                    |
+| ----------------------------------------------------------------------- | ------------------------------------------- |
+| `status()`                                                              | 配置、全局修订、代次、任务与当日预算。      |
+| `configure(patch, revision, options)`                                   | 开关、模型与每日额度补丁；使用配置修订。    |
+| `list(query?)`、`get(id)`                                               | 搜索、范围与分页，管理列表每页最多 100 条。 |
+| `create(input, epoch, options)`                                         | 使用读取时的记忆代次，新建即手工保护。      |
+| `update(id, input, revision, options)`、`remove(id, revision, options)` | 使用条目修订，冲突时重新读取。              |
+| `clear(revision, options)`                                              | 使用全局列表修订，清空全部范围。            |
+| `stop(jobId, options)`、`retry(jobId, options)`                         | 停止或显式重试任务。                        |
+
+写操作必须携带 `MutationOptions.idempotencyKey`。记忆服务仅保留最近 256 条事务回执，重用窗口内的同键异参会拒绝；回执已被淘汰后，不能假定同键永久去重。响应不确定时先重读状态，不依赖旧键无限重放。接口定义见 [MemoryApi](../packages/contracts/src/memory.ts) 与 [HostApi 接线](../packages/host/src/app-control.ts)。
+
+Agent 通过现有 `system_read` / `system_write` 调用记忆操作，不直接取得设置页的全 Host 管理能力：
+
+| 读写 | 操作                                                | 边界                                                                                                       |
+| ---- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| 读取 | `memory.status`                                     | 返回 Host 配置、预算及当前项目任务。                                                                       |
+| 读取 | `memory.list`、`memory.search`、`memory.get`        | 只读当前项目与通用记忆；列表每页 1～20 条，返回有界摘要与来源。主开关关闭时拒绝正文读取，`status` 仍可读。 |
+| 写入 | `memory.remember`、`memory.update`、`memory.forget` | 响应用户明确的记住、纠正和忘记要求；普通任务且完全权限，默认当前项目，不允许写入其他项目。                 |
+
+Agent 写入是明确管理请求，保存后同样锁定条目；无项目会话创建时需明确 `{kind: "global"}`。目录不向 Agent 提供主开关、额度配置或清空整个 Host 的操作。完整参数见 [Host 内置工具](host-system-tools.md)，作用域校验见 [memory-system.ts](../packages/host/src/memory-system.ts)。
+
+## 请求上下文与 Remote
+
+Worker 每次模型请求向执行 Host 读取记忆快照，在请求专用的 `<app_memory>` 中添加参考内容；不写入原生消息、分支或静态指令文件。发给 provider 前再次检查代次与作用域修订；拒绝时取消本次请求，防止旧快照在修改后继续发送。实现见 [Agent 扩展](../packages/memory/src/agent/entry.ts)。这不是对已发送上下文或模型已有知识的远程擦除。
+
+Desktop、Web 与 Remote 使用同一 HostApi。管理目标、记忆条目、任务、预算和账单都属于明确的执行 Host；切换 Host 不合并通用记忆，不把远端路径交给本机文件选择器。断线重连后重新读取状态与修订，不自动重放未确认写入。旧 Host 未声明 `memory` 时显示不支持，不能把“不支持”解释成“记忆关闭”。当前没有跨 Host 云同步或自动导入其他产品记忆。

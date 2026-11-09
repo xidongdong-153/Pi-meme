@@ -1,4 +1,5 @@
 import { create as createContextWindow } from '@pi-meme/context-window/agent/entry'
+import { create as createMemory } from '@pi-meme/memory/agent/entry'
 import { create as createVisualize } from '@pi-meme/visualize/agent/entry'
 import { create as createGoals } from '@pi-meme/goals/agent/entry'
 import { create as createActivities } from '@pi-meme/activities/agent/entry'
@@ -17,6 +18,7 @@ import { create as createSubagents } from '@pi-meme/subagents/agent/entry'
 
 runSessionWorker({
   '@pi-meme/context-window': createContextWindow,
+  '@pi-meme/memory': createMemory,
   '@pi-meme/visualize': createVisualize,
   '@pi-meme/goals': createGoals,
   '@pi-meme/activities': createActivities,

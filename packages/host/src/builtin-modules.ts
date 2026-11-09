@@ -1,3 +1,4 @@
+import * as memory from '@pi-meme/memory/server/entry'
 import * as visualize from '@pi-meme/visualize/server/entry'
 import * as contextWindow from '@pi-meme/context-window/server/entry'
 import * as browser from '@pi-meme/browser/server/entry'
@@ -31,6 +32,7 @@ import { PluginScope } from '@pi-meme/plugin-sdk/scope'
 import { storageLayoutRelativePaths } from '@pi-meme/contracts/storage-paths'
 
 const modules = [
+  memory,
   contextWindow,
   visualize,
   browser,

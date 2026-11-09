@@ -62,7 +62,7 @@ export function ProfileSettings({ loadUsage }: { loadUsage: () => Promise<UsageS
         {
           label: '累计 Token 数',
           value: compactTokens(snapshot.totalTokens),
-          hint: `${snapshot.totalTokens.toLocaleString('zh-CN')} 个 Token，包含输入、输出、缓存读取和缓存写入。`,
+          hint: `${snapshot.totalTokens.toLocaleString('zh-CN')} 个 Token，包含输入、输出、缓存读取、缓存写入及已知的记忆后台用量。`,
         },
         {
           label: '单日 Token 峰值',
@@ -143,6 +143,25 @@ export function ProfileSettings({ loadUsage }: { loadUsage: () => Promise<UsageS
             ))}
           </dl>
         </TooltipProvider>
+        {snapshot?.memoryTotalTokens !== undefined && (
+          <SettingsGroup title="记忆后台用量" aria-label="记忆后台用量">
+            <dl className={cn(settingsCardClassName, 'grid grid-cols-2 gap-4 divide-y-0 p-4')}>
+              {[
+                { label: '已知 Token', value: snapshot.memoryTotalTokens.toLocaleString('zh-CN') },
+                { label: '模型调用', value: `${snapshot.memoryCalls ?? 0} 次` },
+                { label: '结果或 Token 未知', value: `${snapshot.memoryUnknownCalls ?? 0} 次` },
+                { label: '费用未知', value: `${snapshot.memoryUnknownCostCalls ?? 0} 次` },
+              ].map((metric) => (
+                <div key={metric.label} className="space-y-1">
+                  <dt className="text-xs text-muted-foreground">{metric.label}</dt>
+                  <dd className="text-sm tabular-nums">
+                    <CrossfadeText>{metric.value}</CrossfadeText>
+                  </dd>
+                </div>
+              ))}
+            </dl>
+          </SettingsGroup>
+        )}
         <SettingsGroup title="Token 活动" aria-label="Token 活动记录">
           <p role="status" className="text-[11px] text-muted-foreground">
             <CrossfadeText>
@@ -159,6 +178,13 @@ export function ProfileSettings({ loadUsage }: { loadUsage: () => Promise<UsageS
             {snapshot && <TokenActivity daily={snapshot.daily} today={snapshot.today} />}
           </RevealContent>
         </SettingsGroup>
+        {snapshot && snapshot.warnings.length > 0 && (
+          <ul role="status" className="space-y-1 text-xs text-muted-foreground">
+            {snapshot.warnings.map((warning, index) => (
+              <li key={`${index}:${warning}`}>{warning}</li>
+            ))}
+          </ul>
+        )}
         <div className="space-y-2 text-[11px] text-muted-foreground">
           <p>
             <CrossfadeText>

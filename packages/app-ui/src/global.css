@@ -85,6 +85,7 @@
 @source '../../workspace/src';
 @source '../../git/src';
 @source '../../models/src';
+@source '../../memory/src/ui';
 @source '../../settings/src';
 @source '../../mcp/src';
 @source '../../interaction/src';

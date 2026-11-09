@@ -107,6 +107,7 @@ export type AppHostCapabilities = {
     | 'image-library-upload'
     | 'models'
     | 'context-window'
+    | 'memory'
   >
   fileOperations?: Array<'preview' | 'search' | 'write'>
 }
@@ -127,6 +128,7 @@ export type HostControlEvent = EventCursor & {
     | 'schedule'
     | 'image-library'
     | 'context-window'
+    | 'memory'
     | 'resync'
   value:
     | AppSession
@@ -153,6 +155,7 @@ export type HostApi = {
   imageLibrary?: ImageLibraryApi
   models?: ModelsReadonlyApi
   contextWindow?: import('./context-window').ContextWindowApi
+  memory?: import('./memory').MemoryApi
   schedules: SchedulesApi
   capabilities: () => Promise<AppHostCapabilities>
   plugins: {

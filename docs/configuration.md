@@ -20,6 +20,8 @@ paths:
   - 'packages/pi-runtime/src/sdk/access-sandbox.ts'
   - 'packages/pi-runtime/src/sdk/linux-sandbox.ts'
   - 'packages/settings/**'
+  - 'packages/contracts/src/memory.ts'
+  - 'packages/memory/src/server/state.ts'
   - 'packages/models/**'
   - 'packages/image-generation/**'
   - 'packages/mcp/**'
@@ -59,6 +61,12 @@ paths:
 - 模型 ID 非空，`contextWindow` 和 `maxTokens` 为正整数；输入类型包含 `text`，可包含 `image`。
 - 凭据和请求头不能引用本机环境变量或 `!command`；请求头不能含换行。
 - 保存携带文件修订，配置已被其他操作修改时要求重新读取，不覆盖新内容。
+
+## 记忆
+
+“设置 → Agent → 记忆”管理所选 Host 的内置记忆，主开关 `enabled` 默认关闭。`autoLearn` 默认开启但受主开关约束；关闭自动学习后仍可使用已有条目。`model: null` 跟随来源会话模型，`dailyTokenBudget` 默认 `100000`，允许 `20000`～`1000000`。
+
+上述配置、记忆条目和任务统一保存在记忆模块的 `memory-state.json`，不属于 `config/app.json` 或 SDK 设置。手工保存会保护条目，自动学习只写当前项目，不自动生成通用记忆。主开关关闭后仍可在设置中管理已存内容，不能撤回已发给模型的上下文。来源、预算、存储与接口边界见 [记忆](memory.md)。
 
 ## 第三方注入自定义提供商
 

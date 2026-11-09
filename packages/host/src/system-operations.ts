@@ -84,6 +84,31 @@ export function createSystemOperations(context: SystemOperationContext) {
   )
   register('projects.list', '列出当前 Host 的项目', '[]', false, 'host', () => api.projects.list())
   register('models.list', '列出可用模型，不包含凭据', '[]', false, 'host', () => api.models?.list())
+  if (api.memory) {
+    for (const [name, description, parameters] of [
+      ['status', '读取当前 Host 记忆开关、预算与当前项目任务状态', '[]'],
+      ['list', '列出当前项目与通用记忆摘要，关闭记忆时不返回正文', '[{query?,cursor?,limit?:1..20}?]'],
+      ['search', '搜索当前项目与通用记忆，返回摘要及来源', '[{query,cursor?,limit?:1..20}]'],
+      ['get', '读取当前项目或通用记忆全文及来源', '[memoryId]'],
+    ]) {
+      register(`memory.${name}`, description, parameters, false, 'session', (args) =>
+        context.read(`memory.${name}`, args),
+      )
+    }
+    for (const [name, description, parameters] of [
+      [
+        'remember',
+        '响应用户明确的记住请求，手动保存并保护记忆；默认当前项目',
+        '[{title,content,scope?:{kind:"global"}}]',
+      ],
+      ['update', '响应用户明确的纠正请求，修改指定记忆并保护用户内容', '[memoryId,{title,content,scope?},revision]'],
+      ['forget', '响应用户明确的忘记请求，删除条目并排除关联旧来源', '[memoryId,revision]'],
+    ]) {
+      register(`memory.${name}`, description, parameters, true, 'session', (args) =>
+        context.write(`memory.${name}`, args),
+      )
+    }
+  }
   register('sessions.list', '列出当前 Host 会话', '[{project?: ProjectRef}?]', false, 'host', ([input]) =>
     api.sessions.list(input as Parameters<HostApi['sessions']['list']>[0]),
   )
