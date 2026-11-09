@@ -5,6 +5,7 @@ import type { SshCandidate, SshConnection, SshConnectionInput } from '@pi-meme/c
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
 import { Input } from '@pi-meme/ui/components/ui/input'
+import { FormField } from '@pi-meme/ui/components/ui/form-field'
 import { settingsCardClassName, settingsControlClassName } from '@pi-meme/ui/components/settings'
 import { cn } from '@pi-meme/ui/lib/utils'
 import type { ServiceRegistry } from './service-ui'
@@ -292,8 +293,13 @@ function SshConnectionForm({
       }}
       noValidate
     >
-      <label className="block min-w-0 space-y-2 text-xs font-medium">
-        显示名称 <span className="text-muted-foreground">（可选）</span>
+      <FormField
+        label={
+          <>
+            显示名称 <span className="text-muted-foreground">（可选）</span>
+          </>
+        }
+      >
         <div className="relative">
           <Globe aria-hidden="true" className="pointer-events-none absolute left-3 top-2 size-4 text-primary" />
           <Input
@@ -306,15 +312,14 @@ function SshConnectionForm({
             onChange={(event) => setName(event.target.value)}
           />
         </div>
-      </label>
+      </FormField>
       {parametersLocked && (
         <p className="rounded-lg bg-secondary/60 p-3 text-[11px] leading-relaxed text-muted-foreground">
           连接保持启用时只能修改名称。修改主机、SSH 端口或身份文件前，请先关闭连接开关。
         </p>
       )}
       <fieldset disabled={saving || parametersLocked} className="min-w-0 space-y-4 disabled:opacity-60">
-        <label className="block min-w-0 space-y-2 text-xs font-medium">
-          主机名或 SSH 别名
+        <FormField label="主机名或 SSH 别名">
           <Input
             className={settingsControlClassName}
             aria-label="SSH 主机名"
@@ -325,9 +330,14 @@ function SshConnectionForm({
             aria-describedby={errors.target ? `${formId}-target-error` : undefined}
           />
           {fieldError('target')}
-        </label>
-        <label className="block min-w-0 space-y-2 text-xs font-medium">
-          SSH 端口 <span className="text-muted-foreground">（可选）</span>
+        </FormField>
+        <FormField
+          label={
+            <>
+              SSH 端口 <span className="text-muted-foreground">（可选）</span>
+            </>
+          }
+        >
           <Input
             className={settingsControlClassName}
             aria-label="SSH 端口"
@@ -339,9 +349,14 @@ function SshConnectionForm({
             aria-describedby={errors.port ? `${formId}-port-error` : undefined}
           />
           {fieldError('port')}
-        </label>
-        <label className="block min-w-0 space-y-2 text-xs font-medium">
-          身份文件路径 <span className="text-muted-foreground">（可选）</span>
+        </FormField>
+        <FormField
+          label={
+            <>
+              身份文件路径 <span className="text-muted-foreground">（可选）</span>
+            </>
+          }
+        >
           <Input
             className={settingsControlClassName}
             aria-label="SSH 身份文件路径"
@@ -352,7 +367,7 @@ function SshConnectionForm({
           <span className="block text-[11px] font-normal leading-relaxed text-muted-foreground">
             留空使用已有 SSH 配置。私钥路径位于发起连接的设备，不会上传或复制。
           </span>
-        </label>
+        </FormField>
       </fieldset>
       {error && (
         <p role="alert" className="break-words text-xs text-destructive">

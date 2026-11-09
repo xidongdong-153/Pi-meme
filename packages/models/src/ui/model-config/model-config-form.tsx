@@ -14,6 +14,7 @@ import { Button } from '@pi-meme/ui/components/ui/button'
 import { settingsControlClassName } from '@pi-meme/ui/components/settings'
 import { BrandMark } from '@pi-meme/ui/components/brand-mark'
 import { Input } from '@pi-meme/ui/components/ui/input'
+import { FormField } from '@pi-meme/ui/components/ui/form-field'
 import { ScrollArea } from '@pi-meme/ui/components/ui/scroll-area'
 import { Textarea } from '@pi-meme/ui/components/ui/textarea'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
@@ -219,8 +220,7 @@ export function ModelConfigForm({
           <ScrollArea type="always" aria-label="模型配置内容" className="flex-1 min-h-0 min-w-0">
             <fieldset disabled={locked} className="min-w-0 p-5 space-y-5">
               <div className="grid gap-4 sm:grid-cols-2">
-                <label className="space-y-1.5 text-xs">
-                  服务商名称
+                <FormField label="服务商名称">
                   <Input
                     className={settingsControlClassName}
                     aria-label="服务商名称"
@@ -230,15 +230,14 @@ export function ModelConfigForm({
                     onChange={(event) => setName(event.target.value)}
                     placeholder="例如：我的模型服务"
                   />
-                </label>
+                </FormField>
                 <CollapsibleSection
                   title="高级连接设置"
                   description={`${apiLabels[api]} · ${baseUrl}`}
                   className="sm:col-span-2 bg-card/40 [&>button]:text-xs [&>button>span>span+span]:text-[11px]"
                 >
                   <div className="grid gap-4 sm:grid-cols-2">
-                    <label className="space-y-1.5 text-xs">
-                      服务商 ID
+                    <FormField label="服务商 ID">
                       <Input
                         className={settingsControlClassName}
                         aria-label="服务商 ID"
@@ -250,9 +249,8 @@ export function ModelConfigForm({
                         placeholder="例如：my-provider"
                       />
                       <span className="text-[11px] text-muted-foreground">唯一标识，创建后不可修改。</span>
-                    </label>
-                    <label className="min-w-0 space-y-1.5 text-xs">
-                      API 协议
+                    </FormField>
+                    <FormField label="API 协议">
                       <Select value={api} onValueChange={(value) => setApi(value as ModelApi)}>
                         <SelectTrigger
                           aria-label="API 协议"
@@ -268,9 +266,8 @@ export function ModelConfigForm({
                           ))}
                         </SelectContent>
                       </Select>
-                    </label>
-                    <label className="space-y-1.5 text-xs">
-                      Base URL
+                    </FormField>
+                    <FormField label="Base URL">
                       <Input
                         className={settingsControlClassName}
                         aria-label="Base URL"
@@ -281,11 +278,11 @@ export function ModelConfigForm({
                         placeholder={examples[api]}
                       />
                       <span className="text-[11px] text-muted-foreground">示例：{examples[api]}</span>
-                    </label>
+                    </FormField>
                   </div>
                 </CollapsibleSection>
-                <div className="sm:col-span-2 space-y-2">
-                  <label className="text-xs" htmlFor="model-api-key">
+                <div className="flex min-w-0 flex-col gap-2 sm:col-span-2">
+                  <label className="text-xs font-medium leading-snug" htmlFor="model-api-key">
                     API Key{provider?.hasApiKey && !clearKey ? ' · 已配置，留空保留' : ''}
                   </label>
                   <div className="flex gap-2">
@@ -336,8 +333,7 @@ export function ModelConfigForm({
                   敏感请求头留空保留原值；删除对应键即可清除。JSON 留空则移除该配置。
                 </p>
                 <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                  <label className="space-y-1 text-xs">
-                    请求头 JSON
+                  <FormField label="请求头 JSON">
                     <Textarea
                       aria-label="服务商请求头 JSON"
                       value={headers}
@@ -345,9 +341,8 @@ export function ModelConfigForm({
                       className="font-mono rounded-lg text-xs"
                       placeholder={'{"X-Custom-Header":"value"}'}
                     />
-                  </label>
-                  <label className="space-y-1 text-xs">
-                    compat JSON
+                  </FormField>
+                  <FormField label="compat JSON">
                     <Textarea
                       aria-label="服务商 compat JSON"
                       value={compat}
@@ -355,7 +350,7 @@ export function ModelConfigForm({
                       className="font-mono rounded-lg text-xs"
                       placeholder={'{"supportsDeveloperRole":false}'}
                     />
-                  </label>
+                  </FormField>
                 </div>
               </CollapsibleSection>
               <div className="grid min-h-0 gap-4 lg:grid-cols-2">
@@ -506,8 +501,7 @@ export function ModelConfigForm({
                               移除
                             </Button>
                           </div>
-                          <label className="block space-y-1 text-xs">
-                            显示名称
+                          <FormField label="显示名称">
                             <Input
                               className={settingsControlClassName}
                               aria-label={`${model.id} 显示名称`}
@@ -515,7 +509,7 @@ export function ModelConfigForm({
                               placeholder={model.id}
                               onChange={(event) => updateModel(model.id, { name: event.target.value || undefined })}
                             />
-                          </label>
+                          </FormField>
                           <CollapsibleSection title="高级模型参数" variant="inline">
                             <div className="space-y-3">
                               <fieldset className="space-y-2">
@@ -558,8 +552,7 @@ export function ModelConfigForm({
                               </fieldset>
                               <div className="grid grid-cols-2 gap-3">
                                 {(['contextWindow', 'maxTokens'] as const).map((field) => (
-                                  <label key={field} className="space-y-1 text-xs">
-                                    {field === 'contextWindow' ? '上下文窗口' : '最大输出'}
+                                  <FormField key={field} label={field === 'contextWindow' ? '上下文窗口' : '最大输出'}>
                                     <Input
                                       className={settingsControlClassName}
                                       aria-label={`${model.id} ${field}`}
@@ -574,7 +567,7 @@ export function ModelConfigForm({
                                         })
                                       }
                                     />
-                                  </label>
+                                  </FormField>
                                 ))}
                               </div>
                               <div className="flex flex-wrap gap-4 text-xs">
@@ -598,15 +591,14 @@ export function ModelConfigForm({
                                   { field: 'compatText', label: 'compat' },
                                 ] as const
                               ).map(({ field, label }) => (
-                                <label key={field} className="block space-y-1 text-xs">
-                                  {label} JSON
+                                <FormField key={field} label={`${label} JSON`}>
                                   <Textarea
                                     aria-label={`${model.id} ${label} JSON`}
                                     value={model[field]}
                                     onChange={(event) => updateModel(model.id, { [field]: event.target.value })}
                                     className="font-mono rounded-lg text-xs"
                                   />
-                                </label>
+                                </FormField>
                               ))}
                               {model.reasoning && (
                                 <div className="space-y-2">
@@ -618,8 +610,14 @@ export function ModelConfigForm({
                                     {thinkingLevels
                                       .filter((level) => model.thinkingLevelMap?.[level] !== null)
                                       .map((level) => (
-                                        <label key={level} className="space-y-1 text-xs">
-                                          {THINKING_LEVEL_LABELS[level]}（{level}）
+                                        <FormField
+                                          key={level}
+                                          label={
+                                            <>
+                                              {THINKING_LEVEL_LABELS[level]}（{level}）
+                                            </>
+                                          }
+                                        >
                                           <Input
                                             className={settingsControlClassName}
                                             aria-label={`${model.id} ${level} 映射`}
@@ -633,7 +631,7 @@ export function ModelConfigForm({
                                               updateModel(model.id, { thinkingLevelMap: map })
                                             }}
                                           />
-                                        </label>
+                                        </FormField>
                                       ))}
                                   </div>
                                 </div>

@@ -21,6 +21,15 @@ import {
 } from 'lucide-react'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Input } from '@pi-meme/ui/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectLabel,
+  SelectTrigger,
+  SelectValue,
+} from '@pi-meme/ui/components/ui/select'
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from '@pi-meme/ui/components/ui/dialog'
 import { cn } from '@pi-meme/ui/lib/utils'
 import { PageHeader, PageHeaderNavigation } from '../layout/page-header'
@@ -172,7 +181,7 @@ export function SettingsPage({
           onPlugins ? () => leave(onPlugins) : undefined,
         )}
         <div className="content-frame bg-background">
-          <aside className="appearance-sidebar settings-sidebar w-44 shrink-0 overflow-y-auto border-r border-border bg-card/40 px-2.5 py-4 sm:w-52 sm:py-5 lg:w-64">
+          <aside className="appearance-sidebar settings-sidebar hidden w-52 shrink-0 overflow-y-auto border-r border-border bg-card/40 px-2.5 py-5 sm:block lg:w-64">
             <h1 className="px-2.5 text-base font-semibold tracking-tight text-foreground">设置</h1>
             <div className="relative mt-3">
               <Search
@@ -230,6 +239,25 @@ export function SettingsPage({
             id="settings-content"
             className="theme-workspace min-w-0 flex-1 overflow-y-auto bg-background px-4 py-6 [scrollbar-gutter:stable] sm:px-6 sm:py-8 lg:px-12 lg:py-12"
           >
+            <nav aria-label="设置分类" className="mx-auto mb-6 max-w-3xl sm:hidden">
+              <Select value={sectionId} onValueChange={(value) => navigate(value as SettingsSection)} disabled={saving}>
+                <SelectTrigger aria-label="设置分类" className="h-9 bg-card/40 text-xs shadow-none">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent className="w-[var(--radix-select-trigger-width)]">
+                  {groups.map((group) => (
+                    <SelectGroup key={group.label}>
+                      <SelectLabel>{group.label}</SelectLabel>
+                      {group.sections.map(({ id, label }) => (
+                        <SelectItem key={id} value={id} className="text-xs">
+                          {label}
+                        </SelectItem>
+                      ))}
+                    </SelectGroup>
+                  ))}
+                </SelectContent>
+              </Select>
+            </nav>
             <div key={sectionId} className="mx-auto max-w-3xl space-y-8">
               <div>
                 <h2 className="text-xl font-semibold tracking-tight sm:text-2xl">{section.label}</h2>

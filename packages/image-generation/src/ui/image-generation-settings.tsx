@@ -11,6 +11,7 @@ import { RevealContent } from '@pi-meme/ui/components/reveal-content'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { SettingsCard, SettingsRow, settingsControlClassName } from '@pi-meme/ui/components/settings'
 import { Input } from '@pi-meme/ui/components/ui/input'
+import { FormField } from '@pi-meme/ui/components/ui/form-field'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@pi-meme/ui/components/ui/select'
 
@@ -268,17 +269,15 @@ export function ImageGenerationSettings({ api, hostLabel }: { api?: ImageGenerat
                 )
               }}
             >
-              <label className="block space-y-1 text-xs">
-                配置名称
+              <FormField label="配置名称">
                 <Input
                   className={settingsControlClassName}
                   required
                   value={draft.name}
                   onChange={(event) => setDraft({ ...draft, name: event.target.value })}
                 />
-              </label>
-              <label className="block space-y-1 text-xs">
-                Base URL
+              </FormField>
+              <FormField label="Base URL">
                 <Input
                   className={settingsControlClassName}
                   required
@@ -286,9 +285,8 @@ export function ImageGenerationSettings({ api, hostLabel }: { api?: ImageGenerat
                   value={draft.baseUrl}
                   onChange={(event) => setDraft({ ...draft, baseUrl: event.target.value })}
                 />
-              </label>
-              <label className="block space-y-1 text-xs">
-                API Key
+              </FormField>
+              <FormField label="API Key">
                 <Input
                   className={settingsControlClassName}
                   required={!existing}
@@ -299,7 +297,7 @@ export function ImageGenerationSettings({ api, hostLabel }: { api?: ImageGenerat
                   disabled={draft.clearApiKey}
                   onChange={(event) => setDraft({ ...draft, apiKey: event.target.value })}
                 />
-              </label>
+              </FormField>
               {existing?.hasApiKey && (
                 <label className="flex items-center gap-2 text-xs">
                   <input
@@ -310,18 +308,16 @@ export function ImageGenerationSettings({ api, hostLabel }: { api?: ImageGenerat
                   清除已保存的 API Key
                 </label>
               )}
-              <label className="block space-y-1 text-xs">
-                模型 ID
+              <FormField label="模型 ID">
                 <Input
                   className={settingsControlClassName}
                   required
                   value={draft.model}
                   onChange={(event) => setDraft({ ...draft, model: event.target.value })}
                 />
-              </label>
+              </FormField>
               <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-1 text-xs">
-                  <span>默认尺寸</span>
+                <FormField label="默认尺寸">
                   <Select
                     value={draft.size}
                     onValueChange={(value) => setDraft({ ...draft, size: value as Draft['size'] })}
@@ -337,9 +333,8 @@ export function ImageGenerationSettings({ api, hostLabel }: { api?: ImageGenerat
                       ))}
                     </SelectContent>
                   </Select>
-                </div>
-                <div className="space-y-1 text-xs">
-                  <span>默认质量</span>
+                </FormField>
+                <FormField label="默认质量">
                   <Select
                     value={draft.quality}
                     onValueChange={(value) => setDraft({ ...draft, quality: value as Draft['quality'] })}
@@ -355,7 +350,7 @@ export function ImageGenerationSettings({ api, hostLabel }: { api?: ImageGenerat
                       ))}
                     </SelectContent>
                   </Select>
-                </div>
+                </FormField>
               </div>
               {error && (
                 <p role="alert" className="text-xs text-destructive">

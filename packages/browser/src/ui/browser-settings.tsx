@@ -9,6 +9,7 @@ import type {
 } from '@pi-meme/contracts/browser'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Input } from '@pi-meme/ui/components/ui/input'
+import { FormField } from '@pi-meme/ui/components/ui/form-field'
 import { Switch } from '@pi-meme/ui/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@pi-meme/ui/components/ui/select'
 import {
@@ -507,8 +508,7 @@ export function BrowserSettings({
                 })
               }}
             >
-              <label className="block space-y-1.5">
-                <span className="font-medium">网站地址</span>
+              <FormField label="网站地址">
                 <Input
                   aria-label="网站地址"
                   className={settingsControlClassName}
@@ -517,10 +517,9 @@ export function BrowserSettings({
                   value={origin}
                   onChange={(event) => setOrigin(event.target.value)}
                 />
-              </label>
+              </FormField>
               <div className="flex flex-wrap items-end gap-3">
-                <div className="min-w-0 flex-1 basis-48 space-y-1.5">
-                  <p className="font-medium">权限类型</p>
+                <FormField label="权限类型" className="flex-1 basis-48">
                   <Select value={permission} onValueChange={setPermission}>
                     <SelectTrigger aria-label="权限类型" className={settingsControlClassName}>
                       <SelectValue />
@@ -533,9 +532,8 @@ export function BrowserSettings({
                       ))}
                     </SelectContent>
                   </Select>
-                </div>
-                <div className="min-w-0 flex-1 basis-28 space-y-1.5">
-                  <p className="font-medium">网站权限</p>
+                </FormField>
+                <FormField label="网站权限" className="flex-1 basis-28">
                   <Select value={grant} onValueChange={(value) => setGrant(value as BrowserPermission['value'])}>
                     <SelectTrigger aria-label="网站权限" className={settingsControlClassName}>
                       <SelectValue />
@@ -548,7 +546,7 @@ export function BrowserSettings({
                       ))}
                     </SelectContent>
                   </Select>
-                </div>
+                </FormField>
                 <Button className={settingsControlClassName} type="submit" disabled={saving || !snapshot}>
                   添加
                 </Button>

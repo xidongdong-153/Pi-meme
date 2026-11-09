@@ -671,8 +671,10 @@ export function MemorySettings({
                       {editor.input.content.length}/2000
                     </span>
                   </label>
-                  <div className="space-y-2">
-                    <span id="memory-editor-scope-label">范围</span>
+                  <div className="flex min-w-0 flex-col gap-2">
+                    <span id="memory-editor-scope-label" className="font-medium leading-snug">
+                      范围
+                    </span>
                     <Select
                       value={memoryScopeKey(editor.input.scope)}
                       onValueChange={(value) => {

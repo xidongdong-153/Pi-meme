@@ -15,6 +15,7 @@ import {
   DialogTitle,
 } from '@pi-meme/ui/components/ui/dialog'
 import { Input } from '@pi-meme/ui/components/ui/input'
+import { FormField } from '@pi-meme/ui/components/ui/form-field'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@pi-meme/ui/components/ui/select'
 
 export function ExtensionDialog({
@@ -74,8 +75,7 @@ export function ExtensionDialog({
           )}
 
           {request.method === 'select' && (
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-foreground">请选择一项</label>
+            <FormField label="请选择一项">
               <Select value={selected} onValueChange={setSelected} disabled={submitting}>
                 <TooltipHint content={selected}>
                   <SelectTrigger aria-label="扩展选择项" className="w-full text-xs min-w-0">
@@ -92,12 +92,11 @@ export function ExtensionDialog({
                   ))}
                 </SelectContent>
               </Select>
-            </div>
+            </FormField>
           )}
 
           {request.method === 'input' && (
-            <div className="space-y-1.5">
-              <label className="text-xs font-medium text-foreground">输入内容</label>
+            <FormField label="输入内容">
               <Input
                 ref={inputRef}
                 value={value}
@@ -115,7 +114,7 @@ export function ExtensionDialog({
                 }}
                 className="text-xs"
               />
-            </div>
+            </FormField>
           )}
 
           {request.method === 'editor' && <ExtensionEditor request={request} valueRef={editorValue} />}

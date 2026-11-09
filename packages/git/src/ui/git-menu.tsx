@@ -5,6 +5,7 @@ import type { GitBridge, GitEnvironment } from '@pi-meme/contracts/desktop'
 import { Popover, PopoverContent, PopoverTrigger } from '@pi-meme/ui/components/ui/popover'
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@pi-meme/ui/components/ui/dialog'
 import { Input } from '@pi-meme/ui/components/ui/input'
+import { FormField } from '@pi-meme/ui/components/ui/form-field'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@pi-meme/ui/components/ui/select'
 
@@ -237,18 +238,16 @@ export function GitMenu({
               : '从所选提交创建并切换分支，在当前项目中新建对话，保留草稿。'}
           </DialogDescription>
           {create === 'branch' && (
-            <label className="block space-y-2 text-sm">
-              分支名称
+            <FormField label="分支名称" className="text-sm">
               <Input
                 autoFocus
                 aria-label="新分支名称"
                 value={branchName}
                 onChange={(event) => setBranchName(event.target.value)}
               />
-            </label>
+            </FormField>
           )}
-          <label className="block space-y-2 text-sm">
-            起点
+          <FormField label="起点" className="text-sm">
             <Select value={base} onValueChange={setBase}>
               <SelectTrigger
                 autoFocus={create === 'worktree'}
@@ -268,7 +267,7 @@ export function GitMenu({
                 ))}
               </SelectContent>
             </Select>
-          </label>
+          </FormField>
           {error && (
             <p role="alert" className="break-words text-sm text-destructive">
               {error}

@@ -3,6 +3,7 @@ import type { McpServerEntry, SaveMcpServer } from '@pi-meme/contracts/mcp'
 import { Button } from '@pi-meme/ui/components/ui/button'
 import { settingsControlClassName } from '@pi-meme/ui/components/settings'
 import { Input } from '@pi-meme/ui/components/ui/input'
+import { FormField } from '@pi-meme/ui/components/ui/form-field'
 import { Textarea } from '@pi-meme/ui/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@pi-meme/ui/components/ui/select'
 import { object, serverError } from '../shared/config'
@@ -57,9 +58,8 @@ export function ServerForm({
       setError('配置 JSON 无效，请修正后再切换')
     }
   }
-  const field = (label: string, value: unknown, key: string) => (
-    <label className="block space-y-1.5">
-      <span className="text-xs">{label}</span>
+  const field = (label: string, value: unknown, key: string, description?: string) => (
+    <FormField label={label} description={description}>
       <Input
         className={settingsControlClassName}
         aria-label={label}
@@ -67,7 +67,7 @@ export function ServerForm({
         onChange={(event) => setConfig({ ...config, [key]: event.target.value })}
         disabled={busy}
       />
-    </label>
+    </FormField>
   )
   return (
     <form
@@ -88,8 +88,7 @@ export function ServerForm({
         }
       }}
     >
-      <label className="block space-y-1.5">
-        <span className="text-xs">服务名称</span>
+      <FormField label="服务名称">
         <Input
           className={settingsControlClassName}
           aria-label="MCP 服务名称"
@@ -97,7 +96,7 @@ export function ServerForm({
           onChange={(event) => setName(event.target.value)}
           disabled={busy}
         />
-      </label>
+      </FormField>
       <Button
         className={settingsControlClassName}
         type="button"
@@ -109,8 +108,7 @@ export function ServerForm({
         {advanced ? '切换到表单' : '编辑高级 JSON'}
       </Button>
       {advanced ? (
-        <label className="block space-y-1.5">
-          <span className="text-xs">单个服务的原生 JSON</span>
+        <FormField label="单个服务的原生 JSON">
           <Textarea
             aria-label="MCP 高级 JSON"
             className="font-mono text-xs select-text rounded-lg"
@@ -119,11 +117,10 @@ export function ServerForm({
             onChange={(event) => setJson(event.target.value)}
             disabled={busy}
           />
-        </label>
+        </FormField>
       ) : (
         <>
-          <label className="block space-y-1.5">
-            <span className="text-xs">连接类型</span>
+          <FormField label="连接类型">
             <Select
               value={http ? 'http' : 'stdio'}
               disabled={busy}
@@ -158,12 +155,11 @@ export function ServerForm({
                 <SelectItem value="stdio">stdio 本地进程</SelectItem>
               </SelectContent>
             </Select>
-          </label>
+          </FormField>
           {http ? (
             <>
               {field('MCP URL', config.url, 'url')}
-              <label className="block space-y-1.5">
-                <span className="text-xs">Headers（JSON 字符串键值对象）</span>
+              <FormField label="Headers（JSON 字符串键值对象）">
                 <Textarea
                   aria-label="MCP Headers"
                   rows={4}
@@ -172,16 +168,17 @@ export function ServerForm({
                   onChange={(event) => setHeaders(event.target.value)}
                   disabled={busy}
                 />
-              </label>
+              </FormField>
             </>
           ) : (
             <>
-              {field('可执行命令', config.command, 'command')}
-              <p className="text-[11px] text-muted-foreground">
-                命令填写单个可执行文件，参数填入下方数组，不拼接 Shell 命令。
-              </p>
-              <label className="block space-y-1.5">
-                <span className="text-xs">参数（JSON 字符串数组）</span>
+              {field(
+                '可执行命令',
+                config.command,
+                'command',
+                '命令填写单个可执行文件，参数填入下方数组，不拼接 Shell 命令。',
+              )}
+              <FormField label="参数（JSON 字符串数组）">
                 <Textarea
                   aria-label="MCP 参数"
                   rows={3}
@@ -190,9 +187,8 @@ export function ServerForm({
                   onChange={(event) => setArgs(event.target.value)}
                   disabled={busy}
                 />
-              </label>
-              <label className="block space-y-1.5">
-                <span className="text-xs">环境变量（JSON 字符串键值对象）</span>
+              </FormField>
+              <FormField label="环境变量（JSON 字符串键值对象）">
                 <Textarea
                   aria-label="MCP 环境变量"
                   rows={4}
@@ -201,7 +197,7 @@ export function ServerForm({
                   onChange={(event) => setEnv(event.target.value)}
                   disabled={busy}
                 />
-              </label>
+              </FormField>
               {field('工作目录', config.cwd, 'cwd')}
             </>
           )}
@@ -216,7 +212,7 @@ export function ServerForm({
           {error}
         </p>
       )}
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <Button className={settingsControlClassName} type="submit" disabled={busy}>
           保存服务
         </Button>

@@ -16,6 +16,7 @@ import {
   DropdownMenuTrigger,
 } from '@pi-meme/ui/components/ui/dropdown-menu'
 import { Input } from '@pi-meme/ui/components/ui/input'
+import { FormField } from '@pi-meme/ui/components/ui/form-field'
 import { Switch } from '@pi-meme/ui/components/ui/switch'
 import { settingsCardClassName, settingsControlClassName } from '@pi-meme/ui/components/settings'
 import { cn } from '@pi-meme/ui/lib/utils'
@@ -453,8 +454,7 @@ function HttpsSettings({
               })
             }}
           >
-            <label className="block min-w-0 space-y-2 text-xs font-medium">
-              服务地址
+            <FormField label="服务地址">
               <Input
                 className={settingsControlClassName}
                 aria-label="远程服务地址"
@@ -463,9 +463,8 @@ function HttpsSettings({
                 onChange={(event) => setUrl(event.target.value)}
                 required
               />
-            </label>
-            <label className="block min-w-0 space-y-2 text-xs font-medium">
-              访问令牌
+            </FormField>
+            <FormField label="访问令牌">
               <Input
                 className={settingsControlClassName}
                 aria-label="远程访问令牌"
@@ -474,7 +473,7 @@ function HttpsSettings({
                 value={token}
                 onChange={(event) => setToken(event.target.value)}
               />
-            </label>
+            </FormField>
             {error && (
               <p role="alert" className="break-words text-xs text-destructive">
                 {error}
