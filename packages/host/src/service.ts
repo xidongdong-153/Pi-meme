@@ -1663,6 +1663,7 @@ export async function createHost(options: HostOptions = {}) {
             if (cwd && !res.errors.length) {
               const project = appControl!.store.state.projects.find((item) => item.cwd === cwd)
               if (project) await memory!.removeProject(project.projectId)
+              await appControl!.forgetProject(cwd)
             }
           })()
         },
@@ -2232,6 +2233,20 @@ export async function createHost(options: HostOptions = {}) {
       memory: memory.api,
       memorySettled: (session, key, aborted) => memoryCoordinator.settled(session, key, aborted),
       sessionAttention,
+      lifecycle: {
+        renameProject: async (cwd, name) => builtins!.handlers['project:rename'](cwd, name),
+        previewProject: async (cwd) =>
+          (await builtins!.handlers['project:delete-preview'](cwd)) as { paths: string[]; warnings: string[] },
+        deleteProject: async (cwd, paths) =>
+          (await builtins!.handlers['project:remove'](cwd, paths)) as WorkspaceDeletionResult,
+        renameSession: async (target, name) => builtins!.handlers['session:rename'](target, name),
+        deleteSession: async (target) =>
+          (await builtins!.handlers['session:delete'](target)) as WorkspaceDeletionResult,
+        getPinnedPaths: () => settings.settings.pinnedPaths ?? [],
+        registerPinAliases: (paths) => settings.registerPinAliases(paths),
+        setPinned: (target, pinned, aliases, mirrors) => settings.setPinned(target, pinned, aliases, mirrors),
+        changed: () => emit('sessions-changed'),
+      },
       prepareContextSession: (session) => {
         const key = appControl?.goalRuntimeKey(session)
         const temporaryRoot = key ? temporaryPathsBySessionKey.get(key)?.temporaryRoot : undefined
@@ -2376,6 +2391,7 @@ export async function createHost(options: HostOptions = {}) {
       },
     })
     await sessionCleanup.recoverPending()
+    await appControl.restoreManagedDrafts()
     memory.start()
     let pluginsRestored = false
     const refreshPluginThemes = async () => {

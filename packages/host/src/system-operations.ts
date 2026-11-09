@@ -1,4 +1,4 @@
-import type { HostApi, SessionRef, MutationOptions } from '@pi-meme/contracts/app-host'
+import type { HostApi, ProjectRef, SessionRef, MutationOptions } from '@pi-meme/contracts/app-host'
 import type { SystemOperation, SystemToolRequest } from '@pi-meme/contracts/system-tools'
 import type { TerminalService } from './terminal-service'
 
@@ -30,7 +30,8 @@ export function createSystemOperations(context: SystemOperationContext) {
     if (operations.has(name)) throw new Error(`重复的内置操作：${name}`)
     operations.set(name, { definition: { name, description, parameters, write, scope }, run })
   }
-  const { api, session } = context
+  const { api } = context
+  const session: SessionRef = { hostId: context.session.hostId, sessionId: context.session.sessionId }
   const target = (value: unknown) => {
     if (value === undefined || value === null) return session
     if (
@@ -42,6 +43,23 @@ export function createSystemOperations(context: SystemOperationContext) {
     )
       throw new Error('会话目标无效')
     return value as SessionRef
+  }
+  const projectTarget = (value: unknown): ProjectRef => {
+    if (
+      !value ||
+      typeof value !== 'object' ||
+      !('hostId' in value) ||
+      value.hostId !== session.hostId ||
+      !('projectId' in value) ||
+      typeof value.projectId !== 'string' ||
+      !value.projectId
+    )
+      throw new Error('项目目标无效，请从 projects.list 获取 ProjectRef')
+    return { hostId: value.hostId, projectId: value.projectId }
+  }
+  const explicitSessionTarget = (value: unknown): SessionRef => {
+    if (value === undefined || value === null) throw new Error('此操作必须显式提供 SessionRef')
+    return target(value)
   }
   const terminalRef = (id: unknown) => {
     if (typeof id !== 'string' || !context.terminal.entries().some((entry) => entry.terminalId === id))
@@ -82,7 +100,50 @@ export function createSystemOperations(context: SystemOperationContext) {
   register('terminal.close', '关闭终端进程', '[terminalId]', true, 'host', ([id], mutation) =>
     api.terminal.close(terminalRef(id), mutation),
   )
-  register('projects.list', '列出当前 Host 的项目', '[]', false, 'host', () => api.projects.list())
+  register('projects.list', '列出当前 Host 的项目及置顶状态', '[]', false, 'host', () => api.projects.list())
+  register('projects.get', '读取指定项目', '[ProjectRef]', false, 'host', ([ref]) =>
+    api.projects.get(projectTarget(ref)),
+  )
+  register(
+    'projects.create',
+    '将 Host 上已有的绝对目录登记为项目，可指定名称',
+    '[{cwd,name?}]',
+    true,
+    'host',
+    ([input], mutation) => api.projects.create(input as Parameters<HostApi['projects']['create']>[0], mutation),
+  )
+  register('projects.rename', '修改指定项目的名称', '[ProjectRef,name]', true, 'host', ([ref, name], mutation) =>
+    api.projects.rename(projectTarget(ref), name as string, mutation),
+  )
+  register(
+    'projects.setPinned',
+    '设置指定项目的置顶状态，true 置顶、false 取消',
+    '[ProjectRef,pinned]',
+    true,
+    'host',
+    ([ref, pinned], mutation) => api.projects.setPinned(projectTarget(ref), pinned as boolean, mutation),
+  )
+  register(
+    'projects.deletePreview',
+    '读取项目删除范围、警告及清单修订；删除会清理项目所属会话，保留项目工作目录',
+    '[ProjectRef]',
+    false,
+    'host',
+    ([ref]) => api.projects.deletePreview(projectTarget(ref)),
+  )
+  register(
+    'projects.delete',
+    '按预览修订删除项目及所属会话，保留项目工作目录；不能删除当前执行所属项目',
+    '[ProjectRef,{revision}]',
+    true,
+    'host',
+    async ([ref, input], mutation) => {
+      const project = projectTarget(ref)
+      const current = await api.sessions.get(session)
+      if (current.project?.projectId === project.projectId) throw new Error('不能在执行中删除当前会话所属项目')
+      return api.projects.delete(project, input as { revision: string }, mutation)
+    },
+  )
   register('models.list', '列出可用模型，不包含凭据', '[]', false, 'host', () => api.models?.list())
   if (api.memory) {
     for (const [name, description, parameters] of [
@@ -112,7 +173,51 @@ export function createSystemOperations(context: SystemOperationContext) {
   register('sessions.list', '列出当前 Host 会话', '[{project?: ProjectRef}?]', false, 'host', ([input]) =>
     api.sessions.list(input as Parameters<HostApi['sessions']['list']>[0]),
   )
-  register('sessions.get', '读取会话身份与状态', '[SessionRef?]', false, 'session', ([ref]) =>
+  register(
+    'sessions.create',
+    '创建新聊天；指定 project 创建项目会话，省略则创建独立聊天；返回稳定 SessionRef，不切换界面',
+    '[{project?:ProjectRef,name?,configuration?:{model?,thinkingLevel?,accessMode?,mode?,agentPlugins?}}]',
+    true,
+    'host',
+    ([input], mutation) => api.sessions.create(input as Parameters<HostApi['sessions']['create']>[0], mutation),
+  )
+  register('sessions.rename', '修改会话名称', '[name,SessionRef?]', true, 'session', ([name, ref], mutation) =>
+    api.sessions.rename(target(ref), name as string, mutation),
+  )
+  register(
+    'sessions.setPinned',
+    '设置会话置顶状态，true 置顶、false 取消',
+    '[pinned,SessionRef?]',
+    true,
+    'session',
+    ([pinned, ref], mutation) => api.sessions.setPinned(target(ref), pinned as boolean, mutation),
+  )
+  register(
+    'sessions.configure',
+    '编辑空闲会话的模型、思考等级、权限、任务模式或插件；权限变更与其他配置分开提交',
+    '[{model?,thinkingLevel?,accessMode?,mode?,agentPlugins?},SessionRef]',
+    true,
+    'session',
+    ([input, ref], mutation) =>
+      api.sessions.configure(
+        explicitSessionTarget(ref),
+        input as Parameters<HostApi['sessions']['configure']>[1],
+        mutation,
+      ),
+  )
+  register(
+    'sessions.delete',
+    '删除指定会话及关联状态；不能删除当前执行会话',
+    '[SessionRef]',
+    true,
+    'session',
+    ([ref], mutation) => {
+      const selected = explicitSessionTarget(ref)
+      if (selected.sessionId === session.sessionId) throw new Error('不能在执行中删除当前会话')
+      return api.sessions.delete(selected, mutation)
+    },
+  )
+  register('sessions.get', '读取会话身份、配置、置顶与运行状态', '[SessionRef?]', false, 'session', ([ref]) =>
     api.sessions.get(target(ref)),
   )
   register('sessions.attention', '读取 Host 共享的会话查看状态', '[SessionRef?]', false, 'session', ([ref]) =>

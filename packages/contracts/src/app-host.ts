@@ -6,7 +6,7 @@ import type { ServiceActivity, ServiceActivityList, ServiceActivityLogs } from '
 import type { Goal, GoalControl, GoalEdit, GoalInput, GoalResumeControl, GoalStartResult } from './goal'
 import type { AgentAccessMode } from './agent-access'
 import type { AgentSummary } from './collaboration'
-import type { GitEnvironment, GitSnapshot, GitFileChange, Snapshot } from './desktop'
+import type { GitEnvironment, GitSnapshot, GitFileChange, Snapshot, WorkspaceDeletionResult } from './desktop'
 import type { GitReviewQuery, GitReviewSnapshot, GitReviewFileContent, GitReviewOptions } from './git-review'
 import type { ThinkingLevel } from './pi'
 import type { MessageOptions, PlanDocument, TaskMode } from './plan'
@@ -18,7 +18,8 @@ export const appHostApiVersion = 2 as const
 export type ProjectRef = { hostId: string; projectId: string }
 export type SessionRef = { hostId: string; sessionId: string }
 export type WorkspaceRef = ProjectRef | SessionRef
-export type AppProject = ProjectRef & { cwd: string; name: string; unavailable?: boolean }
+export type AppProject = ProjectRef & { cwd: string; name: string; unavailable?: boolean; pinned?: boolean }
+export type ProjectDeletionPreview = { revision: string; sessionCount: number; warnings: string[] }
 export type AppModel = { provider: string; id: string; name?: string; reasoning?: boolean }
 export type AppImage = { type: 'image'; data: string; mimeType: string }
 export type InteractionAnswer =
@@ -43,6 +44,7 @@ export type AppSession = SessionRef & {
   status: 'idle' | 'running' | 'interrupted'
   temporary?: boolean
   ownerClientId?: string
+  pinned?: boolean
 }
 export type MutationOptions = { idempotencyKey: string }
 export type SubmissionInput = MessageOptions & {
@@ -86,7 +88,9 @@ export type AppHostCapabilities = {
   hostId: string
   features: Array<
     | 'projects'
+    | 'project-management'
     | 'sessions'
+    | 'session-management'
     | 'session-attention'
     | 'messages'
     | 'files'
@@ -165,7 +169,12 @@ export type HostApi = {
   projects: {
     list: () => Promise<AppProject[]>
     register: (input: { cwd: string; name?: string }, options: MutationOptions) => Promise<AppProject>
+    create: (input: { cwd: string; name?: string }, options: MutationOptions) => Promise<AppProject>
     get: (ref: ProjectRef) => Promise<AppProject>
+    rename: (ref: ProjectRef, name: string, options: MutationOptions) => Promise<AppProject>
+    setPinned: (ref: ProjectRef, pinned: boolean, options: MutationOptions) => Promise<AppProject>
+    deletePreview: (ref: ProjectRef) => Promise<ProjectDeletionPreview>
+    delete: (ref: ProjectRef, input: { revision: string }, options: MutationOptions) => Promise<WorkspaceDeletionResult>
   }
   sessions: {
     create: (
@@ -187,6 +196,9 @@ export type HostApi = {
     ) => Promise<SessionHistoryData & { totalMessages: number; nextOffset?: number }>
     messages: (ref: SessionRef, input?: UiMessagePageInput) => Promise<UiMessagePage>
     message: (ref: SessionRef, input: { entryId: string }) => Promise<UiMessage>
+    rename: (ref: SessionRef, name: string, options: MutationOptions) => Promise<AppSession>
+    setPinned: (ref: SessionRef, pinned: boolean, options: MutationOptions) => Promise<AppSession>
+    delete: (ref: SessionRef, options: MutationOptions) => Promise<WorkspaceDeletionResult>
     configure: (ref: SessionRef, configuration: SessionConfiguration, options: MutationOptions) => Promise<AppSession>
     submit: (ref: SessionRef, input: SubmissionInput, options: MutationOptions) => Promise<SubmissionReceipt>
     stop: (ref: SessionRef, options: MutationOptions) => Promise<void>

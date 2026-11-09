@@ -32,6 +32,7 @@ export type OperationEntry = {
 
 export type ControlJournalMutation =
   | { kind: 'project_upsert'; project: AppProject }
+  | { kind: 'project_delete'; projectId: string }
   | { kind: 'session_upsert'; session: AppSession }
   | { kind: 'session_delete'; sessionId: string }
   | { kind: 'receipt_upsert'; receipt: SubmissionReceipt }
@@ -556,6 +557,11 @@ export class ControlStore {
         else this.state.projects.push(structuredClone(cloned))
         break
       }
+      case 'project_delete': {
+        this.committedProjects.delete(mutation.projectId)
+        this.state.projects = this.state.projects.filter((project) => project.projectId !== mutation.projectId)
+        break
+      }
       case 'session_upsert': {
         const cloned = structuredClone(mutation.session)
         this.committedSessions.set(mutation.session.sessionId, cloned)
@@ -801,6 +807,10 @@ export class ControlStore {
     })
   }
 
+  async deleteProject(projectId: string): Promise<void> {
+    await this.commitJournal({ mutation: { kind: 'project_delete', projectId } })
+  }
+
   async saveProject(project: AppProject): Promise<void> {
     await this.commitJournal({
       mutation: { kind: 'project_upsert', project: structuredClone(project) },
@@ -1021,7 +1031,7 @@ export class ControlStore {
         if (idx >= 0) this.state.receipts[idx] = receipt
         else this.state.receipts.push(receipt)
       } else if (input.type === 'session') {
-        const session = structuredClone(input.value as AppSession)
+        const session = structuredClone(companionSession ?? (input.value as AppSession))
         this.committedSessions.set(session.sessionId, session)
         const idx = this.state.sessions.findIndex((s) => s.sessionId === session.sessionId)
         if (idx >= 0) this.state.sessions[idx] = session
@@ -1045,7 +1055,7 @@ export class ControlStore {
 
     let mutation: ControlJournalMutation | undefined
     if (input.type === 'session') {
-      mutation = { kind: 'session_upsert', session: structuredClone(input.value as AppSession) }
+      mutation = { kind: 'session_upsert', session: structuredClone(companionSession ?? (input.value as AppSession)) }
     } else if (input.type === 'submission') {
       const receipt = structuredClone(input.value as SubmissionReceipt)
       if (companionSession) {

@@ -557,11 +557,39 @@ export class SettingsStore {
     )
   }
 
+  private readonly pinAliases = new Map<string, Set<string>>()
+
+  registerPinAliases(paths: string[]) {
+    const group = new Set(paths.filter(Boolean))
+    for (const target of group) this.pinAliases.set(target, group)
+  }
+
+  setPinned(targetPath: string, pinned: boolean, aliases: string[] = [], mirrors: string[] = []): Promise<string[]> {
+    if (typeof targetPath !== 'string' || !targetPath || typeof pinned !== 'boolean')
+      return Promise.reject(new Error('置顶参数无效'))
+    this.registerPinAliases([targetPath, ...aliases, ...mirrors])
+    return this.enqueue(async () => {
+      const current = new Set(this.settings.pinnedPaths ?? [])
+      for (const alias of aliases) current.delete(alias)
+      for (const target of [targetPath, ...mirrors]) {
+        if (pinned) current.add(target)
+        else current.delete(target)
+      }
+      const pinnedPaths = [...current]
+      await this.saveNow({ ...this.settings, pinnedPaths })
+      return pinnedPaths
+    })
+  }
+
   togglePin(targetPath: string): Promise<string[]> {
     return this.enqueue(async () => {
       const current = new Set(this.settings.pinnedPaths ?? [])
-      if (current.has(targetPath)) current.delete(targetPath)
-      else current.add(targetPath)
+      const group = this.pinAliases.get(targetPath) ?? new Set([targetPath])
+      const pinned = [...group].some((target) => current.has(target))
+      for (const target of group) {
+        if (pinned) current.delete(target)
+        else current.add(target)
+      }
       const pinnedPaths = Array.from(current)
       await this.saveNow({ ...this.settings, pinnedPaths })
       return pinnedPaths

@@ -31,30 +31,68 @@ paths:
 
 操作指定目标，不读取或改变客户端的界面选择。会话创建立即持久化身份，首次生成 Pi JSONL 后补充文件绑定；内部 `sessionKey` 不作为公开持久 ID。
 
-| 接口组            | 已实现操作                                                                                                                                                                                     |
-| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `capabilities()`  | Host 身份、API 版本、功能及可选文件操作能力                                                                                                                                                    |
-| `models`          | `list`，查询当前 Host 可用模型，仅读取                                                                                                                                                         |
-| `imageGeneration` | `getConfig`、`saveModel`、`deleteModel`、`setDefault`、`test`，图片模型配置与显式生图测试                                                                                                      |
-| `plugins`         | `getDefaultAgentPlugins`、`setDefaultAgentPlugins`                                                                                                                                             |
-| `projects`        | `list`、`register`、`get`                                                                                                                                                                      |
-| `sessions`        | `create`、`list`、`get`、`attention`、`markRead`、`snapshot`、`history`、`messages`、`message`、`configure`、`submit`、`stop`、`pause`、`resume`、`receipt`、`submissions`、`cancelSubmission` |
-| `files`           | `list`、`read`、`preview`、`search`、`write`                                                                                                                                                   |
-| `terminal`        | `open`、`attach`、`input`、`resize`、`close`                                                                                                                                                   |
-| `git`             | `environment`、`snapshot`、`diff`，只读                                                                                                                                                        |
-| `interaction`     | `respond`，按根会话或子任务来源回答                                                                                                                                                            |
-| `agents`          | `list`、`get`、`stop`                                                                                                                                                                          |
-| `goals`           | `get`、`start`、`edit`、`pause`、`resume`、`clear`                                                                                                                                             |
-| `schedules`       | `list`、`get`、`create`、`update`、`pause`、`resume`、`delete`、`runNow`、`stopRun`、`runs`、`markRead`、`resetSession`                                                                        |
-| `activities`      | `list`、`logs`、`stop`，查看和停止 Agent 启动的项目服务                                                                                                                                        |
-| `plans`           | `list`，读取已保存计划                                                                                                                                                                         |
-| `events`          | `read`、`subscribe`                                                                                                                                                                            |
+| 接口组            | 已实现操作                                                                                                                                                                                                                      |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `capabilities()`  | Host 身份、API 版本、功能及可选文件操作能力                                                                                                                                                                                     |
+| `models`          | `list`，查询当前 Host 可用模型，仅读取                                                                                                                                                                                          |
+| `imageGeneration` | `getConfig`、`saveModel`、`deleteModel`、`setDefault`、`test`，图片模型配置与显式生图测试                                                                                                                                       |
+| `plugins`         | `getDefaultAgentPlugins`、`setDefaultAgentPlugins`                                                                                                                                                                              |
+| `projects`        | `list`、`get`、`register`、`create`、`rename`、`setPinned`、`deletePreview`、`delete`                                                                                                                                           |
+| `sessions`        | `create`、`list`、`get`、`rename`、`setPinned`、`delete`、`attention`、`markRead`、`snapshot`、`history`、`messages`、`message`、`configure`、`submit`、`stop`、`pause`、`resume`、`receipt`、`submissions`、`cancelSubmission` |
+| `files`           | `list`、`read`、`preview`、`search`、`write`                                                                                                                                                                                    |
+| `terminal`        | `open`、`attach`、`input`、`resize`、`close`                                                                                                                                                                                    |
+| `git`             | `environment`、`snapshot`、`diff`，只读                                                                                                                                                                                         |
+| `interaction`     | `respond`，按根会话或子任务来源回答                                                                                                                                                                                             |
+| `agents`          | `list`、`get`、`stop`                                                                                                                                                                                                           |
+| `goals`           | `get`、`start`、`edit`、`pause`、`resume`、`clear`                                                                                                                                                                              |
+| `schedules`       | `list`、`get`、`create`、`update`、`pause`、`resume`、`delete`、`runNow`、`stopRun`、`runs`、`markRead`、`resetSession`                                                                                                         |
+| `activities`      | `list`、`logs`、`stop`，查看和停止 Agent 启动的项目服务                                                                                                                                                                         |
+| `plans`           | `list`，读取已保存计划                                                                                                                                                                                                          |
+| `events`          | `read`、`subscribe`                                                                                                                                                                                                             |
 
 完整参数与返回类型以 [HostApi](../packages/contracts/src/app-host.ts) 为准。`sessions.history` 使用 `offset/limit`，默认 100 条、最大 500 条，返回 `totalMessages/nextOffset`。`sessions.configure` 可设置模型、思考等级、访问权限、任务模式和 `agentPlugins`；运行中拒绝变更配置。实际改变访问权限或任务模式时，须与模型、思考强度和插件选择分开提交；权限与任务模式可以一起提交。携带未变化的字段不受此限制。权限切换还会检查等待、排队中的子任务和更高权限后台服务，失败保留原权限与模式。
 
 `capabilities().features` 包含 `goals` 时，可以按 `SessionRef` 调用目标接口。`goals.start(ref, { objective, images?, skills?, sourceMessageTimestamp? }, options)` 返回 `{ goal, receipt }`；指定来源时间戳时由 Host 核对当前分支并引用原消息，正文与图片以原生记录为准。已有目标的编辑、暂停、恢复、清除需要 `goalId` 和 `revision`，旧修订会被拒绝。`edit` 只接受新正文且要求执行已停止，保留累计用量和耗时；创建和恢复均以普通模式执行，进入 Plan 会先暂停活跃目标。
 
 目标类型见 [goal.ts](../packages/contracts/src/goal.ts)。`sessions.snapshot` 返回 `goal` 和 `goalsSupported`；`goal_updated`、`goal_cleared` 沿现有事件补读通道发送。提交回执只表示对应提交是否结束，目标是否结束以 `goal.status` 为准。目标持久化、重启恢复和 UI 操作见 [会话与协作](sessions.md#持久目标-goal)。
+
+## 项目与会话管理
+
+连接现有 Host 时，先检查 `capabilities().features` 中的 `project-management` 和 `session-management`。它们分别表示支持项目创建、命名、置顶、预览删除，以及会话命名、置顶、删除；仍使用 HostApi v2。所有写入带 `MutationOptions`，通过 HTTP 调用时幂等键放在请求顶层。`AppProject` 和 `AppSession` 的 `pinned` 返回当前 Host 的置顶状态。
+
+| 操作                                          | 参数与行为                                                                                           |
+| --------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `projects.create(input, options)`             | `input = { cwd, name? }`；将 Host 上已有的绝对目录登记为项目，与 `register` 相同，不创建磁盘目录     |
+| `projects.rename(ref, name, options)`         | 修改项目名称，返回项目                                                                               |
+| `projects.setPinned(ref, pinned, options)`    | 显式传 `true` 置顶、`false` 取消，返回项目                                                           |
+| `projects.deletePreview(ref)`                 | 返回 `{ revision, sessionCount, warnings }`，供调用方展示删除范围                                    |
+| `projects.delete(ref, { revision }, options)` | 删除项目记录及所属会话，保留项目工作目录；预览后会话清单变化时拒绝删除                               |
+| `sessions.create(input, options)`             | `input = { project?, name?, configuration? }`；传 `project` 创建项目内新聊天，传 `{}` 创建独立新聊天 |
+| `sessions.rename(ref, name, options)`         | 修改会话名称，返回会话                                                                               |
+| `sessions.setPinned(ref, pinned, options)`    | 显式设置会话置顶状态，返回会话                                                                       |
+| `sessions.delete(ref, options)`               | 复用会话删除流程，清理关联运行、产物引用、终端及客户端引用                                           |
+
+删除返回 `WorkspaceDeletionResult`；调用方须检查 `errors` 和 `warnings`，部分清理失败不能当作全部完成。重试同一请求使用原幂等键；修复问题后重新发起操作需使用新键，项目删除须重新读取预览修订。项目工作目录里的用户文件不随项目删除。
+
+项目与会话名称为 1～500 字符的单行非空文本，保存时去除首尾空白。临时会话的命名、置顶和删除仍由所属客户端管理，不通过新增管理接口操作。
+
+新聊天创建返回稳定 `SessionRef`，不会切换任何客户端的界面选择，也不会自动发送消息或调用模型。机器人保存该 Ref 后，使用 `sessions.submit` 发送消息、`sessions.receipt` 读取执行结果，或订阅事件。编辑会话配置沿用 `sessions.configure`；正文读取沿用 `messages/message/history`，此轮管理接口不提供任意改写历史消息的操作。
+
+```ts
+const features = (await host.capabilities()).features
+if (!features.includes('project-management') || !features.includes('session-management')) {
+  throw new Error('当前 Host 不支持项目与会话管理，请升级 Host')
+}
+const project = await host.projects.create(
+  { cwd: '/absolute/path/on/host', name: '机器人工作区' },
+  { idempotencyKey: 'bot-project-42' },
+)
+const chat = await host.sessions.create({ project, name: '新的任务' }, { idempotencyKey: 'bot-chat-42' })
+await host.sessions.setPinned(chat, true, { idempotencyKey: 'bot-pin-42' })
+// 独立聊天：host.sessions.create({}, { idempotencyKey: 'bot-standalone-42' })
+```
+
+Agent 通过 `system_read/system_write` 调用同一业务 API，写操作仍要求普通任务与完全权限。工具目录、参数顺序及执行中自删限制见 [Host 内置工具](host-system-tools.md#项目与会话管理)。
 
 ## 会话查看状态
 

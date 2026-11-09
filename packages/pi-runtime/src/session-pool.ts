@@ -114,6 +114,7 @@ function pathWithin(root: string, value: string) {
 }
 
 type RuntimeSession = {
+  retained?: boolean
   key: string
   temporary?: boolean
   temporaryRoot?: string
@@ -443,7 +444,13 @@ export class PiSessionPool implements PiRuntime {
     }
   }
   private recordPath(record: RuntimeSession) {
-    return record.session.getActiveSession().sessionFile ?? record.sessionFile ?? record.key
+    const saved = record.restored || record.messages.length > 0 || (record.totalMessages ?? 0) > 0
+    return saved ? (record.session.getActiveSession().sessionFile ?? record.sessionFile ?? record.key) : record.key
+  }
+  retainSession(sessionKey: string) {
+    const record = this.sessions.get(sessionKey)
+    if (!record) throw new Error('目标会话不存在')
+    record.retained = true
   }
   private assertMutable(records: RuntimeSession[]) {
     if (
@@ -560,7 +567,9 @@ export class PiSessionPool implements PiRuntime {
         records.includes(this.active) && cwd ? await this.workspaceOptions!.createStandaloneDirectory() : undefined
       const result = await removeFiles()
       const deleted = new Set(result.deletedPaths)
-      const removed = records.filter((record) => deleted.has(this.recordPath(record)) || (cwd && !result.errors.length))
+      const removed = records.filter(
+        (record) => deleted.has(this.recordPath(record)) || deleted.has(record.key) || (cwd && !result.errors.length),
+      )
       const deletedKeys = removed.map((record) => record.key)
       const activeRemoved = removed.includes(this.active)
       const previous = this.active
@@ -1091,6 +1100,7 @@ export class PiSessionPool implements PiRuntime {
   }
   private hasContent(record: RuntimeSession) {
     return (
+      record.retained ||
       record.restored ||
       record.firstMessage !== undefined ||
       record.messages.length > 0 ||
@@ -1305,10 +1315,9 @@ export class PiSessionPool implements PiRuntime {
     return [...this.sessions.values()]
       .filter((record) => this.hasContent(record))
       .map((record) => {
-        const active = record.session.getActiveSession()
         return {
           id: record.key,
-          path: active.sessionFile ?? record.sessionFile ?? record.key,
+          path: this.recordPath(record),
           cwd: record.cwd,
           sourceProjectCwd: this.workspaceOptions?.sourceProjectCwd?.(record.cwd),
           workspaceKind: this.workspaceOptions?.kind(record.cwd) ?? 'project',

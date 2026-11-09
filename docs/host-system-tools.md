@@ -21,26 +21,26 @@ Agent 使用 `system_read` 和 `system_write` 操作工作台。先调用 `syste
 
 以运行时 `capabilities` 为准。`args` 是按顺序排列的数组，省略的会话目标默认为当前执行根会话。显式 `SessionRef` 使用 `{hostId, sessionId}`，不能传界面选择或路径冒充会话身份。
 
-| 能力         | 读取                                                                                        | 修改                                                                                              |
-| ------------ | ------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| 终端         | `terminal.list`、`terminal.read`                                                            | `terminal.open`、`terminal.input`、`terminal.resize`、`terminal.close`                            |
-| 定时任务     | `schedules.list`、`get`、`runs`、`schema`                                                   | `create`、`update`、`pause`、`resume`、`delete`、`runNow`、`stopRun`、`markRead`、`resetSession`  |
-| 图像素材     | `images.list`、`images.get`、`images.read`                                                  | `images.import`、`images.rename`、`images.remove`；生成沿用 `image_gen`                           |
-| 草图         | `visualizations.list`、`visualizations.read`                                                | 沿用 `save_visualization` 创建与保存版本                                                          |
-| 上下文窗口   | `contextWindow.list`、`get`、`item`、`reply`、`piece`、`image`                              | 只读；默认摘要，正文和图片显式分页读取                                                            |
-| 文件         | `files.list`、`read`、`preview`、`search`                                                   | `files.write`，需文件修订                                                                         |
-| Git 与计划   | `git.availability`、`git.snapshot`、`git.diff`、`plans.list`                                | Git 现有专用入口保持原权限                                                                        |
-| 后台活动     | `activities.list`、`activities.logs`                                                        | `activities.stop`                                                                                 |
-| 个人资料     | `profile.get`、`profile.avatar`                                                             | `profile.save`，需修订                                                                            |
-| 外观         | `appearance.get`                                                                            | `appearance.save`，需修订，仅发起客户端                                                           |
-| MCP          | `mcp.get`                                                                                   | `mcp.save`、`mcp.delete`，需配置修订                                                              |
-| 指令与资源   | `instructions.get`、`resources.list`、`commands.list`                                       | `instructions.save`，需指令修订                                                                   |
-| 插件默认选择 | `plugins.defaults`                                                                          | `plugins.setDefaults`，仍走插件校验                                                               |
-| 记忆         | `memory.status`、`memory.list`、`memory.search`、`memory.get`                               | `memory.remember`、`memory.update`、`memory.forget`；响应用户明确请求，不提供主开关或全 Host 清空 |
-| 用量与模型   | `usage.get`、`models.list`                                                                  | 模型凭据不通过此目录返回                                                                          |
-| 项目与会话   | `projects.list`、`sessions.list`、`sessions.get`、`sessions.messages`、`sessions.attention` | `sessions.markRead`，确认明确回复版本或交互请求；会话执行继续使用已有会话 API                     |
-| Agent 与目标 | `agents.list`、`goals.get`                                                                  | 沿用已有协作和目标工具                                                                            |
-| Desktop 网页 | `browser.list`、`read`、`screenshot`                                                        | `browser.open`、`navigate`、`click`、`input`、`scroll`、`close`                                   |
+| 能力         | 读取                                                                      | 修改                                                                                                    |
+| ------------ | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| 终端         | `terminal.list`、`terminal.read`                                          | `terminal.open`、`terminal.input`、`terminal.resize`、`terminal.close`                                  |
+| 定时任务     | `schedules.list`、`get`、`runs`、`schema`                                 | `create`、`update`、`pause`、`resume`、`delete`、`runNow`、`stopRun`、`markRead`、`resetSession`        |
+| 图像素材     | `images.list`、`images.get`、`images.read`                                | `images.import`、`images.rename`、`images.remove`；生成沿用 `image_gen`                                 |
+| 草图         | `visualizations.list`、`visualizations.read`                              | 沿用 `save_visualization` 创建与保存版本                                                                |
+| 上下文窗口   | `contextWindow.list`、`get`、`item`、`reply`、`piece`、`image`            | 只读；默认摘要，正文和图片显式分页读取                                                                  |
+| 文件         | `files.list`、`read`、`preview`、`search`                                 | `files.write`，需文件修订                                                                               |
+| Git 与计划   | `git.availability`、`git.snapshot`、`git.diff`、`plans.list`              | Git 现有专用入口保持原权限                                                                              |
+| 后台活动     | `activities.list`、`activities.logs`                                      | `activities.stop`                                                                                       |
+| 个人资料     | `profile.get`、`profile.avatar`                                           | `profile.save`，需修订                                                                                  |
+| 外观         | `appearance.get`                                                          | `appearance.save`，需修订，仅发起客户端                                                                 |
+| MCP          | `mcp.get`                                                                 | `mcp.save`、`mcp.delete`，需配置修订                                                                    |
+| 指令与资源   | `instructions.get`、`resources.list`、`commands.list`                     | `instructions.save`，需指令修订                                                                         |
+| 插件默认选择 | `plugins.defaults`                                                        | `plugins.setDefaults`，仍走插件校验                                                                     |
+| 记忆         | `memory.status`、`memory.list`、`memory.search`、`memory.get`             | `memory.remember`、`memory.update`、`memory.forget`；响应用户明确请求，不提供主开关或全 Host 清空       |
+| 用量与模型   | `usage.get`、`models.list`                                                | 模型凭据不通过此目录返回                                                                                |
+| 项目与会话   | `projects.list/get/deletePreview`、`sessions.list/get/messages/attention` | `projects.create/rename/setPinned/delete`、`sessions.create/rename/configure/setPinned/delete/markRead` |
+| Agent 与目标 | `agents.list`、`goals.get`                                                | 沿用已有协作和目标工具                                                                                  |
+| Desktop 网页 | `browser.list`、`read`、`screenshot`                                      | `browser.open`、`navigate`、`click`、`input`、`scroll`、`close`                                         |
 
 短名称沿用该行前缀，例如定时任务的 `get` 完整名称为 `schedules.get`。
 
@@ -71,6 +71,28 @@ Agent 使用 `system_read` 和 `system_write` 操作工作台。先调用 `syste
 `git.availability([SessionRef?])` 只读查询该会话是否有可查看变更，正式 HostApi 需要 `git-availability` 子能力。返回工作区与当前会话分支的轮次差异两类独立结果，以及有内容的建议打开范围和修订；不包含文件正文或 patch。工作区只运行有超时与输出限制的 status，轮次只比较已保存的前后快照。非 Git 目录仍可有轮次记录；已撤销的轮次保留历史可读性。读取失败和不支持不表示工作区干净。
 
 操作复用显式会话访问校验，不创建 Worker、不切换客户端选择。旧 Host 不支持新摘要时，客户端保留原有 Git 显式查看能力，不将未知的未加载历史判为空。
+
+### 项目与会话管理
+
+新操作复用正式 [HostApi 项目与会话管理](host-api.md#项目与会话管理)，使用稳定 Ref，读取和修改不切换客户端当前选择。写入继续要求普通任务与完全权限，没有新增独立权限开关。
+
+| 操作                     | `args`                                                                  |
+| ------------------------ | ----------------------------------------------------------------------- |
+| `projects.get`           | `[ProjectRef]`                                                          |
+| `projects.create`        | `[{cwd,name?}]`，登记 Host 上已有绝对目录                               |
+| `projects.rename`        | `[ProjectRef,name]`                                                     |
+| `projects.setPinned`     | `[ProjectRef,pinned]`，`pinned` 必须为布尔值                            |
+| `projects.deletePreview` | `[ProjectRef]`，读取会话数量、警告与删除清单修订                        |
+| `projects.delete`        | `[ProjectRef,{revision}]`，使用预览修订删除项目及所属会话，保留工作目录 |
+| `sessions.create`        | `[{project?:ProjectRef,name?,configuration?}]`，`[{}]` 创建独立新聊天   |
+| `sessions.rename`        | `[name,SessionRef?]`                                                    |
+| `sessions.setPinned`     | `[pinned,SessionRef?]`，`pinned` 必须为布尔值                           |
+| `sessions.configure`     | `[{model?,thinkingLevel?,accessMode?,mode?,agentPlugins?},SessionRef]`  |
+| `sessions.delete`        | `[SessionRef]`                                                          |
+
+名称和置顶省略会话目标时使用执行根会话。配置与删除必须显式提供 `SessionRef`，项目操作必须提供 `ProjectRef`；从 `projects.list/sessions.list` 获取目标，不使用客户端选择或路径替代身份。运行中的会话拒绝配置修改，权限或任务模式变化与其他配置分开提交。模型 ID 先从 `models.list` 获取。
+
+Agent 不能删除当前执行根会话或其所属项目，避免工具执行清理掉自身运行。删除其他会话复用持久清理流程；项目清单变化后旧修订会被拒绝。删除返回结果中的 `errors/warnings` 须如实处理，不将部分删除描述为全部成功。新聊天创建仅创建会话，不自动调用模型；机器人后续发消息使用正式 `sessions.submit`。
 
 ### 会话查看
 

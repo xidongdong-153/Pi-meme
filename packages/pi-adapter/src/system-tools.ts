@@ -16,7 +16,7 @@ export function createSystemTools(
           name: write ? 'system_write' : 'system_read',
           label: write ? '操作工作台' : '读取工作台',
           description: write
-            ? '操作 Host 内置工具和发起对话的客户端。先用 system_read 的 capabilities 操作查询参数；完全权限下可管理终端、定时任务、素材、资料、MCP、指令、外观和 Desktop 网页。不能用当前界面选择代替会话目标。'
+            ? '操作 Host 内置工具和发起对话的客户端。先用 system_read 的 capabilities 操作查询参数；完全权限下可创建聊天、管理项目与会话（命名、配置、置顶、删除），以及终端、定时任务、素材、资料、MCP、指令、外观和 Desktop 网页。不能用当前界面选择代替会话目标。'
             : '读取 Host 工作台的真实状态。operation=capabilities、args=[] 列出操作和参数。支持读取终端屏幕与输出、定时任务、素材、资料、用量、MCP、指令、项目、会话和 Desktop 网页。默认绑定当前执行会话。',
           parameters: {
             type: 'object',

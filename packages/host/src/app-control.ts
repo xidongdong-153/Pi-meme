@@ -105,11 +105,27 @@ type Options = {
       observed: import('@pi-meme/contracts/sessions').SessionReadObservation,
     ) => Promise<import('@pi-meme/contracts/sessions').SessionAttention>
   }
+  lifecycle: {
+    renameProject: (cwd: string, name: string) => Promise<unknown>
+    previewProject: (cwd: string) => Promise<{ paths: string[]; warnings: string[] }>
+    deleteProject: (
+      cwd: string,
+      paths: string[],
+    ) => Promise<import('@pi-meme/contracts/desktop').WorkspaceDeletionResult>
+    renameSession: (target: string, name: string) => Promise<unknown>
+    deleteSession: (target: string) => Promise<import('@pi-meme/contracts/desktop').WorkspaceDeletionResult>
+    getPinnedPaths: () => string[]
+    registerPinAliases: (paths: string[]) => void
+    setPinned: (target: string, pinned: boolean, aliases?: string[], mirrors?: string[]) => Promise<unknown>
+    changed: () => void
+  }
   workspace: { files: HostApi['files']; terminal: HostApi['terminal']; terminalSupported: boolean }
   withFileUndo?: (cwd: string, operation: () => Promise<void>) => Promise<void>
   isSessionClosing?: (session: AppSession) => boolean
   onError: (cause: unknown) => void
 }
+type ManagedSession = AppSession & { pinnedRuntimeKey?: string }
+
 type Pending = {
   clientId?: string
   input: SubmissionInput
@@ -134,6 +150,11 @@ export async function createAppControl(options: Options) {
   const paths = options.controlPaths ?? createControlStorePaths(path.join(options.root, 'state/control'))
   const store = new ControlStore(paths, hostId)
   await store.init()
+  for (const session of store.state.sessions) {
+    const pinKey = (session as ManagedSession).pinnedRuntimeKey
+    if (pinKey !== undefined && (typeof pinKey !== 'string' || !pinKey.startsWith('runtime:') || pinKey.length > 128))
+      throw new Error('会话置顶运行标识无效，拒绝覆盖控制存储')
+  }
   const runtime = new Map<string, ClientView>()
   const runtimeBindings = new Map<string, Promise<AppSession>>()
   const rootAgents = new Map<string, string>()
@@ -164,14 +185,66 @@ export async function createAppControl(options: Options) {
   const assertHost = (ref: { hostId: string }) => {
     if (!ref || ref.hostId !== hostId) throw new Error('目标服务身份不匹配')
   }
+  const record = (value: unknown, keys: string[], label: string): Record<string, unknown> => {
+    if (
+      !value ||
+      typeof value !== 'object' ||
+      Array.isArray(value) ||
+      Object.keys(value).some((key) => !keys.includes(key))
+    )
+      throw new Error(`${label}无效或包含未知字段`)
+    return value as Record<string, unknown>
+  }
+  const parseName = (value: unknown): string => {
+    if (
+      typeof value !== 'string' ||
+      !value.trim() ||
+      value.length > 500 ||
+      Array.from(value).some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)
+    )
+      throw new Error('名称必须是 1 到 500 字符的单行文本')
+    return value.trim()
+  }
+  const validateConfiguration = (value: unknown): SessionConfiguration => {
+    const config = record(value, ['agentPlugins', 'model', 'thinkingLevel', 'accessMode', 'mode'], '会话配置')
+    if (config.accessMode !== undefined && !isAgentAccessMode(config.accessMode)) throw new Error('会话权限无效')
+    if (config.mode !== undefined && config.mode !== 'default' && config.mode !== 'plan')
+      throw new Error('会话模式无效')
+    if (config.thinkingLevel !== undefined && !thinkingLevels.includes(config.thinkingLevel as never))
+      throw new Error('思考强度无效')
+    if (
+      config.agentPlugins !== undefined &&
+      (!Array.isArray(config.agentPlugins) || config.agentPlugins.some((id) => typeof id !== 'string' || !id))
+    )
+      throw new Error('插件选择无效')
+    if (config.model !== undefined) {
+      const model = record(config.model, ['provider', 'id', 'name', 'reasoning'], '模型')
+      if (
+        typeof model.provider !== 'string' ||
+        !model.provider ||
+        typeof model.id !== 'string' ||
+        !model.id ||
+        (model.name !== undefined && typeof model.name !== 'string') ||
+        (model.reasoning !== undefined && typeof model.reasoning !== 'boolean')
+      )
+        throw new Error('模型标识无效')
+    }
+    return config as SessionConfiguration
+  }
+  const validateRef = (ref: unknown, kind: 'projectId' | 'sessionId') => {
+    if (!ref || typeof ref !== 'object' || Array.isArray(ref)) throw new Error('目标无效')
+    const value = ref as Record<string, unknown>
+    if (typeof value[kind] !== 'string' || !value[kind]) throw new Error('目标标识无效')
+    assertHost(value as { hostId: string })
+  }
   const getProject = (ref: ProjectRef) => {
-    assertHost(ref)
+    validateRef(ref, 'projectId')
     const project = store.state.projects.find((item) => item.projectId === ref.projectId)
     if (!project) throw new Error('项目不存在')
     return project
   }
   const getSession = (ref: SessionRef, callerClientId?: string) => {
-    assertHost(ref)
+    validateRef(ref, 'sessionId')
     const session = store.state.sessions.find((item) => item.sessionId === ref.sessionId)
     if (!session) throw new Error('会话不存在')
     if (
@@ -226,7 +299,36 @@ export async function createAppControl(options: Options) {
   }
   const sync = async (session: AppSession, view: ClientView, persist = true) => {
     const context = pi.readSessionBinding(view.sessionKey!)
-    const nextFile = context.sessionFile ?? session.sessionFile
+    const nextFile = context.historySaved ? (context.sessionFile ?? session.sessionFile) : session.sessionFile
+    const previousPinKey = (session as ManagedSession).pinnedRuntimeKey
+    options.lifecycle.registerPinAliases([
+      view.sessionKey!,
+      previousPinKey ?? '',
+      nextFile ?? '',
+      `session:${session.sessionId}`,
+    ])
+    const pinPaths = options.lifecycle.getPinnedPaths()
+    const stablePin = `session:${session.sessionId}`
+    const pinTarget = nextFile ?? view.sessionKey!
+    const pinned =
+      pinPaths.includes(stablePin) ||
+      pinPaths.includes(view.sessionKey!) ||
+      Boolean(previousPinKey && pinPaths.includes(previousPinKey))
+    const pinChanged =
+      pinned &&
+      (!pinPaths.includes(pinTarget) ||
+        previousPinKey !== view.sessionKey! ||
+        Boolean(nextFile && pinPaths.includes(view.sessionKey!)))
+    if (pinChanged) {
+      await options.lifecycle.setPinned(
+        pinTarget,
+        true,
+        [view.sessionKey!, ...(previousPinKey ? [previousPinKey] : [])],
+        [stablePin],
+      )
+      Object.assign(session, { pinnedRuntimeKey: view.sessionKey! })
+      options.lifecycle.changed()
+    }
     const nextConfig = {
       ...session.configuration,
       model: context.state.model,
@@ -236,6 +338,7 @@ export async function createAppControl(options: Options) {
     }
     const nextName = context.state.sessionName ?? session.name
     const changed =
+      pinChanged ||
       session.sessionFile !== nextFile ||
       session.name !== nextName ||
       session.configuration.model?.provider !== nextConfig.model?.provider ||
@@ -250,7 +353,7 @@ export async function createAppControl(options: Options) {
   }
   const busy = (key: string) => Boolean(pi.getRuntimeSessions().find((item) => item.id === key)?.running)
   const configure = async (session: AppSession, view: ClientView, config: SessionConfiguration, restore = false) => {
-    if (!config || typeof config !== 'object' || Array.isArray(config)) throw new Error('会话配置无效')
+    validateConfiguration(config)
     if (config.mode !== undefined && config.mode !== 'default' && config.mode !== 'plan')
       throw new Error('会话模式无效')
     if (config.thinkingLevel !== undefined && !thinkingLevels.includes(config.thinkingLevel))
@@ -327,10 +430,16 @@ export async function createAppControl(options: Options) {
             if (selected.cancelled) throw new Error('会话恢复已取消')
           } else pi.initializeClient(session.cwd)
           runtime.set(session.sessionId, view)
+          pi.retainSession(view.sessionKey!)
+          if (!session.sessionFile && session.name)
+            await options.lifecycle.renameSession(view.sessionKey!, session.name)
           await configure(session, view, session.configuration, restore)
         })
         return view
       } catch (cause) {
+        if (!restore && view.sessionKey) {
+          await options.lifecycle.deleteSession(view.sessionKey).catch(options.onError)
+        }
         runtime.delete(session.sessionId)
         pi.releaseClientView(view)
         throw cause
@@ -520,6 +629,10 @@ export async function createAppControl(options: Options) {
           await store.saveSession(session)
         }
       }
+      if (summary.name !== undefined && session.name !== summary.name) {
+        session.name = summary.name
+        await store.saveSession(session)
+      }
       if (!summary.path.startsWith('runtime:') && session.sessionFile !== summary.path) {
         session.sessionFile = summary.path
         await store.saveSession(session)
@@ -569,12 +682,15 @@ export async function createAppControl(options: Options) {
     )
   }
   const publishSession = (session: AppSession) =>
-    store.publish({
-      type: 'session',
-      sessionId: session.sessionId,
-      projectId: session.project?.projectId,
-      value: session,
-    })
+    store.publish(
+      {
+        type: 'session',
+        sessionId: session.sessionId,
+        projectId: session.project?.projectId,
+        value: sessionProjection(session),
+      },
+      session,
+    )
   const dispatchInput = async (session: AppSession, view: ClientView, pending: Pending, run: Active) => {
     const { input, receipt } = pending
     receipt.status = 'running'
@@ -867,11 +983,90 @@ export async function createAppControl(options: Options) {
 
     const session = targetSessionId ? store.state.sessions.find((s) => s.sessionId === targetSessionId) : undefined
     const isEphemeral = Boolean(options?.ephemeral || session?.temporary)
-    return store.mutate(clientId, opts?.idempotencyKey, method, args, action, {
-      ephemeral: isEphemeral,
-      sessionId: targetSessionId,
-    })
+    const lifecycleWrite =
+      method.startsWith('projects.') ||
+      ['sessions.create', 'sessions.rename', 'sessions.setPinned', 'sessions.delete'].includes(method)
+    return store.mutate(
+      clientId,
+      opts?.idempotencyKey,
+      method,
+      args,
+      (operationId) =>
+        lifecycleWrite ? serial('workspace-management', () => action(operationId)) : action(operationId),
+      {
+        ephemeral: isEphemeral,
+        sessionId: targetSessionId,
+      },
+    )
   }
+  const projectProjection = (project: AppProject): AppProject => ({
+    ...structuredClone(project),
+    pinned: options.lifecycle.getPinnedPaths().includes(project.cwd),
+  })
+  function sessionProjection(session: AppSession): AppSession {
+    const paths = options.lifecycle.getPinnedPaths()
+    const key = runtime.get(session.sessionId)?.sessionKey
+    options.lifecycle.registerPinAliases([
+      key ?? '',
+      (session as ManagedSession).pinnedRuntimeKey ?? '',
+      session.sessionFile ?? '',
+      `session:${session.sessionId}`,
+    ])
+    const projected: ManagedSession = structuredClone(session)
+    delete projected.pinnedRuntimeKey
+    return {
+      ...projected,
+      pinned: Boolean(
+        paths.includes(`session:${session.sessionId}`) ||
+        (session.sessionFile && paths.includes(session.sessionFile)) ||
+        (key && paths.includes(key)),
+      ),
+    }
+  }
+  const assertManagedSession = (session: AppSession) => {
+    if (session.temporary) throw new Error('临时会话由所属客户端管理，不支持此操作')
+  }
+  const publishProject = async (project: AppProject, reason: string) => {
+    await store.publish({ type: 'resync', projectId: project.projectId, value: { reason: `project-${reason}` } })
+    options.lifecycle.changed()
+  }
+  const previewProject = async (project: AppProject) => {
+    for (const session of [...store.state.sessions]) {
+      if (
+        !session.temporary &&
+        session.project?.projectId === project.projectId &&
+        !session.sessionFile &&
+        !runtime.has(session.sessionId)
+      )
+        await resolveSession(session)
+    }
+    return options.lifecycle.previewProject(project.cwd)
+  }
+  const deletionRevision = (project: AppProject, paths: string[]) =>
+    createHash('sha256')
+      .update(JSON.stringify([project.projectId, [...new Set(paths)].sort()]))
+      .digest('hex')
+  const registerProject = (
+    clientId: string,
+    method: string,
+    input: { cwd: string; name?: string },
+    opts: MutationOptions,
+  ) =>
+    mutate(clientId, method, [input], opts, async () => {
+      record(input, ['cwd', 'name'], '项目参数')
+      if (typeof input.cwd !== 'string' || !path.isAbsolute(input.cwd) || input.cwd.includes('\0'))
+        throw new Error('项目目录必须是有效绝对路径')
+      const name = input.name === undefined ? undefined : parseName(input.name)
+      const cwd = await projects.validateDirectory(input.cwd)
+      pi.assertWorkspaceAvailable(cwd)
+      const registered = await projects.register(cwd)
+      if (name) await options.lifecycle.renameProject(registered.cwd, name)
+      const project = (await projectFor(registered.cwd))!
+      project.name = name ?? registered.name
+      await store.saveProject(project)
+      await publishProject(project, 'updated')
+      return projectProjection(project)
+    })
   const requireSchedules = () => {
     if (!options.schedules) throw new Error('当前服务不支持定时任务')
     return options.schedules
@@ -953,7 +1148,9 @@ export async function createAppControl(options: Options) {
         ...(options.memory ? ['memory' as const] : []),
         ...(options.schedules ? ['schedules' as const] : []),
         'projects',
+        'project-management',
         'sessions',
+        'session-management',
         'session-attention',
         'messages',
         'files',
@@ -996,59 +1193,170 @@ export async function createAppControl(options: Options) {
     projects: {
       list: async () => {
         await refresh()
-        return structuredClone(store.state.projects)
+        return store.state.projects.map(projectProjection)
       },
       get: async (ref) => {
         await refresh()
-        return structuredClone(getProject(ref))
+        return projectProjection(getProject(ref))
       },
-      register: (input, opts) =>
-        mutate(clientId, 'projects.register', [input], opts, async () => {
-          const registered = await projects.register(input.cwd)
-          if (input.name) await projects.renameProject(registered.cwd, input.name)
-          const project = (await projectFor(registered.cwd))!
-          if (input.name && project.name !== input.name) {
-            project.name = input.name
-            await store.saveProject(project)
-          }
-          return project
+      register: (input, opts) => registerProject(clientId, 'projects.register', input, opts),
+      create: (input, opts) => registerProject(clientId, 'projects.create', input, opts),
+      rename: (ref, name, opts) =>
+        mutate(clientId, 'projects.rename', [ref, name], opts, async () => {
+          const project = getProject(ref)
+          const next = parseName(name)
+          await options.lifecycle.renameProject(project.cwd, next)
+          project.name = next
+          await store.saveProject(project)
+          await publishProject(project, 'updated')
+          return projectProjection(project)
+        }),
+      setPinned: (ref, pinned, opts) =>
+        mutate(clientId, 'projects.setPinned', [ref, pinned], opts, async () => {
+          const project = getProject(ref)
+          if (typeof pinned !== 'boolean') throw new Error('置顶值必须是布尔值')
+          await options.lifecycle.setPinned(project.cwd, pinned)
+          await publishProject(project, 'updated')
+          return projectProjection(project)
+        }),
+      deletePreview: async (ref) => {
+        const project = getProject(ref)
+        const preview = await previewProject(project)
+        return {
+          revision: deletionRevision(project, preview.paths),
+          sessionCount: preview.paths.length,
+          warnings: preview.warnings,
+        }
+      },
+      delete: (ref, input, opts) =>
+        mutate(clientId, 'projects.delete', [ref, input], opts, async () => {
+          record(input, ['revision'], '删除修订')
+          if (typeof input.revision !== 'string' || !input.revision) throw new Error('删除需要预览修订')
+          const project = getProject(ref)
+          const preview = await previewProject(project)
+          if (deletionRevision(project, preview.paths) !== input.revision)
+            throw new Error('项目会话清单已变化，请重新预览删除')
+          const result = await options.lifecycle.deleteProject(project.cwd, preview.paths)
+          if (!result.errors.length) {
+            await store.deleteProject(project.projectId)
+            await publishProject(project, 'deleted')
+          } else options.lifecycle.changed()
+          return result
         }),
     },
     sessions: {
       create: (input, opts) =>
         mutate(clientId, 'sessions.create', [input], opts, async () => {
-          const cwd = input.project ? getProject(input.project).cwd : await projects.createStandaloneDirectory()
+          record(input, ['project', 'configuration', 'name'], '新会话参数')
+          const name = input.name === undefined ? undefined : parseName(input.name)
+          const config = input.configuration === undefined ? {} : validateConfiguration(input.configuration)
+          const defaultPlugins = await options.defaultAgentPlugins.getDefaultAgentPlugins()
+          options.validateAgentPlugins(config.agentPlugins ?? defaultPlugins, false)
+          if (
+            config.model &&
+            options.models &&
+            !(await options.models.list()).some(
+              (model) => model.provider === config.model!.provider && model.id === config.model!.id,
+            )
+          )
+            throw new Error('模型已不可用，请重新选择模型')
+          if (input.project !== undefined) getProject(input.project)
+          const cwd =
+            input.project !== undefined ? getProject(input.project).cwd : await projects.createStandaloneDirectory()
+          pi.assertWorkspaceAvailable(cwd)
           const session: AppSession = {
             hostId,
             sessionId: randomUUID(),
-            project: input.project,
+            project: input.project && { hostId, projectId: input.project.projectId },
             cwd,
             createdAt: new Date().toISOString(),
-            name: input.name,
-            configuration: {
-              agentPlugins: await options.defaultAgentPlugins.getDefaultAgentPlugins(),
-              ...input.configuration,
-            },
+            name,
+            configuration: { agentPlugins: defaultPlugins, ...config },
             status: 'idle',
           }
           await store.saveSession(session)
-          await resolveSession(session, false)
-          await publishSession(session)
-          return session
+          try {
+            const view = await resolveSession(session, false)
+            if (name) await options.lifecycle.renameSession(view.sessionKey!, name)
+            await sync(session, view)
+            await publishSession(session)
+            options.lifecycle.changed()
+            return sessionProjection(session)
+          } catch (cause) {
+            const view = runtime.get(session.sessionId)
+            if (view) {
+              await options.lifecycle.deleteSession(view.sessionKey!)
+              runtime.delete(session.sessionId)
+              pi.releaseClientView(view)
+            }
+            await store.deleteSession(session.sessionId)
+            throw cause
+          }
         }),
       list: async (input = {}) => {
+        record(input, ['project'], '会话筛选')
         if (input?.project) getProject(input.project)
         await refresh()
         return structuredClone(
-          store.state.sessions.filter(
-            (item) => !item.temporary && (!input?.project || item.project?.projectId === input.project.projectId),
-          ),
+          store.state.sessions
+            .filter(
+              (item) => !item.temporary && (!input?.project || item.project?.projectId === input.project.projectId),
+            )
+            .map(sessionProjection),
         )
       },
       get: async (ref) => {
         await refresh()
-        return structuredClone(getSession(ref, clientId))
+        return sessionProjection(getSession(ref, clientId))
       },
+      rename: (ref, name, opts) =>
+        mutate(clientId, 'sessions.rename', [ref, name], opts, async () => {
+          const session = getSession(ref, clientId)
+          assertManagedSession(session)
+          const next = parseName(name)
+          const view = await resolveSession(session)
+          const binding = pi.readSessionBinding(view.sessionKey!)
+          const targetPath = binding.historySaved && binding.sessionFile ? binding.sessionFile : view.sessionKey!
+          await options.lifecycle.renameSession(targetPath, next)
+          session.name = next
+          await store.saveSession(session)
+          await publishSession(session)
+          options.lifecycle.changed()
+          return sessionProjection(session)
+        }),
+      setPinned: (ref, pinned, opts) =>
+        mutate(clientId, 'sessions.setPinned', [ref, pinned], opts, async () => {
+          const session = getSession(ref, clientId)
+          assertManagedSession(session)
+          if (typeof pinned !== 'boolean') throw new Error('置顶值必须是布尔值')
+          const view = await resolveSession(session)
+          const key = view.sessionKey!
+          const targetPath = session.sessionFile ?? key
+          const previousPinKey = (session as ManagedSession).pinnedRuntimeKey
+          await options.lifecycle.setPinned(
+            targetPath,
+            pinned,
+            [key, ...(previousPinKey ? [previousPinKey] : [])],
+            [`session:${session.sessionId}`],
+          )
+          if (pinned) (session as ManagedSession).pinnedRuntimeKey = key
+          else delete (session as ManagedSession).pinnedRuntimeKey
+          await store.saveSession(session)
+          await publishSession(session)
+          options.lifecycle.changed()
+          return sessionProjection(session)
+        }),
+      delete: (ref, opts) =>
+        mutate(clientId, 'sessions.delete', [ref], opts, async () => {
+          const session = getSession(ref, clientId)
+          assertManagedSession(session)
+          const view = await resolveSession(session)
+          const binding = pi.readSessionBinding(view.sessionKey!)
+          const targetPath = binding.historySaved && binding.sessionFile ? binding.sessionFile : view.sessionKey!
+          const result = await options.lifecycle.deleteSession(targetPath)
+          options.lifecycle.changed()
+          return result
+        }),
       attention: (ref) => options.sessionAttention.get(getSession(ref, clientId)),
       markRead: (ref, observed, opts) =>
         mutate(clientId, 'sessions.markRead', [ref, observed], opts, () =>
@@ -1166,7 +1474,8 @@ export async function createAppControl(options: Options) {
           target(
             ref,
             (key, session, view) =>
-              serial(session.sessionId, () => {
+              serial(session.sessionId, async () => {
+                validateConfiguration(config)
                 const current = pi.readSessionBinding(key)
                 const policyChanged =
                   (config?.accessMode !== undefined && config.accessMode !== current.accessMode) ||
@@ -1179,7 +1488,10 @@ export async function createAppControl(options: Options) {
                   (config?.agentPlugins !== undefined &&
                     JSON.stringify(config.agentPlugins) !== JSON.stringify(session.configuration.agentPlugins ?? []))
                 if (policyChanged && otherChanged) throw new Error('权限或任务模式请与模型、思考强度和插件选择分开保存')
-                return configure(session, view, config)
+                await configure(session, view, config)
+                await publishSession(session)
+                options.lifecycle.changed()
+                return sessionProjection(session)
               }),
             clientId,
           ),
@@ -1686,7 +1998,14 @@ export async function createAppControl(options: Options) {
     'files.write',
     'plugins.setDefaultAgentPlugins',
     'projects.register',
+    'projects.create',
+    'projects.rename',
+    'projects.setPinned',
+    'projects.delete',
     'sessions.create',
+    'sessions.rename',
+    'sessions.setPinned',
+    'sessions.delete',
     'sessions.markRead',
     'sessions.configure',
     'sessions.submit',
@@ -2072,6 +2391,22 @@ export async function createAppControl(options: Options) {
     publishLive: store.publishLive.bind(store),
     subscribe: store.subscribe.bind(store),
     store,
+    async restoreManagedDrafts() {
+      for (const session of [...store.state.sessions]) {
+        if (session.temporary || session.sessionFile || runtime.has(session.sessionId)) continue
+        try {
+          await resolveSession(session)
+        } catch (cause) {
+          options.onError(new Error(`无法恢复新聊天 ${session.sessionId}：${String(cause)}`))
+        }
+      }
+    },
+    async forgetProject(cwd: string) {
+      const project = store.state.projects.find((item) => item.cwd === cwd)
+      if (!project) return
+      await store.deleteProject(project.projectId)
+      await publishProject(project, 'deleted')
+    },
     async lookupSessionIds(paths: string[], keys: string[]): Promise<Record<string, string>> {
       const result: Record<string, string> = {}
       for (const session of store.state.sessions) {
@@ -2140,6 +2475,9 @@ export async function createAppControl(options: Options) {
           active.delete(session.sessionId)
         }
         // 3. 从 store 逻辑删除 session，追加 session_delete 日志并移出 sessions
+        await options.lifecycle.setPinned(`session:${session.sessionId}`, false, [
+          (session as ManagedSession).pinnedRuntimeKey ?? '',
+        ])
         await store.deleteSession(session.sessionId)
         // 4. 释放 runtime view
         const view = runtime.get(session.sessionId)
